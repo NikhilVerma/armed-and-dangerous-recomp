@@ -6,6 +6,7 @@
 #include <windows.h>
 #include <dinput.h>
 
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
@@ -63,11 +64,32 @@ void ConsumeFrame()
             Log("test: released scripted key 0x%02x", g_keys[i].dik);
 }
 
+FILE* g_record;  // [test] record_input=1: key changes to and-input.log
+BYTE g_lastState[256];
+
+void RecordKeyChanges(const BYTE* state)
+{
+    if (!g_record)
+        return;
+    unsigned t = static_cast<unsigned>(GetTickCount64() - g_start);
+    for (int k = 0; k < 256; k++)
+    {
+        BYTE down = state[k] & 0x80;
+        if (down != g_lastState[k])
+        {
+            fprintf(g_record, "%u %u %s\n", t, k, down ? "down" : "up");
+            g_lastState[k] = down;
+        }
+    }
+    fflush(g_record);
+}
+
 HRESULT STDMETHODCALLTYPE Hook_GetDeviceState(IDirectInputDevice8A* dev, DWORD size, LPVOID data)
 {
     HRESULT hr = g_realGetDeviceState(dev, size, data);
     if (dev == g_keyboard && size >= 256 && SUCCEEDED(hr))
     {
+        RecordKeyChanges(static_cast<const BYTE*>(data));
         if (!g_loggedState)
             Log("input: game polls the keyboard with GetDeviceState"), g_loggedState = true;
         BYTE down[32];
@@ -148,12 +170,17 @@ void InputHooksInit()
     }
     if (g_keyCount)
         Log("test: %d scripted key presses", g_keyCount);
+    if (GetPrivateProfileIntA("test", "record_input", 0, ini))
+    {
+        g_record = fopen("and-input.log", "w");
+        Log("test: recording keyboard to and-input.log");
+    }
 }
 
 // Called by the dinput8 proxy with the real IDirectInput8 the game receives.
 void InputHooksOnDirectInput(void* directInput)
 {
-    if (!g_keyCount || g_realCreateDevice)
+    if ((!g_keyCount && !g_record) || g_realCreateDevice)
         return;
     void** vt = *reinterpret_cast<void***>(directInput);
     HookAt(vt[3], reinterpret_cast<void*>(Hook_CreateDevice), reinterpret_cast<void**>(&g_realCreateDevice),

@@ -51,6 +51,54 @@ def is_self_clear(i):
     return i.mnemonic in ("xor", "sub") and len(ops) == 2 and ops[0] == ops[1]
 
 
+_clobber_cache = {}
+
+
+def clobbers(func, depth=3):
+    """Registers a function may leave changed: written anywhere on any path and not restored by a matching
+    push/pop save. Callees are included up to `depth`; indirect calls count as eax/ecx/edx."""
+    if func in _clobber_cache:
+        return _clobber_cache[func]
+    _clobber_cache[func] = {"eax", "ecx", "edx"}  # recursion guard: conservative
+    written, saved = set(), set()
+    work, seen, steps = [func], set(), 0
+    while work and steps < 20000:
+        addr = work.pop()
+        while addr not in seen and steps < 20000:
+            seen.add(addr)
+            steps += 1
+            try:
+                i = insn_at(addr)
+            except StopIteration:
+                break
+            if i.mnemonic == "push" and i.operands[0].type == x86.X86_OP_REG:
+                r = family(i.reg_name(i.operands[0].reg))
+                if r and r not in written:
+                    saved.add(r)
+            else:
+                _, wr = i.regs_access()
+                written |= {family(i.reg_name(x)) for x in wr} - {None}
+            if i.mnemonic == "call":
+                op = i.operands[0]
+                written |= (clobbers(op.imm, depth - 1) if op.type == x86.X86_OP_IMM and depth > 0
+                            else {"eax", "ecx", "edx"})
+            if i.mnemonic == "ret":
+                break
+            if i.mnemonic == "jmp":
+                op = i.operands[0]
+                if op.type == x86.X86_OP_IMM:
+                    addr = op.imm
+                    continue
+                written |= {"eax", "ecx", "edx"}
+                break
+            if i.group(capstone.CS_GRP_JUMP):
+                work.append(i.operands[0].imm)
+            addr = i.address + i.size
+    result = (written - saved) & FULL_WRITE
+    _clobber_cache[func] = result
+    return result
+
+
 def inputs(func, depth):
     """Map register -> description of first read-before-write, over all paths."""
     key = (func, depth)
@@ -88,8 +136,12 @@ def inputs(func, depth):
                     for r, where in inputs(op.imm, depth - 1).items():
                         if r not in written:
                             found.setdefault(r, f"{i.address:08x}: call 0x{op.imm:08x} -> {where}")
-                # after a call, eax/ecx/edx hold callee results or garbage: treat as written
-                written = written | {"eax", "ecx", "edx"}
+                # A direct callee overwrites only what it writes (link-time code generation lets callers rely
+                # on that: 0x0040f8c0 reads EDX across a call to 0x0044e600). Unknown callees: eax/ecx/edx.
+                if op.type == x86.X86_OP_IMM:
+                    written = written | clobbers(op.imm)
+                else:
+                    written = written | {"eax", "ecx", "edx"}
             # partial writes (al, cl) do not define the whole register
             full = {r for r in wr if any(i.reg_name(x) in (r,) for x in writes)}
             if i.mnemonic == "pop":
