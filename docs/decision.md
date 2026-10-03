@@ -2,6 +2,13 @@
 
 Every target or approach decision, with the evidence and numbers that triggered it. Newest first.
 
+## 2026-10-03: remote repository
+
+- The human asked to push to GitHub: private repository `NikhilVerma/armed-and-dangerous-recomp`
+  (remote `origin`). Agents push after each verified (compare: PASS) batch so work is not lost.
+- Visibility stays private; making it public is the human's decision (legal risk, see handover s15).
+- Never push anything from `orig/`, `work/` or `ref/` (the pre-commit guard enforces this).
+
 ## 2026-10-03: human's goals and order of work (overrides handover s1 "recover first, improve later")
 
 The human set the project goals, in order:
