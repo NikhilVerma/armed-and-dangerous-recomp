@@ -40,6 +40,7 @@ add_library(and_hook SHARED
   src/testscenario.cpp
   enhance/display.cpp
   enhance/startup.cpp
+  enhance/render.cpp
   dinput8.def)
 
 target_include_directories(and_hook PRIVATE src enhance ../src ${minhook_SOURCE_DIR}/include)

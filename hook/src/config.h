@@ -5,6 +5,7 @@
 //
 // [hooks]      one key per replaced original function, by name: 1 = replace, 0 = original, 2 = differential
 // [display]    enhancement switches (hook/enhance/display.cpp)
+// [render]     rendering enhancements (hook/enhance/render.cpp): wireframe
 
 int ConfigInt(const char* section, const char* key, int fallback);
 float ConfigFloat(const char* section, const char* key, float fallback);

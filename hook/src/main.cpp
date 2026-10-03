@@ -9,6 +9,7 @@
 
 void CrashInstall();
 void StartupInit();
+void RenderInit();
 void TestShotInit();
 void InputHooksInit();
 void TestHashInit();
@@ -48,6 +49,7 @@ static void Startup()
     TestClockInit();  // before anything reads the time
     DisplayInit();    // enhancements register their wrappers before hooks are installed
     StartupInit();
+    RenderInit();
     HooksInstallAll();
     D3D9HooksInstall();
 }
