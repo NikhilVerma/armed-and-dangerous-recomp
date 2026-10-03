@@ -11,6 +11,7 @@ Usage (from the repo root, with the venv active):
   python tools/gh.py xrefs 0x5a1234         # references to an address
   python tools/gh.py strrefs "filesys"      # functions referencing strings that contain a substring
   python tools/gh.py rename 0x401000 Name   # set a function name (writer only)
+  python tools/gh.py define list.json       # create functions at addresses only data refers to (writer only)
 
 GHIDRA_INSTALL_DIR must point at the Ghidra install (see docs/environment.md).
 """
@@ -80,6 +81,8 @@ def main():
     p = sub.add_parser("rename")
     p.add_argument("address")
     p.add_argument("name")
+    p = sub.add_parser("define")
+    p.add_argument("file", help="JSON list of addresses (writer only)")
     args = ap.parse_args()
 
     with open_program(analyze=(args.cmd == "import")) as flat:
@@ -151,6 +154,28 @@ def main():
                 if len(hits) >= 50:
                     break
             out(hits)
+
+        elif args.cmd == "define":
+            # Functions reached only through data (vtables, callbacks) that auto-analysis left undefined.
+            from ghidra.app.cmd.disassemble import DisassembleCommand
+            from ghidra.app.cmd.function import CreateFunctionCmd
+            wanted = json.load(open(args.file))
+            made, skipped = [], []
+            tx = program.startTransaction("define functions")
+            try:
+                for s in wanted:
+                    a = addr(program, s)
+                    if fm.getFunctionAt(a) or fm.getFunctionContaining(a):
+                        skipped.append(s)
+                        continue
+                    DisassembleCommand(a, None, True).applyTo(program, monitor)
+                    if CreateFunctionCmd(a).applyTo(program, monitor):
+                        made.append(s)
+                    else:
+                        skipped.append(s)
+            finally:
+                program.endTransaction(tx, True)
+            out({"defined": len(made), "skipped": len(skipped), "skipped_sample": skipped[:20]})
 
         elif args.cmd == "rename":
             from ghidra.program.model.symbol import SourceType

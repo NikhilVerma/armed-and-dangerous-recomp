@@ -164,7 +164,12 @@ def stack_arg_count(func, explain=False):
                         why = f"{i.address:08x}: {i.mnemonic} {i.op_str} (depth {depth})"
             m, ops = i.mnemonic, i.op_str
             if m == "push":
-                pending += 1
+                op0 = i.operands[0]
+                save = (op0.type == x86.X86_OP_REG and family(i.reg_name(op0.reg)) in CALLEE_SAVED
+                        and pops_register(func, family(i.reg_name(op0.reg))) and depth is not None
+                        and depth < 0x40 and not pending)
+                if not save:
+                    pending += 1  # register saves at the top are not arguments of the next call
                 if depth is not None:
                     depth += 4
             elif m == "pop":
@@ -334,6 +339,8 @@ def inputs(func, depth):
                 rd = set()  # saving a callee-saved register is not a use (unless it is never restored)
             if is_self_clear(i):
                 rd = set()
+                if i.mnemonic in ("mov", "lea"):
+                    wr = set()  # padding no-op: the register keeps the caller's value (0x00501510 `mov edi, edi`)
             for r in rd - set(written):
                 found.setdefault(r, f"{i.address:08x}: {i.mnemonic} {i.op_str}")
             if i.mnemonic == "call":

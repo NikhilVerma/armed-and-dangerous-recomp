@@ -40,25 +40,28 @@ SCENARIOS = {
     "menu": {"level": "", "keys": "", "frames": 900},
     # boot, then the harness requests lev_1_m1 once the front end has loaded
     "level": {"level": "lev_1_m1", "keys": "", "frames": 900},
+    # the level, with the device reported lost at frame 600: the game releases and recreates its resources
+    "reset": {"level": "lev_1_m1", "keys": "", "frames": 900, "test": {"device_lost_frame": 600}},
 }
 
 
 DUMP = ""  # "frame" or "first:every:count": also save those frames as and-frame-*.bmp
 
 
-def write_ini(hooks_on, level, frames, keys=""):
+def write_ini(hooks_on, level, frames, keys="", test=None):
     lines = ["[hooks]"]
     lines += [f"{name}={1 if on else 0}" for name, on in hooks_on.items()]
     lines += ["", "[startup]", "skip_intro=0", "skip_legal=0", "load=",
               "", "[display]", "windowed=1", "width=0", "height=0", "all_modes=0", "vsync=-1", "fps_limit=0",
               "", "[test]", "clock_step_ms=16.6667", "d3d_trace=1", f"scenario_load={level}", f"exit_frame={frames}",
               "shots=", "keys=", f"keys_frames={keys}", f"hash_frames={(DUMP + ':1:1') if DUMP and ':' not in DUMP else DUMP}", f"dump_hashed={1 if DUMP else 0}", "record_input=0", "fixed_dt_ms=0", "no_movies=1"]
+    lines += [f"{k}={v}" for k, v in (test or {}).items()]
     with open(os.path.join(GAME_DIR, "and.ini"), "w") as f:
         f.write("\n".join(lines) + "\n")
 
 
-def run_once(label, hooks_on, level, frames, timeout, keys=""):
-    write_ini(hooks_on, level, frames, keys)
+def run_once(label, hooks_on, level, frames, timeout, keys="", test=None):
+    write_ini(hooks_on, level, frames, keys, test)
     for name in ("and-d3d.txt", os.path.join("SavedGames", "options.opt")):
         p = os.path.join(GAME_DIR, name)
         if os.path.exists(p):
@@ -132,7 +135,7 @@ def main():
                 variants = saved["variants"]
 
         def record_baseline():
-            base, crashed = run_once("baseline", baseline, sc["level"], sc["frames"], a.timeout, sc["keys"])
+            base, crashed = run_once("baseline", baseline, sc["level"], sc["frames"], a.timeout, sc["keys"], sc.get("test"))
             if crashed or len(base) < sc["frames"] - 5:
                 return False
             if base not in variants:
@@ -145,7 +148,7 @@ def main():
             return 2
         if variants:
             print(f"  baseline: {len(variants)} known variant(s)")
-        cand, crashed = run_once("candidate", candidate, sc["level"], sc["frames"], a.timeout, sc["keys"])
+        cand, crashed = run_once("candidate", candidate, sc["level"], sc["frames"], a.timeout, sc["keys"], sc.get("test"))
 
         def first_divergence(base):
             n = min(len(base), len(cand))

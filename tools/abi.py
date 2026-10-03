@@ -97,12 +97,51 @@ def after_call(addr):
     return bool(reads["eax"]), bool(reads["edx"]), st0, add_esp
 
 
-def ret_pop(a, size):
-    # Ghidra sometimes ends a body just before a shared final `ret`: look a little past the end.
-    for i in reginputs.MD.disasm(reginputs.IMG[a - reginputs.BASE:a - reginputs.BASE + size + 16], a):
+def ret_pop(a, size, depth=3):
+    """Bytes the function pops on return. Follows its own control flow; a function without a `ret` that
+    ends in a jump to another function (tail call) returns through that function's `ret`. "noreturn" when no
+    path returns (fatal errors), None when unknown."""
+    body = reginputs.function_body(a)
+    for i in body:
         if i.mnemonic == "ret":
             return int(i.op_str, 16) if i.op_str else 0
+    if depth > 0:
+        for i in body:
+            if i.mnemonic == "jmp" and i.operands[0].type == reginputs.x86.X86_OP_IMM:
+                t = i.operands[0].imm
+                if not a <= t < a + max(size, 1):
+                    pop = ret_pop(t, 0, depth - 1)
+                    if pop is not None:
+                        return pop
+    if not any(i.mnemonic == "jmp" and i.operands[0].type != reginputs.x86.X86_OP_IMM for i in body):
+        return "noreturn"
     return None
+
+
+X87_LOADS = ("fld", "fild", "fldz", "fld1", "fldpi", "fldl2e", "fldl2t", "fldlg2", "fldln2")
+
+
+def leaves_st0(a):
+    """Callee-side evidence for a float return: on some path the last x87 instructions before a `ret` load a
+    value (fld/fild, or arithmetic on it) without storing it back with a popping store. Call-site votes alone
+    mistake callers that start x87 work right after the call for float returns (0x00403690)."""
+    body = reginputs.function_body(a)
+    for k, i in enumerate(body):
+        if i.mnemonic != "ret":
+            continue
+        for j in range(k - 1, max(k - 8, -1), -1):
+            m = body[j].mnemonic
+            if body[j].address >= i.address or m in ("ret", "jmp", "call"):
+                break
+            if not m.startswith("f"):
+                continue
+            if m.endswith("p") or m in ("fistp", "fstp", "fcompp", "fucompp"):
+                break  # the last x87 instruction pops: nothing left in st0
+            if m in X87_LOADS or m in ("fmul", "fadd", "fsub", "fdiv", "fsubr", "fdivr", "fchs", "fabs", "fsqrt",
+                                      "fsin", "fcos", "fxch"):
+                return True
+            break
+    return False
 
 
 def runtime_confirmation(trace):
@@ -133,27 +172,30 @@ def analyse(funcs, sites, confirm):
             ret.append("eax")
         if "edx" in clob and any(u[1] for u in uses):
             ret.append("edx")
-        if uses and sum(u[2] for u in uses) * 2 >= len(uses):
+        # Virtual methods have no direct call sites to vote: the callee's own code decides.
+        if (not uses or sum(u[2] for u in uses) * 2 >= len(uses)) and leaves_st0(a):
             ret = ["st0"]
         if not ret:
             ret = ["none"]
-        if pop:
+        if pop and pop != "noreturn":
             cleanup, nargs = "callee", pop // 4
         else:
             adds = collections.Counter(u[3] for u in uses if u[3])
             cleanup, nargs = "caller", (adds.most_common(1)[0][0] // 4 if adds else 0)
+            # Callers that merge the cleanup of several calls into one `add esp` hide arguments; the callee's own
+            # stack reads (tracked depth) give a lower bound (zlib 0x00501e00 reads 3 that no `add esp` shows).
+            nargs = max(nargs, min(reginputs.stack_arg_count(a), 16))
         notes = []
-        if "ebp" in inputs:
-            notes.append("unsupported: ebp input")
         if pop is None:
-            notes.append("no ret found (tail jump or noreturn)")
+            notes.append("no ret found (unknown return)")
+        info = "noreturn" if pop == "noreturn" else ""
         conf = confirm.get(a)
         unconfirmed = [r for r in inputs if conf is not None and r not in conf]
         rows[a] = {"address": f"0x{a:08x}", "inputs": " ".join(inputs), "stack_args": nargs, "cleanup": cleanup,
                    "returns": " ".join(ret), "clobbers": " ".join(clob), "call_sites": len(sites.get(a, [])),
                    "runtime": "" if conf is None else ("confirmed" if not unconfirmed else
                                                        "unconfirmed: " + " ".join(unconfirmed)),
-                   "notes": "; ".join(notes)}
+                   "notes": "; ".join(notes) or info}
     return rows
 
 
@@ -162,7 +204,7 @@ def analyse(funcs, sites, confirm):
 def wrapper(row):
     a = int(row["address"], 16)
     inputs = row["inputs"].split()
-    if "ebp" in inputs or "no ret" in row["notes"]:
+    if "no ret" in row["notes"]:
         return None
     n = int(row["stack_args"])
     params = [f"uint32_t {r}_" for r in inputs] + [f"uint32_t a{k}" for k in range(n)]
@@ -180,7 +222,7 @@ def wrapper(row):
     asm = ["push ebx", "push esi", "push edi", "push ebp"]
     for k in reversed(range(n)):
         asm.append(f"push a{k}")
-    # load register inputs; ebp is never an input here, and locals are addressed through ebp until we pop it
+    # load register inputs; the operands are addressed through ebp, so an ebp input is loaded last (ORDER)
     for r in inputs:
         asm.append(f"mov {r}, {r}_")
     asm.append("call dword ptr [target]")
@@ -209,7 +251,7 @@ def entry_stub(row):
     """Macro defining a naked stub `stub` that adapts the original ABI to `uint32_t impl(regs..., args...)`."""
     a = int(row["address"], 16)
     inputs = row["inputs"].split()
-    if "ebp" in inputs or "no ret" in row["notes"]:
+    if "no ret" in row["notes"]:
         return None
     n = int(row["stack_args"])
     returns = row["returns"].split()
@@ -281,7 +323,8 @@ def main():
         stats["with register inputs"] += bool(r["inputs"])
         stats["returns st0"] += r["returns"] == "st0"
         stats["returns edx"] += "edx" in r["returns"]
-        stats["unsupported"] += bool(r["notes"])
+        stats["unsupported"] += r["notes"].startswith("no ret")
+        stats["noreturn"] += r["notes"] == "noreturn"
         stats["runtime confirmed"] += r["runtime"] == "confirmed"
         stats["runtime unconfirmed"] += r["runtime"].startswith("unconfirmed")
     print(dict(stats))

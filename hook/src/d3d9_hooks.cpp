@@ -4,6 +4,7 @@
 #include <windows.h>
 #include <d3d9.h>
 
+#include "config.h"
 #include "display.h"
 #include "hooks.h"
 #include "log.h"
@@ -17,18 +18,36 @@ void InputOnFrame();
 
 // vtable slots from d3d9.h declaration order
 static constexpr int kD3D9_CreateDevice = 16;
+static constexpr int kDevice_TestCooperativeLevel = 3;
 static constexpr int kDevice_Reset = 16;
 static constexpr int kDevice_Present = 17;
 
 using Direct3DCreate9_t = IDirect3D9*(WINAPI*)(UINT);
 using CreateDevice_t = HRESULT(STDMETHODCALLTYPE*)(IDirect3D9*, UINT, D3DDEVTYPE, HWND, DWORD,
                                                    D3DPRESENT_PARAMETERS*, IDirect3DDevice9**);
+using TestCooperativeLevel_t = HRESULT(STDMETHODCALLTYPE*)(IDirect3DDevice9*);
 using Reset_t = HRESULT(STDMETHODCALLTYPE*)(IDirect3DDevice9*, D3DPRESENT_PARAMETERS*);
 using Present_t = HRESULT(STDMETHODCALLTYPE*)(IDirect3DDevice9*, const RECT*, const RECT*, HWND, const RGNDATA*);
 
 static Direct3DCreate9_t g_realCreate9;
 static CreateDevice_t g_realCreateDevice;
 static Reset_t g_realReset;
+static TestCooperativeLevel_t g_realTestCooperativeLevel;
+// [test] device_lost_frame=N: at frame N TestCooperativeLevel reports D3DERR_DEVICENOTRESET once, so the game
+// runs its own device-reset path (Renderer_CheckDevice 0x00509740 -> 0x00509620). 0 = off.
+static int g_deviceLostFrame, g_presentCount;
+static bool g_deviceLostDone;
+
+static HRESULT STDMETHODCALLTYPE Hook_TestCooperativeLevel(IDirect3DDevice9* dev)
+{
+    if (g_deviceLostFrame > 0 && !g_deviceLostDone && g_presentCount >= g_deviceLostFrame)
+    {
+        g_deviceLostDone = true;
+        Log("test: reporting a lost device (D3DERR_DEVICENOTRESET) at frame %d", g_presentCount);
+        return D3DERR_DEVICENOTRESET;
+    }
+    return g_realTestCooperativeLevel(dev);
+}
 static Present_t g_realPresent;
 
 static void LogParams(const char* what, const D3DPRESENT_PARAMETERS* pp)
@@ -58,6 +77,7 @@ static HRESULT STDMETHODCALLTYPE Hook_Present(IDirect3DDevice9* dev, const RECT*
     LARGE_INTEGER a, b;
     QueryPerformanceCounter(&a);
     HRESULT hr = g_realPresent(dev, src, dst, wnd, dirty);
+    ++g_presentCount;
     QueryPerformanceCounter(&b);
     DisplayAfterPresent(b.QuadPart - a.QuadPart);
     TestClockOnFrame();
@@ -83,6 +103,10 @@ static HRESULT STDMETHODCALLTYPE Hook_CreateDevice(IDirect3D9* d3d, UINT adapter
                "IDirect3DDevice9::Reset");
         HookAt(vt[kDevice_Present], reinterpret_cast<void*>(Hook_Present), reinterpret_cast<void**>(&g_realPresent),
                "IDirect3DDevice9::Present");
+        g_deviceLostFrame = ConfigInt("test", "device_lost_frame", 0);
+        if (g_deviceLostFrame > 0)
+            HookAt(vt[kDevice_TestCooperativeLevel], reinterpret_cast<void*>(Hook_TestCooperativeLevel),
+                   reinterpret_cast<void**>(&g_realTestCooperativeLevel), "IDirect3DDevice9::TestCooperativeLevel");
         D3DTraceAttach(*out);  // after the code hooks: it swaps the object's vtable for thunks
     }
     return hr;
