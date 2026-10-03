@@ -35,6 +35,9 @@ add_library(and_hook SHARED
   src/d3d9_hooks.cpp
   src/testshot.cpp
   src/input_hooks.cpp
+  src/testclock.cpp
+  src/d3d_trace.cpp
+  src/testscenario.cpp
   enhance/display.cpp
   enhance/startup.cpp
   dinput8.def)

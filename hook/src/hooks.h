@@ -43,6 +43,9 @@ void HooksLogActive();
 // Hook any code address (used by enhancements and API hooks). Returns false on failure.
 bool HookAt(void* target, void* detour, void** original, const char* label);
 
+// Replace one import in the game's import table (the loader has bound all imports before any DllMain runs).
+bool PatchImport(const char* dll, const char* func, void* hook, void** original);
+
 // Overwrite bytes in the game image after checking they still hold `expected` (guards against a wrong build).
 bool PatchBytes(unsigned address, const void* expected, const void* replacement, unsigned length, const char* label);
 bool PatchU32(unsigned address, unsigned expected, unsigned value, const char* label);

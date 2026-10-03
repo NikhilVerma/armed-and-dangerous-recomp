@@ -1,6 +1,7 @@
 # Single local test entry point (handover s12). Game files cannot leave this machine, so there is no remote CI.
-# Usage: pwsh tools/check.ps1
+# Usage: pwsh tools/check.ps1 [-Quick]   (-Quick skips the in-game comparison test)
 # Suites are added as they come into existence; a suite with no tests yet is reported as skipped.
+param([switch]$Quick)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $failed = 0
@@ -31,6 +32,14 @@ foreach ($s in 'boot', 'replay', 'diff', 'formats') {
     if (-not $tests) { Write-Host "== tests/$s`n   skipped (no tests yet)"; continue }
     if ($s -eq 'formats') {
         Suite "tests/$s" { python -m pytest -q $dir; if ($LASTEXITCODE) { throw "pytest exit $LASTEXITCODE" } }
+    }
+}
+
+if (-not $Quick) {
+    Suite 'comparison (original vs recovered, menu + level scenarios)' {
+        $py = Join-Path $root '.venv/Scripts/python.exe'
+        & $py (Join-Path $root 'tools/compare.py') | Out-Host
+        if ($LASTEXITCODE) { throw "compare.py exit $LASTEXITCODE" }
     }
 }
 

@@ -9,6 +9,11 @@
 #include "log.h"
 
 void TestShotBeforePresent(IDirect3DDevice9* dev);
+void TestHashBeforePresent(IDirect3DDevice9* dev);
+void TestClockOnFrame();
+void D3DTraceAttach(IDirect3DDevice9* dev);
+void TestScenarioOnFrame();
+void InputOnFrame();
 
 // vtable slots from d3d9.h declaration order
 static constexpr int kD3D9_CreateDevice = 16;
@@ -47,6 +52,7 @@ static HRESULT STDMETHODCALLTYPE Hook_Reset(IDirect3DDevice9* dev, D3DPRESENT_PA
 static HRESULT STDMETHODCALLTYPE Hook_Present(IDirect3DDevice9* dev, const RECT* src, const RECT* dst, HWND wnd,
                                               const RGNDATA* dirty)
 {
+    TestHashBeforePresent(dev);
     TestShotBeforePresent(dev);
     DisplayBeforePresent(dev);
     LARGE_INTEGER a, b;
@@ -54,6 +60,9 @@ static HRESULT STDMETHODCALLTYPE Hook_Present(IDirect3DDevice9* dev, const RECT*
     HRESULT hr = g_realPresent(dev, src, dst, wnd, dirty);
     QueryPerformanceCounter(&b);
     DisplayAfterPresent(b.QuadPart - a.QuadPart);
+    TestClockOnFrame();
+    TestScenarioOnFrame();
+    InputOnFrame();
     return hr;
 }
 
@@ -74,6 +83,7 @@ static HRESULT STDMETHODCALLTYPE Hook_CreateDevice(IDirect3D9* d3d, UINT adapter
                "IDirect3DDevice9::Reset");
         HookAt(vt[kDevice_Present], reinterpret_cast<void*>(Hook_Present), reinterpret_cast<void**>(&g_realPresent),
                "IDirect3DDevice9::Present");
+        D3DTraceAttach(*out);  // after the code hooks: it swaps the object's vtable for thunks
     }
     return hr;
 }
@@ -92,7 +102,7 @@ static IDirect3D9* WINAPI Hook_Direct3DCreate9(UINT sdk)
 }
 
 // Replace one import in the game's IAT. The loader has bound all imports before any DllMain runs.
-static bool PatchImport(const char* dll, const char* func, void* hook, void** original)
+bool PatchImport(const char* dll, const char* func, void* hook, void** original)
 {
     auto base = reinterpret_cast<BYTE*>(GetModuleHandleA(nullptr));
     auto nt = reinterpret_cast<IMAGE_NT_HEADERS*>(base + reinterpret_cast<IMAGE_DOS_HEADER*>(base)->e_lfanew);

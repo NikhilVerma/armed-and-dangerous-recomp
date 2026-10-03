@@ -11,6 +11,9 @@ void CrashInstall();
 void StartupInit();
 void TestShotInit();
 void InputHooksInit();
+void TestHashInit();
+void TestScenarioInit();
+void TestClockInit();
 void InputHooksOnDirectInput(void* directInput);
 void D3D9HooksInstall();
 
@@ -36,11 +39,14 @@ static void Startup()
     LogOpen();
     Log("and_hook loaded into %s", GetCommandLineA());
     TestShotInit();
+    TestHashInit();
+    TestScenarioInit();
     InputHooksInit();
     CrashInstall();
     if (!CheckGameBuild() || !HooksInit())
         return;
-    DisplayInit();  // enhancements register their wrappers before hooks are installed
+    TestClockInit();  // before anything reads the time
+    DisplayInit();    // enhancements register their wrappers before hooks are installed
     StartupInit();
     HooksInstallAll();
     D3D9HooksInstall();

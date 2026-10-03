@@ -24,6 +24,14 @@ struct ScriptedKey
 ScriptedKey g_keys[32];
 int g_keyCount;
 ULONGLONG g_start;
+bool g_frameMode;          // [test] keys_frames: schedule in presented frames (deterministic with the test clock)
+volatile unsigned g_frames;
+
+// Scripted-key clock: seconds since start-up, or presented frames in frame mode.
+float KeyClock()
+{
+    return g_frameMode ? static_cast<float>(g_frames) : (GetTickCount64() - g_start) / 1000.0f;
+}
 
 using CreateDevice_t = HRESULT(STDMETHODCALLTYPE*)(IDirectInput8A*, REFGUID, LPDIRECTINPUTDEVICE8A*, LPUNKNOWN);
 using GetDeviceState_t = HRESULT(STDMETHODCALLTYPE*)(IDirectInputDevice8A*, DWORD, LPVOID);
@@ -46,19 +54,31 @@ BYTE ParseKey(const char* name)
     return static_cast<BYTE>(atoi(name));
 }
 
-// Which scripted keys are down now (held for 6 polls each, starting at their time).
+// Frame mode: a key is down during frames [at, at + kHoldFrames), whatever the number of polls (deterministic).
+// Time mode: held for 6 polls from its time (interactive use).
+constexpr float kHoldFrames = 3;
+
+bool KeyDown(ScriptedKey& k, float t)
+{
+    if (g_frameMode)
+        return t >= k.at && t < k.at + kHoldFrames;
+    return t >= k.at && k.framesLeft > 0;
+}
+
 void ActiveKeys(BYTE* down, int* count)
 {
     *count = 0;
-    float t = (GetTickCount64() - g_start) / 1000.0f;
+    float t = KeyClock();
     for (int i = 0; i < g_keyCount; i++)
-        if (t >= g_keys[i].at && g_keys[i].framesLeft > 0)
+        if (KeyDown(g_keys[i], t))
             down[(*count)++] = g_keys[i].dik;
 }
 
 void ConsumeFrame()
 {
-    float t = (GetTickCount64() - g_start) / 1000.0f;
+    if (g_frameMode)
+        return;
+    float t = KeyClock();
     for (int i = 0; i < g_keyCount; i++)
         if (t >= g_keys[i].at && g_keys[i].framesLeft > 0 && --g_keys[i].framesLeft == 0)
             Log("test: released scripted key 0x%02x", g_keys[i].dik);
@@ -87,11 +107,19 @@ void RecordKeyChanges(const BYTE* state)
 HRESULT STDMETHODCALLTYPE Hook_GetDeviceState(IDirectInputDevice8A* dev, DWORD size, LPVOID data)
 {
     HRESULT hr = g_realGetDeviceState(dev, size, data);
+    if (g_frameMode)
+    {
+        // Tests: input is entirely scripted and independent of window focus (a background window cannot
+        // acquire the devices). Real keyboard and mouse state never leaks in.
+        memset(data, 0, size);
+        hr = DI_OK;
+    }
     if (dev == g_keyboard && size >= 256 && SUCCEEDED(hr))
     {
         RecordKeyChanges(static_cast<const BYTE*>(data));
         if (!g_loggedState)
-            Log("input: game polls the keyboard with GetDeviceState"), g_loggedState = true;
+            Log("input: game polls the keyboard with GetDeviceState (thread %lu)", GetCurrentThreadId()),
+                g_loggedState = true;
         BYTE down[32];
         int n;
         ActiveKeys(down, &n);
@@ -107,18 +135,38 @@ HRESULT STDMETHODCALLTYPE Hook_GetDeviceData(IDirectInputDevice8A* dev, DWORD si
 {
     DWORD capacity = inOut ? *inOut : 0;
     HRESULT hr = g_realGetDeviceData(dev, size, data, inOut, flags);
+    if (g_frameMode && inOut)
+    {
+        *inOut = 0;  // tests: only scripted events (added below for the keyboard)
+        hr = DI_OK;
+    }
     if (dev == g_keyboard && SUCCEEDED(hr) && data && inOut && !(flags & DIGDD_PEEK))
     {
         if (!g_loggedData)
             Log("input: game reads buffered keyboard data with GetDeviceData"), g_loggedData = true;
-        float t = (GetTickCount64() - g_start) / 1000.0f;
+        float t = KeyClock();
         for (int i = 0; i < g_keyCount; i++)
         {
             ScriptedKey& k = g_keys[i];
-            if (t < k.at || k.framesLeft <= 0 || *inOut >= capacity)
+            if (*inOut >= capacity)
                 continue;
-            // One press event on the first poll, one release event on the last.
-            bool press = k.framesLeft == 6, release = k.framesLeft == 1;
+            // One press event and one release event per key. Frame mode: emitted on the first poll at or after
+            // the press/release frame (framesLeft tracks which were sent). Time mode: first and last poll.
+            bool press, release;
+            if (g_frameMode)
+            {
+                press = k.framesLeft == 6 && t >= k.at;
+                release = k.framesLeft == 5 && t >= k.at + kHoldFrames;
+                if (press || release)
+                    k.framesLeft--;
+            }
+            else
+            {
+                if (t < k.at || k.framesLeft <= 0)
+                    continue;
+                press = k.framesLeft == 6;
+                release = k.framesLeft == 1;
+            }
             if (press || release)
             {
                 DIDEVICEOBJECTDATA& e = *reinterpret_cast<DIDEVICEOBJECTDATA*>(reinterpret_cast<BYTE*>(data) +
@@ -159,7 +207,10 @@ void InputHooksInit()
     char ini[MAX_PATH], buf[512];
     GetModuleFileNameA(nullptr, ini, MAX_PATH);
     strcpy(strrchr(ini, '\\') + 1, "and.ini");
-    GetPrivateProfileStringA("test", "keys", "", buf, sizeof(buf), ini);
+    GetPrivateProfileStringA("test", "keys_frames", "", buf, sizeof(buf), ini);
+    g_frameMode = buf[0] != 0;
+    if (!g_frameMode)
+        GetPrivateProfileStringA("test", "keys", "", buf, sizeof(buf), ini);
     for (char* tok = strtok(buf, ","); tok && g_keyCount < 32; tok = strtok(nullptr, ","))
     {
         char* colon = strchr(tok, ':');
@@ -185,4 +236,10 @@ void InputHooksOnDirectInput(void* directInput)
     void** vt = *reinterpret_cast<void***>(directInput);
     HookAt(vt[3], reinterpret_cast<void*>(Hook_CreateDevice), reinterpret_cast<void**>(&g_realCreateDevice),
            "IDirectInput8::CreateDevice");
+}
+
+// Called once per presented frame (frame-mode key schedule).
+void InputOnFrame()
+{
+    g_frames++;
 }
