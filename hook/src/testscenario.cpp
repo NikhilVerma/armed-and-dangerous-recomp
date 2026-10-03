@@ -10,6 +10,7 @@
 
 #include "config.h"
 #include "game/game_object.h"
+#include "hooks.h"
 #include "log.h"
 
 namespace
@@ -19,8 +20,22 @@ bool g_requested;
 unsigned g_exitFrame, g_frame;
 }  // namespace
 
+// [test] no_movies=1: OpenDivxFile (DivxMediaLib import, cdecl) fails, so every movie ends at once. DivX
+// decoding runs on its own thread and made scenarios timing-sensitive; this sits outside game code, so the
+// original and recovered code see the same thing.
+extern "C" static void* __cdecl Fake_OpenDivxFile(void*)
+{
+    return nullptr;
+}
+
 void TestScenarioInit()
 {
+    if (ConfigInt("test", "no_movies", 0))
+    {
+        void* real;
+        if (PatchImport("DivxMediaLib.dll", "OpenDivxFile", reinterpret_cast<void*>(Fake_OpenDivxFile), &real))
+            Log("test: movies disabled");
+    }
     char ini[MAX_PATH], level[0x104];
     GetModuleFileNameA(nullptr, ini, MAX_PATH);
     strcpy(strrchr(ini, '\\') + 1, "and.ini");

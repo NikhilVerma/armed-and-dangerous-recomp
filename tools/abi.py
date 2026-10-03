@@ -98,7 +98,8 @@ def after_call(addr):
 
 
 def ret_pop(a, size):
-    for i in reginputs.MD.disasm(reginputs.IMG[a - reginputs.BASE:a - reginputs.BASE + size], a):
+    # Ghidra sometimes ends a body just before a shared final `ret`: look a little past the end.
+    for i in reginputs.MD.disasm(reginputs.IMG[a - reginputs.BASE:a - reginputs.BASE + size + 16], a):
         if i.mnemonic == "ret":
             return int(i.op_str, 16) if i.op_str else 0
     return None

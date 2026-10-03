@@ -35,9 +35,8 @@ def hook_names():
 
 
 SCENARIOS = {
-    # boot, Esc through the intro movies at fixed frames (the legal text ignores input until ~frame 300),
-    # then sit on the main menu
-    "menu": {"level": "", "keys": "320:ESC,360:ESC,400:ESC,440:ESC,480:ESC", "frames": 900},
+    # boot with movies disabled (the legal text times out by itself), then sit on the main menu
+    "menu": {"level": "", "keys": "", "frames": 900},
     # boot, then the harness requests lev_1_m1 once the front end has loaded
     "level": {"level": "lev_1_m1", "keys": "", "frames": 900},
 }
@@ -52,7 +51,7 @@ def write_ini(hooks_on, level, frames, keys=""):
     lines += ["", "[startup]", "skip_intro=0", "skip_legal=0", "load=",
               "", "[display]", "windowed=1", "width=0", "height=0", "all_modes=0", "vsync=-1", "fps_limit=0",
               "", "[test]", "clock_step_ms=16.6667", "d3d_trace=1", f"scenario_load={level}", f"exit_frame={frames}",
-              "shots=", "keys=", f"keys_frames={keys}", f"hash_frames={(DUMP + ':1:1') if DUMP and ':' not in DUMP else DUMP}", f"dump_hashed={1 if DUMP else 0}", "record_input=0", "fixed_dt_ms=0"]
+              "shots=", "keys=", f"keys_frames={keys}", f"hash_frames={(DUMP + ':1:1') if DUMP and ':' not in DUMP else DUMP}", f"dump_hashed={1 if DUMP else 0}", "record_input=0", "fixed_dt_ms=0", "no_movies=1"]
     with open(os.path.join(GAME_DIR, "and.ini"), "w") as f:
         f.write("\n".join(lines) + "\n")
 

@@ -48,8 +48,12 @@ def family(name):
 
 
 def is_self_clear(i):
+    """xor/sub r, r define r without reading it; mov r, r and lea r, [r] are padding no-ops (MSVC aligns loops
+    with them), not reads."""
     ops = i.op_str.split(", ")
-    return i.mnemonic in ("xor", "sub") and len(ops) == 2 and ops[0] == ops[1]
+    if i.mnemonic in ("xor", "sub", "mov") and len(ops) == 2 and ops[0] == ops[1]:
+        return True
+    return i.mnemonic == "lea" and len(ops) == 2 and ops[1] == f"[{ops[0]}]"
 
 
 _clobber_cache = {}
