@@ -133,6 +133,13 @@ static void CountFrame()
 void DisplayBeforePresent(IDirect3DDevice9*)
 {
     CountFrame();
+
+    // [test] fixed_dt_ms: drive the game's own fixed-step override (0x00604ab8, read by Timer_Tick
+    // 0x004e47e0) so game logic sees that frame time whatever the real frame rate. Timer_Init clears it,
+    // so it is reapplied every frame. For frame-rate-dependence tests only.
+    static const float fixedDt = ConfigFloat("test", "fixed_dt_ms", 0.0f) / 1000.0f;
+    if (fixedDt > 0.0f)
+        *reinterpret_cast<float*>(0x00604ab8) = fixedDt;
     if (g_cfg.fpsLimit <= 0)
         return;
     const LONGLONG period = g_freq.QuadPart / g_cfg.fpsLimit;
