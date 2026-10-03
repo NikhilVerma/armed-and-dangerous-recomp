@@ -11,7 +11,14 @@ if ($Remove) {
     Write-Host 'hook removed: the game runs unmodified'
     return
 }
-Copy-Item (Join-Path $root "build/hook-$($Config.ToLower())/dinput8.dll") $dll -Force
+$built = Join-Path $root "build/hook-$($Config.ToLower())/dinput8.dll"
+# Refuse a stale build: if any source is newer than the DLL, the last build failed and tests would run old code.
+$newest = Get-ChildItem (Join-Path $root 'src'), (Join-Path $root 'hook') -Recurse -File -Include *.cpp, *.h |
+    Sort-Object LastWriteTime -Descending | Select-Object -First 1
+if ((Get-Item $built).LastWriteTime -lt $newest.LastWriteTime) {
+    throw "build is older than $($newest.Name): the last build failed; not deploying"
+}
+Copy-Item $built $dll -Force
 $ini = Join-Path $game 'and.ini'
 if (-not ($KeepIni -and (Test-Path $ini))) { Copy-Item (Join-Path $root 'hook/and.ini') $ini -Force }
 Write-Host "deployed to $game"
