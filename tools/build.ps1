@@ -9,6 +9,11 @@ $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
 Import-Module "$vs\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
 Enter-VsDevShell -VsInstallPath $vs -SkipAutomaticLocation -DevCmdArguments '-arch=x86 -host_arch=x64' | Out-Null
 
+if (-not (Test-Path (Join-Path $root 'src/gen/orig_calls.h'))) {
+    Write-Host 'generating src/gen/ (tools/abi.py, ~3 min)'
+    & (Join-Path $root '.venv/Scripts/python.exe') (Join-Path $root 'tools/abi.py')
+    if ($LASTEXITCODE) { throw 'abi generation failed' }
+}
 if ($Clean -and (Test-Path $build)) { Remove-Item -Recurse -Force $build }
 cmake -S (Join-Path $root 'hook') -B $build -G Ninja "-DCMAKE_BUILD_TYPE=$Config" | Out-Null
 if ($LASTEXITCODE) { throw 'cmake configure failed' }

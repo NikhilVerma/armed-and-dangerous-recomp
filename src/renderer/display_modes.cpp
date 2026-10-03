@@ -5,6 +5,7 @@
 #include <cstring>
 
 #include "game.h"
+#include "gen/orig_calls.h"
 #include "hooks.h"
 #include "renderer.h"
 
@@ -12,17 +13,12 @@ DisplayModeFilter g_displayModeFilter;
 
 namespace
 {
-// 0x00508370: copies what the renderer needs from D3DCAPS9 into a 0x120-byte summary.
-// Register arguments: EAX = caps, EDX = output; renderer on the stack; callee pops 4.
+// 0x00508370: copies what the renderer needs from D3DCAPS9 into a 0x120-byte summary
+// (eax = caps, edx = output; [renderer]; generated wrapper, symbols/abi.csv).
 void Orig_SummariseCaps(Renderer* self, const D3DCAPS9* caps, void* summary)
 {
-    __asm {
-        push self
-        mov eax, caps
-        mov edx, summary
-        mov ecx, 0x00508370
-        call ecx
-    }
+    orig::fn_00508370(reinterpret_cast<uint32_t>(caps), reinterpret_cast<uint32_t>(summary),
+                      reinterpret_cast<uint32_t>(self));
 }
 
 // 0x00538f30, the game's CRT qsort (cdecl).

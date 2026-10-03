@@ -27,6 +27,7 @@ REGS = {
     "ebx": {"ebx", "bx", "bl", "bh"}, "esi": {"esi", "si"}, "edi": {"edi", "di"}, "ebp": {"ebp", "bp"},
 }
 FULL_WRITE = {"eax", "ecx", "edx", "ebx", "esi", "edi", "ebp"}
+CALLEE_SAVED = {"ebx", "esi", "edi", "ebp"}
 
 pe = pefile.PE(EXE, fast_load=True)
 IMG = pe.get_memory_mapped_image()
@@ -73,7 +74,7 @@ def clobbers(func, depth=3):
                 break
             if i.mnemonic == "push" and i.operands[0].type == x86.X86_OP_REG:
                 r = family(i.reg_name(i.operands[0].reg))
-                if r and r not in written:
+                if r in CALLEE_SAVED and r not in written:
                     saved.add(r)
             else:
                 _, wr = i.regs_access()
@@ -124,8 +125,9 @@ def inputs(func, depth):
             reads, writes = i.regs_access()
             rd = {family(i.reg_name(r)) for r in reads} - {None}
             wr = {family(i.reg_name(r)) for r in writes} - {None}
-            if i.mnemonic == "push" and i.operands[0].type == x86.X86_OP_REG:
-                rd = set()  # saving a register is not a use
+            if (i.mnemonic == "push" and i.operands[0].type == x86.X86_OP_REG
+                    and family(i.reg_name(i.operands[0].reg)) in CALLEE_SAVED):
+                rd = set()  # saving a callee-saved register is not a use (pushing eax/ecx/edx passes a value)
             if is_self_clear(i):
                 rd = set()
             for r in rd - set(written):
@@ -142,11 +144,9 @@ def inputs(func, depth):
                     written = written | clobbers(op.imm)
                 else:
                     written = written | {"eax", "ecx", "edx"}
-            # partial writes (al, cl) do not define the whole register
-            full = {r for r in wr if any(i.reg_name(x) in (r,) for x in writes)}
-            if i.mnemonic == "pop":
-                full = wr
-            written = written | (full & FULL_WRITE)
+            # Any write, including a partial one (mov cx, ...), counts as defining the register: reading the
+            # untouched upper bits of a caller value is not a real calling convention.
+            written = written | (wr & FULL_WRITE)
             if i.mnemonic == "ret":
                 break
             if i.mnemonic == "jmp":
