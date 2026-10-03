@@ -59,6 +59,25 @@ def is_self_clear(i):
 _clobber_cache = {}
 
 
+def jump_table_targets(i, func):
+    """Targets of a switch `jmp dword ptr [reg*4 + table]`: consecutive table entries that point into the code
+    just around the function. Returns None when the jump is not a recognisable table."""
+    op = i.operands[0]
+    if op.type != x86.X86_OP_MEM or op.mem.base != 0 or op.mem.index == 0 or op.mem.scale != 4:
+        return None
+    table = op.mem.disp & 0xffffffff
+    targets = []
+    for k in range(256):
+        o = table - BASE + 4 * k
+        if not 0 <= o < len(IMG) - 4:
+            break
+        t = int.from_bytes(IMG[o:o + 4], "little")
+        if not func <= t < i.address + 0x2000:
+            break
+        targets.append(t)
+    return targets or None
+
+
 def clobbers(func, depth=3):
     """Registers a function may leave changed: written anywhere on any path and not restored by a matching
     push/pop save. Callees are included up to `depth`; indirect calls count as eax/ecx/edx."""
@@ -94,7 +113,11 @@ def clobbers(func, depth=3):
                 if op.type == x86.X86_OP_IMM:
                     addr = op.imm
                     continue
-                written |= {"eax", "ecx", "edx"}
+                targets = jump_table_targets(i, func)
+                if targets:
+                    work.extend(targets)  # a switch stays inside the function
+                else:
+                    written |= {"eax", "ecx", "edx"}
                 break
             if i.group(capstone.CS_GRP_JUMP):
                 work.append(i.operands[0].imm)
@@ -158,7 +181,11 @@ def inputs(func, depth):
                 if op.type == x86.X86_OP_IMM:
                     addr = op.imm
                     continue
-                found.setdefault("(indirect jump)", f"{i.address:08x}: {i.op_str}")
+                targets = jump_table_targets(i, func)
+                if targets:
+                    work.extend((t, written) for t in targets)
+                else:
+                    found.setdefault("(indirect jump)", f"{i.address:08x}: {i.op_str}")
                 break
             if i.group(capstone.CS_GRP_JUMP):  # conditional
                 work.append((i.operands[0].imm, written))
