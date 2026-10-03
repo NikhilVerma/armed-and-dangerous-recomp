@@ -1,0 +1,47 @@
+# Game builds, scratch work and reference checkouts never enter git (handover s1, s4).
+/orig/
+/work/
+/ref/
+/install.log
+
+# Original binaries and game data, wherever they turn up
+*.exe
+*.dll
+*.xbe
+*.big
+*.jit
+*.pcv
+*.raw
+*.cab
+*.iso
+*.xiso
+*.gzp
+
+# Generated lifter output (Approach C): config is committed, generated C is not
+/recomp/generated/
+
+# Build output
+/build/
+/out/
+*.obj
+*.lib
+*.pdb
+*.ilk
+*.exp
+
+# Ghidra
+*.gpr
+*.rep/
+*.lock
+*.lock~
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# Editors
+.vs/
+.vscode/
+*.swp

@@ -1,0 +1,29 @@
+#!/bin/sh
+# Pre-commit guard (handover s4): reject files over 1 MB and any binary or game archive.
+# Enabled by: git config core.hooksPath tools/hooks
+fail=0
+max=1048576
+banned='\.(exe|dll|xbe|big|jit|pcv|raw|cab|iso|xiso|gzp|gpr)$'
+
+for f in $(git diff --cached --name-only --diff-filter=ACMR); do
+    case "$f" in
+        orig/*|work/*|ref/*)
+            echo "pre-commit: $f is under orig/, work/ or ref/ and must never be committed"
+            fail=1 ;;
+    esac
+    if echo "$f" | grep -Eiq "$banned"; then
+        echo "pre-commit: $f has a banned extension (binary or game data)"
+        fail=1
+    fi
+    size=$(git cat-file -s ":$f" 2>/dev/null || echo 0)
+    if [ "$size" -gt "$max" ]; then
+        echo "pre-commit: $f is $size bytes, over the 1 MB limit"
+        fail=1
+    fi
+done
+
+if [ "$fail" -ne 0 ]; then
+    echo "pre-commit: commit rejected"
+    exit 1
+fi
+exit 0
