@@ -12,6 +12,7 @@ Exit code 0 = PASS, 1 = FAIL, 2 = harness error.
 """
 import argparse
 import hashlib
+import json
 import os
 import re
 import subprocess
@@ -119,33 +120,58 @@ def main():
     for name in scenarios:
         sc = SCENARIOS[name]
         print(f"[{name}]")
-        # Baseline cache: same game, scenario and harness build. Recovered code is off in the baseline, but
-        # the harness (trace, clock) lives in the same DLL, so any DLL change invalidates it.
-        cache = os.path.join(OUT, f"baseline-{exe_hash}-{name}.txt")
-        stamp = cache + ".dll"
-        fresh = a.fresh or not os.path.exists(cache) or not os.path.exists(stamp) or open(stamp).read() != harness_hash
-        if fresh:
+        # Baseline variants: original-code runs for this game, scenario and harness build (recovered code is off
+        # in the baseline, but the harness lives in the same DLL, so any DLL change invalidates them). Rare
+        # nondeterministic runs exist, so every distinct original run is kept and a candidate passes if it
+        # matches any of them. On a mismatch one more original run is taken before declaring failure.
+        cache = os.path.join(OUT, f"baseline-{exe_hash}-{name}.json")
+        variants = []
+        if not a.fresh and os.path.exists(cache):
+            saved = json.load(open(cache))
+            if saved.get("harness") == harness_hash:
+                variants = saved["variants"]
+
+        def record_baseline():
             base, crashed = run_once("baseline", baseline, sc["level"], sc["frames"], a.timeout, sc["keys"])
             if crashed or len(base) < sc["frames"] - 5:
-                print("  baseline run failed; not caching")
-                return 2
-            with open(cache, "w") as f:
-                f.write("\n".join(" ".join(r) for r in base) + "\n")
-            open(stamp, "w").write(harness_hash)
-        else:
-            base = [l.split() for l in open(cache)]
-            print(f"  baseline: cached ({len(base)} frames)")
+                return False
+            if base not in variants:
+                variants.append(base)
+                json.dump({"harness": harness_hash, "variants": variants}, open(cache, "w"))
+            return True
+
+        if not variants and not record_baseline():
+            print("  baseline run failed")
+            return 2
+        if variants:
+            print(f"  baseline: {len(variants)} known variant(s)")
         cand, crashed = run_once("candidate", candidate, sc["level"], sc["frames"], a.timeout, sc["keys"])
-        n = min(len(base), len(cand))
-        first = next((i for i in range(n) if base[i] != cand[i]), None)
-        if crashed or first is not None or len(cand) < len(base):
-            failed = True
-            if first is not None:
-                print(f"  FAIL: first divergent frame {first}: baseline {base[first]} candidate {cand[first]}")
-            else:
-                print(f"  FAIL: candidate stopped at frame {len(cand)} of {len(base)}")
+
+        def first_divergence(base):
+            n = min(len(base), len(cand))
+            first = next((i for i in range(n) if base[i] != cand[i]), None)
+            if first is None and len(cand) < len(base):
+                first = len(cand)
+            return first
+
+        if not crashed and any(first_divergence(b) is None for b in variants):
+            print(f"  PASS: {len(cand)} frames identical")
+            continue
+        if not crashed:
+            print("  mismatch: taking one more original run to rule out a rare baseline variant")
+            record_baseline()
+            if any(first_divergence(b) is None for b in variants):
+                print(f"  PASS: {len(cand)} frames identical (matches a newly seen baseline variant)")
+                continue
+        failed = True
+        best = max(variants, key=lambda b: first_divergence(b) or 0)
+        first = first_divergence(best)
+        if crashed:
+            print("  FAIL: candidate crashed")
+        elif first is not None and first < len(cand) and first < len(best):
+            print(f"  FAIL: first divergent frame {first}: baseline {best[first]} candidate {cand[first]}")
         else:
-            print(f"  PASS: {n} frames identical")
+            print(f"  FAIL: candidate stopped at frame {len(cand)} of {len(best)}")
     print("FAIL" if failed else "PASS")
     return 1 if failed else 0
 

@@ -102,6 +102,93 @@ D3DFORMAT Renderer_ChooseTextureFormat(int32_t textureClass, Renderer* r, uint32
     return format;
 }
 
+// 0x00508750 (eax = format): bits per pixel of a D3D format (0 if unknown). EDX is preserved: callers keep
+// a value in it across the call.
+uint32_t Format_BitsPerPixel(uint32_t format)
+{
+    switch (format)
+    {
+    case 0x14: return 24;  // R8G8B8
+    case 0x15: case 0x16: case 0x3e: case 0x3f: case 0x40: case 0x47:  // 32-bit colour and bump formats
+    case 0x4b: case 0x4d: case 0x4f: case 0x66:                         // D24S8, D24X8, D24X4S4, INDEX32
+        return 32;
+    case 0x17: case 0x18: case 0x19: case 0x1a: case 0x1d: case 0x1e: case 0x28: case 0x33: case 0x3c:
+    case 0x3d: case 0x46: case 0x49: case 0x50: case 0x65:              // 16-bit colour, bump, D16, INDEX16
+        return 16;
+    case 0x1b: case 0x1c: case 0x29: case 0x32: case 0x34:              // 8-bit
+        return 8;
+    case MAKEFOURCC('D', 'X', 'T', '1'): case MAKEFOURCC('D', 'X', 'T', '2'): case MAKEFOURCC('D', 'X', 'T', '3'):
+    case MAKEFOURCC('D', 'X', 'T', '4'): case MAKEFOURCC('D', 'X', 'T', '5'): case MAKEFOURCC('Y', 'U', 'Y', '2'):
+    case MAKEFOURCC('U', 'Y', 'V', 'Y'):
+        return 16;
+    default:
+        return 0;
+    }
+}
+
+// 0x0050a510 (ecx = renderer; [bucket or null]): texture LOD. Null: evict managed resources, then update every
+// used bucket (+0x494). A bucket's texture (+8, created and not locked: word +0x22 bits 0 and 7 clear) with a
+// D3D texture (+0xc) larger than 4 texels in its smaller dimension gets
+// LOD = 0 for textures that must stay sharp (+0x23 bit 1), else min(size - 4, renderer max LOD +0x1668,
+// levels - 1); SetLOD is called only when it changes. Returns the last value computed (unused by callers).
+uint32_t Renderer_UpdateTextureLod(Renderer* r, uint8_t* bucket)
+{
+    if (!bucket)
+    {
+        r->device->EvictManagedResources();
+        ListNode* used = &Field<ListNode>(r, 0x494);
+        for (ListNode* n = used->next; n != used;)
+        {
+            ListNode* next = n->next;
+            Renderer_UpdateTextureLod(r, reinterpret_cast<uint8_t*>(n));
+            n = next;
+        }
+        return 0;
+    }
+    uint8_t* tex = Field<uint8_t*>(bucket, 8);
+    if (!tex || (tex[0x22] & 0x81))
+        return reinterpret_cast<uint32_t>(tex);
+    auto* d3dTex = Field<IDirect3DBaseTexture9*>(bucket, 0xc);
+    if (!d3dTex)
+        return reinterpret_cast<uint32_t>(tex);
+    int32_t w = Field<int32_t>(tex, 0x10), h = Field<int32_t>(tex, 0x14);
+    uint32_t size = static_cast<uint32_t>(w < h ? w : h);
+    uint32_t maxLevel = d3dTex->GetLevelCount() - 1;
+    if (size <= 4 || maxLevel == 0)
+        return maxLevel;
+    uint32_t lod;
+    if (Field<uint8_t*>(bucket, 8)[0x23] & 2)
+    {
+        lod = 0;
+    }
+    else
+    {
+        lod = size - 4;
+        uint32_t rendererMax = Field<uint32_t>(r, 0x1668);
+        if (lod >= rendererMax)
+            lod = rendererMax;
+        if (lod >= maxLevel)
+            lod = maxLevel;
+    }
+    uint32_t current = Field<IDirect3DBaseTexture9*>(bucket, 0xc)->GetLOD();
+    if (lod == current)
+        return current;
+    return Field<IDirect3DBaseTexture9*>(bucket, 0xc)->SetLOD(lod);
+}
+
+static uint32_t Format_BitsPerPixel_Abi(uint32_t eax)
+{
+    return Format_BitsPerPixel(eax);
+}
+static uint32_t Renderer_UpdateTextureLod_Abi(uint32_t ecx, uint32_t bucket)
+{
+    return Renderer_UpdateTextureLod(reinterpret_cast<Renderer*>(ecx), reinterpret_cast<uint8_t*>(bucket));
+}
+ABI_ENTRY_00508750(Format_BitsPerPixel_Entry, Format_BitsPerPixel_Abi)
+ABI_ENTRY_0050a510(Renderer_UpdateTextureLod_Entry, Renderer_UpdateTextureLod_Abi)
+HOOK(0x00508750, "Format_BitsPerPixel", Format_BitsPerPixel_Entry, nullptr);
+HOOK(0x0050a510, "Renderer_UpdateTextureLod", Renderer_UpdateTextureLod_Entry, nullptr);
+
 // 0x0050b1f0 (ecx = format; [unused]): the renderer's texture format class. 15 for anything unknown.
 uint32_t TextureFormat_Class(D3DFORMAT format)
 {
