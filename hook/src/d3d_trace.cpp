@@ -21,7 +21,7 @@
 namespace
 {
 // Argument kinds per IDirect3DDevice9 method, in vtable order (d3d9.h). One char per stack argument after `this`:
-//   v value   r resource (stable id)   o output pointer (ignored)   M matrix*   V viewport*   A material*
+//   v value   r resource (hashed by description)   o output pointer (ignored)   M matrix*   V viewport*   A material*
 //   L light*   4 float4*   G gamma ramp*   R rect* (nullable)   F/I/B shader constants (start, data, count)
 //   U DrawPrimitiveUP data   X DrawIndexedPrimitiveUP data   - query method (counted, args ignored)
 const char* const kMethods[119] = {
@@ -79,6 +79,72 @@ unsigned IdOf(const void* p)
     return id;
 }
 
+// A resource argument is hashed by what it is (type and description), not by pointer: pointers get reused
+// once a resource is freed, and which reuse happens depends on other threads' allocations.
+void MixResource(IUnknown* object)
+{
+    Mix(object != nullptr);
+    if (!object)
+        return;
+    void* p = nullptr;
+    if (SUCCEEDED(object->QueryInterface(IID_IDirect3DBaseTexture9, &p)))
+    {
+        auto tex = static_cast<IDirect3DBaseTexture9*>(p);
+        D3DRESOURCETYPE type = tex->GetType();
+        Mix(type);
+        Mix(tex->GetLevelCount());
+        D3DSURFACE_DESC d{};
+        if (type == D3DRTYPE_TEXTURE)
+            static_cast<IDirect3DTexture9*>(tex)->GetLevelDesc(0, &d);
+        else if (type == D3DRTYPE_CUBETEXTURE)
+            static_cast<IDirect3DCubeTexture9*>(tex)->GetLevelDesc(0, &d);
+        MixBytes(&d, sizeof(d));
+        tex->Release();
+    }
+    else if (SUCCEEDED(object->QueryInterface(IID_IDirect3DSurface9, &p)))
+    {
+        D3DSURFACE_DESC d{};
+        static_cast<IDirect3DSurface9*>(p)->GetDesc(&d);
+        MixBytes(&d, sizeof(d));
+        static_cast<IUnknown*>(p)->Release();
+    }
+    else if (SUCCEEDED(object->QueryInterface(IID_IDirect3DVertexBuffer9, &p)))
+    {
+        D3DVERTEXBUFFER_DESC d{};
+        static_cast<IDirect3DVertexBuffer9*>(p)->GetDesc(&d);
+        MixBytes(&d, sizeof(d));
+        static_cast<IUnknown*>(p)->Release();
+    }
+    else if (SUCCEEDED(object->QueryInterface(IID_IDirect3DIndexBuffer9, &p)))
+    {
+        D3DINDEXBUFFER_DESC d{};
+        static_cast<IDirect3DIndexBuffer9*>(p)->GetDesc(&d);
+        MixBytes(&d, sizeof(d));
+        static_cast<IUnknown*>(p)->Release();
+    }
+    else if (SUCCEEDED(object->QueryInterface(IID_IDirect3DVertexShader9, &p)))
+    {
+        UINT size = 0;
+        static_cast<IDirect3DVertexShader9*>(p)->GetFunction(nullptr, &size);
+        Mix(size);
+        static_cast<IUnknown*>(p)->Release();
+    }
+    else if (SUCCEEDED(object->QueryInterface(IID_IDirect3DPixelShader9, &p)))
+    {
+        UINT size = 0;
+        static_cast<IDirect3DPixelShader9*>(p)->GetFunction(nullptr, &size);
+        Mix(size);
+        static_cast<IUnknown*>(p)->Release();
+    }
+    else if (SUCCEEDED(object->QueryInterface(IID_IDirect3DVertexDeclaration9, &p)))
+    {
+        UINT count = 0;
+        static_cast<IDirect3DVertexDeclaration9*>(p)->GetDeclaration(nullptr, &count);
+        Mix(count);
+        static_cast<IUnknown*>(p)->Release();
+    }
+}
+
 unsigned VerticesFor(DWORD type, DWORD prims)
 {
     switch (type)
@@ -95,12 +161,21 @@ unsigned VerticesFor(DWORD type, DWORD prims)
 
 // Called from the common thunk with the method index and a pointer to the first argument after `this`.
 // Returns the real method's address.
-int g_suppress;  // >0 while the test harness itself calls the device
+int g_suppress;        // >0 while the test harness itself calls the device
+DWORD g_renderThread;  // the thread that created the device
+unsigned g_otherThreadCalls;
 
 extern "C" void* __cdecl TraceCall(unsigned index, const DWORD* args)
 {
     if (g_suppress)
         return g_realVtbl[index];
+    // The device is multithreaded: the loader thread creates resources while the render thread draws, and
+    // their interleaving depends on timing. Only render-thread calls are ordered into the frame hash.
+    if (GetCurrentThreadId() != g_renderThread)
+    {
+        InterlockedIncrement(reinterpret_cast<volatile LONG*>(&g_otherThreadCalls));
+        return g_realVtbl[index];
+    }
     EnterCriticalSection(&g_lock);
     const char* kinds = kMethods[index];
     g_calls++;
@@ -114,7 +189,7 @@ extern "C" void* __cdecl TraceCall(unsigned index, const DWORD* args)
             switch (kinds[k])
             {
             case 'v': Mix(a); break;
-            case 'r': Mix(IdOf(p)); break;
+            case 'r': MixResource(static_cast<IUnknown*>(const_cast<void*>(p))); break;
             case 'M': if (p) MixBytes(p, 64); break;
             case 'V': if (p) MixBytes(p, sizeof(D3DVIEWPORT9)); break;
             case 'A': if (p) MixBytes(p, sizeof(D3DMATERIAL9)); break;
@@ -151,6 +226,13 @@ extern "C" void* __cdecl TraceCall(unsigned index, const DWORD* args)
             default: break;  // 'o' output pointers
             }
         }
+    }
+    static const unsigned dumpFrame = ConfigInt("test", "d3d_dump_frame", -1);
+    if (g_frame == dumpFrame)
+    {
+        static FILE* dump = fopen("and-d3d-frame.txt", "w");
+        if (dump)
+            fprintf(dump, "%3u %016llx  %08lx %08lx %08lx %08lx\n", index, g_hash, args[0], args[1], args[2], args[3]);
     }
     if (index == 17)  // Present: close the frame
     {
@@ -208,6 +290,7 @@ void D3DTraceAttach(IDirect3DDevice9* dev)
     g_ids = new std::unordered_map<const void*, unsigned>();
     g_hash = 1469598103934665603ull;
     g_out = fopen("and-d3d.txt", "w");
+    g_renderThread = GetCurrentThreadId();
     g_realVtbl = *reinterpret_cast<void***>(dev);
     MEMORY_BASIC_INFORMATION mbi;
     VirtualQuery(g_realVtbl, &mbi, sizeof(mbi));
