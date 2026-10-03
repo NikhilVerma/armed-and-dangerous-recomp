@@ -16,7 +16,7 @@ Target: PC Steam build, app 6090, build id 251748 (`appmanifest_6090.acf`). Copi
 | Static libraries identified | Havok physics (proprietary), zlib 1.1.4, IJG libjpeg (6b, guess). DivX via DLL. | Version banners and `hk*.cpp` paths, see step 8 |
 | Archive format | `.big`, first 4 bytes `DE C0 AD DE` (0xDEADC0DE little-endian). Relation to Giants `.gzp` untested. | `lev_1_m1/lev_1_m1_big01_text.big` header |
 | Script interpreter present | Unknown | |
-| Named functions recovered from other builds | Not started (Xbox builds need ASK) | |
+| Named functions recovered from other builds | No symbols in any Xbox build (no .map/.pdb, release configs). Xbox adds ~40 source-file names (`src\ai.cpp`, `src\camera.cpp`, ...) usable as translation-unit markers once builds are cross-matched. **PC itself carries 1,203 `DATA(Class::member)` names with offsets** for 99 classes. | `tools/xbe_info.py`; `tools/data_tables.py` -> `symbols/types/data_members.csv` |
 | Windowed mode and skip-intro switches | Unknown | |
 | Spike: success rate and cost per function | Not started | |
 
@@ -123,6 +123,39 @@ image. See the table. Function ID matched few CRT functions; VS 2003 FID databas
 Unwrapped executable starts with no Steam client involvement, fullscreen at 640x480, intro text then intro
 movie. Timers imported: `GetTickCount`, `QueryPerformanceCounter`/`Frequency`.
 
-## Steps 4, 10, 12
+## Step 10: Xbox builds
 
-Not started. Step 10 (Xbox builds) needs an ASK.
+Approved by the human and supplied by them (Hidden Palace). Extracted with `tools/xiso.py` (XDVDFS) and 7-Zip
+(the July demo disc is ISO 9660); hashes in `docs/manifest.md`.
+
+| Build | `game.xbe` SHA-256 | Built (UTC) | Debug path | `.text` |
+| --- | --- | --- | --- | ---: |
+| 2003-07-16 demo | `643e1af6...88aa` | 2003-07-16 17:32 | `c:\dev\code\game\Xbox-DemoDisk\xbGame.exe` | 0x13c78c |
+| 2003-09-03 preview | `d5ad4b0c...1c1e` | 2003-09-03 00:12 | `c:\dev\code\game\Xbox-Preview\xbGame.exe` | 0x19137c |
+| 2003-10-13 final candidate | `6d1fdcc8...e6a5` | 2003-10-13 23:26 | `c:\dev\code\game\Xbox-Final\xbGame.exe` | 0x1a7c1c |
+
+- All link XDK 5558 libraries (XAPILIB, DSOUND, D3D8LTCG, LIBCMT ...). No debug libraries, no symbol files on
+  disc, no map files.
+- Source-file strings: 51, 52, 53 (PC: 14). The extra ones name game modules: `src\Game.cpp`, `src\ai.cpp`,
+  `src\aiming.cpp`, `src\buildings.cpp`, `src\camera.cpp`, `src\collision.cpp`, `src\fxSystem.cpp`,
+  `src\grunt.cpp`, `src\grunt2.cpp`, `src\level.cpp`, `src\marker.cpp`, `src\object.cpp`,
+  `src\objectInterface.cpp`, `src\objectSystem.cpp`, `src\projectile.cpp`, `src\render.cpp`,
+  `src\savefile.cpp`, `src\savegametemplates.cpp`, `src\scenemanager.cpp`, `src\shell.cpp`, `src\text.cpp`,
+  `src\twiglets.cpp`, `util\hashtable.cpp`, `gfx\d3d\Tex.cpp`, `gfx\d3d\buffer.cpp`, `pms_debug`, `pms_profile`,
+  `pms_movie\pms_movie.cpp`, `pms_audio\pms_ambient.cpp`.
+- **qhull** (convex hull library) strings appear in Xbox and should be checked on PC: another public library to
+  fence off.
+- `DATA()` names: Jul 973, Sep 1,116, Oct 1,137, PC 1,203 (PC and Oct share 1,134).
+
+## Member-description tables (PC)
+
+1,208 entries of six u32 words, `offset, size, count, 0, name_ptr, type_code`, each naming a class member at
+its byte offset (e.g. `PlayerWeapon::m_weaponDescriptor` at +0x554, 4 bytes, type 2; table at 0x0058423c).
+Extracted to `symbols/types/data_members.csv`. Most likely the save-game serialisation system
+(`src\savegametemplates.cpp`). Type codes: 2 (1,025 entries), 0 (75), 3 (58), and a handful of others; meaning
+not yet established.
+
+## Steps 4, 11 (cross-build matching), 12
+
+Not started. Cross-build matching needs the XBEs loaded in Ghidra (no built-in XBE loader in 12.1.4; plan: map
+sections with pyghidra).

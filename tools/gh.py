@@ -137,9 +137,9 @@ def main():
             out({"address": args.address, "count": len(refs), "refs": refs})
 
         elif args.cmd == "strrefs":
-            from ghidra.program.util import DefinedDataIterator
+            from ghidra.program.util import DefinedStringIterator
             hits = []
-            for data in DefinedDataIterator.definedStrings(program):
+            for data in DefinedStringIterator.forProgram(program):
                 s = str(data.getValue())
                 if args.text.lower() not in s.lower():
                     continue

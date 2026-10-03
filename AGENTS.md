@@ -1,5 +1,9 @@
 # AGENTS.md: operating rules
 
+**Precedence: the human's instructions override everything in this file and in the handover.** The handover
+is the human's seed document, not a fixed specification. When a human decision changes a rule, record it in
+`docs/decision.md` and update this file.
+
 Copied from section 13 of the handover document "Armed and Dangerous decompilation: agent handover"
 (https://claude.ai/artifact/XEDfhTM5H1QSEQK5GPR3i4). Re-read this file at the start of every session and
 after every context compaction. Long-running agent projects lose their rules when context is compressed;
@@ -11,6 +15,11 @@ re-reading is the fix.
 - The Steam executable is wrapped by SteamStub (`.bind` section, encrypted `.text`). The human unwraps it
   with Steamless; agents never unpack or patch protected executables. See `docs/decision.md`.
 - Current milestone: M0 (reconnaissance). Read `docs/recon.md` and the latest `docs/journal/` entry.
+- **Human's goals (docs/decision.md, 2026-10-03):** (1) every function exported and recompilable, (2) migrate
+  piece by piece via hooks, (3) early enhancements: resolution, HDR, frame rate, FOV, (4) the rest, including a
+  later move from Havok to an open-source physics engine. Enhancements go in `hook/enhance/`, each behind an
+  `and.ini` switch that is off by default; tests always run with them off; `src/` stays faithful. This
+  amends the "do not modernise before M5" rule below for `hook/enhance/` only.
 
 ## Tools, not dumps
 

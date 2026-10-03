@@ -2,6 +2,36 @@
 
 Every target or approach decision, with the evidence and numbers that triggered it. Newest first.
 
+## 2026-10-03: human's goals and order of work (overrides handover s1 "recover first, improve later")
+
+The human set the project goals, in order:
+
+1. **Explode and recompile.** Every function exported, tracked and in a state where it can be rebuilt
+   with a modern compiler (S2 under the staged-understanding scheme, handover s9).
+2. **Migrate piece by piece.** Replace original functions one at a time in the running game. This is
+   Approach B (hook and replace) as the backbone.
+3. **Basic enhancements early:** any resolution, HDR, unlocked frame rate, field of view, and similar.
+4. Everything else after that, including (long term) replacing Havok with an open-source physics engine,
+   step by step.
+
+How this coexists with faithful recovery:
+
+- Enhancements live in `hook/enhance/`, never in `src/` (recovered code). Each has its own switch in
+  `and.ini`, default **off**.
+- All oracle tests (boot, replay, differential) run with every enhancement off. A function in `src/` stays a
+  faithful reproduction of the original until M5.
+- Unlocking the frame rate is expected to expose the known speed defect (frame-rate-dependent timing). The
+  fix belongs in `hook/enhance/` behind its switch, and the original behaviour is logged in
+  `docs/original-bugs.md`.
+- Havok: identify and fence off its code range now (tag `subsystem=havok` in the tracker). Replacing it is a
+  later, separate workstream, with an interface layer drawn first.
+
+## 2026-10-03: Xbox pre-release builds
+
+- The human approved using the Hidden Palace pre-release builds (16 Jul, 3 Sep and 13 Oct 2003).
+- The human downloads them; agents do not fetch third-party game copies. Place each one under
+  `orig/xbox/<yyyy-mm-dd>/`.
+
 ## 2026-10-03: DRM gate on the Steam build
 
 - **Evidence:** `orig/pc/GameData/game.exe` (SHA-256 `960df24c...5b45`) has a `.bind` section, its entry

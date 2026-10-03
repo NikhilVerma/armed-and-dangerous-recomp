@@ -1,0 +1,123 @@
+// Direct3D 9 interception: the game's single d3d9 import (Direct3DCreate9) is redirected through the IAT,
+// then IDirect3D9::CreateDevice and IDirect3DDevice9::Reset/Present are hooked by vtable slot.
+// Everything is logged so recon learns what the game asks for; display.cpp may alter the parameters.
+#include <windows.h>
+#include <d3d9.h>
+
+#include "display.h"
+#include "hooks.h"
+#include "log.h"
+
+// vtable slots from d3d9.h declaration order
+static constexpr int kD3D9_CreateDevice = 16;
+static constexpr int kDevice_Reset = 16;
+static constexpr int kDevice_Present = 17;
+
+using Direct3DCreate9_t = IDirect3D9*(WINAPI*)(UINT);
+using CreateDevice_t = HRESULT(STDMETHODCALLTYPE*)(IDirect3D9*, UINT, D3DDEVTYPE, HWND, DWORD,
+                                                   D3DPRESENT_PARAMETERS*, IDirect3DDevice9**);
+using Reset_t = HRESULT(STDMETHODCALLTYPE*)(IDirect3DDevice9*, D3DPRESENT_PARAMETERS*);
+using Present_t = HRESULT(STDMETHODCALLTYPE*)(IDirect3DDevice9*, const RECT*, const RECT*, HWND, const RGNDATA*);
+
+static Direct3DCreate9_t g_realCreate9;
+static CreateDevice_t g_realCreateDevice;
+static Reset_t g_realReset;
+static Present_t g_realPresent;
+
+static void LogParams(const char* what, const D3DPRESENT_PARAMETERS* pp)
+{
+    Log("%s: %ux%u fmt %d count %u ms %d swap %d windowed %d depth %d/%d flags 0x%lx refresh %u interval 0x%x",
+        what, pp->BackBufferWidth, pp->BackBufferHeight, pp->BackBufferFormat, pp->BackBufferCount,
+        pp->MultiSampleType, pp->SwapEffect, pp->Windowed, pp->EnableAutoDepthStencil, pp->AutoDepthStencilFormat,
+        pp->Flags, pp->FullScreen_RefreshRateInHz, pp->PresentationInterval);
+}
+
+static HRESULT STDMETHODCALLTYPE Hook_Reset(IDirect3DDevice9* dev, D3DPRESENT_PARAMETERS* pp)
+{
+    LogParams("Reset requested", pp);
+    DisplayAdjustParams(pp);
+    LogParams("Reset applied", pp);
+    HRESULT hr = g_realReset(dev, pp);
+    Log("Reset -> 0x%08lx", hr);
+    return hr;
+}
+
+static HRESULT STDMETHODCALLTYPE Hook_Present(IDirect3DDevice9* dev, const RECT* src, const RECT* dst, HWND wnd,
+                                              const RGNDATA* dirty)
+{
+    DisplayBeforePresent(dev);
+    return g_realPresent(dev, src, dst, wnd, dirty);
+}
+
+static HRESULT STDMETHODCALLTYPE Hook_CreateDevice(IDirect3D9* d3d, UINT adapter, D3DDEVTYPE type, HWND wnd,
+                                                   DWORD flags, D3DPRESENT_PARAMETERS* pp, IDirect3DDevice9** out)
+{
+    LogParams("CreateDevice requested", pp);
+    Log("  adapter %u type %d hwnd %p behavior 0x%lx", adapter, type, wnd, flags);
+    DisplayAdjustParams(pp);
+    DisplayAdjustWindow(wnd, pp);
+    LogParams("CreateDevice applied", pp);
+    HRESULT hr = g_realCreateDevice(d3d, adapter, type, wnd, flags, pp, out);
+    Log("CreateDevice -> 0x%08lx device %p", hr, out ? *out : nullptr);
+    if (SUCCEEDED(hr) && out && *out && !g_realReset)
+    {
+        void** vt = *reinterpret_cast<void***>(*out);
+        HookAt(vt[kDevice_Reset], reinterpret_cast<void*>(Hook_Reset), reinterpret_cast<void**>(&g_realReset),
+               "IDirect3DDevice9::Reset");
+        HookAt(vt[kDevice_Present], reinterpret_cast<void*>(Hook_Present), reinterpret_cast<void**>(&g_realPresent),
+               "IDirect3DDevice9::Present");
+    }
+    return hr;
+}
+
+static IDirect3D9* WINAPI Hook_Direct3DCreate9(UINT sdk)
+{
+    IDirect3D9* d3d = g_realCreate9(sdk);
+    Log("Direct3DCreate9(%u) -> %p", sdk, d3d);
+    if (d3d && !g_realCreateDevice)
+    {
+        void** vt = *reinterpret_cast<void***>(d3d);
+        HookAt(vt[kD3D9_CreateDevice], reinterpret_cast<void*>(Hook_CreateDevice),
+               reinterpret_cast<void**>(&g_realCreateDevice), "IDirect3D9::CreateDevice");
+    }
+    return d3d;
+}
+
+// Replace one import in the game's IAT. The loader has bound all imports before any DllMain runs.
+static bool PatchImport(const char* dll, const char* func, void* hook, void** original)
+{
+    auto base = reinterpret_cast<BYTE*>(GetModuleHandleA(nullptr));
+    auto nt = reinterpret_cast<IMAGE_NT_HEADERS*>(base + reinterpret_cast<IMAGE_DOS_HEADER*>(base)->e_lfanew);
+    auto& dir = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
+    for (auto imp = reinterpret_cast<IMAGE_IMPORT_DESCRIPTOR*>(base + dir.VirtualAddress); imp->Name; ++imp)
+    {
+        if (_stricmp(reinterpret_cast<char*>(base + imp->Name), dll) != 0)
+            continue;
+        auto names = reinterpret_cast<IMAGE_THUNK_DATA*>(base + imp->OriginalFirstThunk);
+        auto slots = reinterpret_cast<IMAGE_THUNK_DATA*>(base + imp->FirstThunk);
+        for (; names->u1.AddressOfData; ++names, ++slots)
+        {
+            if (IMAGE_SNAP_BY_ORDINAL(names->u1.Ordinal))
+                continue;
+            auto byName = reinterpret_cast<IMAGE_IMPORT_BY_NAME*>(base + names->u1.AddressOfData);
+            if (strcmp(reinterpret_cast<char*>(byName->Name), func) != 0)
+                continue;
+            DWORD old;
+            VirtualProtect(&slots->u1.Function, sizeof(void*), PAGE_READWRITE, &old);
+            *original = reinterpret_cast<void*>(slots->u1.Function);
+            slots->u1.Function = reinterpret_cast<uintptr_t>(hook);
+            VirtualProtect(&slots->u1.Function, sizeof(void*), old, &old);
+            Log("IAT %s!%s at %p patched", dll, func, &slots->u1.Function);
+            return true;
+        }
+    }
+    Log("IAT %s!%s not found", dll, func);
+    return false;
+}
+
+void D3D9HooksInstall()
+{
+    PatchImport("d3d9.dll", "Direct3DCreate9", reinterpret_cast<void*>(Hook_Direct3DCreate9),
+                reinterpret_cast<void**>(&g_realCreate9));
+    DisplayInit();
+}

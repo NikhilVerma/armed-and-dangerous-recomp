@@ -45,3 +45,8 @@ __pycache__/
 .vs/
 .vscode/
 *.swp
+
+# Hook build output and deploy artefacts
+/hook/build/
+and.log
+and-crash.dmp
