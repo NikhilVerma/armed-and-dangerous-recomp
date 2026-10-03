@@ -65,6 +65,10 @@ struct StartupOptions
 {
     bool playIntroMovies = true;  // push the "PlayMovie" screen on the first front-end load
     bool showLegalText = true;    // push the "LegalText" screen on the first front-end load
+    // After the first front-end load, request this level through the main loop's own deferred-load request
+    // (Game::pendingLevelRequest/pendingLevelName, serviced at 0x00402e9e). "lev_1_m1" loads a level;
+    // "-Game 1" restores that save. Empty: original behaviour.
+    wchar_t autoLoad[0x104] = {};
 };
 extern StartupOptions g_startupOptions;
 

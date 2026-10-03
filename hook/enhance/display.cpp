@@ -95,8 +95,44 @@ void DisplayAdjustWindow(HWND wnd, const D3DPRESENT_PARAMETERS* pp)
     SetWindowPos(wnd, HWND_NOTOPMOST, 64, 64, r.right - r.left, r.bottom - r.top, SWP_FRAMECHANGED | SWP_SHOWWINDOW);
 }
 
+// Frame-rate log: frames, average and worst frame time every 2 s (always on; cheap).
+static double g_presentSeconds;  // summed over the current fps window
+
+void DisplayAfterPresent(long long presentTicks)
+{
+    g_presentSeconds += double(presentTicks) / g_freq.QuadPart;
+}
+
+static void CountFrame()
+{
+    static LARGE_INTEGER windowStart, last;
+    static int frames;
+    static double worst;
+    LARGE_INTEGER now;
+    QueryPerformanceCounter(&now);
+    if (windowStart.QuadPart == 0)
+        windowStart = last = now;
+    double ft = double(now.QuadPart - last.QuadPart) / g_freq.QuadPart;
+    if (ft > worst)
+        worst = ft;
+    last = now;
+    frames++;
+    double span = double(now.QuadPart - windowStart.QuadPart) / g_freq.QuadPart;
+    if (span >= 2.0)
+    {
+        float dt = *reinterpret_cast<float*>(0x00604a90);  // game frame delta (seconds), see Timer_Tick
+        Log("fps: %.1f (worst frame %.1f ms), game dt %.2f ms, %.2f ms/frame blocked in Present", frames / span,
+            worst * 1000.0, dt * 1000.0f, g_presentSeconds * 1000.0 / frames);
+        g_presentSeconds = 0;
+        frames = 0;
+        worst = 0;
+        windowStart = now;
+    }
+}
+
 void DisplayBeforePresent(IDirect3DDevice9*)
 {
+    CountFrame();
     if (g_cfg.fpsLimit <= 0)
         return;
     const LONGLONG period = g_freq.QuadPart / g_cfg.fpsLimit;

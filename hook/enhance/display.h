@@ -14,3 +14,4 @@ void DisplayInit();
 void DisplayAdjustParams(D3DPRESENT_PARAMETERS* pp);
 void DisplayAdjustWindow(HWND wnd, const D3DPRESENT_PARAMETERS* pp);
 void DisplayBeforePresent(IDirect3DDevice9* dev);
+void DisplayAfterPresent(long long presentTicks);  // time spent inside Present, for the fps log

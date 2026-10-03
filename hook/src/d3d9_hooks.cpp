@@ -49,7 +49,12 @@ static HRESULT STDMETHODCALLTYPE Hook_Present(IDirect3DDevice9* dev, const RECT*
 {
     TestShotBeforePresent(dev);
     DisplayBeforePresent(dev);
-    return g_realPresent(dev, src, dst, wnd, dirty);
+    LARGE_INTEGER a, b;
+    QueryPerformanceCounter(&a);
+    HRESULT hr = g_realPresent(dev, src, dst, wnd, dirty);
+    QueryPerformanceCounter(&b);
+    DisplayAfterPresent(b.QuadPart - a.QuadPart);
+    return hr;
 }
 
 static HRESULT STDMETHODCALLTYPE Hook_CreateDevice(IDirect3D9* d3d, UINT adapter, D3DDEVTYPE type, HWND wnd,

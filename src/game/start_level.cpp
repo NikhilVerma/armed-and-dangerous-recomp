@@ -232,6 +232,11 @@ bool Game_StartLevel(Game* self, const wchar_t* name, uint32_t arg1, uint32_t re
             if (g_startupOptions.showLegalText)
                 Orig_PushScreen(self->ui, kStrLegalText, nullptr);
             self->shellFlags |= 2;
+            if (g_startupOptions.autoLoad[0])
+            {
+                wcsncpy(self->pendingLevelName, g_startupOptions.autoLoad, 0x103);
+                self->pendingLevelRequest = 1;
+            }
         }
         Orig_00401e80(self, false, 1);
     }
