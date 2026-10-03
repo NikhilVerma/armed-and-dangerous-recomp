@@ -16,6 +16,8 @@ struct HookEntry
     void* replacement;
     void** original;   // optional: set to a callable trampoline
     HookEntry* next;
+    void* wrapper = nullptr;       // set by HookWrap: an enhancement that runs in front of the function
+    void** wrapperNext = nullptr;  // receives whatever the wrapper must call: recovered code or original
 };
 
 struct HookRegistrar
@@ -29,9 +31,18 @@ struct HookRegistrar
     static HookEntry HOOK_CONCAT(hook_entry_, __LINE__){addr, name, (void*)(fn), (void**)(orig), nullptr}; \
     static HookRegistrar HOOK_CONCAT(hook_reg_, __LINE__)(&HOOK_CONCAT(hook_entry_, __LINE__))
 
+// Enhancements (hook/enhance/) extend a function without editing src/: the wrapper is installed at the
+// function's address and `*next` is set to the recovered function, or to the original when its [hooks] switch
+// is 0. Call before HooksInstallAll. Returns false if no hook with that name is registered.
+bool HookWrap(const char* name, void* wrapper, void** next);
+
 bool HooksInit();
 void HooksInstallAll();
 void HooksLogActive();
 
 // Hook any code address (used by enhancements and API hooks). Returns false on failure.
 bool HookAt(void* target, void* detour, void** original, const char* label);
+
+// Overwrite bytes in the game image after checking they still hold `expected` (guards against a wrong build).
+bool PatchBytes(unsigned address, const void* expected, const void* replacement, unsigned length, const char* label);
+bool PatchU32(unsigned address, unsigned expected, unsigned value, const char* label);

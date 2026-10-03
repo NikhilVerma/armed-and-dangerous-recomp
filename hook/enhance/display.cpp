@@ -1,6 +1,9 @@
 #include "display.h"
 
 #include "config.h"
+#include "engine/app.h"
+#include "renderer/renderer.h"
+#include "hooks.h"
 #include "log.h"
 
 static struct
@@ -9,6 +12,28 @@ static struct
 } g_cfg;
 
 static LARGE_INTEGER g_freq, g_lastPresent;
+
+using AppInit_t = decltype(&App_Init);
+static AppInit_t g_nextAppInit;
+
+static void __fastcall Display_App_Init(App* self, void* edx, const AppConfig* config, uint32_t arg2, uint32_t arg3)
+{
+    AppConfig cfg{};
+    if (config)
+        cfg = *config;
+    if (!(cfg.present & 1))
+    {
+        // Same as App_Init's own defaults, except the size.
+        cfg.present |= 1;
+        cfg.displayFlags |= 3;
+        cfg.bpp = 32;
+    }
+    Log("display: start-up size %dx%d (caller %s)", g_cfg.width, g_cfg.height,
+        config && (config->present & 1) ? "supplied a size" : "used the 640x480 default");
+    cfg.width = g_cfg.width;
+    cfg.height = g_cfg.height;
+    g_nextAppInit(self, edx, &cfg, arg2, arg3);
+}
 
 void DisplayInit()
 {
@@ -20,15 +45,31 @@ void DisplayInit()
     QueryPerformanceFrequency(&g_freq);
     Log("display: windowed %d size %dx%d vsync %d fps_limit %d", g_cfg.windowed, g_cfg.width, g_cfg.height,
         g_cfg.vsync, g_cfg.fpsLimit);
+
+    // App_Init (src/engine/app_init.cpp) defaults the display block to 640x480x32 when the caller supplies
+    // none. Wrapping it with a filled display block makes the game itself choose the configured size, so its
+    // mode selection, window and viewport follow it.
+    if (g_cfg.width > 0 && g_cfg.height > 0)
+        HookWrap("App_Init", reinterpret_cast<void*>(Display_App_Init), reinterpret_cast<void**>(&g_nextAppInit));
+
+    // The renderer only offers modes 640-1600 wide in 16:9, 4:3 or 5:4 (src/renderer/display_modes.cpp).
+    // all_modes=1 offers every mode the adapter reports; a configured size needs it to be selectable.
+    if (ConfigInt("display", "all_modes", 0) || g_cfg.width > 0)
+    {
+        g_displayModeFilter.minWidth = 320;
+        g_displayModeFilter.maxWidth = 16384;
+        g_displayModeFilter.allowAnyAspect = true;
+        Log("display: all adapter modes offered");
+    }
 }
 
 void DisplayAdjustParams(D3DPRESENT_PARAMETERS* pp)
 {
-    if (g_cfg.width > 0 && g_cfg.height > 0)
-    {
-        pp->BackBufferWidth = g_cfg.width;
-        pp->BackBufferHeight = g_cfg.height;
-    }
+    // Size is set by the game from the patched defaults; only report a mismatch here.
+    if (g_cfg.width > 0 && g_cfg.height > 0 &&
+        (pp->BackBufferWidth != static_cast<UINT>(g_cfg.width) || pp->BackBufferHeight != static_cast<UINT>(g_cfg.height)))
+        Log("display: game requested %ux%u, configured %dx%d", pp->BackBufferWidth, pp->BackBufferHeight,
+            g_cfg.width, g_cfg.height);
     if (g_cfg.windowed)
     {
         pp->Windowed = TRUE;

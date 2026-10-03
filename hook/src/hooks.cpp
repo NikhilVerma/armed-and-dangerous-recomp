@@ -14,6 +14,22 @@ HookRegistrar::HookRegistrar(HookEntry* e)
     g_entries = e;
 }
 
+bool HookWrap(const char* name, void* wrapper, void** next)
+{
+    for (HookEntry* e = g_entries; e; e = e->next)
+    {
+        if (strcmp(e->name, name) == 0)
+        {
+            e->wrapper = wrapper;
+            e->wrapperNext = next;
+            Log("wrap %s with an enhancement", name);
+            return true;
+        }
+    }
+    Log("wrap %s: no such hook", name);
+    return false;
+}
+
 bool HooksInit()
 {
     MH_STATUS s = MH_Initialize();
@@ -34,19 +50,48 @@ bool HookAt(void* target, void* detour, void** original, const char* label)
     return s == MH_OK;
 }
 
+// Last resort for data that has no function to recover (e.g. a constant table). Code changes go through
+// recovered functions plus HookWrap instead.
+bool PatchBytes(unsigned address, const void* expected, const void* replacement, unsigned length, const char* label)
+{
+    auto p = reinterpret_cast<void*>(static_cast<uintptr_t>(address));
+    if (memcmp(p, expected, length) != 0)
+    {
+        Log("patch %-40s at 0x%08x: original bytes differ, NOT patched", label, address);
+        return false;
+    }
+    DWORD old;
+    VirtualProtect(p, length, PAGE_EXECUTE_READWRITE, &old);
+    memcpy(p, replacement, length);
+    VirtualProtect(p, length, old, &old);
+    FlushInstructionCache(GetCurrentProcess(), p, length);
+    Log("patch %-40s at 0x%08x: ok", label, address);
+    return true;
+}
+
+bool PatchU32(unsigned address, unsigned expected, unsigned value, const char* label)
+{
+    return PatchBytes(address, &expected, &value, sizeof(value), label);
+}
+
 void HooksInstallAll()
 {
     int on = 0, off = 0;
     for (HookEntry* e = g_entries; e; e = e->next)
     {
         int mode = ConfigInt("hooks", e->name, 1);
-        if (mode == 0)
-        {
-            off++;
+        mode == 0 ? off++ : on++;
+        if (mode == 0 && !e->wrapper)
             continue;
-        }
-        if (HookAt(reinterpret_cast<void*>(static_cast<uintptr_t>(e->address)), e->replacement, e->original, e->name))
-            on++;
+        void* target = reinterpret_cast<void*>(static_cast<uintptr_t>(e->address));
+        void* detour = e->wrapper ? e->wrapper : e->replacement;
+        void* trampoline = nullptr;
+        if (!HookAt(target, detour, &trampoline, e->name))
+            continue;
+        if (e->original)
+            *e->original = trampoline;
+        if (e->wrapper)
+            *e->wrapperNext = mode == 0 ? trampoline : e->replacement;
     }
     Log("recovered-function hooks: %d enabled, %d switched off", on, off);
 }

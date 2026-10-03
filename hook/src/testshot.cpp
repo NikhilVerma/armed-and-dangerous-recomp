@@ -1,0 +1,81 @@
+// Back-buffer screenshots for tests (handover s12: capture at present time, not from the desktop).
+//
+// [test] shots=8,15   seconds after start-up at which to save and-shot-<seconds>s.bmp next to the game.
+#include <windows.h>
+#include <d3d9.h>
+
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+
+#include "config.h"
+#include "log.h"
+
+static float g_shotTimes[16];
+static int g_shotCount, g_nextShot;
+static ULONGLONG g_startTick;
+
+void TestShotInit()
+{
+    g_startTick = GetTickCount64();
+    char buf[256];
+    char ini[MAX_PATH];
+    GetModuleFileNameA(nullptr, ini, MAX_PATH);
+    strcpy(strrchr(ini, '\\') + 1, "and.ini");
+    GetPrivateProfileStringA("test", "shots", "", buf, sizeof(buf), ini);
+    for (char* tok = strtok(buf, ","); tok && g_shotCount < 16; tok = strtok(nullptr, ","))
+        g_shotTimes[g_shotCount++] = static_cast<float>(atof(tok));
+}
+
+static void SaveBackBuffer(IDirect3DDevice9* dev, const char* path)
+{
+    IDirect3DSurface9* back = nullptr;
+    IDirect3DSurface9* copy = nullptr;
+    D3DSURFACE_DESC desc;
+    D3DLOCKED_RECT lr;
+    if (FAILED(dev->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &back)))
+        return;
+    back->GetDesc(&desc);
+    if (SUCCEEDED(dev->CreateOffscreenPlainSurface(desc.Width, desc.Height, desc.Format, D3DPOOL_SYSTEMMEM, &copy,
+                                                   nullptr)) &&
+        SUCCEEDED(dev->GetRenderTargetData(back, copy)) && SUCCEEDED(copy->LockRect(&lr, nullptr, D3DLOCK_READONLY)))
+    {
+        FILE* f = fopen(path, "wb");
+        if (f)
+        {
+            BITMAPFILEHEADER fh{};
+            BITMAPINFOHEADER ih{};
+            ih.biSize = sizeof(ih);
+            ih.biWidth = desc.Width;
+            ih.biHeight = -static_cast<LONG>(desc.Height);  // top-down
+            ih.biPlanes = 1;
+            ih.biBitCount = 32;
+            fh.bfType = 0x4d42;
+            fh.bfOffBits = sizeof(fh) + sizeof(ih);
+            fh.bfSize = fh.bfOffBits + desc.Width * desc.Height * 4;
+            fwrite(&fh, sizeof(fh), 1, f);
+            fwrite(&ih, sizeof(ih), 1, f);
+            for (UINT y = 0; y < desc.Height; y++)
+                fwrite(static_cast<BYTE*>(lr.pBits) + y * lr.Pitch, 4, desc.Width, f);  // X8R8G8B8 = BGRA bytes
+            fclose(f);
+            Log("test: saved %s (%ux%u, format %d)", path, desc.Width, desc.Height, desc.Format);
+        }
+        copy->UnlockRect();
+    }
+    if (copy)
+        copy->Release();
+    back->Release();
+}
+
+void TestShotBeforePresent(IDirect3DDevice9* dev)
+{
+    if (g_nextShot >= g_shotCount)
+        return;
+    float elapsed = (GetTickCount64() - g_startTick) / 1000.0f;
+    if (elapsed < g_shotTimes[g_nextShot])
+        return;
+    char path[64];
+    sprintf(path, "and-shot-%gs.bmp", g_shotTimes[g_nextShot]);
+    SaveBackBuffer(dev, path);
+    g_nextShot++;
+}

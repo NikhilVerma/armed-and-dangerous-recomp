@@ -3,10 +3,15 @@
 #include <windows.h>
 #include <unknwn.h>
 
+#include "display.h"
 #include "hooks.h"
 #include "log.h"
 
 void CrashInstall();
+void StartupInit();
+void TestShotInit();
+void InputHooksInit();
+void InputHooksOnDirectInput(void* directInput);
 void D3D9HooksInstall();
 
 // The game expects this image base; refuse to patch anything else.
@@ -30,9 +35,13 @@ static void Startup()
 {
     LogOpen();
     Log("and_hook loaded into %s", GetCommandLineA());
+    TestShotInit();
+    InputHooksInit();
     CrashInstall();
     if (!CheckGameBuild() || !HooksInit())
         return;
+    DisplayInit();  // enhancements register their wrappers before hooks are installed
+    StartupInit();
     HooksInstallAll();
     D3D9HooksInstall();
 }
@@ -54,7 +63,10 @@ extern "C" HRESULT WINAPI Proxy_DirectInput8Create(HINSTANCE inst, DWORD version
         real = m ? reinterpret_cast<DirectInput8Create_t>(GetProcAddress(m, "DirectInput8Create")) : nullptr;
         Log("real dinput8: %s -> %p", path, real);
     }
-    return real ? real(inst, version, riid, out, outer) : E_FAIL;
+    HRESULT hr = real ? real(inst, version, riid, out, outer) : E_FAIL;
+    if (SUCCEEDED(hr) && out && *out)
+        InputHooksOnDirectInput(*out);
+    return hr;
 }
 
 BOOL WINAPI DllMain(HINSTANCE, DWORD reason, LPVOID)

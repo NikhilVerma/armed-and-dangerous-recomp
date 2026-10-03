@@ -8,6 +8,8 @@
 #include "hooks.h"
 #include "log.h"
 
+void TestShotBeforePresent(IDirect3DDevice9* dev);
+
 // vtable slots from d3d9.h declaration order
 static constexpr int kD3D9_CreateDevice = 16;
 static constexpr int kDevice_Reset = 16;
@@ -45,6 +47,7 @@ static HRESULT STDMETHODCALLTYPE Hook_Reset(IDirect3DDevice9* dev, D3DPRESENT_PA
 static HRESULT STDMETHODCALLTYPE Hook_Present(IDirect3DDevice9* dev, const RECT* src, const RECT* dst, HWND wnd,
                                               const RGNDATA* dirty)
 {
+    TestShotBeforePresent(dev);
     DisplayBeforePresent(dev);
     return g_realPresent(dev, src, dst, wnd, dirty);
 }
@@ -119,5 +122,4 @@ void D3D9HooksInstall()
 {
     PatchImport("d3d9.dll", "Direct3DCreate9", reinterpret_cast<void*>(Hook_Direct3DCreate9),
                 reinterpret_cast<void**>(&g_realCreate9));
-    DisplayInit();
 }

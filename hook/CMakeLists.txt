@@ -22,18 +22,25 @@ set_property(TARGET minhook PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONF
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")  # static CRT: no DLL dependencies
 
+# Recovered game code: every .cpp under src/ is linked into the hook DLL and registers its own HOOK() entries.
+file(GLOB_RECURSE RECOVERED_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/../src/*.cpp)
+
 add_library(and_hook SHARED
+  ${RECOVERED_SOURCES}
   src/main.cpp
   src/log.cpp
   src/config.cpp
   src/crash.cpp
   src/hooks.cpp
   src/d3d9_hooks.cpp
+  src/testshot.cpp
+  src/input_hooks.cpp
   enhance/display.cpp
+  enhance/startup.cpp
   dinput8.def)
 
 target_include_directories(and_hook PRIVATE src enhance ../src ${minhook_SOURCE_DIR}/include)
-target_link_libraries(and_hook PRIVATE minhook d3d9 dbghelp)
+target_link_libraries(and_hook PRIVATE minhook d3d9 dbghelp dxguid)
 set_target_properties(and_hook PROPERTIES OUTPUT_NAME dinput8)
 
 # x87 and precise floating point while differential tests need exact agreement (handover s8).
