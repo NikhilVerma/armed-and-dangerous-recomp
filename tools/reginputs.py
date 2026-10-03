@@ -59,6 +59,182 @@ def is_self_clear(i):
 _clobber_cache = {}
 
 
+_pops_cache = {}
+
+
+def pops_register(func, reg):
+    """Does the function's code pop `reg` somewhere (scanning its body until a ret, max 4 KB)? A push of a
+    callee-saved register is a save only when it is later restored; otherwise it passes the caller's value on
+    (0x0045d510 pushes EDI as an allocation size)."""
+    key = (func, reg)
+    if key in _pops_cache:
+        return _pops_cache[key]
+    body = function_body(func)
+    # A function that never returns (fatal error 0x004495b0) saves registers it never restores.
+    found = not any(i.mnemonic == "ret" for i in body)
+    for i in body:
+        if (i.mnemonic == "leave" and reg == "ebp") or (
+                i.mnemonic == "pop" and i.operands and i.operands[0].type == x86.X86_OP_REG
+                and family(i.reg_name(i.operands[0].reg)) == reg):
+            found = True
+            break
+    _pops_cache[key] = found
+    return found
+
+
+_body_cache = {}
+
+
+def function_body(func):
+    """Instructions reachable from `func` without following calls (direct jumps, conditional branches and
+    switch tables are followed). Linear scans run into neighbouring functions or stop short in big ones."""
+    if func in _body_cache:
+        return _body_cache[func]
+    body, work, seen = [], [func], set()
+    while work and len(seen) < 30000:
+        addr = work.pop()
+        while addr not in seen:
+            seen.add(addr)
+            try:
+                i = insn_at(addr)
+            except StopIteration:
+                break
+            body.append(i)
+            if i.mnemonic == "ret" or i.mnemonic in ("int3", "hlt"):
+                break
+            if i.mnemonic == "jmp":
+                op = i.operands[0]
+                if op.type == x86.X86_OP_IMM:
+                    addr = op.imm
+                    continue
+                work.extend(jump_table_targets(i, func) or [])
+                break
+            if i.group(capstone.CS_GRP_JUMP):
+                work.append(i.operands[0].imm)
+            addr = i.address + i.size
+    body.sort(key=lambda x: x.address)
+    _body_cache[func] = body
+    return body
+
+
+def callee_pop_bytes(func):
+    """Bytes a callee removes from the stack on return (`ret N`), 0 for plain `ret`, None if not found."""
+    for i in MD.disasm(IMG[func - BASE:func - BASE + 0x2000], func):
+        if i.mnemonic == "ret":
+            return int(i.op_str, 16) if i.op_str else 0
+    return None
+
+
+def stack_arg_count(func, explain=False):
+    """Highest stack argument slot the function reads, counted from [esp+4] at entry (so 2 means it reads
+    arguments 0 and 1). Tracks the stack depth along every path: push/pop, sub/add esp, a frame pointer
+    (mov ebp, esp), and callees that pop their own arguments. A path becomes untrackable (and stops) on
+    `and esp` alignment without a frame pointer or an unknown adjustment."""
+    best, why = 0, None
+    work = [(func, 0, None)]  # (address, depth below entry esp, ebp offset below entry esp or None)
+    seen = set()
+    steps = 0
+    pending_pushes = 0
+    while work and steps < 20000:
+        addr, depth, ebp = work.pop()
+        pending = 0
+        while steps < 20000:
+            if (addr, depth, ebp) in seen:
+                break
+            seen.add((addr, depth, ebp))
+            steps += 1
+            try:
+                i = insn_at(addr)
+            except StopIteration:
+                break
+            for op in i.operands:
+                if op.type != x86.X86_OP_MEM or op.mem.index != 0:
+                    continue
+                base = i.reg_name(op.mem.base) if op.mem.base else None
+                disp = op.mem.disp
+                if base == "esp" and depth is not None:
+                    entry_off = disp - depth
+                elif base == "ebp" and ebp is not None:
+                    entry_off = disp - ebp
+                else:
+                    continue
+                if entry_off >= 4 and (entry_off - 4) % 4 == 0 and entry_off < 0x100:
+                    if (entry_off - 4) // 4 + 1 > best:
+                        best = (entry_off - 4) // 4 + 1
+                        why = f"{i.address:08x}: {i.mnemonic} {i.op_str} (depth {depth})"
+            m, ops = i.mnemonic, i.op_str
+            if m == "push":
+                pending += 1
+                if depth is not None:
+                    depth += 4
+            elif m == "pop":
+                pending = max(0, pending - 1)
+                if depth is not None:
+                    depth -= 4
+                if ops == "ebp":
+                    ebp = None
+            elif m in ("sub", "add") and ops.startswith("esp, "):
+                try:
+                    k = int(ops.split(", ")[1], 0)
+                    if depth is not None:
+                        depth += k if m == "sub" else -k
+                        if depth < 0:
+                            depth = None  # inconsistent tracking: stop trusting this path
+                except ValueError:
+                    depth = None
+                pending = 0
+            elif m == "mov" and ops == "ebp, esp":
+                ebp = depth
+            elif m == "mov" and ops == "esp, ebp":
+                depth = ebp
+            elif m == "and" and ops.startswith("esp, "):
+                depth = None
+            elif m == "leave":
+                depth = None if ebp is None else ebp - 4
+                ebp = None
+            elif m == "call":
+                op = i.operands[0]
+                if op.type == x86.X86_OP_IMM:
+                    popped = callee_pop_bytes(op.imm) or 0
+                else:
+                    # COM / thiscall virtuals pop their own arguments; a cdecl pointer call is followed by the
+                    # caller's `add esp`.
+                    # caller's `add esp`, possibly merged with the next call's cleanup (0x00502d0c).
+                    cleaned, a2 = False, i.address + i.size
+                    for _ in range(12):
+                        nxt = insn_at(a2)
+                        if nxt.mnemonic == "add" and nxt.op_str.startswith("esp, "):
+                            cleaned = True
+                            break
+                        if nxt.mnemonic in ("ret", "jmp") or nxt.group(capstone.CS_GRP_JUMP):
+                            break
+                        a2 += nxt.size
+                    popped = 0 if cleaned else 4 * pending
+                if depth is not None:
+                    depth -= popped
+                    if depth < 0:
+                        depth = None
+                pending = 0
+            elif m not in ("mov", "lea", "push"):
+                pending = 0  # argument pushes are set up with loads in between; anything else starts afresh
+            if m == "ret":
+                break
+            if m == "jmp":
+                op = i.operands[0]
+                if op.type == x86.X86_OP_IMM:
+                    addr = op.imm
+                    continue
+                for t in jump_table_targets(i, func) or []:
+                    work.append((t, depth, ebp))
+                break
+            if i.group(capstone.CS_GRP_JUMP):
+                work.append((i.operands[0].imm, depth, ebp))
+            addr = i.address + i.size
+    if explain:
+        return best, why
+    return best
+
+
 def jump_table_targets(i, func):
     """Targets of a switch `jmp dword ptr [reg*4 + table]`: consecutive table entries that point into the code
     just around the function. Returns None when the jump is not a recognisable table."""
@@ -97,7 +273,7 @@ def clobbers(func, depth=3):
                 break
             if i.mnemonic == "push" and i.operands[0].type == x86.X86_OP_REG:
                 r = family(i.reg_name(i.operands[0].reg))
-                if r in CALLEE_SAVED and r not in written:
+                if r in CALLEE_SAVED and r not in written and pops_register(func, r):
                     saved.add(r)
             else:
                 _, wr = i.regs_access()
@@ -153,8 +329,9 @@ def inputs(func, depth):
             rd = {family(i.reg_name(r)) for r in reads} - {None}
             wr = {family(i.reg_name(r)) for r in writes} - {None}
             if (i.mnemonic == "push" and i.operands[0].type == x86.X86_OP_REG
-                    and family(i.reg_name(i.operands[0].reg)) in CALLEE_SAVED):
-                rd = set()  # saving a callee-saved register is not a use (pushing eax/ecx/edx passes a value)
+                    and family(i.reg_name(i.operands[0].reg)) in CALLEE_SAVED
+                    and pops_register(func, family(i.reg_name(i.operands[0].reg)))):
+                rd = set()  # saving a callee-saved register is not a use (unless it is never restored)
             if is_self_clear(i):
                 rd = set()
             for r in rd - set(written):

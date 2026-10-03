@@ -99,7 +99,7 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x00408800,eax ecx,0,caller,eax,eax,46,unconfirmed: eax,
 0x00408820,ecx,2,callee,eax,eax ecx edx,5,unconfirmed: ecx,
 0x00408a70,eax ecx,6,callee,eax,eax ecx edx,12,unconfirmed: eax,
-0x00408c70,eax edx esi ebp,6,callee,eax,eax ecx edx,5,unconfirmed: edx,unsupported: ebp input
+0x00408c70,eax edx ebx esi ebp,6,callee,eax,eax ecx edx,5,unconfirmed: edx ebx,unsupported: ebp input
 0x00408d90,eax esi,6,callee,eax,eax ecx edx,24,unconfirmed: eax,
 0x00408e30,eax ecx edx,5,callee,eax,eax ecx edx,55,unconfirmed: edx,
 0x00408ee0,edx,3,callee,eax,eax ecx edx,2,confirmed,
@@ -180,9 +180,9 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x00410ca0,,0,caller,eax,eax ecx edx,1,confirmed,
 0x00410d40,,0,caller,eax,eax ecx edx,1,confirmed,
 0x00410d70,,0,caller,eax,eax ecx edx,1,,
-0x00410e00,ecx,0,caller,eax,eax ecx edx,2,,
-0x00410e40,,1,caller,eax,eax ecx edx,1,,
-0x00410ea0,,0,caller,eax,eax ecx edx,1,,
+0x00410e00,ecx ebx,0,caller,eax,eax ecx edx,2,,
+0x00410e40,ebx,1,caller,eax,eax ecx edx,1,,
+0x00410ea0,ebx,0,caller,eax,eax ecx edx,1,,
 0x00410ec0,,0,caller,eax,eax ecx edx,1,confirmed,
 0x00410fa0,,0,caller,eax,eax ecx edx,0,,
 0x004112c0,eax,0,caller,none,,2,confirmed,
@@ -299,7 +299,7 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x00417b40,esi,0,caller,eax,eax ecx edx,1,confirmed,no ret found (tail jump or noreturn)
 0x00417b90,ecx edx,0,caller,eax,eax ecx edx,3,unconfirmed: edx,
 0x00417c00,eax,0,caller,eax,eax ecx edx,1,confirmed,
-0x00417e90,esi,0,caller,eax,eax ecx edx,2,confirmed,
+0x00417e90,ebx esi,0,caller,eax,eax ecx edx,2,unconfirmed: ebx,
 0x00417f20,,1,callee,eax,eax ecx edx,1,confirmed,
 0x00418190,ecx esi,1,callee,eax,eax ecx edx,1,unconfirmed: ecx,
 0x004181e0,esi,0,caller,eax,eax ecx edx,1,confirmed,
@@ -432,7 +432,7 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x0041fdb0,eax ecx,1,callee,eax,eax ecx edx,2,,
 0x0041fe00,eax ecx,3,callee,eax,eax ecx edx,1,,
 0x0041ff60,ebx esi edi,4,callee,eax,eax ecx edx,1,unconfirmed: edi,
-0x00420080,eax,5,callee,eax,eax ecx edx,2,confirmed,
+0x00420080,eax edi,5,callee,eax,eax ecx edx,2,unconfirmed: edi,
 0x004201f0,eax,4,callee,eax,eax ecx edx,1,confirmed,
 0x00420260,eax,1,callee,eax,eax ecx edx,1,,
 0x004202b0,eax ecx edx,4,callee,eax,eax ecx edx,4,,
@@ -467,7 +467,7 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x004266b0,edi,0,caller,eax,eax ecx edx,6,confirmed,
 0x004267a0,eax,0,caller,eax,eax,1,,
 0x004268e0,esi,1,callee,eax,eax ecx edx,5,,
-0x00426920,ebx,3,callee,eax,eax ecx edx,7,confirmed,
+0x00426920,ebx,3,callee,eax,eax ecx edx ebx,7,confirmed,
 0x00426ee0,eax edi,2,callee,eax,eax ecx edx,0,,
 0x00426fd0,eax ecx,2,callee,eax,eax ecx edx,11,confirmed,
 0x00427100,eax,0,caller,eax,eax ecx edx,3,,
@@ -486,7 +486,7 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x00428340,ecx esi,2,callee,eax,eax ecx edx,1,,
 0x004284e0,ecx,4,callee,eax,eax ecx edx,0,confirmed,
 0x00428fc0,ecx,1,callee,eax,eax ecx edx,0,confirmed,
-0x004292f0,eax esi,8,callee,eax,eax ecx edx,1,,
+0x004292f0,eax ebx esi,8,callee,eax,eax ecx edx,1,,
 0x004297a0,ecx,3,callee,eax,eax ecx edx,0,confirmed,
 0x00429870,edi,1,callee,eax,eax ecx edx,2,,
 0x004298a0,edi,3,callee,eax edx,eax ecx edx,1,,
@@ -563,7 +563,7 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x00432630,ecx,2,callee,eax,eax ecx edx,0,confirmed,
 0x00432730,ecx,0,caller,eax,eax ecx edx,1,confirmed,
 0x00432ee0,ecx edx,1,caller,eax,eax,4,confirmed,
-0x00432ef0,eax ecx esi,0,caller,eax,eax ecx edx,0,unconfirmed: eax,
+0x00432ef0,eax ecx esi edi,0,caller,eax,eax ecx edx,0,unconfirmed: eax edi,
 0x004331f0,eax ecx edx,2,callee,none,ecx edx,0,unconfirmed: ecx edx,
 0x00433b80,eax,0,caller,eax,eax,4,,
 0x00433b90,eax,0,caller,eax,eax,4,,
@@ -597,28 +597,28 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x004375e0,ecx,0,caller,eax,eax ecx edx,0,,
 0x00437940,ecx,0,caller,eax,eax ecx edx,0,,
 0x004382e0,ecx,0,caller,eax,eax ecx edx,0,,
-0x004383a0,esi,2,caller,eax,eax ecx edx,1,,
-0x004385c0,esi,0,caller,eax,eax ecx edx,0,,
+0x004383a0,esi edi,2,caller,eax,eax ecx edx,1,,
+0x004385c0,esi edi,0,caller,eax,eax ecx edx,0,,
 0x00438810,eax ecx ebx,0,caller,eax,eax ecx edx,0,,
-0x00438a60,esi,0,caller,eax,eax ecx edx,0,,
+0x00438a60,esi edi,0,caller,eax,eax ecx edx,0,,
 0x00438c40,eax ecx esi,0,caller,eax,eax ecx edx,0,,
-0x00438cb0,esi,0,caller,eax,eax ecx edx,0,unconfirmed: esi,
-0x00438eb0,eax esi,0,caller,eax,eax ecx edx,0,,
-0x00438fc0,eax,0,caller,eax,eax ecx edx,0,,
-0x004390e0,eax,0,caller,eax,eax ecx edx,0,,
-0x004391f0,eax,0,caller,eax,eax ecx edx,0,confirmed,
-0x004392f0,esi,0,caller,eax,eax ecx edx,0,,
-0x004394c0,ecx,2,caller,eax,eax ecx edx,1,,
-0x004396a0,ebx esi,0,caller,eax,eax ecx edx,0,unconfirmed: ebx esi,
+0x00438cb0,esi edi,0,caller,eax,eax ecx edx,0,unconfirmed: esi edi,
+0x00438eb0,eax esi edi,0,caller,eax,eax ecx edx,0,,
+0x00438fc0,eax esi,0,caller,eax,eax ecx edx,0,,
+0x004390e0,eax esi,0,caller,eax,eax ecx edx,0,,
+0x004391f0,eax esi,0,caller,eax,eax ecx edx,0,unconfirmed: esi,
+0x004392f0,esi edi,0,caller,eax,eax ecx edx,0,,
+0x004394c0,ecx esi,2,caller,eax,eax ecx edx,1,,
+0x004396a0,ebx esi edi,0,caller,eax,eax ecx edx,0,unconfirmed: ebx esi edi,
 0x00439890,ebx esi edi,0,caller,eax,eax ecx edx,0,unconfirmed: ebx esi edi,
-0x00439ae0,eax esi,0,caller,eax,eax ecx edx,0,,
-0x00439cb0,eax esi,0,caller,eax,eax ecx edx,0,,
+0x00439ae0,eax esi edi,0,caller,eax,eax ecx edx,0,,
+0x00439cb0,eax esi edi,0,caller,eax,eax ecx edx,0,,
 0x00439d50,eax esi,0,caller,eax,eax ecx edx,0,,
 0x00439e30,ecx,0,caller,eax,eax ecx edx,0,,
 0x00439f70,ecx,0,caller,eax,eax ecx edx,0,,
 0x0043a0f0,ecx,0,caller,eax,eax ecx edx,0,,
-0x0043a100,esi,0,caller,eax,eax ecx edx,0,,
-0x0043a2b0,,0,caller,eax,eax ecx edx,1,,
+0x0043a100,esi edi,0,caller,eax,eax ecx edx,0,,
+0x0043a2b0,esi,0,caller,eax,eax ecx edx,1,,
 0x0043a300,ecx,0,caller,eax,eax ecx edx,0,,
 0x0043a680,ecx,0,caller,eax,eax ecx edx,0,,
 0x0043a8d0,esi,0,caller,eax,eax ecx edx,3,confirmed,
@@ -728,7 +728,7 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x0044ba30,,3,callee,eax,eax ecx edx,3,confirmed,
 0x0044bff0,esi,2,callee,eax,eax ecx edx,1,confirmed,
 0x0044c030,ebx,1,caller,eax,eax ecx edx,7,confirmed,
-0x0044d1f0,,2,callee,eax,eax ecx edx,0,,
+0x0044d1f0,edi,2,callee,eax,eax ecx edx,0,,
 0x0044daf0,,0,caller,eax,eax ecx edx,0,,
 0x0044e0c0,eax,0,caller,eax,eax ecx edx,1,,
 0x0044e0e0,eax,0,caller,eax,eax ecx edx,0,,
@@ -952,7 +952,7 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x0045bf70,,0,caller,eax,eax ecx edx,1,confirmed,no ret found (tail jump or noreturn)
 0x0045d4a0,eax,0,caller,eax,eax ecx edx,1,unconfirmed: eax,
 0x0045d4e0,ebx,0,caller,eax,eax ecx edx,1,unconfirmed: ebx,no ret found (tail jump or noreturn)
-0x0045d510,eax,1,callee,eax,eax ecx edx,1,confirmed,
+0x0045d510,eax edi,1,callee,eax,eax ecx edx,1,unconfirmed: edi,
 0x0045d570,eax,0,caller,eax,eax ecx edx ebx,1,confirmed,
 0x0045d5f0,eax,0,caller,eax,eax ecx edx ebx,1,,
 0x0045d670,,2,callee,eax,eax ecx edx,2,confirmed,
@@ -1018,18 +1018,18 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x00462770,eax,0,caller,eax,eax ecx edx,1,,
 0x00462790,,1,callee,eax,eax ecx edx,0,confirmed,
 0x00462930,esi,0,caller,eax,eax ecx edx,1,unconfirmed: esi,
-0x00462950,eax,1,callee,eax,eax ecx edx,1,confirmed,
+0x00462950,eax edi,1,callee,eax,eax ecx edx,1,unconfirmed: edi,
 0x004629b0,,0,caller,eax,eax ecx edx,1,confirmed,no ret found (tail jump or noreturn)
 0x004637d0,eax,0,caller,eax,eax ecx edx,2,confirmed,
-0x00463890,,1,callee,eax,eax ecx edx,28,confirmed,
+0x00463890,ebx,1,callee,eax,eax ecx edx,28,unconfirmed: ebx,
 0x00463930,,4,callee,eax,eax ecx edx,1,confirmed,
 0x00463a00,,4,callee,eax,eax ecx edx,0,,
 0x00463ac0,eax ecx,0,caller,st0,eax ecx edx,1,confirmed,
 0x00463ad0,ebx,2,callee,eax,eax ecx edx,50,confirmed,
 0x00463b90,eax ecx,2,callee,eax,eax ecx edx,3,,
 0x00463c50,ecx edi,0,caller,eax,eax ecx edx ebx,2,unconfirmed: ecx,
-0x00463c90,,1,callee,eax,eax ecx edx,2,confirmed,
-0x00463d20,edi,0,caller,eax,eax ecx edx,0,,
+0x00463c90,ebx,1,callee,eax,eax ecx edx,2,unconfirmed: ebx,
+0x00463d20,ebx edi,0,caller,eax,eax ecx edx,0,,
 0x00463d60,ebx,1,callee,eax,eax ecx edx,1,unconfirmed: ebx,
 0x00463df0,,1,callee,eax,eax ecx edx,1,confirmed,
 0x00463e80,ebx,4,callee,eax,eax ecx edx,3,confirmed,
@@ -1063,7 +1063,7 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x004655b0,,8,callee,eax,eax ecx edx,2,confirmed,
 0x00465680,ecx,0,caller,st0,eax ecx edx,1,confirmed,
 0x004656f0,esi,2,callee,eax,eax ecx edx,1,confirmed,
-0x00465720,,3,caller,st0,eax ecx edx,3,confirmed,
+0x00465720,ebx,3,caller,st0,eax ecx edx,3,unconfirmed: ebx,
 0x00465850,ecx edi,1,callee,eax,eax ecx edx,11,confirmed,
 0x004658a0,eax esi,0,caller,eax,eax ecx edx,4,confirmed,
 0x00465970,ecx esi,2,caller,eax,eax ecx edx,10,unconfirmed: ecx,
@@ -1200,7 +1200,7 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x0046f6d0,eax ecx ebx,5,callee,eax edx,eax ecx edx,23,confirmed,
 0x0046f830,eax,2,callee,eax,eax ecx edx,2,confirmed,
 0x0046f900,,2,callee,eax,eax ecx edx,2,confirmed,
-0x0046fa40,esi,0,caller,eax,eax ecx edx,2,confirmed,
+0x0046fa40,esi edi,0,caller,eax,eax ecx edx edi,2,confirmed,
 0x0046fa80,,2,callee,eax,eax ecx edx,1,confirmed,
 0x0046fc30,eax ecx,1,callee,eax,eax ecx edx,2,confirmed,
 0x0046fc60,esi edi,4,callee,eax,eax ecx edx,1,confirmed,
@@ -1228,7 +1228,7 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x00470c90,eax ecx esi,0,caller,eax,eax ecx edx,4,unconfirmed: eax ecx,
 0x00470cc0,eax edx,0,caller,eax,eax ecx edx,2,unconfirmed: eax edx,
 0x00470d70,,1,caller,eax,eax ecx edx,1,,
-0x004710d0,edx,3,callee,eax,eax ecx edx,0,unconfirmed: edx,
+0x004710d0,edx ebx,3,callee,eax,eax ecx edx,0,unconfirmed: edx ebx,
 0x004714c0,eax ecx edi,3,callee,eax,eax ecx edx,0,,
 0x00471750,eax ecx edx,0,caller,st0,eax,14,confirmed,
 0x00471810,eax ecx edx esi,0,caller,st0,eax ecx edx ebx,1,confirmed,
@@ -1284,7 +1284,7 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x0047b8e0,eax,0,caller,eax,eax ecx,1,,
 0x0047b900,eax ecx,0,caller,eax,eax ecx edx,1,,
 0x0047b9f0,eax ecx,3,caller,eax,eax ecx edx,4,unconfirmed: eax,
-0x0047bb30,eax edi,1,caller,eax edx,eax ecx edx,12,,
+0x0047bb30,eax esi edi,1,caller,eax edx,eax ecx edx,12,,
 0x0047bba0,eax edx,0,caller,eax,eax ecx edx,4,,
 0x0047bc80,eax ecx,0,caller,eax,eax edx,2,confirmed,
 0x0047bca0,esi,3,caller,eax,eax ecx edx,3,,
@@ -1376,7 +1376,7 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x00484290,eax,0,caller,eax,eax ecx edx,3,,
 0x004844c0,eax,2,callee,eax,eax ecx edx,3,,
 0x004845b0,esi,1,callee,eax,eax ecx edx,3,,
-0x00484830,eax,0,caller,eax,eax ecx edx,1,,
+0x00484830,eax edi,0,caller,eax,eax ecx edx,1,,
 0x00484ca0,eax ecx,0,caller,eax,eax ecx edx,1,,
 0x00485120,ebx,0,caller,eax,eax ecx edx,1,,
 0x004852b0,eax ecx,0,caller,none,,3,,
@@ -1548,7 +1548,7 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x0048e870,eax,2,callee,eax,eax ecx edx,1,confirmed,
 0x0048e970,esi,0,caller,eax,eax ecx edx,2,confirmed,
 0x0048eab0,eax ecx ebx,1,callee,eax,eax ecx edx,3,unconfirmed: eax ecx,
-0x0048eb20,eax ebx,1,callee,eax,eax ecx edx,2,confirmed,
+0x0048eb20,eax ebx edi,1,callee,eax,eax ecx edx,2,unconfirmed: edi,
 0x0048eb60,,5,callee,eax,eax ecx edx,3,confirmed,
 0x0048ece0,eax ecx,3,callee,eax,eax ecx edx,2,confirmed,
 0x0048ed90,ebx,0,caller,eax,eax ecx edx,0,confirmed,
@@ -1575,7 +1575,7 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x00490a20,eax,0,caller,eax,eax,1,confirmed,
 0x00490a30,eax,0,caller,eax,eax,1,confirmed,
 0x00490a40,eax esi,0,caller,eax,eax ecx edx,3,confirmed,
-0x00490a80,eax ecx,1,callee,eax,eax ecx edx,4,unconfirmed: ecx,
+0x00490a80,eax ecx edi,1,callee,eax,eax ecx edx,4,unconfirmed: ecx edi,
 0x00490ab0,eax ecx,0,caller,eax,eax ecx edx,3,,
 0x00490b00,eax ecx,1,callee,eax,eax ecx edx,16,unconfirmed: eax,
 0x00490b20,eax ecx,1,callee,eax,eax ecx edx,2,,
@@ -1916,14 +1916,14 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x004aa470,esi,0,caller,eax,eax ecx edx,3,,
 0x004aa560,ecx,1,callee,eax,eax ecx edx,0,,
 0x004aa5b0,eax edi,1,callee,eax,eax ecx edx,0,,
-0x004aa690,edi ebp,0,caller,eax,eax ecx edx ebx ebp,1,,unsupported: ebp input; no ret found (tail jump or noreturn)
+0x004aa690,ebx edi ebp,0,caller,eax,eax ecx edx ebx edi ebp,1,,unsupported: ebp input; no ret found (tail jump or noreturn)
 0x004aa770,ecx,1,callee,eax,eax ecx edx,0,confirmed,
 0x004aa830,,3,caller,eax,eax ecx edx,205,confirmed,
 0x004aa8b0,ecx,1,callee,eax,eax ecx edx,0,unconfirmed: ecx,
 0x004aa950,ecx,1,callee,eax,eax ecx edx,0,,
 0x004aa9a0,esi,1,callee,eax,eax ecx edx ebx esi edi ebp,2,,
 0x004aaa20,esi,1,callee,eax,eax ecx edx ebx esi edi ebp,1,,
-0x004aaaa0,ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,3,,unsupported: ebp input; no ret found (tail jump or noreturn)
+0x004aaaa0,ebx esi edi ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,3,,unsupported: ebp input; no ret found (tail jump or noreturn)
 0x004aab20,ecx,0,caller,eax,eax ecx edx,3,,no ret found (tail jump or noreturn)
 0x004aab60,ecx,0,caller,eax,eax ecx edx,0,,
 0x004aabc0,edx,3,caller,eax,eax ecx edx,2,,
@@ -1986,7 +1986,7 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x004ae6c0,eax,1,caller,st0,eax ecx edx,2,confirmed,
 0x004ae740,eax ecx,0,caller,eax,eax edx,1,confirmed,
 0x004ae810,eax ecx edx esi,1,callee,eax,eax,1,confirmed,
-0x004ae8d0,ecx esi,2,callee,eax,eax ecx edx,1,confirmed,
+0x004ae8d0,ecx esi edi,2,callee,eax,eax ecx edx,1,unconfirmed: edi,
 0x004ae980,eax,1,callee,eax,eax ecx edx,1,confirmed,
 0x004aea50,ecx edx,5,callee,st0,eax ecx edx,2,confirmed,
 0x004aeb60,ecx,2,callee,eax,eax ecx edx,0,confirmed,
@@ -2020,7 +2020,7 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x004b0800,esi,0,caller,eax,eax ecx edx ebx,1,unconfirmed: esi,
 0x004b0870,eax,1,caller,eax,eax ecx edx,1,confirmed,
 0x004b0960,eax,1,caller,eax,eax ecx edx,1,confirmed,
-0x004b0a50,esi,0,caller,eax,eax ecx edx ebx,1,confirmed,
+0x004b0a50,ebx esi,0,caller,eax,eax ecx edx ebx,1,confirmed,
 0x004b0ae0,eax esi,0,caller,eax,eax ecx edx,1,confirmed,
 0x004b0b60,eax esi,0,caller,eax,eax ecx edx,1,confirmed,
 0x004b0be0,eax esi,0,caller,eax,eax ecx edx,1,confirmed,
@@ -2035,11 +2035,11 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x004b1850,edi,1,callee,eax,eax ecx edx,2,confirmed,
 0x004b18b0,edi,1,callee,eax,eax ecx edx,2,confirmed,
 0x004b1ec0,,5,callee,eax,eax ecx edx,3,confirmed,
-0x004b2080,ebx esi edi,2,callee,eax,eax ecx edx,1,confirmed,
+0x004b2080,ebx esi edi,2,callee,eax,eax ecx edx edi,1,confirmed,
 0x004b25b0,,2,callee,eax,eax ecx edx,1,confirmed,
 0x004b2850,,2,callee,eax,eax ecx edx,1,,
 0x004b2940,,3,callee,eax,eax ecx edx,1,confirmed,
-0x004b2cf0,edi,1,callee,eax,eax ecx edx,1,confirmed,
+0x004b2cf0,edi,1,callee,eax,eax ecx edx edi,1,confirmed,
 0x004b2f30,edi,1,callee,eax,eax ecx edx,1,confirmed,
 0x004b2fe0,eax ecx esi,0,caller,eax,eax ecx edx,1,unconfirmed: ecx,
 0x004b30d0,ebx esi,0,caller,eax,eax ecx edx,1,unconfirmed: ebx,
@@ -2170,7 +2170,7 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x004c5660,,0,caller,eax,eax ecx edx ebx esi edi ebp,1,confirmed,no ret found (tail jump or noreturn)
 0x004c56e0,,3,caller,eax,eax ecx edx,1,confirmed,
 0x004c5870,ecx,0,caller,eax,eax ecx edx,1,confirmed,
-0x004c5be0,ecx edi ebp,1,caller,eax,eax ecx edx ebx edi ebp,133,unconfirmed: edi,unsupported: ebp input; no ret found (tail jump or noreturn)
+0x004c5be0,ecx ebx edi ebp,1,caller,eax,eax ecx edx ebx edi ebp,133,unconfirmed: ebx edi,unsupported: ebp input; no ret found (tail jump or noreturn)
 0x004c5cf0,esi edi,0,caller,st0,eax ecx edx,7,confirmed,
 0x004c5d10,esi edi,0,caller,eax,eax ecx edx,14,,
 0x004c5d30,eax,0,caller,none,ecx edx,7,confirmed,
@@ -2249,7 +2249,7 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x004cb7c0,ecx,4,caller,eax,eax ecx edx ebx esi edi ebp,1,,
 0x004cb9e0,eax ecx,0,caller,eax,eax ecx edx ebp,1,,
 0x004cbb20,eax ecx,0,caller,eax,eax ecx edx,1,,
-0x004cbbe0,ecx esi,0,caller,eax,eax ecx edx ebx,1,,
+0x004cbbe0,ecx esi edi,0,caller,eax,eax ecx edx ebx,1,,
 0x004cbc00,,3,caller,eax,eax ecx edx,1,,
 0x004cbd00,,6,caller,eax,eax ecx edx,2,,
 0x004cbd70,edi,2,caller,eax,eax ecx edx,1,,
@@ -2264,12 +2264,12 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x004ccab0,eax ecx edx,1,caller,eax,eax ecx edx ebx edi ebp,1,,
 0x004ccb60,eax ecx,1,caller,eax,eax ecx edx,3,,
 0x004ccce0,,2,caller,eax,eax ecx edx ebx,2,,
-0x004cd070,eax ecx,3,caller,eax,eax ecx edx,1,,
+0x004cd070,eax ecx esi,3,caller,eax,eax ecx edx esi,1,,
 0x004cd370,eax,4,caller,eax,eax ecx edx,4,,
 0x004cd530,esi,3,caller,eax,eax ecx edx,3,,
 0x004cd590,,4,caller,eax,eax ecx edx esi edi ebp,1,,
 0x004cdad0,ecx,6,caller,eax,eax ecx edx,3,,
-0x004cdbc0,,3,caller,eax,eax ecx edx,5,,
+0x004cdbc0,esi edi,3,caller,eax,eax ecx edx,5,,
 0x004cdc40,eax,2,caller,eax,eax ecx edx,1,,
 0x004cdce0,eax edx,3,caller,eax,eax ecx edx ebp,1,,
 0x004cdd80,ecx edx,13,caller,eax,eax ecx edx ebx ebp,2,,
@@ -2354,7 +2354,7 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x004d8480,eax,1,caller,eax,eax ecx edx,2,,
 0x004d8520,edx,0,caller,eax,eax ecx edx,1,,
 0x004d8570,eax,1,caller,eax,eax ecx edx ebx,1,,
-0x004d85b0,ecx,0,caller,eax,eax ecx edx,2,,
+0x004d85b0,ecx esi,0,caller,eax,eax ecx edx,2,,
 0x004d8660,eax ecx,2,caller,eax,eax ecx edx,3,,
 0x004d86f0,ecx,3,caller,eax,eax ecx edx ebp,1,unconfirmed: ecx,
 0x004d8a60,ecx,4,caller,eax,eax ecx edx ebx edi ebp,2,,
@@ -2380,7 +2380,7 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x004db300,eax,2,caller,eax,eax ecx edx,1,confirmed,
 0x004db520,eax ecx,0,caller,eax,eax ecx edx ebx edi,1,,
 0x004db630,ecx edx,1,caller,eax,eax ecx edx,2,unconfirmed: ecx,
-0x004db800,esi,1,caller,eax,eax ecx edx ebp,1,,
+0x004db800,esi,1,caller,eax,eax ecx edx esi ebp,1,,
 0x004db900,ecx,0,caller,eax,eax ecx edx,1,,
 0x004dbc70,ecx,0,caller,eax,eax ecx edx,1,,
 0x004dc010,eax ecx,0,caller,eax,eax ecx edx,1,,
@@ -2501,7 +2501,7 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x004e4350,,4,callee,eax,eax ecx edx,1,confirmed,
 0x004e43f0,,0,caller,eax,eax ecx edx,2,confirmed,
 0x004e4440,edx,0,caller,eax,eax ecx,2,unconfirmed: edx,
-0x004e4480,ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,0,confirmed,unsupported: ebp input; no ret found (tail jump or noreturn)
+0x004e4480,ebx esi edi ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,0,unconfirmed: ebx esi edi,unsupported: ebp input; no ret found (tail jump or noreturn)
 0x004e44e0,,1,callee,eax,eax,0,confirmed,
 0x004e4520,,0,caller,st0,eax ecx edx,3,confirmed,
 0x004e4560,,0,caller,eax,eax ecx edx,1,confirmed,
@@ -2511,7 +2511,7 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x004e48a0,edi,0,caller,eax,eax ecx edx edi,1,,
 0x004e4930,ecx,0,caller,eax,eax ecx edx,1,unconfirmed: ecx,
 0x004e49e0,ecx,7,callee,eax,eax ecx edx,0,unconfirmed: ecx,
-0x004e4d90,ecx edi,1,callee,eax,eax ecx edx,1,confirmed,
+0x004e4d90,ecx edi,1,callee,eax,eax ecx edx edi,1,confirmed,
 0x004e5020,eax ecx,4,callee,eax,eax ecx edx,1,confirmed,
 0x004e5130,,2,callee,eax,eax ecx edx,0,confirmed,
 0x004e51f0,,3,callee,eax,eax ecx edx,2,confirmed,
@@ -2525,8 +2525,8 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x004e5a10,esi edi,1,caller,eax,eax ecx edx,1,,
 0x004e5a40,ecx,1,caller,eax edx,eax ecx edx,1,,
 0x004e5aa0,ecx,1,callee,eax,eax ecx edx,0,,
-0x004e5ae0,eax ebx,2,callee,eax,eax ecx edx,1,,
-0x004e5b30,eax ecx ebx esi,0,caller,eax,eax ecx edx,2,unconfirmed: ecx,
+0x004e5ae0,eax ebx,2,callee,eax,eax ecx edx ebx,1,,
+0x004e5b30,eax ecx ebx esi,0,caller,eax,eax ecx edx ebx,2,unconfirmed: ecx,
 0x004e5ba0,ecx,2,callee,eax,eax ecx edx,0,confirmed,
 0x004e5cf0,ecx,2,callee,eax,eax ecx edx,1,confirmed,
 0x004e5d60,ecx,1,callee,eax,eax edx,1,confirmed,
@@ -2672,7 +2672,7 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x004f0b00,edx,0,caller,eax,eax ecx edx ebx,0,confirmed,
 0x004f0c90,eax,1,caller,eax,eax ecx edx,1,,
 0x004f0cd0,,2,caller,eax,eax ecx edx,3,confirmed,
-0x004f0e60,,3,caller,eax,eax ecx edx,8,confirmed,
+0x004f0e60,edi,3,caller,eax,eax ecx edx,8,unconfirmed: edi,
 0x004f1100,edx edi,0,caller,eax,eax ecx edx,1,confirmed,
 0x004f1140,eax,1,callee,eax,eax ecx edx,1,unconfirmed: eax,
 0x004f1160,eax,1,callee,eax,eax ecx edx,37,confirmed,
@@ -2689,12 +2689,12 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x004f19d0,eax ecx edi,0,caller,eax,eax ecx edx,13,unconfirmed: ecx,
 0x004f1a20,eax ecx esi,1,caller,eax,eax ecx edx,1,,
 0x004f1a60,eax ecx esi,0,caller,eax,eax ecx edx,1,confirmed,
-0x004f1ae0,ecx ebp,1,caller,eax,eax ecx edx ebx esi ebp,1,,unsupported: ebp input; no ret found (tail jump or noreturn)
+0x004f1ae0,ecx ebx esi ebp,1,caller,eax,eax ecx edx ebx esi ebp,1,,unsupported: ebp input; no ret found (tail jump or noreturn)
 0x004f1b40,ecx,0,caller,eax,eax ecx edx ebx,1,,no ret found (tail jump or noreturn)
 0x004f1c90,esi,1,caller,eax,eax ecx edx esi,6,confirmed,no ret found (tail jump or noreturn)
 0x004f1da0,esi ebp,5,caller,eax,eax ecx edx ebx esi edi ebp,1,confirmed,unsupported: ebp input; no ret found (tail jump or noreturn)
-0x004f1e00,ebp,1,caller,eax,eax ecx edx,1,,unsupported: ebp input; no ret found (tail jump or noreturn)
-0x004f1e60,esi ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,2,confirmed,unsupported: ebp input; no ret found (tail jump or noreturn)
+0x004f1e00,esi ebp,1,caller,eax,eax ecx edx,1,,unsupported: ebp input; no ret found (tail jump or noreturn)
+0x004f1e60,ebx esi edi ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,2,unconfirmed: ebx edi,unsupported: ebp input; no ret found (tail jump or noreturn)
 0x004f1ed0,ecx edx esi,5,caller,eax,eax ecx edx,1,unconfirmed: ecx edx,
 0x004f1f00,esi,0,caller,eax,eax ecx edx,0,unconfirmed: esi,
 0x004f1f40,ecx esi,6,caller,eax,eax ecx edx,9,confirmed,no ret found (tail jump or noreturn)
@@ -2744,8 +2744,8 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x004f5010,ecx,2,callee,eax,eax ecx edx,0,,
 0x004f5910,esi,0,caller,eax,eax ecx edx,1,confirmed,
 0x004f59a0,eax,3,callee,eax,eax ecx edx,0,confirmed,
-0x004f59f0,ecx,0,caller,eax,eax ecx edx ebx ebp,1,unconfirmed: ecx,no ret found (tail jump or noreturn)
-0x004f5b00,ecx ebp,1,caller,eax,eax ecx edx ebx edi ebp,3,unconfirmed: ecx,unsupported: ebp input; no ret found (tail jump or noreturn)
+0x004f59f0,ecx edi,0,caller,eax,eax ecx edx ebx edi ebp,1,unconfirmed: ecx edi,no ret found (tail jump or noreturn)
+0x004f5b00,ecx ebx edi ebp,1,caller,eax,eax ecx edx ebx edi ebp,3,unconfirmed: ecx ebx edi,unsupported: ebp input; no ret found (tail jump or noreturn)
 0x004f5ba0,ecx,2,callee,eax,eax ecx edx edi,1,unconfirmed: ecx,
 0x004f5dc0,eax esi,0,caller,eax,eax ecx edx,2,unconfirmed: eax,
 0x004f5f10,ecx,1,callee,eax,eax ecx edx,1,confirmed,
@@ -2777,9 +2777,9 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x004f7bb0,edx,0,caller,eax,eax ecx,1,unconfirmed: edx,
 0x004f7c20,,1,callee,eax,eax ecx edx,0,,
 0x004f7e10,ebx,0,caller,eax,eax ecx edx,0,unconfirmed: ebx,
-0x004f83c0,esi ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,1,confirmed,unsupported: ebp input; no ret found (tail jump or noreturn)
-0x004f8530,ecx ebp,0,caller,eax,eax ecx edx ebx edi ebp,1,confirmed,unsupported: ebp input; no ret found (tail jump or noreturn)
-0x004f8600,ebx ebp,0,caller,eax,eax ecx edx ebx ebp,1,confirmed,unsupported: ebp input; no ret found (tail jump or noreturn)
+0x004f83c0,ebx esi edi ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,1,unconfirmed: ebx edi,unsupported: ebp input; no ret found (tail jump or noreturn)
+0x004f8530,ecx ebx edi ebp,0,caller,eax,eax ecx edx ebx edi ebp,1,unconfirmed: ebx edi,unsupported: ebp input; no ret found (tail jump or noreturn)
+0x004f8600,ebx esi edi ebp,0,caller,eax,eax ecx edx ebx ebp,1,unconfirmed: esi edi,unsupported: ebp input; no ret found (tail jump or noreturn)
 0x004f8760,ecx,1,callee,eax,eax ecx edx edi ebp,0,confirmed,
 0x004f8aa0,ecx,1,callee,eax,eax ecx edx,0,confirmed,
 0x004f9c10,ecx,0,caller,eax,eax ecx edx,2,unconfirmed: ecx,
@@ -2854,7 +2854,7 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x005004a0,eax ecx,1,callee,eax,eax ecx edx ebx,0,unconfirmed: eax ecx,
 0x00500520,edi,1,callee,eax,eax ecx edx,1,confirmed,
 0x00500840,ebx esi,0,caller,eax,eax ecx edx ebp,0,confirmed,
-0x00500890,ecx edi,1,callee,eax,eax ecx edx ebp,2,confirmed,
+0x00500890,ecx edi,1,callee,eax,eax ecx edx edi ebp,2,confirmed,
 0x005009b0,eax ecx esi,1,callee,eax,eax ecx edx,5,unconfirmed: ecx,
 0x00500a00,edi,4,callee,eax,eax ecx edx,1,confirmed,
 0x00500d20,ebx esi,0,caller,eax,eax ecx edx,1,confirmed,
@@ -2920,7 +2920,7 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x00508010,ecx,1,callee,eax,eax ecx edx,0,confirmed,
 0x00508070,ecx,0,caller,eax,eax ecx edx,0,confirmed,
 0x005080d0,esi,3,callee,eax,eax ecx edx,4,confirmed,
-0x00508210,esi,3,callee,eax,eax ecx edx ebx edi ebp,1,,
+0x00508210,esi,3,callee,eax,eax ecx edx ebx esi edi ebp,1,,
 0x00508290,,2,callee,eax,eax ecx edx ebx,1,confirmed,
 0x00508370,eax edx,1,callee,eax,eax ecx,2,confirmed,
 0x00508750,eax,0,caller,eax,eax ecx,6,unconfirmed: eax,
@@ -2954,7 +2954,7 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x0050b2b0,eax edi,1,callee,eax,eax ecx edx,1,unconfirmed: eax,
 0x0050b330,edi,0,caller,eax,eax ecx edx,1,confirmed,
 0x0050b390,,3,caller,eax,eax ecx edx,1,confirmed,
-0x0050b8a0,ebp,1,caller,eax,eax ecx edx,2,unconfirmed: ebp,unsupported: ebp input; no ret found (tail jump or noreturn)
+0x0050b8a0,ebx edi ebp,1,caller,eax,eax ecx edx,2,unconfirmed: ebx edi ebp,unsupported: ebp input; no ret found (tail jump or noreturn)
 0x0050b9e0,,0,caller,eax,eax ecx edx,0,confirmed,
 0x0050bae0,,0,caller,eax,eax ecx edx,0,confirmed,
 0x0050bb30,ecx,1,callee,eax,eax ecx edx,0,confirmed,
@@ -2967,7 +2967,7 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x0050c1b0,esi,2,callee,eax,eax ecx edx,0,confirmed,
 0x0050c510,eax ecx edx,1,callee,eax,eax ecx edx ebx,1,confirmed,
 0x0050c5c0,eax ecx,1,callee,eax,eax ecx edx,1,confirmed,
-0x0050c6d0,ecx ebp,0,caller,eax,eax ecx edx ebx esi ebp,0,unconfirmed: ecx ebp,unsupported: ebp input; no ret found (tail jump or noreturn)
+0x0050c6d0,ecx ebx esi ebp,0,caller,eax,eax ecx edx ebx esi ebp,0,unconfirmed: ecx ebx esi ebp,unsupported: ebp input; no ret found (tail jump or noreturn)
 0x0050c900,eax,0,caller,eax,eax ecx edx,2,,
 0x0050ca70,eax,0,caller,eax,eax ecx edx,1,confirmed,
 0x0050cb40,edx,0,caller,eax,eax ecx edx,1,confirmed,
@@ -3410,7 +3410,7 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x005388fb,,1,caller,eax,eax ecx edx,3,,
 0x0053891d,,0,caller,eax,eax ecx edx ebx edi ebp,1,,
 0x0053899d,,0,caller,eax,eax ecx edx,0,,
-0x005389c5,ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,1,,unsupported: ebp input
+0x005389c5,ebx esi edi ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,1,,unsupported: ebp input
 0x005389f7,,0,caller,eax,eax ecx edx,1,,
 0x005389fd,,0,caller,eax,eax ecx edx ebx esi edi ebp,1,,
 0x00538a0f,,3,caller,eax,eax ecx edx,4,,
@@ -3426,40 +3426,40 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x005391cd,,0,caller,eax edx,eax ecx edx,268,,
 0x005391ef,,0,caller,eax,eax ecx edx,8,,
 0x00539214,,0,caller,eax,eax ecx edx,2,,
-0x00539238,ecx ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,0,,unsupported: ebp input
+0x00539238,ecx ebx esi edi ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,0,,unsupported: ebp input
 0x005394b3,,0,caller,eax,eax ecx edx ebx esi edi ebp,0,,
 0x005394c7,,0,caller,eax,eax ecx edx,7,,
 0x005394f6,,0,caller,eax,eax ecx edx,3,,
 0x00539519,,0,caller,eax,eax ecx edx,8,,
 0x00539548,,0,caller,eax,eax ecx edx,4,,
-0x0053956b,ebp,3,caller,eax,eax ecx edx ebx esi edi ebp,1,,unsupported: ebp input
+0x0053956b,ebx esi edi ebp,3,caller,eax,eax ecx edx ebx esi edi ebp,1,,unsupported: ebp input
 0x005395bd,ebp,0,caller,eax,eax ecx edx,1,,unsupported: ebp input
 0x005395c7,,2,caller,eax,eax ecx edx ebx esi edi ebp,1,,
 0x005395da,edi,0,caller,eax,eax ecx edx ebx ebp,1,,
-0x00539626,edi ebp,1,caller,eax,eax ecx edx ebx esi edi ebp,2,,unsupported: ebp input
-0x0053966f,,0,caller,eax,eax ecx edx,1,,
+0x00539626,ebx esi edi ebp,1,caller,eax,eax ecx edx ebx esi edi ebp,2,,unsupported: ebp input
+0x0053966f,esi,0,caller,eax,eax ecx edx,1,,
 0x00539677,ecx,4,caller,eax,eax ecx edx,1,,
-0x0053977e,ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,0,,unsupported: ebp input
+0x0053977e,ebx esi edi ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,0,,unsupported: ebp input
 0x005397c0,ebp,0,caller,eax,eax ecx edx,1,,unsupported: ebp input
 0x005397ca,ecx,4,caller,eax,eax ecx edx,1,,
-0x005398b3,ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,0,,unsupported: ebp input
+0x005398b3,ebx esi edi ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,0,,unsupported: ebp input
 0x005398f5,ebp,0,caller,eax,eax ecx edx,1,,unsupported: ebp input
 0x005398ff,,0,caller,eax,eax ecx edx ebp,5,,
 0x0053995c,,0,caller,eax,eax ecx edx ebx edi ebp,3,,
-0x0053998a,ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,2,,unsupported: ebp input
+0x0053998a,ebx esi edi ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,2,,unsupported: ebp input
 0x00539a2a,esi,0,caller,eax,eax ecx edx,1,,
 0x00539a56,,0,caller,eax,eax ecx edx,0,,
-0x00539a5f,ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,0,,unsupported: ebp input
+0x00539a5f,ebx esi edi ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,0,,unsupported: ebp input
 0x00539aa5,ebp,0,caller,eax,eax ecx edx,1,,unsupported: ebp input
 0x00539aaf,,0,caller,eax,eax ecx edx ebx esi edi ebp,1,,
 0x00539ab8,,3,caller,eax,eax ecx edx ebx ebp,1,,
-0x00539b47,ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,0,,unsupported: ebp input
+0x00539b47,ebx esi edi ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,0,,unsupported: ebp input
 0x00539b86,ebp,0,caller,eax,eax ecx edx,1,,unsupported: ebp input
 0x00539b90,,0,caller,eax,eax ecx edx,2,,
-0x00539cf2,ebp,1,caller,eax,eax ecx edx ebx esi edi ebp,2,,unsupported: ebp input
+0x00539cf2,ebx esi edi ebp,1,caller,eax,eax ecx edx ebx esi edi ebp,2,,unsupported: ebp input
 0x00539d29,ebp,0,caller,eax,eax ecx edx,1,,unsupported: ebp input
-0x00539d33,ebp,2,caller,eax,eax ecx edx ebx esi edi ebp,2,,unsupported: ebp input
-0x00539d8e,,0,caller,eax,eax ecx edx,1,,
+0x00539d33,ebx esi edi ebp,2,caller,eax,eax ecx edx ebx esi edi ebp,2,,unsupported: ebp input
+0x00539d8e,esi,0,caller,eax,eax ecx edx,1,,
 0x00539d99,,3,caller,eax,eax ecx edx,1,,
 0x00539e14,,0,caller,eax,eax ecx edx ebx esi edi ebp,0,,
 0x00539e29,,0,caller,eax,eax ecx edx,0,,
@@ -3491,13 +3491,13 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x0053a87d,ecx,3,caller,eax,eax ecx edx,5,,
 0x0053a894,,0,caller,eax,eax ecx edx,1,,
 0x0053a8cb,,3,caller,eax,eax ecx edx esi edi,1,,
-0x0053a9b9,ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,1,,unsupported: ebp input
+0x0053a9b9,ebx esi edi ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,1,,unsupported: ebp input
 0x0053a9f6,,0,caller,eax,eax ecx edx,1,,
-0x0053a9ff,ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,1,,unsupported: ebp input
+0x0053a9ff,ebx esi edi ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,1,,unsupported: ebp input
 0x0053aa71,,0,caller,eax,eax ecx edx,1,,
 0x0053aa7a,,0,caller,eax,eax ecx edx,1,,
 0x0053aaa6,,3,caller,eax,eax ecx edx,36,,
-0x0053aab8,ebp,16,caller,eax,eax ecx edx ebx esi edi ebp,91,,unsupported: ebp input
+0x0053aab8,ebx esi edi ebp,16,caller,eax,eax ecx edx ebx esi edi ebp,91,,unsupported: ebp input
 0x0053ab0b,,0,caller,eax,eax ecx edx,1,,
 0x0053ab29,,0,caller,eax,eax ecx edx,1,,
 0x0053aba5,,0,caller,eax,eax ecx edx,1,,
@@ -3505,17 +3505,17 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x0053ac65,,0,caller,eax,eax ecx edx,6,,
 0x0053acd8,,0,caller,eax,eax ecx edx,11,,
 0x0053acfa,ecx ebp,0,caller,eax,eax ecx edx ebx,1,,unsupported: ebp input
-0x0053ae47,ebp,3,caller,eax,eax ecx edx ebx esi edi ebp,6,,unsupported: ebp input
+0x0053ae47,ebx esi edi ebp,3,caller,eax,eax ecx edx ebx esi edi ebp,6,,unsupported: ebp input
 0x0053ae9b,ebp,0,caller,eax,eax ecx edx,1,,unsupported: ebp input
 0x0053aea5,,1,caller,eax,eax ecx edx,1,,
 0x0053aec5,,0,caller,eax,eax ecx edx,3,,
 0x0053af29,,2,caller,eax,eax ecx edx ebx,1,,
 0x0053b00c,,1,caller,eax,eax ecx edx,1,,
-0x0053b038,ebp,2,caller,eax,eax ecx edx ebx esi edi,7,,unsupported: ebp input
+0x0053b038,ebx esi edi ebp,2,caller,eax,eax ecx edx ebx esi edi,7,,unsupported: ebp input
 0x0053b0e2,,0,caller,eax,eax ecx edx,1,,
-0x0053b0f3,ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,4,,unsupported: ebp input
+0x0053b0f3,ebx esi edi ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,4,,unsupported: ebp input
 0x0053b25b,,0,caller,eax,eax ecx edx,1,,
-0x0053b2a0,ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,0,,unsupported: ebp input
+0x0053b2a0,ebx esi edi ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,0,,unsupported: ebp input
 0x0053b377,ecx,0,caller,eax,eax ecx edx,1,,
 0x0053b3b0,,0,caller,eax,eax ecx edx,10,,
 0x0053b4c9,eax ecx esi,0,caller,eax,eax ecx edx,4,,
@@ -3523,20 +3523,20 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x0053b520,eax ecx edi,0,caller,eax,eax ecx edx,3,,
 0x0053b557,,3,caller,eax,eax ecx edx,5,,
 0x0053bcec,edx,0,caller,eax,eax ecx edx ebx edi,19,,
-0x0053bd02,ebp,4,caller,eax,eax ecx edx ebx esi edi ebp,1,,unsupported: ebp input
+0x0053bd02,ebx esi edi ebp,4,caller,eax,eax ecx edx ebx esi edi ebp,1,,unsupported: ebp input
 0x0053c7b0,,0,caller,eax,eax ecx edx,24,,
 0x0053c83b,,0,caller,eax,eax ecx edx ebp,2,,
 0x0053c859,,0,caller,eax,eax ecx edx,54,,
 0x0053c8ca,,0,caller,eax,eax ecx edx ebx edi ebp,1,,
-0x0053c939,ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,0,,unsupported: ebp input
-0x0053c96a,ecx ebp,3,caller,eax,eax ecx edx ebx esi edi ebp,47,,unsupported: ebp input
+0x0053c939,ebx esi edi ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,0,,unsupported: ebp input
+0x0053c96a,ecx ebx esi edi ebp,3,caller,eax,eax ecx edx ebx esi edi ebp,47,,unsupported: ebp input
 0x0053c978,eax,0,caller,eax,eax,2,,
 0x0053c9a7,,0,caller,eax,eax ecx,1,,
 0x0053c9d0,,0,caller,eax,eax ecx edx,1,,
-0x0053cb62,ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,4,,unsupported: ebp input
+0x0053cb62,ebx esi edi ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,4,,unsupported: ebp input
 0x0053cbc8,,0,caller,eax,eax ecx edx,1,,
 0x0053cbd1,,0,caller,eax,eax ecx edx,1,,
-0x0053cd67,ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,1,,unsupported: ebp input
+0x0053cd67,ebx esi edi ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,1,,unsupported: ebp input
 0x0053ceae,,0,caller,eax,eax ecx edx,1,,
 0x0053ceb7,,0,caller,eax,eax ecx edx ebx esi edi ebp,3,,
 0x0053ced5,,3,caller,eax,eax ecx edx ebx esi,5,,
@@ -3548,14 +3548,14 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x0053d81d,ecx,3,caller,eax,eax ecx edx,7,,
 0x0053d894,,0,caller,eax,eax ecx edx ebx ebp,1,,
 0x0053d95e,,0,caller,eax,eax ecx edx ebx ebp,1,,
-0x0053da20,ebp,0,caller,eax,eax ecx edx,14,,unsupported: ebp input
+0x0053da20,ebx esi edi ebp,0,caller,eax,eax ecx edx,14,,unsupported: ebp input
 0x0053da52,,0,caller,eax,eax ecx edx,1,,
 0x0053da60,,4,callee,eax edx,eax ecx edx,1,,
 0x0053da94,,5,caller,eax,eax ecx edx,2,,
-0x0053db2f,ebp,8,caller,eax,eax ecx edx ebx esi edi,4,,unsupported: ebp input
-0x0053deeb,ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,1,,unsupported: ebp input
+0x0053db2f,ebx esi edi ebp,8,caller,eax,eax ecx edx ebx esi edi,4,,unsupported: ebp input
+0x0053deeb,ebx esi edi ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,1,,unsupported: ebp input
 0x0053df58,,0,caller,eax,eax ecx edx,1,,
-0x0053df64,ebp,0,caller,eax,eax ebp,50,,unsupported: ebp input
+0x0053df64,ebx esi edi ebp,0,caller,eax,eax ebp,50,,unsupported: ebp input
 0x0053df9f,ebp,0,caller,none,ecx ebx esi edi ebp,21,,unsupported: ebp input
 0x0053dfb0,,0,caller,eax,eax ecx edx,5,,
 0x0053e127,,0,caller,eax,eax ecx edx,2,,
@@ -3566,10 +3566,10 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x0053e560,ecx,0,caller,eax,eax ecx edx,1,,
 0x0053e602,ecx,0,caller,eax,eax ecx edx,1,,
 0x0053e724,,0,caller,eax,eax ecx edx,1,,
-0x0053e922,ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,1,,unsupported: ebp input
+0x0053e922,ebx esi edi ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,1,,unsupported: ebp input
 0x0053e9aa,,0,caller,eax,eax,1,,
 0x0053e9c4,,0,caller,eax,eax ecx edx,1,,
-0x0053ea15,ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,0,,unsupported: ebp input
+0x0053ea15,ebx esi edi ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,0,,unsupported: ebp input
 0x0053eaa7,,0,caller,eax,eax ecx edx,1,,
 0x0053eab0,,0,caller,eax,eax ecx edx,1,,
 0x0053eaf9,,0,caller,eax,eax ecx edx ebp,1,,
@@ -3580,25 +3580,25 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x0053ed7b,,0,caller,eax,eax ecx edx,49,,
 0x0053ed84,,0,caller,eax,eax ecx edx,21,,
 0x0053ed8d,,0,caller,eax,eax ecx edx,7,,
-0x0053ee00,ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,1,,unsupported: ebp input
+0x0053ee00,ebx esi edi ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,1,,unsupported: ebp input
 0x0053ef19,,0,caller,eax,eax ecx edx,1,,
 0x0053ef22,,0,caller,eax,eax ecx edx,2,,
-0x0053efa5,ebp,3,caller,eax,eax ecx edx ebx esi edi ebp,1,,unsupported: ebp input
-0x0053f01c,,0,caller,eax,eax ecx edx,1,,
+0x0053efa5,ebx esi edi ebp,3,caller,eax,eax ecx edx ebx esi edi ebp,1,,unsupported: ebp input
+0x0053f01c,ebx,0,caller,eax,eax ecx edx,1,,
 0x0053f040,,0,caller,eax,eax ecx edx ebx edi ebp,1,,
 0x0053f06b,ecx,3,caller,eax,eax ecx edx,2,,
-0x0053f210,ebp,3,caller,eax,eax ecx edx ebx esi edi ebp,6,,unsupported: ebp input
-0x0053f297,,0,caller,eax,eax ecx edx,1,,
+0x0053f210,ebx esi edi ebp,3,caller,eax,eax ecx edx ebx esi edi ebp,6,,unsupported: ebp input
+0x0053f297,ebx,0,caller,eax,eax ecx edx,1,,
 0x0053f2c0,,3,caller,eax,eax ecx edx,5,,no ret found (tail jump or noreturn)
 0x0053f5fd,,0,caller,eax,eax ecx edx ebx edi,2,,
 0x0053f6de,,3,caller,eax,eax ecx edx,2,,
-0x0053f8ab,ebp,3,caller,eax,eax ecx edx ebx esi edi,2,,unsupported: ebp input
-0x0053f932,,0,caller,eax,eax ecx edx,1,,
-0x0053f956,ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,1,,unsupported: ebp input
-0x0053f9f6,,0,caller,eax,eax ecx edx,1,,
+0x0053f8ab,ebx esi edi ebp,3,caller,eax,eax ecx edx ebx esi edi,2,,unsupported: ebp input
+0x0053f932,ebx,0,caller,eax,eax ecx edx,1,,
+0x0053f956,ebx esi edi ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,1,,unsupported: ebp input
+0x0053f9f6,ebx,0,caller,eax,eax ecx edx,1,,
 0x0053fa12,,3,caller,eax,eax ecx edx,8,,
-0x0053fa86,ebp,3,caller,eax,eax ecx edx ebx esi edi ebp,6,,unsupported: ebp input
-0x0053fb0d,,0,caller,eax,eax ecx edx,1,,
+0x0053fa86,ebx esi edi ebp,3,caller,eax,eax ecx edx ebx esi edi ebp,6,,unsupported: ebp input
+0x0053fb0d,ebx,0,caller,eax,eax ecx edx,1,,
 0x0053fb31,,0,caller,eax,eax ecx edx,2,,
 0x0053fbb9,,6,caller,eax,eax ecx edx ebp,2,,
 0x0053fbe3,,0,caller,eax,eax ecx edx,0,,
@@ -3618,9 +3618,9 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x0054011e,,0,caller,eax,eax ecx edx,1,,
 0x00540141,eax ecx ebp,0,caller,none,ecx,2,,unsupported: ebp input; no ret found (tail jump or noreturn)
 0x0054014a,eax ecx ebp,1,callee,none,ecx,2,,unsupported: ebp input
-0x00540162,ebp,0,caller,eax,eax ecx ebx esi edi ebp,1,,unsupported: ebp input
+0x00540162,ebx esi edi ebp,0,caller,eax,eax ecx ebx esi edi ebp,1,,unsupported: ebp input
 0x005401a4,,7,caller,eax,eax ecx edx ebx edi,3,,
-0x00540438,ebp,0,caller,eax,eax ecx ebx esi edi ebp,1,,unsupported: ebp input
+0x00540438,ebx esi edi ebp,0,caller,eax,eax ecx ebx esi edi ebp,1,,unsupported: ebp input
 0x0054046d,,0,caller,eax,eax ecx edx,0,,
 0x005404c4,ecx,0,caller,eax,eax ecx edx,0,,
 0x005405a0,,5,caller,eax,eax ecx edx,14,,no ret found (tail jump or noreturn)
@@ -3634,7 +3634,7 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x00540ebf,esi,0,caller,eax,eax ecx edx,3,,
 0x005411bb,,0,caller,eax,eax ecx edx,3,,
 0x005411d6,,2,callee,eax,eax ecx edx,0,,
-0x005411e6,ebp,0,caller,eax,eax ecx edx,7,,unsupported: ebp input
+0x005411e6,ebx esi edi ebp,0,caller,eax,eax ecx edx,7,,unsupported: ebp input
 0x00541271,eax,7,caller,eax,eax ecx edx,1,,
 0x00541380,,3,caller,eax,eax ecx edx,9,,
 0x005413e0,ecx,0,caller,eax,eax ecx edx,13,,
@@ -3657,8 +3657,8 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x00541fa1,,4,caller,eax,eax ecx edx,1,,
 0x00542061,,3,caller,eax,eax ecx edx,3,,
 0x0054208c,,0,caller,eax,eax ecx edx,0,,
-0x005420e2,ebp,0,caller,eax,eax ecx edx ebx esi edi,1,,unsupported: ebp input
-0x0054222c,ebp,7,caller,eax,eax ecx edx ebx esi edi ebp,2,,unsupported: ebp input
+0x005420e2,ebx esi edi ebp,0,caller,eax,eax ecx edx ebx esi edi,1,,unsupported: ebp input
+0x0054222c,ebx esi edi ebp,7,caller,eax,eax ecx edx ebx esi edi ebp,2,,unsupported: ebp input
 0x005423e6,ecx,0,caller,eax,eax ecx edx,1,,
 0x005424c2,,0,caller,eax,eax ecx edx ebx edi ebp,1,,
 0x00542652,,0,caller,eax,eax ecx edx ebx edi ebp,1,,
@@ -3678,13 +3678,13 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x00542c8f,,0,caller,eax,eax ecx edx ebx esi edi,1,,
 0x00542cd2,,7,caller,eax,eax ecx edx,3,,
 0x0054310c,,0,caller,eax,eax ecx edx,5,,
-0x00543155,ebp,6,caller,eax,eax ecx edx ebx esi edi ebp,5,,unsupported: ebp input
+0x00543155,ebx esi edi ebp,6,caller,eax,eax ecx edx ebx esi edi ebp,5,,unsupported: ebp input
 0x005433e9,,1,callee,eax,eax ecx edx,0,,
 0x00543404,,11,caller,eax,eax ecx edx,2,,
 0x005434fd,,3,caller,eax,eax ecx,1,,
 0x0054352e,,0,caller,eax,eax ecx,1,,
 0x0054353f,ecx,5,caller,eax,eax ecx edx,1,,
-0x00543826,ebp,4,caller,eax,eax ecx edx ebx esi edi ebp,1,,unsupported: ebp input
+0x00543826,ebx esi edi ebp,4,caller,eax,eax ecx edx ebx esi edi ebp,1,,unsupported: ebp input
 0x0054386b,ebp,0,caller,eax,eax ecx edx,1,,unsupported: ebp input
 0x0054387b,ecx edi,4,caller,eax,eax ecx edx,1,,
 0x005438fe,,7,caller,eax,eax ecx edx,3,,
@@ -3711,7 +3711,7 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x0054443f,ecx,0,caller,eax,eax ecx,1,,
 0x0054444d,ecx,0,caller,eax,eax ecx,11,,
 0x00544471,ecx,0,caller,eax,eax ecx,5,,
-0x005444ca,ebp,6,caller,eax,eax ecx edx ebx esi edi ebp,1,,unsupported: ebp input
+0x005444ca,ebx esi edi ebp,6,caller,eax,eax ecx edx ebx esi edi ebp,1,,unsupported: ebp input
 0x005446ef,ecx,0,caller,eax,eax ecx edx,1,,
 0x00544770,ecx,0,caller,eax,eax ecx edx,1,,
 0x005448a0,ecx,0,caller,eax,eax ecx,1,,
@@ -3727,14 +3727,14 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x00544e58,ecx ebx,0,caller,eax,eax ecx edx,1,,
 0x00544f93,,0,caller,eax,eax ecx edx,1,,
 0x00545227,edx esi,0,caller,eax,eax ecx,1,,
-0x00545255,ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,1,,unsupported: ebp input
+0x00545255,ebx esi edi ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,1,,unsupported: ebp input
 0x00545390,ecx ebp,0,caller,eax,eax ecx edx,1,,unsupported: ebp input
 0x005453ce,,3,caller,eax,eax ecx edx,2,,
 0x0054541c,ecx,0,caller,eax,eax ecx edx,2,,
 0x00545490,,3,caller,eax,eax ecx edx,1,,
 0x005454f1,,5,caller,eax,eax ecx edx,2,,
 0x00545553,eax,0,caller,eax,eax ecx,2,,
-0x0054556f,ebp,7,caller,eax,eax ecx edx ebx esi edi ebp,1,,unsupported: ebp input
+0x0054556f,ebx esi edi ebp,7,caller,eax,eax ecx edx ebx esi edi ebp,1,,unsupported: ebp input
 0x005458f9,edi,0,caller,eax,eax ecx edx,1,,
 0x00545946,ecx edi,0,caller,eax,eax ecx edx,1,,
 0x005459a7,eax,0,caller,eax,eax ecx edx,1,,
@@ -4144,7 +4144,7 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x00566d9e,ecx,5,caller,eax,eax ecx edx,2,,
 0x00566e18,,0,caller,eax,eax ecx edx,1,,
 0x00566e40,,0,caller,eax,eax ecx edx,1,,
-0x00566e61,ebp,0,caller,eax,eax ecx edx ebx edi ebp,1,,unsupported: ebp input
+0x00566e61,ebx edi ebp,0,caller,eax,eax ecx edx ebx edi ebp,1,,unsupported: ebp input
 0x00566ead,,5,caller,eax,eax ecx edx,1,,
 0x00566efe,,7,caller,eax,eax ecx edx,1,,
 0x00566fb0,eax ebp,0,caller,eax,eax ebp,1,,unsupported: ebp input
@@ -4167,19 +4167,19 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x0056836c,ecx,0,caller,st0,eax ecx edx,1,,
 0x005683d6,ecx,4,caller,eax,eax ecx edx,1,,
 0x00568538,esi edi,0,caller,eax,eax ecx edx edi,1,,
-0x005685a5,ebp,4,caller,eax,eax ecx edx ebx esi edi ebp,2,,unsupported: ebp input
+0x005685a5,ebx esi edi ebp,4,caller,eax,eax ecx edx ebx esi edi ebp,2,,unsupported: ebp input
 0x00568658,,0,caller,eax,eax ecx edx,0,,
-0x00568673,ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,2,,unsupported: ebp input
+0x00568673,ebx esi edi ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,2,,unsupported: ebp input
 0x005686b8,eax ecx,0,caller,eax,eax ecx edx,4,,
-0x005686d5,ecx ebp,10,caller,eax,eax ecx edx ebx esi edi ebp,1,,unsupported: ebp input; no ret found (tail jump or noreturn)
+0x005686d5,ecx ebx esi edi ebp,10,caller,eax,eax ecx edx ebx esi edi ebp,1,,unsupported: ebp input; no ret found (tail jump or noreturn)
 0x00568818,esi edi ebp,0,caller,eax,eax ecx edx,0,,unsupported: ebp input
-0x0056887c,ecx edx ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,1,,unsupported: ebp input
-0x005689f8,ecx esi edi,7,caller,eax,eax ecx edx esi edi,2,,
+0x0056887c,ecx edx ebx esi edi ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,1,,unsupported: ebp input
+0x005689f8,ecx ebx esi edi,7,caller,eax,eax ecx edx ebx esi edi,2,,
 0x00568a5f,ecx,8,caller,eax,eax ecx edx,1,,
-0x00568b1f,,8,caller,eax,eax ecx edx ebx esi edi,1,,
+0x00568b1f,esi edi,8,caller,eax,eax ecx edx ebx esi edi,1,,
 0x00568d01,,8,caller,eax,eax ecx edx ebx,2,,
-0x00568da3,ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,1,,unsupported: ebp input
-0x00568dd8,ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,8,,unsupported: ebp input
+0x00568da3,ebx esi edi ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,1,,unsupported: ebp input
+0x00568dd8,ebx esi edi ebp,0,caller,eax,eax ecx edx ebx esi edi ebp,8,,unsupported: ebp input
 0x00568e10,ecx,3,callee,eax,eax ecx edx,2,,
 0x00568efe,ecx,0,caller,eax,eax ecx edx,0,,
 0x005690d0,edx,0,caller,eax,eax ecx edx,0,,
@@ -4193,7 +4193,7 @@ address,inputs,stack_args,cleanup,returns,clobbers,call_sites,runtime,notes
 0x00569d5c,ecx edx,0,caller,eax,eax ecx edx,0,,
 0x0056a0e0,,0,caller,eax,eax ecx edx ebx edi,0,,
 0x0056a0fe,,0,caller,eax,eax ecx edx ebx edi,1,,
-0x0056a3a0,ebp,7,caller,eax,eax ecx edx ebx esi edi ebp,1,,unsupported: ebp input
+0x0056a3a0,ebx esi edi ebp,7,caller,eax,eax ecx edx ebx esi edi ebp,1,,unsupported: ebp input
 0x0056a5f9,,3,caller,eax,eax ecx edx,2,,
 0x0056a6f7,,1,callee,eax,eax ecx edx ebx edi ebp,0,,
 0x0056a750,,0,caller,eax,eax ecx edx,0,,
