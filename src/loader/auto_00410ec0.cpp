@@ -638,6 +638,10 @@ uint32_t ObjectSystem_FindSkin(uint32_t name, uint8_t* system)
     return 0;
 }
 
+// Enhancement knob, null in the original: may return a replacement skin chunk (unopened, same format) for the
+// bank chunk at chunk, which is then opened instead. Set by hook/enhance/overrides.cpp ([overrides] models).
+uint32_t (*g_skinChunkOverride)(uint32_t chunk) = nullptr;
+
 // 0x0045af30 (eax = chunk stream, esi = object system; [chunk size]): skins chunk: hash table (+0xe10, compare
 // 0x0045ad40) over "skin hashtable entries" (+0xe14), the skin count (+0xe0c), the rest of the chunk
 // ("ObjectSystem::LoadSkins", +0xe1c) and the "skin list" (+0xe18): each skin is opened in place
@@ -662,17 +666,25 @@ uint32_t ObjectSystem_LoadSkins(uint8_t* stream, uint8_t* system, uint32_t size)
     for (uint32_t i = 0; i < Field<uint32_t>(system, 0xe0c); ++i)
     {
         uint32_t skin = 0;
-        if (cursor != 0)
+        uint32_t chunk = cursor;
+        uint32_t bankSize = 0;  // only used with a replacement: the bank chunk's own size keeps the step
+        if (cursor != 0 && g_skinChunkOverride)
         {
-            skin = Field<uint32_t>(p32<uint8_t>(Loader_Call_004e1db0(cursor, 0, 0)), 0x20);
-            uint32_t desc[4] = {cursor, 1, 0, 0};
+            bankSize = *p32<uint32_t>(cursor);
+            if (uint32_t replacement = g_skinChunkOverride(cursor))
+                chunk = replacement;
+        }
+        if (chunk != 0)
+        {
+            skin = Field<uint32_t>(p32<uint8_t>(Loader_Call_004e1db0(chunk, 0, 0)), 0x20);
+            uint32_t desc[4] = {chunk, 1, 0, 0};
             orig::fn_004eae90(u(desc), skin, 0);
-            Field<uint32_t>(p32<uint8_t>(skin), 8) = cursor;
+            Field<uint32_t>(p32<uint8_t>(skin), 8) = chunk;
             Field<uint16_t>(p32<uint8_t>(skin), 6) = 0;
         }
         Field<uint32_t*>(system, 0xe18)[i] = skin;
         orig::fn_0045a860(u(system), Field<uint32_t*>(system, 0xe18)[i], 0x3f800000 /* 1.0f */, 0);
-        uint32_t skinSize = *Field<uint32_t*>(p32<uint8_t>(Field<uint32_t*>(system, 0xe18)[i]), 8);
+        uint32_t skinSize = chunk != cursor ? bankSize : *Field<uint32_t*>(p32<uint8_t>(Field<uint32_t*>(system, 0xe18)[i]), 8);
         cursor = (skinSize - (skinSize & 0x1f)) + cursor + 0x20;
     }
     return Field<uint32_t>(system, 0xe0c);

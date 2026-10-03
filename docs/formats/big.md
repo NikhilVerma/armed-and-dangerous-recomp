@@ -1,6 +1,6 @@
 # `.big` level files
 
-Status: header survey only (2026-10-03). Loader not yet located in Ghidra.
+Status (2026-10-03): all 13 kinds decoded. `tools/formats/bigtool.py` dumps every kind into editable parts and rebuilds it byte for byte (`tests/formats/test_big.py`: 325 of 325 files). Per-kind layouts: `big-common.md` (the shared name hash table) and `big-<kind>.md`. The game's dispatcher is 0x00449e80, which calls one loader per magic.
 
 ## Layout on disk
 
@@ -38,9 +38,9 @@ Not related to the Giants `.gzp` archive (`0x6608F101`, `ref/GiantZiP/GZPMain.pa
 Many following words are `0xFFFFFFFF`, 0, 1, 2, 3... These look like index lists or null links, which would fit
 a load-in-place memory image. That is a guess; confirm against the loader.
 
-## Next
+## Tools
 
-1. Find the loader: references to the magic constants in `.text` (`tools/gh.py`), and callers of
-   `filesys\filesys.cpp` functions.
-2. Write `tools/formats/big.py` (parse the header, list entries) and `tests/formats/test_big.py` over all 325
-   files.
+```n.venv\Scripts\python.exe tools\formats\bigtool.py dump <file.big> <outdir>
+.venv\Scripts\python.exe tools\formats\bigtool.py rebuild <outdir> <file.big>
+.venv\Scripts\python.exe tools\formats\bigtool.py roundtrip [glob]
+```n

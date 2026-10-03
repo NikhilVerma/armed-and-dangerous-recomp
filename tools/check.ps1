@@ -24,6 +24,8 @@ Suite 'tracker' {
     $header = (Get-Content $csv -TotalCount 1)
     $expected = 'address,size,name,subsystem,stage,approach,provenance,test,tokens,minutes'
     if ($header -ne $expected) { throw "functions.csv header changed: $header" }
+    & (Join-Path $root '.venv/Scripts/python.exe') (Join-Path $root 'tools/tracker_sync.py') --check | Out-Null
+    if ($LASTEXITCODE) { throw 'functions.csv out of date: run tools/tracker_sync.py' }
 }
 
 foreach ($s in 'boot', 'replay', 'diff', 'formats') {
@@ -31,7 +33,10 @@ foreach ($s in 'boot', 'replay', 'diff', 'formats') {
     $tests = Get-ChildItem $dir -File -Exclude '.gitkeep' -ErrorAction SilentlyContinue
     if (-not $tests) { Write-Host "== tests/$s`n   skipped (no tests yet)"; continue }
     if ($s -eq 'formats') {
-        Suite "tests/$s" { python -m pytest -q $dir; if ($LASTEXITCODE) { throw "pytest exit $LASTEXITCODE" } }
+        Suite "tests/$s" {
+            & (Join-Path $root '.venv/Scripts/python.exe') -m pytest -q -x $dir | Select-Object -Last 3 | Out-Host
+            if ($LASTEXITCODE) { throw "pytest exit $LASTEXITCODE" }
+        }
     }
 }
 

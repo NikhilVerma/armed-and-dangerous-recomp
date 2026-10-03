@@ -40,3 +40,25 @@ remaster: a modern backend, then DLAA, then ray tracing.
    loader, and a replacement model loads the same way.
 3. Command-line tools dump and rebuild every `.big` kind, rebuilding each one byte for byte.
 4. Tracker, docs and journal are updated, with all commits passing `tools/check.ps1`.
+
+## Status (2026-10-03)
+
+1. Done: `[render] wireframe=1` (hook/enhance/render.cpp) sets the game's own debug bit, renderer +0x1628 bit 1.
+   The recovered Renderer_BeginScene then sets D3DFILL_WIREFRAME. Seen in lev_1_m1.
+2. Done:
+   - `[overrides] textures=1`: `overrides\textures\<name>.dds|.png` replaces a texture after the recovered
+     Renderer_RegisterTexture (0x0050bb30) creates it. Seen with a PNG and with a DDS exported by bigtool.
+   - `[overrides] models=1`: `overrides\models\<name>.skn` (a skin exported by bigtool, from any level) is opened
+     by the recovered ObjectSystem_LoadSkins in place of the bank's skin, through the `g_skinChunkOverride` knob,
+     which is null in the original. Seen with the pine trees replaced by the rocket tower.
+   - `log_names=1` lists texture and model names.
+3. Done: `tools/formats/bigtool.py` dump/rebuild for all 13 kinds, byte for byte on all 325 files
+   (docs/formats/big-*.md).
+4. Done: `tools/tracker_sync.py` updates symbols/functions.csv (135 rows at S2+), and check.ps1 enforces it.
+   Journal updated. check.ps1 is green.
+
+Remaining gaps, recorded so they are not hidden:
+- Model meshes cannot yet be edited as geometry. Writing a skin chunk from OBJ needs a chunk writer
+  (docs/formats/big-skin.md section 6).
+- 16 functions were skipped in the pilot and the renderer is far from fully recovered. Both are follow-up work
+  under the main roadmap.

@@ -4,7 +4,9 @@
 //                  executable, <name> being the texture's name in the level's txtr .big (characters that cannot
 //                  be in a file name become '_'). DDS: DXT1/3/5 or 32/16-bit RGB, any size, with or without
 //                  mipmaps. PNG: any size, mipmaps generated.
-//   log_names=1    log every texture name as the game registers it (to find what to name a file)
+//   models=1       replace models (skins) by loose files: overrides\models\<name>.skn, a skin chunk as written by
+//                  tools/formats/bigtool.py dump (skins\*.skn) from any level. It is renamed to <name> on load.
+//   log_names=1    log every texture and model name as the game loads it (to find what to name a file)
 //
 // How: the game registers every texture record with renderer virtual 73 (Renderer_RegisterTexture 0x0050bb30,
 // src/renderer/textures.cpp), which creates the D3D texture and uploads the .big pixels. This wraps it and, when a
@@ -24,6 +26,8 @@
 #include "hooks.h"
 #include "log.h"
 #include "renderer/renderer.h"
+
+extern uint32_t (*g_skinChunkOverride)(uint32_t chunk);  // src/loader/auto_00410ec0.cpp (ObjectSystem_LoadSkins)
 
 namespace
 {
@@ -215,6 +219,75 @@ void ApplyTextureOverride(Renderer* r, uint8_t* tex)
     Log("overrides: %s <- %s (%ux%u, %u levels)", name, used.c_str(), desc.Width, desc.Height, t->GetLevelCount());
 }
 
+// --- models ----------------------------------------------------------------------------------------------------
+// A skin chunk (docs/formats/big-skin.md) is a relocatable heap image: +8 is the offset of its heap header, whose
+// +0x20 is the root object's offset; the root holds the source path at +0x34 and the game's name for the skin is
+// that path's file name without its last four characters (compare 0x0045ad40).
+
+bool g_models;
+std::string g_modelDir;
+
+std::string SkinName(const uint8_t* chunk, size_t limit)
+{
+    uint32_t header = *reinterpret_cast<const uint32_t*>(chunk + 8);
+    if (header + 0x24 > limit)
+        return {};
+    uint32_t root = *reinterpret_cast<const uint32_t*>(chunk + header + 0x20);
+    if (root + 0x35 > limit)
+        return {};
+    const char* path = reinterpret_cast<const char*>(chunk + root + 0x34);
+    std::string p(path, strnlen(path, limit - root - 0x34));
+    std::string file = p.substr(p.find_last_of('\\') + 1);
+    return file.size() > 4 ? file.substr(0, file.size() - 4) : std::string();
+}
+
+uint32_t SkinChunkOverride(uint32_t chunk)
+{
+    const auto* bank = reinterpret_cast<const uint8_t*>(static_cast<uintptr_t>(chunk));
+    std::string name = SkinName(bank, *reinterpret_cast<const uint32_t*>(bank));
+    if (g_logNames)
+        Log("overrides: model %s", name.c_str());
+    if (!g_models || name.empty())
+        return 0;
+    std::string path = g_modelDir + SafeName(name.c_str()) + ".skn";
+    std::vector<uint8_t> d;
+    if (!ReadFileBytes(path, d))
+        return 0;
+    if (d.size() < 0x40 || *reinterpret_cast<const uint32_t*>(d.data()) != d.size())
+    {
+        Log("overrides: %s is not a skin chunk (size word does not match the file)", path.c_str());
+        return 0;
+    }
+    std::string own = SkinName(d.data(), d.size());
+    if (own.empty())
+    {
+        Log("overrides: %s: no skin name found", path.c_str());
+        return 0;
+    }
+    // The game finds skins by the name in their path, so give the replacement the replaced skin's name. The
+    // new path ("\<name>.SKN") is never longer than the old one is allowed to be: names are at most 31 chars.
+    uint32_t header = *reinterpret_cast<uint32_t*>(d.data() + 8);
+    uint32_t root = *reinterpret_cast<uint32_t*>(d.data() + header + 0x20);
+    char* oldPath = reinterpret_cast<char*>(d.data() + root + 0x34);
+    std::string newPath = "\\" + name + ".SKN";
+    if (newPath.size() > strlen(oldPath))
+    {
+        Log("overrides: %s: cannot rename %s to %s (path too short)", path.c_str(), own.c_str(), name.c_str());
+        return 0;
+    }
+    memset(oldPath, 0, strlen(oldPath));
+    memcpy(oldPath, newPath.data(), newPath.size());
+    // Kept for the rest of the process: the game keeps pointers into the opened chunk. 32-byte aligned like the
+    // bank's chunks (VirtualAlloc gives page alignment).
+    void* mem = VirtualAlloc(nullptr, d.size(), MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    if (!mem)
+        return 0;
+    memcpy(mem, d.data(), d.size());
+    Log("overrides: model %s <- %s (%s, %u bytes)", name.c_str(), path.c_str(), own.c_str(),
+        static_cast<unsigned>(d.size()));
+    return static_cast<uint32_t>(reinterpret_cast<uintptr_t>(mem));
+}
+
 uint32_t __fastcall Overrides_RegisterTexture(Renderer* r, void* edx, uint8_t* tex)
 {
     uint32_t created = g_nextRegister(r, edx, tex);
@@ -227,13 +300,21 @@ uint32_t __fastcall Overrides_RegisterTexture(Renderer* r, void* edx, uint8_t* t
 void OverridesInit()
 {
     g_textures = ConfigInt("overrides", "textures", 0) != 0;
+    g_models = ConfigInt("overrides", "models", 0) != 0;
     g_logNames = ConfigInt("overrides", "log_names", 0) != 0;
-    if (!g_textures && !g_logNames)
+    if (!g_textures && !g_models && !g_logNames)
         return;
     char exe[MAX_PATH];
     GetModuleFileNameA(nullptr, exe, MAX_PATH);
-    g_dir = exe;
-    g_dir = g_dir.substr(0, g_dir.find_last_of("\\/") + 1) + "overrides\\textures\\";
+    std::string base(exe);
+    base = base.substr(0, base.find_last_of("\\/") + 1) + "overrides\\";
+    g_dir = base + "textures\\";
+    g_modelDir = base + "models\\";
+    if (g_models || g_logNames)
+    {
+        g_skinChunkOverride = SkinChunkOverride;
+        Log("overrides: models %d (from %s)", g_models, g_modelDir.c_str());
+    }
     HookWrap("Renderer_RegisterTexture", reinterpret_cast<void*>(Overrides_RegisterTexture),
              reinterpret_cast<void**>(&g_nextRegister));
     Log("overrides: textures %d (from %s), log_names %d", g_textures, g_dir.c_str(), g_logNames);
