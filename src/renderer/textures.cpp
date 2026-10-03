@@ -284,3 +284,68 @@ HOOK(0x00509e80, "Texture_ComputeSize", Texture_ComputeSize_Entry, nullptr);
 HOOK(0x0050b330, "TextureBuckets_Acquire", TextureBuckets_Acquire_Entry, nullptr);
 HOOK(0x0050c1b0, "TextureImage_LoadIntoSurface", TextureImage_LoadIntoSurface_Entry, nullptr);
 HOOK(0x0050b2b0, "Renderer_ChooseTextureFormat", Renderer_ChooseTextureFormat_Entry, nullptr);
+
+uint32_t Renderer_CreateTexture(Renderer* r, uint8_t* tex, uint32_t width, uint32_t height, uint32_t maxLevels,
+                                uint32_t format);                                            // auto_00506210.cpp
+uint32_t Texture_FillLevelsFromMemory(const uint8_t* source, Renderer* r, uint8_t* slot);  // auto_0050ab40.cpp
+
+// 0x0050bb30 (ecx = renderer; [texture record], callee pops): renderer virtual 73, "register texture". Unless
+// the record needs a capability the device lacks (word +0x22: bit 0x10 needs caps +0x15fc bit 0x10, bit 0x20 cube
+// maps bit 0, bit 0x80 render target needs +0x14e0 bit 14), make sure it has data: with no data pointer (+4) and
+// no 0xc0 flags, ask the load callback (+0x4a0). Then create the D3D texture: flag 8 goes through virtual 84
+// (+0x150), otherwise Renderer_CreateTexture and, for ordinary textures, upload the pixels into every level
+// (Texture_FillLevelsFromMemory with the record's bucket +0x0c). After a callback load, the release callback
+// (+0x4a4) runs. Returns 1 when the record ended up created (+0x23 bit 0x80); otherwise logs
+// "Failed to create texture %s" with the record's name (+0) and returns 0.
+uint32_t Renderer_RegisterTexture(Renderer* r, uint8_t* tex)
+{
+    if (!tex)
+        return 0;
+    VCall<uint32_t>(r, 0x128 / 4, tex, 0u);
+    uint16_t flags = Field<uint16_t>(tex, 0x22);
+    uint8_t caps = Field<uint8_t>(r, 0x15fc);
+    if ((flags & 0x10) && !(caps & 0x10))
+        return 0;
+    if ((flags & 0x20) && !(caps & 1))
+        return 0;
+    if ((flags & 0x80) && (~Field<uint32_t>(r, 0x14e0) & 0x4000))
+        return 0;
+
+    bool loadedByCallback = false;
+    if (Field<uint32_t>(tex, 4) == 0 && (flags & 0xc0) == 0)
+    {
+        loadedByCallback = true;
+        if (auto load = Field<void(__cdecl*)(uint8_t*)>(r, 0x4a0))
+            load(tex);
+    }
+    uint32_t data = Field<uint32_t>(tex, 4);
+    if (data != 0 || (tex[0x22] & 0xc0))
+    {
+        if (tex[0x22] & 8)
+        {
+            VCall<uint32_t>(r, 0x150 / 4, tex, data, 0u);
+        }
+        else if (Renderer_CreateTexture(r, tex, 0, 0, 0, 0) != 0 && (tex[0x22] & 0xc0) == 0)
+        {
+            Texture_FillLevelsFromMemory(reinterpret_cast<const uint8_t*>(data), r, Field<uint8_t*>(tex, 0xc));
+        }
+    }
+    if (loadedByCallback && !(tex[0x22] & 8))
+    {
+        if (auto release = Field<void(__cdecl*)(uint8_t*)>(r, 0x4a4))
+            release(tex);
+    }
+    if (tex[0x23] & 0x80)
+        return 1;
+    orig::fn_0050bcc0(0, 0, u(r));  // ecx = 0: does nothing (the original passes no bucket either)
+    GameLog(reinterpret_cast<const char*>(0x00589358) /* "Failed to create texture %s\n" */,
+            Field<const char*>(tex, 0));
+    return 0;
+}
+
+static uint32_t Renderer_RegisterTexture_Abi(uint32_t ecx, uint32_t tex)
+{
+    return Renderer_RegisterTexture(reinterpret_cast<Renderer*>(ecx), reinterpret_cast<uint8_t*>(tex));
+}
+ABI_ENTRY_0050bb30(Renderer_RegisterTexture_Entry, Renderer_RegisterTexture_Abi)
+HOOK(0x0050bb30, "Renderer_RegisterTexture", Renderer_RegisterTexture_Entry, nullptr);

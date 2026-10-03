@@ -10,6 +10,7 @@
 void CrashInstall();
 void StartupInit();
 void RenderInit();
+void OverridesInit();
 void TestShotInit();
 void InputHooksInit();
 void TestHashInit();
@@ -50,6 +51,7 @@ static void Startup()
     DisplayInit();    // enhancements register their wrappers before hooks are installed
     StartupInit();
     RenderInit();
+    OverridesInit();
     HooksInstallAll();
     D3D9HooksInstall();
 }

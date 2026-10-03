@@ -41,10 +41,11 @@ add_library(and_hook SHARED
   enhance/display.cpp
   enhance/startup.cpp
   enhance/render.cpp
+  enhance/overrides.cpp
   dinput8.def)
 
 target_include_directories(and_hook PRIVATE src enhance ../src ${minhook_SOURCE_DIR}/include)
-target_link_libraries(and_hook PRIVATE minhook d3d9 dbghelp dxguid)
+target_link_libraries(and_hook PRIVATE minhook d3d9 dbghelp dxguid ole32 windowscodecs)
 set_target_properties(and_hook PROPERTIES OUTPUT_NAME dinput8)
 
 # x87 and precise floating point while differential tests need exact agreement (handover s8).
