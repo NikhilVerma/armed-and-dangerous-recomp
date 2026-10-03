@@ -12,7 +12,7 @@ Target: PC Steam build, app 6090, build id 251748 (`appmanifest_6090.acf`). Copi
 | Compiler and build number | VC7.x. DIE: C runtime from VC++ 13.10 (VS .NET 2003), libcmt; PE linker field says 7.0 (conflict, open). No Rich header. PDB `c:\dev\code\game\Win32-Final\Game.pdb`. | DIE 3.21; PE optional header; debug directory; step 3 |
 | Link-time code generation | Unknown; no Rich header to read it from | Needs the register-argument check in Ghidra |
 | C++ type information present | **No RTTI** | 0 `.?AV`/`.?AU` names in the unwrapped file |
-| Functions: total / library / game | Unknown | Needs Ghidra |
+| Functions: total / library / game | 4,241 total; 38 thunks; 238 named by auto-analysis/FID; 3,965 unnamed (1,145,248 bytes, median 125 B, p90 626 B). Game-only count still includes Havok, zlib, libjpeg and unmatched CRT. | `tools/gh.py stats`, Ghidra 12.1.4 default analysis, 2026-10-03 |
 | Static libraries identified | Havok physics (proprietary), zlib 1.1.4, IJG libjpeg (6b, guess). DivX via DLL. | Version banners and `hk*.cpp` paths, see step 8 |
 | Archive format | `.big`, first 4 bytes `DE C0 AD DE` (0xDEADC0DE little-endian). Relation to Giants `.gzp` untested. | `lev_1_m1/lev_1_m1_big01_text.big` header |
 | Script interpreter present | Unknown | |
@@ -108,6 +108,21 @@ No `d3dx9_*.dll` import (no D3DX dependency for Approach B). `FileParser.dll` is
 | zlib | 1.1.4 | `deflate 1.1.4 Copyright 1995-2002`, `inflate 1.1.4` | Replace with public zlib 1.1.4 source |
 | IJG libjpeg | 6b (guess) | `Copyright (C) 1998, Thomas G. Lane`, JFIF strings | Replace with public libjpeg 6b source |
 
-## Steps 4, 7, 9 to 12
+## Step 7: first Ghidra pass
 
-Not started. Step 7 (first Ghidra pass) waits for Ghidra.
+Ghidra 12.1.4 headless via pyghidra, default analysers, project `work/ghidra/and`. 2 min 05 s.
+4,388 functions reported at import including 147 externals (= the 147 imported functions); 4,241 in the
+image. See the table. Function ID matched few CRT functions; VS 2003 FID databases are the next step.
+
+## Step 9: data formats
+
+`.big` survey in `docs/formats/big.md`: 13 kinds per level, each with its own magic; not Giants `.gzp`.
+
+## Step 11: runtime behaviour (partial)
+
+Unwrapped executable starts with no Steam client involvement, fullscreen at 640x480, intro text then intro
+movie. Timers imported: `GetTickCount`, `QueryPerformanceCounter`/`Frequency`.
+
+## Steps 4, 10, 12
+
+Not started. Step 10 (Xbox builds) needs an ASK.
