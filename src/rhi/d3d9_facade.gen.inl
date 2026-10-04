@@ -302,30 +302,188 @@ static const char* const kRhiMethodNames[kRhiMethodCount] = {
     "IDirect3DQuery9::Issue",
     "IDirect3DQuery9::GetData"};
 
+class Facade_Direct3D;
+class Facade_Device;
+class Facade_StateBlock;
+class Facade_SwapChain;
+class Facade_VertexDeclaration;
+class Facade_VertexShader;
+class Facade_PixelShader;
+class Facade_Texture;
+class Facade_VolumeTexture;
+class Facade_CubeTexture;
+class Facade_VertexBuffer;
+class Facade_IndexBuffer;
+class Facade_Surface;
+class Facade_Volume;
+class Facade_Query;
+
+#define ROUTE_IDirect3D9_GetAdapterModeCount
+UINT Route_IDirect3D9_GetAdapterModeCount(Facade_Direct3D* self, UINT Adapter, D3DFORMAT Format);
+#define ROUTE_IDirect3D9_EnumAdapterModes
+HRESULT Route_IDirect3D9_EnumAdapterModes(Facade_Direct3D* self, UINT Adapter, D3DFORMAT Format, UINT Mode, D3DDISPLAYMODE* pMode);
+#define ROUTE_IDirect3D9_GetAdapterDisplayMode
+HRESULT Route_IDirect3D9_GetAdapterDisplayMode(Facade_Direct3D* self, UINT Adapter, D3DDISPLAYMODE* pMode);
+#define ROUTE_IDirect3D9_CheckDeviceFormat
+HRESULT Route_IDirect3D9_CheckDeviceFormat(Facade_Direct3D* self, UINT Adapter, D3DDEVTYPE DeviceType, D3DFORMAT AdapterFormat, DWORD Usage, D3DRESOURCETYPE RType, D3DFORMAT CheckFormat);
+#define ROUTE_IDirect3D9_CheckDepthStencilMatch
+HRESULT Route_IDirect3D9_CheckDepthStencilMatch(Facade_Direct3D* self, UINT Adapter, D3DDEVTYPE DeviceType, D3DFORMAT AdapterFormat, D3DFORMAT RenderTargetFormat, D3DFORMAT DepthStencilFormat);
+#define ROUTE_IDirect3D9_GetDeviceCaps
+HRESULT Route_IDirect3D9_GetDeviceCaps(Facade_Direct3D* self, UINT Adapter, D3DDEVTYPE DeviceType, D3DCAPS9* pCaps);
+#define ROUTE_IDirect3D9_CreateDevice
+HRESULT Route_IDirect3D9_CreateDevice(Facade_Direct3D* self, UINT Adapter, D3DDEVTYPE DeviceType, HWND hFocusWindow, DWORD BehaviorFlags, D3DPRESENT_PARAMETERS* pPresentationParameters, IDirect3DDevice9** ppReturnedDeviceInterface);
+#define ROUTE_IDirect3DDevice9_TestCooperativeLevel
+HRESULT Route_IDirect3DDevice9_TestCooperativeLevel(Facade_Device* self);
+#define ROUTE_IDirect3DDevice9_GetAvailableTextureMem
+UINT Route_IDirect3DDevice9_GetAvailableTextureMem(Facade_Device* self);
+#define ROUTE_IDirect3DDevice9_EvictManagedResources
+HRESULT Route_IDirect3DDevice9_EvictManagedResources(Facade_Device* self);
+#define ROUTE_IDirect3DDevice9_GetDeviceCaps
+HRESULT Route_IDirect3DDevice9_GetDeviceCaps(Facade_Device* self, D3DCAPS9* pCaps);
+#define ROUTE_IDirect3DDevice9_Reset
+HRESULT Route_IDirect3DDevice9_Reset(Facade_Device* self, D3DPRESENT_PARAMETERS* pPresentationParameters);
+#define ROUTE_IDirect3DDevice9_Present
+HRESULT Route_IDirect3DDevice9_Present(Facade_Device* self, const RECT* pSourceRect, const RECT* pDestRect, HWND hDestWindowOverride, const RGNDATA* pDirtyRegion);
+#define ROUTE_IDirect3DDevice9_GetBackBuffer
+HRESULT Route_IDirect3DDevice9_GetBackBuffer(Facade_Device* self, UINT iSwapChain, UINT iBackBuffer, D3DBACKBUFFER_TYPE Type, IDirect3DSurface9** ppBackBuffer);
+#define ROUTE_IDirect3DDevice9_SetGammaRamp
+void Route_IDirect3DDevice9_SetGammaRamp(Facade_Device* self, UINT iSwapChain, DWORD Flags, const D3DGAMMARAMP* pRamp);
+#define ROUTE_IDirect3DDevice9_CreateTexture
+HRESULT Route_IDirect3DDevice9_CreateTexture(Facade_Device* self, UINT Width, UINT Height, UINT Levels, DWORD Usage, D3DFORMAT Format, D3DPOOL Pool, IDirect3DTexture9** ppTexture, HANDLE* pSharedHandle);
+#define ROUTE_IDirect3DDevice9_CreateCubeTexture
+HRESULT Route_IDirect3DDevice9_CreateCubeTexture(Facade_Device* self, UINT EdgeLength, UINT Levels, DWORD Usage, D3DFORMAT Format, D3DPOOL Pool, IDirect3DCubeTexture9** ppCubeTexture, HANDLE* pSharedHandle);
+#define ROUTE_IDirect3DDevice9_CreateVertexBuffer
+HRESULT Route_IDirect3DDevice9_CreateVertexBuffer(Facade_Device* self, UINT Length, DWORD Usage, DWORD FVF, D3DPOOL Pool, IDirect3DVertexBuffer9** ppVertexBuffer, HANDLE* pSharedHandle);
+#define ROUTE_IDirect3DDevice9_CreateIndexBuffer
+HRESULT Route_IDirect3DDevice9_CreateIndexBuffer(Facade_Device* self, UINT Length, DWORD Usage, D3DFORMAT Format, D3DPOOL Pool, IDirect3DIndexBuffer9** ppIndexBuffer, HANDLE* pSharedHandle);
+#define ROUTE_IDirect3DDevice9_CreateOffscreenPlainSurface
+HRESULT Route_IDirect3DDevice9_CreateOffscreenPlainSurface(Facade_Device* self, UINT Width, UINT Height, D3DFORMAT Format, D3DPOOL Pool, IDirect3DSurface9** ppSurface, HANDLE* pSharedHandle);
+#define ROUTE_IDirect3DDevice9_StretchRect
+HRESULT Route_IDirect3DDevice9_StretchRect(Facade_Device* self, IDirect3DSurface9* pSourceSurface, const RECT* pSourceRect, IDirect3DSurface9* pDestSurface, const RECT* pDestRect, D3DTEXTUREFILTERTYPE Filter);
+#define ROUTE_IDirect3DDevice9_SetRenderTarget
+HRESULT Route_IDirect3DDevice9_SetRenderTarget(Facade_Device* self, DWORD RenderTargetIndex, IDirect3DSurface9* pRenderTarget);
+#define ROUTE_IDirect3DDevice9_SetDepthStencilSurface
+HRESULT Route_IDirect3DDevice9_SetDepthStencilSurface(Facade_Device* self, IDirect3DSurface9* pNewZStencil);
+#define ROUTE_IDirect3DDevice9_GetDepthStencilSurface
+HRESULT Route_IDirect3DDevice9_GetDepthStencilSurface(Facade_Device* self, IDirect3DSurface9** ppZStencilSurface);
+#define ROUTE_IDirect3DDevice9_BeginScene
+HRESULT Route_IDirect3DDevice9_BeginScene(Facade_Device* self);
+#define ROUTE_IDirect3DDevice9_EndScene
+HRESULT Route_IDirect3DDevice9_EndScene(Facade_Device* self);
+#define ROUTE_IDirect3DDevice9_Clear
+HRESULT Route_IDirect3DDevice9_Clear(Facade_Device* self, DWORD Count, const D3DRECT* pRects, DWORD Flags, D3DCOLOR Color, float Z, DWORD Stencil);
+#define ROUTE_IDirect3DDevice9_SetTransform
+HRESULT Route_IDirect3DDevice9_SetTransform(Facade_Device* self, D3DTRANSFORMSTATETYPE State, const D3DMATRIX* pMatrix);
+#define ROUTE_IDirect3DDevice9_SetViewport
+HRESULT Route_IDirect3DDevice9_SetViewport(Facade_Device* self, const D3DVIEWPORT9* pViewport);
+#define ROUTE_IDirect3DDevice9_SetMaterial
+HRESULT Route_IDirect3DDevice9_SetMaterial(Facade_Device* self, const D3DMATERIAL9* pMaterial);
+#define ROUTE_IDirect3DDevice9_SetLight
+HRESULT Route_IDirect3DDevice9_SetLight(Facade_Device* self, DWORD Index, const D3DLIGHT9* a1);
+#define ROUTE_IDirect3DDevice9_LightEnable
+HRESULT Route_IDirect3DDevice9_LightEnable(Facade_Device* self, DWORD Index, BOOL Enable);
+#define ROUTE_IDirect3DDevice9_SetRenderState
+HRESULT Route_IDirect3DDevice9_SetRenderState(Facade_Device* self, D3DRENDERSTATETYPE State, DWORD Value);
+#define ROUTE_IDirect3DDevice9_SetTexture
+HRESULT Route_IDirect3DDevice9_SetTexture(Facade_Device* self, DWORD Stage, IDirect3DBaseTexture9* pTexture);
+#define ROUTE_IDirect3DDevice9_SetTextureStageState
+HRESULT Route_IDirect3DDevice9_SetTextureStageState(Facade_Device* self, DWORD Stage, D3DTEXTURESTAGESTATETYPE Type, DWORD Value);
+#define ROUTE_IDirect3DDevice9_SetSamplerState
+HRESULT Route_IDirect3DDevice9_SetSamplerState(Facade_Device* self, DWORD Sampler, D3DSAMPLERSTATETYPE Type, DWORD Value);
+#define ROUTE_IDirect3DDevice9_DrawPrimitive
+HRESULT Route_IDirect3DDevice9_DrawPrimitive(Facade_Device* self, D3DPRIMITIVETYPE PrimitiveType, UINT StartVertex, UINT PrimitiveCount);
+#define ROUTE_IDirect3DDevice9_DrawIndexedPrimitive
+HRESULT Route_IDirect3DDevice9_DrawIndexedPrimitive(Facade_Device* self, D3DPRIMITIVETYPE a0, INT BaseVertexIndex, UINT MinVertexIndex, UINT NumVertices, UINT startIndex, UINT primCount);
+#define ROUTE_IDirect3DDevice9_CreateVertexDeclaration
+HRESULT Route_IDirect3DDevice9_CreateVertexDeclaration(Facade_Device* self, const D3DVERTEXELEMENT9* pVertexElements, IDirect3DVertexDeclaration9** ppDecl);
+#define ROUTE_IDirect3DDevice9_SetVertexDeclaration
+HRESULT Route_IDirect3DDevice9_SetVertexDeclaration(Facade_Device* self, IDirect3DVertexDeclaration9* pDecl);
+#define ROUTE_IDirect3DDevice9_CreateVertexShader
+HRESULT Route_IDirect3DDevice9_CreateVertexShader(Facade_Device* self, const DWORD* pFunction, IDirect3DVertexShader9** ppShader);
+#define ROUTE_IDirect3DDevice9_SetVertexShader
+HRESULT Route_IDirect3DDevice9_SetVertexShader(Facade_Device* self, IDirect3DVertexShader9* pShader);
+#define ROUTE_IDirect3DDevice9_SetVertexShaderConstantF
+HRESULT Route_IDirect3DDevice9_SetVertexShaderConstantF(Facade_Device* self, UINT StartRegister, const float* pConstantData, UINT Vector4fCount);
+#define ROUTE_IDirect3DDevice9_SetStreamSource
+HRESULT Route_IDirect3DDevice9_SetStreamSource(Facade_Device* self, UINT StreamNumber, IDirect3DVertexBuffer9* pStreamData, UINT OffsetInBytes, UINT Stride);
+#define ROUTE_IDirect3DDevice9_SetIndices
+HRESULT Route_IDirect3DDevice9_SetIndices(Facade_Device* self, IDirect3DIndexBuffer9* pIndexData);
+#define ROUTE_IDirect3DDevice9_CreatePixelShader
+HRESULT Route_IDirect3DDevice9_CreatePixelShader(Facade_Device* self, const DWORD* pFunction, IDirect3DPixelShader9** ppShader);
+#define ROUTE_IDirect3DDevice9_SetPixelShader
+HRESULT Route_IDirect3DDevice9_SetPixelShader(Facade_Device* self, IDirect3DPixelShader9* pShader);
+#define ROUTE_IDirect3DDevice9_SetPixelShaderConstantF
+HRESULT Route_IDirect3DDevice9_SetPixelShaderConstantF(Facade_Device* self, UINT StartRegister, const float* pConstantData, UINT Vector4fCount);
+#define ROUTE_IDirect3DTexture9_GetDevice
+HRESULT Route_IDirect3DTexture9_GetDevice(Facade_Texture* self, IDirect3DDevice9** ppDevice);
+#define ROUTE_IDirect3DTexture9_GetLOD
+DWORD Route_IDirect3DTexture9_GetLOD(Facade_Texture* self);
+#define ROUTE_IDirect3DTexture9_SetLOD
+DWORD Route_IDirect3DTexture9_SetLOD(Facade_Texture* self, DWORD LODNew);
+#define ROUTE_IDirect3DTexture9_GetLevelCount
+DWORD Route_IDirect3DTexture9_GetLevelCount(Facade_Texture* self);
+#define ROUTE_IDirect3DTexture9_GetLevelDesc
+HRESULT Route_IDirect3DTexture9_GetLevelDesc(Facade_Texture* self, UINT Level, D3DSURFACE_DESC * pDesc);
+#define ROUTE_IDirect3DTexture9_GetSurfaceLevel
+HRESULT Route_IDirect3DTexture9_GetSurfaceLevel(Facade_Texture* self, UINT Level, IDirect3DSurface9** ppSurfaceLevel);
+#define ROUTE_IDirect3DCubeTexture9_GetDevice
+HRESULT Route_IDirect3DCubeTexture9_GetDevice(Facade_CubeTexture* self, IDirect3DDevice9** ppDevice);
+#define ROUTE_IDirect3DCubeTexture9_GetLOD
+DWORD Route_IDirect3DCubeTexture9_GetLOD(Facade_CubeTexture* self);
+#define ROUTE_IDirect3DCubeTexture9_SetLOD
+DWORD Route_IDirect3DCubeTexture9_SetLOD(Facade_CubeTexture* self, DWORD LODNew);
+#define ROUTE_IDirect3DCubeTexture9_GetLevelCount
+DWORD Route_IDirect3DCubeTexture9_GetLevelCount(Facade_CubeTexture* self);
+#define ROUTE_IDirect3DCubeTexture9_GetLevelDesc
+HRESULT Route_IDirect3DCubeTexture9_GetLevelDesc(Facade_CubeTexture* self, UINT Level, D3DSURFACE_DESC * pDesc);
+#define ROUTE_IDirect3DCubeTexture9_GetCubeMapSurface
+HRESULT Route_IDirect3DCubeTexture9_GetCubeMapSurface(Facade_CubeTexture* self, D3DCUBEMAP_FACES FaceType, UINT Level, IDirect3DSurface9** ppCubeMapSurface);
+#define ROUTE_IDirect3DSurface9_GetDevice
+HRESULT Route_IDirect3DSurface9_GetDevice(Facade_Surface* self, IDirect3DDevice9** ppDevice);
+#define ROUTE_IDirect3DSurface9_GetDesc
+HRESULT Route_IDirect3DSurface9_GetDesc(Facade_Surface* self, D3DSURFACE_DESC * pDesc);
+#define ROUTE_IDirect3DSurface9_LockRect
+HRESULT Route_IDirect3DSurface9_LockRect(Facade_Surface* self, D3DLOCKED_RECT* pLockedRect, const RECT* pRect, DWORD Flags);
+#define ROUTE_IDirect3DSurface9_UnlockRect
+HRESULT Route_IDirect3DSurface9_UnlockRect(Facade_Surface* self);
+#define ROUTE_IDirect3DVertexBuffer9_GetDevice
+HRESULT Route_IDirect3DVertexBuffer9_GetDevice(Facade_VertexBuffer* self, IDirect3DDevice9** ppDevice);
+#define ROUTE_IDirect3DVertexBuffer9_Lock
+HRESULT Route_IDirect3DVertexBuffer9_Lock(Facade_VertexBuffer* self, UINT OffsetToLock, UINT SizeToLock, void** ppbData, DWORD Flags);
+#define ROUTE_IDirect3DVertexBuffer9_Unlock
+HRESULT Route_IDirect3DVertexBuffer9_Unlock(Facade_VertexBuffer* self);
+#define ROUTE_IDirect3DIndexBuffer9_GetDevice
+HRESULT Route_IDirect3DIndexBuffer9_GetDevice(Facade_IndexBuffer* self, IDirect3DDevice9** ppDevice);
+#define ROUTE_IDirect3DIndexBuffer9_Lock
+HRESULT Route_IDirect3DIndexBuffer9_Lock(Facade_IndexBuffer* self, UINT OffsetToLock, UINT SizeToLock, void** ppbData, DWORD Flags);
+#define ROUTE_IDirect3DIndexBuffer9_Unlock
+HRESULT Route_IDirect3DIndexBuffer9_Unlock(Facade_IndexBuffer* self);
+
 class Facade_Direct3D final : public IDirect3D9
 {
 public:
-    IDirect3D9* real;
+    rhi::Object* obj;  // the renderer-interface object behind this one
+    IDirect3D9* real;  // its D3D9 object (D3D9 backend), for methods outside the interface
     ULONG refs = 1;
-    explicit Facade_Direct3D(IDirect3D9* r) : real(r) {}
+    explicit Facade_Direct3D(rhi::Object* o) : obj(o), real(static_cast<IDirect3D9*>(o ? o->Native() : nullptr)) {}
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObj) override
     {
         RhiCount(0);
-        return FacadeQueryInterface(this, real, riid, ppvObj);
+        return FacadeQueryInterface(this, riid, ppvObj);
     }
     ULONG STDMETHODCALLTYPE AddRef() override
     {
         RhiCount(1);
         ++refs;
-        return real->AddRef();
+        return obj->AddRef();
     }
     ULONG STDMETHODCALLTYPE Release() override
     {
         RhiCount(2);
-        ULONG n = real->Release();
+        rhi::Object* o = obj;
         if (--refs == 0)
-            FacadeForget(this, real);
-        return n;
+            FacadeForget(this);
+        return o->Release();
     }
     HRESULT STDMETHODCALLTYPE RegisterSoftwareDevice(void* pInitializeFunction) override
     {
@@ -333,6 +491,8 @@ public:
 #ifdef ROUTE_IDirect3D9_RegisterSoftwareDevice
         return Route_IDirect3D9_RegisterSoftwareDevice(this, pInitializeFunction);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(3);
+        FacadeFallback(3);
         return real->RegisterSoftwareDevice(pInitializeFunction);
 #endif
     }
@@ -342,6 +502,8 @@ public:
 #ifdef ROUTE_IDirect3D9_GetAdapterCount
         return Route_IDirect3D9_GetAdapterCount(this);
 #else
+        if (!real) return FacadeUnsupported<UINT>(4);
+        FacadeFallback(4);
         return real->GetAdapterCount();
 #endif
     }
@@ -351,6 +513,8 @@ public:
 #ifdef ROUTE_IDirect3D9_GetAdapterIdentifier
         return Route_IDirect3D9_GetAdapterIdentifier(this, Adapter, Flags, pIdentifier);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(5);
+        FacadeFallback(5);
         return real->GetAdapterIdentifier(Adapter, Flags, pIdentifier);
 #endif
     }
@@ -360,6 +524,8 @@ public:
 #ifdef ROUTE_IDirect3D9_GetAdapterModeCount
         return Route_IDirect3D9_GetAdapterModeCount(this, Adapter, Format);
 #else
+        if (!real) return FacadeUnsupported<UINT>(6);
+        FacadeFallback(6);
         return real->GetAdapterModeCount(Adapter, Format);
 #endif
     }
@@ -369,6 +535,8 @@ public:
 #ifdef ROUTE_IDirect3D9_EnumAdapterModes
         return Route_IDirect3D9_EnumAdapterModes(this, Adapter, Format, Mode, pMode);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(7);
+        FacadeFallback(7);
         return real->EnumAdapterModes(Adapter, Format, Mode, pMode);
 #endif
     }
@@ -378,6 +546,8 @@ public:
 #ifdef ROUTE_IDirect3D9_GetAdapterDisplayMode
         return Route_IDirect3D9_GetAdapterDisplayMode(this, Adapter, pMode);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(8);
+        FacadeFallback(8);
         return real->GetAdapterDisplayMode(Adapter, pMode);
 #endif
     }
@@ -387,6 +557,8 @@ public:
 #ifdef ROUTE_IDirect3D9_CheckDeviceType
         return Route_IDirect3D9_CheckDeviceType(this, Adapter, DevType, AdapterFormat, BackBufferFormat, bWindowed);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(9);
+        FacadeFallback(9);
         return real->CheckDeviceType(Adapter, DevType, AdapterFormat, BackBufferFormat, bWindowed);
 #endif
     }
@@ -396,6 +568,8 @@ public:
 #ifdef ROUTE_IDirect3D9_CheckDeviceFormat
         return Route_IDirect3D9_CheckDeviceFormat(this, Adapter, DeviceType, AdapterFormat, Usage, RType, CheckFormat);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(10);
+        FacadeFallback(10);
         return real->CheckDeviceFormat(Adapter, DeviceType, AdapterFormat, Usage, RType, CheckFormat);
 #endif
     }
@@ -405,6 +579,8 @@ public:
 #ifdef ROUTE_IDirect3D9_CheckDeviceMultiSampleType
         return Route_IDirect3D9_CheckDeviceMultiSampleType(this, Adapter, DeviceType, SurfaceFormat, Windowed, MultiSampleType, pQualityLevels);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(11);
+        FacadeFallback(11);
         return real->CheckDeviceMultiSampleType(Adapter, DeviceType, SurfaceFormat, Windowed, MultiSampleType, pQualityLevels);
 #endif
     }
@@ -414,6 +590,8 @@ public:
 #ifdef ROUTE_IDirect3D9_CheckDepthStencilMatch
         return Route_IDirect3D9_CheckDepthStencilMatch(this, Adapter, DeviceType, AdapterFormat, RenderTargetFormat, DepthStencilFormat);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(12);
+        FacadeFallback(12);
         return real->CheckDepthStencilMatch(Adapter, DeviceType, AdapterFormat, RenderTargetFormat, DepthStencilFormat);
 #endif
     }
@@ -423,6 +601,8 @@ public:
 #ifdef ROUTE_IDirect3D9_CheckDeviceFormatConversion
         return Route_IDirect3D9_CheckDeviceFormatConversion(this, Adapter, DeviceType, SourceFormat, TargetFormat);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(13);
+        FacadeFallback(13);
         return real->CheckDeviceFormatConversion(Adapter, DeviceType, SourceFormat, TargetFormat);
 #endif
     }
@@ -432,6 +612,8 @@ public:
 #ifdef ROUTE_IDirect3D9_GetDeviceCaps
         return Route_IDirect3D9_GetDeviceCaps(this, Adapter, DeviceType, pCaps);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(14);
+        FacadeFallback(14);
         return real->GetDeviceCaps(Adapter, DeviceType, pCaps);
 #endif
     }
@@ -441,6 +623,8 @@ public:
 #ifdef ROUTE_IDirect3D9_GetAdapterMonitor
         return Route_IDirect3D9_GetAdapterMonitor(this, Adapter);
 #else
+        if (!real) return FacadeUnsupported<HMONITOR>(15);
+        FacadeFallback(15);
         return real->GetAdapterMonitor(Adapter);
 #endif
     }
@@ -450,6 +634,8 @@ public:
 #ifdef ROUTE_IDirect3D9_CreateDevice
         return Route_IDirect3D9_CreateDevice(this, Adapter, DeviceType, hFocusWindow, BehaviorFlags, pPresentationParameters, ppReturnedDeviceInterface);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(16);
+        FacadeFallback(16);
         HRESULT r = real->CreateDevice(Adapter, DeviceType, hFocusWindow, BehaviorFlags, pPresentationParameters, ppReturnedDeviceInterface);
         if (ppReturnedDeviceInterface && *ppReturnedDeviceInterface) *ppReturnedDeviceInterface = FacadeWrap(*ppReturnedDeviceInterface);
         return r;
@@ -460,27 +646,28 @@ public:
 class Facade_Device final : public IDirect3DDevice9
 {
 public:
-    IDirect3DDevice9* real;
+    rhi::Object* obj;  // the renderer-interface object behind this one
+    IDirect3DDevice9* real;  // its D3D9 object (D3D9 backend), for methods outside the interface
     ULONG refs = 1;
-    explicit Facade_Device(IDirect3DDevice9* r) : real(r) {}
+    explicit Facade_Device(rhi::Object* o) : obj(o), real(static_cast<IDirect3DDevice9*>(o ? o->Native() : nullptr)) {}
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObj) override
     {
         RhiCount(17);
-        return FacadeQueryInterface(this, real, riid, ppvObj);
+        return FacadeQueryInterface(this, riid, ppvObj);
     }
     ULONG STDMETHODCALLTYPE AddRef() override
     {
         RhiCount(18);
         ++refs;
-        return real->AddRef();
+        return obj->AddRef();
     }
     ULONG STDMETHODCALLTYPE Release() override
     {
         RhiCount(19);
-        ULONG n = real->Release();
+        rhi::Object* o = obj;
         if (--refs == 0)
-            FacadeForget(this, real);
-        return n;
+            FacadeForget(this);
+        return o->Release();
     }
     HRESULT STDMETHODCALLTYPE TestCooperativeLevel() override
     {
@@ -488,6 +675,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_TestCooperativeLevel
         return Route_IDirect3DDevice9_TestCooperativeLevel(this);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(20);
+        FacadeFallback(20);
         return real->TestCooperativeLevel();
 #endif
     }
@@ -497,6 +686,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_GetAvailableTextureMem
         return Route_IDirect3DDevice9_GetAvailableTextureMem(this);
 #else
+        if (!real) return FacadeUnsupported<UINT>(21);
+        FacadeFallback(21);
         return real->GetAvailableTextureMem();
 #endif
     }
@@ -506,6 +697,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_EvictManagedResources
         return Route_IDirect3DDevice9_EvictManagedResources(this);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(22);
+        FacadeFallback(22);
         return real->EvictManagedResources();
 #endif
     }
@@ -515,6 +708,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_GetDirect3D
         return Route_IDirect3DDevice9_GetDirect3D(this, ppD3D9);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(23);
+        FacadeFallback(23);
         HRESULT r = real->GetDirect3D(ppD3D9);
         if (ppD3D9 && *ppD3D9) *ppD3D9 = FacadeWrap(*ppD3D9);
         return r;
@@ -526,6 +721,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_GetDeviceCaps
         return Route_IDirect3DDevice9_GetDeviceCaps(this, pCaps);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(24);
+        FacadeFallback(24);
         return real->GetDeviceCaps(pCaps);
 #endif
     }
@@ -535,6 +732,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_GetDisplayMode
         return Route_IDirect3DDevice9_GetDisplayMode(this, iSwapChain, pMode);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(25);
+        FacadeFallback(25);
         return real->GetDisplayMode(iSwapChain, pMode);
 #endif
     }
@@ -544,6 +743,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_GetCreationParameters
         return Route_IDirect3DDevice9_GetCreationParameters(this, pParameters);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(26);
+        FacadeFallback(26);
         return real->GetCreationParameters(pParameters);
 #endif
     }
@@ -553,6 +754,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_SetCursorProperties
         return Route_IDirect3DDevice9_SetCursorProperties(this, XHotSpot, YHotSpot, pCursorBitmap);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(27);
+        FacadeFallback(27);
         return real->SetCursorProperties(XHotSpot, YHotSpot, FacadeUnwrap(pCursorBitmap));
 #endif
     }
@@ -562,6 +765,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_SetCursorPosition
         return Route_IDirect3DDevice9_SetCursorPosition(this, X, Y, Flags);
 #else
+        if (!real) return FacadeUnsupported<void>(28);
+        FacadeFallback(28);
         real->SetCursorPosition(X, Y, Flags);
 #endif
     }
@@ -571,6 +776,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_ShowCursor
         return Route_IDirect3DDevice9_ShowCursor(this, bShow);
 #else
+        if (!real) return FacadeUnsupported<BOOL>(29);
+        FacadeFallback(29);
         return real->ShowCursor(bShow);
 #endif
     }
@@ -580,6 +787,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_CreateAdditionalSwapChain
         return Route_IDirect3DDevice9_CreateAdditionalSwapChain(this, pPresentationParameters, pSwapChain);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(30);
+        FacadeFallback(30);
         HRESULT r = real->CreateAdditionalSwapChain(pPresentationParameters, pSwapChain);
         if (pSwapChain && *pSwapChain) *pSwapChain = FacadeWrap(*pSwapChain);
         return r;
@@ -591,6 +800,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_GetSwapChain
         return Route_IDirect3DDevice9_GetSwapChain(this, iSwapChain, pSwapChain);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(31);
+        FacadeFallback(31);
         HRESULT r = real->GetSwapChain(iSwapChain, pSwapChain);
         if (pSwapChain && *pSwapChain) *pSwapChain = FacadeWrap(*pSwapChain);
         return r;
@@ -602,6 +813,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_GetNumberOfSwapChains
         return Route_IDirect3DDevice9_GetNumberOfSwapChains(this);
 #else
+        if (!real) return FacadeUnsupported<UINT>(32);
+        FacadeFallback(32);
         return real->GetNumberOfSwapChains();
 #endif
     }
@@ -611,6 +824,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_Reset
         return Route_IDirect3DDevice9_Reset(this, pPresentationParameters);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(33);
+        FacadeFallback(33);
         return real->Reset(pPresentationParameters);
 #endif
     }
@@ -620,6 +835,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_Present
         return Route_IDirect3DDevice9_Present(this, pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(34);
+        FacadeFallback(34);
         return real->Present(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion);
 #endif
     }
@@ -629,6 +846,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_GetBackBuffer
         return Route_IDirect3DDevice9_GetBackBuffer(this, iSwapChain, iBackBuffer, Type, ppBackBuffer);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(35);
+        FacadeFallback(35);
         HRESULT r = real->GetBackBuffer(iSwapChain, iBackBuffer, Type, ppBackBuffer);
         if (ppBackBuffer && *ppBackBuffer) *ppBackBuffer = FacadeWrap(*ppBackBuffer);
         return r;
@@ -640,6 +859,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_GetRasterStatus
         return Route_IDirect3DDevice9_GetRasterStatus(this, iSwapChain, pRasterStatus);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(36);
+        FacadeFallback(36);
         return real->GetRasterStatus(iSwapChain, pRasterStatus);
 #endif
     }
@@ -649,6 +870,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_SetDialogBoxMode
         return Route_IDirect3DDevice9_SetDialogBoxMode(this, bEnableDialogs);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(37);
+        FacadeFallback(37);
         return real->SetDialogBoxMode(bEnableDialogs);
 #endif
     }
@@ -658,6 +881,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_SetGammaRamp
         return Route_IDirect3DDevice9_SetGammaRamp(this, iSwapChain, Flags, pRamp);
 #else
+        if (!real) return FacadeUnsupported<void>(38);
+        FacadeFallback(38);
         real->SetGammaRamp(iSwapChain, Flags, pRamp);
 #endif
     }
@@ -667,6 +892,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_GetGammaRamp
         return Route_IDirect3DDevice9_GetGammaRamp(this, iSwapChain, pRamp);
 #else
+        if (!real) return FacadeUnsupported<void>(39);
+        FacadeFallback(39);
         real->GetGammaRamp(iSwapChain, pRamp);
 #endif
     }
@@ -676,6 +903,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_CreateTexture
         return Route_IDirect3DDevice9_CreateTexture(this, Width, Height, Levels, Usage, Format, Pool, ppTexture, pSharedHandle);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(40);
+        FacadeFallback(40);
         HRESULT r = real->CreateTexture(Width, Height, Levels, Usage, Format, Pool, ppTexture, pSharedHandle);
         if (ppTexture && *ppTexture) *ppTexture = FacadeWrap(*ppTexture);
         return r;
@@ -687,6 +916,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_CreateVolumeTexture
         return Route_IDirect3DDevice9_CreateVolumeTexture(this, Width, Height, Depth, Levels, Usage, Format, Pool, ppVolumeTexture, pSharedHandle);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(41);
+        FacadeFallback(41);
         HRESULT r = real->CreateVolumeTexture(Width, Height, Depth, Levels, Usage, Format, Pool, ppVolumeTexture, pSharedHandle);
         if (ppVolumeTexture && *ppVolumeTexture) *ppVolumeTexture = FacadeWrap(*ppVolumeTexture);
         return r;
@@ -698,6 +929,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_CreateCubeTexture
         return Route_IDirect3DDevice9_CreateCubeTexture(this, EdgeLength, Levels, Usage, Format, Pool, ppCubeTexture, pSharedHandle);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(42);
+        FacadeFallback(42);
         HRESULT r = real->CreateCubeTexture(EdgeLength, Levels, Usage, Format, Pool, ppCubeTexture, pSharedHandle);
         if (ppCubeTexture && *ppCubeTexture) *ppCubeTexture = FacadeWrap(*ppCubeTexture);
         return r;
@@ -709,6 +942,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_CreateVertexBuffer
         return Route_IDirect3DDevice9_CreateVertexBuffer(this, Length, Usage, FVF, Pool, ppVertexBuffer, pSharedHandle);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(43);
+        FacadeFallback(43);
         HRESULT r = real->CreateVertexBuffer(Length, Usage, FVF, Pool, ppVertexBuffer, pSharedHandle);
         if (ppVertexBuffer && *ppVertexBuffer) *ppVertexBuffer = FacadeWrap(*ppVertexBuffer);
         return r;
@@ -720,6 +955,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_CreateIndexBuffer
         return Route_IDirect3DDevice9_CreateIndexBuffer(this, Length, Usage, Format, Pool, ppIndexBuffer, pSharedHandle);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(44);
+        FacadeFallback(44);
         HRESULT r = real->CreateIndexBuffer(Length, Usage, Format, Pool, ppIndexBuffer, pSharedHandle);
         if (ppIndexBuffer && *ppIndexBuffer) *ppIndexBuffer = FacadeWrap(*ppIndexBuffer);
         return r;
@@ -731,6 +968,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_CreateRenderTarget
         return Route_IDirect3DDevice9_CreateRenderTarget(this, Width, Height, Format, MultiSample, MultisampleQuality, Lockable, ppSurface, pSharedHandle);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(45);
+        FacadeFallback(45);
         HRESULT r = real->CreateRenderTarget(Width, Height, Format, MultiSample, MultisampleQuality, Lockable, ppSurface, pSharedHandle);
         if (ppSurface && *ppSurface) *ppSurface = FacadeWrap(*ppSurface);
         return r;
@@ -742,6 +981,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_CreateDepthStencilSurface
         return Route_IDirect3DDevice9_CreateDepthStencilSurface(this, Width, Height, Format, MultiSample, MultisampleQuality, Discard, ppSurface, pSharedHandle);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(46);
+        FacadeFallback(46);
         HRESULT r = real->CreateDepthStencilSurface(Width, Height, Format, MultiSample, MultisampleQuality, Discard, ppSurface, pSharedHandle);
         if (ppSurface && *ppSurface) *ppSurface = FacadeWrap(*ppSurface);
         return r;
@@ -753,6 +994,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_UpdateSurface
         return Route_IDirect3DDevice9_UpdateSurface(this, pSourceSurface, pSourceRect, pDestinationSurface, pDestPoint);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(47);
+        FacadeFallback(47);
         return real->UpdateSurface(FacadeUnwrap(pSourceSurface), pSourceRect, FacadeUnwrap(pDestinationSurface), pDestPoint);
 #endif
     }
@@ -762,6 +1005,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_UpdateTexture
         return Route_IDirect3DDevice9_UpdateTexture(this, pSourceTexture, pDestinationTexture);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(48);
+        FacadeFallback(48);
         return real->UpdateTexture(FacadeUnwrap(pSourceTexture), FacadeUnwrap(pDestinationTexture));
 #endif
     }
@@ -771,6 +1016,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_GetRenderTargetData
         return Route_IDirect3DDevice9_GetRenderTargetData(this, pRenderTarget, pDestSurface);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(49);
+        FacadeFallback(49);
         return real->GetRenderTargetData(FacadeUnwrap(pRenderTarget), FacadeUnwrap(pDestSurface));
 #endif
     }
@@ -780,6 +1027,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_GetFrontBufferData
         return Route_IDirect3DDevice9_GetFrontBufferData(this, iSwapChain, pDestSurface);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(50);
+        FacadeFallback(50);
         return real->GetFrontBufferData(iSwapChain, FacadeUnwrap(pDestSurface));
 #endif
     }
@@ -789,6 +1038,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_StretchRect
         return Route_IDirect3DDevice9_StretchRect(this, pSourceSurface, pSourceRect, pDestSurface, pDestRect, Filter);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(51);
+        FacadeFallback(51);
         return real->StretchRect(FacadeUnwrap(pSourceSurface), pSourceRect, FacadeUnwrap(pDestSurface), pDestRect, Filter);
 #endif
     }
@@ -798,6 +1049,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_ColorFill
         return Route_IDirect3DDevice9_ColorFill(this, pSurface, pRect, color);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(52);
+        FacadeFallback(52);
         return real->ColorFill(FacadeUnwrap(pSurface), pRect, color);
 #endif
     }
@@ -807,6 +1060,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_CreateOffscreenPlainSurface
         return Route_IDirect3DDevice9_CreateOffscreenPlainSurface(this, Width, Height, Format, Pool, ppSurface, pSharedHandle);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(53);
+        FacadeFallback(53);
         HRESULT r = real->CreateOffscreenPlainSurface(Width, Height, Format, Pool, ppSurface, pSharedHandle);
         if (ppSurface && *ppSurface) *ppSurface = FacadeWrap(*ppSurface);
         return r;
@@ -818,6 +1073,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_SetRenderTarget
         return Route_IDirect3DDevice9_SetRenderTarget(this, RenderTargetIndex, pRenderTarget);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(54);
+        FacadeFallback(54);
         return real->SetRenderTarget(RenderTargetIndex, FacadeUnwrap(pRenderTarget));
 #endif
     }
@@ -827,6 +1084,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_GetRenderTarget
         return Route_IDirect3DDevice9_GetRenderTarget(this, RenderTargetIndex, ppRenderTarget);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(55);
+        FacadeFallback(55);
         HRESULT r = real->GetRenderTarget(RenderTargetIndex, ppRenderTarget);
         if (ppRenderTarget && *ppRenderTarget) *ppRenderTarget = FacadeWrap(*ppRenderTarget);
         return r;
@@ -838,6 +1097,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_SetDepthStencilSurface
         return Route_IDirect3DDevice9_SetDepthStencilSurface(this, pNewZStencil);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(56);
+        FacadeFallback(56);
         return real->SetDepthStencilSurface(FacadeUnwrap(pNewZStencil));
 #endif
     }
@@ -847,6 +1108,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_GetDepthStencilSurface
         return Route_IDirect3DDevice9_GetDepthStencilSurface(this, ppZStencilSurface);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(57);
+        FacadeFallback(57);
         HRESULT r = real->GetDepthStencilSurface(ppZStencilSurface);
         if (ppZStencilSurface && *ppZStencilSurface) *ppZStencilSurface = FacadeWrap(*ppZStencilSurface);
         return r;
@@ -858,6 +1121,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_BeginScene
         return Route_IDirect3DDevice9_BeginScene(this);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(58);
+        FacadeFallback(58);
         return real->BeginScene();
 #endif
     }
@@ -867,6 +1132,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_EndScene
         return Route_IDirect3DDevice9_EndScene(this);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(59);
+        FacadeFallback(59);
         return real->EndScene();
 #endif
     }
@@ -876,6 +1143,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_Clear
         return Route_IDirect3DDevice9_Clear(this, Count, pRects, Flags, Color, Z, Stencil);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(60);
+        FacadeFallback(60);
         return real->Clear(Count, pRects, Flags, Color, Z, Stencil);
 #endif
     }
@@ -885,6 +1154,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_SetTransform
         return Route_IDirect3DDevice9_SetTransform(this, State, pMatrix);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(61);
+        FacadeFallback(61);
         return real->SetTransform(State, pMatrix);
 #endif
     }
@@ -894,6 +1165,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_GetTransform
         return Route_IDirect3DDevice9_GetTransform(this, State, pMatrix);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(62);
+        FacadeFallback(62);
         return real->GetTransform(State, pMatrix);
 #endif
     }
@@ -903,6 +1176,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_MultiplyTransform
         return Route_IDirect3DDevice9_MultiplyTransform(this, a0, a1);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(63);
+        FacadeFallback(63);
         return real->MultiplyTransform(a0, a1);
 #endif
     }
@@ -912,6 +1187,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_SetViewport
         return Route_IDirect3DDevice9_SetViewport(this, pViewport);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(64);
+        FacadeFallback(64);
         return real->SetViewport(pViewport);
 #endif
     }
@@ -921,6 +1198,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_GetViewport
         return Route_IDirect3DDevice9_GetViewport(this, pViewport);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(65);
+        FacadeFallback(65);
         return real->GetViewport(pViewport);
 #endif
     }
@@ -930,6 +1209,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_SetMaterial
         return Route_IDirect3DDevice9_SetMaterial(this, pMaterial);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(66);
+        FacadeFallback(66);
         return real->SetMaterial(pMaterial);
 #endif
     }
@@ -939,6 +1220,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_GetMaterial
         return Route_IDirect3DDevice9_GetMaterial(this, pMaterial);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(67);
+        FacadeFallback(67);
         return real->GetMaterial(pMaterial);
 #endif
     }
@@ -948,6 +1231,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_SetLight
         return Route_IDirect3DDevice9_SetLight(this, Index, a1);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(68);
+        FacadeFallback(68);
         return real->SetLight(Index, a1);
 #endif
     }
@@ -957,6 +1242,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_GetLight
         return Route_IDirect3DDevice9_GetLight(this, Index, a1);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(69);
+        FacadeFallback(69);
         return real->GetLight(Index, a1);
 #endif
     }
@@ -966,6 +1253,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_LightEnable
         return Route_IDirect3DDevice9_LightEnable(this, Index, Enable);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(70);
+        FacadeFallback(70);
         return real->LightEnable(Index, Enable);
 #endif
     }
@@ -975,6 +1264,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_GetLightEnable
         return Route_IDirect3DDevice9_GetLightEnable(this, Index, pEnable);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(71);
+        FacadeFallback(71);
         return real->GetLightEnable(Index, pEnable);
 #endif
     }
@@ -984,6 +1275,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_SetClipPlane
         return Route_IDirect3DDevice9_SetClipPlane(this, Index, pPlane);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(72);
+        FacadeFallback(72);
         return real->SetClipPlane(Index, pPlane);
 #endif
     }
@@ -993,6 +1286,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_GetClipPlane
         return Route_IDirect3DDevice9_GetClipPlane(this, Index, pPlane);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(73);
+        FacadeFallback(73);
         return real->GetClipPlane(Index, pPlane);
 #endif
     }
@@ -1002,6 +1297,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_SetRenderState
         return Route_IDirect3DDevice9_SetRenderState(this, State, Value);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(74);
+        FacadeFallback(74);
         return real->SetRenderState(State, Value);
 #endif
     }
@@ -1011,6 +1308,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_GetRenderState
         return Route_IDirect3DDevice9_GetRenderState(this, State, pValue);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(75);
+        FacadeFallback(75);
         return real->GetRenderState(State, pValue);
 #endif
     }
@@ -1020,6 +1319,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_CreateStateBlock
         return Route_IDirect3DDevice9_CreateStateBlock(this, Type, ppSB);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(76);
+        FacadeFallback(76);
         HRESULT r = real->CreateStateBlock(Type, ppSB);
         if (ppSB && *ppSB) *ppSB = FacadeWrap(*ppSB);
         return r;
@@ -1031,6 +1332,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_BeginStateBlock
         return Route_IDirect3DDevice9_BeginStateBlock(this);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(77);
+        FacadeFallback(77);
         return real->BeginStateBlock();
 #endif
     }
@@ -1040,6 +1343,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_EndStateBlock
         return Route_IDirect3DDevice9_EndStateBlock(this, ppSB);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(78);
+        FacadeFallback(78);
         HRESULT r = real->EndStateBlock(ppSB);
         if (ppSB && *ppSB) *ppSB = FacadeWrap(*ppSB);
         return r;
@@ -1051,6 +1356,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_SetClipStatus
         return Route_IDirect3DDevice9_SetClipStatus(this, pClipStatus);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(79);
+        FacadeFallback(79);
         return real->SetClipStatus(pClipStatus);
 #endif
     }
@@ -1060,6 +1367,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_GetClipStatus
         return Route_IDirect3DDevice9_GetClipStatus(this, pClipStatus);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(80);
+        FacadeFallback(80);
         return real->GetClipStatus(pClipStatus);
 #endif
     }
@@ -1069,6 +1378,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_GetTexture
         return Route_IDirect3DDevice9_GetTexture(this, Stage, ppTexture);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(81);
+        FacadeFallback(81);
         HRESULT r = real->GetTexture(Stage, ppTexture);
         if (ppTexture && *ppTexture) *ppTexture = FacadeWrap(*ppTexture);
         return r;
@@ -1080,6 +1391,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_SetTexture
         return Route_IDirect3DDevice9_SetTexture(this, Stage, pTexture);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(82);
+        FacadeFallback(82);
         return real->SetTexture(Stage, FacadeUnwrap(pTexture));
 #endif
     }
@@ -1089,6 +1402,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_GetTextureStageState
         return Route_IDirect3DDevice9_GetTextureStageState(this, Stage, Type, pValue);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(83);
+        FacadeFallback(83);
         return real->GetTextureStageState(Stage, Type, pValue);
 #endif
     }
@@ -1098,6 +1413,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_SetTextureStageState
         return Route_IDirect3DDevice9_SetTextureStageState(this, Stage, Type, Value);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(84);
+        FacadeFallback(84);
         return real->SetTextureStageState(Stage, Type, Value);
 #endif
     }
@@ -1107,6 +1424,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_GetSamplerState
         return Route_IDirect3DDevice9_GetSamplerState(this, Sampler, Type, pValue);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(85);
+        FacadeFallback(85);
         return real->GetSamplerState(Sampler, Type, pValue);
 #endif
     }
@@ -1116,6 +1435,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_SetSamplerState
         return Route_IDirect3DDevice9_SetSamplerState(this, Sampler, Type, Value);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(86);
+        FacadeFallback(86);
         return real->SetSamplerState(Sampler, Type, Value);
 #endif
     }
@@ -1125,6 +1446,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_ValidateDevice
         return Route_IDirect3DDevice9_ValidateDevice(this, pNumPasses);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(87);
+        FacadeFallback(87);
         return real->ValidateDevice(pNumPasses);
 #endif
     }
@@ -1134,6 +1457,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_SetPaletteEntries
         return Route_IDirect3DDevice9_SetPaletteEntries(this, PaletteNumber, pEntries);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(88);
+        FacadeFallback(88);
         return real->SetPaletteEntries(PaletteNumber, pEntries);
 #endif
     }
@@ -1143,6 +1468,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_GetPaletteEntries
         return Route_IDirect3DDevice9_GetPaletteEntries(this, PaletteNumber, pEntries);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(89);
+        FacadeFallback(89);
         return real->GetPaletteEntries(PaletteNumber, pEntries);
 #endif
     }
@@ -1152,6 +1479,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_SetCurrentTexturePalette
         return Route_IDirect3DDevice9_SetCurrentTexturePalette(this, PaletteNumber);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(90);
+        FacadeFallback(90);
         return real->SetCurrentTexturePalette(PaletteNumber);
 #endif
     }
@@ -1161,6 +1490,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_GetCurrentTexturePalette
         return Route_IDirect3DDevice9_GetCurrentTexturePalette(this, PaletteNumber);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(91);
+        FacadeFallback(91);
         return real->GetCurrentTexturePalette(PaletteNumber);
 #endif
     }
@@ -1170,6 +1501,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_SetScissorRect
         return Route_IDirect3DDevice9_SetScissorRect(this, pRect);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(92);
+        FacadeFallback(92);
         return real->SetScissorRect(pRect);
 #endif
     }
@@ -1179,6 +1512,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_GetScissorRect
         return Route_IDirect3DDevice9_GetScissorRect(this, pRect);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(93);
+        FacadeFallback(93);
         return real->GetScissorRect(pRect);
 #endif
     }
@@ -1188,6 +1523,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_SetSoftwareVertexProcessing
         return Route_IDirect3DDevice9_SetSoftwareVertexProcessing(this, bSoftware);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(94);
+        FacadeFallback(94);
         return real->SetSoftwareVertexProcessing(bSoftware);
 #endif
     }
@@ -1197,6 +1534,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_GetSoftwareVertexProcessing
         return Route_IDirect3DDevice9_GetSoftwareVertexProcessing(this);
 #else
+        if (!real) return FacadeUnsupported<BOOL>(95);
+        FacadeFallback(95);
         return real->GetSoftwareVertexProcessing();
 #endif
     }
@@ -1206,6 +1545,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_SetNPatchMode
         return Route_IDirect3DDevice9_SetNPatchMode(this, nSegments);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(96);
+        FacadeFallback(96);
         return real->SetNPatchMode(nSegments);
 #endif
     }
@@ -1215,6 +1556,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_GetNPatchMode
         return Route_IDirect3DDevice9_GetNPatchMode(this);
 #else
+        if (!real) return FacadeUnsupported<float>(97);
+        FacadeFallback(97);
         return real->GetNPatchMode();
 #endif
     }
@@ -1224,6 +1567,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_DrawPrimitive
         return Route_IDirect3DDevice9_DrawPrimitive(this, PrimitiveType, StartVertex, PrimitiveCount);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(98);
+        FacadeFallback(98);
         return real->DrawPrimitive(PrimitiveType, StartVertex, PrimitiveCount);
 #endif
     }
@@ -1233,6 +1578,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_DrawIndexedPrimitive
         return Route_IDirect3DDevice9_DrawIndexedPrimitive(this, a0, BaseVertexIndex, MinVertexIndex, NumVertices, startIndex, primCount);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(99);
+        FacadeFallback(99);
         return real->DrawIndexedPrimitive(a0, BaseVertexIndex, MinVertexIndex, NumVertices, startIndex, primCount);
 #endif
     }
@@ -1242,6 +1589,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_DrawPrimitiveUP
         return Route_IDirect3DDevice9_DrawPrimitiveUP(this, PrimitiveType, PrimitiveCount, pVertexStreamZeroData, VertexStreamZeroStride);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(100);
+        FacadeFallback(100);
         return real->DrawPrimitiveUP(PrimitiveType, PrimitiveCount, pVertexStreamZeroData, VertexStreamZeroStride);
 #endif
     }
@@ -1251,6 +1600,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_DrawIndexedPrimitiveUP
         return Route_IDirect3DDevice9_DrawIndexedPrimitiveUP(this, PrimitiveType, MinVertexIndex, NumVertices, PrimitiveCount, pIndexData, IndexDataFormat, pVertexStreamZeroData, VertexStreamZeroStride);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(101);
+        FacadeFallback(101);
         return real->DrawIndexedPrimitiveUP(PrimitiveType, MinVertexIndex, NumVertices, PrimitiveCount, pIndexData, IndexDataFormat, pVertexStreamZeroData, VertexStreamZeroStride);
 #endif
     }
@@ -1260,6 +1611,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_ProcessVertices
         return Route_IDirect3DDevice9_ProcessVertices(this, SrcStartIndex, DestIndex, VertexCount, pDestBuffer, pVertexDecl, Flags);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(102);
+        FacadeFallback(102);
         return real->ProcessVertices(SrcStartIndex, DestIndex, VertexCount, FacadeUnwrap(pDestBuffer), FacadeUnwrap(pVertexDecl), Flags);
 #endif
     }
@@ -1269,6 +1622,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_CreateVertexDeclaration
         return Route_IDirect3DDevice9_CreateVertexDeclaration(this, pVertexElements, ppDecl);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(103);
+        FacadeFallback(103);
         HRESULT r = real->CreateVertexDeclaration(pVertexElements, ppDecl);
         if (ppDecl && *ppDecl) *ppDecl = FacadeWrap(*ppDecl);
         return r;
@@ -1280,6 +1635,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_SetVertexDeclaration
         return Route_IDirect3DDevice9_SetVertexDeclaration(this, pDecl);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(104);
+        FacadeFallback(104);
         return real->SetVertexDeclaration(FacadeUnwrap(pDecl));
 #endif
     }
@@ -1289,6 +1646,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_GetVertexDeclaration
         return Route_IDirect3DDevice9_GetVertexDeclaration(this, ppDecl);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(105);
+        FacadeFallback(105);
         HRESULT r = real->GetVertexDeclaration(ppDecl);
         if (ppDecl && *ppDecl) *ppDecl = FacadeWrap(*ppDecl);
         return r;
@@ -1300,6 +1659,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_SetFVF
         return Route_IDirect3DDevice9_SetFVF(this, FVF);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(106);
+        FacadeFallback(106);
         return real->SetFVF(FVF);
 #endif
     }
@@ -1309,6 +1670,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_GetFVF
         return Route_IDirect3DDevice9_GetFVF(this, pFVF);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(107);
+        FacadeFallback(107);
         return real->GetFVF(pFVF);
 #endif
     }
@@ -1318,6 +1681,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_CreateVertexShader
         return Route_IDirect3DDevice9_CreateVertexShader(this, pFunction, ppShader);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(108);
+        FacadeFallback(108);
         HRESULT r = real->CreateVertexShader(pFunction, ppShader);
         if (ppShader && *ppShader) *ppShader = FacadeWrap(*ppShader);
         return r;
@@ -1329,6 +1694,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_SetVertexShader
         return Route_IDirect3DDevice9_SetVertexShader(this, pShader);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(109);
+        FacadeFallback(109);
         return real->SetVertexShader(FacadeUnwrap(pShader));
 #endif
     }
@@ -1338,6 +1705,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_GetVertexShader
         return Route_IDirect3DDevice9_GetVertexShader(this, ppShader);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(110);
+        FacadeFallback(110);
         HRESULT r = real->GetVertexShader(ppShader);
         if (ppShader && *ppShader) *ppShader = FacadeWrap(*ppShader);
         return r;
@@ -1349,6 +1718,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_SetVertexShaderConstantF
         return Route_IDirect3DDevice9_SetVertexShaderConstantF(this, StartRegister, pConstantData, Vector4fCount);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(111);
+        FacadeFallback(111);
         return real->SetVertexShaderConstantF(StartRegister, pConstantData, Vector4fCount);
 #endif
     }
@@ -1358,6 +1729,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_GetVertexShaderConstantF
         return Route_IDirect3DDevice9_GetVertexShaderConstantF(this, StartRegister, pConstantData, Vector4fCount);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(112);
+        FacadeFallback(112);
         return real->GetVertexShaderConstantF(StartRegister, pConstantData, Vector4fCount);
 #endif
     }
@@ -1367,6 +1740,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_SetVertexShaderConstantI
         return Route_IDirect3DDevice9_SetVertexShaderConstantI(this, StartRegister, pConstantData, Vector4iCount);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(113);
+        FacadeFallback(113);
         return real->SetVertexShaderConstantI(StartRegister, pConstantData, Vector4iCount);
 #endif
     }
@@ -1376,6 +1751,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_GetVertexShaderConstantI
         return Route_IDirect3DDevice9_GetVertexShaderConstantI(this, StartRegister, pConstantData, Vector4iCount);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(114);
+        FacadeFallback(114);
         return real->GetVertexShaderConstantI(StartRegister, pConstantData, Vector4iCount);
 #endif
     }
@@ -1385,6 +1762,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_SetVertexShaderConstantB
         return Route_IDirect3DDevice9_SetVertexShaderConstantB(this, StartRegister, pConstantData, BoolCount);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(115);
+        FacadeFallback(115);
         return real->SetVertexShaderConstantB(StartRegister, pConstantData, BoolCount);
 #endif
     }
@@ -1394,6 +1773,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_GetVertexShaderConstantB
         return Route_IDirect3DDevice9_GetVertexShaderConstantB(this, StartRegister, pConstantData, BoolCount);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(116);
+        FacadeFallback(116);
         return real->GetVertexShaderConstantB(StartRegister, pConstantData, BoolCount);
 #endif
     }
@@ -1403,6 +1784,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_SetStreamSource
         return Route_IDirect3DDevice9_SetStreamSource(this, StreamNumber, pStreamData, OffsetInBytes, Stride);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(117);
+        FacadeFallback(117);
         return real->SetStreamSource(StreamNumber, FacadeUnwrap(pStreamData), OffsetInBytes, Stride);
 #endif
     }
@@ -1412,6 +1795,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_GetStreamSource
         return Route_IDirect3DDevice9_GetStreamSource(this, StreamNumber, ppStreamData, pOffsetInBytes, pStride);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(118);
+        FacadeFallback(118);
         HRESULT r = real->GetStreamSource(StreamNumber, ppStreamData, pOffsetInBytes, pStride);
         if (ppStreamData && *ppStreamData) *ppStreamData = FacadeWrap(*ppStreamData);
         return r;
@@ -1423,6 +1808,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_SetStreamSourceFreq
         return Route_IDirect3DDevice9_SetStreamSourceFreq(this, StreamNumber, Setting);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(119);
+        FacadeFallback(119);
         return real->SetStreamSourceFreq(StreamNumber, Setting);
 #endif
     }
@@ -1432,6 +1819,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_GetStreamSourceFreq
         return Route_IDirect3DDevice9_GetStreamSourceFreq(this, StreamNumber, pSetting);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(120);
+        FacadeFallback(120);
         return real->GetStreamSourceFreq(StreamNumber, pSetting);
 #endif
     }
@@ -1441,6 +1830,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_SetIndices
         return Route_IDirect3DDevice9_SetIndices(this, pIndexData);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(121);
+        FacadeFallback(121);
         return real->SetIndices(FacadeUnwrap(pIndexData));
 #endif
     }
@@ -1450,6 +1841,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_GetIndices
         return Route_IDirect3DDevice9_GetIndices(this, ppIndexData);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(122);
+        FacadeFallback(122);
         HRESULT r = real->GetIndices(ppIndexData);
         if (ppIndexData && *ppIndexData) *ppIndexData = FacadeWrap(*ppIndexData);
         return r;
@@ -1461,6 +1854,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_CreatePixelShader
         return Route_IDirect3DDevice9_CreatePixelShader(this, pFunction, ppShader);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(123);
+        FacadeFallback(123);
         HRESULT r = real->CreatePixelShader(pFunction, ppShader);
         if (ppShader && *ppShader) *ppShader = FacadeWrap(*ppShader);
         return r;
@@ -1472,6 +1867,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_SetPixelShader
         return Route_IDirect3DDevice9_SetPixelShader(this, pShader);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(124);
+        FacadeFallback(124);
         return real->SetPixelShader(FacadeUnwrap(pShader));
 #endif
     }
@@ -1481,6 +1878,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_GetPixelShader
         return Route_IDirect3DDevice9_GetPixelShader(this, ppShader);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(125);
+        FacadeFallback(125);
         HRESULT r = real->GetPixelShader(ppShader);
         if (ppShader && *ppShader) *ppShader = FacadeWrap(*ppShader);
         return r;
@@ -1492,6 +1891,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_SetPixelShaderConstantF
         return Route_IDirect3DDevice9_SetPixelShaderConstantF(this, StartRegister, pConstantData, Vector4fCount);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(126);
+        FacadeFallback(126);
         return real->SetPixelShaderConstantF(StartRegister, pConstantData, Vector4fCount);
 #endif
     }
@@ -1501,6 +1902,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_GetPixelShaderConstantF
         return Route_IDirect3DDevice9_GetPixelShaderConstantF(this, StartRegister, pConstantData, Vector4fCount);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(127);
+        FacadeFallback(127);
         return real->GetPixelShaderConstantF(StartRegister, pConstantData, Vector4fCount);
 #endif
     }
@@ -1510,6 +1913,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_SetPixelShaderConstantI
         return Route_IDirect3DDevice9_SetPixelShaderConstantI(this, StartRegister, pConstantData, Vector4iCount);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(128);
+        FacadeFallback(128);
         return real->SetPixelShaderConstantI(StartRegister, pConstantData, Vector4iCount);
 #endif
     }
@@ -1519,6 +1924,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_GetPixelShaderConstantI
         return Route_IDirect3DDevice9_GetPixelShaderConstantI(this, StartRegister, pConstantData, Vector4iCount);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(129);
+        FacadeFallback(129);
         return real->GetPixelShaderConstantI(StartRegister, pConstantData, Vector4iCount);
 #endif
     }
@@ -1528,6 +1935,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_SetPixelShaderConstantB
         return Route_IDirect3DDevice9_SetPixelShaderConstantB(this, StartRegister, pConstantData, BoolCount);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(130);
+        FacadeFallback(130);
         return real->SetPixelShaderConstantB(StartRegister, pConstantData, BoolCount);
 #endif
     }
@@ -1537,6 +1946,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_GetPixelShaderConstantB
         return Route_IDirect3DDevice9_GetPixelShaderConstantB(this, StartRegister, pConstantData, BoolCount);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(131);
+        FacadeFallback(131);
         return real->GetPixelShaderConstantB(StartRegister, pConstantData, BoolCount);
 #endif
     }
@@ -1546,6 +1957,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_DrawRectPatch
         return Route_IDirect3DDevice9_DrawRectPatch(this, Handle, pNumSegs, pRectPatchInfo);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(132);
+        FacadeFallback(132);
         return real->DrawRectPatch(Handle, pNumSegs, pRectPatchInfo);
 #endif
     }
@@ -1555,6 +1968,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_DrawTriPatch
         return Route_IDirect3DDevice9_DrawTriPatch(this, Handle, pNumSegs, pTriPatchInfo);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(133);
+        FacadeFallback(133);
         return real->DrawTriPatch(Handle, pNumSegs, pTriPatchInfo);
 #endif
     }
@@ -1564,6 +1979,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_DeletePatch
         return Route_IDirect3DDevice9_DeletePatch(this, Handle);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(134);
+        FacadeFallback(134);
         return real->DeletePatch(Handle);
 #endif
     }
@@ -1573,6 +1990,8 @@ public:
 #ifdef ROUTE_IDirect3DDevice9_CreateQuery
         return Route_IDirect3DDevice9_CreateQuery(this, Type, ppQuery);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(135);
+        FacadeFallback(135);
         HRESULT r = real->CreateQuery(Type, ppQuery);
         if (ppQuery && *ppQuery) *ppQuery = FacadeWrap(*ppQuery);
         return r;
@@ -1583,27 +2002,28 @@ public:
 class Facade_StateBlock final : public IDirect3DStateBlock9
 {
 public:
-    IDirect3DStateBlock9* real;
+    rhi::Object* obj;  // the renderer-interface object behind this one
+    IDirect3DStateBlock9* real;  // its D3D9 object (D3D9 backend), for methods outside the interface
     ULONG refs = 1;
-    explicit Facade_StateBlock(IDirect3DStateBlock9* r) : real(r) {}
+    explicit Facade_StateBlock(rhi::Object* o) : obj(o), real(static_cast<IDirect3DStateBlock9*>(o ? o->Native() : nullptr)) {}
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObj) override
     {
         RhiCount(136);
-        return FacadeQueryInterface(this, real, riid, ppvObj);
+        return FacadeQueryInterface(this, riid, ppvObj);
     }
     ULONG STDMETHODCALLTYPE AddRef() override
     {
         RhiCount(137);
         ++refs;
-        return real->AddRef();
+        return obj->AddRef();
     }
     ULONG STDMETHODCALLTYPE Release() override
     {
         RhiCount(138);
-        ULONG n = real->Release();
+        rhi::Object* o = obj;
         if (--refs == 0)
-            FacadeForget(this, real);
-        return n;
+            FacadeForget(this);
+        return o->Release();
     }
     HRESULT STDMETHODCALLTYPE GetDevice(IDirect3DDevice9** ppDevice) override
     {
@@ -1611,6 +2031,8 @@ public:
 #ifdef ROUTE_IDirect3DStateBlock9_GetDevice
         return Route_IDirect3DStateBlock9_GetDevice(this, ppDevice);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(139);
+        FacadeFallback(139);
         HRESULT r = real->GetDevice(ppDevice);
         if (ppDevice && *ppDevice) *ppDevice = FacadeWrap(*ppDevice);
         return r;
@@ -1622,6 +2044,8 @@ public:
 #ifdef ROUTE_IDirect3DStateBlock9_Capture
         return Route_IDirect3DStateBlock9_Capture(this);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(140);
+        FacadeFallback(140);
         return real->Capture();
 #endif
     }
@@ -1631,6 +2055,8 @@ public:
 #ifdef ROUTE_IDirect3DStateBlock9_Apply
         return Route_IDirect3DStateBlock9_Apply(this);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(141);
+        FacadeFallback(141);
         return real->Apply();
 #endif
     }
@@ -1639,27 +2065,28 @@ public:
 class Facade_SwapChain final : public IDirect3DSwapChain9
 {
 public:
-    IDirect3DSwapChain9* real;
+    rhi::Object* obj;  // the renderer-interface object behind this one
+    IDirect3DSwapChain9* real;  // its D3D9 object (D3D9 backend), for methods outside the interface
     ULONG refs = 1;
-    explicit Facade_SwapChain(IDirect3DSwapChain9* r) : real(r) {}
+    explicit Facade_SwapChain(rhi::Object* o) : obj(o), real(static_cast<IDirect3DSwapChain9*>(o ? o->Native() : nullptr)) {}
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObj) override
     {
         RhiCount(142);
-        return FacadeQueryInterface(this, real, riid, ppvObj);
+        return FacadeQueryInterface(this, riid, ppvObj);
     }
     ULONG STDMETHODCALLTYPE AddRef() override
     {
         RhiCount(143);
         ++refs;
-        return real->AddRef();
+        return obj->AddRef();
     }
     ULONG STDMETHODCALLTYPE Release() override
     {
         RhiCount(144);
-        ULONG n = real->Release();
+        rhi::Object* o = obj;
         if (--refs == 0)
-            FacadeForget(this, real);
-        return n;
+            FacadeForget(this);
+        return o->Release();
     }
     HRESULT STDMETHODCALLTYPE Present(const RECT* pSourceRect, const RECT* pDestRect, HWND hDestWindowOverride, const RGNDATA* pDirtyRegion, DWORD dwFlags) override
     {
@@ -1667,6 +2094,8 @@ public:
 #ifdef ROUTE_IDirect3DSwapChain9_Present
         return Route_IDirect3DSwapChain9_Present(this, pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion, dwFlags);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(145);
+        FacadeFallback(145);
         return real->Present(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion, dwFlags);
 #endif
     }
@@ -1676,6 +2105,8 @@ public:
 #ifdef ROUTE_IDirect3DSwapChain9_GetFrontBufferData
         return Route_IDirect3DSwapChain9_GetFrontBufferData(this, pDestSurface);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(146);
+        FacadeFallback(146);
         return real->GetFrontBufferData(FacadeUnwrap(pDestSurface));
 #endif
     }
@@ -1685,6 +2116,8 @@ public:
 #ifdef ROUTE_IDirect3DSwapChain9_GetBackBuffer
         return Route_IDirect3DSwapChain9_GetBackBuffer(this, iBackBuffer, Type, ppBackBuffer);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(147);
+        FacadeFallback(147);
         HRESULT r = real->GetBackBuffer(iBackBuffer, Type, ppBackBuffer);
         if (ppBackBuffer && *ppBackBuffer) *ppBackBuffer = FacadeWrap(*ppBackBuffer);
         return r;
@@ -1696,6 +2129,8 @@ public:
 #ifdef ROUTE_IDirect3DSwapChain9_GetRasterStatus
         return Route_IDirect3DSwapChain9_GetRasterStatus(this, pRasterStatus);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(148);
+        FacadeFallback(148);
         return real->GetRasterStatus(pRasterStatus);
 #endif
     }
@@ -1705,6 +2140,8 @@ public:
 #ifdef ROUTE_IDirect3DSwapChain9_GetDisplayMode
         return Route_IDirect3DSwapChain9_GetDisplayMode(this, pMode);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(149);
+        FacadeFallback(149);
         return real->GetDisplayMode(pMode);
 #endif
     }
@@ -1714,6 +2151,8 @@ public:
 #ifdef ROUTE_IDirect3DSwapChain9_GetDevice
         return Route_IDirect3DSwapChain9_GetDevice(this, ppDevice);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(150);
+        FacadeFallback(150);
         HRESULT r = real->GetDevice(ppDevice);
         if (ppDevice && *ppDevice) *ppDevice = FacadeWrap(*ppDevice);
         return r;
@@ -1725,6 +2164,8 @@ public:
 #ifdef ROUTE_IDirect3DSwapChain9_GetPresentParameters
         return Route_IDirect3DSwapChain9_GetPresentParameters(this, pPresentationParameters);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(151);
+        FacadeFallback(151);
         return real->GetPresentParameters(pPresentationParameters);
 #endif
     }
@@ -1733,27 +2174,28 @@ public:
 class Facade_VertexDeclaration final : public IDirect3DVertexDeclaration9
 {
 public:
-    IDirect3DVertexDeclaration9* real;
+    rhi::Object* obj;  // the renderer-interface object behind this one
+    IDirect3DVertexDeclaration9* real;  // its D3D9 object (D3D9 backend), for methods outside the interface
     ULONG refs = 1;
-    explicit Facade_VertexDeclaration(IDirect3DVertexDeclaration9* r) : real(r) {}
+    explicit Facade_VertexDeclaration(rhi::Object* o) : obj(o), real(static_cast<IDirect3DVertexDeclaration9*>(o ? o->Native() : nullptr)) {}
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObj) override
     {
         RhiCount(152);
-        return FacadeQueryInterface(this, real, riid, ppvObj);
+        return FacadeQueryInterface(this, riid, ppvObj);
     }
     ULONG STDMETHODCALLTYPE AddRef() override
     {
         RhiCount(153);
         ++refs;
-        return real->AddRef();
+        return obj->AddRef();
     }
     ULONG STDMETHODCALLTYPE Release() override
     {
         RhiCount(154);
-        ULONG n = real->Release();
+        rhi::Object* o = obj;
         if (--refs == 0)
-            FacadeForget(this, real);
-        return n;
+            FacadeForget(this);
+        return o->Release();
     }
     HRESULT STDMETHODCALLTYPE GetDevice(IDirect3DDevice9** ppDevice) override
     {
@@ -1761,6 +2203,8 @@ public:
 #ifdef ROUTE_IDirect3DVertexDeclaration9_GetDevice
         return Route_IDirect3DVertexDeclaration9_GetDevice(this, ppDevice);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(155);
+        FacadeFallback(155);
         HRESULT r = real->GetDevice(ppDevice);
         if (ppDevice && *ppDevice) *ppDevice = FacadeWrap(*ppDevice);
         return r;
@@ -1772,6 +2216,8 @@ public:
 #ifdef ROUTE_IDirect3DVertexDeclaration9_GetDeclaration
         return Route_IDirect3DVertexDeclaration9_GetDeclaration(this, pElement, pNumElements);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(156);
+        FacadeFallback(156);
         return real->GetDeclaration(pElement, pNumElements);
 #endif
     }
@@ -1780,27 +2226,28 @@ public:
 class Facade_VertexShader final : public IDirect3DVertexShader9
 {
 public:
-    IDirect3DVertexShader9* real;
+    rhi::Object* obj;  // the renderer-interface object behind this one
+    IDirect3DVertexShader9* real;  // its D3D9 object (D3D9 backend), for methods outside the interface
     ULONG refs = 1;
-    explicit Facade_VertexShader(IDirect3DVertexShader9* r) : real(r) {}
+    explicit Facade_VertexShader(rhi::Object* o) : obj(o), real(static_cast<IDirect3DVertexShader9*>(o ? o->Native() : nullptr)) {}
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObj) override
     {
         RhiCount(157);
-        return FacadeQueryInterface(this, real, riid, ppvObj);
+        return FacadeQueryInterface(this, riid, ppvObj);
     }
     ULONG STDMETHODCALLTYPE AddRef() override
     {
         RhiCount(158);
         ++refs;
-        return real->AddRef();
+        return obj->AddRef();
     }
     ULONG STDMETHODCALLTYPE Release() override
     {
         RhiCount(159);
-        ULONG n = real->Release();
+        rhi::Object* o = obj;
         if (--refs == 0)
-            FacadeForget(this, real);
-        return n;
+            FacadeForget(this);
+        return o->Release();
     }
     HRESULT STDMETHODCALLTYPE GetDevice(IDirect3DDevice9** ppDevice) override
     {
@@ -1808,6 +2255,8 @@ public:
 #ifdef ROUTE_IDirect3DVertexShader9_GetDevice
         return Route_IDirect3DVertexShader9_GetDevice(this, ppDevice);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(160);
+        FacadeFallback(160);
         HRESULT r = real->GetDevice(ppDevice);
         if (ppDevice && *ppDevice) *ppDevice = FacadeWrap(*ppDevice);
         return r;
@@ -1819,6 +2268,8 @@ public:
 #ifdef ROUTE_IDirect3DVertexShader9_GetFunction
         return Route_IDirect3DVertexShader9_GetFunction(this, a0, pSizeOfData);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(161);
+        FacadeFallback(161);
         return real->GetFunction(a0, pSizeOfData);
 #endif
     }
@@ -1827,27 +2278,28 @@ public:
 class Facade_PixelShader final : public IDirect3DPixelShader9
 {
 public:
-    IDirect3DPixelShader9* real;
+    rhi::Object* obj;  // the renderer-interface object behind this one
+    IDirect3DPixelShader9* real;  // its D3D9 object (D3D9 backend), for methods outside the interface
     ULONG refs = 1;
-    explicit Facade_PixelShader(IDirect3DPixelShader9* r) : real(r) {}
+    explicit Facade_PixelShader(rhi::Object* o) : obj(o), real(static_cast<IDirect3DPixelShader9*>(o ? o->Native() : nullptr)) {}
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObj) override
     {
         RhiCount(162);
-        return FacadeQueryInterface(this, real, riid, ppvObj);
+        return FacadeQueryInterface(this, riid, ppvObj);
     }
     ULONG STDMETHODCALLTYPE AddRef() override
     {
         RhiCount(163);
         ++refs;
-        return real->AddRef();
+        return obj->AddRef();
     }
     ULONG STDMETHODCALLTYPE Release() override
     {
         RhiCount(164);
-        ULONG n = real->Release();
+        rhi::Object* o = obj;
         if (--refs == 0)
-            FacadeForget(this, real);
-        return n;
+            FacadeForget(this);
+        return o->Release();
     }
     HRESULT STDMETHODCALLTYPE GetDevice(IDirect3DDevice9** ppDevice) override
     {
@@ -1855,6 +2307,8 @@ public:
 #ifdef ROUTE_IDirect3DPixelShader9_GetDevice
         return Route_IDirect3DPixelShader9_GetDevice(this, ppDevice);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(165);
+        FacadeFallback(165);
         HRESULT r = real->GetDevice(ppDevice);
         if (ppDevice && *ppDevice) *ppDevice = FacadeWrap(*ppDevice);
         return r;
@@ -1866,6 +2320,8 @@ public:
 #ifdef ROUTE_IDirect3DPixelShader9_GetFunction
         return Route_IDirect3DPixelShader9_GetFunction(this, a0, pSizeOfData);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(166);
+        FacadeFallback(166);
         return real->GetFunction(a0, pSizeOfData);
 #endif
     }
@@ -1874,27 +2330,28 @@ public:
 class Facade_Texture final : public IDirect3DTexture9
 {
 public:
-    IDirect3DTexture9* real;
+    rhi::Object* obj;  // the renderer-interface object behind this one
+    IDirect3DTexture9* real;  // its D3D9 object (D3D9 backend), for methods outside the interface
     ULONG refs = 1;
-    explicit Facade_Texture(IDirect3DTexture9* r) : real(r) {}
+    explicit Facade_Texture(rhi::Object* o) : obj(o), real(static_cast<IDirect3DTexture9*>(o ? o->Native() : nullptr)) {}
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObj) override
     {
         RhiCount(167);
-        return FacadeQueryInterface(this, real, riid, ppvObj);
+        return FacadeQueryInterface(this, riid, ppvObj);
     }
     ULONG STDMETHODCALLTYPE AddRef() override
     {
         RhiCount(168);
         ++refs;
-        return real->AddRef();
+        return obj->AddRef();
     }
     ULONG STDMETHODCALLTYPE Release() override
     {
         RhiCount(169);
-        ULONG n = real->Release();
+        rhi::Object* o = obj;
         if (--refs == 0)
-            FacadeForget(this, real);
-        return n;
+            FacadeForget(this);
+        return o->Release();
     }
     HRESULT STDMETHODCALLTYPE GetDevice(IDirect3DDevice9** ppDevice) override
     {
@@ -1902,6 +2359,8 @@ public:
 #ifdef ROUTE_IDirect3DTexture9_GetDevice
         return Route_IDirect3DTexture9_GetDevice(this, ppDevice);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(170);
+        FacadeFallback(170);
         HRESULT r = real->GetDevice(ppDevice);
         if (ppDevice && *ppDevice) *ppDevice = FacadeWrap(*ppDevice);
         return r;
@@ -1913,6 +2372,8 @@ public:
 #ifdef ROUTE_IDirect3DTexture9_SetPrivateData
         return Route_IDirect3DTexture9_SetPrivateData(this, refguid, pData, SizeOfData, Flags);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(171);
+        FacadeFallback(171);
         return real->SetPrivateData(refguid, pData, SizeOfData, Flags);
 #endif
     }
@@ -1922,6 +2383,8 @@ public:
 #ifdef ROUTE_IDirect3DTexture9_GetPrivateData
         return Route_IDirect3DTexture9_GetPrivateData(this, refguid, pData, pSizeOfData);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(172);
+        FacadeFallback(172);
         return real->GetPrivateData(refguid, pData, pSizeOfData);
 #endif
     }
@@ -1931,6 +2394,8 @@ public:
 #ifdef ROUTE_IDirect3DTexture9_FreePrivateData
         return Route_IDirect3DTexture9_FreePrivateData(this, refguid);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(173);
+        FacadeFallback(173);
         return real->FreePrivateData(refguid);
 #endif
     }
@@ -1940,6 +2405,8 @@ public:
 #ifdef ROUTE_IDirect3DTexture9_SetPriority
         return Route_IDirect3DTexture9_SetPriority(this, PriorityNew);
 #else
+        if (!real) return FacadeUnsupported<DWORD>(174);
+        FacadeFallback(174);
         return real->SetPriority(PriorityNew);
 #endif
     }
@@ -1949,6 +2416,8 @@ public:
 #ifdef ROUTE_IDirect3DTexture9_GetPriority
         return Route_IDirect3DTexture9_GetPriority(this);
 #else
+        if (!real) return FacadeUnsupported<DWORD>(175);
+        FacadeFallback(175);
         return real->GetPriority();
 #endif
     }
@@ -1958,6 +2427,8 @@ public:
 #ifdef ROUTE_IDirect3DTexture9_PreLoad
         return Route_IDirect3DTexture9_PreLoad(this);
 #else
+        if (!real) return FacadeUnsupported<void>(176);
+        FacadeFallback(176);
         real->PreLoad();
 #endif
     }
@@ -1967,6 +2438,8 @@ public:
 #ifdef ROUTE_IDirect3DTexture9_GetType
         return Route_IDirect3DTexture9_GetType(this);
 #else
+        if (!real) return FacadeUnsupported<D3DRESOURCETYPE>(177);
+        FacadeFallback(177);
         return real->GetType();
 #endif
     }
@@ -1976,6 +2449,8 @@ public:
 #ifdef ROUTE_IDirect3DTexture9_SetLOD
         return Route_IDirect3DTexture9_SetLOD(this, LODNew);
 #else
+        if (!real) return FacadeUnsupported<DWORD>(178);
+        FacadeFallback(178);
         return real->SetLOD(LODNew);
 #endif
     }
@@ -1985,6 +2460,8 @@ public:
 #ifdef ROUTE_IDirect3DTexture9_GetLOD
         return Route_IDirect3DTexture9_GetLOD(this);
 #else
+        if (!real) return FacadeUnsupported<DWORD>(179);
+        FacadeFallback(179);
         return real->GetLOD();
 #endif
     }
@@ -1994,6 +2471,8 @@ public:
 #ifdef ROUTE_IDirect3DTexture9_GetLevelCount
         return Route_IDirect3DTexture9_GetLevelCount(this);
 #else
+        if (!real) return FacadeUnsupported<DWORD>(180);
+        FacadeFallback(180);
         return real->GetLevelCount();
 #endif
     }
@@ -2003,6 +2482,8 @@ public:
 #ifdef ROUTE_IDirect3DTexture9_SetAutoGenFilterType
         return Route_IDirect3DTexture9_SetAutoGenFilterType(this, FilterType);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(181);
+        FacadeFallback(181);
         return real->SetAutoGenFilterType(FilterType);
 #endif
     }
@@ -2012,6 +2493,8 @@ public:
 #ifdef ROUTE_IDirect3DTexture9_GetAutoGenFilterType
         return Route_IDirect3DTexture9_GetAutoGenFilterType(this);
 #else
+        if (!real) return FacadeUnsupported<D3DTEXTUREFILTERTYPE>(182);
+        FacadeFallback(182);
         return real->GetAutoGenFilterType();
 #endif
     }
@@ -2021,6 +2504,8 @@ public:
 #ifdef ROUTE_IDirect3DTexture9_GenerateMipSubLevels
         return Route_IDirect3DTexture9_GenerateMipSubLevels(this);
 #else
+        if (!real) return FacadeUnsupported<void>(183);
+        FacadeFallback(183);
         real->GenerateMipSubLevels();
 #endif
     }
@@ -2030,6 +2515,8 @@ public:
 #ifdef ROUTE_IDirect3DTexture9_GetLevelDesc
         return Route_IDirect3DTexture9_GetLevelDesc(this, Level, pDesc);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(184);
+        FacadeFallback(184);
         return real->GetLevelDesc(Level, pDesc);
 #endif
     }
@@ -2039,6 +2526,8 @@ public:
 #ifdef ROUTE_IDirect3DTexture9_GetSurfaceLevel
         return Route_IDirect3DTexture9_GetSurfaceLevel(this, Level, ppSurfaceLevel);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(185);
+        FacadeFallback(185);
         HRESULT r = real->GetSurfaceLevel(Level, ppSurfaceLevel);
         if (ppSurfaceLevel && *ppSurfaceLevel) *ppSurfaceLevel = FacadeWrap(*ppSurfaceLevel);
         return r;
@@ -2050,6 +2539,8 @@ public:
 #ifdef ROUTE_IDirect3DTexture9_LockRect
         return Route_IDirect3DTexture9_LockRect(this, Level, pLockedRect, pRect, Flags);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(186);
+        FacadeFallback(186);
         return real->LockRect(Level, pLockedRect, pRect, Flags);
 #endif
     }
@@ -2059,6 +2550,8 @@ public:
 #ifdef ROUTE_IDirect3DTexture9_UnlockRect
         return Route_IDirect3DTexture9_UnlockRect(this, Level);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(187);
+        FacadeFallback(187);
         return real->UnlockRect(Level);
 #endif
     }
@@ -2068,6 +2561,8 @@ public:
 #ifdef ROUTE_IDirect3DTexture9_AddDirtyRect
         return Route_IDirect3DTexture9_AddDirtyRect(this, pDirtyRect);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(188);
+        FacadeFallback(188);
         return real->AddDirtyRect(pDirtyRect);
 #endif
     }
@@ -2076,27 +2571,28 @@ public:
 class Facade_VolumeTexture final : public IDirect3DVolumeTexture9
 {
 public:
-    IDirect3DVolumeTexture9* real;
+    rhi::Object* obj;  // the renderer-interface object behind this one
+    IDirect3DVolumeTexture9* real;  // its D3D9 object (D3D9 backend), for methods outside the interface
     ULONG refs = 1;
-    explicit Facade_VolumeTexture(IDirect3DVolumeTexture9* r) : real(r) {}
+    explicit Facade_VolumeTexture(rhi::Object* o) : obj(o), real(static_cast<IDirect3DVolumeTexture9*>(o ? o->Native() : nullptr)) {}
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObj) override
     {
         RhiCount(189);
-        return FacadeQueryInterface(this, real, riid, ppvObj);
+        return FacadeQueryInterface(this, riid, ppvObj);
     }
     ULONG STDMETHODCALLTYPE AddRef() override
     {
         RhiCount(190);
         ++refs;
-        return real->AddRef();
+        return obj->AddRef();
     }
     ULONG STDMETHODCALLTYPE Release() override
     {
         RhiCount(191);
-        ULONG n = real->Release();
+        rhi::Object* o = obj;
         if (--refs == 0)
-            FacadeForget(this, real);
-        return n;
+            FacadeForget(this);
+        return o->Release();
     }
     HRESULT STDMETHODCALLTYPE GetDevice(IDirect3DDevice9** ppDevice) override
     {
@@ -2104,6 +2600,8 @@ public:
 #ifdef ROUTE_IDirect3DVolumeTexture9_GetDevice
         return Route_IDirect3DVolumeTexture9_GetDevice(this, ppDevice);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(192);
+        FacadeFallback(192);
         HRESULT r = real->GetDevice(ppDevice);
         if (ppDevice && *ppDevice) *ppDevice = FacadeWrap(*ppDevice);
         return r;
@@ -2115,6 +2613,8 @@ public:
 #ifdef ROUTE_IDirect3DVolumeTexture9_SetPrivateData
         return Route_IDirect3DVolumeTexture9_SetPrivateData(this, refguid, pData, SizeOfData, Flags);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(193);
+        FacadeFallback(193);
         return real->SetPrivateData(refguid, pData, SizeOfData, Flags);
 #endif
     }
@@ -2124,6 +2624,8 @@ public:
 #ifdef ROUTE_IDirect3DVolumeTexture9_GetPrivateData
         return Route_IDirect3DVolumeTexture9_GetPrivateData(this, refguid, pData, pSizeOfData);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(194);
+        FacadeFallback(194);
         return real->GetPrivateData(refguid, pData, pSizeOfData);
 #endif
     }
@@ -2133,6 +2635,8 @@ public:
 #ifdef ROUTE_IDirect3DVolumeTexture9_FreePrivateData
         return Route_IDirect3DVolumeTexture9_FreePrivateData(this, refguid);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(195);
+        FacadeFallback(195);
         return real->FreePrivateData(refguid);
 #endif
     }
@@ -2142,6 +2646,8 @@ public:
 #ifdef ROUTE_IDirect3DVolumeTexture9_SetPriority
         return Route_IDirect3DVolumeTexture9_SetPriority(this, PriorityNew);
 #else
+        if (!real) return FacadeUnsupported<DWORD>(196);
+        FacadeFallback(196);
         return real->SetPriority(PriorityNew);
 #endif
     }
@@ -2151,6 +2657,8 @@ public:
 #ifdef ROUTE_IDirect3DVolumeTexture9_GetPriority
         return Route_IDirect3DVolumeTexture9_GetPriority(this);
 #else
+        if (!real) return FacadeUnsupported<DWORD>(197);
+        FacadeFallback(197);
         return real->GetPriority();
 #endif
     }
@@ -2160,6 +2668,8 @@ public:
 #ifdef ROUTE_IDirect3DVolumeTexture9_PreLoad
         return Route_IDirect3DVolumeTexture9_PreLoad(this);
 #else
+        if (!real) return FacadeUnsupported<void>(198);
+        FacadeFallback(198);
         real->PreLoad();
 #endif
     }
@@ -2169,6 +2679,8 @@ public:
 #ifdef ROUTE_IDirect3DVolumeTexture9_GetType
         return Route_IDirect3DVolumeTexture9_GetType(this);
 #else
+        if (!real) return FacadeUnsupported<D3DRESOURCETYPE>(199);
+        FacadeFallback(199);
         return real->GetType();
 #endif
     }
@@ -2178,6 +2690,8 @@ public:
 #ifdef ROUTE_IDirect3DVolumeTexture9_SetLOD
         return Route_IDirect3DVolumeTexture9_SetLOD(this, LODNew);
 #else
+        if (!real) return FacadeUnsupported<DWORD>(200);
+        FacadeFallback(200);
         return real->SetLOD(LODNew);
 #endif
     }
@@ -2187,6 +2701,8 @@ public:
 #ifdef ROUTE_IDirect3DVolumeTexture9_GetLOD
         return Route_IDirect3DVolumeTexture9_GetLOD(this);
 #else
+        if (!real) return FacadeUnsupported<DWORD>(201);
+        FacadeFallback(201);
         return real->GetLOD();
 #endif
     }
@@ -2196,6 +2712,8 @@ public:
 #ifdef ROUTE_IDirect3DVolumeTexture9_GetLevelCount
         return Route_IDirect3DVolumeTexture9_GetLevelCount(this);
 #else
+        if (!real) return FacadeUnsupported<DWORD>(202);
+        FacadeFallback(202);
         return real->GetLevelCount();
 #endif
     }
@@ -2205,6 +2723,8 @@ public:
 #ifdef ROUTE_IDirect3DVolumeTexture9_SetAutoGenFilterType
         return Route_IDirect3DVolumeTexture9_SetAutoGenFilterType(this, FilterType);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(203);
+        FacadeFallback(203);
         return real->SetAutoGenFilterType(FilterType);
 #endif
     }
@@ -2214,6 +2734,8 @@ public:
 #ifdef ROUTE_IDirect3DVolumeTexture9_GetAutoGenFilterType
         return Route_IDirect3DVolumeTexture9_GetAutoGenFilterType(this);
 #else
+        if (!real) return FacadeUnsupported<D3DTEXTUREFILTERTYPE>(204);
+        FacadeFallback(204);
         return real->GetAutoGenFilterType();
 #endif
     }
@@ -2223,6 +2745,8 @@ public:
 #ifdef ROUTE_IDirect3DVolumeTexture9_GenerateMipSubLevels
         return Route_IDirect3DVolumeTexture9_GenerateMipSubLevels(this);
 #else
+        if (!real) return FacadeUnsupported<void>(205);
+        FacadeFallback(205);
         real->GenerateMipSubLevels();
 #endif
     }
@@ -2232,6 +2756,8 @@ public:
 #ifdef ROUTE_IDirect3DVolumeTexture9_GetLevelDesc
         return Route_IDirect3DVolumeTexture9_GetLevelDesc(this, Level, pDesc);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(206);
+        FacadeFallback(206);
         return real->GetLevelDesc(Level, pDesc);
 #endif
     }
@@ -2241,6 +2767,8 @@ public:
 #ifdef ROUTE_IDirect3DVolumeTexture9_GetVolumeLevel
         return Route_IDirect3DVolumeTexture9_GetVolumeLevel(this, Level, ppVolumeLevel);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(207);
+        FacadeFallback(207);
         HRESULT r = real->GetVolumeLevel(Level, ppVolumeLevel);
         if (ppVolumeLevel && *ppVolumeLevel) *ppVolumeLevel = FacadeWrap(*ppVolumeLevel);
         return r;
@@ -2252,6 +2780,8 @@ public:
 #ifdef ROUTE_IDirect3DVolumeTexture9_LockBox
         return Route_IDirect3DVolumeTexture9_LockBox(this, Level, pLockedVolume, pBox, Flags);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(208);
+        FacadeFallback(208);
         return real->LockBox(Level, pLockedVolume, pBox, Flags);
 #endif
     }
@@ -2261,6 +2791,8 @@ public:
 #ifdef ROUTE_IDirect3DVolumeTexture9_UnlockBox
         return Route_IDirect3DVolumeTexture9_UnlockBox(this, Level);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(209);
+        FacadeFallback(209);
         return real->UnlockBox(Level);
 #endif
     }
@@ -2270,6 +2802,8 @@ public:
 #ifdef ROUTE_IDirect3DVolumeTexture9_AddDirtyBox
         return Route_IDirect3DVolumeTexture9_AddDirtyBox(this, pDirtyBox);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(210);
+        FacadeFallback(210);
         return real->AddDirtyBox(pDirtyBox);
 #endif
     }
@@ -2278,27 +2812,28 @@ public:
 class Facade_CubeTexture final : public IDirect3DCubeTexture9
 {
 public:
-    IDirect3DCubeTexture9* real;
+    rhi::Object* obj;  // the renderer-interface object behind this one
+    IDirect3DCubeTexture9* real;  // its D3D9 object (D3D9 backend), for methods outside the interface
     ULONG refs = 1;
-    explicit Facade_CubeTexture(IDirect3DCubeTexture9* r) : real(r) {}
+    explicit Facade_CubeTexture(rhi::Object* o) : obj(o), real(static_cast<IDirect3DCubeTexture9*>(o ? o->Native() : nullptr)) {}
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObj) override
     {
         RhiCount(211);
-        return FacadeQueryInterface(this, real, riid, ppvObj);
+        return FacadeQueryInterface(this, riid, ppvObj);
     }
     ULONG STDMETHODCALLTYPE AddRef() override
     {
         RhiCount(212);
         ++refs;
-        return real->AddRef();
+        return obj->AddRef();
     }
     ULONG STDMETHODCALLTYPE Release() override
     {
         RhiCount(213);
-        ULONG n = real->Release();
+        rhi::Object* o = obj;
         if (--refs == 0)
-            FacadeForget(this, real);
-        return n;
+            FacadeForget(this);
+        return o->Release();
     }
     HRESULT STDMETHODCALLTYPE GetDevice(IDirect3DDevice9** ppDevice) override
     {
@@ -2306,6 +2841,8 @@ public:
 #ifdef ROUTE_IDirect3DCubeTexture9_GetDevice
         return Route_IDirect3DCubeTexture9_GetDevice(this, ppDevice);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(214);
+        FacadeFallback(214);
         HRESULT r = real->GetDevice(ppDevice);
         if (ppDevice && *ppDevice) *ppDevice = FacadeWrap(*ppDevice);
         return r;
@@ -2317,6 +2854,8 @@ public:
 #ifdef ROUTE_IDirect3DCubeTexture9_SetPrivateData
         return Route_IDirect3DCubeTexture9_SetPrivateData(this, refguid, pData, SizeOfData, Flags);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(215);
+        FacadeFallback(215);
         return real->SetPrivateData(refguid, pData, SizeOfData, Flags);
 #endif
     }
@@ -2326,6 +2865,8 @@ public:
 #ifdef ROUTE_IDirect3DCubeTexture9_GetPrivateData
         return Route_IDirect3DCubeTexture9_GetPrivateData(this, refguid, pData, pSizeOfData);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(216);
+        FacadeFallback(216);
         return real->GetPrivateData(refguid, pData, pSizeOfData);
 #endif
     }
@@ -2335,6 +2876,8 @@ public:
 #ifdef ROUTE_IDirect3DCubeTexture9_FreePrivateData
         return Route_IDirect3DCubeTexture9_FreePrivateData(this, refguid);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(217);
+        FacadeFallback(217);
         return real->FreePrivateData(refguid);
 #endif
     }
@@ -2344,6 +2887,8 @@ public:
 #ifdef ROUTE_IDirect3DCubeTexture9_SetPriority
         return Route_IDirect3DCubeTexture9_SetPriority(this, PriorityNew);
 #else
+        if (!real) return FacadeUnsupported<DWORD>(218);
+        FacadeFallback(218);
         return real->SetPriority(PriorityNew);
 #endif
     }
@@ -2353,6 +2898,8 @@ public:
 #ifdef ROUTE_IDirect3DCubeTexture9_GetPriority
         return Route_IDirect3DCubeTexture9_GetPriority(this);
 #else
+        if (!real) return FacadeUnsupported<DWORD>(219);
+        FacadeFallback(219);
         return real->GetPriority();
 #endif
     }
@@ -2362,6 +2909,8 @@ public:
 #ifdef ROUTE_IDirect3DCubeTexture9_PreLoad
         return Route_IDirect3DCubeTexture9_PreLoad(this);
 #else
+        if (!real) return FacadeUnsupported<void>(220);
+        FacadeFallback(220);
         real->PreLoad();
 #endif
     }
@@ -2371,6 +2920,8 @@ public:
 #ifdef ROUTE_IDirect3DCubeTexture9_GetType
         return Route_IDirect3DCubeTexture9_GetType(this);
 #else
+        if (!real) return FacadeUnsupported<D3DRESOURCETYPE>(221);
+        FacadeFallback(221);
         return real->GetType();
 #endif
     }
@@ -2380,6 +2931,8 @@ public:
 #ifdef ROUTE_IDirect3DCubeTexture9_SetLOD
         return Route_IDirect3DCubeTexture9_SetLOD(this, LODNew);
 #else
+        if (!real) return FacadeUnsupported<DWORD>(222);
+        FacadeFallback(222);
         return real->SetLOD(LODNew);
 #endif
     }
@@ -2389,6 +2942,8 @@ public:
 #ifdef ROUTE_IDirect3DCubeTexture9_GetLOD
         return Route_IDirect3DCubeTexture9_GetLOD(this);
 #else
+        if (!real) return FacadeUnsupported<DWORD>(223);
+        FacadeFallback(223);
         return real->GetLOD();
 #endif
     }
@@ -2398,6 +2953,8 @@ public:
 #ifdef ROUTE_IDirect3DCubeTexture9_GetLevelCount
         return Route_IDirect3DCubeTexture9_GetLevelCount(this);
 #else
+        if (!real) return FacadeUnsupported<DWORD>(224);
+        FacadeFallback(224);
         return real->GetLevelCount();
 #endif
     }
@@ -2407,6 +2964,8 @@ public:
 #ifdef ROUTE_IDirect3DCubeTexture9_SetAutoGenFilterType
         return Route_IDirect3DCubeTexture9_SetAutoGenFilterType(this, FilterType);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(225);
+        FacadeFallback(225);
         return real->SetAutoGenFilterType(FilterType);
 #endif
     }
@@ -2416,6 +2975,8 @@ public:
 #ifdef ROUTE_IDirect3DCubeTexture9_GetAutoGenFilterType
         return Route_IDirect3DCubeTexture9_GetAutoGenFilterType(this);
 #else
+        if (!real) return FacadeUnsupported<D3DTEXTUREFILTERTYPE>(226);
+        FacadeFallback(226);
         return real->GetAutoGenFilterType();
 #endif
     }
@@ -2425,6 +2986,8 @@ public:
 #ifdef ROUTE_IDirect3DCubeTexture9_GenerateMipSubLevels
         return Route_IDirect3DCubeTexture9_GenerateMipSubLevels(this);
 #else
+        if (!real) return FacadeUnsupported<void>(227);
+        FacadeFallback(227);
         real->GenerateMipSubLevels();
 #endif
     }
@@ -2434,6 +2997,8 @@ public:
 #ifdef ROUTE_IDirect3DCubeTexture9_GetLevelDesc
         return Route_IDirect3DCubeTexture9_GetLevelDesc(this, Level, pDesc);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(228);
+        FacadeFallback(228);
         return real->GetLevelDesc(Level, pDesc);
 #endif
     }
@@ -2443,6 +3008,8 @@ public:
 #ifdef ROUTE_IDirect3DCubeTexture9_GetCubeMapSurface
         return Route_IDirect3DCubeTexture9_GetCubeMapSurface(this, FaceType, Level, ppCubeMapSurface);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(229);
+        FacadeFallback(229);
         HRESULT r = real->GetCubeMapSurface(FaceType, Level, ppCubeMapSurface);
         if (ppCubeMapSurface && *ppCubeMapSurface) *ppCubeMapSurface = FacadeWrap(*ppCubeMapSurface);
         return r;
@@ -2454,6 +3021,8 @@ public:
 #ifdef ROUTE_IDirect3DCubeTexture9_LockRect
         return Route_IDirect3DCubeTexture9_LockRect(this, FaceType, Level, pLockedRect, pRect, Flags);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(230);
+        FacadeFallback(230);
         return real->LockRect(FaceType, Level, pLockedRect, pRect, Flags);
 #endif
     }
@@ -2463,6 +3032,8 @@ public:
 #ifdef ROUTE_IDirect3DCubeTexture9_UnlockRect
         return Route_IDirect3DCubeTexture9_UnlockRect(this, FaceType, Level);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(231);
+        FacadeFallback(231);
         return real->UnlockRect(FaceType, Level);
 #endif
     }
@@ -2472,6 +3043,8 @@ public:
 #ifdef ROUTE_IDirect3DCubeTexture9_AddDirtyRect
         return Route_IDirect3DCubeTexture9_AddDirtyRect(this, FaceType, pDirtyRect);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(232);
+        FacadeFallback(232);
         return real->AddDirtyRect(FaceType, pDirtyRect);
 #endif
     }
@@ -2480,27 +3053,28 @@ public:
 class Facade_VertexBuffer final : public IDirect3DVertexBuffer9
 {
 public:
-    IDirect3DVertexBuffer9* real;
+    rhi::Object* obj;  // the renderer-interface object behind this one
+    IDirect3DVertexBuffer9* real;  // its D3D9 object (D3D9 backend), for methods outside the interface
     ULONG refs = 1;
-    explicit Facade_VertexBuffer(IDirect3DVertexBuffer9* r) : real(r) {}
+    explicit Facade_VertexBuffer(rhi::Object* o) : obj(o), real(static_cast<IDirect3DVertexBuffer9*>(o ? o->Native() : nullptr)) {}
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObj) override
     {
         RhiCount(233);
-        return FacadeQueryInterface(this, real, riid, ppvObj);
+        return FacadeQueryInterface(this, riid, ppvObj);
     }
     ULONG STDMETHODCALLTYPE AddRef() override
     {
         RhiCount(234);
         ++refs;
-        return real->AddRef();
+        return obj->AddRef();
     }
     ULONG STDMETHODCALLTYPE Release() override
     {
         RhiCount(235);
-        ULONG n = real->Release();
+        rhi::Object* o = obj;
         if (--refs == 0)
-            FacadeForget(this, real);
-        return n;
+            FacadeForget(this);
+        return o->Release();
     }
     HRESULT STDMETHODCALLTYPE GetDevice(IDirect3DDevice9** ppDevice) override
     {
@@ -2508,6 +3082,8 @@ public:
 #ifdef ROUTE_IDirect3DVertexBuffer9_GetDevice
         return Route_IDirect3DVertexBuffer9_GetDevice(this, ppDevice);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(236);
+        FacadeFallback(236);
         HRESULT r = real->GetDevice(ppDevice);
         if (ppDevice && *ppDevice) *ppDevice = FacadeWrap(*ppDevice);
         return r;
@@ -2519,6 +3095,8 @@ public:
 #ifdef ROUTE_IDirect3DVertexBuffer9_SetPrivateData
         return Route_IDirect3DVertexBuffer9_SetPrivateData(this, refguid, pData, SizeOfData, Flags);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(237);
+        FacadeFallback(237);
         return real->SetPrivateData(refguid, pData, SizeOfData, Flags);
 #endif
     }
@@ -2528,6 +3106,8 @@ public:
 #ifdef ROUTE_IDirect3DVertexBuffer9_GetPrivateData
         return Route_IDirect3DVertexBuffer9_GetPrivateData(this, refguid, pData, pSizeOfData);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(238);
+        FacadeFallback(238);
         return real->GetPrivateData(refguid, pData, pSizeOfData);
 #endif
     }
@@ -2537,6 +3117,8 @@ public:
 #ifdef ROUTE_IDirect3DVertexBuffer9_FreePrivateData
         return Route_IDirect3DVertexBuffer9_FreePrivateData(this, refguid);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(239);
+        FacadeFallback(239);
         return real->FreePrivateData(refguid);
 #endif
     }
@@ -2546,6 +3128,8 @@ public:
 #ifdef ROUTE_IDirect3DVertexBuffer9_SetPriority
         return Route_IDirect3DVertexBuffer9_SetPriority(this, PriorityNew);
 #else
+        if (!real) return FacadeUnsupported<DWORD>(240);
+        FacadeFallback(240);
         return real->SetPriority(PriorityNew);
 #endif
     }
@@ -2555,6 +3139,8 @@ public:
 #ifdef ROUTE_IDirect3DVertexBuffer9_GetPriority
         return Route_IDirect3DVertexBuffer9_GetPriority(this);
 #else
+        if (!real) return FacadeUnsupported<DWORD>(241);
+        FacadeFallback(241);
         return real->GetPriority();
 #endif
     }
@@ -2564,6 +3150,8 @@ public:
 #ifdef ROUTE_IDirect3DVertexBuffer9_PreLoad
         return Route_IDirect3DVertexBuffer9_PreLoad(this);
 #else
+        if (!real) return FacadeUnsupported<void>(242);
+        FacadeFallback(242);
         real->PreLoad();
 #endif
     }
@@ -2573,6 +3161,8 @@ public:
 #ifdef ROUTE_IDirect3DVertexBuffer9_GetType
         return Route_IDirect3DVertexBuffer9_GetType(this);
 #else
+        if (!real) return FacadeUnsupported<D3DRESOURCETYPE>(243);
+        FacadeFallback(243);
         return real->GetType();
 #endif
     }
@@ -2582,6 +3172,8 @@ public:
 #ifdef ROUTE_IDirect3DVertexBuffer9_Lock
         return Route_IDirect3DVertexBuffer9_Lock(this, OffsetToLock, SizeToLock, ppbData, Flags);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(244);
+        FacadeFallback(244);
         return real->Lock(OffsetToLock, SizeToLock, ppbData, Flags);
 #endif
     }
@@ -2591,6 +3183,8 @@ public:
 #ifdef ROUTE_IDirect3DVertexBuffer9_Unlock
         return Route_IDirect3DVertexBuffer9_Unlock(this);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(245);
+        FacadeFallback(245);
         return real->Unlock();
 #endif
     }
@@ -2600,6 +3194,8 @@ public:
 #ifdef ROUTE_IDirect3DVertexBuffer9_GetDesc
         return Route_IDirect3DVertexBuffer9_GetDesc(this, pDesc);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(246);
+        FacadeFallback(246);
         return real->GetDesc(pDesc);
 #endif
     }
@@ -2608,27 +3204,28 @@ public:
 class Facade_IndexBuffer final : public IDirect3DIndexBuffer9
 {
 public:
-    IDirect3DIndexBuffer9* real;
+    rhi::Object* obj;  // the renderer-interface object behind this one
+    IDirect3DIndexBuffer9* real;  // its D3D9 object (D3D9 backend), for methods outside the interface
     ULONG refs = 1;
-    explicit Facade_IndexBuffer(IDirect3DIndexBuffer9* r) : real(r) {}
+    explicit Facade_IndexBuffer(rhi::Object* o) : obj(o), real(static_cast<IDirect3DIndexBuffer9*>(o ? o->Native() : nullptr)) {}
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObj) override
     {
         RhiCount(247);
-        return FacadeQueryInterface(this, real, riid, ppvObj);
+        return FacadeQueryInterface(this, riid, ppvObj);
     }
     ULONG STDMETHODCALLTYPE AddRef() override
     {
         RhiCount(248);
         ++refs;
-        return real->AddRef();
+        return obj->AddRef();
     }
     ULONG STDMETHODCALLTYPE Release() override
     {
         RhiCount(249);
-        ULONG n = real->Release();
+        rhi::Object* o = obj;
         if (--refs == 0)
-            FacadeForget(this, real);
-        return n;
+            FacadeForget(this);
+        return o->Release();
     }
     HRESULT STDMETHODCALLTYPE GetDevice(IDirect3DDevice9** ppDevice) override
     {
@@ -2636,6 +3233,8 @@ public:
 #ifdef ROUTE_IDirect3DIndexBuffer9_GetDevice
         return Route_IDirect3DIndexBuffer9_GetDevice(this, ppDevice);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(250);
+        FacadeFallback(250);
         HRESULT r = real->GetDevice(ppDevice);
         if (ppDevice && *ppDevice) *ppDevice = FacadeWrap(*ppDevice);
         return r;
@@ -2647,6 +3246,8 @@ public:
 #ifdef ROUTE_IDirect3DIndexBuffer9_SetPrivateData
         return Route_IDirect3DIndexBuffer9_SetPrivateData(this, refguid, pData, SizeOfData, Flags);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(251);
+        FacadeFallback(251);
         return real->SetPrivateData(refguid, pData, SizeOfData, Flags);
 #endif
     }
@@ -2656,6 +3257,8 @@ public:
 #ifdef ROUTE_IDirect3DIndexBuffer9_GetPrivateData
         return Route_IDirect3DIndexBuffer9_GetPrivateData(this, refguid, pData, pSizeOfData);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(252);
+        FacadeFallback(252);
         return real->GetPrivateData(refguid, pData, pSizeOfData);
 #endif
     }
@@ -2665,6 +3268,8 @@ public:
 #ifdef ROUTE_IDirect3DIndexBuffer9_FreePrivateData
         return Route_IDirect3DIndexBuffer9_FreePrivateData(this, refguid);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(253);
+        FacadeFallback(253);
         return real->FreePrivateData(refguid);
 #endif
     }
@@ -2674,6 +3279,8 @@ public:
 #ifdef ROUTE_IDirect3DIndexBuffer9_SetPriority
         return Route_IDirect3DIndexBuffer9_SetPriority(this, PriorityNew);
 #else
+        if (!real) return FacadeUnsupported<DWORD>(254);
+        FacadeFallback(254);
         return real->SetPriority(PriorityNew);
 #endif
     }
@@ -2683,6 +3290,8 @@ public:
 #ifdef ROUTE_IDirect3DIndexBuffer9_GetPriority
         return Route_IDirect3DIndexBuffer9_GetPriority(this);
 #else
+        if (!real) return FacadeUnsupported<DWORD>(255);
+        FacadeFallback(255);
         return real->GetPriority();
 #endif
     }
@@ -2692,6 +3301,8 @@ public:
 #ifdef ROUTE_IDirect3DIndexBuffer9_PreLoad
         return Route_IDirect3DIndexBuffer9_PreLoad(this);
 #else
+        if (!real) return FacadeUnsupported<void>(256);
+        FacadeFallback(256);
         real->PreLoad();
 #endif
     }
@@ -2701,6 +3312,8 @@ public:
 #ifdef ROUTE_IDirect3DIndexBuffer9_GetType
         return Route_IDirect3DIndexBuffer9_GetType(this);
 #else
+        if (!real) return FacadeUnsupported<D3DRESOURCETYPE>(257);
+        FacadeFallback(257);
         return real->GetType();
 #endif
     }
@@ -2710,6 +3323,8 @@ public:
 #ifdef ROUTE_IDirect3DIndexBuffer9_Lock
         return Route_IDirect3DIndexBuffer9_Lock(this, OffsetToLock, SizeToLock, ppbData, Flags);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(258);
+        FacadeFallback(258);
         return real->Lock(OffsetToLock, SizeToLock, ppbData, Flags);
 #endif
     }
@@ -2719,6 +3334,8 @@ public:
 #ifdef ROUTE_IDirect3DIndexBuffer9_Unlock
         return Route_IDirect3DIndexBuffer9_Unlock(this);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(259);
+        FacadeFallback(259);
         return real->Unlock();
 #endif
     }
@@ -2728,6 +3345,8 @@ public:
 #ifdef ROUTE_IDirect3DIndexBuffer9_GetDesc
         return Route_IDirect3DIndexBuffer9_GetDesc(this, pDesc);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(260);
+        FacadeFallback(260);
         return real->GetDesc(pDesc);
 #endif
     }
@@ -2736,27 +3355,28 @@ public:
 class Facade_Surface final : public IDirect3DSurface9
 {
 public:
-    IDirect3DSurface9* real;
+    rhi::Object* obj;  // the renderer-interface object behind this one
+    IDirect3DSurface9* real;  // its D3D9 object (D3D9 backend), for methods outside the interface
     ULONG refs = 1;
-    explicit Facade_Surface(IDirect3DSurface9* r) : real(r) {}
+    explicit Facade_Surface(rhi::Object* o) : obj(o), real(static_cast<IDirect3DSurface9*>(o ? o->Native() : nullptr)) {}
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObj) override
     {
         RhiCount(261);
-        return FacadeQueryInterface(this, real, riid, ppvObj);
+        return FacadeQueryInterface(this, riid, ppvObj);
     }
     ULONG STDMETHODCALLTYPE AddRef() override
     {
         RhiCount(262);
         ++refs;
-        return real->AddRef();
+        return obj->AddRef();
     }
     ULONG STDMETHODCALLTYPE Release() override
     {
         RhiCount(263);
-        ULONG n = real->Release();
+        rhi::Object* o = obj;
         if (--refs == 0)
-            FacadeForget(this, real);
-        return n;
+            FacadeForget(this);
+        return o->Release();
     }
     HRESULT STDMETHODCALLTYPE GetDevice(IDirect3DDevice9** ppDevice) override
     {
@@ -2764,6 +3384,8 @@ public:
 #ifdef ROUTE_IDirect3DSurface9_GetDevice
         return Route_IDirect3DSurface9_GetDevice(this, ppDevice);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(264);
+        FacadeFallback(264);
         HRESULT r = real->GetDevice(ppDevice);
         if (ppDevice && *ppDevice) *ppDevice = FacadeWrap(*ppDevice);
         return r;
@@ -2775,6 +3397,8 @@ public:
 #ifdef ROUTE_IDirect3DSurface9_SetPrivateData
         return Route_IDirect3DSurface9_SetPrivateData(this, refguid, pData, SizeOfData, Flags);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(265);
+        FacadeFallback(265);
         return real->SetPrivateData(refguid, pData, SizeOfData, Flags);
 #endif
     }
@@ -2784,6 +3408,8 @@ public:
 #ifdef ROUTE_IDirect3DSurface9_GetPrivateData
         return Route_IDirect3DSurface9_GetPrivateData(this, refguid, pData, pSizeOfData);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(266);
+        FacadeFallback(266);
         return real->GetPrivateData(refguid, pData, pSizeOfData);
 #endif
     }
@@ -2793,6 +3419,8 @@ public:
 #ifdef ROUTE_IDirect3DSurface9_FreePrivateData
         return Route_IDirect3DSurface9_FreePrivateData(this, refguid);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(267);
+        FacadeFallback(267);
         return real->FreePrivateData(refguid);
 #endif
     }
@@ -2802,6 +3430,8 @@ public:
 #ifdef ROUTE_IDirect3DSurface9_SetPriority
         return Route_IDirect3DSurface9_SetPriority(this, PriorityNew);
 #else
+        if (!real) return FacadeUnsupported<DWORD>(268);
+        FacadeFallback(268);
         return real->SetPriority(PriorityNew);
 #endif
     }
@@ -2811,6 +3441,8 @@ public:
 #ifdef ROUTE_IDirect3DSurface9_GetPriority
         return Route_IDirect3DSurface9_GetPriority(this);
 #else
+        if (!real) return FacadeUnsupported<DWORD>(269);
+        FacadeFallback(269);
         return real->GetPriority();
 #endif
     }
@@ -2820,6 +3452,8 @@ public:
 #ifdef ROUTE_IDirect3DSurface9_PreLoad
         return Route_IDirect3DSurface9_PreLoad(this);
 #else
+        if (!real) return FacadeUnsupported<void>(270);
+        FacadeFallback(270);
         real->PreLoad();
 #endif
     }
@@ -2829,6 +3463,8 @@ public:
 #ifdef ROUTE_IDirect3DSurface9_GetType
         return Route_IDirect3DSurface9_GetType(this);
 #else
+        if (!real) return FacadeUnsupported<D3DRESOURCETYPE>(271);
+        FacadeFallback(271);
         return real->GetType();
 #endif
     }
@@ -2838,6 +3474,8 @@ public:
 #ifdef ROUTE_IDirect3DSurface9_GetContainer
         return Route_IDirect3DSurface9_GetContainer(this, riid, ppContainer);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(272);
+        FacadeFallback(272);
         return real->GetContainer(riid, ppContainer);
 #endif
     }
@@ -2847,6 +3485,8 @@ public:
 #ifdef ROUTE_IDirect3DSurface9_GetDesc
         return Route_IDirect3DSurface9_GetDesc(this, pDesc);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(273);
+        FacadeFallback(273);
         return real->GetDesc(pDesc);
 #endif
     }
@@ -2856,6 +3496,8 @@ public:
 #ifdef ROUTE_IDirect3DSurface9_LockRect
         return Route_IDirect3DSurface9_LockRect(this, pLockedRect, pRect, Flags);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(274);
+        FacadeFallback(274);
         return real->LockRect(pLockedRect, pRect, Flags);
 #endif
     }
@@ -2865,6 +3507,8 @@ public:
 #ifdef ROUTE_IDirect3DSurface9_UnlockRect
         return Route_IDirect3DSurface9_UnlockRect(this);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(275);
+        FacadeFallback(275);
         return real->UnlockRect();
 #endif
     }
@@ -2874,6 +3518,8 @@ public:
 #ifdef ROUTE_IDirect3DSurface9_GetDC
         return Route_IDirect3DSurface9_GetDC(this, phdc);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(276);
+        FacadeFallback(276);
         return real->GetDC(phdc);
 #endif
     }
@@ -2883,6 +3529,8 @@ public:
 #ifdef ROUTE_IDirect3DSurface9_ReleaseDC
         return Route_IDirect3DSurface9_ReleaseDC(this, hdc);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(277);
+        FacadeFallback(277);
         return real->ReleaseDC(hdc);
 #endif
     }
@@ -2891,27 +3539,28 @@ public:
 class Facade_Volume final : public IDirect3DVolume9
 {
 public:
-    IDirect3DVolume9* real;
+    rhi::Object* obj;  // the renderer-interface object behind this one
+    IDirect3DVolume9* real;  // its D3D9 object (D3D9 backend), for methods outside the interface
     ULONG refs = 1;
-    explicit Facade_Volume(IDirect3DVolume9* r) : real(r) {}
+    explicit Facade_Volume(rhi::Object* o) : obj(o), real(static_cast<IDirect3DVolume9*>(o ? o->Native() : nullptr)) {}
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObj) override
     {
         RhiCount(278);
-        return FacadeQueryInterface(this, real, riid, ppvObj);
+        return FacadeQueryInterface(this, riid, ppvObj);
     }
     ULONG STDMETHODCALLTYPE AddRef() override
     {
         RhiCount(279);
         ++refs;
-        return real->AddRef();
+        return obj->AddRef();
     }
     ULONG STDMETHODCALLTYPE Release() override
     {
         RhiCount(280);
-        ULONG n = real->Release();
+        rhi::Object* o = obj;
         if (--refs == 0)
-            FacadeForget(this, real);
-        return n;
+            FacadeForget(this);
+        return o->Release();
     }
     HRESULT STDMETHODCALLTYPE GetDevice(IDirect3DDevice9** ppDevice) override
     {
@@ -2919,6 +3568,8 @@ public:
 #ifdef ROUTE_IDirect3DVolume9_GetDevice
         return Route_IDirect3DVolume9_GetDevice(this, ppDevice);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(281);
+        FacadeFallback(281);
         HRESULT r = real->GetDevice(ppDevice);
         if (ppDevice && *ppDevice) *ppDevice = FacadeWrap(*ppDevice);
         return r;
@@ -2930,6 +3581,8 @@ public:
 #ifdef ROUTE_IDirect3DVolume9_SetPrivateData
         return Route_IDirect3DVolume9_SetPrivateData(this, refguid, pData, SizeOfData, Flags);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(282);
+        FacadeFallback(282);
         return real->SetPrivateData(refguid, pData, SizeOfData, Flags);
 #endif
     }
@@ -2939,6 +3592,8 @@ public:
 #ifdef ROUTE_IDirect3DVolume9_GetPrivateData
         return Route_IDirect3DVolume9_GetPrivateData(this, refguid, pData, pSizeOfData);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(283);
+        FacadeFallback(283);
         return real->GetPrivateData(refguid, pData, pSizeOfData);
 #endif
     }
@@ -2948,6 +3603,8 @@ public:
 #ifdef ROUTE_IDirect3DVolume9_FreePrivateData
         return Route_IDirect3DVolume9_FreePrivateData(this, refguid);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(284);
+        FacadeFallback(284);
         return real->FreePrivateData(refguid);
 #endif
     }
@@ -2957,6 +3614,8 @@ public:
 #ifdef ROUTE_IDirect3DVolume9_GetContainer
         return Route_IDirect3DVolume9_GetContainer(this, riid, ppContainer);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(285);
+        FacadeFallback(285);
         return real->GetContainer(riid, ppContainer);
 #endif
     }
@@ -2966,6 +3625,8 @@ public:
 #ifdef ROUTE_IDirect3DVolume9_GetDesc
         return Route_IDirect3DVolume9_GetDesc(this, pDesc);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(286);
+        FacadeFallback(286);
         return real->GetDesc(pDesc);
 #endif
     }
@@ -2975,6 +3636,8 @@ public:
 #ifdef ROUTE_IDirect3DVolume9_LockBox
         return Route_IDirect3DVolume9_LockBox(this, pLockedVolume, pBox, Flags);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(287);
+        FacadeFallback(287);
         return real->LockBox(pLockedVolume, pBox, Flags);
 #endif
     }
@@ -2984,6 +3647,8 @@ public:
 #ifdef ROUTE_IDirect3DVolume9_UnlockBox
         return Route_IDirect3DVolume9_UnlockBox(this);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(288);
+        FacadeFallback(288);
         return real->UnlockBox();
 #endif
     }
@@ -2992,27 +3657,28 @@ public:
 class Facade_Query final : public IDirect3DQuery9
 {
 public:
-    IDirect3DQuery9* real;
+    rhi::Object* obj;  // the renderer-interface object behind this one
+    IDirect3DQuery9* real;  // its D3D9 object (D3D9 backend), for methods outside the interface
     ULONG refs = 1;
-    explicit Facade_Query(IDirect3DQuery9* r) : real(r) {}
+    explicit Facade_Query(rhi::Object* o) : obj(o), real(static_cast<IDirect3DQuery9*>(o ? o->Native() : nullptr)) {}
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObj) override
     {
         RhiCount(289);
-        return FacadeQueryInterface(this, real, riid, ppvObj);
+        return FacadeQueryInterface(this, riid, ppvObj);
     }
     ULONG STDMETHODCALLTYPE AddRef() override
     {
         RhiCount(290);
         ++refs;
-        return real->AddRef();
+        return obj->AddRef();
     }
     ULONG STDMETHODCALLTYPE Release() override
     {
         RhiCount(291);
-        ULONG n = real->Release();
+        rhi::Object* o = obj;
         if (--refs == 0)
-            FacadeForget(this, real);
-        return n;
+            FacadeForget(this);
+        return o->Release();
     }
     HRESULT STDMETHODCALLTYPE GetDevice(IDirect3DDevice9** ppDevice) override
     {
@@ -3020,6 +3686,8 @@ public:
 #ifdef ROUTE_IDirect3DQuery9_GetDevice
         return Route_IDirect3DQuery9_GetDevice(this, ppDevice);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(292);
+        FacadeFallback(292);
         HRESULT r = real->GetDevice(ppDevice);
         if (ppDevice && *ppDevice) *ppDevice = FacadeWrap(*ppDevice);
         return r;
@@ -3031,6 +3699,8 @@ public:
 #ifdef ROUTE_IDirect3DQuery9_GetType
         return Route_IDirect3DQuery9_GetType(this);
 #else
+        if (!real) return FacadeUnsupported<D3DQUERYTYPE>(293);
+        FacadeFallback(293);
         return real->GetType();
 #endif
     }
@@ -3040,6 +3710,8 @@ public:
 #ifdef ROUTE_IDirect3DQuery9_GetDataSize
         return Route_IDirect3DQuery9_GetDataSize(this);
 #else
+        if (!real) return FacadeUnsupported<DWORD>(294);
+        FacadeFallback(294);
         return real->GetDataSize();
 #endif
     }
@@ -3049,6 +3721,8 @@ public:
 #ifdef ROUTE_IDirect3DQuery9_Issue
         return Route_IDirect3DQuery9_Issue(this, dwIssueFlags);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(295);
+        FacadeFallback(295);
         return real->Issue(dwIssueFlags);
 #endif
     }
@@ -3058,6 +3732,8 @@ public:
 #ifdef ROUTE_IDirect3DQuery9_GetData
         return Route_IDirect3DQuery9_GetData(this, pData, dwSize, dwGetDataFlags);
 #else
+        if (!real) return FacadeUnsupported<HRESULT>(296);
+        FacadeFallback(296);
         return real->GetData(pData, dwSize, dwGetDataFlags);
 #endif
     }
