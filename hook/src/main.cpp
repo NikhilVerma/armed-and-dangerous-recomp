@@ -16,6 +16,7 @@ void AudioInit();
 void QolInit();
 void UiAspectInit();
 void OverridesInit();
+void RemasterMenuInit();
 void TestShotInit();
 void InputHooksInit();
 void TestHashInit();
@@ -64,6 +65,7 @@ static void Startup()
     QolInit();
     UiAspectInit();
     OverridesInit();
+    RemasterMenuInit();  // after every enhancement has registered its settings
     HooksInstallAll();
     TestFatalTraceInit();
     D3D9HooksInstall();

@@ -105,6 +105,8 @@ struct DisplayModeFilter
     uint32_t minWidth = 640;
     uint32_t maxWidth = 1600;
     bool allowAnyAspect = false;  // original: only 16:9, 4:3 and 5:4
+    // An extra mode (X8R8G8B8) offered besides the adapter's, e.g. a windowed size no display mode has. 0: none.
+    uint32_t extraWidth = 0, extraHeight = 0;
 };
 extern DisplayModeFilter g_displayModeFilter;
 

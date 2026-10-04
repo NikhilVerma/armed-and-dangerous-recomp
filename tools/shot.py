@@ -24,6 +24,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--scenario", default="play")
+    ap.add_argument("--level", default="", help="load this level instead of the scenario's (e.g. lev_2_m1)")
     ap.add_argument("--frames", default="600")
     ap.add_argument("--keys", default="")
     ap.add_argument("--frames-total", type=int, default=0)
@@ -50,7 +51,7 @@ def main():
     for f in glob.glob(os.path.join(c.GAME_DIR, "and-frame-*.bmp")):
         os.remove(f)
     total = a.frames_total or max(frames) + 20
-    c.run_once(a.name, {k: True for k in c.hook_names()}, sc["level"], total, 300, keys,
+    c.run_once(a.name, {k: True for k in c.hook_names()}, a.level or sc["level"], total, 300, keys,
                {"hash_frames": hash_frames, "dump_hashed": 1, **test}, render, extra_sections=sections)
     shots = []
     for f in frames:

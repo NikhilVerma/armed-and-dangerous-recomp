@@ -98,6 +98,15 @@ void __stdcall Renderer_EnumerateDisplayModes(Renderer* self)
     Renderer_AddDisplayModes(self, 0, D3DFMT_A8R8G8B8, modes, &count, kRendererMaxModes);  // 0x15
     Renderer_AddDisplayModes(self, 0, D3DFMT_X8R8G8B8, modes, &count, kRendererMaxModes);  // 0x16
     Renderer_AddDisplayModes(self, 0, D3DFMT_R5G6B5, modes, &count, kRendererMaxModes);    // 0x17
+    if (g_displayModeFilter.extraWidth && g_displayModeFilter.extraHeight && count < kRendererMaxModes)
+    {
+        D3DDISPLAYMODE extra{g_displayModeFilter.extraWidth, g_displayModeFilter.extraHeight, 0, D3DFMT_X8R8G8B8};
+        bool present = false;
+        for (uint32_t i = 0; i < count; i++)
+            present |= modes[i].Width == extra.Width && modes[i].Height == extra.Height && modes[i].Format == extra.Format;
+        if (!present)
+            modes[count++] = extra;
+    }
     Orig_qsort(modes, count, sizeof(D3DDISPLAYMODE), DisplayMode_Compare);
 
     memcpy(self->capsSummary, capsSummary, sizeof(capsSummary));

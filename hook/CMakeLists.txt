@@ -71,6 +71,7 @@ add_library(and_hook SHARED
   enhance/qol.cpp
   enhance/ui_aspect.cpp
   enhance/settings.cpp
+  enhance/remaster_menu.cpp
   dinput8.def)
 
 target_include_directories(and_hook PRIVATE src enhance ../src ${minhook_SOURCE_DIR}/include)

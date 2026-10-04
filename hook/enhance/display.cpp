@@ -98,6 +98,12 @@ void DisplayInit()
         g_displayModeFilter.minWidth = 320;
         g_displayModeFilter.maxWidth = 16384;
         g_displayModeFilter.allowAnyAspect = true;
+        if (g_cfg.windowed && g_cfg.width > 0 && g_cfg.height > 0)
+        {
+            // A window can have any size: offer the configured one even if no display mode matches (21:9 ...).
+            g_displayModeFilter.extraWidth = static_cast<uint32_t>(g_cfg.width);
+            g_displayModeFilter.extraHeight = static_cast<uint32_t>(g_cfg.height);
+        }
         Log("display: all adapter modes offered");
     }
 }
