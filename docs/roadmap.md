@@ -4,7 +4,10 @@ North star: a fully decompiled game, then a remaster built on open-source techno
 
 1. **Renderer and asset loading recovered** (current goal: `docs/goals/renderer-and-assets.md`): wireframe,
    texture/model replacement, lossless `.big` rebuild.
-2. **Modern rendering backend** behind a clean renderer interface (the recovered D3D9 layer is the reference).
+2. **Remaster basics** (requested 2026-10-04: `docs/goals/remaster-basics.md`): aspect ratio and UI anchoring,
+   menu extension for remaster options, persistent decals and bodies, FOV, tessellation (Vulkan), QoL. Runs
+   alongside the backend work; tessellation needs the Vulkan backend.
+2b. **Modern rendering backend** behind a clean renderer interface (the recovered D3D9 layer is the reference).
 3. **Image quality:** DLAA (and other upscalers/anti-aliasing), HDR output, high frame rates (fix the
    frame-rate-dependent behaviour first: `docs/original-bugs.md`).
 4. **PBR materials.** Requested by the human for the future. Implications for work happening now:

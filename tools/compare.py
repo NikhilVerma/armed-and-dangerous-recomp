@@ -51,10 +51,11 @@ SCENARIOS = {
 }
 
 
+RENDER = {}  # [render] settings for the candidate run only (--rhi)
 DUMP = ""  # "frame" or "first:every:count": also save those frames as and-frame-*.bmp
 
 
-def write_ini(hooks_on, level, frames, keys="", test=None):
+def write_ini(hooks_on, level, frames, keys="", test=None, render=None):
     lines = ["[hooks]"]
     lines += [f"{name}={1 if on else 0}" for name, on in hooks_on.items()]
     lines += ["", "[startup]", "skip_intro=0", "skip_legal=0", "load=",
@@ -66,12 +67,14 @@ def write_ini(hooks_on, level, frames, keys="", test=None):
               "record_input": 0, "fixed_dt_ms": 0, "no_movies": 1}
     values.update(test or {})  # scenario settings replace the defaults (an ini key must appear once)
     lines += [f"{k}={v}" for k, v in values.items()]
+    if render:
+        lines += ["", "[render]"] + [f"{k}={v}" for k, v in render.items()]
     with open(os.path.join(GAME_DIR, "and.ini"), "w") as f:
         f.write("\n".join(lines) + "\n")
 
 
-def run_once(label, hooks_on, level, frames, timeout, keys="", test=None):
-    write_ini(hooks_on, level, frames, keys, test)
+def run_once(label, hooks_on, level, frames, timeout, keys="", test=None, render=None):
+    write_ini(hooks_on, level, frames, keys, test, render)
     for name in ("and-d3d.txt", os.path.join("SavedGames", "options.opt")):
         p = os.path.join(GAME_DIR, name)
         if os.path.exists(p):
@@ -105,6 +108,7 @@ def main():
     ap.add_argument("--scenario", default="all", help="all, or comma-separated: " + ", ".join(SCENARIOS))
     ap.add_argument("--timeout", type=int, default=180)
     ap.add_argument("--fresh", action="store_true")
+    ap.add_argument("--rhi", action="store_true", help="candidate runs through the renderer interface ([render] rhi=1)")
     ap.add_argument("--self", action="store_true", help="candidate = original too: checks the harness is deterministic")
     ap.add_argument("--dump", default="", help="frame number (or first:every:count) to save as images in work/compare")
     a = ap.parse_args()
@@ -158,7 +162,9 @@ def main():
             return 2
         if variants:
             print(f"  baseline: {len(variants)} known variant(s)")
-        cand, crashed = run_once("candidate", candidate, sc["level"], sc["frames"], a.timeout, sc["keys"], sc.get("test"))
+        cand, crashed = run_once("candidate", candidate, sc["level"], sc["frames"], a.timeout, sc["keys"],
+                                {**(sc.get("test") or {}), **({"rhi_calls": 1} if a.rhi else {})},
+                                {"rhi": 1} if a.rhi else None)
 
         def first_divergence(base):
             n = min(len(base), len(cand))

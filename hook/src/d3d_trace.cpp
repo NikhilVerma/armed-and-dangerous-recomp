@@ -16,7 +16,10 @@
 #include <unordered_map>
 
 #include "config.h"
+#include "game/game_object.h"
 #include "log.h"
+
+bool TestInLoadWindow();  // testscenario.cpp
 
 namespace
 {
@@ -236,7 +239,13 @@ extern "C" void* __cdecl TraceCall(unsigned index, const DWORD* args)
     }
     if (index == 17)  // Present: close the frame
     {
-        if (g_out)
+        // Frames drawn while a level loads are marked, not hashed: how many textures get uploaded per loading
+        // frame follows the asynchronous file-streaming thread and varies from run to run, also in the original.
+        // Everything they create is still compared through the frames that use it.
+        Game* game = g_game;
+        if (g_out && (TestInLoadWindow() || (game && game->loadingLevel)))
+            fprintf(g_out, "%u L 0\n", g_frame);
+        else if (g_out)
             fprintf(g_out, "%u %u %016llx\n", g_frame, g_calls, g_hash);
         g_frame++;
         g_calls = 0;

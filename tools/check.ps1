@@ -41,9 +41,9 @@ foreach ($s in 'boot', 'replay', 'diff', 'formats') {
 }
 
 if (-not $Quick) {
-    Suite 'comparison (original vs recovered, menu + level scenarios)' {
+    Suite 'comparison (original vs recovered code through the renderer interface, all scenarios)' {
         $py = Join-Path $root '.venv/Scripts/python.exe'
-        & $py (Join-Path $root 'tools/compare.py') | Out-Host
+        & $py (Join-Path $root 'tools/compare.py') --rhi | Out-Host
         if ($LASTEXITCODE) { throw "compare.py exit $LASTEXITCODE" }
     }
 }

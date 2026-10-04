@@ -50,3 +50,22 @@ How this coexists with faithful recovery:
 - **Approach:** none chosen yet. Default hypothesis from the handover is Approach B on the PC build; M1
   decides from recon evidence and the 20-function spike.
 - **Budget for M0/M1:** no fixed limit; report at each milestone.
+
+## 2026-10-04: rendering backend API
+
+- The human chose **Vulkan** for the new backend (docs/goals/modern-renderer.md).
+- Build dependencies come from source: open-source Vulkan-Headers, volk and glslang from KhronosGroup on
+  GitHub, fetched by CMake at pinned tags (like MinHook). No SDK installer; the GPU driver provides
+  vulkan-1.dll.
+- Validation layers need the LunarG SDK. Ask the human before downloading it.
+
+## 2026-10-04: own Vulkan backend, not DXVK
+
+- The human asked for whichever option keeps ray tracing, path tracing and PBR open. We write our own Vulkan
+  backend for the subset of D3D9 the game uses.
+- Ray tracing needs the scene's geometry, transforms and materials, so we must own the layer that sees every
+  buffer and draw. DXVK would hide it.
+- Layering:
+  - a D3D9 COM facade, used by recovered code and by the statically linked D3DX
+  - `src/rhi` (our interface)
+  - the backends: a D3D9 pass-through, which must stay bit-identical, and Vulkan

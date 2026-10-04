@@ -21,6 +21,9 @@ namespace
 wchar_t g_level[0x104];
 bool g_requested;
 unsigned g_exitFrame, g_closeFrame, g_resizeFrame, g_frame;
+// Level-load window for the Direct3D trace: from the scenario's level request until the game's loading flag
+// (Game+0x74c) has been seen set and then cleared.
+bool g_loadWindow, g_loadSeen;
 
 BOOL CALLBACK ResizeProcessWindows(HWND wnd, LPARAM)
 {
@@ -76,6 +79,7 @@ void TestScenarioInit()
 
 void D3DTraceFlush();
 void D3DTraceFinish();
+void RhiWriteCalls();
 
 // Main thread, once per presented frame (after Present).
 void TestScenarioOnFrame()
@@ -87,7 +91,17 @@ void TestScenarioOnFrame()
         wcsncpy(game->pendingLevelName, g_level, 0x103);
         game->pendingLevelRequest = 1;
         g_requested = true;
+        g_loadWindow = true;
         Log("test: requested %ls at frame %u", g_level, g_frame);
+    }
+    if (g_loadWindow && game)
+    {
+        g_loadSeen |= game->loadingLevel != 0;
+        if (g_loadSeen && !game->loadingLevel)
+        {
+            g_loadWindow = false;
+            Log("test: level load finished at frame %u", g_frame);
+        }
     }
     if (g_resizeFrame && g_frame == g_resizeFrame)
     {
@@ -104,6 +118,7 @@ void TestScenarioOnFrame()
         Log("test: exit at frame %u", g_frame);
         D3DTraceFlush();
         HooksWriteCoverage();
+        RhiWriteCalls();
         TerminateProcess(GetCurrentProcess(), 0);
     }
 }
@@ -115,4 +130,11 @@ void TestScenarioOnExit()
     Log("test: process exiting after frame %u", g_frame);
     D3DTraceFinish();
     HooksWriteCoverage();
+    RhiWriteCalls();
+}
+
+// True while the scenario's level is loading (see g_loadWindow).
+bool TestInLoadWindow()
+{
+    return g_loadWindow;
 }

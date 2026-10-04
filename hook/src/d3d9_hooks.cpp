@@ -15,6 +15,7 @@ void TestClockOnFrame();
 void D3DTraceAttach(IDirect3DDevice9* dev);
 void TestScenarioOnFrame();
 void InputOnFrame();
+IDirect3D9* RhiFacadeWrapDirect3D(IDirect3D9* real);  // src/rhi/d3d9_facade.cpp
 
 // vtable slots from d3d9.h declaration order
 static constexpr int kD3D9_CreateDevice = 16;
@@ -116,12 +117,16 @@ static IDirect3D9* WINAPI Hook_Direct3DCreate9(UINT sdk)
 {
     IDirect3D9* d3d = g_realCreate9(sdk);
     Log("Direct3DCreate9(%u) -> %p", sdk, d3d);
+    IDirect3D9* real = d3d;
     if (d3d && !g_realCreateDevice)
     {
         void** vt = *reinterpret_cast<void***>(d3d);
         HookAt(vt[kD3D9_CreateDevice], reinterpret_cast<void*>(Hook_CreateDevice),
                reinterpret_cast<void**>(&g_realCreateDevice), "IDirect3D9::CreateDevice");
     }
+    // [render] rhi=1: the game gets the renderer-interface facade; the hooks above stay on the real objects.
+    if (real && ConfigInt("render", "rhi", 0))
+        return RhiFacadeWrapDirect3D(real);
     return d3d;
 }
 
