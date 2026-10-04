@@ -42,6 +42,12 @@ SCENARIOS = {
     "level": {"level": "lev_1_m1", "keys": "", "frames": 900},
     # the level, with the device reported lost at frame 600: the game releases and recreates its resources
     "reset": {"level": "lev_1_m1", "keys": "", "frames": 900, "test": {"device_lost_frame": 600}},
+    # gameplay: dismiss the briefing (mouse 1), fire three shots, pause (Esc) and resume (Up, Up, Enter)
+    "play": {"level": "lev_1_m1", "frames": 1100,
+             "keys": "500:MOUSE1,570:MOUSE1,610:MOUSE1,650:MOUSE1,700:ESC,740:UP,770:UP,800:ENTER"},
+    # (resize_frame exists in the harness, but the game only stretches the image on resize: no new code runs)
+    # the menu, then a normal shutdown (WM_CLOSE at frame 400): destructors and device release run
+    "quit": {"level": "", "keys": "", "frames": 400, "test": {"close_frame": 400, "exit_frame": 0}},
 }
 
 
@@ -53,9 +59,13 @@ def write_ini(hooks_on, level, frames, keys="", test=None):
     lines += [f"{name}={1 if on else 0}" for name, on in hooks_on.items()]
     lines += ["", "[startup]", "skip_intro=0", "skip_legal=0", "load=",
               "", "[display]", "windowed=1", "width=0", "height=0", "all_modes=0", "vsync=-1", "fps_limit=0",
-              "", "[test]", "clock_step_ms=16.6667", "d3d_trace=1", f"scenario_load={level}", f"exit_frame={frames}",
-              "shots=", "keys=", f"keys_frames={keys}", f"hash_frames={(DUMP + ':1:1') if DUMP and ':' not in DUMP else DUMP}", f"dump_hashed={1 if DUMP else 0}", "record_input=0", "fixed_dt_ms=0", "no_movies=1"]
-    lines += [f"{k}={v}" for k, v in (test or {}).items()]
+              "", "[test]"]
+    values = {"clock_step_ms": "16.6667", "d3d_trace": 1, "scenario_load": level, "exit_frame": frames, "shots": "",
+              "keys": "", "keys_frames": keys,
+              "hash_frames": (DUMP + ':1:1') if DUMP and ':' not in DUMP else DUMP, "dump_hashed": 1 if DUMP else 0,
+              "record_input": 0, "fixed_dt_ms": 0, "no_movies": 1}
+    values.update(test or {})  # scenario settings replace the defaults (an ini key must appear once)
+    lines += [f"{k}={v}" for k, v in values.items()]
     with open(os.path.join(GAME_DIR, "and.ini"), "w") as f:
         f.write("\n".join(lines) + "\n")
 

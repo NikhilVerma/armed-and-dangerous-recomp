@@ -1,7 +1,8 @@
 // DirectInput interception: scripted key presses for tests (later: input record and replay, handover s12).
 //
 // [test] keys=30:ESC,45:ESC   at 30 s and 45 s after start-up, hold Escape for a few frames.
-// Key names: ESC, ENTER, SPACE, UP, DOWN, LEFT, RIGHT, or a DIK_ scan code number.
+// Key names: ESC, ENTER, SPACE, UP, DOWN, LEFT, RIGHT, or a DIK_ scan code number; MOUSE1..MOUSE3 for mouse
+// buttons (left, right, middle).
 #define DIRECTINPUT_VERSION 0x0800
 #include <windows.h>
 #include <dinput.h>
@@ -20,6 +21,7 @@ struct ScriptedKey
     float at;
     BYTE dik;
     int framesLeft;
+    int button;  // mouse button 0..2, or -1 for a keyboard key
 };
 ScriptedKey g_keys[32];
 int g_keyCount;
@@ -41,6 +43,7 @@ CreateDevice_t g_realCreateDevice;
 GetDeviceState_t g_realGetDeviceState;
 GetDeviceData_t g_realGetDeviceData;
 IDirectInputDevice8A* g_keyboard;
+IDirectInputDevice8A* g_mouse;
 bool g_loggedState, g_loggedData;
 
 BYTE ParseKey(const char* name)
@@ -70,7 +73,7 @@ void ActiveKeys(BYTE* down, int* count)
     *count = 0;
     float t = KeyClock();
     for (int i = 0; i < g_keyCount; i++)
-        if (KeyDown(g_keys[i], t))
+        if (g_keys[i].button < 0 && KeyDown(g_keys[i], t))
             down[(*count)++] = g_keys[i].dik;
 }
 
@@ -114,6 +117,13 @@ HRESULT STDMETHODCALLTYPE Hook_GetDeviceState(IDirectInputDevice8A* dev, DWORD s
         memset(data, 0, size);
         hr = DI_OK;
     }
+    if (dev == g_mouse && size >= sizeof(DIMOUSESTATE) && SUCCEEDED(hr))
+    {
+        float t = KeyClock();
+        for (int i = 0; i < g_keyCount; i++)
+            if (g_keys[i].button >= 0 && KeyDown(g_keys[i], t))
+                static_cast<DIMOUSESTATE*>(data)->rgbButtons[g_keys[i].button] = 0x80;
+    }
     if (dev == g_keyboard && size >= 256 && SUCCEEDED(hr))
     {
         RecordKeyChanges(static_cast<const BYTE*>(data));
@@ -140,6 +150,28 @@ HRESULT STDMETHODCALLTYPE Hook_GetDeviceData(IDirectInputDevice8A* dev, DWORD si
         *inOut = 0;  // tests: only scripted events (added below for the keyboard)
         hr = DI_OK;
     }
+    if (dev == g_mouse && SUCCEEDED(hr) && data && inOut && !(flags & DIGDD_PEEK))
+    {
+        float t = KeyClock();
+        for (int i = 0; i < g_keyCount; i++)
+        {
+            ScriptedKey& k = g_keys[i];
+            if (k.button < 0 || *inOut >= capacity)
+                continue;
+            bool press = k.framesLeft == 6 && t >= k.at;
+            bool release = k.framesLeft == 5 && t >= k.at + (g_frameMode ? kHoldFrames : 0.1f);
+            if (!press && !release)
+                continue;
+            k.framesLeft--;
+            DIDEVICEOBJECTDATA& e = *reinterpret_cast<DIDEVICEOBJECTDATA*>(reinterpret_cast<BYTE*>(data) +
+                                                                           *inOut * size);
+            memset(&e, 0, size);
+            e.dwOfs = DIMOFS_BUTTON0 + k.button;
+            e.dwData = press ? 0x80 : 0;
+            e.dwTimeStamp = GetTickCount();
+            (*inOut)++;
+        }
+    }
     if (dev == g_keyboard && SUCCEEDED(hr) && data && inOut && !(flags & DIGDD_PEEK))
     {
         if (!g_loggedData)
@@ -148,7 +180,7 @@ HRESULT STDMETHODCALLTYPE Hook_GetDeviceData(IDirectInputDevice8A* dev, DWORD si
         for (int i = 0; i < g_keyCount; i++)
         {
             ScriptedKey& k = g_keys[i];
-            if (*inOut >= capacity)
+            if (*inOut >= capacity || k.button >= 0)
                 continue;
             // One press event and one release event per key. Frame mode: emitted on the first poll at or after
             // the press/release frame (framesLeft tracks which were sent). Time mode: first and last poll.
@@ -188,6 +220,8 @@ HRESULT STDMETHODCALLTYPE Hook_CreateDevice(IDirectInput8A* di, REFGUID guid, LP
                                             LPUNKNOWN outer)
 {
     HRESULT hr = g_realCreateDevice(di, guid, out, outer);
+    if (SUCCEEDED(hr) && IsEqualGUID(guid, GUID_SysMouse) && !g_mouse)
+        g_mouse = *out;  // same device class as the keyboard: the vtable hooks below see it too
     if (SUCCEEDED(hr) && IsEqualGUID(guid, GUID_SysKeyboard) && !g_keyboard)
     {
         g_keyboard = *out;
@@ -217,7 +251,9 @@ void InputHooksInit()
         if (!colon)
             continue;
         *colon = '\0';
-        g_keys[g_keyCount++] = {static_cast<float>(atof(tok)), ParseKey(colon + 1), 6};
+        const char* key = colon + 1;
+        int button = _strnicmp(key, "MOUSE", 5) == 0 ? atoi(key + 5) - 1 : -1;
+        g_keys[g_keyCount++] = {static_cast<float>(atof(tok)), button >= 0 ? BYTE(0) : ParseKey(key), 6, button};
     }
     if (g_keyCount)
         Log("test: %d scripted key presses", g_keyCount);

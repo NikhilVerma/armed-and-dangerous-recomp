@@ -64,6 +64,10 @@ input you do not use is still a parameter (comment it out by name).
   own copies: the UI keeps the pointers.
 - **Use the game's literal constants, not SDK macros**: the game passes 31 to `Direct3DCreate9`, the modern
   SDK's `D3D_SDK_VERSION` is 32.
+- **The game's matrix is 0x44 bytes:** 16 floats plus a flags word at +0x40 (0x004e2b40 reads it, 0x004e2eb0
+  writes it). A local matrix passed to original code must be `float m[17]` / `uint32_t m[17]`; 16 entries
+  corrupts the stack (0x00504270). In general, size every local buffer from the original's stack frame, not
+  from what the type "should" be.
 - Floats: the game runs x87 at single precision (Direct3D sets it). Compute in `float` in the same order as the
   disassembly (`fild`/`fmul`/`fstp` -> `static_cast<float>(int) * k`). Float-to-int casts truncate (`_ftol`).
 - Signed versus unsigned comparisons follow the jump instruction (`jl/jg` signed, `jb/ja` unsigned).

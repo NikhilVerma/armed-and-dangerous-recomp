@@ -39,6 +39,7 @@ bool HookWrap(const char* name, void* wrapper, void** next);
 bool HooksInit();
 void HooksInstallAll();
 void HooksLogActive();
+void HooksWriteCoverage();  // and-coverage.txt when [test] hook_coverage=1 (the harness exits with TerminateProcess)
 
 // Hook any code address (used by enhancements and API hooks). Returns false on failure.
 bool HookAt(void* target, void* detour, void** original, const char* label);

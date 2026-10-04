@@ -3,6 +3,9 @@
 #include <windows.h>
 #include <MinHook.h>
 
+#include <cstdio>
+#include <cstdlib>
+
 #include "config.h"
 #include "log.h"
 
@@ -74,26 +77,89 @@ bool PatchU32(unsigned address, unsigned expected, unsigned value, const char* l
     return PatchBytes(address, &expected, &value, sizeof(value), label);
 }
 
+// [test] hook_coverage=1: every registered function (recovered or not) goes through a counting stub
+// `lock inc dword [count]; jmp dword [next]`, and the counts are written to and-coverage.txt at exit. Tells which
+// functions the comparison scenarios actually execute (in the original as well as in recovered code).
+struct CoverageSlot
+{
+    const char* name;
+    unsigned address;
+    volatile long count;
+    void* next;
+};
+static CoverageSlot* g_coverage;
+static int g_coverageCount;
+
+void HooksWriteCoverage()
+{
+    if (!g_coverage)
+        return;
+    FILE* f = fopen("and-coverage.txt", "w");
+    if (!f)
+        return;
+    for (int k = 0; k < g_coverageCount; ++k)
+        fprintf(f, "0x%08x %ld %s\n", g_coverage[k].address, g_coverage[k].count, g_coverage[k].name);
+    fclose(f);
+}
+
+static void* CoverageStub(CoverageSlot* slot)
+{
+    static BYTE* page;
+    static int used;
+    if (!page || used + 16 > 4096)
+    {
+        page = static_cast<BYTE*>(VirtualAlloc(nullptr, 4096, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
+        used = 0;
+    }
+    BYTE* p = page + used;
+    used += 16;
+    p[0] = 0xf0, p[1] = 0xff, p[2] = 0x05;  // lock inc dword ptr [&slot->count]
+    *reinterpret_cast<volatile long**>(p + 3) = &slot->count;
+    p[7] = 0xff, p[8] = 0x25;  // jmp dword ptr [&slot->next]
+    *reinterpret_cast<void***>(p + 9) = &slot->next;
+    return p;
+}
+
 void HooksInstallAll()
 {
     int on = 0, off = 0;
+    bool coverage = ConfigInt("test", "hook_coverage", 0) != 0;
+    if (coverage)
+    {
+        int n = 0;
+        for (HookEntry* e = g_entries; e; e = e->next)
+            ++n;
+        g_coverage = new CoverageSlot[n]();
+        atexit(HooksWriteCoverage);
+    }
     for (HookEntry* e = g_entries; e; e = e->next)
     {
         int mode = ConfigInt("hooks", e->name, 1);
         mode == 0 ? off++ : on++;
-        if (mode == 0 && !e->wrapper)
+        if (mode == 0 && !e->wrapper && !coverage)
             continue;
         void* target = reinterpret_cast<void*>(static_cast<uintptr_t>(e->address));
-        void* detour = e->wrapper ? e->wrapper : e->replacement;
+        void* detour = mode == 0 && !e->wrapper ? nullptr : (e->wrapper ? e->wrapper : e->replacement);
+        CoverageSlot* slot = nullptr;
+        if (coverage)
+        {
+            slot = &g_coverage[g_coverageCount++];
+            slot->name = e->name;
+            slot->address = e->address;
+            slot->next = detour;
+            detour = CoverageStub(slot);
+        }
         void* trampoline = nullptr;
         if (!HookAt(target, detour, &trampoline, e->name))
             continue;
+        if (slot && !slot->next)
+            slot->next = trampoline;  // switched off: count, then run the original
         if (e->original)
             *e->original = trampoline;
         if (e->wrapper)
             *e->wrapperNext = mode == 0 ? trampoline : e->replacement;
     }
-    Log("recovered-function hooks: %d enabled, %d switched off", on, off);
+    Log("recovered-function hooks: %d enabled, %d switched off%s", on, off, coverage ? " (coverage counting on)" : "");
 }
 
 void HooksLogActive()

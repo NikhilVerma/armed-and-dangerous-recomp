@@ -314,3 +314,12 @@ void D3DTraceFlush()
     if (g_out)
         fflush(g_out);
 }
+
+// The game exited by itself: write the calls made after the last Present (shutdown: device release) as a final
+// frame, so the comparison covers them too.
+void D3DTraceFinish()
+{
+    if (g_out && g_calls)
+        fprintf(g_out, "%u %u %016llx\n", g_frame, g_calls, g_hash);
+    D3DTraceFlush();
+}
