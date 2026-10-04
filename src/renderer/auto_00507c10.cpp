@@ -207,6 +207,8 @@ float Renderer_GetAspect(Renderer* r)
     return Field<float>(r, 0x1648);
 }
 
+bool (*g_gammaHandler)(float red, float green, float blue) = nullptr;
+
 static float Renderer_GetAspect_Abi(uint32_t ecx)
 {
     return Renderer_GetAspect(reinterpret_cast<Renderer*>(ecx));
@@ -233,6 +235,8 @@ uint32_t Renderer_SetGamma(Renderer* r, float red, float green, float blue)
         blue = 2.0f;
     else if (blue < 0.0f)
         blue = 0.0f;
+    if (g_gammaHandler && g_gammaHandler(red, green, blue))
+        return 1;
     if (!(r->capsFlags & 4))
         return 0;
     float invRed = 1.0f / red;

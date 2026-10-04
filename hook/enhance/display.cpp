@@ -5,10 +5,13 @@
 #include "renderer/renderer.h"
 #include "hooks.h"
 #include "log.h"
+#include "rhi/rhi.h"
+#include "settings.h"
 
 static struct
 {
-    int windowed, width, height, vsync, fpsLimit;
+    int windowed, width, height, vsync, fpsLimit, borderless;
+    float renderScale;
 } g_cfg;
 
 static LARGE_INTEGER g_freq, g_lastPresent;
@@ -35,9 +38,45 @@ static void __fastcall Display_App_Init(App* self, void* edx, const AppConfig* c
     g_nextAppInit(self, edx, &cfg, arg2, arg3);
 }
 
+// [display] brightness_shader=1: the game's brightness option (Renderer_SetGamma) applied by the Vulkan backend's
+// present pass instead of the device gamma ramp, so it works in a window and leaves the desktop ramp alone.
+static bool Display_Gamma(float red, float green, float blue)
+{
+    rhi::OutputSettings& o = rhi::Output();
+    o.gamma[0] = red, o.gamma[1] = green, o.gamma[2] = blue;
+    static bool logged;
+    if (!logged)
+        Log("display: brightness %.2f %.2f %.2f applied in the present pass", red, green, blue), logged = true;
+    return true;
+}
+
 void DisplayInit()
 {
+    using S = RemasterSetting;
+    if (RemasterRegister({"display", "brightness_shader", L"Brightness in a window (Vulkan)", S::Toggle, 0, 1, 1, {}, 0,
+                          false,
+                          [](float v) {
+                              g_gammaHandler = v != 0.0f ? Display_Gamma : nullptr;
+                              if (v == 0.0f)  // back to the device ramp, which the game re-applies with its options
+                                  rhi::Output() = rhi::OutputSettings{};
+                          }},
+                         0) != 0.0f)
+        g_gammaHandler = Display_Gamma;
+    // The frame cap also avoids the original's frame-rate bugs (docs/original-bugs.md: the lev_1_m1 opening stalls
+    // above about 85 fps).
+    RemasterRegister({"display", "fps_limit", L"Frame rate limit (0 = off)", S::Slider, 0, 240, 30, {}, 0, false,
+                      [](float v) { g_cfg.fpsLimit = static_cast<int>(v + 0.5f); }},
+                     0);
+    RemasterRegister({"display", "borderless", L"Borderless window", S::Toggle, 0, 1, 1, {}, 0, true, nullptr}, 0);
+    RemasterRegister({"display", "render_scale", L"Render scale", S::Slider, 0.5f, 2.0f, 0.25f, {}, 0, true, nullptr},
+                     1.0f);
     g_cfg.windowed = ConfigInt("display", "windowed", 0);
+    g_cfg.borderless = ConfigInt("display", "borderless", 0);
+    if (g_cfg.borderless)
+        g_cfg.windowed = 1;
+    g_cfg.renderScale = ConfigFloat("display", "render_scale", 1.0f);
+    if (g_cfg.renderScale < 0.25f || g_cfg.renderScale > 4.0f)
+        g_cfg.renderScale = 1.0f;
     g_cfg.width = ConfigInt("display", "width", 0);
     g_cfg.height = ConfigInt("display", "height", 0);
     g_cfg.vsync = ConfigInt("display", "vsync", -1);
@@ -88,9 +127,25 @@ void DisplayAdjustWindow(HWND wnd, const D3DPRESENT_PARAMETERS* pp)
     if (!g_cfg.windowed || !wnd)
         return;
     LONG style = GetWindowLongA(wnd, GWL_STYLE);
+    if (g_cfg.borderless)
+    {
+        // [display] borderless=1: a popup window covering the monitor; Present scales the back buffer to it.
+        MONITORINFO mi{sizeof(mi)};
+        GetMonitorInfoA(MonitorFromWindow(wnd, MONITOR_DEFAULTTOPRIMARY), &mi);
+        SetWindowLongA(wnd, GWL_STYLE, (style & ~WS_OVERLAPPEDWINDOW) | WS_POPUP);
+        const RECT& m = mi.rcMonitor;
+        SetWindowPos(wnd, HWND_NOTOPMOST, m.left, m.top, m.right - m.left, m.bottom - m.top,
+                     SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+        Log("display: borderless %ldx%ld, back buffer %ux%u", m.right - m.left, m.bottom - m.top, pp->BackBufferWidth,
+            pp->BackBufferHeight);
+        return;
+    }
     style = (style & ~WS_POPUP) | WS_OVERLAPPEDWINDOW;
     SetWindowLongA(wnd, GWL_STYLE, style);
-    RECT r{0, 0, static_cast<LONG>(pp->BackBufferWidth), static_cast<LONG>(pp->BackBufferHeight)};
+    // [display] render_scale: the game renders the back buffer at its size; the window shows it at 1/scale
+    // (Present stretches), so 2.0 is 2x supersampling and 0.5 renders at half resolution.
+    RECT r{0, 0, static_cast<LONG>(pp->BackBufferWidth / g_cfg.renderScale),
+           static_cast<LONG>(pp->BackBufferHeight / g_cfg.renderScale)};
     AdjustWindowRect(&r, style, FALSE);
     SetWindowPos(wnd, HWND_NOTOPMOST, 64, 64, r.right - r.left, r.bottom - r.top, SWP_FRAMECHANGED | SWP_SHOWWINDOW);
 }

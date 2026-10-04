@@ -114,7 +114,7 @@ int main(int argc, char** argv)
         std::printf("%s\n%s\n", t.ok ? "ok" : t.error.c_str(), t.glsl.c_str());
         return t.ok ? 0 : 1;
     }
-    int files = 0, translated = 0, compiled = 0;
+    int files = 0, translated = 0, compiled = 0, variants = 0, variantsOk = 0;
     std::vector<std::string> failures;
     FFKey finalKey = FixedFunctionKeys()[1];
     for (auto& e : std::filesystem::directory_iterator(argv[1]))
@@ -135,7 +135,20 @@ int main(int argc, char** argv)
             failures.push_back(e.path().filename().string() + ": compile");
         else
             ++compiled;
+        if (!t.isPixel)  // the tessellation and capture variants (vk_abi.h)
+        {
+            ++variants;
+            if (CompileGlsl(WithDefine(t.glsl, kTessDefine), false).empty() ||
+                CompileGlsl(WithDefine(t.glsl, kCaptureDefine), false).empty())
+                failures.push_back(e.path().filename().string() + ": tessellation/capture variant");
+            else
+                ++variantsOk;
+        }
     }
+    bool tessOk = !CompileGlslStage(TessControlGlsl(), GlslStage::TessControl).empty() &&
+                  !CompileGlslStage(TessEvalGlsl(false), GlslStage::TessEval).empty();
+    if (!tessOk)
+        failures.push_back("tessellation control/evaluation shaders");
     int ffOk = 0, ffTotal = 0;
     for (const FFKey& k : FixedFunctionKeys())
     {
@@ -164,7 +177,9 @@ int main(int argc, char** argv)
         failures.push_back("BuildVertexInput: skin layout");
     for (auto& f : failures)
         std::printf("FAIL %s\n", f.c_str());
-    std::printf("corpus: %d files, %d translated, %d compiled; fixed function: %d/%d compiled; vertex input %s\n",
-                files, translated, compiled, ffOk, ffTotal, viOk ? "ok" : "FAIL");
+    std::printf("corpus: %d files, %d translated, %d compiled; vertex variants %d/%d; tessellation stages %s; "
+                "fixed function: %d/%d compiled; vertex input %s\n",
+                files, translated, compiled, variantsOk, variants, tessOk ? "ok" : "FAIL", ffOk, ffTotal,
+                viOk ? "ok" : "FAIL");
     return failures.empty() ? 0 : 1;
 }

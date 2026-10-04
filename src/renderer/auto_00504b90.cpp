@@ -285,10 +285,12 @@ uint32_t Renderer_LoadFont(Renderer* r, const uint32_t* font, const char* name)
 
 // 0x00506f90 (ecx = renderer; [size or null], callee pops, result in st0): renderer virtual 32 (+0x80), the pixel
 // width Renderer_DrawGlyph uses: 1.0 (0x005bcb2c) / (x + x), x = size[0] or +0x40.
+float g_pixelSizeScale[2] = {1.0f, 1.0f};
+
 float Renderer_GetPixelWidth(Renderer* r, const float* size)
 {
     float x = size ? size[0] : Field<float>(r, 0x40);
-    return 1.0f / (x + x);
+    return g_pixelSizeScale[0] / (x + x);
 }
 
 // 0x00506fc0 (ecx = renderer; [size or null], callee pops, result in st0): renderer virtual 33 (+0x84), the pixel
@@ -296,7 +298,7 @@ float Renderer_GetPixelWidth(Renderer* r, const float* size)
 float Renderer_GetPixelHeight(Renderer* r, const float* size)
 {
     float y = size ? size[1] : Field<float>(r, 0x44);
-    return 1.0f / (y + y);
+    return g_pixelSizeScale[1] / (y + y);
 }
 
 // 0x00506ff0 (ecx = renderer; [&w, &h, character word, scaleX, scaleY], callee pops 0x14): renderer virtual 111

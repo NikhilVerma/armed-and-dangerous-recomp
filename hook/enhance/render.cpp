@@ -9,6 +9,7 @@
 #include "config.h"
 #include "hooks.h"
 #include "log.h"
+#include "settings.h"
 
 static void* g_nextBeginScene;
 
@@ -23,6 +24,17 @@ static __declspec(naked) void Render_BeginScene_Wireframe()
 
 void RenderInit()
 {
+    // Vulkan backend switches (src/rhi/vulkan), read when the device starts.
+    using S = RemasterSetting;
+    RemasterRegister({"render", "tessellation", L"Tessellated characters (Vulkan)", S::Toggle, 0, 1, 1, {}, 0, true,
+                      nullptr},
+                     0);
+    RemasterRegister({"render", "anisotropy", L"Anisotropic filtering (Vulkan)", S::Slider, 0, 16, 4, {}, 0, true,
+                      nullptr},
+                     0);
+    RemasterRegister({"render", "tonemap_aces", L"Filmic tone mapping (Vulkan)", S::Toggle, 0, 1, 1, {}, 0, true,
+                      nullptr},
+                     0);
     if (ConfigInt("render", "wireframe", 0))
     {
         HookWrap("Renderer_BeginScene", reinterpret_cast<void*>(Render_BeginScene_Wireframe), &g_nextBeginScene);

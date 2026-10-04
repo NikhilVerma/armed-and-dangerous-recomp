@@ -211,6 +211,7 @@ std::string FixedFunctionBlock()
         FF_MEMBER("vec4 textureStageConstant[8]", textureStageConstant),
         FF_MEMBER("vec4 bumpEnvMat[8]", bumpEnvMat),
         FF_MEMBER("vec4 bumpEnvLum[8]", bumpEnvLum),
+        FF_MEMBER("vec4 tessParams", tessParams),
     };
 #undef FF_MEMBER
     std::string s = std::format("layout(std140, set = 0, binding = {}) uniform FixedFunction\n{{\n", kBindingFixedFunction);
@@ -339,7 +340,20 @@ public:
                     return Failed(error_);
             prev_ = false;
             prevOut_ = std::move(out_);
+            // Pass 4 (tessellation, vk_abi.h): current constants, position input moved by `posOffset`, evaluated in
+            // OffsetPosition() to turn the vertex normal into a camera-space direction.
+            out_.clear();
+            offset_ = true;
+            for (const Instruction& in : instrs_)
+                if (!Generate(in))
+                    return Failed(error_);
+            offset_ = false;
+            offsetOut_ = std::move(out_);
             out_ = std::move(current);
+            result_.relativeConstants = needConstFunc_ || needPrevConstFunc_;
+            for (uint32_t n = 0; n < 16; ++n)
+                if (vsInputLocation_[n] == 3)
+                    result_.hasNormal = true;
         }
         result_.glsl = Assemble();
         result_.ok = true;
@@ -517,6 +531,8 @@ private:
             else
             {
                 out = n < 16 && vsInputLocation_[n] != 0xff ? std::format("v{}", n) : std::string("vec4(0.0)");
+                if (offset_ && n < 16 && vsInputLocation_[n] == 0)
+                    out = std::format("(v{} + posOffset)", n);
             }
             return true;
         case D3DSPR_CONST:
@@ -1068,6 +1084,7 @@ private:
             g += "layout(location = 11) out vec4 vCurClip;\nlayout(location = 12) out vec4 vPrevClip;\n";
             g += PrevFrameBlock();
             g += kCaptureGlsl;
+            g += kTessVertexGlsl;
             // Relative constant reads (c[a0.x + n]): def'd registers first, out of range reads as zero.
             // C: current constants (VsConstants); CP: previous frame's (PrevFrame vsConstants).
             auto constFunc = [&](const char* name, const char* array) {
@@ -1100,6 +1117,33 @@ private:
                        "    oFog = clamp(o_Fog.x, 0.0, 1.0);\n"
                        "    vCurClip = o_Pos;  // motion vectors (vk_abi.h): before the half-pixel offset\n"
                        "    vPrevClip = PrevPosition();\n";
+            // Tessellation outputs (vk_abi.h): camera-space position and normal.
+            int posReg = -1, normalReg = -1;
+            for (int n = 0; n < 16; ++n)
+            {
+                if (vsInputLocation_[n] == 0)
+                    posReg = n;
+                if (vsInputLocation_[n] == 3)
+                    normalReg = n;
+            }
+            epilogue += "#ifdef D3D9_TESS\n"
+                        "    mat4 tessInv = inverse(TessCamera());\n"
+                        "    vec4 tessP = tessInv * o_Pos;\n"
+                        "    tess_World = tessP.xyz / tessP.w;\n"
+                        "    tess_Normal = vec3(0.0);\n";
+            if (posReg >= 0 && normalReg >= 0)
+                epilogue += std::format(
+                    "    vec3 tessN = TessDecodeNormal(v{1});\n"
+                    "    if (dot(tessN, tessN) > 1e-12)\n"
+                    "    {{\n"
+                    "        float tessS = max(length(v{0}.xyz), 1.0) * 0.5;  // any size: positions are affine\n"
+                    "        vec4 tessQ = tessInv * OffsetPosition(vec4(normalize(tessN) * tessS, 0.0));\n"
+                    "        vec3 tessD = tessQ.xyz / tessQ.w - tess_World;\n"
+                    "        if (dot(tessD, tessD) > 0.0)\n"
+                    "            tess_Normal = normalize(tessD);\n"
+                    "    }}\n",
+                    posReg, normalReg);
+            epilogue += "#endif\n";
         }
         else
         {
@@ -1166,6 +1210,10 @@ private:
             g += "vec4 PrevPosition()\n{\n" + decl;
             body(prevOut_);
             g += "    return o_Pos;\n}\n";
+            // Pass 4: the position input moved by posOffset (tessellation normals).
+            g += "#ifdef D3D9_TESS\nvec4 OffsetPosition(vec4 posOffset)\n{\n" + decl;
+            body(offsetOut_);
+            g += "    return o_Pos;\n}\n#endif\n";
         }
         g += "void main()\n{\n" + decl;
         body(out_);
@@ -1207,6 +1255,8 @@ private:
     bool prev_ = false;                // generating the previous-frame evaluation (constants from PrevFrame)
     bool needPrevConstFunc_ = false;   // CP(): relative constant reads of that evaluation
     std::vector<Emitted> prevOut_;     // that evaluation's code (vertex shaders)
+    bool offset_ = false;              // generating the moved-position evaluation (tessellation normals)
+    std::vector<Emitted> offsetOut_;   // that evaluation's code
     int padIndex_ = 0;
     int tmpCounter_ = 0;
     std::string error_;
@@ -1215,4 +1265,10 @@ private:
 }  // namespace
 
 TranslatedShader TranslateShader(const uint32_t* code) { return Translator(code).Run(); }
+std::string VertexUniformBlocks()
+{
+    return std::format("layout(std140, set = 0, binding = {}) uniform VsConstants {{ vec4 c[{}]; }} vsc;\n",
+                       kBindingVsConstants, kVsConstantCount) +
+           FixedFunctionBlock() + PrevFrameBlock();
+}
 }  // namespace rhi::vulkan

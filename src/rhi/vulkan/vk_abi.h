@@ -82,6 +82,7 @@ struct alignas(16) FFUniforms
     float textureStageConstant[8][4];  // D3DTSS_CONSTANT (unused by D3D9 drivers of this era; kept for layout)
     float bumpEnvMat[8][4];            // D3DTSS_BUMPENVMAT00, 01, 10, 11
     float bumpEnvLum[8][4];            // D3DTSS_BUMPENVLSCALE, LOFFSET
+    float tessParams[4];  // tessellation (below): normal decoding, shape factor, maximum level, pixels per segment
 };
 
 // --- Motion vectors (remaster outputs: DLAA/TAA need them; docs/goals/modern-renderer.md step 5) -------------------
@@ -115,6 +116,30 @@ constexpr const char* kCaptureGlsl =
     "#define D3D9_CAPTURE_WRITE(p)\n"
     "#endif\n";
 constexpr const char* kCaptureDefine = "#define D3D9_CAPTURE 1\n";  // inserted after the #version line
+
+// --- Tessellation (remaster: docs/goals/remaster-basics.md item 5) -------------------------------------------------
+// D3D9 has no tessellation, so the game's meshes are refined here. Vertex shaders compiled with D3D9_TESS defined
+// (kTessDefine) also write location 13 vec3 tess_World (the camera-space position: the clip position through the inverse
+// of the projection at vertex constants c22..c25, the convention of every game vertex shader, see vk_scene.cpp) and location
+// 14 vec3 tess_Normal (the camera-space normal: the program evaluated again with the position input moved along the
+// NORMAL input, OffsetPosition(), so skinning and world matrices apply as they do to positions; zero when the vertex
+// has no normal). A generic control shader (vk_tessellation.cpp) sets levels from the screen-space edge lengths; the
+// evaluation shader interpolates every varying and applies Phong tessellation in camera space (any affine space works). Draws are patch lists
+// of 3 (strips and fans are converted to lists by the device). FFUniforms::tessParams: x decoding of the NORMAL input
+// (0 as read, 1 unsigned bytes 0..255, 2 unsigned normalised 0..1), y Phong shape factor (0 flat .. 1), z maximum
+// level, w target edge length in pixels.
+constexpr uint32_t kCameraRegister = 22;
+constexpr const char* kTessDefine = "#define D3D9_TESS 1\n";
+constexpr const char* kTessVertexGlsl =
+    "#ifdef D3D9_TESS\n"
+    "layout(location = 13) out vec3 tess_World;\n"
+    "layout(location = 14) out vec3 tess_Normal;\n"
+    "mat4 TessCamera() { return transpose(mat4(vsc.c[22], vsc.c[23], vsc.c[24], vsc.c[25])); }\n"
+    "vec3 TessDecodeNormal(vec4 n)\n"
+    "{\n"
+    "    return ff.tessParams.x == 1.0 ? n.xyz / 127.5 - 1.0 : (ff.tessParams.x == 2.0 ? n.xyz * 2.0 - 1.0 : n.xyz);\n"
+    "}\n"
+    "#endif\n";
 
 // Everything that selects a fixed-function shader pair. Values are the D3D9 enums; unused fields are zero so the
 // key can be hashed and compared bytewise.

@@ -67,7 +67,14 @@ struct FrameSlot
     VkDeviceSize uniformUsed = 0;
 };
 constexpr VkDeviceSize kUniformRing = 32u << 20;
+
+struct TessConfig
+{
+    bool on = false, props = false, ccw = false;
+    float maxLevel = 8.0f, pixels = 6.0f, shape = 0.75f;
+};
 }  // namespace
+const TessConfig& Tess();  // [render] tessellation settings (below)
 
 VulkanDevice* g_device;  // the game creates one device
 
@@ -308,6 +315,15 @@ private:
     uint8_t* captureMapped_ = nullptr;
     VkDeviceSize captureSize_ = 0, captureUsed_ = 0, captureOffset_ = 0;
     bool SceneDrawTarget() const { return rt_->GetImage() == backBuffer_.get() && depth_ && rs_[D3DRS_ZENABLE]; }
+    // Tessellation (vk_abi.h "Tessellation"; [render] tessellation=1): this draw goes through the tessellation
+    // stages as a patch list built by TessIndices.
+    bool tessDraw_ = false;
+    float tessNormalDecode_ = 0.0f;
+    uint32_t tessDraws_ = 0, tessCandidates_ = 0, tessSkinned_ = 0, tessWithNormal_ = 0;  // this frame (verbose log)
+    VkShaderModule tessControl_ = VK_NULL_HANDLE, tessEval_ = VK_NULL_HANDLE;
+    bool TessModules();
+    bool DrawTessellated(D3DPRIMITIVETYPE t, const uint8_t* indices, bool index32, uint32_t indexLength, INT base,
+                         UINT start, UINT count);
     bool EnsureCapture();
     void RecordScene(D3DPRIMITIVETYPE t, bool indexed, INT base, UINT start, UINT count, uint64_t id);
     VulkanSurface* rt_ = nullptr;
@@ -394,7 +410,7 @@ VulkanDevice::VulkanDevice(IDirect3D9* queries, HWND window, D3DPRESENT_PARAMETE
         vkCreateSemaphore(c.device, &si, nullptr, &s.rendered);
         VkBufferCreateInfo bi{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
         bi.size = kUniformRing;
-        bi.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+        bi.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;  // + tessellation lists
         vkCreateBuffer(c.device, &bi, nullptr, &s.uniforms);
         VkMemoryRequirements req;
         vkGetBufferMemoryRequirements(c.device, s.uniforms, &req);
@@ -729,6 +745,10 @@ HRESULT VulkanDevice::Present(const RECT*, const RECT*, HWND, const RGNDATA*)
         VkImageSubresourceRange rr{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
         vkCmdClearColorImage(cb, motion_->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &zero, 1, &rr);
     }
+    if (verbose && serial % 100 == 0 && Tess().on)
+        Log("vulkan: frame %llu: %u of %u scene shader draws tessellated (%u skinned, %u with normals)",
+            static_cast<unsigned long long>(serial), tessDraws_, tessCandidates_, tessSkinned_, tessWithNormal_);
+    tessDraws_ = tessCandidates_ = tessSkinned_ = tessWithNormal_ = 0;
     if (verbose && serial % 100 == 0)
         Log("vulkan: scene projection _11 %g _22 %g _33 %g _34 %g _43 %g _44 %g", sceneProjection_._11,
             sceneProjection_._22, sceneProjection_._33, sceneProjection_._34, sceneProjection_._43, sceneProjection_._44);
@@ -1105,6 +1125,36 @@ bool VulkanDevice::PrepareDraw(D3DPRIMITIVETYPE type, uint64_t drawKey)
         return false;
     (void)cubeMask;
 
+    // Tessellation of character (and with tess_props=1 prop) meshes: translated vertex shaders with normals, in the
+    // 3D scene, triangle primitives. Off on capture frames (the capture variant has no tessellation outputs).
+    tessDraw_ = false;
+    const TessConfig& tc = Tess();
+    if (tc.on && vs_ && SceneDrawTarget())
+    {
+        ++tessCandidates_;
+        tessSkinned_ += vs_->translated.relativeConstants ? 1 : 0;
+        tessWithNormal_ += vs_->translated.hasNormal ? 1 : 0;
+    }
+    if (tc.on && vs_ && vs_->translated.hasNormal && (vs_->translated.relativeConstants || tc.props) &&
+        SceneDrawTarget() && !captureFrame_ && !key.shadeFlat &&
+        (type == D3DPT_TRIANGLELIST || type == D3DPT_TRIANGLESTRIP || type == D3DPT_TRIANGLEFAN) && TessModules())
+    {
+        if (VkShaderModule tm = vs_->TessVariant())
+        {
+            vsm = tm;
+            tessDraw_ = true;
+            ++tessDraws_;
+            float decode = 0.0f;  // the NORMAL input's decoding (vk_abi.h FFUniforms::tessParams.x)
+            for (const D3DVERTEXELEMENT9& e : layout_->elements)
+                if (e.Stream != 0xff && e.Usage == D3DDECLUSAGE_NORMAL && e.UsageIndex == 0)
+                    decode = e.Type == D3DDECLTYPE_UBYTE4 ? 1.0f
+                             : (e.Type == D3DDECLTYPE_D3DCOLOR || e.Type == D3DDECLTYPE_UBYTE4N) ? 2.0f
+                                                                                                 : 0.0f;
+            if (decode != tessNormalDecode_)
+                tessNormalDecode_ = decode, ffDirty_ = true;
+        }
+    }
+
     // Scene vertex capture: this draw's vertices [captureFirst_, +captureCount_) to the capture buffer.
     captureDraw_ = false;
     if (captureFrame_ && captureCount_ && captureFirst_ >= 0 && SceneDrawTarget() && EnsureCapture())
@@ -1181,7 +1231,8 @@ bool VulkanDevice::PrepareDraw(D3DPRIMITIVETYPE type, uint64_t drawKey)
     pk.motionFormat = rt_->GetImage() == backBuffer_.get() ? VK_FORMAT_R16G16_SFLOAT : VK_FORMAT_UNDEFINED;
     if (pk.motionFormat && r.zEnable && r.zWriteEnable)
         sceneProjection_ = projection_;  // the 3D camera, for the depth/normal views (the HUD sets its own last)
-    VkPipeline pipeline = GetPipeline(pk, input, vsm, fsm);
+    VkPipeline pipeline = tessDraw_ ? GetPipeline(pk, input, vsm, fsm, tessControl_, tessEval_)
+                                    : GetPipeline(pk, input, vsm, fsm);
     if (!pipeline)
         return false;
     vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
@@ -1200,6 +1251,8 @@ bool VulkanDevice::PrepareDraw(D3DPRIMITIVETYPE type, uint64_t drawKey)
         u.halfPixel[0] = 1.0f / vw;
         u.halfPixel[1] = -1.0f / vh;
         u.halfPixel[2] = captureDraw_ ? static_cast<float>(captureFirst_) : 0.0f;  // capture base vertex (vk_abi.h)
+        u.tessParams[0] = tessNormalDecode_, u.tessParams[1] = Tess().shape;
+        u.tessParams[2] = Tess().maxLevel, u.tessParams[3] = Tess().pixels;
         u.viewportSize[0] = vw, u.viewportSize[1] = vh, u.viewportSize[2] = viewport_.MinZ, u.viewportSize[3] = viewport_.MaxZ;
         ColorToFloat(rs_[D3DRS_TEXTUREFACTOR], u.textureFactor);
         ColorToFloat(rs_[D3DRS_FOGCOLOR], u.fogColor);
@@ -1374,6 +1427,92 @@ bool VulkanDevice::PrepareDraw(D3DPRIMITIVETYPE type, uint64_t drawKey)
 
 // Matches a draw with its previous-frame self for motion vectors: what it draws (buffers, range, shader, first
 // texture) and the how-many-th such draw it is this frame, so repeated meshes (trees, characters) stay apart.
+// [render] tessellation=1 and its parameters (docs/goals/remaster-basics.md item 5). Off by default.
+//   tess_max=8         maximum tessellation level per edge
+//   tess_pixels=6      target edge length in pixels (smaller: finer)
+//   tess_shape=0.75    Phong shape factor: 0 flat, 1 fully curved
+//   tess_props=0       1: also props and level meshes with normals (default: skinned meshes, i.e. characters)
+//   tess_ccw=0         output winding of the evaluation stage (a debugging switch)
+const TessConfig& Tess()
+{
+    static const TessConfig c = [] {
+        TessConfig t;
+        t.on = ConfigInt("render", "tessellation", 0) != 0 && Ctx().tessellation;
+        t.props = ConfigInt("render", "tess_props", 0) != 0;
+        t.maxLevel = ConfigFloat("render", "tess_max", 8.0f);
+        t.pixels = ConfigFloat("render", "tess_pixels", 6.0f);
+        t.shape = ConfigFloat("render", "tess_shape", 0.75f);
+        t.ccw = ConfigInt("render", "tess_ccw", 0) != 0;
+        if (t.on)
+            Log("vulkan: tessellation on (max %.0f, %.0f px per segment, shape %.2f, props %d)", t.maxLevel, t.pixels,
+                t.shape, t.props ? 1 : 0);
+        return t;
+    }();
+    return c;
+}
+
+bool VulkanDevice::TessModules()
+{
+    if (tessControl_ && tessEval_)
+        return true;
+    static bool failed = false;
+    if (failed)
+        return false;
+    tessControl_ = MakeModule(CompileGlslStage(TessControlGlsl(), GlslStage::TessControl));
+    tessEval_ = MakeModule(CompileGlslStage(TessEvalGlsl(Tess().ccw), GlslStage::TessEval));
+    failed = !tessControl_ || !tessEval_;
+    if (failed)
+        Log("vulkan: tessellation shaders failed to build; tessellation off");
+    return !failed;
+}
+
+// A draw as a patch list: the triangle-list indices of its primitives (strips: odd triangles reordered so they keep
+// D3D9's winding; fans around their first vertex; degenerate triangles dropped) in the frame's uniform ring.
+bool VulkanDevice::DrawTessellated(D3DPRIMITIVETYPE t, const uint8_t* indices, bool index32, uint32_t indexLength,
+                                   INT base, UINT start, UINT count)
+{
+    uint32_t n = t == D3DPT_TRIANGLELIST ? count * 3 : count + 2;
+    std::vector<uint32_t> v(n), list;
+    for (uint32_t i = 0; i < n; ++i)
+    {
+        if (!indices)
+        {
+            v[i] = start + i;
+            continue;
+        }
+        uint32_t size = index32 ? 4 : 2, at = (start + i) * size, idx = 0;
+        if (at + size > indexLength)
+            return false;
+        std::memcpy(&idx, indices + at, size);
+        v[i] = idx;
+    }
+    list.reserve(count * 3);
+    for (uint32_t p = 0; p < count; ++p)
+    {
+        uint32_t a, b, c;
+        if (t == D3DPT_TRIANGLELIST)
+            a = v[p * 3], b = v[p * 3 + 1], c = v[p * 3 + 2];
+        else if (t == D3DPT_TRIANGLEFAN)
+            a = v[0], b = v[p + 1], c = v[p + 2];
+        else if (p & 1)
+            a = v[p + 1], b = v[p], c = v[p + 2];
+        else
+            a = v[p], b = v[p + 1], c = v[p + 2];
+        if (a == b || b == c || a == c)
+            continue;
+        list.push_back(a), list.push_back(b), list.push_back(c);
+    }
+    if (list.empty())
+        return true;
+    VkDeviceSize at = PushUniform(list.data(), list.size() * 4);
+    if (at == VkDeviceSize(-1))
+        return false;
+    VkCommandBuffer cb = Slot().cb;
+    vkCmdBindIndexBuffer(cb, Slot().uniforms, at, VK_INDEX_TYPE_UINT32);
+    vkCmdDrawIndexed(cb, static_cast<uint32_t>(list.size()), 1, 0, indices ? base : 0, 0);
+    return true;
+}
+
 // [render] vk_dump_scene=N: the presented frame whose scene description is dumped (vk_scene.h); -1 none.
 uint64_t DumpSceneFrame()
 {
@@ -1416,7 +1555,8 @@ HRESULT VulkanDevice::DrawPrimitive(D3DPRIMITIVETYPE t, UINT start, UINT count)
     captureFirst_ = start, captureCount_ = VertexCount(t, count);
     if (PrepareDraw(t, id))
     {
-        vkCmdDraw(Slot().cb, VertexCount(t, count), 1, start, 0);
+        if (!tessDraw_ || !DrawTessellated(t, nullptr, false, 0, 0, start, count))
+            vkCmdDraw(Slot().cb, VertexCount(t, count), 1, start, 0);
         RecordScene(t, false, 0, start, count, id);
     }
     return D3D_OK;
@@ -1433,9 +1573,13 @@ HRESULT VulkanDevice::DrawIndexedPrimitive(D3DPRIMITIVETYPE t, INT base, UINT mi
     if (!indices_ || !PrepareDraw(t, id))
         return D3D_OK;
     VkCommandBuffer cb = Slot().cb;
-    vkCmdBindIndexBuffer(cb, indices_->Current().buffer, 0, indices_->indexType);
     indices_->MarkUsed(serial);
-    vkCmdDrawIndexed(cb, VertexCount(t, count), 1, si, base, 0);
+    if (!tessDraw_ || !DrawTessellated(t, indices_->Current().mapped, indices_->indexType == VK_INDEX_TYPE_UINT32,
+                                       indices_->length, base, si, count))
+    {
+        vkCmdBindIndexBuffer(cb, indices_->Current().buffer, 0, indices_->indexType);
+        vkCmdDrawIndexed(cb, VertexCount(t, count), 1, si, base, 0);
+    }
     RecordScene(t, true, base, si, count, id);
     return D3D_OK;
 }

@@ -69,6 +69,16 @@ static HRESULT STDMETHODCALLTYPE Hook_Reset(IDirect3DDevice9* dev, D3DPRESENT_PA
     return hr;
 }
 
+void QolOnFrame();          // hook/enhance/qol.cpp
+void PersistenceOnFrame();  // hook/enhance/persistence.cpp
+
+// Frames presented so far (both backends): enhancements' debug switches name frames by it.
+static unsigned g_framesPresented;
+unsigned PresentedFrames()
+{
+    return g_framesPresented;
+}
+
 static HRESULT STDMETHODCALLTYPE Hook_Present(IDirect3DDevice9* dev, const RECT* src, const RECT* dst, HWND wnd,
                                               const RGNDATA* dirty)
 {
@@ -84,6 +94,9 @@ static HRESULT STDMETHODCALLTYPE Hook_Present(IDirect3DDevice9* dev, const RECT*
     TestClockOnFrame();
     TestScenarioOnFrame();
     InputOnFrame();
+    QolOnFrame();
+    PersistenceOnFrame();
+    ++g_framesPresented;
     return hr;
 }
 
@@ -91,9 +104,13 @@ static HRESULT STDMETHODCALLTYPE Hook_Present(IDirect3DDevice9* dev, const RECT*
 // each Present): the same as Hook_Present does after the real Present.
 void HarnessOnFrame()
 {
+    DisplayBeforePresent(nullptr);  // frame cap and [test] fixed_dt_ms (Hook_Present runs it before the real Present)
     TestClockOnFrame();
     TestScenarioOnFrame();
     InputOnFrame();
+    QolOnFrame();
+    PersistenceOnFrame();
+    ++g_framesPresented;
 }
 
 static HRESULT STDMETHODCALLTYPE Hook_CreateDevice(IDirect3D9* d3d, UINT adapter, D3DDEVTYPE type, HWND wnd,

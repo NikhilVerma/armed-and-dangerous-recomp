@@ -55,12 +55,17 @@ RENDER = {}  # [render] settings for the candidate run only (--rhi)
 DUMP = ""  # "frame" or "first:every:count": also save those frames as and-frame-*.bmp
 
 
-def write_ini(hooks_on, level, frames, keys="", test=None, render=None):
+def write_ini(hooks_on, level, frames, keys="", test=None, render=None, extra_sections=None):
     lines = ["[hooks]"]
     lines += [f"{name}={1 if on else 0}" for name, on in hooks_on.items()]
-    lines += ["", "[startup]", "skip_intro=0", "skip_legal=0", "load=",
-              "", "[display]", "windowed=1", "width=0", "height=0", "all_modes=0", "vsync=-1", "fps_limit=0",
-              "", "[test]"]
+    extra = {k: dict(v) for k, v in (extra_sections or {}).items()}
+    display = {"windowed": 1, "width": 0, "height": 0, "all_modes": 0, "vsync": -1, "fps_limit": 0}
+    display.update(extra.pop("display", {}))
+    lines += ["", "[startup]", "skip_intro=0", "skip_legal=0", "load=", "", "[display]"]
+    lines += [f"{k}={v}" for k, v in display.items()]
+    for section, values in extra.items():  # enhancement sections for this run ([camera], [qol], ...)
+        lines += ["", f"[{section}]"] + [f"{k}={v}" for k, v in values.items()]
+    lines += ["", "[test]"]
     values = {"clock_step_ms": "16.6667", "d3d_trace": 1, "scenario_load": level, "exit_frame": frames, "shots": "",
               "keys": "", "keys_frames": keys,
               "hash_frames": (DUMP + ':1:1') if DUMP and ':' not in DUMP else DUMP, "dump_hashed": 1 if DUMP else 0,
@@ -73,8 +78,8 @@ def write_ini(hooks_on, level, frames, keys="", test=None, render=None):
         f.write("\n".join(lines) + "\n")
 
 
-def run_once(label, hooks_on, level, frames, timeout, keys="", test=None, render=None):
-    write_ini(hooks_on, level, frames, keys, test, render)
+def run_once(label, hooks_on, level, frames, timeout, keys="", test=None, render=None, extra_sections=None):
+    write_ini(hooks_on, level, frames, keys, test, render, extra_sections)
     for name in ("and-d3d.txt", os.path.join("SavedGames", "options.opt")):
         p = os.path.join(GAME_DIR, name)
         if os.path.exists(p):

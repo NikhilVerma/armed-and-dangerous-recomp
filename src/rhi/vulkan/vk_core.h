@@ -27,6 +27,7 @@ struct Context
     VkCommandPool commandPool = VK_NULL_HANDLE;
     std::recursive_mutex lock;  // the game calls D3D9 from its loader thread too (texture uploads)
     bool vertexStores = false;  // vertexPipelineStoresAndAtomics: scene vertex capture (vk_scene.h)
+    bool tessellation = false;  // tessellationShader (vk_abi.h "Tessellation")
 
     uint32_t MemoryType(uint32_t bits, VkMemoryPropertyFlags flags) const;
     VkDeviceMemory Allocate(VkMemoryRequirements req, VkMemoryPropertyFlags flags) const;

@@ -37,7 +37,7 @@ static_assert(offsetof(FFUniforms, halfPixel) == 896);
 static_assert(offsetof(FFUniforms, alphaRef) == 976);
 static_assert(offsetof(FFUniforms, lightDiffuse) == 1072);
 static_assert(offsetof(FFUniforms, textureStageConstant) == 1968);
-static_assert(sizeof(FFUniforms) == 2352);
+static_assert(sizeof(FFUniforms) == 2368);
 
 std::string N(int v) { return std::to_string(v); }
 
@@ -55,7 +55,7 @@ std::string UniformBlock(const char* blockName, const char* instance)
            "    vec4 lightDiffuse[8];\n    vec4 lightSpecular[8];\n    vec4 lightAmbient[8];\n"
            "    vec4 lightPosition[8];\n    vec4 lightDirection[8];\n    vec4 lightAttenuation[8];\n"
            "    vec4 lightSpot[8];\n    vec4 textureStageConstant[8];\n    vec4 bumpEnvMat[8];\n"
-           "    vec4 bumpEnvLum[8];\n} " +
+           "    vec4 bumpEnvLum[8];\n    vec4 tessParams;\n} " +
            instance + ";\n";
 }
 

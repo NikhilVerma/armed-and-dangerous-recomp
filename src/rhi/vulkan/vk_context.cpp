@@ -86,11 +86,12 @@ bool ContextInit()
     f2.pNext = &f13;
     f2.features.samplerAnisotropy = VK_TRUE;
     f2.features.fillModeNonSolid = VK_TRUE;  // D3DFILL_WIREFRAME ([render] wireframe)
-    f2.features.tessellationShader = VK_TRUE;  // remaster: tessellation (docs/goals/remaster-basics.md)
     f2.features.textureCompressionBC = VK_TRUE;
     f2.features.depthBiasClamp = VK_TRUE;
     VkPhysicalDeviceFeatures supported;
     vkGetPhysicalDeviceFeatures(c.physical, &supported);
+    f2.features.tessellationShader = supported.tessellationShader;  // remaster: tessellation ([render] tessellation)
+    c.tessellation = supported.tessellationShader == VK_TRUE;
     f2.features.vertexPipelineStoresAndAtomics = supported.vertexPipelineStoresAndAtomics;  // scene vertex capture
     c.vertexStores = supported.vertexPipelineStoresAndAtomics == VK_TRUE;
     const char* deviceExt[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME};

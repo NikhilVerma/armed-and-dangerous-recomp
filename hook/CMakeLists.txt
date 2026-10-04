@@ -65,10 +65,16 @@ add_library(and_hook SHARED
   enhance/startup.cpp
   enhance/render.cpp
   enhance/overrides.cpp
+  enhance/camera.cpp
+  enhance/persistence.cpp
+  enhance/audio.cpp
+  enhance/qol.cpp
+  enhance/ui_aspect.cpp
+  enhance/settings.cpp
   dinput8.def)
 
 target_include_directories(and_hook PRIVATE src enhance ../src ${minhook_SOURCE_DIR}/include)
-target_link_libraries(and_hook PRIVATE minhook d3d9 dbghelp dxguid ole32 windowscodecs
+target_link_libraries(and_hook PRIVATE minhook d3d9 dbghelp dxguid ole32 windowscodecs dsound
   Vulkan::Headers glslang::glslang glslang::SPIRV glslang::glslang-default-resource-limits)
 target_include_directories(and_hook PRIVATE ${volk_SOURCE_DIR})
 target_compile_definitions(and_hook PRIVATE VK_NO_PROTOTYPES VK_USE_PLATFORM_WIN32_KHR)
@@ -83,7 +89,7 @@ target_compile_definitions(and_hook PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SE
 set(VK_TEST_SOURCES
   ${CMAKE_CURRENT_SOURCE_DIR}/../src/rhi/vulkan/tests/shader_test.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/../src/rhi/vulkan/vk_glsl.cpp)
-foreach(f vk_shader_translate.cpp vk_fixed_function.cpp vk_pipeline_input.cpp)
+foreach(f vk_shader_translate.cpp vk_fixed_function.cpp vk_pipeline_input.cpp vk_tessellation.cpp)
   if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/../src/rhi/vulkan/${f})
     list(APPEND VK_TEST_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/rhi/vulkan/${f})
   endif()

@@ -18,6 +18,11 @@
 
 int TestFramesSinceLoad();  // testscenario.cpp
 
+// Enhancement points (hook/enhance/qol.cpp): the keyboard state the game receives (after scripted keys), and the
+// mouse movement before the game reads it. Null: unchanged.
+void (*g_keyboardObserver)(const BYTE* state) = nullptr;
+void (*g_mouseFilter)(LONG* dx, LONG* dy) = nullptr;
+
 namespace
 {
 struct ScriptedKey
@@ -144,6 +149,8 @@ HRESULT STDMETHODCALLTYPE Hook_GetDeviceState(IDirectInputDevice8A* dev, DWORD s
                 static_cast<DIMOUSESTATE*>(data)->lX += g_keys[i].dx;
                 static_cast<DIMOUSESTATE*>(data)->lY += g_keys[i].dy;
             }
+        if (g_mouseFilter)
+            g_mouseFilter(&static_cast<DIMOUSESTATE*>(data)->lX, &static_cast<DIMOUSESTATE*>(data)->lY);
     }
     if (dev == g_keyboard && size >= 256 && SUCCEEDED(hr))
     {
@@ -156,6 +163,8 @@ HRESULT STDMETHODCALLTYPE Hook_GetDeviceState(IDirectInputDevice8A* dev, DWORD s
         ActiveKeys(down, &n);
         for (int i = 0; i < n; i++)
             static_cast<BYTE*>(data)[down[i]] = 0x80;
+        if (g_keyboardObserver)
+            g_keyboardObserver(static_cast<const BYTE*>(data));
         ConsumeFrame();
     }
     return hr;

@@ -176,11 +176,10 @@ public:
     std::vector<std::pair<uint64_t, VkShaderModule>> variants;  // pixel: FinalPixelDefine hash -> module
     VkShaderModule PixelVariant(const FFKey& key);
     VkShaderModule CaptureVariant();  // vertex: also writes clip positions (vk_abi.h kBindingCapture)
+    VkShaderModule TessVariant();     // vertex: also writes the tessellation varyings (vk_abi.h "Tessellation")
     bool pixel = false;
 };
 
-// `glsl` with the line `define` inserted after its #version line.
-std::string WithDefine(const std::string& glsl, const std::string& define);
 
 class VulkanPixelShader final : public Counted<PixelShader>
 {

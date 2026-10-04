@@ -99,10 +99,11 @@ bool Invert(const float in[16], double out[16])
 }
 }  // namespace
 
-// Armed and Dangerous's vertex shaders all end the same way: every one of the 456 the game creates (work/shaders,
-// [test] dump_shaders) computes the world position into r0 (rigid: a 3x4 world matrix at c42..c44; skinned: the
-// bone palette at c[a0.x + 42]) and then writes oPos = (dp4 r0 c22, dp4 r0 c23, dp4 r0 c24, dp4 r0 c25). So c22..c25
-// is the camera's view-projection, one matrix per frame, and the inverse maps captured clip positions to world space.
+// Armed and Dangerous's vertex shaders all end the same way: every one of the 228 the game creates (work/shaders,
+// [test] dump_shaders) computes the camera-space position into r0 (rigid: a 3x4 world*view matrix at c42..c44; skinned:
+// the bone palette at c[a0.x + 42]) and then writes oPos = (dp4 r0 c22, dp4 r0 c23, dp4 r0 c24, dp4 r0 c25). c22..c25 is
+// the projection alone (Renderer_FlushTransforms 0x004fcc30, docs/subsystems/camera.md), so its inverse maps captured
+// clip positions to camera space. World space would need the game's view matrix (not recorded yet).
 // Evidence: position dependency chains of all dumped shaders (8 distinct shapes), session journal 2026-10-04.
 constexpr uint32_t kGameCameraRegister = 22;
 
@@ -225,7 +226,7 @@ void DumpScene(const SceneFrame& f)
     }
     fclose(t);
     fclose(o);
-    Log("vulkan: scene of frame %llu: %zu draws, %u with world-space geometry (and-vk-scene.txt, and-vk-scene.obj)",
+    Log("vulkan: scene of frame %llu: %zu draws, %u with camera-space geometry (and-vk-scene.txt, and-vk-scene.obj)",
         static_cast<unsigned long long>(f.serial), f.draws.size(), exported);
 }
 }  // namespace rhi::vulkan

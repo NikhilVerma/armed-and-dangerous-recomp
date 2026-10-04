@@ -52,6 +52,23 @@ recovered first and passes the comparison test, and `src/` stays faithful.
    - Quick save/load hotkeys if the game's own save system allows it.
    - Alt-tab and device-loss safety (the reset scenario covers the device side).
 
+## Status (2026-10-04)
+
+Recon: docs/subsystems/camera.md, ui.md, menus.md, decals-bodies.md, qol.md. Every switch is registered with the
+settings registry (hook/enhance/settings.h) for the Remaster page.
+
+| Item | State | Switches | Recovered under it (S2, compare identical) | Evidence |
+| --- | --- | --- | --- | --- |
+| 1 aspect ratio | Hor+, letterbox off, HUD anchored left/right/centre, menus centred at 4:3 | `[camera] hor_plus`, `letterbox`; `[ui] anchor` | Camera_SetupProjection 0x0040f6e0, UiPass_Draw 0x00464460 | work/shots/camera_grid.png, ui-anchor.png (1280x720) |
+| 2 menus | Remaster page: in progress | `[remaster] menu` | | |
+| 3 decals, bodies | pool size, no early fade, bodies kept (count cap) | `[persistence] decal_pool`, `decals_keep`, `bodies_keep`, `bodies_max`, `log` | Decals_AllocatePool 0x00416150, Decals_Update 0x00416440, Corpse_CountDown 0x0042eba0 | counters in and.log (`log=1`); persistence past the limit not yet shown on screen |
+| 4 FOV | scale, zoom views excluded unless `fov_zoom` | `[camera] fov`, `fov_zoom` | Camera_SetupProjection | camera_grid.png |
+| 5 tessellation | Phong tessellation of skinned meshes (Vulkan), screen-space levels | `[render] tessellation`, `tess_max`, `tess_pixels`, `tess_shape`, `tess_props` | (backend) | work/shots/tess_zoom.png |
+| 6 QoL | quicksave/quickload keys (the game's own rules), mouse invert and per-axis sensitivity, master volume and output device, brightness in a window, borderless, render scale, anisotropy, LOD bias, ACES, fps cap on Vulkan | `[qol]`, `[audio]`, `[display]`, `[render]` | Renderer_SetGamma gains an enhancement point | |
+
+Not done: decoupled simulation (needs the frame/update split recovered), XInput (the game's DirectInput joystick
+path already sees most pads), UI scale and subtitle size/background.
+
 ## Done when, in the running game
 
 - Each item has an `and.ini` switch and an entry on a remaster options page inside the game's own menus.

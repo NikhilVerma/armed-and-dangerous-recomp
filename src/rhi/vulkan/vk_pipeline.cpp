@@ -21,6 +21,7 @@
 #include <cstring>
 #include <unordered_map>
 
+#include "config.h"
 #include "log.h"
 #include "vk_abi.h"
 #include "vk_pipeline.h"
@@ -45,7 +46,7 @@ struct PipeCacheKey
     RasterKey raster;
     uint64_t layoutHash, shaderHash;
     uint32_t colorFormat, depthFormat, motionFormat;
-    uint64_t vs, fs;
+    uint64_t vs, fs, tcs, tes;
 };
 #pragma pack(pop)
 
@@ -252,7 +253,9 @@ VkDescriptorSetLayout DescriptorSetLayout()
     VkDescriptorSetLayoutBinding b[5 + kMaxSamplers]{};
     uint32_t n = 0;
     for (uint32_t i : {kBindingVsConstants, kBindingPsConstants, kBindingFixedFunction, kBindingPrevFrame})
-        b[n++] = {i, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+        b[n++] = {i, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1,
+                  VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT |
+                      VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT | VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT,
                   nullptr};
     b[n++] = {kBindingCapture, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, nullptr};
     for (uint32_t i = 0; i < kMaxSamplers; ++i)
@@ -284,7 +287,8 @@ VkPipelineLayout PipelineLayout()
     return s.layout;
 }
 
-VkPipeline GetPipeline(const PipelineKey& key, const VertexInput& input, VkShaderModule vs, VkShaderModule fs)
+VkPipeline GetPipeline(const PipelineKey& key, const VertexInput& input, VkShaderModule vs, VkShaderModule fs,
+                       VkShaderModule tcs, VkShaderModule tes)
 {
     std::lock_guard<std::recursive_mutex> guard(Ctx().lock);
     VkPipelineLayout layout = PipelineLayout();
@@ -303,6 +307,8 @@ VkPipeline GetPipeline(const PipelineKey& key, const VertexInput& input, VkShade
     ck.motionFormat = key.motionFormat;
     ck.vs = HandleBits(vs);
     ck.fs = HandleBits(fs);
+    ck.tcs = HandleBits(tcs);
+    ck.tes = HandleBits(tes);
     if (auto it = s.pipelines.find(ck); it != s.pipelines.end())
         return it->second;  // a failed key stays cached as null, so its failure is logged only once
 
@@ -310,7 +316,7 @@ VkPipeline GetPipeline(const PipelineKey& key, const VertexInput& input, VkShade
     const auto colorFormat = static_cast<VkFormat>(key.colorFormat);
     const auto depthFormat = static_cast<VkFormat>(key.depthFormat);
 
-    VkPipelineShaderStageCreateInfo stages[2]{};
+    VkPipelineShaderStageCreateInfo stages[4]{};
     stages[0] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
     stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
     stages[0].module = vs;
@@ -319,6 +325,22 @@ VkPipeline GetPipeline(const PipelineKey& key, const VertexInput& input, VkShade
     stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
     stages[1].module = fs;
     stages[1].pName = "main";
+    uint32_t stageCount = 2;
+    const bool tessellated = tcs && tes;  // vk_abi.h "Tessellation": patch lists of 3
+    if (tessellated)
+    {
+        stages[2] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
+        stages[2].stage = VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT;
+        stages[2].module = tcs;
+        stages[2].pName = "main";
+        stages[3] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
+        stages[3].stage = VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT;
+        stages[3].module = tes;
+        stages[3].pName = "main";
+        stageCount = 4;
+    }
+    VkPipelineTessellationStateCreateInfo ts{VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_STATE_CREATE_INFO};
+    ts.patchControlPoints = 3;
 
     VkPipelineVertexInputStateCreateInfo vi{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
     vi.vertexBindingDescriptionCount = static_cast<uint32_t>(input.bindings.size());
@@ -328,7 +350,7 @@ VkPipeline GetPipeline(const PipelineKey& key, const VertexInput& input, VkShade
 
     // Strips and fans are never cut in D3D9 (no restart index), so primitive restart stays off.
     VkPipelineInputAssemblyStateCreateInfo ia{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
-    ia.topology = Topology(rk.topology);
+    ia.topology = tessellated ? VK_PRIMITIVE_TOPOLOGY_PATCH_LIST : Topology(rk.topology);
 
     // Viewport and scissor are dynamic. D3DRS_SCISSORTESTENABLE is handled by the backend through the dynamic
     // scissor (the full render target when disabled), so rk.scissorTestEnable does not change the pipeline.
@@ -417,7 +439,8 @@ VkPipeline GetPipeline(const PipelineKey& key, const VertexInput& input, VkShade
 
     VkGraphicsPipelineCreateInfo ci{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
     ci.pNext = &ri;
-    ci.stageCount = 2;
+    ci.stageCount = stageCount;
+    ci.pTessellationState = tessellated ? &ts : nullptr;
     ci.pStages = stages;
     ci.pVertexInputState = &vi;
     ci.pInputAssemblyState = &ia;
@@ -501,6 +524,17 @@ VkSampler GetSampler(const uint32_t states[14])
     std::memcpy(&bias, &states[D3DSAMP_MIPMAPLODBIAS], sizeof(bias));
     if (!std::isfinite(bias))
         bias = 0.0f;
+    // Remaster ([render] lod_bias, added; anisotropy, at least this degree on mipmapped linear-filtered samplers).
+    // Both off (0) by default.
+    static const float extraBias = ConfigFloat("render", "lod_bias", 0.0f);
+    static const float forcedAniso = ConfigFloat("render", "anisotropy", 0.0f);
+    bias += extraBias;
+    if (forcedAniso > 1.0f && states[D3DSAMP_MIPFILTER] != D3DTEXF_NONE && ci.minFilter == VK_FILTER_LINEAR &&
+        forcedAniso > ci.maxAnisotropy)
+    {
+        ci.maxAnisotropy = forcedAniso > limits.maxSamplerAnisotropy ? limits.maxSamplerAnisotropy : forcedAniso;
+        ci.anisotropyEnable = VK_TRUE;
+    }
     const float maxBias = limits.maxSamplerLodBias;
     ci.mipLodBias = bias > maxBias ? maxBias : bias < -maxBias ? -maxBias : bias;
     // D3DSAMP_SRGBTEXTURE is ignored: sRGB decoding would need an sRGB image view of the texture, not a sampler

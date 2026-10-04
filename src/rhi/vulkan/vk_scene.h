@@ -6,7 +6,7 @@
 // (not reference-counted) and at the buffer versions that frame's draws used, which are not rewritten before the
 // GPU finished the frame (VulkanBuffer renaming). A consumer copies what it keeps.
 //
-//   [render] vk_dump_scene=N   frame N's records (and-vk-scene.txt) and the world-space triangles of its
+//   [render] vk_dump_scene=N   frame N's records (and-vk-scene.txt) and the camera-space triangles of its
 //                              fixed-function draws (and-vk-scene.obj, one object per draw)
 #pragma once
 
@@ -70,11 +70,12 @@ struct SceneFrame
 };
 
 // The draw's camera: row-major 4x4 `m` with clip[i] = dot(row i, (world, 1)). The fixed-function view * projection,
-// or for the game's vertex shaders their c22..c25 (see vk_scene.cpp).
+// or for the game's vertex shaders their c22..c25, the projection alone (camera space; see vk_scene.cpp).
 void SceneCamera(const SceneFrame& f, const SceneDraw& d, float m[16]);
 
-// World-space positions of a draw's triangles (3 xyz per triangle) appended to `xyz`: from the captured clip
-// positions through the inverse camera, or for uncaptured fixed-function draws (no vertex blending, FLOAT3/FLOAT4
+// Positions of a draw's triangles (3 xyz per triangle) appended to `xyz`, in the space SceneCamera maps from
+// (camera space for the game's vertex shaders, world space for fixed function): from the captured clip positions
+// through the inverse camera, or for uncaptured fixed-function draws (no vertex blending, FLOAT3/FLOAT4
 // position) from the vertex buffer and world matrix. Otherwise false.
 bool SceneTriangles(const SceneFrame& f, const SceneDraw& d, std::vector<float>& xyz);
 

@@ -38,6 +38,7 @@ layout(push_constant) uniform Params
     float exposure;
     float p11, p22, p33, p34, p43;  // D3D9 projection _11 _22 _33 _34 _43 (depth linearisation)
     int hasDepth, hasMotion;
+    float gammaR, gammaG, gammaB;  // rhi::Output().gamma: out = in^(1 / gamma)
 } pc;
 
 // Eye-space position from the 0..1 depth: depth = (z * _33 + _43) / (z * _34) for a perspective projection with
@@ -84,7 +85,10 @@ void main()
     vec3 c = texture(hdr, uv).rgb * pc.exposure;
     if (pc.tonemap == 1)
         c = Aces(c);
-    o = vec4(clamp(c, 0.0, 1.0), 1.0);
+    c = clamp(c, 0.0, 1.0);
+    if (pc.gammaR != 1.0 || pc.gammaG != 1.0 || pc.gammaB != 1.0)
+        c = pow(c, vec3(1.0 / pc.gammaR, 1.0 / pc.gammaG, 1.0 / pc.gammaB));
+    o = vec4(c, 1.0);
 }
 )";
 
@@ -93,6 +97,7 @@ struct Params
     int view, tonemap;
     float exposure, p11, p22, p33, p34, p43;
     int hasDepth, hasMotion;
+    float gamma[3];
 };
 }  // namespace
 
@@ -103,7 +108,7 @@ bool PresentPass::Init()
     ConfigString("render", "debug_view", "none", buf, sizeof(buf));
     view_ = !_stricmp(buf, "depth") ? 1 : !_stricmp(buf, "normals") ? 2 : !_stricmp(buf, "motion") ? 3 : 0;
     ConfigString("render", "tonemap", "none", buf, sizeof(buf));
-    tonemap_ = !_stricmp(buf, "aces") ? 1 : 0;
+    tonemap_ = !_stricmp(buf, "aces") || ConfigInt("render", "tonemap_aces", 0) ? 1 : 0;  // tonemap_aces: Remaster page
     exposure_ = ConfigFloat("render", "exposure", 1.0f);
     if (view_ || tonemap_)
         Log("vulkan: present pass: debug_view %d, tonemap %d, exposure %.2f", view_, tonemap_, exposure_);
@@ -218,9 +223,18 @@ void PresentPass::Record(VkCommandBuffer cb, Image& hdr, Image* depth, Image* mo
         w[i].pImageInfo = &img[i];
     }
     vkCmdPushDescriptorSetKHR(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_, 0, 3, w);
-    Params p{view_, tonemap_, exposure_, proj[0], proj[5], proj[10], proj[11], proj[14], depth ? 1 : 0, motion ? 1 : 0};
+    const float* g = rhi::Output().gamma;
+    Params p{view_,    tonemap_,         exposure_,  proj[0], proj[5], proj[10], proj[11],
+             proj[14], depth ? 1 : 0,    motion ? 1 : 0, {g[0] > 0.0f ? g[0] : 1.0f, g[1] > 0.0f ? g[1] : 1.0f,
+                                                          g[2] > 0.0f ? g[2] : 1.0f}};
     vkCmdPushConstants(cb, layout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(p), &p);
     vkCmdDraw(cb, 3, 1, 0, 0);
     vkCmdEndRendering(cb);
 }
 }  // namespace rhi::vulkan
+
+rhi::OutputSettings& rhi::Output()
+{
+    static OutputSettings s;
+    return s;
+}

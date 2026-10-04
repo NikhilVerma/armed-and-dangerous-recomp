@@ -50,7 +50,9 @@ VkDescriptorSetLayout DescriptorSetLayout();
 
 // A pipeline for these states (cached by key; dynamic state: viewport, scissor, depth bias, blend constants,
 // stencil reference). Null on failure (logged once per key).
-VkPipeline GetPipeline(const PipelineKey& key, const VertexInput& input, VkShaderModule vs, VkShaderModule fs);
+// With tessellation modules (vk_abi.h "Tessellation"), the pipeline draws patch lists of 3.
+VkPipeline GetPipeline(const PipelineKey& key, const VertexInput& input, VkShaderModule vs, VkShaderModule fs,
+                       VkShaderModule tcs = VK_NULL_HANDLE, VkShaderModule tes = VK_NULL_HANDLE);
 
 // Sampler for D3D9 sampler states of one stage (cached). `states` indexed by D3DSAMPLERSTATETYPE (1..13).
 VkSampler GetSampler(const uint32_t states[14]);

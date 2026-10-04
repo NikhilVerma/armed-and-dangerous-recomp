@@ -88,11 +88,13 @@ texture's surfaces acting on the texture's reference count (container semantics,
 - **Scene description** (`vk_scene.h`): every frame, one record per 3D draw into the back buffer. A record
   holds buffers, layout, primitive range, transforms, vertex-shader constants, textures, material, blend and
   alpha-test state, viewport and a draw id stable across frames, plus the frame's lights.
-  - **Positions:** the game draws everything with its own vertex shaders. All 456 compute a world position and
-    multiply it by the camera at c22..c25.
+  - **Positions:** the game draws everything with its own vertex shaders. All 228 compute a camera-space position
+    (world*view at c42..c44, or the bone palette) and multiply it by the projection at c22..c25
+    (Renderer_FlushTransforms 0x004fcc30, docs/subsystems/camera.md).
   - **Vertex capture:** on capture frames, each draw runs a variant of its vertex shader that also writes the
-    clip position per vertex to a storage buffer (`vk_abi.h` binding 4). The camera's inverse turns these into
-    world space, including skinned meshes.
+    clip position per vertex to a storage buffer (`vk_abi.h` binding 4). The projection's inverse turns these into
+    camera space, including skinned meshes. World space needs the view matrix (game camera at g_game+0x704):
+    not recorded yet.
   - **Dump:** `[render] vk_dump_scene=N` writes frame N to `and-vk-scene.txt` and `and-vk-scene.obj`.
   - Checked 2026-10-04 at play frame 600: 757 draws, 110k triangles. Z-buffered by eye depth, they reproduce the
     depth buffer to within its 8-bit display quantisation (median error 1.2 units, step 1.18). All
@@ -114,7 +116,7 @@ texture's surfaces acting on the texture's reference count (container semantics,
 
 - **Ray tracing from the scene description:**
   - Capture every frame into per-slot buffers, not only on dump frames.
-  - Build BLAS/TLAS from the captured world positions.
+  - Record the view matrix, then build BLAS/TLAS from the captured positions in world space.
   - Map materials to PBR: see docs/goals/modern-renderer.md, "After this goal".
 - **Unexercised paths:** recovered paths no scenario runs yet (display-mode change, saving, debug overlay;
   see tools/coverage.py) may still use methods outside the list. They will log if they do.

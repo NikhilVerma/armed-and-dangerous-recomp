@@ -10,6 +10,11 @@
 void CrashInstall();
 void StartupInit();
 void RenderInit();
+void CameraInit();
+void PersistenceInit();
+void AudioInit();
+void QolInit();
+void UiAspectInit();
 void OverridesInit();
 void TestShotInit();
 void InputHooksInit();
@@ -53,6 +58,11 @@ static void Startup()
     DisplayInit();    // enhancements register their wrappers before hooks are installed
     StartupInit();
     RenderInit();
+    CameraInit();
+    PersistenceInit();
+    AudioInit();
+    QolInit();
+    UiAspectInit();
     OverridesInit();
     HooksInstallAll();
     TestFatalTraceInit();

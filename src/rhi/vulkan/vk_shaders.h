@@ -19,6 +19,8 @@ struct TranslatedShader
     uint32_t inputMask = 0;    // vertex shaders: bit per VertexLocation read (dcl_* inputs)
     uint32_t samplerMask = 0;  // pixel shaders: bit per sampler s<i> used
     uint32_t samplerCubeMask = 0;  // of those, declared/used as cube maps (ps_2_0 dcl_cube, or texm3x3 forms)
+    bool relativeConstants = false;  // vertex shaders: reads c[a0 + n] (the game's skinned meshes: bone palettes)
+    bool hasNormal = false;          // vertex shaders: reads a NORMAL input (tessellation needs it)
     // Interface between the stages: vertex shaders write and pixel shaders read these varyings.
     // Locations: 0..7 texcoord t0..t7 (vec4), 8 color0 (vec4), 9 color1 (vec4), 10 fog (float).
 };
@@ -46,4 +48,17 @@ std::string FinalPixelDefine(const FFKey& key);
 // --- vk_glsl.cpp (backend core) -------------------------------------------------------------------------------
 // GLSL to SPIR-V with glslang; empty and an error logged on failure.
 std::vector<uint32_t> CompileGlsl(const std::string& glsl, bool pixel);
+enum class GlslStage { Vertex, Fragment, TessControl, TessEval };
+std::vector<uint32_t> CompileGlslStage(const std::string& glsl, GlslStage stage);
+// `glsl` with the line `define` inserted after its #version line (shader variants: D3D9_FINAL, capture, tessellation).
+std::string WithDefine(const std::string& glsl, const std::string& define);
+
+// --- vk_tessellation.cpp --------------------------------------------------------------------------------------
+// The generic tessellation control and evaluation shaders (vk_abi.h "Tessellation"). `ccw`: the evaluation
+// shader's output winding.
+std::string TessControlGlsl();
+std::string TessEvalGlsl(bool ccw);
+// The VsConstants (vsc), FixedFunction (ff) and PrevFrame (pf) uniform block declarations of translated vertex
+// shaders (vk_shader_translate.cpp), for the tessellation stages.
+std::string VertexUniformBlocks();
 }  // namespace rhi::vulkan

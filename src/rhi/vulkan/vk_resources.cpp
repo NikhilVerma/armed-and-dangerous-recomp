@@ -509,11 +509,19 @@ VkShaderModule VulkanShader::CaptureVariant()
     return m;
 }
 
-std::string WithDefine(const std::string& glsl, const std::string& define)
+VkShaderModule VulkanShader::TessVariant()
 {
-    size_t eol = glsl.find('\n');
-    return glsl.substr(0, eol + 1) + define + "\n" + glsl.substr(eol + 1);
+    if (!translated.ok || pixel)
+        return VK_NULL_HANDLE;
+    const uint64_t h = Hash(kTessDefine, std::strlen(kTessDefine));
+    for (auto& v : variants)
+        if (v.first == h)
+            return v.second;
+    VkShaderModule m = MakeModule(CompileGlsl(WithDefine(translated.glsl, kTessDefine), false));
+    variants.push_back({h, m});
+    return m;
 }
+
 
 VkShaderModule VulkanShader::PixelVariant(const FFKey& key)
 {

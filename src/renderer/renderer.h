@@ -108,5 +108,15 @@ struct DisplayModeFilter
 };
 extern DisplayModeFilter g_displayModeFilter;
 
+// Enhancement point for Renderer_SetGamma (0x005091c0): called with the clamped red, green and blue gamma before the
+// device gamma ramp is considered. True: the enhancement applies the gamma itself (e.g. in the present pass, which
+// also works in a window); the function then returns 1 without a ramp. Null (the default): original.
+extern bool (*g_gammaHandler)(float red, float green, float blue);
+
+// Enhancement point for Renderer_GetPixelWidth / Renderer_GetPixelHeight (0x00506f90 / 0x00506fc0): the numerator
+// of 1 / (2 * half size), i.e. a scale on the size of one screen pixel in UI space, which is how text glyphs are
+// sized (Renderer_DrawGlyph). {1, 1}: original (x / 1.0 is exact).
+extern float g_pixelSizeScale[2];
+
 // 0x005089d0, stdcall, ret 4.
 void __stdcall Renderer_EnumerateDisplayModes(Renderer* self);

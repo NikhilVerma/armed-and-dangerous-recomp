@@ -151,6 +151,14 @@ public:
                                  D3DPRESENT_PARAMETERS* params, Device** out) = 0;
 };
 
+// Output settings for backends with a present pass (the Vulkan backend; the D3D9 backend ignores them). gamma: per
+// channel, out = in^(1 / gamma), the curve of the game's brightness option (Renderer_SetGamma); 1 = unchanged.
+struct OutputSettings
+{
+    float gamma[3] = {1.0f, 1.0f, 1.0f};
+};
+OutputSettings& Output();
+
 namespace d3d9
 {
 // Pass-through backend over a real IDirect3D9 (takes over the caller's reference).
