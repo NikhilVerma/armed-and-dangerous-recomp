@@ -6,6 +6,8 @@
 //   binding 0  uniform block VsConstants { vec4 c[256]; }      vertex shader float constants (c0..c255)
 //   binding 1  uniform block PsConstants { vec4 c[32]; }       pixel shader float constants (c0..c31)
 //   binding 2  uniform block FixedFunction { FFUniforms }      fixed-function state (below), both stages
+//   binding 3  uniform block PrevFrame { PrevUniforms }        previous-frame transforms (motion vectors, below)
+//   binding 4  storage buffer Capture                          scene vertex capture (below; capture variants only)
 //   binding 8+i  sampler2D / samplerCube s<i>, i = 0..7          texture stage / sampler i
 // All three uniform blocks are std140 and always bound (a zero-filled range when unused).
 //
@@ -58,7 +60,8 @@ struct alignas(16) FFUniforms
     float view[16];
     float projection[16];
     float texture[8][16];      // D3DTS_TEXTURE0..7
-    float halfPixel[4];        // xy: (+1/viewportWidth, -1/viewportHeight) in clip units; zw unused
+    float halfPixel[4];        // xy: (+1/viewportWidth, -1/viewportHeight) in clip units; z: capture base vertex
+                               // (kBindingCapture); w unused
     float viewportSize[4];     // xy: width, height (for POSITIONT); zw: minZ, maxZ
     float textureFactor[4];    // D3DRS_TEXTUREFACTOR as RGBA 0..1
     float fogColor[4];         // D3DRS_FOGCOLOR as RGBA 0..1
@@ -80,6 +83,38 @@ struct alignas(16) FFUniforms
     float bumpEnvMat[8][4];            // D3DTSS_BUMPENVMAT00, 01, 10, 11
     float bumpEnvLum[8][4];            // D3DTSS_BUMPENVLSCALE, LOFFSET
 };
+
+// --- Motion vectors (remaster outputs: DLAA/TAA need them; docs/goals/modern-renderer.md step 5) -------------------
+// Descriptor binding 3: uniform block PrevFrame { PrevUniforms } (std140, vertex stage): the previous frame's
+// transforms for the same draw (the device matches draws across frames; first appearance: equal to the current).
+// Every vertex shader (translated and fixed function) also computes the PREVIOUS clip position with these values
+// and writes two varyings: location 11 vec4 vCurClip (current clip position BEFORE the half-pixel offset) and
+// location 12 vec4 vPrevClip. Every pixel shader writes fragment output location 1 (vec2 motion):
+//   motion = prevUv - curUv,  uv = vec2(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5),  ndc = clip.xy / clip.w
+// i.e. the offset, in 0..1 texture coordinates of the target (y down), from this pixel to where its surface was
+// in the previous frame. Location 0 stays the colour. Targets without a motion attachment ignore location 1.
+constexpr uint32_t kBindingPrevFrame = 3;
+struct alignas(16) PrevUniforms
+{
+    float world[4][16];  // previous D3DTS_WORLDMATRIX(0..3)
+    float view[16];
+    float projection[16];
+    float vsConstants[kVsConstantCount][4];  // previous vertex shader constants (skinning matrices, transforms)
+};
+
+// --- Scene vertex capture (scene description for ray tracing; vk_scene.h) ------------------------------------------
+// Descriptor binding 4: storage buffer Capture { vec4 pos[]; } (vertex stage). Vertex shaders compiled with
+// D3D9_CAPTURE defined (kCaptureDefine) also write each vertex's clip position (before the half-pixel offset) to
+// pos[gl_VertexIndex - int(ff.halfPixel.z)]; the device binds a range per draw. Needs vertexPipelineStoresAndAtomics.
+constexpr uint32_t kBindingCapture = 4;
+constexpr const char* kCaptureGlsl =
+    "#ifdef D3D9_CAPTURE\n"
+    "layout(std430, set = 0, binding = 4) writeonly buffer Capture { vec4 pos[]; } capture;\n"
+    "#define D3D9_CAPTURE_WRITE(p) capture.pos[gl_VertexIndex - int(ff.halfPixel.z)] = (p)\n"
+    "#else\n"
+    "#define D3D9_CAPTURE_WRITE(p)\n"
+    "#endif\n";
+constexpr const char* kCaptureDefine = "#define D3D9_CAPTURE 1\n";  // inserted after the #version line
 
 // Everything that selects a fixed-function shader pair. Values are the D3D9 enums; unused fields are zero so the
 // key can be hashed and compared bytewise.

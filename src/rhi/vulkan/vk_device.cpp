@@ -15,7 +15,9 @@
 #include "display.h"
 #include "log.h"
 #include "vk_pipeline.h"
+#include "vk_present.h"
 #include "vk_resources.h"
+#include "vk_scene.h"
 
 bool TestFrameDump(unsigned* frame);                                                          // hook/src/testshot.cpp
 void TestSaveBgra(unsigned frame, const void* pixels, unsigned w, unsigned h, unsigned pitch);  // hook/src/testshot.cpp
@@ -275,7 +277,7 @@ private:
     void BeginRendering();
     void EndRendering();
     void ResetState();
-    bool PrepareDraw(D3DPRIMITIVETYPE type);
+    bool PrepareDraw(D3DPRIMITIVETYPE type, uint64_t drawKey);
     FFKey BuildFFKey(uint32_t vertexMask, const uint8_t texCoordSize[8]);
     VkDeviceSize PushUniform(const void* data, VkDeviceSize size);
     uint32_t VertexCount(D3DPRIMITIVETYPE t, UINT primitives) const;
@@ -289,7 +291,25 @@ private:
     VkExtent2D swapExtent_{};
     FrameSlot slots_[kFramesInFlight];
 
-    std::shared_ptr<Image> backBuffer_, autoDepth_;
+    std::shared_ptr<Image> backBuffer_, autoDepth_, motion_, present_;
+    PresentPass presentPass_;
+    bool motionCleared_ = false;  // the motion attachment is cleared at the frame's first rendering into it
+    // Previous-frame transforms per draw (motion vectors): draw id -> snapshot. `prevSnaps_` is last frame's.
+    std::unordered_map<uint64_t, PrevUniforms> prevSnaps_, curSnaps_;
+    std::unordered_map<uint64_t, uint32_t> drawOccurrence_;
+    uint64_t DrawId(uint64_t base);
+    SceneFrame scene_;  // this frame's 3D draws into the back buffer (vk_scene.h)
+    // Scene vertex capture (vk_abi.h kBindingCapture): clip positions of the scene draws, on capture frames.
+    bool captureFrame_ = false, captureDraw_ = false;
+    int64_t captureFirst_ = 0;     // vertex index range of the next draw (set by the draw calls)
+    uint32_t captureCount_ = 0;
+    VkBuffer captureBuffer_ = VK_NULL_HANDLE;
+    VkDeviceMemory captureMemory_ = VK_NULL_HANDLE;
+    uint8_t* captureMapped_ = nullptr;
+    VkDeviceSize captureSize_ = 0, captureUsed_ = 0, captureOffset_ = 0;
+    bool SceneDrawTarget() const { return rt_->GetImage() == backBuffer_.get() && depth_ && rs_[D3DRS_ZENABLE]; }
+    bool EnsureCapture();
+    void RecordScene(D3DPRIMITIVETYPE t, bool indexed, INT base, UINT start, UINT count, uint64_t id);
     VulkanSurface* rt_ = nullptr;
     VulkanSurface* depth_ = nullptr;
     bool rendering_ = false;
@@ -308,6 +328,7 @@ private:
     float vsConst_[kVsConstantCount * 4] = {};
     float psConst_[kPsConstantCount * 4] = {};
     D3DMATRIX world_[4]{}, view_{}, projection_{}, texture_[8]{};
+    D3DMATRIX sceneProjection_{};  // projection of the last depth-writing draw into the back buffer
     D3DVIEWPORT9 viewport_{};
     D3DMATERIAL9 material_{};
     D3DLIGHT9 lights_[8]{};
@@ -395,6 +416,8 @@ VulkanDevice::VulkanDevice(IDirect3D9* queries, HWND window, D3DPRESENT_PARAMETE
         w->Transition(cb, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     });
     ResetState();
+    if (!presentPass_.Init())
+        return;
     D3DCAPS9 caps{};
     queries_->GetDeviceCaps(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, &caps);
     wFog_ = (caps.RasterCaps & D3DPRASTERCAPS_WFOG) != 0 && ConfigInt("render", "wfog", 0) != 0;
@@ -421,6 +444,11 @@ VulkanDevice::~VulkanDevice()
     for (FrameSlot& s : slots_)
         for (auto& d : s.destroy)
             d();
+    if (captureBuffer_)
+    {
+        vkDestroyBuffer(c.device, captureBuffer_, nullptr);
+        vkFreeMemory(c.device, captureMemory_, nullptr);
+    }
     queries_->Release();
     if (g_device == this)
         g_device = nullptr;
@@ -542,9 +570,20 @@ void VulkanDevice::DestroySwapchain()
 
 bool VulkanDevice::CreateTargets()
 {
+    // The back buffer is stored as RGBA16F (the linear HDR target of the remaster; the game still sees its own
+    // format). Next to it: the motion-vector attachment (RG16F, vk_abi.h) and the 8-bit image the present pass
+    // (tonemap / debug view) writes and the swapchain is filled from.
     backBuffer_ = std::make_shared<Image>();
     D3DFORMAT bbFormat = params_.BackBufferFormat == D3DFMT_UNKNOWN ? D3DFMT_X8R8G8B8 : params_.BackBufferFormat;
-    if (!backBuffer_->Create(bbFormat, params_.BackBufferWidth, params_.BackBufferHeight, 1, 1, true, false))
+    if (!backBuffer_->Create(bbFormat, params_.BackBufferWidth, params_.BackBufferHeight, 1, 1, true, false,
+                             VK_FORMAT_R16G16B16A16_SFLOAT))
+        return false;
+    motion_ = std::make_shared<Image>();
+    if (!motion_->Create(D3DFMT_A8R8G8B8, params_.BackBufferWidth, params_.BackBufferHeight, 1, 1, true, false,
+                         VK_FORMAT_R16G16_SFLOAT))
+        return false;
+    present_ = std::make_shared<Image>();
+    if (!present_->Create(D3DFMT_A8R8G8B8, params_.BackBufferWidth, params_.BackBufferHeight, 1, 1, true, false))
         return false;
     SetRef(rt_, static_cast<VulkanSurface*>(nullptr));
     rt_ = new VulkanSurface(backBuffer_);
@@ -592,6 +631,14 @@ void VulkanDevice::BeginFrame()
     s.serial = serial;
     s.uniformUsed = 0;
     ffDirty_ = vsDirty_ = psDirty_ = true;  // new ring: re-upload uniforms
+    prevSnaps_.swap(curSnaps_);  // this frame's draws find last frame's transforms there
+    curSnaps_.clear();
+    drawOccurrence_.clear();
+    scene_.Clear();
+    scene_.serial = serial;
+    captureFrame_ = Ctx().vertexStores && DumpSceneFrame() == serial;
+    captureUsed_ = 0;
+    motionCleared_ = false;
     vkResetCommandBuffer(s.cb, 0);
     VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -623,12 +670,24 @@ void VulkanDevice::BeginRendering()
         da.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
         da.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
     }
+    // Into the back buffer: also the motion-vector attachment (cleared at the frame's first use).
+    VkRenderingAttachmentInfo cas[2] = {ca, {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO}};
+    bool withMotion = color == backBuffer_.get() && motion_;
+    if (withMotion)
+    {
+        motion_->Transition(cb, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        cas[1].imageView = motion_->AttachmentView(0, 0);
+        cas[1].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        cas[1].loadOp = motionCleared_ ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_CLEAR;
+        cas[1].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        motionCleared_ = true;
+    }
     uint32_t w = color->width >> rt_->level, h = color->height >> rt_->level;
     VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};
     ri.renderArea = {{0, 0}, {w ? w : 1, h ? h : 1}};
     ri.layerCount = 1;
-    ri.colorAttachmentCount = 1;
-    ri.pColorAttachments = &ca;
+    ri.colorAttachmentCount = withMotion ? 2 : 1;
+    ri.pColorAttachments = cas;
     ri.pDepthAttachment = depth ? &da : nullptr;
     ri.pStencilAttachment = depth && (depth->aspect & VK_IMAGE_ASPECT_STENCIL_BIT) ? &da : nullptr;
     vkCmdBeginRendering(cb, &ri);
@@ -662,9 +721,21 @@ HRESULT VulkanDevice::Present(const RECT*, const RECT*, HWND, const RGNDATA*)
     }
     bool acquired = r == VK_SUCCESS || r == VK_SUBOPTIMAL_KHR;
     VkCommandBuffer cb = s.cb;
+    // HDR back buffer -> present pass (tonemap or debug view) -> 8-bit present image -> swapchain.
+    if (!motionCleared_)  // nothing drew into the back buffer this frame: clear motion for the debug view
+    {
+        motion_->Transition(cb, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        VkClearColorValue zero{};
+        VkImageSubresourceRange rr{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        vkCmdClearColorImage(cb, motion_->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &zero, 1, &rr);
+    }
+    if (verbose && serial % 100 == 0)
+        Log("vulkan: scene projection _11 %g _22 %g _33 %g _34 %g _43 %g _44 %g", sceneProjection_._11,
+            sceneProjection_._22, sceneProjection_._33, sceneProjection_._34, sceneProjection_._43, sceneProjection_._44);
+    presentPass_.Record(cb, *backBuffer_, autoDepth_.get(), motion_.get(), *present_, &sceneProjection_._11);
     if (acquired)
     {
-        backBuffer_->Transition(cb, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        present_->Transition(cb, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
         VkImageMemoryBarrier2 b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
         b.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
         b.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
@@ -680,9 +751,9 @@ HRESULT VulkanDevice::Present(const RECT*, const RECT*, HWND, const RGNDATA*)
         vkCmdPipelineBarrier2(cb, &di);
         VkImageBlit blit{};
         blit.srcSubresource = blit.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-        blit.srcOffsets[1] = {static_cast<int32_t>(backBuffer_->width), static_cast<int32_t>(backBuffer_->height), 1};
+        blit.srcOffsets[1] = {static_cast<int32_t>(present_->width), static_cast<int32_t>(present_->height), 1};
         blit.dstOffsets[1] = {static_cast<int32_t>(swapExtent_.width), static_cast<int32_t>(swapExtent_.height), 1};
-        vkCmdBlitImage(cb, backBuffer_->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapImages_[index],
+        vkCmdBlitImage(cb, present_->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapImages_[index],
                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
         b.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
         b.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
@@ -694,21 +765,33 @@ HRESULT VulkanDevice::Present(const RECT*, const RECT*, HWND, const RGNDATA*)
     unsigned dumpFrame = 0;
     VkBuffer dumpBuffer = VK_NULL_HANDLE;
     VkDeviceMemory dumpMemory = VK_NULL_HANDLE;
-    if (TestFrameDump(&dumpFrame) && backBuffer_->format == VK_FORMAT_B8G8R8A8_UNORM)
+    if (TestFrameDump(&dumpFrame))
     {
         VkBufferCreateInfo bi{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-        bi.size = VkDeviceSize(backBuffer_->width) * backBuffer_->height * 4;
+        bi.size = VkDeviceSize(present_->width) * present_->height * 4;
         bi.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
         vkCreateBuffer(c.device, &bi, nullptr, &dumpBuffer);
         VkMemoryRequirements req;
         vkGetBufferMemoryRequirements(c.device, dumpBuffer, &req);
         dumpMemory = c.Allocate(req, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
         vkBindBufferMemory(c.device, dumpBuffer, dumpMemory, 0);
-        backBuffer_->Transition(cb, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        present_->Transition(cb, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
         VkBufferImageCopy region{};
         region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-        region.imageExtent = {backBuffer_->width, backBuffer_->height, 1};
-        vkCmdCopyImageToBuffer(cb, backBuffer_->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dumpBuffer, 1, &region);
+        region.imageExtent = {present_->width, present_->height, 1};
+        vkCmdCopyImageToBuffer(cb, present_->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dumpBuffer, 1, &region);
+    }
+    if (captureFrame_)  // scene vertex capture: vertex-shader writes visible to the host after the fence
+    {
+        VkMemoryBarrier2 mb{VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+        mb.srcStageMask = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT;
+        mb.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+        mb.dstStageMask = VK_PIPELINE_STAGE_2_HOST_BIT;
+        mb.dstAccessMask = VK_ACCESS_2_HOST_READ_BIT;
+        VkDependencyInfo di{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+        di.memoryBarrierCount = 1;
+        di.pMemoryBarriers = &mb;
+        vkCmdPipelineBarrier2(cb, &di);
     }
     vkEndCommandBuffer(cb);
     vkResetFences(c.device, 1, &s.fence);
@@ -732,12 +815,17 @@ HRESULT VulkanDevice::Present(const RECT*, const RECT*, HWND, const RGNDATA*)
         pi.pImageIndices = &index;
         vkQueuePresentKHR(c.queue, &pi);
     }
+    if (DumpSceneFrame() == serial)
+    {
+        vkWaitForFences(c.device, 1, &s.fence, VK_TRUE, UINT64_MAX);  // captured vertices are written
+        DumpScene(scene_);
+    }
     if (dumpBuffer)
     {
         vkWaitForFences(c.device, 1, &s.fence, VK_TRUE, UINT64_MAX);
         void* p;
         vkMapMemory(c.device, dumpMemory, 0, VK_WHOLE_SIZE, 0, &p);
-        TestSaveBgra(dumpFrame, p, backBuffer_->width, backBuffer_->height, backBuffer_->width * 4);
+        TestSaveBgra(dumpFrame, p, present_->width, present_->height, present_->width * 4);
         vkUnmapMemory(c.device, dumpMemory);
         vkDestroyBuffer(c.device, dumpBuffer, nullptr);
         vkFreeMemory(c.device, dumpMemory, nullptr);
@@ -760,6 +848,9 @@ HRESULT VulkanDevice::Clear(DWORD count, const D3DRECT* rects, DWORD flags, D3DC
     {
         att[n] = {VK_IMAGE_ASPECT_COLOR_BIT, 0, {}};
         ColorToFloat(color, att[n].clearValue.color.float32);
+        D3DFORMAT f = rt_ && rt_->GetImage() ? rt_->GetImage()->d3dFormat : D3DFMT_UNKNOWN;
+        if (f == D3DFMT_X8R8G8B8 || f == D3DFMT_X1R5G5B5)
+            att[n].clearValue.color.float32[3] = 1.0f;  // X formats read alpha as 1 (the float target stores it)
         ++n;
     }
     Image* depth = depth_ ? depth_->GetImage() : nullptr;
@@ -805,6 +896,11 @@ HRESULT VulkanDevice::StretchRect(Surface* src, const RECT* sr, Surface* dst, co
     Image* di = d ? d->GetImage() : nullptr;
     if (!si || !di)
         return D3DERR_INVALIDCALL;
+    static const int verbose = ConfigInt("render", "vulkan_verbose", 0);
+    if (verbose)
+        Log("vulkan: StretchRect %ux%u f%d face%u -> %ux%u f%d face%u faces%u (frame %llu)", si->width, si->height,
+            static_cast<int>(si->d3dFormat), s->face, di->width, di->height, static_cast<int>(di->d3dFormat), d->face,
+            di->faces, static_cast<unsigned long long>(serial));
     auto full = [](Image* img, uint32_t level) {
         return RECT{0, 0, LONG(img->width >> level ? img->width >> level : 1), LONG(img->height >> level ? img->height >> level : 1)};
     };
@@ -835,6 +931,14 @@ HRESULT VulkanDevice::SetRenderTarget(DWORD index, Surface* s)
     if (index != 0)
         return s ? D3DERR_INVALIDCALL : D3D_OK;  // one target (the game's caps path)
     EndRendering();
+    static const int dumpTargets = ConfigInt("render", "vk_dump_targets", 0);
+    if (dumpTargets && s)
+    {
+        auto* vs = static_cast<VulkanSurface*>(s);
+        Image* img = vs->GetImage();
+        Log("vulkan: SetRenderTarget surface %p image %p face %u cube %d (frame %llu)", static_cast<void*>(vs),
+            static_cast<void*>(img), vs->face, img && img->faces == 6 ? 1 : 0, static_cast<unsigned long long>(serial));
+    }
     SetRef(rt_, static_cast<VulkanSurface*>(s));
     if (Image* img = rt_ ? rt_->GetImage() : nullptr)  // D3D9 resets the viewport to the new target
         viewport_ = {0, 0, img->width >> rt_->level, img->height >> rt_->level, 0, 1};
@@ -953,7 +1057,7 @@ FFKey VulkanDevice::BuildFFKey(uint32_t vertexMask, const uint8_t texCoordSize[8
     return k;
 }
 
-bool VulkanDevice::PrepareDraw(D3DPRIMITIVETYPE type)
+bool VulkanDevice::PrepareDraw(D3DPRIMITIVETYPE type, uint64_t drawKey)
 {
     if (!layout_ || !rt_)
         return false;
@@ -1001,6 +1105,32 @@ bool VulkanDevice::PrepareDraw(D3DPRIMITIVETYPE type)
         return false;
     (void)cubeMask;
 
+    // Scene vertex capture: this draw's vertices [captureFirst_, +captureCount_) to the capture buffer.
+    captureDraw_ = false;
+    if (captureFrame_ && captureCount_ && captureFirst_ >= 0 && SceneDrawTarget() && EnsureCapture())
+    {
+        VkShaderModule cm = VK_NULL_HANDLE;
+        if (vs_)
+            cm = vs_->CaptureVariant();
+        else
+        {
+            VkShaderModule& m = ffVertex_[keyHash ^ 1];  // capture variant of the fixed-function vertex shader
+            if (!m)
+                m = MakeModule(CompileGlsl(WithDefine(FixedFunctionVertex(key).glsl, kCaptureDefine), false));
+            cm = m;
+        }
+        VkDeviceSize align = Ctx().properties.limits.minStorageBufferOffsetAlignment;
+        VkDeviceSize at = (captureUsed_ + align - 1) / align * align, need = VkDeviceSize(captureCount_) * 16;
+        if (cm && at + need <= captureSize_)
+        {
+            vsm = cm;
+            captureOffset_ = at;
+            captureUsed_ = at + need;
+            captureDraw_ = true;
+            ffDirty_ = true;  // halfPixel.z carries the base vertex
+        }
+    }
+
     // Textures must be readable: leave rendering to transition any that are not.
     VkCommandBuffer cb = Slot().cb;
     for (uint32_t i = 0; i < kMaxSamplers; ++i)
@@ -1036,6 +1166,9 @@ bool VulkanDevice::PrepareDraw(D3DPRIMITIVETYPE type)
     r.stencilZFail = static_cast<uint8_t>(rs_[D3DRS_STENCILZFAIL]);
     r.stencilPass = static_cast<uint8_t>(rs_[D3DRS_STENCILPASS]);
     r.colorWriteEnable = static_cast<uint8_t>(rs_[D3DRS_COLORWRITEENABLE] & 0xf);
+    D3DFORMAT rtFormat = rt_->GetImage()->d3dFormat;
+    if (rtFormat == D3DFMT_X8R8G8B8 || rtFormat == D3DFMT_X1R5G5B5)
+        r.colorWriteEnable &= 0x7;  // X formats have no alpha to write: D3D9 reads their alpha as 1
     r.stencilMask = static_cast<uint8_t>(rs_[D3DRS_STENCILMASK]);
     r.stencilWriteMask = static_cast<uint8_t>(rs_[D3DRS_STENCILWRITEMASK]);
     r.depthBiasEnable = (rs_[D3DRS_DEPTHBIAS] || rs_[D3DRS_SLOPESCALEDEPTHBIAS]) ? 1 : 0;
@@ -1045,6 +1178,9 @@ bool VulkanDevice::PrepareDraw(D3DPRIMITIVETYPE type)
     pk.shaderHash = Hash(pair, sizeof(pair));
     pk.colorFormat = rt_->GetImage()->format;
     pk.depthFormat = depth ? depth->format : VK_FORMAT_UNDEFINED;
+    pk.motionFormat = rt_->GetImage() == backBuffer_.get() ? VK_FORMAT_R16G16_SFLOAT : VK_FORMAT_UNDEFINED;
+    if (pk.motionFormat && r.zEnable && r.zWriteEnable)
+        sceneProjection_ = projection_;  // the 3D camera, for the depth/normal views (the HUD sets its own last)
     VkPipeline pipeline = GetPipeline(pk, input, vsm, fsm);
     if (!pipeline)
         return false;
@@ -1063,6 +1199,7 @@ bool VulkanDevice::PrepareDraw(D3DPRIMITIVETYPE type)
         // the flipped (negative-height) viewport is (+1/w, -1/h) in clip units.
         u.halfPixel[0] = 1.0f / vw;
         u.halfPixel[1] = -1.0f / vh;
+        u.halfPixel[2] = captureDraw_ ? static_cast<float>(captureFirst_) : 0.0f;  // capture base vertex (vk_abi.h)
         u.viewportSize[0] = vw, u.viewportSize[1] = vh, u.viewportSize[2] = viewport_.MinZ, u.viewportSize[3] = viewport_.MaxZ;
         ColorToFloat(rs_[D3DRS_TEXTUREFACTOR], u.textureFactor);
         ColorToFloat(rs_[D3DRS_FOGCOLOR], u.fogColor);
@@ -1112,15 +1249,67 @@ bool VulkanDevice::PrepareDraw(D3DPRIMITIVETYPE type)
     if (psDirty_)
         psOffset_ = PushUniform(psConst_, sizeof(psConst_)), psDirty_ = false;
 
+    // [render] vk_dump_draws=N: one line per draw of presented frame N (state that decides what a draw looks
+    // like), to find run-to-run differences: and-vk-draws.txt.
+    static const int dumpFrame = ConfigInt("render", "vk_dump_draws", -1);
+    if (dumpFrame >= 0 && serial == static_cast<uint64_t>(dumpFrame))
+    {
+        static FILE* f = fopen("and-vk-draws.txt", "w");
+        static int index = 0;
+        if (f)
+        {
+            fprintf(f, "%d vs=%d ps=%d key=%016llx rt=%ux%u face%u", index++, vs_ ? 1 : 0, ps_ ? 1 : 0,
+                    static_cast<unsigned long long>(keyHash), rt_->GetImage()->width, rt_->GetImage()->height,
+                    rt_->face);
+            for (uint32_t i = 0; i < kMaxSamplers; ++i)
+            {
+                if (!(samplerMask & (1u << i)) || !textures_[i])
+                    continue;
+                VulkanTexture* tx = textures_[i];
+                uint64_t sum = 0;
+                if (!tx->shadow.empty() && !tx->shadow[0].empty())
+                    sum = Hash(tx->shadow[0].data(), tx->shadow[0].size());
+                fprintf(f, " t%u=%ux%u f%d lod%lu lv%u cube%d rt%d sum%016llx", i, tx->image->width, tx->image->height,
+                        static_cast<int>(tx->image->d3dFormat), tx->GetLOD(), tx->image->levels,
+                        tx->image->faces == 6 ? 1 : 0, tx->image->renderTarget ? 1 : 0,
+                        static_cast<unsigned long long>(sum));
+            }
+            fprintf(f, "\n");
+            fflush(f);
+        }
+    }
+
+    // [render] vk_dump_targets=1: frame, target and face of every draw into an off-screen target (and-vk-targets.txt)
+    static const int dumpTargets = ConfigInt("render", "vk_dump_targets", 0);
+    if (dumpTargets && rt_->GetImage() != backBuffer_.get())
+    {
+        static FILE* tf = fopen("and-vk-targets.txt", "w");
+        if (tf)
+            fprintf(tf, "%llu %ux%u f%d face%u cube%d\n", static_cast<unsigned long long>(serial), rt_->GetImage()->width,
+                    rt_->GetImage()->height, static_cast<int>(rt_->GetImage()->d3dFormat), rt_->face,
+                    rt_->GetImage()->faces == 6 ? 1 : 0);
+    }
+
+    // Previous-frame transforms of this draw (motion vectors, vk_abi.h): last frame's snapshot under the same draw
+    // id, or the current transforms when it is new (no motion).
+    PrevUniforms& cur = curSnaps_[drawKey];
+    std::memcpy(cur.world, world_, sizeof(cur.world));
+    std::memcpy(cur.view, &view_, 64);
+    std::memcpy(cur.projection, &projection_, 64);
+    std::memcpy(cur.vsConstants, vsConst_, sizeof(cur.vsConstants));
+    auto prev = prevSnaps_.find(drawKey);
+    VkDeviceSize prevOffset = PushUniform(prev != prevSnaps_.end() ? &prev->second : &cur, sizeof(PrevUniforms));
+
     // Descriptors
     FrameSlot& s = Slot();
-    VkDescriptorBufferInfo bufs[3] = {{s.uniforms, vsOffset_, sizeof(vsConst_)},
+    VkDescriptorBufferInfo bufs[4] = {{s.uniforms, vsOffset_, sizeof(vsConst_)},
                                       {s.uniforms, psOffset_, sizeof(psConst_)},
-                                      {s.uniforms, ffOffset_, sizeof(FFUniforms)}};
+                                      {s.uniforms, ffOffset_, sizeof(FFUniforms)},
+                                      {s.uniforms, prevOffset, sizeof(PrevUniforms)}};
     VkDescriptorImageInfo imgs[kMaxSamplers];
-    VkWriteDescriptorSet writes[3 + kMaxSamplers];
+    VkWriteDescriptorSet writes[5 + kMaxSamplers];
     uint32_t nw = 0;
-    for (uint32_t b = 0; b < 3; ++b)
+    for (uint32_t b = 0; b < 4; ++b)
     {
         VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
         w.dstBinding = b;
@@ -1142,6 +1331,16 @@ bool VulkanDevice::PrepareDraw(D3DPRIMITIVETYPE type)
         w.descriptorCount = 1;
         w.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         w.pImageInfo = &imgs[i];
+        writes[nw++] = w;
+    }
+    VkDescriptorBufferInfo captureInfo{captureBuffer_, captureOffset_, VkDeviceSize(captureCount_) * 16};
+    if (captureDraw_)
+    {
+        VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+        w.dstBinding = kBindingCapture;
+        w.descriptorCount = 1;
+        w.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        w.pBufferInfo = &captureInfo;
         writes[nw++] = w;
     }
     vkCmdPushDescriptorSetKHR(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, PipelineLayout(), 0, nw, writes);
@@ -1173,24 +1372,132 @@ bool VulkanDevice::PrepareDraw(D3DPRIMITIVETYPE type)
     return true;
 }
 
+// Matches a draw with its previous-frame self for motion vectors: what it draws (buffers, range, shader, first
+// texture) and the how-many-th such draw it is this frame, so repeated meshes (trees, characters) stay apart.
+// [render] vk_dump_scene=N: the presented frame whose scene description is dumped (vk_scene.h); -1 none.
+uint64_t DumpSceneFrame()
+{
+    static const int frame = ConfigInt("render", "vk_dump_scene", -1);
+    return frame < 0 ? ~0ull : static_cast<uint64_t>(frame);
+}
+
+// The capture buffer (host-visible, 64 MB: 4M vertices), created at the first capture frame.
+bool VulkanDevice::EnsureCapture()
+{
+    if (captureBuffer_)
+        return true;
+    Context& c = Ctx();
+    VkBufferCreateInfo bi{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    bi.size = 64ull << 20;
+    bi.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+    if (vkCreateBuffer(c.device, &bi, nullptr, &captureBuffer_) != VK_SUCCESS)
+        return false;
+    VkMemoryRequirements req;
+    vkGetBufferMemoryRequirements(c.device, captureBuffer_, &req);
+    captureMemory_ = c.Allocate(req, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    vkBindBufferMemory(c.device, captureBuffer_, captureMemory_, 0);
+    vkMapMemory(c.device, captureMemory_, 0, bi.size, 0, reinterpret_cast<void**>(&captureMapped_));
+    captureSize_ = bi.size;
+    return captureMapped_ != nullptr;
+}
+
+uint64_t VulkanDevice::DrawId(uint64_t base)
+{
+    uint32_t n = drawOccurrence_[base]++;
+    return Hash(&n, sizeof(n), base);
+}
+
 HRESULT VulkanDevice::DrawPrimitive(D3DPRIMITIVETYPE t, UINT start, UINT count)
 {
     std::lock_guard<std::recursive_mutex> g(Ctx().lock);
-    if (PrepareDraw(t))
+    const void* what[4] = {streams_[0], vs_, textures_[0], nullptr};
+    uint32_t range[3] = {static_cast<uint32_t>(t), start, count};
+    uint64_t id = DrawId(Hash(range, sizeof(range), Hash(what, sizeof(what))));
+    captureFirst_ = start, captureCount_ = VertexCount(t, count);
+    if (PrepareDraw(t, id))
+    {
         vkCmdDraw(Slot().cb, VertexCount(t, count), 1, start, 0);
+        RecordScene(t, false, 0, start, count, id);
+    }
     return D3D_OK;
 }
 
-HRESULT VulkanDevice::DrawIndexedPrimitive(D3DPRIMITIVETYPE t, INT base, UINT, UINT, UINT si, UINT count)
+HRESULT VulkanDevice::DrawIndexedPrimitive(D3DPRIMITIVETYPE t, INT base, UINT minIndex, UINT vertices, UINT si,
+                                           UINT count)
 {
     std::lock_guard<std::recursive_mutex> g(Ctx().lock);
-    if (!indices_ || !PrepareDraw(t))
+    const void* what[4] = {streams_[0], vs_, textures_[0], indices_};
+    uint32_t range[4] = {static_cast<uint32_t>(t), static_cast<uint32_t>(base), si, count};
+    uint64_t id = DrawId(Hash(range, sizeof(range), Hash(what, sizeof(what))));
+    captureFirst_ = int64_t(base) + minIndex, captureCount_ = vertices;  // D3D9: indices + base in this range
+    if (!indices_ || !PrepareDraw(t, id))
         return D3D_OK;
     VkCommandBuffer cb = Slot().cb;
     vkCmdBindIndexBuffer(cb, indices_->Current().buffer, 0, indices_->indexType);
     indices_->MarkUsed(serial);
     vkCmdDrawIndexed(cb, VertexCount(t, count), 1, si, base, 0);
+    RecordScene(t, true, base, si, count, id);
     return D3D_OK;
+}
+
+// Scene description (vk_scene.h): 3D draws into the back buffer, i.e. with depth testing. HUD, menus and
+// off-screen passes (render-to-texture) are not part of it.
+void VulkanDevice::RecordScene(D3DPRIMITIVETYPE t, bool indexed, INT base, UINT start, UINT count, uint64_t id)
+{
+    if (!SceneDrawTarget())
+        return;
+    if (scene_.draws.empty())
+    {
+        scene_.width = backBuffer_->width, scene_.height = backBuffer_->height;
+        scene_.lightCount = 0;
+        for (int i = 0; i < 8; ++i)
+            if (lightOn_[i])
+                scene_.lights[scene_.lightCount++] = lights_[i];
+    }
+    SceneDraw d{};
+    d.viewport = viewport_;
+    d.id = id;
+    d.type = t;
+    d.indexed = indexed;
+    d.baseVertex = base;
+    d.start = start;
+    d.primitives = count;
+    for (int s = 0; s < 4; ++s)
+        if (streams_[s])
+        {
+            VulkanBuffer::Version& v = streams_[s]->Current();
+            d.streams[s] = {v.mapped, v.buffer, streamOffset_[s], streamStride_[s], streams_[s]->length};
+        }
+    if (indexed && indices_)
+    {
+        d.indexData = indices_->Current().mapped;
+        d.indexBuffer = indices_->Current().buffer;
+        d.indexLength = indices_->length;
+        d.index32 = indices_->indexType == VK_INDEX_TYPE_UINT32;
+    }
+    d.layout = layout_;
+    std::memcpy(d.world, world_, sizeof(world_));
+    d.view = view_;
+    d.projection = projection_;
+    d.vertexShader = vs_ != nullptr;
+    if (vs_)
+    {
+        d.vsConstantsOffset = static_cast<uint32_t>(scene_.vsConstants.size());
+        scene_.vsConstants.insert(scene_.vsConstants.end(), vsConst_, vsConst_ + kVsConstantCount * 4);
+    }
+    d.vertexBlend = rs_[D3DRS_VERTEXBLEND] != D3DVBF_DISABLE || rs_[D3DRS_INDEXEDVERTEXBLENDENABLE];
+    std::memcpy(d.textures, textures_, sizeof(textures_));
+    d.material = material_;
+    d.alphaBlend = rs_[D3DRS_ALPHABLENDENABLE] != 0;
+    d.alphaTest = rs_[D3DRS_ALPHATESTENABLE] != 0;
+    d.zWrite = rs_[D3DRS_ZWRITEENABLE] != 0;
+    if (captureDraw_)
+    {
+        d.capture = reinterpret_cast<const float*>(captureMapped_ + captureOffset_);
+        d.captureFirst = captureFirst_;
+        d.captureCount = captureCount_;
+    }
+    scene_.draws.push_back(d);
 }
 
 // --- resource helpers declared in vk_resources.h ---------------------------------------------------------------

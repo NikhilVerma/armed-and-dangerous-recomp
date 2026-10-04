@@ -29,9 +29,16 @@ protected:
     virtual ~Object() = default;
 };
 
+class Texture;
+
+// A surface of a texture (GetSurfaceLevel / GetCubeMapSurface) is, as in D3D9, owned by the texture: the same object
+// for each level and face while the texture lives, and its AddRef/Release act on the texture. The game compares
+// surface pointers (Renderer_SetRenderTargetTexture skips SetRenderTarget for "the same" surface), so a surface
+// recreated at a recycled address made it skip cube faces at random (lev_1_m1, environment cube).
 class Surface : public Object
 {
 public:
+    virtual Texture* Container() { return nullptr; }  // the owning texture, or null (back buffer, depth, CPU)
     virtual HRESULT GetDesc(D3DSURFACE_DESC* desc) = 0;
     virtual HRESULT LockRect(D3DLOCKED_RECT* locked, const RECT* rect, DWORD flags) = 0;
     virtual HRESULT UnlockRect() = 0;

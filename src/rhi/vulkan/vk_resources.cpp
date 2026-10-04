@@ -10,10 +10,12 @@ namespace rhi::vulkan
 {
 // --- Image -----------------------------------------------------------------------------------------------------
 
-bool Image::Create(D3DFORMAT f, uint32_t w, uint32_t h, uint32_t lv, uint32_t fc, bool rt, bool depth)
+bool Image::Create(D3DFORMAT f, uint32_t w, uint32_t h, uint32_t lv, uint32_t fc, bool rt, bool depth, VkFormat storage)
 {
     Context& c = Ctx();
     FormatInfo fi = Format(f);
+    if (storage != VK_FORMAT_UNDEFINED)
+        fi.format = storage;
     if (fi.format == VK_FORMAT_UNDEFINED)
     {
         Log("vulkan: unsupported texture format %d", static_cast<int>(f));
@@ -141,7 +143,21 @@ void Image::Transition(VkCommandBuffer cb, VkImageLayout to)
 VulkanSurface::VulkanSurface(VulkanTexture* owner, uint32_t lv, uint32_t fc) : owner_(owner)
 {
     level = lv, face = fc;
-    owner_->AddRef();  // a D3D9 surface keeps its texture alive
+}
+
+ULONG VulkanSurface::AddRef()
+{
+    return owner_ ? owner_->AddRef() : Counted<Surface>::AddRef();
+}
+
+ULONG VulkanSurface::Release()
+{
+    return owner_ ? owner_->Release() : Counted<Surface>::Release();
+}
+
+Texture* VulkanSurface::Container()
+{
+    return owner_;
 }
 
 VulkanSurface::VulkanSurface(std::shared_ptr<Image> image) : image_(std::move(image)) {}
@@ -154,11 +170,7 @@ VulkanSurface::VulkanSurface(D3DFORMAT f, uint32_t w, uint32_t h)
     cpuFormat = f, cpuWidth = w, cpuHeight = h;
 }
 
-VulkanSurface::~VulkanSurface()
-{
-    if (owner_)
-        owner_->Release();
-}
+VulkanSurface::~VulkanSurface() = default;
 
 Image* VulkanSurface::GetImage() const
 {
@@ -246,15 +258,39 @@ VulkanTexture::VulkanTexture(D3DFORMAT f, uint32_t w, uint32_t h, uint32_t lv, u
     ok = image->Create(f, w, h, lv, fc, (u & (D3DUSAGE_RENDERTARGET | D3DUSAGE_DEPTHSTENCIL)) != 0, depth);
     if (ok)
         shadow.resize(size_t(image->levels) * fc);
-    if (ok)  // D3D9 textures start undefined; give samplers a defined layout before the first upload
+    if (ok)
     {
+        // New contents are zero, as the D3D9 driver hands them out: a render target (the dynamic environment cube)
+        // can be sampled before every face is drawn, and Vulkan memory is undefined (it varied per run:
+        // tools/compare_backends.py --reference vulkan, lev_1_m1 frame 200). Compressed images are always uploaded
+        // whole and cannot be cleared.
         std::shared_ptr<Image> img = image;
-        RecordTransfer([img](VkCommandBuffer cb) { img->Transition(cb, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL); });
+        bool compressed = Format(f).compressed;
+        RecordTransfer([img, compressed, depth](VkCommandBuffer cb) {
+            if (!compressed)
+            {
+                img->Transition(cb, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+                VkImageSubresourceRange r{img->aspect, 0, img->levels, 0, img->faces};
+                if (depth)
+                {
+                    VkClearDepthStencilValue z{1.0f, 0};
+                    vkCmdClearDepthStencilImage(cb, img->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &z, 1, &r);
+                }
+                else
+                {
+                    VkClearColorValue zero{};
+                    vkCmdClearColorImage(cb, img->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &zero, 1, &r);
+                }
+            }
+            img->Transition(cb, depth ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        });
     }
 }
 
 VulkanTexture::~VulkanTexture()
 {
+    for (VulkanSurface* s : surfaces)
+        delete s;
     image->Destroy();
 }
 
@@ -325,7 +361,13 @@ HRESULT VulkanTexture::GetSurfaceLevel(UINT level, Surface** out)
 {
     if (level >= image->levels)
         return *out = nullptr, D3DERR_INVALIDCALL;
-    *out = new VulkanSurface(this, level, 0);
+    if (surfaces.empty())
+        surfaces.assign(size_t(image->levels) * image->faces, nullptr);
+    VulkanSurface*& s = surfaces[size_t(level) * image->faces];
+    if (!s)
+        s = new VulkanSurface(this, level, 0);
+    AddRef();  // the caller's reference, on the texture
+    *out = s;
     return D3D_OK;
 }
 
@@ -333,7 +375,13 @@ HRESULT VulkanTexture::GetCubeMapSurface(D3DCUBEMAP_FACES face, UINT level, Surf
 {
     if (level >= image->levels || image->faces != 6)
         return *out = nullptr, D3DERR_INVALIDCALL;
-    *out = new VulkanSurface(this, level, static_cast<uint32_t>(face));
+    if (surfaces.empty())
+        surfaces.assign(size_t(image->levels) * image->faces, nullptr);
+    VulkanSurface*& s = surfaces[size_t(level) * image->faces + face];
+    if (!s)
+        s = new VulkanSurface(this, level, static_cast<uint32_t>(face));
+    AddRef();
+    *out = s;
     return D3D_OK;
 }
 
@@ -448,6 +496,25 @@ VulkanShader::~VulkanShader()
     });
 }
 
+VkShaderModule VulkanShader::CaptureVariant()
+{
+    if (!translated.ok || pixel)
+        return VK_NULL_HANDLE;
+    const uint64_t h = Hash(kCaptureDefine, std::strlen(kCaptureDefine));
+    for (auto& v : variants)
+        if (v.first == h)
+            return v.second;
+    VkShaderModule m = MakeModule(CompileGlsl(WithDefine(translated.glsl, kCaptureDefine), false));
+    variants.push_back({h, m});
+    return m;
+}
+
+std::string WithDefine(const std::string& glsl, const std::string& define)
+{
+    size_t eol = glsl.find('\n');
+    return glsl.substr(0, eol + 1) + define + "\n" + glsl.substr(eol + 1);
+}
+
 VkShaderModule VulkanShader::PixelVariant(const FFKey& key)
 {
     if (!translated.ok)
@@ -457,9 +524,7 @@ VkShaderModule VulkanShader::PixelVariant(const FFKey& key)
     for (auto& v : variants)
         if (v.first == h)
             return v.second;
-    size_t eol = translated.glsl.find('\n');
-    std::string glsl = translated.glsl.substr(0, eol + 1) + define + "\n" + translated.glsl.substr(eol + 1);
-    VkShaderModule m = MakeModule(CompileGlsl(glsl, true));
+    VkShaderModule m = MakeModule(CompileGlsl(WithDefine(translated.glsl, define), true));
     variants.push_back({h, m});
     return m;
 }

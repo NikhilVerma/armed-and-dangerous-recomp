@@ -219,6 +219,20 @@ std::string FixedFunctionBlock()
     return s + "} ff;\n";
 }
 
+// The PrevFrame block (binding 3, vk_abi.h "Motion vectors"), mirrored from PrevUniforms with offsets taken from the
+// C++ struct like FixedFunctionBlock. Instance name `pf`. Translated shaders read only vsConstants.
+std::string PrevFrameBlock()
+{
+    return std::format("layout(std140, set = 0, binding = {}) uniform PrevFrame\n{{\n"
+                       "    layout(offset = {}) mat4 world[4];\n"
+                       "    layout(offset = {}) mat4 view;\n"
+                       "    layout(offset = {}) mat4 projection;\n"
+                       "    layout(offset = {}) vec4 vsConstants[{}];\n"
+                       "}} pf;\n",
+                       kBindingPrevFrame, offsetof(PrevUniforms, world), offsetof(PrevUniforms, view),
+                       offsetof(PrevUniforms, projection), offsetof(PrevUniforms, vsConstants), kVsConstantCount);
+}
+
 // D3D9 arithmetic where GLSL differs (D3D9 reference pseudo-code for rcp, rsq, log, lit, dst, expp, logp).
 // Vulkan does not promise IEEE infinities from 1/0, so the infinities are spelled out.
 constexpr const char* kHelpers = R"(#define D3D_INF uintBitsToFloat(0x7f800000u)
@@ -312,6 +326,21 @@ public:
         for (const Instruction& in : instrs_)
             if (!Generate(in))
                 return Failed(error_);
+        // Vertex shaders, pass 3 (motion vectors, vk_abi.h): the same program again with the previous frame's
+        // constants (PrevFrame vsConstants), evaluated in PrevPosition() for the previous clip position. The current
+        // evaluation's code (pass 2) is left exactly as it was.
+        if (!pixel_)
+        {
+            std::vector<Emitted> current = std::move(out_);
+            out_.clear();
+            prev_ = true;
+            for (const Instruction& in : instrs_)
+                if (!Generate(in))
+                    return Failed(error_);
+            prev_ = false;
+            prevOut_ = std::move(out_);
+            out_ = std::move(current);
+        }
         result_.glsl = Assemble();
         result_.ok = true;
         return result_;
@@ -459,7 +488,9 @@ private:
             // ps_1_x constant registers hold [-1, 1] (D3D9 clamps the values passed to SetPixelShaderConstantF).
             return ps1x_ ? std::format("clamp(psc.c[{}], -1.0, 1.0)", n) : std::format("psc.c[{}]", n);
         }
-        return n < kVsConstantCount ? std::format("vsc.c[{}]", n) : std::string("vec4(0.0)");
+        if (n >= kVsConstantCount)
+            return "vec4(0.0)";
+        return prev_ ? std::format("pf.vsConstants[{}]", n) : std::format("vsc.c[{}]", n);
     }
 
     // Value of a source register (no swizzle or modifier yet). regOffset: added to the register number (matrix
@@ -505,8 +536,11 @@ private:
                         return Error("relative addressing through aL (loops are not supported)");
                     index = std::string("a0.") + "xyzw"[(rt >> D3DVS_SWIZZLE_SHIFT) & 3];
                 }
-                needConstFunc_ = true;
-                out = std::format("C({} + {})", index, n);
+                if (prev_)
+                    needPrevConstFunc_ = true;
+                else
+                    needConstFunc_ = true;
+                out = std::format("{}({} + {})", prev_ ? "CP" : "C", index, n);
             }
             return true;
         case D3DSPR_ADDR:  // == D3DSPR_TEXTURE
@@ -1030,10 +1064,14 @@ private:
                 g += std::format("layout(location = {}) out vec4 oT{};\n", i, i);
             g += "layout(location = 8) out vec4 oD0;\nlayout(location = 9) out vec4 oD1;\n"
                  "layout(location = 10) out float oFog;\n";
-            if (needConstFunc_)
-            {
-                // Relative constant reads (c[a0.x + n]): def'd registers first, out of range reads as zero.
-                g += "vec4 C(int i)\n{\n";
+            // Motion vectors (vk_abi.h): current clip position before the half-pixel offset, previous clip position.
+            g += "layout(location = 11) out vec4 vCurClip;\nlayout(location = 12) out vec4 vPrevClip;\n";
+            g += PrevFrameBlock();
+            g += kCaptureGlsl;
+            // Relative constant reads (c[a0.x + n]): def'd registers first, out of range reads as zero.
+            // C: current constants (VsConstants); CP: previous frame's (PrevFrame vsConstants).
+            auto constFunc = [&](const char* name, const char* array) {
+                g += std::format("vec4 {}(int i)\n{{\n", name);
                 if (!defs_.empty())
                 {
                     g += "    switch (i)\n    {\n";
@@ -1041,20 +1079,27 @@ private:
                         g += std::format("    case {}: return {};\n", n, v);
                     g += "    default: break;\n    }\n";
                 }
-                g += std::format("    return i >= 0 && i < {} ? vsc.c[i] : vec4(0.0);\n}}\n", kVsConstantCount);
-            }
+                g += std::format("    return i >= 0 && i < {} ? {}[i] : vec4(0.0);\n}}\n", kVsConstantCount, array);
+            };
+            if (needConstFunc_)
+                constFunc("C", "vsc.c");
+            if (needPrevConstFunc_)
+                constFunc("CP", "pf.vsConstants");
             decl = "    ivec4 a0 = ivec4(0);\n"
                    "    vec4 o_Pos = vec4(0.0), o_Fog = vec4(1.0), o_Pts = vec4(1.0);\n"
                    "    vec4 o_D0 = vec4(1.0), o_D1 = vec4(0.0);\n"
                    "    vec4 o_T0 = vec4(0.0), o_T1 = vec4(0.0), o_T2 = vec4(0.0), o_T3 = vec4(0.0);\n"
                    "    vec4 o_T4 = vec4(0.0), o_T5 = vec4(0.0), o_T6 = vec4(0.0), o_T7 = vec4(0.0);\n";
-            epilogue = "    gl_Position = o_Pos;\n"
+            epilogue = "    D3D9_CAPTURE_WRITE(o_Pos);  // scene vertex capture (vk_abi.h)\n"
+                       "    gl_Position = o_Pos;\n"
                        "    gl_Position.xy += ff.halfPixel.xy * gl_Position.w;  // D3D9 half-pixel offset (vk_abi.h)\n"
                        "    gl_PointSize = o_Pts.x;\n"
                        "    oT0 = o_T0; oT1 = o_T1; oT2 = o_T2; oT3 = o_T3; oT4 = o_T4; oT5 = o_T5; oT6 = o_T6; oT7 = o_T7;\n"
                        "    oD0 = clamp(o_D0, 0.0, 1.0);  // D3D9 clamps the color outputs\n"
                        "    oD1 = clamp(o_D1, 0.0, 1.0);\n"
-                       "    oFog = clamp(o_Fog.x, 0.0, 1.0);\n";
+                       "    oFog = clamp(o_Fog.x, 0.0, 1.0);\n"
+                       "    vCurClip = o_Pos;  // motion vectors (vk_abi.h): before the half-pixel offset\n"
+                       "    vPrevClip = PrevPosition();\n";
         }
         else
         {
@@ -1067,6 +1112,9 @@ private:
             // Fog factor for D3D9_FINAL (FinalPixelDefine): always declared.
             g += "layout(location = 10) in float vFog;\n";
             g += "layout(location = 0) out vec4 fragColor;\n";
+            // Motion vectors (vk_abi.h): clip positions from the vertex half, motion = prevUv - curUv.
+            g += "layout(location = 11) in vec4 vCurClip;\nlayout(location = 12) in vec4 vPrevClip;\n"
+                 "layout(location = 1) out vec2 motion;\n";
             for (uint32_t n = 0; n < kMaxSamplers; ++n)
                 if (samplers_ & (1u << n))
                     g += std::format("layout(set = 0, binding = {}) uniform {} s{};\n", kBindingSampler0 + n,
@@ -1086,7 +1134,10 @@ private:
             if (!ps1x_)
                 decl += "    vec4 oC0 = vec4(0.0);\n";
             // ps_1_x: the result is r0, converted to a [0, 1] color; ps_2_0: oC0.
-            epilogue = ps1x_ ? "    vec4 result = clamp(r0, 0.0, 1.0);\n" : "    vec4 result = oC0;\n";
+            epilogue = "    vec2 mv_curNdc = vCurClip.xy / vCurClip.w, mv_prevNdc = vPrevClip.xy / vPrevClip.w;\n"
+                       "    motion = vec2(mv_prevNdc.x * 0.5 + 0.5, 0.5 - mv_prevNdc.y * 0.5) -\n"
+                       "             vec2(mv_curNdc.x * 0.5 + 0.5, 0.5 - mv_curNdc.y * 0.5);\n";
+            epilogue += ps1x_ ? "    vec4 result = clamp(r0, 0.0, 1.0);\n" : "    vec4 result = oC0;\n";
             epilogue += "    D3D9_FINAL(result);\n    fragColor = result;\n";
             if (ps1x_)
                 Temp(0);
@@ -1095,18 +1146,29 @@ private:
             for (uint32_t n = 0; n <= maxTemp_; ++n)
                 decl += std::format("    vec4 r{} = vec4(0.0);\n", n);
 
-        g += "void main()\n{\n" + decl;
-        for (size_t i = 0; i < out_.size(); ++i)
-        {
-            if (i + 1 < out_.size() && out_[i + 1].coissue)
+        auto body = [&](const std::vector<Emitted>& code) {
+            for (size_t i = 0; i < code.size(); ++i)
             {
-                // Co-issued pair: both read their sources before either writes.
-                g += out_[i].compute + out_[i + 1].compute + out_[i].write + out_[i + 1].write;
-                ++i;
+                if (i + 1 < code.size() && code[i + 1].coissue)
+                {
+                    // Co-issued pair: both read their sources before either writes.
+                    g += code[i].compute + code[i + 1].compute + code[i].write + code[i + 1].write;
+                    ++i;
+                }
+                else
+                    g += code[i].compute + code[i].write;
             }
-            else
-                g += out_[i].compute + out_[i].write;
+        };
+        if (!pixel_)
+        {
+            // The program evaluated with the previous frame's constants (pass 3 in Run): its own registers, a0 and
+            // outputs; only the position is returned (the other outputs are dead code for the compiler).
+            g += "vec4 PrevPosition()\n{\n" + decl;
+            body(prevOut_);
+            g += "    return o_Pos;\n}\n";
         }
+        g += "void main()\n{\n" + decl;
+        body(out_);
         g += epilogue + "}\n";
         result_.samplerMask = samplers_;
         result_.samplerCubeMask = samplerCube_ & samplers_;
@@ -1142,6 +1204,9 @@ private:
     uint32_t maxTemp_ = 0;
     bool anyTemp_ = false;
     bool needConstFunc_ = false, needMatrixVec_ = false, writesDepth_ = false;
+    bool prev_ = false;                // generating the previous-frame evaluation (constants from PrevFrame)
+    bool needPrevConstFunc_ = false;   // CP(): relative constant reads of that evaluation
+    std::vector<Emitted> prevOut_;     // that evaluation's code (vertex shaders)
     int padIndex_ = 0;
     int tmpCounter_ = 0;
     std::string error_;

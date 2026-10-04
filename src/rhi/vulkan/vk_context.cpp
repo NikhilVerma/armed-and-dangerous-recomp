@@ -89,6 +89,10 @@ bool ContextInit()
     f2.features.tessellationShader = VK_TRUE;  // remaster: tessellation (docs/goals/remaster-basics.md)
     f2.features.textureCompressionBC = VK_TRUE;
     f2.features.depthBiasClamp = VK_TRUE;
+    VkPhysicalDeviceFeatures supported;
+    vkGetPhysicalDeviceFeatures(c.physical, &supported);
+    f2.features.vertexPipelineStoresAndAtomics = supported.vertexPipelineStoresAndAtomics;  // scene vertex capture
+    c.vertexStores = supported.vertexPipelineStoresAndAtomics == VK_TRUE;
     const char* deviceExt[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME};
     VkDeviceCreateInfo dci{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
     dci.pNext = &f2;

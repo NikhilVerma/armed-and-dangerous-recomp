@@ -81,10 +81,50 @@ public:
     HRESULT UnlockRect() override { return n_->UnlockRect(); }
 };
 
+class D3D9Texture;
+
+// A texture's surface (rhi.h): owned by the texture object, references act on it.
+class D3D9ChildSurface final : public Surface
+{
+public:
+    D3D9ChildSurface(D3D9Texture* owner, IDirect3DSurface9* n) : owner_(owner), n_(n) {}
+    ULONG AddRef() override;
+    ULONG Release() override;
+    void* Native() override { return n_; }
+    Texture* Container() override;
+    HRESULT GetDesc(D3DSURFACE_DESC* d) override { return n_->GetDesc(d); }
+    HRESULT LockRect(D3DLOCKED_RECT* l, const RECT* r, DWORD f) override { return n_->LockRect(l, r, f); }
+    HRESULT UnlockRect() override { return n_->UnlockRect(); }
+
+private:
+    friend class D3D9Texture;
+    ~D3D9ChildSurface() override = default;
+    D3D9Texture* owner_;
+    IDirect3DSurface9* n_;  // valid while the texture lives (D3D9 surfaces live as long as their container)
+};
+
 class D3D9Texture final : public Wrapped<Texture, IDirect3DBaseTexture9>
 {
 public:
     using Wrapped::Wrapped;
+    ~D3D9Texture() override
+    {
+        for (auto& c : children_)
+            delete c.second;
+    }
+    // D3D9 gives the caller a reference on the texture through the surface; the same child object each time.
+    Surface* Child(IDirect3DSurface9* native)
+    {
+        if (!native)
+            return nullptr;
+        ++refs_;  // the reference the D3D9 call added (on the container) belongs to this object now
+        for (auto& c : children_)
+            if (c.first == native)
+                return c.second;
+        auto* s = new D3D9ChildSurface(this, native);
+        children_.push_back({native, s});
+        return s;
+    }
     D3DRESOURCETYPE Type() override { return n_->GetType(); }
     DWORD GetLevelCount() override { return n_->GetLevelCount(); }
     DWORD GetLOD() override { return n_->GetLOD(); }
@@ -97,14 +137,14 @@ public:
     {
         IDirect3DSurface9* s = nullptr;
         HRESULT hr = Tex()->GetSurfaceLevel(level, &s);
-        *out = Get<D3D9Surface>(s);
+        *out = Child(s);
         return hr;
     }
     HRESULT GetCubeMapSurface(D3DCUBEMAP_FACES face, UINT level, Surface** out) override
     {
         IDirect3DSurface9* s = nullptr;
         HRESULT hr = Cube()->GetCubeMapSurface(face, level, &s);
-        *out = Get<D3D9Surface>(s);
+        *out = Child(s);
         return hr;
     }
 
@@ -120,9 +160,25 @@ public:
     }
 
 private:
+    std::vector<std::pair<IDirect3DSurface9*, D3D9ChildSurface*>> children_;
     IDirect3DTexture9* Tex() { return static_cast<IDirect3DTexture9*>(n_); }
     IDirect3DCubeTexture9* Cube() { return static_cast<IDirect3DCubeTexture9*>(n_); }
 };
+
+// The surface reference is a reference on the texture: release it natively through the surface (which releases
+// the container), and count it on the texture object.
+ULONG D3D9ChildSurface::AddRef()
+{
+    return owner_->AddRef();
+}
+ULONG D3D9ChildSurface::Release()
+{
+    return owner_->Release();
+}
+Texture* D3D9ChildSurface::Container()
+{
+    return owner_;
+}
 
 class D3D9VertexBuffer final : public Wrapped<Buffer, IDirect3DVertexBuffer9>
 {

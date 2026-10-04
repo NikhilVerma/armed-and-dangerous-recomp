@@ -87,6 +87,8 @@ R* FacadeUnwrap(R* p)
     return o ? static_cast<R*>(o->Native()) : p;
 }
 
+void ForgetChildren(rhi::Object* texture);
+
 template <class W>
 void FacadeForget(W* wrapper)
 {
@@ -95,6 +97,7 @@ void FacadeForget(W* wrapper)
         g_byObject.erase(wrapper->obj);
         g_byWrapper.erase(static_cast<void*>(wrapper));
     }
+    ForgetChildren(wrapper->obj);  // a texture's surface wrappers go with it
     delete wrapper;
 }
 
@@ -135,12 +138,14 @@ bool Answers(Facade_SwapChain*, REFIID r) { return r == __uuidof(IDirect3DSwapCh
 bool Answers(Facade_Volume*, REFIID r) { return r == __uuidof(IDirect3DVolume9); }
 bool Answers(Facade_Query*, REFIID r) { return r == __uuidof(IDirect3DQuery9); }
 
+void FacadeForgetContainer(void* textureWrapper);
+
 template <class W>
 HRESULT FacadeQueryInterface(W* self, REFIID riid, void** out)
 {
     if (riid == __uuidof(IUnknown) || Answers(self, riid))
     {
-        ++self->refs;
+        ++*self->Refs();
         self->obj->AddRef();
         *out = self;
         return S_OK;
@@ -179,6 +184,9 @@ const char* MethodName(int index)
 
 Facade_Device* g_device;  // the game creates one device
 
+// Surface wrappers of each texture (by the texture's rhi object), deleted with the texture's wrapper.
+std::unordered_map<rhi::Object*, std::vector<Facade_Surface*>> g_children;
+
 // The wrapper for an rhi object (adds a wrapper reference; the object's reference came with it).
 template <class W, class I = W>
 I* WrapAs(rhi::Object* o)
@@ -190,13 +198,52 @@ I* WrapAs(rhi::Object* o)
     if (it != g_byObject.end())
     {
         auto* w = static_cast<W*>(static_cast<I*>(it->second));
-        ++w->refs;
+        ++*w->Refs();
         return w;
     }
     W* w = new W(o);
     I* iface = w;
     g_byObject[o] = iface;
     g_byWrapper[iface] = o;
+    return iface;
+}
+
+// A surface: a texture's surface shares the texture wrapper's count and lives as long as it (rhi.h), so the
+// pointer the game holds for "this face of that texture" never changes while the texture lives.
+IDirect3DSurface9* WrapSurface(rhi::Surface* s)
+{
+    if (!s)
+        return nullptr;
+    rhi::Texture* tex = s->Container();
+    if (!tex)
+        return WrapAs<Facade_Surface>(s);
+    std::lock_guard<std::mutex> g(g_lock);
+    auto tw = g_byObject.find(tex);
+    if (tw == g_byObject.end())  // the texture has no wrapper (not reached by the game): an ordinary wrapper
+    {
+        g_lock.unlock();
+        IDirect3DSurface9* r = WrapAs<Facade_Surface>(s);
+        g_lock.lock();
+        return r;
+    }
+    void* texWrapper = tw->second;
+    ULONG* texRefs = tex->Type() == D3DRTYPE_CUBETEXTURE
+                         ? &static_cast<Facade_CubeTexture*>(static_cast<IDirect3DCubeTexture9*>(texWrapper))->refs
+                         : &static_cast<Facade_Texture*>(static_cast<IDirect3DTexture9*>(texWrapper))->refs;
+    auto it = g_byObject.find(s);
+    if (it != g_byObject.end())
+    {
+        ++*texRefs;  // the call that returned it added a reference to the texture
+        return static_cast<IDirect3DSurface9*>(it->second);
+    }
+    auto* w = new Facade_Surface(s);
+    w->container = texWrapper;
+    w->containerRefs = texRefs;
+    ++*texRefs;
+    IDirect3DSurface9* iface = w;
+    g_byObject[s] = iface;
+    g_byWrapper[iface] = s;
+    g_children[tex].push_back(w);
     return iface;
 }
 
@@ -207,6 +254,26 @@ IDirect3DBaseTexture9* WrapTexture(rhi::Texture* t)
     if (t->Type() == D3DRTYPE_CUBETEXTURE)
         return WrapAs<Facade_CubeTexture, IDirect3DCubeTexture9>(t);
     return WrapAs<Facade_Texture, IDirect3DTexture9>(t);
+}
+
+void ForgetChildren(rhi::Object* texture)
+{
+    std::vector<Facade_Surface*> kids;
+    {
+        std::lock_guard<std::mutex> g(g_lock);
+        auto it = g_children.find(texture);
+        if (it == g_children.end())
+            return;
+        kids.swap(it->second);
+        g_children.erase(it);
+        for (Facade_Surface* k : kids)
+        {
+            g_byObject.erase(k->obj);
+            g_byWrapper.erase(static_cast<void*>(static_cast<IDirect3DSurface9*>(k)));
+        }
+    }
+    for (Facade_Surface* k : kids)
+        delete k;
 }
 
 template <class T>
@@ -255,6 +322,22 @@ HRESULT DeviceOf(I** out)
     g_device->obj->AddRef();
     *out = g_device;
     return S_OK;
+}
+}  // namespace
+
+namespace
+{
+// The last reference of a texture-or-its-surfaces went: forget the texture's wrapper (and so its surfaces).
+void FacadeForgetContainer(void* textureWrapper)
+{
+    rhi::Object* o = ObjOf(textureWrapper);
+    auto* tex = o ? static_cast<rhi::Texture*>(o) : nullptr;
+    if (!tex)
+        return;
+    if (tex->Type() == D3DRTYPE_CUBETEXTURE)
+        FacadeForget(static_cast<Facade_CubeTexture*>(static_cast<IDirect3DCubeTexture9*>(textureWrapper)));
+    else
+        FacadeForget(static_cast<Facade_Texture*>(static_cast<IDirect3DTexture9*>(textureWrapper)));
 }
 }  // namespace
 
@@ -337,7 +420,7 @@ HRESULT Route_IDirect3DDevice9_GetBackBuffer(Facade_Device* self, UINT sc, UINT 
 {
     rhi::Surface* s = nullptr;
     HRESULT hr = Dev(self)->GetBackBuffer(sc, i, t, &s);
-    *out = WrapAs<Facade_Surface>(s);
+    *out = WrapSurface(s);
     return hr;
 }
 void Route_IDirect3DDevice9_SetGammaRamp(Facade_Device* self, UINT sc, DWORD f, const D3DGAMMARAMP* r)
@@ -381,7 +464,7 @@ HRESULT Route_IDirect3DDevice9_CreateOffscreenPlainSurface(Facade_Device* self, 
 {
     rhi::Surface* s = nullptr;
     HRESULT hr = Dev(self)->CreateOffscreenPlainSurface(w, h, f, p, &s);
-    *out = WrapAs<Facade_Surface>(s);
+    *out = WrapSurface(s);
     return hr;
 }
 HRESULT Route_IDirect3DDevice9_StretchRect(Facade_Device* self, IDirect3DSurface9* s, const RECT* sr,
@@ -401,7 +484,7 @@ HRESULT Route_IDirect3DDevice9_GetDepthStencilSurface(Facade_Device* self, IDire
 {
     rhi::Surface* s = nullptr;
     HRESULT hr = Dev(self)->GetDepthStencilSurface(&s);
-    *out = WrapAs<Facade_Surface>(s);
+    *out = WrapSurface(s);
     return hr;
 }
 HRESULT Route_IDirect3DDevice9_BeginScene(Facade_Device* self) { return Dev(self)->BeginScene(); }
@@ -541,7 +624,7 @@ HRESULT Route_IDirect3DTexture9_GetSurfaceLevel(Facade_Texture* self, UINT l, ID
 {
     rhi::Surface* s = nullptr;
     HRESULT hr = TEX->GetSurfaceLevel(l, &s);
-    *out = WrapAs<Facade_Surface>(s);
+    *out = WrapSurface(s);
     return hr;
 }
 HRESULT Route_IDirect3DCubeTexture9_GetDevice(Facade_CubeTexture*, IDirect3DDevice9** out) { return DeviceOf(out); }
@@ -557,7 +640,7 @@ HRESULT Route_IDirect3DCubeTexture9_GetCubeMapSurface(Facade_CubeTexture* self, 
 {
     rhi::Surface* s = nullptr;
     HRESULT hr = TEX->GetCubeMapSurface(f, l, &s);
-    *out = WrapAs<Facade_Surface>(s);
+    *out = WrapSurface(s);
     return hr;
 }
 HRESULT Route_IDirect3DTexture9_LockRect(Facade_Texture* self, UINT l, D3DLOCKED_RECT* r, const RECT* rc, DWORD f)

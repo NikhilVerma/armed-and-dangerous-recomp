@@ -48,7 +48,10 @@ struct Image
     VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT;
     bool renderTarget = false;
 
-    bool Create(D3DFORMAT f, uint32_t w, uint32_t h, uint32_t levels, uint32_t faces, bool rt, bool depth);
+    // `storage`: a different Vulkan format for the same D3D9 format (the back buffer is stored as RGBA16F, the HDR
+    // target, while the game still sees its own format).
+    bool Create(D3DFORMAT f, uint32_t w, uint32_t h, uint32_t levels, uint32_t faces, bool rt, bool depth,
+                VkFormat storage = VK_FORMAT_UNDEFINED);
     void Destroy();  // deferred until the frames using it are complete
     void Transition(VkCommandBuffer cb, VkImageLayout to);
     VkImageView AttachmentView(uint32_t level, uint32_t face);
@@ -61,11 +64,15 @@ class VulkanTexture;
 class VulkanSurface final : public Counted<Surface>
 {
 public:
-    VulkanSurface(VulkanTexture* owner, uint32_t level, uint32_t face);       // texture level (holds the owner)
+    VulkanSurface(VulkanTexture* owner, uint32_t level, uint32_t face);       // texture level (owned by it)
     VulkanSurface(std::shared_ptr<Image> image);                              // standalone image (back buffer, depth)
     VulkanSurface(D3DFORMAT f, uint32_t w, uint32_t h);                        // CPU-only (D3DPOOL_SYSTEMMEM/SCRATCH)
     ~VulkanSurface() override;
 
+    // A texture's surface is owned by it (rhi.h): references act on the texture.
+    ULONG AddRef() override;
+    ULONG Release() override;
+    Texture* Container() override;
     HRESULT GetDesc(D3DSURFACE_DESC* desc) override;
     HRESULT LockRect(D3DLOCKED_RECT* locked, const RECT* rect, DWORD flags) override;
     HRESULT UnlockRect() override;
@@ -110,6 +117,7 @@ public:
     D3DPOOL pool = D3DPOOL_MANAGED;
     // CPU copy per level x face (allocated on first lock), uploaded on unlock.
     std::vector<std::vector<uint8_t>> shadow;
+    std::vector<VulkanSurface*> surfaces;  // per level x face, created on first request, deleted with the texture
     std::vector<uint8_t>& Shadow(uint32_t level, uint32_t face);
     void Upload(uint32_t level, uint32_t face);
 
@@ -167,8 +175,12 @@ public:
     VkShaderModule module = VK_NULL_HANDLE;  // vertex shaders (pixel shaders depend on D3D9_FINAL: per variant)
     std::vector<std::pair<uint64_t, VkShaderModule>> variants;  // pixel: FinalPixelDefine hash -> module
     VkShaderModule PixelVariant(const FFKey& key);
+    VkShaderModule CaptureVariant();  // vertex: also writes clip positions (vk_abi.h kBindingCapture)
     bool pixel = false;
 };
+
+// `glsl` with the line `define` inserted after its #version line.
+std::string WithDefine(const std::string& glsl, const std::string& define);
 
 class VulkanPixelShader final : public Counted<PixelShader>
 {

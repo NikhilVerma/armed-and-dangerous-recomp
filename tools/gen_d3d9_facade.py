@@ -99,10 +99,13 @@ def gen_method(iface, idx, ret, name, params):
         lines += ["        return FacadeQueryInterface(this, riid, ppvObj);", "    }"]
         return lines
     if name == "AddRef":
-        lines += ["        ++refs;", "        return obj->AddRef();", "    }"]
+        lines += ["        ++*Refs();", "        return obj->AddRef();", "    }"]
         return lines
     if name == "Release":
-        lines += ["        rhi::Object* o = obj;", "        if (--refs == 0)", "            FacadeForget(this);",
+        # A texture's surface shares the texture wrapper's count (D3D9 container semantics, rhi.h): the last release
+        # of either forgets the texture wrapper, which deletes its surface wrappers.
+        lines += ["        rhi::Object* o = obj;", "        if (--*Refs() == 0)",
+                  "            container ? FacadeForgetContainer(container) : FacadeForget(this);",
                   "        return o->Release();", "    }"]
         return lines
     routed = f"Route_{iface}_{name}"
@@ -156,6 +159,9 @@ def main():
                 "    rhi::Object* obj;  // the renderer-interface object behind this one",
                 f"    {iface}* real;  // its D3D9 object (D3D9 backend), for methods outside the interface",
                 "    ULONG refs = 1;",
+                "    void* container = nullptr;       // a texture's surface: the texture's wrapper (shares its count)",
+                "    ULONG* containerRefs = nullptr;",
+                "    ULONG* Refs() { return containerRefs ? containerRefs : &refs; }",
                 f"    explicit {cls}(rhi::Object* o) : obj(o), real(static_cast<{iface}*>(o ? o->Native() : nullptr)) {{}}"]
         decls.append(f"class {cls};")
         for ret, name, params in ifaces[iface]:

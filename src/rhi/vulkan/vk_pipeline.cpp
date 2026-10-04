@@ -44,7 +44,7 @@ struct PipeCacheKey
 {
     RasterKey raster;
     uint64_t layoutHash, shaderHash;
-    uint32_t colorFormat, depthFormat;
+    uint32_t colorFormat, depthFormat, motionFormat;
     uint64_t vs, fs;
 };
 #pragma pack(pop)
@@ -249,11 +249,12 @@ VkDescriptorSetLayout DescriptorSetLayout()
     State& s = St();
     if (s.setLayout || !s.device)
         return s.setLayout;
-    VkDescriptorSetLayoutBinding b[3 + kMaxSamplers]{};
+    VkDescriptorSetLayoutBinding b[5 + kMaxSamplers]{};
     uint32_t n = 0;
-    for (uint32_t i : {kBindingVsConstants, kBindingPsConstants, kBindingFixedFunction})
+    for (uint32_t i : {kBindingVsConstants, kBindingPsConstants, kBindingFixedFunction, kBindingPrevFrame})
         b[n++] = {i, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
                   nullptr};
+    b[n++] = {kBindingCapture, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, nullptr};
     for (uint32_t i = 0; i < kMaxSamplers; ++i)
         b[n++] = {kBindingSampler0 + i, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT,
                   nullptr};
@@ -299,6 +300,7 @@ VkPipeline GetPipeline(const PipelineKey& key, const VertexInput& input, VkShade
     ck.shaderHash = key.shaderHash;
     ck.colorFormat = key.colorFormat;
     ck.depthFormat = key.depthFormat;
+    ck.motionFormat = key.motionFormat;
     ck.vs = HandleBits(vs);
     ck.fs = HandleBits(fs);
     if (auto it = s.pipelines.find(ck); it != s.pipelines.end())
@@ -389,9 +391,15 @@ VkPipeline GetPipeline(const PipelineKey& key, const VertexInput& input, VkShade
     }
     // D3DCOLORWRITEENABLE_RED/GREEN/BLUE/ALPHA are bits 0..3, the same as VK_COLOR_COMPONENT_R/G/B/A_BIT.
     att.colorWriteMask = rk.colorWriteEnable & 0xf;
+    // Attachment 1: motion vectors (vk_abi.h), written as is (no blending), when the target has one.
+    VkPipelineColorBlendAttachmentState atts[2] = {att, {}};
+    // Only surfaces that write depth write motion (opaque geometry); overlays, particles and UI keep what is under
+    // them, as temporal upscalers expect.
+    atts[1].colorWriteMask = depth && rk.zWriteEnable ? (VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT) : 0;
+    const VkFormat formats[2] = {colorFormat, static_cast<VkFormat>(key.motionFormat)};
     VkPipelineColorBlendStateCreateInfo cb{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
-    cb.attachmentCount = colorFormat != VK_FORMAT_UNDEFINED ? 1 : 0;
-    cb.pAttachments = &att;
+    cb.attachmentCount = colorFormat == VK_FORMAT_UNDEFINED ? 0 : (key.motionFormat != VK_FORMAT_UNDEFINED ? 2 : 1);
+    cb.pAttachments = atts;
 
     const VkDynamicState dynamic[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR, VK_DYNAMIC_STATE_DEPTH_BIAS,
                                       VK_DYNAMIC_STATE_BLEND_CONSTANTS, VK_DYNAMIC_STATE_STENCIL_REFERENCE};
@@ -403,7 +411,7 @@ VkPipeline GetPipeline(const PipelineKey& key, const VertexInput& input, VkShade
     // format, so the backend must bind the image as pDepthAttachment and pStencilAttachment when it has stencil.
     VkPipelineRenderingCreateInfo ri{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
     ri.colorAttachmentCount = cb.attachmentCount;
-    ri.pColorAttachmentFormats = &colorFormat;
+    ri.pColorAttachmentFormats = formats;
     ri.depthAttachmentFormat = HasDepth(depthFormat) ? depthFormat : VK_FORMAT_UNDEFINED;
     ri.stencilAttachmentFormat = HasStencil(depthFormat) ? depthFormat : VK_FORMAT_UNDEFINED;
 

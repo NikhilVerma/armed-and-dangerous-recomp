@@ -82,7 +82,7 @@ def check_scenario(name, a):
     shutil.rmtree(out, ignore_errors=True)
     os.makedirs(out)
     print(f"[{name}]")
-    ref_draws, ref_images, _, ref_load = run("d3d9", "d3d9", sc, a.frames, a.timeout)
+    ref_draws, ref_images, _, ref_load = run(a.reference, a.reference, sc, a.frames, a.timeout)
     ref_saved = {f: shutil.copy(p, os.path.join(out, f"d3d9-{f:05d}.bmp")) for f, p in ref_images.items()}
     # Scripted input: the reference ran it on absolute frames; the other backend gets it at the same game time,
     # counted from its own load end.
@@ -130,6 +130,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--scenario", default="menu,level,play")
     ap.add_argument("--backend", default="vulkan")
+    ap.add_argument("--reference", default="d3d9", help="reference backend (d3d9; vulkan to test vulkan's own determinism)")
     ap.add_argument("--frames", default="100:100:9")
     ap.add_argument("--timeout", type=int, default=240)
     a = ap.parse_args()

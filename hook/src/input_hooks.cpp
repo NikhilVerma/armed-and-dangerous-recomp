@@ -1,6 +1,7 @@
 // DirectInput interception: scripted key presses for tests (later: input record and replay, handover s12).
 //
 // [test] keys=30:ESC,45:ESC   at 30 s and 45 s after start-up, hold Escape for a few frames.
+// MOUSEX<n> / MOUSEY<n> move the mouse by n counts per poll while held (frame mode; for debugging motion vectors).
 // Key names: ESC, ENTER, SPACE, UP, DOWN, LEFT, RIGHT, or a DIK_ scan code number; MOUSE1..MOUSE3 for mouse
 // buttons (left, right, middle).
 #define DIRECTINPUT_VERSION 0x0800
@@ -24,7 +25,8 @@ struct ScriptedKey
     float at;
     BYTE dik;
     int framesLeft;
-    int button;  // mouse button 0..2, or -1 for a keyboard key
+    int button;  // mouse button 0..2, or -1 for a keyboard key, or -2 for mouse motion (dx, dy per frame)
+    int dx, dy;
 };
 ScriptedKey g_keys[32];
 int g_keyCount;
@@ -87,7 +89,7 @@ void ActiveKeys(BYTE* down, int* count)
     *count = 0;
     float t = KeyClock();
     for (int i = 0; i < g_keyCount; i++)
-        if (g_keys[i].button < 0 && KeyDown(g_keys[i], t))
+        if (g_keys[i].button == -1 && KeyDown(g_keys[i], t))
             down[(*count)++] = g_keys[i].dik;
 }
 
@@ -137,6 +139,11 @@ HRESULT STDMETHODCALLTYPE Hook_GetDeviceState(IDirectInputDevice8A* dev, DWORD s
         for (int i = 0; i < g_keyCount; i++)
             if (g_keys[i].button >= 0 && KeyDown(g_keys[i], t))
                 static_cast<DIMOUSESTATE*>(data)->rgbButtons[g_keys[i].button] = 0x80;
+            else if (g_keys[i].button == -2 && KeyDown(g_keys[i], t))
+            {
+                static_cast<DIMOUSESTATE*>(data)->lX += g_keys[i].dx;
+                static_cast<DIMOUSESTATE*>(data)->lY += g_keys[i].dy;
+            }
     }
     if (dev == g_keyboard && size >= 256 && SUCCEEDED(hr))
     {
@@ -170,6 +177,23 @@ HRESULT STDMETHODCALLTYPE Hook_GetDeviceData(IDirectInputDevice8A* dev, DWORD si
         for (int i = 0; i < g_keyCount; i++)
         {
             ScriptedKey& k = g_keys[i];
+            if (k.button == -2 && KeyDown(k, t))
+            {
+                for (int axis = 0; axis < 2 && *inOut < capacity; axis++)
+                {
+                    int v = axis ? k.dy : k.dx;
+                    if (!v)
+                        continue;
+                    DIDEVICEOBJECTDATA& e = *reinterpret_cast<DIDEVICEOBJECTDATA*>(reinterpret_cast<BYTE*>(data) +
+                                                                                   *inOut * size);
+                    memset(&e, 0, size);
+                    e.dwOfs = axis ? DIMOFS_Y : DIMOFS_X;
+                    e.dwData = static_cast<DWORD>(v);
+                    e.dwTimeStamp = GetTickCount();
+                    (*inOut)++;
+                }
+                continue;
+            }
             if (k.button < 0 || *inOut >= capacity)
                 continue;
             bool press = k.framesLeft == 6 && t >= k.at;
@@ -194,7 +218,7 @@ HRESULT STDMETHODCALLTYPE Hook_GetDeviceData(IDirectInputDevice8A* dev, DWORD si
         for (int i = 0; i < g_keyCount; i++)
         {
             ScriptedKey& k = g_keys[i];
-            if (*inOut >= capacity || k.button >= 0)
+            if (*inOut >= capacity || k.button != -1)
                 continue;
             // One press event and one release event per key. Frame mode: emitted on the first poll at or after
             // the press/release frame (framesLeft tracks which were sent). Time mode: first and last poll.
@@ -266,8 +290,15 @@ void InputHooksInit()
             continue;
         *colon = '\0';
         const char* key = colon + 1;
+        if (_strnicmp(key, "MOUSEX", 6) == 0 || _strnicmp(key, "MOUSEY", 6) == 0)
+        {
+            int v = atoi(key + 6);
+            bool y = key[5] == 'Y' || key[5] == 'y';
+            g_keys[g_keyCount++] = {static_cast<float>(atof(tok)), 0, 6, -2, y ? 0 : v, y ? v : 0};
+            continue;
+        }
         int button = _strnicmp(key, "MOUSE", 5) == 0 ? atoi(key + 5) - 1 : -1;
-        g_keys[g_keyCount++] = {static_cast<float>(atof(tok)), button >= 0 ? BYTE(0) : ParseKey(key), 6, button};
+        g_keys[g_keyCount++] = {static_cast<float>(atof(tok)), button >= 0 ? BYTE(0) : ParseKey(key), 6, button, 0, 0};
     }
     if (g_keyCount)
         Log("test: %d scripted key presses", g_keyCount);

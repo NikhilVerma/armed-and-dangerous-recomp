@@ -2,7 +2,8 @@
 //
 // FixedFunctionVertex: transform (incl. vertex blending), lighting, texture coordinate generation and transform,
 // vertex fog. FixedFunctionPixel: the texture stage cascade, specular add, then FinalPixelDefine's fog and alpha
-// test. The rules follow the D3D9 documentation ("Fixed Function Vertex Processing", "Mathematics of Lighting",
+// test. Both also carry the motion vectors of vk_abi.h (PrevFrame, varyings 11/12, output location 1); the motion
+// output is written by the pixel shader itself, not by D3D9_FINAL. The rules follow the D3D9 documentation ("Fixed Function Vertex Processing", "Mathematics of Lighting",
 // "Texture Blending", "Fog", "Alpha Testing State"); each rule is commented where it is implemented. Where the
 // documentation is silent, the choice is labelled "guess" with the reason.
 //
@@ -57,6 +58,33 @@ std::string UniformBlock(const char* blockName, const char* instance)
            "    vec4 bumpEnvLum[8];\n} " +
            instance + ";\n";
 }
+
+// The PrevFrame uniform block (vk_abi.h "Motion vectors"), member for member like PrevUniforms. Same matrix
+// convention as UniformBlock. Only the fixed-function vertex shader reads it (world, view, projection).
+static_assert(offsetof(PrevUniforms, view) == 256);
+static_assert(offsetof(PrevUniforms, projection) == 320);
+static_assert(offsetof(PrevUniforms, vsConstants) == 384);
+static_assert(sizeof(PrevUniforms) == 384 + kVsConstantCount * 16);
+std::string PrevFrameBlock()
+{
+    return "layout(std140, set = 0, binding = " + N(kBindingPrevFrame) +
+           ") uniform PrevFrame\n{\n    mat4 world[4];\n    mat4 view;\n    mat4 projection;\n    vec4 vsConstants[" +
+           N(kVsConstantCount) + "];\n} prevFrame;\n";
+}
+
+// Motion vector varyings and output (vk_abi.h "Motion vectors"): varyings 11 (current clip position before the
+// half-pixel offset) and 12 (previous clip position); fragment output 1 = prevUv - curUv with
+// uv = (ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5), ndc = clip.xy / clip.w. Not flat: they interpolate like positions.
+const char* kMotionPixelDecl = "layout(location = 11) in vec4 vCurClip;\n"
+                               "layout(location = 12) in vec4 vPrevClip;\n"
+                               "layout(location = 1) out vec2 fragMotion;\n";
+const char* kMotionPixelWrite =
+    "    {\n"
+    "        vec2 curNdc = vCurClip.xy / vCurClip.w, prevNdc = vPrevClip.xy / vPrevClip.w;\n"
+    "        vec2 curUv = vec2(curNdc.x * 0.5 + 0.5, 0.5 - curNdc.y * 0.5);\n"
+    "        vec2 prevUv = vec2(prevNdc.x * 0.5 + 0.5, 0.5 - prevNdc.y * 0.5);\n"
+    "        fragMotion = prevUv - curUv;  // motion vector (vk_abi.h)\n"
+    "    }\n";
 
 bool Has(const FFKey& key, BYTE usage, BYTE index)
 {
@@ -297,6 +325,7 @@ GeneratedShader FixedFunctionVertex(const FFKey& key)
 
     std::string s = "#version 450\n// D3D9 fixed-function vertex processing (vk_fixed_function.cpp)\n";
     s += UniformBlock("FixedFunction", "ff");
+    s += PrevFrameBlock();
     // Inputs: every attribute in the layout, as vec4. Vulkan fills missing components with (0, 0, 0, 1), which
     // is D3D9's rule for positions and colours too.
     auto input = [&](BYTE usage, BYTE index, const std::string& name) {
@@ -321,6 +350,9 @@ GeneratedShader FixedFunctionVertex(const FFKey& key)
     s += std::string("layout(location = 8) ") + flat + "out vec4 vs_color0;\n";
     s += std::string("layout(location = 9) ") + flat + "out vec4 vs_color1;\n";
     s += "layout(location = 10) out float vs_fog;\n";
+    s += "layout(location = 11) out vec4 vCurClip;   // motion vectors (vk_abi.h)\n";
+    s += "layout(location = 12) out vec4 vPrevClip;\n";
+    s += kCaptureGlsl;  // scene vertex capture (vk_abi.h)
     s += "\n// Inverse transpose of a world-view matrix's upper 3x3: D3D9 transforms normals by it.\n"
          "mat3 NormalMatrix(mat4 m) { return transpose(inverse(mat3(m))); }\n\n";
     s += "void main()\n{\n";
@@ -338,6 +370,8 @@ GeneratedShader FixedFunctionVertex(const FFKey& key)
              "    float depthRange = ff.viewportSize.w - ff.viewportSize.z;\n"
              "    float z = depthRange != 0.0 ? (p.z - ff.viewportSize.z) / depthRange : p.z;\n"
              "    gl_Position = vec4((2.0 * p.x / size.x - 1.0) * w, (1.0 - 2.0 * p.y / size.y) * w, z * w, w);\n";
+        // Screen-space vertices have no previous transform: no motion (previous = current).
+        s += "    vCurClip = gl_Position;\n    vPrevClip = gl_Position;\n";
     }
     else
     {
@@ -357,7 +391,8 @@ GeneratedShader FixedFunctionVertex(const FFKey& key)
         if (weights == 0 && !indexed)
         {
             s += "    mat4 worldView = ff.view * ff.world[0];\n"
-                 "    eyePos = worldView * position;\n";
+                 "    eyePos = worldView * position;\n"
+                 "    vec4 prevEyePos = (prevFrame.view * prevFrame.world[0]) * position;\n";
             if (hasNormal)
                 s += "    normal = NormalMatrix(worldView) * inNormal;\n";
         }
@@ -368,14 +403,17 @@ GeneratedShader FixedFunctionVertex(const FFKey& key)
                 s += "    weight[" + N(k) + "] = in_blendWeight[" + N(k) + "];\n    weightSum += weight[" + N(k) +
                      "];\n";
             s += "    weight[" + N(weights) + "] = 1.0 - weightSum;\n";
-            s += "    eyePos = vec4(0.0);\n";
+            s += "    eyePos = vec4(0.0);\n    vec4 prevEyePos = vec4(0.0);\n";
             for (int k = 0; k <= weights; ++k)
             {
                 // BLENDINDICES as written in the vertex (UBYTE4/SHORT4 arrive as integer-valued floats).
-                std::string m = indexed ? "ff.world[clamp(int(in_blendIndices[" + N(k) + "] + 0.5), 0, 3)]"
-                                        : "ff.world[" + N(k) + "]";
+                std::string idx = indexed ? "clamp(int(in_blendIndices[" + N(k) + "] + 0.5), 0, 3)" : N(k);
+                std::string m = "ff.world[" + idx + "]";
                 s += "    {\n        mat4 worldView = ff.view * " + m + ";\n";
                 s += "        eyePos += weight[" + N(k) + "] * (worldView * position);\n";
+                // The previous position: same weights and indices, previous world and view matrices.
+                s += "        prevEyePos += weight[" + N(k) + "] * ((prevFrame.view * prevFrame.world[" + idx +
+                     "]) * position);\n";
                 if (hasNormal)
                     s += "        normal += weight[" + N(k) + "] * (NormalMatrix(worldView) * inNormal);\n";
                 s += "    }\n";
@@ -385,7 +423,9 @@ GeneratedShader FixedFunctionVertex(const FFKey& key)
         if (hasNormal && key.normalizeNormals)
             s += "    normal = length(normal) > 0.0 ? normalize(normal) : normal;\n";
         s += "    gl_Position = ff.projection * eyePos;\n";
+        s += "    vCurClip = gl_Position;\n    vPrevClip = prevFrame.projection * prevEyePos;\n";
     }
+    s += "    D3D9_CAPTURE_WRITE(gl_Position);\n";
     // D3D9's half-pixel offset, applied by every vertex shader (vk_abi.h).
     s += "    gl_Position.xy += ff.halfPixel.xy * gl_Position.w;\n";
     s += std::string("    gl_PointSize = ") + (Has(key, D3DDECLUSAGE_PSIZE, 0) ? "in_pointSize.x" : "1.0") + ";\n";
@@ -562,6 +602,7 @@ GeneratedShader FixedFunctionPixel(const FFKey& key)
         s += "layout(location = " + N(i) + ") in vec4 ps_tc" + N(i) + ";\n";
     s += std::string("layout(location = 8) ") + flat + "in vec4 ps_color0;\n";
     s += std::string("layout(location = 9) ") + flat + "in vec4 ps_color1;\n";
+    s += kMotionPixelDecl;
 
     bool reads[8] = {};
     for (int i = 0; i < stages; ++i)
@@ -677,7 +718,9 @@ GeneratedShader FixedFunctionPixel(const FFKey& key)
         s += "    current.rgb = clamp(current.rgb + specular.rgb, 0.0, 1.0);\n";
     s += "    vec4 result = current;\n"
          "    D3D9_FINAL(result);  // fog and alpha test (FinalPixelDefine)\n"
-         "    fragColor = result;\n}\n";
+         "    fragColor = result;\n";
+    s += kMotionPixelWrite;
+    s += "}\n";
     g.glsl = s;
     return g;
 }

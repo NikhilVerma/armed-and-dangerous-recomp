@@ -1,6 +1,6 @@
 # Renderer interface (`src/rhi`)
 
-Status 2026-10-04: boundary complete for D3D9. With `[render] rhi=1`, every GPU call the game makes goes
+Status 2026-10-04: boundary complete, and the Vulkan backend runs at parity with remaster outputs (below). With `[render] rhi=1`, every GPU call the game makes goes
 through `rhi::`. The D3D9 backend gives identical frames in all comparison scenarios
 (`tools/compare.py --rhi`, run by `tools/check.ps1`), and no method falls back to D3D9 outside the interface
 (the facade logs `outside the renderer interface` if one does).
@@ -47,7 +47,56 @@ SDK's `d3d9.h`.
 ### 4. Backends
 
 - `rhi::d3d9` (`src/rhi/d3d9/backend.cpp`): one-to-one pass-through. This is the oracle.
-- `rhi::vulkan`: next (docs/goals/modern-renderer.md step 3).
+- `rhi::vulkan` (`src/rhi/vulkan/`, `[render] rhi=1 backend=vulkan`): our own Vulkan 1.3 backend. Parity with
+  D3D9 is checked by `tools/compare_backends.py` (menu, level, play, quit; run by `tools/check.ps1`): identical
+  draw counts per frame and images within MAE 3.
+
+### The Vulkan backend
+
+| File | Role |
+| --- | --- |
+| `vk_context.cpp` | instance, device (dynamic rendering, push descriptors, volk), D3D format table |
+| `vk_device.cpp` | frames, D3D9 state shadow, draws, Present; motion-vector draw matching; scene recording |
+| `vk_resources.cpp` | images, textures (shadow copies per level), buffers (renamed versions for DISCARD), shaders |
+| `vk_pipeline*.cpp` | pipeline cache keyed by raster state, vertex input from D3DVERTEXELEMENT9, samplers |
+| `vk_shader_translate.cpp` | D3D9 vs/ps 1.x-2.0 bytecode to GLSL (glslang at run time) |
+| `vk_fixed_function.cpp` | GLSL for the fixed-function pipeline (lighting, texgen, combiners, fog, alpha test) |
+| `vk_present.cpp` | HDR back buffer to the 8-bit present image: tonemap or debug view |
+| `vk_scene.cpp` | scene description: geometry extraction, camera, dump |
+| `vk_abi.h` | the contract between the shader generators and the device (bindings, varyings, uniform layouts) |
+
+D3D9 behaviours it reproduces because the game's output depends on them (each was measured against the D3D9
+backend): x87 24-bit precision after CreateDevice, present parameters written back, GetAvailableTextureMem
+0xFFB00000, SetLOD, table fog by depth z, X8 formats read with alpha 1, new resources zero-filled, and a
+texture's surfaces acting on the texture's reference count (container semantics, in the facade and both backends).
+
+### Remaster outputs (exposed, unused by default)
+
+- **Linear HDR:** the back buffer is RGBA16F. A present pass writes the 8-bit swapchain image.
+  `[render] tonemap=none|aces` (default none: values pass unchanged, so parity holds) and `exposure`.
+- **Depth:** the game's depth buffer (D24S8), kept for the present pass.
+- **Motion vectors:** an RG16F attachment next to the back buffer. Every vertex shader also computes last
+  frame's clip position from last frame's transforms of the same draw (`vk_abi.h` PrevUniforms). Draws are
+  matched across frames by buffers, shader, first texture, range and occurrence. Only depth-writing draws write
+  motion. Value: `prevUv - curUv` in 0..1 target coordinates.
+- **Debug views:** `[render] debug_view=depth|normals|motion`. Depth is linearised with the projection's _33,
+  _34 and _43 (the game's camera is right-handed, _34 = -1). Normals are reconstructed from depth. Motion is
+  shown x50 x `exposure`.
+  - Checked 2026-10-04 at play frame 600 with a scripted 2-count mouse turn (`MOUSEX2`): the vectors match
+    block-matched pixel displacement between frames 599 and 600 within a median of 1.4 px. The player character,
+    which moves with the camera, reads 0.
+- **Scene description** (`vk_scene.h`): every frame, one record per 3D draw into the back buffer. A record
+  holds buffers, layout, primitive range, transforms, vertex-shader constants, textures, material, blend and
+  alpha-test state, viewport and a draw id stable across frames, plus the frame's lights.
+  - **Positions:** the game draws everything with its own vertex shaders. All 456 compute a world position and
+    multiply it by the camera at c22..c25.
+  - **Vertex capture:** on capture frames, each draw runs a variant of its vertex shader that also writes the
+    clip position per vertex to a storage buffer (`vk_abi.h` binding 4). The camera's inverse turns these into
+    world space, including skinned meshes.
+  - **Dump:** `[render] vk_dump_scene=N` writes frame N to `and-vk-scene.txt` and `and-vk-scene.obj`.
+  - Checked 2026-10-04 at play frame 600: 757 draws, 110k triangles. Z-buffered by eye depth, they reproduce the
+    depth buffer to within its 8-bit display quantisation (median error 1.2 units, step 1.18). All
+    depth-covered pixels are covered.
 
 ## What the game uses (the Vulkan backend's job)
 
@@ -63,12 +112,9 @@ SDK's `d3d9.h`.
 
 ## Next
 
-- **Scene description:** a per-frame stream built from the same calls, independent of D3D9:
-  - camera from the view and projection transforms
-  - lights
-  - per draw: mesh (buffers plus layout), material (textures plus combiner state) and bone matrices (vertex
-    constants)
-
-  The Vulkan backend's depth, motion-vector and normal outputs, and later ray tracing, read from it.
+- **Ray tracing from the scene description:**
+  - Capture every frame into per-slot buffers, not only on dump frames.
+  - Build BLAS/TLAS from the captured world positions.
+  - Map materials to PBR: see docs/goals/modern-renderer.md, "After this goal".
 - **Unexercised paths:** recovered paths no scenario runs yet (display-mode change, saving, debug overlay;
   see tools/coverage.py) may still use methods outside the list. They will log if they do.

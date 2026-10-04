@@ -473,6 +473,9 @@ public:
     rhi::Object* obj;  // the renderer-interface object behind this one
     IDirect3D9* real;  // its D3D9 object (D3D9 backend), for methods outside the interface
     ULONG refs = 1;
+    void* container = nullptr;       // a texture's surface: the texture's wrapper (shares its count)
+    ULONG* containerRefs = nullptr;
+    ULONG* Refs() { return containerRefs ? containerRefs : &refs; }
     explicit Facade_Direct3D(rhi::Object* o) : obj(o), real(static_cast<IDirect3D9*>(o ? o->Native() : nullptr)) {}
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObj) override
     {
@@ -482,15 +485,15 @@ public:
     ULONG STDMETHODCALLTYPE AddRef() override
     {
         RhiCount(1);
-        ++refs;
+        ++*Refs();
         return obj->AddRef();
     }
     ULONG STDMETHODCALLTYPE Release() override
     {
         RhiCount(2);
         rhi::Object* o = obj;
-        if (--refs == 0)
-            FacadeForget(this);
+        if (--*Refs() == 0)
+            container ? FacadeForgetContainer(container) : FacadeForget(this);
         return o->Release();
     }
     HRESULT STDMETHODCALLTYPE RegisterSoftwareDevice(void* pInitializeFunction) override
@@ -657,6 +660,9 @@ public:
     rhi::Object* obj;  // the renderer-interface object behind this one
     IDirect3DDevice9* real;  // its D3D9 object (D3D9 backend), for methods outside the interface
     ULONG refs = 1;
+    void* container = nullptr;       // a texture's surface: the texture's wrapper (shares its count)
+    ULONG* containerRefs = nullptr;
+    ULONG* Refs() { return containerRefs ? containerRefs : &refs; }
     explicit Facade_Device(rhi::Object* o) : obj(o), real(static_cast<IDirect3DDevice9*>(o ? o->Native() : nullptr)) {}
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObj) override
     {
@@ -666,15 +672,15 @@ public:
     ULONG STDMETHODCALLTYPE AddRef() override
     {
         RhiCount(18);
-        ++refs;
+        ++*Refs();
         return obj->AddRef();
     }
     ULONG STDMETHODCALLTYPE Release() override
     {
         RhiCount(19);
         rhi::Object* o = obj;
-        if (--refs == 0)
-            FacadeForget(this);
+        if (--*Refs() == 0)
+            container ? FacadeForgetContainer(container) : FacadeForget(this);
         return o->Release();
     }
     HRESULT STDMETHODCALLTYPE TestCooperativeLevel() override
@@ -2013,6 +2019,9 @@ public:
     rhi::Object* obj;  // the renderer-interface object behind this one
     IDirect3DStateBlock9* real;  // its D3D9 object (D3D9 backend), for methods outside the interface
     ULONG refs = 1;
+    void* container = nullptr;       // a texture's surface: the texture's wrapper (shares its count)
+    ULONG* containerRefs = nullptr;
+    ULONG* Refs() { return containerRefs ? containerRefs : &refs; }
     explicit Facade_StateBlock(rhi::Object* o) : obj(o), real(static_cast<IDirect3DStateBlock9*>(o ? o->Native() : nullptr)) {}
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObj) override
     {
@@ -2022,15 +2031,15 @@ public:
     ULONG STDMETHODCALLTYPE AddRef() override
     {
         RhiCount(137);
-        ++refs;
+        ++*Refs();
         return obj->AddRef();
     }
     ULONG STDMETHODCALLTYPE Release() override
     {
         RhiCount(138);
         rhi::Object* o = obj;
-        if (--refs == 0)
-            FacadeForget(this);
+        if (--*Refs() == 0)
+            container ? FacadeForgetContainer(container) : FacadeForget(this);
         return o->Release();
     }
     HRESULT STDMETHODCALLTYPE GetDevice(IDirect3DDevice9** ppDevice) override
@@ -2076,6 +2085,9 @@ public:
     rhi::Object* obj;  // the renderer-interface object behind this one
     IDirect3DSwapChain9* real;  // its D3D9 object (D3D9 backend), for methods outside the interface
     ULONG refs = 1;
+    void* container = nullptr;       // a texture's surface: the texture's wrapper (shares its count)
+    ULONG* containerRefs = nullptr;
+    ULONG* Refs() { return containerRefs ? containerRefs : &refs; }
     explicit Facade_SwapChain(rhi::Object* o) : obj(o), real(static_cast<IDirect3DSwapChain9*>(o ? o->Native() : nullptr)) {}
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObj) override
     {
@@ -2085,15 +2097,15 @@ public:
     ULONG STDMETHODCALLTYPE AddRef() override
     {
         RhiCount(143);
-        ++refs;
+        ++*Refs();
         return obj->AddRef();
     }
     ULONG STDMETHODCALLTYPE Release() override
     {
         RhiCount(144);
         rhi::Object* o = obj;
-        if (--refs == 0)
-            FacadeForget(this);
+        if (--*Refs() == 0)
+            container ? FacadeForgetContainer(container) : FacadeForget(this);
         return o->Release();
     }
     HRESULT STDMETHODCALLTYPE Present(const RECT* pSourceRect, const RECT* pDestRect, HWND hDestWindowOverride, const RGNDATA* pDirtyRegion, DWORD dwFlags) override
@@ -2185,6 +2197,9 @@ public:
     rhi::Object* obj;  // the renderer-interface object behind this one
     IDirect3DVertexDeclaration9* real;  // its D3D9 object (D3D9 backend), for methods outside the interface
     ULONG refs = 1;
+    void* container = nullptr;       // a texture's surface: the texture's wrapper (shares its count)
+    ULONG* containerRefs = nullptr;
+    ULONG* Refs() { return containerRefs ? containerRefs : &refs; }
     explicit Facade_VertexDeclaration(rhi::Object* o) : obj(o), real(static_cast<IDirect3DVertexDeclaration9*>(o ? o->Native() : nullptr)) {}
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObj) override
     {
@@ -2194,15 +2209,15 @@ public:
     ULONG STDMETHODCALLTYPE AddRef() override
     {
         RhiCount(153);
-        ++refs;
+        ++*Refs();
         return obj->AddRef();
     }
     ULONG STDMETHODCALLTYPE Release() override
     {
         RhiCount(154);
         rhi::Object* o = obj;
-        if (--refs == 0)
-            FacadeForget(this);
+        if (--*Refs() == 0)
+            container ? FacadeForgetContainer(container) : FacadeForget(this);
         return o->Release();
     }
     HRESULT STDMETHODCALLTYPE GetDevice(IDirect3DDevice9** ppDevice) override
@@ -2237,6 +2252,9 @@ public:
     rhi::Object* obj;  // the renderer-interface object behind this one
     IDirect3DVertexShader9* real;  // its D3D9 object (D3D9 backend), for methods outside the interface
     ULONG refs = 1;
+    void* container = nullptr;       // a texture's surface: the texture's wrapper (shares its count)
+    ULONG* containerRefs = nullptr;
+    ULONG* Refs() { return containerRefs ? containerRefs : &refs; }
     explicit Facade_VertexShader(rhi::Object* o) : obj(o), real(static_cast<IDirect3DVertexShader9*>(o ? o->Native() : nullptr)) {}
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObj) override
     {
@@ -2246,15 +2264,15 @@ public:
     ULONG STDMETHODCALLTYPE AddRef() override
     {
         RhiCount(158);
-        ++refs;
+        ++*Refs();
         return obj->AddRef();
     }
     ULONG STDMETHODCALLTYPE Release() override
     {
         RhiCount(159);
         rhi::Object* o = obj;
-        if (--refs == 0)
-            FacadeForget(this);
+        if (--*Refs() == 0)
+            container ? FacadeForgetContainer(container) : FacadeForget(this);
         return o->Release();
     }
     HRESULT STDMETHODCALLTYPE GetDevice(IDirect3DDevice9** ppDevice) override
@@ -2289,6 +2307,9 @@ public:
     rhi::Object* obj;  // the renderer-interface object behind this one
     IDirect3DPixelShader9* real;  // its D3D9 object (D3D9 backend), for methods outside the interface
     ULONG refs = 1;
+    void* container = nullptr;       // a texture's surface: the texture's wrapper (shares its count)
+    ULONG* containerRefs = nullptr;
+    ULONG* Refs() { return containerRefs ? containerRefs : &refs; }
     explicit Facade_PixelShader(rhi::Object* o) : obj(o), real(static_cast<IDirect3DPixelShader9*>(o ? o->Native() : nullptr)) {}
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObj) override
     {
@@ -2298,15 +2319,15 @@ public:
     ULONG STDMETHODCALLTYPE AddRef() override
     {
         RhiCount(163);
-        ++refs;
+        ++*Refs();
         return obj->AddRef();
     }
     ULONG STDMETHODCALLTYPE Release() override
     {
         RhiCount(164);
         rhi::Object* o = obj;
-        if (--refs == 0)
-            FacadeForget(this);
+        if (--*Refs() == 0)
+            container ? FacadeForgetContainer(container) : FacadeForget(this);
         return o->Release();
     }
     HRESULT STDMETHODCALLTYPE GetDevice(IDirect3DDevice9** ppDevice) override
@@ -2341,6 +2362,9 @@ public:
     rhi::Object* obj;  // the renderer-interface object behind this one
     IDirect3DTexture9* real;  // its D3D9 object (D3D9 backend), for methods outside the interface
     ULONG refs = 1;
+    void* container = nullptr;       // a texture's surface: the texture's wrapper (shares its count)
+    ULONG* containerRefs = nullptr;
+    ULONG* Refs() { return containerRefs ? containerRefs : &refs; }
     explicit Facade_Texture(rhi::Object* o) : obj(o), real(static_cast<IDirect3DTexture9*>(o ? o->Native() : nullptr)) {}
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObj) override
     {
@@ -2350,15 +2374,15 @@ public:
     ULONG STDMETHODCALLTYPE AddRef() override
     {
         RhiCount(168);
-        ++refs;
+        ++*Refs();
         return obj->AddRef();
     }
     ULONG STDMETHODCALLTYPE Release() override
     {
         RhiCount(169);
         rhi::Object* o = obj;
-        if (--refs == 0)
-            FacadeForget(this);
+        if (--*Refs() == 0)
+            container ? FacadeForgetContainer(container) : FacadeForget(this);
         return o->Release();
     }
     HRESULT STDMETHODCALLTYPE GetDevice(IDirect3DDevice9** ppDevice) override
@@ -2582,6 +2606,9 @@ public:
     rhi::Object* obj;  // the renderer-interface object behind this one
     IDirect3DVolumeTexture9* real;  // its D3D9 object (D3D9 backend), for methods outside the interface
     ULONG refs = 1;
+    void* container = nullptr;       // a texture's surface: the texture's wrapper (shares its count)
+    ULONG* containerRefs = nullptr;
+    ULONG* Refs() { return containerRefs ? containerRefs : &refs; }
     explicit Facade_VolumeTexture(rhi::Object* o) : obj(o), real(static_cast<IDirect3DVolumeTexture9*>(o ? o->Native() : nullptr)) {}
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObj) override
     {
@@ -2591,15 +2618,15 @@ public:
     ULONG STDMETHODCALLTYPE AddRef() override
     {
         RhiCount(190);
-        ++refs;
+        ++*Refs();
         return obj->AddRef();
     }
     ULONG STDMETHODCALLTYPE Release() override
     {
         RhiCount(191);
         rhi::Object* o = obj;
-        if (--refs == 0)
-            FacadeForget(this);
+        if (--*Refs() == 0)
+            container ? FacadeForgetContainer(container) : FacadeForget(this);
         return o->Release();
     }
     HRESULT STDMETHODCALLTYPE GetDevice(IDirect3DDevice9** ppDevice) override
@@ -2823,6 +2850,9 @@ public:
     rhi::Object* obj;  // the renderer-interface object behind this one
     IDirect3DCubeTexture9* real;  // its D3D9 object (D3D9 backend), for methods outside the interface
     ULONG refs = 1;
+    void* container = nullptr;       // a texture's surface: the texture's wrapper (shares its count)
+    ULONG* containerRefs = nullptr;
+    ULONG* Refs() { return containerRefs ? containerRefs : &refs; }
     explicit Facade_CubeTexture(rhi::Object* o) : obj(o), real(static_cast<IDirect3DCubeTexture9*>(o ? o->Native() : nullptr)) {}
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObj) override
     {
@@ -2832,15 +2862,15 @@ public:
     ULONG STDMETHODCALLTYPE AddRef() override
     {
         RhiCount(212);
-        ++refs;
+        ++*Refs();
         return obj->AddRef();
     }
     ULONG STDMETHODCALLTYPE Release() override
     {
         RhiCount(213);
         rhi::Object* o = obj;
-        if (--refs == 0)
-            FacadeForget(this);
+        if (--*Refs() == 0)
+            container ? FacadeForgetContainer(container) : FacadeForget(this);
         return o->Release();
     }
     HRESULT STDMETHODCALLTYPE GetDevice(IDirect3DDevice9** ppDevice) override
@@ -3064,6 +3094,9 @@ public:
     rhi::Object* obj;  // the renderer-interface object behind this one
     IDirect3DVertexBuffer9* real;  // its D3D9 object (D3D9 backend), for methods outside the interface
     ULONG refs = 1;
+    void* container = nullptr;       // a texture's surface: the texture's wrapper (shares its count)
+    ULONG* containerRefs = nullptr;
+    ULONG* Refs() { return containerRefs ? containerRefs : &refs; }
     explicit Facade_VertexBuffer(rhi::Object* o) : obj(o), real(static_cast<IDirect3DVertexBuffer9*>(o ? o->Native() : nullptr)) {}
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObj) override
     {
@@ -3073,15 +3106,15 @@ public:
     ULONG STDMETHODCALLTYPE AddRef() override
     {
         RhiCount(234);
-        ++refs;
+        ++*Refs();
         return obj->AddRef();
     }
     ULONG STDMETHODCALLTYPE Release() override
     {
         RhiCount(235);
         rhi::Object* o = obj;
-        if (--refs == 0)
-            FacadeForget(this);
+        if (--*Refs() == 0)
+            container ? FacadeForgetContainer(container) : FacadeForget(this);
         return o->Release();
     }
     HRESULT STDMETHODCALLTYPE GetDevice(IDirect3DDevice9** ppDevice) override
@@ -3215,6 +3248,9 @@ public:
     rhi::Object* obj;  // the renderer-interface object behind this one
     IDirect3DIndexBuffer9* real;  // its D3D9 object (D3D9 backend), for methods outside the interface
     ULONG refs = 1;
+    void* container = nullptr;       // a texture's surface: the texture's wrapper (shares its count)
+    ULONG* containerRefs = nullptr;
+    ULONG* Refs() { return containerRefs ? containerRefs : &refs; }
     explicit Facade_IndexBuffer(rhi::Object* o) : obj(o), real(static_cast<IDirect3DIndexBuffer9*>(o ? o->Native() : nullptr)) {}
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObj) override
     {
@@ -3224,15 +3260,15 @@ public:
     ULONG STDMETHODCALLTYPE AddRef() override
     {
         RhiCount(248);
-        ++refs;
+        ++*Refs();
         return obj->AddRef();
     }
     ULONG STDMETHODCALLTYPE Release() override
     {
         RhiCount(249);
         rhi::Object* o = obj;
-        if (--refs == 0)
-            FacadeForget(this);
+        if (--*Refs() == 0)
+            container ? FacadeForgetContainer(container) : FacadeForget(this);
         return o->Release();
     }
     HRESULT STDMETHODCALLTYPE GetDevice(IDirect3DDevice9** ppDevice) override
@@ -3366,6 +3402,9 @@ public:
     rhi::Object* obj;  // the renderer-interface object behind this one
     IDirect3DSurface9* real;  // its D3D9 object (D3D9 backend), for methods outside the interface
     ULONG refs = 1;
+    void* container = nullptr;       // a texture's surface: the texture's wrapper (shares its count)
+    ULONG* containerRefs = nullptr;
+    ULONG* Refs() { return containerRefs ? containerRefs : &refs; }
     explicit Facade_Surface(rhi::Object* o) : obj(o), real(static_cast<IDirect3DSurface9*>(o ? o->Native() : nullptr)) {}
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObj) override
     {
@@ -3375,15 +3414,15 @@ public:
     ULONG STDMETHODCALLTYPE AddRef() override
     {
         RhiCount(262);
-        ++refs;
+        ++*Refs();
         return obj->AddRef();
     }
     ULONG STDMETHODCALLTYPE Release() override
     {
         RhiCount(263);
         rhi::Object* o = obj;
-        if (--refs == 0)
-            FacadeForget(this);
+        if (--*Refs() == 0)
+            container ? FacadeForgetContainer(container) : FacadeForget(this);
         return o->Release();
     }
     HRESULT STDMETHODCALLTYPE GetDevice(IDirect3DDevice9** ppDevice) override
@@ -3550,6 +3589,9 @@ public:
     rhi::Object* obj;  // the renderer-interface object behind this one
     IDirect3DVolume9* real;  // its D3D9 object (D3D9 backend), for methods outside the interface
     ULONG refs = 1;
+    void* container = nullptr;       // a texture's surface: the texture's wrapper (shares its count)
+    ULONG* containerRefs = nullptr;
+    ULONG* Refs() { return containerRefs ? containerRefs : &refs; }
     explicit Facade_Volume(rhi::Object* o) : obj(o), real(static_cast<IDirect3DVolume9*>(o ? o->Native() : nullptr)) {}
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObj) override
     {
@@ -3559,15 +3601,15 @@ public:
     ULONG STDMETHODCALLTYPE AddRef() override
     {
         RhiCount(279);
-        ++refs;
+        ++*Refs();
         return obj->AddRef();
     }
     ULONG STDMETHODCALLTYPE Release() override
     {
         RhiCount(280);
         rhi::Object* o = obj;
-        if (--refs == 0)
-            FacadeForget(this);
+        if (--*Refs() == 0)
+            container ? FacadeForgetContainer(container) : FacadeForget(this);
         return o->Release();
     }
     HRESULT STDMETHODCALLTYPE GetDevice(IDirect3DDevice9** ppDevice) override
@@ -3668,6 +3710,9 @@ public:
     rhi::Object* obj;  // the renderer-interface object behind this one
     IDirect3DQuery9* real;  // its D3D9 object (D3D9 backend), for methods outside the interface
     ULONG refs = 1;
+    void* container = nullptr;       // a texture's surface: the texture's wrapper (shares its count)
+    ULONG* containerRefs = nullptr;
+    ULONG* Refs() { return containerRefs ? containerRefs : &refs; }
     explicit Facade_Query(rhi::Object* o) : obj(o), real(static_cast<IDirect3DQuery9*>(o ? o->Native() : nullptr)) {}
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObj) override
     {
@@ -3677,15 +3722,15 @@ public:
     ULONG STDMETHODCALLTYPE AddRef() override
     {
         RhiCount(290);
-        ++refs;
+        ++*Refs();
         return obj->AddRef();
     }
     ULONG STDMETHODCALLTYPE Release() override
     {
         RhiCount(291);
         rhi::Object* o = obj;
-        if (--refs == 0)
-            FacadeForget(this);
+        if (--*Refs() == 0)
+            container ? FacadeForgetContainer(container) : FacadeForget(this);
         return o->Release();
     }
     HRESULT STDMETHODCALLTYPE GetDevice(IDirect3DDevice9** ppDevice) override

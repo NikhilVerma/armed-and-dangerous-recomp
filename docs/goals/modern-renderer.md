@@ -87,6 +87,19 @@ builds what they plug into.
 5. Tracker, docs (`docs/renderer-interface.md`, `docs/subsystems/renderer.md`) and journal are updated, and
    every commit passes `tools/check.ps1`.
 
+## Status 2026-10-04
+
+1. Done. 295 functions in the range: 293 at S2 and 2 at S3, all passing compare.
+2. Done. With `[render] rhi=1` every GPU call goes through `rhi::`. The D3D9 backend is identical in all 5
+   comparison scenarios (`check.ps1`, `compare.py --rhi`).
+3. Done. `backend=vulkan` passes `compare_backends.py` in menu, level, play and quit. Texture and model overrides
+   work on it.
+4. Done. Debug views are verified (docs/renderer-interface.md, "Remaster outputs"). Motion vectors match pixel
+   displacement within a median of 1.4 px. The HDR target and the default tonemap pass parity. The scene
+   description reproduces the depth buffer.
+5. Done with this session's commit: docs/renderer-interface.md, docs/subsystems/renderer.md, the journal, and
+   `check.ps1` green.
+
 ## After this goal (not in scope)
 
 - DLAA/DLSS and FSR using the motion vectors and depth from step 5.

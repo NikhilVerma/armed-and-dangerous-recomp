@@ -28,6 +28,7 @@ struct PipelineKey
     uint64_t shaderHash;    // hash of the vertex + fragment SPIR-V module pair
     uint32_t colorFormat;   // VkFormat of the render target (VK_FORMAT_UNDEFINED: none)
     uint32_t depthFormat;   // VkFormat of the depth-stencil target (VK_FORMAT_UNDEFINED: none)
+    uint32_t motionFormat;  // VkFormat of the motion-vector attachment 1 (VK_FORMAT_UNDEFINED: none; vk_abi.h)
 };
 
 // Vertex input state from a D3DVERTEXELEMENT9 array (ends with D3DDECL_END) and the stream strides set with
