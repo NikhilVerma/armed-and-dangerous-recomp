@@ -302,12 +302,34 @@ HRESULT Route_IDirect3D9_CreateDevice(Facade_Direct3D* self, UINT a, D3DDEVTYPE 
 // --- routes: IDirect3DDevice9 ---------------------------------------------------------------------------------
 
 HRESULT Route_IDirect3DDevice9_TestCooperativeLevel(Facade_Device* self) { return Dev(self)->TestCooperativeLevel(); }
-UINT Route_IDirect3DDevice9_GetAvailableTextureMem(Facade_Device* self) { return Dev(self)->GetAvailableTextureMem(); }
+UINT Route_IDirect3DDevice9_GetAvailableTextureMem(Facade_Device* self)
+{
+    UINT m = Dev(self)->GetAvailableTextureMem();
+    static int logged;
+    if (logged++ < 3)
+        Log("rhi: GetAvailableTextureMem -> 0x%08x", m);
+    return m;
+}
 HRESULT Route_IDirect3DDevice9_EvictManagedResources(Facade_Device* self) { return Dev(self)->EvictManagedResources(); }
 HRESULT Route_IDirect3DDevice9_GetDeviceCaps(Facade_Device* self, D3DCAPS9* c) { return Dev(self)->GetDeviceCaps(c); }
 HRESULT Route_IDirect3DDevice9_Reset(Facade_Device* self, D3DPRESENT_PARAMETERS* p) { return Dev(self)->Reset(p); }
+// [test] rhi_draws=1: draws per presented frame to and-rhi-draws.txt, whatever the backend; tools/compare_backends.py
+// requires the same counts from every backend (missing or extra geometry).
+static unsigned g_drawsThisFrame, g_drawFrame;
+static void CountDraw()
+{
+    ++g_drawsThisFrame;
+}
 HRESULT Route_IDirect3DDevice9_Present(Facade_Device* self, const RECT* s, const RECT* d, HWND w, const RGNDATA* r)
 {
+    static FILE* draws = ConfigInt("test", "rhi_draws", 0) ? fopen("and-rhi-draws.txt", "w") : nullptr;
+    if (draws)
+    {
+        fprintf(draws, "%u %u\n", g_drawFrame, g_drawsThisFrame);
+        fflush(draws);
+    }
+    ++g_drawFrame;
+    g_drawsThisFrame = 0;
     return Dev(self)->Present(s, d, w, r);
 }
 HRESULT Route_IDirect3DDevice9_GetBackBuffer(Facade_Device* self, UINT sc, UINT i, D3DBACKBUFFER_TYPE t,
@@ -418,11 +440,13 @@ HRESULT Route_IDirect3DDevice9_SetSamplerState(Facade_Device* self, DWORD s, D3D
 }
 HRESULT Route_IDirect3DDevice9_DrawPrimitive(Facade_Device* self, D3DPRIMITIVETYPE t, UINT s, UINT c)
 {
+    CountDraw();
     return Dev(self)->DrawPrimitive(t, s, c);
 }
 HRESULT Route_IDirect3DDevice9_DrawIndexedPrimitive(Facade_Device* self, D3DPRIMITIVETYPE t, INT b, UINT mi, UINT nv,
                                                     UINT si, UINT c)
 {
+    CountDraw();
     return Dev(self)->DrawIndexedPrimitive(t, b, mi, nv, si, c);
 }
 HRESULT Route_IDirect3DDevice9_CreateVertexDeclaration(Facade_Device* self, const D3DVERTEXELEMENT9* e,
@@ -437,8 +461,33 @@ HRESULT Route_IDirect3DDevice9_SetVertexDeclaration(Facade_Device* self, IDirect
 {
     return Dev(self)->SetVertexLayout(Obj<rhi::VertexLayout>(d));
 }
+// [test] dump_shaders=1: write each shader the game creates to shaders\<vs|ps>_<hash>.bin (bytecode up to and
+// including the end token 0x0000ffff), the test corpus for the Vulkan shader translator.
+static void DumpShader(const char* kind, const DWORD* code)
+{
+    static const int dump = ConfigInt("test", "dump_shaders", 0);
+    if (!dump || !code)
+        return;
+    size_t n = 0;
+    while (code[n] != 0x0000ffff && n < 65536)
+        ++n;
+    ++n;
+    unsigned long long h = 1469598103934665603ull;
+    for (size_t i = 0; i < n * 4; ++i)
+        h = (h ^ reinterpret_cast<const unsigned char*>(code)[i]) * 1099511628211ull;
+    CreateDirectoryA("shaders", nullptr);
+    char path[64];
+    sprintf(path, "shaders\\%s_%016llx.bin", kind, h);
+    if (FILE* f = fopen(path, "wb"))
+    {
+        fwrite(code, 4, n, f);
+        fclose(f);
+    }
+}
+
 HRESULT Route_IDirect3DDevice9_CreateVertexShader(Facade_Device* self, const DWORD* code, IDirect3DVertexShader9** out)
 {
+    DumpShader("vs", code);
     rhi::VertexShader* s = nullptr;
     HRESULT hr = Dev(self)->CreateVertexShader(code, &s);
     *out = WrapAs<Facade_VertexShader>(s);
@@ -462,6 +511,7 @@ HRESULT Route_IDirect3DDevice9_SetIndices(Facade_Device* self, IDirect3DIndexBuf
 }
 HRESULT Route_IDirect3DDevice9_CreatePixelShader(Facade_Device* self, const DWORD* code, IDirect3DPixelShader9** out)
 {
+    DumpShader("ps", code);
     rhi::PixelShader* s = nullptr;
     HRESULT hr = Dev(self)->CreatePixelShader(code, &s);
     *out = WrapAs<Facade_PixelShader>(s);
@@ -510,6 +560,20 @@ HRESULT Route_IDirect3DCubeTexture9_GetCubeMapSurface(Facade_CubeTexture* self, 
     *out = WrapAs<Facade_Surface>(s);
     return hr;
 }
+HRESULT Route_IDirect3DTexture9_LockRect(Facade_Texture* self, UINT l, D3DLOCKED_RECT* r, const RECT* rc, DWORD f)
+{
+    return TEX->LockRect(0, l, r, rc, f);
+}
+HRESULT Route_IDirect3DTexture9_UnlockRect(Facade_Texture* self, UINT l) { return TEX->UnlockRect(0, l); }
+HRESULT Route_IDirect3DCubeTexture9_LockRect(Facade_CubeTexture* self, D3DCUBEMAP_FACES face, UINT l, D3DLOCKED_RECT* r,
+                                             const RECT* rc, DWORD f)
+{
+    return TEX->LockRect(face, l, r, rc, f);
+}
+HRESULT Route_IDirect3DCubeTexture9_UnlockRect(Facade_CubeTexture* self, D3DCUBEMAP_FACES face, UINT l)
+{
+    return TEX->UnlockRect(face, l);
+}
 #undef TEX
 
 #define SURF static_cast<rhi::Surface*>(self->obj)
@@ -541,8 +605,20 @@ HRESULT Route_IDirect3DIndexBuffer9_Unlock(Facade_IndexBuffer* self) { return st
 // --- installation and diagnostics -----------------------------------------------------------------------------
 
 // Called by the Direct3DCreate9 hook (hook/src/d3d9_hooks.cpp) when [render] rhi=1.
+// [render] backend=vulkan selects the Vulkan backend (falls back to D3D9 if Vulkan is unavailable).
 IDirect3D9* RhiFacadeWrapDirect3D(IDirect3D9* real)
 {
+    char backend[32] = {};
+    ConfigString("render", "backend", "d3d9", backend, sizeof(backend));
+    if (_stricmp(backend, "vulkan") == 0)
+    {
+        if (rhi::Adapter* a = rhi::vulkan::CreateAdapter(real))
+        {
+            Log("rhi: Direct3D 9 facade installed (%d methods), backend vulkan", kRhiMethodCount);
+            return WrapAs<Facade_Direct3D>(a);
+        }
+        Log("rhi: Vulkan unavailable, using the D3D9 backend");
+    }
     Log("rhi: Direct3D 9 facade installed (%d methods), backend d3d9", kRhiMethodCount);
     return WrapAs<Facade_Direct3D>(rhi::d3d9::CreateAdapter(real));
 }

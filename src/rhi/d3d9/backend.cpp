@@ -108,6 +108,17 @@ public:
         return hr;
     }
 
+    HRESULT LockRect(UINT face, UINT level, D3DLOCKED_RECT* l, const RECT* r, DWORD f) override
+    {
+        return Type() == D3DRTYPE_CUBETEXTURE ? Cube()->LockRect(static_cast<D3DCUBEMAP_FACES>(face), level, l, r, f)
+                                              : Tex()->LockRect(level, l, r, f);
+    }
+    HRESULT UnlockRect(UINT face, UINT level) override
+    {
+        return Type() == D3DRTYPE_CUBETEXTURE ? Cube()->UnlockRect(static_cast<D3DCUBEMAP_FACES>(face), level)
+                                              : Tex()->UnlockRect(level);
+    }
+
 private:
     IDirect3DTexture9* Tex() { return static_cast<IDirect3DTexture9*>(n_); }
     IDirect3DCubeTexture9* Cube() { return static_cast<IDirect3DCubeTexture9*>(n_); }

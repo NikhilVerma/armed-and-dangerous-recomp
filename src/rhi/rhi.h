@@ -49,6 +49,9 @@ public:
     // New reference, as in D3D9. Cube textures use GetCubeMapSurface.
     virtual HRESULT GetSurfaceLevel(UINT level, Surface** out) = 0;
     virtual HRESULT GetCubeMapSurface(D3DCUBEMAP_FACES face, UINT level, Surface** out) = 0;
+    // Lock a level (face 0 for 2D textures) directly, as IDirect3DTexture9::LockRect / cube LockRect do.
+    virtual HRESULT LockRect(UINT face, UINT level, D3DLOCKED_RECT* locked, const RECT* rect, DWORD flags) = 0;
+    virtual HRESULT UnlockRect(UINT face, UINT level) = 0;
 };
 
 // Vertex or index buffer.
@@ -149,4 +152,12 @@ Adapter* CreateAdapter(IDirect3D9* real);
 // facade's fallbacks can wrap objects returned by methods outside the interface.
 Object* Adopt(IUnknown* real);
 }  // namespace d3d9
+
+namespace vulkan
+{
+// The Vulkan backend (src/rhi/vulkan). `queries` (a real IDirect3D9, reference taken over) answers caps, mode and
+// format queries so the game chooses the same rendering paths as with D3D9; no D3D9 device is created. Null if
+// Vulkan is unavailable.
+Adapter* CreateAdapter(IDirect3D9* queries);
+}  // namespace vulkan
 }  // namespace rhi

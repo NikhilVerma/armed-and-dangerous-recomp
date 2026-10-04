@@ -48,5 +48,19 @@ if (-not $Quick) {
     }
 }
 
+if (-not $Quick) {
+    Suite 'vulkan shader generators (vk_shader_test over the game''s shader corpus)' {
+        & pwsh -NoProfile -File (Join-Path $root 'tools/build.ps1') -Target vk_shader_test | Out-Null
+        if ($LASTEXITCODE) { throw 'vk_shader_test build failed' }
+        & (Join-Path $root 'build/hook-release/vk_shader_test.exe') (Join-Path $root 'work/shaders') | Select-Object -Last 1 | Out-Host
+        if ($LASTEXITCODE) { throw "vk_shader_test exit $LASTEXITCODE" }
+    }
+    Suite 'backend parity (D3D9 vs Vulkan: draws per frame and images, tools/compare_backends.py)' {
+        $py = Join-Path $root '.venv/Scripts/python.exe'
+        & $py (Join-Path $root 'tools/compare_backends.py') --scenario menu,level,play,quit | Select-String '^\[|FAIL|draws:|PASS' | Out-Host
+        if ($LASTEXITCODE) { throw "compare_backends.py exit $LASTEXITCODE" }
+    }
+}
+
 if ($failed) { Write-Host "RED: $failed suite(s) failed"; exit 1 }
 Write-Host 'GREEN'

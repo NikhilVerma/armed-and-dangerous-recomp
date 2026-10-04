@@ -16,6 +16,7 @@ void InputHooksInit();
 void TestHashInit();
 void TestScenarioInit();
 void TestScenarioOnExit();
+void TestFatalTraceInit();
 void TestClockInit();
 void InputHooksOnDirectInput(void* directInput);
 void D3D9HooksInstall();
@@ -54,6 +55,7 @@ static void Startup()
     RenderInit();
     OverridesInit();
     HooksInstallAll();
+    TestFatalTraceInit();
     D3D9HooksInstall();
 }
 

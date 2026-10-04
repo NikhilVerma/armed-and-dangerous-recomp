@@ -26,3 +26,8 @@ float ConfigFloat(const char* section, const char* key, float fallback)
     GetPrivateProfileStringA(section, key, "", buf, sizeof(buf), IniPath());
     return buf[0] ? static_cast<float>(atof(buf)) : fallback;
 }
+
+void ConfigString(const char* section, const char* key, const char* fallback, char* out, unsigned size)
+{
+    GetPrivateProfileStringA(section, key, fallback, out, size, IniPath());
+}

@@ -11,8 +11,11 @@
 #include <cstdlib>
 #include <cstring>
 
+#include "config.h"
 #include "hooks.h"
 #include "log.h"
+
+int TestFramesSinceLoad();  // testscenario.cpp
 
 namespace
 {
@@ -29,10 +32,21 @@ ULONGLONG g_start;
 bool g_frameMode;          // [test] keys_frames: schedule in presented frames (deterministic with the test clock)
 volatile unsigned g_frames;
 
-// Scripted-key clock: seconds since start-up, or presented frames in frame mode.
+
+// Scripted-key clock: seconds since start-up, or presented frames in frame mode. [test] keys_from_load=1: frames
+// since the scenario's level finished loading (no keys before), so backends whose loading takes a different number
+// of frames get their input at the same game time.
 float KeyClock()
 {
-    return g_frameMode ? static_cast<float>(g_frames) : (GetTickCount64() - g_start) / 1000.0f;
+    if (!g_frameMode)
+        return (GetTickCount64() - g_start) / 1000.0f;
+    static const bool fromLoad = ConfigInt("test", "keys_from_load", 0) != 0;
+    if (fromLoad)
+    {
+        int since = TestFramesSinceLoad();
+        return since < 0 ? -1.0f : static_cast<float>(since);
+    }
+    return static_cast<float>(g_frames);
 }
 
 using CreateDevice_t = HRESULT(STDMETHODCALLTYPE*)(IDirectInput8A*, REFGUID, LPDIRECTINPUTDEVICE8A*, LPUNKNOWN);

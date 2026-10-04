@@ -1,9 +1,10 @@
 # Build the 32-bit hook DLL (hook/) with MSVC + Ninja.
-# Usage: pwsh tools/build.ps1 [-Config Release|Debug] [-Clean]
-param([string]$Config = 'Release', [switch]$Clean)
+# Usage: pwsh tools/build.ps1 [-Config Release|Debug] [-Clean] [-BuildDir build/x] [-Target vk_shader_test]
+# Parallel agents each pass their own -BuildDir (one build tree must not be built by two processes at once).
+param([string]$Config = 'Release', [switch]$Clean, [string]$BuildDir = '', [string]$Target = '')
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
-$build = Join-Path $root "build/hook-$($Config.ToLower())"
+$build = if ($BuildDir) { Join-Path $root $BuildDir } else { Join-Path $root "build/hook-$($Config.ToLower())" }
 
 $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -products * -latest -property installationPath
 Import-Module "$vs\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
@@ -17,6 +18,6 @@ if (-not (Test-Path (Join-Path $root 'src/gen/orig_calls.h'))) {
 if ($Clean -and (Test-Path $build)) { Remove-Item -Recurse -Force $build }
 cmake -S (Join-Path $root 'hook') -B $build -G Ninja "-DCMAKE_BUILD_TYPE=$Config" | Out-Null
 if ($LASTEXITCODE) { throw 'cmake configure failed' }
-cmake --build $build
+if ($Target) { cmake --build $build --target $Target } else { cmake --build $build }
 if ($LASTEXITCODE) { throw 'build failed' }
-Write-Host "built $build\dinput8.dll"
+Write-Host "built $build\$(if ($Target) { $Target } else { 'dinput8.dll' })"

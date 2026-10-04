@@ -1,0 +1,46 @@
+// GLSL to SPIR-V with glslang (linked statically; no external compiler at run time).
+#include <glslang/Public/ResourceLimits.h>
+#include <glslang/Public/ShaderLang.h>
+#include <SPIRV/GlslangToSpv.h>
+
+#include <cstdio>
+#include <mutex>
+
+#include "vk_shaders.h"
+
+#ifndef RHI_SHADER_TEST
+#include "log.h"
+#else
+#define Log(...) (std::fprintf(stderr, __VA_ARGS__), std::fprintf(stderr, "\n"))
+#endif
+
+namespace rhi::vulkan
+{
+std::vector<uint32_t> CompileGlsl(const std::string& glsl, bool pixel)
+{
+    static std::once_flag once;
+    std::call_once(once, [] { glslang::InitializeProcess(); });
+    EShLanguage stage = pixel ? EShLangFragment : EShLangVertex;
+    glslang::TShader shader(stage);
+    const char* src = glsl.c_str();
+    shader.setStrings(&src, 1);
+    shader.setEnvInput(glslang::EShSourceGlsl, stage, glslang::EShClientVulkan, 100);
+    shader.setEnvClient(glslang::EShClientVulkan, glslang::EShTargetVulkan_1_3);
+    shader.setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_6);
+    if (!shader.parse(GetDefaultResources(), 450, false, EShMsgDefault))
+    {
+        Log("vulkan: GLSL %s shader failed to compile: %s", pixel ? "pixel" : "vertex", shader.getInfoLog());
+        return {};
+    }
+    glslang::TProgram program;
+    program.addShader(&shader);
+    if (!program.link(EShMsgDefault))
+    {
+        Log("vulkan: GLSL link failed: %s", program.getInfoLog());
+        return {};
+    }
+    std::vector<uint32_t> spirv;
+    glslang::GlslangToSpv(*program.getIntermediate(stage), spirv);
+    return spirv;
+}
+}  // namespace rhi::vulkan

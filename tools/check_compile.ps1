@@ -9,10 +9,15 @@ Enter-VsDevShell -VsInstallPath $vs -SkipAutomaticLocation -DevCmdArguments '-ar
 $minhook = Get-ChildItem (Join-Path $root 'build') -Recurse -Directory -Filter 'minhook-src' | Select-Object -First 1
 $includes = @('hook/src', 'hook/enhance', 'src') | ForEach-Object { '/I' + (Join-Path $root $_) }
 if ($minhook) { $includes += '/I' + (Join-Path $minhook.FullName 'include') }
+# Vulkan backend dependencies (fetched by hook/CMakeLists.txt into the default build tree)
+$deps = Join-Path $root 'build/hook-release/_deps'
+foreach ($d in 'vulkan_headers-src/include', 'volk-src', 'glslang-src', 'glslang-build/include') {
+    if (Test-Path (Join-Path $deps $d)) { $includes += '/I' + (Join-Path $deps $d) }
+}
 $failed = 0
 foreach ($file in $args) {
     $out = & cl /nologo /c /Zs /TP /std:c++20 /EHsc /O2 /MT /arch:IA32 /fp:precise /W4 /permissive- /utf-8 `
-        /DWIN32 /D_WINDOWS /DNOMINMAX /DWIN32_LEAN_AND_MEAN /D_CRT_SECURE_NO_WARNINGS $includes $file 2>&1
+        /DWIN32 /D_WINDOWS /DNOMINMAX /DWIN32_LEAN_AND_MEAN /D_CRT_SECURE_NO_WARNINGS /DVK_NO_PROTOTYPES /DVK_USE_PLATFORM_WIN32_KHR $includes $file 2>&1
     $problems = $out | Select-String -Pattern ' error | warning '
     if ($LASTEXITCODE -or $problems) { $failed++; $out | Out-Host } else { Write-Host "ok $file" }
 }

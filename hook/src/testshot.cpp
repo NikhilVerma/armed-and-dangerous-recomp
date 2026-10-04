@@ -123,9 +123,14 @@ static unsigned long long HashBackBuffer(IDirect3DDevice9* dev)
     return h;
 }
 
+int TestFramesSinceLoad();
+static bool FrameNumber(unsigned absolute, unsigned* f);
+
 void TestHashBeforePresent(IDirect3DDevice9* dev)
 {
-    unsigned f = g_frame++;
+    unsigned f;
+    if (!FrameNumber(g_frame++, &f))
+        return;
     if (!g_hashCount || f < g_hashFirst || (f - g_hashFirst) % g_hashEvery || (f - g_hashFirst) / g_hashEvery >= g_hashCount)
         return;
     unsigned long long h = HashBackBuffer(dev);
@@ -155,4 +160,60 @@ void TestShotBeforePresent(IDirect3DDevice9* dev)
     sprintf(path, "and-shot-%gs.bmp", g_shotTimes[g_nextShot]);
     SaveBackBuffer(dev, path);
     g_nextShot++;
+}
+
+// For backends that present without the real D3D9 device (rhi::vulkan): the same frame counting and selection as
+// TestHashBeforePresent. Returns true when this frame is to be saved (hash_frames + dump_hashed) and gives its
+// number; the backend then reads its back buffer and calls TestSaveBgra.
+int TestFramesSinceLoad();  // testscenario.cpp
+
+// [test] hash_from_load=1: hash_frames counts from the end of the scenario's level load instead of start-up, so
+// backends whose loading takes a different number of frames are compared at the same game time.
+static bool FrameNumber(unsigned absolute, unsigned* f)
+{
+    static const int fromLoad = ConfigInt("test", "hash_from_load", 0);
+    if (!fromLoad)
+        return *f = absolute, true;
+    int since = TestFramesSinceLoad();
+    if (since < 0)
+        return false;
+    *f = static_cast<unsigned>(since);
+    return true;
+}
+
+bool TestFrameDump(unsigned* frame)
+{
+    unsigned f;
+    if (!FrameNumber(g_frame++, &f))
+        return false;
+    *frame = f;
+    if (!g_hashCount || f < g_hashFirst || (f - g_hashFirst) % g_hashEvery || (f - g_hashFirst) / g_hashEvery >= g_hashCount)
+        return false;
+    static const int dump = ConfigInt("test", "dump_hashed", 0);
+    return dump != 0;
+}
+
+void TestSaveBgra(unsigned frame, const void* pixels, unsigned width, unsigned height, unsigned pitch)
+{
+    char path[64];
+    sprintf(path, "and-frame-%05u.bmp", frame);
+    FILE* f = fopen(path, "wb");
+    if (!f)
+        return;
+    BITMAPFILEHEADER fh{};
+    BITMAPINFOHEADER ih{};
+    ih.biSize = sizeof(ih);
+    ih.biWidth = width;
+    ih.biHeight = -static_cast<LONG>(height);
+    ih.biPlanes = 1;
+    ih.biBitCount = 32;
+    fh.bfType = 0x4d42;
+    fh.bfOffBits = sizeof(fh) + sizeof(ih);
+    fh.bfSize = fh.bfOffBits + width * height * 4;
+    fwrite(&fh, sizeof(fh), 1, f);
+    fwrite(&ih, sizeof(ih), 1, f);
+    for (unsigned y = 0; y < height; y++)
+        fwrite(static_cast<const BYTE*>(pixels) + y * pitch, 4, width, f);
+    fclose(f);
+    Log("test: saved %s (%ux%u, backend)", path, width, height);
 }

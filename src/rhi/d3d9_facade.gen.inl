@@ -426,6 +426,10 @@ DWORD Route_IDirect3DTexture9_GetLevelCount(Facade_Texture* self);
 HRESULT Route_IDirect3DTexture9_GetLevelDesc(Facade_Texture* self, UINT Level, D3DSURFACE_DESC * pDesc);
 #define ROUTE_IDirect3DTexture9_GetSurfaceLevel
 HRESULT Route_IDirect3DTexture9_GetSurfaceLevel(Facade_Texture* self, UINT Level, IDirect3DSurface9** ppSurfaceLevel);
+#define ROUTE_IDirect3DTexture9_LockRect
+HRESULT Route_IDirect3DTexture9_LockRect(Facade_Texture* self, UINT Level, D3DLOCKED_RECT* pLockedRect, const RECT* pRect, DWORD Flags);
+#define ROUTE_IDirect3DTexture9_UnlockRect
+HRESULT Route_IDirect3DTexture9_UnlockRect(Facade_Texture* self, UINT Level);
 #define ROUTE_IDirect3DCubeTexture9_GetDevice
 HRESULT Route_IDirect3DCubeTexture9_GetDevice(Facade_CubeTexture* self, IDirect3DDevice9** ppDevice);
 #define ROUTE_IDirect3DCubeTexture9_GetLOD
@@ -438,6 +442,10 @@ DWORD Route_IDirect3DCubeTexture9_GetLevelCount(Facade_CubeTexture* self);
 HRESULT Route_IDirect3DCubeTexture9_GetLevelDesc(Facade_CubeTexture* self, UINT Level, D3DSURFACE_DESC * pDesc);
 #define ROUTE_IDirect3DCubeTexture9_GetCubeMapSurface
 HRESULT Route_IDirect3DCubeTexture9_GetCubeMapSurface(Facade_CubeTexture* self, D3DCUBEMAP_FACES FaceType, UINT Level, IDirect3DSurface9** ppCubeMapSurface);
+#define ROUTE_IDirect3DCubeTexture9_LockRect
+HRESULT Route_IDirect3DCubeTexture9_LockRect(Facade_CubeTexture* self, D3DCUBEMAP_FACES FaceType, UINT Level, D3DLOCKED_RECT* pLockedRect, const RECT* pRect, DWORD Flags);
+#define ROUTE_IDirect3DCubeTexture9_UnlockRect
+HRESULT Route_IDirect3DCubeTexture9_UnlockRect(Facade_CubeTexture* self, D3DCUBEMAP_FACES FaceType, UINT Level);
 #define ROUTE_IDirect3DSurface9_GetDevice
 HRESULT Route_IDirect3DSurface9_GetDevice(Facade_Surface* self, IDirect3DDevice9** ppDevice);
 #define ROUTE_IDirect3DSurface9_GetDesc

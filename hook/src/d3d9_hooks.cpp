@@ -87,6 +87,15 @@ static HRESULT STDMETHODCALLTYPE Hook_Present(IDirect3DDevice9* dev, const RECT*
     return hr;
 }
 
+// Per-frame harness work for backends that present without the real D3D9 device (rhi::vulkan calls this after
+// each Present): the same as Hook_Present does after the real Present.
+void HarnessOnFrame()
+{
+    TestClockOnFrame();
+    TestScenarioOnFrame();
+    InputOnFrame();
+}
+
 static HRESULT STDMETHODCALLTYPE Hook_CreateDevice(IDirect3D9* d3d, UINT adapter, D3DDEVTYPE type, HWND wnd,
                                                    DWORD flags, D3DPRESENT_PARAMETERS* pp, IDirect3DDevice9** out)
 {

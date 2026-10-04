@@ -24,6 +24,7 @@ unsigned g_exitFrame, g_closeFrame, g_resizeFrame, g_frame;
 // Level-load window for the Direct3D trace: from the scenario's level request until the game's loading flag
 // (Game+0x74c) has been seen set and then cleared.
 bool g_loadWindow, g_loadSeen;
+unsigned g_loadFinishedFrame;  // 0 until the scenario's level has loaded
 
 BOOL CALLBACK ResizeProcessWindows(HWND wnd, LPARAM)
 {
@@ -78,6 +79,7 @@ void TestScenarioInit()
 }
 
 void D3DTraceFlush();
+void TestClockSet(double seconds);  // testclock.cpp
 void D3DTraceFinish();
 void RhiWriteCalls();
 
@@ -100,7 +102,15 @@ void TestScenarioOnFrame()
         if (g_loadSeen && !game->loadingLevel)
         {
             g_loadWindow = false;
+            g_loadFinishedFrame = g_frame;
             Log("test: level load finished at frame %u", g_frame);
+            // [test] reseed_on_load=1: the same state at the end of the load whatever the load took (the number of
+            // loading frames differs per backend and per run): the game's C runtime srand (0x005391c0) with a fixed
+            // seed, and the virtual clock set to 1000 s.
+            if (ConfigInt("test", "reseed_on_load", 0))
+            {
+                reinterpret_cast<void(__cdecl*)(unsigned)>(0x005391c0)(12345);
+            }
         }
     }
     if (g_resizeFrame && g_frame == g_resizeFrame)
@@ -137,4 +147,35 @@ void TestScenarioOnExit()
 bool TestInLoadWindow()
 {
     return g_loadWindow;
+}
+// [test] trace_fatal=1: log who calls the game's fatal-error routine 0x004495b0 (shows the "problem with the disc"
+// screen), with its caller's return address, then run it.
+static void* g_realFatal;
+static void __stdcall LogFatal(DWORD returnAddress, DWORD arg)
+{
+    Log("test: fatal error routine called from 0x%08lx (arg %ld)", returnAddress - 5, static_cast<long>(arg));
+}
+static __declspec(naked) void Hook_Fatal()
+{
+    __asm {
+        pushad
+        push dword ptr [esp + 36]  // the caller's first stack argument
+        push dword ptr [esp + 36]  // return address (esp + 32 + 4 after the first push)
+        call LogFatal
+        popad
+        jmp dword ptr [g_realFatal]
+    }
+}
+
+void TestFatalTraceInit()
+{
+    if (ConfigInt("test", "trace_fatal", 0))
+        HookAt(reinterpret_cast<void*>(0x004495b0), reinterpret_cast<void*>(Hook_Fatal), &g_realFatal, "fatal-error trace");
+}
+
+
+// Frames presented since the scenario's level finished loading, or -1 before that (for [test] hash_from_load).
+int TestFramesSinceLoad()
+{
+    return g_loadFinishedFrame ? static_cast<int>(g_frame - g_loadFinishedFrame) : -1;
 }

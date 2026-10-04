@@ -79,3 +79,10 @@ bool TestClockEnabled()
 {
     return g_enabled;
 }
+
+// Set the virtual clock (tests: the same game time at the end of a level load, whatever the load took).
+void TestClockSet(double seconds)
+{
+    if (g_enabled)
+        InterlockedExchange64(&g_now, static_cast<LONGLONG>(seconds * kFreq));
+}
