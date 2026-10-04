@@ -544,7 +544,7 @@ address,size,name,subsystem,stage,approach,provenance,test,tokens,minutes
 0x00423360,181,FUN_00423360,,S0,,,,,
 0x00423430,58,FUN_00423430,,S0,,,,,
 0x00423470,81,FUN_00423470,,S0,,,,,
-0x004234d0,421,FUN_004234d0,,S0,,,,,
+0x004234d0,421,Fx_CreateObject,game,S2,B,recovered:src/game/fx.cpp,compare:menu+level,,
 0x00423680,294,Fx_AttachMesh,game,S2,B,recovered:src/game/fx.cpp,compare:menu+level,,
 0x004237b0,99,FUN_004237b0,,S0,,,,,
 0x00423820,114,FUN_00423820,,S0,,,,,

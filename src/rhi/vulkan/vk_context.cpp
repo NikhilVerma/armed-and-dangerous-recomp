@@ -94,6 +94,7 @@ bool ContextInit()
     c.tessellation = supported.tessellationShader == VK_TRUE;
     f2.features.vertexPipelineStoresAndAtomics = supported.vertexPipelineStoresAndAtomics;  // scene vertex capture
     c.vertexStores = supported.vertexPipelineStoresAndAtomics == VK_TRUE;
+    f2.features.dualSrcBlend = supported.dualSrcBlend;  // remaster: sky-tinted shadows (vk_shadows.cpp)
     const char* deviceExt[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME};
     VkDeviceCreateInfo dci{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
     dci.pNext = &f2;

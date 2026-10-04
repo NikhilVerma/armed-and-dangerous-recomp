@@ -32,8 +32,9 @@ struct ScriptedKey
     int framesLeft;
     int button;  // mouse button 0..2, or -1 for a keyboard key, or -2 for mouse motion (dx, dy per frame)
     int dx, dy;
+    float hold;  // frame mode: frames held ("KEY*N"; 3 by default)
 };
-ScriptedKey g_keys[32];
+ScriptedKey g_keys[64];
 int g_keyCount;
 ULONGLONG g_start;
 bool g_frameMode;          // [test] keys_frames: schedule in presented frames (deterministic with the test clock)
@@ -78,14 +79,15 @@ BYTE ParseKey(const char* name)
     return static_cast<BYTE>(atoi(name));
 }
 
-// Frame mode: a key is down during frames [at, at + kHoldFrames), whatever the number of polls (deterministic).
+// Frame mode: a key is down during frames [at, at + hold), whatever the number of polls (deterministic). The
+// hold is 3 frames, or N with "frame:KEY*N" (walking: "500:17*120" holds W, scan code 17, for 120 frames).
 // Time mode: held for 6 polls from its time (interactive use).
 constexpr float kHoldFrames = 3;
 
 bool KeyDown(ScriptedKey& k, float t)
 {
     if (g_frameMode)
-        return t >= k.at && t < k.at + kHoldFrames;
+        return t >= k.at && t < k.at + k.hold;
     return t >= k.at && k.framesLeft > 0;
 }
 
@@ -206,7 +208,7 @@ HRESULT STDMETHODCALLTYPE Hook_GetDeviceData(IDirectInputDevice8A* dev, DWORD si
             if (k.button < 0 || *inOut >= capacity)
                 continue;
             bool press = k.framesLeft == 6 && t >= k.at;
-            bool release = k.framesLeft == 5 && t >= k.at + (g_frameMode ? kHoldFrames : 0.1f);
+            bool release = k.framesLeft == 5 && t >= k.at + (g_frameMode ? k.hold : 0.1f);
             if (!press && !release)
                 continue;
             k.framesLeft--;
@@ -235,7 +237,7 @@ HRESULT STDMETHODCALLTYPE Hook_GetDeviceData(IDirectInputDevice8A* dev, DWORD si
             if (g_frameMode)
             {
                 press = k.framesLeft == 6 && t >= k.at;
-                release = k.framesLeft == 5 && t >= k.at + kHoldFrames;
+                release = k.framesLeft == 5 && t >= k.at + k.hold;
                 if (press || release)
                     k.framesLeft--;
             }
@@ -285,29 +287,33 @@ HRESULT STDMETHODCALLTYPE Hook_CreateDevice(IDirectInput8A* di, REFGUID guid, LP
 void InputHooksInit()
 {
     g_start = GetTickCount64();
-    char ini[MAX_PATH], buf[512];
+    char ini[MAX_PATH], buf[2048];
     GetModuleFileNameA(nullptr, ini, MAX_PATH);
     strcpy(strrchr(ini, '\\') + 1, "and.ini");
     GetPrivateProfileStringA("test", "keys_frames", "", buf, sizeof(buf), ini);
     g_frameMode = buf[0] != 0;
     if (!g_frameMode)
         GetPrivateProfileStringA("test", "keys", "", buf, sizeof(buf), ini);
-    for (char* tok = strtok(buf, ","); tok && g_keyCount < 32; tok = strtok(nullptr, ","))
+    for (char* tok = strtok(buf, ","); tok && g_keyCount < 64; tok = strtok(nullptr, ","))
     {
         char* colon = strchr(tok, ':');
         if (!colon)
             continue;
         *colon = '\0';
         const char* key = colon + 1;
+        float hold = kHoldFrames;
+        if (char* star = strchr(colon + 1, '*'))
+            *star = '\0', hold = static_cast<float>(atof(star + 1));
         if (_strnicmp(key, "MOUSEX", 6) == 0 || _strnicmp(key, "MOUSEY", 6) == 0)
         {
             int v = atoi(key + 6);
             bool y = key[5] == 'Y' || key[5] == 'y';
-            g_keys[g_keyCount++] = {static_cast<float>(atof(tok)), 0, 6, -2, y ? 0 : v, y ? v : 0};
+            g_keys[g_keyCount++] = {static_cast<float>(atof(tok)), 0, 6, -2, y ? 0 : v, y ? v : 0, hold};
             continue;
         }
         int button = _strnicmp(key, "MOUSE", 5) == 0 ? atoi(key + 5) - 1 : -1;
-        g_keys[g_keyCount++] = {static_cast<float>(atof(tok)), button >= 0 ? BYTE(0) : ParseKey(key), 6, button, 0, 0};
+        g_keys[g_keyCount++] = {static_cast<float>(atof(tok)), button >= 0 ? BYTE(0) : ParseKey(key), 6, button, 0, 0,
+                                hold};
     }
     if (g_keyCount)
         Log("test: %d scripted key presses", g_keyCount);

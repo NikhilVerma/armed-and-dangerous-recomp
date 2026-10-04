@@ -6,7 +6,8 @@
 //   shadow_strength=0.55 how dark a full shadow is (0..1)
 //   shadow_range=60      half size of the shadowed area around the view, in world units
 //   shadow_size=4096     shadow map resolution
-//   shadow_softness=1.5  the sun's angular radius in degrees: soft shadows widen with the caster's distance (PCSS)
+//   shadow_softness=0.6  the light's angular radius in degrees (the bare sun is 0.27; haze and the bright snow
+//                        sky widen it): penumbrae widen with the occluder's distance, without a ceiling (PCSS)
 //
 // Each frame, when the UI pass starts (g_uiPassBegin, src/game/ui_pass.cpp) the 3D scene is complete: the camera's
 // view (Game+0x704) and the sun (renderer light slot 0, a D3DLIGHT9 at renderer +0x169c, its direction at +0x40;
@@ -22,6 +23,7 @@
 #include "game/game_object.h"
 #include "game/shadows.h"
 #include "game/ui_pass.h"
+#include "hooks.h"
 #include "log.h"
 #include "rhi/rhi.h"
 #include "settings.h"
@@ -30,12 +32,13 @@ void WeatherBeforeSceneEnd();  // hook/enhance/weather.cpp
 
 namespace
 {
-void OnUiPassBegin()
+// Camera (Game+0x704) and sun (renderer light slot 0) into rhi::Hints.
+void FillHints()
 {
     rhi::SceneHints& h = rhi::Hints();
-    WeatherBeforeSceneEnd();
-    if (!(h.shadows || h.snow) || !g_game)
+    if (!(h.shadows || h.snow || h.ao || h.fogModern) || !g_game)
         return;
+    h.levelLoading = g_game->loadingLevel != 0;
     std::memcpy(h.view, reinterpret_cast<const uint8_t*>(g_game) + 0x704, sizeof(h.view));
     h.haveView = true;
     const uint8_t* renderer = static_cast<const uint8_t*>(Field<void*>(g_game, 0x38));
@@ -49,6 +52,31 @@ void OnUiPassBegin()
             h.sun[i] = dir[i] / len;
         h.haveSun = true;
     }
+    static const bool logSun = ConfigInt("render", "shadow_log", 0) != 0;  // diagnosis
+    if (logSun)
+        Log("shadows: sun %.3f %.3f %.3f (light 0 enabled %d)", h.sun[0], h.sun[1], h.sun[2],
+            renderer ? renderer[0x1a44] : -1);
+}
+
+// When the frame's scene starts (Renderer_BeginScene, 0x005042d0: ecx = renderer; called after the game's update,
+// so Game+0x704 already holds this frame's camera): the hints are current for passes the backend runs mid-frame
+// (ambient occlusion and shadows go in before the first translucent draw, so the translucent layers stay on top).
+using BeginScene_t = uint32_t(__fastcall*)(void* renderer, void* edx);
+BeginScene_t g_nextBeginScene;
+uint32_t __fastcall Shadows_BeginScene(void* renderer, void* edx)
+{
+    uint32_t r = g_nextBeginScene(renderer, edx);
+    FillHints();
+    return r;
+}
+
+void OnUiPassBegin()
+{
+    WeatherBeforeSceneEnd();
+    FillHints();
+    rhi::SceneHints& h = rhi::Hints();
+    if (!(h.shadows || h.snow || h.ao || h.fogModern) || !g_game)
+        return;
     rhi::SceneEnd();
 }
 
@@ -73,16 +101,48 @@ void ShadowsInit()
                           [](float v) { rhi::Hints().shadowStrength = v; }},
                          0.55f);
     rhi::Hints().shadowRange =
-        RemasterRegister({"render", "shadow_range", L"Shadow distance", S::Slider, 20.0f, 200.0f, 10.0f, {}, 0, false,
+        RemasterRegister({"render", "shadow_range", L"Shadow distance", S::Slider, 50.0f, 500.0f, 25.0f, {}, 0, false,
                           [](float v) { rhi::Hints().shadowRange = v; }},
-                         60.0f);
+                         200.0f);
     rhi::Hints().shadowSoftness =
-        RemasterRegister({"render", "shadow_softness", L"Shadow softness", S::Slider, 0.0f, 5.0f, 0.25f, {}, 0, false,
+        RemasterRegister({"render", "shadow_softness", L"Shadow softness", S::Slider, 0.05f, 3.0f, 0.05f, {}, 0, false,
                           [](float v) { rhi::Hints().shadowSoftness = v; }},
-                         1.5f);
+                         0.6f);
+    // Ambient occlusion (XeGTAO, src/rhi/vulkan/vk_gtao.h): remaster default on.
+    bool ao = RemasterRegister({"render", "ao", L"Ambient occlusion (VK)", S::Toggle, 0, 1, 1, {}, 0, false,
+                                [](float v) { rhi::Hints().ao = v != 0.0f; }},
+                               0, 1) != 0.0f;
+    rhi::Hints().ao = ao && vulkan;
+    rhi::Hints().aoStrength =
+        RemasterRegister({"render", "ao_strength", L"AO strength", S::Slider, 0.0f, 1.0f, 0.05f, {}, 0, false,
+                          [](float v) { rhi::Hints().aoStrength = v; }},
+                         1.0f);
+    rhi::Hints().aoRadius =
+        RemasterRegister({"render", "ao_radius", L"AO radius", S::Slider, 0.25f, 4.0f, 0.25f, {}, 0, false,
+                          [](float v) { rhi::Hints().aoRadius = v; }},
+                         2.5f);
+    // Modern fog (exponential height fog, src/rhi/vulkan/vk_fog.h): remaster default on.
+    bool fog = RemasterRegister({"render", "fog_modern", L"Height fog (VK)", S::Toggle, 0, 1, 1, {}, 0, false,
+                                 [](float v) { rhi::Hints().fogModern = v != 0.0f; }},
+                                0, 1) != 0.0f;
+    rhi::Hints().fogModern = fog && vulkan;
+    rhi::Hints().fogDensity =
+        RemasterRegister({"render", "fog_density", L"Fog density", S::Slider, 0.25f, 3.0f, 0.25f, {}, 0, false,
+                          [](float v) { rhi::Hints().fogDensity = v; }},
+                         1.0f);
+    rhi::Hints().fogHeightFalloff =
+        RemasterRegister({"render", "fog_height", L"Fog height falloff", S::Slider, 0.0f, 0.01f, 0.0005f, {}, 0, false,
+                          [](float v) { rhi::Hints().fogHeightFalloff = v; }},
+                         0.002f);
+    rhi::Hints().fogSunGlow =
+        RemasterRegister({"render", "fog_sun", L"Fog sun glow", S::Slider, 0.0f, 2.0f, 0.1f, {}, 0, false,
+                          [](float v) { rhi::Hints().fogSunGlow = v; }},
+                         0.6f);
     int size = ConfigInt("render", "shadow_size", 4096);
     rhi::Hints().shadowSize = static_cast<uint32_t>(size < 512 ? 512 : size > 8192 ? 8192 : size);
     g_uiPassBegin = OnUiPassBegin;  // does nothing while shadow maps and snow are off
+    HookWrap("Renderer_BeginScene", reinterpret_cast<void*>(Shadows_BeginScene),
+             reinterpret_cast<void**>(&g_nextBeginScene));
     SetShadows(on && vulkan);
     Log("shadows: shadow maps %s (strength %.2f, range %.0f, %u)", on && vulkan ? "on" : "off",
         rhi::Hints().shadowStrength, rhi::Hints().shadowRange, rhi::Hints().shadowSize);

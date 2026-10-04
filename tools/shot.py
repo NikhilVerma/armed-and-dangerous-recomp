@@ -16,6 +16,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import compare as c  # noqa: E402
+import instances  # noqa: E402
+GD = instances.instance_dir("main")  # runs never touch the player's game folder
 from PIL import Image  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -48,14 +50,14 @@ def main():
     if len(steps) > 1:
         sys.exit("--frames must be evenly spaced ([test] hash_frames is first:every:count)")
     hash_frames = f"{frames[0]}:{steps.pop() if steps else 1}:{len(frames)}"
-    for f in glob.glob(os.path.join(c.GAME_DIR, "and-frame-*.bmp")):
+    for f in glob.glob(os.path.join(GD, "and-frame-*.bmp")):
         os.remove(f)
     total = a.frames_total or max(frames) + 20
     c.run_once(a.name, {k: True for k in c.hook_names()}, a.level or sc["level"], total, 300, keys,
                {"hash_frames": hash_frames, "dump_hashed": 1, **test}, render, extra_sections=sections)
     shots = []
     for f in frames:
-        src = os.path.join(c.GAME_DIR, f"and-frame-{f:05d}.bmp")
+        src = os.path.join(GD, f"and-frame-{f:05d}.bmp")
         if not os.path.exists(src):
             print(f"missing frame {f}")
             continue

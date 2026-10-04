@@ -9,6 +9,8 @@
 #include <cstdint>
 #include <string>
 
+#include "vk_fog.h"
+
 namespace rhi::vulkan
 {
 // 4x4 matrix for column vectors: out_i = sum_j m[i * 4 + j] in_j (the game's matrices use the same layout).
@@ -38,5 +40,8 @@ struct alignas(16) ShadowApplyParams
     float sunCam[4];       // xyz: camera-space direction towards the sun; w: light depth range (world units)
     float viewport[4];     // scene viewport x, y, width, height (pixels of the target)
     float soft[4];         // tan(sun angular radius), shadow-map width (world units), max filter (texels)
+    float fog[4];          // the scene's fog: start, end (camera distances; the game's linear fog), enabled
+    float fogColor[4];
+    ModernFogParams mf;    // modern fog (vk_fog.h) when mf.on.x is set
 };
 }  // namespace rhi::vulkan

@@ -87,7 +87,12 @@ def run_once(label, hooks_on, level, frames, timeout, keys="", test=None, render
              game_dir=None, out=print):
     """One game run. game_dir: an instance folder (tools/instances.py) to run in parallel with others; default the
     game folder itself. out: where progress lines go (parallel runs collect them)."""
-    gd = game_dir or GAME_DIR
+    # Never the player's game folder: a run rewrites and.ini and deletes SavedGames/options.opt. Without an instance,
+    # the "main" instance (tools/instances.py).
+    if game_dir is None:
+        import instances
+        game_dir = instances.instance_dir("main")
+    gd = game_dir
     write_ini(hooks_on, level, frames, keys, test, render, extra_sections, gd)
     for name in ("and-d3d.txt", os.path.join("SavedGames", "options.opt")):
         p = os.path.join(gd, name)

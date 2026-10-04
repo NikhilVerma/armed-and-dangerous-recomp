@@ -47,7 +47,7 @@ def shift_keys(keys, offset):
 
 
 def run(label, backend, sc, frames_spec, timeout, keys=None, keys_from_load=False, gd=None, out=print):
-    gd = gd or compare.GAME_DIR
+    gd = gd or instances.instance_dir("main")  # never the player's game folder
     names = compare.hook_names()
     for name in os.listdir(gd):
         if name.startswith("and-frame-") or name == "and-rhi-draws.txt":

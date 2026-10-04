@@ -22,6 +22,8 @@
 
 #include <cstdint>
 
+#include "vk_fog.h"
+
 namespace rhi::vulkan
 {
 constexpr uint32_t kBindingVsConstants = 0;
@@ -83,6 +85,7 @@ struct alignas(16) FFUniforms
     float bumpEnvMat[8][4];            // D3DTSS_BUMPENVMAT00, 01, 10, 11
     float bumpEnvLum[8][4];            // D3DTSS_BUMPENVLSCALE, LOFFSET
     float tessParams[4];  // tessellation (below): normal decoding, shape factor, maximum level, pixels per segment
+    ModernFogParams mf;   // modern fog (vk_fog.h); mf.on.x = 0: the game's own fog
 };
 
 // --- Motion vectors (remaster outputs: DLAA/TAA need them; docs/goals/modern-renderer.md step 5) -------------------

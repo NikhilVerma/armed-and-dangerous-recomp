@@ -1,6 +1,6 @@
 # Put the hook DLL next to the working copy of the game (orig/pc/GameData, never the Steam install).
 # Usage: pwsh tools/deploy.ps1 [-Config Release] [-Remove] [-KeepIni]
-param([string]$Config = 'Release', [switch]$Remove, [switch]$KeepIni)
+param([string]$Config = 'Release', [switch]$Remove, [switch]$KeepIni, [switch]$ResetIni)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $game = Join-Path $root 'orig/pc/GameData'
@@ -20,5 +20,6 @@ if ((Get-Item $built).LastWriteTime -lt $newest.LastWriteTime) {
 }
 Copy-Item $built $dll -Force
 $ini = Join-Path $game 'and.ini'
-if (-not ($KeepIni -and (Test-Path $ini))) { Copy-Item (Join-Path $root 'hook/and.ini') $ini -Force }
+# The player's and.ini is kept (test runs write their own); -ResetIni replaces it with the template.
+if ($ResetIni -or -not (Test-Path $ini)) { Copy-Item (Join-Path $root 'hook/and.ini') $ini -Force }
 Write-Host "deployed to $game"

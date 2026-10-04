@@ -43,6 +43,7 @@
 //                     type for samplers), destination token.
 //   def               def token, destination token (a c register), four IEEE floats.
 #include "vk_shaders.h"
+#include "vk_fog.h"
 
 #include <cmath>
 #include <cstddef>
@@ -212,9 +213,12 @@ std::string FixedFunctionBlock()
         FF_MEMBER("vec4 bumpEnvMat[8]", bumpEnvMat),
         FF_MEMBER("vec4 bumpEnvLum[8]", bumpEnvLum),
         FF_MEMBER("vec4 tessParams", tessParams),
+        FF_MEMBER("ModernFog mf", mf),
     };
 #undef FF_MEMBER
-    std::string s = std::format("layout(std140, set = 0, binding = {}) uniform FixedFunction\n{{\n", kBindingFixedFunction);
+    std::string s = std::string("#ifndef MODERN_FOG_STRUCT\n#define MODERN_FOG_STRUCT\nstruct ModernFog\n{\n") +
+                    ModernFogMembers() + "};\n#endif\n";
+    s += std::format("layout(std140, set = 0, binding = {}) uniform FixedFunction\n{{\n", kBindingFixedFunction);
     for (const Member& m : members)
         s += std::format("    layout(offset = {}) {};\n", m.offset, m.decl);
     return s + "} ff;\n";

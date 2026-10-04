@@ -15,6 +15,7 @@
 // depth (the projection is perspective, w = -z) move the same way; the pass's own matrices are restored after it.
 #include <windows.h>
 
+#include <algorithm>
 #include <cstring>
 
 #include "config.h"
@@ -61,9 +62,12 @@ bool g_textRelative;
 
 // The numerator of the screen-pixel size (g_pixelSizeScale, Renderer_GetPixelWidth/Height): text_scale, times the
 // viewport height / 480 when relative, so one glyph pixel is 1/480 of the screen height as at 640x480.
-float TextScale()
+// fixedLayout: text placed on the game's 640-wide layout grid (menu pages, mission objectives, placed texts). Its
+// line positions do not move with the glyph size, so a text_scale above 1 would push lines out of the 4:3 frame
+// (measured: objectives cut off at text_scale 1.25); such text keeps the resolution-relative size only.
+float TextScale(bool fixedLayout = false)
 {
-    float s = g_textScale;
+    float s = fixedLayout ? std::min(g_textScale, 1.0f) : g_textScale;
     if (g_textRelative && g_game)
         if (void* renderer = Field<void*>(g_game, 0x38))
         {
@@ -80,6 +84,7 @@ void ApplyTextScale()
 }
 uint8_t g_saved[0x44];  // the pass's view matrix while an object draws with its own
 bool g_changed;
+bool g_fixedLayout;  // the object being drawn uses the fixed layout (TextScale)
 
 void LogObject(void* o)
 {
@@ -96,7 +101,9 @@ void BeginDraw(void* o)
     if (g_logFrame >= 0)
         LogObject(o);
     g_changed = false;
-    ApplyTextScale();
+    bool fixedLayout = Field<int32_t>(o, 0x46c) != 0 || (Field<uint32_t>(o, 0x474) & 0x2000) != 0;
+    g_fixedLayout = fixedLayout;
+    g_pixelSizeScale[0] = g_pixelSizeScale[1] = TextScale(fixedLayout);
     if (!g_anchor)
         return;
     void* renderer = Field<void*>(g_game, 0x38);
@@ -145,12 +152,15 @@ void BeginDraw(void* o)
     Field<uint32_t>(changed, 0x40) |= 0x2f;
     VCall<void>(renderer, 0x50 / 4, changed);
     // Text drawn by the object is squeezed by k with everything else; glyphs keep their proportions with 1 / k.
-    g_pixelSizeScale[0] = TextScale() / k;
+    g_pixelSizeScale[0] = TextScale(fixedLayout) / k;
     g_changed = true;
 }
 
 void EndDraw(void*)
 {
+    if (g_fixedLayout)
+        ApplyTextScale();
+    g_fixedLayout = false;
     if (!g_changed)
         return;
     VCall<void>(Field<void*>(g_game, 0x38), 0x50 / 4, g_saved);

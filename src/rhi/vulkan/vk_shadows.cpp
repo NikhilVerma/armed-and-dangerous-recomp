@@ -1,6 +1,8 @@
 // Shadow maps: matrices and shaders (vk_shadows.h). The device side is in vk_device.cpp (VulkanDevice::Shadows).
 #include "vk_shadows.h"
 
+#include "vk_fog.h"
+
 #include <cmath>
 
 namespace rhi::vulkan
@@ -76,9 +78,11 @@ Mat4 LightMatrix(const float centre[3], const float dir[3], float range, uint32_
     float cy = u[0] * centre[0] + u[1] * centre[1] + u[2] * centre[2];
     float cz = f[0] * centre[0] + f[1] * centre[1] + f[2] * centre[2];
     cx = std::floor(cx / texel) * texel, cy = std::floor(cy / texel) * texel;
-    // Orthographic: x, y in [-range, range] around the centre; depth 0..1 over [cz - 4 range, cz + 4 range] (tall
-    // so casters above the camera's box still cast).
-    float depthNear = cz - 4.0f * range, depthFar = cz + 4.0f * range;
+    // Orthographic: x, y in [-range, range] around the centre; depth 0..1 over [cz - 40 range, cz + 4 range]. Far
+    // towards the sun so distant casters up-sun (mountains, cliffs) still cast: with 4 range they were clipped and
+    // their shadows came and went as the box moved with the camera (measured: a large shadow popping in and out
+    // as the player stepped back and forth). kShadowDepthSpan in vk_shadows.h.
+    float depthNear = cz - 40.0f * range, depthFar = cz + 4.0f * range;
     Mat4 m{};
     for (int j = 0; j < 3; ++j)
     {
@@ -111,12 +115,14 @@ void main()
 
 std::string ShadowApplyFragmentGlsl()
 {
-    return R"(#version 450
+    return std::string("#version 450\nstruct ModernFog\n{\n") + ModernFogMembers() + "};\n" + R"(
 // Shadow map apply pass (vk_shadows.h): darkens lit surfaces that the shadow map says are occluded, with
 // percentage-closer soft shadows (PCSS): a blocker search finds how far the occluder is above the surface, and
 // the filter widens with that distance (hard where an object touches the ground, soft far from the caster),
 // as an area light of angular size sunSize would make.
-layout(location = 0) out vec4 o;
+// Dual-source output: colour = dst * o1 + o (o1 per channel: shadows tinted by the sky light that fills them).
+layout(location = 0, index = 0) out vec4 o;
+layout(location = 0, index = 1) out vec4 o1;
 layout(set = 0, binding = 0) uniform sampler2D depthTex;
 layout(set = 0, binding = 1) uniform sampler2DShadow shadowMap;
 layout(std140, set = 0, binding = 2) uniform Params
@@ -127,6 +133,9 @@ layout(std140, set = 0, binding = 2) uniform Params
     vec4 sunCam;    // xyz towards the sun (camera space), w: light-depth range in world units
     vec4 viewport;  // x y w h
     vec4 soft;      // x: tan(sun angular radius), y: shadow-map width in world units, z: max filter in texels
+    vec4 fog;       // start, end (camera distances), enabled
+    vec4 fogColor;
+    ModernFog mf;
 } p;
 layout(set = 0, binding = 3) uniform sampler2D shadowDepth;  // the same map, raw depth (blocker search)
 
@@ -179,33 +188,86 @@ void main()
     // Rotate the disk per pixel (noise instead of banding).
     float a = Hash(pixel) * 6.2831853;
     mat2 rot = mat2(cos(a), sin(a), -sin(a), cos(a));
-    // 1. Blocker search: average depth of the occluders within the largest penumbra.
-    float searchUv = p.soft.z * texel;
-    float blockers = 0.0, sum = 0.0;
-    for (int i = 0; i < 16; ++i)
+    // Physically based penumbra (no fixed ceiling): an occluder at distance g above the receiver, lit by a sun
+    // of angular radius r, blurs its shadow over a disc of radius g tan(r). A thin occluder far above (a tree top)
+    // spreads over a wide disc and fades, as real shadows do; the old fixed search radius capped the blur and long
+    // shadows became evenly blurred tubes. Two blocker searches: the first at a small radius finds nearby
+    // occluders, the second over the penumbra their distance implies (largest occluder distances need the widest
+    // search). The filter then averages comparison taps over that penumbra.
+    float maxUv = p.soft.z * texel;  // a sanity limit only (about 25 world units at the default settings)
+    float searchUv = 6.0 * texel;
+    float blocker = 0.0;
+    bool any = false;
+    for (int pass = 0; pass < 2; ++pass)
     {
-        float z = texture(shadowDepth, uv + rot * kDisk[i] * searchUv).r;
-        if (z < s.z - bias)
+        float blockers = 0.0, sum = 0.0;
+        for (int i = 0; i < 16; ++i)
         {
-            sum += z;
-            blockers += 1.0;
+            float z = texture(shadowDepth, uv + rot * kDisk[i] * searchUv).r;
+            if (z < s.z - bias)
+            {
+                sum += z;
+                blockers += 1.0;
+            }
         }
+        if (blockers < 1.0)
+        {
+            if (pass == 0)
+            {
+                searchUv = maxUv * 0.25;  // nothing close by: look for a distant occluder's wide penumbra
+                continue;
+            }
+            break;
+        }
+        any = true;
+        blocker = sum / blockers;
+        float g = (s.z - blocker) * p.sunCam.w;
+        searchUv = clamp(g * p.soft.x / p.soft.y, 1.5 * texel, maxUv);
     }
-    if (blockers < 1.0)
+    if (!any)
         discard;  // fully lit
-    float blocker = sum / blockers;
-    // 2. Penumbra: occluder-to-receiver distance (world units) times the sun's angular radius, in shadow-map uv.
     float gap = (s.z - blocker) * p.sunCam.w;
-    float radiusUv = clamp(gap * p.soft.x / p.soft.y, 1.5 * texel, searchUv);
-    // 3. Filter: comparison taps over the penumbra.
+    float radiusUv = clamp(gap * p.soft.x / p.soft.y, texel, maxUv);
+    // Filter: 32 taps on a golden-angle spiral (even coverage of the disc), rotated per pixel.
     float lit = 0.0;
-    for (int i = 0; i < 16; ++i)
-        lit += texture(shadowMap, vec3(uv + rot * kDisk[i] * radiusUv, s.z - bias));
-    lit /= 16.0;
+    for (int i = 0; i < 32; ++i)
+    {
+        float rr = sqrt((float(i) + 0.5) / 32.0);
+        float th = float(i) * 2.39996323 + a;
+        lit += texture(shadowMap, vec3(uv + vec2(cos(th), sin(th)) * rr * radiusUv, s.z - bias));
+    }
+    lit /= 32.0;
+    if (p.fog.w > 0.5)  // [render] shadow_debug=1: penumbra radius (texels / 32) as grey, red where blockers were found
+    {
+        o1 = vec4(0.0);
+        o = vec4(min(radiusUv / texel / 32.0, 1.0), gap / 100.0, 0.0, 0.0);
+        return;
+    }
     vec2 edge = min(uv, 1.0 - uv);
-    float fade = smoothstep(0.0, 0.05, min(edge.x, edge.y));
+    // Fade over the outer quarter of the map: its border moves with the camera, and a hard edge there read as
+    // shadows popping in and out (measured: a large ground shadow cut off at the map's side).
+    float fade = smoothstep(0.0, 0.25, min(edge.x, edge.y));
     float shadow = (1.0 - lit) * p.misc.y * smoothstep(0.02, 0.2, ndl) * fade;
-    o = vec4(0.0, 0.0, 0.0, shadow);  // blended: dst * (1 - shadow)
+    if (shadow <= 0.0)
+        discard;
+    // Under the fog (as the ambient occlusion pass): with F = C T + Fog (1 - T), darkening C by k gives
+    // F (1 - k) + Fog (1 - T) k. T from the same fog the draws used.
+    float f = 1.0;
+    vec3 fc = p.fogColor.rgb;
+    if (p.fog.z > 0.5)
+    {
+        if (p.mf.on.x > 0.5)
+            )" + ModernFogGlsl("p.mf", "d", "f", "fc", "p.fogColor.rgb") + R"(
+        else
+            f = clamp(p.fog.y != p.fog.x ? (p.fog.y - abs(c.z)) / (p.fog.y - p.fog.x) : (abs(c.z) < p.fog.y ? 1.0 : 0.0), 0.0, 1.0);
+    }
+    // A shadow is not black: what reaches a shadowed surface is the light of the sky (blue, on snow) and the
+    // scene's bounce. Full shadow multiplies the colour by that sky light, (1 - strength) tinted blue; partial
+    // shadow (penumbra) blends towards it.
+    vec3 skyLit = clamp((1.0 - p.misc.y) * vec3(0.82, 0.92, 1.18), 0.0, 1.0);
+    vec3 k = mix(vec3(1.0), skyLit, shadow / max(p.misc.y, 1e-3));
+    o1 = vec4(k, 1.0);
+    o = vec4(fc * (1.0 - f) * (1.0 - k), 0.0);
 }
 )";
 }

@@ -1,0 +1,1 @@
+Upstream: https://github.com/GameTechDev/XeGTAO (commit a5b1686c7ea37788eeb3576b5be47f7c03db532c), Source/Rendering/Shaders/XeGTAO.h and XeGTAO.hlsli, unmodified. MIT license (LICENSE). Used by src/rhi/vulkan/vk_gtao.cpp (compiled with glslang's HLSL front end).

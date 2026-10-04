@@ -19,7 +19,8 @@ PRIVATE = {"and.ini", "and.log", "and-d3d.txt", "and-coverage.txt", "and-profile
            "and-vk-scene.txt", "and-vk-scene.obj", "and-vk-draws.txt", "and-vk-targets.txt", "and-crash.dmp",
            "and-rhi-calls.txt"}
 PRIVATE_DIRS = {"SavedGames", "shaders"}
-RELINK = {"dinput8.dll", "dinput8.pdb"}  # the deployed build
+RELINK = {"dinput8.dll", "dinput8.pdb"}  # the hook build: copied from build/hook-release (not the game folder,
+BUILD = os.path.join(ROOT, "build", "hook-release")  # which the player's running game may hold locked)
 
 
 def _link(src, dst):
@@ -29,6 +30,17 @@ def _link(src, dst):
         os.link(src, dst)
     except OSError:
         shutil.copy2(src, dst)  # another volume: copy
+
+
+def _replace(src, dst):
+    """Copies src over dst; a dst in use (a hard link to a DLL a running game has loaded) is renamed aside first."""
+    if os.path.lexists(dst):
+        try:
+            os.remove(dst)
+        except OSError:
+            import time
+            os.replace(dst, f"{dst}.old-{int(time.time() * 1000)}")
+    shutil.copy2(src, dst)
 
 
 def instance_dir(n):
@@ -46,7 +58,9 @@ def instance_dir(n):
             if rel == "." and (f in PRIVATE or f.startswith("and-frame-") or f.startswith("and-")):
                 continue
             src, dst = os.path.join(dirpath, f), os.path.join(out, f)
-            if f in RELINK or not os.path.exists(dst):
+            if f in RELINK and os.path.exists(os.path.join(BUILD, f)):
+                _replace(os.path.join(BUILD, f), dst)
+            elif f in RELINK or not os.path.exists(dst):
                 _link(src, dst)
     os.makedirs(os.path.join(dst_root, "SavedGames"), exist_ok=True)
     return dst_root

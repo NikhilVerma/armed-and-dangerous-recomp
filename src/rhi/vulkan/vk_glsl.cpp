@@ -30,8 +30,8 @@ std::vector<uint32_t> CompileGlslStage(const std::string& glsl, GlslStage which)
 {
     static std::once_flag once;
     std::call_once(once, [] { glslang::InitializeProcess(); });
-    const EShLanguage stages[] = {EShLangVertex, EShLangFragment, EShLangTessControl, EShLangTessEvaluation};
-    const char* names[] = {"vertex", "pixel", "tessellation control", "tessellation evaluation"};
+    const EShLanguage stages[] = {EShLangVertex, EShLangFragment, EShLangTessControl, EShLangTessEvaluation, EShLangCompute};
+    const char* names[] = {"vertex", "pixel", "tessellation control", "tessellation evaluation", "compute"};
     EShLanguage stage = stages[static_cast<int>(which)];
     glslang::TShader shader(stage);
     const char* src = glsl.c_str();
@@ -53,6 +53,36 @@ std::vector<uint32_t> CompileGlslStage(const std::string& glsl, GlslStage which)
     }
     std::vector<uint32_t> spirv;
     glslang::GlslangToSpv(*program.getIntermediate(stage), spirv);
+    return spirv;
+}
+
+std::vector<uint32_t> CompileHlslCompute(const std::string& hlsl, const char* entry)
+{
+    static std::once_flag once;
+    std::call_once(once, [] { glslang::InitializeProcess(); });
+    glslang::TShader shader(EShLangCompute);
+    const char* src = hlsl.c_str();
+    shader.setStrings(&src, 1);
+    shader.setEntryPoint(entry);
+    shader.setSourceEntryPoint(entry);
+    shader.setEnvInput(glslang::EShSourceHlsl, EShLangCompute, glslang::EShClientVulkan, 100);
+    shader.setEnvClient(glslang::EShClientVulkan, glslang::EShTargetVulkan_1_3);
+    shader.setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_6);
+    const EShMessages messages = static_cast<EShMessages>(EShMsgSpvRules | EShMsgVulkanRules | EShMsgReadHlsl);
+    if (!shader.parse(GetDefaultResources(), 500, false, messages))
+    {
+        Log("vulkan: HLSL %s failed to compile: %s", entry, shader.getInfoLog());
+        return {};
+    }
+    glslang::TProgram program;
+    program.addShader(&shader);
+    if (!program.link(messages))
+    {
+        Log("vulkan: HLSL %s link failed: %s", entry, program.getInfoLog());
+        return {};
+    }
+    std::vector<uint32_t> spirv;
+    glslang::GlslangToSpv(*program.getIntermediate(EShLangCompute), spirv);
     return spirv;
 }
 }  // namespace rhi::vulkan

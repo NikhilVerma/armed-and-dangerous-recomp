@@ -20,6 +20,9 @@
 #include "vk_scene.h"
 #include "vk_shadows.h"
 #include "vk_snow.h"
+#include "vk_gtao.h"
+#include "vk_fog.h"
+#include "../../../third_party/XeGTAO/XeGTAO.h"
 
 bool TestFrameDump(unsigned* frame);                                                          // hook/src/testshot.cpp
 void TestSaveBgra(unsigned frame, const void* pixels, unsigned w, unsigned h, unsigned pitch);  // hook/src/testshot.cpp
@@ -321,6 +324,19 @@ private:
     std::unordered_map<uint64_t, uint32_t> drawOccurrence_;
     uint64_t DrawId(uint64_t base);
     SceneFrame scene_;  // this frame's 3D draws into the back buffer (vk_scene.h)
+// Shadow caster cache (Shadows): draws seen earlier in the level, by draw id.
+struct CachedCaster
+{
+    SceneDraw draw;
+    std::vector<float> constants;  // its vertex shader constants when last seen
+    Mat4 toWorld;                  // camera -> world of that frame (the constants hold world * view)
+    float worldKey[12];            // its world transform (c42..c44 taken to world space): moving if it changes
+    uint64_t lastSeen = 0;
+    bool moving = false;
+};
+std::unordered_map<uint64_t, CachedCaster> casters_;
+uint64_t shadowFrame_ = 0;
+void DropCaster(CachedCaster& c);
     // Shadow maps (vk_shadows.h): at SceneEnd.
     const VertexInput* lastInput_ = nullptr;  // the current draw's vertex input and plain vertex shader (PrepareDraw)
     VkShaderModule lastVertex_ = VK_NULL_HANDLE;
@@ -342,11 +358,47 @@ private:
     VkPipeline snowPipeline_ = VK_NULL_HANDLE;
     VkFormat snowFormat_ = VK_FORMAT_UNDEFINED;
     bool snowFailed_ = false;
+// The flakes' state (vk_snow.cpp: position, velocity; 32 bytes each), simulated by a compute pass.
+VkShaderModule snowCs_ = VK_NULL_HANDLE;
+VkPipeline snowCompute_ = VK_NULL_HANDLE;
+VkBuffer snowBuffer_ = VK_NULL_HANDLE;
+VkDeviceMemory snowMemory_ = VK_NULL_HANDLE;
+uint32_t snowCapacity_ = 0;
+bool snowFilled_ = false;
+float snowLastCam_[3] = {};
     VkPipeline SnowPipeline(VkFormat target);
 
 public:
     void Shadows();  // rhi::SceneEnd
     void Snow();     // rhi::SceneEnd
+void Ambient();  // rhi::SceneEnd: ambient occlusion (vk_gtao.h)
+bool sceneEnded_ = false;  // SceneEnd ran this frame: the draws that follow are the UI
+bool lightingDone_ = false;  // ambient occlusion and shadows were applied this frame
+void BeforeDraw();          // runs them before the first translucent scene draw
+// XeGTAO state (Ambient): compute pipelines, working images (sized to the target), the apply pass.
+struct GtaoImage
+{
+    VkImage image = VK_NULL_HANDLE;
+    VkDeviceMemory memory = VK_NULL_HANDLE;
+    VkImageView view = VK_NULL_HANDLE;   // all levels (sampled)
+    VkImageView mips[5] = {};            // one level each (storage)
+};
+bool GtaoImageCreate(GtaoImage& g, VkFormat format, uint32_t levels);
+void GtaoImageDestroy(GtaoImage& g);
+bool GtaoInit();
+VkPipeline GtaoApplyPipeline(VkFormat target);
+bool gtaoFailed_ = false, gtaoLogged_ = false;
+VkPipeline gtaoPipe_[4] = {};
+VkDescriptorSetLayout gtaoSetLayout_ = VK_NULL_HANDLE;
+VkPipelineLayout gtaoLayout_ = VK_NULL_HANDLE;
+GtaoImage gtaoDepth_, gtaoTerm_, gtaoEdges_, gtaoFinal_;
+uint32_t gtaoWidth_ = 0, gtaoHeight_ = 0;
+uint32_t gtaoFrame_ = 0;
+VkShaderModule gtaoApplyVs_ = VK_NULL_HANDLE, gtaoApplyFs_ = VK_NULL_HANDLE;
+VkDescriptorSetLayout gtaoApplySetLayout_ = VK_NULL_HANDLE;
+VkPipelineLayout gtaoApplyLayout_ = VK_NULL_HANDLE;
+VkPipeline gtaoApply_ = VK_NULL_HANDLE;
+VkFormat gtaoApplyFormat_ = VK_FORMAT_UNDEFINED;
 
 private:
     // Scene vertex capture (vk_abi.h kBindingCapture): clip positions of the scene draws, on capture frames.
@@ -701,6 +753,9 @@ void VulkanDevice::BeginFrame()
     curSnaps_.clear();
     drawOccurrence_.clear();
     scene_.Clear();
+    sceneEnded_ = false;
+    lightingDone_ = false;
+    ffDirty_ = true;  // per-frame uniforms (modern fog: camera)
     scene_.serial = serial;
     captureFrame_ = Ctx().vertexStores && DumpSceneFrame() == serial;
     captureUsed_ = 0;
@@ -1340,6 +1395,12 @@ bool VulkanDevice::PrepareDraw(D3DPRIMITIVETYPE type, uint64_t drawKey)
         // W-based fog instead (WFOG cap + W-friendly projection), for drivers that do.
         bool wFriendly = projection_._34 == 1.0f && projection_._14 == 0.0f && projection_._24 == 0.0f && projection_._44 == 0.0f;
         u.fogParams[3] = (wFog_ && wFriendly && !vs_) ? 1.0f : 0.0f;
+        if (rs_[D3DRS_FOGENABLE] && !sceneEnded_)  // the HUD and menus (after SceneEnd) keep the game's fog
+            ModernFogUniforms(u.mf, rhi::Hints(), vs_ ? sceneProjection_ : projection_, viewport_,
+                              vs_ ? vsConst_[4] : u.fogParams[0], vs_ ? vsConst_[5] : u.fogParams[1],
+                              !vs_ && rs_[D3DRS_FOGTABLEMODE] != D3DFOG_NONE);
+        else
+            std::memset(&u.mf, 0, sizeof(u.mf));
         u.alphaRef[0] = (rs_[D3DRS_ALPHAREF] & 0xff) / 255.0f;
         ColorToFloat(rs_[D3DRS_AMBIENT], u.ambient);
         std::memcpy(u.materialDiffuse, &material_.Diffuse, 16);
@@ -1675,8 +1736,8 @@ VkPipeline VulkanDevice::ShadowApplyPipeline(VkFormat target)
     VkPipelineMultisampleStateCreateInfo ms{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
     ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
     VkPipelineColorBlendAttachmentState att{};
-    att.blendEnable = VK_TRUE;  // dst * (1 - shadow), alpha kept
-    att.srcColorBlendFactor = VK_BLEND_FACTOR_ZERO, att.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    att.blendEnable = VK_TRUE;  // dst * tint + the fog's share (dual source, vk_shadows.cpp), alpha kept
+    att.srcColorBlendFactor = VK_BLEND_FACTOR_ONE, att.dstColorBlendFactor = VK_BLEND_FACTOR_SRC1_COLOR;
     att.colorBlendOp = VK_BLEND_OP_ADD;
     att.srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO, att.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
     att.alphaBlendOp = VK_BLEND_OP_ADD;
@@ -1712,8 +1773,416 @@ VkPipeline VulkanDevice::ShadowApplyPipeline(VkFormat target)
     return shadowApply_;
 }
 
+// Modern fog uniforms (vk_fog.h).
+void ModernFogUniforms(ModernFogParams& p, const rhi::SceneHints& h, const D3DMATRIX& proj,
+                       const D3DVIEWPORT9& viewport, float start, float end, bool depthUnits)
+{
+    std::memset(&p, 0, sizeof(p));
+    p.proj[0] = proj._11, p.proj[1] = proj._22, p.proj[2] = proj._33, p.proj[3] = proj._43;
+    p.proj2[0] = proj._34;
+    if (!h.fogModern || !h.haveView)
+        return;
+    Mat4 view, toWorld;
+    std::memcpy(view.m, h.view, sizeof(view.m));
+    if (!Invert(view, toWorld))
+        return;
+    // Fog start and end as camera distances (table fog: 0..1 depth, inverted through the projection).
+    auto distance = [&](float d) {
+        if (!depthUnits)
+            return std::fabs(d);
+        float den = d * proj._34 - proj._33;
+        return std::fabs(proj._43 / (std::fabs(den) < 1e-7f ? 1e-7f : den));
+    };
+    float s0 = distance(start), s1 = distance(end);
+    float range = s1 - s0 > 1.0f ? s1 - s0 : 1.0f;
+    static int logged;
+    if (logged++ % 2000 == 0)
+        Log("fog: start %.4f end %.4f (%s) -> distances %.2f .. %.2f; proj _33 %.4f _34 %.4f _43 %.4f", start, end,
+            depthUnits ? "depth" : "distance", s0, s1, proj._33, proj._34, proj._43);
+    p.on[0] = 1.0f;
+    // Level with the camera, half the light gets through at the middle of the game's fog range, as with its linear
+    // fog (and about 6% at its end).
+    p.on[1] = std::log(2.0f) / (0.5f * range) * h.fogDensity;
+    p.on[2] = h.fogHeightFalloff;
+    p.on[3] = s0;
+    p.proj[0] = proj._11, p.proj[1] = proj._22, p.proj[2] = proj._33, p.proj[3] = proj._43;
+    p.proj2[0] = proj._34, p.proj2[1] = h.fogSunGlow;
+    p.viewport[0] = float(viewport.X), p.viewport[1] = float(viewport.Y);
+    p.viewport[2] = float(viewport.Width ? viewport.Width : 1), p.viewport[3] = float(viewport.Height ? viewport.Height : 1);
+    for (int r = 0; r < 3; ++r)
+        for (int c = 0; c < 4; ++c)
+            p.toWorld[r][c] = toWorld.m[r * 4 + c];
+    std::memcpy(p.sun, h.sun, sizeof(h.sun));
+}
+
+// --- Ambient occlusion (vk_gtao.h): XeGTAO ------------------------------------------------------------------
+
+bool VulkanDevice::GtaoImageCreate(GtaoImage& g, VkFormat format, uint32_t levels)
+{
+    Context& c = Ctx();
+    VkImageCreateInfo ii{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+    ii.imageType = VK_IMAGE_TYPE_2D;
+    ii.format = format;
+    ii.extent = {gtaoWidth_, gtaoHeight_, 1};
+    ii.mipLevels = levels;
+    ii.arrayLayers = 1;
+    ii.samples = VK_SAMPLE_COUNT_1_BIT;
+    ii.tiling = VK_IMAGE_TILING_OPTIMAL;
+    ii.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    if (vkCreateImage(c.device, &ii, nullptr, &g.image) != VK_SUCCESS)
+        return false;
+    VkMemoryRequirements req;
+    vkGetImageMemoryRequirements(c.device, g.image, &req);
+    g.memory = c.Allocate(req, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    vkBindImageMemory(c.device, g.image, g.memory, 0);
+    VkImageViewCreateInfo vi{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+    vi.image = g.image;
+    vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    vi.format = format;
+    vi.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, levels, 0, 1};
+    vkCreateImageView(c.device, &vi, nullptr, &g.view);
+    for (uint32_t l = 0; l < levels && l < 5; ++l)
+    {
+        vi.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, l, 1, 0, 1};
+        vkCreateImageView(c.device, &vi, nullptr, &g.mips[l]);
+    }
+    for (uint32_t l = levels; l < 5; ++l)
+        g.mips[l] = g.mips[0];
+    // GENERAL for good: storage writes and sampled reads, separated by barriers.
+    VkImageMemoryBarrier2 b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+    b.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    b.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    b.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
+    b.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    b.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    b.srcQueueFamilyIndex = b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    b.image = g.image;
+    b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, levels, 0, 1};
+    VkDependencyInfo di{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    di.imageMemoryBarrierCount = 1;
+    di.pImageMemoryBarriers = &b;
+    vkCmdPipelineBarrier2(Slot().cb, &di);
+    return true;
+}
+
+void VulkanDevice::GtaoImageDestroy(GtaoImage& g)
+{
+    if (!g.image)
+        return;
+    VkDevice device = Ctx().device;
+    GtaoImage old = g;
+    DeferDestroy([device, old] {
+        VkImageView last = VK_NULL_HANDLE;
+        for (VkImageView v : old.mips)
+            if (v && v != last)
+                vkDestroyImageView(device, v, nullptr), last = v;
+        vkDestroyImageView(device, old.view, nullptr);
+        vkDestroyImage(device, old.image, nullptr);
+        vkFreeMemory(device, old.memory, nullptr);
+    });
+    g = GtaoImage{};
+}
+
+// The three XeGTAO compute pipelines and the apply pass's layout (once).
+bool VulkanDevice::GtaoInit()
+{
+    if (gtaoFailed_)
+        return false;
+    if (gtaoPipe_[3])
+        return true;
+    VkDevice device = Ctx().device;
+    const std::string hlsl = GtaoHlsl();
+    const char* entries[4] = {"CSPrefilterDepths16x16", "CSGTAOHigh", "CSDenoisePass", "CSDenoiseLastPass"};
+    VkDescriptorSetLayoutBinding b[14];
+    const VkDescriptorType types[14] = {
+        VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_DESCRIPTOR_TYPE_SAMPLER,       VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+        VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,  VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+        VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,  VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+        VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,  VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+        VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,  VK_DESCRIPTOR_TYPE_STORAGE_IMAGE};
+    for (uint32_t i = 0; i < 14; ++i)
+        b[i] = {i, types[i], 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
+    VkDescriptorSetLayoutCreateInfo dl{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+    dl.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR;
+    dl.bindingCount = 14;
+    dl.pBindings = b;
+    vkCreateDescriptorSetLayout(device, &dl, nullptr, &gtaoSetLayout_);
+    VkPipelineLayoutCreateInfo pl{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+    pl.setLayoutCount = 1;
+    pl.pSetLayouts = &gtaoSetLayout_;
+    vkCreatePipelineLayout(device, &pl, nullptr, &gtaoLayout_);
+    for (int i = 0; i < 4; ++i)
+    {
+        VkShaderModule m = MakeModule(CompileHlslCompute(hlsl, entries[i]));
+        if (!m)
+            break;
+        VkComputePipelineCreateInfo ci{VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+        ci.stage = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
+        ci.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT, ci.stage.module = m, ci.stage.pName = entries[i];
+        ci.layout = gtaoLayout_;
+        vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &ci, nullptr, &gtaoPipe_[i]);
+        vkDestroyShaderModule(device, m, nullptr);
+    }
+    gtaoApplyVs_ = MakeModule(CompileGlsl(GtaoApplyVertexGlsl(), false));
+    gtaoApplyFs_ = MakeModule(CompileGlsl(GtaoApplyFragmentGlsl(), true));
+    VkDescriptorSetLayoutBinding ab[3] = {
+        {0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+        {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+        {2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr}};
+    dl.bindingCount = 3;
+    dl.pBindings = ab;
+    vkCreateDescriptorSetLayout(device, &dl, nullptr, &gtaoApplySetLayout_);
+    pl.pSetLayouts = &gtaoApplySetLayout_;
+    vkCreatePipelineLayout(device, &pl, nullptr, &gtaoApplyLayout_);
+    if (!gtaoPipe_[0] || !gtaoPipe_[1] || !gtaoPipe_[2] || !gtaoPipe_[3] || !gtaoApplyVs_ || !gtaoApplyFs_)
+    {
+        Log("vulkan: ambient occlusion (XeGTAO) failed to build; off");
+        gtaoFailed_ = true;
+        return false;
+    }
+    Log("vulkan: ambient occlusion: XeGTAO ready");
+    return true;
+}
+
+VkPipeline VulkanDevice::GtaoApplyPipeline(VkFormat target)
+{
+    if (gtaoApply_ && gtaoApplyFormat_ == target)
+        return gtaoApply_;
+    VkDevice device = Ctx().device;
+    if (gtaoApply_)
+    {
+        VkPipeline old = gtaoApply_;
+        DeferDestroy([device, old] { vkDestroyPipeline(device, old, nullptr); });
+    }
+    VkPipelineShaderStageCreateInfo st[2] = {{VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO},
+                                             {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO}};
+    st[0].stage = VK_SHADER_STAGE_VERTEX_BIT, st[0].module = gtaoApplyVs_, st[0].pName = "main";
+    st[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT, st[1].module = gtaoApplyFs_, st[1].pName = "main";
+    VkPipelineVertexInputStateCreateInfo vi{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
+    VkPipelineInputAssemblyStateCreateInfo ia{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
+    ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    VkPipelineViewportStateCreateInfo vp{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
+    vp.viewportCount = vp.scissorCount = 1;
+    VkPipelineRasterizationStateCreateInfo rs{VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
+    rs.polygonMode = VK_POLYGON_MODE_FILL;
+    rs.cullMode = VK_CULL_MODE_NONE;
+    rs.lineWidth = 1.0f;
+    VkPipelineMultisampleStateCreateInfo ms{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
+    ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+    VkPipelineColorBlendAttachmentState att{};
+    att.blendEnable = VK_TRUE;  // dst * ao + fog part (vk_gtao.cpp), alpha kept
+    att.srcColorBlendFactor = VK_BLEND_FACTOR_ONE, att.dstColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+    att.colorBlendOp = VK_BLEND_OP_ADD;
+    att.srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO, att.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    att.alphaBlendOp = VK_BLEND_OP_ADD;
+    att.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT;
+    VkPipelineColorBlendStateCreateInfo cb{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
+    cb.attachmentCount = 1;
+    cb.pAttachments = &att;
+    VkPipelineDepthStencilStateCreateInfo ds{VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
+    VkDynamicState dyn[2] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+    VkPipelineDynamicStateCreateInfo dy{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
+    dy.dynamicStateCount = 2;
+    dy.pDynamicStates = dyn;
+    VkPipelineRenderingCreateInfo ri{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
+    ri.colorAttachmentCount = 1;
+    ri.pColorAttachmentFormats = &target;
+    VkGraphicsPipelineCreateInfo ci{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
+    ci.pNext = &ri;
+    ci.stageCount = 2;
+    ci.pStages = st;
+    ci.pVertexInputState = &vi;
+    ci.pInputAssemblyState = &ia;
+    ci.pViewportState = &vp;
+    ci.pRasterizationState = &rs;
+    ci.pMultisampleState = &ms;
+    ci.pDepthStencilState = &ds;
+    ci.pColorBlendState = &cb;
+    ci.pDynamicState = &dy;
+    ci.layout = gtaoApplyLayout_;
+    gtaoApply_ = VK_NULL_HANDLE;
+    if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &ci, nullptr, &gtaoApply_) != VK_SUCCESS)
+        gtaoApply_ = VK_NULL_HANDLE;
+    gtaoApplyFormat_ = target;
+    return gtaoApply_;
+}
+
+// rhi::SceneEnd with [render] ao: XeGTAO on the scene depth (prefilter, main pass, denoise), then the apply pass,
+// before the shadows and the snow (both drawn over it).
+void VulkanDevice::Ambient()
+{
+    std::lock_guard<std::recursive_mutex> g(Ctx().lock);
+    const rhi::SceneHints& h = rhi::Hints();
+    if (!h.ao || scene_.draws.empty() || !depth_ || !rt_)
+        return;
+    if (!GtaoInit())
+        return;
+    Image* target = rt_->GetImage();
+    Image* depth = depth_->GetImage();
+    if (!depth)
+        return;
+    VkPipeline apply = GtaoApplyPipeline(target->format);
+    if (!apply)
+        return;
+    // XeGTAO works on a viewport that starts at the depth image's origin and covers it (its depth reads use 0..1
+    // coordinates over the whole image).
+    const D3DVIEWPORT9& svp = scene_.draws.back().viewport;
+    if (svp.X != 0 || svp.Y != 0 || svp.Width != depth->width || svp.Height != depth->height)
+    {
+        if (!gtaoLogged_)
+            Log("vulkan: ambient occlusion skipped: scene viewport %ux%u at %u,%u in a %ux%u depth buffer", svp.Width,
+                svp.Height, svp.X, svp.Y, depth->width, depth->height);
+        gtaoLogged_ = true;
+        return;
+    }
+    if (gtaoWidth_ != svp.Width || gtaoHeight_ != svp.Height)
+    {
+        for (GtaoImage* gi : {&gtaoDepth_, &gtaoTerm_, &gtaoEdges_, &gtaoFinal_})
+            GtaoImageDestroy(*gi);
+        gtaoWidth_ = svp.Width, gtaoHeight_ = svp.Height;
+        EndRendering();
+        if (!GtaoImageCreate(gtaoDepth_, VK_FORMAT_R32_SFLOAT, XE_GTAO_DEPTH_MIP_LEVELS) ||
+            !GtaoImageCreate(gtaoTerm_, VK_FORMAT_R8_UINT, 1) || !GtaoImageCreate(gtaoEdges_, VK_FORMAT_R8_UNORM, 1) ||
+            !GtaoImageCreate(gtaoFinal_, VK_FORMAT_R8_UINT, 1))
+        {
+            Log("vulkan: ambient occlusion: working images failed; off");
+            gtaoFailed_ = true;
+            return;
+        }
+    }
+    // Constants: XeGTAO's own helper, from the scene projection (D3D row-major, 0..1 depth: XeGTAO's convention).
+    XeGTAO::GTAOSettings settings;
+    settings.QualityLevel = 2;  // CSGTAOHigh
+    settings.DenoisePasses = 2;  // "medium": one intermediate pass, then the last
+    settings.Radius = h.aoRadius;
+    XeGTAO::GTAOConstants consts{};
+    XeGTAO::GTAOUpdateConstants(consts, int(svp.Width), int(svp.Height), settings, &sceneProjection_._11, true,
+                                gtaoFrame_++);
+    consts.NoiseIndex = 0;  // no temporal accumulation
+
+    EndRendering();
+    VkCommandBuffer cb = Slot().cb;
+    depth->Transition(cb, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
+    if (!shadowDepthSampler_)
+    {
+        VkSamplerCreateInfo si{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+        si.magFilter = si.minFilter = VK_FILTER_NEAREST;
+        si.addressModeU = si.addressModeV = si.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        vkCreateSampler(Ctx().device, &si, nullptr, &shadowDepthSampler_);
+    }
+    VkDeviceSize offset = PushUniform(&consts, sizeof(consts));
+    VkDescriptorBufferInfo ub{Slot().uniforms, offset, sizeof(consts)};
+    VkDescriptorImageInfo smp{shadowDepthSampler_, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED};
+    VkDescriptorImageInfo img[12];
+    img[0] = {VK_NULL_HANDLE, depth->sampledView, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL};  // 2
+    for (int l = 0; l < 5; ++l)
+        img[1 + l] = {VK_NULL_HANDLE, gtaoDepth_.mips[l], VK_IMAGE_LAYOUT_GENERAL};                  // 3..7
+    img[6] = {VK_NULL_HANDLE, gtaoDepth_.view, VK_IMAGE_LAYOUT_GENERAL};                             // 8
+    img[7] = {VK_NULL_HANDLE, gtaoTerm_.view, VK_IMAGE_LAYOUT_GENERAL};                              // 9
+    img[8] = {VK_NULL_HANDLE, gtaoEdges_.view, VK_IMAGE_LAYOUT_GENERAL};                             // 10
+    img[9] = {VK_NULL_HANDLE, gtaoTerm_.view, VK_IMAGE_LAYOUT_GENERAL};                              // 11
+    img[10] = {VK_NULL_HANDLE, gtaoEdges_.view, VK_IMAGE_LAYOUT_GENERAL};                            // 12
+    img[11] = {VK_NULL_HANDLE, gtaoFinal_.view, VK_IMAGE_LAYOUT_GENERAL};                            // 13
+    VkWriteDescriptorSet w[14];
+    for (uint32_t i = 0; i < 14; ++i)
+    {
+        w[i] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+        w[i].dstBinding = i;
+        w[i].descriptorCount = 1;
+    }
+    w[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, w[0].pBufferInfo = &ub;
+    w[1].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER, w[1].pImageInfo = &smp;
+    const VkDescriptorType t2[12] = {
+        VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+        VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+        VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+        VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE};
+    for (int i = 0; i < 12; ++i)
+        w[2 + i].descriptorType = t2[i], w[2 + i].pImageInfo = &img[i];
+
+    VkMemoryBarrier2 mb{VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+    mb.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    mb.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
+    mb.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    mb.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
+    VkDependencyInfo di{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    di.memoryBarrierCount = 1;
+    di.pMemoryBarriers = &mb;
+    auto pass = [&](int i, uint32_t gx, uint32_t gy) {
+        vkCmdPipelineBarrier2(cb, &di);
+        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, gtaoPipe_[i]);
+        vkCmdPushDescriptorSetKHR(cb, VK_PIPELINE_BIND_POINT_COMPUTE, gtaoLayout_, 0, 14, w);
+        vkCmdDispatch(cb, gx, gy, 1);
+        mb.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        mb.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+    };
+    const uint32_t W = svp.Width, H = svp.Height;
+    pass(0, (W + 15) / 16, (H + 15) / 16);                                                   // prefilter depths
+    pass(1, (W + XE_GTAO_NUMTHREADS_X - 1) / XE_GTAO_NUMTHREADS_X,                         // main pass
+         (H + XE_GTAO_NUMTHREADS_Y - 1) / XE_GTAO_NUMTHREADS_Y);
+    // Denoise (2 px per thread): term -> final, then final -> term (bindings 11 and 13 swapped); apply reads term.
+    const uint32_t dx = (W + XE_GTAO_NUMTHREADS_X * 2 - 1) / (XE_GTAO_NUMTHREADS_X * 2);
+    const uint32_t dy = (H + XE_GTAO_NUMTHREADS_Y - 1) / XE_GTAO_NUMTHREADS_Y;
+    pass(2, dx, dy);
+    std::swap(img[9], img[11]);
+    pass(3, dx, dy);
+    mb.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+    mb.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+    vkCmdPipelineBarrier2(cb, &di);
+
+    // Apply.
+    GtaoApplyParams ap{};
+    ap.viewport[0] = float(svp.X), ap.viewport[1] = float(svp.Y), ap.viewport[2] = float(W), ap.viewport[3] = float(H);
+    ap.fog[0] = scene_.fogStart, ap.fog[1] = scene_.fogEnd, ap.fog[2] = scene_.fog ? 1.0f : 0.0f;
+    ap.fog[3] = h.aoStrength;
+    std::memcpy(ap.fogColor, scene_.fogColor, sizeof(scene_.fogColor));
+    if (scene_.fog)
+        ModernFogUniforms(ap.mf, h, sceneProjection_, svp, scene_.fogStart, scene_.fogEnd, false);
+    VkDeviceSize apOffset = PushUniform(&ap, sizeof(ap));
+    target->Transition(cb, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    VkRenderingAttachmentInfo ca{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+    ca.imageView = target->AttachmentView(rt_->level, rt_->face);
+    ca.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    ca.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+    ca.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};
+    ri.renderArea = {{0, 0}, {target->width, target->height}};
+    ri.layerCount = 1;
+    ri.colorAttachmentCount = 1;
+    ri.pColorAttachments = &ca;
+    vkCmdBeginRendering(cb, &ri);
+    VkViewport v{float(svp.X), float(svp.Y), float(W), float(H), 0, 1};
+    VkRect2D sc{{static_cast<int32_t>(svp.X), static_cast<int32_t>(svp.Y)}, {W, H}};
+    vkCmdSetViewport(cb, 0, 1, &v);
+    vkCmdSetScissor(cb, 0, 1, &sc);
+    vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, apply);
+    VkDescriptorImageInfo aoImg{shadowDepthSampler_, gtaoTerm_.view, VK_IMAGE_LAYOUT_GENERAL};
+    VkDescriptorImageInfo dImg{shadowDepthSampler_, depth->sampledView, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL};
+    VkDescriptorBufferInfo apb{Slot().uniforms, apOffset, sizeof(ap)};
+    VkWriteDescriptorSet aw[3] = {{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}, {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET},
+                                  {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}};
+    aw[0].dstBinding = 0, aw[0].descriptorCount = 1, aw[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    aw[0].pImageInfo = &aoImg;
+    aw[1].dstBinding = 1, aw[1].descriptorCount = 1, aw[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    aw[1].pImageInfo = &dImg;
+    aw[2].dstBinding = 2, aw[2].descriptorCount = 1, aw[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    aw[2].pBufferInfo = &apb;
+    vkCmdPushDescriptorSetKHR(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, gtaoApplyLayout_, 0, 3, aw);
+    vkCmdDraw(cb, 3, 1, 0, 0);
+    vkCmdEndRendering(cb);
+}
+
 // rhi::SceneEnd with [render] shadow_maps (rhi::Hints): the sun's shadow map from this frame's opaque shader draws,
 // then the apply pass into the current target (the back buffer), before the UI.
+void VulkanDevice::DropCaster(CachedCaster& c)
+{
+    for (VulkanBuffer*& b : c.draw.streamObjects)
+        if (b)
+            b->Release(), b = nullptr;
+    if (c.draw.indexObject)
+        c.draw.indexObject->Release(), c.draw.indexObject = nullptr;
+}
+
 void VulkanDevice::Shadows()
 {
     std::lock_guard<std::recursive_mutex> g(Ctx().lock);
@@ -1730,7 +2199,7 @@ void VulkanDevice::Shadows()
     // The box: around a point ahead of the camera (camera looks along -z).
     float centre[3];
     for (int i = 0; i < 3; ++i)
-        centre[i] = toWorld.m[i * 4 + 3] - toWorld.m[i * 4 + 2] * range * 0.5f;
+        centre[i] = toWorld.m[i * 4 + 3] - toWorld.m[i * 4 + 2] * range * 0.7f;
     Mat4 camToLight = Multiply(LightMatrix(centre, h.sun, range, h.shadowSize), toWorld);
 
     EndRendering();
@@ -1761,12 +2230,119 @@ void VulkanDevice::Shadows()
     VkDeviceSize ffOffset = PushUniform(&ff, sizeof(ff)), prevOffset = PushUniform(&prev, sizeof(prev));
     static std::vector<float> constants(kVsConstantCount * 4);
     uint32_t drawn = 0;
+
+    // Casters: this frame's opaque draws, plus static geometry the game culled from the view since (a hill behind
+    // the camera still shadows the road ahead; measured: a large shadow appearing and vanishing as the player
+    // stepped back and forth). The game sends world * view (c42..c44), so a cached draw is replayed with the
+    // camera of the frame it was seen in. A draw whose world transform changes between sightings (characters,
+    // moving objects) is never replayed from the cache. Cached draws keep references on their buffers.
+    ++shadowFrame_;
+    if (h.levelLoading)
+    {
+        for (auto& [id, c] : casters_)
+            DropCaster(c);
+        casters_.clear();
+    }
+    auto worldKey = [](const Mat4& toWorld, const float* c, float* out) {
+        for (int j = 0; j < 3; ++j)
+            for (int k = 0; k < 4; ++k)
+            {
+                float v = k == 3 ? toWorld.m[j * 4 + 3] : 0.0f;
+                for (int i = 0; i < 3; ++i)
+                    v += toWorld.m[j * 4 + i] * c[(42 + i) * 4 + k];
+                out[j * 4 + k] = v;
+            }
+    };
+    auto caster = [](const SceneDraw& d) {
+        static const bool skipAlphaTest = ConfigInt("render", "shadow_skip_alphatest", 0) != 0;  // diagnosis
+        return d.zWrite && !d.alphaBlend && !(skipAlphaTest && d.alphaTest) && d.vertexShader && d.vertexModule &&
+               d.input && d.vertexCount;
+    };
+    struct Job
+    {
+        const SceneDraw* d;
+        const float* c;
+        Mat4 camToLight;
+    };
+    std::vector<Job> jobs;
+    jobs.reserve(scene_.draws.size() + casters_.size());
     for (const SceneDraw& d : scene_.draws)
     {
-        if (!d.zWrite || d.alphaBlend || !d.vertexShader || !d.vertexModule || !d.input || !d.vertexCount)
+        if (!caster(d))
             continue;
-        std::memcpy(constants.data(), &scene_.vsConstants[d.vsConstantsOffset], constants.size() * sizeof(float));
-        std::memcpy(&constants[kCameraRegister * 4], camToLight.m, sizeof(camToLight.m));  // rows -> c22..c25
+        const float* c = &scene_.vsConstants[d.vsConstantsOffset];
+        jobs.push_back({&d, c, camToLight});
+        float key[12];
+        worldKey(toWorld, c, key);
+        auto [it, fresh] = casters_.try_emplace(d.id);
+        CachedCaster& e = it->second;
+        if (fresh)
+        {
+            for (VulkanBuffer* b : d.streamObjects)
+                if (b)
+                    b->AddRef();
+            if (d.indexObject)
+                d.indexObject->AddRef();
+        }
+        else
+        {
+            for (int i = 0; i < 12 && !e.moving; ++i)
+                e.moving = std::fabs(key[i] - e.worldKey[i]) > 1e-3f * (1.0f + std::fabs(key[i]));
+            // The same draw id with other buffers (rare): take the new references.
+            for (int s = 0; s < 4; ++s)
+                if (e.draw.streamObjects[s] != d.streamObjects[s])
+                {
+                    if (d.streamObjects[s])
+                        d.streamObjects[s]->AddRef();
+                    if (e.draw.streamObjects[s])
+                        e.draw.streamObjects[s]->Release();
+                }
+            if (e.draw.indexObject != d.indexObject)
+            {
+                if (d.indexObject)
+                    d.indexObject->AddRef();
+                if (e.draw.indexObject)
+                    e.draw.indexObject->Release();
+            }
+        }
+        e.draw = d;
+        e.draw.capture = nullptr;
+        e.constants.assign(c, c + kVsConstantCount * 4);
+        e.toWorld = toWorld;
+        std::memcpy(e.worldKey, key, sizeof(key));
+        e.lastSeen = shadowFrame_;
+    }
+    const float cam[3] = {toWorld.m[3], toWorld.m[7], toWorld.m[11]};
+    const float r2 = h.shadowCasterRadius * h.shadowCasterRadius;
+    for (auto it = casters_.begin(); it != casters_.end();)
+    {
+        CachedCaster& e = it->second;
+        float dx = e.worldKey[3] - cam[0], dy = e.worldKey[7] - cam[1], dz = e.worldKey[11] - cam[2];
+        bool away = dx * dx + dy * dy + dz * dz > r2;
+        // Still the buffer contents it was seen with (a re-filled buffer has a new version).
+        bool current = true;
+        for (int s = 0; s < 4; ++s)
+            if (e.draw.streamObjects[s] && e.draw.streamObjects[s]->Current().buffer != e.draw.streams[s].buffer)
+                current = false;
+        if (e.draw.indexObject && e.draw.indexObject->Current().buffer != e.draw.indexBuffer)
+            current = false;
+        if (away || !current || casters_.size() > 16384)
+        {
+            DropCaster(e);
+            it = casters_.erase(it);
+            continue;
+        }
+        static const bool useCache = ConfigInt("render", "shadow_cache", 1) != 0;  // diagnosis
+        if (useCache && e.lastSeen != shadowFrame_ && !e.moving)
+            jobs.push_back({&e.draw, e.constants.data(), Multiply(LightMatrix(centre, h.sun, range, h.shadowSize), e.toWorld)});
+        ++it;
+    }
+
+    for (const Job& job : jobs)
+    {
+        const SceneDraw& d = *job.d;
+        std::memcpy(constants.data(), job.c, constants.size() * sizeof(float));
+        std::memcpy(&constants[kCameraRegister * 4], job.camToLight.m, sizeof(job.camToLight.m));  // rows -> c22..c25
         VkDeviceSize vsOffset = PushUniform(constants.data(), constants.size() * sizeof(float));
         PipelineKey pk{};
         pk.raster.fillMode = D3DFILL_SOLID;
@@ -1859,17 +2435,26 @@ void VulkanDevice::Shadows()
     p.proj[0] = sceneProjection_._11, p.proj[1] = sceneProjection_._22;
     p.proj[2] = sceneProjection_._33, p.proj[3] = sceneProjection_._34;
     p.misc[0] = sceneProjection_._43, p.misc[1] = h.shadowStrength, p.misc[2] = 1.0f / h.shadowSize;
-    p.misc[3] = 0.0015f;
+    // Comparison bias: 0.25 world units, as depth (0.0015 of the depth span was fine with an 8 x range span; with the
+    // 44 x range span it grew to ~4 units and cut shadows off below the torso).
+    p.misc[3] = 0.25f / (44.0f * range);
     // Towards the sun, in camera space: -(view's 3x3 * sun direction).
     for (int i = 0; i < 3; ++i)
         p.sunCam[i] = -(view.m[i * 4] * h.sun[0] + view.m[i * 4 + 1] * h.sun[1] + view.m[i * 4 + 2] * h.sun[2]);
     const D3DVIEWPORT9& svp = scene_.draws.back().viewport;
     p.viewport[0] = float(svp.X), p.viewport[1] = float(svp.Y), p.viewport[2] = float(svp.Width);
     p.viewport[3] = float(svp.Height);
-    p.sunCam[3] = 8.0f * range;  // LightMatrix's depth spans 8 x range
+    p.sunCam[3] = 44.0f * range;  // LightMatrix's depth spans 44 x range
     p.soft[0] = std::tan(h.shadowSoftness * 3.14159265f / 180.0f);
     p.soft[1] = 2.0f * range;
-    p.soft[2] = 24.0f;
+    p.soft[2] = 256.0f;  // a sanity limit on the penumbra (texels), not a style choice
+    p.fog[0] = scene_.fogStart, p.fog[1] = scene_.fogEnd, p.fog[2] = scene_.fog ? 1.0f : 0.0f;
+    static const bool shadowDebug = ConfigInt("render", "shadow_debug", 0) != 0;
+    p.fog[3] = shadowDebug ? 1.0f : 0.0f;
+    std::memcpy(p.fogColor, scene_.fogColor, sizeof(scene_.fogColor));
+    if (scene_.fog)
+        ModernFogUniforms(p.mf, h, sceneProjection_, scene_.draws.back().viewport, scene_.fogStart, scene_.fogEnd,
+                          false);
     VkDeviceSize paramsOffset = PushUniform(&p, sizeof(p));
     VkDescriptorImageInfo imgs[4] = {
         {shadowDepthSampler_, depth->sampledView, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL},
@@ -1910,19 +2495,31 @@ VkPipeline VulkanDevice::SnowPipeline(VkFormat target)
     {
         snowVs_ = MakeModule(CompileGlsl(SnowVertexGlsl(), false));
         snowFs_ = MakeModule(CompileGlsl(SnowFragmentGlsl(), true));
-        VkDescriptorSetLayoutBinding b[2] = {
-            {0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
-            {1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr}};
+        snowCs_ = MakeModule(CompileGlslStage(SnowComputeGlsl(), GlslStage::Compute));
+        const VkShaderStageFlags all =
+            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
+        VkDescriptorSetLayoutBinding b[3] = {
+            {0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT, nullptr},
+            {1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, all, nullptr},
+            {2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_COMPUTE_BIT, nullptr}};
         VkDescriptorSetLayoutCreateInfo dl{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
         dl.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR;
-        dl.bindingCount = 2;
+        dl.bindingCount = 3;
         dl.pBindings = b;
         vkCreateDescriptorSetLayout(device, &dl, nullptr, &snowSetLayout_);
         VkPipelineLayoutCreateInfo pl{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
         pl.setLayoutCount = 1;
         pl.pSetLayouts = &snowSetLayout_;
         vkCreatePipelineLayout(device, &pl, nullptr, &snowLayout_);
-        if (!snowVs_ || !snowFs_ || !snowLayout_)
+        if (snowCs_ && snowLayout_)
+        {
+            VkComputePipelineCreateInfo ci{VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+            ci.stage = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
+            ci.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT, ci.stage.module = snowCs_, ci.stage.pName = "main";
+            ci.layout = snowLayout_;
+            vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &ci, nullptr, &snowCompute_);
+        }
+        if (!snowVs_ || !snowFs_ || !snowLayout_ || !snowCompute_)
         {
             Log("vulkan: snow: shaders failed to build; off");
             snowFailed_ = true;
@@ -1992,7 +2589,9 @@ void VulkanDevice::Snow()
 {
     std::lock_guard<std::recursive_mutex> g(Ctx().lock);
     const rhi::SceneHints& h = rhi::Hints();
-    if (!h.snow || !h.haveView || scene_.draws.empty() || !depth_ || !rt_)
+    if (h.levelLoading)
+        snowFilled_ = false;  // the next snowy frame fills the volume afresh (pauses keep the flakes)
+    if (!h.snow || !h.haveView || scene_.draws.empty() || !depth_ || !rt_ || !h.snowCount)
         return;
     Image* target = rt_->GetImage();
     Image* depth = depth_->GetImage();
@@ -2003,9 +2602,105 @@ void VulkanDevice::Snow()
     std::memcpy(view.m, h.view, sizeof(view.m));
     if (!Invert(view, toWorld))
         return;
+    Context& ctx = Ctx();
+    // Flake state buffer (device local), recreated when the flake count grows.
+    if (h.snowCount > snowCapacity_)
+    {
+        if (snowBuffer_)
+        {
+            VkDevice device = ctx.device;
+            VkBuffer ob = snowBuffer_;
+            VkDeviceMemory om = snowMemory_;
+            DeferDestroy([device, ob, om] {
+                vkDestroyBuffer(device, ob, nullptr);
+                vkFreeMemory(device, om, nullptr);
+            });
+            snowBuffer_ = VK_NULL_HANDLE, snowMemory_ = VK_NULL_HANDLE;
+        }
+        VkBufferCreateInfo bi{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+        bi.size = VkDeviceSize(h.snowCount) * 32;
+        bi.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+        if (vkCreateBuffer(ctx.device, &bi, nullptr, &snowBuffer_) != VK_SUCCESS)
+            return;
+        VkMemoryRequirements req;
+        vkGetBufferMemoryRequirements(ctx.device, snowBuffer_, &req);
+        snowMemory_ = ctx.Allocate(req, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        vkBindBufferMemory(ctx.device, snowBuffer_, snowMemory_, 0);
+        snowCapacity_ = h.snowCount;
+        snowFilled_ = false;
+    }
+    float cam[3] = {toWorld.m[3], toWorld.m[7], toWorld.m[11]};
+    // A camera jump (level start, teleport, cut) fills the volume around the new position at once.
+    float jump = std::fabs(cam[0] - snowLastCam_[0]) + std::fabs(cam[1] - snowLastCam_[1]) +
+                 std::fabs(cam[2] - snowLastCam_[2]);
+    bool fill = !snowFilled_ || jump > h.snowBox;
+    std::memcpy(snowLastCam_, cam, sizeof(cam));
+    snowFilled_ = true;
+
     EndRendering();
     VkCommandBuffer cb = Slot().cb;
     depth->Transition(cb, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
+    const D3DVIEWPORT9& svp = scene_.draws.back().viewport;
+    SnowParams p{};
+    for (int r = 0; r < 4; ++r)
+        for (int c = 0; c < 4; ++c)
+            p.view[c * 4 + r] = view.m[r * 4 + c];  // GLSL mat4 is column-major
+    p.proj[0] = sceneProjection_._11, p.proj[1] = sceneProjection_._22;
+    p.proj[2] = sceneProjection_._33, p.proj[3] = sceneProjection_._34;
+    p.proj2[0] = sceneProjection_._43, p.proj2[1] = h.snowTime, p.proj2[2] = h.snowSize, p.proj2[3] = h.snowBox;
+    p.camPos[0] = cam[0], p.camPos[1] = cam[1], p.camPos[2] = cam[2], p.camPos[3] = fill ? 1.0f : 0.0f;
+    p.motion[0] = h.snowWind[0], p.motion[1] = h.snowWind[1], p.motion[2] = h.snowFall;
+    p.motion[3] = h.snowTurbulence;
+    p.viewport[0] = float(svp.X), p.viewport[1] = float(svp.Y), p.viewport[2] = float(svp.Width);
+    p.viewport[3] = float(svp.Height);
+    p.target[0] = float(target->width), p.target[1] = float(target->height);
+    p.target[2] = float(h.snowCount), p.target[3] = std::min(h.snowDt, 0.1f);
+    if (h.snowDebug)
+        p.color[0] = 1.0f, p.color[1] = 0.05f, p.color[2] = 0.05f, p.color[3] = 1.0f;
+    else
+        p.color[0] = 0.95f, p.color[1] = 0.97f, p.color[2] = 1.0f, p.color[3] = 0.85f;
+    // Sky 20 units above the camera, volume 12 below it, drag time 0.5 s, streaks over 1/60 s.
+    p.sim[0] = h.snowSky, p.sim[1] = 12.0f, p.sim[2] = 0.5f, p.sim[3] = 1.0f / 60.0f;
+    VkDeviceSize offset = PushUniform(&p, sizeof(p));
+    if (!shadowDepthSampler_)
+    {
+        VkSamplerCreateInfo si{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+        si.magFilter = si.minFilter = VK_FILTER_NEAREST;
+        si.addressModeU = si.addressModeV = si.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        vkCreateSampler(ctx.device, &si, nullptr, &shadowDepthSampler_);
+    }
+    VkDescriptorImageInfo img{shadowDepthSampler_, depth->sampledView, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL};
+    VkDescriptorBufferInfo pb{Slot().uniforms, offset, sizeof(p)};
+    VkDescriptorBufferInfo fb{snowBuffer_, 0, VkDeviceSize(h.snowCount) * 32};
+    VkWriteDescriptorSet w[3] = {{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}, {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET},
+                                 {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}};
+    w[0].dstBinding = 0, w[0].descriptorCount = 1, w[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    w[0].pImageInfo = &img;
+    w[1].dstBinding = 1, w[1].descriptorCount = 1, w[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    w[1].pBufferInfo = &pb;
+    w[2].dstBinding = 2, w[2].descriptorCount = 1, w[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    w[2].pBufferInfo = &fb;
+
+    // Simulate (vk_snow.cpp). Last frame's draw read the flakes in its vertex shader before this pass writes them.
+    VkMemoryBarrier2 mb{VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+    mb.srcStageMask = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT;
+    mb.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+    mb.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    mb.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+    VkDependencyInfo di{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    di.memoryBarrierCount = 1;
+    di.pMemoryBarriers = &mb;
+    vkCmdPipelineBarrier2(cb, &di);
+    vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, snowCompute_);
+    vkCmdPushDescriptorSetKHR(cb, VK_PIPELINE_BIND_POINT_COMPUTE, snowLayout_, 0, 3, w);
+    vkCmdDispatch(cb, (h.snowCount + 63) / 64, 1, 1);
+    mb.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    mb.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+    mb.dstStageMask = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT;
+    mb.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+    vkCmdPipelineBarrier2(cb, &di);
+
+    // Draw.
     target->Transition(cb, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     VkRenderingAttachmentInfo ca{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
     ca.imageView = target->AttachmentView(rt_->level, rt_->face);
@@ -2018,40 +2713,12 @@ void VulkanDevice::Snow()
     ri.colorAttachmentCount = 1;
     ri.pColorAttachments = &ca;
     vkCmdBeginRendering(cb, &ri);
-    const D3DVIEWPORT9& svp = scene_.draws.back().viewport;
     VkViewport v{float(svp.X), float(svp.Y), float(svp.Width), float(svp.Height), 0, 1};
     VkRect2D sc{{static_cast<int32_t>(svp.X), static_cast<int32_t>(svp.Y)}, {svp.Width, svp.Height}};
     vkCmdSetViewport(cb, 0, 1, &v);
     vkCmdSetScissor(cb, 0, 1, &sc);
     vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-    SnowParams p{};
-    for (int r = 0; r < 4; ++r)
-        for (int c = 0; c < 4; ++c)
-            p.view[c * 4 + r] = view.m[r * 4 + c];  // GLSL mat4 is column-major
-    p.proj[0] = sceneProjection_._11, p.proj[1] = sceneProjection_._22;
-    p.proj[2] = sceneProjection_._33, p.proj[3] = sceneProjection_._34;
-    p.proj2[0] = sceneProjection_._43, p.proj2[1] = h.snowTime, p.proj2[2] = h.snowSize, p.proj2[3] = h.snowBox;
-    p.camPos[0] = toWorld.m[3], p.camPos[1] = toWorld.m[7], p.camPos[2] = toWorld.m[11];
-    p.motion[0] = h.snowWind[0], p.motion[1] = h.snowWind[1], p.motion[2] = h.snowFall, p.motion[3] = 0.35f;
-    p.viewport[0] = float(svp.X), p.viewport[1] = float(svp.Y), p.viewport[2] = float(svp.Width);
-    p.viewport[3] = float(svp.Height);
-    p.target[0] = float(target->width), p.target[1] = float(target->height);
-    VkDeviceSize offset = PushUniform(&p, sizeof(p));
-    if (!shadowDepthSampler_)
-    {
-        VkSamplerCreateInfo si{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
-        si.magFilter = si.minFilter = VK_FILTER_NEAREST;
-        si.addressModeU = si.addressModeV = si.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        vkCreateSampler(Ctx().device, &si, nullptr, &shadowDepthSampler_);
-    }
-    VkDescriptorImageInfo img{shadowDepthSampler_, depth->sampledView, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL};
-    VkDescriptorBufferInfo pb{Slot().uniforms, offset, sizeof(p)};
-    VkWriteDescriptorSet w[2] = {{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}, {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}};
-    w[0].dstBinding = 0, w[0].descriptorCount = 1, w[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    w[0].pImageInfo = &img;
-    w[1].dstBinding = 1, w[1].descriptorCount = 1, w[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    w[1].pBufferInfo = &pb;
-    vkCmdPushDescriptorSetKHR(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, snowLayout_, 0, 2, w);
+    vkCmdPushDescriptorSetKHR(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, snowLayout_, 0, 3, w);
     vkCmdDraw(cb, 6, h.snowCount, 0, 0);
     vkCmdEndRendering(cb);
 }
@@ -2089,9 +2756,23 @@ uint64_t VulkanDevice::DrawId(uint64_t base)
     return Hash(&n, sizeof(n), base);
 }
 
+// The opaque scene is complete at the first translucent draw (blended, no depth writes) into the scene after opaque
+// draws: ambient occlusion and shadows go in here, under the translucent layers (the intro's white fade, particles,
+// glass), which used to get darkened from above when both ran at SceneEnd.
+void VulkanDevice::BeforeDraw()
+{
+    if (lightingDone_ || sceneEnded_ || scene_.draws.empty() || !rs_[D3DRS_ALPHABLENDENABLE] ||
+        rs_[D3DRS_ZWRITEENABLE] || !SceneDrawTarget())
+        return;
+    lightingDone_ = true;
+    Ambient();
+    Shadows();
+}
+
 HRESULT VulkanDevice::DrawPrimitive(D3DPRIMITIVETYPE t, UINT start, UINT count)
 {
     std::lock_guard<std::recursive_mutex> g(Ctx().lock);
+    BeforeDraw();
     const void* what[4] = {streams_[0], vs_, textures_[0], nullptr};
     uint32_t range[3] = {static_cast<uint32_t>(t), start, count};
     uint64_t id = DrawId(Hash(range, sizeof(range), Hash(what, sizeof(what))));
@@ -2109,6 +2790,7 @@ HRESULT VulkanDevice::DrawIndexedPrimitive(D3DPRIMITIVETYPE t, INT base, UINT mi
                                            UINT count)
 {
     std::lock_guard<std::recursive_mutex> g(Ctx().lock);
+    BeforeDraw();
     const void* what[4] = {streams_[0], vs_, textures_[0], indices_};
     uint32_t range[4] = {static_cast<uint32_t>(t), static_cast<uint32_t>(base), si, count};
     uint64_t id = DrawId(Hash(range, sizeof(range), Hash(what, sizeof(what))));
@@ -2154,10 +2836,12 @@ void VulkanDevice::RecordScene(D3DPRIMITIVETYPE t, bool indexed, INT base, UINT 
         {
             VulkanBuffer::Version& v = streams_[s]->Current();
             d.streams[s] = {v.mapped, v.buffer, streamOffset_[s], streamStride_[s], streams_[s]->length};
+            d.streamObjects[s] = streams_[s];
         }
     if (indexed && indices_)
     {
         d.indexData = indices_->Current().mapped;
+        d.indexObject = indices_;
         d.indexBuffer = indices_->Current().buffer;
         d.indexLength = indices_->length;
         d.index32 = indices_->indexType == VK_INDEX_TYPE_UINT32;
@@ -2178,6 +2862,17 @@ void VulkanDevice::RecordScene(D3DPRIMITIVETYPE t, bool indexed, INT base, UINT 
     d.alphaBlend = rs_[D3DRS_ALPHABLENDENABLE] != 0;
     d.alphaTest = rs_[D3DRS_ALPHATESTENABLE] != 0;
     d.zWrite = rs_[D3DRS_ZWRITEENABLE] != 0;
+    // Fog start and end as camera distances: shader draws take them from c1 (Renderer_SetFog's shader path:
+    // {start, end, 1 / (end - start), 0.5}), fixed-function draws with vertex fog from the render states.
+    if (d.zWrite && !d.alphaBlend && rs_[D3DRS_FOGENABLE] && (vs_ || rs_[D3DRS_FOGTABLEMODE] == D3DFOG_NONE))
+    {
+        scene_.fog = true;
+        scene_.fogStart = vs_ ? vsConst_[4] : U2F(rs_[D3DRS_FOGSTART]);
+        scene_.fogEnd = vs_ ? vsConst_[5] : U2F(rs_[D3DRS_FOGEND]);
+        float c[4];
+        ColorToFloat(rs_[D3DRS_FOGCOLOR], c);
+        std::memcpy(scene_.fogColor, c, sizeof(scene_.fogColor));
+    }
     d.vertexModule = lastVertex_;
     d.input = lastInput_;
     d.vertexCount = VertexCount(t, count);
@@ -2204,8 +2899,14 @@ void rhi::SceneEnd()
 {
     if (rhi::vulkan::g_device)
     {
-        rhi::vulkan::g_device->Shadows();
+        if (!rhi::vulkan::g_device->lightingDone_)
+        {
+            rhi::vulkan::g_device->Ambient();
+            rhi::vulkan::g_device->Shadows();
+            rhi::vulkan::g_device->lightingDone_ = true;
+        }
         rhi::vulkan::g_device->Snow();
+        rhi::vulkan::g_device->sceneEnded_ = true;
     }
 }
 

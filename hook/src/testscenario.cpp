@@ -74,12 +74,57 @@ extern "C" static HANDLE WINAPI Test_CreateMutexA(LPSECURITY_ATTRIBUTES sa, BOOL
     return g_realCreateMutexA(sa, owner, name);
 }
 
+// [test] parallel=1 also keeps a test game running while another window has the focus (the player's own game, or
+// another test instance): measured, test instances stalled in the menus as soon as the player's game was in the
+// foreground. The game imports no focus queries (GetForegroundWindow, GetActiveWindow, GetFocus), so it learns
+// about focus from window messages; its window class (RegisterClassA) gets a procedure in front that reports
+// every deactivation as an activation.
+WNDPROC g_gameWndProc;
+using RegisterClassA_t = ATOM(WINAPI*)(const WNDCLASSA*);
+RegisterClassA_t g_realRegisterClassA;
+
+LRESULT CALLBACK Test_WndProc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
+{
+    switch (msg)
+    {
+    case WM_ACTIVATEAPP:
+        wp = TRUE;
+        break;
+    case WM_ACTIVATE:
+        if (LOWORD(wp) == WA_INACTIVE)
+            wp = MAKEWPARAM(WA_ACTIVE, HIWORD(wp));
+        break;
+    case WM_NCACTIVATE:
+        wp = TRUE;
+        break;
+    case WM_KILLFOCUS:
+        return 0;
+    }
+    return CallWindowProcA(g_gameWndProc, wnd, msg, wp, lp);
+}
+
+extern "C" static ATOM WINAPI Test_RegisterClassA(const WNDCLASSA* wc)
+{
+    if (!wc || g_gameWndProc)
+        return g_realRegisterClassA(wc);
+    WNDCLASSA copy = *wc;
+    g_gameWndProc = copy.lpfnWndProc;
+    copy.lpfnWndProc = Test_WndProc;
+    Log("test: window class %s kept active when unfocused", copy.lpszClassName && HIWORD(copy.lpszClassName)
+                                                               ? copy.lpszClassName : "(atom)");
+    return g_realRegisterClassA(&copy);
+}
+
 void TestScenarioInit()
 {
-    if (ConfigInt("test", "parallel", 0) &&
-        PatchImport("KERNEL32.dll", "CreateMutexA", reinterpret_cast<void*>(Test_CreateMutexA),
-                    reinterpret_cast<void**>(&g_realCreateMutexA)))
-        Log("test: per-process instance mutex");
+    if (ConfigInt("test", "parallel", 0))
+    {
+        if (PatchImport("KERNEL32.dll", "CreateMutexA", reinterpret_cast<void*>(Test_CreateMutexA),
+                        reinterpret_cast<void**>(&g_realCreateMutexA)))
+            Log("test: per-process instance mutex");
+        PatchImport("USER32.dll", "RegisterClassA", reinterpret_cast<void*>(Test_RegisterClassA),
+                    reinterpret_cast<void**>(&g_realRegisterClassA));
+    }
     if (ConfigInt("test", "no_movies", 0))
     {
         void* real;

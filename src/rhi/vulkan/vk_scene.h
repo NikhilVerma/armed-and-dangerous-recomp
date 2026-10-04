@@ -55,6 +55,9 @@ struct SceneDraw
     VkShaderModule vertexModule;
     const struct VertexInput* input;
     uint32_t vertexCount;  // vertices or indices the draw reads (VertexCount of its primitives)
+    // The buffer objects behind streams[] and indexBuffer (the shadow caster cache keeps references).
+    VulkanBuffer* streamObjects[4];
+    VulkanBuffer* indexObject;
 };
 
 struct SceneFrame
@@ -65,11 +68,17 @@ struct SceneFrame
     D3DLIGHT9 lights[8]{};
     uint32_t lightCount = 0;
     uint32_t width = 0, height = 0;  // back buffer
+    // The fog of the frame's opaque geometry (the last opaque draw with D3D9 linear table fog): passes that change
+    // the scene's colour after it was fogged (ambient occlusion, shadows) take the fog out and put it back.
+    bool fog = false;
+    float fogStart = 0.0f, fogEnd = 1.0f;  // 0..1 depth
+    float fogColor[3] = {};
     void Clear()
     {
         draws.clear();
         vsConstants.clear();
         lightCount = 0;
+        fog = false;
     }
 };
 

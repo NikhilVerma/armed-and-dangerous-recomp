@@ -22,6 +22,8 @@
 
 #include "vk_shaders.h"
 
+#include "vk_fog.h"
+
 namespace rhi::vulkan
 {
 // D3DTTFF_PROJECTED as stored in FFStage::transformFlags (the real value, 0x100, does not fit in a byte).
@@ -37,7 +39,8 @@ static_assert(offsetof(FFUniforms, halfPixel) == 896);
 static_assert(offsetof(FFUniforms, alphaRef) == 976);
 static_assert(offsetof(FFUniforms, lightDiffuse) == 1072);
 static_assert(offsetof(FFUniforms, textureStageConstant) == 1968);
-static_assert(sizeof(FFUniforms) == 2368);
+static_assert(offsetof(FFUniforms, mf) == 2368);
+static_assert(sizeof(FFUniforms) == 2496);
 
 std::string N(int v) { return std::to_string(v); }
 
@@ -46,7 +49,9 @@ std::string N(int v) { return std::to_string(v); }
 // `G * v` computes exactly D3D9's `v * M`. Products chain the same way: v * W * V * P == P' * (V' * (W' * v)).
 std::string UniformBlock(const char* blockName, const char* instance)
 {
-    return std::string("layout(std140, set = 0, binding = ") + N(kBindingFixedFunction) + ") uniform " + blockName +
+    return std::string("#ifndef MODERN_FOG_STRUCT\n#define MODERN_FOG_STRUCT\nstruct ModernFog\n{\n") +
+           ModernFogMembers() + "};\n#endif\n" +
+           "layout(std140, set = 0, binding = " + N(kBindingFixedFunction) + ") uniform " + blockName +
            "\n{\n"
            "    mat4 world[4];\n    mat4 view;\n    mat4 projection;\n    mat4 texture[8];\n"
            "    vec4 halfPixel;\n    vec4 viewportSize;\n    vec4 textureFactor;\n    vec4 fogColor;\n"
@@ -55,7 +60,7 @@ std::string UniformBlock(const char* blockName, const char* instance)
            "    vec4 lightDiffuse[8];\n    vec4 lightSpecular[8];\n    vec4 lightAmbient[8];\n"
            "    vec4 lightPosition[8];\n    vec4 lightDirection[8];\n    vec4 lightAttenuation[8];\n"
            "    vec4 lightSpot[8];\n    vec4 textureStageConstant[8];\n    vec4 bumpEnvMat[8];\n"
-           "    vec4 bumpEnvLum[8];\n    vec4 tessParams;\n} " +
+           "    vec4 bumpEnvLum[8];\n    vec4 tessParams;\n    ModernFog mf;\n} " +
            instance + ";\n";
 }
 
@@ -148,7 +153,10 @@ std::string FinalBody(const FFKey& key)
     if (UsesTableFog(key) || UsesVertexFog(key))
     {
         // D3D9 "Fog Blending": C = f * Ci + (1 - f) * Cf on RGB; alpha is not fogged.
-        s += "c.rgb = mix(ff.fogColor.rgb, c.rgb, d3d9_f); ";
+        // Remaster: modern height fog (vk_fog.h) when ff.mf.on.x is set.
+        s += "vec3 d3d9_fc = ff.fogColor.rgb; if (ff.mf.on.x > 0.5) " +
+             ModernFogGlsl("ff.mf", "gl_FragCoord.z", "d3d9_f", "d3d9_fc", "ff.fogColor.rgb") + " ";
+        s += "c.rgb = mix(d3d9_fc, c.rgb, d3d9_f); ";
     }
     if (key.alphaTestEnable && key.alphaFunc != D3DCMP_ALWAYS)
     {

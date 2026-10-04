@@ -112,3 +112,12 @@ How this coexists with faithful recovery:
   - brightness in a window, all resolutions, F5 / F9 quick keys
 - Kept at the original value, because they are preferences rather than upgrades: mouse invert and speeds, render
   scale, display mode, tone mapping, FOV, frame limit.
+
+## 2026-10-04: AO, modern fog, testing alongside the player
+
+- Ambient occlusion: adopt XeGTAO (Intel, MIT) unmodified in third_party/XeGTAO rather than reimplement (human:
+  "try not to reimplement it, try to adopt it"). Remaster default on. Modern exponential height fog replaces the
+  game's linear fog in the remaster (default on); AO must never show through fog.
+- Tests never touch the player's game folder (and.ini, options.opt): all test tools run in work/instances copies,
+  which take the DLL from build/hook-release. Test runs keep running unfocused ([test] parallel=1).
+- Full check only before a push; single scenarios between changes (human: checks too slow).

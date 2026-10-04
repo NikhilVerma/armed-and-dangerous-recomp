@@ -166,19 +166,36 @@ struct SceneHints
     bool haveView = false;
     float view[16] = {};  // world -> camera (Game+0x704): row i gives camera coordinate i, translation in column 3
     bool haveSun = false;
-    float sun[3] = {0, -1, 0};  // world-space direction the sunlight travels (renderer light slot 0)
+    float sun[3] = {0, 0, -1};  // world-space direction the sunlight travels (renderer light slot 0; Z is up)
     bool shadows = false;       // [render] shadow_maps: draw shadow maps at SceneEnd
-    float shadowStrength = 0.55f, shadowRange = 60.0f;
-    float shadowSoftness = 1.5f;  // the sun's angular radius in degrees: penumbra width per unit of caster distance
+    float shadowStrength = 0.55f, shadowRange = 200.0f;
+    float shadowSoftness = 0.6f;  // the sun's angular radius in degrees: penumbra width per unit of caster distance
     uint32_t shadowSize = 4096;
+    // Shadow casters the game culled from the view (vk_device.cpp ShadowCasters): static geometry seen earlier in the
+    // level keeps casting while within this distance of the camera (world units).
+    float shadowCasterRadius = 100.0f;
+    // [render] ao: ambient occlusion (XeGTAO, vk_gtao.h) at SceneEnd, before the shadows.
+    bool ao = false;
+    float aoStrength = 1.0f;  // 0..1: how much of XeGTAO's occlusion is applied
+    float aoRadius = 1.2f;    // world units: the size of the occlusion sphere
+    // [render] fog_modern: exponential height fog in place of the game's linear fog (vk_fog.h).
+    bool fogModern = false;
+    float fogDensity = 1.0f;         // multiplier on the density that keeps the game's visibility range
+    float fogHeightFalloff = 0.002f;  // per world unit of height: density halves every ln2 / b (~350) units up
+    float fogSunGlow = 0.6f;         // forward scattering towards the sun
+    bool levelLoading = false;  // the game is loading a level: cached scene data is dropped
     // [render] snow: GPU snowfall at SceneEnd (hook/enhance/weather.cpp), in levels with camera snow.
     bool snow = false;
     float snowTime = 0.0f;              // game seconds (stops while the game is paused)
+    float snowDt = 0.0f;                // this frame's game time step (0 while paused)
     uint32_t snowCount = 60000;         // flakes in the box around the camera
-    float snowBox = 18.0f;              // half size of that box, world units
-    float snowFall = 1.6f;              // fall speed, units per second
-    float snowWind[2] = {0.6f, 0.25f};  // horizontal drift (world x, z), units per second
+    float snowBox = 24.0f;              // horizontal radius of the simulated volume, world units
+    float snowSky = 20.0f;              // flakes are born this high above the camera
+    float snowFall = 1.6f;              // terminal fall speed, units per second
+    float snowWind[2] = {0.9f, 0.35f};  // base wind (world x, y: the ground plane, Z is up), units per second
+    float snowTurbulence = 0.6f;        // swirl speed, units per second
     float snowSize = 0.02f;             // flake radius, world units
+    bool snowDebug = false;             // [render] snow_debug: red flakes (tell them from the game's effects)
 };
 SceneHints& Hints();
 

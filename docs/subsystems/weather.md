@@ -145,3 +145,22 @@ then 0x004102e0 / 0x0040f750. 0x0041a350 (6,616 B) and 0x00420770 (10,512 B) do 
 - What opcode 0x30 / 0x19 (both 0x0041e4d0) schedule exactly (**guess**: repeat a sub-fx at an interval).
 - lev_5_m2 `fx_l5_m2` content; lev_5_m1 prop default confirmed only for lev_1_m1's `p_camera_fx`.
 - World unit scale (metres?) for converting UV speeds to fall speeds.
+
+## Findings 2026-10-04 (runtime)
+
+- **World axes:** Z is up. Measured: the camera's up axis in world space is (0, 0, 1) (hook/enhance/weather.cpp
+  fx_log output). The first GPU snow fell along -y, i.e. sideways.
+- **The "snow bubbles"** are particles, not the cylinders: the camera-locked intro fx `fx_camera_l1_m1_locked`
+  attaches an invisible `fxo_glow_red` emitter to the camera_fx object (parent pointer at object +0x34, written by
+  the attach function 0x004539f0 at 0x00453a02). Its script (opcodes 0x27, 0x47 -45 deg, 0x24 speed 5..15, 0x25
+  life 12) sprays particles along the view, towards the camera; it sets no lifetime, so it lives for the whole level
+  and saved games restore it. A/B with its update skipped: the bubble is gone (work/shots/mute_ab.png).
+- **Saved games** recreate fx objects through the object factory (0x0045f020, 12 callers), not fx opcodes 0x13 /
+  0x05, so creation hooks miss them. Every fx object (vtable 0x005a52d8) updates through slot +0xbc (0x0041a350,
+  thiscall, no stack arguments): the weather layer patches that slot with a trampoline that hides `fxo_snow*` and
+  skips the camera emitter's update, whatever the creation path.
+- **Recovered:** 0x004234d0 Fx_CreateObject (opcode 0x05), with g_fxObjectCreated; Fx_AttachMesh gained
+  g_fxAttachAllowed (unused by the remaster now).
+- **GPU snow** is a simulation (src/rhi/vulkan/vk_snow.cpp): per-flake position and velocity in a storage buffer,
+  born in the sky, terminal fall plus gusting, swirling wind with drag, respawned on landing (depth buffer) or below
+  the volume; not drawn while the game is paused (the pause menu shows a frozen copy of the scene).
