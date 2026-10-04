@@ -71,6 +71,8 @@ static HRESULT STDMETHODCALLTYPE Hook_Reset(IDirect3DDevice9* dev, D3DPRESENT_PA
 
 void QolOnFrame();          // hook/enhance/qol.cpp
 void PersistenceOnFrame();  // hook/enhance/persistence.cpp
+void ProfilerOnFrame();     // hook/src/profiler.cpp
+void DisplayOnFrame();      // hook/enhance/display.cpp
 
 // Frames presented so far (both backends): enhancements' debug switches name frames by it.
 static unsigned g_framesPresented;
@@ -96,6 +98,8 @@ static HRESULT STDMETHODCALLTYPE Hook_Present(IDirect3DDevice9* dev, const RECT*
     InputOnFrame();
     QolOnFrame();
     PersistenceOnFrame();
+    ProfilerOnFrame();
+    DisplayOnFrame();
     ++g_framesPresented;
     return hr;
 }
@@ -110,6 +114,8 @@ void HarnessOnFrame()
     InputOnFrame();
     QolOnFrame();
     PersistenceOnFrame();
+    ProfilerOnFrame();
+    DisplayOnFrame();
     ++g_framesPresented;
 }
 

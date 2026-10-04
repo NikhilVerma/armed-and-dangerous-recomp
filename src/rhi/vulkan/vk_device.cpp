@@ -66,6 +66,19 @@ struct FrameSlot
     uint8_t* uniformMapped = nullptr;
     VkDeviceSize uniformUsed = 0;
 };
+struct TickScope
+{
+    long long& total;
+    LARGE_INTEGER start;
+    explicit TickScope(long long& t) : total(t) { QueryPerformanceCounter(&start); }
+    ~TickScope()
+    {
+        LARGE_INTEGER end;
+        QueryPerformanceCounter(&end);
+        total += end.QuadPart - start.QuadPart;
+    }
+};
+
 constexpr VkDeviceSize kUniformRing = 32u << 20;
 
 struct TessConfig
@@ -319,6 +332,9 @@ private:
     // stages as a patch list built by TessIndices.
     bool tessDraw_ = false;
     float tessNormalDecode_ = 0.0f;
+    // [render] vulkan_verbose: CPU time per frame in draw preparation, in Present, and waiting for the GPU.
+    long long prepareTicks_ = 0, presentTicks_ = 0, waitTicks_ = 0, oneShotTicks_ = 0;
+    uint32_t drawsCounted_ = 0;
     uint32_t tessDraws_ = 0, tessCandidates_ = 0, tessSkinned_ = 0, tessWithNormal_ = 0;  // this frame (verbose log)
     VkShaderModule tessControl_ = VK_NULL_HANDLE, tessEval_ = VK_NULL_HANDLE;
     bool TessModules();
@@ -621,6 +637,7 @@ HRESULT VulkanDevice::Reset(D3DPRESENT_PARAMETERS* params)
     EndRendering();
     vkDeviceWaitIdle(Ctx().device);
     DisplayAdjustParams(params);
+    DisplayAdjustWindow(window_, params);  // a new size from the Graphics page: resize / fit the window as at start
     params_ = *params;
     if (backBuffer_)
         backBuffer_->Destroy();
@@ -638,7 +655,10 @@ void VulkanDevice::BeginFrame()
 {
     Context& c = Ctx();
     FrameSlot& s = Slot();
-    vkWaitForFences(c.device, 1, &s.fence, VK_TRUE, UINT64_MAX);
+    {
+        TickScope wait(waitTicks_);
+        vkWaitForFences(c.device, 1, &s.fence, VK_TRUE, UINT64_MAX);
+    }
     if (s.serial > completed)
         completed = s.serial;
     for (auto& d : s.destroy)
@@ -721,8 +741,22 @@ void VulkanDevice::EndRendering()
 HRESULT VulkanDevice::Present(const RECT*, const RECT*, HWND, const RGNDATA*)
 {
     std::lock_guard<std::recursive_mutex> g(Ctx().lock);
+    TickScope presentTiming(presentTicks_);
     Context& c = Ctx();
     static const int verbose = ConfigInt("render", "vulkan_verbose", 0);
+    if (verbose && serial % 120 == 0)
+    {
+        LARGE_INTEGER f;
+        QueryPerformanceFrequency(&f);
+        auto ms = [&](long long ticks) { return ticks * 1000.0 / f.QuadPart / 120; };
+        Log("vulkan: per frame (120 frames): %u draws, %.2f ms preparing them, %.2f ms in Present, %.2f ms waiting "
+            "for the GPU (frame fence), %.1f texture uploads in %.2f ms, %.1f new buffer versions",
+            drawsCounted_ / 120, ms(prepareTicks_), ms(presentTicks_), ms(waitTicks_), Counters().uploads / 120.0,
+            ms(Counters().uploadTicks), Counters().bufferVersions / 120.0);
+        Counters() = ResourceCounters{};
+        prepareTicks_ = presentTicks_ = waitTicks_ = 0;
+        drawsCounted_ = 0;
+    }
     if (verbose && (serial == 1 || serial % 100 == 0))
         Log("vulkan: present %llu", static_cast<unsigned long long>(serial));
     EndRendering();
@@ -769,10 +803,19 @@ HRESULT VulkanDevice::Present(const RECT*, const RECT*, HWND, const RGNDATA*)
         di.imageMemoryBarrierCount = 1;
         di.pImageMemoryBarriers = &b;
         vkCmdPipelineBarrier2(cb, &di);
+        // The image keeps its proportions in the window (black bars), as a monitor scaling a mode would.
+        VkClearColorValue black{};
+        VkImageSubresourceRange whole{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        vkCmdClearColorImage(cb, swapImages_[index], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &black, 1, &whole);
+        double sx = double(swapExtent_.width) / present_->width, sy = double(swapExtent_.height) / present_->height;
+        double fit = sx < sy ? sx : sy;
+        int32_t w = static_cast<int32_t>(present_->width * fit + 0.5), h = static_cast<int32_t>(present_->height * fit + 0.5);
+        int32_t x = (static_cast<int32_t>(swapExtent_.width) - w) / 2, y = (static_cast<int32_t>(swapExtent_.height) - h) / 2;
         VkImageBlit blit{};
         blit.srcSubresource = blit.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
         blit.srcOffsets[1] = {static_cast<int32_t>(present_->width), static_cast<int32_t>(present_->height), 1};
-        blit.dstOffsets[1] = {static_cast<int32_t>(swapExtent_.width), static_cast<int32_t>(swapExtent_.height), 1};
+        blit.dstOffsets[0] = {x, y, 0};
+        blit.dstOffsets[1] = {x + w, y + h, 1};
         vkCmdBlitImage(cb, present_->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapImages_[index],
                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
         b.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
@@ -917,7 +960,7 @@ HRESULT VulkanDevice::StretchRect(Surface* src, const RECT* sr, Surface* dst, co
     if (!si || !di)
         return D3DERR_INVALIDCALL;
     static const int verbose = ConfigInt("render", "vulkan_verbose", 0);
-    if (verbose)
+    if (verbose >= 2)
         Log("vulkan: StretchRect %ux%u f%d face%u -> %ux%u f%d face%u faces%u (frame %llu)", si->width, si->height,
             static_cast<int>(si->d3dFormat), s->face, di->width, di->height, static_cast<int>(di->d3dFormat), d->face,
             di->faces, static_cast<unsigned long long>(serial));
@@ -1079,6 +1122,8 @@ FFKey VulkanDevice::BuildFFKey(uint32_t vertexMask, const uint8_t texCoordSize[8
 
 bool VulkanDevice::PrepareDraw(D3DPRIMITIVETYPE type, uint64_t drawKey)
 {
+    TickScope timing(prepareTicks_);
+    ++drawsCounted_;
     if (!layout_ || !rt_)
         return false;
     // Vertex input
@@ -1574,7 +1619,7 @@ HRESULT VulkanDevice::DrawIndexedPrimitive(D3DPRIMITIVETYPE t, INT base, UINT mi
         return D3D_OK;
     VkCommandBuffer cb = Slot().cb;
     indices_->MarkUsed(serial);
-    if (!tessDraw_ || !DrawTessellated(t, indices_->Current().mapped, indices_->indexType == VK_INDEX_TYPE_UINT32,
+    if (!tessDraw_ || !DrawTessellated(t, indices_->Contents(), indices_->indexType == VK_INDEX_TYPE_UINT32,
                                        indices_->length, base, si, count))
     {
         vkCmdBindIndexBuffer(cb, indices_->Current().buffer, 0, indices_->indexType);

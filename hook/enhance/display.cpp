@@ -1,3 +1,4 @@
+#include <algorithm>
 #include "display.h"
 
 #include "config.h"
@@ -11,6 +12,7 @@
 static struct
 {
     int windowed, width, height, vsync, fpsLimit, borderless;
+    bool vulkanFullscreen;  // fullscreen on the Vulkan backend: a window covering the monitor (no mode change)
     float renderScale;
 } g_cfg;
 
@@ -67,13 +69,34 @@ void DisplayInit()
     RemasterRegister({"display", "fps_limit", L"Frame rate limit (0 = off)", S::Slider, 0, 240, 30, {}, 0, false,
                       [](float v) { g_cfg.fpsLimit = static_cast<int>(v + 0.5f); }},
                      0);
-    RemasterRegister({"display", "borderless", L"Borderless window", S::Toggle, 0, 1, 1, {}, 0, true, nullptr}, 0);
+    // Display mode: one choice for [display] windowed / borderless (both kept in and.ini for older setups).
+    int legacyMode = ConfigInt("display", "borderless", 0) ? 2 : ConfigInt("display", "windowed", 0) ? 1 : 0;
+    int windowMode = static_cast<int>(
+        RemasterRegister({"display", "window_mode", L"Display mode", S::List, 0, 2, 1,
+                          {L"Fullscreen", L"Windowed", L"Borderless"}, 0, true, nullptr},
+                         static_cast<float>(legacyMode)) +
+        0.5f);
+    bool allModes = RemasterRegister({"display", "all_modes", L"All resolutions", S::Toggle, 0, 1, 1, {}, 0, true,
+                                      nullptr},
+                                     0) != 0.0f;
+    if (RemasterRegister({"display", "dpi_aware", L"Sharp on high-DPI screens", S::Toggle, 0, 1, 1, {}, 0, true, nullptr},
+                         0) != 0.0f)
+    {
+        // Without it Windows scales the game's window (blurry) and reports a scaled desktop (1536x864 for 4K at
+        // 250%), so large modes do not fit. Windows 10 1703+: per-monitor v2; older systems keep the default.
+        using SetContext_t = BOOL(WINAPI*)(HANDLE);
+        auto set = reinterpret_cast<SetContext_t>(
+            GetProcAddress(GetModuleHandleA("user32.dll"), "SetProcessDpiAwarenessContext"));
+        bool ok = set && set(reinterpret_cast<HANDLE>(static_cast<intptr_t>(-4)));  // PER_MONITOR_AWARE_V2
+        Log("display: DPI aware %s", ok ? "on" : "unavailable");
+    }
     RemasterRegister({"display", "render_scale", L"Render scale", S::Slider, 0.5f, 2.0f, 0.25f, {}, 0, true, nullptr},
                      1.0f);
-    g_cfg.windowed = ConfigInt("display", "windowed", 0);
-    g_cfg.borderless = ConfigInt("display", "borderless", 0);
-    if (g_cfg.borderless)
-        g_cfg.windowed = 1;
+    g_cfg.windowed = windowMode != 0;
+    g_cfg.borderless = windowMode == 2;
+    char backend[16];
+    ConfigString("render", "backend", "d3d9", backend, sizeof(backend));
+    g_cfg.vulkanFullscreen = windowMode == 0 && ConfigInt("render", "rhi", 0) && !_stricmp(backend, "vulkan");
     g_cfg.renderScale = ConfigFloat("display", "render_scale", 1.0f);
     if (g_cfg.renderScale < 0.25f || g_cfg.renderScale > 4.0f)
         g_cfg.renderScale = 1.0f;
@@ -93,9 +116,9 @@ void DisplayInit()
 
     // The renderer only offers modes 640-1600 wide in 16:9, 4:3 or 5:4 (src/renderer/display_modes.cpp).
     // all_modes=1 offers every mode the adapter reports; a configured size needs it to be selectable.
-    if (ConfigInt("display", "all_modes", 0) || g_cfg.width > 0)
+    if (allModes || g_cfg.width > 0)
     {
-        g_displayModeFilter.minWidth = 320;
+        g_displayModeFilter.minWidth = 640;  // also the Graphics page's list (GfxMenu_InitResolutionList)
         g_displayModeFilter.maxWidth = 16384;
         g_displayModeFilter.allowAnyAspect = true;
         if (g_cfg.windowed && g_cfg.width > 0 && g_cfg.height > 0)
@@ -128,12 +151,48 @@ void DisplayAdjustParams(D3DPRESENT_PARAMETERS* pp)
         pp->PresentationInterval = D3DPRESENT_INTERVAL_ONE;
 }
 
+static HWND g_window;  // the game's window, once DisplayAdjustWindow has seen it
+
+// Fullscreen (Vulkan) and borderless: a popup covering the monitor.
+static void CoverMonitor(HWND wnd)
+{
+    MONITORINFO mi{sizeof(mi)};
+    GetMonitorInfoA(MonitorFromWindow(wnd, MONITOR_DEFAULTTOPRIMARY), &mi);
+    LONG style = GetWindowLongA(wnd, GWL_STYLE);
+    SetWindowLongA(wnd, GWL_STYLE, (style & ~WS_OVERLAPPEDWINDOW) | WS_POPUP | WS_VISIBLE);
+    const RECT& m = mi.rcMonitor;
+    SetWindowPos(wnd, HWND_TOP, m.left, m.top, m.right - m.left, m.bottom - m.top, SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+}
+
+// Once per frame: the game resizes its window itself (Renderer_UpdateWindowedSize, mode changes); a fullscreen or
+// borderless window that no longer covers its monitor is put back (checked every 30 frames).
+void DisplayOnFrame()
+{
+    static unsigned frame;
+    if (!g_window || !(g_cfg.borderless || g_cfg.vulkanFullscreen) || ++frame % 30)
+        return;
+    MONITORINFO mi{sizeof(mi)};
+    GetMonitorInfoA(MonitorFromWindow(g_window, MONITOR_DEFAULTTOPRIMARY), &mi);
+    RECT r;
+    GetWindowRect(g_window, &r);
+    if (memcmp(&r, &mi.rcMonitor, sizeof(r)) != 0)
+    {
+        static int logged;
+        if (logged++ < 3)
+            Log("display: window at %ld,%ld %ldx%ld; covering the monitor again", r.left, r.top, r.right - r.left,
+                r.bottom - r.top);
+        CoverMonitor(g_window);
+    }
+}
+
 void DisplayAdjustWindow(HWND wnd, const D3DPRESENT_PARAMETERS* pp)
 {
-    if (!g_cfg.windowed || !wnd)
+    if (wnd)
+        g_window = wnd;
+    if (!wnd || !(g_cfg.windowed || g_cfg.vulkanFullscreen))
         return;
     LONG style = GetWindowLongA(wnd, GWL_STYLE);
-    if (g_cfg.borderless)
+    if (g_cfg.borderless || g_cfg.vulkanFullscreen)
     {
         // [display] borderless=1: a popup window covering the monitor; Present scales the back buffer to it.
         MONITORINFO mi{sizeof(mi)};
@@ -150,10 +209,27 @@ void DisplayAdjustWindow(HWND wnd, const D3DPRESENT_PARAMETERS* pp)
     SetWindowLongA(wnd, GWL_STYLE, style);
     // [display] render_scale: the game renders the back buffer at its size; the window shows it at 1/scale
     // (Present stretches), so 2.0 is 2x supersampling and 0.5 renders at half resolution.
-    RECT r{0, 0, static_cast<LONG>(pp->BackBufferWidth / g_cfg.renderScale),
-           static_cast<LONG>(pp->BackBufferHeight / g_cfg.renderScale)};
+    LONG w = static_cast<LONG>(pp->BackBufferWidth / g_cfg.renderScale);
+    LONG h = static_cast<LONG>(pp->BackBufferHeight / g_cfg.renderScale);
+    // A window larger than the screen's work area is shrunk to fit, keeping the aspect (Present scales).
+    MONITORINFO mi{sizeof(mi)};
+    GetMonitorInfoA(MonitorFromWindow(wnd, MONITOR_DEFAULTTOPRIMARY), &mi);
+    RECT frame{0, 0, 0, 0};
+    AdjustWindowRect(&frame, style, FALSE);
+    LONG maxW = (mi.rcWork.right - mi.rcWork.left) - (frame.right - frame.left);
+    LONG maxH = (mi.rcWork.bottom - mi.rcWork.top) - (frame.bottom - frame.top);
+    if (w > maxW || h > maxH)
+    {
+        double s = (std::min)(double(maxW) / w, double(maxH) / h);
+        w = static_cast<LONG>(w * s), h = static_cast<LONG>(h * s);
+        Log("display: window %ux%u does not fit the screen; shown at %ldx%ld", pp->BackBufferWidth,
+            pp->BackBufferHeight, w, h);
+    }
+    RECT r{0, 0, w, h};
     AdjustWindowRect(&r, style, FALSE);
-    SetWindowPos(wnd, HWND_NOTOPMOST, 64, 64, r.right - r.left, r.bottom - r.top, SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+    LONG x = mi.rcWork.left + ((mi.rcWork.right - mi.rcWork.left) - (r.right - r.left)) / 2;
+    LONG y = mi.rcWork.top + ((mi.rcWork.bottom - mi.rcWork.top) - (r.bottom - r.top)) / 2;
+    SetWindowPos(wnd, HWND_NOTOPMOST, x, y, r.right - r.left, r.bottom - r.top, SWP_FRAMECHANGED | SWP_SHOWWINDOW);
 }
 
 // Frame-rate log: frames, average and worst frame time every 2 s (always on; cheap).

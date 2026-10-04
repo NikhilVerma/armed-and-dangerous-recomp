@@ -1728,7 +1728,7 @@ address,size,name,subsystem,stage,approach,provenance,test,tokens,minutes
 0x00470c30,7,FUN_00470c30,,S0,,,,,
 0x00470c90,36,FUN_00470c90,,S0,,,,,
 0x00470cc0,49,FUN_00470cc0,,S0,,,,,
-0x00470d70,316,FUN_00470d70,,S0,,,,,
+0x00470d70,316,GfxMenu_InitResolutionList,game,S2,B,recovered:src/game/gfx_menu.cpp,compare:menu+level,,
 0x004710d0,850,FUN_004710d0,,S0,,,,,
 0x004714c0,548,FUN_004714c0,,S0,,,,,
 0x00471750,180,FUN_00471750,,S0,,,,,

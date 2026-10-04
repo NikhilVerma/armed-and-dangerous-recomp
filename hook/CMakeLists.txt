@@ -59,6 +59,7 @@ add_library(and_hook SHARED
   src/testshot.cpp
   src/input_hooks.cpp
   src/testclock.cpp
+  src/profiler.cpp
   src/d3d_trace.cpp
   src/testscenario.cpp
   enhance/display.cpp
@@ -75,14 +76,16 @@ add_library(and_hook SHARED
   dinput8.def)
 
 target_include_directories(and_hook PRIVATE src enhance ../src ${minhook_SOURCE_DIR}/include)
-target_link_libraries(and_hook PRIVATE minhook d3d9 dbghelp dxguid ole32 windowscodecs dsound
+target_link_libraries(and_hook PRIVATE minhook d3d9 dbghelp winmm dxguid ole32 windowscodecs dsound
   Vulkan::Headers glslang::glslang glslang::SPIRV glslang::glslang-default-resource-limits)
 target_include_directories(and_hook PRIVATE ${volk_SOURCE_DIR})
 target_compile_definitions(and_hook PRIVATE VK_NO_PROTOTYPES VK_USE_PLATFORM_WIN32_KHR)
 set_target_properties(and_hook PROPERTIES OUTPUT_NAME dinput8)
 
 # x87 and precise floating point while differential tests need exact agreement (handover s8).
-target_compile_options(and_hook PRIVATE /arch:IA32 /fp:precise /W4 /permissive- /utf-8)
+target_compile_options(and_hook PRIVATE /arch:IA32 /fp:precise /W4 /permissive- /utf-8 /Zi)
+# Symbols for the sampling profiler (hook/src/profiler.cpp) and crash reports; optimisation and code are unchanged.
+target_link_options(and_hook PRIVATE /DEBUG /OPT:REF /OPT:ICF)
 target_compile_definitions(and_hook PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS)
 
 

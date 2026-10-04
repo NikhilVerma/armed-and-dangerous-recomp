@@ -14,6 +14,7 @@ void CameraInit();
 void PersistenceInit();
 void AudioInit();
 void QolInit();
+void ProfilerInit();
 void UiAspectInit();
 void OverridesInit();
 void RemasterMenuInit();
@@ -63,6 +64,7 @@ static void Startup()
     PersistenceInit();
     AudioInit();
     QolInit();
+    ProfilerInit();
     UiAspectInit();
     OverridesInit();
     RemasterMenuInit();  // after every enhancement has registered its settings

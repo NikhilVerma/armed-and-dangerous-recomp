@@ -146,6 +146,8 @@ public:
         uint64_t lastUse = 0;  // frame serial of the last draw that used it
     };
     Version& Current() { return versions_[current_]; }
+    // The current contents (host-cached memory when available, see AddVersion).
+    const uint8_t* Contents() const { return versions_[current_].mapped; }
     void MarkUsed(uint64_t serial) { versions_[current_].lastUse = serial; }
     uint32_t length = 0;
     bool index = false;
@@ -190,6 +192,15 @@ public:
 };
 
 VkShaderModule MakeModule(const std::vector<uint32_t>& spirv);
+
+// Counters for the verbose per-frame log (vk_device.cpp): texture uploads (count, QueryPerformanceCounter ticks) and
+// new buffer versions (renames that found no free version).
+struct ResourceCounters
+{
+    long long uploadTicks = 0;
+    uint32_t uploads = 0, bufferVersions = 0;
+};
+ResourceCounters& Counters();
 // Frame serials: work recorded in frame `serial` is complete once CompletedSerial() >= serial.
 uint64_t CurrentSerial();
 uint64_t CompletedSerial();

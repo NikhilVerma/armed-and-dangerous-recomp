@@ -319,6 +319,10 @@ void* Spawn(const char* cls, const char* textId, int page, int ref, float scale,
     Field<int32_t>(obj, kRight) = right;
     Field<int32_t>(obj, kUp) = up;
     Field<int32_t>(obj, kDown) = down;
+    // Start hidden, like the bank's own menu items: +0x470 bit 0 is "shown", bit 1 the state saved when a page opens
+    // (0x00463d60) and restored when it closes (0x00463df0). Spawned shown, an item's saved state was "shown" and
+    // closing the page left it drawn over the game (measured 2026-10-04: menu over gameplay, 6-15 fps).
+    Field<uint32_t>(obj, 0x470) &= ~3u;
     return obj;
 }
 
@@ -448,6 +452,14 @@ uint32_t __fastcall RemasterInitItem(void* screen, void*, void* item, uint32_t e
     uint32_t r = orig::fn_00491b70(U(screen), U(item), enter);
     if (!item)
         return r;
+    if (!(enter & 0xff))
+    {
+        // The page is closing (0x004919c0 with 0): our items must disappear with it. Showing them here kept them
+        // drawn over the game after leaving the menu (measured 2026-10-04: menu text over gameplay, 15 fps).
+        if (FindSlot(item))
+            orig::fn_004927a0(U(item), 0, U(screen), 1);
+        return r;
+    }
     Slot* slot = FindSlot(item);
     if (!slot)
     {
@@ -488,6 +500,12 @@ uint32_t __fastcall OptionsInitItem(void* screen, void*, void* item, uint32_t en
     uint32_t r = orig::fn_00491b70(U(screen), U(item), enter);
     if (!item)
         return r;
+    if (!(enter & 0xff))
+    {
+        if (item == g_entry)  // the Options page is closing: the entry goes with it
+            orig::fn_004927a0(U(item), 0, U(screen), 1);
+        return r;
+    }
     if (item == g_entry)
     {
         // Code 83 reached the 0x004710d0 default (disabled, hidden); 0x100 (selectable) was set before the switch.

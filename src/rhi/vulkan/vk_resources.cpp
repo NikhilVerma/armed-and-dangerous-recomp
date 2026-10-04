@@ -308,8 +308,26 @@ std::vector<uint8_t>& VulkanTexture::Shadow(uint32_t level, uint32_t face)
     return s;
 }
 
+ResourceCounters& Counters()
+{
+    static ResourceCounters c;
+    return c;
+}
+
 void VulkanTexture::Upload(uint32_t level, uint32_t face)
 {
+    struct Timed
+    {
+        LARGE_INTEGER t0;
+        Timed() { QueryPerformanceCounter(&t0); }
+        ~Timed()
+        {
+            LARGE_INTEGER t1;
+            QueryPerformanceCounter(&t1);
+            Counters().uploadTicks += t1.QuadPart - t0.QuadPart;
+            ++Counters().uploads;
+        }
+    } timed;
     Context& c = Ctx();
     std::vector<uint8_t>& s = Shadow(level, face);
     VkBufferCreateInfo bi{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
@@ -395,6 +413,7 @@ VulkanBuffer::VulkanBuffer(uint32_t len, DWORD, bool idx, D3DFORMAT indexFormat)
 
 bool VulkanBuffer::AddVersion()
 {
+    ++Counters().bufferVersions;
     Context& c = Ctx();
     Version v;
     VkBufferCreateInfo bi{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
@@ -404,7 +423,13 @@ bool VulkanBuffer::AddVersion()
         return false;
     VkMemoryRequirements req;
     vkGetBufferMemoryRequirements(c.device, v.buffer, &req);
-    v.memory = c.Allocate(req, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    // Host-cached when the device has it (renames and tessellation read the contents back; uncached or BAR memory
+    // is very slow to read), else any host-visible coherent memory.
+    const VkMemoryPropertyFlags cached =
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
+    v.memory = c.MemoryType(req.memoryTypeBits, cached) != UINT32_MAX
+                   ? c.Allocate(req, cached)
+                   : c.Allocate(req, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
     vkBindBufferMemory(c.device, v.buffer, v.memory, 0);
     vkMapMemory(c.device, v.memory, 0, bi.size, 0, reinterpret_cast<void**>(&v.mapped));
     versions_.push_back(v);
@@ -441,9 +466,14 @@ HRESULT VulkanBuffer::Lock(UINT offset, UINT size, void** data, DWORD flags)
             AddVersion();
         else
             current_ = found;
+        // Without DISCARD the contents must survive. The versions live in host-cached memory (AddVersion), so this
+        // read is an ordinary memory copy.
         if (!(flags & D3DLOCK_DISCARD))
             std::memcpy(versions_[current_].mapped, versions_[old].mapped, length);
     }
+    // The game writes the mapped version directly: its vertex batches lock the whole buffer for a few vertices at a
+    // time (VertexBufferSet_Begin), so anything that copies the locked range on unlock costs the whole buffer per
+    // batch (measured 2026-10-04: 60% of the frame in memcpy with a CPU copy).
     *data = versions_[current_].mapped + offset;
     (void)size;
     return D3D_OK;
