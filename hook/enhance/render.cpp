@@ -28,10 +28,10 @@ void RenderInit()
     using S = RemasterSetting;
     RemasterRegister({"render", "tessellation", L"Tessellated characters (Vulkan)", S::Toggle, 0, 1, 1, {}, 0, true,
                       nullptr},
-                     0);
+                     0, 1);
     RemasterRegister({"render", "anisotropy", L"Anisotropic filtering (Vulkan)", S::Slider, 0, 16, 4, {}, 0, true,
                       nullptr},
-                     0);
+                     0, 16);
     RemasterRegister({"render", "tonemap_aces", L"Filmic tone mapping (Vulkan)", S::Toggle, 0, 1, 1, {}, 0, true,
                       nullptr},
                      0);

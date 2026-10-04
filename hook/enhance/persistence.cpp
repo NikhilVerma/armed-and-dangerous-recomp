@@ -84,7 +84,7 @@ void PersistenceInit()
     using S = RemasterSetting;
     // decal_pool is a number of decals in and.ini; the page offers the original and three larger pools.
     static const uint32_t kPools[] = {0, 512, 1024, 2048};
-    int pool = ConfigInt("persistence", "decal_pool", 0);
+    int pool = ConfigIntDefault("persistence", "decal_pool", 0, 1024);
     int choice = pool >= 2048 ? 3 : pool >= 1024 ? 2 : pool >= 512 ? 1 : 0;
     RemasterRegister({"persistence", "decal_pool_choice", L"Decal pool", S::List, 0, 3, 1,
                       {L"Original (160)", L"512", L"1024", L"2048"}, 0, true,
@@ -106,7 +106,7 @@ void PersistenceInit()
     g_bodiesMax = static_cast<uint32_t>(ConfigInt("persistence", "bodies_max", 64));
     if (RemasterRegister({"persistence", "bodies_keep", L"Keep bodies", S::Toggle, 0, 1, 1, {}, 0, false,
                           [](float v) { g_corpseHold = v != 0.0f ? HoldBody : nullptr; }},
-                         0) != 0.0f)
+                         0, 1) != 0.0f)
         g_corpseHold = HoldBody;
     Log("persistence: decal pool %u, fade reserve %u, bodies %s (max %u)", g_decalLimits.poolSize,
         g_decalLimits.fadeReserve, g_corpseHold ? "kept" : "original", g_bodiesMax);

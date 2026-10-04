@@ -40,10 +40,13 @@ foreach ($s in 'boot', 'replay', 'diff', 'formats') {
     }
 }
 
+# In-game suites: the comparison runs several scenarios at once in their own game instances (tools/instances.py);
+# backend parity runs one scenario at a time in the game folder (it is timing-sensitive). The two suites do not
+# overlap: with more games at once, loading timing varies too much for frame-exact comparison.
+$py = Join-Path $root '.venv/Scripts/python.exe'
 if (-not $Quick) {
     Suite 'comparison (original vs recovered code through the renderer interface, all scenarios)' {
-        $py = Join-Path $root '.venv/Scripts/python.exe'
-        & $py (Join-Path $root 'tools/compare.py') --rhi | Out-Host
+        & $py (Join-Path $root 'tools/compare.py') --rhi --jobs 3 2>&1 | Select-String '^\[|PASS|FAIL|CRASH|timed out|candidate:' | Out-Host
         if ($LASTEXITCODE) { throw "compare.py exit $LASTEXITCODE" }
     }
 }
@@ -56,7 +59,6 @@ if (-not $Quick) {
         if ($LASTEXITCODE) { throw "vk_shader_test exit $LASTEXITCODE" }
     }
     Suite 'backend parity (D3D9 vs Vulkan: draws per frame and images, tools/compare_backends.py)' {
-        $py = Join-Path $root '.venv/Scripts/python.exe'
         & $py (Join-Path $root 'tools/compare_backends.py') --scenario menu,level,play,quit | Select-String '^\[|FAIL|draws:|PASS' | Out-Host
         if ($LASTEXITCODE) { throw "compare_backends.py exit $LASTEXITCODE" }
     }

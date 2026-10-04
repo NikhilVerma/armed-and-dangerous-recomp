@@ -31,3 +31,19 @@ void ConfigString(const char* section, const char* key, const char* fallback, ch
 {
     GetPrivateProfileStringA(section, key, fallback, out, size, IniPath());
 }
+
+bool ConfigOriginalDefaults()
+{
+    static const bool original = ConfigInt("remaster", "original_defaults", 0) != 0;
+    return original;
+}
+
+int ConfigIntDefault(const char* section, const char* key, int original, int remaster)
+{
+    return ConfigInt(section, key, ConfigOriginalDefaults() ? original : remaster);
+}
+
+float ConfigFloatDefault(const char* section, const char* key, float original, float remaster)
+{
+    return ConfigFloat(section, key, ConfigOriginalDefaults() ? original : remaster);
+}

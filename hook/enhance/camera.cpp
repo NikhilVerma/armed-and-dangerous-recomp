@@ -4,7 +4,8 @@
 //   hor_plus=1      Hor+ widescreen: keep the vertical field of view and widen the horizontal one to the viewport's
 //                   real aspect. The original divides the viewport aspect by Renderer_GetAspect (width / height *
 //                   0.75), so every resolution gets the same horizontal FOV and wide screens stretch.
-//   letterbox=0     drop the fixed letterbox (the 3D view is drawn at y = 11.25% with height 77.5% at every aspect,
+//   letterbox=1     keep the fixed letterbox (default 0 since 2026-10-04, the human's choice; the comparison
+//                   harness sets 1). Without it the letterbox is dropped (the 3D view is drawn at y = 11.25% with height 77.5% at every aspect,
 //                   constants 0x005bcf24 / 0x005bcf28, read by the scene render 0x00403050 and 0x00406840). With
 //                   hor_plus, views narrower than the letterbox's 1.72 keep its horizontal framing.
 //   fov=1.0         field-of-view scale: tan(fov / 2) is multiplied by it (1.15 is about +10 degrees at 60).
@@ -83,10 +84,10 @@ void CameraInit()
     using S = RemasterSetting;
     g_cfg.horPlus = RemasterRegister({"camera", "hor_plus", L"Widescreen (Hor+)", S::Toggle, 0, 1, 1, {}, 0, false,
                                       [](float v) { g_cfg.horPlus = v != 0.0f; }},
-                                     0) != 0.0f;
+                                     0, 1) != 0.0f;
     bool letterbox = RemasterRegister({"camera", "letterbox", L"Cinematic letterbox", S::Toggle, 0, 1, 1, {}, 0, false,
                                        [](float v) { SetLetterbox(v != 0.0f); }},
-                                      1) != 0.0f;
+                                      1, 0) != 0.0f;  // remaster default off: the human's decision (docs/decision.md)
     g_cfg.fovScale = RemasterRegister({"camera", "fov", L"Field of view", S::Slider, 0.75f, 1.75f, 0.05f, {}, 0, false,
                                        [](float v) { g_cfg.fovScale = v; }},
                                       1.0f);

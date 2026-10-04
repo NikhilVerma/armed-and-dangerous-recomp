@@ -84,9 +84,9 @@ void QolInit()
 {
     using S = RemasterSetting;
     char buf[32];
-    ConfigString("qol", "quicksave_key", "", buf, sizeof(buf));
+    ConfigString("qol", "quicksave_key", ConfigOriginalDefaults() ? "" : "F5", buf, sizeof(buf));
     g_saveKey = ParseKey(buf);
-    ConfigString("qol", "quickload_key", "", buf, sizeof(buf));
+    ConfigString("qol", "quickload_key", ConfigOriginalDefaults() ? "" : "F9", buf, sizeof(buf));
     g_loadKey = ParseKey(buf);
     // The page offers the usual pair; and.ini can name other keys.
     RemasterRegister({"qol", "quick_keys", L"Quicksave F5 / quickload F9", S::Toggle, 0, 1, 1, {}, 0, false,

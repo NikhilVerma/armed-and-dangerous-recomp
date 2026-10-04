@@ -62,7 +62,7 @@ void DisplayInit()
                               if (v == 0.0f)  // back to the device ramp, which the game re-applies with its options
                                   rhi::Output() = rhi::OutputSettings{};
                           }},
-                         0) != 0.0f)
+                         0, 1) != 0.0f)
         g_gammaHandler = Display_Gamma;
     // The frame cap also avoids the original's frame-rate bugs (docs/original-bugs.md: the lev_1_m1 opening stalls
     // above about 85 fps).
@@ -78,7 +78,7 @@ void DisplayInit()
         0.5f);
     bool allModes = RemasterRegister({"display", "all_modes", L"All resolutions", S::Toggle, 0, 1, 1, {}, 0, true,
                                       nullptr},
-                                     0) != 0.0f;
+                                     0, 1) != 0.0f;
     if (RemasterRegister({"display", "dpi_aware", L"Sharp on high-DPI screens", S::Toggle, 0, 1, 1, {}, 0, true, nullptr},
                          0) != 0.0f)
     {

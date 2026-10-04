@@ -10,6 +10,7 @@
 
 void (*g_uiObjectBeginDraw)(void* object) = nullptr;
 void (*g_uiObjectEndDraw)(void* object) = nullptr;
+void (*g_uiPassBegin)() = nullptr;
 
 namespace
 {
@@ -53,6 +54,8 @@ void SetMatrices(void* r, uint32_t* world, uint32_t* view, uint32_t* projection)
 // (list Game+0xa84 +0xeb8), the list at ui +0x9c and the object at ui +0x54, and restores the caller's matrices.
 uint32_t UiPass_Draw(void* ui)
 {
+    if (g_uiPassBegin)
+        g_uiPassBegin();
     // 0x0046446c: list iterator (two dwords at esp+0x10 after the pushes), shared by all three walks.
     uint32_t iter[2] = {0, 0};
     uint32_t savedWorld[kMatrixDwords], savedView[kMatrixDwords], savedProjection[kMatrixDwords];   // +0xe8/+0x12c/+0x170

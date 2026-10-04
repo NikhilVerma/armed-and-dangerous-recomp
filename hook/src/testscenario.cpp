@@ -7,6 +7,8 @@
 // [test] close_frame=N            post WM_CLOSE to the game window at frame N: the game shuts down through its own
 //                                 code (destructors, device release); test output is flushed when the DLL unloads
 // [test] resize_frame=N           resize the game window to an 800x600 client area at frame N
+// [test] parallel=1               the game's single-instance mutex (CreateMutexA) gets a name of its own per process,
+//                                 so several test instances (tools/instances.py) run at once
 #include <windows.h>
 
 #include <cstdio>
@@ -57,8 +59,27 @@ extern "C" static void* __cdecl Fake_OpenDivxFile(void*)
     return nullptr;
 }
 
+// [test] parallel=1: the game refuses to start while another copy holds its named mutex (CreateMutexA import, the
+// only one). Each test process gets its own name, outside game code, so original and recovered runs see the same.
+using CreateMutexA_t = HANDLE(WINAPI*)(LPSECURITY_ATTRIBUTES, BOOL, LPCSTR);
+CreateMutexA_t g_realCreateMutexA;
+extern "C" static HANDLE WINAPI Test_CreateMutexA(LPSECURITY_ATTRIBUTES sa, BOOL owner, LPCSTR name)
+{
+    char unique[MAX_PATH];
+    if (name)
+    {
+        _snprintf_s(unique, sizeof(unique), _TRUNCATE, "%s-%lu", name, GetCurrentProcessId());
+        name = unique;
+    }
+    return g_realCreateMutexA(sa, owner, name);
+}
+
 void TestScenarioInit()
 {
+    if (ConfigInt("test", "parallel", 0) &&
+        PatchImport("KERNEL32.dll", "CreateMutexA", reinterpret_cast<void*>(Test_CreateMutexA),
+                    reinterpret_cast<void**>(&g_realCreateMutexA)))
+        Log("test: per-process instance mutex");
     if (ConfigInt("test", "no_movies", 0))
     {
         void* real;

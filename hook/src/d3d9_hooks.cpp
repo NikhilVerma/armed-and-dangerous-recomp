@@ -73,6 +73,7 @@ void QolOnFrame();          // hook/enhance/qol.cpp
 void PersistenceOnFrame();  // hook/enhance/persistence.cpp
 void ProfilerOnFrame();     // hook/src/profiler.cpp
 void DisplayOnFrame();      // hook/enhance/display.cpp
+void UiAspectOnFrame();     // hook/enhance/ui_aspect.cpp
 
 // Frames presented so far (both backends): enhancements' debug switches name frames by it.
 static unsigned g_framesPresented;
@@ -100,6 +101,7 @@ static HRESULT STDMETHODCALLTYPE Hook_Present(IDirect3DDevice9* dev, const RECT*
     PersistenceOnFrame();
     ProfilerOnFrame();
     DisplayOnFrame();
+    UiAspectOnFrame();
     ++g_framesPresented;
     return hr;
 }
@@ -116,6 +118,7 @@ void HarnessOnFrame()
     PersistenceOnFrame();
     ProfilerOnFrame();
     DisplayOnFrame();
+    UiAspectOnFrame();
     ++g_framesPresented;
 }
 

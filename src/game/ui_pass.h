@@ -13,6 +13,9 @@ extern void (*g_uiObjectBeginDraw)(void* object);
 // (virtual +0x150 result & 2) == 0; otherwise the view would leak to the next object, so an enhancement that
 // changed the view must restore it here. Null by default (original behaviour).
 extern void (*g_uiObjectEndDraw)(void* object);
+// Called once per frame when the UI pass starts, before anything of it is drawn: the 3D scene is complete then
+// (hook/enhance/shadows.cpp adds its passes here). Null by default.
+extern void (*g_uiPassBegin)();
 
 // 0x00464460 (stack: ui = Game+0xab4 screen stack; callee pops; caller 0x00403050, once per frame). Returns the
 // iterator's node pointer left after the last list walk (eax at 0x0046472f).

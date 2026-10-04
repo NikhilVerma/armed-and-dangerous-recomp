@@ -527,7 +527,7 @@ VkSampler GetSampler(const uint32_t states[14])
     // Remaster ([render] lod_bias, added; anisotropy, at least this degree on mipmapped linear-filtered samplers).
     // Both off (0) by default.
     static const float extraBias = ConfigFloat("render", "lod_bias", 0.0f);
-    static const float forcedAniso = ConfigFloat("render", "anisotropy", 0.0f);
+    static const float forcedAniso = ConfigFloatDefault("render", "anisotropy", 0.0f, 16.0f);
     bias += extraBias;
     if (forcedAniso > 1.0f && states[D3DSAMP_MIPFILTER] != D3DTEXF_NONE && ci.minFilter == VK_FILTER_LINEAR &&
         forcedAniso > ci.maxAnisotropy)

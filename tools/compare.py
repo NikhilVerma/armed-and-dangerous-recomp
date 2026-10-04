@@ -55,7 +55,7 @@ RENDER = {}  # [render] settings for the candidate run only (--rhi)
 DUMP = ""  # "frame" or "first:every:count": also save those frames as and-frame-*.bmp
 
 
-def write_ini(hooks_on, level, frames, keys="", test=None, render=None, extra_sections=None):
+def write_ini(hooks_on, level, frames, keys="", test=None, render=None, extra_sections=None, game_dir=None):
     lines = ["[hooks]"]
     lines += [f"{name}={1 if on else 0}" for name, on in hooks_on.items()]
     extra = {k: dict(v) for k, v in (extra_sections or {}).items()}
@@ -63,47 +63,56 @@ def write_ini(hooks_on, level, frames, keys="", test=None, render=None, extra_se
     display.update(extra.pop("display", {}))
     lines += ["", "[startup]", "skip_intro=0", "skip_legal=0", "load=", "", "[display]"]
     lines += [f"{k}={v}" for k, v in display.items()]
+    # Remaster defaults are on (docs/decision.md); comparisons run the original game's defaults.
+    remaster = {"original_defaults": 1}
+    remaster.update(extra.pop("remaster", {}))
+    extra["remaster"] = remaster
     for section, values in extra.items():  # enhancement sections for this run ([camera], [qol], ...)
         lines += ["", f"[{section}]"] + [f"{k}={v}" for k, v in values.items()]
     lines += ["", "[test]"]
     values = {"clock_step_ms": "16.6667", "d3d_trace": 1, "scenario_load": level, "exit_frame": frames, "shots": "",
               "keys": "", "keys_frames": keys,
               "hash_frames": (DUMP + ':1:1') if DUMP and ':' not in DUMP else DUMP, "dump_hashed": 1 if DUMP else 0,
-              "record_input": 0, "fixed_dt_ms": 0, "no_movies": 1}
+              "record_input": 0, "fixed_dt_ms": 0, "no_movies": 1,
+              "parallel": 1}
     values.update(test or {})  # scenario settings replace the defaults (an ini key must appear once)
     lines += [f"{k}={v}" for k, v in values.items()]
     if render:
         lines += ["", "[render]"] + [f"{k}={v}" for k, v in render.items()]
-    with open(os.path.join(GAME_DIR, "and.ini"), "w") as f:
+    with open(os.path.join(game_dir or GAME_DIR, "and.ini"), "w") as f:
         f.write("\n".join(lines) + "\n")
 
 
-def run_once(label, hooks_on, level, frames, timeout, keys="", test=None, render=None, extra_sections=None):
-    write_ini(hooks_on, level, frames, keys, test, render, extra_sections)
+def run_once(label, hooks_on, level, frames, timeout, keys="", test=None, render=None, extra_sections=None,
+             game_dir=None, out=print):
+    """One game run. game_dir: an instance folder (tools/instances.py) to run in parallel with others; default the
+    game folder itself. out: where progress lines go (parallel runs collect them)."""
+    gd = game_dir or GAME_DIR
+    write_ini(hooks_on, level, frames, keys, test, render, extra_sections, gd)
     for name in ("and-d3d.txt", os.path.join("SavedGames", "options.opt")):
-        p = os.path.join(GAME_DIR, name)
+        p = os.path.join(gd, name)
         if os.path.exists(p):
             os.remove(p)
     t = time.time()
-    proc = subprocess.Popen([EXE], cwd=GAME_DIR)
+    proc = subprocess.Popen([os.path.join(gd, os.path.basename(EXE))], cwd=gd)
     try:
         proc.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
         proc.kill()
         proc.wait()
-        print(f"  {label}: timed out after {timeout}s")
-    log = open(os.path.join(GAME_DIR, "and.log"), encoding="latin1").read()
+        out(f"  {label}: timed out after {timeout}s")
+    log = open(os.path.join(gd, "and.log"), encoding="latin1").read()
     if "CRASH" in log:
-        print(f"  {label}: CRASH")
-        print("\n".join(l for l in log.splitlines() if "CRASH" in l or "active:" in l))
-    rows = [l.split() for l in open(os.path.join(GAME_DIR, "and-d3d.txt"))] if os.path.exists(
-        os.path.join(GAME_DIR, "and-d3d.txt")) else []
-    print(f"  {label}: {len(rows)} frames in {time.time() - t:.0f}s")
+        out(f"  {label}: CRASH")
+        out("\n".join(l for l in log.splitlines() if "CRASH" in l or "active:" in l))
+    rows = [l.split() for l in open(os.path.join(gd, "and-d3d.txt"))] if os.path.exists(
+        os.path.join(gd, "and-d3d.txt")) else []
+    out(f"  {label}: {len(rows)} frames in {time.time() - t:.0f}s")
     if DUMP:
         import shutil
-        for name in os.listdir(GAME_DIR):
+        for name in os.listdir(gd):
             if name.startswith("and-frame-"):
-                shutil.move(os.path.join(GAME_DIR, name), os.path.join(OUT, f"{label}-{name}"))
+                shutil.move(os.path.join(gd, name), os.path.join(OUT, f"{label}-{name}"))
     return rows, "CRASH" in log
 
 
@@ -116,6 +125,9 @@ def main():
     ap.add_argument("--rhi", action="store_true", help="candidate runs through the renderer interface ([render] rhi=1)")
     ap.add_argument("--self", action="store_true", help="candidate = original too: checks the harness is deterministic")
     ap.add_argument("--dump", default="", help="frame number (or first:every:count) to save as images in work/compare")
+    ap.add_argument("--jobs", type=int, default=0,
+                    help="scenarios run at once, each in its own game instance (tools/instances.py); 1 = in the "
+                         "game folder, one after another; default: one per scenario up to the CPU count / 4")
     a = ap.parse_args()
 
     global DUMP
@@ -136,12 +148,29 @@ def main():
     dll = os.path.join(GAME_DIR, "dinput8.dll")
     harness_hash = hashlib.sha256(open(dll, "rb").read()).hexdigest()[:12]
     on = [n for n, v in candidate.items() if v]
-    print(f"candidate: {len(on)} recovered: {', '.join(on)}")
+    print(f"candidate: {len(on)} recovered functions")
     scenarios = list(SCENARIOS) if a.scenario == "all" else a.scenario.split(",")
-    failed = False
-    for name in scenarios:
+    import instances
+    jobs = a.jobs or min(len(scenarios), instances.default_count())
+
+    import queue
+    free = queue.Queue()
+    for n in range(jobs):
+        free.put(n)
+
+    def run_scenario(index, name):
+        slot = free.get() if jobs > 1 else None
+        try:
+            return scenario_body(name, instances.instance_dir(slot) if slot is not None else None)
+        finally:
+            if slot is not None:
+                free.put(slot)
+
+    def scenario_body(name, gd):
+        lines = []
+        out = lines.append
         sc = SCENARIOS[name]
-        print(f"[{name}]")
+        out(f"[{name}]")
         # Baseline variants: original-code runs for this game, scenario and harness build (recovered code is off
         # in the baseline, but the harness lives in the same DLL, so any DLL change invalidates them). Rare
         # nondeterministic runs exist, so every distinct original run is kept and a candidate passes if it
@@ -154,7 +183,8 @@ def main():
                 variants = saved["variants"]
 
         def record_baseline():
-            base, crashed = run_once("baseline", baseline, sc["level"], sc["frames"], a.timeout, sc["keys"], sc.get("test"))
+            base, crashed = run_once(f"{name} baseline", baseline, sc["level"], sc["frames"], a.timeout, sc["keys"],
+                                     sc.get("test"), game_dir=gd, out=out)
             if crashed or len(base) < sc["frames"] - 5:
                 return False
             if base not in variants:
@@ -163,13 +193,13 @@ def main():
             return True
 
         if not variants and not record_baseline():
-            print("  baseline run failed")
-            return 2
+            out("  baseline run failed")
+            return lines, True
         if variants:
-            print(f"  baseline: {len(variants)} known variant(s)")
-        cand, crashed = run_once("candidate", candidate, sc["level"], sc["frames"], a.timeout, sc["keys"],
-                                {**(sc.get("test") or {}), **({"rhi_calls": 1} if a.rhi else {})},
-                                {"rhi": 1} if a.rhi else None)
+            out(f"  baseline: {len(variants)} known variant(s)")
+        cand, crashed = run_once(f"{name} candidate", candidate, sc["level"], sc["frames"], a.timeout, sc["keys"],
+                                 {**(sc.get("test") or {}), **({"rhi_calls": 1} if a.rhi else {})},
+                                 {"rhi": 1} if a.rhi else None, game_dir=gd, out=out)
 
         def first_divergence(base):
             n = min(len(base), len(cand))
@@ -179,23 +209,54 @@ def main():
             return first
 
         if not crashed and any(first_divergence(b) is None for b in variants):
-            print(f"  PASS: {len(cand)} frames identical")
-            continue
+            out(f"  PASS: {len(cand)} frames identical")
+            return lines, False
         if not crashed:
-            print("  mismatch: taking one more original run to rule out a rare baseline variant")
+            out("  mismatch: taking one more original run to rule out a rare baseline variant")
             record_baseline()
             if any(first_divergence(b) is None for b in variants):
-                print(f"  PASS: {len(cand)} frames identical (matches a newly seen baseline variant)")
-                continue
-        failed = True
+                out(f"  PASS: {len(cand)} frames identical (matches a newly seen baseline variant)")
+                return lines, False
+            # Loading progress depends on real time (streaming thread), more so with several games running at
+            # once: one more candidate run. A real difference fails every time.
+            out("  still different: one more candidate run")
+            cand, crashed = run_once(f"{name} candidate", candidate, sc["level"], sc["frames"], a.timeout, sc["keys"],
+                                     {**(sc.get("test") or {}), **({"rhi_calls": 1} if a.rhi else {})},
+                                     {"rhi": 1} if a.rhi else None, game_dir=gd, out=out)
+            if not crashed and any(first_divergence(b) is None for b in variants):
+                out(f"  PASS: {len(cand)} frames identical (second candidate run)")
+                return lines, False
         best = max(variants, key=lambda b: first_divergence(b) or 0)
         first = first_divergence(best)
         if crashed:
-            print("  FAIL: candidate crashed")
+            out("  FAIL: candidate crashed")
         elif first is not None and first < len(cand) and first < len(best):
-            print(f"  FAIL: first divergent frame {first}: baseline {best[first]} candidate {cand[first]}")
+            out(f"  FAIL: first divergent frame {first}: baseline {best[first]} candidate {cand[first]}")
         else:
-            print(f"  FAIL: candidate stopped at frame {len(cand)} of {len(best)}")
+            out(f"  FAIL: candidate stopped at frame {len(cand)} of {len(best)}")
+        return lines, True
+
+    failed = False
+    if jobs > 1:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(jobs) as pool:
+            results = list(pool.map(lambda iv: run_scenario(*iv), enumerate(scenarios)))
+    else:
+        results = [run_scenario(i, n) for i, n in enumerate(scenarios)]
+    for lines, bad in results:
+        print("\n".join(lines))
+        failed |= bad
+    # Several games at once make loading timing vary more (measured: +-1 draw in menu and level frames, either
+    # run). A scenario that failed in parallel gets one more try alone in the game folder; a real difference
+    # fails there too.
+    retry = [n for n, (_, bad) in zip(scenarios, results) if bad] if jobs > 1 else []
+    if retry:
+        failed = False
+        for name in retry:
+            print(f"{name}: failed with {jobs} games at once; once more alone")
+            lines, bad = scenario_body(name, None)
+            print("\n".join(lines))
+            failed |= bad
     print("FAIL" if failed else "PASS")
     return 1 if failed else 0
 

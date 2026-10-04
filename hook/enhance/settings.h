@@ -22,6 +22,9 @@ struct RemasterSetting
 
 // Registers a setting and returns its current value (and.ini, or `fallback`). Call from the enhancements' Init.
 float RemasterRegister(RemasterSetting setting, float fallback);
+// The same with a remaster default: used when and.ini does not name the setting, unless [remaster]
+// original_defaults=1 (then `original`, the original game's value; config.h).
+float RemasterRegister(RemasterSetting setting, float original, float remaster);
 
 // All registered settings, in registration order.
 std::vector<RemasterSetting>& RemasterSettings();

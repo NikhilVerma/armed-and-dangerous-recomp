@@ -72,6 +72,8 @@ add_library(and_hook SHARED
   enhance/qol.cpp
   enhance/ui_aspect.cpp
   enhance/settings.cpp
+  enhance/shadows.cpp
+  enhance/weather.cpp
   enhance/remaster_menu.cpp
   dinput8.def)
 

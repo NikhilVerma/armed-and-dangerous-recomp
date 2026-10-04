@@ -159,6 +159,33 @@ struct OutputSettings
 };
 OutputSettings& Output();
 
+// What the game knows about the frame that the GPU calls do not say, filled in by the enhancement layer before
+// SceneEnd (hook/enhance/shadows.cpp). The Vulkan backend uses it for shadow maps; the D3D9 backend ignores it.
+struct SceneHints
+{
+    bool haveView = false;
+    float view[16] = {};  // world -> camera (Game+0x704): row i gives camera coordinate i, translation in column 3
+    bool haveSun = false;
+    float sun[3] = {0, -1, 0};  // world-space direction the sunlight travels (renderer light slot 0)
+    bool shadows = false;       // [render] shadow_maps: draw shadow maps at SceneEnd
+    float shadowStrength = 0.55f, shadowRange = 60.0f;
+    float shadowSoftness = 1.5f;  // the sun's angular radius in degrees: penumbra width per unit of caster distance
+    uint32_t shadowSize = 4096;
+    // [render] snow: GPU snowfall at SceneEnd (hook/enhance/weather.cpp), in levels with camera snow.
+    bool snow = false;
+    float snowTime = 0.0f;              // game seconds (stops while the game is paused)
+    uint32_t snowCount = 60000;         // flakes in the box around the camera
+    float snowBox = 18.0f;              // half size of that box, world units
+    float snowFall = 1.6f;              // fall speed, units per second
+    float snowWind[2] = {0.6f, 0.25f};  // horizontal drift (world x, z), units per second
+    float snowSize = 0.02f;             // flake radius, world units
+};
+SceneHints& Hints();
+
+// The 3D scene of the frame is complete (called when the UI pass starts, before any HUD is drawn). Backends may add
+// passes here (the Vulkan backend's shadow maps).
+void SceneEnd();
+
 namespace d3d9
 {
 // Pass-through backend over a real IDirect3D9 (takes over the caller's reference).

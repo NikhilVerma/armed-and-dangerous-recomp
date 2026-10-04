@@ -1,28 +1,39 @@
-// In-game "Remaster" options pages (docs/subsystems/menus.md section 3). Switch in [remaster] in and.ini:
+// In-game "Remaster" options screen (docs/subsystems/menus.md section 3). Switch in [remaster] in and.ini:
 //
-//   menu=1          add "Remaster" to the Options page (between Cheats and Back) and two pages that list every
-//                   setting of the registry (settings.h). 0 = nothing is hooked. Default 1: the pages only add an
-//                   entry; every setting on them keeps its own default.
-//   menu_rows=11    rows per column (the Graphics page uses rows 1..11)
+//   menu=1          add "Remaster" to the Options page (between Cheats and Back) and a paged screen that lists every
+//                   setting of the registry (settings.h). 0 = nothing is hooked. Default 1: the screen only adds an
+//                   entry; every setting on it keeps its own default.
+//   menu_rows=10    settings per page (raised automatically when more than 12 pages would be needed)
 //   menu_row_px=24  row spacing in 640x480 pixels (the game's own spacing is 24)
 //
-// Pages (one column each, so bars, their value texts and checkbox labels never overlap; seen in
-// work/shots/upnav.png, 2026-10-04: a second column at ref_text_04 starts near x = 370 of 640, the bars' value texts
-// are drawn near x = 550):
-//   "Remaster"  (bank page pui_directorselect): sliders and lists, then "More...", Back.
-//   "Remaster2" (bank page pui_tcrc42):         toggles; more than menu_rows continue in a second column at
-//                                               ref_text_04 (no bars on this page), Back.
+// One screen "Remaster" (bank page pui_directorselect) shows the settings in registration order, menu_rows per
+// page, in one column at ref_text_05 rows 1..menu_rows. Bars (sliders, lists) and checkboxes (toggles) mix in that
+// column as on the Graphics page, whose bars and left checkboxes share ref_text_05 rows 1..11 (ui.json dump). One
+// column only: a second one at ref_text_04 starts near x = 370 of 640 while the bars' value texts are drawn near
+// x = 550 (work/shots/upnav.png, 2026-10-04). Under the column, when there is more than one page:
+//   "Previous page" (ref_text_05 row n+1) and "Next page" (ref_text_04 row n+2, the same line: the Graphics page
+//   pairs ref_text_05 row r with ref_text_04 row r+1), both wrapping around; "Page p / N" (ref_text_05 row n+2);
+//   Back (ref_info row 9, where the Options page has its Back); "* after a restart" (ref_info row 10) on pages
+//   that hold such a setting.
+// Paging: every page's items are spawned up front on the same bank page, each with a unique id (code 84 + page,
+// row 1..n), and only the current page's set is shown. Hiding is 0x004927a0(item, 0, screen, 1): it sets +0x474
+// 0x40 and clears +0x470 bit 0; 0x00491b20 (focus) refuses items with 0x1040 or without 0x100, so hidden items
+// can never take focus by navigation (0x00464a10 calls it for each hop) or by entering the page (0x004919c0).
+// Ids are unique because navigation looks neighbours up by page and id and takes the first match (0x00463b90).
+// Focus stays on "Next page" / "Previous page", which are never hidden; only their up links change per page.
+// Rebinding one fixed set of rows instead would not work for mixed pages: an item's class (ui_checkbox or
+// ui_progressbar) is fixed when it is spawned.
 // Labels come from a short-label table keyed by section.key (long labels are shrunk by the game's auto-fit,
 // 0x00465720, so every label is kept to about 19 characters, which drew at full size in the screenshot).
 //
 // How (evidence: tools/recover.py --asm of every address below):
-// - 0x0048ff90 (UI manager build, stdcall(ui), returns ui) is hooked. After it, the two screens are allocated from
-//   the game heap and constructed like the game's own screens. They and the "Options" screen get copies of the
-//   default screen vtable 0x0058fce0 with slot 5 (InitItem) and slot 6 (Activate) wrapped. Unknown codes keep going
-//   to the original handlers.
+// - 0x0048ff90 (UI manager build, stdcall(ui), returns ui) is hooked. After it, the screen is allocated from the
+//   game heap and constructed like the game's own screens. It and the "Options" screen get copies of the default
+//   screen vtable 0x0058fce0 with slot 5 (InitItem) and slot 6 (Activate) wrapped. Unknown codes keep going to the
+//   original handlers.
 // - 0x004629b0 (UI build from the bank, stdcall(bank, x), runs on every level load) is hooked. After it, one
 //   ui_text instance per setting is spawned exactly like its text-instance loop (0x004634b0..0x00463575), plus
-//   titles, footers, "More...", Back items (code 5) and the Options entry (id 8313, code 83).
+//   the title, footer, page controls, page indicators, Back (code 5) and the Options entry (id 8313, code 83).
 // - 0x00495f00 Text_Lookup (eax = id, ebx = bank, [nullOnFail], callee pops 4) is hooked: ids starting "and_"
 //   return our labels, everything else goes to the original.
 // - Item binding uses the game's own setup functions (checkbox 0x0046cb60, slider 0x0046cce0, list 0x0046cd50).
@@ -64,11 +75,14 @@ constexpr uint32_t kBarValue = 0x598, kBarIndex = 0x5a0;  // 0x0046cfd0 writes t
 // UI bank (g_game+0xa70): +0x7c page count, +0x80 ref count, +0x84 / +0x88 page / ref name lists (0x004629b0).
 constexpr uint32_t kGameBank = 0xa70, kGameObjMgr = 0xa84;
 
-// Codes: 83 is our Options entry, 84..97 our settings, 98 "More...", 5 = Back (0x00491b70 case 5, 0x004921a0
-// case 5 -> 0x00490b60), 99 = static text (0x00491b70 case 0x63: enabled, inert 0x1000, never selectable). None of
-// 83..98 is in the bank or in 0x00491b70 / 0x004710d0 / 0x004921a0 / 0x004714c0 (menus.md section 2). Ids only
-// need to be unique per page (0x00463b90 matches page and id); our handlers find items by pointer.
-constexpr int kCodeEntry = 83, kCodeFirst = 84, kCodeLastSetting = 97, kCodeMore = 98;
+// Codes: 83 is our Options entry, 84..95 our settings (code 84 + page), 96 "Previous page", 97 "Next page", 5 =
+// Back (0x00491b70 case 5, 0x004921a0 case 5 -> 0x00490b60), 99 = static text (0x00491b70 case 0x63: enabled,
+// inert 0x1000, never selectable). None of 83..98 is in the bank or in 0x00491b70 / 0x004710d0 / 0x004921a0 /
+// 0x004714c0 (menus.md section 2). Ids must be unique per bank page (0x00463b90 matches page and id and takes the
+// first); our handlers find items by pointer.
+constexpr int kCodeEntry = 83, kCodeFirst = 84, kCodePrev = 96, kCodeNext = 97, kCodeStatic = 99;
+constexpr int kMaxPages = kCodePrev - kCodeFirst;  // 12
+constexpr int kBackId = 5 * 100 + 9;               // ref_info row 9
 constexpr int kEntryId = kCodeEntry * 100 + 13;  // Options page: ref 67 rows 3..11 step 2 (bank), so row 13
 constexpr int kCheatsId = 6611, kOptionsBackId = 509;  // bank text instances on pui_options (ui.json dump)
 
@@ -77,12 +91,12 @@ constexpr int kCheatsId = 6611, kOptionsBackId = 509;  // bank text instances on
 constexpr uint32_t kColourPage = 0x00A0FFA0, kColourOptions = 0x00D05030;
 
 constexpr size_t kMaxSettings = 64;
-constexpr int kScreens = 2;
 
-// Unused bank pages (menus.md 3.2: no code refers to their names; all pages use the model pui_general, so the
+// Unused bank page (menus.md 3.2: no code refers to its name; all pages use the model pui_general, so the
 // ref_text_* nodes exist on each: lev_1_m1_big07_obj.big lists "pui_directorselect staticmodel pui_general").
-const char* const kPageNames[kScreens] = {"pui_directorselect", "pui_tcrc42"};
-const char* const kScreenNames[kScreens] = {"Remaster", "Remaster2"};
+// pui_tcrc42 and pui_tcrc68 are unused as well and stay free.
+const char* const kPageName = "pui_directorselect";
+const char* const kScreenName = "Remaster";
 
 // Short labels (about 19 characters at most, " *" included), keyed by and.ini section and key. Settings not listed
 // use their registry label.
@@ -97,6 +111,9 @@ const ShortLabel kShortLabels[] = {
     {"display", "fps_limit", L"Frame rate limit"},
     {"display", "borderless", L"Borderless window"},
     {"display", "render_scale", L"Render scale"},
+    {"display", "window_mode", L"Display mode"},
+    {"display", "all_modes", L"All resolutions"},
+    {"display", "dpi_aware", L"Sharp high-DPI"},
     {"audio", "master", L"Master volume"},
     {"camera", "hor_plus", L"Widescreen (Hor+)"},
     {"camera", "letterbox", L"Cinematic letterbox"},
@@ -112,14 +129,19 @@ const ShortLabel kShortLabels[] = {
     {"render", "tessellation", L"Tessellation (VK)"},
     {"render", "anisotropy", L"Anisotropy (VK)"},
     {"render", "tonemap_aces", L"Tone mapping (VK)"},
+    {"render", "shadow_maps", L"Shadows (VK)"},
+    {"render", "shadow_strength", L"Shadow darkness"},
+    {"render", "shadow_range", L"Shadow distance"},
+    {"render", "shadow_softness", L"Shadow softness"},
     {"ui", "anchor", L"4:3 HUD and menus"},
     {"ui", "text_scale", L"Text size"},
+    {"ui", "text_relative", L"Text follows res."},
 };
 
 struct Slot
 {
-    enum Kind { Setting, Title, Footer, Back, More } kind;
-    int screen;    // 0 = Remaster, 1 = Remaster2
+    enum Kind { Setting, Title, Footer, Back, Prev, Next, Indicator } kind;
+    int page;      // menu page that shows it (Setting, Indicator); -1 = every page
     int setting;   // index into RemasterSettings() (Setting only)
     const char* ref;
     int id;        // code * 100 + row (row also places the item: 0x00491b70 subtracts row * 24 px)
@@ -129,20 +151,24 @@ struct Slot
 
 // --- state --------------------------------------------------------------------------------------------------
 
-int g_rows = 11, g_rowPx = 24;
+int g_rows = 10, g_rowPx = 24;
 size_t g_count;                       // settings listed (snapshot at init)
 std::vector<Slot> g_slots;            // layout, fixed at init
 std::vector<std::wstring> g_labels;   // per setting, fixed at init (the game keeps the pointers, +0x4c0)
 std::vector<std::string> g_textIds;   // "and_sNN", fixed at init (0x00465850 copies them to +0x4a0)
+std::vector<std::wstring> g_pageLabels;  // "Page p / N", looked up from "and_pageN"
+std::vector<std::string> g_pageIds;
+std::vector<int> g_lastId;            // per menu page: id of its last setting (-1 when empty)
+std::vector<char> g_pageRestart;      // per menu page: it holds a setting that takes effect after a restart
 bool g_bools[kMaxSettings];           // checkbox bindings (+0x4fc points here)
-bool g_restart[kScreens];             // a setting on this screen takes effect after a restart (footer)
 bool g_inSetup;                       // the setup functions call the bar callback once; that is not a change
+int g_pageCount = 1, g_page;          // menu pages, current menu page
 
-void* g_screens[kScreens];            // our MenuScreens
+void* g_screen;                       // our MenuScreen
 void* g_options;                      // the game's "Options" screen
 void* g_entry;                        // Options entry item of the current level
-int g_pages[kScreens] = {-1, -1}, g_optionsPage = -1;
-void* g_remasterVtbl[kVtblSlots];     // shared by both of our screens (items are found by pointer)
+int g_bankPage = -1, g_optionsPage = -1;
+void* g_remasterVtbl[kVtblSlots];
 void* g_optionsVtbl[kVtblSlots];
 
 using UiBuild_t = uint32_t(__stdcall*)(uint32_t ui);
@@ -199,76 +225,87 @@ std::wstring LabelFor(const RemasterSetting& s)
 
 // --- layout ---------------------------------------------------------------------------------------------------
 
-int SettingCode(size_t k)
-{
-    return kCodeFirst + (k < static_cast<size_t>(kCodeLastSetting - kCodeFirst) ? static_cast<int>(k)
-                                                                                : kCodeLastSetting - kCodeFirst);
-}
-
 // Rows follow the Graphics page: its bars and left checkboxes sit at ref_text_05 rows 1..11, its right checkboxes at
 // ref_text_04 rows 10..12, linked so that ref_text_05 row r pairs with ref_text_04 row r + 1 (5309 <-> 7710). Back
 // sits where the Options page has its Back (ref_info, row 9), the title where the Graphics page has its title
 // (ref_text_06), the footer under Back (ref_info, row 10).
-void AddScreen(int screen, const std::vector<int>& settings, bool more)
-{
-    size_t first = g_slots.size();
-    std::vector<int> rows, right;
-    for (size_t k = 0; k < settings.size(); ++k)
-    {
-        // Screen 0 holds bars: one column only (the bars' value texts reach x = 550 of 640). Screen 1 holds
-        // checkboxes: a second column at ref_text_04 when the first is full.
-        bool second = screen == 1 && static_cast<int>(k) >= g_rows;
-        int row = second ? static_cast<int>(k) - g_rows + 2 : static_cast<int>(k) + 1;
-        if (row > 99)
-            row = 99;
-        g_slots.push_back({Slot::Setting, screen, settings[k], second ? "ref_text_04" : "ref_text_05",
-                           SettingCode(k) * 100 + row, -1, -1, -1, -1, nullptr});
-        rows.push_back(row), right.push_back(second);
-    }
-    if (screen == 0 && static_cast<int>(settings.size()) > g_rows)
-        Log("remaster menu: %u sliders and lists on one page of %d rows; they run on below",
-            static_cast<unsigned>(settings.size()), g_rows);
-    if (more)
-    {
-        int row = static_cast<int>(settings.size()) + 1;
-        g_slots.push_back({Slot::More, screen, -1, "ref_text_05", kCodeMore * 100 + (row > 99 ? 99 : row), -1, -1,
-                           -1, -1, nullptr});
-        right.push_back(false), rows.push_back(row);
-    }
-    size_t n = g_slots.size() - first;
-    for (size_t a = 0; a < n; ++a)
-        for (size_t b = 0; b < n; ++b)
-            if (!right[a] && right[b] && rows[b] == rows[a] + 1)
-                g_slots[first + a].right = g_slots[first + b].id, g_slots[first + b].left = g_slots[first + a].id;
-    // One up/down chain: first column, second column, Back.
-    int backId = 5 * 100 + 9;
-    for (size_t k = 0; k < n; ++k)
-    {
-        g_slots[first + k].up = k > 0 ? g_slots[first + k - 1].id : -1;
-        g_slots[first + k].down = k + 1 < n ? g_slots[first + k + 1].id : backId;
-    }
-    g_slots.push_back({Slot::Back, screen, -1, "ref_info", backId, -1, -1, n ? g_slots[first + n - 1].id : -1, -1,
-                       nullptr});
-    g_slots.push_back({Slot::Title, screen, -1, "ref_text_06", 99 * 100 + 0, -1, -1, -1, -1, nullptr});
-    if (g_restart[screen])
-        g_slots.push_back({Slot::Footer, screen, -1, "ref_info", 99 * 100 + 10, -1, -1, -1, -1, nullptr});
-}
-
+//
+// Navigation (+0x47c..+0x488) on menu page p with settings s1..sn:
+//   s1 up -1; sk down s(k+1); sn down Previous page (single page: Back)
+//   Previous page: right Next page, up sn of the current page (rewritten on every page change), down Back
+//   Next page:     left Previous page, up sn of the current page, down Back
+//   Back:          up Previous page (single page: s1..sn's last)
 void BuildLayout()
 {
     auto& all = RemasterSettings();
-    std::vector<int> bars, toggles;
-    for (size_t i = 0; i < g_count; ++i)
+    int rows = g_rows;
+    int count = static_cast<int>(g_count);
+    if ((count + rows - 1) / rows > kMaxPages)
     {
-        bool toggle = all[i].kind == RemasterSetting::Toggle;
-        (toggle ? toggles : bars).push_back(static_cast<int>(i));
-        g_restart[toggle ? 1 : 0] |= all[i].restart;
+        rows = (count + kMaxPages - 1) / kMaxPages;
+        Log("remaster menu: %d settings need more than %d pages of %d rows; %d rows per page", count, kMaxPages,
+            g_rows, rows);
+        g_rows = rows;
     }
-    AddScreen(0, bars, true);
-    AddScreen(1, toggles, false);
-    if (static_cast<int>(toggles.size()) > 2 * g_rows)
-        Log("remaster menu: %u toggles do not fit in two columns of %d rows; the second column runs on",
-            static_cast<unsigned>(toggles.size()), g_rows);
+    g_pageCount = count ? (count + rows - 1) / rows : 1;
+    bool paged = g_pageCount > 1;
+    int prevId = kCodePrev * 100 + rows + 1;  // ref_text_05 row n+1
+    int nextId = kCodeNext * 100 + rows + 2;  // ref_text_04 row n+2: the same line
+    int indicatorId = kCodeStatic * 100 + rows + 2;
+    g_lastId.assign(static_cast<size_t>(g_pageCount), -1);
+    g_pageRestart.assign(static_cast<size_t>(g_pageCount), 0);
+    for (int p = 0; p < g_pageCount; ++p)
+    {
+        int first = p * rows;
+        int n = count - first < rows ? count - first : rows;
+        for (int k = 0; k < n; ++k)
+        {
+            int id = (kCodeFirst + p) * 100 + k + 1;
+            int down = k + 1 < n ? id + 1 : (paged ? prevId : kBackId);
+            g_slots.push_back({Slot::Setting, p, first + k, "ref_text_05", id, -1, -1, k ? id - 1 : -1, down, nullptr});
+            g_lastId[static_cast<size_t>(p)] = id;
+            if (all[static_cast<size_t>(first + k)].restart)
+                g_pageRestart[static_cast<size_t>(p)] = 1;
+        }
+        if (paged)
+            g_slots.push_back({Slot::Indicator, p, -1, "ref_text_05", indicatorId, -1, -1, -1, -1, nullptr});
+    }
+    if (paged)
+    {
+        g_slots.push_back({Slot::Prev, -1, -1, "ref_text_05", prevId, -1, nextId, g_lastId[0], kBackId, nullptr});
+        g_slots.push_back({Slot::Next, -1, -1, "ref_text_04", nextId, prevId, -1, g_lastId[0], kBackId, nullptr});
+    }
+    g_slots.push_back({Slot::Back, -1, -1, "ref_info", kBackId, -1, -1, paged ? prevId : g_lastId[0], -1, nullptr});
+    g_slots.push_back({Slot::Title, -1, -1, "ref_text_06", kCodeStatic * 100 + 0, -1, -1, -1, -1, nullptr});
+    bool restart = false;
+    for (char r : g_pageRestart)
+        restart = restart || r;
+    if (restart)
+        g_slots.push_back({Slot::Footer, -1, -1, "ref_info", kCodeStatic * 100 + 10, -1, -1, -1, -1, nullptr});
+    for (int p = 0; p < g_pageCount; ++p)
+    {
+        wchar_t text[32];
+        swprintf(text, 32, L"Page %d / %d", p + 1, g_pageCount);
+        g_pageLabels.push_back(text);
+        char id[16];
+        snprintf(id, sizeof(id), "and_page%d", p);
+        g_pageIds.push_back(id);
+    }
+}
+
+// Whether a slot's item belongs on the current menu page.
+bool OnPage(const Slot& s)
+{
+    switch (s.kind)
+    {
+    case Slot::Setting:
+    case Slot::Indicator:
+        return s.page == g_page;
+    case Slot::Footer:
+        return g_page >= 0 && g_page < g_pageCount && g_pageRestart[static_cast<size_t>(g_page)];
+    default:
+        return true;
+    }
 }
 
 // --- UI bank helpers ------------------------------------------------------------------------------------------
@@ -374,13 +411,25 @@ void __cdecl BarChanged(void* item, uint32_t index)
 }
 
 // The original InitItem reached the 0x004710d0 default for our codes: 0x004927a0(item, 0, [screen, 1]) disabled
-// and hid the item. Show and enable it again (0x004927a0 with cl = 1 clears 0x40 and sets +0x470 bit 0), and apply
-// a row spacing other than the game's 24 px (0x00491bee: y -= row * 24 / 480 when GetFlags has bit 2).
-void Show(void* screen, const Slot& slot)
+// and hid the item. Show enables and shows it again: 0x004927a0 with cl = 1 clears +0x474 0x40 and sets +0x470
+// bit 0. Hide is the default's own call: sets 0x40, clears bit 0 (the screen argument is not read).
+void Show(void* screen, void* item)
 {
-    orig::fn_004927a0(U(slot.item), 1, U(screen), 0);
+    orig::fn_004927a0(U(item), 1, U(screen), 0);
+}
+
+void Hide(void* screen, void* item)
+{
+    orig::fn_004927a0(U(item), 0, U(screen), 1);
+}
+
+// Applies a row spacing other than the game's 24 px (0x00491bee: y -= row * 24 / 480 when GetFlags has bit 2).
+// Done once per InitItem for every one of our row-placed items, shown or not, so a page shown later by SetPage is
+// placed like the first.
+void AdjustRow(void* item)
+{
     if (g_rowPx != 24)
-        Field<float>(slot.item, kY) += static_cast<float>((slot.id % 100) * (24 - g_rowPx)) / 480.0f;
+        Field<float>(item, kY) += static_cast<float>((Field<int32_t>(item, kId) % 100) * (24 - g_rowPx)) / 480.0f;
 }
 
 void BindSetting(void* screen, Slot& slot)
@@ -389,7 +438,7 @@ void BindSetting(void* screen, Slot& slot)
     size_t i = static_cast<size_t>(slot.setting);
     const RemasterSetting& s = RemasterSettings()[i];
     const char* textId = g_textIds[i].c_str();
-    Show(screen, slot);
+    Show(screen, item);
     switch (s.kind)
     {
     case RemasterSetting::Toggle:
@@ -432,17 +481,68 @@ void BindSetting(void* screen, Slot& slot)
     }
 }
 
-// Pushes one of our screens, as 0x004921a0 case 0x34 (Graphics): UI_PushScreen 0x00490b00(eax = 0, ecx = ui,
-// ["GfxOpt"]).
-uint32_t Push(void* ui, int screen)
+// Pushes our screen, as 0x004921a0 case 0x34 (Graphics): UI_PushScreen 0x00490b00(eax = 0, ecx = ui, ["GfxOpt"]).
+uint32_t Push(void* ui)
 {
-    if (!g_screens[screen] || !ui)
+    if (!g_screen || !ui)
     {
-        Fail(2, "cannot open %s: the screen does not exist", kScreenNames[screen]);
+        Fail(2, "cannot open %s: the screen does not exist", kScreenName);
         return 0;
     }
-    Log("remaster menu: opening %s", kScreenNames[screen]);
-    return orig::fn_00490b00(0, U(ui), U(kScreenNames[screen]));
+    Log("remaster menu: opening %s", kScreenName);
+    return orig::fn_00490b00(0, U(ui), U(kScreenName));
+}
+
+// Shows one page-control item. A plain ui_text is only reached by navigation (0x00464a10 -> 0x00491b20) with the
+// selectable flag +0x474 0x100 and without 0x1040, which the game sets for its own menu texts by code; measured
+// with the earlier "More..." item: without it Down skipped it to Back.
+void ShowControl(void* screen, Slot& slot)
+{
+    Show(screen, slot.item);
+    if (slot.kind == Slot::Prev || slot.kind == Slot::Next)
+    {
+        Field<uint32_t>(slot.item, 0x474) = (Field<uint32_t>(slot.item, 0x474) | 0x100) & ~0x1040u;
+        Field<int32_t>(slot.item, kUp) = g_lastId[static_cast<size_t>(g_page)];
+    }
+}
+
+// Shows or binds a slot that belongs on the current page.
+void ShowSlot(void* screen, Slot& slot)
+{
+    switch (slot.kind)
+    {
+    case Slot::Setting:
+        if (static_cast<size_t>(slot.setting) < g_count)
+            BindSetting(screen, slot);
+        break;
+    case Slot::Prev:
+    case Slot::Next:
+    case Slot::Indicator:
+    case Slot::Footer:
+        ShowControl(screen, slot);
+        break;
+    default:
+        break;  // Back and the title: the original InitItem enables them (codes 5 and 99)
+    }
+}
+
+// Switches the visible item set to menu page `page`. Focus stays on the Previous / Next item that was activated:
+// both are shown on every page.
+void SetPage(void* screen, int page)
+{
+    if (page < 0 || page >= g_pageCount || page == g_page)
+        return;
+    g_page = page;
+    for (Slot& s : g_slots)
+    {
+        if (!s.item)
+            continue;
+        if (OnPage(s))
+            ShowSlot(screen, s);
+        else
+            Hide(screen, s.item);
+    }
+    Log("remaster menu: page %d of %d", g_page + 1, g_pageCount);
 }
 
 // --- screen vtable slots (thiscall, 2 stack arguments, callee pops: 0x00491b70 / 0x004921a0 end in ret 8) ---------
@@ -457,34 +557,39 @@ uint32_t __fastcall RemasterInitItem(void* screen, void*, void* item, uint32_t e
         // The page is closing (0x004919c0 with 0): our items must disappear with it. Showing them here kept them
         // drawn over the game after leaving the menu (measured 2026-10-04: menu text over gameplay, 15 fps).
         if (FindSlot(item))
-            orig::fn_004927a0(U(item), 0, U(screen), 1);
+            Hide(screen, item);
         return r;
     }
     Slot* slot = FindSlot(item);
     if (!slot)
     {
-        // The pages' own bank items (pui_directorselect: 1502, 1608; pui_tcrc42: 2205, 2307, 2400): codes 15, 16,
-        // 22, 23 and 24 already reach the 0x004710d0 default (hidden); hide anything else that is not ours as well.
-        orig::fn_004927a0(U(item), 0, U(screen), 1);
+        // The page's own bank items (pui_directorselect: 1502, 1608): codes 15 and 16 already reach the 0x004710d0
+        // default (hidden); hide anything else that is not ours as well.
+        Hide(screen, item);
         return r;
     }
-    if (slot->kind == Slot::Setting && static_cast<size_t>(slot->setting) < g_count)
-        BindSetting(screen, *slot);
-    else if (slot->kind == Slot::More)
+    if (slot->kind != Slot::Back && slot->kind != Slot::Title && slot->kind != Slot::Footer)
+        AdjustRow(item);
+    if (!OnPage(*slot))
     {
-        Show(screen, *slot);
-        // A plain ui_text is only reached by navigation (0x00464a10) with the selectable flag +0x474 0x100, which
-        // the game sets for its own menu texts by code; measured: without it Down skipped "More..." to Back.
-        Field<uint32_t>(slot->item, 0x474) = (Field<uint32_t>(slot->item, 0x474) | 0x100) & ~0x1040u;
+        // Another menu page's item: hidden and disabled (0x40), so 0x004919c0 and navigation never focus it.
+        Hide(screen, item);
+        return 0;
     }
+    ShowSlot(screen, *slot);
     return r;
 }
 
 uint32_t __fastcall RemasterActivate(void* screen, void*, void* ui, void* item)
 {
     Slot* slot = FindSlot(item);
-    if (slot && slot->kind == Slot::More)
-        return Push(ui, 1);
+    if (slot && (slot->kind == Slot::Prev || slot->kind == Slot::Next))
+    {
+        // Both wrap around, so neither is ever hidden while it has focus.
+        int step = slot->kind == Slot::Next ? 1 : g_pageCount - 1;
+        SetPage(screen, (g_page + step) % g_pageCount);
+        return 0;
+    }
     if (slot && slot->kind == Slot::Setting)
     {
         size_t i = static_cast<size_t>(slot->setting);
@@ -525,7 +630,10 @@ uint32_t __fastcall OptionsInitItem(void* screen, void*, void* item, uint32_t en
 uint32_t __fastcall OptionsActivate(void* screen, void*, void* ui, void* item)
 {
     if (item && item == g_entry && CodeOf(item) == kCodeEntry)
-        return Push(ui, 0);
+    {
+        g_page = 0;  // every visit starts on the first page (before 0x004919c0 calls our InitItem)
+        return Push(ui);
+    }
     return orig::fn_004921a0(U(screen), U(ui), U(item));
 }
 
@@ -556,20 +664,17 @@ uint32_t __stdcall Hook_UiBuild(uint32_t ui)
     if (!ui)
         return r;
     void* list = P(ui + 0xf8);
-    // Our screens, as 0x0048ff90 builds "Options" (0x004901c1..: alloc(0x63a210, [0x10, 0x68, 2, tag]),
+    // Our screen, as 0x0048ff90 builds "Options" (0x004901c1..: alloc(0x63a210, [0x10, 0x68, 2, tag]),
     // 0x004916e0(ecx = flags 0, esi = memory, edi = name, [ui + 0xf8, page name, 0.0f])).
-    for (int i = 0; i < kScreens; ++i)
+    void* mem = P(orig::fn_004e07f0(kGameHeap, 0x10, 0x68, 2, kScreenTag));
+    if (!mem)
+        Fail(3, "allocating screen %s failed", kScreenName);
+    else
     {
-        void* mem = P(orig::fn_004e07f0(kGameHeap, 0x10, 0x68, 2, kScreenTag));
-        if (!mem)
-        {
-            Fail(3, "allocating screen %s failed", kScreenNames[i]);
-            continue;
-        }
-        orig::fn_004916e0(0, U(mem), U(kScreenNames[i]), U(list), U(kPageNames[i]), orig::f2u(0.0f));
+        orig::fn_004916e0(0, U(mem), U(kScreenName), U(list), U(kPageName), orig::f2u(0.0f));
         if (SwapVtable(mem, g_remasterVtbl, reinterpret_cast<void*>(&RemasterInitItem),
-                       reinterpret_cast<void*>(&RemasterActivate), kScreenNames[i]))
-            g_screens[i] = mem;
+                       reinterpret_cast<void*>(&RemasterActivate), kScreenName))
+            g_screen = mem;
     }
     // The Options screen: walk the list like 0x00490a80 (+0xc name, +4 next).
     for (void* s = Field<void*>(list, 0); s; s = Field<void*>(s, 4))
@@ -580,8 +685,7 @@ uint32_t __stdcall Hook_UiBuild(uint32_t ui)
                 g_options = s;
             break;
         }
-    Log("remaster menu: screens %s %p (%s), %s %p (%s), Options screen %p", kScreenNames[0], g_screens[0],
-        kPageNames[0], kScreenNames[1], g_screens[1], kPageNames[1], g_options);
+    Log("remaster menu: screen %s %p (%s), Options screen %p", kScreenName, g_screen, kPageName, g_options);
     if (!g_options)
         Fail(4, "Options screen not found or not hooked; the entry will not appear");
     return r;
@@ -592,7 +696,7 @@ void SpawnAll()
     for (Slot& s : g_slots)
         s.item = nullptr;
     g_entry = nullptr;
-    if (!g_game || !g_screens[0] || !g_options)
+    if (!g_game || !g_screen || !g_options)
         return;
     void* bank = Field<void*>(g_game, kGameBank);
     void* objMgr = Field<void*>(g_game, kGameObjMgr);
@@ -607,23 +711,18 @@ void SpawnAll()
         Fail(6, "this level has no ui_text object; nothing spawned");
         return;
     }
-    for (int i = 0; i < kScreens; ++i)
-        g_pages[i] = PageIndex(bank, kPageNames[i]);
+    g_bankPage = PageIndex(bank, kPageName);
     g_optionsPage = PageIndex(bank, "pui_options");
-    if (g_pages[0] < 0 || g_optionsPage < 0)
+    if (g_bankPage < 0 || g_optionsPage < 0)
     {
-        Fail(7, "page index: %s %d, pui_options %d; nothing spawned", kPageNames[0], g_pages[0], g_optionsPage);
+        Fail(7, "page index: %s %d, pui_options %d; nothing spawned", kPageName, g_bankPage, g_optionsPage);
         return;
     }
-    int spawned = 0;
+    // Spawned in layout order: menu page 0's settings first, so 0x004919c0 (first selectable item in world order)
+    // focuses its first setting.
+    int spawned = 0, page = g_bankPage;
     for (Slot& s : g_slots)
     {
-        int page = g_pages[s.screen];
-        if (page < 0 || !g_screens[s.screen])
-        {
-            Fail(10, "%s unavailable (page %d); its items are not spawned", kScreenNames[s.screen], page);
-            continue;
-        }
         int ref = RefIndex(bank, s.ref);
         if (ref < 0)
         {
@@ -639,9 +738,15 @@ void SpawnAll()
                            page, ref, 1.0f, kColourPage, s.id, s.left, s.right, s.up, s.down);
             break;
         }
-        case Slot::More:
-            if (g_screens[1] && g_pages[1] >= 0)
-                s.item = Spawn(nullptr, "and_more", page, ref, 1.0f, kColourPage, s.id, s.left, s.right, s.up, s.down);
+        case Slot::Prev:
+            s.item = Spawn(nullptr, "and_prev", page, ref, 1.0f, kColourPage, s.id, s.left, s.right, s.up, s.down);
+            break;
+        case Slot::Next:
+            s.item = Spawn(nullptr, "and_next", page, ref, 1.0f, kColourPage, s.id, s.left, s.right, s.up, s.down);
+            break;
+        case Slot::Indicator:
+            s.item = Spawn(nullptr, g_pageIds[static_cast<size_t>(s.page)].c_str(), page, ref, 0.9f, kColourPage, s.id,
+                           -1, -1, -1, -1);
             break;
         case Slot::Back:
             s.item = Spawn(nullptr, "ui_shellmenu_back", page, ref, 1.2f, kColourPage, s.id, -1, -1, s.up, s.down);
@@ -661,8 +766,8 @@ void SpawnAll()
                         kOptionsBackId);
     else
         Fail(9, "ref ref_options_menu not in the UI bank; no Options entry");
-    Log("remaster menu: spawned %d of %u items on pages %d and %d, Options entry %p on page %d", spawned,
-        static_cast<unsigned>(g_slots.size()), g_pages[0], g_pages[1], g_entry, g_optionsPage);
+    Log("remaster menu: spawned %d of %u items on bank page %d (%d menu pages), Options entry %p on page %d", spawned,
+        static_cast<unsigned>(g_slots.size()), g_bankPage, g_pageCount, g_entry, g_optionsPage);
 }
 
 // 0x004629b0 (stdcall: bank = g_game+0xa70, level; ret 8) spawns the level's UI objects; world objects are
@@ -672,6 +777,7 @@ uint32_t __stdcall Hook_BankBuild(uint32_t bank, uint32_t arg)
     for (Slot& s : g_slots)
         s.item = nullptr;  // the old level's objects are gone
     g_entry = nullptr;
+    g_page = 0;
     uint32_t r = g_origBankBuild(bank, arg);
     SpawnAll();
     return r;
@@ -688,8 +794,16 @@ static const wchar_t* __cdecl RemasterText(const char* id)
     const char* rest = id + 4;
     if (strcmp(rest, "title") == 0 || strcmp(rest, "entry") == 0)
         return L"Remaster";
-    if (strcmp(rest, "more") == 0)
-        return L"More...";
+    if (strcmp(rest, "next") == 0)
+        return L"Next page";
+    if (strcmp(rest, "prev") == 0)
+        return L"Previous page";
+    if (strncmp(rest, "page", 4) == 0 && rest[4] >= '0' && rest[4] <= '9')
+    {
+        size_t p = static_cast<size_t>(atoi(rest + 4));
+        if (p < g_pageLabels.size())
+            return g_pageLabels[p].c_str();
+    }
     if (strcmp(rest, "footer") == 0)
         return L"* after a restart";
     if (rest[0] == 's' && rest[1] >= '0' && rest[1] <= '9')
@@ -733,9 +847,9 @@ void RemasterMenuInit()
         Log("remaster menu: off");
         return;
     }
-    g_rows = ConfigInt("remaster", "menu_rows", 11);
+    g_rows = ConfigInt("remaster", "menu_rows", 10);
     if (g_rows < 1 || g_rows > 20)
-        g_rows = 11;
+        g_rows = 10;
     g_rowPx = ConfigInt("remaster", "menu_row_px", 24);
     if (g_rowPx < 8 || g_rowPx > 48)
         g_rowPx = 24;
@@ -760,6 +874,7 @@ void RemasterMenuInit()
                 reinterpret_cast<void**>(&g_origUiBuild), "remaster menu: UI manager build") && ok;
     ok = HookAt(reinterpret_cast<void*>(0x004629b0), reinterpret_cast<void*>(&Hook_BankBuild),
                 reinterpret_cast<void**>(&g_origBankBuild), "remaster menu: UI bank build") && ok;
-    Log("remaster menu: %u settings, %u items on 2 pages, rows %d, row %d px, hooks %s",
-        static_cast<unsigned>(g_count), static_cast<unsigned>(g_slots.size()), g_rows, g_rowPx, ok ? "ok" : "FAILED");
+    Log("remaster menu: %u settings, %u items, %d pages of %d rows, row %d px, hooks %s",
+        static_cast<unsigned>(g_count), static_cast<unsigned>(g_slots.size()), g_pageCount, g_rows, g_rowPx,
+        ok ? "ok" : "FAILED");
 }

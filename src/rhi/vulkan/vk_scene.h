@@ -51,6 +51,10 @@ struct SceneDraw
     const float* capture;
     int64_t captureFirst;
     uint32_t captureCount;
+    // Replay (shadow maps, vk_shadows.h): the draw's own vertex shader (not a variant) and vertex input.
+    VkShaderModule vertexModule;
+    const struct VertexInput* input;
+    uint32_t vertexCount;  // vertices or indices the draw reads (VertexCount of its primitives)
 };
 
 struct SceneFrame

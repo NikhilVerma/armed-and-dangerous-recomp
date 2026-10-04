@@ -22,6 +22,11 @@ float RemasterRegister(RemasterSetting s, float fallback)
     return s.value;
 }
 
+float RemasterRegister(RemasterSetting s, float original, float remaster)
+{
+    return RemasterRegister(s, ConfigOriginalDefaults() ? original : remaster);
+}
+
 void RemasterSet(size_t index, float value)
 {
     auto& all = RemasterSettings();

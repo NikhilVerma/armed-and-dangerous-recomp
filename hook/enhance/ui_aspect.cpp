@@ -4,7 +4,9 @@
 //   anchor=1         keep the UI at its 4:3 proportions on wider screens: HUD elements pinned to the left or right
 //                    edge or centred (by their layout reference, see kAnchors), menu pages centred (pillarbox).
 //                    The original stretches the whole 4:3 layout across the screen.
-//   text_scale=1.0   UI text size (glyphs are sized in screen pixels, so text shrinks at high resolutions)
+//   text_scale=1.0   UI text size multiplier
+//   text_relative=1  text keeps the size it has in the 640x480 layout at every resolution (the game sizes glyphs in
+//                    screen pixels, so at 3840x2160 its text is a quarter of its 640x480 size); text_scale on top
 //   log_objects=N    log every UI object drawn in presented frame N (page, ref, flags, positions) to and.log
 //
 // How: every UI object is drawn by the UI pass (UiPass_Draw, src/game/ui_pass.cpp) in a normalised screen space set by
@@ -55,6 +57,27 @@ Anchor HudAnchor(int ref)
 }
 
 float g_textScale = 1.0f;
+bool g_textRelative;
+
+// The numerator of the screen-pixel size (g_pixelSizeScale, Renderer_GetPixelWidth/Height): text_scale, times the
+// viewport height / 480 when relative, so one glyph pixel is 1/480 of the screen height as at 640x480.
+float TextScale()
+{
+    float s = g_textScale;
+    if (g_textRelative && g_game)
+        if (void* renderer = Field<void*>(g_game, 0x38))
+        {
+            const float* viewport = VCall<const float*>(renderer, 0x7c / 4);  // half width, half height, centre
+            if (viewport && viewport[1] > 0.0f)
+                s *= (viewport[1] * 2.0f) / 480.0f;
+        }
+    return s;
+}
+
+void ApplyTextScale()
+{
+    g_pixelSizeScale[0] = g_pixelSizeScale[1] = TextScale();
+}
 uint8_t g_saved[0x44];  // the pass's view matrix while an object draws with its own
 bool g_changed;
 
@@ -73,6 +96,7 @@ void BeginDraw(void* o)
     if (g_logFrame >= 0)
         LogObject(o);
     g_changed = false;
+    ApplyTextScale();
     if (!g_anchor)
         return;
     void* renderer = Field<void*>(g_game, 0x38);
@@ -121,7 +145,7 @@ void BeginDraw(void* o)
     Field<uint32_t>(changed, 0x40) |= 0x2f;
     VCall<void>(renderer, 0x50 / 4, changed);
     // Text drawn by the object is squeezed by k with everything else; glyphs keep their proportions with 1 / k.
-    g_pixelSizeScale[0] = g_textScale / k;
+    g_pixelSizeScale[0] = TextScale() / k;
     g_changed = true;
 }
 
@@ -130,25 +154,39 @@ void EndDraw(void*)
     if (!g_changed)
         return;
     VCall<void>(Field<void*>(g_game, 0x38), 0x50 / 4, g_saved);
-    g_pixelSizeScale[0] = g_textScale;
+    g_pixelSizeScale[0] = TextScale();
     g_changed = false;
 }
 }  // namespace
+
+// Once per frame: text drawn outside the UI pass (loading screens, subtitles, fades) uses the same scale.
+void UiAspectOnFrame()
+{
+    if (g_textRelative || g_textScale != 1.0f)
+        ApplyTextScale();
+}
 
 void UiAspectInit()
 {
     g_logFrame = ConfigInt("ui", "log_objects", -1);
     g_anchor = RemasterRegister({"ui", "anchor", L"HUD and menus at 4:3 proportions", RemasterSetting::Toggle, 0, 1, 1,
                                  {}, 0, false, [](float v) { g_anchor = v != 0.0f; }},
-                                0) != 0.0f;
+                                0, 1) != 0.0f;
     g_textScale = RemasterRegister({"ui", "text_scale", L"Text size", RemasterSetting::Slider, 1.0f, 2.5f, 0.25f, {}, 0,
                                     false,
                                     [](float v) {
                                         g_textScale = v;
-                                        g_pixelSizeScale[0] = g_pixelSizeScale[1] = v;
+                                        ApplyTextScale();
                                     }},
                                    1.0f);
-    g_pixelSizeScale[0] = g_pixelSizeScale[1] = g_textScale;
+    g_textRelative = RemasterRegister({"ui", "text_relative", L"Text follows resolution", RemasterSetting::Toggle, 0, 1,
+                                       1, {}, 0, false,
+                                       [](float v) {
+                                           g_textRelative = v != 0.0f;
+                                           ApplyTextScale();
+                                       }},
+                                      0, 1) != 0.0f;
+    g_pixelSizeScale[0] = g_pixelSizeScale[1] = g_textScale;  // the renderer does not exist yet
     g_uiObjectBeginDraw = BeginDraw;  // both return at once with the original settings
     g_uiObjectEndDraw = EndDraw;
     Log("ui: anchor %d", g_anchor ? 1 : 0);

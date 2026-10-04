@@ -16,6 +16,8 @@ void AudioInit();
 void QolInit();
 void ProfilerInit();
 void UiAspectInit();
+void ShadowsInit();
+void WeatherInit();
 void OverridesInit();
 void RemasterMenuInit();
 void TestShotInit();
@@ -66,6 +68,8 @@ static void Startup()
     QolInit();
     ProfilerInit();
     UiAspectInit();
+    ShadowsInit();
+    WeatherInit();
     OverridesInit();
     RemasterMenuInit();  // after every enhancement has registered its settings
     HooksInstallAll();

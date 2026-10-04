@@ -69,3 +69,46 @@ How this coexists with faithful recovery:
   - a D3D9 COM facade, used by recovered code and by the statically linked D3DX
   - `src/rhi` (our interface)
   - the backends: a D3D9 pass-through, which must stay bit-identical, and Vulkan
+
+## 2026-10-04: enhancements serve the decompilation
+
+- The human: everything is for the north star, decompiling the game and then enhancing it.
+- Rule:
+  - An enhancement changes behaviour only through recovered code in `src/`.
+  - That code passes the comparison test with the enhancement off.
+  - Each such function exposes a named enhancement point (a function pointer, limit struct or scale) that is null,
+    or equal to the original constant, by default.
+  - The switch, the settings and the menu entry live in `hook/enhance/`.
+  - When an enhancement needs a function that is not recovered yet, recover it first: Camera_SetupProjection,
+    Decals_*, Corpse_CountDown, UiPass_Draw, GfxMenu_InitResolutionList, Renderer_SetGamma,
+    Renderer_GetPixelWidth/Height.
+- Exceptions:
+  - Patching the original image is the last resort, guarded by PatchBytes with the expected bytes. Today: the two
+    letterbox constants (0x005bcf24 / 0x005bcf28).
+  - OS and API hooks (DirectInput, DirectSound, window placement) are not game code.
+
+## 2026-10-04: letterbox off by default
+
+- The human: disabling the letterbox should be the default. `[camera] letterbox` now defaults to 0, so the 3D view
+  fills the screen.
+- The comparison harness (tools/compare.py write_ini) pins `letterbox=1`, so the tests keep comparing against the
+  original framing.
+
+## 2026-10-04: remaster features on by default; every feature on the Remaster page
+
+- The human: add all of these and future features as remaster settings (paginated if needed), on by default,
+  tessellation included.
+- Each setting has two defaults, the original game's and the remaster's.
+  - A setting that and.ini does not name takes the remaster default, through RemasterRegister(setting,
+    original, remaster) and ConfigIntDefault / ConfigFloatDefault (hook/src/config.h).
+  - `[remaster] original_defaults=1` gives every setting its original value.
+- Tests: the comparison harness (tools/compare.py write_ini) always writes `original_defaults=1`, so the
+  decompilation tests keep running the faithful game. This replaces the letterbox pin. Screenshots of remaster
+  features must pass `--set remaster.original_defaults=0`.
+- Remaster defaults on:
+  - Hor+, letterbox off, HUD and menus at 4:3 proportions, text following the resolution
+  - tessellation, 16x anisotropy, shadow maps with soft (PCSS) penumbrae
+  - a 1024-decal pool, bodies kept
+  - brightness in a window, all resolutions, F5 / F9 quick keys
+- Kept at the original value, because they are preferences rather than upgrades: mouse invert and speeds, render
+  scale, display mode, tone mapping, FOV, frame limit.
