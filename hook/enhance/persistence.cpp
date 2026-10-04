@@ -2,9 +2,10 @@
 // Switches in [persistence] in and.ini, all off by default (the original limits).
 //
 //   decal_pool=0      decals allocated per level (0: the original 160; each takes 3,948 bytes; at most 4096)
-//   decals_keep=1     never fade decals early to keep spares: the original starts fading the oldest decal while
-//                     fewer than 32 are free or fading, so only about 128 of 160 are visible. With it on, a decal
-//                     only goes when the pool is full and a new one needs its slot.
+//   decals_keep=1     never fade decals early to keep spares (the original's rule: fade the oldest while fewer than 32
+//                     are free or fading). Measured: that rule never fires, because the manager's allocated counter is
+//                     twice the pool; the limit is the pool size, so decal_pool is the switch that matters. Not on the
+//                     Remaster page.
 //   bodies_keep=1     dead characters stay instead of fading out after 1 to 5.5 s
 //   log=1             every 300 frames: decal pool counters and kept bodies, to and.log
 //   bodies_max=64     with bodies_keep: at most this many kept bodies; beyond it the oldest fade out as before
@@ -100,9 +101,7 @@ void PersistenceInit()
                      static_cast<float>(choice));
     if (pool > 0)
         g_decalLimits.poolSize = static_cast<uint32_t>(pool > 4096 ? 4096 : pool);
-    if (RemasterRegister({"persistence", "decals_keep", L"Keep decals", S::Toggle, 0, 1, 1, {}, 0, false,
-                          [](float v) { g_decalLimits.fadeReserve = v != 0.0f ? 0 : 32; }},
-                         0) != 0.0f)
+    if (ConfigInt("persistence", "decals_keep", 0))
         g_decalLimits.fadeReserve = 0;
     g_bodiesMax = static_cast<uint32_t>(ConfigInt("persistence", "bodies_max", 64));
     if (RemasterRegister({"persistence", "bodies_keep", L"Keep bodies", S::Toggle, 0, 1, 1, {}, 0, false,

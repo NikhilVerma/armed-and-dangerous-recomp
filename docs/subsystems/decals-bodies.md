@@ -142,3 +142,11 @@ Risks:
 - Do troop generators count corpses? (0x0044c170 and its runtime.)
 - What `+0x1bc` (ragdoll capable) and `+0x421` mean exactly.
 - Which instances set `husk`.
+
+## Measured (2026-10-04, after recovery of 0x00416150 / 0x00416440)
+
+- The manager's +0x18 counter is twice the pool size, perhaps because the front end and the level each allocate a pool
+  (guess). With `[persistence] decal_pool=40` it reads 80, while active decals cap at 40.
+- So `allocated - active + fading` never drops below 32, and the pressure fade never runs. The visible limit is the
+  pool size (160 in the original). When the pool is full, the oldest decal is recycled at creation.
+- Corpse removal: Corpse_CountDown with `[persistence] bodies_keep=1` keeps the body (work/shots/bodies.png).
