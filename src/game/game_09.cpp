@@ -723,10 +723,10 @@ HOOK(0x0049cbe0, "fn_0049cbe0", fn_0049cbe0_Entry, nullptr);
 // Level names and the player's weapon state. The weapon state (owner of the lists below; Game+0x748 +0xc24 for the
 // player, see src/game/game_05.cpp) holds two slot lists, primary at +0x00 and special at +0x30, each {+0 owner,
 // +4.. slot weapon ids (-1 = empty), +0x20 slot count, +0x24 current index, +0x28 pending index (-1 = none), +0x2c
-// switch timer}; per weapon id w an ammo record at +0x60 + w*0xc {+0 reserve, +4 loaded, +8 id}; the weapon objects
+// switch timer}; per weapon id w an ammo record at +0x60 + w*0xc {+0 clip, +4 spare, +8 id}; the weapon objects
 // +0x1b0..+0x1b8 (current index +0x1bc), the parent object +0x1c0, attach bone names +0x1c8 / +0x1e8, a scale
-// +0x228 and flags +0x22c. Weapon descriptors are Game+0x2770 + w*0x150 (+0x20 name, +0x140 max reserve, +0x144
-// max loaded). Ids 6, 7, 8, 9 and 10 are the special weapons. Names below stay fn_XXXXXXXX (evidence is structural).
+// +0x228 and flags +0x22c. Weapon descriptors are Game+0x2770 + w*0x150 (+0x20 name, +0x140 max clip, +0x144
+// max spare). Ids 6, 7, 8, 9 and 10 are the special weapons. Names below stay fn_XXXXXXXX (evidence is structural).
 
 namespace
 {
@@ -900,7 +900,7 @@ ABI_ENTRY_004a0b80(fn_004a0b80_Entry, fn_004a0b80_Abi)
 HOOK(0x004a0b80, "fn_004a0b80", fn_004a0b80_Entry, nullptr);
 
 // 0x004a0c10 / 0x004a0c70 (edx = list). The next / previous slot (wrapping, at most five steps from the current
-// index +0x24) that holds a weapon with ammo (reserve + loaded != 0 in the owner's ammo record), or -1.
+// index +0x24) that holds a weapon with ammo (clip + spare != 0 in the owner's ammo record), or -1.
 static uint32_t Slot_AmmoSum(uint32_t list, uint32_t id)
 {
     const uint32_t e = D(list, 0) + (id * 3 + 0x18) * 4;
@@ -1403,7 +1403,7 @@ static uint32_t fn_004a12e0_Abi(uint32_t eax)
 ABI_ENTRY_004a12e0(fn_004a12e0_Entry, fn_004a12e0_Abi)
 HOOK(0x004a12e0, "fn_004a12e0", fn_004a12e0_Entry, nullptr);
 
-// 0x004a1300 (eax = weapon id, edx = state). The weapon's reserve ammo (record +0); id 0x1c means the current
+// 0x004a1300 (eax = weapon id, edx = state). The weapon's clip ammo (record +0); id 0x1c means the current
 // primary weapon (0x004a1660). Called by 0x00465a20.
 uint32_t fn_004a1300(uint32_t id, uint32_t s)
 {
@@ -1421,7 +1421,7 @@ static uint32_t fn_004a1300_Abi(uint32_t eax, uint32_t edx)
 ABI_ENTRY_004a1300(fn_004a1300_Entry, fn_004a1300_Abi)
 HOOK(0x004a1300, "fn_004a1300", fn_004a1300_Entry, nullptr);
 
-// 0x004a1320 (eax = weapon id; stack: state; ret 4). The weapon's maximum reserve (descriptor Game+0x28b0 +
+// 0x004a1320 (eax = weapon id; stack: state; ret 4). The weapon's maximum clip (descriptor Game+0x28b0 +
 // id*0x150); id 0x1c = the current primary weapon. Called by 0x00465a20.
 uint32_t fn_004a1320(uint32_t id, uint32_t s)
 {
@@ -1439,7 +1439,7 @@ static uint32_t fn_004a1320_Abi(uint32_t eax, uint32_t a0)
 ABI_ENTRY_004a1320(fn_004a1320_Entry, fn_004a1320_Abi)
 HOOK(0x004a1320, "fn_004a1320", fn_004a1320_Entry, nullptr);
 
-// 0x004a1360 / 0x004a1380 (eax = weapon id, edx = state). The weapon's loaded ammo (record +4); id 0x1c = the
+// 0x004a1360 / 0x004a1380 (eax = weapon id, edx = state). The weapon's spare ammo (record +4); id 0x1c = the
 // current primary (0x004a1660) / special (0x004a1670) weapon.
 uint32_t fn_004a1360(uint32_t id, uint32_t s)
 {
@@ -1474,8 +1474,8 @@ ABI_ENTRY_004a1380(fn_004a1380_Entry, fn_004a1380_Abi)
 HOOK(0x004a1380, "fn_004a1380", fn_004a1380_Entry, nullptr);
 
 // 0x004a13a0 (eax = amount, ecx = weapon id; stack: state; ret 4). Adds ammo: special weapons (6..10) join the
-// special list (0x004a0b50 / 0x004a0b80) and their loaded count grows up to the descriptor maximum (+0x144) unless
-// already full; other weapons fill the loaded count up to +0x144 and the rest goes to the reserve, capped at +0x140
+// special list (0x004a0b50 / 0x004a0b80) and their spare count grows up to the descriptor maximum (+0x144) unless
+// already full; other weapons fill the spare count up to +0x144 and the rest goes to the clip, capped at +0x140
 // (refused when both are full). al = 1 when added, else 0 (also for amount 0 / -1 or id >= 0x1c). Called by the
 // pickups (0x004725e0 ...).
 uint32_t fn_004a13a0(uint32_t amount, uint32_t id, uint32_t s)
@@ -1526,10 +1526,10 @@ static uint32_t fn_004a13a0_Abi(uint32_t eax, uint32_t ecx, uint32_t a0)
 ABI_ENTRY_004a13a0(fn_004a13a0_Entry, fn_004a13a0_Abi)
 HOOK(0x004a13a0, "fn_004a13a0", fn_004a13a0_Entry, nullptr);
 // 0x004a14e0 (eax = amount, ecx = weapon id; stack: state; ret 4). Sets ammo. Special weapons (6..10): amount != 0
-// joins the special list (0x004a0b50 / 0x004a0b80) and sets the loaded count, capped at the descriptor maximum
+// joins the special list (0x004a0b50 / 0x004a0b80) and sets the spare count, capped at the descriptor maximum
 // (+0x144); amount 0 removes the id from the special list (0x004a0cd0) and zeroes the count. Others: amount -2 fills
-// both reserve (+0x140) and loaded (+0x144) to the maximum; otherwise reserve = min(amount, max reserve) and loaded
-// = amount - reserve. id >= 0x1c: nothing. Returns eax as the original leaves it. Called by 0x00467fe0, 0x00472930,
+// both clip (+0x140) and spare (+0x144) to the maximum; otherwise clip = min(amount, max clip) and spare
+// = amount - clip. id >= 0x1c: nothing. Returns eax as the original leaves it. Called by 0x00467fe0, 0x00472930,
 // 0x00475650.
 uint32_t fn_004a14e0(uint32_t amount, uint32_t id, uint32_t s)
 {
@@ -1798,7 +1798,7 @@ HOOK(0x004a1950, "fn_004a1950", fn_004a1950_Entry, nullptr);
 
 // 0x004a1970 (ecx (frame slot, low byte replaced), esi = state). Fires the queued special weapon +0x1c4 from the
 // parent +0x1c0 (none: al = 0): +0x230 = 0; 0x0047dbf0(eax = &+0x208 (emitter bone), ecx = the weapon descriptor
-// Game+0x2770 + id*0x150, edx = parent; Game+0xaa8, parent, (id == 10)); on success the loaded count drops by one
+// Game+0x2770 + id*0x150, edx = parent; Game+0xaa8, parent, (id == 10)); on success the spare count drops by one
 // unless Game+0x175 is set, +0x1c4 = -1 and for special weapon 9 the sound "wpn_black_hole_fire" (0x0058e99c).
 // al = success. Called by 0x00475ff0, 0x004a1890. Not executed in recorded runs.
 uint32_t fn_004a1970(uint32_t ecx_, uint32_t s)
@@ -1855,7 +1855,7 @@ ABI_ENTRY_004a1890(fn_004a1890_Entry, fn_004a1890_Abi)
 HOOK(0x004a1890, "fn_004a1890", fn_004a1890_Entry, nullptr);
 
 // 0x004a1900 (edx = state; stack: weapon id; ret 4). The special weapon can fire: no cooldown (0x004a1950) and
-// loaded ammo (0x004a1380) > 0. Called by 0x004a1a50. Not executed in recorded runs.
+// spare ammo (0x004a1380) > 0. Called by 0x004a1a50. Not executed in recorded runs.
 uint32_t fn_004a1900(uint32_t s, uint32_t id)
 {
     if (fn_004a1950(s))
@@ -1901,7 +1901,7 @@ ABI_ENTRY_004a1a30(fn_004a1a30_Entry, fn_004a1a30_Abi)
 HOOK(0x004a1a30, "fn_004a1a30", fn_004a1a30_Entry, nullptr);
 
 // 0x004a1a50 (edx = state). The current special weapon (0x004a1670) can be used: 6, 9, 10: 0x004a1900(edx; id);
-// 7, 8: loaded ammo of the current special (0x004a1380(eax = 0x1c)) > 0; others: al = 0. Called by 0x004788a0. Not
+// 7, 8: spare ammo of the current special (0x004a1380(eax = 0x1c)) > 0; others: al = 0. Called by 0x004788a0. Not
 // executed in recorded runs.
 uint32_t fn_004a1a50(uint32_t s)
 {
@@ -1920,7 +1920,7 @@ ABI_ENTRY_004a1a50(fn_004a1a50_Entry, fn_004a1a50_Abi)
 HOOK(0x004a1a50, "fn_004a1a50", fn_004a1a50_Entry, nullptr);
 
 // 0x004a1aa0 (esi = state). Uses the current special weapon (0x004a1670; jump table 0x004a1b90): 6, 9, 10 queue it
-// with a 0.4 s cooldown (0x004a1930); 7 spends one (loaded +0xb8) unless Game+0x175 is set; 8 applies area damage
+// with a 0.4 s cooldown (0x004a1930); 7 spends one (spare +0xb8) unless Game+0x175 is set; 8 applies area damage
 // around the player (player vt+0x54 position; AreaDamage_Apply 0x0047f020(ebx = &{1.0, r, r, 1.0}, r = Game+0xc84;
 // 0, &pos, 0, 1.0, player, 0x20, 0)) and spends one (+0xc4) unless Game+0x175. Called by 0x00476a10, 0x004788a0. Not
 // executed in recorded runs.
@@ -1989,3 +1989,889 @@ static uint32_t fn_004a1bb0_Abi(uint32_t eax)
 }
 ABI_ENTRY_004a1bb0(fn_004a1bb0_Entry, fn_004a1bb0_Abi)
 HOOK(0x004a1bb0, "fn_004a1bb0", fn_004a1bb0_Entry, nullptr);
+// ---------------------------------------------------------------------------------------------------------------
+// WeaponObject (vtable 0x005adf60) and its PlayerWeapon / PlayerVindaloo subclasses (vtables 0x005a1348, 0x005a4858,
+// 0x005a90a8, 0x005ac210, 0x005ad458, 0x005ae210). Fields (from the property names read in the load slots):
+// +0x460 "projectile_name", +0x480 "hand_bone_name", +0x4a0 "emitter_bone_name", +0x4c0 "emitter_bone_name_2",
+// +0x4e0 "muzzle_fx_name", +0x500 "muzzle_bone_name", +0x520 "muzzle_bone_name_2", +0x540 "recycle_time", +0x544
+// last fire time, +0x548 flags (1 "two_handed", 2 "rapid_fire", 0x10 second emitter, 0x20 emitter toggle, 4 / 8
+// muzzle effect state), +0x54c the owner (set by slot 0x54), +0x550 the muzzle effect; PlayerWeapon: +0x554 weapon
+// id, +0x558 "clip_reload_time", +0x55c reload timer, +0x560 the owner's ammo record for the weapon (player
+// +0xc84 + id*0xc; +0 clip, +4 spare, +8 id); PlayerVindaloo: +0x564 "start_angle_pitch", +0x568 "start_angle_yaw".
+
+namespace
+{
+// x87 fsin / fcos of a single-precision angle (as src/game/game_05.cpp).
+float X87Sin(float angle)
+{
+    float r;
+    __asm {
+        fld angle
+        fsin
+        fstp r
+    }
+    return r;
+}
+float X87Cos(float angle)
+{
+    float r;
+    __asm {
+        fld angle
+        fcos
+        fstp r
+    }
+    return r;
+}
+// `test al, 0x10; je; test al, 0x20; jne`: the second emitter is used when flag 0x10 is set and 0x20 clear.
+bool UseSecondEmitter(uint32_t f)
+{
+    return (f & 0x10) && !(f & 0x20);
+}
+}  // namespace
+
+// 0x004a1bf0 (ecx = weapon; stack: a0, matrix, props, a3; ret 0x10). WeaponObject (vtable 0x005adf60) slot 6 (load):
+// Object_LoadProperties 0x004517b0(ecx; a0..a3); +0x548/+0x550/+0x54c/+0x544 = 0; 0x00408e30(eax = 0x81, ecx =
+// weapon, edx = 1; 0, 0, 0, 0, 0); "recycle_time" (+0x540, 1.0), the string properties listed above
+// (Object_ReadStringProp 0x004533a0, Object_ReadValuePropDef 0x004534a0, esi = a3) and the booleans "two_handed"
+// (flag 1) and "rapid_fire" (flag 2) (Object_ReadBoolProp 0x004534f0, read into the a3 argument slot); a second
+// emitter bone name sets flags 0x10 and 0x20 (two stores). Called by 0x004a2150.
+uint32_t fn_004a1bf0(uint32_t w, uint32_t a0, uint32_t mat, uint32_t props, uint32_t a3)
+{
+    orig::fn_004517b0(w, a0, mat, props, a3);
+    D(w, 0x548) = 0;
+    D(w, 0x550) = 0;
+    D(w, 0x54c) = 0;
+    D(w, 0x544) = 0;
+    orig::fn_00408e30(0x81, w, 1, 0, 0, 0, 0, 0);
+    orig::fn_004534a0(a3, w + 0x540, w, 0x0058f640, props, 0x3f800000, 0);
+    orig::fn_004533a0(0x0058a9a4, w + 0x460, w, 0x0058f630, props, a3, 0);
+    orig::fn_004533a0(0x0058a9a4, w + 0x480, w, 0x0058e98c, props, a3, 0);
+    uint32_t r = orig::fn_004533a0(0x0058a9a4, w + 0x4a0, w, 0x0058f608, props, a3, 0);
+    uint32_t slot = a3;  // the a3 argument slot, reused as the bool output
+    r = orig::fn_004534f0(r & 0xffffff00u, a3, u(&slot), w, 0x0058e980, props, 0);
+    if (static_cast<uint8_t>(slot))
+        D(w, 0x548) |= 1;
+    orig::fn_004533a0(0x0058a9a4, w + 0x4c0, w, 0x0058f44c, props, a3, 0);
+    orig::fn_004533a0(0x0058a9a4, w + 0x520, w, 0x0058f278, props, a3, 0);
+    if (B(w, 0x4c0) != 0)
+    {
+        const uint32_t f = D(w, 0x548) | 0x10;
+        D(w, 0x548) = f;
+        D(w, 0x548) = f | 0x20;
+    }
+    orig::fn_004533a0(0x0058a9a4, w + 0x4e0, w, 0x0058f5f8, props, a3, 0);
+    r = orig::fn_004533a0(0x0058a9a4, w + 0x500, w, 0x0058f5e4, props, a3, 0);
+    r = orig::fn_004534f0(r & 0xffffff00u, a3, u(&slot), w, 0x0058f560, props, 0);
+    const uint8_t b = static_cast<uint8_t>(slot);
+    if (b)
+        D(w, 0x548) |= 2;
+    return (r & 0xffffff00u) | b;
+}
+static uint32_t fn_004a1bf0_Abi(uint32_t ecx, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
+{
+    return fn_004a1bf0(ecx, a0, a1, a2, a3);
+}
+ABI_ENTRY_004a1bf0(fn_004a1bf0_Entry, fn_004a1bf0_Abi)
+HOOK(0x004a1bf0, "fn_004a1bf0", fn_004a1bf0_Entry, nullptr);
+
+// 0x004a1d80 (ecx = weapon; stack: desc; ret 4). WeaponObject / PlayerWeapon / PlayerVindaloo slot 7 (+0x1c):
+// 0x00457810(eax = weapon) (flag +0x424 |= 0x40), then desc[0] = 0x4000, byte desc+0xd = byte desc+0x7a = 1. Not
+// executed in recorded runs.
+uint32_t fn_004a1d80(uint32_t w, uint32_t desc)
+{
+    orig::fn_00457810(w);
+    D(desc, 0) = 0x4000;
+    B(desc, 0xd) = 1;
+    B(desc, 0x7a) = 1;
+    return desc;
+}
+static uint32_t fn_004a1d80_Abi(uint32_t ecx, uint32_t a0)
+{
+    return fn_004a1d80(ecx, a0);
+}
+ABI_ENTRY_004a1d80(fn_004a1d80_Entry, fn_004a1d80_Abi)
+HOOK(0x004a1d80, "fn_004a1d80", fn_004a1d80_Entry, nullptr);
+
+// 0x004a1da0 (ecx = weapon). WeaponObject / PlayerWeapon / PlayerVindaloo slot 0x37 (+0xdc): releases the muzzle
+// effect +0x550 (Fx_Release 0x0041d030(Game+0xa90, &+0x550)) when set, then a tail jump to Object_Remove 0x004547b0
+// (ecx = weapon).
+uint32_t fn_004a1da0(uint32_t w)
+{
+    if (D(w, 0x550) != 0)
+        orig::fn_0041d030(D(G(), 0xa90), w + 0x550);
+    return orig::fn_004547b0(w);
+}
+static uint32_t fn_004a1da0_Abi(uint32_t ecx)
+{
+    return fn_004a1da0(ecx);
+}
+ABI_ENTRY_004a1da0(fn_004a1da0_Entry, fn_004a1da0_Abi)
+HOOK(0x004a1da0, "fn_004a1da0", fn_004a1da0_Entry, nullptr);
+
+// 0x004a1dd0 (ecx = weapon). WeaponObject slot 0x2f (+0xbc), update of the muzzle effect state: flag 4 (just fired)
+// is cleared; else flag 8 is set, and on the frame after that the effect +0x550 is released (Fx_Release
+// 0x0041d030). Called by 0x004a2220.
+uint32_t fn_004a1dd0(uint32_t w)
+{
+    const uint32_t f = D(w, 0x548);
+    if (f & 4)
+    {
+        D(w, 0x548) &= 0xfffffffbu;
+        return f;
+    }
+    if (!(f & 8))
+    {
+        D(w, 0x548) |= 8;
+        return f;
+    }
+    if (D(w, 0x550) == 0)
+        return w + 0x550;
+    return orig::fn_0041d030(D(G(), 0xa90), w + 0x550);
+}
+static uint32_t fn_004a1dd0_Abi(uint32_t ecx)
+{
+    return fn_004a1dd0(ecx);
+}
+ABI_ENTRY_004a1dd0(fn_004a1dd0_Entry, fn_004a1dd0_Abi)
+HOOK(0x004a1dd0, "fn_004a1dd0", fn_004a1dd0_Entry, nullptr);
+
+// 0x004a1e10 (ecx = weapon). Slot 0x53 (+0x14c): the hand bone name (+0x480). Not executed in recorded runs.
+uint32_t fn_004a1e10(uint32_t w)
+{
+    return w + 0x480;
+}
+static uint32_t fn_004a1e10_Abi(uint32_t ecx)
+{
+    return fn_004a1e10(ecx);
+}
+ABI_ENTRY_004a1e10(fn_004a1e10_Entry, fn_004a1e10_Abi)
+HOOK(0x004a1e10, "fn_004a1e10", fn_004a1e10_Entry, nullptr);
+
+// 0x004a1e20 (ecx = weapon). Slot 0x52 (+0x148): al = "two_handed" (flag +0x548 bit 0). Not executed in recorded
+// runs.
+uint32_t fn_004a1e20(uint32_t w)
+{
+    return B(w, 0x548) & 1u;
+}
+static uint32_t fn_004a1e20_Abi(uint32_t ecx)
+{
+    return fn_004a1e20(ecx);
+}
+ABI_ENTRY_004a1e20(fn_004a1e20_Entry, fn_004a1e20_Abi)
+HOOK(0x004a1e20, "fn_004a1e20", fn_004a1e20_Entry, nullptr);
+
+// 0x004a1e30 (ecx = weapon; stack: owner; ret 4). Slot 0x54 (+0x150): +0x54c = owner. Not executed in recorded runs.
+uint32_t fn_004a1e30(uint32_t w, uint32_t owner)
+{
+    D(w, 0x54c) = owner;
+    return owner;
+}
+static uint32_t fn_004a1e30_Abi(uint32_t ecx, uint32_t a0)
+{
+    return fn_004a1e30(ecx, a0);
+}
+ABI_ENTRY_004a1e30(fn_004a1e30_Entry, fn_004a1e30_Abi)
+HOOK(0x004a1e30, "fn_004a1e30", fn_004a1e30_Entry, nullptr);
+
+// 0x004a1e40 (ecx = weapon). Ready to fire: flags +0x548 |= 4 then &= ~8 (two stores); al = 1 when never fired
+// (+0x544 == 0.0) or when time - +0x544 > "recycle_time" +0x540. Called by 0x004a2140, 0x004a23b0.
+uint32_t fn_004a1e40(uint32_t w)
+{
+    uint32_t f = D(w, 0x548) | 4;
+    D(w, 0x548) = f;
+    f &= 0xfffffff7u;
+    D(w, 0x548) = f;
+    if (Fl(w, 0x544) == K(0x0056c05c))
+        return 1;
+    if (Time() - Fl(w, 0x544) > Fl(w, 0x540))
+        return 1;
+    return 0;
+}
+static uint32_t fn_004a1e40_Abi(uint32_t ecx)
+{
+    return fn_004a1e40(ecx);
+}
+ABI_ENTRY_004a1e40(fn_004a1e40_Entry, fn_004a1e40_Abi)
+HOOK(0x004a1e40, "fn_004a1e40", fn_004a1e40_Entry, nullptr);
+
+// 0x004a1e90 (ecx = weapon; stack: outPos, outDir; ret 8). Slot 0x4f (+0x13c): the emitter matrix (0x00453c50 with
+// +0x4a0, or +0x4c0 for the second emitter); outPos = its translation (m[3], m[7], m[11]); outDir (when given) =
+// -(m[1], m[5], m[9]). Not executed in recorded runs.
+uint32_t fn_004a1e90(uint32_t w, uint32_t outPos, uint32_t outDir)
+{
+    float m[17];
+    const uint32_t bone = UseSecondEmitter(D(w, 0x548)) ? w + 0x4c0 : w + 0x4a0;
+    orig::fn_00453c50(w, bone, u(m), 1, 0, 0, 1, 0, 0);
+    Fl(outPos, 0) = m[3];
+    D(outPos, 4) = D(u(m), 0x1c);
+    D(outPos, 8) = D(u(m), 0x2c);
+    if (outDir != 0)
+    {
+        Fl(outDir, 0) = -m[1];
+        Fl(outDir, 4) = -m[5];
+        Fl(outDir, 8) = -m[9];
+    }
+    return outDir;
+}
+static uint32_t fn_004a1e90_Abi(uint32_t ecx, uint32_t a0, uint32_t a1)
+{
+    return fn_004a1e90(ecx, a0, a1);
+}
+ABI_ENTRY_004a1e90(fn_004a1e90_Entry, fn_004a1e90_Abi)
+HOOK(0x004a1e90, "fn_004a1e90", fn_004a1e90_Entry, nullptr);
+
+// 0x004a1f10 (ecx = weapon). WeaponObject slot 0x51 (+0x144): +0x544 = time (last fire). Called by 0x004a2450.
+uint32_t fn_004a1f10(uint32_t w)
+{
+    const uint32_t t = TimeBits();
+    D(w, 0x544) = t;
+    return t;
+}
+static uint32_t fn_004a1f10_Abi(uint32_t ecx)
+{
+    return fn_004a1f10(ecx);
+}
+ABI_ENTRY_004a1f10(fn_004a1f10_Entry, fn_004a1f10_Abi)
+HOOK(0x004a1f10, "fn_004a1f10", fn_004a1f10_Entry, nullptr);
+
+// 0x004a1f20 (ecx = weapon). Slot 0x55 (+0x154), muzzle effect: needs "muzzle_fx_name" and "muzzle_bone_name"
+// (else al = 0). Rapid fire (flag 2): flags |= 4, &= ~8 and, when no effect is running, Fx_Create 0x0041cc60(eax =
+// al cleared, ecx = Game+0xa90; &+0x4e0, &{0x24, 8, ..., +0x18 = &+0x500, +0x1c = weapon}) kept in +0x550.
+// Otherwise a one-shot Fx_Create with {4, ..., +0x18 = muzzle bone (+0x520 for the second emitter), +0x1c =
+// weapon}. al = 1. Not executed in recorded runs.
+uint32_t fn_004a1f20(uint32_t w)
+{
+    uint32_t loc[0x80 / 4] = {};
+    const uint32_t fx = w + 0x4e0;
+    if (B(fx, 0) == 0)
+        return 0;
+    uint32_t bone = w + 0x500;
+    if (B(bone, 0) == 0)
+        return 0;
+    uint32_t f = D(w, 0x548);
+    if (f & 2)
+    {
+        f |= 4;
+        D(w, 0x548) = f;
+        f &= 0xfffffff7u;
+        D(w, 0x548) = f;
+        if (D(w, 0x550) != 0)
+            return (bone & 0xffffff00u) | 1u;
+        const uint32_t ecx_ = D(G(), 0xa90);
+        loc[0x18 / 4] = bone;
+        loc[0x1c / 4] = w;
+        loc[0] = 0x24;
+        loc[1] = 8;
+        const uint32_t r = orig::fn_0041cc60(u(loc) & 0xffffff00u, ecx_, fx, u(loc));
+        D(w, 0x550) = r;
+        return (r & 0xffffff00u) | 1u;
+    }
+    if (UseSecondEmitter(f))
+        bone = w + 0x520;
+    loc[0x18 / 4] = bone;
+    loc[0x1c / 4] = w;
+    loc[0] = 4;
+    const uint32_t r = orig::fn_0041cc60(bone & 0xffffff00u, D(G(), 0xa90), fx, u(loc));
+    return (r & 0xffffff00u) | 1u;
+}
+static uint32_t fn_004a1f20_Abi(uint32_t ecx)
+{
+    return fn_004a1f20(ecx);
+}
+ABI_ENTRY_004a1f20(fn_004a1f20_Entry, fn_004a1f20_Abi)
+HOOK(0x004a1f20, "fn_004a1f20", fn_004a1f20_Entry, nullptr);
+
+// 0x004a2010 (eax = aim point, esi = weapon, edi = target; stack: bone, noShot; ret 8). Fires: no aim point: al = 0.
+// Else the muzzle effect (vt+0x154); unless noShot, the emitter matrix (0x00453c50, emitter as in 0x004a1e90),
+// flag 0x20 toggled (alternating emitters), the projectile 0x0047de40(eax = &muzzle, ebx = aim; Game+0xaa8, owner
+// +0x54c, &+0x460, 0) and with a target its vt+0x14c(target, bone). Then vt+0x144() (last fire time) and al = 1.
+// Called by 0x004284e0, 0x004a2100.
+uint32_t fn_004a2010(uint32_t aim, uint32_t w, uint32_t target, uint32_t bone, uint32_t noShot)
+{
+    if (aim == 0)
+        return 0;
+    VCall<uint32_t>(P(w), 0x154 / 4);
+    if (static_cast<uint8_t>(noShot) == 0)
+    {
+        float pos[3];  // esp+4
+        float m[17];   // esp+0x10
+        const uint32_t em = UseSecondEmitter(D(w, 0x548)) ? w + 0x4c0 : w + 0x4a0;
+        orig::fn_00453c50(w, em, u(m), 1, 0, 0, 1, 0, 0);
+        D(w, 0x548) ^= 0x20;
+        D(u(pos), 0) = D(u(m), 0xc);
+        D(u(pos), 4) = D(u(m), 0x1c);
+        D(u(pos), 8) = D(u(m), 0x2c);
+        const uint32_t proj = orig::fn_0047de40(u(pos), aim, D(G(), 0xaa8), D(w, 0x54c), w + 0x460, 0);
+        if (proj != 0 && target != 0)
+            VCall<uint32_t>(P(proj), 0x14c / 4, target, bone);
+    }
+    const uint32_t r = VCall<uint32_t>(P(w), 0x144 / 4);
+    return (r & 0xffffff00u) | 1u;
+}
+static uint32_t fn_004a2010_Abi(uint32_t eax, uint32_t esi, uint32_t edi, uint32_t a0, uint32_t a1)
+{
+    return fn_004a2010(eax, esi, edi, a0, a1);
+}
+ABI_ENTRY_004a2010(fn_004a2010_Entry, fn_004a2010_Abi)
+HOOK(0x004a2010, "fn_004a2010", fn_004a2010_Entry, nullptr);
+
+// 0x004a2100 (esi = weapon). Fires at the target list's aim point: list = Game+0xa6c (0x00407ff0 is a bare `ret`
+// that leaves eax = list; not called here), the point list+4, or list+0x58 +4 when list[0] is 0 (0x00408010);
+// 0x004a2010(eax = point, esi, edi = 0; 0, 0). al = 1. Called by 0x004284e0. Not executed in recorded runs.
+uint32_t fn_004a2100(uint32_t w)
+{
+    const uint32_t list = D(G(), 0xa6c);
+    uint32_t p = list;
+    if (D(p, 0) == 0)
+        p = orig::fn_00408010(list);
+    const uint32_t r = fn_004a2010(p + 4, w, 0, 0, 0);
+    return (r & 0xffffff00u) | 1u;
+}
+static uint32_t fn_004a2100_Abi(uint32_t esi)
+{
+    return fn_004a2100(esi);
+}
+ABI_ENTRY_004a2100(fn_004a2100_Entry, fn_004a2100_Abi)
+HOOK(0x004a2100, "fn_004a2100", fn_004a2100_Entry, nullptr);
+
+// 0x004a2140 (ecx = weapon). WeaponObject slot 0x4e (+0x138): 0x004a1e40 then al = 1. Not executed in recorded runs.
+uint32_t fn_004a2140(uint32_t w)
+{
+    return (fn_004a1e40(w) & 0xffffff00u) | 1u;
+}
+static uint32_t fn_004a2140_Abi(uint32_t ecx)
+{
+    return fn_004a2140(ecx);
+}
+ABI_ENTRY_004a2140(fn_004a2140_Entry, fn_004a2140_Abi)
+HOOK(0x004a2140, "fn_004a2140", fn_004a2140_Entry, nullptr);
+
+// 0x004a2150 (ecx = weapon; stack: a0, matrix, props, a3; ret 0x10). PlayerWeapon slot 6 (load): the WeaponObject
+// load 0x004a1bf0; +0x554 = the weapon id whose descriptor name (Game+0x2770 + id*0x150) matches the object name
+// (Object_GetName 0x00453270, _stricmp 0x005448ee; 0x1c descriptors) or -1, +0x560 = &player ammo record (Game+0x748
+// +0xc84 + id*0xc) or 0; "clip_reload_time" (+0x558, 1.5); +0x55c = 0. Called by 0x004a24d0.
+uint32_t fn_004a2150(uint32_t w, uint32_t a0, uint32_t mat, uint32_t props, uint32_t a3)
+{
+    fn_004a1bf0(w, a0, mat, props, a3);
+    D(w, 0x554) = 0xffffffffu;
+    D(w, 0x560) = 0;
+    uint32_t off = 0;
+    uint32_t i = 0;
+    do
+    {
+        const uint32_t desc = off + G() + 0x2770;
+        const uint32_t name = orig::fn_00453270(w);
+        if (orig::fn_005448ee(desc, name, desc) == 0)
+        {
+            D(w, 0x554) = i;
+            break;
+        }
+        off += 0x150;
+        ++i;
+    } while (off < 0x24c0);
+    const uint32_t id = D(w, 0x554);
+    if (id != 0xffffffffu)
+        D(w, 0x560) = D(G(), 0x748) + (id * 3 + 0x321) * 4;
+    const uint32_t r = orig::fn_004534a0(a3, w + 0x558, w, 0x0058e96c, props, 0x3fc00000, 0);
+    D(w, 0x55c) = 0;
+    return r;
+}
+static uint32_t fn_004a2150_Abi(uint32_t ecx, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
+{
+    return fn_004a2150(ecx, a0, a1, a2, a3);
+}
+ABI_ENTRY_004a2150(fn_004a2150_Entry, fn_004a2150_Abi)
+HOOK(0x004a2150, "fn_004a2150", fn_004a2150_Entry, nullptr);
+
+// 0x004a2220 (ecx = weapon). PlayerWeapon / PlayerVindaloo slot 0x2f (+0xbc), update: 0x004a1dd0; while reloading
+// (vt+0x164) the timer +0x55c counts down by dt and at <= 0 it is cleared and the reload completes (tail jump to
+// vt+0x168). Returns 0 where the original leaves the FPU status word in eax.
+uint32_t fn_004a2220(uint32_t w)
+{
+    fn_004a1dd0(w);
+    const uint32_t r = VCall<uint32_t>(P(w), 0x164 / 4);
+    if (!static_cast<uint8_t>(r))
+        return r;
+    const float c = Fl(w, 0x55c) - Dt();
+    Fl(w, 0x55c) = c;
+    if (!(c <= K(0x0056c05c)))
+        return 0;
+    D(w, 0x55c) = 0;
+    return VCall<uint32_t>(P(w), 0x168 / 4);
+}
+static uint32_t fn_004a2220_Abi(uint32_t ecx)
+{
+    return fn_004a2220(ecx);
+}
+ABI_ENTRY_004a2220(fn_004a2220_Entry, fn_004a2220_Abi)
+HOOK(0x004a2220, "fn_004a2220", fn_004a2220_Entry, nullptr);
+
+// 0x004a2270 (ecx = weapon). PlayerWeapon slot 0x56 (+0x158), clip empty: al = (ammo record clip == 0); al = 0
+// without a record or when Game+0x175 (infinite ammo, guess) is set. Not executed in recorded runs.
+uint32_t fn_004a2270(uint32_t w)
+{
+    const uint32_t p = D(w, 0x560);
+    if (p == 0)
+        return 0;
+    if (B(G(), 0x175) != 0)
+        return p & 0xffffff00u;
+    return (p & 0xffffff00u) | (D(p, 0) == 0 ? 1u : 0u);
+}
+static uint32_t fn_004a2270_Abi(uint32_t ecx)
+{
+    return fn_004a2270(ecx);
+}
+ABI_ENTRY_004a2270(fn_004a2270_Entry, fn_004a2270_Abi)
+HOOK(0x004a2270, "fn_004a2270", fn_004a2270_Entry, nullptr);
+
+// 0x004a22a0 (ecx = weapon). PlayerWeapon slot 0x57 (+0x15c), can reload: an ammo record with spare ammo (+4) and
+// a clip below the descriptor's clip size (Game+0x28b0 + id*0x150). Not executed in recorded runs.
+uint32_t fn_004a22a0(uint32_t w)
+{
+    const uint32_t p = D(w, 0x560);
+    if (p == 0)
+        return 0;
+    if (D(p, 4) != 0 && D(p, 0) < D(G(), (D(p, 8) + 0x1f) * 0x150))
+        return 1;
+    return 0;
+}
+static uint32_t fn_004a22a0_Abi(uint32_t ecx)
+{
+    return fn_004a22a0(ecx);
+}
+ABI_ENTRY_004a22a0(fn_004a22a0_Entry, fn_004a22a0_Abi)
+HOOK(0x004a22a0, "fn_004a22a0", fn_004a22a0_Entry, nullptr);
+
+// 0x004a22e0 / 0x004a29d0 (ecx = weapon). PlayerWeapon slot 0x5a (+0x168), reload complete: when vt+0x15c() (can
+// reload), moves min(clip size, clip size - clip, spare) into the clip (0x004a22e0 takes it from the spare,
+// 0x004a29d0 (vtable 0x005a1348) does not), +0x55c = 0, al = 1. Not executed in recorded runs.
+static uint32_t ReloadAmount(uint32_t size, uint32_t clip, uint32_t spare)
+{
+    const uint32_t room = size - clip;
+    const uint32_t lim = size < room ? size : room;
+    if (lim >= spare)
+        return spare;
+    return size < room ? size : room;
+}
+uint32_t fn_004a22e0(uint32_t w)
+{
+    const uint32_t r = VCall<uint32_t>(P(w), 0x15c / 4);
+    if (!static_cast<uint8_t>(r))
+        return r;
+    const uint32_t g = G();
+    const uint32_t p = D(w, 0x560);
+    const uint32_t clip = D(p, 0);
+    const uint32_t size = D(g, (D(p, 8) + 0x1f) * 0x150);
+    D(p, 0) = ReloadAmount(size, clip, D(p, 4)) + clip;
+    const uint32_t q = D(w, 0x560);
+    const uint32_t diff = clip - D(q, 0);
+    D(q, 4) = D(q, 4) + diff;
+    D(w, 0x55c) = 0;
+    return (diff & 0xffffff00u) | 1u;
+}
+static uint32_t fn_004a22e0_Abi(uint32_t ecx)
+{
+    return fn_004a22e0(ecx);
+}
+ABI_ENTRY_004a22e0(fn_004a22e0_Entry, fn_004a22e0_Abi)
+HOOK(0x004a22e0, "fn_004a22e0", fn_004a22e0_Entry, nullptr);
+
+uint32_t fn_004a29d0(uint32_t w)
+{
+    const uint32_t r = VCall<uint32_t>(P(w), 0x15c / 4);
+    if (!static_cast<uint8_t>(r))
+        return r;
+    const uint32_t p = D(w, 0x560);
+    const uint32_t size = D(G(), (D(p, 8) + 0x1f) * 0x150);
+    const uint32_t clip = D(p, 0);
+    const uint32_t take = ReloadAmount(size, clip, D(p, 4));
+    D(p, 0) = clip + take;
+    D(w, 0x55c) = 0;
+    return (take & 0xffffff00u) | 1u;
+}
+static uint32_t fn_004a29d0_Abi(uint32_t ecx)
+{
+    return fn_004a29d0(ecx);
+}
+ABI_ENTRY_004a29d0(fn_004a29d0_Entry, fn_004a29d0_Abi)
+HOOK(0x004a29d0, "fn_004a29d0", fn_004a29d0_Entry, nullptr);
+
+// 0x004a2360 (ecx = weapon). PlayerWeapon slot 0x58 (+0x160), start reload: when vt+0x15c() (can reload), +0x55c =
+// "clip_reload_time" +0x558 and al = 1. Not executed in recorded runs.
+uint32_t fn_004a2360(uint32_t w)
+{
+    const uint32_t r = VCall<uint32_t>(P(w), 0x15c / 4);
+    if (!static_cast<uint8_t>(r))
+        return r;
+    const uint32_t t = D(w, 0x558);
+    D(w, 0x55c) = t;
+    return (t & 0xffffff00u) | 1u;
+}
+static uint32_t fn_004a2360_Abi(uint32_t ecx)
+{
+    return fn_004a2360(ecx);
+}
+ABI_ENTRY_004a2360(fn_004a2360_Entry, fn_004a2360_Abi)
+HOOK(0x004a2360, "fn_004a2360", fn_004a2360_Entry, nullptr);
+
+// 0x004a2390 (ecx = weapon). PlayerWeapon slot 0x59 (+0x164), reloading: +0x55c > 0.0. Not executed in recorded runs.
+uint32_t fn_004a2390(uint32_t w)
+{
+    return Fl(w, 0x55c) > K(0x0056c05c) ? 1u : 0u;
+}
+static uint32_t fn_004a2390_Abi(uint32_t ecx)
+{
+    return fn_004a2390(ecx);
+}
+ABI_ENTRY_004a2390(fn_004a2390_Entry, fn_004a2390_Abi)
+HOOK(0x004a2390, "fn_004a2390", fn_004a2390_Entry, nullptr);
+
+// 0x004a23b0 (ecx = weapon). PlayerWeapon / PlayerVindaloo slot 0x4e (+0x138), ready to fire: not reloading
+// (vt+0x164), clip not empty (vt+0x158) and 0x004a1e40. Called by 0x004a2910. Not executed in recorded runs.
+uint32_t fn_004a23b0(uint32_t w)
+{
+    uint32_t r = VCall<uint32_t>(P(w), 0x164 / 4);
+    if (static_cast<uint8_t>(r))
+        return r & 0xffffff00u;
+    r = VCall<uint32_t>(P(w), 0x158 / 4);
+    if (static_cast<uint8_t>(r))
+        return r & 0xffffff00u;
+    r = fn_004a1e40(w);
+    return (r & 0xffffff00u) | (static_cast<uint8_t>(r) != 0 ? 1u : 0u);
+}
+static uint32_t fn_004a23b0_Abi(uint32_t ecx)
+{
+    return fn_004a23b0(ecx);
+}
+ABI_ENTRY_004a23b0(fn_004a23b0_Entry, fn_004a23b0_Abi)
+HOOK(0x004a23b0, "fn_004a23b0", fn_004a23b0_Entry, nullptr);
+
+// 0x004a23e0 (ecx = weapon). PlayerWeapon slot 0x50 (+0x140) (vtables 0x005a1348, 0x005ad458, 0x005ae210), fire:
+// with an owner (+0x54c), 0x0047dbf0(eax = &+0x4a0, ecx = &+0x460, edx = weapon; Game+0xaa8, owner, vt+0x16c()),
+// the muzzle effect vt+0x154() and on success vt+0x144(); al = success. Not executed in recorded runs.
+uint32_t fn_004a23e0(uint32_t w)
+{
+    if (D(w, 0x54c) == 0)
+        return 0;
+    const uint32_t v = VCall<uint32_t>(P(w), 0x16c / 4);
+    const uint32_t r = orig::fn_0047dbf0(w + 0x4a0, w + 0x460, w, D(G(), 0xaa8), D(w, 0x54c), v);
+    VCall<uint32_t>(P(w), 0x154 / 4);
+    if (r != 0)
+        VCall<uint32_t>(P(w), 0x144 / 4);
+    return r != 0 ? 1u : 0u;
+}
+static uint32_t fn_004a23e0_Abi(uint32_t ecx)
+{
+    return fn_004a23e0(ecx);
+}
+ABI_ENTRY_004a23e0(fn_004a23e0_Entry, fn_004a23e0_Abi)
+HOOK(0x004a23e0, "fn_004a23e0", fn_004a23e0_Entry, nullptr);
+
+// 0x004a2450 (ecx = weapon). PlayerWeapon / PlayerVindaloo slot 0x51 (+0x144): the last fire time (0x004a1f10) and,
+// unless Game+0x175 is set, one round less in the clip (when not empty). Not executed in recorded runs.
+uint32_t fn_004a2450(uint32_t w)
+{
+    fn_004a1f10(w);
+    const uint32_t g = G();
+    if (B(g, 0x175) != 0)
+        return g;
+    const uint32_t p = D(w, 0x560);
+    const uint32_t c = D(p, 0);
+    if (c != 0)
+        D(p, 0) = c - 1;
+    return p;
+}
+static uint32_t fn_004a2450_Abi(uint32_t ecx)
+{
+    return fn_004a2450(ecx);
+}
+ABI_ENTRY_004a2450(fn_004a2450_Entry, fn_004a2450_Abi)
+HOOK(0x004a2450, "fn_004a2450", fn_004a2450_Entry, nullptr);
+
+uint32_t fn_004a2a70(uint32_t w, uint32_t bone, uint32_t owner, uint32_t proj);
+
+// 0x004a2480 (ecx = weapon). PlayerWeapon slot 0x50 (+0x140) (vtable 0x005ac210), fire along the camera ray: with
+// an owner, 0x004a2a70(weapon, &+0x4a0, owner, &+0x460) and on success vt+0x154(), vt+0x144() and al = 1. Not
+// executed in recorded runs.
+uint32_t fn_004a2480(uint32_t w)
+{
+    const uint32_t owner = D(w, 0x54c);
+    if (owner == 0)
+        return 0;
+    const uint32_t r = fn_004a2a70(w, w + 0x4a0, owner, w + 0x460);
+    if (!static_cast<uint8_t>(r))
+        return r & 0xffffff00u;
+    VCall<uint32_t>(P(w), 0x154 / 4);
+    const uint32_t r2 = VCall<uint32_t>(P(w), 0x144 / 4);
+    return (r2 & 0xffffff00u) | 1u;
+}
+static uint32_t fn_004a2480_Abi(uint32_t ecx)
+{
+    return fn_004a2480(ecx);
+}
+ABI_ENTRY_004a2480(fn_004a2480_Entry, fn_004a2480_Abi)
+HOOK(0x004a2480, "fn_004a2480", fn_004a2480_Entry, nullptr);
+
+// 0x004a24d0 (ecx = weapon; stack: a0, matrix, props, a3; ret 0x10). PlayerVindaloo (vtable 0x005a90a8) slot 6
+// (load): the PlayerWeapon load 0x004a2150; "start_angle_yaw" (+0x568, 6) and "start_angle_pitch" (+0x564, 6)
+// (Object_ReadValuePropDef 0x004534a0, esi = a3), both scaled by [0x005bcba0] (degrees to radians, guess). Not
+// executed in recorded runs.
+uint32_t fn_004a24d0(uint32_t w, uint32_t a0, uint32_t mat, uint32_t props, uint32_t a3)
+{
+    fn_004a2150(w, a0, mat, props, a3);
+    orig::fn_004534a0(a3, w + 0x568, w, 0x0058e95c, props, 0x40c00000, 0);
+    const uint32_t r = orig::fn_004534a0(a3, w + 0x564, w, 0x0058e948, props, 0x40c00000, 0);
+    Fl(w, 0x568) = Fl(w, 0x568) * K(0x005bcba0);
+    Fl(w, 0x564) = Fl(w, 0x564) * K(0x005bcba0);
+    return r;
+}
+static uint32_t fn_004a24d0_Abi(uint32_t ecx, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
+{
+    return fn_004a24d0(ecx, a0, a1, a2, a3);
+}
+ABI_ENTRY_004a24d0(fn_004a24d0_Entry, fn_004a24d0_Abi)
+HOOK(0x004a24d0, "fn_004a24d0", fn_004a24d0_Entry, nullptr);
+// 0x004a2550 (ecx = weapon). PlayerVindaloo (vtable 0x005a90a8) slot 0x50 (+0x140), fire a fan of rockets. With an
+// owner (+0x54c) and the emitter matrix (0x00453c50 with +0x4a0; else al = 0): the muzzle position, the default aim
+// point (0x00408030: target list +0x5c) and the camera matrix (0x0040fa70(eax = Game+0xa68)); empty entries of the
+// target list's four candidates (Game+0xa6c +0x154, 0x2c bytes each, 0x00407fe0) are filled from earlier ones. Yaw
+// offsets {a, -a, a, -a} (a = +0x568) and pitch offsets {s + b, s + b, s - b*[0x005bcb4c]} (b = +0x564, s = the
+// camera's downward tilt -m[10] clamped at 0). Game+0xdd0 set: 4 rockets, Game+0x2718 += 3 and
+// "wpn_rome_vindaloo_fire_4" (0x0058e92c); else 2 rockets, += 1 and "wpn_rome_vindaloo_fire_2" (0x0058e910). Each
+// rocket: direction = -(row 2 of RotX(pitch) * RotY(yaw) * camera) (Matrix_Multiply 0x004e2910 twice), 0x0047e050(edi
+// = &muzzle; Game+0xaa8, owner, &+0x460, &dir, 0), homing on the candidate's object (vt+0x14c(object, "ref_hit_00"
+// 0x005b68fc) when its byte +0x20 is set, else vt+0x150(&candidate +4)) or the default point. Then vt+0x154() and,
+// when the last rocket exists, vt+0x144(); al = last rocket != 0. symbols/abi.csv says 16 caller-cleaned stack
+// arguments: the function reads none (an ebp frame aligned to 8; plain ret), so the entry stub below forwards ecx
+// only. The 0x200-byte frame F is kept as one array. Not executed in recorded runs.
+uint32_t fn_004a2550(uint32_t w)
+{
+    alignas(8) uint8_t F[0x200];
+    const uint32_t fb = u(F);
+    D(fb, 4) = w;
+    if (D(w, 0x54c) == 0)
+        return 0;
+    uint32_t cand = orig::fn_00407fe0(D(G(), 0xa6c));
+    const uint32_t ok = orig::fn_00453c50(w, w + 0x4a0, fb + 0xe0, 1, 0, 0, 1, 0, 0);
+    if (static_cast<uint8_t>(ok) == 0)
+        return ok & 0xffffff00u;
+    const uint32_t g = G();
+    D(fb, 0x1c) = D(fb, 0xfc);  // muzzle = m[3], m[7], m[11]
+    D(fb, 0x18) = D(fb, 0xec);
+    D(fb, 0x20) = D(fb, 0x10c);
+    orig::fn_00408030(fb + 0x44, D(g, 0xa6c));
+    orig::fn_0040fa70(D(g, 0xa68), fb + 0x170);
+    Fl(fb, 0x14) = -Fl(fb, 0x198);
+    if (D(cand, 0x84) == 0)
+        std::memcpy(P(cand + 0x84), P(cand), 0x2c);
+    if (D(cand, 0x58) == 0)
+        std::memcpy(P(cand + 0x58), P(D(cand, 0x2c) != 0 ? cand + 0x2c : cand), 0x2c);
+    if (D(cand, 0x2c) == 0)
+        std::memcpy(P(cand + 0x2c), P(cand), 0x2c);
+    const float s = Fl(fb, 0x14) < K(0x0056c05c) ? -Fl(fb, 0x14) : K(0x0056c05c);
+    const uint32_t a = D(w, 0x568);
+    const float na = -u2f(a);
+    Fl(fb, 0x28) = na;
+    Fl(fb, 0x30) = na;
+    D(fb, 0x24) = a;
+    const float sb = s + Fl(w, 0x564);
+    Fl(fb, 0x34) = sb;
+    Fl(fb, 0x38) = sb;
+    D(fb, 0x2c) = a;
+    const float sm = s - Fl(w, 0x564) * K(0x005bcb4c);
+    Fl(fb, 0x3c) = sm;
+    Fl(fb, 0x40) = sm;
+    const uint32_t snd = D(g, 0x2c);
+    if (B(g, 0xdd0) != 0)
+    {
+        D(g, 0x2718) += 3;
+        D(fb, 8) = 4;
+        VCall<uint32_t>(P(snd), 0xd0 / 4, 0x0058e92cu, 0u, 0u, 0u, 0xffffffffu, 0u);
+    }
+    else
+    {
+        D(g, 0x2718) += 1;
+        D(fb, 8) = 2;
+        VCall<uint32_t>(P(snd), 0xd0 / 4, 0x0058e910u, 0u, 0u, 0u, 0xffffffffu, 0u);
+    }
+    const uint32_t n = D(fb, 8);
+    uint32_t proj = D(fb, 0);  // the original's uninitialised slot when no rocket is fired (n is 2 or 4)
+    for (uint32_t i = 0; i < n; ++i, cand += 0x2c)
+    {
+        const float yaw = Fl(fb, 0x24 + i * 4);
+        const float sy = X87Sin(yaw);
+        std::memset(P(fb + 0x50), 0, 0x44);  // RotY at F+0x50
+        D(fb, 0x90) = 1;
+        D(fb, 0x64) = 0x3f800000;
+        D(fb, 0x8c) = 0x3f800000;
+        Fl(fb, 0) = sy;
+        const float cy = X87Cos(yaw);
+        Fl(fb, 0x58) = sy;
+        std::memset(P(fb + 0x98), 0, 0x44);  // RotX at F+0x98
+        D(fb, 0xd8) = 1;
+        D(fb, 0x98) = 0x3f800000;
+        D(fb, 0xd4) = 0x3f800000;
+        Fl(fb, 0x50) = cy;
+        Fl(fb, 0x70) = -Fl(fb, 0);
+        Fl(fb, 0x78) = cy;
+        Fl(fb, 0) = Fl(fb, 0x34 + i * 4);
+        const float sp = X87Sin(Fl(fb, 0));
+        const float cp = X87Cos(Fl(fb, 0));
+        Fl(fb, 0xac) = cp;
+        Fl(fb, 0xb0) = -sp;
+        Fl(fb, 0xbc) = sp;
+        Fl(fb, 0xc0) = cp;
+        orig::fn_004e2910(fb + 0x98, fb + 0x1b8, fb + 0x50);
+        orig::fn_004e2910(fb + 0x1b8, fb + 0x128, fb + 0x170);
+        const uint32_t owner = D(D(fb, 4), 0x54c);
+        Fl(fb, 0xc) = -Fl(fb, 0x130);
+        Fl(fb, 0x10) = -Fl(fb, 0x140);
+        Fl(fb, 0x14) = -Fl(fb, 0x150);
+        proj = orig::fn_0047e050(fb + 0x18, D(G(), 0xaa8), owner, D(fb, 4) + 0x460, fb + 0xc, 0);
+        if (proj != 0)
+        {
+            const uint32_t t = D(cand, 0);
+            if (t != 0)
+            {
+                if (B(cand, 0x20) != 0)
+                    VCall<uint32_t>(P(proj), 0x14c / 4, t, 0x005b68fcu);
+                else
+                    VCall<uint32_t>(P(proj), 0x150 / 4, cand + 4);
+            }
+            else
+            {
+                VCall<uint32_t>(P(proj), 0x150 / 4, fb + 0x44);
+            }
+        }
+    }
+    VCall<uint32_t>(P(w), 0x154 / 4);
+    if (proj != 0)
+        VCall<uint32_t>(P(w), 0x144 / 4);
+    return proj != 0 ? 1u : 0u;
+}
+static __declspec(naked) void fn_004a2550_Entry()
+{
+    __asm {
+        push ecx
+        push edx
+        push ebx
+        push esi
+        push edi
+        push ebp
+        push ecx
+        call fn_004a2550
+        add esp, 4
+        pop ebp
+        pop edi
+        pop esi
+        pop ebx
+        pop edx
+        pop ecx
+        ret
+    }
+}
+HOOK(0x004a2550, "fn_004a2550", fn_004a2550_Entry, nullptr);
+
+// 0x004a2910 (ecx = weapon). PlayerWeapon (vtable 0x005a4858) slot 0x4e (+0x138): ready only with a current target
+// (Game+0xa6c [0], via the bare-`ret` 0x00407ff0) whose vt+0xd8() is true; then a tail jump to 0x004a23b0. Not
+// executed in recorded runs.
+uint32_t fn_004a2910(uint32_t w)
+{
+    const uint32_t list = D(G(), 0xa6c);
+    const uint32_t c = D(list, 0);
+    if (c == 0)
+        return list & 0xffffff00u;
+    const uint32_t r = VCall<uint32_t>(P(c), 0xd8 / 4);
+    if (!static_cast<uint8_t>(r))
+        return r & 0xffffff00u;
+    return fn_004a23b0(w);
+}
+static uint32_t fn_004a2910_Abi(uint32_t ecx)
+{
+    return fn_004a2910(ecx);
+}
+ABI_ENTRY_004a2910(fn_004a2910_Entry, fn_004a2910_Abi)
+HOOK(0x004a2910, "fn_004a2910", fn_004a2910_Entry, nullptr);
+
+// 0x004a2950 (ecx = weapon). PlayerWeapon (vtable 0x005a4858) slot 0x50 (+0x140), fire: with an owner,
+// 0x0047dbf0(eax = &+0x4a0, ecx = &+0x460, edx = weapon; Game+0xaa8, owner, 1), the muzzle effect vt+0x154(), the
+// sound "wpn_shark_fire" (0x0058e900) and on success vt+0x144(); al = success. Not executed in recorded runs.
+uint32_t fn_004a2950(uint32_t w)
+{
+    const uint32_t owner = D(w, 0x54c);
+    if (owner == 0)
+        return 0;
+    const uint32_t r = orig::fn_0047dbf0(w + 0x4a0, w + 0x460, w, D(G(), 0xaa8), owner, 1);
+    VCall<uint32_t>(P(w), 0x154 / 4);
+    PlaySound2d(0x0058e900);
+    if (r != 0)
+        VCall<uint32_t>(P(w), 0x144 / 4);
+    return r != 0 ? 1u : 0u;
+}
+static uint32_t fn_004a2950_Abi(uint32_t ecx)
+{
+    return fn_004a2950(ecx);
+}
+ABI_ENTRY_004a2950(fn_004a2950_Entry, fn_004a2950_Abi)
+HOOK(0x004a2950, "fn_004a2950", fn_004a2950_Entry, nullptr);
+
+// 0x004a2a40 (no register input). PlayerWeapon slot 0x5b (+0x16c) (vtables 0x005a1348, 0x005ad458): al = 0 when
+// 0x0040fba0(ecx = Game+0xa68) is true or Game+0x550 > 1, else byte Game+0x4c2 (both read from the Game object, not
+// the weapon). Not executed in recorded runs.
+uint32_t fn_004a2a40()
+{
+    const uint32_t g = G();
+    const uint32_t r = orig::fn_0040fba0(D(g, 0xa68));
+    if (static_cast<uint8_t>(r))
+        return r & 0xffffff00u;
+    if (D(g, 0x550) > 1)
+        return r & 0xffffff00u;
+    return (r & 0xffffff00u) | B(g, 0x4c2);
+}
+static uint32_t fn_004a2a40_Abi()
+{
+    return fn_004a2a40();
+}
+ABI_ENTRY_004a2a40(fn_004a2a40_Entry, fn_004a2a40_Abi)
+HOOK(0x004a2a40, "fn_004a2a40", fn_004a2a40_Entry, nullptr);
+
+// 0x004a2a70 (cdecl: weapon, bone, owner, projectile name). Fires along the camera ray: camera position and
+// direction (Camera_GetPosition 0x0040f9e0 / Camera_GetDirection 0x0040fa10 on Game+0xa68); with the emitter matrix
+// (0x00453c50) the start is moved along the ray to the muzzle's depth (t = dir.muzzle - dir.pos), else by
+// [0x005bcbdc]; target = start + dir * Game+0x2a08; 0x0047de40(eax = &start, ebx = &target; Game+0xaa8, owner, name,
+// 0). Returns 1 when a projectile was made. Called by 0x004a2480. Not executed in recorded runs.
+uint32_t fn_004a2a70(uint32_t w, uint32_t bone, uint32_t owner, uint32_t proj)
+{
+    float F[0x68 / 4];  // pos +0, dir +0xc, target +0x18, matrix +0x24
+    const uint32_t fb = u(F);
+    const uint32_t g = G();
+    orig::fn_0040fa10(fb + 0xc, D(g, 0xa68));
+    orig::fn_0040f9e0(fb, D(g, 0xa68));
+    const uint32_t ok = orig::fn_00453c50(w, bone, fb + 0x24, 1, 0, 0, 1, 0, 0);
+    float t;
+    if (static_cast<uint8_t>(ok))
+    {
+        const float m = Fl(fb, 0x14) * Fl(fb, 0x50) + Fl(fb, 0x10) * Fl(fb, 0x40) + Fl(fb, 0xc) * Fl(fb, 0x30);
+        const float p = Fl(fb, 8) * Fl(fb, 0x14) + Fl(fb, 4) * Fl(fb, 0x10) + Fl(fb, 0) * Fl(fb, 0xc);
+        t = m - p;
+    }
+    else
+    {
+        t = K(0x005bcbdc);
+    }
+    const uint32_t g2 = G();
+    Fl(fb, 0) = Fl(fb, 0xc) * t + Fl(fb, 0);
+    Fl(fb, 4) = Fl(fb, 0x10) * t + Fl(fb, 4);
+    Fl(fb, 8) = Fl(fb, 0x14) * t + Fl(fb, 8);
+    Fl(fb, 0x18) = Fl(fb, 0xc) * Fl(g2, 0x2a08) + Fl(fb, 0);
+    Fl(fb, 0x1c) = Fl(fb, 0x10) * Fl(g2, 0x2a08) + Fl(fb, 4);
+    Fl(fb, 0x20) = Fl(fb, 0x14) * Fl(g2, 0x2a08) + Fl(fb, 8);
+    const uint32_t r = orig::fn_0047de40(fb, fb + 0x18, D(g2, 0xaa8), owner, proj, 0);
+    return r != 0 ? 1u : 0u;
+}
+static uint32_t fn_004a2a70_Abi(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
+{
+    return fn_004a2a70(a0, a1, a2, a3);
+}
+ABI_ENTRY_004a2a70(fn_004a2a70_Entry, fn_004a2a70_Abi)
+HOOK(0x004a2a70, "fn_004a2a70", fn_004a2a70_Entry, nullptr);

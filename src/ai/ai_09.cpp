@@ -214,7 +214,621 @@ static uint32_t Twiglet_PlayToss_Abi(uint32_t esi)
 ABI_ENTRY_0049dc90(Twiglet_PlayToss_Entry, Twiglet_PlayToss_Abi)
 HOOK(0x0049dc90, "Twiglet_PlayToss", Twiglet_PlayToss_Entry, nullptr);
 
-// @@DCF0@@
+uint32_t fn_004a01c0(uint32_t self, uint32_t flag);
+uint32_t fn_004a0130(uint32_t flag, uint32_t self, uint32_t object);
+uint32_t fn_0049fab0(uint32_t self, uint32_t flag);
+
+namespace
+{
+// 0x004e7880 (ecx = source vec3, edx = destination): normalises a 3D vector and returns its length in st0. The ABI
+// table lists eax as the result; the callers pop st0, so it is called here with its real st0 result.
+float Normalize3(uint32_t ecx_, uint32_t edx_)
+{
+    static const uint32_t target = 0x004e7880;
+    float r;
+    __asm {
+        push ebx
+        push esi
+        push edi
+        push ebp
+        mov ecx, ecx_
+        mov edx, edx_
+        call dword ptr [target]
+        pop ebp
+        pop edi
+        pop esi
+        pop ebx
+        fstp r
+    }
+    return r;
+}
+}  // namespace
+
+// 0x0049dcf0 (ecx = twiglet): Twiglet virtual +0xbc, the per-frame update (5318 bytes; a switch on the state +0x464
+// through the jump table 0x0049f1b8 / byte index table 0x0049f204, index = state - 1, states 1..0x5b; every state
+// not listed below goes to the common exit 0x0049f1ab).
+// Frame: the original's stack frame (sub esp, 0x88) is kept as one byte array; S(o) is [esp + o] with the four saved
+// registers pushed and no call argument pending (locals S(0x10)..S(0x97)). S(0x2c) = frame time (0x00604a90), S(0x28)
+// = bit 1 of anim channel 4's +0x1c (0x00408800; "animation finished", guess), also kept in ebx.
+// Prologue: the first time records its position (+0x56c, virtual +0x54) and a 10 s timer +0x578; later, while alive,
+// every expiry of +0x578 kills the twiglet (virtual +0xd4(0)) when it is at least Game+0xd60 from that point in x/y
+// (else 0x0046e2c0(3.0, 7.0), result dropped). A stun timer +0x470 (positive) counts down and at expiry blows it away
+// (0x004a01c0(1)), else +0x474 counts down. A carried bomb whose virtual +0xd8 is false is dropped and the twiglet
+// killed. Then 0x00454c90(cl = 0; 1) and the state:
+//   0x01 idle: when +0x460 bit 8, within +0x588 of Game+0x748 in x/y: retarget, run (0x0049f260, 0x0049f2b0),
+//        +0x584 = 0.
+//   0x0a run with bomb ("ctr_twiglet_call_1..3" sounds through Game+0x2c virtual +0xc4 every 4..10 s, repaths every
+//        1..3 s around a random rotation (0x00453150, 0x004e2e70, 0x004e36a0) when within 400 (squared distance) of
+//        the target; within 100 drops the bomb or gets one out ("ctr_twiglet_attack_2", "twiglet_get_bomb_out",
+//        state 0x46); stands ("twiglet_stand") while Game+0xc80 > 0, Game+0xcbc or Game+0xa84 -> +0xf00 virtual +0x34).
+//   0x0b, 0x14, 0x15/0x16, 0x18 approach / toss / swipe (0x0049dc50, 0x0049dc90, 0x00454e60 turning towards it).
+//   0x1e, 0x1f hit reactions; 0x28 dying fade (virtual +0x100(1 - (+0x494 - t) / +0x494), Object_Kill at 0);
+//   0x32 IC anim (as the generic AI's 0x00442670 block: 0x00406430, 0x004ed260, 0x004eb5d0, 0x004ec410,
+//        Matrix_Multiply 0x004e2910, Object_SetTransform, velocity from the moved translation; ends in 0x0049fab0(1));
+//   0x3d attached: at expiry detaches from Game+0x748 and is launched (0x00471a00, "twiglet_fly_no_bomb", 0x3e);
+//   0x3f wait then run; 0x46 bomb out -> run (0x0a); 0x50 hanging; 0x51/0x52 blown up (0x00471750, 0x00455a30);
+//   0x5a pulled towards +0x568; 0x5b knocked away from +0x568.
+// Strings: "twiglet_hanging" 0x0058ee70, "twiglet_blown_up" 0x0058ee80, "twiglet_stand" 0x0058eee8. Constants: 1.5
+// 0x005bce20, 2.0 0x005bcb80, 5.0 0x005bcbdc, +-120 0x005bcf84 / 0x005bcf80, 400 0x005bcf7c, 100 0x005bcb60, 2025
+// 0x005bcf78, 20 0x005bcbe8. Name from the slot's role (guess). Not executed in recorded runs.
+uint32_t Twiglet_Update(uint32_t self)
+{
+    alignas(4) uint8_t fr[0x98];
+    auto S = [&](uint32_t o) { return u(fr) + o; };
+    const uint32_t ebp = self;
+    const float k0 = K(0x0056c05c);
+    D(S(0x2c)) = D(0x00604a90);
+    uint32_t anim = orig::fn_00408800(4, ebp);
+    const uint32_t ebx = (D(anim + 0x1c) >> 1) & 1;
+    D(S(0x28)) = ebx;
+    if (!(By(ebp + 0x460) & 0x40))
+    {
+        D(ebp + 0x460) |= 0x40;
+        VC(ebp, 0x54, ebp + 0x56c);
+        D(ebp + 0x578) = 0x41200000u;
+    }
+    else if (!static_cast<uint8_t>(orig::fn_00454780(ebp)))
+    {
+        float t = Fl(ebp + 0x578) - Fl(S(0x2c));
+        Fl(ebp + 0x578) = t;
+        if (t <= k0)
+        {
+            VC(ebp, 0x54, S(0x30));
+            float dy = Fl(ebp + 0x570) - Fl(S(0x34));
+            uint32_t game = GameP();
+            float dx = Fl(ebp + 0x56c) - Fl(S(0x30));
+            float r = Fl(game + 0xd60);
+            float d2 = dx * dx + dy * dy;
+            if (r * r <= d2)
+                VC(ebp, 0xd4, 0u);
+            else
+                orig::fn_0046e2c0(game, 0x40400000u, 0x40e00000u);  // result dropped (fstp st0)
+        }
+    }
+    if (Fl(ebp + 0x470) > k0 && !static_cast<uint8_t>(orig::fn_00454780(ebp)))
+    {
+        float t = Fl(ebp + 0x470) - Fl(S(0x2c));
+        Fl(ebp + 0x470) = t;
+        if (t <= k0)
+            fn_004a01c0(ebp, 1);
+        else
+            Fl(ebp + 0x474) = Fl(ebp + 0x474) - Fl(S(0x2c));
+    }
+    const uint32_t edi = ebp + 0x55c;
+    if (D(edi) && !VB(D(edi), 0xd8))
+    {
+        Unref(D(edi));
+        D(edi) = 0;
+        VC(ebp, 0xd4, 0u);
+        return 0;
+    }
+    orig::fn_00454c90(ebp, 0, 1);
+    switch (D(ebp + 0x464))
+    {
+    case 0x01:
+    {
+        orig::fn_00454c90(ebp, 1, 1);
+        orig::fn_00454cc0(ebp, ebp + 0x398);
+        if (!(D(ebp + 0x460) & 0x100))
+            goto L_end;
+        VC(ebp, 0x54, S(0x1c));
+        VC(D(GameP() + 0x748), 0x54, S(0x30));
+        float dx = Fl(S(0x30)) - Fl(S(0x1c));
+        float dy = Fl(S(0x34)) - Fl(S(0x20));
+        float r = Fl(ebp + 0x588);
+        if (!(r * r > dy * dy + dx * dx))
+            goto L_end;
+        fn_0049f260(ebp);
+        Twiglet_RunToTarget(ebp);
+        D(ebp + 0x584) = 0;
+        return 0;
+    }
+    case 0x5b:
+    {
+        uint32_t ic = D(ebp + 0x428);
+        if (!(ic && (D(ic + 0x1c) & 0x10) && (D(ic + 0x1c) & 8)))
+            Fl(ebp + 0x468) = Fl(ebp + 0x468) - K(0x00604a90);
+        if (Fl(ebp + 0x468) <= k0)
+            orig::fn_0046f440(D(GameP() + 0xaa4), ebp);
+        if (!VB(D(ebp + 0x568), 0xd8))
+        {
+            VC(ebp, 0xd4, 0u);
+            return 0;
+        }
+        orig::fn_00470aa0(ebp, D(GameP() + 0xaa4), 0);  // the push 0 at 0x0049dfd2 is its argument
+        if (static_cast<uint8_t>(orig::fn_00470c30(ebp + 0x428)))
+            goto L_end;
+        Fl(ebp + 0x468) = orig::fn_0046e2c0(0, 0x3f800000u, 0x40000000u);
+        D(ebp + 0x464) = 0x5a;
+        return 0;
+    }
+    case 0x5a:
+    {
+        orig::fn_00458000(ebp, S(0x3c));
+        VC(ebp, 0x54, S(0x30));
+        VC(D(ebp + 0x568), 0x54, S(0x1c));
+        Fl(S(0x10)) = Fl(S(0x1c)) - Fl(S(0x30));
+        Fl(S(0x14)) = Fl(S(0x20)) - Fl(S(0x34));
+        Fl(S(0x18)) = Fl(S(0x24)) - Fl(S(0x38));
+        Fl(S(0x28)) = Normalize3(S(0x10), S(0x10));
+        Fl(S(0x10)) = Fl(S(0x10)) * Fl(ebp + 0x480) * K(0x005bce20);
+        Fl(S(0x14)) = Fl(S(0x14)) * Fl(ebp + 0x480) * K(0x005bce20);
+        if (Fl(ebp + 0x468) <= k0)
+        {
+            Fl(S(0x18)) = Fl(S(0x18)) * Fl(ebp + 0x480) * K(0x005bce20);
+        }
+        else
+        {
+            D(S(0x18)) = 0;
+            float t = Fl(ebp + 0x468) - Fl(S(0x2c));
+            Fl(ebp + 0x468) = t;
+            if (t <= k0)
+                PlayAnim(0x81, ebp, 0x0058ee80u);
+        }
+        if (Fl(S(0x28)) <= K(0x005bcb80))
+            goto L_kill;
+        if (!VB(D(ebp + 0x568), 0xd8))
+            goto L_kill;
+        float m1 = orig::fn_004581c0(ebp);
+        float m2 = orig::fn_004581c0(ebp) * K(0x005bcbdc);
+        float res = orig::fn_00471750(S(0x10), S(0x3c), S(0x48), 0, fb(m2), fb(m1));
+        Fl(S(0x28)) = res;
+        D(ebp + 0x39c) = orig::fn_00455a30(S(0x48), 0x10, ebp, D(ebp + 0x39c), fb(res), 0xffffffffu, 0);
+        return 0;
+    }
+    case 0x50:
+    {
+        orig::fn_00454c90(ebp, 1, 1);
+        orig::fn_00454cc0(ebp, ebp + 0x398);
+        if (ebx)
+            PlayAnim(0x81, ebp, 0x0058ee70u);
+        float t = Fl(ebp + 0x470) - Fl(S(0x2c));
+        Fl(ebp + 0x470) = t;
+        if (!(t <= k0))
+            goto L_end;
+        fn_004a01c0(ebp, 0);
+        return 0;
+    }
+    case 0x51:
+    {
+        if (ebx)
+            PlayAnim(0x81, ebp, 0x0058ee80u);
+        float t = Fl(ebp + 0x474) - Fl(S(0x2c));
+        Fl(ebp + 0x474) = t;
+        if (t <= k0)
+        {
+            orig::fn_00454750(D(D(GameP() + 0xa84) + 0xf1c), ebp);
+            D(ebp + 0x464) = 0x52;
+        }
+        orig::fn_00458000(ebp, S(0x10));
+        D(S(0x20)) = D(S(0x14));
+        D(S(0x1c)) = D(S(0x10));
+        D(S(0x24)) = D(S(0x18));
+        float z = Fl(S(0x18));
+        if (z <= k0)
+            D(S(0x24)) = 0;
+        else if (z >= K(0x005bcf84))
+            D(S(0x24)) = 0x42f00000u;
+        float m1 = orig::fn_004581c0(ebp);
+        float m2 = orig::fn_004581c0(ebp) * Fl(ebp + 0x484);
+        float res = orig::fn_00471750(S(0x1c), S(0x10), S(0x48), 0, fb(m2), fb(m1));
+        Fl(S(0x28)) = res;
+        D(ebp + 0x39c) = orig::fn_00455a30(S(0x48), 0x10, ebp, D(ebp + 0x39c), fb(res), 0xffffffffu, 0);
+        return 0;
+    }
+    case 0x52:
+    {
+        if (ebx)
+            PlayAnim(0x81, ebp, 0x0058ee80u);
+        orig::fn_00458000(ebp, S(0x10));
+        D(S(0x24)) = D(S(0x18));
+        D(S(0x1c)) = D(S(0x10));
+        D(S(0x20)) = D(S(0x14));
+        float z = Fl(S(0x18));
+        if (z > k0)
+            D(S(0x24)) = 0;
+        else if (z < K(0x005bcf80))
+            D(S(0x24)) = 0xc2f00000u;
+        float m1 = orig::fn_004581c0(ebp);
+        float m2 = orig::fn_004581c0(ebp) * Fl(ebp + 0x484);
+        float res = orig::fn_00471750(S(0x1c), S(0x10), S(0x48), 0, fb(m2), fb(m1));
+        Fl(S(0x28)) = res;
+        D(ebp + 0x39c) = orig::fn_00455a30(S(0x48), 0x10, ebp, D(ebp + 0x39c), fb(res), 0xffffffffu, 0);
+        return 0;
+    }
+    case 0x0a:
+    {
+        {
+            uint32_t game = GameP();
+            if (!(Fl(game + 0xc80) <= k0))
+                goto L_stand;
+            if (By(game + 0xcbc))
+                goto L_stand;
+            if (VC(D(D(game + 0xa84) + 0xf00), 0x34))
+                goto L_stand;
+        }
+        if (!D(ebp + 0x478))
+            fn_0049f260(ebp);
+        PlayAnim(0x81, ebp, D(edi) ? 0x0058ee58u : 0x0058ee4cu);
+        VC(ebp, 0x54, S(0x30));
+        VC(D(ebp + 0x478), 0x54, S(0x10));
+        {
+            float dy = Fl(S(0x34)) - Fl(S(0x14));
+            float dx = Fl(S(0x30)) - Fl(S(0x10));
+            Fl(S(0x28)) = dx * dx + dy * dy;
+        }
+        float t = Fl(ebp + 0x46c) - Fl(S(0x2c));
+        Fl(ebp + 0x46c) = t;
+        if (t < k0)
+        {
+            Fl(ebp + 0x46c) = orig::fn_0046e2c0(0, 0x40800000u, 0x41200000u);
+            uint32_t r = RandN(300);
+            uint32_t name = r < 100 ? 0x0058ee38u : (r < 200 ? 0x0058ee24u : 0x0058ee10u);
+            VC(D(GameP() + 0x2c), 0xc4, name, ebp, 0u, 0u, 0xffffffffu, 0u);
+        }
+        t = Fl(ebp + 0x468) - Fl(S(0x2c));
+        Fl(ebp + 0x468) = t;
+        if (t < k0)
+        {
+            if (Fl(S(0x28)) < K(0x005bcf7c))
+            {
+                orig::fn_00453150(ebp, S(0x48));
+                float ang = orig::fn_0046e2c0(0, 0xc0490fdbu, 0x40490fdbu);
+                orig::fn_004e2e70(S(0x54), fb(ang));
+                orig::fn_004e36a0(S(0x48), S(0x54), 1, S(0x1c));
+                Normalize3(S(0x1c), S(0x1c));
+                uint32_t vr = VC(ebp, 0x54, S(0x3c));
+                uint32_t game = GameP();
+                Fl(S(0x10)) = Fl(S(0x1c)) * K(0x005bcbdc) + Fl(S(0x10));
+                Fl(S(0x14)) = Fl(S(0x20)) * K(0x005bcbdc) + Fl(S(0x14));
+                Fl(S(0x18)) = Fl(S(0x24)) * K(0x005bcbdc) + Fl(S(0x18));
+                orig::fn_0046f5b0(vr & 0xffffff00u /* xor al, al */, 0, S(0x10), ebp, D(game + 0xaa4), 0, 0);
+            }
+            else
+            {
+                orig::fn_0046f6d0(ebp, D(GameP() + 0xaa4), S(0x10), 0, 0, 0, 0, 0);
+            }
+            Fl(ebp + 0x468) = orig::fn_0046e2c0(0, 0x3f800000u, 0x40400000u);
+        }
+        const uint32_t next = 0x46;  // mov ebx, 0x46
+        if (Fl(S(0x28)) < K(0x005bcb60))
+        {
+            uint32_t bomb = D(ebp + 0x55c);
+            if (bomb)
+            {
+                Unref(bomb);
+                D(ebp + 0x55c) = 0;
+                if (VB(bomb, 0xd8))
+                    VC(bomb, 0xd4, 0u);
+            }
+            else
+            {
+                uint32_t r = Rand();
+                if (static_cast<int32_t>((r * 100u) & 0xffff8000u) < 0xa0000)
+                    VC(D(GameP() + 0x2c), 0xc4, 0x0058edf8u, ebp, 0u, 0u, 0xffffffffu, 0u);
+                orig::fn_00454c90(ebp, 1, 1);
+                orig::fn_00454cc0(ebp, ebp + 0x398);
+                PlayAnim(0x80, ebp, 0x0058ede0u);
+                D(ebp + 0x464) = next;
+            }
+        }
+        if (!D(ebp + 0x55c))
+        {
+            D(GameP() + 0xd54) = D(0x00604a98);
+            orig::fn_00454c90(ebp, 1, 1);
+            orig::fn_00454cc0(ebp, ebp + 0x398);
+            PlayAnim(0x80, ebp, 0x0058ede0u);
+            D(ebp + 0x464) = next;
+            return 0;
+        }
+        orig::fn_00470aa0(ebp, D(GameP() + 0xaa4), 0);
+        if (static_cast<uint8_t>(orig::fn_00470c30(ebp + 0x428)))
+            goto L_end;
+        orig::fn_00453150(ebp, S(0x48));
+        {
+            float ang = orig::fn_0046e2c0(0, 0xc0490fdbu, 0x40490fdbu);
+            orig::fn_004e2e70(S(0x54), fb(ang));
+        }
+        orig::fn_004e36a0(S(0x48), S(0x54), 1, S(0x1c));
+        Normalize3(S(0x1c), S(0x1c));
+        VC(ebp, 0x54, S(0x3c));
+        Fl(S(0x10)) = Fl(S(0x1c)) * K(0x005bcbdc) + Fl(S(0x10));
+        Fl(S(0x14)) = Fl(S(0x20)) * K(0x005bcbdc) + Fl(S(0x14));
+        Fl(S(0x18)) = Fl(S(0x24)) * K(0x005bcbdc) + Fl(S(0x18));
+        {
+            float dy = Fl(S(0x14)) - Fl(S(0x40));
+            float dx = Fl(S(0x10)) - Fl(S(0x3c));
+            if (dx * dx + dy * dy < K(0x005bcf78))
+            {
+                // The push 0 at 0x0049e835 is the third argument of whichever call follows.
+                uint32_t game = GameP();
+                uint32_t map = D(game + 0xaa4);
+                orig::fn_0046f6b0(map & 0xffffff00u, 1, game & 0xffffff00u, S(0x10), map, ebp, 0);
+            }
+            else
+            {
+                orig::fn_0046f6d0(ebp, D(GameP() + 0xaa4), S(0x10), 0, 0, 1, 0, 0);
+            }
+        }
+        Fl(ebp + 0x468) = orig::fn_0046e2c0(0, 0x3f800000u, 0x40400000u);
+        if (static_cast<uint8_t>(orig::fn_00470c30(ebp + 0x428)))
+            goto L_end;
+        goto L_kill;
+    }
+    case 0x46:
+        if (!ebx)
+            goto L_end;
+        PlayAnim(0x81, ebp, 0x0058ee58u);
+        D(ebp + 0x464) = 0x0a;
+        return 0;
+    case 0x3f:
+    {
+        float t = Fl(ebp + 0x468) - Fl(S(0x2c));
+        Fl(ebp + 0x468) = t;
+        if (!(t <= k0))
+            goto L_end;
+        Twiglet_RunToTarget(ebp);
+        return 0;
+    }
+    case 0x3d:
+    {
+        float t = Fl(ebp + 0x468) - Fl(S(0x2c));
+        Fl(ebp + 0x468) = t;
+        if (!(t <= k0))
+            goto L_end;
+        uint32_t parent = orig::fn_004539d0(ebp);
+        uint32_t game = GameP();
+        if (parent == D(game + 0x748))
+            FreeAttachSlot(game, ebp);
+        fn_004a0130((game & 0xffffff00u) | 1u, ebp, parent);
+        VC(ebp, 0xf8, 0x30000u, 0u);
+        orig::fn_00453b20(ebp);
+        VC(ebp, 0x54, S(0x10));
+        VC(parent, 0x70, S(0x54));
+        D(S(0x60)) = D(S(0x10));
+        D(S(0x80)) = D(S(0x18));
+        D(S(0x70)) = D(S(0x14));
+        orig::fn_00457990(D(S(0x18)) & 0xffffff00u /* xor al, al */, ebp, S(0x54));
+        orig::fn_00453150(parent, S(0x3c));
+        D(S(0x38)) = D(S(0x18));
+        Fl(S(0x30)) = Fl(S(0x3c)) * K(0x005bcbe8) + Fl(S(0x10));
+        Fl(S(0x34)) = Fl(S(0x40)) * K(0x005bcbe8) + Fl(S(0x14));
+        orig::fn_00471a00(S(0x48), S(0x30), S(0x10), D(ebp + 0x480), 0xc280b23au, 0);
+        D(ebp + 0x39c) = orig::fn_00455a00(D(ebp + 0x39c));
+        D(ebp + 0x398) = orig::fn_00455a00(D(ebp + 0x398));
+        orig::fn_00458510(S(0x48), ebp);
+        PlayAnim(0x81, ebp, 0x0058edccu);
+        D(ebp + 0x464) = 0x3e;
+        return 0;
+    }
+    case 0x0b:
+    {
+        orig::fn_00454c90(ebp, 1, 1);
+        if (!D(ebp + 0x478))
+            fn_0049f260(ebp);
+        VC(ebp, 0x54, S(0x30));
+        VC(D(ebp + 0x478), 0x54, S(0x3c));
+        Fl(S(0x1c)) = Fl(S(0x3c)) - Fl(S(0x30));
+        Fl(S(0x20)) = Fl(S(0x40)) - Fl(S(0x34));
+        orig::fn_004e7780(S(0x1c), S(0x1c));
+        D(S(0x24)) = 0;
+        orig::fn_00454e60(S(0x1c), ebp, 0x41800000u);
+        if (!D(S(0x28)))
+            goto L_end;
+        VC(ebp, 0x54, S(0x1c));
+        VC(D(ebp + 0x478), 0x54, S(0x10));
+        float dx = Fl(S(0x1c)) - Fl(S(0x10));
+        float dy = Fl(S(0x20)) - Fl(S(0x14));
+        if (dy * dy + dx * dx >= K(0x005bcb60))
+            goto L_run;
+        orig::fn_00454c90(ebp, 1, 1);
+        Twiglet_PlaySwipe(ebp);
+        return 0;
+    }
+    case 0x14:
+    {
+        if (!D(ebp + 0x478))
+            fn_0049f260(ebp);
+        VC(ebp, 0x54, S(0x3c));
+        VC(D(ebp + 0x478), 0x54, S(0x1c));
+        float t = Fl(ebp + 0x468) - Fl(S(0x2c));
+        Fl(ebp + 0x468) = t;
+        if (t < k0)
+        {
+            orig::fn_0046f6d0(ebp, D(GameP() + 0xaa4), S(0x1c), 0, 0, 0, 0, 0);
+            Fl(ebp + 0x468) = orig::fn_0046e2c0(0, 0x3f800000u, 0x40400000u);
+        }
+        {
+            float dx = Fl(S(0x3c)) - Fl(S(0x1c));
+            float dy = Fl(S(0x40)) - Fl(S(0x20));
+            float r = Fl(ebp + 0x47c);
+            if (r * r > dy * dy + dx * dx)
+            {
+                VC(ebp, 0xfc, 1u, 2u);
+                Twiglet_PlayToss(ebp);
+                return 0;
+            }
+        }
+        orig::fn_00470aa0(ebp, D(GameP() + 0xaa4), 0);
+        if (static_cast<uint8_t>(orig::fn_00470c30(ebp + 0x428)))
+            goto L_end;
+        orig::fn_0046f6d0(ebp, D(GameP() + 0xaa4), S(0x1c), 0, 0, 0, 0, 0);
+        Fl(ebp + 0x468) = orig::fn_0046e2c0(0, 0x3f800000u, 0x40400000u);
+        return 0;
+    }
+    case 0x15:
+    case 0x16:
+    {
+        if (!D(ebp + 0x478))
+            fn_0049f260(ebp);
+        VC(ebp, 0x54, S(0x30));
+        VC(D(ebp + 0x478), 0x54, S(0x3c));
+        Fl(S(0x1c)) = Fl(S(0x3c)) - Fl(S(0x30));
+        Fl(S(0x20)) = Fl(S(0x40)) - Fl(S(0x34));
+        orig::fn_004e7780(S(0x1c), S(0x1c));
+        D(S(0x24)) = 0;
+        orig::fn_00454e60(S(0x1c), ebp, 0x41800000u);
+        if (!D(S(0x28)))
+            goto L_end;
+        VC(ebp, 0x54, S(0x1c));
+        VC(D(ebp + 0x478), 0x54, S(0x10));
+        if (!(By(ebp + 0x460) & 1))
+            goto L_run;
+        {
+            float dx = Fl(S(0x1c)) - Fl(S(0x10));
+            float dy = Fl(S(0x20)) - Fl(S(0x14));
+            float r = Fl(ebp + 0x47c);
+            if (r * r <= dy * dy + dx * dx)
+                goto L_run;
+        }
+        Fl(ebp + 0x468) = orig::fn_0046e2c0(0, 0x3f000000u, 0x40400000u);
+        D(ebp + 0x464) = 0x18;
+        goto L_stand;
+    }
+    case 0x18:
+    {
+        {
+            uint32_t game = GameP();
+            if (!(Fl(game + 0xc80) <= k0))
+                goto L_end;
+            if (By(game + 0xcbc))
+                goto L_end;
+            if (VC(D(D(game + 0xa84) + 0xf00), 0x34))
+                goto L_end;
+        }
+        if (!D(ebp + 0x478))
+            fn_0049f260(ebp);
+        VC(ebp, 0x54, S(0x30));
+        VC(D(ebp + 0x478), 0x54, S(0x3c));
+        Fl(S(0x1c)) = Fl(S(0x3c)) - Fl(S(0x30));
+        Fl(S(0x20)) = Fl(S(0x40)) - Fl(S(0x34));
+        orig::fn_004e7780(S(0x1c), S(0x1c));
+        D(S(0x24)) = 0;
+        orig::fn_00454e60(S(0x1c), ebp, 0x41800000u);
+        float t = Fl(ebp + 0x468) - Fl(S(0x2c));
+        Fl(ebp + 0x468) = t;
+        if (!(t < k0))
+            goto L_end;
+        Twiglet_PlayToss(ebp);
+        return 0;
+    }
+    case 0x32:
+    {
+        uint8_t cl = By(ebp + 0x498);
+        Fl(ebp + 0x4a0) = Fl(S(0x2c)) + Fl(ebp + 0x4a0);
+        if (!(cl & 2))
+        {
+            if (static_cast<uint8_t>(orig::fn_00406430(ebp + 0x498, cl, ebp)))
+            {
+                fn_0049fab0(ebp, 1);
+                return 0;
+            }
+        }
+        else if (ebx)
+        {
+            fn_0049fab0(ebp, 1);
+            return 0;
+        }
+        if (!VB(ebp, 0xd8))
+            goto L_end;
+        uint32_t esi = orig::fn_004ed260(D(ebp + 0x410));
+        uint32_t m = orig::fn_004eb5d0(D(ebp + 0x49c), 0 /* push ecx: slot only */, 0, ebp + 0x538);
+        uint32_t a = D(ebp + 0x49c);
+        float v = static_cast<float>(I(a + 0x20)) * static_cast<float>(I(a + 0x1c));
+        v = v * Fl(ebp + 0x4a0);
+        v = v + static_cast<float>(I(a + 0x14));
+        uint32_t r = orig::fn_004ec410(m, static_cast<uint32_t>(static_cast<int32_t>(static_cast<int64_t>(v))) /* _ftol */,
+                                       D(ebp + 0x410), esi, 0, 0);
+        orig::fn_004e2910(r, ebp + 0x4ec, ebp + 0x4a8);
+        VC(ebp, 0x54, S(0x10));
+        D(S(0x20)) = D(ebp + 0x508);
+        D(S(0x1c)) = D(ebp + 0x4f8);
+        D(S(0x24)) = D(ebp + 0x518);
+        D(ebp + 0x508) = D(S(0x14));
+        D(ebp + 0x4f8) = D(S(0x10));
+        D(ebp + 0x518) = D(S(0x18));
+        orig::fn_00457990(D(S(0x14)) & 0xffffff00u /* xor al, al */, ebp, ebp + 0x4ec);
+        Fl(S(0x30)) = Fl(S(0x1c)) - Fl(S(0x10));
+        Fl(S(0x34)) = Fl(S(0x20)) - Fl(S(0x14));
+        Fl(S(0x38)) = Fl(S(0x24)) - Fl(S(0x18));
+        orig::fn_00458510(S(0x30), ebp);
+        D(ebp + 0x4a4) = D(ebp + 0x4a0);
+        return 0;
+    }
+    case 0x1e:
+        orig::fn_00454c90(ebp, 1, 1);
+        orig::fn_00454cc0(ebp, ebp + 0x398);
+        if (!ebx)
+            goto L_end;
+        if (!(By(ebp + 0x460) & 2))
+            Twiglet_RunToTarget(ebp);
+        D(ebp + 0x460) &= 0xfffffffdu;
+        return 0;
+    case 0x1f:
+        orig::fn_00454c90(ebp, 1, 1);
+        orig::fn_00454cc0(ebp, ebp + 0x398);
+        if (!ebx)
+            goto L_end;
+        goto L_run;
+    case 0x28:
+    {
+        orig::fn_00454cc0(ebp, ebp + 0x398);
+        if (static_cast<uint8_t>(orig::fn_00454bc0(ebp)))
+            orig::fn_00454c90(ebp, 1, 1);
+        if (!ebx)
+            goto L_end;
+        float t = Fl(ebp + 0x468) - K(0x00604a90);
+        Fl(ebp + 0x468) = t;
+        if (t <= k0)
+            D(ebp + 0x468) = 0;
+        float v = Fl(ebp + 0x494) - Fl(ebp + 0x468);
+        if (v >= k0)
+            VC(ebp, 0x100, fb(K(0x005bcb2c) - v / Fl(ebp + 0x494)));
+        if (Fl(ebp + 0x468) == k0)
+            orig::fn_00455640(ebp, 0);
+        goto L_end;
+    }
+    default:
+        goto L_end;
+    }
+L_end:
+    return 0;
+L_run:  // 0x0049f0f5
+    Twiglet_RunToTarget(ebp);
+    return 0;
+L_stand:  // 0x0049ee16
+    PlayAnim(0x81, ebp, 0x0058eee8u);
+    return 0;
+L_kill:  // 0x0049e8eb
+    VC(ebp, 0xd4, 0u);
+    return 0;
+}
+static uint32_t Twiglet_Update_Abi(uint32_t ecx)
+{
+    return Twiglet_Update(ecx);
+}
+ABI_ENTRY_0049dcf0(Twiglet_Update_Entry, Twiglet_Update_Abi)
+HOOK(0x0049dcf0, "Twiglet_Update", Twiglet_Update_Entry, nullptr);
 
 // 0x0049f260 (eax = twiglet): drops the reference +0x478 and stores Game+0x748 there with a new reference; returns it
 // (the ABI's edx is whatever the release path left; returned as 0). Not executed in recorded runs.

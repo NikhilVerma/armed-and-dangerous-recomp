@@ -85,3 +85,14 @@ Defects found in the original game. Reproduced faithfully and not fixed before M
 | Null message pointer passes the source test and is dereferenced | 0x004371e0 | Disassembly | Faithful |
 | Monk teleport clears flag 4 of +0x484 then re-tests it; the `i >= 5` branch can never run | MonkObject_Bamf 0x00436bb0 | Disassembly | Faithful |
 | dz computed and stored, then overwritten by 0x0046e2c0(0.7, 0.9) | 0x0043eae0 | Disassembly | Faithful |
+| Turret slots +0x804/+0x808/+0x80c released without a null check (a failed create in 0x0049a6a0 would crash) | 0x0049ac60 | Disassembly | Faithful (src/game/game_08.cpp) |
+| Direction z never written before normalising | 0x00497210, 0x004972f0 | Disassembly | Faithful |
+| Mount animation and Game+0xac8 state set even when mounting fails | 0x00499bd0 | Disassembly | Faithful |
+| Grid cell loop covers cx-2..cx+1 (asymmetric) | 0x00497110 | Disassembly | Faithful |
+| Weapon fire reads Game+0x550 / byte Game+0x4c2 where the weapon object has its own +0x550 (muzzle effect): likely the wrong base (**guess**) | 0x004a2a40 | Disassembly | Faithful (src/game/game_09.cpp) |
+| One PlayerWeapon variant refills the clip without taking rounds from spare ammo (maybe a deliberate infinite reserve) | 0x004a29d0 | Disassembly | Faithful |
+| Matrix translation copied without the null check 0x0049c320 has | 0x0049c9b0 | Disassembly | Faithful |
+| Twiglet damage tests the damage-info pointer for null, then reads info+0x2c on the null path anyway | 0x0049f530 | Disassembly | Faithful (src/ai/ai_09.cpp) |
+| After dropping the bomb reference (may free it via 0x00487da0), virtual +0xd8 / +0xd4 are called on it (possible use after release) | 0x0049f430, 0x0049fe60, Twiglet_Update 0x0049dcf0 state 0x0a | Disassembly | Faithful |
+| Twiglet_Update state 0x0a without a bomb can run the "get bomb out" block twice in one frame | 0x0049dcf0 | Disassembly | Faithful |
+| With an old partner in +0xb64, the object's own reference count (edi+0x28, Object_Release(edi)) is decremented instead of the partner's | 0x00486ba0 | Disassembly | Faithful (src/ai/ai_08.cpp) |

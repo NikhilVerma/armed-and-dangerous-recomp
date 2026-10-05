@@ -28,7 +28,14 @@ Exceptions inside the ranges:
   sphere / box / triangle / capsule / convex-hull mass properties, inertia shifts, Mirtich projection integrals; data
   "computeConvexHullTriangles 3.1 2001/10/19" at 0x005cad94; callers Havok). Fenced as `havok` (2026-10-05, found by
   the physics_03 recovery, whose copies were removed). The rest of havok-ext (custom shape types 0x12/0x13, their
-  agents, the speed trap) stays game code.
+  agents, the speed trap) stays game code. physics_04 extended it: the polyhedron integrals 0x004a7080-0x004a7a60
+  (fence to 0x004a7b6f), the shape display builder 0x004a7b70 / 0x004a7ba0 / 0x004a83f0, the user shape display builder
+  singleton 0x004a84a0-0x004a8530, and in the "game-authored" range the debug display singleton 0x004dfdb0-0x004dfe40,
+  a third singleton 0x004dfe80-0x004dff20 (all in Havok's singleton init list 0x005fb718-0x005fb758), and the hard
+  key-frame utility 0x004df0d0 (inlined hk quaternion math; **strong guess**) are Havok. Game code in those ranges:
+  speed trap 0x004a85a0-0x004a9180 (shape type 0x12, agent vtable 0x0058e674), type-0x19 agent / listener / shape
+  0x004df540-0x004dfda0, PMS heap 0x004e07f0 / 0x004e08d0. Correction: 0x004df8a0's `[[ecx+8]+0x23c]` is the world's
+  collision filter, not game data.
 - ICF-folded tiny game functions are called from Havok and sit in game space: 0x403c40 (vector-ctor iterator), 0x413770/0x414240 (64-byte copy), 0x4142b0/0x4143f0 (zero/identity), 0x459730, 0x412fa0 and 0x407ff0. These are not callbacks.
 - Some game-space functions are vtable slots of Havok classes because of ICF (`ret`, `xor eax,eax`, `mov eax,1`): 0x418600, 0x4548c0, 0x4648a0, 0x4270f0, 0x4563c0, 0x433e70.
 - Correction to an earlier classifier note: 0x4a3d80 is not a collision-layer filter. It registers collision agents (`dispatcher.registerAgent(createFn, typeA, typeB)` = 0x513270).

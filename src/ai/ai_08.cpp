@@ -1570,3 +1570,1890 @@ static uint32_t fn_00485580_Abi(uint32_t edi, uint32_t a0)
 }
 ABI_ENTRY_00485580(fn_00485580_Entry, fn_00485580_Abi)
 HOOK(0x00485580, "fn_00485580", fn_00485580_Entry, nullptr);
+
+// ---------------------------------------------------------------------------------------------------------------
+// 0x00485910 MolmerObject_Slot47 (ecx = object; returns eax, not reproduced: 0). Vtable slot +0xbc of MolmerObject
+// 0x005ae5f8; Q111Object 0x005a6df8 reaches it through the thunk 0x00487030 (its slot +0xbc). The per-frame update of
+// the tower pair (largest function of the batch, recovered block by block as in ai_06.cpp: the original frame
+// sub esp, 0x78 is one array, S(o) = [esp+o] with the four saved registers pushed; labels L_<address>).
+// Prologue: with flag 8 the anchor / direction follow the player; 0x00454c90(cl = 0; 1); [esp+0x14] = frame time
+// 0x00604a90; flag 0x10000 runs the countdown +0xbc8 into the trigger reaction 0x004834f0; [esp+0x18] = bit 1 of
+// 0x00408800(4)+0x1c ("animation finished", guess as in ai_06.cpp); a carry timer +0x878 > 0 switches to mode 5
+// (saving the mode in +0xb58); a finished flag-0x20 animation is closed (idle, 0x00427600); a partner that is no
+// longer kept (virtual +0xd8) is dropped; orders 0x00485120; dead -> GenericAI_Update 0x0043ee90.
+// Modes (+0xb5c, jump table 0x00486b5c): 1 idle in formation, 2 moving to the formation point, 3 engaging, 4 waiting
+// on 0x00426630, 5 carried (timer +0x87c, holder +0x870), 6 walking to the trigger marker (+0x934; on arrival:
+// placed on the marker 0x004592e0, unlinked from World lists +0xe9c / +0xe90 / +0xe94 / +0xea0, physics stopped,
+// matrix of path +0xbc4 (0x00457990, 0x0044ba30), animation "mover_molmer_plant_bomb", mode 7), 7 bomb loop
+// ("mover_molmer_bomb_loop" with the animation-end callback 0x0042c080 via 0x004eb5d0), 8 generic, 9 throws a
+// "pickup_healthytea" toward the player (ObjectSystem_CreateObject, velocity * 0x005bcb30), 10 waits for an animation.
+// Names of the modes are guesses from the strings and calls.
+uint32_t MolmerObject_Slot47(uint32_t self)
+{
+    alignas(4) uint8_t fr[0x78];  // the original frame (sub esp, 0x78)
+#define S(o) (u(fr) + ((o) - 0x10))
+    const uint32_t ebp = self;
+    uint32_t edi;
+    uint8_t bl;
+    if (By(ebp + 0xbcc) & 8)
+    {
+        VC(Player(), 0x54, ebp + 0xb70);
+        orig::fn_00453150(Player(), ebp + 0xb98);
+    }
+    orig::fn_00454c90(ebp, 0, 1);
+    D(S(0x14)) = D(0x00604a90);
+    if (D(ebp + 0xbcc) & 0x10000)
+    {
+        uint32_t m = D(ebp + 0xb5c);
+        if (m != 7 && m != 6)
+        {
+            float t = Fl(ebp + 0xbc8) - Fl(S(0x14));
+            Fl(ebp + 0xbc8) = t;
+            if (!(t > K(0x0056c05c) || std::isnan(t)))
+                fn_004834f0(ebp);
+        }
+    }
+    edi = orig::fn_00408800(4, ebp);
+    bl = static_cast<uint8_t>((By(edi + 0x1c) >> 1) & 1);
+    By(S(0x18)) = bl;
+    if (D(ebp + 0xb5c) != 5 && Fl(ebp + 0x878) > K(0x0056c05c))
+    {
+        D(ebp + 0xb58) = D(ebp + 0xb5c);
+        uint32_t f = D(ebp + 0xbcc) & 0xffffffdfu;
+        D(ebp + 0xbcc) = f;
+        D(ebp + 0xbcc) = f & 0xffffefffu;
+        uint32_t r = Rand();
+        D(ebp + 0xb5c) = 5;
+        Fl(ebp + 0xbac) = static_cast<float>(static_cast<int32_t>(r)) * K(0x005bce94) + K(0x005bcb7c);
+    }
+    if ((By(ebp + 0xbcc) & 0x20) && bl)
+    {
+        if (D(ebp + 0xb5c) != 1)
+            VC(ebp, 0x19c, D(ebp + 0x498), 1u, 0u, 0u, 0u, 0u);
+        else
+            VC(ebp, 0x1a0, 2u, 3u, 0u, 1u, 1u, 0u, D(ebp + 0x580), D(ebp + 0x584));
+        D(ebp + 0xbcc) &= 0xffffffdfu;
+        orig::fn_00427600(ebp);
+    }
+    {
+        uint32_t partner = D(ebp + 0xb64);
+        if (partner && !VB(partner, 0xd8))
+            ClearRef(ebp + 0xb64);
+    }
+    fn_00485120(ebp);
+    if (static_cast<uint8_t>(orig::fn_00454780(ebp)))
+        goto L_5af5;
+    switch (D(ebp + 0xb5c))
+    {
+    case 1:
+        goto L_60e2;
+    case 2:
+        goto L_65f7;
+    case 3:
+        goto L_6908;
+    case 4:
+        goto L_6af0;
+    case 5:
+        goto L_5fa1;
+    case 6:
+        goto L_5d48;
+    case 7:
+        goto L_5cc6;
+    case 8:
+        goto L_5af5;
+    case 9:
+        goto L_5b1b;
+    case 10:
+        goto L_60d1;
+    default:
+        return 0;
+    }
+
+L_5af5:  // mode 8 and the dead case
+    orig::fn_0043ee90(ebp);
+    return 0;
+
+L_5b1b:  // mode 9: throw a "pickup_healthytea"
+{
+    orig::fn_00454c90(ebp, 1, 1);
+    orig::fn_00454cc0(ebp, ebp + 0x398);
+    if (!By(S(0x18)))
+        return 0;
+    uint32_t obj = orig::fn_0045f020(0, 0x005b05a8u /* "pickup_healthytea" */, D(GameP() + 0xa84), 0, 0x3ff, 0, 0, 0, 0,
+                                     0xaa, 0);
+    if (!obj)
+        return 0;
+    uint32_t r = VC(ebp, 0x54, S(0x2c));
+    Fl(S(0x34)) = Fl(S(0x34)) + K(0x005bcbe0);
+    orig::fn_00457870(r & 0xffffff00u, S(0x2c), obj, 0, 0, 0);
+    VC(Player(), 0x54, S(0x38));
+    Fl(S(0x20)) = Fl(S(0x38)) - Fl(S(0x2c));
+    Fl(S(0x24)) = Fl(S(0x3c)) - Fl(S(0x30));
+    Fl(S(0x28)) = Fl(S(0x40)) - Fl(S(0x34));
+    orig::fn_004e7780(S(0x20), S(0x20));  // fstp st(0)
+    D(S(0x28)) = 0x3f333333u;              // 0.7
+    Normalize3(S(0x20), S(0x20));
+    Fl(S(0x20)) = Fl(S(0x20)) * K(0x005bcb30);
+    Fl(S(0x24)) = Fl(S(0x24)) * K(0x005bcb30);
+    Fl(S(0x28)) = Fl(S(0x28)) * K(0x005bcb30);
+    orig::fn_00458510(S(0x20), obj);
+    orig::fn_00472080(obj, ebp);
+    VC(ebp, 0x1a0, 2u, 3u, 0u, 1u, 1u, 0u, D(ebp + 0x580), D(ebp + 0x584));
+    D(ebp + 0xbcc) |= 0x20000;
+    Fl(ebp + 0xb68) = orig::fn_0046e2c0(0, 0x40400000u, 0x40e00000u);
+    D(ebp + 0xbcc) &= 0xffffefffu;
+    Fl(ebp + 0xbac) = orig::fn_0046e2c0(0, 0x40400000u, 0x40e00000u);
+    D(ebp + 0xb5c) = 1;
+    return 0;
+}
+
+L_5cc6:  // mode 7: the bomb loop
+{
+    orig::fn_0043ee90(ebp);
+    if (D(ebp + 0x460) != 0)
+        return 0;
+    uint32_t idx = D(edi);
+    uint32_t anim = D(D(D(ebp + 0x414) + 0xc) + idx * 12 + 8);
+    uint32_t h = orig::fn_004eb5d0(anim, ebp + 0xab8, 0, ebp + 0xab8);
+    if (h)
+    {
+        D(D(D(ebp + 0x410) + 0x14) + W(h + 0xa) * 8 + 4) = h;
+        D(D(D(ebp + 0x410) + 0x14) + W(h + 0xa) * 8) = 0x0042c080u;
+    }
+    VC(ebp, 0x238, 0x0059df58u /* "mover_molmer_bomb_loop" */, 0u);
+    orig::fn_0042c380(ebp);
+    return 0;
+}
+
+L_5d48:  // mode 6: walking to the trigger marker
+{
+    orig::fn_00470aa0(ebp, Nav(), 0);
+    orig::fn_00427210(ebp);
+    if (static_cast<uint8_t>(orig::fn_00470c30(ebp + 0x428)))
+        return 0;
+    VC(ebp, 0x54, S(0x38));
+    const uint32_t ebx = ebp + 0x934;
+    float dy = Fl(ebp + 0x938) - Fl(S(0x3c));
+    float dx = Fl(ebx) - Fl(S(0x38));
+    By(S(0x13)) = 1;
+    Fl(S(0x18)) = dx * dx + dy * dy;
+    if (Fl(S(0x18)) > K(0x005bcb60))
+    {
+        D(ebp + 0x490) = 0x40a00000u;  // 5.0
+        uint32_t r = static_cast<uint32_t>(orig::fn_0046f6d0(ebp, Nav(), ebx, ebp + 0x908, 0, 0, 0, 0));
+        if (r == 0)
+            By(S(0x13)) = 0;
+    }
+    if (!(Fl(S(0x18)) < K(0x005bcb60)) && By(S(0x13)))
+        return 0;
+    if (Fl(S(0x18)) > K(0x005bcb2c))
+    {
+        orig::fn_0046f5b0(0, ebp + 0x908, ebx, ebp, Nav(), 0, 1);
+        VC(ebp, 0xf8, 0x20000u, 0u);
+        return 0;
+    }
+    uint32_t world = D(GameP() + 0xa84);
+    uint32_t placed = orig::fn_004592e0(D(world + 0xe70), D(ebp + 0x534), ebp);
+    orig::fn_00454750(D(D(GameP() + 0xa84) + 0xe9c), placed);
+    orig::fn_00454750(D(D(GameP() + 0xa84) + 0xe90), placed);
+    orig::fn_00454750(D(D(GameP() + 0xa84) + 0xe94), placed);
+    orig::fn_00454750(D(D(GameP() + 0xa84) + 0xea0), placed);
+    D(S(0x2c)) = 0;
+    D(S(0x30)) = 0;
+    D(S(0x34)) = 0;
+    D(ebp + 0x39c) = orig::fn_00455a00(D(ebp + 0x39c));
+    D(ebp + 0x398) = orig::fn_00455a00(D(ebp + 0x398));
+    orig::fn_00458580(S(0x2c), ebp);
+    orig::fn_00458510(S(0x2c), ebp);
+    uint32_t path = orig::fn_0044c030(0, D(ebp + 0xbc4));
+    uint32_t r = path;
+    if (path)
+    {
+        r = VC(path, 0x5c, S(0x44));
+        orig::fn_00457990(r & 0xffffff00u, ebp, S(0x44));
+        D(ebp + 0x450) = 0;
+        r = orig::fn_0044ba30(path, ebp, 0);
+    }
+    D(ebp + 0x454) = D(ebp + 0x458);
+    orig::fn_004a0e00(r & 0xffffff00u, ebp + 0x61c);
+    VC(ebp, 0x238, 0x0059df40u /* "mover_molmer_plant_bomb" */, 0u);
+    orig::fn_0042c380(ebp);
+    D(ebp + 0xb5c) = 7;
+    return 0;
+}
+
+L_5fa1:  // mode 5: carried
+{
+    float t = Fl(ebp + 0x87c) - Fl(S(0x14));
+    Fl(ebp + 0x87c) = t;
+    if (t > K(0x005bcb5c) || std::isnan(t))
+        goto L_5af5;
+    uint32_t holder = D(ebp + 0x870);
+    if (holder && VB(holder, 0xd8))
+        goto L_5af5;
+    ClearRef(ebp + 0x870);
+    if (orig::fn_00475d40(Player()) != ebp)
+    {
+        VC(ebp, 0x19c, 0x71u, 0u, 1u, 0u, 0u, 0u);
+        D(ebp + 0xb5c) = 0xa;
+        return 0;
+    }
+    goto L_6025;
+}
+
+L_60d1:  // mode 10
+    if (!By(S(0x18)))
+        return 0;
+L_6025:
+    VC(ebp, 0x1a0, 2u, 3u, 0u, 1u, 1u, 0u, D(ebp + 0x580), D(ebp + 0x584));
+    if (D(ebp + 0xb58) == 1)
+        orig::fn_0042d0f0(ebp, 0, 0, 1);
+    orig::fn_0042bc60(0, ebp, 0, 1);
+    D(ebp + 0xbcc) &= 0xffffefffu;
+    Fl(ebp + 0xbac) = orig::fn_0046e2c0(0, 0x40400000u, 0x40e00000u);
+    D(ebp + 0xb5c) = D(ebp + 0xb58);
+    return 0;
+
+L_60e2:  // mode 1: idle in formation
+{
+    if (static_cast<uint8_t>(orig::fn_004857e0(ebp)))
+        return 0;
+    uint32_t a = D(ebp + 0x498);
+    if (a >= 0x3f && a <= 0x4a)
+    {
+        orig::fn_0043ee90(ebp);
+        Fl(ebp + 0xbac) = orig::fn_0046e2c0(0, 0x40400000u, 0x40e00000u);
+        D(ebp + 0xbcc) &= 0xffffefffu;
+        return 0;
+    }
+    const uint32_t esi = 0x1000;
+    float t = Fl(ebp + 0xbac) - Fl(S(0x14));
+    Fl(ebp + 0xbac) = t;
+    if (By(S(0x18)))
+    {
+        uint32_t ecx = D(ebp + 0xbcc) & esi;
+        if (ecx != 0 || !(t > K(0x0056c05c) || std::isnan(t)))
+        {
+            if (ecx)
+            {
+                uint32_t v = static_cast<uint32_t>(static_cast<int32_t>(Rand() * 3) >> 15) + 0x1b;
+                VC(ebp, 0x19c, v, 1u, 0u, 0u, 0u, 0u);
+            }
+            else
+            {
+                D(ebp + 0xbcc) |= esi;
+                uint32_t v = static_cast<uint32_t>(static_cast<int32_t>(Rand() * 3) >> 15) + 0x1e;
+                VC(ebp, 0x19c, v, 0u, 0u, 0u, 0u, 0u);
+            }
+            D(ebp + 0xbac) = 0x47c35000u;  // 100000.0
+        }
+    }
+    bl = 0;
+    orig::fn_0042cff0(ebp);
+    bool run5580 = true;
+    if (!(D(ebp + 0xbcc) & 5))
+    {
+        orig::fn_0043ee90(ebp);
+        if (D(ebp + 0x588) != 0)
+            run5580 = false;
+    }
+    if (run5580)
+    {
+        bl = static_cast<uint8_t>(fn_00485580(ebp, 1));
+        orig::fn_00454c90(ebp, 1, 1);
+    }
+    // 0x00486200
+    uint32_t f = D(ebp + 0xbcc);
+    if (!(f & 0x20) && (f & 5))
+    {
+        if (D(ebp + 0x588) != 0 || VB(ebp, 0x22c, D(S(0x14)), D(S(0x18)), 0u))
+        {
+            D(ebp + 0xbcc) |= esi;
+            Fl(ebp + 0xb68) = orig::fn_0046e2c0(0, 0x40400000u, 0x40e00000u);
+            D(ebp + 0xb5c) = 3;
+            return 0;
+        }
+    }
+    // 0x0048626b
+    if (D(ebp + 0x498) == 0x2a)
+        D(ebp + 0xbcc) |= 0x20;
+    f = D(ebp + 0xbcc);
+    if (!bl && !(f & 0x20) && D(ebp + 0x498) != 0x23)
+    {
+        if (!(f & esi))
+            VC(ebp, 0x1a0, 2u, 3u, 0u, 1u, 1u, 0u, D(ebp + 0x580), D(ebp + 0x584));
+        orig::fn_0042d0f0(ebp, 0, 0, 0);
+    }
+    else
+        D(ebp + 0xbcc) &= 0xffffefffu;
+    // 0x004862d2
+    if (By(ebp + 0xbcc) & 4)
+    {
+        uint32_t partner = D(ebp + 0xb64);
+        if (!partner || orig::fn_0042c6f0(partner) == 0)
+        {
+            float b = Fl(ebp + 0xb68) - Fl(S(0x14));
+            Fl(ebp + 0xb68) = b;
+            if (!(b > K(0x0056c05c) || std::isnan(b)))
+            {
+                fn_004845b0(ebp, 0);
+                return 0;
+            }
+        }
+    }
+    // 0x0048631c
+    VC(ebp, 0x54, S(0x2c));
+    {
+        uint32_t ecx = D(ebp + 0xbcc);
+        float R;
+        bool haveD = false;
+        if ((ecx & 0x100) && Fl(ebp + 0xb6c) > K(0x0056c05c))
+        {
+            Fl(ebp + 0xb6c) = Fl(ebp + 0xb6c) - Fl(S(0x14));
+            if (ecx & 1)
+            {
+                VC(ebp, 0x54, S(0x20));
+                R = K(0x0056c05c);
+                D(S(0x18)) = 0xbf800000u;  // -1.0
+                haveD = true;
+            }
+            else
+            {
+                VC(Player(), 0x54, S(0x20));
+                R = Fl(ebp + 0xba4);
+            }
+        }
+        else
+        {
+            D(ebp + 0xb6c) = 0x40400000u;  // 3.0
+            if (ecx & 1)
+            {
+                R = Fl(ebp + 0xbbc) + K(0x005bcda4);
+                Copy3(S(0x20), ebp + 0xb70);
+            }
+            else
+            {
+                VC(Player(), 0x54, S(0x20));
+                R = Fl(ebp + 0xbb8);
+            }
+        }
+        if (!haveD)
+        {
+            // 0x004863e8
+            float dy = Fl(S(0x24)) - Fl(S(0x30));
+            float dx = Fl(S(0x20)) - Fl(S(0x2c));
+            Fl(S(0x18)) = dx * dx + dy * dy;
+        }
+        // 0x0048640a: regroup when the distance exceeds R (or flag 0x80 asks for it)
+        if (Fl(S(0x18)) > R * R || (By(ebp + 0xbcc) & 0x80))
+        {
+            uint32_t partner = D(ebp + 0xb64);
+            if (partner && !(By(ebp + 0xbcc) & 0x80))
+                fn_004837b0(partner);
+            uint32_t g = D(ebp + 0xbcc) & 0xffffff7fu;
+            D(ebp + 0xbcc) = g;
+            if (!(g & 1) || (g & 8))
+            {
+                orig::fn_00453150(Player(), S(0x38));
+                float dot = Fl(S(0x40)) * Fl(ebp + 0xb84) + Fl(S(0x3c)) * Fl(ebp + 0xb80) +
+                            Fl(S(0x38)) * Fl(ebp + 0xb7c);
+                fn_00483810(ebp, dot < K(0x0056c05c) ? 1u : 0u);
+            }
+            if (static_cast<uint8_t>(fn_00483d60(ebp, 1, 0, 0)))
+            {
+                D(ebp + 0xbcc) &= 0xffffefffu;
+                Fl(ebp + 0xbac) = orig::fn_0046e2c0(0, 0x40400000u, 0x40e00000u);
+                orig::fn_0042cff0(ebp);
+                VC(ebp, 0xfc, 0u, 2u);
+                D(ebp + 0xb68) = 0x3e800000u;  // 0.25
+                orig::fn_00427210(ebp);
+                orig::fn_00454c90(ebp, 0, 1);
+                D(ebp + 0xb5c) = 2;
+            }
+        }
+    }
+    // 0x00486525
+    if (D(ebp + 0x588) != 0)
+        return 0;
+    {
+        uint32_t game = GameP();
+        uint32_t r = orig::fn_00410150(0, D(game + 0xa68));
+        bool pass = false;
+        if (!static_cast<uint8_t>(r))
+        {
+            r = orig::fn_00414810((r & 0xffffff00u) | 1, 8, D(game + 0xa80), 0x3f000000u /* 0.5 */);
+            pass = static_cast<uint8_t>(r) != 0;
+        }
+        game = GameP();
+        if (pass || (D(ebp + 0xbcc) & 0x800))
+        {
+            D(ebp + 0xbcc) |= 0x800;
+            uint32_t who = D(game + 0x748);
+            if (D(game + 0xac8) != 0 && D(game + 0xacc) != 0)
+                who = D(game + 0xacc);
+            orig::fn_00453150(who, S(0x38));
+            if (static_cast<uint8_t>(orig::fn_00454e60(S(0x38), ebp, 0x41000000u /* 8.0 */)))
+                D(ebp + 0xbcc) &= 0xfffff7ffu;
+            return 0;
+        }
+        if (D(ebp + 0x588) != 0)
+            return 0;
+        orig::fn_00454cc0(ebp, ebp + 0x398);
+        return 0;
+    }
+}
+
+L_65f7:  // mode 2: moving to the formation point
+{
+    VC(ebp, 0x54, S(0x38));
+    uint32_t ecx = D(ebp + 0xbcc);
+    const uint32_t ebx = 1;
+    bool engage = true;
+    if (ecx & 1)
+    {
+        float dy = Fl(ebp + 0xb74) - Fl(S(0x3c));
+        float dx = Fl(ebp + 0xb70) - Fl(S(0x38));
+        float r = Fl(ebp + 0xbb4);
+        if (!(r * r > dx * dx + dy * dy))
+            engage = false;
+    }
+    if (engage && (ecx & 5))
+    {
+        if (D(ebp + 0x588) != 0 || D(ebp + 0xab0) != 0 || VB(ebp, 0x22c, D(S(0x14)), 0u, ebx))
+        {
+            orig::fn_0042cff0(ebp);
+            Fl(ebp + 0xb68) = orig::fn_0046e2c0(0, 0x40400000u, 0x40e00000u);
+            D(ebp + 0xbcc) &= 0xffffefffu;
+            Fl(ebp + 0xbac) = orig::fn_0046e2c0(0, 0x40400000u, 0x40e00000u);
+            D(ebp + 0xb5c) = 3;
+            return 0;
+        }
+    }
+    // 0x004866da
+    uint32_t f = D(ebp + 0xbcc);
+    if (!(f & 1) || (f & 8))
+    {
+        float b = Fl(ebp + 0xb68) - Fl(S(0x14));
+        Fl(ebp + 0xb68) = b;
+        if (b < K(0x0056c05c))
+        {
+            uint32_t a = D(ebp + 0x428);
+            bool skip = a != 0 && (D(a + 0x1c) & 0x10) && (D(a + 0x1c) & 8);
+            if (!skip)
+            {
+                uint32_t partner = D(ebp + 0xb64);
+                if (!partner || !static_cast<uint8_t>(fn_004837d0(partner)))
+                {
+                    fn_00483810(ebp, 0);
+                    fn_00483d60(ebp, ebx, 0, ebx);
+                }
+            }
+            D(ebp + 0xb68) = 0x3e800000u;  // 0.25
+        }
+    }
+    // 0x0048674b
+    orig::fn_00470aa0(ebp, Nav(), 0);
+    const uint32_t edi2 = 0x1000;
+    f = D(ebp + 0xbcc);
+    if (!(f & 0x20) && !(f & edi2))
+        orig::fn_00427210(ebp);
+    if (!static_cast<uint8_t>(orig::fn_00470c30(ebp + 0x428)))
+    {
+        uint32_t partner = D(ebp + 0xb64);
+        if (!partner || !static_cast<uint8_t>(fn_004837d0(partner)))
+            fn_00483810(ebp, 0);
+        Fl(ebp + 0x490) = orig::fn_0046e2c0(0, 0x40000000u /* 2.0 */, 0x40a00000u /* 5.0 */);
+        VC(ebp, 0xfc, ebx, 2u);
+        if (!(D(ebp + 0xbcc) & ebx))
+        {
+            D(ebp + 0x490) = 0;
+            orig::fn_0042d0f0(ebp, 0, 0, ebx);
+        }
+        else
+            VC(ebp, 0x1a0, 2u, 3u, 0u, ebx, ebx, 0u, D(ebp + 0x580), D(ebp + 0x584));
+        orig::fn_00454c90(ebp, ebx, ebx);
+        uint32_t g = D(ebp + 0xbcc) & 0xfffffffdu;
+        D(ebp + 0xbcc) = g;
+        D(ebp + 0xbcc) = g | 0x800;
+        Fl(ebp + 0xb68) = orig::fn_0046e2c0(0, 0x40400000u, 0x40e00000u);
+        D(ebp + 0xbcc) &= 0xffffefffu;
+        Fl(ebp + 0xbac) = orig::fn_0046e2c0(0, 0x40400000u, 0x40e00000u);
+        D(ebp + 0xb5c) = ebx;
+        return 0;
+    }
+    // 0x00486884
+    float t = Fl(ebp + 0xbac) - Fl(S(0x14));
+    Fl(ebp + 0xbac) = t;
+    if (!By(S(0x18)))
+        return 0;
+    f = D(ebp + 0xbcc);
+    if (f & edi2)
+    {
+        D(ebp + 0xbcc) = f & 0xffffefffu;
+        D(ebp + 0x498) = 0;
+        orig::fn_00427210(ebp);
+    }
+    else if (!(t > K(0x0056c05c) || std::isnan(t)))
+    {
+        D(ebp + 0xbcc) = f | edi2;
+        VC(ebp, 0x19c, 0xau, 0u, 0u, 0u, 0u, 0u);
+    }
+    goto L_6b2f;
+}
+
+L_6908:  // mode 3: engaging
+{
+    orig::fn_0043ee90(ebp);
+    if (orig::fn_0042c6f0(ebp) == 0 && D(ebp + 0x498) == 0x23)
+        VC(ebp, 0x1a0, 2u, 3u, 0u, 1u, 1u, 0u, 0x3f000000u, 0x3f000000u);
+    if (static_cast<uint8_t>(orig::fn_00426630(ebp)))
+    {
+        D(ebp + 0xbcc) &= 0xffffefffu;
+        Fl(ebp + 0xbac) = orig::fn_0046e2c0(0, 0x40400000u, 0x40e00000u);
+        D(ebp + 0xb60) = 3;
+        D(ebp + 0xb5c) = 4;
+        return 0;
+    }
+    if (static_cast<uint8_t>(orig::fn_004265c0(ebp)))
+    {
+        uint32_t partner = D(ebp + 0xb64);
+        if (partner)
+        {
+            uint32_t its = D(partner + 0x588);
+            if (its && its != ebp && !static_cast<uint8_t>(orig::fn_00454780(its)))
+            {
+                VC(ebp, 0x23c, D(D(ebp + 0xb64) + 0x588), 0u);
+                VC(D(ebp + 0x588), 0x54, ebp + 0x60c);
+                return 0;
+            }
+        }
+        float b = Fl(ebp + 0xb68) - Fl(S(0x14));
+        Fl(ebp + 0xb68) = b;
+        if (b > K(0x0056c05c) || std::isnan(b))
+            return 0;
+        D(ebp + 0xbcc) &= 0xffffefffu;
+        Fl(ebp + 0xbac) = orig::fn_0046e2c0(0, 0x40400000u, 0x40e00000u);
+        orig::fn_0042cff0(ebp);
+        D(ebp + 0x490) = 0x40a00000u;  // 5.0
+        fn_00483d60(ebp, 1, 0, 0);
+        VC(ebp, 0xfc, 0u, 2u);
+        orig::fn_00427210(ebp);
+        D(ebp + 0xb5c) = 2;
+        return 0;
+    }
+    if (!static_cast<uint8_t>(orig::fn_004265f0(ebp)))
+        return 0;
+    orig::fn_0042cff0(ebp);
+    D(ebp + 0xbcc) &= 0xffffefffu;
+    Fl(ebp + 0xbac) = orig::fn_0046e2c0(0, 0x40400000u, 0x40e00000u);
+    D(ebp + 0x490) = 0x40a00000u;  // 5.0
+    fn_00483d60(ebp, 1, 0, 0);
+    D(ebp + 0xb5c) = 2;
+    return 0;
+}
+
+L_6af0:  // mode 4
+    orig::fn_0043ee90(ebp);
+    if (static_cast<uint8_t>(orig::fn_00426630(ebp)))
+        return 0;
+    orig::fn_0042cff0(ebp);
+    if (D(ebp + 0xb60) != 3)
+        orig::fn_00427210(ebp);
+    D(ebp + 0xb5c) = D(ebp + 0xb60);
+    D(ebp + 0xbcc) &= 0xffffefffu;
+L_6b2f:
+    Fl(ebp + 0xbac) = orig::fn_0046e2c0(0, 0x40400000u, 0x40e00000u);
+    return 0;
+#undef S
+}
+
+static uint32_t MolmerObject_Slot47_Abi(uint32_t ecx)
+{
+    return MolmerObject_Slot47(ecx);
+}
+ABI_ENTRY_00485910(MolmerObject_Slot47_Entry, MolmerObject_Slot47_Abi)
+HOOK(0x00485910, "MolmerObject_Slot47", MolmerObject_Slot47_Entry, nullptr);
+
+// 0x00486b90 (eax = Q111 / Molmer object; returns al = !(flag 0x400), the upper bytes of +0xbcc >> 10). Callers
+// 0x00475650, 0x00486ba0. "Can be paired" (guess).
+uint32_t fn_00486b90(uint32_t self)
+{
+    uint32_t v = D(self + 0xbcc) >> 10;
+    return (v & 0xffffff00u) | (~v & 1u);
+}
+
+static uint32_t fn_00486b90_Abi(uint32_t eax)
+{
+    return fn_00486b90(eax);
+}
+ABI_ENTRY_00486b90(fn_00486b90_Entry, fn_00486b90_Abi)
+HOOK(0x00486b90, "fn_00486b90", fn_00486b90_Entry, nullptr);
+
+// 0x00486ba0 (ebx = new partner or 0, edi = Q111 / Molmer object; returns eax as left where cheap). Callers 0x004834f0,
+// 0x004836b0. Pairs the object with ebx: drops the old partner slot +0xb64 and, when ebx accepts (0x00486b90), stores
+// it there with a reference. Original bug (reproduced): when an old partner exists, the reference dropped is the
+// object's own (edi+0x28, virtual +0xd8 / Object_Release on edi), not the old partner's.
+uint32_t fn_00486ba0(uint32_t other, uint32_t self)
+{
+    const uint32_t edi = self;
+    const uint32_t esi = edi + 0xb64;
+    uint32_t r = D(esi);
+    if (r)
+    {
+        Unref(edi);  // sic: the object itself, see above
+        D(esi) = 0;
+    }
+    if (other)
+    {
+        r = fn_00486b90(other);
+        if (static_cast<uint8_t>(r))
+        {
+            D(esi) = other;
+            ++I(other + 0x28);
+        }
+    }
+    return r;
+}
+
+static uint32_t fn_00486ba0_Abi(uint32_t ebx, uint32_t edi)
+{
+    return fn_00486ba0(ebx, edi);
+}
+ABI_ENTRY_00486ba0(fn_00486ba0_Entry, fn_00486ba0_Abi)
+HOOK(0x00486ba0, "fn_00486ba0", fn_00486ba0_Entry, nullptr);
+
+// 0x00486bf0 (ecx = Q111 / Molmer object; returns eax, not reproduced: 0). Callers 0x0044e6c0, 0x00486fd0 (tail).
+// Not executed in recorded runs. Removal: GenericAIObject_Slot55 0x00432730, then drops the partner +0xb64 and the
+// target +0xbb0.
+uint32_t fn_00486bf0(uint32_t self)
+{
+    orig::fn_00432730(self);
+    ClearRef(self + 0xb64);
+    ClearRef(self + 0xbb0);
+    return 0;
+}
+
+static uint32_t fn_00486bf0_Abi(uint32_t ecx)
+{
+    return fn_00486bf0(ecx);
+}
+ABI_ENTRY_00486bf0(fn_00486bf0_Entry, fn_00486bf0_Abi)
+HOOK(0x00486bf0, "fn_00486bf0", fn_00486bf0_Entry, nullptr);
+
+// 0x00486c70 Q111Object_Slot112 (ecx = object; returns al = !(flag 0x40000), upper bytes of +0xbcc >> 18). Vtable slot
+// +0x1c0 of Q111Object and MolmerObject (no direct callers; not executed in recorded runs).
+uint32_t Q111Object_Slot112(uint32_t self)
+{
+    uint32_t v = D(self + 0xbcc) >> 0x12;
+    return (v & 0xffffff00u) | (~v & 1u);
+}
+
+static uint32_t Q111Object_Slot112_Abi(uint32_t ecx)
+{
+    return Q111Object_Slot112(ecx);
+}
+ABI_ENTRY_00486c70(Q111Object_Slot112_Entry, Q111Object_Slot112_Abi)
+HOOK(0x00486c70, "Q111Object_Slot112", Q111Object_Slot112_Entry, nullptr);
+
+// 0x00486c80 Q111Object_Slot149 (ecx = object; no stack arguments; returns eax of the tail call). Vtable slot +0x254 of
+// Q111Object and MolmerObject (no direct callers; not executed in recorded runs). It has no ret of its own: it
+// tail-jumps to the object's own virtual +0x1c0 (Q111Object_Slot112 for these classes) with the frame untouched;
+// reproduced as call-then-return with a hand-written entry stub (no generated one exists).
+uint32_t Q111Object_Slot149(uint32_t self)
+{
+    return VC(self, 0x1c0);
+}
+
+static uint32_t Q111Object_Slot149_Abi(uint32_t ecx)
+{
+    return Q111Object_Slot149(ecx);
+}
+static __declspec(naked) void Q111Object_Slot149_Entry()
+{
+    __asm {
+        push ecx
+        push edx
+        push ebx
+        push esi
+        push edi
+        push ebp
+        push ecx
+        call Q111Object_Slot149_Abi
+        add esp, 4
+        pop ebp
+        pop edi
+        pop esi
+        pop ebx
+        pop edx
+        pop ecx
+        ret
+    }
+}
+HOOK(0x00486c80, "Q111Object_Slot149", Q111Object_Slot149_Entry, nullptr);
+
+// 0x00486c90 Q111Object_Slot122 (ecx = object; returns al = 0 while in formation (flag 1 without 8), else 1; upper
+// bytes of +0xbcc). Vtable slot +0x1e8 of Q111Object and MolmerObject (no direct callers; not executed in recorded
+// runs).
+uint32_t Q111Object_Slot122(uint32_t self)
+{
+    uint32_t f = D(self + 0xbcc);
+    return (f & 0xffffff00u) | (((f & 1) && !(f & 8)) ? 0u : 1u);
+}
+
+static uint32_t Q111Object_Slot122_Abi(uint32_t ecx)
+{
+    return Q111Object_Slot122(ecx);
+}
+ABI_ENTRY_00486c90(Q111Object_Slot122_Entry, Q111Object_Slot122_Abi)
+HOOK(0x00486c90, "Q111Object_Slot122", Q111Object_Slot122_Entry, nullptr);
+
+// 0x00486cb0 Q111Object_Slot32 (ecx = object; stack: three float out pointers; ret 0xc; returns eax as left). Vtable
+// slot +0x80 of Q111Object and MolmerObject (no direct callers; not executed in recorded runs). Outside mode 2 the
+// generic 0x004297a0. In mode 2 (moving to formation) the movement speeds: with the 2D distance d to the player
+// below 2 * +0xbb8: (d / +0xbb8) * +0x948, +0x948, 5.0; else +0x948, +0x948, 1.0 (guess: speed / max speed / blend).
+uint32_t Q111Object_Slot32(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2)
+{
+    alignas(4) uint8_t fr[0x18];  // the original frame (sub esp, 0x18): F(o) = [esp+o] right after the sub
+#define F(o) (u(fr) + (o))
+    const uint32_t esi = self;
+    if (D(esi + 0xb5c) != 2)
+        return orig::fn_004297a0(esi, a0, a1, a2);
+    VC(esi, 0x54, F(0xc));
+    VC(Player(), 0x54, F(0x0));
+    float dy = Fl(F(0x4)) - Fl(F(0x10));
+    float dx = Fl(F(0x0)) - Fl(F(0xc));
+    float d = std::sqrt(dx * dx + dy * dy);
+    float twoR = Fl(esi + 0xbb8) + Fl(esi + 0xbb8);
+    if (d < twoR)
+    {
+        Fl(a0) = d / Fl(esi + 0xbb8) * Fl(esi + 0x948);
+        D(a1) = D(esi + 0x948);
+        D(a2) = 0x40a00000u;  // 5.0
+        return a2;
+    }
+    D(a0) = D(esi + 0x948);
+    uint32_t v = D(esi + 0x948);
+    D(a1) = v;
+    D(a2) = 0x3f800000u;  // 1.0
+    return v;
+#undef F
+}
+
+static uint32_t Q111Object_Slot32_Abi(uint32_t ecx, uint32_t a0, uint32_t a1, uint32_t a2)
+{
+    return Q111Object_Slot32(ecx, a0, a1, a2);
+}
+ABI_ENTRY_00486cb0(Q111Object_Slot32_Entry, Q111Object_Slot32_Abi)
+HOOK(0x00486cb0, "Q111Object_Slot32", Q111Object_Slot32_Entry, nullptr);
+
+// 0x00486d90 Q111Object_Slot34 (ecx = object, not read; returns st0 = 0.5, the constant 0x005bcb4c). Vtable slot +0x88
+// of Q111Object and MolmerObject (no direct callers; not executed in recorded runs).
+float Q111Object_Slot34()
+{
+    return K(0x005bcb4c);
+}
+
+static float Q111Object_Slot34_Abi()
+{
+    return Q111Object_Slot34();
+}
+ABI_ENTRY_00486d90(Q111Object_Slot34_Entry, Q111Object_Slot34_Abi)
+HOOK(0x00486d90, "Q111Object_Slot34", Q111Object_Slot34_Entry, nullptr);
+
+// 0x00486da0 Q111Object_Slot94 (ecx = object; stack: target; ret 4; returns al). Vtable slot +0x178 of Q111Object and
+// MolmerObject (no direct callers; not executed in recorded runs). A target that passes virtual +0x180(target,
+// 2 * +0x5dc) outside modes 6 / 7 goes to the generic 0x0042f8d0(target); otherwise the answer is 1.
+uint32_t Q111Object_Slot94(uint32_t self, uint32_t target)
+{
+    const uint32_t esi = self;
+    float range = Fl(esi + 0x5dc) + Fl(esi + 0x5dc);
+    uint32_t r = VC(esi, 0x180, target, fb(range));
+    if (static_cast<uint8_t>(r))
+    {
+        r = D(esi + 0xb5c);
+        if (r != 6 && r != 7)
+            return orig::fn_0042f8d0(esi, target);
+    }
+    return (r & 0xffffff00u) | 1;
+}
+
+static uint32_t Q111Object_Slot94_Abi(uint32_t ecx, uint32_t a0)
+{
+    return Q111Object_Slot94(ecx, a0);
+}
+ABI_ENTRY_00486da0(Q111Object_Slot94_Entry, Q111Object_Slot94_Abi)
+HOOK(0x00486da0, "Q111Object_Slot94", Q111Object_Slot94_Entry, nullptr);
+
+// 0x00486df0 (eax = attacker, ebx = Q111 / Molmer object; returns eax as left where cheap). Caller 0x0047afa0. Not
+// executed in recorded runs. Retaliation: unless engaged (flag 4), at most once per 0x005bcb68 seconds since +0x514
+// and when virtual +0x178(attacker) declines, an attacker found in the enemy list +0x604 (ObjectList_Contains)
+// replaces the target +0x588 (dropped) via virtual +0x1b4(attacker, 0, 1).
+uint32_t fn_00486df0(uint32_t attacker, uint32_t self)
+{
+    const uint32_t edi = attacker;
+    const uint32_t ebx = self;
+    if (By(ebx + 0xbcc) & 4)
+        return edi;
+    if (!(Fl(0x00604a98) - Fl(ebx + 0x514) < K(0x005bcb68)))
+        return 0;
+    uint32_t r = VC(ebx, 0x178, edi);
+    if (static_cast<uint8_t>(r) || !edi)
+        return r;
+    r = orig::fn_00454690(D(ebx + 0x604), edi);
+    if (!static_cast<uint8_t>(r))
+        return r;
+    ClearRef(ebx + 0x588);
+    return VC(ebx, 0x1b4, edi, 0u, 1u);
+}
+
+static uint32_t fn_00486df0_Abi(uint32_t eax, uint32_t ebx)
+{
+    return fn_00486df0(eax, ebx);
+}
+ABI_ENTRY_00486df0(fn_00486df0_Entry, fn_00486df0_Abi)
+HOOK(0x00486df0, "fn_00486df0", fn_00486df0_Entry, nullptr);
+
+// 0x00486e90 Q111Object_Slot129 (ecx = object; returns al = mode +0xb5c is 1 or 3; upper bytes of the mode). Vtable slot
+// +0x204 of Q111Object and MolmerObject (no direct callers; not executed in recorded runs).
+uint32_t Q111Object_Slot129(uint32_t self)
+{
+    uint32_t m = D(self + 0xb5c);
+    return (m & 0xffffff00u) | ((m == 1 || m == 3) ? 1u : 0u);
+}
+
+static uint32_t Q111Object_Slot129_Abi(uint32_t ecx)
+{
+    return Q111Object_Slot129(ecx);
+}
+ABI_ENTRY_00486e90(Q111Object_Slot129_Entry, Q111Object_Slot129_Abi)
+HOOK(0x00486e90, "Q111Object_Slot129", Q111Object_Slot129_Entry, nullptr);
+
+// Prototypes of the cloth helpers below.
+uint32_t fn_004879c0(uint32_t cloth, uint32_t table);
+uint32_t fn_00487a40(uint32_t cloth, uint32_t attach);
+uint32_t fn_00486f40(uint32_t self, uint32_t a0);
+
+// 0x00486eb0 Q111Object_Slot6 (ecx = object; stack: a0..a3; ret 0x10; returns eax, not reproduced: 0). Vtable slot
+// +0x18 of Q111Object only (no direct callers; not executed in recorded runs). Setup: 0x00483250, flags 0x10 then
+// 0x200 (two stores), the weapon "ref_rhand" bone (0x004a0ea0 / 0x004a0ef0(0xd) / 0x004a10e0 on the weapon list
+// +0x61c), the cape (0x00486f40(0)), 0x00428250(cl = 1).
+uint32_t Q111Object_Slot6(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
+{
+    const uint32_t ebp = self;
+    fn_00483250(ebp, a0, a1, a2, a3);
+    uint32_t f = D(ebp + 0xbcc) | 0x10;
+    D(ebp + 0xbcc) = f;
+    D(ebp + 0xbcc) = f | 0x200;
+    const uint32_t esi = ebp + 0x61c;
+    orig::fn_004a0ea0(0x005b6160u /* "ref_rhand" */, ebp, esi, 0, 0);
+    orig::fn_004a0ef0(0xd, esi);
+    orig::fn_004a10e0(esi, 0);
+    fn_00486f40(ebp, 0);
+    orig::fn_00428250(ebp, 1);
+    return 0;
+}
+
+static uint32_t Q111Object_Slot6_Abi(uint32_t ecx, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
+{
+    return Q111Object_Slot6(ecx, a0, a1, a2, a3);
+}
+ABI_ENTRY_00486eb0(Q111Object_Slot6_Entry, Q111Object_Slot6_Abi)
+HOOK(0x00486eb0, "Q111Object_Slot6", Q111Object_Slot6_Entry, nullptr);
+
+// 0x00486f40 (eax = Q111 object; stack: a0 passed to the created object; ret 4; returns eax as left where cheap).
+// Caller 0x00486eb0. Creates the cape: when the type "q111_cape" exists (0x0045abe0 in the world), creates it
+// (ObjectSystem_CreateObject, type 0x400, 0xaa, a0), keeps it in +0xbd0 with a reference, sets its anchor table
+// 0x005fb94c (0x004879c0) and attaches it to the object (0x00487a40).
+uint32_t fn_00486f40(uint32_t self, uint32_t a0)
+{
+    const uint32_t ebx = self;
+    D(ebx + 0xbd0) = 0;
+    uint32_t r = orig::fn_0045abe0(0x0059df34u /* "q111_cape" */, D(GameP() + 0xa84));
+    if (!r)
+        return r;
+    uint32_t cape = orig::fn_0045f020(0, 0x0059df34u /* "q111_cape" */, D(GameP() + 0xa84), 0, 0x400, 0, 0, 0, 0, 0xaa,
+                                      a0);
+    if (!cape)
+        return cape;
+    ++I(cape + 0x28);
+    D(ebx + 0xbd0) = cape;
+    fn_004879c0(cape, 0x005fb94cu);
+    return fn_00487a40(D(ebx + 0xbd0), ebx);
+}
+
+static uint32_t fn_00486f40_Abi(uint32_t eax, uint32_t a0)
+{
+    return fn_00486f40(eax, a0);
+}
+ABI_ENTRY_00486f40(fn_00486f40_Entry, fn_00486f40_Abi)
+HOOK(0x00486f40, "fn_00486f40", fn_00486f40_Entry, nullptr);
+
+// 0x00486fd0 Q111Object_Slot55 (ecx = object; returns eax of 0x00486bf0). Vtable slot +0xdc of Q111Object only (no
+// direct callers; not executed in recorded runs). Removal: the cape +0xbd0 gets its virtual +0xdc and is released,
+// then tail-jumps to 0x00486bf0 (reproduced as a call).
+uint32_t Q111Object_Slot55(uint32_t self)
+{
+    const uint32_t esi = self + 0xbd0;
+    if (D(esi))
+    {
+        VC(D(esi), 0xdc);
+        Unref(D(esi));
+        D(esi) = 0;
+    }
+    return fn_00486bf0(self);
+}
+
+static uint32_t Q111Object_Slot55_Abi(uint32_t ecx)
+{
+    return Q111Object_Slot55(ecx);
+}
+ABI_ENTRY_00486fd0(Q111Object_Slot55_Entry, Q111Object_Slot55_Abi)
+HOOK(0x00486fd0, "Q111Object_Slot55", Q111Object_Slot55_Entry, nullptr);
+
+// 0x00487040 Q111Object_Slot78 (ecx = object, not read; returns eax = 0x81 + (rand * 2 >> 15), i.e. 0x81 or 0x82).
+// Vtable slot +0x138 of Q111Object only (no direct callers; not executed in recorded runs). A random animation id
+// (guess).
+uint32_t Q111Object_Slot78()
+{
+    return static_cast<uint32_t>((static_cast<int32_t>(Rand() << 1) >> 15) + 0x81);
+}
+
+static uint32_t Q111Object_Slot78_Abi()
+{
+    return Q111Object_Slot78();
+}
+ABI_ENTRY_00487040(Q111Object_Slot78_Entry, Q111Object_Slot78_Abi)
+HOOK(0x00487040, "Q111Object_Slot78", Q111Object_Slot78_Entry, nullptr);
+
+// 0x004876b0 (eax = Q111 object; returns eax = the cape +0xbd0). Callers 0x00431fd0, 0x004320b0.
+uint32_t fn_004876b0(uint32_t self)
+{
+    return D(self + 0xbd0);
+}
+
+static uint32_t fn_004876b0_Abi(uint32_t eax)
+{
+    return fn_004876b0(eax);
+}
+ABI_ENTRY_004876b0(fn_004876b0_Entry, fn_004876b0_Abi)
+HOOK(0x004876b0, "fn_004876b0", fn_004876b0_Entry, nullptr);
+
+// 0x004878f0 Q111Object_Slot101 (ecx = object; stack: a0..a3; ret 0x10 by the tail-called method). Vtable slot +0x194
+// of Q111Object only (no direct callers; not executed in recorded runs). Stamps Game+0xafc with the game time, then
+// tail-jumps to 0x004284e0 with the same frame (reproduced as call-then-return).
+uint32_t Q111Object_Slot101(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
+{
+    D(GameP() + 0xafc) = GameTime();
+    return orig::fn_004284e0(self, a0, a1, a2, a3);
+}
+
+static uint32_t Q111Object_Slot101_Abi(uint32_t ecx, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
+{
+    return Q111Object_Slot101(ecx, a0, a1, a2, a3);
+}
+ABI_ENTRY_004878f0(Q111Object_Slot101_Entry, Q111Object_Slot101_Abi)
+HOOK(0x004878f0, "Q111Object_Slot101", Q111Object_Slot101_Entry, nullptr);
+
+// 0x00487910 ClothObject_Slot6 (ecx = cloth; stack: a0..a3; ret 0x10; returns eax = 0). Vtable slot +0x18 of
+// ClothObject 0x005aca40 (no direct callers; not executed in recorded runs). Setup: Object_LoadProperties 0x004517b0,
+// clears the anchor table +0x460 (0x4c dwords), the anchor count +0x590 and the attachment +0x594, +0x598 = 40.0.
+uint32_t ClothObject_Slot6(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
+{
+    orig::fn_004517b0(self, a0, a1, a2, a3);
+    std::memset(P(self + 0x460), 0, 0x4c * 4);
+    D(self + 0x590) = 0;
+    D(self + 0x594) = 0;
+    D(self + 0x598) = 0x42200000u;  // 40.0
+    return 0;
+}
+
+static uint32_t ClothObject_Slot6_Abi(uint32_t ecx, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
+{
+    return ClothObject_Slot6(ecx, a0, a1, a2, a3);
+}
+ABI_ENTRY_00487910(ClothObject_Slot6_Entry, ClothObject_Slot6_Abi)
+HOOK(0x00487910, "ClothObject_Slot6", ClothObject_Slot6_Entry, nullptr);
+
+// 0x00487960 ClothObject_Slot55 (ecx = cloth; returns eax of Object_Remove, or 0 when kept). Vtable slot +0xdc of
+// ClothObject (no direct callers; not executed in recorded runs). Unless flag 8 of +0x424: detaches (0x00487a40(0)),
+// clears the anchors (0x004879c0(0)) and tail-jumps to Object_Remove 0x004547b0 (reproduced as a call).
+uint32_t ClothObject_Slot55(uint32_t self)
+{
+    if (By(self + 0x424) & 8)
+        return 0;
+    fn_00487a40(self, 0);
+    fn_004879c0(self, 0);
+    return orig::fn_004547b0(self);
+}
+
+static uint32_t ClothObject_Slot55_Abi(uint32_t ecx)
+{
+    return ClothObject_Slot55(ecx);
+}
+ABI_ENTRY_00487960(ClothObject_Slot55_Entry, ClothObject_Slot55_Abi)
+HOOK(0x00487960, "ClothObject_Slot55", ClothObject_Slot55_Entry, nullptr);
+
+// 0x00487990 ClothObject_Slot7 (ecx = cloth; stack: build parameters; ret 4; returns eax as left). Vtable slot +0x1c
+// of ClothObject (no direct callers). Builds the physics: 0x00457810, parameters +0x12 = 0 and +0x7a = 1,
+// Object_BuildRadiusCollision 0x004527d0, then 0x00458600 when a body (+0x1bc) exists.
+uint32_t ClothObject_Slot7(uint32_t self, uint32_t params)
+{
+    orig::fn_00457810(self);
+    By(params + 0x12) = 0;
+    By(params + 0x7a) = 1;
+    orig::fn_004527d0(self, params);
+    uint32_t body = D(self + 0x1bc);
+    if (body)
+        return orig::fn_00458600(self);
+    return body;
+}
+
+static uint32_t ClothObject_Slot7_Abi(uint32_t ecx, uint32_t a0)
+{
+    return ClothObject_Slot7(ecx, a0);
+}
+ABI_ENTRY_00487990(ClothObject_Slot7_Entry, ClothObject_Slot7_Abi)
+HOOK(0x00487990, "ClothObject_Slot7", ClothObject_Slot7_Entry, nullptr);
+
+// 0x004879c0 (stack: cloth, anchor table; ret 8; returns eax = the cloth when anchors were set, else 0). Callers
+// 0x00486f40, 0x00487960. The table is pairs of dwords ended by a zero first dword (none for a null table); each
+// becomes an anchor of 0x4c bytes at +0x460: the pair, then an identity 0x44-byte matrix. +0x590 = the count.
+uint32_t fn_004879c0(uint32_t cloth, uint32_t table)
+{
+    uint32_t n = 0;
+    if (table && D(table) != 0)
+    {
+        uint32_t c;
+        do
+        {
+            c = D(table + n * 8 + 8);
+            ++n;
+        } while (c);
+    }
+    D(cloth + 0x590) = n;
+    if (n == 0)
+        return 0;
+    uint32_t edx = cloth + 0x490;
+    for (uint32_t i = 0; i < D(cloth + 0x590); ++i)
+    {
+        D(edx - 0x30) = D(table + i * 8);
+        D(edx - 0x2c) = D(table + i * 8 + 4);
+        const uint32_t m = edx - 0x28;
+        std::memset(P(m), 0, 0x44);
+        D(edx - 0x14) = 0x3f800000u;
+        D(edx) = 0x3f800000u;
+        D(edx + 0x14) = 0x3f800000u;
+        D(m) = 0x3f800000u;
+        edx += 0x4c;
+    }
+    return cloth;
+}
+
+static uint32_t fn_004879c0_Abi(uint32_t a0, uint32_t a1)
+{
+    return fn_004879c0(a0, a1);
+}
+ABI_ENTRY_004879c0(fn_004879c0_Entry, fn_004879c0_Abi)
+HOOK(0x004879c0, "fn_004879c0", fn_004879c0_Entry, nullptr);
+
+// 0x00487a40 (eax = cloth, ebx = object to attach or 0; returns eax as left where cheap). Callers 0x00486f40,
+// 0x00487960. Replaces the attachment +0x594 (reference counted).
+uint32_t fn_00487a40(uint32_t cloth, uint32_t attach)
+{
+    const uint32_t esi = cloth + 0x594;
+    ClearRef(esi);
+    if (attach)
+    {
+        ++I(attach + 0x28);
+        D(esi) = attach;
+    }
+    else
+        D(esi) = 0;
+    return D(esi);
+}
+
+static uint32_t fn_00487a40_Abi(uint32_t eax, uint32_t ebx)
+{
+    return fn_00487a40(eax, ebx);
+}
+ABI_ENTRY_00487a40(fn_00487a40_Entry, fn_00487a40_Abi)
+HOOK(0x00487a40, "fn_00487a40", fn_00487a40_Entry, nullptr);
+
+// 0x0048fac0 SheepObject_Slot105 (ecx = sheep, not read; stack: animation id; ret 4; returns eax = the animation
+// name). Vtable slot +0x1a4 of SheepObject 0x005a8d00 (no direct callers; not executed in recorded runs). The jump
+// table 0x0048fb28 / byte table 0x0048fb50 (ids 0..0x61, unsigned) decoded: 0-3 "sheep_turn", 8-0xa "sheep_walk",
+// 0xb-0xc "sheep_run_human", 0xd "sheep_salute", 0x17 "sheep_graze", 0x18 "sheep_scan", 0x19 "sheep_bleat",
+// 0x49 / 0x4a / 0x61 "sheep_blown_up", 0x5d "sheep_land_dead", others "sheep_error_anim".
+uint32_t SheepObject_Slot105(uint32_t id)
+{
+    switch (id)
+    {
+    case 0x0: case 0x1: case 0x2: case 0x3:
+        return 0x00590348u;  // "sheep_turn"
+    case 0x8: case 0x9: case 0xa:
+        return 0x00590364u;  // "sheep_walk"
+    case 0xb: case 0xc:
+        return 0x00590338u;  // "sheep_run_human"
+    case 0xd:
+        return 0x00590354u;  // "sheep_salute"
+    case 0x17:
+        return 0x0059032cu;  // "sheep_graze"
+    case 0x18:
+        return 0x00590320u;  // "sheep_scan"
+    case 0x19:
+        return 0x00590314u;  // "sheep_bleat"
+    case 0x49: case 0x4a: case 0x61:
+        return 0x00590380u;  // "sheep_blown_up"
+    case 0x5d:
+        return 0x00590370u;  // "sheep_land_dead"
+    default:
+        return 0x00590300u;  // "sheep_error_anim"
+    }
+}
+
+static uint32_t SheepObject_Slot105_Abi(uint32_t a0)
+{
+    return SheepObject_Slot105(a0);
+}
+ABI_ENTRY_0048fac0(SheepObject_Slot105_Entry, SheepObject_Slot105_Abi)
+HOOK(0x0048fac0, "SheepObject_Slot105", SheepObject_Slot105_Entry, nullptr);
+
+// 0x0048fbc0 SheepObject_Slot88 (ecx = sheep; returns eax as left where cheap). Vtable slots +0x160, +0x164, +0x168
+// and +0x268 of SheepObject (no direct callers; not executed in recorded runs). Screams: unless the speech system
+// (Game+0x2c, virtual +0xdc) says its line +0xb4c is still playing, says one of "ctr_sheep_scream_1/2/3" (random 300)
+// and keeps the handle in +0xb4c.
+uint32_t SheepObject_Slot88(uint32_t self)
+{
+    uint32_t r = VC(D(GameP() + 0x2c), 0xdc, D(self + 0xb4c));
+    if (static_cast<uint8_t>(r))
+        return r;
+    uint32_t v = static_cast<uint32_t>(static_cast<int32_t>(Rand() * 300) >> 15);
+    uint32_t line = v < 100 ? 0x005902ecu /* "ctr_sheep_scream_1" */
+                    : v < 200 ? 0x005902d8u /* "ctr_sheep_scream_2" */
+                              : 0x005902c4u /* "ctr_sheep_scream_3" */;
+    return D(self + 0xb4c) = SpeakAs(line, self);
+}
+
+static uint32_t SheepObject_Slot88_Abi(uint32_t ecx)
+{
+    return SheepObject_Slot88(ecx);
+}
+ABI_ENTRY_0048fbc0(SheepObject_Slot88_Entry, SheepObject_Slot88_Abi)
+HOOK(0x0048fbc0, "SheepObject_Slot88", SheepObject_Slot88_Entry, nullptr);
+
+// 0x0048fc60 SheepObject_Slot86 (ecx = sheep; returns eax of 0x00493b70). Vtable slot +0x158 of SheepObject (no direct
+// callers; not executed in recorded runs). Calls 0x00493b70 (ecx = sheep, ebx = 3, edi = 0x005cb16c; stack:
+// 0x0063a164, 0, sheep, 0, 0, 0; caller pops).
+uint32_t SheepObject_Slot86(uint32_t self)
+{
+    return orig::fn_00493b70(self, 3, 0x005cb16cu, 0x0063a164u, 0, self, 0, 0, 0);
+}
+
+static uint32_t SheepObject_Slot86_Abi(uint32_t ecx)
+{
+    return SheepObject_Slot86(ecx);
+}
+ABI_ENTRY_0048fc60(SheepObject_Slot86_Entry, SheepObject_Slot86_Abi)
+HOOK(0x0048fc60, "SheepObject_Slot86", SheepObject_Slot86_Entry, nullptr);
+
+// 0x0048fc90 PenguinObject_Slot105 (ecx = penguin, not read; stack: animation id; ret 4; returns eax = the animation
+// name). Vtable slot +0x1a4 of PenguinObject 0x005a1768 (no direct callers; not executed in recorded runs). Tables
+// 0x0048fcf0 / 0x0048fd14 decoded: 0-3 "pngn_stand", 8-0xa "pngn_walk", 0xb-0xc "pngn_run", 0xd "pngn_salute",
+// 0x17 / 0x19 "pngn_scan_chat", 0x18 "pngn_scan_chat1", 0x49 / 0x4a / 0x61 "pngn_blown_up", 0x5d "pngn_land_dead",
+// others "penguin_error_anim".
+uint32_t PenguinObject_Slot105(uint32_t id)
+{
+    switch (id)
+    {
+    case 0x0: case 0x1: case 0x2: case 0x3:
+        return 0x00590280u;  // "pngn_stand"
+    case 0x8: case 0x9: case 0xa:
+        return 0x00590298u;  // "pngn_walk"
+    case 0xb: case 0xc:
+        return 0x00590274u;  // "pngn_run"
+    case 0xd:
+        return 0x0059028cu;  // "pngn_salute"
+    case 0x17: case 0x19:
+        return 0x00590264u;  // "pngn_scan_chat"
+    case 0x18:
+        return 0x00590254u;  // "pngn_scan_chat1"
+    case 0x49: case 0x4a: case 0x61:
+        return 0x005902b4u;  // "pngn_blown_up"
+    case 0x5d:
+        return 0x005902a4u;  // "pngn_land_dead"
+    default:
+        return 0x00590240u;  // "penguin_error_anim"
+    }
+}
+
+static uint32_t PenguinObject_Slot105_Abi(uint32_t a0)
+{
+    return PenguinObject_Slot105(a0);
+}
+ABI_ENTRY_0048fc90(PenguinObject_Slot105_Entry, PenguinObject_Slot105_Abi)
+HOOK(0x0048fc90, "PenguinObject_Slot105", PenguinObject_Slot105_Entry, nullptr);
+
+// 0x0048fd80 PenguinObject_Slot88 (ecx = penguin; returns eax as left where cheap). Vtable slots +0x160, +0x164,
+// +0x168 and +0x268 of PenguinObject (no direct callers; not executed in recorded runs). As SheepObject_Slot88 with
+// "ctr_penguin_scream_1..4" (random 400).
+uint32_t PenguinObject_Slot88(uint32_t self)
+{
+    uint32_t r = VC(D(GameP() + 0x2c), 0xdc, D(self + 0xb4c));
+    if (static_cast<uint8_t>(r))
+        return r;
+    uint32_t v = static_cast<uint32_t>(static_cast<int32_t>(Rand() * 400) >> 15);
+    uint32_t line = v < 100   ? 0x00590228u /* "ctr_penguin_scream_1" */
+                    : v < 200 ? 0x00590210u /* "ctr_penguin_scream_2" */
+                    : v < 300 ? 0x005901f8u /* "ctr_penguin_scream_3" */
+                              : 0x005901e0u /* "ctr_penguin_scream_4" */;
+    return D(self + 0xb4c) = SpeakAs(line, self);
+}
+
+static uint32_t PenguinObject_Slot88_Abi(uint32_t ecx)
+{
+    return PenguinObject_Slot88(ecx);
+}
+ABI_ENTRY_0048fd80(PenguinObject_Slot88_Entry, PenguinObject_Slot88_Abi)
+HOOK(0x0048fd80, "PenguinObject_Slot88", PenguinObject_Slot88_Entry, nullptr);
+
+// 0x0048fe20 PenguinObject_Slot86 (ecx = penguin; returns eax of 0x00493b70). Vtable slot +0x158 of PenguinObject (no
+// direct callers; not executed in recorded runs). 0x00493b70 (ecx = penguin, ebx = 6, edi = 0x005cb178; stack:
+// 0x0063a168, 0, penguin, 0, 0, 0).
+uint32_t PenguinObject_Slot86(uint32_t self)
+{
+    return orig::fn_00493b70(self, 6, 0x005cb178u, 0x0063a168u, 0, self, 0, 0, 0);
+}
+
+static uint32_t PenguinObject_Slot86_Abi(uint32_t ecx)
+{
+    return PenguinObject_Slot86(ecx);
+}
+ABI_ENTRY_0048fe20(PenguinObject_Slot86_Entry, PenguinObject_Slot86_Abi)
+HOOK(0x0048fe20, "PenguinObject_Slot86", PenguinObject_Slot86_Entry, nullptr);
+
+// 0x00497750 SoundEar_Slot6 (ecx = sound ear; stack: a0..a3 (a2 = property block, a3 = reader); ret 0x10; returns eax,
+// not reproduced: 0). Vtable slot +0x18 of SoundEar 0x005a2d28 (no direct callers; not executed in recorded runs).
+// Setup: Object_LoadProperties, "trigger_id" (+0x460), "reapeat" (sic, bool +0x4e8), the sound names "q_sound"
+// (+0x484), "jonsey_sound" (+0x4a4), "roman_sound" (+0x464), "ai_sound" (+0x4c4) with default "none"
+// (Object_ReadStringProp 0x004533a0; a result of 1 sets the flags +0x4e9 / +0x4eb / +0x4ea; "ai_sound" also needs
+// "ai_tag" +0x4f0 for +0x4ec), "max_distance" (+0x4e4, default 300), virtual +0xf4(0). Without any sound or without
+// a trigger id it logs "Sound Ear Invalid Setup\nDeactivating" and removes itself (virtual +0xdc).
+uint32_t SoundEar_Slot6(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
+{
+    const uint32_t ebp = self;
+    orig::fn_004517b0(ebp, a0, a1, a2, a3);
+    uint32_t r = orig::fn_00453450(0, 0x005b94f4u /* "trigger_id" */, a3, ebp + 0x460, ebp, a2, 0);
+    orig::fn_004534f0(r & 0xffffff00u, a3, ebp + 0x4e8, ebp, 0x0058f6b0u /* "reapeat" */, a2, 0);
+    r = orig::fn_004533a0(0x005bb9e0u /* "none" */, ebp + 0x484, ebp, 0x0058f6a8u /* "q_sound" */, a2, a3, 0);
+    By(ebp + 0x4e9) = r == 1 ? 1 : 0;
+    r = orig::fn_004533a0(0x005bb9e0u, ebp + 0x4a4, ebp, 0x0058f698u /* "jonsey_sound" */, a2, a3, 0);
+    By(ebp + 0x4eb) = r == 1 ? 1 : 0;
+    r = orig::fn_004533a0(0x005bb9e0u, ebp + 0x464, ebp, 0x0058f68cu /* "roman_sound" */, a2, a3, 0);
+    By(ebp + 0x4ea) = r == 1 ? 1 : 0;
+    r = orig::fn_004533a0(0x005bb9e0u, ebp + 0x4c4, ebp, 0x0058f680u /* "ai_sound" */, a2, a3, 0);
+    By(ebp + 0x4ec) = 0;
+    if (r == 1)
+    {
+        orig::fn_00453450(0, 0x0058f678u /* "ai_tag" */, a3, ebp + 0x4f0, ebp, a2, 0);
+        if (D(ebp + 0x4f0) != 0)
+            By(ebp + 0x4ec) = 1;
+    }
+    orig::fn_004534a0(a3, ebp + 0x4e4, ebp, 0x005bbf98u /* "max_distance" */, a2, 0x43960000u /* 300 */, 0);
+    VC(ebp, 0xf4, 0u);
+    if ((By(ebp + 0x4e9) || By(ebp + 0x4eb) || By(ebp + 0x4ea) || By(ebp + 0x4ec)) && D(ebp + 0x460) != 0)
+        return 0;
+    DebugPrintf(0x0058f650u /* "Sound Ear Invalid Setup\nDeactivating" */);
+    VC(ebp, 0xdc);
+    return 0;
+}
+
+static uint32_t SoundEar_Slot6_Abi(uint32_t ecx, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
+{
+    return SoundEar_Slot6(ecx, a0, a1, a2, a3);
+}
+ABI_ENTRY_00497750(SoundEar_Slot6_Entry, SoundEar_Slot6_Abi)
+HOOK(0x00497750, "SoundEar_Slot6", SoundEar_Slot6_Entry, nullptr);
+
+// ---------------------------------------------------------------------------------------------------------------
+// Twiglets. Globals: 0x0063a140 the list of active twiglet generators (created by TwigletController_Slot6),
+// 0x0063a144 a percentage threshold (60), 0x0063a148 the maximum twiglet count (100), 0x0063a14c the spawn timer;
+// Game+0xc58 the twiglet controller object, Game+0x2710 a twiglet counter.
+
+// 0x0049cdc0 (ecx: only a `push ecx` stack-slot reservation; returns eax = the _rand value). Callers 0x0049ce00,
+// 0x0049d010. Not executed in recorded runs. Resets the swarm parameters: 0x0063a144 = 60.0, 0x0063a148 = 100, spawn
+// timer 0x0063a14c = rand * 0x005bccb4 + 0x005bcbfc.
+uint32_t fn_0049cdc0()
+{
+    D(0x0063a144) = 0x42700000u;  // 60.0
+    D(0x0063a148) = 0x64;
+    uint32_t r = Rand();
+    Fl(0x0063a14c) = static_cast<float>(static_cast<int32_t>(r)) * K(0x005bccb4) + K(0x005bcbfc);
+    return r;
+}
+
+static uint32_t fn_0049cdc0_Abi(uint32_t /*ecx*/)
+{
+    return fn_0049cdc0();
+}
+ABI_ENTRY_0049cdc0(fn_0049cdc0_Entry, fn_0049cdc0_Abi)
+HOOK(0x0049cdc0, "fn_0049cdc0", fn_0049cdc0_Entry, nullptr);
+
+// 0x0049ce00 (no inputs; returns eax as left where cheap). Caller 0x0049d3c0. Not executed in recorded runs. Creates the
+// controller once: when Game+0xc58 is empty and the type "twiglet" exists (0x0045abe0), ObjectSystem_CreateObject
+// (eax = "twiglet_controller", ecx = "twiglet", type 0x3ff, 0xaa) into Game+0xc58, then tail-jumps to 0x0049cdc0
+// (reproduced as a call).
+uint32_t fn_0049ce00()
+{
+    uint32_t game = GameP();
+    if (D(game + 0xc58) != 0)
+        return D(game + 0xc58);
+    uint32_t r = orig::fn_0045abe0(0x005b27b0u /* "twiglet" */, D(game + 0xa84));
+    if (!r)
+        return r;
+    uint32_t obj = orig::fn_0045f020(0x005b0048u /* "twiglet_controller" */, 0x005b27b0u /* "twiglet" */,
+                                     D(GameP() + 0xa84), 0, 0x3ff, 0, 0, 0, 0, 0xaa, 0);
+    D(GameP() + 0xc58) = obj;
+    return fn_0049cdc0();
+}
+
+static uint32_t fn_0049ce00_Abi()
+{
+    return fn_0049ce00();
+}
+ABI_ENTRY_0049ce00(fn_0049ce00_Entry, fn_0049ce00_Abi)
+HOOK(0x0049ce00, "fn_0049ce00", fn_0049ce00_Entry, nullptr);
+
+// 0x0049ce70 (al = activate, ecx = generator; stack: one argument, not read; ret 4; returns eax of the list call).
+// Caller 0x0049d530. Not executed in recorded runs. Adds the generator to (al != 0) or removes it from the active list
+// 0x0063a140 (ObjectList_Contains / Link / Unlink).
+uint32_t fn_0049ce70(uint32_t eax, uint32_t gen, uint32_t /*a0*/)
+{
+    uint32_t r = orig::fn_00454690(D(0x0063a140), gen);
+    if (static_cast<uint8_t>(eax))
+    {
+        if (static_cast<uint8_t>(r))
+            return r;
+        return static_cast<uint32_t>(orig::fn_004546d0(D(0x0063a140), gen));
+    }
+    if (!static_cast<uint8_t>(r))
+        return r;
+    return orig::fn_00454750(D(0x0063a140), gen);
+}
+
+static uint32_t fn_0049ce70_Abi(uint32_t eax, uint32_t ecx, uint32_t a0)
+{
+    return fn_0049ce70(eax, ecx, a0);
+}
+ABI_ENTRY_0049ce70(fn_0049ce70_Entry, fn_0049ce70_Abi)
+HOOK(0x0049ce70, "fn_0049ce70", fn_0049ce70_Entry, nullptr);
+
+// 0x0049ceb0 TwigletController_Slot6 (ecx = controller; stack: a0..a3; ret 0x10; returns eax, not reproduced: 0).
+// Vtable slot +0x18 of TwigletController 0x005a7590 (no direct callers; not executed in recorded runs). Allocates the
+// active-generator list (PMS_heapAlloc 0x004e07f0 on heap 0x0063a210: 0x10, 0x18, 2, "new"; constructed by
+// 0x004e7010 with Game+0xac4) into 0x0063a140 (0 on failure), clears +0x464, Object_LoadProperties, virtual +0xf4(0).
+uint32_t TwigletController_Slot6(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
+{
+    const uint32_t edi = self;
+    uint32_t buf = orig::fn_004e07f0(0x0063a210u, 0x10, 0x18, 2, 0x0058b5e8u /* "new" */);
+    if (buf)
+        D(0x0063a140) = orig::fn_004e7010(D(GameP() + 0xac4), 0, buf);
+    else
+        D(0x0063a140) = 0;
+    D(edi + 0x464) = 0;
+    orig::fn_004517b0(edi, a0, a1, a2, a3);
+    VC(edi, 0xf4, 0u);
+    return 0;
+}
+
+static uint32_t TwigletController_Slot6_Abi(uint32_t ecx, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
+{
+    return TwigletController_Slot6(ecx, a0, a1, a2, a3);
+}
+ABI_ENTRY_0049ceb0(TwigletController_Slot6_Entry, TwigletController_Slot6_Abi)
+HOOK(0x0049ceb0, "TwigletController_Slot6", TwigletController_Slot6_Entry, nullptr);
+
+// 0x0049cf30 TwigletController_Slot55 (ecx = controller; returns eax, not reproduced: 0). Vtable slot +0xdc of
+// TwigletController (no direct callers; not executed in recorded runs). Removal: unlinks every generator from the
+// active list (iterator 0x004e7340 / 0x004e73c0 over an 8-byte iterator on the stack), deletes the list (virtual
+// +0x10(1)), clears 0x0063a140 and Game+0xc58, drops +0x460, Object_Remove 0x004547b0, and releases the iterator's
+// node (--node+0x18). The tracker size (170) stops 9 bytes short of the real end 0x0049cfe3.
+uint32_t TwigletController_Slot55(uint32_t self)
+{
+    alignas(4) uint8_t it[8] = {};
+    const uint32_t ebp = self;
+    uint32_t e = orig::fn_004e7340(D(0x0063a140), u(it));
+    while (e)
+    {
+        orig::fn_00454750(D(0x0063a140), e);
+        e = orig::fn_004e73c0(u(it));
+    }
+    uint32_t list = D(0x0063a140);
+    if (list)
+        VC(list, 0x10, 1u);
+    D(0x0063a140) = 0;
+    D(GameP() + 0xc58) = 0;
+    ClearRef(ebp + 0x460);
+    orig::fn_004547b0(ebp);
+    uint32_t node = D(u(it) + 4);
+    if (node)
+        --I(node + 0x18);
+    return 0;
+}
+
+static uint32_t TwigletController_Slot55_Abi(uint32_t ecx)
+{
+    return TwigletController_Slot55(ecx);
+}
+ABI_ENTRY_0049cf30(TwigletController_Slot55_Entry, TwigletController_Slot55_Abi)
+HOOK(0x0049cf30, "TwigletController_Slot55", TwigletController_Slot55_Entry, nullptr);
+
+// 0x0049cff0 (ecx = object, not read; stack: physics build parameters; ret 4; returns eax = the parameters). Shared
+// slot +0x1c (or +0x154 / +0x15c / +0x18c / +0x1a4 / +0x284) of ~30 classes (CameraPathObject, AlarmGenerator,
+// SoundEar, TwigletController, MarkerObject, PickupObject, GenericAIObject, ...; no direct callers; not executed in
+// recorded runs): a non-physical object. Sets parameters +0 = 0x4000, +0xd = 1, +0x7a = 1.
+uint32_t fn_0049cff0(uint32_t params)
+{
+    D(params) = 0x4000;
+    By(params + 0xd) = 1;
+    By(params + 0x7a) = 1;
+    return params;
+}
+
+static uint32_t fn_0049cff0_Abi(uint32_t a0)
+{
+    return fn_0049cff0(a0);
+}
+ABI_ENTRY_0049cff0(fn_0049cff0_Entry, fn_0049cff0_Abi)
+HOOK(0x0049cff0, "fn_0049cff0", fn_0049cff0_Entry, nullptr);
+
+// 0x0049d010 TwigletController_Slot9 (ecx = controller; returns eax, not reproduced: 0). Vtable slot +0x24 of
+// TwigletController (no direct callers; not executed in recorded runs). Reset: unlinks every active generator,
+// resets the swarm parameters (0x0049cdc0), clears +0x460 (without releasing it) and releases the iterator node.
+uint32_t TwigletController_Slot9(uint32_t self)
+{
+    alignas(4) uint8_t it[8] = {};
+    uint32_t e = orig::fn_004e7340(D(0x0063a140), u(it));
+    while (e)
+    {
+        orig::fn_00454750(D(0x0063a140), e);
+        e = orig::fn_004e73c0(u(it));
+    }
+    fn_0049cdc0();
+    uint32_t node = D(u(it) + 4);
+    D(self + 0x460) = 0;
+    if (node)
+        --I(node + 0x18);
+    return 0;
+}
+
+static uint32_t TwigletController_Slot9_Abi(uint32_t ecx)
+{
+    return TwigletController_Slot9(ecx);
+}
+ABI_ENTRY_0049d010(TwigletController_Slot9_Entry, TwigletController_Slot9_Abi)
+HOOK(0x0049d010, "TwigletController_Slot9", TwigletController_Slot9_Entry, nullptr);
+
+uint32_t fn_0049d580(uint32_t gen);
+uint32_t fn_0049d590(uint32_t gen);
+
+// 0x0049d080 TwigletController_Slot47 (ecx = controller; returns eax, not reproduced: 0). Vtable slot +0xbc of
+// TwigletController (no direct callers; not executed in recorded runs). The swarm update (aligned frame, G(o) =
+// [esp+o] with the four saved registers): when the spawn timer 0x0063a14c runs out and fewer than 0x0063a148 twiglets
+// exist (World+0xeec, virtual +0x34) it picks the active generator with the most pending spawns (0x00415900; the
+// current one +0x460 only when it has no initial list, 0x0049d580 == 1), playing a swarm loop
+// "ctr_twiglet_swarm_1_lp" / "_2_lp" (speech virtual +0xd0, handle +0x464) while any generator is pending; spawns a
+// twiglet from it (0x0049d590), counts the twiglets of World+0xeec (0x0044ad40 bit 0 = idle) and finds the one
+// closest (2D) to the player; 0x0049f380 (eax = twiglet; flag, 0) wakes the new one (flag 1 when the idle share
+// is above 0x0063a144 percent or all are idle) and, when the new one is farther than the closest, wakes the closest
+// too; restarts the timer and holds the chosen generator in +0x460. Without pending generators the loop is stopped
+// (speech virtual +0xd8(+0x464, 0)).
+uint32_t TwigletController_Slot47(uint32_t self)
+{
+    alignas(8) uint8_t fr[0x48];  // the original frame (aligned, sub esp, 0x38 + 4 saved registers)
+#define G(o) (u(fr) + (o))
+    uint32_t edi = self;
+    float t = Fl(0x0063a14c) - Fl(0x00604a90);
+    Fl(0x0063a14c) = t;
+    if (t > K(0x0056c05c) || std::isnan(t))
+        return 0;
+    D(G(0x18)) = edi;
+    uint32_t count = VC(D(D(GameP() + 0xa84) + 0xeec), 0x34);
+    if (count >= D(0x0063a148))
+    {
+        VC(D(GameP() + 0x2c), 0xd8, edi + 0x464, 0u);
+        return 0;
+    }
+    uint32_t ebx = 0;
+    D(G(0x28)) = 0;
+    D(G(0x2c)) = 0;
+    uint32_t ebp = 0;
+    D(G(0x14)) = 0;
+    By(G(0x13)) = 0;
+    uint32_t esi = orig::fn_004e7340(D(0x0063a140), G(0x28));
+    bool found = false;
+    if (esi)
+    {
+        do
+        {
+            uint32_t ecx = orig::fn_00415900(esi);
+            if (ecx > ebp)
+            {
+                if (esi == D(edi + 0x460) && fn_0049d580(esi) == 1)
+                    ebx = esi;
+                else
+                {
+                    D(G(0x14)) = esi;
+                    ebp = ecx;
+                }
+            }
+            if (ecx > 0)
+            {
+                By(G(0x13)) = 1;
+                if (D(edi + 0x464) == 0)
+                {
+                    int32_t v = static_cast<int32_t>((Rand() * 100) & 0xffff8000u);
+                    uint32_t line = v < 0x190000 ? 0x0058ef5cu /* "ctr_twiglet_swarm_1_lp" */
+                                                 : 0x0058ef44u /* "ctr_twiglet_swarm_2_lp" */;
+                    D(edi + 0x464) = VC(D(GameP() + 0x2c), 0xd0, line, esi, 1u, 0u, 0xffffffffu, 0u);
+                }
+            }
+            esi = orig::fn_004e73c0(G(0x28));
+            edi = D(G(0x18));
+        } while (esi);
+        found = D(G(0x14)) != 0;
+    }
+    if (!found)
+    {
+        D(G(0x14)) = ebx;
+        if (!ebx)
+            goto L_360;
+    }
+    // 0x0049d1ad
+    VC(Player(), 0x54, G(0x30));
+    D(G(0x20)) = 0;
+    D(G(0x1c)) = 0;
+    ebp = 0;
+    esi = orig::fn_004e7340(D(D(GameP() + 0xa84) + 0xeec), G(0x28));
+    if (esi)
+    {
+        do
+        {
+            uint32_t r = orig::fn_0044ad40(esi);
+            if (!(r & 1))
+                Fl(G(0x1c)) = Fl(G(0x1c)) + K(0x005bcb2c);
+            else
+            {
+                VC(esi, 0x54, G(0x3c));
+                float dy = Fl(G(0x34)) - Fl(G(0x40));
+                float dx = Fl(G(0x30)) - Fl(G(0x3c));
+                float d2 = dx * dx + dy * dy;
+                if (ebp == 0 || d2 < Fl(G(0x24)))
+                {
+                    Fl(G(0x24)) = d2;
+                    ebp = esi;
+                }
+            }
+            Fl(G(0x20)) = Fl(G(0x20)) + K(0x005bcb2c);
+            esi = orig::fn_004e73c0(G(0x28));
+        } while (esi);
+        edi = D(G(0x18));
+    }
+    // 0x0049d27f
+    {
+        ebx = D(G(0x14));
+        esi = fn_0049d590(ebx);
+        bool one;
+        if (Fl(G(0x20)) == Fl(G(0x1c)))
+            one = true;
+        else if (Fl(G(0x1c)) / Fl(G(0x20)) * K(0x005bcb60) > Fl(0x0063a144))
+            one = true;
+        else
+        {
+            By(G(0x20)) = 0;
+            one = false;
+            if (ebp)
+            {
+                VC(esi, 0x54, G(0x3c));
+                float dy = Fl(G(0x34)) - Fl(G(0x40));
+                float dx = Fl(G(0x30)) - Fl(G(0x3c));
+                if (dx * dx + dy * dy > Fl(G(0x24)))
+                {
+                    orig::fn_0049f380(ebp, 0, 0, 0);
+                    one = true;
+                }
+            }
+        }
+        if (one)
+            By(G(0x20)) = 1;
+        // edx is listed as an input of 0x0049f380 only because 0x00408e30's caller does `or edx, -1`; passed as 0.
+        orig::fn_0049f380(esi, 0, D(G(0x20)), 0);
+        uint32_t r = Rand();
+        Fl(0x0063a14c) = static_cast<float>(static_cast<int32_t>(r)) * K(0x005bccb4) + K(0x005bcbfc);
+        uint32_t old = D(edi + 0x460);
+        if (old)
+            Unref(old);
+        uint32_t chosen = D(G(0x14));
+        D(edi + 0x460) = chosen;
+        ++I(chosen + 0x28);
+    }
+L_360:
+    if (!By(G(0x13)))
+        VC(D(GameP() + 0x2c), 0xd8, edi + 0x464, 0u);
+    {
+        uint32_t node = D(G(0x2c));
+        if (node)
+            --I(node + 0x18);
+    }
+    return 0;
+#undef G
+}
+
+static uint32_t TwigletController_Slot47_Abi(uint32_t ecx)
+{
+    return TwigletController_Slot47(ecx);
+}
+ABI_ENTRY_0049d080(TwigletController_Slot47_Entry, TwigletController_Slot47_Abi)
+HOOK(0x0049d080, "TwigletController_Slot47", TwigletController_Slot47_Entry, nullptr);
+
+// 0x0049d3c0 TwigletGenerator_Slot6 (ecx = generator; stack: a0..a3 (a2 = property block, a3 = reader); ret 0x10;
+// returns eax, not reproduced: 0). Vtable slot +0x18 of TwigletGenerator 0x005aed80 (no direct callers; not executed
+// in recorded runs). Setup: Object_LoadProperties, the controller (0x0049ce00), virtual +0x6c into a local,
+// "release_max" (+0x470, default 10), "trigger_activate" (+0x460), "trigger_deactivate" (+0x464), then up to three
+// initial bone names "initial_ic_0..2" (_sprintf into a 32-byte local, Object_ReadStringProp default "none") stored
+// at +0x474 + n * 0x20 and counted in +0x468 (those not "none", __stricmp); +0x46c = 0; linked into World lists
+// +0xe90 / +0xe9c / +0xea0; virtual +0xf8(5, 0), Object_setPhysicsEnabled 0x004577b0(1), virtual +0xfc(1, 2).
+uint32_t TwigletGenerator_Slot6(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
+{
+    alignas(4) uint8_t fr[0x2c];  // the original frame (sub esp, 0x2c): F(o) = [esp+0x10+o]
+#define F(o) (u(fr) + (o))
+    const uint32_t ebp = self;
+    orig::fn_004517b0(ebp, a0, a1, a2, a3);
+    fn_0049ce00();
+    VC(ebp, 0x6c, F(0x0));
+    orig::fn_00453400(0xa, a3, ebp + 0x470, ebp, 0x005bb708u /* "release_max" */, a2, 0);
+    orig::fn_00453450(0, 0x0058ef30u /* "trigger_activate" */, a3, ebp + 0x460, ebp, a2, 0);
+    orig::fn_00453450(0, 0x0058ef1cu /* "trigger_deactivate" */, a3, ebp + 0x464, ebp, a2, 0);
+    D(ebp + 0x468) = 0;
+    D(ebp + 0x46c) = 0;
+    for (uint32_t i = 0; i < 3; ++i)
+    {
+        GameFunction<int(__cdecl*)(uint32_t, uint32_t, ...)>(0x0053814f)(F(0xc), 0x0058ef0cu /* "initial_ic_%d" */, i);
+        const uint32_t dest = (D(ebp + 0x468) << 5) + ebp + 0x474;
+        orig::fn_004533a0(0x005bb9e0u /* "none" */, dest, ebp, F(0xc), a2, a3, 0);
+        if (Stricmp((D(ebp + 0x468) << 5) + ebp + 0x474, 0x005bb9e0u) != 0)
+            ++D(ebp + 0x468);
+    }
+    orig::fn_004546d0(D(D(GameP() + 0xa84) + 0xe90), ebp);
+    orig::fn_004546d0(D(D(GameP() + 0xa84) + 0xe9c), ebp);
+    orig::fn_004546d0(D(D(GameP() + 0xa84) + 0xea0), ebp);
+    VC(ebp, 0xf8, 5u, 0u);
+    orig::fn_004577b0(ebp, 1);
+    VC(ebp, 0xfc, 1u, 2u);
+    return 0;
+#undef F
+}
+
+static uint32_t TwigletGenerator_Slot6_Abi(uint32_t ecx, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
+{
+    return TwigletGenerator_Slot6(ecx, a0, a1, a2, a3);
+}
+ABI_ENTRY_0049d3c0(TwigletGenerator_Slot6_Entry, TwigletGenerator_Slot6_Abi)
+HOOK(0x0049d3c0, "TwigletGenerator_Slot6", TwigletGenerator_Slot6_Entry, nullptr);
+
+// 0x0049d530 TwigletGenerator_Slot14 (ecx = generator; stack: a0, trigger id; ret 8; returns al = 0). Vtable slot +0x38
+// of TwigletGenerator (no direct callers; not executed in recorded runs). Trigger +0x460 activates the generator,
+// +0x464 deactivates it (0x0049ce70, al = 1 / 0, with the controller Game+0xc58 as its unread argument).
+uint32_t TwigletGenerator_Slot14(uint32_t self, uint32_t /*a0*/, uint32_t trigger)
+{
+    uint32_t game = GameP();
+    if (trigger == D(self + 0x460))
+        return fn_0049ce70((game & 0xffffff00u) | 1, self, D(game + 0xc58)) & 0xffffff00u;
+    if (trigger == D(self + 0x464))
+        return fn_0049ce70(game & 0xffffff00u, self, D(game + 0xc58)) & 0xffffff00u;
+    return trigger & 0xffffff00u;
+}
+
+static uint32_t TwigletGenerator_Slot14_Abi(uint32_t ecx, uint32_t a0, uint32_t a1)
+{
+    return TwigletGenerator_Slot14(ecx, a0, a1);
+}
+ABI_ENTRY_0049d530(TwigletGenerator_Slot14_Entry, TwigletGenerator_Slot14_Abi)
+HOOK(0x0049d530, "TwigletGenerator_Slot14", TwigletGenerator_Slot14_Entry, nullptr);
+
+// 0x0049d580 (eax = generator; returns eax = the initial bone count +0x468). Caller 0x0049d080.
+uint32_t fn_0049d580(uint32_t gen)
+{
+    return D(gen + 0x468);
+}
+
+static uint32_t fn_0049d580_Abi(uint32_t eax)
+{
+    return fn_0049d580(eax);
+}
+ABI_ENTRY_0049d580(fn_0049d580_Entry, fn_0049d580_Abi)
+HOOK(0x0049d580, "fn_0049d580", fn_0049d580_Entry, nullptr);
+
+// 0x0049d590 (ebx = generator; returns eax = the new twiglet). Caller 0x0049d080. Not executed in recorded runs. Spawns
+// a twiglet: with initial bones, cycles +0x46c through them, takes the bone matrix (0x00453c50(generator, name, m, 1,
+// 0, 0, 1, 0, 0)) and creates a "twiglet" with it (ObjectSystem_CreateObject, a1 = the matrix, type 0x3ff, 0xaa),
+// 0x0049fbe0(name; 1) and 0x0049fb60; without, rotates the generator's direction (0x00453150) about z by a random angle
+// rand * 0x005bcdbc - 0x005bcb70 (0x44-byte matrix, 0x004e36a0), normalises it (0x004e7880) and places the new
+// twiglet at the generator's position plus that direction times rand * 0x005bcf2c + 0x005bccbc (x and y separately;
+// Object_SetPosition). Game+0x2710 counts twiglets; +0x470 (release budget) is decremented when positive. The new
+// object is used without a null check.
+uint32_t fn_0049d590(uint32_t gen)
+{
+    alignas(4) uint8_t fr[0x6c];  // the original frame (sub esp, 0x6c): F(o) = [esp+o] after the two pushes
+#define F(o) (u(fr) + (o))
+    const uint32_t ebx = gen;
+    uint32_t esi;
+    if (D(ebx + 0x468) != 0)
+    {
+        uint32_t n = D(ebx + 0x46c) + 1;
+        D(ebx + 0x46c) = n;
+        if (n >= D(ebx + 0x468))
+            D(ebx + 0x46c) = 0;
+        const uint32_t name = (D(ebx + 0x46c) << 5) + ebx + 0x474;
+        orig::fn_00453c50(ebx, name, F(0x28), 1, 0, 0, 1, 0, 0);
+        esi = orig::fn_0045f020(0, 0x005b27b0u /* "twiglet" */, D(GameP() + 0xa84), F(0x28), 0x3ff, 0, 0, 0, 0, 0xaa, 0);
+        ++I(GameP() + 0x2710);
+        orig::fn_0049fbe0((D(ebx + 0x46c) << 5) + ebx + 0x474, esi, 1);
+        orig::fn_0049fb60(esi);
+    }
+    else
+    {
+        orig::fn_00453150(ebx, F(0x1c));
+        uint32_t r = Rand();
+        std::memset(P(F(0x28)), 0, 0x44);
+        Fl(F(0x0)) = static_cast<float>(static_cast<int32_t>(r)) * K(0x005bcdbc) - K(0x005bcb70);
+        const float angle = Fl(F(0x0));
+        const float s = static_cast<float>(std::sin(static_cast<double>(angle)));
+        D(F(0x50)) = 0x3f800000u;
+        D(F(0x64)) = 0x3f800000u;
+        D(F(0x68)) = 1;
+        const float c = static_cast<float>(std::cos(static_cast<double>(angle)));
+        Fl(F(0x28)) = c;
+        Fl(F(0x2c)) = -s;
+        Fl(F(0x38)) = s;
+        Fl(F(0x3c)) = c;
+        orig::fn_004e36a0(F(0x1c), F(0x28), 1, F(0x10));
+        Normalize3(F(0x10), F(0x10));
+        VC(ebx, 0x54, F(0x4));
+        r = Rand();
+        Fl(F(0x4)) = (static_cast<float>(static_cast<int32_t>(r)) * K(0x005bcf2c) + K(0x005bccbc)) * Fl(F(0x10)) +
+                     Fl(F(0x4));
+        r = Rand();
+        Fl(F(0x8)) = (static_cast<float>(static_cast<int32_t>(r)) * K(0x005bcf2c) + K(0x005bccbc)) * Fl(F(0x14)) +
+                     Fl(F(0x8));
+        esi = orig::fn_0045f020(0, 0x005b27b0u /* "twiglet" */, D(GameP() + 0xa84), 0, 0x3ff, 0, 0, 0, 0, 0xaa, 0);
+        orig::fn_00457870(esi & 0xffffff00u, F(0x4), esi, 0, 0, 0);
+        ++I(GameP() + 0x2710);
+    }
+    if (D(ebx + 0x470) > 0)
+        --D(ebx + 0x470);
+    return esi;
+#undef F
+}
+
+static uint32_t fn_0049d590_Abi(uint32_t ebx)
+{
+    return fn_0049d590(ebx);
+}
+ABI_ENTRY_0049d590(fn_0049d590_Entry, fn_0049d590_Abi)
+HOOK(0x0049d590, "fn_0049d590", fn_0049d590_Entry, nullptr);
+
+// 0x0049d7a0 Twiglet_Slot6 (ecx = twiglet; stack: a0..a3 (a2 = property block or 0, a3 = reader); ret 0x10; returns
+// eax, not reproduced: 0). Vtable slot +0x18 of Twiglet 0x005af020 (no direct callers; not executed in recorded runs).
+// Setup: counts itself (Game+0x2710) when +0x396 is set, clears its state, random +0x46c, 0x00457810,
+// Object_LoadProperties, health scaling by Game+0x558 / +0x554 (virtual +0xe8 / +0xe4) into +0x458 / +0x454, links into
+// World lists +0xe90 / +0xe94 / +0xe9c / +0xea4 / +0xe7c / +0xe8c, 0x00458270(0, 0, (1 / mass or 0) * 20000) on its
+// body (+0x1c4 -> +8 -> +0x2c). With a property block: "receive_trigger_activate" (+0x584), "trigger_los" (a bool
+// read into its own argument slot a1; then flag 0x100 and "activation_range" +0x588, default 400), flag 0x40,
+// position into +0x56c, +0x578 = 10, virtual +0xf8(0x20000, 0), animation "twiglet_stand" (0x00408e30), +0x464 = 1.
+// Always: "move_power" (30), "move_speed" (46), "long_range_dist" (100), "hit_level_1" (10), "score_value" (0),
+// "bof_anti_gravity" (0.5), virtual +0x70 into a local, linked into World list +0xeec.
+uint32_t Twiglet_Slot6(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
+{
+    alignas(4) uint8_t fr[0x48];  // the original frame (sub esp, 0x48): F(o) = [esp+0x10+o]
+#define F(o) (u(fr) + (o))
+    const uint32_t ebp = self;
+    uint32_t a1Slot = a1;  // the original reuses its a1 stack slot for the "trigger_los" bool
+    if (W(ebp + 0x396) != 0)
+        ++I(GameP() + 0x2710);
+    D(ebp + 0x460) = 0;
+    D(ebp + 0x464) = 0;
+    D(ebp + 0x478) = 0;
+    D(ebp + 0x55c) = 0;
+    D(ebp + 0x560) = 0;
+    D(ebp + 0x568) = 0;
+    D(ebp + 0x470) = 0;
+    D(ebp + 0x474) = 0;
+    D(ebp + 0x564) = 0;
+    uint32_t r = Rand();
+    D(F(0x0)) = r;
+    Fl(ebp + 0x46c) = static_cast<float>(static_cast<int32_t>(r)) * K(0x005bcf88) + K(0x005bcbe0);
+    orig::fn_00457810(ebp);
+    orig::fn_004517b0(ebp, a0, a1, a2, a3);
+    bool scale = false;
+    float k = 0.0f;
+    if (VB(ebp, 0xe8))
+    {
+        k = Fl(GameP() + 0x558);
+        scale = true;
+    }
+    else if (VB(ebp, 0xe4))
+    {
+        k = Fl(GameP() + 0x554);
+        scale = true;
+    }
+    if (scale)
+    {
+        float v = k * Fl(ebp + 0x458);
+        Fl(ebp + 0x458) = v;
+        Fl(ebp + 0x454) = v;
+    }
+    orig::fn_004546d0(D(D(GameP() + 0xa84) + 0xe90), ebp);
+    orig::fn_004546d0(D(D(GameP() + 0xa84) + 0xe94), ebp);
+    orig::fn_004546d0(D(D(GameP() + 0xa84) + 0xe9c), ebp);
+    orig::fn_004546d0(D(D(GameP() + 0xa84) + 0xea4), ebp);
+    orig::fn_004546d0(D(D(GameP() + 0xa84) + 0xe7c), ebp);
+    orig::fn_004546d0(D(D(GameP() + 0xa84) + 0xe8c), ebp);
+    {
+        float m = Fl(D(D(ebp + 0x1c4) + 8) + 0x2c);
+        float inv = m == K(0x0056c05c) ? K(0x0056c05c) : K(0x005bcb2c) / m;
+        orig::fn_00458270(ebp, 0, 0, fb(inv * K(0x005bcd34)));
+    }
+    if (a2 != 0)
+    {
+        r = orig::fn_00453450(0, 0x005bba00u /* "receive_trigger_activate" */, a3, ebp + 0x584, ebp, a2, 0);
+        orig::fn_004534f0((r & 0xffffff00u) | 1, a3, u(&a1Slot), ebp, 0x005bb68cu /* "trigger_los" */, a2, 0);
+        if (static_cast<uint8_t>(a1Slot))
+        {
+            D(ebp + 0x460) |= 0x100;
+            orig::fn_004534a0(a3, ebp + 0x588, ebp, 0x0058eef8u /* "activation_range" */, a2, 0x43c80000u /* 400 */, 0);
+        }
+        D(ebp + 0x460) |= 0x40;
+        VC(ebp, 0x54, ebp + 0x56c);
+        D(ebp + 0x578) = 0x41200000u;  // 10.0
+        VC(ebp, 0xf8, 0x20000u, 0u);
+        orig::fn_00408e30(0x81, ebp, 0xffffffffu, 0x0058eee8u /* "twiglet_stand" */, 0, 0x3e800000u /* 0.25 */, 0, 0);
+        D(ebp + 0x464) = 1;
+    }
+    orig::fn_004534a0(a3, ebp + 0x484, ebp, 0x005b6fe4u /* "move_power" */, a2, 0x41f00000u /* 30 */, 1);
+    orig::fn_004534a0(a3, ebp + 0x480, ebp, 0x005b6fd8u /* "move_speed" */, a2, 0x42380000u /* 46 */, 1);
+    orig::fn_004534a0(a3, ebp + 0x47c, ebp, 0x0058eed8u /* "long_range_dist" */, a2, 0x42c80000u /* 100 */, 1);
+    orig::fn_004534a0(a3, ebp + 0x490, ebp, 0x005b7014u /* "hit_level_1" */, a2, 0x41200000u /* 10 */, 1);
+    orig::fn_004534a0(a3, ebp + 0x57c, ebp, 0x005bb864u /* "score_value" */, a2, 0, 1);
+    orig::fn_004534a0(a3, ebp + 0x580, ebp, 0x005b7578u /* "bof_anti_gravity" */, a2, 0x3f000000u /* 0.5 */, 1);
+    VC(ebp, 0x70, F(0x4));
+    orig::fn_004546d0(D(D(GameP() + 0xa84) + 0xeec), ebp);
+    return 0;
+#undef F
+}
+
+static uint32_t Twiglet_Slot6_Abi(uint32_t ecx, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
+{
+    return Twiglet_Slot6(ecx, a0, a1, a2, a3);
+}
+ABI_ENTRY_0049d7a0(Twiglet_Slot6_Entry, Twiglet_Slot6_Abi)
+HOOK(0x0049d7a0, "Twiglet_Slot6", Twiglet_Slot6_Entry, nullptr);

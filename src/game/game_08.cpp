@@ -1823,8 +1823,9 @@ static uint32_t fn_00498fb0_Abi(uint32_t ecx)
 ABI_ENTRY_00498fb0(fn_00498fb0_Entry, fn_00498fb0_Abi)
 HOOK(0x00498fb0, "fn_00498fb0", fn_00498fb0_Entry, nullptr);
 
-// 0x00498ff0 (eax = turret, ebx = source pose; stack: dest pose, 2 unused; ret 0xc): the pivot-bone callback body
-// (same shape as the one registered at 0x00499670: guess). Copies 0xb dwords of the pose, then rotates it: qz = (0*s,
+// 0x00498ff0 (eax = turret, ebx = source pose; stack: dest pose, node, unused; ret 0xc): the pivot-bone callback body,
+// called by the untracked callback 0x00499670 (registered by 0x00498d60 / 0x004993e0; it passes eax = the node record's
+// turret, ebx = its second argument; its first argument, the node and its fourth). Copies 0xb dwords of the pose, then rotates it: qz = (0*s,
 // 0*s, s, c) of pitch +0x620 * 0.5 and qx = (s, s*0, s*0, c) of yaw +0x61c * 0.5 (x87 fsin/fcos), 0x004f1710 (eax = &qx,
 // ecx = &qz, esi = &q) and 0x004f1710 (eax = &q, ecx = source +0xc, esi = dest +0xc); dest +0x28 = source +0x28 | 1.
 uint32_t fn_00498ff0(uint32_t t, uint32_t src, uint32_t dst)
@@ -2953,3 +2954,350 @@ static uint32_t fn_0049be70_Abi(uint32_t ecx, uint32_t a0)
 }
 ABI_ENTRY_0049be70(fn_0049be70_Entry, fn_0049be70_Abi)
 HOOK(0x0049be70, "fn_0049be70", fn_0049be70_Entry, nullptr);
+
+namespace
+{
+// Calls an original function with no register or stack inputs that returns eax, saving the registers an LTCG callee
+// may clobber (0x0043ce10 has no ret of its own: it tail-jumps to World +0xe84 vt+0x34, so no generated wrapper exists).
+uint32_t CallNoArgs(uint32_t target)
+{
+    uint32_t r;
+    __asm {
+        push ebx
+        push esi
+        push edi
+        push ebp
+        call dword ptr [target]
+        pop ebp
+        pop edi
+        pop esi
+        pop ebx
+        mov r, eax
+    }
+    return r;
+}
+}  // namespace
+
+// 0x0049b030 (ecx = turret; vtable 0x005a9bb0 slot +0x464, the base turret update; 8-aligned frame of 0x190 bytes kept
+// as one array). After 0x00498710, only while the player is mounted here (g_game +0xac8, +0xacc == turret) with a wall
+// +0x7ec:
+// - crowd: every 10 s (+0x844 countdown) the crowd level from 0x0043ce10 (< 15, < 30, < 60, else: 0..3) restarts the
+//   ambience +0x840 ("amb_base_crowd_small/med/large") when it changed;
+// - overrun (+0x62f, unless g_game +0xdcd): every rand(45, 75) s (+0x838, 0x0046e2c0) a "grunt_regular" is created and
+//   passed to 0x0042d8f0 (eax = grunt, ecx = turret);
+// - camera mode 2 returns; the intro (+0x62d) ends when 0x00408800 (4) +0x1c has bit 2 (g_game +0xdce = 0); failure mode
+//   (g_game +0xdcd) counts +0x830 down then clears it and calls vt+0xdc; dying (+0x62e) counts +0x828 down to
+//   Object_SpawnHusk 0x00455660 + vt+0xf4(0) (+0x828 = 1e7) and calls vt+0xdc once the animation ends;
+// - side movement along the wall: input axes 2/3 (0x00414aa0, side_accel) accelerate +0x7a4, otherwise it decays by
+//   side_stop_accel to 0, clamped to side_max_speed; the position +0x7a0 += dt * speed maps to a frame of the wall's
+//   animation (0x00408800 / 0x004087b0 info: count +0x1c, start +0x14, end +0x18; truncated as __ftol2) and stops at the
+//   ends; the track loop "wpn_base_turret_track_lp" (+0x810) plays above speed 5;
+// - the turret matrix: 0x004eb5d0 (eax = info, edx = 0; "ref_base_turret") / 0x004ed260 / 0x00457aa0 / 0x004ec410
+//   give the base matrix; the 0x00414a30 aim axes (as 0x004990a0, ranges +0x744..+0x750, aim loop
+//   "wpn_base_turret_aim_lp" +0x814); trolley +0x804 = base * +0x7a8; turret = RotationX(+0x61c) * RotationZ(+0x620) *
+//   (base with identity rotation) * +0x7a8 (Matrix_Multiply 0x004e2910, Object_SetTransform 0x00457990 with al = 0);
+// - every third frame the objects of World +0xe7c list (0x004e7340 / 0x004e73c0) that pass vt+0x10c and 0x00426630,
+//   within 15 units in xy (squared < 225) and 10 (30 when stopped) in z of the turret, reverse the side speed, shake
+//   the camera (0x0040fac0 (eax = g_game +0xa68; 0.5, 1.0)) and take a hit desc {0x200, .., -1, 1000, direction
+//   (0x00453150, z = 0, normalised), 300000, turret} via vt+0xd0;
+// - zoom: button 10 (when 0x0047bc80 (eax = 10, ecx = device)) toggles, else button 11 held must match the zoom
+//   (0x00498320 toggles);
+// - ammo upgrade (g_game +0xdd1 starts +0x634 = +0x630) swaps the fake launchers (+0x808 vt+0xf4(0), +0x80c
+//   vt+0xf4(1), Anim_Set "base_homing_reload") while 0x00453740 passes for +0x808;
+// - fire: button 8 pressed plays "base_turret_l5_m5_fire" (0x81); button 8 held -> vt+0x138(0) -> vt+0x13c(0, 0), else
+//   the same animation with 0x10; button 9 -> vt+0x138(1) -> vt+0x13c(1, 0).
+// 0x004eb5d0 gets ecx = 0 (the original's ecx there is path-dependent and only read when edx != 0).
+uint32_t fn_0049b030(uint32_t obj)
+{
+    alignas(8) uint8_t F[0x190];  // [esp + 0x10 + off] after the four register pushes
+    auto FA = [&](uint32_t off) { return u(F) + off; };
+    auto FF = [&](uint32_t off) -> float& { return *reinterpret_cast<float*>(F + off); };
+    auto FD = [&](uint32_t off) -> uint32_t& { return *reinterpret_cast<uint32_t*>(F + off); };
+    const float zero = K(0x0056c05c);
+
+    fn_00498710(obj);
+    {
+        const uint32_t g = G();
+        if (!D(g, 0xac8) || D(g, 0xacc) != obj || !D(obj, 0x7ec))
+            return 0;
+    }
+    // Crowd ambience.
+    FD(4) = D(0x00604a90, 0);
+    const float crowd = Fl(obj, 0x844) - FF(4);
+    Fl(obj, 0x844) = crowd;
+    if (crowd < zero || crowd == zero)
+    {
+        const uint32_t n = CallNoArgs(0x0043ce10);
+        const uint32_t level = n < 0xf ? 0u : (n < 0x1e ? 1u : (n < 0x3c ? 2u : 3u));
+        if (level != D(obj, 0x83c))
+        {
+            D(obj, 0x83c) = level;
+            VC<uint32_t>(D(G(), 0x2c), 0xd8, obj + 0x840, 0u);
+            const uint32_t lv = D(obj, 0x83c);
+            const uint32_t name = lv == 1 ? 0x0058f0d0u : (lv == 2 ? 0x0058f0bcu : (lv == 3 ? 0x0058f0a4u : 0u));
+            if (name)
+                D(obj, 0x840) = VC<uint32_t>(D(G(), 0x2c), 0xd0, name, 0u, 1u, 0u, 0xffffffffu, 0u);
+        }
+        D(obj, 0x844) = 0x41200000u;
+    }
+    // Overrun: periodic grunts.
+    if (B(obj, 0x62f) && !B(G(), 0xdcd))
+    {
+        const float o = Fl(obj, 0x838) - FF(4);
+        Fl(obj, 0x838) = o;
+        if (o < zero || o == zero)
+        {
+            const uint32_t grunt = orig::fn_0045f020(0, 0x005bbfe8, World(), 0, 0x400, 0, 0, 0, 0, 0xaa, 0);
+            orig::fn_0042d8f0(grunt, obj);
+            Fl(obj, 0x838) = orig::fn_0046e2c0(0, 0x42340000u, 0x42960000u);
+        }
+    }
+    if (orig::fn_0040fab0(D(G(), 0xa68)) == 2)
+        return 2;
+    if (B(obj, 0x62d) && (B(orig::fn_00408800(4, obj), 0x1c) & 2))
+    {
+        B(obj, 0x62d) = 0;
+        B(G(), 0xdce) = 0;
+    }
+    if (B(G(), 0xdcd))
+    {
+        const float f = Fl(obj, 0x830) - K(0x00604a90);
+        Fl(obj, 0x830) = f;
+        if (!(f < zero || f == zero))
+            return 0;
+        B(G(), 0xdcd) = 0;
+        return VC<uint32_t>(obj, 0xdc);
+    }
+    if (B(obj, 0x62e))
+    {
+        const float d = Fl(obj, 0x828) - K(0x00604a90);
+        Fl(obj, 0x828) = d;
+        if (d < zero || d == zero)
+        {
+            orig::fn_00455660(obj, obj);
+            VC<uint32_t>(obj, 0xf4, 0u);
+            D(obj, 0x828) = 0x4b189680u;  // 1e7
+        }
+        if (B(orig::fn_00408800(4, obj), 0x1c) & 2)
+            return VC<uint32_t>(obj, 0xdc);
+    }
+    // Side movement.
+    FF(0) = orig::fn_00414aa0(D(G(), 0xa80), 2, D(obj, 0x798), 0x3e570a3du, 0x3f000000u) * FF(4);
+    FF(8) = orig::fn_00414aa0(D(G(), 0xa80), 3, D(obj, 0x798), 0x3e570a3du, 0x3f000000u) * FF(4);
+    bool input = false;
+    if (!B(obj, 0x62e) && !B(obj, 0x62d) && (!(FF(0) == zero) || !(FF(8) == zero)))
+    {
+        input = true;
+        Fl(obj, 0x7a4) = (FF(8) - FF(0)) + Fl(obj, 0x7a4);
+    }
+    if (!input)
+    {
+        const float cur = Fl(obj, 0x7a4);
+        if (cur > zero)
+        {
+            const float nv = Fl(obj, 0x7a4) - FF(4) * Fl(obj, 0x79c);
+            Fl(obj, 0x7a4) = nv;
+            if (nv < zero)
+                D(obj, 0x7a4) = 0;
+        }
+        else if (cur < zero)
+        {
+            const float nv = FF(4) * Fl(obj, 0x79c) + Fl(obj, 0x7a4);
+            Fl(obj, 0x7a4) = nv;
+            if (nv > zero)
+                D(obj, 0x7a4) = 0;
+        }
+    }
+    if (Fl(obj, 0x7a4) > Fl(obj, 0x794))
+        D(obj, 0x7a4) = D(obj, 0x794);
+    else
+    {
+        const float nm = -Fl(obj, 0x794);
+        if (nm > Fl(obj, 0x7a4))
+            Fl(obj, 0x7a4) = nm;
+    }
+    const float pos = FF(4) * Fl(obj, 0x7a4) + Fl(obj, 0x7a0);
+    Fl(obj, 0x7a0) = pos;
+    const uint32_t wall = D(obj, 0x7ec);
+    const uint32_t info = orig::fn_004087b0(orig::fn_00408800(4, wall), wall);
+    FF(0) = static_cast<float>(static_cast<int32_t>(D(info, 0x1c)));
+    const int32_t start = static_cast<int32_t>(D(info, 0x14));
+    int32_t frame = static_cast<int32_t>(FF(0) * pos) + start;
+    const int32_t end = static_cast<int32_t>(D(info, 0x18));
+    if (frame > end)
+    {
+        frame = end;
+        FD(8) = static_cast<uint32_t>(end - start);
+        D(obj, 0x7a4) = 0;
+        Fl(obj, 0x7a0) = static_cast<float>(static_cast<int32_t>(FD(8))) / FF(0);
+    }
+    if (frame < static_cast<int32_t>(D(info, 0x14)))
+    {
+        frame = static_cast<int32_t>(D(info, 0x14));
+        D(obj, 0x7a0) = 0;
+        D(obj, 0x7a4) = 0;
+    }
+    if (std::fabs(Fl(obj, 0x7a4)) > K(0x005bcbdc))
+    {
+        if (!D(obj, 0x810))
+            D(obj, 0x810) = VC<uint32_t>(D(G(), 0x2c), 0xd0, 0x0058f088u, 0u, 1u, 0u, 0xffffffffu, 0u);
+    }
+    else if (D(obj, 0x810))
+    {
+        VC<uint32_t>(D(G(), 0x2c), 0xd8, obj + 0x810, 0u);
+        D(obj, 0x810) = 0;
+    }
+    // The base matrix at the wall frame.
+    const uint32_t node = orig::fn_004eb5d0(info, 0, 0, 0x0058f078);  // "ref_base_turret"
+    const uint32_t r1 = orig::fn_004ed260(D(obj, 0x410));
+    const uint32_t r2 = orig::fn_00457aa0(D(obj, 0x7ec));
+    const uint32_t mat = orig::fn_004ec410(node, static_cast<uint32_t>(frame), r2, r1, 0, 0);
+    FD(0x18) = D(obj, 0x620);
+    FD(0x14) = mat;
+    FD(0xc) = D(obj, 0x61c);
+    FF(0) = static_cast<uint8_t>(fn_00498310(obj)) ? Fl(obj, 0x5c4) : Fl(obj, 0x5bc);
+    FF(8) = static_cast<uint8_t>(fn_00498310(obj)) ? Fl(obj, 0x5c8) : Fl(obj, 0x5c0);
+    if (!B(obj, 0x62d) && !B(obj, 0x62e))
+    {
+        float v = orig::fn_00414a30(D(G(), 0xa80), 4, FD(0), 0x3e570a3du, 0x3f000000u) * FF(4);
+        Fl(obj, 0x620) = v + Fl(obj, 0x620);
+        v = orig::fn_00414a30(D(G(), 0xa80), 5, FD(0), 0x3e570a3du, 0x3f000000u) * FF(4);
+        Fl(obj, 0x620) = Fl(obj, 0x620) - v;
+        v = orig::fn_00414a30(D(G(), 0xa80), 7, FD(8), 0x3e570a3du, 0x3f000000u) * FF(4);
+        Fl(obj, 0x61c) = v + Fl(obj, 0x61c);
+        v = orig::fn_00414a30(D(G(), 0xa80), 6, FD(8), 0x3e570a3du, 0x3f000000u) * FF(4);
+        Fl(obj, 0x61c) = Fl(obj, 0x61c) - v;
+    }
+    ClampAngle(obj, 0x61c, 0x744, 0x748);
+    ClampAngle(obj, 0x620, 0x74c, 0x750);
+    const bool still = !(std::fabs(FF(0x18) - Fl(obj, 0x620)) > zero) && !(std::fabs(FF(0xc) - Fl(obj, 0x61c)) > zero);
+    if (still)
+    {
+        if (D(obj, 0x814))
+        {
+            VC<uint32_t>(D(G(), 0x2c), 0xd8, obj + 0x814, 0u);
+            D(obj, 0x814) = 0;
+        }
+    }
+    else if (!D(obj, 0x814))
+        D(obj, 0x814) = VC<uint32_t>(D(G(), 0x2c), 0xd0, 0x0058f060u, 0u, 1u, 0u, 0xffffffffu, 0u);
+    // Trolley and turret transforms.
+    uint32_t r = orig::fn_004e2910(FD(0x14), FA(0x70), obj + 0x7a8);
+    r = orig::fn_00457990(r & 0xffffff00u, D(obj, 0x804), FA(0x70));
+    std::memcpy(F + 0x28, P(FD(0x14)), 0x11 * 4);
+    FD(0x50) = 0x3f800000u;
+    FD(0x3c) = 0x3f800000u;
+    FD(0x28) = 0x3f800000u;
+    FD(0x30) = 0;
+    FD(0x2c) = 0;
+    FD(0x40) = 0;
+    FD(0x38) = 0;
+    FD(0x4c) = 0;
+    FD(0x48) = 0;
+    orig::fn_004e2e70(FA(0x100), D(obj, 0x620));
+    orig::fn_004e2e30(FA(0xb8), D(obj, 0x61c), 0, 0, 0, 0, 0, 0);
+    orig::fn_004e2910(FA(0xb8), FA(0x148), FA(0x100));
+    orig::fn_004e2910(FA(0x148), FA(0xb8), FA(0x28));
+    r = orig::fn_004e2910(FA(0xb8), FA(0x70), obj + 0x7a8);
+    orig::fn_00457990(r & 0xffffff00u, obj, FA(0x70));
+    // Wall collisions every third frame.
+    FD(0) = Fl(obj, 0x7a4) == zero ? 0x41f00000u : 0x41200000u;
+    const uint32_t count = D(obj, 0x824);
+    D(obj, 0x824) = count + 1;
+    if (count % 3 == 0)
+    {
+        D(obj, 0x824) = 0;
+        FD(0xc) = 0;
+        FD(0x10) = 0;
+        uint32_t it = orig::fn_004e7340(D(World(), 0xe7c), FA(0xc));
+        while (it)
+        {
+            if (static_cast<uint8_t>(VC<uint32_t>(it, 0x10c)) && static_cast<uint8_t>(orig::fn_00426630(it)))
+            {
+                VC<uint32_t>(it, 0x54, FA(0x1c));
+                const float dy = FF(0x20) - FF(0x8c);
+                const float dx = FF(0x1c) - FF(0x7c);
+                const float d2 = dx * dx + dy * dy;
+                if (d2 < K(0x005bcf8c) && FF(0) > std::fabs(FF(0x24) - FF(0x9c)))
+                {
+                    Fl(obj, 0x7a4) = -Fl(obj, 0x7a4);
+                    orig::fn_0040fac0(D(G(), 0xa68), 0x3f000000u, 0x3f800000u);
+                    std::memset(F + 0x28, 0, 0xd * 4);
+                    FD(0x3c) = 0x447a0000u;
+                    FD(0x38) = 0xffffffffu;
+                    FD(0x28) = 0x200;
+                    FD(0x50) = obj;
+                    orig::fn_00453150(obj, FA(0x40));
+                    FD(0x48) = 0;
+                    Vec3_Normalize(FA(0x40), FA(0x40));
+                    FD(0x4c) = 0x48927c00u;  // 300000
+                    VC<uint32_t>(it, 0xd0, FA(0x28));
+                }
+            }
+            it = orig::fn_004e73c0(FA(0xc));
+        }
+        if (FD(0x10))
+            --D(FD(0x10), 0x18);
+    }
+    // Zoom.
+    if (!B(obj, 0x62d) && !B(obj, 0x62e))
+    {
+        const uint32_t dev = D(G(), 0xa80);
+        uint32_t z = orig::fn_0047bc80(0xa, dev);
+        if (static_cast<uint8_t>(z))
+        {
+            z = orig::fn_00414730(Lo8(z, 1), 0xa, dev, 0x3f000000u);
+            if (static_cast<uint8_t>(z))
+                fn_00498320(obj);
+        }
+        else
+        {
+            z = orig::fn_00414810(Lo8(z, 1), 0xb, dev, 0x3f000000u);
+            if (static_cast<uint8_t>(fn_00498310(obj)) != static_cast<uint8_t>(z))
+                fn_00498320(obj);
+        }
+    }
+    // Ammo upgrade.
+    if (B(G(), 0xdd1))
+    {
+        B(G(), 0xdd1) = 0;
+        D(obj, 0x634) = D(obj, 0x630);
+    }
+    const float up = Fl(obj, 0x634) - K(0x00604a90);
+    Fl(obj, 0x634) = up;
+    if (up < zero || up == zero)
+        D(obj, 0x634) = 0;
+    if (Fl(obj, 0x634) > zero)
+    {
+        const uint32_t mortar = D(obj, 0x808);
+        if (static_cast<uint8_t>(orig::fn_00453740(mortar)))
+        {
+            VC<uint32_t>(mortar, 0xf4, 0u);
+            VC<uint32_t>(D(obj, 0x80c), 0xf4, 1u);
+            const uint32_t w = D(orig::fn_00408800(4, D(obj, 0x808)), 4);
+            orig::fn_00408d90(0xffffffffu, D(obj, 0x80c), 0x0058f10c, 0x200, 0, 0, 0, w);  // base_homing_reload
+        }
+    }
+    // Fire.
+    if (B(obj, 0x62d) || B(obj, 0x62e))
+        return 0;
+    if (static_cast<uint8_t>(orig::fn_00414730(1, 8, D(G(), 0xa80), 0x3f000000u)))
+        orig::fn_00408d90(0xffffffffu, obj, 0x0058f048, 0x81, 0, 0, 0, 0);  // base_turret_l5_m5_fire
+    if (static_cast<uint8_t>(orig::fn_00414810(1, 8, D(G(), 0xa80), 0x3f000000u)))
+    {
+        if (static_cast<uint8_t>(VC<uint32_t>(obj, 0x138, 0u)))
+            VC<uint32_t>(obj, 0x13c, 0u, 0u);
+    }
+    else
+        orig::fn_00408d90(0xffffffffu, obj, 0x0058f048, 0x10, 0, 0, 0, 0);
+    if (static_cast<uint8_t>(orig::fn_00414730(1, 9, D(G(), 0xa80), 0x3f000000u)) &&
+        static_cast<uint8_t>(VC<uint32_t>(obj, 0x138, 1u)))
+        return VC<uint32_t>(obj, 0x13c, 1u, 0u);
+    return 0;
+}
+static uint32_t fn_0049b030_Abi(uint32_t ecx)
+{
+    return fn_0049b030(ecx);
+}
+ABI_ENTRY_0049b030(fn_0049b030_Entry, fn_0049b030_Abi)
+HOOK(0x0049b030, "fn_0049b030", fn_0049b030_Entry, nullptr);
