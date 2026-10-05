@@ -1997,4 +1997,1757 @@ static uint32_t fn_0048c5c0_Abi(uint32_t a0)
 ABI_ENTRY_0048c5c0(fn_0048c5c0_Entry, fn_0048c5c0_Abi)
 HOOK(0x0048c5c0, "fn_0048c5c0", fn_0048c5c0_Entry, nullptr);
 
-// PART3
+// ================================================================================================================
+// 0x0048c620 - 0x0048c9b0: save / load a slot
+// ================================================================================================================
+// Savegame header (0x124 bytes, written first): +0 level name (0x0044a660 of game+0xa64), +0x104 [game+0xa64]+8,
+// +0x108 game+0x550, +0x10c save format hash (manager+0x1028), +0x110 0x0044a9d0(header, game+0xa64), +0x114
+// FILETIME of the save (GetSystemTime + SystemTimeToFileTime), +0x11c thumbnail width 0x80, +0x120 height 0x4c.
+// The thumbnail (width * height * 4 bytes) follows, then the object data (0x0048b780).
+
+uint32_t fn_004a3930(uint32_t eax);
+
+// 0x0048c620 (eax = wide slot name, esi = manager): saves the game into the slot: narrows the name (unused copy,
+// at most 0xff chars), opens savegame.dat for writing (0x0048b6d0 mode 1), writes the header and a 0x80 x 0x4c
+// thumbnail (SaveGame_CreateThumbnail into a "thumbnail temp" buffer), 0x00406690 (eax = game+0xa6c, ecx = game),
+// audio (game+0x2c) vt+0x114(0x00487d80), lists the subsystems game+0xa84, +0xa78, +0xa94, +0xa90, +0xa68, +0xa7c,
+// +0xa9c (0x0048ba60), writes the objects (0x0048b780), audio vt+0x114(0x00487d90), closes (0x0048b720 BL = 1;
+// ecx scratch 0) and on success counts game+0x56c. Caller 0x004a3a80. Not executed in recorded runs.
+uint32_t SaveGame_Write(uint32_t wname, uint8_t* m)
+{
+    uint8_t f[0x240] = {};  // original frame: +8 SYSTEMTIME, +0x18 header, +0x140 narrowed name
+    const wchar_t* w = reinterpret_cast<const wchar_t*>(wname);
+    const uint32_t len = GameFunction<uint32_t(__cdecl*)(const wchar_t*)>(0x00538ea0)(w);
+    uint32_t left = 0x100;
+    uint32_t i = 0;
+    if (len != 0)
+    {
+        for (;;)
+        {
+            if (--left == 0)
+                break;
+            f[0x140 + i] = static_cast<uint8_t>(w[i]);
+            ++i;
+            if (i >= len)
+                break;
+        }
+    }
+    f[0x140 + i] = 0;
+    const uint32_t r = fn_0048b6d0(m, 1, wname);
+    if (static_cast<uint8_t>(r) == 0)
+        return r;
+    uint8_t* h = f + 0x18;
+    std::memset(h, 0, 0x49 * 4);
+    const char* name = reinterpret_cast<const char*>(orig::fn_0044a660(Field<uint32_t>(Gm(), 0xa64), 0));
+    std::strcpy(reinterpret_cast<char*>(h), name);
+    Field<uint32_t>(h, 0x104) = Field<uint32_t>(Field<uint8_t*>(Gm(), 0xa64), 8);
+    Field<uint32_t>(h, 0x108) = Field<uint32_t>(Gm(), 0x550);
+    Field<uint32_t>(h, 0x10c) = Field<uint32_t>(m, 0x1028);
+    Field<uint32_t>(h, 0x110) = orig::fn_0044a9d0(u(h), Field<uint32_t>(Gm(), 0xa64));
+    Imp<decltype(&GetSystemTime)>(0x0056b1dc)(reinterpret_cast<LPSYSTEMTIME>(f + 8));
+    Imp<decltype(&SystemTimeToFileTime)>(0x0056b110)(reinterpret_cast<const SYSTEMTIME*>(f + 8),
+                                                     reinterpret_cast<LPFILETIME>(h + 0x114));
+    Field<uint32_t>(h, 0x11c) = 0x80;
+    Field<uint32_t>(h, 0x120) = 0x4c;
+    fn_0048c380(0x124, m, u(h));
+    const uint32_t buf = HeapAlloc_(0x1a, Field<uint32_t>(h, 0x120) * Field<uint32_t>(h, 0x11c) * 4, 2, 0x0059d948);
+    SaveGame_CreateThumbnail(Field<uint32_t>(h, 0x120), Field<uint32_t>(h, 0x11c), buf);
+    fn_0048c380(Field<uint32_t>(h, 0x11c) * Field<uint32_t>(h, 0x120) * 4, m, buf);
+    Free(buf);
+    orig::fn_00406690(Field<uint32_t>(Gm(), 0xa6c), u(Gm()));
+    VCall<uint32_t>(Field<void*>(Gm(), 0x2c), 0x114 / 4, 0x00487d80u);
+    fn_0048ba60(Field<uint32_t>(Gm(), 0xa84), m);
+    fn_0048ba60(Field<uint32_t>(Gm(), 0xa78), m);
+    fn_0048ba60(Field<uint32_t>(Gm(), 0xa94), m);
+    fn_0048ba60(Field<uint32_t>(Gm(), 0xa90), m);
+    fn_0048ba60(Field<uint32_t>(Gm(), 0xa68), m);
+    fn_0048ba60(Field<uint32_t>(Gm(), 0xa7c), m);
+    fn_0048ba60(Field<uint32_t>(Gm(), 0xa9c), m);
+    fn_0048b780(m);
+    VCall<uint32_t>(Field<void*>(Gm(), 0x2c), 0x114 / 4, 0x00487d90u);
+    const uint32_t c = fn_0048b720(m, 0, 1);
+    if (static_cast<uint8_t>(c) != 0)
+        Field<uint32_t>(Gm(), 0x56c) += 1;
+    return c;
+}
+static uint32_t SaveGame_Write_Abi(uint32_t eax, uint32_t esi)
+{
+    return SaveGame_Write(eax, B(esi));
+}
+ABI_ENTRY_0048c620(SaveGame_Write_Entry, SaveGame_Write_Abi)
+HOOK(0x0048c620, "SaveGame_Write", SaveGame_Write_Entry, nullptr);
+
+// 0x0048c870 (eax = header buffer (0x124); stack: manager, wide slot name, texture record or 0, flag; ret 0x10):
+// reads a slot's header: releases the texture first (renderer vt+0x128(texture, 1)), opens savegame.dat for reading
+// (0x0048b6d0 mode 0), reads the header; when its format hash matches manager+0x1028 and 0x00418790 (ebx =
+// header+0x110, esi = header, edi = game+0xa64; flag) accepts it, loads the thumbnail into the texture
+// (Texture_LoadRgbPixels 0x0044f1f0: eax = pixels, ebx = texture; width, height, 1) through a "thumbnail temp"
+// buffer. Closes (0x0048b720, BL = result; ecx scratch 0). Callers 0x0048c990, 0x004a3020.
+uint32_t SaveGame_ReadHeader(uint8_t* h, uint8_t* m, uint32_t wname, uint32_t texture, uint32_t flag)
+{
+    if (texture != 0)
+        VCall<uint32_t>(Field<void*>(Gm(), 0x38), 0x128 / 4, texture, 1u);
+    const uint32_t r = fn_0048b6d0(m, 0, wname);
+    if (static_cast<uint8_t>(r) == 0)
+        return r;
+    uint8_t ok = static_cast<uint8_t>(fn_0048c3a0(0x124, m, u(h)));
+    if (ok != 0)
+    {
+        if (Field<uint32_t>(h, 0x10c) != Field<uint32_t>(m, 0x1028) ||
+            static_cast<uint8_t>(orig::fn_00418790(u(h + 0x110), u(h), Field<uint32_t>(Gm(), 0xa64), flag)) == 0)
+        {
+            ok = 0;
+        }
+        else if (texture != 0)
+        {
+            const uint32_t buf =
+                HeapAlloc_(0x1a, Field<uint32_t>(h, 0x11c) * Field<uint32_t>(h, 0x120) * 4, 2, 0x0059d948);
+            fn_0048c3a0(Field<uint32_t>(h, 0x11c) * Field<uint32_t>(h, 0x120) * 4, m, buf);
+            orig::fn_0044f1f0(buf, texture, Field<uint32_t>(h, 0x11c), Field<uint32_t>(h, 0x120), 1);
+            Free(buf);
+        }
+    }
+    return fn_0048b720(m, 0, ok);
+}
+static uint32_t SaveGame_ReadHeader_Abi(uint32_t eax, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
+{
+    return SaveGame_ReadHeader(B(eax), B(a0), a1, a2, a3);
+}
+ABI_ENTRY_0048c870(SaveGame_ReadHeader_Entry, SaveGame_ReadHeader_Abi)
+HOOK(0x0048c870, "SaveGame_ReadHeader", SaveGame_ReadHeader_Entry, nullptr);
+
+// 0x0048c990 (eax = wide slot name, ecx = manager): validates a slot: 0x0048c870 into a local header (no texture,
+// flag 1). Callers 0x00492fd0, 0x004a2e90.
+uint32_t SaveGame_CheckSlot(uint32_t wname, uint8_t* m)
+{
+    uint8_t h[0x124] = {};
+    return SaveGame_ReadHeader(h, m, wname, 0, 1);
+}
+static uint32_t SaveGame_CheckSlot_Abi(uint32_t eax, uint32_t ecx)
+{
+    return SaveGame_CheckSlot(eax, B(ecx));
+}
+ABI_ENTRY_0048c990(SaveGame_CheckSlot_Entry, SaveGame_CheckSlot_Abi)
+HOOK(0x0048c990, "SaveGame_CheckSlot", SaveGame_CheckSlot_Entry, nullptr);
+
+// 0x0048c9b0 (ecx = manager; stack: wide slot name; ret 4): loads the slot: opens it (0x0048b6d0 mode 0), reads
+// and checks the header (format hash, 0x00418790 with flag 1), 0x00401f60 (eax = header+0x108; game), skips the
+// thumbnail (0x0048c3a0 into null), sets byte +0x60 of the physics manager (game+0xa8c), loads the level
+// (Game_LoadLevelByName 0x00403640: ecx = game; header, header+0x104, slot name), reads the objects (0x0048b780);
+// on success 0x0048c5c0, 0x0048c530, PhysicsManager_Step (ecx = 1, edi = physics; 0), 0x004a3930 (eax = 0) and
+// 0x00401f40(game, 0). Closes (0x0048b720, BL = result) and on success counts game+0x56c. Caller 0x00403690.
+uint32_t SaveGame_Load(uint8_t* m, uint32_t wname)
+{
+    uint8_t f[0x230] = {};  // original frame: +0xc header, +0x130 narrowed name
+    const wchar_t* w = reinterpret_cast<const wchar_t*>(wname);
+    const uint32_t len = GameFunction<uint32_t(__cdecl*)(const wchar_t*)>(0x00538ea0)(w);
+    uint32_t left = 0x100;
+    uint32_t i = 0;
+    if (len != 0)
+    {
+        for (;;)
+        {
+            if (--left == 0)
+                break;
+            f[0x130 + i] = static_cast<uint8_t>(w[i]);
+            ++i;
+            if (i >= len)
+                break;
+        }
+    }
+    f[0x130 + i] = 0;
+    const uint32_t r = fn_0048b6d0(m, 0, wname);
+    if (static_cast<uint8_t>(r) == 0)
+        return r;
+    uint8_t* h = f + 0xc;
+    uint8_t ok = static_cast<uint8_t>(fn_0048c3a0(0x124, m, u(h)));
+    if (ok != 0)
+    {
+        if (Field<uint32_t>(h, 0x10c) != Field<uint32_t>(m, 0x1028) ||
+            static_cast<uint8_t>(orig::fn_00418790(u(h + 0x110), u(h), Field<uint32_t>(Gm(), 0xa64), 1)) == 0)
+        {
+            ok = 0;
+        }
+        else
+        {
+            orig::fn_00401f60(Field<uint32_t>(h, 0x108), u(Gm()));
+            fn_0048c3a0(Field<uint32_t>(h, 0x120) * Field<uint32_t>(h, 0x11c) * 4, m, 0);
+            uint8_t* phys = Field<uint8_t*>(Gm(), 0xa8c);
+            if (phys != nullptr)
+                phys[0x60] = 1;
+            orig::fn_00403640(u(Gm()), u(h), Field<uint32_t>(h, 0x104), wname);
+            ok = static_cast<uint8_t>(fn_0048b780(m));
+            if (ok != 0)
+            {
+                fn_0048c5c0(u(m));
+                fn_0048c530(u(m));
+                const uint32_t pm = Field<uint32_t>(Gm(), 0xa8c);
+                if (pm != 0)
+                    orig::fn_00411d40(1, pm, 0);
+                fn_004a3930(0);
+                orig::fn_00401f40(u(Gm()), 0);
+            }
+        }
+    }
+    const uint32_t c = fn_0048b720(m, 0, ok);
+    if (static_cast<uint8_t>(c) != 0)
+        Field<uint32_t>(Gm(), 0x56c) += 1;
+    return c;
+}
+static uint32_t SaveGame_Load_Abi(uint32_t ecx, uint32_t a0)
+{
+    return SaveGame_Load(B(ecx), a0);
+}
+ABI_ENTRY_0048c9b0(SaveGame_Load_Entry, SaveGame_Load_Abi)
+HOOK(0x0048c9b0, "SaveGame_Load", SaveGame_Load_Entry, nullptr);
+
+// ================================================================================================================
+// 0x0048cb30 - : recreating objects on load, per-class serialise methods
+// ================================================================================================================
+
+// 0x0048cb30 (eax = saved type id; stack: manager; ret 4): recreates one saved object and lists it (0x0048ba60).
+// id >= 0: template = 0x0045ac10(id & 0x1ff, object system game+0xa84); when (id >> 18) & 0x3ff is set the level
+// table entry is spawned (0x0045d7a0(system, that, 0)); otherwise the template is created at a random point of the
+// level bounds (0x00449450, eax = box, ecx = game+0xa60; x, y in [10%, 90%], z in [90%, 95%] of the box via _rand)
+// with an identity matrix (flags 0x10) by ObjectSystem_CreateObject (eax = ecx = 0; system, matrix, 0x3ff,
+// template, 0, 0, 0, (id >> 9) & 0x1ff, 1). id < 0: singletons by id - 0x80000001: 0 game+0xa68, 1 +0xa90,
+// 2 +0xa94, 3 Streamers_Spawn (edi = +0xa94; 0), 4 +0xa84, 5 0x0041eb30(+0xa90), 6 FxInstance_Alloc (eax = +0xa90),
+// 7 +0xa7c, 8 Decals_TakeFree (eax = +0xa7c), 9 +0xa9c, 10 +0xa78; others 0. Returns the object (0 = failure).
+uint32_t fn_0048cb30(uint32_t id, uint8_t* m)
+{
+    uint8_t f[0x80] = {};  // original frame from its lowest local: +0x10 rand, +0x14 x, +0x18 y, +0x20 box,
+                           // +0x38 matrix (17 dwords)
+    uint32_t obj = 0;
+    if (static_cast<int32_t>(id) >= 0)
+    {
+        uint8_t* g = Gm();
+        const uint32_t sys = Field<uint32_t>(g, 0xa84);
+        const uint32_t entry = (id >> 18) & 0x3ff;
+        const uint32_t tmpl = orig::fn_0045ac10(id & 0x1ff, sys);
+        if (entry != 0)
+        {
+            obj = orig::fn_0045d7a0(0, sys, entry, 0);
+        }
+        else
+        {
+            orig::fn_00449450(u(f + 0x20), Field<uint32_t>(g, 0xa60));
+            const float* box = reinterpret_cast<const float*>(f + 0x20);
+            const float k1 = GameGlobal<float>(0x005bcecc);
+            const float k2 = GameGlobal<float>(0x005bcec8);
+            Field<int32_t>(f, 0x10) = static_cast<int32_t>(orig::fn_005391cd());
+            float t = static_cast<float>(Field<int32_t>(f, 0x10)) * k1;
+            t = t + GameGlobal<float>(0x005bcbfc);
+            float d = box[3] - box[0];
+            Field<float>(f, 0x14) = t * d + box[0];
+            Field<int32_t>(f, 0x10) = static_cast<int32_t>(orig::fn_005391cd());
+            t = static_cast<float>(Field<int32_t>(f, 0x10)) * k1;
+            t = t + GameGlobal<float>(0x005bcbfc);
+            d = box[4] - box[1];
+            Field<float>(f, 0x18) = t * d + box[1];
+            Field<int32_t>(f, 0x10) = static_cast<int32_t>(orig::fn_005391cd());
+            const uint32_t variant = (id >> 9) & 0x1ff;
+            t = static_cast<float>(Field<int32_t>(f, 0x10)) * k2;
+            t = t + GameGlobal<float>(0x005bcc38);
+            d = box[5] - box[2];
+            uint32_t* mtx = reinterpret_cast<uint32_t*>(f + 0x38);
+            std::memset(mtx, 0, 0x11 * 4);
+            Field<float>(f, 0x64) = t * d + box[2];
+            mtx[3] = Field<uint32_t>(f, 0x14);
+            mtx[7] = Field<uint32_t>(f, 0x18);
+            mtx[0] = 0x3f800000;
+            mtx[5] = 0x3f800000;
+            mtx[10] = 0x3f800000;
+            mtx[15] = 0x3f800000;
+            mtx[16] = 0x10;
+            obj = orig::fn_0045f020(0, 0, Field<uint32_t>(Gm(), 0xa84), u(mtx), 0x3ff, tmpl, 0, 0, 0, variant, 1);
+        }
+    }
+    else
+    {
+        uint8_t* g = Gm();
+        switch (id + 0x7fffffffu)
+        {
+        case 0:
+            obj = Field<uint32_t>(g, 0xa68);
+            break;
+        case 1:
+            obj = Field<uint32_t>(g, 0xa90);
+            break;
+        case 2:
+            obj = Field<uint32_t>(g, 0xa94);
+            break;
+        case 3:
+            obj = orig::fn_00494ee0(Field<uint32_t>(g, 0xa94), 0);
+            break;
+        case 4:
+            obj = Field<uint32_t>(g, 0xa84);
+            break;
+        case 5:
+            obj = orig::fn_0041eb30(Field<uint32_t>(g, 0xa90));
+            break;
+        case 6:
+            obj = orig::fn_0041cc20(Field<uint32_t>(g, 0xa90));
+            break;
+        case 7:
+            obj = Field<uint32_t>(g, 0xa7c);
+            break;
+        case 8:
+            obj = orig::fn_004165a0(Field<uint32_t>(g, 0xa7c));
+            break;
+        case 9:
+            obj = Field<uint32_t>(g, 0xa9c);
+            break;
+        case 10:
+            obj = Field<uint32_t>(g, 0xa78);
+            break;
+        default:
+            return 0;
+        }
+    }
+    if (obj != 0)
+        fn_0048ba60(obj, m);
+    return obj;
+}
+static uint32_t fn_0048cb30_Abi(uint32_t eax, uint32_t a0)
+{
+    return fn_0048cb30(eax, B(a0));
+}
+ABI_ENTRY_0048cb30(fn_0048cb30_Entry, fn_0048cb30_Abi)
+HOOK(0x0048cb30, "fn_0048cb30", fn_0048cb30_Entry, nullptr);
+
+// 0x0048cdb0 (eax = body or 0, esi = 0x90-byte state): captures a physics body's state, the inverse of
+// Body_RestoreState 0x0048cec0: +0 flags (1 = body +0xc bit 0, 2 = entity (+8) vt+0x18 == 4, 4 = +0x44 set), +4
+// float +0x3c, +8 float +0x38, +0xc +0x20, then entity +0x20 (4 dwords), +0xb0 (4), +0x30 (4); unless flag 1 also
+// entity vt+0x24(state+0x40), entity +0x40 (4) at +0x70 and +0x50 (4) at +0x80. Returns the size (0x40 / 0x90; 0
+// for no body). Caller 0x0048cf70. Not executed in recorded runs.
+uint32_t Body_CaptureState(uint8_t* body, uint8_t* s)
+{
+    if (body == nullptr)
+        return 0;
+    Field<uint32_t>(s, 0) = 0;
+    if ((Field<uint8_t>(body, 0xc) & 1) != 0)
+        Field<uint32_t>(s, 0) = 1;
+    if (VCall<uint32_t>(Field<void*>(body, 8), 0x18 / 4) == 4)
+        Field<uint32_t>(s, 0) |= 2;
+    if (Field<uint32_t>(body, 0x44) != 0)
+        Field<uint32_t>(s, 0) |= 4;
+    Field<float>(s, 4) = Field<float>(body, 0x3c);
+    Field<float>(s, 8) = Field<float>(body, 0x38);
+    Field<uint32_t>(s, 0xc) = Field<uint32_t>(body, 0x20);
+    uint8_t* e = Field<uint8_t*>(body, 8);
+    for (uint32_t i = 0; i < 4; ++i)
+        Field<uint32_t>(s, 0x10 + i * 4) = Field<uint32_t>(e, 0x20 + i * 4);
+    e = Field<uint8_t*>(body, 8);
+    for (uint32_t i = 0; i < 4; ++i)
+        Field<uint32_t>(s, 0x20 + i * 4) = Field<uint32_t>(e, 0xb0 + i * 4);
+    e = Field<uint8_t*>(body, 8);
+    for (uint32_t i = 0; i < 4; ++i)
+        Field<uint32_t>(s, 0x30 + i * 4) = Field<uint32_t>(e, 0x30 + i * 4);
+    if ((Field<uint8_t>(s, 0) & 1) != 0)
+        return 0x40;
+    VCall<uint32_t>(Field<void*>(body, 8), 0x24 / 4, u(s + 0x40));
+    e = Field<uint8_t*>(body, 8);
+    for (uint32_t i = 0; i < 4; ++i)
+        Field<uint32_t>(s, 0x70 + i * 4) = Field<uint32_t>(e, 0x40 + i * 4);
+    e = Field<uint8_t*>(body, 8);
+    for (uint32_t i = 0; i < 4; ++i)
+        Field<uint32_t>(s, 0x80 + i * 4) = Field<uint32_t>(e, 0x50 + i * 4);
+    return 0x90;
+}
+static uint32_t Body_CaptureState_Abi(uint32_t eax, uint32_t esi)
+{
+    return Body_CaptureState(B(eax), B(esi));
+}
+ABI_ENTRY_0048cdb0(Body_CaptureState_Entry, Body_CaptureState_Abi)
+HOOK(0x0048cdb0, "Body_CaptureState", Body_CaptureState_Entry, nullptr);
+
+// 0x0048cf70 (eax = body or 0, edi = manager): writes a body's state: size (Body_CaptureState into a 16-aligned
+// 0x90-byte local), then the state when the size is nonzero. Callers 0x0048d010, 0x0048d1c0. Not executed in
+// recorded runs.
+uint32_t fn_0048cf70(uint8_t* body, uint8_t* m)
+{
+    alignas(16) uint8_t state[0x90] = {};
+    uint32_t size = Body_CaptureState(body, state);
+    uint32_t r = fn_0048c380(4, m, u(&size));
+    if (size != 0)
+        r = fn_0048c380(size, m, u(state));
+    return r;
+}
+static uint32_t fn_0048cf70_Abi(uint32_t eax, uint32_t edi)
+{
+    return fn_0048cf70(B(eax), B(edi));
+}
+ABI_ENTRY_0048cf70(fn_0048cf70_Entry, fn_0048cf70_Abi)
+HOOK(0x0048cf70, "fn_0048cf70", fn_0048cf70_Entry, nullptr);
+
+// 0x0048cfc0 (eax = manager; stack: body; caller pops): reads a body's state: size, then the state and
+// Body_RestoreState (eax = size, ecx = body, esi = state) when nonzero. Callers 0x0048d090, 0x0048d280.
+uint32_t fn_0048cfc0(uint8_t* m, uint32_t body)
+{
+    alignas(16) uint8_t state[0x90] = {};
+    uint32_t size = 0;
+    uint32_t r = fn_0048c3a0(4, m, u(&size));
+    if (size != 0)
+    {
+        fn_0048c3a0(size, m, u(state));
+        r = orig::fn_0048cec0(size, body, u(state));
+    }
+    return r;
+}
+static uint32_t fn_0048cfc0_Abi(uint32_t eax, uint32_t a0)
+{
+    return fn_0048cfc0(B(eax), a0);
+}
+ABI_ENTRY_0048cfc0(fn_0048cfc0_Entry, fn_0048cfc0_Abi)
+HOOK(0x0048cfc0, "fn_0048cfc0", fn_0048cfc0_Entry, nullptr);
+
+// 0x0048d010 (eax = manager, ecx not read (push ecx is a local), esi = array of 0x4c-byte records {+0 body}
+// ended by a null body, or null): writes the record count, then each body's state (0x0048cf70). Caller 0x0048d1c0.
+// Not executed in recorded runs.
+uint32_t fn_0048d010(uint8_t* m, uint8_t* arr)
+{
+    uint32_t n = 0;
+    if (arr == nullptr)
+        return fn_0048c380(4, m, u(&n));
+    while (Field<uint32_t>(arr, n * 0x4c) != 0)
+        ++n;
+    fn_0048c380(4, m, u(&n));
+    uint32_t i = 0;
+    uint32_t body = Field<uint32_t>(arr, 0);
+    while (body != 0)
+    {
+        fn_0048cf70(B(body), m);
+        ++i;
+        body = Field<uint32_t>(arr, i * 0x4c);
+    }
+    return body;
+}
+static uint32_t fn_0048d010_Abi(uint32_t eax, uint32_t /*ecx*/, uint32_t esi)
+{
+    return fn_0048d010(B(eax), B(esi));
+}
+ABI_ENTRY_0048d010(fn_0048d010_Entry, fn_0048d010_Abi)
+HOOK(0x0048d010, "fn_0048d010", fn_0048d010_Entry, nullptr);
+
+// 0x0048d090 (eax = array of 0x4c-byte records or null, ecx not read, edi = manager): reads the record count and
+// restores each record's body (0x0048cfc0); once the array is null or a body is null, the remaining states are read
+// with a null body (the pointer then stops advancing, original). Caller 0x0048d280. Returns 0.
+uint32_t fn_0048d090(uint8_t* arr, uint8_t* m)
+{
+    uint32_t n = 0;
+    fn_0048c3a0(4, m, u(&n));
+    while (n != 0)
+    {
+        --n;
+        if (arr != nullptr && Field<uint32_t>(arr, 0) != 0)
+        {
+            fn_0048cfc0(m, Field<uint32_t>(arr, 0));
+            arr += 0x4c;
+        }
+        else
+        {
+            fn_0048cfc0(m, 0);
+        }
+    }
+    return 0;
+}
+static uint32_t fn_0048d090_Abi(uint32_t eax, uint32_t /*ecx*/, uint32_t edi)
+{
+    return fn_0048d090(B(eax), B(edi));
+}
+ABI_ENTRY_0048d090(fn_0048d090_Entry, fn_0048d090_Abi)
+HOOK(0x0048d090, "fn_0048d090", fn_0048d090_Entry, nullptr);
+
+// 0x0048d0f0 (ecx = object): the object's saved type id (decoded by 0x0048cb30): 0 when the object is in one of
+// the object system's lists +0xec0, +0xeb8, +0xebc, +0xe6c (ObjectList_Contains, esi = list, edi = object) or has
+// flag 0x80000 in +0x424; else (template index 0x0045ac30(ecx = system, esi = +0x414)) & 0x1ff | (+0x418 & 0x1ff) << 9
+// | (word +0x396 & 0x3ff) << 18. Virtual method (object save vt+0, no direct callers). Not executed in recorded runs.
+uint32_t Object_SaveTypeId(uint8_t* obj)
+{
+    static const uint32_t lists[4] = {0xec0, 0xeb8, 0xebc, 0xe6c};
+    for (uint32_t i = 0; i < 4; ++i)
+    {
+        const uint32_t list = Field<uint32_t>(Field<uint8_t*>(Gm(), 0xa84), lists[i]);
+        if (static_cast<uint8_t>(orig::fn_00454690(list, u(obj))) != 0)
+            return 0;
+    }
+    if ((Field<uint32_t>(obj, 0x424) & 0x80000) != 0)
+        return 0;
+    const uint32_t t = orig::fn_0045ac30(Field<uint32_t>(Gm(), 0xa84), Field<uint32_t>(obj, 0x414));
+    const uint32_t hi = (((Field<uint16_t>(obj, 0x396) & 0x3ffu) << 9) | (Field<uint32_t>(obj, 0x418) & 0x1ffu)) << 9;
+    return (t & 0x1ff) | hi;
+}
+static uint32_t Object_SaveTypeId_Abi(uint32_t ecx)
+{
+    return Object_SaveTypeId(B(ecx));
+}
+ABI_ENTRY_0048d0f0(Object_SaveTypeId_Entry, Object_SaveTypeId_Abi)
+HOOK(0x0048d0f0, "Object_SaveTypeId", Object_SaveTypeId_Entry, nullptr);
+
+// 0x0048d1c0 (ecx = object; stack: manager; ret 4): object save write: described members (0x0048bda0 with the
+// class descriptor of vt slot 1), the Havok body state (+0x1c4, 0x0048cf70), the sub-body records (+0x1bc,
+// 0x0048d010), then the linked list +0x428 (next at +0): count and each 0x20-byte node. Callers 0x0048d3a0,
+// 0x0048d610, 0x0048df20.
+uint32_t fn_0048d1c0(uint8_t* obj, uint8_t* m)
+{
+    const uint32_t desc = VCall<uint32_t>(obj, 1);
+    fn_0048bda0(m, desc, u(obj));
+    fn_0048cf70(Field<uint8_t*>(obj, 0x1c4), m);
+    fn_0048d010(m, Field<uint8_t*>(obj, 0x1bc));
+    uint32_t n = 0;
+    for (const uint32_t* p = Field<uint32_t*>(obj, 0x428); p != nullptr; p = reinterpret_cast<const uint32_t*>(*p))
+        ++n;
+    uint32_t r = fn_0048c380(4, m, u(&n));
+    for (uint32_t* p = Field<uint32_t*>(obj, 0x428); p != nullptr; p = reinterpret_cast<uint32_t*>(*p))
+        r = fn_0048c380(0x20, m, u(p));
+    return r;
+}
+static uint32_t fn_0048d1c0_Abi(uint32_t ecx, uint32_t a0)
+{
+    return fn_0048d1c0(B(ecx), B(a0));
+}
+ABI_ENTRY_0048d1c0(fn_0048d1c0_Entry, fn_0048d1c0_Abi)
+HOOK(0x0048d1c0, "fn_0048d1c0", fn_0048d1c0_Entry, nullptr);
+
+// 0x0048d250 (ecx = object; stack: manager; ret 4): object save fixup: 0x0048c010 with its class descriptor, then
+// Object_UnlinkAll (ebx = object) and 0x00487df0 (esi = object). Callers 0x0048ddb0, 0x0048e0a0.
+uint32_t fn_0048d250(uint8_t* obj, uint8_t* m)
+{
+    const uint32_t desc = VCall<uint32_t>(obj, 1);
+    fn_0048c010(m, desc, u(obj));
+    orig::fn_004546f0(u(obj));
+    return orig::fn_00487df0(u(obj));
+}
+static uint32_t fn_0048d250_Abi(uint32_t ecx, uint32_t a0)
+{
+    return fn_0048d250(B(ecx), B(a0));
+}
+ABI_ENTRY_0048d250(fn_0048d250_Entry, fn_0048d250_Abi)
+HOOK(0x0048d250, "fn_0048d250", fn_0048d250_Entry, nullptr);
+
+// 0x0048d280 (ecx = object; stack: manager; ret 4): object save read, inverse of 0x0048d1c0: described members
+// (0x0048c0f0), body state (0x0048cfc0); a pending ragdoll flag (byte +0x421) is cleared and replayed:
+// Object_SetRagdoll (AL = 1, esi = object; 1, 1, 0), Body_addConstraints(object), Object_SetRagdoll (AL = 1; 1, 0,
+// 0); sub-bodies (0x0048d090), then each 0x20-byte node re-added with 0x0046f830 (eax = game+0xaa4; object, node)
+// and a final 0x0046f830(object, 0); +0x2d4 = 0, +0x370 = -1.0f, 0x00409ec0 (eax = object; 0, 1), 0x00453670
+// (eax = object). Callers 0x0048d380, 0x0048d450, 0x0048d670, 0x0048e0b0.
+uint32_t fn_0048d280(uint8_t* obj, uint8_t* m)
+{
+    uint8_t f[0x24] = {};  // original frame: +0 count, +4 node buffer (0x20)
+    const uint32_t desc = VCall<uint32_t>(obj, 1);
+    fn_0048c0f0(m, desc, u(obj));
+    uint32_t r = fn_0048cfc0(m, Field<uint32_t>(obj, 0x1c4));
+    if (Field<uint8_t>(obj, 0x421) != 0)
+    {
+        Field<uint8_t>(obj, 0x421) = 0;
+        orig::fn_00459000(Lo8(r, 1), u(obj), 1, 1, 0);
+        r = orig::fn_00456570(u(obj));
+        orig::fn_00459000(Lo8(r, 1), u(obj), 1, 0, 0);
+    }
+    fn_0048d090(Field<uint8_t*>(obj, 0x1bc), m);
+    fn_0048c3a0(4, m, u(f));
+    while (Field<uint32_t>(f, 0) != 0)
+    {
+        Field<uint32_t>(f, 0) -= 1;
+        fn_0048c3a0(0x20, m, u(f + 4));
+        orig::fn_0046f830(Field<uint32_t>(Gm(), 0xaa4), u(obj), u(f + 4));
+    }
+    Field<uint32_t>(f, 0) -= 1;
+    orig::fn_0046f830(Field<uint32_t>(Gm(), 0xaa4), u(obj), 0);
+    Field<uint32_t>(obj, 0x2d4) = 0;
+    Field<uint32_t>(obj, 0x370) = 0xbf800000;
+    orig::fn_00409ec0(u(obj), 0, 1);
+    return orig::fn_00453670(u(obj));
+}
+static uint32_t fn_0048d280_Abi(uint32_t ecx, uint32_t a0)
+{
+    return fn_0048d280(B(ecx), B(a0));
+}
+ABI_ENTRY_0048d280(fn_0048d280_Entry, fn_0048d280_Abi)
+HOOK(0x0048d280, "fn_0048d280", fn_0048d280_Entry, nullptr);
+
+// 0x0048d380 (ecx = object; stack: manager; ret 4): 0x0048d280 then 0x0049abf0 (eax = object). Virtual method (no
+// direct callers). Not executed in recorded runs.
+uint32_t fn_0048d380(uint8_t* obj, uint8_t* m)
+{
+    fn_0048d280(obj, m);
+    return orig::fn_0049abf0(u(obj));
+}
+static uint32_t fn_0048d380_Abi(uint32_t ecx, uint32_t a0)
+{
+    return fn_0048d380(B(ecx), B(a0));
+}
+ABI_ENTRY_0048d380(fn_0048d380_Entry, fn_0048d380_Abi)
+HOOK(0x0048d380, "fn_0048d380", fn_0048d380_Entry, nullptr);
+
+// 0x0048d3a0 (ecx = object; stack: manager; ret 4): write: 0x0048d1c0, then the container +0x958: its count
+// (vt+0x34) and each 12-byte item (iterator 0x004e7340 / 0x004e73c0); count 0 when there is no container. Returns
+// the iterator's released reference (or the write's EAX). Caller 0x0048d4d0. Not executed in recorded runs.
+uint32_t fn_0048d3a0(uint8_t* obj, uint8_t* m)
+{
+    uint32_t iter[2] = {0, 0};
+    fn_0048d1c0(obj, m);
+    uint32_t n = 0;
+    void* list = Field<void*>(obj, 0x958);
+    if (list == nullptr)
+        return fn_0048c380(4, m, u(&n));
+    n = VCall<uint32_t>(list, 0x34 / 4);
+    fn_0048c380(4, m, u(&n));
+    uint32_t item = orig::fn_004e7340(Field<uint32_t>(obj, 0x958), u(iter));
+    while (item != 0)
+    {
+        fn_0048c380(0xc, m, item);
+        item = orig::fn_004e73c0(u(iter));
+    }
+    const uint32_t held = iter[1];
+    if (held != 0)
+        Field<uint32_t>(B(held), 0x18) -= 1;
+    return held;
+}
+static uint32_t fn_0048d3a0_Abi(uint32_t ecx, uint32_t a0)
+{
+    return fn_0048d3a0(B(ecx), B(a0));
+}
+ABI_ENTRY_0048d3a0(fn_0048d3a0_Entry, fn_0048d3a0_Abi)
+HOOK(0x0048d3a0, "fn_0048d3a0", fn_0048d3a0_Entry, nullptr);
+
+// 0x0048d450 (ecx = object; stack: manager; ret 4): read, inverse of 0x0048d3a0: 0x0048d280, the item count; when
+// nonzero 0x004246c0 (AL = 1 on the count's upper bytes; object) and 0x004246a0 (esi = object), then each 12-byte
+// item re-added by 0x00424630 (eax = object, edi = item). Caller 0x0048d540.
+uint32_t fn_0048d450(uint8_t* obj, uint8_t* m)
+{
+    uint8_t item[0xc] = {};
+    fn_0048d280(obj, m);
+    uint32_t n = 0;
+    uint32_t r = fn_0048c3a0(4, m, u(&n));
+    if (n == 0)
+        return r;
+    orig::fn_004246c0(Lo8(n, 1), u(obj));
+    r = orig::fn_004246a0(u(obj));
+    while (n != 0)
+    {
+        --n;
+        fn_0048c3a0(0xc, m, u(item));
+        r = orig::fn_00424630(u(obj), u(item));
+    }
+    return r;
+}
+static uint32_t fn_0048d450_Abi(uint32_t ecx, uint32_t a0)
+{
+    return fn_0048d450(B(ecx), B(a0));
+}
+ABI_ENTRY_0048d450(fn_0048d450_Entry, fn_0048d450_Abi)
+HOOK(0x0048d450, "fn_0048d450", fn_0048d450_Entry, nullptr);
+
+// 0x0048d4d0 (ecx = object; stack: manager; ret 4): write: 0x0048d3a0, then for each of the +0xb68 entries at
+// +0xb6c: 0x0046d720 (edx = 0x0041f4f0(eax = game+0xa90, ecx = 2), esi = entry) written as 4 bytes. Virtual
+// method (no direct callers). Not executed in recorded runs.
+uint32_t fn_0048d4d0(uint8_t* obj, uint8_t* m)
+{
+    uint32_t r = fn_0048d3a0(obj, m);
+    for (uint32_t i = 0; i < Field<uint32_t>(obj, 0xb68); ++i)
+    {
+        const uint32_t t = orig::fn_0041f4f0(Field<uint32_t>(Gm(), 0xa90), 2);
+        uint32_t v = orig::fn_0046d720(t, Field<uint32_t>(obj, 0xb6c + i * 4));
+        r = fn_0048c380(4, m, u(&v));
+    }
+    return r;
+}
+static uint32_t fn_0048d4d0_Abi(uint32_t ecx, uint32_t a0)
+{
+    return fn_0048d4d0(B(ecx), B(a0));
+}
+ABI_ENTRY_0048d4d0(fn_0048d4d0_Entry, fn_0048d4d0_Abi)
+HOOK(0x0048d4d0, "fn_0048d4d0", fn_0048d4d0_Entry, nullptr);
+
+// 0x0048d540 (ecx = object; stack: manager; ret 4): read, inverse of 0x0048d4d0: 0x0048d450, then each +0xb6c
+// entry = 0x0046d740 (esi = 0x0041f4f0(game+0xa90, 2), edi = value read; 1). The `push 1` precedes the 0x0041f4f0
+// call (plain ret) and is 0x0046d740's argument. Virtual method (no direct callers). Not executed in recorded runs.
+uint32_t fn_0048d540(uint8_t* obj, uint8_t* m)
+{
+    uint32_t r = fn_0048d450(obj, m);
+    for (uint32_t i = 0; i < Field<uint32_t>(obj, 0xb68); ++i)
+    {
+        uint32_t v = 0;
+        fn_0048c3a0(4, m, u(&v));
+        const uint32_t t = orig::fn_0041f4f0(Field<uint32_t>(Gm(), 0xa90), 2);
+        r = orig::fn_0046d740(t, v, 1);
+        Field<uint32_t>(obj, 0xb6c + i * 4) = r;
+    }
+    return r;
+}
+static uint32_t fn_0048d540_Abi(uint32_t ecx, uint32_t a0)
+{
+    return fn_0048d540(B(ecx), B(a0));
+}
+ABI_ENTRY_0048d540(fn_0048d540_Entry, fn_0048d540_Abi)
+HOOK(0x0048d540, "fn_0048d540", fn_0048d540_Entry, nullptr);
+
+// 0x0048d5d0 (ecx = object; stack: manager; ret 4): collect: 0x00461b60, then lists each of the +0x4b8 objects at
+// +0x4b4 (0x0048ba60). Virtual method (no direct callers). Not executed in recorded runs.
+uint32_t fn_0048d5d0(uint8_t* obj, uint8_t* m)
+{
+    uint32_t r = fn_00461b60(obj, u(m));
+    for (uint32_t i = 0; i < Field<uint32_t>(obj, 0x4b8); ++i)
+    {
+        fn_0048ba60(Field<uint32_t*>(obj, 0x4b4)[i], m);
+        r = Field<uint32_t>(obj, 0x4b8);
+    }
+    return r;
+}
+static uint32_t fn_0048d5d0_Abi(uint32_t ecx, uint32_t a0)
+{
+    return fn_0048d5d0(B(ecx), B(a0));
+}
+ABI_ENTRY_0048d5d0(fn_0048d5d0_Entry, fn_0048d5d0_Abi)
+HOOK(0x0048d5d0, "fn_0048d5d0", fn_0048d5d0_Entry, nullptr);
+
+// 0x0048d610 (ecx = object; stack: manager; ret 4): write: 0x0048d1c0, then each of the +0x4b8 objects at +0x4b4
+// as its object index (0x0048bb90). Virtual method (no direct callers). Not executed in recorded runs.
+uint32_t fn_0048d610(uint8_t* obj, uint8_t* m)
+{
+    uint32_t r = fn_0048d1c0(obj, m);
+    if (Field<uint32_t>(obj, 0x4b8) == 0)
+        return 0;
+    for (uint32_t i = 0; i < Field<uint32_t>(obj, 0x4b8); ++i)
+    {
+        uint32_t v = fn_0048bb90(m, Field<uint32_t*>(obj, 0x4b4)[i]);
+        fn_0048c380(4, m, u(&v));
+        r = Field<uint32_t>(obj, 0x4b8);
+    }
+    return r;
+}
+static uint32_t fn_0048d610_Abi(uint32_t ecx, uint32_t a0)
+{
+    return fn_0048d610(B(ecx), B(a0));
+}
+ABI_ENTRY_0048d610(fn_0048d610_Entry, fn_0048d610_Abi)
+HOOK(0x0048d610, "fn_0048d610", fn_0048d610_Entry, nullptr);
+
+// 0x0048d670 (ecx = object; stack: manager; ret 4): read, inverse of 0x0048d610: 0x0048d280, then (when +0x4b8 is
+// nonzero) allocates the +0x4b4 array (tag 3, "spline keys") and fills it with objects by index (0x0048bbc0).
+// Virtual method (no direct callers).
+uint32_t fn_0048d670(uint8_t* obj, uint8_t* m)
+{
+    uint32_t r = fn_0048d280(obj, m);
+    const uint32_t n = Field<uint32_t>(obj, 0x4b8);
+    if (n == 0)
+        return n;
+    Field<uint32_t>(obj, 0x4b4) = HeapAlloc_(3, n * 4, 2, 0x005b2330);
+    r = Field<uint32_t>(obj, 0x4b8);
+    for (uint32_t i = 0; i < Field<uint32_t>(obj, 0x4b8); ++i)
+    {
+        uint32_t v = 0;
+        fn_0048c3a0(4, m, u(&v));
+        Field<uint32_t*>(obj, 0x4b4)[i] = fn_0048bbc0(v, m);
+        r = Field<uint32_t>(obj, 0x4b8);
+    }
+    return r;
+}
+static uint32_t fn_0048d670_Abi(uint32_t ecx, uint32_t a0)
+{
+    return fn_0048d670(B(ecx), B(a0));
+}
+ABI_ENTRY_0048d670(fn_0048d670_Entry, fn_0048d670_Abi)
+HOOK(0x0048d670, "fn_0048d670", fn_0048d670_Entry, nullptr);
+
+// 0x0048d6f0 (ecx = object; stack: manager; ret 4): collect: 0x0048bc80 with its class descriptor, then lists every
+// node of the chain +4 (next at +4) (0x0048ba60). Virtual method (no direct callers). Not executed in recorded runs.
+uint32_t fn_0048d6f0(uint8_t* obj, uint8_t* m)
+{
+    const uint32_t desc = VCall<uint32_t>(obj, 1);
+    uint32_t r = fn_0048bc80(m, desc, u(obj));
+    for (uint8_t* n = Field<uint8_t*>(obj, 4); n != nullptr; n = Field<uint8_t*>(n, 4))
+        r = fn_0048ba60(u(n), m);
+    return r;
+}
+static uint32_t fn_0048d6f0_Abi(uint32_t ecx, uint32_t a0)
+{
+    return fn_0048d6f0(B(ecx), B(a0));
+}
+ABI_ENTRY_0048d6f0(fn_0048d6f0_Entry, fn_0048d6f0_Abi)
+HOOK(0x0048d6f0, "fn_0048d6f0", fn_0048d6f0_Entry, nullptr);
+
+// 0x0048d730 (ecx = object; stack: manager; ret 4): write: described members (0x0048bda0), then (word +0x6c + 1) *
+// 0x20 bytes from +0x80. Virtual method (no direct callers). Not executed in recorded runs.
+uint32_t fn_0048d730(uint8_t* obj, uint8_t* m)
+{
+    const uint32_t desc = VCall<uint32_t>(obj, 1);
+    fn_0048bda0(m, desc, u(obj));
+    return fn_0048c380((Field<uint16_t>(obj, 0x6c) + 1u) << 5, m, Field<uint32_t>(obj, 0x80));
+}
+static uint32_t fn_0048d730_Abi(uint32_t ecx, uint32_t a0)
+{
+    return fn_0048d730(B(ecx), B(a0));
+}
+ABI_ENTRY_0048d730(fn_0048d730_Entry, fn_0048d730_Abi)
+HOOK(0x0048d730, "fn_0048d730", fn_0048d730_Entry, nullptr);
+
+// 0x0048d770 (ecx = object; stack: manager; ret 4): read, inverse of 0x0048d730. Virtual method (no direct callers).
+// Not executed in recorded runs.
+uint32_t fn_0048d770(uint8_t* obj, uint8_t* m)
+{
+    const uint32_t desc = VCall<uint32_t>(obj, 1);
+    fn_0048c0f0(m, desc, u(obj));
+    return fn_0048c3a0((Field<uint16_t>(obj, 0x6c) + 1u) << 5, m, Field<uint32_t>(obj, 0x80));
+}
+static uint32_t fn_0048d770_Abi(uint32_t ecx, uint32_t a0)
+{
+    return fn_0048d770(B(ecx), B(a0));
+}
+ABI_ENTRY_0048d770(fn_0048d770_Entry, fn_0048d770_Abi)
+HOOK(0x0048d770, "fn_0048d770", fn_0048d770_Entry, nullptr);
+
+// 0x0048d7b0 (ecx = object; stack: manager; ret 4): collect: 0x0048bc80 with the object's class descriptor, then
+// the global tables 0x005802d8 on g_game, 0x00584400 on 0x0063a1e8 and 0x005852b8 on 0x0063a140. Virtual method
+// (no direct callers). Not executed in recorded runs.
+uint32_t fn_0048d7b0(uint8_t* obj, uint8_t* m)
+{
+    const uint32_t desc = VCall<uint32_t>(obj, 1);
+    fn_0048bc80(m, desc, u(obj));
+    fn_0048bc80(m, 0x005802d8, u(Gm()));
+    fn_0048bc80(m, 0x00584400, 0x0063a1e8);
+    return fn_0048bc80(m, 0x005852b8, 0x0063a140);
+}
+static uint32_t fn_0048d7b0_Abi(uint32_t ecx, uint32_t a0)
+{
+    return fn_0048d7b0(B(ecx), B(a0));
+}
+ABI_ENTRY_0048d7b0(fn_0048d7b0_Entry, fn_0048d7b0_Abi)
+HOOK(0x0048d7b0, "fn_0048d7b0", fn_0048d7b0_Entry, nullptr);
+
+// 0x0048d800 (ecx = object; stack: manager; ret 4): write: the same four tables as 0x0048d7b0 (0x0048bda0), then a
+// block from 0x0046f250 (eax = game+0xaa4, edx = &size; &data; AL = ok, size 0 otherwise): size and data. Virtual
+// method (no direct callers). Not executed in recorded runs. (When 0x0046f250 fails the data pointer slot keeps
+// the manager pointer, written with size 0.)
+uint32_t fn_0048d800(uint8_t* obj, uint8_t* m)
+{
+    const uint32_t desc = VCall<uint32_t>(obj, 1);
+    fn_0048bda0(m, desc, u(obj));
+    fn_0048bda0(m, 0x005802d8, u(Gm()));
+    fn_0048bda0(m, 0x00584400, 0x0063a1e8);
+    fn_0048bda0(m, 0x005852b8, 0x0063a140);
+    uint32_t size = 0;
+    uint32_t data = u(m);
+    if (static_cast<uint8_t>(orig::fn_0046f250(Field<uint32_t>(Gm(), 0xaa4), u(&size), u(&data))) == 0)
+        size = 0;
+    fn_0048c380(4, m, u(&size));
+    return fn_0048c380(size, m, data);
+}
+static uint32_t fn_0048d800_Abi(uint32_t ecx, uint32_t a0)
+{
+    return fn_0048d800(B(ecx), B(a0));
+}
+ABI_ENTRY_0048d800(fn_0048d800_Entry, fn_0048d800_Abi)
+HOOK(0x0048d800, "fn_0048d800", fn_0048d800_Entry, nullptr);
+
+// 0x0048d8a0 (ecx = object; stack: manager; ret 4): fixup: 0x0048c010 with the same four tables as 0x0048d7b0.
+// Virtual method (no direct callers). Not executed in recorded runs.
+uint32_t fn_0048d8a0(uint8_t* obj, uint8_t* m)
+{
+    const uint32_t desc = VCall<uint32_t>(obj, 1);
+    fn_0048c010(m, desc, u(obj));
+    fn_0048c010(m, 0x005802d8, u(Gm()));
+    fn_0048c010(m, 0x00584400, 0x0063a1e8);
+    return fn_0048c010(m, 0x005852b8, 0x0063a140);
+}
+static uint32_t fn_0048d8a0_Abi(uint32_t ecx, uint32_t a0)
+{
+    return fn_0048d8a0(B(ecx), B(a0));
+}
+ABI_ENTRY_0048d8a0(fn_0048d8a0_Entry, fn_0048d8a0_Abi)
+HOOK(0x0048d8a0, "fn_0048d8a0", fn_0048d8a0_Entry, nullptr);
+
+// 0x0048d8f0 (ecx = object; stack: manager; ret 4): read, inverse of 0x0048d800: the four tables (0x0048c0f0), the
+// current block (0x0046f250, eax = game+0xaa4, edx = &size; &data; result not checked, the size slot starts as the
+// manager pointer as in the original's reused argument slot), the saved size, then reads `size` bytes into the block
+// when the saved size matches, else into null; 0x0040f8c0 (edx = object; game+0x4b0). Virtual method (no direct
+// callers). Not executed in recorded runs.
+uint32_t fn_0048d8f0(uint8_t* obj, uint8_t* m)
+{
+    const uint32_t desc = VCall<uint32_t>(obj, 1);
+    fn_0048c0f0(m, desc, u(obj));
+    fn_0048c0f0(m, 0x005802d8, u(Gm()));
+    fn_0048c0f0(m, 0x00584400, 0x0063a1e8);
+    fn_0048c0f0(m, 0x005852b8, 0x0063a140);
+    uint32_t size = u(m);
+    uint32_t data = 0;
+    uint32_t saved = 0;
+    orig::fn_0046f250(Field<uint32_t>(Gm(), 0xaa4), u(&size), u(&data));
+    fn_0048c3a0(4, m, u(&saved));
+    fn_0048c3a0(size, m, saved == size ? data : 0);
+    return orig::fn_0040f8c0(u(obj), Field<uint32_t>(Gm(), 0x4b0));
+}
+static uint32_t fn_0048d8f0_Abi(uint32_t ecx, uint32_t a0)
+{
+    return fn_0048d8f0(B(ecx), B(a0));
+}
+ABI_ENTRY_0048d8f0(fn_0048d8f0_Entry, fn_0048d8f0_Abi)
+HOOK(0x0048d8f0, "fn_0048d8f0", fn_0048d8f0_Entry, nullptr);
+
+// 0x0048d9a0 (ecx = object; stack: manager; ret 4): collect: 0x0048bc80, then every node of the chain +0xc (next at
+// +0x50) (0x0048ba60). Virtual method (no direct callers). Not executed in recorded runs.
+uint32_t fn_0048d9a0(uint8_t* obj, uint8_t* m)
+{
+    const uint32_t desc = VCall<uint32_t>(obj, 1);
+    uint32_t r = fn_0048bc80(m, desc, u(obj));
+    for (uint8_t* n = Field<uint8_t*>(obj, 0xc); n != nullptr; n = Field<uint8_t*>(n, 0x50))
+        r = fn_0048ba60(u(n), m);
+    return r;
+}
+static uint32_t fn_0048d9a0_Abi(uint32_t ecx, uint32_t a0)
+{
+    return fn_0048d9a0(B(ecx), B(a0));
+}
+ABI_ENTRY_0048d9a0(fn_0048d9a0_Entry, fn_0048d9a0_Abi)
+HOOK(0x0048d9a0, "fn_0048d9a0", fn_0048d9a0_Entry, nullptr);
+
+// 0x0048d9e0 (ecx = object; stack: manager; ret 4): write: described members, then +0x1c * 16 bytes at +0x44,
+// +0x1c * 8 bytes at +0x4c (when set) and +0x20 * 2 bytes at +0x48. Virtual method (no direct callers). Not
+// executed in recorded runs.
+uint32_t fn_0048d9e0(uint8_t* obj, uint8_t* m)
+{
+    const uint32_t desc = VCall<uint32_t>(obj, 1);
+    fn_0048bda0(m, desc, u(obj));
+    fn_0048c380(Field<uint32_t>(obj, 0x1c) << 4, m, Field<uint32_t>(obj, 0x44));
+    if (Field<uint32_t>(obj, 0x4c) != 0)
+        fn_0048c380(Field<uint32_t>(obj, 0x1c) << 3, m, Field<uint32_t>(obj, 0x4c));
+    return fn_0048c380(Field<uint32_t>(obj, 0x20) << 1, m, Field<uint32_t>(obj, 0x48));
+}
+static uint32_t fn_0048d9e0_Abi(uint32_t ecx, uint32_t a0)
+{
+    return fn_0048d9e0(B(ecx), B(a0));
+}
+ABI_ENTRY_0048d9e0(fn_0048d9e0_Entry, fn_0048d9e0_Abi)
+HOOK(0x0048d9e0, "fn_0048d9e0", fn_0048d9e0_Entry, nullptr);
+
+// 0x0048da40 (ecx = object; stack: manager; ret 4): read, inverse of 0x0048d9e0. Virtual method (no direct
+// callers). Not executed in recorded runs.
+uint32_t fn_0048da40(uint8_t* obj, uint8_t* m)
+{
+    const uint32_t desc = VCall<uint32_t>(obj, 1);
+    fn_0048c0f0(m, desc, u(obj));
+    fn_0048c3a0(Field<uint32_t>(obj, 0x1c) << 4, m, Field<uint32_t>(obj, 0x44));
+    if (Field<uint32_t>(obj, 0x4c) != 0)
+        fn_0048c3a0(Field<uint32_t>(obj, 0x1c) << 3, m, Field<uint32_t>(obj, 0x4c));
+    return fn_0048c3a0(Field<uint32_t>(obj, 0x20) << 1, m, Field<uint32_t>(obj, 0x48));
+}
+static uint32_t fn_0048da40_Abi(uint32_t ecx, uint32_t a0)
+{
+    return fn_0048da40(B(ecx), B(a0));
+}
+ABI_ENTRY_0048da40(fn_0048da40_Entry, fn_0048da40_Abi)
+HOOK(0x0048da40, "fn_0048da40", fn_0048da40_Entry, nullptr);
+
+// 0x0048daa0 (ecx = object; stack: manager; ret 4): write: the count of nodes in the list +4 (next at +0) whose +0xc
+// is not 1, then each such node with the descriptor table 0x00588ca8 (0x0048bda0). Virtual method (no direct
+// callers). Not executed in recorded runs.
+uint32_t fn_0048daa0(uint8_t* obj, uint8_t* m)
+{
+    uint32_t n = 0;
+    for (uint8_t* p = Field<uint8_t*>(obj, 4); p != nullptr; p = Field<uint8_t*>(p, 0))
+        if (Field<uint32_t>(p, 0xc) != 1)
+            ++n;
+    uint32_t r = fn_0048c380(4, m, u(&n));
+    for (uint8_t* p = Field<uint8_t*>(obj, 4); p != nullptr; p = Field<uint8_t*>(p, 0))
+        if (Field<uint32_t>(p, 0xc) != 1)
+            r = fn_0048bda0(m, 0x00588ca8, u(p));
+    return r;
+}
+static uint32_t fn_0048daa0_Abi(uint32_t ecx, uint32_t a0)
+{
+    return fn_0048daa0(B(ecx), B(a0));
+}
+ABI_ENTRY_0048daa0(fn_0048daa0_Entry, fn_0048daa0_Abi)
+HOOK(0x0048daa0, "fn_0048daa0", fn_0048daa0_Entry, nullptr);
+
+// 0x0048db10 (ecx = object; stack: manager; ret 4): read, inverse of 0x0048daa0: moves every node of the list +4
+// whose +0xc is not 1 to the list +8 (PostEffect_MoveToList 0x0047c030: eax = node, edx = destination link; object),
+// reads the count, then for each takes the head of +8, moves it after the current tail link of +4 and reads it with
+// the table 0x00588ca8 (0x0048c0f0). Virtual method (no direct callers). Not executed in recorded runs.
+uint32_t fn_0048db10(uint8_t* obj, uint8_t* m)
+{
+    uint32_t link = u(obj + 4);
+    uint32_t node = *D(link);
+    while (node != 0)
+    {
+        if (Field<uint32_t>(B(node), 0xc) == 1)
+            link = node;
+        else
+            orig::fn_0047c030(node, u(obj + 8), u(obj));
+        node = *D(link);
+    }
+    uint32_t n = 0;
+    uint32_t r = fn_0048c3a0(4, m, u(&n));
+    while (n != 0)
+    {
+        --n;
+        const uint32_t head = Field<uint32_t>(obj, 8);
+        orig::fn_0047c030(head, link, u(obj));
+        r = fn_0048c0f0(m, 0x00588ca8, head);
+        link = head;
+    }
+    return r;
+}
+static uint32_t fn_0048db10_Abi(uint32_t ecx, uint32_t a0)
+{
+    return fn_0048db10(B(ecx), B(a0));
+}
+ABI_ENTRY_0048db10(fn_0048db10_Entry, fn_0048db10_Abi)
+HOOK(0x0048db10, "fn_0048db10", fn_0048db10_Entry, nullptr);
+
+// 0x0048dba0 (ecx = object; stack: manager; ret 4): collect: 0x0048bc80 with its descriptor, then every node of the
+// three lists at +0x1c, +0x20, +0x24 (0x0046d700 first / 0x0046d710 next, ecx = list) with the table 0x00588888.
+// Virtual method (no direct callers). Not executed in recorded runs.
+uint32_t fn_0048dba0(uint8_t* obj, uint8_t* m)
+{
+    const uint32_t desc = VCall<uint32_t>(obj, 1);
+    uint32_t r = fn_0048bc80(m, desc, u(obj));
+    for (uint32_t k = 0; k < 3; ++k)
+    {
+        const uint32_t list = Field<uint32_t>(obj, 0x1c + k * 4);
+        for (uint32_t n = orig::fn_0046d700(list); n != 0; n = orig::fn_0046d710(n, Field<uint32_t>(obj, 0x1c + k * 4)))
+            r = fn_0048bc80(m, 0x00588888, n);
+    }
+    return r;
+}
+static uint32_t fn_0048dba0_Abi(uint32_t ecx, uint32_t a0)
+{
+    return fn_0048dba0(B(ecx), B(a0));
+}
+ABI_ENTRY_0048dba0(fn_0048dba0_Entry, fn_0048dba0_Abi)
+HOOK(0x0048dba0, "fn_0048dba0", fn_0048dba0_Entry, nullptr);
+
+// 0x0048dc00 (ecx = object; stack: manager; ret 4): write: described members, then for each of the three lists at
+// +0x1c..+0x24 its node count and each node with the table 0x00588888 (0x0048bda0). Virtual method (no direct
+// callers). Not executed in recorded runs.
+uint32_t fn_0048dc00(uint8_t* obj, uint8_t* m)
+{
+    const uint32_t desc = VCall<uint32_t>(obj, 1);
+    uint32_t r = fn_0048bda0(m, desc, u(obj));
+    for (uint32_t k = 0; k < 3; ++k)
+    {
+        const uint32_t list = Field<uint32_t>(obj, 0x1c + k * 4);
+        uint32_t n = 0;
+        for (uint32_t p = orig::fn_0046d700(list); p != 0; p = orig::fn_0046d710(p, list))
+            ++n;
+        fn_0048c380(4, m, u(&n));
+        for (uint32_t p = orig::fn_0046d700(Field<uint32_t>(obj, 0x1c + k * 4)); p != 0;
+             p = orig::fn_0046d710(p, Field<uint32_t>(obj, 0x1c + k * 4)))
+            r = fn_0048bda0(m, 0x00588888, p);
+    }
+    return r;
+}
+static uint32_t fn_0048dc00_Abi(uint32_t ecx, uint32_t a0)
+{
+    return fn_0048dc00(B(ecx), B(a0));
+}
+ABI_ENTRY_0048dc00(fn_0048dc00_Entry, fn_0048dc00_Abi)
+HOOK(0x0048dc00, "fn_0048dc00", fn_0048dc00_Entry, nullptr);
+
+// 0x0048dca0 (ecx = object; stack: manager; ret 4): read, inverse of 0x0048dc00: for each of the three lists the
+// count, then each node allocated with Particle_Alloc (edx = list) and read with the table 0x00588888. Virtual
+// method (no direct callers). Not executed in recorded runs.
+uint32_t fn_0048dca0(uint8_t* obj, uint8_t* m)
+{
+    const uint32_t desc = VCall<uint32_t>(obj, 1);
+    uint32_t r = fn_0048c0f0(m, desc, u(obj));
+    for (uint32_t k = 0; k < 3; ++k)
+    {
+        uint32_t n = 0;
+        fn_0048c3a0(4, m, u(&n));
+        while (n != 0)
+        {
+            --n;
+            const uint32_t node = orig::fn_0046d910(Field<uint32_t>(obj, 0x1c + k * 4));
+            r = fn_0048c0f0(m, 0x00588888, node);
+        }
+    }
+    return r;
+}
+static uint32_t fn_0048dca0_Abi(uint32_t ecx, uint32_t a0)
+{
+    return fn_0048dca0(B(ecx), B(a0));
+}
+ABI_ENTRY_0048dca0(fn_0048dca0_Entry, fn_0048dca0_Abi)
+HOOK(0x0048dca0, "fn_0048dca0", fn_0048dca0_Entry, nullptr);
+
+namespace
+{
+// The eight movement speed globals and their names (0x0048dd20 / 0x0048ddb0).
+const uint32_t kSpeedInfo[8][2] = {
+    {0x005feb54, 0x0059044c}, {0x005feb2c, 0x00590438}, {0x005feb04, 0x00590424}, {0x005feadc, 0x0059040c},
+    {0x005feab4, 0x005903f8}, {0x005fea8c, 0x005903e4}, {0x005fea64, 0x005903d0}, {0x005fea3c, 0x005903bc},
+};
+}  // namespace
+
+// 0x0048dd20 (ecx = object; stack: manager; ret 4): collect: registers the eight g_*SpeedInfo globals
+// (0x005fea3c..0x005feb54, names "g_walkFwdSpeedInfo" etc. at 0x005903bc..0x0059044c) with 0x0048bab0, then
+// 0x00461b60. Virtual method (no direct callers). Not executed in recorded runs.
+uint32_t fn_0048dd20(void* obj, uint8_t* m)
+{
+    for (uint32_t i = 0; i < 8; ++i)
+        fn_0048bab0(kSpeedInfo[i][0], m, kSpeedInfo[i][1]);
+    return fn_00461b60(obj, u(m));
+}
+static uint32_t fn_0048dd20_Abi(uint32_t ecx, uint32_t a0)
+{
+    return fn_0048dd20(reinterpret_cast<void*>(ecx), B(a0));
+}
+ABI_ENTRY_0048dd20(fn_0048dd20_Entry, fn_0048dd20_Abi)
+HOOK(0x0048dd20, "fn_0048dd20", fn_0048dd20_Entry, nullptr);
+
+// 0x0048ddb0 (ecx = object; stack: manager; ret 4): fixup: the same eight registrations, then 0x0048d250. Virtual
+// method (no direct callers). Not executed in recorded runs.
+uint32_t fn_0048ddb0(uint8_t* obj, uint8_t* m)
+{
+    for (uint32_t i = 0; i < 8; ++i)
+        fn_0048bab0(kSpeedInfo[i][0], m, kSpeedInfo[i][1]);
+    return fn_0048d250(obj, m);
+}
+static uint32_t fn_0048ddb0_Abi(uint32_t ecx, uint32_t a0)
+{
+    return fn_0048ddb0(B(ecx), B(a0));
+}
+ABI_ENTRY_0048ddb0(fn_0048ddb0_Entry, fn_0048ddb0_Abi)
+HOOK(0x0048ddb0, "fn_0048ddb0", fn_0048ddb0_Entry, nullptr);
+
+// 0x0048de40 (ecx = fx object; stack: manager; ret 4): collect: 0x00461b60, then the emitters at +0x4ec (0x98-byte
+// entries while byte flag 8 is set, at most 10; table 0x005883d8), the particle emitters at +0x4f0 (0x194 bytes,
+// at most 10; table 0x00588048), the 4 entries at +0x514 (0x174 bytes; table 0x005885b8) and +0x518 (table
+// 0x00588510). Virtual method (no direct callers). Not executed in recorded runs.
+uint32_t fn_0048de40(uint8_t* obj, uint8_t* m)
+{
+    uint32_t r = fn_00461b60(obj, u(m));
+    if (Field<uint32_t>(obj, 0x4ec) != 0)
+    {
+        for (uint32_t off = 0; off < 0x5f0; off += 0x98)
+        {
+            const uint32_t e = Field<uint32_t>(obj, 0x4ec) + off;
+            if ((*B(e) & 8) == 0)
+                break;
+            r = fn_0048bc80(m, 0x005883d8, e);
+        }
+    }
+    if (Field<uint32_t>(obj, 0x4f0) != 0)
+    {
+        for (uint32_t off = 0; off < 0xfc8; off += 0x194)
+        {
+            const uint32_t e = Field<uint32_t>(obj, 0x4f0) + off;
+            if ((*B(e) & 8) == 0)
+                break;
+            r = fn_0048bc80(m, 0x00588048, e);
+        }
+    }
+    if (Field<uint32_t>(obj, 0x514) != 0)
+    {
+        for (uint32_t off = 0; off < 0x5d0; off += 0x174)
+            r = fn_0048bc80(m, 0x005885b8, Field<uint32_t>(obj, 0x514) + off);
+    }
+    const uint32_t last = Field<uint32_t>(obj, 0x518);
+    if (last != 0)
+        r = fn_0048bc80(m, 0x00588510, last);
+    return r;
+}
+static uint32_t fn_0048de40_Abi(uint32_t ecx, uint32_t a0)
+{
+    return fn_0048de40(B(ecx), B(a0));
+}
+ABI_ENTRY_0048de40(fn_0048de40_Entry, fn_0048de40_Abi)
+HOOK(0x0048de40, "fn_0048de40", fn_0048de40_Entry, nullptr);
+
+// 0x0048df20 (ecx = fx object; stack: manager; ret 4): write: 0x0048d1c0, then the count of flagged (bit 3) leading
+// emitters at +0x4ec (at most 10, 0 when absent) and each (table 0x005883d8), the same for +0x4f0 (table
+// 0x00588048), then the pointer +0x514 (as a presence flag) and its block (table 0x005885b8), and +0x518 likewise
+// (table 0x00588510). Virtual method (no direct callers). Not executed in recorded runs.
+uint32_t fn_0048df20(uint8_t* obj, uint8_t* m)
+{
+    fn_0048d1c0(obj, m);
+    uint32_t n = 0;
+    const uint32_t tables[2][4] = {{0x4ec, 0x98, 0x005883d8, 0}, {0x4f0, 0x194, 0x00588048, 0}};
+    for (uint32_t k = 0; k < 2; ++k)
+    {
+        const uint32_t arr = Field<uint32_t>(obj, tables[k][0]);
+        const uint32_t stride = tables[k][1];
+        if (arr == 0)
+        {
+            n = 0;
+            fn_0048c380(4, m, u(&n));
+            continue;
+        }
+        n = 0;
+        while ((*B(arr + n * stride) & 8) != 0)
+        {
+            ++n;
+            if (n >= 0xa)
+                break;
+        }
+        fn_0048c380(4, m, u(&n));
+        for (uint32_t i = 0; i < n; ++i)
+            fn_0048bda0(m, tables[k][2], Field<uint32_t>(obj, tables[k][0]) + i * stride);
+    }
+    n = Field<uint32_t>(obj, 0x514);
+    fn_0048c380(4, m, u(&n));
+    if (Field<uint32_t>(obj, 0x514) != 0)
+        fn_0048bda0(m, 0x005885b8, Field<uint32_t>(obj, 0x514));
+    n = Field<uint32_t>(obj, 0x518);
+    uint32_t r = fn_0048c380(4, m, u(&n));
+    if (Field<uint32_t>(obj, 0x518) != 0)
+        r = fn_0048bda0(m, 0x00588510, Field<uint32_t>(obj, 0x518));
+    return r;
+}
+static uint32_t fn_0048df20_Abi(uint32_t ecx, uint32_t a0)
+{
+    return fn_0048df20(B(ecx), B(a0));
+}
+ABI_ENTRY_0048df20(fn_0048df20_Entry, fn_0048df20_Abi)
+HOOK(0x0048df20, "fn_0048df20", fn_0048df20_Entry, nullptr);
+
+// 0x0048e0b0 (ecx = fx object; stack: manager; ret 4): read, inverse of 0x0048df20: 0x0048d280; with a local
+// context {0, object}: count emitters, each from FxObject_AllocEmitter (eax = &context; game+0xa90) read with table
+// 0x005883d8; count particle emitters (FxObject_AllocParticleEmitter, table 0x00588048); when the +0x514 flag is
+// set FxObject_EnsureUvScroll (esi = &context; game+0xa90) and +0x514 read with 0x005885b8; when the +0x518 flag is
+// set FxObject_EnsureTexAnim and +0x518 read with 0x00588510. Virtual method (no direct callers).
+uint32_t fn_0048e0b0(uint8_t* obj, uint8_t* m)
+{
+    uint32_t r = fn_0048d280(obj, m);
+    uint32_t n = 0;
+    uint32_t ctx[2] = {0, u(obj)};
+    fn_0048c3a0(4, m, u(&n));
+    for (uint32_t i = 0; i < n; ++i)
+    {
+        const uint32_t e = orig::fn_0041e420(u(ctx), Field<uint32_t>(Gm(), 0xa90));
+        r = fn_0048c0f0(m, 0x005883d8, e);
+    }
+    fn_0048c3a0(4, m, u(&n));
+    for (uint32_t i = 0; i < n; ++i)
+    {
+        const uint32_t e = orig::fn_0041e6b0(u(ctx), Field<uint32_t>(Gm(), 0xa90));
+        r = fn_0048c0f0(m, 0x00588048, e);
+    }
+    r = fn_0048c3a0(4, m, u(&n));
+    if (n != 0)
+    {
+        orig::fn_00420520(u(ctx), Field<uint32_t>(Gm(), 0xa90));
+        r = fn_0048c0f0(m, 0x005885b8, Field<uint32_t>(obj, 0x514));
+    }
+    r = fn_0048c3a0(4, m, u(&n));
+    if (n != 0)
+    {
+        orig::fn_0041e2c0(u(ctx), Field<uint32_t>(Gm(), 0xa90));
+        r = fn_0048c0f0(m, 0x00588510, Field<uint32_t>(obj, 0x518));
+    }
+    return r;
+}
+static uint32_t fn_0048e0b0_Abi(uint32_t ecx, uint32_t a0)
+{
+    return fn_0048e0b0(B(ecx), B(a0));
+}
+ABI_ENTRY_0048e0b0(fn_0048e0b0_Entry, fn_0048e0b0_Abi)
+HOOK(0x0048e0b0, "fn_0048e0b0", fn_0048e0b0_Entry, nullptr);
+
+// 0x0048e200 (ecx = object with texture records; stack: manager; ret 4): write: described members, the count of
+// the +0x20 records (0x24 bytes at +0x18) with bit 2 of byte +0x23, then for each such record its index, and the
+// renderer's raw texture data (vt+0x14c(record, &data, &size), AL = ok): size and data, then the data is freed;
+// size 0 when the renderer fails. Virtual method (no direct callers). Not executed in recorded runs.
+uint32_t fn_0048e200(uint8_t* obj, uint8_t* m)
+{
+    const uint32_t desc = VCall<uint32_t>(obj, 1);
+    fn_0048bda0(m, desc, u(obj));
+    uint32_t n = 0;
+    {
+        const uint8_t* rec = Field<uint8_t*>(obj, 0x18);
+        for (uint32_t i = 0; i < Field<uint32_t>(obj, 0x20); ++i)
+            if ((rec[i * 0x24 + 0x23] & 4) != 0)
+                ++n;
+    }
+    uint32_t r = fn_0048c380(4, m, u(&n));
+    uint8_t* rec = Field<uint8_t*>(obj, 0x18);
+    for (uint32_t i = 0; i < Field<uint32_t>(obj, 0x20); ++i, rec += 0x24)
+    {
+        if ((rec[0x23] & 4) == 0)
+            continue;
+        uint32_t index = i;
+        fn_0048c380(4, m, u(&index));
+        uint32_t size = 0;
+        uint32_t data = 0;
+        const uint32_t ok =
+            VCall<uint32_t>(Field<void*>(Gm(), 0x38), 0x14c / 4, u(rec), u(&data), u(&size));
+        if (static_cast<uint8_t>(ok) != 0)
+        {
+            fn_0048c380(4, m, u(&size));
+            fn_0048c380(size, m, data);
+            r = Free(data);
+        }
+        else
+        {
+            size = 0;
+            r = fn_0048c380(4, m, u(&size));
+        }
+    }
+    return r;
+}
+static uint32_t fn_0048e200_Abi(uint32_t ecx, uint32_t a0)
+{
+    return fn_0048e200(B(ecx), B(a0));
+}
+ABI_ENTRY_0048e200(fn_0048e200_Entry, fn_0048e200_Abi)
+HOOK(0x0048e200, "fn_0048e200", fn_0048e200_Entry, nullptr);
+
+// 0x0048e310 (ecx = object with texture records; stack: manager; ret 4): read, inverse of 0x0048e200 (texture data
+// restore): for each saved record index and size, reads the data into a "Temp raw texture data" buffer (tag 0x1a)
+// and hands it to the renderer (vt+0x150(record, data, size)), then frees it. Virtual method (no direct callers).
+// Not executed in recorded runs.
+uint32_t fn_0048e310(uint8_t* obj, uint8_t* m)
+{
+    const uint32_t desc = VCall<uint32_t>(obj, 1);
+    uint32_t r = fn_0048c0f0(m, desc, u(obj));
+    uint32_t n = 0;
+    r = fn_0048c3a0(4, m, u(&n));
+    while (n != 0)
+    {
+        --n;
+        uint32_t index = 0;
+        uint32_t size = 0;
+        fn_0048c3a0(4, m, u(&index));
+        const uint32_t rec = Field<uint32_t>(obj, 0x18) + index * 0x24;
+        r = fn_0048c3a0(4, m, u(&size));
+        if (size != 0)
+        {
+            const uint32_t buf = HeapAlloc_(0x1a, size, 2, 0x005903a4);
+            fn_0048c3a0(size, m, buf);
+            VCall<uint32_t>(Field<void*>(Gm(), 0x38), 0x150 / 4, rec, buf, size);
+            r = Free(buf);
+        }
+    }
+    return r;
+}
+static uint32_t fn_0048e310_Abi(uint32_t ecx, uint32_t a0)
+{
+    return fn_0048e310(B(ecx), B(a0));
+}
+ABI_ENTRY_0048e310(fn_0048e310_Entry, fn_0048e310_Abi)
+HOOK(0x0048e310, "fn_0048e310", fn_0048e310_Entry, nullptr);
+
+// 0x0048e3f0 (eax = container field, ecx = name, ebx = manager; stack: no-items flag; caller pops): collect for a
+// container member (save type 8): registers it in the +0x10 list (0x0048bab0, edi = manager; name): the container
+// [field], or the field itself when the container is null (original); unless the flag is set, lists every item of
+// the container (iterator 0x004e7340 / 0x004e73c0, 0x0048ba60) and releases the iterator's reference. Returns the
+// flag, that reference or 0x0048bab0's EAX. Caller 0x0048bc80.
+uint32_t fn_0048e3f0(uint32_t field, uint32_t name, uint8_t* m, uint32_t noItems)
+{
+    uint32_t iter[2] = {0, 0};
+    const uint32_t c = *D(field);
+    if (c == 0)
+        return fn_0048bab0(field, m, name);
+    fn_0048bab0(c, m, name);
+    if (noItems != 0)
+        return noItems;
+    uint32_t item = orig::fn_004e7340(c, u(iter));
+    while (item != 0)
+    {
+        fn_0048ba60(item, m);
+        item = orig::fn_004e73c0(u(iter));
+    }
+    const uint32_t held = iter[1];
+    if (held != 0)
+        Field<uint32_t>(B(held), 0x18) -= 1;
+    return held;
+}
+static uint32_t fn_0048e3f0_Abi(uint32_t eax, uint32_t ecx, uint32_t ebx, uint32_t a0)
+{
+    return fn_0048e3f0(eax, ecx, B(ebx), a0);
+}
+ABI_ENTRY_0048e3f0(fn_0048e3f0_Entry, fn_0048e3f0_Abi)
+HOOK(0x0048e3f0, "fn_0048e3f0", fn_0048e3f0_Entry, nullptr);
+
+// 0x0048e460 (eax = container field; stack: manager, flag (unused), name; caller pops): fixup for a container
+// member: creates a missing container (0x18 bytes, tag 0x10, "new"; 0x004e7010 eax = game+0xac4, edx = 0, esi =
+// block; 0 when the allocation fails) and registers it (0x0048bab0, edi = manager; name). Caller 0x0048c010.
+uint32_t fn_0048e460(uint32_t field, uint32_t mgr, uint32_t /*flag*/, uint32_t name)
+{
+    if (*D(field) == 0)
+    {
+        const uint32_t blk = HeapAlloc_(0x10, 0x18, 2, 0x0058b5e8);
+        *D(field) = blk != 0 ? orig::fn_004e7010(Field<uint32_t>(Gm(), 0xac4), 0, blk) : 0;
+    }
+    return fn_0048bab0(*D(field), B(mgr), name);
+}
+static uint32_t fn_0048e460_Abi(uint32_t eax, uint32_t a0, uint32_t a1, uint32_t a2)
+{
+    return fn_0048e460(eax, a0, a1, a2);
+}
+ABI_ENTRY_0048e460(fn_0048e460_Entry, fn_0048e460_Abi)
+HOOK(0x0048e460, "fn_0048e460", fn_0048e460_Entry, nullptr);
+
+// 0x0048e4b0 (ebx = manager; stack: container or null, mode; caller pops): write for a container member (save type
+// 8): null -> -1; mode 0: the count of items found in the object list (0x0048bb90), then each nonzero index; mode 1:
+// the same with the +0x10 list (0x0048bbd0); other modes write nothing. Two iterator passes (0x004e7340 /
+// 0x004e73c0); only the second pass's reference is released (original). Caller 0x0048bda0. Not executed in recorded
+// runs.
+uint32_t fn_0048e4b0(uint8_t* m, uint32_t list, uint32_t mode)
+{
+    uint32_t iter[2] = {0, 0};
+    uint32_t count = 0;
+    uint32_t idx = 0;
+    if (list == 0)
+    {
+        count = 0xffffffffu;
+        return fn_0048c380(4, m, u(&count));
+    }
+    if (mode != 0 && mode != 1)
+        return mode - 1;
+    auto lookup = [&](uint32_t item) { return mode == 0 ? fn_0048bb90(m, item) : fn_0048bbd0(m, item); };
+    for (uint32_t item = orig::fn_004e7340(list, u(iter)); item != 0; item = orig::fn_004e73c0(u(iter)))
+    {
+        idx = lookup(item);
+        if (idx != 0)
+            ++count;
+    }
+    fn_0048c380(4, m, u(&count));
+    for (uint32_t item = orig::fn_004e7340(list, u(iter)); item != 0; item = orig::fn_004e73c0(u(iter)))
+    {
+        idx = lookup(item);
+        if (idx != 0)
+            fn_0048c380(4, m, u(&idx));
+    }
+    const uint32_t held = iter[1];
+    if (held != 0)
+        Field<uint32_t>(B(held), 0x18) -= 1;
+    return held;
+}
+static uint32_t fn_0048e4b0_Abi(uint32_t ebx, uint32_t a0, uint32_t a1)
+{
+    return fn_0048e4b0(B(ebx), a0, a1);
+}
+ABI_ENTRY_0048e4b0(fn_0048e4b0_Entry, fn_0048e4b0_Abi)
+HOOK(0x0048e4b0, "fn_0048e4b0", fn_0048e4b0_Entry, nullptr);
+
+// 0x0048e630 (eax = container field, edi = manager; stack: mode, unused; caller pops): read for a container member:
+// count -1 destroys the container (vt+0x10(1)) and clears the field; otherwise mode 0 adds each object read by index
+// (0x0048bbc0) with vt+0x18(item), mode 1 the same from the +0x10 list (0x0048bc00). Returns the count (or the
+// destroy call's EAX / -1). Caller 0x0048c0f0.
+uint32_t fn_0048e630(uint32_t field, uint8_t* m, uint32_t mode, uint32_t /*a1*/)
+{
+    void* c = reinterpret_cast<void*>(*D(field));
+    uint32_t n = 0;
+    fn_0048c3a0(4, m, u(&n));
+    if (n == 0xffffffffu)
+    {
+        uint32_t r = n;
+        if (c != nullptr)
+            r = VCall<uint32_t>(c, 0x10 / 4, 1u);
+        *D(field) = 0;
+        return r;
+    }
+    if (n == 0 || (mode != 0 && mode != 1))
+        return n;
+    for (uint32_t i = 0; i < n; ++i)
+    {
+        uint32_t idx = 0;
+        fn_0048c3a0(4, m, u(&idx));
+        const uint32_t item = mode == 0 ? fn_0048bbc0(idx, m) : fn_0048bc00(idx, m);
+        VCall<uint32_t>(c, 0x18 / 4, item);
+    }
+    return n;
+}
+static uint32_t fn_0048e630_Abi(uint32_t eax, uint32_t edi, uint32_t a0, uint32_t a1)
+{
+    return fn_0048e630(eax, B(edi), a0, a1);
+}
+ABI_ENTRY_0048e630(fn_0048e630_Entry, fn_0048e630_Abi)
+HOOK(0x0048e630, "fn_0048e630", fn_0048e630_Entry, nullptr);
+
+// ================================================================================================================
+// 0x004a07a0 - 0x004a3930: unlocks, save slot state, quick load, progress.dat
+// ================================================================================================================
+// Game save-slot state (from use): +0x4cc slot number (1..6), +0x4d0 wide slot name, +0x510 wide quick-save slot
+// name, byte +0x568 flags (4, 8 quick save available, 0x10 progress saving on, 0x20), +0x56c saves counter,
+// progress (progress.dat): +0x1fc, +0x200 counts and the 0x80-byte tables +0x28c, +0x30c.
+
+uint32_t fn_004a2cb0();
+uint32_t fn_004a3840(uint32_t name);
+
+// 0x004a07a0 (eax = path, ecx = game, edi = unlock category; stack: byte apply; ret 4): unlocks an item: unless
+// 0x004a0720 (eax = path, ecx = category, ebx = game) reports it known or 0x004a0690 (eax = ecx = category, esi =
+// path; game) rejects it, and while the category has fewer than 0x20 entries (game+0x1f8[category]), appends the
+// hash (Str_HashName 0x004620b0) of the path's file name (_splitpath) to game+0x20c[category * 32 + n]. With apply:
+// categories 1 and 2 save progress (0x004a3840, eax = 0; its ecx = the new count, not read), others run
+// Options_Apply (AL = 1, esi = game). Category 2 always ends with 0x004a0850 (ecx = game). Callers include
+// 0x00415940, 0x0044daf0, 0x004a0850.
+uint32_t Unlock_Add(uint32_t path, uint8_t* g, uint32_t cat, uint32_t apply)
+{
+    char name[0x100] = {};
+    uint32_t r = orig::fn_004a0720(path, cat, u(g));
+    if (static_cast<uint8_t>(r) == 0)
+    {
+        r = orig::fn_004a0690(cat, cat, path, u(g));
+        if (static_cast<uint8_t>(r) != 0 && Field<uint32_t>(g, 0x1f8 + cat * 4) < 0x20)
+        {
+            SplitPath(path, 0, 0, u(name), 0);
+            const uint32_t h = orig::fn_004620b0(u(name));
+            const uint32_t n = Field<uint32_t>(g, 0x1f8 + cat * 4);
+            Field<uint32_t>(g, 0x20c + ((cat << 5) + n) * 4) = h;
+            Field<uint32_t>(g, 0x1f8 + cat * 4) = n + 1;
+            r = Lo8(h, apply);
+            if (static_cast<uint8_t>(apply) != 0)
+            {
+                if (cat == 1 || cat == 2)
+                    r = fn_004a3840(0);
+                else
+                    r = orig::fn_00401ce0(Lo8(h, 1), u(g));
+            }
+        }
+    }
+    if (cat == 2)
+        r = orig::fn_004a0850(u(g));
+    return r;
+}
+static uint32_t Unlock_Add_Abi(uint32_t eax, uint32_t ecx, uint32_t edi, uint32_t a0)
+{
+    return Unlock_Add(eax, B(ecx), edi, a0);
+}
+ABI_ENTRY_004a07a0(Unlock_Add_Entry, Unlock_Add_Abi)
+HOOK(0x004a07a0, "Unlock_Add", Unlock_Add_Entry, nullptr);
+
+// 0x004a2cb0: resets the save slot: deletes the L"SCRATCH" slot files (0x0048b500), clears the slot number, slot
+// name and quick-save name, flag 0x10 and the saves counter; with flag 4: flags = flags & ~0x20 | 8 and the quick-save
+// name = "SCRATCH" (0x00403be0, eax = name, edx = destination, edi = 0); else flags = flags & ~8 | 0x20. Ends with
+// 0x004a3930 (eax = 0, tail jump in the original). Callers 0x004921a0, 0x004a2d40, 0x004a2de0.
+uint32_t fn_004a2cb0()
+{
+    fn_0048b500(0x0059d9c8);
+    uint8_t* g = Gm();
+    Field<uint32_t>(g, 0x4cc) = 0;
+    Field<uint16_t>(g, 0x4d0) = 0;
+    Field<uint16_t>(g, 0x510) = 0;
+    Field<uint8_t>(g, 0x568) &= 0xef;
+    Field<uint32_t>(g, 0x56c) = 0;
+    const uint8_t f = Field<uint8_t>(g, 0x568);
+    if ((f & 4) != 0)
+    {
+        Field<uint8_t>(g, 0x568) = static_cast<uint8_t>((f & 0xdf) | 8);
+        orig::fn_00403be0(0x0059d9c8, u(g + 0x510), 0);
+        return fn_004a3930(0);
+    }
+    Field<uint8_t>(g, 0x568) = static_cast<uint8_t>((f & 0xf7) | 0x20);
+    return fn_004a3930(0);
+}
+static uint32_t fn_004a2cb0_Abi()
+{
+    return fn_004a2cb0();
+}
+ABI_ENTRY_004a2cb0(fn_004a2cb0_Entry, fn_004a2cb0_Abi)
+HOOK(0x004a2cb0, "fn_004a2cb0", fn_004a2cb0_Entry, nullptr);
+
+// 0x004a2d40 (eax = slot number, ebx = wide slot name or 0): selects a save slot: resets (0x004a2cb0); for slots
+// 1..6 stores the number and the name (given, or built by 0x004a2c10(eax = slot; destination)); with flag 4 sets
+// flag 0x10, else clears the saves counter, sets flags 0x18 and copies the name to the quick-save name. Ends with
+// 0x004a3930 (eax = 0, tail jump). Caller 0x004a2de0. Returns 0x004a2cb0's EAX for an invalid slot.
+uint32_t fn_004a2d40(uint32_t slot, uint32_t wname)
+{
+    const uint32_t r = fn_004a2cb0();
+    if (slot == 0 || slot >= 7)
+        return r;
+    uint8_t* g = Gm();
+    Field<uint32_t>(g, 0x4cc) = slot;
+    if (wname != 0)
+    {
+        orig::fn_00403be0(wname, u(g + 0x4d0), 0);
+    }
+    else
+    {
+        orig::fn_004a2c10(slot, u(g + 0x4d0));
+        g = Gm();
+    }
+    const uint8_t f = Field<uint8_t>(g, 0x568);
+    if ((f & 4) != 0)
+    {
+        Field<uint8_t>(g, 0x568) = static_cast<uint8_t>(f | 0x10);
+        return fn_004a3930(0);
+    }
+    Field<uint32_t>(g, 0x56c) = 0;
+    Field<uint8_t>(g, 0x568) |= 0x18;
+    orig::fn_00403be0(u(g + 0x4d0), u(g + 0x510), 0);
+    return fn_004a3930(0);
+}
+static uint32_t fn_004a2d40_Abi(uint32_t eax, uint32_t ebx)
+{
+    return fn_004a2d40(eax, ebx);
+}
+ABI_ENTRY_004a2d40(fn_004a2d40_Entry, fn_004a2d40_Abi)
+HOOK(0x004a2d40, "fn_004a2d40", fn_004a2d40_Entry, nullptr);
+
+// 0x004a2de0 (esi = profile/slot object or 0): when the object's vt+0x150 result has bit 11 set, selects its slot
+// (0x004a2d40: eax = +0x4fc, ebx = object+0x500); otherwise resets (0x004a2cb0, tail jump). Caller 0x004a3bf0.
+uint32_t fn_004a2de0(uint8_t* obj)
+{
+    if (obj != nullptr && (VCall<uint32_t>(obj, 0x150 / 4) & 0x800) != 0)
+        return fn_004a2d40(Field<uint32_t>(obj, 0x4fc), u(obj + 0x500));
+    return fn_004a2cb0();
+}
+static uint32_t fn_004a2de0_Abi(uint32_t esi)
+{
+    return fn_004a2de0(B(esi));
+}
+ABI_ENTRY_004a2de0(fn_004a2de0_Entry, fn_004a2de0_Abi)
+HOOK(0x004a2de0, "fn_004a2de0", fn_004a2de0_Entry, nullptr);
+
+// 0x004a2e40 (esi = save slot object): deletes the slot's files (0x0048b500, ecx = object+0x500), 0x004a3020(object,
+// byte +0x4fa); when +0x4fa is set, marks +0x4fb and calls vt+0x20(object) on the UI's top screen
+// (Ui_TopScreenField4 0x004907b0, eax = game+0xab4). Caller 0x004a2e29, inside an untracked function at 0x004a2e10
+// (closes the top UI screen 0x00490b60, then this with esi = its 2nd stack argument when set; AL = 1). Not executed
+// in recorded runs.
+uint32_t fn_004a2e40(uint8_t* obj)
+{
+    fn_0048b500(u(obj + 0x500));
+    const uint32_t r = orig::fn_004a3020(u(obj), Field<uint8_t>(obj, 0x4fa));
+    if (Field<uint8_t>(obj, 0x4fa) == 0)
+        return Lo8(r, 0);
+    Field<uint8_t>(obj, 0x4fb) = 1;
+    void* top = reinterpret_cast<void*>(orig::fn_004907b0(Field<uint32_t>(Gm(), 0xab4)));
+    return VCall<uint32_t>(top, 0x20 / 4, u(obj));
+}
+static uint32_t fn_004a2e40_Abi(uint32_t esi)
+{
+    return fn_004a2e40(B(esi));
+}
+ABI_ENTRY_004a2e40(fn_004a2e40_Entry, fn_004a2e40_Abi)
+HOOK(0x004a2e40, "fn_004a2e40", fn_004a2e40_Entry, nullptr);
+
+// 0x004a2e90 (esi = wide output or 0; stack: byte validate; caller pops): AL = 1 when a quick save exists (flag 8
+// and a nonzero saves counter) and, with validate, its slot passes SaveGame_CheckSlot (eax = quick-save name, ecx =
+// game+0xab8); copies the quick-save name to the output (0x00403be0). Callers 0x00491b70, 0x004a2ef0.
+uint32_t QuickSave_Available(uint32_t out, uint32_t validate)
+{
+    uint8_t* g = Gm();
+    uint32_t r = Field<uint8_t>(g, 0x568);
+    if ((Field<uint8_t>(g, 0x568) & 8) == 0)
+        return Lo8(r, 0);
+    r = Field<uint32_t>(g, 0x56c);
+    if (r == 0)
+        return 0;
+    if (static_cast<uint8_t>(validate) != 0)
+    {
+        r = SaveGame_CheckSlot(u(g + 0x510), Field<uint8_t*>(g, 0xab8));
+        if (static_cast<uint8_t>(r) == 0)
+            return Lo8(r, 0);
+        g = Gm();
+    }
+    if (out != 0)
+        r = orig::fn_00403be0(u(g + 0x510), out, 0);
+    return Lo8(r, 1);
+}
+static uint32_t QuickSave_Available_Abi(uint32_t esi, uint32_t a0)
+{
+    return QuickSave_Available(esi, a0);
+}
+ABI_ENTRY_004a2e90(QuickSave_Available_Entry, QuickSave_Available_Abi)
+HOOK(0x004a2e90, "QuickSave_Available", QuickSave_Available_Entry, nullptr);
+
+// 0x004a2ef0: quick load: when a valid quick save exists (0x004a2e90 with validation, name copied after a '-'),
+// passes L"-<name>" to 0x00490810 (eax = UI, edx = string) and pushes the "Loading" screen (UI_PushScreen eax = 0);
+// otherwise shows the "ui_notify_badQuickload" notification (UI_PushNotify: ecx = UI, edx = 0; 0, 0, 0). Caller
+// 0x004921a0. Not executed in recorded runs.
+uint32_t QuickLoad_Start()
+{
+    uint16_t buf[0x100] = {};
+    if (static_cast<uint8_t>(QuickSave_Available(u(buf + 1), 1)) != 0)
+    {
+        uint8_t* g = Gm();
+        buf[0] = 0x2d;
+        orig::fn_00490810(Field<uint32_t>(g, 0xab4), u(buf));
+        return orig::fn_00490b00(0, Field<uint32_t>(g, 0xab4), 0x005b252c);
+    }
+    return orig::fn_00490970(0x0058e8d4, Field<uint32_t>(Gm(), 0xab4), 0, 0, 0, 0);
+}
+static uint32_t QuickLoad_Start_Abi()
+{
+    return QuickLoad_Start();
+}
+ABI_ENTRY_004a2ef0(QuickLoad_Start_Entry, QuickLoad_Start_Abi)
+HOOK(0x004a2ef0, "QuickLoad_Start", QuickLoad_Start_Entry, nullptr);
+
+// 0x004a3840 (eax = wide slot name or 0 (then the current slot game+0x4d0, nothing without a slot); ecx only a
+// `push ecx` local): when progress saving is on (flag 0x10), writes the slot's "progress.dat" (0x0048b0a0 mode 1):
+// magic 0xfecd0001 (0x0057e870), game+0x550, +0x1fc, the 0x80 bytes +0x28c, +0x200, the 0x80 bytes +0x30c.
+// Callers 0x004a07a0, 0x004a3a80. Returns the slot name argument when nothing is written.
+uint32_t fn_004a3840(uint32_t name)
+{
+    uint8_t* g = Gm();
+    if ((Field<uint8_t>(g, 0x568) & 0x10) == 0)
+        return name;
+    if (name == 0)
+    {
+        if (Field<uint32_t>(g, 0x4cc) == 0)
+            return 0;
+        name = u(g + 0x4d0);
+    }
+    const uint32_t s = orig::fn_0048b0a0(name, 0x0058e7b8, 1);
+    if (s == 0)
+        return 0;
+    if (static_cast<uint8_t>(orig::fn_0048aac0(s)) != 0)
+    {
+        orig::fn_0048ac90(4, s, 0x0057e870);
+        uint32_t v = Field<uint32_t>(Gm(), 0x550);
+        orig::fn_0048ac90(4, s, u(&v));
+        orig::fn_0048ac90(4, s, u(Gm() + 0x1fc));
+        orig::fn_0048ac90(0x80, s, u(Gm() + 0x28c));
+        orig::fn_0048ac90(4, s, u(Gm() + 0x200));
+        orig::fn_0048ac90(0x80, s, u(Gm() + 0x30c));
+        orig::fn_0048aff0(s, 0);
+    }
+    return orig::fn_0048b130(s);
+}
+static uint32_t fn_004a3840_Abi(uint32_t eax, uint32_t /*ecx*/)
+{
+    return fn_004a3840(eax);
+}
+ABI_ENTRY_004a3840(fn_004a3840_Entry, fn_004a3840_Abi)
+HOOK(0x004a3840, "fn_004a3840", fn_004a3840_Entry, nullptr);
+
+// 0x004a3930 (eax = wide slot name or 0 = current slot): clears progress (+0x1fc, +0x200), 0x00401f60 (eax = 1;
+// game), then reads the slot's "progress.dat": magic 0xfecd0001, a value passed to 0x00401f60 (eax = value; game),
+// +0x1fc, +0x28c (0x80), +0x200, +0x30c (0x80). AL = 1 when read. Callers 0x0048c9b0, 0x004a2cb0, 0x004a2d40,
+// 0x004a3020.
+uint32_t fn_004a3930(uint32_t name)
+{
+    uint8_t ok = 0;
+    uint8_t* g = Gm();
+    Field<uint32_t>(g, 0x1fc) = 0;
+    Field<uint32_t>(g, 0x200) = 0;
+    const uint32_t r = orig::fn_00401f60(1, u(g));
+    if (name == 0)
+    {
+        if (Field<uint32_t>(Gm(), 0x4cc) == 0)
+            return Lo8(r, 0);
+        name = u(Gm() + 0x4d0);
+    }
+    const uint32_t s = orig::fn_0048b0a0(name, 0x0058e7b8, 0);
+    if (s == 0)
+        return 0;
+    if (static_cast<uint8_t>(orig::fn_0048aac0(s)) != 0)
+    {
+        uint32_t magic = 0;
+        uint32_t v = 0;
+        orig::fn_0048af10(s, u(&magic), 4);
+        if (magic == 0xfecd0001)
+        {
+            orig::fn_0048af10(s, u(&v), 4);
+            orig::fn_00401f60(v, u(Gm()));
+            orig::fn_0048af10(s, u(Gm() + 0x1fc), 4);
+            orig::fn_0048af10(s, u(Gm() + 0x28c), 0x80);
+            orig::fn_0048af10(s, u(Gm() + 0x200), 4);
+            orig::fn_0048af10(s, u(Gm() + 0x30c), 0x80);
+            ok = 1;
+        }
+        orig::fn_0048aff0(s, 0);
+    }
+    return Lo8(orig::fn_0048b130(s), ok);
+}
+static uint32_t fn_004a3930_Abi(uint32_t eax)
+{
+    return fn_004a3930(eax);
+}
+ABI_ENTRY_004a3930(fn_004a3930_Entry, fn_004a3930_Abi)
+HOOK(0x004a3930, "fn_004a3930", fn_004a3930_Entry, nullptr);

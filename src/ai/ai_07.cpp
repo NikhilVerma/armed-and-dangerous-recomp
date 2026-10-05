@@ -156,14 +156,14 @@ uint32_t Object_FindByTag(uint32_t list, uint32_t tag, uint32_t from);
 uint64_t fn_00454cc0(uint32_t esi, uint32_t edi);
 uint32_t fn_00454e60(uint32_t ebx, uint32_t edi, uint32_t a0);
 uint32_t Object_MarkGrid(uint32_t self, uint32_t enable, uint32_t mode);
-uint32_t fn_0046f480(uint32_t eax, uint32_t ecx);
-uint32_t fn_0046ece0(uint32_t eax, uint32_t ecx, uint32_t edx, uint32_t esi, uint32_t a0);
-uint32_t fn_0046f2e0(uint32_t eax, uint32_t ecx, uint32_t edx);
-uint32_t fn_0046f320(uint32_t esi, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3);
-uint32_t fn_0046f440(uint32_t esi, uint32_t edi);
-uint32_t fn_0046f5b0(uint32_t eax, uint32_t ecx, uint32_t edx, uint32_t esi, uint32_t edi, uint32_t a0, uint32_t a1);
-uint32_t fn_00470aa0(uint32_t eax, uint32_t ecx, uint32_t a0);
-uint32_t fn_00470c30(uint32_t eax);
+uint32_t AIRoute_Refresh(uint32_t eax, uint32_t ecx);
+uint32_t Grid_SetCell(uint32_t eax, uint32_t ecx, uint32_t edx, uint32_t esi, uint32_t a0);
+uint32_t Grid_IsFree(uint32_t eax, uint32_t ecx, uint32_t edx);
+uint32_t Grid_WorldToCell(uint32_t esi, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3);
+uint32_t AIRoute_Clear(uint32_t esi, uint32_t edi);
+uint32_t AIRoute_SetTarget(uint32_t eax, uint32_t ecx, uint32_t edx, uint32_t esi, uint32_t edi, uint32_t a0, uint32_t a1);
+uint32_t AIRoute_Update(uint32_t eax, uint32_t ecx, uint32_t a0);
+uint32_t AIRoute_HasRoute(uint32_t eax);
 
 // ---------------------------------------------------------------------------------------------------------------
 // 0x00446440 (ecx = object). ShrubPatrol (vtable 0x005a7e98) slot +0xbc, the update: when +0x1cc is set, its +0x18 =
@@ -1264,10 +1264,10 @@ uint32_t AIMarker_Advance(uint32_t index, uint32_t ai, uint32_t spline, uint32_t
             noHeading = 0;
             heading = u(&L[3]);
         }
-        return fn_0046f5b0(noHeading, heading, u(&L[0]), ai, D(GameP() + 0xaa4), 1, 0);
+        return AIRoute_SetTarget(noHeading, heading, u(&L[0]), ai, D(GameP() + 0xaa4), 1, 0);
     }
     D(ai + 0x450) = index == 0xffffffffu ? 0 : index;
-    return fn_0046f440(D(GameP() + 0xaa4), ai);
+    return AIRoute_Clear(D(GameP() + 0xaa4), ai);
 }
 static uint32_t AIMarker_Advance_Abi(uint32_t eax, uint32_t ecx, uint32_t edx, uint32_t a0)
 {
@@ -1495,8 +1495,8 @@ HOOK(0x0044ba30, "Marker_ProcessArrival", Marker_ProcessArrival_Entry, nullptr);
 // (0x00470c30) Marker_ProcessArrival(spline, AI, wrap); returns 1 while the route runs.
 uint32_t AIMarker_Step(uint32_t esi, uint32_t a0, uint32_t a1)
 {
-    fn_00470aa0(esi, D(GameP() + 0xaa4), 0);
-    if (static_cast<uint8_t>(fn_00470c30(esi + 0x428)))
+    AIRoute_Update(esi, D(GameP() + 0xaa4), 0);
+    if (static_cast<uint8_t>(AIRoute_HasRoute(esi + 0x428)))
         return 1;
     return Marker_ProcessArrival(a0, esi, a1);
 }
@@ -1678,19 +1678,19 @@ uint32_t DefaultGameObject_MarkGrid(uint32_t edi, uint32_t a0, uint32_t a1)
     {
         D(edi + 0x4d0) |= 0x800;
         const uint32_t grid = D(GameP() + 0xaa4);
-        if (!static_cast<uint8_t>(fn_0046f320(grid, L[0], L[1], edi + 0x4ec, edi + 0x4f0)))
+        if (!static_cast<uint8_t>(Grid_WorldToCell(grid, L[0], L[1], edi + 0x4ec, edi + 0x4f0)))
             return 0;
-        if (!static_cast<uint8_t>(fn_0046f2e0(D(GameP() + 0xaa4), D(edi + 0x4ec), D(edi + 0x4f0))))
+        if (!static_cast<uint8_t>(Grid_IsFree(D(GameP() + 0xaa4), D(edi + 0x4ec), D(edi + 0x4f0))))
             return 0;
         D(edi + 0x4d0) |= 0x400;
-        return fn_0046ece0(D(edi + 0x4f0), D(edi + 0x4ec), mode, D(GameP() + 0xaa4), 1);
+        return Grid_SetCell(D(edi + 0x4f0), D(edi + 0x4ec), mode, D(GameP() + 0xaa4), 1);
     }
     const uint32_t flags = D(edi + 0x4d0) & 0xfffff7ffu;
     D(edi + 0x4d0) = flags;
     if (!(flags & 0x400))
         return flags;
     D(edi + 0x4d0) = flags & 0xfffffbffu;
-    return fn_0046ece0(D(edi + 0x4f0), D(edi + 0x4ec), esi, D(GameP() + 0xaa4), 0);
+    return Grid_SetCell(D(edi + 0x4f0), D(edi + 0x4ec), esi, D(GameP() + 0xaa4), 0);
 }
 static uint32_t DefaultGameObject_MarkGrid_Abi(uint32_t ecx, uint32_t a0, uint32_t a1)
 {
@@ -1710,7 +1710,7 @@ uint32_t fn_004548f0(uint32_t esi, uint32_t a0, uint32_t /*a1*/, uint32_t /*a2*/
     {
         eax = orig::fn_004531e0(a0);
         if (!static_cast<uint8_t>(eax))
-            eax = fn_0046f480(esi, D(GameP() + 0xaa4));
+            eax = AIRoute_Refresh(esi, D(GameP() + 0xaa4));
     }
     return (eax & 0xffffff00u) | 1u;
 }
@@ -1962,3 +1962,2139 @@ static uint32_t ObjectList_CollectByTag_Abi(uint32_t eax, uint32_t a0, uint32_t 
 }
 ABI_ENTRY_00459390(ObjectList_CollectByTag_Entry, ObjectList_CollectByTag_Abi)
 HOOK(0x00459390, "ObjectList_CollectByTag", ObjectList_CollectByTag_Entry, nullptr);
+
+// ---------------------------------------------------------------------------------------------------------------
+// The AI navigation grid (Game+0xaa4) and AI routes. Grid layout (from these functions): +0 cell bits (2 bits per
+// cell, 4 cells per byte), +4 width, +8 height, +0xc / +0x10 min x / y, +0x14 / +0x18 max x / y (floats; cells are 10
+// units: 0x005bcbfc = 0.1, 0x005bcb68 = 10), +0x1c the route node pool (free list at pool+8, refilled by 0x004f6150),
+// A* search state: +0x20 hash table (251 buckets), +0x24 node array (24-byte nodes {key, f, g, h, parent, hash next};
+// key = dir << 28 | x << 14 | y, bit 31 = in the open heap), +0x28 node count (capacity 2000), +0x2c high-water mark,
+// +0x30 heap size, +0x34 heap capacity, +0x38 heap array (1-based, ordered by f). An AI's route is a list of 0x20-byte
+// nodes at +0x428 {next, position, heading or direction, flags}; node flags (guesses from use): 2 needs planning,
+// 4 has an exact end direction, 8 has a heading, 0x10 position reached, 0x20 straight approach, 0x40 stop exactly,
+// 0x80 stopping. Path points (A* output) are 24 bytes {x, y, z, cell x, cell y, dir byte}.
+// Directions: 1 x+1, 2 x-1, 3 y-1, 4 y+1 (0x004704f0).
+
+namespace
+{
+inline float bf(uint32_t v)
+{
+    float f;
+    std::memcpy(&f, &v, 4);
+    return f;
+}
+// Virtual call returning st0.
+template <class... A>
+inline float VF(uint32_t object, uint32_t off, A... args)
+{
+    return VCall<float>(P(object), static_cast<int>(off / 4), args...);
+}
+// Takes a node from a route pool (refilling it with 0x004f6150 when empty) and pushes it on the AI's route.
+inline uint32_t Route_PushNew(uint32_t grid, uint32_t ai)
+{
+    const uint32_t pool = D(grid + 0x1c);
+    if (!D(pool + 8))
+        orig::fn_004f6150(pool);
+    const uint32_t n = D(pool + 8);
+    D(pool + 8) = D(n);
+    D(n) = D(ai + 0x428);
+    D(ai + 0x428) = n;
+    return n;
+}
+// Cell to world: (float)cell (+ 2^32 when negative, the unsigned fild idiom) * 10 + min + 5.
+inline float CellCentre(uint32_t cell, uint32_t minAddr)
+{
+    float f = static_cast<float>(static_cast<int32_t>(cell));
+    if (static_cast<int32_t>(cell) < 0)
+        f = f + K(0x005bcb28);
+    return f * K(0x005bcb68) + Fl(minAddr) + K(0x005bcbdc);
+}
+inline uint32_t PathKey(uint32_t dir, uint32_t x, uint32_t y)
+{
+    return ((((dir & 7) << 14) | (x & 0x3fff)) << 14) | (y & 0x3fff);
+}
+}  // namespace
+
+uint32_t AIRoute_Build(uint32_t ai, uint32_t grid, uint32_t target, uint32_t heading, uint32_t direct, uint32_t noStart,
+                       uint32_t f20, uint32_t f40);
+uint32_t AIRoute_SetDir(uint32_t ai, uint32_t grid, uint32_t dir);
+uint32_t AIRoute_PopReached(uint32_t ai, uint32_t grid);
+uint32_t AIRoute_Plan(uint32_t grid, uint32_t ai);
+uint32_t AIRoute_SetHeadPos(uint32_t p, uint32_t ai, uint32_t a0);
+uint32_t Grid_FindPathWorld(uint32_t goal, uint32_t start, uint32_t grid, uint32_t max, uint32_t count, uint32_t out);
+uint32_t Grid_FindPath(uint32_t grid, uint32_t start, uint32_t goal, uint32_t max, uint32_t countOut, uint32_t out);
+uint32_t Grid_LineClear(uint32_t from, uint32_t to, uint32_t grid);
+uint32_t Grid_Step(uint32_t grid, uint32_t x, uint32_t outX, uint32_t y, uint32_t dir, uint32_t outY);
+uint32_t AStar_Add(uint32_t rec, uint32_t grid);
+uint32_t AStar_Push(uint32_t grid, uint32_t node);
+float AStar_Heuristic(uint32_t keyPtr, uint32_t goal, uint32_t grid);
+
+// 0x0046e770 (eax = grid; returns none). Caller 0x004011e0. Clears the grid's buffers and counters and picks its route
+// node pool: the first pool of the list at 0x0063a214 with element size (+0x14) >= 0x20 and +0x1c >= 2, else 0.
+void NavGrid_Init(uint32_t g)
+{
+    D(g) = 0;
+    D(g + 0x20) = 0;
+    D(g + 0x24) = 0;
+    D(g + 0x28) = 0;
+    D(g + 0x2c) = 0;
+    D(g + 0x30) = 0;
+    D(g + 0x34) = 0;
+    D(g + 0x38) = 0;
+    uint32_t c = D(0x0063a214);
+    while (c && !(D(c + 0x14) >= 0x20 && Wd(c + 0x1c) >= 2))
+        c = D(c);
+    D(g + 0x1c) = c;
+}
+static void NavGrid_Init_Abi(uint32_t eax)
+{
+    NavGrid_Init(eax);
+}
+ABI_ENTRY_0046e770(NavGrid_Init_Entry, NavGrid_Init_Abi)
+HOOK(0x0046e770, "NavGrid_Init", NavGrid_Init_Entry, nullptr);
+
+// 0x0046e7c0 (esi = grid). Caller 0x0044a670. Frees the cell bits, the A* node array, hash table and heap
+// (PMS_heapFree 0x004e08d0, pool 0x0063a210) and clears the pointers.
+uint32_t NavGrid_Free(uint32_t g)
+{
+    static const uint32_t kOffsets[4] = {0, 0x24, 0x20, 0x38};
+    uint32_t r = 0;
+    for (uint32_t k = 0; k < 4; ++k)
+    {
+        r = D(g + kOffsets[k]);
+        if (r)
+        {
+            r = orig::fn_004e08d0(0x0063a210, D(g + kOffsets[k]));
+            D(g + kOffsets[k]) = 0;
+        }
+    }
+    return r;
+}
+static uint32_t NavGrid_Free_Abi(uint32_t esi)
+{
+    return NavGrid_Free(esi);
+}
+ABI_ENTRY_0046e7c0(NavGrid_Free_Entry, NavGrid_Free_Abi)
+HOOK(0x0046e7c0, "NavGrid_Free", NavGrid_Free_Entry, nullptr);
+
+// 0x0046e830 (eax = vertex count, edx = vertices (vec3), edi = plane {a, b, c, d}; stack: unused, out; ret 8; ecx is
+// only a `push ecx` slot). Caller 0x0046ea00. Clips a polygon against the plane (Sutherland-Hodgman: keeps the side
+// where a*x + b*y + c*z + d >= 0, inserting the crossing points). Returns the output vertex count. The previous
+// distance is kept in the out argument's stack slot.
+uint32_t Poly_ClipToPlane(uint32_t n, uint32_t /*ecx*/, uint32_t verts, uint32_t plane, uint32_t /*a0*/, uint32_t out)
+{
+    const float* p = reinterpret_cast<const float*>(plane);
+    uint32_t prev = verts + n * 3 * 4 - 0xc;
+    float dPrev = Fl(prev + 8) * p[2] + Fl(prev + 4) * p[1] + Fl(prev) * p[0] + p[3];
+    uint32_t count = 0;
+    uint32_t o = out;
+    uint32_t cur = verts;
+    for (uint32_t k = n; k; --k)
+    {
+        const float dCur = Fl(cur + 8) * p[2] + Fl(cur + 4) * p[1] + p[0] * Fl(cur) + p[3];
+        const bool prevIn = dPrev < K(0x0056c05c);
+        const bool curIn = dCur < K(0x0056c05c);
+        if (prevIn != curIn)
+        {
+            const float t = dPrev / (dPrev - dCur);
+            const float s = K(0x005bcb2c) - t;
+            o += 0xc;
+            ++count;
+            Fl(o - 0xc) = s * Fl(prev) + t * Fl(cur);
+            Fl(o - 8) = s * Fl(prev + 4) + t * Fl(cur + 4);
+            Fl(o - 4) = s * Fl(prev + 8) + t * Fl(cur + 8);
+        }
+        if (dCur >= K(0x0056c05c))
+        {
+            D(o) = D(cur);
+            D(o + 4) = D(cur + 4);
+            D(o + 8) = D(cur + 8);
+            o += 0xc;
+            ++count;
+        }
+        dPrev = dCur;
+        prev = cur;
+        cur += 0xc;
+    }
+    return count;
+}
+static uint32_t Poly_ClipToPlane_Abi(uint32_t eax, uint32_t ecx, uint32_t edx, uint32_t edi, uint32_t a0, uint32_t a1)
+{
+    return Poly_ClipToPlane(eax, ecx, edx, edi, a0, a1);
+}
+ABI_ENTRY_0046e830(Poly_ClipToPlane_Entry, Poly_ClipToPlane_Abi)
+HOOK(0x0046e830, "Poly_ClipToPlane", Poly_ClipToPlane_Entry, nullptr);
+
+// 0x0046ece0 (eax = cell y, ecx = cell x, edx = bits, esi = grid; stack: set (byte); ret 4). ORs the 2-bit value into
+// the cell, or clears those bits, when the cell is inside the grid. Returns the byte address (eax as left otherwise).
+uint32_t Grid_SetCell(uint32_t y, uint32_t x, uint32_t bits, uint32_t g, uint32_t set)
+{
+    if (static_cast<int32_t>(x) < 0 || static_cast<int32_t>(y) < 0)
+        return y;
+    const uint32_t w = D(g + 4);
+    if (x >= w || y >= D(g + 8))
+        return w;
+    const uint32_t idx = w * y + x;
+    const uint32_t a = D(g) + (idx >> 2);
+    const uint8_t m = static_cast<uint8_t>((bits & 3) << ((idx & 3) * 2));
+    if (static_cast<uint8_t>(set))
+        By(a) = static_cast<uint8_t>(By(a) | m);
+    else
+        By(a) = static_cast<uint8_t>(By(a) & static_cast<uint8_t>(~m));
+    return a;
+}
+static uint32_t Grid_SetCell_Abi(uint32_t eax, uint32_t ecx, uint32_t edx, uint32_t esi, uint32_t a0)
+{
+    return Grid_SetCell(eax, ecx, edx, esi, a0);
+}
+ABI_ENTRY_0046ece0(Grid_SetCell_Entry, Grid_SetCell_Abi)
+HOOK(0x0046ece0, "Grid_SetCell", Grid_SetCell_Entry, nullptr);
+
+// 0x0046f250 (eax = grid, edx = size out; stack: bits out; ret 4; returns al). Callers 0x0048d800, 0x0048d8f0. With
+// cell bits: size = width * height / 4 + 1 bytes, the bits pointer, 1; else 0.
+uint32_t Grid_GetBits(uint32_t g, uint32_t sizeOut, uint32_t bitsOut)
+{
+    if (!D(g))
+        return g & 0xffffff00u;
+    D(sizeOut) = ((D(g + 8) * D(g + 4)) >> 2) + 1;
+    D(bitsOut) = D(g);
+    return (D(g) & 0xffffff00u) | 1u;
+}
+static uint32_t Grid_GetBits_Abi(uint32_t eax, uint32_t edx, uint32_t a0)
+{
+    return Grid_GetBits(eax, edx, a0);
+}
+ABI_ENTRY_0046f250(Grid_GetBits_Entry, Grid_GetBits_Abi)
+HOOK(0x0046f250, "Grid_GetBits", Grid_GetBits_Entry, nullptr);
+
+// 0x0046f280 (eax = grid; stack: x, y (floats); ret 8; returns al). Callers 0x00436bb0, GenericAI_Update,
+// 0x00482e80. 1 when the world point is inside the grid (Grid_WorldToCell, which writes the cell into the argument
+// slots) and its cell bits are 0 (free).
+uint32_t Grid_IsFreeAt(uint32_t g, uint32_t a0, uint32_t a1)
+{
+    uint32_t cx = a0;
+    uint32_t cy = a1;
+    if (!static_cast<uint8_t>(Grid_WorldToCell(g, a0, a1, u(&cx), u(&cy))))
+        return 0;
+    const uint32_t idx = cx + D(g + 4) * cy;
+    const uint8_t m = static_cast<uint8_t>(3u << ((idx & 3) * 2));
+    return (By(D(g) + (idx >> 2)) & m) ? 0u : 1u;
+}
+static uint32_t Grid_IsFreeAt_Abi(uint32_t eax, uint32_t a0, uint32_t a1)
+{
+    return Grid_IsFreeAt(eax, a0, a1);
+}
+ABI_ENTRY_0046f280(Grid_IsFreeAt_Entry, Grid_IsFreeAt_Abi)
+HOOK(0x0046f280, "Grid_IsFreeAt", Grid_IsFreeAt_Entry, nullptr);
+
+// 0x0046f2e0 (eax = grid, ecx = cell x, edx = cell y; returns al). 1 when the cell is inside the grid (signed
+// compares) and free; the upper eax bytes are those of width * y (or of the grid / width when out of range).
+uint32_t Grid_IsFree(uint32_t g, uint32_t x, uint32_t y)
+{
+    if (static_cast<int32_t>(x) < 0)
+        return g & 0xffffff00u;
+    const uint32_t w = D(g + 4);
+    if (static_cast<int32_t>(x) >= static_cast<int32_t>(w) || static_cast<int32_t>(y) < 0 ||
+        static_cast<int32_t>(y) >= I(g + 8))
+        return w & 0xffffff00u;
+    const uint32_t wy = w * y;
+    const uint32_t idx = wy + x;
+    const uint8_t m = static_cast<uint8_t>(3u << ((idx & 3) * 2));
+    return (wy & 0xffffff00u) | ((By(D(g) + (idx >> 2)) & m) ? 0u : 1u);
+}
+static uint32_t Grid_IsFree_Abi(uint32_t eax, uint32_t ecx, uint32_t edx)
+{
+    return Grid_IsFree(eax, ecx, edx);
+}
+ABI_ENTRY_0046f2e0(Grid_IsFree_Entry, Grid_IsFree_Abi)
+HOOK(0x0046f2e0, "Grid_IsFree", Grid_IsFree_Entry, nullptr);
+
+// 0x0046f320 (esi = grid; stack: x, y (floats), cell x out, cell y out; ret 0x10; returns al). Executed in recorded
+// runs. Fails (0) when x <= min x, x > max x, y <= min y or y > max y; otherwise the cell is (int)((v - min) * 0.1)
+// (_ftol, truncation) and returns 1.
+uint32_t Grid_WorldToCell(uint32_t g, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
+{
+    const float x = bf(a0);
+    const float y = bf(a1);
+    if (x <= Fl(g + 0xc) || x > Fl(g + 0x14) || y <= Fl(g + 0x10) || y > Fl(g + 0x18))
+        return 0;
+    const int32_t cx = static_cast<int32_t>((x - Fl(g + 0xc)) * K(0x005bcbfc));
+    const int32_t cy = static_cast<int32_t>((y - Fl(g + 0x10)) * K(0x005bcbfc));
+    I(a2) = cx;
+    I(a3) = cy;
+    return (static_cast<uint32_t>(cy) & 0xffffff00u) | 1u;
+}
+static uint32_t Grid_WorldToCell_Abi(uint32_t esi, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
+{
+    return Grid_WorldToCell(esi, a0, a1, a2, a3);
+}
+ABI_ENTRY_0046f320(Grid_WorldToCell_Entry, Grid_WorldToCell_Abi)
+HOOK(0x0046f320, "Grid_WorldToCell", Grid_WorldToCell_Entry, nullptr);
+
+// 0x0046f3a0 (eax = grid, ecx = cell x, edx = cell y; stack: x out, y out; ret 8; returns al). Callers 0x00455000,
+// 0x00470310. For a cell inside the grid (unsigned compares) its corner: cell * 10 + min; returns 1.
+uint32_t Grid_CellToWorld(uint32_t g, uint32_t cx, uint32_t cy, uint32_t outX, uint32_t outY)
+{
+    if (cx >= D(g + 4) || cy >= D(g + 8))
+        return g & 0xffffff00u;
+    float fx = static_cast<float>(static_cast<int32_t>(cx));
+    if (static_cast<int32_t>(cx) < 0)
+        fx = fx + K(0x005bcb28);
+    Fl(outX) = fx * K(0x005bcb68) + Fl(g + 0xc);
+    float fy = static_cast<float>(static_cast<int32_t>(cy));
+    if (static_cast<int32_t>(cy) < 0)
+        fy = fy + K(0x005bcb28);
+    Fl(outY) = fy * K(0x005bcb68) + Fl(g + 0x10);
+    return (g & 0xffffff00u) | 1u;
+}
+static uint32_t Grid_CellToWorld_Abi(uint32_t eax, uint32_t ecx, uint32_t edx, uint32_t a0, uint32_t a1)
+{
+    return Grid_CellToWorld(eax, ecx, edx, a0, a1);
+}
+ABI_ENTRY_0046f3a0(Grid_CellToWorld_Entry, Grid_CellToWorld_Abi)
+HOOK(0x0046f3a0, "Grid_CellToWorld", Grid_CellToWorld_Entry, nullptr);
+
+// 0x0046f400 (eax = AI, edx = out; stack: unused; ret 4). Callers 0x004320b0, 0x0046fa80, 0x00483d60. Copies the
+// position of the AI's last route node; returns its z (0 without a route).
+uint32_t AIRoute_GetLast(uint32_t ai, uint32_t out, uint32_t /*a0*/)
+{
+    uint32_t n = D(ai + 0x428);
+    if (!n)
+        return 0;
+    while (D(n))
+        n = D(n);
+    D(out) = D(n + 4);
+    D(out + 4) = D(n + 8);
+    D(out + 8) = D(n + 0xc);
+    return D(n + 0xc);
+}
+static uint32_t AIRoute_GetLast_Abi(uint32_t eax, uint32_t edx, uint32_t a0)
+{
+    return AIRoute_GetLast(eax, edx, a0);
+}
+ABI_ENTRY_0046f400(AIRoute_GetLast_Entry, AIRoute_GetLast_Abi)
+HOOK(0x0046f400, "AIRoute_GetLast", AIRoute_GetLast_Entry, nullptr);
+
+// 0x0046f440 (esi = grid, edi = AI). Executed in recorded runs. Returns every node of the AI's route to the grid's
+// node pool and clears the route (+0x428) and its replan time (+0x440). Returns 0.
+uint32_t AIRoute_Clear(uint32_t g, uint32_t ai)
+{
+    uint32_t n = D(ai + 0x428);
+    while (n)
+    {
+        const uint32_t pool = D(g + 0x1c);
+        const uint32_t next = D(n);
+        D(n) = D(pool + 8);
+        D(pool + 8) = n;
+        n = next;
+    }
+    D(ai + 0x428) = 0;
+    D(ai + 0x440) = 0;
+    return 0;
+}
+static uint32_t AIRoute_Clear_Abi(uint32_t esi, uint32_t edi)
+{
+    return AIRoute_Clear(esi, edi);
+}
+ABI_ENTRY_0046f440(AIRoute_Clear_Entry, AIRoute_Clear_Abi)
+HOOK(0x0046f440, "AIRoute_Clear", AIRoute_Clear_Entry, nullptr);
+
+// 0x0046f480 (eax = AI, ecx = grid). Callers 0x004320b0, GenericAI_Update, 0x004548f0. At most every 0.5 s (game time
+// 0x00604a98 against +0x440): drops reached nodes (0x0046fa40), then rebuilds the route to its last node's position
+// (AIRoute_SetTarget when it has flag 4, else AIRoute_Build(heading when flag 8, not direct, no start node)), points the
+// AI along the first node (normalised, 0x004707a0) and stamps +0x440. Returns the rebuild's result (0 without a route).
+uint32_t AIRoute_Refresh(uint32_t esi, uint32_t edi)
+{
+    uint32_t F[0x24 / 4];  // [esp+0x10]: 0 heading / direction, 0xc target, 0x18 own position
+    if (Fl(0x00604a98) - Fl(esi + 0x440) < K(0x005bcb4c))
+        return 0;
+    AIRoute_PopReached(esi, edi);
+    uint32_t last = D(esi + 0x428);
+    if (last)
+        while (D(last))
+            last = D(last);
+    if (!last)
+        return 0;
+    F[0xc / 4] = D(last + 4);
+    F[0x10 / 4] = D(last + 8);
+    F[0x14 / 4] = D(last + 0xc);
+    VC(esi, 0x54, u(&F[0x18 / 4]));
+    uint32_t r;
+    const uint32_t flags = D(last + 0x1c);
+    if (flags & 4)
+    {
+        r = AIRoute_SetTarget(1, 0, u(&F[0xc / 4]), esi, edi, 0, 0);
+    }
+    else
+    {
+        uint32_t heading = 0;
+        if (flags & 8)
+        {
+            F[0] = D(last + 0x10);
+            F[1] = D(last + 0x14);
+            F[2] = D(last + 0x18);
+            heading = u(&F[0]);
+        }
+        r = AIRoute_Build(esi, edi, u(&F[0xc / 4]), heading, 0, 1, 0, 0);
+    }
+    const uint32_t n = D(esi + 0x428);
+    if (n)
+    {
+        float* f = reinterpret_cast<float*>(F);
+        f[0] = Fl(n + 4) - f[0x18 / 4];
+        f[1] = Fl(n + 8) - f[0x1c / 4];
+        f[2] = Fl(n + 0xc) - f[0x20 / 4];
+        Normalize3(u(F), u(F));
+        AIRoute_SetDir(esi, edi, u(F));
+    }
+    D(esi + 0x440) = D(0x00604a98);
+    return r;
+}
+static uint32_t AIRoute_Refresh_Abi(uint32_t eax, uint32_t ecx)
+{
+    return AIRoute_Refresh(eax, ecx);
+}
+ABI_ENTRY_0046f480(AIRoute_Refresh_Entry, AIRoute_Refresh_Abi)
+HOOK(0x0046f480, "AIRoute_Refresh", AIRoute_Refresh_Entry, nullptr);
+
+// 0x0046f5b0 (al = no end direction, ecx = heading or 0, edx = target, esi = AI, edi = grid; stack: skip direction
+// (byte), stop exactly (byte); ret 8). Executed in recorded runs (many AI callers). AIRoute_Build(target, heading,
+// direct, no start node = al), clears flag 2 of the target node, sets 0x40 when asked; unless skipped, sets flag 4 and
+// points the AI (0x004707a0) along the normalised (node - target) vector (no direction when its length is 0). Returns 1.
+uint32_t AIRoute_SetTarget(uint32_t eax, uint32_t ecx, uint32_t edx, uint32_t esi, uint32_t edi, uint32_t a0,
+                           uint32_t a1)
+{
+    float L[3];  // [esp+4]
+    AIRoute_Build(esi, edi, edx, ecx, 1, eax, 0, 0);
+    uint32_t n = D(esi + 0x428);
+    if (D(n))
+        n = D(n);
+    const uint32_t flags = D(n + 0x1c) & 0xfffffffdu;
+    D(n + 0x1c) = flags;
+    if (static_cast<uint8_t>(a1))
+        D(n + 0x1c) = flags | 0x40;
+    if (static_cast<uint8_t>(a0))
+    {
+        AIRoute_SetDir(esi, edi, 0);
+        return 1;
+    }
+    D(n + 0x1c) |= 4;
+    const float dx = Fl(n + 4) - Fl(edx);
+    L[1] = Fl(n + 8) - Fl(edx + 4);
+    const float dz = Fl(n + 0xc) - Fl(edx + 8);
+    const float len = std::sqrt(dz * dz + L[1] * L[1] + dx * dx);
+    if (!(len > K(0x0056c05c)))
+    {
+        AIRoute_SetDir(esi, edi, 0);
+        return 1;
+    }
+    const float inv = K(0x005bcb2c) / len;
+    L[0] = dx * inv;
+    L[1] = L[1] * inv;
+    L[2] = dz * inv;
+    AIRoute_SetDir(esi, edi, u(L));
+    return 1;
+}
+static uint32_t AIRoute_SetTarget_Abi(uint32_t eax, uint32_t ecx, uint32_t edx, uint32_t esi, uint32_t edi, uint32_t a0,
+                                      uint32_t a1)
+{
+    return AIRoute_SetTarget(eax, ecx, edx, esi, edi, a0, a1);
+}
+ABI_ENTRY_0046f5b0(AIRoute_SetTarget_Entry, AIRoute_SetTarget_Abi)
+HOOK(0x0046f5b0, "AIRoute_SetTarget", AIRoute_SetTarget_Entry, nullptr);
+
+// 0x0046f6b0 (eax = straight flag, ecx = no start node, edx = direct, ebx = target; stack: grid, AI, heading; ret
+// 0xc). Executed in recorded runs. AIRoute_Build(AI, grid, target, heading, direct, no start node, straight, stop
+// exactly = 1); the register flags are passed as stack bytes.
+uint32_t AIRoute_BuildExact(uint32_t eax, uint32_t ecx, uint32_t edx, uint32_t ebx, uint32_t a0, uint32_t a1,
+                            uint32_t a2)
+{
+    return AIRoute_Build(a1, a0, ebx, a2, edx, ecx, eax, 1);
+}
+static uint32_t AIRoute_BuildExact_Abi(uint32_t eax, uint32_t ecx, uint32_t edx, uint32_t ebx, uint32_t a0, uint32_t a1,
+                                       uint32_t a2)
+{
+    return AIRoute_BuildExact(eax, ecx, edx, ebx, a0, a1, a2);
+}
+ABI_ENTRY_0046f6b0(AIRoute_BuildExact_Entry, AIRoute_BuildExact_Abi)
+HOOK(0x0046f6b0, "AIRoute_BuildExact", AIRoute_BuildExact_Entry, nullptr);
+
+// 0x0046f6d0 (eax = AI, ecx = grid, ebx = target; stack: heading or 0, direct, no start node, straight, stop exactly
+// (bytes); ret 0x14; returns eax edx). Executed in recorded runs. Clears the route, pushes the target node (z forced to
+// 0; flags 0x20 / 0x40 / 8 + heading as asked) and, unless direct, flags it 2 and plans it now (AIRoute_Update(1));
+// the result is 2 for direct. Unless no start node is asked, pushes a start node at the AI's position (vt+0x54) with
+// the normalised xy direction to the target (flags |= 0x18, or |= 0x10 when within 0.1; ORed into whatever flags the
+// pooled node held). Returns the result (edx is returned as 0).
+uint32_t AIRoute_Build(uint32_t edi, uint32_t esi, uint32_t ebx, uint32_t heading, uint32_t direct, uint32_t noStart,
+                       uint32_t f20, uint32_t f40)
+{
+    AIRoute_Clear(esi, edi);
+    const uint32_t n = Route_PushNew(esi, edi);
+    D(n + 4) = D(ebx);
+    D(n + 8) = D(ebx + 4);
+    D(n + 0xc) = D(ebx + 8);
+    D(n + 0xc) = 0;
+    D(n + 0x1c) = 0;
+    if (static_cast<uint8_t>(f20))
+        D(n + 0x1c) = 0x20;
+    if (static_cast<uint8_t>(f40))
+        D(n + 0x1c) |= 0x40;
+    if (heading)
+    {
+        D(n + 0x10) = D(heading);
+        D(n + 0x14) = D(heading + 4);
+        D(n + 0x18) = D(heading + 8);
+        D(n + 0x1c) |= 8;
+    }
+    uint32_t result;  // kept in the straight flag's argument slot
+    if (static_cast<uint8_t>(direct))
+    {
+        result = 2;
+    }
+    else
+    {
+        D(n + 0x1c) |= 2;
+        result = AIRoute_Update(edi, esi, 1);
+    }
+    if (static_cast<uint8_t>(noStart))
+        return result;
+    const uint32_t s = Route_PushNew(esi, edi);
+    VC(edi, 0x54, s + 4);
+    Fl(s + 0x10) = Fl(ebx) - Fl(s + 4);
+    Fl(s + 0x14) = Fl(ebx + 4) - Fl(s + 8);
+    const float dx = Fl(s + 0x10);
+    const float dy = Fl(s + 0x14);
+    const float len = std::sqrt(dx * dx + dy * dy);
+    if (len <= K(0x005bcbfc))
+    {
+        D(s + 0x1c) |= 0x10;
+        return result;
+    }
+    const float inv = K(0x005bcb2c) / len;
+    Fl(s + 0x10) = inv * Fl(s + 0x10);
+    Fl(s + 0x14) = inv * Fl(s + 0x14);
+    D(s + 0x1c) |= 0x18;
+    return result;
+}
+static uint64_t AIRoute_Build_Abi(uint32_t eax, uint32_t ecx, uint32_t ebx, uint32_t a0, uint32_t a1, uint32_t a2,
+                                  uint32_t a3, uint32_t a4)
+{
+    return AIRoute_Build(eax, ecx, ebx, a0, a1, a2, a3, a4);
+}
+ABI_ENTRY_0046f6d0(AIRoute_Build_Entry, AIRoute_Build_Abi)
+HOOK(0x0046f6d0, "AIRoute_Build", AIRoute_Build_Entry, nullptr);
+
+// 0x0046f830 (eax = grid; stack: AI, node data or 0; ret 8). Executed in recorded runs (caller 0x0048d280). With data:
+// appends a copy of the 0x20-byte node (next cleared) at the end of the AI's route, growing the grid's node pool
+// inline when it is empty (a new block from PMS_heapAlloc 0x004e07f0 that copies the pool header, linked with
+// 0x004f61a0); returns the node. Without: points the AI along its heading (0x00453150, 0x004707a0) when it has a route.
+uint32_t AIRoute_Append(uint32_t edi, uint32_t ai, uint32_t data)
+{
+    float L[3];  // [esp+0xc]
+    if (!data)
+    {
+        if (!D(ai + 0x428))
+            return 0;
+        orig::fn_00453150(ai, u(L));
+        return AIRoute_SetDir(ai, edi, u(L));
+    }
+    uint32_t slot = ai + 0x428;
+    for (uint32_t n = D(slot); n; n = D(slot))
+        slot = n;
+    const uint32_t pool = D(edi + 0x1c);
+    if (!D(pool + 8))
+    {
+        const uint32_t blk = orig::fn_004e07f0(D(pool + 0xc), 0x19, D(pool + 0x10), 0xc, D(pool + 0x20));
+        std::memcpy(P(blk), P(pool), 0x24);
+        By(blk + 0x1e) |= 8;
+        D(blk + 8) = 0;
+        D(blk) = 0;
+        D(blk + 4) = D(pool + 4);
+        D(pool + 4) = blk;
+        orig::fn_004f61a0(blk, pool);
+    }
+    const uint32_t n = D(pool + 8);
+    D(pool + 8) = D(n);
+    D(slot) = n;
+    std::memcpy(P(n), P(data), 0x20);
+    D(n) = 0;
+    return n;
+}
+static uint32_t AIRoute_Append_Abi(uint32_t eax, uint32_t a0, uint32_t a1)
+{
+    return AIRoute_Append(eax, a0, a1);
+}
+ABI_ENTRY_0046f830(AIRoute_Append_Entry, AIRoute_Append_Abi)
+HOOK(0x0046f830, "AIRoute_Append", AIRoute_Append_Entry, nullptr);
+
+// 0x0046f900 (stack: grid (unused), AI; ret 8; returns al). Executed in recorded runs. Whether the AI has reached its
+// route's first node: 1 without a route. Not yet at the position (flag 0x10): within 2.5 units (squared distance <
+// 6.25) it is, and with flag 0x40 it first sets 0x80, releases the handle +0x39c (0x00455a00) and must be within
+// 0.1 squared, then stops (Body_setLinearVelocity 0); flag 0x10 is set. With flag 8 it must also face the node's
+// heading (dot >= 0.98, +0x424 bit 5 set by 0x00454c90), then the handle +0x398 is released and the spin stopped
+// (Body_setAngularVelocity 0). The squared distance is kept in the AI argument's stack slot.
+uint32_t AIRoute_CheckReached(uint32_t /*grid*/, uint32_t ebp)
+{
+    uint32_t L[6];  // [esp+8]: 0 zero vector / heading, 0xc position
+    float* f = reinterpret_cast<float*>(L);
+    const uint32_t n = D(ebp + 0x428);
+    if (!n)
+        return 1;
+    VC(ebp, 0x54, u(&L[3]));
+    const float dy = f[4] - Fl(n + 8);
+    const uint32_t flags = D(n + 0x1c);
+    const float dx = f[3] - Fl(n + 4);
+    const float d2 = dx * dx + dy * dy;
+    if (!(flags & 0x10))
+    {
+        if (!(d2 < K(0x005bce5c)))
+            return 0;
+        uint32_t f2 = D(n + 0x1c);
+        if (flags & 0x40)
+        {
+            D(n + 0x1c) = f2 | 0x80;
+            D(ebp + 0x39c) = orig::fn_00455a00(D(ebp + 0x39c));
+            if (!(d2 < K(0x005bcbfc)))
+                return 0;
+            L[0] = 0;
+            L[1] = 0;
+            L[2] = 0;
+            orig::fn_00458510(u(L), ebp);
+            f2 = D(n + 0x1c);
+        }
+        D(n + 0x1c) = f2 | 0x10;
+    }
+    if (!(D(n + 0x1c) & 0x10))
+        return 0;
+    if (!(D(n + 0x1c) & 8))
+        return 1;
+    orig::fn_00453150(ebp, u(L));
+    const float dot = f[1] * Fl(n + 0x14) + f[0] * Fl(n + 0x10);
+    orig::fn_00454c90(ebp, 1, 1);
+    if (!(dot >= K(0x005bcd30)))
+        return 0;
+    D(ebp + 0x398) = orig::fn_00455a00(D(ebp + 0x398));
+    L[0] = 0;
+    L[1] = 0;
+    L[2] = 0;
+    orig::fn_00458580(u(L), ebp);
+    return 1;
+}
+static uint32_t AIRoute_CheckReached_Abi(uint32_t a0, uint32_t a1)
+{
+    return AIRoute_CheckReached(a0, a1);
+}
+ABI_ENTRY_0046f900(AIRoute_CheckReached_Entry, AIRoute_CheckReached_Abi)
+HOOK(0x0046f900, "AIRoute_CheckReached", AIRoute_CheckReached_Entry, nullptr);
+
+// 0x0046fa40 (esi = AI, edi = grid; returns al). Executed in recorded runs. Pops reached nodes (AIRoute_CheckReached)
+// back into the pool; returns 1 when at least one was popped. (The original passes its saved esi / edi pushes as the
+// first call's two stack arguments.)
+uint32_t AIRoute_PopReached(uint32_t esi, uint32_t edi)
+{
+    uint8_t popped = 0;
+    if (static_cast<uint8_t>(AIRoute_CheckReached(edi, esi)))
+    {
+        for (;;)
+        {
+            const uint32_t n = D(esi + 0x428);
+            if (!n)
+                break;
+            D(esi + 0x428) = D(n);
+            const uint32_t pool = D(edi + 0x1c);
+            D(n) = D(pool + 8);
+            popped = 1;
+            D(pool + 8) = n;
+            if (!static_cast<uint8_t>(AIRoute_CheckReached(edi, esi)))
+                break;
+        }
+    }
+    return popped;
+}
+static uint32_t AIRoute_PopReached_Abi(uint32_t esi, uint32_t edi)
+{
+    return AIRoute_PopReached(esi, edi);
+}
+ABI_ENTRY_0046fa40(AIRoute_PopReached_Entry, AIRoute_PopReached_Abi)
+HOOK(0x0046fa40, "AIRoute_PopReached", AIRoute_PopReached_Entry, nullptr);
+
+// 0x0046fa80 (stack: grid, AI; ret 8). Executed in recorded runs. Plans the route's first node: a node with flag 0x80
+// or 1 just takes the position again (0x0046fc30). Otherwise Grid_FindPathWorld from the AI's position (up to 5
+// points); no path: the route is cleared and the result returned. One point: (with flag 0x40 the path must be exact,
+// result & 0xd, else the route is cleared and 0 returned; then the target is the route's last position) the first node
+// takes it. Several: (same exactness test) the points are pushed in front of the route as nodes with flags 3.
+// Returns the path result (1 found, 2 partial / snapped).
+uint32_t AIRoute_Plan(uint32_t grid, uint32_t ebp)
+{
+    uint32_t F[0x8c / 4];  // [esp+0x10]: 0 result, 4 count, 8 position, 0x14 five 24-byte points
+    const uint32_t ebx = D(ebp + 0x428);
+    if (!ebx)
+        return 0;
+    if (By(ebx + 0x1c) & 0x81)
+    {
+        AIRoute_SetHeadPos(ebx + 4, ebp, grid);
+        return 1;
+    }
+    VC(ebp, 0x54, u(&F[8 / 4]));
+    const uint32_t r = Grid_FindPathWorld(ebx + 4, u(&F[8 / 4]), grid, 5, u(&F[4 / 4]), u(&F[0x14 / 4]));
+    F[0] = r;
+    if (!r || !F[1])
+    {
+        AIRoute_Clear(grid, ebp);
+        return F[0];
+    }
+    const bool exactOk = (static_cast<uint8_t>(r) & 0xd) != 0;
+    if (F[1] < 2)
+    {
+        if (By(ebx + 0x1c) & 0x40)
+        {
+            if (!exactOk)
+            {
+                AIRoute_Clear(grid, ebp);
+                return 0;
+            }
+            AIRoute_GetLast(ebp, u(&F[0x14 / 4]), grid);
+        }
+        AIRoute_SetHeadPos(u(&F[0x14 / 4]), ebp, grid);
+        return F[0];
+    }
+    if ((By(ebx + 0x1c) & 0x40) && !exactOk)
+    {
+        AIRoute_Clear(grid, ebp);
+        return 0;
+    }
+    for (int32_t i = static_cast<int32_t>(F[1]) - 1; i >= 0; --i)
+    {
+        const uint32_t n = Route_PushNew(grid, ebp);
+        const uint32_t pt = u(&F[0x14 / 4]) + static_cast<uint32_t>(i) * 0x18;
+        D(n + 4) = D(pt);
+        D(n + 8) = D(pt + 4);
+        D(n + 0xc) = D(pt + 8);
+        D(n + 0x1c) = 3;
+    }
+    return F[0];
+}
+static uint32_t AIRoute_Plan_Abi(uint32_t a0, uint32_t a1)
+{
+    return AIRoute_Plan(a0, a1);
+}
+ABI_ENTRY_0046fa80(AIRoute_Plan_Entry, AIRoute_Plan_Abi)
+HOOK(0x0046fa80, "AIRoute_Plan", AIRoute_Plan_Entry, nullptr);
+
+// 0x0046fc30 (eax = position, ecx = AI; stack: unused; ret 4). Executed in recorded runs. Sets the route head's
+// position and clears its flag 2. Returns the flags' address.
+uint32_t AIRoute_SetHeadPos(uint32_t p, uint32_t ai, uint32_t /*a0*/)
+{
+    const uint32_t h = D(ai + 0x428);
+    D(h + 4) = D(p);
+    D(h + 8) = D(p + 4);
+    D(h + 0xc) = D(p + 8);
+    const uint32_t a = D(ai + 0x428) + 0x1c;
+    D(a) &= 0xfffffffdu;
+    return a;
+}
+static uint32_t AIRoute_SetHeadPos_Abi(uint32_t eax, uint32_t ecx, uint32_t a0)
+{
+    return AIRoute_SetHeadPos(eax, ecx, a0);
+}
+ABI_ENTRY_0046fc30(AIRoute_SetHeadPos_Entry, AIRoute_SetHeadPos_Abi)
+HOOK(0x0046fc30, "AIRoute_SetHeadPos", AIRoute_SetHeadPos_Entry, nullptr);
+
+// 0x0046fc60 (esi = goal position, edi = start position; stack: grid, max points, count out, points out; ret 0x10).
+// Executed in recorded runs. Builds the start and goal path points (position, cell = (int)((v - min) * 0.1), dir 0;
+// only the dir byte is written) and runs Grid_FindPath.
+uint32_t Grid_FindPathWorld(uint32_t esi, uint32_t edi, uint32_t grid, uint32_t max, uint32_t count, uint32_t out)
+{
+    uint32_t B[0x30 / 4];  // 0 goal point, 0x18 start point
+    B[0x24 / 4] = static_cast<uint32_t>(static_cast<int32_t>((Fl(edi) - Fl(grid + 0xc)) * K(0x005bcbfc)));
+    B[0x28 / 4] = static_cast<uint32_t>(static_cast<int32_t>((Fl(edi + 4) - Fl(grid + 0x10)) * K(0x005bcbfc)));
+    B[0x18 / 4] = D(edi);
+    B[0x1c / 4] = D(edi + 4);
+    B[0x20 / 4] = D(edi + 8);
+    B[0x2c / 4] = 0;  // only the low byte is written by the original
+    B[0xc / 4] = static_cast<uint32_t>(static_cast<int32_t>((Fl(esi) - Fl(grid + 0xc)) * K(0x005bcbfc)));
+    B[0x10 / 4] = static_cast<uint32_t>(static_cast<int32_t>((Fl(esi + 4) - Fl(grid + 0x10)) * K(0x005bcbfc)));
+    B[0] = D(esi);
+    B[1] = D(esi + 4);
+    B[2] = D(esi + 8);
+    B[0x14 / 4] = 0;  // only the low byte is written by the original
+    return Grid_FindPath(grid, u(&B[0x18 / 4]), u(&B[0]), max, count, out);
+}
+static uint32_t Grid_FindPathWorld_Abi(uint32_t esi, uint32_t edi, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
+{
+    return Grid_FindPathWorld(esi, edi, a0, a1, a2, a3);
+}
+ABI_ENTRY_0046fc60(Grid_FindPathWorld_Entry, Grid_FindPathWorld_Abi)
+HOOK(0x0046fc60, "Grid_FindPathWorld", Grid_FindPathWorld_Entry, nullptr);
+
+// --- A* on the grid ---
+
+// 0x00470790 (eax = value; stack: unused; ret 4): value % 251 (idiv), the hash bucket.
+uint32_t AStar_Hash(uint32_t v, uint32_t /*a0*/)
+{
+    return static_cast<uint32_t>(static_cast<int32_t>(v) % 0xfb);
+}
+static uint32_t AStar_Hash_Abi(uint32_t eax, uint32_t a0)
+{
+    return AStar_Hash(eax, a0);
+}
+ABI_ENTRY_00470790(AStar_Hash_Entry, AStar_Hash_Abi)
+HOOK(0x00470790, "AStar_Hash", AStar_Hash_Entry, nullptr);
+
+// 0x004701a0 (eax = &key, edi = grid). Executed in recorded runs. The search node with that key (low 28 bits) from
+// the hash table, or 0.
+uint32_t AStar_Find(uint32_t keyPtr, uint32_t grid)
+{
+    const uint32_t k = D(keyPtr) & 0x0fffffffu;
+    const uint32_t h = AStar_Hash(k, grid);
+    for (uint32_t n = D(D(grid + 0x20) + h * 4); n; n = D(n + 0x14))
+    {
+        if ((D(n) & 0x0fffffffu) == k)
+            return n;
+    }
+    return 0;
+}
+static uint32_t AStar_Find_Abi(uint32_t eax, uint32_t edi)
+{
+    return AStar_Find(eax, edi);
+}
+ABI_ENTRY_004701a0(AStar_Find_Entry, AStar_Find_Abi)
+HOOK(0x004701a0, "AStar_Find", AStar_Find_Entry, nullptr);
+
+// 0x004701e0 (eax = grid; the table's edi input is only overwritten). Executed in recorded runs. Among the search
+// nodes not in the open heap (key bit 31 clear), the one with the smallest h (+0xc) below 999999, or 0.
+uint32_t AStar_Closest(uint32_t grid, uint32_t /*edi*/)
+{
+    float best = K(0x005bcbf0);
+    int32_t idx = -1;
+    const uint32_t n = D(grid + 0x28);
+    if (!n)
+        return 0;
+    const uint32_t base = D(grid + 0x24);
+    for (uint32_t i = 0; i < n; ++i)
+    {
+        const uint32_t e = base + i * 0x18;
+        if (I(e) < 0)
+            continue;
+        if (best > Fl(e + 0xc))
+        {
+            idx = static_cast<int32_t>(i);
+            best = Fl(e + 0xc);
+        }
+    }
+    if (idx == -1)
+        return 0;
+    return base + static_cast<uint32_t>(idx) * 0x18;
+}
+static uint32_t AStar_Closest_Abi(uint32_t eax, uint32_t edi)
+{
+    return AStar_Closest(eax, edi);
+}
+ABI_ENTRY_004701e0(AStar_Closest_Entry, AStar_Closest_Abi)
+HOOK(0x004701e0, "AStar_Closest", AStar_Closest_Entry, nullptr);
+
+// 0x00470560 (edx = heap; stack: unused, size; ret 8). Executed in recorded runs. Sifts heap[1] down (min-heap on f,
+// +4).
+uint32_t AStar_HeapDown(uint32_t heap, uint32_t /*a0*/, uint32_t n)
+{
+    const uint32_t item = D(heap + 4);
+    int32_t c = 2;
+    int32_t i = 1;
+    if (static_cast<int32_t>(n) >= 2)
+    {
+        do
+        {
+            if (c < static_cast<int32_t>(n) && Fl(D(heap + c * 4 + 4) + 4) < Fl(D(heap + c * 4) + 4))
+                ++c;
+            const uint32_t child = D(heap + c * 4);
+            if (Fl(item + 4) <= Fl(child + 4))
+                break;
+            D(heap + i * 4) = child;
+            i = c;
+            c *= 2;
+        } while (c <= static_cast<int32_t>(n));
+    }
+    D(heap + i * 4) = item;
+    return heap;
+}
+static uint32_t AStar_HeapDown_Abi(uint32_t edx, uint32_t a0, uint32_t a1)
+{
+    return AStar_HeapDown(edx, a0, a1);
+}
+ABI_ENTRY_00470560(AStar_HeapDown_Entry, AStar_HeapDown_Abi)
+HOOK(0x00470560, "AStar_HeapDown", AStar_HeapDown_Entry, nullptr);
+
+// 0x004705c0 (edx = index, esi = heap; stack: unused; ret 4). Sifts heap[index] up while its f is not greater than
+// its parent's.
+uint32_t AStar_HeapUp(uint32_t idx, uint32_t heap, uint32_t /*a0*/)
+{
+    const uint32_t item = D(heap + idx * 4);
+    int32_t i = static_cast<int32_t>(idx);
+    int32_t p = i >> 1;
+    if (i > 1)
+    {
+        do
+        {
+            const uint32_t par = D(heap + p * 4);
+            if (Fl(item + 4) > Fl(par + 4))
+                break;
+            D(heap + i * 4) = par;
+            i = p;
+            p >>= 1;
+        } while (i > 1);
+    }
+    D(heap + i * 4) = item;
+    return heap;
+}
+static uint32_t AStar_HeapUp_Abi(uint32_t edx, uint32_t esi, uint32_t a0)
+{
+    return AStar_HeapUp(edx, esi, a0);
+}
+ABI_ENTRY_004705c0(AStar_HeapUp_Entry, AStar_HeapUp_Abi)
+HOOK(0x004705c0, "AStar_HeapUp", AStar_HeapUp_Entry, nullptr);
+
+// 0x00470760 (eax = grid, edi = node). Executed in recorded runs. Pushes the node on the open heap (when below its
+// capacity +0x34) and sets key bit 31.
+uint32_t AStar_Push(uint32_t g, uint32_t node)
+{
+    const uint32_t n = D(g + 0x30);
+    if (n >= D(g + 0x34))
+        return g;
+    D(g + 0x30) = n + 1;
+    D(D(g + 0x38) + (n + 1) * 4) = node;
+    AStar_HeapUp(D(g + 0x30), D(g + 0x38), g);
+    D(node) |= 0x80000000u;
+    return D(node);
+}
+static uint32_t AStar_Push_Abi(uint32_t eax, uint32_t edi)
+{
+    return AStar_Push(eax, edi);
+}
+ABI_ENTRY_00470760(AStar_Push_Entry, AStar_Push_Abi)
+HOOK(0x00470760, "AStar_Push", AStar_Push_Entry, nullptr);
+
+// 0x00470600 (edx = 24-byte node record, ebx = grid). Executed in recorded runs. Appends the record to the node array
+// (when below 2000 nodes; otherwise only +0x2c is incremented), links it into its hash bucket, pushes it on the heap
+// and raises the high-water mark +0x2c.
+uint32_t AStar_Add(uint32_t rec, uint32_t grid)
+{
+    const uint32_t c = D(grid + 0x28);
+    if (c >= 0x7d0)
+    {
+        const uint32_t v = D(grid + 0x2c) + 1;
+        D(grid + 0x2c) = v;
+        return v;
+    }
+    const uint32_t n = D(grid + 0x24) + c * 0x18;
+    std::memcpy(P(n), P(rec), 0x18);
+    const uint32_t h = AStar_Hash(D(n) & 0x0fffffffu, grid);
+    D(n + 0x14) = D(D(grid + 0x20) + h * 4);
+    D(D(grid + 0x20) + h * 4) = D(grid + 0x24) + D(grid + 0x28) * 0x18;
+    AStar_Push(grid, D(grid + 0x24) + D(grid + 0x28) * 0x18);
+    const uint32_t c2 = D(grid + 0x28) + 1;
+    D(grid + 0x28) = c2;
+    if (c2 > D(grid + 0x2c))
+        D(grid + 0x2c) = c2;
+    return c2;
+}
+static uint32_t AStar_Add_Abi(uint32_t edx, uint32_t ebx)
+{
+    return AStar_Add(edx, ebx);
+}
+ABI_ENTRY_00470600(AStar_Add_Entry, AStar_Add_Abi)
+HOOK(0x00470600, "AStar_Add", AStar_Add_Entry, nullptr);
+
+// 0x00470690 (eax = grid). Executed in recorded runs. Pops the lowest-f node from the open heap (0 when empty) and
+// clears its key bit 31.
+uint32_t AStar_PopMin(uint32_t g)
+{
+    const uint32_t n = D(g + 0x30);
+    if (!n)
+        return 0;
+    const uint32_t heap = D(g + 0x38);
+    const uint32_t top = D(heap + 4);
+    D(heap + 4) = D(heap + n * 4);
+    const uint32_t m = D(g + 0x30) - 1;
+    D(g + 0x30) = m;
+    AStar_HeapDown(D(g + 0x38), g, m);
+    D(top) &= 0x7fffffffu;
+    return top;
+}
+static uint32_t AStar_PopMin_Abi(uint32_t eax)
+{
+    return AStar_PopMin(eax);
+}
+ABI_ENTRY_00470690(AStar_PopMin_Entry, AStar_PopMin_Abi)
+HOOK(0x00470690, "AStar_PopMin", AStar_PopMin_Entry, nullptr);
+
+// 0x004706d0 (eax = source record, ecx = node; stack: unused; ret 4). Copies f, g and h (not the parent).
+uint32_t AStar_CopyCost(uint32_t src, uint32_t dst, uint32_t /*a0*/)
+{
+    D(dst + 4) = D(src + 4);
+    D(dst + 8) = D(src + 8);
+    const uint32_t h = D(src + 0xc);
+    D(dst + 0xc) = h;
+    return h;
+}
+static uint32_t AStar_CopyCost_Abi(uint32_t eax, uint32_t ecx, uint32_t a0)
+{
+    return AStar_CopyCost(eax, ecx, a0);
+}
+ABI_ENTRY_004706d0(AStar_CopyCost_Entry, AStar_CopyCost_Abi)
+HOOK(0x004706d0, "AStar_CopyCost", AStar_CopyCost_Entry, nullptr);
+
+// 0x004706f0 (stack: grid, node, x, y, all unused; ret 0x10). Executed in recorded runs. The step cost, 1.0 in st0.
+float AStar_StepCost(uint32_t /*a0*/, uint32_t /*a1*/, uint32_t /*a2*/, uint32_t /*a3*/)
+{
+    return K(0x005bcb2c);
+}
+static float AStar_StepCost_Abi(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
+{
+    return AStar_StepCost(a0, a1, a2, a3);
+}
+ABI_ENTRY_004706f0(AStar_StepCost_Entry, AStar_StepCost_Abi)
+HOOK(0x004706f0, "AStar_StepCost", AStar_StepCost_Entry, nullptr);
+
+// 0x00470700 (eax = &key, ecx = goal path point; stack: unused; ret 4). Executed in recorded runs. The heuristic:
+// the euclidean cell distance from the key's cell to the goal's cell, returned in st0 (the ABI table lists eax; the
+// callers fst / fstp st0, and the generated entry stub leaves this function's st0 in place).
+float AStar_Heuristic(uint32_t keyPtr, uint32_t goal, uint32_t /*a0*/)
+{
+    const uint32_t key = D(keyPtr);
+    float gx = static_cast<float>(I(goal + 0xc));
+    if (I(goal + 0xc) < 0)
+        gx = gx + K(0x005bcb28);
+    const float dx = static_cast<float>(static_cast<int32_t>((key >> 14) & 0x3fff)) - gx;
+    float gy = static_cast<float>(I(goal + 0x10));
+    if (I(goal + 0x10) < 0)
+        gy = gy + K(0x005bcb28);
+    const float dy = static_cast<float>(static_cast<int32_t>(key & 0x3fff)) - gy;
+    return std::sqrt(dy * dy + dx * dx);
+}
+static float AStar_Heuristic_Abi(uint32_t eax, uint32_t ecx, uint32_t a0)
+{
+    return AStar_Heuristic(eax, ecx, a0);
+}
+ABI_ENTRY_00470700(AStar_Heuristic_Entry, AStar_Heuristic_Abi)
+HOOK(0x00470700, "AStar_Heuristic", AStar_Heuristic_Entry, nullptr);
+
+// 0x00470240 (eax = dir, ecx = cell y, edx = cell x, esi = grid; stack: g (float), parent, goal; ret 0xc; returns
+// st0). Executed in recorded runs. Visits a neighbour: an existing node with g <= the new g keeps its cost (returns its
+// f). Otherwise f = h (AStar_Heuristic) + g; a new node is added (AStar_Add); an open node gets the new f / g / h but
+// keeps its old parent (0x004706d0 does not copy it); a closed node is only pushed on the heap again, unchanged.
+// Returns the new f.
+float AStar_Visit(uint32_t dir, uint32_t ny, uint32_t nx, uint32_t grid, uint32_t g, uint32_t parent, uint32_t goal)
+{
+    uint32_t R[6];  // [esp] key, f, g, h, parent, hash next
+    R[0] = PathKey(dir, nx, ny);
+    R[2] = g;
+    const uint32_t node = AStar_Find(u(&R[0]), grid);
+    bool open = false;
+    if (node)
+    {
+        if (Fl(node + 8) <= bf(g))
+            return Fl(node + 4);
+        open = I(node) < 0;
+    }
+    R[4] = parent;
+    const float h = AStar_Heuristic(u(&R[0]), goal, grid);
+    float* f = reinterpret_cast<float*>(R);
+    f[3] = h;
+    f[1] = h + bf(g);
+    if (!node)
+    {
+        R[5] = 0;
+        AStar_Add(u(R), grid);
+        return f[1];
+    }
+    if (open)
+        AStar_CopyCost(u(R), node, grid);
+    else
+        AStar_Push(grid, node);
+    return f[1];
+}
+static float AStar_Visit_Abi(uint32_t eax, uint32_t ecx, uint32_t edx, uint32_t esi, uint32_t a0, uint32_t a1, uint32_t a2)
+{
+    return AStar_Visit(eax, ecx, edx, esi, a0, a1, a2);
+}
+ABI_ENTRY_00470240(AStar_Visit_Entry, AStar_Visit_Abi)
+HOOK(0x00470240, "AStar_Visit", AStar_Visit_Entry, nullptr);
+
+// 0x004704f0 (eax = grid, ecx = cell x, edx = x out; stack: cell y, dir, y out; ret 0xc; returns al). Executed in
+// recorded runs. Steps one cell in the direction (1 x+1, 2 x-1, 3 y-1, 4 y+1; others stay) and returns 1 when the new
+// cell is outside the grid or not free (Grid_IsFree), else 0.
+uint32_t Grid_Step(uint32_t grid, uint32_t x, uint32_t outX, uint32_t y, uint32_t dir, uint32_t outY)
+{
+    D(outX) = x;
+    D(outY) = y;
+    switch (dir - 1)
+    {
+    case 0:
+        ++D(outX);
+        break;
+    case 1:
+        --D(outX);
+        break;
+    case 2:
+        D(outY) = y - 1;
+        break;
+    case 3:
+        D(outY) = y + 1;
+        break;
+    default:
+        break;
+    }
+    const int32_t cx = I(outX);
+    const int32_t cy = I(outY);
+    if (cx < 0 || cy < 0 || cx >= I(grid + 4) || cy >= I(grid + 8))
+        return 1;
+    return static_cast<uint8_t>(Grid_IsFree(grid, static_cast<uint32_t>(cx), static_cast<uint32_t>(cy))) ? 0u : 1u;
+}
+static uint32_t Grid_Step_Abi(uint32_t eax, uint32_t ecx, uint32_t edx, uint32_t a0, uint32_t a1, uint32_t a2)
+{
+    return Grid_Step(eax, ecx, edx, a0, a1, a2);
+}
+ABI_ENTRY_004704f0(Grid_Step_Entry, Grid_Step_Abi)
+HOOK(0x004704f0, "Grid_Step", Grid_Step_Entry, nullptr);
+
+// 0x00470310 (eax = from point, esi = to point; stack: grid; ret 4). Executed in recorded runs. Walks the cells from
+// one path point to the other (Bresenham, 0x004704f0 steps): 1 when all are free; when blocked exactly at the
+// destination cell, the destination is moved to the last free cell (its cell, and its corner + 5 from
+// Grid_CellToWorld) and 2 is returned; otherwise 0.
+uint32_t Grid_LineClear(uint32_t from, uint32_t to, uint32_t grid)
+{
+    uint32_t B[7];  // [esp+0xc]: 0 x out, 4 y out, 8 error / count, 0xc y dir, 0x10 x dir, 0x14, 0x18 increments
+    uint32_t ebx = D(from + 0x10);
+    int32_t ebp = I(to + 0xc) - I(from + 0xc);
+    uint32_t edi = D(from + 0xc);
+    int32_t eax = I(to + 0x10) - I(from + 0x10);
+    B[3] = 4;
+    if (eax < 0)
+    {
+        eax = -eax;
+        B[2] = static_cast<uint32_t>(eax);
+        B[3] = 3;
+    }
+    B[4] = 1;
+    if (ebp < 0)
+    {
+        ebp = -ebp;
+        B[4] = 2;
+    }
+    if (ebp > eax)
+    {
+        B[6] = static_cast<uint32_t>(eax * 2);
+        B[5] = static_cast<uint32_t>(eax * 2 - ebp * 2);
+        int32_t err = eax * 2 - ebp;
+        B[2] = static_cast<uint32_t>(err);
+        if (ebp == 0)
+            return 1;
+        do
+        {
+            --ebp;
+            if (static_cast<uint8_t>(Grid_Step(grid, edi, u(&B[0]), ebx, B[4], u(&B[1]))))
+                goto blocked;
+            err = static_cast<int32_t>(B[2]);
+            edi = B[0];
+            int32_t add;
+            if (err >= 0)
+            {
+                if (static_cast<uint8_t>(Grid_Step(grid, edi, u(&B[0]), ebx, B[3], u(&B[1]))))
+                    goto blocked;
+                ebx = B[1];
+                add = static_cast<int32_t>(B[5]);
+                err = static_cast<int32_t>(B[2]);
+            }
+            else
+            {
+                add = static_cast<int32_t>(B[6]);
+            }
+            err += add;
+            B[2] = static_cast<uint32_t>(err);
+        } while (ebp != 0);
+        return 1;
+    }
+    {
+        B[5] = static_cast<uint32_t>(ebp * 2);
+        B[6] = static_cast<uint32_t>(ebp * 2 - eax * 2);
+        int32_t err = ebp * 2 - eax;
+        if (eax == 0)
+            return 1;
+        int32_t cnt = eax;
+        do
+        {
+            --cnt;
+            B[2] = static_cast<uint32_t>(cnt);
+            if (static_cast<uint8_t>(Grid_Step(grid, edi, u(&B[0]), ebx, B[3], u(&B[1]))))
+                goto blocked;
+            ebx = B[1];
+            int32_t add;
+            if (err >= 0)
+            {
+                if (static_cast<uint8_t>(Grid_Step(grid, edi, u(&B[0]), ebx, B[4], u(&B[1]))))
+                    goto blocked;
+                edi = B[0];
+                add = static_cast<int32_t>(B[6]);
+            }
+            else
+            {
+                add = static_cast<int32_t>(B[5]);
+            }
+            err += add;
+            cnt = static_cast<int32_t>(B[2]);
+        } while (cnt != 0);
+        return 1;
+    }
+blocked:
+    if (B[0] == D(to + 0xc) && B[1] == D(to + 0x10))
+    {
+        D(to + 0xc) = edi;
+        D(to + 0x10) = ebx;
+        Grid_CellToWorld(grid, edi, ebx, to, to + 4);
+        Fl(to) = Fl(to) + K(0x005bcbdc);
+        Fl(to + 4) = Fl(to + 4) + K(0x005bcbdc);
+        return 2;
+    }
+    return 0;
+}
+static uint32_t Grid_LineClear_Abi(uint32_t eax, uint32_t esi, uint32_t a0)
+{
+    return Grid_LineClear(eax, esi, a0);
+}
+ABI_ENTRY_00470310(Grid_LineClear_Entry, Grid_LineClear_Abi)
+HOOK(0x00470310, "Grid_LineClear", Grid_LineClear_Entry, nullptr);
+
+// 0x00470100 (eax = point count; stack: grid, points, count out; ret 0xc). Executed in recorded runs. Path smoothing:
+// repeatedly removes point i - 1 when Grid_LineClear(point i - 2, point i) succeeds (scanning on without re-testing
+// the shifted point), until a pass removes nothing or two points are left.
+uint32_t Path_Smooth(uint32_t n, uint32_t grid, uint32_t points, uint32_t countOut)
+{
+    int32_t ebx = static_cast<int32_t>(n);
+    for (;;)
+    {
+        bool changed = false;
+        if (ebx <= 2)
+            break;
+        uint32_t ebp = points + 0x30;
+        for (int32_t i = 2; i < ebx; ++i, ebp += 0x18)
+        {
+            if (Grid_LineClear(ebp - 0x30, ebp, grid))
+            {
+                std::memmove(P(ebp - 0x18), P(ebp), static_cast<uint32_t>(ebx - i) * 0x18);
+                --ebx;
+                changed = true;
+            }
+        }
+        if (!changed)
+            break;
+    }
+    I(countOut) = ebx;
+    return countOut;
+}
+static uint32_t Path_Smooth_Abi(uint32_t eax, uint32_t a0, uint32_t a1, uint32_t a2)
+{
+    return Path_Smooth(eax, a0, a1, a2);
+}
+ABI_ENTRY_00470100(Path_Smooth_Entry, Path_Smooth_Abi)
+HOOK(0x00470100, "Path_Smooth", Path_Smooth_Entry, nullptr);
+
+// 0x0046fd20 (ecx = grid; stack: start point, goal point, max points, count out, points out; ret 0x14). Executed in
+// recorded runs. The grid path search. A clear straight line (Grid_LineClear) gives one point, the goal (result 1 or
+// 2). Otherwise A*: 4-neighbour steps (not back along the arriving direction: tables 0x005ce42c..0x005ce460), step
+// cost 1, euclidean cell heuristic; a blocked neighbour that is the goal cell ends the search at the current node's
+// parent. When the open heap runs dry the explored node closest to the goal is used (result 2). The node chain gives
+// cell-centre points (up to 400), smoothed (Path_Smooth); the first point (the start) is dropped, at most max points
+// are copied out, and when the last is the goal cell it takes the goal's exact position. Returns 1 (found) or 2
+// (partial), 0 when no point remains. The original frame (0x25bc bytes, with 400 24-byte points at +0x3c) is kept as
+// B, B[o / 4] = [esp + o] with the 4 registers pushed.
+uint32_t Grid_FindPath(uint32_t ebx, uint32_t start, uint32_t goal, uint32_t max, uint32_t countOut, uint32_t out)
+{
+    uint32_t B[0x25bc / 4];
+    const uint32_t direct = Grid_LineClear(start, goal, ebx);
+    if (direct)
+    {
+        D(countOut) = 1;
+        std::memcpy(P(out), P(goal), 0x18);
+        return direct;
+    }
+    std::memset(P(D(ebx + 0x20)), 0, 0xfb * 4);
+    D(ebx + 0x28) = 0;
+    D(ebx + 0x2c) = 0;
+    D(ebx + 0x30) = 0;
+    D(ebx + 0x34) = 0x7d0;
+    B[0x2c / 4] = 0;
+    B[0x1c / 4] = PathKey(By(goal + 0x14), D(goal + 0xc), D(goal + 0x10));
+    B[0x24 / 4] = PathKey(By(start + 0x14), D(start + 0xc), D(start + 0x10));
+    const float h = AStar_Heuristic(u(&B[0x24 / 4]), goal, ebx);
+    float* f = reinterpret_cast<float*>(B);
+    f[0x30 / 4] = h;
+    f[0x28 / 4] = h;
+    B[0x34 / 4] = 0;
+    B[0x38 / 4] = 0;
+    AStar_Add(u(&B[0x24 / 4]), ebx);
+    uint32_t node;
+    for (;;)
+    {
+        node = AStar_PopMin(ebx);
+        if (!node)
+            break;
+        const uint32_t key = D(node);
+        B[0x10 / 4] = B[0x1c / 4] & 0x0fffffffu;
+        if ((key & 0x0fffffffu) == B[0x10 / 4])
+            break;
+        const uint32_t x = (key >> 14) & 0x3fff;
+        B[0x20 / 4] = key & 0x3fff;
+        switch ((key >> 28) & 7)
+        {
+        case 0:
+            B[0x8 / 4] = 4;
+            B[0x4 / 4] = 0x005ce42c;
+            break;
+        case 1:
+            B[0x4 / 4] = 0x005ce43c;
+            B[0x8 / 4] = 3;
+            break;
+        case 2:
+            B[0x4 / 4] = 0x005ce448;
+            B[0x8 / 4] = 3;
+            break;
+        case 3:
+            B[0x4 / 4] = 0x005ce454;
+            B[0x8 / 4] = 3;
+            break;
+        case 4:
+            B[0x4 / 4] = 0x005ce460;
+            B[0x8 / 4] = 3;
+            break;
+        default:
+            break;  // the original keeps the previous table and count
+        }
+        B[0xc / 4] = 0;
+        if (static_cast<int32_t>(B[0x8 / 4]) <= 0)
+            continue;
+        bool done = false;
+        do
+        {
+            const uint32_t dir = D(B[0x4 / 4] + B[0xc / 4] * 4);
+            if (!static_cast<uint8_t>(Grid_Step(ebx, x, u(&B[0x18 / 4]), B[0x20 / 4], dir, u(&B[0x14 / 4]))))
+            {
+                const float g = AStar_StepCost(ebx, node, B[0x18 / 4], B[0x14 / 4]) + Fl(node + 8);
+                AStar_Visit(dir, B[0x14 / 4], B[0x18 / 4], ebx, fb(g), node, goal);
+            }
+            else if ((((B[0x18 / 4] & 0x3fff) << 14) | (B[0x14 / 4] & 0x3fff)) == B[0x10 / 4])
+            {
+                node = D(node + 0x10);
+                done = true;
+                break;
+            }
+            B[0xc / 4] = B[0xc / 4] + 1;
+        } while (static_cast<int32_t>(B[0xc / 4]) < static_cast<int32_t>(B[0x8 / 4]));
+        if (done)
+            break;
+    }
+    uint8_t partial = 0;  // [esp+0x13]
+    if (!node)
+    {
+        partial = 1;
+        node = AStar_Closest(ebx, 0);
+        if (!node)
+        {
+            D(countOut) = 0;
+            return 0;
+        }
+    }
+    uint32_t n = 1;
+    for (uint32_t c = D(node + 0x10); c; c = D(c + 0x10))
+        ++n;
+    B[0x4 / 4] = n;
+    int32_t k = static_cast<int32_t>(n) - 1;
+    for (uint32_t e = node; e; e = D(e + 0x10), --k)
+    {
+        if (k >= 400)
+            continue;
+        const uint32_t key = D(e);
+        const uint32_t cx = (key >> 14) & 0x3fff;
+        const uint32_t cy = key & 0x3fff;
+        const uint32_t pt = u(&B[0x3c / 4]) + static_cast<uint32_t>(k) * 0x18;
+        D(pt + 0xc) = cx;
+        D(pt + 0x10) = cy;
+        Fl(pt) = CellCentre(cx, ebx + 0xc);
+        D(pt + 8) = 0;
+        Fl(pt + 4) = CellCentre(cy, ebx + 0x10);
+    }
+    if (static_cast<int32_t>(n) > 400)
+    {
+        n = 400;
+        B[0x4 / 4] = 400;
+    }
+    Path_Smooth(n, ebx, u(&B[0x3c / 4]), u(&B[0x4 / 4]));
+    int32_t m = static_cast<int32_t>(B[0x4 / 4]) - 1;
+    if (m <= 0)
+    {
+        D(countOut) = 0;
+        return 0;
+    }
+    if (m > static_cast<int32_t>(max))
+        m = static_cast<int32_t>(max);
+    std::memcpy(P(out), &B[0x54 / 4], static_cast<uint32_t>(m) * 0x18);
+    D(countOut) = static_cast<uint32_t>(m);
+    const uint32_t last = out + static_cast<uint32_t>(m) * 0x18 - 0x18;
+    if (D(goal + 0xc) == D(last + 0xc) && D(goal + 0x10) == D(last + 0x10))
+    {
+        D(last) = D(goal);
+        D(last + 4) = D(goal + 4);
+        D(last + 8) = D(goal + 8);
+    }
+    return (partial ? 1u : 0u) + 1u;
+}
+static uint32_t Grid_FindPath_Abi(uint32_t ecx, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4)
+{
+    return Grid_FindPath(ecx, a0, a1, a2, a3, a4);
+}
+ABI_ENTRY_0046fd20(Grid_FindPath_Entry, Grid_FindPath_Abi)
+HOOK(0x0046fd20, "Grid_FindPath", Grid_FindPath_Entry, nullptr);
+
+// --- AI route following ---
+
+// 0x004707a0 (eax = AI; stack: grid (unused), direction or 0; ret 8). Executed in recorded runs. Starts the steering
+// segment toward the route's first node: without a direction one is blended from the normalised xy velocity
+// (0x00456110, z 0) and the heading (0x00453150) by s = vt+0x88() (v * (1 - s) + h * s, z = h.z * s + (1 - s) * 0).
+// 0x00493d00 (eax = own position; +0x42c, direction, node position, next node position or 0, end heading / velocity /
+// the normalised approach vector for a straight (0x20) last node) gives +0x438; +0x43c = 0; +0x444 = the position.
+uint32_t AIRoute_SetDir(uint32_t ebx, uint32_t /*grid*/, uint32_t dir)
+{
+    uint32_t F[0x30 / 4];  // [esp+0x10]: 0 position, 0xc velocity / approach vector, 0x18 heading, 0x24 blended dir
+    float* f = reinterpret_cast<float*>(F);
+    VC(ebx, 0x54, u(&F[0]));
+    orig::fn_00458000(ebx, u(&F[0xc / 4]));
+    orig::fn_00456110(u(&F[0xc / 4]), u(&F[0xc / 4]), ebx);
+    F[0x14 / 4] = 0;
+    if (!dir)
+    {
+        orig::fn_00453150(ebx, u(&F[0x18 / 4]));
+        dir = u(&F[0x24 / 4]);
+        const float s = VF(ebx, 0x88);
+        const float t = K(0x005bcb2c) - s;
+        f[0x24 / 4] = f[0xc / 4] * t + f[0x18 / 4] * s;
+        f[0x28 / 4] = f[0x10 / 4] * t + f[0x1c / 4] * s;
+        f[0x2c / 4] = f[0x20 / 4] * s + t * K(0x0056c05c);
+    }
+    const uint32_t n = D(ebx + 0x428);
+    const uint32_t next = D(n);
+    uint32_t r;
+    if (next)
+    {
+        r = orig::fn_00493d00(u(&F[0]), ebx + 0x42c, dir, n + 4, next + 4, 0);
+    }
+    else if (!(D(n + 0x1c) & 0x20))
+    {
+        if (D(n + 0x1c) & 8)
+            r = orig::fn_00493d00(u(&F[0]), ebx + 0x42c, dir, n + 4, 0, n + 0x10);
+        else
+            r = orig::fn_00493d00(u(&F[0]), ebx + 0x42c, dir, n + 4, 0, u(&F[0xc / 4]));
+    }
+    else
+    {
+        f[0xc / 4] = Fl(n + 4) - f[0];
+        f[0x10 / 4] = Fl(n + 8) - f[1];
+        f[0x14 / 4] = Fl(n + 0xc) - f[2];
+        Normalize3(u(&F[0xc / 4]), u(&F[0xc / 4]));
+        r = orig::fn_00493d00(u(&F[0]), ebx + 0x42c, dir, n + 4, 0, u(&F[0xc / 4]));
+    }
+    D(ebx + 0x438) = r;
+    D(ebx + 0x43c) = 0;
+    D(ebx + 0x444) = F[0];
+    D(ebx + 0x448) = F[1];
+    D(ebx + 0x44c) = F[2];
+    return F[0];
+}
+static uint32_t AIRoute_SetDir_Abi(uint32_t eax, uint32_t a0, uint32_t a1)
+{
+    return AIRoute_SetDir(eax, a0, a1);
+}
+ABI_ENTRY_004707a0(AIRoute_SetDir_Entry, AIRoute_SetDir_Abi)
+HOOK(0x004707a0, "AIRoute_SetDir", AIRoute_SetDir_Entry, nullptr);
+
+// 0x00470910 (esi = AI; stack: grid (unused); ret 4). Executed in recorded runs. One steering step: with a stopping
+// node (flag 0x80) it sets the velocity straight at the node (speed vt+0x80's first value, capped at distance / dt).
+// Otherwise, unless the segment point +0x444 is more than s * 80 ahead (s = dt * vt+0x80's second value), it advances
+// the segment parameter +0x43c by s * 4 (0x00493ca0 updates +0x444), then pushes toward +0x444 (0x00454d80 with
+// vt+0x80's values and vt+0x84()). Then it turns toward the velocity (0x00456110, 0x00454e60 rate 16).
+uint32_t AIRoute_Steer(uint32_t esi, uint32_t /*a0*/)
+{
+    uint32_t B[0x28 / 4];  // [esp+8]: 0, 8, 0xc vt+0x80 values, 4 dt, 0x10 vector, 0x1c position
+    float* f = reinterpret_cast<float*>(B);
+    VC(esi, 0x54, u(&B[0x1c / 4]));
+    VC(esi, 0x80, u(&B[0]), u(&B[0x8 / 4]), u(&B[0xc / 4]));
+    const uint32_t n = D(esi + 0x428);
+    B[0x4 / 4] = D(0x00604a90);
+    if (n && static_cast<int8_t>(By(n + 0x1c)) < 0)
+    {
+        f[0x10 / 4] = Fl(n + 4) - f[0x1c / 4];
+        f[0x14 / 4] = Fl(n + 8) - f[0x20 / 4];
+        const float len = orig::fn_004e7780(u(&B[0x10 / 4]), u(&B[0x10 / 4]));
+        if (len < f[0x4 / 4] * f[0])
+            f[0] = len / f[0x4 / 4];
+        f[0x10 / 4] = f[0x10 / 4] * f[0];
+        B[0x18 / 4] = 0;
+        f[0x14 / 4] = f[0x14 / 4] * f[0];
+        orig::fn_00458510(u(&B[0x10 / 4]), esi);
+    }
+    else
+    {
+        const uint32_t edi = esi + 0x444;
+        const float dy = f[0x20 / 4] - Fl(edi + 4);
+        const float dx = f[0x1c / 4] - Fl(edi);
+        const float s = f[0x4 / 4] * f[0x8 / 4];
+        f[0x4 / 4] = s;
+        const float q = s * K(0x005bcddc);
+        const float d2 = dx * dx + dy * dy;
+        if (!(q * q < d2))
+        {
+            const float adv = f[0x4 / 4] * K(0x005bcbe0) + Fl(esi + 0x43c);
+            f[0x4 / 4] = adv;
+            Fl(esi + 0x43c) = adv;
+            orig::fn_00493ca0(esi + 0x42c, B[0x4 / 4], edi);
+        }
+        f[0x4 / 4] = VF(esi, 0x84);
+        fn_00454d80(edi, esi, B[0], B[0x8 / 4], B[0xc / 4], B[0x4 / 4]);
+    }
+    orig::fn_00458000(esi, u(&B[0x10 / 4]));
+    orig::fn_00456110(u(&B[0x10 / 4]), u(&B[0x10 / 4]), esi);
+    return fn_00454e60(u(&B[0x10 / 4]), esi, 0x41800000);
+}
+static uint32_t AIRoute_Steer_Abi(uint32_t esi, uint32_t a0)
+{
+    return AIRoute_Steer(esi, a0);
+}
+ABI_ENTRY_00470910(AIRoute_Steer_Entry, AIRoute_Steer_Abi)
+HOOK(0x00470910, "AIRoute_Steer", AIRoute_Steer_Entry, nullptr);
+
+// 0x00470aa0 (eax = AI, ecx = grid; stack: no steering (byte); ret 4). Executed in recorded runs (GenericAI_Update,
+// AIMarker_Step and others). The route update: pops reached nodes; a node flagged 2 is planned (AIRoute_Plan, at most
+// twice per call, else the segment is restarted); then, unless no steering is asked, either steers toward the node
+// (restarting the segment, 0x004707a0, after a replan or pop) or, once the position is reached, turns to the node's
+// heading (+0x424 bit 5, 0x00454e60 rate 16) and clears its flag 8 when facing it. Returns 0 without a route, the
+// pop result when the route ended, the plan result after a plan, 1 after a pop, 8 otherwise.
+uint32_t AIRoute_Update(uint32_t esi, uint32_t edi, uint32_t a0)
+{
+    uint32_t P0[3];  // [esp+0x1c] position
+    const uint32_t ebx = esi + 0x428;
+    uint32_t result = 8;   // [esp+0x14]
+    uint8_t planned = 0;   // [esp+0x12]
+    uint32_t plans = 0;    // [esp+0x18]
+    if (!static_cast<uint8_t>(AIRoute_HasRoute(ebx)))
+        return 0;
+    for (;;)
+    {
+        const uint8_t popped = static_cast<uint8_t>(AIRoute_PopReached(esi, edi));  // [esp+0x13]
+        const uint32_t ebp = D(ebx);
+        if (!ebp)
+            return popped ? 1u : 0u;
+        if (!planned)
+            result = 1;
+        if (D(ebp + 0x1c) & 2)
+        {
+            const uint32_t c = plans;
+            plans = c + 1;
+            planned = 1;
+            if (c > 1)
+            {
+                AIRoute_SetDir(esi, edi, 0);
+                return result;
+            }
+            const uint32_t r = AIRoute_Plan(edi, esi);
+            result = r;
+            if (!static_cast<uint8_t>(AIRoute_HasRoute(ebx)))
+                return r;
+            continue;
+        }
+        if (static_cast<uint8_t>(a0))
+        {
+            if (planned || popped)
+                AIRoute_SetDir(esi, edi, 0);
+            return result;
+        }
+        VC(esi, 0x54, u(P0));
+        if (!(D(ebp + 0x1c) & 0x10))
+        {
+            if (planned || popped)
+                AIRoute_SetDir(esi, edi, 0);
+            AIRoute_Steer(esi, edi);
+            return result;
+        }
+        orig::fn_00454c90(esi, 1, 1);
+        if (static_cast<uint8_t>(fn_00454e60(ebp + 0x10, esi, 0x41800000)))
+            D(ebp + 0x1c) &= 0xfffffff7u;
+        return result;
+    }
+}
+static uint32_t AIRoute_Update_Abi(uint32_t eax, uint32_t ecx, uint32_t a0)
+{
+    return AIRoute_Update(eax, ecx, a0);
+}
+ABI_ENTRY_00470aa0(AIRoute_Update_Entry, AIRoute_Update_Abi)
+HOOK(0x00470aa0, "AIRoute_Update", AIRoute_Update_Entry, nullptr);
+
+// 0x00470c00 (eax = AI; stack: unused; ret 4). Caller 0x004512b0. Clears the AI's route (AIRoute_Clear on the grid
+// Game+0xaa4) and resets its segment +0x42c (0x00493fe0).
+uint32_t AIRoute_Reset(uint32_t edi, uint32_t /*a0*/)
+{
+    AIRoute_Clear(D(GameP() + 0xaa4), edi);
+    return orig::fn_00493fe0(edi + 0x42c);
+}
+static uint32_t AIRoute_Reset_Abi(uint32_t eax, uint32_t a0)
+{
+    return AIRoute_Reset(eax, a0);
+}
+ABI_ENTRY_00470c00(AIRoute_Reset_Entry, AIRoute_Reset_Abi)
+HOOK(0x00470c00, "AIRoute_Reset", AIRoute_Reset_Entry, nullptr);
+
+// 0x00470c30 (eax = &AI+0x428; returns al). Executed in recorded runs. Whether the route is non-empty (upper eax bytes:
+// the pointer's).
+uint32_t AIRoute_HasRoute(uint32_t p)
+{
+    return (p & 0xffffff00u) | (D(p) ? 1u : 0u);
+}
+static uint32_t AIRoute_HasRoute_Abi(uint32_t eax)
+{
+    return AIRoute_HasRoute(eax);
+}
+ABI_ENTRY_00470c30(AIRoute_HasRoute_Entry, AIRoute_HasRoute_Abi)
+HOOK(0x00470c30, "AIRoute_HasRoute", AIRoute_HasRoute_Entry, nullptr);
+
+// --- marking an object's footprint on the grid ---
+
+namespace
+{
+// (float) of an unsigned value, the fild + 2^32 idiom.
+inline float U2F(uint32_t v)
+{
+    float f = static_cast<float>(static_cast<int32_t>(v));
+    if (static_cast<int32_t>(v) < 0)
+        f = f + K(0x005bcb28);
+    return f;
+}
+}  // namespace
+
+// 0x00455000 (stack: object, triangle (3 world vec3), cell set, cell pool; ret 0x10). Executed in recorded runs
+// (caller Object_MarkGrid). Adds to the set (0x004e6ed0) every grid cell the triangle overlaps, as 8-byte {float x,
+// float y} cell elements from the pool (0x004f6020): the bounding cells of its vertices (Grid_WorldToCell; vertices
+// outside the grid are ignored); a single cell is added directly, otherwise each cell of the box whose square clips the
+// triangle (0x004e7f30 against x >= cx, x <= cx + 10, y >= cy, y <= cy + 10) to more than 2 vertices. The original
+// aligned frame (0x10c bytes) is kept as A, A[o / 4] = [esp + o] with 3 registers pushed.
+uint32_t Grid_RasterTriangle(uint32_t /*self*/, uint32_t tri, uint32_t set, uint32_t pool)
+{
+    uint32_t A[0x10c / 4];  // 0 x / vertex, 4 count / cell x, 8 max y, 0xc min y, 0x10 cell y, 0x14 cell x,
+                            // 0x18 plane, 0x28 max x, 0x2c and 0x9c polygon buffers
+    float* f = reinterpret_cast<float*>(A);
+    const uint32_t grid = D(GameP() + 0xaa4);
+    A[0x4 / 4] = 3;
+    uint32_t edi = 3;
+    uint8_t any = 0;
+    A[0] = tri;
+    do
+    {
+        const uint32_t v = A[0];
+        if (static_cast<uint8_t>(Grid_WorldToCell(grid, D(v), D(v + 4), u(&A[0x14 / 4]), u(&A[0x10 / 4]))))
+        {
+            const uint32_t cx = A[0x14 / 4];
+            if (!any)
+            {
+                const uint32_t cy = A[0x10 / 4];
+                any = 1;
+                edi = cx;
+                A[0xc / 4] = cy;
+                A[0x28 / 4] = cx;
+                A[0x8 / 4] = cy;
+            }
+            else
+            {
+                if (edi > cx)
+                    edi = cx;
+                else if (A[0x28 / 4] < cx)
+                    A[0x28 / 4] = cx;
+                const uint32_t cy = A[0x10 / 4];
+                if (A[0xc / 4] > cy)
+                    A[0xc / 4] = cy;
+                else if (A[0x8 / 4] < cy)
+                    A[0x8 / 4] = cy;
+            }
+        }
+        A[0] += 0xc;
+        A[0x4 / 4] = A[0x4 / 4] - 1;
+    } while (A[0x4 / 4] != 0);
+    if (!any)
+        return 0;
+    uint32_t ebx = A[0xc / 4];
+    if (edi == A[0x28 / 4] && ebx == A[0x8 / 4])
+    {
+        const uint32_t p = orig::fn_004f6020(pool);
+        Fl(p) = U2F(edi);
+        Fl(p + 4) = U2F(ebx);
+        return orig::fn_004e6ed0(set, p);
+    }
+    A[0] = edi;
+    if (edi > A[0x28 / 4])
+        return 0;
+    do
+    {
+        if (ebx <= A[0x8 / 4])
+        {
+            do
+            {
+                if (!static_cast<uint8_t>(
+                        Grid_CellToWorld(D(GameP() + 0xaa4), A[0], ebx, u(&A[0x4 / 4]), u(&A[0x10 / 4]))))
+                    return 0;
+                std::memcpy(&A[0x2c / 4], P(tri), 0x24);
+                A[0x18 / 4] = 0x3f800000;
+                A[0x1c / 4] = 0;
+                A[0x20 / 4] = 0;
+                f[0x24 / 4] = -f[0x4 / 4];
+                uint32_t n = orig::fn_004e7f30(3, u(&A[0x2c / 4]), u(&A[0x9c / 4]), u(&A[0x18 / 4]));
+                A[0x18 / 4] = 0xbf800000;
+                A[0x1c / 4] = 0;
+                A[0x20 / 4] = 0;
+                f[0x24 / 4] = -((f[0x4 / 4] + K(0x005bcb68)) * K(0x005bcb5c));
+                n = orig::fn_004e7f30(n, u(&A[0x9c / 4]), u(&A[0x2c / 4]), u(&A[0x18 / 4]));
+                f[0x24 / 4] = -f[0x10 / 4];
+                A[0x18 / 4] = 0;
+                A[0x1c / 4] = 0x3f800000;
+                A[0x20 / 4] = 0;
+                n = orig::fn_004e7f30(n, u(&A[0x2c / 4]), u(&A[0x9c / 4]), u(&A[0x18 / 4]));
+                A[0x18 / 4] = 0;
+                A[0x1c / 4] = 0xbf800000;
+                f[0x24 / 4] = -((f[0x10 / 4] + K(0x005bcb68)) * K(0x005bcb5c));
+                A[0x20 / 4] = 0;
+                n = orig::fn_004e7f30(n, u(&A[0x9c / 4]), u(&A[0x2c / 4]), u(&A[0x18 / 4]));
+                if (n > 2)
+                {
+                    const uint32_t p = orig::fn_004f6020(pool);
+                    Fl(p) = U2F(A[0]);
+                    A[0x14 / 4] = ebx;
+                    Fl(p + 4) = U2F(ebx);
+                    orig::fn_004e6ed0(set, p);
+                }
+                ++ebx;
+            } while (ebx <= A[0x8 / 4]);
+            ebx = A[0xc / 4];
+        }
+        A[0] = A[0] + 1;
+    } while (A[0] <= A[0x28 / 4]);
+    return 0;
+}
+static uint32_t Grid_RasterTriangle_Abi(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
+{
+    return Grid_RasterTriangle(a0, a1, a2, a3);
+}
+ABI_ENTRY_00455000(Grid_RasterTriangle_Entry, Grid_RasterTriangle_Abi)
+HOOK(0x00455000, "Grid_RasterTriangle", Grid_RasterTriangle_Entry, nullptr);
+
+// 0x004552f0 (ecx = object; stack: enable (byte), bits; ret 8). Executed in recorded runs (callers 0x0041c560,
+// DefaultGameObject_MarkGrid). The base Object slot +0xfc: marks (or unmarks) the grid cells under the object's
+// collision mesh. The model (0x00453120 with the index at *+0x414 when set and not negative, else 0) is walked part by
+// part (+0x14 count, +0x18 array; part+4 mesh, mesh+0x80 / +0x84 submeshes of 0x2c bytes, a strip's count - 2 or the
+// index count / 3 triangles, 0x004efb50); each triangle is transformed by the object matrix (vt+0x64, 0x004e36a0) and,
+// when its lowest model-space z is below 10, rasterised (Grid_RasterTriangle) into a sorted unique cell set (comparator
+// 0x00454fe0) using a small element pool {8, 10, 0, 0}. Every cell is then Grid_SetCell(bits, enable). Frees the set
+// (vt+0x10(1)) and the pool blocks. The original frame (sub esp, 0xb4) is kept as B, B[o / 4] = [esp + o] with the 4
+// registers pushed.
+uint32_t Object_MarkGrid(uint32_t self, uint32_t enable, uint32_t mode)
+{
+    uint32_t B[0xb4 / 4];  // 0 set, 4 model, 8 part pointer, 0xc pool, 0x10 submesh, 0x14 min z, 0x18 part,
+                           // 0x1c iterator, 0x24 object, 0x28 triangle, 0x4c world triangle, 0x70 matrix
+    float* f = reinterpret_cast<float*>(B);
+    B[0x24 / 4] = self;
+    B[0x1c / 4] = 0;
+    B[0x20 / 4] = 0;
+    VC(self, 0x64, u(&B[0x70 / 4]));
+    const uint32_t idx = D(self + 0x414);
+    uint32_t model;
+    if (idx && I(idx) >= 0)
+        model = orig::fn_00453120(self, D(idx), 0);
+    else
+        model = orig::fn_00453120(self, 0, 0);
+    B[0x4 / 4] = model;
+    const uint32_t pool = orig::fn_004e07f0(0x0063a210, 0x10, 0x10, 2, 0x0058b5e8);
+    if (pool)
+    {
+        D(pool) = 8;
+        D(pool + 4) = 0xa;
+        D(pool + 8) = 0;
+        D(pool + 0xc) = 0;
+    }
+    B[0xc / 4] = pool;
+    uint32_t set = orig::fn_004e07f0(0x0063a210, 0x10, 0x1c, 2, 0x0058b5e8);
+    if (set)
+        set = orig::fn_004e6bd0(10, set, 0x00454fe0);
+    B[0] = set;
+    B[0x18 / 4] = 0;
+    if (I(model + 0x14) > 0)
+    {
+        B[0x8 / 4] = model + 0x18;
+        do
+        {
+            const uint32_t mesh = D(D(B[0x8 / 4]) + 4);
+            B[0x10 / 4] = 0;
+            if (I(mesh + 0x80) > 0)
+            {
+                uint32_t off = 0;
+                do
+                {
+                    const uint32_t sub = D(mesh + 0x84) + off;
+                    const uint32_t strip = D(sub + 0x24);
+                    const int32_t tris = strip ? I(strip + 0x10) - 2 : I(sub + 0x20) / 3;
+                    for (int32_t t = 0; t < tris; ++t)
+                    {
+                        orig::fn_004efb50(D(mesh + 0x84) + off, static_cast<uint32_t>(t), u(&B[0x28 / 4]));
+                        for (uint32_t k = 0; k < 3; ++k)
+                        {
+                            const float z = f[(0x30 + k * 0xc) / 4];
+                            if (k == 0 || z < f[0x14 / 4])
+                                B[0x14 / 4] = B[(0x30 + k * 0xc) / 4];
+                        }
+                        orig::fn_004e36a0(u(&B[0x28 / 4]), u(&B[0x70 / 4]), 3, u(&B[0x4c / 4]));
+                        if (f[0x14 / 4] < K(0x005bcb68))
+                            Grid_RasterTriangle(B[0x24 / 4], u(&B[0x4c / 4]), B[0], B[0xc / 4]);
+                    }
+                    B[0x10 / 4] = B[0x10 / 4] + 1;
+                    off += 0x2c;
+                } while (static_cast<int32_t>(B[0x10 / 4]) < I(mesh + 0x80));
+                model = B[0x4 / 4];
+            }
+            B[0x18 / 4] = B[0x18 / 4] + 1;
+            B[0x8 / 4] += 4;
+        } while (static_cast<int32_t>(B[0x18 / 4]) < I(model + 0x14));
+        set = B[0];
+    }
+    for (uint32_t e = orig::fn_004e7340(set, u(&B[0x1c / 4])); e; e = orig::fn_004e73c0(u(&B[0x1c / 4])))
+    {
+        const int32_t cy = static_cast<int32_t>(Fl(e + 4));
+        const int32_t cx = static_cast<int32_t>(Fl(e));
+        Grid_SetCell(static_cast<uint32_t>(cy), static_cast<uint32_t>(cx), mode, D(GameP() + 0xaa4), enable);
+    }
+    set = B[0];
+    if (set)
+        VC(set, 0x10, 1u);
+    const uint32_t pl = B[0xc / 4];
+    if (pl)
+    {
+        for (uint32_t b = D(pl + 0xc); b;)
+        {
+            const uint32_t next = D(b);
+            orig::fn_004e08d0(0x0063a210, b);
+            b = next;
+        }
+        D(pl + 0xc) = 0;
+        D(pl + 8) = 0;
+        orig::fn_004e08d0(0x0063a210, pl);
+    }
+    if (B[0x20 / 4])
+        --I(B[0x20 / 4] + 0x18);
+    return B[0x20 / 4];
+}
+static uint32_t Object_MarkGrid_Abi(uint32_t ecx, uint32_t a0, uint32_t a1)
+{
+    return Object_MarkGrid(ecx, a0, a1);
+}
+ABI_ENTRY_004552f0(Object_MarkGrid_Entry, Object_MarkGrid_Abi)
+HOOK(0x004552f0, "Object_MarkGrid", Object_MarkGrid_Entry, nullptr);
+
+// 0x00475820 (eax, ecx, edx). Executed in recorded runs (callers 0x00483810, 0x00483d60): 0x00453c50(edx, ecx, eax, 1,
+// 0, 0, 1, 0, 0).
+uint32_t fn_00475820(uint32_t eax, uint32_t ecx, uint32_t edx)
+{
+    return orig::fn_00453c50(edx, ecx, eax, 1, 0, 0, 1, 0, 0);
+}
+static uint32_t fn_00475820_Abi(uint32_t eax, uint32_t ecx, uint32_t edx)
+{
+    return fn_00475820(eax, ecx, edx);
+}
+ABI_ENTRY_00475820(fn_00475820_Entry, fn_00475820_Abi)
+HOOK(0x00475820, "fn_00475820", fn_00475820_Entry, nullptr);
+
+// 0x0047afa0 (ecx = player; stack: hit message; ret 4). PlayerObject (vtable 0x005aa888) slot +0xd0, the hit handler
+// (the message layout matches the one 0x00446de0 sends: +0 flags, +0x14 damage, +0x18 direction, +0x24 impulse,
+// +0x2c source). Ignored when dead (Object_IsDead), in a cutscene (0x0044e620), from a same-team source (vt+0xe4)
+// unless its vt+0xe0 allows it, or while +0xa34 & 0x7800000. Records the hit side in Game+0x26d0 (2 front, 1 back,
+// 4 / 8 left / right from the heading 0x00453150, the direction and 0x004e7830); unless Game+0x174 (guess:
+// invulnerable) blocks it (flags 0x404000 override), health +0x454 -= damage (halved when Game+0xac8 is set);
+// at 0 vt+0xd4(message) (death); otherwise clamped to +0x458, and a non-zero impulse (once, +0xa34 bit 14) knocks the
+// player back (0x00455aa0 with direction * impulse * 10 capped at 4000, or 8000 with flag 0x40000; z * 0.4).
+// Releases dead references +0xad0 / +0xad4 and tells the rest about the source (0x00486df0). Then sounds: dead ->
+// 0x00493b70 (6 sounds at 0x005ce334); flag 0x40000 -> 0x00493b70 (12 at 0x005fb96c); flag 0x20000 -> "ROM50103_Sniper"
+// / "ROM50104_Sniper" through (Game+0x2c) vt+0xd0 at most every Game+0xba0 seconds; otherwise a pain sound
+// (0x00493b70, 7 at 0x0064a300, callback 0x0047af60) at most every Game+0xb50 seconds, else "rom50069_Hurt" ..
+// "rom50073_Hurt" at most once a second. The message argument's slot is reused for the game time.
+uint32_t PlayerObject_OnHit(uint32_t ebp, uint32_t msg)
+{
+    uint32_t B[0x18 / 4];  // [esp+0x10]: 0 heading, 0xc side vector
+    float* f = reinterpret_cast<float*>(B);
+    const uint32_t dead = orig::fn_00454780(ebp);
+    if (static_cast<uint8_t>(dead))
+        return dead;
+    const uint32_t cut = orig::fn_0044e620();
+    if (static_cast<uint8_t>(cut))
+        return cut;
+    const uint32_t edi = msg;
+    if (!(D(edi) & 0x200000) && D(edi + 0x2c))
+    {
+        const uint8_t team = static_cast<uint8_t>(VC(D(edi + 0x2c), 0xe4));
+        if (team == static_cast<uint8_t>(VC(ebp, 0xe4)) && !static_cast<uint8_t>(VC(D(edi + 0x2c), 0xe0)))
+            return 0;
+    }
+    if (D(ebp + 0xa34) & 0x7800000)
+        return 0;
+    orig::fn_00453150(ebp, u(B));
+    const uint32_t game = GameP();
+    const uint32_t ebx = edi + 0x18;
+    const float dot = f[1] * Fl(edi + 0x1c) + f[0] * Fl(ebx);
+    if (dot >= K(0x005bcd48))
+        D(game + 0x26d0) |= 2;
+    else if (dot <= K(0x005bcd4c))
+        D(game + 0x26d0) |= 1;
+    if (dot > K(0x005bcd4c) && dot < K(0x005bcd48))
+    {
+        orig::fn_004e7830(ebx, u(B), u(&B[0xc / 4]));
+        if (f[0x14 / 4] >= K(0x0056c05c))
+            D(game + 0x26d0) |= 8;
+        else
+            D(game + 0x26d0) |= 4;
+    }
+    D(ebp + 0xc04) = 0;
+    D(ebp + 0xe5c) = 0;
+    if (!By(game + 0x174) || (D(edi) & 0x404000))
+    {
+        if (D(game + 0xac8))
+            Fl(ebp + 0x454) = Fl(ebp + 0x454) - Fl(edi + 0x14) * K(0x005bcb4c);
+        else
+            Fl(ebp + 0x454) = Fl(ebp + 0x454) - Fl(edi + 0x14);
+    }
+    if (Fl(ebp + 0x454) <= K(0x0056c05c))
+    {
+        VC(ebp, 0xd4, edi);
+    }
+    else
+    {
+        if (Fl(ebp + 0x454) > Fl(ebp + 0x458))
+            D(ebp + 0x454) = D(ebp + 0x458);
+        if (Fl(edi + 0x24) != K(0x0056c05c) && !(D(ebp + 0xa34) & 0x4000))
+        {
+            D(ebp + 0xa34) |= 0x4000;
+            float imp = Fl(edi + 0x24) * K(0x005bcb68);
+            D(ebp + 0xbcc) = D(edi + 0x14);
+            const float cap = (D(edi) & 0x40000) ? K(0x005bcda0) : K(0x005bcd9c);
+            if (imp > cap)
+                imp = cap;
+            f[0] = imp * Fl(ebx);
+            f[1] = imp * Fl(edi + 0x1c);
+            f[2] = imp * K(0x005bcd94);
+            orig::fn_00455aa0(u(B), ebp, 0x3dcccccd, 0xffffffffu, 0, 0x10);
+            D(ebp + 0x9b8) = 0x3f800000;
+            D(ebp + 0x9b4) = 0x3f800000;
+        }
+    }
+    {
+        const uint32_t esi = ebp + 0xad0;
+        if (D(esi) && !static_cast<uint8_t>(VC(D(esi), 0xd8)))
+        {
+            Unref(D(esi));
+            D(esi) = 0;
+        }
+    }
+    {
+        const uint32_t slot = ebp + 0xad4;
+        if (D(slot) && !static_cast<uint8_t>(VC(D(slot), 0xd8)))
+        {
+            Unref(D(slot));
+            D(slot) = 0;
+        }
+        if (D(slot))
+            orig::fn_00486df0(D(edi + 0x2c), D(slot));
+    }
+    if (D(ebp + 0xad0))
+        orig::fn_00486df0(D(edi + 0x2c), D(ebp + 0xad0));
+    if (static_cast<uint8_t>(orig::fn_00454780(ebp)))
+        return orig::fn_00493b70(0, 6, 0x005ce334, 0x0063a180, ebp + 0xe60, ebp, 1, 0, 0);
+    if (!D(edi + 0x2c))
+        return 0;
+    const uint32_t flags = D(edi);
+    const uint32_t now = D(0x00604a98);  // stored into the message argument's slot
+    bool painTimer = false;
+    if (flags & 0x40000)
+    {
+        orig::fn_00493b70(0, 0xc, 0x005fb96c, 0x0064a71c, 0, ebp, 1, 0, 0);
+        painTimer = true;
+    }
+    else if (flags & 0x20000)
+    {
+        const uint32_t g = GameP();
+        if (!(bf(now) - Fl(g + 0xb94) < Fl(g + 0xba0)))
+        {
+            const int32_t r = static_cast<int32_t>((Rand() * 0xc8) & 0xffff8000u);
+            const uint32_t sound = r >= 0x320000 ? 0x005b13fc : 0x005b140c;
+            VC(D(GameP() + 0x2c), 0xd0, sound, ebp, 0u, 0u, 0xffffffffu, 0u);
+            D(GameP() + 0xb94) = now;
+            const uint32_t g2 = GameP();
+            Fl(g2 + 0xba0) = orig::fn_0046e2c0(D(g2 + 0xb9c), D(g2 + 0xb98), D(g2 + 0xb9c));
+            return 0;
+        }
+        painTimer = true;
+    }
+    else
+    {
+        painTimer = true;
+    }
+    if (painTimer)
+    {
+        const uint32_t g = GameP();
+        if (!(bf(now) - Fl(g + 0xb44) < Fl(g + 0xb50)))
+        {
+            D(g + 0xb44) = now;
+            Fl(GameP() + 0xb50) = orig::fn_0046e2c0(D(g + 0xb48), D(g + 0xb48), D(g + 0xb4c));
+            D(ebp + 0xb00) = now;
+            return orig::fn_00493b70(0, 7, 0x0064a300, 0x0063a17c, ebp + 0xe60, ebp, 1, 0, 0x0047af60);
+        }
+    }
+    if (!(bf(now) - Fl(ebp + 0xb00) < K(0x005bcb2c)))
+    {
+        D(ebp + 0xb00) = now;
+        const uint32_t r = static_cast<uint32_t>(static_cast<int32_t>(Rand() * 0x1f4) >> 15);
+        uint32_t sound;
+        if (r < 0x64)
+            sound = 0x0059ea9c;
+        else if (r < 0xc8)
+            sound = 0x0059ea8c;
+        else if (r < 0x12c)
+            sound = 0x0059ea7c;
+        else if (r < 0x190)
+            sound = 0x0059ea6c;
+        else
+            sound = 0x0059ea5c;
+        return VC(D(GameP() + 0x2c), 0xd0, sound, 0u, 0u, 0u, 0xffffffffu, 0u);
+    }
+    return 0;
+}
+static uint32_t PlayerObject_OnHit_Abi(uint32_t ecx, uint32_t a0)
+{
+    return PlayerObject_OnHit(ecx, a0);
+}
+ABI_ENTRY_0047afa0(PlayerObject_OnHit_Entry, PlayerObject_OnHit_Abi)
+HOOK(0x0047afa0, "PlayerObject_OnHit", PlayerObject_OnHit_Entry, nullptr);
+
+// ---------------------------------------------------------------------------------------------------------------
+// Class descriptor getters: vtable slot 1 of each class, `mov eax, descriptor; ret`; the descriptor's +0x14 names the
+// class. None is executed in recorded runs.
+#define AI7_CLASS_GETTER(addr, Name, desc)                                                                             \
+    uint32_t Name##_GetClass()                                                                                         \
+    {                                                                                                                  \
+        return desc;                                                                                                   \
+    }                                                                                                                  \
+    static uint32_t Name##_GetClass_Abi()                                                                              \
+    {                                                                                                                  \
+        return Name##_GetClass();                                                                                      \
+    }                                                                                                                  \
+    ABI_ENTRY_##addr(Name##_GetClass_Entry, Name##_GetClass_Abi)
+
+// 0x00461920: descriptor 0x00583080 "CLASS(ForgeTurret)" (vtable 0x005a1050).
+AI7_CLASS_GETTER(00461920, ForgeTurret, 0x00583080)
+HOOK(0x00461920, "ForgeTurret_GetClass", ForgeTurret_GetClass_Entry, nullptr);
+// 0x00461940: descriptor 0x00582750 "CLASS(PenguinObject)" (vtable 0x005a1768).
+AI7_CLASS_GETTER(00461940, PenguinObject, 0x00582750)
+HOOK(0x00461940, "PenguinObject_GetClass", PenguinObject_GetClass_Entry, nullptr);
+// 0x00461950: descriptor 0x00582db0 "CLASS(StigTurret)" (vtable 0x005a19d8).
+AI7_CLASS_GETTER(00461950, StigTurret, 0x00582db0)
+HOOK(0x00461950, "StigTurret_GetClass", StigTurret_GetClass_Entry, nullptr);
+// 0x00461980: descriptor 0x005844a8 "CLASS(AlarmGenerator)" (vtable 0x005a2058).
+AI7_CLASS_GETTER(00461980, AlarmGenerator, 0x005844a8)
+HOOK(0x00461980, "AlarmGenerator_GetClass", AlarmGenerator_GetClass_Entry, nullptr);
+// 0x00461990: descriptor 0x00584958 "CLASS(Q112Object)" (vtable 0x005a2440).
+AI7_CLASS_GETTER(00461990, Q112Object, 0x00584958)
+HOOK(0x00461990, "Q112Object_GetClass", Q112Object_GetClass_Entry, nullptr);
+// 0x004619a0: descriptor 0x00583968 "CLASS(ArmyTimerObject)" (vtable 0x005a2800).
+AI7_CLASS_GETTER(004619a0, ArmyTimerObject, 0x00583968)
+HOOK(0x004619a0, "ArmyTimerObject_GetClass", ArmyTimerObject_GetClass_Entry, nullptr);
+// 0x004619f0: descriptor 0x00584fb8 "CLASS(GruntLadderObject)" (vtable 0x005a3528).
+AI7_CLASS_GETTER(004619f0, GruntLadderObject, 0x00584fb8)
+HOOK(0x004619f0, "GruntLadderObject_GetClass", GruntLadderObject_GetClass_Entry, nullptr);
+// 0x00461a10: descriptor 0x00584af0 "CLASS(Q112Boss)" (vtable 0x005a4098).
+AI7_CLASS_GETTER(00461a10, Q112Boss, 0x00584af0)
+HOOK(0x00461a10, "Q112Boss_GetClass", Q112Boss_GetClass_Entry, nullptr);
+// 0x00461a70: descriptor 0x00584bb0 "CLASS(FakeGruntObject)" (vtable 0x005a4da8).
+AI7_CLASS_GETTER(00461a70, FakeGruntObject, 0x00584bb0)
+HOOK(0x00461a70, "FakeGruntObject_GetClass", FakeGruntObject_GetClass_Entry, nullptr);
+// 0x00461ac0: descriptor 0x00585000 "CLASS(SaucerObject)" (vtable 0x005a5e98).
+AI7_CLASS_GETTER(00461ac0, SaucerObject, 0x00585000)
+HOOK(0x00461ac0, "SaucerObject_GetClass", SaucerObject_GetClass_Entry, nullptr);
+// 0x00461ae0: descriptor 0x005847c0 "CLASS(TeammateMarker)" (vtable 0x005a64d0).
+AI7_CLASS_GETTER(00461ae0, TeammateMarker, 0x005847c0)
+HOOK(0x00461ae0, "TeammateMarker_GetClass", TeammateMarker_GetClass_Entry, nullptr);
+// 0x00461af0: descriptor 0x00587070 "CLASS(Q111Object)" (vtable 0x005a6df8).
+AI7_CLASS_GETTER(00461af0, Q111Object, 0x00587070)
+HOOK(0x00461af0, "Q111Object_GetClass", Q111Object_GetClass_Entry, nullptr);
+// 0x00461b10: descriptor 0x00584e08 "CLASS(Polewart)" (vtable 0x005a7328).
+AI7_CLASS_GETTER(00461b10, Polewart, 0x00584e08)
+HOOK(0x00461b10, "Polewart_GetClass", Polewart_GetClass_Entry, nullptr);
+// 0x00461b20: descriptor 0x00585348 "CLASS(TwigletController)" (vtable 0x005a7590).
+AI7_CLASS_GETTER(00461b20, TwigletController, 0x00585348)
+HOOK(0x00461b20, "TwigletController_GetClass", TwigletController_GetClass_Entry, nullptr);
+// 0x00461b80: descriptor 0x00584328 "CLASS(AIInterestObject)" (vtable 0x005a7820).
+AI7_CLASS_GETTER(00461b80, AIInterestObject, 0x00584328)
+HOOK(0x00461b80, "AIInterestObject_GetClass", AIInterestObject_GetClass_Entry, nullptr);
+// 0x00461bd0: descriptor 0x005850f0 "CLASS(ShrubPatrol)" (vtable 0x005a7e98).
+AI7_CLASS_GETTER(00461bd0, ShrubPatrol, 0x005850f0)
+HOOK(0x00461bd0, "ShrubPatrol_GetClass", ShrubPatrol_GetClass_Entry, nullptr);
+// 0x00461c30: descriptor 0x005846b8 "CLASS(PeasantObject)" (vtable 0x005a8550).
+AI7_CLASS_GETTER(00461c30, PeasantObject, 0x005846b8)
+HOOK(0x00461c30, "PeasantObject_GetClass", PeasantObject_GetClass_Entry, nullptr);
+// 0x00461c60: descriptor 0x00582900 "CLASS(RocketTowerTurret)" (vtable 0x005a8b88).
+AI7_CLASS_GETTER(00461c60, RocketTowerTurret, 0x00582900)
+HOOK(0x00461c60, "RocketTowerTurret_GetClass", RocketTowerTurret_GetClass_Entry, nullptr);
+// 0x00461c70: descriptor 0x005826c0 "CLASS(SheepObject)" (vtable 0x005a8d00).
+AI7_CLASS_GETTER(00461c70, SheepObject, 0x005826c0)
+HOOK(0x00461c70, "SheepObject_GetClass", SheepObject_GetClass_Entry, nullptr);
+// 0x00461ce0: descriptor 0x00584910 "CLASS(GruntObject)" (vtable 0x005a9cf0).
+AI7_CLASS_GETTER(00461ce0, GruntObject, 0x00584910)
+HOOK(0x00461ce0, "GruntObject_GetClass", GruntObject_GetClass_Entry, nullptr);
+// 0x00461cf0: descriptor 0x00583230 "CLASS(BaseDefendTurret)" (vtable 0x005a9f58).
+AI7_CLASS_GETTER(00461cf0, BaseDefendTurret, 0x00583230)
+HOOK(0x00461cf0, "BaseDefendTurret_GetClass", BaseDefendTurret_GetClass_Entry, nullptr);
+// 0x00461d00: descriptor 0x00585090 "CLASS(ColossusObject)" (vtable 0x005aa238).
+AI7_CLASS_GETTER(00461d00, ColossusObject, 0x00585090)
+HOOK(0x00461d00, "ColossusObject_GetClass", ColossusObject_GetClass_Entry, nullptr);
+// 0x00461d30: descriptor 0x00584b50 "CLASS(PeasantGenAI)" (vtable 0x005aa9c0).
+AI7_CLASS_GETTER(00461d30, PeasantGenAI, 0x00584b50)
+HOOK(0x00461d30, "PeasantGenAI_GetClass", PeasantGenAI_GetClass_Entry, nullptr);
+// 0x00461d40: descriptor 0x00585180 "CLASS(MonkObject)" (vtable 0x005aac28).
+AI7_CLASS_GETTER(00461d40, MonkObject, 0x00585180)
+HOOK(0x00461d40, "MonkObject_GetClass", MonkObject_GetClass_Entry, nullptr);
+// 0x00461d60: descriptor 0x00584cd0 "CLASS(SquadObject)" (vtable 0x005ab3e8).
+AI7_CLASS_GETTER(00461d60, SquadObject, 0x00584cd0)
+HOOK(0x00461d60, "SquadObject_GetClass", SquadObject_GetClass_Entry, nullptr);
+// 0x00461db0: descriptor 0x00584838 "CLASS(BowGruntObject)" (vtable 0x005abb88).
+AI7_CLASS_GETTER(00461db0, BowGruntObject, 0x00584838)
+HOOK(0x00461db0, "BowGruntObject_GetClass", BowGruntObject_GetClass_Entry, nullptr);
+// 0x00461dd0: descriptor 0x00582e70 "CLASS(ZeppelinTurret)" (vtable 0x005ac088).
+AI7_CLASS_GETTER(00461dd0, ZeppelinTurret, 0x00582e70)
+HOOK(0x00461dd0, "ZeppelinTurret_GetClass", ZeppelinTurret_GetClass_Entry, nullptr);
+// 0x00461e00: descriptor 0x00585d68 "CLASS(JumpMarker)" (vtable 0x005ac628).
+AI7_CLASS_GETTER(00461e00, JumpMarker, 0x00585d68)
+HOOK(0x00461e00, "JumpMarker_GetClass", JumpMarker_GetClass_Entry, nullptr);
+// 0x00461e20: descriptor 0x00584880 "CLASS(CaptainObject)" (vtable 0x005acb78).
+AI7_CLASS_GETTER(00461e20, CaptainObject, 0x00584880)
+HOOK(0x00461e20, "CaptainObject_GetClass", CaptainObject_GetClass_Entry, nullptr);
+// 0x00461e50: descriptor 0x00583b60 "CLASS(MarkerObject)" (vtable 0x005ad720).
+AI7_CLASS_GETTER(00461e50, MarkerObject, 0x00583b60)
+HOOK(0x00461e50, "MarkerObject_GetClass", MarkerObject_GetClass_Entry, nullptr);
+// 0x00461e70: descriptor 0x00582a98 "CLASS(RocketBudTurret)" (vtable 0x005adde8).
+AI7_CLASS_GETTER(00461e70, RocketBudTurret, 0x00582a98)
+HOOK(0x00461e70, "RocketBudTurret_GetClass", RocketBudTurret_GetClass_Entry, nullptr);
+// 0x00461ea0: descriptor 0x00586ff8 "CLASS(MolmerObject)" (vtable 0x005ae5f8).
+AI7_CLASS_GETTER(00461ea0, MolmerObject, 0x00586ff8)
+HOOK(0x00461ea0, "MolmerObject_GetClass", MolmerObject_GetClass_Entry, nullptr);
+// 0x00461eb0: descriptor 0x005848c8 "CLASS(SniperCaptain)" (vtable 0x005ae868).
+AI7_CLASS_GETTER(00461eb0, SniperCaptain, 0x005848c8)
+HOOK(0x00461eb0, "SniperCaptain_GetClass", SniperCaptain_GetClass_Entry, nullptr);
+// 0x00461ee0: descriptor 0x005851e0 "CLASS(TwigletGenerator)" (vtable 0x005aed80).
+AI7_CLASS_GETTER(00461ee0, TwigletGenerator, 0x005851e0)
+HOOK(0x00461ee0, "TwigletGenerator_GetClass", TwigletGenerator_GetClass_Entry, nullptr);

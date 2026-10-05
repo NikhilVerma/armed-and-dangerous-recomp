@@ -114,10 +114,24 @@ Environment:
   human plays); rerun: `python tools/bisect_hooks.py --files src/physics/physics_01.cpp src/anim/anim_01.cpp --scenario
   level` on a DLL built with the in-progress files excluded (tools/compare.py now ignores names the DLL lacks).
   Suspects: the zero-initialised query bytes in 0x00414110 (a documented deviation) or a recovery error.
+- **Cross-file fidelity issue (fix before comparing anim/ai code):** 0x004eb5d0's "ecx input" looked like a `push ecx`
+  local reservation, so ai_06, ai_09, game_08 and anim_01 pass ecx = 0; but on a first-lookup miss it reads that slot
+  as a node pointer, i.e. the caller's leftover ECX (anim_02 report). Recovered callers must pass the ECX value the
+  original call site has (read each site's disassembly); with 0 they fault where the original may not.
+  Resolved 2026-10-05 (static): every original site passes edx = 0, so the ECX slot is never read; anim_01 now passes
+  ECX = key, ai_08 already passed ebp+0xab8, ai_06/ai_09/game_08 keep 0 (unknowable or 0); see docs/original-bugs.md.
 - Not yet compared: game_03..06, ai_01..04, ai_06, loader_01, ui_02, ui_03, physics_02, audio_02 (and the batches
   still being written).
 - Remaining batches (not started at the time of writing): ai_05, ai_07, ai_08, ai_09, anim_02, audio_03, engine_01,
   engine_02, game_09, input_01, loader_02, movie_01, physics_04, save_01 (some had agents just started).
+
+### Cleanup list (after the round)
+
+- 0x0043e710 (skipped by game_02 for an EBP input): ai_07 found the EBP input is spurious (0x00475a90 only saves
+  ebp), so it can be recovered; its two x87 stack arguments to 0x00566790 still need an asm shim.
+- 0x00447020 is 14 bytes; the rest of its tracker range is an untracked function 0x00447040.
+- Functions missing from the tracker: tools/find_missing_functions.py + agent reports (work/classify/missing_*.csv);
+  recovered into src/engine/missing_01.cpp (tracker rows to add from that agent's report).
 
 ## 6. How to resume
 

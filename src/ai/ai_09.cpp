@@ -752,7 +752,9 @@ uint32_t Twiglet_Update(uint32_t self)
         if (!VB(ebp, 0xd8))
             goto L_end;
         uint32_t esi = orig::fn_004ed260(D(ebp + 0x410));
-        uint32_t m = orig::fn_004eb5d0(D(ebp + 0x49c), 0 /* push ecx: slot only */, 0, ebp + 0x538);
+        // ECX at 0x0049efab is unknowable: last written by the virtual +0xd8 callee (0x0049ef81), 0x004ed260 leaves
+        // it alone. edx = 0 (0x0049efa9), so 0x004eb5d0 never reads its ECX slot (only on a miss with edx != 0).
+        uint32_t m = orig::fn_004eb5d0(D(ebp + 0x49c), 0 /* ECX unknowable, unread with edx = 0 */, 0, ebp + 0x538);
         uint32_t a = D(ebp + 0x49c);
         float v = static_cast<float>(I(a + 0x20)) * static_cast<float>(I(a + 0x1c));
         v = v * Fl(ebp + 0x4a0);

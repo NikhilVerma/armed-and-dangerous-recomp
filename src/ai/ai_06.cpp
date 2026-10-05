@@ -28,7 +28,7 @@
 //   0x00481ab0 has no ret (tail jump to virtual +0xd4, which pops its one argument); no wrapper exists ->
 //   Call_00481ab0.
 //   virtual +0x1a4 takes one argument (0x0043ca00, ret 4): the pushes around it outlive it (states 0x29, 0x19c).
-//   "ecx" inputs of 0x0042d0f0, 0x00408820, 0x0046e2c0, 0x004eb5d0, 0x00406430, 0x0042eba0, 0x0042b8e0 are only
+//   "ecx" inputs of 0x0042d0f0, 0x00408820, 0x0046e2c0, 0x00406430, 0x0042eba0, 0x0042b8e0 are only
 //   `push ecx` stack-slot reservations; 0x00457870 reads no stack arguments (ABI: 3).
 // Where the original passes a register whose low byte it just cleared (xor al, al), the upper bytes are passed as
 // the original left them when they are known, otherwise 0 (the callees test only the low byte).
@@ -1921,7 +1921,9 @@ L_4426b6:
     if (!VB(ebp, 0xd8))
         goto L_4427d1;
     esi = orig::fn_004ed260(D(ebp + 0x410));
-    edi = orig::fn_004eb5d0(D(ebp + 0xa1c), 0 /* push ecx: slot only */, 0, ebp + 0xab8);
+    // ECX at 0x004426e5 is unknowable: last written by the virtual +0xd8 callee (0x004426bb), 0x004ed260 leaves it
+    // alone. edx = 0 (0x004426e3), so 0x004eb5d0 never reads its ECX slot (only on a first-lookup miss with edx != 0).
+    edi = orig::fn_004eb5d0(D(ebp + 0xa1c), 0 /* ECX unknowable, unread with edx = 0 */, 0, ebp + 0xab8);
     eax = D(ebp + 0xa1c);
     {
         float v = static_cast<float>(I(eax + 0x20)) * static_cast<float>(I(eax + 0x1c));

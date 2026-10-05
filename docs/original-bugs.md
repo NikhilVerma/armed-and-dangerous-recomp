@@ -96,3 +96,20 @@ Defects found in the original game. Reproduced faithfully and not fixed before M
 | After dropping the bomb reference (may free it via 0x00487da0), virtual +0xd8 / +0xd4 are called on it (possible use after release) | 0x0049f430, 0x0049fe60, Twiglet_Update 0x0049dcf0 state 0x0a | Disassembly | Faithful |
 | Twiglet_Update state 0x0a without a bomb can run the "get bomb out" block twice in one frame | 0x0049dcf0 | Disassembly | Faithful |
 | With an old partner in +0xb64, the object's own reference count (edi+0x28, Object_Release(edi)) is decremented instead of the partner's | 0x00486ba0 | Disassembly | Faithful (src/ai/ai_08.cpp) |
+| Track lookup: on a first-lookup miss the value pushed from ECX (an otherwise unused local slot) is used as a node pointer, i.e. the caller's leftover ECX | 0x004eb5d0 | Disassembly (anim_02) | Latent: the miss path needs edx != 0, and all five original call sites (0x004426e5, 0x00453de6, 0x00485cf6, 0x0049b4f7, 0x0049efab) pass edx = 0 (capstone). Recovered callers pass the site's ECX where known (anim_01: key; ai_08: ebp+0xab8; game_08: 0 on the no-virtual-call paths), 0 where it is a virtual callee's leftover (ai_06, ai_09) |
+| No `from` vector: key B's z taken from direction.z * -0.001 instead of the alt vector | 0x00493d00 | Disassembly | Faithful (src/anim/anim_02.cpp) |
+| Audio shutdown frees every definition, then the base shutdown 0x004f2590 calls +0x7c for each index while the table still holds the freed pointers (possible use after free) | AudioPC_Shutdown 0x004fafc0 | Disassembly | Faithful (src/audio/audio_03.cpp) |
+| Extended definition allocation zeroes only the first `size` bytes of size + 0xfc | AudioPC_LoadDefinitions 0x004fab80 | Disassembly | Faithful |
+| DivX error message formatted into a local buffer and never used | 0x0050de70 | Disassembly | Faithful (src/movie/movie_01.cpp) |
+| Save path builder ignores its output-size argument; two _makepath calls and strcat are unbounded | 0x0048b260 | Disassembly | Faithful (src/save/save_01.cpp) |
+| String options copied with no length bound; options buffer leaks when the image is empty | 0x00462310, 0x00462610 | Disassembly | Faithful |
+| Realloc helper zero-fills its new block without a null check | 0x0048c440 | Disassembly | Faithful |
+| First iterator pass never releases its reference; record pointer stops advancing after the first null body | 0x0048e4b0, 0x0048d090 | Disassembly | Faithful |
+| A* search: an open node reached by a cheaper path gets new f/g/h but keeps its old parent; a cheaper closed node is re-pushed with unchanged costs | 0x00470240 / 0x004706d0 | Disassembly | Faithful (src/ai/ai_07.cpp) |
+| A blocked neighbour that is the goal cell ends the search at the current node's parent, dropping the current node | 0x0046fd20 | Disassembly | Faithful |
+| Start node flags ORed into the pooled node's old flags, never cleared | 0x0046f6d0 | Disassembly | Faithful |
+| Unknown spawn kind (>3) uses a stale register as the spawned object | 0x00446460 | Disassembly | Faithful |
+| PMS_Tree_RemoveNode parent test inverted: with a parent the tree root is overwritten with the child; without one it writes address 4 (crash); the parent's child link is never fixed | 0x004e6d80 | Disassembly | Faithful (src/engine/engine_02.cpp; not executed in recorded runs) |
+| BigList_Alloc puts only count-1 items per block on the free list (the last item of each block is never used) | 0x004f6020 | Disassembly | Faithful |
+| A capacity of 0 does not stop the copy (the decrement wraps) | 0x004e59d0 / 0x004e5a10 | Disassembly | Faithful |
+| Loops forever if the head node is locked | 0x004e72b0 | Disassembly | Faithful |

@@ -2278,7 +2278,9 @@ uint32_t fn_00453c50(uint8_t* actor, uint32_t key, uint32_t out, uint8_t a3, uin
         else
         {
             const uint32_t table = orig::fn_0045ace0(u(actor + 4), Field<uint32_t>(g_game, 0xa84));
-            const uint32_t bone = table ? orig::fn_004eb5d0(table, 0, 0, key) : 0;  // ECX is not read
+            const uint32_t bone = table ? orig::fn_004eb5d0(table, key, 0, key) : 0;
+            // ECX = key (0x00453ddc mov ecx, [esp+0x1dc], pushed as the key); edx = 0 (0x00453de4), so the
+            // callee's miss path that reads the ECX slot is not reached.
             if (bone)
             {
                 bool evaluated;

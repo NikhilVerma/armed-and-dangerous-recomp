@@ -3006,7 +3006,9 @@ uint32_t CallNoArgs(uint32_t target)
 //   vt+0xf4(1), Anim_Set "base_homing_reload") while 0x00453740 passes for +0x808;
 // - fire: button 8 pressed plays "base_turret_l5_m5_fire" (0x81); button 8 held -> vt+0x138(0) -> vt+0x13c(0, 0), else
 //   the same animation with 0x10; button 9 -> vt+0x138(1) -> vt+0x13c(1, 0).
-// 0x004eb5d0 gets ecx = 0 (the original's ecx there is path-dependent and only read when edx != 0).
+// 0x004eb5d0 gets ecx = 0: at 0x0049b4f7 the original's ecx is 0 (xor ecx, ecx at 0x0049b455 / 0x0049b469) unless
+// the Game+0x2c virtual +0xd0 (0x0049b4b7) or +0xd8 (0x0049b4e2) call ran, which leaves it unknowable; edx = 0
+// (0x0049b4f3), so 0x004eb5d0 never reads it (only on a first-lookup miss with edx != 0).
 uint32_t fn_0049b030(uint32_t obj)
 {
     alignas(8) uint8_t F[0x190];  // [esp + 0x10 + off] after the four register pushes

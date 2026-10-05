@@ -1714,7 +1714,7 @@ L_5cc6:  // mode 7: the bomb loop
         return 0;
     uint32_t idx = D(edi);
     uint32_t anim = D(D(D(ebp + 0x414) + 0xc) + idx * 12 + 8);
-    uint32_t h = orig::fn_004eb5d0(anim, ebp + 0xab8, 0, ebp + 0xab8);
+    uint32_t h = orig::fn_004eb5d0(anim, ebp + 0xab8, 0, ebp + 0xab8);  // ECX = ebp+0xab8 (0x00485ced lea ecx)
     if (h)
     {
         D(D(D(ebp + 0x410) + 0x14) + W(h + 0xa) * 8 + 4) = h;
