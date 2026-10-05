@@ -26,5 +26,9 @@ struct alignas(16) GtaoApplyParams
     float fog[4];       // fog start, end (camera distances: the game's linear fog), enabled (1/0), AO strength
     float fogColor[4];  // rgb
     ModernFogParams mf; // modern fog (vk_fog.h): used instead of fog[] when mf.on.x is set
+    // With ray-traced sun visibility (binding 3): occlusion applies to the ambient share of the light only.
+    float sun[4];       // camera-space direction towards the sun; w: the sun's share s (shadow strength), 0 = no RT
+    float proj[4];      // scene projection _11 _22 _33 _34
+    float proj43[4];    // _43
 };
 }  // namespace rhi::vulkan

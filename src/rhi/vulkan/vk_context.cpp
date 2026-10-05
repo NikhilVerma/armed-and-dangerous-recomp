@@ -2,6 +2,10 @@
 #define VOLK_IMPLEMENTATION
 #include "vk_core.h"
 
+#include <cstring>
+#include <vector>
+
+#include "config.h"
 #include "log.h"
 
 namespace rhi::vulkan
@@ -95,17 +99,69 @@ bool ContextInit()
     f2.features.vertexPipelineStoresAndAtomics = supported.vertexPipelineStoresAndAtomics;  // scene vertex capture
     c.vertexStores = supported.vertexPipelineStoresAndAtomics == VK_TRUE;
     f2.features.dualSrcBlend = supported.dualSrcBlend;  // remaster: sky-tinted shadows (vk_shadows.cpp)
-    const char* deviceExt[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME};
+    // Ray queries for ray-traced shadows, when the device has them (vk_rt.h).
+    std::vector<const char*> deviceExt = {VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME};
+    {
+        uint32_t count = 0;
+        vkEnumerateDeviceExtensionProperties(c.physical, nullptr, &count, nullptr);
+        std::vector<VkExtensionProperties> exts(count);
+        vkEnumerateDeviceExtensionProperties(c.physical, nullptr, &count, exts.data());
+        auto has = [&](const char* name) {
+            for (const VkExtensionProperties& e : exts)
+                if (!std::strcmp(e.extensionName, name))
+                    return true;
+            return false;
+        };
+        for (const VkExtensionProperties& e : exts)
+            if (std::strstr(e.extensionName, "external_") || std::strstr(e.extensionName, "timeline"))
+                Log("vulkan: extension %s", e.extensionName);
+        Log("vulkan: %u device extensions; acceleration_structure %d ray_query %d deferred_host_operations %d", count,
+            has(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME), has(VK_KHR_RAY_QUERY_EXTENSION_NAME),
+            has(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME));
+        c.rayQuery = has(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME) && has(VK_KHR_RAY_QUERY_EXTENSION_NAME) &&
+                     has(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
+        c.externalSharing =
+            has(VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME) && has(VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME);
+    }
+    VkPhysicalDeviceVulkan12Features f12{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
+    VkPhysicalDeviceAccelerationStructureFeaturesKHR fas{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR};
+    VkPhysicalDeviceRayQueryFeaturesKHR frq{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR};
+    VkPhysicalDeviceVulkan12Features s12{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
+    VkPhysicalDeviceFeatures2 sf2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+    sf2.pNext = &s12;
+    vkGetPhysicalDeviceFeatures2(c.physical, &sf2);
+    c.externalSharing = c.externalSharing && s12.timelineSemaphore && ConfigInt("render", "rt_share", 1) != 0;
+    if (c.externalSharing)
+    {
+        deviceExt.push_back(VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME);
+        deviceExt.push_back(VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME);
+        f12.timelineSemaphore = VK_TRUE;
+    }
+    f13.pNext = &f12;
+    if (c.rayQuery)
+    {
+        deviceExt.push_back(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME);
+        deviceExt.push_back(VK_KHR_RAY_QUERY_EXTENSION_NAME);
+        deviceExt.push_back(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
+        f12.bufferDeviceAddress = VK_TRUE;
+        fas.accelerationStructure = VK_TRUE;
+        frq.rayQuery = VK_TRUE;
+        f12.pNext = &fas;
+        fas.pNext = &frq;
+    }
     VkDeviceCreateInfo dci{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
     dci.pNext = &f2;
     dci.queueCreateInfoCount = 1;
     dci.pQueueCreateInfos = &qci;
-    dci.enabledExtensionCount = 2;
-    dci.ppEnabledExtensionNames = deviceExt;
+    dci.enabledExtensionCount = static_cast<uint32_t>(deviceExt.size());
+    dci.ppEnabledExtensionNames = deviceExt.data();
     r = vkCreateDevice(c.physical, &dci, nullptr, &c.device);
     if (r != VK_SUCCESS)
         return LogVk("vkCreateDevice", r), false;
     volkLoadDevice(c.device);
+    Log("vulkan: ray queries %s; sharing with other processes %s", c.rayQuery ? "available" : "not available",
+        c.externalSharing ? "available (ray-tracing helper)" : "not available");
     vkGetDeviceQueue(c.device, c.queueFamily, 0, &c.queue);
 
     VkCommandPoolCreateInfo pci{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
@@ -135,6 +191,21 @@ VkDeviceMemory Context::Allocate(VkMemoryRequirements req, VkMemoryPropertyFlags
     VkResult r = vkAllocateMemory(device, &ai, nullptr, &m);
     if (r != VK_SUCCESS)
         LogVk("vkAllocateMemory", r);
+    return m;
+}
+
+VkDeviceMemory Context::AllocateAddressable(VkMemoryRequirements req, VkMemoryPropertyFlags flags) const
+{
+    VkMemoryAllocateFlagsInfo fi{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO};
+    fi.flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT;
+    VkMemoryAllocateInfo ai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+    ai.pNext = &fi;
+    ai.allocationSize = req.size;
+    ai.memoryTypeIndex = MemoryType(req.memoryTypeBits, flags);
+    VkDeviceMemory m = VK_NULL_HANDLE;
+    VkResult r = vkAllocateMemory(device, &ai, nullptr, &m);
+    if (r != VK_SUCCESS)
+        LogVk("vkAllocateMemory (device address)", r);
     return m;
 }
 

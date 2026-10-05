@@ -48,7 +48,7 @@ Decal object fields: +0x08 colour (alpha in the top byte, written while fading, 
 - **0x004165c0** `Decals_Spawn(mgr, xform, size, texture, target, flag)`: takes the free-list head; if the free
   list is empty it kills (0x00417110, no fade) the active decal with the **largest age** and reuses it. Then
   **0x00417260** projects and clips it (0x004175c0) and links it into the active list.
-- Callers: the fx interpreter 0x00420770 case 0x62 (= fx opcode **0x6c**, operands `w s`: size, texture name);
+- Callers: the fx interpreter 0x00420770 case 0x62 (= fx opcode **0x6a**, operands `w s` (jump tables 0x00423250 / 0x00423088 read from the image; opcode 0x6c goes to 0x0041d700): size, texture name);
   and 0x0040cb10 (the "Fx_bullseye" target marker, which sets age to **-1.0** so it never ages and always draws).
 - Surfaces opt in through the object property `decal_receive` (default 1) -> object+0x3ec bit 0x8 (0x00451360).
   0x00416e90 clears bits 0x18 on objects whose model has animated parts (**guess** on what the test means).

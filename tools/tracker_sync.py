@@ -2,10 +2,11 @@
 
 Usage: python tools/tracker_sync.py [--check]
 
-Every HOOK(addr, "Name", ...) in src/**/*.cpp is recovered C++ that passes the comparison test (a function only
-gets a HOOK in a committed file once tools/compare.py passes with it), so its row gets: name, subsystem (the src/
+Every HOOK(addr, "Name", ...) (or a file-local *_HOOK wrapper) in src/**/*.cpp is recovered C++. Rows still at S0 are
+taken as compared (the per-function loop hooks a function once tools/compare.py passes with it) and get: name, subsystem (the src/
 directory), stage S2 (compiles with a modern compiler and matches the original in the scenarios), approach B
-(hook and replace), test "compare:menu+level". Rows already at a later stage keep it. --check exits 1 if the file
+(hook and replace), test "compare:menu+level" when empty. Rows at S1 (static recovery, tools/mark_recovered.py)
+or later keep their stage; tools/promote_verified.py promotes S1. --check exits 1 if the file
 would change (for tools/check.ps1).
 """
 import argparse
@@ -25,8 +26,13 @@ def recovered():
     out = {}
     for path in glob.glob(os.path.join(ROOT, "src", "**", "*.cpp"), recursive=True):
         sub = os.path.relpath(path, os.path.join(ROOT, "src")).split(os.sep)[0]
-        for addr, name in re.findall(r'HOOK\((0x[0-9a-fA-F]+),\s*"([^"]+)"', open(path, encoding="utf-8").read()):
-            out[int(addr, 16)] = (name, sub, os.path.relpath(path, ROOT).replace(os.sep, "/"))
+        text = open(path, encoding="utf-8").read()
+        rel = os.path.relpath(path, ROOT).replace(os.sep, "/")
+        for addr, name in re.findall(r'\bHOOK\((0x[0-9a-fA-F]+),\s*"([^"]+)"', text):
+            out[int(addr, 16)] = (name, sub, rel)
+        # File-local wrappers of HOOK, e.g. R2A_HOOK(00420450, Name, Name_Abi) (address without 0x).
+        for addr, name in re.findall(r'\b\w+_HOOK\(([0-9a-fA-F]{8}),\s*(\w+)\s*,', text):
+            out[int(addr, 16)] = (name, sub, rel)
     return out
 
 
@@ -46,11 +52,13 @@ def main():
             continue
         r["name"] = name
         r["subsystem"] = r["subsystem"] or sub
-        if STAGES.index(r["stage"] or "S0") < 2:
+        # S1 = recovered statically, not yet (or not) verified by the comparison: tools/promote_verified.py moves
+        # it to S2 once the scenarios execute it. Only unrecorded rows (S0) are taken as verified here.
+        if (r["stage"] or "S0") == "S0":
             r["stage"] = "S2"
         r["approach"] = r["approach"] or "B"
         r["provenance"] = r["provenance"] or f"recovered:{path}"
-        r["test"] = "compare:menu+level"
+        r["test"] = r["test"] or "compare:menu+level"
     buf = io.StringIO()
     w = csv.DictWriter(buf, fieldnames=fields, lineterminator="\n" if "\r\n" not in text else "\r\n")
     w.writeheader()

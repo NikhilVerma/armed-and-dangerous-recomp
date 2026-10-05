@@ -12,7 +12,9 @@
 #include <string>
 #include <vector>
 
+#include "../vk_gtao.h"
 #include "../vk_pipeline.h"
+#include "../vk_rt.h"
 #include "../vk_shaders.h"
 
 using namespace rhi::vulkan;
@@ -149,6 +151,27 @@ int main(int argc, char** argv)
                   !CompileGlslStage(TessEvalGlsl(false), GlslStage::TessEval).empty();
     if (!tessOk)
         failures.push_back("tessellation control/evaluation shaders");
+    // Lighting passes (compiled at run time in the game): XeGTAO's entries, the AO apply, ray-traced shadows (both
+    // paths) and the helper path's depth conversion.
+    int lightOk = 0, lightTotal = 0;
+    auto light = [&](const char* name, bool ok) {
+        ++lightTotal;
+        if (ok)
+            ++lightOk;
+        else
+            failures.push_back(std::string("lighting shader ") + name);
+    };
+    {
+        const std::string hlsl = GtaoHlsl();
+        for (const char* e : {"CSPrefilterDepths16x16", "CSGTAOHigh", "CSDenoisePass", "CSDenoiseLastPass"})
+            light(e, !CompileHlslCompute(hlsl, e).empty());
+        light("GtaoApplyVertexGlsl", !CompileGlsl(GtaoApplyVertexGlsl(), false).empty());
+        light("GtaoApplyFragmentGlsl", !CompileGlsl(GtaoApplyFragmentGlsl(), true).empty());
+        light("RtShadowVertexGlsl", !CompileGlsl(RtShadowVertexGlsl(), false).empty());
+        light("RtShadowFragmentGlsl(remote)", !CompileGlsl(RtShadowFragmentGlsl(true), true).empty());
+        light("RtShadowFragmentGlsl(ray query)", !CompileGlsl(RtShadowFragmentGlsl(false), true).empty());
+        light("RtDepthComputeGlsl", !CompileGlslStage(RtDepthComputeGlsl(), GlslStage::Compute).empty());
+    }
     int ffOk = 0, ffTotal = 0;
     for (const FFKey& k : FixedFunctionKeys())
     {
@@ -178,8 +201,8 @@ int main(int argc, char** argv)
     for (auto& f : failures)
         std::printf("FAIL %s\n", f.c_str());
     std::printf("corpus: %d files, %d translated, %d compiled; vertex variants %d/%d; tessellation stages %s; "
-                "fixed function: %d/%d compiled; vertex input %s\n",
-                files, translated, compiled, variantsOk, variants, tessOk ? "ok" : "FAIL", ffOk, ffTotal,
-                viOk ? "ok" : "FAIL");
+                "fixed function: %d/%d compiled; lighting %d/%d; vertex input %s\n",
+                files, translated, compiled, variantsOk, variants, tessOk ? "ok" : "FAIL", ffOk, ffTotal, lightOk,
+                lightTotal, viOk ? "ok" : "FAIL");
     return failures.empty() ? 0 : 1;
 }

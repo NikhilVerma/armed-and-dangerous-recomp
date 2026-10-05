@@ -48,4 +48,42 @@ wrapped by hook/enhance/shadows.cpp) so they are this frame's.
 
 - Shadow apply still darkens through fog (the same fog removal as AO is not applied there yet).
 - XeGTAO requires the scene viewport to cover the depth buffer from its origin; otherwise AO is skipped (logged).
-- AO darkens direct light too (the game has no ambient-only buffer).
+- AO darkens direct light too when ray-traced shadows are off (the game has no ambient-only buffer); with the RT
+  helper's visibility it applies to the ambient share only (below).
+
+## Ray-traced shadows (2026-10-05, in progress, not yet verified in the game)
+
+- **Hardware RT is not available in the game process:** the game is 32-bit and NVIDIA's 32-bit Vulkan driver
+  exposes no ray-tracing extensions (measured on the RTX 4090, driver 617.14: 270 device extensions, none of
+  VK_KHR_acceleration_structure / ray_query). The human chose a 64-bit helper process (decision.md 2026-10-05).
+- **Design** (src/rhi/vulkan/rt_ipc.h): rthelper/ builds rt_helper.exe (tools/build_helper.ps1, x64). The game
+  (vk_rt_client.cpp) starts it, shares buffers (VK_KHR_external_memory_win32) and two timeline semaphores
+  (VK_KHR_external_semaphore_win32); per frame it replays the casters' vertex shaders with c22..c25 =
+  camera -> world into the shared vertex buffer, writes triangle indices (strips/fans converted) and the
+  camera-space depth, submits the first half of the frame (VulkanDevice::SplitSubmit, signalling the helper),
+  and continues in the slot's second command buffer; the apply pass reads the helper's visibility, and the
+  final submit waits for the helper only if it acknowledged the frame (no GPU hang possible).
+- **Helper** (rthelper/main.cpp): device on the same GPU (LUID), imports, copies inputs into AS-build buffers,
+  builds BLAS + TLAS every frame (PREFER_FAST_BUILD), then rthelper/shadow_denoiser.cpp: its own G-buffer pass
+  (depth, normals, velocity from the previous camera) and a one-ray-per-pixel trace over the sun's disc into
+  8x4 tile bit masks, then AMD FidelityFX Shadow Denoiser v1.1.4 unmodified (third_party/FidelityFX-
+  ShadowDenoiser: prepare, tile classification with temporal accumulation, three edge-aware filter passes).
+  The penumbra comes from sampling the sun's disc (FrameParams.sun.w = tan of its angular radius) accumulated
+  over frames: it widens with the occluder distance, with no blur cap.
+- **FFX_HALF is required:** the SDK's filter has no 32-bit path (ffx_denoiser_shadows_filter.h stubs its
+  group-shared loads to 0 without it; every filtered tile came out black, quantised to 8x8 tiles). Compiled
+  with FFX_HALF 1 as the SDK builds it; the helper enables shaderFloat16, 16-bit storage, shaderInt16.
+  Classification and filters use 8 x 8 groups: dispatch (W/8, H/8).
+- **Tests:** build/hook-release/rt_helper_test.exe (no game, no display): floor + box, PASS when the umbra is
+  dark and open floor / sunny side lit (measured: 0.07 / 1.00 / 1.00). RT_DEBUG=1 raw one-ray result, 2 no
+  history; RT_PERF=1 1920x1080 with 324k triangles prints the helper's GPU time (timestamps, Control.gpuMicros):
+  0.94 ms per frame for the whole helper frame (build, trace, denoise) with fast build, 1.16 ms with fast trace.
+  vk_shader_test compiles every lighting shader offline (XeGTAO's four entries, AO apply, RT shadows, depth).
+- **In-process path** (VulkanDevice::RtShadows) kept for 64-bit-capable drivers (rayQuery).
+- **AO with RT visibility:** shadows now run before AO; when the helper's visibility exists for the frame, the
+  AO pass scales by ((1 - s') ao + s' v) / ((1 - s') + s' v), s' = shadow strength * smoothstep(0.02, 0.2, n.l):
+  with the shadow pass's (1 - s') + s' v the product is (1 - s') ao + s' v, i.e. occlusion of the ambient share
+  only (full AO in shade and on surfaces facing away from the sun). Without RT: plain AO as before.
+- **Status:** headless test green; not yet run in the game (the display slept: Screen = WinDisc, every game run
+  crashes in D3D9 device creation).
+- **Next:** docs/journal/2026-10-05.md.

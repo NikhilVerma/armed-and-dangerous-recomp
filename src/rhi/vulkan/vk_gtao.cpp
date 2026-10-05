@@ -81,7 +81,11 @@ layout(std140, set = 0, binding = 2) uniform Params
     vec4 fog;       // start, end, enabled, AO strength
     vec4 fogColor;
     ModernFog mf;
+    vec4 sun;       // camera space, w: sun share s (0: no ray-traced visibility)
+    vec4 proj;      // _11 _22 _33 _34
+    vec4 proj43;
 } p;
+layout(std430, set = 0, binding = 3) readonly buffer Vis { float v[]; } vis;  // RT sun visibility (rt_ipc.h)
 layout(location = 0) out vec4 o;
 
 // Output blends as  dst * o.a + o.rgb  (src ONE, dst SRC_ALPHA).
@@ -96,7 +100,28 @@ void main()
         return;
     }
     float ao = float(texelFetch(aoTex, local, 0).r) / 255.0;
+    // Multi-bounce (Jimenez et al. 2016, eq. 10), albedo 0.6 (snow and pale rock dominate the game's levels).
+    const float albedo = 0.6;
+    float ma = 2.0404 * albedo - 0.3324, mb = -4.7951 * albedo + 0.6417, mc = 2.7552 * albedo + 0.6903;
+    ao = max(ao, ((ao * ma + mb) * ao + mc) * ao);
     ao = mix(1.0, ao, p.fog.w);
+    if (p.sun.w > 0.0)
+    {
+        // Occlusion of the ambient light only. The shadow pass (vk_rt.cpp) scales the colour by (1 - s') + s' vis,
+        // s' = s smoothstep(0.02, 0.2, n.l) the sun's share here; the light should be (1 - s') ao + s' vis, so this
+        // pass scales by their ratio: full AO in shade and on surfaces facing away, the ambient share in sunlight.
+        float den = d * p.proj.w - p.proj.z;
+        float z = p.proj43.x / (abs(den) < 1e-7 ? 1e-7 : den);
+        vec2 ndc = vec2(float(local.x) + 0.5, float(local.y) + 0.5) / p.viewport.zw * 2.0 - 1.0;
+        vec3 c = vec3(ndc.x * z * p.proj.w / p.proj.x, -ndc.y * z * p.proj.w / p.proj.y, z);
+        vec3 n = normalize(cross(dFdx(c), dFdy(c)));
+        if (dot(n, -c) < 0.0)
+            n = -n;
+        float s = p.sun.w * smoothstep(0.02, 0.2, dot(n, normalize(p.sun.xyz)));
+        float v = clamp(vis.v[local.y * int(p.viewport.z) + local.x], 0.0, 1.0);
+        float lit = (1.0 - s) + s * v;
+        ao = lit > 1e-4 ? ((1.0 - s) * ao + s * v) / lit : ao;
+    }
     // The game's fog (D3D9 linear table fog on depth): F = C f + Fog (1 - f). Occlusion applies to C only:
     // C ao f + Fog (1 - f) = F ao + Fog (1 - f)(1 - ao).
     float f = 1.0;

@@ -58,6 +58,11 @@ struct SceneDraw
     // The buffer objects behind streams[] and indexBuffer (the shadow caster cache keeps references).
     VulkanBuffer* streamObjects[4];
     VulkanBuffer* indexObject;
+    // Ray-traced shadows (vk_rt.h): the vertex shader's capture variant and the vertices the draw reads
+    // [vFirst, vFirst + vCount) (indexed: base vertex + minimum index, D3D9's range).
+    VkShaderModule captureModule;
+    int64_t vFirst;
+    uint32_t vCount;
 };
 
 struct SceneFrame

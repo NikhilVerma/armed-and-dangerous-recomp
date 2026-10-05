@@ -117,14 +117,25 @@ target_compile_definitions(and_hook PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SE
 set(VK_TEST_SOURCES
   ${CMAKE_CURRENT_SOURCE_DIR}/../src/rhi/vulkan/tests/shader_test.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/../src/rhi/vulkan/vk_glsl.cpp)
-foreach(f vk_shader_translate.cpp vk_fixed_function.cpp vk_pipeline_input.cpp vk_tessellation.cpp vk_fog.cpp)
+foreach(f vk_shader_translate.cpp vk_fixed_function.cpp vk_pipeline_input.cpp vk_tessellation.cpp vk_fog.cpp
+          vk_gtao.cpp vk_rt.cpp)
   if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/../src/rhi/vulkan/${f})
     list(APPEND VK_TEST_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/rhi/vulkan/${f})
   endif()
 endforeach()
 add_executable(vk_shader_test EXCLUDE_FROM_ALL ${VK_TEST_SOURCES})  # build with -Target vk_shader_test
-target_include_directories(vk_shader_test PRIVATE ../src ${volk_SOURCE_DIR})
+target_include_directories(vk_shader_test PRIVATE ../src ${volk_SOURCE_DIR} ${EMBED_DIR})
 target_compile_definitions(vk_shader_test PRIVATE RHI_SHADER_TEST VK_NO_PROTOTYPES WIN32_LEAN_AND_MEAN NOMINMAX
   _CRT_SECURE_NO_WARNINGS)
 target_link_libraries(vk_shader_test PRIVATE Vulkan::Headers glslang::glslang glslang::SPIRV
   glslang::glslang-default-resource-limits)
+
+# Headless end-to-end test of ray-traced shadows through the 64-bit helper (src/rhi/vulkan/tests/rt_helper_test.cpp):
+# rt_helper_test.exe with rt_helper.exe next to it; no game, no display.
+add_executable(rt_helper_test EXCLUDE_FROM_ALL
+  ${CMAKE_CURRENT_SOURCE_DIR}/../src/rhi/vulkan/tests/rt_helper_test.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../src/rhi/vulkan/vk_context.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../src/rhi/vulkan/vk_rt_client.cpp)
+target_include_directories(rt_helper_test PRIVATE ../src src ${volk_SOURCE_DIR})
+target_compile_definitions(rt_helper_test PRIVATE VK_NO_PROTOTYPES VK_USE_PLATFORM_WIN32_KHR WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS)
+target_link_libraries(rt_helper_test PRIVATE Vulkan::Headers)

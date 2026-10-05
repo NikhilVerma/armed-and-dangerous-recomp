@@ -25,8 +25,12 @@ std::string ModernFogGlsl(const std::string& u, const std::string& depth, const 
            "float mf_k = " + u + ".on.z * mf_w.z; "
            "float mf_h = abs(mf_k) > 1e-4 ? (1.0 - exp(-mf_k)) / mf_k : 1.0; " +
            f + " = exp(-" + u + ".on.y * mf_s * mf_h); "
-           "float mf_g = pow(max(dot(normalize(mf_w + vec3(1e-6)), -" + u + ".sun.xyz), 0.0), 8.0) * " + u +
-           ".proj2.y; " +
+           // In-scattering towards the sun: the Henyey-Greenstein phase function (g = 0.65, haze), relative to
+           // isotropic scattering, (1 - g^2) / (1 + g^2 - 2 g cos)^1.5; its excess over 1 brightens the fog
+           // around the sun.
+           "float mf_c = dot(normalize(mf_w + vec3(1e-6)), -" + u + ".sun.xyz); "
+           "float mf_hg = 0.5775 / pow(1.4225 - 1.3 * mf_c, 1.5); "
+           "float mf_g = max(mf_hg - 1.0, 0.0) * 0.08 * " + u + ".proj2.y; " +
            col + " = " + fogColor + " + vec3(1.0, 0.95, 0.85) * mf_g; }";
 }
 

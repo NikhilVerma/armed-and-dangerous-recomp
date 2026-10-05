@@ -95,7 +95,7 @@ Other controls (no other global flag found):
   Its property loader **0x0044add0** (vt slot +0x18) builds a D3DLIGHT9 at object+0x460: colour =
   (RedValue, GreenValue, BlueValue) x Intensity / 255 into Diffuse/Specular/Ambient per `AffectDiffuse`,
   `AffectSpecular`, `AmbientOnly`; **type 3 (directional) when Attenuation1 = 0** (HalfRange 0), else point (1);
-  position from vt+0x54; **direction = -(column 1 of the object's world matrix)** (0x00453180 reads `[1],[5],[9]`,
+  position from vt+0x54; **direction = -(column 2 of the object's world matrix)** (0x00453180 reads `[2],[6],[10]`: vt+0x5c is thiscall and pops its argument, so the copy starts 4 bytes lower than an earlier reading assumed;
   then three `fchs`); range 1e6. It then takes the first free renderer slot with **0x0048a4b0** -> Renderer_SetLight
   and keeps the index at object+0x4c8. 0x0044b100 releases it (0x0048a520).
 - Other light users: fx lights (0x0041da90 and neighbours, "Fx : Failed to set light ..."; 0x0041a350 reads slots).

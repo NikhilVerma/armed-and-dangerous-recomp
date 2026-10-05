@@ -19,6 +19,8 @@ if ((Get-Item $built).LastWriteTime -lt $newest.LastWriteTime) {
     throw "build is older than $($newest.Name): the last build failed; not deploying"
 }
 Copy-Item $built $dll -Force
+$helper = Join-Path $root 'build/rthelper-x64/rt_helper.exe'  # 64-bit ray-tracing helper (src/rhi/vulkan/rt_ipc.h)
+if (Test-Path $helper) { Copy-Item $helper (Join-Path $game 'rt_helper.exe') -Force }
 $ini = Join-Path $game 'and.ini'
 # The player's and.ini is kept (test runs write their own); -ResetIni replaces it with the template.
 if ($ResetIni -or -not (Test-Path $ini)) { Copy-Item (Join-Path $root 'hook/and.ini') $ini -Force }

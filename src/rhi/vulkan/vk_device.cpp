@@ -22,6 +22,8 @@
 #include "vk_snow.h"
 #include "vk_gtao.h"
 #include "vk_fog.h"
+#include "vk_rt.h"
+#include "vk_rt_client.h"
 #include "../../../third_party/XeGTAO/XeGTAO.h"
 
 bool TestFrameDump(unsigned* frame);                                                          // hook/src/testshot.cpp
@@ -59,7 +61,8 @@ void ColorToFloat(D3DCOLOR c, float out[4])
 
 struct FrameSlot
 {
-    VkCommandBuffer cb = VK_NULL_HANDLE;
+    VkCommandBuffer cb = VK_NULL_HANDLE;  // the one being recorded (cbs[0], or cbs[1] after a split)
+    VkCommandBuffer cbs[2] = {};       // a frame can be submitted in two parts (ray-tracing helper, rt_ipc.h)
     VkFence fence = VK_NULL_HANDLE;
     VkSemaphore acquired = VK_NULL_HANDLE;
     VkSemaphore rendered = VK_NULL_HANDLE;
@@ -372,6 +375,52 @@ public:
     void Shadows();  // rhi::SceneEnd
     void Snow();     // rhi::SceneEnd
 void Ambient();  // rhi::SceneEnd: ambient occlusion (vk_gtao.h)
+// Ray-traced shadows (vk_rt.h).
+struct RtCaster
+{
+    const SceneDraw* d;
+    const float* c;  // its vertex shader constants
+    Mat4 toWorld;    // camera -> world of the frame they come from
+};
+struct RtBuffer
+{
+    VkBuffer buffer = VK_NULL_HANDLE;
+    VkDeviceMemory memory = VK_NULL_HANDLE;
+    VkDeviceSize size = 0;
+    void* mapped = nullptr;
+    VkDeviceAddress address = 0;
+};
+struct RtFrame
+{
+    RtBuffer verts, indices, blasBuffer, tlasBuffer, instances, scratch;
+    VkAccelerationStructureKHR blas = VK_NULL_HANDLE, tlas = VK_NULL_HANDLE;
+};
+bool RtShadows(const std::vector<RtCaster>& casters, const Mat4& toWorld);
+bool RtShadowsRemote(const std::vector<RtCaster>& casters, const Mat4& toWorld);  // via the 64-bit helper
+uint64_t RtGather(const std::vector<RtCaster>& casters, std::vector<uint32_t>& base);
+void RtReplay(const std::vector<RtCaster>& casters, const std::vector<uint32_t>& base, VkBuffer dst);
+void SplitSubmit(VkSemaphore signal, uint64_t value);
+bool RtRemoteInit();
+uint64_t rtWaitFrame_ = 0;  // this frame's helper work to wait for at the final submit
+VkShaderModule rtRemoteFs_ = VK_NULL_HANDLE, rtDepthCs_ = VK_NULL_HANDLE;
+VkDescriptorSetLayout rtRemoteSetLayout_ = VK_NULL_HANDLE, rtDepthSetLayout_ = VK_NULL_HANDLE;
+VkPipelineLayout rtRemoteLayout_ = VK_NULL_HANDLE, rtDepthLayout_ = VK_NULL_HANDLE;
+VkPipeline rtRemoteApply_ = VK_NULL_HANDLE, rtDepthPipe_ = VK_NULL_HANDLE;
+VkFormat rtRemoteFormat_ = VK_FORMAT_UNDEFINED;
+bool rtRemoteFailed_ = false;
+bool RtInit();
+bool RtEnsure(RtBuffer& b, VkDeviceSize size, VkBufferUsageFlags usage, bool host);
+void RtFree(RtBuffer& b);
+VkPipeline RtApplyPipeline(VkFormat target);
+RtFrame rtFrames_[kFramesInFlight];
+std::vector<uint32_t> rtIndices_;
+bool rtFailed_ = false;
+VkDeviceSize rtScratchAlign_ = 256;
+VkShaderModule rtNullFs_ = VK_NULL_HANDLE, rtVs_ = VK_NULL_HANDLE, rtFs_ = VK_NULL_HANDLE;
+VkDescriptorSetLayout rtSetLayout_ = VK_NULL_HANDLE;
+VkPipelineLayout rtApplyLayout_ = VK_NULL_HANDLE;
+VkPipeline rtApply_ = VK_NULL_HANDLE;
+VkFormat rtApplyFormat_ = VK_FORMAT_UNDEFINED;
 bool sceneEnded_ = false;  // SceneEnd ran this frame: the draws that follow are the UI
 bool lightingDone_ = false;  // ambient occlusion and shadows were applied this frame
 void BeforeDraw();          // runs them before the first translucent scene draw
@@ -499,7 +548,9 @@ VulkanDevice::VulkanDevice(IDirect3D9* queries, HWND window, D3DPRESENT_PARAMETE
         ai.commandPool = c.commandPool;
         ai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
         ai.commandBufferCount = 1;
-        vkAllocateCommandBuffers(c.device, &ai, &s.cb);
+        ai.commandBufferCount = 2;
+    vkAllocateCommandBuffers(c.device, &ai, s.cbs);
+    s.cb = s.cbs[0];
         VkFenceCreateInfo fi{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
         fi.flags = VK_FENCE_CREATE_SIGNALED_BIT;
         vkCreateFence(c.device, &fi, nullptr, &s.fence);
@@ -508,7 +559,9 @@ VulkanDevice::VulkanDevice(IDirect3D9* queries, HWND window, D3DPRESENT_PARAMETE
         vkCreateSemaphore(c.device, &si, nullptr, &s.rendered);
         VkBufferCreateInfo bi{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
         bi.size = kUniformRing;
-        bi.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;  // + tessellation lists
+        // + tessellation lists; storage: a placeholder for optional storage bindings (the AO pass without RT).
+        bi.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT |
+                   VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
         vkCreateBuffer(c.device, &bi, nullptr, &s.uniforms);
         VkMemoryRequirements req;
         vkGetBufferMemoryRequirements(c.device, s.uniforms, &req);
@@ -760,10 +813,37 @@ void VulkanDevice::BeginFrame()
     captureFrame_ = Ctx().vertexStores && DumpSceneFrame() == serial;
     captureUsed_ = 0;
     motionCleared_ = false;
-    vkResetCommandBuffer(s.cb, 0);
+    s.cb = s.cbs[0];
+    rtWaitFrame_ = 0;
+    vkResetCommandBuffer(s.cbs[0], 0);
+    vkResetCommandBuffer(s.cbs[1], 0);
     VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vkBeginCommandBuffer(s.cb, &bi);
+}
+
+// Submits the frame so far (signalling `signal` = value, a timeline semaphore) and continues recording in the slot's
+// second command buffer (the ray-tracing helper works between the two halves, rt_ipc.h).
+void VulkanDevice::SplitSubmit(VkSemaphore signal, uint64_t value)
+{
+    EndRendering();
+    FrameSlot& s = Slot();
+    vkEndCommandBuffer(s.cb);
+    VkTimelineSemaphoreSubmitInfo ts{VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO};
+    ts.signalSemaphoreValueCount = 1;
+    ts.pSignalSemaphoreValues = &value;
+    VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+    si.pNext = &ts;
+    si.commandBufferCount = 1;
+    si.pCommandBuffers = &s.cb;
+    si.signalSemaphoreCount = 1;
+    si.pSignalSemaphores = &signal;
+    vkQueueSubmit(Ctx().queue, 1, &si, VK_NULL_HANDLE);
+    s.cb = s.cbs[1];
+    VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+    bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vkBeginCommandBuffer(s.cb, &bi);
+    ffDirty_ = vsDirty_ = psDirty_ = true;
 }
 
 void VulkanDevice::BeginRendering()
@@ -943,11 +1023,25 @@ HRESULT VulkanDevice::Present(const RECT*, const RECT*, HWND, const RGNDATA*)
     }
     vkEndCommandBuffer(cb);
     vkResetFences(c.device, 1, &s.fence);
-    VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    // Waits: the swapchain image, and the ray-tracing helper's work for this frame when it accepted it (the second
+    // half of the frame reads its visibility; a frame it did not accept is not waited for, so it cannot hang us).
+    VkSemaphore waits[2];
+    VkPipelineStageFlags stages[2];
+    uint64_t values[2] = {0, 0};
+    uint32_t nWaits = 0;
+    if (acquired)
+        waits[nWaits] = s.acquired, stages[nWaits++] = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    if (rtWaitFrame_ == serial && Rt().Accepted(serial, 4))
+        values[nWaits] = serial, waits[nWaits] = Rt().FromHelper(), stages[nWaits++] = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+    VkTimelineSemaphoreSubmitInfo ts{VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO};
+    ts.waitSemaphoreValueCount = nWaits;
+    ts.pWaitSemaphoreValues = values;
     VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
-    si.waitSemaphoreCount = acquired ? 1 : 0;
-    si.pWaitSemaphores = &s.acquired;
-    si.pWaitDstStageMask = &waitStage;
+    if (nWaits && waits[nWaits - 1] == Rt().FromHelper())
+        si.pNext = &ts;
+    si.waitSemaphoreCount = nWaits;
+    si.pWaitSemaphores = waits;
+    si.pWaitDstStageMask = stages;
     si.commandBufferCount = 1;
     si.pCommandBuffers = &cb;
     si.signalSemaphoreCount = acquired ? 1 : 0;
@@ -1802,7 +1896,16 @@ void ModernFogUniforms(ModernFogParams& p, const rhi::SceneHints& h, const D3DMA
     p.on[0] = 1.0f;
     // Level with the camera, half the light gets through at the middle of the game's fog range, as with its linear
     // fog (and about 6% at its end).
-    p.on[1] = std::log(2.0f) / (0.5f * range) * h.fogDensity;
+    // Density at the camera: the calibrated density at the level's reference height (the camera height when the
+    // level started), falling off with height above it: climbing thins the fog, valleys thicken it.
+    static float refHeight;
+    static bool haveRef;
+    if (h.levelLoading)
+        haveRef = false;
+    else if (!haveRef)
+        refHeight = toWorld.m[11], haveRef = true;
+    float above = std::max(-200.0f, std::min(200.0f, toWorld.m[11] - refHeight));
+    p.on[1] = std::log(2.0f) / (0.5f * range) * h.fogDensity * std::exp(-h.fogHeightFalloff * above);
     p.on[2] = h.fogHeightFalloff;
     p.on[3] = s0;
     p.proj[0] = proj._11, p.proj[1] = proj._22, p.proj[2] = proj._33, p.proj[3] = proj._43;
@@ -1813,6 +1916,701 @@ void ModernFogUniforms(ModernFogParams& p, const rhi::SceneHints& h, const D3DMA
         for (int c = 0; c < 4; ++c)
             p.toWorld[r][c] = toWorld.m[r * 4 + c];
     std::memcpy(p.sun, h.sun, sizeof(h.sun));
+}
+
+// --- Ray-traced sun shadows (vk_rt.h) ----------------------------------------------------------------------------
+
+void VulkanDevice::RtFree(RtBuffer& b)
+{
+    if (!b.buffer)
+        return;
+    VkDevice device = Ctx().device;
+    RtBuffer old = b;
+    DeferDestroy([device, old] {
+        vkDestroyBuffer(device, old.buffer, nullptr);
+        vkFreeMemory(device, old.memory, nullptr);
+    });
+    b = RtBuffer{};
+}
+
+// A buffer of at least `size` bytes with a device address (host-visible and mapped when `host`); grows by half again.
+bool VulkanDevice::RtEnsure(RtBuffer& b, VkDeviceSize size, VkBufferUsageFlags usage, bool host)
+{
+    if (b.buffer && b.size >= size)
+        return true;
+    RtFree(b);
+    Context& c = Ctx();
+    VkBufferCreateInfo bi{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    bi.size = size + size / 2 + 4096;
+    bi.usage = usage | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+    if (vkCreateBuffer(c.device, &bi, nullptr, &b.buffer) != VK_SUCCESS)
+        return false;
+    VkMemoryRequirements req;
+    vkGetBufferMemoryRequirements(c.device, b.buffer, &req);
+    b.memory = c.AllocateAddressable(req, host ? VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+                                               : VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    if (!b.memory)
+        return false;
+    vkBindBufferMemory(c.device, b.buffer, b.memory, 0);
+    if (host)
+        vkMapMemory(c.device, b.memory, 0, bi.size, 0, &b.mapped);
+    VkBufferDeviceAddressInfo ai{VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO};
+    ai.buffer = b.buffer;
+    b.address = vkGetBufferDeviceAddress(c.device, &ai);
+    b.size = bi.size;
+    return true;
+}
+
+bool VulkanDevice::RtInit()
+{
+    if (rtFailed_)
+        return false;
+    if (rtApplyLayout_)
+        return true;
+    VkDevice device = Ctx().device;
+    VkPhysicalDeviceAccelerationStructurePropertiesKHR asp{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR};
+    VkPhysicalDeviceProperties2 p2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+    p2.pNext = &asp;
+    vkGetPhysicalDeviceProperties2(Ctx().physical, &p2);
+    rtScratchAlign_ = asp.minAccelerationStructureScratchOffsetAlignment ? asp.minAccelerationStructureScratchOffsetAlignment : 256;
+    rtNullFs_ = MakeModule(CompileGlsl("#version 450\nvoid main() {}\n", true));
+    rtVs_ = MakeModule(CompileGlsl(RtShadowVertexGlsl(), false));
+    rtFs_ = MakeModule(CompileGlsl(RtShadowFragmentGlsl(), true));
+    VkDescriptorSetLayoutBinding b[3] = {
+        {0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+        {1, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+        {2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr}};
+    VkDescriptorSetLayoutCreateInfo dl{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+    dl.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR;
+    dl.bindingCount = 3;
+    dl.pBindings = b;
+    vkCreateDescriptorSetLayout(device, &dl, nullptr, &rtSetLayout_);
+    VkPipelineLayoutCreateInfo pl{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+    pl.setLayoutCount = 1;
+    pl.pSetLayouts = &rtSetLayout_;
+    vkCreatePipelineLayout(device, &pl, nullptr, &rtApplyLayout_);
+    if (!rtNullFs_ || !rtVs_ || !rtFs_ || !rtApplyLayout_)
+    {
+        Log("vulkan: ray-traced shadows failed to build; shadow maps instead");
+        rtFailed_ = true;
+        return false;
+    }
+    Log("vulkan: ray-traced shadows ready");
+    return true;
+}
+
+VkPipeline VulkanDevice::RtApplyPipeline(VkFormat target)
+{
+    if (rtApply_ && rtApplyFormat_ == target)
+        return rtApply_;
+    VkDevice device = Ctx().device;
+    if (rtApply_)
+    {
+        VkPipeline old = rtApply_;
+        DeferDestroy([device, old] { vkDestroyPipeline(device, old, nullptr); });
+    }
+    VkPipelineShaderStageCreateInfo st[2] = {{VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO},
+                                             {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO}};
+    st[0].stage = VK_SHADER_STAGE_VERTEX_BIT, st[0].module = rtVs_, st[0].pName = "main";
+    st[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT, st[1].module = rtFs_, st[1].pName = "main";
+    VkPipelineVertexInputStateCreateInfo vi{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
+    VkPipelineInputAssemblyStateCreateInfo ia{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
+    ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    VkPipelineViewportStateCreateInfo vp{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
+    vp.viewportCount = vp.scissorCount = 1;
+    VkPipelineRasterizationStateCreateInfo rs{VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
+    rs.polygonMode = VK_POLYGON_MODE_FILL;
+    rs.cullMode = VK_CULL_MODE_NONE;
+    rs.lineWidth = 1.0f;
+    VkPipelineMultisampleStateCreateInfo ms{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
+    ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+    VkPipelineColorBlendAttachmentState att{};
+    att.blendEnable = VK_TRUE;  // dst * tint + the fog's share (dual source, as the shadow-map pass)
+    att.srcColorBlendFactor = VK_BLEND_FACTOR_ONE, att.dstColorBlendFactor = VK_BLEND_FACTOR_SRC1_COLOR;
+    att.colorBlendOp = VK_BLEND_OP_ADD;
+    att.srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO, att.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    att.alphaBlendOp = VK_BLEND_OP_ADD;
+    att.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT;
+    VkPipelineColorBlendStateCreateInfo cbs{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
+    cbs.attachmentCount = 1;
+    cbs.pAttachments = &att;
+    VkPipelineDepthStencilStateCreateInfo ds{VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
+    VkDynamicState dyn[2] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+    VkPipelineDynamicStateCreateInfo dy{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
+    dy.dynamicStateCount = 2;
+    dy.pDynamicStates = dyn;
+    VkPipelineRenderingCreateInfo ri{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
+    ri.colorAttachmentCount = 1;
+    ri.pColorAttachmentFormats = &target;
+    VkGraphicsPipelineCreateInfo ci{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
+    ci.pNext = &ri;
+    ci.stageCount = 2;
+    ci.pStages = st;
+    ci.pVertexInputState = &vi;
+    ci.pInputAssemblyState = &ia;
+    ci.pViewportState = &vp;
+    ci.pRasterizationState = &rs;
+    ci.pMultisampleState = &ms;
+    ci.pDepthStencilState = &ds;
+    ci.pColorBlendState = &cbs;
+    ci.pDynamicState = &dy;
+    ci.layout = rtApplyLayout_;
+    rtApply_ = VK_NULL_HANDLE;
+    if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &ci, nullptr, &rtApply_) != VK_SUCCESS)
+        rtApply_ = VK_NULL_HANDLE;
+    rtApplyFormat_ = target;
+    return rtApply_;
+}
+
+// The casters' vertex ranges in one array (base per caster, ~0 = not used) and their triangles as a list
+// (rtIndices_; strips and fans converted). Returns the vertex count.
+uint64_t VulkanDevice::RtGather(const std::vector<RtCaster>& casters, std::vector<uint32_t>& baseOut)
+{
+    Context& ctx = Ctx();
+    // 1. Vertex ranges and triangle indices (CPU; strips and fans become lists).
+    const VkDeviceSize align = std::max<VkDeviceSize>(16, ctx.properties.limits.minStorageBufferOffsetAlignment);
+    std::vector<uint32_t>& base = baseOut;
+    base.assign(casters.size(), ~0u);
+    std::vector<uint32_t>& idx = rtIndices_;
+    idx.clear();
+    uint64_t total = 0;
+    for (size_t k = 0; k < casters.size(); ++k)
+    {
+        const SceneDraw& d = *casters[k].d;
+        if (!d.captureModule || !d.vCount || d.vFirst < 0)
+            continue;
+        if (d.indexed && !d.indexData)
+            continue;
+        total = (total * 16 + align - 1) / align * align / 16;
+        base[k] = static_cast<uint32_t>(total);
+        const uint32_t b = base[k], n = d.vertexCount, count = d.vCount;
+        auto vertex = [&](uint32_t i) -> int64_t {
+            int64_t v;
+            if (d.indexed)
+                v = d.index32 ? int64_t(reinterpret_cast<const uint32_t*>(d.indexData)[d.start + i])
+                              : int64_t(reinterpret_cast<const uint16_t*>(d.indexData)[d.start + i]);
+            else
+                v = int64_t(d.start) + i;
+            if (d.indexed)
+                v += d.baseVertex;
+            return v - d.vFirst;
+        };
+        auto tri = [&](int64_t a, int64_t bb, int64_t c) {
+            if (a < 0 || bb < 0 || c < 0 || a >= count || bb >= count || c >= count || a == bb || bb == c || a == c)
+                return;
+            idx.push_back(b + uint32_t(a)), idx.push_back(b + uint32_t(bb)), idx.push_back(b + uint32_t(c));
+        };
+        if (d.type == D3DPT_TRIANGLELIST)
+            for (uint32_t i = 0; i + 2 < n; i += 3)
+                tri(vertex(i), vertex(i + 1), vertex(i + 2));
+        else if (d.type == D3DPT_TRIANGLESTRIP)
+            for (uint32_t i = 0; i + 2 < n; ++i)
+                tri(vertex(i), vertex(i + 1), vertex(i + 2));
+        else if (d.type == D3DPT_TRIANGLEFAN)
+            for (uint32_t i = 1; i + 1 < n; ++i)
+                tri(vertex(0), vertex(i), vertex(i + 1));
+        total += count;
+    }
+    return total;
+}
+
+// Each caster's vertex shader (capture variant) writes its world positions into `dst` at its base (c22..c25 =
+// camera -> world, so the "clip position" is the world position).
+void VulkanDevice::RtReplay(const std::vector<RtCaster>& casters, const std::vector<uint32_t>& base, VkBuffer dst)
+{
+    VkCommandBuffer cb = Slot().cb;
+    VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};
+    ri.renderArea = {{0, 0}, {1, 1}};
+    ri.layerCount = 1;
+    vkCmdBeginRendering(cb, &ri);
+    VkViewport v1{0, 0, 1, 1, 0, 1};
+    VkRect2D sc1{{0, 0}, {1, 1}};
+    vkCmdSetViewport(cb, 0, 1, &v1);
+    vkCmdSetScissor(cb, 0, 1, &sc1);
+    vkCmdSetDepthBias(cb, 0.0f, 0.0f, 0.0f);
+    float bf[4] = {};
+    vkCmdSetBlendConstants(cb, bf);
+    vkCmdSetStencilReference(cb, VK_STENCIL_FACE_FRONT_AND_BACK, 0);
+    static PrevUniforms prev{};
+    VkDeviceSize prevOffset = PushUniform(&prev, sizeof(prev));
+    static std::vector<float> constants(kVsConstantCount * 4);
+    for (size_t k = 0; k < casters.size(); ++k)
+    {
+        if (base[k] == ~0u)
+            continue;
+        const RtCaster& rc = casters[k];
+        const SceneDraw& d = *rc.d;
+        std::memcpy(constants.data(), rc.c, constants.size() * sizeof(float));
+        // c22..c25: camera -> world rows, then (0, 0, 0, 1): the "clip position" is the world position.
+        for (int r = 0; r < 3; ++r)
+            std::memcpy(&constants[(kCameraRegister + r) * 4], &rc.toWorld.m[r * 4], 16);
+        const float wRow[4] = {0, 0, 0, 1};
+        std::memcpy(&constants[(kCameraRegister + 3) * 4], wRow, 16);
+        VkDeviceSize vsOffset = PushUniform(constants.data(), constants.size() * sizeof(float));
+        FFUniforms ff{};
+        ff.halfPixel[2] = static_cast<float>(d.vFirst);  // capture base vertex (vk_abi.h)
+        VkDeviceSize ffOffset = PushUniform(&ff, sizeof(ff));
+        PipelineKey pk{};
+        pk.raster.fillMode = D3DFILL_SOLID;
+        pk.raster.cullMode = D3DCULL_NONE;
+        pk.raster.topology = static_cast<uint8_t>(d.type);
+        pk.layoutHash = reinterpret_cast<uintptr_t>(d.input);
+        VkShaderModule pair[2] = {d.captureModule, rtNullFs_};
+        pk.shaderHash = Hash(pair, sizeof(pair));
+        pk.colorFormat = VK_FORMAT_UNDEFINED;
+        pk.depthFormat = VK_FORMAT_UNDEFINED;
+        pk.motionFormat = VK_FORMAT_UNDEFINED;
+        VkPipeline pipeline = GetPipeline(pk, *d.input, d.captureModule, rtNullFs_);
+        if (!pipeline)
+            continue;
+        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+        FrameSlot& s = Slot();
+        VkDescriptorBufferInfo bufs[5] = {{s.uniforms, vsOffset, kVsConstantCount * 16},
+                                          {s.uniforms, ffOffset, kPsConstantCount * 16},
+                                          {s.uniforms, ffOffset, sizeof(FFUniforms)},
+                                          {s.uniforms, prevOffset, sizeof(PrevUniforms)},
+                                          {dst, VkDeviceSize(base[k]) * 16, VkDeviceSize(d.vCount) * 16}};
+        VkWriteDescriptorSet w[5];
+        for (uint32_t i = 0; i < 5; ++i)
+        {
+            w[i] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+            w[i].dstBinding = i == 4 ? kBindingCapture : i;
+            w[i].descriptorCount = 1;
+            w[i].descriptorType = i == 4 ? VK_DESCRIPTOR_TYPE_STORAGE_BUFFER : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            w[i].pBufferInfo = &bufs[i];
+        }
+        vkCmdPushDescriptorSetKHR(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, PipelineLayout(), 0, 5, w);
+        bool bound = true;
+        for (const VkVertexInputBindingDescription& vb : d.input->bindings)
+        {
+            if (vb.binding >= 4 || !d.streams[vb.binding].buffer)
+            {
+                bound = false;
+                break;
+            }
+            VkDeviceSize off = d.streams[vb.binding].offset;
+            vkCmdBindVertexBuffers(cb, vb.binding, 1, &d.streams[vb.binding].buffer, &off);
+        }
+        if (!bound)
+            continue;
+        if (d.indexed)
+        {
+            vkCmdBindIndexBuffer(cb, d.indexBuffer, 0, d.index32 ? VK_INDEX_TYPE_UINT32 : VK_INDEX_TYPE_UINT16);
+            vkCmdDrawIndexed(cb, d.vertexCount, 1, d.start, d.baseVertex, 0);
+        }
+        else
+            vkCmdDraw(cb, d.vertexCount, 1, d.start, 0);
+    }
+    vkCmdEndRendering(cb);
+}
+
+// Pipelines of the helper path: the depth conversion (compute) and the apply pass that reads the helper's visibility.
+bool VulkanDevice::RtRemoteInit()
+{
+    if (rtRemoteFailed_)
+        return false;
+    if (rtDepthPipe_)
+        return true;
+    VkDevice device = Ctx().device;
+    if (!rtVs_)
+        rtVs_ = MakeModule(CompileGlsl(RtShadowVertexGlsl(), false));
+    if (!rtNullFs_)
+        rtNullFs_ = MakeModule(CompileGlsl("#version 450\nvoid main() {}\n", true));
+    rtRemoteFs_ = MakeModule(CompileGlsl(RtShadowFragmentGlsl(true), true));
+    rtDepthCs_ = MakeModule(CompileGlslStage(RtDepthComputeGlsl(), GlslStage::Compute));
+    VkDescriptorSetLayoutBinding b[3] = {
+        {0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+        {1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+        {2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr}};
+    VkDescriptorSetLayoutCreateInfo dl{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+    dl.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR;
+    dl.bindingCount = 3;
+    dl.pBindings = b;
+    vkCreateDescriptorSetLayout(device, &dl, nullptr, &rtRemoteSetLayout_);
+    VkPipelineLayoutCreateInfo pl{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+    pl.setLayoutCount = 1;
+    pl.pSetLayouts = &rtRemoteSetLayout_;
+    vkCreatePipelineLayout(device, &pl, nullptr, &rtRemoteLayout_);
+    for (auto& x : b)
+        x.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    vkCreateDescriptorSetLayout(device, &dl, nullptr, &rtDepthSetLayout_);
+    pl.pSetLayouts = &rtDepthSetLayout_;
+    vkCreatePipelineLayout(device, &pl, nullptr, &rtDepthLayout_);
+    if (rtDepthCs_)
+    {
+        VkComputePipelineCreateInfo ci{VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+        ci.stage = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
+        ci.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT, ci.stage.module = rtDepthCs_, ci.stage.pName = "main";
+        ci.layout = rtDepthLayout_;
+        vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &ci, nullptr, &rtDepthPipe_);
+    }
+    if (!rtVs_ || !rtNullFs_ || !rtRemoteFs_ || !rtDepthPipe_)
+    {
+        Log("vulkan: ray-traced shadows (helper path) failed to build; shadow maps instead");
+        rtRemoteFailed_ = true;
+        return false;
+    }
+    return true;
+}
+
+// Ray-traced shadows through the 64-bit helper (rt_ipc.h): the inputs go to shared buffers, the frame is submitted
+// up to here (signalling the helper), and the apply pass in the second half reads the visibility it writes.
+bool VulkanDevice::RtShadowsRemote(const std::vector<RtCaster>& casters, const Mat4& toWorld)
+{
+    const rhi::SceneHints& h = rhi::Hints();
+    RtClient& rc = Rt();
+    if (!rc.Start() || !rc.Ready() || !RtRemoteInit())
+        return false;
+    Image* target = rt_->GetImage();
+    Image* depth = depth_->GetImage();
+    if (!depth)
+        return false;
+    // The apply pipeline (dual-source blend, as the in-process path) with the helper-path fragment shader.
+    if (!rtRemoteApply_ || rtRemoteFormat_ != target->format)
+    {
+        VkShaderModule fs = rtFs_;
+        VkPipelineLayout layout = rtApplyLayout_;
+        VkPipeline keep = rtApply_;
+        VkFormat keepFormat = rtApplyFormat_;
+        rtFs_ = rtRemoteFs_, rtApplyLayout_ = rtRemoteLayout_, rtApply_ = VK_NULL_HANDLE;
+        rtRemoteApply_ = RtApplyPipeline(target->format);
+        rtRemoteFormat_ = target->format;
+        rtFs_ = fs, rtApplyLayout_ = layout, rtApply_ = keep, rtApplyFormat_ = keepFormat;
+        if (!rtRemoteApply_)
+            return false;
+    }
+    std::vector<uint32_t> base;
+    uint64_t total = RtGather(casters, base);
+    const std::vector<uint32_t>& idx = rtIndices_;
+    if (idx.empty() || total == 0)
+        return false;
+    const D3DVIEWPORT9& svp = scene_.draws.back().viewport;
+    const uint32_t W = svp.Width, H = svp.Height;
+    if (!rc.Ensure(total, idx.size(), W, H))
+        return false;
+    std::memcpy(rc.IndicesMapped(), idx.data(), idx.size() * 4);
+
+    // Inputs: world positions, camera-space depth.
+    EndRendering();
+    RtReplay(casters, base, rc.Buffer(rtipc::kVertices));
+    VkCommandBuffer cb = Slot().cb;
+    depth->Transition(cb, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
+    if (!shadowDepthSampler_)
+    {
+        VkSamplerCreateInfo si{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+        si.magFilter = si.minFilter = VK_FILTER_NEAREST;
+        si.addressModeU = si.addressModeV = si.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        vkCreateSampler(Ctx().device, &si, nullptr, &shadowDepthSampler_);
+    }
+    float dp[8] = {float(svp.X), float(svp.Y), float(W), float(H), sceneProjection_._33, sceneProjection_._34,
+                   sceneProjection_._43, 0.0f};
+    VkDeviceSize dOffset = PushUniform(dp, sizeof(dp));
+    VkDescriptorImageInfo dimg{shadowDepthSampler_, depth->sampledView, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL};
+    VkDescriptorBufferInfo zb{rc.Buffer(rtipc::kDepth), 0, VkDeviceSize(W) * H * 4};
+    VkDescriptorBufferInfo db{Slot().uniforms, dOffset, sizeof(dp)};
+    VkWriteDescriptorSet w[3] = {{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}, {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET},
+                                 {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}};
+    w[0].dstBinding = 0, w[0].descriptorCount = 1, w[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    w[0].pImageInfo = &dimg;
+    w[1].dstBinding = 1, w[1].descriptorCount = 1, w[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    w[1].pBufferInfo = &zb;
+    w[2].dstBinding = 2, w[2].descriptorCount = 1, w[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    w[2].pBufferInfo = &db;
+    vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, rtDepthPipe_);
+    vkCmdPushDescriptorSetKHR(cb, VK_PIPELINE_BIND_POINT_COMPUTE, rtDepthLayout_, 0, 3, w);
+    vkCmdDispatch(cb, (W + 7) / 8, (H + 7) / 8, 1);
+    VkMemoryBarrier2 mb{VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+    mb.srcStageMask = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    mb.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+    mb.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    mb.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT;
+    VkDependencyInfo di{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    di.memoryBarrierCount = 1;
+    di.pMemoryBarriers = &mb;
+    vkCmdPipelineBarrier2(cb, &di);
+
+    // Hand over: the first half of the frame signals the helper; recording continues in the second command buffer.
+    SplitSubmit(rc.ToHelper(), serial);
+    rtipc::FrameParams fp{};
+    fp.frame = serial;
+    fp.vertexCount = static_cast<uint32_t>(total);
+    fp.indexCount = static_cast<uint32_t>(idx.size());
+    fp.width = W, fp.height = H;
+    fp.rays = h.shadowRays;
+    for (int r = 0; r < 3; ++r)
+        for (int c = 0; c < 4; ++c)
+            fp.camToWorld[r * 4 + c] = toWorld.m[r * 4 + c];
+    fp.proj[0] = sceneProjection_._11, fp.proj[1] = sceneProjection_._22;
+    fp.proj[2] = sceneProjection_._33, fp.proj[3] = sceneProjection_._34;
+    fp.proj43 = sceneProjection_._43;
+    fp.sun[0] = -h.sun[0], fp.sun[1] = -h.sun[1], fp.sun[2] = -h.sun[2];
+    fp.sun[3] = std::tan(h.shadowSoftness * 3.14159265f / 180.0f);
+    rc.Request(fp);
+    rtWaitFrame_ = serial;
+
+    // Apply (second half; the final submit waits for the helper).
+    cb = Slot().cb;
+    RtShadowParams p{};
+    for (int r = 0; r < 3; ++r)
+        for (int c = 0; c < 4; ++c)
+            p.camToWorld[r][c] = toWorld.m[r * 4 + c];
+    p.proj[0] = sceneProjection_._11, p.proj[1] = sceneProjection_._22;
+    p.proj[2] = sceneProjection_._33, p.proj[3] = sceneProjection_._34;
+    p.misc[0] = sceneProjection_._43, p.misc[1] = h.shadowStrength;
+    p.misc[2] = static_cast<float>(h.shadowRays), p.misc[3] = static_cast<float>(serial % 64);
+    p.sun[0] = -h.sun[0], p.sun[1] = -h.sun[1], p.sun[2] = -h.sun[2];
+    p.sun[3] = std::tan(h.shadowSoftness * 3.14159265f / 180.0f);
+    p.viewport[0] = float(svp.X), p.viewport[1] = float(svp.Y), p.viewport[2] = float(W), p.viewport[3] = float(H);
+    p.fog[0] = scene_.fogStart, p.fog[1] = scene_.fogEnd, p.fog[2] = scene_.fog ? 1.0f : 0.0f;
+    static const bool debug = ConfigInt("render", "shadow_debug", 0) != 0;
+    p.fog[3] = debug ? 1.0f : 0.0f;
+    std::memcpy(p.fogColor, scene_.fogColor, sizeof(scene_.fogColor));
+    if (scene_.fog)
+        ModernFogUniforms(p.mf, h, sceneProjection_, svp, scene_.fogStart, scene_.fogEnd, false);
+    VkDeviceSize pOffset = PushUniform(&p, sizeof(p));
+    target->Transition(cb, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    VkRenderingAttachmentInfo ca{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+    ca.imageView = target->AttachmentView(rt_->level, rt_->face);
+    ca.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    ca.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+    ca.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    VkRenderingInfo ari{VK_STRUCTURE_TYPE_RENDERING_INFO};
+    ari.renderArea = {{0, 0}, {target->width, target->height}};
+    ari.layerCount = 1;
+    ari.colorAttachmentCount = 1;
+    ari.pColorAttachments = &ca;
+    vkCmdBeginRendering(cb, &ari);
+    VkViewport vv{float(svp.X), float(svp.Y), float(W), float(H), 0, 1};
+    VkRect2D vsc{{static_cast<int32_t>(svp.X), static_cast<int32_t>(svp.Y)}, {W, H}};
+    vkCmdSetViewport(cb, 0, 1, &vv);
+    vkCmdSetScissor(cb, 0, 1, &vsc);
+    vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, rtRemoteApply_);
+    VkDescriptorBufferInfo vb{rc.Buffer(rtipc::kVisibility), 0, VkDeviceSize(W) * H * 4};
+    VkDescriptorBufferInfo pb{Slot().uniforms, pOffset, sizeof(p)};
+    VkWriteDescriptorSet aw[3] = {{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}, {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET},
+                                  {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}};
+    aw[0].dstBinding = 0, aw[0].descriptorCount = 1, aw[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    aw[0].pImageInfo = &dimg;
+    aw[1].dstBinding = 1, aw[1].descriptorCount = 1, aw[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    aw[1].pBufferInfo = &vb;
+    aw[2].dstBinding = 2, aw[2].descriptorCount = 1, aw[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    aw[2].pBufferInfo = &pb;
+    vkCmdPushDescriptorSetKHR(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, rtRemoteLayout_, 0, 3, aw);
+    vkCmdDraw(cb, 3, 1, 0, 0);
+    vkCmdEndRendering(cb);
+    static int logged;
+    if (logged++ % 600 == 0)
+        Log("vulkan: ray-traced shadows (helper): %zu casters, %llu vertices, %zu triangles", casters.size(),
+            static_cast<unsigned long long>(total), idx.size() / 3);
+    return true;
+}
+
+// The casters' world-space triangles (capture replays with c22..c25 = camera -> world), one BLAS and one TLAS, then
+// the apply pass. False: nothing done (the caller falls back to the shadow map).
+bool VulkanDevice::RtShadows(const std::vector<RtCaster>& casters, const Mat4& toWorld)
+{
+    const rhi::SceneHints& h = rhi::Hints();
+    if (!RtInit())
+        return false;
+    Context& ctx = Ctx();
+    RtFrame& fr = rtFrames_[serial % kFramesInFlight];
+    Image* target = rt_->GetImage();
+    Image* depth = depth_->GetImage();
+    VkPipeline apply = RtApplyPipeline(target->format);
+    if (!apply || !depth)
+        return false;
+
+    // 1. Vertex ranges and triangle indices (RtGather).
+    std::vector<uint32_t> base;
+    uint64_t total = RtGather(casters, base);
+    std::vector<uint32_t>& idx = rtIndices_;
+    if (idx.empty() || total == 0 || total > (64u << 20) / 16 * 16)
+        return false;
+    const VkBufferUsageFlags asInput = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
+    if (!RtEnsure(fr.verts, total * 16, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | asInput, false) ||
+        !RtEnsure(fr.indices, idx.size() * 4, asInput, true))
+        return false;
+    std::memcpy(fr.indices.mapped, idx.data(), idx.size() * 4);
+
+    // 2. Capture replays (RtReplay).
+    EndRendering();
+    VkCommandBuffer cb = Slot().cb;
+    RtReplay(casters, base, fr.verts.buffer);
+    VkMemoryBarrier2 mb{VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+    mb.srcStageMask = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT;
+    mb.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+    mb.dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+    mb.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR;
+    VkDependencyInfo di{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    di.memoryBarrierCount = 1;
+    di.pMemoryBarriers = &mb;
+    vkCmdPipelineBarrier2(cb, &di);
+
+    // 3. Bottom level: all triangles in one geometry.
+    VkAccelerationStructureGeometryKHR geo{VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR};
+    geo.geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
+    geo.flags = VK_GEOMETRY_OPAQUE_BIT_KHR;
+    auto& tr = geo.geometry.triangles;
+    tr.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
+    tr.vertexFormat = VK_FORMAT_R32G32B32_SFLOAT;
+    tr.vertexData.deviceAddress = fr.verts.address;
+    tr.vertexStride = 16;
+    tr.maxVertex = static_cast<uint32_t>(total - 1);
+    tr.indexType = VK_INDEX_TYPE_UINT32;
+    tr.indexData.deviceAddress = fr.indices.address;
+    VkAccelerationStructureBuildGeometryInfoKHR bi{VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR};
+    bi.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
+    bi.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_BUILD_BIT_KHR;
+    bi.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+    bi.geometryCount = 1;
+    bi.pGeometries = &geo;
+    const uint32_t triangles = static_cast<uint32_t>(idx.size() / 3);
+    VkAccelerationStructureBuildSizesInfoKHR sz{VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR};
+    vkGetAccelerationStructureBuildSizesKHR(ctx.device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &bi, &triangles,
+                                            &sz);
+    auto ensureAs = [&](RtBuffer& buf, VkAccelerationStructureKHR& as, VkDeviceSize size,
+                        VkAccelerationStructureTypeKHR type) {
+        if (as && buf.size >= size)
+            return true;
+        if (as)
+        {
+            VkDevice device = ctx.device;
+            VkAccelerationStructureKHR old = as;
+            DeferDestroy([device, old] { vkDestroyAccelerationStructureKHR(device, old, nullptr); });
+            as = VK_NULL_HANDLE;
+        }
+        if (!RtEnsure(buf, size, VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR, false))
+            return false;
+        VkAccelerationStructureCreateInfoKHR ci{VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR};
+        ci.buffer = buf.buffer;
+        ci.size = buf.size;
+        ci.type = type;
+        return vkCreateAccelerationStructureKHR(ctx.device, &ci, nullptr, &as) == VK_SUCCESS;
+    };
+    if (!ensureAs(fr.blasBuffer, fr.blas, sz.accelerationStructureSize, VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR))
+        return false;
+    VkDeviceSize scratchNeed = sz.buildScratchSize + rtScratchAlign_;
+    if (!RtEnsure(fr.scratch, std::max<VkDeviceSize>(scratchNeed, 1 << 20), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, false))
+        return false;
+    VkDeviceAddress scratch = (fr.scratch.address + rtScratchAlign_ - 1) / rtScratchAlign_ * rtScratchAlign_;
+    bi.dstAccelerationStructure = fr.blas;
+    bi.scratchData.deviceAddress = scratch;
+    VkAccelerationStructureBuildRangeInfoKHR range{triangles, 0, 0, 0};
+    const VkAccelerationStructureBuildRangeInfoKHR* ranges = &range;
+    vkCmdBuildAccelerationStructuresKHR(cb, 1, &bi, &ranges);
+    mb.srcStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+    mb.srcAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
+    mb.dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+    mb.dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR | VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
+    vkCmdPipelineBarrier2(cb, &di);
+
+    // 4. Top level: one instance, identity transform.
+    if (!RtEnsure(fr.instances, sizeof(VkAccelerationStructureInstanceKHR), asInput, true))
+        return false;
+    VkAccelerationStructureDeviceAddressInfoKHR dai{VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR};
+    dai.accelerationStructure = fr.blas;
+    VkAccelerationStructureInstanceKHR inst{};
+    inst.transform.matrix[0][0] = inst.transform.matrix[1][1] = inst.transform.matrix[2][2] = 1.0f;
+    inst.mask = 0xff;
+    inst.flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
+    inst.accelerationStructureReference = vkGetAccelerationStructureDeviceAddressKHR(ctx.device, &dai);
+    std::memcpy(fr.instances.mapped, &inst, sizeof(inst));
+    VkAccelerationStructureGeometryKHR tgeo{VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR};
+    tgeo.geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR;
+    tgeo.geometry.instances.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR;
+    tgeo.geometry.instances.data.deviceAddress = fr.instances.address;
+    VkAccelerationStructureBuildGeometryInfoKHR tbi{VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR};
+    tbi.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
+    tbi.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_BUILD_BIT_KHR;
+    tbi.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+    tbi.geometryCount = 1;
+    tbi.pGeometries = &tgeo;
+    const uint32_t one = 1;
+    VkAccelerationStructureBuildSizesInfoKHR tsz{VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR};
+    vkGetAccelerationStructureBuildSizesKHR(ctx.device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &tbi, &one, &tsz);
+    if (!ensureAs(fr.tlasBuffer, fr.tlas, tsz.accelerationStructureSize, VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR))
+        return false;
+    if (tsz.buildScratchSize + rtScratchAlign_ > fr.scratch.size)
+        return false;
+    tbi.dstAccelerationStructure = fr.tlas;
+    tbi.scratchData.deviceAddress = scratch;
+    VkAccelerationStructureBuildRangeInfoKHR trange{1, 0, 0, 0};
+    const VkAccelerationStructureBuildRangeInfoKHR* tranges = &trange;
+    vkCmdBuildAccelerationStructuresKHR(cb, 1, &tbi, &tranges);
+    mb.srcStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+    mb.srcAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
+    mb.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+    mb.dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR;
+    vkCmdPipelineBarrier2(cb, &di);
+
+    // 5. Apply.
+    const D3DVIEWPORT9& svp = scene_.draws.back().viewport;
+    RtShadowParams p{};
+    for (int r = 0; r < 3; ++r)
+        for (int c = 0; c < 4; ++c)
+            p.camToWorld[r][c] = toWorld.m[r * 4 + c];
+    p.proj[0] = sceneProjection_._11, p.proj[1] = sceneProjection_._22;
+    p.proj[2] = sceneProjection_._33, p.proj[3] = sceneProjection_._34;
+    p.misc[0] = sceneProjection_._43, p.misc[1] = h.shadowStrength;
+    p.misc[2] = static_cast<float>(h.shadowRays), p.misc[3] = static_cast<float>(serial % 64);
+    p.sun[0] = -h.sun[0], p.sun[1] = -h.sun[1], p.sun[2] = -h.sun[2];  // towards the sun
+    p.sun[3] = std::tan(h.shadowSoftness * 3.14159265f / 180.0f);
+    p.viewport[0] = float(svp.X), p.viewport[1] = float(svp.Y), p.viewport[2] = float(svp.Width);
+    p.viewport[3] = float(svp.Height);
+    p.fog[0] = scene_.fogStart, p.fog[1] = scene_.fogEnd, p.fog[2] = scene_.fog ? 1.0f : 0.0f;
+    static const bool debug = ConfigInt("render", "shadow_debug", 0) != 0;
+    p.fog[3] = debug ? 1.0f : 0.0f;
+    std::memcpy(p.fogColor, scene_.fogColor, sizeof(scene_.fogColor));
+    if (scene_.fog)
+        ModernFogUniforms(p.mf, h, sceneProjection_, svp, scene_.fogStart, scene_.fogEnd, false);
+    VkDeviceSize pOffset = PushUniform(&p, sizeof(p));
+    depth->Transition(cb, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
+    target->Transition(cb, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    VkRenderingAttachmentInfo ca{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+    ca.imageView = target->AttachmentView(rt_->level, rt_->face);
+    ca.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    ca.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+    ca.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    VkRenderingInfo ari{VK_STRUCTURE_TYPE_RENDERING_INFO};
+    ari.renderArea = {{0, 0}, {target->width, target->height}};
+    ari.layerCount = 1;
+    ari.colorAttachmentCount = 1;
+    ari.pColorAttachments = &ca;
+    vkCmdBeginRendering(cb, &ari);
+    VkViewport vv{float(svp.X), float(svp.Y), float(svp.Width), float(svp.Height), 0, 1};
+    VkRect2D vsc{{static_cast<int32_t>(svp.X), static_cast<int32_t>(svp.Y)}, {svp.Width, svp.Height}};
+    vkCmdSetViewport(cb, 0, 1, &vv);
+    vkCmdSetScissor(cb, 0, 1, &vsc);
+    vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, apply);
+    if (!shadowDepthSampler_)
+    {
+        VkSamplerCreateInfo si{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+        si.magFilter = si.minFilter = VK_FILTER_NEAREST;
+        si.addressModeU = si.addressModeV = si.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        vkCreateSampler(ctx.device, &si, nullptr, &shadowDepthSampler_);
+    }
+    VkDescriptorImageInfo dimg{shadowDepthSampler_, depth->sampledView, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL};
+    VkWriteDescriptorSetAccelerationStructureKHR wa{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR};
+    wa.accelerationStructureCount = 1;
+    wa.pAccelerationStructures = &fr.tlas;
+    VkDescriptorBufferInfo pb{Slot().uniforms, pOffset, sizeof(p)};
+    VkWriteDescriptorSet aw[3] = {{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}, {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET},
+                                  {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}};
+    aw[0].dstBinding = 0, aw[0].descriptorCount = 1, aw[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    aw[0].pImageInfo = &dimg;
+    aw[1].pNext = &wa;
+    aw[1].dstBinding = 1, aw[1].descriptorCount = 1, aw[1].descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+    aw[2].dstBinding = 2, aw[2].descriptorCount = 1, aw[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    aw[2].pBufferInfo = &pb;
+    vkCmdPushDescriptorSetKHR(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, rtApplyLayout_, 0, 3, aw);
+    vkCmdDraw(cb, 3, 1, 0, 0);
+    vkCmdEndRendering(cb);
+    static int logged;
+    if (logged++ % 600 == 0)
+        Log("vulkan: ray-traced shadows: %zu casters, %llu vertices, %u triangles", casters.size(),
+            static_cast<unsigned long long>(total), triangles);
+    return true;
 }
 
 // --- Ambient occlusion (vk_gtao.h): XeGTAO ------------------------------------------------------------------
@@ -1925,11 +2723,12 @@ bool VulkanDevice::GtaoInit()
     }
     gtaoApplyVs_ = MakeModule(CompileGlsl(GtaoApplyVertexGlsl(), false));
     gtaoApplyFs_ = MakeModule(CompileGlsl(GtaoApplyFragmentGlsl(), true));
-    VkDescriptorSetLayoutBinding ab[3] = {
+    VkDescriptorSetLayoutBinding ab[4] = {
         {0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
-        {2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr}};
-    dl.bindingCount = 3;
+        {2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+        {3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr}};
+    dl.bindingCount = 4;
     dl.pBindings = ab;
     vkCreateDescriptorSetLayout(device, &dl, nullptr, &gtaoApplySetLayout_);
     pl.pSetLayouts = &gtaoApplySetLayout_;
@@ -2138,6 +2937,19 @@ void VulkanDevice::Ambient()
     std::memcpy(ap.fogColor, scene_.fogColor, sizeof(scene_.fogColor));
     if (scene_.fog)
         ModernFogUniforms(ap.mf, h, sceneProjection_, svp, scene_.fogStart, scene_.fogEnd, false);
+    // This frame's ray-traced sun visibility (the helper path ran in Shadows, before this pass): occlusion of the
+    // ambient share only (vk_gtao.cpp).
+    RtClient& rcl = Rt();
+    const bool haveVis = rtWaitFrame_ == serial && h.haveView && h.haveSun && rcl.Buffer(rtipc::kVisibility);
+    if (haveVis)
+    {
+        for (int i = 0; i < 3; ++i)
+            ap.sun[i] = -(h.view[i * 4 + 0] * h.sun[0] + h.view[i * 4 + 1] * h.sun[1] + h.view[i * 4 + 2] * h.sun[2]);
+        ap.sun[3] = h.shadowStrength;
+    }
+    ap.proj[0] = sceneProjection_._11, ap.proj[1] = sceneProjection_._22;
+    ap.proj[2] = sceneProjection_._33, ap.proj[3] = sceneProjection_._34;
+    ap.proj43[0] = sceneProjection_._43;
     VkDeviceSize apOffset = PushUniform(&ap, sizeof(ap));
     target->Transition(cb, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     VkRenderingAttachmentInfo ca{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
@@ -2159,15 +2971,19 @@ void VulkanDevice::Ambient()
     VkDescriptorImageInfo aoImg{shadowDepthSampler_, gtaoTerm_.view, VK_IMAGE_LAYOUT_GENERAL};
     VkDescriptorImageInfo dImg{shadowDepthSampler_, depth->sampledView, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL};
     VkDescriptorBufferInfo apb{Slot().uniforms, apOffset, sizeof(ap)};
-    VkWriteDescriptorSet aw[3] = {{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}, {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET},
-                                  {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}};
+    VkDescriptorBufferInfo visb = haveVis ? VkDescriptorBufferInfo{rcl.Buffer(rtipc::kVisibility), 0, VK_WHOLE_SIZE}
+                                          : VkDescriptorBufferInfo{Slot().uniforms, 0, 16};
+    VkWriteDescriptorSet aw[4] = {{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}, {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET},
+                                  {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}, {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}};
+    aw[3].dstBinding = 3, aw[3].descriptorCount = 1, aw[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    aw[3].pBufferInfo = &visb;
     aw[0].dstBinding = 0, aw[0].descriptorCount = 1, aw[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     aw[0].pImageInfo = &aoImg;
     aw[1].dstBinding = 1, aw[1].descriptorCount = 1, aw[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     aw[1].pImageInfo = &dImg;
     aw[2].dstBinding = 2, aw[2].descriptorCount = 1, aw[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     aw[2].pBufferInfo = &apb;
-    vkCmdPushDescriptorSetKHR(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, gtaoApplyLayout_, 0, 3, aw);
+    vkCmdPushDescriptorSetKHR(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, gtaoApplyLayout_, 0, 4, aw);
     vkCmdDraw(cb, 3, 1, 0, 0);
     vkCmdEndRendering(cb);
 }
@@ -2202,35 +3018,6 @@ void VulkanDevice::Shadows()
         centre[i] = toWorld.m[i * 4 + 3] - toWorld.m[i * 4 + 2] * range * 0.7f;
     Mat4 camToLight = Multiply(LightMatrix(centre, h.sun, range, h.shadowSize), toWorld);
 
-    EndRendering();
-    VkCommandBuffer cb = Slot().cb;
-    // 1. Depth from the sun.
-    shadowMap_->Transition(cb, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
-    VkRenderingAttachmentInfo da{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-    da.imageView = shadowMap_->AttachmentView(0, 0);
-    da.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-    da.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    da.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    da.clearValue.depthStencil = {1.0f, 0};
-    VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};
-    ri.renderArea = {{0, 0}, {h.shadowSize, h.shadowSize}};
-    ri.layerCount = 1;
-    ri.pDepthAttachment = &da;
-    vkCmdBeginRendering(cb, &ri);
-    VkViewport v{0, 0, float(h.shadowSize), float(h.shadowSize), 0, 1};
-    VkRect2D sc{{0, 0}, {h.shadowSize, h.shadowSize}};
-    vkCmdSetViewport(cb, 0, 1, &v);
-    vkCmdSetScissor(cb, 0, 1, &sc);
-    vkCmdSetDepthBias(cb, 1.5f, 0.0f, 2.0f);
-    float bf[4] = {};
-    vkCmdSetBlendConstants(cb, bf);
-    vkCmdSetStencilReference(cb, VK_STENCIL_FACE_FRONT_AND_BACK, 0);
-    FFUniforms ff{};
-    static PrevUniforms prev{};
-    VkDeviceSize ffOffset = PushUniform(&ff, sizeof(ff)), prevOffset = PushUniform(&prev, sizeof(prev));
-    static std::vector<float> constants(kVsConstantCount * 4);
-    uint32_t drawn = 0;
-
     // Casters: this frame's opaque draws, plus static geometry the game culled from the view since (a hill behind
     // the camera still shadows the road ahead; measured: a large shadow appearing and vanishing as the player
     // stepped back and forth). The game sends world * view (c42..c44), so a cached draw is replayed with the
@@ -2263,6 +3050,7 @@ void VulkanDevice::Shadows()
         const SceneDraw* d;
         const float* c;
         Mat4 camToLight;
+        Mat4 toWorld;  // camera -> world of the frame its constants come from
     };
     std::vector<Job> jobs;
     jobs.reserve(scene_.draws.size() + casters_.size());
@@ -2271,7 +3059,7 @@ void VulkanDevice::Shadows()
         if (!caster(d))
             continue;
         const float* c = &scene_.vsConstants[d.vsConstantsOffset];
-        jobs.push_back({&d, c, camToLight});
+        jobs.push_back({&d, c, camToLight, toWorld});
         float key[12];
         worldKey(toWorld, c, key);
         auto [it, fresh] = casters_.try_emplace(d.id);
@@ -2333,10 +3121,51 @@ void VulkanDevice::Shadows()
             continue;
         }
         static const bool useCache = ConfigInt("render", "shadow_cache", 1) != 0;  // diagnosis
-        if (useCache && e.lastSeen != shadowFrame_ && !e.moving)
-            jobs.push_back({&e.draw, e.constants.data(), Multiply(LightMatrix(centre, h.sun, range, h.shadowSize), e.toWorld)});
+        if (useCache && h.shadowCasterCache && e.lastSeen != shadowFrame_ && !e.moving)
+            jobs.push_back({&e.draw, e.constants.data(),
+                            Multiply(LightMatrix(centre, h.sun, range, h.shadowSize), e.toWorld), e.toWorld});
         ++it;
     }
+
+    // Ray-traced shadows (vk_rt.h) instead of the shadow map, when on and available.
+    if (h.shadowsRt && (Ctx().rayQuery || Ctx().externalSharing))
+    {
+        std::vector<RtCaster> rc;
+        rc.reserve(jobs.size());
+        for (const Job& j : jobs)
+            rc.push_back({j.d, j.c, j.toWorld});
+        if (Ctx().rayQuery ? RtShadows(rc, toWorld) : RtShadowsRemote(rc, toWorld))
+            return;
+    }
+
+    EndRendering();
+    VkCommandBuffer cb = Slot().cb;
+    // 1. Depth from the sun.
+    shadowMap_->Transition(cb, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+    VkRenderingAttachmentInfo da{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+    da.imageView = shadowMap_->AttachmentView(0, 0);
+    da.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+    da.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    da.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    da.clearValue.depthStencil = {1.0f, 0};
+    VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};
+    ri.renderArea = {{0, 0}, {h.shadowSize, h.shadowSize}};
+    ri.layerCount = 1;
+    ri.pDepthAttachment = &da;
+    vkCmdBeginRendering(cb, &ri);
+    VkViewport v{0, 0, float(h.shadowSize), float(h.shadowSize), 0, 1};
+    VkRect2D sc{{0, 0}, {h.shadowSize, h.shadowSize}};
+    vkCmdSetViewport(cb, 0, 1, &v);
+    vkCmdSetScissor(cb, 0, 1, &sc);
+    vkCmdSetDepthBias(cb, 1.5f, 0.0f, 2.0f);
+    float bf[4] = {};
+    vkCmdSetBlendConstants(cb, bf);
+    vkCmdSetStencilReference(cb, VK_STENCIL_FACE_FRONT_AND_BACK, 0);
+    FFUniforms ff{};
+    static PrevUniforms prev{};
+    VkDeviceSize ffOffset = PushUniform(&ff, sizeof(ff)), prevOffset = PushUniform(&prev, sizeof(prev));
+    static std::vector<float> constants(kVsConstantCount * 4);
+    uint32_t drawn = 0;
 
     for (const Job& job : jobs)
     {
@@ -2765,8 +3594,8 @@ void VulkanDevice::BeforeDraw()
         rs_[D3DRS_ZWRITEENABLE] || !SceneDrawTarget())
         return;
     lightingDone_ = true;
+    Shadows();  // first: the ray-traced sun visibility feeds the occlusion pass
     Ambient();
-    Shadows();
 }
 
 HRESULT VulkanDevice::DrawPrimitive(D3DPRIMITIVETYPE t, UINT start, UINT count)
@@ -2876,6 +3705,10 @@ void VulkanDevice::RecordScene(D3DPRIMITIVETYPE t, bool indexed, INT base, UINT 
     d.vertexModule = lastVertex_;
     d.input = lastInput_;
     d.vertexCount = VertexCount(t, count);
+    d.captureModule = vs_ && rhi::Hints().shadowsRt && (Ctx().rayQuery || Ctx().externalSharing)
+                          ? vs_->CaptureVariant()
+                          : VK_NULL_HANDLE;
+    d.vFirst = captureFirst_, d.vCount = captureCount_;
     if (captureDraw_)
     {
         d.capture = reinterpret_cast<const float*>(captureMapped_ + captureOffset_);
@@ -2901,8 +3734,8 @@ void rhi::SceneEnd()
     {
         if (!rhi::vulkan::g_device->lightingDone_)
         {
-            rhi::vulkan::g_device->Ambient();
             rhi::vulkan::g_device->Shadows();
+            rhi::vulkan::g_device->Ambient();
             rhi::vulkan::g_device->lightingDone_ = true;
         }
         rhi::vulkan::g_device->Snow();

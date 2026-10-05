@@ -171,9 +171,14 @@ struct SceneHints
     float shadowStrength = 0.55f, shadowRange = 200.0f;
     float shadowSoftness = 0.6f;  // the sun's angular radius in degrees: penumbra width per unit of caster distance
     uint32_t shadowSize = 4096;
+    bool shadowsRt = false;     // [render] shadow_rt: ray-traced shadows (vk_rt.h) when the GPU has ray queries
+    uint32_t shadowRays = 8;    // [render] shadow_rays: rays per pixel over the sun's disc
     // Shadow casters the game culled from the view (vk_device.cpp ShadowCasters): static geometry seen earlier in the
     // level keeps casting while within this distance of the camera (world units).
     float shadowCasterRadius = 100.0f;
+    // The cache above is only a stand-in for the game's frustum culling; off when the game itself keeps everything
+    // near the camera ([render] cull_radius, src/renderer/scene_pass.h).
+    bool shadowCasterCache = true;
     // [render] ao: ambient occlusion (XeGTAO, vk_gtao.h) at SceneEnd, before the shadows.
     bool ao = false;
     float aoStrength = 1.0f;  // 0..1: how much of XeGTAO's occlusion is applied

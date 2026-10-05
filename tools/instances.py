@@ -62,6 +62,9 @@ def instance_dir(n):
                 _replace(os.path.join(BUILD, f), dst)
             elif f in RELINK or not os.path.exists(dst):
                 _link(src, dst)
+    helper = os.path.join(ROOT, "build", "rthelper-x64", "rt_helper.exe")  # the 64-bit ray-tracing helper
+    if os.path.exists(helper):
+        _replace(helper, os.path.join(dst_root, "rt_helper.exe"))
     os.makedirs(os.path.join(dst_root, "SavedGames"), exist_ok=True)
     return dst_root
 

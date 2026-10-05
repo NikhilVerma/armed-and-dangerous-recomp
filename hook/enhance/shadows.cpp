@@ -23,6 +23,7 @@
 #include "game/game_object.h"
 #include "game/shadows.h"
 #include "game/ui_pass.h"
+#include "renderer/scene_pass.h"
 #include "hooks.h"
 #include "log.h"
 #include "rhi/rhi.h"
@@ -138,6 +139,21 @@ void ShadowsInit()
         RemasterRegister({"render", "fog_sun", L"Fog sun glow", S::Slider, 0.0f, 2.0f, 0.1f, {}, 0, false,
                           [](float v) { rhi::Hints().fogSunGlow = v; }},
                          0.6f);
+    // Ray-traced shadows (src/rhi/vulkan/vk_rt.h) in place of shadow maps, on GPUs with ray queries: remaster
+    // default on.
+    rhi::Hints().shadowsRt =
+        RemasterRegister({"render", "shadow_rt", L"Ray-traced shadows (VK)", S::Toggle, 0, 1, 1, {}, 0, false,
+                          [](float v) { rhi::Hints().shadowsRt = v != 0.0f; }},
+                         0, 1) != 0.0f;
+    // No frustum culling within this distance of the camera in the main scene pass (ScenePass_Render,
+    // src/renderer/scene_pass.cpp): casters behind and beside the view stay in the scene, so their shadows neither
+    // pop in nor out. Original 0 (the game's culling), remaster default 100 world units.
+    g_sceneCullRadius =
+        RemasterRegister({"render", "cull_radius", L"Shadow caster range", S::Slider, 0.0f, 300.0f, 25.0f, {}, 0, false,
+                          [](float v) { g_sceneCullRadius = v, rhi::Hints().shadowCasterCache = v <= 0.0f; }},
+                         0.0f, 100.0f);
+    rhi::Hints().shadowCasterCache = g_sceneCullRadius <= 0.0f;
+    rhi::Hints().shadowRays = static_cast<uint32_t>(ConfigInt("render", "shadow_rays", 8));  // and.ini only
     int size = ConfigInt("render", "shadow_size", 4096);
     rhi::Hints().shadowSize = static_cast<uint32_t>(size < 512 ? 512 : size > 8192 ? 8192 : size);
     g_uiPassBegin = OnUiPassBegin;  // does nothing while shadow maps and snow are off

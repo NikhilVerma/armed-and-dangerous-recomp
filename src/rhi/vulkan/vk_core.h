@@ -28,6 +28,14 @@ struct Context
     std::recursive_mutex lock;  // the game calls D3D9 from its loader thread too (texture uploads)
     bool vertexStores = false;  // vertexPipelineStoresAndAtomics: scene vertex capture (vk_scene.h)
     bool tessellation = false;  // tessellationShader (vk_abi.h "Tessellation")
+    // Ray queries (VK_KHR_acceleration_structure + VK_KHR_ray_query, buffer device addresses): ray-traced sun
+    // shadows (vk_rt.h).
+    bool rayQuery = false;
+    // Memory and timeline semaphores shareable with another process (VK_KHR_external_memory_win32,
+    // VK_KHR_external_semaphore_win32): the 64-bit ray-tracing helper (rt_ipc.h) when rayQuery is false.
+    bool externalSharing = false;
+    // Memory that buffers with VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT can be bound to.
+    VkDeviceMemory AllocateAddressable(VkMemoryRequirements req, VkMemoryPropertyFlags flags) const;
 
     uint32_t MemoryType(uint32_t bits, VkMemoryPropertyFlags flags) const;
     VkDeviceMemory Allocate(VkMemoryRequirements req, VkMemoryPropertyFlags flags) const;
