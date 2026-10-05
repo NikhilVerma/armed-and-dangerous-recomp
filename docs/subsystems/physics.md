@@ -96,7 +96,7 @@ Pointer chain: `g_game [0x5fe490] + 0xa8c` = physics manager {+4 game listener, 
 | entity | +0x10 | simulation island* (island +0x24 list index, +0x29 active) | R 0x458510, 0x458440, 0x4583d0, 0x458580, 0x45da90 |
 | entity | +0x20 | collision filter info (**guess**: layer) | W 0x459260 |
 | entity | +0x28 | pointer to motion position copy (motion+0x60) | W 0x4582d0 |
-| entity | +0x38 / +0x3c | float material params (**guess**: restitution / friction) | W 0x458250 / 0x458230, R 0x458260 / 0x458240 |
+| entity | +0x38 / +0x3c | friction / restitution (0x004517b0 stores the "friction" property through 0x00458250, "restitution" through 0x00458230) | W 0x458250 / 0x458230, R 0x458260 / 0x458240 |
 | entity | +0x44 | hkWorld* (null when not in world) | R 0x453750, 0x454b20, 0x4577b0 and 11 more |
 | entity | +0x78 / +0x7c | pair exclusion array {other, value} | 0x4aaf20 (Havok side), R game filter 0x411850 / 0x411710 |
 | motion | +0x2c | inverse mass | R 10 functions (0x4056b0, 0x4247f0, 0x432cb0, ...) |

@@ -138,9 +138,19 @@ def main():
     global DUMP
     DUMP = a.dump
     names = hook_names()
-    only = [n for n in a.only.split(",") if n]
+    spec = a.only
+    from_file = spec.startswith("@")
+    if from_file:  # --only @file: names in a file (lists too long for a command line)
+        with open(spec[1:]) as f:
+            spec = f.read().strip()
+    only = [n for n in spec.split(",") if n]
     unknown = [n for n in only if n not in names]
-    if unknown:
+    if unknown and from_file:
+        # Generated lists (tools/bisect_hooks.py) name every HOOK in src/, including files the built DLL does not
+        # contain yet (build.ps1 -Exclude): ignore those instead of failing every run.
+        print(f"note: {len(unknown)} hook(s) not in the built DLL ignored, e.g. {unknown[:3]}")
+        only = [n for n in only if n in names]
+    elif unknown:
         print("unknown hooks:", unknown, "known:", names)
         return 2
     candidate = {n: (n in only if only else True) for n in names}

@@ -69,6 +69,10 @@ endforeach()
 # Recovered game code: every .cpp under src/ is linked into the hook DLL and registers its own HOOK() entries.
 file(GLOB_RECURSE RECOVERED_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/../src/*.cpp)
 list(FILTER RECOVERED_SOURCES EXCLUDE REGEX "/tests/")  # standalone test programs, built below
+# Sources still being written (parallel recovery agents): tools/build.ps1 -Exclude passes regexes here.
+foreach(pattern IN LISTS AND_EXCLUDE)
+  list(FILTER RECOVERED_SOURCES EXCLUDE REGEX "${pattern}")
+endforeach()
 
 add_library(and_hook SHARED
   ${RECOVERED_SOURCES}

@@ -34,3 +34,16 @@ Not proven necessary yet, but systems may keep or compare the pointers.
 
 `WinMainCRTStartup` at 0x539238: `push 0x60; push <SEH table>; call __SEH_prolog; mov edi, 0x94;
 call _alloca_probe; ... call [GetVersionExA]`. A detector heuristic flagged this as "PELock"; it is not.
+
+## Pushes that outlive a call: argument lists built across several calls (code)
+
+LTCG lets the compiler push arguments for a later call before earlier calls, when it knows those earlier callees
+neither read nor pop them. Example (0x00488b00 and MeshGroup_Draw 0x0048a290): renderer virtuals +0x68 and +0x64
+are one-instruction getters (`lea eax, [ecx+0x6c]` / `lea eax, [ecx+0xb0]`, plain `ret`), yet the caller does
+`push n; push &palette; call [vt+0x68]; push eax; call [vt+0x64]; push eax; call [vt+0x5c]`. Nothing is popped
+until +0x5c (`ret 0x10`), whose four arguments are (view = +0x64's result, world = +0x68's result, palette, n).
+
+- Recovering it as `vt68(palette, n)` breaks the stack (VCall assumes the callee pops what it was given): it
+  crashed the comparison. Recover it as `w = vt68(); v = vt64(); vt5c(v, w, palette, n)`.
+- How to spot it: a `call` whose target ends in a plain `ret` (or `ret N` smaller than what was pushed) but whose
+  caller does not `add esp` afterwards; check every callee's `ret` before mapping pushes to arguments.

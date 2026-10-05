@@ -39,3 +39,43 @@ Defects found in the original game. Reproduced faithfully and not fixed before M
 | A8 pixel pack always stores 0 | PixelPack_A8 0x004f0a90 | Disassembly | Faithful |
 | 8888/X888 pixel pack ORs components without masking (out-of-range values spill) | 0x004f07f0, 0x004f0830 region | Disassembly | Faithful |
 | A blur target that fails to register decrements the count, leaving the last registered target outside it (never released) | PostProcess_CreateTargets 0x0047c920 | Disassembly (**guess**: possible bug) | Faithful |
+| Third voice set lacks an `r < 400` step: its fourth string gets a double share (r 300-499) | 0x004383a0 | Disassembly | Faithful (src/audio/audio_01.cpp) |
+| Death line stops +0xb50 then plays without storing the new handle | 0x0043a7b0 | Disassembly | Faithful |
+| An argument slot reused as a bool is pushed as a whole dword with only its low byte set | Fx_PlaySound 0x00420080, Music_Update 0x0044f580 | Disassembly | Faithful |
+| Query_Init called without its reset flag leaves query bytes +0x3d/+0x3e as uninitialised stack, read later by the owner-chain walk and collector +0x79 | 0x00414110 -> 0x00413cc0, read in 0x00413e10 | Disassembly | **Deviation:** zero-initialised (src/physics/physics_01.cpp); compare differences here are expected |
+| Shape types 0x14-0x18 inside the unwrap loop would loop forever | 0x00413830 | Disassembly | Faithful |
+| Counter 0x0064a768 wraps at 1, so +0x47c is always 0 | 0x00405d10 | Disassembly | Faithful |
+| Collision skin build writes null+8 / null+0x20 when the mesh shape allocation fails | CollisionSkin_Build 0x00412450 | Disassembly | Faithful |
+| Turbo-up pick compares abs(y) instead of abs(x) against abs(z) when abs(x) > abs(y) | 0x00475d50 | Disassembly | Faithful (src/anim/anim_01.cpp) |
+| BackgroundObject_Load keeps the fog value in an argument slot that becomes the inner loop counter: from the 2nd mesh the fog flag follows "previous mesh had parts" | 0x0040a890 | Disassembly | Faithful (src/game/game_01.cpp) |
+| MissionObject update scans for a nearby object (distance^2 vs 1e8) then discards the result | 0x0044db80 | Disassembly | Faithful (src/game/game_02.cpp) |
+| UI text records with an unknown class "ui_text" are not skipped (record stream misread); language lookup reads entry 5 of a 5-entry table when the code is unknown | 0x004629b0; 0x00447600 / 0x00447630 | Disassembly | Faithful (src/ui/ui_01.cpp) |
+| GenericAI_Update state 0x34 calls virtual +0xd8 on +0x904 with no null test although it can be 0; state 0x3e calls 0x00481ab0 with +0xb54 unchecked; state 0xd2 uses +0x864 unchecked when 0x00470c30 returns 0 | GenericAI_Update 0x0043ee90 (0x0044120a, 0x00441435, 0x00443bdb) | Disassembly | Faithful (src/ai/ai_06.cpp) |
+| Stream allocation failure stores null then writes [null+0x10] | 0x0044ac10 | Disassembly | Faithful (src/loader/loader_01.cpp) |
+| Unfound material key / relocation entry dereferenced without a null check | 0x0046ed30, 0x004e1ad0 | Disassembly | Faithful |
+| Third event handle (+0x540) never closed | 0x004e6070 | Disassembly | Faithful |
+| Block count compares only the low byte of total / block size (a quotient of 0x100 gives 0 blocks) | 0x004e5b30 | Disassembly | Faithful |
+| Maximum delay read with the "min_delay" key (0x005b93d8) a second time | 0x00493950 | Disassembly | Faithful (src/audio/audio_02.cpp) |
+| Stream name buffer is strlen(path) bytes but the copy writes the terminator one byte past the end | 0x004f49b0 | Disassembly | Faithful |
+| AudioDef_Load default opcode skips operands by ecx after a call that clobbers it | 0x004f5010 | Disassembly | **Deviation:** skips by the operand size (the clobbered value cannot be reproduced) |
+| Voice lookup / voice pool / music voice +0x90 results not null-checked | 0x004f35e0, play paths, 0x004f3b10 | Disassembly | Faithful |
+| ObjectSystem_CreateObject: allocation failure leaves a null object that the shared tail writes through; a template name of 32+ characters overflows a 32-byte local (strcpy); a failed template lookup leaves 0 that the "behavior" fallback dereferences | 0x0045f020 | Disassembly | Faithful (src/game/game_04.cpp) |
+| Cone push writes the clamped value into the caller's first stack-argument slot | 0x00471810 | Disassembly | **Deviation:** side effect not reproduced |
+| Generator weight slot 4 (num_rocket_captain) has no troop type: logs "Generator : unkown troop type" then passes a stale stack slot as the troop object | 0x00404e50 | Disassembly | Faithful (src/ai/ai_01.cpp) |
+| Unknown troop type gives troop 0, then 0x0042cc60 writes null+0x858 | 0x0040c590 | Disassembly | Faithful |
+| "ref_spawn_0%d" index subtracts only the ground and window counts (roof and enter slots ignored) (**guess**) | 0x0040c850 / 0x0040c910 | Disassembly | Faithful |
+| Damage-flag path reads the damage record before its null check | 0x00450da0 | Disassembly | Faithful (src/game/game_03.cpp) |
+| After 0x00487da0 frees an unreferenced object, 0x00458dd0 / 0x00458db0 still run on it (**guess**: use after free) | 0x004547b0 | Disassembly | Faithful |
+| Chat word wrap drops the character at the overflow point when a line has no space; a 300+ character message copied with wcsncpy(.., 300) is not terminated | 0x0046aa60 | Disassembly | Faithful (src/ui/ui_02.cpp) |
+| Object name + "_in"/"_out" copied into a 0x28-byte stack buffer with no length check | 0x00466580, 0x00466650, 0x004666a0 | Disassembly | Faithful |
+| Slider divides by (max - min) without a zero check | 0x0046cae0 | Disassembly | Faithful |
+| Missing "fx_origin_start_lock_child" clears descriptor +0x74 instead of +0x18 | Object_LoadProperties 0x004517b0 | Disassembly | Faithful (src/physics/physics_02.cpp) |
+| Object_ForceGround bisection never ends if the penetration state never changes | 0x00455860 | Disassembly | Faithful |
+| Failed Havok allocation: [shape+8] written through null | 0x004517b0, 0x004527d0, 0x004574e0 | Disassembly | Faithful |
+| When 0x004f2030 fails, FindClose runs on whatever the (uninitialised) find record holds | 0x00492d80 | Disassembly | **Deviation:** frame zeroed, so FindClose(0) (src/ui/ui_03.cpp) |
+| Shop "affordable" branch re-unlocks the "dearest so far" entry on every iteration | 0x004a0850 | Disassembly | Faithful |
+| Slot 4 animation entry dereferenced with no null check when slot 4 holds -1 | 0x00475ff0 | Disassembly | Faithful (src/game/game_05.cpp) |
+| Random roll of 0 selects no candidate (dec/je countdown starts at 0 and wraps) | 0x0042bb10 | Disassembly | Faithful (src/ai/ai_03.cpp) |
+| Second and third releases test +0xab0 after it was cleared (dead code) | 0x0042c0e0 | Disassembly | Faithful |
+| IC-animation lookup failure only logs, then +0xa1c is dereferenced | 0x0042c410 | Disassembly | Faithful |
+| Target-position locals read uninitialised when there is no target and a1 is set | 0x0042b480 | Disassembly | **Deviation:** frame zeroed |
