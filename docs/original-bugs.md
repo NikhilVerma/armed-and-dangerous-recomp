@@ -79,3 +79,9 @@ Defects found in the original game. Reproduced faithfully and not fixed before M
 | Second and third releases test +0xab0 after it was cleared (dead code) | 0x0042c0e0 | Disassembly | Faithful |
 | IC-animation lookup failure only logs, then +0xa1c is dereferenced | 0x0042c410 | Disassembly | Faithful |
 | Target-position locals read uninitialised when there is no target and a1 is set | 0x0042b480 | Disassembly | **Deviation:** frame zeroed |
+| Heap allocation failure leaves the list pointer 0, dereferenced anyway | 0x00481220, 0x00482ab0 | Disassembly | Faithful (src/game/game_07.cpp) |
+| Hit direction z overwritten with 0.7 before normalising (possibly intended) | 0x004805f0, 0x00482d60 | Disassembly | Faithful |
+| "fire" in state 0x6a: counters +0x5bc / +0x5b8 still decremented when 0x0043ec60 refuses; "fire_alt" tests state 0x6a which its own state list excludes (dead branch) | GenericAIObject_HandleEvent 0x0043d180 | Disassembly | Faithful (src/ai/ai_05.cpp) |
+| Null message pointer passes the source test and is dereferenced | 0x004371e0 | Disassembly | Faithful |
+| Monk teleport clears flag 4 of +0x484 then re-tests it; the `i >= 5` branch can never run | MonkObject_Bamf 0x00436bb0 | Disassembly | Faithful |
+| dz computed and stored, then overwritten by 0x0046e2c0(0.7, 0.9) | 0x0043eae0 | Disassembly | Faithful |

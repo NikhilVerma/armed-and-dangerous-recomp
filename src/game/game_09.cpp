@@ -285,7 +285,7 @@ HOOK(0x0049c2a0, "fn_0049c2a0", fn_0049c2a0_Entry, nullptr);
 // (load): the base load 0x00497d00(ecx; a0..a3); +0x5bc..+0x5c4 = the matrix translation (m[3], m[7], m[11]) or 0;
 // Object_SetPosition 0x00457870(eax = al cleared, ecx = &+0x5bc, edx = turret); the properties
 // "emitter_bone_name_1..4" (Object_ReadStringProp 0x004533a0 into +0x538/+0x558/+0x578/+0x598), "active_range"
-// (+0x5b8, 500), "spin_max_speed" (+0x5d8, 0.5), "spin_accel" (+0x5dc, 0.5), (+0x5e0, 0.8) and
+// (+0x5b8, 500), "spin_max_speed" (+0x5d8, 0.5), "spin_accel" (+0x5dc, 0.5), "spin_stop_accel" (+0x5e0, 0.8) and
 // "blind_fire_duration" (+0x5d0, 1.0) (Object_ReadValuePropDef 0x004534a0); state reset and ObjectList_Link
 // 0x004546d0 (esi = Game+0xa84 +0xea4, edi = turret). Returns its eax. Not executed in recorded runs.
 uint32_t fn_0049c320(uint32_t t, uint32_t a0, uint32_t mat, uint32_t props, uint32_t a3)
@@ -718,3 +718,1274 @@ static uint32_t fn_0049cbe0_Abi(uint32_t ecx)
 }
 ABI_ENTRY_0049cbe0(fn_0049cbe0_Entry, fn_0049cbe0_Abi)
 HOOK(0x0049cbe0, "fn_0049cbe0", fn_0049cbe0_Entry, nullptr);
+
+// ---------------------------------------------------------------------------------------------------------------
+// Level names and the player's weapon state. The weapon state (owner of the lists below; Game+0x748 +0xc24 for the
+// player, see src/game/game_05.cpp) holds two slot lists, primary at +0x00 and special at +0x30, each {+0 owner,
+// +4.. slot weapon ids (-1 = empty), +0x20 slot count, +0x24 current index, +0x28 pending index (-1 = none), +0x2c
+// switch timer}; per weapon id w an ammo record at +0x60 + w*0xc {+0 reserve, +4 loaded, +8 id}; the weapon objects
+// +0x1b0..+0x1b8 (current index +0x1bc), the parent object +0x1c0, attach bone names +0x1c8 / +0x1e8, a scale
+// +0x228 and flags +0x22c. Weapon descriptors are Game+0x2770 + w*0x150 (+0x20 name, +0x140 max reserve, +0x144
+// max loaded). Ids 6, 7, 8, 9 and 10 are the special weapons. Names below stay fn_XXXXXXXX (evidence is structural).
+
+namespace
+{
+uint32_t Strnicmp(uint32_t ecx_, uint32_t a, uint32_t b, uint32_t n)
+{
+    return orig::fn_00544957(ecx_, a, b, n);
+}
+bool IsSpecialWeapon(uint32_t w)
+{
+    return w == 6 || w == 7 || w == 9 || w == 10 || w == 8;
+}
+uint32_t WeaponDesc(uint32_t w)
+{
+    return G() + w * 0x150;
+}
+}  // namespace
+
+// 0x004a0690 (eax = kind, ecx (passed to _strnicmp), esi = name; stack: a0 unused; ret 4). Level name test by kind:
+// 1: "lev_" followed by a digit (after "lev_demo_" for demo levels); 0: "pre_" or "post_"; 3: "lev_bonus"; any other
+// kind: true. Returns al (upper eax bits as the original leaves them). _strnicmp 0x00544957 with the strings
+// 0x0058ea78, 0x0058ea6c, 0x0058fd68, 0x0058fd70, 0x0058ea60.
+uint32_t fn_004a0690(uint32_t kind, uint32_t ecx_, uint32_t name, uint32_t /*a0*/)
+{
+    if (kind == 1)
+    {
+        uint32_t n = 4;
+        uint32_t r = Strnicmp(ecx_, name, 0x0058ea78, 4);
+        if (r != 0)
+            return r & 0xffffff00u;
+        r = Strnicmp(ecx_, name, 0x0058ea6c, 9);
+        if (r == 0)
+            n = 9;
+        const int8_t c = static_cast<int8_t>(B(name, n));
+        if (c < 0x30)
+            return r & 0xffffff00u;
+        if (c <= 0x39)
+            return (r & 0xffffff00u) | 1u;
+        return r & 0xffffff00u;
+    }
+    uint32_t r;
+    if (kind == 0)
+    {
+        r = Strnicmp(ecx_, name, 0x0058fd68, 4);
+        if (r == 0)
+            return 1;
+        r = Strnicmp(ecx_, name, 0x0058fd70, 5);
+    }
+    else if (kind == 3)
+    {
+        r = Strnicmp(ecx_, name, 0x0058ea60, 9);
+    }
+    else
+    {
+        return (kind & 0xffffff00u) | 1u;
+    }
+    if (r != 0)
+        return r & 0xffffff00u;
+    return 1;
+}
+static uint32_t fn_004a0690_Abi(uint32_t eax, uint32_t ecx, uint32_t esi, uint32_t a0)
+{
+    return fn_004a0690(eax, ecx, esi, a0);
+}
+ABI_ENTRY_004a0690(fn_004a0690_Entry, fn_004a0690_Abi)
+HOOK(0x004a0690, "fn_004a0690", fn_004a0690_Entry, nullptr);
+
+// 0x004a0720 (eax = path, ecx = kind, ebx = table). When 0x004a0690(kind, path) accepts the name, its file name
+// (_splitpath 0x00538456 into a 0x100 buffer) is hashed (0x004620b0) and looked up in table +0x20c + kind*0x80
+// (count at table +0x1f8 + kind*4). al = found.
+uint32_t fn_004a0720(uint32_t path, uint32_t kind, uint32_t table)
+{
+    char buf[0x100];
+    const uint32_t ok = fn_004a0690(kind, kind, path, table);
+    if (static_cast<uint8_t>(ok) == 0)
+        return ok & 0xffffff00u;
+    orig::fn_00538456(kind, path, 0, 0, u(buf), 0);
+    const uint32_t h = orig::fn_004620b0(u(buf));
+    const uint32_t n = D(table + kind * 4, 0x1f8);
+    uint32_t p = table + (kind << 7) + 0x20c;
+    for (uint32_t i = 0; i < n; ++i, p += 4)
+    {
+        if (D(p, 0) == h)
+            return (h & 0xffffff00u) | 1u;
+    }
+    return h & 0xffffff00u;
+}
+static uint32_t fn_004a0720_Abi(uint32_t eax, uint32_t ecx, uint32_t ebx)
+{
+    return fn_004a0720(eax, ecx, ebx);
+}
+ABI_ENTRY_004a0720(fn_004a0720_Entry, fn_004a0720_Abi)
+HOOK(0x004a0720, "fn_004a0720", fn_004a0720_Entry, nullptr);
+
+// 0x004a0b10 (eax = list, ecx = owner, edx (overwritten); stack: count; ret 4). Slot list init: +0 = owner, five
+// slots = -1, +0x18 = +0x1c = 0, +0x20 = count, +0x24 = 0, +0x28 = -1, +0x2c = 0.
+void fn_004a0b10(uint32_t list, uint32_t owner, uint32_t count)
+{
+    D(list, 0) = owner;
+    D(list, 4) = 0xffffffffu;
+    D(list, 8) = 0xffffffffu;
+    D(list, 0xc) = 0xffffffffu;
+    D(list, 0x10) = 0xffffffffu;
+    D(list, 0x14) = 0xffffffffu;
+    D(list, 0x18) = 0;
+    D(list, 0x1c) = 0;
+    D(list, 0x20) = count;
+    D(list, 0x24) = 0;
+    D(list, 0x28) = 0xffffffffu;
+    D(list, 0x2c) = 0;
+}
+static uint32_t fn_004a0b10_Abi(uint32_t eax, uint32_t ecx, uint32_t /*edx*/, uint32_t a0)
+{
+    fn_004a0b10(eax, ecx, a0);
+    return eax;
+}
+ABI_ENTRY_004a0b10(fn_004a0b10_Entry, fn_004a0b10_Abi)
+HOOK(0x004a0b10, "fn_004a0b10", fn_004a0b10_Entry, nullptr);
+
+// 0x004a0b60 (edx = list, esi = weapon id). Index of the slot holding the id, or -1.
+uint32_t fn_004a0b60(uint32_t list, uint32_t id)
+{
+    const uint32_t n = D(list, 0x20);
+    for (uint32_t i = 0; i < n; ++i)
+    {
+        if (D(list + 4 + i * 4, 0) == id)
+            return i;
+    }
+    return 0xffffffffu;
+}
+static uint32_t fn_004a0b60_Abi(uint32_t edx, uint32_t esi)
+{
+    return fn_004a0b60(edx, esi);
+}
+ABI_ENTRY_004a0b60(fn_004a0b60_Entry, fn_004a0b60_Abi)
+HOOK(0x004a0b60, "fn_004a0b60", fn_004a0b60_Entry, nullptr);
+
+// 0x004a0b50 (edx = list, esi = weapon id). al = the list holds the id (0x004a0b60 != -1); upper eax bits are the
+// index's.
+uint32_t fn_004a0b50(uint32_t list, uint32_t id)
+{
+    const uint32_t i = fn_004a0b60(list, id);
+    return (i & 0xffffff00u) | (i != 0xffffffffu ? 1u : 0u);
+}
+static uint32_t fn_004a0b50_Abi(uint32_t edx, uint32_t esi)
+{
+    return fn_004a0b50(edx, esi);
+}
+ABI_ENTRY_004a0b50(fn_004a0b50_Entry, fn_004a0b50_Abi)
+HOOK(0x004a0b50, "fn_004a0b50", fn_004a0b50_Entry, nullptr);
+
+// 0x004a0b80 (esi = list; stack: id; ret 4). Puts the id in the first empty slot: al = 1, or al = 0 when full.
+uint32_t fn_004a0b80(uint32_t list, uint32_t id)
+{
+    const uint32_t n = D(list, 0x20);
+    uint32_t i = 0;
+    for (; i < n; ++i)
+    {
+        if (D(list + 4 + i * 4, 0) == 0xffffffffu)
+        {
+            D(list + i * 4, 4) = id;
+            return (i & 0xffffff00u) | 1u;
+        }
+    }
+    return i & 0xffffff00u;
+}
+static uint32_t fn_004a0b80_Abi(uint32_t esi, uint32_t a0)
+{
+    return fn_004a0b80(esi, a0);
+}
+ABI_ENTRY_004a0b80(fn_004a0b80_Entry, fn_004a0b80_Abi)
+HOOK(0x004a0b80, "fn_004a0b80", fn_004a0b80_Entry, nullptr);
+
+// 0x004a0c10 / 0x004a0c70 (edx = list). The next / previous slot (wrapping, at most five steps from the current
+// index +0x24) that holds a weapon with ammo (reserve + loaded != 0 in the owner's ammo record), or -1.
+static uint32_t Slot_AmmoSum(uint32_t list, uint32_t id)
+{
+    const uint32_t e = D(list, 0) + (id * 3 + 0x18) * 4;
+    return D(e, 4) + D(e, 0);
+}
+uint32_t fn_004a0c10(uint32_t list)
+{
+    uint32_t i = D(list, 0x24);
+    uint32_t step = 0;
+    for (;;)
+    {
+        const uint32_t k = step++;
+        if (k > 4)
+            break;
+        const uint32_t last = D(list, 0x20) - 1;
+        ++i;
+        if (i > last)
+            i = 0;
+        const uint32_t id = D(list + i * 4, 4);
+        if (id == 0xffffffffu)
+            continue;
+        if (Slot_AmmoSum(list, id) == 0)
+            continue;
+        break;
+    }
+    const uint32_t id = D(list + i * 4, 4);
+    if (id == 0xffffffffu || Slot_AmmoSum(list, id) == 0)
+        return 0xffffffffu;
+    return i;
+}
+static uint32_t fn_004a0c10_Abi(uint32_t edx)
+{
+    return fn_004a0c10(edx);
+}
+ABI_ENTRY_004a0c10(fn_004a0c10_Entry, fn_004a0c10_Abi)
+HOOK(0x004a0c10, "fn_004a0c10", fn_004a0c10_Entry, nullptr);
+
+uint32_t fn_004a0c70(uint32_t list)
+{
+    uint32_t i = D(list, 0x24);
+    uint32_t step = 0;
+    for (;;)
+    {
+        const uint32_t k = step++;
+        if (k > 4)
+            break;
+        const uint32_t last = D(list, 0x20) - 1;
+        --i;
+        if (i > last)
+            i = last;
+        const uint32_t id = D(list + i * 4, 4);
+        if (id == 0xffffffffu)
+            continue;
+        if (Slot_AmmoSum(list, id) == 0)
+            continue;
+        break;
+    }
+    const uint32_t id = D(list + i * 4, 4);
+    if (id == 0xffffffffu || Slot_AmmoSum(list, id) == 0)
+        return 0xffffffffu;
+    return i;
+}
+static uint32_t fn_004a0c70_Abi(uint32_t edx)
+{
+    return fn_004a0c70(edx);
+}
+ABI_ENTRY_004a0c70(fn_004a0c70_Entry, fn_004a0c70_Abi)
+HOOK(0x004a0c70, "fn_004a0c70", fn_004a0c70_Entry, nullptr);
+
+// 0x004a0bb0 / 0x004a0be0 (esi = list; stack: time; ret 4). Select the next / previous usable slot (0x004a0c10 /
+// 0x004a0c70) as pending (+0x28) with the switch time +0x2c, unless there is none or it is the current one (then
+// +0x28 = -1 and -1). Called by 0x004788a0. Not executed in recorded runs.
+uint32_t fn_004a0bb0(uint32_t list, uint32_t time)
+{
+    const uint32_t i = fn_004a0c10(list);
+    D(list, 0x28) = i;
+    if (i != 0xffffffffu && i != D(list, 0x24))
+    {
+        D(list, 0x2c) = time;
+        return i;
+    }
+    D(list, 0x28) = 0xffffffffu;
+    return 0xffffffffu;
+}
+static uint32_t fn_004a0bb0_Abi(uint32_t esi, uint32_t a0)
+{
+    return fn_004a0bb0(esi, a0);
+}
+ABI_ENTRY_004a0bb0(fn_004a0bb0_Entry, fn_004a0bb0_Abi)
+HOOK(0x004a0bb0, "fn_004a0bb0", fn_004a0bb0_Entry, nullptr);
+
+uint32_t fn_004a0be0(uint32_t list, uint32_t time)
+{
+    const uint32_t i = fn_004a0c70(list);
+    D(list, 0x28) = i;
+    if (i != 0xffffffffu && i != D(list, 0x24))
+    {
+        D(list, 0x2c) = time;
+        return i;
+    }
+    D(list, 0x28) = 0xffffffffu;
+    return 0xffffffffu;
+}
+static uint32_t fn_004a0be0_Abi(uint32_t esi, uint32_t a0)
+{
+    return fn_004a0be0(esi, a0);
+}
+ABI_ENTRY_004a0be0(fn_004a0be0_Entry, fn_004a0be0_Abi)
+HOOK(0x004a0be0, "fn_004a0be0", fn_004a0be0_Entry, nullptr);
+
+// 0x004a0cd0 (esi = list, edi = weapon id). Removes the id from its slot (-1): al = (that slot is the current
+// one); al = 0 when not found. Not executed in recorded runs.
+uint32_t fn_004a0cd0(uint32_t list, uint32_t id)
+{
+    const uint32_t n = D(list, 0x20);
+    uint32_t i = 0;
+    for (; i < n; ++i)
+    {
+        if (D(list + 4 + i * 4, 0) == id)
+        {
+            D(list + i * 4, 4) = 0xffffffffu;
+            return (i & 0xffffff00u) | (D(list, 0x24) == i ? 1u : 0u);
+        }
+    }
+    return i & 0xffffff00u;
+}
+static uint32_t fn_004a0cd0_Abi(uint32_t esi, uint32_t edi)
+{
+    return fn_004a0cd0(esi, edi);
+}
+ABI_ENTRY_004a0cd0(fn_004a0cd0_Entry, fn_004a0cd0_Abi)
+HOOK(0x004a0cd0, "fn_004a0cd0", fn_004a0cd0_Entry, nullptr);
+
+// 0x004a0d00 (edx (passed on), esi = state). Weapon state init: primary list (3 slots), special list (+0x30, 5
+// slots), weapon objects +0x1b0..+0x1b8 = 0, ammo records +0x60..+0x1b0 zeroed with ids 0..0x1b, then the remaining
+// fields (+0x1c4 = -1, +0x228 = 1.0, +0x234 = 1.5, the rest 0). Returns the state. Called by 0x00437290 and
+// 0x00461840.
+uint32_t fn_004a0d00(uint32_t edx, uint32_t s)
+{
+    fn_004a0b10(s, s, 3);
+    (void)edx;
+    fn_004a0b10(s + 0x30, s, 5);
+    D(s, 0x1b4) = 0;
+    D(s, 0x1b0) = 0;
+    D(s, 0x1b8) = 0;
+    std::memset(P(s + 0x60), 0, 0x54 * 4);
+    for (uint32_t i = 0; i < 0x1c; ++i)
+        D(s + 0x68, i * 0xc) = i;
+    D(s, 0x1c0) = 0;
+    B(s, 0x1e8) = 0;
+    B(s, 0x1c8) = 0;
+    B(s, 0x208) = 0;
+    D(s, 0x1c4) = 0xffffffffu;
+    D(s, 0x22c) = 0;
+    D(s, 0x228) = 0x3f800000;
+    D(s, 0x1bc) = 0;
+    D(s, 0x230) = 0;
+    D(s, 0x234) = 0x3fc00000;
+    return s;
+}
+static uint32_t fn_004a0d00_Abi(uint32_t edx, uint32_t esi)
+{
+    return fn_004a0d00(edx, esi);
+}
+ABI_ENTRY_004a0d00(fn_004a0d00_Entry, fn_004a0d00_Abi)
+HOOK(0x004a0d00, "fn_004a0d00", fn_004a0d00_Entry, nullptr);
+
+// 0x004a0da0 (esi = state; stack: scale; ret 4). Each weapon object +0x1b0/+0x1b4/+0x1b8 that exists gets
+// vt+0x100(scale); +0x228 = scale. Called by 0x0042eb60.
+uint32_t fn_004a0da0(uint32_t s, uint32_t scale)
+{
+    uint32_t r = 0;
+    if (D(s, 0x1b0) != 0)
+        r = VCall<uint32_t>(P(D(s, 0x1b0)), 0x100 / 4, scale);
+    if (D(s, 0x1b4) != 0)
+        r = VCall<uint32_t>(P(D(s, 0x1b4)), 0x100 / 4, scale);
+    if (D(s, 0x1b8) != 0)
+        r = VCall<uint32_t>(P(D(s, 0x1b8)), 0x100 / 4, scale);
+    D(s, 0x228) = scale;
+    return r;
+}
+static uint32_t fn_004a0da0_Abi(uint32_t esi, uint32_t a0)
+{
+    return fn_004a0da0(esi, a0);
+}
+ABI_ENTRY_004a0da0(fn_004a0da0_Entry, fn_004a0da0_Abi)
+HOOK(0x004a0da0, "fn_004a0da0", fn_004a0da0_Entry, nullptr);
+
+// 0x004a0e00 (al = show, esi = state). Shows (show != 0 and flag +0x22c bit 0 set: each weapon object vt+0xf4(1),
+// bit cleared) or hides (show == 0 and bit clear: vt+0xf4(0), bit set) the weapon objects.
+uint32_t fn_004a0e00(uint32_t eax, uint32_t s)
+{
+    const uint8_t f = B(s, 0x22c);
+    uint32_t r = (eax & 0xffffff00u) | f;
+    if (static_cast<uint8_t>(eax))
+    {
+        if (!(f & 1))
+            return r;
+        for (uint32_t off = 0x1b0; off <= 0x1b8; off += 4)
+        {
+            if (D(s, off) != 0)
+                r = VCall<uint32_t>(P(D(s, off)), 0xf4 / 4, 1u);
+        }
+        D(s, 0x22c) &= 0xfffffffeu;
+        return r;
+    }
+    if (f & 1)
+        return r;
+    for (uint32_t off = 0x1b0; off <= 0x1b8; off += 4)
+    {
+        if (D(s, off) != 0)
+            r = VCall<uint32_t>(P(D(s, off)), 0xf4 / 4, 0u);
+    }
+    D(s, 0x22c) |= 1;
+    return r;
+}
+static uint32_t fn_004a0e00_Abi(uint32_t eax, uint32_t esi)
+{
+    return fn_004a0e00(eax, esi);
+}
+ABI_ENTRY_004a0e00(fn_004a0e00_Entry, fn_004a0e00_Abi)
+HOOK(0x004a0e00, "fn_004a0e00", fn_004a0e00_Entry, nullptr);
+
+// 0x004a0ea0 (eax = bone name 1, ecx = parent, esi = state, edi = bone name 2; stack: flags; ret 4). +0x1c0 =
+// parent; the names are copied (_strncpy 0x005382a0, 0x20) to +0x1c8 / +0x1e8 when given; +0x22c |= flags.
+// Returns the new flags.
+uint32_t fn_004a0ea0(uint32_t name1, uint32_t parent, uint32_t s, uint32_t name2, uint32_t flags)
+{
+    D(s, 0x1c0) = parent;
+    if (name1 != 0)
+        orig::fn_005382a0(s + 0x1c8, name1, 0x20);
+    if (name2 != 0)
+        orig::fn_005382a0(s + 0x1e8, name2, 0x20);
+    const uint32_t f = D(s, 0x22c) | flags;
+    D(s, 0x22c) = f;
+    return f;
+}
+static uint32_t fn_004a0ea0_Abi(uint32_t eax, uint32_t ecx, uint32_t esi, uint32_t edi, uint32_t a0)
+{
+    return fn_004a0ea0(eax, ecx, esi, edi, a0);
+}
+ABI_ENTRY_004a0ea0(fn_004a0ea0_Entry, fn_004a0ea0_Abi)
+HOOK(0x004a0ea0, "fn_004a0ea0", fn_004a0ea0_Entry, nullptr);
+
+// 0x004a0ef0 (eax = weapon id, edi = primary list). Adds a non-special weapon id to the list (0x004a0b80) unless
+// it is already there (0x004a0b50); al = 0 for special ids or when already present.
+uint32_t fn_004a0ef0(uint32_t id, uint32_t list)
+{
+    if (IsSpecialWeapon(id))
+        return id & 0xffffff00u;
+    const uint32_t r = fn_004a0b50(list, id);
+    if (static_cast<uint8_t>(r))
+        return r & 0xffffff00u;
+    return fn_004a0b80(list, id);
+}
+static uint32_t fn_004a0ef0_Abi(uint32_t eax, uint32_t edi)
+{
+    return fn_004a0ef0(eax, edi);
+}
+ABI_ENTRY_004a0ef0(fn_004a0ef0_Entry, fn_004a0ef0_Abi)
+HOOK(0x004a0ef0, "fn_004a0ef0", fn_004a0ef0_Entry, nullptr);
+
+uint32_t fn_004a10e0(uint32_t s, uint32_t index);
+uint32_t fn_004a12e0(uint32_t s);
+
+// 0x004a0f30 (eax = weapon id, ecx = state). Removes a non-special weapon id from the primary list (0x004a0cd0);
+// when it was the current one, a tail jump to 0x004a12e0 (eax = state) selects the previous usable one. Called by
+// 0x00475650. Not executed in recorded runs.
+uint32_t fn_004a0f30(uint32_t id, uint32_t s)
+{
+    if (IsSpecialWeapon(id))
+        return id;
+    const uint32_t r = fn_004a0cd0(s, id);
+    if (!static_cast<uint8_t>(r))
+        return r;
+    return fn_004a12e0(s);
+}
+static uint32_t fn_004a0f30_Abi(uint32_t eax, uint32_t ecx)
+{
+    return fn_004a0f30(eax, ecx);
+}
+ABI_ENTRY_004a0f30(fn_004a0f30_Entry, fn_004a0f30_Abi)
+HOOK(0x004a0f30, "fn_004a0f30", fn_004a0f30_Entry, nullptr);
+
+// 0x004a0f70 (eax = new id, ecx = old id, edx = primary list). Replaces the old id's slot with the new id and
+// re-equips the current slot (0x004a10e0(ebx = list; +0x24)); when the old id is absent, adds the new one
+// (0x004a0ef0). Called by 0x00493130. Not executed in recorded runs.
+uint32_t fn_004a0f70(uint32_t id, uint32_t old, uint32_t list)
+{
+    const uint32_t n = D(list, 0x20);
+    for (uint32_t i = 0; i < n; ++i)
+    {
+        if (D(list + 4 + i * 4, 0) == old)
+        {
+            D(list + i * 4, 4) = id;
+            return fn_004a10e0(list, D(list, 0x24));
+        }
+    }
+    return fn_004a0ef0(id, list);
+}
+static uint32_t fn_004a0f70_Abi(uint32_t eax, uint32_t ecx, uint32_t edx)
+{
+    return fn_004a0f70(eax, ecx, edx);
+}
+ABI_ENTRY_004a0f70(fn_004a0f70_Entry, fn_004a0f70_Abi)
+HOOK(0x004a0f70, "fn_004a0f70", fn_004a0f70_Entry, nullptr);
+
+// 0x004a10b0 (eax = state, ecx = index). +0x1bc = index (the current weapon object).
+void fn_004a10b0(uint32_t s, uint32_t index)
+{
+    D(s, 0x1bc) = index;
+}
+static uint32_t fn_004a10b0_Abi(uint32_t eax, uint32_t ecx)
+{
+    fn_004a10b0(eax, ecx);
+    return eax;
+}
+ABI_ENTRY_004a10b0(fn_004a10b0_Entry, fn_004a10b0_Abi)
+HOOK(0x004a10b0, "fn_004a10b0", fn_004a10b0_Entry, nullptr);
+
+// 0x004a0ff0 (eax = state). Destroys the current weapon object (+0x1b0 + +0x1bc*4): Object_Detach 0x00453b20 (esi
+// = object), vt+0xdc(), reference release (+0x28; 0x00487da0) and the slot cleared.
+uint32_t fn_004a0ff0(uint32_t s)
+{
+    const uint32_t obj = D(s + D(s, 0x1bc) * 4, 0x1b0);
+    if (obj == 0)
+        return D(s, 0x1bc);
+    orig::fn_00453b20(obj);
+    VCall<uint32_t>(P(D(s + D(s, 0x1bc) * 4, 0x1b0)), 0xdc / 4);
+    const uint32_t slot = s + D(s, 0x1bc) * 4 + 0x1b0;
+    const uint32_t r = Ref_Release(D(slot, 0));
+    D(slot, 0) = 0;
+    return r;
+}
+static uint32_t fn_004a0ff0_Abi(uint32_t eax)
+{
+    return fn_004a0ff0(eax);
+}
+ABI_ENTRY_004a0ff0(fn_004a0ff0_Entry, fn_004a0ff0_Abi)
+HOOK(0x004a0ff0, "fn_004a0ff0", fn_004a0ff0_Entry, nullptr);
+
+// 0x004a1060 (eax = state). The same for the special weapon object +0x1b8.
+uint32_t fn_004a1060(uint32_t s)
+{
+    const uint32_t slot = s + 0x1b8;
+    const uint32_t obj = D(slot, 0);
+    if (obj == 0)
+        return s;
+    orig::fn_00453b20(obj);
+    VCall<uint32_t>(P(D(slot, 0)), 0xdc / 4);
+    const uint32_t r = Ref_Release(D(slot, 0));
+    D(slot, 0) = 0;
+    return r;
+}
+static uint32_t fn_004a1060_Abi(uint32_t eax)
+{
+    return fn_004a1060(eax);
+}
+ABI_ENTRY_004a1060(fn_004a1060_Entry, fn_004a1060_Abi)
+HOOK(0x004a1060, "fn_004a1060", fn_004a1060_Entry, nullptr);
+
+// 0x004a0fb0 (edx (passed on), esi = state). Resets both slot lists (3 and 2 slots; 0x004a0b10) and destroys the
+// weapon objects at index 1 and 0 (0x004a10b0 + 0x004a0ff0; the last as a tail jump). Called by 0x00432730,
+// 0x00434ac0, 0x00472ab0.
+uint32_t fn_004a0fb0(uint32_t edx, uint32_t s)
+{
+    (void)edx;
+    fn_004a0b10(s, s, 3);
+    fn_004a0b10(s + 0x30, s, 2);
+    fn_004a10b0(s, 1);
+    fn_004a0ff0(s);
+    fn_004a10b0(s, 0);
+    return fn_004a0ff0(s);
+}
+static uint32_t fn_004a0fb0_Abi(uint32_t edx, uint32_t esi)
+{
+    return fn_004a0fb0(edx, esi);
+}
+ABI_ENTRY_004a0fb0(fn_004a0fb0_Entry, fn_004a0fb0_Abi)
+HOOK(0x004a0fb0, "fn_004a0fb0", fn_004a0fb0_Entry, nullptr);
+
+// 0x004a10c0 (eax = primary list, esi = weapon id). Equips the slot holding the id: 0x004a10e0(ebx = list;
+// 0x004a0b60(list, id)). Called by 0x00493130. Not executed in recorded runs.
+uint32_t fn_004a10c0(uint32_t list, uint32_t id)
+{
+    return fn_004a10e0(list, fn_004a0b60(list, id));
+}
+static uint32_t fn_004a10c0_Abi(uint32_t eax, uint32_t esi)
+{
+    return fn_004a10c0(eax, esi);
+}
+ABI_ENTRY_004a10c0(fn_004a10c0_Entry, fn_004a10c0_Abi)
+HOOK(0x004a10c0, "fn_004a10c0", fn_004a10c0_Entry, nullptr);
+
+// 0x004a10e0 (ebx = state (its primary list); stack: index; ret 4). Equips slot `index`: destroys the current
+// weapon object (0x004a0ff0), +0x24 = index; a matrix scaled by the parent's scale (0x004535b0 + Matrix_Scale
+// 0x004e2d90) or the identity; ObjectSystem_CreateObject 0x0045f020(eax = 0, ecx = the weapon's descriptor
+// (Game+0x2770 + id*0x150, id = 0x004a1660); Game+0xa84, &m, 0x3ff, 0, 0, 0, 0, 0xaa, 0) into the current object
+// slot; then (object referenced) vt+0x100(+0x228), vt+0xf4(0) when hidden (+0x22c bit 0), and with a parent:
+// vt+0x150(parent), bone = vt+0x14c(); with a bone ObjectList_Link 0x004546d0 (esi = Game+0xa84 +0xf1c) and
+// Object_Attach 0x004539f0(eax = bone name +0x1c8 (object 0) / +0x1e8, ecx = parent, edx = object; bone, 0, 8 when
+// +0x22c bit 1 else bone, 1, 0).
+uint32_t fn_004a10e0(uint32_t s, uint32_t index)
+{
+    float sc[3];   // esp+8
+    float m[17];   // esp+0x14
+    uint32_t r = fn_004a0ff0(s);
+    D(s, 0x24) = index;
+    if (D(s, 0x1c0) != 0)
+    {
+        orig::fn_004535b0(u(sc), D(s, 0x1c0));
+        orig::fn_004e2d90(u(m), u(sc), 0, 0, 0);
+    }
+    else
+    {
+        std::memset(m, 0, sizeof(m));
+        D(u(m), 0) = 0x3f800000;
+        D(u(m), 0x14) = 0x3f800000;
+        D(u(m), 0x28) = 0x3f800000;
+        D(u(m), 0x3c) = 0x3f800000;
+    }
+    const uint32_t w = orig::fn_004a1660(s);
+    const uint32_t g = G();
+    const uint32_t created =
+        orig::fn_0045f020(0, w * 0x150 + g + 0x2770, D(g, 0xa84), u(m), 0x3ff, 0, 0, 0, 0, 0xaa, 0);
+    D(s + D(s, 0x1bc) * 4, 0x1b0) = created;
+    const uint32_t obj = D(s + D(s, 0x1bc) * 4, 0x1b0);
+    if (obj == 0)
+        return obj;
+    ++D(obj, 0x28);
+    r = VCall<uint32_t>(P(D(s + D(s, 0x1bc) * 4, 0x1b0)), 0x100 / 4, D(s, 0x228));
+    if (B(s, 0x22c) & 1)
+        r = VCall<uint32_t>(P(D(s + D(s, 0x1bc) * 4, 0x1b0)), 0xf4 / 4, 0u);
+    const uint32_t parent = D(s, 0x1c0);
+    if (parent == 0)
+        return parent;
+    VCall<uint32_t>(P(D(s + D(s, 0x1bc) * 4, 0x1b0)), 0x150 / 4, parent);
+    const uint32_t bone = VCall<uint32_t>(P(D(s + D(s, 0x1bc) * 4, 0x1b0)), 0x14c / 4);
+    if (bone == 0)
+        return bone;
+    orig::fn_004546d0(D(D(G(), 0xa84), 0xf1c), D(s + D(s, 0x1bc) * 4, 0x1b0));
+    const uint8_t f = B(s, 0x22c);
+    const uint32_t cur = D(s, 0x1bc);
+    const uint32_t name = cur != 0 ? s + 0x1e8 : s + 0x1c8;
+    if (f & 2)
+        r = static_cast<uint32_t>(orig::fn_004539f0(name, D(s, 0x1c0), D(s + cur * 4, 0x1b0), bone, 0, 8));
+    else
+        r = static_cast<uint32_t>(orig::fn_004539f0(name, D(s, 0x1c0), D(s + cur * 4, 0x1b0), bone, 1, 0));
+    return r;
+}
+static uint32_t fn_004a10e0_Abi(uint32_t ebx, uint32_t a0)
+{
+    return fn_004a10e0(ebx, a0);
+}
+ABI_ENTRY_004a10e0(fn_004a10e0_Entry, fn_004a10e0_Abi)
+HOOK(0x004a10e0, "fn_004a10e0", fn_004a10e0_Entry, nullptr);
+
+// 0x004a12c0 (esi = state; stack: index; ret 4). Destroys the special weapon object (0x004a1060) and sets the
+// special list's current index (+0x54). Returns index.
+uint32_t fn_004a12c0(uint32_t s, uint32_t index)
+{
+    fn_004a1060(s);
+    D(s, 0x54) = index;
+    return index;
+}
+static uint32_t fn_004a12c0_Abi(uint32_t esi, uint32_t a0)
+{
+    return fn_004a12c0(esi, a0);
+}
+ABI_ENTRY_004a12c0(fn_004a12c0_Entry, fn_004a12c0_Abi)
+HOOK(0x004a12c0, "fn_004a12c0", fn_004a12c0_Entry, nullptr);
+
+// 0x004a12a0 (eax = weapon id, edi = state). Selects the special list slot holding the id: 0x004a12c0(esi =
+// state; 0x004a0b60(state+0x30, id)). Called by the ammo pickups (0x004725e0 ...). Not executed in recorded runs.
+uint32_t fn_004a12a0(uint32_t id, uint32_t s)
+{
+    return fn_004a12c0(s, fn_004a0b60(s + 0x30, id));
+}
+static uint32_t fn_004a12a0_Abi(uint32_t eax, uint32_t edi)
+{
+    return fn_004a12a0(eax, edi);
+}
+ABI_ENTRY_004a12a0(fn_004a12a0_Entry, fn_004a12a0_Abi)
+HOOK(0x004a12a0, "fn_004a12a0", fn_004a12a0_Entry, nullptr);
+
+// 0x004a12e0 (eax = state). Equips the previous usable primary slot (0x004a0c70, 0x004a10e0) and returns the new
+// current index, or 0 when there is none. Not executed in recorded runs.
+uint32_t fn_004a12e0(uint32_t s)
+{
+    const uint32_t i = fn_004a0c70(s);
+    if (i == 0xffffffffu)
+        return 0;
+    fn_004a10e0(s, i);
+    return D(s, 0x24);
+}
+static uint32_t fn_004a12e0_Abi(uint32_t eax)
+{
+    return fn_004a12e0(eax);
+}
+ABI_ENTRY_004a12e0(fn_004a12e0_Entry, fn_004a12e0_Abi)
+HOOK(0x004a12e0, "fn_004a12e0", fn_004a12e0_Entry, nullptr);
+
+// 0x004a1300 (eax = weapon id, edx = state). The weapon's reserve ammo (record +0); id 0x1c means the current
+// primary weapon (0x004a1660). Called by 0x00465a20.
+uint32_t fn_004a1300(uint32_t id, uint32_t s)
+{
+    if (id == 0x1c)
+    {
+        const uint32_t w = orig::fn_004a1660(s);
+        return D(s, (w + 8) * 3 * 4);
+    }
+    return D(s, (id * 3 + 0x18) * 4);
+}
+static uint32_t fn_004a1300_Abi(uint32_t eax, uint32_t edx)
+{
+    return fn_004a1300(eax, edx);
+}
+ABI_ENTRY_004a1300(fn_004a1300_Entry, fn_004a1300_Abi)
+HOOK(0x004a1300, "fn_004a1300", fn_004a1300_Entry, nullptr);
+
+// 0x004a1320 (eax = weapon id; stack: state; ret 4). The weapon's maximum reserve (descriptor Game+0x28b0 +
+// id*0x150); id 0x1c = the current primary weapon. Called by 0x00465a20.
+uint32_t fn_004a1320(uint32_t id, uint32_t s)
+{
+    if (id == 0x1c)
+    {
+        const uint32_t w = orig::fn_004a1660(s);
+        return D(G(), (w + 0x1f) * 0x150);
+    }
+    return D(G(), (id + 0x1f) * 0x150);
+}
+static uint32_t fn_004a1320_Abi(uint32_t eax, uint32_t a0)
+{
+    return fn_004a1320(eax, a0);
+}
+ABI_ENTRY_004a1320(fn_004a1320_Entry, fn_004a1320_Abi)
+HOOK(0x004a1320, "fn_004a1320", fn_004a1320_Entry, nullptr);
+
+// 0x004a1360 / 0x004a1380 (eax = weapon id, edx = state). The weapon's loaded ammo (record +4); id 0x1c = the
+// current primary (0x004a1660) / special (0x004a1670) weapon.
+uint32_t fn_004a1360(uint32_t id, uint32_t s)
+{
+    if (id == 0x1c)
+    {
+        const uint32_t w = orig::fn_004a1660(s);
+        return D(s + w * 0xc, 0x64);
+    }
+    return D(s + id * 0xc, 0x64);
+}
+static uint32_t fn_004a1360_Abi(uint32_t eax, uint32_t edx)
+{
+    return fn_004a1360(eax, edx);
+}
+ABI_ENTRY_004a1360(fn_004a1360_Entry, fn_004a1360_Abi)
+HOOK(0x004a1360, "fn_004a1360", fn_004a1360_Entry, nullptr);
+
+uint32_t fn_004a1380(uint32_t id, uint32_t s)
+{
+    if (id == 0x1c)
+    {
+        const uint32_t w = orig::fn_004a1670(s);
+        return D(s + w * 0xc, 0x64);
+    }
+    return D(s + id * 0xc, 0x64);
+}
+static uint32_t fn_004a1380_Abi(uint32_t eax, uint32_t edx)
+{
+    return fn_004a1380(eax, edx);
+}
+ABI_ENTRY_004a1380(fn_004a1380_Entry, fn_004a1380_Abi)
+HOOK(0x004a1380, "fn_004a1380", fn_004a1380_Entry, nullptr);
+
+// 0x004a13a0 (eax = amount, ecx = weapon id; stack: state; ret 4). Adds ammo: special weapons (6..10) join the
+// special list (0x004a0b50 / 0x004a0b80) and their loaded count grows up to the descriptor maximum (+0x144) unless
+// already full; other weapons fill the loaded count up to +0x144 and the rest goes to the reserve, capped at +0x140
+// (refused when both are full). al = 1 when added, else 0 (also for amount 0 / -1 or id >= 0x1c). Called by the
+// pickups (0x004725e0 ...).
+uint32_t fn_004a13a0(uint32_t amount, uint32_t id, uint32_t s)
+{
+    if (amount == 0xffffffffu || amount == 0 || id >= 0x1c)
+        return amount & 0xffffff00u;
+    if (IsSpecialWeapon(id))
+    {
+        const uint32_t r = fn_004a0b50(s + 0x30, id);
+        if (!static_cast<uint8_t>(r))
+            fn_004a0b80(s + 0x30, id);
+        const uint32_t maxp = WeaponDesc(id) + 0x28b4;
+        const uint32_t p = s + id * 0xc + 0x64;
+        uint32_t cur = D(p, 0);
+        if (cur >= D(maxp, 0))
+            return p & 0xffffff00u;
+        cur += amount;
+        D(p, 0) = cur;
+        if (cur > D(maxp, 0))
+            D(p, 0) = D(maxp, 0);
+        return (p & 0xffffff00u) | 1u;
+    }
+    const uint32_t g = G();
+    const uint32_t maxLoaded = D(g + id * 0x150, 0x28b4);
+    const uint32_t p = s + id * 0xc + 0x64;
+    const uint32_t cur = D(p, 0);
+    if (cur >= maxLoaded)
+    {
+        if (D(s, (id * 3 + 0x18) * 4) >= D(g, (id + 0x1f) * 0x150))
+            return cur & 0xffffff00u;
+    }
+    uint32_t take = maxLoaded - cur;
+    if (!(take < amount))
+        take = amount;
+    D(p, 0) = cur + take;
+    const uint32_t rp = s + (id * 3 + 0x18) * 4;
+    const uint32_t res = D(rp, 0) + (amount - take);
+    D(rp, 0) = res;
+    const uint32_t maxRes = D(g, (id + 0x1f) * 0x150);
+    if (res > maxRes)
+        D(rp, 0) = maxRes;
+    return (rp & 0xffffff00u) | 1u;
+}
+static uint32_t fn_004a13a0_Abi(uint32_t eax, uint32_t ecx, uint32_t a0)
+{
+    return fn_004a13a0(eax, ecx, a0);
+}
+ABI_ENTRY_004a13a0(fn_004a13a0_Entry, fn_004a13a0_Abi)
+HOOK(0x004a13a0, "fn_004a13a0", fn_004a13a0_Entry, nullptr);
+// 0x004a14e0 (eax = amount, ecx = weapon id; stack: state; ret 4). Sets ammo. Special weapons (6..10): amount != 0
+// joins the special list (0x004a0b50 / 0x004a0b80) and sets the loaded count, capped at the descriptor maximum
+// (+0x144); amount 0 removes the id from the special list (0x004a0cd0) and zeroes the count. Others: amount -2 fills
+// both reserve (+0x140) and loaded (+0x144) to the maximum; otherwise reserve = min(amount, max reserve) and loaded
+// = amount - reserve. id >= 0x1c: nothing. Returns eax as the original leaves it. Called by 0x00467fe0, 0x00472930,
+// 0x00475650.
+uint32_t fn_004a14e0(uint32_t amount, uint32_t id, uint32_t s)
+{
+    if (id >= 0x1c)
+        return amount;
+    if (IsSpecialWeapon(id))
+    {
+        if (amount != 0)
+        {
+            const uint32_t r = fn_004a0b50(s + 0x30, id);
+            if (!static_cast<uint8_t>(r))
+                fn_004a0b80(s + 0x30, id);
+            const uint32_t g = G();
+            const uint32_t p = s + id * 0xc + 0x64;
+            D(p, 0) = amount;
+            const uint32_t mx = D(g + id * 0x150, 0x28b4);
+            if (amount > mx)
+                D(p, 0) = mx;
+            return p;
+        }
+        const uint32_t r = fn_004a0b50(s + 0x30, id);
+        if (static_cast<uint8_t>(r))
+            fn_004a0cd0(s + 0x30, id);
+        D(s + id * 0xc, 0x64) = 0;
+        return id * 3;
+    }
+    if (amount == 0xfffffffeu)
+    {
+        const uint32_t g = G();
+        D(s, (id * 3 + 0x18) * 4) = D(g, (id + 0x1f) * 0x150);
+        D(s + id * 0xc, 0x64) = D(g + id * 0x150, 0x28b4);
+        return g;
+    }
+    uint32_t res = D(G(), (id + 0x1f) * 0x150);
+    if (amount < res)
+        res = amount;
+    D(s, (id * 3 + 0x18) * 4) = res;
+    D(s + id * 0xc, 0x64) = amount - res;
+    return id * 3;
+}
+static uint32_t fn_004a14e0_Abi(uint32_t eax, uint32_t ecx, uint32_t a0)
+{
+    return fn_004a14e0(eax, ecx, a0);
+}
+ABI_ENTRY_004a14e0(fn_004a14e0_Entry, fn_004a14e0_Abi)
+HOOK(0x004a14e0, "fn_004a14e0", fn_004a14e0_Entry, nullptr);
+
+// 0x004a15f0 (eax = state). The current weapon object (+0x1b0 + +0x1bc*4).
+uint32_t fn_004a15f0(uint32_t s)
+{
+    return D(s + D(s, 0x1bc) * 4, 0x1b0);
+}
+static uint32_t fn_004a15f0_Abi(uint32_t eax)
+{
+    return fn_004a15f0(eax);
+}
+ABI_ENTRY_004a15f0(fn_004a15f0_Entry, fn_004a15f0_Abi)
+HOOK(0x004a15f0, "fn_004a15f0", fn_004a15f0_Entry, nullptr);
+
+// 0x004a1600 / 0x004a1630 (eax = state). The primary (+4) / special (+0x34) slot array. Not executed in recorded
+// runs.
+uint32_t fn_004a1600(uint32_t s)
+{
+    return s + 4;
+}
+static uint32_t fn_004a1600_Abi(uint32_t eax)
+{
+    return fn_004a1600(eax);
+}
+ABI_ENTRY_004a1600(fn_004a1600_Entry, fn_004a1600_Abi)
+HOOK(0x004a1600, "fn_004a1600", fn_004a1600_Entry, nullptr);
+
+uint32_t fn_004a1630(uint32_t s)
+{
+    return s + 0x34;
+}
+static uint32_t fn_004a1630_Abi(uint32_t eax)
+{
+    return fn_004a1630(eax);
+}
+ABI_ENTRY_004a1630(fn_004a1630_Entry, fn_004a1630_Abi)
+HOOK(0x004a1630, "fn_004a1630", fn_004a1630_Entry, nullptr);
+
+// 0x004a1610 / 0x004a1640 (ecx = state). Number of occupied slots of the primary / special list. Called by
+// 0x00463fa0.
+static uint32_t CountSlots(uint32_t list)
+{
+    uint32_t n = D(list, 0x20);
+    uint32_t c = 0;
+    uint32_t p = list + 4;
+    for (; n != 0; --n, p += 4)
+    {
+        if (D(p, 0) != 0xffffffffu)
+            ++c;
+    }
+    return c;
+}
+uint32_t fn_004a1610(uint32_t s)
+{
+    return CountSlots(s);
+}
+static uint32_t fn_004a1610_Abi(uint32_t ecx)
+{
+    return fn_004a1610(ecx);
+}
+ABI_ENTRY_004a1610(fn_004a1610_Entry, fn_004a1610_Abi)
+HOOK(0x004a1610, "fn_004a1610", fn_004a1610_Entry, nullptr);
+
+uint32_t fn_004a1640(uint32_t s)
+{
+    return CountSlots(s + 0x30);
+}
+static uint32_t fn_004a1640_Abi(uint32_t ecx)
+{
+    return fn_004a1640(ecx);
+}
+ABI_ENTRY_004a1640(fn_004a1640_Entry, fn_004a1640_Abi)
+HOOK(0x004a1640, "fn_004a1640", fn_004a1640_Entry, nullptr);
+
+// 0x004a1660 / 0x004a1670 (eax = state). The current primary (slot +0x24) / special (slot +0x54) weapon id.
+uint32_t fn_004a1660(uint32_t s)
+{
+    return D(s + D(s, 0x24) * 4, 4);
+}
+static uint32_t fn_004a1660_Abi(uint32_t eax)
+{
+    return fn_004a1660(eax);
+}
+ABI_ENTRY_004a1660(fn_004a1660_Entry, fn_004a1660_Abi)
+HOOK(0x004a1660, "fn_004a1660", fn_004a1660_Entry, nullptr);
+
+uint32_t fn_004a1670(uint32_t s)
+{
+    return D(s + D(s, 0x54) * 4, 0x34);
+}
+static uint32_t fn_004a1670_Abi(uint32_t eax)
+{
+    return fn_004a1670(eax);
+}
+ABI_ENTRY_004a1670(fn_004a1670_Entry, fn_004a1670_Abi)
+HOOK(0x004a1670, "fn_004a1670", fn_004a1670_Entry, nullptr);
+
+// 0x004a1680 / 0x004a17a0 (ecx = state). A primary (+0x28) / special (+0x58) switch is pending (!= -1).
+uint32_t fn_004a1680(uint32_t s)
+{
+    return D(s, 0x28) != 0xffffffffu ? 1u : 0u;
+}
+static uint32_t fn_004a1680_Abi(uint32_t ecx)
+{
+    return fn_004a1680(ecx);
+}
+ABI_ENTRY_004a1680(fn_004a1680_Entry, fn_004a1680_Abi)
+HOOK(0x004a1680, "fn_004a1680", fn_004a1680_Entry, nullptr);
+
+uint32_t fn_004a17a0(uint32_t s)
+{
+    return D(s, 0x58) != 0xffffffffu ? 1u : 0u;
+}
+static uint32_t fn_004a17a0_Abi(uint32_t ecx)
+{
+    return fn_004a17a0(ecx);
+}
+ABI_ENTRY_004a17a0(fn_004a17a0_Entry, fn_004a17a0_Abi)
+HOOK(0x004a17a0, "fn_004a17a0", fn_004a17a0_Entry, nullptr);
+
+// 0x004a1690 / 0x004a17b0 (eax = state). The pending primary / special switch is due: pending (!= -1) and its timer
+// (+0x2c / +0x5c) <= 0.0. Called by 0x004788a0. Not executed in recorded runs.
+uint32_t fn_004a1690(uint32_t s)
+{
+    if (D(s, 0x28) != 0xffffffffu && Fl(s, 0x2c) <= K(0x0056c05c))
+        return 1;
+    return 0;
+}
+static uint32_t fn_004a1690_Abi(uint32_t eax)
+{
+    return fn_004a1690(eax);
+}
+ABI_ENTRY_004a1690(fn_004a1690_Entry, fn_004a1690_Abi)
+HOOK(0x004a1690, "fn_004a1690", fn_004a1690_Entry, nullptr);
+
+uint32_t fn_004a17b0(uint32_t s)
+{
+    if (D(s, 0x58) != 0xffffffffu && Fl(s, 0x5c) <= K(0x0056c05c))
+        return 1;
+    return 0;
+}
+static uint32_t fn_004a17b0_Abi(uint32_t eax)
+{
+    return fn_004a17b0(eax);
+}
+ABI_ENTRY_004a17b0(fn_004a17b0_Entry, fn_004a17b0_Abi)
+HOOK(0x004a17b0, "fn_004a17b0", fn_004a17b0_Entry, nullptr);
+
+namespace
+{
+// The weapon-change chat line and sounds shared by 0x004a16b0 / 0x004a17d0: Text_Lookup 0x00495f00 (ebx = Game+0xac0)
+// of the weapon name (descriptor +0x20) and of the format (fmt key), _swprintf 0x0053862e into a 0x200-byte buffer,
+// Chat_AddMessage 0x0046aa60(eax = buffer; Game+0xaac, 2).
+void WeaponChangeMessage(uint32_t w, uint32_t fmtKey)
+{
+    wchar_t buf[0x100];
+    const uint32_t name = orig::fn_00495f00(w * 0x150 + G() + 0x2790, D(G(), 0xac0), 0);
+    const uint32_t fmt = orig::fn_00495f00(fmtKey, D(G(), 0xac0), 0);
+    orig::fn_0053862e(u(buf), fmt, name, 0);
+    orig::fn_0046aa60(u(buf), D(G(), 0xaac), 2);
+}
+void PlaySound2d(uint32_t name)  // (Game+0x2c) vt+0xd0(name, 0, 0, 0, -1, 0)
+{
+    VCall<uint32_t>(P(D(G(), 0x2c)), 0xd0 / 4, name, 0u, 0u, 0u, 0xffffffffu, 0u);
+}
+}  // namespace
+
+// 0x004a16b0 (esi = state). Completes a pending primary weapon switch: 0x004a10e0(ebx = state; +0x28), +0x28 = -1,
+// +0x2c = 0; the chat line "ui_change_weapon" (0x0058e9f8) with the weapon's name; the sound
+// "wpn_armed_jaws_weapons" (0x0058e9e0) for weapon 5 and "ui_weapon_put_away" (0x0058e9cc); word (Game+0xa6c)
+// +0x390 = 2. Returns the new current index +0x24. Called by 0x00475ff0, 0x004788a0. Not executed in recorded runs.
+uint32_t fn_004a16b0(uint32_t s)
+{
+    fn_004a10e0(s, D(s, 0x28));
+    D(s, 0x28) = 0xffffffffu;
+    D(s, 0x2c) = 0;
+    WeaponChangeMessage(fn_004a1660(s), 0x0058e9f8);
+    if (fn_004a1660(s) == 5)
+        PlaySound2d(0x0058e9e0);
+    PlaySound2d(0x0058e9cc);
+    *reinterpret_cast<uint16_t*>(D(G(), 0xa6c) + 0x390) = 2;
+    return D(s, 0x24);
+}
+static uint32_t fn_004a16b0_Abi(uint32_t esi)
+{
+    return fn_004a16b0(esi);
+}
+ABI_ENTRY_004a16b0(fn_004a16b0_Entry, fn_004a16b0_Abi)
+HOOK(0x004a16b0, "fn_004a16b0", fn_004a16b0_Entry, nullptr);
+
+// 0x004a17d0 (eax = state). Completes a pending special weapon switch: 0x004a12c0(esi = state; +0x58), +0x58 = -1,
+// +0x5c = 0; the chat line "ui_change_special_weapon" (0x0058e9b0) and the sound "ui_weapon_put_away". Returns the
+// new special index +0x54. Called by 0x004788a0. Not executed in recorded runs.
+uint32_t fn_004a17d0(uint32_t s)
+{
+    fn_004a12c0(s, D(s, 0x58));
+    D(s, 0x58) = 0xffffffffu;
+    D(s, 0x5c) = 0;
+    WeaponChangeMessage(fn_004a1670(s), 0x0058e9b0);
+    PlaySound2d(0x0058e9cc);
+    return D(s, 0x54);
+}
+static uint32_t fn_004a17d0_Abi(uint32_t eax)
+{
+    return fn_004a17d0(eax);
+}
+ABI_ENTRY_004a17d0(fn_004a17d0_Entry, fn_004a17d0_Abi)
+HOOK(0x004a17d0, "fn_004a17d0", fn_004a17d0_Entry, nullptr);
+
+// 0x004a1950 (eax = state). al = the special weapon cooldown +0x230 > 0.0.
+uint32_t fn_004a1950(uint32_t s)
+{
+    return Fl(s, 0x230) > K(0x0056c05c) ? 1u : 0u;
+}
+static uint32_t fn_004a1950_Abi(uint32_t eax)
+{
+    return fn_004a1950(eax);
+}
+ABI_ENTRY_004a1950(fn_004a1950_Entry, fn_004a1950_Abi)
+HOOK(0x004a1950, "fn_004a1950", fn_004a1950_Entry, nullptr);
+
+// 0x004a1970 (ecx (frame slot, low byte replaced), esi = state). Fires the queued special weapon +0x1c4 from the
+// parent +0x1c0 (none: al = 0): +0x230 = 0; 0x0047dbf0(eax = &+0x208 (emitter bone), ecx = the weapon descriptor
+// Game+0x2770 + id*0x150, edx = parent; Game+0xaa8, parent, (id == 10)); on success the loaded count drops by one
+// unless Game+0x175 is set, +0x1c4 = -1 and for special weapon 9 the sound "wpn_black_hole_fire" (0x0058e99c).
+// al = success. Called by 0x00475ff0, 0x004a1890. Not executed in recorded runs.
+uint32_t fn_004a1970(uint32_t ecx_, uint32_t s)
+{
+    const uint32_t parent = D(s, 0x1c0);
+    if (parent == 0)
+        return 0;
+    const uint32_t w = D(s, 0x1c4);
+    const uint32_t flag = (ecx_ & 0xffffff00u) | (w == 10 ? 1u : 0u);
+    const uint32_t g = G();
+    D(s, 0x230) = 0;
+    const uint32_t r = orig::fn_0047dbf0(s + 0x208, w * 0x150 + g + 0x2770, parent, D(g, 0xaa8), parent, flag);
+    if (r != 0)
+    {
+        const uint32_t g2 = G();
+        if (B(g2, 0x175) == 0)
+            --D(s + D(s, 0x1c4) * 0xc, 0x64);
+        D(s, 0x1c4) = 0xffffffffu;
+        if (fn_004a1670(s) == 9)
+            VCall<uint32_t>(P(D(g2, 0x2c)), 0xd0 / 4, 0x0058e99cu, 0u, 0u, 0u, 0xffffffffu, 0u);
+    }
+    return r != 0 ? 1u : 0u;
+}
+static uint32_t fn_004a1970_Abi(uint32_t ecx, uint32_t esi)
+{
+    return fn_004a1970(ecx, esi);
+}
+ABI_ENTRY_004a1970(fn_004a1970_Entry, fn_004a1970_Abi)
+HOOK(0x004a1970, "fn_004a1970", fn_004a1970_Entry, nullptr);
+
+// 0x004a1890 (ecx = state). Per-frame weapon timers: pending switch timers +0x2c / +0x5c -= dt (when pending,
+// 0x004a1680 / 0x004a17a0); special cooldown +0x230 -= dt (when running, 0x004a1950) and at <= 0 it is cleared and
+// the queued special weapon fires (0x004a1970). Called by 0x004788a0.
+uint32_t fn_004a1890(uint32_t s)
+{
+    if (fn_004a1680(s))
+        Fl(s, 0x2c) = Fl(s, 0x2c) - Dt();
+    if (fn_004a17a0(s))
+        Fl(s, 0x5c) = Fl(s, 0x5c) - Dt();
+    if (!fn_004a1950(s))
+        return 0;
+    const float c = Fl(s, 0x230) - Dt();
+    Fl(s, 0x230) = c;
+    if (!(c <= K(0x0056c05c)))
+        return 0;
+    D(s, 0x230) = 0;
+    return fn_004a1970(s, s);
+}
+static uint32_t fn_004a1890_Abi(uint32_t ecx)
+{
+    return fn_004a1890(ecx);
+}
+ABI_ENTRY_004a1890(fn_004a1890_Entry, fn_004a1890_Abi)
+HOOK(0x004a1890, "fn_004a1890", fn_004a1890_Entry, nullptr);
+
+// 0x004a1900 (edx = state; stack: weapon id; ret 4). The special weapon can fire: no cooldown (0x004a1950) and
+// loaded ammo (0x004a1380) > 0. Called by 0x004a1a50. Not executed in recorded runs.
+uint32_t fn_004a1900(uint32_t s, uint32_t id)
+{
+    if (fn_004a1950(s))
+        return 0;
+    if (fn_004a1380(id, s) != 0)
+        return 1;
+    return 0;
+}
+static uint32_t fn_004a1900_Abi(uint32_t edx, uint32_t a0)
+{
+    return fn_004a1900(edx, a0);
+}
+ABI_ENTRY_004a1900(fn_004a1900_Entry, fn_004a1900_Abi)
+HOOK(0x004a1900, "fn_004a1900", fn_004a1900_Entry, nullptr);
+
+// 0x004a1930 (eax = state, ecx = weapon id; stack: cooldown; ret 4). Queues a special weapon: +0x1c4 = id, +0x234 =
+// +0x230 = cooldown; al = 1. Called by 0x004a1aa0. Not executed in recorded runs.
+uint32_t fn_004a1930(uint32_t s, uint32_t id, uint32_t cooldown)
+{
+    D(s, 0x1c4) = id;
+    D(s, 0x234) = cooldown;
+    D(s, 0x230) = cooldown;
+    return (s & 0xffffff00u) | 1u;
+}
+static uint32_t fn_004a1930_Abi(uint32_t eax, uint32_t ecx, uint32_t a0)
+{
+    return fn_004a1930(eax, ecx, a0);
+}
+ABI_ENTRY_004a1930(fn_004a1930_Entry, fn_004a1930_Abi)
+HOOK(0x004a1930, "fn_004a1930", fn_004a1930_Entry, nullptr);
+
+// 0x004a1a30 (eax = name, ecx = state). Copies the special weapon emitter bone name to +0x208 (_strncpy 0x005382a0,
+// 0x20). Called by 0x00475650.
+uint32_t fn_004a1a30(uint32_t name, uint32_t s)
+{
+    return orig::fn_005382a0(s + 0x208, name, 0x20);
+}
+static uint32_t fn_004a1a30_Abi(uint32_t eax, uint32_t ecx)
+{
+    return fn_004a1a30(eax, ecx);
+}
+ABI_ENTRY_004a1a30(fn_004a1a30_Entry, fn_004a1a30_Abi)
+HOOK(0x004a1a30, "fn_004a1a30", fn_004a1a30_Entry, nullptr);
+
+// 0x004a1a50 (edx = state). The current special weapon (0x004a1670) can be used: 6, 9, 10: 0x004a1900(edx; id);
+// 7, 8: loaded ammo of the current special (0x004a1380(eax = 0x1c)) > 0; others: al = 0. Called by 0x004788a0. Not
+// executed in recorded runs.
+uint32_t fn_004a1a50(uint32_t s)
+{
+    const uint32_t k = fn_004a1670(s) - 6;
+    if (k > 4)
+        return k & 0xffffff00u;
+    if (k == 1 || k == 2)
+        return fn_004a1380(0x1c, s) != 0 ? 1u : 0u;
+    return fn_004a1900(s, fn_004a1670(s));
+}
+static uint32_t fn_004a1a50_Abi(uint32_t edx)
+{
+    return fn_004a1a50(edx);
+}
+ABI_ENTRY_004a1a50(fn_004a1a50_Entry, fn_004a1a50_Abi)
+HOOK(0x004a1a50, "fn_004a1a50", fn_004a1a50_Entry, nullptr);
+
+// 0x004a1aa0 (esi = state). Uses the current special weapon (0x004a1670; jump table 0x004a1b90): 6, 9, 10 queue it
+// with a 0.4 s cooldown (0x004a1930); 7 spends one (loaded +0xb8) unless Game+0x175 is set; 8 applies area damage
+// around the player (player vt+0x54 position; AreaDamage_Apply 0x0047f020(ebx = &{1.0, r, r, 1.0}, r = Game+0xc84;
+// 0, &pos, 0, 1.0, player, 0x20, 0)) and spends one (+0xc4) unless Game+0x175. Called by 0x00476a10, 0x004788a0. Not
+// executed in recorded runs.
+uint32_t fn_004a1aa0(uint32_t s)
+{
+    const uint32_t k = fn_004a1670(s) - 6;
+    if (k > 4)
+        return k;
+    switch (k)
+    {
+    case 0:
+        return fn_004a1930(s, 6, 0x3ecccccd);
+    case 3:
+        return fn_004a1930(s, 9, 0x3ecccccd);
+    case 4:
+        return fn_004a1930(s, 10, 0x3ecccccd);
+    case 1:
+    {
+        const uint32_t g = G();
+        if (B(g, 0x175) == 0)
+            --D(s, 0xb8);
+        return g;
+    }
+    default:
+    {
+        float f[0x1c / 4];  // original frame: pos +0, {1.0, r, r, 1.0} at +0xc
+        const uint32_t fb = u(f);
+        VCall<uint32_t>(P(D(G(), 0x748)), 0x54 / 4, fb);
+        const uint32_t g = G();
+        const float r = Fl(g, 0xc84);
+        Fl(fb, 0x14) = r;
+        Fl(fb, 0x10) = r;
+        D(fb, 0xc) = 0x3f800000;
+        D(fb, 0x18) = 0x3f800000;
+        orig::fn_0047f020(fb + 0xc, 0, fb, 0, 0x3f800000, D(g, 0x748), 0x20, 0);
+        const uint32_t g2 = G();
+        if (B(g2, 0x175) == 0)
+            --D(s, 0xc4);
+        return g2;
+    }
+    }
+}
+static uint32_t fn_004a1aa0_Abi(uint32_t esi)
+{
+    return fn_004a1aa0(esi);
+}
+ABI_ENTRY_004a1aa0(fn_004a1aa0_Entry, fn_004a1aa0_Abi)
+HOOK(0x004a1aa0, "fn_004a1aa0", fn_004a1aa0_Entry, nullptr);
+
+// 0x004a1bb0 (eax = state). On the current weapon object: releases its effect +0x550 (Fx_Release 0x0041d030(Game
+// +0xa90, &+0x550)) when set and clears flag bit 2 of +0x548. Called by 0x004690c0. Not executed in recorded runs.
+uint32_t fn_004a1bb0(uint32_t s)
+{
+    const uint32_t obj = D(s + D(s, 0x1bc) * 4, 0x1b0);
+    if (obj == 0)
+        return s;
+    uint32_t r = obj + 0x550;
+    if (D(obj, 0x550) != 0)
+        r = orig::fn_0041d030(D(G(), 0xa90), obj + 0x550);
+    D(obj, 0x548) &= 0xfffffffbu;
+    return r;
+}
+static uint32_t fn_004a1bb0_Abi(uint32_t eax)
+{
+    return fn_004a1bb0(eax);
+}
+ABI_ENTRY_004a1bb0(fn_004a1bb0_Entry, fn_004a1bb0_Abi)
+HOOK(0x004a1bb0, "fn_004a1bb0", fn_004a1bb0_Entry, nullptr);

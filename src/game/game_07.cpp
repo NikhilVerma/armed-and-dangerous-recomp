@@ -2808,3 +2808,423 @@ static uint32_t PenguinObject_Damage_Abi(uint32_t ecx, uint32_t a0)
 }
 ABI_ENTRY_0048fa20(PenguinObject_Damage_Entry, PenguinObject_Damage_Abi)
 HOOK(0x0048fa20, "PenguinObject_Damage", PenguinObject_Damage_Entry, nullptr);
+
+// ---------------------------------------------------------------------------------------------------------------
+// TimerObject (vtable 0x005a7d58) and ArmyTimerObject (vtable 0x005a2800, derived: its property read calls the
+// timer's). Timer fields: +0x460 the activation trigger ("receive_trigger_activate"), +0x464 "anim_name", +0x484
+// "gen_text", +0x4a4 "send_end_trigger", bytes +0x4a8 "loop", +0x4a9 running, +0x4aa animated (anim_name not
+// "none"), +0x4ab "display"; +0x4ac times[10] / +0x4d4 triggers[10] / +0x4fc count ("send_trigger_time_%d" =
+// "trigger/time"), +0x500 the elapsed time, +0x504 "countdown_time", +0x508 the on-screen timer widget.
+namespace
+{
+typedef int32_t(__cdecl* AtolFn)(const char*);
+int32_t Atol(uint32_t s)
+{
+    return GameFunction<AtolFn>(0x005387f6)(reinterpret_cast<const char*>(s));
+}
+// The selection sort inlined three times (0x00496330, 0x00496a0d, 0x00496bd1): for i = 1.. count, every later entry
+// j whose time is below entry i-1's (strictly, x87 compare) is swapped with it, along with the parallel arrays.
+void SortByTime(uint32_t self, uint32_t countOff, uint32_t timeOff, uint32_t aOff, uint32_t bOff)
+{
+    if (D(self + countOff) == 0)
+        return;
+    for (uint32_t i = 1; i - 1 < D(self + countOff); ++i)
+        for (uint32_t j = i; j < D(self + countOff); ++j)
+            if (Fl(self + timeOff + j * 4) < Fl(self + timeOff + (i - 1) * 4))
+            {
+                const uint32_t t = D(self + timeOff + j * 4);
+                D(self + timeOff + j * 4) = D(self + timeOff + (i - 1) * 4);
+                D(self + timeOff + (i - 1) * 4) = t;
+                const uint32_t a = D(self + aOff + j * 4);
+                D(self + aOff + j * 4) = D(self + aOff + (i - 1) * 4);
+                D(self + aOff + (i - 1) * 4) = a;
+                if (bOff)
+                {
+                    const uint32_t b = D(self + bOff + j * 4);
+                    D(self + bOff + j * 4) = D(self + bOff + (i - 1) * 4);
+                    D(self + bOff + (i - 1) * 4) = b;
+                }
+            }
+}
+}  // namespace
+
+// 0x00496160 (ecx = self; stack: a0..a3; ret 0x10; caller ArmyTimerObject_ReadProps). TimerObject slot 6, the
+// property read: Object_LoadProperties(self; a0..a3); "receive_trigger_activate" +0x460 (Object_ReadValuePropEbx
+// 0x00453450), "loop" +0x4a8, "anim_name" +0x464 and "gen_text" +0x484 (default "none"), "send_end_trigger" +0x4a4,
+// "display" +0x4ab, "countdown_time" +0x504 (0); +0x4fc = +0x500 = +0x508 = 0. With anim_name "none" (_stricmp):
+// +0x4aa = 0 and up to ten "send_trigger_time_%d" strings ("Unknown" default; the loop stops at the first missing)
+// are parsed as "trigger/time" (atol / atof; entries with trigger 0 are dropped; no '/' logs "Timer has invalid
+// property format" through Debug_Printf 0x00407ff0), then sorted by time; otherwise +0x4aa = 1. vt+0xf4(0), physics
+// on, then the animation (0x00408e30, eax = 0x90/0x80/0x81, edx = 1 for no name, -1 for anim_name, 0 without one)
+// and +0x4a9 (running) = 1 only for a timer without an activation trigger. Executed in recorded runs.
+uint32_t TimerObject_ReadProps(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
+{
+    uint8_t fr[0x40];  // the original frame: value buffer +0, name buffer +0x20
+    const uint32_t value = u(fr);
+    const uint32_t name = u(fr) + 0x20;
+    orig::fn_004517b0(self, a0, a1, a2, a3);
+    uint32_t r = orig::fn_00453450(0, 0x005bba00, a3, self + 0x460, self, a2, 0);  // "receive_trigger_activate"
+    orig::fn_004534f0(r & 0xffffff00u, a3, self + 0x4a8, self, 0x0058f8c0, a2, 0);  // "loop"
+    orig::fn_004533a0(0x005bb9e0, self + 0x464, self, 0x0058f8b4, a2, a3, 0);      // "anim_name"
+    orig::fn_004533a0(0x005bb9e0, self + 0x484, self, 0x0058f8a8, a2, a3, 0);      // "gen_text"
+    r = orig::fn_00453450(0, 0x0058f894, a3, self + 0x4a4, self, a2, 0);           // "send_end_trigger"
+    orig::fn_004534f0(r & 0xffffff00u, a3, self + 0x4ab, self, 0x0058f88c, a2, 0);  // "display"
+    orig::fn_004534a0(a3, self + 0x504, self, 0x0058f87c, a2, 0, 0);               // "countdown_time"
+    D(self + 0x508) = 0;
+    D(self + 0x500) = 0;
+    D(self + 0x4fc) = 0;
+    if (orig::fn_005448ee(0, self + 0x464, 0x005bb9e0) == 0)
+    {
+        By(self + 0x4aa) = 0;
+        for (uint32_t i = 1; i <= 10; ++i)
+        {
+            orig::fn_0053814f(name, 0x0058f864, i);  // "send_trigger_time_%d"
+            if (!orig::fn_004533a0(0x0058f85c, value, self, name, a2, a3, 0))  // default "Unknown"
+                break;
+            const uint32_t slash = orig::fn_005386b0(value, '/');
+            if (slash)
+            {
+                By(slash) = 0;
+                const uint32_t n = D(self + 0x4fc);
+                D(self + 0x4d4 + n * 4) = static_cast<uint32_t>(Atol(value));
+                Fl(self + 0x4ac + D(self + 0x4fc) * 4) = orig::fn_005387fb(slash + 1);
+                const uint32_t m = D(self + 0x4fc);
+                if (D(self + 0x4d4 + m * 4))
+                    D(self + 0x4fc) = m + 1;
+            }
+            else
+            {
+                orig::fn_00407ff0(D(GameP() + 0x34), 0x0058f834, value, 0);  // "Timer has invalid property format"
+            }
+        }
+        SortByTime(self, 0x4fc, 0x4ac, 0x4d4, 0);
+    }
+    else
+    {
+        By(self + 0x4aa) = 1;
+    }
+    VC(self, 0xf4, 0u);
+    orig::fn_004577b0(self, 1);
+    const uint32_t anim = self + 0x464;
+    if (D(self + 0x460))
+    {
+        if (By(self + 0x4aa))
+        {
+            if (orig::fn_005448ee(0, anim, 0x005bb9e0) == 0)
+                r = orig::fn_00408e30(0x90, self, 1, 0, 0, 0, 0, 0);
+            else
+                r = orig::fn_00408e30(0x90, self, 0xffffffff, anim, 0, 0, 0, 0);
+        }
+        else
+        {
+            r = orig::fn_00408e30(0x90, self, 0, 0, 0, 0, 0, 0);
+        }
+        By(self + 0x4a9) = 0;
+        return r;
+    }
+    if (By(self + 0x4aa))
+    {
+        const bool none = orig::fn_005448ee(0, anim, 0x005bb9e0) == 0;
+        const uint32_t e = By(self + 0x4a8) ? 0x81u : 0x80u;
+        if (none)
+            r = orig::fn_00408e30(e, self, 1, 0, 0, 0, 0, 0);
+        else
+            r = orig::fn_00408e30(e, self, 0xffffffff, anim, 0, 0, 0, 0);
+    }
+    else
+    {
+        r = orig::fn_00408e30(0x90, self, 0, 0, 0, 0, 0, 0);
+    }
+    By(self + 0x4a9) = 1;
+    return r;
+}
+static uint32_t TimerObject_ReadProps_Abi(uint32_t ecx, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
+{
+    return TimerObject_ReadProps(ecx, a0, a1, a2, a3);
+}
+ABI_ENTRY_00496160(TimerObject_ReadProps_Entry, TimerObject_ReadProps_Abi)
+HOOK(0x00496160, "TimerObject_ReadProps", TimerObject_ReadProps_Entry, nullptr);
+
+// 0x004964d0 (ecx = self; stack: message, a1, a2, a3; ret 0x10). Slot 0xd (+0x34) of TimerObject and
+// ArmyTimerObject (guess: a script command): for "create_platoon" the arguments are parsed into the original's own
+// argument slots (0x004090a0 eax = a3, edx = a2; &a1, then 0x004090b0 eax = &a2 / &a3, edx = a2, esi = a3): a
+// platoon object named a1 is created at the timer's matrix (vt+0x5c) with flags word +0x394
+// (ObjectSystem_CreateObject), set up by 0x004331f0 (eax = it, ecx = game+0xbfc[a2], edx = game+0xc0c[a2];
+// game+0xc1c[a3], game+0xc2c[a3]), given gen_text +0x484 (its vt+0x238(text, 0)) and the player (vt+0x23c(player,
+// 1)). Returns _stricmp's result for other messages. Not executed in recorded runs.
+uint32_t TimerObject_Command(uint32_t self, uint32_t message, uint32_t a1, uint32_t a2, uint32_t a3)
+{
+    uint32_t m[0x44 / 4];
+    uint32_t r = orig::fn_005448ee(0, message, 0x0058f824);  // "create_platoon"
+    if (r)
+        return r;
+    const uint32_t reader = a2;
+    const uint32_t src = a3;
+    orig::fn_004090a0(src, reader, u(&a1));
+    orig::fn_004090b0(u(&a2), reader, src);
+    orig::fn_004090b0(u(&a3), reader, src);
+    VC(self, 0x5c, u(m));
+    const uint32_t obj = orig::fn_0045f020(0, a1, D(GameP() + 0xa84), u(m), W(self + 0x394), 0, 0, 0, 0, 0xaa, 0);
+    const uint32_t g = GameP();
+    orig::fn_004331f0(obj, D(g + 0xbfc + a2 * 4), D(g + 0xc0c + a2 * 4), D(g + 0xc1c + a3 * 4), D(g + 0xc2c + a3 * 4));
+    VC(obj, 0x238, self + 0x484, 0u);
+    return VC(obj, 0x23c, D(GameP() + 0x748), 1u);
+}
+static uint32_t TimerObject_Command_Abi(uint32_t ecx, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
+{
+    return TimerObject_Command(ecx, a0, a1, a2, a3);
+}
+ABI_ENTRY_004964d0(TimerObject_Command_Entry, TimerObject_Command_Abi)
+HOOK(0x004964d0, "TimerObject_Command", TimerObject_Command_Entry, nullptr);
+
+// 0x004965d0 (ecx = self; stack: a0 (unused), trigger; ret 8). Slot 0xe (+0x38) of TimerObject and ArmyTimerObject
+// (guess: trigger received): when trigger is the activation trigger +0x460: with an animation (+0x4aa) Anim_Set
+// 0x00408d90 (eax = 1 for anim_name "none" else -1 with the name, esi = self; 0x81 when looping else 0x80), then
+// running +0x4a9 = 1 and +0x460 = 0. Returns al = 0. Not executed in recorded runs.
+uint32_t TimerObject_OnTrigger(uint32_t self, uint32_t /*a0*/, uint32_t trigger)
+{
+    if (trigger != D(self + 0x460))
+        return 0;
+    if (By(self + 0x4aa))
+    {
+        const uint32_t anim = self + 0x464;
+        const bool none = orig::fn_005448ee(0, anim, 0x005bb9e0) == 0;
+        const uint32_t e = By(self + 0x4a8) ? 0x81u : 0x80u;
+        if (none)
+            orig::fn_00408d90(1, self, 0, e, 0, 0, 0, 0);
+        else
+            orig::fn_00408d90(0xffffffff, self, anim, e, 0, 0, 0, 0);
+    }
+    By(self + 0x4a9) = 1;
+    D(self + 0x460) = 0;
+    return 0;
+}
+static uint32_t TimerObject_OnTrigger_Abi(uint32_t ecx, uint32_t a0, uint32_t a1)
+{
+    return TimerObject_OnTrigger(ecx, a0, a1);
+}
+ABI_ENTRY_004965d0(TimerObject_OnTrigger_Entry, TimerObject_OnTrigger_Abi)
+HOOK(0x004965d0, "TimerObject_OnTrigger", TimerObject_OnTrigger_Entry, nullptr);
+
+// 0x00496660 (ecx = self; stack: index; ret 4; caller 0x00496c60). TimerObject slot 0x4e (+0x138): sends trigger
+// +0x4d4[index] (Object_SendTrigger 0x00461870, eax = game+0xa84; self). Executed in recorded runs.
+uint32_t TimerObject_Fire(uint32_t self, uint32_t index)
+{
+    return orig::fn_00461870(D(GameP() + 0xa84), D(self + 0x4d4 + index * 4), self);
+}
+static uint32_t TimerObject_Fire_Abi(uint32_t ecx, uint32_t a0)
+{
+    return TimerObject_Fire(ecx, a0);
+}
+ABI_ENTRY_00496660(TimerObject_Fire_Entry, TimerObject_Fire_Abi)
+HOOK(0x00496660, "TimerObject_Fire", TimerObject_Fire_Entry, nullptr);
+
+// 0x00496690 (edi = elapsed time; stack: timer, times, count; ret 0xc; callers 0x00496750, 0x00496da0). Advances the
+// elapsed time by the frame time and fires (timer vt+0x138(i)) every entry with previous <= times[i] < new. After
+// the last entry: a looping timer (+0x4a8) wraps (previous = 0, elapsed -= times[i], restart at entry 0); otherwise
+// the end trigger +0x4a4 is sent (Object_SendTrigger, when set) and the timer removes itself (vt+0xdc()). The
+// previous time lives in the original's own argument slot (the timer pointer's). Executed in recorded runs.
+uint32_t Timer_Advance(uint32_t elapsed, uint32_t timer, uint32_t times, uint32_t count)
+{
+    uint32_t prev = D(elapsed);
+    Fl(elapsed) = Dt() + Fl(elapsed);
+    uint32_t r = count;
+    for (int32_t i = 0; i < static_cast<int32_t>(count); ++i)
+    {
+        const float t = Fl(times + static_cast<uint32_t>(i) * 4);
+        if (bf(prev) > t || bf(prev) != bf(prev) || t != t)
+            continue;
+        if (!(Fl(elapsed) > Fl(times + static_cast<uint32_t>(i) * 4)))
+            return r;
+        r = VC(timer, 0x138, static_cast<uint32_t>(i));
+        if (i != static_cast<int32_t>(count) - 1)
+            continue;
+        if (By(timer + 0x4a8))
+        {
+            prev = 0;
+            Fl(elapsed) = Fl(elapsed) - Fl(times + static_cast<uint32_t>(i) * 4);
+            i = -1;
+            continue;
+        }
+        if (D(timer + 0x4a4))
+            orig::fn_00461870(D(GameP() + 0xa84), D(timer + 0x4a4), timer);
+        r = VC(timer, 0xdc);
+    }
+    return r;
+}
+static uint32_t Timer_Advance_Abi(uint32_t edi, uint32_t a0, uint32_t a1, uint32_t a2)
+{
+    return Timer_Advance(edi, a0, a1, a2);
+}
+ABI_ENTRY_00496690(Timer_Advance_Entry, Timer_Advance_Abi)
+HOOK(0x00496690, "Timer_Advance", Timer_Advance_Entry, nullptr);
+
+// 0x00496750 (ecx = self; caller 0x00496da0). TimerObject slot 0x2f, the update. While running (+0x4a9): an animated
+// timer that does not loop ends when the animation slot 4 (0x00408800) has flag +0x1c bit 1 (end trigger sent,
+// vt+0xdc()); otherwise Timer_Advance(+0x500; self, +0x4ac, +0x4fc), and with "display" the widget +0x508
+// ("ui_mission_timer", 0x00463890 ebx = name; game+0xa70) shows max(0, countdown +0x504 - elapsed, or elapsed when
+// there is no countdown) (UiText_ShowTime 0x00465b70); without a widget "display" is cleared. The widget's +0x474
+// bit 2 is set while shown, otherwise cleared and the widget forgotten. Executed in recorded runs.
+uint32_t TimerObject_Update(uint32_t self)
+{
+    bool shown = false;
+    if (By(self + 0x4a9))
+    {
+        if (By(self + 0x4aa))
+        {
+            if (!By(self + 0x4a8) && (By(orig::fn_00408800(4, self) + 0x1c) & 2))
+            {
+                if (D(self + 0x4a4))
+                    orig::fn_00461870(D(D(0x005fe490) + 0xa84), D(self + 0x4a4), self);
+                VC(self, 0xdc);
+            }
+        }
+        else
+        {
+            Timer_Advance(self + 0x500, self, self + 0x4ac, D(self + 0x4fc));
+            if (By(self + 0x4ab))
+            {
+                if (D(self + 0x508) == 0)
+                    D(self + 0x508) = orig::fn_00463890(0x005b0008, D(GameP() + 0xa70));  // "ui_mission_timer"
+                if (const uint32_t w = D(self + 0x508))
+                {
+                    float v;
+                    if (Fl(self + 0x504) == K(kZero))
+                        v = Fl(self + 0x500);
+                    else
+                        v = Fl(self + 0x504) - Fl(self + 0x500);
+                    if (!(v > K(kZero)))
+                        v = 0.0f;
+                    orig::fn_00465b70(w, fb(v));
+                    shown = true;
+                }
+                else
+                {
+                    By(self + 0x4ab) = 0;
+                }
+            }
+        }
+    }
+    const uint32_t w = D(self + 0x508);
+    if (!w)
+        return 0;
+    if (shown)
+    {
+        D(w + 0x474) |= 4u;
+        return w;
+    }
+    D(w + 0x474) &= ~4u;
+    D(self + 0x508) = 0;
+    return w;
+}
+static uint32_t TimerObject_Update_Abi(uint32_t ecx)
+{
+    return TimerObject_Update(ecx);
+}
+ABI_ENTRY_00496750(TimerObject_Update_Entry, TimerObject_Update_Abi)
+HOOK(0x00496750, "TimerObject_Update", TimerObject_Update_Entry, nullptr);
+
+// 0x004968b0 (ecx = self; stack: a0..a3; ret 0x10). ArmyTimerObject (vtable 0x005a2800) slot 6, the property read:
+// TimerObject_ReadProps, "platoon_name" +0x50c (default "noPlatoonNameGive"), bytes +0x78c = 0, +0x788 = +0x784 = 0.
+// Up to 50 "create_platoon_%d" strings "time/a/b" (stops at the first missing; atof, then atol twice) fill times
+// +0x52c, +0x5f4, +0x6bc, count +0x784 (entries with time <= 0 skipped; a malformed one logs "Army Timer has invalid
+// property format"); sorted by time. Then byte +0x78d = 0, +0x790 = 0, and up to ten "grunt_limits_%d" the same way
+// into +0x794 / +0x7bc / +0x7e4, count +0x80c, sorted. Returns 0. Not executed in recorded runs.
+uint32_t ArmyTimerObject_ReadProps(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
+{
+    uint8_t fr[0x40];  // the original frame: value buffer +0, name buffer +0x20
+    const uint32_t value = u(fr);
+    const uint32_t name = u(fr) + 0x20;
+    TimerObject_ReadProps(self, a0, a1, a2, a3);
+    orig::fn_004533a0(0x0058f810, self + 0x50c, self, 0x0058f800, a2, a3, 0);  // "platoon_name"
+    By(self + 0x78c) = 0;
+    D(self + 0x788) = 0;
+    D(self + 0x784) = 0;
+    struct Table
+    {
+        uint32_t fmt, last, count, times, a, b;
+    };
+    const Table tables[2] = {{0x0058f7ec, 0x32, 0x784, 0x52c, 0x5f4, 0x6bc},   // "create_platoon_%d"
+                             {0x0058f7b0, 0xa, 0x80c, 0x794, 0x7bc, 0x7e4}};   // "grunt_limits_%d"
+    for (uint32_t k = 0; k < 2; ++k)
+    {
+        const Table& t = tables[k];
+        if (k == 1)
+        {
+            By(self + 0x78d) = 0;
+            D(self + 0x790) = 0;
+            D(self + 0x80c) = 0;
+        }
+        for (uint32_t i = 1; i <= t.last; ++i)
+        {
+            orig::fn_0053814f(name, t.fmt, i);
+            if (!orig::fn_004533a0(0x0058f85c, value, self, name, a2, a3, 0))  // default "Unknown"
+                break;
+            uint32_t slash = orig::fn_005386b0(value, '/');
+            if (slash)
+            {
+                By(slash) = 0;
+                Fl(self + t.times + D(self + t.count) * 4) = orig::fn_005387fb(value);
+                if (!(Fl(self + t.times + D(self + t.count) * 4) > K(kZero)))
+                    continue;
+                const uint32_t p = slash + 1;
+                slash = orig::fn_005386b0(p, '/');
+                if (slash)
+                {
+                    By(slash) = 0;
+                    D(self + t.a + D(self + t.count) * 4) = static_cast<uint32_t>(Atol(p));
+                    D(self + t.b + D(self + t.count) * 4) = static_cast<uint32_t>(Atol(slash + 1));
+                    ++D(self + t.count);
+                    continue;
+                }
+            }
+            orig::fn_00407ff0(D(GameP() + 0x34), 0x0058f7c0, value, 0);  // "Army Timer has invalid property format"
+        }
+        SortByTime(self, t.count, t.times, t.a, t.b);
+    }
+    return 0;
+}
+static uint32_t ArmyTimerObject_ReadProps_Abi(uint32_t ecx, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
+{
+    return ArmyTimerObject_ReadProps(ecx, a0, a1, a2, a3);
+}
+ABI_ENTRY_004968b0(ArmyTimerObject_ReadProps_Entry, ArmyTimerObject_ReadProps_Abi)
+HOOK(0x004968b0, "ArmyTimerObject_ReadProps", ArmyTimerObject_ReadProps_Entry, nullptr);
+
+// 0x00496c60 (ecx = self; stack: index; ret 4). ArmyTimerObject slot 0x4e (+0x138, fire entry index). With +0x78c:
+// a platoon "platoon_name" is created at the timer's matrix (as TimerObject_Command, with +0x5f4[index] /
+// +0x6bc[index] selecting the game tables), given gen_text and the player. Otherwise with +0x78d the grunt limits
+// game+0xbf0 (= +0x7bc[index] when game+0xbf0 == game+0xbf4, else +0x7e4[index]), +0xbf4 = +0x7bc[index], +0xbf8 =
+// +0x7e4[index]. Otherwise TimerObject_Fire. Not executed in recorded runs.
+uint32_t ArmyTimerObject_Fire(uint32_t self, uint32_t index)
+{
+    uint32_t m[0x44 / 4];
+    if (By(self + 0x78c))
+    {
+        VC(self, 0x5c, u(m));
+        const uint32_t obj =
+            orig::fn_0045f020(0, self + 0x50c, D(GameP() + 0xa84), u(m), W(self + 0x394), 0, 0, 0, 0, 0xaa, 0);
+        const uint32_t b = D(self + 0x6bc + index * 4);
+        const uint32_t a = D(self + 0x5f4 + index * 4);
+        const uint32_t g = GameP();
+        orig::fn_004331f0(obj, D(g + 0xbfc + a * 4), D(g + 0xc0c + a * 4), D(g + 0xc1c + b * 4), D(g + 0xc2c + b * 4));
+        VC(obj, 0x238, self + 0x484, 0u);
+        return VC(obj, 0x23c, D(GameP() + 0x748), 1u);
+    }
+    if (By(self + 0x78d))
+    {
+        const uint32_t g = GameP();
+        D(g + 0xbf0) = D(g + 0xbf0) == D(g + 0xbf4) ? D(self + 0x7bc + index * 4) : D(self + 0x7e4 + index * 4);
+        D(g + 0xbf4) = D(self + 0x7bc + index * 4);
+        const uint32_t v = D(self + 0x7e4 + index * 4);
+        D(g + 0xbf8) = v;
+        return g;
+    }
+    return TimerObject_Fire(self, index);
+}
+static uint32_t ArmyTimerObject_Fire_Abi(uint32_t ecx, uint32_t a0)
+{
+    return ArmyTimerObject_Fire(ecx, a0);
+}
+ABI_ENTRY_00496c60(ArmyTimerObject_Fire_Entry, ArmyTimerObject_Fire_Abi)
+HOOK(0x00496c60, "ArmyTimerObject_Fire", ArmyTimerObject_Fire_Entry, nullptr);

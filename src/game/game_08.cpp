@@ -1614,10 +1614,14 @@ float X87Cos(float angle)
 // by the string at obj+name (search 0x004e0f40 over the skeleton of 0x00408800 (eax = 4, ecx = obj)'s entry) gets
 // {callback, obj} in the node table obj+0x410 +0x14 at its index (word +0xa of the node; a missing node is read
 // through null as in the original).
-void Turret_SetBoneCallback(uint32_t obj, uint32_t name, uint32_t callback)
+uint32_t Turret_ModelEntry(uint32_t obj)  // [obj+0x414 +0xc + idx*12 + 8], idx = *0x00408800(eax = 4, ecx = obj)
 {
     const uint32_t idx = D(orig::fn_00408800(4, obj), 0);
-    const uint32_t e = D(D(D(D(D(obj, 0x414), 0xc) + idx * 12, 8), 0x2c), 4);
+    return D(D(D(obj, 0x414), 0xc) + idx * 12, 8);
+}
+void Turret_SetNodeCallback(uint32_t obj, uint32_t entry, uint32_t name, uint32_t user, uint32_t callback)
+{
+    const uint32_t e = D(D(entry, 0x2c), 4);
     uint32_t node = 0;
     const uint32_t first = D(e, 0x1c);
     if (first && D(e, 0x20) != 0)
@@ -1633,8 +1637,12 @@ void Turret_SetBoneCallback(uint32_t obj, uint32_t name, uint32_t callback)
                 node = D(n + *reinterpret_cast<uint16_t*>(n + 2), 0);
         }
     }
-    D(D(D(obj, 0x410), 0x14), static_cast<uint32_t>(*reinterpret_cast<uint16_t*>(node + 0xa)) * 8 + 4) = obj;
+    D(D(D(obj, 0x410), 0x14), static_cast<uint32_t>(*reinterpret_cast<uint16_t*>(node + 0xa)) * 8 + 4) = user;
     D(D(D(obj, 0x410), 0x14), static_cast<uint32_t>(*reinterpret_cast<uint16_t*>(node + 0xa)) * 8) = callback;
+}
+void Turret_SetBoneCallback(uint32_t obj, uint32_t name, uint32_t callback)
+{
+    Turret_SetNodeCallback(obj, Turret_ModelEntry(obj), name, obj, callback);
 }
 }  // namespace
 
@@ -1850,3 +1858,1098 @@ static uint32_t fn_00498ff0_Abi(uint32_t eax, uint32_t ebx, uint32_t a0, uint32_
 }
 ABI_ENTRY_00498ff0(fn_00498ff0_Entry, fn_00498ff0_Abi)
 HOOK(0x00498ff0, "fn_00498ff0", fn_00498ff0_Entry, nullptr);
+
+namespace
+{
+// The clamp of a turret angle to [min, max] used by the turret updates, skipped when either limit is 0:
+// `fld v; fcomp min; jp` (v < min -> min), then `fld v; fcomp max; jne` (v > max -> max).
+void ClampAngle(uint32_t obj, uint32_t angle, uint32_t lo, uint32_t hi)
+{
+    if (Fl(obj, lo) == K(0x0056c05c) || Fl(obj, hi) == K(0x0056c05c))
+        return;
+    if (Fl(obj, angle) < Fl(obj, lo))
+        D(obj, angle) = D(obj, lo);
+    if (Fl(obj, angle) > Fl(obj, hi))
+        D(obj, angle) = D(obj, hi);
+}
+}  // namespace
+
+// 0x004990a0 (ecx = turret; StigTurret vtable 0x005a19d8 slot +0xbc, the update): 0x00498710; when the player is
+// mounted on this turret (g_game +0xac8 and +0xacc == turret) and the camera mode (0x0040fab0, eax = g_game +0xa68) is
+// not 2: speeds = zoomed (0x00498310) ? (+0x5c4, +0x5c8) : (+0x5bc, +0x5c0); with input device g_game +0xa80 and dt
+// 0x00604a90, 0x00414a30 (esi = device, edi = axis; speed, 0.21, 0.5): +0x620 += axis4 * dt, -= axis5 * dt (turn
+// speed), +0x61c += axis7 * dt, -= axis6 * dt (pitch speed); +0x61c clamped to pitch_range +0x64c/+0x650, +0x620 to
+// yaw_range +0x654/+0x658 (each skipped when a limit is 0). Moving: start the loop "wpn_stig_move_lp" (g_game +0x2c
+// vt+0xd0(0x0058f460, 0, 1, 0, -1, 0) -> +0x65c) unless playing; still: stop it (vt+0xd8(&+0x65c, 0), +0x65c = 0).
+// Then button 8 (0x00414810: al = 1, ebx = 8, esi = device; 0.5) and vt+0x138(0) -> vt+0x13c(0, 0) (fire). Not
+// executed in recorded runs.
+uint32_t fn_004990a0(uint32_t obj)
+{
+    float L[5];  // sub esp, 0x14: dt, turn speed, pitch speed, old +0x620, old +0x61c
+    uint32_t r = fn_00498710(obj);
+    const uint32_t g = G();
+    if (!D(g, 0xac8) || D(g, 0xacc) != obj)
+        return D(g, 0xac8);
+    r = orig::fn_0040fab0(D(g, 0xa68));
+    if (r == 2)
+        return r;
+    L[0] = K(0x00604a90);
+    L[1] = static_cast<uint8_t>(fn_00498310(obj)) ? Fl(obj, 0x5c4) : Fl(obj, 0x5bc);
+    L[2] = static_cast<uint8_t>(fn_00498310(obj)) ? Fl(obj, 0x5c8) : Fl(obj, 0x5c0);
+    L[3] = Fl(obj, 0x620);
+    L[4] = Fl(obj, 0x61c);
+    float v = orig::fn_00414a30(D(G(), 0xa80), 4, f2u(L[1]), 0x3e570a3du, 0x3f000000u) * L[0];
+    Fl(obj, 0x620) = v + Fl(obj, 0x620);
+    v = orig::fn_00414a30(D(G(), 0xa80), 5, f2u(L[1]), 0x3e570a3du, 0x3f000000u) * L[0];
+    Fl(obj, 0x620) = Fl(obj, 0x620) - v;
+    v = orig::fn_00414a30(D(G(), 0xa80), 7, f2u(L[2]), 0x3e570a3du, 0x3f000000u) * L[0];
+    Fl(obj, 0x61c) = v + Fl(obj, 0x61c);
+    v = orig::fn_00414a30(D(G(), 0xa80), 6, f2u(L[2]), 0x3e570a3du, 0x3f000000u) * L[0];
+    Fl(obj, 0x61c) = Fl(obj, 0x61c) - v;
+    ClampAngle(obj, 0x61c, 0x64c, 0x650);
+    ClampAngle(obj, 0x620, 0x654, 0x658);
+    const bool still = !(std::fabs(L[3] - Fl(obj, 0x620)) > K(0x0056c05c)) &&
+                       !(std::fabs(L[4] - Fl(obj, 0x61c)) > K(0x0056c05c));
+    if (still)
+    {
+        if (D(obj, 0x65c))
+        {
+            r = VC<uint32_t>(D(G(), 0x2c), 0xd8, obj + 0x65c, 0u);
+            D(obj, 0x65c) = 0;
+        }
+    }
+    else if (!D(obj, 0x65c))
+    {
+        r = VC<uint32_t>(D(G(), 0x2c), 0xd0, 0x0058f460u, 0u, 1u, 0u, 0xffffffffu, 0u);
+        D(obj, 0x65c) = r;
+    }
+    r = orig::fn_00414810(Lo8(r, 1), 8, D(G(), 0xa80), 0x3f000000u);
+    if (!static_cast<uint8_t>(r))
+        return r;
+    r = VC<uint32_t>(obj, 0x138, 0u);
+    if (!static_cast<uint8_t>(r))
+        return r;
+    return VC<uint32_t>(obj, 0x13c, 0u, 0u);
+}
+static uint32_t fn_004990a0_Abi(uint32_t ecx)
+{
+    return fn_004990a0(ecx);
+}
+ABI_ENTRY_004990a0(fn_004990a0_Entry, fn_004990a0_Abi)
+HOOK(0x004990a0, "fn_004990a0", fn_004990a0_Entry, nullptr);
+
+// 0x004993b0 (ecx = turret; StigTurret +0x154): eax = +0x530 >> 9 with al = bit 9 (ai_never_leave not set). Not
+// executed in recorded runs.
+uint32_t fn_004993b0(uint32_t obj)
+{
+    const uint32_t v = D(obj, 0x530) >> 9;
+    return Lo8(v, v & 1);
+}
+static uint32_t fn_004993b0_Abi(uint32_t ecx)
+{
+    return fn_004993b0(ecx);
+}
+ABI_ENTRY_004993b0(fn_004993b0_Entry, fn_004993b0_Abi)
+HOOK(0x004993b0, "fn_004993b0", fn_004993b0_Entry, nullptr);
+
+// 0x004993c0 (ecx = turret; stack: force (byte); ret 4; StigTurret +0x174): al = force || (+0x530 & 0x100,
+// ai_can_use). Not executed in recorded runs.
+uint32_t fn_004993c0(uint32_t obj, uint32_t force)
+{
+    if (static_cast<uint8_t>(force))
+        return Lo8(force, 1);
+    const uint32_t f = D(obj, 0x530);
+    return Lo8(f, (f & 0x100) ? 1u : 0u);
+}
+static uint32_t fn_004993c0_Abi(uint32_t ecx, uint32_t a0)
+{
+    return fn_004993c0(ecx, a0);
+}
+ABI_ENTRY_004993c0(fn_004993c0_Entry, fn_004993c0_Abi)
+HOOK(0x004993c0, "fn_004993c0", fn_004993c0_Entry, nullptr);
+
+// ---------------------------------------------------------------------------------------------------------------
+// Zeppelin turret (vtable 0x005abf48, slot-1 class PickupObject; strings "zeppelin_lock_bone_name",
+// "zep_turret_enter", "Zeppelin turret could not find zeppelin tag counterpart"). +0x62c pivot bone, +0x64c zeppelin
+// lock bone, +0x66c second emitter bone, +0x68c..+0x698 pitch/yaw ranges, +0x69c mortar_recycle_time, +0x6a0 last
+// mortar time, +0x6a4 mortar_projectile_name, +0x6c4 mortar_emitter_bone_name, +0x6e4 mortar_muzzle_bone_name, +0x704
+// mortar_muzzle_fx_name, +0x724 the zeppelin (reference), +0x728 zeppelin looked up.
+
+// 0x004993e0 (ecx = turret; stack: a0, a1, set, values; ret 0x10; vtable 0x005abf48 slot +0x158): 0x00457810 (eax =
+// turret); the mountable-turret properties 0x004980c0; emitter_bone_name_2 +0x66c, pivot_bone_name +0x62c,
+// zeppelin_lock_bone_name +0x64c, pitch/yaw ranges +0x68c..+0x698 (-45/45, then to radians), mortar_recycle_time
+// +0x69c (1.0), mortar_projectile_name +0x6a4, mortar_emitter_bone_name +0x6c4, mortar_muzzle_fx_name +0x704,
+// mortar_muzzle_bone_name +0x6e4; +0x6a0 = 0; the pivot bone gets the callback 0x00499670; +0x724 = 0, +0x728 = 0.
+// Not executed in recorded runs.
+uint32_t fn_004993e0(uint32_t obj, uint32_t a0, uint32_t a1, uint32_t set, uint32_t values)
+{
+    orig::fn_00457810(obj);
+    fn_004980c0(obj, a0, a1, set, values);
+    orig::fn_004533a0(0x0058a9a4, obj + 0x66c, obj, 0x0058f44c, set, values, 0);   // emitter_bone_name_2
+    orig::fn_004533a0(0x0058a9a4, obj + 0x62c, obj, 0x0058f4e0, set, values, 0);   // pivot_bone_name
+    orig::fn_004533a0(0x0058a9a4, obj + 0x64c, obj, 0x0058f434, set, values, 0);   // zeppelin_lock_bone_name
+    orig::fn_004534a0(values, obj + 0x68c, obj, 0x0058f4d0, set, 0xc2340000u, 0);  // pitch_range_min
+    orig::fn_004534a0(values, obj + 0x690, obj, 0x0058f4c0, set, 0x42340000u, 0);  // pitch_range_max
+    orig::fn_004534a0(values, obj + 0x694, obj, 0x0058f4b0, set, 0xc2340000u, 0);  // yaw_range_min
+    orig::fn_004534a0(values, obj + 0x698, obj, 0x0058f4a0, set, 0x42340000u, 0);  // yaw_range_max
+    orig::fn_004534a0(values, obj + 0x69c, obj, 0x0058f420, set, 0x3f800000u, 0);  // mortar_recycle_time
+    orig::fn_004533a0(0x0058a9a4, obj + 0x6a4, obj, 0x0058f408, set, values, 0);   // mortar_projectile_name
+    orig::fn_004533a0(0x0058a9a4, obj + 0x6c4, obj, 0x0058f3ec, set, values, 0);   // mortar_emitter_bone_name
+    orig::fn_004533a0(0x0058a9a4, obj + 0x704, obj, 0x0058f3d4, set, values, 0);   // mortar_muzzle_fx_name
+    orig::fn_004533a0(0x0058a9a4, obj + 0x6e4, obj, 0x0058f3bc, set, values, 0);   // mortar_muzzle_bone_name
+    Fl(obj, 0x68c) = Fl(obj, 0x68c) * K(0x005bcba0);
+    D(obj, 0x6a0) = 0;
+    Fl(obj, 0x690) = Fl(obj, 0x690) * K(0x005bcba0);
+    Fl(obj, 0x694) = Fl(obj, 0x694) * K(0x005bcba0);
+    Fl(obj, 0x698) = Fl(obj, 0x698) * K(0x005bcba0);
+    Turret_SetBoneCallback(obj, obj + 0x62c, 0x00499670);
+    D(obj, 0x724) = 0;
+    B(obj, 0x728) = 0;
+    return D(D(obj, 0x410), 0x14);
+}
+static uint32_t fn_004993e0_Abi(uint32_t ecx, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
+{
+    return fn_004993e0(ecx, a0, a1, a2, a3);
+}
+ABI_ENTRY_004993e0(fn_004993e0_Entry, fn_004993e0_Abi)
+HOOK(0x004993e0, "fn_004993e0", fn_004993e0_Entry, nullptr);
+
+// 0x00499630 (ecx = turret; vtable 0x005abf48 slot +0x21c, remove): 0x004986b0, then the zeppelin reference +0x724
+// released and cleared. The tracker's next function 0x004996a0 leaves 0x00499670 (the pivot-bone callback, which calls
+// 0x00498ff0) untracked inside this one's extent; this function ends at 0x0049966b. Not executed in recorded runs.
+uint32_t fn_00499630(uint32_t obj)
+{
+    const uint32_t r = fn_004986b0(obj);
+    if (!D(obj, 0x724))
+        return r;
+    return ReleaseSlot(obj + 0x724);
+}
+static uint32_t fn_00499630_Abi(uint32_t ecx)
+{
+    return fn_00499630(ecx);
+}
+ABI_ENTRY_00499630(fn_00499630_Entry, fn_00499630_Abi)
+HOOK(0x00499630, "fn_00499630", fn_00499630_Entry, nullptr);
+
+// 0x004996a0 (esi = turret; callers 0x00499710, 0x00499bd0): first-time lookup of the zeppelin: when +0x724 is 0 and
+// +0x728 clear, +0x728 = 1 and 0x004592e0 (eax = 0, ecx = 0; turret) -> +0x724; none: Debug_Printf 0x00407ff0(g_game
+// +0x34, "Zeppelin turret could not find zeppelin tag counterpart"); else ++zeppelin+0x28 and Object_Attach 0x004539f0
+// (eax = zeppelin_lock_bone_name +0x64c, ecx = zeppelin, edx = turret; 0, 1, 0). Not executed in recorded runs.
+uint32_t fn_004996a0(uint32_t obj)
+{
+    if (D(obj, 0x724))
+        return D(obj, 0x724);
+    if (B(obj, 0x728))
+        return B(obj, 0x728);
+    B(obj, 0x728) = 1;
+    const uint32_t z = orig::fn_004592e0(0, 0, obj);
+    D(obj, 0x724) = z;
+    if (!z)
+        return orig::fn_00407ff0(D(G(), 0x34), 0x0058f384, 0, 0);
+    ++D(z, 0x28);
+    return static_cast<uint32_t>(orig::fn_004539f0(obj + 0x64c, D(obj, 0x724), obj, 0, 1, 0));
+}
+static uint32_t fn_004996a0_Abi(uint32_t esi)
+{
+    return fn_004996a0(esi);
+}
+ABI_ENTRY_004996a0(fn_004996a0_Entry, fn_004996a0_Abi)
+HOOK(0x004996a0, "fn_004996a0", fn_004996a0_Entry, nullptr);
+
+// 0x00499710 (ecx = turret; vtable 0x005abf48 slot +0x1fc, the update): 0x00498710, 0x004996a0; when the player is
+// mounted here and the camera mode is not 2: as 0x004990a0 with 0x00414aa0 for the axes (no move sound) and the ranges
+// +0x68c/+0x690 (on +0x61c) and +0x694/+0x698 (on +0x620); button 8 (0x00414810) -> vt+0x138(0) -> vt+0x13c(0, 0);
+// button 9 (0x00414730: al = 1, ebx = 9, esi = device; 0.5) -> vt+0x138(1) -> vt+0x13c(1, 0) (mortar). Not executed in
+// recorded runs.
+uint32_t fn_00499710(uint32_t obj)
+{
+    float L[3];  // sub esp, 0xc: dt, turn speed, pitch speed
+    fn_00498710(obj);
+    uint32_t r = fn_004996a0(obj);
+    const uint32_t g = G();
+    if (!D(g, 0xac8) || D(g, 0xacc) != obj)
+        return D(g, 0xac8);
+    r = orig::fn_0040fab0(D(g, 0xa68));
+    if (r == 2)
+        return r;
+    L[0] = K(0x00604a90);
+    L[1] = static_cast<uint8_t>(fn_00498310(obj)) ? Fl(obj, 0x5c4) : Fl(obj, 0x5bc);
+    L[2] = static_cast<uint8_t>(fn_00498310(obj)) ? Fl(obj, 0x5c8) : Fl(obj, 0x5c0);
+    float v = orig::fn_00414aa0(D(G(), 0xa80), 4, f2u(L[1]), 0x3e570a3du, 0x3f000000u) * L[0];
+    Fl(obj, 0x620) = v + Fl(obj, 0x620);
+    v = orig::fn_00414aa0(D(G(), 0xa80), 5, f2u(L[1]), 0x3e570a3du, 0x3f000000u) * L[0];
+    Fl(obj, 0x620) = Fl(obj, 0x620) - v;
+    v = orig::fn_00414aa0(D(G(), 0xa80), 7, f2u(L[2]), 0x3e570a3du, 0x3f000000u) * L[0];
+    Fl(obj, 0x61c) = v + Fl(obj, 0x61c);
+    v = orig::fn_00414aa0(D(G(), 0xa80), 6, f2u(L[2]), 0x3e570a3du, 0x3f000000u) * L[0];
+    Fl(obj, 0x61c) = Fl(obj, 0x61c) - v;
+    ClampAngle(obj, 0x61c, 0x68c, 0x690);
+    ClampAngle(obj, 0x620, 0x694, 0x698);
+    r = orig::fn_00414810(1, 8, D(G(), 0xa80), 0x3f000000u);
+    if (static_cast<uint8_t>(r))
+    {
+        r = VC<uint32_t>(obj, 0x138, 0u);
+        if (static_cast<uint8_t>(r))
+            r = VC<uint32_t>(obj, 0x13c, 0u, 0u);
+    }
+    r = orig::fn_00414730(Lo8(r, 1), 9, D(G(), 0xa80), 0x3f000000u);
+    if (!static_cast<uint8_t>(r))
+        return r;
+    r = VC<uint32_t>(obj, 0x138, 1u);
+    if (!static_cast<uint8_t>(r))
+        return r;
+    return VC<uint32_t>(obj, 0x13c, 1u, 0u);
+}
+static uint32_t fn_00499710_Abi(uint32_t ecx)
+{
+    return fn_00499710(ecx);
+}
+ABI_ENTRY_00499710(fn_00499710_Entry, fn_00499710_Abi)
+HOOK(0x00499710, "fn_00499710", fn_00499710_Entry, nullptr);
+
+// 0x004999c0 (ecx = turret; stack: weapon; ret 4; vtable 0x005abf48 slot +0x278): ready to fire. +0x530 |= 0x40,
+// &= ~0x80; weapon 0 tail-jumps to 0x004988e0 (its argument slot zeroed); weapon != 0 (mortar): last mortar time +0x6a0
+// == 0 -> al = 1, else eax = (time 0x00604a98 - +0x6a0 > mortar_recycle_time +0x69c). Not executed in recorded runs.
+uint32_t fn_004999c0(uint32_t obj, uint32_t weapon)
+{
+    const uint32_t f = D(obj, 0x530) | 0x40;
+    D(obj, 0x530) = f;
+    D(obj, 0x530) = f & 0xffffff7fu;
+    if (!weapon)
+        return fn_004988e0(obj);
+    const float last = Fl(obj, 0x6a0);
+    if (last == K(0x0056c05c))
+        return 1;
+    return (K(0x00604a98) - last > Fl(obj, 0x69c)) ? 1u : 0u;
+}
+static uint32_t fn_004999c0_Abi(uint32_t ecx, uint32_t a0)
+{
+    return fn_004999c0(ecx, a0);
+}
+ABI_ENTRY_004999c0(fn_004999c0_Entry, fn_004999c0_Abi)
+HOOK(0x004999c0, "fn_004999c0", fn_004999c0_Entry, nullptr);
+
+// 0x00499a30 (ecx = turret; stack: weapon, unused; ret 8; vtable 0x005abf48 slot +0x27c): fire. Weapon 0: two
+// projectiles 0x0047dbf0 (eax = emitter bone +0x4a0, then the second emitter +0x66c; ecx = projectile_name +0x460, edx =
+// turret; g_game +0xaa8, player, auto_aim byte +0x538), vt+0x144(0), +0x524 = time; al = 1. Weapon != 0 (mortar):
+// 0x0047dbf0 (eax = +0x6c4, ecx = +0x6a4, edx = turret; g_game +0xaa8, player, 0), vt+0x144(weapon), +0x6a0 = time, a
+// player occupant counts a shot (++g_game +0x2718); returns (projectile != 0). Not executed in recorded runs.
+uint32_t fn_00499a30(uint32_t obj, uint32_t weapon)
+{
+    if (!weapon)
+    {
+        uint32_t g = G();
+        orig::fn_0047dbf0(obj + 0x4a0, obj + 0x460, obj, D(g, 0xaa8), D(g, 0x748), static_cast<uint32_t>(B(obj, 0x538)));
+        g = G();
+        orig::fn_0047dbf0(obj + 0x66c, obj + 0x460, obj, D(g, 0xaa8), D(g, 0x748), static_cast<uint32_t>(B(obj, 0x538)));
+        VC<uint32_t>(obj, 0x144, 0u);
+        D(obj, 0x524) = D(0x00604a98, 0);
+        return Lo8(D(0x00604a98, 0), 1);
+    }
+    const uint32_t g = G();
+    const uint32_t proj = orig::fn_0047dbf0(obj + 0x6c4, obj + 0x6a4, obj, D(g, 0xaa8), D(g, 0x748), 0);
+    VC<uint32_t>(obj, 0x144, weapon);
+    D(obj, 0x6a0) = D(0x00604a98, 0);
+    const uint32_t occ = D(obj, 0x628);
+    if (occ && occ == D(G(), 0x748))
+        ++D(G(), 0x2718);
+    return proj != 0 ? 1u : 0u;
+}
+static uint32_t fn_00499a30_Abi(uint32_t ecx, uint32_t a0, uint32_t /*a1*/)
+{
+    return fn_00499a30(ecx, a0);
+}
+ABI_ENTRY_00499a30(fn_00499a30_Entry, fn_00499a30_Abi)
+HOOK(0x00499a30, "fn_00499a30", fn_00499a30_Entry, nullptr);
+
+// 0x00499b30 (ecx = turret; stack: weapon; ret 4; vtable 0x005abf48 slot +0x284): muzzle flash. Weapon 0: 0x00497fd0
+// (through the thunk 0x00498a70). Mortar: with mortar_muzzle_fx_name +0x704 and mortar_muzzle_bone_name +0x6e4, a
+// one-shot Fx_Create 0x0041cc60 (al = 0, ecx = g_game +0xa90; +0x704, desc {4, .., bone at +0x18, turret at +0x1c}) and
+// al = 1; else al = 0. Other desc words are stack garbage in the original (0 here). Not executed in recorded runs.
+uint32_t fn_00499b30(uint32_t obj, uint32_t weapon)
+{
+    uint32_t desc[32] = {};  // sub esp, 0x80
+    if (!weapon)
+        return fn_00497fd0(obj);
+    desc[7] = obj;
+    desc[0] = 4;
+    if (!B(obj, 0x704))
+        return Lo8(weapon, 0);
+    if (!B(obj, 0x6e4))
+        return Lo8(obj + 0x6e4, 0);
+    desc[6] = obj + 0x6e4;
+    return Lo8(orig::fn_0041cc60((obj + 0x6e4) & 0xffffff00u, D(G(), 0xa90), obj + 0x704, u(desc)), 1);
+}
+static uint32_t fn_00499b30_Abi(uint32_t ecx, uint32_t a0)
+{
+    return fn_00499b30(ecx, a0);
+}
+ABI_ENTRY_00499b30(fn_00499b30_Entry, fn_00499b30_Abi)
+HOOK(0x00499b30, "fn_00499b30", fn_00499b30_Entry, nullptr);
+
+// 0x00499bb0 (ecx = turret; stack: weapon; ret 4; vtable 0x005abf48 slot +0x280, 0x005a9bb0 +0x4e8): weapon 0 tail-jumps
+// to 0x00498a60 (auto_aim; its argument slot zeroed); else al = 0. Not executed in recorded runs.
+uint32_t fn_00499bb0(uint32_t obj, uint32_t weapon)
+{
+    if (!weapon)
+        return fn_00498a60(obj);
+    return Lo8(weapon, 0);
+}
+static uint32_t fn_00499bb0_Abi(uint32_t ecx, uint32_t a0)
+{
+    return fn_00499bb0(ecx, a0);
+}
+ABI_ENTRY_00499bb0(fn_00499bb0_Entry, fn_00499bb0_Abi)
+HOOK(0x00499bb0, "fn_00499bb0", fn_00499bb0_Entry, nullptr);
+
+// 0x00499bd0 (ecx = turret; vtable 0x005abf48 slot +0x2b8, mount): 0x004996a0; mount 0x00498a80 (its al kept);
+// Anim_Set 0x00408d90 (eax = -1, esi = turret; "zep_turret_enter", 0x80, 0, 0, 0, 0); camera 0x0040e200 (eax = g_game
+// +0xa68, ebx = "Camera01"; turret, 0); g_game +0xac8 = 2, +0xacc = turret (even when the mount failed). Returns the
+// mount's al. Not executed in recorded runs.
+uint32_t fn_00499bd0(uint32_t obj)
+{
+    fn_004996a0(obj);
+    const uint8_t ok = static_cast<uint8_t>(fn_00498a80(obj));
+    orig::fn_00408d90(0xffffffffu, obj, 0x0058f370, 0x80, 0, 0, 0, 0);
+    orig::fn_0040e200(D(G(), 0xa68), 0x005bad94, obj, 0);
+    D(G(), 0xac8) = 2;
+    D(G(), 0xacc) = obj;
+    return Lo8(G(), ok);
+}
+static uint32_t fn_00499bd0_Abi(uint32_t ecx)
+{
+    return fn_00499bd0(ecx);
+}
+ABI_ENTRY_00499bd0(fn_00499bd0_Entry, fn_00499bd0_Abi)
+HOOK(0x00499bd0, "fn_00499bd0", fn_00499bd0_Entry, nullptr);
+
+// ---------------------------------------------------------------------------------------------------------------
+// Forge cannon (CameraPathObject vtable 0x005a0f18; strings "wpn_forgecan_*", "forge_cannon_fire"). +0x62c
+// pivot_pitch_bone_name, +0x64c pivot_yaw_bone_name, +0x66c/+0x670 pitch range, +0x674 mode_switch_threshold, +0x678/
+// +0x67c yaw range, +0x680 mortar_recycle_time, +0x684 last mortar time, +0x688 mortar_projectile_name, +0x6a8
+// mortar_emitter_bone_name, +0x6c8 mortar_muzzle_bone_name, +0x6e8 mortar_muzzle_fx_name, +0x4e0 ai_muzzle_fx_name,
+// +0x708 / +0x710 the two bone-callback records {turret, axis byte}, +0x718 move loop sound.
+
+// 0x00499c40 (ecx = turret; stack: a0, a1, set, values; ret 0x10; CameraPathObject slot +0x150, the load): the
+// mountable-turret properties 0x004980c0; the strings / values above (ranges -45/45, mode_switch_threshold -5, all
+// five then * 0.0174533); +0x684 = 0; records +0x708 = {turret, 1} and +0x710 = {turret, 0} registered with the
+// callback 0x0049a0b0 on the pitch and yaw bones. Not executed in recorded runs.
+uint32_t fn_00499c40(uint32_t obj, uint32_t a0, uint32_t a1, uint32_t set, uint32_t values)
+{
+    fn_004980c0(obj, a0, a1, set, values);
+    orig::fn_004533a0(0x0058a9a4, obj + 0x62c, obj, 0x0058f358, set, values, 0);   // pivot_pitch_bone_name
+    orig::fn_004533a0(0x0058a9a4, obj + 0x64c, obj, 0x0058f344, set, values, 0);   // pivot_yaw_bone_name
+    orig::fn_004534a0(values, obj + 0x66c, obj, 0x0058f4d0, set, 0xc2340000u, 0);  // pitch_range_min
+    orig::fn_004534a0(values, obj + 0x670, obj, 0x0058f4c0, set, 0x42340000u, 0);  // pitch_range_max
+    orig::fn_004534a0(values, obj + 0x678, obj, 0x0058f4b0, set, 0xc2340000u, 0);  // yaw_range_min
+    orig::fn_004534a0(values, obj + 0x67c, obj, 0x0058f4a0, set, 0x42340000u, 0);  // yaw_range_max
+    orig::fn_004534a0(values, obj + 0x680, obj, 0x0058f420, set, 0x3f800000u, 0);  // mortar_recycle_time
+    orig::fn_004533a0(0x0058a9a4, obj + 0x688, obj, 0x0058f408, set, values, 0);   // mortar_projectile_name
+    orig::fn_004533a0(0x0058a9a4, obj + 0x6a8, obj, 0x0058f3ec, set, values, 0);   // mortar_emitter_bone_name
+    orig::fn_004533a0(0x0058a9a4, obj + 0x6e8, obj, 0x0058f3d4, set, values, 0);   // mortar_muzzle_fx_name
+    orig::fn_004533a0(0x0058a9a4, obj + 0x6c8, obj, 0x0058f3bc, set, values, 0);   // mortar_muzzle_bone_name
+    orig::fn_004534a0(values, obj + 0x674, obj, 0x0058f32c, set, 0xc0a00000u, 0);  // mode_switch_threshold
+    orig::fn_004533a0(0x0058a9a4, obj + 0x4e0, obj, 0x0058f318, set, values, 0);   // ai_muzzle_fx_name
+    Fl(obj, 0x66c) = Fl(obj, 0x66c) * K(0x005bcba0);
+    D(obj, 0x684) = 0;
+    D(obj, 0x708) = obj;
+    B(obj, 0x70c) = 1;
+    Fl(obj, 0x670) = Fl(obj, 0x670) * K(0x005bcba0);
+    Fl(obj, 0x678) = Fl(obj, 0x678) * K(0x005bcba0);
+    Fl(obj, 0x67c) = Fl(obj, 0x67c) * K(0x005bcba0);
+    Fl(obj, 0x674) = Fl(obj, 0x674) * K(0x005bcba0);
+    const uint32_t entry = Turret_ModelEntry(obj);
+    Turret_SetNodeCallback(obj, entry, obj + 0x62c, obj + 0x708, 0x0049a0b0);
+    D(obj, 0x710) = obj;
+    B(obj, 0x714) = 0;
+    Turret_SetNodeCallback(obj, entry, obj + 0x64c, obj + 0x710, 0x0049a0b0);
+    return D(D(obj, 0x410), 0x14);
+}
+static uint32_t fn_00499c40_Abi(uint32_t ecx, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
+{
+    return fn_00499c40(ecx, a0, a1, a2, a3);
+}
+ABI_ENTRY_00499c40(fn_00499c40_Entry, fn_00499c40_Abi)
+HOOK(0x00499c40, "fn_00499c40", fn_00499c40_Entry, nullptr);
+
+// 0x00499f30 (ecx = turret; CameraPathObject +0x2b0): mount (0x00498a80); on success "wpn_forgecan_mount" (g_game
+// +0x2c vt+0xd0(0x0058f304, 0, 0, 0, -1, 0)), g_game +0xac8 = 3, +0xacc = turret; al = 1. Not executed in recorded
+// runs.
+uint32_t fn_00499f30(uint32_t obj)
+{
+    const uint32_t r = fn_00498a80(obj);
+    if (!static_cast<uint8_t>(r))
+        return r;
+    VC<uint32_t>(D(G(), 0x2c), 0xd0, 0x0058f304u, 0u, 0u, 0u, 0xffffffffu, 0u);
+    D(G(), 0xac8) = 3;
+    D(G(), 0xacc) = obj;
+    return Lo8(G(), 1);
+}
+static uint32_t fn_00499f30_Abi(uint32_t ecx)
+{
+    return fn_00499f30(ecx);
+}
+ABI_ENTRY_00499f30(fn_00499f30_Entry, fn_00499f30_Abi)
+HOOK(0x00499f30, "fn_00499f30", fn_00499f30_Entry, nullptr);
+
+// 0x00499f80 (ecx = turret; CameraPathObject +0x2b4): dismount (0x00498bb0); on success the move loop stopped (g_game
+// +0x2c vt+0xd8(&+0x718, 0), +0x718 = 0) and "wpn_forgecan_dismount" played (vt+0xd0(0x0058f2ec, 0, 0, 0, -1, 0));
+// al = 1. Not executed in recorded runs.
+uint32_t fn_00499f80(uint32_t obj)
+{
+    const uint32_t r = fn_00498bb0(obj);
+    if (!static_cast<uint8_t>(r))
+        return r;
+    VC<uint32_t>(D(G(), 0x2c), 0xd8, obj + 0x718, 0u);
+    D(obj, 0x718) = 0;
+    return Lo8(VC<uint32_t>(D(G(), 0x2c), 0xd0, 0x0058f2ecu, 0u, 0u, 0u, 0xffffffffu, 0u), 1);
+}
+static uint32_t fn_00499f80_Abi(uint32_t ecx)
+{
+    return fn_00499f80(ecx);
+}
+ABI_ENTRY_00499f80(fn_00499f80_Entry, fn_00499f80_Abi)
+HOOK(0x00499f80, "fn_00499f80", fn_00499f80_Entry, nullptr);
+
+// 0x00499fd0 (eax = turret, ebx = source pose; stack: dest pose, node, unused, axis (byte); ret 0x10): the forge
+// cannon bone callback body (called by 0x0049a0b0, which the tracker leaves inside this function's extent; this one ends
+// at 0x0049a0a6). Copies 0xb dwords of the pose, then rotates it by the quaternion of axis-angle (1, 0, 0, +0x61c)
+// when axis != 0 else (0, 0, 1, +0x620): (axis * sin(a/2), cos(a/2)) (x87 fsin/fcos, the products against the
+// unrounded sine), 0x004f1710 (eax = &q, ecx = source +0xc, esi = dest +0xc); dest +0x28 = source +0x28 | 1. Not
+// executed in recorded runs.
+uint32_t fn_00499fd0(uint32_t t, uint32_t src, uint32_t dst, uint32_t axisFlag)
+{
+    float L[12];  // sub esp, 0x30: L[0..3] = chosen axis-angle copy, L[4..7] = (1, 0, 0, +0x61c), L[8..11] = (0, 0, 1,
+                  // +0x620), later the quaternion
+    const uint32_t a61c = D(t, 0x61c);
+    const uint32_t a620 = D(t, 0x620);
+    D(u(L), 0x10) = 0x3f800000u;
+    D(u(L), 0x14) = 0;
+    D(u(L), 0x18) = 0;
+    D(u(L), 0x1c) = a61c;
+    D(u(L), 0x20) = 0;
+    D(u(L), 0x24) = 0;
+    D(u(L), 0x28) = 0x3f800000u;
+    D(u(L), 0x2c) = a620;
+    const float* src4 = static_cast<uint8_t>(axisFlag) ? &L[4] : &L[8];
+    L[1] = src4[1];
+    L[3] = src4[3];
+    const float half = L[3] * K(0x005bcb4c);
+    L[0] = src4[0];
+    L[2] = src4[2];
+    std::memcpy(P(dst), P(src), 0xb * 4);
+    float q0, q1, q2, q3;
+    const float x = L[0], y = L[1], z = L[2];
+    __asm {
+        fld half
+        fld st(0)
+        fsin
+        fld x
+        fmul st, st(1)
+        fstp q0
+        fld y
+        fmul st, st(1)
+        fstp q1
+        fld z
+        fmul st, st(1)
+        fstp q2
+        fstp st(0)
+        fcos
+        fstp q3
+    }
+    L[8] = q0;
+    L[9] = q1;
+    L[10] = q2;
+    L[11] = q3;
+    orig::fn_004f1710(u(&L[8]), src + 0xc, dst + 0xc);
+    const uint32_t r = D(src, 0x28) | 1;
+    D(dst, 0x28) = r;
+    return r;
+}
+static uint32_t fn_00499fd0_Abi(uint32_t eax, uint32_t ebx, uint32_t a0, uint32_t /*a1*/, uint32_t /*a2*/, uint32_t a3)
+{
+    return fn_00499fd0(eax, ebx, a0, a3);
+}
+ABI_ENTRY_00499fd0(fn_00499fd0_Entry, fn_00499fd0_Abi)
+HOOK(0x00499fd0, "fn_00499fd0", fn_00499fd0_Entry, nullptr);
+
+// 0x0049a0f0 (stack: 1 unused; ret 4; CameraPathObject +0x290): al = (0x0044a600 (eax = g_game +0xa64) al != 0). Not
+// executed in recorded runs.
+uint32_t fn_0049a0f0()
+{
+    const uint32_t r = orig::fn_0044a600(D(G(), 0xa64));
+    return Lo8(r, static_cast<uint8_t>(r) ? 1u : 0u);
+}
+static uint32_t fn_0049a0f0_Abi(uint32_t /*a0*/)
+{
+    return fn_0049a0f0();
+}
+ABI_ENTRY_0049a0f0(fn_0049a0f0_Entry, fn_0049a0f0_Abi)
+HOOK(0x0049a0f0, "fn_0049a0f0", fn_0049a0f0_Entry, nullptr);
+
+// 0x0049a110 (ecx = turret; stack: 4 out pointers; ret 0x10; CameraPathObject +0x2a4): *a0 = yaw min +0x678, *a1 = yaw
+// max +0x67c, *a2 = pitch min +0x66c, *a3 = pitch max +0x670. Not executed in recorded runs.
+uint32_t fn_0049a110(uint32_t obj, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
+{
+    D(a0, 0) = D(obj, 0x678);
+    D(a1, 0) = D(obj, 0x67c);
+    D(a2, 0) = D(obj, 0x66c);
+    const uint32_t v = D(obj, 0x670);
+    D(a3, 0) = v;
+    return v;
+}
+static uint32_t fn_0049a110_Abi(uint32_t ecx, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
+{
+    return fn_0049a110(ecx, a0, a1, a2, a3);
+}
+ABI_ENTRY_0049a110(fn_0049a110_Entry, fn_0049a110_Abi)
+HOOK(0x0049a110, "fn_0049a110", fn_0049a110_Entry, nullptr);
+
+// 0x0049a150 (ecx = turret; stack: a, b; ret 8; CameraPathObject +0x2a8): +0x620 = a, +0x61c = b. Not executed in
+// recorded runs.
+uint32_t fn_0049a150(uint32_t obj, uint32_t a, uint32_t b)
+{
+    D(obj, 0x620) = a;
+    D(obj, 0x61c) = b;
+    return a;
+}
+static uint32_t fn_0049a150_Abi(uint32_t ecx, uint32_t a0, uint32_t a1)
+{
+    return fn_0049a150(ecx, a0, a1);
+}
+ABI_ENTRY_0049a150(fn_0049a150_Entry, fn_0049a150_Abi)
+HOOK(0x0049a150, "fn_0049a150", fn_0049a150_Entry, nullptr);
+
+// 0x0049a170 (ecx = turret; CameraPathObject slot +0x1f4, the update): as 0x004990a0 (0x00414a30 axes, ranges +0x66c/
+// +0x670 on +0x61c and +0x678/+0x67c on +0x620, move loop "wpn_forgecan_move_lp" at +0x718); firing (button 8 ->
+// vt+0x138(0) -> vt+0x13c(0, 0)) also plays Anim_Set 0x00408d90 (eax = -1, esi = turret; "forge_cannon_fire", 0x80, 0,
+// 0, 0, 0); then when 0x00408800 (eax = 4, ecx = turret) +0x1c has bit 2, 0x00408e30 (eax = 0x81, ecx = turret, edx = 1;
+// 0 x5). Not executed in recorded runs.
+uint32_t fn_0049a170(uint32_t obj)
+{
+    float L[5];
+    uint32_t r = fn_00498710(obj);
+    const uint32_t g = G();
+    if (!D(g, 0xac8) || D(g, 0xacc) != obj)
+        return D(g, 0xac8);
+    r = orig::fn_0040fab0(D(g, 0xa68));
+    if (r == 2)
+        return r;
+    L[0] = K(0x00604a90);
+    L[1] = static_cast<uint8_t>(fn_00498310(obj)) ? Fl(obj, 0x5c4) : Fl(obj, 0x5bc);
+    L[2] = static_cast<uint8_t>(fn_00498310(obj)) ? Fl(obj, 0x5c8) : Fl(obj, 0x5c0);
+    L[3] = Fl(obj, 0x620);
+    L[4] = Fl(obj, 0x61c);
+    float v = orig::fn_00414a30(D(G(), 0xa80), 4, f2u(L[1]), 0x3e570a3du, 0x3f000000u) * L[0];
+    Fl(obj, 0x620) = v + Fl(obj, 0x620);
+    v = orig::fn_00414a30(D(G(), 0xa80), 5, f2u(L[1]), 0x3e570a3du, 0x3f000000u) * L[0];
+    Fl(obj, 0x620) = Fl(obj, 0x620) - v;
+    v = orig::fn_00414a30(D(G(), 0xa80), 7, f2u(L[2]), 0x3e570a3du, 0x3f000000u) * L[0];
+    Fl(obj, 0x61c) = v + Fl(obj, 0x61c);
+    v = orig::fn_00414a30(D(G(), 0xa80), 6, f2u(L[2]), 0x3e570a3du, 0x3f000000u) * L[0];
+    Fl(obj, 0x61c) = Fl(obj, 0x61c) - v;
+    ClampAngle(obj, 0x61c, 0x66c, 0x670);
+    ClampAngle(obj, 0x620, 0x678, 0x67c);
+    const bool still = !(std::fabs(L[3] - Fl(obj, 0x620)) > K(0x0056c05c)) &&
+                       !(std::fabs(L[4] - Fl(obj, 0x61c)) > K(0x0056c05c));
+    if (still)
+    {
+        if (D(obj, 0x718))
+        {
+            r = VC<uint32_t>(D(G(), 0x2c), 0xd8, obj + 0x718, 0u);
+            D(obj, 0x718) = 0;
+        }
+    }
+    else if (!D(obj, 0x718))
+    {
+        r = VC<uint32_t>(D(G(), 0x2c), 0xd0, 0x0058f2d4u, 0u, 1u, 0u, 0xffffffffu, 0u);
+        D(obj, 0x718) = r;
+    }
+    r = orig::fn_00414810(Lo8(r, 1), 8, D(G(), 0xa80), 0x3f000000u);
+    if (static_cast<uint8_t>(r) && static_cast<uint8_t>(VC<uint32_t>(obj, 0x138, 0u)))
+    {
+        VC<uint32_t>(obj, 0x13c, 0u, 0u);
+        orig::fn_00408d90(0xffffffffu, obj, 0x005b2804, 0x80, 0, 0, 0, 0);
+    }
+    r = orig::fn_00408800(4, obj);
+    if (!(B(r, 0x1c) & 2))
+        return r;
+    return orig::fn_00408e30(0x81, obj, 1, 0, 0, 0, 0, 0);
+}
+static uint32_t fn_0049a170_Abi(uint32_t ecx)
+{
+    return fn_0049a170(ecx);
+}
+ABI_ENTRY_0049a170(fn_0049a170_Entry, fn_0049a170_Abi)
+HOOK(0x0049a170, "fn_0049a170", fn_0049a170_Entry, nullptr);
+
+// 0x0049a4c0 (ecx = turret; stack: weapon; ret 4; CameraPathObject +0x270): weapon 0 tail-jumps to 0x004988e0;
+// otherwise +0x530 |= 0x40, &= ~0x80 and the mortar recycle test (+0x684 == 0 -> al = 1, else eax = (time - +0x684 >
+// +0x680)). Not executed in recorded runs.
+uint32_t fn_0049a4c0(uint32_t obj, uint32_t weapon)
+{
+    if (!weapon)
+        return fn_004988e0(obj);
+    const uint32_t f = D(obj, 0x530) | 0x40;
+    D(obj, 0x530) = f;
+    D(obj, 0x530) = f & 0xffffff7fu;
+    const float last = Fl(obj, 0x684);
+    if (last == K(0x0056c05c))
+        return 1;
+    return (K(0x00604a98) - last > Fl(obj, 0x680)) ? 1u : 0u;
+}
+static uint32_t fn_0049a4c0_Abi(uint32_t ecx, uint32_t a0)
+{
+    return fn_0049a4c0(ecx, a0);
+}
+ABI_ENTRY_0049a4c0(fn_0049a4c0_Entry, fn_0049a4c0_Abi)
+HOOK(0x0049a4c0, "fn_0049a4c0", fn_0049a4c0_Entry, nullptr);
+
+// 0x0049a530 (ecx = turret; stack: weapon, target; ret 8; CameraPathObject +0x274): weapon 0 -> 0x00498960 (0,
+// target). Mortar: 0x0047dbf0 (eax = +0x6a8, ecx = +0x688, edx = turret; g_game +0xaa8, player, 0), vt+0x144(weapon),
+// +0x684 = time, a player occupant counts a shot; returns (projectile != 0). Not executed in recorded runs.
+uint32_t fn_0049a530(uint32_t obj, uint32_t weapon, uint32_t target)
+{
+    if (!weapon)
+        return fn_00498960(obj, target);
+    const uint32_t g = G();
+    const uint32_t proj = orig::fn_0047dbf0(obj + 0x6a8, obj + 0x688, obj, D(g, 0xaa8), D(g, 0x748), 0);
+    VC<uint32_t>(obj, 0x144, weapon);
+    D(obj, 0x684) = D(0x00604a98, 0);
+    const uint32_t occ = D(obj, 0x628);
+    if (occ && occ == D(G(), 0x748))
+        ++D(G(), 0x2718);
+    return proj != 0 ? 1u : 0u;
+}
+static uint32_t fn_0049a530_Abi(uint32_t ecx, uint32_t a0, uint32_t a1)
+{
+    return fn_0049a530(ecx, a0, a1);
+}
+ABI_ENTRY_0049a530(fn_0049a530_Entry, fn_0049a530_Abi)
+HOOK(0x0049a530, "fn_0049a530", fn_0049a530_Entry, nullptr);
+
+// 0x0049a5c0 (ecx = turret; stack: weapon; ret 4; CameraPathObject +0x27c): muzzle flash, a one-shot Fx_Create
+// 0x0041cc60 (al = 0, ecx = g_game +0xa90; name, desc {4, .., bone at +0x18, turret at +0x1c}). Weapon 0: bone
+// muzzle_bone_name +0x500, name +0x6e8 (mortar_muzzle_fx_name) for the player occupant, else ai_muzzle_fx_name +0x4e0.
+// Mortar: needs +0x6e8 and +0x6c8 (else al = 0); bone +0x6c8, name +0x6e8 for the player, else +0x4e0. al = 1. Other
+// desc words are stack garbage in the original (0 here). Not executed in recorded runs.
+uint32_t fn_0049a5c0(uint32_t obj, uint32_t weapon)
+{
+    uint32_t desc[32] = {};  // sub esp, 0x80
+    const uint32_t g = G();
+    if (!weapon)
+    {
+        desc[6] = obj + 0x500;
+        desc[7] = obj;
+        desc[0] = 4;
+        const uint32_t name = D(obj, 0x628) == D(g, 0x748) ? obj + 0x6e8 : obj + 0x4e0;
+        return Lo8(orig::fn_0041cc60(u(desc) & 0xffffff00u, D(g, 0xa90), name, u(desc)), 1);
+    }
+    if (!B(obj, 0x6e8))
+        return Lo8(weapon, 0);
+    if (!B(obj, 0x6c8))
+        return Lo8(obj + 0x6c8, 0);
+    desc[6] = obj + 0x6c8;
+    desc[7] = obj;
+    desc[0] = 4;
+    const uint32_t occ = D(obj, 0x628);
+    if (occ == D(g, 0x748))
+        return Lo8(orig::fn_0041cc60(occ & 0xffffff00u, D(g, 0xa90), obj + 0x6e8, u(desc)), 1);
+    return Lo8(orig::fn_0041cc60(u(desc) & 0xffffff00u, D(g, 0xa90), obj + 0x4e0, u(desc)), 1);
+}
+static uint32_t fn_0049a5c0_Abi(uint32_t ecx, uint32_t a0)
+{
+    return fn_0049a5c0(ecx, a0);
+}
+ABI_ENTRY_0049a5c0(fn_0049a5c0_Entry, fn_0049a5c0_Abi)
+HOOK(0x0049a5c0, "fn_0049a5c0", fn_0049a5c0_Entry, nullptr);
+
+// ---------------------------------------------------------------------------------------------------------------
+// Base turret (vtable 0x005a9bb0, slot-1 class PickupObject; strings "base_turret_*", "fake_base_mortar",
+// "fake_base_homing", "ref_base_turret").
+
+uint32_t fn_0049abf0(uint32_t obj);
+
+// 0x0049a6a0 (ecx = turret; stack: a0, a1, set, values; ret 0x10; vtable 0x005a9bb0 slot +0x3c0, the load):
+// 0x00457810 (eax = turret); the mountable-turret properties 0x004980c0; intro_anim_name +0x644 (default
+// "base_turret_enter"), death_anim_name +0x664 (default "base_turret_exit"); pitch/yaw ranges +0x744..+0x750 (-45/45,
+// to radians); muzzle_bone_name_2 +0x774, emitter_bone_name_2 +0x754; mortar_recycle_time +0x638 (4),
+// mortar_special_recycle_time +0x63c (2); mortar_projectile_name +0x684, mortar_special_projectile_name +0x6a4,
+// mortar_emitter_bone_name +0x6c4, mortar_muzzle_fx_name +0x704, mortar_muzzle_bone_name +0x6e4; side_max_speed +0x794
+// (400), side_accel +0x798 (1000), side_stop_accel +0x79c (500); mortar_bullseye_tga +0x724 (default "fx_bullseye");
+// max_non_locking +0x81c (5), min_non_locking +0x820 (0; written into the values argument's stack slot as well) and
+// +0x818 = min + ((_rand * (max - min + 1)) >> 15); ammo_upgrade_duration +0x630 (10), +0x634 = 0, death_fx_delay +0x82c
+// (2), failure_mode_duration +0x830 (5), overrun +0x834; state words zeroed, an identity matrix at +0x7a8, byte +0x62c =
+// 1; ObjectList_Link into World +0xe88; four helper objects from ObjectSystem_CreateObject 0x0045f020 (eax = 0, ecx =
+// name; World, 0, 0x3ff, 0, 0, 0, 0, 0xaa, 0), each referenced: base_turret_l5_m5_window +0x7f0 (attached at
+// "ref_window"), base_turret_trolley +0x804, fake_base_mortar +0x808 (attached, vt+0xf4(1), Anim_Set
+// "base_mortar_reload" 0x80) and fake_base_homing +0x80c (attached, vt+0xf4(0), Anim_Set "base_homing_reload" 0x200
+// with 0x00408800 (4)'s +4); 0x0049abf0; +0x7f4 = +0x840 = +0x83c = +0x844 = 0.
+uint32_t fn_0049a6a0(uint32_t obj, uint32_t a0, uint32_t a1, uint32_t set, uint32_t values)
+{
+    uint32_t slot = values;
+    orig::fn_00457810(obj);
+    fn_004980c0(obj, a0, a1, set, values);
+    orig::fn_004533a0(0x0058f2c0, obj + 0x644, obj, 0x0058f2b0, set, values, 0);   // intro_anim_name
+    orig::fn_004533a0(0x0058f29c, obj + 0x664, obj, 0x0058f28c, set, values, 0);   // death_anim_name
+    orig::fn_004534a0(values, obj + 0x744, obj, 0x0058f4d0, set, 0xc2340000u, 0);  // pitch_range_min
+    orig::fn_004534a0(values, obj + 0x748, obj, 0x0058f4c0, set, 0x42340000u, 0);  // pitch_range_max
+    orig::fn_004534a0(values, obj + 0x74c, obj, 0x0058f4b0, set, 0xc2340000u, 0);  // yaw_range_min
+    orig::fn_004534a0(values, obj + 0x750, obj, 0x0058f4a0, set, 0x42340000u, 0);  // yaw_range_max
+    Fl(obj, 0x744) = Fl(obj, 0x744) * K(0x005bcba0);
+    Fl(obj, 0x748) = Fl(obj, 0x748) * K(0x005bcba0);
+    Fl(obj, 0x74c) = Fl(obj, 0x74c) * K(0x005bcba0);
+    Fl(obj, 0x750) = Fl(obj, 0x750) * K(0x005bcba0);
+    orig::fn_004533a0(0x0058a9a4, obj + 0x774, obj, 0x0058f278, set, values, 0);   // muzzle_bone_name_2
+    orig::fn_004533a0(0x0058a9a4, obj + 0x754, obj, 0x0058f44c, set, values, 0);   // emitter_bone_name_2
+    orig::fn_004534a0(values, obj + 0x638, obj, 0x0058f420, set, 0x40800000u, 0);  // mortar_recycle_time
+    orig::fn_004534a0(values, obj + 0x63c, obj, 0x0058f25c, set, 0x40000000u, 0);  // mortar_special_recycle_time
+    orig::fn_004533a0(0x0058a9a4, obj + 0x684, obj, 0x0058f408, set, values, 0);   // mortar_projectile_name
+    orig::fn_004533a0(0x0058a9a4, obj + 0x6a4, obj, 0x0058f23c, set, values, 0);   // mortar_special_projectile_name
+    orig::fn_004533a0(0x0058a9a4, obj + 0x6c4, obj, 0x0058f3ec, set, values, 0);   // mortar_emitter_bone_name
+    orig::fn_004533a0(0x0058a9a4, obj + 0x704, obj, 0x0058f3d4, set, values, 0);   // mortar_muzzle_fx_name
+    orig::fn_004533a0(0x0058a9a4, obj + 0x6e4, obj, 0x0058f3bc, set, values, 0);   // mortar_muzzle_bone_name
+    orig::fn_004534a0(values, obj + 0x794, obj, 0x0059f888, set, 0x43c80000u, 0);  // side_max_speed
+    orig::fn_004534a0(values, obj + 0x798, obj, 0x0058f230, set, 0x447a0000u, 0);  // side_accel
+    orig::fn_004534a0(values, obj + 0x79c, obj, 0x0058f220, set, 0x43fa0000u, 0);  // side_stop_accel
+    orig::fn_004533a0(0x0058f214, obj + 0x724, obj, 0x0058f200, set, values, 0);   // mortar_bullseye_tga
+    orig::fn_00453400(5, values, obj + 0x81c, obj, 0x0058f1f0, set, 0);            // max_non_locking
+    orig::fn_00453400(0, values, obj + 0x820, obj, 0x0058f1e0, set, 0);            // min_non_locking
+    const uint32_t mx = D(obj, 0x81c);
+    slot = D(obj, 0x820);
+    const uint32_t rnd = static_cast<uint32_t>(orig::fn_005391cd());
+    D(obj, 0x818) = static_cast<uint32_t>(static_cast<int32_t>(rnd * (mx - slot + 1)) >> 15) + slot;
+    orig::fn_004534a0(values, obj + 0x630, obj, 0x0058f1c8, set, 0x41200000u, 0);  // ammo_upgrade_duration
+    D(obj, 0x634) = 0;
+    orig::fn_004534a0(values, obj + 0x82c, obj, 0x0058f1b8, set, 0x40000000u, 0);  // death_fx_delay
+    orig::fn_004534a0(values, obj + 0x830, obj, 0x0058f1a0, set, 0x40a00000u, 0);  // failure_mode_duration
+    orig::fn_00453450(0, 0x0058f198, values, obj + 0x834, obj, set, 0);            // overrun
+    D(obj, 0x824) = 0;
+    D(obj, 0x7a0) = 0;
+    D(obj, 0x7a4) = 0;
+    D(obj, 0x640) = 0;
+    D(obj, 0x7ec) = 0;
+    std::memset(P(obj + 0x7a8), 0, 0x11 * 4);
+    D(obj, 0x7a8) = 0x3f800000u;
+    D(obj, 0x7a8 + 0x14) = 0x3f800000u;
+    D(obj, 0x7a8 + 0x28) = 0x3f800000u;
+    D(obj, 0x7a8 + 0x3c) = 0x3f800000u;
+    D(obj, 0x810) = 0;
+    D(obj, 0x814) = 0;
+    B(obj, 0x62d) = 0;
+    B(obj, 0x62e) = 0;
+    D(obj, 0x838) = 0;
+    B(obj, 0x62f) = 0;
+    B(obj, 0x62c) = 1;
+    orig::fn_004546d0(D(World(), 0xe88), obj);
+    uint32_t h = orig::fn_0045f020(0, 0x0058f17c, World(), 0, 0x3ff, 0, 0, 0, 0, 0xaa, 0);  // base_turret_l5_m5_window
+    D(obj, 0x7f0) = h;
+    if (h)
+    {
+        ++D(h, 0x28);
+        orig::fn_004539f0(0x0058f170, obj, D(obj, 0x7f0), 0x0058f170, 1, 0);  // "ref_window"
+    }
+    h = orig::fn_0045f020(0, 0x0058f15c, World(), 0, 0x3ff, 0, 0, 0, 0, 0xaa, 0);  // base_turret_trolley
+    D(obj, 0x804) = h;
+    if (h)
+        ++D(h, 0x28);
+    h = orig::fn_0045f020(0, 0x0058f148, World(), 0, 0x3ff, 0, 0, 0, 0, 0xaa, 0);  // fake_base_mortar
+    D(obj, 0x808) = h;
+    if (h)
+    {
+        ++D(h, 0x28);
+        orig::fn_004539f0(0, obj, D(obj, 0x808), 0, 1, 0);
+        VC<uint32_t>(D(obj, 0x808), 0xf4, 1u);
+        orig::fn_00408d90(0xffffffffu, D(obj, 0x808), 0x0058f134, 0x80, 0, 0, 0, 0);  // base_mortar_reload
+    }
+    h = orig::fn_0045f020(0, 0x0058f120, World(), 0, 0x3ff, 0, 0, 0, 0, 0xaa, 0);  // fake_base_homing
+    D(obj, 0x80c) = h;
+    if (h)
+    {
+        ++D(h, 0x28);
+        orig::fn_004539f0(0, obj, D(obj, 0x80c), 0, 1, 0);
+        VC<uint32_t>(D(obj, 0x80c), 0xf4, 0u);
+        const uint32_t homing = D(obj, 0x80c);
+        const uint32_t w = D(orig::fn_00408800(4, homing), 4);
+        orig::fn_00408d90(0xffffffffu, homing, 0x0058f10c, 0x200, 0, 0, 0, w);  // base_homing_reload
+    }
+    fn_0049abf0(obj);
+    D(obj, 0x7f4) = 0;
+    D(obj, 0x840) = 0;
+    D(obj, 0x83c) = 0;
+    D(obj, 0x844) = 0;
+    return 0;
+}
+static uint32_t fn_0049a6a0_Abi(uint32_t ecx, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
+{
+    return fn_0049a6a0(ecx, a0, a1, a2, a3);
+}
+ABI_ENTRY_0049a6a0(fn_0049a6a0_Entry, fn_0049a6a0_Abi)
+HOOK(0x0049a6a0, "fn_0049a6a0", fn_0049a6a0_Entry, nullptr);
+
+// 0x0049abf0 (eax = turret; callers 0x0048d380, 0x0049a6a0): the two fake launchers +0x808 / +0x80c each get their
+// template (+0x414) floats +0x20 and +0x24 multiplied by 5.0 (0x005bcbdc). Returns eax as the original leaves it.
+uint32_t fn_0049abf0(uint32_t obj)
+{
+    if (D(obj, 0x808))
+    {
+        uint32_t t = D(D(obj, 0x808), 0x414);
+        Fl(t, 0x20) = Fl(t, 0x20) * K(0x005bcbdc);
+        t = D(D(obj, 0x808), 0x414);
+        Fl(t, 0x24) = Fl(t, 0x24) * K(0x005bcbdc);
+    }
+    if (D(obj, 0x80c))
+    {
+        uint32_t t = D(D(obj, 0x80c), 0x414);
+        Fl(t, 0x20) = Fl(t, 0x20) * K(0x005bcbdc);
+        t = D(D(obj, 0x80c), 0x414);
+        Fl(t, 0x24) = Fl(t, 0x24) * K(0x005bcbdc);
+        return t;
+    }
+    return obj;
+}
+static uint32_t fn_0049abf0_Abi(uint32_t eax)
+{
+    return fn_0049abf0(eax);
+}
+ABI_ENTRY_0049abf0(fn_0049abf0_Entry, fn_0049abf0_Abi)
+HOOK(0x0049abf0, "fn_0049abf0", fn_0049abf0_Entry, nullptr);
+
+namespace
+{
+// The inline release without the null test (0x0049ac60 releases +0x804/+0x808/+0x80c unchecked).
+uint32_t ReleaseSlotUnchecked(uint32_t slot)
+{
+    const uint32_t r = Ref_Release(D(slot, 0));
+    D(slot, 0) = 0;
+    return r;
+}
+}  // namespace
+
+// 0x0049ac60 (ecx = turret; vtable 0x005a9bb0 slot +0x484, remove): vt+0x17c(); releases the window +0x7f0 (when set)
+// and the trolley +0x804, fake mortar +0x808 and fake homing +0x80c (these three without a null test: original quirk,
+// a failed ObjectSystem_CreateObject in 0x0049a6a0 would crash here); 0x004986b0; then a tail jump to 0x0044a580 (eax =
+// g_game +0xa64, ecx = 3), reproduced as call-then-return (no stack arguments). Not executed in recorded runs.
+uint32_t fn_0049ac60(uint32_t obj)
+{
+    VC<uint32_t>(obj, 0x17c);
+    if (D(obj, 0x7f0))
+        ReleaseSlot(obj + 0x7f0);
+    ReleaseSlotUnchecked(obj + 0x804);
+    ReleaseSlotUnchecked(obj + 0x808);
+    ReleaseSlotUnchecked(obj + 0x80c);
+    fn_004986b0(obj);
+    return orig::fn_0044a580(D(G(), 0xa64), 3);
+}
+static uint32_t fn_0049ac60_Abi(uint32_t ecx)
+{
+    return fn_0049ac60(ecx);
+}
+ABI_ENTRY_0049ac60(fn_0049ac60_Entry, fn_0049ac60_Abi)
+HOOK(0x0049ac60, "fn_0049ac60", fn_0049ac60_Entry, nullptr);
+
+// 0x0049ad60 (esi = a0; caller 0x0044d600): six times ObjectSystem_CreateObject 0x0045f020 (eax = 0, ecx =
+// "grunt_regular"; World, 0, 0x400, 0, 0, 0, 0, 0xaa, 0) passed to 0x0042d780 (eax = the grunt, ecx = a0); then
+// g_game byte +0xdcd = 1. Not executed in recorded runs.
+uint32_t fn_0049ad60(uint32_t a0)
+{
+    for (int i = 0; i < 6; ++i)
+    {
+        const uint32_t grunt = orig::fn_0045f020(0, 0x005bbfe8, World(), 0, 0x400, 0, 0, 0, 0, 0xaa, 0);
+        orig::fn_0042d780(grunt, a0);
+    }
+    const uint32_t g = G();
+    B(g, 0xdcd) = 1;
+    return g;
+}
+static uint32_t fn_0049ad60_Abi(uint32_t esi)
+{
+    return fn_0049ad60(esi);
+}
+ABI_ENTRY_0049ad60(fn_0049ad60_Entry, fn_0049ad60_Abi)
+HOOK(0x0049ad60, "fn_0049ad60", fn_0049ad60_Entry, nullptr);
+
+// 0x0049aeb0 (ecx = turret; stack: damage info; ret 4; vtable 0x005a9bb0 slot +0x478): base turret damage. While the
+// window +0x7f0 exists: same-side attackers whose vt+0xe0 returns al = 0 are ignored; when window vt+0xd8 returns al !=
+// 0, a glass hit: sprintf "Ref_hit_%d" with (_rand << 5) >> 15, Fx_Create 0x0041cc60 ("fx_glass_bullet_hole", desc {4,
+// .., bone = that name at +0x18, window at +0x1c}) and window vt+0xd0(info); otherwise the window reference is
+// released. Without a window (or after the release), unless g_game byte +0x174 is set, the turret damage handler
+// 0x00498400. Not executed in recorded runs.
+uint32_t fn_0049aeb0(uint32_t obj, uint32_t info)
+{
+    uint32_t L[40];  // sub esp, 0xa0: L[0..7] = name buffer, L[8..39] = fx desc
+    if (D(obj, 0x7f0))
+    {
+        const uint32_t attacker = D(info, 0x2c);
+        if (attacker)
+        {
+            const uint8_t side = static_cast<uint8_t>(VC<uint32_t>(attacker, 0xe4));
+            if (side == static_cast<uint8_t>(VC<uint32_t>(obj, 0xe4)) &&
+                !static_cast<uint8_t>(VC<uint32_t>(D(info, 0x2c), 0xe0)))
+                return 0;
+        }
+        if (static_cast<uint8_t>(VC<uint32_t>(D(obj, 0x7f0), 0xd8)))
+        {
+            L[0x3c / 4] = D(obj, 0x7f0);
+            const int32_t n = static_cast<int32_t>(static_cast<uint32_t>(orig::fn_005391cd()) << 5) >> 15;
+            orig::fn_0053814f(u(L), 0x0058f100, static_cast<uint32_t>(n));
+            L[0x38 / 4] = u(L);
+            L[0x20 / 4] = 4;
+            orig::fn_0041cc60(u(&L[0x20 / 4]) & 0xffffff00u, D(G(), 0xa90), 0x0058f0e8, u(&L[0x20 / 4]));
+            return VC<uint32_t>(D(obj, 0x7f0), 0xd0, info);
+        }
+        ReleaseSlotUnchecked(obj + 0x7f0);
+    }
+    if (B(G(), 0x174))
+        return 0;
+    return fn_00498400(obj, info);
+}
+static uint32_t fn_0049aeb0_Abi(uint32_t ecx, uint32_t a0)
+{
+    return fn_0049aeb0(ecx, a0);
+}
+ABI_ENTRY_0049aeb0(fn_0049aeb0_Entry, fn_0049aeb0_Abi)
+HOOK(0x0049aeb0, "fn_0049aeb0", fn_0049aeb0_Entry, nullptr);
+
+// 0x0049afe0 (ecx = turret; stack: 1 unused; ret 4; vtable 0x005a9bb0 slot +0x47c): death. Zoom out (0x00498390, esi =
+// turret; 1); +0x61c = 0, byte +0x62e = 1; Anim_Set 0x00408d90 (eax = -1, esi = turret; death_anim_name +0x664, 0x80, 0,
+// 0, 0, 0); +0x828 = death_fx_delay +0x82c. Not executed in recorded runs.
+uint32_t fn_0049afe0(uint32_t obj)
+{
+    fn_00498390(obj, 1);
+    D(obj, 0x61c) = 0;
+    B(obj, 0x62e) = 1;
+    const uint32_t r = orig::fn_00408d90(0xffffffffu, obj, obj + 0x664, 0x80, 0, 0, 0, 0);
+    D(obj, 0x828) = D(obj, 0x82c);
+    return r;
+}
+static uint32_t fn_0049afe0_Abi(uint32_t ecx, uint32_t /*a0*/)
+{
+    return fn_0049afe0(ecx);
+}
+ABI_ENTRY_0049afe0(fn_0049afe0_Entry, fn_0049afe0_Abi)
+HOOK(0x0049afe0, "fn_0049afe0", fn_0049afe0_Entry, nullptr);
+
+// 0x0049bc90 (ecx = turret; stack: a0, message; ret 8; vtable 0x005a9bb0 slot +0x3e0): message == overrun +0x834 sets
+// byte +0x62f. Returns al = 0 (upper eax = message). Not executed in recorded runs.
+uint32_t fn_0049bc90(uint32_t obj, uint32_t msg)
+{
+    if (msg == D(obj, 0x834))
+        B(obj, 0x62f) = 1;
+    return msg & 0xffffff00u;
+}
+static uint32_t fn_0049bc90_Abi(uint32_t ecx, uint32_t /*a0*/, uint32_t a1)
+{
+    return fn_0049bc90(ecx, a1);
+}
+ABI_ENTRY_0049bc90(fn_0049bc90_Entry, fn_0049bc90_Abi)
+HOOK(0x0049bc90, "fn_0049bc90", fn_0049bc90_Entry, nullptr);
+
+// 0x0049bcb0 (eax = turret; caller 0x0044d600): al = byte +0x62e (dying). Not executed in recorded runs.
+uint32_t fn_0049bcb0(uint32_t obj)
+{
+    return Lo8(obj, B(obj, 0x62e));
+}
+static uint32_t fn_0049bcb0_Abi(uint32_t eax)
+{
+    return fn_0049bcb0(eax);
+}
+ABI_ENTRY_0049bcb0(fn_0049bcb0_Entry, fn_0049bcb0_Abi)
+HOOK(0x0049bcb0, "fn_0049bcb0", fn_0049bcb0_Entry, nullptr);
+
+// 0x0049bcc0 (ecx = turret; vtable 0x005a9bb0 slot +0x520, mount): mount 0x00498a80 (al = 0 -> return); g_game +0xac8
+// = 1, +0xacc = turret; the wall 0x004592e0 (eax = 0, ecx = 0; turret): when found, 0x00408800 (eax = 4, ecx = wall) +4
+// = 0.5, 0x00408e30 (eax = 0x200, ecx = wall, edx = -1; "base_defend_wall_ref", 0, 0, 0, 0), wall vt+0x5c(&+0x7a8),
+// +0x7ec = wall (referenced), +0x7a0 = 250.0; Anim_Set 0x00408d90 (eax = -1, esi = turret; intro_anim_name +0x644, 0x80,
+// 0, 0, 0, 0); byte +0x62d = 1, g_game byte +0xdce = 1; al = 1. Not executed in recorded runs.
+uint32_t fn_0049bcc0(uint32_t obj)
+{
+    const uint32_t r = fn_00498a80(obj);
+    if (!static_cast<uint8_t>(r))
+        return r;
+    D(G(), 0xac8) = 1;
+    D(G(), 0xacc) = obj;
+    const uint32_t wall = orig::fn_004592e0(0, 0, obj);
+    if (wall)
+    {
+        const uint32_t p = orig::fn_00408800(4, wall);
+        D(p, 4) = 0x3f000000u;
+        orig::fn_00408e30(0x200, wall, 0xffffffffu, 0x0058f030, 0, 0, 0, 0);
+        VC<uint32_t>(wall, 0x5c, obj + 0x7a8);
+        D(obj, 0x7ec) = wall;
+        ++D(wall, 0x28);
+        D(obj, 0x7a0) = 0x437a0000u;
+    }
+    orig::fn_00408d90(0xffffffffu, obj, obj + 0x644, 0x80, 0, 0, 0, 0);
+    B(obj, 0x62d) = 1;
+    const uint32_t g = G();
+    B(g, 0xdce) = 1;
+    return Lo8(g, 1);
+}
+static uint32_t fn_0049bcc0_Abi(uint32_t ecx)
+{
+    return fn_0049bcc0(ecx);
+}
+ABI_ENTRY_0049bcc0(fn_0049bcc0_Entry, fn_0049bcc0_Abi)
+HOOK(0x0049bcc0, "fn_0049bcc0", fn_0049bcc0_Entry, nullptr);
+
+// 0x0049bd80 (ecx = turret; vtable 0x005a9bb0 slot +0x524, dismount): zoom out (0x00498390, esi = turret; 1); +0x530
+// &= ~8; Object_Detach 0x00453b20 of the player (when present); g_game +0xac8 = +0xacc = 0; the turret's own reference
+// released; +0x61c = +0x620 = 0; the occupant +0x628 released and cleared; player vt+0x134(1) (unchecked); the wall
+// +0x7ec released and cleared. al = 1. Not executed in recorded runs.
+uint32_t fn_0049bd80(uint32_t obj)
+{
+    fn_00498390(obj, 1);
+    D(obj, 0x530) &= 0xfffffff7u;
+    const uint32_t player = D(G(), 0x748);
+    if (player)
+        orig::fn_00453b20(player);
+    D(G(), 0xac8) = 0;
+    D(G(), 0xacc) = 0;
+    Ref_Release(obj);
+    const uint32_t occ = D(obj, 0x628);
+    D(obj, 0x61c) = 0;
+    D(obj, 0x620) = 0;
+    if (occ)
+        ReleaseSlot(obj + 0x628);
+    uint32_t r = VC<uint32_t>(D(G(), 0x748), 0x134, 1u);
+    if (D(obj, 0x7ec))
+        r = ReleaseSlot(obj + 0x7ec);
+    return Lo8(r, 1);
+}
+static uint32_t fn_0049bd80_Abi(uint32_t ecx)
+{
+    return fn_0049bd80(ecx);
+}
+ABI_ENTRY_0049bd80(fn_0049bd80_Entry, fn_0049bd80_Abi)
+HOOK(0x0049bd80, "fn_0049bd80", fn_0049bd80_Entry, nullptr);
+
+// 0x0049be70 (ecx = turret; stack: weapon; ret 4; vtable 0x005a9bb0 slot +0x4e0): weapon 0 tail-jumps to 0x004988e0;
+// otherwise +0x530 |= 0x40, &= ~0x80; last mortar time +0x640 == 0 -> al = 1; else eax = (time - +0x640 > limit) with
+// limit = mortar_special_recycle_time +0x63c while the ammo upgrade +0x634 > 0, else +0x63c when the fake homing
+// +0x80c passes 0x00453740 (eax = it) and mortar_recycle_time +0x638 when not. Not executed in recorded runs.
+uint32_t fn_0049be70(uint32_t obj, uint32_t weapon)
+{
+    if (!weapon)
+        return fn_004988e0(obj);
+    const uint32_t f = D(obj, 0x530) | 0x40;
+    D(obj, 0x530) = f;
+    D(obj, 0x530) = f & 0xffffff7fu;
+    if (Fl(obj, 0x640) == K(0x0056c05c))
+        return 1;
+    float limit;
+    if (Fl(obj, 0x634) > K(0x0056c05c))
+        limit = Fl(obj, 0x63c);
+    else
+    {
+        const uint8_t ok = static_cast<uint8_t>(orig::fn_00453740(D(obj, 0x80c)));
+        limit = ok ? Fl(obj, 0x63c) : Fl(obj, 0x638);
+    }
+    return (K(0x00604a98) - Fl(obj, 0x640) > limit) ? 1u : 0u;
+}
+static uint32_t fn_0049be70_Abi(uint32_t ecx, uint32_t a0)
+{
+    return fn_0049be70(ecx, a0);
+}
+ABI_ENTRY_0049be70(fn_0049be70_Entry, fn_0049be70_Abi)
+HOOK(0x0049be70, "fn_0049be70", fn_0049be70_Entry, nullptr);

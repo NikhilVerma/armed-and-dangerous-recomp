@@ -751,52 +751,6 @@ HOOK(0x004a45f0, "Type13Shape_Slot7", Type13Shape_Slot7_Entry, nullptr);
 // havok-ext: geometry helpers
 // ================================================================================================================
 
-// 0x004a4600 (eax = dest, ecx = source; plain ret; eax preserved; caller 0x004deb20): copies 3 rows of 4 dwords (a
-// 3x4 matrix). Not executed in recorded runs.
-void Matrix3_Copy(uint32_t* dest, const uint32_t* source)
-{
-    for (int row = 0; row < 3; ++row)
-    {
-        dest[row * 4 + 0] = source[row * 4 + 0];
-        dest[row * 4 + 1] = source[row * 4 + 1];
-        dest[row * 4 + 2] = source[row * 4 + 2];
-        dest[row * 4 + 3] = source[row * 4 + 3];
-    }
-}
-
-static uint32_t Matrix3_Copy_Abi(uint32_t eax, uint32_t ecx)
-{
-    Matrix3_Copy(reinterpret_cast<uint32_t*>(eax), reinterpret_cast<const uint32_t*>(ecx));
-    return eax;
-}
-ABI_ENTRY_004a4600(Matrix3_Copy_Entry, Matrix3_Copy_Abi)
-HOOK(0x004a4600, "Matrix3_Copy", Matrix3_Copy_Entry, nullptr);
-
-// 0x004a4640 (eax = a, ecx = out, edx = b, esi = c; plain ret; eax preserved; caller 0x004a47a0): out = (b - a) x
-// (c - a), out[3] = 0 (the triangle normal, unnormalised). Not executed in recorded runs.
-void Triangle_Normal(const float* a, float* out, const float* b, const float* c)
-{
-    const float d0 = b[0] - a[0];
-    const float d1 = b[1] - a[1];
-    const float d2 = b[2] - a[2];
-    const float e0 = c[0] - a[0];
-    const float e1 = c[1] - a[1];
-    const float e2 = c[2] - a[2];
-    Field<uint32_t>(out, 0xc) = 0;
-    out[0] = e2 * d1 - e1 * d2;
-    out[1] = d2 * e0 - e2 * d0;
-    out[2] = e1 * d0 - e0 * d1;
-}
-
-static uint32_t Triangle_Normal_Abi(uint32_t eax, uint32_t ecx, uint32_t edx, uint32_t esi)
-{
-    Triangle_Normal(reinterpret_cast<const float*>(eax), reinterpret_cast<float*>(ecx),
-                    reinterpret_cast<const float*>(edx), reinterpret_cast<const float*>(esi));
-    return eax;
-}
-ABI_ENTRY_004a4640(Triangle_Normal_Entry, Triangle_Normal_Abi)
-HOOK(0x004a4640, "Triangle_Normal", Triangle_Normal_Entry, nullptr);
-
 // 0x004a46b0 (ecx = object; plain ret): returns +0x0c. Folded into the vtables at 0x005898ec, 0x00589b68,
 // 0x00589b7c, 0x0058b09c; called by Havok 0x0051cd20. Not executed in recorded runs.
 uint32_t fn_004a46b0(uint8_t* object)
@@ -810,937 +764,6 @@ static uint32_t fn_004a46b0_Abi(uint32_t ecx)
 }
 ABI_ENTRY_004a46b0(fn_004a46b0_Entry, fn_004a46b0_Abi)
 HOOK(0x004a46b0, "fn_004a46b0", fn_004a46b0_Entry, nullptr);
-
-// 0x004a46c0 (ecx = out; stack: radius, mass; caller pops; callers 0x00411960, 0x004527d0, 0x004a53a0, 0x004a62f0):
-// sphere mass properties. Returns 1 (failure) when mass <= 0 or radius <= 0 (NaN passes); otherwise out +0x20..+0x4c
-// = the 3x4 identity of 0x005cad50 with the diagonal set to radius * radius * mass * 0.4, centre of mass +0x10..+0x1c
-// = 0, +4 = mass, +0 = pi * radius^3 * 4/3 (volume); returns 0. Same semantics as Havok's
-// computeSphereVolumeMassProperties (guess: possibly library code that sits in the havok-ext range).
-uint32_t SphereMassProperties(uint8_t* out, float radius, float mass)
-{
-    if (mass <= K(0x0056c05c))
-        return 1;
-    if (radius <= K(0x0056c05c))
-        return 1;
-    float inertia = radius * radius;
-    for (int i = 0; i < 12; ++i)
-        Field<uint32_t>(out, 0x20 + 4 * i) = GameGlobal<uint32_t>(0x005cad50 + 4 * i);
-    inertia = inertia * mass;
-    inertia = inertia * K(0x005bcd94);
-    Field<float>(out, 0x20) = inertia;
-    Field<float>(out, 0x34) = inertia;
-    Field<float>(out, 0x48) = inertia;
-    Field<uint32_t>(out, 0x1c) = 0;
-    Field<uint32_t>(out, 0x18) = 0;
-    Field<uint32_t>(out, 0x14) = 0;
-    Field<uint32_t>(out, 0x10) = 0;
-    Field<float>(out, 4) = mass;
-    Field<float>(out, 0) = K(0x0057e864) * radius * radius * radius * K(0x005bcd90);
-    return 0;
-}
-
-static uint32_t SphereMassProperties_Abi(uint32_t ecx, uint32_t a0, uint32_t a1)
-{
-    return SphereMassProperties(B(ecx), bf(a0), bf(a1));
-}
-ABI_ENTRY_004a46c0(SphereMassProperties_Entry, SphereMassProperties_Abi)
-HOOK(0x004a46c0, "SphereMassProperties", SphereMassProperties_Entry, nullptr);
-
-void Inertia_ShiftFromCentre(float* m, const float* c, float mass);
-
-// 0x004a47a0 (eax = P; stack: R, Q, mass, thickness, out; caller pops; caller 0x004a62f0): mass properties of a
-// triangle (P, Q, R) with a thickness. Returns 1 when mass <= 0 or thickness < 0 (NaN passes). n = Triangle_Normal
-// 0x004a4640 (eax = P, edx = Q, esi = R), |n| kept for the volume. Three cases:
-//  - thickness < 1e-5: centre c = ((R + P) + Q) / 3, inertia of three point masses plus the centre weighted by 9,
-//    scaled by mass / 12, then shifted to the centre (0x004a6830, eax = inertia, ecx = c; mass);
-//  - |n| < 1e-5: c as above, inertia of a point mass at c;
-//  - otherwise: a prism of 6 vertices (P, Q, R offset by +/- thickness / 2 along the unit normal, in the order R + h n,
-//    R - h n, P + h n, P - h n, Q + h n, Q - h n) and 8 triangles, built as a geometry (0x004b85c0 vertices,
-//    0x004b8740 triangles), mass properties by 0x004a7a60 (ebx = geometry, esi = result; mass), geometry destroyed
-//    (0x004b84d0 esi), centre and inertia taken from the result; the local arrays are freed only when owned.
-// out +4 = mass, +0x10 centre, +0x20..+0x4c inertia (3 rows of 4; the w column is uninitialised stack in the first
-// two cases: zero here), +0 = |n| * thickness * 0.5; returns 0. Same shape as Havok's
-// computeTriangleSurfaceMassProperties (guess: library code in the havok-ext range). Not executed in recorded runs.
-uint32_t TriangleMassProperties(const float* p, const float* r, const float* q, float mass, float thickness,
-                                uint8_t* out)
-{
-    if (mass <= K(0x0056c05c))
-        return 1;
-    if (thickness < K(0x0056c05c))
-        return 1;
-    Frame<0x1b0> f;
-    Triangle_Normal(p, &f.F(0x10), q, r);
-    const float len2 = (f.F(0x10) * f.F(0x10) + f.F(0x18) * f.F(0x18)) + f.F(0x14) * f.F(0x14);
-    f.F(0x7c) = std::sqrt(len2);
-    if (thickness < K(0x005bcc64))
-    {
-        for (int i = 0; i < 4; ++i)
-            f.F(0x10 + 4 * i) = ((r[i] + p[i]) + q[i]) * K(0x005bcc60);
-        const float k9 = K(0x005bcd88);
-        const float k12 = K(0x005bccac);
-        const float x = (((f.F(0x10) * f.F(0x10) * k9 + q[0] * q[0]) + p[0] * p[0]) + r[0] * r[0]) * mass * k12;
-        const float y = (((q[1] * q[1] + p[1] * p[1]) + f.F(0x14) * f.F(0x14) * k9) + r[1] * r[1]) * mass * k12;
-        const float z = (((q[2] * q[2] + p[2] * p[2]) + f.F(0x18) * f.F(0x18) * k9) + r[2] * r[2]) * mass * k12;
-        f.F(0x40) = z + y;
-        f.F(0x54) = z + x;
-        f.F(0x68) = y + x;
-        float t = -((((q[0] * q[1] + r[0] * r[1]) + f.F(0x14) * f.F(0x10) * k9) + p[0] * p[1]) * mass * k12);
-        f.F(0x44) = t;
-        f.F(0x50) = t;
-        t = -((((r[0] * r[2] + q[0] * q[2]) + f.F(0x18) * f.F(0x10) * k9) + p[0] * p[2]) * mass * k12);
-        f.F(0x48) = t;
-        f.F(0x60) = t;
-        t = -((((p[2] * p[1] + f.F(0x18) * f.F(0x14) * k9) + r[1] * r[2]) + q[2] * q[1]) * mass * k12);
-        f.F(0x64) = t;
-        f.F(0x58) = t;
-        Inertia_ShiftFromCentre(&f.F(0x40), &f.F(0x10), mass);
-    }
-    else if (f.F(0x7c) < K(0x005bcc64))
-    {
-        for (int i = 0; i < 4; ++i)
-            f.F(0x10 + 4 * i) = ((r[i] + p[i]) + q[i]) * K(0x005bcc60);
-        const float c0 = f.F(0x10);
-        const float c1 = f.F(0x14);
-        const float c2 = f.F(0x18);
-        const float s2 = c2 * c2;
-        const float s1 = c1 * c1;
-        f.F(0x40) = (s2 + s1) * mass;
-        const float s0 = c0 * c0;
-        f.F(0x54) = (s2 + s0) * mass;
-        f.F(0x68) = (s1 + s0) * mass;
-        float t = -(c1 * c0 * mass);
-        f.F(0x50) = t;
-        f.F(0x44) = t;
-        t = -(c2 * c0 * mass);
-        f.F(0x60) = t;
-        f.F(0x48) = t;
-        t = -(c2 * c1 * mass);
-        f.F(0x58) = t;
-        f.F(0x64) = t;
-    }
-    else
-    {
-        const float inv = (len2 == K(0x0056c05c)) ? K(0x0056c05c) : K(0x005bcb2c) / std::sqrt(len2);
-        f.L(0x80) = f.A(0x90);
-        f.F(0x10) = f.F(0x10) * inv;
-        f.F(0x14) = f.F(0x14) * inv;
-        f.F(0x18) = f.F(0x18) * inv;
-        const float n3 = inv * f.F(0x1c);
-        const float h = thickness * K(0x005bcb4c);
-        const float h2 = thickness * K(0x005bcbc8);
-        f.L(0x88) = 0x80000006u;
-        f.L(0x84) = 6;
-        // Vertices: R + h n, R + h2 n, P + h n, P + h2 n, Q + h n, Q + h2 n (4 floats each, w uses n3).
-        const float* src[3] = {r, p, q};
-        for (int v = 0; v < 3; ++v)
-        {
-            const uint32_t plus = 0x90 + v * 0x20;
-            const uint32_t minus = plus + 0x10;
-            for (int i = 0; i < 3; ++i)
-                f.F(plus + 4 * i) = f.F(0x10 + 4 * i) * h + src[v][i];
-            f.F(plus + 0xc) = n3 * h + src[v][3];
-            for (int i = 0; i < 3; ++i)
-                f.F(minus + 4 * i) = f.F(0x10 + 4 * i) * h2 + src[v][i];
-            f.F(minus + 0xc) = n3 * h2 + src[v][3];
-        }
-        orig::fn_004143f0(f.A(0x160));
-        f.L(0x18) = 0;
-        f.L(0x1c) = 0;
-        f.L(0x10) = 0;
-        f.L(0x14) = 0;
-        f.L(0x20) = 0;
-        f.L(0x24) = 0;
-        f.C(0x28) = 1;
-        f.C(0x29) = 1;
-        orig::fn_004b85c0(f.A(0x10), f.L(0x80), 6);
-        static const uint32_t triangles[24] = {0, 2, 4, 1, 5, 3, 0, 3, 2, 0, 1, 3, 1, 0, 4, 1, 4, 5, 2, 5, 4, 2, 3, 5};
-        for (int i = 0; i < 24; ++i)
-            f.L(0xfc + 4 * i) = triangles[i];
-        f.L(0xf0) = f.A(0xfc);
-        f.L(0xf8) = 0x80000008u;
-        f.L(0xf4) = 8;
-        orig::fn_004b8740(f.A(0x10), f.A(0xfc), 8);
-        orig::fn_004a7a60(f.A(0x10), f.A(0x160), fb(mass));
-        if (static_cast<int32_t>(f.L(0xf8)) >= 0)
-            HkFree(f.L(0xf0), ((f.L(0xf8) & 0x7fffffffu) * 3) << 2, 0x10);
-        orig::fn_004b84d0(f.A(0x10));
-        for (int i = 0; i < 4; ++i)
-            f.L(0x10 + 4 * i) = f.L(0x170 + 4 * i);
-        for (int i = 0; i < 12; ++i)
-            f.L(0x40 + 4 * i) = f.L(0x180 + 4 * i);
-        if (static_cast<int32_t>(f.L(0x88)) >= 0)
-            HkFree(f.L(0x80), (f.L(0x88) & 0x7fffffffu) << 4, 0x10);
-    }
-    const float volume = f.F(0x7c) * thickness * K(0x005bcb4c);
-    Field<float>(out, 4) = mass;
-    for (int i = 0; i < 12; ++i)
-        Field<uint32_t>(out, 0x20 + 4 * i) = f.L(0x40 + 4 * i);
-    for (int i = 0; i < 4; ++i)
-        Field<uint32_t>(out, 0x10 + 4 * i) = f.L(0x10 + 4 * i);
-    Field<float>(out, 0) = volume;
-    return 0;
-}
-
-static uint32_t TriangleMassProperties_Abi(uint32_t eax, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3,
-                                           uint32_t a4)
-{
-    return TriangleMassProperties(reinterpret_cast<const float*>(eax), reinterpret_cast<const float*>(a0),
-                                  reinterpret_cast<const float*>(a1), bf(a2), bf(a3), B(a4));
-}
-ABI_ENTRY_004a47a0(TriangleMassProperties_Entry, TriangleMassProperties_Abi)
-HOOK(0x004a47a0, "TriangleMassProperties", TriangleMassProperties_Entry, nullptr);
-
-// 0x004a5160 (ecx = out, edx = half extents; stack: mass; caller pops; callers 0x00412450, 0x004a62f0): box mass
-// properties. Returns 1 when mass <= 0 (NaN passes). Otherwise out +0x20..+0x4c = the 3x4 identity of 0x005cad50 with
-// the diagonal (e1^2 + e2^2) k, (e0^2 + e2^2) k, (e0^2 + e1^2) k for k = mass / 3; centre +0x10..+0x1c = 0, +4 = mass,
-// +0 = e2 e1 e0 * [0x005bcb48] (volume); returns 0. Executed in recorded runs.
-uint32_t BoxMassProperties(uint8_t* out, const float* e, float mass)
-{
-    if (mass <= K(0x0056c05c))
-        return 1;
-    const float e0 = e[0];
-    const float e1 = e[1];
-    const float e2 = e[2];
-    const float k = mass * K(0x005bcc60);
-    for (int i = 0; i < 12; ++i)
-        Field<uint32_t>(out, 0x20 + 4 * i) = GameGlobal<uint32_t>(0x005cad50 + 4 * i);
-    const float s2 = e2 * e2;
-    const float s1 = e1 * e1;
-    Field<float>(out, 0x20) = (s1 + s2) * k;
-    const float s0 = e0 * e0;
-    Field<float>(out, 0x34) = (s0 + s2) * k;
-    Field<float>(out, 0x48) = (s0 + s1) * k;
-    Field<uint32_t>(out, 0x1c) = 0;
-    Field<uint32_t>(out, 0x18) = 0;
-    Field<uint32_t>(out, 0x14) = 0;
-    Field<uint32_t>(out, 0x10) = 0;
-    Field<float>(out, 4) = mass;
-    Field<float>(out, 0) = e2 * e1 * e0 * K(0x005bcb48);
-    return 0;
-}
-
-static uint32_t BoxMassProperties_Abi(uint32_t ecx, uint32_t edx, uint32_t a0)
-{
-    return BoxMassProperties(B(ecx), reinterpret_cast<const float*>(edx), bf(a0));
-}
-ABI_ENTRY_004a5160(BoxMassProperties_Entry, BoxMassProperties_Abi)
-HOOK(0x004a5160, "BoxMassProperties", BoxMassProperties_Entry, nullptr);
-
-// 0x004a5250 (stack: points, stride, count, mass, out; caller pops; caller 0x004a62f0): mass properties of the convex
-// hull of a point cloud. Returns 1 when mass <= 0 (NaN passes). Copies count points (3 floats each, source advanced by
-// stride bytes) into a local hkArray of 16-byte vectors {ptr, size 0 (never updated), capacity 0x80000000} grown with
-// hkArray_reserve 0x004aa830 (&array, count, 0x10) when count > 0; builds the hull geometry with 0x004ba7f0 (eax =
-// count, edx = vectors; 0, 0x00800000); on failure frees the array (when owned) and returns 1. Otherwise 0x004a7a60
-// (ebx = geometry, esi = out; mass), out +4 = mass, frees the geometry's vertex (+0x0c, when byte +0x18) and triangle
-// (+0x14, when byte +0x19) buffers through hkMemory virtual +4 and the geometry itself (0x1c bytes, class 6), frees the
-// array when owned, returns 0. Executed in recorded runs.
-uint32_t ConvexHullMassProperties(const uint8_t* points, int32_t stride, int32_t count, float mass, uint8_t* out)
-{
-    if (mass <= K(0x0056c05c))
-        return 1;
-    uint32_t array[3] = {0, 0, 0x80000000u};
-    if (count > 0)
-    {
-        orig::fn_004aa830(u(array), static_cast<uint32_t>(count), 0x10);
-        for (int32_t k = 0; k < count; ++k, points += stride)
-        {
-            uint32_t* d = reinterpret_cast<uint32_t*>(array[0]) + 4 * k;
-            const uint32_t* s = reinterpret_cast<const uint32_t*>(points);
-            d[0] = s[0];
-            d[1] = s[1];
-            d[2] = s[2];
-        }
-    }
-    const uint32_t ptr = array[0];
-    const uint32_t cap = array[2];
-    uint8_t* geometry = B(orig::fn_004ba7f0(static_cast<uint32_t>(count), ptr, 0, 0x00800000u));
-    if (!geometry)
-    {
-        if (static_cast<int32_t>(cap) >= 0)
-            HkFree(ptr, (cap & 0x7fffffffu) << 4, 0x10);
-        return 1;
-    }
-    orig::fn_004a7a60(u(geometry), u(out), fb(mass));
-    Field<float>(out, 4) = mass;
-    if (geometry[0x18])
-        VCall<uint32_t>(GameGlobal<void*>(0x005fed84), 4 / 4, Field<uint32_t>(geometry, 0xc));
-    if (geometry[0x19])
-        VCall<uint32_t>(GameGlobal<void*>(0x005fed84), 4 / 4, Field<uint32_t>(geometry, 0x14));
-    HkFree(u(geometry), 0x1c, 6);
-    if (static_cast<int32_t>(cap) >= 0)
-        HkFree(ptr, (cap & 0x7fffffffu) << 4, 0x10);
-    return 0;
-}
-
-static uint32_t ConvexHullMassProperties_Abi(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4)
-{
-    return ConvexHullMassProperties(B(a0), static_cast<int32_t>(a1), static_cast<int32_t>(a2), bf(a3), B(a4));
-}
-ABI_ENTRY_004a5250(ConvexHullMassProperties_Entry, ConvexHullMassProperties_Abi)
-HOOK(0x004a5250, "ConvexHullMassProperties", ConvexHullMassProperties_Entry, nullptr);
-
-uint32_t MassEntries_Combine(uint8_t* out, uint32_t* entries);
-
-namespace
-{
-// x87 helpers for 0x004a53a0: the C runtime's acos intrinsic 0x00566ad0 (argument and result in st0), fsin, fcos.
-inline float X87Acos(float x)
-{
-    static const uint32_t target = 0x00566ad0;
-    float r;
-    __asm {
-        fld x
-        call dword ptr [target]
-        fstp r
-    }
-    return r;
-}
-inline float X87Sin(float angle)
-{
-    float r;
-    __asm {
-        fld angle
-        fsin
-        fstp r
-    }
-    return r;
-}
-inline float X87Cos(float angle)
-{
-    float r;
-    __asm {
-        fld angle
-        fcos
-        fstp r
-    }
-    return r;
-}
-// Appends the 0x90-byte mass entry {mass properties (0x50) at entry, transform (0x40) at transform} to the hkArray
-// {ptr, size, capacity} the way 0x004a53a0 does after its first entry: grows (size ? size * 2 : 1) through
-// hkArray_reserve 0x004aa830 when size == capacity & 0x7fffffff, then MassProperties_Copy 0x00413770 (eax = slot,
-// ecx = entry) and Matrix_Copy 0x00414240 (ecx = slot + 0x50; transform).
-inline void AppendMassEntry(uint32_t* array, uint32_t entry, uint32_t transform)
-{
-    if (array[1] == (array[2] & 0x7fffffffu))
-        orig::fn_004aa830(u(array), array[1] ? array[1] * 2 : 1, 0x90);
-    const uint32_t slot = array[0] + array[1] * 0x90;
-    ++array[1];
-    orig::fn_00413770(slot, entry);
-    orig::fn_00414240(slot + 0x50, transform);
-}
-}  // namespace
-
-// 0x004a53a0 (eax = A, ecx = B; stack: radius, mass, out; caller pops; caller 0x004a62f0): mass properties of a
-// capsule from A to B. Returns 1 when mass <= 0 or radius <= 0 (NaN passes). Frame offsets are the original's esp
-// offsets after its register pushes. Steps:
-//  - axis d = A - B, len = |d|. When len > 0 and the unit axis u has |u . (0, 0, 1)| (computed as u2 + u1 * 0 + u0 * 0)
-//    < 0.99999, the rotation taking z to u: axis ((u2 * 0 - u1), (u0 - u2 * 0), (u1 * 0 - u0 * 0)) normalised,
-//    angle acos(clamped dot) (C runtime 0x00566ad0), quaternion (axis sin(angle / 2), cos(angle / 2)) turned into the
-//    frame rotation +0x130 by 0x004de840; otherwise the identity of 0x005cad50. Translation +0x160 = (A + B) / 2.
-//  - volumes: sphere Vs = pi r^3 * 4/3, cylinder Vc = pi len r^2; masses ms = Vs / (Vc + Vs) * mass, mc likewise.
-//  - entry 1, cylinder: inertia diag ((len^2 / 4) / 3 + r^2 / 4, same, r^2 / 2) scaled by mc (0x004deda0), volume Vc,
-//    mass mc, centre 0; array reserved for 1 (hkArray_reserve 0x004aa830) and appended.
-//  - entries 2 and 3, hemispheres at +/- len / 2 along the axis (0x004de780 rotates (0, 0, +/-len/2) into the
-//    transform's translation): sphere mass properties 0x004a46c0 (radius, ms), inertia halved (0x004deda0, 0.5),
-//    centre (0, 0, +/-0.375 r), shifted by 0x004a6830 (ms / 2), volume Vs / 2, mass ms / 2; appended.
-//  - 0x004a5ed0 (esi = out; &array) combines them; the array is freed when owned. Returns 0.
-// Not executed in recorded runs. Same shape as Havok's computeCapsuleVolumeMassProperties (guess: library code).
-uint32_t CapsuleMassProperties(const float* a, const float* b, float radius, float mass, uint8_t* out)
-{
-    if (mass <= K(0x0056c05c))
-        return 1;
-    if (radius <= K(0x0056c05c))
-        return 1;
-    Frame<0x170> f;
-    const float d0 = a[0] - b[0];
-    f.F(0x14) = a[1] - b[1];
-    const float d2 = a[2] - b[2];
-    const float len2 = (d0 * d0 + d2 * d2) + f.F(0x14) * f.F(0x14);
-    f.F(0x24) = std::sqrt(len2);
-    bool rotated = false;
-    if (f.F(0x24) > K(0x0056c05c))
-    {
-        const float inv = (len2 == K(0x0056c05c)) ? K(0x0056c05c) : K(0x005bcb2c) / std::sqrt(len2);
-        f.F(0x10) = inv * d0;
-        f.F(0x14) = f.F(0x14) * inv;
-        f.F(0x18) = d2 * inv;
-        f.F(0x2c) = f.F(0x10) * K(0x0056c05c);
-        f.F(0x48) = f.F(0x14) * K(0x0056c05c);
-        const float t = (f.F(0x18) + f.F(0x48)) + f.F(0x2c);
-        if (std::fabs(t) < K(0x005bcdcc))
-        {
-            const float z0 = f.F(0x18) * K(0x0056c05c);
-            f.F(0x30) = z0 - f.F(0x14);
-            const float c1 = f.F(0x10) - z0;
-            const float c2 = f.F(0x48) - f.F(0x2c);
-            const float n2 = (c2 * c2 + c1 * c1) + f.F(0x30) * f.F(0x30);
-            const float inv2 = (n2 == K(0x0056c05c)) ? K(0x0056c05c) : K(0x005bcb2c) / std::sqrt(n2);
-            f.F(0x30) = f.F(0x30) * inv2;
-            f.F(0x34) = c1 * inv2;
-            f.F(0x38) = c2 * inv2;
-            f.F(0x28) = t;
-            if (std::fabs(t) > K(0x005bcb2c))
-            {
-                f.L(0x28) = 0x3f800000u;
-                if (!(t > K(0x0056c05c)))
-                    f.L(0x28) = 0xbf800000u;
-            }
-            const float half = X87Acos(f.F(0x28)) * K(0x005bcb4c);
-            const float s = X87Sin(half);
-            f.F(0x10) = f.F(0x30) * s;
-            f.F(0x14) = f.F(0x34) * s;
-            f.F(0x18) = f.F(0x38) * s;
-            f.F(0x1c) = X87Cos(half);
-            orig::fn_004de840(f.A(0x10), f.A(0x130));
-            rotated = true;
-        }
-    }
-    if (!rotated)
-    {
-        for (int i = 0; i < 12; ++i)
-            f.L(0x130 + 4 * i) = GameGlobal<uint32_t>(0x005cad50 + 4 * i);
-    }
-    f.L(0x38) = 0x80000000u;
-    const float s0 = b[0] + a[0];
-    f.F(0x14) = a[1] + b[1];
-    f.F(0x18) = a[2] + b[2];
-    f.F(0x1c) = b[3] + a[3];
-    const float m0 = s0 * K(0x005bcb4c);
-    const float m1 = f.F(0x14) * K(0x005bcb4c);
-    f.F(0x18) = f.F(0x18) * K(0x005bcb4c);
-    f.L(0x168) = f.L(0x18);
-    f.F(0x1c) = f.F(0x1c) * K(0x005bcb4c);
-    f.L(0x30) = 0;
-    f.L(0x34) = 0;
-    f.F(0x160) = m0;
-    f.L(0x16c) = f.L(0x1c);
-    f.F(0x164) = m1;
-    // Volumes and masses.
-    f.F(0x2c) = K(0x0057e864) * radius * radius * radius * K(0x005bcd90);
-    f.F(0x28) = K(0x0057e864) * f.F(0x24) * radius * radius;
-    const float q = K(0x005bcb2c) / (f.F(0x28) + f.F(0x2c));
-    f.F(0x48) = f.F(0x2c) * q * mass;
-    f.F(0x4c) = q * f.F(0x28) * mass;
-    // Entry 1: the cylinder.
-    orig::fn_004142b0(f.A(0xa0));
-    orig::fn_00414240(f.A(0xf0), f.A(0x130));
-    const float r2 = radius * radius;
-    f.L(0xc4) = GameGlobal<uint32_t>(0x005cad54);
-    f.L(0xc8) = GameGlobal<uint32_t>(0x005cad58);
-    f.L(0xcc) = GameGlobal<uint32_t>(0x005cad5c);
-    f.L(0xd0) = GameGlobal<uint32_t>(0x005cad60);
-    f.L(0xd8) = GameGlobal<uint32_t>(0x005cad68);
-    f.L(0xdc) = GameGlobal<uint32_t>(0x005cad6c);
-    f.L(0xb0) = 0;
-    f.L(0xb4) = 0;
-    f.L(0xb8) = 0;
-    f.L(0xbc) = 0;
-    f.L(0xe0) = GameGlobal<uint32_t>(0x005cad70);
-    f.L(0xe4) = GameGlobal<uint32_t>(0x005cad74);
-    f.L(0xec) = GameGlobal<uint32_t>(0x005cad7c);
-    const float ixx = f.F(0x24) * f.F(0x24) * K(0x005bcbe4) * K(0x005bcc60) + r2 * K(0x005bcbe4);
-    f.F(0xc0) = ixx;
-    f.F(0xd4) = ixx;
-    f.F(0xe8) = r2 * K(0x005bcb4c);
-    orig::fn_004deda0(f.A(0xc0), f.L(0x4c));
-    f.L(0xbc) = 0;
-    f.L(0xb8) = 0;
-    f.L(0xb4) = 0;
-    f.L(0xb0) = 0;
-    f.L(0xa0) = f.L(0x28);
-    f.L(0xa4) = f.L(0x4c);
-    orig::fn_004aa830(f.A(0x30), 1, 0x90);
-    {
-        const uint32_t slot = f.L(0x30) + f.L(0x34) * 0x90;
-        ++f.L(0x34);
-        orig::fn_00413770(slot, f.A(0xa0));
-        orig::fn_00414240(slot + 0x50, f.A(0xf0));
-    }
-    // Entries 2 and 3: the hemispheres.
-    for (int side = 0; side < 2; ++side)
-    {
-        orig::fn_004142b0(f.A(0xa0));
-        orig::fn_00414240(f.A(0xf0), f.A(0x130));
-        if (side == 0)
-        {
-            const float hl = f.F(0x24) * K(0x005bcb4c);
-            f.F(0x4c) = hl;
-            f.F(0x18) = hl;
-        }
-        else
-        {
-            f.F(0x18) = -f.F(0x4c);
-        }
-        f.L(0x10) = 0;
-        f.L(0x14) = 0;
-        f.L(0x1c) = 0;
-        orig::fn_004de780(f.A(0x10), f.A(0x130), f.A(0x10));
-        const float t0 = f.F(0x10) + f.F(0x120);
-        const float t1 = f.F(0x14) + f.F(0x124);
-        f.F(0x18) = f.F(0x18) + f.F(0x128);
-        f.L(0x128) = f.L(0x18);
-        f.F(0x1c) = f.F(0x1c) + f.F(0x12c);
-        f.L(0x12c) = f.L(0x1c);
-        f.F(0x120) = t0;
-        f.F(0x124) = t1;
-        f.L(0xb0) = 0;
-        f.L(0xb4) = 0;
-        f.L(0xbc) = 0;
-        f.F(0xb8) = radius * K(side == 0 ? 0x005bce18u : 0x005bce14u);
-        static const uint32_t zeroes[] = {0x50, 0x54, 0x6c, 0x68, 0x64, 0x60, 0x7c, 0x78, 0x74,
-                                          0x70, 0x8c, 0x88, 0x84, 0x80, 0x9c, 0x98, 0x94, 0x90};
-        for (uint32_t o : zeroes)
-            f.L(o) = 0;
-        SphereMassProperties(&f.C(0x50), radius, f.F(0x48));
-        for (int i = 0; i < 12; ++i)
-            f.L(0xc0 + 4 * i) = f.L(0x70 + 4 * i);
-        orig::fn_004deda0(f.A(0xc0), 0x3f000000u);
-        if (side == 0)
-            f.F(0x24) = f.F(0x48) * K(0x005bcb4c);
-        Inertia_ShiftFromCentre(&f.F(0xc0), &f.F(0xb0), f.F(0x24));
-        if (side == 0)
-            f.F(0x2c) = f.F(0x2c) * K(0x005bcb4c);
-        f.L(0xa0) = f.L(0x2c);
-        f.L(0xa4) = f.L(0x24);
-        AppendMassEntry(&f.L(0x30), f.A(0xa0), f.A(0xf0));
-    }
-    MassEntries_Combine(out, &f.L(0x30));
-    const uint32_t cap = f.L(0x38);
-    if (static_cast<int32_t>(cap) >= 0)
-        HkFree(f.L(0x30), ((cap & 0x7fffffffu) * 9) << 4, 0x10);
-    return 0;
-}
-
-static uint32_t CapsuleMassProperties_Abi(uint32_t eax, uint32_t ecx, uint32_t a0, uint32_t a1, uint32_t a2)
-{
-    return CapsuleMassProperties(reinterpret_cast<const float*>(eax), reinterpret_cast<const float*>(ecx), bf(a0),
-                                 bf(a1), B(a2));
-}
-ABI_ENTRY_004a53a0(CapsuleMassProperties_Entry, CapsuleMassProperties_Abi)
-HOOK(0x004a53a0, "CapsuleMassProperties", CapsuleMassProperties_Entry, nullptr);
-
-void Inertia_ShiftToPoint(float* m, const float* c, float mass);
-
-// 0x004a5ed0 (esi = out; stack: &array; caller pops; callers 0x00413450, 0x004527d0, 0x00456c40, 0x004a53a0,
-// 0x004a62f0): combines an hkArray {ptr, size, capacity} of 0x90-byte mass entries {mass properties: +0 volume, +4
-// mass, +0x10 centre, +0x20 inertia (3 rows of 4); +0x50 transform (3x4 rotation, translation +0x80)} into out.
-// Returns 1 (out untouched) when the array is empty or the total mass <= 0 (NaN passes). Pass 1: total mass, total
-// volume and the mass-weighted sum of the transformed centres (((cz T[+0x70] + cy T[+0x60]) + cx T[+0x50]) + T[+0x80]
-// per row; w accumulates mass * 0). out +0x10 = sum / total mass, +0 = volume, +4 = mass, +0x20..+0x4c = 0. Pass 2,
-// per entry: inertia rotated into the body frame (0x004deab0 (eax = inertia, ecx = transposed rotation, edx = tmp),
-// then (eax = rotation, ecx = tmp, edx = inertia)), shifted by the entry's mass to the offset of its transformed centre
-// from the combined centre (0x004a68c0), added to out +0x20..+0x4c. Returns 0. Executed in recorded runs.
-uint32_t MassEntries_Combine(uint8_t* out, uint32_t* entries)
-{
-    Frame<0xe0> f;
-    f.L(0x1c) = 0;
-    f.L(0x18) = 0;
-    f.L(0x14) = 0;
-    f.L(0x10) = 0;
-    int32_t count = static_cast<int32_t>(entries[1]);
-    if (count <= 0)
-        return 1;
-    float totalMass = K(0x0056c05c);
-    float totalVolume = K(0x0056c05c);
-    float sx = f.F(0x10);
-    for (uint8_t* e = B(entries[0]); count != 0; --count, e += 0x90)
-    {
-        const float cx = Field<float>(e, 0x10);
-        const float cy = Field<float>(e, 0x14);
-        const float cz = Field<float>(e, 0x18);
-        f.F(0x30) = ((cz * Field<float>(e, 0x70) + cy * Field<float>(e, 0x60)) + cx * Field<float>(e, 0x50)) +
-                    Field<float>(e, 0x80);
-        f.F(0x34) = ((cz * Field<float>(e, 0x74) + cy * Field<float>(e, 0x64)) + cx * Field<float>(e, 0x54)) +
-                    Field<float>(e, 0x84);
-        const float wz = ((cz * Field<float>(e, 0x78) + cy * Field<float>(e, 0x68)) + cx * Field<float>(e, 0x58)) +
-                         Field<float>(e, 0x88);
-        const float m = Field<float>(e, 4);
-        sx = sx + f.F(0x30) * m;
-        f.F(0x14) = f.F(0x34) * m + f.F(0x14);
-        f.F(0x18) = wz * m + f.F(0x18);
-        f.F(0x1c) = m * K(0x0056c05c) + f.F(0x1c);
-        totalMass = totalMass + Field<float>(e, 4);
-        totalVolume = totalVolume + Field<float>(e, 0);
-    }
-    f.F(0x10) = sx;
-    f.F(0x2c) = totalVolume;
-    if (totalMass <= K(0x0056c05c))
-        return 1;
-    const float inv = K(0x005bcb2c) / totalMass;
-    f.L(0x4c) = 0;
-    f.F(0x10) = f.F(0x10) * inv;
-    f.F(0x14) = f.F(0x14) * inv;
-    Field<uint32_t>(out, 0x14) = f.L(0x14);
-    f.F(0x18) = f.F(0x18) * inv;
-    Field<uint32_t>(out, 0x18) = f.L(0x18);
-    f.F(0x1c) = f.F(0x1c) * inv;
-    Field<uint32_t>(out, 0x1c) = f.L(0x1c);
-    Field<float>(out, 0x10) = f.F(0x10);
-    Field<uint32_t>(out, 0) = f.L(0x2c);
-    Field<float>(out, 4) = totalMass;
-    for (uint32_t o = 0x20; o < 0x50; o += 4)
-        Field<uint32_t>(out, o) = 0;
-    if (static_cast<int32_t>(entries[1]) <= 0)
-        return 0;
-    f.F(0x3c) = -f.F(0x1c);
-    f.L(0x2c) = 0;
-    do
-    {
-        uint8_t* e = B(entries[0]) + f.L(0x2c);
-        for (int i = 0; i < 12; ++i)
-            f.L(0x50 + 4 * i) = Field<uint32_t>(e, 0x20 + 4 * i);
-        uint8_t* rotation = e + 0x50;
-        for (int i = 0; i < 12; ++i)
-            f.L(0x80 + 4 * i) = Field<uint32_t>(rotation, 4 * i);
-        // Transpose the 3x3 part in place (rows 0x10 apart).
-        const uint32_t t84 = f.L(0x84);
-        const uint32_t t88 = f.L(0x88);
-        const uint32_t t98 = f.L(0x98);
-        const uint32_t ta4 = f.L(0xa4);
-        f.L(0x84) = f.L(0x90);
-        f.L(0x88) = f.L(0xa0);
-        f.L(0x90) = t84;
-        f.L(0xa0) = t88;
-        f.L(0xa4) = t98;
-        f.L(0x98) = ta4;
-        orig::fn_004deab0(f.A(0x50), f.A(0x80), f.A(0xb0));
-        orig::fn_004deab0(u(rotation), f.A(0xb0), f.A(0x50));
-        e = B(entries[0]) + f.L(0x2c);
-        const float cx = Field<float>(e, 0x10);
-        const float cy = Field<float>(e, 0x14);
-        const float cz = Field<float>(e, 0x18);
-        const uint32_t m = Field<uint32_t>(e, 4);
-        f.F(0x30) = ((cz * Field<float>(e, 0x70) + cy * Field<float>(e, 0x60)) + cx * Field<float>(e, 0x50)) +
-                    Field<float>(e, 0x80);
-        f.F(0x34) = ((cz * Field<float>(e, 0x74) + cy * Field<float>(e, 0x64)) + cx * Field<float>(e, 0x54)) +
-                    Field<float>(e, 0x84);
-        const float wz = ((cz * Field<float>(e, 0x78) + cy * Field<float>(e, 0x68)) + cx * Field<float>(e, 0x58)) +
-                         Field<float>(e, 0x88);
-        f.F(0x30) = f.F(0x30) - f.F(0x10);
-        f.F(0x34) = f.F(0x34) - f.F(0x14);
-        f.F(0x38) = wz - f.F(0x18);
-        Inertia_ShiftToPoint(&f.F(0x50), &f.F(0x30), bf(m));
-        for (uint32_t o = 0; o < 0x30; o += 4)
-            Field<float>(out, 0x20 + o) = f.F(0x50 + o) + Field<float>(out, 0x20 + o);
-        ++f.L(0x4c);
-        f.L(0x2c) += 0x90;
-    } while (static_cast<int32_t>(f.L(0x4c)) < static_cast<int32_t>(entries[1]));
-    return 0;
-}
-
-static uint32_t MassEntries_Combine_Abi(uint32_t esi, uint32_t a0)
-{
-    return MassEntries_Combine(B(esi), reinterpret_cast<uint32_t*>(a0));
-}
-ABI_ENTRY_004a5ed0(MassEntries_Combine_Entry, MassEntries_Combine_Abi)
-HOOK(0x004a5ed0, "MassEntries_Combine", MassEntries_Combine_Entry, nullptr);
-
-void MassProperties_ScaleByDensity(uint8_t* props, float density);
-
-// 0x004a62f0 (stack: shape, transform, out; caller pops; callers 0x00412450 and itself): accumulates the mass
-// properties of a shape (density 1) placed at transform into out (Havok mass-properties layout: +0 volume, +4 mass,
-// +0x10 centre, +0x20 inertia). Dispatch on the shape's virtual +4 (type):
-//   2, 0xc, 0x10, 0x11: collection (type 2 uses its +0x0c): for each child i < virtual +0x20(): child = virtual
-//     +0x28(virtual +0x24(&key, i, buffer)); recursion with the same transform when not null;
-//   3: recursion on +0x10; 0x12, 0x13 (wrapper types with a child at +0x0c, 0x13 = Type13Shape): recursion on +0x0c;
-//   0x1a: transform composed with the shape's +0x10 by 0x004de510 (ecx = local; transform, +0x10), recursion on +0x0c;
-//   5: SphereMassProperties (radius +0x0c, mass 1); 8: BoxMassProperties (half extents +0x10); 7: TriangleMassProperties
-//     (P = +0x20, R = +0x10, Q = +0x30, thickness +0x0c); 0xa: CapsuleMassProperties (A = +0x20, B = +0x10, radius
-//     +0x0c); 0xb: vertices fetched by virtual +0x20(&array), copied into a second array, ConvexHullMassProperties
-//     (stride 0x10), both arrays freed when owned;
-//   other types: nothing.
-// For the leaf types, unless the volume is exactly 0, the local properties are scaled by their volume (0x004a6950),
-// and out is replaced by MassEntries_Combine of {out (identity transform), local (transform)}. The original returns
-// whatever eax holds; the only outside caller (0x00412450) ignores it: 0 here. Executed in recorded runs.
-uint32_t Shape_AccumulateMassProperties(uint8_t* shape, uint32_t transform, uint8_t* out)
-{
-    Frame<0x1b0> f;
-    static const uint32_t zeroes[] = {0x50, 0x54, 0x6c, 0x68, 0x64, 0x60, 0x7c, 0x78, 0x74,
-                                      0x70, 0x8c, 0x88, 0x84, 0x80, 0x9c, 0x98, 0x94, 0x90};
-    for (uint32_t o : zeroes)
-        f.L(o) = 0;
-    const uint32_t type = VCall<uint32_t>(shape, 4 / 4);
-    switch (type)
-    {
-    case 5:
-        SphereMassProperties(&f.C(0x50), Field<float>(shape, 0xc), K(0x005bcb2c));
-        break;
-    case 8:
-        f.L(0x20) = Field<uint32_t>(shape, 0x10);
-        f.L(0x28) = Field<uint32_t>(shape, 0x18);
-        f.L(0x2c) = Field<uint32_t>(shape, 0x1c);
-        f.L(0x24) = Field<uint32_t>(shape, 0x14);
-        BoxMassProperties(&f.C(0x50), &f.F(0x20), K(0x005bcb2c));
-        break;
-    case 0xb:
-    {
-        f.L(0x30) = 0;
-        f.L(0x34) = 0;
-        f.L(0x38) = 0x80000000u;
-        VCall<uint32_t>(shape, 0x20 / 4, f.A(0x30));
-        const int32_t count = static_cast<int32_t>(f.L(0x34));
-        f.L(0x20) = 0;
-        f.L(0x24) = 0;
-        f.L(0x28) = 0x80000000u;
-        f.L(0x4c) = static_cast<uint32_t>(count);
-        if (count > 0)
-            orig::fn_004aa830(f.A(0x20), static_cast<uint32_t>(count), 0x10);
-        const uint32_t cap = f.L(0x28);
-        const uint32_t points = f.L(0x20);
-        for (int32_t k = 0; k < count; ++k)
-        {
-            const uint32_t* s = reinterpret_cast<const uint32_t*>(f.L(0x30)) + 4 * k;
-            uint32_t* d = reinterpret_cast<uint32_t*>(points) + 4 * k;
-            d[0] = s[0];
-            d[1] = s[1];
-            d[2] = s[2];
-            d[3] = s[3];
-        }
-        ConvexHullMassProperties(B(points), 0x10, count, K(0x005bcb2c), &f.C(0x50));
-        if (static_cast<int32_t>(cap) >= 0)
-            HkFree(points, (cap & 0x7fffffffu) << 4, 0x10);
-        if (static_cast<int32_t>(f.L(0x38)) >= 0)
-            HkFree(f.L(0x30), (f.L(0x38) & 0x7fffffffu) << 4, 0x10);
-        break;
-    }
-    case 7:
-        for (int i = 0; i < 4; ++i)
-        {
-            f.L(0x30 + 4 * i) = Field<uint32_t>(shape, 0x10 + 4 * i);
-            f.L(0xa0 + 4 * i) = Field<uint32_t>(shape, 0x20 + 4 * i);
-            f.L(0x20 + 4 * i) = Field<uint32_t>(shape, 0x30 + 4 * i);
-        }
-        TriangleMassProperties(&f.F(0xa0), &f.F(0x30), &f.F(0x20), K(0x005bcb2c), Field<float>(shape, 0xc),
-                               &f.C(0x50));
-        break;
-    case 0xa:
-        CapsuleMassProperties(reinterpret_cast<const float*>(shape + 0x20), reinterpret_cast<const float*>(shape + 0x10),
-                              Field<float>(shape, 0xc), K(0x005bcb2c), &f.C(0x50));
-        break;
-    case 3:
-        return Shape_AccumulateMassProperties(Field<uint8_t*>(shape, 0x10), transform, out);
-    case 0x12:
-    case 0x13:
-        return Shape_AccumulateMassProperties(Field<uint8_t*>(shape, 0xc), transform, out);
-    case 0x1a:
-        orig::fn_004de510(f.A(0x50), transform, u(shape + 0x10));
-        return Shape_AccumulateMassProperties(Field<uint8_t*>(shape, 0xc), f.A(0x50), out);
-    case 2:
-    case 0xc:
-    case 0x10:
-    case 0x11:
-    {
-        if (VCall<uint32_t>(shape, 4 / 4) == 2)
-            shape = Field<uint8_t*>(shape, 0xc);
-        for (int32_t i = 0; i < VCall<int32_t>(shape, 0x20 / 4); ++i)
-        {
-            const uint32_t key = VCall<uint32_t>(shape, 0x24 / 4, f.A(0x14), static_cast<uint32_t>(i), f.A(0xb0));
-            uint8_t* child = VCall<uint8_t*>(shape, 0x28 / 4, key);
-            if (child)
-                Shape_AccumulateMassProperties(child, transform, out);
-        }
-        return 0;
-    }
-    default:
-        return 0;
-    }
-    if (f.F(0x50) == K(0x0056c05c))
-        return 0;
-    MassProperties_ScaleByDensity(&f.C(0x50), f.F(0x50));
-    f.L(0x14) = 0;
-    f.L(0x18) = 0;
-    f.L(0x1c) = 0x80000000u;
-    orig::fn_004142b0(f.A(0xb0));
-    orig::fn_00413770(f.A(0xb0), u(out));
-    orig::fn_004aa830(f.A(0x14), 1, 0x90);
-    {
-        const uint32_t slot = f.L(0x14) + f.L(0x18) * 0x90;
-        ++f.L(0x18);
-        orig::fn_00413770(slot, f.A(0xb0));
-        orig::fn_00414240(slot + 0x50, f.A(0x100));
-    }
-    orig::fn_004142b0(f.A(0xb0));
-    orig::fn_00413770(f.A(0xb0), f.A(0x50));
-    orig::fn_00414240(f.A(0x100), transform);
-    AppendMassEntry(&f.L(0x14), f.A(0xb0), f.A(0x100));
-    const uint32_t cap = f.L(0x1c);
-    MassEntries_Combine(out, &f.L(0x14));
-    if (static_cast<int32_t>(cap) >= 0)
-        return HkFree(f.L(0x14), ((cap & 0x7fffffffu) * 9) << 4, 0x10);
-    return 0;
-}
-
-static uint32_t Shape_AccumulateMassProperties_Abi(uint32_t a0, uint32_t a1, uint32_t a2)
-{
-    return Shape_AccumulateMassProperties(B(a0), a1, B(a2));
-}
-ABI_ENTRY_004a62f0(Shape_AccumulateMassProperties_Entry, Shape_AccumulateMassProperties_Abi)
-HOOK(0x004a62f0, "Shape_AccumulateMassProperties", Shape_AccumulateMassProperties_Entry, nullptr);
-
-// 0x004a6830 (eax = inertia (3 rows of 4), ecx = offset c; stack: mass; caller pops; eax preserved; callers 0x004a47a0,
-// 0x004a53a0): parallel-axis shift towards the centre: diagonal m[0] -= (c1^2 + c2^2) mass, m[5] -= (c0^2 + c2^2)
-// mass, m[10] -= (c0^2 + c1^2) mass; off-diagonal m[1] = m[4] = mass c0 c1 + m[1], m[6] = m[9] = mass c2 c1 + m[6],
-// m[8] = m[2] = mass c0 c2 + m[8]. Not executed in recorded runs.
-void Inertia_ShiftFromCentre(float* m, const float* c, float mass)
-{
-    m[0] = m[0] - (c[1] * c[1] + c[2] * c[2]) * mass;
-    m[5] = m[5] - (c[0] * c[0] + c[2] * c[2]) * mass;
-    m[10] = m[10] - (c[0] * c[0] + c[1] * c[1]) * mass;
-    m[1] = mass * c[0] * c[1] + m[1];
-    m[4] = m[1];
-    m[6] = mass * c[2] * c[1] + m[6];
-    m[9] = m[6];
-    m[8] = mass * c[0] * c[2] + m[8];
-    m[2] = m[8];
-}
-
-static uint32_t Inertia_ShiftFromCentre_Abi(uint32_t eax, uint32_t ecx, uint32_t a0)
-{
-    Inertia_ShiftFromCentre(reinterpret_cast<float*>(eax), reinterpret_cast<const float*>(ecx), bf(a0));
-    return eax;
-}
-ABI_ENTRY_004a6830(Inertia_ShiftFromCentre_Entry, Inertia_ShiftFromCentre_Abi)
-HOOK(0x004a6830, "Inertia_ShiftFromCentre", Inertia_ShiftFromCentre_Entry, nullptr);
-
-// 0x004a68c0 (eax = inertia, ecx = offset c; stack: mass; caller pops; eax preserved; caller 0x004a5ed0): the inverse
-// shift of 0x004a6830 (away from the centre): diagonal m[0] = (c1^2 + c2^2) mass + m[0] (likewise m[5], m[10]);
-// off-diagonal m[1] = m[4] = m[1] - mass c0 c1, m[6] = m[9] = m[6] - mass c2 c1, m[8] = m[2] = m[8] - mass c0 c2.
-// Executed in recorded runs.
-void Inertia_ShiftToPoint(float* m, const float* c, float mass)
-{
-    m[0] = (c[1] * c[1] + c[2] * c[2]) * mass + m[0];
-    m[5] = (c[0] * c[0] + c[2] * c[2]) * mass + m[5];
-    m[10] = (c[0] * c[0] + c[1] * c[1]) * mass + m[10];
-    m[1] = m[1] - mass * c[0] * c[1];
-    m[4] = m[1];
-    m[6] = m[6] - mass * c[2] * c[1];
-    m[9] = m[6];
-    m[8] = m[8] - mass * c[0] * c[2];
-    m[2] = m[8];
-}
-
-static uint32_t Inertia_ShiftToPoint_Abi(uint32_t eax, uint32_t ecx, uint32_t a0)
-{
-    Inertia_ShiftToPoint(reinterpret_cast<float*>(eax), reinterpret_cast<const float*>(ecx), bf(a0));
-    return eax;
-}
-ABI_ENTRY_004a68c0(Inertia_ShiftToPoint_Entry, Inertia_ShiftToPoint_Abi)
-HOOK(0x004a68c0, "Inertia_ShiftToPoint", Inertia_ShiftToPoint_Entry, nullptr);
-
-// 0x004a6950 (eax = mass properties; stack: density; caller pops; eax preserved; callers 0x00413450, 0x004527d0,
-// 0x004a62f0): mass (+4) and the nine inertia entries (+0x20, +0x30, +0x40, +0x24, +0x34, +0x44, +0x28, +0x38,
-// +0x48, in that order) = density * value. Executed in recorded runs.
-void MassProperties_ScaleByDensity(uint8_t* props, float density)
-{
-    static const uint32_t offsets[] = {4, 0x20, 0x30, 0x40, 0x24, 0x34, 0x44, 0x28, 0x38, 0x48};
-    for (uint32_t o : offsets)
-        Field<float>(props, o) = density * Field<float>(props, o);
-}
-
-static uint32_t MassProperties_ScaleByDensity_Abi(uint32_t eax, uint32_t a0)
-{
-    MassProperties_ScaleByDensity(B(eax), bf(a0));
-    return eax;
-}
-ABI_ENTRY_004a6950(MassProperties_ScaleByDensity_Entry, MassProperties_ScaleByDensity_Abi)
-HOOK(0x004a6950, "MassProperties_ScaleByDensity", MassProperties_ScaleByDensity_Entry, nullptr);
-
-namespace
-{
-// One edge (a0, b0) -> (a1, b1) of 0x004a69c0, in the original's operation order. `first` stores the projection
-// integrals into the globals, otherwise adds them (new + old); the return value is the edge's Pabb-like term.
-inline float ProjectionEdge(float a0, float b0, float a1, float b1, bool first)
-{
-    const float k3 = K(0x005bcb7c);
-    const float k4 = K(0x005bcbe0);
-    const float da = a1 - a0;
-    const float db = b1 - b0;
-    const float a0s = a0 * a0;
-    const float a0c = a0s * a0;
-    const float b0s = b0 * b0;
-    const float b0c = b0s * b0;
-    const float a1s = a1 * a1;
-    const float b1s = b1 * b1;
-    const float b1c = b1s * b1;
-    const float c1 = a1 + a0;
-    const float ca2 = a1 * c1 + a0s;
-    const float ca3 = ca2 * a1 + a0c;
-    const float cb2 = (b1 + b0) * b1 + b0s;
-    const float cb3 = cb2 * b1 + b0c;
-    float t = a1 * a0;
-    t = t + t;
-    const float cab = (a1s * k3 + t) + a0s;
-    const float kab = (a0s * k3 + t) + a1s;
-    struct Term
-    {
-        uint32_t address;
-        float value;
-    };
-    const Term terms[] = {
-        {0x005fed00, c1 * db},
-        {0x005fecec, ca2 * db},
-        {0x005fed44, ca3 * db},
-        {0x005fed58, (a0c * a0 + ca3 * a1) * db},
-        {0x005fed1c, cb2 * da},
-        {0x005fecf4, cb3 * da},
-        {0x005fed54, (b0c * b0 + cb3 * b1) * da},
-        {0x005fed30, (cab * b1 + kab * b0) * db},
-        {0x005fed24, ((a1s * a1 * k4 + cab * a0) * b1 + (kab * a1 + a0c * k4) * b0) * db},
-    };
-    for (const Term& term : terms)
-    {
-        if (first)
-            GameGlobal<float>(term.address) = term.value;
-        else
-            GameGlobal<float>(term.address) = term.value + GameGlobal<float>(term.address);
-    }
-    const float b1sb0 = b1s * b0;
-    const float b0sb1 = b0s * b1;
-    float twice = b1sb0;
-    twice = twice + twice;
-    const float kbb = ((k3 * b0sb1 + twice) + b0c * k4) + b1c;
-    float twice2 = b0sb1;
-    twice2 = twice2 + twice2;
-    const float cbb = ((twice2 + b1sb0 * k3) + b1c * k4) + b0c;
-    return (a0 * kbb + cbb * a1) * da;
-}
-}  // namespace
-
-// 0x004a69c0 (eax = triangle: three 16-byte vertices; plain ret; eax preserved; caller 0x004a7080): projection
-// integrals of a polyhedron face (the Mirtich volume-integration scheme, guess from the formulas) for the axes alpha =
-// [0x005fed34] and beta = [0x005fed50] (vertex components eax + axis * 4 + 0x10 k), summed over the edges 0->1, 1->2,
-// 2->0 into the globals 0x005fed00, 0x005fecec, 0x005fed44, 0x005fed58, 0x005fed1c, 0x005fecf4, 0x005fed54,
-// 0x005fed30, 0x005fed24 (first edge stores, the others add), each then scaled by its constant (0x005bcb4c, 0x005bccb0,
-// 0x005bccac, 0x005bcc34, 0x005bcca8, 0x005bcca4, 0x005bcc2c, 0x005bcca0, 0x005bcc98); the summed last term times
-// [0x005bcc9c] goes to 0x005fed70. Executed in recorded runs.
-void Face_ProjectionIntegrals(const uint8_t* triangle)
-{
-    const uint32_t alpha = GameGlobal<uint32_t>(0x005fed34) * 4;
-    const uint32_t beta = GameGlobal<uint32_t>(0x005fed50) * 4;
-    const float a0 = Field<float>(triangle, alpha);
-    const float b0 = Field<float>(triangle, beta);
-    const float a1 = Field<float>(triangle, alpha + 0x10);
-    const float b1 = Field<float>(triangle, beta + 0x10);
-    const float a2 = Field<float>(triangle, alpha + 0x20);
-    const float b2 = Field<float>(triangle, beta + 0x20);
-    float r = ProjectionEdge(a0, b0, a1, b1, true);
-    r = r + ProjectionEdge(a1, b1, a2, b2, false);
-    r = r + ProjectionEdge(a2, b2, a0, b0, false);
-    static const uint32_t scale[][2] = {{0x005fed00, 0x005bcb4c}, {0x005fecec, 0x005bccb0}, {0x005fed44, 0x005bccac},
-                                        {0x005fed58, 0x005bcc34}, {0x005fed1c, 0x005bcca8}, {0x005fecf4, 0x005bcca4},
-                                        {0x005fed54, 0x005bcc2c}, {0x005fed30, 0x005bcca0}, {0x005fed24, 0x005bcc98}};
-    for (const auto& s : scale)
-        GameGlobal<float>(s[0]) = GameGlobal<float>(s[0]) * K(s[1]);
-    GameGlobal<float>(0x005fed70) = r * K(0x005bcc9c);
-}
-
-static uint32_t Face_ProjectionIntegrals_Abi(uint32_t eax)
-{
-    Face_ProjectionIntegrals(B(eax));
-    return eax;
-}
-ABI_ENTRY_004a69c0(Face_ProjectionIntegrals_Entry, Face_ProjectionIntegrals_Abi)
-HOOK(0x004a69c0, "Face_ProjectionIntegrals", Face_ProjectionIntegrals_Entry, nullptr);
 
 // ================================================================================================================
 // Physics glue (game code outside the Havok ranges)
@@ -2406,3 +1429,236 @@ static uint32_t PlayerObject_BuildCollision_Abi(uint32_t ecx, uint32_t a0)
 }
 ABI_ENTRY_00475220(PlayerObject_BuildCollision_Entry, PlayerObject_BuildCollision_Abi)
 HOOK(0x00475220, "PlayerObject_BuildCollision", PlayerObject_BuildCollision_Entry, nullptr);
+
+namespace
+{
+// The C runtime pow intrinsic 0x00566790 (st1 = base, st0 = exponent; result in st0).
+inline float X87Pow(float base, float exponent)
+{
+    static const uint32_t target = 0x00566790;
+    float r;
+    __asm {
+        fld base
+        fld exponent
+        call dword ptr [target]
+        fstp r
+    }
+    return r;
+}
+}  // namespace
+
+// 0x00478200 (eax = player; stack: dt; ret 4; caller 0x004788a0): the player's physics bookkeeping per step (guess
+// from the fields). When virtual +0x48(0) agrees, the body (+0x1cc) and the foot shapes (+0x460 / +0x464) get +0x18 =
+// Game+0x4c30. History: +0x524 = +0x530, +0x530 = +0x4c0 (3 dwords each); +0x53c = position (virtual +0x54) - +0x500,
+// then +0x500 = position; +0x4c0 = linear velocity (0x00458000), +0x4e8 = angular velocity (0x00457fc0); +0x4b8 /
+// +0x4bc = |v| / |v.xy|, +0x4e4 = |w|. Friction blend: f = 1, and while +0x570 > 0, f = min(+0x4bc / +0x468, 1)
+// (unless +0x468 == 0), v = pow(1 - f, +0x5ac) (C runtime 0x00566790), else v = 0; +0x5a0 = (1 - v) +0x5a8 + v +0x5a4.
+// +0x584 = 0, [0x0063a178] = player, +0x570 -= dt (clamped at 0). Contacts: +0x574 = (0, 0, -1), and when the body is
+// in a world the contact walk 0x004ae6c0 (eax = body; callback 0x004780f0) refills +0x574 / +0x584; +0xa34 &= ~0x1000.
+// With contacts (+0x584 > 0) and +0x57c > -0.1: grounded (+0x570 = 0.5, +0xa34 |= 0x1000) when +0x57c > 0.7, or when
+// ((+0x4c8 - +0x538) / dt)^2 < 200 and +0x4c8 > -5; without contacts the previous normal is restored. Not grounded:
+// +0x56c = min(+0x56c, +0x4c8). Grounded with flag 0x200, or flag 0x80 without 0x40, and without 0x20: unless flag
+// 0x100, landing ("Fx_fs_roman_land" 0x00478800, cue 0x00493b70 (ebx = 2, edi = 0x005fb9cc; 0x0064a72c, 0, player,
+// 1, 0, 0), fall damage 0x00478100 (bl = 0; +0x56c), +0x550 = +0x4bc, +0xa34 |= 0x100, +0x640 = +0x644), then +0x56c =
+// 0. Wing sounds off (0x0047bb30 (eax = +0xabc, edi = +0xab8; 0), +0xa34 &= ~0xc) with contacts, grounded, flag 4 and
+// no flag 0x20. +0x50c = +0x500 with contacts; +0x518 = +0x500 while +0x570 > 0, or with flag 4 when +0x520 > +0x508.
+// When +0x4c8 <= 0: flag 0x20 cleared; unless flag 4, when the fall speed threshold (+0xa58 with flag 2 or +0xabc,
+// else +0xa5c with flag 0x80, else +0xa50) > +0x4c8: flags |= 0x600 (unless 0x200), |= 0x10 (with +0xabc and no
+// contacts), +0xa60 += dt [0x00604a90]. Otherwise +0xa60 = 0 while +0x570 > 0 and no flag 0x100. Damage 0x00478100 (bl =
+// 1; 0) when +0x508 < -1000, when +0x508 - +0x520 < -(+0xbfc) (with +0xabc; else -(+0xbf4)), when +0xa60 > +0xbf8 (with
+// +0xabc; else +0xbf0), and when +0xa34 is negative. The upper bytes of ebx hold the old +0x574, as the original.
+// Returns eax as left: the last damage call's, else +0xa34. Executed in recorded runs.
+uint32_t fn_00478200(uint8_t* p, float dt)
+{
+    if (static_cast<uint8_t>(VCall<uint32_t>(p, 0x48 / 4, 0u)))
+    {
+        const uint32_t step = Field<uint32_t>(g_game, 0x4c30);
+        Field<uint32_t>(Field<uint8_t*>(p, 0x1cc), 0x18) = step;
+        if (Field<uint8_t*>(p, 0x460))
+            Field<uint32_t>(Field<uint8_t*>(p, 0x460), 0x18) = Field<uint32_t>(g_game, 0x4c30);
+        if (Field<uint8_t*>(p, 0x464))
+            Field<uint32_t>(Field<uint8_t*>(p, 0x464), 0x18) = Field<uint32_t>(g_game, 0x4c30);
+    }
+    for (uint32_t i = 0; i < 0xc; i += 4)
+        Field<uint32_t>(p, 0x524 + i) = Field<uint32_t>(p, 0x530 + i);
+    for (uint32_t i = 0; i < 0xc; i += 4)
+        Field<uint32_t>(p, 0x530 + i) = Field<uint32_t>(p, 0x4c0 + i);
+    VCall<uint32_t>(p, 0x54 / 4, u(p + 0x53c));
+    Field<float>(p, 0x53c) = Field<float>(p, 0x53c) - Field<float>(p, 0x500);
+    Field<float>(p, 0x540) = Field<float>(p, 0x540) - Field<float>(p, 0x504);
+    Field<float>(p, 0x544) = Field<float>(p, 0x544) - Field<float>(p, 0x508);
+    VCall<uint32_t>(p, 0x54 / 4, u(p + 0x500));
+    orig::fn_00458000(u(p), u(p + 0x4c0));
+    orig::fn_00457fc0(u(p), u(p + 0x4e8));
+    const float* v = reinterpret_cast<const float*>(p + 0x4c0);
+    Field<float>(p, 0x4b8) = std::sqrt((v[0] * v[0] + v[1] * v[1]) + v[2] * v[2]);
+    Field<float>(p, 0x4bc) = std::sqrt(v[0] * v[0] + v[1] * v[1]);
+    const float* w = reinterpret_cast<const float*>(p + 0x4e8);
+    Field<float>(p, 0x4e4) = std::sqrt((w[0] * w[0] + w[1] * w[1]) + w[2] * w[2]);
+    float f = K(0x005bcb2c);
+    float blend;
+    if (Field<float>(p, 0x570) > K(0x0056c05c))
+    {
+        if (!(Field<float>(p, 0x468) == K(0x0056c05c)))
+        {
+            f = Field<float>(p, 0x4bc) / Field<float>(p, 0x468);
+            if (f > K(0x005bcb2c))
+                f = K(0x005bcb2c);
+        }
+        blend = X87Pow(K(0x005bcb2c) - f, Field<float>(p, 0x5ac));
+    }
+    else
+    {
+        blend = K(0x0056c05c);
+    }
+    Field<uint32_t>(p, 0x584) = 0;
+    GameGlobal<uint32_t>(0x0063a178) = u(p);
+    Field<float>(p, 0x5a0) = (K(0x005bcb2c) - blend) * Field<float>(p, 0x5a8) + blend * Field<float>(p, 0x5a4);
+    const float left = Field<float>(p, 0x570) - dt;
+    Field<float>(p, 0x570) = left;
+    if (left < K(0x0056c05c))
+        Field<uint32_t>(p, 0x570) = 0;
+    uint32_t ebx = Field<uint32_t>(p, 0x574);
+    const uint32_t old578 = Field<uint32_t>(p, 0x578);
+    const uint32_t old57c = Field<uint32_t>(p, 0x57c);
+    Field<uint32_t>(p, 0x578) = 0;
+    Field<uint32_t>(p, 0x574) = 0;
+    Field<uint32_t>(p, 0x57c) = 0xbf800000u;
+    uint8_t* body = Field<uint8_t*>(p, 0x1c4);
+    if (Field<uint32_t>(body, 0x44))
+        orig::fn_004ae6c0(u(body), 0x004780f0u);
+    Field<uint32_t>(p, 0xa34) &= 0xffffefffu;
+    if (static_cast<float>(Field<int32_t>(p, 0x584)) > K(0x0056c05c) && Field<float>(p, 0x57c) > K(0x005bcd14))
+    {
+        bool grounded = Field<float>(p, 0x57c) > K(0x005bcd48);
+        if (!grounded)
+        {
+            const float rate = (Field<float>(p, 0x4c8) - Field<float>(p, 0x538)) / dt;
+            grounded = rate * rate < K(0x005bcda8) && Field<float>(p, 0x4c8) > K(0x005bce74);
+        }
+        if (grounded)
+        {
+            Field<uint32_t>(p, 0x570) = 0x3f000000u;
+            Field<uint32_t>(p, 0xa34) |= 0x1000;
+        }
+    }
+    else
+    {
+        Field<uint32_t>(p, 0x574) = ebx;
+        Field<uint32_t>(p, 0x578) = old578;
+        Field<uint32_t>(p, 0x57c) = old57c;
+    }
+    const uint32_t flags = Field<uint32_t>(p, 0xa34);
+    if (!(flags & 0x1000))
+    {
+        if (Field<float>(p, 0x56c) > Field<float>(p, 0x4c8))
+            Field<uint32_t>(p, 0x56c) = Field<uint32_t>(p, 0x4c8);
+    }
+    else
+    {
+        const uint8_t dl = static_cast<uint8_t>(flags);
+        const uint8_t dh = static_cast<uint8_t>(flags >> 8);
+        const bool landing = ((dh & 2) || ((dl & 0x80) && !(dl & 0x40))) && !(dl & 0x20);
+        if (landing)
+        {
+            if (!(dh & 1))
+            {
+                orig::fn_00478800(u(p), 0x0059ee3cu);
+                orig::fn_00493b70(0, 2, 0x005fb9ccu, 0x0064a72cu, 0, u(p), 1, 0, 0);
+                ebx = 0;
+                orig::fn_00478100(ebx, u(p), Field<uint32_t>(p, 0x56c));
+                Field<uint32_t>(p, 0x550) = Field<uint32_t>(p, 0x4bc);
+                Field<uint32_t>(p, 0xa34) |= 0x100;
+                Field<uint32_t>(p, 0x640) = Field<uint32_t>(p, 0x644);
+            }
+            Field<uint32_t>(p, 0x56c) = 0;
+        }
+    }
+    if (Field<int32_t>(p, 0x584) > 0)
+    {
+        const uint32_t a = Field<uint32_t>(p, 0xa34);
+        if ((a & 0x1000) && (a & 4) && !(a & 0x20))
+        {
+            orig::fn_0047bb30(Field<uint32_t>(p, 0xabc), u(p), u(p + 0xab8), 0);
+            Field<uint32_t>(p, 0xa34) &= 0xfffffff3u;
+        }
+    }
+    if (static_cast<float>(Field<int32_t>(p, 0x584)) > K(0x0056c05c))
+    {
+        for (uint32_t i = 0; i < 0xc; i += 4)
+            Field<uint32_t>(p, 0x50c + i) = Field<uint32_t>(p, 0x500 + i);
+    }
+    if (Field<float>(p, 0x570) > K(0x0056c05c))
+    {
+        for (uint32_t i = 0; i < 0xc; i += 4)
+            Field<uint32_t>(p, 0x518 + i) = Field<uint32_t>(p, 0x500 + i);
+    }
+    uint32_t ecx = Field<uint32_t>(p, 0xa34);
+    if ((ecx & 4) && Field<float>(p, 0x520) > Field<float>(p, 0x508))
+    {
+        for (uint32_t i = 0; i < 0xc; i += 4)
+            Field<uint32_t>(p, 0x518 + i) = Field<uint32_t>(p, 0x500 + i);
+    }
+    bool falling = false;
+    if (Field<float>(p, 0x4c8) <= K(0x0056c05c))
+    {
+        ecx &= 0xffffffdfu;
+        Field<uint32_t>(p, 0xa34) = ecx;
+        float threshold;
+        if (ecx & 4)
+            threshold = Field<float>(p, 0x4c8);
+        else if (!(ecx & 2) && !Field<uint32_t>(p, 0xabc))
+            threshold = (ecx & 0x80) ? Field<float>(p, 0xa5c) : Field<float>(p, 0xa50);
+        else
+            threshold = Field<float>(p, 0xa58);
+        if (threshold > Field<float>(p, 0x4c8))
+        {
+            falling = true;
+            if (!(ecx & 0x200))
+                Field<uint32_t>(p, 0xa34) |= 0x600;
+            if (Field<uint32_t>(p, 0xabc) && !Field<uint32_t>(p, 0x584))
+                Field<uint32_t>(p, 0xa34) |= 0x10;
+            Field<float>(p, 0xa60) = GameGlobal<float>(0x00604a90) + Field<float>(p, 0xa60);
+        }
+    }
+    if (!falling && Field<float>(p, 0x570) > K(0x0056c05c) && !(ecx & 0x100))
+        Field<uint32_t>(p, 0xa60) = 0;
+    uint32_t r = 0;
+    bool called = false;
+    auto damage = [&]() {
+        ebx = (ebx & 0xffffff00u) | 1;
+        r = orig::fn_00478100(ebx, u(p), 0);
+        called = true;
+    };
+    if (Field<float>(p, 0x508) < K(0x005bce70))
+        damage();
+    const float drop = Field<float>(p, 0x508) - Field<float>(p, 0x520);
+    if (Field<uint32_t>(p, 0xabc))
+    {
+        if (-Field<float>(p, 0xbfc) > drop)
+            damage();
+        if (Field<float>(p, 0xa60) > Field<float>(p, 0xbf8))
+            damage();
+    }
+    else
+    {
+        if (-Field<float>(p, 0xbf4) > drop)
+            damage();
+        if (Field<float>(p, 0xa60) > Field<float>(p, 0xbf0))
+            damage();
+    }
+    const uint32_t last = Field<uint32_t>(p, 0xa34);
+    if (static_cast<int32_t>(last) < 0)
+    {
+        damage();
+        return r;
+    }
+    return last;
+}
+
+static uint32_t fn_00478200_Abi(uint32_t eax, uint32_t a0)
+{
+    return fn_00478200(B(eax), bf(a0));
+}
+ABI_ENTRY_00478200(fn_00478200_Entry, fn_00478200_Abi)
+HOOK(0x00478200, "fn_00478200", fn_00478200_Entry, nullptr);

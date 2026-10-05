@@ -24,6 +24,11 @@ Per-function rows are in `work/classify/havok.csv` (1370 rows: 885 havok, 306 qh
 | 0x0050eb20-0x0053814e | **havok** block 2 (hkcollide: shapes, agents, dispatcher, MOPP, keycode decode) | 0x50eb20 / 0x536cc0 | Below the start: zlib inflate_fast 0x50e780 ("invalid distance code") ends at 0x50eb15. 0x50eb20 is called by Havok 0x4ac990 and calls hkArray 0x4aa830. Agent timer strings in rdata 0x56b500-0x56b968 cover 0x5154e0-0x51c160. The last function 0x536cc0 (5263 B) ends at 0x53814f, where the CRT starts (0x53814f, `CorExitProcess` page 0x539000). |
 
 Exceptions inside the ranges:
+- 0x004a4600-0x004a69ff inside the havok-ext range is Havok's own mass-properties library (hkInertiaTensorComputer:
+  sphere / box / triangle / capsule / convex-hull mass properties, inertia shifts, Mirtich projection integrals; data
+  "computeConvexHullTriangles 3.1 2001/10/19" at 0x005cad94; callers Havok). Fenced as `havok` (2026-10-05, found by
+  the physics_03 recovery, whose copies were removed). The rest of havok-ext (custom shape types 0x12/0x13, their
+  agents, the speed trap) stays game code.
 - ICF-folded tiny game functions are called from Havok and sit in game space: 0x403c40 (vector-ctor iterator), 0x413770/0x414240 (64-byte copy), 0x4142b0/0x4143f0 (zero/identity), 0x459730, 0x412fa0 and 0x407ff0. These are not callbacks.
 - Some game-space functions are vtable slots of Havok classes because of ICF (`ret`, `xor eax,eax`, `mov eax,1`): 0x418600, 0x4548c0, 0x4648a0, 0x4270f0, 0x4563c0, 0x433e70.
 - Correction to an earlier classifier note: 0x4a3d80 is not a collision-layer filter. It registers collision agents (`dispatcher.registerAgent(createFn, typeA, typeB)` = 0x513270).

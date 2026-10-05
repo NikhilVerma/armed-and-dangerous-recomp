@@ -86,7 +86,8 @@ Binary / ABI:
   EAX passes through it unchanged and at least one caller relies on that.
 - **Class names**: an object vtable's slot 1 returns a descriptor whose +0x14 is "CLASS(Name)". Vtables sit back to
   back in .rdata, so find a vtable's start from constructor `mov [reg], imm32` stores or the slot-1 getter, not by
-  scanning backwards.
+  scanning backwards: require a code reference to the candidate start (a plain backward scan called 0x0047fc90
+  "PickupObject slot 0x11d"; it is SharkGunProjectile slot 0x2f).
 - ObjectSystem_CreateObject 0x0045f020: eax = optional instance name (often 0), ecx = type name, 9 stack arguments.
 - Game+0x2c is the audio object (Ghidra calls it renderer_2c); Game+0xa8c the physics manager (+8 hkWorld); object
   +0x1c4 its Havok entity; entity +0x38 friction, +0x3c restitution.
@@ -109,7 +110,9 @@ Environment:
 - Round 2 (all remaining game code): see `tools/recovery_status.py`. Integrated batches are at S1; audio_01, game_01,
   game_02, ui_01 passed the comparison (their executed functions are S2).
 - **Open problem**: with physics_01 + anim_01 hooked, level/reset/play diverge at frame 39 (first frame after the
-  level loads; frame hash differs, no crash). A bisection over those two files was running (fixed for long hook lists).
+  level loads; frame hash differs, no crash). The bisection over those two files was interrupted (no game runs while the
+  human plays); rerun: `python tools/bisect_hooks.py --files src/physics/physics_01.cpp src/anim/anim_01.cpp --scenario
+  level` on a DLL built with the in-progress files excluded (tools/compare.py now ignores names the DLL lacks).
   Suspects: the zero-initialised query bytes in 0x00414110 (a documented deviation) or a recovery error.
 - Not yet compared: game_03..06, ai_01..04, ai_06, loader_01, ui_02, ui_03, physics_02, audio_02 (and the batches
   still being written).
