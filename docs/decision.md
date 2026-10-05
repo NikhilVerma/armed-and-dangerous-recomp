@@ -121,3 +121,25 @@ How this coexists with faithful recovery:
 - Tests never touch the player's game folder (and.ini, options.opt): all test tools run in work/instances copies,
   which take the DLL from build/hook-release. Test runs keep running unfocused ([test] parallel=1).
 - Full check only before a push; single scenarios between changes (human: checks too slow).
+
+## 2026-10-05: ray-traced shadows through a 64-bit helper
+
+- The game is 32-bit; NVIDIA's 32-bit Vulkan driver has no ray tracing. Asked: helper process vs compute-shader
+  RT vs fixing shadow maps. Human: "64-bit RT helper". rthelper/ (rt_helper.exe) shares GPU memory and timeline
+  semaphores with the game (rt_ipc.h); shadow maps remain the fallback.
+
+## 2026-10-05: decompile everything except proprietary code; then a modern rebuild
+
+- Human: "the goal is to do full decomp except for proprietary tech like havok or blink", "once done, then we can
+  rebuild the game in a modern way", and "when in doubt decompile": recovered code should steadily replace the
+  game's functions; enhancements are built on recovered functions (enhancement point in src/, switch in
+  hook/enhance/).
+- Excluded from recovery (library code, fenced by subsystem in symbols/functions.csv): `havok` and `qhull` (Havok
+  2.x, proprietary; boundary in docs/subsystems/physics.md), `d3dx` (statically linked D3DX), `crt` (MSVC 7.1 runtime),
+  `zlib`. "blink" read as Bink video: this build has none (movies play through DivX from a DLL, glue
+  0x0050dcf0-0x0050e770, which is game code and is recovered). Game-written code inside the Havok ranges
+  (`havok-ext`, `physics-glue`) IS recovered: it holds game behaviour (speed traps, custom collision agents).
+- Order: rendering first (done statically 2026-10-05), then the remaining game subsystems; the modern rebuild starts
+  once the game code is recovered. Replacing Havok (engine choice is the human's) comes with that rebuild.
+- Static recovery without game runs is allowed (human was playing); such functions are stage S1 until
+  tools/compare.py passes, then tools/promote_verified.py moves executed ones to S2.

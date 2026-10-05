@@ -15,6 +15,8 @@ re-reading is the fix.
 - The Steam executable is wrapped by SteamStub (`.bind` section, encrypted `.text`). The human unwraps it
   with Steamless; agents never unpack or patch protected executables. See `docs/decision.md`.
 - Current milestone: M0 (reconnaissance). Read `docs/recon.md` and the latest `docs/journal/` entry.
+- **Human's direction (docs/decision.md, 2026-10-05):** decompile everything except proprietary/library code (Havok, qhull,
+  D3DX, CRT, zlib), then rebuild the game in a modern way. "When in doubt, decompile."
 - **Human's goals (docs/decision.md, 2026-10-03):** (1) every function exported and recompilable, (2) migrate
   piece by piece via hooks, (3) early enhancements: resolution, HDR, frame rate, FOV, (4) the rest, including a
   later move from Havok to an open-source physics engine. Enhancements go in `hook/enhance/`, each behind an
