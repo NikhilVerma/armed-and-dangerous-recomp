@@ -17,6 +17,8 @@ re-reading is the fix.
 - Current milestone: M0 (reconnaissance). Read `docs/recon.md` and the latest `docs/journal/` entry.
 - **Human's direction (docs/decision.md, 2026-10-05):** decompile everything except proprietary/library code (Havok, qhull,
   D3DX, CRT, zlib), then rebuild the game in a modern way. "When in doubt, decompile."
+- **Resuming the recovery round:** read `docs/handover-recovery.md` (pipeline, tools, pitfalls, how to resume) and run
+  `python tools/recovery_status.py`. Work in progress lives on branch `wip/full-decomp`; main stays green.
 - **Human's goals (docs/decision.md, 2026-10-03):** (1) every function exported and recompilable, (2) migrate
   piece by piece via hooks, (3) early enhancements: resolution, HDR, frame rate, FOV, (4) the rest, including a
   later move from Havok to an open-source physics engine. Enhancements go in `hook/enhance/`, each behind an
