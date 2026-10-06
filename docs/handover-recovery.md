@@ -108,27 +108,21 @@ Environment:
 - The API rate limit can stop all agents at once: their files are compiling partial states; resume each with
   SendMessage (it keeps its context) or start a fresh agent on the same batch (it must not redo existing HOOKs).
 
-## 5. Where things stand (2026-10-05, evening)
+## 5. Where things stand (2026-10-06)
 
-- Rendering: all game-side rendering recovered (src/renderer/scene_pass.cpp, render_r0..r7.cpp), compare green,
-  committed and pushed (f4014f6).
-- Round 2 (all remaining game code): see `tools/recovery_status.py`. Integrated batches are at S1; audio_01, game_01,
-  game_02, ui_01 passed the comparison (their executed functions are S2).
+- **Static recovery is complete.** All 37 batches of round 2 are recovered, plus the functions Ghidra never identified
+  (src/engine/missing_01.cpp, src/renderer/missing_02.cpp) and the cleanup items. Game code (libraries excluded):
+  3,496 functions, S0 0-1 (0x004193a0 last), S1 2,723, S2 768, S3 4 (`python tools/recovery_status.py`).
+- Rendering was compared green before round 2 (f4014f6 on main). In round 2 only audio_01, game_01, game_02 and ui_01
+  have been compared (green). **Everything else is S1: compile-checked, never run.**
 - **Open problem**: with physics_01 + anim_01 hooked, level/reset/play diverge at frame 39 (first frame after the
   level loads; frame hash differs, no crash). The bisection over those two files was interrupted (no game runs while the
   human plays); rerun: `python tools/bisect_hooks.py --files src/physics/physics_01.cpp src/anim/anim_01.cpp --scenario
-  level` on a DLL built with the in-progress files excluded (tools/compare.py now ignores names the DLL lacks).
+  level` on a freshly built DLL (tools/compare.py now ignores names the DLL lacks).
   Suspects: the zero-initialised query bytes in 0x00414110 (a documented deviation) or a recovery error.
-- **Cross-file fidelity issue (fix before comparing anim/ai code):** 0x004eb5d0's "ecx input" looked like a `push ecx`
-  local reservation, so ai_06, ai_09, game_08 and anim_01 pass ecx = 0; but on a first-lookup miss it reads that slot
-  as a node pointer, i.e. the caller's leftover ECX (anim_02 report). Recovered callers must pass the ECX value the
-  original call site has (read each site's disassembly); with 0 they fault where the original may not.
-  Resolved 2026-10-05 (static): every original site passes edx = 0, so the ECX slot is never read; anim_01 now passes
-  ECX = key, ai_08 already passed ebp+0xab8, ai_06/ai_09/game_08 keep 0 (unknowable or 0); see docs/original-bugs.md.
-- Not yet compared: game_03..06, ai_01..04, ai_06, loader_01, ui_02, ui_03, physics_02, audio_02 (and the batches
-  still being written).
-- Remaining batches (not started at the time of writing): ai_05, ai_07, ai_08, ai_09, anim_02, audio_03, engine_01,
-  engine_02, game_09, input_01, loader_02, movie_01, physics_04, save_01 (some had agents just started).
+- 0x004eb5d0 ECX question: resolved statically (every original call site passes edx = 0, so the ECX slot is never
+  read); see docs/original-bugs.md.
+- The trace coverage gap (section 4) means "not executed" is probably overstated for virtual methods.
 
 ### Cleanup list (after the round)
 
@@ -137,13 +131,13 @@ Environment:
 - Functions missing from the tracker: tools/find_missing_functions.py + agent reports (work/classify/missing_*.csv);
   recovered into src/engine/missing_01.cpp (tracker rows to add from that agent's report).
 
-## 6. How to resume
+## 6. How to resume (verification phase)
 
-1. `python tools/recovery_status.py`: batches "not started" need an agent; "partial" ones either have deliberate
-   skips (game_02 0x0043e710, ui_02 0x00466077 = not a function) or were stopped mid-way (start an agent with the same
-   BATCH_KEY: it must read the existing file and continue, not redo HOOKs).
-2. For each finished batch: steps 4-7 of section 2.
-3. Fix the frame-39 divergence first (bisect, then read the culprit against the disassembly).
-4. When every batch is recovered and compared: merge `wip/full-decomp` into main with a green tools/check.ps1, then
-   write scenarios that execute the S1 functions (device lost/restore, env maps, other levels, menus, save/load) so
-   they can reach S2.
+1. Build everything (`pwsh tools/build.ps1`), check the DLL is fresh, run `python tools/compare.py --scenario all`.
+   Expect failures: round 2 was never run. Bisect per subsystem directory (`tools/bisect_hooks.py --files src/<dir>/*.cpp`),
+   fix each culprit against its disassembly, repeat until green; then `tools/promote_verified.py`.
+2. Start with the frame-39 divergence (physics_01 + anim_01).
+3. Fix the tracer so it records virtual / indirect calls (trace coverage gap), re-record, re-promote.
+4. Write scenarios that execute the remaining S1 functions (device lost/restore, env maps, other levels, menus,
+   save/load, movies, input remapping) so they can reach S2.
+5. Merge `wip/full-decomp` into main with a green tools/check.ps1. Then the modern rebuild (docs/decision.md).

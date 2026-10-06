@@ -413,7 +413,7 @@ address,size,name,subsystem,stage,approach,provenance,test,tokens,minutes
 0x00419290,148,fn_00419290,render-fx,S2,B,recovered render_r1.cpp: see render_r1.cpp,compare:all-2026-10-05,,
 0x00419330,90,fn_00419330,render-fx,S1,B,recovered render_r6.cpp: see render_r6.cpp,not executed: compare cannot verify,,
 0x00419390,15,fn_00419390,render-fx,S1,B,recovered render_r6.cpp: see render_r6.cpp,not executed: compare cannot verify,,
-0x004193a0,574,fn_004193a0,render-fx,S0,,untracked: untracked: referenced from 0x0041a14a / 0x0041a274; tail-jumps to 0x0046e2f0 (not yet recovered),,,
+0x004193a0,574,ParticleEmitter_InitParticle,render-fx,S1,B,recovered missing_02.cpp: see missing_02.cpp,pending compare,,
 0x004195e0,272,TexAnim_BuildStageMatrix,render-fx,S2,B,recovered render_r1.cpp: see render_r1.cpp,compare:all-2026-10-05,,
 0x004196f0,450,TexAnim_SetStages,render-fx,S2,B,recovered render_r1.cpp: see render_r1.cpp,compare:all-2026-10-05,,
 0x004198c0,81,TexAnim_FindFrameTexture,render-scene,S2,B,recovered render_r1.cpp: see render_r1.cpp,compare:all-2026-10-05,,
