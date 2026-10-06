@@ -394,6 +394,27 @@ uint32_t fn_00408e30(uint32_t flags, uint8_t* actor, int32_t index, uint32_t nam
     return 1;
 }
 
+namespace
+{
+// (1 - cos(w * 0x005bcb70)) * 0x005bcb4c exactly as 0x00408fa3 / 0x00408fef / 0x0040a158 compute it: fld, fmul,
+// fcos, fsubr, fmul on the x87 stack, rounded once on the store. std::cos rounded cos to float before the subtraction
+// (and is not fcos), which loses the low bits of 1 - cos for small weights.
+inline float CosBlend(float w)
+{
+    const float k = K(0x005bcb70), one = K(0x005bcb2c), half = K(0x005bcb4c);
+    float r;
+    __asm {
+        fld w
+        fmul k
+        fcos
+        fsubr one
+        fmul half
+        fstp r
+    }
+    return r;
+}
+}  // namespace
+
 // 0x00408ee0 (edx = output records; stack: actor, slots (0 = actor's), time (< 0 = actor+0x374); ret 0xc): builds
 // one 0x1c-byte blend record per active slot (2 slots, extended to 4 when a weight is nonzero or flag 0x4000):
 // +0 entry, +4 0x00453120(eax = actor, edx = time; stack: entry index) unless entry flag 1, +0x10 frame =
@@ -432,7 +453,7 @@ uint32_t fn_00408ee0(uint8_t* out, uint8_t* actor, uint8_t* slots, int32_t time)
             if (i < 2)
             {
                 Field<uint32_t>(rec, 0x14) = 0;
-                const float w = (K(0x005bcb2c) - static_cast<float>(std::cos(static_cast<double>(Field<float>(slot, 0x18) * K(0x005bcb70))))) * K(0x005bcb4c);
+                const float w = CosBlend(Field<float>(slot, 0x18));
                 Field<float>(rec, 0x18) = w;
                 if (!(w == K(0x0056c05c)))
                     limit = 4;
@@ -446,7 +467,7 @@ uint32_t fn_00408ee0(uint8_t* out, uint8_t* actor, uint8_t* slots, int32_t time)
         {
             if (i == 1)
             {
-                const float w = (K(0x005bcb2c) - static_cast<float>(std::cos(static_cast<double>(Field<float>(slot, 0x18) * K(0x005bcb70))))) * K(0x005bcb4c);
+                const float w = CosBlend(Field<float>(slot, 0x18));
                 Field<float>(rec, 0x18) = w;
                 if (!(w == K(0x0056c05c)))
                     limit = 4;
@@ -628,9 +649,7 @@ uint32_t fn_00409ec0(uint8_t* actor, float dt, uint8_t force)
         Field<float>(actor, 0x2cc) = w;
         if (w < K(0x0056c05c))
             Field<uint32_t>(actor, 0x2cc) = 0;
-        Field<float>(actor, 0x2c8) =
-            (K(0x005bcb2c) - static_cast<float>(std::cos(static_cast<double>(Field<float>(actor, 0x2cc) * K(0x005bcb70))))) *
-            K(0x005bcb4c);
+        Field<float>(actor, 0x2c8) = CosBlend(Field<float>(actor, 0x2cc));
     }
     if (!changed && !force)
         return 0;
@@ -3112,10 +3131,12 @@ inline float Length3(uint32_t v)
     }
     return r;
 }
-// 0x00566ad0 / 0x00566a00: the C runtime's _CIacos / _CIasin (argument and result in st0).
-inline float CrtAcos(float x)
+// 0x00566ad0 / 0x00566a00: the C runtime's _CIacos / _CIasin (argument and result in st0). The original keeps the
+// result on the x87 stack (fpatan: not rounded by the single precision control) and rounds only after the next
+// fsub / fcom, so it is returned as double: rounding it to float first changes the last bits of a - b.
+inline double CrtAcos(float x)
 {
-    float r;
+    double r;
     __asm {
         fld x
         mov eax, 0x00566ad0
@@ -3124,9 +3145,9 @@ inline float CrtAcos(float x)
     }
     return r;
 }
-inline float CrtAsin(float x)
+inline double CrtAsin(float x)
 {
-    float r;
+    double r;
     __asm {
         fld x
         mov eax, 0x00566a00
@@ -3188,7 +3209,7 @@ uint32_t fn_00472cc0(uint8_t* out, uint8_t* in, uint8_t* bone, uint8_t* parent, 
         return 0;
     }
     const uint32_t rowOff = SU(0x14) * 0x174;
-    const uint32_t off = rowOff + (SU(0x34) + SU(0x2c) * 4) * 0x28;
+    const uint32_t off = rowOff + (SU(0x34) + SU(0x28) * 4) * 0x28;  // leg = kind & 1 (0x00472d21)
     uint8_t* R = actor + off + 0x6c0;
     const uint32_t track0 = Field<uint32_t>(R, 4);
     if (!track0 || Field<uint32_t>(P(track0), 0xc) != Field<uint32_t>(bone, 0xc))
@@ -3298,20 +3319,20 @@ uint32_t fn_00472cc0(uint8_t* out, uint8_t* in, uint8_t* bone, uint8_t* parent, 
         SF(0x2c) = l2 * SF(0x10) * K(0x005bcc40);
         SF(0xc) = (SF(0x34) - SF(0x30) - SF(0x38)) / SF(0x2c);
         ClampUnit(SF(0xc));
-        SF(0x28) = CrtAcos(SF(0xc));
+        SF(0x28) = static_cast<float>(CrtAcos(SF(0xc)));
         const float d2 = SF(0x50) * SF(0x50);
         SF(0x14) = d2;
         SF(0xc) = (d2 - SF(0x30) - SF(0x38)) / SF(0x2c);
         ClampUnit(SF(0xc));
-        Field<float>(R, 0) = CrtAcos(SF(0xc)) - SF(0x28);
+        Field<float>(R, 0) = static_cast<float>(CrtAcos(SF(0xc)) - SF(0x28));
         SF(0xc) = (SF(0x30) - SF(0x34) - SF(0x38)) / (SF(0x4c) * SF(0x10) * K(0x005bcc40));
         ClampUnit(SF(0xc));
-        SF(0x28) = CrtAcos(SF(0xc));
+        SF(0x28) = static_cast<float>(CrtAcos(SF(0xc)));
         SF(0xc) = (SF(0x30) - SF(0x14) - SF(0x38)) / (SF(0x50) * SF(0x10) * K(0x005bcc40));
         ClampUnit(SF(0xc));
         orig::fn_004e7830(SA(0x18), SA(0x60), u(R + 0x18));
         Normalize3(u(R + 0x18), u(R + 0x18));
-        Field<float>(R, 0x24) = CrtAcos(SF(0xc)) - SF(0x28);
+        Field<float>(R, 0x24) = static_cast<float>(CrtAcos(SF(0xc)) - SF(0x28));
         orig::fn_004f13d0(u(R + 0x18), u(R + 8));
         CopyPos(out, in);
         orig::fn_004f1710(u(R + 8), u(in + 0xc), u(out + 0xc));
@@ -3445,7 +3466,7 @@ uint32_t fn_004735f0(uint8_t* out, uint8_t* in, uint8_t* bone, uint8_t* parent, 
                 SF(0x1c) = -SF(0x1c);
                 SF(0x20) = -SF(0x20);
             }
-            const float a = CrtAcos(SF(0x10));
+            const double a = CrtAcos(SF(0x10));  // stays unrounded on the x87 stack (0x004737ea..0x00473877)
             float lim = Field<float>(rec, 0x24);
             if (Field<uint8_t>(rec, 4) & 8)
             {
@@ -3466,11 +3487,11 @@ uint32_t fn_004735f0(uint8_t* out, uint8_t* in, uint8_t* bone, uint8_t* parent, 
                 }
                 lim = lim * frac;
             }
-            float angle = a;
+            float angle = static_cast<float>(a);
             if (a > lim)
             {
-                SF(0x14) = a - lim + K(0x005bcd3c);
-                angle = a - SF(0x14);
+                SF(0x14) = static_cast<float>(a - lim) + K(0x005bcd3c);
+                angle = static_cast<float>(a - SF(0x14));
                 SF(0x48) = angle;
                 const float sA = std::sqrt(K(0x005bcb2c) - SF(0x10) * SF(0x10));
                 SF(0x10) = sA;
@@ -3510,7 +3531,7 @@ uint32_t fn_004735f0(uint8_t* out, uint8_t* in, uint8_t* bone, uint8_t* parent, 
                 SU(0x10) = 0xbf800000;
             else if (SF(0x10) > K(0x005bcb2c))
                 SU(0x10) = 0x3f800000;
-            float a = CrtAsin(SF(0x10));
+            double a = CrtAsin(SF(0x10));  // unrounded on the x87 stack until stored (0x004739e2..0x00473aa7)
             if (a > Field<float>(rec, 0x24))
                 a = Field<float>(rec, 0x24);
             SF(0x14) = -Field<float>(rec, 0x24);
@@ -3523,7 +3544,7 @@ uint32_t fn_004735f0(uint8_t* out, uint8_t* in, uint8_t* bone, uint8_t* parent, 
                 a = -a;
             if (Field<uint8_t>(rec, 0))
             {
-                Field<float>(rec, 0x28) = a;
+                Field<float>(rec, 0x28) = static_cast<float>(a);
                 Field<uint8_t>(rec, 0) = 0;
             }
             else
@@ -3532,7 +3553,7 @@ uint32_t fn_004735f0(uint8_t* out, uint8_t* in, uint8_t* bone, uint8_t* parent, 
                 if (r > K(0x005bcb2c))
                     r = K(0x005bcb2c);
                 Field<uint8_t>(rec, 0) = 0;
-                Field<float>(rec, 0x28) = (a - Field<float>(rec, 0x28)) * r + Field<float>(rec, 0x28);
+                Field<float>(rec, 0x28) = static_cast<float>(a - Field<float>(rec, 0x28)) * r + Field<float>(rec, 0x28);
             }
             total = SF(0x44) + Field<float>(rec, 0x28);
         }

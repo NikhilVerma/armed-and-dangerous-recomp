@@ -107,12 +107,23 @@ struct Seen
 {
     const uint8_t* entity;
     bool active;
+    float before[6];  // Havok position and linear velocity before the step
 };
 std::vector<Seen> g_seen;
 struct Stats
 {
     uint32_t steps = 0, compared = 0, unsupported = 0, mirrored[3] = {};
     double posError = 0, maxPosError = 0, velError = 0;
+    // Free flight: bodies whose Havok velocity changed by exactly gravity * dt (no contact, no damping effect) test
+    // the state mapping itself (position, rotation, centre of mass, gravity, integration) without solver differences.
+    uint32_t freeCompared = 0;
+    double freePosError = 0, freeMaxPosError = 0;
+    // The body with the largest position error since the last log line, for diagnosis.
+    const uint8_t* worst = nullptr;
+    uint32_t worstUid = 0, worstShapeVtable = 0;
+    int worstMotion = -1;
+    float worstInvMass = 0;
+    float worstHavok[6] = {}, worstJolt[6] = {}, worstBefore[6] = {};
     DWORD lastLog = 0;
 } g_stats;
 
@@ -186,6 +197,11 @@ uint32_t TranslateMesh(const uint8_t* mesh)
     const int32_t subpartCount = Field<int32_t>(mesh, 0x28);
     std::vector<float> vertices;
     std::vector<uint32_t> triangles;
+    if (subpartCount <= 0 || subpartCount > 4096 || IsBadReadPtr(subparts, subpartCount * 0x1c))
+    {
+        Log("physics(jolt): mesh %p rejected: subparts %p count %d", mesh, subparts, subpartCount);
+        return 0;
+    }
     for (int32_t s = 0; s < subpartCount; ++s)
     {
         const uint8_t* sp = subparts + s * 0x1c;
@@ -194,8 +210,19 @@ uint32_t TranslateMesh(const uint8_t* mesh)
         const uint8_t* ibase = Field<uint8_t*>(sp, 0xc);
         const uint8_t itype = Field<uint8_t>(sp, 0x10);
         const int32_t istride = Field<int32_t>(sp, 0x14), tcount = Field<int32_t>(sp, 0x18);
-        if (!vbase || !ibase || vcount <= 0 || tcount <= 0)
+        // The subpart layout is read from Havok's addSubpart (0x0050f8a0); anything outside these limits means a
+        // layout or index-type guess is wrong for this mesh: skip it and say so rather than read wild memory.
+        const bool sane = vbase && ibase && vcount > 0 && vcount <= (1 << 20) && tcount > 0 && tcount <= (1 << 21) &&
+                          vstride >= 12 && vstride <= 256 && istride >= (itype == 0 ? 6 : 12) && istride <= 64 &&
+                          !IsBadReadPtr(vbase, static_cast<UINT_PTR>(vcount - 1) * vstride + 12) &&
+                          !IsBadReadPtr(ibase, static_cast<UINT_PTR>(tcount - 1) * istride + (itype == 0 ? 6 : 12));
+        if (!sane)
+        {
+            Log("physics(jolt): mesh %p subpart %d rejected: vertices %p stride %d count %d, indices %p type %u "
+                "stride %d triangles %d",
+                mesh, s, vbase, vstride, vcount, ibase, itype, istride, tcount);
             continue;
+        }
         const uint32_t first = static_cast<uint32_t>(vertices.size() / 3);
         for (int32_t v = 0; v < vcount; ++v)
         {
@@ -424,7 +451,10 @@ bool BeforeSubstep(uint8_t* m, float)
             ReadState(motion, pos, rot, lin, ang);
             JB_BodySetState(mirror.body, pos, rot, lin, ang);
         }
-        g_seen.push_back({entity, active});
+        Seen seen{entity, active, {}};
+        std::memcpy(seen.before, motion + kMotionPos, 12);
+        std::memcpy(seen.before + 3, motion + kMotionLinVel, 12);
+        g_seen.push_back(seen);
     });
     // Entities that left the world.
     for (auto it = g_mirrors.begin(); it != g_mirrors.end();)
@@ -459,8 +489,28 @@ void AfterSubstep(uint8_t*, float dt)
         const double dv = std::sqrt(double(hl[0] - jl[0]) * (hl[0] - jl[0]) + double(hl[1] - jl[1]) * (hl[1] - jl[1]) +
                                     double(hl[2] - jl[2]) * (hl[2] - jl[2]));
         g_stats.posError += dp, g_stats.velError += dv, ++g_stats.compared;
+        const float* b = seen.before;
+        const float expectedVz = b[5] - 64.348f * dt;
+        if (std::fabs(hl[0] - b[3]) < 0.01f && std::fabs(hl[1] - b[4]) < 0.01f && std::fabs(hl[2] - expectedVz) < 0.01f &&
+            std::fabs(b[5]) + std::fabs(b[3]) + std::fabs(b[4]) > 0.1f)
+        {
+            g_stats.freePosError += dp, ++g_stats.freeCompared;
+            if (dp > g_stats.freeMaxPosError)
+                g_stats.freeMaxPosError = dp;
+        }
         if (dp > g_stats.maxPosError)
+        {
             g_stats.maxPosError = dp;
+            g_stats.worst = seen.entity;
+            const uint8_t* shape = Field<uint8_t*>(seen.entity, kEntityShape);
+            g_stats.worstUid = Field<uint32_t>(seen.entity, kEntityUid);
+            g_stats.worstShapeVtable = shape ? Field<uint32_t>(shape, 0) : 0;
+            g_stats.worstMotion = MotionType(motion);
+            g_stats.worstInvMass = Field<float>(motion, kMotionInvMass);
+            std::memcpy(g_stats.worstHavok, hp, 12), std::memcpy(g_stats.worstHavok + 3, hl, 12);
+            std::memcpy(g_stats.worstJolt, jp, 12), std::memcpy(g_stats.worstJolt + 3, jl, 12);
+            std::memcpy(g_stats.worstBefore, seen.before, 24);
+        }
     }
     const DWORD now = GetTickCount();
     if (now - g_stats.lastLog >= 1000)
@@ -471,6 +521,23 @@ void AfterSubstep(uint8_t*, float dt)
             g_stats.steps, g_stats.mirrored[JB_Static], g_stats.mirrored[JB_Kinematic], g_stats.mirrored[JB_Dynamic],
             g_stats.unsupported, g_stats.compared ? g_stats.posError / g_stats.compared : 0.0, g_stats.maxPosError,
             g_stats.compared ? g_stats.velError / g_stats.compared : 0.0, g_stats.compared);
+        if (const uint8_t* w = g_stats.worst)
+        {
+            const float* b = g_stats.worstBefore;
+            const float* h = g_stats.worstHavok;
+            const float* j = g_stats.worstJolt;
+            Log("physics(jolt):   worst entity %p (uid %u, motion %d, shape vtable 0x%08x, inv mass %.4f): before "
+                "p(%.3f %.3f %.3f) v(%.3f %.3f %.3f); Havok p(%.3f %.3f %.3f) v(%.3f %.3f %.3f); Jolt p(%.3f %.3f "
+                "%.3f) v(%.3f %.3f %.3f)",
+                w, g_stats.worstUid, g_stats.worstMotion, g_stats.worstShapeVtable, g_stats.worstInvMass,
+                b[0], b[1], b[2], b[3], b[4], b[5], h[0], h[1], h[2], h[3], h[4], h[5], j[0], j[1], j[2], j[3], j[4],
+                j[5]);
+        }
+        if (g_stats.freeCompared)
+            Log("physics(jolt):   free flight: pos error mean %.5f max %.5f (%u samples)",
+                g_stats.freePosError / g_stats.freeCompared, g_stats.freeMaxPosError, g_stats.freeCompared);
+        g_stats.freeCompared = 0, g_stats.freePosError = g_stats.freeMaxPosError = 0;
+        g_stats.worst = nullptr;
         g_stats.posError = g_stats.velError = g_stats.maxPosError = 0, g_stats.compared = 0;
     }
 }

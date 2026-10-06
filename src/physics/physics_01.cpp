@@ -240,8 +240,8 @@ HOOK(0x00403f70, "ForceActionPool_Destroy", ForceActionPool_Destroy_Entry, nullp
 // 0x00403fb0 (eax = previous handle, ecx = pool, esi = vector (4 dwords); stack: owner, bodyArg, delay, duration,
 // flags; callee pops 0x14; callers 0x00455a30/0x00455aa0/0x00455b10/0x00455b80): releases the previous handle when
 // >= 0 (0x00404060, force), takes the next free-list slot; fails with -1 when that element is still in use (flag 1).
-// Otherwise advances the read index (wraps), counts it, stores flags | 5, the vector, delay (+0x20), duration
-// (+0x24), elapsed 0, and when an owner is given takes a reference (+0x28), stores it and resolves its body into
+// Otherwise advances the read index (wraps), counts it, stores flags | 5, the vector, duration (4th stack arg,
+// +0x20), delay (3rd stack arg, +0x24), elapsed 0, and when an owner is given takes a reference (+0x28), stores it and resolves its body into
 // +0x08 with 0x004574b0(eax = bodyArg, ecx = owner, edx = &element+8). Returns the element index.
 uint32_t ForceActionPool_Add(int32_t previous, uint32_t* pool, const uint32_t* vector, uint8_t* owner,
                              uint32_t bodyArg, uint32_t delay, uint32_t duration, uint32_t flags)
@@ -262,8 +262,8 @@ uint32_t ForceActionPool_Add(int32_t previous, uint32_t* pool, const uint32_t* v
     e[5] = vector[1];
     e[6] = vector[2];
     e[7] = vector[3];
-    e[8] = delay;
-    e[9] = duration;
+    e[8] = duration; // 0x0040401a: [esp+0x1c] after 3 pushes = 4th stack argument
+    e[9] = delay;    // 0x00404021: [esp+0x18] = 3rd stack argument
     e[10] = 0;
     if (owner)
     {

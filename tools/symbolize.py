@@ -69,7 +69,12 @@ def main():
         d32 = wintypes.DWORD()
         where = ""
         if dbghelp.SymGetLineFromAddr64(proc, ctypes.c_uint64(addr), ctypes.byref(d32), ctypes.byref(line)):
-            where = f"{os.path.relpath(line.FileName.decode(), ROOT)}:{line.LineNumber}"
+            path = line.FileName.decode()
+            try:
+                path = os.path.relpath(path, ROOT)
+            except ValueError:  # another drive (e.g. the build's FetchContent sources)
+                pass
+            where = f"{path}:{line.LineNumber}"
         print(f"+{off:x}  {name}  {where}")
     dbghelp.SymCleanup(proc)
 

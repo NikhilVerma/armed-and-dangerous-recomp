@@ -78,7 +78,8 @@ FetchContent_MakeAvailable(jolt)
 # the hook DLL itself is /arch:IA32). Everything else uses the plain C interface in physics/jolt_bridge.h.
 add_library(and_physics STATIC physics/jolt_bridge.cpp)
 target_link_libraries(and_physics PRIVATE Jolt)
-target_compile_options(and_physics PRIVATE /arch:SSE2 /utf-8)
+target_compile_options(and_physics PRIVATE /arch:SSE2 /utf-8 /Zi)
+target_compile_options(Jolt PRIVATE /Zi)  # line info for crash symbolisation (tools/symbolize.py)
 set_property(TARGET and_physics PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 # Headless test of the bridge, no game: pwsh tools/build.ps1 -Target jolt_bridge_test, then run it.
 add_executable(jolt_bridge_test EXCLUDE_FROM_ALL physics/jolt_bridge_test.cpp)
