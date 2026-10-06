@@ -106,8 +106,8 @@ constexpr uint32_t kHeap = 0x0063a210;  // the game heap object (ecx of PMS_heap
 }  // namespace
 
 // Prototypes of functions recovered in this file and called before their definition.
-uint32_t Mat_TransformVec3(uint32_t vec, uint32_t mat, uint32_t asDirection, uint32_t out);
-uint32_t fn_004e3070(uint32_t eax, uint32_t ecx, uint32_t edx, uint32_t edi);
+uint32_t Mat_TransformPoints(uint32_t src, uint32_t mat, uint32_t count, uint32_t dst);
+uint32_t Matrix_LookAtNeg(uint32_t eax, uint32_t ecx, uint32_t edx, uint32_t edi);
 uint32_t fn_0048e970(uint32_t esi);
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -527,7 +527,7 @@ HOOK(0x004090f0, "fn_004090f0", fn_004090f0_Entry, nullptr);
 
 // 0x0040de50 (ecx = object; stack: out vec3 and five arguments that are not read; ret 0x18). The object's position
 // (virtual +0x54 into a local), a random angle a = rand() * 2pi/32768 (0x005bcdbc) - pi (0x005bcb70), the direction
-// (0, -1, 0) rotated by the z rotation {cos, -sin; sin, cos} (Mat_TransformVec3 0x004e36a0, edx = 1) and normalised
+// (0, -1, 0) rotated by the z rotation {cos, -sin; sin, cos} (Mat_TransformPoints 0x004e36a0, edx = 1) and normalised
 // (0x004e7780, st0 result dropped); object +0x46c = 0; out = position + rand() * k * direction per axis, where k is
 // 0.0 (0x0056c05c) for x and (+0x46c as float = 0) / 32768 for y and z, so out = position. Returns the last rand().
 // No direct callers (virtual); not executed in recorded runs.
@@ -554,7 +554,7 @@ uint32_t fn_0040de50(uint32_t obj, uint32_t outp)
     Fl(at(0x34)) = -s;
     Fl(at(0x40)) = s;
     Fl(at(0x44)) = c;
-    Mat_TransformVec3(at(0x18), at(0x30), 1, at(0xc));
+    Mat_TransformPoints(at(0x18), at(0x30), 1, at(0xc));
     orig::fn_004e7780(at(0xc), at(0xc));
     D(obj + 0x46c) = 0;
     r = GameRand();
@@ -1072,7 +1072,7 @@ uint32_t ObjectDescVec(uint32_t obj, uint32_t outVec, uint32_t outScalar, uint32
     {
         float m[17];
         VCall<uint32_t>(P(obj), 0x64 / 4, m);
-        return Mat_TransformVec3(D(obj + 0x414) + 0x14, u(m), 1, outVec);
+        return Mat_TransformPoints(D(obj + 0x414) + 0x14, u(m), 1, outVec);
     }
     Fl(outVec) = s[0] * Fl(D(obj + 0x414) + 0x14);
     Fl(outVec + 4) = s[1] * Fl(D(obj + 0x414) + 0x18);
@@ -1083,8 +1083,8 @@ uint32_t ObjectDescVec(uint32_t obj, uint32_t outVec, uint32_t outScalar, uint32
 
 // 0x004541a0 (ecx = object; stack: out vec3, out scalar, byte world; ret 0xc). Shape descriptor (+0x414) data scaled by
 // the object's scale (+0x37c): scalar = scale.x * desc+0x20; vec = desc+0x14 componentwise times the scale, or, when
-// world is set, desc+0x14 transformed by the object's matrix (virtual +0x64; Mat_TransformVec3, edx = 1). Returns the
-// out vector (or Mat_TransformVec3's eax). No direct callers (virtual); not executed in recorded runs.
+// world is set, desc+0x14 transformed by the object's matrix (virtual +0x64; Mat_TransformPoints, edx = 1). Returns the
+// out vector (or Mat_TransformPoints's eax). No direct callers (virtual); not executed in recorded runs.
 uint32_t ObjectDesc_GetVecA(uint32_t obj, uint32_t outVec, uint32_t outScalar, uint32_t world)
 {
     return ObjectDescVec(obj, outVec, outScalar, world, 0x20);
@@ -1155,7 +1155,7 @@ uint32_t Object_ClampSpeed(uint32_t obj, uint32_t flatten, uint32_t limitBits)
     w[1] = v[1] * inv;
     w[2] = inv * v[2];
     VCall<uint32_t>(P(obj), 0x54 / 4, pos);
-    const uint32_t r = fn_004e3070(u(w), u(m), 0, u(pos));
+    const uint32_t r = Matrix_LookAtNeg(u(w), u(m), 0, u(pos));
     return orig::fn_00457990(r & 0xffffff00u, obj, u(m));
 }
 static uint32_t Object_ClampSpeed_Abi(uint32_t esi, uint32_t a0, uint32_t a1)
@@ -1572,19 +1572,19 @@ HOOK(0x0046d740, "List14_NodeAt", List14_NodeAt_Entry, nullptr);
 
 // 0x0046e2c0 (ecx only reserves a stack slot; stack: lo, hi; caller pops): random float lo + rand() * (hi - lo) /
 // 32768, returned in st0 (order: (rand * (hi - lo)) * 1/32768 (0x005bcbc0) + lo).
-float RandRange(uint32_t loBits, uint32_t hiBits)
+float Rand_FloatRange(uint32_t loBits, uint32_t hiBits)
 {
     const float lo = u2f(loBits);
     const float hi = u2f(hiBits);
     const int r = GameRand();
     return static_cast<float>(r) * (hi - lo) * Fl(0x005bcbc0) + lo;
 }
-static float RandRange_Abi(uint32_t /*ecx*/, uint32_t a0, uint32_t a1)
+static float Rand_FloatRange_Abi(uint32_t /*ecx*/, uint32_t a0, uint32_t a1)
 {
-    return RandRange(a0, a1);
+    return Rand_FloatRange(a0, a1);
 }
-ABI_ENTRY_0046e2c0(RandRange_Entry, RandRange_Abi)
-HOOK(0x0046e2c0, "RandRange", RandRange_Entry, nullptr);
+ABI_ENTRY_0046e2c0(Rand_FloatRange_Entry, Rand_FloatRange_Abi)
+HOOK(0x0046e2c0, "Rand_FloatRange", Rand_FloatRange_Entry, nullptr);
 
 // 0x00471750 (eax = a, ecx = b, edx = out vec3; stack: dist, speed, num; caller pops). d = a - b; f = speed, or, when
 // dist != 0 and |d| > dist, dist / |d| * speed. f == 0: out = 0 and returns 0.0; else out = d * f and returns
@@ -2034,7 +2034,7 @@ static uint32_t AppBase_Construct_Abi(uint32_t a0, uint32_t /*a1*/, uint32_t /*a
 ABI_ENTRY_004dff60(AppBase_Construct_Entry, AppBase_Construct_Abi)
 HOOK(0x004dff60, "AppBase_Construct", AppBase_Construct_Entry, nullptr);
 
-uint32_t fn_004e3f00(uint32_t app);
+uint32_t AppBase_Cleanup(uint32_t app);
 
 // 0x004e0070 (eax = app). The application base destructor body (caller Game_Destruct 0x00401710): vtable 0x0058b6f0,
 // DestroyWindow(+0x64) through the import slot 0x0056b244, then 0x004e3f00 (esi = app). Returns its eax. Not executed
@@ -2043,7 +2043,7 @@ uint32_t AppBase_Destruct(uint32_t app)
 {
     D(app) = 0x0058b6f0;
     reinterpret_cast<int(__stdcall*)(uint32_t)>(GameGlobal<uint32_t>(0x0056b244))(D(app + 0x64));
-    return fn_004e3f00(app);
+    return AppBase_Cleanup(app);
 }
 static uint32_t AppBase_Destruct_Abi(uint32_t eax)
 {
@@ -2510,3 +2510,2104 @@ static uint32_t PmsPool_Create_Abi(uint32_t edx, uint32_t a0, uint32_t a1, uint3
 }
 ABI_ENTRY_004e06f0(PmsPool_Create_Entry, PmsPool_Create_Abi)
 HOOK(0x004e06f0, "PmsPool_Create", PmsPool_Create_Entry, nullptr);
+
+// 0x004e0950 (stack: memory object; ret 4). The PMS memory constructor (no direct callers: reached through a pointer;
+// executed in recorded runs). Clears +4..+0xc, vtable 0x0058b5d4, clears 0x1d dwords at +0x10018 and +0x10014,
+// +0x10010 = the embedded allocation pool +0x10, initialised by 0x004f60e0 (eax = +0x10, edx = 5; object, 0x10,
+// 0x10000, 3, "PMS_Memory::m_pAllocPool"), then creates the "Default memory pool" (0x0058b630) pools of 16, 32, 64,
+// 128 and 256-byte elements (PmsPool_Create, count 0; object, tag, 1 << n, n, 4 for n = 4..8). Returns the object.
+// (The original's SEH frame is not reproduced.)
+uint32_t PmsMemory_Construct(uint32_t mem)
+{
+    D(mem + 4) = 0;
+    D(mem + 8) = 0;
+    D(mem + 0xc) = 0;
+    D(mem) = 0x0058b5d4;
+    std::memset(P(mem + 0x10018), 0, 0x1d * 4);
+    D(mem + 0x10014) = 0;
+    D(mem + 0x10010) = mem + 0x10;
+    orig::fn_004f60e0(mem + 0x10, 5, mem, 0x10, 0x10000, 3, 0x0058b644);
+    for (uint32_t n = 4; n <= 8; ++n)
+        PmsPool_Create(0, mem, 0x0058b630, 1u << n, n, 4);
+    return mem;
+}
+static uint32_t PmsMemory_Construct_Abi(uint32_t a0)
+{
+    return PmsMemory_Construct(a0);
+}
+ABI_ENTRY_004e0950(PmsMemory_Construct_Entry, PmsMemory_Construct_Abi)
+HOOK(0x004e0950, "PmsMemory_Construct", PmsMemory_Construct_Entry, nullptr);
+
+// 0x004e0a10 (stack: memory object; ret 4). The PMS memory destructor: PmsHeap_DestroyPools, vtable 0x00589bbc, then
+// PmsHeap_DestroyPools again. Returns its eax. No direct callers; not executed in recorded runs.
+uint32_t PmsMemory_Destruct(uint32_t mem)
+{
+    PmsHeap_DestroyPools(mem);
+    D(mem) = 0x00589bbc;
+    return PmsHeap_DestroyPools(mem);
+}
+static uint32_t PmsMemory_Destruct_Abi(uint32_t a0)
+{
+    return PmsMemory_Destruct(a0);
+}
+ABI_ENTRY_004e0a10(PmsMemory_Destruct_Entry, PmsMemory_Destruct_Abi)
+HOOK(0x004e0a10, "PmsMemory_Destruct", PmsMemory_Destruct_Entry, nullptr);
+
+// 0x004e0a60 (eax = memory object). Caller PMS_heapAlloc 0x004e07f0. Takes a node from the allocation pool +0x10010:
+// when its free list (+8) has no second entry and the re-entry guard 0x0064a70b is clear, the pool is grown first
+// (0x004f6150, guarded); when the list is empty it is grown unguarded. Returns the node unlinked from the list.
+uint32_t PmsMemory_AllocNode(uint32_t mem)
+{
+    const uint32_t pool = D(mem + 0x10010);
+    if (D(D(pool + 8)) == 0 && !GameGlobal<uint8_t>(0x0064a70b))
+    {
+        GameGlobal<uint8_t>(0x0064a70b) = 1;
+        orig::fn_004f6150(pool);
+        GameGlobal<uint8_t>(0x0064a70b) = 0;
+    }
+    const uint32_t p = D(mem + 0x10010);
+    if (!D(p + 8))
+        orig::fn_004f6150(p);
+    const uint32_t node = D(p + 8);
+    D(p + 8) = D(node);
+    return node;
+}
+static uint32_t PmsMemory_AllocNode_Abi(uint32_t eax)
+{
+    return PmsMemory_AllocNode(eax);
+}
+ABI_ENTRY_004e0a60(PmsMemory_AllocNode_Entry, PmsMemory_AllocNode_Abi)
+HOOK(0x004e0a60, "PmsMemory_AllocNode", PmsMemory_AllocNode_Entry, nullptr);
+
+// 0x004e0ab0 (esi = memory object). Caller 0x00403940. 0x004f6290 (ebx = pool) for every pool of the lists +4 and +8,
+// then for the allocation pool +0x10010. Returns its eax.
+uint32_t PmsMemory_ForEachPool(uint32_t mem)
+{
+    for (uint32_t p = D(mem + 4); p; p = D(p))
+        orig::fn_004f6290(p);
+    for (uint32_t p = D(mem + 8); p; p = D(p))
+        orig::fn_004f6290(p);
+    return orig::fn_004f6290(D(mem + 0x10010));
+}
+static uint32_t PmsMemory_ForEachPool_Abi(uint32_t esi)
+{
+    return PmsMemory_ForEachPool(esi);
+}
+ABI_ENTRY_004e0ab0(PmsMemory_ForEachPool_Entry, PmsMemory_ForEachPool_Abi)
+HOOK(0x004e0ab0, "PmsMemory_ForEachPool", PmsMemory_ForEachPool_Entry, nullptr);
+
+// 0x004e0af0 (stack: size; caller pops): allocates from the game heap (PMS_heapAlloc, ecx = 0x0063a210; 0x10, size,
+// 2, "new" 0x0058b5e8). Callers: compiler-generated code at 0x0054607e.. (operator new, guess).
+uint32_t GameHeap_Alloc(uint32_t size)
+{
+    return orig::fn_004e07f0(kHeap, 0x10, size, 2, 0x0058b5e8);
+}
+static uint32_t GameHeap_Alloc_Abi(uint32_t a0)
+{
+    return GameHeap_Alloc(a0);
+}
+ABI_ENTRY_004e0af0(GameHeap_Alloc_Entry, GameHeap_Alloc_Abi)
+HOOK(0x004e0af0, "GameHeap_Alloc", GameHeap_Alloc_Entry, nullptr);
+
+// 0x004e0b20: returns the string "virtual" (0x0058b5cc); slot 0 of the PMS memory vtable 0x0058b5d4 (whose slots 1
+// and 2 are AlignedBlock_Alloc / AlignedBlock_Free). Not executed in recorded runs.
+uint32_t PmsMemory_GetKind()
+{
+    return 0x0058b5cc;
+}
+static uint32_t PmsMemory_GetKind_Abi()
+{
+    return PmsMemory_GetKind();
+}
+ABI_ENTRY_004e0b20(PmsMemory_GetKind_Entry, PmsMemory_GetKind_Abi)
+HOOK(0x004e0b20, "PmsMemory_GetKind", PmsMemory_GetKind_Entry, nullptr);
+
+// 0x004e0bd0 Log_Flush. Unless logging is suppressed (0x0063a104 > 0) or the buffer 0x00600210 is empty (write pointer
+// 0x005cacd0 at its start): OutputDebugStringA(buffer), the callback 0x0063a10c (buffer) unless 0x0063a108 is set,
+// fprintf(0x0063a110, "%s" 0x005bbb70, buffer) when that file is open and fprintf(0x0063a114, ...) when 0x0063a11c;
+// then the write pointer is reset. Returns the last call's eax (the count when suppressed).
+uint32_t Log_Flush()
+{
+    uint32_t r = GameGlobal<uint32_t>(0x0063a104);
+    if (static_cast<int32_t>(r) > 0)
+        return r;
+    if (GameGlobal<uint32_t>(0x005cacd0) == 0x00600210)
+        return r;
+    r = Import<StdFn1>(0x0056b06c)(0x00600210);  // OutputDebugStringA
+    const uint32_t cb = GameGlobal<uint32_t>(0x0063a10c);
+    if (cb && !GameGlobal<uint32_t>(0x0063a108))
+        r = reinterpret_cast<uint32_t(__cdecl*)(uint32_t)>(cb)(0x00600210);
+    using Fprintf = uint32_t(__cdecl*)(uint32_t, uint32_t, ...);
+    const uint32_t f = GameGlobal<uint32_t>(0x0063a110);
+    if (f)
+        r = GameFunction<Fprintf>(0x0053ae47)(f, 0x005bbb70, 0x00600210u);
+    if (GameGlobal<uint32_t>(0x0063a11c))
+        r = GameFunction<Fprintf>(0x0053ae47)(GameGlobal<uint32_t>(0x0063a114), 0x005bbb70, 0x00600210u);
+    GameGlobal<uint32_t>(0x005cacd0) = 0x00600210;
+    return r;
+}
+static uint32_t Log_Flush_Abi()
+{
+    return Log_Flush();
+}
+ABI_ENTRY_004e0bd0(Log_Flush_Entry, Log_Flush_Abi)
+HOOK(0x004e0bd0, "Log_Flush", Log_Flush_Entry, nullptr);
+
+// 0x004e0b30 Log_Printf (cdecl format, ...). Unless suppressed (0x0063a104 > 0; returns the count), appends to the log
+// buffer at the write pointer 0x005cacd0 (flushed first when fewer than 0x200 bytes remain before 0x00604210): the
+// indent 0x0063a0f8 in spaces, then vsprintf (0x00538a0f) of the format; the pointer advances by the new text's
+// length. Unless 0x0063a0fc is set the buffer is flushed (a tail jump to Log_Flush); else returns the length with al
+// = that flag. Variadic: a hand-written stub passes the address of the caller's arguments as the va_list.
+uint32_t Log_PrintfV(const char* fmt, void* args)
+{
+    const uint32_t n = GameGlobal<uint32_t>(0x0063a104);
+    if (static_cast<int32_t>(n) > 0)
+        return n;
+    uint32_t w = GameGlobal<uint32_t>(0x005cacd0);
+    if (static_cast<int32_t>(0x00604210 - w) < 0x200)
+    {
+        Log_Flush();
+        w = GameGlobal<uint32_t>(0x005cacd0);
+    }
+    const uint32_t indent = GameGlobal<uint32_t>(0x0063a0f8);
+    std::memset(P(w), 0x20, indent);
+    GameFunction<int(__cdecl*)(char*, const char*, void*)>(0x00538a0f)(reinterpret_cast<char*>(indent + w), fmt, args);
+    const uint32_t start = GameGlobal<uint32_t>(0x005cacd0);
+    const uint32_t len = static_cast<uint32_t>(std::strlen(reinterpret_cast<const char*>(start)));
+    GameGlobal<uint32_t>(0x005cacd0) = start + len;
+    const uint8_t keep = GameGlobal<uint8_t>(0x0063a0fc);
+    if (!keep)
+        return Log_Flush();
+    return (len & 0xffffff00u) | keep;
+}
+static uint32_t __cdecl Log_Printf_Impl(const char* fmt, void* args)
+{
+    return Log_PrintfV(fmt, args);
+}
+static __declspec(naked) void Log_Printf_Entry()
+{
+    __asm {
+        lea eax, [esp + 8]
+        push eax
+        push dword ptr [esp + 8]
+        call Log_Printf_Impl
+        add esp, 8
+        ret
+    }
+}
+HOOK(0x004e0b30, "Log_Printf", Log_Printf_Entry, nullptr);
+
+// 0x004e0c60 (cdecl: file name, format, ...; callers 0x004fca00, 0x0050ca70). Formats into a 0x200-byte buffer
+// (vsprintf), opens the file for appending (0x004f1da0, esi = a local {handle, path}; name, 0), and when that succeeded
+// writes the text (WriteFile) and closes it (CloseHandle). Then Log_Printf (text). Returns its eax. (The original's
+// security cookie is not reproduced; the ABI lists six stack arguments: the variadic tail is passed as a va_list by
+// a hand-written stub.)
+uint32_t Log_FileV(uint32_t name, const char* fmt, void* args)
+{
+    uint32_t written = 0;
+    uint32_t file[0x42] = {};  // {handle, path[0x104]}
+    char buf[0x200];
+    GameFunction<int(__cdecl*)(char*, const char*, void*)>(0x00538a0f)(buf, fmt, args);
+    const uint32_t ok = orig::fn_004f1da0(u(file), 0, name, 0, 0, 0, 0);
+    if (static_cast<uint8_t>(ok))
+    {
+        const uint32_t len = static_cast<uint32_t>(std::strlen(buf));
+        reinterpret_cast<uint32_t(__stdcall*)(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t)>(
+            GameGlobal<uint32_t>(0x0056b0cc))(file[0], u(buf), len, u(&written), 0);  // WriteFile
+        Import<StdFn1>(0x0056b084)(file[0]);                                        // CloseHandle
+    }
+    // The text itself is the format (as in the original).
+    return GameFunction<uint32_t(__cdecl*)(const char*, ...)>(0x004e0b30)(buf);
+}
+static uint32_t __cdecl Log_File_Impl(uint32_t name, const char* fmt, void* args)
+{
+    return Log_FileV(name, fmt, args);
+}
+static __declspec(naked) void Log_File_Entry()
+{
+    __asm {
+        lea eax, [esp + 0xc]
+        push eax
+        push dword ptr [esp + 0xc]
+        push dword ptr [esp + 0xc]
+        call Log_File_Impl
+        add esp, 0xc
+        ret
+    }
+}
+HOOK(0x004e0c60, "Log_File", Log_File_Entry, nullptr);
+
+// 0x004e0d20 DxError_ToString (eax = HRESULT): the name string of a Direct3D / COM error code (the game's string
+// table 0x0058b358..0x0058b5c4), "Unknown DirectX error" (0x0058b358) for anything else. Reproduces the original's
+// compare tree and jump tables (0x004e0e64, 0x004e0e78 / 0x004e0e94) as one switch. Not executed in recorded runs.
+uint32_t DxError_ToString(uint32_t hr)
+{
+    switch (hr)
+    {
+    case 0x80070057u: return 0x0058b380;  // E_INVALIDARG
+    case 0x8007000eu: return 0x0058b370;  // E_OUTOFMEMORY
+    case 0x80004005u: return 0x0058b390;  // E_FAIL
+    case 0x8876017cu: return 0x0058b490;  // D3DERR_OUTOFVIDEOMEMORY
+    case 0x88760818u: return 0x0058b398;  // D3DERR_WRONGTEXTUREFORMAT
+    case 0x88760819u: return 0x0058b3f4;  // D3DERR_UNSUPPORTEDCOLOROPERATION
+    case 0x8876081au: return 0x0058b418;  // D3DERR_UNSUPPORTEDCOLORARG
+    case 0x8876081bu: return 0x0058b434;  // D3DERR_UNSUPPORTEDALPHAOPERATION
+    case 0x8876081cu: return 0x0058b458;  // D3DERR_UNSUPPORTEDALPHAARG
+    case 0x8876081du: return 0x0058b474;  // D3DERR_TOOMANYOPERATIONS
+    case 0x8876081eu: return 0x0058b574;  // D3DERR_CONFLICTINGTEXTUREFILTER
+    case 0x8876081fu: return 0x0058b3d4;  // D3DERR_UNSUPPORTEDFACTORVALUE
+    case 0x88760821u: return 0x0058b594;  // D3DERR_CONFLICTINGRENDERSTATE
+    case 0x88760822u: return 0x0058b3b4;  // D3DERR_UNSUPPORTEDTEXTUREFILTER
+    case 0x88760826u: return 0x0058b550;  // D3DERR_CONFLICTINGTEXTUREPALETTE
+    case 0x88760827u: return 0x0058b508;  // D3DERR_DRIVERINTERNALERROR
+    case 0x88760866u: return 0x0058b4a8;  // D3DERR_NOTFOUND
+    case 0x88760867u: return 0x0058b4cc;  // D3DERR_MOREDATA
+    case 0x88760868u: return 0x0058b53c;  // D3DERR_DEVICELOST
+    case 0x88760869u: return 0x0058b524;  // D3DERR_DEVICENOTRESET
+    case 0x8876086au: return 0x0058b4b8;  // D3DERR_NOTAVAILABLE
+    case 0x8876086bu: return 0x0058b4dc;  // D3DERR_INVALIDDEVICE
+    case 0x8876086cu: return 0x0058b4f4;  // D3DERR_INVALIDCALL
+    case 0x0876086fu: return 0x0058b5b4;  // D3DOK_NOAUTOGEN
+    case 0u: return 0x0058b5c4;           // D3D_OK
+    default: return 0x0058b358;           // Unknown DirectX error
+    }
+}
+static uint32_t DxError_ToString_Abi(uint32_t eax)
+{
+    return DxError_ToString(eax);
+}
+ABI_ENTRY_004e0d20(DxError_ToString_Entry, DxError_ToString_Abi)
+HOOK(0x004e0d20, "DxError_ToString", DxError_ToString_Entry, nullptr);
+
+// 0x004e0ee0 DxError_Log (eax = function name; stack: HRESULT; caller pops). Caller 0x004fdf30. Log_Printf("Error %s in
+// DX function %s\n" 0x0058b33c, DxError_ToString(hr), name). Returns its eax. Not executed in recorded runs.
+uint32_t DxError_Log(uint32_t name, uint32_t hr)
+{
+    return GameFunction<uint32_t(__cdecl*)(const char*, ...)>(0x004e0b30)(reinterpret_cast<const char*>(0x0058b33c),
+                                                                       DxError_ToString(hr), name);
+}
+static uint32_t DxError_Log_Abi(uint32_t eax, uint32_t a0)
+{
+    return DxError_Log(eax, a0);
+}
+ABI_ENTRY_004e0ee0(DxError_Log_Entry, DxError_Log_Abi)
+HOOK(0x004e0ee0, "DxError_Log", DxError_Log_Entry, nullptr);
+
+// 0x004e0f00 (stack: size; caller pops): 32-byte aligned allocation through the allocator hook 0x0063a0f0 (cdecl):
+// size + 0x20 bytes, the result rounded up past the next 32-byte boundary, with the raw pointer's low 5 bits stored
+// just below it. Returns the aligned pointer.
+uint32_t Mem_AllocAligned32(uint32_t size)
+{
+    const uint32_t p = reinterpret_cast<uint32_t(__cdecl*)(uint32_t)>(GameGlobal<uint32_t>(0x0063a0f0))(size + 0x20);
+    const uint32_t a = (p + 0x20) & 0xffffffe0u;
+    D(a - 4) = p & 0x1f;
+    return a;
+}
+static uint32_t Mem_AllocAligned32_Abi(uint32_t a0)
+{
+    return Mem_AllocAligned32(a0);
+}
+ABI_ENTRY_004e0f00(Mem_AllocAligned32_Entry, Mem_AllocAligned32_Abi)
+HOOK(0x004e0f00, "Mem_AllocAligned32", Mem_AllocAligned32_Entry, nullptr);
+
+// 0x004e0f20 (stack: aligned pointer; cdecl): recovers the raw pointer (p + [p-4] - 0x20) and tail-jumps to the free
+// hook 0x0063a0f4 with it in place of the argument. Recovered as call-then-return through a hand-written stub (no
+// generated stub: "no ret found"; the target is cdecl, so nothing is popped). Deviation: the caller's argument slot
+// keeps the aligned pointer (the original overwrote it with the raw one).
+uint32_t Mem_FreeAligned32(uint32_t p)
+{
+    const uint32_t raw = D(p - 4) + p - 0x20;
+    return reinterpret_cast<uint32_t(__cdecl*)(uint32_t)>(GameGlobal<uint32_t>(0x0063a0f4))(raw);
+}
+static uint32_t __cdecl Mem_FreeAligned32_Impl(uint32_t p)
+{
+    return Mem_FreeAligned32(p);
+}
+static __declspec(naked) void Mem_FreeAligned32_Entry()
+{
+    __asm {
+        push dword ptr [esp + 4]
+        call Mem_FreeAligned32_Impl
+        add esp, 4
+        ret
+    }
+}
+HOOK(0x004e0f20, "Mem_FreeAligned32", Mem_FreeAligned32_Entry, nullptr);
+
+// 0x004e0f40 (esi = search {count, compare callback, index, result}): binary search over [0, count). The callback
+// (cdecl, the search block) reads +8 and returns the comparison (stored in +0xc): 0 = found, < 0 = below, > 0 = above.
+// Returns the last midpoint, or 0 when found.
+uint32_t BinarySearch(uint32_t s)
+{
+    uint32_t hi = D(s);
+    uint32_t mid = hi >> 1;
+    uint32_t lo = 0;
+    D(s + 8) = hi;
+    if (hi == mid)
+        return mid;
+    do
+    {
+        D(s + 8) = mid;
+        const int32_t r = static_cast<int32_t>(reinterpret_cast<uint32_t(__cdecl*)(uint32_t)>(D(s + 4))(s));
+        D(s + 0xc) = static_cast<uint32_t>(r);
+        if (r == 0)
+            return 0;
+        if (r < 0)
+            hi = D(s + 8);
+        else
+            lo = D(s + 8);
+        mid = ((hi - lo) >> 1) + lo;
+    } while (D(s + 8) != mid);
+    return mid;
+}
+static uint32_t BinarySearch_Abi(uint32_t esi)
+{
+    return BinarySearch(esi);
+}
+ABI_ENTRY_004e0f40(BinarySearch_Entry, BinarySearch_Abi)
+HOOK(0x004e0f40, "BinarySearch", BinarySearch_Entry, nullptr);
+
+// 0x004e0f80 (eax = object, edx = pairs or 0). Callers 0x004e0ff0, 0x004e1320. Initialises the object's +0x20 entries
+// of 0x1c bytes at +0x24: +4 = pair[1] and +0x14 = pair[0] (or 0 without pairs), +8, +0xc and +0x18 = 0. Returns the
+// address after the last entry + 0x14 (the object when there are none).
+uint32_t Entries_Init(uint32_t obj, const uint32_t* pairs)
+{
+    uint32_t n = D(obj + 0x20);
+    if (!n)
+        return obj;
+    uint32_t e = D(obj + 0x24) + 0x14;
+    do
+    {
+        if (pairs)
+        {
+            D(e - 0x10) = pairs[1];
+            D(e) = pairs[0];
+            pairs += 2;
+        }
+        else
+        {
+            D(e - 0x10) = 0;
+            D(e) = 0;
+        }
+        D(e - 0xc) = 0;
+        D(e - 8) = 0;
+        D(e + 4) = 0;
+        e += 0x1c;
+    } while (--n);
+    return e;
+}
+static uint32_t Entries_Init_Abi(uint32_t eax, uint32_t edx)
+{
+    return Entries_Init(eax, reinterpret_cast<const uint32_t*>(edx));
+}
+ABI_ENTRY_004e0f80(Entries_Init_Entry, Entries_Init_Abi)
+HOOK(0x004e0f80, "Entries_Init", Entries_Init_Entry, nullptr);
+
+uint32_t Arena_Alloc(uint32_t arena, uint32_t size, uint32_t a2, uint32_t a3);
+
+// 0x004e0ff0 (eax = arena; stack: rows, extra bytes, row count, name bytes, columns, pairs, and four slots that are
+// not read; caller pops). Callers 0x00447bb0, 0x0045bf70, 0x004e1100, 0x004ee010. Builds a table in a private
+// sub-arena: a 0x30-byte arena header (Arena_Alloc 0x004e1e90 (arena, 0x30, 1, 2); two linked 0x10-byte headers,
+// sizes 0x30, words 1/2, parent arena), the table object (columns * 0x1c + 0x28 bytes: +0 = header, +0x18 = rows,
+// +0x1c = 0, +0x20 = columns, +0x24 = the column entries at +0x28, +8 = 1), the cell storage (rows * columns * 4;
+// each column entry's +0x10 points at its rows * 4 slice) and, when extra bytes are requested, an extra block
+// (+0x14; +4 = +0xc = +0x10 = that size, +0x10 cleared when the block is missing). +4 ends as row count * (aligned
+// name bytes + (2 * columns + 5 & ~3)). The column entries are initialised by Entries_Init (pairs). Returns the
+// table.
+uint32_t Table_Create(uint32_t arena, uint32_t rows, uint32_t extra, uint32_t rowCount, uint32_t nameBytes,
+                      uint32_t columns, uint32_t pairs)
+{
+    const uint32_t hdr = Arena_Alloc(arena, 0x30, 1, 2);
+    D(hdr) = hdr + 0x10;
+    D(hdr + 0x10) = hdr;
+    Field<uint16_t>(P(hdr), 0xa) = 2;
+    D(hdr + 0x1c) = 2;
+    D(hdr + 0xc) = arena;
+    D(hdr + 4) = 0x30;
+    Field<uint16_t>(P(hdr), 8) = 1;
+    D(hdr + 0x14) = 0x30;
+    D(hdr + 0x18) = 1;
+    D(hdr + 0x20) = hdr;
+    const uint32_t t = Arena_Alloc(hdr, columns * 0x1c + 0x28, 1, 0);
+    D(t + 0x18) = rows;
+    const uint32_t bytes = ((columns + columns + 5) & 0xfffffffcu) + ((nameBytes + 3) & 0xfffffffcu);
+    const uint32_t total = bytes * rowCount;
+    D(t) = hdr;
+    D(t + 0x24) = t + 0x28;
+    D(t + 0x1c) = 0;
+    D(t + 0x20) = columns;
+    D(t + 4) = total;
+    D(t + 8) = 1;
+    uint32_t cells = Arena_Alloc(hdr, (rows * columns) << 2, 1, 0);
+    D(t + 4) = extra;
+    D(t + 0xc) = extra;
+    D(t + 0x10) = extra;
+    if (extra)
+        D(t + 0x14) = Arena_Alloc(D(t), extra, 1, 0);
+    if (!D(t + 0x14))
+        D(t + 0x10) = 0;
+    uint32_t e = D(t + 0x24);
+    D(t + 4) = total;
+    for (uint32_t n = columns; n != 0; --n)
+    {
+        D(e + 0x10) = cells;
+        cells += rows << 2;
+        e += 0x1c;
+    }
+    Entries_Init(t, reinterpret_cast<const uint32_t*>(pairs));
+    return t;
+}
+static uint32_t Table_Create_Abi(uint32_t eax, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4,
+                                 uint32_t a5, uint32_t /*a6*/, uint32_t /*a7*/, uint32_t /*a8*/, uint32_t /*a9*/)
+{
+    return Table_Create(eax, a0, a1, a2, a3, a4, a5);
+}
+ABI_ENTRY_004e0ff0(Table_Create_Entry, Table_Create_Abi)
+HOOK(0x004e0ff0, "Table_Create", Table_Create_Entry, nullptr);
+
+uint32_t Arena_FreeBlock(uint32_t arena, uint32_t block);
+
+// 0x004e1100 (eax = extra rows, edx = sort column; stack: &table, arena, row count, name bytes; caller pops). Caller
+// 0x004f0cd0. Rebuilds a table (Table_Create) with room for old rows + extra rows and the old rows' total byte size
+// (the size word at each row's start, summed over the sort column's rows). The column entries are search blocks
+// ({count, compare, index, result, rows, base, key}); each old entry gets count = old row count, the new ones copy
+// +4 and +0x14. Each old row (in sort-column order) is copied dword-wise into the new storage (+0x14 advances, +0x10
+// shrinks), stored at its index in the new sort column, and for every other column the old entry is binary searched
+// (inlined BinarySearch, key = old +0x14 + the row's field offset word + row) and the new row stored at the found
+// index of the new column; the new row count +0x1c is incremented. Then every block of the old table's arena
+// (circular list at header +0x10) is freed (0x004e1f70 (header, block + 0xc)) and *table = the new table. Returns 1
+// (0 when Table_Create failed; 1 without touching anything when there are no rows at all). Not executed in recorded
+// runs.
+uint32_t Table_Grow(uint32_t extra, uint32_t col, uint32_t* tablePtr, uint32_t arena, uint32_t rowCount,
+                    uint32_t nameBytes)
+{
+    const uint32_t old = *tablePtr;
+    const uint32_t n = D(old + 0x1c);
+    const uint32_t rows = extra + n;
+    if (!rows)
+        return 1;
+    const uint32_t colOff = col * 0x1c;
+    uint32_t sum = 0;
+    {
+        uint32_t p = D(D(old + 0x24) + colOff + 0x10);
+        for (uint32_t k = n; k != 0; --k)
+        {
+            sum += Field<uint16_t>(P(D(p)), 0);
+            p += 4;
+        }
+    }
+    const uint32_t nt = Table_Create(arena, rows, sum, rowCount, nameBytes, D(old + 0x20), 0);
+    if (!nt)
+        return 0;
+    {
+        uint32_t oe = D(old + 0x24);
+        uint32_t ne = D(nt + 0x24) + 4;
+        for (uint32_t k = D(old + 0x20); k != 0; --k)
+        {
+            D(oe) = D(old + 0x1c);
+            D(ne + 0x10) = D(oe + 0x14);
+            D(ne) = D(oe + 4);
+            oe += 0x1c;
+            ne += 0x1c;
+        }
+    }
+    const uint32_t newSort = D(nt + 0x24) + colOff;
+    const uint32_t oldSort = D(old + 0x24) + colOff;
+    for (uint32_t i = 0; i < D(old + 0x1c); ++i)
+    {
+        const uint32_t row = D(D(oldSort + 0x10) + i * 4);
+        const uint32_t size = Field<uint16_t>(P(row), 0);
+        const uint32_t dest = D(nt + 0x14);
+        D(nt + 0x14) = dest + size;
+        D(nt + 0x10) = D(nt + 0x10) - size;
+        for (uint32_t k = 0; k < (size >> 2); ++k)
+            D(dest + k * 4) = D(row + k * 4);
+        D(D(newSort + 0x10) + i * 4) = dest;
+        uint32_t oe = D(old + 0x24);
+        uint32_t neRows = D(nt + 0x24) + 0x10;
+        uint32_t field = row + 2;
+        for (uint32_t c = D(old + 0x20); c != 0; --c)
+        {
+            if (oe != oldSort)
+            {
+                D(oe + 0x18) = D(oe + 0x14) + Field<uint16_t>(P(field), 0) + row;
+                BinarySearch(oe);
+                D(D(neRows) + D(oe + 8) * 4) = dest;
+            }
+            field += 2;
+            neRows += 0x1c;
+            oe += 0x1c;
+        }
+        D(nt + 0x1c) = D(nt + 0x1c) + 1;
+    }
+    const uint32_t hdr = D(old);
+    const uint32_t sentinel = hdr + 0x10;
+    uint32_t node = D(hdr + 0x10);
+    uint32_t next = D(node);
+    node = node == sentinel ? 0 : node;
+    if (node)
+    {
+        for (;;)
+        {
+            Arena_FreeBlock(hdr, node + 0xc);
+            if (next == sentinel)
+                break;
+            node = next;
+            next = D(next);
+        }
+    }
+    *tablePtr = nt;
+    return 1;
+}
+static uint32_t Table_Grow_Abi(uint32_t eax, uint32_t edx, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
+{
+    return Table_Grow(eax, edx, reinterpret_cast<uint32_t*>(a0), a1, a2, a3);
+}
+ABI_ENTRY_004e1100(Table_Grow_Entry, Table_Grow_Abi)
+HOOK(0x004e1100, "Table_Grow", Table_Grow_Entry, nullptr);
+
+// Arenas ("MAP_Mem"): a 0x30-byte header {+0xc parent, +0x10 circular block list, +0x14 bytes, +0x18 blocks,
+// +0x1c minimum alignment shift}; each block carries a 0xc-byte header {+0 next, +4 size, word +8 = 1, word +0xa =
+// alignment shift} in front of the returned pointer. Without a parent (or when the parent fails) memory comes from
+// the allocator hooks 0x005cacc0 (size, shift) / 0x005cacc4 (pointer).
+
+// 0x004e1e90 (cdecl: arena or 0, size, zero, alignment shift). Returns 0 for size 0. The shift is raised to the arena's
+// minimum; size grows by the aligned header padding (rounded to 4, + 0xf) and the memory comes from the parent arena
+// (recursively, same zero flag and shift) or the allocator hook; it is cleared when zero is set. With an arena the
+// block header is filled and pushed on its list, +0x18 += 1, +0x14 += size; returns header + 0xc. Without an arena
+// returns the raw memory. Deviation: the original also overwrites its size argument slot with the padded size.
+uint32_t Arena_Alloc(uint32_t arena, uint32_t size, uint32_t zero, uint32_t shift)
+{
+    if (!size)
+        return 0;
+    uint32_t pad;
+    uint32_t total;
+    uint32_t mem = 0;
+    bool have = false;
+    if (arena)
+    {
+        if (shift < D(arena + 0x1c))
+            shift = Field<uint16_t>(P(arena), 0x1c);
+        const uint32_t mask = (1u << (shift & 0x1f)) - 1;
+        pad = ((mask + 0xc) & ~mask) - 0xc;
+        total = (pad + size + 0xf) & 0xfffffffcu;
+        const uint32_t parent = D(arena + 0xc);
+        if (parent)
+        {
+            mem = Arena_Alloc(parent, total, zero, shift);
+            have = mem != 0;
+        }
+    }
+    else
+    {
+        pad = size;
+        total = size;
+    }
+    if (!have)
+        mem = reinterpret_cast<uint32_t(__cdecl*)(uint32_t, uint32_t)>(GameGlobal<uint32_t>(0x005cacc0))(total, shift);
+    if (zero)
+        std::memset(P(mem), 0, total);
+    if (!arena)
+        return mem;
+    const uint32_t h = mem + pad;
+    D(h) = h;
+    D(h) = D(arena + 0x10);
+    D(arena + 0x10) = h;
+    D(h + 4) = total;
+    Field<uint16_t>(P(h), 0xa) = static_cast<uint16_t>(shift);
+    Field<uint16_t>(P(h), 8) = 1;
+    D(arena + 0x18) = D(arena + 0x18) + 1;
+    D(arena + 0x14) = D(arena + 0x14) + total;
+    return h + 0xc;
+}
+static uint32_t Arena_Alloc_Abi(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
+{
+    return Arena_Alloc(a0, a1, a2, a3);
+}
+ABI_ENTRY_004e1e90(Arena_Alloc_Entry, Arena_Alloc_Abi)
+HOOK(0x004e1e90, "Arena_Alloc", Arena_Alloc_Entry, nullptr);
+
+// 0x004e1f70 (cdecl: arena or 0, block). Without a block returns 0; without an arena frees through the hook 0x005cacc4.
+// Otherwise unlinks the block header from the arena list (not found: logs "Error MAP_MemFree: couldn't free block"
+// 0x0058b314 and returns), self-links it, takes its size off +0x14 and one off +0x18, and when header word +8 bit 0 is
+// set frees the raw memory (header minus the aligned padding) to the parent arena (recursively) or the hook. Returns
+// the last call's eax (the block size when nothing more is freed).
+uint32_t Arena_FreeBlock(uint32_t arena, uint32_t block)
+{
+    if (!block)
+        return 0;
+    using FreeFn = uint32_t(__cdecl*)(uint32_t);
+    if (!arena)
+        return reinterpret_cast<FreeFn>(GameGlobal<uint32_t>(0x005cacc4))(block);
+    const uint32_t mask = (1u << (Field<uint8_t>(P(block), static_cast<uint32_t>(-2)) & 0x1f)) - 1;
+    const uint32_t h = block - 0xc;
+    const uint32_t sentinel = arena + 0x10;
+    uint32_t prev = sentinel;
+    uint32_t n = D(arena + 0x10);
+    bool found = false;
+    while (n != sentinel)
+    {
+        if (n == h)
+        {
+            found = true;
+            break;
+        }
+        prev = n;
+        n = D(n);
+    }
+    if (!found)
+        return GameFunction<uint32_t(__cdecl*)(const char*, ...)>(0x004e0b30)(reinterpret_cast<const char*>(0x0058b314));
+    D(prev) = D(n);
+    D(n) = n;
+    const uint32_t size = D(h + 4);
+    D(arena + 0x14) = D(arena + 0x14) - size;
+    D(arena + 0x18) = D(arena + 0x18) - 1;
+    if (!(Field<uint8_t>(P(h), 8) & 1))
+        return size;
+    const uint32_t parent = D(arena + 0xc);
+    const uint32_t raw = h - ((mask + 0xc) & ~mask) + 0xc;
+    if (parent)
+        return Arena_FreeBlock(parent, raw);
+    return reinterpret_cast<FreeFn>(GameGlobal<uint32_t>(0x005cacc4))(raw);
+}
+static uint32_t Arena_FreeBlock_Abi(uint32_t a0, uint32_t a1)
+{
+    return Arena_FreeBlock(a0, a1);
+}
+ABI_ENTRY_004e1f70(Arena_FreeBlock_Entry, Arena_FreeBlock_Abi)
+HOOK(0x004e1f70, "Arena_FreeBlock", Arena_FreeBlock_Entry, nullptr);
+
+// 0x004e1e50 (ebx = arena). Callers 0x00447c70, 0x00448c70, 0x00493fe0. Frees every block on the arena's list
+// (Arena_FreeBlock (arena, header + 0xc), the next link read first). Returns the last eax (0 for an empty list).
+uint32_t Arena_FreeAll(uint32_t arena)
+{
+    const uint32_t sentinel = arena + 0x10;
+    uint32_t node = D(arena + 0x10);
+    uint32_t next = D(node);
+    node = node == sentinel ? 0 : node;
+    uint32_t r = node;
+    if (!node)
+        return 0;
+    for (;;)
+    {
+        r = Arena_FreeBlock(arena, node + 0xc);
+        if (next == sentinel)
+            break;
+        node = next;
+        next = D(next);
+    }
+    return r;
+}
+static uint32_t Arena_FreeAll_Abi(uint32_t ebx)
+{
+    return Arena_FreeAll(ebx);
+}
+ABI_ENTRY_004e1e50(Arena_FreeAll_Entry, Arena_FreeAll_Abi)
+HOOK(0x004e1e50, "Arena_FreeAll", Arena_FreeAll_Entry, nullptr);
+
+// 0x004e2010 (cdecl: search block): range compare callback for BinarySearch. row = rows (+0x10)[index (+8)]; the
+// field at row + the row's word +2 holds {start, ?, length}; with the key *(+0x18): -1 when key - start < 0, else 1
+// when key - start - length >= 0, else 0 (sign of the 32-bit differences). No direct callers; not executed in
+// recorded runs.
+uint32_t Search_CompareRange(uint32_t s)
+{
+    const uint32_t row = D(D(s + 0x10) + D(s + 8) * 4);
+    const uint32_t f = Field<uint16_t>(P(row), 2) + row;
+    const uint32_t d = D(D(s + 0x18)) - D(f);
+    if (static_cast<int32_t>(d) < 0)
+        return 0xffffffffu;
+    return static_cast<int32_t>(d - D(f + 8)) >= 0 ? 1u : 0u;
+}
+static uint32_t Search_CompareRange_Abi(uint32_t a0)
+{
+    return Search_CompareRange(a0);
+}
+ABI_ENTRY_004e2010(Search_CompareRange_Entry, Search_CompareRange_Abi)
+HOOK(0x004e2010, "Search_CompareRange", Search_CompareRange_Entry, nullptr);
+
+// ---------------------------------------------------------------------------------------------------------------
+// Matrices: 0x44 bytes, float m[16] row-major plus a flags word at +0x40 (bit 4 / bit 5 swap on transpose).
+
+// 0x004e2210 Matrix_Transpose (eax = destination, ebx = source): transposes (through a local copy when they are the
+// same matrix), the flags word with bits 4 and 5 exchanged. Returns the source flags without those bits (eax as
+// left).
+uint32_t Matrix_Transpose(uint32_t dst, uint32_t src)
+{
+    uint32_t tmp[17];
+    uint32_t* out = dst == src ? tmp : reinterpret_cast<uint32_t*>(dst);
+    const uint32_t* s = reinterpret_cast<const uint32_t*>(src);
+    for (int i = 0; i < 4; ++i)
+    {
+        out[i] = s[i * 4];
+        out[4 + i] = s[i * 4 + 1];
+        out[8 + i] = s[i * 4 + 2];
+        out[12 + i] = s[i * 4 + 3];
+    }
+    const uint32_t f = s[16];
+    const uint32_t low = f & 0xffffffcfu;
+    out[16] = ((f >> 1) & 0x10) | ((f & 0x10) << 1) | low;
+    if (out != reinterpret_cast<uint32_t*>(dst))
+        std::memcpy(P(dst), out, 0x44);
+    return low;
+}
+static uint32_t Matrix_Transpose_Abi(uint32_t eax, uint32_t ebx)
+{
+    return Matrix_Transpose(eax, ebx);
+}
+ABI_ENTRY_004e2210(Matrix_Transpose_Entry, Matrix_Transpose_Abi)
+HOOK(0x004e2210, "Matrix_Transpose", Matrix_Transpose_Entry, nullptr);
+
+// 0x004e2280 Matrix_InverseGeneral (cdecl: destination, source). Caller 0x004e2b40. Gauss-Jordan elimination with
+// partial pivoting on the 4x8 matrix [source | identity (0x005fb8d8)] through a row-pointer array: per column the row
+// with the largest |value| (first strict maximum) is swapped in; a zero pivot copies the source to the destination
+// and returns 0; otherwise the pivot row is scaled by 1/pivot and subtracted (factor * pivot row) from the other three
+// rows, all eight entries each. The destination gets the right halves of the final rows and the source's flags word;
+// returns 1.
+uint32_t Matrix_InverseGeneral(uint32_t dst, uint32_t src)
+{
+    float a[4][8];
+    float* rows[4];
+    for (int r = 0; r < 4; ++r)
+    {
+        rows[r] = a[r];
+        for (int k = 0; k < 4; ++k)
+        {
+            a[r][k] = Fl(src + (r * 4 + k) * 4);
+            a[r][4 + k] = Fl(0x005fb8d8 + (r * 4 + k) * 4);
+        }
+    }
+    auto absx = [](float x) { return x < Fl(0x0056c05c) ? -x : x; };
+    for (int col = 0; col < 4; ++col)
+    {
+        int best = col;
+        for (int j = col + 1; j < 4; ++j)
+        {
+            if (absx(rows[j][col]) > absx(rows[best][col]))
+                best = j;
+        }
+        float* piv = rows[best];
+        rows[best] = rows[col];
+        rows[col] = piv;
+        if (piv[col] == Fl(0x0056c05c))
+        {
+            std::memcpy(P(dst), P(src), 0x44);
+            return 0;
+        }
+        const float inv = Fl(0x005bcb2c) / piv[col];
+        for (int k = 0; k < 8; ++k)
+            piv[k] = inv * piv[k];
+        for (int r = 0; r < 4; ++r)
+        {
+            if (r == col)
+                continue;
+            float* row = rows[r];
+            const float f = row[col];
+            for (int k = 0; k < 8; ++k)
+                row[k] = row[k] - f * piv[k];
+        }
+    }
+    for (int r = 0; r < 4; ++r)
+        for (int k = 0; k < 4; ++k)
+            Fl(dst + (r * 4 + k) * 4) = rows[r][4 + k];
+    D(dst + 0x40) = D(src + 0x40);
+    return 1;
+}
+static uint32_t Matrix_InverseGeneral_Abi(uint32_t a0, uint32_t a1)
+{
+    return Matrix_InverseGeneral(a0, a1);
+}
+ABI_ENTRY_004e2280(Matrix_InverseGeneral_Entry, Matrix_InverseGeneral_Abi)
+HOOK(0x004e2280, "Matrix_InverseGeneral", Matrix_InverseGeneral_Entry, nullptr);
+
+// 0x004e28f0 Matrix_Identity (edx = matrix): zeroes the 0x11 dwords and sets the diagonal to 1.0. Returns 1.0's bits
+// (eax as left).
+uint32_t Matrix_Identity(uint32_t m)
+{
+    std::memset(P(m), 0, 0x11 * 4);
+    D(m) = 0x3f800000;
+    D(m + 0x14) = 0x3f800000;
+    D(m + 0x28) = 0x3f800000;
+    D(m + 0x3c) = 0x3f800000;
+    return 0x3f800000;
+}
+static uint32_t Matrix_Identity_Abi(uint32_t edx)
+{
+    return Matrix_Identity(edx);
+}
+ABI_ENTRY_004e28f0(Matrix_Identity_Entry, Matrix_Identity_Abi)
+HOOK(0x004e28f0, "Matrix_Identity", Matrix_Identity_Entry, nullptr);
+
+// 0x004e2910 Matrix_Multiply (eax = B; stack: A, destination; caller pops): destination = A * B (through a local when
+// the destination is A or B). Either flags word with bit 0x20: full 4x4 product (each element summed from k = 3 down
+// to 0). Otherwise affine: the 3x3 part is the product when both have rotation bits (0xf), else a copy of the 3x4 rows
+// of whichever has them (B when A has none); the translation column is A's rotation times B's translation plus A's
+// translation when B has bit 0x10, else A's; the last row is (0, 0, 0, 1). Flags = (A | B) with bit 3 kept only when
+// one of them has it, plus bit 2 when A has bit 1 and B bit 0. Each sum is reproduced in the original's operand order.
+// No result (eax keeps B).
+void Matrix_Multiply(uint32_t bm, uint32_t am, uint32_t dst)
+{
+    float tmp[17];
+    float* out = (dst == am || dst == bm) ? tmp : reinterpret_cast<float*>(dst);
+    const float* A = reinterpret_cast<const float*>(am);
+    const float* B = reinterpret_cast<const float*>(bm);
+    const uint32_t af = D(am + 0x40);
+    if (!(af & 0x20) && !(D(bm + 0x40) & 0x20))
+    {
+        if ((af & 0xf) && (D(bm + 0x40) & 0xf))
+        {
+            for (int r = 0; r < 3; ++r)
+            {
+                const float* a = A + r * 4;
+                float* o = out + r * 4;
+                o[0] = a[0] * B[0] + a[1] * B[4] + B[8] * a[2];
+                o[1] = B[9] * a[2] + B[5] * a[1] + B[1] * a[0];
+                o[2] = a[2] * B[10] + a[0] * B[2] + a[1] * B[6];
+            }
+        }
+        else
+        {
+            const uint32_t from = (af & 0xf) ? am : bm;
+            std::memcpy(out, P(from), 12 * 4);
+        }
+        if (Field<uint8_t>(P(bm), 0x40) & 0x10)
+        {
+            out[3] = A[2] * B[11] + A[1] * B[7] + A[0] * B[3] + A[3];
+            out[7] = A[6] * B[11] + A[4] * B[3] + A[5] * B[7] + A[7];
+            out[11] = A[10] * B[11] + A[8] * B[3] + A[9] * B[7] + A[11];
+        }
+        else
+        {
+            reinterpret_cast<uint32_t*>(out)[3] = D(am + 0xc);
+            reinterpret_cast<uint32_t*>(out)[7] = D(am + 0x1c);
+            reinterpret_cast<uint32_t*>(out)[11] = D(am + 0x2c);
+        }
+        reinterpret_cast<uint32_t*>(out)[14] = 0;
+        reinterpret_cast<uint32_t*>(out)[13] = 0;
+        reinterpret_cast<uint32_t*>(out)[12] = 0;
+        reinterpret_cast<uint32_t*>(out)[15] = 0x3f800000;
+    }
+    else
+    {
+        for (int r = 0; r < 4; ++r)
+        {
+            const float* a = A + r * 4;
+            float* o = out + r * 4;
+            for (int c = 0; c < 4; ++c)
+                o[c] = B[12 + c] * a[3] + B[8 + c] * a[2] + B[4 + c] * a[1] + B[c] * a[0];
+        }
+    }
+    const uint32_t d = D(bm + 0x40);
+    const uint32_t e = D(am + 0x40);
+    uint32_t f = ((d & e) & 8) ^ (d | e);
+    reinterpret_cast<uint32_t*>(out)[16] = f;
+    if ((Field<uint8_t>(P(am), 0x40) & 2) && (Field<uint8_t>(P(bm), 0x40) & 1))
+    {
+        f |= 4;
+        reinterpret_cast<uint32_t*>(out)[16] = f;
+    }
+    if (out != reinterpret_cast<float*>(dst))
+        std::memcpy(P(dst), out, 0x44);
+}
+static void Matrix_Multiply_Abi(uint32_t eax, uint32_t a0, uint32_t a1)
+{
+    Matrix_Multiply(eax, a0, a1);
+}
+ABI_ENTRY_004e2910(Matrix_Multiply_Entry, Matrix_Multiply_Abi)
+HOOK(0x004e2910, "Matrix_Multiply", Matrix_Multiply_Entry, nullptr);
+
+// 0x004e2b40 Matrix_Inverse (eax = source, ecx = destination). Projective (flags bit 0x20): Matrix_InverseGeneral
+// (destination, source), returning its eax. Otherwise (through a local when in place) the 3x3 part is the identity
+// (no rotation bits 0xf), the transpose (no scale/shear bits 6), or the cofactor inverse divided by the determinant
+// (no zero check); the translation is -(R^-1 * t) when flags bit 0x10, else 0; last row (0, 0, 0, 1); flags copied.
+// Returns the source flags.
+uint32_t Matrix_Inverse(uint32_t src, uint32_t dst)
+{
+    const uint32_t f = D(src + 0x40);
+    if (!(~f & 0x20))
+        return Matrix_InverseGeneral(dst, src);
+    float tmp[17];
+    float* o = dst == src ? tmp : reinterpret_cast<float*>(dst);
+    uint32_t* ou = reinterpret_cast<uint32_t*>(o);
+    const float* s = reinterpret_cast<const float*>(src);
+    if (!(f & 0xf))
+    {
+        ou[10] = 0x3f800000;
+        ou[5] = 0x3f800000;
+        ou[0] = 0x3f800000;
+        ou[9] = 0;
+        ou[8] = 0;
+        ou[6] = 0;
+        ou[4] = 0;
+        ou[2] = 0;
+        ou[1] = 0;
+    }
+    else if (!(f & 6))
+    {
+        const uint32_t* su = reinterpret_cast<const uint32_t*>(src);
+        ou[0] = su[0];
+        ou[1] = su[4];
+        ou[2] = su[8];
+        ou[4] = su[1];
+        ou[5] = su[5];
+        ou[6] = su[9];
+        ou[8] = su[2];
+        ou[9] = su[6];
+        ou[10] = su[10];
+    }
+    else
+    {
+        const float c0 = s[10] * s[5] - s[9] * s[6];
+        const float det = c0 * s[0] - (s[10] * s[4] - s[8] * s[6]) * s[1] + (s[9] * s[4] - s[8] * s[5]) * s[2];
+        const float inv = Fl(0x005bcb2c) / det;
+        o[0] = c0 * inv;
+        o[1] = (s[9] * s[2] - s[10] * s[1]) * inv;
+        o[2] = (s[6] * s[1] - s[5] * s[2]) * inv;
+        o[4] = (s[8] * s[6] - s[10] * s[4]) * inv;
+        o[5] = (s[10] * s[0] - s[8] * s[2]) * inv;
+        o[6] = (s[4] * s[2] - s[6] * s[0]) * inv;
+        o[8] = (s[9] * s[4] - s[8] * s[5]) * inv;
+        o[9] = (s[8] * s[1] - s[9] * s[0]) * inv;
+        o[10] = (s[5] * s[0] - s[4] * s[1]) * inv;
+    }
+    if (Field<uint8_t>(P(src), 0x40) & 0x10)
+    {
+        o[3] = -(o[2] * s[11] + s[3] * o[0] + o[1] * s[7]);
+        o[7] = -(o[4] * s[3] + s[7] * o[5] + o[6] * s[11]);
+        o[11] = -(o[10] * s[11] + s[3] * o[8] + o[9] * s[7]);
+    }
+    else
+    {
+        ou[11] = 0;
+        ou[7] = 0;
+        ou[3] = 0;
+    }
+    ou[14] = 0;
+    ou[13] = 0;
+    ou[12] = 0;
+    ou[15] = 0x3f800000;
+    const uint32_t r = D(src + 0x40);
+    ou[16] = r;
+    if (o != reinterpret_cast<float*>(dst))
+        std::memcpy(P(dst), o, 0x44);
+    return r;
+}
+static uint32_t Matrix_Inverse_Abi(uint32_t eax, uint32_t ecx)
+{
+    return Matrix_Inverse(eax, ecx);
+}
+ABI_ENTRY_004e2b40(Matrix_Inverse_Entry, Matrix_Inverse_Abi)
+HOOK(0x004e2b40, "Matrix_Inverse", Matrix_Inverse_Entry, nullptr);
+
+// 0x004e2d50 Matrix_Translation (edx = matrix, esi = vec3): identity with the translation column = vec, flags 0x10.
+// Returns vec.z's bits (eax as left). Caller 0x0040e350; not executed in recorded runs.
+uint32_t Matrix_Translation(uint32_t m, uint32_t v)
+{
+    Matrix_Identity(m);
+    D(m + 0xc) = D(v);
+    D(m + 0x1c) = D(v + 4);
+    D(m + 0x2c) = D(v + 8);
+    D(m + 0x40) = 0x10;
+    return D(v + 8);
+}
+static uint32_t Matrix_Translation_Abi(uint32_t edx, uint32_t esi)
+{
+    return Matrix_Translation(edx, esi);
+}
+ABI_ENTRY_004e2d50(Matrix_Translation_Entry, Matrix_Translation_Abi)
+HOOK(0x004e2d50, "Matrix_Translation", Matrix_Translation_Entry, nullptr);
+
+// 0x004e2d90 Matrix_Scale (edx = matrix, esi = scale vec3; the ABI's three stack slots are not read): diagonal =
+// scale, flags = 2 | 8 when an odd number of the components are negative. Returns the flags.
+uint32_t Matrix_Scale(uint32_t m, const float* s)
+{
+    Matrix_Identity(m);
+    D(m) = reinterpret_cast<const uint32_t*>(s)[0];
+    D(m + 0x14) = reinterpret_cast<const uint32_t*>(s)[1];
+    D(m + 0x28) = reinterpret_cast<const uint32_t*>(s)[2];
+    const uint32_t nx = s[0] < Fl(0x0056c05c) ? 1u : 0u;
+    const uint32_t ny = s[1] < Fl(0x0056c05c) ? 1u : 0u;
+    const uint32_t nz = s[2] < Fl(0x0056c05c) ? 1u : 0u;
+    const uint32_t f = ((nz ^ ny ^ nx) ? 8u : 0u) | 2u;
+    D(m + 0x40) = f;
+    return f;
+}
+static uint32_t Matrix_Scale_Abi(uint32_t edx, uint32_t esi, uint32_t /*a0*/, uint32_t /*a1*/, uint32_t /*a2*/)
+{
+    return Matrix_Scale(edx, reinterpret_cast<const float*>(esi));
+}
+ABI_ENTRY_004e2d90(Matrix_Scale_Entry, Matrix_Scale_Abi)
+HOOK(0x004e2d90, "Matrix_Scale", Matrix_Scale_Entry, nullptr);
+
+// 0x004e2e30 Matrix_RotationX (edx = matrix; stack: angle; caller pops; the ABI lists 7 slots, 1 is read): rotation
+// about x (fsin/fcos of the float angle): m[5] = cos, m[6] = -sin, m[9] = sin, m[10] = cos, flags 1. Returns 0.
+uint32_t Matrix_RotationX(uint32_t m, uint32_t angleBits)
+{
+    const float a = u2f(angleBits);
+    const float s = X87Sin(a);
+    std::memset(P(m), 0, 0x11 * 4);
+    D(m) = 0x3f800000;
+    D(m + 0x3c) = 0x3f800000;
+    D(m + 0x40) = 1;
+    const float c = X87Cos(a);
+    Fl(m + 0x14) = c;
+    Fl(m + 0x18) = -s;
+    Fl(m + 0x24) = s;
+    Fl(m + 0x28) = c;
+    return 0;
+}
+static uint32_t Matrix_RotationX_Abi(uint32_t edx, uint32_t a0, uint32_t /*a1*/, uint32_t /*a2*/, uint32_t /*a3*/,
+                                     uint32_t /*a4*/, uint32_t /*a5*/, uint32_t /*a6*/)
+{
+    return Matrix_RotationX(edx, a0);
+}
+ABI_ENTRY_004e2e30(Matrix_RotationX_Entry, Matrix_RotationX_Abi)
+HOOK(0x004e2e30, "Matrix_RotationX", Matrix_RotationX_Entry, nullptr);
+
+// 0x004e2e70 Matrix_RotationZ (edx = matrix; stack: angle; caller pops): rotation about z: m[0] = cos, m[1] = -sin,
+// m[4] = sin, m[5] = cos, flags 1. Returns 1.0's bits (eax as left).
+uint32_t Matrix_RotationZ(uint32_t m, uint32_t angleBits)
+{
+    const float a = u2f(angleBits);
+    const float s = X87Sin(a);
+    std::memset(P(m), 0, 0x11 * 4);
+    D(m + 0x28) = 0x3f800000;
+    D(m + 0x3c) = 0x3f800000;
+    D(m + 0x40) = 1;
+    const float c = X87Cos(a);
+    Fl(m) = c;
+    Fl(m + 4) = -s;
+    Fl(m + 0x10) = s;
+    Fl(m + 0x14) = c;
+    return 0x3f800000;
+}
+static uint32_t Matrix_RotationZ_Abi(uint32_t edx, uint32_t a0)
+{
+    return Matrix_RotationZ(edx, a0);
+}
+ABI_ENTRY_004e2e70(Matrix_RotationZ_Entry, Matrix_RotationZ_Abi)
+HOOK(0x004e2e70, "Matrix_RotationZ", Matrix_RotationZ_Entry, nullptr);
+
+// 0x004e2eb0 Matrix_LookAt (eax = up or 0 -> (0, 0, 1), ecx = out matrix, edx = forward or 0 -> (0, -1, 0), edi =
+// position). F = forward normalised; R = forward x up (from the unnormalised inputs), normalised; U = F x R. Columns:
+// m0/m4/m8 = R, m1/m5/m9 = U, m2/m6/m10 = F, translation = position, last row (0, 0, 0, 1), flags 0x11. A zero length
+// leaves the vector unnormalised. Returns position.z's bits. Deviation: a zero-length forward makes the original use
+// uninitialised locals for F (zeros here).
+uint32_t Matrix_LookAt(const float* up, uint32_t out, const float* dir, uint32_t pos)
+{
+    const float upDefault[3] = {0.0f, 0.0f, 1.0f};
+    const float dirDefault[3] = {0.0f, -1.0f, 0.0f};
+    if (!up)
+        up = upDefault;
+    if (!dir)
+        dir = dirDefault;
+    float F[3] = {0.0f, 0.0f, 0.0f};
+    const float len = X87Sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
+    if (!(len == Fl(0x0056c05c)))
+    {
+        const float inv = Fl(0x005bcb2c) / len;
+        F[0] = inv * dir[0];
+        F[1] = inv * dir[1];
+        F[2] = inv * dir[2];
+    }
+    float R[3];
+    R[0] = dir[2] * up[1] - dir[1] * up[2];
+    R[1] = up[2] * dir[0] - dir[2] * up[0];
+    R[2] = dir[1] * up[0] - up[1] * dir[0];
+    const float len2 = X87Sqrt(R[2] * R[2] + R[1] * R[1] + R[0] * R[0]);
+    if (!(len2 == Fl(0x0056c05c)))
+    {
+        const float inv = Fl(0x005bcb2c) / len2;
+        R[0] = R[0] * inv;
+        R[1] = R[1] * inv;
+        R[2] = inv * R[2];
+    }
+    float* m = reinterpret_cast<float*>(out);
+    const float ux = F[1] * R[2] - F[2] * R[1];
+    m[0] = R[0];
+    m[4] = R[1];
+    m[2] = F[0];
+    const float uy = F[2] * R[0] - F[0] * R[2];
+    const float uz = F[0] * R[1] - F[1] * R[0];
+    m[9] = uz;
+    m[8] = R[2];
+    m[6] = F[1];
+    m[1] = ux;
+    m[5] = uy;
+    m[10] = F[2];
+    D(out + 0xc) = D(pos);
+    D(out + 0x1c) = D(pos + 4);
+    D(out + 0x2c) = D(pos + 8);
+    D(out + 0x38) = 0;
+    D(out + 0x34) = 0;
+    D(out + 0x30) = 0;
+    D(out + 0x3c) = 0x3f800000;
+    D(out + 0x40) = 0x11;
+    return D(pos + 8);
+}
+static uint32_t Matrix_LookAt_Abi(uint32_t eax, uint32_t ecx, uint32_t edx, uint32_t edi)
+{
+    return Matrix_LookAt(reinterpret_cast<const float*>(eax), ecx, reinterpret_cast<const float*>(edx), edi);
+}
+ABI_ENTRY_004e2eb0(Matrix_LookAt_Entry, Matrix_LookAt_Abi)
+HOOK(0x004e2eb0, "Matrix_LookAt", Matrix_LookAt_Entry, nullptr);
+
+// 0x004e3070 (eax = forward or 0 -> (0, -1, 0), ecx = out matrix, edx = up or 0 -> (0, 0, 1), edi = position). The
+// variant of Matrix_LookAt with G = -normalised forward: R = G x up, normalised; U = G x R. Columns: R, G, U;
+// translation = position, last row (0, 0, 0, 1), flags 0x11. Returns position.z's bits. Deviation as Matrix_LookAt
+// for a zero-length forward. Callers: object orientation (0x00455e70 and others).
+uint32_t Matrix_LookAtNeg(uint32_t eax, uint32_t ecx, uint32_t edx, uint32_t edi)
+{
+    const float upDefault[3] = {0.0f, 0.0f, 1.0f};
+    const float dirDefault[3] = {0.0f, -1.0f, 0.0f};
+    const float* up = edx ? reinterpret_cast<const float*>(edx) : upDefault;
+    const float* dir = eax ? reinterpret_cast<const float*>(eax) : dirDefault;
+    float F[3] = {0.0f, 0.0f, 0.0f};
+    const float len = X87Sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
+    if (!(len == Fl(0x0056c05c)))
+    {
+        const float inv = Fl(0x005bcb2c) / len;
+        F[0] = inv * dir[0];
+        F[1] = inv * dir[1];
+        F[2] = inv * dir[2];
+    }
+    const float gx = -F[0];
+    const float gy = -F[1];
+    const float gz = -F[2];
+    float R[3];
+    R[0] = gy * up[2] - gz * up[1];
+    R[1] = gz * up[0] - gx * up[2];
+    R[2] = gx * up[1] - gy * up[0];
+    const float len2 = X87Sqrt(R[2] * R[2] + R[1] * R[1] + R[0] * R[0]);
+    if (!(len2 == Fl(0x0056c05c)))
+    {
+        const float inv = Fl(0x005bcb2c) / len2;
+        R[0] = R[0] * inv;
+        R[1] = R[1] * inv;
+        R[2] = inv * R[2];
+    }
+    float* m = reinterpret_cast<float*>(ecx);
+    const float ux = gz * R[1] - gy * R[2];
+    m[0] = R[0];
+    m[4] = R[1];
+    m[8] = R[2];
+    const float uy = gx * R[2] - gz * R[0];
+    m[5] = gy;
+    m[9] = gz;
+    const float uz = gy * R[0] - gx * R[1];
+    m[10] = uz;
+    m[1] = gx;
+    m[2] = ux;
+    m[6] = uy;
+    D(ecx + 0xc) = D(edi);
+    D(ecx + 0x1c) = D(edi + 4);
+    D(ecx + 0x2c) = D(edi + 8);
+    D(ecx + 0x38) = 0;
+    D(ecx + 0x34) = 0;
+    D(ecx + 0x30) = 0;
+    D(ecx + 0x3c) = 0x3f800000;
+    D(ecx + 0x40) = 0x11;
+    return D(edi + 8);
+}
+static uint32_t Matrix_LookAtNeg_Abi(uint32_t eax, uint32_t ecx, uint32_t edx, uint32_t edi)
+{
+    return Matrix_LookAtNeg(eax, ecx, edx, edi);
+}
+ABI_ENTRY_004e3070(Matrix_LookAtNeg_Entry, Matrix_LookAtNeg_Abi)
+HOOK(0x004e3070, "Matrix_LookAtNeg", Matrix_LookAtNeg_Entry, nullptr);
+
+// 0x004e3260 (eax = out matrix, ecx = quaternion (x, y, z, w)): rotation matrix of a unit quaternion with the doubled
+// products (2x = x + x ...): m0 = 1 - (2yy + 2zz), m1 = 2xy - 2zw, m2 = 2xz + 2yw, m4 = 2xy + 2zw, m5 = 1 - (2zz +
+// 2xx), m6 = 2yz - 2xw, m8 = 2xz - 2yw, m9 = 2yz + 2xw, m10 = 1 - (2yy + 2xx); translation 0, last row (0, 0, 0, 1),
+// flags 1. No result (eax preserved).
+void Quat_ToMatrix(uint32_t out, const float* q)
+{
+    const float x = q[0];
+    const float y = q[1];
+    const float w = q[3];
+    float* m = reinterpret_cast<float*>(out);
+    const float z = q[2];
+    D(out + 0x2c) = 0;
+    const float x2 = x + x;
+    D(out + 0x1c) = 0;
+    D(out + 0xc) = 0;
+    const float y2 = y + y;
+    D(out + 0x38) = 0;
+    D(out + 0x34) = 0;
+    D(out + 0x30) = 0;
+    D(out + 0x3c) = 0x3f800000;
+    D(out + 0x40) = 1;
+    const float z2 = z + z;
+    const float xw = x2 * w;
+    const float yw = y2 * w;
+    const float zw = z2 * w;
+    const float xx = x2 * x;
+    const float xy = y2 * x;
+    const float xz = z2 * x;
+    const float yy = y2 * y;
+    const float yz = z2 * y;
+    const float zz = z2 * z;
+    m[0] = Fl(0x005bcb2c) - (yy + zz);
+    m[1] = xy - zw;
+    m[2] = xz + yw;
+    m[4] = xy + zw;
+    m[5] = Fl(0x005bcb2c) - (zz + xx);
+    m[6] = yz - xw;
+    m[8] = xz - yw;
+    m[9] = yz + xw;
+    m[10] = Fl(0x005bcb2c) - (yy + xx);
+}
+static void Quat_ToMatrix_Abi(uint32_t eax, uint32_t ecx)
+{
+    Quat_ToMatrix(eax, reinterpret_cast<const float*>(ecx));
+}
+ABI_ENTRY_004e3260(Quat_ToMatrix_Entry, Quat_ToMatrix_Abi)
+HOOK(0x004e3260, "Quat_ToMatrix", Quat_ToMatrix_Entry, nullptr);
+
+// 0x004e3370 (esi = out matrix; stack: transform {+0 position, +0xc quaternion, +0x1c scale, +0x28 flags}; caller
+// pops). Rotation from the quaternion (Quat_ToMatrix) when flags bit 0, else identity; translation = position when
+// bit 0x10; when bits 0xa the columns are scaled by the scale vector (and negated when bit 8); flags copied. Returns
+// the flags.
+uint32_t Transform_ToMatrix(uint32_t out, uint32_t t)
+{
+    if (Field<uint8_t>(P(t), 0x28) & 1)
+        Quat_ToMatrix(out, reinterpret_cast<const float*>(t + 0xc));
+    else
+        Matrix_Identity(out);
+    if (Field<uint8_t>(P(t), 0x28) & 0x10)
+    {
+        D(out + 0xc) = D(t);
+        D(out + 0x1c) = D(t + 4);
+        D(out + 0x2c) = D(t + 8);
+    }
+    const uint32_t f = D(t + 0x28);
+    if (f & 0xa)
+    {
+        float* m = reinterpret_cast<float*>(out);
+        const float* s = reinterpret_cast<const float*>(t + 0x1c);
+        if (f & 8)
+        {
+            m[0] = -(m[0] * s[0]);
+            m[4] = -(m[4] * s[0]);
+            m[8] = -(m[8] * s[0]);
+            m[1] = -(s[1] * m[1]);
+            m[5] = -(s[1] * m[5]);
+            m[9] = -(s[1] * m[9]);
+            m[2] = -(m[2] * s[2]);
+            m[6] = -(s[2] * m[6]);
+            m[10] = -(s[2] * m[10]);
+        }
+        else
+        {
+            m[0] = m[0] * s[0];
+            m[4] = m[4] * s[0];
+            m[8] = m[8] * s[0];
+            m[1] = s[1] * m[1];
+            m[5] = s[1] * m[5];
+            m[9] = s[1] * m[9];
+            m[2] = m[2] * s[2];
+            m[6] = s[2] * m[6];
+            m[10] = s[2] * m[10];
+        }
+    }
+    const uint32_t r = D(t + 0x28);
+    D(out + 0x40) = r;
+    return r;
+}
+static uint32_t Transform_ToMatrix_Abi(uint32_t esi, uint32_t a0)
+{
+    return Transform_ToMatrix(esi, a0);
+}
+ABI_ENTRY_004e3370(Transform_ToMatrix_Entry, Transform_ToMatrix_Abi)
+HOOK(0x004e3370, "Transform_ToMatrix", Transform_ToMatrix_Entry, nullptr);
+
+namespace
+{
+// cos(h) / sin(h) of h = fov * 0.5 exactly as 0x004e3490 computes it (both kept on the x87 stack, divided once).
+float X87CotHalf(float fov)
+{
+    const float half = Fl(0x005bcb4c);
+    float r;
+    __asm {
+        fld fov
+        fmul half
+        fld st(0)
+        fcos
+        fxch st(1)
+        fsin
+        fdivp st(1), st
+        fstp r
+    }
+    return r;
+}
+}  // namespace
+
+// 0x004e3490 Matrix_Perspective (eax = matrix; stack: fov, near, far, aspect; caller pops): m0 = cot(fov/2) / aspect,
+// m5 = cot(fov/2), q = far / (far - near), m10 = -q, m11 = -(q * near), m14 = -1, every other element 0, flags 0x36.
+// No result (eax preserved).
+void Matrix_Perspective(uint32_t m, uint32_t fovBits, uint32_t nearBits, uint32_t farBits, uint32_t aspectBits)
+{
+    D(m + 0x38) = 0xbf800000;
+    D(m + 0x3c) = 0;
+    D(m + 0x34) = 0;
+    D(m + 0x30) = 0;
+    D(m + 0x24) = 0;
+    D(m + 0x20) = 0;
+    D(m + 0x1c) = 0;
+    D(m + 0x18) = 0;
+    D(m + 0x10) = 0;
+    D(m + 0xc) = 0;
+    D(m + 8) = 0;
+    D(m + 4) = 0;
+    D(m + 0x40) = 0x36;
+    const float cot = X87CotHalf(u2f(fovBits));
+    const float q = u2f(farBits) / (u2f(farBits) - u2f(nearBits));
+    Fl(m) = cot / u2f(aspectBits);
+    Fl(m + 0x14) = cot;
+    Fl(m + 0x28) = -q;
+    Fl(m + 0x2c) = -(q * u2f(nearBits));
+}
+static void Matrix_Perspective_Abi(uint32_t eax, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
+{
+    Matrix_Perspective(eax, a0, a1, a2, a3);
+}
+ABI_ENTRY_004e3490(Matrix_Perspective_Entry, Matrix_Perspective_Abi)
+HOOK(0x004e3490, "Matrix_Perspective", Matrix_Perspective_Entry, nullptr);
+
+// 0x004e3510 (eax = transform B, ecx only reserves a stack slot; stack: out transform, transform A, t; caller pops).
+// Blends two transforms: position and scale = (1 - t) * A + t * B (z, then y, then x, each position before the scale
+// component), the quaternion by 0x004f1400 (ecx = B +0xc, edx = A +0xc, esi = out +0xc; t), flags = A | B. Returns B's
+// flags.
+uint32_t Transform_Blend(uint32_t b, uint32_t out, uint32_t a, uint32_t tBits)
+{
+    const float t = u2f(tBits);
+    const float s = Fl(0x005bcb2c) - t;
+    for (int k = 2; k >= 0; --k)
+    {
+        Fl(out + k * 4) = s * Fl(a + k * 4) + t * Fl(b + k * 4);
+        Fl(out + 0x1c + k * 4) = s * Fl(a + 0x1c + k * 4) + t * Fl(b + 0x1c + k * 4);
+    }
+    orig::fn_004f1400(b + 0xc, a + 0xc, out + 0xc, tBits);
+    const uint32_t bf = D(b + 0x28);
+    D(out + 0x28) = D(a + 0x28) | bf;
+    return bf;
+}
+static uint32_t Transform_Blend_Abi(uint32_t eax, uint32_t /*ecx*/, uint32_t a0, uint32_t a1, uint32_t a2)
+{
+    return Transform_Blend(eax, a0, a1, a2);
+}
+ABI_ENTRY_004e3510(Transform_Blend_Entry, Transform_Blend_Abi)
+HOOK(0x004e3510, "Transform_Blend", Transform_Blend_Entry, nullptr);
+
+// 0x004e35a0 (ecx = matrix; stack: out quaternion (x, y, z, w); caller pops). Matrix to quaternion: trace = m5 + m0 +
+// m10; when positive s = sqrt(trace + 1), w = 0.5 * s and x/y/z = (m9 - m6, m2 - m8, m4 - m1) * 0.5 / s. Otherwise the
+// largest diagonal element i (strictly greater comparisons) with j, k from the cycle table 0x005fb8cc ({1, 2, 0}):
+// s = sqrt(m_ii - (m_kk + m_jj) + 1), q[i] = 0.5 * s, r = 0.5 / s, w = (m_kj - m_jk) * r, q[j] = (m_ji + m_ij) * r,
+// q[k] = (m_ki + m_ik) * r (m_rc = row r, column c). Returns i + 4k in the second case (0 in the first; the original
+// leaves the FPU status word there).
+uint32_t Matrix_ToQuat(const float* m, float* q)
+{
+    const float trace = m[5] + m[0] + m[10];
+    if (trace > Fl(0x0056c05c))
+    {
+        const float s = X87Sqrt(trace + Fl(0x005bcb2c));
+        q[3] = Fl(0x005bcb4c) * s;
+        const float r = Fl(0x005bcb4c) / s;
+        q[0] = (m[9] - m[6]) * r;
+        q[1] = (m[2] - m[8]) * r;
+        q[2] = (m[4] - m[1]) * r;
+        return 0;
+    }
+    uint32_t i = 0;
+    if (m[5] > m[0])
+        i = 1;
+    if (m[10] > m[i * 5])
+        i = 2;
+    const uint32_t j = D(0x005fb8cc + i * 4);
+    const uint32_t k = D(0x005fb8cc + j * 4);
+    const float s = X87Sqrt(m[i * 5] - (m[k * 5] + m[j * 5]) + Fl(0x005bcb2c));
+    q[i] = Fl(0x005bcb4c) * s;
+    const float r = Fl(0x005bcb4c) / s;
+    q[3] = (m[j + k * 4] - m[k + j * 4]) * r;
+    q[j] = (m[i + j * 4] + m[j + i * 4]) * r;
+    q[k] = (m[i + k * 4] + m[k + i * 4]) * r;
+    return i + k * 4;
+}
+static uint32_t Matrix_ToQuat_Abi(uint32_t ecx, uint32_t a0)
+{
+    return Matrix_ToQuat(reinterpret_cast<const float*>(ecx), reinterpret_cast<float*>(a0));
+}
+ABI_ENTRY_004e35a0(Matrix_ToQuat_Entry, Matrix_ToQuat_Abi)
+HOOK(0x004e35a0, "Matrix_ToQuat", Matrix_ToQuat_Entry, nullptr);
+
+// 0x004e36a0 (eax = source vec3 array, ecx = matrix, edx = count; stack: destination array; caller pops). Transforms
+// count points by the matrix: with rotation/scale bits (0xb) the 3x3 product (plus the translation when bit 0x10),
+// else only the translation (bit 0x10) or a copy. Sums in the original's order: x = (m1*y + x*m0) + z*m2 (+ m3),
+// y = (x*m4 + z*m6) + y*m5 (+ m7), z = (z*m10 + m9*y) + m8*x (+ m11). Returns the source pointer past the last point.
+uint32_t Mat_TransformPoints(uint32_t src, uint32_t mat, uint32_t count, uint32_t dst)
+{
+    const float* m = reinterpret_cast<const float*>(mat);
+    const uint8_t f = Field<uint8_t>(P(mat), 0x40);
+    if (!count)
+        return src;
+    for (uint32_t n = count; n != 0; --n)
+    {
+        const float* v = reinterpret_cast<const float*>(src);
+        float* o = reinterpret_cast<float*>(dst);
+        if (f & 0xb)
+        {
+            if (f & 0x10)
+            {
+                o[0] = m[1] * v[1] + v[0] * m[0] + v[2] * m[2] + m[3];
+                o[1] = v[0] * m[4] + v[2] * m[6] + v[1] * m[5] + m[7];
+                o[2] = v[2] * m[10] + m[9] * v[1] + m[8] * v[0] + m[11];
+            }
+            else
+            {
+                o[0] = m[1] * v[1] + v[0] * m[0] + v[2] * m[2];
+                o[1] = v[0] * m[4] + v[2] * m[6] + v[1] * m[5];
+                o[2] = v[2] * m[10] + m[9] * v[1] + m[8] * v[0];
+            }
+        }
+        else if (f & 0x10)
+        {
+            o[0] = m[3] + v[0];
+            o[1] = v[1] + m[7];
+            o[2] = v[2] + m[11];
+        }
+        else
+        {
+            const uint32_t* vs = reinterpret_cast<const uint32_t*>(src);
+            uint32_t* od = reinterpret_cast<uint32_t*>(dst);
+            od[0] = vs[0];
+            od[1] = vs[1];
+            od[2] = vs[2];
+        }
+        src += 0xc;
+        dst += 0xc;
+    }
+    return src;
+}
+static uint32_t Mat_TransformPoints_Abi(uint32_t eax, uint32_t ecx, uint32_t edx, uint32_t a0)
+{
+    return Mat_TransformPoints(eax, ecx, edx, a0);
+}
+ABI_ENTRY_004e36a0(Mat_TransformPoints_Entry, Mat_TransformPoints_Abi)
+HOOK(0x004e36a0, "Mat_TransformPoints", Mat_TransformPoints_Entry, nullptr);
+
+// 0x004e37f0 (eax = source vec3 array, ecx = matrix, edx = count; stack: destination array, flag mask; caller pops).
+// As Mat_TransformPoints with the matrix flags ANDed with the mask first and its own summation order: x = (y*m1 +
+// z*m2) + x*m0 (+ m3), y = (y*m5 + m4*x) + z*m6 (+ m7), z = (m8*x + m10*z) + m9*y (+ m11). Returns the source pointer
+// past the last point.
+uint32_t Mat_TransformPointsMasked(uint32_t src, uint32_t mat, uint32_t count, uint32_t dst, uint32_t mask)
+{
+    const float* m = reinterpret_cast<const float*>(mat);
+    const uint8_t f = static_cast<uint8_t>(D(mat + 0x40) & mask);
+    if (!count)
+        return src;
+    for (uint32_t n = count; n != 0; --n)
+    {
+        const float* v = reinterpret_cast<const float*>(src);
+        float* o = reinterpret_cast<float*>(dst);
+        if (f & 0xb)
+        {
+            if (f & 0x10)
+            {
+                o[0] = v[1] * m[1] + v[2] * m[2] + v[0] * m[0] + m[3];
+                o[1] = v[1] * m[5] + m[4] * v[0] + v[2] * m[6] + m[7];
+                o[2] = m[8] * v[0] + m[10] * v[2] + m[9] * v[1] + m[11];
+            }
+            else
+            {
+                o[0] = v[1] * m[1] + v[2] * m[2] + v[0] * m[0];
+                o[1] = v[1] * m[5] + m[4] * v[0] + v[2] * m[6];
+                o[2] = m[8] * v[0] + m[10] * v[2] + m[9] * v[1];
+            }
+        }
+        else if (f & 0x10)
+        {
+            o[0] = m[3] + v[0];
+            o[1] = v[1] + m[7];
+            o[2] = v[2] + m[11];
+        }
+        else
+        {
+            const uint32_t* vs = reinterpret_cast<const uint32_t*>(src);
+            uint32_t* od = reinterpret_cast<uint32_t*>(dst);
+            od[0] = vs[0];
+            od[1] = vs[1];
+            od[2] = vs[2];
+        }
+        src += 0xc;
+        dst += 0xc;
+    }
+    return src;
+}
+static uint32_t Mat_TransformPointsMasked_Abi(uint32_t eax, uint32_t ecx, uint32_t edx, uint32_t a0, uint32_t a1)
+{
+    return Mat_TransformPointsMasked(eax, ecx, edx, a0, a1);
+}
+ABI_ENTRY_004e37f0(Mat_TransformPointsMasked_Entry, Mat_TransformPointsMasked_Abi)
+HOOK(0x004e37f0, "Mat_TransformPointsMasked", Mat_TransformPointsMasked_Entry, nullptr);
+
+// 0x004e3950 (eax = matrix, ecx = destination vec4 array, edx = count; stack: source vec4 array; caller pops).
+// Transforms count vec4s (each copied to locals first, so in place works). Affine matrices (no flags bit 0x20) keep w;
+// projective ones compute w = row 3 . v. Rotation bits 0xb select the 3x3 product, bit 0x10 adds w * the translation
+// column; with neither the vectors are copied (unless source == destination). Every sum is reproduced in the
+// original's operand order (see the code). Returns the matrix (the copy loop leaves the last w there).
+uint32_t Mat_TransformVec4(uint32_t mat, uint32_t dst, uint32_t count, uint32_t src)
+{
+    const float* m = reinterpret_cast<const float*>(mat);
+    const uint32_t f = D(mat + 0x40);
+    const bool proj = !(~f & 0x20);
+    const bool rot = (f & 0xb) != 0;
+    const bool tr = (f & 0x10) != 0;
+    if (!rot && !tr)
+    {
+        if (src == dst)
+            return mat;
+        uint32_t r = mat;
+        for (uint32_t n = count; n != 0; --n)
+        {
+            D(dst) = D(src);
+            D(dst + 4) = D(src + 4);
+            D(dst + 8) = D(src + 8);
+            r = D(src + 0xc);
+            D(dst + 0xc) = r;
+            src += 0x10;
+            dst += 0x10;
+        }
+        return r;
+    }
+    for (uint32_t n = count; n != 0; --n)
+    {
+        const float x = Fl(src);
+        const float y = Fl(src + 4);
+        const float z = Fl(src + 8);
+        const uint32_t wb = D(src + 0xc);
+        const float w = u2f(wb);
+        float* o = reinterpret_cast<float*>(dst);
+        src += 0x10;
+        dst += 0x10;
+        if (!proj)
+        {
+            if (rot && tr)
+            {
+                o[0] = y * m[1] + w * m[3] + z * m[2] + x * m[0];
+                o[1] = y * m[5] + w * m[7] + z * m[6] + x * m[4];
+                reinterpret_cast<uint32_t*>(o)[3] = wb;
+                o[2] = x * m[8] + y * m[9] + w * m[11] + z * m[10];
+            }
+            else if (rot)
+            {
+                o[0] = y * m[1] + z * m[2] + x * m[0];
+                o[1] = y * m[5] + z * m[6] + x * m[4];
+                reinterpret_cast<uint32_t*>(o)[3] = wb;
+                o[2] = x * m[8] + y * m[9] + z * m[10];
+            }
+            else
+            {
+                o[0] = w * m[3] + x;
+                o[1] = w * m[7] + y;
+                reinterpret_cast<uint32_t*>(o)[3] = wb;
+                o[2] = w * m[11] + z;
+            }
+        }
+        else
+        {
+            if (rot && tr)
+            {
+                o[0] = y * m[1] + w * m[3] + z * m[2] + x * m[0];
+                o[1] = y * m[5] + w * m[7] + z * m[6] + x * m[4];
+                o[2] = x * m[8] + y * m[9] + w * m[11] + z * m[10];
+                o[3] = w * m[15] + z * m[14] + x * m[12] + y * m[13];
+            }
+            else if (rot)
+            {
+                o[0] = y * m[1] + z * m[2] + x * m[0];
+                o[1] = y * m[5] + z * m[6] + x * m[4];
+                o[2] = x * m[8] + y * m[9] + z * m[10];
+                o[3] = w * m[15] + z * m[14] + x * m[12] + y * m[13];
+            }
+            else
+            {
+                o[0] = w * m[3] + x;
+                o[1] = w * m[7] + y;
+                o[2] = w * m[11] + z;
+                o[3] = x * m[12] + y * m[13] + z * m[14] + w * m[15];
+            }
+        }
+    }
+    return mat;
+}
+static uint32_t Mat_TransformVec4_Abi(uint32_t eax, uint32_t ecx, uint32_t edx, uint32_t a0)
+{
+    return Mat_TransformVec4(eax, ecx, edx, a0);
+}
+ABI_ENTRY_004e3950(Mat_TransformVec4_Entry, Mat_TransformVec4_Abi)
+HOOK(0x004e3950, "Mat_TransformVec4", Mat_TransformVec4_Entry, nullptr);
+
+// 0x004e3db0 (eax = matrix, ecx only reserves a stack slot; stack: three angles in degrees; caller pops). Rotation
+// matrix from Euler angles (each times 0x005bcba0 = pi/180): with sA/cA, sB/cB, sC/cC:
+// m0 = cC*cB, m1 = -(sA*(cC*sB)) - sC*cA, m2 = sC*sA - (cC*sB)*cA, m4 = cB*sC, m5 = cC*cA - (sC*sB)*sA,
+// m6 = -((sC*sB)*cA) - cC*sA, m8 = sB, m9 = cB*sA, m10 = cB*cA; translation 0, row 3 all 0 (m15 = 0 as in the
+// original), flags 1. Reproduced instruction for instruction in x87 asm because several sines/cosines stay on the FPU
+// stack at extended precision while others are stored as floats (the original also stores sA and cC over its
+// argument slots). No result (eax preserved). Callers 0x0041a350, 0x0041f850; not executed in recorded runs.
+void Matrix_FromEulerDeg(uint32_t m, uint32_t a0, uint32_t a1, uint32_t a2)
+{
+    float A = u2f(a0);
+    float B = u2f(a1);
+    float C = u2f(a2);
+    float L = 0.0f;
+    float k = Fl(0x005bcba0);
+    D(m + 0x3c) = 0;
+    D(m + 0x38) = 0;
+    D(m + 0x34) = 0;
+    D(m + 0x30) = 0;
+    D(m + 0x2c) = 0;
+    D(m + 0x1c) = 0;
+    D(m + 0xc) = 0;
+    D(m + 0x40) = 1;
+    __asm {
+        mov eax, m
+        fld A
+        fmul k
+        fld st(0)
+        fsin
+        fstp A
+        fcos
+        fld B
+        fmul k
+        fst B
+        fsin
+        fld B
+        fcos
+        fstp L
+        fld C
+        fmul k
+        fld st(0)
+        fsin
+        fxch st(1)
+        fcos
+        fst B
+        fmul L
+        fstp dword ptr [eax]
+        fld B
+        fmul st, st(2)
+        fld A
+        fmul st, st(1)
+        fchs
+        fld st(2)
+        fmul st, st(5)
+        fsubp st(1), st
+        fstp dword ptr [eax + 4]
+        fld st(1)
+        fmul A
+        fxch st(1)
+        fmul st, st(4)
+        fsubp st(1), st
+        fstp dword ptr [eax + 8]
+        fld L
+        fmul st, st(1)
+        fstp dword ptr [eax + 0x10]
+        fmul st, st(1)
+        fld B
+        fmul st, st(3)
+        fld st(1)
+        fmul A
+        fsubp st(1), st
+        fstp dword ptr [eax + 0x14]
+        fmul st, st(2)
+        fchs
+        fld B
+        fmul A
+        fsubp st(1), st
+        fstp dword ptr [eax + 0x18]
+        fstp dword ptr [eax + 0x20]
+        fld L
+        fmul A
+        fstp dword ptr [eax + 0x24]
+        fld L
+        fmul st, st(1)
+        fstp dword ptr [eax + 0x28]
+        fstp st(0)
+    }
+}
+static void Matrix_FromEulerDeg_Abi(uint32_t eax, uint32_t /*ecx*/, uint32_t a0, uint32_t a1, uint32_t a2)
+{
+    Matrix_FromEulerDeg(eax, a0, a1, a2);
+}
+ABI_ENTRY_004e3db0(Matrix_FromEulerDeg_Entry, Matrix_FromEulerDeg_Abi)
+HOOK(0x004e3db0, "Matrix_FromEulerDeg", Matrix_FromEulerDeg_Entry, nullptr);
+
+// 0x004e3e90 (eax = matrix, ecx = out vec3): the lengths of the first three rows' xyz (sqrt((a*a + b*b) + c*c)), i.e.
+// the scale factors. Caller 0x004517b0. No result (eax preserved).
+void Matrix_GetRowLengths(const float* m, float* out)
+{
+    for (int r = 0; r < 3; ++r)
+    {
+        const float* v = m + r * 4;
+        out[r] = X87Sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+    }
+}
+static void Matrix_GetRowLengths_Abi(uint32_t eax, uint32_t ecx)
+{
+    Matrix_GetRowLengths(reinterpret_cast<const float*>(eax), reinterpret_cast<float*>(ecx));
+}
+ABI_ENTRY_004e3e90(Matrix_GetRowLengths_Entry, Matrix_GetRowLengths_Abi)
+HOOK(0x004e3e90, "Matrix_GetRowLengths", Matrix_GetRowLengths_Entry, nullptr);
+
+// 0x004e3f00 (esi = app). The application base cleanup (caller AppBase_Destruct 0x004e0070): vtable 0x0058b2b0; the
+// sound system +0x2c virtual +0x70, the singleton 0x0063a0b8 deleted (virtual 0 (1)) when +0x28 is set, input +0x30
+// virtual 0, renderer +0x38 virtual +0x14; then the shared counters 0x0063a0b4 (count at +0) and 0x0063a0e8 (count
+// at +4) drop and are freed to the game heap at 0. Returns eax as left. Not executed in recorded runs.
+uint32_t AppBase_Cleanup(uint32_t app)
+{
+    uint32_t r = 0;
+    const uint32_t snd = D(app + 0x2c);
+    D(app) = 0x0058b2b0;
+    if (snd)
+        r = VCall<uint32_t>(P(snd), 0x70 / 4);
+    if (D(app + 0x28))
+    {
+        const uint32_t s = GameGlobal<uint32_t>(0x0063a0b8);
+        if (s)
+            r = VCall<uint32_t>(P(s), 0, 1u);
+    }
+    if (D(app + 0x30))
+        r = VCall<uint32_t>(P(D(app + 0x30)), 0);
+    if (D(app + 0x38))
+        r = VCall<uint32_t>(P(D(app + 0x38)), 0x14 / 4);
+    uint32_t c = GameGlobal<uint32_t>(0x0063a0b4);
+    if (--D(c) == 0)
+    {
+        r = orig::fn_004e08d0(kHeap, c);
+        GameGlobal<uint32_t>(0x0063a0b4) = 0;
+    }
+    c = GameGlobal<uint32_t>(0x0063a0e8);
+    if (--D(c + 4) == 0)
+    {
+        r = orig::fn_004e08d0(kHeap, c);
+        GameGlobal<uint32_t>(0x0063a0e8) = 0;
+    }
+    return r;
+}
+static uint32_t AppBase_Cleanup_Abi(uint32_t esi)
+{
+    return AppBase_Cleanup(esi);
+}
+ABI_ENTRY_004e3f00(AppBase_Cleanup_Entry, AppBase_Cleanup_Abi)
+HOOK(0x004e3f00, "AppBase_Cleanup", AppBase_Cleanup_Entry, nullptr);
+
+// 0x004e3f80 (ecx = app): returns the byte +0x25 (al; upper eax bytes are the caller's, returned as 0). A virtual; not
+// executed in recorded runs.
+uint32_t AppBase_GetFlag25(uint32_t app)
+{
+    return Field<uint8_t>(P(app), 0x25);
+}
+static uint32_t AppBase_GetFlag25_Abi(uint32_t ecx)
+{
+    return AppBase_GetFlag25(ecx);
+}
+ABI_ENTRY_004e3f80(AppBase_GetFlag25_Entry, AppBase_GetFlag25_Abi)
+HOOK(0x004e3f80, "AppBase_GetFlag25", AppBase_GetFlag25_Entry, nullptr);
+
+// 0x004e3f90 (ecx = app; stack: byte; ret 4): when the byte differs from +0x25, 0x004e4790 (eax = byte); then +0x25 =
+// byte. Returns that call's eax (the byte otherwise). A virtual; not executed in recorded runs.
+uint32_t AppBase_SetFlag25(uint32_t app, uint32_t value)
+{
+    const uint8_t b = static_cast<uint8_t>(value);
+    uint32_t r = b;
+    if (b != Field<uint8_t>(P(app), 0x25))
+        r = orig::fn_004e4790(b);
+    Field<uint8_t>(P(app), 0x25) = b;
+    return r;
+}
+static uint32_t AppBase_SetFlag25_Abi(uint32_t ecx, uint32_t a0)
+{
+    return AppBase_SetFlag25(ecx, a0);
+}
+ABI_ENTRY_004e3f90(AppBase_SetFlag25_Entry, AppBase_SetFlag25_Abi)
+HOOK(0x004e3f90, "AppBase_SetFlag25", AppBase_SetFlag25_Entry, nullptr);
+
+// 0x004e3fb0 (ecx = app): requests quit (byte +0x26 = 1; App_MessageLoop posts WM_QUIT). A virtual; not executed in
+// recorded runs. No result.
+void AppBase_RequestQuit(uint32_t app)
+{
+    Field<uint8_t>(P(app), 0x26) = 1;
+}
+static void AppBase_RequestQuit_Abi(uint32_t ecx)
+{
+    AppBase_RequestQuit(ecx);
+}
+ABI_ENTRY_004e3fb0(AppBase_RequestQuit_Entry, AppBase_RequestQuit_Abi)
+HOOK(0x004e3fb0, "AppBase_RequestQuit", AppBase_RequestQuit_Entry, nullptr);
+
+// 0x004e41c0 / 0x004e41d0 (ecx = app): the renderer's (+0x38) virtual +0xe8 / +0xec, its al zero-extended. App vtable
+// 0x0058b6f0 slots 5 and 6; not executed in recorded runs.
+uint32_t AppBase_RendererQueryE8(uint32_t app)
+{
+    return static_cast<uint8_t>(VCall<uint32_t>(P(D(app + 0x38)), 0xe8 / 4));
+}
+static uint32_t AppBase_RendererQueryE8_Abi(uint32_t ecx)
+{
+    return AppBase_RendererQueryE8(ecx);
+}
+ABI_ENTRY_004e41c0(AppBase_RendererQueryE8_Entry, AppBase_RendererQueryE8_Abi)
+HOOK(0x004e41c0, "AppBase_RendererQueryE8", AppBase_RendererQueryE8_Entry, nullptr);
+
+uint32_t AppBase_RendererQueryEC(uint32_t app)
+{
+    return static_cast<uint8_t>(VCall<uint32_t>(P(D(app + 0x38)), 0xec / 4));
+}
+static uint32_t AppBase_RendererQueryEC_Abi(uint32_t ecx)
+{
+    return AppBase_RendererQueryEC(ecx);
+}
+ABI_ENTRY_004e41d0(AppBase_RendererQueryEC_Entry, AppBase_RendererQueryEC_Abi)
+HOOK(0x004e41d0, "AppBase_RendererQueryEC", AppBase_RendererQueryEC_Entry, nullptr);
+
+// 0x004e4520 Timer_Seconds: (QueryPerformanceCounter - start 0x00604ad8) / frequency 0x00604ac8, returned in st0
+// (the ABI table lists eax; callers use st0). The division is done in x87 asm (fild/fild/fdivp) like the original.
+static float Timer_Seconds()
+{
+    int64_t t;
+    GameQpc(&t);
+    int64_t d = t - GameGlobal<int64_t>(0x00604ad8);
+    float r;
+    __asm {
+        fild qword ptr [d]
+        mov eax, 0x00604ac8
+        fild qword ptr [eax]
+        fdivp st(1), st
+        fstp r
+    }
+    return r;
+}
+static float Timer_Seconds_Abi()
+{
+    return Timer_Seconds();
+}
+ABI_ENTRY_004e4520(Timer_Seconds_Entry, Timer_Seconds_Abi)
+HOOK(0x004e4520, "Timer_Seconds", Timer_Seconds_Entry, nullptr);
+
+// 0x004e41e0 (ecx = app; stack: one argument, not read; caller pops). App vtable slot 12: the per-frame step. The
+// renderer (+0x38) virtual +0xc4 (device state 0x005fb8c8) gives the new state (3 -> app virtual +0xc); state 0 ends
+// here. Then Timer_Tick 0x004e47e0; the frame time dt (0x00604a90) accumulates into +0x20 when +0x1c (a time limit)
+// is non-zero and not (byte +0x24 and +0x18); passing the limit without +0x18 tail-jumps to app virtual +0x40
+// (AppBase_RequestQuit, no arguments). Otherwise input +0x30 virtual +0x1c (dt), app virtual +8 (dt), sound +0x2c
+// virtual +0x130 (+8, dt, 1), 0x004e5ec0 (bl = 0), and a pending pause adjustment (0x005fb8c4: when the counter
+// 0x00604aac drops to 0, 0x00604aa4 += Timer_Seconds - 0x00604aa8; flag cleared). Returns eax as left (0 here). Not
+// executed in recorded runs (Game overrides the frame).
+uint32_t App_Frame(uint32_t app, uint32_t /*a0*/)
+{
+    uint32_t st = VCall<uint32_t>(P(D(app + 0x38)), 0xc4 / 4, GameGlobal<uint32_t>(0x005fb8c8));
+    GameGlobal<uint32_t>(0x005fb8c8) = st;
+    if (st == 3)
+    {
+        VCall<uint32_t>(P(app), 0xc / 4);
+        st = GameGlobal<uint32_t>(0x005fb8c8);
+    }
+    if (!st)
+        return 0;
+    orig::fn_004e47e0();
+    const uint32_t dtBits = GameGlobal<uint32_t>(0x00604a90);
+    if (!(Field<uint8_t>(P(app), 0x24) && D(app + 0x18)))
+    {
+        if (!(Fl(app + 0x1c) == Fl(0x0056c05c)))
+        {
+            const float t = u2f(dtBits) + Fl(app + 0x20);
+            Fl(app + 0x20) = t;
+            if (!D(app + 0x18) && t > Fl(app + 0x1c))
+                return VCall<uint32_t>(P(app), 0x40 / 4);
+        }
+    }
+    const uint32_t in = D(app + 0x30);
+    if (in)
+        VCall<uint32_t>(P(in), 0x1c / 4, dtBits);
+    VCall<uint32_t>(P(app), 8 / 4, dtBits);
+    const uint32_t snd = D(app + 0x2c);
+    if (snd)
+        VCall<uint32_t>(P(snd), 0x130 / 4, D(app + 8), dtBits, 1u);
+    orig::fn_004e5ec0(0);
+    if (GameGlobal<uint8_t>(0x005fb8c4))
+    {
+        const uint32_t n = GameGlobal<uint32_t>(0x00604aac);
+        if (n > 0)
+        {
+            GameGlobal<uint32_t>(0x00604aac) = n - 1;
+            if (n - 1 == 0)
+                Fl(0x00604aa4) = Timer_Seconds() - Fl(0x00604aa8) + Fl(0x00604aa4);
+        }
+        GameGlobal<uint8_t>(0x005fb8c4) = 0;
+    }
+    return 0;
+}
+static uint32_t App_Frame_Abi(uint32_t ecx, uint32_t a0)
+{
+    return App_Frame(ecx, a0);
+}
+ABI_ENTRY_004e41e0(App_Frame_Entry, App_Frame_Abi)
+HOOK(0x004e41e0, "App_Frame", App_Frame_Entry, nullptr);
+
+// 0x004e42e0 (ecx = app): runs frames (virtual +0x30) until the quit byte +0x26 is set, Sleep(0), then deletes every
+// object of the list 0x0063a0d8 (next at +0x544; virtual +0x38 (1)). Returns eax as left. A virtual; not executed in
+// recorded runs.
+uint32_t App_RunUntilQuit(uint32_t app)
+{
+    while (!Field<uint8_t>(P(app), 0x26))
+        VCall<uint32_t>(P(app), 0x30 / 4);
+    uint32_t r = Import<StdFn1>(0x0056b0b8)(0);  // Sleep
+    for (uint32_t o = GameGlobal<uint32_t>(0x0063a0d8); o; o = GameGlobal<uint32_t>(0x0063a0d8))
+    {
+        GameGlobal<uint32_t>(0x0063a0d8) = D(o + 0x544);
+        r = VCall<uint32_t>(P(o), 0x38 / 4, 1u);
+    }
+    return r;
+}
+static uint32_t App_RunUntilQuit_Abi(uint32_t ecx)
+{
+    return App_RunUntilQuit(ecx);
+}
+ABI_ENTRY_004e42e0(App_RunUntilQuit_Entry, App_RunUntilQuit_Abi)
+HOOK(0x004e42e0, "App_RunUntilQuit", App_RunUntilQuit_Entry, nullptr);
+
+// 0x004e4350 App_WinMain (stdcall hInstance, hPrevInstance, command line, nCmdShow; ret 0x10). Caller the CRT entry
+// 0x00539238. Installs the aligned-allocation hooks (0x0063a0f0 = 0x004e4330, 0x0063a0f4 = GameHeap_Free 0x004011d0),
+// builds the sine tables (0x004e8310), and takes the single-instance mutex "LucasArtsAD" (CreateMutexA into
+// 0x0063a0ec): no mutex, or ERROR_ALREADY_EXISTS (0xb7), closes it and returns 0. Otherwise Game_CreateAndRun
+// (&{hInstance, nCmdShow}, command line), CloseHandle(mutex), and returns the run's result.
+uint32_t App_WinMain(uint32_t hInstance, uint32_t /*hPrev*/, uint32_t cmdLine, uint32_t nCmdShow)
+{
+    uint32_t params[2] = {hInstance, nCmdShow};
+    GameGlobal<uint32_t>(0x0063a0f0) = 0x004e4330;
+    GameGlobal<uint32_t>(0x0063a0f4) = 0x004011d0;
+    orig::fn_004e8310(0);
+    const uint32_t h = Import<StdFn3>(0x0056b07c)(0, 0, 0x0058b2f4);  // CreateMutexA
+    GameGlobal<uint32_t>(0x0063a0ec) = h;
+    if (!h)
+    {
+        Import<StdFn1>(0x0056b084)(h);  // CloseHandle(0), as the original
+        return 0;
+    }
+    if (reinterpret_cast<uint32_t(__stdcall*)()>(GameGlobal<uint32_t>(0x0056b080))() == 0xb7)  // GetLastError
+    {
+        Import<StdFn1>(0x0056b084)(GameGlobal<uint32_t>(0x0063a0ec));
+        return 0;
+    }
+    const uint32_t r = Game_CreateAndRun(u(params), cmdLine);
+    Import<StdFn1>(0x0056b084)(GameGlobal<uint32_t>(0x0063a0ec));
+    return r;
+}
+static uint32_t App_WinMain_Abi(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
+{
+    return App_WinMain(a0, a1, a2, a3);
+}
+ABI_ENTRY_004e4350(App_WinMain_Entry, App_WinMain_Abi)
+HOOK(0x004e4350, "App_WinMain", App_WinMain_Entry, nullptr);
+
+// 0x004e43e0 (ecx = app): returns +4. App vtable slot 14; not executed in recorded runs.
+uint32_t AppBase_GetField4(uint32_t app)
+{
+    return D(app + 4);
+}
+static uint32_t AppBase_GetField4_Abi(uint32_t ecx)
+{
+    return AppBase_GetField4(ecx);
+}
+ABI_ENTRY_004e43e0(AppBase_GetField4_Entry, AppBase_GetField4_Abi)
+HOOK(0x004e43e0, "AppBase_GetField4", AppBase_GetField4_Entry, nullptr);
+
+// 0x004e4440 (edx = object): clears +0, +4, bytes +0x208/+0x209, +0x20c, five dwords at +0x210 and 0x11 dwords at
+// +0x224. Returns the object. Callers 0x004e43f0, 0x004f20d0.
+uint32_t Shared268_Init(uint32_t p)
+{
+    D(p + 4) = 0;
+    Field<uint8_t>(P(p), 0x208) = 0;
+    Field<uint8_t>(P(p), 0x209) = 0;
+    D(p) = 0;
+    D(p + 0x20c) = 0;
+    for (int i = 0; i < 5; ++i)
+        D(p + 0x210 + i * 4) = 0;
+    std::memset(P(p + 0x224), 0, 0x11 * 4);
+    return p;
+}
+static uint32_t Shared268_Init_Abi(uint32_t edx)
+{
+    return Shared268_Init(edx);
+}
+ABI_ENTRY_004e4440(Shared268_Init_Entry, Shared268_Init_Abi)
+HOOK(0x004e4440, "Shared268_Init", Shared268_Init_Entry, nullptr);
+
+// 0x004e43f0: acquires the shared 0x268-byte object 0x0063a0e8 (created on first use from the game heap: 0x10, 0x268,
+// 2, "new", initialised by Shared268_Init) and adds a reference (+4). Returns it. Original bug: a failed allocation
+// stores 0 and then increments 0->+4. Callers App_Init 0x004e3fc0, 0x004e49e0.
+uint32_t Shared268_Acquire()
+{
+    uint32_t p = GameGlobal<uint32_t>(0x0063a0e8);
+    if (!p)
+    {
+        p = orig::fn_004e07f0(kHeap, 0x10, 0x268, 2, 0x0058b5e8);
+        if (p)
+        {
+            Shared268_Init(p);
+            const uint32_t c = D(p + 4) + 1;
+            GameGlobal<uint32_t>(0x0063a0e8) = p;
+            D(p + 4) = c;
+            return p;
+        }
+        GameGlobal<uint32_t>(0x0063a0e8) = 0;
+    }
+    ++D(p + 4);
+    return p;
+}
+static uint32_t Shared268_Acquire_Abi()
+{
+    return Shared268_Acquire();
+}
+ABI_ENTRY_004e43f0(Shared268_Acquire_Entry, Shared268_Acquire_Abi)
+HOOK(0x004e43f0, "Shared268_Acquire", Shared268_Acquire_Entry, nullptr);
+
+// 0x004e4480 (cdecl: context (not read), format, ...; callers 0x004f9ef0, 0x004fb560): vsprintf into a 0x200-byte
+// buffer, then Log_Printf(buffer) (the text as the format). Returns its eax. The ABI table's register inputs come from
+// the security-cookie epilogue; a hand-written stub passes the variadic tail as a va_list. (The cookie is not
+// reproduced.)
+uint32_t Log_PrintfCtxV(const char* fmt, void* args)
+{
+    char buf[0x200];
+    GameFunction<int(__cdecl*)(char*, const char*, void*)>(0x00538a0f)(buf, fmt, args);
+    return GameFunction<uint32_t(__cdecl*)(const char*, ...)>(0x004e0b30)(buf);
+}
+static uint32_t __cdecl Log_PrintfCtx_Impl(const char* fmt, void* args)
+{
+    return Log_PrintfCtxV(fmt, args);
+}
+static __declspec(naked) void Log_PrintfCtx_Entry()
+{
+    __asm {
+        lea eax, [esp + 0xc]
+        push eax
+        push dword ptr [esp + 0xc]
+        call Log_PrintfCtx_Impl
+        add esp, 8
+        ret
+    }
+}
+HOOK(0x004e4480, "Log_PrintfCtx", Log_PrintfCtx_Entry, nullptr);
+
+// 0x004e44e0 (stack: one argument, not read; ret 4). Caller 0x00402e80. Divides 1.0 by 0.0 ten times (a deliberate
+// x87 divide-by-zero, guess: a crash/exception test hook). Returns 0.
+uint32_t Fpu_DivideByZeroTest()
+{
+    volatile float x = 1.0f;
+    volatile float y = 0.0f;
+    for (int i = 10; i != 0; --i)
+        x = x / y;
+    return 0;
+}
+static uint32_t Fpu_DivideByZeroTest_Abi(uint32_t /*a0*/)
+{
+    return Fpu_DivideByZeroTest();
+}
+ABI_ENTRY_004e44e0(Fpu_DivideByZeroTest_Entry, Fpu_DivideByZeroTest_Abi)
+HOOK(0x004e44e0, "Fpu_DivideByZeroTest", Fpu_DivideByZeroTest_Entry, nullptr);

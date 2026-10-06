@@ -11,13 +11,13 @@
 //   with a reference count at +0x224), its base class vtable 0x0058b1e0 (pure slots = 0x005381db _purecall). Base
 //   members: +4 the active rumble list (vtable 0x0058b098), +8 the rumble samples (0x840 bytes each, count +0x1c),
 //   +0xc the rumble node pool, +0x10 (0x004e43f0 result), +0x14 the next rumble id, +0x18 initialised, +0x19 rumble
-//   enabled, +0x20 the rumble name hash table. PC members: +0x28 the keyboard IDirectInputDevice8A, +0x58 the mouse
-//   IDirectInputDevice8A, +0x15c the IDirectInput8A, +0x218 the window, +0x21c the mouse sensitivity (1.0),
-//   +0x220 "exclusive" byte.
+//   enabled, +0x20 the rumble name hash table. PC members: +0x28 the mouse IDirectInputDevice8A, +0x58 the keyboard
+//   IDirectInputDevice8A, +0x15c the IDirectInput8A, +0x160 the game controller, +0x218 the window, +0x21c the mouse
+//   sensitivity (1.0), +0x220 "exclusive" byte (cursor clipping). Details above the PC functions below.
 //   Virtual slots used by the controls (thiscall): +8 (device) -> connected (bool), +0x10 device count, +0x2c (device)
 //   -> any input, +0x3c (device) -> any key, +0x68 (device, code, threshold) -> pressed, +0x6c (device, code,
 //   threshold) -> held, +0x74 -> not held (0x004e4d40), +0x78 (device, code, a, b, c) -> axis value (float).
-// - Controls (Game+0xa80, guess for the name): +0 device count, +4 the active device (-1: any), +0xc/+0x10 a bit mask of
+// - Controls (Game+0xa80; the actions' names are the "ControlAction*" strings of 0x004155a0): +0 device count, +4 the active device (-1: any), +0xc/+0x10 a bit mask of
 //   35 "consumed" actions (cleared once the action is released), +0x14 a lock counter (non-zero: listen to every
 //   device), +0x18 cleared by 0x00414580, +0x1c 35 primary bindings, +0xa8 35 secondary bindings (input codes).
 // Input codes (0x00414c90 strings "PMS_INPUT_*"): 1..0xed DirectInput keyboard scan codes (PMS_INPUT_VK_*),
@@ -149,14 +149,14 @@ void fn_00414580(void* controls)
 }
 
 // 0x00414590 (eax = controls, cl = increment): the lock counter +0x14 goes up (cl != 0) or down; returns al = counter
-// != 0 (upper bytes 0).
+// != 0 (the upper bytes of eax keep the controls pointer's).
 uint32_t Controls_Lock(void* controls, uint32_t increment)
 {
     if (static_cast<uint8_t>(increment))
         Field<int32_t>(controls, 0x14)++;
     else
         Field<int32_t>(controls, 0x14)--;
-    return Field<int32_t>(controls, 0x14) != 0 ? 1u : 0u;
+    return (u(controls) & 0xffffff00u) | (Field<int32_t>(controls, 0x14) != 0 ? 1u : 0u);
 }
 
 void Controls_ReleaseConsumed(void* controls);
@@ -1388,7 +1388,558 @@ uint32_t InputPC_Init(void* pc, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t 
     return Input_BaseInit(pc, a0);  // 0x004e49e0 reads only its first argument
 }
 
-// @@APPEND@@
+// 0x004f82d0 (ecx = pc; stack: clip (byte), capture (byte); callee pops 8): virtual +0x28. Without a mouse (+0x28):
+// nothing. capture: SetCapture(window) else ReleaseCapture(). When exclusive (+0x220): clip -> the window's client
+// rectangle in screen coordinates (GetClientRect + ClientToScreen of (0, 0)) goes to ClipCursor and Log_Printf
+// "Cursor clipped from (%d,%d) to (%d,%d)\n" (left, top, right, bottom; 0x0058a8fc); otherwise ClipCursor(NULL). Not
+// executed in recorded runs.
+uint32_t InputPC_SetMouseCapture(void* pc, uint32_t clip, uint32_t capture)
+{
+    if (!Field<uint32_t>(pc, 0x28))
+        return 0;
+    if (static_cast<uint8_t>(capture))
+        Import<SetCapture_t>(0x0056b224)(Field<HWND>(pc, 0x218));
+    else
+        Import<ReleaseCapture_t>(0x0056b228)();
+    if (!Field<uint8_t>(pc, 0x220))
+        return 0;
+    if (!static_cast<uint8_t>(clip))
+        return static_cast<uint32_t>(Import<ClipCursor_t>(0x0056b230)(nullptr));
+    RECT rc;
+    Import<GetClientRect_t>(0x0056b250)(Field<HWND>(pc, 0x218), &rc);
+    POINT pt = {0, 0};
+    Import<ClientToScreen_t>(0x0056b22c)(Field<HWND>(pc, 0x218), &pt);
+    rc.left += pt.x;
+    rc.right += pt.x;
+    rc.top += pt.y;
+    rc.bottom += pt.y;
+    Import<ClipCursor_t>(0x0056b230)(&rc);
+    GameLog(reinterpret_cast<const char*>(0x0058a8fc), rc.left, rc.top, rc.right, rc.bottom);
+    return 0;
+}
+
+// 0x004f83c0 (esi = pc; ebx/edi/ebp listed by abi.csv only through the /GS epilogue's tail jump to
+// __security_check_cookie 0x0053c96a): polls the mouse: GetDeviceState(0x14) into a zeroed DIMOUSESTATE2; on
+// DIERR_INPUTLOST / DIERR_NOTACQUIRED Acquire and read again; failure: return. Scale = 1.0 when the global 0x00604a90
+// is 0, else 0x005bcc50 / it. Previous x/y/wheel and buttons saved; x/y = count * scale * 0.1 (0x005bcbfc), wheel =
+// count; the 8 button bytes' top bits become a mask (bit i = button i): +0x44 = +0x4c = mask, +0x54 = new presses
+// (~previous & mask), +0x50 = releases (~mask & previous).
+uint32_t InputPC_PollMouse(void* pc)
+{
+    DIMOUSESTATE2 state;
+    std::memset(&state, 0, sizeof(state));
+    HRESULT hr = Device(pc, 0x28)->GetDeviceState(0x14, &state);
+    if (hr == kInputLost || hr == kNotAcquired)
+    {
+        Device(pc, 0x28)->Acquire();
+        hr = Device(pc, 0x28)->GetDeviceState(0x14, &state);
+    }
+    if (hr < 0)
+        return static_cast<uint32_t>(hr);
+    const float setting = GameGlobal<float>(0x00604a90);
+    float scale;
+    if (setting == K(0x0056c05c))
+        scale = K(0x005bcb2c);
+    else
+        scale = K(0x005bcc50) / setting;
+    Field<uint32_t>(pc, 0x40) = Field<uint32_t>(pc, 0x34);
+    Field<uint32_t>(pc, 0x3c) = Field<uint32_t>(pc, 0x30);
+    Field<uint32_t>(pc, 0x38) = Field<uint32_t>(pc, 0x2c);
+    Field<uint32_t>(pc, 0x48) = Field<uint32_t>(pc, 0x44);
+    Field<float>(pc, 0x2c) = static_cast<float>(state.lX) * scale * K(0x005bcbfc);
+    Field<float>(pc, 0x30) = static_cast<float>(state.lY) * scale * K(0x005bcbfc);
+    Field<float>(pc, 0x34) = static_cast<float>(state.lZ);
+    const uint8_t* b = state.rgbButtons;
+    uint32_t c = (b[1] & 0x80u) | (static_cast<uint32_t>(b[0]) >> 1);
+    c >>= 1;
+    c |= b[2] & 0x80u;
+    c >>= 1;
+    c |= b[3] & 0x80u;
+    c >>= 1;
+    c |= b[4] & 0x80u;
+    c >>= 1;
+    c |= b[5] & 0x80u;
+    c >>= 1;
+    c |= b[6] & 0x80u;
+    c >>= 1;
+    const uint32_t mask = c | (b[7] & 0x80u);
+    const uint32_t previous = Field<uint32_t>(pc, 0x48);
+    Field<uint32_t>(pc, 0x44) = mask;
+    Field<uint32_t>(pc, 0x4c) = mask;
+    Field<uint32_t>(pc, 0x54) = ~previous & mask;
+    Field<uint32_t>(pc, 0x50) = ~mask & previous;
+    return ~mask & previous;
+}
+
+// 0x004f8530 (ecx = pc; the other listed inputs and the stack slot come from the /GS epilogue): polls the keyboard:
+// GetDeviceState(0x100). DIERR_INPUTLOST / DIERR_NOTACQUIRED: Acquire and return (no retry). Otherwise (also on other
+// failures) each key state +0x5c+i steps: down: 0 -> 1, 1 -> 2, 3 -> 1; up: 1 or 2 -> 3, 3 -> 0. Deviation: the
+// original's key buffer is uninitialised stack when GetDeviceState fails another way; here it is zeroed.
+uint32_t InputPC_PollKeyboard(void* pc)
+{
+    uint8_t keys[0x100];
+    std::memset(keys, 0, sizeof(keys));
+    const HRESULT hr = Device(pc, 0x58)->GetDeviceState(0x100, keys);
+    if (hr == kInputLost || hr == kNotAcquired)
+        return static_cast<uint32_t>(Device(pc, 0x58)->Acquire());
+    for (int i = 0; i < 0x100; i++)
+    {
+        uint8_t& s = Field<uint8_t>(pc, 0x5c + i);
+        if (keys[i] & 0x80)
+        {
+            if (s == 0)
+                s = 1;
+            else if (s == 1)
+                s = 2;
+            else if (s == 3)
+                s = 1;
+        }
+        else if (s > 0)
+        {
+            if (s <= 2)
+                s = 3;
+            else if (s == 3)
+                s = 0;
+        }
+    }
+    return 0x100;
+}
+
+// 0x004f8600 (ebx = pc; esi/edi/ebp listed only through the /GS epilogue): polls the controller (+0x160, if any):
+// Poll; GetDeviceState(0x34) (DIERR_NOTACQUIRED / DIERR_INPUTLOST: Acquire and read again); failure: return. The
+// previous state (+0x1c4) = the current (+0x190); the current = the new one; the four axes recentred by -32255
+// (0xffff8201) and scaled by 0x005bcb6c into +0x1f8..+0x204, the previous scaled values moved to +0x208..+0x214.
+uint32_t InputPC_PollController(void* pc)
+{
+    if (!Device(pc, 0x160))
+        return 0;
+    Device(pc, 0x160)->Poll();
+    uint8_t state[0x34];
+    HRESULT hr = Device(pc, 0x160)->GetDeviceState(0x34, state);
+    if (hr == kNotAcquired || hr == kInputLost)
+    {
+        Device(pc, 0x160)->Acquire();
+        hr = Device(pc, 0x160)->GetDeviceState(0x34, state);
+    }
+    if (hr < 0)
+        return static_cast<uint32_t>(hr);
+    uint8_t* base = static_cast<uint8_t*>(pc);
+    std::memcpy(base + 0x1c4, base + 0x190, 0x34);
+    std::memcpy(base + 0x190, state, 0x34);
+    const int32_t x = Field<int32_t>(pc, 0x190) + static_cast<int32_t>(0xffff8201u);
+    Field<int32_t>(pc, 0x190) = x;
+    const int32_t y = Field<int32_t>(pc, 0x194) + static_cast<int32_t>(0xffff8201u);
+    const int32_t z = Field<int32_t>(pc, 0x198) + static_cast<int32_t>(0xffff8201u);
+    Field<int32_t>(pc, 0x198) = z;
+    const uint32_t oldX = Field<uint32_t>(pc, 0x1f8);
+    Field<float>(pc, 0x1f8) = static_cast<float>(x) * K(0x005bcb6c);
+    const int32_t r = Field<int32_t>(pc, 0x19c) + static_cast<int32_t>(0xffff8201u);
+    Field<int32_t>(pc, 0x19c) = r;
+    const uint32_t oldY = Field<uint32_t>(pc, 0x1fc);
+    const uint32_t oldZ = Field<uint32_t>(pc, 0x200);
+    Field<float>(pc, 0x1fc) = static_cast<float>(y) * K(0x005bcb6c);
+    Field<uint32_t>(pc, 0x208) = oldX;
+    const uint32_t oldR = Field<uint32_t>(pc, 0x204);
+    Field<int32_t>(pc, 0x194) = y;
+    Field<uint32_t>(pc, 0x20c) = oldY;
+    Field<uint32_t>(pc, 0x210) = oldZ;
+    Field<uint32_t>(pc, 0x214) = oldR;
+    Field<float>(pc, 0x200) = static_cast<float>(z) * K(0x005bcb6c);
+    Field<float>(pc, 0x204) = static_cast<float>(r) * K(0x005bcb6c);
+    return 0;
+}
+
+// 0x004f8760 (ecx = pc; stack: dt; callee pops 4): virtual +0x1c, the per-frame update: keyboard (0x004f8530), mouse
+// (0x004f83c0), controller (0x004f8600), then the rumbles (0x004e5750 with this and dt); returns the latter's eax.
+uint32_t InputPC_Update(void* pc, uint32_t dt)
+{
+    InputPC_PollKeyboard(pc);
+    InputPC_PollMouse(pc);
+    InputPC_PollController(pc);
+    return Rumble_Update(u(pc), pc, bf(dt));
+}
+
+// 0x004f8790 (stack: 3 unread arguments; callee pops 12): virtual +0xc: returns al = 0. Not executed in recorded runs.
+uint32_t InputPC_ReturnFalse3()
+{
+    return 0;
+}
+
+// 0x004f87a0 (ecx = pc; stack: unread device; callee pops 4): virtual +0x38: the first key 1..255 pressed or held
+// (state 1 or 2), else 0. Not executed in recorded runs.
+uint32_t InputPC_AnyKeyDown(void* pc)
+{
+    for (uint32_t i = 1; i < 0x100; i++)
+    {
+        const uint8_t s = Field<uint8_t>(pc, 0x5c + i);
+        if (s == 1 || s == 2)
+            return i;
+    }
+    return 0;
+}
+
+// 0x004f87c0 (ecx = pc; stack: device; callee pops 4): virtual +0x34: +0x44 (any mouse button), else +0x58 (any
+// mouse movement). Not executed in recorded runs.
+uint32_t fn_004f87c0(void* pc, uint32_t device)
+{
+    const uint32_t r = VCall<uint32_t>(pc, 0x44 / 4, device);
+    if (r)
+        return r;
+    return VCall<uint32_t>(pc, 0x58 / 4, device);
+}
+
+// 0x004f87e0 (ecx = pc; stack: device; callee pops 4): virtual +0x44: the first mouse button code held (+0x6c,
+// threshold 0.5) of 0x10004, 0x10006, 0x10006 (sic: 0x10005 is never tested; original bug), 0x10007..0x1000d; else 0.
+// Not executed in recorded runs.
+uint32_t InputPC_MouseButtonDown(void* pc, uint32_t device)
+{
+    static const uint32_t codes[9] = {0x10004, 0x10006, 0x10006, 0x10007, 0x10008, 0x10009, 0x1000a, 0x1000b, 0x1000c};
+    for (uint32_t code : codes)
+        if (VCall<uint8_t>(pc, 0x6c / 4, device, code, 0x3f000000u))
+            return code;
+    return VCall<uint8_t>(pc, 0x6c / 4, device, 0x1000du, 0x3f000000u) ? 0x1000du : 0u;
+}
+
+// 0x004f8920 (ecx = pc; stack: device; callee pops 4): virtual +0x58: the first mouse movement code 0x10000..0x10003
+// held (+0x6c, threshold 0.5), else 0. Not executed in recorded runs.
+uint32_t InputPC_MouseMoved(void* pc, uint32_t device)
+{
+    for (uint32_t code = 0x10000; code < 0x10003; code++)
+        if (VCall<uint8_t>(pc, 0x6c / 4, device, code, 0x3f000000u))
+            return code;
+    return VCall<uint8_t>(pc, 0x6c / 4, device, 0x10003u, 0x3f000000u) ? 0x10003u : 0u;
+}
+
+// 0x004f89b0 (ecx = pc; stack: device; callee pops 4): virtual +0x54 (overrides 0x004e4c50): the first controller
+// axis code held (+0x6c, threshold 0.75) of -0x28, -0x29, -0x26, -0x27, -0x2d, -0x2e, -0x2b, -0x2c; returns the code,
+// except +0x28 for -0x28 (original bug: the base version returns -0x28); else 0. Not executed in recorded runs.
+uint32_t InputPC_AxisMoved(void* pc, uint32_t device)
+{
+    static const int32_t codes[7] = {-0x28, -0x29, -0x26, -0x27, -0x2d, -0x2e, -0x2b};
+    for (int32_t code : codes)
+        if (VCall<uint8_t>(pc, 0x6c / 4, device, code, 0x3f400000u))
+            return code == -0x28 ? 0x28u : static_cast<uint32_t>(code);
+    return VCall<uint8_t>(pc, 0x6c / 4, device, -0x2c, 0x3f400000u) ? 0xffffffd4u : 0u;
+}
+
+// 0x004f8aa0 (ecx = pc; stack: unread device; callee pops 4): virtual +0x4c: the first controller button -0xc..-1
+// held on device 0 (+0x6c, threshold 0.5), then the D-pad codes -0x24..-0x21 (threshold 0); returns the code, else 0.
+uint32_t InputPC_ControllerButtonDown(void* pc)
+{
+    for (int32_t code = -0xc; code <= -1; code++)
+        if (VCall<uint8_t>(pc, 0x6c / 4, 0u, code, 0x3f000000u))
+            return static_cast<uint32_t>(code);
+    for (int32_t code = -0x24; code <= -0x21; code++)
+        if (VCall<uint8_t>(pc, 0x6c / 4, 0u, code, 0u))
+            return static_cast<uint32_t>(code);
+    return 0;
+}
+
+// 0x004f8b00 (stack: code; callee pops 4): virtual +0x7c: al = code in 0x10000..0x1000d (signed compares; a mouse
+// code). Not executed in recorded runs.
+uint32_t InputPC_IsMouseCode(int32_t code)
+{
+    return code >= 0x10000 && code <= 0x1000d ? 1u : 0u;
+}
+
+namespace
+{
+// D-pad (POV hundredths of a degree) ranges for the codes -0x24..-0x21 (right, left, down, up; up wraps around 0):
+// {lo1, hi1, lo2, hi2}; other codes in -0x20..-0xd use the threshold argument's bits for all four (as the original).
+void PovRanges(int32_t code, uint32_t threshold, uint32_t r[4])
+{
+    switch (code + 0x24)
+    {
+    case 0: r[0] = 0x1194, r[1] = 0x34bc, r[2] = 0x1194, r[3] = 0x34bc; break;
+    case 1: r[0] = 0x57e4, r[1] = 0x7b0c, r[2] = 0x57e4, r[3] = 0x7b0c; break;
+    case 2: r[0] = 0x34bc, r[1] = 0x57e4, r[2] = 0x34bc, r[3] = 0x57e4; break;
+    case 3: r[0] = 0, r[1] = 0x1194, r[2] = 0x7b0c, r[3] = 0x9088; break;
+    default: r[0] = r[1] = r[2] = r[3] = threshold; break;
+    }
+}
+bool InPov(const uint32_t r[4], uint32_t v)
+{
+    return (r[0] <= v && v <= r[1]) || (r[2] <= v && v <= r[3]);
+}
+// The controller axis behind the codes -0x2e..-0x26 (index code + 0x2e): float offset of the current value (the
+// previous one is +0x10 further) and the direction (+1 / -1); index 4 (-0x2a) has none.
+const int16_t kAxisOffset[9] = {0x200, 0x200, 0x204, 0x204, 0, 0x1f8, 0x1f8, 0x1fc, 0x1fc};
+const int8_t kAxisSign[9] = {1, -1, -1, 1, 0, 1, -1, -1, 1};
+// The mouse axis behind the codes 0x10000..0x1000d (index code - 0x10000): float offset (previous +0xc further),
+// direction; 0 = a button (0x10004..0x1000b).
+const int8_t kMouseOffset[14] = {0x30, 0x30, 0x2c, 0x2c, 0, 0, 0, 0, 0, 0, 0, 0, 0x34, 0x34};
+const int8_t kMouseSign[14] = {-1, 1, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, -1};
+}  // namespace
+
+// 0x004f8b20 (ecx = pc; stack: device, code, threshold (float); callee pops 12): virtual +0x68, pressed this frame.
+// Keys 1..0xff: state == 1. Mouse 0x10000..: axes cross the threshold this frame (x/y/wheel > t now and <= t before, or
+// < -t now and >= -t before); other codes: bit (code - 0x10004) of the new presses (+0x54). Controller buttons
+// -0xc..-1: down now and not before. D-pad -0x24..-0xd: no current POV (-1) -> 0; no previous POV -> virtual +0x6c
+// (held); otherwise previous inside the range and current outside (original bug: that is the release edge; 0x004f91a0
+// tests the same). Axes -0x2e..-0x26: >= t now and < t before (or <= -t now and > -t before). Not executed in recorded
+// runs.
+uint32_t InputPC_IsPressed(void* pc, uint32_t device, int32_t code, uint32_t threshold)
+{
+    const float t = bf(threshold);
+    if (code < 0)
+    {
+        if (code >= -0xc)
+        {
+            const int32_t i = -1 - code;
+            return (Field<uint8_t>(pc, 0x1a4 + i) & 0x80) && !(Field<uint8_t>(pc, 0x1d8 + i) & 0x80) ? 1u : 0u;
+        }
+        if (code >= -0x24)
+        {
+            const uint32_t cur = Field<uint32_t>(pc, 0x1a0);
+            if (cur == 0xffffffffu)
+                return 0;
+            const uint32_t prev = Field<uint32_t>(pc, 0x1d4);
+            if (prev == 0xffffffffu)
+                return VCall<uint32_t>(pc, 0x6c / 4, device, code, threshold);
+            uint32_t r[4];
+            PovRanges(code, threshold, r);
+            if (!InPov(r, prev))
+                return 0;
+            return InPov(r, cur) ? 0u : 1u;
+        }
+        const uint32_t index = static_cast<uint32_t>(code + 0x2e);
+        if (index > 8 || kAxisSign[index] == 0)
+            return 0;
+        const float cur = Field<float>(pc, kAxisOffset[index]);
+        const float prev = Field<float>(pc, kAxisOffset[index] + 0x10);
+        if (kAxisSign[index] > 0)
+        {
+            if (!(cur >= t))
+                return 0;
+            return prev < t ? 1u : 0u;
+        }
+        const float v = -t;
+        if (!(v >= cur))
+            return 0;
+        return v < prev ? 1u : 0u;
+    }
+    if (code > 0xffff)
+    {
+        const uint32_t index = static_cast<uint32_t>(code - 0x10000);
+        if (index > 0xd || kMouseSign[index] == 0)
+        {
+            const uint32_t bit = 1u << ((code - 0x10004) & 0x1f);
+            return (Field<uint32_t>(pc, 0x54) & bit) ? 1u : 0u;
+        }
+        const float cur = Field<float>(pc, kMouseOffset[index]);
+        const float prev = Field<float>(pc, kMouseOffset[index] + 0xc);
+        if (kMouseSign[index] > 0)
+        {
+            if (!(cur > t))
+                return 0;
+            return prev <= t ? 1u : 0u;
+        }
+        const float v = -t;
+        if (!(v > cur))
+            return 0;
+        return v <= prev ? 1u : 0u;
+    }
+    if (code == 0 || code >= 0x100)
+        return 0;
+    return Field<uint8_t>(pc, 0x5c + code) == 1 ? 1u : 0u;
+}
+
+// 0x004f8f00 (ecx = pc; stack: device (unread), code, threshold (float); callee pops 12): virtual +0x6c, held. Keys:
+// state 1 or 2 (returns eax = 1 / 0). Mouse axes: > t (or < -t); mouse buttons: bit (code - 0x10004) of +0x4c.
+// Controller buttons: down now. D-pad: the current POV inside the range (no -1 test). Axes: >= t (or <= -t). Not
+// executed in recorded runs (the comparison scenarios do not record virtual calls of this class).
+uint32_t InputPC_IsHeld(void* pc, uint32_t device, int32_t code, uint32_t threshold)
+{
+    (void)device;
+    const float t = bf(threshold);
+    if (code < 0)
+    {
+        if (code >= -0xc)
+            return (Field<uint8_t>(pc, 0x1a3 - code) & 0x80) ? 1u : 0u;
+        if (code >= -0x24)
+        {
+            uint32_t r[4];
+            PovRanges(code, threshold, r);
+            return InPov(r, Field<uint32_t>(pc, 0x1a0)) ? 1u : 0u;
+        }
+        const uint32_t index = static_cast<uint32_t>(code + 0x2e);
+        if (index > 8 || kAxisSign[index] == 0)
+            return 0;
+        const float cur = Field<float>(pc, kAxisOffset[index]);
+        if (kAxisSign[index] > 0)
+            return cur >= t ? 1u : 0u;
+        return -t >= cur ? 1u : 0u;
+    }
+    if (code > 0xffff)
+    {
+        const uint32_t index = static_cast<uint32_t>(code - 0x10000);
+        if (index > 0xd || kMouseSign[index] == 0)
+        {
+            const uint32_t bit = 1u << ((code - 0x10004) & 0x1f);
+            return (Field<uint32_t>(pc, 0x4c) & bit) ? 1u : 0u;
+        }
+        const float cur = Field<float>(pc, kMouseOffset[index]);
+        if (kMouseSign[index] > 0)
+            return cur > t ? 1u : 0u;
+        return -t > cur ? 1u : 0u;
+    }
+    if (code == 0 || code >= 0x100)
+        return 0;
+    const uint8_t s = Field<uint8_t>(pc, 0x5c + code);
+    return s == 1 || s == 2 ? 1u : 0u;
+}
+
+// 0x004f91a0 (ecx = pc; stack: device (unread), code, threshold (float); callee pops 12): virtual +0x70, released this
+// frame. Keys: state == 3. Mouse axes: <= t now and > t before (or >= -t now and < -t before); buttons: bit of the
+// releases (+0x50). Controller buttons: up now, down before. D-pad: no previous POV -> 0; current outside and
+// previous inside the range. Axes: < t now and >= t before (or > -t now and <= -t before). Not executed in recorded
+// runs.
+uint32_t InputPC_IsReleased(void* pc, uint32_t device, int32_t code, uint32_t threshold)
+{
+    (void)device;
+    const float t = bf(threshold);
+    if (code < 0)
+    {
+        if (code >= -0xc)
+        {
+            const int32_t i = -1 - code;
+            return !(Field<uint8_t>(pc, 0x1a4 + i) & 0x80) && (Field<uint8_t>(pc, 0x1d8 + i) & 0x80) ? 1u : 0u;
+        }
+        if (code >= -0x24)
+        {
+            const uint32_t prev = Field<uint32_t>(pc, 0x1d4);
+            if (prev == 0xffffffffu)
+                return 0;
+            uint32_t r[4];
+            PovRanges(code, threshold, r);
+            if (InPov(r, Field<uint32_t>(pc, 0x1a0)))
+                return 0;
+            return InPov(r, prev) ? 1u : 0u;
+        }
+        const uint32_t index = static_cast<uint32_t>(code + 0x2e);
+        if (index > 8 || kAxisSign[index] == 0)
+            return 0;
+        const float cur = Field<float>(pc, kAxisOffset[index]);
+        const float prev = Field<float>(pc, kAxisOffset[index] + 0x10);
+        if (kAxisSign[index] > 0)
+        {
+            if (!(cur < t))
+                return 0;
+            return prev >= t ? 1u : 0u;
+        }
+        const float v = -t;
+        if (!(v < cur))
+            return 0;
+        return v >= prev ? 1u : 0u;
+    }
+    if (code > 0xffff)
+    {
+        const uint32_t index = static_cast<uint32_t>(code - 0x10000);
+        if (index > 0xd || kMouseSign[index] == 0)
+        {
+            const uint32_t bit = 1u << ((code - 0x10004) & 0x1f);
+            return (Field<uint32_t>(pc, 0x50) & bit) ? 1u : 0u;
+        }
+        const float cur = Field<float>(pc, kMouseOffset[index]);
+        const float prev = Field<float>(pc, kMouseOffset[index] + 0xc);
+        if (kMouseSign[index] > 0)
+        {
+            if (!(cur <= t))
+                return 0;
+            return prev > t ? 1u : 0u;
+        }
+        const float v = -t;
+        if (!(v <= cur))
+            return 0;
+        return v > prev ? 1u : 0u;
+    }
+    if (code == 0 || code >= 0x100)
+        return 0;
+    return Field<uint8_t>(pc, 0x5c + code) == 3 ? 1u : 0u;
+}
+
+// 0x004f9560 (ecx = pc; stack: device, code, deadzone, threshold, scale (floats); callee pops 20; returns st0):
+// virtual +0x78, the analogue value. Controller axes -0x2e..-0x26 beyond the dead zone d: (scale / (1 - d)) * (v - d),
+// or -((scale / (1 - d)) * (d + v)) on the negative side; else 0. Mouse axes: sensitivity (+0x21c) * value * scale
+// when on the code's side of 0 (negated for the negative side), else 0. Other codes (keys, controller buttons, D-pad,
+// mouse buttons): scale when held (virtual +0x6c with the threshold), else 0. Not executed in recorded runs.
+float InputPC_AxisValue(void* pc, uint32_t device, int32_t code, uint32_t deadzone, uint32_t threshold, uint32_t scale)
+{
+    const float d = bf(deadzone);
+    const float s = bf(scale);
+    if (code < 0)
+    {
+        if (code < -0x24)
+        {
+            const uint32_t index = static_cast<uint32_t>(code + 0x2e);
+            if (index > 8 || kAxisSign[index] == 0)
+                return K(0x0056c05c);
+            const float v = Field<float>(pc, kAxisOffset[index]);
+            if (kAxisSign[index] > 0)
+            {
+                if (!(v > d))
+                    return K(0x0056c05c);
+                return s / (K(0x005bcb2c) - d) * (v - d);
+            }
+            if (!(-d > v))
+                return K(0x0056c05c);
+            return -(s / (K(0x005bcb2c) - d) * (d + v));
+        }
+    }
+    else if (code > 0xffff)
+    {
+        const uint32_t index = static_cast<uint32_t>(code - 0x10000);
+        if (index <= 0xd && kMouseSign[index] != 0)
+        {
+            const float v = Field<float>(pc, kMouseOffset[index]);
+            if (kMouseSign[index] > 0)
+            {
+                if (!(v > K(0x0056c05c)))
+                    return K(0x0056c05c);
+                return Field<float>(pc, 0x21c) * v * s;
+            }
+            if (!(v < K(0x0056c05c)))
+                return K(0x0056c05c);
+            return -(Field<float>(pc, 0x21c) * v * s);
+        }
+    }
+    // keys, controller buttons, the D-pad and mouse buttons: digital
+    if (VCall<uint8_t>(pc, 0x6c / 4, device, code, threshold))
+        return s;
+    return K(0x0056c05c);
+}
+
+namespace
+{
+// 0x004f98b0's switch (byte table 0x004f9ba0, jump table 0x004f9ab0) for codes -0x2e..0x32: debug names ("Right Axis
+// Right", "DPad Up", "1 Button", "KBD Z", ...); 0x0058a68c = "Unknown Button".
+const uint32_t kDebugName[0x61] = {
+    0x0058a888, 0x0058a89c, 0x0058a8ac, 0x0058a8ec, 0x0058a68c, 0x0058a8bc, 0x0058a8cc, 0x0058a8dc,
+    0x0058a8ec, 0x0058a68c, 0x0058a85c, 0x0058a868, 0x0058a874, 0x0058a880, 0x0058a68c, 0x0058a68c,
+    0x0058a68c, 0x0058a68c, 0x0058a68c, 0x0058a68c, 0x0058a68c, 0x0058a68c, 0x0058a68c, 0x0058a68c,
+    0x0058a68c, 0x0058a68c, 0x0058a68c, 0x0058a68c, 0x0058a68c, 0x0058a68c, 0x0058a68c, 0x0058a68c,
+    0x0058a68c, 0x0058a68c, 0x0058a7bc, 0x0058a7cc, 0x0058a83c, 0x0058a84c, 0x0058a824, 0x0058a830,
+    0x0058a7e8, 0x0058a80c, 0x0058a818, 0x0058a7dc, 0x0058a7f4, 0x0058a800, 0x0058a68c, 0x0058a68c,
+    0x0058a7ac, 0x0058a7a4, 0x0058a79c, 0x0058a794, 0x0058a78c, 0x0058a784, 0x0058a77c, 0x0058a774,
+    0x0058a76c, 0x0058a7b4, 0x0058a68c, 0x0058a68c, 0x0058a68c, 0x0058a68c, 0x0058a6e4, 0x0058a6b4,
+    0x0058a744, 0x0058a6dc, 0x0058a6cc, 0x0058a6a4, 0x0058a6c4, 0x0058a724, 0x0058a6f4, 0x0058a6ec,
+    0x0058a68c, 0x0058a68c, 0x0058a68c, 0x0058a68c, 0x0058a764, 0x0058a6d4, 0x0058a74c, 0x0058a73c,
+    0x0058a734, 0x0058a72c, 0x0058a71c, 0x0058a714, 0x0058a70c, 0x0058a68c, 0x0058a68c, 0x0058a68c,
+    0x0058a68c, 0x0058a68c, 0x0058a69c, 0x0058a6ac, 0x0058a754, 0x0058a6bc, 0x0058a75c, 0x0058a6fc,
+    0x0058a704,
+};
+}  // namespace
+
+// 0x004f98b0 (stack: code; callee pops 4): virtual +0x64: the code's debug name (ASCII); -0x2b reads "Left Axis Up"
+// like -0x26 (original data). Codes outside -0x2e..0x32 (unsigned test) -> "Unknown Button". Not executed in recorded
+// runs.
+uint32_t InputPC_CodeDebugName(uint32_t code)
+{
+    const uint32_t index = code + 0x2e;
+    if (index > 0x60)
+        return 0x0058a68c;
+    return kDebugName[index];
+}
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Entry adapters (register inputs in the order eax ecx edx ebx esi edi, then stack arguments)
@@ -1699,4 +2250,179 @@ static uint32_t Rumble_Update_Abi(uint32_t ebx, uint32_t a0, uint32_t a1)
 ABI_ENTRY_004e5750(Rumble_Update_Entry, Rumble_Update_Abi)
 HOOK(0x004e5750, "Rumble_Update", Rumble_Update_Entry, nullptr);
 
-// @@ADAPTERS@@
+static uint32_t InputPC_Get_Abi()
+{
+    return InputPC_Get();
+}
+ABI_ENTRY_004f7b30(InputPC_Get_Entry, InputPC_Get_Abi)
+HOOK(0x004f7b30, "InputPC_Get", InputPC_Get_Entry, nullptr);
+
+static uint32_t InputPC_Release_Abi()
+{
+    return InputPC_Release();
+}
+ABI_ENTRY_004f7b80(InputPC_Release_Entry, InputPC_Release_Abi)
+HOOK(0x004f7b80, "InputPC_Release", InputPC_Release_Entry, nullptr);
+
+static uint32_t InputPC_Construct_Abi(uint32_t edx)
+{
+    return InputPC_Construct(P(edx));
+}
+ABI_ENTRY_004f7bb0(InputPC_Construct_Entry, InputPC_Construct_Abi)
+HOOK(0x004f7bb0, "InputPC_Construct", InputPC_Construct_Entry, nullptr);
+
+static uint32_t InputPC_Destroy_Abi(uint32_t a0)
+{
+    return InputPC_Destroy(P(a0));
+}
+ABI_ENTRY_004f7c20(InputPC_Destroy_Entry, InputPC_Destroy_Abi)
+HOOK(0x004f7c20, "InputPC_Destroy", InputPC_Destroy_Entry, nullptr);
+
+static uint32_t InputPC_SetMouseSensitivity_Abi(uint32_t ecx, uint32_t a0)
+{
+    return InputPC_SetMouseSensitivity(P(ecx), a0);
+}
+ABI_ENTRY_004f7cf0(InputPC_SetMouseSensitivity_Entry, InputPC_SetMouseSensitivity_Abi)
+HOOK(0x004f7cf0, "InputPC_SetMouseSensitivity", InputPC_SetMouseSensitivity_Entry, nullptr);
+
+static uint32_t InputPC_InitController_Abi(uint32_t ebx)
+{
+    return InputPC_InitController(P(ebx));
+}
+ABI_ENTRY_004f7e10(InputPC_InitController_Entry, InputPC_InitController_Abi)
+HOOK(0x004f7e10, "InputPC_InitController", InputPC_InitController_Entry, nullptr);
+
+static uint32_t InputPC_Init_Abi(uint32_t ecx, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4,
+                                 uint32_t a5, uint32_t a6)
+{
+    return InputPC_Init(P(ecx), a0, a1, a2, a3, a4, a5, a6);
+}
+ABI_ENTRY_004f81d0(InputPC_Init_Entry, InputPC_Init_Abi)
+HOOK(0x004f81d0, "InputPC_Init", InputPC_Init_Entry, nullptr);
+
+static uint32_t InputPC_SetMouseCapture_Abi(uint32_t ecx, uint32_t a0, uint32_t a1)
+{
+    return InputPC_SetMouseCapture(P(ecx), a0, a1);
+}
+ABI_ENTRY_004f82d0(InputPC_SetMouseCapture_Entry, InputPC_SetMouseCapture_Abi)
+HOOK(0x004f82d0, "InputPC_SetMouseCapture", InputPC_SetMouseCapture_Entry, nullptr);
+
+static uint32_t InputPC_PollMouse_Abi(uint32_t /*ebx*/, uint32_t esi, uint32_t /*edi*/, uint32_t /*ebp*/)
+{
+    return InputPC_PollMouse(P(esi));
+}
+ABI_ENTRY_004f83c0(InputPC_PollMouse_Entry, InputPC_PollMouse_Abi)
+HOOK(0x004f83c0, "InputPC_PollMouse", InputPC_PollMouse_Entry, nullptr);
+
+static uint32_t InputPC_PollKeyboard_Abi(uint32_t ecx, uint32_t /*ebx*/, uint32_t /*edi*/, uint32_t /*ebp*/,
+                                         uint32_t /*a0*/)
+{
+    return InputPC_PollKeyboard(P(ecx));
+}
+ABI_ENTRY_004f8530(InputPC_PollKeyboard_Entry, InputPC_PollKeyboard_Abi)
+HOOK(0x004f8530, "InputPC_PollKeyboard", InputPC_PollKeyboard_Entry, nullptr);
+
+static uint32_t InputPC_PollController_Abi(uint32_t ebx, uint32_t /*esi*/, uint32_t /*edi*/, uint32_t /*ebp*/)
+{
+    return InputPC_PollController(P(ebx));
+}
+ABI_ENTRY_004f8600(InputPC_PollController_Entry, InputPC_PollController_Abi)
+HOOK(0x004f8600, "InputPC_PollController", InputPC_PollController_Entry, nullptr);
+
+static uint32_t InputPC_Update_Abi(uint32_t ecx, uint32_t a0)
+{
+    return InputPC_Update(P(ecx), a0);
+}
+ABI_ENTRY_004f8760(InputPC_Update_Entry, InputPC_Update_Abi)
+HOOK(0x004f8760, "InputPC_Update", InputPC_Update_Entry, nullptr);
+
+static uint32_t InputPC_ReturnFalse3_Abi(uint32_t /*a0*/, uint32_t /*a1*/, uint32_t /*a2*/)
+{
+    return InputPC_ReturnFalse3();
+}
+ABI_ENTRY_004f8790(InputPC_ReturnFalse3_Entry, InputPC_ReturnFalse3_Abi)
+HOOK(0x004f8790, "InputPC_ReturnFalse3", InputPC_ReturnFalse3_Entry, nullptr);
+
+static uint32_t InputPC_AnyKeyDown_Abi(uint32_t ecx, uint32_t /*a0*/)
+{
+    return InputPC_AnyKeyDown(P(ecx));
+}
+ABI_ENTRY_004f87a0(InputPC_AnyKeyDown_Entry, InputPC_AnyKeyDown_Abi)
+HOOK(0x004f87a0, "InputPC_AnyKeyDown", InputPC_AnyKeyDown_Entry, nullptr);
+
+static uint32_t fn_004f87c0_Abi(uint32_t ecx, uint32_t a0)
+{
+    return fn_004f87c0(P(ecx), a0);
+}
+ABI_ENTRY_004f87c0(fn_004f87c0_Entry, fn_004f87c0_Abi)
+HOOK(0x004f87c0, "fn_004f87c0", fn_004f87c0_Entry, nullptr);
+
+static uint32_t InputPC_MouseButtonDown_Abi(uint32_t ecx, uint32_t a0)
+{
+    return InputPC_MouseButtonDown(P(ecx), a0);
+}
+ABI_ENTRY_004f87e0(InputPC_MouseButtonDown_Entry, InputPC_MouseButtonDown_Abi)
+HOOK(0x004f87e0, "InputPC_MouseButtonDown", InputPC_MouseButtonDown_Entry, nullptr);
+
+static uint32_t InputPC_MouseMoved_Abi(uint32_t ecx, uint32_t a0)
+{
+    return InputPC_MouseMoved(P(ecx), a0);
+}
+ABI_ENTRY_004f8920(InputPC_MouseMoved_Entry, InputPC_MouseMoved_Abi)
+HOOK(0x004f8920, "InputPC_MouseMoved", InputPC_MouseMoved_Entry, nullptr);
+
+static uint32_t InputPC_AxisMoved_Abi(uint32_t ecx, uint32_t a0)
+{
+    return InputPC_AxisMoved(P(ecx), a0);
+}
+ABI_ENTRY_004f89b0(InputPC_AxisMoved_Entry, InputPC_AxisMoved_Abi)
+HOOK(0x004f89b0, "InputPC_AxisMoved", InputPC_AxisMoved_Entry, nullptr);
+
+static uint32_t InputPC_ControllerButtonDown_Abi(uint32_t ecx, uint32_t /*a0*/)
+{
+    return InputPC_ControllerButtonDown(P(ecx));
+}
+ABI_ENTRY_004f8aa0(InputPC_ControllerButtonDown_Entry, InputPC_ControllerButtonDown_Abi)
+HOOK(0x004f8aa0, "InputPC_ControllerButtonDown", InputPC_ControllerButtonDown_Entry, nullptr);
+
+static uint32_t InputPC_IsMouseCode_Abi(uint32_t a0)
+{
+    return InputPC_IsMouseCode(static_cast<int32_t>(a0));
+}
+ABI_ENTRY_004f8b00(InputPC_IsMouseCode_Entry, InputPC_IsMouseCode_Abi)
+HOOK(0x004f8b00, "InputPC_IsMouseCode", InputPC_IsMouseCode_Entry, nullptr);
+
+static uint32_t InputPC_IsPressed_Abi(uint32_t ecx, uint32_t a0, uint32_t a1, uint32_t a2)
+{
+    return InputPC_IsPressed(P(ecx), a0, static_cast<int32_t>(a1), a2);
+}
+ABI_ENTRY_004f8b20(InputPC_IsPressed_Entry, InputPC_IsPressed_Abi)
+HOOK(0x004f8b20, "InputPC_IsPressed", InputPC_IsPressed_Entry, nullptr);
+
+static uint32_t InputPC_IsHeld_Abi(uint32_t ecx, uint32_t a0, uint32_t a1, uint32_t a2)
+{
+    return InputPC_IsHeld(P(ecx), a0, static_cast<int32_t>(a1), a2);
+}
+ABI_ENTRY_004f8f00(InputPC_IsHeld_Entry, InputPC_IsHeld_Abi)
+HOOK(0x004f8f00, "InputPC_IsHeld", InputPC_IsHeld_Entry, nullptr);
+
+static uint32_t InputPC_IsReleased_Abi(uint32_t ecx, uint32_t a0, uint32_t a1, uint32_t a2)
+{
+    return InputPC_IsReleased(P(ecx), a0, static_cast<int32_t>(a1), a2);
+}
+ABI_ENTRY_004f91a0(InputPC_IsReleased_Entry, InputPC_IsReleased_Abi)
+HOOK(0x004f91a0, "InputPC_IsReleased", InputPC_IsReleased_Entry, nullptr);
+
+static float InputPC_AxisValue_Abi(uint32_t ecx, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4)
+{
+    return InputPC_AxisValue(P(ecx), a0, static_cast<int32_t>(a1), a2, a3, a4);
+}
+ABI_ENTRY_004f9560(InputPC_AxisValue_Entry, InputPC_AxisValue_Abi)
+HOOK(0x004f9560, "InputPC_AxisValue", InputPC_AxisValue_Entry, nullptr);
+
+static uint32_t InputPC_CodeDebugName_Abi(uint32_t a0)
+{
+    return InputPC_CodeDebugName(a0);
+}
+ABI_ENTRY_004f98b0(InputPC_CodeDebugName_Entry, InputPC_CodeDebugName_Abi)
+HOOK(0x004f98b0, "InputPC_CodeDebugName", InputPC_CodeDebugName_Entry, nullptr);

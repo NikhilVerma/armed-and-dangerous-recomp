@@ -1235,29 +1235,9 @@ static uint32_t fn_0042f5c0_Abi(uint32_t eax, uint32_t a0)
 ABI_ENTRY_0042f5c0(fn_0042f5c0_Entry, fn_0042f5c0_Abi)
 HOOK(0x0042f5c0, "fn_0042f5c0", fn_0042f5c0_Entry, nullptr);
 
-// Calls 0x0043e710 (eax, ebp; caller pops nothing). It takes EBP as an input (it forwards it to 0x00475a90), which
-// the generated orig:: wrappers cannot load, so this shim sets EBP itself.
-static uint32_t Call_0043e710(uint32_t eax_, uint32_t ebp_)
-{
-    static const uint32_t target = 0x0043e710;
-    uint32_t r;
-    __asm {
-        push ebx
-        push esi
-        push edi
-        mov eax, eax_
-        mov ecx, ebp_
-        push ebp
-        mov ebp, ecx
-        call dword ptr [target]
-        pop ebp
-        pop edi
-        pop esi
-        pop ebx
-        mov r, eax
-    }
-    return r;
-}
+// 0x0043e710 Character_DropPickup (src/game/cleanup_01.cpp): eax = character. The EBP input abi.csv lists is spurious
+// (0x00475a90 only saves ebp; verified by the cleanup_01 recovery), so it is called directly.
+uint32_t Character_DropPickup(uint32_t character);
 
 // Character_Die's repeated "drop" step: when the record exists without flag 0x8000 and vt+0x154() is false,
 // vt+0x158() (guess: drop the held item).
@@ -1304,7 +1284,7 @@ uint32_t Character_Die(void* ch, void* rec)
     VCall<void>(ch, 0xf8 / 4, 0x70001u, 0u);
     if (!rec || !(Field<uint32_t>(rec, 0) & 0x8000))
     {
-        Call_0043e710(o, o);
+        Character_DropPickup(o);
         ++Field<int32_t>(G(), 0xb1c);
     }
     if (Field<uint32_t>(ch, 0x460) == 0x12c)

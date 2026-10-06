@@ -92,6 +92,11 @@ Binary / ABI:
 - Game+0x2c is the audio object (Ghidra calls it renderer_2c); Game+0xa8c the physics manager (+8 hkWorld); object
   +0x1c4 its Havok entity; entity +0x38 friction, +0x3c restitution.
 
+- **Trace coverage gap (likely)**: the recorded traces (work/traces, used by recover.py and promote_verified.py for
+  "executed in recorded runs") seem to miss virtual calls: per-frame input virtuals (0x004f8b20, 0x004f8f00,
+  0x004e4d40) show as never executed. So "not executed" overstates; many S1 virtual methods are probably exercised
+  by the scenarios and could be promoted once the tracer records indirect calls (check tools/record.py).
+
 Environment:
 - **Display**: `[System.Windows.Forms.Screen]::AllScreens` = `WinDisc` -> every game run crashes (no display); TV
   attached but off -> ~4 fps (presentation throttled). Check before long runs.
@@ -127,9 +132,8 @@ Environment:
 
 ### Cleanup list (after the round)
 
-- 0x0043e710 (skipped by game_02 for an EBP input): ai_07 found the EBP input is spurious (0x00475a90 only saves
-  ebp), so it can be recovered; its two x87 stack arguments to 0x00566790 still need an asm shim.
-- 0x00447020 is 14 bytes; the rest of its tracker range is an untracked function 0x00447040.
+- Done: 0x0043e710 recovered as Character_DropPickup (src/game/cleanup_01.cpp; EBP input spurious; `_CIpow` shim);
+  game_02 now calls it directly. 0x00447040 (GoliathObject_Update) was already recovered and tracked in ai_07.
 - Functions missing from the tracker: tools/find_missing_functions.py + agent reports (work/classify/missing_*.csv);
   recovered into src/engine/missing_01.cpp (tracker rows to add from that agent's report).
 

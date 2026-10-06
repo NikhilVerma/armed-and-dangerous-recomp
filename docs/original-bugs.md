@@ -113,3 +113,22 @@ Defects found in the original game. Reproduced faithfully and not fixed before M
 | BigList_Alloc puts only count-1 items per block on the free list (the last item of each block is never used) | 0x004f6020 | Disassembly | Faithful |
 | A capacity of 0 does not stop the copy (the decrement wraps) | 0x004e59d0 / 0x004e5a10 | Disassembly | Faithful |
 | Loops forever if the head node is locked | 0x004e72b0 | Disassembly | Faithful |
+| File_FindFirst's third search passes the buffer still holding root 2 + pattern (lea esi,[esp+0xc] at 0x004f20a4), so it repeats the second search | 0x004f2030 | Disassembly | Faithful (src/loader/loader_02.cpp) |
+| Address-range lookup miss: the code still reads through the null record | 0x004e8620, 0x004eae90, 0x004ef620, 0x004f0e60 | Disassembly | Faithful |
+| Streamer creation failure: final check reads [null+0x10]; 0x004f5f10 enters a critical section at null+0x520 | 0x004f5dc0, 0x004f5f10 | Disassembly | Faithful |
+| Level .big collector's 0x27d4-byte stack frame | 0x004f5ba0 | Disassembly | **Deviation:** allocated on the heap; SEH frame (0x004f5f10) and stack cookies not reproduced |
+| Consumed-action scan skips to the next word plus one when no bit at or above the current one is set: action 0x20 (MoveLiftUp) is never released if the first word is empty | 0x004146c0 | Disassembly | Faithful (src/input/input_01.cpp) |
+| D-pad "pressed" fires on the release edge (same test as the released query) | 0x004f8b20 | Disassembly | Faithful |
+| Tests input code 0x10006 twice and never 0x10005 | 0x004f87e0 | Disassembly | Faithful |
+| Shutdown calls SetCapture instead of ReleaseCapture | 0x004f7c20 | Disassembly | Faithful |
+| Any binding set of 1 or more is forced to 0 | 0x004144a0 | Disassembly | Faithful |
+| GetDeviceState failure (other than lost / not acquired) reads an uninitialised key buffer | 0x004f8530 | Disassembly | **Deviation:** buffer zeroed |
+| Failed allocation leads to a null dereference | 0x00403a30, 0x004e43f0 | Disassembly | Faithful (src/engine/engine_01.cpp) |
+| Capacity 0 writes to dst[-1]; count 0 writes before the buffer | 0x00403c10, 0x00462060 | Disassembly | Faithful |
+| Random spread multiplied by 0.0 (output is just the position) | 0x0040de50 | Disassembly | Faithful |
+| Velocity scaled to unit speed; the limit argument is never applied | 0x00455e70 | Disassembly | Faithful |
+| vz not recomputed after the higher-arc time is picked | 0x00471a00 | Disassembly | Faithful |
+| Euler matrix sets m[15] = 0 instead of 1 | 0x004e3db0 | Disassembly | Faithful |
+| Memory taken from the allocator hook after the parent arena fails is still freed to the parent ("couldn't free block") | 0x004e1e90 / 0x004e1f70 | Disassembly | Faithful |
+| Look-at with a zero-length forward vector, and 0x44 bytes of a local block, read uninitialised | 0x004e2eb0 / 0x004e3070, 0x00453b90 | Disassembly | **Deviation:** locals zeroed |
+| Pub screen state 6 keeps scale z = 1.0 (3, 3, 1) while state 1 sets (3, 3, 3) | PubScreen_HandleInput 0x004695d0 | Disassembly | Faithful (src/engine/missing_01.cpp) |

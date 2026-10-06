@@ -1109,6 +1109,7 @@ uint8_t* TableEntry(uint8_t* t, uint32_t i, uint32_t entriesOff, uint32_t minPar
 }  // namespace
 
 uint32_t Endian_Swap32(uint32_t* p);
+uint32_t fn_004e8620(uint8_t* ctx, uint8_t* m);
 
 // 0x004f0e60 (edi = relocation context; stack: table or null, header callback, item callback; caller pops): fixes up a
 // loaded chunk table: Reloc_FixupPointer (0x004e2040) on +0 and +4, headerCallback(table+0xc, ctx) (cdecl), sets the
@@ -1272,7 +1273,7 @@ uint32_t fn_004eae90(uint8_t* ctx, uint8_t* obj)
             uint8_t* c = TableEntry(Field<uint8_t*>(item, 4), j, 0x10, 0);
             if (c == nullptr)
                 break;
-            orig::fn_004e8620(u(ctx), Field<uint32_t>(c, Field<uint16_t>(c, 2)));
+            fn_004e8620(ctx, Field<uint8_t*>(c, Field<uint16_t>(c, 2)));
         }
     }
     orig::fn_004e2160(u(ctx), u(obj + 4), 2, 0, 0);
@@ -1626,3 +1627,270 @@ static uint32_t fn_004ee010_Abi(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t 
 }
 ABI_ENTRY_004ee010(fn_004ee010_Entry, fn_004ee010_Abi)
 HOOK(0x004ee010, "fn_004ee010", fn_004ee010_Entry, nullptr);
+
+// ================================================================================================================
+// 0x004e8620: relocation and byte-swapping of a loaded mesh record
+// ================================================================================================================
+
+namespace
+{
+// The address-range lookup with the binary search written inline (instead of 0x004e0f40); the key pointer is the
+// address of a local holding addr. Returns the translated address (reads through a null record like the original).
+uint32_t RelocLocateInline(uint8_t* ctx, uint32_t addr)
+{
+    uint32_t key = addr;
+    uint8_t* t = Field<uint8_t*>(Field<uint8_t*>(ctx, 0), 8);
+    uint8_t* rec = TableFind(t, u(&key));
+    volatile const uint16_t* w = reinterpret_cast<volatile const uint16_t*>(u(rec) + 2);
+    const uint8_t* q = rec + *w;
+    return Field<uint32_t>(q, 4) - Field<uint32_t>(q, 0) + addr;
+}
+inline void BSwapAt(uint32_t a)
+{
+    uint32_t* d = reinterpret_cast<uint32_t*>(a);
+    const uint32_t v = *d;
+    *d = (v << 24) | ((v & 0xff00u) << 8) | ((v >> 8) & 0xff00u) | (v >> 24);
+}
+// Unless relocate-only: locate addr (0x004e0f40 search) and, when the context swaps, Endian_Swap32 it (the call).
+void LocSwapCall(uint8_t* ctx, uint32_t addr)
+{
+    if (Field<uint32_t>(ctx, 4) != 0)
+        return;
+    const uint32_t a = RelocLocate(ctx, addr);
+    if (Field<uint32_t>(ctx, 8) != 0)
+        Endian_Swap32(reinterpret_cast<uint32_t*>(a));
+}
+// As LocSwapCall with the byte swap written inline.
+void LocSwap32F(uint8_t* ctx, uint32_t addr)
+{
+    if (Field<uint32_t>(ctx, 4) != 0)
+        return;
+    const uint32_t a = RelocLocate(ctx, addr);
+    if (Field<uint32_t>(ctx, 8) != 0)
+        BSwapAt(a);
+}
+// Inline-search variants: 32-bit swap, 16-bit swap, and search only (byte fields: the result is not used).
+void LocSwap32I(uint8_t* ctx, uint32_t addr)
+{
+    if (Field<uint32_t>(ctx, 4) != 0)
+        return;
+    const uint32_t a = RelocLocateInline(ctx, addr);
+    if (Field<uint32_t>(ctx, 8) != 0)
+        BSwapAt(a);
+}
+void LocSwap16I(uint8_t* ctx, uint32_t addr)
+{
+    if (Field<uint32_t>(ctx, 4) != 0)
+        return;
+    const uint32_t a = RelocLocateInline(ctx, addr);
+    if (Field<uint32_t>(ctx, 8) != 0)
+        Swap16(a);
+}
+void LocSearchI(uint8_t* ctx, uint32_t addr)
+{
+    if (Field<uint32_t>(ctx, 4) != 0)
+        return;
+    uint32_t key = addr;
+    TableFind(Field<uint8_t*>(Field<uint8_t*>(ctx, 0), 8), u(&key));
+}
+inline void FixPtr(uint8_t* ctx, uint32_t field)
+{
+    orig::fn_004e2040(field, u(ctx));
+}
+inline void SwapField(uint8_t* ctx, uint32_t field, uint32_t size)
+{
+    orig::fn_004e2160(u(ctx), field, size, 0, 0);
+}
+}  // namespace
+
+// 0x004e8620 (eax = relocation context; stack: mesh record; caller pops): fixes up and byte-swaps one loaded mesh
+// record (the records of the item tables handled by 0x004eae90). In order: Reloc_FixupPointer on +4, +0x70, +0x74;
+// 0x004f0e60 on the tables +0x70 (callbacks 0x004f0dd0 / 0x004f0e50) and +0x74 (0x004f0dd0 / 0x004f0dd0);
+// Reloc_FixupPointer on +0x28..+0x34, +0x3c, +0x48..+0x6c, +0x7c, +0x84, +0x8c, +0x94; the counts +0x10..+0x24,
+// +0x38, +0x40, +0x78, +0x80, +0x88, +0x90 (located, Endian_Swap32); the [+0x10] vertices of the array +0x28 (stride
+// [0x005fb8ac + 4 * format +0x24], formats 0-5, jump table 0x004eaa84; Reloc_SwapField on their dwords; a null vertex
+// address prints 0x0058affc "***Warning, degenerate positions array in '%s'" (0x00539d33) with the name [+4]+0x34
+// and ends the loop); the [+0x14] triangles (3 dwords each at +0x2c) and the per-triangle lists at +0x3c (count
+// then items); the arrays +0x30 ([+0x18] dwords), +0x34 ([+0x1c] pairs) and +0x48..+0x6c ([+0x40] dwords each);
+// 0x004fbae0 (eax = record, edi = ctx); then the [+0x78] 100-byte records of +0x7c, the [+0x80] 0x2c-byte records of
+// +0x84, the [+0x88] 0x58-byte records of +0x8c (with a 4x4 matrix at +0xc) and the [+0x90] 0x18-byte records of
+// +0x94 (with a word list at +0x14). "Located" means: unless the context is relocate-only (+4), the field's loaded
+// address is looked up (0x004e0f40 or the same binary search inline, as in the original) and the value there is
+// byte-swapped when the context swaps (+8). Returns 0 (the original's EAX is not meaningful). Caller 0x004eae90.
+uint32_t fn_004e8620(uint8_t* ctx, uint8_t* m)
+{
+    FixPtr(ctx, u(m + 4));
+    FixPtr(ctx, u(m + 0x70));
+    FixPtr(ctx, u(m + 0x74));
+    fn_004f0e60(ctx, Field<uint8_t*>(m, 0x70), 0x004f0dd0, 0x004f0e50);
+    fn_004f0e60(ctx, Field<uint8_t*>(m, 0x74), 0x004f0dd0, 0x004f0dd0);
+    static const uint32_t ptrs[] = {0x28, 0x2c, 0x30, 0x34, 0x3c, 0x48, 0x4c, 0x50, 0x54, 0x58,
+                                    0x5c, 0x60, 0x64, 0x68, 0x6c, 0x7c, 0x84, 0x8c, 0x94};
+    for (const uint32_t off : ptrs)
+        FixPtr(ctx, u(m + off));
+    static const uint32_t counts[] = {0x10, 0x14, 0x18, 0x1c, 0x20, 0x24, 0x38, 0x40, 0x78, 0x80, 0x88, 0x90};
+    for (const uint32_t off : counts)
+        LocSwapCall(ctx, u(m + off));
+
+    // Vertices: per format, the dwords Reloc_SwapField swaps (in the original's order).
+    if (Field<uint32_t>(m, 0x28) != 0 && Field<int32_t>(m, 0x10) > 0)
+    {
+        static const uint8_t f0[] = {0, 4, 8};
+        static const uint8_t f1[] = {0xc, 0, 4, 8};
+        static const uint8_t f2[] = {0xc, 0x10, 0x14, 0, 4, 8};
+        static const uint8_t f3[] = {0xc, 0x10, 0x14, 0x18, 0x1c, 0, 4, 8};
+        static const uint8_t f4[] = {0xc, 0x10, 0x14, 0x18, 0x1c, 0x20, 0x24, 0, 4, 8};
+        static const uint8_t f5[] = {0xc, 0x10, 0x14, 0x18, 0x1c, 0x20, 0x24, 0x28, 0x2c, 0, 4, 8};
+        static const uint8_t* const lists[] = {f0, f1, f2, f3, f4, f5};
+        static const uint32_t sizes[] = {sizeof(f0), sizeof(f1), sizeof(f2), sizeof(f3), sizeof(f4), sizeof(f5)};
+        int32_t i = 0;
+        do
+        {
+            const uint32_t format = Field<uint32_t>(m, 0x24);
+            if (format <= 5)
+            {
+                const uint32_t v = GameGlobal<uint32_t>(0x005fb8ac + format * 4) * static_cast<uint32_t>(i) +
+                                   Field<uint32_t>(m, 0x28);
+                if (v == 0)
+                {
+                    GameFunction<int(__cdecl*)(uint32_t, uint32_t)>(0x00539d33)(0x0058affc,
+                                                                                Field<uint32_t>(m, 4) + 0x34);
+                    i = Field<int32_t>(m, 0x10);
+                }
+                else
+                {
+                    for (uint32_t k = 0; k < sizes[format]; ++k)
+                        SwapField(ctx, v + lists[format][k], 4);
+                }
+            }
+            ++i;
+        } while (i < Field<int32_t>(m, 0x10));
+    }
+
+    // Triangles and per-triangle lists.
+    uint32_t* list = Field<uint32_t*>(m, 0x3c);
+    for (int32_t i = 0; i < Field<int32_t>(m, 0x14); ++i)
+    {
+        const uint32_t tri = Field<uint32_t>(m, 0x2c);
+        if (tri != 0)
+        {
+            LocSwap32F(ctx, i * 0xc + Field<uint32_t>(m, 0x2c));
+            LocSwap32F(ctx, i * 0xc + 4 + Field<uint32_t>(m, 0x2c));
+            LocSwap32F(ctx, i * 0xc + 8 + Field<uint32_t>(m, 0x2c));
+        }
+        if (list != nullptr)
+        {
+            LocSwap32F(ctx, u(list));
+            if (*list != 0)
+            {
+                uint32_t* item = list + 1;
+                for (uint32_t k = 0; k < *list; ++k, ++item)
+                    LocSwap32I(ctx, u(item));
+            }
+            list = list + *list + 1;
+        }
+    }
+    if (Field<uint32_t>(m, 0x30) != 0)
+    {
+        for (int32_t i = 0; i < Field<int32_t>(m, 0x18); ++i)
+            LocSwap32I(ctx, Field<uint32_t>(m, 0x30) + i * 4);
+    }
+    if (Field<uint32_t>(m, 0x34) != 0)
+    {
+        for (int32_t i = 0; i < Field<int32_t>(m, 0x1c); ++i)
+        {
+            LocSwap32I(ctx, Field<uint32_t>(m, 0x34) + i * 8);
+            LocSwap32I(ctx, i * 8 + 4 + Field<uint32_t>(m, 0x34));
+        }
+    }
+    for (int32_t i = 0; i < Field<int32_t>(m, 0x40); ++i)
+    {
+        for (uint32_t off = 0x48; off <= 0x6c; off += 4)
+        {
+            if (Field<uint32_t>(m, off) != 0)
+                LocSwap32I(ctx, Field<uint32_t>(m, off) + i * 4);
+        }
+    }
+    orig::fn_004fbae0(u(m), u(ctx));
+
+    // 100-byte records at +0x7c.
+    for (int32_t i = 0; i < Field<int32_t>(m, 0x78); ++i)
+    {
+        const uint32_t o = i * 100;
+        FixPtr(ctx, o + 4 + Field<uint32_t>(m, 0x7c));
+        LocSwap16I(ctx, o + 0x14 + Field<uint32_t>(m, 0x7c));
+        LocSwap16I(ctx, o + 0x16 + Field<uint32_t>(m, 0x7c));
+        LocSwap16I(ctx, o + 0x18 + Field<uint32_t>(m, 0x7c));
+        LocSwap16I(ctx, o + 0x1a + Field<uint32_t>(m, 0x7c));
+        LocSwap16I(ctx, o + 0x1c + Field<uint32_t>(m, 0x7c));
+        LocSearchI(ctx, o + 0x32 + Field<uint32_t>(m, 0x7c));
+        LocSwap16I(ctx, o + 0x30 + Field<uint32_t>(m, 0x7c));
+        LocSwap16I(ctx, o + 0x34 + Field<uint32_t>(m, 0x7c));
+        LocSearchI(ctx, o + 0x36 + Field<uint32_t>(m, 0x7c));
+        LocSearchI(ctx, o + 0x37 + Field<uint32_t>(m, 0x7c));
+        LocSwap32I(ctx, o + 0x38 + Field<uint32_t>(m, 0x7c));
+        LocSwap32I(ctx, o + 0x3c + Field<uint32_t>(m, 0x7c));
+        LocSwap32I(ctx, o + 0x40 + Field<uint32_t>(m, 0x7c));
+        for (uint32_t off = 0x44; off <= 0x60; off += 4)
+            SwapField(ctx, o + off + Field<uint32_t>(m, 0x7c), 4);
+    }
+
+    // 0x2c-byte records at +0x84.
+    for (int32_t i = 0; i < Field<int32_t>(m, 0x80); ++i)
+    {
+        const uint32_t o = i * 0x2c;
+        FixPtr(ctx, Field<uint32_t>(m, 0x84) + 4 + o);
+        FixPtr(ctx, Field<uint32_t>(m, 0x84) + 0x28 + o);
+        for (uint32_t off = 0x10; off <= 0x20; off += 4)
+            SwapField(ctx, Field<uint32_t>(m, 0x84) + off + o, 4);
+        uint8_t* r = B(Field<uint32_t>(m, 0x84) + o);
+        if (Field<uint32_t>(r, 0x28) != 0 && Field<int32_t>(r, 0x20) > 0)
+        {
+            int32_t k = 0;
+            do
+            {
+                SwapField(ctx, Field<uint32_t>(r, 0x28) + k * 4, 4);
+                r = B(Field<uint32_t>(m, 0x84) + o);
+                ++k;
+            } while (k < Field<int32_t>(r, 0x20));
+        }
+        const uint32_t slot = Field<uint32_t>(m, 0x84) + o + 0x24;
+        FixPtr(ctx, slot);
+        const uint32_t p = *reinterpret_cast<uint32_t*>(slot);
+        if (p != 0)
+        {
+            FixPtr(ctx, p + 4);
+            FixPtr(ctx, p + 0x3c);
+        }
+    }
+
+    // 0x58-byte records at +0x8c.
+    for (int32_t i = 0; i < Field<int32_t>(m, 0x88); ++i)
+    {
+        const uint32_t o = i * 0x58;
+        FixPtr(ctx, Field<uint32_t>(m, 0x8c) + 4 + o);
+        SwapField(ctx, Field<uint32_t>(m, 0x8c) + 8 + o, 2);
+        SwapField(ctx, Field<uint32_t>(m, 0x8c) + 0x4c + o, 4);
+        for (uint32_t k = 0; k < 16; ++k)
+            SwapField(ctx, Field<uint32_t>(m, 0x8c) + o + 0xc + k * 4, 4);
+    }
+
+    // 0x18-byte records at +0x94.
+    for (int32_t i = 0; i < Field<int32_t>(m, 0x90); ++i)
+    {
+        const uint32_t o = i * 0x18;
+        FixPtr(ctx, Field<uint32_t>(m, 0x94) + 4 + o);
+        FixPtr(ctx, o + 0x14 + Field<uint32_t>(m, 0x94));
+        SwapField(ctx, o + 0x10 + Field<uint32_t>(m, 0x94), 4);
+        for (int32_t k = 0; k < Field<int32_t>(B(Field<uint32_t>(m, 0x94)), 0x10 + o); ++k)
+            SwapField(ctx, Field<uint32_t>(B(Field<uint32_t>(m, 0x94)), o + 0x14) + k * 2, 2);
+    }
+    return 0;
+}
+
+static uint32_t fn_004e8620_Abi(uint32_t eax, uint32_t a0)
+{
+    return fn_004e8620(B(eax), B(a0));
+}
+ABI_ENTRY_004e8620(fn_004e8620_Entry, fn_004e8620_Abi)
+HOOK(0x004e8620, "fn_004e8620", fn_004e8620_Entry, nullptr);
