@@ -27,6 +27,9 @@ uint32_t JB_ShapeConvexHull(const float* points, uint32_t count, float convexRad
 uint32_t JB_ShapeMesh(const float* vertices, uint32_t vertexCount, const uint32_t* triangles, uint32_t triangleCount);
 uint32_t JB_ShapeTransformed(uint32_t child, const float position[3], const float rotation[4]);
 uint32_t JB_ShapeCompound(const uint32_t* children, const float* positions, const float* rotations, uint32_t count);
+// The same shape with its centre of mass moved to `centerOfMass` (shape space), so a dynamic mirror rotates about
+// the same point as the Havok body (motion +0x20) rather than Jolt's computed centre.
+uint32_t JB_ShapeWithCenterOfMass(uint32_t shape, const float centerOfMass[3]);
 void JB_ShapeRelease(uint32_t shape);
 
 // Bodies. motion: 0 static (Havok fixed), 1 kinematic (Havok keyframed), 2 dynamic. mass <= 0 lets Jolt compute it
@@ -41,6 +44,10 @@ void JB_BodyGetState(uint32_t body, float position[3], float rotation[4], float 
                      float angularVelocity[3]);
 void JB_BodyAddImpulse(uint32_t body, const float impulse[3]);
 void JB_BodySetMotion(uint32_t body, int motion);
+// Dynamic bodies: take Havok's mass properties as they are. invInertia is the diagonal of the inverse inertia in the
+// body frame about the centre of mass (zeros allowed: locked axis).
+void JB_BodySetMassProperties(uint32_t body, float invMass, const float invInertia[3], float linearDamping,
+                              float angularDamping);
 uint32_t JB_BodyCount();
 
 }  // extern "C"

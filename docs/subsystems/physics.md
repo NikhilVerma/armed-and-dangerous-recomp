@@ -54,8 +54,8 @@ There are 173 direct call sites from 59 game functions into 69 library functions
 | Listeners / filters | 0x4ac5c0 add listener (world+0xd0); 0x4ac620 remove; 0x4ac700 set collision filter (world+0xe8 -> +4); world+0x23c filter written directly | 0x411960, 0x411cb0 |
 | Rigid body create / add / remove | 0x4afd80 rigid body ctor; 0x4aba90 `addEntity`; 0x4ac0e0 `removeEntity`; 0x4aff70 `setKeyframed` (motion type 4); 0x4b5a00 sync collidable transform | 0x457030, 0x457870, 0x457990, 0x458970, 0x458dd0, 0x45da90, 0x48cec0, 0x456fa0, 0x457000, 0x458db0, 0x4577b0, 0x4582d0, 0x487a90 |
 | Wake / activation | 0x4ad130 `activateIsland(esi=world, edi=island)` (24 sites); 0x4ad070 / 0x4aafa0 deactivation bookkeeping (**guess**) | 0x403c70, 0x404140, 0x404410/60/b0, 0x406580, 0x455f10, 0x456250, 0x4583d0, 0x458440, 0x458510, 0x458580, 0x458970, 0x458dd0, 0x459680, 0x4596d0, 0x48e700 |
-| Collision filtering | 0x4ac850 update filter on entity; 0x4ac910 on the whole world; 0x4aaf20 add pair exclusion (entity +0x78, **guess**) | 0x4577b0, 0x459260, 0x411d40, 0x457030 |
-| Shape creation | 0x50f190 convex (radius) base; 0x5120f0 box(halfExtents); 0x512ab0 transform shape; 0x511350 list shape; 0x511550 transformed shape; 0x512cc0 (vtable 0x56b438, **guess** multi-sphere); ext 0x4a3c50 / 0x4a3d50 / 0x4a3d70 / 0x4a4530 | 0x4517b0, 0x4527d0, 0x4574e0, 0x475220, 0x413450, 0x456c40, 0x413810, 0x411960 |
+| Collision filtering | 0x4ac850 update filter on entity; 0x4ac910 on the whole world; 0x4aaf20 set entity property (entity +0x78 key/value array; key 0 = owning game object, havok-layouts.md s2) | 0x4577b0, 0x459260, 0x411d40, 0x457030 |
+| Shape creation | 0x50f190 convex (radius) base; 0x5120f0 box(halfExtents); 0x512ab0 transform shape; 0x511350 list shape; 0x512cc0 multi-ray shape (type 0xd, vtable 0x56b438; corrected 2026-10-06, havok-layouts.md s4). 0x511550 is not a shape but a ray-cast collector (only caller 0x413810); ext 0x4a3c50 / 0x4a3d50 / 0x4a3d70 / 0x4a4530 | 0x4517b0, 0x4527d0, 0x4574e0, 0x475220, 0x413450, 0x456c40, 0x413810, 0x411960 |
 | Mesh / MOPP | 0x50f900 mesh shape ctor, 0x50f8a0 addSubpart, 0x50f6f0 scaling, 0x50f750 getTriangle, 0x510aa0 / 0x510c90 / 0x510cf0 / 0x510f50 MOPP code, input, build, bv-tree; 0x510c10 / 0x510c40 add / remove ref | 0x412450, 0x412420 |
 | Convex hull / decomposition | 0x4bc730 qhull; 0x4ba8d0 hull builder; ext 0x4a62f0, 0x4a5160, 0x4a5ed0, 0x4a6950, 0x4a46c0 (**guess**: convex decomposition) | 0x412450, 0x413450, 0x4527d0, 0x456c40, 0x411960 |
 | Constraints / ragdoll | 0x4ae980, 0x4af020, 0x4af7c0, 0x4b0230 (four constraint ctors); 0x4ac3e0 `addConstraint`; 0x4ac460 `addAction` (**guess**) | 0x456570 ("RigidBodiesAddConstraints"), 0x4594b0, 0x459630 |
@@ -87,7 +87,7 @@ Indirect entry points through the **motion vtable**, reached via entity+8. The v
 | --- | --- | --- |
 | Allocator | 0x4e07f0 alloc, 0x4e08d0 free (PMS heap object 0x63a210) | Reached through the game's global operator new/delete (tag string "new" at 0x58b5e8). Callers: 0x4aa270 (new hkPoolMemory 0x4340 B), 0x4a94f0, 0x4aa660, 0x4aeed0. All other Havok allocation goes through hkPoolMemory. |
 | Direct call | 0x456250 `Body_wakeAndSetLinearVelocity` | Called from 0x4a88a0 (speed-trap agent) and 0x4df8a0 |
-| Collision filter | vtable 0x5baa00 {0x4ac960 dtor, **0x411850** isCollisionEnabled} | Installed at world+0x23c by 0x411960. Reads entity +0xc flags, motion type, and the exclusion list +0x78/+0x7c. |
+| Collision filter | vtable 0x5baa00 {0x4ac960 dtor, **0x411850** isCollisionEnabled} | Installed at world+0x23c by 0x411960. Reads entity +0xc flags, motion type, and the entity property array +0x78/+0x7c (key 0 = owning game object, key 1 = swept-wrapped body). |
 | Collision filter 2 | vtable 0x5baa18 {0x4ac960, **0x411710**} | Installed through 0x4ac700 (world+0xe8 -> +4) |
 | World / collision listener | vtable 0x5baa48 {**0x413240**, **0x4112d0**} (ctor 0x4112c0) | Added with 0x4ac5c0 (world+0xd0) and removed in 0x411cb0 |
 | Game-authored listener | 0x4df780 (vtables 0x58b7a4 / 0x58b798 / 0x58b790: 0x4df7d0, 0x4df840, **0x4df8a0**, ...) | Registered through 0x4ac5c0 / 0x4ac660 |
@@ -110,7 +110,7 @@ Pointer chain: `g_game [0x5fe490] + 0xa8c` = physics manager {+4 game listener, 
 | entity | +0x28 | pointer to motion position copy (motion+0x60) | W 0x4582d0 |
 | entity | +0x38 / +0x3c | friction / restitution (0x004517b0 stores the "friction" property through 0x00458250, "restitution" through 0x00458230) | W 0x458250 / 0x458230, R 0x458260 / 0x458240 |
 | entity | +0x44 | hkWorld* (null when not in world) | R 0x453750, 0x454b20, 0x4577b0 and 11 more |
-| entity | +0x78 / +0x7c | pair exclusion array {other, value} | 0x4aaf20 (Havok side), R game filter 0x411850 / 0x411710 |
+| entity | +0x78 / +0x7c | property array {key, value}: key 0 = owning game object, key 1 = type-0x19-wrapped body (corrected 2026-10-06, havok-layouts.md s2) | 0x4aaf20 (Havok side), R game filter 0x411850 / 0x411710 |
 | motion | +0x2c | inverse mass | R 10 functions (0x4056b0, 0x4247f0, 0x432cb0, ...) |
 | motion | +0x30 | rotation quaternion | R 0x457c20 |
 | motion | +0x40 / +0x50 | linear / angular velocity | R 0x458000 (26 callers) / 0x457fc0 |
@@ -152,7 +152,7 @@ This partly corrects an earlier classifier note: the body position is at motion+
 Implement these behind the glue functions above. Do not try to emulate Havok objects.
 1. **System**: `init / shutdown / step(dt, substeps)` covers 0x411960, 0x411cb0, 0x411d40. Keep the game's pre-step force callbacks (0x403c70, 0x404140) running before each substep.
 2. **Shapes**: sphere/convex radius, box, transform, list/compound, triangle mesh (with a BVH replacing MOPP), and convex hull from points (replacing qhull and the decomposition chain). The custom types 0x12 (speed trap), 0x13 and 0x19 need equivalent contact callbacks.
-3. **Bodies**: create (mass, inertia, motion type dynamic/keyframed/fixed), add, remove, set keyframed, set filter info + refilter, and per-pair exclusion.
+3. **Bodies**: create (mass, inertia, motion type dynamic/keyframed/fixed), add, remove, set keyframed, set filter info + refilter, and entity properties (the game-object back pointer).
 4. **State access**: get/set position, rotation, transform, linear/angular velocity, center of mass, inverse mass, plus apply force/torque/impulse/point impulse/angular impulse, and wake. The game reads position, rotation, velocity and inverse mass straight from motion offsets (+0x2c, +0x30, +0x40, +0x50, +0x70, +0xb0). Those reads need a shim: either a mirror struct that is updated after each step, or patching the roughly 30 reader functions.
 5. **Constraints**: four constraint types (0x4ae980, 0x4af020, 0x4af7c0, 0x4b0230) used for ragdolls.
 6. **Callbacks**: a collision filter (0x411850 semantics), a contact listener (0x413240 / 0x4112d0), contact iteration (0x4ae6c0), and closest points (0x513420).

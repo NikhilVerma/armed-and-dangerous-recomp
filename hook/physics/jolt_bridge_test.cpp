@@ -34,14 +34,27 @@ int main()
         return std::printf("FAIL: creation (floor %u/%u box %u/%u compound %u hull %u)\n", floorShape, floorBody,
                            boxShape, box, compound, convex),
                1;
-    for (int i = 0; i < 180; ++i)  // 3 s at 60 Hz, as PhysicsManager_Step (dt >= 1/60)
-        JB_Step(1.0f / 60.0f, 1);
+    // A free-falling body with Havok-style mass properties (centre of mass override, zero damping), far from the
+    // floor: after 0.5 s its vertical speed must be g * t = 32.174.
+    const float com[3] = {0.25f, 0, 0}, invInertia[3] = {0.5f, 0.5f, 0.5f}, high[3] = {500, 500, 1000};
+    const uint32_t comShape = JB_ShapeWithCenterOfMass(sphere, com);
+    const uint32_t faller = JB_BodyCreate(comShape, high, identity, JB_Dynamic, 2.0f, 0.5f, 0.4f, 3);
+    JB_ShapeRelease(comShape);
+    JB_BodySetMassProperties(faller, 0.5f, invInertia, 0.0f, 0.0f);
     float p[3], r[4], lin[3], ang[3];
+    for (int i = 0; i < 180; ++i)  // 3 s at 60 Hz, as PhysicsManager_Step (dt >= 1/60)
+    {
+        JB_Step(1.0f / 60.0f, 1);
+        if (i == 29)
+            JB_BodyGetState(faller, p, r, lin, ang);
+    }
+    const float fallSpeed = -lin[2];
     JB_BodyGetState(box, p, r, lin, ang);
     const float speed = std::sqrt(lin[0] * lin[0] + lin[1] * lin[1] + lin[2] * lin[2]);
-    const bool ok = std::fabs(p[2] - 1.0f) < 0.1f && speed < 0.1f && JB_BodyCount() == 2;
-    std::printf("%s: box at (%.3f, %.3f, %.3f) speed %.4f, bodies %u\n", ok ? "PASS" : "FAIL", p[0], p[1], p[2], speed,
-                JB_BodyCount());
+    const bool ok = std::fabs(p[2] - 1.0f) < 0.1f && speed < 0.1f && std::fabs(fallSpeed - 32.174f) < 0.05f &&
+                    comShape && faller && JB_BodyCount() == 3;
+    std::printf("%s: box at (%.3f, %.3f, %.3f) speed %.4f; free fall speed at 0.5 s %.3f; bodies %u\n",
+                ok ? "PASS" : "FAIL", p[0], p[1], p[2], speed, fallSpeed, JB_BodyCount());
     JB_Shutdown();
     return ok ? 0 : 1;
 }

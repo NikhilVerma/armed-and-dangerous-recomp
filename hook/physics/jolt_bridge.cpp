@@ -11,6 +11,8 @@
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
 #include <Jolt/Physics/Collision/Shape/MeshShape.h>
+#include <Jolt/Physics/Collision/Shape/OffsetCenterOfMassShape.h>
+#include <Jolt/Physics/Body/BodyLock.h>
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
@@ -245,6 +247,14 @@ uint32_t JB_ShapeCompound(const uint32_t* children, const float* positions, cons
     return AddShape(settings.Create());
 }
 
+uint32_t JB_ShapeWithCenterOfMass(uint32_t shape, const float centerOfMass[3])
+{
+    const Shape* s = GetShape(shape);
+    if (!s)
+        return 0;
+    return AddShape(OffsetCenterOfMassShapeSettings(V(centerOfMass) - s->GetCenterOfMass(), s).Create());
+}
+
 void JB_ShapeRelease(uint32_t shape)
 {
     if (!GetShape(shape))
@@ -266,9 +276,19 @@ uint32_t JB_BodyCreate(uint32_t shape, const float position[3], const float rota
     settings.mFriction = friction;
     settings.mRestitution = restitution;
     settings.mUserData = userData;
+    settings.mMaxLinearVelocity = 10000.0f;  // game units are feet; Jolt's default (500) is for metres
+    settings.mMaxAngularVelocity = 1000.0f;
     if (type == EMotionType::Dynamic && mass > 0.0f)
     {
-        settings.mOverrideMassProperties = EOverrideMassProperties::CalculateInertia;
+        // Shapes without volume (meshes) have no mass properties of their own: provide a unit inertia, which
+        // JB_BodySetMassProperties replaces.
+        if (s->GetMassProperties().mMass > 0.0f)
+            settings.mOverrideMassProperties = EOverrideMassProperties::CalculateInertia;
+        else
+        {
+            settings.mOverrideMassProperties = EOverrideMassProperties::MassAndInertiaProvided;
+            settings.mMassPropertiesOverride.mInertia = Mat44::sScale(mass);
+        }
         settings.mMassPropertiesOverride.mMass = mass;
     }
     BodyInterface& bi = g_world->system->GetBodyInterface();
@@ -322,6 +342,21 @@ void JB_BodySetMotion(uint32_t body, int motion)
 {
     if (g_world && body)
         g_world->system->GetBodyInterface().SetMotionType(BodyOf(body), Motion(motion), EActivation::Activate);
+}
+
+void JB_BodySetMassProperties(uint32_t body, float invMass, const float invInertia[3], float linearDamping,
+                              float angularDamping)
+{
+    if (!g_world || !body)
+        return;
+    BodyLockWrite lock(g_world->system->GetBodyLockInterface(), BodyOf(body));
+    if (!lock.Succeeded() || !lock.GetBody().IsDynamic())
+        return;
+    MotionProperties* mp = lock.GetBody().GetMotionProperties();
+    mp->SetInverseMass(invMass);
+    mp->SetInverseInertia(V(invInertia), Quat::sIdentity());
+    mp->SetLinearDamping(linearDamping);
+    mp->SetAngularDamping(angularDamping);
 }
 
 uint32_t JB_BodyCount()

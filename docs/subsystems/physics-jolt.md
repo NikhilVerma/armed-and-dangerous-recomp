@@ -72,12 +72,44 @@ Select a stage with `[physics] engine=` in `and.ini`. The default is `havok`, an
 | motion +0xb0 | position |
 | gravity | (0, 0, -64.348): Z up, in feet (2 x 32.174 ft/s^2) |
 
+## Shadow mirror (stage 1, implemented 2026-10-06; not yet run in game)
+
+- **Enumeration**: hkWorld active islands (+0x08), inactive islands (+0x14) and the fixed island (+0x2c), each
+  island's entity array at +0x3c (havok-layouts.md s1). Level collision lives in the fixed island and is mirrored as
+  static bodies; no separate level loader is needed. Bodies on the game's pending-add list are picked up once added.
+- **Types by vtable**: motion type and shape type are read from the vtable address, so Havok code is never called.
+  Motion types 0..3 map to Dynamic, 4 to Kinematic and 5 to Static.
+- **Shapes** (cached per Havok shape pointer):
+  - sphere maps to a sphere;
+  - the game's offset sphere maps to a transformed sphere of its outer radius;
+  - box maps to a box;
+  - convex vertices (the 4-vertex SoA blocks) map to a convex hull;
+  - MOPP maps to its child mesh, and a mesh (subparts, u16 or u32 indices, scaling) maps to a MeshShape;
+  - list maps to a StaticCompound, with children that have nothing solid dropped;
+  - transform maps to a RotatedTranslated shape (the hkTransform columns converted to a quaternion);
+  - the 0x12, 0x13 and 0x19 wrappers map to their child;
+  - triggers (bv 3 + 0x1b) and multi-ray have no solid shape;
+  - unknown vtables are counted and logged at shutdown.
+- **Mass properties** (dynamic bodies): the shape is wrapped so that Jolt's centre of mass equals Havok's (motion
+  +0x20). Inverse mass is +0x2c. Inverse inertia is the diagonal at +0xe0 (types 2/3) or the scalar at +0x10
+  (types 0/1). Damping is +0x14/+0x18. The velocity caps are raised to 10000 and 1000 because the game's units are
+  feet.
+- **Lifecycle**: a mirror is rebuilt when the entity's unique id (+0x18) or its motion class changes, and destroyed
+  when the entity leaves the world.
+- **Compare**: only bodies in active islands with dynamic motion. Static mirrors are not re-seeded.
+- **Known differences** (expect a small error, not zero):
+  - Havok's convex radius pads hulls outwards, while Jolt's stays inside the hull, so hulls are about 0.1 smaller.
+  - Havok's mesh radius (0.1) has no Jolt equivalent.
+  - Havok's solver parameters (tau 0.6, damping 1.0, 4 iterations) are not mapped to Jolt's.
+  - Collision filtering is not mirrored yet, so in Jolt everything moving collides with everything.
+- Headless bridge test (2026-10-06): `PASS: box at (0, 0, 0.980) speed 0.0000; free fall speed at 0.5 s 32.174`.
+
 ## Open work (next session)
 
-- `TranslateShape` in `physics_jolt.cpp` is a stub that returns 0, so every body currently counts as
-  "unsupported". It needs the shape type IDs and layouts from `havok-layouts.md`: sphere, box, convex vertices,
-  MOPP/mesh, transform, list, and the game's custom shapes 0x12, 0x13 and 0x19.
-- `ForEachEntity` walks the game's object list and so misses level collision and ragdoll parts. It should walk the
-  hkWorld's island entity arrays instead (`havok-layouts.md`).
-- Level collision (static mesh) has to be mirrored once per level load.
-- Not yet run in game. The first run uses `engine=jolt_shadow`, and its log should be read before trying stage 2.
+- First game run with `engine=jolt_shadow`; read the log (mirror counts, unknown vtables, one-step error).
+- Confirm two guesses: that the mesh index type 0 means 16-bit indices, and that angular velocity is in the world
+  frame (compare +0x50 against finite differences of +0x30).
+- Collision filtering: entity +0x20 (membership in the low 16 bits, collide-with mask in the high 16) and the game
+  filter rules of 0x00411710 / 0x00411850, done in Jolt with an ObjectLayerPairFilter plus a body-pair filter.
+- Stage 2 write-back. Stage 3: contacts, triggers (sensor bodies for bv 3 + 0x1b), the behaviour of the 0x12, 0x13
+  and 0x19 wrappers, and constraints (havok-layouts.md s5 maps each one to a Jolt constraint).
