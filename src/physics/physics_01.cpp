@@ -17,6 +17,12 @@
 #include "gen/entry_stubs.h"
 #include "gen/orig_calls.h"
 #include "hooks.h"
+#include "physics_hooks.h"
+
+void (*g_physicsAfterInit)(uint8_t* manager);
+void (*g_physicsBeforeShutdown)(uint8_t* manager);
+bool (*g_physicsBeforeSubstep)(uint8_t* manager, float dt);
+void (*g_physicsAfterSubstep)(uint8_t* manager, float dt);
 
 namespace
 {
@@ -1215,6 +1221,8 @@ uint32_t PhysicsManager_Init(uint8_t* m)
         }
     }
     m[0x60] = 0;
+    if (g_physicsAfterInit)  // enhancement point (physics_hooks.h); null = original
+        g_physicsAfterInit(m);
     return result;
 }
 
@@ -1234,6 +1242,8 @@ uint32_t PhysicsManager_Shutdown(uint8_t* m)
     uint32_t result = 0;
     if (m[0])
     {
+        if (g_physicsBeforeShutdown)  // enhancement point (physics_hooks.h); null = original
+            g_physicsBeforeShutdown(m);
         if (Field<uint8_t*>(m, 0xc))
         {
             HkRelease(Field<uint8_t*>(m, 0xc));
@@ -1294,7 +1304,11 @@ uint32_t PhysicsManager_Step(uint32_t substeps, uint8_t* m, float dt)
         float stepInfo[2];
         stepInfo[0] = dt;
         stepInfo[1] = inverse;
-        result = orig::fn_004ad7b0(u(stepInfo), Field<uint32_t>(m, 8), u(stepInfo));
+        // Enhancement points (physics_hooks.h); both null = original.
+        if (!(g_physicsBeforeSubstep && g_physicsBeforeSubstep(m, dt)))
+            result = orig::fn_004ad7b0(u(stepInfo), Field<uint32_t>(m, 8), u(stepInfo));
+        if (g_physicsAfterSubstep)
+            g_physicsAfterSubstep(m, dt);
     } while (--substeps);
     return result;
 }

@@ -772,7 +772,7 @@ HOOK(0x00480e20, "RocketBudProjectile_Update", RocketBudProjectile_Update_Entry,
 // 0x00480ec0 (ecx = self; stack: matrix, a1; ret 8). Slot 0x50 (+0x140, the launch) of ForgeCannonProjectile
 // (0x005a33b8), GurnerProjectile (0x005a4c38) and the Projectile vtable 0x005adc78: as RocketBudProjectile_Launch, but
 // the speed is the 2D distance to the target +0x520 / +0x568 * +0x568 + 5.0. Executed in recorded runs.
-uint32_t Projectile_Launch(uint32_t self, uint32_t matrix, uint32_t a1)
+uint32_t Projectile_Launch_00480ec0(uint32_t self, uint32_t matrix, uint32_t a1)
 {
     const uint32_t r = VC(self, 0x148, a1);
     orig::fn_00457990(r & 0xffffff00u, self, matrix);
@@ -785,12 +785,12 @@ uint32_t Projectile_Launch(uint32_t self, uint32_t matrix, uint32_t a1)
     orig::fn_00458510(self + 0x57c, self);
     return VC(self, 0x154);
 }
-static uint32_t Projectile_Launch_Abi(uint32_t ecx, uint32_t a0, uint32_t a1)
+static uint32_t Projectile_Launch_00480ec0_Abi(uint32_t ecx, uint32_t a0, uint32_t a1)
 {
-    return Projectile_Launch(ecx, a0, a1);
+    return Projectile_Launch_00480ec0(ecx, a0, a1);
 }
-ABI_ENTRY_00480ec0(Projectile_Launch_Entry, Projectile_Launch_Abi)
-HOOK(0x00480ec0, "Projectile_Launch", Projectile_Launch_Entry, nullptr);
+ABI_ENTRY_00480ec0(Projectile_Launch_00480ec0_Entry, Projectile_Launch_00480ec0_Abi)
+HOOK(0x00480ec0, "Projectile_Launch_00480ec0", Projectile_Launch_00480ec0_Entry, nullptr);
 
 // 0x00480f60 (ecx = self). ForgeCannonProjectile slot 0x2f, the update: 0x0047e580(self); only when vt+0xd8():
 // 0x00455e70(0, 0) and once (+0x588 == 0), within sqrt(4900) of the player, the pass-by sound
@@ -2186,7 +2186,7 @@ HOOK(0x00483180, "MonkBasketProjectile_Launch", MonkBasketProjectile_Launch_Entr
 
 // 0x00483210 (ecx = self). Slot 0x2f (update) of GurnerProjectile (0x005a4c38) and the Projectile vtable 0x005adc78:
 // 0x0047e580(self); when vt+0xd8(), 0x00455e70(0, 0). Executed in recorded runs.
-uint32_t Projectile_Update(uint32_t self)
+uint32_t Projectile_Update_00483210(uint32_t self)
 {
     orig::fn_0047e580(self);
     const uint32_t r = VC(self, 0xd8);
@@ -2194,12 +2194,12 @@ uint32_t Projectile_Update(uint32_t self)
         return r;
     return orig::fn_00455e70(self, 0, 0);
 }
-static uint32_t Projectile_Update_Abi(uint32_t ecx)
+static uint32_t Projectile_Update_00483210_Abi(uint32_t ecx)
 {
-    return Projectile_Update(ecx);
+    return Projectile_Update_00483210(ecx);
 }
-ABI_ENTRY_00483210(Projectile_Update_Entry, Projectile_Update_Abi)
-HOOK(0x00483210, "Projectile_Update", Projectile_Update_Entry, nullptr);
+ABI_ENTRY_00483210(Projectile_Update_00483210_Entry, Projectile_Update_00483210_Abi)
+HOOK(0x00483210, "Projectile_Update_00483210", Projectile_Update_00483210_Entry, nullptr);
 
 // ---------------------------------------------------------------------------------------------------------------
 // 0x00487da0 (eax = object; callers: the inlined reference drop everywhere). Releases an object whose reference

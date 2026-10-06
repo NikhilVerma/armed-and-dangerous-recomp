@@ -143,3 +143,18 @@ How this coexists with faithful recovery:
   once the game code is recovered. Replacing Havok (engine choice is the human's) comes with that rebuild.
 - Static recovery without game runs is allowed (human was playing); such functions are stage S1 until
   tools/compare.py passes, then tools/promote_verified.py moves executed ones to S2.
+
+## 2026-10-06: Havok replacement: Jolt Physics, staged
+
+- Human: "can we try swapping the physics engine with an open source one? I know one which was used in horizon zero
+  dawn but feel free to pick most compatible with havok". Chosen: **Jolt Physics** (Jorrit Rouwe, Guerrilla; MIT;
+  pinned v5.6.0, fetched by hook/CMakeLists.txt). Closest to Havok's model: bodies with static/kinematic/dynamic motion
+  (Havok fixed/keyframed/dynamic), broadphase layers + collision filters, contact listener, constraints and ragdolls,
+  MeshShape (BVH) for MOPP, ConvexHullShape for the qhull path; supports 32-bit x86 Windows.
+- Staged behind `[physics] engine` in and.ini (default `havok` = the original; tests keep it): `jolt_shadow` mirrors
+  every Havok body into Jolt and measures per-step agreement without changing the game; `jolt` lets Jolt simulate and
+  writes the results back into Havok's entity/motion fields (the ~40 game functions that read them keep working);
+  later stages move contacts, filters, constraints and ragdolls, then drop Havok. Plan: docs/subsystems/physics-jolt.md.
+- Jolt needs SSE2 and its math types depend on the instruction set, while the hook DLL is built /arch:IA32 (x87, for
+  faithful float behaviour): Jolt and its bridge are a separate static library (hook/physics/) compiled with SSE2 and
+  reached only through a plain C interface.
