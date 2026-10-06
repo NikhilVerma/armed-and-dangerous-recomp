@@ -2469,7 +2469,9 @@ HOOK(0x004f1100, "HashTable_HashString", HashTable_HashString_Entry, nullptr);
 
 uint32_t HashTable_Find(uint32_t table, uint32_t key);
 
-// 0x004f1140 (eax = table; stack: key, callee pops): the dword stored at the found entry's +4, or -1.
+// 0x004f1140 (eax = key string; stack: table, callee pops): the dword stored at the found entry's +4, or -1.
+// The original swaps the operands for HashTable_Find: `push eax` (key) then `mov eax, [esp+8]` (table)
+// (caller 0x00489eef: eax = string, push [esi+0xc] = table).
 uint32_t HashTable_FindValue(uint32_t table, uint32_t key)
 {
     uint32_t p = HashTable_Find(table, key);
@@ -2478,7 +2480,7 @@ uint32_t HashTable_FindValue(uint32_t table, uint32_t key)
 
 static uint32_t HashTable_FindValue_Abi(uint32_t eax, uint32_t a0)
 {
-    return HashTable_FindValue(eax, a0);
+    return HashTable_FindValue(a0, eax);
 }
 ABI_ENTRY_004f1140(HashTable_FindValue_Entry, HashTable_FindValue_Abi)
 HOOK(0x004f1140, "HashTable_FindValue", HashTable_FindValue_Entry, nullptr);

@@ -1393,7 +1393,7 @@ static uint32_t HashTree_Insert_Abi(uint32_t edx, uint32_t ebx, uint32_t edi)
 ABI_ENTRY_00461ff0(HashTree_Insert_Entry, HashTree_Insert_Abi)
 HOOK(0x00461ff0, "HashTree_Insert", HashTree_Insert_Entry, nullptr);
 
-// 0x00462060 (esi = count; stack: nodes, &free list; ret 8). Caller 0x0050c6d0. Clears count 16-byte nodes, chains
+// 0x00462060 (esi = count; stack: &free list, nodes; ret 8). Caller 0x0050c6d0. Clears count 16-byte nodes, chains
 // them (node+0 = next) and puts the chain in front of the free list. Returns &free list. Original quirk: count 0
 // writes the old list head to nodes - 0x10.
 uint32_t HashTree_AddNodes(uint32_t count, uint32_t nodes, uint32_t freeList)
@@ -1415,7 +1415,8 @@ uint32_t HashTree_AddNodes(uint32_t count, uint32_t nodes, uint32_t freeList)
 }
 static uint32_t HashTree_AddNodes_Abi(uint32_t esi, uint32_t a0, uint32_t a1)
 {
-    return HashTree_AddNodes(esi, a0, a1);
+    // a0 = [esp+4] (&free list, read at 0x00462099), a1 = [esp+8] (nodes, read at 0x00462063)
+    return HashTree_AddNodes(esi, a1, a0);
 }
 ABI_ENTRY_00462060(HashTree_AddNodes_Entry, HashTree_AddNodes_Abi)
 HOOK(0x00462060, "HashTree_AddNodes", HashTree_AddNodes_Entry, nullptr);
@@ -3337,14 +3338,14 @@ static uint32_t Matrix_Identity_Abi(uint32_t edx)
 ABI_ENTRY_004e28f0(Matrix_Identity_Entry, Matrix_Identity_Abi)
 HOOK(0x004e28f0, "Matrix_Identity", Matrix_Identity_Entry, nullptr);
 
-// 0x004e2910 Matrix_Multiply (eax = B; stack: A, destination; caller pops): destination = A * B (through a local when
+// 0x004e2910 Matrix_Multiply (eax = B; stack: destination, A; caller pops): destination = A * B (through a local when
 // the destination is A or B). Either flags word with bit 0x20: full 4x4 product (each element summed from k = 3 down
 // to 0). Otherwise affine: the 3x3 part is the product when both have rotation bits (0xf), else a copy of the 3x4 rows
 // of whichever has them (B when A has none); the translation column is A's rotation times B's translation plus A's
 // translation when B has bit 0x10, else A's; the last row is (0, 0, 0, 1). Flags = (A | B) with bit 3 kept only when
 // one of them has it, plus bit 2 when A has bit 1 and B bit 0. Each sum is reproduced in the original's operand order.
-// No result (eax keeps B).
-void Matrix_Multiply(uint32_t bm, uint32_t am, uint32_t dst)
+// No result (eax keeps B). The first stack argument (edi, [esp+4]) is the destination, the second (ebx) is A.
+void Matrix_Multiply(uint32_t bm, uint32_t dst, uint32_t am)
 {
     float tmp[17];
     float* out = (dst == am || dst == bm) ? tmp : reinterpret_cast<float*>(dst);

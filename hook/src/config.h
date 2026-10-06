@@ -9,6 +9,7 @@
 // [render]     rendering enhancements (hook/enhance/render.cpp): wireframe; rhi=1 renderer interface,
 //              backend=d3d9|vulkan (src/rhi)
 
+const char* ConfigIniPath();  // and.ini next to the game executable
 int ConfigInt(const char* section, const char* key, int fallback);
 float ConfigFloat(const char* section, const char* key, float fallback);
 void ConfigString(const char* section, const char* key, const char* fallback, char* out, unsigned size);

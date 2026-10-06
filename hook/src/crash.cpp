@@ -8,6 +8,10 @@
 static LONG WINAPI OnCrash(EXCEPTION_POINTERS* ep)
 {
     Log("CRASH code 0x%08lx at %p", ep->ExceptionRecord->ExceptionCode, ep->ExceptionRecord->ExceptionAddress);
+    const char* hookName;
+    unsigned hookAddress;
+    if (HooksDescribeAddress(ep->ExceptionRecord->ExceptionAddress, &hookName, &hookAddress))
+        Log("  in the trampoline (original first instructions) of 0x%08x %s", hookAddress, hookName);
     const CONTEXT* c = ep->ContextRecord;
     Log("  regs eax=%08lx ecx=%08lx edx=%08lx ebx=%08lx esi=%08lx edi=%08lx ebp=%08lx esp=%08lx", c->Eax, c->Ecx,
         c->Edx, c->Ebx, c->Esi, c->Edi, c->Ebp, c->Esp);

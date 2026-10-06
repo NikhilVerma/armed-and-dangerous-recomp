@@ -1579,7 +1579,7 @@ float SnapTen(float x)
 //   For every object of every item of the landscape's group table (+0xefc), for each 0x2c-byte entry of +0x84:
 //   triangles count = [[+0x24]+0x10] - 2 (strip) or [+0x20] / 3; the material name (key word +0x14 of the entry's
 //   render mode, looked up in [[mode+4]+0x70]+4) containing "nonpath_"/"_nonpath" or "path_"/"_path" sets flags;
-//   each triangle (0x004efb50) is rasterized by PathGrid_RasterizeTriangle (0x0046ea00, ebx = grid; tri, object,
+//   each triangle (0x004efb50) is rasterized by PathGrid_RasterizeTriangle (0x0046ea00, ebx = grid; tri, scratch grid,
 //   path, nonpath) when flagged, else only when its plane normal (Plane_FromPoints) is unit length (0.99 <= len
 //   <= 1.001) and its z is below 0.64278 (steeper than 50 degrees), with flags 0.
 //   Then +0x24 "nodelist" (0xbb80 bytes), +0x20 "hashtable" (0x3ec), +0x38 "pqheap" (0x1f44); frees the scratch.
@@ -1661,7 +1661,7 @@ uint32_t PathGrid_Build(uint8_t* grid)
                         continue;
                     if (Field<uint8_t>(f, 4) != 0 || Field<uint8_t>(f, 0) != 0)
                     {
-                        orig::fn_0046ea00(u(grid), u(tri), u(obj), path, Field<uint8_t>(f, 4));
+                        orig::fn_0046ea00(u(grid), u(tri), Field<uint32_t>(f, 0x10), path, Field<uint8_t>(f, 4));
                         continue;
                     }
                     orig::fn_004e80b0(u(f + 0x54), u(f + 0x3c), u(f + 0x48), u(f + 0x2c));
@@ -1675,7 +1675,7 @@ uint32_t PathGrid_Build(uint8_t* grid)
                         continue;
                     if (!(Field<float>(f, 0x34) < GameGlobal<float>(0x005bcd0c)))
                         continue;
-                    orig::fn_0046ea00(u(grid), u(tri), u(obj), 0, 0);
+                    orig::fn_0046ea00(u(grid), u(tri), Field<uint32_t>(f, 0x10), 0, 0);
                 }
             }
         }

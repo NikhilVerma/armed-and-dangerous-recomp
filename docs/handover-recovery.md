@@ -97,6 +97,18 @@ Binary / ABI:
   0x004e4d40) show as never executed. So "not executed" overstates; many S1 virtual methods are probably exercised
   by the scenarios and could be promoted once the tracer records indirect calls (check tools/record.py).
 
+Harness (2026-10-06, verification phase):
+- **Hook install is fast now**: HooksInstallAll reads the [hooks] section once and enables all hooks with one
+  MH_ApplyQueued (it was GetPrivateProfileInt + MH_EnableHook per hook: ~2.5 minutes for 3,500 hooks, now ~1 s).
+  A full menu-scenario bisection over all 117 files takes ~15 minutes.
+- **Crash in a trampoline** is named in and.log ("in the trampoline ... of 0x... Name"): the original's first
+  instructions faulted, so a recovered caller passed it bad inputs.
+- **Enhancements must wrap recovered functions with HookWrap, never HookAt on the same address** (MinHook refuses
+  the second hook, MH_ERROR_ALREADY_CREATED, and the recovered function silently stays unhooked). The remaster menu
+  (Text_Lookup, UI_Init, Hud_CreateLevelUi) and [test] trace_fatal (LoadingScreen_ErrorLoop) were converted.
+- **Promotion uses hook coverage**: `python tools/coverage.py` (DLL counting stubs: counts virtual and indirect calls,
+  and recovered functions, which tools/record.py skips) then `tools/promote_verified.py --coverage work/coverage.json`.
+
 Environment:
 - **Display**: `[System.Windows.Forms.Screen]::AllScreens` = `WinDisc` -> every game run crashes (no display); TV
   attached but off -> ~4 fps (presentation throttled). Check before long runs.

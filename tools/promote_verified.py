@@ -2,7 +2,11 @@
 actually execute (recorded traces, work/traces/*/calls.jsonl, as tools/recover.py reports) to S2, test
 "compare:<label>". S1 functions the traces never reach stay S1 ("not executed: compare cannot verify").
 
-Usage: python tools/promote_verified.py --label all-2026-10-05 [--dry-run]
+--coverage work/coverage.json (tools/coverage.py) adds the functions the scenarios call according to the hook DLL's
+counting stubs. Prefer it: it counts virtual and indirect calls too, and recovered functions (which tools/record.py
+skips, so traces recorded after their recovery never show them).
+
+Usage: python tools/promote_verified.py --label all-2026-10-05 [--coverage work/coverage.json] [--dry-run]
 """
 import argparse
 import csv
@@ -19,9 +23,15 @@ TRACKER = os.path.join(ROOT, "symbols", "functions.csv")
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--label", required=True)
+    ap.add_argument("--coverage", help="work/coverage.json from tools/coverage.py")
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args()
-    traced = traced_functions()
+    traced = set(traced_functions())
+    if a.coverage:
+        import json
+        covered = {int(v["address"], 16) for v in json.load(open(a.coverage)).values() if v["calls"]}
+        print(f"coverage: {len(covered)} functions executed; {len(covered - traced)} not in the traces")
+        traced |= covered
     with open(TRACKER, newline="") as f:
         rows = list(csv.reader(f))
     promoted = unverifiable = 0

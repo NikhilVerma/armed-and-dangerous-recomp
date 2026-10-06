@@ -236,7 +236,7 @@ static __declspec(naked) void Hook_Fatal()
 void TestFatalTraceInit()
 {
     if (ConfigInt("test", "trace_fatal", 0))
-        HookAt(reinterpret_cast<void*>(0x004495b0), reinterpret_cast<void*>(Hook_Fatal), &g_realFatal, "fatal-error trace");
+        HookWrap("LoadingScreen_ErrorLoop", reinterpret_cast<void*>(Hook_Fatal), &g_realFatal);  // 0x004495b0
 }
 
 

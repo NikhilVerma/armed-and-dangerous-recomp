@@ -15,6 +15,11 @@ static const char* IniPath()
     return path;
 }
 
+const char* ConfigIniPath()
+{
+    return IniPath();
+}
+
 int ConfigInt(const char* section, const char* key, int fallback)
 {
     return GetPrivateProfileIntA(section, key, fallback, IniPath());

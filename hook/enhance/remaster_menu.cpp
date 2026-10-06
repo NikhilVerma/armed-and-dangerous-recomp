@@ -871,12 +871,14 @@ void RemasterMenuInit()
         g_textIds.push_back(id);
     }
     BuildLayout();
-    bool ok = HookAt(reinterpret_cast<void*>(0x00495f00), reinterpret_cast<void*>(&Hook_TextLookup),
-                     &g_origTextLookup, "remaster menu: Text_Lookup");
-    ok = HookAt(reinterpret_cast<void*>(0x0048ff90), reinterpret_cast<void*>(&Hook_UiBuild),
-                reinterpret_cast<void**>(&g_origUiBuild), "remaster menu: UI manager build") && ok;
-    ok = HookAt(reinterpret_cast<void*>(0x004629b0), reinterpret_cast<void*>(&Hook_BankBuild),
-                reinterpret_cast<void**>(&g_origBankBuild), "remaster menu: UI bank build") && ok;
+    // Wrappers in front of the recovered functions (or the originals when their [hooks] switch is 0); a plain
+    // HookAt here would collide with the recovered functions' own hooks at the same addresses.
+    bool ok = HookWrap("Text_Lookup", reinterpret_cast<void*>(&Hook_TextLookup), &g_origTextLookup);  // 0x00495f00
+    ok = HookWrap("UI_Init", reinterpret_cast<void*>(&Hook_UiBuild), reinterpret_cast<void**>(&g_origUiBuild)) &&
+         ok;  // 0x0048ff90
+    ok = HookWrap("Hud_CreateLevelUi", reinterpret_cast<void*>(&Hook_BankBuild),
+                  reinterpret_cast<void**>(&g_origBankBuild)) &&
+         ok;  // 0x004629b0
     Log("remaster menu: %u settings, %u items, %d pages of %d rows, row %d px, hooks %s",
         static_cast<unsigned>(g_count), static_cast<unsigned>(g_slots.size()), g_pageCount, g_rows, g_rowPx,
         ok ? "ok" : "FAILED");

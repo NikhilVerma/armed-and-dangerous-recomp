@@ -74,8 +74,8 @@ static void Startup()
     PhysicsJoltInit();
     OverridesInit();
     RemasterMenuInit();  // after every enhancement has registered its settings
+    TestFatalTraceInit();  // a wrapper: registered before the hooks are installed
     HooksInstallAll();
-    TestFatalTraceInit();
     D3D9HooksInstall();
 }
 
