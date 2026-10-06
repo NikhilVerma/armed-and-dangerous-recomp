@@ -21,7 +21,11 @@ PY = sys.executable
 
 
 def hooks_in(path):
-    return re.findall(r'HOOK\(0x[0-9a-fA-F]+,\s*"([^"]+)"', open(path, encoding="utf-8").read())
+    text = open(path, encoding="utf-8").read()
+    names = re.findall(r'HOOK\(0x[0-9a-fA-F]+,\s*"([^"]+)"', text)
+    # file-local wrapper macros, as tools/compare.py hook_names()
+    names += [n for _, n in re.findall(r'^\s*[A-Z0-9_]+_HOOK\(([0-9a-fA-F]{8}),\s*(\w+)', text, re.M)]
+    return names
 
 
 def all_hooks():

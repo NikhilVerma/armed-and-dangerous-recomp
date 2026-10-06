@@ -2297,6 +2297,40 @@ static uint32_t Grid_UpdateCell_Abi(uint32_t eax, uint32_t ecx, uint32_t a0, uin
 ABI_ENTRY_0048ece0(Grid_UpdateCell_Entry, Grid_UpdateCell_Abi)
 HOOK(0x0048ece0, "Grid_UpdateCell", Grid_UpdateCell_Entry, nullptr);
 
+namespace
+{
+// One cell coordinate of 0x0048ed90: (centre -/+ radius) * scale on the x87 in the original's order (0x0048edec..),
+// truncated by the game's __ftol2 0x0056a7c8, which pops st0 into a 64-bit edx:eax (the caller keeps eax). A C++
+// float-to-int32 conversion differs outside the int32 range: NaN and |x| >= 2^63 give 0 here (0x80000000 there),
+// 2^31 <= |x| < 2^63 the low dword of the 64-bit value.
+int32_t GridCellCoord(float centre, float radius, float scale, bool add)
+{
+    static const uint32_t ftolFn = 0x0056a7c8;
+    int32_t result;
+    if (add)
+    {
+        __asm {
+            fld dword ptr [centre]
+            fadd dword ptr [radius]
+            fmul dword ptr [scale]
+            call dword ptr [ftolFn]
+            mov result, eax
+        }
+    }
+    else
+    {
+        __asm {
+            fld dword ptr [centre]
+            fsub dword ptr [radius]
+            fmul dword ptr [scale]
+            call dword ptr [ftolFn]
+            mov result, eax
+        }
+    }
+    return result;
+}
+}  // namespace
+
 // 0x0048ed90 (ebx = grid; caller 0x00402e80). Re-files every object of the grid's list +0x3c (when the grid has
 // cells, +0x38): its bounds (vt+0x90(&centre, &radius, 1)) relative to the origin grid+0/+4, scaled by +0x1c and
 // truncated (_ftol2) give the cell rectangle x0..x1, y0..y1, clamped to 0..+0x20-1 / 0..+0x24-1 ("clipped" when
@@ -2318,10 +2352,10 @@ uint32_t Grid_Update(uint32_t grid)
         VC(obj, 0x90, u(centre), u(&radius), 1u);
         centre[0] = centre[0] - Fl(grid);
         centre[1] = centre[1] - Fl(grid + 4);
-        int32_t x0 = static_cast<int32_t>((centre[0] - radius) * Fl(grid + 0x1c));
-        int32_t y0 = static_cast<int32_t>((centre[1] - radius) * Fl(grid + 0x1c));
-        int32_t x1 = static_cast<int32_t>((centre[0] + radius) * Fl(grid + 0x1c));
-        int32_t y1 = static_cast<int32_t>((centre[1] + radius) * Fl(grid + 0x1c));
+        int32_t x0 = GridCellCoord(centre[0], radius, Fl(grid + 0x1c), false);
+        int32_t y0 = GridCellCoord(centre[1], radius, Fl(grid + 0x1c), false);
+        int32_t x1 = GridCellCoord(centre[0], radius, Fl(grid + 0x1c), true);
+        int32_t y1 = GridCellCoord(centre[1], radius, Fl(grid + 0x1c), true);
         const int32_t w = I(grid + 0x20);
         const int32_t h = I(grid + 0x24);
         bool clipped = false;

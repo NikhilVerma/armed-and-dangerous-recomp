@@ -14,6 +14,7 @@
 #include <windows.h>
 
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <unordered_map>
 #include <vector>
@@ -21,6 +22,7 @@
 #include "config.h"
 #include "game.h"
 #include "log.h"
+#include "gen/orig_calls.h"
 #include "physics/jolt_bridge.h"
 #include "physics/physics_hooks.h"
 
@@ -118,6 +120,11 @@ struct Stats
     // the state mapping itself (position, rotation, centre of mass, gravity, integration) without solver differences.
     uint32_t freeCompared = 0;
     double freePosError = 0, freeMaxPosError = 0;
+    // ... of which Jolt also saw no contact (its velocity changed by gravity * dt too), and those where only Jolt
+    // had a contact (shape mismatch or a collision Havok's filter excludes).
+    uint32_t bothFree = 0, joltOnlyContact = 0;
+    char bothFreeWorst[512] = {};
+    double bothFreePosError = 0, bothFreeMaxPosError = 0;
     // The body with the largest position error since the last log line, for diagnosis.
     const uint8_t* worst = nullptr;
     uint32_t worstUid = 0, worstShapeVtable = 0;
@@ -242,6 +249,13 @@ uint32_t TranslateMesh(const uint8_t* mesh)
     }
     if (triangles.empty())
         return 0;
+    if (triangles.size() / 3 >= 10000)
+    {
+        MEMORYSTATUSEX ms{sizeof(ms)};
+        GlobalMemoryStatusEx(&ms);
+        Log("physics(jolt): mesh %p: %zu vertices, %zu triangles; free address space %llu MB", mesh,
+            vertices.size() / 3, triangles.size() / 3, ms.ullAvailVirtual >> 20);
+    }
     return JB_ShapeMesh(vertices.data(), static_cast<uint32_t>(vertices.size() / 3), triangles.data(),
                         static_cast<uint32_t>(triangles.size() / 3));
 }
@@ -392,6 +406,19 @@ void CreateMirror(const uint8_t* entity, const uint8_t* motion, int type, Mirror
     }
 }
 
+// The game's Havok collision filter for a pair, asked by Jolt for each new body pair (during JB_Step, same thread).
+// 0x00411710 (the collision input's filter, world +0xe8 -> +4: group bits of entity +0x20, same owner, keyframed
+// vs keyframed/fixed, owner virtual +0xa0 veto) takes the two collidables (entity +0x14). Calling the game's own
+// function keeps the mirror exact without re-deriving the owner virtuals.
+int PairFilter(uint64_t userA, uint64_t userB)
+{
+    uint8_t* a = reinterpret_cast<uint8_t*>(static_cast<uintptr_t>(userA));
+    uint8_t* b = reinterpret_cast<uint8_t*>(static_cast<uintptr_t>(userB));
+    if (!a || !b)
+        return 1;
+    return orig::fn_00411710(reinterpret_cast<uint32_t>(a + 0x14), reinterpret_cast<uint32_t>(b + 0x14)) & 0xff;
+}
+
 void BeforeShutdown(uint8_t*)
 {
     Log("physics(jolt): shutdown after %u steps; mirrors static %u kinematic %u dynamic %u, %u unsupported, %zu "
@@ -416,7 +443,8 @@ void AfterInit(uint8_t*)
         g_mode = Mode::Havok;
         return;
     }
-    Log("physics(jolt): Jolt ready (shadow mode: Havok simulates, Jolt is compared)");
+    JB_SetPairFilter(PairFilter);
+    Log("physics(jolt): Jolt ready (shadow mode: Havok simulates, Jolt is compared; game collision filter mirrored)");
 }
 
 // Shadow mode, before Havok's substep: mirror new entities, drop removed ones, seed Jolt with Havok's state.
@@ -497,6 +525,27 @@ void AfterSubstep(uint8_t*, float dt)
             g_stats.freePosError += dp, ++g_stats.freeCompared;
             if (dp > g_stats.freeMaxPosError)
                 g_stats.freeMaxPosError = dp;
+            if (std::fabs(jl[0] - b[3]) < 0.01f && std::fabs(jl[1] - b[4]) < 0.01f && std::fabs(jl[2] - expectedVz) < 0.01f)
+            {
+                g_stats.bothFreePosError += dp, ++g_stats.bothFree;
+                if (dp > g_stats.bothFreeMaxPosError)
+                {
+                    g_stats.bothFreeMaxPosError = dp;
+                    float jc[3];
+                    JB_BodyGetCenterOfMass(mirror.body, jc);
+                    const float* hc = &Field<float>(motion, 0x70);  // Havok centre of mass, world
+                    const float* cl = &Field<float>(motion, kMotionComLocal);
+                    snprintf(g_stats.bothFreeWorst, sizeof(g_stats.bothFreeWorst),
+                             "motion %d dp(%.4f %.4f %.4f) com Havok(%.3f %.3f %.3f) Jolt(%.3f %.3f %.3f) local com "
+                             "(%.3f %.3f %.3f) w Havok(%.3f %.3f %.3f) Jolt(%.3f %.3f %.3f) q Havok(%.4f %.4f %.4f %.4f) "
+                             "Jolt(%.4f %.4f %.4f %.4f)",
+                             MotionType(motion), hp[0] - jp[0], hp[1] - jp[1], hp[2] - jp[2], hc[0], hc[1], hc[2],
+                             jc[0], jc[1], jc[2], cl[0], cl[1], cl[2], ha[0], ha[1], ha[2], ja[0], ja[1], ja[2], hr[0],
+                             hr[1], hr[2], hr[3], jr[0], jr[1], jr[2], jr[3]);
+                }
+            }
+            else
+                ++g_stats.joltOnlyContact;
         }
         if (dp > g_stats.maxPosError)
         {
@@ -536,7 +585,15 @@ void AfterSubstep(uint8_t*, float dt)
         if (g_stats.freeCompared)
             Log("physics(jolt):   free flight: pos error mean %.5f max %.5f (%u samples)",
                 g_stats.freePosError / g_stats.freeCompared, g_stats.freeMaxPosError, g_stats.freeCompared);
+        if (g_stats.freeCompared)
+            Log("physics(jolt):   of which Jolt free too: pos error mean %.6f max %.6f (%u); Jolt-only contact: %u",
+                g_stats.bothFree ? g_stats.bothFreePosError / g_stats.bothFree : 0.0, g_stats.bothFreeMaxPosError,
+                g_stats.bothFree, g_stats.joltOnlyContact);
+        if (g_stats.bothFreeWorst[0])
+            Log("physics(jolt):     worst contact-free: %s", g_stats.bothFreeWorst);
+        g_stats.bothFreeWorst[0] = 0;
         g_stats.freeCompared = 0, g_stats.freePosError = g_stats.freeMaxPosError = 0;
+        g_stats.bothFree = g_stats.joltOnlyContact = 0, g_stats.bothFreePosError = g_stats.bothFreeMaxPosError = 0;
         g_stats.worst = nullptr;
         g_stats.posError = g_stats.velError = g_stats.maxPosError = 0, g_stats.compared = 0;
     }

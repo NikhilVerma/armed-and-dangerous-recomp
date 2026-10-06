@@ -32,6 +32,10 @@ def hook_names():
             if f.endswith(".cpp"):
                 text = open(os.path.join(dirpath, f), encoding="utf-8").read()
                 names += re.findall(r'HOOK\(0x[0-9a-fA-F]+,\s*"([^"]+)"', text)
+                # File-local wrapper macros (R2A_HOOK, R7_PIXEL_HOOK, ...): NAME_HOOK(004f0390, Name, ...) with the
+                # address without 0x and the name unquoted (stringised by the macro). Without these the comparison
+                # left ~120 hooks switched on in the baseline too, so they were never compared.
+                names += [n for _, n in re.findall(r'^\s*[A-Z0-9_]+_HOOK\(([0-9a-fA-F]{8}),\s*(\w+)', text, re.M)]
     return sorted(set(names))
 
 

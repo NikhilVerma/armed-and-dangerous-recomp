@@ -104,12 +104,33 @@ Select a stage with `[physics] engine=` in `and.ini`. The default is `havok`, an
   - Collision filtering is not mirrored yet, so in Jolt everything moving collides with everything.
 - Headless bridge test (2026-10-06): `PASS: box at (0, 0, 0.980) speed 0.0000; free fall speed at 0.5 s 32.174`.
 
+## First in-game runs (2026-10-06, `python tools/jolt_shadow_run.py --scenario play`)
+
+Only the three PhysicsManager hooks are on, so everything else is original code. The runs are deterministic: the logs
+are identical from run to run.
+
+- **Mirrors:** lev_1_m1 gives 240 static mirrors (level collision, 441 Havok shapes), 21 kinematic and 33-35 dynamic.
+  12 entities are unsupported: triggers, and the world's fixed body, which has no shape.
+- **Error before the filter was mirrored:** the one-step position error averaged 0.3-0.4 (max 1-4.5), and the
+  velocity error 0.2-2.9.
+- **Breakdown** (log lines "free flight" and "worst contact-free"):
+  - **Bodies with no contact in either engine:** the rotation, angular velocity and centre of mass agree exactly,
+    including a body whose local centre of mass is 2.56 off its origin. The state mapping is right.
+  - **Most of the error: contacts only Jolt had.** Some are Jolt's position solver separating overlapping bodies,
+    which moves and rotates them without any velocity change. Both are pairs that Havok's collision filter rejects.
+    Fix: Jolt's `OnContactValidate` now calls the game's own filter 0x00411710 for each new body pair
+    (`JB_SetPairFilter`).
+  - **Fast hull contacts** (about 47 ft/s): the two solvers resolve them differently. That is expected until
+    stage 2 tuning.
+- **One crash inside JB_ShapeMesh**, reproduced twice and then gone after the vertex arrays were moved into
+  `MeshShapeSettings` instead of copied. No mesh exceeds 10k triangles. Mesh subparts are now validated and
+  rejects are logged.
+
 ## Open work (next session)
 
-- First game run with `engine=jolt_shadow`; read the log (mirror counts, unknown vtables, one-step error).
-- Confirm two guesses: that the mesh index type 0 means 16-bit indices, and that angular velocity is in the world
-  frame (compare +0x50 against finite differences of +0x30).
-- Collision filtering: entity +0x20 (membership in the low 16 bits, collide-with mask in the high 16) and the game
-  filter rules of 0x00411710 / 0x00411850, done in Jolt with an ObjectLayerPairFilter plus a body-pair filter.
-- Stage 2 write-back. Stage 3: contacts, triggers (sensor bodies for bv 3 + 0x1b), the behaviour of the 0x12, 0x13
-  and 0x19 wrappers, and constraints (havok-layouts.md s5 maps each one to a Jolt constraint).
+- Measure the error with the filter mirrored. Check, with hook coverage, whether Havok calls the world filter
+  0x00411850 (which rejects dynamic-vs-dynamic pairs); if so, mirror it too.
+- Confirm that mesh index type 0 means 16-bit indices. Angular velocity is in the world frame: confirmed by the
+  contact-free comparison.
+- Stage 2 write-back. Stage 3: contact callbacks, triggers (sensor bodies for bv 3 + 0x1b), the behaviour of the
+  0x12, 0x13 and 0x19 wrappers, and constraints (havok-layouts.md s5 maps each one to a Jolt constraint).

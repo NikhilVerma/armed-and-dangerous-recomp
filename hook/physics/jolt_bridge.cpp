@@ -16,12 +16,14 @@
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
+#include <Jolt/Physics/Collision/ContactListener.h>
 #include <Jolt/Physics/PhysicsSettings.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/RegisterTypes.h>
 
 #include <algorithm>
 #include <memory>
+#include <utility>
 #include <vector>
 
 using namespace JPH;
@@ -77,11 +79,24 @@ public:
     }
 };
 
+class PairFilterListener final : public ContactListener
+{
+public:
+    JB_PairFilter filter = nullptr;
+    ValidateResult OnContactValidate(const Body& a, const Body& b, RVec3Arg, const CollideShapeResult&) override
+    {
+        if (filter && !filter(a.GetUserData(), b.GetUserData()))
+            return ValidateResult::RejectAllContactsForThisBodyPair;
+        return ValidateResult::AcceptAllContactsForThisBodyPair;
+    }
+};
+
 struct World
 {
     BroadPhaseLayerMap broadPhaseMap;
     ObjectVsBroadPhase objectVsBroadPhase;
     ObjectPairs objectPairs;
+    PairFilterListener contacts;
     std::unique_ptr<TempAllocatorImpl> temp;
     std::unique_ptr<JobSystemSingleThreaded> jobs;  // deterministic: no worker threads
     std::unique_ptr<PhysicsSystem> system;
@@ -161,6 +176,7 @@ int JB_Init(const float gravity[3], uint32_t maxBodies)
     g_world->system->Init(maxBodies, 0, maxBodies * 4, maxBodies * 4, g_world->broadPhaseMap,
                           g_world->objectVsBroadPhase, g_world->objectPairs);
     g_world->system->SetGravity(V(gravity));
+    g_world->system->SetContactListener(&g_world->contacts);
     return 1;
 }
 
@@ -185,6 +201,12 @@ void JB_Step(float dt, int collisionSteps)
     if (!g_world || dt <= 0.0f)
         return;
     g_world->system->Update(dt, std::max(collisionSteps, 1), g_world->temp.get(), g_world->jobs.get());
+}
+
+void JB_SetPairFilter(JB_PairFilter filter)
+{
+    if (g_world)
+        g_world->contacts.filter = filter;
 }
 
 void JB_SetGravity(const float gravity[3])
@@ -223,7 +245,7 @@ uint32_t JB_ShapeMesh(const float* vertices, uint32_t vertexCount, const uint32_
     tris.reserve(triangleCount);
     for (uint32_t i = 0; i < triangleCount; ++i)
         tris.push_back(IndexedTriangle(triangles[i * 3], triangles[i * 3 + 1], triangles[i * 3 + 2], 0));
-    return AddShape(MeshShapeSettings(verts, tris).Create());
+    return AddShape(MeshShapeSettings(std::move(verts), std::move(tris)).Create());  // by value: no extra copy
 }
 
 uint32_t JB_ShapeTransformed(uint32_t child, const float position[3], const float rotation[4])
@@ -357,6 +379,12 @@ void JB_BodySetMassProperties(uint32_t body, float invMass, const float invInert
     mp->SetInverseInertia(V(invInertia), Quat::sIdentity());
     mp->SetLinearDamping(linearDamping);
     mp->SetAngularDamping(angularDamping);
+}
+
+void JB_BodyGetCenterOfMass(uint32_t body, float centerOfMass[3])
+{
+    if (g_world && body)
+        Out(Vec3(g_world->system->GetBodyInterface().GetCenterOfMassPosition(BodyOf(body))), centerOfMass);
 }
 
 uint32_t JB_BodyCount()

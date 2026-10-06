@@ -20,6 +20,11 @@ int JB_IsReady();
 void JB_Step(float dt, int collisionSteps);
 void JB_SetGravity(const float gravity[3]);
 
+// Contact filter: called during JB_Step (same thread) for each new body pair with the two bodies' userData; return 0
+// to reject every contact between them (the game's Havok collision filters, mirrored). Null accepts everything.
+typedef int (*JB_PairFilter)(uint64_t userDataA, uint64_t userDataB);
+void JB_SetPairFilter(JB_PairFilter filter);
+
 // Shapes (reference counted inside the bridge; a body keeps its shape alive). Return 0 on failure.
 uint32_t JB_ShapeSphere(float radius);
 uint32_t JB_ShapeBox(const float halfExtents[3], float convexRadius);
@@ -48,6 +53,8 @@ void JB_BodySetMotion(uint32_t body, int motion);
 // body frame about the centre of mass (zeros allowed: locked axis).
 void JB_BodySetMassProperties(uint32_t body, float invMass, const float invInertia[3], float linearDamping,
                               float angularDamping);
+// Centre of mass in world space (diagnostics: compare with Havok motion +0x70).
+void JB_BodyGetCenterOfMass(uint32_t body, float centerOfMass[3]);
 uint32_t JB_BodyCount();
 
 }  // extern "C"

@@ -168,6 +168,31 @@ bool HooksDescribeAddress(const void* address, const char** name, unsigned* orig
     return false;
 }
 
+static bool CoverageSkipped(unsigned address)
+{
+    static std::vector<unsigned> skip;
+    static bool loaded;
+    if (!loaded)
+    {
+        loaded = true;
+        char list[4096];
+        ConfigString("test", "coverage_skip", "", list, sizeof(list));
+        for (char* p = list; *p;)
+        {
+            char* end;
+            const unsigned long a = strtoul(p, &end, 16);
+            if (end == p)
+                break;
+            skip.push_back(static_cast<unsigned>(a));
+            p = *end == ',' ? end + 1 : end;
+        }
+    }
+    for (unsigned a : skip)
+        if (a == address)
+            return true;
+    return false;
+}
+
 void HooksInstallAll()
 {
     int on = 0, off = 0, failed = 0;
@@ -185,6 +210,10 @@ void HooksInstallAll()
         int mode = HookSwitch(e->name);
         mode == 0 ? off++ : on++;
         if (mode == 0 && !e->wrapper && !coverage)
+            continue;
+        // Originals that branch back into their own first 5 bytes cannot run under a patch: when switched off they
+        // are left alone even in coverage mode ([test] coverage_skip, from tools/coverage.py; seen at 0x004643d0).
+        if (mode == 0 && !e->wrapper && coverage && CoverageSkipped(e->address))
             continue;
         void* target = reinterpret_cast<void*>(static_cast<uintptr_t>(e->address));
         void* detour = mode == 0 && !e->wrapper ? nullptr : (e->wrapper ? e->wrapper : e->replacement);

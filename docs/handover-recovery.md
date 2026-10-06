@@ -109,6 +109,22 @@ Harness (2026-10-06, verification phase):
 - **Promotion uses hook coverage**: `python tools/coverage.py` (DLL counting stubs: counts virtual and indirect calls,
   and recovered functions, which tools/record.py skips) then `tools/promote_verified.py --coverage work/coverage.json`.
 
+- **Hook names come from two forms**: `HOOK(0x..., "Name", ...)` and file-local wrapper macros such as
+  `R2A_HOOK(0041bd30, Name, ...)` / `R7_PIXEL_HOOK(...)` (address without 0x, unquoted name). compare.py and
+  bisect_hooks.py missed the macro form until 2026-10-06: those 119 hooks stayed on in the baseline as well, so they
+  were never compared. A new wrapper macro must match `^\s*[A-Z0-9_]+_HOOK\(([0-9a-f]{8}),\s*(\w+)`.
+- **Coverage mode and self-branching originals**: a counting stub patches the original's first 5 bytes, so originals
+  with a branch back into those bytes (0x004643d0, 0x00413d40) crash when switched off: coverage.py passes them as
+  `[test] coverage_skip` (list cached in work/coverage_unsafe.json; recomputed with the .venv python).
+- **Recurring recovery mistakes found by the comparison** (2026-10-06, 12 functions): stack arguments swapped in the
+  _Abi wrapper (0x00462060, 0x004e2910, 0x00403fb0 fields), eax vs stack swapped (0x004f1140), a wrong buffer passed
+  (0x0046ed30), the full value used where the original masks (kind & 1, 0x00472cc0), x87 results rounded to float
+  too early (fcos 0x00408ee0 / 0x00409ec0, acos/asin 0x00472cc0 / 0x004735f0), and `(int)float` where the original
+  calls its own __ftol2 0x0056a7c8 (64-bit fistp: NaN / huge values differ; 0x0048ed90). Check these first.
+- **"Bad Image" 0xc0e90002 on a fresh build**: once Windows refused to load a just-built dinput8.dll (a hidden
+  system dialog, the game hangs and writes no and.log). Rebuilding (touch a source) fixed it. Symptom in compare:
+  "0 frames in 0s". Close the dialog (UI Automation, "game.unpacked.exe - Bad Image") before rerunning.
+
 Environment:
 - **Display**: `[System.Windows.Forms.Screen]::AllScreens` = `WinDisc` -> every game run crashes (no display); TV
   attached but off -> ~4 fps (presentation throttled). Check before long runs.

@@ -18,7 +18,38 @@ import compare  # noqa: E402
 ROOT = compare.ROOT if hasattr(compare, "ROOT") else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
+def unsafe_hooked():
+    """Hooked functions where a branch lands inside their first 5 bytes (tools/record.py unsafe_to_patch)."""
+    import re
+    cache = os.path.join(ROOT, "work", "coverage_unsafe.json")
+    try:
+        import record  # needs capstone, pefile and frida (the .venv python)
+    except ImportError:
+        print(f"note: no capstone/frida here; using {cache}")
+        return {f"{int(a, 16):08x}" for a in json.load(open(cache))}
+    funcs = json.load(open(os.path.join(ROOT, "work", "exports", "functions.json")))
+    hooked = set()
+    for dirpath, _, files in os.walk(os.path.join(ROOT, "src")):
+        for f in files:
+            if f.endswith(".cpp"):
+                text = open(os.path.join(dirpath, f), encoding="utf-8").read()
+                hooked |= {int(m, 16) for m in re.findall(r"HOOK\((0x[0-9a-fA-F]+)", text)}
+    try:
+        unsafe = record.unsafe_to_patch(funcs) & hooked
+    except ImportError:
+        print(f"note: no capstone here; using {cache}")
+        return {f"{int(a, 16):08x}" for a in json.load(open(cache))}
+    json.dump([hex(a) for a in sorted(unsafe)], open(cache, "w"))
+    return {f"{a:08x}" for a in unsafe}
+
+
+UNSAFE = set()
+
+
 def main():
+    global UNSAFE
+    UNSAFE = unsafe_hooked()
+    print(f"not counted (unsafe to patch): {sorted(UNSAFE)}")
     ap = argparse.ArgumentParser()
     ap.add_argument("--scenario", default="all")
     ap.add_argument("--range", default="")
@@ -32,7 +63,10 @@ def main():
         sc = compare.SCENARIOS[name]
         test = dict(sc.get("test") or {})
         test["hook_coverage"] = 1
-        path = os.path.join(compare.GAME_DIR, "and-coverage.txt")
+        # Functions whose own branches land inside the 5 patched bytes crash under a counting stub: not counted.
+        test["coverage_skip"] = ",".join(sorted(UNSAFE))
+        import instances
+        path = os.path.join(instances.instance_dir("main"), "and-coverage.txt")  # compare.run_once runs there
         if os.path.exists(path):
             os.remove(path)
         compare.run_once(f"coverage {name}", off, sc["level"], sc["frames"], a.timeout, sc["keys"], test)
