@@ -410,13 +410,20 @@ void CreateMirror(const uint8_t* entity, const uint8_t* motion, int type, Mirror
 // 0x00411710 (the collision input's filter, world +0xe8 -> +4: group bits of entity +0x20, same owner, keyframed
 // vs keyframed/fixed, owner virtual +0xa0 veto) takes the two collidables (entity +0x14). Calling the game's own
 // function keeps the mirror exact without re-deriving the owner virtuals.
+// Havok also calls the world's filter 0x00411850 (world +0x23c; hook coverage 2026-10-06: 1,449 calls in the play
+// scenarios against 9,931 for 0x00411710), which rejects dynamic-vs-dynamic pairs unless one is ragdolled.
+// [physics] jolt_filter: 2 = both (default), 1 = 0x00411710 only, 0 = none (everything collides).
+int g_filterMode = 2;
 int PairFilter(uint64_t userA, uint64_t userB)
 {
     uint8_t* a = reinterpret_cast<uint8_t*>(static_cast<uintptr_t>(userA));
     uint8_t* b = reinterpret_cast<uint8_t*>(static_cast<uintptr_t>(userB));
-    if (!a || !b)
+    if (!a || !b || g_filterMode == 0)
         return 1;
-    return orig::fn_00411710(reinterpret_cast<uint32_t>(a + 0x14), reinterpret_cast<uint32_t>(b + 0x14)) & 0xff;
+    const uint32_t ca = reinterpret_cast<uint32_t>(a + 0x14), cb = reinterpret_cast<uint32_t>(b + 0x14);
+    if (!(orig::fn_00411710(ca, cb) & 0xff))
+        return 0;
+    return g_filterMode < 2 || (orig::fn_00411850(ca, cb) & 0xff);
 }
 
 void BeforeShutdown(uint8_t*)
@@ -612,6 +619,7 @@ void PhysicsJoltInit()
             Log("physics(jolt): [physics] engine=%s not supported yet; using havok", engine);
         return;  // original: no enhancement points installed
     }
+    g_filterMode = ConfigInt("physics", "jolt_filter", 2);
     g_physicsAfterInit = AfterInit;
     g_physicsBeforeShutdown = BeforeShutdown;
     g_physicsBeforeSubstep = BeforeSubstep;

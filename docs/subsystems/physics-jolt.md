@@ -126,11 +126,29 @@ are identical from run to run.
   `MeshShapeSettings` instead of copied. No mesh exceeds 10k triangles. Mesh subparts are now validated and
   rejects are logged.
 
+### With the game's collision filters mirrored (`[physics] jolt_filter`, 2026-10-06)
+
+Hook coverage shows that Havok calls both game filters: 0x00411710, the collision input's filter (9,931 calls in
+the scenarios), and 0x00411850, the world filter (1,449 calls). Jolt's OnContactValidate calls both through
+`orig::`. Results from the play scenario, one second each:
+
+| jolt_filter | Contacts only Jolt had | Contact-free error (max) | Mean one-step position error |
+| --- | --- | --- | --- |
+| 0 (none) | 24-86 | 0.32 | 0.38-0.43 |
+| 1 (0x00411710) | 24-86 | 0.32 | 0.27-0.30 |
+| 2 (both, default) | **0** | **0.000015** (float precision) | **0.04-0.08** |
+
+The remaining error comes from contacts both engines see: solver differences, plus the game wrappers Jolt does
+not mirror yet (0x12, the speed trap / velocity clamp). The state mapping (position, rotation, centre of mass,
+inertia, gravity, the angular velocity frame) is verified: bodies with no contact agree to float precision.
+
 ## Open work (next session)
 
-- Measure the error with the filter mirrored. Check, with hook coverage, whether Havok calls the world filter
-  0x00411850 (which rejects dynamic-vs-dynamic pairs); if so, mirror it too.
-- Confirm that mesh index type 0 means 16-bit indices. Angular velocity is in the world frame: confirmed by the
-  contact-free comparison.
-- Stage 2 write-back. Stage 3: contact callbacks, triggers (sensor bodies for bv 3 + 0x1b), the behaviour of the
-  0x12, 0x13 and 0x19 wrappers, and constraints (havok-layouts.md s5 maps each one to a Jolt constraint).
+- Stage 2: write back (`engine=jolt`). Jolt simulates and writes position, rotation and velocities into the Havok
+  motions; keyframed bodies are driven from Havok's fields; Havok's step is skipped.
+- Contact behaviour: the velocity clamp of wrapper 0x12 (physics_04.cpp 0x004a85a0 / 0x004a88a0), Havok's convex
+  radius (pads hulls outwards by 0.1), and solver settings (Havok tau 0.6, damping 1.0, 4 iterations).
+- Confirm that mesh index type 0 means 16-bit indices: every level mesh seen so far is accepted and sane.
+- Stage 3: contact callbacks (the game's listeners), triggers (sensor bodies for bv 3 + 0x1b), the filter-override
+  wrapper 0x13 and the swept wrapper 0x19, and constraints (havok-layouts.md s5 maps each one to a Jolt
+  constraint).

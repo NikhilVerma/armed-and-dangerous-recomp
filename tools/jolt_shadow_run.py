@@ -22,6 +22,7 @@ def main():
     ap.add_argument("--hooks", default="physics", choices=("physics", "all"),
                     help="physics: only the three PhysicsManager hooks; all: every recovered function")
     ap.add_argument("--timeout", type=int, default=240)
+    ap.add_argument("--filter", type=int, default=2, help="[physics] jolt_filter: 2 both game filters, 1 0x00411710, 0 none")
     a = ap.parse_args()
     names = compare.hook_names()
     hooks = {n: a.hooks == "all" or n in PHYSICS for n in names}
@@ -31,7 +32,7 @@ def main():
         test.setdefault("close_frame", sc["frames"])  # a normal shutdown, so the shutdown summary is logged
         test.setdefault("exit_frame", 0)
     rows, crashed = compare.run_once(f"jolt_shadow {a.scenario}", hooks, sc["level"], sc["frames"], a.timeout,
-                                     sc["keys"], test, extra_sections={"physics": {"engine": "jolt_shadow"}})
+                                     sc["keys"], test, extra_sections={"physics": {"engine": "jolt_shadow", "jolt_filter": a.filter}})
     log = os.path.join(instances.instance_dir("main"), "and.log")
     lines = [l.rstrip() for l in open(log, encoding="latin1") if "physics(jolt)" in l or "CRASH" in l]
     print("\n".join(lines[:5] + (["  ..."] if len(lines) > 25 else []) + lines[max(5, len(lines) - 20):]))
