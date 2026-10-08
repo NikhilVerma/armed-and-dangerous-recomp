@@ -166,12 +166,12 @@ void ShadowsInit()
         RemasterRegister({"render", "fog_sun", L"Fog sun glow", S::Slider, 0.0f, 2.0f, 0.1f, {}, 0, false,
                           [](float v) { rhi::Hints().fogSunGlow = v; }},
                          0.6f);
-    // Ray-traced shadows (src/rhi/vulkan/vk_rt.h) in place of shadow maps, on GPUs with ray queries: remaster
-    // default on.
+    // Ray-traced shadows (src/rhi/vulkan/vk_rt.h) in place of shadow maps, on GPUs with ray queries (or the 64-bit helper):
+    // off by default; [render] shadow_rt=1.
     rhi::Hints().shadowsRt =
         RemasterRegister({"render", "shadow_rt", L"Ray-traced shadows (VK)", S::Toggle, 0, 1, 1, {}, 0, false,
                           [](float v) { rhi::Hints().shadowsRt = v != 0.0f; }},
-                         0, 1) != 0.0f;
+                         0, 0) != 0.0f;  // remaster default off (2026-10-08: the player wants stable shadows first; maps)
     // No frustum culling within this distance of the camera in the main scene pass (ScenePass_Render,
     // src/renderer/scene_pass.cpp): casters behind and beside the view stay in the scene, so their shadows neither
     // pop in nor out. Original 0 (the game's culling), remaster default 400 world units.

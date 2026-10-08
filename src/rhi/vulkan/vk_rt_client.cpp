@@ -101,8 +101,13 @@ bool RtClient::Ready() const
     }
     if (WaitForSingleObject(process_, 0) == WAIT_OBJECT_0)
         return false;  // the helper exited
-    // Ready, and caught up (or nothing allocated yet: the first Ensure tells it what to import).
-    return control_->helperState == 1 && control_->accepted >= control_->requested;
+    // Ready, and caught up: it has submitted every frame requested so far (the shared input buffers are reused, and
+    // the semaphores order its GPU work only once it has submitted). It usually runs about a frame behind, so wait
+    // briefly for that instead of failing: failing made about one frame in nine fall back to shadow maps at 1080p,
+    // and shadows flickered between the two looks while moving.
+    if (control_->helperState != 1)
+        return false;
+    return control_->accepted >= control_->requested || Accepted(control_->requested, 6);
 }
 
 uint64_t RtClient::Duplicate(HANDLE h) const

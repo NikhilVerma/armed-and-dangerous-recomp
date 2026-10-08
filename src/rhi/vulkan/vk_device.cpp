@@ -3315,7 +3315,17 @@ void VulkanDevice::Shadows()
         rc.reserve(jobs.size());
         for (const Job& j : jobs)
             rc.push_back({j.d, j.c, j.toWorld});
-        if (Ctx().rayQuery ? RtShadows(rc, toWorld) : RtShadowsRemote(rc, toWorld))
+        const bool traced = Ctx().rayQuery ? RtShadows(rc, toWorld) : RtShadowsRemote(rc, toWorld);
+        // Per 300 frames: how many fell back to the shadow map (each one is a visible switch of shadow look).
+        static uint32_t rtFrames, rtFallbacks;
+        ++rtFrames, rtFallbacks += traced ? 0 : 1;
+        if (rtFrames == 300)
+        {
+            if (rtFallbacks)
+                Log("vulkan: ray-traced shadows: %u of 300 frames fell back to the shadow map", rtFallbacks);
+            rtFrames = rtFallbacks = 0;
+        }
+        if (traced)
             return;
     }
 
