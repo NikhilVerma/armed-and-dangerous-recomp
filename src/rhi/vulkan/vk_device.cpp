@@ -3977,9 +3977,11 @@ void VulkanDevice::TemporalAaHelper()
     color->Transition(cb, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
     vkCmdCopyBufferToImage(cb, rc.Buffer(rtipc::kAaOutput), color->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
                            &region);
-    static bool logged;
-    if (!logged)
-        logged = true, Log("vulkan: temporal anti-aliasing on (helper mode %u, %ux%u)", rc.AaActiveMode(), W, H);
+    // The backend the helper ran (it reports it per frame; FSR stands in for a missing library).
+    static uint32_t loggedMode = ~0u;
+    if (rc.AaActiveMode() != loggedMode && aaFrame_ > 2)
+        loggedMode = rc.AaActiveMode(),
+        Log("vulkan: temporal anti-aliasing on (helper mode %u of %u requested, %ux%u)", loggedMode, h.aaMode, W, H);
 }
 
 void VulkanDevice::Snow()

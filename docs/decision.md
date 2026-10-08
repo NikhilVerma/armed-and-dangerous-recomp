@@ -158,3 +158,12 @@ How this coexists with faithful recovery:
 - Jolt needs SSE2 and its math types depend on the instruction set, while the hook DLL is built /arch:IA32 (x87, for
   faithful float behaviour): Jolt and its bridge are a separate static library (hook/physics/) compiled with SSE2 and
   reached only through a plain C interface.
+
+## 2026-10-08: DLSS and XeSS SDK licences accepted
+
+- Asked: "may I download NVIDIA's DLSS SDK and Intel's XeSS SDK? Using them means accepting their licence terms on
+  your behalf." Human: "Yes, both".
+- Pinned: NVIDIA DLSS SDK v310.9.1 (NVIDIA RTX SDKs licence) and Intel XeSS SDK v3.0.2 (Intel Simplified Software
+  Licence). They are cloned into `work/sdk` by `tools/fetch_aa_sdks.ps1` and never committed. Their runtime DLLs
+  (`nvngx_dlss.dll`, `libxess.dll`) are copied next to the game by `tools/deploy.ps1`.
+- FSR 3.1 stays the remaster default (`[render] aa=1`). DLSS / DLAA is `aa=2`, XeSS `aa=3`.

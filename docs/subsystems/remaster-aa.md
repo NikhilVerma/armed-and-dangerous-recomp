@@ -102,3 +102,38 @@ running. The player's folder keeps the last build that loads.
   - Verify FSR at 4K once the helper runs: edges, ghosting on moving characters, snow particles. Particles have no
     motion vectors, so a reactive mask may be needed.
   - DLSS / DLAA and XeSS, after the player accepts their SDK licences.
+
+## DLSS (DLAA) and XeSS in the helper (2026-10-08)
+
+- The player accepted both licences (docs/decision.md, 2026-10-08). `tools/fetch_aa_sdks.ps1` clones the pinned
+  SDKs into `work/sdk` (not committed): NVIDIA DLSS v310.9.1 and Intel XeSS v3.0.2. `rthelper/CMakeLists.txt`
+  builds them in when present (`AND_HAVE_DLSS`, `AND_HAVE_XESS`) and copies `nvngx_dlss.dll` and `libxess.dll` next
+  to `rt_helper.exe`. `tools/deploy.ps1` and `tools/instances.py` copy them next to the game.
+- `rthelper/aa.cpp` provides the backends:
+  - DLSS runs through the NGX static library (project ID, `NVSDK_NGX_PerfQuality_Value_DLAA`, flags IsHDR,
+    MVLowRes and AutoExposure).
+  - XeSS loads `libxess.dll` at run time, in `XESS_QUALITY_SETTING_AA` with auto exposure.
+  - Both take the same inputs as FSR: linear HDR colour, depth 0..1, and motion as prevUv - curUv scaled to pixels.
+  - The helper's instance and device enable the extensions and features both libraries ask for, where offered.
+- Fallback: a mode whose library is missing or fails runs FSR, and the reason is written to `rt_helper_aa.log`. The
+  helper reports the backend it ran per frame (`aaActiveMode`), and the game logs it when it changes.
+- Verified on lev_1_m1 at 1920x1080 (RTX GPU): all three libraries load, and modes 2 and 3 run without errors
+  ("helper mode 2 of 2 requested", "helper mode 3 of 3"). Contact sheet: work/visual/aa_modes.png.
+- Jitter convention: with `aa_debug` bits 8 / 16 (flip x / y) and 32 (negate motion), a still camera over 24 frames
+  gave these results (tools: work/visual/j_*):
+
+  | Mode | Frame-to-frame change | Sharpness |
+  | --- | --- | --- |
+  | Off | 1.68 | 11.0 |
+  | FSR | 0.99 | 11.3 |
+  | DLAA, as sent | 1.85 | 9.48 |
+  | DLAA, x or y flipped | 2.36 to 2.40 | 9.1 |
+  | XeSS, as sent | 1.95 | 7.96 |
+  | XeSS, x or y flipped | 2.80 to 3.37 | 7.6 |
+
+  So the game's jitter goes to all three libraries unchanged. Most of the remaining change in every mode is the
+  game's falling snow and effect sprites, which have no motion vectors.
+- Observations:
+  - XeSS on this NVIDIA card (its generic DP4a path) is the softest and shows faint edge shimmer.
+  - FSR is the steadiest on this scene and stays the remaster default.
+  - A reactive / transparency mask for the particles would help all three (open).

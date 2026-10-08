@@ -23,6 +23,10 @@ $helper = Join-Path $root 'build/rthelper-x64/rt_helper.exe'  # 64-bit ray-traci
 if (Test-Path $helper) { Copy-Item $helper (Join-Path $game 'rt_helper.exe') -Force }
 $ffx = Join-Path $root 'build/rthelper-x64/amd_fidelityfx_vk.dll'  # AMD FSR 3.1 for the helper's AA (MIT, signed)
 if (Test-Path $ffx) { Copy-Item $ffx (Join-Path $game 'amd_fidelityfx_vk.dll') -Force }
+foreach ($n in @('nvngx_dlss.dll', 'libxess.dll')) {  # NVIDIA DLSS, Intel XeSS for the helper's AA (optional)
+    $f = Join-Path $root "build/rthelper-x64/$n"
+    if (Test-Path $f) { Copy-Item $f (Join-Path $game $n) -Force }
+}
 $ini = Join-Path $game 'and.ini'
 # The player's and.ini is kept (test runs write their own); -ResetIni replaces it with the template.
 if ($ResetIni -or -not (Test-Path $ini)) { Copy-Item (Join-Path $root 'hook/and.ini') $ini -Force }

@@ -69,3 +69,28 @@ if(NOT EXISTS ${FFX_VK_DLL})
     EXPECTED_HASH SHA256=a1624cc4238fef046f30c4d80ce3f47be63fc5f5373f49e3ee9edb9960f54c78
     SHOW_PROGRESS)
 endif()
+
+# Optional vendor anti-aliasing (aa.cpp; the human accepted both licences on 2026-10-08, docs/decision.md). The SDKs are
+# not in the repository: tools/fetch_aa_sdks.ps1 clones the pinned releases into work/sdk. Without them the helper
+# builds with FSR only.
+#   NVIDIA DLSS SDK v310.9.1 (NVIDIA RTX SDKs licence): NGX static library + nvngx_dlss.dll (DLSS / DLAA).
+#   Intel XeSS SDK v3.0.2 (Intel Simplified Software Licence): headers here, libxess.dll loaded at run time.
+set(AND_DLSS_SDK ${CMAKE_CURRENT_SOURCE_DIR}/../work/sdk/dlss CACHE PATH "NVIDIA DLSS SDK (github.com/NVIDIA/DLSS)")
+set(AND_XESS_SDK ${CMAKE_CURRENT_SOURCE_DIR}/../work/sdk/xess CACHE PATH "Intel XeSS SDK (github.com/intel/xess)")
+if(EXISTS ${AND_DLSS_SDK}/include/nvsdk_ngx_vk.h AND EXISTS ${AND_DLSS_SDK}/lib/Windows_x86_64/x64/nvsdk_ngx_s.lib)
+  target_compile_definitions(rt_helper PRIVATE AND_HAVE_DLSS=1)
+  target_include_directories(rt_helper PRIVATE ${AND_DLSS_SDK}/include)
+  target_link_libraries(rt_helper PRIVATE ${AND_DLSS_SDK}/lib/Windows_x86_64/x64/nvsdk_ngx_s.lib)
+  configure_file(${AND_DLSS_SDK}/lib/Windows_x86_64/rel/nvngx_dlss.dll ${CMAKE_BINARY_DIR}/nvngx_dlss.dll COPYONLY)
+  message(STATUS "rt_helper: DLSS from ${AND_DLSS_SDK}")
+else()
+  message(STATUS "rt_helper: no DLSS SDK (${AND_DLSS_SDK})")
+endif()
+if(EXISTS ${AND_XESS_SDK}/inc/xess/xess_vk.h AND EXISTS ${AND_XESS_SDK}/bin/libxess.dll)
+  target_compile_definitions(rt_helper PRIVATE AND_HAVE_XESS=1)
+  target_include_directories(rt_helper PRIVATE ${AND_XESS_SDK}/inc)
+  configure_file(${AND_XESS_SDK}/bin/libxess.dll ${CMAKE_BINARY_DIR}/libxess.dll COPYONLY)
+  message(STATUS "rt_helper: XeSS from ${AND_XESS_SDK}")
+else()
+  message(STATUS "rt_helper: no XeSS SDK (${AND_XESS_SDK})")
+endif()

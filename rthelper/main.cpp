@@ -202,6 +202,27 @@ bool CreateDevice()
     app.apiVersion = VK_API_VERSION_1_3;
     VkInstanceCreateInfo ici{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
     ici.pApplicationInfo = &app;
+    // Instance extensions the optional anti-aliasing libraries ask for (DLSS, XeSS), those this loader offers.
+    std::vector<const char*> wantInstance, instanceExt;
+    rth::TemporalAa::InstanceExtensions(wantInstance);
+    {
+        uint32_t count = 0;
+        vkEnumerateInstanceExtensionProperties(nullptr, &count, nullptr);
+        std::vector<VkExtensionProperties> have(count);
+        vkEnumerateInstanceExtensionProperties(nullptr, &count, have.data());
+        for (const char* e : wantInstance)
+        {
+            bool offered = false, dup = false;
+            for (const VkExtensionProperties& h : have)
+                offered |= !std::strcmp(h.extensionName, e);
+            for (const char* d : instanceExt)
+                dup |= !std::strcmp(d, e);
+            if (offered && !dup)
+                instanceExt.push_back(e);
+        }
+    }
+    ici.enabledExtensionCount = uint32_t(instanceExt.size());
+    ici.ppEnabledExtensionNames = instanceExt.data();
     if (vkCreateInstance(&ici, nullptr, &g_instance) != VK_SUCCESS)
         return Fail("vkCreateInstance failed"), false;
     volkLoadInstance(g_instance);
@@ -263,15 +284,37 @@ bool CreateDevice()
     f2.pNext = &f11;
     f2.features.shaderStorageImageWriteWithoutFormat = VK_TRUE;  // FidelityFX filter output
     f2.features.shaderInt16 = VK_TRUE;
-    const char* ext[] = {VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME, VK_KHR_RAY_QUERY_EXTENSION_NAME,
-                         VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME, VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME,
-                         VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME, VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME};
+    std::vector<const char*> ext = {
+        VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME, VK_KHR_RAY_QUERY_EXTENSION_NAME,
+        VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME, VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME,
+        VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME, VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME};
+    // Device extensions and features the optional anti-aliasing libraries ask for, those the GPU offers (a library
+    // whose needs are not met fails its own initialisation and the helper runs FSR in its place).
+    {
+        std::vector<const char*> want;
+        rth::TemporalAa::DeviceExtensions(g_instance, g_physical, want);
+        uint32_t count = 0;
+        vkEnumerateDeviceExtensionProperties(g_physical, nullptr, &count, nullptr);
+        std::vector<VkExtensionProperties> have(count);
+        vkEnumerateDeviceExtensionProperties(g_physical, nullptr, &count, have.data());
+        for (const char* e : want)
+        {
+            bool offered = false, dup = false;
+            for (const VkExtensionProperties& h : have)
+                offered |= !std::strcmp(h.extensionName, e);
+            for (const char* d : ext)
+                dup |= !std::strcmp(d, e);
+            if (offered && !dup)
+                ext.push_back(e);
+        }
+        rth::TemporalAa::DeviceFeatures(g_instance, g_physical, f2);
+    }
     VkDeviceCreateInfo dci{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
     dci.pNext = &f2;
     dci.queueCreateInfoCount = 1;
     dci.pQueueCreateInfos = &qci;
-    dci.enabledExtensionCount = 6;
-    dci.ppEnabledExtensionNames = ext;
+    dci.enabledExtensionCount = uint32_t(ext.size());
+    dci.ppEnabledExtensionNames = ext.data();
     VkResult r = vkCreateDevice(g_physical, &dci, nullptr, &g_device);
     if (r != VK_SUCCESS)
         return Fail("vkCreateDevice with ray queries failed (VkResult %d)", int(r)), false;
@@ -336,7 +379,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR cmd, int)
         if (!g_ctl->semAaToHelper || !ImportSemaphore(aaToHelper, g_ctl->semAaToHelper) ||
             !ImportSemaphore(aaFromHelper, g_ctl->semAaFromHelper))
             log = "AA semaphore import failed";
-        else if (aa.Init(g_device, g_physical, g_mem, log))
+        else if (aa.Init(g_instance, g_device, g_physical, g_mem, log))
             g_ctl->aaActiveMode = aa.ActiveMode(), g_ctl->aaState = 1;
         if (g_ctl->aaState != 1)
             std::snprintf(g_ctl->aaLog, sizeof(g_ctl->aaLog), "%s", log.c_str()), g_ctl->aaState = 2;
@@ -429,6 +472,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR cmd, int)
                                        aa.Record(aaCb, ap, shared[rtipc::kAaColor].buffer,
                                                  shared[rtipc::kAaDepth].buffer, shared[rtipc::kAaMotion].buffer,
                                                  shared[rtipc::kAaOutput].buffer, alog));
+            if (ok && ap.debug != 2 && ap.debug != 3)
+                g_ctl->aaActiveMode = aa.ActiveMode();  // the backend that ran (FSR when the requested one is missing)
             if (!ok && !alog.empty())
                 std::snprintf(g_ctl->aaLog, sizeof(g_ctl->aaLog), "%s", alog.c_str()), g_ctl->aaState = 2;
             vkEndCommandBuffer(aaCb);  // empty when nothing was recorded: still passes the semaphore on
