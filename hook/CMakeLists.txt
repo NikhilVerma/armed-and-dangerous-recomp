@@ -81,6 +81,89 @@ target_link_libraries(and_physics PRIVATE Jolt)
 target_compile_options(and_physics PRIVATE /arch:SSE2 /utf-8 /Zi)
 target_compile_options(Jolt PRIVATE /Zi)  # line info for crash symbolisation (tools/symbolize.py)
 set_property(TARGET and_physics PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+# AMD FidelityFX Super Resolution 3.1 upscaler (temporal anti-aliasing at native resolution; docs/subsystems/
+# remaster-aa.md), built from the FidelityFX SDK v1.1.4 sources (MIT; the last release with a Vulkan backend) into
+# the hook DLL: the game is 32-bit, so this replaces AMD's prebuilt 64-bit DLL. Only the FSR3 upscaler component, the
+# Vulkan backend and their shaders (compiled at build time with the SDK's FidelityFX_SC.exe + glslang, as the SDK
+# does). Vulkan calls go through volk (forced in; VK_NO_PROTOTYPES), so nothing links against vulkan-1.
+FetchContent_Declare(ffx_sdk
+  GIT_REPOSITORY https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK.git
+  GIT_TAG v1.1.4
+  GIT_SHALLOW TRUE
+  SOURCE_SUBDIR not-a-cmake-project)  # sources only
+FetchContent_MakeAvailable(ffx_sdk)
+set(FFXSDK ${ffx_sdk_SOURCE_DIR}/sdk)
+set(FFX_SHADER_OUT ${CMAKE_BINARY_DIR}/ffx_shaders)
+file(MAKE_DIRECTORY ${FFX_SHADER_OUT})
+set(FFX_GPU ${FFXSDK}/include/FidelityFX/gpu)
+set(FFX_SC_ARGS -reflection -deps=gcc -DFFX_GPU=1
+  -DFFX_FSR3UPSCALER_OPTION_UPSAMPLE_SAMPLERS_USE_DATA_HALF=0 -DFFX_FSR3UPSCALER_OPTION_ACCUMULATE_SAMPLERS_USE_DATA_HALF=0
+  -DFFX_FSR3UPSCALER_OPTION_REPROJECT_SAMPLERS_USE_DATA_HALF=1
+  -DFFX_FSR3UPSCALER_OPTION_POSTPROCESSLOCKSTATUS_SAMPLERS_USE_DATA_HALF=0
+  -DFFX_FSR3UPSCALER_OPTION_UPSAMPLE_USE_LANCZOS_TYPE=2
+  -compiler=glslang -e CS --target-env vulkan1.2 -S comp -Os -DFFX_GLSL=1
+  "-DFFX_FSR3UPSCALER_OPTION_REPROJECT_USE_LANCZOS_TYPE={0,1}" "-DFFX_FSR3UPSCALER_OPTION_HDR_COLOR_INPUT={0,1}"
+  "-DFFX_FSR3UPSCALER_OPTION_LOW_RESOLUTION_MOTION_VECTORS={0,1}"
+  "-DFFX_FSR3UPSCALER_OPTION_JITTERED_MOTION_VECTORS={0,1}" "-DFFX_FSR3UPSCALER_OPTION_INVERTED_DEPTH={0,1}"
+  "-DFFX_FSR3UPSCALER_OPTION_APPLY_SHARPENING={0,1}"
+  -I${FFX_GPU} -I${FFX_GPU}/fsr3upscaler -output=${FFX_SHADER_OUT})
+file(GLOB FFX_FSR3_GLSL ${FFXSDK}/src/backends/vk/shaders/fsr3upscaler/*.glsl)
+set(FFX_SHADER_HEADERS)
+foreach(shader ${FFX_FSR3_GLSL})
+  get_filename_component(name ${shader} NAME_WE)
+  foreach(variant "|0" "_wave64|0" "_16bit|1" "_wave64_16bit|1")
+    string(REPLACE "|" ";" v "${variant}")
+    list(GET v 0 suffix)
+    list(GET v 1 half)
+    set(out ${FFX_SHADER_OUT}/${name}${suffix}_permutations.h)
+    add_custom_command(OUTPUT ${out}
+      COMMAND ${FFXSDK}/tools/binary_store/FidelityFX_SC.exe ${FFX_SC_ARGS} -name=${name}${suffix} -DFFX_HALF=${half}
+              ${shader}
+      WORKING_DIRECTORY ${FFX_SHADER_OUT}
+      DEPENDS ${shader}
+      COMMENT "FSR3 shader ${name}${suffix}"
+      VERBATIM)
+    list(APPEND FFX_SHADER_HEADERS ${out})
+  endforeach()
+endforeach()
+# The SDK assumes 64-bit builds: in 32-bit Vulkan, VkBuffer / VkPipelineCache are 64-bit integers, not pointers.
+# Three lines of ffx_vk.cpp are rewritten in a build-tree copy (the handles go through uintptr_t; fsr_bridge.cpp
+# refuses handles that do not fit in 32 bits, which the 32-bit drivers' pointer-sized handles always do).
+file(READ ${FFXSDK}/src/backends/vk/ffx_vk.cpp FFX_VK_SRC)
+foreach(pair
+    "allocation.resource.resource = uniformBuffer;|allocation.resource.resource = reinterpret_cast<void*>(static_cast<uintptr_t>(uniformBuffer));"
+    "vkCreateComputePipelines(backendContext->device, nullptr, 1,|vkCreateComputePipelines(backendContext->device, VK_NULL_HANDLE, 1,"
+    "static_cast<VkBuffer>(allocation.resource.resource)|static_cast<VkBuffer>(reinterpret_cast<uintptr_t>(allocation.resource.resource))")
+  string(REPLACE "|" ";" p "${pair}")
+  list(GET p 0 from)
+  list(GET p 1 to)
+  string(FIND "${FFX_VK_SRC}" "${from}" at)
+  if(at EQUAL -1)
+    message(FATAL_ERROR "ffx_vk.cpp 32-bit patch: '${from}' not found")
+  endif()
+  string(REPLACE "${from}" "${to}" FFX_VK_SRC "${FFX_VK_SRC}")
+endforeach()
+set(FFX_VK_PATCHED ${CMAKE_BINARY_DIR}/ffx_vk_x86.cpp)
+file(WRITE ${FFX_VK_PATCHED}.tmp "${FFX_VK_SRC}")
+configure_file(${FFX_VK_PATCHED}.tmp ${FFX_VK_PATCHED} COPYONLY)
+file(GLOB FFX_SHARED_CPP ${FFXSDK}/src/shared/*.cpp)
+add_library(and_fsr STATIC ${FFX_SHARED_CPP}
+  ${FFXSDK}/src/components/fsr3upscaler/ffx_fsr3upscaler.cpp
+  ${FFX_VK_PATCHED}
+  ${FFXSDK}/src/backends/shared/ffx_shader_blobs.cpp
+  ${FFXSDK}/src/backends/shared/blob_accessors/ffx_fsr3upscaler_shaderblobs.cpp
+  fsr/fsr_bridge.cpp
+  ${FFX_SHADER_HEADERS})
+target_include_directories(and_fsr PUBLIC ${FFXSDK}/include ${CMAKE_CURRENT_SOURCE_DIR}
+  PRIVATE ${FFXSDK}/src/components ${FFXSDK}/src/shared ${FFXSDK}/src/backends/shared ${FFXSDK}/src/backends/vk
+          ${FFX_SHADER_OUT} ${FFXSDK}/libs
+          ${volk_SOURCE_DIR})
+target_compile_definitions(and_fsr PRIVATE FFX_FSR3UPSCALER VK_NO_PROTOTYPES VK_USE_PLATFORM_WIN32_KHR _UNICODE UNICODE
+  _DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR NOMINMAX _CRT_SECURE_NO_WARNINGS)
+target_compile_options(and_fsr PRIVATE /arch:SSE2 /utf-8 /W0 /FIvolk.h)
+target_link_libraries(and_fsr PRIVATE Vulkan::Headers)
+set_property(TARGET and_fsr PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
 # Headless test of the bridge, no game: pwsh tools/build.ps1 -Target jolt_bridge_test, then run it.
 add_executable(jolt_bridge_test EXCLUDE_FROM_ALL physics/jolt_bridge_test.cpp)
 target_link_libraries(jolt_bridge_test PRIVATE and_physics)
@@ -147,7 +230,7 @@ add_library(and_hook SHARED
   dinput8.def)
 
 target_include_directories(and_hook PRIVATE src enhance ../src ${CMAKE_CURRENT_SOURCE_DIR} ${minhook_SOURCE_DIR}/include ${EMBED_DIR})
-target_link_libraries(and_hook PRIVATE minhook and_physics d3d9 dbghelp winmm dxguid ole32 windowscodecs dsound
+target_link_libraries(and_hook PRIVATE minhook and_physics and_fsr d3d9 dbghelp winmm dxguid ole32 windowscodecs dsound
   Vulkan::Headers glslang::glslang glslang::SPIRV glslang::glslang-default-resource-limits)
 target_include_directories(and_hook PRIVATE ${volk_SOURCE_DIR})
 target_compile_definitions(and_hook PRIVATE VK_NO_PROTOTYPES VK_USE_PLATFORM_WIN32_KHR)

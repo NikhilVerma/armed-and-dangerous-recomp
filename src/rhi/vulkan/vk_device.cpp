@@ -21,6 +21,7 @@
 #include "vk_shadows.h"
 #include "vk_snow.h"
 #include "vk_gtao.h"
+#include "fsr/fsr_bridge.h"
 #include "vk_fog.h"
 #include "vk_rt.h"
 #include "vk_rt_client.h"
@@ -423,6 +424,22 @@ bool aaReset_ = true;
 LARGE_INTEGER aaLastTime_{};
 void AaBeginFrame();
 void TemporalAa();
+void TemporalAaHelper();  // modes 2 / 3 (DLSS, XeSS): the 64-bit helper (rt_ipc.h)
+// FSR 3.1 in process (hook/fsr/fsr_bridge.h): its own depth copy (R32F) and output (storage) images.
+struct AaImage
+{
+    VkImage image = VK_NULL_HANDLE;
+    VkDeviceMemory memory = VK_NULL_HANDLE;
+    VkFormat format = VK_FORMAT_UNDEFINED;
+    VkImageUsageFlags usage = 0;
+    VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED;
+};
+AaImage aaDepth_, aaOutput_;
+VkBuffer aaDepthBuffer_ = VK_NULL_HANDLE;
+VkDeviceMemory aaDepthBufferMemory_ = VK_NULL_HANDLE;
+bool aaFsrFailed_ = false;
+bool AaEnsureImages(uint32_t width, uint32_t height);
+void AaBarrier(VkCommandBuffer cb, AaImage& img, VkImageLayout to);
 VkShaderModule rtRemoteFs_ = VK_NULL_HANDLE, rtDepthCs_ = VK_NULL_HANDLE;
 VkDescriptorSetLayout rtRemoteSetLayout_ = VK_NULL_HANDLE, rtDepthSetLayout_ = VK_NULL_HANDLE;
 VkPipelineLayout rtRemoteLayout_ = VK_NULL_HANDLE, rtDepthLayout_ = VK_NULL_HANDLE;
@@ -3596,7 +3613,8 @@ void VulkanDevice::AaBeginFrame()
 {
     const rhi::SceneHints& h = rhi::Hints();
     aaActive_ = false;
-    if (!h.aaMode || !Rt().Start() || !Rt().AaReady())
+    const bool inProcess = h.aaMode == rtipc::kAaFsr;
+    if (!h.aaMode || (inProcess && aaFsrFailed_) || (!inProcess && (!Rt().Start() || !Rt().AaReady())))
     {
         static bool loggedFailure;
         if (h.aaMode && !loggedFailure && Rt().AaLog()[0])
@@ -3611,10 +3629,204 @@ void VulkanDevice::AaBeginFrame()
     aaJitter_[1] = Halton(phase, 3) - 0.5f;
 }
 
-// rhi::SceneEnd, after everything in the scene: the back buffer (linear HDR), its depth and the motion vectors go
-// to the helper (rt_ipc.h kAaColor / kAaDepth / kAaMotion), the frame is split there, and the next part starts by
-// copying the helper's output (kAaOutput) back over the back buffer; the UI then draws on top.
+bool VulkanDevice::AaEnsureImages(uint32_t width, uint32_t height)
+{
+    Context& c = Ctx();
+    if (aaOutput_.image && aaWidth_ == width && aaHeight_ == height)
+        return true;
+    vkDeviceWaitIdle(c.device);
+    for (AaImage* i : {&aaDepth_, &aaOutput_})
+    {
+        if (i->image)
+            vkDestroyImage(c.device, i->image, nullptr), vkFreeMemory(c.device, i->memory, nullptr);
+        *i = AaImage{};
+    }
+    if (aaDepthBuffer_)
+        vkDestroyBuffer(c.device, aaDepthBuffer_, nullptr), vkFreeMemory(c.device, aaDepthBufferMemory_, nullptr);
+    aaDepthBuffer_ = VK_NULL_HANDLE;
+    auto make = [&](AaImage& img, VkFormat format, VkImageUsageFlags usage) {
+        VkImageCreateInfo ci{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+        ci.imageType = VK_IMAGE_TYPE_2D;
+        ci.format = format;
+        ci.extent = {width, height, 1};
+        ci.mipLevels = 1;
+        ci.arrayLayers = 1;
+        ci.samples = VK_SAMPLE_COUNT_1_BIT;
+        ci.tiling = VK_IMAGE_TILING_OPTIMAL;
+        ci.usage = usage;
+        if (vkCreateImage(c.device, &ci, nullptr, &img.image) != VK_SUCCESS)
+            return false;
+        VkMemoryRequirements req;
+        vkGetImageMemoryRequirements(c.device, img.image, &req);
+        img.memory = c.Allocate(req, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        vkBindImageMemory(c.device, img.image, img.memory, 0);
+        img.format = format, img.usage = usage, img.layout = VK_IMAGE_LAYOUT_UNDEFINED;
+        return img.memory != VK_NULL_HANDLE;
+    };
+    const bool ok = make(aaDepth_, VK_FORMAT_R32_SFLOAT, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT) &&
+                    make(aaOutput_, VK_FORMAT_R16G16B16A16_SFLOAT,
+                         VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
+    VkBufferCreateInfo bi{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    bi.size = VkDeviceSize(width) * height * 4;
+    bi.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    if (!ok || vkCreateBuffer(c.device, &bi, nullptr, &aaDepthBuffer_) != VK_SUCCESS)
+        return false;
+    VkMemoryRequirements req;
+    vkGetBufferMemoryRequirements(c.device, aaDepthBuffer_, &req);
+    aaDepthBufferMemory_ = c.Allocate(req, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    vkBindBufferMemory(c.device, aaDepthBuffer_, aaDepthBufferMemory_, 0);
+    aaWidth_ = width, aaHeight_ = height, aaReset_ = true;
+    return aaDepthBufferMemory_ != VK_NULL_HANDLE;
+}
+
+void VulkanDevice::AaBarrier(VkCommandBuffer cb, AaImage& img, VkImageLayout to)
+{
+    VkImageMemoryBarrier2 b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+    b.srcStageMask = b.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    b.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
+    b.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
+    b.oldLayout = img.layout, b.newLayout = to;
+    b.srcQueueFamilyIndex = b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    b.image = img.image;
+    b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    VkDependencyInfo di{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    di.imageMemoryBarrierCount = 1;
+    di.pImageMemoryBarriers = &b;
+    vkCmdPipelineBarrier2(cb, &di);
+    img.layout = to;
+}
+
+// rhi::SceneEnd, after everything in the scene: AMD FSR 3.1 at native resolution, in this process (mode 1), over the
+// back buffer (linear HDR), with the scene depth (as R32F) and the motion vectors; the result is copied back over
+// the back buffer and the UI draws on top. Modes 2 / 3 go to the 64-bit helper (TemporalAaHelper).
 void VulkanDevice::TemporalAa()
+{
+    const rhi::SceneHints& h = rhi::Hints();
+    if (h.aaMode != rtipc::kAaFsr)
+        return TemporalAaHelper();
+    std::lock_guard<std::recursive_mutex> g(Ctx().lock);
+    ffDirty_ = true;  // the UI's draws (after SceneEnd) recompute their uniforms without the jitter
+    if (!aaActive_ || scene_.draws.empty() || !depth_ || !rt_ || rt_->GetImage() != backBuffer_.get() || !motion_)
+        return;
+    Image* color = backBuffer_.get();
+    Image* depth = depth_->GetImage();
+    const uint32_t W = color->width, H = color->height;
+    const D3DVIEWPORT9& svp = scene_.draws.back().viewport;
+    if (!depth || svp.X != 0 || svp.Y != 0 || svp.Width != W || svp.Height != H || !RtRemoteInit())
+        return;
+    Context& c = Ctx();
+    char log[160] = {};
+    if (!AaEnsureImages(W, H) || !FsrEnsure(c.device, c.physical, vkGetDeviceProcAddr, W, H, log, sizeof(log)))
+    {
+        Log("vulkan: FSR unavailable: %s", log[0] ? log : "images");
+        aaFsrFailed_ = true;
+        return;
+    }
+    // 32-bit Vulkan: non-dispatchable handles are 64-bit values; the SDK keeps them in pointers (hook/CMakeLists.txt).
+    const uint64_t handles[] = {uint64_t(color->image), uint64_t(motion_->image), uint64_t(aaDepth_.image),
+                                uint64_t(aaOutput_.image)};
+    for (uint64_t hnd : handles)
+        if (hnd > 0xffffffffull)
+        {
+            Log("vulkan: FSR off: a Vulkan handle does not fit in 32 bits (0x%llx)",
+                static_cast<unsigned long long>(hnd));
+            aaFsrFailed_ = true;
+            return;
+        }
+
+    EndRendering();
+    VkCommandBuffer cb = Slot().cb;
+    // Depth as floats 0..1 (the ray-tracing path's conversion, RtDepthComputeGlsl) -> R32F image.
+    depth->Transition(cb, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
+    if (!shadowDepthSampler_)
+    {
+        VkSamplerCreateInfo si{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+        si.magFilter = si.minFilter = VK_FILTER_NEAREST;
+        si.addressModeU = si.addressModeV = si.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        vkCreateSampler(c.device, &si, nullptr, &shadowDepthSampler_);
+    }
+    float dp[8] = {0.0f, 0.0f, float(W), float(H), sceneProjection_._33, sceneProjection_._34, sceneProjection_._43,
+                   0.0f};
+    VkDeviceSize dOffset = PushUniform(dp, sizeof(dp));
+    VkDescriptorImageInfo dimg{shadowDepthSampler_, depth->sampledView, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL};
+    VkDescriptorBufferInfo zb{aaDepthBuffer_, 0, VkDeviceSize(W) * H * 4};
+    VkDescriptorBufferInfo db{Slot().uniforms, dOffset, sizeof(dp)};
+    VkWriteDescriptorSet w[3] = {{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}, {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET},
+                                 {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}};
+    w[0].dstBinding = 0, w[0].descriptorCount = 1, w[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    w[0].pImageInfo = &dimg;
+    w[1].dstBinding = 1, w[1].descriptorCount = 1, w[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    w[1].pBufferInfo = &zb;
+    w[2].dstBinding = 2, w[2].descriptorCount = 1, w[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    w[2].pBufferInfo = &db;
+    vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, rtDepthPipe_);
+    vkCmdPushDescriptorSetKHR(cb, VK_PIPELINE_BIND_POINT_COMPUTE, rtDepthLayout_, 0, 3, w);
+    vkCmdDispatch(cb, (W + 7) / 8, (H + 7) / 8, 1);
+    VkMemoryBarrier2 mb{VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+    mb.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, mb.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+    mb.dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT, mb.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+    VkDependencyInfo di{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    di.memoryBarrierCount = 1;
+    di.pMemoryBarriers = &mb;
+    vkCmdPipelineBarrier2(cb, &di);
+    AaBarrier(cb, aaDepth_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    VkBufferImageCopy region{};
+    region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    region.imageExtent = {W, H, 1};
+    vkCmdCopyBufferToImage(cb, aaDepthBuffer_, aaDepth_.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+    AaBarrier(cb, aaDepth_, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    color->Transition(cb, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    motion_->Transition(cb, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    AaBarrier(cb, aaOutput_, VK_IMAGE_LAYOUT_GENERAL);
+
+    const VkImageUsageFlags targetUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+                                          VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    FsrFrame f{};
+    f.cb = cb;
+    f.color = {color->image, color->format, W, H, targetUsage};
+    f.depth = {aaDepth_.image, aaDepth_.format, W, H, aaDepth_.usage};
+    f.motion = {motion_->image, motion_->format, W, H, targetUsage};
+    f.output = {aaOutput_.image, aaOutput_.format, W, H, aaOutput_.usage};
+    f.jitter[0] = aaJitter_[0], f.jitter[1] = aaJitter_[1];
+    // D3D projection: |_33| = f / (f - n), |_43| = n |_33| (absolute values: the game's projection is right-handed).
+    const float m33 = std::fabs(sceneProjection_._33), m43 = std::fabs(sceneProjection_._43);
+    f.cameraNear = m33 > 1e-6f ? m43 / m33 : 1.0f;
+    f.cameraFar = m33 > 1.0f + 1e-6f ? m33 * f.cameraNear / (m33 - 1.0f) : 100000.0f;
+    f.fovY = sceneProjection_._22 != 0.0f ? 2.0f * std::atan(1.0f / std::fabs(sceneProjection_._22)) : 1.0472f;
+    LARGE_INTEGER now, freq;
+    QueryPerformanceCounter(&now);
+    QueryPerformanceFrequency(&freq);
+    f.frameTimeMs = aaLastTime_.QuadPart
+                        ? float(double(now.QuadPart - aaLastTime_.QuadPart) * 1000.0 / double(freq.QuadPart))
+                        : 16.7f;
+    aaLastTime_ = now;
+    f.sharpness = h.aaSharpness;
+    f.reset = aaReset_;
+    f.debugView = h.aaDebug == 1;
+    if (!FsrDispatch(f, log, sizeof(log)))
+    {
+        Log("vulkan: %s; FSR off", log);
+        aaFsrFailed_ = true;
+        return;
+    }
+    aaReset_ = false;
+    // Output -> back buffer (FSR leaves its inputs in the states they came in).
+    AaBarrier(cb, aaOutput_, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    color->Transition(cb, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    VkImageCopy ic{};
+    ic.srcSubresource = ic.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    ic.extent = {W, H, 1};
+    vkCmdCopyImage(cb, aaOutput_.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, color->image,
+                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &ic);
+    static bool logged;
+    if (!logged)
+        logged = true, Log("vulkan: temporal anti-aliasing on: AMD FSR 3.1 native AA in process, %ux%u", W, H);
+}
+
+// Modes 2 / 3 through the 64-bit helper: the back buffer (linear HDR), its depth and the motion vectors go to it
+// (rt_ipc.h kAaColor / kAaDepth / kAaMotion), the frame is split there, and the next part starts by copying the
+// helper's output (kAaOutput) back over the back buffer; the UI then draws on top.
+void VulkanDevice::TemporalAaHelper()
 {
     std::lock_guard<std::recursive_mutex> g(Ctx().lock);
     ffDirty_ = true;  // the UI's draws (after SceneEnd) recompute their uniforms without the jitter
