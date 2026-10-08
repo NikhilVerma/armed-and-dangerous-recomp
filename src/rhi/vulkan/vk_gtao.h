@@ -30,5 +30,6 @@ struct alignas(16) GtaoApplyParams
     float sun[4];       // camera-space direction towards the sun; w: the sun's share s (shadow strength), 0 = no RT
     float proj[4];      // scene projection _11 _22 _33 _34
     float proj43[4];    // _43
+    float material[4];  // x: share of the occlusion kept on snow-white surfaces
 };
 }  // namespace rhi::vulkan

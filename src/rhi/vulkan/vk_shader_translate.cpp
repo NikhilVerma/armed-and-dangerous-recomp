@@ -297,10 +297,45 @@ struct Emitted
     bool coissue = false;
 };
 
+// Ambient-occlusion material outputs (vk_abi.h): mat_aoWeight = the share of the pixel's colour that comes from the
+// ambient term (occlusion applies to that share only), mat_albedo = the surface albedo's luminance (-1: unknown).
+// Armed and Dangerous creates three pixel shaders (work/shaders, [test] dump_shaders=1; hashes as DumpShader in
+// src/rhi/d3d9_facade.cpp). Each lights as  albedo * (N.L * c1 + v0) [+ v1 + specular]: v0 (vertex colour) is the
+// ambient; the N.L term (sun), v1 (an added glow term) and the specular highlight are not occluded.
+std::string MaterialOutputs(uint64_t hash)
+{
+    const char* albedo = nullptr;
+    switch (hash)
+    {
+    case 0x731b0a29671b0f18ull: albedo = "t0.rgb"; break;  // bump + specular + v1 glow: t0 base, t1 normals
+    case 0x98a72838035bad82ull:                              // terrain: t1 / t2 blended by t3, t0 normals
+        albedo = "clamp(t2.rgb * t3.rgb + t1.rgb * (1.0 - t3.rgb), 0.0, 1.0)";
+        break;
+    case 0xeac78aec9a00d1cfull: albedo = "t0.rgb"; break;  // bump diffuse: t0 base, t1 normals
+    default: break;
+    }
+    if (!albedo)
+        return "    float mat_aoWeight = 1.0, mat_albedo = -1.0;\n";
+    return std::string("    vec3 mat_a = ") + albedo + ";\n" +
+           "    const vec3 mat_lum = vec3(0.2126, 0.7152, 0.0722);\n"
+           "    float mat_albedo = dot(mat_a, mat_lum);\n"
+           "    float mat_aoWeight = clamp(dot(mat_a * v0.rgb, mat_lum) / max(dot(result.rgb, mat_lum), 1e-3), 0.0, "
+           "1.0);\n";
+}
+
 class Translator
 {
 public:
-    explicit Translator(const uint32_t* code) : code_(code) {}
+    explicit Translator(const uint32_t* code) : code_(code)
+    {
+        // FNV-1a over the bytecode up to and including the end token, as DumpShader names the corpus files.
+        size_t n = 0;
+        while (code && code[n] != 0x0000ffffu && n < 65536)
+            ++n;
+        const unsigned char* b = reinterpret_cast<const unsigned char*>(code);
+        for (size_t i = 0; code && i < (n + 1) * 4; ++i)
+            hash_ = (hash_ ^ b[i]) * 1099511628211ull;
+    }
 
     TranslatedShader Run()
     {
@@ -1162,7 +1197,7 @@ private:
             g += "layout(location = 0) out vec4 fragColor;\n";
             // Motion vectors (vk_abi.h): clip positions from the vertex half, motion = prevUv - curUv.
             g += "layout(location = 11) in vec4 vCurClip;\nlayout(location = 12) in vec4 vPrevClip;\n"
-                 "layout(location = 1) out vec2 motion;\n";
+                 "layout(location = 1) out vec4 motion;\n";
             for (uint32_t n = 0; n < kMaxSamplers; ++n)
                 if (samplers_ & (1u << n))
                     g += std::format("layout(set = 0, binding = {}) uniform {} s{};\n", kBindingSampler0 + n,
@@ -1183,9 +1218,12 @@ private:
                 decl += "    vec4 oC0 = vec4(0.0);\n";
             // ps_1_x: the result is r0, converted to a [0, 1] color; ps_2_0: oC0.
             epilogue = "    vec2 mv_curNdc = vCurClip.xy / vCurClip.w, mv_prevNdc = vPrevClip.xy / vPrevClip.w;\n"
-                       "    motion = vec2(mv_prevNdc.x * 0.5 + 0.5, 0.5 - mv_prevNdc.y * 0.5) -\n"
-                       "             vec2(mv_curNdc.x * 0.5 + 0.5, 0.5 - mv_curNdc.y * 0.5);\n";
+                       "    vec2 mv = vec2(mv_prevNdc.x * 0.5 + 0.5, 0.5 - mv_prevNdc.y * 0.5) -\n"
+                       "              vec2(mv_curNdc.x * 0.5 + 0.5, 0.5 - mv_curNdc.y * 0.5);\n";
             epilogue += ps1x_ ? "    vec4 result = clamp(r0, 0.0, 1.0);\n" : "    vec4 result = oC0;\n";
+            // Material outputs for ambient occlusion (vk_abi.h "Motion vectors", z and w), before fog.
+            epilogue += MaterialOutputs(hash_);
+            epilogue += "    motion = vec4(mv, mat_aoWeight, mat_albedo);\n";
             epilogue += "    D3D9_FINAL(result);\n    fragColor = result;\n";
             if (ps1x_)
                 Temp(0);
@@ -1243,6 +1281,7 @@ private:
     }
 
     const uint32_t* code_;
+    uint64_t hash_ = 1469598103934665603ull;
     bool pixel_ = false, ps1x_ = false;
     uint32_t major_ = 0, minor_ = 0;
     const char* psRange_ = "1.0";

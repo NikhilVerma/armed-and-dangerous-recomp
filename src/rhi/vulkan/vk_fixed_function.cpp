@@ -82,13 +82,13 @@ std::string PrevFrameBlock()
 // uv = (ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5), ndc = clip.xy / clip.w. Not flat: they interpolate like positions.
 const char* kMotionPixelDecl = "layout(location = 11) in vec4 vCurClip;\n"
                                "layout(location = 12) in vec4 vPrevClip;\n"
-                               "layout(location = 1) out vec2 fragMotion;\n";
+                               "layout(location = 1) out vec4 fragMotion;\n";
 const char* kMotionPixelWrite =
     "    {\n"
     "        vec2 curNdc = vCurClip.xy / vCurClip.w, prevNdc = vPrevClip.xy / vPrevClip.w;\n"
     "        vec2 curUv = vec2(curNdc.x * 0.5 + 0.5, 0.5 - curNdc.y * 0.5);\n"
     "        vec2 prevUv = vec2(prevNdc.x * 0.5 + 0.5, 0.5 - prevNdc.y * 0.5);\n"
-    "        fragMotion = prevUv - curUv;  // motion vector (vk_abi.h)\n"
+    "        fragMotion = vec4(prevUv - curUv, 1.0, -1.0);  // motion; AO weight 1, albedo unknown (vk_abi.h)\n"
     "    }\n";
 
 bool Has(const FFKey& key, BYTE usage, BYTE index)

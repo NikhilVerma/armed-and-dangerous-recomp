@@ -22,12 +22,12 @@ std::string DropInclude(std::string s, const char* name)
 std::string GtaoHlsl()
 {
     // XeGTAO options: 32-bit depths (no fp16 path), normals generated from depth inside the main pass, no bent
-    // normals, the default (compiled-in) tuning constants.
+    // normals, tuning constants from GTAOSettings ([render] ao_radius / ao_power / ao_falloff).
     std::string s =
         "#define XE_GTAO_USE_HALF_FLOAT_PRECISION 0\n"
         "#define XE_GTAO_FP32_DEPTHS 1\n"
         "#define XE_GTAO_GENERATE_NORMALS_INPLACE 1\n"
-        "#define XE_GTAO_USE_DEFAULT_CONSTANTS 1\n"
+        "#define XE_GTAO_USE_DEFAULT_CONSTANTS 0\n"  // radius, falloff and power from GTAOSettings
         // The two macros XeGTAO.hlsli takes from its sample framework (vaShaderCore.h, vaShared.hlsl).
         "#define VA_SATURATE saturate\n"
         "#define VA_PI (3.1415926535897932384626433832795)\n";
@@ -84,8 +84,10 @@ layout(std140, set = 0, binding = 2) uniform Params
     vec4 sun;       // camera space, w: sun share s (0: no ray-traced visibility)
     vec4 proj;      // _11 _22 _33 _34
     vec4 proj43;
+    vec4 material;  // x: share of the occlusion kept on snow-white surfaces
 } p;
 layout(std430, set = 0, binding = 3) readonly buffer Vis { float v[]; } vis;  // RT sun visibility (rt_ipc.h)
+layout(set = 0, binding = 4) uniform sampler2D matTex;  // motion target: z AO weight, w albedo (vk_abi.h)
 layout(location = 0) out vec4 o;
 
 // Output blends as  dst * o.a + o.rgb  (src ONE, dst SRC_ALPHA).
@@ -100,12 +102,23 @@ void main()
         return;
     }
     float ao = float(texelFetch(aoTex, local, 0).r) / 255.0;
-    // Multi-bounce (Jimenez et al. 2016, eq. 10), albedo 0.6 (snow and pale rock dominate the game's levels).
-    const float albedo = 0.6;
+    float rawAo = ao;
+    // The opaque surface's material (vk_abi.h): weight = the share of its colour lit by ambient light, albedo
+    // (-1 when the shader is not known). Pixels no opaque draw wrote (weight 0) are left alone.
+    vec4 mat = texelFetch(matTex, px, 0);
+    float weight = clamp(mat.z, 0.0, 1.0);
+    bool known = mat.w >= 0.0;
+    // Multi-bounce (Jimenez et al. 2016, eq. 10) with the surface's albedo (0.6 when unknown).
+    float albedo = known ? clamp(mat.w, 0.0, 1.0) : 0.6;
     float ma = 2.0404 * albedo - 0.3324, mb = -4.7951 * albedo + 0.6417, mc = 2.7552 * albedo + 0.6903;
     ao = max(ao, ((ao * ma + mb) * ao + mc) * ao);
-    ao = mix(1.0, ao, p.fog.w);
-    if (p.sun.w > 0.0)
+    // Snow scatters light through itself and is lit by the bright snow around it: occlusion mostly disappears on
+    // snow-white surfaces (albedo 0.65 .. 0.8 keeps p.material.x of it).
+    float snow = known ? smoothstep(0.65, 0.8, albedo) : 0.0;
+    ao = mix(1.0, ao, p.fog.w * mix(1.0, p.material.x, snow));
+    if (known)
+        ao = mix(1.0, ao, weight);  // the ambient share only: the sun term, glow and highlights are not occluded
+    else if (p.sun.w > 0.0)
     {
         // Occlusion of the ambient light only. The shadow pass (vk_rt.cpp) scales the colour by (1 - s') + s' vis,
         // s' = s smoothstep(0.02, 0.2, n.l) the sun's share here; the light should be (1 - s') ao + s' vis, so this
@@ -139,6 +152,11 @@ void main()
         }
     }
     o = vec4(fc * (1.0 - f) * (1.0 - ao), ao);
+    // [render] ao_debug: 1 XeGTAO's term, 2 the factor applied, 3 the AO weight, 4 the albedo (grey, replaces the
+    // frame).
+    int dbg = int(p.material.y + 0.5);
+    if (dbg != 0)
+        o = vec4(vec3(dbg == 1 ? rawAo : dbg == 2 ? ao : dbg == 3 ? weight : (known ? albedo : 0.0)), 0.0);
 }
 )";
 }

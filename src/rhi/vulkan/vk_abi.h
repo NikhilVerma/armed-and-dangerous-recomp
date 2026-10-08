@@ -93,7 +93,9 @@ struct alignas(16) FFUniforms
 // transforms for the same draw (the device matches draws across frames; first appearance: equal to the current).
 // Every vertex shader (translated and fixed function) also computes the PREVIOUS clip position with these values
 // and writes two varyings: location 11 vec4 vCurClip (current clip position BEFORE the half-pixel offset) and
-// location 12 vec4 vPrevClip. Every pixel shader writes fragment output location 1 (vec2 motion):
+// location 12 vec4 vPrevClip. Every pixel shader writes fragment output location 1 (vec4, RGBA16F target): z = the
+// share of the colour lit by ambient light (ambient occlusion applies to it; 1 when unknown), w = the surface albedo's
+// luminance (-1 when unknown; vk_shader_translate.cpp MaterialOutputs), xy = the motion:
 //   motion = prevUv - curUv,  uv = vec2(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5),  ndc = clip.xy / clip.w
 // i.e. the offset, in 0..1 texture coordinates of the target (y down), from this pixel to where its surface was
 // in the previous frame. Location 0 stays the colour. Targets without a motion attachment ignore location 1.

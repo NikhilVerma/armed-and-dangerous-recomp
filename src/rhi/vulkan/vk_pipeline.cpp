@@ -417,7 +417,10 @@ VkPipeline GetPipeline(const PipelineKey& key, const VertexInput& input, VkShade
     VkPipelineColorBlendAttachmentState atts[2] = {att, {}};
     // Only surfaces that write depth write motion (opaque geometry); overlays, particles and UI keep what is under
     // them, as temporal upscalers expect.
-    atts[1].colorWriteMask = depth && rk.zWriteEnable ? (VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT) : 0;
+    // All four channels: xy motion, z the AO weight, w the albedo (vk_abi.h).
+    atts[1].colorWriteMask = depth && rk.zWriteEnable ? (VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                                                         VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT)
+                                                      : 0;
     const VkFormat formats[2] = {colorFormat, static_cast<VkFormat>(key.motionFormat)};
     VkPipelineColorBlendStateCreateInfo cb{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
     cb.attachmentCount = colorFormat == VK_FORMAT_UNDEFINED ? 0 : (key.motionFormat != VK_FORMAT_UNDEFINED ? 2 : 1);

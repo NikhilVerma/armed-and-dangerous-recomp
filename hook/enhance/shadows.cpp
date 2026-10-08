@@ -119,9 +119,21 @@ void ShadowsInit()
                           [](float v) { rhi::Hints().aoStrength = v; }},
                          1.0f);
     rhi::Hints().aoRadius =
-        RemasterRegister({"render", "ao_radius", L"AO radius", S::Slider, 0.25f, 4.0f, 0.25f, {}, 0, false,
+        RemasterRegister({"render", "ao_radius", L"AO radius", S::Slider, 2.0f, 100.0f, 2.0f, {}, 0, false,
                           [](float v) { rhi::Hints().aoRadius = v; }},
-                         2.5f);
+                         24.0f);  // world units: below ~20 the term is nearly white at the game's scale
+    rhi::Hints().aoPower =
+        RemasterRegister({"render", "ao_power", L"AO contrast", S::Slider, 1.0f, 5.0f, 0.1f, {}, 0, false,
+                          [](float v) { rhi::Hints().aoPower = v; }},
+                         3.0f);
+    rhi::Hints().aoFalloff =
+        RemasterRegister({"render", "ao_falloff", L"AO falloff", S::Slider, 0.1f, 1.0f, 0.05f, {}, 0, false,
+                          [](float v) { rhi::Hints().aoFalloff = v; }},
+                         0.5f);
+    rhi::Hints().aoSnow =
+        RemasterRegister({"render", "ao_snow", L"AO on snow", S::Slider, 0.0f, 1.0f, 0.05f, {}, 0, false,
+                          [](float v) { rhi::Hints().aoSnow = v; }},
+                         0.25f);
     // Modern fog (exponential height fog, src/rhi/vulkan/vk_fog.h): remaster default on.
     bool fog = RemasterRegister({"render", "fog_modern", L"Height fog (VK)", S::Toggle, 0, 1, 1, {}, 0, false,
                                  [](float v) { rhi::Hints().fogModern = v != 0.0f; }},

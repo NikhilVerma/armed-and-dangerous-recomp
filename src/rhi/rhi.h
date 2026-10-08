@@ -183,6 +183,9 @@ struct SceneHints
     bool ao = false;
     float aoStrength = 1.0f;  // 0..1: how much of XeGTAO's occlusion is applied
     float aoRadius = 1.2f;    // world units: the size of the occlusion sphere
+    float aoPower = 2.2f;     // XeGTAO FinalValuePower: higher = darker, more contrasty occlusion
+    float aoFalloff = 0.615f; // XeGTAO FalloffRange (share of the radius over which occluders fade out)
+    float aoSnow = 0.3f;      // share of the occlusion kept on snow-white surfaces (albedo >= ~0.75)
     // [render] fog_modern: exponential height fog in place of the game's linear fog (vk_fog.h).
     bool fogModern = false;
     float fogDensity = 1.0f;         // multiplier on the density that keeps the game's visibility range

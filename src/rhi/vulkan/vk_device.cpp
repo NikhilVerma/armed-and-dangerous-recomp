@@ -738,7 +738,7 @@ void VulkanDevice::DestroySwapchain()
 bool VulkanDevice::CreateTargets()
 {
     // The back buffer is stored as RGBA16F (the linear HDR target of the remaster; the game still sees its own
-    // format). Next to it: the motion-vector attachment (RG16F, vk_abi.h) and the 8-bit image the present pass
+    // format). Next to it: the motion-vector attachment (RGBA16F: motion, AO weight, albedo; vk_abi.h) and the 8-bit image the present pass
     // (tonemap / debug view) writes and the swapchain is filled from.
     backBuffer_ = std::make_shared<Image>();
     D3DFORMAT bbFormat = params_.BackBufferFormat == D3DFMT_UNKNOWN ? D3DFMT_X8R8G8B8 : params_.BackBufferFormat;
@@ -747,7 +747,7 @@ bool VulkanDevice::CreateTargets()
         return false;
     motion_ = std::make_shared<Image>();
     if (!motion_->Create(D3DFMT_A8R8G8B8, params_.BackBufferWidth, params_.BackBufferHeight, 1, 1, true, false,
-                         VK_FORMAT_R16G16_SFLOAT))
+                         VK_FORMAT_R16G16B16A16_SFLOAT))
         return false;
     present_ = std::make_shared<Image>();
     if (!present_->Create(D3DFMT_A8R8G8B8, params_.BackBufferWidth, params_.BackBufferHeight, 1, 1, true, false))
@@ -1454,7 +1454,7 @@ bool VulkanDevice::PrepareDraw(D3DPRIMITIVETYPE type, uint64_t drawKey)
     pk.shaderHash = Hash(pair, sizeof(pair));
     pk.colorFormat = rt_->GetImage()->format;
     pk.depthFormat = depth ? depth->format : VK_FORMAT_UNDEFINED;
-    pk.motionFormat = rt_->GetImage() == backBuffer_.get() ? VK_FORMAT_R16G16_SFLOAT : VK_FORMAT_UNDEFINED;
+    pk.motionFormat = rt_->GetImage() == backBuffer_.get() ? VK_FORMAT_R16G16B16A16_SFLOAT : VK_FORMAT_UNDEFINED;
     if (pk.motionFormat && r.zEnable && r.zWriteEnable)
         sceneProjection_ = projection_;  // the 3D camera, for the depth/normal views (the HUD sets its own last)
     VkPipeline pipeline = tessDraw_ ? GetPipeline(pk, input, vsm, fsm, tessControl_, tessEval_)
@@ -2723,12 +2723,13 @@ bool VulkanDevice::GtaoInit()
     }
     gtaoApplyVs_ = MakeModule(CompileGlsl(GtaoApplyVertexGlsl(), false));
     gtaoApplyFs_ = MakeModule(CompileGlsl(GtaoApplyFragmentGlsl(), true));
-    VkDescriptorSetLayoutBinding ab[4] = {
+    VkDescriptorSetLayoutBinding ab[5] = {
         {0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
-        {3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr}};
-    dl.bindingCount = 4;
+        {3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+        {4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr}};  // material
+    dl.bindingCount = 5;
     dl.pBindings = ab;
     vkCreateDescriptorSetLayout(device, &dl, nullptr, &gtaoApplySetLayout_);
     pl.pSetLayouts = &gtaoApplySetLayout_;
@@ -2854,6 +2855,8 @@ void VulkanDevice::Ambient()
     settings.QualityLevel = 2;  // CSGTAOHigh
     settings.DenoisePasses = 2;  // "medium": one intermediate pass, then the last
     settings.Radius = h.aoRadius;
+    settings.FinalValuePower = h.aoPower;            // XE_GTAO_USE_DEFAULT_CONSTANTS 0 (vk_gtao.cpp): used
+    settings.FalloffRange = h.aoFalloff;
     XeGTAO::GTAOConstants consts{};
     XeGTAO::GTAOUpdateConstants(consts, int(svp.Width), int(svp.Height), settings, &sceneProjection_._11, true,
                                 gtaoFrame_++);
@@ -2934,6 +2937,9 @@ void VulkanDevice::Ambient()
     ap.viewport[0] = float(svp.X), ap.viewport[1] = float(svp.Y), ap.viewport[2] = float(W), ap.viewport[3] = float(H);
     ap.fog[0] = scene_.fogStart, ap.fog[1] = scene_.fogEnd, ap.fog[2] = scene_.fog ? 1.0f : 0.0f;
     ap.fog[3] = h.aoStrength;
+    ap.material[0] = h.aoSnow;  // occlusion kept on snow-white surfaces (albedo, vk_gtao.cpp)
+    static const int aoDebug = ConfigInt("render", "ao_debug", 0);  // diagnosis (vk_gtao.cpp)
+    ap.material[1] = float(aoDebug);
     std::memcpy(ap.fogColor, scene_.fogColor, sizeof(scene_.fogColor));
     if (scene_.fog)
         ModernFogUniforms(ap.mf, h, sceneProjection_, svp, scene_.fogStart, scene_.fogEnd, false);
@@ -2973,8 +2979,14 @@ void VulkanDevice::Ambient()
     VkDescriptorBufferInfo apb{Slot().uniforms, apOffset, sizeof(ap)};
     VkDescriptorBufferInfo visb = haveVis ? VkDescriptorBufferInfo{rcl.Buffer(rtipc::kVisibility), 0, VK_WHOLE_SIZE}
                                           : VkDescriptorBufferInfo{Slot().uniforms, 0, 16};
-    VkWriteDescriptorSet aw[4] = {{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}, {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET},
-                                  {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}, {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}};
+    // The motion target's z / w: AO weight and albedo of the opaque surface (vk_abi.h).
+    motion_->Transition(cb, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    VkDescriptorImageInfo matImg{shadowDepthSampler_, motion_->sampledView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+    VkWriteDescriptorSet aw[5] = {{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}, {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET},
+                                  {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}, {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET},
+                                  {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}};
+    aw[4].dstBinding = 4, aw[4].descriptorCount = 1, aw[4].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    aw[4].pImageInfo = &matImg;
     aw[3].dstBinding = 3, aw[3].descriptorCount = 1, aw[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     aw[3].pBufferInfo = &visb;
     aw[0].dstBinding = 0, aw[0].descriptorCount = 1, aw[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -2983,7 +2995,7 @@ void VulkanDevice::Ambient()
     aw[1].pImageInfo = &dImg;
     aw[2].dstBinding = 2, aw[2].descriptorCount = 1, aw[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     aw[2].pBufferInfo = &apb;
-    vkCmdPushDescriptorSetKHR(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, gtaoApplyLayout_, 0, 4, aw);
+    vkCmdPushDescriptorSetKHR(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, gtaoApplyLayout_, 0, 5, aw);
     vkCmdDraw(cb, 3, 1, 0, 0);
     vkCmdEndRendering(cb);
 }
