@@ -22,6 +22,7 @@ struct FsrFrame
     FsrImage depth;   // R32 float 0..1 (D3D convention), SHADER_READ_ONLY_OPTIMAL
     FsrImage motion;  // .rg = prevUv - curUv (0..1, y down), SHADER_READ_ONLY_OPTIMAL
     FsrImage output;  // storage image, VK_IMAGE_LAYOUT_GENERAL
+    FsrImage exposure;  // optional 1x1 R32G32 (exposure, 1), SHADER_READ_ONLY_OPTIMAL; image 0: FSR's default
     float jitter[2];  // pixels, +x right, +y down
     float cameraNear, cameraFar, fovY;
     float frameTimeMs;

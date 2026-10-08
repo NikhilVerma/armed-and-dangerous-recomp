@@ -99,6 +99,10 @@ bool ContextInit()
     f2.features.vertexPipelineStoresAndAtomics = supported.vertexPipelineStoresAndAtomics;  // scene vertex capture
     c.vertexStores = supported.vertexPipelineStoresAndAtomics == VK_TRUE;
     f2.features.dualSrcBlend = supported.dualSrcBlend;  // remaster: sky-tinted shadows (vk_shadows.cpp)
+    // AMD FSR 3.1 (hook/fsr/fsr_bridge.h): its backend picks 16-bit shader variants from what the GPU supports, so
+    // the device must enable what they use (else its passes write nothing: the scene came out black).
+    f2.features.shaderInt16 = supported.shaderInt16;
+    f2.features.shaderStorageImageWriteWithoutFormat = supported.shaderStorageImageWriteWithoutFormat;
     // Ray queries for ray-traced shadows, when the device has them (vk_rt.h).
     std::vector<const char*> deviceExt = {VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME};
     {
@@ -128,9 +132,20 @@ bool ContextInit()
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR};
     VkPhysicalDeviceRayQueryFeaturesKHR frq{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR};
     VkPhysicalDeviceVulkan12Features s12{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
+    VkPhysicalDeviceVulkan11Features s11{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES};
+    VkPhysicalDeviceVulkan13Features s13{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
     VkPhysicalDeviceFeatures2 sf2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
     sf2.pNext = &s12;
+    s12.pNext = &s11;
+    s11.pNext = &s13;
     vkGetPhysicalDeviceFeatures2(c.physical, &sf2);
+    // FSR 3.1's 16-bit variants and subgroup control (see shaderInt16 above).
+    VkPhysicalDeviceVulkan11Features f11{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES};
+    f11.storageBuffer16BitAccess = s11.storageBuffer16BitAccess;
+    f11.uniformAndStorageBuffer16BitAccess = s11.uniformAndStorageBuffer16BitAccess;
+    f12.shaderFloat16 = s12.shaderFloat16;
+    f13.subgroupSizeControl = s13.subgroupSizeControl;
+    f13.computeFullSubgroups = s13.computeFullSubgroups;
     c.externalSharing = c.externalSharing && s12.timelineSemaphore && ConfigInt("render", "rt_share", 1) != 0;
     if (c.externalSharing)
     {
@@ -138,7 +153,8 @@ bool ContextInit()
         deviceExt.push_back(VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME);
         f12.timelineSemaphore = VK_TRUE;
     }
-    f13.pNext = &f12;
+    f13.pNext = &f11;
+    f11.pNext = &f12;
     if (c.rayQuery)
     {
         deviceExt.push_back(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME);

@@ -131,7 +131,7 @@ endforeach()
 # refuses handles that do not fit in 32 bits, which the 32-bit drivers' pointer-sized handles always do).
 file(READ ${FFXSDK}/src/backends/vk/ffx_vk.cpp FFX_VK_SRC)
 foreach(pair
-    "allocation.resource.resource = uniformBuffer;|allocation.resource.resource = reinterpret_cast<void*>(static_cast<uintptr_t>(uniformBuffer));"
+    "allocation.resource.resource = uniformBuffer|allocation.resource.resource = reinterpret_cast<void*>(static_cast<uintptr_t>(uniformBuffer))"
     "vkCreateComputePipelines(backendContext->device, nullptr, 1,|vkCreateComputePipelines(backendContext->device, VK_NULL_HANDLE, 1,"
     "static_cast<VkBuffer>(allocation.resource.resource)|static_cast<VkBuffer>(reinterpret_cast<uintptr_t>(allocation.resource.resource))")
   string(REPLACE "|" ";" p "${pair}")
@@ -143,6 +143,27 @@ foreach(pair
   endif()
   string(REPLACE "${from}" "${to}" FFX_VK_SRC "${FFX_VK_SRC}")
 endforeach()
+# Pointer -> 64-bit handle casts sign-extend on x86 (a handle at 0x8xxxxxxx became 0xffffffff8xxxxxxx and the driver
+# crashed in vkCmdFillBuffer): every such cast goes through uintptr_t (zero extension).
+foreach(type VkBuffer VkImage VkPipeline VkSwapchainKHR)
+  string(REPLACE "reinterpret_cast<${type}>(" "(${type})(uintptr_t)(" FFX_VK_SRC "${FFX_VK_SRC}")
+endforeach()
+foreach(type VkBuffer VkImage)
+  string(REPLACE "(${type})inFfxResource->resource" "(${type})(uintptr_t)inFfxResource->resource" FFX_VK_SRC
+                 "${FFX_VK_SRC}")
+  string(REPLACE "(${type})blockData->" "(${type})(uintptr_t)blockData->" FFX_VK_SRC "${FFX_VK_SRC}")
+  string(REPLACE "(${type})gpuBuffer" "(${type})(uintptr_t)gpuBuffer" FFX_VK_SRC "${FFX_VK_SRC}")
+endforeach()
+if(AND_FSR_DEBUG)  # diagnosis: FSR backend logs (and-fsr-*.log)
+  string(REPLACE
+    "backendContext->vkFunctionTable.vkCmdFillBuffer(vkCommandBuffer, vkResource, 0, VK_WHOLE_SIZE,"
+    "{ static FILE* dbg = fopen(\"and-fsr-debug.log\", \"w\"); fprintf(dbg, \"fill cb %p buffer %llx size %llu usage %x\\n\", (void*)vkCommandBuffer, (unsigned long long)vkResource, (unsigned long long)ffxResource.resourceDescription.width, (unsigned)ffxResource.resourceDescription.usage); fflush(dbg); }\n        backendContext->vkFunctionTable.vkCmdFillBuffer(vkCommandBuffer, vkResource, 0, VK_WHOLE_SIZE,"
+    FFX_VK_SRC "${FFX_VK_SRC}")
+  string(REPLACE "outResource->internalIndex = effectContext.nextStaticResource++;" "outResource->internalIndex = effectContext.nextStaticResource++; { static FILE* dbg2 = fopen(\"and-fsr-res.log\", \"w\"); fprintf(dbg2, \"create %u ctx %u %ls w %u h %u type %u\\n\", outResource->internalIndex, effectContextId, createResourceDescription->name, createResourceDescription->resourceDescription.width, createResourceDescription->resourceDescription.height, (unsigned)createResourceDescription->resourceDescription.type); fflush(dbg2); }" FFX_VK_SRC "${FFX_VK_SRC}")
+  string(REPLACE "deviceCapabilities->fp16Supported = (bool)shaderFloat18Int8Features.shaderFloat16;" "deviceCapabilities->fp16Supported = false;" FFX_VK_SRC "${FFX_VK_SRC}")
+  string(REPLACE "uint32_t idx = job->clearJobDescriptor.target.internalIndex;" "uint32_t idx = job->clearJobDescriptor.target.internalIndex; { static FILE* dbg3 = fopen(\"and-fsr-clear.log\", \"w\"); fprintf(dbg3, \"clear idx %u\\n\", idx); fflush(dbg3); }" FFX_VK_SRC "${FFX_VK_SRC}")
+  string(REPLACE "FfxTextureSRV& textureSRV = job->computeJobDescriptor.srvTextures[currentPipelineSrvIndex];" "FfxTextureSRV& textureSRV = job->computeJobDescriptor.srvTextures[currentPipelineSrvIndex]; { static FILE* dbg4 = fopen(\"and-fsr-srv.log\", \"w\"); static int n4; if (n4++ < 200) { fprintf(dbg4, \"%ls srv %u slot %u idx %u\\n\", job->jobLabel, currentPipelineSrvIndex, job->computeJobDescriptor.pipeline.srvTextureBindings[currentPipelineSrvIndex].slotIndex, textureSRV.resource.internalIndex); fflush(dbg4); } }" FFX_VK_SRC "${FFX_VK_SRC}")
+endif()
 set(FFX_VK_PATCHED ${CMAKE_BINARY_DIR}/ffx_vk_x86.cpp)
 file(WRITE ${FFX_VK_PATCHED}.tmp "${FFX_VK_SRC}")
 configure_file(${FFX_VK_PATCHED}.tmp ${FFX_VK_PATCHED} COPYONLY)

@@ -24,6 +24,13 @@ uint32_t g_width = 0, g_height = 0;
 VkDevice g_device = VK_NULL_HANDLE;
 // The backend keeps a pointer to this (ffxGetDeviceVK): it must outlive FsrEnsure.
 VkDeviceContext g_deviceContext{};
+// The backend interface and the three "shared" resources the native FSR3 API expects the caller to own (dilated
+// depth, dilated motion vectors, reconstructed previous nearest depth), created as AMD's FidelityFX API provider does
+// (ffx-api/src/ffx_provider_fsr3upscale.cpp). Without them FSR clears an unallocated resource slot and the driver
+// crashes (seen in game: vkCmdFillBuffer on handle 0).
+FfxInterface g_interface{};
+FfxResourceInternal g_shared[3]{};
+bool g_haveShared = false;
 PFN_vkGetDeviceProcAddr g_realGetDeviceProcAddr = nullptr;
 
 // The SDK asks for extension names (vkGetBufferMemoryRequirements2KHR, ...) that are core in Vulkan 1.1+ and not
@@ -73,6 +80,10 @@ void FsrShutdown()
     if (g_haveContext)
     {
         vkDeviceWaitIdle(g_device);
+        if (g_haveShared)
+            for (FfxResourceInternal& r : g_shared)
+                g_interface.fpDestroyResource(&g_interface, r, 0);
+        g_haveShared = false;
         ffxFsr3UpscalerContextDestroy(&g_context);
         g_haveContext = false;
     }
@@ -98,14 +109,28 @@ bool FsrEnsure(VkDevice device, VkPhysicalDevice physical, PFN_vkGetDeviceProcAd
     if (e != FFX_OK)
         return std::snprintf(log, logSize, "FSR: Vulkan backend interface failed (%d)", int(e)), false;
     // The scene is the linear HDR back buffer before tone mapping; native resolution.
-    desc.flags = FFX_FSR3UPSCALER_ENABLE_HIGH_DYNAMIC_RANGE | FFX_FSR3UPSCALER_ENABLE_AUTO_EXPOSURE;
+    desc.flags = FFX_FSR3UPSCALER_ENABLE_HIGH_DYNAMIC_RANGE;  // exposure: our 1x1 texture (1.0); the scene is display-referred
     desc.maxRenderSize = {width, height};
     desc.maxUpscaleSize = {width, height};
     desc.fpMessage = Message;
+    ffxFsr3UpscalerSetGlobalDebugMessage(
+        [](uint32_t type, const wchar_t* message) { Message(static_cast<FfxMsgType>(type), message); }, 1);
     e = ffxFsr3UpscalerContextCreate(&g_context, &desc);
     if (e != FFX_OK)
         return std::snprintf(log, logSize, "FSR: context creation failed (%d)", int(e)), false;
     g_haveContext = true;
+    g_interface = desc.backendInterface;
+    FfxFsr3UpscalerSharedResourceDescriptions shared{};
+    e = ffxFsr3UpscalerGetSharedResourceDescriptions(&g_context, &shared);
+    if (e == FFX_OK)
+        e = g_interface.fpCreateResource(&g_interface, &shared.dilatedDepth, 0, &g_shared[0]);
+    if (e == FFX_OK)
+        e = g_interface.fpCreateResource(&g_interface, &shared.dilatedMotionVectors, 0, &g_shared[1]);
+    if (e == FFX_OK)
+        e = g_interface.fpCreateResource(&g_interface, &shared.reconstructedPrevNearestDepth, 0, &g_shared[2]);
+    if (e != FFX_OK)
+        return std::snprintf(log, logSize, "FSR: shared resources failed (%d)", int(e)), false;
+    g_haveShared = true;
     g_width = width, g_height = height;
     return true;
 }
@@ -120,6 +145,11 @@ bool FsrDispatch(const FsrFrame& f, char* log, size_t logSize)
     d.depth = Resource(f.depth, FFX_RESOURCE_STATE_COMPUTE_READ, L"and_depth");
     d.motionVectors = Resource(f.motion, FFX_RESOURCE_STATE_COMPUTE_READ, L"and_motion");
     d.output = Resource(f.output, FFX_RESOURCE_STATE_UNORDERED_ACCESS, L"and_output");
+    if (f.exposure.image)
+        d.exposure = Resource(f.exposure, FFX_RESOURCE_STATE_COMPUTE_READ, L"and_exposure");
+    d.dilatedDepth = g_interface.fpGetResource(&g_interface, g_shared[0]);
+    d.dilatedMotionVectors = g_interface.fpGetResource(&g_interface, g_shared[1]);
+    d.reconstructedPrevNearestDepth = g_interface.fpGetResource(&g_interface, g_shared[2]);
     // Jitter in pixels, +y down (the projection offset is -2 jy / h in D3D clip space, as AMD's samples).
     d.jitterOffset = {f.jitter[0], f.jitter[1]};
     // Motion: prevUv - curUv in 0..1 texture coordinates (y down) -> pixels.

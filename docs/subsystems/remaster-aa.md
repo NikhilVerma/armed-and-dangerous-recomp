@@ -52,6 +52,26 @@ directly would avoid them; buffers are the proven path, so they come first.
 - Later: `upscale = native|quality|balanced|performance`. Native = DLAA / FSR native AA. Upscaling needs the game
   to render at a lower internal resolution (back buffer smaller than the swapchain); not in the first version.
 
+## Working in game (2026-10-08, after Smart App Control was turned off)
+
+AMD FSR 3.1 native AA runs in the hook DLL, and lev_1_m1 is verified:
+- character and geometry edges are anti-aliased;
+- no ghosting while running and turning (work/visual/fsr_walk);
+- the faithful comparison still passes.
+
+Fixes needed on the way:
+- **The three shared resources.** The native FSR3 API expects the caller to create dilated depth, dilated motion
+  and reconstructed previous depth. Without them FSR cleared slot 0 and the driver crashed in vkCmdFillBuffer.
+- **Pointer to 64-bit handle casts.** MSVC sign-extends them on x86. Every one now goes through uintptr_t.
+- **A CMake list-separator bug in my own patch.** A ';' in the replacement pair deleted the line that sets the
+  constant buffer, so every FSR pass read zero constants and wrote black. The Khronos validation layer, built from
+  source for 32-bit with tools/build_vvl.ps1, showed this as VUID-VkDescriptorBufferInfo-buffer-02998.
+  Run it with handle wrapping disabled: the 32-bit guard rejects the wrapped 64-bit IDs.
+- **Device features for FSR's 16-bit shader variants.** shaderFloat16, 16-bit storage, shaderInt16 and storage
+  image write without format.
+- **An exposure texture of our own.** A 1x1 R32G32 texture holding 1.0, since the scene is display-referred.
+- **GPU snowfall drawn after AA.** The flakes have no motion vectors and FSR averaged them away.
+
 ## In-process FSR (2026-10-08, commit e0bcd57)
 
 Smart App Control kept blocking the helper, so FSR 3.1 is now built from the FidelityFX SDK v1.1.4 sources into the

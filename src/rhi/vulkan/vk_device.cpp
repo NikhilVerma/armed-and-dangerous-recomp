@@ -434,7 +434,7 @@ struct AaImage
     VkImageUsageFlags usage = 0;
     VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED;
 };
-AaImage aaDepth_, aaOutput_;
+AaImage aaDepth_, aaOutput_, aaExposure_;
 VkBuffer aaDepthBuffer_ = VK_NULL_HANDLE;
 VkDeviceMemory aaDepthBufferMemory_ = VK_NULL_HANDLE;
 bool aaFsrFailed_ = false;
@@ -3635,7 +3635,7 @@ bool VulkanDevice::AaEnsureImages(uint32_t width, uint32_t height)
     if (aaOutput_.image && aaWidth_ == width && aaHeight_ == height)
         return true;
     vkDeviceWaitIdle(c.device);
-    for (AaImage* i : {&aaDepth_, &aaOutput_})
+    for (AaImage* i : {&aaDepth_, &aaOutput_, &aaExposure_})
     {
         if (i->image)
             vkDestroyImage(c.device, i->image, nullptr), vkFreeMemory(c.device, i->memory, nullptr);
@@ -3644,11 +3644,11 @@ bool VulkanDevice::AaEnsureImages(uint32_t width, uint32_t height)
     if (aaDepthBuffer_)
         vkDestroyBuffer(c.device, aaDepthBuffer_, nullptr), vkFreeMemory(c.device, aaDepthBufferMemory_, nullptr);
     aaDepthBuffer_ = VK_NULL_HANDLE;
-    auto make = [&](AaImage& img, VkFormat format, VkImageUsageFlags usage) {
+    auto make = [&](AaImage& img, VkFormat format, VkImageUsageFlags usage, uint32_t w = 0, uint32_t hh = 0) {
         VkImageCreateInfo ci{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
         ci.imageType = VK_IMAGE_TYPE_2D;
         ci.format = format;
-        ci.extent = {width, height, 1};
+        ci.extent = {w ? w : width, hh ? hh : height, 1};
         ci.mipLevels = 1;
         ci.arrayLayers = 1;
         ci.samples = VK_SAMPLE_COUNT_1_BIT;
@@ -3665,7 +3665,9 @@ bool VulkanDevice::AaEnsureImages(uint32_t width, uint32_t height)
     };
     const bool ok = make(aaDepth_, VK_FORMAT_R32_SFLOAT, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT) &&
                     make(aaOutput_, VK_FORMAT_R16G16B16A16_SFLOAT,
-                         VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
+                         VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT) &&
+                    make(aaExposure_, VK_FORMAT_R32G32_SFLOAT, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                         1, 1);
     VkBufferCreateInfo bi{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
     bi.size = VkDeviceSize(width) * height * 4;
     bi.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
@@ -3778,6 +3780,15 @@ void VulkanDevice::TemporalAa()
     color->Transition(cb, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     motion_->Transition(cb, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     AaBarrier(cb, aaOutput_, VK_IMAGE_LAYOUT_GENERAL);
+    // Exposure 1.0 (the scene is display-referred): our own 1x1 texture, cleared each frame.
+    AaBarrier(cb, aaExposure_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    {
+        VkClearColorValue one{};
+        one.float32[0] = one.float32[1] = 1.0f;
+        const VkImageSubresourceRange all{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        vkCmdClearColorImage(cb, aaExposure_.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &one, 1, &all);
+    }
+    AaBarrier(cb, aaExposure_, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
     const VkImageUsageFlags targetUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
                                           VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
@@ -3787,6 +3798,7 @@ void VulkanDevice::TemporalAa()
     f.depth = {aaDepth_.image, aaDepth_.format, W, H, aaDepth_.usage};
     f.motion = {motion_->image, motion_->format, W, H, targetUsage};
     f.output = {aaOutput_.image, aaOutput_.format, W, H, aaOutput_.usage};
+    f.exposure = {aaExposure_.image, aaExposure_.format, 1, 1, aaExposure_.usage};
     f.jitter[0] = aaJitter_[0], f.jitter[1] = aaJitter_[1];
     // D3D projection: |_33| = f / (f - n), |_43| = n |_33| (absolute values: the game's projection is right-handed).
     const float m33 = std::fabs(sceneProjection_._33), m43 = std::fabs(sceneProjection_._43);
@@ -3803,7 +3815,31 @@ void VulkanDevice::TemporalAa()
     f.sharpness = h.aaSharpness;
     f.reset = aaReset_;
     f.debugView = h.aaDebug == 1;
-    if (!FsrDispatch(f, log, sizeof(log)))
+    // [render] aa_debug: 4 = no FSR, the scene copied into the output (tests the copy path); 5 = the output cleared
+    // to magenta before FSR (tests whether FSR writes it).
+    if (h.aaDebug == 4 || h.aaDebug == 5)
+    {
+        AaBarrier(cb, aaOutput_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        const VkImageSubresourceRange all{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        if (h.aaDebug == 5)
+        {
+            VkClearColorValue magenta{};
+            magenta.float32[0] = magenta.float32[2] = magenta.float32[3] = 1.0f;
+            vkCmdClearColorImage(cb, aaOutput_.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &magenta, 1, &all);
+        }
+        else
+        {
+            color->Transition(cb, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+            VkImageCopy pc{};
+            pc.srcSubresource = pc.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+            pc.extent = {W, H, 1};
+            vkCmdCopyImage(cb, color->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, aaOutput_.image,
+                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &pc);
+            color->Transition(cb, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        }
+        AaBarrier(cb, aaOutput_, VK_IMAGE_LAYOUT_GENERAL);
+    }
+    if (h.aaDebug != 4 && !FsrDispatch(f, log, sizeof(log)))
     {
         Log("vulkan: %s; FSR off", log);
         aaFsrFailed_ = true;
@@ -4257,8 +4293,9 @@ void rhi::SceneEnd()
             rhi::vulkan::g_device->Ambient();
             rhi::vulkan::g_device->lightingDone_ = true;
         }
+        // Temporal AA before the GPU snowfall: flakes have no motion vectors, and FSR averaged them away as noise.
+        rhi::vulkan::g_device->TemporalAa();
         rhi::vulkan::g_device->Snow();
-        rhi::vulkan::g_device->TemporalAa();  // last: the whole scene, before the UI
         rhi::vulkan::g_device->sceneEnded_ = true;
     }
 }
