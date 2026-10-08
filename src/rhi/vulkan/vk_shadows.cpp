@@ -139,12 +139,6 @@ layout(std140, set = 0, binding = 2) uniform Params
 } p;
 layout(set = 0, binding = 3) uniform sampler2D shadowDepth;  // the same map, raw depth (blocker search)
 
-const vec2 kDisk[16] = vec2[](
-    vec2(-0.942, -0.399), vec2(0.946, -0.769), vec2(-0.094, -0.929), vec2(0.345, 0.294),
-    vec2(-0.916, 0.458), vec2(-0.815, -0.879), vec2(-0.383, 0.277), vec2(0.975, 0.756),
-    vec2(0.443, -0.975), vec2(0.537, -0.474), vec2(-0.265, -0.419), vec2(0.792, 0.191),
-    vec2(-0.242, 0.997), vec2(-0.814, 0.914), vec2(0.200, 0.786), vec2(0.144, -0.141));
-
 // Camera-space position from the depth buffer (depth = (z _33 + _43) / (z _34), right-handed: z < 0 in front).
 vec3 CamPos(vec2 pixel)
 {
@@ -185,25 +179,27 @@ void main()
         discard;
     float bias = p.misc.w * (1.0 + 2.0 * (1.0 - ndl));
     float texel = p.misc.z;
-    // Rotate the disk per pixel (noise instead of banding).
+    // Rotate the tap spirals per pixel (noise instead of banding).
     float a = Hash(pixel) * 6.2831853;
-    mat2 rot = mat2(cos(a), sin(a), -sin(a), cos(a));
-    // Physically based penumbra (no fixed ceiling): an occluder at distance g above the receiver, lit by a sun
-    // of angular radius r, blurs its shadow over a disc of radius g tan(r). A thin occluder far above (a tree top)
-    // spreads over a wide disc and fades, as real shadows do; the old fixed search radius capped the blur and long
-    // shadows became evenly blurred tubes. Two blocker searches: the first at a small radius finds nearby
-    // occluders, the second over the penumbra their distance implies (largest occluder distances need the widest
-    // search). The filter then averages comparison taps over that penumbra.
-    float maxUv = p.soft.z * texel;  // a sanity limit only (about 25 world units at the default settings)
-    float searchUv = 6.0 * texel;
+    // Physically based penumbra: an occluder at distance g above the receiver, lit by a sun of angular radius r,
+    // blurs its shadow over a disc of radius g tan(r), up to the cap soft.z (texels). The filter then averages
+    // comparison taps over that penumbra.
+    float maxUv = p.soft.z * texel;  // the widest penumbra (filter radius), in shadow-map uv
+    // The first search must cover the widest filter: a pixel just outside a shadow whose filter disc still reaches
+    // the occluder has to find it, or it is declared lit while its neighbour is blurred, and a bright speckled seam
+    // runs along every soft shadow edge (measured, work/visual/sh_soft2). The second search refines the average
+    // over the penumbra the first one implies.
+    float searchUv = maxUv;
     float blocker = 0.0;
     bool any = false;
     for (int pass = 0; pass < 2; ++pass)
     {
         float blockers = 0.0, sum = 0.0;
-        for (int i = 0; i < 16; ++i)
+        for (int i = 0; i < 32; ++i)
         {
-            float z = texture(shadowDepth, uv + rot * kDisk[i] * searchUv).r;
+            float rr = sqrt((float(i) + 0.5) / 32.0);
+            float th = float(i) * 2.39996323 + a;
+            float z = texture(shadowDepth, uv + vec2(cos(th), sin(th)) * rr * searchUv).r;
             if (z < s.z - bias)
             {
                 sum += z;
@@ -211,23 +207,20 @@ void main()
             }
         }
         if (blockers < 1.0)
-        {
-            if (pass == 0)
-            {
-                searchUv = maxUv * 0.25;  // nothing close by: look for a distant occluder's wide penumbra
-                continue;
-            }
-            break;
-        }
+            break;  // keep the first pass's blockers, if any
         any = true;
         blocker = sum / blockers;
         float g = (s.z - blocker) * p.sunCam.w;
         searchUv = clamp(g * p.soft.x / p.soft.y, 1.5 * texel, maxUv);
     }
-    if (!any)
-        discard;  // fully lit
-    float gap = (s.z - blocker) * p.sunCam.w;
-    float radiusUv = clamp(gap * p.soft.x / p.soft.y, texel, maxUv);
+    float radiusUv = 1.5 * texel;
+    if (any)
+    {
+        float gap = (s.z - blocker) * p.sunCam.w;
+        radiusUv = clamp(gap * p.soft.x / p.soft.y, 1.5 * texel, maxUv);
+    }
+    else
+        discard;  // no occluder within the widest penumbra: lit
     // Filter: 32 taps on a golden-angle spiral (even coverage of the disc), rotated per pixel.
     float lit = 0.0;
     for (int i = 0; i < 32; ++i)
@@ -240,7 +233,7 @@ void main()
     if (p.fog.w > 0.5)  // [render] shadow_debug=1: penumbra radius (texels / 32) as grey, red where blockers were found
     {
         o1 = vec4(0.0);
-        o = vec4(min(radiusUv / texel / 32.0, 1.0), gap / 100.0, 0.0, 0.0);
+        o = vec4(min(radiusUv / texel / 32.0, 1.0), any ? (s.z - blocker) * p.sunCam.w / 100.0 : 0.0, 0.0, 0.0);
         return;
     }
     vec2 edge = min(uv, 1.0 - uv);

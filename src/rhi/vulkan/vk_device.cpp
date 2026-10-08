@@ -3467,7 +3467,10 @@ void VulkanDevice::Shadows()
     p.sunCam[3] = 44.0f * range;  // LightMatrix's depth spans 44 x range
     p.soft[0] = std::tan(h.shadowSoftness * 3.14159265f / 180.0f);
     p.soft[1] = 2.0f * range;
-    p.soft[2] = 256.0f;  // a sanity limit on the penumbra (texels), not a style choice
+    // Penumbra cap (texels): 16 texels is about 1.6 world units at the default range and size. The blocker-distance
+    // estimate over-reads under tall occluders (cliffs), and the old cap of 256 texels (about 25 units) let the
+    // filter reach far into lit ground and wash out the shadow's interior.
+    p.soft[2] = 16.0f;
     p.fog[0] = scene_.fogStart, p.fog[1] = scene_.fogEnd, p.fog[2] = scene_.fog ? 1.0f : 0.0f;
     static const bool shadowDebug = ConfigInt("render", "shadow_debug", 0) != 0;
     p.fog[3] = shadowDebug ? 1.0f : 0.0f;

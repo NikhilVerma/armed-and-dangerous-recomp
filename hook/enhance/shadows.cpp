@@ -7,7 +7,7 @@
 //   shadow_range=60      half size of the shadowed area around the view, in world units
 //   shadow_size=4096     shadow map resolution
 //   shadow_softness=0.6  the light's angular radius in degrees (the bare sun is 0.27; haze and the bright snow
-//                        sky widen it): penumbrae widen with the occluder's distance, without a ceiling (PCSS)
+//                        sky widen it): penumbrae widen with the occluder's distance, up to 16 texels (PCSS)
 //
 // Each frame, when the UI pass starts (g_uiPassBegin, src/game/ui_pass.cpp) the 3D scene is complete: the camera's
 // view (Game+0x704) and the sun (renderer light slot 0, a D3DLIGHT9 at renderer +0x169c, its direction at +0x40;
