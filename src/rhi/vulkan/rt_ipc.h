@@ -20,7 +20,7 @@
 namespace rtipc
 {
 constexpr uint32_t kMagic = 0x52544831;  // "RTH1"
-constexpr uint32_t kVersion = 3;
+constexpr uint32_t kVersion = 4;  // 4: temporal anti-aliasing (docs/subsystems/remaster-aa.md)
 constexpr uint32_t kRing = 4;  // frame parameter slots (frame N uses N % kRing)
 
 enum Buffer : uint32_t
@@ -29,6 +29,11 @@ enum Buffer : uint32_t
     kIndices,     // uint32, three per triangle
     kDepth,       // float depth 0..1 per pixel (D3D convention, row-major, viewport size); 1 = sky
     kVisibility,  // float per pixel, written by the helper
+    // Temporal anti-aliasing (AaParams; allocated only while AA is on, handle 0 otherwise):
+    kAaColor,     // RGBA16F per pixel: the scene before the UI (row-major, width x height)
+    kAaDepth,     // float depth 0..1 per pixel (D3D convention)
+    kAaMotion,    // RGBA16F per pixel: xy = prevUv - curUv (0..1 texture coordinates, y down), zw unused
+    kAaOutput,    // RGBA16F per pixel, written by the helper
     kBufferCount
 };
 
@@ -55,6 +60,27 @@ struct FrameParams
     float sun[4];            // world direction towards the sun, w: tan(angular radius)
 };
 
+// One anti-aliasing frame (the game's scene end, before the UI).
+enum AaMode : uint32_t
+{
+    kAaOff,
+    kAaFsr,   // AMD FSR 3.1 (FidelityFX API, amd_fidelityfx_vk.dll)
+    kAaDlss,  // NVIDIA DLSS / DLAA (nvngx_dlss.dll)
+    kAaXess,  // Intel XeSS
+};
+struct AaParams
+{
+    uint64_t frame;          // N (its own counter: aaRequested / aaAccepted)
+    uint32_t width, height;  // render = output size (native anti-aliasing)
+    uint32_t mode;           // AaMode
+    uint32_t reset;          // 1: camera cut / first frame (no history)
+    float jitter[2];         // the subpixel offset applied to the projection, pixels (+x right, +y down)
+    float cameraNear, cameraFar, fovY;  // from the scene projection
+    float frameTimeMs;
+    float sharpness;         // 0..1
+    uint32_t debug;          // 1: the library's debug view
+};
+
 struct Control
 {
     uint32_t magic, version;
@@ -73,5 +99,14 @@ struct Control
     volatile uint32_t gpuMicros;          // the helper's GPU time for its last finished frame (timestamps)
     uint32_t pad3;
     char log[256];                        // the helper's last error, for the game's log
+    // v4: temporal anti-aliasing (buffers kAaColor..kAaOutput). Independent of the ray tracing above.
+    uint64_t semAaToHelper, semAaFromHelper;  // timeline semaphores: the game signals inputs N, the helper output N
+    volatile uint64_t aaRequested, aaAccepted;
+    AaParams aaParams[kRing];
+    volatile uint32_t aaState;            // 0 not started, 1 working, 2 failed (aaLog says why)
+    volatile uint32_t aaActiveMode;       // the AaMode the helper actually runs
+    volatile uint32_t aaGpuMicros;
+    uint32_t pad4;
+    char aaLog[256];
 };
 }  // namespace rtipc

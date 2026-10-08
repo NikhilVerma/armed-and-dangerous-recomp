@@ -65,6 +65,9 @@ def instance_dir(n):
     helper = os.path.join(ROOT, "build", "rthelper-x64", "rt_helper.exe")  # the 64-bit ray-tracing helper
     if os.path.exists(helper):
         _replace(helper, os.path.join(dst_root, "rt_helper.exe"))
+    ffx = os.path.join(ROOT, "build", "rthelper-x64", "amd_fidelityfx_vk.dll")  # FSR 3.1 for the helper's AA
+    if os.path.exists(ffx):
+        _replace(ffx, os.path.join(dst_root, "amd_fidelityfx_vk.dll"))
     os.makedirs(os.path.join(dst_root, "SavedGames"), exist_ok=True)
     return dst_root
 

@@ -61,8 +61,10 @@ void ColorToFloat(D3DCOLOR c, float out[4])
 
 struct FrameSlot
 {
-    VkCommandBuffer cb = VK_NULL_HANDLE;  // the one being recorded (cbs[0], or cbs[1] after a split)
-    VkCommandBuffer cbs[2] = {};       // a frame can be submitted in two parts (ray-tracing helper, rt_ipc.h)
+    VkCommandBuffer cb = VK_NULL_HANDLE;  // the one being recorded (cbs[part])
+    VkCommandBuffer cbs[3] = {};       // a frame can be submitted in up to three parts (the helper's ray tracing and
+                                       // anti-aliasing work between them, rt_ipc.h)
+    uint32_t part = 0;
     VkFence fence = VK_NULL_HANDLE;
     VkSemaphore acquired = VK_NULL_HANDLE;
     VkSemaphore rendered = VK_NULL_HANDLE;
@@ -401,7 +403,26 @@ uint64_t RtGather(const std::vector<RtCaster>& casters, std::vector<uint32_t>& b
 void RtReplay(const std::vector<RtCaster>& casters, const std::vector<uint32_t>& base, VkBuffer dst);
 void SplitSubmit(VkSemaphore signal, uint64_t value);
 bool RtRemoteInit();
-uint64_t rtWaitFrame_ = 0;  // this frame's helper work to wait for at the final submit
+uint64_t rtWaitFrame_ = 0;  // this frame's ray-tracing helper work (its visibility is read after the split)
+// Helper work the next submission waits for (taken by SplitSubmit and the final submit). Only frames the helper has
+// accepted are waited for, so a stalled or missing helper cannot hang the GPU.
+struct HelperWait
+{
+    VkSemaphore semaphore;
+    uint64_t value;
+    bool aa;  // anti-aliasing (else ray tracing)
+};
+std::vector<HelperWait> helperWaits_;
+uint32_t TakeHelperWaits(VkSemaphore* waits, VkPipelineStageFlags* stages, uint64_t* values, uint32_t n);
+// Temporal anti-aliasing (docs/subsystems/remaster-aa.md): decided per frame, jitter in pixels (+x right, +y down).
+bool aaActive_ = false;
+float aaJitter_[2] = {0.0f, 0.0f};
+uint64_t aaFrame_ = 0;
+uint32_t aaWidth_ = 0, aaHeight_ = 0;
+bool aaReset_ = true;
+LARGE_INTEGER aaLastTime_{};
+void AaBeginFrame();
+void TemporalAa();
 VkShaderModule rtRemoteFs_ = VK_NULL_HANDLE, rtDepthCs_ = VK_NULL_HANDLE;
 VkDescriptorSetLayout rtRemoteSetLayout_ = VK_NULL_HANDLE, rtDepthSetLayout_ = VK_NULL_HANDLE;
 VkPipelineLayout rtRemoteLayout_ = VK_NULL_HANDLE, rtDepthLayout_ = VK_NULL_HANDLE;
@@ -548,7 +569,7 @@ VulkanDevice::VulkanDevice(IDirect3D9* queries, HWND window, D3DPRESENT_PARAMETE
         ai.commandPool = c.commandPool;
         ai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
         ai.commandBufferCount = 1;
-        ai.commandBufferCount = 2;
+        ai.commandBufferCount = 3;
     vkAllocateCommandBuffers(c.device, &ai, s.cbs);
     s.cb = s.cbs[0];
         VkFenceCreateInfo fi{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
@@ -814,32 +835,56 @@ void VulkanDevice::BeginFrame()
     captureUsed_ = 0;
     motionCleared_ = false;
     s.cb = s.cbs[0];
+    s.part = 0;
     rtWaitFrame_ = 0;
-    vkResetCommandBuffer(s.cbs[0], 0);
-    vkResetCommandBuffer(s.cbs[1], 0);
+    helperWaits_.clear();
+    AaBeginFrame();
+    for (VkCommandBuffer b : s.cbs)
+        vkResetCommandBuffer(b, 0);
     VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vkBeginCommandBuffer(s.cb, &bi);
 }
 
-// Submits the frame so far (signalling `signal` = value, a timeline semaphore) and continues recording in the slot's
-// second command buffer (the ray-tracing helper works between the two halves, rt_ipc.h).
+// Takes the pending helper waits (helperWaits_) that the helper has accepted into the arrays after `n` entries;
+// returns the new count. Binary semaphores in the arrays (value 0) are ignored by the timeline values.
+uint32_t VulkanDevice::TakeHelperWaits(VkSemaphore* waits, VkPipelineStageFlags* stages, uint64_t* values, uint32_t n)
+{
+    for (const HelperWait& w : helperWaits_)
+        if (n < 4 && (w.aa ? Rt().AaAccepted(w.value, 4) : Rt().Accepted(w.value, 4)))
+            waits[n] = w.semaphore, stages[n] = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, values[n++] = w.value;
+    helperWaits_.clear();
+    return n;
+}
+
+// Submits the frame so far (signalling `signal` = value, a timeline semaphore, and waiting for pending helper work)
+// and continues recording in the slot's next command buffer (the helper works between the parts, rt_ipc.h).
 void VulkanDevice::SplitSubmit(VkSemaphore signal, uint64_t value)
 {
     EndRendering();
     FrameSlot& s = Slot();
     vkEndCommandBuffer(s.cb);
+    VkSemaphore waits[4];
+    VkPipelineStageFlags stages[4];
+    uint64_t waitValues[4];
+    const uint32_t nWaits = TakeHelperWaits(waits, stages, waitValues, 0);
     VkTimelineSemaphoreSubmitInfo ts{VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO};
     ts.signalSemaphoreValueCount = 1;
     ts.pSignalSemaphoreValues = &value;
+    ts.waitSemaphoreValueCount = nWaits;
+    ts.pWaitSemaphoreValues = waitValues;
     VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
     si.pNext = &ts;
+    si.waitSemaphoreCount = nWaits;
+    si.pWaitSemaphores = waits;
+    si.pWaitDstStageMask = stages;
     si.commandBufferCount = 1;
     si.pCommandBuffers = &s.cb;
     si.signalSemaphoreCount = 1;
     si.pSignalSemaphores = &signal;
     vkQueueSubmit(Ctx().queue, 1, &si, VK_NULL_HANDLE);
-    s.cb = s.cbs[1];
+    s.part = s.part < 2 ? s.part + 1 : 2;
+    s.cb = s.cbs[s.part];
     VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vkBeginCommandBuffer(s.cb, &bi);
@@ -1025,19 +1070,19 @@ HRESULT VulkanDevice::Present(const RECT*, const RECT*, HWND, const RGNDATA*)
     vkResetFences(c.device, 1, &s.fence);
     // Waits: the swapchain image, and the ray-tracing helper's work for this frame when it accepted it (the second
     // half of the frame reads its visibility; a frame it did not accept is not waited for, so it cannot hang us).
-    VkSemaphore waits[2];
-    VkPipelineStageFlags stages[2];
-    uint64_t values[2] = {0, 0};
+    VkSemaphore waits[4];
+    VkPipelineStageFlags stages[4];
+    uint64_t values[4] = {0, 0, 0, 0};
     uint32_t nWaits = 0;
     if (acquired)
         waits[nWaits] = s.acquired, stages[nWaits++] = VK_PIPELINE_STAGE_TRANSFER_BIT;
-    if (rtWaitFrame_ == serial && Rt().Accepted(serial, 4))
-        values[nWaits] = serial, waits[nWaits] = Rt().FromHelper(), stages[nWaits++] = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+    const uint32_t binaryWaits = nWaits;
+    nWaits = TakeHelperWaits(waits, stages, values, nWaits);
     VkTimelineSemaphoreSubmitInfo ts{VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO};
     ts.waitSemaphoreValueCount = nWaits;
     ts.pWaitSemaphoreValues = values;
     VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
-    if (nWaits && waits[nWaits - 1] == Rt().FromHelper())
+    if (nWaits > binaryWaits)
         si.pNext = &ts;
     si.waitSemaphoreCount = nWaits;
     si.pWaitSemaphores = waits;
@@ -1476,6 +1521,10 @@ bool VulkanDevice::PrepareDraw(D3DPRIMITIVETYPE type, uint64_t drawKey)
         // the flipped (negative-height) viewport is (+1/w, -1/h) in clip units.
         u.halfPixel[0] = 1.0f / vw;
         u.halfPixel[1] = -1.0f / vh;
+        // Temporal anti-aliasing: the scene's subpixel jitter (pixels, +y down) on top, scene draws only (the UI comes
+        // after SceneEnd). The motion vectors are taken before this offset, so they carry no jitter.
+        if (aaActive_ && !sceneEnded_ && rt_ && rt_->GetImage() == backBuffer_.get())
+            u.halfPixel[0] += 2.0f * aaJitter_[0] / vw, u.halfPixel[1] -= 2.0f * aaJitter_[1] / vh;
         u.halfPixel[2] = captureDraw_ ? static_cast<float>(captureFirst_) : 0.0f;  // capture base vertex (vk_abi.h)
         u.tessParams[0] = tessNormalDecode_, u.tessParams[1] = Tess().shape;
         u.tessParams[2] = Tess().maxLevel, u.tessParams[3] = Tess().pixels;
@@ -2348,6 +2397,7 @@ bool VulkanDevice::RtShadowsRemote(const std::vector<RtCaster>& casters, const M
     fp.sun[3] = std::tan(h.shadowSoftness * 3.14159265f / 180.0f);
     rc.Request(fp);
     rtWaitFrame_ = serial;
+    helperWaits_.push_back({rc.FromHelper(), serial, false});
 
     // Apply (second half; the final submit waits for the helper).
     cb = Slot().cb;
@@ -3426,6 +3476,149 @@ VkPipeline VulkanDevice::SnowPipeline(VkFormat target)
 }
 
 // rhi::SceneEnd with [render] snow (rhi::Hints): the snowfall into the current target, over the scene, before the UI.
+// --- Temporal anti-aliasing (docs/subsystems/remaster-aa.md) ---------------------------------------------------
+
+namespace
+{
+float Halton(uint32_t i, uint32_t base)
+{
+    float f = 1.0f, r = 0.0f;
+    for (; i; i /= base)
+        f /= float(base), r += f * float(i % base);
+    return r;
+}
+}  // namespace
+
+// Per frame: whether this frame is anti-aliased (the helper runs AA and is caught up), and its subpixel jitter.
+void VulkanDevice::AaBeginFrame()
+{
+    const rhi::SceneHints& h = rhi::Hints();
+    aaActive_ = false;
+    if (!h.aaMode || !Rt().Start() || !Rt().AaReady())
+    {
+        static bool loggedFailure;
+        if (h.aaMode && !loggedFailure && Rt().AaLog()[0])
+            loggedFailure = true, Log("vulkan: temporal anti-aliasing unavailable: %s", Rt().AaLog());
+        aaReset_ = true;
+        return;
+    }
+    aaActive_ = true;
+    ++aaFrame_;
+    const uint32_t phase = static_cast<uint32_t>(aaFrame_ % 16) + 1;  // Halton (2, 3), 16 phases, centred
+    aaJitter_[0] = Halton(phase, 2) - 0.5f;
+    aaJitter_[1] = Halton(phase, 3) - 0.5f;
+}
+
+// rhi::SceneEnd, after everything in the scene: the back buffer (linear HDR), its depth and the motion vectors go
+// to the helper (rt_ipc.h kAaColor / kAaDepth / kAaMotion), the frame is split there, and the next part starts by
+// copying the helper's output (kAaOutput) back over the back buffer; the UI then draws on top.
+void VulkanDevice::TemporalAa()
+{
+    std::lock_guard<std::recursive_mutex> g(Ctx().lock);
+    ffDirty_ = true;  // the UI's draws (after SceneEnd) recompute their uniforms without the jitter
+    const rhi::SceneHints& h = rhi::Hints();
+    if (!aaActive_ || scene_.draws.empty() || !depth_ || !rt_ || rt_->GetImage() != backBuffer_.get() || !motion_)
+        return;
+    Image* color = backBuffer_.get();
+    Image* depth = depth_->GetImage();
+    const uint32_t W = color->width, H = color->height;
+    const D3DVIEWPORT9& svp = scene_.draws.back().viewport;
+    if (!depth || svp.X != 0 || svp.Y != 0 || svp.Width != W || svp.Height != H || !RtRemoteInit())
+        return;
+    RtClient& rc = Rt();
+    if (!rc.EnsureAa(W, H))
+        return;
+    if (W != aaWidth_ || H != aaHeight_)
+        aaReset_ = true, aaWidth_ = W, aaHeight_ = H;
+
+    EndRendering();
+    VkCommandBuffer cb = Slot().cb;
+    VkBufferImageCopy region{};
+    region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    region.imageExtent = {W, H, 1};
+    color->Transition(cb, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    motion_->Transition(cb, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    vkCmdCopyImageToBuffer(cb, color->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, rc.Buffer(rtipc::kAaColor), 1,
+                           &region);
+    vkCmdCopyImageToBuffer(cb, motion_->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, rc.Buffer(rtipc::kAaMotion), 1,
+                           &region);
+    // Depth as floats 0..1 (the ray-tracing path's conversion, RtDepthComputeGlsl).
+    depth->Transition(cb, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
+    if (!shadowDepthSampler_)
+    {
+        VkSamplerCreateInfo si{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+        si.magFilter = si.minFilter = VK_FILTER_NEAREST;
+        si.addressModeU = si.addressModeV = si.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        vkCreateSampler(Ctx().device, &si, nullptr, &shadowDepthSampler_);
+    }
+    float dp[8] = {0.0f, 0.0f, float(W), float(H), sceneProjection_._33, sceneProjection_._34, sceneProjection_._43,
+                   0.0f};
+    VkDeviceSize dOffset = PushUniform(dp, sizeof(dp));
+    VkDescriptorImageInfo dimg{shadowDepthSampler_, depth->sampledView, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL};
+    VkDescriptorBufferInfo zb{rc.Buffer(rtipc::kAaDepth), 0, VkDeviceSize(W) * H * 4};
+    VkDescriptorBufferInfo db{Slot().uniforms, dOffset, sizeof(dp)};
+    VkWriteDescriptorSet w[3] = {{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}, {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET},
+                                 {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}};
+    w[0].dstBinding = 0, w[0].descriptorCount = 1, w[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    w[0].pImageInfo = &dimg;
+    w[1].dstBinding = 1, w[1].descriptorCount = 1, w[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    w[1].pBufferInfo = &zb;
+    w[2].dstBinding = 2, w[2].descriptorCount = 1, w[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    w[2].pBufferInfo = &db;
+    vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, rtDepthPipe_);
+    vkCmdPushDescriptorSetKHR(cb, VK_PIPELINE_BIND_POINT_COMPUTE, rtDepthLayout_, 0, 3, w);
+    vkCmdDispatch(cb, (W + 7) / 8, (H + 7) / 8, 1);
+    VkMemoryBarrier2 mb{VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+    mb.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    mb.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
+    mb.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    mb.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT;
+    VkDependencyInfo di{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    di.memoryBarrierCount = 1;
+    di.pMemoryBarriers = &mb;
+    vkCmdPipelineBarrier2(cb, &di);
+
+    // Hand over to the helper; the next part of the frame waits for its output.
+    SplitSubmit(rc.AaToHelper(), aaFrame_);
+    rtipc::AaParams p{};
+    p.frame = aaFrame_;
+    p.width = W, p.height = H;
+    p.mode = h.aaMode;
+    p.reset = aaReset_ ? 1 : 0;
+    p.jitter[0] = aaJitter_[0], p.jitter[1] = aaJitter_[1];
+    // D3D projection: _33 = f / (f - n), _43 = -n _33, _22 = cot(fovY / 2).
+    const float m33 = sceneProjection_._33, m43 = sceneProjection_._43;
+    p.cameraNear = m33 != 0.0f ? -m43 / m33 : 1.0f;
+    p.cameraFar = m33 != 1.0f ? m33 * p.cameraNear / (m33 - 1.0f) : 100000.0f;
+    p.fovY = sceneProjection_._22 != 0.0f ? 2.0f * std::atan(1.0f / sceneProjection_._22) : 1.0472f;
+    LARGE_INTEGER now, freq;
+    QueryPerformanceCounter(&now);
+    QueryPerformanceFrequency(&freq);
+    p.frameTimeMs = aaLastTime_.QuadPart ? float(double(now.QuadPart - aaLastTime_.QuadPart) * 1000.0 / double(freq.QuadPart))
+                                         : 16.7f;
+    aaLastTime_ = now;
+    p.sharpness = h.aaSharpness;
+    p.debug = h.aaDebug;
+    rc.RequestAa(p);
+    helperWaits_.push_back({rc.AaFromHelper(), aaFrame_, true});
+    aaReset_ = false;
+
+    cb = Slot().cb;
+    VkMemoryBarrier2 hb{VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+    hb.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, hb.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
+    hb.dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT, hb.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+    VkDependencyInfo hdi{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    hdi.memoryBarrierCount = 1;
+    hdi.pMemoryBarriers = &hb;
+    vkCmdPipelineBarrier2(cb, &hdi);
+    color->Transition(cb, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    vkCmdCopyBufferToImage(cb, rc.Buffer(rtipc::kAaOutput), color->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
+                           &region);
+    static bool logged;
+    if (!logged)
+        logged = true, Log("vulkan: temporal anti-aliasing on (helper mode %u, %ux%u)", rc.AaActiveMode(), W, H);
+}
+
 void VulkanDevice::Snow()
 {
     std::lock_guard<std::recursive_mutex> g(Ctx().lock);
@@ -3751,6 +3944,7 @@ void rhi::SceneEnd()
             rhi::vulkan::g_device->lightingDone_ = true;
         }
         rhi::vulkan::g_device->Snow();
+        rhi::vulkan::g_device->TemporalAa();  // last: the whole scene, before the UI
         rhi::vulkan::g_device->sceneEnded_ = true;
     }
 }

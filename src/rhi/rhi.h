@@ -186,6 +186,11 @@ struct SceneHints
     float aoPower = 2.2f;     // XeGTAO FinalValuePower: higher = darker, more contrasty occlusion
     float aoFalloff = 0.615f; // XeGTAO FalloffRange (share of the radius over which occluders fade out)
     float aoSnow = 0.3f;      // share of the occlusion kept on snow-white surfaces (albedo >= ~0.75)
+    // Temporal anti-aliasing in the 64-bit helper (docs/subsystems/remaster-aa.md): 0 off, 1 FSR 3.1, 2 DLSS (DLAA),
+    // 3 XeSS (rtipc::AaMode). Native resolution.
+    uint32_t aaMode = 0;
+    float aaSharpness = 0.3f;
+    uint32_t aaDebug = 0;
     // [render] fog_modern: exponential height fog in place of the game's linear fog (vk_fog.h).
     bool fogModern = false;
     float fogDensity = 1.0f;         // multiplier on the density that keeps the game's visibility range

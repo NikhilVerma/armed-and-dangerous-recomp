@@ -134,6 +134,21 @@ void ShadowsInit()
         RemasterRegister({"render", "ao_snow", L"AO on snow", S::Slider, 0.0f, 1.0f, 0.05f, {}, 0, false,
                           [](float v) { rhi::Hints().aoSnow = v; }},
                          0.25f);
+    // Temporal anti-aliasing (docs/subsystems/remaster-aa.md): runs in the 64-bit helper (rt_helper.exe) at native
+    // resolution, before the HUD. Remaster default FSR 3.1 (AMD, MIT: no licence acceptance needed).
+    rhi::Hints().aaMode = static_cast<uint32_t>(
+        RemasterRegister({"render", "aa", L"Anti-aliasing (VK)", S::List, 0, 3, 1, {L"Off", L"FSR 3.1", L"DLSS / DLAA",
+                                                                                  L"XeSS"},
+                          0, false, [](float v) { rhi::Hints().aaMode = static_cast<uint32_t>(v + 0.5f); }},
+                         0, 1) +
+        0.5f);
+    if (!vulkan)
+        rhi::Hints().aaMode = 0;
+    rhi::Hints().aaSharpness =
+        RemasterRegister({"render", "aa_sharpness", L"AA sharpening", S::Slider, 0.0f, 1.0f, 0.05f, {}, 0, false,
+                          [](float v) { rhi::Hints().aaSharpness = v; }},
+                         0.3f);
+    rhi::Hints().aaDebug = static_cast<uint32_t>(ConfigInt("render", "aa_debug", 0));  // and.ini only
     // Modern fog (exponential height fog, src/rhi/vulkan/vk_fog.h): remaster default on.
     bool fog = RemasterRegister({"render", "fog_modern", L"Height fog (VK)", S::Toggle, 0, 1, 1, {}, 0, false,
                                  [](float v) { rhi::Hints().fogModern = v != 0.0f; }},

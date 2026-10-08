@@ -27,6 +27,16 @@ public:
     void Request(const rtipc::FrameParams& p);
     // Whether the helper has submitted its work for `frame` (waits up to `ms` milliseconds).
     bool Accepted(uint64_t frame, int ms) const;
+    // Temporal anti-aliasing (docs/subsystems/remaster-aa.md): shared colour / depth / motion / output buffers for a
+    // width x height scene; its own frames and semaphores, independent of the ray tracing.
+    bool EnsureAa(uint32_t width, uint32_t height);
+    bool AaReady() const;  // the helper is running and its AA backend works
+    VkSemaphore AaToHelper() const { return aaToHelper_; }
+    VkSemaphore AaFromHelper() const { return aaFromHelper_; }
+    void RequestAa(const rtipc::AaParams& p);
+    bool AaAccepted(uint64_t frame, int ms) const;
+    uint32_t AaActiveMode() const { return control_ ? control_->aaActiveMode : 0; }
+    const char* AaLog() const { return control_ ? control_->aaLog : ""; }
     // The helper's GPU time for its last finished frame, microseconds (0 = not measured yet).
     uint32_t GpuMicros() const { return control_ ? control_->gpuMicros : 0; }
     void Shutdown();
@@ -42,6 +52,7 @@ private:
         HANDLE handle = nullptr;  // in this process
     };
     bool Alloc(rtipc::Buffer b, uint64_t size, VkBufferUsageFlags usage, bool host);
+    bool Grow(uint32_t first, uint32_t last, const uint64_t* need);  // buffers first..last to at least need[]
     bool ExportSemaphore(VkSemaphore& s, uint64_t& handleOut);
     uint64_t Duplicate(HANDLE h) const;
 
@@ -50,6 +61,7 @@ private:
     rtipc::Control* control_ = nullptr;
     Shared buffers_[rtipc::kBufferCount];
     VkSemaphore toHelper_ = VK_NULL_HANDLE, fromHelper_ = VK_NULL_HANDLE;
+    VkSemaphore aaToHelper_ = VK_NULL_HANDLE, aaFromHelper_ = VK_NULL_HANDLE;
 };
 
 RtClient& Rt();

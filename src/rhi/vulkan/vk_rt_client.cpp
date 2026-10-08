@@ -76,7 +76,9 @@ bool RtClient::Start()
     CloseHandle(pi.hThread);
     process_ = pi.hProcess;
     control_->helperPid = pi.dwProcessId;
-    if (!ExportSemaphore(toHelper_, control_->semToHelper) || !ExportSemaphore(fromHelper_, control_->semFromHelper))
+    if (!ExportSemaphore(toHelper_, control_->semToHelper) || !ExportSemaphore(fromHelper_, control_->semFromHelper) ||
+        !ExportSemaphore(aaToHelper_, control_->semAaToHelper) ||
+        !ExportSemaphore(aaFromHelper_, control_->semAaFromHelper))
     {
         Log("rt: could not create shared semaphores");
         failed_ = true;
@@ -189,18 +191,16 @@ bool RtClient::Alloc(rtipc::Buffer b, uint64_t size, VkBufferUsageFlags usage, b
     return sb.handle != 0;
 }
 
-bool RtClient::Ensure(uint64_t vertices, uint64_t indices, uint32_t width, uint32_t height)
+bool RtClient::Grow(uint32_t first, uint32_t last, const uint64_t* need)
 {
     if (!started_ || failed_)
         return false;
-    const uint64_t need[rtipc::kBufferCount] = {vertices * 16, indices * 4, uint64_t(width) * height * 4,
-                                                uint64_t(width) * height * 4};
     bool grew = false;
-    for (uint32_t b = 0; b < rtipc::kBufferCount; ++b)
+    for (uint32_t b = first; b <= last; ++b)
     {
-        if (buffers_[b].buffer && buffers_[b].size >= need[b])
+        if (buffers_[b].buffer && buffers_[b].size >= need[b - first])
             continue;
-        uint64_t size = need[b] + need[b] / 2 + 65536;
+        uint64_t size = need[b - first] + need[b - first] / 2 + 65536;
         VkBufferUsageFlags usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
                                    VK_BUFFER_USAGE_TRANSFER_DST_BIT;
         if (!Alloc(static_cast<rtipc::Buffer>(b), size, usage, b == rtipc::kIndices))
@@ -225,6 +225,55 @@ bool RtClient::Ensure(uint64_t vertices, uint64_t indices, uint32_t width, uint3
         Sleep(1);
     }
     return control_->importedGeneration == control_->generation;
+}
+
+bool RtClient::Ensure(uint64_t vertices, uint64_t indices, uint32_t width, uint32_t height)
+{
+    const uint64_t need[] = {vertices * 16, indices * 4, uint64_t(width) * height * 4, uint64_t(width) * height * 4};
+    return Grow(rtipc::kVertices, rtipc::kVisibility, need);
+}
+
+bool RtClient::EnsureAa(uint32_t width, uint32_t height)
+{
+    const uint64_t px = uint64_t(width) * height;
+    const uint64_t need[] = {px * 8, px * 4, px * 8, px * 8};
+    return Grow(rtipc::kAaColor, rtipc::kAaOutput, need);
+}
+
+bool RtClient::AaReady() const
+{
+    if (!started_ || failed_ || !control_ || control_->helperState != 1 || control_->aaState == 2)
+        return false;
+    // Working is enough: each frame's handoff waits (briefly) for the previous one to be accepted (TakeHelperWaits).
+    // Requiring it to be caught up here turned AA off every other frame, and each off frame reset the history.
+    return WaitForSingleObject(process_, 0) != WAIT_OBJECT_0 && control_->aaState == 1;
+}
+
+void RtClient::RequestAa(const rtipc::AaParams& p)
+{
+    control_->aaParams[p.frame % rtipc::kRing] = p;
+    MemoryBarrier();
+    control_->aaRequested = p.frame;
+    SetEvent(wake_);
+}
+
+bool RtClient::AaAccepted(uint64_t frame, int ms) const
+{
+    if (!control_)
+        return false;
+    LARGE_INTEGER f, start, now;
+    QueryPerformanceFrequency(&f);
+    QueryPerformanceCounter(&start);
+    while (control_->aaAccepted < frame)
+    {
+        if (control_->helperState != 1 || control_->aaState == 2)
+            return false;
+        QueryPerformanceCounter(&now);
+        if ((now.QuadPart - start.QuadPart) * 1000 / f.QuadPart >= ms)
+            return false;
+        Sleep(0);
+    }
+    return true;
 }
 
 void RtClient::Request(const rtipc::FrameParams& p)

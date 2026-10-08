@@ -21,6 +21,7 @@
 #include <string>
 #include <vector>
 
+#include "aa.h"
 #include "rt_ipc.h"
 #include "shadow_denoiser.h"
 
@@ -327,6 +328,20 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR cmd, int)
     if (!ImportSemaphore(toHelper, g_ctl->semToHelper) || !ImportSemaphore(fromHelper, g_ctl->semFromHelper))
         return Fail("semaphore import failed"), 1;
 
+    // Temporal anti-aliasing (aa.h): its own semaphores, command buffer and fence; failure only disables AA.
+    VkSemaphore aaToHelper = VK_NULL_HANDLE, aaFromHelper = VK_NULL_HANDLE;
+    rth::TemporalAa aa;
+    {
+        std::string log;
+        if (!g_ctl->semAaToHelper || !ImportSemaphore(aaToHelper, g_ctl->semAaToHelper) ||
+            !ImportSemaphore(aaFromHelper, g_ctl->semAaFromHelper))
+            log = "AA semaphore import failed";
+        else if (aa.Init(g_device, g_physical, g_mem, log))
+            g_ctl->aaActiveMode = aa.ActiveMode(), g_ctl->aaState = 1;
+        if (g_ctl->aaState != 1)
+            std::snprintf(g_ctl->aaLog, sizeof(g_ctl->aaLog), "%s", log.c_str()), g_ctl->aaState = 2;
+    }
+
     rth::ShadowDenoiser denoiser;
     {
         std::string log;
@@ -349,6 +364,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR cmd, int)
     fci.flags = VK_FENCE_CREATE_SIGNALED_BIT;
     VkFence fence;
     vkCreateFence(g_device, &fci, nullptr, &fence);
+    VkCommandBuffer aaCb;
+    vkAllocateCommandBuffers(g_device, &cai, &aaCb);
+    VkFence aaFence;
+    vkCreateFence(g_device, &fci, nullptr, &aaFence);
 
     Buf shared[rtipc::kBufferCount];
     Buf verts, indices, blasBuf, tlasBuf, scratch, instances, params;
@@ -367,7 +386,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR cmd, int)
     vkCreateQueryPool(g_device, &qpi, nullptr, &timer);
     bool timed = false;
 
-    uint64_t done = 0;
+    uint64_t done = 0, aaDone = 0;
     rtipc::FrameParams prev{};
     bool havePrev = false;
     while (!g_ctl->quit)
@@ -381,9 +400,52 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR cmd, int)
             vkWaitForFences(g_device, 1, &fence, VK_TRUE, UINT64_MAX);
             uint32_t gen = g_ctl->generation;
             for (uint32_t i = 0; i < rtipc::kBufferCount; ++i)
-                if (!Import(shared[i], g_ctl->buffers[i]))
+                if (g_ctl->buffers[i].handle && !Import(shared[i], g_ctl->buffers[i]))
                     return 1;
             g_ctl->importedGeneration = gen;
+        }
+        // Anti-aliasing frames first (the game waits for them before its UI pass).
+        for (uint64_t aaFrame = g_ctl->aaRequested; aaFrame > aaDone; aaFrame = g_ctl->aaRequested)
+        {
+            const rtipc::AaParams ap = g_ctl->aaParams[aaFrame % rtipc::kRing];
+            vkWaitForFences(g_device, 1, &aaFence, VK_TRUE, UINT64_MAX);
+            vkResetFences(g_device, 1, &aaFence);
+            vkResetCommandBuffer(aaCb, 0);
+            VkCommandBufferBeginInfo abi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+            abi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+            vkBeginCommandBuffer(aaCb, &abi);
+            std::string alog;
+            const bool inputs = g_ctl->aaState == 1 && ap.frame == aaFrame && ap.width && ap.height &&
+                                shared[rtipc::kAaColor].buffer && shared[rtipc::kAaOutput].buffer;
+            // aa_debug=2: no library, the output filled with magenta (RGBA16F 1, 0, 1, 0): tests the plumbing.
+            if (inputs && ap.debug == 2)
+                vkCmdFillBuffer(aaCb, shared[rtipc::kAaOutput].buffer, 0, VK_WHOLE_SIZE, 0x00003c00u);
+            if (inputs && ap.debug == 3)  // aa_debug=3: the input passed through (shows the jitter)
+            {
+                VkBufferCopy pc{0, 0, VkDeviceSize(ap.width) * ap.height * 8};
+                vkCmdCopyBuffer(aaCb, shared[rtipc::kAaColor].buffer, shared[rtipc::kAaOutput].buffer, 1, &pc);
+            }
+            const bool ok = inputs && (ap.debug == 2 || ap.debug == 3 ||
+                                       aa.Record(aaCb, ap, shared[rtipc::kAaColor].buffer,
+                                                 shared[rtipc::kAaDepth].buffer, shared[rtipc::kAaMotion].buffer,
+                                                 shared[rtipc::kAaOutput].buffer, alog));
+            if (!ok && !alog.empty())
+                std::snprintf(g_ctl->aaLog, sizeof(g_ctl->aaLog), "%s", alog.c_str()), g_ctl->aaState = 2;
+            vkEndCommandBuffer(aaCb);  // empty when nothing was recorded: still passes the semaphore on
+            VkSemaphoreSubmitInfo aw{VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
+            aw.semaphore = aaToHelper, aw.value = aaFrame, aw.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+            VkSemaphoreSubmitInfo as{VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
+            as.semaphore = aaFromHelper, as.value = aaFrame, as.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+            VkCommandBufferSubmitInfo acs{VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
+            acs.commandBuffer = aaCb;
+            VkSubmitInfo2 asi{VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
+            asi.waitSemaphoreInfoCount = 1, asi.pWaitSemaphoreInfos = &aw;
+            asi.commandBufferInfoCount = 1, asi.pCommandBufferInfos = &acs;
+            asi.signalSemaphoreInfoCount = 1, asi.pSignalSemaphoreInfos = &as;
+            if (vkQueueSubmit2(g_queue, 1, &asi, aaFence) != VK_SUCCESS)
+                return Fail("AA submit failed"), 1;
+            aaDone = aaFrame;
+            g_ctl->aaAccepted = aaFrame;
         }
         uint64_t frame = g_ctl->requested;
         if (frame <= done || !shared[0].buffer)
@@ -567,5 +629,6 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR cmd, int)
         g_ctl->accepted = frame;
     }
     vkDeviceWaitIdle(g_device);
+    aa.Shutdown();
     return 0;
 }

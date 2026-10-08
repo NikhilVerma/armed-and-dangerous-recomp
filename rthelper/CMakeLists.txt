@@ -50,10 +50,22 @@ foreach(f ${FFX_FILES})
   file(APPEND ${FFX_TABLE} "{\"${n}\", k_${id}},\n")
 endforeach()
 
-add_executable(rt_helper WIN32 main.cpp shadow_denoiser.cpp ffx_embed.cpp)
+add_executable(rt_helper WIN32 main.cpp shadow_denoiser.cpp ffx_embed.cpp aa.cpp)
 target_include_directories(rt_helper PRIVATE ${volk_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/../src/rhi/vulkan
+  ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/ffx-api/include
   ${CMAKE_BINARY_DIR}/generated)
 target_compile_definitions(rt_helper PRIVATE VK_NO_PROTOTYPES VK_USE_PLATFORM_WIN32_KHR)
 target_link_libraries(rt_helper PRIVATE Vulkan::Headers glslang::glslang glslang::SPIRV
   glslang::glslang-default-resource-limits)
 target_compile_options(rt_helper PRIVATE /W4 /permissive- /utf-8)
+
+# Temporal anti-aliasing (aa.cpp, docs/subsystems/remaster-aa.md): AMD's prebuilt, signed FidelityFX API DLL for
+# Vulkan (FSR 3.1) from the FidelityFX SDK v1.1.4 (MIT), downloaded once and placed next to rt_helper.exe.
+set(FFX_VK_DLL ${CMAKE_BINARY_DIR}/amd_fidelityfx_vk.dll)
+if(NOT EXISTS ${FFX_VK_DLL})
+  file(DOWNLOAD
+    https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/raw/v1.1.4/PrebuiltSignedDLL/amd_fidelityfx_vk.dll
+    ${FFX_VK_DLL}
+    EXPECTED_HASH SHA256=a1624cc4238fef046f30c4d80ce3f47be63fc5f5373f49e3ee9edb9960f54c78
+    SHOW_PROGRESS)
+endif()

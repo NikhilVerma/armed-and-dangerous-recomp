@@ -21,6 +21,8 @@ if ((Get-Item $built).LastWriteTime -lt $newest.LastWriteTime) {
 Copy-Item $built $dll -Force
 $helper = Join-Path $root 'build/rthelper-x64/rt_helper.exe'  # 64-bit ray-tracing helper (src/rhi/vulkan/rt_ipc.h)
 if (Test-Path $helper) { Copy-Item $helper (Join-Path $game 'rt_helper.exe') -Force }
+$ffx = Join-Path $root 'build/rthelper-x64/amd_fidelityfx_vk.dll'  # AMD FSR 3.1 for the helper's AA (MIT, signed)
+if (Test-Path $ffx) { Copy-Item $ffx (Join-Path $game 'amd_fidelityfx_vk.dll') -Force }
 $ini = Join-Path $game 'and.ini'
 # The player's and.ini is kept (test runs write their own); -ResetIni replaces it with the template.
 if ($ResetIni -or -not (Test-Path $ini)) { Copy-Item (Join-Path $root 'hook/and.ini') $ini -Force }
