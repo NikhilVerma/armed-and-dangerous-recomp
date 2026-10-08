@@ -44,6 +44,48 @@ set(BUILD_EXTERNAL OFF CACHE BOOL "" FORCE)
 set(ENABLE_SPVREMAPPER OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(vulkan_headers volk glslang)
 
+# Jolt Physics (MIT; docs/decision.md 2026-10-06): the open-source replacement for Havok, staged behind [physics]
+# engine in and.ini (hook/enhance/physics_jolt.cpp; default: the original Havok). Its CMake project is in Build/.
+FetchContent_Declare(jolt
+  GIT_REPOSITORY https://github.com/jrouwe/JoltPhysics.git
+  GIT_TAG v5.6.0
+  SOURCE_SUBDIR Build)
+set(TARGET_UNIT_TESTS OFF CACHE BOOL "" FORCE)
+set(TARGET_HELLO_WORLD OFF CACHE BOOL "" FORCE)
+set(TARGET_PERFORMANCE_TEST OFF CACHE BOOL "" FORCE)
+set(TARGET_SAMPLES OFF CACHE BOOL "" FORCE)
+set(TARGET_VIEWER OFF CACHE BOOL "" FORCE)
+set(ENABLE_ALL_WARNINGS OFF CACHE BOOL "" FORCE)
+set(INTERPROCEDURAL_OPTIMIZATION OFF CACHE BOOL "" FORCE)
+set(USE_STATIC_MSVC_RUNTIME_LIBRARY ON CACHE BOOL "" FORCE)
+set(CROSS_PLATFORM_DETERMINISTIC ON CACHE BOOL "" FORCE)  # reproducible runs for tools/compare.py
+set(DEBUG_RENDERER_IN_DEBUG_AND_RELEASE OFF CACHE BOOL "" FORCE)
+set(PROFILER_IN_DEBUG_AND_RELEASE OFF CACHE BOOL "" FORCE)
+set(FLOATING_POINT_EXCEPTIONS_ENABLED OFF CACHE BOOL "" FORCE)  # never unmask FP exceptions inside the game
+set(ENABLE_OBJECT_STREAM OFF CACHE BOOL "" FORCE)
+# GPU compute backends (hair, soft-body acceleration): not used.
+set(JPH_USE_DX12 OFF CACHE BOOL "" FORCE)
+set(JPH_USE_VK OFF CACHE BOOL "" FORCE)
+set(JPH_USE_MTL OFF CACHE BOOL "" FORCE)
+set(JPH_USE_CPU_COMPUTE OFF CACHE BOOL "" FORCE)
+# SSE2 only: the bridge (and_physics) is compiled /arch:SSE2 and Jolt picks its SIMD paths from the compiler's
+# instruction-set macros, so library and bridge must agree; also runs on any x86 CPU the game supports.
+foreach(isa USE_SSE4_1 USE_SSE4_2 USE_AVX USE_AVX2 USE_AVX512 USE_LZCNT USE_TZCNT USE_F16C USE_FMADD)
+  set(${isa} OFF CACHE BOOL "" FORCE)
+endforeach()
+FetchContent_MakeAvailable(jolt)
+# The bridge: the only code that includes Jolt, compiled with SSE2 (Jolt's math types depend on the instruction set;
+# the hook DLL itself is /arch:IA32). Everything else uses the plain C interface in physics/jolt_bridge.h.
+add_library(and_physics STATIC physics/jolt_bridge.cpp)
+target_link_libraries(and_physics PRIVATE Jolt)
+target_compile_options(and_physics PRIVATE /arch:SSE2 /utf-8 /Zi)
+target_compile_options(Jolt PRIVATE /Zi)  # line info for crash symbolisation (tools/symbolize.py)
+set_property(TARGET and_physics PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+# Headless test of the bridge, no game: pwsh tools/build.ps1 -Target jolt_bridge_test, then run it.
+add_executable(jolt_bridge_test EXCLUDE_FROM_ALL physics/jolt_bridge_test.cpp)
+target_link_libraries(jolt_bridge_test PRIVATE and_physics)
+set_property(TARGET jolt_bridge_test PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
 # Shader sources compiled at run time, embedded as byte arrays (the game folder has no source files):
 # XeGTAO (MIT, unmodified) and its entry points (src/rhi/vulkan/shaders/gtao.hlsl). Header: xegtao_embed.h.
 set(EMBED_DIR ${CMAKE_BINARY_DIR}/generated)
@@ -69,6 +111,10 @@ endforeach()
 # Recovered game code: every .cpp under src/ is linked into the hook DLL and registers its own HOOK() entries.
 file(GLOB_RECURSE RECOVERED_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/../src/*.cpp)
 list(FILTER RECOVERED_SOURCES EXCLUDE REGEX "/tests/")  # standalone test programs, built below
+# Sources still being written (parallel recovery agents): tools/build.ps1 -Exclude passes regexes here.
+foreach(pattern IN LISTS AND_EXCLUDE)
+  list(FILTER RECOVERED_SOURCES EXCLUDE REGEX "${pattern}")
+endforeach()
 
 add_library(and_hook SHARED
   ${RECOVERED_SOURCES}
@@ -96,11 +142,12 @@ add_library(and_hook SHARED
   enhance/settings.cpp
   enhance/shadows.cpp
   enhance/weather.cpp
+  enhance/physics_jolt.cpp
   enhance/remaster_menu.cpp
   dinput8.def)
 
-target_include_directories(and_hook PRIVATE src enhance ../src ${minhook_SOURCE_DIR}/include ${EMBED_DIR})
-target_link_libraries(and_hook PRIVATE minhook d3d9 dbghelp winmm dxguid ole32 windowscodecs dsound
+target_include_directories(and_hook PRIVATE src enhance ../src ${CMAKE_CURRENT_SOURCE_DIR} ${minhook_SOURCE_DIR}/include ${EMBED_DIR})
+target_link_libraries(and_hook PRIVATE minhook and_physics d3d9 dbghelp winmm dxguid ole32 windowscodecs dsound
   Vulkan::Headers glslang::glslang glslang::SPIRV glslang::glslang-default-resource-limits)
 target_include_directories(and_hook PRIVATE ${volk_SOURCE_DIR})
 target_compile_definitions(and_hook PRIVATE VK_NO_PROTOTYPES VK_USE_PLATFORM_WIN32_KHR)

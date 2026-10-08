@@ -21,7 +21,11 @@ PY = sys.executable
 
 
 def hooks_in(path):
-    return re.findall(r'HOOK\(0x[0-9a-fA-F]+,\s*"([^"]+)"', open(path, encoding="utf-8").read())
+    text = open(path, encoding="utf-8").read()
+    names = re.findall(r'HOOK\(0x[0-9a-fA-F]+,\s*"([^"]+)"', text)
+    # file-local wrapper macros, as tools/compare.py hook_names()
+    names += [n for _, n in re.findall(r'^\s*[A-Z0-9_]+_HOOK\(([0-9a-fA-F]{8}),\s*(\w+)', text, re.M)]
+    return names
 
 
 def all_hooks():
@@ -32,8 +36,12 @@ def all_hooks():
 
 
 def passes(enabled, scenario):
+    # The list goes through a file: ~2000 hook names exceed the Windows command-line limit (WinError 206).
+    listing = os.path.join(ROOT, "work", "bisect-only.txt")
+    with open(listing, "w") as f:
+        f.write(",".join(enabled))
     r = subprocess.run([PY, "-u", os.path.join(ROOT, "tools", "compare.py"), "--scenario", scenario, "--only",
-                        ",".join(enabled)], cwd=ROOT, capture_output=True, text=True, timeout=1800)
+                        "@" + listing], cwd=ROOT, capture_output=True, text=True, timeout=1800)
     last = [l for l in r.stdout.splitlines() if l.strip()][-2:] if r.stdout else ["(no output)"]
     print(f"    {len(enabled)} enabled -> {'PASS' if r.returncode == 0 else 'FAIL'}  {last[0].strip()[:110]}", flush=True)
     return r.returncode == 0

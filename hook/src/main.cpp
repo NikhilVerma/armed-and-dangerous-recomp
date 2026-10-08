@@ -18,6 +18,7 @@ void ProfilerInit();
 void UiAspectInit();
 void ShadowsInit();
 void WeatherInit();
+void PhysicsJoltInit();
 void OverridesInit();
 void RemasterMenuInit();
 void TestShotInit();
@@ -70,10 +71,11 @@ static void Startup()
     UiAspectInit();
     ShadowsInit();
     WeatherInit();
+    PhysicsJoltInit();
     OverridesInit();
     RemasterMenuInit();  // after every enhancement has registered its settings
+    TestFatalTraceInit();  // a wrapper: registered before the hooks are installed
     HooksInstallAll();
-    TestFatalTraceInit();
     D3D9HooksInstall();
 }
 

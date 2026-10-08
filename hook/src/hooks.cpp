@@ -5,6 +5,9 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
 #include "config.h"
 #include "log.h"
@@ -120,9 +123,79 @@ static void* CoverageStub(CoverageSlot* slot)
     return p;
 }
 
+// The [hooks] section read once (GetPrivateProfileInt per hook took minutes with ~3,500 hooks).
+static std::unordered_map<std::string, int>& HookSwitches()
+{
+    static std::unordered_map<std::string, int> switches;
+    static bool loaded;
+    if (!loaded)
+    {
+        loaded = true;
+        std::vector<char> buf(1 << 20);
+        GetPrivateProfileSectionA("hooks", buf.data(), static_cast<DWORD>(buf.size()), ConfigIniPath());
+        for (const char* p = buf.data(); *p; p += strlen(p) + 1)
+            if (const char* eq = strchr(p, '='))
+                switches[std::string(p, eq)] = atoi(eq + 1);
+    }
+    return switches;
+}
+
+static int HookSwitch(const char* name)
+{
+    auto& switches = HookSwitches();
+    auto it = switches.find(name);
+    return it == switches.end() ? 1 : it->second;
+}
+
+// Trampolines of the recovered-function hooks, so a crash inside one names its function (crash.cpp).
+struct TrampolineRecord
+{
+    const BYTE* trampoline;
+    const char* name;
+    unsigned address;
+};
+static std::vector<TrampolineRecord> g_trampolines;
+
+bool HooksDescribeAddress(const void* address, const char** name, unsigned* original)
+{
+    const BYTE* a = static_cast<const BYTE*>(address);
+    for (const TrampolineRecord& r : g_trampolines)
+        if (a >= r.trampoline && a < r.trampoline + 64)  // MinHook memory slot size
+        {
+            *name = r.name, *original = r.address;
+            return true;
+        }
+    return false;
+}
+
+static bool CoverageSkipped(unsigned address)
+{
+    static std::vector<unsigned> skip;
+    static bool loaded;
+    if (!loaded)
+    {
+        loaded = true;
+        char list[4096];
+        ConfigString("test", "coverage_skip", "", list, sizeof(list));
+        for (char* p = list; *p;)
+        {
+            char* end;
+            const unsigned long a = strtoul(p, &end, 16);
+            if (end == p)
+                break;
+            skip.push_back(static_cast<unsigned>(a));
+            p = *end == ',' ? end + 1 : end;
+        }
+    }
+    for (unsigned a : skip)
+        if (a == address)
+            return true;
+    return false;
+}
+
 void HooksInstallAll()
 {
-    int on = 0, off = 0;
+    int on = 0, off = 0, failed = 0;
     bool coverage = ConfigInt("test", "hook_coverage", 0) != 0;
     if (coverage)
     {
@@ -134,9 +207,13 @@ void HooksInstallAll()
     }
     for (HookEntry* e = g_entries; e; e = e->next)
     {
-        int mode = ConfigInt("hooks", e->name, 1);
+        int mode = HookSwitch(e->name);
         mode == 0 ? off++ : on++;
         if (mode == 0 && !e->wrapper && !coverage)
+            continue;
+        // Originals that branch back into their own first 5 bytes cannot run under a patch: when switched off they
+        // are left alone even in coverage mode ([test] coverage_skip, from tools/coverage.py; seen at 0x004643d0).
+        if (mode == 0 && !e->wrapper && coverage && CoverageSkipped(e->address))
             continue;
         void* target = reinterpret_cast<void*>(static_cast<uintptr_t>(e->address));
         void* detour = mode == 0 && !e->wrapper ? nullptr : (e->wrapper ? e->wrapper : e->replacement);
@@ -149,9 +226,18 @@ void HooksInstallAll()
             slot->next = detour;
             detour = CoverageStub(slot);
         }
+        // Created now, enabled together below (MH_EnableHook freezes every thread on each call).
         void* trampoline = nullptr;
-        if (!HookAt(target, detour, &trampoline, e->name))
+        MH_STATUS s = MH_CreateHook(target, detour, &trampoline);
+        if (s == MH_OK)
+            s = MH_QueueEnableHook(target);
+        if (s != MH_OK)
+        {
+            Log("hook %-40s at %p: %s", e->name, target, MH_StatusToString(s));
+            ++failed;
             continue;
+        }
+        g_trampolines.push_back({static_cast<const BYTE*>(trampoline), e->name, e->address});
         if (slot && !slot->next)
             slot->next = trampoline;  // switched off: count, then run the original
         if (e->original)
@@ -159,12 +245,14 @@ void HooksInstallAll()
         if (e->wrapper)
             *e->wrapperNext = mode == 0 ? trampoline : e->replacement;
     }
-    Log("recovered-function hooks: %d enabled, %d switched off%s", on, off, coverage ? " (coverage counting on)" : "");
+    const MH_STATUS applied = MH_ApplyQueued();
+    Log("recovered-function hooks: %d enabled, %d switched off, %d failed%s; enable: %s", on, off, failed,
+        coverage ? " (coverage counting on)" : "", MH_StatusToString(applied));
 }
 
 void HooksLogActive()
 {
     for (HookEntry* e = g_entries; e; e = e->next)
-        if (ConfigInt("hooks", e->name, 1) != 0)
+        if (HookSwitch(e->name) != 0)
             Log("  active: 0x%08x %s", e->address, e->name);
 }

@@ -39,6 +39,8 @@ bool HookWrap(const char* name, void* wrapper, void** next);
 bool HooksInit();
 void HooksInstallAll();
 void HooksLogActive();
+// True when `address` lies in the trampoline of a recovered-function hook: its name and original address.
+bool HooksDescribeAddress(const void* address, const char** name, unsigned* original);
 void HooksWriteCoverage();  // and-coverage.txt when [test] hook_coverage=1 (the harness exits with TerminateProcess)
 
 // Hook any code address (used by enhancements and API hooks). Returns false on failure.
