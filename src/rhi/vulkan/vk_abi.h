@@ -8,6 +8,7 @@
 //   binding 2  uniform block FixedFunction { FFUniforms }      fixed-function state (below), both stages
 //   binding 3  uniform block PrevFrame { PrevUniforms }        previous-frame transforms (motion vectors, below)
 //   binding 4  storage buffer Capture                          scene vertex capture (below; capture variants only)
+//   binding 5  sampler2D d3d9_sceneDepth                       scene depth (soft particles, below; soft variants only)
 //   binding 8+i  sampler2D / samplerCube s<i>, i = 0..7          texture stage / sampler i
 // All three uniform blocks are std140 and always bound (a zero-filled range when unused).
 //
@@ -86,6 +87,24 @@ struct alignas(16) FFUniforms
     float bumpEnvLum[8][4];            // D3DTSS_BUMPENVLSCALE, LOFFSET
     float tessParams[4];  // tessellation (below): normal decoding, shape factor, maximum level, pixels per segment
     ModernFogParams mf;   // modern fog (vk_fog.h); mf.on.x = 0: the game's own fog
+    float soft[4];        // soft particles (below): scene projection _33, _43, _34, and 1 / fade range (world units)
+};
+
+// --- Soft particles (remaster, [render] soft_particles) -----------------------------------------------------------
+// Particle draws (FFKey::softParticle != 0) fade out where they come close to the opaque surface behind them. Their
+// pixel shaders are compiled with a D3D9_FINAL that, after fog and alpha test, reads the scene depth at gl_FragCoord
+// from binding 5 (sampler2D d3d9_sceneDepth, declared by FinalPixelDefine only for these variants; the depth image is
+// at the same time the draw's read-only depth attachment, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL), turns it
+// and gl_FragCoord.z into camera depth with FFUniforms::soft, z = _43 / (d * _34 - _33), and scales the pixel's
+// contribution by f = clamp((zScene - zPixel) * soft.w, 0, 1) as the blend mode needs (kSoft* below).
+constexpr uint32_t kBindingSceneDepth = 5;
+enum : uint8_t
+{
+    kSoftNone = 0,
+    kSoftAlpha = 1,     // the blend weights the colour by its alpha (SRCALPHA, ...): alpha *= f
+    kSoftScale = 2,     // the colour is added (ONE, ONE / INVSRCALPHA / INVSRCCOLOR): rgba *= f
+    kSoftModulate = 3,  // the target is multiplied by the colour (DESTCOLOR, ZERO / ZERO, SRCCOLOR): rgb -> 1
+    kSoftModulate2 = 4, // 2x modulate (DESTCOLOR, SRCCOLOR): rgb -> 0.5
 };
 
 // --- Motion vectors (remaster outputs: DLAA/TAA need them; docs/goals/modern-renderer.md step 5) -------------------
@@ -183,6 +202,7 @@ struct FFKey
     uint8_t shadeFlat;       // D3DRS_SHADEMODE == D3DSHADE_FLAT
     uint8_t vsIsShader;      // 1: a vertex shader is bound (only the pixel part is fixed function)
     uint8_t psIsShader;      // 1: a pixel shader is bound (only the vertex part is fixed function)
-    uint8_t pad[3];
+    uint8_t softParticle;    // kSoft*: soft particle variant of the pixel shader (pixel only; 0 for vertex keys)
+    uint8_t pad[2];
 };
 }  // namespace rhi::vulkan
