@@ -52,7 +52,19 @@ directly would avoid them; buffers are the proven path, so they come first.
 - Later: `upscale = native|quality|balanced|performance`. Native = DLAA / FSR native AA. Upscaling needs the game
   to render at a lower internal resolution (back buffer smaller than the swapchain); not in the first version.
 
-## Status
+## Status (2026-10-08)
 
-- Design written on 2026-10-08. Implementation starts with FSR, which needs no licence acceptance. DLSS and XeSS
-  wait for the player to accept their SDK licences.
+- Implemented (commit c80dc98): protocol v4, game-side jitter and scene-end handoff, and the helper's FSR 3.1
+  module. `[render] aa` (Off / FSR 3.1 / DLSS / XeSS) defaults to FSR in the remaster; `aa_sharpness`;
+  `aa_debug` 1 = FSR's debug view, 2 = magenta fill (plumbing test), 3 = passthrough (shows the jitter).
+- Verified: the handoff. With `aa_debug=2` the helper's output reaches the screen, under the UI.
+- Not verified yet: FSR's image quality. Windows Smart App Control (enforcement mode on the player's PC) blocks
+  freshly built unsigned binaries by cloud reputation: `rt_helper.exe` often fails to start (CreateProcess error
+  4551, Code Integrity events 3077 / 3118), and once the game DLL too ("Bad Image" 0xc0e90002). When the helper is
+  blocked, the game falls back to no AA, no ray-traced shadows (shadow maps instead), and no jitter.
+- Fixed while testing: `RtClient::AaReady` required the helper to be caught up, so AA switched off every other frame
+  and each off frame reset FSR's history. Readiness now only means the helper is working.
+- Next:
+  - Verify FSR at 4K once the helper runs: edges, ghosting on moving characters, snow particles. Particles have no
+    motion vectors, so a reactive mask may be needed.
+  - DLSS / DLAA and XeSS, after the player accepts their SDK licences.
