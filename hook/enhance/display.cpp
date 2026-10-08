@@ -120,6 +120,14 @@ void DisplayInit()
     {
         g_displayModeFilter.minWidth = 640;  // also the Graphics page's list (GfxMenu_InitResolutionList)
         g_displayModeFilter.maxWidth = 16384;
+        // Borderless / Vulkan fullscreen show the back buffer stretched over the monitor: a mode wider than the
+        // monitor (e.g. DCI 4096x2160 on a 3840x2160 screen) would be squeezed. Offer only modes that fit.
+        if ((g_cfg.borderless || g_cfg.vulkanFullscreen) && g_cfg.width <= 0)
+        {
+            const int screenW = GetSystemMetrics(SM_CXSCREEN);
+            if (screenW > 0)
+                g_displayModeFilter.maxWidth = static_cast<uint32_t>(screenW);
+        }
         g_displayModeFilter.allowAnyAspect = true;
         if (g_cfg.windowed && g_cfg.width > 0 && g_cfg.height > 0)
         {
@@ -203,6 +211,12 @@ void DisplayAdjustWindow(HWND wnd, const D3DPRESENT_PARAMETERS* pp)
                      SWP_FRAMECHANGED | SWP_SHOWWINDOW);
         Log("display: borderless %ldx%ld, back buffer %ux%u", m.right - m.left, m.bottom - m.top, pp->BackBufferWidth,
             pp->BackBufferHeight);
+        const double screenAspect = double(m.right - m.left) / double(m.bottom - m.top);
+        const double bbAspect = double(pp->BackBufferWidth) / double(pp->BackBufferHeight ? pp->BackBufferHeight : 1);
+        if (screenAspect / bbAspect > 1.01 || bbAspect / screenAspect > 1.01)
+            Log("display: WARNING the back buffer's aspect (%.3f) differs from the monitor's (%.3f): the image is "
+                "stretched. Pick the monitor's resolution in the game's Graphics options.",
+                bbAspect, screenAspect);
         return;
     }
     style = (style & ~WS_POPUP) | WS_OVERLAPPEDWINDOW;
