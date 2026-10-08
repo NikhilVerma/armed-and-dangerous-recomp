@@ -214,6 +214,7 @@ std::string FixedFunctionBlock()
         FF_MEMBER("vec4 bumpEnvLum[8]", bumpEnvLum),
         FF_MEMBER("vec4 tessParams", tessParams),
         FF_MEMBER("ModernFog mf", mf),
+        FF_MEMBER("vec4 soft", soft),
     };
 #undef FF_MEMBER
     std::string s = std::string("#ifndef MODERN_FOG_STRUCT\n#define MODERN_FOG_STRUCT\nstruct ModernFog\n{\n") +

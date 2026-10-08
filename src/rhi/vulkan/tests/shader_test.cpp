@@ -98,6 +98,14 @@ std::vector<FFKey> FixedFunctionKeys()
                        (1u << VertexLocation(D3DDECLUSAGE_TEXCOORD, 0));
         keys.push_back(k);
     }
+    {
+        FFKey k = base();  // soft particle (vk_abi.h): alpha blended, table fog, alpha tested
+        k.fogEnable = 1, k.fogTableMode = D3DFOG_LINEAR, k.alphaTestEnable = 1, k.alphaFunc = D3DCMP_GREATER;
+        k.softParticle = kSoftAlpha;
+        keys.push_back(k);
+        k.softParticle = kSoftModulate2;  // 2x modulate
+        keys.push_back(k);
+    }
     return keys;
 }
 }  // namespace
@@ -116,7 +124,7 @@ int main(int argc, char** argv)
         std::printf("%s\n%s\n", t.ok ? "ok" : t.error.c_str(), t.glsl.c_str());
         return t.ok ? 0 : 1;
     }
-    int files = 0, translated = 0, compiled = 0, variants = 0, variantsOk = 0;
+    int files = 0, translated = 0, compiled = 0, variants = 0, variantsOk = 0, soft = 0, softOk = 0;
     std::vector<std::string> failures;
     FFKey finalKey = FixedFunctionKeys()[1];
     for (auto& e : std::filesystem::directory_iterator(argv[1]))
@@ -137,6 +145,16 @@ int main(int argc, char** argv)
             failures.push_back(e.path().filename().string() + ": compile");
         else
             ++compiled;
+        if (t.isPixel)  // the soft particle variants (vk_abi.h), one blend mode per file in turn
+        {
+            FFKey softKey = finalKey;
+            softKey.softParticle = static_cast<uint8_t>(kSoftAlpha + soft % 4);
+            ++soft;
+            if (CompileGlsl(WithFinal(t.glsl, softKey), true).empty())
+                failures.push_back(e.path().filename().string() + ": soft particle variant");
+            else
+                ++softOk;
+        }
         if (!t.isPixel)  // the tessellation and capture variants (vk_abi.h)
         {
             ++variants;
@@ -201,8 +219,8 @@ int main(int argc, char** argv)
     for (auto& f : failures)
         std::printf("FAIL %s\n", f.c_str());
     std::printf("corpus: %d files, %d translated, %d compiled; vertex variants %d/%d; tessellation stages %s; "
-                "fixed function: %d/%d compiled; lighting %d/%d; vertex input %s\n",
-                files, translated, compiled, variantsOk, variants, tessOk ? "ok" : "FAIL", ffOk, ffTotal, lightOk,
-                lightTotal, viOk ? "ok" : "FAIL");
+                "soft particle variants %d/%d; fixed function: %d/%d compiled; lighting %d/%d; vertex input %s\n",
+                files, translated, compiled, variantsOk, variants, tessOk ? "ok" : "FAIL", softOk, soft, ffOk, ffTotal,
+                lightOk, lightTotal, viOk ? "ok" : "FAIL");
     return failures.empty() ? 0 : 1;
 }

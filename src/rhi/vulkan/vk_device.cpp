@@ -497,6 +497,14 @@ private:
     VulkanSurface* rt_ = nullptr;
     VulkanSurface* depth_ = nullptr;
     bool rendering_ = false;
+    // Soft particles (vk_abi.h): the depth attachment's layout for the next BeginRendering. Soft draws sample the
+    // depth they are tested against, so it goes read-only (DEPTH_STENCIL_READ_ONLY_OPTIMAL) for them and stays so
+    // until a draw or clear writes depth or stencil. `renderingReadOnly_`: the layout of the rendering in progress.
+    bool depthReadOnly_ = false, renderingReadOnly_ = false;
+    void DepthReadOnly(bool readOnly);
+    uint8_t SoftParticleMode() const;
+    float softParams_[4] = {};  // FFUniforms::soft of the last uniform upload
+    uint32_t softDraws_ = 0;    // this frame (verbose log)
 
     // D3D9 state shadow
     DWORD rs_[256] = {};
@@ -829,6 +837,7 @@ void VulkanDevice::BeginFrame()
     scene_.Clear();
     sceneEnded_ = false;
     lightingDone_ = false;
+    depthReadOnly_ = false;  // the frame starts with a writable depth (soft particles switch it per draw)
     ffDirty_ = true;  // per-frame uniforms (modern fog: camera)
     scene_.serial = serial;
     captureFrame_ = Ctx().vertexStores && DumpSceneFrame() == serial;
@@ -901,8 +910,12 @@ void VulkanDevice::BeginRendering()
     if (!color)
         return;
     color->Transition(cb, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    // Soft particles: a read-only depth attachment that the draws may also sample (DepthReadOnly).
+    const bool readOnly = depth && depthReadOnly_;
+    const VkImageLayout depthLayout =
+        readOnly ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
     if (depth)
-        depth->Transition(cb, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+        depth->Transition(cb, depthLayout);
     VkRenderingAttachmentInfo ca{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
     ca.imageView = color->AttachmentView(rt_->level, rt_->face);
     ca.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
@@ -912,10 +925,11 @@ void VulkanDevice::BeginRendering()
     if (depth)
     {
         da.imageView = depth->AttachmentView(0, 0);
-        da.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        da.imageLayout = depthLayout;
         da.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-        da.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        da.storeOp = readOnly ? VK_ATTACHMENT_STORE_OP_NONE : VK_ATTACHMENT_STORE_OP_STORE;
     }
+    renderingReadOnly_ = readOnly;
     // Into the back buffer: also the motion-vector attachment (cleared at the frame's first use).
     VkRenderingAttachmentInfo cas[2] = {ca, {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO}};
     bool withMotion = color == backBuffer_.get() && motion_;
@@ -948,6 +962,44 @@ void VulkanDevice::EndRendering()
     rendering_ = false;
 }
 
+// Soft particles: the depth layout the following draws need. A rendering in the other layout ends here; the next
+// BeginRendering transitions the depth image.
+void VulkanDevice::DepthReadOnly(bool readOnly)
+{
+    depthReadOnly_ = readOnly;
+    if (rendering_ && renderingReadOnly_ != (readOnly && depth_))
+        EndRendering();
+}
+
+// The soft particle variant (vk_abi.h kSoft*) for the current state, kSoftNone when this draw is not one: a draw of
+// the game's particle phase (rhi::Hints().particlePass, hook/enhance/render.cpp) into the 3D scene, depth tested
+// without depth or stencil writes, before the UI, blended with a mode whose contribution can be faded out.
+uint8_t VulkanDevice::SoftParticleMode() const
+{
+    const rhi::SceneHints& h = rhi::Hints();
+    if (!h.softParticles || !h.particlePass || sceneEnded_ || !SceneDrawTarget() || rs_[D3DRS_ZWRITEENABLE] ||
+        !rs_[D3DRS_ALPHABLENDENABLE] || rs_[D3DRS_ZFUNC] == D3DCMP_ALWAYS || rs_[D3DRS_STENCILENABLE] ||
+        !(h.softParticlesRange > 0.0f))
+        return kSoftNone;
+    if (rs_[D3DRS_BLENDOP] != D3DBLENDOP_ADD)
+        return kSoftNone;
+    // The scene's camera depth needs a perspective projection (the last depth-writing scene draw's).
+    if (sceneProjection_._34 == 0.0f || sceneProjection_._43 == 0.0f)
+        return kSoftNone;
+    const DWORD src = rs_[D3DRS_SRCBLEND], dst = rs_[D3DRS_DESTBLEND];
+    if (src == D3DBLEND_SRCALPHA && (dst == D3DBLEND_INVSRCALPHA || dst == D3DBLEND_ONE))
+        return kSoftAlpha;
+    if (src == D3DBLEND_ONE && (dst == D3DBLEND_ONE || dst == D3DBLEND_INVSRCALPHA || dst == D3DBLEND_INVSRCCOLOR))
+        return kSoftScale;
+    if (src == D3DBLEND_ZERO && dst == D3DBLEND_INVSRCCOLOR)
+        return kSoftScale;
+    if ((src == D3DBLEND_DESTCOLOR && dst == D3DBLEND_ZERO) || (src == D3DBLEND_ZERO && dst == D3DBLEND_SRCCOLOR))
+        return kSoftModulate;
+    if (src == D3DBLEND_DESTCOLOR && dst == D3DBLEND_SRCCOLOR)
+        return kSoftModulate2;
+    return kSoftNone;
+}
+
 HRESULT VulkanDevice::Present(const RECT*, const RECT*, HWND, const RGNDATA*)
 {
     std::lock_guard<std::recursive_mutex> g(Ctx().lock);
@@ -966,6 +1018,8 @@ HRESULT VulkanDevice::Present(const RECT*, const RECT*, HWND, const RGNDATA*)
         Counters() = ResourceCounters{};
         prepareTicks_ = presentTicks_ = waitTicks_ = 0;
         drawsCounted_ = 0;
+        Log("vulkan: per frame (120 frames): %.1f soft particle draws", softDraws_ / 120.0);
+        softDraws_ = 0;
     }
     if (verbose && (serial == 1 || serial % 100 == 0))
         Log("vulkan: present %llu", static_cast<unsigned long long>(serial));
@@ -1126,6 +1180,8 @@ HRESULT VulkanDevice::Present(const RECT*, const RECT*, HWND, const RGNDATA*)
 HRESULT VulkanDevice::Clear(DWORD count, const D3DRECT* rects, DWORD flags, D3DCOLOR color, float z, DWORD stencil)
 {
     std::lock_guard<std::recursive_mutex> g(Ctx().lock);
+    if (flags & (D3DCLEAR_ZBUFFER | D3DCLEAR_STENCIL))
+        DepthReadOnly(false);  // the clear writes the depth attachment
     BeginRendering();
     if (!rendering_)
         return D3D_OK;
@@ -1374,6 +1430,28 @@ bool VulkanDevice::PrepareDraw(D3DPRIMITIVETYPE type, uint64_t drawKey)
             m = MakeModule(CompileGlsl(FixedFunctionVertex(key).glsl, false));
         vsm = m;
     }
+    // Soft particles (vk_abi.h): a pixel shader variant only (the vertex shader above was chosen without it).
+    const uint8_t soft = SoftParticleMode();
+    key.softParticle = soft;
+    uint64_t pixelHash = keyHash;
+    // [render] soft_log=N (diagnosis): every blended draw without depth writes of frame N, and whether it is soft.
+    static const int softLog = ConfigInt("render", "soft_log", -1);
+    if (softLog >= 0 && serial == uint64_t(softLog) && rs_[D3DRS_ALPHABLENDENABLE] && !rs_[D3DRS_ZWRITEENABLE])
+        Log("softlog: phase %d ended %d scene %d z %d zf %d st %d src %d dst %d op %d vs %d ps %d at %d posT %d soft %d "
+            "p33 %g p34 %g p43 %g",
+            rhi::Hints().particlePass, sceneEnded_, SceneDrawTarget(), rs_[D3DRS_ZENABLE], rs_[D3DRS_ZFUNC],
+            rs_[D3DRS_STENCILENABLE], rs_[D3DRS_SRCBLEND], rs_[D3DRS_DESTBLEND], rs_[D3DRS_BLENDOP], vs_ ? 1 : 0,
+            ps_ ? 1 : 0, rs_[D3DRS_ALPHATESTENABLE], (key.vertexMask >> 17) & 1, soft, sceneProjection_._33,
+            sceneProjection_._34, sceneProjection_._43);
+    if (soft)
+    {
+        pixelHash = Hash(&key, sizeof(key));
+        const float params[4] = {sceneProjection_._33, sceneProjection_._43, sceneProjection_._34,
+                                 1.0f / rhi::Hints().softParticlesRange};
+        if (std::memcmp(params, softParams_, sizeof(params)))
+            std::memcpy(softParams_, params, sizeof(params)), ffDirty_ = true;
+        ++softDraws_;
+    }
     if (ps_)
     {
         fsm = ps_->shader->PixelVariant(key);
@@ -1383,7 +1461,7 @@ bool VulkanDevice::PrepareDraw(D3DPRIMITIVETYPE type, uint64_t drawKey)
     else
     {
         GeneratedShader g = FixedFunctionPixel(key);  // cheap; the module is cached
-        VkShaderModule& m = ffPixel_[keyHash];
+        VkShaderModule& m = ffPixel_[pixelHash];
         if (!m)
             m = MakeModule(CompileGlsl(g.glsl, true));
         fsm = m;
@@ -1460,6 +1538,11 @@ bool VulkanDevice::PrepareDraw(D3DPRIMITIVETYPE type, uint64_t drawKey)
             EndRendering();
             textures_[i]->image->Transition(cb, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         }
+    // Soft particles sample the depth: read-only depth from the first one until something writes depth or stencil.
+    if (soft)
+        DepthReadOnly(true);
+    else if (depthReadOnly_ && ((rs_[D3DRS_ZENABLE] && rs_[D3DRS_ZWRITEENABLE]) || rs_[D3DRS_STENCILENABLE]))
+        DepthReadOnly(false);
     BeginRendering();
     if (!rendering_)
         return false;
@@ -1528,6 +1611,7 @@ bool VulkanDevice::PrepareDraw(D3DPRIMITIVETYPE type, uint64_t drawKey)
         u.halfPixel[2] = captureDraw_ ? static_cast<float>(captureFirst_) : 0.0f;  // capture base vertex (vk_abi.h)
         u.tessParams[0] = tessNormalDecode_, u.tessParams[1] = Tess().shape;
         u.tessParams[2] = Tess().maxLevel, u.tessParams[3] = Tess().pixels;
+        std::memcpy(u.soft, softParams_, sizeof(u.soft));  // soft particles (vk_abi.h)
         u.viewportSize[0] = vw, u.viewportSize[1] = vh, u.viewportSize[2] = viewport_.MinZ, u.viewportSize[3] = viewport_.MaxZ;
         ColorToFloat(rs_[D3DRS_TEXTUREFACTOR], u.textureFactor);
         ColorToFloat(rs_[D3DRS_FOGCOLOR], u.fogColor);
@@ -1641,7 +1725,7 @@ bool VulkanDevice::PrepareDraw(D3DPRIMITIVETYPE type, uint64_t drawKey)
                                       {s.uniforms, ffOffset_, sizeof(FFUniforms)},
                                       {s.uniforms, prevOffset, sizeof(PrevUniforms)}};
     VkDescriptorImageInfo imgs[kMaxSamplers];
-    VkWriteDescriptorSet writes[5 + kMaxSamplers];
+    VkWriteDescriptorSet writes[6 + kMaxSamplers];
     uint32_t nw = 0;
     for (uint32_t b = 0; b < 4; ++b)
     {
@@ -1675,6 +1759,24 @@ bool VulkanDevice::PrepareDraw(D3DPRIMITIVETYPE type, uint64_t drawKey)
         w.descriptorCount = 1;
         w.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         w.pBufferInfo = &captureInfo;
+        writes[nw++] = w;
+    }
+    VkDescriptorImageInfo sceneDepthInfo{};
+    if (soft)  // the scene depth (vk_abi.h kBindingSceneDepth), also this rendering's read-only depth attachment
+    {
+        if (!shadowDepthSampler_)
+        {
+            VkSamplerCreateInfo si{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+            si.magFilter = si.minFilter = VK_FILTER_NEAREST;
+            si.addressModeU = si.addressModeV = si.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+            vkCreateSampler(Ctx().device, &si, nullptr, &shadowDepthSampler_);
+        }
+        sceneDepthInfo = {shadowDepthSampler_, depth->sampledView, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL};
+        VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+        w.dstBinding = kBindingSceneDepth;
+        w.descriptorCount = 1;
+        w.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        w.pImageInfo = &sceneDepthInfo;
         writes[nw++] = w;
     }
     vkCmdPushDescriptorSetKHR(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, PipelineLayout(), 0, nw, writes);

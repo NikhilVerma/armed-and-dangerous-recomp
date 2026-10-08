@@ -40,7 +40,8 @@ static_assert(offsetof(FFUniforms, alphaRef) == 976);
 static_assert(offsetof(FFUniforms, lightDiffuse) == 1072);
 static_assert(offsetof(FFUniforms, textureStageConstant) == 1968);
 static_assert(offsetof(FFUniforms, mf) == 2368);
-static_assert(sizeof(FFUniforms) == 2496);
+static_assert(offsetof(FFUniforms, soft) == 2496);
+static_assert(sizeof(FFUniforms) == 2512);
 
 std::string N(int v) { return std::to_string(v); }
 
@@ -60,7 +61,7 @@ std::string UniformBlock(const char* blockName, const char* instance)
            "    vec4 lightDiffuse[8];\n    vec4 lightSpecular[8];\n    vec4 lightAmbient[8];\n"
            "    vec4 lightPosition[8];\n    vec4 lightDirection[8];\n    vec4 lightAttenuation[8];\n"
            "    vec4 lightSpot[8];\n    vec4 textureStageConstant[8];\n    vec4 bumpEnvMat[8];\n"
-           "    vec4 bumpEnvLum[8];\n    vec4 tessParams;\n    ModernFog mf;\n} " +
+           "    vec4 bumpEnvLum[8];\n    vec4 tessParams;\n    ModernFog mf;\n    vec4 soft;\n} " +
            instance + ";\n";
 }
 
@@ -180,12 +181,39 @@ std::string FinalBody(const FFKey& key)
         else
             s += "discard; ";
     }
+    if (key.softParticle)
+    {
+        // Remaster soft particles (vk_abi.h): after fog and alpha test (the test keeps the game's coverage), the
+        // pixel's contribution fades with its camera-depth distance to the opaque surface behind it.
+        // Camera depth |z| = |_43 / (d _34 - _33)| (either handedness; the denominator kept off zero).
+        s += "float d3d9_sd = texelFetch(d3d9_sceneDepth, ivec2(gl_FragCoord.xy), 0).r; "
+             "float d3d9_ds = d3d9_sd * ff.soft.z - ff.soft.x, d3d9_dp = gl_FragCoord.z * ff.soft.z - ff.soft.x; "
+             "float d3d9_zs = abs(ff.soft.y / (abs(d3d9_ds) < 1e-7 ? 1e-7 : d3d9_ds)); "
+             "float d3d9_zp = abs(ff.soft.y / (abs(d3d9_dp) < 1e-7 ? 1e-7 : d3d9_dp)); "
+             "float d3d9_sf = clamp((d3d9_zs - d3d9_zp) * ff.soft.w, 0.0, 1.0); ";
+        switch (key.softParticle)
+        {
+        case kSoftAlpha: s += "c.a *= d3d9_sf; "; break;
+        case kSoftScale: s += "c *= d3d9_sf; "; break;
+        case kSoftModulate: s += "c.rgb = mix(vec3(1.0), c.rgb, d3d9_sf); "; break;
+        case kSoftModulate2: s += "c.rgb = mix(vec3(0.5), c.rgb, d3d9_sf); "; break;
+        default: break;
+        }
+    }
     return s + "} while (false)";
 }
 
 }  // namespace
 
-std::string FinalPixelDefine(const FFKey& key) { return "#define D3D9_FINAL(c) " + FinalBody(key); }
+// Soft particle variants also declare the scene depth they read (binding 5, vk_abi.h); the declaration goes on its
+// own line before the macro (both are inserted right after #version).
+std::string FinalPixelDefine(const FFKey& key)
+{
+    std::string head = key.softParticle ? "layout(set = 0, binding = " + N(kBindingSceneDepth) +
+                                              ") uniform sampler2D d3d9_sceneDepth;\n"
+                                        : std::string();
+    return head + "#define D3D9_FINAL(c) " + FinalBody(key);
+}
 
 // --- Vertex ------------------------------------------------------------------------------------------------------
 

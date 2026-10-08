@@ -209,6 +209,12 @@ struct SceneHints
     float snowTurbulence = 0.6f;        // swirl speed, units per second
     float snowSize = 0.02f;             // flake radius, world units
     bool snowDebug = false;             // [render] snow_debug: red flakes (tell them from the game's effects)
+    // [render] soft_particles: particle sprites fade out where they approach the opaque surface behind them (scene
+    // depth), instead of cutting into it with a hard line. Only draws made while `particlePass` is set (the scene
+    // pass's fx phase: Fx_DrawParticles and Streamers_Draw, hook/enhance/render.cpp) are softened.
+    bool softParticles = false;
+    float softParticlesRange = 2.0f;  // world units (camera depth) over which a particle fades in
+    bool particlePass = false;        // set while the game draws its particles and streamers
 };
 SceneHints& Hints();
 

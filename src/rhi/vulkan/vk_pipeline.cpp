@@ -250,7 +250,7 @@ VkDescriptorSetLayout DescriptorSetLayout()
     State& s = St();
     if (s.setLayout || !s.device)
         return s.setLayout;
-    VkDescriptorSetLayoutBinding b[5 + kMaxSamplers]{};
+    VkDescriptorSetLayoutBinding b[6 + kMaxSamplers]{};
     uint32_t n = 0;
     for (uint32_t i : {kBindingVsConstants, kBindingPsConstants, kBindingFixedFunction, kBindingPrevFrame})
         b[n++] = {i, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1,
@@ -258,6 +258,7 @@ VkDescriptorSetLayout DescriptorSetLayout()
                       VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT | VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT,
                   nullptr};
     b[n++] = {kBindingCapture, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, nullptr};
+    b[n++] = {kBindingSceneDepth, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
     for (uint32_t i = 0; i < kMaxSamplers; ++i)
         b[n++] = {kBindingSampler0 + i, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT,
                   nullptr};
