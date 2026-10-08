@@ -29,6 +29,7 @@
 #include "gen/entry_stubs.h"
 #include "gen/orig_calls.h"
 #include "hooks.h"
+#include "renderer/scene_pass.h"
 
 namespace
 {
@@ -443,6 +444,8 @@ uint32_t SceneThumbnail_Render(void* desc, uint32_t width, uint32_t height)
 // indices record+0 and +4): each one whose m is not below the last chosen threshold becomes the choice (+0x374).
 // None chosen: LOD 0 when there are LODs, else "Can't select LOD for object %s\n" (0x00407ff0 on g_game+0x34, name
 // 0x00453270).
+bool g_lodForceFinest = false;
+
 uint32_t Object_SelectLod(void* obj)
 {
     void* rec = Field<void*>(obj, 0x414);
@@ -467,6 +470,8 @@ uint32_t Object_SelectLod(void* obj)
     d = d + objPos[1] * camDir[1];
     d = d + objPos[0] * camDir[0];
     if (d < kZero)
+        d = kZero;
+    if (g_lodForceFinest)  // enhancement point (scene_pass.h); false: the original
         d = kZero;
     const uint32_t q = Field<uint32_t>(game, 0x4a4) * 8;
     rec = Field<void*>(obj, 0x414);

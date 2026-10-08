@@ -9,6 +9,11 @@
 // renderer). 0, the default, is the original behaviour.
 extern float g_sceneCullRadius;
 
+// Enhancement point (hook/enhance/render.cpp, [render] lod_max): when true, Object_SelectLod 0x00452f50 measures
+// every object at view distance 0, so the finest level of detail the object has is always chosen. False (the
+// default) is the original distance-based choice.
+extern bool g_lodForceFinest;
+
 // 0x004889a0 (cl = also the far plane, edx = planes out, edi = view-projection; stack: unused, callee pops 4):
 // the frustum planes of a 0x44-byte view-projection matrix, normalised by their xyz length. Returns the count,
 // 5 or 6 (left, right, bottom, top, near[, far]).

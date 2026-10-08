@@ -147,11 +147,11 @@ void ShadowsInit()
                          0, 1) != 0.0f;
     // No frustum culling within this distance of the camera in the main scene pass (ScenePass_Render,
     // src/renderer/scene_pass.cpp): casters behind and beside the view stay in the scene, so their shadows neither
-    // pop in nor out. Original 0 (the game's culling), remaster default 100 world units.
+    // pop in nor out. Original 0 (the game's culling), remaster default 400 world units.
     g_sceneCullRadius =
-        RemasterRegister({"render", "cull_radius", L"Shadow caster range", S::Slider, 0.0f, 300.0f, 25.0f, {}, 0, false,
-                          [](float v) { g_sceneCullRadius = v, rhi::Hints().shadowCasterCache = v <= 0.0f; }},
-                         0.0f, 100.0f);
+        RemasterRegister({"render", "cull_radius", L"Shadow caster range", S::Slider, 0.0f, 1000.0f, 50.0f, {}, 0,
+                          false, [](float v) { g_sceneCullRadius = v, rhi::Hints().shadowCasterCache = v <= 0.0f; }},
+                         0.0f, 400.0f);  // 2x the default shadow range: low sun, long shadows (100 still popped)
     rhi::Hints().shadowCasterCache = g_sceneCullRadius <= 0.0f;
     rhi::Hints().shadowRays = static_cast<uint32_t>(ConfigInt("render", "shadow_rays", 8));  // and.ini only
     int size = ConfigInt("render", "shadow_size", 4096);

@@ -5,6 +5,7 @@
 #include <cstring>
 
 #include "game.h"
+#include "game/camera.h"
 #include "game/game_object.h"
 #include "gen/entry_stubs.h"
 #include "gen/orig_calls.h"
@@ -2456,6 +2457,8 @@ HOOK(0x0040f8b0, "Camera_SetFar", Camera_SetFar_Entry, nullptr);
 // when scale <= 0.25 (or unordered). When it changes: +0xd0 = scale and renderer (g_game +0x38) vt+0x114(scale *
 // +0xdc, scale * +0xe0, &+0xe4) (guess: fog range). Reads EDX from callers that loaded it for other reasons
 // (docs/patterns.md).
+float (*g_cameraFarScaleAdjust)(float scale) = nullptr;
+
 uint32_t fn_0040f8c0(void* cam, float v)
 {
     const float quarter = GameGlobal<float>(0x005bcbe4);
@@ -2465,6 +2468,8 @@ uint32_t fn_0040f8c0(void* cam, float v)
         v = 1.0f;
     else if (!(v > quarter))
         v = 0.25f;
+    if (g_cameraFarScaleAdjust)  // enhancement point (src/game/camera.h); null: the original
+        v = g_cameraFarScaleAdjust(v);
     if (Field<float>(cam, 0xd0) == v)
         return 0;  // original: the fnstsw word
     const float b = v * Field<float>(cam, 0xe0);
