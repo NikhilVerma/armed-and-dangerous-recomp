@@ -52,6 +52,20 @@ directly would avoid them; buffers are the proven path, so they come first.
 - Later: `upscale = native|quality|balanced|performance`. Native = DLAA / FSR native AA. Upscaling needs the game
   to render at a lower internal resolution (back buffer smaller than the swapchain); not in the first version.
 
+## In-process FSR (2026-10-08, commit e0bcd57)
+
+Smart App Control kept blocking the helper, so FSR 3.1 is now built from the FidelityFX SDK v1.1.4 sources into the
+32-bit hook DLL (`and_fsr`, hook/CMakeLists.txt; `hook/fsr/fsr_bridge.*`):
+- the shaders are compiled at build time with the SDK's FidelityFX_SC.exe;
+- three ffx_vk.cpp lines are patched for 32-bit handles;
+- Vulkan goes through volk;
+- the SDK's KHR function names fall back to the core names.
+
+`[render] aa=1` runs it at SceneEnd in the game's own command buffer. The first in-game run reached FSR context
+creation and crashed on a null `vkGetBufferMemoryRequirements2KHR`; that is now fixed. The fixed build is blocked
+by Smart App Control itself (Code Integrity 3077/3118 on dinput8.dll), so it is not deployed and not yet seen
+running. The player's folder keeps the last build that loads.
+
 ## Status (2026-10-08)
 
 - Implemented (commit c80dc98): protocol v4, game-side jitter and scene-end handoff, and the helper's FSR 3.1
