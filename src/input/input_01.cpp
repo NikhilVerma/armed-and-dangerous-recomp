@@ -91,6 +91,14 @@ float CIfmod(float x, float y)
 
 uint32_t Controls_LoadDefaultBindings(uint32_t set, void* controls);
 
+// Enhancement points (hook/enhance/gamepad.cpp), null by default (original behaviour):
+// - g_padBinding(action, slot): a third binding column for a game controller (controller codes -0x2e..-1), slots 0
+//   and 1; 0 = none. Queried with the two original bindings in 0x00414730 / 0x00414810 / 0x004148f0 / 0x00414a30 /
+//   0x00414aa0.
+// - g_padPoll(pc): after the controller poll (0x004f8600) in the per-frame update: may fill the controller state.
+int32_t (*g_padBinding)(int32_t action, int slot) = nullptr;
+void (*g_padPoll)(void* pc) = nullptr;
+
 // 0x00414460 (esi = controls; returns eax = controls): +0 = Input virtual +0x10 (device count), +4 = -1 (any device),
 // +0x14, +0x18, +8, +0xc, +0x10 = 0, then the default bindings (0x004144a0 with eax = 0).
 void* Controls_Init(void* controls)
@@ -248,6 +256,24 @@ bool ConsumedBit(void* controls, int32_t action)
     return (Field<uint32_t>(controls, 0xc + (action / 32) * 4) & (1u << (action & 0x1f))) != 0;
 }
 
+// The controller bindings (g_padBinding) through Input virtual `slot`: any of them true (all = false), or all of
+// them true (all = true, for the release test). No controller binding: false (any) / true (all).
+bool PadQuery(uint32_t device, int32_t action, uint32_t threshold, int slot, bool all)
+{
+    if (!g_padBinding)
+        return all;
+    for (int s = 0; s < 2; s++)
+    {
+        const int32_t code = g_padBinding(action, s);
+        if (!code)
+            continue;
+        const bool r = VCall<uint8_t>(InputObj(), slot, device, static_cast<uint32_t>(code), threshold) != 0;
+        if (r != all)
+            return r;
+    }
+    return all;
+}
+
 // The device search shared by 0x00414730 (slot 0x68) and 0x00414810 (slot 0x6c): any device, either binding.
 uint32_t QueryAction(void* controls, int32_t action, uint32_t threshold, int slot)
 {
@@ -259,7 +285,8 @@ uint32_t QueryAction(void* controls, int32_t action, uint32_t threshold, int slo
         for (uint32_t device = 0; device < Field<uint32_t>(controls, 0); device++)
         {
             if (VCall<uint8_t>(InputObj(), slot, device, Field<uint32_t>(controls, 0x1c + action * 4), threshold) ||
-                VCall<uint8_t>(InputObj(), slot, device, Field<uint32_t>(controls, 0xa8 + action * 4), threshold))
+                VCall<uint8_t>(InputObj(), slot, device, Field<uint32_t>(controls, 0xa8 + action * 4), threshold) ||
+                PadQuery(device, action, threshold, slot, false))
             {
                 Field<uint32_t>(controls, 4) = device;
                 return 1;
@@ -272,6 +299,8 @@ uint32_t QueryAction(void* controls, int32_t action, uint32_t threshold, int slo
         return 1;
     if (VCall<uint8_t>(InputObj(), slot, Field<uint32_t>(controls, 4), Field<uint32_t>(controls, 0xa8 + action * 4),
                        threshold))
+        return 1;
+    if (PadQuery(Field<uint32_t>(controls, 4), action, threshold, slot, false))
         return 1;
     return 0;
 }
@@ -310,7 +339,8 @@ uint32_t Controls_IsReleased(uint32_t eax, void* controls, int32_t action, uint3
         for (uint32_t device = 0; device < Field<uint32_t>(controls, 0); device++)
         {
             if (VCall<uint8_t>(InputObj(), 0x74 / 4, device, Field<uint32_t>(controls, 0x1c + action * 4), threshold) &&
-                VCall<uint8_t>(InputObj(), 0x74 / 4, device, Field<uint32_t>(controls, 0xa8 + action * 4), threshold))
+                VCall<uint8_t>(InputObj(), 0x74 / 4, device, Field<uint32_t>(controls, 0xa8 + action * 4), threshold) &&
+                PadQuery(device, action, threshold, 0x74 / 4, true))
                 return 1;
         }
         return Field<uint32_t>(controls, 0) & 0xffffff00u;
@@ -320,6 +350,8 @@ uint32_t Controls_IsReleased(uint32_t eax, void* controls, int32_t action, uint3
         return 0;
     if (!VCall<uint8_t>(InputObj(), 0x74 / 4, Field<uint32_t>(controls, 4),
                         Field<uint32_t>(controls, 0xa8 + action * 4), threshold))
+        return 0;
+    if (!PadQuery(Field<uint32_t>(controls, 4), action, threshold, 0x74 / 4, true))
         return 0;
     return 1;
 }
@@ -347,6 +379,22 @@ uint32_t Controls_AnyKey(void* controls)
     return VCall<uint32_t>(InputObj(), 0x3c / 4, Field<uint32_t>(controls, 4));
 }
 
+// The larger of `r` and Input +0x78 for the controller bindings (g_padBinding); `r` unchanged without them.
+static float PadAxis(void* controls, int32_t action, uint32_t a0, uint32_t a1, uint32_t a2, float r)
+{
+    if (!g_padBinding)
+        return r;
+    for (int s = 0; s < 2; s++)
+        if (const int32_t code = g_padBinding(action, s))
+        {
+            const float v = VCall<float>(InputObj(), 0x78 / 4, Field<uint32_t>(controls, 4), static_cast<uint32_t>(code),
+                                         a1, a2, a0);
+            if (v > r)
+                r = v;
+        }
+    return r;
+}
+
 // 0x00414a30 (esi = controls, edi = action; stack: a0, a1, a2; callee pops 12; returns st0): the larger of Input +0x78
 // (active device, binding, a1, a2, a0) over the two bindings (device +4 as is, also -1). The original stores the first
 // value into a0's stack slot.
@@ -356,9 +404,7 @@ float Controls_AxisMax(void* controls, int32_t action, uint32_t a0, uint32_t a1,
                                   Field<uint32_t>(controls, 0x1c + action * 4), a1, a2, a0);
     const float v2 = VCall<float>(InputObj(), 0x78 / 4, Field<uint32_t>(controls, 4),
                                   Field<uint32_t>(controls, 0xa8 + action * 4), a1, a2, a0);
-    if (!(v1 > v2))
-        return v2;
-    return v1;
+    return PadAxis(controls, action, a0, a1, a2, v1 > v2 ? v1 : v2);
 }
 
 // 0x00414aa0 (esi = controls, edi = action; stack: a0, a1, a2; callee pops 12; returns st0): as 0x00414a30, then the
@@ -369,7 +415,7 @@ float Controls_AxisMaxCapped(void* controls, int32_t action, uint32_t a0, uint32
                                   Field<uint32_t>(controls, 0x1c + action * 4), a1, a2, a0);
     const float v2 = VCall<float>(InputObj(), 0x78 / 4, Field<uint32_t>(controls, 4),
                                   Field<uint32_t>(controls, 0xa8 + action * 4), a1, a2, a0);
-    const float r = v1 > v2 ? v1 : v2;
+    const float r = PadAxis(controls, action, a0, a1, a2, v1 > v2 ? v1 : v2);
     if (r < bf(a0))
         return r;
     return bf(a0);
@@ -1556,6 +1602,8 @@ uint32_t InputPC_Update(void* pc, uint32_t dt)
     InputPC_PollKeyboard(pc);
     InputPC_PollMouse(pc);
     InputPC_PollController(pc);
+    if (g_padPoll)
+        g_padPoll(pc);
     return Rumble_Update(u(pc), pc, bf(dt));
 }
 

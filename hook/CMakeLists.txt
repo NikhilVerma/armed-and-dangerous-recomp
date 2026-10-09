@@ -44,6 +44,35 @@ set(BUILD_EXTERNAL OFF CACHE BOOL "" FORCE)
 set(ENABLE_SPVREMAPPER OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(vulkan_headers volk glslang)
 
+# SDL3 (zlib licence): game controllers for hook/enhance/gamepad.cpp. Its HIDAPI drivers read DualShock 4 /
+# DualSense natively (USB and Bluetooth), XInput covers Xbox pads; static, joystick / gamepad / haptic only. Its
+# DirectInput backend is off (SDL_DIRECTX): this DLL *is* dinput8.dll, and the game's DirectInput hooks
+# (hook/src/input_hooks.cpp) must not see SDL's devices.
+FetchContent_Declare(sdl3
+  GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
+  GIT_TAG release-3.4.16)
+set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+set(SDL_STATIC ON CACHE BOOL "" FORCE)
+set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
+set(SDL_TESTS OFF CACHE BOOL "" FORCE)
+set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(SDL_INSTALL OFF CACHE BOOL "" FORCE)
+set(SDL_DISABLE_INSTALL ON CACHE BOOL "" FORCE)
+set(SDL_DIRECTX OFF CACHE BOOL "" FORCE)
+# The DirectInput joystick backend is chosen from HAVE_DINPUT_H alone (SDL CMakeLists, "SDL_JOYSTICK_DINPUT"), which
+# the MSVC cache preseed sets to 1: no preseed, and the check answered "no" before it runs.
+set(SDL_PRESEED OFF CACHE BOOL "" FORCE)
+set(HAVE_DINPUT_H "" CACHE INTERNAL "SDL: no DirectInput backend")
+foreach(sub AUDIO VIDEO RENDER GPU CAMERA DIALOG TRAY POWER SENSOR PROCESS OPENGL OPENGLES VULKAN)
+  set(SDL_${sub} OFF CACHE BOOL "" FORCE)
+endforeach()
+set(SDL_JOYSTICK ON CACHE BOOL "" FORCE)
+set(SDL_HAPTIC ON CACHE BOOL "" FORCE)
+set(SDL_HIDAPI ON CACHE BOOL "" FORCE)
+set(SDL_HIDAPI_JOYSTICK ON CACHE BOOL "" FORCE)
+set(SDL_XINPUT ON CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(sdl3)
+
 # Jolt Physics (MIT; docs/decision.md 2026-10-06): the open-source replacement for Havok, staged behind [physics]
 # engine in and.ini (hook/enhance/physics_jolt.cpp; default: the original Havok). Its CMake project is in Build/.
 FetchContent_Declare(jolt
@@ -243,6 +272,7 @@ add_library(and_hook SHARED
   enhance/audio.cpp
   enhance/qol.cpp
   enhance/input.cpp
+  enhance/gamepad.cpp
   enhance/ui_aspect.cpp
   enhance/settings.cpp
   enhance/shadows.cpp
@@ -252,6 +282,7 @@ add_library(and_hook SHARED
   dinput8.def)
 
 target_include_directories(and_hook PRIVATE src enhance ../src ${CMAKE_CURRENT_SOURCE_DIR} ${minhook_SOURCE_DIR}/include ${EMBED_DIR})
+target_link_libraries(and_hook PRIVATE SDL3::SDL3-static)
 target_link_libraries(and_hook PRIVATE minhook and_physics and_fsr d3d9 dbghelp winmm dxguid ole32 windowscodecs dsound
   Vulkan::Headers glslang::glslang glslang::SPIRV glslang::glslang-default-resource-limits)
 target_include_directories(and_hook PRIVATE ${volk_SOURCE_DIR})

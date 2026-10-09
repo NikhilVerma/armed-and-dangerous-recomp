@@ -53,10 +53,13 @@ def main():
         sec, k = key.split(".", 1)
         sections.setdefault(sec, {})[k] = value
     render = sections.pop("render", {})
+    # [test] overrides join the run's own test settings (a [test] section here would replace the scenario's).
+    test = {"keys_from_load": 0}
+    test.update(sections.pop("test", {}))
     compare.DUMP = a.dump
     hooks = {n: True for n in compare.hook_names()}
     rows, crashed = compare.run_once(f"visual-{a.name}", hooks, a.level, a.frames, a.timeout, a.keys,
-                                     {"keys_from_load": 0}, render, sections)
+                                     test, render, sections)
     out = os.path.join(ROOT, "work", "visual", a.name)
     if os.path.isdir(out):
         shutil.rmtree(out)

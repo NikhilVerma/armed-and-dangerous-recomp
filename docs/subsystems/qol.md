@@ -187,3 +187,54 @@ Fixes, with the original behaviour when off:
 
 Gameplay mouse look reads DirectInput deltas and is linear, with no acceleration and no frame-rate dependence: one
 count turns sens * s / 300. Speed is adjusted with `[qol] mouse_x` / `mouse_y` (0.25..3).
+
+## Game controllers: DualShock 4, DualSense, Xbox (2026-10-09)
+
+`[input] gamepad` (remaster on) in hook/enhance/gamepad.cpp, on SDL3 3.4.16. SDL3 is zlib-licensed, statically
+linked and fetched by hook/CMakeLists.txt.
+- **Backends.** DS4 and DualSense use SDL's HIDAPI drivers (USB and Bluetooth). Xbox pads use XInput or WGI.
+  - SDL's DirectInput backend is compiled out (`SDL_PRESEED OFF`, `HAVE_DINPUT_H` empty): this DLL is
+    dinput8.dll, and the game's DirectInput hooks must not see SDL's devices.
+  - The DLL imports no dinput8.dll.
+- **State.** The game's own controller path is reused (0x004f8600 layout, section 1). After the game's poll (hook
+  point `g_padPoll`, InputPC_Update), the SDL pad is written into pc+0x190..: four axes in DirectInput units
+  (±32255) and their floats at +0x1f8, the D-pad as a POV at +0x1a0, and 12 buttons at +0x1a4.
+  - Buttons by position: South, East, West, North, L1, R1, L2, R2 (triggers past 30%), Back, Start, L3, R3.
+  - Input only counts while the game window is in front.
+- **Bindings.** A third binding column, hook point `g_padBinding`, gives each action up to two controller codes. It
+  is queried with the original two bindings in 0x00414730 / 0x00414810 / 0x004148f0 / 0x00414a30 / 0x00414aa0.
+  The keyboard and mouse bindings are unchanged. Defaults (action names from 0x004155a0):
+
+  | Control | Action |
+  | --- | --- |
+  | Left stick | Move |
+  | Right stick | Turn and look |
+  | R2 | Fire |
+  | L2 | Special weapon |
+  | R1 / L1 | Next / previous weapon |
+  | D-pad right / left | Next / previous special weapon |
+  | D-pad up / down | Send / recall teammates |
+  | Cross | Jump, menu select |
+  | Circle | Menu back |
+  | Square | Reload |
+  | Triangle | Use |
+  | R3 | Toggle zoom |
+  | L3 | Fast movement |
+  | Options | Pause |
+  | Share / Create | Special event |
+  | D-pad or left stick | Menus |
+
+- **Tests.** `[test] pad_keys=600:START,625:DOWN*4` drives an SDL virtual gamepad in presented frames. Verified on
+  lev_1_m1 (work/visual/pad_test.png, pad_menu.png, pad_fire2.png):
+  - The left stick walks forward and the right stick turns.
+  - Options opens the pause menu, and the D-pad and the stick move its focus.
+  - R2 fires (rifle 8 -> 6, the same as the mouse).
+  - Pitfall: a virtual trigger rests at -32768. 0 reads as half pressed, the fire action is never "released", and
+    stays consumed.
+- On the player's PC SDL found the DualSense ("DualSense Wireless Controller connected (type 6)").
+- **Not yet:**
+  - Button glyphs in prompts and the controls menu.
+  - Rebinding the controller column in game: it is fixed defaults for now.
+  - Rumble (the game's Rumble_Update drives DirectInput force feedback).
+  - D-pad "pressed" fires on release for POV codes (original quirk 0x004f8b20, section 1). The menus are unaffected
+    (they move on the press).

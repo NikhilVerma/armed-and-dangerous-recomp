@@ -15,6 +15,7 @@ void PersistenceInit();
 void AudioInit();
 void QolInit();
 void InputInit();
+void GamepadInit();
 void ProfilerInit();
 void UiAspectInit();
 void ShadowsInit();
@@ -69,6 +70,7 @@ static void Startup()
     AudioInit();
     QolInit();
     InputInit();
+    GamepadInit();
     ProfilerInit();
     UiAspectInit();
     ShadowsInit();
