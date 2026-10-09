@@ -143,7 +143,7 @@ const ShortLabel kShortLabels[] = {
 
 struct Slot
 {
-    enum Kind { Setting, Title, Footer, Back, Prev, Next, Indicator } kind;
+    enum Kind { Setting, Title, Footer, Credits, Back, Prev, Next, Indicator } kind;
     int page;      // menu page that shows it (Setting, Indicator); -1 = every page
     int setting;   // index into RemasterSettings() (Setting only)
     const char* ref;
@@ -285,6 +285,9 @@ void BuildLayout()
         restart = restart || r;
     if (restart)
         g_slots.push_back({Slot::Footer, -1, -1, "ref_info", kCodeStatic * 100 + 10, -1, -1, -1, -1, nullptr});
+    // The libraries' credits (the NVIDIA RTX SDK licence asks for DLSS to be credited; Intel and AMD for notices),
+    // under the footer on every page.
+    g_slots.push_back({Slot::Credits, -1, -1, "ref_info", kCodeStatic * 100 + 11, -1, -1, -1, -1, nullptr});
     for (int p = 0; p < g_pageCount; ++p)
     {
         wchar_t text[32];
@@ -522,6 +525,7 @@ void ShowSlot(void* screen, Slot& slot)
     case Slot::Next:
     case Slot::Indicator:
     case Slot::Footer:
+    case Slot::Credits:
         ShowControl(screen, slot);
         break;
     default:
@@ -571,7 +575,8 @@ uint32_t __fastcall RemasterInitItem(void* screen, void*, void* item, uint32_t e
         Hide(screen, item);
         return r;
     }
-    if (slot->kind != Slot::Back && slot->kind != Slot::Title && slot->kind != Slot::Footer)
+    if (slot->kind != Slot::Back && slot->kind != Slot::Title && slot->kind != Slot::Footer &&
+        slot->kind != Slot::Credits)
         AdjustRow(item);
     if (!OnPage(*slot))
     {
@@ -760,6 +765,9 @@ void SpawnAll()
         case Slot::Footer:
             s.item = Spawn(nullptr, "and_footer", page, ref, 0.9f, kColourPage, s.id, -1, -1, -1, -1);
             break;
+        case Slot::Credits:
+            s.item = Spawn(nullptr, "and_credits", page, ref, 0.7f, kColourPage, s.id, -1, -1, -1, -1);
+            break;
         }
         spawned += s.item ? 1 : 0;
     }
@@ -809,6 +817,8 @@ static const wchar_t* __cdecl RemasterText(const char* id)
     }
     if (strcmp(rest, "footer") == 0)
         return L"* after a restart";
+    if (strcmp(rest, "credits") == 0)
+        return L"Anti-aliasing: AMD FSR 3.1, NVIDIA DLSS, Intel XeSS";
     if (rest[0] == 's' && rest[1] >= '0' && rest[1] <= '9')
     {
         size_t i = static_cast<size_t>(atoi(rest + 1));
