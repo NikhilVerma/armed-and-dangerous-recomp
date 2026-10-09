@@ -1646,6 +1646,11 @@ bool VulkanDevice::PrepareDraw(D3DPRIMITIVETYPE type, uint64_t drawKey)
         else
             std::memset(&u.mf, 0, sizeof(u.mf));
         u.alphaRef[0] = (rs_[D3DRS_ALPHAREF] & 0xff) / 255.0f;
+        // Remaster alpha coverage (vk_fixed_function.cpp FinalBody): scene draws under temporal AA only.
+        static const bool alphaCoverage = ConfigIntDefault("render", "alpha_coverage", 0, 1) != 0;
+        u.alphaRef[1] = static_cast<float>(aaFrame_ & 15);
+        u.alphaRef[2] = alphaCoverage && aaActive_ && !sceneEnded_ ? 1.0f : 0.0f;
+        u.alphaRef[3] = 0.0f;
         ColorToFloat(rs_[D3DRS_AMBIENT], u.ambient);
         std::memcpy(u.materialDiffuse, &material_.Diffuse, 16);
         std::memcpy(u.materialAmbient, &material_.Ambient, 16);

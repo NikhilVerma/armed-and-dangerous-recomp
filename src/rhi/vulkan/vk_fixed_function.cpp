@@ -174,10 +174,25 @@ std::string FinalBody(const FFKey& key)
         case D3DCMP_GREATEREQUAL: cmp = ">="; break;
         default: break;  // D3DCMP_NEVER (and invalid values): nothing passes
         }
+        // Remaster alpha coverage (ff.alphaRef.z = 1: [render] alpha_coverage under temporal AA). Alpha-tested
+        // foliage and fences have hard, crawling edges: there is no MSAA for alpha-to-coverage. The edge's
+        // sub-pixel coverage comes from the alpha gradient instead (distance to the threshold in pixels, + 0.5),
+        // and is compared with per-pixel noise that changes every frame, so the AA's history averages the edge
+        // pixels into partial coverage. Pixels a whole pixel inside or outside the edge keep the original result.
+        const bool coverage = key.alphaFunc == D3DCMP_GREATER || key.alphaFunc == D3DCMP_GREATEREQUAL;
+        if (coverage)
+            s += "float d3d9_aw = max(fwidth(c.a), 1e-4); "
+                 "if (ff.alphaRef.z > 0.5) { "
+                 "float d3d9_cov = clamp((c.a - ff.alphaRef.x) / d3d9_aw + 0.5, 0.0, 1.0); "
+                 "vec2 d3d9_np = gl_FragCoord.xy + ff.alphaRef.y * vec2(5.588238, 5.588238); "
+                 "float d3d9_n = fract(52.9829189 * fract(dot(d3d9_np, vec2(0.06711056, 0.00583715)))); "
+                 "if (d3d9_cov <= d3d9_n) discard; } else { ";
         if (cmp)
             s += std::string("float d3d9_a = floor(clamp(c.a, 0.0, 1.0) * 255.0 + 0.5); "
                              "float d3d9_r = floor(clamp(ff.alphaRef.x, 0.0, 1.0) * 255.0 + 0.5); "
                              "if (!(d3d9_a ") + cmp + " d3d9_r)) discard; ";
+        if (coverage)
+            s += "} ";
         else
             s += "discard; ";
     }

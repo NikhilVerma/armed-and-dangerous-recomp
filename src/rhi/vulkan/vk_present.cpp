@@ -2,6 +2,8 @@
 // or a debug view. Remaster hooks (docs/goals/modern-renderer.md step 5):
 //   [render] tonemap=none|aces (default none: the game's values pass unchanged, so frames match the D3D9 backend)
 //   [render] exposure=1.0      (multiplies before the operator)
+//   [render] dither=1          triangular noise of +-1 step before the 8-bit output: the 16-bit scene's smooth
+//                              gradients (sky, fog, snow shading) no longer band. Remaster default on, original off.
 //   [render] debug_view=none|depth|normals|motion
 //     depth    linear eye depth from the depth buffer (white = 300 units)
 //     normals  surface normals reconstructed from depth (view space, n * 0.5 + 0.5)
@@ -39,6 +41,8 @@ layout(push_constant) uniform Params
     float p11, p22, p33, p34, p43;  // D3D9 projection _11 _22 _33 _34 _43 (depth linearisation)
     int hasDepth, hasMotion;
     float gammaR, gammaG, gammaB;  // rhi::Output().gamma: out = in^(1 / gamma)
+    int dither;     // 1: triangular-distribution noise of +-1/255 before the 8-bit store
+    float frame;    // varies the noise per frame (temporal AA averages it away)
 } pc;
 
 // Eye-space position from the 0..1 depth: depth = (z * _33 + _43) / (z * _34) for a perspective projection with
@@ -88,6 +92,15 @@ void main()
     c = clamp(c, 0.0, 1.0);
     if (pc.gammaR != 1.0 || pc.gammaG != 1.0 || pc.gammaB != 1.0)
         c = pow(c, vec3(1.0 / pc.gammaR, 1.0 / pc.gammaG, 1.0 / pc.gammaB));
+    if (pc.dither != 0)
+    {
+        // Two uniform hashes summed: triangular noise in (-1, 1) steps, which hides banding without the noise
+        // level depending on the signal (rectangular noise of the same width leaves faint bands).
+        vec2 p = gl_FragCoord.xy + pc.frame * vec2(47.0, 17.0);
+        float a = fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
+        float b = fract(sin(dot(p, vec2(39.3468, 11.135))) * 24634.6345);
+        c += (a + b - 1.0) / 255.0;
+    }
     o = vec4(c, 1.0);
 }
 )";
@@ -98,6 +111,8 @@ struct Params
     float exposure, p11, p22, p33, p34, p43;
     int hasDepth, hasMotion;
     float gamma[3];
+    int dither;
+    float frame;
 };
 }  // namespace
 
@@ -110,6 +125,7 @@ bool PresentPass::Init()
     ConfigString("render", "tonemap", "none", buf, sizeof(buf));
     tonemap_ = !_stricmp(buf, "aces") || ConfigInt("render", "tonemap_aces", 0) ? 1 : 0;  // tonemap_aces: Remaster page
     exposure_ = ConfigFloat("render", "exposure", 1.0f);
+    dither_ = ConfigIntDefault("render", "dither", 0, 1) != 0;
     if (view_ || tonemap_)
         Log("vulkan: present pass: debug_view %d, tonemap %d, exposure %.2f", view_, tonemap_, exposure_);
 
@@ -226,7 +242,8 @@ void PresentPass::Record(VkCommandBuffer cb, Image& hdr, Image* depth, Image* mo
     const float* g = rhi::Output().gamma;
     Params p{view_,    tonemap_,         exposure_,  proj[0], proj[5], proj[10], proj[11],
              proj[14], depth ? 1 : 0,    motion ? 1 : 0, {g[0] > 0.0f ? g[0] : 1.0f, g[1] > 0.0f ? g[1] : 1.0f,
-                                                          g[2] > 0.0f ? g[2] : 1.0f}};
+                                                          g[2] > 0.0f ? g[2] : 1.0f},
+             dither_ ? 1 : 0, static_cast<float>(frame_++ & 63)};
     vkCmdPushConstants(cb, layout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(p), &p);
     vkCmdDraw(cb, 3, 1, 0, 0);
     vkCmdEndRendering(cb);

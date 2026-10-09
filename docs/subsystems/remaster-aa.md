@@ -137,3 +137,24 @@ running. The player's folder keeps the last build that loads.
   - XeSS on this NVIDIA card (its generic DP4a path) is the softest and shows faint edge shimmer.
   - FSR is the steadiest on this scene and stays the remaster default.
   - A reactive / transparency mask for the particles would help all three (open).
+
+## Mip bias, alpha coverage and dithering (2026-10-09)
+
+- **Mip bias** (`[render] aa_mip_bias`, remaster -1, original 0; src/rhi/vulkan/vk_pipeline.cpp). It is added to
+  every mipmapped sampler while temporal AA is on: the vendors' log2(render / output) - 1 at native resolution.
+  - Still camera on lev_1_m1 over 24 frames, FSR (work/visual/q_*): sharpness 11.30 -> 11.93, frame-to-frame change
+    0.992 -> 0.991.
+  - So textures are sharper with no extra shimmer. -0.5 gave 11.87 with the same change.
+- **Dithering** (`[render] dither`, remaster on; vk_present.cpp). Triangular noise of ±1 step is added before the
+  8-bit output, varied per frame.
+  - Neighbouring sky and fog pixels with identical values (bands) drop from 38% to 28% (work/visual/dither_cmp.png).
+  - The frame-to-frame change rises 0.99 -> 1.28: the noise itself, sub-step.
+- **Alpha coverage** (`[render] alpha_coverage`, remaster on; vk_fixed_function.cpp FinalBody). For alpha tests with
+  GREATER / GREATEREQUAL, only under temporal AA:
+  - Edge pixels take their coverage from the alpha gradient (distance to the threshold in pixels, + 0.5), compared
+    with per-pixel noise that changes every frame. Interiors keep the original result.
+  - Eligible draws: about 60 per frame on lev_1_m1 and 35 on lev_3_m1 (all GREATEREQUAL).
+  - Measured gain on the tested content: none. A still frame looks identical (work/visual/cov_zoom.png). On a camera
+    turn, 29.78% vs 29.78% of pixels toggle (mostly falling snow). FSR already resolves these branch edges.
+  - Kept on: no cost and no regression measured. To revisit on foliage-heavy levels.
+- Shadow maps are unaffected: casters use their own depth-only fragment shader.

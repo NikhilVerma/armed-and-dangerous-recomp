@@ -25,6 +25,7 @@
 #include "log.h"
 #include "vk_abi.h"
 #include "vk_pipeline.h"
+#include "rhi/rhi.h"
 
 namespace rhi::vulkan
 {
@@ -533,6 +534,11 @@ VkSampler GetSampler(const uint32_t states[14])
     static const float extraBias = ConfigFloat("render", "lod_bias", 0.0f);
     static const float forcedAniso = ConfigFloatDefault("render", "anisotropy", 0.0f, 16.0f);
     bias += extraBias;
+    // Remaster: under temporal AA (rhi::Hints().aaMode, fixed at start-up) the vendors' recommended negative mip
+    // bias (log2(render / output) - 1 at native resolution = -1): the jittered history resolves the extra detail.
+    static const float aaBias = ConfigFloatDefault("render", "aa_mip_bias", 0.0f, -1.0f);
+    if (rhi::Hints().aaMode != 0 && states[D3DSAMP_MIPFILTER] != D3DTEXF_NONE)
+        bias += aaBias;
     if (forcedAniso > 1.0f && states[D3DSAMP_MIPFILTER] != D3DTEXF_NONE && ci.minFilter == VK_FILTER_LINEAR &&
         forcedAniso > ci.maxAnisotropy)
     {

@@ -103,6 +103,17 @@ void RenderInit()
     RemasterRegister({"render", "tonemap_aces", L"Filmic tone mapping (Vulkan)", S::Toggle, 0, 1, 1, {}, 0, true,
                       nullptr},
                      0);
+    // Dithered 8-bit output (src/rhi/vulkan/vk_present.cpp): no banding in sky, fog and snow gradients.
+    RemasterRegister({"render", "dither", L"Dithering (no banding)", S::Toggle, 0, 1, 1, {}, 0, true, nullptr}, 0, 1);
+    // Smooth edges on alpha-tested foliage and fences under temporal AA (src/rhi/vulkan/vk_fixed_function.cpp).
+    RemasterRegister({"render", "alpha_coverage", L"Smooth foliage edges (with AA)", S::Toggle, 0, 1, 1, {}, 0, true,
+                      nullptr},
+                     0, 1);
+    // Texture mip bias while temporal AA runs (src/rhi/vulkan/vk_pipeline.cpp): the AA resolves the extra detail
+    // that a negative bias brings in, so textures stay as sharp as without AA.
+    RemasterRegister({"render", "aa_mip_bias", L"Texture sharpness with AA", S::Slider, -2.0f, 0.0f, 0.25f, {}, 0,
+                      true, nullptr},
+                     0.0f, -1.0f);
     // No level of detail: every object always draws its finest mesh (Object_SelectLod at distance 0).
     g_lodForceFinest = RemasterRegister({"render", "lod_max", L"Always highest detail", S::Toggle, 0, 1, 1, {}, 0,
                                          false, [](float v) { g_lodForceFinest = v != 0.0f; }},

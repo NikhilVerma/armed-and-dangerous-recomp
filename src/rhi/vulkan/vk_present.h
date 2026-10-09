@@ -10,7 +10,7 @@ public:
     bool Init();
     // Records the pass into `cb` (outside rendering). `proj`: the D3D9 projection matrix (row-major, 16 floats).
     void Record(VkCommandBuffer cb, Image& hdr, Image* depth, Image* motion, Image& ldr, const float proj[16]);
-    bool Identity() const { return view_ == 0 && tonemap_ == 0 && exposure_ == 1.0f; }
+    bool Identity() const { return view_ == 0 && tonemap_ == 0 && exposure_ == 1.0f && !dither_; }
 
 private:
     VkDescriptorSetLayout setLayout_ = VK_NULL_HANDLE;
@@ -19,5 +19,7 @@ private:
     VkSampler sampler_ = VK_NULL_HANDLE;
     int view_ = 0, tonemap_ = 0;
     float exposure_ = 1.0f;
+    bool dither_ = false;
+    uint32_t frame_ = 0;
 };
 }  // namespace rhi::vulkan
