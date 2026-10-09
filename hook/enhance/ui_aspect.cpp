@@ -27,6 +27,7 @@
 #include "settings.h"
 
 unsigned PresentedFrames();  // hook/src/d3d9_hooks.cpp
+extern void (*g_uiCursorToLayout)(float* x);  // src/ui/ui_03.cpp (0x00491380)
 
 namespace
 {
@@ -169,6 +170,23 @@ void EndDraw(void*)
 }
 }  // namespace
 
+// The menus are drawn pillarboxed (BeginDraw, centred) but the game hit tests the cursor at its position across the
+// whole window (0x00491380), so on a wide screen clicks and hover landed beside the item under the cursor (the
+// player: "sometimes I click on menu items and it never works"). Map the cursor into the centred 4:3 layout.
+static void CursorToLayout(float* x)
+{
+    if (!g_anchor || !g_game)
+        return;
+    void* renderer = Field<void*>(g_game, 0x38);
+    const float* viewport = renderer ? VCall<const float*>(renderer, 0x7c / 4) : nullptr;
+    if (!viewport || viewport[1] <= 0.0f)
+        return;
+    const float k = (4.0f / 3.0f) / (viewport[0] / viewport[1]);
+    if (k >= 0.999f)
+        return;
+    *x = (*x - (1.0f - k) * 0.5f) / k;
+}
+
 // Once per frame: text drawn outside the UI pass (loading screens, subtitles, fades) uses the same scale.
 void UiAspectOnFrame()
 {
@@ -197,6 +215,7 @@ void UiAspectInit()
                                        }},
                                       0, 1) != 0.0f;
     g_pixelSizeScale[0] = g_pixelSizeScale[1] = g_textScale;  // the renderer does not exist yet
+    g_uiCursorToLayout = CursorToLayout;  // returns at once with the original settings
     g_uiObjectBeginDraw = BeginDraw;  // both return at once with the original settings
     g_uiObjectEndDraw = EndDraw;
     Log("ui: anchor %d", g_anchor ? 1 : 0);

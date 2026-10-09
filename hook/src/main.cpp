@@ -14,6 +14,7 @@ void CameraInit();
 void PersistenceInit();
 void AudioInit();
 void QolInit();
+void InputInit();
 void ProfilerInit();
 void UiAspectInit();
 void ShadowsInit();
@@ -67,6 +68,7 @@ static void Startup()
     PersistenceInit();
     AudioInit();
     QolInit();
+    InputInit();
     ProfilerInit();
     UiAspectInit();
     ShadowsInit();

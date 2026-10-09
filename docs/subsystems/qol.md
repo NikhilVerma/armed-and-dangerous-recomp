@@ -155,3 +155,35 @@ substep only (guess: otherwise presses repeat); (4) audio update once per frame.
 - **Recommended**: size option = scale the style table size field (+0xc) at start-up, or hook 0x00465720's
   result. Background = hook 0x00495e80: draw a translucent screen quad behind the text bounds before the
   renderer +0x1c8 call (bounds from 0x00495fa0, guess: the text measure function).
+
+## Menu cursor, clicks and window capture (2026-10-09)
+
+The player reported that the menu cursor moved slower than Windows and felt accelerated, that mouse and keyboard
+fought over menu focus, and that clicking a menu item sometimes did nothing. Findings (src/ui/ui_03.cpp,
+src/game/ui_pass.cpp):
+
+- **Position.** The menu cursor is not built from DirectInput deltas. 0x00491380 reads `GetCursorPos` every frame
+  and normalises it to the client area (manager g+0xab4: +0x320/+0x324 pixels from the centre, +0x328/+0x32c
+  0..1).
+- **Drawing.** The game draws its own sprite (`ui_mouse_cursor`, hud+0x54) at that position, last in the UI pass.
+  The sprite is a frame or more behind the hidden Windows pointer (game latency, vsync and AA): that is the "slow,
+  accelerated" feel.
+- **Clicks and hover.** UiScreen_Update 0x004929e0 hit tests the 0..1 position against the items' 640x480 layout
+  rectangles (0x00463930, 0x00464990). With `[ui] anchor=1` the menus are drawn pillarboxed at 4:3, so on a wide
+  screen the hit test was off by up to (1 - k) / 2 of the width: clicks landed beside the item and hover
+  focused another one.
+- **Hover rule.** Hover moves focus only on frames where the cursor moved or a button is held (0x004929e0 line
+  1789), so a still mouse does not override the keyboard.
+- **Capture.** The mouse is opened non-exclusive (level 6); 0x004f82d0 clips the pointer only in exclusive mode. In a
+  window or borderless the hidden pointer is free to leave, and a click on another monitor takes the focus.
+
+Fixes, with the original behaviour when off:
+
+| Setting | Remaster default | Change |
+| --- | --- | --- |
+| `[input] hardware_cursor` | 1 | Menus show the Windows pointer, and the sprite is skipped through the new hook point `g_uiCursorSprite` (ui_pass.cpp). |
+| `[input] clip_cursor` | 1 | The pointer is clipped to the client area while the window is in front, and released on WM_KILLFOCUS, WM_ACTIVATE and WM_ACTIVATEAPP (window subclass). |
+| `[ui] anchor` | (existing) | The cursor x is mapped into the centred 4:3 layout through the new hook point `g_uiCursorToLayout` (0x00491380), before the hit test. |
+
+Gameplay mouse look reads DirectInput deltas and is linear, with no acceleration and no frame-rate dependence: one
+count turns sens * s / 300. Speed is adjusted with `[qol] mouse_x` / `mouse_y` (0.25..3).

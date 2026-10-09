@@ -242,6 +242,7 @@ add_library(and_hook SHARED
   enhance/persistence.cpp
   enhance/audio.cpp
   enhance/qol.cpp
+  enhance/input.cpp
   enhance/ui_aspect.cpp
   enhance/settings.cpp
   enhance/shadows.cpp

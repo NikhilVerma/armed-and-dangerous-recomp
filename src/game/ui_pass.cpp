@@ -11,6 +11,7 @@
 void (*g_uiObjectBeginDraw)(void* object) = nullptr;
 void (*g_uiObjectEndDraw)(void* object) = nullptr;
 void (*g_uiPassBegin)() = nullptr;
+bool (*g_uiCursorSprite)(bool active) = nullptr;
 
 namespace
 {
@@ -149,10 +150,12 @@ uint32_t UiPass_Draw(void* ui)
     }
 
     // 0x004646e2: when byte ui +0x50 is set and ui +0x54 is non-null, its draw virtual +0x13c (no flush, no reset).
-    if (Field<uint8_t>(ui, 0x50) != 0)
     {
-        void* top = Field<void*>(ui, 0x54);
-        if (top != nullptr)
+        void* top = Field<uint8_t>(ui, 0x50) != 0 ? Field<void*>(ui, 0x54) : nullptr;
+        bool draw = top != nullptr;
+        if (g_uiCursorSprite)
+            draw = g_uiCursorSprite(draw) && top != nullptr;
+        if (draw)
             VCall<uint32_t>(top, kObjDraw);
     }
 

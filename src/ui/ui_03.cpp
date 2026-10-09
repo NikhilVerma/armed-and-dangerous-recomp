@@ -855,6 +855,10 @@ HOOK(0x00491360, "fn_00491360", fn_00491360_Entry, nullptr);
 // w / 2, mgr+0x324 = h - (cy - (top + (by - bx / 2))) - h / 2 (bx/by = window minus client size), clamped to +-w/2,
 // +-h/2. 0x00463ac0 (eax = g+0xa70, ecx = {u, v, 0}) gets the position in 0..1, which is also stored at +0x328/+0x32c
 // and returned through the pointers. Returns 1 when the position changed, else 0. Evidence: the user32 imports.
+// Enhancement point: maps the cursor's normalised x (0..1 of the window) to the x the menus are laid out and hit
+// tested in, after the sprite has been placed. Null by default (original behaviour).
+void (*g_uiCursorToLayout)(float* x) = nullptr;
+
 uint32_t fn_00491380(uint8_t* mgr, float* outX, float* outY)
 {
     uint32_t frame[0x14];  // the original's 0x50-byte frame
@@ -899,7 +903,9 @@ uint32_t fn_00491380(uint8_t* mgr, float* outX, float* outY)
     f[10] = (halfH + Field<float>(mgr, 0x324)) / h;  // [0x28]
     frame[11] = 0;                                    // [0x2c]
     orig::fn_00463ac0(Field<uint32_t>(G(), 0xa70), u(&frame[9]));
-    const float nx = (halfW + Field<float>(mgr, 0x320)) / w;
+    float nx = (halfW + Field<float>(mgr, 0x320)) / w;
+    if (g_uiCursorToLayout)
+        g_uiCursorToLayout(&nx);
     Field<float>(mgr, 0x328) = nx;
     *outX = nx;
     const float ny = (halfH + Field<float>(mgr, 0x324)) / h;
