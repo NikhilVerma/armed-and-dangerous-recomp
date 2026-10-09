@@ -15,7 +15,10 @@
 //   - after the game's own poll (hook point g_padPoll, src/input/input_01.cpp) the SDL gamepad's state is written into
 //     that block in the game's units, in the standard layout (positions, so the same for PlayStation and Xbox pads);
 //   - a third binding column (hook point g_padBinding) gives every action controller codes next to the keyboard and
-//     mouse bindings, which stay as they are.
+//     mouse bindings, which stay as they are;
+//   - while the controller is the last thing used, prompts show its buttons (hook point g_promptKey, 0x00465280) and
+//     controller codes are named for the pad in hand (g_textOverride: "Cross", "R2" on PlayStation pads, "A", "RT" on
+//     the others) instead of the game's Xbox-era ids ("PMS_INPUT_X_BUTTON" is its first button).
 #include <windows.h>
 
 #include <SDL3/SDL.h>
@@ -31,6 +34,8 @@
 
 extern int32_t (*g_padBinding)(int32_t action, int slot);  // src/input/input_01.cpp
 extern void (*g_padPoll)(void* pc);
+extern int32_t (*g_promptKey)(uint32_t action);              // src/ui/ui_01.cpp (0x00465280)
+extern const wchar_t* (*g_textOverride)(const char* id);  // hook/enhance/remaster_menu.cpp (Text_Lookup)
 unsigned PresentedFrames();  // hook/src/d3d9_hooks.cpp
 
 namespace
@@ -99,6 +104,9 @@ SDL_Gamepad* g_pad;
 uint8_t g_last[0x34];  // the state we wrote last frame (the "previous" state the game compares with)
 float g_lastAxes[4];
 bool g_wrote;
+bool g_padActive;  // the controller was used more recently than the keyboard and mouse
+bool g_playStation;
+bool g_dualSense;
 
 // [test] pad_keys: a scripted virtual gamepad.
 struct PadKey
@@ -244,7 +252,12 @@ void Connect()
     {
         g_pad = SDL_OpenGamepad(g_virtual ? g_virtual : ids[0]);  // a test script uses its virtual pad
         if (g_pad)
-            Log("gamepad: %s connected (type %d)", SDL_GetGamepadName(g_pad), int(SDL_GetGamepadType(g_pad)));
+        {
+            const SDL_GamepadType type = SDL_GetGamepadType(g_pad);
+            g_playStation = type == SDL_GAMEPAD_TYPE_PS3 || type == SDL_GAMEPAD_TYPE_PS4 || type == SDL_GAMEPAD_TYPE_PS5;
+            g_dualSense = type == SDL_GAMEPAD_TYPE_PS5;
+            Log("gamepad: %s connected (type %d)", SDL_GetGamepadName(g_pad), int(type));
+        }
     }
     SDL_free(ids);
 }
@@ -329,8 +342,84 @@ void Poll(void* pc)
         Field<float>(pc, 0x1f8 + 4 * i) = f;
         g_lastAxes[i] = f;
     }
+    // Last device used: any pad button or a stick past half way -> the pad; any key, mouse button or mouse motion
+    // in the game's own state (keyboard bytes pc+0x5c.., mouse deltas +0x2c / +0x30, buttons +0x44) -> keyboard.
+    bool padUsed = pov != -1;
+    for (int i = 0; i < kButtons; ++i)
+        padUsed = padUsed || state[0x14 + i];
+    for (int i = 0; i < 4; ++i)
+        padUsed = padUsed || axis[i] > 16000 || axis[i] < -16000;
+    bool keysUsed = Field<float>(pc, 0x2c) != 0.0f || Field<float>(pc, 0x30) != 0.0f || Field<uint32_t>(pc, 0x44) != 0;
+    for (int k = 1; k < 256 && !keysUsed; ++k)
+        keysUsed = Field<uint8_t>(pc, 0x5c + k) != 0;
+    if (padUsed)
+        g_padActive = true;
+    else if (keysUsed)
+        g_padActive = false;
     std::memcpy(g_last, state, sizeof(g_last));
     g_wrote = true;
+}
+
+// Prompts: the first controller binding of the action while the pad is in use.
+int32_t PromptKey(uint32_t action)
+{
+    if (!g_enabled || !g_pad || !g_padActive || action >= 35)
+        return 0;
+    return g_bindings[action][0];
+}
+
+// Names of the controller codes (the game's ids for them, 0x00414c90) for the pad in hand.
+const wchar_t* PadText(const char* id)
+{
+    if (!g_enabled || !g_pad || std::strncmp(id, "PMS_INPUT_", 10) != 0)
+        return nullptr;
+    struct IdCode
+    {
+        const char* id;
+        int32_t code;
+    };
+    static const IdCode kIds[] = {
+        {"X_BUTTON", -1},         {"Y_BUTTON", -2},          {"WHITE_BUTTON", -3},     {"A_BUTTON", -4},
+        {"B_BUTTON", -5},         {"BLACK_BUTTON", -6},      {"L2_TRIGGER", -7},       {"R2_TRIGGER", -8},
+        {"L1_TRIGGER", -9},       {"R1_TRIGGER", -10},       {"SELECT", -11},          {"START", -12},
+        {"DPAD_UP", kPadUp},      {"DPAD_DOWN", kPadDown},   {"DPAD_LEFT", kPadLeft},  {"DPAD_RIGHT", kPadRight},
+        {"LAXIS_DOWN", kLeftYMinus}, {"LAXIS_UP", kLeftYPlus}, {"LAXIS_LEFT", kLeftXMinus},
+        {"LAXIS_RIGHT", kLeftXPlus}, {"RAXIS_LEFT", kRightXMinus}, {"RAXIS_RIGHT", kRightXPlus},
+        {"RAXIS_UP", kRightYMinus},  {"RAXIS_DOWN", kRightYPlus},
+    };
+    int32_t code = 0;
+    for (const IdCode& e : kIds)
+        if (!std::strcmp(id + 10, e.id))
+            code = e.code;
+    if (!code)
+        return nullptr;
+    if (code >= -kButtons)
+    {
+        static const wchar_t* const kPs[kButtons] = {L"Cross", L"Circle", L"Square", L"Triangle", L"L1", L"R1",
+                                                     L"L2", L"R2", L"Share", L"Options", L"L3", L"R3"};
+        static const wchar_t* const kXbox[kButtons] = {L"A", L"B", L"X", L"Y", L"LB", L"RB",
+                                                       L"LT", L"RT", L"View", L"Menu", L"LS", L"RS"};
+        const int i = -1 - code;
+        if (g_playStation)
+            return i == kBack && g_dualSense ? L"Create" : kPs[i];
+        return kXbox[i];
+    }
+    switch (code)
+    {
+    case kPadUp: return L"D-pad up";
+    case kPadDown: return L"D-pad down";
+    case kPadLeft: return L"D-pad left";
+    case kPadRight: return L"D-pad right";
+    case kLeftYMinus: return L"Left stick up";
+    case kLeftYPlus: return L"Left stick down";
+    case kLeftXMinus: return L"Left stick left";
+    case kLeftXPlus: return L"Left stick right";
+    case kRightYMinus: return L"Right stick up";
+    case kRightYPlus: return L"Right stick down";
+    case kRightXMinus: return L"Right stick left";
+    case kRightXPlus: return L"Right stick right";
+    default: return nullptr;
+    }
 }
 }  // namespace
 
@@ -344,5 +433,7 @@ void GamepadInit()
         g_bindings[d.action][0] = d.a, g_bindings[d.action][1] = d.b;
     g_padBinding = Binding;
     g_padPoll = Poll;  // returns at once while off: SDL is started on the first poll with the setting on
+    g_promptKey = PromptKey;
+    g_textOverride = PadText;
     Log("gamepad: %s", g_enabled ? "on" : "off");
 }

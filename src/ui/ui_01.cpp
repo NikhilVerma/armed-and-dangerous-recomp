@@ -3600,11 +3600,22 @@ HOOK(0x00465230, "fn_00465230", fn_00465230_Entry, nullptr);
 // 0x00465280 (ecx = first action; stack: text widget, second action; callee pops 8; not executed in recorded runs):
 // the keys bound to both actions (0x00415750, ecx = action, edx = g+0xa80: first binding, else the second; 0 for
 // action 0x23) go to 0x004652b0 (eax = second key, ecx = widget; stack: first key).
+// Enhancement point (hook/enhance/gamepad.cpp): the input code a prompt shows for an action instead of its first
+// binding (a controller's button while one is in use), or 0. Null by default (original behaviour).
+int32_t (*g_promptKey)(uint32_t action) = nullptr;
+
 uint32_t fn_00465280(uint32_t action1, uint8_t* text, uint32_t action2)
 {
     const uint32_t device = Field<uint32_t>(G(), 0xa80);
-    const uint32_t key1 = orig::fn_00415750(action1, device);
-    const uint32_t key2 = orig::fn_00415750(action2, device);
+    uint32_t key1 = orig::fn_00415750(action1, device);
+    uint32_t key2 = orig::fn_00415750(action2, device);
+    if (g_promptKey)
+    {
+        if (const int32_t k = g_promptKey(action1))
+            key1 = static_cast<uint32_t>(k);
+        if (const int32_t k = g_promptKey(action2))
+            key2 = static_cast<uint32_t>(k);
+    }
     return fn_004652b0(key2, text, key1);
 }
 

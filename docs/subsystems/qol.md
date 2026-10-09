@@ -232,8 +232,17 @@ linked and fetched by hook/CMakeLists.txt.
   - Pitfall: a virtual trigger rests at -32768. 0 reads as half pressed, the fire action is never "released", and
     stays consumed.
 - On the player's PC SDL found the DualSense ("DualSense Wireless Controller connected (type 6)").
+- **Prompt names.** While the controller was used more recently than the keyboard and mouse:
+  - Prompts (0x00465280, hook point `g_promptKey`) show the action's controller button.
+  - The game's controller name ids are its Xbox-era order ("PMS_INPUT_X_BUTTON" = button 0 ... "START" = 11,
+    0x00414c90). They are re-labelled for the pad in hand through `g_textOverride` (Text_Lookup, now hooked even
+    with the Remaster menu off): Cross / Circle / Square / Triangle / L1 / R1 / L2 / R2 / Share (Create on DualSense)
+    / Options / L3 / R3, or A / B / X / Y / LB / RB / LT / RT / View / Menu / LS / RS. The D-pad and stick directions
+    get plain names.
+  - Not yet seen on screen: no prompt was in view in the test runs.
 - **Not yet:**
-  - Button glyphs in prompts and the controls menu.
+  - Button icons (glyph images) in prompts and the controls menu. The game's text renderer draws bitmap fonts only,
+    so icons need an inline-icon draw: Kenney "Input Prompts" (CC0) or PromptFont (OFL), rendered to an atlas.
   - Rebinding the controller column in game: it is fixed defaults for now.
   - Rumble (the game's Rumble_Update drives DirectInput force feedback).
   - D-pad "pressed" fires on release for POV codes (original quirk 0x004f8b20, section 1). The menus are unaffected

@@ -798,10 +798,15 @@ uint32_t __stdcall Hook_BankBuild(uint32_t bank, uint32_t arg)
 // --- Text_Lookup 0x00495f00 -------------------------------------------------------------------------------------
 
 // Our labels for "and_" ids, or null to let the original look the id up.
+// Other modules' texts for the game's own ids (hook/enhance/gamepad.cpp: controller button names), or null.
+const wchar_t* (*g_textOverride)(const char* id) = nullptr;
+
 static const wchar_t* __cdecl RemasterText(const char* id)
 {
-    if (!id || id[0] != 'a' || id[1] != 'n' || id[2] != 'd' || id[3] != '_')
+    if (!id)
         return nullptr;
+    if (id[0] != 'a' || id[1] != 'n' || id[2] != 'd' || id[3] != '_')
+        return g_textOverride ? g_textOverride(id) : nullptr;
     const char* rest = id + 4;
     if (strcmp(rest, "title") == 0 || strcmp(rest, "entry") == 0)
         return L"Remaster";
@@ -857,6 +862,8 @@ void RemasterMenuInit()
 {
     if (ConfigInt("remaster", "menu", 1) == 0)
     {
+        // The text hook stays: other modules' texts (g_textOverride) need it; "and_" ids are never asked for then.
+        HookWrap("Text_Lookup", reinterpret_cast<void*>(&Hook_TextLookup), &g_origTextLookup);  // 0x00495f00
         Log("remaster menu: off");
         return;
     }
