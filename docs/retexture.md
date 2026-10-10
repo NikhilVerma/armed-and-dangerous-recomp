@@ -144,3 +144,34 @@ work/retex/specific/spec_r*.json). Same seed, so each comparison isolates the de
 - **Scale-up.** Later the descriptions can come from cheap Haiku subagents, one per texture (the player's plan).
 - **Installed and seen in game at 4K:** Q, Jonesy, compass, bark (and the monk, from levels 4-1/4-2). Results:
   OneDrive\AnD-retexture-test\results-specific-prompts.
+
+## Batch (2026-10-10/11, /goal: upscale as many textures as reasonable)
+
+tools/retex/batch.py, with prepare / run / post / sheet and reject.py.
+- **Inventory:** 524 unique texture names across the 25 levels. Same name means same image (md5), so one override
+  serves every level.
+- **Sizes:** 4x while the result stays <= 1024 per side, otherwise 2x (max 2048), smallest first. 2048x2048 jobs take
+  2.5-5 min each on the shared 4090.
+- **Descriptions** come from Haiku subagents (about 25 previews each). They also classify each texture and skip glows,
+  smoke, fire, flat colours, normal maps, text and many-piece sheets.
+- **Results:** 212 installed, 253 skipped, 36 rejected after contact-sheet review and in-game checks, 14 deferred
+  (1024 px sources).
+- **Post-processing lessons:**
+  - Re-apply the original alpha.
+  - Bleed colour into soft alpha edges from Qwen's opaque pixels (purple fringes otherwise).
+  - Do NOT bleed when the original alpha is graded everywhere (n_peasant: HUD figures washed out).
+  - Colour-lock every kind to the original's broad colours (sigma 2 original px for surfaces, 3 for others).
+    Without it, dark materials got darker or grey/blue, and a bush turned autumn orange (shift 67 -> < 20).
+  - Make repeating textures seamless by an edge-matching ramp. The offset blend moved a keg's skull into the
+    corners.
+- **Rejection patterns:**
+  - Layout changes on 3D-model texture sheets (UVs break).
+  - Lost fine regular patterns (weave, small bricks).
+  - Sources under 16 px (Qwen invents content).
+- **In game:** levels 1-5, 149-160 overrides loaded each, no errors. Screenshots:
+  OneDrive\AnD-retexture-test\batch.
+- **Hazards:**
+  - Describing subagents overwrite exclusion files, so run() re-asserts the hand-tuned and lettered textures every
+    pass.
+  - Names differing only in case (N_T_iron / N_t_iron) share one file on Windows. All such pairs hold identical
+    images.
