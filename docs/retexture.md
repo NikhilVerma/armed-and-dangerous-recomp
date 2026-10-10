@@ -128,3 +128,19 @@ outlines and grid patterns.
   - Bark (B_T_tree_bark_1) gains detail but is recoloured warm brown to grey: materials whose colour carries the
     look need a colour lock or prompt work. Not installed.
   - Results and screenshots: OneDrive\AnD-retexture-test\results-characters (the shared folder with the player).
+
+## Image-specific descriptions (2026-10-10, the player: "slower but way better")
+
+Prompt = the generic prompt + a description of the image (tools/retex/qwen_assets.py; specs in
+work/retex/specific/spec_r*.json). Same seed, so each comparison isolates the description:
+- **Colour drift fixed.** Bark returns to warm brown (generic: grey). Q returns to white metal with a blue sheen and
+  gold teeth.
+- **Invented elements removed.** The grey stones behind the compass ring are gone.
+- **Lighting matters as much as parts.** Jonesy round 1 (parts only) came out evenly lit and pale, with big lips.
+  Round 2 ("lit from above, face mostly in shadow, thin mouth with a gold highlight") matches. Likewise the monk's
+  black eye band. A description should cover subject, parts, colours, lighting and contrast, and transparency.
+- **Repeating textures lose their wrap** (bark edge mismatch 18 vs neighbours 8). tools/retex/tileable.py
+  (offset blend) restores it (7.5). A 2x2 repeated input to Qwen would be better.
+- **Scale-up.** Later the descriptions can come from cheap Haiku subagents, one per texture (the player's plan).
+- **Installed and seen in game at 4K:** Q, Jonesy, compass, bark (and the monk, from levels 4-1/4-2). Results:
+  OneDrive\AnD-retexture-test\results-specific-prompts.
