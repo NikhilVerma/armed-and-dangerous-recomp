@@ -1,4 +1,5 @@
-// Asset overrides. Switches in [overrides] in and.ini, all off by default.
+// Asset overrides. Switches in [overrides] in and.ini, off in the original; textures is on in the remaster (a folder
+// without files changes nothing).
 //
 //   textures=1     replace textures by loose files: overrides\textures\<name>.dds or <name>.png next to the game
 //                  executable, <name> being the texture's name in the level's txtr .big (characters that cannot
@@ -299,7 +300,7 @@ uint32_t __fastcall Overrides_RegisterTexture(Renderer* r, void* edx, uint8_t* t
 
 void OverridesInit()
 {
-    g_textures = ConfigInt("overrides", "textures", 0) != 0;
+    g_textures = ConfigIntDefault("overrides", "textures", 0, 1) != 0;  // remaster default on: texture packs load
     g_models = ConfigInt("overrides", "models", 0) != 0;
     g_logNames = ConfigInt("overrides", "log_names", 0) != 0;
     if (!g_textures && !g_models && !g_logNames)
