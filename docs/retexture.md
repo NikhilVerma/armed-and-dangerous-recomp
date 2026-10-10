@@ -95,3 +95,36 @@ outlines and grid patterns.
   2. Overlaps (256 px) are joined along the least-difference path, excluding each tile's outer 64 px (Qwen is not
      edge-aware), with a ±12 px feather.
   3. Rows first, then the row strips.
+
+## Policy and method from 2026-10-10 evening (the player)
+
+- **Policy.** Every texture whose upscaled size fits Qwen's single-image limit (2048x2048 with
+  `qwen_output_size=custom`) is remastered with Qwen in one pass. Larger ones wait ("take a stock and figure out
+  later"). Some creativity is accepted, "as long as it's not a complete crapshoot".
+- **Settings** (the player's), input = the original texture PNG, transparency included:
+
+  | Setting | Value |
+  | --- | --- |
+  | Engine | qwen-image-21 |
+  | Output size | custom, at the final size (e.g. 2048x2048, or 1024x2048 for 1:2 portraits) |
+  | Edit strength | 1.0 |
+  | cfg | 2 |
+  | Steps | 25 |
+  | Seed | 0 |
+
+- **Prompt:** "Convert this video game asset into an upscaled realistic version of its original intention using
+  modern physically based material rendering, correct shadows, correct lighting, accurate details without modifying
+  the actual contents of the image itself".
+- **Negative:** altered, reinterpreted, restyled, redesigned, recolored, relit, reframed, cropped, added or removed
+  elements, invented or hallucinated detail, added texture, grain, pattern or outlines, changed texture, material,
+  medium, proportions or text, garbled text, upscaling and compression artifacts, oversharpening, halos, ringing,
+  over-smoothing, watermark, signature.
+- **Findings:**
+  - `custom` at the final size keeps the original's colours and design far better than `model` (about 1 MP). In
+    `model` mode Q's gold teeth turned white and the face dark steel.
+  - `custom` keeps transparency natively; `model` returned an opaque black background.
+  - Portraits: Q (b_q_face, 2048), Jonesy (b_jonesy_face, 1024x2048, from 64x128) and the monk (b_monk_face, seed 0
+    of 2) were installed. Q and Jonesy were seen on the level-1 HUD at 4K.
+  - Bark (B_T_tree_bark_1) gains detail but is recoloured warm brown to grey: materials whose colour carries the
+    look need a colour lock or prompt work. Not installed.
+  - Results and screenshots: OneDrive\AnD-retexture-test\results-characters (the shared folder with the player).
