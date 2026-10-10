@@ -45,3 +45,53 @@ never committed.
     render: clean flat areas, crisp guns, cannon and lion.
   - Installed and seen in game at 4K (work/retex/final_*.png).
 - The P6 prompt is in work/retex/rounds/r4.json. Next textures should start from it and from cfg 1.0.
+
+## Tiled Qwen reconstruction (current method, 2026-10-10)
+
+Findings on the cannon tile (work/retex/t1). "Overshoot" is edge contrast after shrinking back, relative to the
+original; about 1.0-1.3 reads natural.
+
+| Variant | Overshoot | Result |
+| --- | --- | --- |
+| Base: HAT-L 4x of the Qwen 1024 render, Qwen at 0.7 | 1.83 | Halos, thick outlines |
+| "Sharper / crisp" prompts | about 1.55 | Kept the base's woven grid |
+| Base: Lanczos 4x of the original, Qwen at 0.85 | 0.98 | Faithful but soft: partial strength keeps the blur |
+| **Base: Lanczos 4x of the original, Qwen at 0.95** | **1.20** | **Reconstructs** casting marks, bores, wood grain and chipped paint, shapes kept |
+| Same base, Qwen at 1.0 | 1.26 | Starts reshaping small parts |
+
+Partial strength keeps whatever the base has. Start from the plain original, never from a sharpened image, and
+give Qwen room to rebuild (0.95). The prompt asks for reconstruction ("a blurry enlargement ... reconstruct the
+detail the original painting would have had ... do not sharpen") and the negative names oversharpening, halos,
+outlines and grid patterns.
+
+### Experimenting by hand (Media Lab UI)
+
+- **Tile input:** work/retex/t1/base_orig.png. It is the cannon region of a Lanczos 4x of the original, 1216x704.
+  Any 1216x704 crop of a 4x resize works the same way.
+- **Settings:**
+
+  | Setting | Value |
+  | --- | --- |
+  | Engine | Qwen Image 2.1 (`qwen-image-21`) |
+  | Output size | source |
+  | Edit strength | 0.95 |
+  | cfg | 1.0 |
+  | Steps | 30 |
+  | Seed | 7 |
+
+- **Prompt and negative:** the PROMPT and NEGATIVE constants in tools/retex/qwen_tiles.py, also in
+  work/retex/t1/prompt.txt.
+
+### Whole image (script)
+
+```
+.venv/Scripts/python.exe tools/retex/qwen_tiles.py work/retex/title_up.png OUT.png --grid 4x4 --scale 4 --overlap 256 --strength 0.95 --sigma 6 --steps 30 --blend seam [--prompt-file P.txt] [--negative-file N.txt] [--seed 7]
+```
+
+- Tiles are cached in OUT_tiles/: a re-run with the same OUT reuses finished tiles. Use a new OUT name after
+  changing the prompt.
+- **Blending:**
+  1. Each tile is colour-locked to the base (sigma 6).
+  2. Overlaps (256 px) are joined along the least-difference path, excluding each tile's outer 64 px (Qwen is not
+     edge-aware), with a ±12 px feather.
+  3. Rows first, then the row strips.
