@@ -166,8 +166,10 @@ void main()
     // Where the flake was a moment ago: the quad stretches between the two (motion streak).
     vec3 c0 = (p.view * vec4(world - fl.vel.xyz * p.sim.w, 1.0)).xyz;
     float radius = p.proj2.z * (0.5 + 2.0 * size);
-    // Cap the apparent size: a flake passing close to the lens would otherwise cover a large disc on screen.
-    radius = min(radius, max(-c.z, 0.0) * 0.0022);
+    // Cap the apparent size only for flakes very close to the lens (a disc covering the screen). The old cap of
+    // 0.0022 x distance gave every flake within ~20 units the same ~2-pixel size, so the snow read as a flat
+    // screen-space overlay with no depth (the player, 2026-10-11); now near flakes are visibly larger.
+    radius = min(radius, max(-c.z, 0.0) * 0.012);
     vec2 d = c.xy - c0.xy;
     float len = length(d);
     vec2 ax = len > 1e-5 ? d / len : vec2(0.0, 1.0);
@@ -185,6 +187,8 @@ void main()
             (1.0 - smoothstep(p.camPos.z + 0.7 * p.sim.x, p.camPos.z + 0.85 * p.sim.x, world.z));
     // A streak spreads the flake's light over its length.
     alpha *= radius / half_len * 0.5 + 0.5;
+    // Aerial perspective: distant flakes are fainter, so the field has depth (60% at 40 units).
+    alpha *= mix(1.0, 0.6, smoothstep(4.0, 40.0, -c.z));
     shade = 0.82 + 0.18 * fl.vel.w;
     vec4 clip = vec4(q.x * p.proj.x, q.y * p.proj.y, q.z * p.proj.z + p.proj2.x, q.z * p.proj.w);
     clip.y = -clip.y;
