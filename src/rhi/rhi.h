@@ -201,9 +201,11 @@ struct SceneHints
     bool snow = false;
     float snowTime = 0.0f;              // game seconds (stops while the game is paused)
     float snowDt = 0.0f;                // this frame's game time step (0 while paused)
-    uint32_t snowCount = 60000;         // flakes in the box around the camera
-    float snowBox = 24.0f;              // horizontal radius of the simulated volume, world units
-    float snowSky = 20.0f;              // flakes are born this high above the camera
+    uint32_t snowCount = 1500000;       // flakes in the volume around the camera
+    // The volume fills the visible world: snow falls across the valley and onto the scenery, not only in a small box
+    // at the lens (24 x 20 units read as a screensaver cloud riding with the camera: the player, 2026-10-11).
+    float snowBox = 150.0f;             // horizontal radius of the simulated volume, world units
+    float snowSky = 70.0f;              // flakes are born this high above the camera
     float snowFall = 1.6f;              // terminal fall speed, units per second
     float snowWind[2] = {0.9f, 0.35f};  // base wind (world x, y: the ground plane, Z is up), units per second
     float snowTurbulence = 0.6f;        // swirl speed, units per second

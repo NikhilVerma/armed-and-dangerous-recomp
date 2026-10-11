@@ -16,6 +16,7 @@
 
 #include <windows.h>
 
+#include "config.h"
 #include "game.h"
 #include "game/game_object.h"
 #include "gen/entry_stubs.h"
@@ -904,8 +905,20 @@ uint32_t fn_00491380(uint8_t* mgr, float* outX, float* outY)
     frame[11] = 0;                                    // [0x2c]
     orig::fn_00463ac0(Field<uint32_t>(G(), 0xa70), u(&frame[9]));
     float nx = (halfW + Field<float>(mgr, 0x320)) / w;
+    const float rawNx = nx;
     if (g_uiCursorToLayout)
         g_uiCursorToLayout(&nx);
+    {
+        static int dbg = -1, n;
+        if (dbg < 0)
+            dbg = ConfigInt("ui", "log_cursor", 0);  // diagnosis: cursor, click and menu state to and.log
+        if (dbg && (n++ % 30) == 0)
+        {
+            extern void Log(const char*, ...);
+            Log("cursor: screen %ld,%ld client %ldx%ld -> raw %.3f layout %.3f y %.3f", cursor->x, cursor->y,
+                clientW, clientH, rawNx, nx, (halfH + Field<float>(mgr, 0x324)) / h);
+        }
+    }
     Field<float>(mgr, 0x328) = nx;
     *outX = nx;
     const float ny = (halfH + Field<float>(mgr, 0x324)) / h;
@@ -1778,6 +1791,18 @@ uint32_t UiScreen_Update(uint8_t* screen, uint8_t* mgr, uint32_t* input)
     else
         Field<float>(screen, 0x54) = K(0x0056c05c);
     uint8_t* hud = Field<uint8_t*>(G(), 0xa70);
+    {
+        static int dbg = -1, n;
+        if (dbg < 0)
+            dbg = ConfigInt("ui", "log_cursor", 0);  // diagnosis: cursor, click and menu state to and.log
+        if (dbg && (n++ % 60) == 0)
+        {
+            extern void Log(const char*, ...);
+            Log("cursor: screen %p hud active %u cursor %08x screen flags %08x input %08x foreground %d mouse buttons %08x",
+                screen, Field<uint8_t>(hud, 0x50), Field<uint32_t>(hud, 0x54), Field<uint32_t>(screen, 0x4c), *input,
+                GetForegroundWindow() == Field<HWND>(G(), 0x64) ? 1 : 0, Field<uint32_t>(Field<uint8_t*>(G(), 0x30), 0x44));
+        }
+    }
     if (Field<uint8_t>(hud, 0x50) && Field<uint32_t>(hud, 0x54))
     {
         uint8_t clicked = 0;
@@ -1790,6 +1815,13 @@ uint32_t UiScreen_Update(uint8_t* screen, uint8_t* mgr, uint32_t* input)
             reinterpret_cast<uint8_t*>(frame)[0] = clicked;
         }
         uint8_t* target = B(orig::fn_00463930(Field<uint32_t>(G(), 0xa70), frame[2], frame[1], frame[0]));
+        static const bool logClicks = ConfigInt("ui", "log_cursor", 0) != 0;
+        if (logClicks && (clicked || (*input & 0x10)))
+        {
+            extern void Log(const char*, ...);
+            Log("cursor: click %u input %08x target %p selected %p x %.3f y %.3f", clicked, *input, target,
+                Field<void*>(screen, 0x64), bf(frame[2]), bf(frame[1]));
+        }
         if (!target && clicked)
             *input &= 0xffffffefu;
         if (reinterpret_cast<uint8_t*>(frame)[0] && target && Field<uint8_t*>(screen, 0x64) != target)

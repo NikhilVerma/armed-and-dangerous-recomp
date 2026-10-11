@@ -5,7 +5,7 @@
 //                      crossing the near plane makes the "snow bubbles"); those meshes are made invisible with their
 //                      own virtual +0xf4, as the fx "invisible" opcode does, so the fx script and the level's
 //                      camera path run unchanged.
-//   snow_amount=60000  flakes around the camera
+//   snow_amount=1500000 flakes in the volume around the camera (it fills the visible world, 150 units sideways)
 //   snow_force=1       snowfall in every level (testing)
 //
 // Hook point: Fx_AttachMesh (src/game/fx.cpp, g_fxMeshAttached). The flakes advance with the game's frame time
@@ -147,9 +147,9 @@ void WeatherInit()
                                             nullptr},
                                            0, 1) != 0.0f;
     rhi::Hints().snowCount = static_cast<uint32_t>(
-        RemasterRegister({"render", "snow_amount", L"Snow amount", S::Slider, 5000, 100000, 5000, {}, 0, false,
+        RemasterRegister({"render", "snow_amount", L"Snow amount", S::Slider, 100000, 3000000, 100000, {}, 0, false,
                           [](float v) { rhi::Hints().snowCount = static_cast<uint32_t>(v); }},
-                         60000));
+                         1500000));
     rhi::Hints().snowDebug =
         RemasterRegister({"render", "snow_debug", L"Snow debug: red flakes", S::Toggle, 0, 1, 1, {}, 0, false,
                           [](float v) { rhi::Hints().snowDebug = v != 0.0f; }},

@@ -4128,7 +4128,7 @@ void VulkanDevice::Snow()
     else
         p.color[0] = 0.95f, p.color[1] = 0.97f, p.color[2] = 1.0f, p.color[3] = 0.85f;
     // Sky 20 units above the camera, volume 12 below it, drag time 0.5 s, streaks over 1/60 s.
-    p.sim[0] = h.snowSky, p.sim[1] = 12.0f, p.sim[2] = 0.5f, p.sim[3] = 1.0f / 60.0f;
+    p.sim[0] = h.snowSky, p.sim[1] = 40.0f, p.sim[2] = 0.5f, p.sim[3] = 1.0f / 60.0f;  // 40: depth below the camera
     VkDeviceSize offset = PushUniform(&p, sizeof(p));
     if (!shadowDepthSampler_)
     {

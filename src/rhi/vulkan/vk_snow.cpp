@@ -187,8 +187,18 @@ void main()
             (1.0 - smoothstep(p.camPos.z + 0.7 * p.sim.x, p.camPos.z + 0.85 * p.sim.x, world.z));
     // A streak spreads the flake's light over its length.
     alpha *= radius / half_len * 0.5 + 0.5;
-    // Aerial perspective: distant flakes are fainter, so the field has depth (60% at 40 units).
-    alpha *= mix(1.0, 0.6, smoothstep(4.0, 40.0, -c.z));
+    // Distant flakes: at least ~0.8 pixel wide (sub-pixel sprites flicker), with their light scaled down to the true
+    // covered area, and an aerial fade with distance.
+    float focal = p.proj.x * 0.5 * p.viewport.z;  // pixels per unit at distance 1
+    float px = radius * focal / max(-c.z, 0.1);
+    if (px < 1.2)
+    {
+        alpha *= px / 1.2;
+        radius = 1.2 * max(-c.z, 0.1) / focal;
+        half_len = radius + 0.5 * len;
+        q = vec3(mid.xy + ax * corner.x * half_len + ay * corner.y * radius, mid.z);
+    }
+    alpha *= mix(1.0, 0.7, smoothstep(10.0, 140.0, -c.z));
     shade = 0.82 + 0.18 * fl.vel.w;
     vec4 clip = vec4(q.x * p.proj.x, q.y * p.proj.y, q.z * p.proj.z + p.proj2.x, q.z * p.proj.w);
     clip.y = -clip.y;
