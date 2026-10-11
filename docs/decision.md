@@ -174,3 +174,5 @@ How this coexists with faithful recovery:
 - Agents no longer run `tools/check.ps1` or `tools/compare.py` by default. They build, check the change with a
   targeted capture where useful, and say in the commit message that the oracle was not run. The full checks run
   when the human asks (and before any merge to main).
+- Human: "we will run tests after human validation". Order: change, build, the human plays and validates it, then
+  the tests run.
