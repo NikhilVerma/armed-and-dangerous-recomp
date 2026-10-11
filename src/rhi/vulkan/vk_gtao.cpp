@@ -19,7 +19,7 @@ std::string DropInclude(std::string s, const char* name)
 }
 }  // namespace
 
-std::string GtaoHlsl(float thickness)
+std::string GtaoHlsl(float thickness, int slices)
 {
     // XeGTAO options: 32-bit depths (no fp16 path), normals generated from depth inside the main pass, no bent
     // normals, tuning constants from GTAOSettings ([render] ao_radius / ao_power / ao_falloff).
@@ -58,6 +58,14 @@ std::string GtaoHlsl(float thickness)
         entries.replace(at, marker.size(), hlsli);
     // glslang's HLSL front end does not take swizzles of numeric literals ("2.xx", "0.5.xxxx"), which XeGTAO uses;
     // they become constructors ("float2(2, 2)"). The vendored files stay unmodified.
+    // [render] ao_slices: directions per pixel in the main pass (the sample's "high" is 3, "ultra" 9): fewer
+    // directions leave more noise for the denoiser and the temporal AA to remove (the player: "so pixellated").
+    {
+        const std::string call = "XeGTAO_MainPass(pixCoord, 3, 3,";
+        size_t at = entries.find(call);
+        if (at != std::string::npos)
+            entries.replace(at, call.size(), "XeGTAO_MainPass(pixCoord, " + std::to_string(slices) + ", 3,");
+    }
     std::string out = s + entries, fixed;
     static const std::regex literal(R"((^|[^\w.])(\d+(?:\.\d+)?)\.(xxxx|xxx|xx)\b)");
     std::sregex_iterator it(out.begin(), out.end(), literal), end;

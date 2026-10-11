@@ -2928,7 +2928,8 @@ bool VulkanDevice::GtaoInit()
         return true;
     VkDevice device = Ctx().device;
     // [render] ao_thickness (world units, vk_gtao.cpp): occluders are this thick, not infinitely deep.
-    const std::string hlsl = GtaoHlsl(ConfigFloatDefault("render", "ao_thickness", 0.0f, 3.0f));
+    const std::string hlsl = GtaoHlsl(ConfigFloatDefault("render", "ao_thickness", 0.0f, 3.0f),
+                                      ConfigIntDefault("render", "ao_slices", 3, 9));
     const char* entries[4] = {"CSPrefilterDepths16x16", "CSGTAOHigh", "CSDenoisePass", "CSDenoiseLastPass"};
     VkDescriptorSetLayoutBinding b[14];
     const VkDescriptorType types[14] = {
@@ -3168,8 +3169,13 @@ void VulkanDevice::Ambient()
     // Denoise (2 px per thread): term -> final, then final -> term (bindings 11 and 13 swapped); apply reads term.
     const uint32_t dx = (W + XE_GTAO_NUMTHREADS_X * 2 - 1) / (XE_GTAO_NUMTHREADS_X * 2);
     const uint32_t dy = (H + XE_GTAO_NUMTHREADS_Y - 1) / XE_GTAO_NUMTHREADS_Y;
-    pass(2, dx, dy);
-    std::swap(img[9], img[11]);
+    // [render] ao_denoise: denoise passes, even (the result must end in term); the sample's "medium" is 2.
+    static const int denoise = std::max(2, ConfigIntDefault("render", "ao_denoise", 2, 4) & ~1);
+    for (int i = 0; i < denoise - 1; ++i)
+    {
+        pass(2, dx, dy);
+        std::swap(img[9], img[11]);
+    }
     pass(3, dx, dy);
     mb.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
     mb.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
