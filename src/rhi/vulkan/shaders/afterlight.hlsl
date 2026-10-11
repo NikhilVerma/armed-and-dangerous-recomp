@@ -173,12 +173,11 @@ lpfloat AL_Thickness(float3 delta)
 }
 
 // ---- The unified pass: XeGTAO_MainPass (Intel) with the SSLD gather in the same loops (SSLD_GTAO.fxh 366-750).
-[numthreads(XE_GTAO_NUMTHREADS_X, XE_GTAO_NUMTHREADS_Y, 1)]
-void CSAfterlightMain(const uint2 pixCoord : SV_DispatchThreadID)
+// pixCoord: the full-resolution pixel; writeAO: also write the AO term and edges (the full-resolution unified pass);
+// bouncePix: where the bounce goes (the same pixel, or the half-resolution texel this pixel stands for).
+void AfterlightMain(const uint2 pixCoord, const bool writeAO, const uint2 bouncePix)
 {
     const GTAOConstants consts = g_GTAOConsts;
-    if (any(pixCoord >= uint2(consts.ViewportSize)))
-        return;
     const lpfloat sliceCount = lpfloat(g_AL.SliceCount);
     const lpfloat stepsPerSlice = 3.0;
     const lpfloat2 localNoise = SpatioTemporalNoise(pixCoord, consts.NoiseIndex);
@@ -194,7 +193,8 @@ void CSAfterlightMain(const uint2 pixCoord : SV_DispatchThreadID)
     const lpfloat pixRZ = valuesBR.z;
     const lpfloat pixBZ = valuesBR.x;
     lpfloat4 edgesLRTB = XeGTAO_CalculateEdges(viewspaceZ, pixLZ, pixRZ, pixTZ, pixBZ);
-    g_outWorkingEdges[pixCoord] = XeGTAO_PackEdges(edgesLRTB);
+    if (writeAO)
+        g_outWorkingEdges[pixCoord] = XeGTAO_PackEdges(edgesLRTB);
 
     lpfloat3 viewspaceNormal = lpfloat3(g_normals.Load(int3(pixCoord, 0)).xyz);
     viewspaceZ *= 0.99999;
@@ -361,25 +361,52 @@ void CSAfterlightMain(const uint2 pixCoord : SV_DispatchThreadID)
         visibility = pow(max(visibility, lpfloat(0.0)), lpfloat(consts.FinalValuePower));
         visibility = max(lpfloat(0.03), visibility);
     }
-    g_outBounce[pixCoord] = float4(gatheredRadiance, gatheredWeight);
-    XeGTAO_OutputWorkingTerm(pixCoord, visibility, lpfloat3(0, 0, 1), g_outWorkingAOTerm);
+    g_outBounce[bouncePix] = float4(gatheredRadiance, gatheredWeight);
+    if (writeAO)
+        XeGTAO_OutputWorkingTerm(pixCoord, visibility, lpfloat3(0, 0, 1), g_outWorkingAOTerm);
+}
+
+[numthreads(XE_GTAO_NUMTHREADS_X, XE_GTAO_NUMTHREADS_Y, 1)]
+void CSAfterlightMain(const uint2 pixCoord : SV_DispatchThreadID)
+{
+    if (all(pixCoord < uint2(g_GTAOConsts.ViewportSize)))
+        AfterlightMain(pixCoord, true, pixCoord);
+}
+
+// [render] afterlight_scale > 1: the gather at a lower resolution (one thread per bounce texel, at the top-left
+// full-resolution pixel of its block); the occlusion comes from XeGTAO's full-resolution main pass.
+[numthreads(XE_GTAO_NUMTHREADS_X, XE_GTAO_NUMTHREADS_Y, 1)]
+void CSAfterlightGather(const uint2 pixCoord : SV_DispatchThreadID)
+{
+    uint bw, bh;
+    g_outBounce.GetDimensions(bw, bh);
+    if (pixCoord.x >= bw || pixCoord.y >= bh)
+        return;
+    uint scale = max(1u, uint(g_GTAOConsts.ViewportSize.x) / bw);
+    AfterlightMain(min(pixCoord * scale, uint2(g_GTAOConsts.ViewportSize) - 1), false, pixCoord);
 }
 
 // ---- Bounce blur (SSLD_BlurBounceA / Pong): 9 taps over +-32 px, depth- and normal^8-guided, rejected across
 // silhouettes so a bright wall cannot bleed onto the object in front of it.
+// Works at the bounce's resolution: the reach (32 full-resolution pixels) and the guide (full-resolution normals and
+// depth at the texel's pixel) follow the scale.
 float4 AL_BlurBounce(int2 pixCoord, int2 direction)
 {
-    const int2 limit = g_GTAOConsts.ViewportSize - 1;
-    float4 centre = g_normals.Load(int3(clamp(pixCoord, int2(0, 0), limit), 0));
+    uint bw, bh;
+    g_bounceIn.GetDimensions(bw, bh);
+    const int scale = max(1, g_GTAOConsts.ViewportSize.x / int(bw));
+    const int2 limit = int2(bw, bh) - 1;
+    const int2 fullLimit = g_GTAOConsts.ViewportSize - 1;
+    float4 centre = g_normals.Load(int3(min(clamp(pixCoord, int2(0, 0), limit) * scale, fullLimit), 0));
     float depthScale = 1.0 / max(centre.w * 0.03, 1e-6);
     const float spatialK = -0.5 / (16.0 * 16.0);
     float4 sum = 0.0;
     float sumWeight = 0.0;
     [unroll] for (int i = 0; i < 9; i++)
     {
-        int offset = -32 + i * 8;
-        int2 tap = clamp(pixCoord + direction * offset, int2(0, 0), limit);
-        float4 guide = g_normals.Load(int3(tap, 0));
+        int offset = -32 + i * 8;  // full-resolution pixels
+        int2 tap = clamp(pixCoord + direction * (offset / scale), int2(0, 0), limit);
+        float4 guide = g_normals.Load(int3(min(tap * scale, fullLimit), 0));
         float depthTerm = abs(guide.w - centre.w) * depthScale;
         if (depthTerm > 1.0)
             continue;
@@ -397,13 +424,17 @@ float4 AL_BlurBounce(int2 pixCoord, int2 direction)
 [numthreads(8, 8, 1)]
 void CSAfterlightBlurH(const uint2 pixCoord : SV_DispatchThreadID)
 {
-    if (all(pixCoord < uint2(g_GTAOConsts.ViewportSize)))
+    uint bw, bh;
+    g_outBounce.GetDimensions(bw, bh);
+    if (pixCoord.x < bw && pixCoord.y < bh)
         g_outBounce[pixCoord] = AL_BlurBounce(int2(pixCoord), int2(1, 0));
 }
 
 [numthreads(8, 8, 1)]
 void CSAfterlightBlurV(const uint2 pixCoord : SV_DispatchThreadID)
 {
-    if (all(pixCoord < uint2(g_GTAOConsts.ViewportSize)))
+    uint bw, bh;
+    g_outBounce.GetDimensions(bw, bh);
+    if (pixCoord.x < bw && pixCoord.y < bh)
         g_outBounce[pixCoord] = AL_BlurBounce(int2(pixCoord), int2(0, 1));
 }

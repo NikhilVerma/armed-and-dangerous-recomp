@@ -470,7 +470,7 @@ struct GtaoImage
     VkImageView view = VK_NULL_HANDLE;   // all levels (sampled)
     VkImageView mips[5] = {};            // one level each (storage)
 };
-bool GtaoImageCreate(GtaoImage& g, VkFormat format, uint32_t levels);
+bool GtaoImageCreate(GtaoImage& g, VkFormat format, uint32_t levels, uint32_t width = 0, uint32_t height = 0);
 void GtaoImageDestroy(GtaoImage& g);
 bool GtaoInit();
 VkPipeline GtaoApplyPipeline(VkFormat target);
@@ -489,7 +489,8 @@ VkFormat gtaoApplyFormat_ = VK_FORMAT_UNDEFINED;
 // Afterlight unified AO + GI ([render] afterlight; shaders/afterlight.hlsl): replaces XeGTAO's main pass with the
 // player's one-pass occlusion + bounce gather, and adds its normals, source radiance and bounce blur passes.
 bool alOn_ = false;
-VkPipeline alPipe_[6] = {};  // normals, radiance, radiance MIP, unified main pass, bounce blur H, bounce blur V
+VkPipeline alPipe_[7] = {};  // normals, radiance, radiance MIP, unified main pass, blur H, blur V, low-res gather
+uint32_t alScale_ = 2;        // [render] afterlight_scale: the bounce at 1 / scale resolution (1 = unified pass)
 GtaoImage alNormals_, alRadiance_, alBounce_, alPong_;
 VkSampler alLinear_ = VK_NULL_HANDLE;
 
@@ -2859,13 +2860,13 @@ bool VulkanDevice::RtShadows(const std::vector<RtCaster>& casters, const Mat4& t
 
 // --- Ambient occlusion (vk_gtao.h): XeGTAO ------------------------------------------------------------------
 
-bool VulkanDevice::GtaoImageCreate(GtaoImage& g, VkFormat format, uint32_t levels)
+bool VulkanDevice::GtaoImageCreate(GtaoImage& g, VkFormat format, uint32_t levels, uint32_t width, uint32_t height)
 {
     Context& c = Ctx();
     VkImageCreateInfo ii{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
     ii.imageType = VK_IMAGE_TYPE_2D;
     ii.format = format;
-    ii.extent = {gtaoWidth_, gtaoHeight_, 1};
+    ii.extent = {width ? width : gtaoWidth_, height ? height : gtaoHeight_, 1};
     ii.mipLevels = levels;
     ii.arrayLayers = 1;
     ii.samples = VK_SAMPLE_COUNT_1_BIT;
@@ -2975,9 +2976,11 @@ bool VulkanDevice::GtaoInit()
     }
     if (alOn_)
     {
-        const char* alEntries[6] = {"CSAfterlightNormals", "CSAfterlightRadiance", "CSAfterlightRadianceMip",
-                                    "CSAfterlightMain",    "CSAfterlightBlurH",    "CSAfterlightBlurV"};
-        for (int i = 0; i < 6; ++i)
+        alScale_ = uint32_t(std::min(std::max(ConfigInt("render", "afterlight_scale", 2), 1), 4));
+        const char* alEntries[7] = {"CSAfterlightNormals", "CSAfterlightRadiance", "CSAfterlightRadianceMip",
+                                    "CSAfterlightMain",    "CSAfterlightBlurH",    "CSAfterlightBlurV",
+                                    "CSAfterlightGather"};
+        for (int i = 0; i < 7; ++i)
         {
             VkShaderModule m = MakeModule(CompileHlslCompute(hlsl, alEntries[i]));
             if (!m)
@@ -3005,15 +3008,16 @@ bool VulkanDevice::GtaoInit()
     }
     gtaoApplyVs_ = MakeModule(CompileGlsl(GtaoApplyVertexGlsl(), false));
     gtaoApplyFs_ = MakeModule(CompileGlsl(GtaoApplyFragmentGlsl(alOn_), true));
-    VkDescriptorSetLayoutBinding ab[7] = {
+    VkDescriptorSetLayoutBinding ab[8] = {
         {0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // material
         {5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // bounce
-        {6, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr}};  // radiance
-    dl.bindingCount = 7;
+        {6, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // radiance
+        {7, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr}};  // normals
+    dl.bindingCount = 8;
     dl.pBindings = ab;
     vkCreateDescriptorSetLayout(device, &dl, nullptr, &gtaoApplySetLayout_);
     pl.pSetLayouts = &gtaoApplySetLayout_;
@@ -3132,8 +3136,10 @@ void VulkanDevice::Ambient()
             !GtaoImageCreate(gtaoFinal_, VK_FORMAT_R8_UINT, 1) ||
             (alOn_ && (!GtaoImageCreate(alNormals_, VK_FORMAT_R16G16B16A16_SFLOAT, 1) ||
                        !GtaoImageCreate(alRadiance_, VK_FORMAT_R16G16B16A16_SFLOAT, 5) ||
-                       !GtaoImageCreate(alBounce_, VK_FORMAT_R16G16B16A16_SFLOAT, 1) ||
-                       !GtaoImageCreate(alPong_, VK_FORMAT_R16G16B16A16_SFLOAT, 1))))
+                       !GtaoImageCreate(alBounce_, VK_FORMAT_R16G16B16A16_SFLOAT, 1, (svp.Width + alScale_ - 1) / alScale_,
+                                        (svp.Height + alScale_ - 1) / alScale_) ||
+                       !GtaoImageCreate(alPong_, VK_FORMAT_R16G16B16A16_SFLOAT, 1, (svp.Width + alScale_ - 1) / alScale_,
+                                        (svp.Height + alScale_ - 1) / alScale_))))
         {
             Log("vulkan: ambient occlusion: working images failed; off");
             gtaoFailed_ = true;
@@ -3284,7 +3290,16 @@ void VulkanDevice::Ambient()
             img[13].imageView = alRadiance_.mips[l - 1], img[14].imageView = alRadiance_.mips[l];
             passP(alPipe_[2], ((W >> l) + 8) / 8, ((H >> l) + 8) / 8);
         }
-        passP(alPipe_[3], mainX, mainY);
+        if (alScale_ > 1)
+        {
+            // Occlusion at full resolution (XeGTAO), the gather at 1 / scale.
+            pass(1, mainX, mainY);
+            const uint32_t bw = (W + alScale_ - 1) / alScale_, bh = (H + alScale_ - 1) / alScale_;
+            passP(alPipe_[6], (bw + XE_GTAO_NUMTHREADS_X - 1) / XE_GTAO_NUMTHREADS_X,
+                  (bh + XE_GTAO_NUMTHREADS_Y - 1) / XE_GTAO_NUMTHREADS_Y);
+        }
+        else
+            passP(alPipe_[3], mainX, mainY);
     }
     else
         pass(1, mainX, mainY);  // main pass
@@ -3302,10 +3317,11 @@ void VulkanDevice::Ambient()
     if (alOn_)
     {
         // Bounce blur, depth- and normal-guided: bounce -> pong (horizontal), pong -> bounce (vertical).
+        const uint32_t bw = (W + alScale_ - 1) / alScale_, bh = (H + alScale_ - 1) / alScale_;
         img[19].imageView = alBounce_.view, img[18].imageView = alPong_.mips[0];
-        passP(alPipe_[4], (W + 7) / 8, (H + 7) / 8);
+        passP(alPipe_[4], (bw + 7) / 8, (bh + 7) / 8);
         img[19].imageView = alPong_.view, img[18].imageView = alBounce_.mips[0];
-        passP(alPipe_[5], (W + 7) / 8, (H + 7) / 8);
+        passP(alPipe_[5], (bw + 7) / 8, (bh + 7) / 8);
     }
     mb.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
     mb.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
@@ -3325,7 +3341,7 @@ void VulkanDevice::Ambient()
         static const float alGain = ConfigFloat("render", "afterlight_gain", 1.0f);
         static const float alStops = ConfigFloat("render", "afterlight_stops", 0.245f);  // max relight per gain
         static const float alFill = ConfigFloat("render", "afterlight_fill", 0.0f);     // ambient fill (off)
-        ap.gi[0] = alGain, ap.gi[1] = alStops, ap.gi[2] = alFill;
+        ap.gi[0] = alGain, ap.gi[1] = alStops, ap.gi[2] = alFill, ap.gi[3] = float(alScale_);
     }
     std::memcpy(ap.fogColor, scene_.fogColor, sizeof(scene_.fogColor));
     if (scene_.fog)
@@ -3369,10 +3385,13 @@ void VulkanDevice::Ambient()
     // The motion target's z / w: AO weight and albedo of the opaque surface (vk_abi.h).
     motion_->Transition(cb, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     VkDescriptorImageInfo matImg{shadowDepthSampler_, motion_->sampledView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-    VkWriteDescriptorSet aw[7] = {{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}, {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET},
+    VkWriteDescriptorSet aw[8] = {{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}, {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET},
                                   {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}, {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET},
                                   {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}, {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET},
-                                  {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}};
+                                  {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}, {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}};
+    VkDescriptorImageInfo normImg{shadowDepthSampler_, alNormals_.view, VK_IMAGE_LAYOUT_GENERAL};
+    aw[7].dstBinding = 7, aw[7].descriptorCount = 1, aw[7].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    aw[7].pImageInfo = &normImg;
     VkDescriptorImageInfo bounceImg{shadowDepthSampler_, alBounce_.view, VK_IMAGE_LAYOUT_GENERAL};
     VkDescriptorImageInfo radImg{alLinear_, alRadiance_.view, VK_IMAGE_LAYOUT_GENERAL};
     aw[5].dstBinding = 5, aw[5].descriptorCount = 1, aw[5].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -3389,7 +3408,7 @@ void VulkanDevice::Ambient()
     aw[1].pImageInfo = &dImg;
     aw[2].dstBinding = 2, aw[2].descriptorCount = 1, aw[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     aw[2].pBufferInfo = &apb;
-    vkCmdPushDescriptorSetKHR(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, gtaoApplyLayout_, 0, alOn_ ? 7 : 5, aw);
+    vkCmdPushDescriptorSetKHR(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, gtaoApplyLayout_, 0, alOn_ ? 8 : 5, aw);
     vkCmdDraw(cb, 3, 1, 0, 0);
     vkCmdEndRendering(cb);
 }

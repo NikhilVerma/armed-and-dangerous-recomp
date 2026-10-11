@@ -111,13 +111,44 @@ layout(std140, set = 0, binding = 2) uniform Params
     vec4 proj;      // _11 _22 _33 _34
     vec4 proj43;
     vec4 material;  // x: share of the occlusion kept on snow-white surfaces, y: debug view, z: contact share
-    vec4 gi;        // Afterlight: x reality gain (bounce gain), y max relight stops, z ambient fill
+    vec4 gi;        // Afterlight: x reality gain (bounce gain), y max relight stops, z ambient fill, w GI scale
 } p;
 layout(std430, set = 0, binding = 3) readonly buffer Vis { float v[]; } vis;  // RT sun visibility (rt_ipc.h)
 layout(set = 0, binding = 4) uniform sampler2D matTex;  // motion target: z AO weight, w albedo (vk_abi.h)
 #ifdef AFTERLIGHT
 layout(set = 0, binding = 5) uniform sampler2D bounceTex;  // gathered radiance (rgb) and its solid-angle weight (a)
 layout(set = 0, binding = 6) uniform sampler2D radTex;     // source radiance, linear, 5 MIPs; a = emitter energy
+layout(set = 0, binding = 7) uniform sampler2D normalTex;  // full resolution: xyz view normal, w view depth
+
+// The bounce at this pixel. At a lower resolution (p.gi.w = scale) the four nearest bounce texels are blended
+// bilinearly, each weighted by how close its pixel's depth is to this one's, so the bounce of a wall does not
+// smear over the object in front of it.
+vec4 Bounce(ivec2 local)
+{
+    int scale = max(int(p.gi.w + 0.5), 1);
+    if (scale == 1)
+        return texelFetch(bounceTex, local, 0);
+    ivec2 size = textureSize(bounceTex, 0);
+    ivec2 fullLimit = ivec2(p.viewport.zw) - 1;
+    float zc = texelFetch(normalTex, local, 0).w;
+    vec2 hp = (vec2(local) + 0.5) / float(scale) - 0.5;
+    ivec2 base = ivec2(floor(hp));
+    vec2 f = hp - vec2(base);
+    vec4 sum = vec4(0.0);
+    float wsum = 0.0;
+    for (int j = 0; j < 2; ++j)
+        for (int i = 0; i < 2; ++i)
+        {
+            ivec2 t = clamp(base + ivec2(i, j), ivec2(0), size - 1);
+            float zt = texelFetch(normalTex, min(t * scale, fullLimit), 0).w;
+            float wb = (i == 0 ? 1.0 - f.x : f.x) * (j == 0 ? 1.0 - f.y : f.y);
+            float wd = exp(-abs(zt - zc) / max(zc * 0.03, 1e-4));
+            float w = wb * wd + 1e-5 * wb;
+            sum += texelFetch(bounceTex, t, 0) * w;
+            wsum += w;
+        }
+    return sum / max(wsum, 1e-6);
+}
 // Dual-source output: colour = dst * o1 + o (per channel: the bounce tints).
 layout(location = 0, index = 0) out vec4 o;
 layout(location = 0, index = 1) out vec4 o1;
@@ -194,7 +225,7 @@ void main()
         const vec3 L = vec3(0.2126, 0.7152, 0.0722);
         const float lf = 0.01;
         vec2 uv = (vec2(local) + 0.5) / p.viewport.zw;
-        vec4 bounce = textureLod(bounceTex, uv, 0.0);
+        vec4 bounce = Bounce(local);
         vec3 average = bounce.rgb / max(bounce.a, 1e-6);
         vec2 reach = 64.0 / p.viewport.zw;
         vec3 prior = textureLod(radTex, uv, 4.0).rgb * 4.0;

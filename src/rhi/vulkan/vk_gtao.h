@@ -31,7 +31,7 @@ struct alignas(16) GtaoApplyParams
     float proj[4];      // scene projection _11 _22 _33 _34
     float proj43[4];    // _43
     float material[4];  // x: share of the occlusion kept on snow-white surfaces
-    float gi[4];        // Afterlight composite: x reality gain, y max relight stops, z ambient fill
+    float gi[4];        // Afterlight composite: x reality gain, y max relight stops, z ambient fill, w GI scale
 };
 
 // Afterlight constants (shaders/afterlight.hlsl AfterlightConstants, HLSL cbuffer packing: float4 rows).
