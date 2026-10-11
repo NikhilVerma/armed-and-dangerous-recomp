@@ -2927,7 +2927,8 @@ bool VulkanDevice::GtaoInit()
     if (gtaoPipe_[3])
         return true;
     VkDevice device = Ctx().device;
-    const std::string hlsl = GtaoHlsl();
+    // [render] ao_thickness (world units, vk_gtao.cpp): occluders are this thick, not infinitely deep.
+    const std::string hlsl = GtaoHlsl(ConfigFloatDefault("render", "ao_thickness", 0.0f, 3.0f));
     const char* entries[4] = {"CSPrefilterDepths16x16", "CSGTAOHigh", "CSDenoisePass", "CSDenoiseLastPass"};
     VkDescriptorSetLayoutBinding b[14];
     const VkDescriptorType types[14] = {
@@ -3095,6 +3096,10 @@ void VulkanDevice::Ambient()
     settings.Radius = h.aoRadius;
     settings.FinalValuePower = h.aoPower;            // XE_GTAO_USE_DEFAULT_CONSTANTS 0 (vk_gtao.cpp): used
     settings.FalloffRange = h.aoFalloff;
+    // [render] ao_thin: occluders are not infinitely thick (XeGTAO's thickness heuristic, 0..0.7): without it a
+    // character occludes the ground far behind it like a board standing there (a dark halo around the player).
+    static const float aoThin = ConfigFloatDefault("render", "ao_thin", 0.0f, 0.7f);
+    settings.ThinOccluderCompensation = aoThin;
     XeGTAO::GTAOConstants consts{};
     XeGTAO::GTAOUpdateConstants(consts, int(svp.Width), int(svp.Height), settings, &sceneProjection_._11, true,
                                 gtaoFrame_++);
@@ -3178,6 +3183,7 @@ void VulkanDevice::Ambient()
     ap.material[0] = h.aoSnow;  // occlusion kept on snow-white surfaces (albedo, vk_gtao.cpp)
     static const int aoDebug = ConfigInt("render", "ao_debug", 0);  // diagnosis (vk_gtao.cpp)
     ap.material[1] = float(aoDebug);
+    ap.material[2] = h.aoContact;  // contact occlusion kept on sunlit snow (vk_gtao.cpp)
     std::memcpy(ap.fogColor, scene_.fogColor, sizeof(scene_.fogColor));
     if (scene_.fog)
         ModernFogUniforms(ap.mf, h, sceneProjection_, svp, scene_.fogStart, scene_.fogEnd, false);
@@ -3539,7 +3545,10 @@ void VulkanDevice::Shadows()
     // Penumbra cap (texels): 16 texels is about 1.6 world units at the default range and size. The blocker-distance
     // estimate over-reads under tall occluders (cliffs), and the old cap of 256 texels (about 25 units) let the
     // filter reach far into lit ground and wash out the shadow's interior.
-    p.soft[2] = 16.0f;
+    static const float softMax = ConfigFloat("render", "shadow_soft_max", 96.0f);  // [render] shadow_soft_max (texels)
+    p.soft[2] = softMax;
+    static const float softMin = ConfigFloat("render", "shadow_soft_min", 4.0f);  // [render] shadow_soft_min (texels)
+    p.soft[3] = softMin;
     p.fog[0] = scene_.fogStart, p.fog[1] = scene_.fogEnd, p.fog[2] = scene_.fog ? 1.0f : 0.0f;
     static const bool shadowDebug = ConfigInt("render", "shadow_debug", 0) != 0;
     p.fog[3] = shadowDebug ? 1.0f : 0.0f;

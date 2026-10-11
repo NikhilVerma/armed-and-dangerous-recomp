@@ -19,7 +19,7 @@ std::string DropInclude(std::string s, const char* name)
 }
 }  // namespace
 
-std::string GtaoHlsl()
+std::string GtaoHlsl(float thickness)
 {
     // XeGTAO options: 32-bit depths (no fp16 path), normals generated from depth inside the main pass, no bent
     // normals, tuning constants from GTAOSettings ([render] ao_radius / ao_power / ao_falloff).
@@ -34,6 +34,23 @@ std::string GtaoHlsl()
     s += kXeGtaoH;
     s += "\n";
     std::string hlsli = DropInclude(DropInclude(kXeGtaoHlsli, "vaShared.hlsl"), "XeGTAO.h");
+    // Remaster thickness limit ([render] ao_thickness, world units; 0 = XeGTAO as shipped). The depth buffer holds
+    // only front surfaces, so a character reads as an infinitely thick board and darkens the ground well behind it
+    // (the player: "renders the player as if standing in front of a board"). A sample more than `thickness` closer
+    // to the camera than the centre is faded out over another `thickness`: the ground at a character's feet still
+    // sees the feet (small depth step), the ground behind the character no longer sees the character.
+    if (thickness > 0.0f)
+    {
+        const std::string anchor = "lpfloat weight1         = saturate( falloffBase1 * falloffMul + falloffAdd );";
+        size_t at = hlsli.find(anchor);
+        if (at != std::string::npos)
+        {
+            std::string t = std::to_string(thickness);
+            hlsli.insert(at + anchor.size(),
+                         "\n                weight0 *= saturate(2.0 - (-sampleDelta0.z) / " + t + ");"
+                         "\n                weight1 *= saturate(2.0 - (-sampleDelta1.z) / " + t + ");");
+        }
+    }
     std::string entries = kGtaoEntries;
     const std::string marker = "#include \"XeGTAO.hlsli\"";
     size_t at = entries.find(marker);
@@ -84,7 +101,7 @@ layout(std140, set = 0, binding = 2) uniform Params
     vec4 sun;       // camera space, w: sun share s (0: no ray-traced visibility)
     vec4 proj;      // _11 _22 _33 _34
     vec4 proj43;
-    vec4 material;  // x: share of the occlusion kept on snow-white surfaces
+    vec4 material;  // x: share of the occlusion kept on snow-white surfaces, y: debug view, z: contact share
 } p;
 layout(std430, set = 0, binding = 3) readonly buffer Vis { float v[]; } vis;  // RT sun visibility (rt_ipc.h)
 layout(set = 0, binding = 4) uniform sampler2D matTex;  // motion target: z AO weight, w albedo (vk_abi.h)
@@ -135,6 +152,11 @@ void main()
         float lit = (1.0 - s) + s * v;
         ao = lit > 1e-4 ? ((1.0 - s) * ao + s * v) / lit : ao;
     }
+    // Contact occlusion (remaster, [render] ao_contact): where the raw term is clearly occluded (feet on the ground,
+    // objects resting on snow) keep that share of it whatever the snow and sunlight limits above leave, so
+    // characters sit on sunlit snow instead of floating (the player: "their feet should darken the ground").
+    float contact = p.material.z * p.fog.w * smoothstep(0.9, 0.45, rawAo);
+    ao = min(ao, mix(1.0, rawAo, contact));
     // The game's fog (D3D9 linear table fog on depth): F = C f + Fog (1 - f). Occlusion applies to C only:
     // C ao f + Fog (1 - f) = F ao + Fog (1 - f)(1 - ao).
     float f = 1.0;

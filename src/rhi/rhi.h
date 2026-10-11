@@ -185,6 +185,7 @@ struct SceneHints
     float aoRadius = 1.2f;    // world units: the size of the occlusion sphere
     float aoPower = 2.2f;     // XeGTAO FinalValuePower: higher = darker, more contrasty occlusion
     float aoFalloff = 0.615f; // XeGTAO FalloffRange (share of the radius over which occluders fade out)
+    float aoContact = 0.0f;   // share of strong (contact) occlusion kept everywhere, even on sunlit snow
     float aoSnow = 0.3f;      // share of the occlusion kept on snow-white surfaces (albedo >= ~0.75)
     // Temporal anti-aliasing in the 64-bit helper (docs/subsystems/remaster-aa.md): 0 off, 1 FSR 3.1, 2 DLSS (DLAA),
     // 3 XeSS (rtipc::AaMode). Native resolution.

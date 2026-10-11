@@ -6,8 +6,9 @@
 //   shadow_strength=0.55 how dark a full shadow is (0..1)
 //   shadow_range=60      half size of the shadowed area around the view, in world units
 //   shadow_size=4096     shadow map resolution
-//   shadow_softness=0.6  the light's angular radius in degrees (the bare sun is 0.27; haze and the bright snow
-//                        sky widen it): penumbrae widen with the occluder's distance, up to 16 texels (PCSS)
+//   shadow_softness=3.0  the light's angular radius in degrees (the bare sun is 0.27; haze and the bright snow
+//                        sky widen it): penumbrae widen with the occluder's distance, up to shadow_soft_max texels (96;
+//                        PCSS, Gaussian-weighted and eased so they fade to zero without a line)
 //
 // Each frame, when the UI pass starts (g_uiPassBegin, src/game/ui_pass.cpp) the 3D scene is complete: the camera's
 // view (Game+0x704) and the sun (renderer light slot 0, a D3DLIGHT9 at renderer +0x169c, its direction at +0x40;
@@ -112,7 +113,7 @@ void ShadowsInit()
     rhi::Hints().shadowSoftness =
         RemasterRegister({"render", "shadow_softness", L"Shadow softness", S::Slider, 0.05f, 3.0f, 0.05f, {}, 0, false,
                           [](float v) { rhi::Hints().shadowSoftness = v; }},
-                         0.6f);
+                         3.0f);
     // Ambient occlusion (XeGTAO, src/rhi/vulkan/vk_gtao.h): remaster default on.
     bool ao = RemasterRegister({"render", "ao", L"Ambient occlusion (VK)", S::Toggle, 0, 1, 1, {}, 0, false,
                                 [](float v) { rhi::Hints().ao = v != 0.0f; }},
@@ -134,6 +135,10 @@ void ShadowsInit()
         RemasterRegister({"render", "ao_falloff", L"AO falloff", S::Slider, 0.1f, 1.0f, 0.05f, {}, 0, false,
                           [](float v) { rhi::Hints().aoFalloff = v; }},
                          0.5f);
+    rhi::Hints().aoContact =
+        RemasterRegister({"render", "ao_contact", L"AO contact (feet, objects)", S::Slider, 0.0f, 1.0f, 0.05f, {}, 0,
+                          false, [](float v) { rhi::Hints().aoContact = v; }},
+                         0.0f, 0.6f);
     rhi::Hints().aoSnow =
         RemasterRegister({"render", "ao_snow", L"AO on snow", S::Slider, 0.0f, 1.0f, 0.05f, {}, 0, false,
                           [](float v) { rhi::Hints().aoSnow = v; }},

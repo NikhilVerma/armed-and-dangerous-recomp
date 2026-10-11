@@ -132,7 +132,8 @@ layout(std140, set = 0, binding = 2) uniform Params
     vec4 misc;      // _43, strength, texel, bias
     vec4 sunCam;    // xyz towards the sun (camera space), w: light-depth range in world units
     vec4 viewport;  // x y w h
-    vec4 soft;      // x: tan(sun angular radius), y: shadow-map width in world units, z: max filter in texels
+    vec4 soft;      // x: tan(sun angular radius), y: shadow-map width in world units, z: max filter in texels,
+                    // w: min filter in texels
     vec4 fog;       // start, end (camera distances), enabled
     vec4 fogColor;
     ModernFog mf;
@@ -185,6 +186,7 @@ void main()
     // blurs its shadow over a disc of radius g tan(r), up to the cap soft.z (texels). The filter then averages
     // comparison taps over that penumbra.
     float maxUv = p.soft.z * texel;  // the widest penumbra (filter radius), in shadow-map uv
+    float minUv = max(p.soft.w, 1.5) * texel;  // the narrowest (contact) penumbra; it starts that wide and grows
     // The first search must cover the widest filter: a pixel just outside a shadow whose filter disc still reaches
     // the occluder has to find it, or it is declared lit while its neighbour is blurred, and a bright speckled seam
     // runs along every soft shadow edge (measured, work/visual/sh_soft2). The second search refines the average
@@ -211,25 +213,32 @@ void main()
         any = true;
         blocker = sum / blockers;
         float g = (s.z - blocker) * p.sunCam.w;
-        searchUv = clamp(g * p.soft.x / p.soft.y, 1.5 * texel, maxUv);
+        searchUv = clamp(minUv + g * p.soft.x / p.soft.y, minUv, maxUv);
     }
-    float radiusUv = 1.5 * texel;
+    float radiusUv = minUv;
     if (any)
     {
         float gap = (s.z - blocker) * p.sunCam.w;
-        radiusUv = clamp(gap * p.soft.x / p.soft.y, 1.5 * texel, maxUv);
+        radiusUv = clamp(minUv + gap * p.soft.x / p.soft.y, minUv, maxUv);
     }
     else
         discard;  // no occluder within the widest penumbra: lit
-    // Filter: 32 taps on a golden-angle spiral (even coverage of the disc), rotated per pixel.
-    float lit = 0.0;
+    // Filter: 32 taps on a golden-angle spiral, rotated per pixel, weighted towards the centre (Gaussian): an even
+    // disc gives a near-linear ramp that stops abruptly, and the eye reads the end of the ramp as a line (the player:
+    // "faded but has a hard edge at the end").
+    float lit = 0.0, wsum = 0.0;
     for (int i = 0; i < 32; ++i)
     {
         float rr = sqrt((float(i) + 0.5) / 32.0);
         float th = float(i) * 2.39996323 + a;
-        lit += texture(shadowMap, vec3(uv + vec2(cos(th), sin(th)) * rr * radiusUv, s.z - bias));
+        float w = exp(-3.0 * rr * rr);
+        lit += w * texture(shadowMap, vec3(uv + vec2(cos(th), sin(th)) * rr * radiusUv, s.z - bias));
+        wsum += w;
     }
-    lit /= 32.0;
+    lit /= wsum;
+    // Ease the penumbra in and out (zero slope where it meets the lit ground and the umbra).
+    float pk = 1.0 - lit;
+    lit = 1.0 - pk * pk * (3.0 - 2.0 * pk);
     if (p.fog.w > 0.5)  // [render] shadow_debug=1: penumbra radius (texels / 32) as grey, red where blockers were found
     {
         o1 = vec4(0.0);

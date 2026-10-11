@@ -13,7 +13,7 @@ namespace rhi::vulkan
 {
 // The HLSL of the three passes (entry points CSPrefilterDepths16x16, CSGTAOHigh, CSDenoiseLastPass): XeGTAO.h,
 // XeGTAO.hlsli and src/rhi/vulkan/shaders/gtao.hlsl, embedded at build time (hook/CMakeLists.txt).
-std::string GtaoHlsl();
+std::string GtaoHlsl(float thickness = 0.0f);  // thickness: [render] ao_thickness (vk_gtao.cpp)
 
 // The apply pass (full-screen triangle).
 std::string GtaoApplyVertexGlsl();
