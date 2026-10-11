@@ -486,6 +486,12 @@ VkDescriptorSetLayout gtaoApplySetLayout_ = VK_NULL_HANDLE;
 VkPipelineLayout gtaoApplyLayout_ = VK_NULL_HANDLE;
 VkPipeline gtaoApply_ = VK_NULL_HANDLE;
 VkFormat gtaoApplyFormat_ = VK_FORMAT_UNDEFINED;
+// Afterlight unified AO + GI ([render] afterlight; shaders/afterlight.hlsl): replaces XeGTAO's main pass with the
+// player's one-pass occlusion + bounce gather, and adds its normals, source radiance and bounce blur passes.
+bool alOn_ = false;
+VkPipeline alPipe_[6] = {};  // normals, radiance, radiance MIP, unified main pass, bounce blur H, bounce blur V
+GtaoImage alNormals_, alRadiance_, alBounce_, alPong_;
+VkSampler alLinear_ = VK_NULL_HANDLE;
 
 private:
     // Scene vertex capture (vk_abi.h kBindingCapture): clip positions of the scene draws, on capture frames.
@@ -2927,22 +2933,28 @@ bool VulkanDevice::GtaoInit()
     if (gtaoPipe_[3])
         return true;
     VkDevice device = Ctx().device;
+    alOn_ = ConfigIntDefault("render", "afterlight", 0, 1) != 0;  // read once (restart)
     // [render] ao_thickness (world units, vk_gtao.cpp): occluders are this thick, not infinitely deep.
     const std::string hlsl = GtaoHlsl(ConfigFloatDefault("render", "ao_thickness", 0.0f, 3.0f),
                                       ConfigIntDefault("render", "ao_slices", 3, 9));
     const char* entries[4] = {"CSPrefilterDepths16x16", "CSGTAOHigh", "CSDenoisePass", "CSDenoiseLastPass"};
-    VkDescriptorSetLayoutBinding b[14];
-    const VkDescriptorType types[14] = {
+    // Bindings 0..13 XeGTAO (gtao.hlsl), 14..23 Afterlight (afterlight.hlsl).
+    VkDescriptorSetLayoutBinding b[24];
+    const VkDescriptorType types[24] = {
         VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_DESCRIPTOR_TYPE_SAMPLER,       VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
         VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,  VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
         VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,  VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
         VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,  VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-        VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,  VK_DESCRIPTOR_TYPE_STORAGE_IMAGE};
-    for (uint32_t i = 0; i < 14; ++i)
+        VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,  VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+        VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_DESCRIPTOR_TYPE_SAMPLER,
+        VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,  VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+        VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,  VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+        VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE};
+    for (uint32_t i = 0; i < 24; ++i)
         b[i] = {i, types[i], 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
     VkDescriptorSetLayoutCreateInfo dl{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
     dl.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR;
-    dl.bindingCount = 14;
+    dl.bindingCount = 24;
     dl.pBindings = b;
     vkCreateDescriptorSetLayout(device, &dl, nullptr, &gtaoSetLayout_);
     VkPipelineLayoutCreateInfo pl{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
@@ -2961,15 +2973,47 @@ bool VulkanDevice::GtaoInit()
         vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &ci, nullptr, &gtaoPipe_[i]);
         vkDestroyShaderModule(device, m, nullptr);
     }
+    if (alOn_)
+    {
+        const char* alEntries[6] = {"CSAfterlightNormals", "CSAfterlightRadiance", "CSAfterlightRadianceMip",
+                                    "CSAfterlightMain",    "CSAfterlightBlurH",    "CSAfterlightBlurV"};
+        for (int i = 0; i < 6; ++i)
+        {
+            VkShaderModule m = MakeModule(CompileHlslCompute(hlsl, alEntries[i]));
+            if (!m)
+                break;
+            VkComputePipelineCreateInfo ci{VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+            ci.stage = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
+            ci.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT, ci.stage.module = m, ci.stage.pName = alEntries[i];
+            ci.layout = gtaoLayout_;
+            vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &ci, nullptr, &alPipe_[i]);
+            vkDestroyShaderModule(device, m, nullptr);
+        }
+        VkSamplerCreateInfo si{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+        si.magFilter = si.minFilter = VK_FILTER_LINEAR;
+        si.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+        si.addressModeU = si.addressModeV = si.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        si.maxLod = 16.0f;
+        vkCreateSampler(device, &si, nullptr, &alLinear_);
+        for (VkPipeline pp : alPipe_)
+            if (!pp)
+            {
+                Log("vulkan: afterlight (unified AO + GI) failed to build; XeGTAO instead");
+                alOn_ = false;
+                break;
+            }
+    }
     gtaoApplyVs_ = MakeModule(CompileGlsl(GtaoApplyVertexGlsl(), false));
-    gtaoApplyFs_ = MakeModule(CompileGlsl(GtaoApplyFragmentGlsl(), true));
-    VkDescriptorSetLayoutBinding ab[5] = {
+    gtaoApplyFs_ = MakeModule(CompileGlsl(GtaoApplyFragmentGlsl(alOn_), true));
+    VkDescriptorSetLayoutBinding ab[7] = {
         {0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
-        {4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr}};  // material
-    dl.bindingCount = 5;
+        {4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // material
+        {5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // bounce
+        {6, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr}};  // radiance
+    dl.bindingCount = 7;
     dl.pBindings = ab;
     vkCreateDescriptorSetLayout(device, &dl, nullptr, &gtaoApplySetLayout_);
     pl.pSetLayouts = &gtaoApplySetLayout_;
@@ -2980,7 +3024,7 @@ bool VulkanDevice::GtaoInit()
         gtaoFailed_ = true;
         return false;
     }
-    Log("vulkan: ambient occlusion: XeGTAO ready");
+    Log("vulkan: ambient occlusion: %s ready", alOn_ ? "Afterlight (unified AO + GI)" : "XeGTAO");
     return true;
 }
 
@@ -3011,7 +3055,8 @@ VkPipeline VulkanDevice::GtaoApplyPipeline(VkFormat target)
     ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
     VkPipelineColorBlendAttachmentState att{};
     att.blendEnable = VK_TRUE;  // dst * ao + fog part (vk_gtao.cpp), alpha kept
-    att.srcColorBlendFactor = VK_BLEND_FACTOR_ONE, att.dstColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+    att.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+    att.dstColorBlendFactor = alOn_ ? VK_BLEND_FACTOR_SRC1_COLOR : VK_BLEND_FACTOR_SRC_ALPHA;  // Afterlight tints
     att.colorBlendOp = VK_BLEND_OP_ADD;
     att.srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO, att.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
     att.alphaBlendOp = VK_BLEND_OP_ADD;
@@ -3077,13 +3122,18 @@ void VulkanDevice::Ambient()
     }
     if (gtaoWidth_ != svp.Width || gtaoHeight_ != svp.Height)
     {
-        for (GtaoImage* gi : {&gtaoDepth_, &gtaoTerm_, &gtaoEdges_, &gtaoFinal_})
+        for (GtaoImage* gi : {&gtaoDepth_, &gtaoTerm_, &gtaoEdges_, &gtaoFinal_, &alNormals_, &alRadiance_, &alBounce_,
+                              &alPong_})
             GtaoImageDestroy(*gi);
         gtaoWidth_ = svp.Width, gtaoHeight_ = svp.Height;
         EndRendering();
         if (!GtaoImageCreate(gtaoDepth_, VK_FORMAT_R32_SFLOAT, XE_GTAO_DEPTH_MIP_LEVELS) ||
             !GtaoImageCreate(gtaoTerm_, VK_FORMAT_R8_UINT, 1) || !GtaoImageCreate(gtaoEdges_, VK_FORMAT_R8_UNORM, 1) ||
-            !GtaoImageCreate(gtaoFinal_, VK_FORMAT_R8_UINT, 1))
+            !GtaoImageCreate(gtaoFinal_, VK_FORMAT_R8_UINT, 1) ||
+            (alOn_ && (!GtaoImageCreate(alNormals_, VK_FORMAT_R16G16B16A16_SFLOAT, 1) ||
+                       !GtaoImageCreate(alRadiance_, VK_FORMAT_R16G16B16A16_SFLOAT, 5) ||
+                       !GtaoImageCreate(alBounce_, VK_FORMAT_R16G16B16A16_SFLOAT, 1) ||
+                       !GtaoImageCreate(alPong_, VK_FORMAT_R16G16B16A16_SFLOAT, 1))))
         {
             Log("vulkan: ambient occlusion: working images failed; off");
             gtaoFailed_ = true;
@@ -3119,7 +3169,7 @@ void VulkanDevice::Ambient()
     VkDeviceSize offset = PushUniform(&consts, sizeof(consts));
     VkDescriptorBufferInfo ub{Slot().uniforms, offset, sizeof(consts)};
     VkDescriptorImageInfo smp{shadowDepthSampler_, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED};
-    VkDescriptorImageInfo img[12];
+    VkDescriptorImageInfo img[20] = {};
     img[0] = {VK_NULL_HANDLE, depth->sampledView, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL};  // 2
     for (int l = 0; l < 5; ++l)
         img[1 + l] = {VK_NULL_HANDLE, gtaoDepth_.mips[l], VK_IMAGE_LAYOUT_GENERAL};                  // 3..7
@@ -3129,8 +3179,52 @@ void VulkanDevice::Ambient()
     img[9] = {VK_NULL_HANDLE, gtaoTerm_.view, VK_IMAGE_LAYOUT_GENERAL};                              // 11
     img[10] = {VK_NULL_HANDLE, gtaoEdges_.view, VK_IMAGE_LAYOUT_GENERAL};                            // 12
     img[11] = {VK_NULL_HANDLE, gtaoFinal_.view, VK_IMAGE_LAYOUT_GENERAL};                            // 13
-    VkWriteDescriptorSet w[14];
-    for (uint32_t i = 0; i < 14; ++i)
+    // Afterlight (bindings 14..23, afterlight.hlsl): constants, the scene colour, radiance MIP in / out (set per
+    // pass), radiance (all MIPs), normals out / in, bounce out / in (set per pass).
+    AfterlightConstants al{};
+    VkDescriptorBufferInfo alub{};
+    VkDescriptorImageInfo alSmp{alLinear_, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED};
+    if (alOn_)
+    {
+        static const float alGain = ConfigFloat("render", "afterlight_gain", 1.0f);
+        static const float alReach = ConfigFloat("render", "afterlight_reach", 2.75f);  // GI ring / AO ring
+        al.giGain = alGain;
+        al.giEmitterBoost = 4.0f;
+        al.giRadiusScale = alReach;
+        const float giRadius = std::max(consts.EffectRadius * consts.RadiusMultiplier * alReach, 1e-4f);
+        const float giFalloffRange = std::max(consts.EffectFalloffRange * giRadius, 1e-4f);
+        al.giFalloffMul = -1.0f / giFalloffRange;
+        al.giFalloffAdd = giRadius * (1.0f - consts.EffectFalloffRange) / giFalloffRange + 1.0f;
+        al.giRadianceFalloffPower = 1.0f;
+        al.giSourceGate = 1.0f;
+        al.giSourceGateKnee = 0.2f;
+        al.giMaxSampleRadiance = 2.0f;
+        // [render] afterlight_emitter_threshold: the light-source detector (0.9 in the FX); 1 = off, the remaster
+        // default: on the snow levels sunlit snow is near white and was read as lamps (boosted, then protected from
+        // the composite). The sky stays a light source either way.
+        static const float alEmitter = ConfigFloat("render", "afterlight_emitter_threshold", 1.0f);
+        al.emitterThreshold = alEmitter;
+        al.emitterContrast = 1.5f;
+        al.sliceCount = float(ConfigIntDefault("render", "ao_slices", 3, 9));
+        al.thickness = ConfigFloatDefault("render", "ao_thickness", 0.0f, 3.0f);
+        const VkFormat tf = target->format;
+        al.sceneIsLinear = (tf == VK_FORMAT_B8G8R8A8_SRGB || tf == VK_FORMAT_R8G8B8A8_SRGB ||
+                            tf == VK_FORMAT_R16G16B16A16_SFLOAT)
+                               ? 1.0f
+                               : 0.0f;
+        alub = {Slot().uniforms, PushUniform(&al, sizeof(al)), sizeof(al)};
+        img[12] = {VK_NULL_HANDLE, target->sampledView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};  // 15
+        img[13] = {VK_NULL_HANDLE, alRadiance_.mips[0], VK_IMAGE_LAYOUT_GENERAL};                   // 17
+        img[14] = {VK_NULL_HANDLE, alRadiance_.mips[0], VK_IMAGE_LAYOUT_GENERAL};                   // 18
+        img[15] = {VK_NULL_HANDLE, alRadiance_.view, VK_IMAGE_LAYOUT_GENERAL};                      // 19
+        img[16] = {VK_NULL_HANDLE, alNormals_.mips[0], VK_IMAGE_LAYOUT_GENERAL};                    // 20
+        img[17] = {VK_NULL_HANDLE, alNormals_.view, VK_IMAGE_LAYOUT_GENERAL};                       // 21
+        img[18] = {VK_NULL_HANDLE, alBounce_.mips[0], VK_IMAGE_LAYOUT_GENERAL};                     // 22
+        img[19] = {VK_NULL_HANDLE, alPong_.view, VK_IMAGE_LAYOUT_GENERAL};                          // 23
+    }
+    const uint32_t writes = alOn_ ? 24 : 14;
+    VkWriteDescriptorSet w[24];
+    for (uint32_t i = 0; i < 24; ++i)
     {
         w[i] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
         w[i].dstBinding = i;
@@ -3145,6 +3239,15 @@ void VulkanDevice::Ambient()
         VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE};
     for (int i = 0; i < 12; ++i)
         w[2 + i].descriptorType = t2[i], w[2 + i].pImageInfo = &img[i];
+    w[14].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, w[14].pBufferInfo = &alub;
+    w[15].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, w[15].pImageInfo = &img[12];
+    w[16].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER, w[16].pImageInfo = &alSmp;
+    const VkDescriptorType t3[7] = {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                                    VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                                    VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                                    VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE};
+    for (int i = 0; i < 7; ++i)
+        w[17 + i].descriptorType = t3[i], w[17 + i].pImageInfo = &img[13 + i];
 
     VkMemoryBarrier2 mb{VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
     mb.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
@@ -3154,18 +3257,37 @@ void VulkanDevice::Ambient()
     VkDependencyInfo di{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
     di.memoryBarrierCount = 1;
     di.pMemoryBarriers = &mb;
-    auto pass = [&](int i, uint32_t gx, uint32_t gy) {
+    auto passP = [&](VkPipeline pipe, uint32_t gx, uint32_t gy) {
         vkCmdPipelineBarrier2(cb, &di);
-        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, gtaoPipe_[i]);
-        vkCmdPushDescriptorSetKHR(cb, VK_PIPELINE_BIND_POINT_COMPUTE, gtaoLayout_, 0, 14, w);
+        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, pipe);
+        vkCmdPushDescriptorSetKHR(cb, VK_PIPELINE_BIND_POINT_COMPUTE, gtaoLayout_, 0, writes, w);
         vkCmdDispatch(cb, gx, gy, 1);
         mb.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
         mb.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
     };
+    auto pass = [&](int i, uint32_t gx, uint32_t gy) { passP(gtaoPipe_[i], gx, gy); };
     const uint32_t W = svp.Width, H = svp.Height;
-    pass(0, (W + 15) / 16, (H + 15) / 16);                                                   // prefilter depths
-    pass(1, (W + XE_GTAO_NUMTHREADS_X - 1) / XE_GTAO_NUMTHREADS_X,                         // main pass
-         (H + XE_GTAO_NUMTHREADS_Y - 1) / XE_GTAO_NUMTHREADS_Y);
+    const uint32_t mainX = (W + XE_GTAO_NUMTHREADS_X - 1) / XE_GTAO_NUMTHREADS_X;
+    const uint32_t mainY = (H + XE_GTAO_NUMTHREADS_Y - 1) / XE_GTAO_NUMTHREADS_Y;
+    pass(0, (W + 15) / 16, (H + 15) / 16);  // prefilter depths
+    if (alOn_)
+    {
+        // Afterlight: normals, source radiance from this frame's colour (MIP 0 then a 2x2 chain), then the unified
+        // occlusion + bounce pass in place of XeGTAO's main pass.
+        target->Transition(cb, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        mb.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+        mb.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
+        passP(alPipe_[0], (W + 7) / 8, (H + 7) / 8);
+        passP(alPipe_[1], (W + 7) / 8, (H + 7) / 8);
+        for (uint32_t l = 1; l < 5; ++l)
+        {
+            img[13].imageView = alRadiance_.mips[l - 1], img[14].imageView = alRadiance_.mips[l];
+            passP(alPipe_[2], ((W >> l) + 8) / 8, ((H >> l) + 8) / 8);
+        }
+        passP(alPipe_[3], mainX, mainY);
+    }
+    else
+        pass(1, mainX, mainY);  // main pass
     // Denoise (2 px per thread): term -> final, then final -> term (bindings 11 and 13 swapped); apply reads term.
     const uint32_t dx = (W + XE_GTAO_NUMTHREADS_X * 2 - 1) / (XE_GTAO_NUMTHREADS_X * 2);
     const uint32_t dy = (H + XE_GTAO_NUMTHREADS_Y - 1) / XE_GTAO_NUMTHREADS_Y;
@@ -3177,6 +3299,14 @@ void VulkanDevice::Ambient()
         std::swap(img[9], img[11]);
     }
     pass(3, dx, dy);
+    if (alOn_)
+    {
+        // Bounce blur, depth- and normal-guided: bounce -> pong (horizontal), pong -> bounce (vertical).
+        img[19].imageView = alBounce_.view, img[18].imageView = alPong_.mips[0];
+        passP(alPipe_[4], (W + 7) / 8, (H + 7) / 8);
+        img[19].imageView = alPong_.view, img[18].imageView = alBounce_.mips[0];
+        passP(alPipe_[5], (W + 7) / 8, (H + 7) / 8);
+    }
     mb.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
     mb.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
     vkCmdPipelineBarrier2(cb, &di);
@@ -3190,6 +3320,13 @@ void VulkanDevice::Ambient()
     static const int aoDebug = ConfigInt("render", "ao_debug", 0);  // diagnosis (vk_gtao.cpp)
     ap.material[1] = float(aoDebug);
     ap.material[2] = h.aoContact;  // contact occlusion kept on sunlit snow (vk_gtao.cpp)
+    if (alOn_)
+    {
+        static const float alGain = ConfigFloat("render", "afterlight_gain", 1.0f);
+        static const float alStops = ConfigFloat("render", "afterlight_stops", 0.245f);  // max relight per gain
+        static const float alFill = ConfigFloat("render", "afterlight_fill", 0.0f);     // ambient fill (off)
+        ap.gi[0] = alGain, ap.gi[1] = alStops, ap.gi[2] = alFill;
+    }
     std::memcpy(ap.fogColor, scene_.fogColor, sizeof(scene_.fogColor));
     if (scene_.fog)
         ModernFogUniforms(ap.mf, h, sceneProjection_, svp, scene_.fogStart, scene_.fogEnd, false);
@@ -3232,9 +3369,16 @@ void VulkanDevice::Ambient()
     // The motion target's z / w: AO weight and albedo of the opaque surface (vk_abi.h).
     motion_->Transition(cb, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     VkDescriptorImageInfo matImg{shadowDepthSampler_, motion_->sampledView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-    VkWriteDescriptorSet aw[5] = {{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}, {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET},
+    VkWriteDescriptorSet aw[7] = {{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}, {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET},
+                                  {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}, {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET},
                                   {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}, {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET},
                                   {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}};
+    VkDescriptorImageInfo bounceImg{shadowDepthSampler_, alBounce_.view, VK_IMAGE_LAYOUT_GENERAL};
+    VkDescriptorImageInfo radImg{alLinear_, alRadiance_.view, VK_IMAGE_LAYOUT_GENERAL};
+    aw[5].dstBinding = 5, aw[5].descriptorCount = 1, aw[5].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    aw[5].pImageInfo = &bounceImg;
+    aw[6].dstBinding = 6, aw[6].descriptorCount = 1, aw[6].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    aw[6].pImageInfo = &radImg;
     aw[4].dstBinding = 4, aw[4].descriptorCount = 1, aw[4].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     aw[4].pImageInfo = &matImg;
     aw[3].dstBinding = 3, aw[3].descriptorCount = 1, aw[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
@@ -3245,7 +3389,7 @@ void VulkanDevice::Ambient()
     aw[1].pImageInfo = &dImg;
     aw[2].dstBinding = 2, aw[2].descriptorCount = 1, aw[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     aw[2].pBufferInfo = &apb;
-    vkCmdPushDescriptorSetKHR(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, gtaoApplyLayout_, 0, 5, aw);
+    vkCmdPushDescriptorSetKHR(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, gtaoApplyLayout_, 0, alOn_ ? 7 : 5, aw);
     vkCmdDraw(cb, 3, 1, 0, 0);
     vkCmdEndRendering(cb);
 }

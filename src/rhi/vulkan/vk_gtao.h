@@ -17,7 +17,7 @@ std::string GtaoHlsl(float thickness = 0.0f, int slices = 3);  // [render] ao_th
 
 // The apply pass (full-screen triangle).
 std::string GtaoApplyVertexGlsl();
-std::string GtaoApplyFragmentGlsl();
+std::string GtaoApplyFragmentGlsl(bool afterlight = false);  // [render] afterlight: the GI composite
 
 // Apply-pass uniform block (std140), mirrored in GtaoApplyFragmentGlsl.
 struct alignas(16) GtaoApplyParams
@@ -31,5 +31,16 @@ struct alignas(16) GtaoApplyParams
     float proj[4];      // scene projection _11 _22 _33 _34
     float proj43[4];    // _43
     float material[4];  // x: share of the occlusion kept on snow-white surfaces
+    float gi[4];        // Afterlight composite: x reality gain, y max relight stops, z ambient fill
+};
+
+// Afterlight constants (shaders/afterlight.hlsl AfterlightConstants, HLSL cbuffer packing: float4 rows).
+struct alignas(16) AfterlightConstants
+{
+    float giGain, giEmitterBoost, giRadianceMipBias, giDistanceFalloff;
+    float giRadiusScale, giFalloffMul, giFalloffAdd, giRadianceFalloffPower;
+    float giSourceCosine, giSourceGate, giSourceGateKnee, giMaxSampleRadiance;
+    float emitterThreshold, emitterContrast, sliceCount, thickness;
+    float sceneIsLinear, pad[3];
 };
 }  // namespace rhi::vulkan

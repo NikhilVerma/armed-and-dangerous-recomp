@@ -51,7 +51,7 @@ std::string GtaoHlsl(float thickness, int slices)
                          "\n                weight1 *= saturate(2.0 - (-sampleDelta1.z) / " + t + ");");
         }
     }
-    std::string entries = kGtaoEntries;
+    std::string entries = std::string(kGtaoEntries) + "\n" + kAfterlightEntries;  // afterlight.hlsl ([render] afterlight)
     const std::string marker = "#include \"XeGTAO.hlsli\"";
     size_t at = entries.find(marker);
     if (at != std::string::npos)
@@ -95,9 +95,10 @@ void main()
 )";
 }
 
-std::string GtaoApplyFragmentGlsl()
+std::string GtaoApplyFragmentGlsl(bool afterlight)
 {
-    return std::string("#version 450\nstruct ModernFog\n{\n") + ModernFogMembers() + "};\n" + R"(
+    return std::string("#version 450\n") + (afterlight ? "#define AFTERLIGHT 1\n" : "") +
+           "struct ModernFog\n{\n" + ModernFogMembers() + "};\n" + R"(
 layout(set = 0, binding = 0) uniform usampler2D aoTex;     // XeGTAO final term: visibility * 255
 layout(set = 0, binding = 1) uniform sampler2D depthTex;   // scene depth 0..1
 layout(std140, set = 0, binding = 2) uniform Params
@@ -110,12 +111,25 @@ layout(std140, set = 0, binding = 2) uniform Params
     vec4 proj;      // _11 _22 _33 _34
     vec4 proj43;
     vec4 material;  // x: share of the occlusion kept on snow-white surfaces, y: debug view, z: contact share
+    vec4 gi;        // Afterlight: x reality gain (bounce gain), y max relight stops, z ambient fill
 } p;
 layout(std430, set = 0, binding = 3) readonly buffer Vis { float v[]; } vis;  // RT sun visibility (rt_ipc.h)
 layout(set = 0, binding = 4) uniform sampler2D matTex;  // motion target: z AO weight, w albedo (vk_abi.h)
+#ifdef AFTERLIGHT
+layout(set = 0, binding = 5) uniform sampler2D bounceTex;  // gathered radiance (rgb) and its solid-angle weight (a)
+layout(set = 0, binding = 6) uniform sampler2D radTex;     // source radiance, linear, 5 MIPs; a = emitter energy
+// Dual-source output: colour = dst * o1 + o (per channel: the bounce tints).
+layout(location = 0, index = 0) out vec4 o;
+layout(location = 0, index = 1) out vec4 o1;
+vec3 LinearToSrgb(vec3 c)
+{
+    return mix(c * 12.92, 1.055 * pow(max(c, vec3(0.0)), vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c));
+}
+#else
 layout(location = 0) out vec4 o;
+#endif
 
-// Output blends as  dst * o.a + o.rgb  (src ONE, dst SRC_ALPHA).
+// Output blends as  dst * o.a + o.rgb  (src ONE, dst SRC_ALPHA); with AFTERLIGHT  dst * o1 + o.
 void main()
 {
     ivec2 px = ivec2(gl_FragCoord.xy);
@@ -124,6 +138,10 @@ void main()
     if (d >= 0.99999 || any(lessThan(local, ivec2(0))) || any(greaterThanEqual(local, ivec2(p.viewport.zw))))
     {
         o = vec4(0.0, 0.0, 0.0, 1.0);  // sky / outside the scene: unchanged
+#ifdef AFTERLIGHT
+        o = vec4(0.0);
+        o1 = vec4(1.0);
+#endif
         return;
     }
     float ao = float(texelFetch(aoTex, local, 0).r) / 255.0;
@@ -165,6 +183,75 @@ void main()
     // characters sit on sunlit snow instead of floating (the player: "their feet should darken the ground").
     float contact = p.material.z * p.fog.w * smoothstep(0.9, 0.45, rawAo);
     ao = min(ao, mix(1.0, rawAo, contact));
+#ifdef AFTERLIGHT
+    // Afterlight composite (the player's SSLD GTAO, SSLD_RelightDebug in export/SSLD_GTAO.fx), in linear light: the
+    // gathered bounce is compared with the local lighting prior; light above the prior is new transport and
+    // becomes a bounded positive fill (stops), AO is relieved where the gather agrees, the bounce's chroma tints
+    // neutral receivers, and detected light sources are protected. Omitted: exposure state (authored-light relief),
+    // history. The modulation is then turned into a factor on the stored (display-encoded) colour.
+    vec3 giK = vec3(1.0);
+    {
+        const vec3 L = vec3(0.2126, 0.7152, 0.0722);
+        const float lf = 0.01;
+        vec2 uv = (vec2(local) + 0.5) / p.viewport.zw;
+        vec4 bounce = textureLod(bounceTex, uv, 0.0);
+        vec3 average = bounce.rgb / max(bounce.a, 1e-6);
+        vec2 reach = 64.0 / p.viewport.zw;
+        vec3 prior = textureLod(radTex, uv, 4.0).rgb * 4.0;
+        prior += (textureLod(radTex, uv + vec2(-reach.x, 0.0), 4.0).rgb + textureLod(radTex, uv + vec2(reach.x, 0.0), 4.0).rgb +
+                  textureLod(radTex, uv + vec2(0.0, -reach.y), 4.0).rgb + textureLod(radTex, uv + vec2(0.0, reach.y), 4.0).rgb) * 2.0;
+        prior += textureLod(radTex, uv - reach, 4.0).rgb + textureLod(radTex, uv + reach, 4.0).rgb +
+                 textureLod(radTex, uv + vec2(reach.x, -reach.y), 4.0).rgb + textureLod(radTex, uv + vec2(-reach.x, reach.y), 4.0).rgb;
+        prior *= 1.0 / 16.0;
+        float realityGain = min(p.gi.x, 4.0);
+        float trust = bounce.a / (bounce.a + 0.02);
+        vec3 diffuse = mix(prior, average, trust);
+        float averageLuma = dot(diffuse, L), priorLuma = dot(prior, L);
+        float priorRelativeStops = log2(max(averageLuma, lf) / max(priorLuma, lf));
+        vec4 r0 = texelFetch(radTex, local, 0);
+        vec3 sceneLinear = r0.rgb;
+        float sceneLuma = dot(sceneLinear, L);
+        float receiverLightingLuma = dot(textureLod(radTex, uv, 2.0).rgb, L);
+        float transportEvidence = smoothstep(0.0, 0.25, clamp(priorRelativeStops - 0.05, 0.0, 1.0));
+        float evidenceConfidence = bounce.a / (bounce.a + 0.01);
+        float lightAgreement = smoothstep(-1.0, 0.0, priorRelativeStops);
+        float aoSuppression = evidenceConfidence * lightAgreement * transportEvidence;
+        float gatheredMean = dot(bounce.rgb, L) / max(bounce.a, 1e-6);
+        float transportedRatio = bounce.a / (bounce.a + 1.0) * max(gatheredMean - priorLuma, 0.0) / max(priorLuma, lf);
+        float authoredDeficit = max(priorLuma - receiverLightingLuma, 0.0) / max(priorLuma, lf) * p.gi.z;
+        float deficitGain = min(realityGain, 1.0);
+        float resolverEvidence = deficitGain == realityGain ? realityGain * (8.0 * transportedRatio + authoredDeficit)
+                                                            : realityGain * 8.0 * transportedRatio + deficitGain * authoredDeficit;
+        float relax = clamp(max(realityGain, 1.0) - 1.0, 0.0, 1.0);
+        float support = pow(clamp(evidenceConfidence, 0.0, 1.0), 0.25 * (1.0 - relax)) *
+                        mix(1.0, clamp(evidenceConfidence / 1e-6, 0.0, 1.0), relax);
+        float headroom = 1.0 - smoothstep(0.2, 1.0, sceneLuma);
+        float dramaticT = clamp((realityGain - 2.0) / 2.0, 0.0, 1.0);
+        float ceiling = min(p.gi.y * realityGain, mix(1.0, 2.0, dramaticT));
+        float residualStops = min(log2(1.0 + resolverEvidence) * support, ceiling) * headroom;
+        float reliefStops = min(0.5 * realityGain, mix(1.0, 1.5, dramaticT));
+        ao = min(ao * exp2(reliefStops * aoSuppression), 1.0);
+        vec3 chromaStops = clamp(log2(max(diffuse, vec3(lf)) / max(averageLuma, lf)), -1.0, 1.0);
+        float rmax = max(sceneLinear.r, max(sceneLinear.g, sceneLinear.b));
+        float sat = (rmax - min(sceneLinear.r, min(sceneLinear.g, sceneLinear.b))) / max(rmax, lf);
+        float chromaAmount = min(realityGain * 0.5, 1.0) * evidenceConfidence * lightAgreement *
+                             (1.0 - smoothstep(0.10, 0.35, sat)) * transportEvidence;
+        vec3 tint = exp2(chromaStops * chromaAmount);
+        tint *= sceneLuma / max(dot(sceneLinear * tint, L), 1e-6);
+        vec3 modulation = tint * exp2(residualStops);
+        float protect = clamp(r0.a / max(sceneLuma, 1e-6), 0.0, 1.0);
+        modulation = mix(modulation, vec3(1.0), protect);
+        giK = LinearToSrgb(sceneLinear * modulation) / max(LinearToSrgb(sceneLinear), vec3(1e-4));
+        // [render] ao_debug 5: the gathered bounce (trusted share); 6: fill stops, AO relief, protection
+        int gdbg = int(p.material.y + 0.5);
+        if (gdbg == 5 || gdbg == 6)
+        {
+            o = vec4(gdbg == 5 ? LinearToSrgb(average * trust) : vec3(residualStops, aoSuppression, protect), 0.0);
+            o1 = vec4(0.0);
+            return;
+        }
+    }
+#endif
     // The game's fog (D3D9 linear table fog on depth): F = C f + Fog (1 - f). Occlusion applies to C only:
     // C ao f + Fog (1 - f) = F ao + Fog (1 - f)(1 - ao).
     float f = 1.0;
@@ -182,11 +269,21 @@ void main()
         }
     }
     o = vec4(fc * (1.0 - f) * (1.0 - ao), ao);
+#ifdef AFTERLIGHT
+    // The bounce lights the surface under the fog as the occlusion darkens it: C k f + Fog (1 - f).
+    o1 = vec4(mix(vec3(1.0), giK, f) * ao, 0.0);
+    o.a = 0.0;
+#endif
     // [render] ao_debug: 1 XeGTAO's term, 2 the factor applied, 3 the AO weight, 4 the albedo (grey, replaces the
     // frame).
     int dbg = int(p.material.y + 0.5);
     if (dbg != 0)
+    {
         o = vec4(vec3(dbg == 1 ? rawAo : dbg == 2 ? ao : dbg == 3 ? weight : (known ? albedo : 0.0)), 0.0);
+#ifdef AFTERLIGHT
+        o1 = vec4(0.0);
+#endif
+    }
 }
 )";
 }

@@ -22,3 +22,9 @@ Copied code: none yet.
 | Asset | Licence | Used for |
 | --- | --- | --- |
 | Poly Haven "Snow 02" by Rob Tuytel (https://polyhaven.com/a/snow_02), 2K, downloaded 2026-10-11 | CC0 | Level 1 snow floor: B_level1_ground (colour, level tint), N_B_T_snow (normal map, green flipped) |
+
+## Third-party shader code (shipped in the DLL; notices required)
+
+| Code | Licence | Used for |
+| --- | --- | --- |
+| Afterlight / SSLD GTAO (the human's project, D:\devbox\code\afterlight-gtao, export/SSLD_GTAO.fxh + .fx), © 2026 Nikhil Verma | MIT (includes Intel's XeGTAO MIT notice) | src/rhi/vulkan/shaders/afterlight.hlsl and the composite in vk_gtao.cpp ([render] afterlight) |

@@ -135,6 +135,13 @@ void ShadowsInit()
         RemasterRegister({"render", "ao_falloff", L"AO falloff", S::Slider, 0.1f, 1.0f, 0.05f, {}, 0, false,
                           [](float v) { rhi::Hints().aoFalloff = v; }},
                          0.5f);
+    // Afterlight unified AO + GI (the player's SSLD GTAO; src/rhi/vulkan/shaders/afterlight.hlsl): replaces XeGTAO's
+    // main pass with one horizon search that yields both occlusion and colour bounce. Restart to change.
+    RemasterRegister({"render", "afterlight", L"Afterlight AO + GI (VK)", S::Toggle, 0, 1, 1, {}, 0, true, nullptr}, 0,
+                     1);
+    RemasterRegister({"render", "afterlight_gain", L"Afterlight bounce gain", S::Slider, 0.0f, 4.0f, 0.25f, {}, 0, true,
+                      nullptr},
+                     1.0f);
     rhi::Hints().aoContact =
         RemasterRegister({"render", "ao_contact", L"AO contact (feet, objects)", S::Slider, 0.0f, 1.0f, 0.05f, {}, 0,
                           false, [](float v) { rhi::Hints().aoContact = v; }},
