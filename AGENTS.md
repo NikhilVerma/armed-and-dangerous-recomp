@@ -69,7 +69,8 @@ re-reading is the fix.
 
 - Small: one function or one coherent cluster. The message gives addresses, the stage change and the oracle
   result.
-- Never commit on red tests. Never commit anything from `orig/`, `work/` or `ref/`. The pre-commit guard in
+- Never commit on red tests. Tests run only when the human asks (docs/decision.md, 2026-10-11); say so in the
+  commit message when they did not run. Never commit anything from `orig/`, `work/` or `ref/`. The pre-commit guard in
   `tools/hooks/` enforces size and extension limits (`git config core.hooksPath tools/hooks`).
 
 ## If several agents run in parallel

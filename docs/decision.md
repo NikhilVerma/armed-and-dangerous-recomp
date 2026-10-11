@@ -167,3 +167,10 @@ How this coexists with faithful recovery:
   Licence). They are cloned into `work/sdk` by `tools/fetch_aa_sdks.ps1` and never committed. Their runtime DLLs
   (`nvngx_dlss.dll`, `libxess.dll`) are copied next to the game by `tools/deploy.ps1`.
 - FSR 3.1 stays the remaster default (`[render] aa=1`). DLSS / DLAA is `aa=2`, XeSS `aa=3`.
+
+## 2026-10-11: tests only on request
+
+- Human: "your tests take ages, pls don't run them unless i say so".
+- Agents no longer run `tools/check.ps1` or `tools/compare.py` by default. They build, check the change with a
+  targeted capture where useful, and say in the commit message that the oracle was not run. The full checks run
+  when the human asks (and before any merge to main).
