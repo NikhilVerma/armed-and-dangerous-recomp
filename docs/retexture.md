@@ -175,3 +175,30 @@ tools/retex/batch.py, with prepare / run / post / sheet and reject.py.
     pass.
   - Names differing only in case (N_T_iron / N_t_iron) share one file on Windows. All such pairs hold identical
     images.
+
+## Proposed recipe (2026-10-11, agreed with the player; not yet run as a batch)
+
+Found by sweep (tools/retex/sweep.py, results in work/retex/batch/sweep/, montages in
+OneDrive\AnD-retexture-test\settings-test\) on wood_crate, b_grunt_front, k_player_rifle, b_stone_dark,
+x_dirtrocks1, k_pub_sign, b_a_leaves_1, fx_smoke_brown:
+
+1. Canvas: SwinIR-L realSR 4x (`003_realSR_BSRGAN_DFOWMFC_s64w8_SwinIR-L_x4_PSNR.pth`, Media Lab upscale-faithful)
+   of the original, resized (Lanczos) to the target size, original alpha resized in. It removes the DXT/compression
+   blocks; HAT-L and Nomos2 canvases sharpen them and Qwen then paints them as specks (crate, rifle).
+2. Qwen Image 2.1 with that canvas as the only image: qwen_edit_strength 0.9, image_cfg 7 (5 = slightly more
+   faithful; the player measured 10 fine, 20 broken), 20 steps, seed 0, qwen_output_size source, no negative,
+   the player's prompt: "Enhance this image to high resolution with rich fine details. Sharpen textures and surfaces,
+   add natural microdetails, and improve clarity and definition across the image while preserving the original
+   composition, lighting, atmosphere, and visual style. The input may be an illustration or a real photograph;
+   preserve the original style."
+3. No per-texture descriptions: Haiku descriptions were sometimes wrong and Qwen follows the text (x_dirtrocks1 was
+   painted as orange dirt with rock piles at every strength).
+4. Post: batch.normalise_lighting then batch.normalise_saturation (broad luminance and chroma from the original,
+   hues and detail from Qwen); fidelity gate (sweep.fidelity, alpha-weighted SSIM at the original's size) as a
+   safety net; skip normalisation when the gate fails.
+5. Normal maps: their own fixed prompt (batch.NORMAL_PROMPT), renormalised in post.
+
+Measured (fidelity / detail vs Lanczos): b_grunt_front 0.93-0.95 / 1.6-1.7, wood_crate 0.93-0.95 / 2.5-3.4,
+k_player_rifle 0.73-0.75 / 3.0 (alpha cut-out; visually exact). Rejected on the way: strength 1.0 from the small
+original (redraws layout), Lanczos canvas (stays blurry at <=0.95, drifts at cfg >= 7 on UV sheets), canvas +
+original as a second reference (no gain), cfg 2 (adds little).

@@ -89,8 +89,9 @@ def seam_join(a, b, axis, margin=64, feather=12):
 
 
 def lock(cand, base, sigma):
-    return np.stack([cand[..., i] - judge.blur(cand[..., i], sigma) + judge.blur(base[..., i], sigma)
-                     for i in range(3)], axis=-1)
+    """The tile's broad lighting and saturation from its input (batch.normalise_lighting / _saturation); hues Qwen's."""
+    import batch
+    return batch.normalise_saturation(batch.normalise_lighting(cand, base, sigma), base, 4.0 * sigma)
 
 
 def main():

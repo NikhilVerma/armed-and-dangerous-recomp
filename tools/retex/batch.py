@@ -40,6 +40,20 @@ NEGATIVE = ("altered, reinterpreted, restyled, redesigned, recolored, relit, ref
             "upscaling artifacts, compression artifacts, oversharpening, halos, ringing, over-smoothing, watermark, "
             "signature")
 SKIP_NAMES = ("font", "mainfontid")
+STRENGTH = 0.9
+RECON = ("This is a blurry, low-resolution enlargement of a video game texture. Reconstruct the fine detail the "
+         "original high-resolution texture would have had. Keep every shape, object, crack, stone, edge position, "
+         "layout and colour exactly where and as it is; only restore lost detail. ")
+MIN_STRUCTURE = 0.85  # post(): below this the result is a different picture (strength_test.structure); rejected
+# Tangent-space normal maps (kind "normal"): technical data, not a picture (worked on N_B_T_snow, 2026-10-11). post()
+# renormalises them.
+NORMAL_PROMPT = ("Upscale this tangent-space normal map to high resolution. It is technical data, not a photo: keep "
+                 "the exact same normal map colour encoding (flat areas stay the same lavender blue, RGB about 128,128,"
+                 "255; red and green tints encode slope direction). Reconstruct crisp, fine surface relief with every "
+                 "existing bump, groove, crack and edge in the same place as the original. No lighting, no shadows, no "
+                 "colour change, no photographic content.")
+NORMAL_NEGATIVE = ("photograph, shading, shadows, highlights, lighting, colour shift, saturated, text, blur, "
+                   "over-smoothing, added objects, changed layout, seams, watermark")
 
 
 def path(*p):
@@ -136,13 +150,21 @@ def run():
         except FileExistsError:
             queued.append(name)  # submitted earlier: collect it below
             continue
-        prompt = GENERIC + " " + d.get("describe", "")
-        if p["wraps"] and d.get("kind") in ("material", "sky", "other"):
+        prompt, negative = RECON + d.get("describe", ""), NEGATIVE
+        if d.get("kind") == "normal":
+            prompt, negative = NORMAL_PROMPT, NORMAL_NEGATIVE
+        if p["wraps"] and d.get("kind") in ("material", "sky", "other", "normal"):
             prompt += " It is a seamless repeating texture: keep it tileable."
         try:
-            job = medialab.submit("qwen-image-21", [path("src", name + ".png")], prompt, NEGATIVE,
-                                  {"seed": 0, "image_steps": 25, "image_cfg": 2, "qwen_edit_strength": 1.0,
-                                   "qwen_output_size": "custom", "custom_width": p["tw"], "custom_height": p["th"]})
+            # Qwen re-renders a Lanczos enlargement of the original at the target size, at strength 0.9 (the
+            # player's suggestion; strength_test.py, x_dirtrocks1: structure 0.97 against 0.30 for strength 1.0 from
+            # the small original, which redrew textures, e.g. rock piles on bare cracked ground).
+            os.makedirs(path("base"), exist_ok=True)
+            base = path("base", name + ".png")
+            Image.open(path("src", name + ".png")).convert("RGBA").resize((p["tw"], p["th"]), Image.LANCZOS).save(base)
+            job = medialab.submit("qwen-image-21", [base], prompt, negative,
+                                  {"seed": 0, "image_steps": 25, "image_cfg": 2, "qwen_edit_strength": STRENGTH,
+                                   "qwen_output_size": "source"})
         except BaseException:
             os.close(fd)
             os.remove(qfile)
@@ -177,6 +199,35 @@ def _smooth_wrap(v, sigma):
     k /= k.sum()
     pad = np.concatenate([v[-r:], v, v[:r]])
     return np.stack([np.convolve(pad[:, c], k, mode="valid") for c in range(v.shape[1])], axis=1)
+
+
+def normalise_lighting(rgb, base, sigma):
+    """Lighting normalisation (the player, 2026-10-11: "it's darkening some images a lot ... ensure the output has
+    similar lighting, colours can vary"): Qwen renders came out darker (72 of 257 more than 15 % below the original's
+    mean luminance; x_dirtrocks1 at half). The output's luminance above about two original pixels is replaced by the
+    original's, below that Qwen's detail stays. The correction is ADDED to all three channels: Qwen's colour
+    differences (hue, chroma) are kept as they are. Scaling by the luminance ratio instead turned a darkened orange
+    into a vivid one (x_dirtrocks1). (Replaces the full-colour lock, which also pinned the colours.)"""
+    import judge
+    w = np.array([0.2126, 0.7152, 0.0722])
+    y = rgb @ w
+    yb = base @ w
+    delta = judge.blur(yb, sigma) - judge.blur(y, sigma)
+    return rgb + delta[..., None]
+
+
+def normalise_saturation(rgb, base, sigma):
+    """Saturation normalisation (the player, 2026-10-11: "it's desaturating the images quite a bit"): each pixel's
+    chroma (its colour minus its luminance) is scaled so the broad-scale chroma strength matches the original's;
+    hue and fine colour detail stay Qwen's. The scale is limited to 0.5..3 so a near-grey area cannot be blown up."""
+    import judge
+    w = np.array([0.2126, 0.7152, 0.0722])
+    c = rgb - (rgb @ w)[..., None]
+    cb = base - (base @ w)[..., None]
+    mag = judge.blur(np.sqrt((c * c).sum(-1)), sigma)
+    magb = judge.blur(np.sqrt((cb * cb).sum(-1)), sigma)
+    k = np.clip((magb + 1.0) / (mag + 1.0), 0.5, 3.0)
+    return rgb - c + c * k[..., None]
 
 
 def tileable(img, band=0.12):
@@ -231,19 +282,26 @@ def post():
             continue
         out = Image.open(done).convert("RGBA")
         src = Image.open(path("src", name + ".png")).convert("RGBA")
+        from strength_test import structure
+        st = structure(src, out)
+        p["structure"] = round(st, 3)
+        if st < MIN_STRUCTURE:
+            p["rejected"] = f"structure {st:.2f} < {MIN_STRUCTURE}: a different picture"
+            print(f"{name}: rejected, structure {st:.2f}", flush=True)
+            continue
         rgb = np.asarray(out)[..., :3].astype(np.float64)
         if p["alpha"]:
             rgb = bleed(rgb, np.asarray(out)[..., 3])
         kind = json.load(open(path("desc", name + ".json"))).get("kind", "other")
-        if True:  # every kind: sprites and icons drifted too (b_a_leaves_1 turned autumn orange, measured shift 67)
-            # Colour lock: Qwen at cfg 2 drifts surfaces darker or towards grey/blue (x_brick, k_t_metalmottled,
-            # b_stone_dark). Keep its detail finer than about two original pixels, take broader colour and value
-            # from the original (lowfreq.py).
-            import judge
-            s = (2.0 if kind in ("material", "sky", "other", "normal") else 3.0) * out.width / src.width
-            base = np.asarray(src.convert("RGB").resize(out.size, Image.BICUBIC)).astype(np.float64)
+        import judge
+        s = (2.0 if kind in ("material", "sky", "other", "normal") else 3.0) * out.width / src.width
+        base = np.asarray(src.convert("RGB").resize(out.size, Image.BICUBIC)).astype(np.float64)
+        if kind == "normal":
+            # Normal maps: the full colour is the slope, so all three channels keep the original's broad values.
             rgb = np.stack([rgb[..., c] - judge.blur(rgb[..., c], s) + judge.blur(base[..., c], s) for c in range(3)],
                            axis=-1)
+        else:
+            rgb = normalise_saturation(normalise_lighting(rgb, base, s), base, 4.0 * s)
         if p["wraps"] and kind in ("material", "sky", "other", "normal"):  # icons and sprites never wrap
             rgb = tileable(rgb)
         if kind == "normal":  # tangent-space normal map: unit vectors again after the colour lock and edge blend
