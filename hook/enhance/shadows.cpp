@@ -137,8 +137,9 @@ void ShadowsInit()
                          0.5f);
     // Afterlight unified AO + GI (the player's SSLD GTAO; src/rhi/vulkan/shaders/afterlight.hlsl): replaces XeGTAO's
     // main pass with one horizon search that yields both occlusion and colour bounce. Restart to change.
+    // Off by default (also in the remaster preset): opt in from the remaster menu or [render] afterlight=1.
     RemasterRegister({"render", "afterlight", L"Afterlight AO + GI (VK)", S::Toggle, 0, 1, 1, {}, 0, true, nullptr}, 0,
-                     1);
+                     0);
     RemasterRegister({"render", "afterlight_gain", L"Afterlight bounce gain", S::Slider, 0.0f, 4.0f, 0.25f, {}, 0, true,
                       nullptr},
                      1.0f);

@@ -2934,7 +2934,7 @@ bool VulkanDevice::GtaoInit()
     if (gtaoPipe_[3])
         return true;
     VkDevice device = Ctx().device;
-    alOn_ = ConfigIntDefault("render", "afterlight", 0, 1) != 0;  // read once (restart)
+    alOn_ = ConfigIntDefault("render", "afterlight", 0, 0) != 0;  // read once (restart); off by default
     // [render] ao_thickness (world units, vk_gtao.cpp): occluders are this thick, not infinitely deep.
     const std::string hlsl = GtaoHlsl(ConfigFloatDefault("render", "ao_thickness", 0.0f, 3.0f),
                                       ConfigIntDefault("render", "ao_slices", 3, 9));
