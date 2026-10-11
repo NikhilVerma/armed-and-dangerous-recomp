@@ -10,6 +10,9 @@
 //   log=1             every 300 frames: decal pool counters and kept bodies, to and.log
 //   bodies_max=64     with bodies_keep: at most this many kept bodies; beyond it the oldest fade out as before
 //                     (0: no limit)
+//   debris_keep=1     explosion debris (fx objects "fxo_debri*": blown-up houses, towers, props) stays instead of
+//                     fading out after its scripted 1-12 s (fx opcodes 0x08 lifespan / 0x0a fade, FxObject update
+//                     0x0041a350); at most debris_max (1000) pieces per level, beyond that they fade as before
 //
 // Hook points: Decals_AllocatePool / Decals_Update (src/game/decals.cpp) and Corpse_CountDown (src/game/corpses.cpp).
 #include <windows.h>
@@ -26,8 +29,31 @@
 #include "log.h"
 #include "settings.h"
 
+extern bool (*g_fxKeep)(void* fx);  // src/renderer/render_r1.cpp (0x0041a350)
+
 namespace
 {
+uint32_t g_debrisMax, g_debrisKept;
+void* g_debrisLevel;  // the level the count belongs to (its object manager, Game+0xa84)
+
+// Explosion debris: fx objects whose template name starts "fxo_debri" (obj+0x414 -> +0x10, name at +4).
+bool KeepDebris(void* fx)
+{
+    void* tmpl = Field<void*>(fx, 0x414);
+    if (!tmpl)
+        return false;
+    const char* name = reinterpret_cast<const char*>(Field<uint32_t>(tmpl, 0x10) + 4);
+    if (!name || _strnicmp(name, "fxo_debri", 9) != 0)
+        return false;
+    void* level = g_game ? Field<void*>(g_game, 0xa84) : nullptr;  // the level's object manager
+    if (level != g_debrisLevel)
+        g_debrisLevel = level, g_debrisKept = 0;
+    if (g_debrisMax && g_debrisKept >= g_debrisMax)
+        return false;
+    ++g_debrisKept;
+    return true;
+}
+
 struct Kept
 {
     ULONGLONG first, last;  // when first held, when last seen
@@ -108,6 +134,12 @@ void PersistenceInit()
                           [](float v) { g_corpseHold = v != 0.0f ? HoldBody : nullptr; }},
                          0, 1) != 0.0f)
         g_corpseHold = HoldBody;
-    Log("persistence: decal pool %u, fade reserve %u, bodies %s (max %u)", g_decalLimits.poolSize,
-        g_decalLimits.fadeReserve, g_corpseHold ? "kept" : "original", g_bodiesMax);
+    g_debrisMax = static_cast<uint32_t>(ConfigInt("persistence", "debris_max", 1000));
+    if (RemasterRegister({"persistence", "debris_keep", L"Keep explosion debris", S::Toggle, 0, 1, 1, {}, 0, false,
+                          [](float v) { g_fxKeep = v != 0.0f ? KeepDebris : nullptr; }},
+                         0, 1) != 0.0f)
+        g_fxKeep = KeepDebris;
+    Log("persistence: decal pool %u, fade reserve %u, bodies %s (max %u), debris %s (max %u)", g_decalLimits.poolSize,
+        g_decalLimits.fadeReserve, g_corpseHold ? "kept" : "original", g_bodiesMax, g_fxKeep ? "kept" : "original",
+        g_debrisMax);
 }

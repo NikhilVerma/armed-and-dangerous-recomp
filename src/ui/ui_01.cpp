@@ -2654,8 +2654,48 @@ HOOK(0x00463890, "fn_00463890", fn_00463890_Entry, nullptr);
 // 0x00463930 (stack: unused, a1, a2, a3; callee pops 16): the first object of the UI list that is shown (+0x474 bit 2,
 // or +0x470 bit 0 with +0x474 bit 4), whose virtual +0x150 has bit 1, whose +0x474 has 0x100 and whose virtual +0x140
 // (a1, a2, a3) is true (guess: a hit test of the mouse); 0 when none.
-uint32_t fn_00463930(uint32_t /*arg0*/, uint32_t a1, uint32_t a2, uint32_t a3)
+// Enhancement point (hook/enhance/ui_aspect.cpp): the factor the UI text is drawn larger by. When set (> 0), boxes
+// (+0x490..+0x49c) grow about their centre by it and the candidate whose centre is nearest wins: the boxes fit the
+// unscaled text, so clicks on the outer part of scaled text missed and the click was cancelled (0x004929e0), and
+// boxes taller than the item spacing let the first item in list order win over the one under the cursor (the
+// player, 2026-10-11). 0 by default (original).
+float g_uiHitScale = 0.0f;
+
+static uint32_t NearestHit(float x, float y, uint32_t a1, uint32_t a2, uint32_t a3)
 {
+    uint32_t iterator[2] = {0, 0};
+    uint8_t* best = nullptr;
+    float bestD = 1e30f;
+    for (uint8_t* obj = B(orig::fn_004e7340(Field<uint32_t>(Field<void*>(G(), 0xa84), 0xeb8), u(iterator))); obj;
+         obj = B(orig::fn_004e73c0(u(iterator))))
+    {
+        const uint32_t flags = Field<uint32_t>(obj, 0x474);
+        if (!(flags & 2) && (!(Field<uint8_t>(obj, 0x470) & 1) || !(flags & 4)))
+            continue;
+        if (!(VCall<uint8_t>(obj, 0x150 / 4) & 2) || !(Field<uint32_t>(obj, 0x474) & 0x100))
+            continue;
+        const bool exact = VCall<uint8_t>(obj, 0x140 / 4, a1, a2, a3) != 0;  // also lays the object out
+        const float l = Field<float>(obj, 0x490), r = Field<float>(obj, 0x494);
+        const float b = Field<float>(obj, 0x498), tp = Field<float>(obj, 0x49c);
+        const float cx = 0.5f * (l + r), cy = 0.5f * (b + tp);
+        const float hx = 0.5f * (r - l) * g_uiHitScale, hy = 0.5f * (tp - b) * g_uiHitScale;
+        if (!exact && !(hx > 0.0f && hy > 0.0f && x >= cx - hx && x < cx + hx && y >= cy - hy && y < cy + hy))
+            continue;
+        const float dx = hx > 0.0f ? (x - cx) / hx : 0.0f, dy = hy > 0.0f ? (y - cy) / hy : 0.0f;
+        const float d = dx * dx + dy * dy * 4.0f;  // rows matter more than columns
+        if (d < bestD)
+            bestD = d, best = obj;
+    }
+    if (iterator[1])
+        --Field<int32_t>(P(iterator[1]), 0x18);
+    return u(best);
+}
+
+uint32_t fn_00463930(uint32_t arg0, uint32_t a1, uint32_t a2, uint32_t a3)
+{
+    if (g_uiHitScale > 0.0f)
+        return NearestHit(bf(a1), bf(a2), a1, a2, a3);
+    (void)arg0;
     uint32_t iterator[2] = {0, 0};
     for (uint8_t* obj = B(orig::fn_004e7340(Field<uint32_t>(Field<void*>(G(), 0xa84), 0xeb8), u(iterator))); obj;
          obj = B(orig::fn_004e73c0(u(iterator))))

@@ -1819,8 +1819,11 @@ uint32_t UiScreen_Update(uint8_t* screen, uint8_t* mgr, uint32_t* input)
         if (logClicks && (clicked || (*input & 0x10)))
         {
             extern void Log(const char*, ...);
-            Log("cursor: click %u input %08x target %p selected %p x %.3f y %.3f", clicked, *input, target,
-                Field<void*>(screen, 0x64), bf(frame[2]), bf(frame[1]));
+            uint8_t* sel = Field<uint8_t*>(screen, 0x64);
+            Log("cursor: click %u input %08x target %p selected %p x %.3f y %.3f; selected box x %.3f..%.3f y %.3f..%.3f",
+                clicked, *input, target, sel, bf(frame[2]), bf(frame[1]), sel ? Field<float>(sel, 0x490) : 0.0f,
+                sel ? Field<float>(sel, 0x494) : 0.0f, sel ? Field<float>(sel, 0x498) : 0.0f,
+                sel ? Field<float>(sel, 0x49c) : 0.0f);
         }
         if (!target && clicked)
             *input &= 0xffffffefu;

@@ -19,6 +19,9 @@
 #include "gen/orig_calls.h"
 #include "hooks.h"
 
+// Enhancement point: whether an fx object keeps living instead of ageing out (fn_0041a350). Null by default.
+bool (*g_fxKeep)(void* fx) = nullptr;
+
 namespace
 {
 template <class T>
@@ -1057,6 +1060,13 @@ uint32_t fn_0041a350(void* fx)
 
     Fl(0x38) = GameGlobal<float>(0x00604a90) + XF(0x468);
     X(0x468) = 0;
+    // Enhancement point (hook/enhance/persistence.cpp): an object the hook keeps (explosion debris) loses its lifespan
+    // (+0x460 bit 2) and fade-out (bit 0x10) here, once, and stays fully opaque. Null by default (original).
+    if (g_fxKeep && (X(0x460) & 0x12) && g_fxKeep(fx))
+    {
+        X(0x460) &= ~0x12u;
+        VCall<void>(fx, 0x100 / 4, u2f(0x3f7fbe77u));
+    }
     const uint32_t cl = X(0x460);
     if (cl & 2)
     {

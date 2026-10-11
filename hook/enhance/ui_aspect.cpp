@@ -28,6 +28,7 @@
 
 unsigned PresentedFrames();  // hook/src/d3d9_hooks.cpp
 extern void (*g_uiCursorToLayout)(float* x);  // src/ui/ui_03.cpp (0x00491380)
+extern float g_uiHitScale;                      // src/ui/ui_01.cpp (0x00463930)
 
 namespace
 {
@@ -216,6 +217,8 @@ void UiAspectInit()
                                       0, 1) != 0.0f;
     g_pixelSizeScale[0] = g_pixelSizeScale[1] = g_textScale;  // the renderer does not exist yet
     g_uiCursorToLayout = CursorToLayout;  // returns at once with the original settings
+    // Menu hit boxes follow the text size (and pick the nearest item); original hit test without anchoring.
+    g_uiHitScale = g_anchor ? std::max(1.0f, TextScale()) : 0.0f;
     g_uiObjectBeginDraw = BeginDraw;  // both return at once with the original settings
     g_uiObjectEndDraw = EndDraw;
     Log("ui: anchor %d", g_anchor ? 1 : 0);
