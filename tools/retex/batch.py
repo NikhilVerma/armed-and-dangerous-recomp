@@ -116,6 +116,11 @@ def run():
             json.dump({"kind": "other", "skip": True, "describe": "", "note": "hand-tuned or lettering"},
                       open(path("desc", name + ".json"), "w"))
     os.makedirs(path("out"), exist_ok=True)
+    # Media Lab queues jobs and runs them one at a time, so submit every texture up front and collect the results as
+    # they finish (the GPU never idles between jobs). The job id goes to out/<name>/queued.json, created exclusively:
+    # a rerun, or a second copy running at the same time, waits for that job instead of submitting it again (two
+    # copies once submitted every texture twice; Media Lab history, 2026-10-11).
+    queued = []
     for name, p in sorted(plan.items(), key=lambda kv: kv[1]["tw"] * kv[1]["th"]):  # small outputs first
         dfile = path("desc", name + ".json")
         done = path("out", name, "take-01_00001_.png")
@@ -124,12 +129,44 @@ def run():
         d = json.load(open(dfile))
         if d.get("skip"):
             continue
+        os.makedirs(path("out", name), exist_ok=True)
+        qfile = path("out", name, "queued.json")
+        try:
+            fd = os.open(qfile, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            queued.append(name)  # submitted earlier: collect it below
+            continue
         prompt = GENERIC + " " + d.get("describe", "")
         if p["wraps"] and d.get("kind") in ("material", "sky", "other"):
             prompt += " It is a seamless repeating texture: keep it tileable."
-        medialab.run("qwen-image-21", [path("src", name + ".png")], path("out", name), prompt, NEGATIVE,
-                     {"seed": 0, "image_steps": 25, "image_cfg": 2, "qwen_edit_strength": 1.0,
-                      "qwen_output_size": "custom", "custom_width": p["tw"], "custom_height": p["th"]})
+        try:
+            job = medialab.submit("qwen-image-21", [path("src", name + ".png")], prompt, NEGATIVE,
+                                  {"seed": 0, "image_steps": 25, "image_cfg": 2, "qwen_edit_strength": 1.0,
+                                   "qwen_output_size": "custom", "custom_width": p["tw"], "custom_height": p["th"]})
+        except BaseException:
+            os.close(fd)
+            os.remove(qfile)
+            raise
+        with os.fdopen(fd, "w") as f:
+            json.dump({"id": job["id"]}, f)
+        queued.append(name)
+        print(f"{name}: queued {job['id']}", flush=True)
+    for name in queued:
+        out = path("out", name)
+        if os.path.exists(os.path.join(out, "take-01_00001_.png")):
+            continue  # collected by another copy
+        try:
+            job_id = json.load(open(os.path.join(out, "queued.json")))["id"]
+        except (OSError, ValueError, KeyError):
+            continue  # another copy is still writing it
+        job = medialab.wait(job_id)
+        if job["status"] not in ("complete", "partial"):
+            os.remove(os.path.join(out, "queued.json"))  # the next run submits it again
+            print(f"{name}: {job['status']} {job.get('error', '')}", flush=True)
+            continue
+        medialab.download(job, out)
+        with open(os.path.join(out, "job.json"), "w") as f:
+            json.dump(job, f, indent=1)
         print(f"{name}: done", flush=True)
 
 
