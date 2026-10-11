@@ -46,6 +46,7 @@ void RemasterSet(size_t index, float value)
     else
         snprintf(text, sizeof(text), "%d", static_cast<int>(value + 0.5f));
     WritePrivateProfileStringA(s.section, s.key, text, ini);
+    ConfigForget();
     Log("remaster: [%s] %s=%s%s", s.section, s.key, text, s.restart ? " (after a restart)" : "");
     if (s.apply)
         s.apply(value);

@@ -4,6 +4,8 @@
 //     tools/profile_report.py; other modules: dbghelp symbol or module+offset)
 //   - game: the innermost return address into the game image found on the stack (which game function the time is
 //     spent under)
+//   - hook (inclusive): every function of this DLL with a return address on the stack, once per sample (where the
+//     time spent in memcpy, the driver or the system is charged to)
 // Every 10 s and at exit it writes and-profile.txt (top entries). Off by default; costs about 1-2% when on.
 #include <windows.h>
 #include <dbghelp.h>
@@ -25,7 +27,8 @@ namespace
 std::atomic<DWORD> g_mainThread{0};
 HANDLE g_thread;
 std::mutex g_lock;
-std::map<DWORD64, uint32_t> g_self, g_game;
+std::map<DWORD64, uint32_t> g_self, g_game, g_hookRet;  // g_hookRet: return addresses, folded per function on write
+uintptr_t g_hookBegin, g_hookEnd;
 uint32_t g_samples;
 constexpr DWORD64 kGameBegin = 0x00400000, kGameEnd = 0x00700000;
 
@@ -86,6 +89,7 @@ void Write()
     };
     dump("self: where the instruction pointer was", g_self, true);
     dump("game: innermost game-image frame on the stack", g_game, false);
+    dump("hook (inclusive): functions of this DLL on the stack, once per sample", g_hookRet, true);
     fclose(f);
 }
 
@@ -96,6 +100,16 @@ DWORD WINAPI Sampler(LPVOID)
     SymInitialize(GetCurrentProcess(), nullptr, TRUE);  // symbols are only looked up when writing the report
     HANDLE thread = nullptr;
     ULONGLONG lastWrite = GetTickCount64();
+    {
+        HMODULE self = nullptr;
+        GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           reinterpret_cast<LPCSTR>(&Sampler), &self);
+        auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(self);
+        auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(reinterpret_cast<const uint8_t*>(self) + dos->e_lfanew);
+        g_hookBegin = reinterpret_cast<uintptr_t>(self);
+        g_hookEnd = g_hookBegin + nt->OptionalHeader.SizeOfImage;
+    }
+    std::map<DWORD64, DWORD64> funcOf;  // return address -> function start (dbghelp; cached)
     for (;;)
     {
         Sleep(1);
@@ -141,8 +155,41 @@ DWORD WINAPI Sampler(LPVOID)
                 (p[-6] == 0xff && (p[-5] & 0x38) == 0x10))
                 game = a;
         }
+        // Inclusive: each function of this DLL with a return address on the stack, once per sample.
+        std::vector<DWORD64> funcs;
+        {
+            uintptr_t eip = static_cast<uintptr_t>(ctx.Eip);
+            auto add = [&](DWORD64 a) {
+                auto it = funcOf.find(a);
+                if (it == funcOf.end())
+                {
+                    alignas(SYMBOL_INFO) char sb[sizeof(SYMBOL_INFO) + 256];
+                    auto* sym = reinterpret_cast<SYMBOL_INFO*>(sb);
+                    sym->SizeOfStruct = sizeof(SYMBOL_INFO);
+                    sym->MaxNameLen = 255;
+                    DWORD64 disp = 0;
+                    it = funcOf.emplace(a, SymFromAddr(GetCurrentProcess(), a, &disp, sym) ? sym->Address : a).first;
+                }
+                if (std::find(funcs.begin(), funcs.end(), it->second) == funcs.end())
+                    funcs.push_back(it->second);
+            };
+            if (eip >= g_hookBegin && eip < g_hookEnd)
+                add(eip);
+            for (uint32_t w = 0; w < words; ++w)
+            {
+                uintptr_t a = stack[w];
+                if (a < g_hookBegin + 0x1000 || a >= g_hookEnd)
+                    continue;
+                const uint8_t* q = reinterpret_cast<const uint8_t*>(a);
+                if (q[-5] == 0xe8 || (q[-2] == 0xff && (q[-1] & 0x38) == 0x10) || (q[-3] == 0xff && (q[-2] & 0x38) == 0x10) ||
+                    (q[-6] == 0xff && (q[-5] & 0x38) == 0x10))
+                    add(a);
+            }
+        }
         {
             std::lock_guard<std::mutex> g(g_lock);
+            for (DWORD64 fn : funcs)
+                ++g_hookRet[fn];
             ++g_self[self];
             if (game)
                 ++g_game[game];

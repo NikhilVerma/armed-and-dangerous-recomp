@@ -589,6 +589,10 @@ HRESULT VulkanTexture::LockRect(UINT face, UINT level, D3DLOCKED_RECT* locked, c
     locked->pBits = Shadow(level, face).data() + offset;
     locked->Pitch = static_cast<INT>(pitch);
     lockedReadOnly_ = (flags & D3DLOCK_READONLY) != 0;
+    // D3DLOCK_DISCARD on a managed texture (D3D9 refuses it, so the game never does): a write-once upload from the
+    // enhancements (hook/enhance/overrides.cpp). The CPU copy is freed after the upload: 218 override textures of up
+    // to 2048x2048 kept ~1-2 GB in the 32-bit process and it ran out of address space after two minutes of play.
+    lockedDiscard_ = (flags & D3DLOCK_DISCARD) != 0 && pool == D3DPOOL_MANAGED;
     return D3D_OK;
 }
 
@@ -596,6 +600,11 @@ HRESULT VulkanTexture::UnlockRect(UINT face, UINT level)
 {
     if (!lockedReadOnly_)
         Upload(level, face);
+    if (lockedDiscard_)
+    {
+        std::vector<uint8_t>().swap(shadow[size_t(level) * image->faces + face]);
+        lockedDiscard_ = false;
+    }
     return D3D_OK;
 }
 }  // namespace rhi::vulkan

@@ -58,7 +58,25 @@ static LONG WINAPI OnCrash(EXCEPTION_POINTERS* ep)
     return EXCEPTION_CONTINUE_SEARCH;
 }
 
+// First-chance fatal exceptions, logged before anyone else's handler runs (others may replace the unhandled filter):
+// access violations, stack overflow, stack-buffer overruns, illegal instructions. At most 8 are logged, with the
+// same register and stack report as a crash; the exception then continues to its normal handlers.
+static LONG WINAPI OnFirstChance(EXCEPTION_POINTERS* ep)
+{
+    static LONG logged;
+    const DWORD code = ep->ExceptionRecord->ExceptionCode;
+    if (code != EXCEPTION_ACCESS_VIOLATION && code != EXCEPTION_STACK_OVERFLOW && code != 0xC0000409 &&
+        code != EXCEPTION_ILLEGAL_INSTRUCTION && code != EXCEPTION_INT_DIVIDE_BY_ZERO)
+        return EXCEPTION_CONTINUE_SEARCH;
+    if (InterlockedIncrement(&logged) > 8)
+        return EXCEPTION_CONTINUE_SEARCH;
+    Log("first-chance exception (may be handled):");
+    OnCrash(ep);
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
 void CrashInstall()
 {
     SetUnhandledExceptionFilter(OnCrash);
+    AddVectoredExceptionHandler(1, OnFirstChance);
 }

@@ -2514,7 +2514,9 @@ uint32_t fn_00458660(int32_t index, uint8_t* actor)
     const uint32_t t = fn_00453120(actor, column, Field<uint32_t>(slot, 0));
     if (t + 0x18 == 0)
         return 0;
-    const uint32_t e = Field<uint32_t*>(P(t), 0x18)[0 + index];
+    // The entries are inline at t+0x18 (0x0045868a: mov eax, [eax + esi*4 + 0x18]), not behind a pointer: the extra
+    // dereference read garbage and crashed when an arrow or sticky bomb hit a body part (2026-10-11).
+    const uint32_t e = Field<uint32_t>(P(t), 0x18 + 4 * index);
     if (!e || !Field<uint32_t>(P(e), 8))
         return 0;
     return Field<uint32_t>(P(e), 0xc);

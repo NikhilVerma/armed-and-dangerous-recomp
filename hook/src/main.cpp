@@ -106,11 +106,14 @@ extern "C" HRESULT WINAPI Proxy_DirectInput8Create(HINSTANCE inst, DWORD version
     return hr;
 }
 
-BOOL WINAPI DllMain(HINSTANCE, DWORD reason, LPVOID)
+BOOL WINAPI DllMain(HINSTANCE, DWORD reason, LPVOID reserved)
 {
     if (reason == DLL_PROCESS_ATTACH)
         Startup();
     else if (reason == DLL_PROCESS_DETACH)
+    {
+        Log("process detach (%s)", reserved ? "the process is exiting" : "FreeLibrary");
         TestScenarioOnExit();
+    }
     return TRUE;
 }

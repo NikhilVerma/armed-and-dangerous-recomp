@@ -68,7 +68,8 @@ uint32_t U32(const std::vector<uint8_t>& d, size_t o)
 void CopyLevel(IDirect3DTexture9* t, UINT level, const uint8_t* src, uint32_t rowBytes, uint32_t rows)
 {
     D3DLOCKED_RECT lr;
-    if (FAILED(t->LockRect(level, &lr, nullptr, 0)))
+    // D3DLOCK_DISCARD: write-once; the Vulkan backend then frees its CPU copy (vk_resources.cpp UnlockRect).
+    if (FAILED(t->LockRect(level, &lr, nullptr, D3DLOCK_DISCARD)))
         return;
     for (uint32_t y = 0; y < rows; ++y)
         memcpy(static_cast<uint8_t*>(lr.pBits) + y * lr.Pitch, src + y * rowBytes, rowBytes);

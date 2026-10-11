@@ -288,6 +288,8 @@ target_link_libraries(and_hook PRIVATE minhook and_physics and_fsr d3d9 dbghelp 
 target_include_directories(and_hook PRIVATE ${volk_SOURCE_DIR})
 target_compile_definitions(and_hook PRIVATE VK_NO_PROTOTYPES VK_USE_PLATFORM_WIN32_KHR)
 set_target_properties(and_hook PROPERTIES OUTPUT_NAME dinput8)
+# A map file (build/hook-release/dinput8.map): function addresses for crash reports (tools/debug_run.py).
+target_link_options(and_hook PRIVATE /MAP)
 
 # x87 and precise floating point while differential tests need exact agreement (handover s8).
 target_compile_options(and_hook PRIVATE /arch:IA32 /fp:precise /W4 /permissive- /utf-8 /Zi)

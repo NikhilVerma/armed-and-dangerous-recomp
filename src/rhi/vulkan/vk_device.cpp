@@ -548,6 +548,14 @@ private:
 
     std::unordered_map<uint64_t, VertexInput> inputs_;
     std::unordered_map<uint64_t, VkShaderModule> ffVertex_, ffPixel_;
+    // Per fixed-function pixel key: the sampler masks (generating the GLSL text per draw just to read them cost
+    // string building on every draw; 1300 draws per frame).
+    struct FFPixelMasks
+    {
+        uint32_t sampler = 0, cube = 0;
+        bool known = false;
+    };
+    std::unordered_map<uint64_t, FFPixelMasks> ffPixelMasks_;
     std::shared_ptr<Image> white_;  // bound when a shader samples a stage with no texture
 };
 
@@ -1477,13 +1485,18 @@ bool VulkanDevice::PrepareDraw(D3DPRIMITIVETYPE type, uint64_t drawKey)
     }
     else
     {
-        GeneratedShader g = FixedFunctionPixel(key);  // cheap; the module is cached
         VkShaderModule& m = ffPixel_[pixelHash];
-        if (!m)
-            m = MakeModule(CompileGlsl(g.glsl, true));
+        FFPixelMasks& masks = ffPixelMasks_[pixelHash];
+        if (!m || !masks.known)
+        {
+            GeneratedShader g = FixedFunctionPixel(key);
+            if (!m)
+                m = MakeModule(CompileGlsl(g.glsl, true));
+            masks = {g.samplerMask, g.samplerCubeMask, true};
+        }
         fsm = m;
-        samplerMask = g.samplerMask;
-        cubeMask = g.samplerCubeMask;
+        samplerMask = masks.sampler;
+        cubeMask = masks.cube;
     }
     if (!vsm || !fsm)
         return false;

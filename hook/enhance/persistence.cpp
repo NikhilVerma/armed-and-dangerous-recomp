@@ -95,7 +95,7 @@ void PersistenceInit()
                           GetModuleFileNameA(nullptr, ini, MAX_PATH);
                           strcpy(strrchr(ini, '\\') + 1, "and.ini");
                           snprintf(text, sizeof(text), "%u", n);
-                          WritePrivateProfileStringA("persistence", "decal_pool", text, ini);
+                          WritePrivateProfileStringA("persistence", "decal_pool", text, ini); ConfigForget();
                           g_decalLimits.poolSize = n ? n : 160;
                       }},
                      static_cast<float>(choice));

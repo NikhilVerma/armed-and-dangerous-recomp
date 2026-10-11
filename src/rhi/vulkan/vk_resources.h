@@ -123,6 +123,7 @@ public:
 
 private:
     DWORD lod_ = 0;
+    bool lockedDiscard_ = false;
     bool lockedReadOnly_ = false;
 };
 

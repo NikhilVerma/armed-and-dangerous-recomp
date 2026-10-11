@@ -18,5 +18,7 @@ void ConfigString(const char* section, const char* key, const char* fallback, ch
 // unless [remaster] original_defaults=1, which gives every setting the original game's value (the comparison
 // harness sets it, so the tests run the faithful game).
 bool ConfigOriginalDefaults();
+// Drops the cached values (after writing and.ini).
+void ConfigForget();
 int ConfigIntDefault(const char* section, const char* key, int original, int remaster);
 float ConfigFloatDefault(const char* section, const char* key, float original, float remaster);

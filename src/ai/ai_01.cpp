@@ -1374,7 +1374,7 @@ uint32_t TwigletGenerator_Slot161(uint8_t* obj, uint32_t* pos, float* dir, uint3
                                   uint32_t /*a4*/, uint32_t* buffer)
 {
     uint32_t name[0x20 / 4] = {};
-    uint32_t local[0x40 / 4] = {};
+    uint32_t local[0x44 / 4] = {};  // a matrix with its flags word: 0x00453c50 writes 0x44 bytes (original frame [esp+0x30], 0x44)
     uint32_t* m = buffer ? buffer : local;
     const uint32_t n0 = Field<uint32_t>(obj, 0x46c);
     const uint32_t n1 = Field<uint32_t>(obj, 0x470);
