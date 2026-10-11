@@ -53,6 +53,10 @@ void FillHints()
             h.sun[i] = dir[i] / len;
         h.haveSun = true;
     }
+    // The scene pass widens its culling only towards where casters' shadows can come from (scene_pass.cpp).
+    static const bool sunCull = ConfigInt("render", "cull_sun", 1) != 0;  // diagnosis: 0 = the full radius on all planes
+    for (int i = 0; i < 3; ++i)
+        g_sceneCullSun[i] = sunCull && h.shadows && h.haveSun ? h.sun[i] : 0.0f;
     static const bool logSun = ConfigInt("render", "shadow_log", 0) != 0;  // diagnosis
     if (logSun)
         Log("shadows: sun %.3f %.3f %.3f (light 0 enabled %d)", h.sun[0], h.sun[1], h.sun[2],

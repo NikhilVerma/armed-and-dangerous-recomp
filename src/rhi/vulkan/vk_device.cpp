@@ -556,6 +556,20 @@ private:
         bool known = false;
     };
     std::unordered_map<uint64_t, FFPixelMasks> ffPixelMasks_;
+    // Tessellated draws' triangle lists (DrawTessellated), converted once and kept in a persistent buffer: the meshes
+    // are static, and rebuilding and re-uploading ~360 lists per frame was the largest CPU cost at 4K (2026-10-11).
+    // Key: hash of the source index bytes, range and primitive type -> {offset, count}.
+    struct TessList
+    {
+        VkDeviceSize offset;
+        uint32_t count;
+    };
+    std::unordered_map<uint64_t, TessList> tessLists_;
+    VkBuffer tessBuffer_ = VK_NULL_HANDLE;
+    VkDeviceMemory tessMemory_ = VK_NULL_HANDLE;
+    uint8_t* tessMapped_ = nullptr;
+    VkDeviceSize tessUsed_ = 0;
+    static constexpr VkDeviceSize kTessBuffer = 64u << 20;
     std::shared_ptr<Image> white_;  // bound when a shader samples a stage with no texture
 };
 
@@ -1889,45 +1903,82 @@ bool VulkanDevice::TessModules()
 bool VulkanDevice::DrawTessellated(D3DPRIMITIVETYPE t, const uint8_t* indices, bool index32, uint32_t indexLength,
                                    INT base, UINT start, UINT count)
 {
-    uint32_t n = t == D3DPT_TRIANGLELIST ? count * 3 : count + 2;
-    std::vector<uint32_t> v(n), list;
-    for (uint32_t i = 0; i < n; ++i)
-    {
-        if (!indices)
-        {
-            v[i] = start + i;
-            continue;
-        }
-        uint32_t size = index32 ? 4 : 2, at = (start + i) * size, idx = 0;
-        if (at + size > indexLength)
-            return false;
-        std::memcpy(&idx, indices + at, size);
-        v[i] = idx;
-    }
-    list.reserve(count * 3);
-    for (uint32_t p = 0; p < count; ++p)
-    {
-        uint32_t a, b, c;
-        if (t == D3DPT_TRIANGLELIST)
-            a = v[p * 3], b = v[p * 3 + 1], c = v[p * 3 + 2];
-        else if (t == D3DPT_TRIANGLEFAN)
-            a = v[0], b = v[p + 1], c = v[p + 2];
-        else if (p & 1)
-            a = v[p + 1], b = v[p], c = v[p + 2];
-        else
-            a = v[p], b = v[p + 1], c = v[p + 2];
-        if (a == b || b == c || a == c)
-            continue;
-        list.push_back(a), list.push_back(b), list.push_back(c);
-    }
-    if (list.empty())
-        return true;
-    VkDeviceSize at = PushUniform(list.data(), list.size() * 4);
-    if (at == VkDeviceSize(-1))
+    const uint32_t n = t == D3DPT_TRIANGLELIST ? count * 3 : count + 2;
+    const uint32_t size = index32 ? 4 : 2;
+    if (indices && (uint64_t(start) + n) * size > indexLength)
         return false;
+    // Cached list: key from the source indices themselves (a rewritten buffer gets a new key).
+    uint32_t meta[4] = {static_cast<uint32_t>(t), start, count, index32 ? 1u : 0u};
+    uint64_t key = Hash(meta, sizeof(meta), indices ? Hash(indices + size_t(start) * size, size_t(n) * size) : 1);
+    if (!tessBuffer_)
+    {
+        Context& c = Ctx();
+        VkBufferCreateInfo bi{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+        bi.size = kTessBuffer;
+        bi.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+        if (vkCreateBuffer(c.device, &bi, nullptr, &tessBuffer_) == VK_SUCCESS)
+        {
+            VkMemoryRequirements req;
+            vkGetBufferMemoryRequirements(c.device, tessBuffer_, &req);
+            tessMemory_ = c.Allocate(req, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+            vkBindBufferMemory(c.device, tessBuffer_, tessMemory_, 0);
+            vkMapMemory(c.device, tessMemory_, 0, kTessBuffer, 0, reinterpret_cast<void**>(&tessMapped_));
+        }
+        if (!tessMapped_)
+            return false;
+    }
+    auto it = tessLists_.find(key);
+    if (it == tessLists_.end())
+    {
+        std::vector<uint32_t> v(n), list;
+        for (uint32_t i = 0; i < n; ++i)
+        {
+            if (!indices)
+                v[i] = start + i;
+            else if (index32)
+                std::memcpy(&v[i], indices + (size_t(start) + i) * 4, 4);
+            else
+            {
+                uint16_t s16;
+                std::memcpy(&s16, indices + (size_t(start) + i) * 2, 2);
+                v[i] = s16;
+            }
+        }
+        list.reserve(size_t(count) * 3);
+        for (uint32_t p = 0; p < count; ++p)
+        {
+            uint32_t a, b, c;
+            if (t == D3DPT_TRIANGLELIST)
+                a = v[p * 3], b = v[p * 3 + 1], c = v[p * 3 + 2];
+            else if (t == D3DPT_TRIANGLEFAN)
+                a = v[0], b = v[p + 1], c = v[p + 2];
+            else if (p & 1)
+                a = v[p + 1], b = v[p], c = v[p + 2];
+            else
+                a = v[p], b = v[p + 1], c = v[p + 2];
+            if (a == b || b == c || a == c)
+                continue;
+            list.push_back(a), list.push_back(b), list.push_back(c);
+        }
+        const VkDeviceSize bytes = VkDeviceSize(list.size()) * 4;
+        if (tessUsed_ + bytes > kTessBuffer)
+        {
+            // Full (many levels' meshes): wait for the GPU, then start over.
+            vkDeviceWaitIdle(Ctx().device);
+            tessLists_.clear();
+            tessUsed_ = 0;
+            if (bytes > kTessBuffer)
+                return false;
+        }
+        std::memcpy(tessMapped_ + tessUsed_, list.data(), static_cast<size_t>(bytes));
+        it = tessLists_.emplace(key, TessList{tessUsed_, static_cast<uint32_t>(list.size())}).first;
+        tessUsed_ += (bytes + 15) & ~VkDeviceSize(15);
+    }
+    if (!it->second.count)
+        return true;
     VkCommandBuffer cb = Slot().cb;
-    vkCmdBindIndexBuffer(cb, Slot().uniforms, at, VK_INDEX_TYPE_UINT32);
-    vkCmdDrawIndexed(cb, static_cast<uint32_t>(list.size()), 1, 0, indices ? base : 0, 0);
+    vkCmdBindIndexBuffer(cb, tessBuffer_, it->second.offset, VK_INDEX_TYPE_UINT32);
+    vkCmdDrawIndexed(cb, it->second.count, 1, 0, indices ? base : 0, 0);
     return true;
 }
 

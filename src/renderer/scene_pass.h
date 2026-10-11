@@ -8,6 +8,8 @@
 // so nothing within that distance of the camera is culled (shadow casters behind and beside the view reach the
 // renderer). 0, the default, is the original behaviour.
 extern float g_sceneCullRadius;
+// The world-space direction sunlight travels (zero: unknown, then all planes move out by the full radius).
+extern float g_sceneCullSun[3];
 
 // Enhancement point (hook/enhance/render.cpp, [render] lod_max): when true, Object_SelectLod 0x00452f50 measures
 // every object at view distance 0, so the finest level of detail the object has is always chosen. False (the

@@ -15,6 +15,7 @@
 #include "hooks.h"
 
 float g_sceneCullRadius = 0.0f;
+float g_sceneCullSun[3] = {0.0f, 0.0f, 0.0f};
 
 namespace
 {
@@ -111,9 +112,25 @@ uint32_t ScenePass_Render(void* pass, uint32_t flags, uint32_t arg2, uint32_t ar
     // Enhancement point: no culling within g_sceneCullRadius of the camera in the main pass. The camera lies on
     // the four side planes (the frustum's apex) and just behind the near plane, so moving those five planes out by
     // R takes in every point within R of it.
+    // With the sun's direction (g_sceneCullSun, the way the light travels; zero = unknown) a plane is moved out only
+    // as far as a shadow can come back in through it: a caster outside plane i throws its shadow along s, which
+    // re-enters only when n_i . s > 0, after at most R / (n_i . s); so plane i moves by R * max(0, n_i . s). Planes
+    // the light leaves through keep the game's culling (measured at 4K: 400 units on all planes cost 50 vs 84 fps).
     if (flags == 0xffffffffu && g_sceneCullRadius > 0.0f)
+    {
+        const float* s = g_sceneCullSun;
+        const bool sun = s[0] != 0.0f || s[1] != 0.0f || s[2] != 0.0f;
         for (int i = 0; i < 5; ++i)
-            planes[i * 4 + 3] += g_sceneCullRadius;
+        {
+            float k = 1.0f;
+            if (sun)
+            {
+                const float d = planes[i * 4] * s[0] + planes[i * 4 + 1] * s[1] + planes[i * 4 + 2] * s[2];
+                k = d > 0.0f ? d : 0.0f;
+            }
+            planes[i * 4 + 3] += g_sceneCullRadius * k;
+        }
+    }
 
     if (flags & 0x10)
     {

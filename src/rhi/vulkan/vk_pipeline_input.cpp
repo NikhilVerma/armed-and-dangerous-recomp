@@ -2,6 +2,7 @@
 //
 // This file makes no Vulkan calls (it only fills Vulkan structs), so it links into the offline vk_shader_test.
 // Conventions: vk_abi.h (attribute locations come from VertexLocation, the same function the shader generators use).
+#include <cstring>
 #include <algorithm>
 
 #include "vk_abi.h"
@@ -91,16 +92,35 @@ VertexInput BuildVertexInput(const D3DVERTEXELEMENT9* elements, const uint32_t s
     return vi;
 }
 
-// FNV-1a, 64-bit.
+// 64-bit hash from two independent 32-bit lanes (murmur3-style mixing, 4 bytes per step). The 32-bit build has no
+// native 64-bit multiply: the previous byte-wise FNV-1a 64 (a _allmul call per byte) was ~17% of the CPU at 4K
+// (2026-10-11). Only in-memory cache keys depend on the values.
 uint64_t Hash(const void* data, size_t size, uint64_t seed)
 {
     const auto* p = static_cast<const unsigned char*>(data);
-    uint64_t h = seed;
-    for (size_t i = 0; i < size; ++i)
+    uint32_t h1 = static_cast<uint32_t>(seed) ^ 0x9e3779b9u, h2 = static_cast<uint32_t>(seed >> 32) ^ 0x85ebca6bu;
+    auto rotl = [](uint32_t x, int r) { return (x << r) | (x >> (32 - r)); };
+    size_t i = 0;
+    for (; i + 4 <= size; i += 4)
     {
-        h ^= p[i];
-        h *= 1099511628211ull;
+        uint32_t k;
+        std::memcpy(&k, p + i, 4);
+        uint32_t k1 = rotl(k * 0xcc9e2d51u, 15) * 0x1b873593u;
+        h1 = rotl(h1 ^ k1, 13) * 5 + 0xe6546b64u;
+        uint32_t k2 = rotl(k * 0x7fb5d329u, 17) * 0x9c4a62c3u;
+        h2 = rotl(h2 ^ k2, 11) * 9 + 0x2c8a1db5u;
     }
-    return h;
+    uint32_t tail = 0;
+    for (size_t j = 0; i + j < size; ++j)
+        tail |= uint32_t(p[i + j]) << (8 * j);
+    h1 ^= tail * 0xcc9e2d51u;
+    h2 ^= tail * 0x7fb5d329u;
+    h1 ^= static_cast<uint32_t>(size), h2 ^= static_cast<uint32_t>(size) * 0x27d4eb2fu;
+    auto fmix = [](uint32_t h) {
+        h ^= h >> 16, h *= 0x85ebca6bu, h ^= h >> 13, h *= 0xc2b2ae35u, h ^= h >> 16;
+        return h;
+    };
+    h1 = fmix(h1 + h2), h2 = fmix(h2 + h1);
+    return (uint64_t(h2) << 32) | h1;
 }
 }  // namespace rhi::vulkan
