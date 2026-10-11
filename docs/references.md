@@ -16,3 +16,9 @@ record every copied snippet here with its source and licence. Ideas and workflow
 | sp00nznet/xboxrecomp | 1409a7d (2026-09-30) | MIT | Approach C toolkit |
 
 Copied code: none yet.
+
+## Third-party art (texture packs, never committed; sources in work/retex/web/<asset>/SOURCE.txt)
+
+| Asset | Licence | Used for |
+| --- | --- | --- |
+| Poly Haven "Snow 02" by Rob Tuytel (https://polyhaven.com/a/snow_02), 2K, downloaded 2026-10-11 | CC0 | Level 1 snow floor: B_level1_ground (colour, level tint), N_B_T_snow (normal map, green flipped) |

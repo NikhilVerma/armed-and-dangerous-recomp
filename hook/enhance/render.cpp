@@ -109,6 +109,11 @@ void RenderInit()
     RemasterRegister({"render", "alpha_coverage", L"Smooth foliage edges (with AA)", S::Toggle, 0, 1, 1, {}, 0, true,
                       nullptr},
                      0, 1);
+    // Terrain detail (src/rhi/vulkan/vk_shader_translate.cpp): the terrain normal map sampled again at this many
+    // times its tiling, so snow and ground keep fine relief up close instead of broad soft blobs. 0 = original.
+    RemasterRegister({"render", "terrain_detail", L"Terrain surface detail (Vulkan)", S::Slider, 0, 16, 2, {}, 0, true,
+                      nullptr},
+                     0.0f, 8.0f);
     // Texture mip bias while temporal AA runs (src/rhi/vulkan/vk_pipeline.cpp): the AA resolves the extra detail
     // that a negative bias brings in, so textures stay as sharp as without AA.
     RemasterRegister({"render", "aa_mip_bias", L"Texture sharpness with AA", S::Slider, -2.0f, 0.0f, 0.25f, {}, 0,

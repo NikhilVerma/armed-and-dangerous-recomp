@@ -56,6 +56,8 @@
 
 namespace rhi::vulkan
 {
+float g_terrainDetail = 0.0f;          // [render] terrain_detail (see the terrain detail note below)
+float g_terrainDetailStrength = 0.6f;
 namespace
 {
 // Upper bound for a shader's length in tokens: the bytecode has no length field, only the end token, so a corrupt
@@ -303,6 +305,11 @@ struct Emitted
 // Armed and Dangerous creates three pixel shaders (work/shaders, [test] dump_shaders=1; hashes as DumpShader in
 // src/rhi/d3d9_facade.cpp). Each lights as  albedo * (N.L * c1 + v0) [+ v1 + specular]: v0 (vertex colour) is the
 // ambient; the N.L term (sun), v1 (an added glow term) and the specular highlight are not occluded.
+// Remaster terrain detail ([render] terrain_detail, set by the device at start; 0 = the original shader). The terrain
+// pixel shader's normal map (t0) is stretched over several metres per tile, so its relief reads as broad soft blobs
+// up close. With a scale K > 1 the same normal map is sampled again at K times the tiling and its slope added to the
+// base slope (a detail layer); mip filtering fades it out with distance. Values: g_terrainDetail above.
+
 std::string MaterialOutputs(uint64_t hash)
 {
     const char* albedo = nullptr;
@@ -785,6 +792,11 @@ private:
         {
         case D3DSIO_TEX:
             Statement(std::format("    {} = texture({}, {}.xy);\n", dst, Sampler(m, false), tc));
+            if (hash_ == 0x98a72838035bad82ull && m == 0 && g_terrainDetail > 1.0f)  // terrain normals: detail layer
+                Statement(std::format(
+                    "    {{ vec3 tdn = {0}.xyz * 2.0 - 1.0; vec3 tdd = texture({1}, {2}.xy * {3}).xyz * 2.0 - 1.0;\n"
+                    "      tdn = normalize(vec3(tdn.xy + tdd.xy * {4}, tdn.z)); {0}.xyz = tdn * 0.5 + 0.5; }}\n",
+                    dst, Sampler(m, false), tc, FloatLit(g_terrainDetail), FloatLit(g_terrainDetailStrength)));
             return true;
         case D3DSIO_TEXCOORD:  // the coordinates as a color: uvw clamped to [0, 1], alpha 1
             Statement(std::format("    {} = vec4(clamp({}.xyz, 0.0, 1.0), 1.0);\n", dst, tc));

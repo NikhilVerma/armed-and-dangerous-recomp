@@ -3,6 +3,7 @@
 
 #include <cstring>
 
+#include "config.h"
 #include "log.h"
 #include "vk_pipeline.h"
 
@@ -504,8 +505,17 @@ VkShaderModule MakeModule(const std::vector<uint32_t>& spirv)
     return m;
 }
 
+extern float g_terrainDetail, g_terrainDetailStrength;  // vk_shader_translate.cpp
+
 VulkanShader::VulkanShader(const DWORD* code, bool px) : pixel(px)
 {
+    // [render] terrain_detail (vk_shader_translate.cpp): read once, before the first terrain shader.
+    static const bool detailRead = [] {
+        g_terrainDetail = ConfigFloatDefault("render", "terrain_detail", 0.0f, 8.0f);
+        g_terrainDetailStrength = ConfigFloat("render", "terrain_detail_strength", 0.6f);
+        return true;
+    }();
+    (void)detailRead;
     translated = TranslateShader(reinterpret_cast<const uint32_t*>(code));
     if (!translated.ok)
         Log("vulkan: shader translation failed: %s", translated.error.c_str());

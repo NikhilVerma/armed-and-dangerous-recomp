@@ -170,27 +170,36 @@ def run():
         print(f"{name}: done", flush=True)
 
 
+def _smooth_wrap(v, sigma):
+    """1-D Gaussian blur along axis 0 of an (n, 3) array, wrapping (the edge it runs along also tiles)."""
+    r = max(1, int(3 * sigma))
+    k = np.exp(-0.5 * (np.arange(-r, r + 1) / sigma) ** 2)
+    k /= k.sum()
+    pad = np.concatenate([v[-r:], v, v[:r]])
+    return np.stack([np.convolve(pad[:, c], k, mode="valid") for c in range(v.shape[1])], axis=1)
+
+
 def tileable(img, band=0.12):
     """Makes opposite edges agree without importing content: the per-row (per-column) difference between the
-    first and last column (row) is split and faded in over band x size from each edge (a low-frequency ramp).
+    first and last column (row) is split and faded in from each edge. Only the broad part of the difference (blurred
+    along the edge) is faded over band x size; the pixel-scale rest fades within a few pixels. Fading the raw
+    difference over the whole band drew it out into streaks across the texture (B_T_level1_water, 2026-10-11).
     (An offset blend with a half-shifted copy moved a keg's skull into the corners: rejected.)"""
     out = img.copy()
-    for axis in (1, 0):
+    for axis in (1, 0, 1, 0):  # twice: each pass shifts the other pair of edges near the corners
         n = out.shape[axis]
-        k = max(2, int(band * n))
-        ramp = 0.5 * (1 - np.arange(k) / k)  # 0.5 at the edge -> 0 inside
-        first = np.take(out, [0], axis=axis)
-        last = np.take(out, [n - 1], axis=axis)
+        first = np.take(out, 0, axis=axis)  # (m, 3): the edge line
+        last = np.take(out, n - 1, axis=axis)
         d = first - last  # make first -> mid, last -> mid
-        shape = [1, 1, 1]
-        shape[axis] = k
-        r = ramp.reshape(shape)
-        sl0 = [slice(None)] * 3
-        sl0[axis] = slice(0, k)
-        sl1 = [slice(None)] * 3
-        sl1[axis] = slice(n - k, n)
-        out[tuple(sl0)] -= d * r
-        out[tuple(sl1)] += d * r[::-1] if axis == 0 else d * np.flip(r, axis=axis)
+        lo = _smooth_wrap(d, max(1.0, out.shape[1 - axis] / 64))
+        for part, k in ((lo, max(2, int(band * n))), (d - lo, max(2, n // 256))):
+            ramp = 0.5 * (1 - np.arange(k) / k)  # 0.5 at the edge -> 0 inside
+            if axis == 1:
+                out[:, :k] -= part[:, None, :] * ramp[None, :, None]
+                out[:, n - k:] += part[:, None, :] * ramp[::-1][None, :, None]
+            else:
+                out[:k] -= part[None, :, :] * ramp[:, None, None]
+                out[n - k:] += part[None, :, :] * ramp[::-1][:, None, None]
     return out
 
 
@@ -231,12 +240,19 @@ def post():
             # b_stone_dark). Keep its detail finer than about two original pixels, take broader colour and value
             # from the original (lowfreq.py).
             import judge
-            s = (2.0 if kind in ("material", "sky", "other") else 3.0) * out.width / src.width
+            s = (2.0 if kind in ("material", "sky", "other", "normal") else 3.0) * out.width / src.width
             base = np.asarray(src.convert("RGB").resize(out.size, Image.BICUBIC)).astype(np.float64)
             rgb = np.stack([rgb[..., c] - judge.blur(rgb[..., c], s) + judge.blur(base[..., c], s) for c in range(3)],
                            axis=-1)
-        if p["wraps"] and kind in ("material", "sky", "other"):  # icons and sprites never wrap
+        if p["wraps"] and kind in ("material", "sky", "other", "normal"):  # icons and sprites never wrap
             rgb = tileable(rgb)
+        if kind == "normal":  # tangent-space normal map: unit vectors again after the colour lock and edge blend
+            n = rgb / 127.5 - 1
+            xy = n[..., :2]
+            ln = np.sqrt((xy ** 2).sum(-1, keepdims=True))
+            xy = xy * np.minimum(1.0, 0.98 / np.maximum(ln, 1e-6))
+            z = np.sqrt(np.clip(1 - (xy ** 2).sum(-1, keepdims=True), 0, 1))
+            rgb = (np.concatenate([xy, z], -1) + 1) * 127.5
         if p["alpha"]:
             a = np.asarray(src.getchannel("A").resize(out.size, Image.LANCZOS))
         else:
