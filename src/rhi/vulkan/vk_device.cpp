@@ -3710,8 +3710,9 @@ void VulkanDevice::Shadows()
         }
         e.draw = d;
         e.draw.capture = nullptr;
-        e.constants.assign(c, c + d.vsConstantsCount * 4);  // only these were recorded (VsUsedConstants)
-        e.constants.resize(kVsConstantCount * 4, 0.0f);
+        if (e.constants.size() != kVsConstantCount * 4)
+            e.constants.resize(kVsConstantCount * 4, 0.0f);  // once per caster; then only the recorded registers
+        std::memcpy(e.constants.data(), c, d.vsConstantsCount * 4 * sizeof(float));
         e.toWorld = toWorld;
         std::memcpy(e.worldKey, key, sizeof(key));
         e.lastSeen = shadowFrame_;
@@ -4880,7 +4881,7 @@ void VulkanDevice::RecordScene(D3DPRIMITIVETYPE t, bool indexed, INT base, UINT 
             if (lightOn_[i])
                 scene_.lights[scene_.lightCount++] = lights_[i];
     }
-    SceneDraw d{};
+    SceneDraw& d = scene_.draws.emplace_back();  // built in place (one zero fill, no second copy of the record)
     d.viewport = viewport_;
     d.id = id;
     d.type = t;
@@ -4945,7 +4946,6 @@ void VulkanDevice::RecordScene(D3DPRIMITIVETYPE t, bool indexed, INT base, UINT 
         d.captureFirst = captureFirst_;
         d.captureCount = captureCount_;
     }
-    scene_.draws.push_back(d);
 }
 
 // --- rhi::Hints, rhi::SceneEnd (rhi.h) -------------------------------------------------------------------------

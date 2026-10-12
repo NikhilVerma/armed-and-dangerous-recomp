@@ -25,7 +25,7 @@
 namespace
 {
 std::atomic<DWORD> g_mainThread{0};
-std::map<DWORD64, uint32_t> g_writeCallers, g_regCallers;  // see the sampler
+std::map<DWORD64, uint32_t> g_writeCallers, g_regCallers, g_sleepCallers, g_copyCallers;  // see the sampler
 std::atomic<bool> g_window{true};  // inside [test] profile_window
 std::atomic<bool> g_writeNow{false};  // the window just closed: write the profile
 HANDLE g_thread;
@@ -96,6 +96,8 @@ void Write()
     dump("file writes: the first game or DLL return addresses on the stack while in ZwWriteFile", g_writeCallers,
          false);
     dump("registry opens: the same while in NtOpenKeyEx", g_regCallers, false);
+    dump("sleeps: the same while in ZwDelayExecution", g_sleepCallers, false);
+    dump("memcpy / memset: the same while in them", g_copyCallers, false);
     fclose(f);
 }
 
@@ -155,9 +157,17 @@ DWORD WINAPI Sampler(LPVOID)
         // Who is writing files / opening registry keys on the presenting thread (8% of a 4K walk was in ZwWriteFile).
         static const uintptr_t zwWrite = reinterpret_cast<uintptr_t>(GetProcAddress(GetModuleHandleA("ntdll"), "ZwWriteFile"));
         static const uintptr_t ntOpenKey = reinterpret_cast<uintptr_t>(GetProcAddress(GetModuleHandleA("ntdll"), "NtOpenKeyEx"));
+        // This DLL's static CRT memcpy / memset (their first 1 KB): who copies so much per frame.
+        static const uintptr_t copyA = reinterpret_cast<uintptr_t>(static_cast<void* (*)(void*, const void*, size_t)>(&memcpy));
+        static const uintptr_t setA = reinterpret_cast<uintptr_t>(static_cast<void* (*)(void*, int, size_t)>(&memset));
+        static const uintptr_t zwDelay = reinterpret_cast<uintptr_t>(GetProcAddress(GetModuleHandleA("ntdll"), "ZwDelayExecution"));
         std::map<DWORD64, uint32_t>* callers = (self >= zwWrite && self < zwWrite + 0x20)       ? &g_writeCallers
                                                : (self >= ntOpenKey && self < ntOpenKey + 0x20) ? &g_regCallers
-                                                                                                : nullptr;
+                                               : (self >= zwDelay && self < zwDelay + 0x20)     ? &g_sleepCallers
+                                               : (self >= copyA && self < copyA + 0x400) ||
+                                                         (self >= setA && self < setA + 0x400)
+                                                   ? &g_copyCallers
+                                                   : nullptr;
         if (callers)
         {
             int found = 0;
