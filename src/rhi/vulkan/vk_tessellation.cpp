@@ -32,6 +32,29 @@ constexpr Varying kVaryings[] = {
 };
 }  // namespace
 
+// Crease rule (remaster, the player 2026-10-12: "sharp angles remain sharp but shallow angles get smooth"): an edge whose
+// two corner normals are within the smooth angle curves fully, beyond the sharp angle it stays straight, smoothly in
+// between; the inside blends the three edges; a straight edge is not subdivided. Per edge, from the edge's own corners
+// only, so neighbouring triangles agree (a per-corner test against each face's normal tore the surface, 2026-10-12). [render] tess_smooth_angle /
+// tess_sharp_angle (vk_device.cpp); both 0 = the original rule (every corner curves).
+float g_tessSmoothCos = -2.0f, g_tessSharpCos = -3.0f;
+
+namespace
+{
+std::string CreaseGlsl()
+{
+    return std::format(R"(
+bool BadNormal(vec3 n) {{ return any(isnan(n)) || any(isinf(n)) || dot(n, n) < 1e-8; }}
+// How much the edge between corners i and j curves, from their two normals only (both triangles sharing the edge
+// compute the same value, so the surface never tears): 1 within the smooth angle, 0 beyond the sharp angle.
+float Crease(vec3 ni, vec3 nj)
+{{
+    return smoothstep({0:.6f}, {1:.6f}, dot(normalize(ni), normalize(nj)));
+}}
+)", g_tessSharpCos, g_tessSmoothCos);
+}
+}  // namespace
+
 std::string TessControlGlsl()
 {
     std::string g = "#version 450\n// Tessellation control shader (vk_tessellation.cpp).\nlayout(vertices = 3) out;\n";
@@ -39,6 +62,7 @@ std::string TessControlGlsl()
     for (const Varying& v : kVaryings)
         g += std::format("layout(location = {0}) in {1} i{2}[];\nlayout(location = {0}) out {1} o{2}[];\n", v.location,
                          v.type, v.name);
+    g += CreaseGlsl();
     g += R"(
 float EdgeLevel(vec2 a, vec2 b)
 {
@@ -62,13 +86,14 @@ void main()
     for (int k = 0; k < 3; ++k)
     {
         vec4 c = iCurClip[k];
-        if (c.w <= 1e-4 || dot(iNormal[k], iNormal[k]) == 0.0)
+        if (c.w <= 1e-4 || BadNormal(iNormal[k]))
             keep = true;
         s[k] = c.xy / max(c.w, 1e-4) * halfSize;
     }
-    float e0 = keep ? 1.0 : EdgeLevel(s[1], s[2]);
-    float e1 = keep ? 1.0 : EdgeLevel(s[2], s[0]);
-    float e2 = keep ? 1.0 : EdgeLevel(s[0], s[1]);
+    // Straight (sharp) edges are not subdivided: decided per edge from its two corners, like its neighbour does.
+    float e0 = keep || Crease(iNormal[1], iNormal[2]) <= 0.0 ? 1.0 : EdgeLevel(s[1], s[2]);
+    float e1 = keep || Crease(iNormal[2], iNormal[0]) <= 0.0 ? 1.0 : EdgeLevel(s[2], s[0]);
+    float e2 = keep || Crease(iNormal[0], iNormal[1]) <= 0.0 ? 1.0 : EdgeLevel(s[0], s[1]);
     gl_TessLevelOuter[0] = e0;
     gl_TessLevelOuter[1] = e1;
     gl_TessLevelOuter[2] = e2;
@@ -89,12 +114,14 @@ std::string TessEvalGlsl(bool ccw)
         if (v.location <= 12)
             g += std::format("layout(location = {}) out {} o{};\n", v.location, v.type, v.name);
     }
+    g += CreaseGlsl();
     g += R"(
 #define LERP3(a) (b.x * a[0] + b.y * a[1] + b.z * a[2])
 
 vec3 ToPlane(vec3 p, int k)
 {
-    return p - dot(p - iWorld[k], iNormal[k]) * iNormal[k];
+    vec3 n = normalize(iNormal[k]);  // the rebuilt normal is not unit length: projecting on it bulged too far
+    return p - dot(p - iWorld[k], n) * n;
 }
 
 void main()
@@ -106,10 +133,19 @@ void main()
             g += std::format("    o{0} = LERP3(i{0});\n", v.name);
     g += R"(
     vec3 p = LERP3(iWorld);
-    vec3 q = b.x * ToPlane(p, 0) + b.y * ToPlane(p, 1) + b.z * ToPlane(p, 2);
-    bool curved = dot(iNormal[0], iNormal[0]) > 0.0 && dot(iNormal[1], iNormal[1]) > 0.0 &&
-                  dot(iNormal[2], iNormal[2]) > 0.0;
-    vec3 d = curved ? (q - p) * ff.tessParams.y : vec3(0.0);
+    bool curved = !BadNormal(iNormal[0]) && !BadNormal(iNormal[1]) && !BadNormal(iNormal[2]);
+    vec3 d = vec3(0.0);
+    if (curved)
+    {
+        vec3 q = b.x * ToPlane(p, 0) + b.y * ToPlane(p, 1) + b.z * ToPlane(p, 2);
+        // Edge weights, blended inside the patch; on an edge only that edge's weight counts.
+        float c12 = Crease(iNormal[1], iNormal[2]), c20 = Crease(iNormal[2], iNormal[0]), c01 = Crease(iNormal[0], iNormal[1]);
+        float s01 = b.x * b.y, s12 = b.y * b.z, s20 = b.z * b.x, ss = s01 + s12 + s20;
+        float w = ss > 1e-8 ? (s01 * c01 + s12 * c12 + s20 * c20) / ss : 0.0;
+        d = (q - p) * ff.tessParams.y * w;
+        if (any(isnan(d)) || any(isinf(d)))
+            d = vec3(0.0);
+    }
     mat4 cam = transpose(mat4(vsc.c[22], vsc.c[23], vsc.c[24], vsc.c[25]));
     mat4 camPrev = transpose(mat4(pf.vsConstants[22], pf.vsConstants[23], pf.vsConstants[24], pf.vsConstants[25]));
     oCurClip += cam * vec4(d, 0.0);

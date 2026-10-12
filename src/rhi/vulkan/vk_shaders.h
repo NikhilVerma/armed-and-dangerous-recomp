@@ -60,6 +60,7 @@ std::string WithDefine(const std::string& glsl, const std::string& define);
 // shader's output winding.
 std::string TessControlGlsl();
 std::string TessEvalGlsl(bool ccw);
+extern float g_tessSmoothCos, g_tessSharpCos;  // crease rule (vk_tessellation.cpp), set before compiling
 // The VsConstants (vsc), FixedFunction (ff) and PrevFrame (pf) uniform block declarations of translated vertex
 // shaders (vk_shader_translate.cpp), for the tessellation stages.
 std::string VertexUniformBlocks();

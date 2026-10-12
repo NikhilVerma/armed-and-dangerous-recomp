@@ -463,7 +463,9 @@ VkPipeline rtApply_ = VK_NULL_HANDLE;
 VkFormat rtApplyFormat_ = VK_FORMAT_UNDEFINED;
 bool sceneEnded_ = false;  // SceneEnd ran this frame: the draws that follow are the UI
 bool lightingDone_ = false;  // ambient occlusion and shadows were applied this frame
+uint32_t lateOpaque_ = 0;   // [render] log_late_opaque: opaque draws after the lighting pass this frame
 void BeforeDraw();          // runs them before the first translucent scene draw
+bool SkipTranslucent();
 // XeGTAO state (Ambient): compute pipelines, working images (sized to the target), the apply pass.
 struct GtaoImage
 {
@@ -4618,6 +4620,16 @@ uint64_t VulkanDevice::DrawId(uint64_t base)
 // glass), which used to get darkened from above when both ran at SceneEnd.
 void VulkanDevice::BeforeDraw()
 {
+    // Diagnosis: opaque scene draws after the lighting pass (they are never shadowed or occluded).
+    static const bool logLate = ConfigInt("render", "log_late_opaque", 0) != 0;
+    if (logLate && lightingDone_ && !sceneEnded_ && !rs_[D3DRS_ALPHABLENDENABLE] && SceneDrawTarget())
+    {
+        ++lateOpaque_;
+        static int n;
+        if (n < 40 && (n++, true))
+            Log("vulkan: late opaque draw: zwrite %u zfunc %u alphatest %u vs %d tex0 %p", rs_[D3DRS_ZWRITEENABLE],
+                rs_[D3DRS_ZFUNC], rs_[D3DRS_ALPHATESTENABLE], vs_ ? 1 : 0, static_cast<void*>(textures_[0]));
+    }
     if (lightingDone_ || sceneEnded_ || scene_.draws.empty() || !rs_[D3DRS_ALPHABLENDENABLE] ||
         rs_[D3DRS_ZWRITEENABLE] || !SceneDrawTarget())
         return;
@@ -4626,10 +4638,19 @@ void VulkanDevice::BeforeDraw()
     Ambient();
 }
 
+// [render] skip_translucent=1 (diagnosis): scene draws with blending and no depth write are not drawn.
+bool VulkanDevice::SkipTranslucent()
+{
+    static const bool skip = ConfigInt("render", "skip_translucent", 0) != 0;
+    return skip && !sceneEnded_ && rs_[D3DRS_ALPHABLENDENABLE] && !rs_[D3DRS_ZWRITEENABLE] && SceneDrawTarget();
+}
+
 HRESULT VulkanDevice::DrawPrimitive(D3DPRIMITIVETYPE t, UINT start, UINT count)
 {
     std::lock_guard<std::recursive_mutex> g(Ctx().lock);
     BeforeDraw();
+    if (SkipTranslucent())
+        return D3D_OK;
     const void* what[4] = {streams_[0], vs_, textures_[0], nullptr};
     uint32_t range[3] = {static_cast<uint32_t>(t), start, count};
     uint64_t id = DrawId(Hash(range, sizeof(range), Hash(what, sizeof(what))));
@@ -4647,6 +4668,9 @@ HRESULT VulkanDevice::DrawIndexedPrimitive(D3DPRIMITIVETYPE t, INT base, UINT mi
                                            UINT count)
 {
     std::lock_guard<std::recursive_mutex> g(Ctx().lock);
+    BeforeDraw();
+    if (SkipTranslucent())
+        return D3D_OK;
     BeforeDraw();
     const void* what[4] = {streams_[0], vs_, textures_[0], indices_};
     uint32_t range[4] = {static_cast<uint32_t>(t), static_cast<uint32_t>(base), si, count};
@@ -4771,6 +4795,13 @@ void rhi::SceneEnd()
         rhi::vulkan::g_device->MotionBlur();  // per object only, on the anti-aliased frame, under the snow and UI
         rhi::vulkan::g_device->Snow();
         rhi::vulkan::g_device->sceneEnded_ = true;
+        if (rhi::vulkan::g_device->lateOpaque_)
+        {
+            static int n;
+            if ((n++ % 60) == 0)
+                Log("vulkan: %u opaque draws after the lighting pass", rhi::vulkan::g_device->lateOpaque_);
+            rhi::vulkan::g_device->lateOpaque_ = 0;
+        }
     }
 }
 
