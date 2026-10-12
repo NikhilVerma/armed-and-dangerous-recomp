@@ -168,6 +168,18 @@ IDirect3DTexture9* LoadPng(IDirect3DDevice9* dev, const std::string& path)
 // are replaced by a generated grid. Red rises with u, green with v (a mirrored island shows a reversed gradient), a
 // white line every 1/16 and a black one at the half, and a dark checker every other cell.
 std::vector<std::string> g_checker;
+std::vector<std::string> g_exclude;  // [overrides] exclude=a;b: these names keep the original (A/B of one texture)
+
+bool PatternMatch(const char* name, const std::vector<std::string>& patterns)
+{
+    std::string n(name);
+    for (char& c : n)
+        c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+    for (const auto& p : patterns)
+        if (n.find(p) != std::string::npos)
+            return true;
+    return false;
+}
 
 bool CheckerMatch(const char* name)
 {
@@ -244,6 +256,8 @@ void ApplyTextureOverride(Renderer* r, uint8_t* tex)
         Log("overrides: texture %s", name);
     const bool checker = !g_checker.empty() && CheckerMatch(name);
     if (!g_textures && !checker)
+        return;
+    if (!checker && !g_exclude.empty() && PatternMatch(name, g_exclude))
         return;
     uint8_t* bucket = *reinterpret_cast<uint8_t**>(tex + 0xc);
     if (!bucket || tex[0x22] & 0x20)  // cube maps are not replaced
@@ -362,6 +376,14 @@ void OverridesInit()
         for (char& c : s)
             c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
         g_checker.push_back(s);
+    }
+    ConfigString("overrides", "exclude", "", checker, sizeof(checker));
+    for (char* tok = strtok(checker, ";, "); tok; tok = strtok(nullptr, ";, "))
+    {
+        std::string s(tok);
+        for (char& c : s)
+            c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+        g_exclude.push_back(s);
     }
     if (!g_textures && !g_models && !g_logNames && g_checker.empty())
         return;

@@ -32,6 +32,9 @@ QWEN = {"seed": 0, "image_steps": 25, "image_cfg": 5, "qwen_edit_strength": 0.9,
 # skid puff in n_fx_bank_2 drew as a black blob, found by bisecting the overrides, 2026-10-12).
 FAITHFUL_ONLY = {"n_fx_bank_1", "n_fx_bank_2"}
 EXCLUDE = set(batch.HAND_TUNED) | {"mainfontid", "font", "N_B_T_snow", "B_level1_ground"}  # + Poly Haven snow floor
+# Terrain blend masks are data, not pictures: the upscaler sharpened their noise and the dirt layer (B_level1_ground2)
+# showed as hard dark patches in the snow (playground smear scenes, 2026-10-12). They stay original.
+EXCLUDE |= {"b_a_blend_0", "b_a_blend_vert", "b_a_blend1", "b_a_blend_quarter"}
 
 
 def out(name, *p):
