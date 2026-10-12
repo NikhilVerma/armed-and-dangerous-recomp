@@ -1889,7 +1889,7 @@ const TessConfig& Tess()
 {
     static const TessConfig c = [] {
         TessConfig t;
-        t.on = ConfigIntDefault("render", "tessellation", 0, 1) != 0 && Ctx().tessellation;
+        t.on = ConfigIntDefault("render", "tessellation", 0, 0) != 0 && Ctx().tessellation;
         t.props = ConfigInt("render", "tess_props", 0) != 0;
         t.maxLevel = ConfigFloat("render", "tess_max", 8.0f);
         t.pixels = ConfigFloat("render", "tess_pixels", 6.0f);
