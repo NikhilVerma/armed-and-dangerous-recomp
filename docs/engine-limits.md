@@ -115,3 +115,11 @@ map's GPU time (2.3 -> 3.0 ms) grow together, and one window shows a 4.4 ms Pres
 119 fps cap). Game logic stays ~1.3 ms; no pipeline compiles there. Next: cache the static casters' part of the
 shadow map and redraw only moving ones each frame, with "moving" decided per draw from its world-space transform AND
 its skinning constants (an animated character standing still must not freeze its shadow).
+
+### Static shadow cache result (2026-10-12)
+
+Built ([render] shadow_static_cache): 829 of ~894 casters per frame come from a cached map rebuilt 20 times per 300
+frames; images match the uncached pass. It did not remove the dips: the shadow pass's CPU is ~1.9 ms (about 1 ms of
+per-caster bookkeeping for ~900 casters) and its GPU time is mostly the soft-shadow apply at 4K. Remaining frame
+time in the slow stretches is the game's scene traversal plus the Vulkan layer's per-draw work (~3 ms for ~1,100
+draws), on one thread. Next real gain: record draws on worker threads.
