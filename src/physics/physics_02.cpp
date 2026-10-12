@@ -657,13 +657,20 @@ HOOK(0x004517b0, "Object_LoadProperties", Object_LoadProperties_Entry, nullptr);
 // shape (0x00512ab0). Then cinfo +0x78 adds a 0x5b0af8 pair shape over a new game shape (0x00411590), cinfo +0x79 a
 // phantom wrapper (0x004a4530, edx = cinfo +0; +8 = -3 when +0x78 else -1); cinfo +0 = +0x79 ? 0 : 0x4000. Returns
 // 0x00458dd0(object, 0, 0, 0).
+// Enhancement point (hook/enhance/persistence.cpp): true for an object that should collide by its model's shape (the
+// flag-1 compound path) instead of one bounding sphere. Kept debris planks rested on a sphere half their length and
+// hovered (the player, 2026-10-12). Null = original.
+bool (*g_meshCollision)(void* object) = nullptr;
+
 uint32_t Object_BuildRadiusCollision(uint8_t* obj, uint8_t* desc)
 {
     Frame<0x190> f;  // the original's frame (offsets from esp after the three register pushes)
     f.L(0x18) = u(obj);
     if ((Field<uint8_t*>(obj, 0x414)[0x4c] & 4) && static_cast<uint8_t>(orig::fn_004531e0(u(obj))))
         Field<uint32_t>(obj, 0x1bc) = fn_00456a90(obj, Field<uint32_t>(g_game, 0xa8c), 1, desc[0x12]);
-    const uint32_t tableFlags = Field<uint32_t>(Field<uint8_t*>(obj, 0x414), 0x4c);
+    uint32_t tableFlags = Field<uint32_t>(Field<uint8_t*>(obj, 0x414), 0x4c);
+    if (!(tableFlags & 1) && g_meshCollision && g_meshCollision(obj))
+        tableFlags |= 1;
     if (tableFlags & 1)
     {
         const uint32_t shifted = tableFlags >> 1;

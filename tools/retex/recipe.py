@@ -212,6 +212,14 @@ def finish(name, img, p):
             lo = ((base @ L) * wa).sum() / wa.sum()
             ln = ((np.clip(rgb, 0, 255) @ L) * wa).sum() / wa.sum()
             rgb = rgb * float(np.clip((lo + 1.0) / (ln + 1.0), 0.5, 4.0))
+    if p["alpha"] and k != "normal":
+        # Soft edges keep the original's colour: the upscalers darkened the colour where alpha fades (dark fringes; a
+        # soft skid puff, fx_smoke_snow, rendered as a black blob; the player, 2026-10-12). The remaster's colour only
+        # where the texture is mostly opaque.
+        wa = np.asarray(src.getchannel("A").resize(out.size, Image.BICUBIC)).astype(np.float64) / 255.0
+        w = np.clip((wa - 0.15) / 0.55, 0.0, 1.0)
+        w = (w * w * (3.0 - 2.0 * w))[..., None]
+        rgb = base * (1.0 - w) + rgb * w
     # The original's alpha always (SeedVR2 made 92 opaque textures partly transparent).
     a = np.asarray(src.getchannel("A").resize(out.size, Image.LANCZOS)) if p["alpha"] else         np.full(rgb.shape[:2], 255, np.uint8)
     return Image.fromarray(np.dstack([np.clip(rgb + 0.5, 0, 255).astype(np.uint8), a]), "RGBA")

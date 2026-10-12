@@ -32,11 +32,21 @@
 extern bool (*g_fxKeep)(void* fx);  // src/renderer/render_r1.cpp (0x0041a350)
 extern bool (*g_isHeldBody)(void* character);  // src/physics/physics_01.cpp (Character_GoRagdoll)
 extern uint32_t g_ragdollLimit;                    // ditto: original 3 (four ragdolls)
+extern bool (*g_meshCollision)(void* object);      // src/physics/physics_02.cpp (Object_BuildRadiusCollision)
 
 namespace
 {
 uint32_t g_debrisMax, g_debrisKept;
 void* g_debrisLevel;  // the level the count belongs to (its object manager, Game+0xa84)
+
+bool IsDebris(void* fx)
+{
+    void* tmpl = Field<void*>(fx, 0x414);
+    if (!tmpl || !Field<uint32_t>(tmpl, 0x10))
+        return false;
+    const char* name = reinterpret_cast<const char*>(Field<uint32_t>(tmpl, 0x10) + 4);
+    return _strnicmp(name, "fxo_debri", 9) == 0;
+}
 
 // Explosion debris: fx objects whose template name starts "fxo_debri" (obj+0x414 -> +0x10, name at +4).
 bool KeepDebris(void* fx)
@@ -148,6 +158,9 @@ void PersistenceInit()
                          0, 1) != 0.0f)
         g_corpseHold = HoldBody;
     g_isHeldBody = IsHeldBody;  // empty until bodies are held
+    // Debris collides by its model's shape, not one bounding sphere ([persistence] debris_mesh_collision, remaster on).
+    if (ConfigIntDefault("persistence", "debris_mesh_collision", 0, 1))
+        g_meshCollision = IsDebris;
     // Simultaneous ragdolls: the original allows four (a 2003 CPU budget); remaster 64 (the player: "why not 256").
     g_ragdollLimit = static_cast<uint32_t>(
         RemasterRegister({"persistence", "ragdoll_limit", L"Max ragdolls", S::Slider, 4, 256, 4, {}, 0, false,
