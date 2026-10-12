@@ -11,6 +11,7 @@
 #include <cstring>
 #include <deque>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "config.h"
 #include "display.h"
@@ -262,6 +263,8 @@ public:
     {
         if (start + count <= kVsConstantCount)
             std::memcpy(vsConst_ + start * 4, d, count * 16), vsDirty_ = true;
+        if (start <= 42 && start + count > 42)  // the transform / bone palette upload (c42 + 3 per bone)
+            paletteRegs_ = start + count - 42;
         return D3D_OK;
     }
     HRESULT SetPixelShader(PixelShader* s) override
@@ -351,10 +354,18 @@ struct CachedCaster
     Mat4 toWorld;                  // camera -> world of that frame (the constants hold world * view)
     float worldKey[12];            // its world transform (c42..c44 taken to world space): moving if it changes
     uint64_t lastSeen = 0;
+    uint64_t firstSeen = 0;    // shadow frame it was first seen
+    uint64_t lastChanged = 0;  // last shadow frame its bone matrices (world space) changed: static after 60 still
+    std::vector<float> boneKey;  // c42.. in world space, 12 floats per bone (shadow_static_cache)
+    bool inStatic = false;       // the static map holds it (shadow_static_cache)
     bool moving = false;
 };
 std::unordered_map<uint64_t, CachedCaster> casters_;
 uint64_t shadowFrame_ = 0;
+std::shared_ptr<Image> shadowStatic_;  // [render] shadow_static_cache: the non-moving casters' depth
+uint64_t shadowStaticKey_ = 0;         // light matrix + static caster set it holds
+uint32_t shadowStaticRebuilds_ = 0;
+std::unordered_set<uint64_t> shadowStaticIds_;  // the casters the static map holds
 void DropCaster(CachedCaster& c);
     // Shadow maps (vk_shadows.h): at SceneEnd.
     const VertexInput* lastInput_ = nullptr;  // the current draw's vertex input and plain vertex shader (PrepareDraw)
@@ -484,7 +495,8 @@ VkDescriptorSetLayout rtSetLayout_ = VK_NULL_HANDLE;
 VkPipelineLayout rtApplyLayout_ = VK_NULL_HANDLE;
 VkPipeline rtApply_ = VK_NULL_HANDLE;
 VkFormat rtApplyFormat_ = VK_FORMAT_UNDEFINED;
-bool sceneEnded_ = false;  // SceneEnd ran this frame: the draws that follow are the UI
+bool sceneEnded_ = false;
+long long sceneEndCpuTicks_ = 0;  // vulkan_verbose: CPU in SceneEnd's passes (AA, blur, snow)  // SceneEnd ran this frame: the draws that follow are the UI
 bool lightingDone_ = false;  // ambient occlusion and shadows were applied this frame
 uint32_t lateOpaque_ = 0;   // [render] log_late_opaque: opaque draws after the lighting pass this frame
 void BeforeDraw();          // runs them before the first translucent scene draw
@@ -554,6 +566,8 @@ private:
     float tessNormalDecode_ = 0.0f;
     // [render] vulkan_verbose: CPU time per frame in draw preparation, in Present, and waiting for the GPU.
     long long prepareTicks_ = 0, presentTicks_ = 0, waitTicks_ = 0, oneShotTicks_ = 0;
+    long long shadowCpuTicks_ = 0;  // vulkan_verbose: CPU in Shadows()
+    long long shadowPhase_[4] = {};  // per-draw loop, cache sweep, split, drawing
     uint32_t drawsCounted_ = 0;
     uint32_t tessDraws_ = 0, tessCandidates_ = 0, tessSkinned_ = 0, tessWithNormal_ = 0;  // this frame (verbose log)
     VkShaderModule tessControl_ = VK_NULL_HANDLE, tessEval_ = VK_NULL_HANDLE;
@@ -585,6 +599,7 @@ private:
     VulkanVertexLayout* layout_ = nullptr;
     VulkanShader* vs_ = nullptr;
     uint32_t vsPushedCount_ = 0;
+    uint32_t paletteRegs_ = 3;  // registers from c42 the last palette upload set (shadow static cache: bones)
     size_t lastFrameDraws_ = 0;  // gpu_timing log
     // State already recorded in the current render pass instance by PrepareDraw / DrawIndexedPrimitive: redundant
     // binds and dynamic-state calls are skipped (about 1,000 draws a frame at ~3-5 us each made 4K frames CPU-bound,
@@ -1201,10 +1216,16 @@ HRESULT VulkanDevice::Present(const RECT*, const RECT*, HWND, const RGNDATA*)
         QueryPerformanceFrequency(&f);
         auto ms = [&](long long ticks) { return ticks * 1000.0 / f.QuadPart / 120; };
         Log("vulkan: per frame (120 frames): %u draws, %.2f ms preparing them, %.2f ms in Present, %.2f ms waiting "
-            "for the GPU (frame fence), %.1f texture uploads in %.2f ms, %.1f new buffer versions, %u FF uniform rebuilds",
+            "for the GPU (frame fence), %.1f texture uploads in %.2f ms, %.1f new buffer versions, %u FF uniform rebuilds, "
+            "%.2f ms CPU in the shadow pass, %.2f ms CPU in AA / blur / snow",
             drawsCounted_ / 120, ms(prepareTicks_), ms(presentTicks_), ms(waitTicks_), Counters().uploads / 120.0,
-            ms(Counters().uploadTicks), Counters().bufferVersions / 120.0, ffPushes_ / 120);
-        ffPushes_ = 0;
+            ms(Counters().uploadTicks), Counters().bufferVersions / 120.0, ffPushes_ / 120, ms(shadowCpuTicks_),
+            ms(sceneEndCpuTicks_));
+        Log("vulkan: shadow pass CPU ms/frame: draws %.2f, cache sweep %.2f, split %.2f, drawing %.2f", ms(shadowPhase_[0]),
+            ms(shadowPhase_[1]), ms(shadowPhase_[2]), ms(shadowPhase_[3]));
+        ffPushes_ = 0, shadowCpuTicks_ = sceneEndCpuTicks_ = 0;
+        for (long long& x : shadowPhase_)
+            x = 0;
         Counters() = ResourceCounters{};
         prepareTicks_ = presentTicks_ = waitTicks_ = 0;
         drawsCounted_ = 0;
@@ -3671,6 +3692,7 @@ void VulkanDevice::DropCaster(CachedCaster& c)
 void VulkanDevice::Shadows()
 {
     std::lock_guard<std::recursive_mutex> g(Ctx().lock);
+    TickScope cpuTiming(shadowCpuTicks_);
     const rhi::SceneHints& h = rhi::Hints();
     if (!h.shadows || !h.haveView || !h.haveSun || scene_.draws.empty() || !depth_ || !rt_)
         return;
@@ -3685,7 +3707,15 @@ void VulkanDevice::Shadows()
     float centre[3];
     for (int i = 0; i < 3; ++i)
         centre[i] = toWorld.m[i * 4 + 3] - toWorld.m[i * 4 + 2] * range * 0.7f;
-    Mat4 camToLight = Multiply(LightMatrix(centre, h.sun, range, h.shadowSize), toWorld);
+    static const bool staticCache = ConfigIntDefault("render", "shadow_static_cache", 0, 1) != 0;
+    if (staticCache)  // the box moves in steps of 1/16 of the range: the static casters' depth stays valid between
+        for (float& c : centre)
+        {
+            const float grid = range / 16.0f;
+            c = std::floor(c / grid) * grid;
+        }
+    const Mat4 lightMatrix = LightMatrix(centre, h.sun, range, h.shadowSize);
+    Mat4 camToLight = Multiply(lightMatrix, toWorld);
 
     // Casters: this frame's opaque draws, plus static geometry the game culled from the view since (a hill behind
     // the camera still shadows the road ahead; measured: a large shadow appearing and vanishing as the player
@@ -3723,6 +3753,16 @@ void VulkanDevice::Shadows()
     };
     std::vector<Job> jobs;
     jobs.reserve(scene_.draws.size() + casters_.size());
+    std::vector<bool> staticOf;  // per job: drawn into the static cache (shadow_static_cache)
+    uint32_t diagSeen = 0, diagChanged = 0, diagMoving = 0;
+    LARGE_INTEGER ph0;
+    QueryPerformanceCounter(&ph0);
+    auto phase = [&](int i) {
+        LARGE_INTEGER now;
+        QueryPerformanceCounter(&now);
+        shadowPhase_[i] += now.QuadPart - ph0.QuadPart;
+        ph0 = now;
+    };
     for (const SceneDraw& d : scene_.draws)
     {
         if (!caster(d))
@@ -3730,6 +3770,7 @@ void VulkanDevice::Shadows()
         const float* c = &scene_.vsConstants[d.vsConstantsOffset];
         jobs.push_back({&d, c, camToLight, toWorld});
         float key[12];
+        const size_t jobIndex = jobs.size() - 1;
         worldKey(toWorld, c, key);
         auto [it, fresh] = casters_.try_emplace(d.id);
         CachedCaster& e = it->second;
@@ -3740,6 +3781,7 @@ void VulkanDevice::Shadows()
                     b->AddRef();
             if (d.indexObject)
                 d.indexObject->AddRef();
+            e.firstSeen = shadowFrame_;
         }
         else
         {
@@ -3762,15 +3804,45 @@ void VulkanDevice::Shadows()
                     e.draw.indexObject->Release();
             }
         }
-        e.draw = d;
-        e.draw.capture = nullptr;
-        if (e.constants.size() != kVsConstantCount * 4)
-            e.constants.resize(kVsConstantCount * 4, 0.0f);  // once per caster; then only the recorded registers
-        std::memcpy(e.constants.data(), c, d.vsConstantsCount * 4 * sizeof(float));
-        e.toWorld = toWorld;
+        // A caster the static map already holds keeps the record and constants of the frame the map was built from
+        // (a consistent pair with its toWorld); copying ~2 KB per caster per frame for ~900 casters cost about a
+        // millisecond of CPU at 4K. Any change of its transform still shows in the key below (moving).
+        const bool held = staticCache && !fresh && !e.moving && e.inStatic && shadowFrame_ - e.lastChanged > 60;
+        if (!held)
+        {
+            e.draw = d;
+            e.draw.capture = nullptr;
+            if (e.constants.size() != kVsConstantCount * 4)
+                e.constants.resize(kVsConstantCount * 4, 0.0f);  // once per caster; then only the recorded registers
+            std::memcpy(e.constants.data(), c, d.vsConstantsCount * 4 * sizeof(float));
+            e.toWorld = toWorld;
+        }
         std::memcpy(e.worldKey, key, sizeof(key));
         e.lastSeen = shadowFrame_;
+        if (staticCache)
+        {
+            // Every bone the draw can read (c42 + 3 per bone up to its recorded registers), taken to world space:
+            // a character animating in place changes these even when its root stays put.
+            // The first transform (c42..c44, the root bone of a skinned mesh) in world space. The registers after it
+            // cannot tell bones from leftovers: the game uploads a full block even for rigid meshes (measured: 842 of
+            // 894 casters "changed" every frame when they were compared). Idle animation usually moves the root;
+            // the static map is also rebuilt at least every 15 frames (below), so a pose change the root does not
+            // show updates at that rate instead of freezing.
+            if (e.boneKey.size() != 12)
+                e.boneKey.assign(12, 0.0f), e.lastChanged = shadowFrame_;
+            bool changed = false;
+            for (int i = 0; i < 12; ++i)  // the key computed above (c42..c44 in world space)
+                if (std::fabs(key[i] - e.boneKey[i]) > 1e-3f * (1.0f + std::fabs(key[i])))
+                    changed = true, e.boneKey[i] = key[i];
+            if (changed)
+                e.lastChanged = shadowFrame_, ++diagChanged;
+            diagMoving += e.moving ? 1 : 0;
+            ++diagSeen;
+            if (!e.moving && shadowFrame_ - e.lastChanged > 60)
+                staticOf.resize(jobs.size(), false), staticOf[jobIndex] = true;
+        }
     }
+    phase(0);
     const float cam[3] = {toWorld.m[3], toWorld.m[7], toWorld.m[11]};
     const float r2 = h.shadowCasterRadius * h.shadowCasterRadius;
     for (auto it = casters_.begin(); it != casters_.end();)
@@ -3785,7 +3857,9 @@ void VulkanDevice::Shadows()
                 current = false;
         if (e.draw.indexObject && e.draw.indexObject->Current().buffer != e.draw.indexBuffer)
             current = false;
-        if (away || !current || casters_.size() > 16384)
+        // A caster drawn this frame stays whatever its origin's distance (world meshes often have their origin far
+        // away: they were dropped and recreated every frame, so none ever counted as static for the cache).
+        if ((away && e.lastSeen != shadowFrame_) || !current || casters_.size() > 16384)
         {
             DropCaster(e);
             it = casters_.erase(it);
@@ -3793,8 +3867,11 @@ void VulkanDevice::Shadows()
         }
         static const bool useCache = ConfigInt("render", "shadow_cache", 1) != 0;  // diagnosis
         if (useCache && h.shadowCasterCache && e.lastSeen != shadowFrame_ && !e.moving)
-            jobs.push_back({&e.draw, e.constants.data(),
-                            Multiply(LightMatrix(centre, h.sun, range, h.shadowSize), e.toWorld), e.toWorld});
+        {
+            jobs.push_back({&e.draw, e.constants.data(), Multiply(lightMatrix, e.toWorld), e.toWorld});
+            if (staticCache && shadowFrame_ - e.lastChanged > 60)
+                staticOf.resize(jobs.size(), false), staticOf[jobs.size() - 1] = true;
+        }
         ++it;
     }
 
@@ -3819,119 +3896,187 @@ void VulkanDevice::Shadows()
             return;
     }
 
+    phase(1);
+    std::vector<Job> staticJobs, dynamicJobs;
+    uint64_t staticKey = 0;
+    if (staticCache)
+    {
+        staticOf.resize(jobs.size(), false);
+        // Rebuilt when the light box steps or every 15 frames (not when casters come and go: that changed the set on
+        // 44% of frames). Between rebuilds a static caster the map does not hold yet is drawn with the moving ones;
+        // one that vanished lingers at most 15 frames.
+        staticKey = Hash(lightMatrix.m, sizeof(lightMatrix.m)) ^ h.shadowSize ^
+                    (shadowFrame_ / 15) * 0x9e3779b97f4a7c15ull;
+        const bool rebuild = staticKey != shadowStaticKey_;
+        for (size_t i = 0; i < jobs.size(); ++i)
+            if (staticOf[i] && (rebuild || casters_[jobs[i].d->id].inStatic))
+                staticJobs.push_back(jobs[i]);
+            else
+                dynamicJobs.push_back(jobs[i]);
+    }
+
+    phase(2);
     EndRendering();
     VkCommandBuffer cb = Slot().cb;
     // 1. Depth from the sun.
-    shadowMap_->Transition(cb, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
-    VkRenderingAttachmentInfo da{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-    da.imageView = shadowMap_->AttachmentView(0, 0);
-    da.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-    da.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    da.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    da.clearValue.depthStencil = {1.0f, 0};
-    VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};
-    ri.renderArea = {{0, 0}, {h.shadowSize, h.shadowSize}};
-    ri.layerCount = 1;
-    ri.pDepthAttachment = &da;
-    vkCmdBeginRendering(cb, &ri);
-    VkViewport v{0, 0, float(h.shadowSize), float(h.shadowSize), 0, 1};
-    VkRect2D sc{{0, 0}, {h.shadowSize, h.shadowSize}};
-    vkCmdSetViewport(cb, 0, 1, &v);
-    vkCmdSetScissor(cb, 0, 1, &sc);
-    vkCmdSetDepthBias(cb, 1.5f, 0.0f, 2.0f);
-    float bf[4] = {};
-    vkCmdSetBlendConstants(cb, bf);
-    vkCmdSetStencilReference(cb, VK_STENCIL_FACE_FRONT_AND_BACK, 0);
-    FFUniforms ff{};
-    static PrevUniforms prev{};
-    VkDeviceSize ffOffset = PushUniform(&ff, sizeof(ff)), prevOffset = PushUniform(&prev, sizeof(prev));
-    static std::vector<float> constants(kVsConstantCount * 4);
     uint32_t drawn = 0;
+    auto renderCasters = [&](Image* map, std::vector<Job>& list, bool clear) {
+        map->Transition(cb, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+        VkRenderingAttachmentInfo da{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+        da.imageView = map->AttachmentView(0, 0);
+        da.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        da.loadOp = clear ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
+        da.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        da.clearValue.depthStencil = {1.0f, 0};
+        VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};
+        ri.renderArea = {{0, 0}, {h.shadowSize, h.shadowSize}};
+        ri.layerCount = 1;
+        ri.pDepthAttachment = &da;
+        vkCmdBeginRendering(cb, &ri);
+        VkViewport v{0, 0, float(h.shadowSize), float(h.shadowSize), 0, 1};
+        VkRect2D sc{{0, 0}, {h.shadowSize, h.shadowSize}};
+        vkCmdSetViewport(cb, 0, 1, &v);
+        vkCmdSetScissor(cb, 0, 1, &sc);
+        vkCmdSetDepthBias(cb, 1.5f, 0.0f, 2.0f);
+        float bf[4] = {};
+        vkCmdSetBlendConstants(cb, bf);
+        vkCmdSetStencilReference(cb, VK_STENCIL_FACE_FRONT_AND_BACK, 0);
+        FFUniforms ff{};
+        static PrevUniforms prev{};
+        VkDeviceSize ffOffset = PushUniform(&ff, sizeof(ff)), prevOffset = PushUniform(&prev, sizeof(prev));
+        static std::vector<float> constants(kVsConstantCount * 4);
 
-    // Casters grouped by pipeline (vertex shader, vertex layout, topology): the pipeline is looked up and bound once
-    // per group instead of per draw (CPU-bound 4K frames, 2026-10-12). Depth-only, so the order does not matter.
-    std::sort(jobs.begin(), jobs.end(), [](const Job& x, const Job& y) {
-        if (x.d->vertexModule != y.d->vertexModule)
-            return x.d->vertexModule < y.d->vertexModule;
-        if (x.d->input != y.d->input)
-            return x.d->input < y.d->input;
-        return x.d->type < y.d->type;
-    });
-    VkShaderModule lastModule = VK_NULL_HANDLE;
-    const VertexInput* lastInput = nullptr;
-    int lastType = -1;
-    VkPipeline lastPipeline = VK_NULL_HANDLE;
-    for (const Job& job : jobs)
-    {
-        const SceneDraw& d = *job.d;
-        const size_t used = std::max<size_t>(d.vsConstantsCount, kCameraRegister + 4);  // recorded registers only
-        std::memcpy(constants.data(), job.c, used * 4 * sizeof(float));
-        std::memcpy(&constants[kCameraRegister * 4], job.camToLight.m, sizeof(job.camToLight.m));  // rows -> c22..c25
-        VkDeviceSize vsOffset = PushUniform(constants.data(), constants.size() * sizeof(float), used * 4 * sizeof(float));
-        if (d.vertexModule != lastModule || d.input != lastInput || static_cast<int>(d.type) != lastType)
+        // Casters grouped by pipeline (vertex shader, vertex layout, topology): the pipeline is looked up and bound once
+        // per group instead of per draw (CPU-bound 4K frames, 2026-10-12). Depth-only, so the order does not matter.
+        std::sort(list.begin(), list.end(), [](const Job& x, const Job& y) {
+            if (x.d->vertexModule != y.d->vertexModule)
+                return x.d->vertexModule < y.d->vertexModule;
+            if (x.d->input != y.d->input)
+                return x.d->input < y.d->input;
+            return x.d->type < y.d->type;
+        });
+        VkShaderModule lastModule = VK_NULL_HANDLE;
+        const VertexInput* lastInput = nullptr;
+        int lastType = -1;
+        VkPipeline lastPipeline = VK_NULL_HANDLE;
+        for (const Job& job : list)
         {
-            PipelineKey pk{};
-            pk.raster.fillMode = D3DFILL_SOLID;
-            pk.raster.cullMode = D3DCULL_NONE;
-            pk.raster.zEnable = 1;
-            pk.raster.zWriteEnable = 1;
-            pk.raster.zFunc = D3DCMP_LESSEQUAL;
-            pk.raster.depthBiasEnable = 1;
-            pk.raster.topology = static_cast<uint8_t>(d.type);
-            pk.layoutHash = reinterpret_cast<uintptr_t>(d.input);
-            VkShaderModule pair[2] = {d.vertexModule, shadowDepthFs_};
-            pk.shaderHash = Hash(pair, sizeof(pair));
-            pk.colorFormat = VK_FORMAT_UNDEFINED;
-            pk.depthFormat = shadowMap_->format;
-            pk.motionFormat = VK_FORMAT_UNDEFINED;
-            lastPipeline = GetPipeline(pk, *d.input, d.vertexModule, shadowDepthFs_);
-            lastModule = d.vertexModule, lastInput = d.input, lastType = static_cast<int>(d.type);
-            if (lastPipeline)
-                vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, lastPipeline);
-        }
-        if (!lastPipeline)
-            continue;
-        FrameSlot& s = Slot();
-        VkDescriptorBufferInfo bufs[4] = {{s.uniforms, vsOffset, kVsConstantCount * 16},
-                                          {s.uniforms, ffOffset, kPsConstantCount * 16},
-                                          {s.uniforms, ffOffset, sizeof(FFUniforms)},
-                                          {s.uniforms, prevOffset, sizeof(PrevUniforms)}};
-        VkWriteDescriptorSet w[4];
-        for (uint32_t b = 0; b < 4; ++b)
-        {
-            w[b] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-            w[b].dstBinding = b;
-            w[b].descriptorCount = 1;
-            w[b].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-            w[b].pBufferInfo = &bufs[b];
-        }
-        vkCmdPushDescriptorSetKHR(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, PipelineLayout(), 0, 4, w);
-        bool bound = true;
-        for (const VkVertexInputBindingDescription& b : d.input->bindings)
-        {
-            if (b.binding >= 4 || !d.streams[b.binding].buffer)
+            const SceneDraw& d = *job.d;
+            const size_t used = std::max<size_t>(d.vsConstantsCount, kCameraRegister + 4);  // recorded registers only
+            std::memcpy(constants.data(), job.c, used * 4 * sizeof(float));
+            std::memcpy(&constants[kCameraRegister * 4], job.camToLight.m, sizeof(job.camToLight.m));  // rows -> c22..c25
+            VkDeviceSize vsOffset = PushUniform(constants.data(), constants.size() * sizeof(float), used * 4 * sizeof(float));
+            if (d.vertexModule != lastModule || d.input != lastInput || static_cast<int>(d.type) != lastType)
             {
-                bound = false;
-                break;
+                PipelineKey pk{};
+                pk.raster.fillMode = D3DFILL_SOLID;
+                pk.raster.cullMode = D3DCULL_NONE;
+                pk.raster.zEnable = 1;
+                pk.raster.zWriteEnable = 1;
+                pk.raster.zFunc = D3DCMP_LESSEQUAL;
+                pk.raster.depthBiasEnable = 1;
+                pk.raster.topology = static_cast<uint8_t>(d.type);
+                pk.layoutHash = reinterpret_cast<uintptr_t>(d.input);
+                VkShaderModule pair[2] = {d.vertexModule, shadowDepthFs_};
+                pk.shaderHash = Hash(pair, sizeof(pair));
+                pk.colorFormat = VK_FORMAT_UNDEFINED;
+                pk.depthFormat = map->format;
+                pk.motionFormat = VK_FORMAT_UNDEFINED;
+                lastPipeline = GetPipeline(pk, *d.input, d.vertexModule, shadowDepthFs_);
+                lastModule = d.vertexModule, lastInput = d.input, lastType = static_cast<int>(d.type);
+                if (lastPipeline)
+                    vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, lastPipeline);
             }
-            VkDeviceSize off = d.streams[b.binding].offset;
-            vkCmdBindVertexBuffers(cb, b.binding, 1, &d.streams[b.binding].buffer, &off);
-        }
-        if (!bound)
-            continue;
-        if (d.indexed)
-        {
-            if (!d.indexBuffer)
+            if (!lastPipeline)
                 continue;
-            vkCmdBindIndexBuffer(cb, d.indexBuffer, 0, d.index32 ? VK_INDEX_TYPE_UINT32 : VK_INDEX_TYPE_UINT16);
-            vkCmdDrawIndexed(cb, d.vertexCount, 1, d.start, d.baseVertex, 0);
+            FrameSlot& s = Slot();
+            VkDescriptorBufferInfo bufs[4] = {{s.uniforms, vsOffset, kVsConstantCount * 16},
+                                              {s.uniforms, ffOffset, kPsConstantCount * 16},
+                                              {s.uniforms, ffOffset, sizeof(FFUniforms)},
+                                              {s.uniforms, prevOffset, sizeof(PrevUniforms)}};
+            VkWriteDescriptorSet w[4];
+            for (uint32_t b = 0; b < 4; ++b)
+            {
+                w[b] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+                w[b].dstBinding = b;
+                w[b].descriptorCount = 1;
+                w[b].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+                w[b].pBufferInfo = &bufs[b];
+            }
+            vkCmdPushDescriptorSetKHR(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, PipelineLayout(), 0, 4, w);
+            bool bound = true;
+            for (const VkVertexInputBindingDescription& b : d.input->bindings)
+            {
+                if (b.binding >= 4 || !d.streams[b.binding].buffer)
+                {
+                    bound = false;
+                    break;
+                }
+                VkDeviceSize off = d.streams[b.binding].offset;
+                vkCmdBindVertexBuffers(cb, b.binding, 1, &d.streams[b.binding].buffer, &off);
+            }
+            if (!bound)
+                continue;
+            if (d.indexed)
+            {
+                if (!d.indexBuffer)
+                    continue;
+                vkCmdBindIndexBuffer(cb, d.indexBuffer, 0, d.index32 ? VK_INDEX_TYPE_UINT32 : VK_INDEX_TYPE_UINT16);
+                vkCmdDrawIndexed(cb, d.vertexCount, 1, d.start, d.baseVertex, 0);
+            }
+            else
+                vkCmdDraw(cb, d.vertexCount, 1, d.start, 0);
+            ++drawn;
         }
-        else
-            vkCmdDraw(cb, d.vertexCount, 1, d.start, 0);
-        ++drawn;
+        vkCmdEndRendering(cb);
+    };
+    // [render] shadow_static_cache (remaster on): the casters that do not move (not skinned, transform unchanged,
+    // seen for over a second) are drawn into a second map only when the light box or that set changes; each frame
+    // copies it and draws the moving ones on top. In heavy scenes the casters doubled (~70 -> 130) and their replay
+    // made both the CPU and the GPU side of the shadow pass grow (2026-10-12, playground dips scene).
+    if (staticCache && !staticJobs.empty())
+    {
+        if (!shadowStatic_ || shadowStatic_->width != shadowMap_->width)
+        {
+            shadowStatic_ = std::make_shared<Image>();
+            if (!shadowStatic_->Create(D3DFMT_D32, shadowMap_->width, shadowMap_->width, 1, 1, true, true))
+                shadowStatic_.reset();
+            shadowStaticKey_ = 0;
+        }
     }
-    vkCmdEndRendering(cb);
+    if (staticCache && shadowStatic_ && !staticJobs.empty())
+    {
+        if (staticKey != shadowStaticKey_)
+        {
+            renderCasters(shadowStatic_.get(), staticJobs, true);
+            shadowStaticKey_ = staticKey;
+            for (auto& [id, cc] : casters_)
+                cc.inStatic = false;
+            for (const Job& j : staticJobs)
+                casters_[j.d->id].inStatic = true;
+            ++shadowStaticRebuilds_;
+        }
+        if (shadowFrame_ % 300 == 0)
+        {
+            Log("vulkan: shadow static cache: %u rebuilds in 300 frames; %zu static, %zu moving casters (this frame: %u "
+                "seen, %u with changed bones, %u flagged moving)",
+                shadowStaticRebuilds_, staticJobs.size(), dynamicJobs.size(), diagSeen, diagChanged, diagMoving);
+            shadowStaticRebuilds_ = 0;
+        }
+        shadowStatic_->Transition(cb, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        shadowMap_->Transition(cb, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        VkImageCopy copy{};
+        copy.srcSubresource = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 0, 1};
+        copy.dstSubresource = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 0, 1};
+        copy.extent = {shadowMap_->width, shadowMap_->height, 1};
+        vkCmdCopyImage(cb, shadowStatic_->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, shadowMap_->image,
+                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+        renderCasters(shadowMap_.get(), dynamicJobs, false);
+    }
+    else
+        renderCasters(shadowMap_.get(), jobs, true);
 
+    phase(3);
     // 2. Apply to the target.
     Image* target = rt_->GetImage();
     Image* depth = depth_->GetImage();
@@ -4996,6 +5141,8 @@ void VulkanDevice::RecordScene(D3DPRIMITIVETYPE t, bool indexed, INT base, UINT 
         scene_.vsConstants.insert(scene_.vsConstants.end(), vsConst_, vsConst_ + d.vsConstantsCount * 4);
     }
     d.vertexBlend = rs_[D3DRS_VERTEXBLEND] != D3DVBF_DISABLE || rs_[D3DRS_INDEXEDVERTEXBLENDENABLE];
+    d.skinned = d.vertexBlend || (vs_ && vs_->translated.relativeConstants);
+    d.paletteRegs = paletteRegs_;
     std::memcpy(d.textures, textures_, sizeof(textures_));
     d.material = material_;
     d.alphaBlend = rs_[D3DRS_ALPHABLENDENABLE] != 0;
@@ -5052,6 +5199,7 @@ void rhi::SceneEnd()
             d->lightingDone_ = true;
         }
         d->GpuMarkWrite(d->kGpuSceneEnd);  // translucent game draws end here
+        rhi::vulkan::TickScope sceneEndTiming(d->sceneEndCpuTicks_);
         // Temporal AA before the GPU snowfall: flakes have no motion vectors, and FSR averaged them away as noise.
         d->TemporalAa();
         d->GpuMarkWrite(d->kGpuAaEnd);

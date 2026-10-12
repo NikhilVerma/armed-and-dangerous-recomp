@@ -47,6 +47,8 @@ struct SceneDraw
     // copying 4 KB per particle batch made explosions CPU-bound (playground stress_caps, 2026-10-12).
     uint32_t vsConstantsCount;
     bool vertexBlend;            // fixed-function vertex blending (world[0..3] weighted)
+    bool skinned;                // bone palette (relative constants) or vertex blending: animates in place
+    uint32_t paletteRegs;        // registers from c42 set by the last palette upload before the draw (3 per bone)
     VulkanTexture* textures[8];
     D3DMATERIAL9 material;
     bool alphaBlend, alphaTest, zWrite;
