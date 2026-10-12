@@ -45,6 +45,11 @@ bool KeepDebris(void* fx)
     const char* name = reinterpret_cast<const char*>(Field<uint32_t>(tmpl, 0x10) + 4);
     if (!name || _strnicmp(name, "fxo_debri", 9) != 0)
         return false;
+    // Only pieces that fall and land: full gravity (+0x48c, opcode 0x11; 0 = weightless, the fx default) and ground
+    // collision (+0x460 bit 0x10000, Fx_SetHitGround). The rest drift or sink in the original and fade within
+    // seconds; kept, they hung in the air (the player, 2026-10-12: "building particles are floating in the air").
+    if (!(Field<float>(fx, 0x48c) >= 0.99f) || !(Field<uint32_t>(fx, 0x460) & 0x10000))
+        return false;
     void* level = g_game ? Field<void*>(g_game, 0xa84) : nullptr;  // the level's object manager
     if (level != g_debrisLevel)
         g_debrisLevel = level, g_debrisKept = 0;

@@ -193,6 +193,11 @@ void UiAspectOnFrame()
 {
     if (g_textRelative || g_textScale != 1.0f)
         ApplyTextScale();
+    // Menu hit boxes follow the size the menu text is actually drawn at (fixed-layout text, TextScale(true)): the
+    // boxes are measured from the unscaled glyphs, so at 4K with text following the resolution they were ~1/4 of the
+    // drawn text and hover / clicks missed (the player, 2026-10-12; was computed once at start, before the renderer
+    // existed, as 1.25).
+    g_uiHitScale = g_anchor ? std::max(1.0f, TextScale(true)) : 0.0f;
 }
 
 void UiAspectInit()

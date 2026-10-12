@@ -1798,9 +1798,12 @@ uint32_t UiScreen_Update(uint8_t* screen, uint8_t* mgr, uint32_t* input)
         if (dbg && (n++ % 60) == 0)
         {
             extern void Log(const char*, ...);
-            Log("cursor: screen %p hud active %u cursor %08x screen flags %08x input %08x foreground %d mouse buttons %08x",
+            extern float g_uiHitScale;
+            Log("cursor: screen %p hud active %u cursor %08x screen flags %08x input %08x foreground %d mouse buttons %08x "
+                "hit scale %.2f",
                 screen, Field<uint8_t>(hud, 0x50), Field<uint32_t>(hud, 0x54), Field<uint32_t>(screen, 0x4c), *input,
-                GetForegroundWindow() == Field<HWND>(G(), 0x64) ? 1 : 0, Field<uint32_t>(Field<uint8_t*>(G(), 0x30), 0x44));
+                GetForegroundWindow() == Field<HWND>(G(), 0x64) ? 1 : 0, Field<uint32_t>(Field<uint8_t*>(G(), 0x30), 0x44),
+                g_uiHitScale);
         }
     }
     if (Field<uint8_t>(hud, 0x50) && Field<uint32_t>(hud, 0x54))
