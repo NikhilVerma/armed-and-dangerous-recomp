@@ -126,6 +126,8 @@ IDirect3DTexture9* LoadDds(IDirect3DDevice9* dev, const std::vector<uint8_t>& d,
     return t;
 }
 
+IDirect3DTexture9* MakeTexture(IDirect3DDevice9* dev, std::vector<uint8_t>& px, UINT w, UINT h);
+
 IDirect3DTexture9* LoadPng(IDirect3DDevice9* dev, const std::string& path)
 {
     HRESULT co = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
@@ -133,7 +135,6 @@ IDirect3DTexture9* LoadPng(IDirect3DDevice9* dev, const std::string& path)
     IWICBitmapDecoder* dec = nullptr;
     IWICBitmapFrameDecode* frame = nullptr;
     IWICFormatConverter* conv = nullptr;
-    IDirect3DTexture9* t = nullptr;
     std::wstring wpath(path.begin(), path.end());
     UINT w = 0, h = 0;
     std::vector<uint8_t> px;
@@ -160,6 +161,52 @@ IDirect3DTexture9* LoadPng(IDirect3DDevice9* dev, const std::string& path)
         Log("overrides: could not decode %s", path.c_str());
         return nullptr;
     }
+    return MakeTexture(dev, px, w, h);
+}
+
+// Playground UV inspection ([overrides] uv_checker=grunt;captain): textures whose names contain one of the patterns
+// are replaced by a generated grid. Red rises with u, green with v (a mirrored island shows a reversed gradient), a
+// white line every 1/16 and a black one at the half, and a dark checker every other cell.
+std::vector<std::string> g_checker;
+
+bool CheckerMatch(const char* name)
+{
+    std::string n(name);
+    for (char& c : n)
+        c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+    if (n.rfind("n_", 0) == 0)  // normal maps keep theirs
+        return false;
+    for (const auto& p : g_checker)
+        if (n.find(p) != std::string::npos)
+            return true;
+    return false;
+}
+
+IDirect3DTexture9* MakeChecker(IDirect3DDevice9* dev)
+{
+    const UINT n = 512, cell = n / 16;
+    std::vector<uint8_t> px(size_t(n) * n * 4);
+    for (UINT y = 0; y < n; ++y)
+        for (UINT x = 0; x < n; ++x)
+        {
+            uint8_t* p = &px[(size_t(y) * n + x) * 4];  // BGRA
+            const bool dark = ((x / cell) + (y / cell)) & 1;
+            uint8_t r = static_cast<uint8_t>(40 + 215 * x / (n - 1)), g = static_cast<uint8_t>(40 + 215 * y / (n - 1));
+            uint8_t b = 90;
+            if (dark)
+                r = static_cast<uint8_t>(r * 0.6f), g = static_cast<uint8_t>(g * 0.6f), b = 40;
+            if (x % cell < 2 || y % cell < 2)
+                r = g = b = 235;
+            if ((x >= n / 2 - 3 && x < n / 2 + 3) || (y >= n / 2 - 3 && y < n / 2 + 3))
+                r = g = b = 0;
+            p[0] = b, p[1] = g, p[2] = r, p[3] = 255;
+        }
+    return MakeTexture(dev, px, n, n);
+}
+
+IDirect3DTexture9* MakeTexture(IDirect3DDevice9* dev, std::vector<uint8_t>& px, UINT w, UINT h)
+{
+    IDirect3DTexture9* t = nullptr;
     UINT levels = 1;
     while ((w >> levels) || (h >> levels))
         ++levels;
@@ -195,7 +242,8 @@ void ApplyTextureOverride(Renderer* r, uint8_t* tex)
         return;
     if (g_logNames)
         Log("overrides: texture %s", name);
-    if (!g_textures)
+    const bool checker = !g_checker.empty() && CheckerMatch(name);
+    if (!g_textures && !checker)
         return;
     uint8_t* bucket = *reinterpret_cast<uint8_t**>(tex + 0xc);
     if (!bucket || tex[0x22] & 0x20)  // cube maps are not replaced
@@ -207,7 +255,9 @@ void ApplyTextureOverride(Renderer* r, uint8_t* tex)
     IDirect3DTexture9* t = nullptr;
     std::vector<uint8_t> bytes;
     std::string used;
-    if (ReadFileBytes(base + ".dds", bytes))
+    if (checker)
+        t = MakeChecker(r->device), used = "uv checker";
+    else if (ReadFileBytes(base + ".dds", bytes))
         t = LoadDds(r->device, bytes, used = base + ".dds");
     else if (GetFileAttributesA((base + ".png").c_str()) != INVALID_FILE_ATTRIBUTES)
         t = LoadPng(r->device, used = base + ".png");
@@ -304,7 +354,16 @@ void OverridesInit()
     g_textures = ConfigIntDefault("overrides", "textures", 0, 1) != 0;  // remaster default on: texture packs load
     g_models = ConfigInt("overrides", "models", 0) != 0;
     g_logNames = ConfigInt("overrides", "log_names", 0) != 0;
-    if (!g_textures && !g_models && !g_logNames)
+    char checker[256];
+    ConfigString("overrides", "uv_checker", "", checker, sizeof(checker));
+    for (char* tok = strtok(checker, ";, "); tok; tok = strtok(nullptr, ";, "))
+    {
+        std::string s(tok);
+        for (char& c : s)
+            c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+        g_checker.push_back(s);
+    }
+    if (!g_textures && !g_models && !g_logNames && g_checker.empty())
         return;
     char exe[MAX_PATH];
     GetModuleFileNameA(nullptr, exe, MAX_PATH);

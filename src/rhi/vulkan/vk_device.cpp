@@ -4642,9 +4642,13 @@ void VulkanDevice::BeforeDraw()
 }
 
 // [render] skip_translucent=1 (diagnosis): scene draws with blending and no depth write are not drawn.
+// [render] skip_ui=1 (playground captures): nothing drawn after SceneEnd (HUD, subtitles, menus).
 bool VulkanDevice::SkipTranslucent()
 {
     static const bool skip = ConfigInt("render", "skip_translucent", 0) != 0;
+    static const bool skipUi = ConfigInt("render", "skip_ui", 0) != 0;
+    if (skipUi && sceneEnded_)
+        return true;
     return skip && !sceneEnded_ && rs_[D3DRS_ALPHABLENDENABLE] && !rs_[D3DRS_ZWRITEENABLE] && SceneDrawTarget();
 }
 

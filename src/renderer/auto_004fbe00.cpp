@@ -339,8 +339,13 @@ uint32_t Renderer_PrepareDraw(uint8_t* item)
 // directional lights and one other light from the 8 D3DLIGHT9s at +0x169c (enabled bytes +0x1a44, only lights
 // with diffuse or specular), sum ambient, zero unused c7/c10/c13 slots. Then upload view-space light
 // directions/positions (c7+), material-modulated diffuse (c10+) and specular (c13+), power (c6) and ambient (c3).
+// Enhancement hook (hook/enhance/playground.cpp fake lights): runs first, may rewrite the light slots and set +0x1680.
+void (*g_beforeLightConstants)(Renderer* r) = nullptr;
+
 uint32_t Renderer_UpdateLightConstants(Renderer* r)
 {
+    if (g_beforeLightConstants)
+        g_beforeLightConstants(r);
     if (Field<uint32_t>(r, 0x33c) == 0)
         return 0;
     const uint32_t base = u(r);

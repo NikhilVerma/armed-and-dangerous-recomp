@@ -12,13 +12,19 @@ The hook side is hook/enhance/playground.cpp ([playground] in and.ini).
 Scene keys:
   level          lev_1_m1 ...
   camera         [x, y, z, yaw, pitch] (degrees, Z up)   or  camera_look [x, y, z, tx, ty, tz]
+  camera_orbit   {"spawn": 1, "radius": 10, "eye_z": 6, "target_z": 4.5, "start": 0, "speed": 1.5}
+                 turntable around a spawned object (degrees per frame)
   fov            vertical degrees (0 = the game's)
   player         "hide" or [x, y, z]
   spawn          [{"template": "grunt", "at": [x, y, z], "yaw": 0, "frame": 5}, ...]
   kill           [{"spawn": 1, "frame": 120}, ...]          (spawn numbers start at 1)
   fx             [{"name": "fx_explosion_barracks", "at": [x, y, z], "frame": 60}, ...]
+  lights         {"sun": [az, el, r, g, b], "ambient": [r, g, b], "key": [az, el, r, g, b],
+                  "point": [x, y, z, r, g, b, halfrange], "point_follow": 1, "isolate": 1}
+                 fake lights through the game's own light slots (degrees; colours 0..n)
   shots          frames to save, e.g. [60, 90, 120]       or  dump "first:every:count"
   keys           scripted input, frames from the load ("10:17*120" = hold forward 120 frames)
+  resolution     [1920, 1080] (default)
   settings       {"section.key": value} for every variant
   variants       {"name": {"section.key": value}, ...}
 Output: work/playground/<scene>/<variant>/*.png and work/playground/<scene>/sheet.png (rows = variants).
@@ -39,6 +45,11 @@ def playground_sets(scene):
         s["playground.camera"] = ",".join(str(v) for v in scene["camera"])
     if "camera_look" in scene:
         s["playground.camera_look"] = ",".join(str(v) for v in scene["camera_look"])
+    if "camera_orbit" in scene:
+        o = scene["camera_orbit"]
+        s["playground.camera_orbit"] = ",".join(str(o.get(k, d)) for k, d in
+                                                (("spawn", 1), ("radius", 10), ("eye_z", 6), ("target_z", 4.5),
+                                                 ("start", 0), ("speed", 0)))
     if scene.get("fov"):
         s["playground.camera_fov"] = scene["fov"]
     p = scene.get("player")
@@ -52,6 +63,13 @@ def playground_sets(scene):
     for i, f in enumerate(scene.get("fx", []), 1):
         x, y, z = f["at"]
         s[f"playground.fx{i}"] = f"{f['name']},{x},{y},{z},{f.get('frame', 1)}"
+    lights = scene.get("lights", {})
+    for k in ("sun", "ambient", "key", "point"):
+        if k in lights:
+            s[f"playground.{k}"] = ",".join(str(v) for v in lights[k])
+    for k in ("point_follow", "isolate"):
+        if k in lights:
+            s[f"playground.{k}"] = int(lights[k])
     if scene.get("log_player"):
         s["playground.log_player"] = 1
     return s
@@ -73,6 +91,9 @@ def run_variant(scene, name, extra):
     sets = dict(playground_sets(scene))
     sets.update(scene.get("settings", {}))
     sets.update(extra)
+    res = scene.get("resolution", [1920, 1080])
+    sets.setdefault("display.width", res[0])
+    sets.setdefault("display.height", res[1])
     sets["test.hash_from_load"] = 1
     sets["test.keys_from_load"] = 1
     last = max(scene.get("shots", [120]) + [int(x) for x in scene.get("dump", "0:0:0").split(":")[:1]])

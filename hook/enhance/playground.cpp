@@ -8,18 +8,29 @@
 //   skip_briefing=1                 dismiss the mission-start text (the "Press Mouse 1 to continue" pause) by itself
 //   camera=x,y,z,yaw,pitch          pin the camera (world units, Z up; yaw/pitch in degrees) after Camera_Update
 //   camera_look=x,y,z,tx,ty,tz      or: pin it at x,y,z looking at tx,ty,tz
+//   camera_orbit=N,radius,eye_z,target_z,start_deg,deg_per_frame
+//                                   turntable around spawn N (follows it; heights above its origin)
 //   camera_fov=60                   vertical FOV in degrees (0 = the game's)
 //   player=hide | x,y,z             hide the player, or teleport it once after the load
 //   spawnN=template,x,y,z,yaw,frame create a template (lev_1_m1: grunt, grunt_rifle, captain, grunt_barracks_mini,
 //                                   v_house_*, pine_tree ...) at a frame (N = 1..16)
 //   killN=spawn,frame               destroy spawn N (Object_Kill: death effect and husk) at a frame
 //   fxN=name,x,y,z,frame            play an effect by name at a frame (fx_explosion_barracks ...)
+//   sun=azimuth,elevation,r,g,b     replace the level's sun (light slot 0): degrees, colour 0..n (shadows follow it)
+//   ambient=r,g,b                   the sun's ambient term (shader constant c3 is the sum of the lights' ambient)
+//   key=azimuth,elevation,r,g,b     a second directional light (replaces the level's fill): key or rim light
+//   point=x,y,z,r,g,b,halfrange     a point light (the shaders take one): Attenuation1 = 1/halfrange
+//   point_follow=N                  the point light's x,y,z are an offset from spawn N
+//   isolate=1                       switch off the level's lights other than the sun and these
+//   The shaders take two directional lights and one point light, in slot order (Renderer_UpdateLightConstants
+//   0x004ff2e0; its g_beforeLightConstants hook writes the lights into the renderer's slots +0x169c before each update).
 //   log_player=1                    log the player position every second (to find coordinates for a scene)
 //
 // API (scouted 2026-10-12): ObjectSystem_CreateObject 0x0045f020, Object_SetPosition 0x00457870, SetVisible vt+0xf4
 // (0x004536b0), Object_Kill vt+0xd4 (0x00455640), Fx_Create 0x0041cc60, Game_SetPaused 0x004031e0, camera Game+0xa68
 // (world matrix +0x8c, view Game+0x704 = its inverse, FOV +0xf4 radians), player Game+0x748.
 #include <windows.h>
+#include <d3d9.h>
 
 #include <cmath>
 #include <cstdio>
@@ -33,6 +44,8 @@
 #include "log.h"
 #include "settings.h"
 
+struct Renderer;
+extern void (*g_beforeLightConstants)(Renderer* r);  // src/renderer/auto_004fbe00.cpp
 int TestFramesSinceLoad();  // hook/src/testscenario.cpp
 uint64_t Object_SetPosition(uint32_t eax, const float* position, uint8_t* obj);  // src/physics/physics_02.cpp
 
@@ -65,10 +78,22 @@ bool g_on, g_skipBriefing, g_hidePlayer, g_movePlayer, g_playerDone, g_logPlayer
 bool g_pinCamera;
 float g_camEye[3], g_camYaw, g_camPitch, g_camLook[3], g_camFov;
 bool g_camLookAt;
+int g_orbitSpawn = -1;
+float g_orbit[5];  // radius, eye z, target z, start degrees, degrees per frame
+int g_frameNow = -1;
 float g_playerPos[3];
 Spawn g_spawns[kSlots];
 Kill g_kills[kSlots];
 Fx g_fx[kSlots];
+
+struct FakeLights
+{
+    bool sun, ambient, key, point, isolate;
+    float sunAz, sunEl, sunColor[3], ambientColor[3], keyAz, keyEl, keyColor[3], pointPos[3], pointColor[3];
+    float pointHalf = 10.0f;
+    int pointFollow = -1;
+} g_lights;
+bool g_anyLight;
 
 uint32_t u(const void* p) { return static_cast<uint32_t>(reinterpret_cast<uintptr_t>(p)); }
 
@@ -125,11 +150,118 @@ void PoseMatrix(float m[17])
     reinterpret_cast<uint32_t*>(m)[16] = 0x2f;  // a general 4x4 (see ui_aspect.cpp on the flags word)
 }
 
+void SetDirection(D3DLIGHT9& l, float az, float el)
+{
+    const float a = az * 0.0174532925f, e = el * 0.0174532925f;  // towards the light; the light travels the other way
+    l.Direction = {-std::cos(e) * std::cos(a), -std::cos(e) * std::sin(a), -std::sin(e)};
+}
+
+void Colour(D3DCOLORVALUE& c, const float* rgb) { c = {rgb[0], rgb[1], rgb[2], 1.0f}; }
+
+void Playground_UpdateLights(Renderer* renderer)
+{
+    void* r = renderer;
+    auto* slots = reinterpret_cast<D3DLIGHT9*>(static_cast<uint8_t*>(r) + 0x169c);
+    uint8_t* enabled = static_cast<uint8_t*>(r) + 0x1a44;
+    static int calls;
+    if (calls++ == 0)  // what the level put in the slots (before this override)
+        for (int i = 0; i < 8; ++i)
+            if (enabled[i])
+                Log("playground: light slot %d type %d diffuse %.2f %.2f %.2f ambient %.2f %.2f %.2f dir %.2f %.2f %.2f "
+                    "(call %d, shader path %u)",
+                    i, slots[i].Type, slots[i].Diffuse.r, slots[i].Diffuse.g, slots[i].Diffuse.b, slots[i].Ambient.r,
+                    slots[i].Ambient.g, slots[i].Ambient.b, slots[i].Direction.x, slots[i].Direction.y,
+                    slots[i].Direction.z, calls, Field<uint32_t>(r, 0x33c));
+    // lev_1_m1 (logged 2026-10-12): slot 0 the sun (diffuse 1.2 1.2 0.9), slot 1 an ambient-only light (diffuse 0,
+    // ambient 0.59 0.71 0.78), slot 2 a blue fill from the other side (0.13 0.21 0.32). The shaders take the first two
+    // directional lights with diffuse, the first other light, and the sum of every enabled light's ambient.
+    if (g_lights.sun)
+    {
+        D3DLIGHT9& s = slots[0];
+        s.Type = D3DLIGHT_DIRECTIONAL, SetDirection(s, g_lights.sunAz, g_lights.sunEl);
+        Colour(s.Diffuse, g_lights.sunColor), Colour(s.Specular, g_lights.sunColor), enabled[0] = 1;
+    }
+    if (g_lights.ambient)
+    {
+        for (int i = 0; i < 8; ++i)
+            slots[i].Ambient = {0, 0, 0, 0};
+        Colour(slots[0].Ambient, g_lights.ambientColor), enabled[0] = 1;
+    }
+    auto lit = [&](int i) {
+        const D3DCOLORVALUE& d = slots[i].Diffuse;
+        return enabled[i] && (d.r > 0 || d.g > 0 || d.b > 0);
+    };
+    if (g_lights.key)  // takes the place of the level's second directional light (the fill)
+    {
+        int k = -1, firstFree = -1;
+        for (int i = 1; i < 8 && k < 0; ++i)
+            if (lit(i) && slots[i].Type == D3DLIGHT_DIRECTIONAL)
+                k = i;
+            else if (!enabled[i] && firstFree < 0)
+                firstFree = i;
+        if (k < 0)
+            k = firstFree >= 0 ? firstFree : 7;
+        const D3DCOLORVALUE keepAmbient = slots[k].Ambient;
+        D3DLIGHT9 l{};
+        l.Type = D3DLIGHT_DIRECTIONAL;
+        SetDirection(l, g_lights.keyAz, g_lights.keyEl);
+        Colour(l.Diffuse, g_lights.keyColor), Colour(l.Specular, g_lights.keyColor);
+        l.Ambient = keepAmbient;
+        slots[k] = l, enabled[k] = 1;
+    }
+    if (g_lights.point)  // the first non-directional light with diffuse; else a free slot
+    {
+        int k = -1;
+        for (int i = 0; i < 8 && k < 0; ++i)
+            if (lit(i) && slots[i].Type != D3DLIGHT_DIRECTIONAL)
+                k = i;
+        for (int i = 7; i >= 1 && k < 0; --i)
+            if (!enabled[i])
+                k = i;
+        if (k < 0)
+            k = 7;
+        float at[3] = {g_lights.pointPos[0], g_lights.pointPos[1], g_lights.pointPos[2]};
+        void* obj = g_lights.pointFollow >= 0 ? g_spawns[g_lights.pointFollow].obj : nullptr;
+        if (obj && Field<void*>(obj, 0x1c4))
+        {
+            alignas(16) float o[4] = {};
+            orig::fn_00457930(u(obj), u(o));  // Body_getPosition
+            at[0] += o[0], at[1] += o[1], at[2] += o[2];
+        }
+        D3DLIGHT9 pl{};
+        pl.Type = D3DLIGHT_POINT;
+        Colour(pl.Diffuse, g_lights.pointColor), Colour(pl.Specular, g_lights.pointColor);
+        pl.Position = {at[0], at[1], at[2]};
+        pl.Range = 1e6f, pl.Attenuation0 = 1.0f, pl.Attenuation1 = 1.0f / g_lights.pointHalf;  // as Fx_SetLight
+        slots[k] = pl, enabled[k] = 1;
+    }
+    if (g_lights.isolate)  // only the sun (with the ambient folded into it when ambient= is given)
+        for (int i = 1; i < 8; ++i)
+            if (!(g_lights.key && slots[i].Type == D3DLIGHT_DIRECTIONAL && lit(i)) &&
+                !(g_lights.point && slots[i].Type == D3DLIGHT_POINT))
+                enabled[i] = 0;
+    Field<uint8_t>(r, 0x1680) = 1;  // re-derive the constants from the slots
+}
+
 using CameraUpdate_t = uint32_t(__stdcall*)(void* camera, float dt);
 CameraUpdate_t g_nextCameraUpdate;
 uint32_t __stdcall Playground_CameraUpdate(void* camera, float dt)
 {
     uint32_t r = g_nextCameraUpdate(camera, dt);
+    if (g_orbitSpawn >= 0 && g_frameNow >= 0)
+    {
+        void* obj = g_spawns[g_orbitSpawn].obj;
+        if (obj && Field<void*>(obj, 0x1c4))
+        {
+            alignas(16) float at[4] = {};
+            orig::fn_00457930(u(obj), u(at));  // Body_getPosition
+            const float a = (g_orbit[3] + g_orbit[4] * static_cast<float>(g_frameNow)) * 0.0174532925f;
+            g_camEye[0] = at[0] + g_orbit[0] * std::cos(a), g_camEye[1] = at[1] + g_orbit[0] * std::sin(a);
+            g_camEye[2] = at[2] + g_orbit[1];
+            g_camLook[0] = at[0], g_camLook[1] = at[1], g_camLook[2] = at[2] + g_orbit[2];
+            g_camLookAt = g_pinCamera = true;
+        }
+    }
     if (g_pinCamera && g_game && camera == Field<void*>(g_game, 0xa68) && !g_game->loadingLevel)
     {
         float* world = &Field<float>(camera, 0x8c);
@@ -153,6 +285,27 @@ void Load()
     ConfigString("playground", "camera_look", "", v, sizeof(v));
     if (Floats(v, c, 6) == 6)
         g_pinCamera = g_camLookAt = true, std::memcpy(g_camEye, c, 12), std::memcpy(g_camLook, c + 3, 12);
+    ConfigString("playground", "camera_orbit", "", v, sizeof(v));
+    float o[6];
+    if (Floats(v, o, 6) == 6)
+        g_orbitSpawn = static_cast<int>(o[0]) - 1, std::memcpy(g_orbit, o + 1, sizeof(g_orbit));
+    float l[7];
+    ConfigString("playground", "sun", "", v, sizeof(v));
+    if (Floats(v, l, 5) == 5)
+        g_lights.sun = true, g_lights.sunAz = l[0], g_lights.sunEl = l[1], std::memcpy(g_lights.sunColor, l + 2, 12);
+    ConfigString("playground", "ambient", "", v, sizeof(v));
+    if (Floats(v, l, 3) == 3)
+        g_lights.ambient = true, std::memcpy(g_lights.ambientColor, l, 12);
+    ConfigString("playground", "key", "", v, sizeof(v));
+    if (Floats(v, l, 5) == 5)
+        g_lights.key = true, g_lights.keyAz = l[0], g_lights.keyEl = l[1], std::memcpy(g_lights.keyColor, l + 2, 12);
+    ConfigString("playground", "point", "", v, sizeof(v));
+    if (Floats(v, l, 7) == 7)
+        g_lights.point = true, std::memcpy(g_lights.pointPos, l, 12), std::memcpy(g_lights.pointColor, l + 3, 12),
+        g_lights.pointHalf = l[6] > 0.0f ? l[6] : 10.0f;
+    g_lights.pointFollow = ConfigInt("playground", "point_follow", 0) - 1;
+    g_lights.isolate = ConfigInt("playground", "isolate", 0) != 0;
+    g_anyLight = g_lights.sun || g_lights.ambient || g_lights.key || g_lights.point || g_lights.isolate;
     g_camFov = ConfigFloat("playground", "camera_fov", 0.0f);
     ConfigString("playground", "player", "", v, sizeof(v));
     if (!_stricmp(v, "hide"))
@@ -226,10 +379,12 @@ void PlaygroundInit()
     if (!g_on)
         return;
     Load();
-    if (g_pinCamera)
+    if (g_pinCamera || g_orbitSpawn >= 0)
         HookWrap("Camera_Update", reinterpret_cast<void*>(Playground_CameraUpdate),
                  reinterpret_cast<void**>(&g_nextCameraUpdate));
-    Log("playground: on (camera %s, player %s)", g_pinCamera ? "pinned" : "game",
+    if (g_anyLight)
+        g_beforeLightConstants = Playground_UpdateLights;
+    Log("playground: on (lights %s, camera %s, player %s)", g_anyLight ? "fake" : "level", g_pinCamera || g_orbitSpawn >= 0 ? "pinned" : "game",
         g_hidePlayer ? "hidden" : g_movePlayer ? "moved" : "as is");
 }
 
@@ -249,6 +404,7 @@ void PlaygroundOnFrame()
     loading = nowLoading;
     const int scenario = TestFramesSinceLoad();
     const int f = scenario >= 0 ? scenario : ownFrame;
+    g_frameNow = nowLoading ? -1 : f;
     if (f < 0 || nowLoading)
         return;
     // The mission-start text pauses the game (Game+0x15dc set, pause count Game+0x2684): dismiss it once.

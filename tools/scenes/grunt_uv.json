@@ -1,0 +1,44 @@
+{
+  "level": "lev_1_m1",
+  "keys": "30:17*300",
+  "player": "hide",
+  "spawn": [
+    {
+      "template": "grunt",
+      "at": [
+        -216.5,
+        1005.0,
+        126.0
+      ],
+      "yaw": 90,
+      "frame": 380
+    }
+  ],
+  "camera_orbit": {
+    "spawn": 1,
+    "radius": 11,
+    "eye_z": 6,
+    "target_z": 3.5,
+    "start": 90,
+    "speed": 3
+  },
+  "fov": 45,
+  "shots": [
+    400,
+    430,
+    460,
+    490
+  ],
+  "settings": {
+    "render.skip_ui": 1
+  },
+  "variants": {
+    "remaster": {},
+    "original": {
+      "overrides.textures": 0
+    },
+    "uv_checker": {
+      "overrides.uv_checker": "grunt;fur"
+    }
+  }
+}
