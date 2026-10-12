@@ -25,6 +25,7 @@
 namespace
 {
 std::atomic<DWORD> g_mainThread{0};
+std::map<DWORD64, uint32_t> g_writeCallers, g_regCallers;  // see the sampler
 std::atomic<bool> g_window{true};  // inside [test] profile_window
 std::atomic<bool> g_writeNow{false};  // the window just closed: write the profile
 HANDLE g_thread;
@@ -92,6 +93,9 @@ void Write()
     dump("self: where the instruction pointer was", g_self, true);
     dump("game: innermost game-image frame on the stack", g_game, false);
     dump("hook (inclusive): functions of this DLL on the stack, once per sample", g_hookRet, true);
+    dump("file writes: the first game or DLL return addresses on the stack while in ZwWriteFile", g_writeCallers,
+         false);
+    dump("registry opens: the same while in NtOpenKeyEx", g_regCallers, false);
     fclose(f);
 }
 
@@ -148,6 +152,29 @@ DWORD WINAPI Sampler(LPVOID)
         if (!ok)
             continue;
         DWORD64 self = ctx.Eip, game = InGame(self) ? self : 0;
+        // Who is writing files / opening registry keys on the presenting thread (8% of a 4K walk was in ZwWriteFile).
+        static const uintptr_t zwWrite = reinterpret_cast<uintptr_t>(GetProcAddress(GetModuleHandleA("ntdll"), "ZwWriteFile"));
+        static const uintptr_t ntOpenKey = reinterpret_cast<uintptr_t>(GetProcAddress(GetModuleHandleA("ntdll"), "NtOpenKeyEx"));
+        std::map<DWORD64, uint32_t>* callers = (self >= zwWrite && self < zwWrite + 0x20)       ? &g_writeCallers
+                                               : (self >= ntOpenKey && self < ntOpenKey + 0x20) ? &g_regCallers
+                                                                                                : nullptr;
+        if (callers)
+        {
+            int found = 0;
+            std::lock_guard<std::mutex> g(g_lock);
+            for (uint32_t w = 0; w < words && found < 10; ++w)
+            {
+                uintptr_t a = stack[w];
+                const bool inHook = a >= g_hookBegin + 0x1000 && a < g_hookEnd;
+                const bool inGame = a >= 0x00401005 && a < 0x0056b000;
+                if (!inHook && !inGame)
+                    continue;
+                const uint8_t* q = reinterpret_cast<const uint8_t*>(a);
+                if (q[-5] == 0xe8 || (q[-2] == 0xff && (q[-1] & 0x38) == 0x10) || (q[-3] == 0xff && (q[-2] & 0x38) == 0x10) ||
+                    (q[-6] == 0xff && (q[-5] & 0x38) == 0x10))
+                    ++(*callers)[a], ++found;
+            }
+        }
         // Innermost return address into the game's code: a stack word inside the game image that follows a call.
         for (uint32_t w = 0; !game && w < words; ++w)
         {

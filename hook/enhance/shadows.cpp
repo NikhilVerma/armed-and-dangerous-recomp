@@ -207,7 +207,8 @@ void ShadowsInit()
                          0.0f, 400.0f);  // 2x the default shadow range: low sun, long shadows (100 still popped)
     rhi::Hints().shadowCasterCache = g_sceneCullRadius <= 0.0f;
     rhi::Hints().shadowRays = static_cast<uint32_t>(ConfigInt("render", "shadow_rays", 8));  // and.ini only
-    int size = ConfigInt("render", "shadow_size", 4096);
+    // 2048 since 2026-10-12: 4096 cost 1-1.9 ms more at 4K for no visible gain with soft (PCSS) shadows.
+    int size = ConfigIntDefault("render", "shadow_size", 4096, 2048);
     rhi::Hints().shadowSize = static_cast<uint32_t>(size < 512 ? 512 : size > 8192 ? 8192 : size);
     g_uiPassBegin = OnUiPassBegin;  // does nothing while shadow maps and snow are off
     g_postPassBegin = OnUiPassBegin;  // earlier still when the game's post effects run (src/renderer/render_r3.cpp)

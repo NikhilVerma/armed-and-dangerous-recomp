@@ -3067,7 +3067,7 @@ bool VulkanDevice::GtaoInit()
     alOn_ = ConfigIntDefault("render", "afterlight", 0, 0) != 0;  // read once (restart); off by default
     // [render] ao_thickness (world units, vk_gtao.cpp): occluders are this thick, not infinitely deep.
     const std::string hlsl = GtaoHlsl(ConfigFloatDefault("render", "ao_thickness", 0.0f, 3.0f),
-                                      ConfigIntDefault("render", "ao_slices", 3, 9));
+                                      ConfigIntDefault("render", "ao_slices", 3, 3));
     const char* entries[4] = {"CSPrefilterDepths16x16", "CSGTAOHigh", "CSDenoisePass", "CSDenoiseLastPass"};
     // Bindings 0..13 XeGTAO (gtao.hlsl), 14..23 Afterlight (afterlight.hlsl).
     VkDescriptorSetLayoutBinding b[24];
@@ -3341,7 +3341,7 @@ void VulkanDevice::Ambient()
         static const float alEmitter = ConfigFloat("render", "afterlight_emitter_threshold", 1.0f);
         al.emitterThreshold = alEmitter;
         al.emitterContrast = 1.5f;
-        al.sliceCount = float(ConfigIntDefault("render", "ao_slices", 3, 9));
+        al.sliceCount = float(ConfigIntDefault("render", "ao_slices", 3, 3));
         al.thickness = ConfigFloatDefault("render", "ao_thickness", 0.0f, 3.0f);
         const VkFormat tf = target->format;
         al.sceneIsLinear = (tf == VK_FORMAT_B8G8R8A8_SRGB || tf == VK_FORMAT_R8G8B8A8_SRGB ||
