@@ -19,6 +19,7 @@
 #include "vk_resources.h"
 #include "vk_scene.h"
 #include "vk_shadows.h"
+#include "vk_motionblur.h"
 #include "vk_snow.h"
 #include "vk_gtao.h"
 #include "fsr/fsr_bridge.h"
@@ -377,6 +378,7 @@ float snowLastCam_[3] = {};
 public:
     void Shadows();  // rhi::SceneEnd
     void Snow();     // rhi::SceneEnd
+    void MotionBlur();  // rhi::SceneEnd, after temporal AA (vk_motionblur.h)
 void Ambient();  // rhi::SceneEnd: ambient occlusion (vk_gtao.h)
 // Ray-traced shadows (vk_rt.h).
 struct RtCaster
@@ -486,6 +488,15 @@ VkDescriptorSetLayout gtaoApplySetLayout_ = VK_NULL_HANDLE;
 VkPipelineLayout gtaoApplyLayout_ = VK_NULL_HANDLE;
 VkPipeline gtaoApply_ = VK_NULL_HANDLE;
 VkFormat gtaoApplyFormat_ = VK_FORMAT_UNDEFINED;
+// Per-object motion blur (MotionBlur, vk_motionblur.h).
+bool mbFailed_ = false, mbHavePrev_ = false;
+VkPipeline mbPipe_[4] = {};
+VkDescriptorSetLayout mbSetLayout_ = VK_NULL_HANDLE;
+VkPipelineLayout mbLayout_ = VK_NULL_HANDLE;
+GtaoImage mbVel_, mbTile_, mbNeigh_, mbOut_;
+uint32_t mbW_ = 0, mbH_ = 0;
+Mat4 mbPrevView_{};
+float mbPrevProj_[5] = {};
 // Afterlight unified AO + GI ([render] afterlight; shaders/afterlight.hlsl): replaces XeGTAO's main pass with the
 // player's one-pass occlusion + bounce gather, and adds its normals, source radiance and bounce blur passes.
 bool alOn_ = false;
@@ -1897,6 +1908,14 @@ bool VulkanDevice::TessModules()
     static bool failed = false;
     if (failed)
         return false;
+    // [render] tess_smooth_angle / tess_sharp_angle (degrees): corners within the first curve, beyond the second stay
+    // flat (vk_tessellation.cpp). Remaster default 25 / 50; 0 / 0 = every corner curves (the earlier rule).
+    {
+        const float smooth = ConfigFloatDefault("render", "tess_smooth_angle", 0.0f, 25.0f);
+        const float sharp = ConfigFloatDefault("render", "tess_sharp_angle", 0.0f, 50.0f);
+        if (sharp > 0.0f && sharp > smooth)
+            g_tessSmoothCos = std::cos(smooth * 3.14159265f / 180.0f), g_tessSharpCos = std::cos(sharp * 3.14159265f / 180.0f);
+    }
     tessControl_ = MakeModule(CompileGlslStage(TessControlGlsl(), GlslStage::TessControl));
     tessEval_ = MakeModule(CompileGlslStage(TessEvalGlsl(Tess().ccw), GlslStage::TessEval));
     failed = !tessControl_ || !tessEval_;
@@ -2871,12 +2890,18 @@ bool VulkanDevice::GtaoImageCreate(GtaoImage& g, VkFormat format, uint32_t level
     ii.arrayLayers = 1;
     ii.samples = VK_SAMPLE_COUNT_1_BIT;
     ii.tiling = VK_IMAGE_TILING_OPTIMAL;
-    ii.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    ii.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
     if (vkCreateImage(c.device, &ii, nullptr, &g.image) != VK_SUCCESS)
         return false;
     VkMemoryRequirements req;
     vkGetImageMemoryRequirements(c.device, g.image, &req);
     g.memory = c.Allocate(req, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    if (!g.memory)  // out of video memory: no image (an image without memory loses the device)
+    {
+        vkDestroyImage(c.device, g.image, nullptr);
+        g.image = VK_NULL_HANDLE;
+        return false;
+    }
     vkBindImageMemory(c.device, g.image, g.memory, 0);
     VkImageViewCreateInfo vi{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
     vi.image = g.image;
@@ -3752,6 +3777,191 @@ void VulkanDevice::Shadows()
         Log("vulkan: shadow map: %u of %zu scene draws, range %.0f", drawn, scene_.draws.size(), range);
 }
 
+// --- Per-object motion blur (vk_motionblur.h) ------------------------------------------------------------------------
+
+void VulkanDevice::MotionBlur()
+{
+    std::lock_guard<std::recursive_mutex> g(Ctx().lock);
+    if (sceneEnded_)
+        return;  // once per frame: a second run would see this frame's camera as "last frame's" and blur pans
+    const rhi::SceneHints& h = rhi::Hints();
+    Mat4 view;
+    std::memcpy(view.m, h.view, sizeof(view.m));
+    const float proj[5] = {sceneProjection_._11, sceneProjection_._22, sceneProjection_._33, sceneProjection_._34,
+                           sceneProjection_._43};
+    // Last frame's camera, kept every frame (also while the blur is off, so switching it on has a valid one).
+    struct Keep
+    {
+        VulkanDevice* d;
+        const Mat4& v;
+        const float* p;
+        bool ok;
+        ~Keep()
+        {
+            std::memcpy(d->mbPrevView_.m, v.m, sizeof(v.m));
+            std::memcpy(d->mbPrevProj_, p, sizeof(d->mbPrevProj_));
+            d->mbHavePrev_ = ok;
+        }
+    } keep{this, view, proj, h.haveView};
+    if (mbFailed_ || h.shutterSpeed <= 0.0f || h.gameDt <= 0.0f || !h.haveView || !mbHavePrev_ || scene_.draws.empty() ||
+        !depth_ || !rt_ || rt_->GetImage() != backBuffer_.get() || !motion_)
+        return;
+    Image* color = backBuffer_.get();
+    Image* depth = depth_->GetImage();
+    const uint32_t W = color->width, H = color->height;
+    const D3DVIEWPORT9& svp = scene_.draws.back().viewport;
+    if (!depth || svp.X != 0 || svp.Y != 0 || svp.Width != W || svp.Height != H)
+        return;
+    VkDevice device = Ctx().device;
+    if (!mbPipe_[0])
+    {
+        VkDescriptorSetLayoutBinding b[9];
+        const VkDescriptorType types[9] = {
+            VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            VK_DESCRIPTOR_TYPE_STORAGE_IMAGE};
+        for (uint32_t i = 0; i < 9; ++i)
+            b[i] = {i, types[i], 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
+        VkDescriptorSetLayoutCreateInfo dl{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+        dl.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR;
+        dl.bindingCount = 9;
+        dl.pBindings = b;
+        vkCreateDescriptorSetLayout(device, &dl, nullptr, &mbSetLayout_);
+        VkPipelineLayoutCreateInfo pl{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+        pl.setLayoutCount = 1;
+        pl.pSetLayouts = &mbSetLayout_;
+        vkCreatePipelineLayout(device, &pl, nullptr, &mbLayout_);
+        for (int i = 0; i < 4; ++i)
+        {
+            VkShaderModule m = MakeModule(CompileGlslStage(MotionBlurGlsl(i), GlslStage::Compute));
+            if (!m)
+                break;
+            VkComputePipelineCreateInfo ci{VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+            ci.stage = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
+            ci.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT, ci.stage.module = m, ci.stage.pName = "main";
+            ci.layout = mbLayout_;
+            vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &ci, nullptr, &mbPipe_[i]);
+            vkDestroyShaderModule(device, m, nullptr);
+        }
+        if (!mbPipe_[0] || !mbPipe_[1] || !mbPipe_[2] || !mbPipe_[3])
+        {
+            Log("vulkan: motion blur: shaders failed to build; off");
+            mbFailed_ = true;
+            return;
+        }
+        Log("vulkan: motion blur (per object) ready");
+    }
+    const uint32_t TX = (W + kMotionBlurTile - 1) / kMotionBlurTile, TY = (H + kMotionBlurTile - 1) / kMotionBlurTile;
+    EndRendering();
+    if (mbW_ != W || mbH_ != H)
+    {
+        for (GtaoImage* gi : {&mbVel_, &mbTile_, &mbNeigh_, &mbOut_})
+            GtaoImageDestroy(*gi);
+        mbW_ = W, mbH_ = H;
+        if (!GtaoImageCreate(mbVel_, VK_FORMAT_R16G16_SFLOAT, 1, W, H) ||
+            !GtaoImageCreate(mbTile_, VK_FORMAT_R16G16_SFLOAT, 1, TX, TY) ||
+            !GtaoImageCreate(mbNeigh_, VK_FORMAT_R16G16_SFLOAT, 1, TX, TY) ||
+            !GtaoImageCreate(mbOut_, VK_FORMAT_R16G16B16A16_SFLOAT, 1, W, H))
+        {
+            Log("vulkan: motion blur: images failed; off");
+            mbFailed_ = true;
+            return;
+        }
+    }
+    // This frame's camera space -> last frame's camera space.
+    Mat4 toWorld;
+    if (!Invert(view, toWorld))
+        return;
+    Mat4 m = Multiply(mbPrevView_, toWorld);
+    MotionBlurParams p{};
+    for (int r = 0; r < 4; ++r)
+        for (int c = 0; c < 4; ++c)
+            p.camToPrevCam[c * 4 + r] = m.m[r * 4 + c];  // GLSL mat4 is column-major
+    std::memcpy(p.proj, proj, sizeof(p.proj));
+    std::memcpy(p.prevProj, mbPrevProj_, sizeof(p.prevProj));
+    // The motion target holds one frame of motion; the blur is the share the shutter is open for: (1/N s) / frame.
+    const float maxRadius = float(kMotionBlurTile);  // pixels (the tile size)
+    p.misc[0] = proj[4], p.misc[1] = mbPrevProj_[4];
+    p.misc[2] = std::min((1.0f / h.shutterSpeed) / std::max(h.gameDt, 1.0f / 1000.0f), 4.0f);
+    p.misc[3] = maxRadius;
+    p.size[0] = float(W), p.size[1] = float(H), p.size[2] = float(TX), p.size[3] = float(TY);
+
+    VkCommandBuffer cb = Slot().cb;
+    if (!shadowDepthSampler_)
+    {
+        VkSamplerCreateInfo si{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+        si.magFilter = si.minFilter = VK_FILTER_NEAREST;
+        si.addressModeU = si.addressModeV = si.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        vkCreateSampler(device, &si, nullptr, &shadowDepthSampler_);
+    }
+    depth->Transition(cb, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
+    motion_->Transition(cb, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    color->Transition(cb, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    VkDescriptorBufferInfo ub{Slot().uniforms, PushUniform(&p, sizeof(p)), sizeof(p)};
+    const VkSampler s = shadowDepthSampler_;
+    VkDescriptorImageInfo img[8] = {
+        {s, depth->sampledView, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL},  // 1
+        {s, motion_->sampledView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},     // 2
+        {s, color->sampledView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},       // 3
+        {VK_NULL_HANDLE, mbVel_.view, VK_IMAGE_LAYOUT_GENERAL},                  // 4 velocity out
+        {s, mbVel_.view, VK_IMAGE_LAYOUT_GENERAL},                               // 5 velocity in
+        {VK_NULL_HANDLE, mbTile_.view, VK_IMAGE_LAYOUT_GENERAL},                 // 6 tile out
+        {s, mbNeigh_.view, VK_IMAGE_LAYOUT_GENERAL},                             // 7 tile in
+        {VK_NULL_HANDLE, mbOut_.view, VK_IMAGE_LAYOUT_GENERAL}};                 // 8 colour out
+    VkWriteDescriptorSet w[9];
+    const VkDescriptorType types[8] = {
+        VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+        VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+        VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+        VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE};
+    for (uint32_t i = 0; i < 9; ++i)
+    {
+        w[i] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+        w[i].dstBinding = i;
+        w[i].descriptorCount = 1;
+        if (i == 0)
+            w[i].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, w[i].pBufferInfo = &ub;
+        else
+            w[i].descriptorType = types[i - 1], w[i].pImageInfo = &img[i - 1];
+    }
+    VkMemoryBarrier2 mb{VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+    mb.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    mb.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
+    mb.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    mb.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
+    VkDependencyInfo di{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    di.memoryBarrierCount = 1;
+    di.pMemoryBarriers = &mb;
+    auto pass = [&](int i, uint32_t gx, uint32_t gy) {
+        vkCmdPipelineBarrier2(cb, &di);
+        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, mbPipe_[i]);
+        vkCmdPushDescriptorSetKHR(cb, VK_PIPELINE_BIND_POINT_COMPUTE, mbLayout_, 0, 9, w);
+        vkCmdDispatch(cb, gx, gy, 1);
+        mb.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        mb.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+    };
+    pass(0, (W + 7) / 8, (H + 7) / 8);  // object velocity
+    pass(1, (TX + 7) / 8, (TY + 7) / 8);  // tile maximum -> mbTile_
+    img[5].imageView = mbNeigh_.view, img[6].imageView = mbTile_.view;
+    pass(2, (TX + 7) / 8, (TY + 7) / 8);  // neighbourhood maximum -> mbNeigh_
+    img[6].imageView = mbNeigh_.view;
+    pass(3, (W + 7) / 8, (H + 7) / 8);  // reconstruction -> mbOut_
+    // Back into the frame.
+    mb.dstStageMask = VK_PIPELINE_STAGE_2_BLIT_BIT;
+    mb.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+    vkCmdPipelineBarrier2(cb, &di);
+    color->Transition(cb, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    VkImageBlit blit{};
+    blit.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    blit.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    blit.srcOffsets[1] = {int32_t(W), int32_t(H), 1};
+    blit.dstOffsets[1] = {int32_t(W), int32_t(H), 1};
+    vkCmdBlitImage(cb, mbOut_.image, VK_IMAGE_LAYOUT_GENERAL, color->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
+                   &blit, VK_FILTER_NEAREST);
+}
+
 // --- GPU snowfall (vk_snow.h) ------------------------------------------------------------------------------------
 
 VkPipeline VulkanDevice::SnowPipeline(VkFormat target)
@@ -4305,8 +4515,9 @@ void VulkanDevice::Snow()
         p.color[0] = 1.0f, p.color[1] = 0.05f, p.color[2] = 0.05f, p.color[3] = 1.0f;
     else
         p.color[0] = 0.95f, p.color[1] = 0.97f, p.color[2] = 1.0f, p.color[3] = 0.85f;
-    // Sky 20 units above the camera, volume 12 below it, drag time 0.5 s, streaks over 1/60 s.
-    p.sim[0] = h.snowSky, p.sim[1] = 40.0f, p.sim[2] = 0.5f, p.sim[3] = 1.0f / 60.0f;  // 40: depth below the camera
+    // Streak exposure: the shutter speed ([render] shutter_speed, 1/N s); 1/60 s without it.
+    const float exposure = h.shutterSpeed > 0.0f ? 1.0f / h.shutterSpeed : 1.0f / 60.0f;
+    p.sim[0] = h.snowSky, p.sim[1] = 40.0f, p.sim[2] = 0.5f, p.sim[3] = exposure;  // 40: depth below the camera
     VkDeviceSize offset = PushUniform(&p, sizeof(p));
     if (!shadowDepthSampler_)
     {
@@ -4557,6 +4768,7 @@ void rhi::SceneEnd()
         }
         // Temporal AA before the GPU snowfall: flakes have no motion vectors, and FSR averaged them away as noise.
         rhi::vulkan::g_device->TemporalAa();
+        rhi::vulkan::g_device->MotionBlur();  // per object only, on the anti-aliased frame, under the snow and UI
         rhi::vulkan::g_device->Snow();
         rhi::vulkan::g_device->sceneEnded_ = true;
     }

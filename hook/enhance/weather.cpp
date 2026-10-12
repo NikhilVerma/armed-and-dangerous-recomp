@@ -124,6 +124,7 @@ void WeatherBeforeSceneEnd()
         g_hiddenCount = g_mutedCount = 0;
     }
     h.snowDt = GameGlobal<float>(0x00604a90);
+    h.gameDt = h.snowDt;  // 0 while paused (motion blur: no blur on a frozen frame)
     // Not while the game is paused: the pause menu draws a frozen, blurred copy of the scene, and flakes drawn over
     // it hung in front of the menu (the game clock stops while paused).
     h.snow = g_enabled && (g_levelSnow || g_force) && h.snowDt > 0.0f;
@@ -150,6 +151,12 @@ void WeatherInit()
         RemasterRegister({"render", "snow_amount", L"Snow amount", S::Slider, 100000, 3000000, 100000, {}, 0, false,
                           [](float v) { rhi::Hints().snowCount = static_cast<uint32_t>(v); }},
                          1500000));
+    // Motion blur shutter speed (exposure 1/N s; 1/120 = film at 60 fps): per-object only, never camera motion.
+    // Streaks the snow along its fall and blurs moving objects (src/rhi/vulkan).
+    rhi::Hints().shutterSpeed =
+        RemasterRegister({"render", "shutter_speed", L"Motion blur shutter speed (1/x s, 0 = off)", S::Slider, 0.0f,
+                          1000.0f, 10.0f, {}, 0, false, [](float v) { rhi::Hints().shutterSpeed = v; }},
+                         0.0f, 120.0f);
     rhi::Hints().snowDebug =
         RemasterRegister({"render", "snow_debug", L"Snow debug: red flakes", S::Toggle, 0, 1, 1, {}, 0, false,
                           [](float v) { rhi::Hints().snowDebug = v != 0.0f; }},

@@ -163,7 +163,9 @@ void main()
     vec3 world = fl.pos.xyz;
     float size = fl.pos.w;
     vec3 c = (p.view * vec4(world, 1.0)).xyz;
-    // Where the flake was a moment ago: the quad stretches between the two (motion streak).
+    // Where the flake was a moment ago: the quad stretches between the two (motion streak over the shutter time
+    // sim.w, [render] shutter_speed). The flake's own motion only: camera pans never streak (the player: "I don't
+    // want camera pans to blur the screen").
     vec3 c0 = (p.view * vec4(world - fl.vel.xyz * p.sim.w, 1.0)).xyz;
     float radius = p.proj2.z * (0.5 + 2.0 * size);
     // Cap the apparent size only for flakes very close to the lens (a disc covering the screen). The old cap of
@@ -172,6 +174,14 @@ void main()
     radius = min(radius, max(-c.z, 0.0) * 0.012);
     vec2 d = c.xy - c0.xy;
     float len = length(d);
+    // At most 96 pixels of streak (a fast camera turn would otherwise draw lines across the screen).
+    float maxLen = 96.0 * max(-c.z, 0.1) / (p.proj.x * 0.5 * p.viewport.z);
+    if (len > maxLen)
+    {
+        c0.xy = c.xy - d * (maxLen / len);
+        d = c.xy - c0.xy;
+        len = maxLen;
+    }
     vec2 ax = len > 1e-5 ? d / len : vec2(0.0, 1.0);
     vec2 ay = vec2(-ax.y, ax.x);
     vec2 corners[6] = vec2[](vec2(-1, -1), vec2(1, -1), vec2(1, 1), vec2(-1, -1), vec2(1, 1), vec2(-1, 1));

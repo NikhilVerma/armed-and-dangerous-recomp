@@ -201,7 +201,8 @@ struct SceneHints
     // [render] snow: GPU snowfall at SceneEnd (hook/enhance/weather.cpp), in levels with camera snow.
     bool snow = false;
     float snowTime = 0.0f;              // game seconds (stops while the game is paused)
-    float snowDt = 0.0f;                // this frame's game time step (0 while paused)
+    float snowDt = 0.0f;                // this frame's game time step (0 while paused or not snowing)
+    float gameDt = 0.0f;                // this frame's game time step (0 while paused)
     uint32_t snowCount = 1500000;       // flakes in the volume around the camera
     // The volume fills the visible world: snow falls across the valley and onto the scenery, not only in a small box
     // at the lens (24 x 20 units read as a screensaver cloud riding with the camera: the player, 2026-10-11).
@@ -211,6 +212,8 @@ struct SceneHints
     float snowWind[2] = {0.9f, 0.35f};  // base wind (world x, y: the ground plane, Z is up), units per second
     float snowTurbulence = 0.6f;        // swirl speed, units per second
     float snowSize = 0.02f;             // flake radius, world units
+    // [render] shutter_speed: motion-blur exposure as 1/N second (120 = 1/120 s); 0 = no blur. Per-object only.
+    float shutterSpeed = 0.0f;
     bool snowDebug = false;             // [render] snow_debug: red flakes (tell them from the game's effects)
     // [render] soft_particles: particle sprites fade out where they approach the opaque surface behind them (scene
     // depth), instead of cutting into it with a hard line. Only draws made while `particlePass` is set (the scene
