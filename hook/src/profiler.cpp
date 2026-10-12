@@ -160,9 +160,13 @@ DWORD WINAPI Sampler(LPVOID)
         // This DLL's static CRT memcpy / memset (their first 1 KB): who copies so much per frame.
         static const uintptr_t copyA = reinterpret_cast<uintptr_t>(static_cast<void* (*)(void*, const void*, size_t)>(&memcpy));
         static const uintptr_t setA = reinterpret_cast<uintptr_t>(static_cast<void* (*)(void*, int, size_t)>(&memset));
+        static const uintptr_t sessionId =
+            reinterpret_cast<uintptr_t>(GetProcAddress(GetModuleHandleA("ntdll"), "RtlGetCurrentServiceSessionId"));
         static const uintptr_t zwDelay = reinterpret_cast<uintptr_t>(GetProcAddress(GetModuleHandleA("ntdll"), "ZwDelayExecution"));
         std::map<DWORD64, uint32_t>* callers = (self >= zwWrite && self < zwWrite + 0x20)       ? &g_writeCallers
-                                               : (self >= ntOpenKey && self < ntOpenKey + 0x20) ? &g_regCallers
+                                               : (self >= ntOpenKey && self < ntOpenKey + 0x20) ||
+                                                         (self >= sessionId && self < sessionId + 0x40)
+                                                   ? &g_regCallers
                                                : (self >= zwDelay && self < zwDelay + 0x20)     ? &g_sleepCallers
                                                : (self >= copyA && self < copyA + 0x400) ||
                                                          (self >= setA && self < setA + 0x400)
