@@ -31,6 +31,7 @@
 
 extern bool (*g_fxKeep)(void* fx);  // src/renderer/render_r1.cpp (0x0041a350)
 extern bool (*g_isHeldBody)(void* character);  // src/physics/physics_01.cpp (Character_GoRagdoll)
+extern uint32_t g_ragdollLimit;                    // ditto: original 3 (four ragdolls)
 
 namespace
 {
@@ -147,6 +148,11 @@ void PersistenceInit()
                          0, 1) != 0.0f)
         g_corpseHold = HoldBody;
     g_isHeldBody = IsHeldBody;  // empty until bodies are held
+    // Simultaneous ragdolls: the original allows four (a 2003 CPU budget); remaster 64 (the player: "why not 256").
+    g_ragdollLimit = static_cast<uint32_t>(
+        RemasterRegister({"persistence", "ragdoll_limit", L"Max ragdolls", S::Slider, 4, 256, 4, {}, 0, false,
+                          [](float v) { g_ragdollLimit = v >= 1.0f ? static_cast<uint32_t>(v) - 1 : 0; }},
+                         4.0f, 64.0f) - 1.0f);
     g_debrisMax = static_cast<uint32_t>(ConfigInt("persistence", "debris_max", 1000));
     if (RemasterRegister({"persistence", "debris_keep", L"Keep explosion debris", S::Toggle, 0, 1, 1, {}, 0, false,
                           [](float v) { g_fxKeep = v != 0.0f ? KeepDebris : nullptr; }},

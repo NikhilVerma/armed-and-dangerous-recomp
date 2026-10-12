@@ -3483,6 +3483,9 @@ HOOK(0x00431020, "Character_Launch", Character_Launch_Entry, nullptr);
 // 0x00455640(damage).
 // Enhancement point: true for a dead character kept past its removal (hook/enhance/persistence.cpp). Null = original.
 bool (*g_isHeldBody)(void* character) = nullptr;
+// Enhancement point: how many characters may be down or ragdolled before a death is animated instead (original 3, i.e.
+// at most four ragdolls; a 2003 CPU budget). Set by hook/enhance/persistence.cpp ([persistence] ragdoll_limit).
+uint32_t g_ragdollLimit = 3;
 
 uint32_t Character_GoRagdoll(uint8_t* self, uint8_t* damage, uint32_t quiet)
 {
@@ -3555,7 +3558,7 @@ uint32_t Character_GoRagdoll(uint8_t* self, uint8_t* damage, uint32_t quiet)
     }
     if (!VCall<uint8_t>(self, 0x154 / 4))
         VCall<void>(self, 0x158 / 4);
-    if (Field<uint32_t>(self, 0x1bc) && downCount <= 3)
+    if (Field<uint32_t>(self, 0x1bc) && downCount <= g_ragdollLimit)
     {
         if (damage)
         {
