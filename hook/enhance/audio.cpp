@@ -95,8 +95,30 @@ HRESULT WINAPI Hook_DirectSoundCreate8(LPCGUID guid, LPDIRECTSOUND8* out, LPUNKN
 }
 }  // namespace
 
+extern uint32_t g_audioMixRate, g_audioMixRateResult, g_audioMixRateHr;  // src/audio/audio_03.cpp
+
+// The rate the primary buffer accepted, logged once the game has made it.
+void AudioOnFrame()
+{
+    static bool logged;
+    if (!logged && g_audioMixRate && g_audioMixRateResult)
+    {
+        logged = true;
+        Log("audio: mix rate asked %u Hz, primary buffer reports %u Hz (SetFormat %08x)", g_audioMixRate,
+            g_audioMixRateResult, g_audioMixRateHr);
+    }
+}
+
 void AudioInit()
 {
+    // Mixing rate: the original sets the DirectSound primary buffer to 22050 Hz, 16-bit stereo; DirectSound mixes every
+    // sound at that rate, so anything above 11 kHz was lost. The remaster asks for 48000 Hz (applies at start).
+    g_audioMixRate = static_cast<uint32_t>(RemasterRegister(
+        {"audio", "mix_rate", L"Audio mixing rate (Hz)", RemasterSetting::List, 0, 2, 1,
+         {L"22050 (original)", L"44100", L"48000"}, 0, true, nullptr},
+        0, 2));
+    static const uint32_t kRates[] = {0, 44100, 48000};
+    g_audioMixRate = kRates[g_audioMixRate < 3 ? g_audioMixRate : 2];
     float master = RemasterRegister({"audio", "master", L"Master volume", RemasterSetting::Slider, 0.0f, 1.0f, 0.05f, {},
                                      0, false,
                                      [](float v) {

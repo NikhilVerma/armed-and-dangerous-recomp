@@ -21,6 +21,10 @@
 #include "gen/orig_calls.h"
 #include "hooks.h"
 
+// Enhancement hooks (hook/enhance/audio.cpp, [audio] mix_rate): 0 = the original 22050 Hz; the rate the primary
+// buffer reports after SetFormat, and SetFormat's result.
+uint32_t g_audioMixRate = 0, g_audioMixRateResult = 0, g_audioMixRateHr = 0;
+
 namespace
 {
 template <class T>
@@ -123,7 +127,20 @@ uint32_t Audio_InitDirectSound(uint8_t* self, const uint32_t* args)
         Field<uint16_t>(f, 0x1c) = 0;        // cbSize
         Field<uint16_t>(f, 0x18) = 4;        // nBlockAlign
         Field<uint32_t>(f, 0x14) = 0x15888;  // nAvgBytesPerSec
+        if (g_audioMixRate)  // enhancement ([audio] mix_rate): the primary buffer's (mixing) rate
+        {
+            Field<uint32_t>(f, 0x10) = g_audioMixRate;
+            Field<uint32_t>(f, 0x14) = g_audioMixRate * 4;
+        }
         const uint32_t result = static_cast<uint32_t>(Com<HRESULT>(primary, 0x38 / 4, u(f + 0xc)));  // SetFormat
+        if (g_audioMixRate)
+        {
+            uint32_t got[0x14 / 4] = {};  // WAVEFORMATEX: nSamplesPerSec at +4
+            uint32_t size = 0;
+            Com<HRESULT>(primary, 0x14 / 4, u(got), static_cast<uint32_t>(sizeof(got)), u(&size));  // GetFormat
+            g_audioMixRateResult = got[1];
+            g_audioMixRateHr = result;
+        }
         if (result != 0)
         {
             const uint32_t tag = Field<uint32_t>(self, 8);
