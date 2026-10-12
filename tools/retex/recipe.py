@@ -203,6 +203,15 @@ def finish(name, img, p):
         v = rgb / 127.5 - 1
         xy = v[..., :2] * np.minimum(1.0, 0.98 / np.maximum(np.sqrt((v[..., :2] ** 2).sum(-1, keepdims=True)), 1e-6))
         rgb = (np.concatenate([xy, np.sqrt(np.clip(1 - (xy ** 2).sum(-1, keepdims=True), 0, 1))], -1) + 1) * 127.5
+    if p["alpha"] and k != "normal":
+        # Whole-texture brightness of the visible part (alpha-weighted) matched to the original: soft, mostly
+        # transparent particles stayed about half as bright after the local correction (fx_snow_flakes 55 -> 13).
+        L = np.array([0.2126, 0.7152, 0.0722])
+        wa = np.asarray(src.getchannel("A").resize(out.size, Image.BICUBIC)).astype(np.float64) / 255.0
+        if wa.sum() > 1.0:
+            lo = ((base @ L) * wa).sum() / wa.sum()
+            ln = ((np.clip(rgb, 0, 255) @ L) * wa).sum() / wa.sum()
+            rgb = rgb * float(np.clip((lo + 1.0) / (ln + 1.0), 0.5, 4.0))
     # The original's alpha always (SeedVR2 made 92 opaque textures partly transparent).
     a = np.asarray(src.getchannel("A").resize(out.size, Image.LANCZOS)) if p["alpha"] else         np.full(rgb.shape[:2], 255, np.uint8)
     return Image.fromarray(np.dstack([np.clip(rgb + 0.5, 0, 255).astype(np.uint8), a]), "RGBA")
