@@ -17,6 +17,7 @@ re-reading is the fix.
 - Current milestone: M0 (reconnaissance). Read `docs/recon.md` and the latest `docs/journal/` entry.
 - **Human's direction (docs/decision.md, 2026-10-05):** decompile everything except proprietary/library code (Havok, qhull,
   D3DX, CRT, zlib), then rebuild the game in a modern way. "When in doubt, decompile."
+- **Open player feedback:** `docs/player-feedback.md` is the backlog of the player's in-game feedback. Read it at session start and after every compaction, and update its status column as items land.
 - **Resuming the recovery round:** read `docs/handover-recovery.md` (pipeline, tools, pitfalls, how to resume) and run
   `python tools/recovery_status.py`. Work in progress lives on branch `wip/full-decomp`; main stays green.
 - **Human's goals (docs/decision.md, 2026-10-03):** (1) every function exported and recompilable, (2) migrate
