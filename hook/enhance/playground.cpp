@@ -5,7 +5,8 @@
 // clock. Everything is off without enabled=1.
 //
 //   enabled=1
-//   skip_briefing=1                 dismiss the mission-start text (the "Press Mouse 1 to continue" pause) by itself
+//   skip_briefing=1                 dismiss the mission-start text (the "Press Mouse 1 to continue" pause) by itself;
+//                                   2: every such message pause (tokens found, objectives)
 //   camera=x,y,z,yaw,pitch          pin the camera (world units, Z up; yaw/pitch in degrees) after Camera_Update
 //   camera_look=x,y,z,tx,ty,tz      or: pin it at x,y,z looking at tx,ty,tz
 //   camera_orbit=N,radius,eye_z,target_z,start_deg,deg_per_frame
@@ -79,6 +80,7 @@ struct Fx
 
 int g_logSpawn = -1;
 bool g_postFx;
+int g_skipMode;  // 1: the first message pause (mission briefing), 2: every message pause (tokens, objectives)
 bool g_on, g_skipBriefing, g_hidePlayer, g_movePlayer, g_playerDone, g_logPlayer;
 bool g_pinCamera;
 float g_camEye[3], g_camYaw, g_camPitch, g_camLook[3], g_camFov;
@@ -281,7 +283,8 @@ uint32_t __stdcall Playground_CameraUpdate(void* camera, float dt)
 void Load()
 {
     char key[16], v[160];
-    g_skipBriefing = ConfigInt("playground", "skip_briefing", 1) != 0;
+    g_skipMode = ConfigInt("playground", "skip_briefing", 1);
+    g_skipBriefing = g_skipMode != 0;
     g_logPlayer = ConfigInt("playground", "log_player", 0) != 0;
     g_logSpawn = ConfigInt("playground", "log_spawn", 0) - 1;
     g_postFx = ConfigInt("playground", "post_fx", 0) != 0;
@@ -418,7 +421,8 @@ void PlaygroundOnFrame()
         return;
     // The mission-start text pauses the game (Game+0x15dc set, pause count Game+0x2684): dismiss it once.
     static bool briefingDone;
-    if (g_skipBriefing && !briefingDone && Field<uint8_t>(g_game, 0x15dc) && Field<int32_t>(g_game, 0x2684) > 0)
+    if (g_skipBriefing && (!briefingDone || g_skipMode >= 2) && Field<uint8_t>(g_game, 0x15dc) &&
+        Field<int32_t>(g_game, 0x2684) > 0)
     {
         briefingDone = true;
         orig::fn_004031e0(1, u(g_game), 0);  // Game_SetPaused (bl = 1: resume)

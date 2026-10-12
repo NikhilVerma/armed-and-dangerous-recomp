@@ -11,6 +11,7 @@ The hook side is hook/enhance/playground.cpp ([playground] in and.ini).
 
 Scene keys:
   level          lev_1_m1 ...
+  skip_briefing  1 (default): dismiss the mission-start pause; 2: every message pause; 0: none
   camera         [x, y, z, yaw, pitch] (degrees, Z up)   or  camera_look [x, y, z, tx, ty, tz]
   camera_orbit   {"spawn": 1, "radius": 10, "eye_z": 6, "target_z": 4.5, "start": 0, "speed": 1.5}
                  turntable around a spawned object (degrees per frame)
