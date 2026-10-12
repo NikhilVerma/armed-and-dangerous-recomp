@@ -505,7 +505,10 @@ VkPipeline gtaoPipe_[4] = {};
 VkDescriptorSetLayout gtaoSetLayout_ = VK_NULL_HANDLE;
 VkPipelineLayout gtaoLayout_ = VK_NULL_HANDLE;
 GtaoImage gtaoDepth_, gtaoTerm_, gtaoEdges_, gtaoFinal_;
-uint32_t gtaoWidth_ = 0, gtaoHeight_ = 0;
+uint32_t gtaoWidth_ = 0, gtaoHeight_ = 0;  // the XeGTAO working size (half the viewport with ao_half)
+// [render] ao_half (remaster on, not with Afterlight): XeGTAO at half resolution, upsampled depth-aware in the apply
+// pass. At 4K the full-resolution pass cost 2.4-2.7 ms of a ~9 ms frame (2026-10-12, gpu_timing).
+uint32_t aoScale_ = 1;
 uint32_t gtaoFrame_ = 0;
 VkShaderModule gtaoApplyVs_ = VK_NULL_HANDLE, gtaoApplyFs_ = VK_NULL_HANDLE;
 VkDescriptorSetLayout gtaoApplySetLayout_ = VK_NULL_HANDLE;
@@ -3171,7 +3174,8 @@ bool VulkanDevice::GtaoInit()
         }
     }
     gtaoApplyVs_ = MakeModule(CompileGlsl(GtaoApplyVertexGlsl(), false));
-    gtaoApplyFs_ = MakeModule(CompileGlsl(GtaoApplyFragmentGlsl(alOn_), true));
+    aoScale_ = !alOn_ && ConfigIntDefault("render", "ao_half", 0, 1) != 0 ? 2u : 1u;
+    gtaoApplyFs_ = MakeModule(CompileGlsl(GtaoApplyFragmentGlsl(alOn_, aoScale_ == 2), true));
     VkDescriptorSetLayoutBinding ab[8] = {
         {0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
@@ -3288,12 +3292,13 @@ void VulkanDevice::Ambient()
         gtaoLogged_ = true;
         return;
     }
-    if (gtaoWidth_ != svp.Width || gtaoHeight_ != svp.Height)
+    const uint32_t gw = (svp.Width + aoScale_ - 1) / aoScale_, gh = (svp.Height + aoScale_ - 1) / aoScale_;
+    if (gtaoWidth_ != gw || gtaoHeight_ != gh)
     {
         for (GtaoImage* gi : {&gtaoDepth_, &gtaoTerm_, &gtaoEdges_, &gtaoFinal_, &alNormals_, &alRadiance_, &alBounce_,
                               &alPong_, &smNormals_})
             GtaoImageDestroy(*gi);
-        gtaoWidth_ = svp.Width, gtaoHeight_ = svp.Height;
+        gtaoWidth_ = gw, gtaoHeight_ = gh;
         EndRendering();
         if (!GtaoImageCreate(gtaoDepth_, VK_FORMAT_R32_SFLOAT, XE_GTAO_DEPTH_MIP_LEVELS) ||
             !GtaoImageCreate(gtaoTerm_, VK_FORMAT_R8_UINT, 1) || !GtaoImageCreate(gtaoEdges_, VK_FORMAT_R8_UNORM, 1) ||
@@ -3324,7 +3329,7 @@ void VulkanDevice::Ambient()
     static const float aoThin = ConfigFloatDefault("render", "ao_thin", 0.0f, 0.7f);
     settings.ThinOccluderCompensation = aoThin;
     XeGTAO::GTAOConstants consts{};
-    XeGTAO::GTAOUpdateConstants(consts, int(svp.Width), int(svp.Height), settings, &sceneProjection_._11, true,
+    XeGTAO::GTAOUpdateConstants(consts, int(gw), int(gh), settings, &sceneProjection_._11, true,
                                 gtaoFrame_++);
     consts.NoiseIndex = 0;  // no temporal accumulation
 
@@ -3438,7 +3443,7 @@ void VulkanDevice::Ambient()
         mb.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
     };
     auto pass = [&](int i, uint32_t gx, uint32_t gy) { passP(gtaoPipe_[i], gx, gy); };
-    const uint32_t W = svp.Width, H = svp.Height;
+    const uint32_t W = gw, H = gh;  // the working size
     const uint32_t mainX = (W + XE_GTAO_NUMTHREADS_X - 1) / XE_GTAO_NUMTHREADS_X;
     const uint32_t mainY = (H + XE_GTAO_NUMTHREADS_Y - 1) / XE_GTAO_NUMTHREADS_Y;
     pass(0, (W + 15) / 16, (H + 15) / 16);  // prefilter depths
@@ -3519,7 +3524,8 @@ void VulkanDevice::Ambient()
 
     // Apply.
     GtaoApplyParams ap{};
-    ap.viewport[0] = float(svp.X), ap.viewport[1] = float(svp.Y), ap.viewport[2] = float(W), ap.viewport[3] = float(H);
+    ap.viewport[0] = float(svp.X), ap.viewport[1] = float(svp.Y), ap.viewport[2] = float(svp.Width),
+        ap.viewport[3] = float(svp.Height);  // full size (the AO itself may be half)
     ap.fog[0] = scene_.fogStart, ap.fog[1] = scene_.fogEnd, ap.fog[2] = scene_.fog ? 1.0f : 0.0f;
     ap.fog[3] = h.aoStrength;
     ap.material[0] = h.aoSnow;  // occlusion kept on snow-white surfaces (albedo, vk_gtao.cpp)
@@ -3562,8 +3568,8 @@ void VulkanDevice::Ambient()
     ri.colorAttachmentCount = 1;
     ri.pColorAttachments = &ca;
     vkCmdBeginRendering(cb, &ri);
-    VkViewport v{float(svp.X), float(svp.Y), float(W), float(H), 0, 1};
-    VkRect2D sc{{static_cast<int32_t>(svp.X), static_cast<int32_t>(svp.Y)}, {W, H}};
+    VkViewport v{float(svp.X), float(svp.Y), float(svp.Width), float(svp.Height), 0, 1};
+    VkRect2D sc{{static_cast<int32_t>(svp.X), static_cast<int32_t>(svp.Y)}, {svp.Width, svp.Height}};
     vkCmdSetViewport(cb, 0, 1, &v);
     vkCmdSetScissor(cb, 0, 1, &sc);
     vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, apply);

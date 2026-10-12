@@ -95,9 +95,10 @@ void main()
 )";
 }
 
-std::string GtaoApplyFragmentGlsl(bool afterlight)
+std::string GtaoApplyFragmentGlsl(bool afterlight, bool half)
 {
     return std::string("#version 450\n") + (afterlight ? "#define AFTERLIGHT 1\n" : "") +
+           (half ? "#define AO_HALF 1\n" : "") +
            "struct ModernFog\n{\n" + ModernFogMembers() + "};\n" + R"(
 layout(set = 0, binding = 0) uniform usampler2D aoTex;     // XeGTAO final term: visibility * 255
 layout(set = 0, binding = 1) uniform sampler2D depthTex;   // scene depth 0..1
@@ -175,7 +176,37 @@ void main()
 #endif
         return;
     }
+#ifdef AO_HALF
+    // Half-resolution AO ([render] ao_half): the four nearest AO texels, weighted bilinearly and by how close the depth
+    // at their full-resolution origin is to this pixel's (view z), so occlusion does not bleed across edges.
+    float ao;
+    {
+        float zc = p.proj43.x / max(abs(d * p.proj.w - p.proj.z), 1e-7);
+        ivec2 size = textureSize(aoTex, 0);
+        vec2 hp = (vec2(local) + 0.5) * 0.5 - 0.5;
+        ivec2 b = ivec2(floor(hp));
+        vec2 f = hp - vec2(b);
+        float sum = 0.0, wsum = 0.0, nearest = 0.0, best = 1e30;
+        for (int j = 0; j < 2; ++j)
+            for (int i = 0; i < 2; ++i)
+            {
+                ivec2 t = clamp(b + ivec2(i, j), ivec2(0), size - 1);
+                float dt = texelFetch(depthTex, ivec2(p.viewport.xy) + t * 2, 0).r;
+                float zt = p.proj43.x / max(abs(dt * p.proj.w - p.proj.z), 1e-7);
+                float v = float(texelFetch(aoTex, t, 0).r) / 255.0;
+                float diff = abs(abs(zt) - abs(zc));
+                float w = (i == 0 ? 1.0 - f.x : f.x) * (j == 0 ? 1.0 - f.y : f.y) *
+                          (1.0 - smoothstep(0.0, 0.03 * abs(zc) + 0.1, diff));
+                sum += v * w, wsum += w;
+                if (diff < best)
+                    best = diff, nearest = v;
+            }
+        ao = wsum > 1e-4 ? sum / wsum : nearest;
+    }
+#else
     float ao = float(texelFetch(aoTex, local, 0).r) / 255.0;
+#endif
+
     float rawAo = ao;
     // The opaque surface's material (vk_abi.h): weight = the share of its colour lit by ambient light, albedo
     // (-1 when the shader is not known). Pixels no opaque draw wrote (weight 0) are left alone.

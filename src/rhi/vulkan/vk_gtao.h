@@ -17,7 +17,7 @@ std::string GtaoHlsl(float thickness = 0.0f, int slices = 3);  // [render] ao_th
 
 // The apply pass (full-screen triangle).
 std::string GtaoApplyVertexGlsl();
-std::string GtaoApplyFragmentGlsl(bool afterlight = false);  // [render] afterlight: the GI composite
+std::string GtaoApplyFragmentGlsl(bool afterlight = false, bool half = false);  // [render] afterlight: the GI composite
 
 // Apply-pass uniform block (std140), mirrored in GtaoApplyFragmentGlsl.
 struct alignas(16) GtaoApplyParams
