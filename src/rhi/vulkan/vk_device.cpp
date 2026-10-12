@@ -4516,7 +4516,7 @@ void VulkanDevice::Snow()
     if (h.snowDebug)
         p.color[0] = 1.0f, p.color[1] = 0.05f, p.color[2] = 0.05f, p.color[3] = 1.0f;
     else
-        p.color[0] = 0.95f, p.color[1] = 0.97f, p.color[2] = 1.0f, p.color[3] = 1.0f;  // more opaque (the player)
+        p.color[0] = 0.95f, p.color[1] = 0.97f, p.color[2] = 1.0f, p.color[3] = 0.7f;  // 0.7 opacity (the player, 2026-10-12)
     // Streak exposure: the shutter speed ([render] shutter_speed, 1/N s); 1/60 s without it.
     // Snow falls slowly: at 1/120 s a flake moves a fraction of its size and shows no streak (the player: "snow
     // particles have NO motion blur"); flakes streak over 4x the shutter time ([render] snow_shutter_scale).

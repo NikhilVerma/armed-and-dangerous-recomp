@@ -12,7 +12,7 @@ Agents re-read this file after every context compaction (AGENTS.md).
 | 3 | Characters: tessellation breaks their UV mapping | Part of item 2 (split UV seams crack; bad rebuilt normals; fractional_odd swimming) |
 | 4 | Snow particles have NO motion blur / shutter too weak | Snow streak exposure = shutter x `snow_shutter_scale` (4). Captured: visible short streaks. Waiting for the player to confirm |
 | 5 | Character still blurs at its edges when the camera moves | Velocity = the shorter of screen and world motion. Captured: sharp during a running turn. Waiting for confirmation |
-| 6 | Add a bit of opacity to the snow particles | Flake opacity 0.85 -> 1.0. Done |
+| 6 | Snow particle opacity: "like 0.7" | Flake opacity 0.7. Done |
 | 7 | Mountain skybox texture not high-res enough: tiled Qwen | B_1_1_sky, B_level1_sky_part_A/B: SeedVR2 7b 4x canvas, then tools/retex/qwen_tiles.py with 1024 tiles, overlap 256, the agreed recipe (0.9 / cfg 5). work/retex/sky4/run.py. RUNNING; install when done |
 | 8 | Footstep / ice kick-up flakes are BLACK when running | The colour pass was not alpha-weighted (particles darkened: fx_snow_flakes 53 -> 7). Fixed in batch.py/recipe.py (alpha-weighted); re-running finish() for all alpha textures. RUNNING |
 | 9 | Building debris floats in the air after destruction; ALSO weighted things like dead BODIES float: "geometry passed to physics and geometry rendered isn't the same always" | Not the weightless-fx theory (that filter is in, but is not the cause). Suspects: lod_max (finest LOD drawn vs collision or destroyed-state meshes), extended culling showing hidden intact meshes, held bodies or debris outliving the geometry they rested on, or a recovered-code bug. Subagent investigating; A/B in game next. IN PROGRESS |
