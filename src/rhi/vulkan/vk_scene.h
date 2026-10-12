@@ -42,6 +42,10 @@ struct SceneDraw
     D3DMATRIX world[4], view, projection;  // fixed-function transforms (row vectors: p * world * view * projection)
     bool vertexShader;           // positions come out of a game vertex shader; its constants are kept
     uint32_t vsConstantsOffset;  // into SceneFrame::vsConstants (kVsConstantCount float4), when vertexShader
+    // Registers kept: all kVsConstantCount for depth-writing opaque draws (shadow casters); for blended draws without
+    // depth writes (particles, decals, glows) only c0..c25, the projection c22..c25 included (SceneCamera), since
+    // copying 4 KB per particle batch made explosions CPU-bound (playground stress_caps, 2026-10-12).
+    uint32_t vsConstantsCount;
     bool vertexBlend;            // fixed-function vertex blending (world[0..3] weighted)
     VulkanTexture* textures[8];
     D3DMATERIAL9 material;

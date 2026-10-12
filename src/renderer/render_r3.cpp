@@ -712,11 +712,18 @@ void ParticlePool_SetTexture(uint32_t texture, void* pool)
 
 // 0x0046d910 (edx = pool): takes the first free particle (list +0xc) and appends it to the live list (+0x14).
 // Returns it, or 0 when none is free.
+uint32_t g_particleDrops = 0;  // enhancement diagnostics (hook/enhance/limits.cpp): allocations refused, pool full
+void* g_particleDropPool;      // the last pool that refused one
+
 uint32_t Particle_Alloc(void* pool)
 {
     uint32_t* p = Field<uint32_t*>(pool, 0xc);
     if (u(p) == u(pool) + 0xc)
+    {
+        ++g_particleDrops;
+        g_particleDropPool = pool;
         return 0;
+    }
     if (p)
     {
         uint32_t* sentinel = reinterpret_cast<uint32_t*>(u(pool) + 0x14);
@@ -736,7 +743,11 @@ uint32_t Particle_AllocZeroed(void* pool)
 {
     uint32_t* p = Field<uint32_t*>(pool, 0xc);
     if (u(p) == u(pool) + 0xc)
+    {
+        ++g_particleDrops;
+        g_particleDropPool = pool;
         return 0;
+    }
     if (p)
     {
         uint32_t* sentinel = reinterpret_cast<uint32_t*>(u(pool) + 0x14);

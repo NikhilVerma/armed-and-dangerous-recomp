@@ -84,7 +84,12 @@ def dump_spec(scene):
     step = shots[1] - shots[0]
     if all(b - a == step for a, b in zip(shots, shots[1:])):
         return f"{shots[0]}:{step}:{len(shots)}"
-    return f"{shots[0]}:1:{shots[-1] - shots[0] + 1}"  # irregular: save the range, keep the asked ones below
+    # Irregular: every gcd-th frame of the range, the asked ones kept below. Saving every frame (a 1080p image each)
+    # slowed a run to 10 fps and was mistaken for a game stall (2026-10-12).
+    from functools import reduce
+    from math import gcd
+    g = reduce(gcd, [b - a for a, b in zip(shots, shots[1:])])
+    return f"{shots[0]}:{g}:{(shots[-1] - shots[0]) // g + 1}"
 
 
 def run_variant(scene, name, extra):

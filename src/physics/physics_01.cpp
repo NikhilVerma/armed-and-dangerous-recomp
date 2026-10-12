@@ -184,8 +184,15 @@ HOOK(0x00403c70, "Physics_ApplyGravityScale", Physics_ApplyGravityScale_Entry, n
 // 0x00403ef0 (eax = capacity, esi = pool; caller 0x0045a4e0): allocates the element array (capacity * 0x30, tag
 // 0x13, "ApplyForceAction: m_elements") and the free list (capacity * 2, "ApplyForceAction: m_freeList"), clears
 // each element's flags and owner, fills the free list with 0..capacity-1. Returns the pool.
+// Enhancement hooks (hook/enhance/limits.cpp, [limits] force_pool): a larger capacity (0 = the caller's, 512; the free
+// list holds 16-bit indices) and a count of forces dropped because the pool was full.
+uint32_t g_forcePoolCapacity = 0;
+uint32_t g_forcePoolDrops = 0;
+
 uint32_t ForceActionPool_Init(uint32_t capacity, uint32_t* pool)
 {
+    if (g_forcePoolCapacity > capacity)
+        capacity = g_forcePoolCapacity < 0xffffu ? g_forcePoolCapacity : 0xffffu;
     const uint32_t elements = Alloc(0x13, capacity * 0x30, 2, 0x005bc06c);
     pool[5] = elements;
     pool[4] = Alloc(0x13, capacity * 2, 2, 0x005bc04c);
@@ -252,7 +259,10 @@ uint32_t ForceActionPool_Add(int32_t previous, uint32_t* pool, const uint32_t* v
     const uint32_t index = reinterpret_cast<uint16_t*>(pool[4])[next];
     uint32_t* e = reinterpret_cast<uint32_t*>(pool[5] + index * 0x30);
     if (e[0] & 1)
+    {
+        ++g_forcePoolDrops;
         return 0xffffffffu;
+    }
     pool[2] = next + 1;
     if (static_cast<int32_t>(next + 1) >= static_cast<int32_t>(pool[0]))
         pool[2] = 0;

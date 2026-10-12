@@ -4741,8 +4741,10 @@ void VulkanDevice::RecordScene(D3DPRIMITIVETYPE t, bool indexed, INT base, UINT 
     d.vertexShader = vs_ != nullptr;
     if (vs_)
     {
+        const bool translucent = rs_[D3DRS_ALPHABLENDENABLE] && !rs_[D3DRS_ZWRITEENABLE];
+        d.vsConstantsCount = translucent ? 26u : kVsConstantCount;
         d.vsConstantsOffset = static_cast<uint32_t>(scene_.vsConstants.size());
-        scene_.vsConstants.insert(scene_.vsConstants.end(), vsConst_, vsConst_ + kVsConstantCount * 4);
+        scene_.vsConstants.insert(scene_.vsConstants.end(), vsConst_, vsConst_ + d.vsConstantsCount * 4);
     }
     d.vertexBlend = rs_[D3DRS_VERTEXBLEND] != D3DVBF_DISABLE || rs_[D3DRS_INDEXEDVERTEXBLENDENABLE];
     std::memcpy(d.textures, textures_, sizeof(textures_));

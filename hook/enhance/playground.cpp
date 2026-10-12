@@ -13,7 +13,7 @@
 //   camera_fov=60                   vertical FOV in degrees (0 = the game's)
 //   player=hide | x,y,z             hide the player, or teleport it once after the load
 //   spawnN=template,x,y,z,yaw,frame create a template (lev_1_m1: grunt, grunt_rifle, captain, grunt_barracks_mini,
-//                                   v_house_*, pine_tree ...) at a frame (N = 1..16)
+//                                   v_house_*, pine_tree ...) at a frame (N = 1..64)
 //   killN=spawn,frame               destroy spawn N (Object_Kill: death effect and husk) at a frame
 //   fxN=name,x,y,z,frame            play an effect by name at a frame (fx_explosion_barracks ...)
 //   sun=azimuth,elevation,r,g,b     replace the level's sun (light slot 0): degrees, colour 0..n (shadows follow it)
@@ -51,7 +51,7 @@ uint64_t Object_SetPosition(uint32_t eax, const float* position, uint8_t* obj); 
 
 namespace
 {
-constexpr int kSlots = 16;
+constexpr int kSlots = 64;
 struct Spawn
 {
     char tmpl[32] = {};

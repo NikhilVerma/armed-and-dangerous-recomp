@@ -72,6 +72,7 @@ static HRESULT STDMETHODCALLTYPE Hook_Reset(IDirect3DDevice9* dev, D3DPRESENT_PA
 void QolOnFrame();          // hook/enhance/qol.cpp
 void PersistenceOnFrame();  // hook/enhance/persistence.cpp
 void PlaygroundOnFrame();  // hook/enhance/playground.cpp
+void LimitsOnFrame();      // hook/enhance/limits.cpp
 void ProfilerOnFrame();     // hook/src/profiler.cpp
 void DisplayOnFrame();      // hook/enhance/display.cpp
 void UiAspectOnFrame();     // hook/enhance/ui_aspect.cpp
@@ -101,6 +102,7 @@ static HRESULT STDMETHODCALLTYPE Hook_Present(IDirect3DDevice9* dev, const RECT*
     QolOnFrame();
     PersistenceOnFrame();
     PlaygroundOnFrame();
+    LimitsOnFrame();
     ProfilerOnFrame();
     DisplayOnFrame();
     UiAspectOnFrame();
@@ -119,6 +121,7 @@ void HarnessOnFrame()
     QolOnFrame();
     PersistenceOnFrame();
     PlaygroundOnFrame();
+    LimitsOnFrame();
     ProfilerOnFrame();
     DisplayOnFrame();
     UiAspectOnFrame();

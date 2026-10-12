@@ -25,6 +25,8 @@
 namespace
 {
 std::atomic<DWORD> g_mainThread{0};
+std::atomic<bool> g_window{true};  // inside [test] profile_window
+std::atomic<bool> g_writeNow{false};  // the window just closed: write the profile
 HANDLE g_thread;
 std::mutex g_lock;
 std::map<DWORD64, uint32_t> g_self, g_game, g_hookRet;  // g_hookRet: return addresses, folded per function on write
@@ -113,8 +115,10 @@ DWORD WINAPI Sampler(LPVOID)
     for (;;)
     {
         Sleep(1);
+        if (g_writeNow.exchange(false))
+            Write();
         DWORD id = g_mainThread.load();
-        if (!id)
+        if (!id || !g_window.load())
             continue;
         if (!thread)
             thread = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION, FALSE, id);
@@ -204,8 +208,17 @@ DWORD WINAPI Sampler(LPVOID)
 }
 }  // namespace
 
+int TestFramesSinceLoad();  // testscenario.cpp
+
+// [test] profile_window=first,last: sample only while the frames since the level load are in that range (0,0 = all).
+int g_windowFirst, g_windowLast;
+
 void ProfilerInit()
 {
+    char w[32];
+    ConfigString("test", "profile_window", "", w, sizeof(w));
+    if (std::sscanf(w, "%d,%d", &g_windowFirst, &g_windowLast) != 2)
+        g_windowFirst = g_windowLast = 0;
     if (!ConfigInt("test", "profile", 0))
         return;
     g_thread = CreateThread(nullptr, 0, Sampler, nullptr, 0, nullptr);
@@ -217,4 +230,12 @@ void ProfilerOnFrame()
 {
     if (g_thread && !g_mainThread.load())
         g_mainThread = GetCurrentThreadId();
+    if (g_thread)
+    {
+        const int f = TestFramesSinceLoad();
+        const bool in = !g_windowLast || (f >= g_windowFirst && f <= g_windowLast);
+        if (g_window.load() && !in && g_windowLast && f > g_windowLast)
+            g_writeNow = true;
+        g_window = in;
+    }
 }

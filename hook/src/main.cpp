@@ -13,6 +13,7 @@ void RenderInit();
 void CameraInit();
 void PersistenceInit();
 void PlaygroundInit();
+void LimitsInit();
 void AudioInit();
 void QolInit();
 void InputInit();
@@ -69,6 +70,7 @@ static void Startup()
     CameraInit();
     PersistenceInit();
     PlaygroundInit();
+    LimitsInit();
     AudioInit();
     QolInit();
     InputInit();

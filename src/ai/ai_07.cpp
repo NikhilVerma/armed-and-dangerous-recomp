@@ -2055,8 +2055,11 @@ HOOK(0x0046e770, "NavGrid_Init", NavGrid_Init_Entry, nullptr);
 
 // 0x0046e7c0 (esi = grid). Caller 0x0044a670. Frees the cell bits, the A* node array, hash table and heap
 // (PMS_heapFree 0x004e08d0, pool 0x0063a210) and clears the pointers.
+extern bool g_astarEnlarged;
+
 uint32_t NavGrid_Free(uint32_t g)
 {
+    g_astarEnlarged = false;
     static const uint32_t kOffsets[4] = {0, 0x24, 0x20, 0x38};
     uint32_t r = 0;
     for (uint32_t k = 0; k < 4; ++k)
@@ -2876,11 +2879,18 @@ HOOK(0x00470760, "AStar_Push", AStar_Push_Entry, nullptr);
 // 0x00470600 (edx = 24-byte node record, ebx = grid). Executed in recorded runs. Appends the record to the node array
 // (when below 2000 nodes; otherwise only +0x2c is incremented), links it into its hash bucket, pushes it on the heap
 // and raises the high-water mark +0x2c.
+// Enhancement hooks (hook/enhance/limits.cpp, [limits] path_nodes): the node and open-heap capacity (original 2000;
+// Grid_FindPath enlarges the grid's arrays when it is higher) and a count of nodes refused at the cap.
+uint32_t g_astarCapacity = 0x7d0;
+uint32_t g_astarRefused = 0;
+bool g_astarEnlarged;  // reset when NavGrid_Free releases the arrays
+
 uint32_t AStar_Add(uint32_t rec, uint32_t grid)
 {
     const uint32_t c = D(grid + 0x28);
-    if (c >= 0x7d0)
+    if (c >= g_astarCapacity)
     {
+        ++g_astarRefused;
         const uint32_t v = D(grid + 0x2c) + 1;
         D(grid + 0x2c) = v;
         return v;
@@ -3217,11 +3227,27 @@ uint32_t Grid_FindPath(uint32_t ebx, uint32_t start, uint32_t goal, uint32_t max
         std::memcpy(P(out), P(goal), 0x18);
         return direct;
     }
+    if (g_astarCapacity > 0x7d0)
+    {
+        // Enhancement: the node array (+0x24, 24-byte nodes) and the 1-based open heap (+0x38) re-allocated from the
+        // same pool (PMS_heapAlloc 0x004e07f0 / PMS_heapFree 0x004e08d0, as NavGrid_Free) at the larger capacity,
+        // once per array set.
+        if (!g_astarEnlarged)
+        {
+            if (D(ebx + 0x24))
+                orig::fn_004e08d0(0x0063a210, D(ebx + 0x24));
+            if (D(ebx + 0x38))
+                orig::fn_004e08d0(0x0063a210, D(ebx + 0x38));
+            D(ebx + 0x24) = orig::fn_004e07f0(0x0063a210, 3, g_astarCapacity * 0x18, 2, 0x005b2330);
+            D(ebx + 0x38) = orig::fn_004e07f0(0x0063a210, 3, (g_astarCapacity + 1) * 4, 2, 0x005b2330);
+            g_astarEnlarged = true;
+        }
+    }
     std::memset(P(D(ebx + 0x20)), 0, 0xfb * 4);
     D(ebx + 0x28) = 0;
     D(ebx + 0x2c) = 0;
     D(ebx + 0x30) = 0;
-    D(ebx + 0x34) = 0x7d0;
+    D(ebx + 0x34) = g_astarCapacity;
     B[0x2c / 4] = 0;
     B[0x1c / 4] = PathKey(By(goal + 0x14), D(goal + 0xc), D(goal + 0x10));
     B[0x24 / 4] = PathKey(By(start + 0x14), D(start + 0xc), D(start + 0x10));

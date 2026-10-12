@@ -228,8 +228,13 @@ uint32_t ModelSlots_Resolve(uint32_t ctx, uint8_t* slots, uint32_t overrideModel
 // 0x0046d780 ([count, owner]): allocates ("particles", tag 1) and zeroes a pool of count 0x6c-byte particles
 // after a 0x24-byte header, links them into a doubly linked free list between sentinels at +0xc and +0x14,
 // stores owner (+0) and count (+4), then calls 0x0046d810(pool, 1). Returns the pool.
+// Enhancement hook (hook/enhance/limits.cpp, [limits] particle_pool_scale): pools hold this many times the particles.
+int32_t g_particlePoolScale = 1;
+
 uint8_t* ParticlePool_Create(int32_t count, uint32_t owner)
 {
+    if (g_particlePoolScale > 1)
+        count *= g_particlePoolScale;
     uint32_t bytes = static_cast<uint32_t>(count) * 0x6c;
     uint32_t size = bytes + 0x24;
     uint8_t* pool = reinterpret_cast<uint8_t*>(HeapAlloc_(1, size, 2, 0x005a03dc /* "particles" */));
