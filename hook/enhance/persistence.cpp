@@ -30,6 +30,7 @@
 #include "settings.h"
 
 extern bool (*g_fxKeep)(void* fx);  // src/renderer/render_r1.cpp (0x0041a350)
+extern bool (*g_isHeldBody)(void* character);  // src/physics/physics_01.cpp (Character_GoRagdoll)
 
 namespace
 {
@@ -94,6 +95,12 @@ bool HoldBody(void* character)
     }
     return true;
 }
+// A body held past its removal (Character_GoRagdoll leaves it out of the game's four-ragdoll limit).
+bool IsHeldBody(void* character)
+{
+    auto it = g_kept.find(character);
+    return it != g_kept.end() && !it->second.released;
+}
 }  // namespace
 
 void PersistenceOnFrame()
@@ -139,6 +146,7 @@ void PersistenceInit()
                           [](float v) { g_corpseHold = v != 0.0f ? HoldBody : nullptr; }},
                          0, 1) != 0.0f)
         g_corpseHold = HoldBody;
+    g_isHeldBody = IsHeldBody;  // empty until bodies are held
     g_debrisMax = static_cast<uint32_t>(ConfigInt("persistence", "debris_max", 1000));
     if (RemasterRegister({"persistence", "debris_keep", L"Keep explosion debris", S::Toggle, 0, 1, 1, {}, 0, false,
                           [](float v) { g_fxKeep = v != 0.0f ? KeepDebris : nullptr; }},

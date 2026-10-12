@@ -3481,6 +3481,9 @@ HOOK(0x00431020, "Character_Launch", Character_Launch_Entry, nullptr);
 // impulse (+0x9f8 direction, +0xa08 amount, +0xa04 id; zeros and -1 without damage), +0x9f0 = 5.0, +0x9f4 = 0.5,
 // physics on, added to list +0xe9c, virtual +0x1b8(0x190); else virtual +0x210 ? 0x00427100 : Object_Kill
 // 0x00455640(damage).
+// Enhancement point: true for a dead character kept past its removal (hook/enhance/persistence.cpp). Null = original.
+bool (*g_isHeldBody)(void* character) = nullptr;
+
 uint32_t Character_GoRagdoll(uint8_t* self, uint8_t* damage, uint32_t quiet)
 {
     alignas(4) uint8_t f[0x10];  // esp+0x10..+0x1c of the original (iterator, then impulse)
@@ -3507,7 +3510,10 @@ uint32_t Character_GoRagdoll(uint8_t* self, uint8_t* damage, uint32_t quiet)
         for (uint8_t* obj = B(orig::fn_004e7340(Field<uint32_t>(Field<uint8_t*>(g_game, 0xa84), 0xe7c), u(f)));
              obj; obj = B(orig::fn_004e73c0(u(f))))
         {
-            if ((VCall<uint8_t>(obj, 0x10c / 4)) && (Object_IsDownOrRagdoll(obj) & 0xff))
+            // Remaster: bodies held by the persistence enhancement (g_isHeldBody) do not count, or after four held
+            // bodies every later death was animated without physics and stayed in the air (2026-10-12).
+            if ((VCall<uint8_t>(obj, 0x10c / 4)) && (Object_IsDownOrRagdoll(obj) & 0xff) &&
+                !(g_isHeldBody && g_isHeldBody(obj)))
                 ++downCount;
         }
         if (L(0x14))
