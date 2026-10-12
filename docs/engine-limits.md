@@ -93,3 +93,17 @@ Sources: two read-only code audits (2026-10-12) and the playground captures. Gue
 - Whether world geometry is pre-lit through vertex colour.
 - Texture bucket overflow behaviour; per-level EnvMapSize values.
 - Particle peaks against the pools in heavy combat (guess: the 4000 pool saturates in explosions).
+
+## Frame budget at 4K (2026-10-12, RTX 4090, playground walk, [limits] log + [render] vulkan_verbose / gpu_timing)
+
+| | remaster defaults | remaster off |
+|---|---|---|
+| fps (driver cap 119) | 70-112, ~90 average | at the cap |
+| GPU per frame | ~7 ms (AO 0.6 half-res, shadows 2.3, FSR 2.0, snow 0.9, opaque 0.8) | ~0.7 ms |
+| game logic + physics | ~1.3 ms | ~1.3 ms |
+| render submission (game scene traversal + Vulkan layer + Present) | 7.7-9.7 ms | ~7 ms (includes the cap's wait) |
+| Vulkan layer preparing ~1,000 draws | 3.4-4.9 ms | 2.7 ms |
+
+The limit is single-threaded draw submission: about 3-5 us per draw in the Vulkan layer. Next step: record draws
+on worker threads (secondary command buffers) or batch the shadow-caster replay. Not started (structural change;
+waiting for the player's go-ahead).
