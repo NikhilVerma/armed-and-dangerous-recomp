@@ -107,3 +107,11 @@ Sources: two read-only code audits (2026-10-12) and the playground captures. Gue
 The limit is single-threaded draw submission: about 3-5 us per draw in the Vulkan layer. Next step: record draws
 on worker threads (secondary command buffers) or batch the shadow-caster replay. Not started (structural change;
 waiting for the player's go-ahead).
+
+### Where the remaining dips come from (2026-10-12, after the draw-state cache: ~99 fps average, 82-116)
+
+In the slow windows (77-85 fps) the shadow casters double (about 70 -> 130 per frame): their CPU replay and the shadow
+map's GPU time (2.3 -> 3.0 ms) grow together, and one window shows a 4.4 ms Present spike (GPU at the edge of the
+119 fps cap). Game logic stays ~1.3 ms; no pipeline compiles there. Next: cache the static casters' part of the
+shadow map and redraw only moving ones each frame, with "moving" decided per draw from its world-space transform AND
+its skinning constants (an animated character standing still must not freeze its shadow).
