@@ -527,6 +527,11 @@ bool alOn_ = false;
 VkPipeline alPipe_[7] = {};  // normals, radiance, radiance MIP, unified main pass, blur H, blur V, low-res gather
 uint32_t alScale_ = 2;        // [render] afterlight_scale: the bounce at 1 / scale resolution (1 = unified pass)
 GtaoImage alNormals_, alRadiance_, alBounce_, alPong_;
+// Smooth normals for XeGTAO ([render] ao_smooth_normals, afterlight.hlsl CSSmoothNormals): flat normals (alNormals_,
+// CSAfterlightNormals), smoothed (smNormals_), the main pass reading them. Used when Afterlight is off.
+bool smOn_ = false;
+VkPipeline smPipe_[3] = {};  // flat normals, smooth, main pass with normals
+GtaoImage smNormals_;
 VkSampler alLinear_ = VK_NULL_HANDLE;
 
 private:
@@ -3138,6 +3143,33 @@ bool VulkanDevice::GtaoInit()
                 break;
             }
     }
+    smOn_ = !alOn_ && ConfigIntDefault("render", "ao_smooth_normals", 0, 1) != 0;
+    if (smOn_)
+    {
+        // The main pass that takes normals is compiled with XeGTAO's in-place generation off.
+        std::string noInplace = hlsl;
+        const std::string def = "#define XE_GTAO_GENERATE_NORMALS_INPLACE 1";
+        if (size_t at = noInplace.find(def); at != std::string::npos)
+            noInplace.replace(at, def.size(), "#define XE_GTAO_GENERATE_NORMALS_INPLACE 0");
+        const char* smEntries[3] = {"CSAfterlightNormals", "CSSmoothNormals", "CSGTAOHighSmooth"};
+        for (int i = 0; i < 3; ++i)
+        {
+            VkShaderModule m = MakeModule(CompileHlslCompute(i == 2 ? noInplace : hlsl, smEntries[i]));
+            if (!m)
+                break;
+            VkComputePipelineCreateInfo ci{VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+            ci.stage = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
+            ci.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT, ci.stage.module = m, ci.stage.pName = smEntries[i];
+            ci.layout = gtaoLayout_;
+            vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &ci, nullptr, &smPipe_[i]);
+            vkDestroyShaderModule(device, m, nullptr);
+        }
+        if (!smPipe_[0] || !smPipe_[1] || !smPipe_[2])
+        {
+            Log("vulkan: ambient occlusion smooth normals failed to build; flat normals");
+            smOn_ = false;
+        }
+    }
     gtaoApplyVs_ = MakeModule(CompileGlsl(GtaoApplyVertexGlsl(), false));
     gtaoApplyFs_ = MakeModule(CompileGlsl(GtaoApplyFragmentGlsl(alOn_), true));
     VkDescriptorSetLayoutBinding ab[8] = {
@@ -3259,13 +3291,15 @@ void VulkanDevice::Ambient()
     if (gtaoWidth_ != svp.Width || gtaoHeight_ != svp.Height)
     {
         for (GtaoImage* gi : {&gtaoDepth_, &gtaoTerm_, &gtaoEdges_, &gtaoFinal_, &alNormals_, &alRadiance_, &alBounce_,
-                              &alPong_})
+                              &alPong_, &smNormals_})
             GtaoImageDestroy(*gi);
         gtaoWidth_ = svp.Width, gtaoHeight_ = svp.Height;
         EndRendering();
         if (!GtaoImageCreate(gtaoDepth_, VK_FORMAT_R32_SFLOAT, XE_GTAO_DEPTH_MIP_LEVELS) ||
             !GtaoImageCreate(gtaoTerm_, VK_FORMAT_R8_UINT, 1) || !GtaoImageCreate(gtaoEdges_, VK_FORMAT_R8_UNORM, 1) ||
             !GtaoImageCreate(gtaoFinal_, VK_FORMAT_R8_UINT, 1) ||
+            (smOn_ && (!GtaoImageCreate(alNormals_, VK_FORMAT_R16G16B16A16_SFLOAT, 1) ||
+                       !GtaoImageCreate(smNormals_, VK_FORMAT_R16G16B16A16_SFLOAT, 1))) ||
             (alOn_ && (!GtaoImageCreate(alNormals_, VK_FORMAT_R16G16B16A16_SFLOAT, 1) ||
                        !GtaoImageCreate(alRadiance_, VK_FORMAT_R16G16B16A16_SFLOAT, 5) ||
                        !GtaoImageCreate(alBounce_, VK_FORMAT_R16G16B16A16_SFLOAT, 1, (svp.Width + alScale_ - 1) / alScale_,
@@ -3432,6 +3466,30 @@ void VulkanDevice::Ambient()
         }
         else
             passP(alPipe_[3], mainX, mainY);
+    }
+    else if (smOn_)
+    {
+        // Bindings 20..23: flat normals out / in, smooth normals out / in (the pushes add these four to 0..13).
+        img[16] = {VK_NULL_HANDLE, alNormals_.mips[0], VK_IMAGE_LAYOUT_GENERAL};
+        img[17] = {VK_NULL_HANDLE, alNormals_.view, VK_IMAGE_LAYOUT_GENERAL};
+        img[18] = {VK_NULL_HANDLE, smNormals_.mips[0], VK_IMAGE_LAYOUT_GENERAL};
+        img[19] = {VK_NULL_HANDLE, smNormals_.view, VK_IMAGE_LAYOUT_GENERAL};
+        VkWriteDescriptorSet ws[18];
+        for (int i = 0; i < 14; ++i)
+            ws[i] = w[i];
+        for (int i = 0; i < 4; ++i)
+            ws[14 + i] = w[20 + i];
+        auto passS = [&](VkPipeline pipe, uint32_t gx, uint32_t gy) {
+            vkCmdPipelineBarrier2(cb, &di);
+            vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, pipe);
+            vkCmdPushDescriptorSetKHR(cb, VK_PIPELINE_BIND_POINT_COMPUTE, gtaoLayout_, 0, 18, ws);
+            vkCmdDispatch(cb, gx, gy, 1);
+            mb.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+            mb.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+        };
+        passS(smPipe_[0], (W + 7) / 8, (H + 7) / 8);  // flat normals + view z
+        passS(smPipe_[1], (W + 7) / 8, (H + 7) / 8);  // smoothed
+        passS(smPipe_[2], mainX, mainY);              // main pass with them
     }
     else
         pass(1, mainX, mainY);  // main pass

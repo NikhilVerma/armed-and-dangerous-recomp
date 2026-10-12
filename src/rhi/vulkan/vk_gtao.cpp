@@ -62,9 +62,9 @@ std::string GtaoHlsl(float thickness, int slices)
     // directions leave more noise for the denoiser and the temporal AA to remove (the player: "so pixellated").
     {
         const std::string call = "XeGTAO_MainPass(pixCoord, 3, 3,";
-        size_t at = entries.find(call);
-        if (at != std::string::npos)
-            entries.replace(at, call.size(), "XeGTAO_MainPass(pixCoord, " + std::to_string(slices) + ", 3,");
+        const std::string with = "XeGTAO_MainPass(pixCoord, " + std::to_string(slices) + ", 3,";
+        for (size_t at = entries.find(call); at != std::string::npos; at = entries.find(call, at + with.size()))
+            entries.replace(at, call.size(), with);  // CSGTAOHigh and CSGTAOHighSmooth
     }
     std::string out = s + entries, fixed;
     static const std::regex literal(R"((^|[^\w.])(\d+(?:\.\d+)?)\.(xxxx|xxx|xx)\b)");

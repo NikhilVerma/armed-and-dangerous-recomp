@@ -438,3 +438,45 @@ void CSAfterlightBlurV(const uint2 pixCoord : SV_DispatchThreadID)
     if (pixCoord.x < bw && pixCoord.y < bh)
         g_outBounce[pixCoord] = AL_BlurBounce(int2(pixCoord), int2(0, 1));
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// Smooth normals for XeGTAO ([render] ao_smooth_normals; vk_device.cpp Ambient): the in-place normals are flat per
+// triangle, so a rounded low-poly mound took its occlusion triangle by triangle (the player, 2026-10-12: "lets pass
+// those smooth normals to GTAO too"). CSAfterlightNormals writes the flat normals and view z (binding 20); this pass
+// averages them over 8 spiral points within 1.5% of the view height, each weighted by staying near the centre's
+// plane and by facing within ~45 degrees of it (creases stay hard), into binding 22; CSGTAOHighSmooth is the main
+// pass reading them (binding 23) instead of generating its own.
+[numthreads(8, 8, 1)]
+void CSSmoothNormals(const uint2 pixCoord : SV_DispatchThreadID)
+{
+    const GTAOConstants consts = g_GTAOConsts;
+    if (any(pixCoord >= uint2(consts.ViewportSize)))
+        return;
+    int2 p = int2(pixCoord);
+    int2 lim = consts.ViewportSize - 1;
+    float4 c0 = g_normals.Load(int3(p, 0));
+    float3 n0 = c0.xyz;
+    float3 P = XeGTAO_ComputeViewspacePosition((float2(p) + 0.5) * consts.ViewportPixelSize, c0.w, consts);
+    float3 sum = n0;
+    float radius = float(consts.ViewportSize.y) * 0.015;
+    float a = frac(sin(dot(float2(p), float2(12.9898, 78.233))) * 43758.5453) * 6.2831853;
+    for (int i = 0; i < 8; ++i)
+    {
+        float rr = sqrt((float(i) + 0.5) / 8.0) * radius;
+        float th = float(i) * 2.39996323 + a;
+        int2 q = clamp(p + int2(round(float2(cos(th), sin(th)) * rr)), int2(0, 0), lim);
+        float4 cq = g_normals.Load(int3(q, 0));
+        float3 Pq = XeGTAO_ComputeViewspacePosition((float2(q) + 0.5) * consts.ViewportPixelSize, cq.w, consts);
+        float gap = abs(dot(n0, Pq - P)) / (0.02 * abs(c0.w) + 0.05);
+        sum += cq.xyz * (1.0 - smoothstep(1.0, 3.0, gap)) * smoothstep(0.6, 0.85, dot(cq.xyz, n0));
+    }
+    g_outBounce[p] = float4(normalize(sum), c0.w);
+}
+
+[numthreads(XE_GTAO_NUMTHREADS_X, XE_GTAO_NUMTHREADS_Y, 1)]
+void CSGTAOHighSmooth(const uint2 pixCoord : SV_DispatchThreadID)
+{
+    lpfloat3 n = (lpfloat3)g_bounceIn.Load(int3(pixCoord, 0)).xyz;
+    XeGTAO_MainPass(pixCoord, 3, 3, SpatioTemporalNoise(pixCoord, g_GTAOConsts.NoiseIndex), n,
+                    g_GTAOConsts, g_srcWorkingDepth, g_samplerPointClamp, g_outWorkingAOTerm, g_outWorkingEdges);
+}
