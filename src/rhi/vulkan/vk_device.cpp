@@ -585,7 +585,25 @@ private:
     VulkanVertexLayout* layout_ = nullptr;
     VulkanShader* vs_ = nullptr;
     uint32_t vsPushedCount_ = 0;
-    size_t lastFrameDraws_ = 0;  // gpu_timing log  // registers copied into the ring at vsOffset_
+    size_t lastFrameDraws_ = 0;  // gpu_timing log
+    // State already recorded in the current render pass instance by PrepareDraw / DrawIndexedPrimitive: redundant
+    // binds and dynamic-state calls are skipped (about 1,000 draws a frame at ~3-5 us each made 4K frames CPU-bound,
+    // 2026-10-12). Every other pass opens its own render pass, so BeginRendering invalidates this.
+    struct DrawStateCache
+    {
+        bool valid = false;
+        VkPipeline pipeline = VK_NULL_HANDLE;
+        VkBuffer vb[16] = {};
+        VkDeviceSize vbOffset[16] = {};
+        VkBuffer ib = VK_NULL_HANDLE;
+        VkIndexType ibType = VK_INDEX_TYPE_UINT16;
+        VkViewport viewport{};
+        VkRect2D scissor{};
+        float bias[2] = {};
+        float blend[4] = {};
+        uint32_t stencilRef = 0;
+    } dsc_;
+    uint32_t ffPushes_ = 0;      // vulkan_verbose log: fixed-function uniform rebuilds  // registers copied into the ring at vsOffset_
     uint32_t VsUsedConstants() const { return vs_ ? vs_->constantCount : kVsConstantCount; }
     size_t VsCopyBytes() const { return static_cast<size_t>(VsUsedConstants()) * 16; }
     VulkanPixelShader* ps_ = nullptr;
@@ -1074,6 +1092,7 @@ void VulkanDevice::BeginRendering()
 {
     if (rendering_)
         return;
+    dsc_ = DrawStateCache{};  // a new render pass instance: nothing recorded yet
     VkCommandBuffer cb = Slot().cb;
     Image* color = rt_ ? rt_->GetImage() : nullptr;
     Image* depth = depth_ ? depth_->GetImage() : nullptr;
@@ -1182,9 +1201,10 @@ HRESULT VulkanDevice::Present(const RECT*, const RECT*, HWND, const RGNDATA*)
         QueryPerformanceFrequency(&f);
         auto ms = [&](long long ticks) { return ticks * 1000.0 / f.QuadPart / 120; };
         Log("vulkan: per frame (120 frames): %u draws, %.2f ms preparing them, %.2f ms in Present, %.2f ms waiting "
-            "for the GPU (frame fence), %.1f texture uploads in %.2f ms, %.1f new buffer versions",
+            "for the GPU (frame fence), %.1f texture uploads in %.2f ms, %.1f new buffer versions, %u FF uniform rebuilds",
             drawsCounted_ / 120, ms(prepareTicks_), ms(presentTicks_), ms(waitTicks_), Counters().uploads / 120.0,
-            ms(Counters().uploadTicks), Counters().bufferVersions / 120.0);
+            ms(Counters().uploadTicks), Counters().bufferVersions / 120.0, ffPushes_ / 120);
+        ffPushes_ = 0;
         Counters() = ResourceCounters{};
         prepareTicks_ = presentTicks_ = waitTicks_ = 0;
         drawsCounted_ = 0;
@@ -1765,7 +1785,16 @@ bool VulkanDevice::PrepareDraw(D3DPRIMITIVETYPE type, uint64_t drawKey)
                                     : GetPipeline(pk, input, vsm, fsm);
     if (!pipeline)
         return false;
-    vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+    // First draw of the render pass instance: every dynamic state is set (the cache's zeros may equal what the draw
+    // wants while the command buffer holds another pass's values).
+    const bool fresh = !dsc_.valid;
+    if (fresh)
+    {
+        dsc_ = DrawStateCache{};
+        dsc_.valid = true;
+    }
+    if (fresh || pipeline != dsc_.pipeline)
+        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline), dsc_.pipeline = pipeline;
 
     // Uniforms
     if (ffDirty_)
@@ -1842,6 +1871,7 @@ bool VulkanDevice::PrepareDraw(D3DPRIMITIVETYPE type, uint64_t drawKey)
         }
         ffOffset_ = PushUniform(&u, sizeof(u));
         ffDirty_ = false;
+        ++ffPushes_;
     }
     if (vsDirty_ || vsPushedCount_ < VsUsedConstants())
         vsOffset_ = PushUniform(vsConst_, sizeof(vsConst_), VsCopyBytes()), vsDirty_ = false,
@@ -1974,23 +2004,36 @@ bool VulkanDevice::PrepareDraw(D3DPRIMITIVETYPE type, uint64_t drawKey)
         if (!vb)
             return false;
         VkDeviceSize off = streamOffset_[b.binding];
-        vkCmdBindVertexBuffers(cb, b.binding, 1, &vb->Current().buffer, &off);
+        VkBuffer buf = vb->Current().buffer;
+        if (b.binding >= 16 || dsc_.vb[b.binding] != buf || dsc_.vbOffset[b.binding] != off)
+        {
+            vkCmdBindVertexBuffers(cb, b.binding, 1, &buf, &off);
+            if (b.binding < 16)
+                dsc_.vb[b.binding] = buf, dsc_.vbOffset[b.binding] = off;
+        }
         vb->MarkUsed(serial);
     }
 
-    // Dynamic state
+    // Dynamic state (only when changed in this render pass instance)
     Image* target = rt_->GetImage();
     VkViewport v{float(viewport_.X), float(viewport_.Y + viewport_.Height), float(viewport_.Width),
                  -float(viewport_.Height), viewport_.MinZ, viewport_.MaxZ};
-    vkCmdSetViewport(cb, 0, 1, &v);
+    if (fresh || std::memcmp(&v, &dsc_.viewport, sizeof(v)))
+        vkCmdSetViewport(cb, 0, 1, &v), dsc_.viewport = v;
     VkRect2D sc{{0, 0}, {target->width >> rt_->level, target->height >> rt_->level}};
-    vkCmdSetScissor(cb, 0, 1, &sc);
+    if (fresh || std::memcmp(&sc, &dsc_.scissor, sizeof(sc)))
+        vkCmdSetScissor(cb, 0, 1, &sc), dsc_.scissor = sc;
     float depthUnits = depth && depth->format == VK_FORMAT_D16_UNORM ? 65535.0f : 16777215.0f;
-    vkCmdSetDepthBias(cb, U2F(rs_[D3DRS_DEPTHBIAS]) * depthUnits, 0.0f, U2F(rs_[D3DRS_SLOPESCALEDEPTHBIAS]));
+    const float bias[2] = {U2F(rs_[D3DRS_DEPTHBIAS]) * depthUnits, U2F(rs_[D3DRS_SLOPESCALEDEPTHBIAS])};
+    if (fresh || std::memcmp(bias, dsc_.bias, sizeof(bias)))
+        vkCmdSetDepthBias(cb, bias[0], 0.0f, bias[1]), std::memcpy(dsc_.bias, bias, sizeof(bias));
     float bf[4];
     ColorToFloat(rs_[D3DRS_BLENDFACTOR], bf);
-    vkCmdSetBlendConstants(cb, bf);
-    vkCmdSetStencilReference(cb, VK_STENCIL_FACE_FRONT_AND_BACK, rs_[D3DRS_STENCILREF] & 0xff);
+    if (fresh || std::memcmp(bf, dsc_.blend, sizeof(bf)))
+        vkCmdSetBlendConstants(cb, bf), std::memcpy(dsc_.blend, bf, sizeof(bf));
+    const uint32_t stencilRef = rs_[D3DRS_STENCILREF] & 0xff;
+    if (fresh || stencilRef != dsc_.stencilRef)
+        vkCmdSetStencilReference(cb, VK_STENCIL_FACE_FRONT_AND_BACK, stencilRef), dsc_.stencilRef = stencilRef;
     return true;
 }
 
@@ -2123,6 +2166,7 @@ bool VulkanDevice::DrawTessellated(D3DPRIMITIVETYPE t, const uint8_t* indices, b
         return true;
     VkCommandBuffer cb = Slot().cb;
     vkCmdBindIndexBuffer(cb, tessBuffer_, it->second.offset, VK_INDEX_TYPE_UINT32);
+    dsc_.ib = VK_NULL_HANDLE;  // the draw-state cache no longer knows the bound index buffer
     vkCmdDrawIndexed(cb, it->second.count, 1, 0, indices ? base : 0, 0);
     return true;
 }
@@ -4888,7 +4932,9 @@ HRESULT VulkanDevice::DrawIndexedPrimitive(D3DPRIMITIVETYPE t, INT base, UINT mi
     if (!tessDraw_ || !DrawTessellated(t, indices_->Contents(), indices_->indexType == VK_INDEX_TYPE_UINT32,
                                        indices_->length, base, si, count))
     {
-        vkCmdBindIndexBuffer(cb, indices_->Current().buffer, 0, indices_->indexType);
+        VkBuffer ib = indices_->Current().buffer;
+        if (ib != dsc_.ib || indices_->indexType != dsc_.ibType)
+            vkCmdBindIndexBuffer(cb, ib, 0, indices_->indexType), dsc_.ib = ib, dsc_.ibType = indices_->indexType;
         vkCmdDrawIndexed(cb, VertexCount(t, count), 1, si, base, 0);
     }
     RecordScene(t, true, base, si, count, id);
