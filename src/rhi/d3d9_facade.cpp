@@ -70,13 +70,54 @@ void FacadeFallback(int index)
         Log("rhi: %s is outside the renderer interface (D3D9 fallback)", MethodName(index));
 }
 
+rhi::Object* ObjOfSlow(void* wrapper)
+{
+    std::lock_guard<std::mutex> g(g_lock);
+    auto it = g_byWrapper.find(wrapper);
+    return it == g_byWrapper.end() ? nullptr : it->second;
+}
+
+// The renderer object behind a wrapper. Fast path: every wrapper class derives from one D3D9 interface and declares
+// `obj` first, right after the vtable pointer, and its vtable lives in this module (a real D3D9 object's lives in
+// d3d9.dll). The map lookup under the lock was paid on every texture / stream / index binding (CPU-bound 4K frames,
+// 2026-10-12). The first 2000 lookups are checked against the map; a mismatch turns the fast path off.
 rhi::Object* ObjOf(void* wrapper)
 {
     if (!wrapper)
         return nullptr;
-    std::lock_guard<std::mutex> g(g_lock);
-    auto it = g_byWrapper.find(wrapper);
-    return it == g_byWrapper.end() ? nullptr : it->second;
+    static uintptr_t lo, hi;
+    static bool fast = true;
+    static long checks;
+    if (!hi)
+    {
+        HMODULE self = nullptr;
+        GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           reinterpret_cast<LPCSTR>(&ObjOfSlow), &self);
+        auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(self);
+        auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(reinterpret_cast<const uint8_t*>(self) + dos->e_lfanew);
+        lo = reinterpret_cast<uintptr_t>(self), hi = lo + nt->OptionalHeader.SizeOfImage;
+    }
+    if (fast)
+    {
+        const uintptr_t vt = *static_cast<const uintptr_t*>(wrapper);
+        rhi::Object* o = (vt >= lo && vt < hi) ? *reinterpret_cast<rhi::Object* const*>(
+                                                     static_cast<const uint8_t*>(wrapper) + sizeof(void*))
+                                               : nullptr;
+        if (checks < 2000)
+        {
+            ++checks;
+            rhi::Object* slow = ObjOfSlow(wrapper);
+            if (slow != o)
+            {
+                Log("rhi: facade fast lookup disagreed with the map (%p: %p vs %p); using the map", wrapper,
+                    static_cast<void*>(o), static_cast<void*>(slow));
+                fast = false;
+                return slow;
+            }
+        }
+        return o;
+    }
+    return ObjOfSlow(wrapper);
 }
 
 // Fallback path: the D3D9 object behind a wrapper.
