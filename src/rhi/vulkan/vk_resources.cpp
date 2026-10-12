@@ -517,6 +517,22 @@ VulkanShader::VulkanShader(const DWORD* code, bool px) : pixel(px)
     }();
     (void)detailRead;
     translated = TranslateShader(reinterpret_cast<const uint32_t*>(code));
+    if (!pixel && code)
+    {
+        // Every token shaped like a constant-register parameter (bit 31, register type 2): an over-estimate at worst
+        // (a def literal can look like one), which only copies more.
+        const uint32_t* t = reinterpret_cast<const uint32_t*>(code);
+        const uint32_t limit = ((t[0] >> 8) & 0xff) <= 1 ? 96u : kVsConstantCount;
+        uint32_t highest = 25;
+        bool relative = false;
+        for (uint32_t i = 1; i < 0x10000 && t[i] != 0x0000ffffu; ++i)
+            if ((t[i] & 0x80000000u) && ((t[i] >> 28) & 7) == 2 && ((t[i] >> 11) & 3) == 0)
+            {
+                highest = std::max(highest, t[i] & 0x7ffu);
+                relative |= (t[i] & 0x2000u) != 0;
+            }
+        constantCount = relative ? limit : std::min(limit, highest + 1);
+    }
     if (!translated.ok)
         Log("vulkan: shader translation failed: %s", translated.error.c_str());
     else if (!pixel)

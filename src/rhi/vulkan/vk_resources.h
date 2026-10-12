@@ -181,6 +181,10 @@ public:
     VkShaderModule CaptureVariant();  // vertex: also writes clip positions (vk_abi.h kBindingCapture)
     VkShaderModule TessVariant();     // vertex: also writes the tessellation varyings (vk_abi.h "Tessellation")
     bool pixel = false;
+    // Vertex shaders: constant registers worth copying per draw (the highest one read + 1, at least 26 for the
+    // projection c22..c25; relative addressing reads up to the version's limit: 96 for vs_1_x). The game's 228 shaders
+    // are all vs_1_1; copying 256 registers four times per draw dominated the CPU at 4K (2026-10-12 profile).
+    uint32_t constantCount = kVsConstantCount;
 };
 
 

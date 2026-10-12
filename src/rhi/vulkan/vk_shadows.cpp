@@ -3,7 +3,11 @@
 
 #include "vk_fog.h"
 
+#include <algorithm>
 #include <cmath>
+#include <string>
+
+#include "config.h"
 
 namespace rhi::vulkan
 {
@@ -115,7 +119,11 @@ void main()
 
 std::string ShadowApplyFragmentGlsl()
 {
-    return std::string("#version 450\nstruct ModernFog\n{\n") + ModernFogMembers() + "};\n" + R"(
+    // [render] shadow_taps: taps per blocker search and per filter (32 before 2026-10-12; FSR accumulates the
+    // per-pixel rotated spiral over frames, so fewer taps mostly add noise that it removes). Read once.
+    static const int taps = std::max(8, std::min(32, ConfigIntDefault("render", "shadow_taps", 32, 16)));
+    return std::string("#version 450\n#define SHADOW_TAPS ") + std::to_string(taps) +
+           "\nstruct ModernFog\n{\n" + ModernFogMembers() + "};\n" + R"(
 // Shadow map apply pass (vk_shadows.h): darkens lit surfaces that the shadow map says are occluded, with
 // percentage-closer soft shadows (PCSS): a blocker search finds how far the occluder is above the surface, and
 // the filter widens with that distance (hard where an object touches the ground, soft far from the caster),
@@ -203,9 +211,9 @@ void main()
     for (int pass = 0; pass < 2; ++pass)
     {
         float blockers = 0.0, sum = 0.0;
-        for (int i = 0; i < 32; ++i)
+        for (int i = 0; i < SHADOW_TAPS; ++i)
         {
-            float rr = sqrt((float(i) + 0.5) / 32.0);
+            float rr = sqrt((float(i) + 0.5) / float(SHADOW_TAPS));
             float th = float(i) * 2.39996323 + a;
             float z = texture(shadowDepth, uv + vec2(cos(th), sin(th)) * rr * searchUv).r;
             if (z < s.z - bias)
@@ -233,13 +241,13 @@ void main()
     // sun), never by itself or the mesh it belongs to.
     if (away && (s.z - blocker) * p.sunCam.w < 8.0)
         discard;
-    // Filter: 32 taps on a golden-angle spiral, rotated per pixel, weighted towards the centre (Gaussian): an even
+    // Filter: SHADOW_TAPS taps on a golden-angle spiral, rotated per pixel, weighted towards the centre (Gaussian): an even
     // disc gives a near-linear ramp that stops abruptly, and the eye reads the end of the ramp as a line (the player:
     // "faded but has a hard edge at the end").
     float lit = 0.0, wsum = 0.0;
-    for (int i = 0; i < 32; ++i)
+    for (int i = 0; i < SHADOW_TAPS; ++i)
     {
-        float rr = sqrt((float(i) + 0.5) / 32.0);
+        float rr = sqrt((float(i) + 0.5) / float(SHADOW_TAPS));
         float th = float(i) * 2.39996323 + a;
         float w = exp(-3.0 * rr * rr);
         lit += w * texture(shadowMap, vec3(uv + vec2(cos(th), sin(th)) * rr * radiusUv, s.z - bias));

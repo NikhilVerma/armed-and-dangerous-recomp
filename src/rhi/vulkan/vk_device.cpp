@@ -311,7 +311,9 @@ private:
     void ResetState();
     bool PrepareDraw(D3DPRIMITIVETYPE type, uint64_t drawKey);
     FFKey BuildFFKey(uint32_t vertexMask, const uint8_t texCoordSize[8]);
-    VkDeviceSize PushUniform(const void* data, VkDeviceSize size);
+    // Reserves size bytes in the frame's uniform ring and copies the first `copy` of them (default all): the rest is
+    // never read by the shaders bound to it (fewer vertex shader constants in use).
+    VkDeviceSize PushUniform(const void* data, VkDeviceSize size, VkDeviceSize copy = ~VkDeviceSize(0));
     uint32_t VertexCount(D3DPRIMITIVETYPE t, UINT primitives) const;
 
     IDirect3D9* queries_;
@@ -326,8 +328,17 @@ private:
     std::shared_ptr<Image> backBuffer_, autoDepth_, motion_, present_;
     PresentPass presentPass_;
     bool motionCleared_ = false;  // the motion attachment is cleared at the frame's first rendering into it
-    // Previous-frame transforms per draw (motion vectors): draw id -> snapshot. `prevSnaps_` is last frame's.
-    std::unordered_map<uint64_t, PrevUniforms> prevSnaps_, curSnaps_;
+    // Previous-frame transforms per draw (motion vectors): draw id -> two snapshots alternating by frame (serial & 1),
+    // kept across frames: the per-frame pair of maps cleared every frame cost a node allocation, a 4.4 KB zero fill
+    // and copies per draw (8% of a 4K walk's CPU samples in memset alone, 2026-10-12). Entries unused for 300 frames
+    // are dropped.
+    struct DrawSnap
+    {
+        PrevUniforms buf[2];
+        uint64_t serial = 0;      // the frame that last wrote buf[serial & 1]
+        uint64_t prevSerial = 0;  // the frame before that (its buffer is the other one)
+    };
+    std::unordered_map<uint64_t, DrawSnap> snaps_;
     std::unordered_map<uint64_t, uint32_t> drawOccurrence_;
     uint64_t DrawId(uint64_t base);
     SceneFrame scene_;  // this frame's 3D draws into the back buffer (vk_scene.h)
@@ -377,6 +388,17 @@ float snowLastCam_[3] = {};
 
 public:
     void Shadows();  // rhi::SceneEnd
+    // [render] gpu_timing=1: GPU timestamps around the remaster passes, averaged and logged every 2 s.
+    enum GpuMark { kGpuFrameStart, kGpuLightingStart, kGpuShadowsEnd, kGpuAmbientEnd, kGpuSceneEnd, kGpuAaEnd,
+                   kGpuBlurEnd, kGpuSnowEnd, kGpuFrameEnd, kGpuMarks };
+    VkQueryPool gpuPools_[kFramesInFlight] = {};
+    bool gpuWritten_[kFramesInFlight] = {};
+    double gpuSum_[kGpuMarks] = {};
+    uint32_t gpuFrames_ = 0;
+    DWORD gpuLastLog_ = 0;
+    bool GpuTiming();
+    void GpuMarkWrite(GpuMark m);
+    void GpuCollect(uint32_t slot);
     void Snow();     // rhi::SceneEnd
     void MotionBlur();  // rhi::SceneEnd, after temporal AA (vk_motionblur.h)
 void Ambient();  // rhi::SceneEnd: ambient occlusion (vk_gtao.h)
@@ -553,6 +575,9 @@ private:
     VulkanBuffer* indices_ = nullptr;
     VulkanVertexLayout* layout_ = nullptr;
     VulkanShader* vs_ = nullptr;
+    uint32_t vsPushedCount_ = 0;  // registers copied into the ring at vsOffset_
+    uint32_t VsUsedConstants() const { return vs_ ? vs_->constantCount : kVsConstantCount; }
+    size_t VsCopyBytes() const { return static_cast<size_t>(VsUsedConstants()) * 16; }
     VulkanPixelShader* ps_ = nullptr;
     float vsConst_[kVsConstantCount * 4] = {};
     float psConst_[kPsConstantCount * 4] = {};
@@ -890,8 +915,9 @@ void VulkanDevice::BeginFrame()
     s.serial = serial;
     s.uniformUsed = 0;
     ffDirty_ = vsDirty_ = psDirty_ = true;  // new ring: re-upload uniforms
-    prevSnaps_.swap(curSnaps_);  // this frame's draws find last frame's transforms there
-    curSnaps_.clear();
+    if (serial % 300 == 0)
+        for (auto it = snaps_.begin(); it != snaps_.end();)
+            it = it->second.serial + 300 < serial ? snaps_.erase(it) : std::next(it);
     drawOccurrence_.clear();
     scene_.Clear();
     sceneEnded_ = false;
@@ -912,6 +938,77 @@ void VulkanDevice::BeginFrame()
     VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vkBeginCommandBuffer(s.cb, &bi);
+    if (GpuTiming())
+    {
+        const uint32_t slot = static_cast<uint32_t>(serial % kFramesInFlight);
+        GpuCollect(slot);
+        vkCmdResetQueryPool(s.cb, gpuPools_[slot], 0, kGpuMarks);
+        gpuWritten_[slot] = true;
+        GpuMarkWrite(kGpuFrameStart);
+    }
+}
+
+bool VulkanDevice::GpuTiming()
+{
+    static const bool on = ConfigInt("render", "gpu_timing", 0) != 0;
+    if (!on)
+        return false;
+    if (!gpuPools_[0])
+        for (uint32_t i = 0; i < kFramesInFlight; ++i)
+        {
+            VkQueryPoolCreateInfo qi{VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
+            qi.queryType = VK_QUERY_TYPE_TIMESTAMP;
+            qi.queryCount = kGpuMarks;
+            vkCreateQueryPool(Ctx().device, &qi, nullptr, &gpuPools_[i]);
+        }
+    return gpuPools_[0] != VK_NULL_HANDLE;
+}
+
+void VulkanDevice::GpuMarkWrite(GpuMark m)
+{
+    if (GpuTiming())
+        vkCmdWriteTimestamp(Slot().cb, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, gpuPools_[serial % kFramesInFlight], m);
+}
+
+// After the slot's fence: the marks it wrote (unwritten marks are skipped: the pass did not run), as milliseconds
+// since the previous written mark, summed; logged every 2 s.
+void VulkanDevice::GpuCollect(uint32_t slot)
+{
+    if (!gpuWritten_[slot])
+        return;
+    uint64_t v[kGpuMarks * 2] = {};
+    if (vkGetQueryPoolResults(Ctx().device, gpuPools_[slot], 0, kGpuMarks, sizeof(v), v, 16,
+                              VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT) < 0)
+        return;
+    const double period = Ctx().properties.limits.timestampPeriod * 1e-6;  // ns -> ms
+    uint64_t last = 0;
+    bool have = false;
+    for (int i = 0; i < kGpuMarks; ++i)
+    {
+        if (!v[i * 2 + 1])
+            continue;
+        if (have)
+            gpuSum_[i] += double(v[i * 2] - last) * period;
+        last = v[i * 2], have = true;
+    }
+    ++gpuFrames_;
+    const DWORD now = GetTickCount();
+    if (now - gpuLastLog_ >= 2000 && gpuFrames_)
+    {
+        const double n = gpuFrames_;
+        extern unsigned g_pipelinesCreated;  // vk_pipeline.cpp
+        static unsigned pipesBefore;
+        Log("vulkan: %u pipelines compiled in the last 2 s", g_pipelinesCreated - pipesBefore);
+        pipesBefore = g_pipelinesCreated;
+        Log("vulkan: gpu ms/frame: opaque %.2f, shadows %.2f, ambient %.2f, translucent %.2f, aa %.2f, blur %.2f, "
+            "snow %.2f, ui+rest %.2f",
+            gpuSum_[kGpuLightingStart] / n, gpuSum_[kGpuShadowsEnd] / n, gpuSum_[kGpuAmbientEnd] / n,
+            gpuSum_[kGpuSceneEnd] / n, gpuSum_[kGpuAaEnd] / n, gpuSum_[kGpuBlurEnd] / n, gpuSum_[kGpuSnowEnd] / n,
+            gpuSum_[kGpuFrameEnd] / n);
+        for (double& x : gpuSum_)
+            x = 0.0;
+        gpuFrames_ = 0, gpuLastLog_ = now;
+    }
 }
 
 // Takes the pending helper waits (helperWaits_) that the helper has accepted into the arrays after `n` entries;
@@ -1179,6 +1276,7 @@ HRESULT VulkanDevice::Present(const RECT*, const RECT*, HWND, const RGNDATA*)
         di.pMemoryBarriers = &mb;
         vkCmdPipelineBarrier2(cb, &di);
     }
+    GpuMarkWrite(kGpuFrameEnd);
     vkEndCommandBuffer(cb);
     vkResetFences(c.device, 1, &s.fence);
     // Waits: the swapchain image, and the ray-tracing helper's work for this frame when it accepted it (the second
@@ -1386,7 +1484,7 @@ uint32_t VulkanDevice::VertexCount(D3DPRIMITIVETYPE t, UINT n) const
     }
 }
 
-VkDeviceSize VulkanDevice::PushUniform(const void* data, VkDeviceSize size)
+VkDeviceSize VulkanDevice::PushUniform(const void* data, VkDeviceSize size, VkDeviceSize copy)
 {
     FrameSlot& s = Slot();
     VkDeviceSize align = Ctx().properties.limits.minUniformBufferOffsetAlignment;
@@ -1396,7 +1494,7 @@ VkDeviceSize VulkanDevice::PushUniform(const void* data, VkDeviceSize size)
         Log("vulkan: uniform ring full this frame");
         at = 0;
     }
-    std::memcpy(s.uniformMapped + at, data, static_cast<size_t>(size));
+    std::memcpy(s.uniformMapped + at, data, static_cast<size_t>(copy < size ? copy : size));
     s.uniformUsed = at + size;
     return at;
 }
@@ -1731,8 +1829,9 @@ bool VulkanDevice::PrepareDraw(D3DPRIMITIVETYPE type, uint64_t drawKey)
         ffOffset_ = PushUniform(&u, sizeof(u));
         ffDirty_ = false;
     }
-    if (vsDirty_)
-        vsOffset_ = PushUniform(vsConst_, sizeof(vsConst_)), vsDirty_ = false;
+    if (vsDirty_ || vsPushedCount_ < VsUsedConstants())
+        vsOffset_ = PushUniform(vsConst_, sizeof(vsConst_), VsCopyBytes()), vsDirty_ = false,
+        vsPushedCount_ = VsUsedConstants();
     if (psDirty_)
         psOffset_ = PushUniform(psConst_, sizeof(psConst_)), psDirty_ = false;
 
@@ -1779,13 +1878,17 @@ bool VulkanDevice::PrepareDraw(D3DPRIMITIVETYPE type, uint64_t drawKey)
 
     // Previous-frame transforms of this draw (motion vectors, vk_abi.h): last frame's snapshot under the same draw
     // id, or the current transforms when it is new (no motion).
-    PrevUniforms& cur = curSnaps_[drawKey];
+    DrawSnap& snap = snaps_[drawKey];
+    if (snap.serial != serial)
+        snap.prevSerial = snap.serial, snap.serial = serial;
+    const bool hadPrev = snap.prevSerial + 1 == serial;  // drawn last frame: its transforms are in the other buffer
+    PrevUniforms& cur = snap.buf[serial & 1];
     std::memcpy(cur.world, world_, sizeof(cur.world));
     std::memcpy(cur.view, &view_, 64);
     std::memcpy(cur.projection, &projection_, 64);
-    std::memcpy(cur.vsConstants, vsConst_, sizeof(cur.vsConstants));
-    auto prev = prevSnaps_.find(drawKey);
-    VkDeviceSize prevOffset = PushUniform(prev != prevSnaps_.end() ? &prev->second : &cur, sizeof(PrevUniforms));
+    std::memcpy(cur.vsConstants, vsConst_, VsCopyBytes());
+    VkDeviceSize prevOffset = PushUniform(hadPrev ? &snap.buf[(serial & 1) ^ 1] : &cur, sizeof(PrevUniforms),
+                                          offsetof(PrevUniforms, vsConstants) + VsCopyBytes());
 
     // Descriptors
     FrameSlot& s = Slot();
@@ -3547,7 +3650,8 @@ void VulkanDevice::Shadows()
         }
         e.draw = d;
         e.draw.capture = nullptr;
-        e.constants.assign(c, c + kVsConstantCount * 4);
+        e.constants.assign(c, c + d.vsConstantsCount * 4);  // only these were recorded (VsUsedConstants)
+        e.constants.resize(kVsConstantCount * 4, 0.0f);
         e.toWorld = toWorld;
         std::memcpy(e.worldKey, key, sizeof(key));
         e.lastSeen = shadowFrame_;
@@ -3632,9 +3736,10 @@ void VulkanDevice::Shadows()
     for (const Job& job : jobs)
     {
         const SceneDraw& d = *job.d;
-        std::memcpy(constants.data(), job.c, constants.size() * sizeof(float));
+        const size_t used = std::max<size_t>(d.vsConstantsCount, kCameraRegister + 4);  // recorded registers only
+        std::memcpy(constants.data(), job.c, used * 4 * sizeof(float));
         std::memcpy(&constants[kCameraRegister * 4], job.camToLight.m, sizeof(job.camToLight.m));  // rows -> c22..c25
-        VkDeviceSize vsOffset = PushUniform(constants.data(), constants.size() * sizeof(float));
+        VkDeviceSize vsOffset = PushUniform(constants.data(), constants.size() * sizeof(float), used * 4 * sizeof(float));
         PipelineKey pk{};
         pk.raster.fillMode = D3DFILL_SOLID;
         pk.raster.cullMode = D3DCULL_NONE;
@@ -4637,8 +4742,11 @@ void VulkanDevice::BeforeDraw()
         rs_[D3DRS_ZWRITEENABLE] || !SceneDrawTarget())
         return;
     lightingDone_ = true;
+    GpuMarkWrite(kGpuLightingStart);
     Shadows();  // first: the ray-traced sun visibility feeds the occlusion pass
+    GpuMarkWrite(kGpuShadowsEnd);
     Ambient();
+    GpuMarkWrite(kGpuAmbientEnd);
 }
 
 // [render] skip_translucent=1 (diagnosis): scene draws with blending and no depth write are not drawn.
@@ -4742,7 +4850,7 @@ void VulkanDevice::RecordScene(D3DPRIMITIVETYPE t, bool indexed, INT base, UINT 
     if (vs_)
     {
         const bool translucent = rs_[D3DRS_ALPHABLENDENABLE] && !rs_[D3DRS_ZWRITEENABLE];
-        d.vsConstantsCount = translucent ? 26u : kVsConstantCount;
+        d.vsConstantsCount = translucent ? 26u : VsUsedConstants();
         d.vsConstantsOffset = static_cast<uint32_t>(scene_.vsConstants.size());
         scene_.vsConstants.insert(scene_.vsConstants.end(), vsConst_, vsConst_ + d.vsConstantsCount * 4);
     }
@@ -4793,16 +4901,24 @@ void rhi::SceneEnd()
 {
     if (rhi::vulkan::g_device)
     {
-        if (!rhi::vulkan::g_device->lightingDone_)
+        auto* d = rhi::vulkan::g_device;
+        if (!d->lightingDone_)
         {
-            rhi::vulkan::g_device->Shadows();
-            rhi::vulkan::g_device->Ambient();
-            rhi::vulkan::g_device->lightingDone_ = true;
+            d->GpuMarkWrite(d->kGpuLightingStart);
+            d->Shadows();
+            d->GpuMarkWrite(d->kGpuShadowsEnd);
+            d->Ambient();
+            d->GpuMarkWrite(d->kGpuAmbientEnd);
+            d->lightingDone_ = true;
         }
+        d->GpuMarkWrite(d->kGpuSceneEnd);  // translucent game draws end here
         // Temporal AA before the GPU snowfall: flakes have no motion vectors, and FSR averaged them away as noise.
-        rhi::vulkan::g_device->TemporalAa();
-        rhi::vulkan::g_device->MotionBlur();  // per object only, on the anti-aliased frame, under the snow and UI
-        rhi::vulkan::g_device->Snow();
+        d->TemporalAa();
+        d->GpuMarkWrite(d->kGpuAaEnd);
+        d->MotionBlur();  // per object only, on the anti-aliased frame, under the snow and UI
+        d->GpuMarkWrite(d->kGpuBlurEnd);
+        d->Snow();
+        d->GpuMarkWrite(d->kGpuSnowEnd);
         rhi::vulkan::g_device->sceneEnded_ = true;
         if (rhi::vulkan::g_device->lateOpaque_)
         {

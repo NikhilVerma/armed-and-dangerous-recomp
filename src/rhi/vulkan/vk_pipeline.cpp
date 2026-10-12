@@ -27,6 +27,8 @@
 #include "vk_pipeline.h"
 #include "rhi/rhi.h"
 
+unsigned g_pipelinesCreated = 0;  // graphics pipelines compiled (gpu_timing log)
+
 namespace rhi::vulkan
 {
 namespace
@@ -464,6 +466,7 @@ VkPipeline GetPipeline(const PipelineKey& key, const VertexInput& input, VkShade
             s.cache = VK_NULL_HANDLE;  // optional: pipelines still build without it
     }
     VkPipeline pipeline = VK_NULL_HANDLE;
+    ++g_pipelinesCreated;
     VkResult r = vkCreateGraphicsPipelines(s.device, s.cache, 1, &ci, nullptr, &pipeline);
     if (r != VK_SUCCESS)
     {
