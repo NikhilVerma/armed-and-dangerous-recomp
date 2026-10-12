@@ -29,6 +29,7 @@ extern int32_t g_particlePoolScale;                     // src/loader/auto_0045b
 extern uint32_t g_particleDrops;                        // src/renderer/render_r3.cpp
 extern void* g_particleDropPool;
 extern uint32_t g_astarCapacity, g_astarRefused;        // src/ai/ai_07.cpp
+extern bool g_astarEnlarged;
 extern double g_physicsGameTime, g_physicsSimTime;      // src/physics/physics_01.cpp
 extern bool g_physicsFixedStep;
 
@@ -85,6 +86,26 @@ void LimitsOnFrame()
     const DWORD now = GetTickCount();
     if (now - last < 2000)
         return;
+    static bool astarLogged;
+    if (g_astarEnlarged && !astarLogged)
+    {
+        astarLogged = true;
+        Log("limits: path search arrays enlarged to %u nodes", g_astarCapacity);
+    }
+    // Texture buckets in use (TextureBuckets_Init 0x0050a200: 1024; used list at renderer +0x494).
+    static uint32_t bucketPeak;
+    if (uint8_t* r = g_game ? Field<uint8_t*>(g_game, 0x38) : nullptr)
+    {
+        uint32_t used = 0;
+        auto* head = r + 0x494;
+        for (auto* n = Field<uint8_t*>(head, 0); n && n != head && used < 4096; n = Field<uint8_t*>(n, 0))
+            ++used;
+        if (used > bucketPeak)
+        {
+            bucketPeak = used;
+            Log("limits: texture buckets in use %u of 1024 (new peak)", used);
+        }
+    }
     const float fps = last ? frames * 1000.0f / static_cast<float>(now - last) : 0.0f;
     last = now, frames = 0;
     Log("limits: %.1f fps; physics simulated %.2f s for %.2f s of game time (x%.2f)", fps, g_physicsSimTime,

@@ -23,11 +23,11 @@ Sources: two read-only code audits (2026-10-12) and the playground captures. Gue
 
 | # | Limit | Evidence | Original | Plan | Effort |
 |---|---|---|---|---|---|
-| S1 | Simulation tied to the frame rate | Timer_Tick 0x004e47e0 (one variable-dt update per frame, dt <= 0.25 s); Game_Update substeps, at most 5 of up to 0.05 s (game_01.cpp); PhysicsManager_Step 0x00411d40 forces any step under 1/60 up to 1/60 (physics_01.cpp) | Physics runs too fast above 60 fps (inferred; matches the known "game speed may run fast" report, docs/original-bugs.md) | Fixed-step accumulator around the game update, input once per real frame, render interpolation | L |
+| S1 | Simulation tied to the frame rate | PhysicsManager_Step 0x00411d40 raises steps under 1/60 s to 1/60 s | measured x2.41 at 144 Hz | LIFTED for physics: `[limits] physics_fixed_step` (accumulator, 1/60 s steps); x1.00 at 30/60/144/240 Hz (playground physics_rate). Still to do: interpolation (objects move at 60 Hz above 60 fps) | done / L |
 | S2 | Havok world settings | WorldCinfo_Init 0x00414370, overridden in 0x00411960 | Broadphase ±5000 x ±5000, -1100..2000; +0x30 = 512 and +0x3c = 4 (guess: capacity and solver iterations) | Raise them after confirming the field meanings, or let Jolt own them later | M |
-| S3 | Force-action pool | ForceActionPool_Init(0x200) from 0x0045a4e0; ForceActionPool_Add 0x00403fb0 drops on full | 512; large explosions with many kept bodies lose impulses | Raise the capacity | S |
-| S4 | AI pathfinding | AStar_Add 0x00470600, Grid_FindPath (ai_07.cpp) | 2000 nodes, 400 path points, 10-unit grid; partial path on overflow | Heap-allocated larger node set | S/M |
-| S5 | Audio output | 0x004fa8f0 primary buffer | 22050 Hz, 16 bit, stereo, DirectSound3D without HRTF | 48 kHz output (S); XAudio2/OpenAL with HRTF (L) | S/L |
+| S3 | Force-action pool | ForceActionPool_Init 0x00403ef0 | 512 | LIFTED: `[limits] force_pool` 8192 (not reached in the 4-barracks stress scene even at 512) | done |
+| S4 | AI pathfinding | AStar_Add 0x00470600, Grid_FindPath 0x0046fd20 | 2000 nodes | LIFTED: `[limits] path_nodes` 16000 (arrays enlarged in play, AI pathing scene ran clean) | done |
+| S5 | Audio output | 0x004fa8f0 primary buffer | 22050 Hz | LIFTED: `[audio] mix_rate` 48000 (the device reports 48000 Hz); audible effect not checked | done |
 | S6 | Animation blend slots | anim_01.cpp | 2, or 4 when a weight is set | Later | M |
 | S7 | Saves under the install folder | save_01.cpp, 0x0048b370 | Fails under Program Files without VirtualStore | Redirect to Saved Games | S |
 | S8 | Fixed string buffers | 0x004198c0 (32-byte names); options registry 32 entries | | As needed | S |
@@ -64,8 +64,8 @@ Sources: two read-only code audits (2026-10-12) and the playground captures. Gue
 | R2 | Lights per scene | LightSlot_Acquire 0x0048a4b0 | 8 slots; a 9th fails ("Fx : Failed to set light") | Larger table outside the D3D9 slots (with R1) | M |
 | R3 | Per-vertex lighting | vertex shaders (c3, c7-c15); only 3 pixel shaders light per pixel (bump+specular, bump diffuse, terrain: sun only), vk_shader_translate.cpp | characters faceted and flat | Re-light per pixel in the translated shaders (normal and position as varyings) | L |
 | R4 | Point light not visible on the grunt | playground grunt_light | c9 uploaded, no visible effect | Part of R1/R3 | |
-| R5 | Particle pools | Fx_LoadChunk (2000 / 4000 / 2000); Particle_Alloc 0x0046d910 drops when full | CPU, unlit, frame-coupled | Raise pool sizes (S); GPU particles (L) | S/L |
-| R6 | Texture registry | TextureBuckets_Init 0x0050a200 | 1024 buckets; managed textures streamed by distance | Raise after checking overflow behaviour | S |
+| R5 | Particle pools | Fx_LoadChunk (2000 / 4000 / 2000); Particle_Alloc 0x0046d910 | 65,779 particles refused in the 4-barracks scene; smoke and dust missing | LIFTED: `[limits] particle_pool_scale` 16 (none refused; lowest fps 65 -> 41 in that scene). GPU particles later | done / L |
+| R6 | Texture registry | TextureBuckets_Init 0x0050a200 | 1024 buckets | NOT A PRACTICAL LIMIT: peak use 318 / 306 / 321 in lev_1_m1 / lev_3_m3 / lev_4_m1 | - |
 | R7 | Post-process blur targets | 0x0047c920 | 512x256 and down, whatever the resolution | Scale with the back buffer | S-M |
 | R8 | Environment map | 0x00418880 / 0x00418c80 | one map, faces updated over several frames, size from level data | SSR or probes | M |
 | R9 | Frame rate | see S1 | physics too fast above 60 fps; opening stalls above about 85 fps | S1; meanwhile a 60 fps cap as remaster default | S/L |
