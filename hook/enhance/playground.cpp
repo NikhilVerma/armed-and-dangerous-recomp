@@ -15,6 +15,7 @@
 //   player=hide | x,y,z             hide the player, or teleport it once after the load
 //   spawnN=template,x,y,z,yaw,frame create a template (lev_1_m1: grunt, grunt_rifle, captain, grunt_barracks_mini,
 //                                   v_house_*, pine_tree ...) at a frame (N = 1..64)
+//   exactN=1                        move spawn N to its exact position the frame after (characters snap to the ground)
 //   killN=spawn,frame               destroy spawn N (Object_Kill: death effect and husk) at a frame
 //   fxN=name,x,y,z,frame            play an effect by name at a frame (fx_explosion_barracks ...)
 //   sun=azimuth,elevation,r,g,b     replace the level's sun (light slot 0): degrees, colour 0..n (shadows follow it)
@@ -64,6 +65,8 @@ struct Spawn
     int frame = -1;
     void* obj = nullptr;
     bool done = false;
+    bool exact = false;  // moved to its exact position the frame after (characters snap to the ground)
+    int placedFrame = -1;
 };
 struct Kill
 {
@@ -335,6 +338,8 @@ void Load()
             float f[5] = {0, 0, 0, 0, 1};
             Floats(comma ? comma + 1 : "", f, 5);
             std::memcpy(s.pos, f, 12), s.yaw = f[3], s.frame = static_cast<int>(f[4]);
+            std::snprintf(key, sizeof(key), "exact%d", i + 1);
+            s.exact = ConfigInt("playground", key, 0) != 0;
         }
         std::snprintf(key, sizeof(key), "kill%d", i + 1);
         ConfigString("playground", key, "", v, sizeof(v));
@@ -443,7 +448,12 @@ void PlaygroundOnFrame()
     {
         Spawn& s = g_spawns[i];
         if (s.tmpl[0] && !s.done && f >= s.frame)
-            s.done = true, DoSpawn(s, i);
+            s.done = true, DoSpawn(s, i), s.placedFrame = f;
+        if (s.exact && s.obj && s.placedFrame >= 0 && f == s.placedFrame + 1 && Field<void*>(s.obj, 0x1c4))
+        {
+            Object_SetPosition(0, s.pos, static_cast<uint8_t*>(s.obj));
+            Log("playground: spawn%d moved to %.1f %.1f %.1f", i + 1, s.pos[0], s.pos[1], s.pos[2]);
+        }
         Kill& k = g_kills[i];
         if (k.spawn >= 0 && !k.done && f >= k.frame)
         {

@@ -17,7 +17,8 @@ Scene keys:
                  turntable around a spawned object (degrees per frame)
   fov            vertical degrees (0 = the game's)
   player         "hide" or [x, y, z]
-  spawn          [{"template": "grunt", "at": [x, y, z], "yaw": 0, "frame": 5}, ...]
+  spawn          [{"template": "grunt", "at": [x, y, z], "yaw": 0, "frame": 5, "exact": 1}, ...]
+                 exact: move it to "at" the frame after (characters otherwise snap to the ground)
   kill           [{"spawn": 1, "frame": 120}, ...]          (spawn numbers start at 1)
   fx             [{"name": "fx_explosion_barracks", "at": [x, y, z], "frame": 60}, ...]
   lights         {"sun": [az, el, r, g, b], "ambient": [r, g, b], "key": [az, el, r, g, b],
@@ -59,6 +60,8 @@ def playground_sets(scene):
     for i, sp in enumerate(scene.get("spawn", []), 1):
         x, y, z = sp["at"]
         s[f"playground.spawn{i}"] = f"{sp['template']},{x},{y},{z},{sp.get('yaw', 0)},{sp.get('frame', 1)}"
+        if sp.get("exact"):
+            s[f"playground.exact{i}"] = 1
     for i, k in enumerate(scene.get("kill", []), 1):
         s[f"playground.kill{i}"] = f"{k['spawn']},{k['frame']}"
     for i, f in enumerate(scene.get("fx", []), 1):
