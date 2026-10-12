@@ -821,6 +821,8 @@ bool VulkanDevice::CreateSwapchain()
     ci.preTransform = caps.currentTransform;
     ci.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
     ci.presentMode = vsync ? VK_PRESENT_MODE_FIFO_KHR : VK_PRESENT_MODE_IMMEDIATE_KHR;
+    Log("vulkan: swapchain present mode %s (game interval 0x%x)", vsync ? "FIFO (vsync)" : "IMMEDIATE",
+        params_.PresentationInterval);
     ci.clipped = VK_TRUE;
     ci.oldSwapchain = swapchain_;
     VkSwapchainKHR sc;
@@ -3851,8 +3853,9 @@ void VulkanDevice::Shadows()
     static const float softMin = ConfigFloat("render", "shadow_soft_min", 4.0f);  // [render] shadow_soft_min (texels)
     p.soft[3] = softMin;
     p.fog[0] = scene_.fogStart, p.fog[1] = scene_.fogEnd, p.fog[2] = scene_.fog ? 1.0f : 0.0f;
-    static const bool shadowDebug = ConfigInt("render", "shadow_debug", 0) != 0;
-    p.fog[3] = shadowDebug ? 1.0f : 0.0f;
+    // [render] shadow_debug: 1 penumbra view, 2 the depth-rebuilt (flat) normals, 3 the smoothed normals
+    static const int shadowDebug = ConfigInt("render", "shadow_debug", 0);
+    p.fog[3] = static_cast<float>(shadowDebug);
     std::memcpy(p.fogColor, scene_.fogColor, sizeof(scene_.fogColor));
     if (scene_.fog)
         ModernFogUniforms(p.mf, h, sceneProjection_, scene_.draws.back().viewport, scene_.fogStart, scene_.fogEnd,

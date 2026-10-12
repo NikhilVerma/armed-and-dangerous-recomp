@@ -164,6 +164,40 @@ float Hash(vec2 v)
     return fract(sin(dot(v, vec2(12.9898, 78.233))) * 43758.5453);
 }
 
+// Normal from the depth buffer at one pixel (forward differences), turned towards the camera.
+vec3 DepthNormal(vec2 px)
+{
+    vec3 a = CamPos(px);
+    vec3 n = normalize(cross(CamPos(px + vec2(1.0, 0.0)) - a, CamPos(px + vec2(0.0, 1.0)) - a));
+    return dot(n, a) > 0.0 ? -n : n;
+}
+
+// Smoothed surface normal (the player, 2026-10-12: "some shaders implement a smooth normals pass", as MartyMcFly's
+// RTGI): depth-rebuilt normals are flat per triangle, so a rounded low-poly mound shaded triangle by triangle. The
+// normals of 8 points on a spiral (radius 1.5% of the view height) are averaged, each weighted by staying near this
+// surface's plane (not across a depth gap) and by facing within ~45 degrees of it (hard creases stay hard).
+vec3 SmoothNormal(vec2 pixel, vec3 c, vec3 n0)
+{
+    vec3 sum = n0;
+    float radius = p.viewport.w * 0.015;
+    float a = Hash(pixel + 17.0) * 6.2831853;
+    for (int i = 0; i < 8; ++i)
+    {
+        float rr = sqrt((float(i) + 0.5) / 8.0) * radius;
+        float th = float(i) * 2.39996323 + a;
+        vec2 q = pixel + vec2(cos(th), sin(th)) * rr;
+        if (q.x < p.viewport.x || q.y < p.viewport.y || q.x >= p.viewport.x + p.viewport.z - 1.0 ||
+            q.y >= p.viewport.y + p.viewport.w - 1.0)
+            continue;
+        vec3 cq = CamPos(q);
+        float gap = abs(dot(n0, cq - c)) / (0.02 * abs(c.z) + 0.05);
+        vec3 nq = DepthNormal(q);
+        sum += nq * (1.0 - smoothstep(1.0, 3.0, gap)) * smoothstep(0.6, 0.85, dot(nq, n0));
+    }
+    return normalize(sum);
+}
+
+
 void main()
 {
     vec2 pixel = gl_FragCoord.xy;
@@ -178,7 +212,19 @@ void main()
     vec3 n = normalize(cross(dFdx(c), dFdy(c)));
     if (dot(n, c) > 0.0)
         n = -n;  // towards the camera
+    if (p.fog.w > 1.5)  // [render] shadow_debug=2 / 3: camera-space normals as colour, flat / smoothed
+    {
+        vec3 shown = p.fog.w > 2.5 ? SmoothNormal(pixel, c, n) : n;
+        o = vec4(shown * 0.5 + 0.5, 0.0);
+        o1 = vec4(0.0);
+        return;
+    }
     float ndl = dot(n, normalize(p.sunCam.xyz));
+    if (abs(ndl) < 0.3)  // near grazing: the facing decisions below follow the smoothed surface, not the triangle
+    {
+        n = SmoothNormal(pixel, c, n);
+        ndl = dot(n, normalize(p.sunCam.xyz));
+    }
     // Faces turned away from the sun are left to the game's lighting, unless something else casts its shadow on them
     // (decided after the blocker search): a small terrain step facing away inside a cliff's shadow stayed bright
     // and showed as a sharp triangle sliver (the player, 2026-10-12: "a weird triangle when moving and turning").
@@ -257,7 +303,7 @@ void main()
     // Ease the penumbra in and out (zero slope where it meets the lit ground and the umbra).
     float pk = 1.0 - lit;
     lit = 1.0 - pk * pk * (3.0 - 2.0 * pk);
-    if (p.fog.w > 0.5)  // [render] shadow_debug=1: penumbra radius (texels / 32) as grey, red where blockers were found
+    if (p.fog.w > 0.5 && p.fog.w < 1.5)  // [render] shadow_debug=1: penumbra radius (texels / 32) as grey, red where blockers were found
     {
         o1 = vec4(0.0);
         o = vec4(min(radiusUv / texel / 32.0, 1.0), any ? (s.z - blocker) * p.sunCam.w / 100.0 : 0.0, 0.0, 0.0);
@@ -267,7 +313,11 @@ void main()
     // Fade over the outer quarter of the map: its border moves with the camera, and a hard edge there read as
     // shadows popping in and out (measured: a large ground shadow cut off at the map's side).
     float fade = smoothstep(0.0, 0.25, min(edge.x, edge.y));
-    float shadow = (1.0 - lit) * p.misc.y * (away ? smoothstep(-0.2, -0.05, ndl) : smoothstep(0.02, 0.2, ndl)) * fade;
+    // Full strength on every face turned towards the sun: the normal here is rebuilt from depth, flat per triangle, and
+    // fading the shadow by it shaded each triangle of a rounded mound differently (the player, 2026-10-12: "why are
+    // triangles shaded weirdly on the floor"; playground facets scene). Only the narrow band turned slightly away keeps
+    // its blend (the terrain-step fix above).
+    float shadow = (1.0 - lit) * p.misc.y * (away ? smoothstep(-0.2, -0.05, ndl) : 1.0) * fade;
     if (shadow <= 0.0)
         discard;
     // Under the fog (as the ambient occlusion pass): with F = C T + Fog (1 - T), darkening C by k gives
