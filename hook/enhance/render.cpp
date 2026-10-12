@@ -131,10 +131,17 @@ void RenderInit()
     RemasterRegister({"render", "aa_mip_bias", L"Texture sharpness with AA", S::Slider, -2.0f, 0.0f, 0.25f, {}, 0,
                       true, nullptr},
                      0.0f, -1.0f);
-    // No level of detail: every object always draws its finest mesh (Object_SelectLod at distance 0).
+    // No level of detail: every object always draws its finest mesh (Object_SelectLod at distance 0). Off by default
+    // since 2026-10-12: it cost about 20 fps of CPU at 4K (74 -> 94 fps without it, playground cpu_split); lod_scale
+    // keeps the near and middle distance detailed instead.
     g_lodForceFinest = RemasterRegister({"render", "lod_max", L"Always highest detail", S::Toggle, 0, 1, 1, {}, 0,
                                          false, [](float v) { g_lodForceFinest = v != 0.0f; }},
-                                        0, 1) != 0.0f;
+                                        0, 0) != 0.0f;
+    // LOD distance scale: the original thresholds suit 640x480; at 4K an object covers ~4.5x the pixels per axis, so
+    // the finer meshes are kept to twice the distance (4x cost 6-9 fps more of CPU at 4K for no visible difference).
+    g_lodDistanceScale = RemasterRegister({"render", "lod_scale", L"Detail distance (x)", S::Slider, 1.0f, 8.0f, 0.5f,
+                                           {}, 0, false, [](float v) { g_lodDistanceScale = v; }},
+                                          1.0f, 2.0f);
     // Draw distance (far plane and fog range scale): the original follows the game's option; the remaster pins it
     // to the game's maximum (1.0) and allows up to 4x.
     const float dd = RemasterRegister({"render", "draw_distance", L"Draw distance", S::Slider, 1.0f, 4.0f, 0.25f, {}, 0,

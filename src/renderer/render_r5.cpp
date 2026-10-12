@@ -445,6 +445,7 @@ uint32_t SceneThumbnail_Render(void* desc, uint32_t width, uint32_t height)
 // None chosen: LOD 0 when there are LODs, else "Can't select LOD for object %s\n" (0x00407ff0 on g_game+0x34, name
 // 0x00453270).
 bool g_lodForceFinest = false;
+float g_lodDistanceScale = 1.0f;  // enhancement ([render] lod_scale): LOD distances divided by this; 1 = the original
 
 uint32_t Object_SelectLod(void* obj)
 {
@@ -473,6 +474,8 @@ uint32_t Object_SelectLod(void* obj)
         d = kZero;
     if (g_lodForceFinest)  // enhancement point (scene_pass.h); false: the original
         d = kZero;
+    else if (g_lodDistanceScale > 1.0f)
+        d = d / g_lodDistanceScale;
     const uint32_t q = Field<uint32_t>(game, 0x4a4) * 8;
     rec = Field<void*>(obj, 0x414);
     float m = static_cast<float>(std::tan(static_cast<double>(fov * GameGlobal<float>(0x005bcb4c))) *

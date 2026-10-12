@@ -15,6 +15,7 @@ extern float g_sceneCullSun[3];
 // every object at view distance 0, so the finest level of detail the object has is always chosen. False (the
 // default) is the original distance-based choice.
 extern bool g_lodForceFinest;
+extern float g_lodDistanceScale;  // [render] lod_scale (render_r5.cpp Object_SelectLod)
 
 // 0x004889a0 (cl = also the far plane, edx = planes out, edi = view-projection; stack: unused, callee pops 4):
 // the frustum planes of a 0x44-byte view-projection matrix, normalised by their xyz length. Returns the count,
