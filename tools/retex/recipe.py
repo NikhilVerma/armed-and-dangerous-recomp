@@ -28,6 +28,9 @@ PROMPT = ("Enhance this image to high resolution with rich fine details. Sharpen
           "photograph; preserve the original style.")
 QWEN = {"seed": 0, "image_steps": 25, "image_cfg": 5, "qwen_edit_strength": 0.9, "qwen_output_size": "source"}
 # Not redone: hand-tuned by the player, fonts, lettering (faithful upscale; Qwen garbles text).
+# Particle sprite atlases: a plain Lanczos enlargement of the original (the upscalers darkened their soft sprites; the
+# skid puff in n_fx_bank_2 drew as a black blob, found by bisecting the overrides, 2026-10-12).
+FAITHFUL_ONLY = {"n_fx_bank_1", "n_fx_bank_2"}
 EXCLUDE = set(batch.HAND_TUNED) | {"mainfontid", "font", "N_B_T_snow", "B_level1_ground"}  # + Poly Haven snow floor
 
 
@@ -176,6 +179,14 @@ LOW_FROM = {"k_mg_low": "k_mg", "b_fur_low": "b_fur", "B_trotter_face_low": "B_t
             "k_landsharkmissile_low": "k_landsharkmissile", "N_T_metal_rust_low": "N_t_metal_rust"}
 
 
+def unpremultiply(rgb, a):
+    """DXT2/DXT4 originals store colour premultiplied by alpha and the game blends them as such; an override is a plain
+    RGBA texture, blended with straight alpha, so its colour must be divided back out or soft particles turn black
+    (the skid puff fx_smoke_snow, 2026-10-12)."""
+    af = np.asarray(a, dtype=np.float64)[..., None] / 255.0
+    return np.where(af > 1.0 / 255.0, np.clip(rgb / np.maximum(af, 1.0 / 255.0), 0, 255), rgb)
+
+
 def finish(name, img, p):
     """Colour and lighting pass, original alpha, seamless edges, normal-map renormalisation; returns the stored image."""
     import judge
@@ -222,6 +233,8 @@ def finish(name, img, p):
         rgb = base * (1.0 - w) + rgb * w
     # The original's alpha always (SeedVR2 made 92 opaque textures partly transparent).
     a = np.asarray(src.getchannel("A").resize(out.size, Image.LANCZOS)) if p["alpha"] else         np.full(rgb.shape[:2], 255, np.uint8)
+    if p.get("fmt") in ("DXT2", "DXT4"):
+        rgb = unpremultiply(rgb, a)
     return Image.fromarray(np.dstack([np.clip(rgb + 0.5, 0, 255).astype(np.uint8), a]), "RGBA")
 
 
