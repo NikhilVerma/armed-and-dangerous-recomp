@@ -584,7 +584,8 @@ private:
     VulkanBuffer* indices_ = nullptr;
     VulkanVertexLayout* layout_ = nullptr;
     VulkanShader* vs_ = nullptr;
-    uint32_t vsPushedCount_ = 0;  // registers copied into the ring at vsOffset_
+    uint32_t vsPushedCount_ = 0;
+    size_t lastFrameDraws_ = 0;  // gpu_timing log  // registers copied into the ring at vsOffset_
     uint32_t VsUsedConstants() const { return vs_ ? vs_->constantCount : kVsConstantCount; }
     size_t VsCopyBytes() const { return static_cast<size_t>(VsUsedConstants()) * 16; }
     VulkanPixelShader* ps_ = nullptr;
@@ -930,6 +931,7 @@ void VulkanDevice::BeginFrame()
         for (auto it = snaps_.begin(); it != snaps_.end();)
             it = it->second.serial + 300 < serial ? snaps_.erase(it) : std::next(it);
     drawOccurrence_.clear();
+    lastFrameDraws_ = scene_.draws.size();
     scene_.Clear();
     sceneEnded_ = false;
     lightingDone_ = false;
@@ -1009,7 +1011,8 @@ void VulkanDevice::GpuCollect(uint32_t slot)
         const double n = gpuFrames_;
         extern unsigned g_pipelinesCreated;  // vk_pipeline.cpp
         static unsigned pipesBefore;
-        Log("vulkan: %u pipelines compiled in the last 2 s", g_pipelinesCreated - pipesBefore);
+        Log("vulkan: %u pipelines compiled in the last 2 s; last frame %zu scene draws, %zu shadow casters cached",
+            g_pipelinesCreated - pipesBefore, lastFrameDraws_, casters_.size());
         pipesBefore = g_pipelinesCreated;
         Log("vulkan: gpu ms/frame: opaque %.2f, shadows %.2f, ambient %.2f, translucent %.2f, aa %.2f, blur %.2f, "
             "snow %.2f, ui+rest %.2f",
