@@ -188,10 +188,18 @@ bool PatchImport(const char* dll, const char* func, void* hook, void** original)
         auto slots = reinterpret_cast<IMAGE_THUNK_DATA*>(base + imp->FirstThunk);
         for (; names->u1.AddressOfData; ++names, ++slots)
         {
+            // By name, or by ordinal (dsound's DirectSoundCreate8 is imported as ordinal 11): then the slot is
+            // matched by the address it holds. The [audio] settings were inactive before (2026-10-12).
             if (IMAGE_SNAP_BY_ORDINAL(names->u1.Ordinal))
-                continue;
-            auto byName = reinterpret_cast<IMAGE_IMPORT_BY_NAME*>(base + names->u1.AddressOfData);
-            if (strcmp(reinterpret_cast<char*>(byName->Name), func) != 0)
+            {
+                HMODULE m = GetModuleHandleA(dll);
+                FARPROC target = m ? GetProcAddress(m, func) : nullptr;
+                if (!target || slots->u1.Function != reinterpret_cast<uintptr_t>(target))
+                    continue;
+            }
+            else if (strcmp(reinterpret_cast<char*>(
+                                reinterpret_cast<IMAGE_IMPORT_BY_NAME*>(base + names->u1.AddressOfData)->Name),
+                            func) != 0)
                 continue;
             DWORD old;
             VirtualProtect(&slots->u1.Function, sizeof(void*), PAGE_READWRITE, &old);
