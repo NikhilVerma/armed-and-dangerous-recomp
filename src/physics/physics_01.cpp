@@ -184,6 +184,10 @@ HOOK(0x00403c70, "Physics_ApplyGravityScale", Physics_ApplyGravityScale_Entry, n
 // 0x00403ef0 (eax = capacity, esi = pool; caller 0x0045a4e0): allocates the element array (capacity * 0x30, tag
 // 0x13, "ApplyForceAction: m_elements") and the free list (capacity * 2, "ApplyForceAction: m_freeList"), clears
 // each element's flags and owner, fills the free list with 0..capacity-1. Returns the pool.
+// Enhancement hook ([limits] physics_solver_iterations): the Havok world's solver iterations (world cinfo +0x3c;
+// +0x34 tau 0.6, +0x38 damping 1.0, +0x3c 4 match Havok's "4 iterations, medium" solver preset). 0 = the original.
+uint32_t g_solverIterations = 0;
+
 // Enhancement hooks (hook/enhance/limits.cpp, [limits] force_pool): a larger capacity (0 = the caller's, 512; the free
 // list holds 16-bit indices) and a count of forces dropped because the pool was full.
 uint32_t g_forcePoolCapacity = 0;
@@ -1156,6 +1160,8 @@ uint32_t PhysicsManager_Init(uint8_t* m)
     cinfo[0x34 / 4] = 0x3f19999a;  // 0.6
     cinfo[0x38 / 4] = 0x3f800000;  // 1.0
     cinfo[0x3c / 4] = 4;
+    if (g_solverIterations)  // enhancement ([limits] physics_solver_iterations)
+        cinfo[0x3c / 4] = g_solverIterations;
     cinfo[0x10 / 4] = 0xc59c4000;  // -5000
     cinfo[0x14 / 4] = 0xc59c4000;
     cinfo[0x18 / 4] = 0xc4898000;  // -1100

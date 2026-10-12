@@ -11,6 +11,7 @@
 //   physics_fixed_step=1    above 60 fps the original steps physics 1/60 s every frame (x2.41 too fast at 144 Hz);
 //                           this steps whole 1/60 s steps from accumulated frame time instead (PhysicsManager_Step
 //                           0x00411d40). Objects then move at 60 Hz (no interpolation yet).
+//   physics_solver_iterations=8  Havok solver iterations per step (original 4): steadier stacks and resting piles.
 //   log=1                   log the drop counters when they change (every 2 s)
 //
 // All take effect at the next level load (the pools are made when a level loads).
@@ -32,6 +33,7 @@ extern uint32_t g_astarCapacity, g_astarRefused;        // src/ai/ai_07.cpp
 extern bool g_astarEnlarged;
 extern double g_physicsGameTime, g_physicsSimTime;      // src/physics/physics_01.cpp
 extern bool g_physicsFixedStep;
+extern uint32_t g_solverIterations;
 
 namespace
 {
@@ -57,6 +59,10 @@ void LimitsInit()
         RemasterRegister({"limits", "physics_fixed_step", L"Physics at real speed above 60 fps", S::Toggle, 0, 1, 1, {},
                           0, false, [](float v) { g_physicsFixedStep = v != 0.0f; }},
                          0, 1) != 0.0f;
+    g_solverIterations = static_cast<uint32_t>(
+        RemasterRegister({"limits", "physics_solver_iterations", L"Physics solver iterations", S::Slider, 4, 16, 1, {}, 0,
+                          true, nullptr},
+                         4, 8));
     if (g_astarCapacity < 2000)
         g_astarCapacity = 2000;
     g_log = ConfigInt("limits", "log", 0) != 0;
