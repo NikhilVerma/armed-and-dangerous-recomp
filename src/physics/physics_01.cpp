@@ -1289,11 +1289,40 @@ HOOK(0x00411cb0, "PhysicsManager_Shutdown", PhysicsManager_Shutdown_Entry, nullp
 // substep: gravity scaling (0x00403c70), the force actions of Game+0xa84 +0xf30 (0x00404140), a deferred refilter of
 // the whole world (0x004ac910 esi = world) when +0x60 is set, and hkWorld_stepDeltaTime (0x004ad7b0, ecx = &{dt,
 // 1/dt}; stack: world, &{dt, 1/dt}). Each substep uses the full dt. Returns eax as left.
+// Enhancement diagnostics (hook/enhance/limits.cpp): game time handed to the physics step and the time simulated.
+double g_physicsGameTime = 0.0, g_physicsSimTime = 0.0;
+// Enhancement hook ([limits] physics_fixed_step): the original raises steps under 1/60 s to 1/60 s, so above 60 fps
+// every frame simulates 1/60 s (x2.41 at 144 Hz, measured with the playground physics_rate scene). With this set, short
+// frames add their time to an accumulator and the world steps whole 1/60 s steps (at most 5) once enough has built up.
+bool g_physicsFixedStep = false;
+double g_physicsAccumulator = 0.0;
+
 uint32_t PhysicsManager_Step(uint32_t substeps, uint8_t* m, float dt)
 {
     ++Field<int32_t>(g_game, 0x700);
+    g_physicsGameTime += static_cast<double>(dt) * substeps;
+    // Frames of 1/60 s and longer step as the original (their full time); shorter ones go through the accumulator.
+    // Frame times hover around 1/60 s at 60 fps, so a small tolerance keeps both paths from losing steps.
+    if (g_physicsFixedStep && dt < K(0x005bcc98) * 0.999f)
+    {
+        const double step = static_cast<double>(bf(0x3c888889));
+        g_physicsAccumulator += static_cast<double>(dt) * substeps;
+        uint32_t n = static_cast<uint32_t>(g_physicsAccumulator / step + 1e-3);
+        if (n == 0)
+            return Field<uint32_t>(m, 8);
+        if (n > 5)
+            n = 5;
+        g_physicsAccumulator -= n * step;
+        if (g_physicsAccumulator > step)
+            g_physicsAccumulator = step;  // after a hitch: do not try to catch up more than one step
+        if (g_physicsAccumulator < -step)
+            g_physicsAccumulator = 0.0;
+        substeps = n;
+    }
     if (dt < K(0x005bcc98))
         dt = bf(0x3c888889);
+    if (Field<uint32_t>(m, 8))
+        g_physicsSimTime += static_cast<double>(dt) * substeps;
     if (!Field<uint32_t>(m, 8))
         return 0;
     if (!substeps)

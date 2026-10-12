@@ -24,6 +24,7 @@
 //   isolate=1                       switch off the level's lights other than the sun and these
 //   The shaders take two directional lights and one point light, in slot order (Renderer_UpdateLightConstants
 //   0x004ff2e0; its g_beforeLightConstants hook writes the lights into the renderer's slots +0x169c before each update).
+//   log_spawn=N                     log spawn N's physics body position every frame (300 frames; stops when killed)
 //   log_player=1                    log the player position every second (to find coordinates for a scene)
 //
 // API (scouted 2026-10-12): ObjectSystem_CreateObject 0x0045f020, Object_SetPosition 0x00457870, SetVisible vt+0xf4
@@ -74,6 +75,7 @@ struct Fx
     bool done = false;
 };
 
+int g_logSpawn = -1;
 bool g_on, g_skipBriefing, g_hidePlayer, g_movePlayer, g_playerDone, g_logPlayer;
 bool g_pinCamera;
 float g_camEye[3], g_camYaw, g_camPitch, g_camLook[3], g_camFov;
@@ -278,6 +280,7 @@ void Load()
     char key[16], v[160];
     g_skipBriefing = ConfigInt("playground", "skip_briefing", 1) != 0;
     g_logPlayer = ConfigInt("playground", "log_player", 0) != 0;
+    g_logSpawn = ConfigInt("playground", "log_spawn", 0) - 1;
     ConfigString("playground", "camera", "", v, sizeof(v));
     float c[6];
     if (Floats(v, c, 5) == 5)
@@ -439,12 +442,26 @@ void PlaygroundOnFrame()
             if (obj)
             {
                 orig::fn_00455640(u(obj), 0);  // Object_Kill
+                if (k.spawn == g_logSpawn)
+                    g_logSpawn = -1;  // the object may be freed and its memory reused
                 Log("playground: kill%d spawn%d at frame %d", i + 1, k.spawn + 1, f);
             }
         }
         Fx& x = g_fx[i];
         if (x.name[0] && !x.done && f >= x.frame)
             x.done = true, DoFx(x, i);
+    }
+    if (g_logSpawn >= 0 && g_logSpawn < kSlots)
+    {
+        static int logged;
+        void* obj = g_spawns[g_logSpawn].obj;
+        if (obj && Field<void*>(obj, 0x1c4) && logged < 300)
+        {
+            alignas(16) float pos[4] = {};
+            orig::fn_00457930(u(obj), u(pos));  // Body_getPosition
+            Log("playground: spawn%d body %.3f %.3f %.3f (frame %d)", g_logSpawn + 1, pos[0], pos[1], pos[2], f);
+            ++logged;
+        }
     }
     if (g_logPlayer && player && Field<void*>(player, 0x1c4) && (f % 60) == 0)
     {

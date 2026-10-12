@@ -70,6 +70,8 @@ def playground_sets(scene):
     for k in ("point_follow", "isolate"):
         if k in lights:
             s[f"playground.{k}"] = int(lights[k])
+    if scene.get("log_spawn"):
+        s["playground.log_spawn"] = scene["log_spawn"]
     if scene.get("log_player"):
         s["playground.log_player"] = 1
     return s

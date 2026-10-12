@@ -8,6 +8,9 @@
 //                           Particle_Alloc 0x0046d910 returns nothing when a pool is full: the particle never appears.
 //   path_nodes=16000        A* nodes per path search (AStar_Add 0x00470600, Grid_FindPath 0x0046fd20; original 2000).
 //                           At the cap the search stops growing and the AI takes a partial path.
+//   physics_fixed_step=1    above 60 fps the original steps physics 1/60 s every frame (x2.41 too fast at 144 Hz);
+//                           this steps whole 1/60 s steps from accumulated frame time instead (PhysicsManager_Step
+//                           0x00411d40). Objects then move at 60 Hz (no interpolation yet).
 //   log=1                   log the drop counters when they change (every 2 s)
 //
 // All take effect at the next level load (the pools are made when a level loads).
@@ -26,6 +29,8 @@ extern int32_t g_particlePoolScale;                     // src/loader/auto_0045b
 extern uint32_t g_particleDrops;                        // src/renderer/render_r3.cpp
 extern void* g_particleDropPool;
 extern uint32_t g_astarCapacity, g_astarRefused;        // src/ai/ai_07.cpp
+extern double g_physicsGameTime, g_physicsSimTime;      // src/physics/physics_01.cpp
+extern bool g_physicsFixedStep;
 
 namespace
 {
@@ -47,6 +52,10 @@ void LimitsInit()
         RemasterRegister({"limits", "path_nodes", L"AI path search nodes", S::Slider, 2000, 64000, 1000, {}, 0, true,
                           nullptr},
                          2000, 16000));
+    g_physicsFixedStep =
+        RemasterRegister({"limits", "physics_fixed_step", L"Physics at real speed above 60 fps", S::Toggle, 0, 1, 1, {},
+                          0, false, [](float v) { g_physicsFixedStep = v != 0.0f; }},
+                         0, 1) != 0.0f;
     if (g_astarCapacity < 2000)
         g_astarCapacity = 2000;
     g_log = ConfigInt("limits", "log", 0) != 0;
@@ -78,7 +87,8 @@ void LimitsOnFrame()
         return;
     const float fps = last ? frames * 1000.0f / static_cast<float>(now - last) : 0.0f;
     last = now, frames = 0;
-    Log("limits: %.1f fps", fps);
+    Log("limits: %.1f fps; physics simulated %.2f s for %.2f s of game time (x%.2f)", fps, g_physicsSimTime,
+        g_physicsGameTime, g_physicsGameTime > 0.0 ? g_physicsSimTime / g_physicsGameTime : 0.0);
     const uint32_t fullNow = g_bankFullFrames[0] + g_bankFullFrames[1] + g_bankFullFrames[2];
     if (g_forcePoolDrops != force || g_particleDrops != particles || g_astarRefused != nodes || fullNow != full)
     {
