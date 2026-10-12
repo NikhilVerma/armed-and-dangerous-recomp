@@ -1302,6 +1302,10 @@ double g_physicsGameTime = 0.0, g_physicsSimTime = 0.0;
 // frames add their time to an accumulator and the world steps whole 1/60 s steps (at most 5) once enough has built up.
 bool g_physicsFixedStep = false;
 double g_physicsAccumulator = 0.0;
+// For render interpolation (hook/enhance/limits.cpp): world steps taken so far, and how far the frame is into the
+// next step (accumulator / step; 1 when the frame stepped its full time).
+uint32_t g_physicsStepId = 0;
+float g_physicsAlpha = 1.0f;
 
 uint32_t PhysicsManager_Step(uint32_t substeps, uint8_t* m, float dt)
 {
@@ -1315,7 +1319,10 @@ uint32_t PhysicsManager_Step(uint32_t substeps, uint8_t* m, float dt)
         g_physicsAccumulator += static_cast<double>(dt) * substeps;
         uint32_t n = static_cast<uint32_t>(g_physicsAccumulator / step + 1e-3);
         if (n == 0)
+        {
+            g_physicsAlpha = static_cast<float>(g_physicsAccumulator / step);
             return Field<uint32_t>(m, 8);
+        }
         if (n > 5)
             n = 5;
         g_physicsAccumulator -= n * step;
@@ -1324,7 +1331,12 @@ uint32_t PhysicsManager_Step(uint32_t substeps, uint8_t* m, float dt)
         if (g_physicsAccumulator < -step)
             g_physicsAccumulator = 0.0;
         substeps = n;
+        g_physicsAlpha = static_cast<float>(g_physicsAccumulator > 0.0 ? g_physicsAccumulator / step : 0.0);
     }
+    else
+        g_physicsAlpha = 1.0f;
+    if (Field<uint32_t>(m, 8) && substeps)
+        ++g_physicsStepId;
     if (dt < K(0x005bcc98))
         dt = bf(0x3c888889);
     if (Field<uint32_t>(m, 8))

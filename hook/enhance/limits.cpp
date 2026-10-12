@@ -12,12 +12,19 @@
 //                           this steps whole 1/60 s steps from accumulated frame time instead (PhysicsManager_Step
 //                           0x00411d40). Objects then move at 60 Hz (no interpolation yet).
 //   physics_solver_iterations=8  Havok solver iterations per step (original 4): steadier stacks and resting piles.
+//   physics_interpolation=1 draw body-driven objects between their last two physics steps above 60 fps (one step
+//                           of display lag; translation only; not the player, ragdolls, or objects that move every
+//                           frame such as walking characters). interp_log=1 logs one object's true and drawn position.
 //   log=1                   log the drop counters when they change (every 2 s)
 //
 // All take effect at the next level load (the pools are made when a level loads).
 #include <windows.h>
 
+#include <cmath>
 #include <cstdint>
+#include <cstring>
+#include <unordered_map>
+#include <vector>
 
 #include "config.h"
 #include "game.h"
@@ -34,10 +41,89 @@ extern bool g_astarEnlarged;
 extern double g_physicsGameTime, g_physicsSimTime;      // src/physics/physics_01.cpp
 extern bool g_physicsFixedStep;
 extern uint32_t g_solverIterations;
+extern uint32_t g_physicsStepId;                                                  // src/physics/physics_01.cpp
+extern float g_physicsAlpha;
+extern const float* (*g_drawMatrix)(uint8_t* obj, const float* matrix);           // src/engine/missing_01.cpp
+unsigned PresentedFrames();                                                       // hook/src/d3d9_hooks.cpp
 
 namespace
 {
 bool g_log;
+
+// Render interpolation ([limits] physics_interpolation). Above 60 fps the world steps every few frames
+// (physics_fixed_step), so body-driven objects jumped at 60 Hz. Each object's drawn position is blended between its
+// positions after the last two steps by how far the frame is into the next step (one step of display lag). Drawing
+// only: gameplay keeps the true matrix. Translation only; the player (the camera follows its true position) and
+// ragdolls (bones) are left alone.
+struct Track
+{
+    float prev[3], cur[3];
+    uint32_t step;
+    unsigned frame;
+    unsigned movedOffStep;  // the last frame it moved without a physics step (characters move every frame)
+};
+bool g_interp, g_interpLog;
+std::unordered_map<uint8_t*, Track> g_tracks;
+std::vector<float> g_arena;  // 17 floats per interpolated matrix, reset each frame; never grows inside a frame
+size_t g_arenaUsed;
+unsigned g_arenaFrame = ~0u;
+uint8_t* g_logObj;
+int g_logLeft = 240;
+
+const float* DrawMatrix(uint8_t* obj, const float* m)
+{
+    if (!g_interp || !g_game || m != reinterpret_cast<const float*>(obj + 0x32c) || !Field<void*>(obj, 0x1c4) ||
+        obj == Field<uint8_t*>(g_game, 0x748) || Field<uint8_t>(obj, 0x421))
+        return m;
+    const unsigned frame = PresentedFrames();
+    if (frame != g_arenaFrame)
+    {
+        g_arenaFrame = frame, g_arenaUsed = 0;
+        if (g_tracks.size() > 20000)
+            g_tracks.clear();
+    }
+    const float pos[3] = {m[3], m[7], m[11]};
+    Track& t = g_tracks[obj];
+    const uint32_t step = g_physicsStepId;
+    const bool seen = t.frame + 1 == frame || t.frame == frame;
+    if (t.step != step)
+    {
+        if (seen && t.step + 1 == step)
+            std::memcpy(t.prev, t.cur, sizeof(t.prev));
+        else
+            std::memcpy(t.prev, pos, sizeof(t.prev));  // new, unseen for a while, or several steps at once: snap
+        std::memcpy(t.cur, pos, sizeof(t.cur));
+        t.step = step;
+    }
+    else if (!seen || pos[0] != t.cur[0] || pos[1] != t.cur[1] || pos[2] != t.cur[2])
+    {
+        // Moved without a step: moved every frame (characters: already smooth), teleported, or reused memory.
+        std::memcpy(t.prev, pos, sizeof(t.prev));
+        std::memcpy(t.cur, pos, sizeof(t.cur));
+        t.movedOffStep = frame;
+    }
+    t.frame = frame;
+    const float a = g_physicsAlpha < 0.0f ? 0.0f : g_physicsAlpha > 1.0f ? 1.0f : g_physicsAlpha;
+    if (a >= 1.0f || frame - t.movedOffStep < 60 ||
+        (t.prev[0] == t.cur[0] && t.prev[1] == t.cur[1] && t.prev[2] == t.cur[2]))
+        return m;
+    if (g_arenaUsed + 17 > g_arena.size())
+        return m;
+    float* out = &g_arena[g_arenaUsed];
+    g_arenaUsed += 17;
+    std::memcpy(out, m, 17 * sizeof(float));
+    out[3] = t.prev[0] + (t.cur[0] - t.prev[0]) * a;
+    out[7] = t.prev[1] + (t.cur[1] - t.prev[1]) * a;
+    out[11] = t.prev[2] + (t.cur[2] - t.prev[2]) * a;
+    if (g_interpLog && g_logLeft > 0 && (!g_logObj || g_logObj == obj))
+    {
+        g_logObj = obj;
+        --g_logLeft;
+        Log("limits: interp frame %u step %u alpha %.2f true %.3f %.3f drawn %.3f %.3f", frame, step, a, pos[0], pos[1],
+            out[3], out[7]);
+    }
+    return out;
+}
 }
 
 void LimitsInit()
@@ -63,6 +149,12 @@ void LimitsInit()
         RemasterRegister({"limits", "physics_solver_iterations", L"Physics solver iterations", S::Slider, 4, 16, 1, {}, 0,
                           true, nullptr},
                          4, 8));
+    g_interp = RemasterRegister({"limits", "physics_interpolation", L"Smooth physics above 60 fps", S::Toggle, 0, 1, 1,
+                                 {}, 0, false, [](float v) { g_interp = v != 0.0f; }},
+                                0, 1) != 0.0f;  // checked in the playground interp scene at 144 Hz
+    g_interpLog = ConfigInt("limits", "interp_log", 0) != 0;
+    g_arena.resize(17 * 16384);
+    g_drawMatrix = DrawMatrix;
     if (g_astarCapacity < 2000)
         g_astarCapacity = 2000;
     g_log = ConfigInt("limits", "log", 0) != 0;

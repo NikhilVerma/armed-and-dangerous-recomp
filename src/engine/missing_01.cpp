@@ -170,6 +170,10 @@ HOOK(0x00433e70, "EmptyMethod_Ret4", EmptyMethod_Ret4_Entry, nullptr);
 // Deviation: the translucent argument is pushed as a dword whose upper bytes are uninitialised stack in the
 // original (`mov byte ptr [esp+0xc], 1`); here they are 0 (ItemList_Add reads the byte only). The return value of
 // the drawing paths (whatever eax held) is not reproduced: 0.
+// Enhancement hook (hook/enhance/limits.cpp, [limits] physics_interpolation): the matrix a draw uses, given the
+// object's own (vt+0x7c); returns it or an interpolated copy that lives until the frame is drawn.
+const float* (*g_drawMatrix)(uint8_t* obj, const float* matrix) = nullptr;
+
 uint32_t Object_DrawBase(uint8_t* obj)
 {
     const uint32_t visible = VCall<uint32_t>(obj, 0x30 / 4);
@@ -181,6 +185,9 @@ uint32_t Object_DrawBase(uint8_t* obj)
     orig::fn_00457c20(u(obj));
     uint32_t source[6];  // the original's [esp+0x28..0x3c]
     source[0] = VCall<uint32_t>(obj, 0x7c / 4);
+    if (g_drawMatrix)
+        source[0] = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(
+            g_drawMatrix(obj, reinterpret_cast<const float*>(static_cast<uintptr_t>(source[0])))));
     source[3] = D(obj, 0x410);
     source[4] = 0;
     source[5] = u(obj);
