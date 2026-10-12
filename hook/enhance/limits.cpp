@@ -39,6 +39,8 @@ extern void* g_particleDropPool;
 extern uint32_t g_astarCapacity, g_astarRefused;        // src/ai/ai_07.cpp
 extern bool g_astarEnlarged;
 extern double g_physicsGameTime, g_physicsSimTime;      // src/physics/physics_01.cpp
+extern bool g_frameTiming;                               // src/game/game_01.cpp
+extern int64_t g_ticksUpdate, g_ticksRender, g_ticksPhysics;
 extern bool g_physicsFixedStep;
 extern uint32_t g_solverIterations;
 extern uint32_t g_physicsStepId;                                                  // src/physics/physics_01.cpp
@@ -171,6 +173,7 @@ void LimitsInit()
     if (g_astarCapacity < 2000)
         g_astarCapacity = 2000;
     g_log = ConfigInt("limits", "log", 0) != 0;
+    g_frameTiming = g_log;
     Log("limits: force_pool %u, particle_pool_scale %d, path_nodes %u", g_forcePoolCapacity, g_particlePoolScale,
         g_astarCapacity);
 }
@@ -218,6 +221,16 @@ void LimitsOnFrame()
         }
     }
     const float fps = last ? frames * 1000.0f / static_cast<float>(now - last) : 0.0f;
+    if (frames)
+    {
+        // Per frame: the whole game update, its render submission (Game_RenderFrame) and its physics step; the rest of
+        // the frame time is Present and waiting (src/game/game_01.cpp g_frameTiming).
+        const double toMs = 1e-6 / double(frames);  // steady_clock nanoseconds -> ms per frame
+        Log("limits: ms/frame: update %.2f (render submission %.2f, physics %.2f, other %.2f); frame %.2f",
+            g_ticksUpdate * toMs, g_ticksRender * toMs, g_ticksPhysics * toMs,
+            (g_ticksUpdate - g_ticksRender - g_ticksPhysics) * toMs, fps > 0.0f ? 1000.0 / fps : 0.0);
+        g_ticksUpdate = g_ticksRender = g_ticksPhysics = 0;
+    }
     last = now, frames = 0;
     Log("limits: %.1f fps; physics simulated %.2f s for %.2f s of game time (x%.2f)", fps, g_physicsSimTime,
         g_physicsGameTime, g_physicsGameTime > 0.0 ? g_physicsSimTime / g_physicsGameTime : 0.0);

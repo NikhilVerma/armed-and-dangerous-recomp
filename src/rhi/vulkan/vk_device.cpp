@@ -4901,6 +4901,11 @@ void VulkanDevice::RecordScene(D3DPRIMITIVETYPE t, bool indexed, INT base, UINT 
 {
     if (!SceneDrawTarget())
         return;
+    // Blended draws without depth writes (particles, glows) are read by nothing but the scene viewport and the
+    // "anything drawn" checks (the shadow pass takes opaque depth-writing draws only): not recorded once the frame has
+    // a record, except on scene-dump frames. Saves a record per particle batch (CPU-bound 4K frames, 2026-10-12).
+    if (rs_[D3DRS_ALPHABLENDENABLE] && !rs_[D3DRS_ZWRITEENABLE] && !scene_.draws.empty() && !captureFrame_)
+        return;
     if (scene_.draws.empty())
     {
         scene_.width = backBuffer_->width, scene_.height = backBuffer_->height;

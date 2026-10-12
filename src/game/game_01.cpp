@@ -1,6 +1,7 @@
 // Recovered (static, batch game_01): game object construction/destruction, options helpers, weapon table, game
 // state helpers and the camera. Compile-checked only (the game was not run); the oracle (tools/compare.py) is still
 // to do. Functions the recorded runs never execute are marked "not executed in recorded runs".
+#include <chrono>
 #include <cmath>
 #include <cstring>
 
@@ -649,8 +650,27 @@ HOOK(0x00402e70, "fn_00402e70", fn_00402e70_Entry, nullptr);
 // byte +0xae5: UI_PushScreen 0x00490b00 (eax = 0, ecx = +0xab4; "PubMenu" 0x005bc08c) and +0xae5 = 0. Tail jump to
 // 0x004e44e0(+0x34) (the argument slot is reused). Not executed in recorded runs: not verifiable by compare yet.
 // 0x004145c0 lists edx as an input but its callee overwrites it before use (passed as 0); 0x0044f580 only saves ebx.
+// Enhancement diagnostics ([limits] log, hook/enhance/limits.cpp): time spent in the whole update, in the render
+// submission (Game_RenderFrame 0x00403050) and in the physics step, in QueryPerformanceCounter ticks.
+bool g_frameTiming = false;
+int64_t g_ticksUpdate = 0, g_ticksRender = 0, g_ticksPhysics = 0;
+static int64_t Ticks()
+{
+    return std::chrono::steady_clock::now().time_since_epoch().count();  // QueryPerformanceCounter ticks on MSVC
+}
+
 uint32_t Game_Update(void* game, uint32_t dtBits)
 {
+    const int64_t updateStart = g_frameTiming ? Ticks() : 0;
+    struct UpdateTimer
+    {
+        int64_t start;
+        ~UpdateTimer()
+        {
+            if (g_frameTiming)
+                g_ticksUpdate += Ticks() - start;
+        }
+    } updateTimer{updateStart};
     const float dt = u2f(dtBits);
     if (Field<uint8_t>(game, 0x74d))
     {
@@ -682,11 +702,21 @@ uint32_t Game_Update(void* game, uint32_t dtBits)
         orig::fn_00463fa0(Field<uint32_t>(game, 0xa70));
         orig::fn_0044f580(ebx, Field<uint32_t>(game, 0xa88), dtBits);
         if (!Field<uint8_t>(game, 0x74c))
+        {
+            const int64_t r0 = g_frameTiming ? Ticks() : 0;
             orig::fn_00403050(u(game));
+            if (g_frameTiming)
+                g_ticksRender += Ticks() - r0;
+        }
         if (Field<uint32_t>(game, 0x2684) == 0 &&
             !static_cast<uint8_t>(orig::fn_0044a590(Field<uint32_t>(game, 0xa64))) && Field<uint8_t>(game, 0xae6) == 0 &&
             dt > GameGlobal<float>(0x0056c05c))
+        {
+            const int64_t p0 = g_frameTiming ? Ticks() : 0;
             orig::fn_00411d40(Field<uint32_t>(game, 0x4c34), Field<uint32_t>(game, 0xa8c), Field<uint32_t>(game, 0x4c30));
+            if (g_frameTiming)
+                g_ticksPhysics += Ticks() - p0;
+        }
         const bool flag = Field<uint8_t>(game, 0x74c) != 0;
         Field<uint8_t>(game, 0xae6) = 0;
         if (flag)
