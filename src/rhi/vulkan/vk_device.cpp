@@ -5,6 +5,7 @@
 // change and ends for transfers. Present blits our back buffer to the swapchain, submits and opens the next slot.
 // The adapter answers caps/mode/format queries through a real IDirect3D9 (no D3D9 device), so the game makes the
 // same rendering-path decisions as with the D3D9 backend.
+#include <algorithm>
 #include <cfloat>
 #include <cmath>
 #include <cstring>
@@ -3800,6 +3801,19 @@ void VulkanDevice::Shadows()
     static std::vector<float> constants(kVsConstantCount * 4);
     uint32_t drawn = 0;
 
+    // Casters grouped by pipeline (vertex shader, vertex layout, topology): the pipeline is looked up and bound once
+    // per group instead of per draw (CPU-bound 4K frames, 2026-10-12). Depth-only, so the order does not matter.
+    std::sort(jobs.begin(), jobs.end(), [](const Job& x, const Job& y) {
+        if (x.d->vertexModule != y.d->vertexModule)
+            return x.d->vertexModule < y.d->vertexModule;
+        if (x.d->input != y.d->input)
+            return x.d->input < y.d->input;
+        return x.d->type < y.d->type;
+    });
+    VkShaderModule lastModule = VK_NULL_HANDLE;
+    const VertexInput* lastInput = nullptr;
+    int lastType = -1;
+    VkPipeline lastPipeline = VK_NULL_HANDLE;
     for (const Job& job : jobs)
     {
         const SceneDraw& d = *job.d;
@@ -3807,24 +3821,29 @@ void VulkanDevice::Shadows()
         std::memcpy(constants.data(), job.c, used * 4 * sizeof(float));
         std::memcpy(&constants[kCameraRegister * 4], job.camToLight.m, sizeof(job.camToLight.m));  // rows -> c22..c25
         VkDeviceSize vsOffset = PushUniform(constants.data(), constants.size() * sizeof(float), used * 4 * sizeof(float));
-        PipelineKey pk{};
-        pk.raster.fillMode = D3DFILL_SOLID;
-        pk.raster.cullMode = D3DCULL_NONE;
-        pk.raster.zEnable = 1;
-        pk.raster.zWriteEnable = 1;
-        pk.raster.zFunc = D3DCMP_LESSEQUAL;
-        pk.raster.depthBiasEnable = 1;
-        pk.raster.topology = static_cast<uint8_t>(d.type);
-        pk.layoutHash = reinterpret_cast<uintptr_t>(d.input);
-        VkShaderModule pair[2] = {d.vertexModule, shadowDepthFs_};
-        pk.shaderHash = Hash(pair, sizeof(pair));
-        pk.colorFormat = VK_FORMAT_UNDEFINED;
-        pk.depthFormat = shadowMap_->format;
-        pk.motionFormat = VK_FORMAT_UNDEFINED;
-        VkPipeline pipeline = GetPipeline(pk, *d.input, d.vertexModule, shadowDepthFs_);
-        if (!pipeline)
+        if (d.vertexModule != lastModule || d.input != lastInput || static_cast<int>(d.type) != lastType)
+        {
+            PipelineKey pk{};
+            pk.raster.fillMode = D3DFILL_SOLID;
+            pk.raster.cullMode = D3DCULL_NONE;
+            pk.raster.zEnable = 1;
+            pk.raster.zWriteEnable = 1;
+            pk.raster.zFunc = D3DCMP_LESSEQUAL;
+            pk.raster.depthBiasEnable = 1;
+            pk.raster.topology = static_cast<uint8_t>(d.type);
+            pk.layoutHash = reinterpret_cast<uintptr_t>(d.input);
+            VkShaderModule pair[2] = {d.vertexModule, shadowDepthFs_};
+            pk.shaderHash = Hash(pair, sizeof(pair));
+            pk.colorFormat = VK_FORMAT_UNDEFINED;
+            pk.depthFormat = shadowMap_->format;
+            pk.motionFormat = VK_FORMAT_UNDEFINED;
+            lastPipeline = GetPipeline(pk, *d.input, d.vertexModule, shadowDepthFs_);
+            lastModule = d.vertexModule, lastInput = d.input, lastType = static_cast<int>(d.type);
+            if (lastPipeline)
+                vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, lastPipeline);
+        }
+        if (!lastPipeline)
             continue;
-        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
         FrameSlot& s = Slot();
         VkDescriptorBufferInfo bufs[4] = {{s.uniforms, vsOffset, kVsConstantCount * 16},
                                           {s.uniforms, ffOffset, kPsConstantCount * 16},
