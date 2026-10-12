@@ -174,8 +174,10 @@ void main()
     // Faces turned away from the sun are left to the game's lighting, unless something else casts its shadow on them
     // (decided after the blocker search): a small terrain step facing away inside a cliff's shadow stayed bright
     // and showed as a sharp triangle sliver (the player, 2026-10-12: "a weird triangle when moving and turning").
+    // Only faces turned SLIGHTLY away (a terrain step): faces turned well away are left to the game's lighting, or
+    // whole cliff facets turned dark (shadowed by the rest of the cliff; 2026-10-12).
     bool away = ndl <= 0.02;
-    if (ndl <= -0.6)
+    if (ndl <= -0.2)
         discard;
     vec4 l = p.camToLight * vec4(c, 1.0);
     vec3 s = l.xyz / l.w;
@@ -229,7 +231,7 @@ void main()
         discard;  // no occluder within the widest penumbra: lit
     // Facing away: shadowed only by a distant occluder (more than 4 world units in front of the surface towards the
     // sun), never by itself or the mesh it belongs to.
-    if (away && (s.z - blocker) * p.sunCam.w < 4.0)
+    if (away && (s.z - blocker) * p.sunCam.w < 8.0)
         discard;
     // Filter: 32 taps on a golden-angle spiral, rotated per pixel, weighted towards the centre (Gaussian): an even
     // disc gives a near-linear ramp that stops abruptly, and the eye reads the end of the ramp as a line (the player:
@@ -257,7 +259,7 @@ void main()
     // Fade over the outer quarter of the map: its border moves with the camera, and a hard edge there read as
     // shadows popping in and out (measured: a large ground shadow cut off at the map's side).
     float fade = smoothstep(0.0, 0.25, min(edge.x, edge.y));
-    float shadow = (1.0 - lit) * p.misc.y * (away ? 1.0 : smoothstep(0.02, 0.2, ndl)) * fade;
+    float shadow = (1.0 - lit) * p.misc.y * (away ? smoothstep(-0.2, -0.05, ndl) : smoothstep(0.02, 0.2, ndl)) * fade;
     if (shadow <= 0.0)
         discard;
     // Under the fog (as the ambient occlusion pass): with F = C T + Fog (1 - T), darkening C by k gives

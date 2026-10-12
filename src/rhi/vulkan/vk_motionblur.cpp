@@ -56,9 +56,14 @@ void main()
         // Only surfaces that move in the world blur (static scenery stays sharp while the camera pans), and they blur
         // by their motion ON SCREEN, as a real camera sees it: a runner the camera follows stays sharp except for his
         // swinging limbs (blurring by the world motion smeared the tracked player, 2026-10-12).
-        float worldPx = length((m.xy - camMotion) * p.size.xy);  // pixels per frame from the object's own motion
+        vec2 world = (m.xy - camMotion) * p.size.xy;  // pixels per frame from the object's own motion
+        vec2 screen = m.xy * p.size.xy;              // on screen (object and camera)
+        float worldPx = length(world);
         float moving = (isnan(worldPx) || isinf(worldPx)) ? 0.0 : smoothstep(0.75, 2.0, worldPx);
-        v = m.xy * p.size.xy * p.misc.z * moving;
+        // The shorter of the two: a runner the camera follows (small on screen) and a character while the camera
+        // turns (its screen motion is the camera's) both stay sharp; only real object motion blurs (the player:
+        // "the character still blurs when moving the camera on their edges").
+        v = (dot(screen, screen) < dot(world, world) ? screen : world) * p.misc.z * moving;
         if (any(isnan(v)) || any(isinf(v)))
             v = vec2(0.0);
         float len = length(v);

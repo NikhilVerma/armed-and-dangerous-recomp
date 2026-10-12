@@ -201,7 +201,15 @@ def _smooth_wrap(v, sigma):
     return np.stack([np.convolve(pad[:, c], k, mode="valid") for c in range(v.shape[1])], axis=1)
 
 
-def normalise_lighting(rgb, base, sigma):
+def _wblur(x, wgt, sigma):
+    """Blur of x over the texels that count (weight wgt, e.g. alpha): transparent texels do not pull the average."""
+    import judge
+    if wgt is None:
+        return judge.blur(x, sigma)
+    return judge.blur(x * wgt, sigma) / np.maximum(judge.blur(wgt, sigma), 1e-3)
+
+
+def normalise_lighting(rgb, base, sigma, wgt=None, wgt_base=None):
     """Lighting normalisation (the player, 2026-10-11: "it's darkening some images a lot ... ensure the output has
     similar lighting, colours can vary"): Qwen renders came out darker (72 of 257 more than 15 % below the original's
     mean luminance; x_dirtrocks1 at half). The output's luminance above about two original pixels is replaced by the
@@ -212,11 +220,14 @@ def normalise_lighting(rgb, base, sigma):
     w = np.array([0.2126, 0.7152, 0.0722])
     y = rgb @ w
     yb = base @ w
-    delta = judge.blur(yb, sigma) - judge.blur(y, sigma)
+    # wgt / wgt_base: alpha of the result and of the original (0..1). Particle textures are mostly transparent,
+    # with premultiplied (black) colour there in the original: an unweighted blur compared the invisible areas and
+    # darkened the visible particle (fx_snow_flakes 53 -> 7; black footstep snow, 2026-10-12).
+    delta = _wblur(yb, wgt_base, sigma) - _wblur(y, wgt, sigma)
     return rgb + delta[..., None]
 
 
-def normalise_saturation(rgb, base, sigma):
+def normalise_saturation(rgb, base, sigma, wgt=None, wgt_base=None):
     """Saturation normalisation (the player, 2026-10-11: "it's desaturating the images quite a bit"): each pixel's
     chroma (its colour minus its luminance) is scaled so the broad-scale chroma strength matches the original's;
     hue and fine colour detail stay Qwen's. The scale is limited to 0.5..3 so a near-grey area cannot be blown up."""
@@ -224,8 +235,8 @@ def normalise_saturation(rgb, base, sigma):
     w = np.array([0.2126, 0.7152, 0.0722])
     c = rgb - (rgb @ w)[..., None]
     cb = base - (base @ w)[..., None]
-    mag = judge.blur(np.sqrt((c * c).sum(-1)), sigma)
-    magb = judge.blur(np.sqrt((cb * cb).sum(-1)), sigma)
+    mag = _wblur(np.sqrt((c * c).sum(-1)), wgt, sigma)
+    magb = _wblur(np.sqrt((cb * cb).sum(-1)), wgt_base, sigma)
     k = np.clip((magb + 1.0) / (mag + 1.0), 0.5, 3.0)
     return rgb - c + c * k[..., None]
 

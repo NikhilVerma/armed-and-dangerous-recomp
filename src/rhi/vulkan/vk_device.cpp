@@ -4516,9 +4516,12 @@ void VulkanDevice::Snow()
     if (h.snowDebug)
         p.color[0] = 1.0f, p.color[1] = 0.05f, p.color[2] = 0.05f, p.color[3] = 1.0f;
     else
-        p.color[0] = 0.95f, p.color[1] = 0.97f, p.color[2] = 1.0f, p.color[3] = 0.85f;
+        p.color[0] = 0.95f, p.color[1] = 0.97f, p.color[2] = 1.0f, p.color[3] = 1.0f;  // more opaque (the player)
     // Streak exposure: the shutter speed ([render] shutter_speed, 1/N s); 1/60 s without it.
-    const float exposure = h.shutterSpeed > 0.0f ? 1.0f / h.shutterSpeed : 1.0f / 60.0f;
+    // Snow falls slowly: at 1/120 s a flake moves a fraction of its size and shows no streak (the player: "snow
+    // particles have NO motion blur"); flakes streak over 4x the shutter time ([render] snow_shutter_scale).
+    static const float snowShutterScale = ConfigFloat("render", "snow_shutter_scale", 4.0f);
+    const float exposure = (h.shutterSpeed > 0.0f ? 1.0f / h.shutterSpeed : 1.0f / 60.0f) * snowShutterScale;
     p.sim[0] = h.snowSky, p.sim[1] = 40.0f, p.sim[2] = 0.5f, p.sim[3] = exposure;  // 40: depth below the camera
     VkDeviceSize offset = PushUniform(&p, sizeof(p));
     if (!shadowDepthSampler_)
