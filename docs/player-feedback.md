@@ -15,8 +15,8 @@ Agents re-read this file after every context compaction (AGENTS.md).
 | 6 | Add a bit of opacity to the snow particles | Flake opacity 0.85 -> 1.0. Done |
 | 7 | Mountain skybox texture not high-res enough: tiled Qwen | B_1_1_sky, B_level1_sky_part_A/B: SeedVR2 7b 4x canvas, then tools/retex/qwen_tiles.py with 1024 tiles, overlap 256, the agreed recipe (0.9 / cfg 5). work/retex/sky4/run.py. RUNNING; install when done |
 | 8 | Footstep / ice kick-up flakes are BLACK when running | The colour pass was not alpha-weighted (particles darkened: fx_snow_flakes 53 -> 7). Fixed in batch.py/recipe.py (alpha-weighted); re-running finish() for all alpha textures. RUNNING |
-| 9 | Building debris floats in the air after destruction | Suspect debris persistence (persistence.cpp / g_fxKeep in fn_0041a350) freezing motion. Subagent investigating |
-| 10 | Menu mouse: bounding box / hover still inaccurate, does not always highlight | The log shows item boxes about ±0.025 wide x 0.02 high; clicks just outside hit nothing. NearestHit only covers the click target (0x00463930); hover goes through another path (0x00464990 / list boxes). Fix both. IN PROGRESS |
+| 9 | Building debris floats in the air after destruction | Cause (subagent, code evidence): many fx pieces have gravity scale 0 (weightless by default, FxObject_Load) or no ground collision, and fade within seconds in the original; kept, they hang. Fixed: keep only gravity >= 0.99 with the hit-ground flag. Possible follow-up: wake kept bodies whose support was removed (Havok islands stay asleep). WAITING FOR CONFIRMATION |
+| 10 | Menu mouse: bounding box / hover still inaccurate, does not always highlight | Cause: the hit-box scale was computed once at start (1.25) while text is drawn 4.5x at 4K. Now per frame (logged: hit scale 4.50). The clicks that missed in the player's log now fall inside the boxes. WAITING FOR CONFIRMATION |
 | 11 | "Don't revert, fix" | Standing instruction: when a fix misbehaves, fix it forward rather than reverting it (unless asked) |
 
 ## Standing preferences from this period
