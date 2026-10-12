@@ -202,3 +202,25 @@ Measured (fidelity / detail vs Lanczos): b_grunt_front 0.93-0.95 / 1.6-1.7, wood
 k_player_rifle 0.73-0.75 / 3.0 (alpha cut-out; visually exact). Rejected on the way: strength 1.0 from the small
 original (redraws layout), Lanczos canvas (stays blurry at <=0.95, drifts at cfg >= 7 on UV sheets), canvas +
 original as a second reference (no gain), cfg 2 (adds little).
+
+### Recipe as agreed (2026-10-11 evening, supersedes the SwinIR canvas above)
+
+The player's settings merged with the sweep: Media Lab jobs 20261011-175746-526642 and 20261011-180026-97e788.
+
+1. Canvas: SeedVR2 `seedvr2_model=3b`, `seedvr2_color=none`, no blend, `seedvr2_scale` = target / original (exact
+   target size), original alpha kept.
+2. Qwen Image 2.1 with TWO images: the SeedVR2 canvas first (size, layout), the original low-res texture second
+   (the sharp reference). qwen_edit_strength 0.9, image_cfg 5 (the player: "5 seems to be the best subjective
+   strength"), 25 steps, qwen_output_size source, no negative, the player's "Enhance this image..." prompt unchanged.
+3. Colour and lighting correction afterwards as a separate pass (batch.normalise_lighting / normalise_saturation),
+   not part of the generation.
+4. Normal maps: own prompt (batch.NORMAL_PROMPT).
+
+## Data textures and small originals (2026-10-12)
+
+- Terrain blend masks (b_a_blend*), lightmaps (*_ground_light, *_lightmap_*) and ground masks are data, not pictures:
+  they stay original (recipe EXCLUDE). Upscaled blend masks made the dirt layer show as hard dark smears in the snow.
+- The "under 32 px stays original" rule is checked on the shortest side: 16-px tracer strips (fx_trail_*) enlarged 16x
+  had green fringes and black halos. 25 overrides were removed (list in work/retex/excluded/removed_2026-10-12.txt).
+- `[overrides] exclude=name;name` leaves single textures original for an A/B in the playground; `uv_checker=` swaps
+  them for a UV grid to find which texture a surface uses.

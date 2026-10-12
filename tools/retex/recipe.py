@@ -35,6 +35,11 @@ EXCLUDE = set(batch.HAND_TUNED) | {"mainfontid", "font", "N_B_T_snow", "B_level1
 # Terrain blend masks are data, not pictures: the upscaler sharpened their noise and the dirt layer (B_level1_ground2)
 # showed as hard dark patches in the snow (playground smear scenes, 2026-10-12). They stay original.
 EXCLUDE |= {"b_a_blend_0", "b_a_blend_vert", "b_a_blend1", "b_a_blend_quarter"}
+# Lightmaps and ground masks are data too (lightmap drift up to 14 levels on average).
+EXCLUDE |= {"2m1_ground_light", "2m2_ground_light", "b_a_2m2_lightmap_01", "x_a_2m1_lightmap_01", "lev_3_m3_ground_mask"}
+# Originals with a side under 32 px stay as they are (the player's rule): the 16-px tracer strips enlarged 16x got
+# green fringes and black halos. Checked by the shortest side, not the longest.
+MIN_SIDE = 32
 
 
 def out(name, *p):
@@ -259,7 +264,8 @@ def finalize(install=False):
     print(f"{len(results)} results, {len(broken)} above {MAX_STRUCTURE}: SwinIR-L fallback", flush=True)
     # Broken faithful upscales (the player, 2026-10-12): originals below 32 px stay as they are; the rest get a
     # SwinIR-L canvas (no invented content) and then the same Qwen pass as the recipe (canvas + original).
-    tiny = {n for n in broken if max(Image.open(batch.path("src", n + ".png")).size) < 32}
+    # Every original with a side under MIN_SIDE stays as it is, broken or not (shortest side: 16-px strips too).
+    tiny = {n for n in results if min(Image.open(batch.path("src", n + ".png")).size) < MIN_SIDE}
     redo = [n for n in broken if n not in tiny]
     print(f"{len(tiny)} below 32 px kept as original, {len(redo)} SwinIR-L + Qwen", flush=True)
     jobs = {}
@@ -329,6 +335,11 @@ def finalize(install=False):
             stored.save(os.path.join(d, n + ".png"))
         plan[n]["installed"], plan[n]["method"] = True, method
     if install:
+        for n in EXCLUDE - set(batch.HAND_TUNED) - {"mainfontid", "font", "N_B_T_snow", "B_level1_ground"}:
+            for d in batch.OVERRIDES:  # data textures (blend masks, lightmaps): no override
+                f = os.path.join(d, n + ".png")
+                if os.path.exists(f):
+                    os.remove(f)
         batch.save_plan(plan)
     # The oversized textures (SeedVR2 7b, 2x): opaque skies and the ad.
     large = batch.path("..", "large", "out_svr")
