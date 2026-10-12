@@ -32,6 +32,9 @@
 
 void WeatherBeforeSceneEnd();  // hook/enhance/weather.cpp
 
+unsigned PresentedFrames();         // hook/src/d3d9_hooks.cpp
+extern void (*g_postPassBegin)();  // src/renderer/render_r3.cpp
+
 namespace
 {
 // Camera (Game+0x704) and sun (renderer light slot 0) into rhi::Hints.
@@ -76,8 +79,14 @@ uint32_t __fastcall Shadows_BeginScene(void* renderer, void* edx)
     return r;
 }
 
+
 void OnUiPassBegin()
 {
+    // Once per frame: the post-effects pass (g_postPassBegin) comes first when it runs, then the UI pass.
+    static unsigned doneFrame = ~0u;
+    if (doneFrame == PresentedFrames())
+        return;
+    doneFrame = PresentedFrames();
     WeatherBeforeSceneEnd();
     FillHints();
     rhi::SceneHints& h = rhi::Hints();
@@ -201,6 +210,7 @@ void ShadowsInit()
     int size = ConfigInt("render", "shadow_size", 4096);
     rhi::Hints().shadowSize = static_cast<uint32_t>(size < 512 ? 512 : size > 8192 ? 8192 : size);
     g_uiPassBegin = OnUiPassBegin;  // does nothing while shadow maps and snow are off
+    g_postPassBegin = OnUiPassBegin;  // earlier still when the game's post effects run (src/renderer/render_r3.cpp)
     HookWrap("Renderer_BeginScene", reinterpret_cast<void*>(Shadows_BeginScene),
              reinterpret_cast<void**>(&g_nextBeginScene));
     SetShadows(on && vulkan);

@@ -25,6 +25,8 @@
 //   The shaders take two directional lights and one point light, in slot order (Renderer_UpdateLightConstants
 //   0x004ff2e0; its g_beforeLightConstants hook writes the lights into the renderer's slots +0x169c before each update).
 //   log_spawn=N                     log spawn N's physics body position every frame (300 frames; stops when killed)
+//   post_fx=1                       turn on the game's post effects (Game+0x4bc, the "Blur" graphics option, off by
+//                                   default: pause blur, radial blur, colour effects)
 //   log_player=1                    log the player position every second (to find coordinates for a scene)
 //
 // API (scouted 2026-10-12): ObjectSystem_CreateObject 0x0045f020, Object_SetPosition 0x00457870, SetVisible vt+0xf4
@@ -76,6 +78,7 @@ struct Fx
 };
 
 int g_logSpawn = -1;
+bool g_postFx;
 bool g_on, g_skipBriefing, g_hidePlayer, g_movePlayer, g_playerDone, g_logPlayer;
 bool g_pinCamera;
 float g_camEye[3], g_camYaw, g_camPitch, g_camLook[3], g_camFov;
@@ -281,6 +284,7 @@ void Load()
     g_skipBriefing = ConfigInt("playground", "skip_briefing", 1) != 0;
     g_logPlayer = ConfigInt("playground", "log_player", 0) != 0;
     g_logSpawn = ConfigInt("playground", "log_spawn", 0) - 1;
+    g_postFx = ConfigInt("playground", "post_fx", 0) != 0;
     ConfigString("playground", "camera", "", v, sizeof(v));
     float c[6];
     if (Floats(v, c, 5) == 5)
@@ -408,6 +412,8 @@ void PlaygroundOnFrame()
     const int scenario = TestFramesSinceLoad();
     const int f = scenario >= 0 ? scenario : ownFrame;
     g_frameNow = nowLoading ? -1 : f;
+    if (g_postFx)
+        Field<uint8_t>(g_game, 0x4bc) = 1;
     if (f < 0 || nowLoading)
         return;
     // The mission-start text pauses the game (Game+0x15dc set, pause count Game+0x2684): dismiss it once.

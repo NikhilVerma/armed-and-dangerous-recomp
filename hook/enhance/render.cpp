@@ -90,8 +90,20 @@ static __declspec(naked) void Render_BeginScene_Wireframe()
     }
 }
 
+extern int32_t g_postPrescale;  // src/renderer/render_r7.cpp
+
 void RenderInit()
 {
+    // Post-process blur quality (pause blur, radial blur, colour/afterburn effects): the original shrinks the whole
+    // screen straight to 512x256 (7.5x at 4K), which shimmers. 1 or 2 extra 2x steps before the chain (1024x512,
+    // 2048x1024); the remaster default follows the desktop height (2 from 1800 lines, 1 from 1000).
+    {
+        const int lines = GetSystemMetrics(SM_CYSCREEN);
+        g_postPrescale = static_cast<int32_t>(RemasterRegister(
+            {"render", "post_blur_prescale", L"Screen blur quality", RemasterSetting::Slider, 0, 2, 1, {}, 0, true,
+             nullptr},
+            0.0f, lines >= 1800 ? 2.0f : lines >= 1000 ? 1.0f : 0.0f));
+    }
     // Vulkan backend switches (src/rhi/vulkan), read when the device starts.
     using S = RemasterSetting;
     RemasterRegister({"render", "tessellation", L"Tessellated characters (Vulkan)", S::Toggle, 0, 1, 1, {}, 0, true,

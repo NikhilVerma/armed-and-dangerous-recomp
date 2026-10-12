@@ -103,6 +103,14 @@ uint32_t fn_0046d130(void* obj)
 // renderer when the target exists). docs/subsystems/shadows.md.
 uint32_t PostProcess_ReleaseTargets(void* pp);
 
+// Enhancement hook ([render] post_blur_prescale, hook/enhance/render.cpp): up to 2 extra render targets above the
+// blur chain (2048x1024 and/or 1024x512, codes 11/10 and 10/9). Post_BlitChain (render_r3.cpp) copies the full-screen
+// source through them before the chain's first step, so that step shrinks 2x instead of 7.5x from 4K (the chain, its
+// level count and every effect's maths are unchanged). Registered and released with the chain.
+int32_t g_postPrescale = 0;      // levels asked for
+int32_t g_postPreCount = 0;      // levels registered
+uint8_t g_postPreDesc[2][0x24];  // their descriptors (the chain's targets arrays hold descriptor pointers)
+
 // 0x0047c920 (eax = post-process object): (re)creates the targets. Releases old ones when +0xdc != 0, asks renderer
 // virtual +0x138 (Renderer_GetTextureSize; 0, &a, &b; results unused), then registers "blur texture" targets
 // (renderer +0x124, Renderer_RegisterTexture) at sizes 9x8, 8x7, ... while the height is >= 4 and fewer than 8 exist
@@ -146,6 +154,21 @@ uint32_t PostProcess_CreateTargets(void* pp)
         if (w < 4)
             break;
     }
+    g_postPreCount = 0;
+    for (int32_t j = 0; j < g_postPrescale && j < 2; ++j)
+    {
+        uint8_t* d = g_postPreDesc[j];
+        std::memset(d, 0, 0x24);
+        Field<uint32_t>(d, 0) = 0x0059e558;  // "blur texture"
+        Field<int32_t>(d, 0x10) = 9 + g_postPrescale - j;
+        Field<int32_t>(d, 0x14) = 8 + g_postPrescale - j;
+        Field<uint8_t>(d, 0x20) = 0x7f;
+        Field<uint16_t>(d, 0x22) = 0x2080;
+        VCall<void>(r, 0x124 / 4, static_cast<void*>(d));
+        if (!(Field<uint8_t>(d, 0x23) & 0x80))
+            break;
+        ++g_postPreCount;
+    }
     uint8_t* after = static_cast<uint8_t*>(pp) + 0x204;
     Field<uint32_t>(after, 0) = 0x0059e544;  // "afterburn texture"
     Field<uint32_t>(after, 0x10) = 9;
@@ -176,6 +199,9 @@ uint32_t PostProcess_ReleaseTargets(void* pp)
         for (int32_t i = 0; i < Field<int32_t>(pp, 0xdc); ++i, desc += 0x24)
             VCall<void>(r, 0x128 / 4, static_cast<void*>(desc), 1u);
         VCall<void>(r, 0x128 / 4, static_cast<void*>(static_cast<uint8_t*>(pp) + 0x204), 1u);
+        for (int32_t j = 0; j < g_postPreCount; ++j)
+            VCall<void>(r, 0x128 / 4, static_cast<void*>(g_postPreDesc[j]), 1u);
+        g_postPreCount = 0;
         Field<uint32_t>(pp, 0xdc) = 0;
         std::memset(static_cast<uint8_t*>(pp) + 0xe4, 0, 0x51 * 4);
         std::memset(static_cast<uint8_t*>(pp) + 0x22c, 0, 8 * 4);

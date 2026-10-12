@@ -1560,6 +1560,11 @@ void Post_ClearE0(void* post)
 // every live effect (PostEffect_Apply), then draws: colour (when +0x690 != 1.0 bitwise; else Post_ClearE0), blur
 // (+0x6a0 alone, or the ring pair +0x6a4/+0x6b4 when either amount +0x6b0/+0x6c0 is set, raised to +0x6a0), the
 // type 3 overlay likewise (+0x6c4, rings +0x6c8/+0x6d8), and the fade (+0x6e8, +0x6ec) when its alpha is set.
+// Enhancement hook (hook/enhance/shadows.cpp): the remaster's end of the 3D scene (anti-aliasing, motion blur, GPU
+// snow) before the game's post effects copy the back buffer, so that the pause / radial blur and the colour effects
+// take the snow with them instead of having it drawn sharp on top (playground pause_blur, 2026-10-12).
+void (*g_postPassBegin)() = nullptr;
+
 uint32_t PostProcess_Pass(void* mgr, void* post, float dt)
 {
     uint8_t* m = static_cast<uint8_t*>(mgr);
@@ -1573,6 +1578,13 @@ uint32_t PostProcess_Pass(void* mgr, void* post, float dt)
         PostEffect_Apply(P(node), m, dt);
         node = next;
     }
+    // Only when an effect will draw (post effects on, and a colour, blur, ring, overlay or fade amount set): other
+    // frames keep the scene end at the UI pass.
+    if (g_postPassBegin && Field<uint8_t>(g_game, 0x4bc) &&
+        (Field<uint32_t>(m, 0x690) != 0x3f800000u || Field<float>(m, 0x6a0) != K(kZero) ||
+         Field<float>(m, 0x6b0) != K(kZero) || Field<float>(m, 0x6c0) != K(kZero) || Field<float>(m, 0x6c4) != K(kZero) ||
+         Field<float>(m, 0x6d4) != K(kZero) || Field<float>(m, 0x6e4) != K(kZero)))
+        g_postPassBegin();
     if (Field<uint32_t>(m, 0x690) != 0x3f800000u)
         Post_DrawColour(post, Field<float>(m, 0x690), Field<float>(m, 0x694), Field<float>(m, 0x698),
                         Field<float>(m, 0x69c));
@@ -1797,6 +1809,9 @@ uint32_t Post_DrawScreenQuad(const float* src, uint32_t target, uint32_t post, v
 // min(steps, post +0xdc) targets, each step drawing the previous one full-screen into the next (Post_DrawScreenQuad;
 // the first step with the given block), stopping at a null target or a failed draw; then the back buffer is set
 // again (renderer +0xcc (0, 0, 0, 0)). Returns the last draw's success (0 for no steps or no source).
+extern int32_t g_postPreCount;           // render_r7.cpp (enhancement: pre-downsample targets)
+extern uint8_t g_postPreDesc[2][0x24];
+
 uint32_t Post_BlitChain(void* block, uint32_t texture, void* post, int32_t steps, void* defaultBlock,
                         const uint32_t* targets)
 {
@@ -1818,6 +1833,18 @@ uint32_t Post_BlitChain(void* block, uint32_t texture, void* post, int32_t steps
     }
     if (!block)
         block = defaultBlock;
+    // Enhancement: the full-screen source through the pre-downsample targets first, with a plain opaque copy (the
+    // chain's block with the screen colour: effects that tint each step, Post_DrawColour, are not tinted extra).
+    for (int32_t j = 0; j < g_postPreCount; ++j)
+    {
+        uint32_t copy[6];
+        std::memcpy(copy, static_cast<uint8_t*>(post) + 0x26c, sizeof(copy));
+        copy[1] = ScreenColour();
+        copy[2] = texture;
+        if (!Post_DrawScreenQuad(nullptr, u(g_postPreDesc[j]), u(post), copy, nullptr, nullptr))
+            break;
+        texture = u(g_postPreDesc[j]);
+    }
     for (int32_t i = 0; i < steps; ++i)
     {
         const uint32_t t = targets[i];
