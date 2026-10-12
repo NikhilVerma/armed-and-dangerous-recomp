@@ -1,0 +1,10 @@
+{
+  "level": "lev_1_m1",
+  "keys": "30:17*300",
+  "player": "hide",
+  "camera_look": [-205.0, 1022.0, 133.0, -216.5, 1005.0, 131.0],
+  "fov": 50,
+  "spawn": [{"template": "grunt", "at": [-216.5, 1005.0, 126.0], "yaw": 90, "frame": 380}],
+  "shots": [400, 440, 480, 520],
+  "variants": {"textures_on": {}, "textures_off": {"overrides.textures": 0}}
+}

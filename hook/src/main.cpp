@@ -12,6 +12,7 @@ void StartupInit();
 void RenderInit();
 void CameraInit();
 void PersistenceInit();
+void PlaygroundInit();
 void AudioInit();
 void QolInit();
 void InputInit();
@@ -67,6 +68,7 @@ static void Startup()
     RenderInit();
     CameraInit();
     PersistenceInit();
+    PlaygroundInit();
     AudioInit();
     QolInit();
     InputInit();

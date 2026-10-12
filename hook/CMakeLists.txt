@@ -270,6 +270,7 @@ add_library(and_hook SHARED
   enhance/overrides.cpp
   enhance/camera.cpp
   enhance/persistence.cpp
+  enhance/playground.cpp
   enhance/audio.cpp
   enhance/qol.cpp
   enhance/input.cpp
