@@ -76,12 +76,25 @@ const float* DrawMatrix(uint8_t* obj, const float* m)
         obj == Field<uint8_t*>(g_game, 0x748) || Field<uint8_t>(obj, 0x421))
         return m;
     const unsigned frame = PresentedFrames();
+    static bool active;
     if (frame != g_arenaFrame)
     {
         g_arenaFrame = frame, g_arenaUsed = 0;
         if (g_tracks.size() > 20000)
             g_tracks.clear();
+        // Only while frames clearly outnumber physics steps (above about 72 fps): at 60 fps every frame steps once and
+        // blending would only add a step of lag. Measured over 30-frame windows.
+        static unsigned windowStart;
+        static uint32_t windowSteps;
+        if (frame - windowStart >= 30)
+        {
+            const uint32_t steps = g_physicsStepId - windowSteps;
+            active = steps > 0 && (frame - windowStart) * 5 > steps * 6;
+            windowStart = frame, windowSteps = g_physicsStepId;
+        }
     }
+    if (!active)
+        return m;
     const float pos[3] = {m[3], m[7], m[11]};
     Track& t = g_tracks[obj];
     const uint32_t step = g_physicsStepId;
