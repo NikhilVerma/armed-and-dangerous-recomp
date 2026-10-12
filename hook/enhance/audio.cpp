@@ -44,7 +44,11 @@ bool g_skipRedundant;
 struct BufferState
 {
     LONG volume = LONG_MIN, pan = LONG_MIN;
+    DWORD volumeTime = 0, panTime = 0;  // when each was last set (GetTickCount)
 };
+// Small changes are applied at most every 33 ms per buffer (the game sets them every frame: 144 times a second at
+// 144 fps); jumps over 3 dB / 10% of the pan range go through at once.
+constexpr DWORD kMinInterval = 33;
 std::unordered_map<IDirectSoundBuffer*, BufferState> g_bufferState;
 std::mutex g_bufferLock;
 uint32_t g_passed[2], g_skipped[2], g_forgotten;  // volume, pan (diagnostics: [audio] log_calls=1)
@@ -60,12 +64,17 @@ HRESULT STDMETHODCALLTYPE Hook_SetVolume(IDirectSoundBuffer* b, LONG volume)
     if (g_skipRedundant)
     {
         std::lock_guard<std::mutex> g(g_bufferLock);
-        LONG& last = g_bufferState[b].volume;
-        // Within 0.15 dB (inaudible) of what the buffer has, unless it is silence or full volume.
-        if (last == v || (last != LONG_MIN && std::abs(last - v) < 15 && v != DSBVOLUME_MIN && v != DSBVOLUME_MAX))
+        BufferState& st = g_bufferState[b];
+        LONG& last = st.volume;
+        const DWORD now = GetTickCount();
+        // Within 0.15 dB (inaudible) of what the buffer has, unless it is silence or full volume; or a small change
+        // sooner than kMinInterval after the last one.
+        const bool edge = v == DSBVOLUME_MIN || v == DSBVOLUME_MAX;
+        if (last == v || (last != LONG_MIN && !edge &&
+                          (std::abs(last - v) < 15 || (std::abs(last - v) < 300 && now - st.volumeTime < kMinInterval))))
             return ++g_skipped[0], DS_OK;
         ++g_passed[0];
-        last = v;
+        last = v, st.volumeTime = now;
     }
     return g_realSetVolume(b, v);
 }
@@ -75,11 +84,14 @@ HRESULT STDMETHODCALLTYPE Hook_SetPan(IDirectSoundBuffer* b, LONG pan)
     if (g_skipRedundant)
     {
         std::lock_guard<std::mutex> g(g_bufferLock);
-        LONG& last = g_bufferState[b].pan;
-        if (last == pan || (last != LONG_MIN && std::abs(last - pan) < 100))  // 1% of the pan range
+        BufferState& st = g_bufferState[b];
+        LONG& last = st.pan;
+        const DWORD now = GetTickCount();
+        if (last == pan || (last != LONG_MIN && (std::abs(last - pan) < 100 ||  // 1% of the pan range
+                                                 (std::abs(last - pan) < 1000 && now - st.panTime < kMinInterval))))
             return ++g_skipped[1], DS_OK;
         ++g_passed[1];
-        last = pan;
+        last = pan, st.panTime = now;
     }
     return g_realSetPan(b, pan);
 }
