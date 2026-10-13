@@ -52,6 +52,25 @@ pub struct FxLayerMaterial {
 pub struct FxLayerParams {
     pub offsets: Vec4,
     pub colour: Vec4,
+    /// t0 / t1 / t2 stored premultiplied (1) or not (0)
+    pub flags: Vec4,
+}
+
+/// The export's per-texture `premultiplied` flag (scene.json textures: DXT2 in the bank), read once.
+fn premultiplied(dir: &std::path::Path, name: &str) -> bool {
+    static FLAGS: std::sync::OnceLock<std::collections::HashMap<String, bool>> = std::sync::OnceLock::new();
+    FLAGS
+        .get_or_init(|| {
+            let text = std::fs::read_to_string(dir.join("scene.json")).unwrap_or_default();
+            let v: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+            v.get("textures")
+                .and_then(|t| t.as_object())
+                .map(|t| t.iter().map(|(k, x)| (k.to_lowercase(), x.get("premultiplied").and_then(|p| p.as_bool()).unwrap_or(false))).collect())
+                .unwrap_or_default()
+        })
+        .get(&name.to_lowercase())
+        .copied()
+        .unwrap_or(false)
 }
 
 impl Material for FxLayerMaterial {
@@ -406,15 +425,29 @@ fn create_object(ctx: &mut Ctx<'_, '_, '_, '_, '_>, inst: &Instance, template: &
                         t1: load(def.texture2.as_deref().unwrap_or(&tex)),
                         // the mask is data (linear): an uncompressed BGRA DDS fails to load as sRGB (black fallback)
                         t2: crate::gamematerial::load_tex(ctx.assets, def.mask.as_deref().unwrap_or(&tex), false),
-                        params: FxLayerParams { offsets: Vec4::ZERO, colour: Vec4::new(def.emissive[0], def.emissive[1], def.emissive[2], 1.0) },
+                        params: FxLayerParams {
+                            offsets: Vec4::ZERO,
+                            colour: Vec4::new(def.emissive[0], def.emissive[1], def.emissive[2], 1.0),
+                            flags: Vec4::new(
+                                premultiplied(&ctx.lib.dir, &tex) as u8 as f32,
+                                premultiplied(&ctx.lib.dir, def.texture2.as_deref().unwrap_or(&tex)) as u8 as f32,
+                                premultiplied(&ctx.lib.dir, def.mask.as_deref().unwrap_or(&tex)) as u8 as f32,
+                                0.0,
+                            ),
+                        },
                     });
                     layers.push(lm.clone());
                     c.spawn((Mesh3d(mesh), MeshMaterial3d(lm), bevy::light::NotShadowCaster));
                     continue;
                 }
+                // textured fx draw texture x the material's diffuse (stage MODULATE(texture, diffuse), the fx objects'
+                // material colour 0.588 on fxo_flash): measured on the sticky blast's flash, the original adds ~0.6 of
+                // what texture x white added (work/shots/stickY vs work/remaster/play/stickX)
+                let tint = ctx.lib.game_defs.get(&mat.id()).map(|(d, _, _)| Color::srgb(d.diffuse[0], d.diffuse[1], d.diffuse[2]));
                 let m = ctx.materials.add(StandardMaterial {
                     unlit: true,
                     alpha_mode: if textured { AlphaMode::Add } else { base.alpha_mode },
+                    base_color: if textured { tint.unwrap_or(base.base_color) } else { base.base_color },
                     ..base
                 });
                 mats.push(m.clone());

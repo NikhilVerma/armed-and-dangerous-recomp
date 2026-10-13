@@ -205,9 +205,13 @@ lingers 4 s, explodes (100 area to 30 / 45, 300 to the stuck one). Its trail is 
 streamer ops 0x4d..0x57 (ribbon trails of 14 lev_1_m1 fx; texture 0x55 / uv 0x56 not ported: untextured).
 Compared with the original (work/shots/stickB, stickX, stickY vs work/remaster/play/stickB, stickH, stickX): throw
 pose, blue trail, sticking, the grunt's "stuck to me" panic, linger and blast timing and sounds match.
-Open (next piece, fx look): the blast's fxo_flash card is far brighter in the engine (an opaque white sheet; the
-original's is a milky translucent card) and the original's dark brown smoke puff is barely visible in ours (the
-particles exist: ~117 added); penguins are not knocked about by blasts (no physics on them).
+Fx look (same day): the white sheet was the blast ring (fxo_blast_ring_snow, a layered material): the layered
+shader now runs the original's stage maths (LERP by the mask colour, times t1 alpha x mask alpha) on textures
+un-premultiplied when the export flags them premultiplied (DXT2: the snow flakes, the ring), which keeps the snow as
+before and makes the ring faint; textured fx objects are tinted by their material diffuse (0.588). Measured on the
+blast (light added over the frame before): original mean 30..42 / p90 70..82, engine now 30..36 / 47..61 (was 53..70
+/ 108..128). Open: the original's dark brown blot is mostly the blast decal (op 0x6a, not ported); penguins are not
+knocked about by blasts.
 
 ## Comparing sounds with the original
 
