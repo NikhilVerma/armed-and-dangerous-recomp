@@ -270,12 +270,16 @@ pub fn skinned_mesh(a: &Animator) -> SkinnedMesh {
     SkinnedMesh { inverse_bindposes: a.skeleton.inverse_bind.clone(), joints: a.joints.clone() }
 }
 
+/// The joint animation (systems that change joints afterwards order after it).
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct AnimateSet;
+
 pub struct SkinPlugin;
 
 impl Plugin for SkinPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SkinCheck>().add_systems(Update, skin_check.run_if(resource_exists::<crate::playtest::Playtest>));
-        app.init_resource::<AnimLibrary>().add_message::<AnimNote>().add_systems(PostUpdate, animate.before(TransformSystems::Propagate));
+        app.init_resource::<AnimLibrary>().add_message::<AnimNote>().add_systems(PostUpdate, animate.in_set(AnimateSet).before(TransformSystems::Propagate));
     }
 }
 

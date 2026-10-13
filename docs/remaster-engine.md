@@ -172,6 +172,14 @@ specials), the mission (one-shot triggers, bomb sites, barracks, pub, compass, o
 grunts, destroyed objects (husks, no explosion). Not the original's format; not restored: live grunts a barracks had
 released, companions' positions, the camera pitch. Verified: saved after gate 1, loaded, played on to the win.
 
+## Cheats
+
+Options > Cheats: the 12 codes of the table 0x00589090 (read from the exe: SHOOTMOR full ammo, AMBULNCE full
+health, VERYHIIQ big heads, EATGRENZ big hands, SHOESIZE big boots, NDMRBLTS infinite ammo, SHIELDME invincible,
+PRAYTOME god mode, MISSIONS / AMATINEE unlock levels / movies, WAAAAAAH upside-down screen, DAJIGSUP list), toggled
+as Cheats_Check 0x004107c0 does, messages from the text bank (cheats.rs). The big-part scale (x2) is a guess.
+Trap: systems that change joints must run after skin::AnimateSet (PostUpdate), or the animation overwrites them.
+
 ## Running tests without disturbing the desktop
 
 - `--background`: the window opens off-screen, unfocused, behind everything, not in the taskbar; screenshots still

@@ -698,6 +698,7 @@ fn follow_camera(
     roman: Query<(&Roman, &Transform), Without<FollowCam>>,
     mut cam: Query<&mut Transform, With<FollowCam>>,
     topsy: Res<crate::topsy::Topsy>,
+    cheats: Res<crate::cheats::Cheats>,
 ) {
     if path.active() {
         return;
@@ -717,7 +718,9 @@ fn follow_camera(
     c.translation = target + arm / len * dist;
     // the Topsy Turvy bomb turns the view over (topsy.rs)
     let look = Transform::from_translation(c.translation).looking_at(target, Vec3::Y).rotation;
-    c.rotation = look * Quat::from_rotation_z(topsy.roll);
+    // the Topsy Turvy screen cheat (WAAAAAAH, cheats.rs) turns the view over too
+    let flip = if cheats.on(0x4000) { std::f32::consts::PI } else { 0.0 };
+    c.rotation = look * Quat::from_rotation_z(topsy.roll + flip);
 }
 
 pub fn spawn_bomb(commands: &mut Commands, physics: &mut Physics, bombs: &BombAssets, data: &GameData, at: Vec3, velocity: Vec3, fuse: f32) {

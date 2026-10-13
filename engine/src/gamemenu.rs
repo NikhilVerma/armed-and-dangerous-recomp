@@ -38,6 +38,8 @@ pub enum Page {
     Failed,
     /// the pub screen (pubscreen.rs draws and drives it)
     Pub,
+    /// cheat entry (cheats.rs)
+    Cheats,
 }
 
 /// The art behind a page.
@@ -55,7 +57,7 @@ impl Page {
     fn back(self) -> Back {
         match self {
             Page::Main | Page::Options | Page::Extras => Back::Title,
-            Page::Gfx | Page::Sfx | Page::Controls => Back::Shell,
+            Page::Gfx | Page::Sfx | Page::Controls | Page::Cheats => Back::Shell,
             Page::YesNo | Page::Pause | Page::Failed | Page::Pub => Back::Game,
         }
     }
@@ -154,6 +156,8 @@ enum PartKind {
     Bar(Opt),
     Check(Flag),
     Art(Back),
+    CheatTyped,
+    CheatResult,
 }
 
 /// The fill of a bar (scaled in x by the value).
@@ -402,7 +406,7 @@ pub fn spawn(commands: &mut Commands, assets: &AssetServer, meshes: &mut Assets<
             ("ui_optionsmenu_sfx", 326.659, Act::Go(Page::Sfx)),
             ("ui_mainmenu_controls", 278.659, Act::Go(Page::Controls)),
             ("ui_optionsmenu_reset", 230.659, Act::Ask(Ask::ResetExtras)),
-            ("ui_optionsmenu_cheats", 182.659, Act::None),
+            ("ui_optionsmenu_cheats", 182.659, Act::Go(Page::Cheats)),
         ];
         for (id, y, act) in opts {
             s.row(Page::Options, id, Vec2::new(320.0, y), 1.3, if act == Act::None { DISABLED } else { ORANGE }, act, 0.0);
@@ -478,6 +482,14 @@ pub fn spawn(commands: &mut Commands, assets: &AssetServer, meshes: &mut Assets<
         s.check(Page::Controls, "ui_controls_flipmousey", 200.0, 320.0, 84.44, Some(Flag::InvertMouse), false);
         s.row(Page::Controls, "ui_controls_reset", Vec2::new(320.0, 60.44), 1.0, GREEN, Act::Ask(Ask::ResetControls), 0.0);
         s.row(Page::Controls, "ui_shellmenu_back", Vec2::new(320.0, 36.44), 1.4, GREEN, Act::Back, 0.0);
+
+        // cheats (pui_cheats): title, instruction, the typed code (ui_cheatbox), the result (ui_cheatdesc rows),
+        // Back
+        s.row(Page::Cheats, "ui_cheatmenu_title", Vec2::new(320.0, 411.564), 1.4, Color::WHITE, Act::None, 0.0);
+        s.row(Page::Cheats, "ui_cheatmenu_instruct", Vec2::new(320.0, 387.564), 1.0, Color::WHITE, Act::None, 0.0);
+        s.text(Page::Cheats, "", Vec2::new(320.0, 339.564), 1.0, GREEN, 0.0, PartKind::CheatTyped);
+        s.text(Page::Cheats, "", Vec2::new(320.0, 252.44), 1.0, GREEN, 0.0, PartKind::CheatResult);
+        s.row(Page::Cheats, "ui_shellmenu_back", Vec2::new(320.0, 60.44), 1.4, GREEN, Act::Back, 0.0);
 
         // yes/no (pui_yesno, hud.md 6): message 1.4 white at y 276.4, Yes 1.1 #a0ffa0, No 1.1 #ff6060
         s.row(Page::YesNo, "ui_yesno_defaulttext", Vec2::new(320.0, 276.4), 1.4, Color::WHITE, Act::None, 0.0);
@@ -583,7 +595,22 @@ fn navigate(
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     windows: Query<&Window>,
     mut save_req: ResMut<crate::savegame::SaveRequest>,
+    mut cheats: ResMut<crate::cheats::Cheats>,
 ) {
+    cheats.entering = menu.page == Page::Cheats && *state.get() != AppState::Playing;
+    // the cheat page takes letters and Enter (cheats.rs); Esc leaves it
+    if cheats.entering {
+        if keys.just_pressed(KeyCode::Escape) {
+            cheats.typed.clear();
+            cheats.result.clear();
+            if let Some((p, s)) = menu.stack.pop() {
+                menu.page = p;
+                menu.selected = s;
+            }
+            sounds.write(crate::audio::PlaySound::ui("ui_cancel"));
+        }
+        return;
+    }
     let play = |s: &mut MessageWriter<crate::audio::PlaySound>, n: &str| {
         s.write(crate::audio::PlaySound::ui(n));
     };
@@ -858,6 +885,7 @@ fn values(
     opts: Res<GameOptions>,
     windows: Query<&Window>,
     mut texts: Query<(&Part, &mut HudText)>,
+    cheats: Res<crate::cheats::Cheats>,
     mut fills: Query<(&BarFill, &mut Transform)>,
     checks: Query<(&CheckFill, &MeshMaterial2d<ColorMaterial>)>,
     mut materials: ResMut<Assets<ColorMaterial>>,
@@ -866,6 +894,17 @@ fn values(
     let gfx = menu.edit.as_ref().unwrap_or(&opts);
     let pick = |o: Opt| -> &GameOptions { if matches!(o, Opt::Brightness | Opt::Resolution | Opt::DrawDistance) { gfx } else { &opts } };
     for (p, mut t) in &mut texts {
+        let line = match p.kind {
+            PartKind::CheatTyped => Some(format!("{}_", cheats.typed)),
+            PartKind::CheatResult => Some(cheats.result.clone()),
+            _ => None,
+        };
+        if let Some(l) = line {
+            if t.text != l {
+                t.text = l;
+            }
+            continue;
+        }
         if let PartKind::Value(o) = p.kind {
             let s = value(pick(o), o, win).1;
             if t.text != s {
