@@ -26,6 +26,7 @@ void PhysicsJoltInit();
 void OverridesInit();
 void RemasterMenuInit();
 void TestShotInit();
+void TestMaterialLogInit();
 void InputHooksInit();
 void TestHashInit();
 void TestScenarioInit();
@@ -57,6 +58,7 @@ static void Startup()
     LogOpen();
     Log("and_hook loaded into %s", GetCommandLineA());
     TestShotInit();
+    TestMaterialLogInit();
     TestHashInit();
     TestScenarioInit();
     InputHooksInit();

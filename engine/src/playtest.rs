@@ -237,6 +237,8 @@ fn drive(
     mission: Option<Res<crate::mission::Mission>>,
     mut roman: Query<&mut crate::fx::Health, With<crate::player::Roman>>,
     mut spawn: MessageWriter<crate::level::SpawnGrunt>,
+    cam: Query<&GlobalTransform, With<Camera3d>>,
+    player: Query<&GlobalTransform, With<crate::player::Roman>>,
 ) {
     pt.t += time.delta_secs();
     // the mission over (won or failed): play stops, so a pending goto counts as done
@@ -327,6 +329,16 @@ fn drive(
         if let Some(name) = e.shot {
             let path = pt.path.with_extension(format!("{name}.png"));
             commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));
+            // the camera and Roman at this shot, in game space (Z up), to compare with the original's camera dumps
+            let to_game = crate::level::game_to_engine().inverse();
+            if let Ok(c) = cam.single() {
+                let fwd = to_game * c.forward().as_vec3();
+                let up = to_game * c.up().as_vec3();
+                let pos = to_game * c.translation();
+                let roman = player.single().map(|r| to_game * r.translation()).ok();
+                let j = serde_json::json!({"time": pt.t, "position": pos.to_array(), "forward": fwd.to_array(), "up": up.to_array(), "roman": roman.map(|r| r.to_array())});
+                let _ = std::fs::write(pt.path.with_extension(format!("{name}.camera.json")), j.to_string());
+            }
         }
         if let Some(g) = e.goto {
             // game space (Z up) -> engine (Y up)

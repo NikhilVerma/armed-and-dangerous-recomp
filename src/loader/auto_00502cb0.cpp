@@ -412,9 +412,14 @@ uint32_t Renderer_SetStageAddressing(Renderer* r, const int8_t* desc, uint32_t s
 // Then SetPixelShader (+0x4c, cached at +0x8bc); without one, the fixed-function colour/alpha ops (+0x18 step
 // 0xc; texture ops on an empty stage become DISABLE via 0x0064a7c0) are cached at +0x87c. Finally the blend
 // (0x005050e0) and 0x0050ca70, whose result is returned.
+// Test hook (null in play): told every bound material with its four stage textures' names (record +0) and its
+// pixel shader (+0x4c). Set by the test harness ([test] log_materials, hook/src/testshot.cpp).
+void (*g_testMaterialApplied)(const uint8_t* material, const char* const names[4]) = nullptr;
+
 uint32_t Renderer_ApplyMaterial(Renderer* r, uint8_t* material)
 {
     uint8_t* rb = reinterpret_cast<uint8_t*>(r);
+    const char* stageNames[4] = {};
     for (uint32_t stage = 0; stage < 4; ++stage)
     {
         uint8_t* stageCache = rb + 0x740 + stage * 0x50;
@@ -442,6 +447,7 @@ uint32_t Renderer_ApplyMaterial(Renderer* r, uint8_t* material)
         Field<uint32_t>(stageCache - 4, 0) = texture;  // +0x73c + stage * 0x50: the stage's texture
         uint32_t d3dTexture = 0;
         uint8_t* tex = reinterpret_cast<uint8_t*>(texture);
+        stageNames[stage] = tex ? Field<const char*>(tex, 0) : nullptr;
         if (tex)
         {
             if (!(Field<uint16_t>(tex, 0x22) & 0x8000))
@@ -653,6 +659,8 @@ uint32_t Renderer_ApplyMaterial(Renderer* r, uint8_t* material)
             }
         }
     }
+    if (g_testMaterialApplied)
+        g_testMaterialApplied(material, stageNames);
     orig::fn_005050e0(u(r), u(material) + 8);
     return orig::fn_0050ca70(u(r));
 }

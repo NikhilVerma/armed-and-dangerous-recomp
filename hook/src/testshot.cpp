@@ -128,6 +128,39 @@ static unsigned long long HashBackBuffer(IDirect3DDevice9* dev)
 int TestFramesSinceLoad();
 static bool FrameNumber(unsigned absolute, unsigned* f);
 
+extern void (*g_testMaterialApplied)(const uint8_t* material, const char* const names[4]);
+
+// [test] log_materials=1: every distinct material the renderer binds, once (and-materials.txt): its pointer, the
+// four stages' texture names, the pixel shader (+0x4c), the flags word (+0x48), the stage slots (+4..+7) and the
+// colour / alpha op words of stages 0-3 (+0x18 step 0xc), for porting the material set-ups to the remaster engine.
+static void LogMaterial(const uint8_t* m, const char* const names[4])
+{
+    static FILE* out = fopen("and-materials.txt", "w");
+    static const uint8_t* seen[4096];
+    static unsigned count;
+    if (!out || count >= 4096)
+        return;
+    for (unsigned i = 0; i < count; ++i)
+        if (seen[i] == m)
+            return;
+    seen[count++] = m;
+    auto d = [m](unsigned o) { return *reinterpret_cast<const uint32_t*>(m + o); };
+    fprintf(out, "mat %p ps %08x flags %08x slots %02x %02x %02x %02x ops", static_cast<const void*>(m), d(0x4c), d(0x48),
+            m[4], m[5], m[6], m[7]);
+    for (unsigned s = 0; s < 4; ++s)
+        fprintf(out, " [%08x %08x %08x]", d(0x18 + s * 0xc), d(0x1c + s * 0xc), d(0x20 + s * 0xc));
+    for (unsigned s = 0; s < 4; ++s)
+        fprintf(out, " t%u=%s", s, names[s] ? names[s] : "-");
+    fprintf(out, "\n");
+    fflush(out);
+}
+
+void TestMaterialLogInit()
+{
+    if (ConfigInt("test", "log_materials", 0))
+        g_testMaterialApplied = LogMaterial;
+}
+
 extern void* g_testCamera;
 extern float g_testCameraFov, g_testCameraAspect;
 

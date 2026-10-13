@@ -134,6 +134,27 @@ def mesh_submeshes(ch, bone_index=None):
         if not pos:
             continue
         uv = m.get("_uv") or [(0.0, 0.0)] * len(pos)
+        uv1 = m.get("_uv1")
+        # the material records (docs/formats/big-skin.md 3.5) and the mesh's texture dictionary (id -> path): +0x16
+        # base texture, +0x18 normal map, +0x1a second texture, +0x1c blend mask (ids; 0 none), +0x34 the shading
+        # kind in its low byte (seen with the original's material log, [test] log_materials: 0x03 bump diffuse
+        # ps, 0x0f the terrain ps t0 normal / t1 base / t2 second / t3 mask, 0x05 environment cube map * factor +
+        # texture * lighting), +0x50.. emissive, ambient, diffuse, specular, +0x60 power
+        texids = {i: stem(name) for name, _p, i in objchunk.dict_items(b, objchunk.u32(b, mptr + 0x74))}
+        mat_raw = []
+        for k in range(objchunk.u32(b, mptr + 0x78)):
+            p = objchunk.u32(b, mptr + 0x7C) + k * 0x64
+            h = lambda o: struct.unpack_from("<H", b, p + o)[0]
+            col = lambda o: struct.unpack_from("<I", b, p + o)[0]
+            rgb = lambda v: [(v >> 16 & 255) / 255, (v >> 8 & 255) / 255, (v & 255) / 255]
+            mat_raw.append({
+                "kind": b[p + 0x34],
+                "normal_map": texids.get(h(0x18)),
+                "texture2": texids.get(h(0x1A)),
+                "mask": texids.get(h(0x1C)),
+                "emissive": rgb(col(0x50)), "ambient": rgb(col(0x54)), "diffuse": rgb(col(0x58)),
+                "specular": rgb(col(0x5C)), "power": struct.unpack_from("<f", b, p + 0x60)[0],
+            })
         jw = None
         if bone_index is not None:
             import remaster_export_anim  # noqa: PLC0415 (it imports this module's helpers)
@@ -157,7 +178,7 @@ def mesh_submeshes(ch, bone_index=None):
             tex = stem(mats[mat]["texture"]) if 0 <= mat < len(mats) else None
             # untextured parts draw in the material's colour (guess: the third of the four colours is diffuse)
             color = int(mats[mat]["colors_50_5c"][2], 16) if 0 <= mat < len(mats) else 0xFFFFFF
-            remap, vp, vn, vt, idx, vs = {}, [], [], [], [], []
+            remap, vp, vn, vt, idx, vs, vt1 = {}, [], [], [], [], [], []
             for t in tris:
                 for v in t:
                     if v not in remap:
@@ -165,10 +186,14 @@ def mesh_submeshes(ch, bone_index=None):
                         vp.append(pos[v])
                         vn.append(normals[v])
                         vt.append(uv[v])
+                        if uv1:
+                            vt1.append(uv1[v])
                         if jw:
                             vs.append(jw[v])
                     idx.append(remap[v])
-            out.append((tex, vp, vn, vt, idx, color, vs if jw else None))
+            extra = dict(mat_raw[mat]) if 0 <= mat < len(mat_raw) else {}
+            extra["uv1"] = vt1 if uv1 else None
+            out.append((tex, vp, vn, vt, idx, color, vs if jw else None, extra))
     return out
 
 
@@ -177,13 +202,21 @@ def write_model(out, name, subs, texinfo, skeleton=None):
     entries = []
     lo = [math.inf] * 3
     hi = [-math.inf] * 3
-    for tex, vp, vn, vt, idx, color, vs in subs:
+    for tex, vp, vn, vt, idx, color, vs, *rest in subs:
+        extra = rest[0] if rest else {}
         e = {"texture": tex if tex in texinfo else None, "vertices": len(vp), "indices": len(idx),
              "color": [(color >> 16 & 255) / 255, (color >> 8 & 255) / 255, (color & 255) / 255]}
         e["alpha"] = bool(e["texture"] and texinfo[tex]["alpha"])
+        # the material as the original shades it (mesh_submeshes): kind, extra maps, colours
+        if extra:
+            e["material"] = {k: (v if not (k in ("normal_map", "texture2", "mask") and v not in texinfo) else None)
+                             for k, v in extra.items() if k != "uv1"}
         for key, arr, fmt in (("positions", vp, "3f"), ("normals", vn, "3f"), ("uvs", vt, "2f")):
             e[key] = len(blob)
             blob += b"".join(struct.pack("<" + fmt, *v) for v in arr)
+        if extra.get("uv1"):
+            e["uvs1"] = len(blob)
+            blob += b"".join(struct.pack("<2f", *v) for v in extra["uv1"])
         e["index_offset"] = len(blob)
         blob += struct.pack(f"<{len(idx)}I", *idx)
         if vs:  # skinning (tools/remaster_export_anim.py): u16x4 skeleton bone indices, f32x4 weights (sum 1)

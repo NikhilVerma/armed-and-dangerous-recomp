@@ -172,11 +172,14 @@ pub fn spawn(
     let mut info = LevelInfo { name: scene.level.clone(), ..default() };
 
     // landscape: its own mesh is its collision
+    let skip_visual = lib.skip_landscape_visual;
     if let Some(model) = lib.load_model(&scene.landscape, false, assets, meshes, materials) {
-        let e = commands.spawn((Transform::from_matrix(axes), Visibility::default(), Name::new("landscape"))).id();
-        let (d, t, _) = attach_model(commands, e, model, true, None);
-        info.draws += d;
-        info.triangles += t;
+        if !skip_visual {
+            let e = commands.spawn((Transform::from_matrix(axes), Visibility::default(), Name::new("landscape"))).id();
+            let (d, t, _) = attach_model(commands, e, model, true, None);
+            info.draws += d;
+            info.triangles += t;
+        }
         static_collider(physics, model, axes);
     }
 

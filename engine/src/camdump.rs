@@ -54,8 +54,17 @@ impl Plugin for CamDumpPlugin {
     }
 }
 
-/// Holds the 3D camera at the dumped view (after the follow camera and camera paths have run).
-fn hold(fixed: Res<FixedCamera>, mut cam: Query<(&mut Transform, &mut Projection), With<Camera3d>>) {
+/// Holds the 3D camera at the dumped view (after the follow camera and camera paths have run), and the sky dome
+/// around it (level.rs follow_camera placed it at the camera's earlier position this frame).
+#[allow(clippy::type_complexity)]
+fn hold(
+    fixed: Res<FixedCamera>,
+    mut cam: Query<(&mut Transform, &mut Projection), (With<Camera3d>, Without<crate::level::Background>)>,
+    mut sky: Query<&mut Transform, (With<crate::level::Background>, Without<Camera3d>)>,
+) {
+    for mut s in &mut sky {
+        s.translation = fixed.transform.translation;
+    }
     for (mut t, mut p) in &mut cam {
         *t = fixed.transform;
         if let Projection::Perspective(pp) = &mut *p {

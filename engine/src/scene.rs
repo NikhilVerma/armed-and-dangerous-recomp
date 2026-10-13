@@ -86,6 +86,12 @@ struct SubmeshDef {
     joints: Option<usize>,
     #[serde(default)]
     weights: Option<usize>,
+    /// the material record as the original shades it (gamematerial.rs)
+    #[serde(default)]
+    material: Option<crate::gamematerial::MaterialDef>,
+    /// the second uv set (terrain blend masks)
+    #[serde(default)]
+    uvs1: Option<usize>,
 }
 
 /// One loaded model: a mesh and material per submesh, plus its bounds (model space, game axes).
@@ -123,6 +129,8 @@ pub struct Library {
     pub dir: PathBuf,
     pub models: HashMap<String, Model>,
     pub materials: HashMap<(Option<String>, bool, bool, [u8; 3]), Handle<StandardMaterial>>,
+    /// the landscape is drawn with the original's materials (main.rs), not here
+    pub skip_landscape_visual: bool,
 }
 
 pub fn game_matrix(t: &[[f32; 4]; 3]) -> Mat4 {
@@ -145,6 +153,47 @@ fn floats(bin: &[u8], at: usize, n: usize) -> Vec<f32> {
 }
 
 impl Library {
+    /// A model's parts with the original's materials (gamematerial.rs): uv set 1 and tangents for the normal maps.
+    #[allow(clippy::too_many_arguments)]
+    pub fn load_game_parts(
+        &self,
+        name: &str,
+        lights: &crate::gamematerial::GameLights,
+        assets: &AssetServer,
+        meshes: &mut Assets<Mesh>,
+        materials: &mut Assets<crate::gamematerial::GameMaterial>,
+        white: &Handle<Image>,
+    ) -> Vec<(Handle<Mesh>, Handle<crate::gamematerial::GameMaterial>)> {
+        let Some(json) = std::fs::read_to_string(self.dir.join("models").join(format!("{name}.json"))).ok() else { return Vec::new() };
+        let Ok(file) = serde_json::from_str::<ModelFile>(&json) else { return Vec::new() };
+        let Ok(bin) = std::fs::read(self.dir.join("models").join(format!("{name}.bin"))) else { return Vec::new() };
+        let mut out = Vec::new();
+        for s in &file.submeshes {
+            let pos = floats(&bin, s.positions, s.vertices * 3);
+            let nrm = floats(&bin, s.normals, s.vertices * 3);
+            let uv = floats(&bin, s.uvs, s.vertices * 2);
+            let idx: Vec<u32> = bin[s.index_offset..s.index_offset + s.indices * 4].chunks_exact(4).map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect();
+            let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD);
+            mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, pos.chunks_exact(3).map(|v| [v[0], v[1], v[2]]).collect::<Vec<_>>());
+            mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, nrm.chunks_exact(3).map(|v| [v[0], v[1], v[2]]).collect::<Vec<_>>());
+            mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uv.chunks_exact(2).map(|v| [v[0], v[1]]).collect::<Vec<_>>());
+            if let Some(o) = s.uvs1 {
+                mesh.insert_attribute(Mesh::ATTRIBUTE_UV_1, floats(&bin, o, s.vertices * 2).chunks_exact(2).map(|v| [v[0], v[1]]).collect::<Vec<_>>());
+            }
+            mesh.insert_indices(Indices::U32(idx));
+            let def = s.material.clone().unwrap_or_default();
+            // tangents for the normal map (generated, MikkTSpace; the original stores its own: guess that they agree)
+            if def.normal_map.is_some() {
+                if let Err(e) = mesh.generate_tangents() {
+                    warn!("{name}: no tangents: {e}");
+                }
+            }
+            let m = crate::gamematerial::make(&def, s.texture.as_deref(), s.alpha, lights, assets, white);
+            out.push((meshes.add(mesh), materials.add(m)));
+        }
+        out
+    }
+
     pub fn material(
         &mut self,
         texture: Option<&str>,

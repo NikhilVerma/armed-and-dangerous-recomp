@@ -21,12 +21,35 @@ direction, ids 0x21..0x24 in fn_00428980; the engine plays one, so guns point up
 subtitles (the original shows them in the top message feed as "Speaker: line" in the speaker's colour; the engine
 puts them at y 0.15 without the name: wrong, fix), the grunts' shot cadence (fire anim 0.47 s, engine 0.6 s).
 
+## What "done" means (the human, 2026-10-13)
+
+- **Subjective:** the new game looks and plays the same as the original **or better**, as a faithful remaster /
+  remake. If a score is poor but the game looks subjectively better and faithful, the score is irrelevant.
+- **Objective:** no unexpected behaviour, bugs, crashes or glitches.
+
 ## The verification loop
 
 A piece is done only when its comparison with the original shows no difference that matters. Guesses stay labelled
 in the source (`guess:`), with the evidence that would settle them.
 
+### Synced walk comparison (use this first)
+
+Both games get the same inputs from the same point: the original with `tools/shot.py --scenario level --keys
+"500:MOUSE1,510:17*300"` (dismiss the briefing at frame 500, W from 510), the engine with the playtest script
+work/remaster/play/walkA.json (the same timeline at 60 fps; it writes `walkA.<frame>.png` and
+`walkA.<frame>.camera.json`: the engine's camera and Roman in game space). Run the engine at `--size 640x372`
+(the original's letterbox strip) so the framing matches, then `tools/render_compare.py work/shots/walkA-520.png
+work/remaster/play/walkA.520.png`. Compare the cameras as numbers first (the original's dumps vs the engine's
+`.camera.json`): on 2026-10-13 they agreed within 7 units and 1 degree, and Roman's walking speed matched.
+
+Results (frame 520): first baseline mae 60.6 / psnr 10.7 dB; with the landscape's original materials, the
+original camera FOV and synced timing: mae 29.8 / psnr 16.0 dB.
+
 ### Same-camera render comparison (rendering pieces)
+
+**Caution:** `--camera` (fixed camera from a dump) disagreed with the synced run on 2026-10-13 (rock walls where the
+original shows the ruined arch, while the synced run matches): its view-matrix conversion is suspect. Prefer the
+synced walk until it is fixed.
 
 1. Capture the original at chosen frames with its camera (the hook DLL writes `and-frame-N.camera.json` next to every
    dumped frame; build it first with `pwsh tools/build.ps1`):
@@ -86,6 +109,23 @@ player.rs under `bot` and must never change how the game plays for a human.
 `tools/shot.py --scenario menu --frames 800` (main menu), `--scenario play` (briefing at 480, pause at 720), keys to
 navigate (the Options page opens on Back; Up moves). `tools/ui_compare.py` puts the UI pairs side by side in
 work/remaster/play/compare/.
+
+## Rendering: what the original does (found 2026-10-13)
+
+- Three pixel shaders in the whole game (tools/ps_disasm.py work/shaders/ps_*.bin): bump diffuse (base t0, normal
+  t1), terrain (normal t0, base t1, second t2, mask t3 on uv set 1), bump + specular (characters). Everything else
+  is D3D9 fixed function.
+- `[test] log_materials=1` (hook) writes and-materials.txt: every bound material with its four stage textures, pixel
+  shader, flags and stage ops; that is how each material's set-up was read.
+- Material records (exported per submesh as `material`): +0x16 base, +0x18 normal map, +0x1a second texture, +0x1c
+  mask (texture ids into the mesh's dictionary), +0x34 low byte the shading kind (3 bump, 15 terrain, 5 environment
+  cube map * factor + texture * lighting, 1 fixed function), +0x50.. emissive / ambient / diffuse / specular, +0x60
+  power. The engine's game material (engine/src/gamematerial.rs + .wesl) implements these, in gamma space.
+- Lighting: the sun per pixel (through the normal map), the ambient-only light and the fill light per vertex,
+  multiplied by the material's colours (the bluish diffuse 0x85AFB9 is why the snow looks blue).
+- The follow camera: horizontal 60 degrees (Camera_end), vertical 0.654 rad in the letterboxed 1.702 view.
+- Environment cube maps (ice, water, metal): rendered by the game each frame (cubemap_texture); the engine uses the
+  fog colour for now (a labelled approximation).
 
 ## Tips and traps
 

@@ -17,6 +17,7 @@ mod fxvm;
 mod gamedata;
 mod camdump;
 mod gamemenu;
+mod gamematerial;
 mod options;
 mod gameaudio;
 mod hud;
@@ -66,10 +67,14 @@ struct Args {
     camera: Option<PathBuf>,
     /// no HUD or menus (render comparisons)
     no_hud: bool,
+    /// the landscape with Bevy's standard material instead of the original's (A/B comparisons)
+    std_materials: bool,
+    /// debug: hide "landscape" or the placed objects whose template contains this text (render comparisons)
+    debug_hide: Option<String>,
 }
 
 fn args() -> Args {
-    let mut a = Args { scene: PathBuf::from("../work/remaster/lev_1_m1"), size: (1920, 1080), bench: None, vsync: false, no_ai: false, fx_test: None, snap: None, play: None, skip_title: false, camera: None, no_hud: false };
+    let mut a = Args { scene: PathBuf::from("../work/remaster/lev_1_m1"), size: (1920, 1080), bench: None, vsync: false, no_ai: false, fx_test: None, snap: None, play: None, skip_title: false, camera: None, no_hud: false, std_materials: false, debug_hide: None };
     let v: Vec<String> = std::env::args().collect();
     let mut bench_secs = None;
     let mut out = PathBuf::from("../work/remaster/bench/latest.json");
@@ -93,6 +98,8 @@ fn args() -> Args {
             "--skip-title" => (a.skip_title, used) = (true, 1),
             "--camera" => a.camera = Some(PathBuf::from(next)),
             "--no-hud" => (a.no_hud, used) = (true, 1),
+            "--std-materials" => (a.std_materials, used) = (true, 1),
+            "--debug-hide" => a.debug_hide = Some(next),
             other => panic!("unknown argument {other}"),
         }
         i += used;
@@ -109,6 +116,7 @@ pub struct Launch {
     size: (u32, u32),
     no_ai: bool,
     no_hud: bool,
+    std_materials: bool,
 }
 
 /// `--fx-test DIR`: camera parked by the powder kegs nearest the level centre; at 1 s the nearest keg is shot
@@ -149,12 +157,13 @@ fn main() {
     .add_plugins((FrameTimeDiagnosticsPlugin::default(), flycam::FlyCamPlugin, bench::BenchPlugin))
     .add_plugins((physics::PhysicsPlugin, fx::FxPlugin, ai::AiPlugin, player::PlayerPlugin, menu::MenuPlugin, level::LevelPlugin, fxvm::FxVmPlugin, ai::CompanionPlugin, skin::SkinPlugin, charanim::CharAnimPlugin, hud::HudPlugin, mission::MissionPlugin, gameaudio::GameAudioPlugin, campath::CameraPathPlugin, gamemenu::GameMenuPlugin))
     .add_plugins(options::OptionsPlugin)
+    .add_plugins(gamematerial::GameMaterialPlugin)
     .add_plugins(pubscreen::PubScreenPlugin)
     .add_plugins(topsy::TopsyPlugin)
     .init_state::<AppState>()
     .insert_non_send(physics::Physics::new(level::METERS_PER_UNIT))
     .insert_resource(ClearColor(Color::srgb(0.62, 0.70, 0.80)))
-    .insert_resource(Launch { fx_test: a.fx_test.is_some(), scene: scene_dir, bench: a.bench, size: a.size, no_ai: a.no_ai, no_hud: a.no_hud })
+    .insert_resource(Launch { fx_test: a.fx_test.is_some(), scene: scene_dir, bench: a.bench, size: a.size, no_ai: a.no_ai, no_hud: a.no_hud, std_materials: a.std_materials })
     .add_systems(Update, fx_test.run_if(resource_exists::<FxTest>))
     .add_systems(Startup, setup)
     .add_systems(Update, (play_state, hud_state))
@@ -173,6 +182,15 @@ fn main() {
         app.insert_state(AppState::Playing);
     }
     app.add_plugins(camdump::CamDumpPlugin);
+    if let Some(h) = a.debug_hide.clone() {
+        app.add_systems(Update, move |mut q: Query<(&Name, &mut Visibility)>| {
+            for (n, mut v) in &mut q {
+                if n.as_str().contains(h.as_str()) {
+                    *v = Visibility::Hidden;
+                }
+            }
+        });
+    }
     if let Some(c) = &a.camera {
         app.insert_resource(camdump::CameraDump::load(c).fixed());
     }
@@ -200,6 +218,16 @@ fn main() {
 }
 
 #[allow(clippy::too_many_arguments)]
+/// The vertical FOV of the original's follow camera (player.json camera node Camera_end, horizontal radians).
+fn original_vertical_fov(scene: &std::path::Path) -> f32 {
+    let h = std::fs::read_to_string(scene.join("player.json"))
+        .ok()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        .and_then(|v| v["camera"]["nodes"]["Camera_end"]["fov"].as_f64())
+        .unwrap_or(std::f64::consts::FRAC_PI_3) as f32;
+    2.0 * ((h * 0.5).tan() / 1.702_128).atan()
+}
+
 fn setup(
     mut commands: Commands,
     launch: Res<Launch>,
@@ -212,6 +240,8 @@ fn setup(
     mut anim_lib: ResMut<skin::AnimLibrary>,
     mut color_materials: ResMut<Assets<ColorMaterial>>,
     mut binds: ResMut<Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>,
+    mut images: ResMut<Assets<Image>>,
+    mut game_materials: ResMut<Assets<gamematerial::GameMaterial>>,
 ) {
     let t = std::time::Instant::now();
     let scene = scene::read_scene(&launch.scene);
@@ -219,7 +249,26 @@ fn setup(
     let data = gamedata::GameData::load(&launch.scene);
     anim_lib.dir = launch.scene.clone();
     let mut skin_ctx = level::SkinCtx { lib: &mut anim_lib, binds: &mut binds };
+    lib.skip_landscape_visual = !launch.std_materials;
     let info = level::spawn(&mut commands, &scene, &data, &mut lib, &mut physics, &assets, &mut meshes, &mut materials, &mut skin_ctx);
+    // the landscape with the original's materials (rendering piece 1, docs/remaster-engine.md)
+    if !launch.std_materials {
+        let lights = gamematerial::GameLights::from_scene(&scene);
+        let white = images.add(Image::new_fill(
+            bevy::render::render_resource::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+            bevy::render::render_resource::TextureDimension::D2,
+            &[255, 255, 255, 255],
+            bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb,
+            bevy::asset::RenderAssetUsages::RENDER_WORLD,
+        ));
+        let parts = lib.load_game_parts(&scene.landscape, &lights, &assets, &mut meshes, &mut game_materials, &white);
+        let e = commands.spawn((Transform::from_matrix(Mat4::from_quat(level::game_to_engine())), Visibility::default(), Name::new("landscape"))).id();
+        for (i, (mesh, mat)) in parts.into_iter().enumerate() {
+            let c = commands.spawn((Mesh3d(mesh), MeshMaterial3d(mat), Name::new(format!("lsub{i}_")))).id();
+            commands.entity(e).add_child(c);
+        }
+        commands.insert_resource(lights);
+    }
     // every model an fx script can create (0x05 / 0x13 by template name), loaded now rather than on first use
     let mut fx_models = 0;
     for script in data.fx.values() {
@@ -258,6 +307,10 @@ fn setup(
     start.y = physics.raycast(start.with_y(3000.0), -Vec3::Y, 6000.0).map(|h| h.1.y).unwrap_or(info.center.y) + 45.0;
     let cam = commands.spawn((
         Camera3d::default(),
+        // the original's follow camera: Camera_end's horizontal FOV (player.json, 60 degrees) made vertical for its
+        // letterboxed 1.702 view, 2 * atan(tan(h / 2) / 1.702128) (docs/subsystems/camera.md), 0.654 rad; the
+        // remaster keeps that vertical FOV (wider screens see a little more at the sides)
+        Projection::Perspective(PerspectiveProjection { fov: original_vertical_fov(&launch.scene), ..default() }),
         Transform::from_translation(start).looking_at(info.center.with_y(start.y - 20.0), Vec3::Y),
         {
             let d = (info.center.with_y(start.y - 20.0) - start).normalize();

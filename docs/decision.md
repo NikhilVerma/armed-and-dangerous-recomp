@@ -205,3 +205,9 @@ How this coexists with faithful recovery:
   while its comparison shows a difference.
 - Future levels' mechanics (jetpacks, capture the flag, escort missions, ...) are ported the same way, each as its
   own piece.
+
+- Human, the same day, on what counts: "the subjective part means the new game should look and play the same OR
+  better than old. the objective part means: no unexpected behaviour, bugs, crashes, glitches"; "if the score is
+  poor but the game looks subjectively better then the score is irrelevant"; "it should look a faithful
+  remaster/remake". Porting order: rendering, then player movement, the sticky bomb (homing), guns, zoom, the rest;
+  verification by playing the same inputs in both (e.g. dismiss the briefing, walk forward 5 s) and comparing.
