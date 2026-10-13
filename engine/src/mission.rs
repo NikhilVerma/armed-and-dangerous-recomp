@@ -391,7 +391,8 @@ impl Mission {
     /// text id or a literal.
     pub fn feed(&mut self, text_or_id: &str) {
         let t = self.texts.get(text_or_id).cloned().unwrap_or_else(|| text_or_id.to_owned());
-        self.feed.push((6.0, long_form(&t)));
+        // the chat colour table's entry 1, #1fffff (0x0046a7e0; measured on the original's capture, frame 815)
+        self.feed.push((6.0, format!("<rgb=1fffff>{}", long_form(&t))));
         if self.feed.len() > 3 {
             self.feed.remove(0);
         }
@@ -726,8 +727,23 @@ fn messages(
     mut m: Option<ResMut<Mission>>,
     mut hud: ResMut<crate::hud::HudState>,
     mut vtime: ResMut<Time<Virtual>>,
+    mut subs: MessageReader<crate::audio::Subtitle>,
+    opts: Res<crate::options::GameOptions>,
 ) {
     let Some(m) = m.as_deref_mut() else { return };
+    // speech lines go to the feed as "Speaker: line" (the original adds them to the chat feed Game+0xaac,
+    // docs/subsystems/audio.md; seen as "Roman: Oh, I'm freezing." in its captures), with the in-game subtitles
+    // option
+    for s in subs.read() {
+        if !opts.subtitles_game || s.text.is_empty() {
+            continue;
+        }
+        let line = match &s.speaker {
+            Some(sp) if !s.text.starts_with(&format!("{sp}:")) => format!("{sp}: {}", s.text),
+            _ => s.text.clone(),
+        };
+        m.feed(&line);
+    }
     // the feed: the oldest line scrolls off after 6 s
     for f in &mut m.feed {
         f.0 -= time.delta_secs();

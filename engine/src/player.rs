@@ -232,8 +232,9 @@ pub fn machinegun(data: &GameData) -> Weapon {
     }
 }
 
-fn grab_cursor(mut cursor: Query<&mut CursorOptions, With<PrimaryWindow>>, mut done: Local<bool>) {
-    if *done {
+fn grab_cursor(mut cursor: Query<&mut CursorOptions, With<PrimaryWindow>>, mut done: Local<bool>, playtest: Option<Res<crate::playtest::Playtest>>) {
+    // scripted runs leave the mouse to the person at the desk
+    if *done || playtest.is_some() {
         return;
     }
     if let Ok(mut c) = cursor.single_mut() {

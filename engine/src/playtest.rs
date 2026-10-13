@@ -57,6 +57,9 @@ pub struct Event {
     /// bot: with goto, arrive within this many units (default 12)
     #[serde(default)]
     pub near: Option<f32>,
+    /// steps only: wait until the game shows a paused message (the briefing): "message"; max 60 s
+    #[serde(default)]
+    pub until: Option<String>,
     /// steps only: wait this many seconds
     #[serde(default)]
     pub wait: Option<f32>,
@@ -242,7 +245,7 @@ fn drive(
 ) {
     pt.t += time.delta_secs();
     // the mission over (won or failed): play stops, so a pending goto counts as done
-    let ended = mission.is_some_and(|m| m.outcome != crate::mission::Outcome::Playing);
+    let ended = mission.as_ref().is_some_and(|m| m.outcome != crate::mission::Outcome::Playing);
     let t = pt.t;
     for k in std::mem::take(&mut pt.taps) {
         keys.release(k);
@@ -251,7 +254,8 @@ fn drive(
         buttons.release(b);
     }
     let turn: Vec2 = pt.turns.iter().filter(|(t0, t1, _, _)| t >= *t0 && t < *t1).map(|(_, _, x, y)| Vec2::new(*x, *y)).sum();
-    motion.delta += turn;
+    // scripted runs ignore the real mouse (it moves the camera under the cursor grab): only scripted turns
+    motion.delta = turn;
     // sequential steps
     let mut due: Vec<Event> = Vec::new();
     if pt.step < pt.steps.len() {
@@ -279,7 +283,9 @@ fn drive(
                 due.push(Event { shot: Some(s), ..st.clone().cleared() });
             }
         }
-        let done = if st.goto.is_some() {
+        let done = if st.until.as_deref() == Some("message") {
+            mission.as_ref().is_some_and(|m| m.showing.is_some()) || pt.step_t > 60.0
+        } else if st.goto.is_some() {
             bot.arrived || ended || pt.step_t > 240.0
         } else if let Some(w) = st.wait {
             pt.step_t >= w

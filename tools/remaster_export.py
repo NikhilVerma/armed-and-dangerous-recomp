@@ -146,7 +146,9 @@ def mesh_submeshes(ch, bone_index=None):
             p = objchunk.u32(b, mptr + 0x7C) + k * 0x64
             h = lambda o: struct.unpack_from("<H", b, p + o)[0]
             col = lambda o: struct.unpack_from("<I", b, p + o)[0]
-            rgb = lambda v: [(v >> 16 & 255) / 255, (v >> 8 & 255) / 255, (v & 255) / 255]
+            # stored blue-first (0x00BBGGRR): checked against the original's captures (Roman's belt brown, rock warm;
+            # the UI bank's flat colours are stored the same way)
+            rgb = lambda v: [(v & 255) / 255, (v >> 8 & 255) / 255, (v >> 16 & 255) / 255]
             mat_raw.append({
                 "kind": b[p + 0x34],
                 "normal_map": texids.get(h(0x18)),
@@ -205,7 +207,8 @@ def write_model(out, name, subs, texinfo, skeleton=None):
     for tex, vp, vn, vt, idx, color, vs, *rest in subs:
         extra = rest[0] if rest else {}
         e = {"texture": tex if tex in texinfo else None, "vertices": len(vp), "indices": len(idx),
-             "color": [(color >> 16 & 255) / 255, (color >> 8 & 255) / 255, (color & 255) / 255]}
+             # the material's diffuse, stored blue-first (0x00BBGGRR) like every material colour
+             "color": [(color & 255) / 255, (color >> 8 & 255) / 255, (color >> 16 & 255) / 255]}
         e["alpha"] = bool(e["texture"] and texinfo[tex]["alpha"])
         # the material as the original shades it (mesh_submeshes): kind, extra maps, colours
         if extra:

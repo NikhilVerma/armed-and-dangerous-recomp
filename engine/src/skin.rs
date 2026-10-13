@@ -169,11 +169,13 @@ pub struct Layer {
     pub speed: f32,
     pub looping: bool,
     pub mask: Mask,
+    /// 1 replaces what the layers below set; less blends toward this layer (lerp / slerp)
+    pub weight: f32,
 }
 
 impl Layer {
     pub fn new(anim: &str, looping: bool) -> Self {
-        Layer { anim: anim.to_lowercase(), time: 0.0, speed: 1.0, looping, mask: Mask::All }
+        Layer { anim: anim.to_lowercase(), time: 0.0, speed: 1.0, looping, mask: Mask::All, weight: 1.0 }
     }
 }
 
@@ -196,10 +198,24 @@ impl Animator {
         }
         let l = &mut self.layers[slot];
         if l.anim != anim {
-            *l = Layer { anim, time: 0.0, speed: 1.0, looping, mask };
+            *l = Layer { anim, time: 0.0, speed: 1.0, looping, mask, weight: 1.0 };
         } else {
             l.looping = looping;
             l.mask = mask;
+        }
+    }
+    /// The layer's blend weight over the layers below (play first).
+    pub fn set_weight(&mut self, slot: usize, weight: f32) {
+        if let Some(l) = self.layers.get_mut(slot) {
+            l.weight = weight.clamp(0.0, 1.0);
+        }
+    }
+    /// Keeps a layer's time equal to another's (two halves of one blend).
+    pub fn sync(&mut self, slot: usize, to: usize) {
+        if let Some(t) = self.layers.get(to).map(|l| l.time) {
+            if let Some(l) = self.layers.get_mut(slot) {
+                l.time = t;
+            }
         }
     }
     pub fn stop(&mut self, slot: usize) {
@@ -285,13 +301,15 @@ fn animate(time: Res<Time>, mut lib: ResMut<AnimLibrary>, mut q: Query<(Entity, 
                 }
                 let Some(track) = anim.tracks.get(name) else { continue };
                 let Ok(mut jt) = joints.get_mut(a.joints[i]) else { continue };
+                let w = l.weight;
                 if let Some(v) = sample3(&track.t, t) {
-                    jt.translation = v;
+                    jt.translation = if w >= 1.0 { v } else { jt.translation.lerp(v, w) };
                 }
                 if let Some(q) = sample_q(&track.r, t) {
-                    jt.rotation = q;
+                    jt.rotation = if w >= 1.0 { q } else { jt.rotation.slerp(q, w) };
                 }
-                jt.scale = sample3(&track.s, t).unwrap_or(Vec3::ONE);
+                let sc = sample3(&track.s, t).unwrap_or(Vec3::ONE);
+                jt.scale = if w >= 1.0 { sc } else { jt.scale.lerp(sc, w) };
             }
         }
     }

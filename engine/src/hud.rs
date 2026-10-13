@@ -726,7 +726,8 @@ fn texts(
 /// length; the newest line replaces the one showing.
 fn subtitles(time: Res<Time>, mut subs: MessageReader<crate::audio::Subtitle>, hud: Option<Res<HudAssets>>, mut state: ResMut<HudState>) {
     for s in subs.read() {
-        if state.subtitles_off || s.text.is_empty() {
+        // the original shows speech in the top feed (mission.rs messages), not on a bottom line
+        if true || state.subtitles_off || s.text.is_empty() {
             continue;
         }
         let colour = hud

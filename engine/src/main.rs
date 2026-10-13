@@ -67,6 +67,8 @@ struct Args {
     camera: Option<PathBuf>,
     /// no HUD or menus (render comparisons)
     no_hud: bool,
+    /// test runs: the window opens off-screen, unfocused and behind everything, so it does not take over the desktop
+    background: bool,
     /// the landscape with Bevy's standard material instead of the original's (A/B comparisons)
     std_materials: bool,
     /// debug: hide "landscape" or the placed objects whose template contains this text (render comparisons)
@@ -74,7 +76,7 @@ struct Args {
 }
 
 fn args() -> Args {
-    let mut a = Args { scene: PathBuf::from("../work/remaster/lev_1_m1"), size: (1920, 1080), bench: None, vsync: false, no_ai: false, fx_test: None, snap: None, play: None, skip_title: false, camera: None, no_hud: false, std_materials: false, debug_hide: None };
+    let mut a = Args { scene: PathBuf::from("../work/remaster/lev_1_m1"), size: (1920, 1080), bench: None, vsync: false, no_ai: false, fx_test: None, snap: None, play: None, skip_title: false, camera: None, no_hud: false, background: false, std_materials: false, debug_hide: None };
     let v: Vec<String> = std::env::args().collect();
     let mut bench_secs = None;
     let mut out = PathBuf::from("../work/remaster/bench/latest.json");
@@ -98,6 +100,7 @@ fn args() -> Args {
             "--skip-title" => (a.skip_title, used) = (true, 1),
             "--camera" => a.camera = Some(PathBuf::from(next)),
             "--no-hud" => (a.no_hud, used) = (true, 1),
+            "--background" => (a.background, used) = (true, 1),
             "--std-materials" => (a.std_materials, used) = (true, 1),
             "--debug-hide" => a.debug_hide = Some(next),
             other => panic!("unknown argument {other}"),
@@ -141,6 +144,10 @@ fn main() {
                     title: "Armed and Dangerous - remaster engine".into(),
                     resolution: WindowResolution::new(a.size.0, a.size.1).with_scale_factor_override(1.0),
                     present_mode: if a.vsync { PresentMode::AutoVsync } else { PresentMode::AutoNoVsync },
+                    position: if a.background { bevy::window::WindowPosition::At(IVec2::new(-20000, -20000)) } else { bevy::window::WindowPosition::Automatic },
+                    focused: !a.background,
+                    window_level: if a.background { bevy::window::WindowLevel::AlwaysOnBottom } else { bevy::window::WindowLevel::Normal },
+                    skip_taskbar: a.background,
                     ..default()
                 }),
                 ..default()

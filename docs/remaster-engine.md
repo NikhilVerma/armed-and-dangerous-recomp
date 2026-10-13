@@ -47,7 +47,10 @@ original camera FOV and synced timing: mae 29.8 / psnr 16.0 dB. After the materi
 no far clip and blended alpha (2026-10-13): the numbers barely move (mae ~31) but the look got closer (snowy
 ground, distant hills, bare sparse trees); the human's rule: the look decides, not the score.
 
-Open look differences at 580 (next work): the ground's shading (engine brighter cyan, stronger normal-map relief;
+Latest (after the camera nodes, the aim blend and blue-first colours): synced frame 520 mae ~26, psnr ~16.8 dB;
+by eye the frames now match closely (work/remaster/render/final_520_pair.png, token_815b.png).
+
+Earlier list of open differences at 580 (several fixed since: arch scale, token, aim pose, camera): the ground's shading (engine brighter cyan, stronger normal-map relief;
 original softer blue-grey), falling snow density, the far horizon band (engine a flat pale strip), the ruined arch
 looks smaller in the engine (unexplained: check its instance transform / scale), the token pickup's model, Roman
 aim pose and his screen position (camera 4-7 units off: check Camera_Update 0x0040e350).
@@ -140,6 +143,30 @@ work/remaster/play/compare/.
 - LOD: always the finest (the human's decision, docs/decision.md).
 - Environment cube maps (ice, water, metal): rendered by the game each frame (cubemap_texture); the engine uses the
   fog colour for now (a labelled approximation).
+
+## Characters and colours (found 2026-10-13)
+
+- Roman's `_b` / `_t` animation pairs are the **bottom and top of an aim-pitch blend** (like the grunts' fire_bl /
+  fire_tl), not lower / upper body: the rifle points ~50 degrees down in `_b`, ~47 up in `_t`. The engine blends
+  them with w = (aim pitch in degrees + 50) / 97 (derived from the skeleton; the original's mapping, 0x00475ff0 /
+  +0x580, not traced). This fixed "the player is always pointing up".
+- Material colours (the records' ambient / diffuse / specular and the untextured parts' colour) are stored
+  blue-first, 0x00BBGGRR, like the UI bank's flat colours (Roman's belt is brown, not blue).
+- Instance placement scale is ignored by the original (archways 0.5, pine trees 0.55..0.88 draw at full size).
+- The follow camera: eye at Trotter_ref's Camera_end (22.703 behind, 11.128 up), looking at Camera_start's target
+  (7.194 ahead, 6.877 up); rest tilt -0.141 rad, as in the original's camera dumps.
+- Speech subtitles go to the top message feed as "Speaker: line" in #1fffff (the chat colour table's entry 1), as
+  every feed line; there is no bottom subtitle line in game.
+- Extras tokens: placed pickups spin at rotate_rate; the message and unlockables follow fn_004a0850 and the table
+  0x0057e878; the count persists in options.json (delete it before a comparison run).
+
+## Running tests without disturbing the desktop
+
+- `--background`: the window opens off-screen, unfocused, behind everything, not in the taskbar; screenshots still
+  work. Scripted runs (`--play`) never grab the cursor and ignore the real mouse (it used to turn the camera and
+  made runs differ).
+- Anchor scripts to the game, not the clock: `{"until": "message"}` waits for the briefing (loading time varies;
+  fixed waits drifted into the intro). With both, repeated runs agree within ~0.3 mae.
 
 ## Tips and traps
 

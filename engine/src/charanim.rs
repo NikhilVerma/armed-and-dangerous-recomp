@@ -59,8 +59,17 @@ fn roman(mut q: Query<(&Roman, &mut Animator)>, topsy: Res<crate::topsy::Topsy>)
             a.stop(1);
             continue;
         }
-        a.play(0, &format!("{gait}_b"), true, Mask::Lower);
-        a.play(1, &format!("{upper}_t"), true, Mask::Upper);
+        // `_b` / `_t` are the bottom and top of an aim-pitch blend (as the grunts' fire_bl / tl): the rifle points
+        // ~50 degrees down in `_b` and ~47 up in `_t` (measured on the skeleton, docs/remaster-engine.md), legs alike.
+        // The pose is the blend whose rifle follows the aim pitch: w = (pitch + 50) / 97 in degrees, with the
+        // aim pitch = the view's (rest -8 degrees: w 0.43, a level rifle as in the original's captures).
+        // The exact mapping in the player's anim code (0x00475ff0 / the blend +0x580) is not traced: derived.
+        let aim_deg = (r.pitch + 0.15 - 0.141).to_degrees();
+        let w = ((aim_deg + 50.0) / 97.0).clamp(0.0, 1.0);
+        a.play(0, &format!("{upper}_b"), true, Mask::All);
+        a.play(1, &format!("{upper}_t"), true, Mask::All);
+        a.set_weight(1, w);
+        a.sync(1, 0);
     }
 }
 
