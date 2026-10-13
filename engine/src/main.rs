@@ -21,6 +21,7 @@ mod cheats;
 mod decals;
 mod sticky;
 mod gamemenu;
+mod hitparts;
 mod gamematerial;
 mod options;
 mod gameaudio;

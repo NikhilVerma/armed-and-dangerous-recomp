@@ -863,6 +863,8 @@ fn projectiles(
     mut roman_health: Query<&mut Health, (With<Roman>, Without<crate::physics::Body>, Without<Projectile>)>,
     mut stats: ResMut<PlayerStats>,
     mut fx: MessageWriter<crate::fx::StartFx>,
+    hulls: Option<Res<crate::hitparts::HitHulls>>,
+    binds: Res<Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>,
 ) {
     let dt = time.delta_secs();
     for (e, mut p, mut t) in &mut q {
@@ -871,15 +873,23 @@ fn projectiles(
         p.life -= dt;
         let mut hit = physics.raycast(from, step.normalize_or(Vec3::Y), step.length().max(0.01));
         // the original's bullets hit a character's collision parts (Projectile_Update 0x0047e580: a detail-level-2 ray
-        // against the per-part hulls), not a capsule round the whole body: a ray into a character's capsule only hits
-        // when it passes within a part's radius of the skeleton (bone to parent; radii guessed: torso 1.0, head 0.8,
-        // limbs 0.5). Measured in the original (hook AI dump, fightT): Jonesy's 10-damage shots at 130 units hit about
-        // one grunt in twelve, as this width gives with the aim scatter of 0x004284e0
+        // against the collision model's parts), not a capsule round the whole body: a ray into a grunt's capsule hits
+        // only where it meets one of grunt_coll_9's boxes posed by the skeleton (hitparts.rs); other characters: within
+        // a part's radius of the skeleton (guessed radii: torso 1.0, head 0.8, limbs 0.5)
+        let mut hull_part: Option<String> = None;
         if let Some((body, _, _)) = hit {
-            if let Some((_, _, _, Some(a), _)) = chars.iter().find(|(ce, b, _, _, _)| b.id == body && Some(*ce) != p.owner) {
+            if let Some((_, _, _, Some(a), grunt)) = chars.iter().find(|(ce, b, _, _, _)| b.id == body && Some(*ce) != p.owner) {
                 let seg = step.normalize_or(Vec3::Y) * (step.length() + 10.0);
-                if !ray_hits_parts(a, &joints, from, seg) {
-                    hit = None;
+                match hulls.as_ref().filter(|h| grunt && !h.grunt.is_empty()) {
+                    Some(h) => match crate::hitparts::hit(&h.grunt, a, &joints, &binds, from, from + seg) {
+                        Some((_, part)) => hull_part = Some(part),
+                        None => hit = None,
+                    },
+                    None => {
+                        if !ray_hits_parts(a, &joints, from, seg) {
+                            hit = None;
+                        }
+                    }
                 }
             }
         }
@@ -929,7 +939,7 @@ fn projectiles(
                 // the part hit (0x0047eec0: the hit part's bone "head" / "neck" -> head_shot_multiplier, "chest" /
                 // "belly" -> torso_shot_multiplier). The engine's characters collide as one capsule: the part is
                 // taken as the skeleton bone nearest the hit point (approximation of the original's per-part hulls)
-                let part = anim.and_then(|a| {
+                let part = hull_part.clone().or_else(|| anim.and_then(|a| {
                     a.skeleton
                         .names
                         .iter()
@@ -939,7 +949,7 @@ fn projectiles(
                         .filter_map(|(i, n)| joints.get(a.joints[i]).ok().map(|j| (n.trim().to_lowercase(), j.translation().distance(at))))
                         .min_by(|x, y| x.1.total_cmp(&y.1))
                         .map(|(n, _)| n)
-                });
+                }));
                 let mult = match part.as_deref() {
                     Some("head" | "neck") => p.head_mult,
                     Some("chest" | "belly") => p.torso_mult,
@@ -950,7 +960,7 @@ fn projectiles(
                 }
                 h.0 -= p.damage * mult;
                 if std::env::var("AIDBG").is_ok() {
-                    info!("AIDBG hit {:?} for {} -> {}", body, p.damage * mult, h.0);
+                    info!("AIDBG hit {:?} for {} -> {} part {:?}", body, p.damage * mult, h.0, part);
                 }
                 if p.from_player && was_alive && h.0 <= 0.0 {
                     stats.kills += 1;
