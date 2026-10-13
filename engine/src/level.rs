@@ -326,7 +326,7 @@ pub fn spawn(
         }
         // Q and Jonesy follow Roman
         if inst.template == "q111" || inst.template == "molmer" {
-            if let Some(walker) = physics.add_walker(pos, p.f("collision_radius", 4.0).clamp(2.0, 5.0), 10.0) {
+            if let Some(walker) = physics.add_walker(pos, p.f("collision_radius", 4.0).clamp(2.0, 5.0), 10.0, 50f32.to_radians()) {
                 let (yaw, _, _) = (rot * game_to_engine().inverse()).to_euler(EulerRot::YXZ);
                 commands.entity(e).insert((
                     crate::ai::Companion::new(walker, &p, data, inst.template == "q111", yaw, game_to_engine()),

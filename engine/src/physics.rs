@@ -202,7 +202,8 @@ pub struct Walker {
 }
 
 impl Physics {
-    pub fn add_walker(&mut self, feet: Vec3, radius: f32, height: f32) -> Option<Walker> {
+    /// `max_slope`: the steepest walkable ground (radians); steeper ground slides the walker down.
+    pub fn add_walker(&mut self, feet: Vec3, radius: f32, height: f32, max_slope: f32) -> Option<Walker> {
         let k = self.meters_per_unit;
         let r = radius * k;
         let half = ((height * k) * 0.5 - r).max(0.05);
@@ -210,7 +211,7 @@ impl Physics {
         let lift = height * 0.5;
         let settings = CharacterSettings::new(&shape)
             .shape_offset(j::Vec3::new(0.0, lift * k, 0.0))
-            .max_slope_angle(50f32.to_radians())
+            .max_slope_angle(max_slope)
             .mass(80.0);
         let id = self.world.create_character(&settings, self.to_m(feet), j::Quat { x: 0.0, y: 0.0, z: 0.0, w: 1.0 }).ok()?;
         let _ = self.world.refresh_character_contacts(id, &QueryFilter::new());
@@ -227,6 +228,11 @@ impl Physics {
         let c = self.world.character(w.id).ok()?;
         let on = matches!(c.ground_state(), oxijolt::GroundState::OnGround);
         Some((br(c.position()) / k, on))
+    }
+
+    /// Whether a walker touches nothing below it (not even ground too steep to stand on).
+    pub fn walker_in_air(&self, w: &Walker) -> bool {
+        self.world.character(w.id).map(|c| matches!(c.ground_state(), oxijolt::GroundState::InAir)).unwrap_or(false)
     }
 
     /// Puts a walker's feet at `feet` (game units, engine axes): a teleport (leaving the pub at its exit).

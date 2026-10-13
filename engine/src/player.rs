@@ -178,7 +178,9 @@ impl Plugin for PlayerPlugin {
 /// Builds Roman from his property set at a placed trotter instance (feet at `feet`, engine space).
 pub fn make_roman(physics: &mut Physics, p: &Props, data: &GameData, feet: Vec3, yaw: f32) -> Option<Roman> {
     let radius = p.f("collision_radius", 4.0).clamp(2.0, 5.0);
-    let walker = physics.add_walker(feet, radius, 11.0)?;
+    // steep ground: the player's contact callback 0x00477c90 zeroes the friction of contacts with normal z <= 0.7
+    // (0x005bcd48, about 45.6 degrees) and 0x00478200 stops counting them as ground, so Roman slides down them
+    let walker = physics.add_walker(feet, radius, 11.0, 0.7f32.acos())?;
     let r = data.props("p_player_rifle");
     let b = data.props("proj_rifle_bullet");
     Some(Roman {
@@ -636,8 +638,9 @@ fn control(
             }
             t.translation = feet;
         }
-        // safety net (remaster): pushing for 1.5 s without moving at all (wedged in a wall's collider: seen in a
-        // bot run next to v_wall_tall_a) puts him back where he last moved freely
+        // safety net (remaster): pushing for 1.5 s without moving at all and without ground under him (wedged in a
+        // wall's collider: seen in a bot run next to v_wall_tall_a) puts him back where he last moved freely. Standing
+        // against a wall or the foot of a steep slope is the original's behaviour and is left alone
         let moved = t.translation.distance(before);
         let pushing = Vec2::new(wish.x, wish.z).length() > 1.0 || r.jumping;
         if moved > 0.2 * dt * r.fwd_speed {
@@ -651,7 +654,7 @@ fn control(
                     r.free_trail.pop_front();
                 }
             }
-        } else if pushing && !r.dead {
+        } else if pushing && !r.dead && physics.walker_in_air(&r.walker) {
             r.wedged += dt;
             if r.wedged > 1.5 {
                 r.wedged = 0.0;
@@ -940,8 +943,11 @@ fn follow_camera(
         let mut from = target;
         let mut left = full;
         // through objects: the landscape alone stops the ray; placed objects and moving bodies hit fade
-        while let Some((body, at, _)) = physics.raycast(from, dir, left) {
-            if physics.landscape == Some(body) {
+        while let Some((body, at, normal)) = physics.raycast(from, dir, left) {
+            // a landscape face hit from behind (the look target inside a steep hill at its foot: Jolt's rays hit back
+            // faces) does not stop the arm; the original's camera stays behind Roman there (fightO 1440, guess: its
+            // Havok landscape ray is one-sided)
+            if physics.landscape == Some(body) && normal.dot(dir) < 0.0 {
                 dist = dist.min(at.distance(target));
                 break;
             }
