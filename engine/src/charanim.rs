@@ -86,9 +86,8 @@ fn return_name(s: &str) -> &'static str {
     }
 }
 
-fn grunts(mut q: Query<(&Grunt, &mut Animator, &Transform, Option<&crate::topsy::Thrown>)>, mut last: Local<std::collections::HashMap<Entity, Vec3>>, ents: Query<Entity, With<Grunt>>) {
-    let _ = (&mut last, &ents);
-    for (g, mut a, _t, thrown) in &mut q {
+fn grunts(mut q: Query<(&Grunt, &mut Animator, &Transform, Option<&crate::topsy::Thrown>)>, targets: Query<&GlobalTransform>) {
+    for (g, mut a, t, thrown) in &mut q {
         // thrown by the Topsy Turvy bomb: hanging on, or falling into the sky
         if let Some(th) = thrown {
             let (name, looping) = match (th.hangs, th.t < 1.0, th.t < 0.3) {
@@ -98,13 +97,32 @@ fn grunts(mut q: Query<(&Grunt, &mut Animator, &Transform, Option<&crate::topsy:
                 (false, _, false) => ("grunt_blown_up", true),
             };
             a.play(0, name, looping, Mask::All);
+            a.stop(1);
             continue;
         }
         let limping = g.limp_pct > 0.0 && g.last_health < g.max_health * g.limp_pct / 100.0;
         let (name, looping) = match g.mind {
             Mind::Dead if g.ragdoll => ("grunt_blown_up".to_string(), false),
             Mind::Dead => (format!("grunt_die_{}", g.death_anim), false),
-            Mind::Fire => ("grunt_fire_tr".to_string(), true),
+            Mind::Fire => {
+                // the four aim poses blended by the aim weights (fn_00428fc0, PlayAnim4 vt+0x1a0 with ids
+                // 0x23/0x24/0x21/0x22): horizontal h (the grunt turns to face the target: on target 0.5), vertical
+                // from the elevation to the target, acos(dz / len) * 57.3 - 90 degrees clamped to +-26.5 (0x005bcf0c /
+                // 0x005bcf10): target above -> the top poses
+                let v = g.target.and_then(|e| targets.get(e).ok()).map(|tg| {
+                    let d = tg.translation() + Vec3::Y * 5.0 - (t.translation + Vec3::Y * 7.0);
+                    let deg = (d.y / d.length().max(1e-3)).clamp(-1.0, 1.0).acos().to_degrees() - 90.0;
+                    (deg.clamp(-26.5, 26.5) + 26.5) / 53.0
+                }).unwrap_or(0.5);
+                let h = 0.5;
+                a.play(0, "grunt_fire_tl", true, Mask::All);
+                a.set_pair(0, "grunt_fire_tr", h);
+                a.play(1, "grunt_fire_bl", true, Mask::All);
+                a.set_pair(1, "grunt_fire_br", h);
+                a.set_weight(1, v);
+                a.sync(1, 0);
+                continue;
+            }
             Mind::Reload => ("grunt_reload_tr".to_string(), false),
             Mind::Flee => ("grunt_run_scared".to_string(), true),
             Mind::Chase if limping => ("grunt_limp".to_string(), true),
@@ -113,6 +131,7 @@ fn grunts(mut q: Query<(&Grunt, &mut Animator, &Transform, Option<&crate::topsy:
             Mind::Guard | Mind::WaitTrigger => (if g.guard { "grunt_attention".to_string() } else { "grunt_stand_scan_1".to_string() }, true),
         };
         a.play(0, &name, looping, Mask::All);
+        a.stop(1);
     }
 }
 

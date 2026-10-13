@@ -171,11 +171,13 @@ pub struct Layer {
     pub mask: Mask,
     /// 1 replaces what the layers below set; less blends toward this layer (lerp / slerp)
     pub weight: f32,
+    /// a second anim sampled at the same time and mixed in first: the layer is lerp(anim, pair, pair weight)
+    pub pair: Option<(String, f32)>,
 }
 
 impl Layer {
     pub fn new(anim: &str, looping: bool) -> Self {
-        Layer { anim: anim.to_lowercase(), time: 0.0, speed: 1.0, looping, mask: Mask::All, weight: 1.0 }
+        Layer { anim: anim.to_lowercase(), time: 0.0, speed: 1.0, looping, mask: Mask::All, weight: 1.0, pair: None }
     }
 }
 
@@ -198,10 +200,16 @@ impl Animator {
         }
         let l = &mut self.layers[slot];
         if l.anim != anim {
-            *l = Layer { anim, time: 0.0, speed: 1.0, looping, mask, weight: 1.0 };
+            *l = Layer { anim, time: 0.0, speed: 1.0, looping, mask, weight: 1.0, pair: None };
         } else {
             l.looping = looping;
             l.mask = mask;
+        }
+    }
+    /// Mixes a second anim into a layer (play first): the layer samples lerp(anim, pair, w).
+    pub fn set_pair(&mut self, slot: usize, pair: &str, w: f32) {
+        if let Some(l) = self.layers.get_mut(slot) {
+            l.pair = Some((pair.to_lowercase(), w.clamp(0.0, 1.0)));
         }
     }
     /// The layer's blend weight over the layers below (play first).
@@ -280,6 +288,7 @@ fn animate(time: Res<Time>, mut lib: ResMut<AnimLibrary>, mut q: Query<(Entity, 
                 continue;
             }
             let Some(anim) = lib.anim(&l.anim) else { continue };
+            let pair = l.pair.as_ref().and_then(|(n, w)| lib.anim(n).map(|a| (a, *w)));
             let prev = if l.looping { l.time.rem_euclid(anim.duration) } else { l.time.min(anim.duration) };
             l.time += dt * l.speed;
             let t = if l.looping { l.time.rem_euclid(anim.duration) } else { l.time.min(anim.duration) };
@@ -302,10 +311,25 @@ fn animate(time: Res<Time>, mut lib: ResMut<AnimLibrary>, mut q: Query<(Entity, 
                 let Some(track) = anim.tracks.get(name) else { continue };
                 let Ok(mut jt) = joints.get_mut(a.joints[i]) else { continue };
                 let w = l.weight;
-                if let Some(v) = sample3(&track.t, t) {
+                // the paired anim, sampled at the same phase of its own length
+                let ptrack = pair.as_ref().and_then(|(pa, pw)| {
+                    let pt = if pa.duration > 0.0 { t / anim.duration.max(1e-6) * pa.duration } else { 0.0 };
+                    pa.tracks.get(name).map(|tr| (tr, pt, *pw))
+                });
+                let mut tv = sample3(&track.t, t);
+                let mut rq = sample_q(&track.r, t);
+                if let Some((ptr, pt, pw)) = ptrack {
+                    if let (Some(a0), Some(b0)) = (tv, sample3(&ptr.t, pt)) {
+                        tv = Some(a0.lerp(b0, pw));
+                    }
+                    if let (Some(a0), Some(b0)) = (rq, sample_q(&ptr.r, pt)) {
+                        rq = Some(a0.slerp(b0, pw));
+                    }
+                }
+                if let Some(v) = tv {
                     jt.translation = if w >= 1.0 { v } else { jt.translation.lerp(v, w) };
                 }
-                if let Some(q) = sample_q(&track.r, t) {
+                if let Some(q) = rq {
                     jt.rotation = if w >= 1.0 { q } else { jt.rotation.slerp(q, w) };
                 }
                 let sc = sample3(&track.s, t).unwrap_or(Vec3::ONE);
