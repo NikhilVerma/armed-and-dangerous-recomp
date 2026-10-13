@@ -74,6 +74,10 @@ the hits: original |x| <= 1.57, engine <= 1.72 (not a gate effect at radius >= 2
 (camera dump player_part_shapes): Havok boxes (type 11 in a 0x19 wrapper), convex radius 0.1, with the half extents
 and centres of trotter_coll_0's parts: the engine's hit geometry is the original's, posed alike. The remaining
 difference (a few hits in ~40 shots) is not explained by shapes, pose, aim, positions or fire rate.
+Found since (fixed-step playtests, frame-exact): the engine's guards fired on their first cycle; the original's
+first cycle is dry (fire anim, reload, then shots from ~800). Now: shots 44 vs 42, hits 27 vs 22 by 1250, first hit
+853 vs 822. The engine's grunts fire in tighter groups (5 within 6 frames; the original's spread over ~37): their
+acquisition and turning are more uniform than the original's (turn anims 0x0042e050, physics yaw 16 sin(error)).
 
 ## Falling snow in the remaster engine (2026-10-13, partly resolved)
 
