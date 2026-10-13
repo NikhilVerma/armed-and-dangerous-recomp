@@ -254,11 +254,41 @@ static void TestDumpCamera(unsigned frame)
     fclose(out);
 }
 
+// [test] warp=FRAME:x,y,z (game axes): at that frame (counted as hash_frames) the player is teleported there with
+// Object_SetPosition 0x00457870 (al = 0: constraint dropped, body moved out of and back into its world), so a later
+// part of a level can be compared with the remaster engine's playtest warp step on the same inputs.
+static void TestWarp(unsigned f)
+{
+    static bool done = false;
+    static float pos[4];
+    static unsigned at = 0;
+    static bool parsed = false;
+    if (!parsed)
+    {
+        parsed = true;
+        char buf[128], ini[MAX_PATH];
+        GetModuleFileNameA(nullptr, ini, MAX_PATH);
+        strcpy(strrchr(ini, '\\') + 1, "and.ini");
+        GetPrivateProfileStringA("test", "warp", "", buf, sizeof(buf), ini);
+        if (sscanf(buf, "%u:%f,%f,%f", &at, &pos[0], &pos[1], &pos[2]) != 4)
+            done = true;
+    }
+    if (done || f < at || !g_game)
+        return;
+    void* player = *reinterpret_cast<void* const*>(reinterpret_cast<const uint8_t*>(g_game) + 0x748);
+    if (!player)
+        return;
+    done = true;
+    orig::fn_00457870(0, reinterpret_cast<uint32_t>(pos), reinterpret_cast<uint32_t>(player), 0, 0, 0);
+    Log("test warp at frame %u to %.1f %.1f %.1f", f, pos[0], pos[1], pos[2]);
+}
+
 void TestHashBeforePresent(IDirect3DDevice9* dev)
 {
     unsigned f;
     if (!FrameNumber(g_frame++, &f))
         return;
+    TestWarp(f);
     if (!g_hashCount || f < g_hashFirst || (f - g_hashFirst) % g_hashEvery || (f - g_hashFirst) / g_hashEvery >= g_hashCount)
         return;
     unsigned long long h = HashBackBuffer(dev);
@@ -315,6 +345,7 @@ bool TestFrameDump(unsigned* frame)
     unsigned f;
     if (!FrameNumber(g_frame++, &f))
         return false;
+    TestWarp(f);
     *frame = f;
     if (!g_hashCount || f < g_hashFirst || (f - g_hashFirst) % g_hashEvery || (f - g_hashFirst) / g_hashEvery >= g_hashCount)
         return false;
