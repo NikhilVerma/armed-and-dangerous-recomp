@@ -905,7 +905,13 @@ fn projectiles(
                 let u = ((c - from).dot(seg) / seg.length_squared().max(1e-6)).clamp(0.0, 1.0);
                 let near = (from + seg * u).distance(c);
                 hit_roman = match (ra, hulls.as_ref().filter(|h| !h.roman.is_empty())) {
-                    (Some(a), Some(h)) if near < 12.0 => crate::hitparts::hit(&h.roman, a, &joints, &binds, from, to).is_some(),
+                    (Some(a), Some(h)) if near < 12.0 => {
+                        let r = crate::hitparts::hit(&h.roman, a, &joints, &binds, from, to);
+                        if std::env::var("AIDBG").is_ok() {
+                            info!("AIDBG near roman {:.1} hit {:?}", near, r);
+                        }
+                        r.is_some()
+                    }
                     (Some(_), Some(_)) => false,
                     _ => near < 4.5,
                 };

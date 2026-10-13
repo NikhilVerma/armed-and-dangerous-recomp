@@ -195,6 +195,9 @@ def mesh_submeshes(ch, bone_index=None):
                     idx.append(remap[v])
             extra = dict(mat_raw[mat]) if 0 <= mat < len(mat_raw) else {}
             extra["uv1"] = vt1 if uv1 else None
+            # a mesh bound to one bone (the collision models' parts: grunt_coll_9 m_chest -> chest ...): its bone
+            if len(m.get("bones") or []) == 1:
+                extra["bone"] = m["bones"][0]["name"]
             out.append((tex, vp, vn, vt, idx, color, vs if jw else None, extra))
     return out
 
@@ -213,7 +216,9 @@ def write_model(out, name, subs, texinfo, skeleton=None):
         # the material as the original shades it (mesh_submeshes): kind, extra maps, colours
         if extra:
             e["material"] = {k: (v if not (k in ("normal_map", "texture2", "mask") and v not in texinfo) else None)
-                             for k, v in extra.items() if k != "uv1"}
+                             for k, v in extra.items() if k not in ("uv1", "bone")}
+        if extra.get("bone"):
+            e["bone"] = extra["bone"]
         for key, arr, fmt in (("positions", vp, "3f"), ("normals", vn, "3f"), ("uvs", vt, "2f")):
             e[key] = len(blob)
             blob += b"".join(struct.pack("<" + fmt, *v) for v in arr)

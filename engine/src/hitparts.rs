@@ -1,17 +1,20 @@
 //! Characters' collision parts for bullet hits. The original's bullets (Projectile_Update 0x0047e580: a
 //! detail-level-2 ray) hit a character's collision model, the template's LOD at collision_lod_index (grunt:
 //! grunt_coll_9, 13 convex boxes: head, chest, belly, shoulders, arms, thighs, shins), each part carried by a bone.
-//! The export keeps the parts in the bind pose without their bone, so each part is given the bone whose bind-pose
-//! segment (bone to child) or joint lies nearest its centre (guess at the original's binding; the boxes themselves
-//! are the original's), and is posed every hit test by that bone's skinning matrix. The result for grunt_coll_9: head,
-//! chest, belly, l/r_shoulder (clavicles), l/r_arm, l/r_wrist (forearms), l/r_leg (thighs), l/r_shin.
+//! Each part is a mesh of the collision skin bound to one bone (the skin chunk's bone list: grunt_coll_9's m_chest
+//! -> chest, m_neck -> head, m_center -> center ...; exported as the submesh's "bone"), posed every hit test by that
+//! bone's skinning matrix. Without a bone name, the bone whose bind-pose segment or joint lies nearest the part.
 
 use bevy::mesh::skinning::SkinnedMeshInverseBindposes;
 use bevy::prelude::*;
 use std::path::Path;
 
-/// One part: its triangles in model space (the game's axes, as the render mesh's).
-pub type Hull = Vec<[Vec3; 3]>;
+/// One part: its bone's name (lower case, when the export has it) and its triangles in model space (the game's
+/// axes, as the render mesh's).
+pub struct Hull {
+    pub bone: Option<String>,
+    pub tris: Vec<[Vec3; 3]>,
+}
 
 #[derive(Resource, Default)]
 pub struct HitHulls {
@@ -50,7 +53,7 @@ pub fn load(dir: &Path, name: &str) -> Vec<Hull> {
                 (a < n && b < n && c < n).then(|| [p[a], p[b], p[c]])
             })
             .collect();
-        hulls.push(tris);
+        hulls.push(Hull { bone: s["bone"].as_str().map(|b| b.to_lowercase()), tris });
     }
     hulls
 }
@@ -66,6 +69,10 @@ fn bones_of(hulls: &[Hull], a: &crate::skin::Animator, ib: &[Mat4]) -> Vec<usize
     hulls
         .iter()
         .map(|h| {
+            if let Some(&i) = h.bone.as_ref().and_then(|b| a.skeleton.index.get(b)) {
+                return i;
+            }
+            let h = &h.tris;
             let c = h.iter().flat_map(|t| t.iter()).copied().sum::<Vec3>() / (h.len() * 3).max(1) as f32;
             let mut best = (f32::MAX, 0usize);
             for i in 0..a.skeleton.names.len() {
@@ -110,7 +117,7 @@ pub fn hit(
     for (h, &bone) in hulls.iter().zip(&owners) {
         let (Some(j), Some(inv)) = (a.joints.get(bone).and_then(|e| joints.get(*e).ok()), ib.get(bone)) else { continue };
         let m = j.to_matrix() * *inv;
-        for tri in h {
+        for tri in &h.tris {
             let [v0, v1, v2] = tri.map(|v| m.transform_point3(v));
             // Moller-Trumbore, both faces
             let (e1, e2) = (v1 - v0, v2 - v0);

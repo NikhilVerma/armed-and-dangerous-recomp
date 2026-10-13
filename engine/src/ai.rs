@@ -229,7 +229,7 @@ fn search(
     physics: NonSend<Physics>,
     player: Query<(Entity, &GlobalTransform, Option<&crate::skin::Animator>), With<Player>>,
     companions: Query<(Entity, &GlobalTransform, Option<&crate::skin::Animator>), (With<Companion>, Without<Player>)>,
-    mut grunts: Query<(Entity, &mut Grunt, &GlobalTransform, &Body)>,
+    mut grunts: Query<(Entity, &mut Grunt, &GlobalTransform, &Body, Option<&crate::skin::Animator>)>,
     joints: Query<&GlobalTransform, Without<Grunt>>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     mut stats: ResMut<AiStats>,
@@ -237,7 +237,7 @@ fn search(
     let dt = time.delta_secs();
     let Ok((pe, _, _)) = player.single() else { return };
     stats.targets = [0, 0];
-    for (_, g, _, _) in &grunts {
+    for (_, g, _, _, _) in &grunts {
         if let Some(t) = g.target.filter(|_| g.mind != Mind::Dead) {
             stats.targets[if t == pe { 0 } else { 1 }] += 1;
         }
@@ -253,7 +253,7 @@ fn search(
         info!("AIDBG candidates player {:?} companions {:?}", pe, companions.iter().map(|c| c.0).collect::<Vec<_>>());
     }
     let mut spotted: Vec<(i64, Entity, Entity)> = Vec::new();
-    for (ge, mut g, t, gbody) in &mut grunts {
+    for (ge, mut g, t, gbody, ga) in &mut grunts {
         if g.mind == Mind::Dead {
             continue;
         }
@@ -292,6 +292,8 @@ fn search(
         // hear_distance is taken at once; otherwise inside the 190-degree cone (or within hear_distance) with line of
         // sight
         let fwd = Vec3::new(g.yaw.sin(), 0.0, g.yaw.cos());
+        // its own ref_hit_00 (0x00428280 with "ref_hit_00"): where the sight ray starts (raised by 5)
+        let own_hit = ga.and_then(|a| a.skeleton.index.get("ref_hit_00").and_then(|&i| joints.get(a.joints[i]).ok())).map(|j| j.translation()).unwrap_or(me + Vec3::Y * 6.0);
         let mut best: Option<(f32, Entity, bool)> = None;
         for &(ce, cpos, chit) in &cands {
             let to = (cpos - me).with_y(0.0);
@@ -304,7 +306,7 @@ fn search(
                 break;
             }
             let cone = to.normalize_or_zero().dot(fwd) >= 95f32.to_radians().cos() || d2 < g.hear_distance;
-            if cone && sight_ray(&physics, me, chit, &[gbody.id]) {
+            if cone && sight_ray(&physics, own_hit, chit, &[gbody.id]) {
                 best = Some((d2, ce, false));
             }
         }
@@ -322,7 +324,7 @@ fn search(
         }
     }
     for (group, tgt, who) in spotted {
-        for (ge, mut g, _, _) in &mut grunts {
+        for (ge, mut g, _, _, _) in &mut grunts {
             if ge != who && g.alert_group == group && g.target.is_none() && g.pending.is_none() && g.mind != Mind::Dead {
                 g.pending = Some((tgt, rng.range(0.25, 1.0)));
             }
@@ -333,8 +335,8 @@ fn search(
 /// Line of sight from a grunt's eye to the target's ref_hit_00 (+5 z, 0x00426fd0): nothing static in between.
 /// Line of sight as 0x00426fd0: from the source raised by 5 (0x005bcbdc) to the target point (its ref_hit_00), true
 /// when nothing is hit on the way; bodies in `skip` (the looker's own) are passed through.
-pub fn sight_ray(physics: &Physics, from_feet: Vec3, target: Vec3, skip: &[BodyId]) -> bool {
-    let mut from = from_feet + Vec3::Y * 5.0;
+pub fn sight_ray(physics: &Physics, from_hit: Vec3, target: Vec3, skip: &[BodyId]) -> bool {
+    let mut from = from_hit + Vec3::Y * 5.0;
     let dir = (target - from).normalize_or(Vec3::Y);
     let mut left = (target - from).length();
     while let Some((b, at, _)) = physics.raycast(from, dir, left) {
@@ -393,7 +395,8 @@ fn think(
     mut rng: ResMut<FxStats>,
     mut physics: NonSendMut<Physics>,
     targets: Query<&GlobalTransform>,
-    mut grunts: Query<(&mut Grunt, &Body, &mut Transform, &Health)>,
+    anims: Query<&crate::skin::Animator, Without<Grunt>>,
+    mut grunts: Query<(&mut Grunt, &Body, &mut Transform, &Health, Option<&crate::skin::Animator>)>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     mut fx: MessageWriter<crate::fx::StartFx>,
 ) {
@@ -402,7 +405,7 @@ fn think(
     let k = physics.meters_per_unit;
     let (mut alive, mut dead) = (0, 0);
     let mut states = [0usize; 8];
-    for (mut g, body, mut tr, h) in &mut grunts {
+    for (mut g, body, mut tr, h, ga) in &mut grunts {
         if g.mind == Mind::Dead {
             dead += 1;
             continue;
@@ -508,7 +511,15 @@ fn think(
             }
             Mind::Fire => {
                 if let Some(p) = target {
-                    fire_cycle(&mut commands, &mut g, &physics, &mut rng, pos, p, dt, &mut stats, &mut sounds, &mut fx);
+                    // the target's ref_hit_00 (0x00428280): the aim point of 0x004284e0 and the sight ray's end
+                    let hit = g
+                        .target
+                        .and_then(|e| anims.get(e).ok())
+                        .and_then(|a| a.skeleton.index.get("ref_hit_00").and_then(|&i| targets.get(a.joints[i]).ok()))
+                        .map(|j| j.translation())
+                        .unwrap_or(p + Vec3::Y * 7.0);
+                    let own_hit = ga.and_then(|a| a.skeleton.index.get("ref_hit_00").and_then(|&i| targets.get(a.joints[i]).ok())).map(|j| j.translation()).unwrap_or(pos + Vec3::Y * 6.0);
+                    fire_cycle(&mut commands, &mut g, &physics, &mut rng, pos, p, hit, own_hit, body.id, dt, &mut stats, &mut sounds, &mut fx);
                 }
             }
             Mind::Reload => g.pause -= dt,
@@ -561,6 +572,9 @@ fn fire_cycle(
     rng: &mut FxStats,
     pos: Vec3,
     p: Vec3,
+    hit: Vec3,
+    own_hit: Vec3,
+    own: BodyId,
     dt: f32,
     stats: &mut AiStats,
     sounds: &mut MessageWriter<crate::audio::PlaySound>,
@@ -584,7 +598,7 @@ fn fire_cycle(
     // fires only inside the 180-degree cone with line of sight
     let fwd = Vec3::new(g.yaw.sin(), 0.0, g.yaw.cos());
     let to = (p - pos).with_y(0.0);
-    if to.normalize_or_zero().dot(fwd) < 0.0 || !line_of_sight(physics, pos, p) {
+    if to.normalize_or_zero().dot(fwd) < 0.0 || !sight_ray(physics, own_hit, hit, &[own]) {
         // no shot this frame (a guard: state 0x7a and back, the target dropped at the next search tick)
         return;
     }
@@ -593,7 +607,7 @@ fn fire_cycle(
     let (lo, hi) = if g.infinite { g.infinite_accuracy } else { g.accuracy };
     let s = if d <= lo { 0.1 } else if d >= hi { 1.0 } else { ((d * d - lo * lo) / (hi * hi - lo * lo)).max(0.1) };
     let side = Vec3::new(-to.z, 0.0, to.x).normalize_or_zero();
-    let aim = p + Vec3::Y * 7.0 + side * rng.range(-g.inaccuracy_angle, g.inaccuracy_angle) * s + Vec3::Y * rng.range(0.0, g.inaccuracy_height) * s;
+    let aim = hit + side * rng.range(-g.inaccuracy_angle, g.inaccuracy_angle) * s + Vec3::Y * rng.range(0.0, g.inaccuracy_height) * s;
     let muzzle = pos + Vec3::Y * 7.0;
     let dir = (aim - muzzle).normalize_or(Vec3::Z);
     crate::player::spawn_projectile(commands, fx, &g.bullet, muzzle + dir * 4.0, dir, false, None);
