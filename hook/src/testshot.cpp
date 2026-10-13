@@ -294,6 +294,27 @@ static void TestDumpCamera(unsigned frame)
                 fprintf(out, "%s\"%s\"", k ? ", " : "", nm);
             }
             fprintf(out, "]");
+            // each part's ragdoll body shape (entity +0x24): Havok type (vtable slot 1; wrappers 0x12 / 0x13 -> +0xc,
+            // 0x19 -> +0x28 as Shape_Classify unwraps) and the first floats of the unwrapped shape, to tell its kind / size
+            fprintf(out, ", \"player_part_shapes\": [");
+            const uint8_t* parts = *reinterpret_cast<const uint8_t* const*>(reinterpret_cast<const uint8_t*>(player) + 0x1bc);
+            for (int k = 0; parts && k < 40 && *reinterpret_cast<const uint32_t*>(parts + k * 0x4c); ++k)
+            {
+                const uint8_t* ent = *reinterpret_cast<const uint8_t* const*>(parts + k * 0x4c);
+                const uint8_t* sh = *reinterpret_cast<const uint8_t* const*>(ent + 0x24);
+                using GetType = int(__thiscall*)(const void*);
+                int t = sh ? reinterpret_cast<GetType>((*reinterpret_cast<void* const* const*>(sh))[1])(sh) : -1;
+                int t0 = t;
+                for (int guard = 0; sh && guard < 4 && (t == 0x12 || t == 0x13 || t == 0x19); ++guard)
+                {
+                    sh = *reinterpret_cast<const uint8_t* const*>(sh + (t == 0x19 ? 0x28 : 0xc));
+                    t = sh ? reinterpret_cast<GetType>((*reinterpret_cast<void* const* const*>(sh))[1])(sh) : -1;
+                }
+                const float* f = sh ? reinterpret_cast<const float*>(sh + 0xc) : nullptr;
+                fprintf(out, "%s[%d, %d, %.3g, %.3g, %.3g, %.3g, %.3g, %.3g, %.3g, %.3g]", k ? ", " : "", t0, t, f ? f[0] : 0, f ? f[1] : 0, f ? f[2] : 0,
+                        f ? f[3] : 0, f ? f[4] : 0, f ? f[5] : 0, f ? f[6] : 0, f ? f[7] : 0);
+            }
+            fprintf(out, "]");
         }
         // the player's collision parts (the 0x4c-byte list at +0x1bc, until a 0 first dword) by bone (0x00458660)
         {
