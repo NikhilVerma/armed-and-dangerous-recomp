@@ -212,6 +212,8 @@ static void TestDumpCamera(unsigned frame)
         fprintf(out, ", \"player\": [%.7g, %.7g, %.7g]", pos[0], pos[1], pos[2]);
         // its health (+0x454, as every damageable object's: Object_TakeDamage 0x004555e0)
         fprintf(out, ", \"player_health\": %.7g", *reinterpret_cast<const float*>(reinterpret_cast<const uint8_t*>(player) + 0x454));
+        // the mission's shooter limit (Game+0xc50, ai_max_fire: grunts beyond it fire fake bullets, ai_02.cpp:1217)
+        fprintf(out, ", \"ai_max_fire\": %u", *reinterpret_cast<const uint32_t*>(reinterpret_cast<const uint8_t*>(g_game) + 0xc50));
     }
     // every AI object's position (World Game+0xa84 list +0xe7c, walked with 0x004e7340 / 0x004e73c0 to the end),
     // to compare placements with the remaster engine
@@ -238,13 +240,14 @@ static void TestDumpCamera(unsigned frame)
                 using GetMat = void(__thiscall*)(void*, float*);
                 reinterpret_cast<GetMat>((*reinterpret_cast<void***>(obj))[0x5c / 4])(obj, m);
                 // AI objects (the AI list, and the companions Q111 0x5a6df8 / Molmer 0x5ae5f8 in the damageable list): the
-                // object's address, its target (+0x588, an address), health (+0x454) and anim state (+0x498)
+                // object's address, its target (+0x588, an address), health (+0x454), anim state (+0x498) and flags (+0x488)
                 const uint32_t vt = *reinterpret_cast<uint32_t*>(obj);
                 const bool ai = l.off == 0xe7c || vt == 0x5a6df8 || vt == 0x5ae5f8;
                 const uint8_t* b = reinterpret_cast<const uint8_t*>(obj);
-                fprintf(out, "%s[%.7g, %.7g, %.7g, %u, %.4g, %.4g, %.4g, %u, %u, %.4g, %u]", first ? "" : ", ", pos[0], pos[1], pos[2], vt,
+                fprintf(out, "%s[%.7g, %.7g, %.7g, %u, %.4g, %.4g, %.4g, %u, %u, %.4g, %u, %u]", first ? "" : ", ", pos[0], pos[1], pos[2], vt,
                         m[1], m[5], m[9], o, ai ? *reinterpret_cast<const uint32_t*>(b + 0x588) : 0u,
-                        *reinterpret_cast<const float*>(b + 0x454), ai ? *reinterpret_cast<const uint32_t*>(b + 0x498) : 0u);
+                        *reinterpret_cast<const float*>(b + 0x454), ai ? *reinterpret_cast<const uint32_t*>(b + 0x498) : 0u,
+                        ai ? *reinterpret_cast<const uint32_t*>(b + 0x488) : 0u);
                 first = false;
             }
             fprintf(out, "]");
