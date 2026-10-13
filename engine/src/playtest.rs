@@ -42,6 +42,9 @@ pub struct Event {
     /// debug: take this much damage at once (to test losing)
     #[serde(default)]
     pub hurt: Option<f32>,
+    /// debug: deal this hit to the nearest live grunt (tests the death paths)
+    #[serde(default)]
+    pub kill: Option<f32>,
     /// debug: spawn a grunt_regular at this game-space point (as a barracks does)
     #[serde(default)]
     pub spawn: Option<[f32; 3]>,
@@ -242,6 +245,7 @@ fn drive(
     mut spawn: MessageWriter<crate::level::SpawnGrunt>,
     cam: Query<&GlobalTransform, With<Camera3d>>,
     player: Query<&GlobalTransform, With<crate::player::Roman>>,
+    mut grunts: Query<(&mut crate::ai::Grunt, &mut crate::fx::Health, &GlobalTransform), Without<crate::player::Roman>>,
 ) {
     pt.t += time.delta_secs();
     // the mission over (won or failed): play stops, so a pending goto counts as done
@@ -282,6 +286,12 @@ fn drive(
             if let Some(s) = pt.step_shot.take() {
                 due.push(Event { shot: Some(s), ..st.clone().cleared() });
             }
+        }
+        // a paused message (a token found on the way) during a walk: continue as a player would, else the walk
+        // never ends (the game is paused)
+        if st.goto.is_some() && mission.as_ref().is_some_and(|m| m.showing.is_some()) && pt.step_t.fract() < time.delta_secs() {
+            keys.press(KeyCode::Enter);
+            pt.taps.push(KeyCode::Enter);
         }
         let done = if st.until.as_deref() == Some("message") {
             mission.as_ref().is_some_and(|m| m.showing.is_some()) || pt.step_t > 60.0
@@ -363,6 +373,13 @@ fn drive(
         }
         if let (Some(d), Ok(mut h)) = (e.hurt, roman.single_mut()) {
             h.0 -= d;
+        }
+        if let (Some(d), Ok(p)) = (e.kill, player.single()) {
+            let me = p.translation();
+            if let Some((mut g, mut h, _)) = grunts.iter_mut().filter(|(g, _, _)| g.mind != crate::ai::Mind::Dead).min_by(|a, b| a.2.translation().distance(me).total_cmp(&b.2.translation().distance(me))) {
+                g.last_hit = d;
+                h.0 -= d;
+            }
         }
         if let Some(g) = e.spawn {
             spawn.write(crate::level::SpawnGrunt { at: Vec3::new(g[0], g[2], -g[1]), template: "grunt_regular".into() });
