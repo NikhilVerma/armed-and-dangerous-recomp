@@ -19,6 +19,15 @@ Things that need you, collected instead of asked mid-work:
 - Feel: mouse look verified (the original's measured 0.0100 / 0.0057 rad per count, 8be95d6); zoom matches its
   camera dumps; grunt difficulty and Roman's damage are the data's values, not judged by play.
 
+## Companions kill grunts the original's only wound (2026-10-14, open)
+
+Encounter run on the same inputs (W held from the token's dismissal at frame 700): in the original no grunt dies
+before frame 1440 (the companions' bullets only hurt them); in the engine two die (1045, 1107). Data checked:
+p_molmer_bullet damage 10, p_q_mgun_bullet 4, grunt max_health 100, no damage multiplier for grunts
+(stig_ / forge_damage_multiplier are for the turret and the cannon). The aim error is the grunts' 0x004284e0 with
+the exe's default fire_inaccuracy_angle 15. Not found yet: whether the original's companions aim at a different
+point, fire less, or their bullets lose damage. Guess: the target point (engine: 7 units above the feet).
+
 ## Falling snow in the remaster engine (2026-10-13, partly resolved)
 
 Snow now shows (synced walk frame 520). Causes found: the fx textures loaded with the default clamp sampler (the
