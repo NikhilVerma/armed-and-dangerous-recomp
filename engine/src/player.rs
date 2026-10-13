@@ -938,13 +938,13 @@ fn projectiles(
                 let near = (from + seg * u).distance(c);
                 hit_roman = match (ra, hulls.as_ref().filter(|h| !h.roman.is_empty())) {
                     (Some(a), Some(h)) if near < 12.0 => {
-                        let r = crate::hitparts::hit(&h.roman, a, &joints, &binds, from, to);
-                        if let (Some((f, part)), true) = (&r, std::env::var("AIDBG").is_ok()) {
+                        let rh = crate::hitparts::hit(&h.roman, a, &joints, &binds, from, to);
+                        if let (Some((f, part)), true) = (&rh, std::env::var("AIDBG").is_ok()) {
                             // as the hook's [test] log_hits: the part and the hit point minus his position (game axes)
                             let at = crate::level::game_to_engine().inverse() * (from + (to - from) * *f - rt.translation);
-                            info!("AIDBG romanhit {} {:.2} {:.2} {:.2}", part, at.x, at.y, at.z);
+                            info!("AIDBG romanhit {} {:.2} {:.2} {:.2} anim {:.2} ground {}", part, at.x, at.y, at.z, r.hit_anim, r.on_ground);
                         }
-                        r.is_some()
+                        rh.is_some()
                     }
                     (Some(_), Some(_)) => false,
                     _ => near < 4.5,
