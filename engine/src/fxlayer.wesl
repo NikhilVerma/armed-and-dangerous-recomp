@@ -32,7 +32,9 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let b = g(textureSample(t1, s1, in.uv + p.offsets.zw).rgb) * p.colour.rgb;
     let m = textureSample(t2, s2, in.uv);
     let col = mix(a, b, g(m.rgb));
-    let alpha = m.a * p.colour.w;
+    // stage 1 alpha SELECTARG1 TEXTURE (the flakes' alpha), stage 2 alpha MODULATE(CURRENT, TEXTURE): flakes x mask
+    let fa = textureSample(t1, s1, in.uv + p.offsets.zw).a;
+    let alpha = fa * m.a * p.colour.w;
     // additive (SRCALPHA, ONE): the pipeline adds; premultiply here
     return vec4(pow(col * alpha, vec3(2.2)), 0.0);
 }
