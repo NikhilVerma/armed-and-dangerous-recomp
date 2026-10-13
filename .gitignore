@@ -56,3 +56,4 @@ and-crash.dmp
 
 # Claude Code worktrees (agents)
 /.claude/
+engine/target/
