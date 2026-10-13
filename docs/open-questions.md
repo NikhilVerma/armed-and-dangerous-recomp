@@ -62,7 +62,9 @@ Measured after: the hit parts' bones sit where the engine's do in the hit anim (
 position: L_wrist, R_shoulder within ~0.25), and the hit points cover the same region (x -1.3..1.1, y -2.4..1.0,
 z 3.9..4.3 around his position). What remains is a count: the engine lands ~3..5 more of ~40 shots before frame
 1250 (25..27 vs 22). The original's hits never name the chest, neck, legs, R_arm or L_shoulder parts (three runs),
-the engine's do: the part-to-mesh mapping or the parts the original's ray tests may differ (not found).
+the engine's do. Ruled out: missing parts (the original's player has all 13, the camera dump's player_parts, in the
+engine's order). Not measured: the original's part shapes' world placement (their Havok bodies via the +0x1bc
+list), which would show whether the chest part sits elsewhere than the chest bone suggests.
 
 ## Falling snow in the remaster engine (2026-10-13, partly resolved)
 
