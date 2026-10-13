@@ -663,7 +663,9 @@ fn control(
         r.slow = (r.slow - dt).max(0.0);
         // the hit anim plays only standing still: movement, firing or the air end it, and the latch with it
         if r.hit_anim > 0.0 {
-            r.hit_anim = if stick > 0.0 || !r.on_ground || r.since_fire < 0.1 { 0.0 } else { (r.hit_anim - dt).max(0.0) };
+            // (the knockback's hop does not end it: the original counts him grounded for 0.5 s after leaving the ground,
+            // 0x00478200 +0x570; only the jump state does)
+            r.hit_anim = if stick > 0.0 || r.jumping || r.since_fire < 0.1 { 0.0 } else { (r.hit_anim - dt).max(0.0) };
         }
         let (max_speed, power) = (r.fwd_speed.max(r.side_speed), pmin + (pmax - pmin) * stick);
         if r.jumping {

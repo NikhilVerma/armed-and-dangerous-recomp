@@ -245,6 +245,50 @@ static void TestDumpCamera(unsigned frame)
         float hp[4] = {};
         orig::fn_00428280(reinterpret_cast<uint32_t>(hp), reinterpret_cast<uint32_t>(player), reinterpret_cast<uint32_t>(player), 0x005b68fcu);
         fprintf(out, ", \"player_hit\": [%.7g, %.7g, %.7g]", hp[0], hp[1], hp[2]);
+        // the aim-pitch blend (+0x580, docs/remaster-engine.md: the anim pair _b / _t) and the anim slots (+0x248: 4 x 0x20,
+        // entry index at +0, time +4, flags +0x1c), for pose comparisons
+        {
+            const uint8_t* pb = reinterpret_cast<const uint8_t*>(player);
+            fprintf(out, ", \"player_blend\": %.4g, \"player_slots\": [[%d, %.3g, %u], [%d, %.3g, %u], [%d, %.3g, %u], [%d, %.3g, %u]]", *reinterpret_cast<const float*>(pb + 0x580),
+                    *reinterpret_cast<const int*>(pb + 0x248), *reinterpret_cast<const float*>(pb + 0x24c), *reinterpret_cast<const uint32_t*>(pb + 0x264),
+                    *reinterpret_cast<const int*>(pb + 0x268), *reinterpret_cast<const float*>(pb + 0x26c), *reinterpret_cast<const uint32_t*>(pb + 0x284),
+                    *reinterpret_cast<const int*>(pb + 0x288), *reinterpret_cast<const float*>(pb + 0x28c), *reinterpret_cast<const uint32_t*>(pb + 0x2a4),
+                    *reinterpret_cast<const int*>(pb + 0x2a8), *reinterpret_cast<const float*>(pb + 0x2ac), *reinterpret_cast<const uint32_t*>(pb + 0x2c4));
+            // the slots' anims by name: the actor's anim table (+0x414: +0xc entries of 0xc, +8 the anim), the anim's
+            // name guessed at its +0 (a char pointer when it reads as text)
+            fprintf(out, ", \"player_anims\": [");
+            const uint8_t* tab = *reinterpret_cast<const uint8_t* const*>(pb + 0x414);
+            for (int k = 0; k < 4; ++k)
+            {
+                int e = *reinterpret_cast<const int*>(pb + 0x248 + 0x20 * k);
+                char nm[48] = "-";
+                if (tab && e >= 0)
+                {
+                    const uint8_t* ent = *reinterpret_cast<const uint8_t* const*>(tab + 0xc) + e * 0xc;
+                    const uint32_t* w = reinterpret_cast<const uint32_t*>(ent);
+                    const uint8_t* an = reinterpret_cast<const uint8_t*>(w[2]);
+                    // try the entry's words and the anim's first words as names
+                    const uint32_t cand[5] = {w[0], w[1], an ? *reinterpret_cast<const uint32_t*>(an) : 0u, an ? *reinterpret_cast<const uint32_t*>(an + 4) : 0u, an ? *reinterpret_cast<const uint32_t*>(an + 8) : 0u};
+                    sprintf(nm, "?%08x/%08x/%08x", w[0], w[1], w[2]);
+                    for (uint32_t c : cand)
+                    {
+                        if (c < 0x10000 || IsBadReadPtr(reinterpret_cast<const void*>(c), 8))
+                            continue;
+                        const char* str = reinterpret_cast<const char*>(c);
+                        int n = 0;
+                        while (n < 40 && str[n] >= 0x20 && str[n] < 0x7f)
+                            ++n;
+                        if (n >= 4 && str[n] == 0)
+                        {
+                            snprintf(nm, sizeof(nm), "%s", str);
+                            break;
+                        }
+                    }
+                }
+                fprintf(out, "%s\"%s\"", k ? ", " : "", nm);
+            }
+            fprintf(out, "]");
+        }
         fprintf(out, ", \"ai_max_fire\": %u", *reinterpret_cast<const uint32_t*>(reinterpret_cast<const uint8_t*>(g_game) + 0xc50));
     }
     // every AI object's position (World Game+0xa84 list +0xe7c, walked with 0x004e7340 / 0x004e73c0 to the end),
