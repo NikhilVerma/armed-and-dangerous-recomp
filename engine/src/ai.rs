@@ -631,7 +631,7 @@ fn companions(
                 let dir = (p + Vec3::Y * 5.0 + Vec3::new(rng.rand() - 0.5, 0.0, rng.rand() - 0.5) * 4.0 - muzzle).normalize_or(Vec3::Z);
                 commands.spawn((
                     Transform::from_translation(muzzle + dir * 4.0),
-                    crate::player::Projectile { vel: dir * 900.0, life: 0.4, damage: 10.0, from_player: true, owner: None, fx_end: Some("fx_imp_flemming".into()) },
+                    crate::player::Projectile { vel: dir * 900.0, life: 0.4, damage: 10.0, from_player: true, owner: None, fx_end: Some("fx_imp_flemming".into()), head_mult: 1.0, torso_mult: 1.0 },
                 ));
             }
         }

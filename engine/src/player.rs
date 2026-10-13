@@ -96,10 +96,16 @@ pub struct Projectile {
     pub owner: Option<Entity>,
     /// impact fx base name (fx_end_material + "_" + the hit material)
     pub fx_end: Option<String>,
+    /// head_shot_multiplier / torso_shot_multiplier (Projectile_ApplyHitDamage 0x0047eec0; code defaults 1)
+    pub head_mult: f32,
+    pub torso_mult: f32,
 }
 
 /// A projectile of a property set (speed x3 as Projectile_Load 0x0047e0c0; damage, lifetime, fx_start trail
 /// following it, fx_end_material on impact).
+/// Bones that stand for collision parts in the hit test (the main body bones, as the ragdoll parts).
+const BODY_PARTS: [&str; 16] = ["head", "neck", "chest", "belly", "center", "l_shoulder", "r_shoulder", "l_arm", "r_arm", "l_wrist", "r_wrist", "l_leg", "r_leg", "l_shin", "r_shin", "l_ankle"];
+
 pub fn spawn_projectile(commands: &mut Commands, fx: &mut MessageWriter<crate::fx::StartFx>, p: &Props, from: Vec3, dir: Vec3, from_player: bool, owner: Option<Entity>) {
     let speed = p.f("speed", 300.0) * 3.0;
     let e = commands
@@ -114,6 +120,8 @@ pub fn spawn_projectile(commands: &mut Commands, fx: &mut MessageWriter<crate::f
                 from_player,
                 owner,
                 fx_end: p.s("fx_end_material").map(str::to_owned),
+                head_mult: p.f("head_shot_multiplier", 1.0),
+                torso_mult: p.f("torso_shot_multiplier", 1.0),
             },
         ))
         .id();
@@ -128,6 +136,8 @@ pub struct FollowCam;
 
 #[derive(Resource, Default)]
 pub struct PlayerStats {
+    /// head shots by the player (Game+0x2714)
+    pub head_shots: u32,
     pub health: f32,
     pub max_health: f32,
     pub clip: u32,
@@ -669,7 +679,8 @@ fn projectiles(
     time: Res<Time>,
     physics: NonSend<Physics>,
     mut q: Query<(Entity, &mut Projectile, &mut Transform)>,
-    mut chars: Query<(Entity, &crate::physics::Body, &mut Health), Without<Projectile>>,
+    mut chars: Query<(Entity, &crate::physics::Body, &mut Health, Option<&crate::skin::Animator>), Without<Projectile>>,
+    joints: Query<&GlobalTransform>,
     mut objects: Query<(&crate::level::Placed, &mut Destructible)>,
     roman: Query<(Entity, &Roman, &Transform), Without<Projectile>>,
     mut roman_health: Query<&mut Health, (With<Roman>, Without<crate::physics::Body>, Without<Projectile>)>,
@@ -717,9 +728,31 @@ fn projectiles(
                 let rot = Quat::from_rotation_arc(Vec3::Y, normal.normalize_or(Vec3::Y)) * crate::level::game_to_engine();
                 fx.write(crate::fx::StartFx { name: n, at, rotation: rot, follow: None, position_only: false });
             }
-            if let Some((_, _, mut h)) = chars.iter_mut().find(|(ce, b, _)| b.id == body && Some(*ce) != p.owner) {
+            if let Some((_, _, mut h, anim)) = chars.iter_mut().find(|(ce, b, _, _)| b.id == body && Some(*ce) != p.owner) {
                 let was_alive = h.0 > 0.0;
-                h.0 -= p.damage;
+                // the part hit (0x0047eec0: the hit part's bone "head" / "neck" -> head_shot_multiplier, "chest" /
+                // "belly" -> torso_shot_multiplier). The engine's characters collide as one capsule: the part is
+                // taken as the skeleton bone nearest the hit point (approximation of the original's per-part hulls)
+                let part = anim.and_then(|a| {
+                    a.skeleton
+                        .names
+                        .iter()
+                        .enumerate()
+                        // the body's main bones (helpers such as ref_*, camera targets and fingers are not parts)
+                        .filter(|(_, n)| BODY_PARTS.contains(&n.trim().to_lowercase().as_str()))
+                        .filter_map(|(i, n)| joints.get(a.joints[i]).ok().map(|j| (n.trim().to_lowercase(), j.translation().distance(at))))
+                        .min_by(|x, y| x.1.total_cmp(&y.1))
+                        .map(|(n, _)| n)
+                });
+                let mult = match part.as_deref() {
+                    Some("head" | "neck") => p.head_mult,
+                    Some("chest" | "belly") => p.torso_mult,
+                    _ => 1.0,
+                };
+                if p.from_player && mult > 1.0 && matches!(part.as_deref(), Some("head" | "neck")) {
+                    stats.head_shots += 1;
+                }
+                h.0 -= p.damage * mult;
                 if p.from_player && was_alive && h.0 <= 0.0 {
                     stats.kills += 1;
                 }
