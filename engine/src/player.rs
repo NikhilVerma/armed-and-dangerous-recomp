@@ -39,6 +39,7 @@ pub fn spawn_bomb(commands: &mut Commands, physics: &mut Physics, bombs: &BombAs
         radius_inner: p.f("damage_radius_inner", 40.0),
         radius_outer: p.f("damage_radius_outer", 60.0),
         impact_force: p.f("impact_force", 25000.0),
+        chain: false,
         start_delay: 0.0,
         min_delay: 0.0,
         acceleration: 1.0,

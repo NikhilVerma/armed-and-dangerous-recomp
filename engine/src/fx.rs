@@ -1,7 +1,8 @@
 //! Area damage and object death, from the game's property sets: `max_health`, `area_damage`,
 //! `damage_radius_inner/outer`, `impact_force`, `fx_death`, `husk`, and the chain delays of exploding props
 //! (`start_delay`, `min_delay`, `acceleration_rate`). The death fx itself runs in the fx VM (fxvm.rs).
-//! Formulas marked "guess" wait for docs/subsystems/fx-vm.md.
+//! Rules from the recovered code: docs/subsystems/fx-vm.md section 5 (AreaDamage_Apply 0x0047f020,
+//! FxExplosion_Die 0x0041c570).
 
 use crate::physics::{Physics, jr, jv};
 use bevy::prelude::*;
@@ -15,6 +16,16 @@ pub struct Explode {
     pub radius_outer: f32,
     pub impact_force: f32,
     pub source: Option<Entity>,
+    /// The chain delay this blast passes to exploding props it kills (record +0x30).
+    pub delay: f32,
+}
+
+/// Bounding sphere of a damage target (model space centre, radius in game units): area damage is measured to
+/// its surface.
+#[derive(Component, Clone, Copy)]
+pub struct Bounds {
+    pub center: Vec3,
+    pub radius: f32,
 }
 
 /// Start an fx script by name at a place (run by fxvm.rs).
@@ -36,12 +47,14 @@ pub struct Destructible {
     pub radius_inner: f32,
     pub radius_outer: f32,
     pub impact_force: f32,
-    /// Chain timing of exploding props (guess at the meaning: the first death in a chain waits start_delay,
-    /// each later link waits acceleration_rate times the previous delay, never below min_delay).
+    /// behavior fx_explosion: a blast that kills it only lights its fuse (max(passed delay, min_delay));
+    /// when the fuse runs out it explodes and passes acceleration_rate x its fuse on. Killed any other way
+    /// (shot, fuse of a bomb) it explodes at once and passes start_delay.
+    pub chain: bool,
     pub start_delay: f32,
     pub min_delay: f32,
     pub acceleration: f32,
-    /// Seconds until it dies, once its health ran out; chain link delay it was killed with.
+    /// Seconds until it dies once its health ran out, and the fuse it was lit with (0: killed directly).
     pub dying: Option<f32>,
     pub chain_delay: f32,
 }
@@ -107,6 +120,7 @@ fn fuses(mut commands: Commands, time: Res<Time>, mut q: Query<(Entity, &mut Fus
         f.0 -= time.delta_secs();
         if f.0 <= 0.0 && d.dying.is_none() {
             d.health = 0.0;
+            d.chain_delay = 0.0;
             d.dying = Some(0.0);
             commands.entity(e).remove::<Fuse>();
         }
@@ -116,48 +130,62 @@ fn fuses(mut commands: Commands, time: Res<Time>, mut q: Query<(Entity, &mut Fus
 fn damage(
     mut blasts: MessageReader<Explode>,
     mut physics: NonSendMut<Physics>,
-    mut objects: Query<(Entity, &GlobalTransform, &mut Destructible)>,
-    mut chars: Query<(&GlobalTransform, &mut Health)>,
+    mut objects: Query<(Entity, &GlobalTransform, &mut Destructible, Option<&Bounds>)>,
+    mut chars: Query<(&GlobalTransform, &mut Health, Option<&Bounds>)>,
 ) {
+    // surface distance: |C - centre| - R, and the direction n
+    let surface = |t: &GlobalTransform, b: Option<&Bounds>, at: Vec3| {
+        let (c, r) = b.map(|b| (t.transform_point(b.center), b.radius)).unwrap_or((t.translation(), 0.0));
+        ((c - at).length() - r, (c - at).normalize_or(Vec3::Y))
+    };
     for b in blasts.read() {
-        // the source's own chain delay sets its neighbours' (guess, see Destructible)
-        let src_delay = b.source.and_then(|s| objects.get(s).ok().map(|(_, _, d)| d.chain_delay));
-        for (e, t, mut d) in &mut objects {
-            if Some(e) == b.source || d.dying.is_some() {
+        if b.radius_outer < 0.01 || b.radius_outer < b.radius_inner || b.area_damage == 0.0 {
+            continue;
+        }
+        for (e, t, mut d, bounds) in &mut objects {
+            if Some(e) == b.source || d.health <= 0.0 {
+                continue; // a keg already at health <= 0 ignores further damage
+            }
+            let (dist, _) = surface(t, bounds, b.at);
+            if dist > b.radius_outer {
                 continue;
             }
-            let f = falloff(t.translation().distance(b.at), b.radius_inner, b.radius_outer);
-            if f <= 0.0 {
-                continue;
-            }
-            d.health -= b.area_damage * f;
+            d.health -= b.area_damage * falloff(dist, b.radius_inner, b.radius_outer);
             if d.health <= 0.0 {
-                let delay = match src_delay {
-                    Some(prev) if prev > 0.0 => (prev * d.acceleration).max(d.min_delay),
-                    _ => d.start_delay,
-                };
-                d.chain_delay = delay;
-                d.dying = Some(delay);
+                if d.chain {
+                    let fuse = b.delay.max(d.min_delay);
+                    d.chain_delay = fuse;
+                    d.dying = Some(fuse);
+                } else {
+                    d.chain_delay = 0.0;
+                    d.dying = Some(0.0);
+                }
             }
         }
-        for (t, mut h) in &mut chars {
-            h.0 -= b.area_damage * falloff(t.translation().distance(b.at), b.radius_inner, b.radius_outer);
+        for (t, mut h, bounds) in &mut chars {
+            let (dist, _) = surface(t, bounds, b.at);
+            if dist <= b.radius_outer {
+                h.0 -= b.area_damage * falloff(dist, b.radius_inner, b.radius_outer);
+            }
         }
-        // impact force on everything that moves (guess: impulse = impact_force x falloff, game mass units)
+        // impact force: passed without falloff, direction normalise(n.x, n.y, 0.7) in game axes (z up). How
+        // non-character objects turn it into an impulse is not traced: impulse = impact_force (game units)
+        // scaled like the fx impulses (guess).
         let k = physics.meters_per_unit;
         let ids: Vec<_> = physics.bodies.keys().copied().collect();
         for id in ids {
             let Ok(body) = physics.world.body(id) else { continue };
             let p = crate::physics::br(body.position()) / k;
             drop(body);
-            let f = falloff(p.distance(b.at), b.radius_inner, b.radius_outer);
-            if f <= 0.0 {
+            let dist = p.distance(b.at);
+            if dist > b.radius_outer {
                 continue;
             }
-            let dir = (p - b.at).normalize_or(Vec3::Y);
+            let n = (p - b.at).normalize_or(Vec3::Y);
+            let dir = Vec3::new(n.x, 0.7, n.z);
             if let Ok(mut m) = physics.world.body_mut(id) {
                 m.activate();
-                let _ = m.add_impulse_at_point(jv(dir * b.impact_force * f * k * k), jr(b.at * k));
+                let _ = m.add_impulse_at_point(jv(dir.normalize() * b.impact_force * k * crate::fxvm::IMPULSE_SCALE), jr(b.at * k));
             }
         }
     }
@@ -182,6 +210,8 @@ fn dying(
         stats.deaths += 1;
         if d.area_damage > 0.0 {
             stats.explosions += 1;
+            // killed by its fuse: acceleration_rate x the fuse; killed directly: start_delay
+            let delay = if d.chain_delay > 0.0 { d.acceleration * d.chain_delay } else { d.start_delay };
             blasts.write(Explode {
                 at: t.translation(),
                 area_damage: d.area_damage,
@@ -189,6 +219,7 @@ fn dying(
                 radius_outer: d.radius_outer,
                 impact_force: d.impact_force,
                 source: Some(e),
+                delay,
             });
         }
         if let Some(name) = &d.fx_death {

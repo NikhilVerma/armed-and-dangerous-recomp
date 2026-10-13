@@ -2,7 +2,7 @@
 //! (`behavior`, `collision_lod_index`, health and damage keys) decides what it becomes in the engine.
 
 use crate::ai::{self, Grunt, Mind};
-use crate::fx::{Destructible, Died, Health};
+use crate::fx::{Bounds, Destructible, Died, Health};
 use crate::gamedata::{GameData, Props};
 use crate::physics::{Body, Physics};
 use crate::player::BombAssets;
@@ -96,6 +96,7 @@ fn destructible(p: &Props) -> Option<Destructible> {
         radius_inner: p.f("damage_radius_inner", 0.0),
         radius_outer: p.f("damage_radius_outer", 0.0),
         impact_force: p.f("impact_force", 0.0),
+        chain: p.s("behavior") == Some("fx_explosion"),
         start_delay: p.f("start_delay", 0.0),
         min_delay: p.f("min_delay", 0.0),
         acceleration: p.f("acceleration_rate", 1.0),
@@ -135,11 +136,21 @@ pub fn spawn(
         if matches!(behavior, "broadcast" | "camera_fx" | "fx_ear") || inst.template == "marker" || inst.template == "bigredarrow" {
             continue;
         }
-        let world = axes * scene::game_matrix(&inst.transform);
+        let mut world = axes * scene::game_matrix(&inst.transform);
+        // force_ground (Object_ForceGround 0x00455860 with (1000, 10000)): raised 1000 units, a ray cast down
+        // 10000, placed at the hit + 0.1 (the penetration bisection that follows is not ported)
+        if p.f("force_ground", 0.0) != 0.0 {
+            let at = world.w_axis.truncate();
+            if let Some((_, hit, _)) = physics.raycast(at + Vec3::Y * 1000.0, -Vec3::Y, 10000.0) {
+                world.w_axis.y = hit.y + 0.1;
+            }
+        }
         let (_, rot, pos) = world.to_scale_rotation_translation();
         let background = behavior == "background";
         let invisible = inst.property.contains("invisible") || p.f("invisible", 0.0) != 0.0;
         let Some(model) = lib.load_model(&inst.model, background, assets, meshes, materials) else { continue };
+        let (scale, _, _) = world.to_scale_rotation_translation();
+        let bounds = Bounds { center: (model.min + model.max) * 0.5, radius: (model.max - model.min).length() * 0.5 * scale.max_element() };
         let mut e = commands.spawn((Transform::from_matrix(world), Visibility::default(), Name::new(inst.template.clone())));
         if background {
             e.insert(Background);
@@ -169,6 +180,7 @@ pub fn spawn(
                 commands.entity(e).insert((
                     Body { id, offset: lift, sync_rotation: false },
                     Health(p.f("max_health", 100.0)),
+                    bounds,
                     Grunt {
                         mind: Mind::Patrol,
                         home: pos,
@@ -198,7 +210,7 @@ pub fn spawn(
                 let v: Vec<Vec3> = v.iter().map(|x| world.transform_point3(*x)).collect();
                 physics.add_static_mesh(&v, &t)
             });
-        commands.entity(e).insert(Placed { template: inst.template.clone(), collider });
+        commands.entity(e).insert((Placed { template: inst.template.clone(), collider }, bounds));
         if let Some(d) = destructible(&p) {
             commands.entity(e).insert(d);
             info.destructibles += 1;

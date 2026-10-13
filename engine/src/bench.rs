@@ -22,6 +22,9 @@ pub struct Bench {
     pub measuring: bool,
     pub look: Vec3,
     fired: usize,
+    /// Frames left that a screenshot capture slows down: not counted (the capture is the tool, not the game).
+    skip_until: f32,
+    pub skipped: u32,
     started: Option<f32>,
     frames: Vec<f32>,
     shots_taken: usize,
@@ -53,6 +56,8 @@ impl Bench {
             measuring: false,
             look: center,
             fired: 0,
+            skip_until: 0.0,
+            skipped: 0,
             started: None,
             frames: Vec::new(),
             shots_taken: 0,
@@ -60,11 +65,15 @@ impl Bench {
     }
 }
 
+/// The benchmark's camera system, so a game can adjust the camera after it.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct BenchSet;
+
 pub struct BenchPlugin;
 
 impl Plugin for BenchPlugin {
     fn build(&self, app: &mut App) {
-        app.add_message::<BenchEvent>().add_systems(Update, run_bench.run_if(resource_exists::<Bench>));
+        app.add_message::<BenchEvent>().add_systems(Update, run_bench.in_set(BenchSet).run_if(resource_exists::<Bench>));
     }
 }
 
@@ -113,8 +122,13 @@ fn run_bench(
         let path = bench.out.with_extension(format!("shot{}.png", bench.shots_taken));
         commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));
         bench.shots_taken += 1;
+        bench.skip_until = since + 0.3;
     }
-    bench.frames.push(time.delta_secs() * 1000.0);
+    if since < bench.skip_until {
+        bench.skipped += 1;
+    } else {
+        bench.frames.push(time.delta_secs() * 1000.0);
+    }
     if since < bench.warmup + bench.seconds {
         return;
     }
@@ -131,6 +145,7 @@ fn run_bench(
         out.insert(k.into(), v);
     };
     put("frames", n.into());
+    put("frames_skipped_for_screenshots", bench.skipped.into());
     put("seconds", (total / 1000.0).into());
     put("fps_avg", (n as f32 * 1000.0 / total).into());
     put("fps_1pct_low", low1.into());

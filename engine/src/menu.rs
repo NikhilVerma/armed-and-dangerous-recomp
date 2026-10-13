@@ -50,6 +50,7 @@ fn ui(
     diag: Res<DiagnosticsStore>,
     mut exit: MessageWriter<AppExit>,
     mut time: ResMut<Time<Virtual>>,
+    vm: Option<Res<crate::fxvm::FxVm>>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
     match state.get() {
@@ -95,6 +96,9 @@ fn ui(
             ui.monospace(format!("Jolt: {} dynamic, {} static ({} tris), step {:.2} ms", physics.bodies.len(), level.static_bodies, level.static_triangles, physics.step_ms));
             ui.monospace(format!("AI: {} alive, {} down, {} shots, {:.2} ms", ai.alive, ai.dead, ai.shots, ai.ms));
             ui.monospace(format!("explosions {}, objects destroyed {}", fx.explosions, fx.deaths));
+            if let Some(vm) = &vm {
+                ui.monospace(format!("fx VM: {} scripts, {} objects, {} particles ({} refused), {:.2} ms", vm.stats.instances, vm.stats.objects, vm.stats.particles, vm.stats.dropped, vm.stats.ms));
+            }
         });
     }
     Ok(())

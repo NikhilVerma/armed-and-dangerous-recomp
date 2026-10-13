@@ -10,6 +10,7 @@ mod ai;
 mod bench;
 mod flycam;
 mod fx;
+mod fxvm;
 mod gamedata;
 mod level;
 mod menu;
@@ -41,10 +42,11 @@ struct Args {
     bench: Option<(f32, PathBuf)>,
     vsync: bool,
     no_ai: bool,
+    fx_test: Option<PathBuf>,
 }
 
 fn args() -> Args {
-    let mut a = Args { scene: PathBuf::from("../work/remaster/lev_1_m1"), size: (1920, 1080), bench: None, vsync: false, no_ai: false };
+    let mut a = Args { scene: PathBuf::from("../work/remaster/lev_1_m1"), size: (1920, 1080), bench: None, vsync: false, no_ai: false, fx_test: None };
     let v: Vec<String> = std::env::args().collect();
     let mut bench_secs = None;
     let mut out = PathBuf::from("../work/remaster/bench/latest.json");
@@ -62,6 +64,7 @@ fn args() -> Args {
             "--out" => out = PathBuf::from(next),
             "--vsync" => (a.vsync, used) = (true, 1),
             "--no-ai" => (a.no_ai, used) = (true, 1),
+            "--fx-test" => a.fx_test = Some(PathBuf::from(next)),
             other => panic!("unknown argument {other}"),
         }
         i += used;
@@ -76,6 +79,16 @@ struct Launch {
     bench: Option<(f32, PathBuf)>,
     size: (u32, u32),
     no_ai: bool,
+}
+
+/// `--fx-test DIR`: camera parked by the powder kegs nearest the level centre; at 1 s the nearest keg is shot
+/// (killed directly, as a bullet would); screenshots every 0.1 s to DIR for 3 s, then exit.
+#[derive(Resource)]
+struct FxTest {
+    dir: PathBuf,
+    t: f32,
+    shot: usize,
+    target: Option<Entity>,
 }
 
 fn main() {
@@ -98,13 +111,20 @@ fn main() {
     )
     .add_plugins(EguiPlugin::default())
     .add_plugins((FrameTimeDiagnosticsPlugin::default(), flycam::FlyCamPlugin, bench::BenchPlugin))
-    .add_plugins((physics::PhysicsPlugin, fx::FxPlugin, ai::AiPlugin, player::PlayerPlugin, menu::MenuPlugin, level::LevelPlugin))
+    .add_plugins((physics::PhysicsPlugin, fx::FxPlugin, ai::AiPlugin, player::PlayerPlugin, menu::MenuPlugin, level::LevelPlugin, fxvm::FxVmPlugin))
     .init_state::<AppState>()
     .insert_non_send(physics::Physics::new(level::METERS_PER_UNIT))
     .insert_resource(ClearColor(Color::srgb(0.62, 0.70, 0.80)))
     .insert_resource(Launch { scene: scene_dir, bench: a.bench, size: a.size, no_ai: a.no_ai })
+    .add_systems(Update, fx_test.run_if(resource_exists::<FxTest>))
     .add_systems(Startup, setup)
-    .add_systems(Update, (bench_scenario, bench_record).run_if(resource_exists::<bench::Bench>));
+    .add_systems(Update, (bench_scenario, bench_record).run_if(resource_exists::<bench::Bench>))
+    .add_systems(Update, bench_ground.after(bench::BenchSet).run_if(resource_exists::<bench::Bench>));
+    if let Some(dir) = a.fx_test {
+        let _ = std::fs::create_dir_all(&dir);
+        app.insert_resource(FxTest { dir, t: 0.0, shot: 0, target: None });
+        app.insert_state(AppState::Playing);
+    }
     if bench {
         app.insert_state(AppState::Playing);
     }
@@ -220,11 +240,85 @@ fn bench_scenario(
     }
 }
 
-fn bench_record(mut bench: ResMut<bench::Bench>, physics: NonSend<physics::Physics>, ai: Res<ai::AiStats>, fx: Res<fx::FxStats>) {
+/// The benchmark flies at gameplay height: `height` above the ground under the camera (smoothed), looking
+/// slightly down along its path.
+fn bench_ground(physics: NonSend<physics::Physics>, mut bench: ResMut<bench::Bench>, mut cam: Query<&mut Transform, With<Camera3d>>, mut ground: Local<Option<f32>>) {
+    let Ok(mut t) = cam.single_mut() else { return };
+    let probe = Vec3::new(t.translation.x, 2000.0, t.translation.z);
+    let Some(hit) = physics.raycast(probe, -Vec3::Y, 4000.0).map(|h| h.1.y) else { return };
+    let g = ground.get_or_insert(hit);
+    *g += (hit - *g) * 0.05;
+    t.translation.y = *g + bench.height;
+    let look = Vec3::new(bench.look.x, *g + bench.height * 0.5, bench.look.z);
+    *t = t.looking_at(look, Vec3::Y);
+    bench.look = look;
+}
+
+fn bench_record(mut bench: ResMut<bench::Bench>, physics: NonSend<physics::Physics>, ai: Res<ai::AiStats>, fx: Res<fx::FxStats>, vm: Res<fxvm::FxVm>) {
     bench.record("physics_ms", physics.step_ms);
     bench.record("dynamic_bodies", physics.bodies.len() as f32);
     bench.record("ai_ms", ai.ms);
     bench.record("grunts_alive", ai.alive as f32);
     bench.record("explosions", fx.explosions as f32);
     bench.record("deaths", fx.deaths as f32);
+    bench.record("particles", vm.stats.particles as f32);
+    bench.record("fx_objects", vm.stats.objects as f32);
+    bench.record("fx_vm_ms", vm.stats.ms);
+}
+
+fn fx_test(
+    mut commands: Commands,
+    time: Res<Time<Real>>,
+    mut test: ResMut<FxTest>,
+    mut objects: Query<(Entity, &mut fx::Destructible, &GlobalTransform)>,
+    mut cam: Query<&mut Transform, With<Camera3d>>,
+    info: Res<level::LevelInfo>,
+    mut exit: MessageWriter<AppExit>,
+    mut menu: ResMut<menu::MenuState>,
+    physics: NonSend<physics::Physics>,
+) {
+    menu.stats = true;
+    if test.target.is_none() {
+        // the keg (chain explosive) with the most chain neighbours
+        let kegs: Vec<(Entity, Vec3)> = objects.iter().filter(|(_, d, _)| d.chain).map(|(e, _, t)| (e, t.translation())).collect();
+        let best = kegs.iter().max_by_key(|(_, p)| kegs.iter().filter(|(_, q)| q.distance(*p) < 60.0).count());
+        let Some(&(e, p)) = best else {
+            exit.write(AppExit::Success);
+            return;
+        };
+        test.target = Some(e);
+        if let Ok(mut c) = cam.single_mut() {
+            // the direction (of 16) with the longest clear line of sight from the keg, 90 units out, 30 up
+            let look = p + Vec3::Y * 10.0;
+            let mut best = (0.0f32, p + Vec3::Y * 120.0);
+            for i in 0..16 {
+                let a = i as f32 / 16.0 * std::f32::consts::TAU;
+                let dir = Vec3::new(a.cos(), 0.35, a.sin()).normalize();
+                let clear = physics.raycast(look, dir, 50.0).map(|h| h.1.distance(look)).unwrap_or(50.0);
+                if clear > best.0 {
+                    best = (clear, look + dir * (clear - 5.0).max(10.0));
+                }
+            }
+            let _ = &info;
+            info!("fx test: keg at {p}, camera at {}", best.1);
+            *c = Transform::from_translation(best.1).looking_at(look, Vec3::Y);
+        }
+    }
+    test.t += time.delta_secs();
+    if test.t > 1.0 && test.t - time.delta_secs() <= 1.0 {
+        if let Some(Ok((_, mut d, _))) = test.target.map(|e| objects.get_mut(e)) {
+            d.health = 0.0;
+            d.chain_delay = 0.0;
+            d.dying = Some(0.0);
+        }
+    }
+    let due = 0.9 + test.shot as f32 * 0.1;
+    if test.t >= due && test.shot < 32 {
+        let path = test.dir.join(format!("fx_{:02}.png", test.shot));
+        commands.spawn(bevy::render::view::screenshot::Screenshot::primary_window()).observe(bevy::render::view::screenshot::save_to_disk(path));
+        test.shot += 1;
+    }
+    if test.t > 5.0 {
+        exit.write(AppExit::Success);
+    }
 }
