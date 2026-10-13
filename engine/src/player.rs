@@ -702,14 +702,21 @@ fn follow_camera(
         return;
     }
     let (Ok((r, rt)), Ok(mut c)) = (roman.single(), cam.single_mut()) else { return };
-    let pivot = rt.translation + Vec3::Y * 10.0;
+    // Camera_Update 0x0040e350 with the player's camera nodes (player.json, Trotter_ref): the eye at Camera_end
+    // (22.703 behind Roman, 11.128 up, centred), looking at Camera_start's target (7.194 ahead, 6.877 up): at rest
+    // the view tilts down 0.141 rad, as in the original's camera dumps. The look pitch (r.pitch, rest -0.15)
+    // turns the eye about that target; rays shorten the arm when it hits the world.
+    let rest_pitch = -0.15;
+    let yaw = Quat::from_rotation_y(r.yaw);
+    let target = rt.translation + yaw * Vec3::new(0.0, 6.877, -7.194);
+    let arm = Vec3::new(0.0, 11.128 - 6.877, 22.703 + 7.194);
+    let arm = yaw * (Quat::from_rotation_x(r.pitch - rest_pitch) * arm);
+    let len = arm.length();
+    let dist = physics.raycast(target, arm / len, len).map(|h| h.1.distance(target) - 1.5).unwrap_or(len).max(3.0);
+    c.translation = target + arm / len * dist;
     // the Topsy Turvy bomb turns the view over (topsy.rs)
-    let rot = Quat::from_euler(EulerRot::YXZ, r.yaw, r.pitch, topsy.roll);
-    let back = rot * Vec3::new(4.0, 2.0, 30.0);
-    let len = back.length();
-    let dist = physics.raycast(pivot, back / len, len).map(|h| h.1.distance(pivot) - 1.5).unwrap_or(len).max(3.0);
-    c.translation = pivot + back / len * dist;
-    c.rotation = rot;
+    let look = Transform::from_translation(c.translation).looking_at(target, Vec3::Y).rotation;
+    c.rotation = look * Quat::from_rotation_z(topsy.roll);
 }
 
 pub fn spawn_bomb(commands: &mut Commands, physics: &mut Physics, bombs: &BombAssets, data: &GameData, at: Vec3, velocity: Vec3, fuse: f32) {

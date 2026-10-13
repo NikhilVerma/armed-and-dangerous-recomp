@@ -23,6 +23,10 @@ pub struct GameOptions {
     pub resolution: (u32, u32),
     pub mouse_sensitivity: f32,
     pub invert_mouse: bool,
+    /// Extras tokens found (Game+0x200, saved like the original's options), and the placed tokens already taken
+    /// ("level:instance id"), so each is found once
+    pub tokens: u32,
+    pub tokens_taken: Vec<String>,
 }
 
 impl Default for GameOptions {
@@ -39,6 +43,8 @@ impl Default for GameOptions {
             resolution: (0, 0),
             mouse_sensitivity: 0.5,
             invert_mouse: false,
+            tokens: 0,
+            tokens_taken: Vec::new(),
         }
     }
 }

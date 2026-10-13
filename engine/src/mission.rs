@@ -401,7 +401,7 @@ impl Mission {
         self.hints.get(key).cloned().unwrap_or_default().replace("%s", KEY_USE)
     }
 
-    fn message(&mut self, text: &str, delay: f32) {
+    pub fn message(&mut self, text: &str, delay: f32) {
         self.queue.push((delay, long_form(text)));
     }
 

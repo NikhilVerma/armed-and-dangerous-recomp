@@ -201,7 +201,12 @@ pub fn spawn(
         if matches!(behavior, "broadcast" | "fx_ear") || inst.template == "marker" || inst.template == "bigredarrow" {
             continue;
         }
-        let mut world = axes * scene::game_matrix(&inst.transform);
+        // the placement's scale is not applied: the original draws scaled placements (the archways' 0.5, pine trees'
+        // 0.55..0.88) at full size; measured against its captures (frame 580 of the synced walk: the arch and the
+        // trees' tops land where the unscaled models project, docs/remaster-engine.md). Only rotation and position.
+        let placed = scene::game_matrix(&inst.transform);
+        let (_, r, tr) = placed.to_scale_rotation_translation();
+        let mut world = axes * Mat4::from_rotation_translation(r, tr);
         // force_ground (Object_ForceGround 0x00455860 with (1000, 10000)): raised 1000 units, a ray cast down
         // 10000, placed at the hit + 0.1 (the penetration bisection that follows is not ported)
         if p.f("force_ground", 0.0) != 0.0 {
