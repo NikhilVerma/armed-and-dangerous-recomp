@@ -140,6 +140,8 @@ pub struct HudAssets {
 #[derive(Resource, Default)]
 pub struct HudState {
     pub visible: bool,
+    /// a cinematic (camera path, Game+0xdce): the health meters are hidden, the rest of the HUD stays (hud.md)
+    pub cinematic: bool,
     pub health: f32,
     pub q_health: f32,
     pub jonesy_health: f32,
@@ -809,6 +811,8 @@ fn visibility(
                 "ui_ammo_infinity" => state.unlimited,
                 "ui_clock" | "ui_tickerbomb" => state.ticker_clock.is_some(),
                 "ui_tickerbomb_set" => state.ticker_arming.is_some(),
+                "ui_player_health" | "ui_health_q" | "ui_health_jonesy" => !state.cinematic,
+                n if n.starts_with("ui_health") => !state.cinematic,
                 _ => true,
             };
         *v = if show { Visibility::Inherited } else { Visibility::Hidden };

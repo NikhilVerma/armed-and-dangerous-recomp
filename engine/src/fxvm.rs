@@ -446,10 +446,23 @@ fn create_object(ctx: &mut Ctx<'_, '_, '_, '_, '_>, inst: &Instance, template: &
                 // textured fx draw texture x the material's diffuse (stage MODULATE(texture, diffuse), the fx objects'
                 // material colour 0.588 on fxo_flash): measured on the sticky blast's flash, the original adds ~0.6 of
                 // what texture x white added (work/shots/stickY vs work/remaster/play/stickX)
-                let tint = ctx.lib.game_defs.get(&mat.id()).map(|(d, _, _)| Color::srgb(d.diffuse[0], d.diffuse[1], d.diffuse[2]));
+                let def = ctx.lib.game_defs.get(&mat.id()).map(|(d, _, _)| d.clone());
+                // alpha-blended fx (lighting on, kind bit 1): the lit vertex colour, emissive + diffuse clamped (fx_white:
+                // white; the original's white fade peaks at 252 / 255: intro capture); additive fx keep the diffuse
+                let tint = def.as_ref().map(|d| {
+                    if d.kind & 0x10 == 0 {
+                        Color::srgb((d.emissive[0] + d.diffuse[0]).min(1.0), (d.emissive[1] + d.diffuse[1]).min(1.0), (d.emissive[2] + d.diffuse[2]).min(1.0))
+                    } else {
+                        Color::srgb(d.diffuse[0], d.diffuse[1], d.diffuse[2])
+                    }
+                });
+                // the blend from the material kind (the original's material log: kind bit 0x10 -> blend 1, SRCALPHA /
+                // ONE, additive: fx_glow_red, fx_trail_bullet, the snow; without it blend 3, SRCALPHA / INVSRCALPHA:
+                // fx_white (the intro's white fade), fx_true_story (its caption))
+                let additive = def.as_ref().map_or(textured, |d| d.kind & 0x10 != 0);
                 let m = ctx.materials.add(StandardMaterial {
                     unlit: true,
-                    alpha_mode: if textured { AlphaMode::Add } else { base.alpha_mode },
+                    alpha_mode: if additive { AlphaMode::Add } else if textured { AlphaMode::Blend } else { base.alpha_mode },
                     base_color: if textured { tint.unwrap_or(base.base_color) } else { base.base_color },
                     ..base
                 });
@@ -947,7 +960,10 @@ fn objects(
             o.alpha = alpha;
             for m in &o.materials {
                 if let Some(mut m) = materials.get_mut(m) {
-                    m.base_color.set_alpha(alpha);
+                    // the original blends in gamma space, Bevy in linear: alpha^2.2 gives the same look for an
+                    // alpha-blended fade (the intro's white: a straight line from 252 to the scene over 0.5..3 s)
+                    let a = if m.alpha_mode == AlphaMode::Blend { alpha.powf(2.2) } else { alpha };
+                    m.base_color.set_alpha(a);
                     if m.alpha_mode == AlphaMode::Opaque {
                         m.alpha_mode = AlphaMode::Blend;
                     }
@@ -1190,7 +1206,7 @@ fn draw_particles(vm: Res<FxVm>, mut meshes: ResMut<Assets<Mesh>>, cam: Query<&G
 }
 
 /// 0x2f children (and fx started on a moving entity) follow their parent; a gone parent ends them.
-fn follow(mut commands: Commands, mut vm: ResMut<FxVm>, parents: Query<&GlobalTransform>, mut q: Query<&mut Transform, With<FxEntity>>) {
+fn follow(mut commands: Commands, mut vm: ResMut<FxVm>, parents: Query<&GlobalTransform>, mut q: Query<&mut Transform, With<FxEntity>>, cams: Query<(), With<Camera3d>>) {
     let pairs: Vec<(Entity, Entity)> = vm.objects.iter().filter_map(|(&e, o)| o.follow.map(|p| (e, p))).collect();
     for (e, p) in pairs {
         let Ok(pt) = parents.get(p).map(|t| t.compute_transform()) else {
@@ -1206,6 +1222,11 @@ fn follow(mut commands: Commands, mut vm: ResMut<FxVm>, parents: Query<&GlobalTr
             t.translation = pt.translation;
             if !pos_only {
                 t.rotation = pt.rotation;
+                // locked to the camera (the intro's white fade and caption): the original's camera frame is mirrored in
+                // x against the engine's (the caption read backwards)
+                if cams.get(p).is_ok() {
+                    t.scale.x = -t.scale.x.abs();
+                }
             }
         }
         if let Some(o) = vm.objects.get_mut(&e) {

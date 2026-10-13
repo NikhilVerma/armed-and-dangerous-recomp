@@ -216,10 +216,10 @@ fn main() {
     // debug: NEAR_DUMP=1 prints the named entities within 45 units of the camera once, 5 s into play
     if std::env::var("NEAR_DUMP").is_ok() {
         app.add_systems(Update, |time: Res<Time>, mut done: Local<bool>, cam: Query<&GlobalTransform, With<Camera3d>>, q: Query<(&Name, &GlobalTransform)>| {
-            if *done || time.elapsed_secs() < 9.0 { return; }
+            if *done || time.elapsed_secs() < std::env::var("NEAR_DUMP").ok().and_then(|v| v.parse().ok()).unwrap_or(9.0) { return; }
             *done = true;
             let Ok(c) = cam.single() else { return };
-            for (n, t) in &q { let d = t.translation().distance(c.translation()); if d < 45.0 { info!("NEAR {} {:.1} {:?}", n, d, t.translation()); } }
+            for (n, t) in &q { let d = t.translation().distance(c.translation()); if d < 45.0 { info!("NEAR {} {:.1} {:?} {:?}", n, d, t.translation(), t.compute_transform().scale); } }
         });
     }
     if let Some(h) = a.debug_hide.clone() {
@@ -544,7 +544,8 @@ fn hud_state(
     // cinematic (a camera path): the HUD meters are hidden (hud.md 6)
     // the pause menu keeps the HUD on screen (capture orig_ui_play-720.png)
     let shown = *state.get() == AppState::Playing || (*state.get() == AppState::Paused && menu.hud_under());
-    hud.visible = shown && roman.single().is_ok() && !path.active();
+    hud.visible = shown && roman.single().is_ok();
+    hud.cinematic = path.active();
     hud.health = if p.max_health > 0.0 { p.health / p.max_health } else { 0.0 };
     hud.clip = p.clip;
     hud.ammo = p.ammo;

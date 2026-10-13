@@ -606,7 +606,7 @@ fn navigate(
     mut save_req: ResMut<crate::savegame::SaveRequest>,
     mut cheats: ResMut<crate::cheats::Cheats>,
     mouse: Res<ButtonInput<MouseButton>>,
-    placed: Query<(&MenuRow, &HudElement, &Visibility)>,
+    placed: Query<(&MenuRow, &HudElement)>,
     mut last_cursor: Local<Option<Vec2>>,
 ) {
     cheats.entering = menu.page == Page::Cheats && *state.get() != AppState::Playing;
@@ -625,10 +625,10 @@ fn navigate(
                 *last_cursor = Some(c);
                 hovered = placed
                     .iter()
-                    .filter(|(r, _, v)| r.page == menu.page && **v != Visibility::Hidden && r.order.is_some())
-                    .filter(|(r, e, _)| (p.y - e.pos.y).abs() < 13.0 * r.base_scale && (p.x - e.pos.x).abs() < 150.0)
+                    .filter(|(r, _)| r.page == menu.page && r.order.is_some())
+                    .filter(|(r, e)| (p.y - e.pos.y).abs() < 13.0 * r.base_scale && (p.x - e.pos.x).abs() < 150.0)
                     .min_by(|a, b| (p.y - a.1.pos.y).abs().total_cmp(&(p.y - b.1.pos.y).abs()))
-                    .and_then(|(r, _, _)| r.order);
+                    .and_then(|(r, _)| r.order);
             }
         }
     }

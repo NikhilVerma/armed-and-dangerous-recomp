@@ -890,7 +890,7 @@ fn follow_camera(
     mut proj: Query<&mut Projection, With<FollowCam>>,
     mut base_fov: Local<Option<f32>>,
 ) {
-    if path.active() {
+    if path.holds_camera() {
         return;
     }
     let (Ok((roman_entity, r, rt)), Ok(mut c)) = (roman.single(), cam.single_mut()) else { return };
