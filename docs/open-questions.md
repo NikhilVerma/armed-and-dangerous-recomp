@@ -70,8 +70,10 @@ the ray's broadphase meets the owner's main collidable (Roman: the radius shape 
 BuildCollision 0x00475220, collision_radius 2); with detail >= 2 the owner is posed as a ragdoll (0x00458970) and
 every ragdoll body (+0x1bc records, built by fn_00456a90 from Game+0xa8c) is cast. So the hit shapes are the ragdoll
 bodies' shapes; that they are trotter_coll_0's parts is inferred from their 13 bone names, not read. Lateral reach of
-the hits: original |x| <= 1.57, engine <= 1.72 (not a gate effect at radius >= 2). Next: dump a ragdoll body's
-shape (entity +0x24) type and extent.
+the hits: original |x| <= 1.57, engine <= 1.72 (not a gate effect at radius >= 2). The ragdoll bodies' shapes
+(camera dump player_part_shapes): Havok boxes (type 11 in a 0x19 wrapper), convex radius 0.1, with the half extents
+and centres of trotter_coll_0's parts: the engine's hit geometry is the original's, posed alike. The remaining
+difference (a few hits in ~40 shots) is not explained by shapes, pose, aim, positions or fire rate.
 
 ## Falling snow in the remaster engine (2026-10-13, partly resolved)
 
