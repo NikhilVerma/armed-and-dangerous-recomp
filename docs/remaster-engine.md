@@ -225,6 +225,11 @@ Verified against the original's sound log on the fire-held test (gunA): Jonesy's
 (original 38..47), Q's machine-gun loop once per burst every 89..133 (95..140). level1b: both follow the whole level
 (q_dist / jonesy_dist in the playtest log). Not ported: the slot swap, orders, retaliation, Q's healthy tea, barks.
 
+Measuring AI against the original (2026-10-14): the hook's camera dump lists every AI object as [x, y, z, vtable,
+facing x, y, z, address, target address (+0x588), health (+0x454), anim id (+0x498)]; capture with
+`tools/shot.py --scenario level --frames 600,630,... --keys "500:MOUSE1,510:17*1100,700:MOUSE1" --name fightT` and
+read work/instances/main/and-frame-N.camera.json. AIDBG=1 logs the engine's companion targets and character hits.
+
 ## Comparing sounds with the original
 
 The original logs every sound it starts with `[test] log_sounds=1` (hook, and-sounds.txt in the instance: frame
