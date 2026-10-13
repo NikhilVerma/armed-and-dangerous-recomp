@@ -135,7 +135,7 @@ fn damage(
     mut blasts: MessageReader<Explode>,
     mut physics: NonSendMut<Physics>,
     mut objects: Query<(Entity, &GlobalTransform, &mut Destructible, Option<&Bounds>)>,
-    mut chars: Query<(&GlobalTransform, &mut Health, Option<&Bounds>)>,
+    mut chars: Query<(Entity, &GlobalTransform, &mut Health, Option<&Bounds>)>,
 ) {
     // surface distance: |C - centre| - R, and the direction n
     let surface = |t: &GlobalTransform, b: Option<&Bounds>, at: Vec3| {
@@ -166,7 +166,11 @@ fn damage(
                 }
             }
         }
-        for (t, mut h, bounds) in &mut chars {
+        for (ce, t, mut h, bounds) in &mut chars {
+            // the excluded object (a sticky bomb's stuck character takes its direct damage instead)
+            if Some(ce) == b.source {
+                continue;
+            }
             let (dist, _) = surface(t, bounds, b.at);
             if dist <= b.radius_outer {
                 h.0 -= b.area_damage * falloff(dist, b.radius_inner, b.radius_outer);

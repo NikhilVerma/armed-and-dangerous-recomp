@@ -64,6 +64,14 @@ fn roman(mut q: Query<(&Roman, &mut Animator)>, topsy: Res<crate::topsy::Topsy>)
         // The pose is the blend whose rifle follows the aim pitch: w = (pitch + 50) / 97 in degrees, with the
         // aim pitch = the view's (rest -8 degrees: w 0.43, a level rifle as in the original's captures).
         // The exact mapping in the player's anim code (0x00475ff0 / the blend +0x580) is not traced: derived.
+        // the sticky bomb throw: a whole-body anim, no aim-pitch pair (trotter_throw 0.633 s; running
+        // trotter_run_throw 0.767 s)
+        let (throw, dur) = if speed < 3.0 { ("trotter_throw", 0.633) } else { ("trotter_run_throw", 0.767) };
+        if r.since_throw < dur {
+            a.play(0, throw, false, Mask::All);
+            a.stop(1);
+            continue;
+        }
         let aim_deg = (r.pitch + 0.15 - 0.141).to_degrees();
         let w = ((aim_deg + 50.0) / 97.0).clamp(0.0, 1.0);
         a.play(0, &format!("{upper}_b"), true, Mask::All);

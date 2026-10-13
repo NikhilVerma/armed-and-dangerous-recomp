@@ -165,6 +165,59 @@ pub struct FxObject {
     uv_scroll2: Option<(Vec2, f32, f32, f32, f32, Vec2)>,
 }
 
+/// A streamer (ribbon trail, render_r4.cpp: Streamers 0x00494d90.., Streamer_AddPoint 0x004958a0, Streamer_Update
+/// 0x00495300, Streamer_Draw 0x00495380): one point per frame at its fx object while emitting (63 at most), points
+/// older than `life` dropped; drawn as a camera-facing strip whose half-width, colour and alpha are Bezier curves of
+/// the point's age / life (4 keys each). Defaults 0x00494d40: life 1, width [1, 1, 1, 0], colour white with the last
+/// key's alpha 0, alpha blend.
+struct Streamer {
+    owner: Entity,
+    life: f32,
+    width: [f32; 4],
+    /// per key: r, g, b, a (each quantised to a byte as the original stores them)
+    colour: [[f32; 4]; 4],
+    additive: bool,
+    time: f32,
+    emitting: bool,
+    /// (position (engine space), direction, birth time, size)
+    points: std::collections::VecDeque<(Vec3, Vec3, f32, f32)>,
+}
+
+impl Streamer {
+    fn new(owner: Entity) -> Self {
+        let w = [1.0; 4];
+        Streamer {
+            owner,
+            life: 1.0,
+            width: [1.0, 1.0, 1.0, 0.0],
+            colour: [w, w, w, [1.0, 1.0, 1.0, 0.0]],
+            additive: false,
+            time: 0.0,
+            emitting: true,
+            points: Default::default(),
+        }
+    }
+}
+
+/// A curve argument (render_r2b.cpp:853-881): 1 value constant, 2 a linear ramp, 4 as given, else 1.
+fn curve_keys(v: &Value) -> [f32; 4] {
+    let n: Vec<f32> = v.as_array().map(|a| a.iter().filter_map(|x| x.as_f64()).map(|x| x as f32).collect()).unwrap_or_default();
+    match n.len() {
+        1 => [n[0]; 4],
+        2 => {
+            let k1 = n[0] + (n[1] - n[0]) / 3.0;
+            [n[0], k1, (k1 + n[1]) * 0.5, n[1]]
+        }
+        4 => [n[0], n[1], n[2], n[3]],
+        _ => [1.0; 4],
+    }
+}
+
+fn bezier(k: [f32; 4], t: f32) -> f32 {
+    let u = 1.0 - t;
+    u * u * u * k[0] + 3.0 * t * u * u * k[1] + 3.0 * t * t * u * k[2] + t * t * t * k[3]
+}
+
 struct Instance {
     script: Vec<Value>,
     ip: usize,
@@ -208,6 +261,9 @@ pub struct FxVm {
     pub stats: FxVmStats,
     /// Camera shake (game units, decays x -0.75 per 1/60 s: the original's per-frame decay at 60 fps).
     pub shake: (f32, f32),
+    streamers: Vec<Streamer>,
+    /// alpha-blended and additive streamer meshes
+    streamer_meshes: [Handle<Mesh>; 2],
 }
 
 #[derive(Default, Clone, Copy)]
@@ -229,11 +285,32 @@ impl Plugin for FxVmPlugin {
         app.add_plugins(MaterialPlugin::<ParticleMaterial>::default());
         app.add_systems(Startup, setup)
             .add_systems(Update, (start, run, objects, particles).chain().after(crate::fx::FxSet))
-            .add_systems(PostUpdate, (follow, draw_particles, camera_shake).before(TransformSystems::Propagate));
+            .add_systems(PostUpdate, (follow, draw_particles, camera_shake).before(TransformSystems::Propagate))
+            .add_systems(PostUpdate, streamers.after(TransformSystems::Propagate));
     }
 }
 
-fn setup(mut commands: Commands, assets: Res<AssetServer>, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<ParticleMaterial>>) {
+fn setup(mut commands: Commands, assets: Res<AssetServer>, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<ParticleMaterial>>, mut std_mats: ResMut<Assets<StandardMaterial>>) {
+    // the streamers' two meshes (untextured: texture 0x55 not ported), vertex colours, unlit, both sides
+    let streamer_meshes = [false, true].map(|additive| {
+        let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+        mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32; 3]; 3]);
+        mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, vec![[0.0f32; 4]; 3]);
+        mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0f32, 1.0, 0.0]; 3]);
+        mesh.insert_indices(Indices::U32(vec![0, 1, 2]));
+        let h = meshes.add(mesh);
+        let mat = std_mats.add(StandardMaterial {
+            base_color: Color::WHITE,
+            unlit: true,
+            double_sided: true,
+            cull_mode: None,
+            alpha_mode: if additive { AlphaMode::Add } else { AlphaMode::Blend },
+            fog_enabled: false,
+            ..default()
+        });
+        commands.spawn((Mesh3d(h.clone()), MeshMaterial3d(mat), Transform::IDENTITY, bevy::camera::visibility::NoFrustumCulling, bevy::light::NotShadowCaster));
+        h
+    });
     let mut pool_meshes = Vec::new();
     for (_, tex, additive) in POOLS {
         let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
@@ -258,6 +335,8 @@ fn setup(mut commands: Commands, assets: Res<AssetServer>, mut meshes: ResMut<As
         unported: HashSet::new(),
         stats: FxVmStats::default(),
         shake: (0.0, 0.0),
+        streamers: Vec::new(),
+        streamer_meshes,
     });
 }
 
@@ -587,6 +666,36 @@ fn run_script(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_, '_, '_>, idx: usize, dt: 
                         if let Ok(mut b) = ctx.physics.world.body_mut(id) {
                             b.activate();
                             let _ = b.add_impulse(jv(game_to_engine() * v * k * IMPULSE_SCALE));
+                        }
+                    }
+                }
+            }
+            // streamers (0x0041f500 ..): 0x4d on the object, 0x4e on a bone of list 1 (the object's position is used)
+            "0x4d" | "0x4e" => {
+                if let (Some(_), Some(t)) = (cur, top) {
+                    if vm.streamers.iter().filter(|s| s.owner == t).count() < 8 {
+                        vm.streamers.push(Streamer::new(t));
+                    }
+                }
+                if op == "0x4e" {
+                    list1 = None;
+                }
+            }
+            "0x4f" | "0x50" | "0x51" | "0x52" | "0x53" | "0x54" | "0x57" => {
+                if let (Some(_), Some(t)) = (cur, top) {
+                    if let Some(st) = vm.streamers.iter_mut().rev().find(|s| s.owner == t) {
+                        let q = |x: f32| (x * 255.0).trunc() / 255.0;
+                        match op.as_str() {
+                            "0x4f" => st.width = curve_keys(&arg(1)),
+                            "0x54" => st.life = f(&arg(1)).max(1e-3),
+                            "0x57" => st.additive = f(&arg(1)) != 0.0,
+                            _ => {
+                                let ch = match op.as_str() { "0x50" => 3, "0x51" => 0, "0x52" => 1, _ => 2 };
+                                let k = curve_keys(&arg(1));
+                                for (i, v) in k.iter().enumerate() {
+                                    st.colour[i][ch] = q(*v);
+                                }
+                            }
                         }
                     }
                 }
@@ -1074,4 +1183,90 @@ fn camera_shake(time: Res<Time>, mut vm: ResMut<FxVm>, mut cam: Query<&mut Trans
     vm.shake = (a, left - time.delta_secs());
     t.translation.y += a;
     *last = a;
+}
+
+/// Streamers: emit one point per frame at the owner while it lives (Streamer_AddPoint 0x004958a0: the width fades in
+/// over the first quarter of the life, 3x^2 - 2x^3; directions by central difference), drop points older than the
+/// life (0x00495300), stop emitting when the owner is gone (FxObject_Remove -> Streamer_Stop 0x00494f10) and free the
+/// streamer when no points remain; then build the strips (Streamer_Draw 0x00495380: side = dir x camera axis (the
+/// view's back axis, switching to its up axis while (dir . axis)^2 > 0.6), not normalised; vertices pos +- side * w,
+/// w = width(t) * size, colour per channel = curve(t), t = age / life, oldest first).
+fn streamers(
+    time: Res<Time>,
+    mut vm: ResMut<FxVm>,
+    owners: Query<&GlobalTransform, With<FxEntity>>,
+    cam: Query<&GlobalTransform, With<Camera3d>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+) {
+    let dt = time.delta_secs();
+    for st in vm.streamers.iter_mut() {
+        st.time += dt;
+        match owners.get(st.owner) {
+            Ok(o) if st.emitting => {
+                let p = o.translation();
+                let x = st.time / (st.life * 0.25);
+                let size = if x < 1.0 { 3.0 * x * x - 2.0 * x * x * x } else { 1.0 };
+                let n = st.points.len();
+                let dir = st.points.back().map(|b| (p - b.0).normalize_or_zero()).unwrap_or(Vec3::ZERO);
+                if n >= 2 {
+                    let before = st.points[n - 2].0;
+                    st.points[n - 1].1 = (p - before).normalize_or_zero();
+                }
+                st.points.push_back((p, dir, st.time, size));
+                if st.points.len() > 63 {
+                    st.points.pop_front();
+                }
+            }
+            _ => st.emitting = false,
+        }
+        let cut = st.time - st.life;
+        while st.points.front().is_some_and(|q| q.2 < cut) {
+            st.points.pop_front();
+        }
+    }
+    vm.streamers.retain(|s| s.emitting || !s.points.is_empty());
+    let Ok(c) = cam.single() else { return };
+    let (back, up) = (c.back().as_vec3(), c.up().as_vec3());
+    for (k, handle) in vm.streamer_meshes.clone().iter().enumerate() {
+        let additive = k == 1;
+        let mut pos: Vec<[f32; 3]> = Vec::new();
+        let mut col: Vec<[f32; 4]> = Vec::new();
+        let mut idx: Vec<u32> = Vec::new();
+        for st in vm.streamers.iter().filter(|s| s.additive == additive && s.points.len() >= 2) {
+            let mut axis = back;
+            let base = pos.len() as u32;
+            for (i, (p, d, birth, size)) in st.points.iter().enumerate() {
+                let t = ((st.time - birth) / st.life).clamp(0.0, 1.0);
+                if d.dot(axis).powi(2) > 0.6 {
+                    axis = if axis == back { up } else { back };
+                }
+                let side = d.cross(axis) * bezier(st.width, t) * size;
+                let ch = |c: usize| bezier([st.colour[0][c], st.colour[1][c], st.colour[2][c], st.colour[3][c]], t);
+                let colour = [ch(0), ch(1), ch(2), ch(3).clamp(0.0, 1.0)];
+                pos.push((*p + side).to_array());
+                pos.push((*p - side).to_array());
+                // vertex colours are linear in Bevy: the original's are gamma-space bytes
+                let lin = |v: f32| v.clamp(0.0, 1.0).powf(2.2);
+                let cl = [lin(colour[0]), lin(colour[1]), lin(colour[2]), colour[3]];
+                col.push(cl);
+                col.push(cl);
+                if i > 0 {
+                    let a = base + (i as u32 - 1) * 2;
+                    idx.extend_from_slice(&[a, a + 1, a + 2, a + 1, a + 3, a + 2]);
+                }
+            }
+        }
+        if idx.is_empty() {
+            pos = vec![[0.0; 3]; 3];
+            col = vec![[0.0; 4]; 3];
+            idx = vec![0, 1, 2];
+        }
+        if let Some(mut m) = meshes.get_mut(handle) {
+            let n = pos.len();
+            m.insert_attribute(Mesh::ATTRIBUTE_POSITION, pos);
+            m.insert_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0f32, 1.0, 0.0]; n]);
+            m.insert_attribute(Mesh::ATTRIBUTE_COLOR, col);
+            m.insert_indices(Indices::U32(idx));
+        }
+    }
 }

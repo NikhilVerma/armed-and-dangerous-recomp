@@ -58,6 +58,8 @@ pub struct Roman {
     pub base: Quat,
     /// seconds since the last shot, and of reload left (for the anims)
     pub since_fire: f32,
+    /// seconds since Fire Special threw a sticky bomb (the throw anim)
+    pub since_throw: f32,
     pub reloading: f32,
     pub move_local: Vec2,
 }
@@ -201,6 +203,7 @@ pub fn make_roman(physics: &mut Physics, p: &Props, data: &GameData, feet: Vec3,
         dead: false,
         base: game_to_engine(),
         since_fire: 10.0,
+        since_throw: 10.0,
         reloading: 0.0,
         move_local: Vec2::ZERO,
     })
@@ -559,6 +562,7 @@ fn weapons(
     mut fx: MessageWriter<crate::fx::StartFx>,
     mut rng: ResMut<crate::fx::FxStats>,
     mut topsy: ResMut<crate::topsy::Topsy>,
+    mut sticky: ResMut<crate::sticky::StickyThrow>,
 ) {
     let dt = time.delta_secs();
     for (e, mut r, t) in &mut q {
@@ -566,6 +570,7 @@ fn weapons(
             continue;
         }
         r.since_fire += dt;
+        r.since_throw += dt;
         r.reloading -= dt;
         // Next Weapon (Q): the rifle and, once taken in the pub, the machine gun
         if keys.just_pressed(KeyCode::KeyQ) && r.mg.is_some() {
@@ -646,10 +651,12 @@ fn weapons(
             topsy.start = true;
         }
         // Fire Special: Mouse 2 (the original's binding; F is Activate)
-        if r.special == 0 && (buttons.just_pressed(MouseButton::Right) || bot_throw) && r.stickies > 0 {
+        // (0x004a1aa0 -> 0x004a1930: weapon 10 queued with a 0.4 s delay, then the bomb leaves the L_hand; sticky.rs)
+        if r.special == 0 && (buttons.just_pressed(MouseButton::Right) || bot_throw) && r.stickies > 0 && sticky.pending.is_none() {
             r.stickies -= 1;
-            let (from, dir) = aim(&r, t);
-            spawn_bomb(&mut commands, &mut physics, &bombs, &data, from, dir * 90.0 + Vec3::Y * 20.0, 3.0);
+            r.since_throw = 0.0;
+            sticky.pending = Some(0.4);
+            sounds.write(crate::audio::PlaySound::at("wpn_grenade_throw", t.translation));
         }
     }
 }

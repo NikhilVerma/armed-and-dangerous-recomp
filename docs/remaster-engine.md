@@ -194,6 +194,21 @@ bones keep the single-box fallback in `ai.rs` die(). The original's GoRagdoll pa
 so the sizes and limits are guesses judged by eye. Test: `work/remaster/play/death2.json` (`{"kill":1000}` gives a
 heavy hit); the b1..b4 shots show the grunt down, splayed and settled, with no jitter.
 
+## Sticky bomb (piece 3, 2026-10-13)
+
+`engine/src/sticky.rs`, from StickyBombProjectile (game_07.cpp 892-1300) and Hud_UpdateCrosshair's auto-aim
+(0x00406f50); the spec with every address is summarised in the module comment. Fire Special plays trotter_throw /
+trotter_run_throw and wpn_grenade_throw, the bomb leaves the L_hand after 0.4 s, flies 1 s on a solved arc turned 10
+degrees left, homes (k 2..7) on a ref_hit_0N bone of the first grunt inside the narrowed view (factors 0.04 / 0.12,
+range 250, line of sight; the cone test's exact frustum is a guess), sticks (ground: hit - direction x 5), scares,
+lingers 4 s, explodes (100 area to 30 / 45, 300 to the stuck one). Its trail is a streamer: `fxvm.rs` now runs the
+streamer ops 0x4d..0x57 (ribbon trails of 14 lev_1_m1 fx; texture 0x55 / uv 0x56 not ported: untextured).
+Compared with the original (work/shots/stickB, stickX, stickY vs work/remaster/play/stickB, stickH, stickX): throw
+pose, blue trail, sticking, the grunt's "stuck to me" panic, linger and blast timing and sounds match.
+Open (next piece, fx look): the blast's fxo_flash card is far brighter in the engine (an opaque white sheet; the
+original's is a milky translucent card) and the original's dark brown smoke puff is barely visible in ours (the
+particles exist: ~117 added); penguins are not knocked about by blasts (no physics on them).
+
 ## Comparing sounds with the original
 
 The original logs every sound it starts with `[test] log_sounds=1` (hook, and-sounds.txt in the instance: frame
