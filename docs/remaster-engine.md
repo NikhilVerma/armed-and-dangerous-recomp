@@ -194,6 +194,25 @@ bones keep the single-box fallback in `ai.rs` die(). The original's GoRagdoll pa
 so the sizes and limits are guesses judged by eye. Test: `work/remaster/play/death2.json` (`{"kill":1000}` gives a
 heavy hit); the b1..b4 shots show the grunt down, splayed and settled, with no jitter.
 
+## Comparing sounds with the original
+
+The original logs every sound it starts with `[test] log_sounds=1` (hook, and-sounds.txt in the instance: frame
+since load, name, volume); the engine logs its own with `AND_SOUND_LOG=<file>` (game seconds, name, volume_db,
+2d / 3d). Same inputs, then compare the name counts:
+
+```bash
+.venv/Scripts/python.exe tools/shot.py --scenario level --frames 520 --keys "500:MOUSE1,510:17*300" --frames-total 900 --name walkSnd --set test.log_sounds=1
+```
+
+```bash
+cd engine && AND_SOUND_LOG=../work/remaster/play/walkA.sounds.txt ./target/release/and_remaster.exe --background --size 640x372 --play ../work/remaster/play/walkA.json
+```
+
+2026-10-13: footsteps, clothing, wind, the oil pumps' and the pub's loops, music, ambience one-shots and the
+grunts' idle chatter (fidget anims' fx notes) match. Open: penguin calls (PenguinObject not ported: the 10 penguins
+stand still; the original calls in bursts, every penguin at once, at load and ~frame 238). Music segments after the
+first go through the streaming path and are not in the original's log. The ambient voice line is a random pick.
+
 ## Running tests without disturbing the desktop
 
 - `--background`: the window opens off-screen, unfocused, behind everything, not in the taskbar; screenshots still

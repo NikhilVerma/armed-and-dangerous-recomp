@@ -18,6 +18,21 @@ mask alpha, added); the stage maths taken literally leave the premultiplied flak
 work/remaster/render/snow_variants.png). The mask's uv set is not known (both sets tile it; the texcoord index lives
 in the renderer slot at +0x640, not in the logged stage words); left on uv set 0, which matches the captures best.
 
+## Penguins (2026-10-13, open)
+
+PenguinObject (vtable 0x005a1768, anims 0x0048fc90: pngn_stand, walk, run, salute, scan_chat (note `fx fx_penguin`
+at 0: the calls), scan_chat1, blown_up, land_dead; screams 0x0048fd80) is not ported: the engine's 10 penguins
+stand in their bind pose. The generic fidget (0x00427330) needs anim 0xf playing, which the penguin table maps to
+penguin_error_anim, so the calls must come from penguin-specific update code (not read). The original's sound log
+shows every penguin calling at once at load and again near frame 238.
+
+## The HUD health figure's tint (2026-10-13, open)
+
+The original's green Roman figure (ui_player_health, b_health band 0) reads (106, 176, 56) on the synced frame
+against the texture's (99, 191, 0) and ours (91, 182, 11): slightly muted. The per-channel alpha does not fit one
+blend factor, so the skin material's colour or blend (hud.md open question 4) is probably involved. Position, size
+and the other HUD parts match (work/remaster/render/hud_zoom.png).
+
 ## The big red arrow (resolved 2026-10-13)
 
 It bobs: its own anim moves Center z from 20 to 46 above the placement (loop 0.97 s). Without it the arrow sat
