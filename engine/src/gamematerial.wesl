@@ -152,5 +152,6 @@ fn fragment(in: GameOut) -> @location(0) vec4<f32> {
     if (p.fog_range.y > p.fog_range.x) {
         col = mix(p.fog_col.rgb, col, in.fog);
     }
-    return vec4(to_linear(col), alpha);
+    // emissive.w: the camera fade (camfade.rs; 0 = opaque), objects between the camera and Roman
+    return vec4(to_linear(col), alpha * (1.0 - p.emissive.w));
 }

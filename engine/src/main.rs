@@ -16,6 +16,7 @@ mod fx;
 mod fxvm;
 mod gamedata;
 mod camdump;
+mod camfade;
 mod cheats;
 mod gamemenu;
 mod gamematerial;
@@ -197,6 +198,7 @@ fn main() {
     app.add_plugins(camdump::CamDumpPlugin);
     app.add_plugins(savegame::SaveGamePlugin);
     app.add_plugins(cheats::CheatsPlugin);
+    app.add_plugins(camfade::CameraFadePlugin);
     app.add_plugins(ragdoll::RagdollPlugin);
     if let Some(save) = a.load.as_ref().and_then(|p| savegame::read(p)) {
         app.insert_resource(savegame::PendingLoad(save, 0));

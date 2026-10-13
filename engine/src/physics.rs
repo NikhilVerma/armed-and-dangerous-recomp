@@ -17,6 +17,8 @@ pub struct Physics {
     /// the game material of a body (property `material`: snow, stone, wood, metal, grunt, ...) for impact fx
     pub materials: HashMap<BodyId, String>,
     pub static_triangles: usize,
+    /// the landscape's collision body (the follow camera's rays stop on it alone, camfade.rs)
+    pub landscape: Option<BodyId>,
     /// CPU time of the last steps (ms), for the benchmark.
     pub step_ms: f32,
     poses: Vec<BodyPose>,
@@ -52,6 +54,7 @@ impl Physics {
             static_bodies: 0,
             materials: HashMap::new(),
             static_triangles: 0,
+            landscape: None,
             step_ms: 0.0,
             poses: Vec::new(),
         }

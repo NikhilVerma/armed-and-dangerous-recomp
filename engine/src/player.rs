@@ -695,26 +695,58 @@ fn projectiles(
 fn follow_camera(
     path: Res<crate::campath::CameraPath>,
     physics: NonSend<Physics>,
-    roman: Query<(&Roman, &Transform), Without<FollowCam>>,
+    roman: Query<(Entity, &Roman, &Transform), Without<FollowCam>>,
     mut cam: Query<&mut Transform, With<FollowCam>>,
     topsy: Res<crate::topsy::Topsy>,
     cheats: Res<crate::cheats::Cheats>,
+    placed: Query<(Entity, &crate::level::Placed)>,
+    mut fade: ResMut<crate::camfade::CameraFade>,
 ) {
     if path.active() {
         return;
     }
-    let (Ok((r, rt)), Ok(mut c)) = (roman.single(), cam.single_mut()) else { return };
+    let (Ok((roman_entity, r, rt)), Ok(mut c)) = (roman.single(), cam.single_mut()) else { return };
+    let roman_entity = Some(roman_entity);
     // Camera_Update 0x0040e350 with the player's camera nodes (player.json, Trotter_ref): the eye at Camera_end
     // (22.703 behind Roman, 11.128 up, centred), looking at Camera_start's target (7.194 ahead, 6.877 up): at rest
     // the view tilts down 0.141 rad, as in the original's camera dumps. The look pitch (r.pitch, rest -0.15)
-    // turns the eye about that target; rays shorten the arm when it hits the world.
+    // turns the eye about that target. Five rays from the target (to the eye and to the eye +-5 along the view's
+    // right and up axes) pass through objects, which fade (camfade.rs), and the nearest landscape hit shortens the
+    // arm (0x0040e56c: objects hit are excluded and the ray cast again; only what remains stops it).
     let rest_pitch = -0.15;
     let yaw = Quat::from_rotation_y(r.yaw);
     let target = rt.translation + yaw * Vec3::new(0.0, 6.877, -7.194);
     let arm = Vec3::new(0.0, 11.128 - 6.877, 22.703 + 7.194);
     let arm = yaw * (Quat::from_rotation_x(r.pitch - rest_pitch) * arm);
     let len = arm.length();
-    let dist = physics.raycast(target, arm / len, len).map(|h| h.1.distance(target) - 1.5).unwrap_or(len).max(3.0);
+    let eye = target + arm;
+    let look = Transform::from_translation(eye).looking_at(target, Vec3::Y);
+    let (right, up) = (look.right().as_vec3() * 5.0, look.up().as_vec3() * 5.0);
+    let mut dist = len;
+    for end in [eye, eye + right, eye - right, eye + up, eye - up] {
+        let dir = (end - target).normalize_or(Vec3::Y);
+        // every ray as long as the arm (0x2c: the eye distance)
+        let full = len;
+        let mut from = target;
+        let mut left = full;
+        // through objects: the landscape alone stops the ray; placed objects and moving bodies hit fade
+        while let Some((body, at, _)) = physics.raycast(from, dir, left) {
+            if physics.landscape == Some(body) {
+                dist = dist.min(at.distance(target));
+                break;
+            }
+            let object = physics.bodies.get(&body).copied().or_else(|| placed.iter().find(|(_, p)| p.collider == Some(body)).map(|(e, _)| e));
+            if let Some(object) = object.filter(|o| Some(*o) != roman_entity) {
+                fade.hit(object);
+            }
+            let step = at.distance(from) + 0.05;
+            from = at + dir * 0.05;
+            left -= step;
+            if left <= 0.0 {
+                break;
+            }
+        }
+    }
     c.translation = target + arm / len * dist;
     // the Topsy Turvy bomb turns the view over (topsy.rs)
     let look = Transform::from_translation(c.translation).looking_at(target, Vec3::Y).rotation;

@@ -221,7 +221,7 @@ pub fn spawn(
             info.draws += d;
             info.triangles += t;
         }
-        static_collider(physics, model, axes);
+        physics.landscape = static_collider(physics, model, axes);
     }
 
     for inst in &scene.instances {

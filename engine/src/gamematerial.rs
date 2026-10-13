@@ -57,7 +57,8 @@ impl Material for GameMaterial {
     fn alpha_mode(&self) -> AlphaMode {
         // alpha textures blend (the material log: flags bits 8-11 = 3 -> blend table 0x0057d9e0 entry 3 = SRCALPHA,
         // INVSRCALPHA, ADD, with alpha test on), not a hard 0.5 cut: thin soft twigs as in the original
-        if self.alpha { AlphaMode::Blend } else { AlphaMode::Opaque }
+        // objects the camera fades (camfade.rs: emissive.w > 0) blend too
+        if self.alpha || self.params.emissive.w > 0.0 { AlphaMode::Blend } else { AlphaMode::Opaque }
     }
 }
 
