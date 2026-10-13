@@ -61,12 +61,53 @@ pub struct SpawnGrunt {
     pub template: String,
 }
 
+/// The `Center` translation track of a rigid (unskinned) model's own anim, played in a loop on its placement.
+#[derive(Component)]
+pub struct RigidAnim {
+    keys: Vec<(f32, Vec3)>,
+    duration: f32,
+    t: f32,
+    base: Option<Vec3>,
+}
+
+impl RigidAnim {
+    fn load(dir: &std::path::Path, model: &str) -> Option<Self> {
+        let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join("anims").join(format!("{model}.json"))).ok()?).ok()?;
+        let track = v.get("tracks")?.get("Center")?.get("t")?.as_array()?;
+        let keys: Vec<(f32, Vec3)> = track
+            .iter()
+            .filter_map(|k| {
+                let k = k.as_array()?;
+                let f = |i: usize| k.get(i).and_then(|x| x.as_f64()).map(|x| x as f32);
+                Some((f(0)?, Vec3::new(f(1)?, f(2)?, f(3)?)))
+            })
+            .collect();
+        if keys.len() < 2 {
+            return None;
+        }
+        Some(RigidAnim { duration: v.get("duration")?.as_f64()? as f32, keys, t: 0.0, base: None })
+    }
+}
+
+fn rigid_anims(time: Res<Time>, mut q: Query<(&mut RigidAnim, &mut Transform)>) {
+    for (mut a, mut t) in &mut q {
+        let base = *a.base.get_or_insert(t.translation);
+        a.t = (a.t + time.delta_secs()).rem_euclid(a.duration.max(1e-3));
+        let i = a.keys.iter().rposition(|k| k.0 <= a.t).unwrap_or(0);
+        let (t0, p0) = a.keys[i];
+        let (t1, p1) = a.keys[(i + 1).min(a.keys.len() - 1)];
+        let p = if t1 > t0 { p0.lerp(p1, (a.t - t0) / (t1 - t0)) } else { p0 };
+        // game space offset (z up) on the placement's own axes
+        t.translation = base + t.rotation * p;
+    }
+}
+
 pub struct LevelPlugin;
 
 impl Plugin for LevelPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<SpawnGrunt>()
-            .add_systems(Update, (husks.after(crate::fx::FxSet), spawn_grunts))
+            .add_systems(Update, (husks.after(crate::fx::FxSet), spawn_grunts, rigid_anims))
             .add_systems(PostUpdate, follow_camera.before(TransformSystems::Propagate));
     }
 }
@@ -219,6 +260,7 @@ pub fn spawn(
         let (_, rot, pos) = world.to_scale_rotation_translation();
         let background = behavior == "background";
         let invisible = inst.property.contains("invisible") || p.f("invisible", 0.0) != 0.0;
+        let lib_dir = lib.dir.clone();
         let Some(model) = lib.load_model(&inst.model, background, assets, meshes, materials) else { continue };
         let (scale, _, _) = world.to_scale_rotation_translation();
         let bounds = Bounds { center: (model.min + model.max) * 0.5, radius: (model.max - model.min).length() * 0.5 * scale.max_element() };
@@ -227,6 +269,12 @@ pub fn spawn(
             e.insert(Background);
         }
         let e = e.id();
+        // a rigid model's own anim moving its root (the big red arrow bobs: Center z 20..46, anim bigredarrow_0)
+        if model.skeleton.is_none() {
+            if let Some(ra) = RigidAnim::load(&lib_dir, &inst.model) {
+                commands.entity(e).insert(ra);
+            }
+        }
         if !invisible {
             let (d, t, hand) = attach_model(commands, e, model, !background, Some(&mut *skin));
             // weapons: Roman's rifle (the level's loadout: player_add_rifle), grunts' rifle or bow

@@ -17,9 +17,8 @@ colour; the stage maths of the material log leave the flakes nearly black, so th
 white times flake alpha times mask alpha, added in gamma space. The engine's snow is a little denser and streakier
 than the original's sparse round flakes.
 
-## The big red arrow's shape (remaster engine, 2026-10-13)
+## The big red arrow (resolved 2026-10-13)
 
-The arrow over the pub (bigredarrow 258) now draws and is removed by trigger 900, but at 1175 units (synced walk
-frame 520) the original shows the full arrow (shaft and head, facing the camera, bobbing), the engine only a small
-head. Its model is a rigid mesh in the node m_bigarrow (rotation 90 degrees about x in anim bigredarrow_0, which
-also bobs Center with 30 keys): check whether the exported positions need that node transform, and play the bob.
+It bobs: its own anim moves Center z from 20 to 46 above the placement (loop 0.97 s). Without it the arrow sat
+behind the arch's top and only the head showed. RigidAnim (level.rs) plays a rigid model's Center track; it now
+matches the original's synced captures.
