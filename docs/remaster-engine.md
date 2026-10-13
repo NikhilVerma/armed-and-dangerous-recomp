@@ -16,8 +16,7 @@ loop, the commands, and the traps found so far. Keep it current at the end of ev
 6. Later levels' mechanics (jetpacks, capture the flag, escorts ...) the same way, each its own piece.
 
 Known open differences, each a piece: aim blend (the original blends four aim poses tl / tr / bl / br by the aim
-direction, ids 0x21..0x24 in fn_00428980; the engine plays one, so guns point up), dead grunts sometimes floating
-(the ragdoll stand-in), treasure tokens (pickup_treasure1: "You have found a token! ... 1 out of 21"), speech
+direction, ids 0x21..0x24 in fn_00428980; the engine plays one, so guns point up), treasure tokens (pickup_treasure1: "You have found a token! ... 1 out of 21"), speech
 subtitles (the original shows them in the top message feed as "Speaker: line" in the speaker's colour; the engine
 puts them at y 0.15 without the name: wrong, fix), the grunts' shot cadence (fire anim 0.47 s, engine 0.6 s).
 
@@ -179,6 +178,16 @@ health, VERYHIIQ big heads, EATGRENZ big hands, SHOESIZE big boots, NDMRBLTS inf
 PRAYTOME god mode, MISSIONS / AMATINEE unlock levels / movies, WAAAAAAH upside-down screen, DAJIGSUP list), toggled
 as Cheats_Check 0x004107c0 does, messages from the text bank (cheats.rs). The big-part scale (x2) is a guess.
 Trap: systems that change joints must run after skin::AnimateSet (PostUpdate), or the animation overwrites them.
+
+## Ragdolls
+
+`engine/src/ragdoll.rs`: a dying character with a skeleton becomes a Jolt ragdoll (oxijolt `RagdollSettings`), with
+11 capsule parts (center, chest, head, shoulders, arms, thighs, shins) joined by swing-twist joints. Each part is
+built from the bone's world pose at death and launched with the hit's push. The `drive` system (PostUpdate, after
+`skin::AnimateSet`, before transform propagation) writes the bodies back into the bones. Characters without those
+bones keep the single-box fallback in `ai.rs` die(). The original's GoRagdoll parameters (Havok) are not recovered,
+so the sizes and limits are guesses judged by eye. Test: `work/remaster/play/death2.json` (`{"kill":1000}` gives a
+heavy hit); the b1..b4 shots show the grunt down, splayed and settled, with no jitter.
 
 ## Running tests without disturbing the desktop
 

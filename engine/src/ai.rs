@@ -518,10 +518,11 @@ fn fire_cycle(
 fn die(
     mut commands: Commands,
     mut physics: NonSendMut<Physics>,
-    mut grunts: Query<(Entity, &mut Grunt, &Body, &Transform, &Health)>,
+    mut grunts: Query<(Entity, &mut Grunt, &Body, &Transform, &Health, Option<&mut crate::skin::Animator>)>,
+    joints: Query<&GlobalTransform>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
 ) {
-    for (e, mut g, body, tr, h) in &mut grunts {
+    for (e, mut g, body, tr, h, animator) in &mut grunts {
         if g.mind == Mind::Dead || h.0 > 0.0 {
             continue;
         }
@@ -537,6 +538,14 @@ fn die(
         if !g.ragdoll {
             commands.entity(e).remove::<Body>();
             continue;
+        }
+        // an articulated ragdoll from the pose at death (ragdoll.rs); the single box below when that fails
+        if let Some(mut a) = animator {
+            if let Some(rd) = crate::ragdoll::start(&mut physics, &a, &joints, push) {
+                a.layers.clear();
+                commands.entity(e).remove::<Body>().insert(rd);
+                continue;
+            }
         }
         let k = physics.meters_per_unit;
         let half = Vec3::new(2.6, 1.6, 4.8) * tr.scale * k;

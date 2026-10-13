@@ -86,7 +86,8 @@ fn return_name(s: &str) -> &'static str {
     }
 }
 
-fn grunts(mut q: Query<(&Grunt, &mut Animator, &Transform, Option<&crate::topsy::Thrown>)>, targets: Query<&GlobalTransform>) {
+#[allow(clippy::type_complexity)]
+fn grunts(mut q: Query<(&Grunt, &mut Animator, &Transform, Option<&crate::topsy::Thrown>), Without<crate::ragdoll::Ragdoll>>, targets: Query<&GlobalTransform>) {
     for (g, mut a, t, thrown) in &mut q {
         // thrown by the Topsy Turvy bomb: hanging on, or falling into the sky
         if let Some(th) = thrown {

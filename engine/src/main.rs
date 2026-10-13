@@ -29,6 +29,7 @@ mod nav;
 mod physics;
 mod pickup;
 mod pubscreen;
+mod ragdoll;
 mod savegame;
 mod topsy;
 mod player;
@@ -196,6 +197,7 @@ fn main() {
     app.add_plugins(camdump::CamDumpPlugin);
     app.add_plugins(savegame::SaveGamePlugin);
     app.add_plugins(cheats::CheatsPlugin);
+    app.add_plugins(ragdoll::RagdollPlugin);
     if let Some(save) = a.load.as_ref().and_then(|p| savegame::read(p)) {
         app.insert_resource(savegame::PendingLoad(save, 0));
         app.insert_resource(campath::CameraPath::skipping());
