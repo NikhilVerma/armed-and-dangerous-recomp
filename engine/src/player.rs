@@ -29,6 +29,10 @@ pub struct Roman {
     pub pitch: f32,
     pub vel: Vec3,
     pub on_ground: bool,
+    /// zoom (mode +0xacc, held Zoom: Z / E): the blend weight toward the weapon's camera node, 0..1 over
+    /// camera_zoom_secs (0x0040fbb0)
+    pub zoom: f32,
+    pub zoom_secs: f32,
     /// in the jump state (flag 0x80) from the take-off to the landing; a plain fall keeps the ground drive
     pub jumping: bool,
     pub fwd_speed: f32,
@@ -176,6 +180,8 @@ pub fn make_roman(physics: &mut Physics, p: &Props, data: &GameData, feet: Vec3,
         pitch: -0.15,
         vel: Vec3::ZERO,
         on_ground: false,
+        zoom: 0.0,
+        zoom_secs: data.props("p_globalsettings").f("camera_zoom_secs", 0.5),
         jumping: false,
         fwd_speed: p.f("fwd_max_speed", 40.0),
         side_speed: p.f("side_max_speed", 40.0),
@@ -297,9 +303,16 @@ fn control(
         let k = 0.0025 * opts.mouse_factor();
         let inv = if opts.invert_mouse { -1.0 } else { 1.0 };
         // the topsy states (flags 0x7800000) take the turn input away
+        // zoom: held Zoom (Z, E; 0x00478xxx game_06.cpp:2819-2836) enters the weapon camera; turning and pitching
+        // then use the weapon's zoomed speeds (rifle / machine gun 0.05 / 0.25 against 0.3 / 0.95: 0x00475990 /
+        // 0x004759e0)
+        let zoom_held = (keys.pressed(KeyCode::KeyZ) || keys.pressed(KeyCode::KeyE)) && !r.dead;
+        let step = dt / r.zoom_secs.max(1e-3);
+        r.zoom = if zoom_held { (r.zoom + step).min(1.0) } else { (r.zoom - step).max(0.0) };
+        let (kt, kp) = if zoom_held { (0.05 / 0.3, 0.25 / 0.95) } else { (1.0, 1.0) };
         if !topsy.active() {
-            r.yaw -= motion.delta.x * k;
-            r.pitch = (r.pitch - motion.delta.y * k * inv).clamp(-1.1, 0.7);
+            r.yaw -= motion.delta.x * k * kt;
+            r.pitch = (r.pitch - motion.delta.y * k * inv * kp).clamp(-1.1, 0.7);
         }
         let mut wish = Vec3::ZERO;
         // playtest bot: turn toward the goal and walk; when fighting, face the nearest live grunt
@@ -784,6 +797,8 @@ fn follow_camera(
     cheats: Res<crate::cheats::Cheats>,
     placed: Query<(Entity, &crate::level::Placed)>,
     mut fade: ResMut<crate::camfade::CameraFade>,
+    mut proj: Query<&mut Projection, With<FollowCam>>,
+    mut base_fov: Local<Option<f32>>,
 ) {
     if path.active() {
         return;
@@ -831,6 +846,30 @@ fn follow_camera(
         }
     }
     c.translation = target + arm / len * dist;
+    // zoom: the weapon's camera node (player.json: Camera_rifle eye (0, 0.13, 7.918) at the head, looking at the same
+    // target; Camera_machinegun the same eye), its FOV horizontal 0.4363 (rifle) / 0.5236 (machine gun) made vertical
+    // for the 1.702 view; position and FOV blended by the weight (0x0040fbb0: fov = target w + fov (1 - w)); the pitch
+    // turns the look about the eye
+    let mut target = target;
+    if let Ok(mut pj) = proj.single_mut() {
+        if let Projection::Perspective(pp) = &mut *pj {
+            if r.zoom <= 0.0 || base_fov.is_none() {
+                *base_fov = Some(pp.fov);
+            }
+            let zoom_h: f32 = if r.use_mg { 0.5235988 } else { 0.4363323 };
+            let zoom_v = 2.0 * ((zoom_h * 0.5).tan() / 1.702_128).atan();
+            let w = r.zoom;
+            pp.fov = base_fov.unwrap_or(pp.fov) * (1.0 - w) + zoom_v * w;
+            if w > 0.0 {
+                let eye_l = Vec3::new(0.0, 7.918, 0.13);
+                let tgt_l = Vec3::new(0.0, 6.877, -7.194);
+                let eye = rt.translation + yaw * eye_l;
+                let look = eye + yaw * (Quat::from_rotation_x(r.pitch - rest_pitch) * (tgt_l - eye_l));
+                c.translation = c.translation.lerp(eye, w);
+                target = target.lerp(look, w);
+            }
+        }
+    }
     // the Topsy Turvy bomb turns the view over (topsy.rs)
     let look = Transform::from_translation(c.translation).looking_at(target, Vec3::Y).rotation;
     // the Topsy Turvy screen cheat (WAAAAAAH, cheats.rs) turns the view over too
