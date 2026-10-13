@@ -231,7 +231,11 @@ static void TestDumpCamera(unsigned frame)
                 void* obj = reinterpret_cast<void*>(o);
                 float pos[4] = {};
                 reinterpret_cast<GetPos>((*reinterpret_cast<void***>(obj))[0x54 / 4])(obj, pos);
-                fprintf(out, "%s[%.7g, %.7g, %.7g, %u]", first ? "" : ", ", pos[0], pos[1], pos[2], *reinterpret_cast<uint32_t*>(obj));
+                // its world matrix (vt+0x5c: 4x4 row-major, translation in column 3, as 0x00453180 reads it): column 1
+                float m[20] = {};
+                using GetMat = void(__thiscall*)(void*, float*);
+                reinterpret_cast<GetMat>((*reinterpret_cast<void***>(obj))[0x5c / 4])(obj, m);
+                fprintf(out, "%s[%.7g, %.7g, %.7g, %u, %.4g, %.4g, %.4g]", first ? "" : ", ", pos[0], pos[1], pos[2], *reinterpret_cast<uint32_t*>(obj), m[1], m[5], m[9]);
                 first = false;
             }
             fprintf(out, "]");
