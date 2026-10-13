@@ -384,7 +384,9 @@ fn drive(
                 let up = to_game * c.up().as_vec3();
                 let pos = to_game * c.translation();
                 let roman = player.single().map(|r| to_game * r.translation()).ok();
-                let j = serde_json::json!({"time": pt.t, "position": pos.to_array(), "forward": fwd.to_array(), "up": up.to_array(), "roman": roman.map(|r| r.to_array())});
+                // the grunts (game space; the hook's dump lists the original's in "ai"), for movement comparisons
+                let gs: Vec<[f32; 3]> = grunts.iter().filter(|(g, _, _)| g.mind != crate::ai::Mind::Dead).map(|(_, _, t)| (to_game * t.translation()).to_array()).collect();
+                let j = serde_json::json!({"time": pt.t, "position": pos.to_array(), "forward": fwd.to_array(), "up": up.to_array(), "roman": roman.map(|r| r.to_array()), "grunts": gs});
                 let _ = std::fs::write(pt.path.with_extension(format!("{name}.camera.json")), j.to_string());
             }
         }
