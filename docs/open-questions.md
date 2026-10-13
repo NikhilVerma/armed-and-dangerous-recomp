@@ -10,11 +10,14 @@
 ## Parked for the human (2026-10-13)
 
 Things that need you, collected instead of asked mid-work:
-- Audio by ear: the sound log matches the original's on the same inputs; how it sounds is unchecked.
+- Audio by ear: the sound log matches the original's on the same inputs, and the mixes rebuilt from both logs
+  (tools/sound_mix_compare.py: bank volumes, positional loops left out) have the same peaks and balance; the
+  remaining differences are random picks (the opening ambient voice line) and positional sounds whose distance the
+  logs do not carry. Listening is still unchecked.
 - Window grunts: verified (2026-10-13): the hook's camera dump now lists the original's AI positions; all four
   window / roof grunts stand within 0.1 units of where the engine places them.
-- Feel: mouse sensitivity, zoom speed, grunt difficulty and Roman's damage were ported from the data, not tuned
-  by play.
+- Feel: mouse look verified (the original's measured 0.0100 / 0.0057 rad per count, 8be95d6); zoom matches its
+  camera dumps; grunt difficulty and Roman's damage are the data's values, not judged by play.
 
 ## Falling snow in the remaster engine (2026-10-13, partly resolved)
 
