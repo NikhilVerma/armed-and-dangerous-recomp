@@ -299,7 +299,7 @@ fn drive(
         if !pt.step_started {
             pt.step_started = true;
             pt.step_t = 0.0;
-            info!("playtest step {}: {}", pt.step, serde_json::to_string(&StepView(&st)).unwrap_or_default());
+            info!("playtest step {} at {:.3}: {}", pt.step, time.elapsed_secs(), serde_json::to_string(&StepView(&st)).unwrap_or_default());
             pt.step_shot = st.shot_after.is_some().then(|| st.shot.clone()).flatten();
             let mut now = st.clone();
             if pt.step_shot.is_some() {

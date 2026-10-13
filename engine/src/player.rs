@@ -897,6 +897,7 @@ fn projectiles(
     mut stats: ResMut<PlayerStats>,
     mut fx: MessageWriter<crate::fx::StartFx>,
     hulls: Option<Res<crate::hitparts::HitHulls>>,
+    rtime: Res<Time<Real>>,
     binds: Res<Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>,
 ) {
     let dt = time.delta_secs();
@@ -943,7 +944,7 @@ fn projectiles(
                             // as the hook's [test] log_hits: the part and the hit point minus his position (game axes)
                             let at = crate::level::game_to_engine().inverse() * (from + (to - from) * *f - rt.translation);
                             let jp = a.skeleton.index.get(part.as_str()).and_then(|&i| joints.get(a.joints[i]).ok()).map(|j| crate::level::game_to_engine().inverse() * (j.translation() - rt.translation)).unwrap_or(Vec3::ZERO);
-                            info!("AIDBG romanhit {} {:.2} {:.2} {:.2} anim {:.2} bone {:.2} {:.2} {:.2}", part, at.x, at.y, at.z, r.hit_anim, jp.x, jp.y, jp.z);
+                            info!("AIDBG romanhit {} {:.2} {:.2} {:.2} anim {:.2} bone {:.2} {:.2} {:.2} t {:.3}", part, at.x, at.y, at.z, r.hit_anim, jp.x, jp.y, jp.z, rtime.elapsed_secs());
                         }
                         rh.is_some()
                     }

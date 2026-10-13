@@ -76,6 +76,10 @@ pub struct Grunt {
     pub bow: bool,
     pub hit_ragdoll: f32,
     pub last_health: f32,
+    /// a guard's first fire cycle is dry (no shot: the counters are empty), then the reload: measured in the original
+    /// (hook AI dump, second encounter: the guards play fire (anim 0x23) at 740..760, reload (0x2a) by 780..820, and
+    /// their first shots come at 800..837; the sound log has none in between), as fire-timing note #7 predicted
+    pub dry_first: bool,
     pub last_hit: f32,
     /// hit_level_1 / hit_level_2 (+0x9e8 / +0x9ec): the damage limits of the small and medium hit reactions
     pub hit_level_1: f32,
@@ -196,6 +200,7 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         bow,
         hit_ragdoll: p.f("hit_ragdoll", 50.0),
         last_health: max_health,
+        dry_first: guard,
         last_hit: 0.0,
         hit_level_1: p.f("hit_level_1", 10.0),
         hit_level_2: p.f("hit_level_2", 25.0),
@@ -399,6 +404,7 @@ fn think(
     mut grunts: Query<(&mut Grunt, &Body, &mut Transform, &Health, Option<&crate::skin::Animator>)>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     mut fx: MessageWriter<crate::fx::StartFx>,
+    rtime: Res<Time<Real>>,
 ) {
     let t0 = Instant::now();
     let dt = time.delta_secs();
@@ -519,7 +525,11 @@ fn think(
                         .map(|j| j.translation())
                         .unwrap_or(p + Vec3::Y * 7.0);
                     let own_hit = ga.and_then(|a| a.skeleton.index.get("ref_hit_00").and_then(|&i| targets.get(a.joints[i]).ok())).map(|j| j.translation()).unwrap_or(pos + Vec3::Y * 6.0);
+                    let before = stats.shots;
                     fire_cycle(&mut commands, &mut g, &physics, &mut rng, pos, p, hit, own_hit, body.id, dt, &mut stats, &mut sounds, &mut fx);
+                    if stats.shots > before && std::env::var("AIDBG").is_ok() {
+                        info!("AIDBG gruntshot t {:.3}", rtime.elapsed_secs());
+                    }
                 }
             }
             Mind::Reload => g.pause -= dt,
@@ -610,6 +620,14 @@ fn fire_cycle(
     let aim = hit + side * rng.range(-g.inaccuracy_angle, g.inaccuracy_angle) * s + Vec3::Y * rng.range(0.0, g.inaccuracy_height) * s;
     let muzzle = pos + Vec3::Y * 7.0;
     let dir = (aim - muzzle).normalize_or(Vec3::Z);
+    if g.dry_first {
+        // the dry first cycle: the fire anim without a shot, then the reload as after an empty clip
+        g.dry_first = false;
+        g.left_clips = 0;
+        g.mind = Mind::Reload;
+        g.pause = 0.467 + if g.bow { 1.3 } else { 1.133 } + 2.0 / 60.0;
+        return;
+    }
     crate::player::spawn_projectile(commands, fx, &g.bullet, muzzle + dir * 4.0, dir, false, None);
     if let Some(m) = g.weapon.s("muzzle_fx_name") {
         fx.write(crate::fx::StartFx { name: m.to_owned(), at: muzzle + dir * 4.0, rotation: Transform::IDENTITY.looking_to(dir, Vec3::Y).rotation, follow: None, position_only: false });

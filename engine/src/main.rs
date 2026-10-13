@@ -242,6 +242,10 @@ fn main() {
             app.insert_state(AppState::Playing);
         }
         app.insert_resource(pt);
+        // game time advances exactly 1/60 s per frame (real and virtual): a slow frame (a screenshot, loading) no
+        // longer jumps every timer at once, and runs compare frame for frame with the original's captures, which
+        // advance one 60 Hz step per frame (fight2E: grunts fired in lockstep after each screenshot's stall)
+        app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(std::time::Duration::from_secs_f64(1.0 / 60.0)));
     }
     // --snap FILE: a screenshot of whatever shows after 4 s (the title menu without other options), then exit
     if let Some(path) = a.snap {
