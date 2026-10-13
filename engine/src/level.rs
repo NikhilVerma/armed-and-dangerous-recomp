@@ -34,6 +34,7 @@ pub struct LevelInfo {
     pub destructibles: usize,
     /// The level's fog (global_settings): near, far (game units), colour.
     pub fog: Option<(f32, f32, Color)>,
+    pub player: Option<Entity>,
 }
 
 /// `behavior = background` (the sky dome): drawn around the camera, unlit, no fog, no collision.
@@ -129,7 +130,7 @@ pub fn spawn(
     }
 
     for inst in &scene.instances {
-        let p = data.template_props(&inst.template);
+        let p = data.instance_props(&inst.template, &inst.props);
         let tpl = data.templates.get(&inst.template);
         let behavior = p.s("behavior").unwrap_or("");
         // markers, trigger volumes, cameras, sound emitters: logic only, never drawn
@@ -166,6 +167,15 @@ pub fn spawn(
             continue;
         }
 
+        // Roman, the player: the placed trotter
+        if inst.template == "trotter" {
+            let (yaw, _, _) = (rot * game_to_engine().inverse()).to_euler(EulerRot::YXZ);
+            if let Some(r) = crate::player::make_roman(physics, &p, data, pos, yaw - std::f32::consts::PI) {
+                commands.entity(e).insert((Health(r.max_health), r, bounds, crate::ai::Player));
+                info.player = Some(e);
+            }
+            continue;
+        }
         // characters: property sets with an AI mode (grunts). Their AI here is a stand-in driven by the game's
         // own parameters (speeds, ranges); the recovered AI (src/ai) replaces it later.
         if p.has("mode") && inst.model.starts_with("grunt_") {

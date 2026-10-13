@@ -186,3 +186,44 @@ fn sync(mut physics: NonSendMut<Physics>, mut q: Query<(&Body, &mut Transform)>)
     }
     physics.poses = poses;
 }
+
+/// A walking character (Jolt CharacterVirtual): a capsule moved by velocity that climbs steps, sticks to
+/// floors and slides along walls. Feet at the entity origin; positions in game units, engine axes.
+pub struct Walker {
+    pub id: CharacterId,
+    /// capsule centre above the feet (game units)
+    pub lift: f32,
+}
+
+impl Physics {
+    pub fn add_walker(&mut self, feet: Vec3, radius: f32, height: f32) -> Option<Walker> {
+        let k = self.meters_per_unit;
+        let r = radius * k;
+        let half = ((height * k) * 0.5 - r).max(0.05);
+        let shape = Shape::new_capsule(half, r).ok()?;
+        let lift = height * 0.5;
+        let settings = CharacterSettings::new(&shape)
+            .shape_offset(j::Vec3::new(0.0, lift * k, 0.0))
+            .max_slope_angle(50f32.to_radians())
+            .mass(80.0);
+        let id = self.world.create_character(&settings, self.to_m(feet), j::Quat { x: 0.0, y: 0.0, z: 0.0, w: 1.0 }).ok()?;
+        let _ = self.world.refresh_character_contacts(id, &QueryFilter::new());
+        Some(Walker { id, lift })
+    }
+
+    /// Moves a walker with `velocity` (game units/s, engine axes) for `dt`; gravity is the caller's (it is part
+    /// of the velocity). Returns the new feet position and whether it stands on ground.
+    pub fn move_walker(&mut self, w: &Walker, velocity: Vec3, dt: f32) -> Option<(Vec3, bool)> {
+        let k = self.meters_per_unit;
+        self.world.character_mut(w.id).ok()?.set_linear_velocity(jv(velocity * k)).ok()?;
+        let g = j::Vec3::new(0.0, -9.81, 0.0);
+        self.world.update_character(w.id, dt.clamp(1e-4, 0.1), g, &ExtendedUpdateSettings::default(), &QueryFilter::new()).ok()?;
+        let c = self.world.character(w.id).ok()?;
+        let on = matches!(c.ground_state(), oxijolt::GroundState::OnGround);
+        Some((br(c.position()) / k, on))
+    }
+
+    pub fn remove_walker(&mut self, w: &Walker) {
+        let _ = self.world.remove_character(w.id);
+    }
+}

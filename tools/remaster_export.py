@@ -241,7 +241,9 @@ def main():
             skipped[name] = skipped.get(name, 0) + 1
             continue
         placed.append({"id": i + 1, "template": name, "model": model, "transform": it["transform"],
-                       "property": t["property"].decode("latin1")})
+                       "property": t["property"].decode("latin1"),
+                       # this instance's own property values: they override the template's set
+                       "props": {k.lower(): v for k, v in props.items()}})
     # Game data the engine runs as the game does: property sets, templates, fx scripts. Every template's
     # model is exported too (fx objects and debris are spawned by name at run time).
     _, psets = prop.parse(payload(level, "big06_prop"))
@@ -268,7 +270,20 @@ def main():
     scripts = {e["name"].decode("latin-1").lower(): e["script"] for e in fxs if e["script"] is not None}
     (out / "fx.json").write_text(json.dumps(scripts))
     print(f"properties {len(props)}, templates {len(tdefs)}, fx scripts {len(scripts)}, models {len(models)}")
-    scene = {"level": level, "up": "z", "landscape": "landscape", "bounds": [grid["min"], grid["max"]],
+    # logic objects with no model (mission, markers, sound and ui ears, generators, camera paths): kept for the
+    # engine's mission logic with their props and placement
+    logic = []
+    for i, it in enumerate(load_instances(level)):
+        name = it["object"].lower() if isinstance(it["object"], str) else it["object"].decode("latin1").lower()
+        if name in ("light",):
+            continue
+        t = tpl.get(name)
+        if t and t["lods"] and models.get(t["lods"][0].decode("latin1").lower()):
+            continue
+        logic.append({"id": i + 1, "template": name, "transform": it["transform"],
+                      "property": t["property"].decode("latin1").lower() if t else None,
+                      "props": {(k if isinstance(k, str) else k.decode("latin1")).lower(): v for k, v in it["props"]}})
+    scene = {"level": level, "logic": logic, "up": "z", "landscape": "landscape", "bounds": [grid["min"], grid["max"]],
              "instances": placed, "lights": lights, "settings": settings, "textures": texinfo}
     (out / "scene.json").write_text(json.dumps(scene, indent=1))
     print(f"instances: {len(placed)} placed from {len(models)} models; lights {len(lights)}; "

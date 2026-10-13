@@ -3,7 +3,7 @@
 //! `move_speed`, `scan_distance`, `fire_range_min/max`, `sticky_scare_dist`, `collision_radius`, `max_health`.
 //! Bodies are Jolt capsules that only translate; a grunt whose health runs out tumbles as a rigid body.
 
-use crate::fx::{Explode, FxStats, Health, Tracer};
+use crate::fx::{Explode, FxStats, Health};
 use crate::physics::{Body, Physics, bv, jv};
 use bevy::prelude::*;
 use oxijolt::prelude::*;
@@ -136,9 +136,17 @@ fn think(
             Mind::Attack => {
                 if g.fire_timer <= 0.0 {
                     g.fire_timer = rng.range(0.7, 1.6);
-                    let muzzle = pos + Vec3::Y * 6.0;
-                    let spread = Vec3::new(rng.rand() - 0.5, rng.rand() - 0.5, rng.rand() - 0.5) * 6.0;
-                    commands.spawn(Tracer { from: muzzle, to: target + spread, age: 0.0 });
+                    // the grunt rifle's projectile (speed 150, damage 15: proj values, docs/subsystems/player.md);
+                    // aim error grows with distance (stand-in for the fire_accuracy rules)
+                    let muzzle = pos + Vec3::Y * 7.0;
+                    let aim_at = target + Vec3::Y * 6.0;
+                    let err = (dist / 60.0).max(0.5);
+                    let spread = Vec3::new(rng.rand() - 0.5, (rng.rand() - 0.5) * 0.5, rng.rand() - 0.5) * err * 4.0;
+                    let dir = (aim_at + spread - muzzle).normalize_or(Vec3::Z);
+                    commands.spawn((
+                        Transform::from_translation(muzzle + dir * 4.0),
+                        crate::player::Projectile { vel: dir * 150.0, life: 500.0 / 150.0, damage: 15.0, from_player: false, owner: None },
+                    ));
                     stats.shots += 1;
                 }
                 (pos, 0.0)

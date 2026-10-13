@@ -157,6 +157,8 @@ struct Particle {
 
 #[derive(Resource)]
 pub struct FxVm {
+    /// sounds started by scripts this frame (sent by `run`)
+    sounds: Vec<crate::audio::PlaySound>,
     instances: Vec<Instance>,
     objects: std::collections::HashMap<Entity, FxObject>,
     pools: Vec<Vec<Particle>>,
@@ -204,6 +206,7 @@ fn setup(mut commands: Commands, assets: Res<AssetServer>, mut meshes: ResMut<As
         pool_meshes.push(h);
     }
     commands.insert_resource(FxVm {
+        sounds: Vec::new(),
         instances: Vec::new(),
         objects: Default::default(),
         pools: POOLS.iter().map(|(n, _, _)| Vec::with_capacity(n * POOL_SCALE / 4)).collect(),
@@ -459,10 +462,15 @@ fn run_script(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_, '_, '_>, idx: usize, dt: 
                 }
             }
             "0x39" => {
+                // a random name from the inline list (one rand), then the looping word; positional at the object
                 let l = names(&arg(1));
-                let _pick = if l.is_empty() { 0 } else { (vm.rng.rand() as usize * l.len()) >> 15 };
+                let pick = if l.is_empty() { None } else { l.get((vm.rng.rand() as usize * l.len()) >> 15).cloned() };
+                let looping = arg(2).as_i64().unwrap_or(0) != 0;
                 list1 = None;
-                vm.unported.insert("0x39 sound".into());
+                if let (Some(name), Some(t)) = (pick, top.filter(|_| cur.is_some())) {
+                    let at = vm.objects.get(&t).map(|o| game_to_engine() * o.place.w_axis.truncate());
+                    vm.sounds.push(crate::audio::PlaySound { name, at, follow: Some(t), looped: Some(looping), volume: 1.0 });
+                }
             }
             "0x3b" => {
                 if let Some(o) = obj!() {
@@ -578,6 +586,7 @@ fn run(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut physics: NonSendMut<Physics>,
+    mut sounds: MessageWriter<crate::audio::PlaySound>,
 ) {
     let t0 = std::time::Instant::now();
     let dt = time.delta_secs();
@@ -607,6 +616,9 @@ fn run(
         } else {
             i += 1;
         }
+    }
+    for snd in vm.sounds.drain(..) {
+        sounds.write(snd);
     }
     vm.stats.instances = vm.instances.len();
     vm.stats.ms = t0.elapsed().as_secs_f32() * 1000.0;

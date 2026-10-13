@@ -23,18 +23,23 @@ pub struct GameData {
     pub fx: HashMap<String, Vec<Value>>,
 }
 
-/// One property set, with typed getters (missing keys give the default).
-pub struct Props<'a>(pub Option<&'a Map<String, Value>>);
+/// One property set (an instance's own values over its template's set), with typed getters (missing keys give
+/// the default).
+#[derive(Clone, Default)]
+pub struct Props(pub Map<String, Value>);
 
-impl Props<'_> {
+impl Props {
     pub fn f(&self, k: &str, default: f32) -> f32 {
-        self.0.and_then(|m| m.get(k)).and_then(|v| v.as_f64()).map(|v| v as f32).unwrap_or(default)
+        self.0.get(k).and_then(|v| v.as_f64()).map(|v| v as f32).unwrap_or(default)
+    }
+    pub fn i(&self, k: &str, default: i64) -> i64 {
+        self.0.get(k).and_then(|v| v.as_i64().or_else(|| v.as_f64().map(|f| f as i64))).unwrap_or(default)
     }
     pub fn s(&self, k: &str) -> Option<&str> {
-        self.0.and_then(|m| m.get(k)).and_then(|v| v.as_str()).filter(|s| !s.is_empty() && *s != "none")
+        self.0.get(k).and_then(|v| v.as_str()).filter(|s| !s.is_empty() && *s != "none")
     }
     pub fn has(&self, k: &str) -> bool {
-        self.0.is_some_and(|m| m.contains_key(k))
+        self.0.contains_key(k)
     }
 }
 
@@ -47,10 +52,18 @@ impl GameData {
             fx: serde_json::from_str(&read("fx.json")).expect("fx.json"),
         }
     }
-    pub fn props(&self, set: &str) -> Props<'_> {
-        Props(self.props.get(&set.to_lowercase()))
+    pub fn props(&self, set: &str) -> Props {
+        Props(self.props.get(&set.to_lowercase()).cloned().unwrap_or_default())
     }
-    pub fn template_props(&self, template: &str) -> Props<'_> {
-        Props(self.templates.get(template).and_then(|t| self.props.get(&t.property)))
+    pub fn template_props(&self, template: &str) -> Props {
+        Props(self.templates.get(template).and_then(|t| self.props.get(&t.property)).cloned().unwrap_or_default())
+    }
+    /// The template's set with the instance's own values over it.
+    pub fn instance_props(&self, template: &str, own: &Map<String, Value>) -> Props {
+        let mut p = self.template_props(template);
+        for (k, v) in own {
+            p.0.insert(k.clone(), v.clone());
+        }
+        p
     }
 }

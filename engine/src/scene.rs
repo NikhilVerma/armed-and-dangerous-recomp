@@ -15,6 +15,8 @@ pub struct SceneFile {
     pub landscape: String,
     pub bounds: [[f32; 3]; 2],
     pub instances: Vec<InstanceDef>,
+    #[serde(default)]
+    pub logic: Vec<LogicDef>,
     pub lights: Vec<LightDef>,
     /// The level's global_settings object (fog_near, fog_far, fog_red/green/blue, ...).
     #[serde(default)]
@@ -31,6 +33,21 @@ pub struct InstanceDef {
     pub transform: [[f32; 4]; 3],
     #[serde(default)]
     pub property: String,
+    /// The instance's own property values (override the template's set).
+    #[serde(default)]
+    pub props: serde_json::Map<String, serde_json::Value>,
+}
+
+/// A logic object without a model (mission, marker, sound/ui ear, generator, camera path).
+#[derive(Deserialize, Clone)]
+pub struct LogicDef {
+    pub id: u32,
+    pub template: String,
+    pub transform: [[f32; 4]; 3],
+    #[serde(default)]
+    pub property: Option<String>,
+    #[serde(default)]
+    pub props: serde_json::Map<String, serde_json::Value>,
 }
 
 #[derive(Deserialize)]

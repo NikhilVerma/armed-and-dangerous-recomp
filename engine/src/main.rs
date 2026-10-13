@@ -7,6 +7,7 @@
 //! Game-specific: level (A&D templates, axes, units, lights), ai (grunts), player.
 
 mod ai;
+mod audio;
 mod bench;
 mod flycam;
 mod fx;
@@ -16,6 +17,7 @@ mod level;
 mod menu;
 mod physics;
 mod player;
+mod playtest;
 mod scene;
 
 use bevy::diagnostic::FrameTimeDiagnosticsPlugin;
@@ -44,10 +46,11 @@ struct Args {
     no_ai: bool,
     fx_test: Option<PathBuf>,
     snap: Option<PathBuf>,
+    play: Option<PathBuf>,
 }
 
 fn args() -> Args {
-    let mut a = Args { scene: PathBuf::from("../work/remaster/lev_1_m1"), size: (1920, 1080), bench: None, vsync: false, no_ai: false, fx_test: None, snap: None };
+    let mut a = Args { scene: PathBuf::from("../work/remaster/lev_1_m1"), size: (1920, 1080), bench: None, vsync: false, no_ai: false, fx_test: None, snap: None, play: None };
     let v: Vec<String> = std::env::args().collect();
     let mut bench_secs = None;
     let mut out = PathBuf::from("../work/remaster/bench/latest.json");
@@ -67,6 +70,7 @@ fn args() -> Args {
             "--no-ai" => (a.no_ai, used) = (true, 1),
             "--fx-test" => a.fx_test = Some(PathBuf::from(next)),
             "--snap" => a.snap = Some(PathBuf::from(next)),
+            "--play" => a.play = Some(PathBuf::from(next)),
             other => panic!("unknown argument {other}"),
         }
         i += used;
@@ -77,6 +81,7 @@ fn args() -> Args {
 
 #[derive(Resource)]
 struct Launch {
+    fx_test: bool,
     scene: PathBuf,
     bench: Option<(f32, PathBuf)>,
     size: (u32, u32),
@@ -109,17 +114,23 @@ fn main() {
                 }),
                 ..default()
             })
-            .set(AssetPlugin { file_path: scene_dir.to_string_lossy().into_owned(), ..default() }),
+            .set(AssetPlugin { file_path: scene_dir.to_string_lossy().into_owned(), ..default() })
+            // Bevy's spatial audio only pans: game units are scaled down so its own distance fall-off is negligible;
+            // audio.rs attenuates by the game's min/max distances
+            .set(bevy::audio::AudioPlugin { default_spatial_scale: bevy::audio::SpatialScale::new(0.002), ..default() }),
     )
     .add_plugins(EguiPlugin::default())
+    .add_plugins(playtest::PlaytestPlugin)
+    .add_plugins(audio::AudioBankPlugin)
     .add_plugins((FrameTimeDiagnosticsPlugin::default(), flycam::FlyCamPlugin, bench::BenchPlugin))
     .add_plugins((physics::PhysicsPlugin, fx::FxPlugin, ai::AiPlugin, player::PlayerPlugin, menu::MenuPlugin, level::LevelPlugin, fxvm::FxVmPlugin))
     .init_state::<AppState>()
     .insert_non_send(physics::Physics::new(level::METERS_PER_UNIT))
     .insert_resource(ClearColor(Color::srgb(0.62, 0.70, 0.80)))
-    .insert_resource(Launch { scene: scene_dir, bench: a.bench, size: a.size, no_ai: a.no_ai })
+    .insert_resource(Launch { fx_test: a.fx_test.is_some(), scene: scene_dir, bench: a.bench, size: a.size, no_ai: a.no_ai })
     .add_systems(Update, fx_test.run_if(resource_exists::<FxTest>))
     .add_systems(Startup, setup)
+    .add_systems(Update, play_state)
     .add_systems(Update, (bench_scenario, bench_record).run_if(resource_exists::<bench::Bench>))
     .add_systems(Update, bench_ground.after(bench::BenchSet).run_if(resource_exists::<bench::Bench>));
     if let Some(dir) = a.fx_test {
@@ -128,6 +139,11 @@ fn main() {
         app.insert_state(AppState::Playing);
     }
     if bench {
+        app.insert_state(AppState::Playing);
+    }
+    // --play SCRIPT: scripted input from the start of play (the title menu is skipped)
+    if let Some(p) = a.play {
+        app.insert_resource(playtest::Playtest::load(p));
         app.insert_state(AppState::Playing);
     }
     // --snap FILE: a screenshot of whatever shows after 4 s (the title menu without other options), then exit
@@ -205,8 +221,12 @@ fn setup(
             flycam::FlyCam { yaw: (-d.x).atan2(-d.z), pitch: d.y.asin(), speed: 60.0 }
         },
         AmbientLight { color: Color::srgb(0.75, 0.8, 0.9), brightness: 700.0, ..default() },
-        ai::Player,
+        SpatialListener::new(2.0),
     )).id();
+    // playing as Roman: the camera follows him; the free camera stays for the benchmark and fx tests
+    if info.player.is_some() && launch.bench.is_none() && !launch.fx_test {
+        commands.entity(cam).insert(player::FollowCam).remove::<flycam::FlyCam>();
+    }
     // The level's own linear fog; the sky (behaviour background, fog 0) is drawn without it.
     if let Some((near, far, color)) = info.fog {
         commands.insert_resource(ClearColor(color));
@@ -237,6 +257,7 @@ fn setup(
     commands.insert_resource(info);
     commands.insert_resource(lib);
     commands.insert_resource(data);
+    commands.insert_resource(audio::SoundBank::load(&launch.scene));
 }
 
 /// Benchmark scenario: airstrikes on the point the camera looks at, and every powder keg set off.
@@ -288,6 +309,22 @@ fn bench_ground(physics: NonSend<physics::Physics>, mut bench: ResMut<bench::Ben
     let look = Vec3::new(bench.look.x, *g + bench.height * 0.5, bench.look.z);
     *t = t.looking_at(look, Vec3::Y);
     bench.look = look;
+}
+
+/// The playtest log's state line: player, AI, fx.
+fn play_state(mut st: ResMut<playtest::PlayState>, p: Res<player::PlayerStats>, ai: Res<ai::AiStats>, fx: Res<fx::FxStats>) {
+    let m = &mut st.0;
+    let r = |v: f32| (v * 10.0).round() / 10.0;
+    m.insert("pos".into(), serde_json::json!([r(p.position.x), r(p.position.y), r(p.position.z)]));
+    m.insert("health".into(), r(p.health).into());
+    m.insert("clip".into(), p.clip.into());
+    m.insert("ammo".into(), p.ammo.into());
+    m.insert("stickies".into(), p.stickies.into());
+    m.insert("shots".into(), p.shots.into());
+    m.insert("kills".into(), p.kills.into());
+    m.insert("grunts_alive".into(), ai.alive.into());
+    m.insert("grunt_shots".into(), ai.shots.into());
+    m.insert("explosions".into(), fx.explosions.into());
 }
 
 fn bench_record(mut bench: ResMut<bench::Bench>, physics: NonSend<physics::Physics>, ai: Res<ai::AiStats>, fx: Res<fx::FxStats>, vm: Res<fxvm::FxVm>) {
