@@ -7,6 +7,16 @@
 | Is the `.big` format a descendant of Giants `.gzp`? | Magic `DE C0 AD DE`; GiantZiP not checked yet. |
 | What are `.jit` files? | One per level folder, 0.3 to 1.6 MB, header starts with a small integer. |
 
+## Parked for the human (2026-10-13)
+
+Things that need you, collected instead of asked mid-work:
+- Audio by ear: the sound log matches the original's on the same inputs; how it sounds is unchecked.
+- Window grunts: placed at their houses' bones; whether they show in the windows as in the original is unchecked.
+- The bot's route planner can loop near the village wall at (-88, 42) (one run in three); a player is not stuck
+  there (the open side is walkable, and the safety net frees a wedged Roman).
+- Feel: mouse sensitivity, zoom speed, grunt difficulty and Roman's damage were ported from the data, not tuned
+  by play.
+
 ## Falling snow in the remaster engine (2026-10-13, partly resolved)
 
 Snow now shows (synced walk frame 520). Causes found: the fx textures loaded with the default clamp sampler (the
