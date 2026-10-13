@@ -37,4 +37,6 @@ Esc pause, Tab stats.
 ## Not ported yet
 
 Skinned animation (characters stand in their bind pose), the recovered AI and player, sounds, decals (fx 0x6a),
+fx opcodes outside the powder keg's explosion (0x10, 0x19, 0x35, 0x3c, 0x3d, 0x5b, 0x5e seen in pipe and tree deaths; skipped with
+their operands and logged once),
 uv scrolling (fx 0x40), terrain blend layers and lightmaps (uv1), the level's scripted mission logic.
