@@ -28,7 +28,10 @@ th:first-child,td:first-child{text-align:left}th{color:var(--mut);font-weight:60
 svg{width:100%;height:auto;display:block}.lbl{fill:var(--mut);font-size:11px}
 </style></head><body><main>
 <h1>Remaster engine benchmark</h1>
-<p class="sub">Scripted camera flight over the level, frame times after a 3 s warm-up. Target: above 100 fps at 3840x2160.</p>
+<p class="sub">Armed and Dangerous, lev_1_m1, on the remaster engine (Bevy 0.20, Jolt Physics 5.6). A 40 s camera
+flight at gameplay height with the grunts' AI running, four airstrikes and a powder-keg chain reaction run by the game's own fx
+scripts. Frame times after a 3 s warm-up; frames slowed by the benchmark's own screenshots are left out. RTX 4090, driver cap
+119 fps. Target: 1% low above 100 fps at 3840x2160.</p>
 __BODY__
 </main></body></html>"""
 
@@ -62,10 +65,15 @@ def main():
             f"<td>{html.escape(str(r.get('resolution', '')))}</td><td>{r.get('instances', '')}</td>"
             f"<td>{r.get('triangles', 0):,}</td><td>{r.get('fps_avg', 0):.0f}</td>"
             f"<td class=\"{'ok' if ok else 'bad'}\">{r.get('fps_1pct_low', 0):.0f}</td>"
-            f"<td>{r.get('ms_median', 0):.2f}</td><td>{r.get('ms_p99', 0):.2f}</td></tr>")
+            f"<td>{r.get('ms_median', 0):.2f}</td><td>{r.get('ms_p99', 0):.2f}</td>"
+            f"<td>{r.get('explosions_max', 0):.0f}</td><td>{r.get('particles_max', 0):.0f}</td>"
+            f"<td>{r.get('dynamic_bodies_max', 0):.0f}</td><td>{r.get('physics_ms_avg', 0):.2f} / {r.get('physics_ms_max', 0):.2f}</td>"
+            f"<td>{r.get('ai_ms_max', 0):.2f}</td><td>{r.get('fx_vm_ms_max', 0):.2f}</td></tr>")
         charts.append(f'<div class="card"><b>{html.escape(name)}</b>{chart(r.get("frame_ms") or [0])}</div>')
     table = ("<div class=\"card\"><table><tr><th>run</th><th>level</th><th>resolution</th><th>objects</th>"
-             "<th>triangles</th><th>fps avg</th><th>1% low</th><th>median ms</th><th>p99 ms</th></tr>"
+             "<th>triangles</th><th>fps avg</th><th>1% low</th><th>median ms</th><th>p99 ms</th>"
+             "<th>explosions</th><th>particles (peak)</th><th>Jolt bodies (peak)</th><th>Jolt ms avg / max</th>"
+             "<th>AI ms max</th><th>fx VM ms max</th></tr>"
              + "".join(rows) + "</table></div>")
     out = BENCH / "index.html"
     out.write_text(PAGE.replace("__BODY__", table + "".join(charts)), encoding="utf-8")

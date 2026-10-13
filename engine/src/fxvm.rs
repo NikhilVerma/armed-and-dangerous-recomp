@@ -32,6 +32,24 @@ impl CrtRand {
     }
 }
 
+/// The particle material: bank texture x vertex colour, additive or alpha-blended (particle.wgsl).
+#[derive(bevy::render::render_resource::AsBindGroup, Debug, Clone, Asset, bevy::reflect::TypePath)]
+pub struct ParticleMaterial {
+    #[texture(0)]
+    #[sampler(1)]
+    pub bank: Handle<Image>,
+    pub additive: bool,
+}
+
+impl Material for ParticleMaterial {
+    fn fragment_shader() -> bevy::shader::ShaderRef {
+        bevy::shader::ShaderRef::Path(bevy::asset::AssetPath::from_path_buf(bevy::asset::embedded_path!("particle.wesl")).with_source("embedded"))
+    }
+    fn alpha_mode(&self) -> AlphaMode {
+        if self.additive { AlphaMode::Add } else { AlphaMode::Blend }
+    }
+}
+
 /// Particle pools (Fx_LoadChunk 0x0041c7e0): capacity and bank texture. The remaster multiplies the
 /// capacities (the original refuses particles when a pool is full; docs/engine-limits.md R5).
 const POOLS: [(usize, &str, bool); 3] = [(2000, "n_fx_bank_1", true), (4000, "n_fx_bank_2", false), (2000, "n_fx_bank_2", false)];
@@ -163,13 +181,15 @@ pub struct FxVmPlugin;
 
 impl Plugin for FxVmPlugin {
     fn build(&self, app: &mut App) {
+        bevy::asset::embedded_asset!(app, "particle.wesl");
+        app.add_plugins(MaterialPlugin::<ParticleMaterial>::default());
         app.add_systems(Startup, setup)
             .add_systems(Update, (start, run, objects, particles).chain().after(crate::fx::FxSet))
             .add_systems(PostUpdate, (follow, draw_particles, camera_shake).before(TransformSystems::Propagate));
     }
 }
 
-fn setup(mut commands: Commands, assets: Res<AssetServer>, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<StandardMaterial>>) {
+fn setup(mut commands: Commands, assets: Res<AssetServer>, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<ParticleMaterial>>) {
     let mut pool_meshes = Vec::new();
     for (_, tex, additive) in POOLS {
         let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
@@ -179,14 +199,7 @@ fn setup(mut commands: Commands, assets: Res<AssetServer>, mut meshes: ResMut<As
         mesh.insert_indices(Indices::U32(Vec::new()));
         let h = meshes.add(mesh);
         // Pool 0 draws additive (state 0x100), pools 1 and 2 alpha-blended (0x310): docs/subsystems/fx-vm.md 4
-        let mat = materials.add(StandardMaterial {
-            base_color_texture: Some(assets.load(format!("textures/{tex}.dds"))),
-            unlit: true,
-            alpha_mode: if additive { AlphaMode::Add } else { AlphaMode::Blend },
-            cull_mode: None,
-            double_sided: true,
-            ..default()
-        });
+        let mat = materials.add(ParticleMaterial { bank: assets.load(format!("textures/{tex}.dds")), additive });
         commands.spawn((Mesh3d(h.clone()), MeshMaterial3d(mat), Transform::IDENTITY, bevy::camera::visibility::NoFrustumCulling, bevy::light::NotShadowCaster));
         pool_meshes.push(h);
     }
@@ -852,7 +865,8 @@ fn draw_particles(vm: Res<FxVm>, mut meshes: ResMut<Assets<Mesh>>, cam: Query<&G
                 uv.push([u, v]);
                 col.push([1.0, 1.0, 1.0, alpha]);
             }
-            idx.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+            // counter-clockwise as seen from the camera (the material culls back faces)
+            idx.extend_from_slice(&[base, base + 2, base + 1, base, base + 3, base + 2]);
         }
         if pos.is_empty() {
             // an empty mesh is refused by the renderer: one zero-area triangle

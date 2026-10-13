@@ -43,10 +43,11 @@ struct Args {
     vsync: bool,
     no_ai: bool,
     fx_test: Option<PathBuf>,
+    snap: Option<PathBuf>,
 }
 
 fn args() -> Args {
-    let mut a = Args { scene: PathBuf::from("../work/remaster/lev_1_m1"), size: (1920, 1080), bench: None, vsync: false, no_ai: false, fx_test: None };
+    let mut a = Args { scene: PathBuf::from("../work/remaster/lev_1_m1"), size: (1920, 1080), bench: None, vsync: false, no_ai: false, fx_test: None, snap: None };
     let v: Vec<String> = std::env::args().collect();
     let mut bench_secs = None;
     let mut out = PathBuf::from("../work/remaster/bench/latest.json");
@@ -65,6 +66,7 @@ fn args() -> Args {
             "--vsync" => (a.vsync, used) = (true, 1),
             "--no-ai" => (a.no_ai, used) = (true, 1),
             "--fx-test" => a.fx_test = Some(PathBuf::from(next)),
+            "--snap" => a.snap = Some(PathBuf::from(next)),
             other => panic!("unknown argument {other}"),
         }
         i += used;
@@ -128,6 +130,18 @@ fn main() {
     if bench {
         app.insert_state(AppState::Playing);
     }
+    // --snap FILE: a screenshot of whatever shows after 4 s (the title menu without other options), then exit
+    if let Some(path) = a.snap {
+        app.add_systems(Update, move |mut commands: Commands, time: Res<Time<Real>>, mut done: Local<u8>, mut exit: MessageWriter<AppExit>| {
+            let t = time.elapsed_secs();
+            if t > 4.0 && *done == 0 {
+                commands.spawn(bevy::render::view::screenshot::Screenshot::primary_window()).observe(bevy::render::view::screenshot::save_to_disk(path.clone()));
+                *done = 1;
+            } else if t > 5.5 {
+                exit.write(AppExit::Success);
+            }
+        });
+    }
     app.run();
 }
 
@@ -147,6 +161,23 @@ fn setup(
     let mut lib = scene::Library { dir: launch.scene.clone(), ..default() };
     let data = gamedata::GameData::load(&launch.scene);
     let info = level::spawn(&mut commands, &scene, &data, &mut lib, &mut physics, &assets, &mut meshes, &mut materials);
+    // every model an fx script can create (0x05 / 0x13 by template name), loaded now rather than on first use
+    let mut fx_models = 0;
+    for script in data.fx.values() {
+        for ins in script {
+            let a = ins.as_array();
+            let op = a.and_then(|a| a.first()).and_then(|v| v.as_str());
+            if matches!(op, Some("0x05") | Some("0x13")) {
+                let model = a.and_then(|a| a.get(1)).and_then(|v| v.as_str()).and_then(|t| data.templates.get(&t.to_lowercase())).and_then(|t| t.model.clone());
+                if let Some(m) = model {
+                    if !lib.models.contains_key(&m) && lib.load_model(&m, false, &assets, &mut meshes, &mut materials).is_some() {
+                        fx_models += 1;
+                    }
+                }
+            }
+        }
+    }
+    info!("fx: {fx_models} effect models preloaded");
     info!(
         "{}: {} objects of {} models, {} draws before batching, {} triangles; Jolt: {} static bodies ({} triangles), {} dynamic; {} grunts, {} destructibles; {:.0} ms",
         info.name,
@@ -163,11 +194,16 @@ fn setup(
     );
     ai_stats.enabled = !launch.no_ai;
 
-    let start = info.center + Vec3::new(0.0, 120.0, info.size.y * 0.35);
+    // start at gameplay height: 45 units above the ground, looking across the level
+    let mut start = info.center + Vec3::new(0.0, 0.0, info.size.y * 0.25);
+    start.y = physics.raycast(start.with_y(3000.0), -Vec3::Y, 6000.0).map(|h| h.1.y).unwrap_or(info.center.y) + 45.0;
     let cam = commands.spawn((
         Camera3d::default(),
-        Transform::from_translation(start).looking_at(info.center, Vec3::Y),
-        flycam::FlyCam { yaw: 0.0, pitch: -0.35, speed: 60.0 },
+        Transform::from_translation(start).looking_at(info.center.with_y(start.y - 20.0), Vec3::Y),
+        {
+            let d = (info.center.with_y(start.y - 20.0) - start).normalize();
+            flycam::FlyCam { yaw: (-d.x).atan2(-d.z), pitch: d.y.asin(), speed: 60.0 }
+        },
         AmbientLight { color: Color::srgb(0.75, 0.8, 0.9), brightness: 700.0, ..default() },
         ai::Player,
     )).id();

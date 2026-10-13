@@ -176,3 +176,19 @@ How this coexists with faithful recovery:
   when the human asks (and before any merge to main).
 - Human: "we will run tests after human validation". Order: change, build, the human plays and validates it, then
   the tests run.
+
+## 2026-10-13: a new engine, reusable across games
+
+- Human: "my big goal is to remaster many of my fav old games so its something that needs to scale and ideally
+  reusable engine with reusable functions and approaches", "keep the recovered C++ and link it in ... to get the
+  initial MVP built", "get an MVP level working of the game in the new engine", with "modern toolchains, Jolt physics
+  and more, feel free to reuse existing community plugins for menus and such".
+- Human: "don't add fake or your own explosions pls, we need to use what the game does", "it should play as the game
+  and enhance it rather than make it worse".
+- Chosen: **Bevy 0.20** (Rust) as the shared engine in `engine/`, **Jolt Physics 5.6** through `oxijolt` (built from
+  its vendored source), **bevy_egui** for menus. Game data is exported from the retail `.big` files by
+  `tools/remaster_export.py` into a game-neutral scene format; behaviour comes from the game's own property sets,
+  templates and fx scripts. Game logic not yet ported runs as labelled stand-ins until the recovered code replaces
+  it (grunt AI, the player).
+- The D3D9 hook path stays: it is the oracle for the recovered code and the shipping remaster until the new engine
+  plays the whole game.
