@@ -157,6 +157,32 @@ static void LogMaterial(const uint8_t* m, const char* const names[4])
 }
 
 extern void (*g_testSoundStarted)(const char* name, float volume);
+extern void (*g_testHit)(uint32_t victim, uint32_t projectile, uint32_t record);
+int TestFramesSinceLoad();  // testscenario.cpp
+
+// [test] log_hits=1: every projectile hit (and-hits.txt): frame since load, 1 when the victim is the player, the
+// part's bone (record +0x10 through 0x00458660 / 0x004eb670, "-" for none), the hit point (record +4) minus the
+// victim's position (vt+0x54), the damage (projectile +0x46c)
+static void LogHit(uint32_t victim, uint32_t projectile, uint32_t rec)
+{
+    FILE* out = fopen("and-hits.txt", "a");
+    if (!out)
+        return;
+    const uint32_t player = *reinterpret_cast<const uint32_t*>(reinterpret_cast<const uint8_t*>(g_game) + 0x748);
+    float pos[4] = {};
+    using GetPos = void(__thiscall*)(void*, float*);
+    reinterpret_cast<GetPos>((*reinterpret_cast<void***>(victim))[0x54 / 4])(reinterpret_cast<void*>(victim), pos);
+    const float* at = reinterpret_cast<const float*>(rec + 4);
+    const uint32_t part = *reinterpret_cast<const uint32_t*>(rec + 0x10);
+    const char* bone = "-";
+    if (part != 0xffffffffu)
+        if (uint32_t node = orig::fn_00458660(part, victim))
+            if (uint32_t name = orig::fn_004eb670(0, node))
+                bone = reinterpret_cast<const char*>(name);
+    fprintf(out, "%d %d %s %.2f %.2f %.2f %.4g\n", TestFramesSinceLoad(), victim == player ? 1 : 0, bone, at[0] - pos[0], at[1] - pos[1],
+            at[2] - pos[2], *reinterpret_cast<const float*>(projectile + 0x46c));
+    fclose(out);
+}
 
 // [test] log_sounds=1: every sound started (and-sounds.txt): the frame since the level load, the definition name and
 // the volume passed to the driver, to compare the remaster engine's sounds with the original's on the same inputs.
@@ -175,6 +201,8 @@ void TestMaterialLogInit()
         g_testMaterialApplied = LogMaterial;
     if (ConfigInt("test", "log_sounds", 0))
         g_testSoundStarted = LogSound;
+    if (ConfigInt("test", "log_hits", 0))
+        g_testHit = LogHit;
 }
 
 extern void* g_testCamera;
@@ -213,6 +241,10 @@ static void TestDumpCamera(unsigned frame)
         // its health (+0x454, as every damageable object's: Object_TakeDamage 0x004555e0)
         fprintf(out, ", \"player_health\": %.7g", *reinterpret_cast<const float*>(reinterpret_cast<const uint8_t*>(player) + 0x454));
         // the mission's shooter limit (Game+0xc50, ai_max_fire: grunts beyond it fire fake bullets, ai_02.cpp:1217)
+        // its "ref_hit_00" point (0x00428280: where the AI aim and look), for aim comparisons
+        float hp[4] = {};
+        orig::fn_00428280(reinterpret_cast<uint32_t>(hp), reinterpret_cast<uint32_t>(player), reinterpret_cast<uint32_t>(player), 0x005b68fcu);
+        fprintf(out, ", \"player_hit\": [%.7g, %.7g, %.7g]", hp[0], hp[1], hp[2]);
         fprintf(out, ", \"ai_max_fire\": %u", *reinterpret_cast<const uint32_t*>(reinterpret_cast<const uint8_t*>(g_game) + 0xc50));
     }
     // every AI object's position (World Game+0xa84 list +0xe7c, walked with 0x004e7340 / 0x004e73c0 to the end),

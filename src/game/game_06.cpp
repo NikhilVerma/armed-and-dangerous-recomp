@@ -1542,8 +1542,12 @@ HOOK(0x0047ee30, "fn_0047ee30", fn_0047ee30_Entry, nullptr);
 // multipliers are exactly 1, the part's bone name (0x00458660, 0x004eb670) selects "head"/"neck" (game+0x2714++,
 // head_shot_multiplier * damage, flag 4) or "chest"/"belly" (torso_shot_multiplier * damage, flag 8). Then flags |=
 // vt+0x13c(), +0x28 = projectile, +0x2c = owner and victim vt+0xd0(record).
+// Test hook ([test] log_hits, hook/src/testshot.cpp): every direct hit, before the damage. Null: nothing.
+void (*g_testHit)(uint32_t victim, uint32_t projectile, uint32_t record) = nullptr;
 uint32_t Projectile_ApplyHitDamage(uint32_t victim, uint32_t o, uint32_t h)
 {
+    if (g_testHit)
+        g_testHit(victim, o, h);
     if (Projectile_GetOwner(o) == D(GameP() + 0x748) && VB(victim, 0x10c))
     {
         const uint32_t type = D(victim + 0x418);
