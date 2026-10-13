@@ -67,6 +67,15 @@ pub struct Roman {
     pub base: Quat,
     /// seconds since the last shot, and of reload left (for the anims)
     pub since_fire: f32,
+    /// the hit reaction (PlayerObject_OnHit 0x0047afa0, anim update 0x00476a10): trotter_hit_small (< 65 damage) or
+    /// trotter_hit_med, full body, seconds left (0: none); it plays only standing still and the latch (+0xa34 0x4000)
+    /// holds further knockback while it plays
+    pub hit_anim: f32,
+    pub hit_med: bool,
+    /// the drive slow-down after a knockback (+0x9b4 from +0x9b8 = 1 s)
+    pub slow: f32,
+    /// movement_power_min (the drive's power at no stick)
+    pub power_min: f32,
     /// seconds since Fire Special threw a sticky bomb (the throw anim)
     pub since_throw: f32,
     pub reloading: f32,
@@ -99,6 +108,8 @@ pub struct Weapon {
 #[derive(Component)]
 pub struct Projectile {
     pub vel: Vec3,
+    /// impact_force (Projectile_Load default 2010)
+    pub impact: f32,
     pub life: f32,
     pub damage: f32,
     pub from_player: bool,
@@ -162,6 +173,10 @@ fn segment_distance(p0: Vec3, p1: Vec3, q0: Vec3, q1: Vec3) -> f32 {
     (p0 + d1 * s).distance(q0 + d2 * t)
 }
 
+/// Roman's mass for the knockback (his Havok body's: density x collision volume, not in the data; fitted to the
+/// original's push in the second encounter, fight2O: ~13 units back over the fight)
+const ROMAN_MASS: f32 = 80.0;
+
 const BODY_PARTS: [&str; 16] = ["head", "neck", "chest", "belly", "center", "l_shoulder", "r_shoulder", "l_arm", "r_arm", "l_wrist", "r_wrist", "l_leg", "r_leg", "l_shin", "r_shin", "l_ankle"];
 
 pub fn spawn_projectile(commands: &mut Commands, fx: &mut MessageWriter<crate::fx::StartFx>, p: &Props, from: Vec3, dir: Vec3, from_player: bool, owner: Option<Entity>) {
@@ -180,6 +195,7 @@ pub fn spawn_projectile(commands: &mut Commands, fx: &mut MessageWriter<crate::f
                 fx_end: p.s("fx_end_material").map(str::to_owned),
                 head_mult: p.f("head_shot_multiplier", 1.0),
                 torso_mult: p.f("torso_shot_multiplier", 1.0),
+                impact: p.f("impact_force", 2010.0),
             },
         ))
         .id();
@@ -280,6 +296,10 @@ pub fn make_roman(physics: &mut Physics, p: &Props, data: &GameData, feet: Vec3,
         dead: false,
         base: game_to_engine(),
         since_fire: 10.0,
+        hit_anim: 0.0,
+        hit_med: false,
+        slow: 0.0,
+        power_min: p.f("movement_power_min", 7.0),
         since_throw: 10.0,
         reloading: 0.0,
         move_local: Vec2::ZERO,
@@ -635,7 +655,17 @@ fn control(
         // max_speed / |d| when |d| exceeds the max speed. On the ground the max speeds are fwd / side_max_speed (40)
         // with movement_power (lerp min..max by the stick: keys are full stick, max 10); jumping (state flag 0x80)
         // jump_fwd / side_max_speed (6.5) with jump_movement_power (4). Integrated exactly per frame.
-        let (max_speed, power) = (r.fwd_speed.max(r.side_speed), r.power);
+        // the power: movement_power_min..max by the stick (keys: full stick); for 1 s after a knockback (w = 1 -
+        // slow) min becomes w x 7 + (1 - w) and max x (0.5 (1 - w) + w) (game_06.cpp:2572)
+        let stick = (Vec2::new(wish.x, wish.z).length() / r.fwd_speed.max(1e-3)).min(1.0);
+        let w = 1.0 - r.slow;
+        let (pmin, pmax) = if r.slow > 0.0 { (w * r.power_min + (1.0 - w), r.power * (0.5 * (1.0 - w) + w)) } else { (r.power_min, r.power) };
+        r.slow = (r.slow - dt).max(0.0);
+        // the hit anim plays only standing still: movement, firing or the air end it, and the latch with it
+        if r.hit_anim > 0.0 {
+            r.hit_anim = if stick > 0.0 || !r.on_ground || r.since_fire < 0.1 { 0.0 } else { (r.hit_anim - dt).max(0.0) };
+        }
+        let (max_speed, power) = (r.fwd_speed.max(r.side_speed), pmin + (pmax - pmin) * stick);
         if r.jumping {
             // air control: the stick adds jump_fwd / side_max_speed x jump_movement_power (6.5 x 4 = 26 units/s^2) to
             // the take-off velocity. Fitted to the original's measured jump (hook camera dump "player", jumpA: +2.17
@@ -859,7 +889,7 @@ fn projectiles(
     mut chars: Query<(Entity, &crate::physics::Body, &mut Health, Option<&crate::skin::Animator>, Has<crate::ai::Grunt>), Without<Projectile>>,
     joints: Query<&GlobalTransform>,
     mut objects: Query<(&crate::level::Placed, &mut Destructible)>,
-    roman: Query<(Entity, &Roman, &Transform, Option<&crate::skin::Animator>), Without<Projectile>>,
+    mut roman: Query<(Entity, &mut Roman, &Transform, Option<&crate::skin::Animator>), Without<Projectile>>,
     mut roman_health: Query<&mut Health, (With<Roman>, Without<crate::physics::Body>, Without<Projectile>)>,
     mut companions: Query<(&crate::ai::Companion, &Transform, Option<&crate::skin::Animator>, &mut Health), (Without<Roman>, Without<crate::physics::Body>, Without<Projectile>)>,
     mut stats: ResMut<PlayerStats>,
@@ -962,6 +992,20 @@ fn projectiles(
             }
             if let Ok(mut h) = roman_health.single_mut() {
                 h.0 -= p.damage;
+                // PlayerObject_OnHit 0x0047afa0: alive, with an impact force and the latch clear: the hit anim (by the
+                // damage: < 65 small) and a knockback, one impulse 0.1 x min(10 x impact_force, 4000) x (d.x, d.y, 0.4)
+                // with d = (forward.xy, 0.7) normalised (0x0047e580), not scaled by mass; then 1 s of a weakened drive
+                if let (true, Ok((_, mut r, _, _))) = (h.0 > 0.0 && p.impact != 0.0, roman.single_mut()) {
+                    if r.hit_anim <= 0.0 {
+                        r.hit_med = p.damage >= 65.0;
+                        r.hit_anim = if r.hit_med { 1.967 } else { 0.633 };
+                        let f = p.vel.normalize_or(Vec3::Z);
+                        let n = (f.x * f.x + f.z * f.z + 0.49).sqrt();
+                        let j = 0.1 * (10.0 * p.impact).min(4000.0) * Vec3::new(f.x / n, 0.4, f.z / n);
+                        r.vel += j / ROMAN_MASS;
+                        r.slow = 1.0;
+                    }
+                }
             }
             commands.entity(e).despawn();
             continue;

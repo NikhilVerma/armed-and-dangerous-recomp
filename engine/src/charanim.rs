@@ -66,6 +66,12 @@ fn roman(mut q: Query<(&Roman, &mut Animator)>, topsy: Res<crate::topsy::Topsy>)
         // The exact mapping in the player's anim code (0x00475ff0 / the blend +0x580) is not traced: derived.
         // the sticky bomb throw: a whole-body anim, no aim-pitch pair (trotter_throw 0.633 s; running
         // trotter_run_throw 0.767 s)
+        // the hit reaction (modes 0x1e / 0x1f: Trotter_hit_small / _med, full body, once)
+        if r.hit_anim > 0.0 {
+            a.play(0, if r.hit_med { "trotter_hit_med" } else { "trotter_hit_small" }, false, Mask::All);
+            a.stop(1);
+            continue;
+        }
         let (throw, dur) = if speed < 3.0 { ("trotter_throw", 0.633) } else { ("trotter_run_throw", 0.767) };
         if r.since_throw < dur {
             a.play(0, throw, false, Mask::All);
