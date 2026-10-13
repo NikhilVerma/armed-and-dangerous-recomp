@@ -859,7 +859,7 @@ fn projectiles(
     mut chars: Query<(Entity, &crate::physics::Body, &mut Health, Option<&crate::skin::Animator>, Has<crate::ai::Grunt>), Without<Projectile>>,
     joints: Query<&GlobalTransform>,
     mut objects: Query<(&crate::level::Placed, &mut Destructible)>,
-    roman: Query<(Entity, &Roman, &Transform), Without<Projectile>>,
+    roman: Query<(Entity, &Roman, &Transform, Option<&crate::skin::Animator>), Without<Projectile>>,
     mut roman_health: Query<&mut Health, (With<Roman>, Without<crate::physics::Body>, Without<Projectile>)>,
     mut stats: ResMut<PlayerStats>,
     mut fx: MessageWriter<crate::fx::StartFx>,
@@ -893,17 +893,21 @@ fn projectiles(
                 }
             }
         }
-        // enemy bullets hit Roman by distance to his capsule (the walker is not a body)
+        // enemy bullets hit Roman on his collision model's parts (trotter_coll_0 posed by his skeleton, hitparts.rs;
+        // the walker is not a body); without it, by distance to his capsule
         let mut hit_roman = false;
         if !p.from_player {
-            if let Ok((_, r, rt)) = roman.single() {
+            if let Ok((_, r, rt, ra)) = roman.single() {
                 let c = rt.translation + Vec3::Y * r.walker.lift;
                 let to = from + step;
                 let seg = to - from;
                 let u = ((c - from).dot(seg) / seg.length_squared().max(1e-6)).clamp(0.0, 1.0);
-                if (from + seg * u).distance(c) < 4.5 {
-                    hit_roman = true;
-                }
+                let near = (from + seg * u).distance(c);
+                hit_roman = match (ra, hulls.as_ref().filter(|h| !h.roman.is_empty())) {
+                    (Some(a), Some(h)) if near < 12.0 => crate::hitparts::hit(&h.roman, a, &joints, &binds, from, to).is_some(),
+                    (Some(_), Some(_)) => false,
+                    _ => near < 4.5,
+                };
             }
         }
         // impact fx: fx_end_material + the surface's material (landscape: snow, guess)

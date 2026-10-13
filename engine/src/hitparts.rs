@@ -16,6 +16,8 @@ pub type Hull = Vec<[Vec3; 3]>;
 #[derive(Resource, Default)]
 pub struct HitHulls {
     pub grunt: Vec<Hull>,
+    /// Roman (template trotter: collision_lod_index 2 = trotter_coll_0)
+    pub roman: Vec<Hull>,
 }
 
 /// Reads a collision model's parts (models/<name>.json / .bin: float3 positions, u32 indices).

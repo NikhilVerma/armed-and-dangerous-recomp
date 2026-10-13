@@ -210,6 +210,8 @@ static void TestDumpCamera(unsigned frame)
         using GetPos = void(__thiscall*)(void*, float*);
         reinterpret_cast<GetPos>((*reinterpret_cast<void***>(player))[0x54 / 4])(player, pos);
         fprintf(out, ", \"player\": [%.7g, %.7g, %.7g]", pos[0], pos[1], pos[2]);
+        // its health (+0x454, as every damageable object's: Object_TakeDamage 0x004555e0)
+        fprintf(out, ", \"player_health\": %.7g", *reinterpret_cast<const float*>(reinterpret_cast<const uint8_t*>(player) + 0x454));
     }
     // every AI object's position (World Game+0xa84 list +0xe7c, walked with 0x004e7340 / 0x004e73c0 to the end),
     // to compare placements with the remaster engine
