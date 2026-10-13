@@ -144,10 +144,21 @@ fn fragment(in: GameOut) -> @location(0) vec4<f32> {
     var col = albedo * light;
     if (env) {
         col = p.env.rgb * p.env.w + albedo * light;
-    } else if ((p.kind & 16u) != 0u && p.specular.w > 0.0) {
-        let to_eye = normalize(view.world_position.xyz - in.world_position.xyz);
+    }
+    let to_eye = normalize(view.world_position.xyz - in.world_position.xyz);
+    if ((p.kind & 16u) != 0u && p.specular.w > 0.0) {
+        // the bump + specular pixel shader (characters): the sun's highlight through the normal map
         let h = normalize(to_sun + to_eye);
         col = col + p.specular.rgb * p.sun_col.rgb * pow(clamp(dot(n, h), 0.0, 1.0), p.specular.w);
+    } else if (p.has_normal == 0u && p.specular.w > 0.0 && dot(p.specular.rgb, vec3(1.0)) > 0.0) {
+        // fixed function with D3DRS_SPECULARENABLE (0x00505320: renderer flags +0x48 bit 1, set exactly for the
+        // materials with a specular colour, material log): each light's specular (both lights affect specular),
+        // added after the texture stages, before fog (Blinn half vector, local viewer)
+        let hs = normalize(to_sun + to_eye);
+        let hf = normalize(normalize(p.fill_dir.xyz) + to_eye);
+        let s_sun = select(0.0, pow(clamp(dot(n_geo, hs), 0.0, 1.0), p.specular.w), dot(n_geo, to_sun) > 0.0);
+        let s_fill = select(0.0, pow(clamp(dot(n_geo, hf), 0.0, 1.0), p.specular.w), dot(n_geo, p.fill_dir.xyz) > 0.0);
+        col = col + p.specular.rgb * (p.sun_col.rgb * s_sun + p.fill_col.rgb * s_fill);
     }
     if (p.fog_range.y > p.fog_range.x) {
         col = mix(p.fog_col.rgb, col, in.fog);
