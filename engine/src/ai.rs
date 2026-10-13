@@ -224,15 +224,18 @@ fn search(
     time: Res<Time>,
     mut rng: ResMut<FxStats>,
     physics: NonSend<Physics>,
-    player: Query<(Entity, &GlobalTransform), With<Player>>,
-    mut grunts: Query<(Entity, &mut Grunt, &GlobalTransform)>,
+    player: Query<(Entity, &GlobalTransform, Option<&crate::skin::Animator>), With<Player>>,
+    mut grunts: Query<(Entity, &mut Grunt, &GlobalTransform, &Body)>,
+    joints: Query<&GlobalTransform, Without<Grunt>>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
 ) {
     let dt = time.delta_secs();
-    let Ok((pe, pt)) = player.single() else { return };
+    let Ok((pe, pt, pa)) = player.single() else { return };
     let ppos = pt.translation();
+    // the player's ref_hit_00 (the point AI_FindTarget's sight ray aims at)
+    let phit = pa.and_then(|a| a.skeleton.index.get("ref_hit_00").and_then(|&i| joints.get(a.joints[i]).ok())).map(|j| j.translation()).unwrap_or(ppos + Vec3::Y * 7.0);
     let mut spotted: Vec<(i64, Entity, Entity)> = Vec::new();
-    for (ge, mut g, t) in &mut grunts {
+    for (ge, mut g, t, gbody) in &mut grunts {
         if g.mind == Mind::Dead {
             continue;
         }
@@ -268,21 +271,23 @@ fn search(
         let seen = d2 < g.scan_distance && {
             let fwd = Vec3::new(g.yaw.sin(), 0.0, g.yaw.cos());
             let cone = to.with_y(0.0).normalize_or_zero().dot(fwd) >= 95f32.to_radians().cos();
-            cone && line_of_sight(&physics, me, ppos)
+            cone && sight_ray(&physics, me, phit, &[gbody.id])
         };
         if heard || seen {
             g.target = Some(pe);
             if g.mind == Mind::WaitTrigger {
                 g.mind = Mind::Roam; // activate 0x0042f5c0 (charge/marker flags: not ported)
             }
-            bark(&mut sounds, "Fight", g.voice_set, me);
+            if std::env::var("AIDBG").is_ok() { info!("AIDBG spotted by {:?} at {:?} d {:.0} heard {} hear {} scan {} mode {:?}", ge, me, d2, heard, g.hear_distance, g.scan_distance, g.mind); }
+            // no bark on spotting: the original's grunts engage and shoot without one (sound log of the first fight:
+            // bow shots from frame 696, no _fight line); the Fight bark (vt+0x140) is called from other paths
             if g.alert_group != 0 {
                 spotted.push((g.alert_group, pe, ge));
             }
         }
     }
     for (group, tgt, who) in spotted {
-        for (ge, mut g, _) in &mut grunts {
+        for (ge, mut g, _, _) in &mut grunts {
             if ge != who && g.alert_group == group && g.target.is_none() && g.pending.is_none() && g.mind != Mind::Dead {
                 g.pending = Some((tgt, rng.range(0.25, 1.0)));
             }
@@ -291,6 +296,26 @@ fn search(
 }
 
 /// Line of sight from a grunt's eye to the target's ref_hit_00 (+5 z, 0x00426fd0): nothing static in between.
+/// Line of sight as 0x00426fd0: from the source raised by 5 (0x005bcbdc) to the target point (its ref_hit_00), true
+/// when nothing is hit on the way; bodies in `skip` (the looker's own) are passed through.
+pub fn sight_ray(physics: &Physics, from_feet: Vec3, target: Vec3, skip: &[BodyId]) -> bool {
+    let mut from = from_feet + Vec3::Y * 5.0;
+    let dir = (target - from).normalize_or(Vec3::Y);
+    let mut left = (target - from).length();
+    while let Some((b, at, _)) = physics.raycast(from, dir, left) {
+        if !skip.contains(&b) {
+            return false;
+        }
+        let step = at.distance(from) + 0.05;
+        from = at + dir * 0.05;
+        left -= step;
+        if left <= 0.0 {
+            break;
+        }
+    }
+    true
+}
+
 pub fn line_of_sight(physics: &Physics, from_feet: Vec3, to_feet: Vec3) -> bool {
     let eye = from_feet + Vec3::Y * 8.0;
     let aim = to_feet + Vec3::Y * 7.0;
@@ -540,21 +565,21 @@ fn fire_cycle(
     if let Some(m) = g.weapon.s("muzzle_fx_name") {
         fx.write(crate::fx::StartFx { name: m.to_owned(), at: muzzle + dir * 4.0, rotation: Transform::IDENTITY.looking_to(dir, Vec3::Y).rotation, follow: None, position_only: false });
     }
-    sounds.write(crate::audio::PlaySound::at(if g.bow { "wpn_bow_fire_1" } else { "wpn_grunt_rifle_fire" }, pos));
+    // (the shot sound comes from the weapon's muzzle fx: the original's sound log has one per shot)
+    let _ = &sounds;
     stats.shots += 1;
+    // the fire cycle (0x00428980, counters 0x00427600, as the companions'): a shot on the fire anim's note (0.033 s
+    // into its 0.467 s loop), fire_num_rounds per clip; an empty clip reloads (state 0x32: grunt_reload_br 1.133 s,
+    // grunt_bow_reload_* 1.3 s) after fire_clip_delay. The original's archer: a shot every ~2.35 s (sound log)
     g.left_rounds -= 1;
-    g.pause = 0.15; // round spacing (per-shot timing not traced: weapon recycle)
+    g.pause = 0.467;
     if g.left_rounds <= 0 {
         g.left_bursts -= 1;
-        g.pause = rng.range(g.burst_delay.0, g.burst_delay.1).max(0.3);
+        g.pause = 0.467 + rng.range(g.burst_delay.0, g.burst_delay.1);
         if g.left_bursts <= 0 {
             g.left_clips -= 1;
-            g.pause = rng.range(g.clip_delay.0, g.clip_delay.1).max(0.6);
-            if g.left_clips <= 0 {
-                // clip cycle done: reload (state 0x32, grunt_reload_*), counters re-rolled after
-                g.mind = Mind::Reload;
-                g.pause = 1.5;
-            }
+            g.mind = Mind::Reload;
+            g.pause = 0.467 + rng.range(g.clip_delay.0, g.clip_delay.1) + if g.bow { 1.3 } else { 1.133 };
         }
     }
 }
@@ -664,6 +689,9 @@ struct CompanionFire {
     burst_delay: (f32, f32),
     clip_delay: (f32, f32),
     height: f32,
+    /// fire_inaccuracy_angle (the exe's key, default 15), fire_accuracy_min / max (50 / 150)
+    angle: f32,
+    accuracy: (f32, f32),
     bullet: String,
     muzzle_fx: String,
 }
@@ -677,6 +705,8 @@ impl Companion {
             burst_delay: (p.f("fire_burst_delay_min", 0.2), p.f("fire_burst_delay_max", 0.5)),
             clip_delay: (p.f("fire_clip_delay_min", 0.5), p.f("fire_clip_delay_max", 1.0)),
             height: p.f("fire_inaccuracy_height", 1.0),
+            angle: p.f("fire_inaccuracy_angle", 15.0),
+            accuracy: (p.f("fire_accuracy_min", 50.0), p.f("fire_accuracy_max", 150.0)),
             bullet: format!("p_{}", weapon.s("projectile_name").unwrap_or("molmer_bullet")),
             muzzle_fx: weapon.s("muzzle_fx_name").unwrap_or("").to_owned(),
         };
@@ -882,7 +912,7 @@ fn companions(
                 c.rounds = rng.range(c.p.rounds.0 as f32, c.p.rounds.1 as f32 + 0.999) as u32;
                 c.burst = rng.range(c.p.bursts.0 as f32, c.p.bursts.1 as f32 + 0.999) as u32;
             }
-        } else if let Some(at) = shoot_at {
+        } else if let Some(at) = shoot_at.filter(|_| std::env::var("NOCOMPFIRE").is_err()) {
             let muzzle = me + Vec3::Y * 7.0 + Quat::from_rotation_y(c.yaw) * Vec3::Z * 3.0;
             let dz = at - muzzle;
             let deg = (dz.y / dz.length().max(1e-3)).clamp(-1.0, 1.0).acos().to_degrees() - 90.0;
@@ -899,8 +929,15 @@ fn companions(
                     if hit && c.burst > 0 && c.rounds > 0 {
                         c.burst -= 1;
                         c.rounds -= 1;
-                        let scatter = Vec3::new(rng.rand() - 0.5, rng.rand() * c.p.height, rng.rand() - 0.5) * 2.0;
-                        let aim = (at + scatter - muzzle).normalize_or(Vec3::Z);
+                        // aim error 0x004284e0 (as the grunts'): sideways in [-angle, angle], up in [0, height], scaled
+                        // by the distance between fire_accuracy_min and max
+                        let to = (at - muzzle).with_y(0.0);
+                        let d = to.length();
+                        let (lo, hi) = c.p.accuracy;
+                        let sc = if d <= lo { 0.1 } else if d >= hi { 1.0 } else { ((d * d - lo * lo) / (hi * hi - lo * lo)).max(0.1) };
+                        let side = Vec3::new(-to.z, 0.0, to.x).normalize_or_zero();
+                        let off = side * rng.range(-c.p.angle, c.p.angle) * sc + Vec3::Y * rng.range(0.0, c.p.height) * sc;
+                        let aim = (at + off - muzzle).normalize_or(Vec3::Z);
                         let bullet = data.props(&c.p.bullet);
                         crate::player::spawn_projectile(&mut commands, &mut fx, &bullet, muzzle, aim, true, Some(e));
                         if c.q {
