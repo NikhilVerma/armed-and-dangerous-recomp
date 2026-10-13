@@ -29,6 +29,17 @@ capsule counted as a hit, companions kept running toward the target while firing
 (3d6c810). The archer now ends at 72..88 health in three runs (original 74). The guessed part radii were
 replaced by the original's collision models (fd3ffb5; hitparts.rs); the bone of each box is inferred.
 
+## Grunts hit Roman more often than the original's (2026-10-14, open)
+
+Second encounter (hook [test] warp=720:0,-350,60, Roman standing before the courtyard's grunts; engine fight2E):
+the same number of shots (original 42 in 720-1250, engine 41..48), but by frame 1200 the original's Roman has lost
+225 (15 hits of ~38 shots, ~40%) and the engine's ~390 (~26 hits, ~65%). Checked equal: the grunts' aim inputs read
+at runtime from the original (+0x5d8.. : scan 350, hear 40, height 0.5, angle 15, accuracy 70 / 500, infinite 210,
+no 0x400000 flag), no shooter limit (Game+0xc50 0) and no fake-bullet flag; the aim code 0x004284e0 and the
+collision parts (trotter_coll_0, bones from the skin data). Not checked: where the original's bullet ray meets
+Roman (its hit part and point), whether the detail-level-2 ray uses every part, Roman's ref_hit_00 in the original
+pose. Next: log the original's player hits (Projectile_ApplyHitDamage 0x0047eec0: record +0x10 part, +4 point).
+
 ## Falling snow in the remaster engine (2026-10-13, partly resolved)
 
 Snow now shows (synced walk frame 520). Causes found: the fx textures loaded with the default clamp sampler (the
