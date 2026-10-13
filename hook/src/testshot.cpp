@@ -12,6 +12,7 @@
 #include "config.h"
 #include "game/game_object.h"
 #include "log.h"
+#include "gen/orig_calls.h"
 
 static float g_shotTimes[16];
 static int g_shotCount, g_nextShot;
@@ -209,6 +210,26 @@ static void TestDumpCamera(unsigned frame)
         using GetPos = void(__thiscall*)(void*, float*);
         reinterpret_cast<GetPos>((*reinterpret_cast<void***>(player))[0x54 / 4])(player, pos);
         fprintf(out, ", \"player\": [%.7g, %.7g, %.7g]", pos[0], pos[1], pos[2]);
+    }
+    // every AI object's position (World Game+0xa84 list +0xe7c, walked with 0x004e7340 / 0x004e73c0 to the end),
+    // to compare placements with the remaster engine
+    const uint32_t world = *reinterpret_cast<const uint32_t*>(reinterpret_cast<const uint8_t*>(g_game) + 0xa84);
+    if (world)
+    {
+        uint32_t iter[2] = {0, 0};
+        fprintf(out, ", \"ai\": [");
+        bool first = true;
+        using GetPos = void(__thiscall*)(void*, float*);
+        for (uint32_t o = orig::fn_004e7340(*reinterpret_cast<const uint32_t*>(world + 0xe7c), reinterpret_cast<uint32_t>(iter)); o;
+             o = orig::fn_004e73c0(reinterpret_cast<uint32_t>(iter)))
+        {
+            void* obj = reinterpret_cast<void*>(o);
+            float pos[4] = {};
+            reinterpret_cast<GetPos>((*reinterpret_cast<void***>(obj))[0x54 / 4])(obj, pos);
+            fprintf(out, "%s[%.7g, %.7g, %.7g]", first ? "" : ", ", pos[0], pos[1], pos[2]);
+            first = false;
+        }
+        fprintf(out, "]");
     }
     fprintf(out, "}\n");
     fclose(out);

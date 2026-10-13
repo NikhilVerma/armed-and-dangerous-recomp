@@ -11,9 +11,8 @@
 
 Things that need you, collected instead of asked mid-work:
 - Audio by ear: the sound log matches the original's on the same inputs; how it sounds is unchecked.
-- Window grunts: placed at their houses' bones; whether they show in the windows as in the original is unchecked.
-- The bot's route planner can loop near the village wall at (-88, 42) (one run in three); a player is not stuck
-  there (the open side is walkable, and the safety net frees a wedged Roman).
+- Window grunts: verified (2026-10-13): the hook's camera dump now lists the original's AI positions; all four
+  window / roof grunts stand within 0.1 units of where the engine places them.
 - Feel: mouse sensitivity, zoom speed, grunt difficulty and Roman's damage were ported from the data, not tuned
   by play.
 
