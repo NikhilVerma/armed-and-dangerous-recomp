@@ -11,9 +11,8 @@
 //! are #404040 and skipped. Sounds: ui_move, ui_select, ui_cancel. Keys: Up/Down (W/S), Left/Right (A/D) for
 //! sliders and lists, Enter or Space to choose, Esc to go back.
 //!
-//! Save Game / Quick Load / Restart from last save / Resume Game: savegame.rs. Not ported, shown disabled: Cheats (the
-//! codes are not recovered), Credits (the names are not in the text bank), Play Cutscene and Replay Mission (disabled
-//! in the original too). Graphics options that have no meaning in the new renderer show their best value, disabled.
+//! Save Game / Quick Load / Restart from last save / Resume Game: savegame.rs. Cheats: cheats.rs. Credits: credits.txt
+//! scrolling (this file). Shown disabled: Play Cutscene and Replay Mission (disabled in the original too). Graphics options that have no meaning in the new renderer show their best value, disabled.
 //! Restart the level and Return to title screen start the game again (a fresh process: the level state is not
 //! reset in place).
 
