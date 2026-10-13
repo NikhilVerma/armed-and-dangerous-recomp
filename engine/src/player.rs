@@ -307,8 +307,11 @@ fn control(
         if h.0 <= 0.0 {
             r.dead = true;
         }
-        // mouse look with the options' sensitivity (0.5 = the remaster's 0.0025 rad per count) and invert
-        let k = 0.0025 * opts.mouse_factor();
+        // mouse look as the original's: measured with scripted mouse counts (hook MOUSEX / MOUSEY, camera dumps):
+        // 0.0100 rad of turn and 0.0057 rad of pitch per count at the default sensitivity, linear; the multiplier is
+        // m_mouseSensitivity + 0.5 (player.md 2: default 0.5 -> 1.0)
+        let k = 0.0100 * (opts.mouse_sensitivity + 0.5);
+        let kpitch = 0.0057 * (opts.mouse_sensitivity + 0.5);
         let inv = if opts.invert_mouse { -1.0 } else { 1.0 };
         // the topsy states (flags 0x7800000) take the turn input away
         // zoom: held Zoom (Z, E; 0x00478xxx game_06.cpp:2819-2836) enters the weapon camera; turning and pitching
@@ -320,7 +323,7 @@ fn control(
         let (kt, kp) = if zoom_held { (0.05 / 0.3, 0.25 / 0.95) } else { (1.0, 1.0) };
         if !topsy.active() {
             r.yaw -= motion.delta.x * k * kt;
-            r.pitch = (r.pitch - motion.delta.y * k * inv * kp).clamp(-1.1, 0.7);
+            r.pitch = (r.pitch - motion.delta.y * kpitch * inv * kp).clamp(-1.1, 0.7);
         }
         let mut wish = Vec3::ZERO;
         // playtest bot: turn toward the goal and walk; when fighting, face the nearest live grunt
