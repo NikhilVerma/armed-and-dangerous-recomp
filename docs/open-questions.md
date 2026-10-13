@@ -78,6 +78,10 @@ Found since (fixed-step playtests, frame-exact): the engine's guards fired on th
 first cycle is dry (fire anim, reload, then shots from ~800). Now: shots 44 vs 42, hits 27 vs 22 by 1250, first hit
 853 vs 822. The engine's grunts fire in tighter groups (5 within 6 frames; the original's spread over ~37): their
 acquisition and turning are more uniform than the original's (turn anims 0x0042e050, physics yaw 16 sin(error)).
+Turn anims ported (d2aa9ef): shots 39 vs 42, first real volley 864 vs 800, hits 29 vs 22 (~74% vs ~52% of
+shots). Checked: the scatter constant 0x005bcbfc is 0.1 (read from the exe); a lower muzzle (5 instead of 7 above
+the feet) changes nothing. The original's misses are not logged yet (log_hits sees only object hits): logging where
+its bullets end (Projectile_Update's ray hits on the landscape) would show whether they strike the ground first.
 
 ## Falling snow in the remaster engine (2026-10-13, partly resolved)
 
