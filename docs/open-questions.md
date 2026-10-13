@@ -19,14 +19,14 @@ Things that need you, collected instead of asked mid-work:
 - Feel: mouse look verified (the original's measured 0.0100 / 0.0057 rad per count, 8be95d6); zoom matches its
   camera dumps; grunt difficulty and Roman's damage are the data's values, not judged by play.
 
-## Companions kill grunts the original's only wound (2026-10-14, open)
+## Companions kill grunts the original's only wound (2026-10-14, mostly resolved)
 
-Encounter run on the same inputs (W held from the token's dismissal at frame 700): in the original no grunt dies
-before frame 1440 (the companions' bullets only hurt them); in the engine two die (1045, 1107). Data checked:
-p_molmer_bullet damage 10, p_q_mgun_bullet 4, grunt max_health 100, no damage multiplier for grunts
-(stig_ / forge_damage_multiplier are for the turret and the cannon). The aim error is the grunts' 0x004284e0 with
-the exe's default fire_inaccuracy_angle 15. Not found yet: whether the original's companions aim at a different
-point, fire less, or their bullets lose damage. Guess: the target point (engine: 7 units above the feet).
+Measured with the hook's AI dump (target +0x588, health +0x454, anim +0x498; run fightT): the companions take the
+archer at (-173, 744) at frame 840 and leave it at 74 health; Jonesy fires 3 bursts of 4, reloads, throws TNT
+(anim 39 molmer_throw_tnt). Causes found and fixed (287ee9d): grunts' shots hurt grunts in the engine (the original's
+0x00430340 ignores same-team damage), Jonesy's clip (fire_alt wastes a round), targets never dropped, the whole
+capsule counted as a hit. Still open: the part radii are guesses (no collision hulls exported), and Jonesy's TNT
+throw is not ported (being traced).
 
 ## Falling snow in the remaster engine (2026-10-13, partly resolved)
 
