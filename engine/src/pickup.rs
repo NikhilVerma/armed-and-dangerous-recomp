@@ -21,13 +21,25 @@ pub struct Pickup {
     pub text: Option<String>,
     /// rotate_rate (PickupObject_Load 0x00471e40: default 180 degrees/s), radians/s; the spin about game z
     pub spin: f32,
+    /// horizontal velocity of a thrown pickup (Q's tea), until it lands
+    pub hvel: Vec3,
+}
+
+/// A pickup made at run time and thrown (Q's tea: mode 9 of 0x00485910 creates "pickup_healthytea" and sets its
+/// velocity): template name, position, velocity (engine space).
+#[derive(Message, Clone)]
+pub struct SpawnPickup {
+    pub name: String,
+    pub at: Vec3,
+    pub vel: Vec3,
 }
 
 pub struct PickupPlugin;
 
 impl Plugin for PickupPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, (drop_on_death, collect, placed_pickups, placed_collect).run_if(crate::playing));
+        app.add_message::<SpawnPickup>()
+            .add_systems(Update, (drop_on_death, spawn_pickups, collect, placed_pickups, placed_collect).run_if(crate::playing));
     }
 }
 
@@ -76,6 +88,48 @@ fn drop_on_death(
                     ground,
                     text: p.s("text_lookup").map(str::to_owned),
                     spin: p.f("rotate_rate", 180.0).to_radians(),
+                    hvel: Vec3::ZERO,
+                },
+            ))
+            .id();
+        if let Some(m) = tpl.model.as_ref().and_then(|m| lib.load_model(m, false, &assets, &mut meshes, &mut materials)) {
+            for (mesh, mat) in &m.parts {
+                let c = commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(mat.clone()))).id();
+                commands.entity(pe).add_child(c);
+            }
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn spawn_pickups(
+    mut commands: Commands,
+    mut events: MessageReader<SpawnPickup>,
+    data: Res<GameData>,
+    mut lib: ResMut<Library>,
+    assets: Res<AssetServer>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    physics: NonSend<crate::physics::Physics>,
+) {
+    for ev in events.read() {
+        let Some(tpl) = data.templates.get(&ev.name) else { continue };
+        let p = data.template_props(&ev.name);
+        let ground = physics.raycast(ev.at, -Vec3::Y, 400.0).map(|h| h.1.y).unwrap_or(ev.at.y - 4.0);
+        let pe = commands
+            .spawn((
+                Transform::from_translation(ev.at).with_rotation(game_to_engine()),
+                Visibility::default(),
+                Pickup {
+                    health: p.f("num_health", 0.0),
+                    stickies: 0,
+                    radius: p.f("sphere_radius", 4.0) + 4.0,
+                    life: p.f("linger_time", 300.0),
+                    vel: ev.vel.y,
+                    ground,
+                    text: p.s("text_lookup").map(str::to_owned),
+                    spin: p.f("rotate_rate", 180.0).to_radians(),
+                    hvel: Vec3::new(ev.vel.x, 0.0, ev.vel.z),
                 },
             ))
             .id();
@@ -105,8 +159,10 @@ fn collect(
         // the vertical at rotate_rate (0x00472170: the matrix spun about z by the angle +0x4b4)
         p.vel -= 64.348 * dt;
         t.translation.y = (t.translation.y + p.vel * dt).max(p.ground + 1.0);
+        t.translation += p.hvel * dt;
         if t.translation.y <= p.ground + 1.0 {
             p.vel = 0.0;
+            p.hvel = Vec3::ZERO;
         }
         t.rotate_y(dt * p.spin);
         p.life -= dt;
@@ -125,7 +181,12 @@ fn collect(
         if let (Some(m), Some(text)) = (mission.as_deref_mut(), p.text.as_ref()) {
             m.feed(text);
         }
-        sounds.write(crate::audio::PlaySound::ui(if p.health > 0.0 { "ui_pickup_health" } else { "ui_pickup_ammo_1" }));
+        // Pickup_PlayHealthSound 0x00472790: Roman's "ROM50193_Ambient" for Q's tea, else the pickup sound
+        if p.text.as_deref() == Some("pickup_healthytea") {
+            sounds.write(crate::audio::PlaySound::at("ROM50193_Ambient", pt.translation()));
+        } else {
+            sounds.write(crate::audio::PlaySound::ui(if p.health > 0.0 { "ui_pickup_health" } else { "ui_pickup_ammo_1" }));
+        }
         commands.entity(e).despawn();
     }
 }

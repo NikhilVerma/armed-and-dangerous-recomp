@@ -635,6 +635,9 @@ pub struct Companion {
     /// the route to the slot (0x0046f6d0, re-planned every 0.25 s while moving: nav.rs A*)
     route: Vec<Vec3>,
     replan: f32,
+    /// Q's healthy tea (0x004857e0, mode 9): the drop anim's time left, and given once (+0xbcc 0x20000)
+    pub tea: f32,
+    tea_given: bool,
 }
 
 #[derive(Clone)]
@@ -684,6 +687,8 @@ impl Companion {
             p: fire,
             route: Vec::new(),
             replan: 0.0,
+            tea: 0.0,
+            tea_given: false,
         }
     }
 }
@@ -710,16 +715,18 @@ fn companions(
     data: Res<crate::gamedata::GameData>,
     buttons: Res<ButtonInput<MouseButton>>,
     bot: Res<crate::playtest::Bot>,
-    roman: Query<(&Transform, &crate::player::Roman, &crate::skin::Animator), Without<Companion>>,
+    roman: Query<(&Transform, &crate::player::Roman, &crate::skin::Animator, &Health), Without<Companion>>,
     cam: Query<&GlobalTransform, With<Camera3d>>,
     mut q: Query<(Entity, &mut Companion, &mut Transform), Without<crate::player::Roman>>,
     grunts: Query<(Entity, &Grunt, &GlobalTransform, Option<&crate::skin::Animator>)>,
     joints: Query<&GlobalTransform, Without<Companion>>,
     mut fx: MessageWriter<crate::fx::StartFx>,
     mut log: ResMut<crate::playtest::PlayState>,
+    mut sounds: MessageWriter<crate::audio::PlaySound>,
+    mut pickups: MessageWriter<crate::pickup::SpawnPickup>,
 ) {
     let dt = time.delta_secs();
-    let Ok((rt, r, ra)) = roman.single() else { return };
+    let Ok((rt, r, ra, rh)) = roman.single() else { return };
     let bone = |a: &crate::skin::Animator, n: &str| a.skeleton.index.get(n).and_then(|&i| joints.get(a.joints[i]).ok()).map(|t| t.translation());
     // Roman's aim point (Game+0xa6c): where the crosshair ray meets the world, else far along it
     let aim_point = cam.single().ok().map(|c| {
@@ -730,6 +737,31 @@ fn companions(
     for (e, mut c, mut t) in &mut q {
         let c = &mut *c;
         let me = t.translation;
+        // Q's healthy tea (Q11Voice_PlayAmbient 0x004857e0): once, when Roman's health is at most a quarter of its
+        // maximum and he is within 50 units: a line (50 %: q1150174_Ambient_Spec, else q1150026_Ambient at Q), the
+        // drop_tea anim (id 0x5a, 7.63 s), then (mode 9) "pickup_healthytea" thrown from Q + 4 up toward Roman at
+        // normalise(2D direction, 0.7 up) x 40
+        if c.q && c.tea > 0.0 {
+            c.tea -= dt;
+            if c.tea <= 0.0 {
+                let to = (rt.translation - me).with_y(0.0).normalize_or_zero();
+                let v = Vec3::new(to.x, 0.7, to.z).normalize() * 40.0;
+                pickups.write(crate::pickup::SpawnPickup { name: "pickup_healthytea".into(), at: me + Vec3::Y * 4.0, vel: v });
+            }
+            continue;
+        }
+        if c.q && !c.tea_given && !r.dead && rh.0 <= r.max_health * 0.25 && rt.translation.distance(me) < 50.0 {
+            c.tea_given = true;
+            c.tea = 7.633;
+            c.moving = false;
+            c.firing = false;
+            if rng.rand() < 0.5 {
+                sounds.write(crate::audio::PlaySound::ui("q1150174_Ambient_Spec"));
+            } else {
+                sounds.write(crate::audio::PlaySound::at("q1150026_Ambient", me));
+            }
+            continue;
+        }
         // targets
         if let Some(tg) = c.target {
             if grunts.get(tg).map_or(true, |(_, g, _, _)| g.mind == Mind::Dead) {
