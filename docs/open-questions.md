@@ -52,6 +52,12 @@ The engine's chest hits mostly come after Roman's death; while he lives its hits
 arm and wrist: the original's barely), the 27th (fatal) hit comes ~20% sooner. The grunts' distances to Roman
 match the original's within a few units through the fight (camera dumps, 840-1200). Not compared: the muzzle
 point (engine: 7 above the feet; original: the weapon's emitter bone) and Roman's facing during the hit anim.
+Checked and ruled out: the bullets' target (0x004a2010 gives each bullet its target and ref_hit_00 through
+Projectile_SetTarget 0x0047e3b0) only measures the distance (0x0047e4d0) and does not steer or end a bullet: the
+range removal in Projectile_Update needs vt+0x168, which is 0x00435250 (false) for proj_bullet (vtable 0x005a4438).
+The facing is the same (the cameras, which follow his yaw, agree). Left: how the original poses the collision parts
+in trotter_hit_small (the engine poses each part by its bone's skinning matrix; the original never has the chest hit
+while the engine's is hit a few times during the anim).
 
 ## Falling snow in the remaster engine (2026-10-13, partly resolved)
 
