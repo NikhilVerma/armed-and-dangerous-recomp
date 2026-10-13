@@ -42,8 +42,15 @@ work/remaster/play/walkA.json (the same timeline at 60 fps; it writes `walkA.<fr
 work/remaster/play/walkA.520.png`. Compare the cameras as numbers first (the original's dumps vs the engine's
 `.camera.json`): on 2026-10-13 they agreed within 7 units and 1 degree, and Roman's walking speed matched.
 
-Results (frame 520): first baseline mae 60.6 / psnr 10.7 dB; with the landscape's original materials, the
-original camera FOV and synced timing: mae 29.8 / psnr 16.0 dB.
+Results (frame 520), see work/remaster/render/sync_*.png: first baseline mae 60.6 / psnr 10.7 dB; with the landscape's original materials, the
+original camera FOV and synced timing: mae 29.8 / psnr 16.0 dB. After the materials on every object, per-vertex fog,
+no far clip and blended alpha (2026-10-13): the numbers barely move (mae ~31) but the look got closer (snowy
+ground, distant hills, bare sparse trees); the human's rule: the look decides, not the score.
+
+Open look differences at 580 (next work): the ground's shading (engine brighter cyan, stronger normal-map relief;
+original softer blue-grey), falling snow density, the far horizon band (engine a flat pale strip), the ruined arch
+looks smaller in the engine (unexplained: check its instance transform / scale), the token pickup's model, Roman
+aim pose and his screen position (camera 4-7 units off: check Camera_Update 0x0040e350).
 
 ### Same-camera render comparison (rendering pieces)
 
@@ -124,6 +131,13 @@ work/remaster/play/compare/.
 - Lighting: the sun per pixel (through the normal map), the ambient-only light and the fill light per vertex,
   multiplied by the material's colours (the bluish diffuse 0x85AFB9 is why the snow looks blue).
 - The follow camera: horizontal 60 degrees (Camera_end), vertical 0.654 rad in the letterboxed 1.702 view.
+- Fog is per vertex in the original (vertex shader: oFog = clamp((end - view depth) / (end - start)), c1 =
+  {start, end, 1/(end-start), 0.5}), interpolated; the engine's game material does the same in its own vertex stage.
+- No far clip on the landscape: the original's camera far (1712) does not cut distant hills (guess: the second
+  scene pass 0x00489070, far 1e6); the engine keeps the far plane at 20000 and lets the fog hide distance.
+- Alpha textures blend (blend table 0x0057d9e0 entry 3: SRCALPHA / INVSRCALPHA, alpha test on): the bare snowy
+  trees look right only with blending, not a 0.5 alpha cut.
+- LOD: always the finest (the human's decision, docs/decision.md).
 - Environment cube maps (ice, water, metal): rendered by the game each frame (cubemap_texture); the engine uses the
   fog colour for now (a labelled approximation).
 

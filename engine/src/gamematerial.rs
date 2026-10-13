@@ -48,11 +48,16 @@ pub struct GameMaterial {
 }
 
 impl Material for GameMaterial {
+    fn vertex_shader() -> bevy::shader::ShaderRef {
+        bevy::shader::ShaderRef::Path(bevy::asset::AssetPath::from_path_buf(bevy::asset::embedded_path!("gamematerial.wesl")).with_source("embedded"))
+    }
     fn fragment_shader() -> bevy::shader::ShaderRef {
         bevy::shader::ShaderRef::Path(bevy::asset::AssetPath::from_path_buf(bevy::asset::embedded_path!("gamematerial.wesl")).with_source("embedded"))
     }
     fn alpha_mode(&self) -> AlphaMode {
-        if self.alpha { AlphaMode::Mask(0.5) } else { AlphaMode::Opaque }
+        // alpha textures blend (the material log: flags bits 8-11 = 3 -> blend table 0x0057d9e0 entry 3 = SRCALPHA,
+        // INVSRCALPHA, ADD, with alpha test on), not a hard 0.5 cut: thin soft twigs as in the original
+        if self.alpha { AlphaMode::Blend } else { AlphaMode::Opaque }
     }
 }
 
@@ -183,10 +188,13 @@ pub fn make(def: &MaterialDef, texture: Option<&str>, alpha: bool, lights: &Game
     let v4 = |c: [f32; 3], w: f32| Vec4::new(c[0], c[1], c[2], w);
     let l3 = |v: Vec3, w: f32| v.extend(w);
     let (fog_col, fog_range) = match lights.fog {
-        // far plane: fog_far * 1712.132 / 1500 (the original's camera dumps on lev_1_m1; options.rs)
-        Some((near, far, c)) => (c.extend(1.0), Vec4::new(near, far, far * 1712.132 / 1500.0, 0.0)),
+        // no far clip: the original shows the landscape beyond its camera's far plane (1712; guess: the second scene
+        // pass 0x00489070 with far 1e6 draws it, docs/subsystems/camera.md); beyond fog_far it is the fog colour
+        Some((near, far, c)) => (c.extend(1.0), Vec4::new(near, far, 0.0, 0.0)),
         None => (Vec4::ZERO, Vec4::ZERO),
     };
+    // debug (render investigations): AND_DEBUG_NOFOG=1 draws without fog and far clip
+    let (fog_col, fog_range) = if std::env::var("AND_DEBUG_NOFOG").is_ok() { (Vec4::ZERO, Vec4::ZERO) } else { (fog_col, fog_range) };
     GameMaterial {
         base: tex(texture, true),
         normal: tex(def.normal_map.as_deref(), false),
