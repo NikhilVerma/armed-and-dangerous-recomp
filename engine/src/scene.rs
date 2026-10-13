@@ -269,10 +269,10 @@ impl Library {
             let mut cpu_v: Vec<Vec3> = Vec::new();
             let mut cpu_t: Vec<[u32; 3]> = Vec::new();
             for s in &file.submeshes {
-                // a sky's untextured parts are not drawn (guess: cloud or horizon helpers)
-                if unlit && s.texture.is_none() {
-                    continue;
-                }
+                // a sky's untextured parts (l1_bob_m1_sky_0: the disk under the horizon, emissive (212, 218, 212), and the
+                // cap at the top) draw in their emissive colour: the disk is the original's pale grey horizon band where
+                // the land is clipped (measured ~(205, 213, 208) in its captures; the fog colour behind it is pure white)
+                let colour = if unlit && s.texture.is_none() { s.material.as_ref().map(|m| m.emissive).or(s.color) } else { s.color };
                 let pos = floats(&bin, s.positions, s.vertices * 3);
                 let nrm = floats(&bin, s.normals, s.vertices * 3);
                 let uv = floats(&bin, s.uvs, s.vertices * 2);
@@ -306,7 +306,7 @@ impl Library {
                 if s.material.as_ref().is_some_and(|m| m.normal_map.is_some()) {
                     let _ = mesh.generate_tangents();
                 }
-                let material = self.material(s.texture.as_deref(), s.alpha, unlit, s.color.unwrap_or([1.0; 3]), s.material.as_ref(), assets, materials);
+                let material = self.material(s.texture.as_deref(), s.alpha, unlit, colour.unwrap_or([1.0; 3]), s.material.as_ref(), assets, materials);
                 parts.push((meshes.add(mesh), material));
             }
             self.models.insert(

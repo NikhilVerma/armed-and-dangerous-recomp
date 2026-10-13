@@ -335,8 +335,9 @@ fn setup(
         Camera3d::default(),
         // the original's follow camera: Camera_end's horizontal FOV (player.json, 60 degrees) made vertical for its
         // letterboxed 1.702 view, 2 * atan(tan(h / 2) / 1.702128) (docs/subsystems/camera.md), 0.654 rad; the
-        // remaster keeps that vertical FOV (wider screens see a little more at the sides)
-        Projection::Perspective(PerspectiveProjection { fov: original_vertical_fov(&launch.scene), ..default() }),
+        // remaster keeps that vertical FOV (wider screens see a little more at the sides); near 1 as the original's
+        // (camera dump: near 1), which also clips the radius-1 fxo_snow dome as there
+        Projection::Perspective(PerspectiveProjection { fov: original_vertical_fov(&launch.scene), near: 1.0, ..default() }),
         Transform::from_translation(start).looking_at(info.center.with_y(start.y - 20.0), Vec3::Y),
         {
             let d = (info.center.with_y(start.y - 20.0) - start).normalize();
@@ -344,6 +345,9 @@ fn setup(
         },
         AmbientLight { color: Color::srgb(0.75, 0.8, 0.9), brightness: 700.0, ..default() },
         SpatialListener::new(2.0),
+        // no tonemapping: the original writes its colours as they are (Bevy's default curve darkened the pale sky
+        // near the horizon from 216 to ~175 and the horizon band from 212 to 179; synced walk frame 520)
+        bevy::core_pipeline::tonemapping::Tonemapping::None,
     )).id();
     // playing as Roman: the camera follows him; the free camera stays for the benchmark and fx tests
     if info.player.is_some() && launch.bench.is_none() && !launch.fx_test {

@@ -48,9 +48,12 @@ ground, distant hills, bare sparse trees); the human's rule: the look decides, n
 
 Latest (after the camera nodes, the aim blend and blue-first colours): synced frame 520 mae ~26, psnr ~16.8 dB;
 by eye the frames now match closely (work/remaster/render/final_520_pair.png, token_815b.png).
+After tonemapping off, the sky's horizon disk and the near plane (2026-10-13): mean colour within 2 levels of the
+original (133/149/142 vs 135/151/144), horizon gradient matching row for row, snow flakes of the original's size
+(work/remaster/render/tonemap_none_520.png, snowF.png). Still different: a little more snow near the top of the view.
 
 Earlier list of open differences at 580 (several fixed since: arch scale, token, aim pose, camera): the ground's shading (engine brighter cyan, stronger normal-map relief;
-original softer blue-grey), falling snow density, the far horizon band (engine a flat pale strip), the ruined arch
+original softer blue-grey), the ruined arch
 looks smaller in the engine (unexplained: check its instance transform / scale), the token pickup's model, Roman
 aim pose and his screen position (camera 4-7 units off: check Camera_Update 0x0040e350).
 
@@ -138,7 +141,8 @@ work/remaster/play/compare/.
 - The landscape is clipped at the original camera's far plane (1712 on lev_1_m1: fog_far * 1712.132 / 1500); without
   it a hard pale band of fully fogged land showed. The camera's own far plane is 50000 so the sky dome (radius
   20000) is never clipped. The original also shows a fog-coloured band at the horizon (measured: ~(205, 213, 208)
-  at the left of frame 580); the engine's is slightly darker and differently shaped (open).
+  at the left of frame 580); resolved: it is the sky model's untextured disk under the horizon (emissive (212, 218, 212)), now drawn,
+  and the sky texture's pale bottom rows fading into it, which only matched once tonemapping was off.
 - sound_ears remove themselves after playing unless `reapeat` (sic) is set (0x00497900): a voice line played twice
   before.
 - Alpha textures blend (blend table 0x0057d9e0 entry 3: SRCALPHA / INVSRCALPHA, alpha test on): the bare snowy
@@ -222,6 +226,14 @@ gaim.json (10 s, speech and fighting): 29 distinct sounds heard advancing, voice
 - The original's 3D view: letterbox at y 11.25 %, height 77.5 % (0x005bcf24 / 0x005bcf28), aspect of that strip,
   vertical FOV camera +0xf4 (0.654 rad on lev_1_m1's follow camera), view matrix Game+0x704 (rows: right, up, back).
 - Treat the human's in-game observations as the highest-priority bug reports (docs/player-feedback.md).
+- **cargo may not be on PATH** in the Bash tool: `export PATH="$HOME/.cargo/bin:$PATH"` first, and never filter the
+  build output with only `grep error` (a "command not found" is silent then and the old exe runs). Check for
+  `Finished`. Shaders (`*.wesl`) are embedded, so a shader edit needs a rebuild too.
+- **Comparing captures**: the original's shot is 640x480 with the 3D view in rows 54..425; crop it
+  (`crop((0, 54, 640, 426))`), never resize it to 372 rows.
+- **No tonemapping, near plane 1** (main.rs camera): Bevy's default tonemapping darkened the pale colours (sky at
+  the horizon 216 -> 175); the original's near plane of 1 also clips the radius-1 fxo_snow dome (with Bevy's 0.1 it
+  drew an extra layer of dense fine flakes).
 
 ## Status (2026-10-13)
 
