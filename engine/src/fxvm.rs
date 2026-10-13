@@ -281,6 +281,8 @@ pub struct FxVm {
     /// Camera shake (game units, decays x -0.75 per 1/60 s: the original's per-frame decay at 60 fps).
     pub shake: (f32, f32),
     streamers: Vec<Streamer>,
+    /// decals made by scripts this frame (op 0x6a, sent by `run`)
+    decals: Vec<crate::decals::SpawnDecal>,
     /// alpha-blended and additive streamer meshes
     streamer_meshes: [Handle<Mesh>; 2],
 }
@@ -355,6 +357,7 @@ fn setup(mut commands: Commands, assets: Res<AssetServer>, mut meshes: ResMut<As
         stats: FxVmStats::default(),
         shake: (0.0, 0.0),
         streamers: Vec::new(),
+        decals: Vec::new(),
         streamer_meshes,
     });
 }
@@ -739,7 +742,17 @@ fn run_script(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_, '_, '_>, idx: usize, dt: 
                     vm.camera_paths.push(name.to_owned());
                 }
             }
-            "0x6a" => vm.unported.insert("0x6a decal".into()).then_some(()).unwrap_or(()),
+            // 0x6a: a decal (Decals_Spawn 0x004165c0) in the box of +-size around the object (decals.rs)
+            "0x6a" => {
+                if let (Some(_), Some(t)) = (cur, top) {
+                    if let Some(o) = vm.objects.get(&t) {
+                        let place = o.place;
+                        if let Some(tex) = arg(2).as_str() {
+                            vm.decals.push(crate::decals::SpawnDecal { place, size: f(&arg(1)), texture: tex.to_owned() });
+                        }
+                    }
+                }
+            }
             "0x40" => {
                 // Fx_SetUvScroll 0x00420670: layer, angle (deg), speed, duration, ramp in, ramp out; direction from the
                 // sine table (cos, sin of the angle: guess at the table's phase). Layer 1 only: the fx meshes have one
@@ -825,6 +838,7 @@ fn run(
     mut physics: NonSendMut<Physics>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     mut paths: MessageWriter<crate::campath::StartCameraPath>,
+    mut decals: MessageWriter<crate::decals::SpawnDecal>,
 ) {
     let t0 = std::time::Instant::now();
     let dt = time.delta_secs();
@@ -860,6 +874,9 @@ fn run(
     }
     for p in vm.camera_paths.drain(..) {
         paths.write(crate::campath::StartCameraPath(p));
+    }
+    for d in vm.decals.drain(..) {
+        decals.write(d);
     }
     vm.stats.instances = vm.instances.len();
     vm.stats.ms = t0.elapsed().as_secs_f32() * 1000.0;

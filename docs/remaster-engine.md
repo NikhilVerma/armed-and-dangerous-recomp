@@ -210,8 +210,9 @@ shader now runs the original's stage maths (LERP by the mask colour, times t1 al
 un-premultiplied when the export flags them premultiplied (DXT2: the snow flakes, the ring), which keeps the snow as
 before and makes the ring faint; textured fx objects are tinted by their material diffuse (0.588). Measured on the
 blast (light added over the frame before): original mean 30..42 / p90 70..82, engine now 30..36 / 47..61 (was 53..70
-/ 108..128). Open: the original's dark brown blot is mostly the blast decal (op 0x6a, not ported); penguins are not
-knocked about by blasts.
+/ 108..128). Decals (op 0x6a, `decals.rs`: the landscape inside the fx object's box, clipped, 160 pooled) now leave
+the blast's scorch mark and the bullets' small marks. Open: decals on placed objects; penguins are not knocked
+about by blasts.
 
 ## Comparing sounds with the original
 

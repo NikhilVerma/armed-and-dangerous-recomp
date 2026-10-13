@@ -18,6 +18,7 @@ mod gamedata;
 mod camdump;
 mod camfade;
 mod cheats;
+mod decals;
 mod sticky;
 mod gamemenu;
 mod gamematerial;
@@ -199,6 +200,7 @@ fn main() {
     app.add_plugins(camdump::CamDumpPlugin);
     app.add_plugins(savegame::SaveGamePlugin);
     app.add_plugins(cheats::CheatsPlugin);
+    app.add_plugins(decals::DecalPlugin);
     app.add_plugins(sticky::StickyPlugin);
     app.add_plugins(camfade::CameraFadePlugin);
     app.add_plugins(ragdoll::RagdollPlugin);

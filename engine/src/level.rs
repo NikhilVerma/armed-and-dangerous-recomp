@@ -222,6 +222,7 @@ pub fn spawn(
             info.triangles += t;
         }
         physics.landscape = static_collider(physics, model, axes);
+        commands.insert_resource(crate::decals::DecalWorld::new(&model.vertices, &model.tris));
     }
 
     for inst in &scene.instances {
