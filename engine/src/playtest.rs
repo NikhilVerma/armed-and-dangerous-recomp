@@ -106,6 +106,9 @@ pub struct Bot {
     pub skip_pickups: Vec<Vec3>,
     /// throw a sticky bomb this frame; seconds until the next may be thrown
     pub throw: bool,
+    /// where the bot has been (one point a second, the last 20): the way back out of a dead end
+    pub trail: Vec<Vec3>,
+    pub trail_t: f32,
     pub throw_timer: f32,
 }
 
@@ -205,6 +208,8 @@ fn warp(
     physics.place_walker(&r.walker, feet);
     t.translation = feet;
     r.yaw = w[3].to_radians();
+    r.free_trail.clear();
+    r.free_trail.push_back(feet);
     bot.goto = None;
 }
 

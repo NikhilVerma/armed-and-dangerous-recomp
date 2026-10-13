@@ -38,13 +38,17 @@ pub fn path(physics: &Physics, from: Vec3, to: Vec3, blocked: &[Vec3]) -> Option
     let ground = |heights: &mut HashMap<(i32, i32), Option<f32>>, c: (i32, i32), from_h: f32| -> Option<f32> {
         *heights.entry(c).or_insert_with(|| {
             let p = pos(c);
-            physics.raycast(Vec3::new(p.x, from_h + CLIMB, p.y), -Vec3::Y, 400.0).filter(|h| h.2.y > 0.55).map(|h| h.1.y)
+            let down = |top: f32| physics.raycast(Vec3::new(p.x, top, p.y), -Vec3::Y, 400.0).filter(|h| h.2.y > 0.55).map(|h| h.1.y);
+            // a wall's or roof's top well above the reaching cell: look again from just above that cell's height,
+            // for the floor beside it (the start in a walled yard otherwise sees only wall tops around it)
+            match down(from_h + CLIMB) {
+                Some(h) if h > from_h + 8.0 => down(from_h + 6.0).or(Some(h)),
+                h => h,
+            }
         })
     };
-    // the start: where the walker stands (a ray from above may meet a steep object it is against)
-    if ground(&mut heights, cell(from), from.y).is_none() {
-        heights.insert(cell(from), Some(from.y));
-    }
+    // the start cell is where the walker stands (a ray from above can land on a wall's top next to him)
+    heights.insert(cell(from), Some(from.y));
     let (s, g) = (cell(from), cell(to));
     let h = |c: (i32, i32)| pos(c).distance(pos(g));
     let mut open = BinaryHeap::new();
@@ -80,7 +84,9 @@ pub fn path(physics: &Physics, from: Vec3, to: Vec3, blocked: &[Vec3]) -> Option
             if (hn - hc).abs() > d * 1.2 {
                 continue;
             }
-            let (a, b) = (pos(c), pos(n));
+            // from the start cell, rays leave from where the walker actually stands (the cell centre may be inside
+            // a wall's collider: the bot then found no route at all)
+            let (a, b) = (if c == s { Vec2::new(from.x, from.z) } else { pos(c) }, pos(n));
             let a3 = Vec3::new(a.x, hc + 5.0, a.y);
             let b3 = Vec3::new(b.x, hn + 5.0, b.y);
             if physics.raycast(a3, (b3 - a3).normalize_or(Vec3::X), (b3 - a3).length()).is_some() {

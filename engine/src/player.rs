@@ -334,7 +334,22 @@ fn control(
             bot.replan_timer = 1.5;
             let blocked = bot.blocked.clone();
             bot.route = crate::nav::path(&physics, t.translation, bot.goto.unwrap(), &blocked).unwrap_or_default();
+            // no route from here (a dead end the planner cannot see out of): back along the way it came, then plan
+            // again from there
+            if bot.route.is_empty() && bot.trail.len() > 3 {
+                bot.route = bot.trail.iter().rev().skip(1).take(8).copied().collect();
+            }
             info!("bot: route to {:?}: {} waypoints {:?}", bot.goto, bot.route.len(), bot.route.iter().map(|p| [p.x as i32, p.y as i32, p.z as i32]).collect::<Vec<_>>());
+        }
+        bot.trail_t += dt;
+        if bot.trail_t >= 1.0 {
+            bot.trail_t = 0.0;
+            if bot.trail.last().is_none_or(|l| l.distance(t.translation) > 6.0) {
+                bot.trail.push(t.translation);
+                if bot.trail.len() > 20 {
+                    bot.trail.remove(0);
+                }
+            }
         }
         while bot.route.first().is_some_and(|w| (*w - t.translation).with_y(0.0).length() < 8.0) {
             bot.route.remove(0);
