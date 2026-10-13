@@ -320,11 +320,13 @@ fn create_object(ctx: &mut Ctx<'_, '_, '_, '_, '_>, inst: &Instance, template: &
                 // a part with a second texture and a mask (the snow domes): the layered set-up
                 let layered = ctx.lib.game_defs.get(&mat.id()).filter(|(d, t, _)| t.is_some() && d.texture2.is_some() && d.mask.is_some() && d.normal_map.is_none()).cloned();
                 if let Some((def, Some(tex), _)) = layered {
-                    let load = |n: &str| ctx.assets.load::<Image>(format!("textures/{n}.dds"));
+                    // repeat addressing: the domes' uvs run 0..12 (the default sampler clamps: no flakes past the first tile)
+                    let load = |n: &str| crate::gamematerial::load_tex(ctx.assets, n, true);
                     let lm = ctx.layer_materials.add(FxLayerMaterial {
                         t0: load(&tex),
                         t1: load(def.texture2.as_deref().unwrap_or(&tex)),
-                        t2: load(def.mask.as_deref().unwrap_or(&tex)),
+                        // the mask is data (linear): an uncompressed BGRA DDS fails to load as sRGB (black fallback)
+                        t2: crate::gamematerial::load_tex(ctx.assets, def.mask.as_deref().unwrap_or(&tex), false),
                         params: FxLayerParams { offsets: Vec4::ZERO, colour: Vec4::new(def.emissive[0], def.emissive[1], def.emissive[2], 1.0) },
                     });
                     layers.push(lm.clone());

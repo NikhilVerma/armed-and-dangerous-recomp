@@ -7,19 +7,15 @@
 | Is the `.big` format a descendant of Giants `.gzp`? | Magic `DE C0 AD DE`; GiantZiP not checked yet. |
 | What are `.jit` files? | One per level folder, 0.3 to 1.6 MB, header starts with a small integer. |
 
-## Falling snow in the remaster engine (2026-10-13)
+## Falling snow in the remaster engine (2026-10-13, partly resolved)
 
-The original shows many bright small flakes (synced walk frame 520); the engine shows almost none. Known: the snow is
-three camera-attached domes (docs/subsystems/weather.md), material log (`[test] log_materials`): t0 = t1 =
-fx_snow_flakes, t2 = fx_wind_spray_M, stage 0 MODULATE tex*diffuse -> TEMP, stage 1 MODULATE tex*diffuse, stage 2 op
-26 (LERP) by t2 between CURRENT and TEMP, alpha MODULATE(t2.a, TFACTOR), blend SRCALPHA / ONE. The engine implements
-exactly that (engine/src/fxlayer.wesl), and the domes are created, follow the camera and cover the view (checked by
-drawing them red). But the exported fx_snow_flakes (DXT3, 256x256, 1 mip) has nearly black colour (mean 31 where
-alpha > 0, max 206) and sparse 4-bit alpha, so the additive result is near zero. Open: is the export of this DXT3
-texture right (decode the raw blocks), or is my reading of the op / argument bytes wrong (e.g. the alpha argument
-of stage 2, or TFACTOR / a COMPLEMENT / ALPHAREPLICATE modifier on the flake argument)? Next step: dump the D3D
-texture stage states and the texture the original binds while the snow draws ([test] d3d_dump_frame) and
-reproduce one frame of the dome offline.
+Snow now shows (synced walk frame 520). Causes found: the fx textures loaded with the default clamp sampler (the
+domes' uvs run 0..12: repeat needed), the mask loaded as data, and an invalid WESL line (`let _ = x;`) that made the
+layer shader fail to compile (watch for `failed to process shader` in the log: a failing shader draws nothing).
+Still a guess: the flake colour. The flake texture is DXT2 (premultiplied, exported as DXT3 unchanged) with dark
+colour; the stage maths of the material log leave the flakes nearly black, so the engine uses the material's
+white times flake alpha times mask alpha, added in gamma space. The engine's snow is a little denser and streakier
+than the original's sparse round flakes.
 
 ## The big red arrow's shape (remaster engine, 2026-10-13)
 

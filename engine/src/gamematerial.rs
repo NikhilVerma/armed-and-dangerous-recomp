@@ -164,7 +164,7 @@ impl GameLights {
     }
 }
 
-fn load_tex(assets: &AssetServer, name: &str, srgb: bool) -> Handle<Image> {
+pub fn load_tex(assets: &AssetServer, name: &str, srgb: bool) -> Handle<Image> {
     assets
         .load_builder()
         .with_settings(move |s: &mut ImageLoaderSettings| {
