@@ -295,6 +295,20 @@ static void TestDumpCamera(unsigned frame)
             }
             fprintf(out, "]");
         }
+        // the player's collision parts (the 0x4c-byte list at +0x1bc, until a 0 first dword) by bone (0x00458660)
+        {
+            fprintf(out, ", \"player_parts\": [");
+            const uint8_t* parts = *reinterpret_cast<const uint8_t* const*>(reinterpret_cast<const uint8_t*>(player) + 0x1bc);
+            for (int k = 0; parts && k < 40 && *reinterpret_cast<const uint32_t*>(parts + k * 0x4c); ++k)
+            {
+                const char* nm = "?";
+                if (uint32_t node = orig::fn_00458660(k, reinterpret_cast<uint32_t>(player)))
+                    if (uint32_t name = orig::fn_004eb670(0, node))
+                        nm = reinterpret_cast<const char*>(name);
+                fprintf(out, "%s\"%s\"", k ? ", " : "", nm);
+            }
+            fprintf(out, "]");
+        }
         fprintf(out, ", \"ai_max_fire\": %u", *reinterpret_cast<const uint32_t*>(reinterpret_cast<const uint8_t*>(g_game) + 0xc50));
     }
     // every AI object's position (World Game+0xa84 list +0xe7c, walked with 0x004e7340 / 0x004e73c0 to the end),
