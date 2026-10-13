@@ -821,7 +821,11 @@ fn companions(
         let from_roman = (rt.translation - me).with_y(0.0).length();
         // playtest log: how far each companion is from Roman
         log.0.insert(if c.q { "q_dist".into() } else { "jonesy_dist".into() }, (from_roman.round() as i64).into());
-        if c.target.is_none() && c.lost <= 0.0 && from_roman > c.distance + 2.5 {
+        log.0.insert(if c.q { "q_pos".into() } else { "jonesy_pos".into() }, serde_json::json!([(me.x * 10.0).round() / 10.0, (-me.z * 10.0).round() / 10.0]));
+        // measured in the original's intro (hook dumps of World+0xe94): both set off within 0.5 s of Roman and run at
+        // ~38 units/s about 32 units behind him; so they regroup on the distance to their slot, not to Roman
+        let _ = from_roman;
+        if c.target.is_none() && c.lost <= 0.0 && (slot - me).with_y(0.0).length() > 15.0 {
             c.moving = true;
         }
         let to_slot = (slot - me).with_y(0.0);
@@ -840,7 +844,9 @@ fn companions(
             }
         }
         let to = c.route.first().map(|w| (*w - me).with_y(0.0)).unwrap_or(to_slot);
-        let speed = if !c.moving { 0.0 } else if from_roman < 2.0 * c.delay { (from_roman / c.delay).min(1.0) * c.speed } else { c.speed };
+        // full move_speed while moving (the original's intro: 38 of 40 units/s at 32 units from Roman)
+        // fitted: the original's companions cover 37.3 units/s at move_speed 40 (its drive, move_power 100, not ported)
+        let speed = if c.moving { c.speed * 0.933 } else { 0.0 };
         let dir = to.normalize_or_zero();
         let vel = dir * speed + Vec3::Y * c.vy;
         if let Some((feet, on)) = physics.move_walker(&c.walker, vel, dt) {
