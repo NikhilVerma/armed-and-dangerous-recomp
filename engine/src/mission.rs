@@ -74,7 +74,8 @@ enum Action {
     WakeAi(u32),
     ShowText(String),
     Compass(i64),
-    Voice { q: Option<String>, jonesy: Option<String>, roman: Option<String> },
+    /// a sound_ear's line; it removes itself after playing unless `reapeat` (sic) is set (0x00497900)
+    Voice { ear: u32, repeat: bool, q: Option<String>, jonesy: Option<String>, roman: Option<String> },
     Fx(String, Vec3),
     Barracks(u32),
     Destroy(u32),
@@ -185,6 +186,8 @@ pub struct Mission {
     pub objectives: String,
     /// the objectives text with both forms (the pause menu shows the short one)
     pub objectives_raw: String,
+    /// sound_ears that played and removed themselves
+    pub ears_done: std::collections::HashSet<u32>,
     /// the message feed: (seconds left, line)
     pub feed: Vec<(f32, String)>,
 }
@@ -269,6 +272,8 @@ impl Mission {
             } else if action.starts_with("play one voice line") {
                 let r = inst.get(&to).map(|i| &i.resolved);
                 Action::Voice {
+                    ear: to as u32,
+                    repeat: r.and_then(|r| r.get("reapeat")).and_then(|v| v.as_f64()).unwrap_or(0.0) != 0.0,
                     q: r.and_then(|r| s(r, "q_sound")),
                     jonesy: r.and_then(|r| s(r, "jonsey_sound")),
                     roman: r.and_then(|r| s(r, "roman_sound")),
@@ -383,6 +388,7 @@ impl Mission {
             log: Vec::new(),
             objectives: String::new(),
             objectives_raw: String::new(),
+            ears_done: Default::default(),
             feed: Vec::new(),
         })
     }
@@ -674,7 +680,10 @@ fn dispatch(
                     m.message(&text, 1.0);
                 }
                 Action::Compass(tag) => m.compass_tag = tag,
-                Action::Voice { q, jonesy, roman } => {
+                Action::Voice { ear, repeat, q, jonesy, roman } => {
+                    if !repeat && !m.ears_done.insert(ear) {
+                        continue;
+                    }
                     let pick: Vec<String> = [q, jonesy, roman].into_iter().flatten().collect();
                     if !pick.is_empty() {
                         let i = (rng.rand() * pick.len() as f32) as usize % pick.len();

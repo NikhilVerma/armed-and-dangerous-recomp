@@ -136,8 +136,12 @@ work/remaster/play/compare/.
 - The follow camera: horizontal 60 degrees (Camera_end), vertical 0.654 rad in the letterboxed 1.702 view.
 - Fog is per vertex in the original (vertex shader: oFog = clamp((end - view depth) / (end - start)), c1 =
   {start, end, 1/(end-start), 0.5}), interpolated; the engine's game material does the same in its own vertex stage.
-- No far clip on the landscape: the original's camera far (1712) does not cut distant hills (guess: the second
-  scene pass 0x00489070, far 1e6); the engine keeps the far plane at 20000 and lets the fog hide distance.
+- The landscape is clipped at the original camera's far plane (1712 on lev_1_m1: fog_far * 1712.132 / 1500); without
+  it a hard pale band of fully fogged land showed. The camera's own far plane is 50000 so the sky dome (radius
+  20000) is never clipped. The original also shows a fog-coloured band at the horizon (measured: ~(205, 213, 208)
+  at the left of frame 580); the engine's is slightly darker and differently shaped (open).
+- sound_ears remove themselves after playing unless `reapeat` (sic) is set (0x00497900): a voice line played twice
+  before.
 - Alpha textures blend (blend table 0x0057d9e0 entry 3: SRCALPHA / INVSRCALPHA, alpha test on): the bare snowy
   trees look right only with blending, not a 0.5 alpha cut.
 - LOD: always the finest (the human's decision, docs/decision.md).

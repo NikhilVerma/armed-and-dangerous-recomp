@@ -188,9 +188,9 @@ pub fn make(def: &MaterialDef, texture: Option<&str>, alpha: bool, lights: &Game
     let v4 = |c: [f32; 3], w: f32| Vec4::new(c[0], c[1], c[2], w);
     let l3 = |v: Vec3, w: f32| v.extend(w);
     let (fog_col, fog_range) = match lights.fog {
-        // no far clip: the original shows the landscape beyond its camera's far plane (1712; guess: the second scene
-        // pass 0x00489070 with far 1e6 draws it, docs/subsystems/camera.md); beyond fog_far it is the fog colour
-        Some((near, far, c)) => (c.extend(1.0), Vec4::new(near, far, 0.0, 0.0)),
+        // far clip at the original camera's far plane (1712 = fog_far * 1712.132 / 1500, its camera dumps): beyond
+        // it the sky dome shows, as in its captures (without the clip a hard pale band of fully fogged land showed)
+        Some((near, far, c)) => (c.extend(1.0), Vec4::new(near, far, far * 1712.132 / 1500.0, 0.0)),
         None => (Vec4::ZERO, Vec4::ZERO),
     };
     // debug (render investigations): AND_DEBUG_NOFOG=1 draws without fog and far clip

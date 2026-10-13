@@ -127,7 +127,8 @@ fn apply(
         if let Projection::Perspective(pp) = p {
             let mut pp = pp.clone();
             let fog_far = game_lights.as_ref().and_then(|l| l.fog.map(|f| f.1)).unwrap_or(1500.0);
-            pp.far = (fog_far * FAR_OVER_FOG * o.draw_distance.clamp(0.25, 1.0)).max(20000.0);
+            // the sky dome (radius 20000) must fit: the game material clips the world at the original far plane itself
+            pp.far = (fog_far * FAR_OVER_FOG * o.draw_distance.clamp(0.25, 1.0)).max(50000.0);
             commands.entity(e).insert(Projection::Perspective(pp));
         }
     }
