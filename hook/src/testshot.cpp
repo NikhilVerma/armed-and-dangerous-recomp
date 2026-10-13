@@ -155,10 +155,25 @@ static void LogMaterial(const uint8_t* m, const char* const names[4])
     fflush(out);
 }
 
+extern void (*g_testSoundStarted)(const char* name, float volume);
+
+// [test] log_sounds=1: every sound started (and-sounds.txt): the frame since the level load, the definition name and
+// the volume passed to the driver, to compare the remaster engine's sounds with the original's on the same inputs.
+static void LogSound(const char* name, float volume)
+{
+    static FILE* out = fopen("and-sounds.txt", "w");
+    if (!out)
+        return;
+    fprintf(out, "%d %.32s %.3f\n", TestFramesSinceLoad(), name, volume);
+    fflush(out);
+}
+
 void TestMaterialLogInit()
 {
     if (ConfigInt("test", "log_materials", 0))
         g_testMaterialApplied = LogMaterial;
+    if (ConfigInt("test", "log_sounds", 0))
+        g_testSoundStarted = LogSound;
 }
 
 extern void* g_testCamera;

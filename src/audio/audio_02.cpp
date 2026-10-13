@@ -1484,10 +1484,20 @@ uint32_t LookupIndex(uint8_t* self, uint32_t name)
 // (+0x34, skipping 0), driver start virtual +0x34(def, index, volume, frequency, extra, voice, &voice+0x20, 1); on
 // failure the voice is released (virtual +0xc) and 0 returned; on success flags |= 0x8000000 when def flags have
 // 0x20000, flags |= startFlag, and the handle is returned. The iterator is ended in all cases.
+}  // namespace
+
+// Test hook (null in play): told every sound a play function starts, with the definition name (+0) and the volume
+// the driver gets; [test] log_sounds=1 writes them (hook/src/testshot.cpp) for the remaster's audio comparison.
+void (*g_testSoundStarted)(const char* name, float volume) = nullptr;
+
+namespace
+{
 uint32_t StartVoice(uint8_t* self, uint8_t* def, uint32_t* voice, uint32_t index, uint32_t extra, uint32_t startFlag,
                     Iter* it, uint32_t lastArg = 1)
 {
     const float volume = VCall<float>(self, 0x10 / 4, u(voice));
+    if (g_testSoundStarted)
+        g_testSoundStarted(reinterpret_cast<const char*>(def), volume);
     uint32_t frequency;
     if (Field<uint32_t>(P(voice[3]), 0x20) & 0x2000000)
     {
