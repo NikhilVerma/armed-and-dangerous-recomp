@@ -181,6 +181,7 @@ fn control(
     mut bot: ResMut<crate::playtest::Bot>,
     grunts: Query<(&crate::ai::Grunt, &GlobalTransform)>,
     pickups: Query<&GlobalTransform, With<crate::pickup::Pickup>>,
+    explosives: Query<(&crate::fx::Destructible, &GlobalTransform)>,
     keys: Res<ButtonInput<KeyCode>>,
     motion: Res<AccumulatedMouseMotion>,
     mut physics: NonSendMut<Physics>,
@@ -213,13 +214,86 @@ fn control(
         while bot.route.first().is_some_and(|w| (*w - t.translation).with_y(0.0).length() < 8.0) {
             bot.route.remove(0);
         }
-        // a hurt bot detours to a pickup within 100 units, as a player would
-        let detour = if bot.goto.is_some() && h.0 < r.max_health * 0.6 {
-            pickups.iter().map(|p| p.translation()).filter(|p| p.distance(t.translation) < 100.0).min_by(|a, b| a.distance(t.translation).total_cmp(&b.distance(t.translation)))
+        // the bot's tactics, as a player would play (debug tooling): engage the nearest grunt in rifle range with line
+        // of sight; hold position while it is far, back off when badly hurt, a sticky bomb for a group
+        let me = t.translation;
+        let live: Vec<Vec3> = grunts.iter().filter(|(g, _)| g.mind != crate::ai::Mind::Dead).map(|(_, gt)| gt.translation()).collect();
+        let target = if bot.fight {
+            live.iter()
+                .copied()
+                .filter(|p| p.distance(me) < 450.0 && crate::ai::line_of_sight(&physics, me, *p))
+                .min_by(|a, b| a.distance(me).total_cmp(&b.distance(me)))
         } else {
             None
         };
-        if let Some(p) = detour {
+        // explosives (kegs): never shoot with one next to Roman; shoot one from a distance when grunts stand by it
+        let kegs: Vec<(Vec3, f32)> = explosives
+            .iter()
+            .filter(|(d, _)| d.area_damage > 0.0 && d.health > 0.0 && d.dying.is_none())
+            .map(|(d, gt)| (gt.translation() + Vec3::Y * 2.0, d.radius_outer))
+            .collect();
+        let danger = kegs.iter().any(|(k, r)| k.distance(me) < r + 25.0);
+        let keg_target = if bot.fight {
+            kegs.iter()
+                .filter(|(k, r)| {
+                    let d = k.distance(me);
+                    d > r + 50.0 && d < 400.0 && live.iter().any(|g| g.distance(*k) < *r) && {
+                        let eye = me + Vec3::Y * 8.0;
+                        let v = *k - eye;
+                        physics.raycast(eye, v.normalize_or(Vec3::Y), v.length() + 2.0).is_none_or(|h| h.1.distance(*k) < 6.0)
+                    }
+                })
+                .map(|(k, _)| *k)
+                .min_by(|a, b| a.distance(me).total_cmp(&b.distance(me)))
+        } else {
+            None
+        };
+        let aim_at = keg_target.or(target.map(|p| p + Vec3::Y * 5.0));
+        bot.fire_ok = aim_at.is_some() && !danger;
+        let low = h.0 < r.max_health * 0.35;
+        bot.throw_timer -= dt;
+        // an engagement: hold up to 20 s, then push on for 15 s; it ends after 5 s without a target
+        bot.no_target = if target.is_some() { 0.0 } else { bot.no_target + dt };
+        bot.hold = if bot.no_target > 5.0 || bot.hold > 35.0 { 0.0 } else { bot.hold + dt };
+        if let Some(p) = target {
+            let d = p.distance(me);
+            let group = live.iter().filter(|q| q.distance(p) < 35.0).count();
+            if d < 150.0 && group >= 2 && r.stickies > 0 && bot.throw_timer <= 0.0 {
+                bot.throw = true;
+                bot.throw_timer = 3.0;
+            }
+        }
+        let tactic: Option<Vec3> = match target {
+            Some(p) if low => Some((me - p).with_y(0.0).normalize_or_zero()),
+            Some(p) if p.distance(me) > 120.0 && bot.hold < 20.0 => Some(Vec3::ZERO),
+            _ => None,
+        };
+        // a hurt bot detours to a pickup nearby (farther when badly hurt), as a player would
+        let reach = if low { 200.0 } else { 100.0 };
+        let detour = if bot.goto.is_some() && h.0 < r.max_health * 0.6 {
+            pickups
+                .iter()
+                .map(|p| p.translation())
+                .filter(|p| p.distance(t.translation) < reach && !bot.skip_pickups.iter().any(|s| s.distance(*p) < 6.0))
+                .min_by(|a, b| a.distance(t.translation).total_cmp(&b.distance(t.translation)))
+        } else {
+            None
+        };
+        // a pickup not reached in 8 s is given up on
+        bot.detour_t = if detour.is_some() { bot.detour_t + dt } else { 0.0 };
+        let detour = match detour {
+            Some(p) if bot.detour_t > 8.0 => {
+                info!("bot: pickup at {:?} not reached (Roman at {:?}), skipping", [p.x as i32, p.y as i32, p.z as i32], [me.x as i32, me.y as i32, me.z as i32]);
+                bot.skip_pickups.push(p);
+                bot.detour_t = 0.0;
+                None
+            }
+            d => d,
+        };
+        if let (Some(dir), None) = (tactic, detour) {
+            // hold (zero) or back off; the route is kept for later
+            bot_walk = Some(dir);
+        } else if let Some(p) = detour {
             let dir = (p - t.translation).with_y(0.0).normalize_or_zero();
             if !bot.fight {
                 r.yaw = (-dir.x).atan2(-dir.z);
@@ -265,15 +339,8 @@ fn control(
             }
         }
         if bot.fight {
-            let me = t.translation;
-            if let Some(p) = grunts
-                .iter()
-                .filter(|(g, _)| g.mind != crate::ai::Mind::Dead)
-                .map(|(_, gt)| gt.translation())
-                .filter(|p| p.distance(me) < 260.0)
-                .min_by(|a, b| a.distance(me).total_cmp(&b.distance(me)))
-            {
-                let to = p + Vec3::Y * 5.0 - (me + Vec3::Y * 8.5);
+            if let Some(p) = aim_at {
+                let to = p - (me + Vec3::Y * 8.5);
                 r.yaw = (-to.x).atan2(-to.z);
                 r.pitch = (to.y / to.with_y(0.0).length().max(1.0)).atan() - 0.08;
             }
@@ -349,7 +416,7 @@ fn weapons(
     mut physics: NonSendMut<Physics>,
     bombs: Res<BombAssets>,
     data: Res<GameData>,
-    bot: Res<crate::playtest::Bot>,
+    mut bot: ResMut<crate::playtest::Bot>,
     mut q: Query<(Entity, &mut Roman, &Transform)>,
     mut stats: ResMut<PlayerStats>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
@@ -373,7 +440,7 @@ fn weapons(
             reloaded = true;
             sounds.write(crate::audio::PlaySound::at("wpn_rome_rifle_load", t.translation));
         }
-        let fire = buttons.pressed(MouseButton::Left) || bot.fight;
+        let fire = buttons.pressed(MouseButton::Left) || (bot.fight && bot.fire_ok);
         let shoot = fire && w.timer <= 0.0 && w.clip > 0;
         if reloaded {
             r.reloading = r.rifle.reload_time;
@@ -394,7 +461,8 @@ fn weapons(
             sounds.write(crate::audio::PlaySound::at("wpn_rome_rifle_fire", t.translation));
         }
         // sticky bomb: thrown along the aim with the game's sticky bomb values (stand-in throw strength)
-        if (keys.just_pressed(KeyCode::KeyF) || buttons.just_pressed(MouseButton::Right)) && r.stickies > 0 {
+        let bot_throw = std::mem::take(&mut bot.throw);
+        if (keys.just_pressed(KeyCode::KeyF) || buttons.just_pressed(MouseButton::Right) || bot_throw) && r.stickies > 0 {
             r.stickies -= 1;
             let (from, dir) = aim(&r, t);
             spawn_bomb(&mut commands, &mut physics, &bombs, &data, from, dir * 90.0 + Vec3::Y * 20.0, 3.0);

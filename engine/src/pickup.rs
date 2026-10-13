@@ -59,7 +59,8 @@ fn drop_on_death(
         let Some(tpl) = data.templates.get(name) else { continue };
         let p = data.template_props(name);
         let at = t.translation() + Vec3::Y * 4.0;
-        let ground = physics.raycast(at + Vec3::Y * 20.0, -Vec3::Y, 200.0).map(|h| h.1.y).unwrap_or(at.y - 4.0);
+        // the ground under the drop point (from above it, the ray would land it on a roof or tree over the grunt)
+        let ground = physics.raycast(at, -Vec3::Y, 200.0).map(|h| h.1.y).unwrap_or(at.y - 4.0);
         let pe = commands
             .spawn((
                 Transform::from_translation(at).with_rotation(game_to_engine()),

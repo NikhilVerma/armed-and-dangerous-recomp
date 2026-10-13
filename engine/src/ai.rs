@@ -279,7 +279,7 @@ fn search(
 }
 
 /// Line of sight from a grunt's eye to the target's ref_hit_00 (+5 z, 0x00426fd0): nothing static in between.
-fn line_of_sight(physics: &Physics, from_feet: Vec3, to_feet: Vec3) -> bool {
+pub fn line_of_sight(physics: &Physics, from_feet: Vec3, to_feet: Vec3) -> bool {
     let eye = from_feet + Vec3::Y * 8.0;
     let aim = to_feet + Vec3::Y * 7.0;
     let v = aim - eye;

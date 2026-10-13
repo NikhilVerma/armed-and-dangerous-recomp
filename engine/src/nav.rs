@@ -1,6 +1,7 @@
 //! Path planning for the playtest bot (debug tooling, not game logic): A* over a grid sampled from the physics
-//! world: ground height by a ray down per cell, an edge is walkable when the step is under 50 degrees and nothing
-//! static blocks a knee-high ray between the cells. Built on demand around the start and goal.
+//! world: ground height by a ray down per cell from just above the cell it is reached from (so the floor under an
+//! archway or overhang, not its roof), an edge is walkable when the step is under 50 degrees and nothing static
+//! blocks a knee-high ray between the cells. Built on demand around the start and goal.
 
 use crate::physics::Physics;
 use bevy::prelude::*;
@@ -32,12 +33,15 @@ pub fn path(physics: &Physics, from: Vec3, to: Vec3, blocked: &[Vec3]) -> Option
     let cell = |p: Vec3| ((p.x / STEP).round() as i32, (p.z / STEP).round() as i32);
     let pos = |c: (i32, i32)| Vec2::new(c.0 as f32 * STEP, c.1 as f32 * STEP);
     let mut heights: HashMap<(i32, i32), Option<f32>> = HashMap::new();
-    let mut ground = |c: (i32, i32)| -> Option<f32> {
+    // the first sample of a cell decides it: a ray down from CLIMB above the height it is reached from
+    const CLIMB: f32 = 20.0;
+    let ground = |heights: &mut HashMap<(i32, i32), Option<f32>>, c: (i32, i32), from_h: f32| -> Option<f32> {
         *heights.entry(c).or_insert_with(|| {
             let p = pos(c);
-            physics.raycast(Vec3::new(p.x, 3000.0, p.y), -Vec3::Y, 6000.0).filter(|h| h.2.y > 0.55).map(|h| h.1.y)
+            physics.raycast(Vec3::new(p.x, from_h + CLIMB, p.y), -Vec3::Y, 400.0).filter(|h| h.2.y > 0.55).map(|h| h.1.y)
         })
     };
+    ground(&mut heights, cell(from), from.y);
     let (s, g) = (cell(from), cell(to));
     let h = |c: (i32, i32)| pos(c).distance(pos(g));
     let mut open = BinaryHeap::new();
@@ -59,11 +63,11 @@ pub fn path(physics: &Physics, from: Vec3, to: Vec3, blocked: &[Vec3]) -> Option
         if expanded > 150000 {
             break;
         }
-        let Some(hc) = ground(c) else { continue };
+        let Some(hc) = heights.get(&c).copied().flatten() else { continue };
         let cc = cost[&c];
         for (dx, dz) in [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)] {
             let n = (c.0 + dx, c.1 + dz);
-            let Some(hn) = ground(n) else { continue };
+            let Some(hn) = ground(&mut heights, n, hc) else { continue };
             // spots where the bot got stuck before are avoided
             let np = pos(n);
             if blocked.iter().any(|b| Vec2::new(b.x, b.z).distance(np) < 10.0) {
@@ -102,7 +106,7 @@ pub fn path(physics: &Physics, from: Vec3, to: Vec3, blocked: &[Vec3]) -> Option
         .filter(|(i, _)| i % 4 == 0 || *i == cells.len() - 1)
         .map(|(_, &c)| {
             let p = pos(c);
-            Vec3::new(p.x, ground(c).unwrap_or(0.0), p.y)
+            Vec3::new(p.x, heights.get(&c).copied().flatten().unwrap_or(0.0), p.y)
         })
         .collect();
     Some(pts)

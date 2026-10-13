@@ -71,6 +71,18 @@ pub struct Bot {
     pub blocked: Vec<Vec3>,
     pub no_progress: f32,
     pub last_dist: f32,
+    /// seconds spent holding position on the current engagement
+    pub hold: f32,
+    /// seconds without a target (the hold resets after 5)
+    pub no_target: f32,
+    /// the bot has something worth shooting and no explosive next to it
+    pub fire_ok: bool,
+    /// seconds on the current pickup detour; pickups given up on (unreachable)
+    pub detour_t: f32,
+    pub skip_pickups: Vec<Vec3>,
+    /// throw a sticky bomb this frame; seconds until the next may be thrown
+    pub throw: bool,
+    pub throw_timer: f32,
 }
 
 #[derive(Deserialize)]
@@ -195,8 +207,11 @@ fn drive(
     mut motion: ResMut<AccumulatedMouseMotion>,
     mut exit: MessageWriter<AppExit>,
     mut bot: ResMut<Bot>,
+    mission: Option<Res<crate::mission::Mission>>,
 ) {
     pt.t += time.delta_secs();
+    // the mission over (won or failed): play stops, so a pending goto counts as done
+    let ended = mission.is_some_and(|m| m.outcome != crate::mission::Outcome::Playing);
     let t = pt.t;
     for k in std::mem::take(&mut pt.taps) {
         keys.release(k);
@@ -224,7 +239,7 @@ fn drive(
         }
         pt.step_t += time.delta_secs();
         let done = if st.goto.is_some() {
-            bot.arrived || pt.step_t > 240.0
+            bot.arrived || ended || pt.step_t > 240.0
         } else if let Some(w) = st.wait {
             pt.step_t >= w
         } else if let Some(h) = st.hold_use {
