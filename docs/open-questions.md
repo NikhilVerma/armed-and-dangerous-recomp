@@ -49,9 +49,9 @@ the fight; the engine cancelled it on the knockback's hop (fixed): chest hits 12
 ~1320. Still more hits than the original's (about 25 vs 22 before frame 1250).
 The original is deterministic on these inputs (three runs: 22 hits before 1250, none on the chest, the first at 822).
 The engine's chest hits mostly come after Roman's death; while he lives its hits spread over more parts (the right
-arm and wrist: the original's barely), the 27th (fatal) hit comes ~20% sooner. Not compared yet: the grunts'
-positions through the fight (the original's advance to mid-field in the captures; the engine's stay further back)
-and the muzzle point (engine: 7 above the feet; original: the weapon's emitter bone).
+arm and wrist: the original's barely), the 27th (fatal) hit comes ~20% sooner. The grunts' distances to Roman
+match the original's within a few units through the fight (camera dumps, 840-1200). Not compared: the muzzle
+point (engine: 7 above the feet; original: the weapon's emitter bone) and Roman's facing during the hit anim.
 
 ## Falling snow in the remaster engine (2026-10-13, partly resolved)
 
