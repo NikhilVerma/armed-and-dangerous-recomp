@@ -29,7 +29,8 @@ Export the level once (all exporters write work/remaster/lev_1_m1/, never commit
 .venv/Scripts/python.exe tools/remaster_export_mission.py lev_1_m1
 ```
 
-Build and play (cargo is in %USERPROFILE%/.cargo/bin; add it to PATH in Git Bash):
+Build and play (cargo is in %USERPROFILE%/.cargo/bin; add it to PATH in Git Bash). After a build, `engine/play.bat`
+(double-click) starts the game on the title menu.
 
 ```bash
 cd engine && cargo build --release && ./target/release/and_remaster.exe --size 1600x900
@@ -41,7 +42,8 @@ from the original), `--no-hud`, `--snap FILE` (screenshot after 4 s, then exit),
 `--fx-test DIR`.
 
 Controls (the original's PC bindings where ported): WASD move, mouse look, left mouse fire, right mouse Fire Special
-(sticky bomb / Topsy Turvy), Tab next special, Q next weapon, R reload, Space jump, F or X Activate, Enter continue,
+(sticky bomb / Topsy Turvy), Tab next special, Q next weapon, R reload, Space jump, Z or E zoom (held), F or X
+Activate, Enter continue,
 Esc pause menu, F3 debug stats panel.
 
 ## Layout

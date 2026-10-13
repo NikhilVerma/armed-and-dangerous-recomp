@@ -213,6 +213,15 @@ fn main() {
     if a.background {
         app.add_systems(PostStartup, |mut m: ResMut<audio::Mixer>| m.master = 0.0);
     }
+    // debug: NEAR_DUMP=1 prints the named entities within 45 units of the camera once, 5 s into play
+    if std::env::var("NEAR_DUMP").is_ok() {
+        app.add_systems(Update, |time: Res<Time>, mut done: Local<bool>, cam: Query<&GlobalTransform, With<Camera3d>>, q: Query<(&Name, &GlobalTransform)>| {
+            if *done || time.elapsed_secs() < 9.0 { return; }
+            *done = true;
+            let Ok(c) = cam.single() else { return };
+            for (n, t) in &q { let d = t.translation().distance(c.translation()); if d < 45.0 { info!("NEAR {} {:.1} {:?}", n, d, t.translation()); } }
+        });
+    }
     if let Some(h) = a.debug_hide.clone() {
         app.add_systems(Update, move |mut q: Query<(&Name, &mut Visibility)>| {
             for (n, mut v) in &mut q {

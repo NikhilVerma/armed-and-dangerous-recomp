@@ -29,6 +29,11 @@ pub struct Roman {
     pub pitch: f32,
     pub vel: Vec3,
     pub on_ground: bool,
+    /// remaster safety net (not in the original): the last place where Roman moved freely, and how long he has
+    /// been pushing without moving (wedged in a collider)
+    pub free_trail: std::collections::VecDeque<Vec3>,
+    pub free_t: f32,
+    pub wedged: f32,
     /// zoom (mode +0xacc, held Zoom: Z / E): the blend weight toward the weapon's camera node, 0..1 over
     /// camera_zoom_secs (0x0040fbb0)
     pub zoom: f32,
@@ -180,6 +185,9 @@ pub fn make_roman(physics: &mut Physics, p: &Props, data: &GameData, feet: Vec3,
         pitch: -0.15,
         vel: Vec3::ZERO,
         on_ground: false,
+        free_trail: std::collections::VecDeque::from([feet]),
+        free_t: 0.0,
+        wedged: 0.0,
         zoom: 0.0,
         zoom_secs: data.props("p_globalsettings").f("camera_zoom_secs", 0.5),
         jumping: false,
@@ -539,6 +547,7 @@ fn control(
         let fwd = Quat::from_rotation_y(r.yaw) * Vec3::NEG_Z;
         let right = Quat::from_rotation_y(r.yaw) * Vec3::X;
         r.move_local = Vec2::new(vel.dot(right), vel.dot(fwd));
+        let before = t.translation;
         if let Some((feet, on)) = physics.move_walker(&r.walker, vel, dt) {
             if on && r.vel.y <= 0.0 {
                 r.vel.y = 0.0;
@@ -548,6 +557,31 @@ fn control(
                 r.jumping = false;
             }
             t.translation = feet;
+        }
+        // safety net (remaster): pushing for 1.5 s without moving at all (wedged in a wall's collider: seen in a
+        // bot run next to v_wall_tall_a) puts him back where he last moved freely
+        let moved = t.translation.distance(before);
+        let pushing = Vec2::new(wish.x, wish.z).length() > 1.0 || r.jumping;
+        if moved > 0.2 * dt * r.fwd_speed {
+            r.wedged = 0.0;
+            // a trail of places he moved through, every 0.5 s, the last 3 s
+            r.free_t += dt;
+            if r.free_t >= 0.5 && on_free_ground(&physics, t.translation) {
+                r.free_t = 0.0;
+                r.free_trail.push_back(t.translation);
+                if r.free_trail.len() > 6 {
+                    r.free_trail.pop_front();
+                }
+            }
+        } else if pushing && !r.dead {
+            r.wedged += dt;
+            if r.wedged > 1.5 {
+                r.wedged = 0.0;
+                let back = r.free_trail.front().copied().unwrap_or(t.translation) + Vec3::Y * 2.0;
+                physics.place_walker(&r.walker, back);
+                t.translation = back;
+                r.vel = Vec3::ZERO;
+            }
         }
         // Roman faces where the camera looks (his model faces -Y in game space = +Z engine: turn by pi)
         t.rotation = Quat::from_rotation_y(r.yaw + std::f32::consts::PI) * r.base;
@@ -907,3 +941,8 @@ pub fn spawn_bomb(commands: &mut Commands, physics: &mut Physics, bombs: &BombAs
 
 /// The tickerbomb's explosion fx (guess: the sticky bomb's snow variant; the behaviour picks it in the game).
 const TICKERBOMB_FX: &str = "fx_exp_sticky_snow";
+
+/// Ground under a point with room for Roman above it (the safety net's "freely").
+fn on_free_ground(physics: &Physics, at: Vec3) -> bool {
+    physics.raycast(at + Vec3::Y * 12.0, -Vec3::Y, 14.0).is_some()
+}
