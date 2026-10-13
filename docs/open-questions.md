@@ -65,6 +65,13 @@ z 3.9..4.3 around his position). What remains is a count: the engine lands ~3..5
 the engine's do. Ruled out: missing parts (the original's player has all 13, the camera dump's player_parts, in the
 engine's order). Not measured: the original's part shapes' world placement (their Havok bodies via the +0x1bc
 list), which would show whether the chest part sits elsewhere than the chest bone suggests.
+How the original's ray reaches the parts (RayCollector_AddBroadphaseHit 0x00413a90, physics_01.cpp:2785): only when
+the ray's broadphase meets the owner's main collidable (Roman: the radius shape plus two spheres, PlayerObject_
+BuildCollision 0x00475220, collision_radius 2); with detail >= 2 the owner is posed as a ragdoll (0x00458970) and
+every ragdoll body (+0x1bc records, built by fn_00456a90 from Game+0xa8c) is cast. So the hit shapes are the ragdoll
+bodies' shapes; that they are trotter_coll_0's parts is inferred from their 13 bone names, not read. Lateral reach of
+the hits: original |x| <= 1.57, engine <= 1.72 (not a gate effect at radius >= 2). Next: dump a ragdoll body's
+shape (entity +0x24) type and extent.
 
 ## Falling snow in the remaster engine (2026-10-13, partly resolved)
 
