@@ -44,7 +44,9 @@ L_wrist 13, Center 5, R_shoulder 2, R_wrist 1, L_arm 1, never the chest, all at 
 engine's 27 of ~38 before his death (~71%), 12 on the chest, at 4.0..4.46. His ref_hit_00 (the aim point): original
 (-0.2, -0.2, 4.2), engine (-0.23, -0.01, 4.31). So the aim point sits ~0.1 higher and 0.2 further back in the
 engine: Roman's pose differs a little (which anims the original plays after the warp is not known; the engine
-plays trotter_aim with the pitch blend). Next: dump the original player's anim slots (+0x248).
+plays trotter_aim with the pitch blend). The anim slots (+0x248) show the original in trotter_hit_small most of
+the fight; the engine cancelled it on the knockback's hop (fixed): chest hits 12 -> 5..6, death 1173..1289 vs
+~1320. Still more hits than the original's (about 25 vs 22 before frame 1250).
 
 ## Falling snow in the remaster engine (2026-10-13, partly resolved)
 
