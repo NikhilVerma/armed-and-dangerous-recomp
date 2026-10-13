@@ -121,7 +121,7 @@ struct Barracks {
 }
 
 /// A reference bone of a model (its reference anim's first key: anims/<model>.json), in the model's game space.
-fn pub_bone(dir: &std::path::Path, model: &str, bone: &str) -> Option<Vec3> {
+pub(crate) fn pub_bone(dir: &std::path::Path, model: &str, bone: &str) -> Option<Vec3> {
     let v: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("anims").join(format!("{model}.json"))).ok()?).ok()?;
     let (_, track) = v.get("tracks")?.as_object()?.iter().find(|(k, _)| k.eq_ignore_ascii_case(bone))?;
     let k = track.get("t")?.as_array()?.first()?.as_array()?;

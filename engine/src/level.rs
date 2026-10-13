@@ -337,6 +337,26 @@ pub fn spawn(
         // characters: property sets with an AI mode (grunts). Their AI here is a stand-in driven by the game's
         // own parameters (speeds, ranges); the recovered AI (src/ai) replaces it later.
         if p.has("mode") && inst.model.starts_with("grunt_") {
+            // window / tower grunts (AI_ResolveStartObjects 0x00425e20): placed at the generic_txt bone of the object
+            // whose tag is obj_tag (the house), physics off: they stay there. Facing: away from the object's centre
+            // (guess: the original takes the bone's whole matrix)
+            let mode = p.s("mode").unwrap_or("").to_owned();
+            let mut pos = pos;
+            let mut window_yaw = None;
+            if mode.contains("window") || mode.contains("tower") {
+                let tag = p.f("obj_tag", 0.0) as i64;
+                let house = scene.instances.iter().find(|h| h.props.get("tag").and_then(|v| v.as_i64()) == Some(tag) && tag != 0);
+                if let (Some(h), Some(bone)) = (house, p.s("generic_txt")) {
+                    if let Some(b) = crate::mission::pub_bone(&lib.dir, &h.model, bone) {
+                        let m = crate::scene::game_matrix(&h.transform);
+                        let at = game_to_engine() * m.transform_point3(b);
+                        let centre = game_to_engine() * m.w_axis.truncate();
+                        let out = (at - centre).with_y(0.0).normalize_or_zero();
+                        pos = at;
+                        window_yaw = (out != Vec3::ZERO).then(|| out.x.atan2(out.z));
+                    }
+                }
+            }
             let shape = ai::capsule(physics, p.f("collision_radius", 4.0));
             let lift = Vec3::Y * ai::capsule_lift(p.f("collision_radius", 4.0));
             let s = BodySettings::new_dynamic()
@@ -346,11 +366,15 @@ pub fn spawn(
             if let Some(id) = physics.add_dynamic(e, &shape, pos + lift, Quat::IDENTITY, Vec3::ZERO, s) {
                 let (yaw, _, _) = (rot * game_to_engine().inverse()).to_euler(EulerRot::YXZ);
                 physics.materials.insert(id, p.s("material").unwrap_or("grunt").to_owned());
+                let mut g = ai::make_grunt(&p, data, pos, window_yaw.unwrap_or(yaw), &mut rng);
+                if window_yaw.is_some() {
+                    g.fixed = Some(pos);
+                }
                 commands.entity(e).insert((
                     Body { id, offset: lift, sync_rotation: false },
                     Health(p.f("max_health", 100.0)),
                     bounds,
-                    ai::make_grunt(&p, data, pos, yaw, &mut rng),
+                    g,
                 ));
                 info.grunts += 1;
             }

@@ -80,6 +80,8 @@ pub struct Grunt {
     /// hit_level_1 / hit_level_2 (+0x9e8 / +0x9ec): the damage limits of the small and medium hit reactions
     pub hit_level_1: f32,
     pub hit_level_2: f32,
+    /// a window / tower grunt's place (physics off there: 0x00425e20), held each frame
+    pub fixed: Option<Vec3>,
     /// the hit reaction playing (states 0x12f small, 0x130 medium, 0x131 big): its anim, and its kind 1..3; the grunt
     /// neither moves nor fires meanwhile; charanim.rs clears it when the anim ends
     pub hit: Option<(String, u8)>,
@@ -195,6 +197,7 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         hit_level_1: p.f("hit_level_1", 10.0),
         hit_level_2: p.f("hit_level_2", 25.0),
         hit: None,
+        fixed: None,
         hurt_voice_timer: 0.0,
         dead_said: false,
         voice_set: if pick < 100 { 0 } else if pick < 200 { 1 } else { 2 },
@@ -450,6 +453,18 @@ fn think(
             }
             Mind::Reload => g.pause -= dt,
             _ => {}
+        }
+        // a window / tower grunt stays at its place
+        if let Some(f) = g.fixed {
+            goal = pos;
+            speed = 0.0;
+            let k = physics.meters_per_unit;
+            if let Ok(mut b) = physics.world.body_mut(body.id) {
+                if (pos - f).length() > 0.5 {
+                    let _ = b.set_position(crate::physics::jr((f + body.offset) * k), Activation::Activate);
+                }
+                let _ = b.set_linear_velocity(jv(Vec3::ZERO));
+            }
         }
         let dir = flat(goal - pos).normalize_or_zero();
         let face = match (g.mind, target) {
