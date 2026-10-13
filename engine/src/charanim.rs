@@ -96,7 +96,7 @@ fn return_name(s: &str) -> &'static str {
 
 #[allow(clippy::type_complexity)]
 fn grunts(
-    mut q: Query<(Entity, &Grunt, &mut Animator, &Transform, Option<&crate::topsy::Thrown>), Without<crate::ragdoll::Ragdoll>>,
+    mut q: Query<(Entity, &mut Grunt, &mut Animator, &Transform, Option<&crate::topsy::Thrown>), Without<crate::ragdoll::Ragdoll>>,
     targets: Query<&GlobalTransform>,
     time: Res<Time>,
     lib: Res<crate::skin::AnimLibrary>,
@@ -109,7 +109,25 @@ fn grunts(
         *seed = seed.wrapping_mul(214013).wrapping_add(2531011);
         (*seed >> 16) & 0x7fff
     };
-    for (e, g, mut a, t, thrown) in &mut q {
+    for (e, mut g, mut a, t, thrown) in &mut q {
+        // a hit reaction: its anim once, then the state's anims again
+        if g.mind != Mind::Dead {
+            if let Some((name, _)) = g.hit.clone() {
+                let playing = a.layers.first().is_some_and(|l| l.anim == name);
+                if playing && a.finished(0, &lib) {
+                    g.hit = None;
+                } else {
+                    if !playing {
+                        a.play(0, &name, false, Mask::All);
+                        a.layers[0].time = 0.0;
+                    }
+                    a.stop(1);
+                    continue;
+                }
+            }
+        } else {
+            g.hit = None;
+        }
         // thrown by the Topsy Turvy bomb: hanging on, or falling into the sky
         if let Some(th) = thrown {
             let (name, looping) = match (th.hangs, th.t < 1.0, th.t < 0.3) {

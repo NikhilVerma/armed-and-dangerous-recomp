@@ -77,6 +77,12 @@ pub struct Grunt {
     pub hit_ragdoll: f32,
     pub last_health: f32,
     pub last_hit: f32,
+    /// hit_level_1 / hit_level_2 (+0x9e8 / +0x9ec): the damage limits of the small and medium hit reactions
+    pub hit_level_1: f32,
+    pub hit_level_2: f32,
+    /// the hit reaction playing (states 0x12f small, 0x130 medium, 0x131 big): its anim, and its kind 1..3; the grunt
+    /// neither moves nor fires meanwhile; charanim.rs clears it when the anim ends
+    pub hit: Option<(String, u8)>,
     pub hurt_voice_timer: f32,
     pub dead_said: bool,
     pub voice_set: u8,
@@ -186,6 +192,9 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         hit_ragdoll: p.f("hit_ragdoll", 50.0),
         last_health: max_health,
         last_hit: 0.0,
+        hit_level_1: p.f("hit_level_1", 10.0),
+        hit_level_2: p.f("hit_level_2", 25.0),
+        hit: None,
         hurt_voice_timer: 0.0,
         dead_said: false,
         voice_set: if pick < 100 { 0 } else if pick < 200 { 1 } else { 2 },
@@ -341,6 +350,29 @@ fn think(
         g.hurt_voice_timer -= dt;
         if h.0 < g.last_health && h.0 > 0.0 {
             g.last_hit = g.last_health - h.0;
+            // the hit reaction (GenericAIObject_Slot52 0x00430340, anims from GruntObject 0x0043bd70): damage <=
+            // hit_level_1 a small hit (one of ids 0x3f..0x42 by rand * 400 >> 15: grunt_bow_hit_1, grunt_hit_mgun_2,
+            // grunt_hit_mgun_3, grunt_hit_4; not again while one plays), <= hit_level_2 a medium hit (0x43 / 0x44
+            // alternating, the first by rand: grunt_hit_1 / _2), else a big hit (0x45 / 0x46: grunt_hit_3)
+            let d = g.last_hit;
+            if d <= g.hit_level_1 {
+                if g.hit.as_ref().is_none_or(|h| h.1 != 1) {
+                    let q = (rng.rand() * 400.0) as u32;
+                    let n = ["grunt_bow_hit_1", "grunt_hit_mgun_2", "grunt_hit_mgun_3", "grunt_hit_4"][(q / 100).min(3) as usize];
+                    g.hit = Some((n.to_owned(), 1));
+                }
+            } else if d <= g.hit_level_2 {
+                let prev = g.hit.as_ref().map(|h| h.0.clone());
+                let n = match prev.as_deref() {
+                    Some("grunt_hit_1") => "grunt_hit_2",
+                    Some("grunt_hit_2") => "grunt_hit_1",
+                    _ if rng.rand() < 0.5 => "grunt_hit_1",
+                    _ => "grunt_hit_2",
+                };
+                g.hit = Some((n.to_owned(), 2));
+            } else {
+                g.hit = Some(("grunt_hit_3".to_owned(), 3));
+            }
             if g.hurt_voice_timer <= 0.0 {
                 g.hurt_voice_timer = 4.0;
                 bark(&mut sounds, "Hurt", g.voice_set, tr.translation);
@@ -386,7 +418,9 @@ fn think(
         };
         let mut goal = pos;
         let mut speed = 0.0;
-        match g.mind {
+        // a hit reaction holds the grunt (states 0x12f..0x131)
+        let reacting = g.hit.is_some();
+        match if reacting { Mind::Dead } else { g.mind } {
             Mind::Roam => {
                 // idle / roaming (state 1, grunt-ai.md): with no target the grunt stands at attention where it is and
                 // fidgets (charanim.rs); it only moves along a patrol spline, which no lev_1_m1 grunt has. (The
