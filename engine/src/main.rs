@@ -1,68 +1,73 @@
-//! Armed and Dangerous on the remaster engine (MVP): one level's landscape and placed objects from the retail
-//! data (tools/remaster_export.py), lit by the level's own lights, with a free camera and a benchmark flight.
+//! Armed and Dangerous on the remaster engine (MVP): a level from the retail data (tools/remaster_export.py),
+//! Bevy 0.20 rendering, Jolt Physics 5.6, grunt AI, explosions, bevy_egui menus and a benchmark mode.
 //!
-//!   and_remaster [--scene DIR] [--size WxH] [--bench SECONDS --out FILE] [--vsync]
+//!   and_remaster [--scene DIR] [--size WxH] [--vsync] [--no-ai] [--bench SECONDS --out FILE]
 //!
-//! Game-neutral pieces: scene.rs (scene format), flycam.rs, bench.rs. Game-specific: this file (axes, lights).
+//! Game-neutral modules: scene (format), physics (Jolt), fx (explosions), flycam, bench, menu.
+//! Game-specific: level (A&D templates, axes, units, lights), ai (grunts), player.
 
+mod ai;
 mod bench;
 mod flycam;
+mod fx;
+mod gamedata;
+mod level;
+mod menu;
+mod physics;
+mod player;
 mod scene;
 
-use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
-use bevy::light::CascadeShadowConfigBuilder;
+use bevy::diagnostic::FrameTimeDiagnosticsPlugin;
 use bevy::prelude::*;
 use bevy::window::{PresentMode, WindowResolution};
+use bevy_egui::EguiPlugin;
 use std::path::PathBuf;
+
+#[derive(States, Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AppState {
+    #[default]
+    Title,
+    Playing,
+    Paused,
+}
+
+pub fn playing(state: Res<State<AppState>>) -> bool {
+    *state.get() == AppState::Playing
+}
 
 struct Args {
     scene: PathBuf,
     size: (u32, u32),
     bench: Option<(f32, PathBuf)>,
     vsync: bool,
+    no_ai: bool,
 }
 
 fn args() -> Args {
-    let mut a = Args {
-        scene: PathBuf::from("../work/remaster/lev_1_m1"),
-        size: (1920, 1080),
-        bench: None,
-        vsync: false,
-    };
+    let mut a = Args { scene: PathBuf::from("../work/remaster/lev_1_m1"), size: (1920, 1080), bench: None, vsync: false, no_ai: false };
     let v: Vec<String> = std::env::args().collect();
-    let mut i = 1;
     let mut bench_secs = None;
     let mut out = PathBuf::from("../work/remaster/bench/latest.json");
+    let mut i = 1;
     while i < v.len() {
-        let next = |i: usize| v.get(i + 1).cloned().unwrap_or_default();
+        let next = v.get(i + 1).cloned().unwrap_or_default();
+        let mut used = 2;
         match v[i].as_str() {
-            "--scene" => a.scene = PathBuf::from(next(i)),
+            "--scene" => a.scene = PathBuf::from(next),
             "--size" => {
-                let s = next(i);
-                let (w, h) = s.split_once('x').expect("--size WxH");
+                let (w, h) = next.split_once('x').expect("--size WxH");
                 a.size = (w.parse().unwrap(), h.parse().unwrap());
             }
-            "--bench" => bench_secs = Some(next(i).parse::<f32>().expect("--bench SECONDS")),
-            "--out" => out = PathBuf::from(next(i)),
-            "--vsync" => {
-                a.vsync = true;
-                i -= 1;
-            }
+            "--bench" => bench_secs = Some(next.parse::<f32>().expect("--bench SECONDS")),
+            "--out" => out = PathBuf::from(next),
+            "--vsync" => (a.vsync, used) = (true, 1),
+            "--no-ai" => (a.no_ai, used) = (true, 1),
             other => panic!("unknown argument {other}"),
         }
-        i += 2;
+        i += used;
     }
     a.bench = bench_secs.map(|s| (s, out));
     a
-}
-
-/// Game axes (Z up, as authored in 3ds Max) to the engine's (Y up): a rotation, so handedness is kept.
-fn game_to_engine() -> Quat {
-    Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)
-}
-
-fn to_engine(p: Vec3) -> Vec3 {
-    game_to_engine() * p
 }
 
 #[derive(Resource)]
@@ -70,165 +75,156 @@ struct Launch {
     scene: PathBuf,
     bench: Option<(f32, PathBuf)>,
     size: (u32, u32),
+    no_ai: bool,
 }
-
-#[derive(Component)]
-struct FpsText;
-
-const HELPERS: &[&str] = &["marker", "camera_fx", "bb_", "bigredarrow"];
 
 fn main() {
     let a = args();
     let scene_dir = std::fs::canonicalize(&a.scene).unwrap_or_else(|_| panic!("scene folder {}", a.scene.display()));
-    App::new()
-        .add_plugins(
-            DefaultPlugins
-                .set(WindowPlugin {
-                    primary_window: Some(Window {
-                        title: "Armed and Dangerous - remaster engine".into(),
-                        resolution: WindowResolution::new(a.size.0, a.size.1).with_scale_factor_override(1.0),
-                        present_mode: if a.vsync { PresentMode::AutoVsync } else { PresentMode::AutoNoVsync },
-                        ..default()
-                    }),
+    let bench = a.bench.is_some();
+    let mut app = App::new();
+    app.add_plugins(
+        DefaultPlugins
+            .set(WindowPlugin {
+                primary_window: Some(Window {
+                    title: "Armed and Dangerous - remaster engine".into(),
+                    resolution: WindowResolution::new(a.size.0, a.size.1).with_scale_factor_override(1.0),
+                    present_mode: if a.vsync { PresentMode::AutoVsync } else { PresentMode::AutoNoVsync },
                     ..default()
-                })
-                .set(AssetPlugin { file_path: scene_dir.to_string_lossy().into_owned(), ..default() }),
-        )
-        .add_plugins((FrameTimeDiagnosticsPlugin::default(), flycam::FlyCamPlugin, bench::BenchPlugin))
-        .insert_resource(ClearColor(Color::srgb(0.62, 0.70, 0.80)))
-        .insert_resource(Launch { scene: scene_dir, bench: a.bench, size: a.size })
-        .add_systems(Startup, setup)
-        .add_systems(Update, fps_text)
-        .run();
+                }),
+                ..default()
+            })
+            .set(AssetPlugin { file_path: scene_dir.to_string_lossy().into_owned(), ..default() }),
+    )
+    .add_plugins(EguiPlugin::default())
+    .add_plugins((FrameTimeDiagnosticsPlugin::default(), flycam::FlyCamPlugin, bench::BenchPlugin))
+    .add_plugins((physics::PhysicsPlugin, fx::FxPlugin, ai::AiPlugin, player::PlayerPlugin, menu::MenuPlugin, level::LevelPlugin))
+    .init_state::<AppState>()
+    .insert_non_send(physics::Physics::new(level::METERS_PER_UNIT))
+    .insert_resource(ClearColor(Color::srgb(0.62, 0.70, 0.80)))
+    .insert_resource(Launch { scene: scene_dir, bench: a.bench, size: a.size, no_ai: a.no_ai })
+    .add_systems(Startup, setup)
+    .add_systems(Update, (bench_scenario, bench_record).run_if(resource_exists::<bench::Bench>));
+    if bench {
+        app.insert_state(AppState::Playing);
+    }
+    app.run();
 }
 
+#[allow(clippy::too_many_arguments)]
 fn setup(
     mut commands: Commands,
     launch: Res<Launch>,
     assets: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut physics: NonSendMut<physics::Physics>,
+    mut ai_stats: ResMut<ai::AiStats>,
+    mut menu: ResMut<menu::MenuState>,
 ) {
+    let t = std::time::Instant::now();
     let scene = scene::read_scene(&launch.scene);
     let mut lib = scene::Library { dir: launch.scene.clone(), ..default() };
-
-    // Game-axis transforms are turned into engine axes (Z up -> Y up) as they are spawned.
-    let axes = Mat4::from_quat(game_to_engine());
-    let mut triangles = 0usize;
-    let mut parts = 0usize;
-    let mut spawn_model = |commands: &mut Commands, lib: &mut scene::Library, name: &str, m: Mat4| -> bool {
-        // Editor helpers the game never draws (markers, trigger boxes, camera rigs).
-        if HELPERS.iter().any(|h| name.starts_with(h)) {
-            return false;
-        }
-        let unlit = name.contains("_sky");
-        let Some(model) = lib.load_model(name, unlit, &assets, &mut meshes, &mut materials) else {
-            return false;
-        };
-        triangles += model.triangles;
-        parts += model.parts.len();
-        let children: Vec<_> = model
-            .parts
-            .iter()
-            .map(|(mesh, mat)| (Mesh3d(mesh.clone()), MeshMaterial3d(mat.clone())))
-            .collect();
-        let e = commands.spawn((Transform::from_matrix(m), Visibility::default(), Name::new(name.to_owned()))).id();
-        for c in children {
-            let child = commands.spawn(c).id();
-            commands.entity(e).add_child(child);
-        }
-        true
-    };
-    spawn_model(&mut commands, &mut lib, &scene.landscape, axes);
-    let mut placed = 0;
-    for inst in &scene.instances {
-        // Invisible walls only block movement (physics); the game never draws them.
-        if inst.property.contains("invisible") {
-            continue;
-        }
-        if spawn_model(&mut commands, &mut lib, &inst.model, axes * scene::game_matrix(&inst.transform)) {
-            placed += 1;
-        }
-    }
+    let data = gamedata::GameData::load(&launch.scene);
+    let info = level::spawn(&mut commands, &scene, &data, &mut lib, &mut physics, &assets, &mut meshes, &mut materials);
     info!(
-        "{}: {} instances of {} models, {} draws (before batching), {} triangles",
-        scene.level,
-        placed,
-        lib.models.len(),
-        parts,
-        triangles
+        "{}: {} objects of {} models, {} draws before batching, {} triangles; Jolt: {} static bodies ({} triangles), {} dynamic; {} grunts, {} destructibles; {:.0} ms",
+        info.name,
+        info.instances,
+        info.models,
+        info.draws,
+        info.triangles,
+        info.static_bodies,
+        info.static_triangles,
+        physics.bodies.len(),
+        info.grunts,
+        info.destructibles,
+        t.elapsed().as_secs_f32() * 1000.0
     );
+    ai_stats.enabled = !launch.no_ai;
 
-    // The level's directional lights (lighttype "dir"): the light shines down its local -Z axis.
-    let (lo, hi) = (Vec3::from(scene.bounds[0]), Vec3::from(scene.bounds[1]));
-    let extent = (hi - lo).length();
-    let mut first = true;
-    for l in &scene.lights {
-        let p = |k: &str| l.props.get(k).and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
-        if l.props.get("lighttype").and_then(|v| v.as_str()) != Some("dir") || p("lighton") == 0.0 {
-            continue;
-        }
-        let m = scene::game_matrix(&l.transform);
-        let dir = to_engine(-m.z_axis.truncate().normalize());
-        let color = Color::srgb(p("redvalue") / 255.0, p("greenvalue") / 255.0, p("bluevalue") / 255.0);
-        let ambient_only = p("ambientonly") != 0.0;
-        if ambient_only {
-            continue;
-        }
-        commands.spawn((
-            DirectionalLight {
-                color,
-                illuminance: 9000.0 * p("intensity").max(0.1),
-                shadow_maps_enabled: first,
-                ..default()
-            },
-            Transform::from_translation(Vec3::ZERO).looking_to(dir, Vec3::Y),
-            CascadeShadowConfigBuilder { maximum_distance: extent * 0.5, first_cascade_far_bound: 60.0, ..default() }.build(),
-        ));
-        first = false;
-    }
-    if first {
-        // no usable light in the level: a default sun
-        commands.spawn((
-            DirectionalLight { illuminance: 9000.0, shadow_maps_enabled: true, ..default() },
-            Transform::from_xyz(0.0, 1.0, 0.0).looking_to(Vec3::new(-0.4, -1.0, -0.3), Vec3::Y),
-        ));
-    }
-
-    // Camera: over the middle of the level, looking across it.
-    let center = to_engine((lo + hi) * 0.5);
-    let start = center + Vec3::new(0.0, 120.0, (hi - lo).y * 0.35);
-    commands.spawn((
+    let start = info.center + Vec3::new(0.0, 120.0, info.size.y * 0.35);
+    let cam = commands.spawn((
         Camera3d::default(),
-        Transform::from_translation(start).looking_at(center, Vec3::Y),
+        Transform::from_translation(start).looking_at(info.center, Vec3::Y),
         flycam::FlyCam { yaw: 0.0, pitch: -0.35, speed: 60.0 },
         AmbientLight { color: Color::srgb(0.75, 0.8, 0.9), brightness: 700.0, ..default() },
-    ));
+        ai::Player,
+    )).id();
+    // The level's own linear fog; the sky (behaviour background, fog 0) is drawn without it.
+    if let Some((near, far, color)) = info.fog {
+        commands.insert_resource(ClearColor(color));
+        commands.entity(cam).insert(bevy::pbr::DistanceFog { color, falloff: bevy::pbr::FogFalloff::Linear { start: near, end: far }, ..default() });
+    }
     if let Some((secs, out)) = &launch.bench {
-        let mut b = bench::Bench::new(*secs, out.clone(), center, (hi - lo).x.min((hi - lo).y) * 0.35, 160.0);
-        b.info.insert("engine".into(), "bevy 0.20".into());
-        b.info.insert("level".into(), scene.level.clone().into());
-        b.info.insert("resolution".into(), format!("{}x{}", launch.size.0, launch.size.1).into());
-        b.info.insert("instances".into(), placed.into());
-        b.info.insert("models".into(), lib.models.len().into());
-        b.info.insert("draws_before_batching".into(), parts.into());
-        b.info.insert("triangles".into(), triangles.into());
+        menu.stats = true;
+        let mut b = bench::Bench::new(*secs, out.clone(), info.center, info.size.x.min(info.size.y) * 0.3, 45.0);
+        b.events = vec![(0.30, "airstrike"), (0.45, "airstrike"), (0.60, "kegs"), (0.75, "airstrike"), (0.85, "airstrike")];
+        for (k, v) in [
+            ("engine", serde_json::Value::from("bevy 0.20 + jolt 5.6")),
+            ("level", info.name.clone().into()),
+            ("resolution", format!("{}x{}", launch.size.0, launch.size.1).into()),
+            ("instances", info.instances.into()),
+            ("models", info.models.into()),
+            ("draws_before_batching", info.draws.into()),
+            ("triangles", info.triangles.into()),
+            ("static_bodies", info.static_bodies.into()),
+            ("static_triangles", info.static_triangles.into()),
+            ("grunts", info.grunts.into()),
+            ("destructibles", info.destructibles.into()),
+            ("ai", (!launch.no_ai).into()),
+        ] {
+            b.info.insert(k.into(), v);
+        }
         commands.insert_resource(b);
     }
-    commands.spawn((
-        Text::new("fps"),
-        TextFont { font_size: FontSize::Px(18.0), ..default() },
-        TextColor(Color::WHITE),
-        Node { position_type: PositionType::Absolute, top: Val::Px(8.0), left: Val::Px(8.0), ..default() },
-        FpsText,
-    ));
+    commands.insert_resource(info);
     commands.insert_resource(lib);
+    commands.insert_resource(data);
 }
 
-fn fps_text(diag: Res<DiagnosticsStore>, mut q: Query<&mut Text, With<FpsText>>) {
-    let fps = diag.get(&FrameTimeDiagnosticsPlugin::FPS).and_then(|d| d.smoothed()).unwrap_or(0.0);
-    let ms = diag.get(&FrameTimeDiagnosticsPlugin::FRAME_TIME).and_then(|d| d.smoothed()).unwrap_or(0.0);
-    for mut t in &mut q {
-        t.0 = format!("{fps:.0} fps  {ms:.2} ms   RMB look, WASD move, Q/E down/up, Shift fast");
+/// Benchmark scenario: airstrikes on the point the camera looks at, and every powder keg set off.
+fn bench_scenario(
+    mut commands: Commands,
+    mut events: MessageReader<bench::BenchEvent>,
+    bench: Res<bench::Bench>,
+    mut physics: NonSendMut<physics::Physics>,
+    bombs: Res<player::BombAssets>,
+    data: Res<gamedata::GameData>,
+    mut rng: ResMut<fx::FxStats>,
+    mut objects: Query<(&mut fx::Destructible, &GlobalTransform)>,
+) {
+    for ev in events.read() {
+        match ev.0 {
+            "airstrike" => {
+                let target = physics.raycast(bench.look + Vec3::Y * 400.0, -Vec3::Y, 1000.0).map(|h| h.1).unwrap_or(bench.look);
+                for i in 0..10 {
+                    let a = i as f32 / 10.0 * std::f32::consts::TAU + rng.rand();
+                    let at = target + Vec3::new(a.cos(), 0.0, a.sin()) * (10.0 + 60.0 * rng.rand()) + Vec3::Y * (100.0 + 40.0 * rng.rand());
+                    player::spawn_bomb(&mut commands, &mut physics, &bombs, &data, at, Vec3::Y * -40.0, 2.6 + 0.1 * i as f32);
+                }
+            }
+            // set off the exploding prop nearest the camera's target: the rest follows by the game's chain rules
+            "kegs" => {
+                let near = objects
+                    .iter_mut()
+                    .filter(|(d, _)| d.area_damage > 0.0 && d.dying.is_none())
+                    .min_by(|a, b| a.1.translation().distance(bench.look).total_cmp(&b.1.translation().distance(bench.look)));
+                if let Some((mut d, _)) = near {
+                    d.health = 0.0;
+                    d.dying = Some(d.start_delay);
+                }
+            }
+            _ => {}
+        }
     }
+}
+
+fn bench_record(mut bench: ResMut<bench::Bench>, physics: NonSend<physics::Physics>, ai: Res<ai::AiStats>, fx: Res<fx::FxStats>) {
+    bench.record("physics_ms", physics.step_ms);
+    bench.record("dynamic_bodies", physics.bodies.len() as f32);
+    bench.record("ai_ms", ai.ms);
+    bench.record("grunts_alive", ai.alive as f32);
+    bench.record("explosions", fx.explosions as f32);
+    bench.record("deaths", fx.deaths as f32);
 }

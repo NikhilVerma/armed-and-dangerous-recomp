@@ -16,6 +16,9 @@ pub struct SceneFile {
     pub bounds: [[f32; 3]; 2],
     pub instances: Vec<InstanceDef>,
     pub lights: Vec<LightDef>,
+    /// The level's global_settings object (fog_near, fog_far, fog_red/green/blue, ...).
+    #[serde(default)]
+    pub settings: HashMap<String, serde_json::Value>,
     pub textures: HashMap<String, TextureInfo>,
 }
 
@@ -68,6 +71,9 @@ pub struct Model {
     pub min: Vec3,
     pub max: Vec3,
     pub triangles: usize,
+    /// CPU copy for physics: every submesh's vertices (model space, game axes) and triangles.
+    pub vertices: Vec<Vec3>,
+    pub tris: Vec<[u32; 3]>,
 }
 
 #[derive(Resource, Default)]
@@ -154,6 +160,8 @@ impl Library {
             let bin = std::fs::read(self.dir.join("models").join(format!("{name}.bin"))).ok()?;
             let mut parts = Vec::new();
             let mut triangles = 0;
+            let mut cpu_v: Vec<Vec3> = Vec::new();
+            let mut cpu_t: Vec<[u32; 3]> = Vec::new();
             for s in &file.submeshes {
                 // a sky's untextured parts are not drawn (guess: cloud or horizon helpers)
                 if unlit && s.texture.is_none() {
@@ -167,6 +175,9 @@ impl Library {
                     .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
                     .collect();
                 triangles += idx.len() / 3;
+                let base = cpu_v.len() as u32;
+                cpu_v.extend(pos.chunks_exact(3).map(|v| Vec3::new(v[0], v[1], v[2])));
+                cpu_t.extend(idx.chunks_exact(3).map(|t| [t[0] + base, t[1] + base, t[2] + base]));
                 let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD);
                 mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, pos.chunks_exact(3).map(|v| [v[0], v[1], v[2]]).collect::<Vec<_>>());
                 mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, nrm.chunks_exact(3).map(|v| [v[0], v[1], v[2]]).collect::<Vec<_>>());
@@ -177,7 +188,7 @@ impl Library {
             }
             self.models.insert(
                 name.to_owned(),
-                Model { parts, min: Vec3::from(file.min), max: Vec3::from(file.max), triangles },
+                Model { parts, min: Vec3::from(file.min), max: Vec3::from(file.max), triangles, vertices: cpu_v, tris: cpu_t },
             );
         }
         self.models.get(name)

@@ -14,9 +14,28 @@ pub struct Bench {
     pub radius: f32,
     pub height: f32,
     pub info: serde_json::Map<String, serde_json::Value>,
+    /// Scenario: (path position 0..1, name) fired once each as a BenchEvent, for the game to act on.
+    pub events: Vec<(f32, &'static str)>,
+    /// Per-frame samples the game records while measuring (physics ms, bodies, ...): averages, maxima and
+    /// the series go to the JSON.
+    pub samples: std::collections::BTreeMap<String, Vec<f32>>,
+    pub measuring: bool,
+    pub look: Vec3,
+    fired: usize,
     started: Option<f32>,
     frames: Vec<f32>,
     shots_taken: usize,
+}
+
+#[derive(Message, Clone, Copy)]
+pub struct BenchEvent(pub &'static str);
+
+impl Bench {
+    pub fn record(&mut self, name: &str, v: f32) {
+        if self.measuring {
+            self.samples.entry(name.to_owned()).or_default().push(v);
+        }
+    }
 }
 
 impl Bench {
@@ -29,6 +48,11 @@ impl Bench {
             radius,
             height,
             info: Default::default(),
+            events: Vec::new(),
+            samples: Default::default(),
+            measuring: false,
+            look: center,
+            fired: 0,
             started: None,
             frames: Vec::new(),
             shots_taken: 0,
@@ -40,7 +64,7 @@ pub struct BenchPlugin;
 
 impl Plugin for BenchPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, run_bench.run_if(resource_exists::<Bench>));
+        app.add_message::<BenchEvent>().add_systems(Update, run_bench.run_if(resource_exists::<Bench>));
     }
 }
 
@@ -63,6 +87,7 @@ fn run_bench(
     mut bench: ResMut<Bench>,
     mut cams: Query<&mut Transform, With<Camera3d>>,
     mut exit: MessageWriter<AppExit>,
+    mut events: MessageWriter<BenchEvent>,
 ) {
     let now = time.elapsed_secs();
     let t0 = *bench.started.get_or_insert(now);
@@ -72,8 +97,14 @@ fn run_bench(
     for mut t in &mut cams {
         *t = Transform::from_translation(pos).looking_at(look, Vec3::Y);
     }
+    bench.look = look;
     if since < bench.warmup {
         return;
+    }
+    bench.measuring = true;
+    while bench.fired < bench.events.len() && u >= bench.events[bench.fired].0 {
+        events.write(BenchEvent(bench.events[bench.fired].1));
+        bench.fired += 1;
     }
     if bench.shots_taken < SHOTS.len() && u >= SHOTS[bench.shots_taken] {
         if let Some(dir) = bench.out.parent() {
@@ -106,6 +137,16 @@ fn run_bench(
     put("ms_median", pct(0.5).into());
     put("ms_p99", pct(0.99).into());
     put("ms_max", ms[n - 1].into());
+    for (k, v) in &bench.samples {
+        let n = v.len().max(1) as f32;
+        out.insert(format!("{k}_avg"), (v.iter().sum::<f32>() / n).into());
+        out.insert(format!("{k}_max"), v.iter().cloned().fold(0.0, f32::max).into());
+        out.insert(format!("{k}_series"), serde_json::Value::from(v.iter().map(|x| (x * 100.0).round() / 100.0).collect::<Vec<_>>()));
+    }
+    out.insert("events".into(), serde_json::Value::from(bench.events.iter().map(|(u, n)| serde_json::json!({"at": u, "name": n})).collect::<Vec<_>>()));
+    let mut put = |k: &str, v: serde_json::Value| {
+        out.insert(k.into(), v);
+    };
     put("frame_ms", serde_json::Value::from(bench.frames.iter().map(|x| (x * 100.0).round() / 100.0).collect::<Vec<_>>()));
     if let Some(dir) = bench.out.parent() {
         let _ = std::fs::create_dir_all(dir);

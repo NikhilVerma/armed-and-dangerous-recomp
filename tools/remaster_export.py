@@ -6,6 +6,9 @@ Output (game data: lives under work/, never committed):
   scene.json             landscape model, placed instances (template, model, 4x3 transform), lights, bounds
   models/<name>.json     submeshes (one per material): texture, alpha, byte ranges in <name>.bin
   models/<name>.bin      per submesh: positions f32x3, normals f32x3, uv0 f32x2, indices u32 (triangle list)
+  properties.json        every property set: name -> {key: value} (behaviour, damage, fx names, ...)
+  templates.json         every object template: name -> {model (LOD 0), lods, property}
+  fx.json                every fx script: name -> instructions (docs/formats/big-fx.md; run by engine/src/fxvm.rs)
   textures/<name>.dds    the bank's mip chain: DXT1, DXT2 (written as DXT3), A8R8G8B8; R5G6B5 -> A8R8G8B8
 
 Coordinates stay the game's (Z up, docs/formats/big-land.md); the engine converts. Formats: docs/formats/big-*.md.
@@ -20,7 +23,7 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools" / "formats"))
-from big_kinds import inst, land, obj, objchunk, skin, txtr  # noqa: E402
+from big_kinds import fx, inst, land, obj, objchunk, prop, skin, txtr  # noqa: E402
 
 GAME = ROOT / "orig" / "pc" / "GameData"
 DXT1 = struct.unpack("<I", b"DXT1")[0]
@@ -219,12 +222,15 @@ def main():
     tris = write_model(out, "landscape", mesh_submeshes(objchunk.parse_chunk(land_skin)), texinfo)
     print(f"landscape: {tris} triangles")
 
-    models, placed, lights, skipped = {}, [], [], {}
+    models, placed, lights, skipped, settings = {}, [], [], {}, {}
     for i, it in enumerate(load_instances(level)):
         name = it["object"].lower() if isinstance(it["object"], str) else it["object"].decode("latin1").lower()
         props = dict((k if isinstance(k, str) else k.decode("latin1"), v) for k, v in it["props"])
         if name == "light":
             lights.append({"transform": it["transform"], "props": props})
+            continue
+        if name == "global_settings":  # fog and other level-wide values
+            settings.update(props)
             continue
         t = tpl.get(name)
         model = t["lods"][0].decode("latin1").lower() if t and t["lods"] else None
@@ -236,8 +242,34 @@ def main():
             continue
         placed.append({"id": i + 1, "template": name, "model": model, "transform": it["transform"],
                        "property": t["property"].decode("latin1")})
+    # Game data the engine runs as the game does: property sets, templates, fx scripts. Every template's
+    # model is exported too (fx objects and debris are spawned by name at run time).
+    _, psets = prop.parse(payload(level, "big06_prop"))
+    float_keys = {k.decode("latin-1").lower() for st in psets for k, v in zip(st["keys"], st["values"])
+                  if len(v) == 4 and prop._guess(v) == "float"}
+    props = {st["name"].decode("latin-1").lower(): {k.decode("latin-1").lower(): prop.value_to_json(v, float_keys, k.decode("latin-1").lower())
+                                                    for k, v in zip(st["keys"], st["values"])} for st in psets}
+    (out / "properties.json").write_text(json.dumps(props, indent=0))
+    tdefs = {}
+    for name, t in tpl.items():
+        lods = [x.decode("latin1").lower() for x in t["lods"]]
+        pr = t["property"].decode("latin1").lower()
+        model = lods[0] if lods else None
+        ci = props.get(pr, {}).get("collision_lod_index")
+        coll = lods[ci] if isinstance(ci, int) and 0 <= ci < len(lods) else None
+        for m in (model, coll):  # the render model and the game's collision model
+            if m and m not in models and m in skins:
+                subs = mesh_submeshes(skins[m])
+                models[m] = write_model(out, m, subs, texinfo) if subs else 0
+        tdefs[name] = {"model": model if models.get(model) else None, "lods": lods, "property": pr,
+                       "collision": coll if models.get(coll) else None}
+    (out / "templates.json").write_text(json.dumps(tdefs, indent=0))
+    _, fxs = fx.parse(payload(level, "big09_fx"))
+    scripts = {e["name"].decode("latin-1").lower(): e["script"] for e in fxs if e["script"] is not None}
+    (out / "fx.json").write_text(json.dumps(scripts))
+    print(f"properties {len(props)}, templates {len(tdefs)}, fx scripts {len(scripts)}, models {len(models)}")
     scene = {"level": level, "up": "z", "landscape": "landscape", "bounds": [grid["min"], grid["max"]],
-             "instances": placed, "lights": lights, "textures": texinfo}
+             "instances": placed, "lights": lights, "settings": settings, "textures": texinfo}
     (out / "scene.json").write_text(json.dumps(scene, indent=1))
     print(f"instances: {len(placed)} placed from {len(models)} models; lights {len(lights)}; "
           f"skipped (no model) {sum(skipped.values())}: {sorted(skipped)}")
