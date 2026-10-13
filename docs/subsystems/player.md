@@ -214,3 +214,15 @@ The loadout is the rifle plus 5 sticky bombs. The machine gun is removed by the 
 - p_trotter keys that the exe never reads (no such string in the exe): sniper2_turn/pitch_max_speed and
   zoom_control_bias. The code reads "zoom_control_control_bias" instead (game_05.cpp:583).
 - Mouse 1 = left button is assumed.
+
+## Steep slopes (found 2026-10-14)
+
+No character proxy and no max-slope parameter. The player's contact callback 0x00477c90 (reached through the thunk
+0x004780f0 from 0x00478200) keeps the contact normal with the largest z as the ground normal (+0x574) and sets each
+contact's friction: 0 when normal z <= 0.7 (0x005bcd48, about 45.6 degrees) or the touched object passes
+fn_004531e0, else +0x5a0 (blend of friction_min 0.3 / friction_max 2 by pow(1 - min(|v.xy| / maxspeed, 1), 4),
+set in 0x00478200). 0x00478200 counts him grounded (+0x570 = 0.5 s timer, +0xa34 |= 0x1000) when a contact's normal
+z > 0.7, or when ((vz - prev vz) / dt)^2 < 200 (0x005bcda8) and vz > -5 (0x005bce74), contacts present and normal z
+> -0.1 (0x005bcd14). PlayerObject_Update (0x004799d5) releases the drive force action when the timer has run out
+while touching something, so on a steep face he slides under gravity with no drive. The drive 0x00471810 weakens an
+uphill push by about cos^5 of its angle. The remaster: Jolt walker max slope acos(0.7) (engine/src/player.rs).
