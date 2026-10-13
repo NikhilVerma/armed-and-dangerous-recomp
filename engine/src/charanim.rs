@@ -12,7 +12,7 @@ pub struct CharAnimPlugin;
 
 impl Plugin for CharAnimPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, (roman, grunts, companions));
+        app.add_systems(Update, (roman, grunts, companions, penguins));
     }
 }
 
@@ -180,6 +180,35 @@ fn grunts(
         };
         a.play(0, &name, looping, Mask::All);
         a.stop(1);
+    }
+}
+
+/// Penguins (PenguinObject_Update 0x0048f690, state 2 "wandering", where lev_1_m1's penguins start: no generic_txt,
+/// 0x0048f140): anim 0x17 pngn_scan_chat at load; each time the anim ends a new one by r = rand() * 100 >> 15:
+/// 0x18 pngn_scan_chat1 below 33, 0x17 below 66, else 0x19 (both pngn_scan_chat). pngn_scan_chat's note at 0
+/// (`fx fx_penguin`) is the call. Not ported: physics on (knocked about), hits (state 3: screams 0x0048fd80,
+/// pngn_blown_up), the idle state 1 (only with generic_txt).
+fn penguins(
+    mut q: Query<(&mut Animator, &crate::level::Placed)>,
+    lib: Res<crate::skin::AnimLibrary>,
+    mut seed: Local<u32>,
+) {
+    for (mut a, p) in &mut q {
+        if p.template != "penguin" {
+            continue;
+        }
+        let start = a.layers.first().is_none_or(|l| l.anim.is_empty());
+        if start || a.finished(0, &lib) {
+            let name = if start {
+                "pngn_scan_chat"
+            } else {
+                *seed = seed.wrapping_mul(214013).wrapping_add(2531011);
+                let r = ((*seed >> 16) & 0x7fff) * 100 >> 15;
+                if r < 33 { "pngn_scan_chat1" } else { "pngn_scan_chat" }
+            };
+            a.play(0, name, false, Mask::All);
+            a.layers[0].time = 0.0;
+        }
     }
 }
 

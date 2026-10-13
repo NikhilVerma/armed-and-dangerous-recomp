@@ -294,11 +294,13 @@ fn animate(time: Res<Time>, mut lib: ResMut<AnimLibrary>, mut q: Query<(Entity, 
             let Some(anim) = lib.anim(&l.anim) else { continue };
             let pair = l.pair.as_ref().and_then(|(n, w)| lib.anim(n).map(|a| (a, *w)));
             let prev = if l.looping { l.time.rem_euclid(anim.duration) } else { l.time.min(anim.duration) };
+            // a layer starting from 0 also passes a note at 0 (pngn_scan_chat's call at load)
+            let fresh = l.time == 0.0;
             l.time += dt * l.speed;
             let t = if l.looping { l.time.rem_euclid(anim.duration) } else { l.time.min(anim.duration) };
             // notes passed this frame (wrapping at the loop point)
             for (nt, text) in &anim.notes {
-                let hit = if t >= prev { *nt > prev && *nt <= t } else { *nt > prev || *nt <= t };
+                let hit = (fresh && *nt == 0.0) || if t >= prev { *nt > prev && *nt <= t } else { *nt > prev || *nt <= t };
                 if hit && dt > 0.0 {
                     notes.write(AnimNote { entity: e, text: text.trim().to_owned() });
                 }
