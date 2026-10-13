@@ -196,3 +196,80 @@ fn die(mut commands: Commands, mut physics: NonSendMut<Physics>, mut grunts: Que
         }
     }
 }
+
+/// Roman's companions (Q = q111, Jonesy = molmer), STAND-IN: they keep formation behind him using their property
+/// sets (formation_angle, formation_distance, delay_distance, scan_distance, move_speed) and fire at the nearest
+/// grunt in range. The recovered companion AI replaces this.
+#[derive(Component)]
+pub struct Companion {
+    pub walker: crate::physics::Walker,
+    pub angle: f32,
+    pub distance: f32,
+    pub delay: f32,
+    pub scan: f32,
+    pub speed: f32,
+    pub fire_timer: f32,
+    pub base: Quat,
+    pub yaw: f32,
+    pub vy: f32,
+}
+
+pub struct CompanionPlugin;
+
+impl Plugin for CompanionPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(Update, companions.run_if(crate::playing));
+    }
+}
+
+fn companions(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut physics: NonSendMut<Physics>,
+    mut rng: ResMut<FxStats>,
+    roman: Query<(&Transform, &crate::player::Roman), Without<Companion>>,
+    mut q: Query<(&mut Companion, &mut Transform), Without<crate::player::Roman>>,
+    grunts: Query<(&Grunt, &GlobalTransform)>,
+) {
+    let dt = time.delta_secs();
+    let Ok((rt, r)) = roman.single() else { return };
+    for (mut c, mut t) in &mut q {
+        // formation slot: behind Roman, `angle` degrees to the side, `distance` units away
+        let slot_yaw = r.yaw + std::f32::consts::PI + c.angle.to_radians();
+        let slot = rt.translation + Quat::from_rotation_y(slot_yaw) * Vec3::NEG_Z * c.distance;
+        let to = Vec3::new(slot.x - t.translation.x, 0.0, slot.z - t.translation.z);
+        let d = to.length();
+        let speed = if d > c.delay { c.speed } else if d > 6.0 { c.speed * 0.5 } else { 0.0 };
+        let dir = to.normalize_or_zero();
+        c.vy = if c.vy < 0.0 { (c.vy - 49.0 * dt).max(-100.0) } else { -5.0 };
+        let vel = dir * speed + Vec3::Y * c.vy;
+        if let Some((feet, on)) = physics.move_walker(&c.walker, vel, dt) {
+            t.translation = feet;
+            c.vy = if on { -5.0 } else { c.vy.min(-5.0) };
+        }
+        // nearest live grunt in scan range: face and shoot it
+        let target = grunts
+            .iter()
+            .filter(|(g, _)| g.mind != Mind::Dead)
+            .map(|(_, gt)| gt.translation())
+            .filter(|p| p.distance(t.translation) < c.scan)
+            .min_by(|a, b| a.distance(t.translation).total_cmp(&b.distance(t.translation)));
+        let face = target.map(|p| (p - t.translation).with_y(0.0)).filter(|v| v.length() > 0.1).unwrap_or(dir);
+        if face != Vec3::ZERO {
+            c.yaw = face.x.atan2(face.z);
+        }
+        t.rotation = Quat::from_rotation_y(c.yaw) * c.base;
+        c.fire_timer -= dt;
+        if let Some(p) = target {
+            if c.fire_timer <= 0.0 {
+                c.fire_timer = rng.range(0.15, 0.4);
+                let muzzle = t.translation + Vec3::Y * 6.0;
+                let dir = (p + Vec3::Y * 5.0 + Vec3::new(rng.rand() - 0.5, 0.0, rng.rand() - 0.5) * 4.0 - muzzle).normalize_or(Vec3::Z);
+                commands.spawn((
+                    Transform::from_translation(muzzle + dir * 4.0),
+                    crate::player::Projectile { vel: dir * 300.0, life: 1.0, damage: 10.0, from_player: true, owner: None },
+                ));
+            }
+        }
+    }
+}

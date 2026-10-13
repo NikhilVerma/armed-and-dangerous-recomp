@@ -35,6 +35,20 @@ pub struct Event {
     pub shot: Option<String>,
     #[serde(default)]
     pub quit: bool,
+    /// bot: walk to this point (game space x, y, z: as the scene files give positions)
+    #[serde(default)]
+    pub goto: Option<[f32; 3]>,
+    /// bot: aim at the nearest live grunt within range and fire (true) / stop (false)
+    #[serde(default)]
+    pub fight: Option<bool>,
+}
+
+/// The playtest bot's orders, read by the player's control and weapon systems.
+#[derive(Resource, Default)]
+pub struct Bot {
+    pub goto: Option<Vec3>,
+    pub fight: bool,
+    pub arrived: bool,
 }
 
 #[derive(Deserialize)]
@@ -78,6 +92,7 @@ pub struct PlaytestPlugin;
 impl Plugin for PlaytestPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PlayState>()
+            .init_resource::<Bot>()
             .add_systems(PreUpdate, drive.after(bevy::input::InputSystems).run_if(resource_exists::<Playtest>))
             .add_systems(Last, log_state.run_if(resource_exists::<Playtest>));
     }
@@ -137,6 +152,7 @@ fn drive(
     mut buttons: ResMut<ButtonInput<MouseButton>>,
     mut motion: ResMut<AccumulatedMouseMotion>,
     mut exit: MessageWriter<AppExit>,
+    mut bot: ResMut<Bot>,
 ) {
     pt.t += time.delta_secs();
     let t = pt.t;
@@ -177,6 +193,14 @@ fn drive(
         if let Some(name) = e.shot {
             let path = pt.path.with_extension(format!("{name}.png"));
             commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));
+        }
+        if let Some(g) = e.goto {
+            // game space (Z up) -> engine (Y up)
+            bot.goto = Some(Vec3::new(g[0], g[2], -g[1]));
+            bot.arrived = false;
+        }
+        if let Some(f) = e.fight {
+            bot.fight = f;
         }
         if e.quit {
             exit.write(AppExit::Success);

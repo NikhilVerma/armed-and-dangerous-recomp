@@ -142,6 +142,8 @@ fn grab_cursor(mut cursor: Query<&mut CursorOptions, With<PrimaryWindow>>, mut d
 /// WASD relative to the camera yaw, Space jump, mouse look (stand-in bindings).
 fn control(
     time: Res<Time>,
+    mut bot: ResMut<crate::playtest::Bot>,
+    grunts: Query<(&crate::ai::Grunt, &GlobalTransform)>,
     keys: Res<ButtonInput<KeyCode>>,
     motion: Res<AccumulatedMouseMotion>,
     mut physics: NonSendMut<Physics>,
@@ -158,7 +160,36 @@ fn control(
         r.yaw -= motion.delta.x * 0.0025;
         r.pitch = (r.pitch - motion.delta.y * 0.0025).clamp(-1.1, 0.7);
         let mut wish = Vec3::ZERO;
+        // playtest bot: turn toward the goal and walk; when fighting, face the nearest live grunt
+        let mut bot_walk = false;
+        if let Some(g) = bot.goto {
+            let to = (g - t.translation).with_y(0.0);
+            if to.length() < 12.0 {
+                bot.goto = None;
+                bot.arrived = true;
+            } else {
+                r.yaw = (-to.x).atan2(-to.z);
+                bot_walk = true;
+            }
+        }
+        if bot.fight {
+            let me = t.translation;
+            if let Some(p) = grunts
+                .iter()
+                .filter(|(g, _)| g.mind != crate::ai::Mind::Dead)
+                .map(|(_, gt)| gt.translation())
+                .filter(|p| p.distance(me) < 260.0)
+                .min_by(|a, b| a.distance(me).total_cmp(&b.distance(me)))
+            {
+                let to = p + Vec3::Y * 5.0 - (me + Vec3::Y * 8.5);
+                r.yaw = (-to.x).atan2(-to.z);
+                r.pitch = (to.y / to.with_y(0.0).length().max(1.0)).atan() - 0.08;
+            }
+        }
         if !r.dead {
+            if bot_walk {
+                wish += Quat::from_rotation_y(r.yaw) * Vec3::NEG_Z * r.fwd_speed;
+            }
             let f = Quat::from_rotation_y(r.yaw) * Vec3::NEG_Z;
             let s = Quat::from_rotation_y(r.yaw) * Vec3::X;
             if keys.pressed(KeyCode::KeyW) {
@@ -217,6 +248,7 @@ fn weapons(
     mut physics: NonSendMut<Physics>,
     bombs: Res<BombAssets>,
     data: Res<GameData>,
+    bot: Res<crate::playtest::Bot>,
     mut q: Query<(Entity, &mut Roman, &Transform)>,
     mut stats: ResMut<PlayerStats>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
@@ -235,7 +267,7 @@ fn weapons(
             w.timer = w.reload_time;
             sounds.write(crate::audio::PlaySound::at("wpn_rome_rifle_load", t.translation));
         }
-        let fire = buttons.pressed(MouseButton::Left);
+        let fire = buttons.pressed(MouseButton::Left) || bot.fight;
         if fire && w.timer <= 0.0 && w.clip > 0 {
             w.clip -= 1;
             w.timer = w.recycle;
@@ -301,8 +333,9 @@ fn projectiles(
         }
         if let Some((body, _, _)) = hit {
             if let Some((_, _, mut h)) = chars.iter_mut().find(|(ce, b, _)| b.id == body && Some(*ce) != p.owner) {
+                let was_alive = h.0 > 0.0;
                 h.0 -= p.damage;
-                if p.from_player && h.0 <= 0.0 {
+                if p.from_player && was_alive && h.0 <= 0.0 {
                     stats.kills += 1;
                 }
             } else if let Some((_, mut d)) = objects.iter_mut().find(|(pl, _)| pl.collider == Some(body)) {
