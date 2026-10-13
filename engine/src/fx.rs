@@ -34,6 +34,8 @@ pub struct StartFx {
     pub name: String,
     pub at: Vec3,
     pub rotation: Quat,
+    /// objects of this fx follow this entity (fx started on a moving object: projectile trails)
+    pub follow: Option<Entity>,
 }
 
 /// An object that takes damage and dies with its property set's death fx (kegs, pipes, buildings, trees).
@@ -224,7 +226,7 @@ fn dying(
         }
         if let Some(name) = &d.fx_death {
             let (_, rot, _) = t.to_scale_rotation_translation();
-            fx.write(StartFx { name: name.clone(), at: t.translation(), rotation: rot });
+            fx.write(StartFx { name: name.clone(), at: t.translation(), rotation: rot, follow: None });
         }
         d.dying = None;
         d.health = f32::INFINITY;

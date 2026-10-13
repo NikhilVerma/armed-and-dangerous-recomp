@@ -9,16 +9,22 @@
 mod ai;
 mod audio;
 mod bench;
+mod charanim;
 mod flycam;
 mod fx;
 mod fxvm;
 mod gamedata;
+mod gameaudio;
+mod hud;
 mod level;
 mod menu;
+mod mission;
+mod nav;
 mod physics;
 mod player;
 mod playtest;
 mod scene;
+mod skin;
 
 use bevy::diagnostic::FrameTimeDiagnosticsPlugin;
 use bevy::prelude::*;
@@ -80,9 +86,9 @@ fn args() -> Args {
 }
 
 #[derive(Resource)]
-struct Launch {
+pub struct Launch {
     fx_test: bool,
-    scene: PathBuf,
+    pub scene: PathBuf,
     bench: Option<(f32, PathBuf)>,
     size: (u32, u32),
     no_ai: bool,
@@ -123,14 +129,14 @@ fn main() {
     .add_plugins(playtest::PlaytestPlugin)
     .add_plugins(audio::AudioBankPlugin)
     .add_plugins((FrameTimeDiagnosticsPlugin::default(), flycam::FlyCamPlugin, bench::BenchPlugin))
-    .add_plugins((physics::PhysicsPlugin, fx::FxPlugin, ai::AiPlugin, player::PlayerPlugin, menu::MenuPlugin, level::LevelPlugin, fxvm::FxVmPlugin, ai::CompanionPlugin))
+    .add_plugins((physics::PhysicsPlugin, fx::FxPlugin, ai::AiPlugin, player::PlayerPlugin, menu::MenuPlugin, level::LevelPlugin, fxvm::FxVmPlugin, ai::CompanionPlugin, skin::SkinPlugin, charanim::CharAnimPlugin, hud::HudPlugin, mission::MissionPlugin, gameaudio::GameAudioPlugin))
     .init_state::<AppState>()
     .insert_non_send(physics::Physics::new(level::METERS_PER_UNIT))
     .insert_resource(ClearColor(Color::srgb(0.62, 0.70, 0.80)))
     .insert_resource(Launch { fx_test: a.fx_test.is_some(), scene: scene_dir, bench: a.bench, size: a.size, no_ai: a.no_ai })
     .add_systems(Update, fx_test.run_if(resource_exists::<FxTest>))
     .add_systems(Startup, setup)
-    .add_systems(Update, play_state)
+    .add_systems(Update, (play_state, hud_state))
     .add_systems(Update, (bench_scenario, bench_record).run_if(resource_exists::<bench::Bench>))
     .add_systems(Update, bench_ground.after(bench::BenchSet).run_if(resource_exists::<bench::Bench>));
     if let Some(dir) = a.fx_test {
@@ -171,12 +177,17 @@ fn setup(
     mut physics: NonSendMut<physics::Physics>,
     mut ai_stats: ResMut<ai::AiStats>,
     mut menu: ResMut<menu::MenuState>,
+    mut anim_lib: ResMut<skin::AnimLibrary>,
+    mut color_materials: ResMut<Assets<ColorMaterial>>,
+    mut binds: ResMut<Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>,
 ) {
     let t = std::time::Instant::now();
     let scene = scene::read_scene(&launch.scene);
     let mut lib = scene::Library { dir: launch.scene.clone(), ..default() };
     let data = gamedata::GameData::load(&launch.scene);
-    let info = level::spawn(&mut commands, &scene, &data, &mut lib, &mut physics, &assets, &mut meshes, &mut materials);
+    anim_lib.dir = launch.scene.clone();
+    let mut skin_ctx = level::SkinCtx { lib: &mut anim_lib, binds: &mut binds };
+    let info = level::spawn(&mut commands, &scene, &data, &mut lib, &mut physics, &assets, &mut meshes, &mut materials, &mut skin_ctx);
     // every model an fx script can create (0x05 / 0x13 by template name), loaded now rather than on first use
     let mut fx_models = 0;
     for script in data.fx.values() {
@@ -254,10 +265,21 @@ fn setup(
         }
         commands.insert_resource(b);
     }
+    let has_player = info.player.is_some();
     commands.insert_resource(info);
     commands.insert_resource(lib);
     commands.insert_resource(data);
     commands.insert_resource(audio::SoundBank::load(&launch.scene));
+    if has_player && launch.bench.is_none() && !launch.fx_test {
+        if hud::spawn(&mut commands, &launch.scene, &assets, &mut meshes, &mut color_materials).is_none() {
+            warn!("hud: ui/layout.json missing (run tools/remaster_export_ui.py)");
+        }
+        menu.stats = false;
+        match mission::Mission::load(&launch.scene) {
+            Some(m) => commands.insert_resource(m),
+            None => warn!("mission: mission.json missing (run tools/remaster_export_mission.py)"),
+        }
+    }
 }
 
 /// Benchmark scenario: airstrikes on the point the camera looks at, and every powder keg set off.
@@ -312,8 +334,33 @@ fn bench_ground(physics: NonSend<physics::Physics>, mut bench: ResMut<bench::Ben
 }
 
 /// The playtest log's state line: player, AI, fx.
-fn play_state(mut st: ResMut<playtest::PlayState>, p: Res<player::PlayerStats>, ai: Res<ai::AiStats>, fx: Res<fx::FxStats>) {
+fn play_state(mut bank: Option<ResMut<audio::SoundBank>>, bot: Res<playtest::Bot>, mut st: ResMut<playtest::PlayState>, p: Res<player::PlayerStats>, ai: Res<ai::AiStats>, fx: Res<fx::FxStats>, mission: Option<ResMut<mission::Mission>>, hud: Res<hud::HudState>) {
     let m = &mut st.0;
+    if let Some(mut ms) = mission {
+        m.insert("mission".into(), format!("{:?}", ms.outcome).into());
+        m.insert("tickers".into(), ms.tickers.into());
+        m.insert("compass_tag".into(), ms.compass_tag.into());
+        let log: Vec<String> = ms.log.drain(..).collect();
+        if !log.is_empty() {
+            let prev = m.get("events").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+            let mut all: Vec<serde_json::Value> = prev;
+            all.extend(log.into_iter().map(serde_json::Value::from));
+            m.insert("events".into(), all.into());
+        }
+        m.insert("message".into(), ms.showing.clone().unwrap_or_default().chars().take(80).collect::<String>().into());
+    }
+    m.insert("prompt".into(), hud.prompt.clone().unwrap_or_default().into());
+    if let Some(b) = bank.as_deref_mut() {
+        m.insert("sounds_played".into(), b.played.into());
+        let mut missing: Vec<String> = b.missing.iter().cloned().collect();
+        missing.sort();
+        m.insert("sounds_missing".into(), missing.into());
+        let recent: Vec<String> = b.recent.drain(..).collect();
+        if !recent.is_empty() {
+            m.insert("sounds".into(), recent.into());
+        }
+    }
+    m.insert("bot".into(), format!("route {} veer {:.1} goto {:?}", bot.route.len(), bot.veer, bot.goto.map(|g| [g.x as i32, g.z as i32])).into());
     let r = |v: f32| (v * 10.0).round() / 10.0;
     m.insert("pos".into(), serde_json::json!([r(p.position.x), r(p.position.y), r(p.position.z)]));
     m.insert("health".into(), r(p.health).into());
@@ -325,6 +372,32 @@ fn play_state(mut st: ResMut<playtest::PlayState>, p: Res<player::PlayerStats>, 
     m.insert("grunts_alive".into(), ai.alive.into());
     m.insert("grunt_shots".into(), ai.shots.into());
     m.insert("explosions".into(), fx.explosions.into());
+}
+
+/// The HUD's values from the game state.
+fn hud_state(
+    mut hud: ResMut<hud::HudState>,
+    state: Res<State<AppState>>,
+    p: Res<player::PlayerStats>,
+    roman: Query<&player::Roman>,
+    companions: Query<(&Name, &fx::Health), With<ai::Companion>>,
+    cam: Query<&GlobalTransform, With<Camera3d>>,
+) {
+    hud.visible = *state.get() == AppState::Playing && roman.single().is_ok();
+    hud.health = if p.max_health > 0.0 { p.health / p.max_health } else { 0.0 };
+    hud.clip = p.clip;
+    hud.stickies = p.stickies;
+    for (n, h) in &companions {
+        if n.as_str() == "molmer" {
+            hud.jonesy_health = h.0 / 500.0;
+        } else {
+            hud.q_health = h.0 / 500.0;
+        }
+    }
+    if let Ok(c) = cam.single() {
+        let f = c.forward();
+        hud.heading = f.x.atan2(-f.z);
+    }
 }
 
 fn bench_record(mut bench: ResMut<bench::Bench>, physics: NonSend<physics::Physics>, ai: Res<ai::AiStats>, fx: Res<fx::FxStats>, vm: Res<fxvm::FxVm>) {

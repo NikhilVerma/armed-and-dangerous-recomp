@@ -1,6 +1,7 @@
-//! Sounds by the game's names (audio/sounds.json from tools/remaster_export_audio.py): one-shots and loops,
-//! positional ones attenuated by distance between their min and max distance (game units) and panned by Bevy's
-//! spatial audio. Game-neutral: a game supplies the bank and calls PlaySound.
+//! Sounds by the game's names (audio/sounds.json from tools/remaster_export_audio.py), with the original's volume
+//! model (docs/subsystems/audio.md): volume_db per sound, positional sounds get the distance curve (cubic Bezier
+//! through 0, -5, -10, -40 dB from min_distance to max_distance, 0x004f4ec0) and are muted at -40 dB; pan from
+//! Bevy's spatial audio. Speech sounds raise a Subtitle with their text-bank line (0x00495e00).
 
 use bevy::audio::{PlaybackMode, Volume};
 use bevy::prelude::*;
@@ -13,18 +14,55 @@ pub struct SoundDef {
     pub file: String,
     #[serde(default)]
     pub r#loop: bool,
-    #[serde(default = "one")]
-    pub volume: f32,
+    #[serde(default)]
+    pub volume_db: f32,
     #[serde(default)]
     pub min_distance: Option<f32>,
     #[serde(default)]
     pub max_distance: Option<f32>,
     #[serde(default)]
     pub category: Option<String>,
+    /// music: the segments that may follow (sounds.json)
+    #[serde(default)]
+    pub next: Vec<String>,
+    #[serde(default)]
+    pub duration: f32,
 }
 
-fn one() -> f32 {
-    1.0
+#[derive(Deserialize)]
+struct SoundsFile {
+    sounds: HashMap<String, SoundDef>,
+}
+
+#[derive(Deserialize)]
+struct VoiceFile {
+    lines: HashMap<String, VoiceLine>,
+}
+
+#[derive(Deserialize, Clone)]
+pub struct VoiceLine {
+    #[serde(default)]
+    pub speaker: Option<String>,
+    #[serde(default)]
+    pub subtitle: Option<String>,
+}
+
+/// A subtitle to show (speech started): speaker and line.
+#[derive(Message, Clone)]
+pub struct Subtitle {
+    pub speaker: Option<String>,
+    pub text: String,
+}
+
+/// The distance curve in dB at t in [0, 1] between min and max distance.
+pub fn distance_db(t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    let u = 1.0 - t;
+    3.0 * u * u * t * -5.0 + 3.0 * u * t * t * -10.0 + t * t * t * -40.0
+}
+
+fn db_to_gain(db: f32) -> f32 {
+    if db <= -40.0 { 0.0 } else { 10f32.powf(db / 20.0) }
 }
 
 #[derive(Resource, Default)]
@@ -33,16 +71,48 @@ pub struct SoundBank {
     handles: HashMap<String, Handle<AudioSource>>,
     pub played: usize,
     pub missing: std::collections::HashSet<String>,
+    pub voice: HashMap<String, VoiceLine>,
+    /// the last sounds started (for the playtest log)
+    pub recent: Vec<String>,
 }
 
 impl SoundBank {
     pub fn load(dir: &Path) -> Self {
-        let sounds = std::fs::read_to_string(dir.join("audio").join("sounds.json"))
+        let sounds: HashMap<String, SoundDef> = std::fs::read_to_string(dir.join("audio").join("sounds.json"))
             .ok()
-            .and_then(|t| serde_json::from_str::<HashMap<String, SoundDef>>(&t).ok())
-            .map(|m| m.into_iter().map(|(k, v)| (k.to_lowercase(), v)).collect())
+            .and_then(|t| serde_json::from_str::<SoundsFile>(&t).ok())
+            .map(|f| f.sounds.into_iter().map(|(k, v)| (k.to_lowercase(), v)).collect())
             .unwrap_or_default();
-        SoundBank { sounds, ..default() }
+        let voice = std::fs::read_to_string(dir.join("audio").join("voice.json"))
+            .ok()
+            .and_then(|t| serde_json::from_str::<VoiceFile>(&t).ok())
+            .map(|f| f.lines)
+            .unwrap_or_default();
+        info!("audio: {} sounds, {} voice lines", sounds.len(), voice.len());
+        SoundBank { sounds, voice, ..default() }
+    }
+
+    /// "@grunt:<Category>:<set>": a random line of that category from the voice set gr1/gr2/gr3 (any set when the
+    /// set has none), as the grunt voice methods pick them (audio_01.cpp).
+    pub fn resolve(&self, name: &str, pick: u32) -> Option<String> {
+        let Some(rest) = name.strip_prefix("@grunt:") else { return Some(name.to_lowercase()) };
+        let mut it = rest.split(':');
+        let cat = it.next()?.to_lowercase();
+        let set: u8 = it.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+        let suffix = format!("_{cat}");
+        let of = |prefix: &str| {
+            let mut v: Vec<&String> = self.sounds.keys().filter(|k| k.starts_with(prefix) && k.ends_with(&suffix)).collect();
+            v.sort();
+            v
+        };
+        let mut v = of(&format!("gr{}", set + 1));
+        if v.is_empty() {
+            v = of("gr");
+        }
+        if v.is_empty() {
+            return None;
+        }
+        Some(v[pick as usize % v.len()].clone())
     }
 }
 
@@ -88,6 +158,7 @@ pub struct AudioBankPlugin;
 impl Plugin for AudioBankPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<PlaySound>()
+            .add_message::<Subtitle>()
             .insert_resource(Mixer { master: 1.0, sfx: 1.0, voice: 1.0, music: 0.8 })
             .add_systems(Update, (play, attenuate).chain());
     }
@@ -99,10 +170,13 @@ fn play(
     bank: Option<ResMut<SoundBank>>,
     assets: Res<AssetServer>,
     mixer: Res<Mixer>,
+    mut subs: MessageWriter<Subtitle>,
+    mut pick: Local<u32>,
 ) {
     let Some(mut bank) = bank else { return };
     for ev in events.read() {
-        let key = ev.name.to_lowercase();
+        *pick = pick.wrapping_mul(1103515245).wrapping_add(12345);
+        let Some(key) = bank.resolve(&ev.name, *pick >> 8) else { continue };
         let Some(def) = bank.sounds.get(&key).cloned() else {
             if bank.missing.insert(key.clone()) {
                 info!("audio: no sound {key} in the bank");
@@ -116,7 +190,12 @@ fn play(
             Some("music") => mixer.music,
             _ => mixer.sfx,
         };
-        let base = def.volume * ev.volume * cat * mixer.master;
+        let base = db_to_gain(def.volume_db) * ev.volume * cat * mixer.master;
+        if def.category.as_deref() == Some("voice") {
+            if let Some(line) = bank.voice.get(&key).filter(|l| l.subtitle.is_some()) {
+                subs.write(Subtitle { speaker: line.speaker.clone(), text: line.subtitle.clone().unwrap_or_default() });
+            }
+        }
         let settings = PlaybackSettings {
             mode: if looped { PlaybackMode::Loop } else { PlaybackMode::Despawn },
             volume: Volume::Linear(base),
@@ -127,16 +206,20 @@ fn play(
         if ev.at.is_some() || ev.follow.is_some() {
             e.insert(Positional {
                 base,
-                min: def.min_distance.unwrap_or(20.0),
-                max: def.max_distance.unwrap_or(400.0),
+                min: def.min_distance.unwrap_or(10.0),
+                max: def.max_distance.unwrap_or(500.0),
                 follow: ev.follow,
             });
         }
         bank.played += 1;
+        bank.recent.push(key.clone());
+        if bank.recent.len() > 40 {
+            bank.recent.remove(0);
+        }
     }
 }
 
-/// Linear fall-off between min and max distance (guess until docs/subsystems/audio.md says the game's model).
+/// The game's distance curve; streamed and positional sounds are silent beyond max distance.
 fn attenuate(
     listener: Query<&GlobalTransform, With<SpatialListener>>,
     mut q: Query<(&Positional, &mut Transform, Option<&mut AudioSink>)>,
@@ -148,7 +231,7 @@ fn attenuate(
             t.translation = f.translation();
         }
         let d = t.translation.distance(l.translation());
-        let g = if d <= p.min { 1.0 } else if d >= p.max { 0.0 } else { 1.0 - (d - p.min) / (p.max - p.min) };
+        let g = if d <= p.min { 1.0 } else if d >= p.max { 0.0 } else { db_to_gain(distance_db((d - p.min) / (p.max - p.min))) };
         if let Some(mut s) = sink {
             s.set_volume(Volume::Linear(p.base * g));
         }

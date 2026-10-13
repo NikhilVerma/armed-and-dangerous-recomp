@@ -224,13 +224,16 @@ fn engine_to_game() -> Quat {
 
 fn start(mut vm: ResMut<FxVm>, data: Res<GameData>, mut events: MessageReader<StartFx>) {
     for ev in events.read() {
-        let Some(script) = data.fx.get(&ev.name.to_lowercase()) else {
+        // a material variant the bank lacks falls back to the base fx (fx_imp_arrow_grunt -> fx_imp_arrow)
+        let name = ev.name.to_lowercase();
+        let base = name.rsplit_once('_').map(|(b, _)| b.to_owned()).unwrap_or_default();
+        let Some(script) = data.fx.get(&name).or_else(|| data.fx.get(&base)) else {
             warn!("fx {} not in the level's fx bank", ev.name);
             continue;
         };
         // engine placement -> game space
         let place = Mat4::from_quat(engine_to_game()) * Mat4::from_rotation_translation(ev.rotation, ev.at);
-        vm.instances.push(Instance { script: script.clone(), ip: 0, paused: 0.0, waiting: false, place, parent: None, follow: false });
+        vm.instances.push(Instance { script: script.clone(), ip: 0, paused: 0.0, waiting: false, place, parent: ev.follow, follow: ev.follow.is_some() });
     }
 }
 
@@ -325,7 +328,7 @@ fn run_script(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_, '_, '_>, idx: usize, dt: 
         }
         match op.as_str() {
             "0x04" => return true,
-            "0x05" => {
+            "0x05" | "0x13" => {
                 cur = create_object(ctx, &vm.instances[idx], arg(1).as_str().unwrap_or(""), dt).map(|(e, o)| {
                     vm.objects.insert(e, o);
                     e
@@ -461,7 +464,7 @@ fn run_script(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_, '_, '_>, idx: usize, dt: 
                     o.kite = true;
                 }
             }
-            "0x39" => {
+            "0x38" | "0x39" | "0x3a" => {
                 // a random name from the inline list (one rand), then the looping word; positional at the object
                 let l = names(&arg(1));
                 let pick = if l.is_empty() { None } else { l.get((vm.rng.rand() as usize * l.len()) >> 15).cloned() };
@@ -902,11 +905,18 @@ fn draw_particles(vm: Res<FxVm>, mut meshes: ResMut<Assets<Mesh>>, cam: Query<&G
     }
 }
 
-/// 0x2f children follow their parent object.
-fn follow(mut vm: ResMut<FxVm>, mut q: Query<&mut Transform, With<FxEntity>>) {
+/// 0x2f children (and fx started on a moving entity) follow their parent; a gone parent ends them.
+fn follow(mut commands: Commands, mut vm: ResMut<FxVm>, parents: Query<&GlobalTransform>, mut q: Query<&mut Transform, With<FxEntity>>) {
     let pairs: Vec<(Entity, Entity)> = vm.objects.iter().filter_map(|(&e, o)| o.follow.map(|p| (e, p))).collect();
     for (e, p) in pairs {
-        let Ok(pt) = q.get(p).map(|t| *t) else { continue };
+        let Ok(pt) = parents.get(p).map(|t| t.compute_transform()) else {
+            // the followed object is gone (a projectile hit): its attached fx objects go with it
+            if let Some(o) = vm.objects.remove(&e) {
+                let _ = o;
+            }
+            commands.entity(e).despawn();
+            continue;
+        };
         if let Ok(mut t) = q.get_mut(e) {
             t.translation = pt.translation;
             t.rotation = pt.rotation;

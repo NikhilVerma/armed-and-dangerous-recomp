@@ -1,0 +1,93 @@
+//! Which animation each Armed and Dangerous character plays (names from the anim bank and the template slots in
+//! anims/index.json). Roman's anims come in bottom / top halves (`_b` drives the legs, `_t` the body above
+//! "belly"); grunts, Q and Jonesy play whole-body anims. The original picks grunt anims by id through
+//! vt+0x1a4 (docs/subsystems/grunt-ai.md 11); the state -> anim pairs here follow the states there.
+
+use crate::ai::{Companion, Grunt, Mind};
+use crate::player::Roman;
+use crate::skin::{Animator, Mask};
+use bevy::prelude::*;
+
+pub struct CharAnimPlugin;
+
+impl Plugin for CharAnimPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(Update, (roman, grunts, companions));
+    }
+}
+
+fn roman(mut q: Query<(&Roman, &mut Animator)>) {
+    for (r, mut a) in &mut q {
+        let speed = r.move_local.length();
+        let (fwd, side) = (r.move_local.y, r.move_local.x);
+        // locomotion: aim stance standing; walk / run (run animations from 12 units/s: anim_walk_run_switch)
+        let gait = if !r.on_ground {
+            "trotter_jump_idle"
+        } else if speed < 3.0 {
+            "trotter_aim"
+        } else {
+            let kind = if speed < 12.0 { "walk" } else { "run" };
+            let dir = if side.abs() > fwd.abs() * 1.2 { if side > 0.0 { "_right" } else { "_left" } } else { "" };
+            match (kind, dir) {
+                ("walk", d) => return_name(&format!("trotter_walk{d}_aim")),
+                (_, d) => return_name(&format!("trotter_run{d}_aim")),
+            }
+        };
+        let gait = gait.to_string();
+        // the upper body fires / reloads over the same gait
+        let upper = if r.reloading > 0.0 {
+            gait.replace("_aim", "_reload").replace("trotter_aim", "trotter_reload").replace("jump_idle", "jump_idle_reload")
+        } else if r.since_fire < 0.35 {
+            if gait == "trotter_aim" { "trotter_fire_rr".to_string() } else { gait.replace("_aim", "_fire").replace("jump_idle", "jump_fire_rr") }
+        } else {
+            gait.clone()
+        };
+        if r.dead {
+            a.play(0, "trotter_fall_loop", true, Mask::All);
+            a.stop(1);
+            continue;
+        }
+        a.play(0, &format!("{gait}_b"), true, Mask::Lower);
+        a.play(1, &format!("{upper}_t"), true, Mask::Upper);
+    }
+}
+
+fn return_name(s: &str) -> &'static str {
+    // leak-free mapping of the few names used (avoids allocating per frame)
+    match s {
+        "trotter_walk_aim" => "trotter_walk_aim",
+        "trotter_walk_left_aim" => "trotter_walk_left_aim",
+        "trotter_walk_right_aim" => "trotter_walk_right_aim",
+        "trotter_run_aim" => "trotter_run_aim",
+        "trotter_run_left_aim" => "trotter_run_left_aim",
+        "trotter_run_right_aim" => "trotter_run_right_aim",
+        _ => "trotter_aim",
+    }
+}
+
+fn grunts(mut q: Query<(&Grunt, &mut Animator, &Transform)>, mut last: Local<std::collections::HashMap<Entity, Vec3>>, ents: Query<Entity, With<Grunt>>) {
+    let _ = (&mut last, &ents);
+    for (g, mut a, _t) in &mut q {
+        let limping = g.limp_pct > 0.0 && g.last_health < g.max_health * g.limp_pct / 100.0;
+        let (name, looping) = match g.mind {
+            Mind::Dead if g.ragdoll => ("grunt_blown_up".to_string(), false),
+            Mind::Dead => (format!("grunt_die_{}", g.death_anim), false),
+            Mind::Fire => ("grunt_fire_tr".to_string(), true),
+            Mind::Reload => ("grunt_reload_tr".to_string(), false),
+            Mind::Flee => ("grunt_run_scared".to_string(), true),
+            Mind::Chase if limping => ("grunt_limp".to_string(), true),
+            Mind::Chase => ("grunt_run_scan".to_string(), true),
+            Mind::Roam => ("grunt_march".to_string(), true),
+            Mind::Guard | Mind::WaitTrigger => (if g.guard { "grunt_attention".to_string() } else { "grunt_stand_scan_1".to_string() }, true),
+        };
+        a.play(0, &name, looping, Mask::All);
+    }
+}
+
+fn companions(mut q: Query<(&Companion, &mut Animator, &Name)>) {
+    for (c, mut a, name) in &mut q {
+        let who = if name.as_str() == "molmer" { "molmer" } else { "q111" };
+        let anim = if c.moving { format!("{who}_run") } else if c.fire_timer > 0.0 && c.fire_timer < 0.4 { format!("{who}_fire_tr") } else { format!("{who}_stand") };
+        a.play(0, &anim, true, Mask::All);
+    }
+}

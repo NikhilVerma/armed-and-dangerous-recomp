@@ -4,7 +4,7 @@
 //! mission instance: player_add_rifle). Controls and the camera follow are STAND-INS until the original's
 //! input map and camera nodes are ported (docs/subsystems/player.md, camera.md).
 
-use crate::fx::{Destructible, Fuse, Health, Tracer};
+use crate::fx::{Destructible, Fuse, Health};
 use crate::gamedata::{GameData, Props};
 use crate::level::game_to_engine;
 use crate::physics::{Body, Physics, Walker};
@@ -33,11 +33,16 @@ pub struct Roman {
     pub side_speed: f32,
     pub jump_impulse: f32,
     pub fall_speed: f32,
+    pub anti_gravity: f32,
     pub max_health: f32,
     pub rifle: Weapon,
     pub stickies: u32,
     pub dead: bool,
     pub base: Quat,
+    /// seconds since the last shot, and of reload left (for the anims)
+    pub since_fire: f32,
+    pub reloading: f32,
+    pub move_local: Vec2,
 }
 
 #[derive(Clone)]
@@ -64,6 +69,30 @@ pub struct Projectile {
     pub damage: f32,
     pub from_player: bool,
     pub owner: Option<Entity>,
+    /// impact fx base name (fx_end_material + "_" + the hit material)
+    pub fx_end: Option<String>,
+}
+
+/// A projectile of a property set (speed x3 as Projectile_Load 0x0047e0c0; damage, lifetime, fx_start trail
+/// following it, fx_end_material on impact).
+pub fn spawn_projectile(commands: &mut Commands, fx: &mut MessageWriter<crate::fx::StartFx>, p: &Props, from: Vec3, dir: Vec3, from_player: bool, owner: Option<Entity>) {
+    let speed = p.f("speed", 300.0) * 3.0;
+    let e = commands
+        .spawn((
+            Transform::from_translation(from).looking_to(dir, Vec3::Y),
+            Projectile {
+                vel: dir * speed,
+                life: p.f("lifetime", 4.0).min(3.0),
+                damage: p.f("damage", 10.0),
+                from_player,
+                owner,
+                fx_end: p.s("fx_end_material").map(str::to_owned),
+            },
+        ))
+        .id();
+    if let Some(name) = p.s("fx_start") {
+        fx.write(crate::fx::StartFx { name: name.to_owned(), at: from, rotation: Quat::IDENTITY, follow: Some(e) });
+    }
 }
 
 /// The third-person camera rig around Roman.
@@ -108,6 +137,7 @@ pub fn make_roman(physics: &mut Physics, p: &Props, data: &GameData, feet: Vec3,
         side_speed: p.f("side_max_speed", 40.0),
         jump_impulse: p.f("jump_impulse", 70.0),
         fall_speed: p.f("fall_speed", -50.0),
+        anti_gravity: p.f("jump_anti_gravity", 5.0),
         max_health: p.f("max_health", 400.0),
         rifle: Weapon {
             name: "rifle",
@@ -115,7 +145,8 @@ pub fn make_roman(physics: &mut Physics, p: &Props, data: &GameData, feet: Vec3,
             reload_time: r.f("clip_reload_time", 1.0),
             clip_size: r.i("clip_size", 8) as u32,
             clip: r.i("clip_size", 8) as u32,
-            ammo: r.i("max_ammo", 62) as u32,
+            // weapon type 2: unlimited reserve (the HUD shows "8/" and the infinity sign; hud.md)
+            ammo: u32::MAX,
             speed: b.f("speed", 300.0),
             damage: b.f("damage", 50.0),
             range: r.f("range", 500.0),
@@ -125,6 +156,9 @@ pub fn make_roman(physics: &mut Physics, p: &Props, data: &GameData, feet: Vec3,
         stickies: 5,
         dead: false,
         base: game_to_engine(),
+        since_fire: 10.0,
+        reloading: 0.0,
+        move_local: Vec2::ZERO,
     })
 }
 
@@ -140,6 +174,7 @@ fn grab_cursor(mut cursor: Query<&mut CursorOptions, With<PrimaryWindow>>, mut d
 }
 
 /// WASD relative to the camera yaw, Space jump, mouse look (stand-in bindings).
+#[allow(clippy::too_many_arguments)]
 fn control(
     time: Res<Time>,
     mut bot: ResMut<crate::playtest::Bot>,
@@ -161,15 +196,53 @@ fn control(
         r.pitch = (r.pitch - motion.delta.y * 0.0025).clamp(-1.1, 0.7);
         let mut wish = Vec3::ZERO;
         // playtest bot: turn toward the goal and walk; when fighting, face the nearest live grunt
-        let mut bot_walk = false;
+        let mut bot_walk: Option<Vec3> = None;
+        // plan a route when the goal changes (A* over the ground, nav.rs), then follow its waypoints
+        // (re)plan: a new goal, or the partial route ran out short of the goal
+        let route_done = bot.route.is_empty() && bot.goto.is_some_and(|g| (g - t.translation).with_y(0.0).length() > 30.0);
+        bot.replan_timer -= dt;
+        if bot.goto.is_some() && (bot.planned_for != bot.goto || (route_done && bot.replan_timer <= 0.0)) {
+            bot.planned_for = bot.goto;
+            bot.replan_timer = 1.5;
+            let blocked = bot.blocked.clone();
+            bot.route = crate::nav::path(&physics, t.translation, bot.goto.unwrap(), &blocked).unwrap_or_default();
+            info!("bot: route to {:?}: {} waypoints {:?}", bot.goto, bot.route.len(), bot.route.iter().map(|p| [p.x as i32, p.y as i32, p.z as i32]).collect::<Vec<_>>());
+        }
+        while bot.route.first().is_some_and(|w| (*w - t.translation).with_y(0.0).length() < 8.0) {
+            bot.route.remove(0);
+        }
         if let Some(g) = bot.goto {
-            let to = (g - t.translation).with_y(0.0);
-            if to.length() < 12.0 {
+            let to = (bot.route.first().copied().unwrap_or(g) - t.translation).with_y(0.0);
+            let to = if (g - t.translation).with_y(0.0).length() < 12.0 { (g - t.translation).with_y(0.0) } else { to };
+            if (g - t.translation).with_y(0.0).length() < 12.0 {
                 bot.goto = None;
                 bot.arrived = true;
             } else {
-                r.yaw = (-to.x).atan2(-to.z);
-                bot_walk = true;
+                // stuck (under 4 units of progress in a second): jump and veer for a moment
+                bot.stuck_timer += dt;
+                if bot.stuck_timer > 1.0 {
+                    let moved = t.translation.with_y(0.0).distance(bot.last_pos.with_y(0.0));
+                    bot.veer = if moved < 4.0 { 1.2 } else { (bot.veer - 1.0).max(0.0) };
+                    bot.no_progress = if moved < 6.0 { bot.no_progress + 1.0 } else { 0.0 };
+                    bot.last_pos = t.translation;
+                    bot.stuck_timer = 0.0;
+                    // stuck 3 s: block the waypoint ahead and plan again around it
+                    if bot.no_progress >= 3.0 {
+                        let spot = bot.route.first().copied().unwrap_or(t.translation);
+                        bot.blocked.push(spot);
+                        bot.route.clear();
+                        bot.replan_timer = 0.0;
+                        bot.planned_for = None;
+                        bot.no_progress = 0.0;
+                        info!("bot: stuck near {:?}, replanning", [spot.x as i32, spot.z as i32]);
+                    }
+                }
+                let dir = to.normalize();
+                let dir = if bot.veer > 0.0 { Quat::from_rotation_y(0.9 * if (bot.veer * 10.0) as i32 % 2 == 0 { 1.0 } else { -1.0 }) * dir } else { dir };
+                if !bot.fight {
+                    r.yaw = (-dir.x).atan2(-dir.z);
+                }
+                bot_walk = Some(dir);
             }
         }
         if bot.fight {
@@ -187,8 +260,8 @@ fn control(
             }
         }
         if !r.dead {
-            if bot_walk {
-                wish += Quat::from_rotation_y(r.yaw) * Vec3::NEG_Z * r.fwd_speed;
+            if let Some(dir) = bot_walk {
+                wish += dir * r.fwd_speed;
             }
             let f = Quat::from_rotation_y(r.yaw) * Vec3::NEG_Z;
             let s = Quat::from_rotation_y(r.yaw) * Vec3::X;
@@ -211,13 +284,18 @@ fn control(
         r.vel.z += (wish.z - r.vel.z) * k;
         if r.on_ground {
             r.vel.y = r.vel.y.max(-5.0);
-            if keys.just_pressed(KeyCode::Space) && !r.dead {
+            if (keys.just_pressed(KeyCode::Space) || (bot.veer > 0.0 && bot.goto.is_some())) && !r.dead {
                 r.vel.y = r.jump_impulse;
             }
         } else {
-            r.vel.y = (r.vel.y - 49.0 * dt).max(r.fall_speed.min(-50.0) * 2.0);
+            // world gravity -64.348 x anti_gravity x 0.5 (0x005bcb4c): -160.9 with jump_anti_gravity 5 in lev_1_m1
+            // (docs/subsystems/player.md); jump impulse 70 -> about 15 units high
+            r.vel.y = (r.vel.y - 64.348 * r.anti_gravity * 0.5 * dt).max(r.fall_speed.min(-50.0) * 4.0);
         }
         let vel = r.vel;
+        let fwd = Quat::from_rotation_y(r.yaw) * Vec3::NEG_Z;
+        let right = Quat::from_rotation_y(r.yaw) * Vec3::X;
+        r.move_local = Vec2::new(vel.dot(right), vel.dot(fwd));
         if let Some((feet, on)) = physics.move_walker(&r.walker, vel, dt) {
             if on && r.vel.y <= 0.0 {
                 r.vel.y = 0.0;
@@ -252,12 +330,16 @@ fn weapons(
     mut q: Query<(Entity, &mut Roman, &Transform)>,
     mut stats: ResMut<PlayerStats>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
+    mut fx: MessageWriter<crate::fx::StartFx>,
 ) {
     let dt = time.delta_secs();
     for (e, mut r, t) in &mut q {
         if r.dead {
             continue;
         }
+        r.since_fire += dt;
+        r.reloading -= dt;
+        let mut reloaded = false;
         let w = &mut r.rifle;
         w.timer -= dt;
         if (keys.just_pressed(KeyCode::KeyR) && w.clip < w.clip_size && w.ammo > 0) || (w.clip == 0 && w.ammo > 0 && w.timer <= 0.0) {
@@ -265,19 +347,27 @@ fn weapons(
             w.clip += n;
             w.ammo -= n;
             w.timer = w.reload_time;
+            reloaded = true;
             sounds.write(crate::audio::PlaySound::at("wpn_rome_rifle_load", t.translation));
         }
         let fire = buttons.pressed(MouseButton::Left) || bot.fight;
-        if fire && w.timer <= 0.0 && w.clip > 0 {
+        let shoot = fire && w.timer <= 0.0 && w.clip > 0;
+        if reloaded {
+            r.reloading = r.rifle.reload_time;
+        }
+        if shoot {
+            r.since_fire = 0.0;
+            let w = &mut r.rifle;
             w.clip -= 1;
             w.timer = w.recycle;
             stats.shots += 1;
             let (from, dir) = aim(&r, t);
-            let w = &r.rifle;
-            commands.spawn((
-                Transform::from_translation(from),
-                Projectile { vel: dir * w.speed, life: w.range / w.speed, damage: w.damage, from_player: true, owner: Some(e) },
-            ));
+            let rifle = data.props("p_player_rifle");
+            let bullet = data.props(&format!("p_{}", rifle.s("projectile_name").unwrap_or("player_rifle_bullet")));
+            spawn_projectile(&mut commands, &mut fx, &bullet, from, dir, true, Some(e));
+            if let Some(m) = rifle.s("muzzle_fx_name") {
+                fx.write(crate::fx::StartFx { name: m.to_owned(), at: from, rotation: Transform::IDENTITY.looking_to(dir, Vec3::Y).rotation, follow: None });
+            }
             sounds.write(crate::audio::PlaySound::at("wpn_rome_rifle_fire", t.translation));
         }
         // sticky bomb: thrown along the aim with the game's sticky bomb values (stand-in throw strength)
@@ -302,6 +392,7 @@ fn projectiles(
     roman: Query<(Entity, &Roman, &Transform), Without<Projectile>>,
     mut roman_health: Query<&mut Health, (With<Roman>, Without<crate::physics::Body>, Without<Projectile>)>,
     mut stats: ResMut<PlayerStats>,
+    mut fx: MessageWriter<crate::fx::StartFx>,
 ) {
     let dt = time.delta_secs();
     for (e, mut p, mut t) in &mut q {
@@ -322,16 +413,27 @@ fn projectiles(
                 }
             }
         }
-        let end = hit.map(|h| h.1).unwrap_or(from + step);
-        commands.spawn(Tracer { from, to: end, age: 0.0 });
+        // impact fx: fx_end_material + the surface's material (landscape: snow, guess)
+        let impact = |body: Option<BodyId>| -> Option<String> {
+            let base = p.fx_end.clone()?;
+            let mat = body.and_then(|b| physics.materials.get(&b).cloned()).unwrap_or_else(|| "snow".into());
+            Some(format!("{base}_{mat}"))
+        };
         if hit_roman {
+            if let Some(n) = impact(None).map(|n| n.replace("_snow", "_grunt")) {
+                fx.write(crate::fx::StartFx { name: n, at: from + step, rotation: Quat::IDENTITY, follow: None });
+            }
             if let Ok(mut h) = roman_health.single_mut() {
                 h.0 -= p.damage;
             }
             commands.entity(e).despawn();
             continue;
         }
-        if let Some((body, _, _)) = hit {
+        if let Some((body, at, normal)) = hit {
+            if let Some(n) = impact(Some(body)) {
+                let rot = Quat::from_rotation_arc(Vec3::Y, normal.normalize_or(Vec3::Y));
+                fx.write(crate::fx::StartFx { name: n, at, rotation: rot, follow: None });
+            }
             if let Some((_, _, mut h)) = chars.iter_mut().find(|(ce, b, _)| b.id == body && Some(*ce) != p.owner) {
                 let was_alive = h.0 > 0.0;
                 h.0 -= p.damage;

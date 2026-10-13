@@ -1,12 +1,12 @@
 //! Armed and Dangerous specifics: the game's axes and units, and how a placed object's property set
 //! (`behavior`, `collision_lod_index`, health and damage keys) decides what it becomes in the engine.
 
-use crate::ai::{self, Grunt, Mind};
+use crate::ai;
 use crate::fx::{Bounds, Destructible, Died, Health};
 use crate::gamedata::{GameData, Props};
 use crate::physics::{Body, Physics};
 use crate::player::BombAssets;
-use crate::scene::{self, Library, SceneFile};
+use crate::scene::{self, ClonedParts, Library, SceneFile};
 use bevy::light::{CascadeShadowConfigBuilder, NotShadowCaster};
 use bevy::prelude::*;
 use oxijolt::prelude::*;
@@ -37,6 +37,10 @@ pub struct LevelInfo {
     pub player: Option<Entity>,
 }
 
+/// The placed instance's 1-based id in the level's inst bank (what triggers and tags refer to).
+#[derive(Component, Clone, Copy)]
+pub struct InstanceId(pub u32);
+
 /// `behavior = background` (the sky dome): drawn around the camera, unlit, no fog, no collision.
 #[derive(Component)]
 pub struct Background;
@@ -48,11 +52,19 @@ pub struct Placed {
     pub collider: Option<BodyId>,
 }
 
+/// A troop to spawn (barracks / alarm generators): a grunt template at a point, awake and hunting the player.
+#[derive(Message, Clone)]
+pub struct SpawnGrunt {
+    pub at: Vec3,
+    pub template: String,
+}
+
 pub struct LevelPlugin;
 
 impl Plugin for LevelPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, husks.after(crate::fx::FxSet))
+        app.add_message::<SpawnGrunt>()
+            .add_systems(Update, (husks.after(crate::fx::FxSet), spawn_grunts))
             .add_systems(PostUpdate, follow_camera.before(TransformSystems::Propagate));
     }
 }
@@ -66,17 +78,45 @@ fn follow_camera(cam: Query<&Transform, (With<Camera3d>, Without<Background>)>, 
     }
 }
 
-/// Spawns one model's parts under `e`; returns (draws, triangles).
-fn attach_model(commands: &mut Commands, e: Entity, model: &scene::Model, shadows: bool) -> (usize, usize) {
+/// What skinned models need while spawning.
+pub struct SkinCtx<'a> {
+    pub lib: &'a mut crate::skin::AnimLibrary,
+    pub binds: &'a mut Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>,
+}
+
+/// Spawns one model's parts under `e`; a skinned model also gets its joint entities and an Animator on `e`
+/// (upper/lower body split at "belly", the bone the _t / _b anim halves divide at). Returns (draws, triangles).
+fn attach_model(commands: &mut Commands, e: Entity, model: &scene::Model, shadows: bool, skin: Option<&mut SkinCtx>) -> (usize, usize, Option<Entity>) {
+    let rig = match (model.skeleton.as_deref(), skin) {
+        (Some(name), Some(ctx)) => ctx.lib.skeleton(name, ctx.binds).map(|sk| crate::skin::build_rig(commands, e, sk, Some("belly"))),
+        _ => None,
+    };
     for (mesh, mat) in &model.parts {
         let mut c = commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(mat.clone())));
         if !shadows {
             c.insert(NotShadowCaster);
         }
+        if let Some(r) = &rig {
+            c.insert((crate::skin::skinned_mesh(r), bevy::camera::visibility::NoFrustumCulling));
+        }
         let c = c.id();
         commands.entity(e).add_child(c);
     }
-    (model.parts.len(), model.triangles)
+    // the right-hand weapon bone (characters carry their weapon at "ref_rhand": grunt init 0x00434fb0)
+    let hand = rig.as_ref().and_then(|r| r.skeleton.index.get("ref_rhand").map(|&i| r.joints[i]));
+    if let Some(r) = rig {
+        commands.entity(e).insert(r);
+    }
+    (model.parts.len(), model.triangles, hand)
+}
+
+/// A weapon model in a character's hand: its ref_hand_00 bone is at the weapon's origin, so the model hangs
+/// straight off the hand joint.
+fn attach_weapon(commands: &mut Commands, hand: Entity, model: &scene::Model, fix: Transform) {
+    for (mesh, mat) in &model.parts {
+        let c = commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(mat.clone()), fix)).id();
+        commands.entity(hand).add_child(c);
+    }
 }
 
 fn static_collider(physics: &mut Physics, model: &scene::Model, world: Mat4) -> Option<BodyId> {
@@ -116,14 +156,16 @@ pub fn spawn(
     assets: &AssetServer,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
+    skin: &mut SkinCtx,
 ) -> LevelInfo {
     let axes = Mat4::from_quat(game_to_engine());
+    let mut rng = crate::fxvm::CrtRand::default();
     let mut info = LevelInfo { name: scene.level.clone(), ..default() };
 
     // landscape: its own mesh is its collision
     if let Some(model) = lib.load_model(&scene.landscape, false, assets, meshes, materials) {
         let e = commands.spawn((Transform::from_matrix(axes), Visibility::default(), Name::new("landscape"))).id();
-        let (d, t) = attach_model(commands, e, model, true);
+        let (d, t, _) = attach_model(commands, e, model, true, None);
         info.draws += d;
         info.triangles += t;
         static_collider(physics, model, axes);
@@ -152,13 +194,27 @@ pub fn spawn(
         let Some(model) = lib.load_model(&inst.model, background, assets, meshes, materials) else { continue };
         let (scale, _, _) = world.to_scale_rotation_translation();
         let bounds = Bounds { center: (model.min + model.max) * 0.5, radius: (model.max - model.min).length() * 0.5 * scale.max_element() };
-        let mut e = commands.spawn((Transform::from_matrix(world), Visibility::default(), Name::new(inst.template.clone())));
+        let mut e = commands.spawn((Transform::from_matrix(world), Visibility::default(), Name::new(inst.template.clone()), InstanceId(inst.id)));
         if background {
             e.insert(Background);
         }
         let e = e.id();
         if !invisible {
-            let (d, t) = attach_model(commands, e, model, !background);
+            let (d, t, hand) = attach_model(commands, e, model, !background, Some(&mut *skin));
+            // weapons: Roman's rifle (the level's loadout: player_add_rifle), grunts' rifle or bow
+            let weapon = match inst.template.as_str() {
+                "trotter" => Some("player_rifle"),
+                "grunt_regular" => Some("grunt_rifle"),
+                "grunt" => Some("grunt_bow"),
+                _ => None,
+            };
+            if let (Some(h), Some(w)) = (hand, weapon.and_then(|w| data.templates.get(w)).and_then(|t| t.model.clone())) {
+                if let Some(m) = lib.load_model(&w, false, assets, meshes, materials) {
+                    // the weapon's ref_hand_00 = the hand joint (identity; checked by CPU skinning: the rifle points
+                    // ahead in trotter_idle_1 and about 45 degrees up in the aim / run_aim poses, as authored)
+                    attach_weapon(commands, h, m, Transform::IDENTITY);
+                }
+            }
             info.instances += 1;
             info.draws += d;
             info.triangles += t;
@@ -192,6 +248,7 @@ pub fn spawn(
                         base: game_to_engine(),
                         yaw,
                         vy: -5.0,
+                        moving: false,
                     },
                     Health(p.f("max_health", 500.0)),
                     bounds,
@@ -210,24 +267,12 @@ pub fn spawn(
                 .allowed_dofs(AllowedDofs::TRANSLATION_X | AllowedDofs::TRANSLATION_Y | AllowedDofs::TRANSLATION_Z);
             if let Some(id) = physics.add_dynamic(e, &shape, pos + lift, Quat::IDENTITY, Vec3::ZERO, s) {
                 let (yaw, _, _) = (rot * game_to_engine().inverse()).to_euler(EulerRot::YXZ);
+                physics.materials.insert(id, p.s("material").unwrap_or("grunt").to_owned());
                 commands.entity(e).insert((
                     Body { id, offset: lift, sync_rotation: false },
                     Health(p.f("max_health", 100.0)),
                     bounds,
-                    Grunt {
-                        mind: Mind::Patrol,
-                        home: pos,
-                        goal: pos,
-                        timer: 0.0,
-                        fire_timer: 1.0,
-                        base: game_to_engine(),
-                        yaw,
-                        move_speed: p.f("move_speed", 40.0),
-                        patrol_speed: p.f("patrol_speed", 7.0),
-                        scan_distance: p.f("scan_distance", 350.0),
-                        fire_range: (p.f("fire_range_min", 35.0), p.f("fire_range_max", 500.0)),
-                        scare_distance: p.f("sticky_scare_dist", 25.0),
-                    },
+                    ai::make_grunt(&p, data, pos, yaw, &mut rng),
                 ));
                 info.grunts += 1;
             }
@@ -243,6 +288,9 @@ pub fn spawn(
                 let v: Vec<Vec3> = v.iter().map(|x| world.transform_point3(*x)).collect();
                 physics.add_static_mesh(&v, &t)
             });
+        if let (Some(c), Some(m)) = (collider, p.s("material")) {
+            physics.materials.insert(c, m.to_owned());
+        }
         commands.entity(e).insert((Placed { template: inst.template.clone(), collider }, bounds));
         if let Some(d) = destructible(&p) {
             commands.entity(e).insert(d);
@@ -329,7 +377,7 @@ fn husks(
         };
         let world = t.to_matrix();
         if let Some(m) = ht.model.as_ref().and_then(|m| lib.load_model(m, false, &assets, &mut meshes, &mut materials)) {
-            attach_model(&mut commands, d.0, m, true);
+            let _ = attach_model(&mut commands, d.0, m, true, None);
         }
         let collider = ht
             .collision
@@ -340,5 +388,51 @@ fn husks(
                 physics.add_static_mesh(&v, &tr)
             });
         commands.entity(d.0).insert(Placed { template: husk.unwrap_or_default(), collider });
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn spawn_grunts(
+    mut commands: Commands,
+    mut events: MessageReader<SpawnGrunt>,
+    data: Res<GameData>,
+    mut lib: ResMut<Library>,
+    mut anim_lib: ResMut<crate::skin::AnimLibrary>,
+    mut binds: ResMut<Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>,
+    mut physics: NonSendMut<Physics>,
+    assets: Res<AssetServer>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    player: Query<Entity, With<crate::ai::Player>>,
+    mut rng: Local<crate::fxvm::CrtRand>,
+) {
+    for ev in events.read() {
+        let p = data.template_props(&ev.template);
+        let Some(model_name) = data.templates.get(&ev.template).and_then(|t| t.model.clone()) else { continue };
+        let Some(model) = lib.load_model(&model_name, false, &assets, &mut meshes, &mut materials).cloned_parts() else { continue };
+        let world = Mat4::from_rotation_translation(game_to_engine(), ev.at);
+        let e = commands.spawn((Transform::from_matrix(world), Visibility::default(), Name::new(ev.template.clone()))).id();
+        let mut ctx = SkinCtx { lib: &mut anim_lib, binds: &mut binds };
+        let (_, _, hand) = attach_model(&mut commands, e, &model, true, Some(&mut ctx));
+        if let (Some(h), Some(w)) = (hand, data.templates.get("grunt_rifle").and_then(|t| t.model.clone())) {
+            if let Some(m) = lib.load_model(&w, false, &assets, &mut meshes, &mut materials) {
+                attach_weapon(&mut commands, h, m, Transform::IDENTITY);
+            }
+        }
+        let shape = ai::capsule(&physics, p.f("collision_radius", 4.0));
+        let lift = Vec3::Y * ai::capsule_lift(p.f("collision_radius", 4.0));
+        let s = BodySettings::new_dynamic()
+            .mass(80.0)
+            .friction(0.0)
+            .allowed_dofs(AllowedDofs::TRANSLATION_X | AllowedDofs::TRANSLATION_Y | AllowedDofs::TRANSLATION_Z);
+        if let Some(id) = physics.add_dynamic(e, &shape, ev.at + lift, Quat::IDENTITY, Vec3::ZERO, s) {
+            physics.materials.insert(id, "grunt".into());
+            let mut g = ai::make_grunt(&p, &data, ev.at, 0.0, &mut rng);
+            // spawned troops charge the player (0x0042dd50 -> state 0x5b -> 0x0042ce70)
+            g.target = player.single().ok();
+            g.mind = ai::Mind::Chase;
+            let bounds = Bounds { center: (model.min + model.max) * 0.5, radius: (model.max - model.min).length() * 0.5 };
+            commands.entity(e).insert((Body { id, offset: lift, sync_rotation: false }, Health(p.f("max_health", 100.0)), bounds, g));
+        }
     }
 }

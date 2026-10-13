@@ -15,6 +15,7 @@ use std::path::PathBuf;
 
 #[derive(Deserialize, Clone, Default)]
 pub struct Event {
+    #[serde(default)]
     pub t: f32,
     #[serde(default)]
     pub down: Option<String>,
@@ -41,6 +42,15 @@ pub struct Event {
     /// bot: aim at the nearest live grunt within range and fire (true) / stop (false)
     #[serde(default)]
     pub fight: Option<bool>,
+    /// bot: hold the Use key (true) / release (false)
+    #[serde(default)]
+    pub r#use: Option<bool>,
+    /// steps only: wait this many seconds
+    #[serde(default)]
+    pub wait: Option<f32>,
+    /// steps only: hold Use for this many seconds
+    #[serde(default)]
+    pub hold_use: Option<f32>,
 }
 
 /// The playtest bot's orders, read by the player's control and weapon systems.
@@ -49,14 +59,40 @@ pub struct Bot {
     pub goto: Option<Vec3>,
     pub fight: bool,
     pub arrived: bool,
+    pub use_key: bool,
+    pub stuck_timer: f32,
+    pub last_pos: Vec3,
+    pub veer: f32,
+    /// planned waypoints toward `goto` (nav.rs)
+    pub route: Vec<Vec3>,
+    pub planned_for: Option<Vec3>,
+    pub replan_timer: f32,
+    /// places the bot got stuck at (avoided by later plans)
+    pub blocked: Vec<Vec3>,
+    pub no_progress: f32,
 }
 
 #[derive(Deserialize)]
 struct Script {
-    events: Vec<Event>,
     /// turn the camera by this many mouse counts per frame while time is in [t0, t1)
     #[serde(default)]
+    events: Vec<Event>,
+    #[serde(default)]
     turns: Vec<(f32, f32, f32, f32)>,
+    /// sequential steps: each runs when the previous finished (goto: on arrival, max 240 s; wait / hold_use: after
+    /// their time); the same fields as events, without `t`
+    #[serde(default)]
+    steps: Vec<Event>,
+}
+
+struct StepView<'a>(&'a Event);
+
+impl serde::Serialize for StepView<'_> {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        let e = self.0;
+        let v = serde_json::json!({"goto": e.goto, "wait": e.wait, "hold_use": e.hold_use, "tap": e.tap, "shot": e.shot, "fight": e.fight});
+        v.serialize(s)
+    }
 }
 
 #[derive(Resource)]
@@ -70,6 +106,10 @@ pub struct Playtest {
     clicks: Vec<MouseButton>,
     log: Option<std::fs::File>,
     last_log: f32,
+    steps: Vec<Event>,
+    step: usize,
+    step_t: f32,
+    step_started: bool,
 }
 
 /// Lines the game adds to the once-a-second state log (player position, health, mission step, ...).
@@ -83,7 +123,7 @@ impl Playtest {
         let mut events = s.events;
         events.sort_by(|a, b| a.t.total_cmp(&b.t));
         let log = std::fs::File::create(path.with_extension("log.jsonl")).ok();
-        Playtest { path, events, turns: s.turns, next: 0, t: 0.0, taps: vec![], clicks: vec![], log, last_log: -1.0 }
+        Playtest { path, events, turns: s.turns, next: 0, t: 0.0, taps: vec![], clicks: vec![], log, last_log: -1.0, steps: s.steps, step: 0, step_t: 0.0, step_started: false }
     }
 }
 
@@ -164,9 +204,47 @@ fn drive(
     }
     let turn: Vec2 = pt.turns.iter().filter(|(t0, t1, _, _)| t >= *t0 && t < *t1).map(|(_, _, x, y)| Vec2::new(*x, *y)).sum();
     motion.delta += turn;
+    // sequential steps
+    let mut due: Vec<Event> = Vec::new();
+    if pt.step < pt.steps.len() {
+        let st = pt.steps[pt.step].clone();
+        if !pt.step_started {
+            pt.step_started = true;
+            pt.step_t = 0.0;
+            info!("playtest step {}: {}", pt.step, serde_json::to_string(&StepView(&st)).unwrap_or_default());
+            due.push(st.clone());
+            if st.hold_use.is_some() {
+                bot.use_key = true;
+            }
+            if st.goto.is_some() {
+                bot.arrived = false;
+            }
+        }
+        pt.step_t += time.delta_secs();
+        let done = if st.goto.is_some() {
+            bot.arrived || pt.step_t > 240.0
+        } else if let Some(w) = st.wait {
+            pt.step_t >= w
+        } else if let Some(h) = st.hold_use {
+            if pt.step_t >= h {
+                bot.use_key = false;
+                true
+            } else {
+                false
+            }
+        } else {
+            true
+        };
+        if done {
+            pt.step += 1;
+            pt.step_started = false;
+        }
+    }
     while pt.next < pt.events.len() && pt.events[pt.next].t <= t {
-        let e = pt.events[pt.next].clone();
+        due.push(pt.events[pt.next].clone());
         pt.next += 1;
+    }
+    for e in due {
         if let Some(k) = e.down.as_deref().and_then(key) {
             keys.press(k);
         }
@@ -202,18 +280,22 @@ fn drive(
         if let Some(f) = e.fight {
             bot.fight = f;
         }
+        if let Some(u) = e.r#use {
+            bot.use_key = u;
+        }
         if e.quit {
             exit.write(AppExit::Success);
         }
     }
 }
 
-fn log_state(mut pt: ResMut<Playtest>, state: Res<PlayState>) {
+fn log_state(mut pt: ResMut<Playtest>, mut state: ResMut<PlayState>) {
     if pt.t - pt.last_log < 1.0 {
         return;
     }
     pt.last_log = pt.t;
     let mut line = state.0.clone();
+    state.0.remove("events");
     line.insert("t".into(), ((pt.t * 100.0).round() / 100.0).into());
     if let Some(f) = pt.log.as_mut() {
         let _ = writeln!(f, "{}", serde_json::Value::Object(line));

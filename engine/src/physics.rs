@@ -14,6 +14,8 @@ pub struct Physics {
     /// Dynamic bodies and the entity each one moves.
     pub bodies: HashMap<BodyId, Entity>,
     pub static_bodies: usize,
+    /// the game material of a body (property `material`: snow, stone, wood, metal, grunt, ...) for impact fx
+    pub materials: HashMap<BodyId, String>,
     pub static_triangles: usize,
     /// CPU time of the last steps (ms), for the benchmark.
     pub step_ms: f32,
@@ -48,6 +50,7 @@ impl Physics {
             meters_per_unit,
             bodies: HashMap::new(),
             static_bodies: 0,
+            materials: HashMap::new(),
             static_triangles: 0,
             step_ms: 0.0,
             poses: Vec::new(),

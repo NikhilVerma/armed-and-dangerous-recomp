@@ -63,6 +63,8 @@ pub struct TextureInfo {
 
 #[derive(Deserialize)]
 struct ModelFile {
+    #[serde(default)]
+    skeleton: Option<String>,
     submeshes: Vec<SubmeshDef>,
     min: [f32; 3],
     max: [f32; 3],
@@ -80,6 +82,10 @@ struct SubmeshDef {
     normals: usize,
     uvs: usize,
     index_offset: usize,
+    #[serde(default)]
+    joints: Option<usize>,
+    #[serde(default)]
+    weights: Option<usize>,
 }
 
 /// One loaded model: a mesh and material per submesh, plus its bounds (model space, game axes).
@@ -91,6 +97,25 @@ pub struct Model {
     /// CPU copy for physics: every submesh's vertices (model space, game axes) and triangles.
     pub vertices: Vec<Vec3>,
     pub tris: Vec<[u32; 3]>,
+    /// skeletons/<name>.json when the model is skinned
+    pub skeleton: Option<String>,
+}
+
+impl Model {
+    /// A copy without the CPU collision data (for spawning while the library stays borrowed).
+    pub fn light_clone(&self) -> Model {
+        Model { parts: self.parts.clone(), min: self.min, max: self.max, triangles: self.triangles, vertices: Vec::new(), tris: Vec::new(), skeleton: self.skeleton.clone() }
+    }
+}
+
+pub trait ClonedParts {
+    fn cloned_parts(self) -> Option<Model>;
+}
+
+impl ClonedParts for Option<&Model> {
+    fn cloned_parts(self) -> Option<Model> {
+        self.map(|m| m.light_clone())
+    }
 }
 
 #[derive(Resource, Default)]
@@ -200,12 +225,21 @@ impl Library {
                 mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, nrm.chunks_exact(3).map(|v| [v[0], v[1], v[2]]).collect::<Vec<_>>());
                 mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uv.chunks_exact(2).map(|v| [v[0], v[1]]).collect::<Vec<_>>());
                 mesh.insert_indices(Indices::U32(idx));
+                if let (Some(jo), Some(wo)) = (s.joints, s.weights) {
+                    let j: Vec<[u16; 4]> = bin[jo..jo + s.vertices * 8]
+                        .chunks_exact(8)
+                        .map(|c| [u16::from_le_bytes([c[0], c[1]]), u16::from_le_bytes([c[2], c[3]]), u16::from_le_bytes([c[4], c[5]]), u16::from_le_bytes([c[6], c[7]])])
+                        .collect();
+                    let w = floats(&bin, wo, s.vertices * 4);
+                    mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_INDEX, bevy::mesh::VertexAttributeValues::Uint16x4(j));
+                    mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT, w.chunks_exact(4).map(|v| [v[0], v[1], v[2], v[3]]).collect::<Vec<_>>());
+                }
                 let material = self.material(s.texture.as_deref(), s.alpha, unlit, s.color.unwrap_or([1.0; 3]), assets, materials);
                 parts.push((meshes.add(mesh), material));
             }
             self.models.insert(
                 name.to_owned(),
-                Model { parts, min: Vec3::from(file.min), max: Vec3::from(file.max), triangles, vertices: cpu_v, tris: cpu_t },
+                Model { parts, min: Vec3::from(file.min), max: Vec3::from(file.max), triangles, vertices: cpu_v, tris: cpu_t, skeleton: file.skeleton.clone() },
             );
         }
         self.models.get(name)
