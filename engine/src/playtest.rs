@@ -143,6 +143,7 @@ pub fn key(name: &str) -> Option<KeyCode> {
     let k = match name {
         "Space" => KeyCode::Space,
         "Escape" => KeyCode::Escape,
+        "F3" => KeyCode::F3,
         "Enter" => KeyCode::Enter,
         "Tab" => KeyCode::Tab,
         "ShiftLeft" => KeyCode::ShiftLeft,

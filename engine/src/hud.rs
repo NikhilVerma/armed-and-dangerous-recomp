@@ -460,7 +460,12 @@ fn compass(state: Res<HudState>, mut needles: Query<&mut Transform, With<Compass
     }
 }
 
-fn visibility(state: Res<HudState>, mut q: Query<(&HudElement, &mut Visibility), Without<HudText>>, mut texts: Query<(&HudElement, &mut Visibility), With<HudText>>) {
+#[allow(clippy::type_complexity)]
+fn visibility(
+    state: Res<HudState>,
+    mut q: Query<(&HudElement, &mut Visibility), (Without<HudText>, Without<crate::gamemenu::TitleArt>)>,
+    mut texts: Query<(&HudElement, &mut Visibility), (With<HudText>, Without<crate::gamemenu::MenuRow>)>,
+) {
     for (el, mut v) in &mut q {
         let show = state.visible
             && match el.name.as_str() {
@@ -473,7 +478,9 @@ fn visibility(state: Res<HudState>, mut q: Query<(&HudElement, &mut Visibility),
             };
         *v = if show { Visibility::Inherited } else { Visibility::Hidden };
     }
-    for (_, mut v) in &mut texts {
-        *v = if state.visible { Visibility::Inherited } else { Visibility::Hidden };
+    for (el, mut v) in &mut texts {
+        // paused messages (the briefing box) show over cinematics and pauses too
+        let show = state.visible || (el.name == "ui_briefing" && state.briefing.is_some());
+        *v = if show { Visibility::Inherited } else { Visibility::Hidden };
     }
 }

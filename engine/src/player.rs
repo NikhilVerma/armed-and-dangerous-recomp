@@ -180,6 +180,7 @@ fn control(
     time: Res<Time>,
     mut bot: ResMut<crate::playtest::Bot>,
     grunts: Query<(&crate::ai::Grunt, &GlobalTransform)>,
+    pickups: Query<&GlobalTransform, With<crate::pickup::Pickup>>,
     keys: Res<ButtonInput<KeyCode>>,
     motion: Res<AccumulatedMouseMotion>,
     mut physics: NonSendMut<Physics>,
@@ -212,7 +213,19 @@ fn control(
         while bot.route.first().is_some_and(|w| (*w - t.translation).with_y(0.0).length() < 8.0) {
             bot.route.remove(0);
         }
-        if let Some(g) = bot.goto {
+        // a hurt bot detours to a pickup within 100 units, as a player would
+        let detour = if bot.goto.is_some() && h.0 < r.max_health * 0.6 {
+            pickups.iter().map(|p| p.translation()).filter(|p| p.distance(t.translation) < 100.0).min_by(|a, b| a.distance(t.translation).total_cmp(&b.distance(t.translation)))
+        } else {
+            None
+        };
+        if let Some(p) = detour {
+            let dir = (p - t.translation).with_y(0.0).normalize_or_zero();
+            if !bot.fight {
+                r.yaw = (-dir.x).atan2(-dir.z);
+            }
+            bot_walk = Some(dir);
+        } else if let Some(g) = bot.goto {
             let to = (bot.route.first().copied().unwrap_or(g) - t.translation).with_y(0.0);
             let to = if (g - t.translation).with_y(0.0).length() < 12.0 { (g - t.translation).with_y(0.0) } else { to };
             if (g - t.translation).with_y(0.0).length() < 12.0 {

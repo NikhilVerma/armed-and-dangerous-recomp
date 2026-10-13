@@ -85,6 +85,8 @@ pub struct Grunt {
     pub ragdoll: bool,
     /// which death anim (grunt_die_1..6) when not ragdolled
     pub death_anim: u8,
+    /// chance in % of a pickup on death (pickup_drop_percent, default 100)
+    pub drop_percent: f32,
 }
 
 /// What the AI hunts: Roman.
@@ -190,6 +192,7 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         ray_timer: 0.0,
         ragdoll: false,
         death_anim: (rng.rand() % 6) as u8 + 1,
+        drop_percent: p.f("pickup_drop_percent", 100.0),
     }
 }
 
@@ -491,7 +494,7 @@ fn fire_cycle(
     if let Some(m) = g.weapon.s("muzzle_fx_name") {
         fx.write(crate::fx::StartFx { name: m.to_owned(), at: muzzle + dir * 4.0, rotation: Transform::IDENTITY.looking_to(dir, Vec3::Y).rotation, follow: None, position_only: false });
     }
-    sounds.write(crate::audio::PlaySound::at(if g.bow { "wpn_grunt_bow_fire" } else { "wpn_grunt_rifle_fire" }, pos));
+    sounds.write(crate::audio::PlaySound::at(if g.bow { "wpn_bow_fire_1" } else { "wpn_grunt_rifle_fire" }, pos));
     stats.shots += 1;
     g.left_rounds -= 1;
     g.pause = 0.15; // round spacing (per-shot timing not traced: weapon recycle)

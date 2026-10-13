@@ -25,14 +25,9 @@ impl Plugin for MenuPlugin {
 }
 
 fn keys(keys: Res<ButtonInput<KeyCode>>, state: Res<State<AppState>>, mut next: ResMut<NextState<AppState>>, mut menu: ResMut<MenuState>) {
-    if keys.just_pressed(KeyCode::Escape) {
-        match state.get() {
-            AppState::Playing => next.set(AppState::Paused),
-            AppState::Paused => next.set(AppState::Playing),
-            AppState::Title => {}
-        }
-    }
-    if keys.just_pressed(KeyCode::Tab) {
+    // Esc and the menus themselves: gamemenu.rs (the game's own menus); F3 toggles this debug stats panel
+    let _ = (&state, &mut next);
+    if keys.just_pressed(KeyCode::F3) {
         menu.stats = !menu.stats;
     }
 }
@@ -51,10 +46,13 @@ fn ui(
     mut exit: MessageWriter<AppExit>,
     mut time: ResMut<Time<Virtual>>,
     vm: Option<Res<crate::fxvm::FxVm>>,
+    rows: Query<&crate::gamemenu::MenuRow>,
 ) -> Result {
+    let game_menus = !rows.is_empty();
     let ctx = contexts.ctx_mut()?;
     match state.get() {
-        AppState::Title | AppState::Paused => {
+        // the title / pause windows only when the game menus are not available (benchmark, fx test)
+        AppState::Title | AppState::Paused if !game_menus => {
             let title = *state.get() == AppState::Title;
             if !title {
                 time.pause();
@@ -85,7 +83,7 @@ fn ui(
                     }
                 });
         }
-        AppState::Playing => {}
+        _ => {}
     }
     if menu.stats {
         let fps = diag.get(&FrameTimeDiagnosticsPlugin::FPS).and_then(|d| d.smoothed()).unwrap_or(0.0);

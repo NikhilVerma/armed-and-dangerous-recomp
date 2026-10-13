@@ -149,6 +149,8 @@ pub struct Mission {
     dead_timer: f32,
     pub log: Vec<String>,
     pub objectives: String,
+    /// the message feed: (seconds left, line)
+    pub feed: Vec<(f32, String)>,
 }
 
 #[derive(Message, Clone, Copy)]
@@ -301,7 +303,18 @@ impl Mission {
             dead_timer: 0.0,
             log: Vec::new(),
             objectives: String::new(),
+            feed: Vec::new(),
         })
+    }
+
+    /// A line in the in-level message feed (Chat_AddMessage: 3 lines, the oldest scrolls off after 6 s), from a
+    /// text id or a literal.
+    pub fn feed(&mut self, text_or_id: &str) {
+        let t = self.texts.get(text_or_id).cloned().unwrap_or_else(|| text_or_id.to_owned());
+        self.feed.push((6.0, long_form(&t)));
+        if self.feed.len() > 3 {
+            self.feed.remove(0);
+        }
     }
 
     fn hint(&self, key: &str) -> String {
@@ -322,7 +335,9 @@ pub struct MissionPlugin;
 
 impl Plugin for MissionPlugin {
     fn build(&self, app: &mut App) {
-        app.add_message::<SendTrigger>().add_systems(Update, (start, volumes, sites, pub_door, barracks, dispatch, messages, outcome).chain());
+        // the mission runs once play begins (not behind the title menu); paused messages keep the state Playing
+        app.add_message::<SendTrigger>()
+            .add_systems(Update, (start, volumes, sites, pub_door, barracks, dispatch, messages, outcome).chain().run_if(in_state(crate::AppState::Playing)));
     }
 }
 
@@ -587,6 +602,12 @@ fn messages(
     mut vtime: ResMut<Time<Virtual>>,
 ) {
     let Some(m) = m.as_deref_mut() else { return };
+    // the feed: the oldest line scrolls off after 6 s
+    for f in &mut m.feed {
+        f.0 -= time.delta_secs();
+    }
+    m.feed.retain(|f| f.0 > 0.0);
+    hud.messages = m.feed.iter().map(|f| f.1.clone()).collect();
     if m.showing.is_some() {
         if keys.just_pressed(KeyCode::Enter) || buttons.just_pressed(MouseButton::Left) {
             m.showing = None;

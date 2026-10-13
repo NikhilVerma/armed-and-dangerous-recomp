@@ -15,6 +15,7 @@ mod flycam;
 mod fx;
 mod fxvm;
 mod gamedata;
+mod gamemenu;
 mod gameaudio;
 mod hud;
 mod level;
@@ -22,6 +23,7 @@ mod menu;
 mod mission;
 mod nav;
 mod physics;
+mod pickup;
 mod player;
 mod playtest;
 mod scene;
@@ -129,8 +131,9 @@ fn main() {
     .add_plugins(EguiPlugin::default())
     .add_plugins(playtest::PlaytestPlugin)
     .add_plugins(audio::AudioBankPlugin)
+    .add_plugins(pickup::PickupPlugin)
     .add_plugins((FrameTimeDiagnosticsPlugin::default(), flycam::FlyCamPlugin, bench::BenchPlugin))
-    .add_plugins((physics::PhysicsPlugin, fx::FxPlugin, ai::AiPlugin, player::PlayerPlugin, menu::MenuPlugin, level::LevelPlugin, fxvm::FxVmPlugin, ai::CompanionPlugin, skin::SkinPlugin, charanim::CharAnimPlugin, hud::HudPlugin, mission::MissionPlugin, gameaudio::GameAudioPlugin, campath::CameraPathPlugin))
+    .add_plugins((physics::PhysicsPlugin, fx::FxPlugin, ai::AiPlugin, player::PlayerPlugin, menu::MenuPlugin, level::LevelPlugin, fxvm::FxVmPlugin, ai::CompanionPlugin, skin::SkinPlugin, charanim::CharAnimPlugin, hud::HudPlugin, mission::MissionPlugin, gameaudio::GameAudioPlugin, campath::CameraPathPlugin, gamemenu::GameMenuPlugin))
     .init_state::<AppState>()
     .insert_non_send(physics::Physics::new(level::METERS_PER_UNIT))
     .insert_resource(ClearColor(Color::srgb(0.62, 0.70, 0.80)))
@@ -138,6 +141,7 @@ fn main() {
     .add_systems(Update, fx_test.run_if(resource_exists::<FxTest>))
     .add_systems(Startup, setup)
     .add_systems(Update, (play_state, hud_state))
+    .add_systems(Update, start_camera_fx.run_if(playing))
     .add_systems(Update, (bench_scenario, bench_record).run_if(resource_exists::<bench::Bench>))
     .add_systems(Update, bench_ground.after(bench::BenchSet).run_if(resource_exists::<bench::Bench>));
     if let Some(dir) = a.fx_test {
@@ -267,9 +271,7 @@ fn setup(
         commands.insert_resource(b);
     }
     let has_player = info.player.is_some();
-    for (name, pos_only) in &info.camera_fx {
-        commands.write_message(fx::StartFx { name: name.clone(), at: start, rotation: Quat::IDENTITY, follow: Some(cam), position_only: *pos_only });
-    }
+    commands.insert_resource(CameraFxPending(info.camera_fx.clone(), cam, start));
     commands.insert_resource(info);
     commands.insert_resource(lib);
     commands.insert_resource(data);
@@ -277,6 +279,8 @@ fn setup(
     if has_player && launch.bench.is_none() && !launch.fx_test {
         if hud::spawn(&mut commands, &launch.scene, &assets, &mut meshes, &mut color_materials).is_none() {
             warn!("hud: ui/layout.json missing (run tools/remaster_export_ui.py)");
+        } else {
+            gamemenu::spawn(&mut commands, &assets, &mut meshes, &mut color_materials);
         }
         menu.stats = false;
         match mission::Mission::load(&launch.scene) {
@@ -376,6 +380,18 @@ fn play_state(mut bank: Option<ResMut<audio::SoundBank>>, bot: Res<playtest::Bot
     m.insert("grunts_alive".into(), ai.alive.into());
     m.insert("grunt_shots".into(), ai.shots.into());
     m.insert("explosions".into(), fx.explosions.into());
+}
+
+/// camera_fx scripts start when play begins (the intro path and snow), not behind the title menu.
+#[derive(Resource)]
+struct CameraFxPending(Vec<(String, bool)>, Entity, Vec3);
+
+fn start_camera_fx(mut commands: Commands, pending: Option<Res<CameraFxPending>>, mut fx: MessageWriter<fx::StartFx>) {
+    let Some(p) = pending else { return };
+    for (name, pos_only) in &p.0 {
+        fx.write(fx::StartFx { name: name.clone(), at: p.2, rotation: Quat::IDENTITY, follow: Some(p.1), position_only: *pos_only });
+    }
+    commands.remove_resource::<CameraFxPending>();
 }
 
 /// The HUD's values from the game state.
