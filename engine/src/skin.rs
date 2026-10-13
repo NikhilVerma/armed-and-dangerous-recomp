@@ -250,6 +250,7 @@ pub struct SkinPlugin;
 
 impl Plugin for SkinPlugin {
     fn build(&self, app: &mut App) {
+        app.init_resource::<SkinCheck>().add_systems(Update, skin_check.run_if(resource_exists::<crate::playtest::Playtest>));
         app.init_resource::<AnimLibrary>().add_message::<AnimNote>().add_systems(PostUpdate, animate.before(TransformSystems::Propagate));
     }
 }
@@ -294,4 +295,122 @@ fn animate(time: Res<Time>, mut lib: ResMut<AnimLibrary>, mut q: Query<(Entity, 
             }
         }
     }
+}
+
+/// Skinning check (playtest evidence): once a second every skinned mesh is skinned on the CPU from its joints'
+/// current transforms, as the GPU does. Each triangle edge is compared with its bind-pose length: the worst
+/// stretch relative to the mesh's median (broken weights or a wrong joint order show as exploded triangles, far
+/// above 1), and the mean vertex motion since the last sample (animations playing, not frozen in bind pose).
+#[derive(Resource, Default)]
+pub struct SkinCheck {
+    pub meshes: usize,
+    pub vertices: usize,
+    pub max_stretch: f32,
+    /// the largest change of an edge's length, as a fraction of its character's size (broken skinning: tens of %)
+    pub max_gap: f32,
+    pub mean_motion: f32,
+    last: HashMap<Entity, Vec<Vec3>>,
+    timer: f32,
+    reported: Vec<Entity>,
+}
+
+fn skin_check(
+    time: Res<Time<Real>>,
+    mut chk: ResMut<SkinCheck>,
+    q: Query<(Entity, &SkinnedMesh, &Mesh3d, &InheritedVisibility)>,
+    meshes: Res<Assets<Mesh>>,
+    binds: Res<Assets<SkinnedMeshInverseBindposes>>,
+    globals: Query<&GlobalTransform>,
+    parents: Query<&ChildOf>,
+    names: Query<&Name>,
+) {
+    use bevy::mesh::VertexAttributeValues as V;
+    chk.timer -= time.delta_secs();
+    if chk.timer > 0.0 {
+        return;
+    }
+    chk.timer = 1.0;
+    let (mut n, mut verts, mut worst, mut motion, mut moved_n, mut gap) = (0usize, 0usize, 1.0f32, 0.0f32, 0usize, 0.0f32);
+    let mut seen = Vec::new();
+    for (e, sm, m, vis) in &q {
+        if !vis.get() {
+            continue;
+        }
+        let (Some(mesh), Some(ib)) = (meshes.get(&m.0), binds.get(&sm.inverse_bindposes)) else { continue };
+        let attr = |id| mesh.try_attribute_option(id).ok().flatten();
+        let (Some(V::Float32x3(pos)), Some(V::Uint16x4(ji)), Some(V::Float32x4(jw))) =
+            (attr(Mesh::ATTRIBUTE_POSITION), attr(Mesh::ATTRIBUTE_JOINT_INDEX), attr(Mesh::ATTRIBUTE_JOINT_WEIGHT))
+        else {
+            continue;
+        };
+        let Some(idx) = mesh.try_indices_option().ok().flatten() else { continue };
+        let mats: Vec<Mat4> = sm.joints.iter().zip(ib.iter()).map(|(j, inv)| globals.get(*j).map(|g| Mat4::from(g.affine()) * *inv).unwrap_or(Mat4::IDENTITY)).collect();
+        let skinned: Vec<Vec3> = pos
+            .iter()
+            .zip(ji.iter().zip(jw.iter()))
+            .map(|(p, (j, w))| {
+                let p = Vec3::from(*p);
+                (0..4).filter(|&k| w[k] > 0.0).map(|k| mats.get(j[k] as usize).copied().unwrap_or(Mat4::IDENTITY).transform_point3(p) * w[k]).sum()
+            })
+            .collect();
+        let tri: Vec<usize> = idx.iter().collect();
+        // the character's size: the extent of its skeleton (a sleeve or collar sub-mesh is far smaller)
+        let (lo, hi) = sm.joints.iter().filter_map(|j| globals.get(*j).ok()).fold((Vec3::splat(f32::MAX), Vec3::splat(f32::MIN)), |(l, h), g| (l.min(g.translation()), h.max(g.translation())));
+        let size = (hi - lo).length().max(1e-3);
+        let mut ratios: Vec<f32> = Vec::with_capacity(tri.len());
+        for t in tri.chunks_exact(3) {
+            for (a, b) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
+                let rest = Vec3::from(pos[a]).distance(Vec3::from(pos[b]));
+                if rest > 1e-3 {
+                    let now = skinned[a].distance(skinned[b]);
+                    ratios.push(now / rest);
+                    gap = gap.max((now - rest).abs() / size);
+                }
+            }
+        }
+        if ratios.is_empty() {
+            continue;
+        }
+        let mut sorted = ratios.clone();
+        sorted.sort_by(|a, b| a.total_cmp(b));
+        let median = sorted[sorted.len() / 2].max(1e-6);
+        let top = sorted[sorted.len() - 1] / median;
+        let mesh_gap = ratios.iter().zip(tri.chunks_exact(3).flat_map(|t| [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])]).filter(|(a, b)| Vec3::from(pos[*a]).distance(Vec3::from(pos[*b])) > 1e-3)).map(|(_, (a, b))| {
+            let rest = Vec3::from(pos[a]).distance(Vec3::from(pos[b]));
+            ((skinned[a].distance(skinned[b]) - rest).abs() / size, a, b)
+        }).fold((0.0f32, 0, 0), |m, x| if x.0 > m.0 { x } else { m });
+        if mesh_gap.0 > 0.1 && !chk.reported.contains(&e) {
+            let (_, a, b) = mesh_gap;
+            let owner = parents.iter_ancestors(e).find_map(|p| names.get(p).ok()).map(|n| n.as_str().to_owned()).unwrap_or_default();
+            info!("skin check: {owner} mesh {e} ({} verts, size {size:.1}) gap {:.2}: v{a} joints {:?} w {:?} / v{b} joints {:?} w {:?}, rest {:.2} -> {:.2}",
+                skinned.len(), mesh_gap.0, ji[a], jw[a], ji[b], jw[b], Vec3::from(pos[a]).distance(Vec3::from(pos[b])), skinned[a].distance(skinned[b]));
+            chk.reported.push(e);
+        }
+        if false {
+            // which edge: its vertices' joints and weights, its rest and skinned length
+            let k = ratios.iter().position(|r| *r == sorted[sorted.len() - 1]).unwrap_or(0);
+            let t = &tri[(k / 3) * 3..(k / 3) * 3 + 3];
+            let (a, b) = [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])][k % 3];
+            info!(
+                "skin check: mesh {e} ({} verts, {} joints) stretch {top:.2}: v{a} joints {:?} w {:?} / v{b} joints {:?} w {:?}, rest {:.3} -> {:.3}",
+                skinned.len(), sm.joints.len(), ji[a], jw[a], ji[b], jw[b],
+                Vec3::from(pos[a]).distance(Vec3::from(pos[b])), skinned[a].distance(skinned[b])
+            );
+            chk.reported.push(e);
+        }
+        worst = worst.max(top);
+        if let Some(prev) = chk.last.get(&e).filter(|p| p.len() == skinned.len()) {
+            motion += prev.iter().zip(&skinned).map(|(a, b)| a.distance(*b)).sum::<f32>() / skinned.len() as f32;
+            moved_n += 1;
+        }
+        n += 1;
+        verts += skinned.len();
+        seen.push((e, skinned));
+    }
+    chk.last = seen.into_iter().collect();
+    chk.meshes = n;
+    chk.vertices = verts;
+    chk.max_stretch = worst;
+    chk.max_gap = gap;
+    chk.mean_motion = if moved_n > 0 { motion / moved_n as f32 } else { 0.0 };
 }

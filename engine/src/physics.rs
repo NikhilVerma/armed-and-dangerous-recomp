@@ -226,6 +226,14 @@ impl Physics {
         Some((br(c.position()) / k, on))
     }
 
+    /// Puts a walker's feet at `feet` (game units, engine axes): a teleport (leaving the pub at its exit).
+    pub fn place_walker(&mut self, w: &Walker, feet: Vec3) {
+        let p = self.to_m(feet);
+        if let Ok(mut c) = self.world.character_mut(w.id) {
+            let _ = c.set_position(p);
+        }
+    }
+
     pub fn remove_walker(&mut self, w: &Walker) {
         let _ = self.world.remove_character(w.id);
     }

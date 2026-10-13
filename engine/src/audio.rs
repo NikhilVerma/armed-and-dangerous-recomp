@@ -45,6 +45,9 @@ pub struct VoiceLine {
     pub speaker: Option<String>,
     #[serde(default)]
     pub subtitle: Option<String>,
+    /// the line's length in seconds (the wav)
+    #[serde(default)]
+    pub duration: f32,
 }
 
 /// A subtitle to show (speech started): speaker and line.
@@ -52,6 +55,8 @@ pub struct VoiceLine {
 pub struct Subtitle {
     pub speaker: Option<String>,
     pub text: String,
+    /// seconds to show it: the line's length
+    pub duration: f32,
 }
 
 /// The distance curve in dB at t in [0, 1] between min and max distance.
@@ -144,6 +149,15 @@ pub struct Positional {
     pub follow: Option<Entity>,
 }
 
+/// Stops every playing instance of a sound (looped sounds: the machine gun's fire loop, the ticker wind-up), as
+/// the game stops a sound by its handle ((g+0x2c) virtual +0xd8).
+#[derive(Message, Clone)]
+pub struct StopSound(pub String);
+
+/// The bank name of a playing sound.
+#[derive(Component)]
+pub struct SoundName(pub String);
+
 /// Category volumes (settings menu).
 #[derive(Resource)]
 pub struct Mixer {
@@ -159,8 +173,9 @@ impl Plugin for AudioBankPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<PlaySound>()
             .add_message::<Subtitle>()
+            .add_message::<StopSound>()
             .insert_resource(Mixer { master: 1.0, sfx: 1.0, voice: 1.0, music: 0.8 })
-            .add_systems(Update, (play, attenuate).chain());
+            .add_systems(Update, (stop, play, attenuate).chain());
     }
 }
 
@@ -193,7 +208,7 @@ fn play(
         let base = db_to_gain(def.volume_db) * ev.volume * cat * mixer.master;
         if def.category.as_deref() == Some("voice") {
             if let Some(line) = bank.voice.get(&key).filter(|l| l.subtitle.is_some()) {
-                subs.write(Subtitle { speaker: line.speaker.clone(), text: line.subtitle.clone().unwrap_or_default() });
+                subs.write(Subtitle { speaker: line.speaker.clone(), text: line.subtitle.clone().unwrap_or_default(), duration: line.duration.max(2.0) });
             }
         }
         let settings = PlaybackSettings {
@@ -202,7 +217,7 @@ fn play(
             spatial: ev.at.is_some() || ev.follow.is_some(),
             ..default()
         };
-        let mut e = commands.spawn((AudioPlayer(handle), settings, Transform::from_translation(ev.at.unwrap_or_default())));
+        let mut e = commands.spawn((AudioPlayer(handle), settings, Transform::from_translation(ev.at.unwrap_or_default()), SoundName(ev.name.clone())));
         if ev.at.is_some() || ev.follow.is_some() {
             e.insert(Positional {
                 base,
@@ -215,6 +230,16 @@ fn play(
         bank.recent.push(key.clone());
         if bank.recent.len() > 40 {
             bank.recent.remove(0);
+        }
+    }
+}
+
+fn stop(mut commands: Commands, mut events: MessageReader<StopSound>, playing: Query<(Entity, &SoundName)>) {
+    for ev in events.read() {
+        for (e, n) in &playing {
+            if n.0 == ev.0 {
+                commands.entity(e).despawn();
+            }
         }
     }
 }

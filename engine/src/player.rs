@@ -36,6 +36,14 @@ pub struct Roman {
     pub anti_gravity: f32,
     pub max_health: f32,
     pub rifle: Weapon,
+    /// the Flemming machine gun once taken in the pub (Roman's second weapon slot)
+    pub mg: Option<Weapon>,
+    /// the machine gun is in hand (Next Weapon: Q)
+    pub use_mg: bool,
+    /// Topsy Turvy bombs (a special from the pub; its throw is not ported)
+    pub topsy: u32,
+    /// the machine gun's fire loop is playing
+    pub mg_firing: bool,
     pub stickies: u32,
     pub dead: bool,
     pub base: Quat,
@@ -48,6 +56,12 @@ pub struct Roman {
 #[derive(Clone)]
 pub struct Weapon {
     pub name: &'static str,
+    /// its property set (projectile, muzzle fx)
+    pub props: &'static str,
+    /// aim spread in % (machinegun_spread_pct)
+    pub spread: f32,
+    /// the reserve is unlimited (weapon type 2: the HUD shows "%d/" and the infinity sign)
+    pub unlimited: bool,
     pub recycle: f32,
     pub reload_time: f32,
     pub clip_size: u32,
@@ -109,12 +123,15 @@ pub struct PlayerStats {
     pub position: Vec3,
     pub kills: u32,
     pub shots: u32,
+    pub weapon: &'static str,
+    pub unlimited: bool,
 }
 
 pub struct PlayerPlugin;
 
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
+        app.add_systems(Update, hand_weapon);
         app.init_resource::<PlayerStats>()
             .add_systems(Update, (grab_cursor, control, weapons, projectiles).chain().run_if(crate::playing))
             .add_systems(PostUpdate, follow_camera.before(TransformSystems::Propagate).run_if(crate::playing));
@@ -141,6 +158,9 @@ pub fn make_roman(physics: &mut Physics, p: &Props, data: &GameData, feet: Vec3,
         max_health: p.f("max_health", 400.0),
         rifle: Weapon {
             name: "rifle",
+            props: "p_player_rifle",
+            spread: 0.0,
+            unlimited: true,
             recycle: r.f("recycle_time", 0.5),
             reload_time: r.f("clip_reload_time", 1.0),
             clip_size: r.i("clip_size", 8) as u32,
@@ -153,6 +173,10 @@ pub fn make_roman(physics: &mut Physics, p: &Props, data: &GameData, feet: Vec3,
             impact_force: b.f("impact_force", 7370.0),
             timer: 0.0,
         },
+        mg: None,
+        use_mg: false,
+        topsy: 0,
+        mg_firing: false,
         stickies: 5,
         dead: false,
         base: game_to_engine(),
@@ -160,6 +184,44 @@ pub fn make_roman(physics: &mut Physics, p: &Props, data: &GameData, feet: Vec3,
         reloading: 0.0,
         move_local: Vec2::ZERO,
     })
+}
+
+/// Shows the weapon model in use in Roman's hand.
+fn hand_weapon(roman: Query<&Roman>, mut held: Query<(&crate::level::HandWeapon, &mut Visibility)>) {
+    let Ok(r) = roman.single() else { return };
+    let mg = r.use_mg && r.mg.is_some();
+    for (w, mut v) in &mut held {
+        let show = (w.0 == "machinegun") == mg;
+        let want = if show { Visibility::Inherited } else { Visibility::Hidden };
+        if *v != want {
+            *v = want;
+        }
+    }
+}
+
+/// The Flemming machine gun with the game's values (p_player_machinegun, its bullet, p_globalsettings: clip 100,
+/// max ammo 1000, spread 2 %, range 400), filled as the pub fills it (0x004a13a0 tops ammo up).
+pub fn machinegun(data: &GameData) -> Weapon {
+    let m = data.props("p_player_machinegun");
+    let b = data.props("p_player_machinegun_bullet");
+    let g = data.props("p_globalsettings");
+    let clip = g.i("machinegun_max_clip", 100) as u32;
+    Weapon {
+        name: "machinegun",
+        props: "p_player_machinegun",
+        spread: g.f("machinegun_spread_pct", 2.0),
+        unlimited: false,
+        recycle: m.f("recycle_time", 0.1),
+        reload_time: m.f("clip_reload_time", 1.0),
+        clip_size: clip,
+        clip,
+        ammo: g.i("machinegun_max_ammo", 1000) as u32,
+        speed: b.f("speed", 300.0),
+        damage: b.f("damage", 20.0),
+        range: g.f("machinegun_range", 400.0),
+        impact_force: b.f("impact_force", 5695.0),
+        timer: 0.0,
+    }
 }
 
 fn grab_cursor(mut cursor: Query<&mut CursorOptions, With<PrimaryWindow>>, mut done: Local<bool>) {
@@ -184,6 +246,7 @@ fn control(
     explosives: Query<(&crate::fx::Destructible, &GlobalTransform)>,
     keys: Res<ButtonInput<KeyCode>>,
     motion: Res<AccumulatedMouseMotion>,
+    opts: Res<crate::options::GameOptions>,
     mut physics: NonSendMut<Physics>,
     mut q: Query<(&mut Roman, &mut Transform, &Health)>,
     mut stats: ResMut<PlayerStats>,
@@ -195,8 +258,11 @@ fn control(
         if h.0 <= 0.0 {
             r.dead = true;
         }
-        r.yaw -= motion.delta.x * 0.0025;
-        r.pitch = (r.pitch - motion.delta.y * 0.0025).clamp(-1.1, 0.7);
+        // mouse look with the options' sensitivity (0.5 = the remaster's 0.0025 rad per count) and invert
+        let k = 0.0025 * opts.mouse_factor();
+        let inv = if opts.invert_mouse { -1.0 } else { 1.0 };
+        r.yaw -= motion.delta.x * k;
+        r.pitch = (r.pitch - motion.delta.y * k * inv).clamp(-1.1, 0.7);
         let mut wish = Vec3::ZERO;
         // playtest bot: turn toward the goal and walk; when fighting, face the nearest live grunt
         let mut bot_walk: Option<Vec3> = None;
@@ -263,7 +329,10 @@ fn control(
                 bot.throw_timer = 3.0;
             }
         }
+        // an explosive beside Roman while under fire: step away from it (the bot holds its fire there)
+        let near_keg = kegs.iter().filter(|(k, r)| k.distance(me) < r + 25.0).map(|(k, _)| *k).min_by(|a, b| a.distance(me).total_cmp(&b.distance(me)));
         let tactic: Option<Vec3> = match target {
+            Some(_) if near_keg.is_some() => near_keg.map(|k| (me - k).with_y(0.0).normalize_or_zero()),
             Some(p) if low => Some((me - p).with_y(0.0).normalize_or_zero()),
             Some(p) if p.distance(me) > 120.0 && bot.hold < 20.0 => Some(Vec3::ZERO),
             _ => None,
@@ -301,8 +370,9 @@ fn control(
             bot_walk = Some(dir);
         } else if let Some(g) = bot.goto {
             let to = (bot.route.first().copied().unwrap_or(g) - t.translation).with_y(0.0);
+            let near = if bot.near > 0.0 { bot.near } else { 12.0 };
             let to = if (g - t.translation).with_y(0.0).length() < 12.0 { (g - t.translation).with_y(0.0) } else { to };
-            if (g - t.translation).with_y(0.0).length() < 12.0 {
+            if (g - t.translation).with_y(0.0).length() < near {
                 bot.goto = None;
                 bot.arrived = true;
             } else {
@@ -396,8 +466,11 @@ fn control(
         // Roman faces where the camera looks (his model faces -Y in game space = +Z engine: turn by pi)
         t.rotation = Quat::from_rotation_y(r.yaw + std::f32::consts::PI) * r.base;
         stats.position = t.translation;
-        stats.clip = r.rifle.clip;
-        stats.ammo = r.rifle.ammo;
+        let w = if r.use_mg { r.mg.as_ref().unwrap_or(&r.rifle) } else { &r.rifle };
+        stats.clip = w.clip;
+        stats.ammo = w.ammo;
+        stats.weapon = w.name;
+        stats.unlimited = w.unlimited;
         stats.stickies = r.stickies;
     }
 }
@@ -420,7 +493,9 @@ fn weapons(
     mut q: Query<(Entity, &mut Roman, &Transform)>,
     mut stats: ResMut<PlayerStats>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
+    mut stop: MessageWriter<crate::audio::StopSound>,
     mut fx: MessageWriter<crate::fx::StartFx>,
+    mut rng: ResMut<crate::fx::FxStats>,
 ) {
     let dt = time.delta_secs();
     for (e, mut r, t) in &mut q {
@@ -429,40 +504,74 @@ fn weapons(
         }
         r.since_fire += dt;
         r.reloading -= dt;
-        let mut reloaded = false;
-        let w = &mut r.rifle;
-        w.timer -= dt;
-        if (keys.just_pressed(KeyCode::KeyR) && w.clip < w.clip_size && w.ammo > 0) || (w.clip == 0 && w.ammo > 0 && w.timer <= 0.0) {
-            let n = (w.clip_size - w.clip).min(w.ammo);
-            w.clip += n;
-            w.ammo -= n;
-            w.timer = w.reload_time;
-            reloaded = true;
-            sounds.write(crate::audio::PlaySound::at("wpn_rome_rifle_load", t.translation));
+        // Next Weapon (Q): the rifle and, once taken in the pub, the machine gun
+        if keys.just_pressed(KeyCode::KeyQ) && r.mg.is_some() {
+            r.use_mg = !r.use_mg;
+            sounds.write(crate::audio::PlaySound::at("ui_weapon_put_away", t.translation));
         }
+        let mg = r.use_mg && r.mg.is_some();
+        let mut reloaded = false;
         let fire = buttons.pressed(MouseButton::Left) || (bot.fight && bot.fire_ok);
-        let shoot = fire && w.timer <= 0.0 && w.clip > 0;
+        let (shoot, reload_time) = {
+            let w = if mg { r.mg.as_mut().unwrap() } else { &mut r.rifle };
+            w.timer -= dt;
+            if (keys.just_pressed(KeyCode::KeyR) && w.clip < w.clip_size && w.ammo > 0) || (w.clip == 0 && w.ammo > 0 && w.timer <= 0.0) {
+                let n = (w.clip_size - w.clip).min(w.ammo);
+                w.clip += n;
+                if !w.unlimited {
+                    w.ammo -= n;
+                }
+                w.timer = w.reload_time;
+                reloaded = true;
+                sounds.write(crate::audio::PlaySound::at(if mg { "wpn_rome_machgun_load" } else { "wpn_rome_rifle_load" }, t.translation));
+            }
+            (fire && w.timer <= 0.0 && w.clip > 0, w.reload_time)
+        };
         if reloaded {
-            r.reloading = r.rifle.reload_time;
+            r.reloading = reload_time;
+        }
+        // the machine gun's fire sound: start, loop while the trigger is held, end (wpn_rome_machgun_fire_*)
+        if mg && shoot && !r.mg_firing {
+            r.mg_firing = true;
+            sounds.write(crate::audio::PlaySound::at("wpn_rome_machgun_fire_start", t.translation));
+            sounds.write(crate::audio::PlaySound { looped: Some(true), ..crate::audio::PlaySound::at("wpn_rome_machgun_fire_lp", t.translation) });
+        }
+        if r.mg_firing && (!fire || !mg || r.mg.as_ref().is_some_and(|w| w.clip == 0)) {
+            r.mg_firing = false;
+            stop.write(crate::audio::StopSound("wpn_rome_machgun_fire_lp".into()));
+            sounds.write(crate::audio::PlaySound::at("wpn_rome_machgun_fire_end", t.translation));
         }
         if shoot {
             r.since_fire = 0.0;
-            let w = &mut r.rifle;
-            w.clip -= 1;
-            w.timer = w.recycle;
+            let (props, spread) = {
+                let w = if mg { r.mg.as_mut().unwrap() } else { &mut r.rifle };
+                w.clip -= 1;
+                w.timer = w.recycle;
+                (w.props, w.spread)
+            };
             stats.shots += 1;
             let (from, dir) = aim(&r, t);
-            let rifle = data.props("p_player_rifle");
-            let bullet = data.props(&format!("p_{}", rifle.s("projectile_name").unwrap_or("player_rifle_bullet")));
+            // spread: a random offset of up to spread % across the aim
+            let dir = if spread > 0.0 {
+                let k = spread / 100.0;
+                (dir + Vec3::new(rng.range(-k, k), rng.range(-k, k), rng.range(-k, k))).normalize_or(dir)
+            } else {
+                dir
+            };
+            let wp = data.props(props);
+            let bullet = data.props(&format!("p_{}", wp.s("projectile_name").unwrap_or("player_rifle_bullet")));
             spawn_projectile(&mut commands, &mut fx, &bullet, from, dir, true, Some(e));
-            if let Some(m) = rifle.s("muzzle_fx_name") {
+            if let Some(m) = wp.s("muzzle_fx_name") {
                 fx.write(crate::fx::StartFx { name: m.to_owned(), at: from, rotation: Transform::IDENTITY.looking_to(dir, Vec3::Y).rotation, follow: None, position_only: false });
             }
-            sounds.write(crate::audio::PlaySound::at("wpn_rome_rifle_fire", t.translation));
+            if !mg {
+                sounds.write(crate::audio::PlaySound::at("wpn_rome_rifle_fire", t.translation));
+            }
         }
         // sticky bomb: thrown along the aim with the game's sticky bomb values (stand-in throw strength)
         let bot_throw = std::mem::take(&mut bot.throw);
-        if (keys.just_pressed(KeyCode::KeyF) || buttons.just_pressed(MouseButton::Right) || bot_throw) && r.stickies > 0 {
+        // Fire Special: Mouse 2 (the original's binding; F is Activate)
+        if (buttons.just_pressed(MouseButton::Right) || bot_throw) && r.stickies > 0 {
             r.stickies -= 1;
             let (from, dir) = aim(&r, t);
             spawn_bomb(&mut commands, &mut physics, &bombs, &data, from, dir * 90.0 + Vec3::Y * 20.0, 3.0);

@@ -34,8 +34,14 @@ pub struct Event {
     pub release_mouse: Option<String>,
     #[serde(default)]
     pub shot: Option<String>,
+    /// steps only: take this step's shot this many seconds into the step (e.g. mid hold_use)
+    #[serde(default)]
+    pub shot_after: Option<f32>,
     #[serde(default)]
     pub quit: bool,
+    /// debug: take this much damage at once (to test losing)
+    #[serde(default)]
+    pub hurt: Option<f32>,
     /// bot: walk to this point (game space x, y, z: as the scene files give positions)
     #[serde(default)]
     pub goto: Option<[f32; 3]>,
@@ -45,6 +51,9 @@ pub struct Event {
     /// bot: hold the Use key (true) / release (false)
     #[serde(default)]
     pub r#use: Option<bool>,
+    /// bot: with goto, arrive within this many units (default 12)
+    #[serde(default)]
+    pub near: Option<f32>,
     /// steps only: wait this many seconds
     #[serde(default)]
     pub wait: Option<f32>,
@@ -77,6 +86,8 @@ pub struct Bot {
     pub no_target: f32,
     /// the bot has something worth shooting and no explosive next to it
     pub fire_ok: bool,
+    /// the current goto's arrival distance (0: the default 12)
+    pub near: f32,
     /// seconds on the current pickup detour; pickups given up on (unreachable)
     pub detour_t: f32,
     pub skip_pickups: Vec<Vec3>,
@@ -96,6 +107,9 @@ struct Script {
     /// their time); the same fields as events, without `t`
     #[serde(default)]
     steps: Vec<Event>,
+    /// start on the title screen (menu tests) instead of in the level
+    #[serde(default)]
+    title: bool,
 }
 
 struct StepView<'a>(&'a Event);
@@ -111,6 +125,7 @@ impl serde::Serialize for StepView<'_> {
 #[derive(Resource)]
 pub struct Playtest {
     pub path: PathBuf,
+    pub title: bool,
     events: Vec<Event>,
     turns: Vec<(f32, f32, f32, f32)>,
     next: usize,
@@ -120,6 +135,8 @@ pub struct Playtest {
     log: Option<std::fs::File>,
     last_log: f32,
     steps: Vec<Event>,
+    /// a step's deferred shot (shot_after)
+    step_shot: Option<String>,
     step: usize,
     step_t: f32,
     step_started: bool,
@@ -136,7 +153,14 @@ impl Playtest {
         let mut events = s.events;
         events.sort_by(|a, b| a.t.total_cmp(&b.t));
         let log = std::fs::File::create(path.with_extension("log.jsonl")).ok();
-        Playtest { path, events, turns: s.turns, next: 0, t: 0.0, taps: vec![], clicks: vec![], log, last_log: -1.0, steps: s.steps, step: 0, step_t: 0.0, step_started: false }
+        Playtest { path, title: s.title, events, turns: s.turns, next: 0, t: 0.0, taps: vec![], clicks: vec![], log, last_log: -1.0, steps: s.steps, step_shot: None, step: 0, step_t: 0.0, step_started: false }
+    }
+}
+
+impl Event {
+    /// The same event with nothing to do (a base for one deferred action).
+    fn cleared(self) -> Event {
+        serde_json::from_str::<Event>(&format!("{{\"t\": {}}}", self.t)).expect("empty event")
     }
 }
 
@@ -208,6 +232,7 @@ fn drive(
     mut exit: MessageWriter<AppExit>,
     mut bot: ResMut<Bot>,
     mission: Option<Res<crate::mission::Mission>>,
+    mut roman: Query<&mut crate::fx::Health, With<crate::player::Roman>>,
 ) {
     pt.t += time.delta_secs();
     // the mission over (won or failed): play stops, so a pending goto counts as done
@@ -229,7 +254,12 @@ fn drive(
             pt.step_started = true;
             pt.step_t = 0.0;
             info!("playtest step {}: {}", pt.step, serde_json::to_string(&StepView(&st)).unwrap_or_default());
-            due.push(st.clone());
+            pt.step_shot = st.shot_after.is_some().then(|| st.shot.clone()).flatten();
+            let mut now = st.clone();
+            if pt.step_shot.is_some() {
+                now.shot = None;
+            }
+            due.push(now);
             if st.hold_use.is_some() {
                 bot.use_key = true;
             }
@@ -238,6 +268,11 @@ fn drive(
             }
         }
         pt.step_t += time.delta_secs();
+        if st.shot_after.is_some_and(|a| pt.step_t >= a) {
+            if let Some(s) = pt.step_shot.take() {
+                due.push(Event { shot: Some(s), ..st.clone().cleared() });
+            }
+        }
         let done = if st.goto.is_some() {
             bot.arrived || ended || pt.step_t > 240.0
         } else if let Some(w) = st.wait {
@@ -293,6 +328,7 @@ fn drive(
             // game space (Z up) -> engine (Y up)
             bot.goto = Some(Vec3::new(g[0], g[2], -g[1]));
             bot.arrived = false;
+            bot.near = e.near.unwrap_or(0.0);
         }
         if let Some(f) = e.fight {
             bot.fight = f;
@@ -302,6 +338,9 @@ fn drive(
         }
         if e.quit {
             exit.write(AppExit::Success);
+        }
+        if let (Some(d), Ok(mut h)) = (e.hurt, roman.single_mut()) {
+            h.0 -= d;
         }
     }
 }

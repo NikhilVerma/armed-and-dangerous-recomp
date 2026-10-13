@@ -22,6 +22,7 @@ Output (game data: lives under work/, never committed):
   font.json            BMFont-like metrics: char code -> x, y, width, height, xoffset, yoffset, xadvance
   font.png             the glyph atlas (mainfontid, 256x512)
   textures/<name>.png  every texture a UI mesh uses (mip 0, RGBA; DXT2 premultiplied alpha is un-premultiplied)
+  texts.json           every display string of the text bank, id -> text
   ui_bank.json         the raw ui bank dump (tools/formats/big_kinds/ui.py) for reference
 """
 import argparse
@@ -430,6 +431,10 @@ def main():
         "subtitles": subtitles,
     }
     (out / "layout.json").write_text(json.dumps(layout, indent=1, ensure_ascii=False), encoding="utf-8")
+    # every display string (big01_text) by id, for the menu pages' labels
+    _, strings = textkind.parse(rx.payload(level, "big01_text"))
+    texts = {i.decode("latin-1").lower(): v.decode("utf-16-le", "surrogatepass") for i, v in strings}
+    (out / "texts.json").write_text(json.dumps(texts, indent=1, ensure_ascii=False), encoding="utf-8")
     nchars = export_font(level, out, textures)
     hud = [e for e in elements if e["page"] == 0]
     print(f"ui: {len(pages)} pages, {len(elements)} elements ({len(hud)} HUD), {len(models)} models, "

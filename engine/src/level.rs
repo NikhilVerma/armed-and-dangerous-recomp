@@ -114,12 +114,19 @@ fn attach_model(commands: &mut Commands, e: Entity, model: &scene::Model, shadow
 
 /// A weapon model in a character's hand: its ref_hand_00 bone is at the weapon's origin, so the model hangs
 /// straight off the hand joint.
-fn attach_weapon(commands: &mut Commands, hand: Entity, model: &scene::Model, fix: Transform) {
+fn attach_weapon(commands: &mut Commands, hand: Entity, model: &scene::Model, fix: Transform) -> Entity {
+    let holder = commands.spawn((Transform::IDENTITY, Visibility::default())).id();
+    commands.entity(hand).add_child(holder);
     for (mesh, mat) in &model.parts {
         let c = commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(mat.clone()), fix)).id();
-        commands.entity(hand).add_child(c);
+        commands.entity(holder).add_child(c);
     }
+    holder
 }
+
+/// One of Roman's weapon models in his hand (player.rs shows the one in use).
+#[derive(Component)]
+pub struct HandWeapon(pub &'static str);
 
 fn static_collider(physics: &mut Physics, model: &scene::Model, world: Mat4) -> Option<BodyId> {
     let v: Vec<Vec3> = model.vertices.iter().map(|p| world.transform_point3(*p)).collect();
@@ -224,7 +231,17 @@ pub fn spawn(
                 if let Some(m) = lib.load_model(&w, false, assets, meshes, materials) {
                     // the weapon's ref_hand_00 = the hand joint (identity; checked by CPU skinning: the rifle points
                     // ahead in trotter_idle_1 and about 45 degrees up in the aim / run_aim poses, as authored)
-                    attach_weapon(commands, h, m, Transform::IDENTITY);
+                    let held = attach_weapon(commands, h, m, Transform::IDENTITY);
+                    if inst.template == "trotter" {
+                        commands.entity(held).insert(HandWeapon("rifle"));
+                    }
+                }
+                // Roman's machine gun (taken in the pub) hangs in the same hand, hidden until it is in use
+                if inst.template == "trotter" {
+                    if let Some(m) = data.templates.get("player_machinegun").and_then(|t| t.model.clone()).and_then(|n| lib.load_model(&n, false, assets, meshes, materials)) {
+                        let held = attach_weapon(commands, h, m, Transform::IDENTITY);
+                        commands.entity(held).insert((HandWeapon("machinegun"), Visibility::Hidden));
+                    }
                 }
             }
             info.instances += 1;
@@ -339,7 +356,7 @@ pub fn spawn(
         }
         let m = scene::game_matrix(&l.transform);
         let dir = game_to_engine() * -m.z_axis.truncate().normalize();
-        commands.spawn((
+        let mut light = commands.spawn((
             DirectionalLight {
                 color: Color::srgb(p("redvalue") / 255.0, p("greenvalue") / 255.0, p("bluevalue") / 255.0),
                 illuminance: 9000.0 * p("intensity").max(0.1),
@@ -349,12 +366,16 @@ pub fn spawn(
             Transform::default().looking_to(dir, Vec3::Y),
             CascadeShadowConfigBuilder { maximum_distance: extent * 0.5, first_cascade_far_bound: 60.0, ..default() }.build(),
         ));
+        if first {
+            light.insert(crate::options::ShadowLight);
+        }
         first = false;
     }
     if first {
         commands.spawn((
             DirectionalLight { illuminance: 9000.0, shadow_maps_enabled: true, ..default() },
             Transform::default().looking_to(Vec3::new(-0.4, -1.0, -0.3), Vec3::Y),
+            crate::options::ShadowLight,
         ));
     }
     info

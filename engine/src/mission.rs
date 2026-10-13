@@ -41,6 +41,10 @@ struct InstanceDef {
     #[serde(default)]
     position: Option<[f32; 3]>,
     #[serde(default)]
+    transform: Option<[[f32; 4]; 3]>,
+    #[serde(default)]
+    model: Option<String>,
+    #[serde(default)]
     resolved: Map<String, Value>,
     #[serde(default)]
     volume: Option<Map<String, Value>>,
@@ -115,6 +119,28 @@ struct Barracks {
     active: bool,
 }
 
+/// A reference bone of a model (its reference anim's first key: anims/<model>.json), in the model's game space.
+fn pub_bone(dir: &std::path::Path, model: &str, bone: &str) -> Option<Vec3> {
+    let v: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("anims").join(format!("{model}.json"))).ok()?).ok()?;
+    let (_, track) = v.get("tracks")?.as_object()?.iter().find(|(k, _)| k.eq_ignore_ascii_case(bone))?;
+    let k = track.get("t")?.as_array()?.first()?.as_array()?;
+    let f = |i: usize| k.get(i).and_then(|x| x.as_f64()).unwrap_or(0.0) as f32;
+    Some(Vec3::new(f(1), f(2), f(3)))
+}
+
+/// What a pub has (p_pub with the instance's overrides; PubObject_Load 0x0046a200).
+#[derive(Clone, Debug)]
+pub struct PubInfo {
+    /// the weapons it sells, in the weapon table's order
+    pub sells: Vec<&'static str>,
+    /// its special weapon
+    pub special: Option<&'static str>,
+    pub has_tickerbomb: bool,
+    /// health left in its pool, and the pool bar's scale (health_bar_rate)
+    pub pool: f32,
+    pub bar_rate: f32,
+}
+
 /// Mission outcome for the state log.
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub enum Outcome {
@@ -131,6 +157,14 @@ pub struct Mission {
     sites: Vec<Site>,
     pub_pos: Option<(Vec3, f32, i64)>,
     pub_done: bool,
+    /// the player entered the pub: the pub screen opens (gamemenu.rs)
+    pub pub_request: bool,
+    /// the pub screen was left: send its exit trigger
+    pub pub_exit_pending: bool,
+    /// what the pub has (its property set with the instance's overrides)
+    pub pub_info: Option<PubInfo>,
+    /// where the player stands after the pub screen (the pub's Ref_exit bone, player_exit_bone_name)
+    pub pub_exit_pos: Option<Vec3>,
     barracks: Vec<Barracks>,
     texts: HashMap<String, String>,
     hints: HashMap<String, String>,
@@ -139,7 +173,7 @@ pub struct Mission {
     start_trigger: i64,
     start_text: Option<String>,
     success_text: Option<String>,
-    failure_text: Option<String>,
+    pub failure_text: Option<String>,
     started: bool,
     /// paused messages waiting for "continue", and the one shown
     queue: Vec<(f32, String)>,
@@ -149,6 +183,8 @@ pub struct Mission {
     dead_timer: f32,
     pub log: Vec<String>,
     pub objectives: String,
+    /// the objectives text with both forms (the pause menu shows the short one)
+    pub objectives_raw: String,
     /// the message feed: (seconds left, line)
     pub feed: Vec<(f32, String)>,
 }
@@ -174,6 +210,18 @@ pub fn long_form(t: &str) -> String {
         s.replace_range(a..b + "</short>".len(), "");
     }
     s.replace("<long>", "").replace("</long>", "").replace("<BR>", "<br>")
+}
+
+/// The short form (<short> kept, <long> dropped: render flag 8), as the pause menu's objectives show it.
+pub fn short_form(t: &str) -> String {
+    let mut s = t.to_string();
+    while let (Some(a), Some(b)) = (s.find("<long>"), s.find("</long>")) {
+        if b < a {
+            break;
+        }
+        s.replace_range(a..b + "</long>".len(), "");
+    }
+    s.replace("<short>", "").replace("</short>", "").replace("<BR>", "<br>")
 }
 
 impl Mission {
@@ -246,6 +294,8 @@ impl Mission {
         let mut sites = Vec::new();
         let mut barracks = Vec::new();
         let mut pub_pos = None;
+        let mut pub_info = None;
+        let mut pub_exit_pos = None;
         let mut tags: HashMap<i64, Vec<Vec3>> = HashMap::new();
         for i in &f.instances {
             let r = &i.resolved;
@@ -266,7 +316,32 @@ impl Mission {
                     hold: 0.0,
                     done: false,
                 }),
-                "pub" => pub_pos = Some((pos, n(r, "doorway_entry_radius").max(8.0) as f32 + 22.0, n(r, "send_trigger_exit") as i64)),
+                "pub" => {
+                    // the doorway: the model's Ref_entrance bone (doorway_bone_name) and doorway_entry_radius
+                    // (0x00467b60: player position within the radius); the exit: Ref_exit (player_exit_bone_name)
+                    let refs = i.model.as_ref().zip(i.transform.as_ref()).map(|(model, t)| (pub_bone(dir, model, "ref_entrance"), pub_bone(dir, model, "ref_exit"), crate::scene::game_matrix(t)));
+                    let world = |b: Option<Vec3>, m: Mat4| b.map(|l| game_to_engine() * m.transform_point3(l));
+                    let (door, exit) = refs.map(|(a, b, m)| (world(a, m), world(b, m))).unwrap_or((None, None));
+                    pub_exit_pos = exit;
+                    pub_pos = Some((door.unwrap_or(pos), n(r, "doorway_entry_radius").max(1.0) as f32, n(r, "send_trigger_exit") as i64));
+                    // weapons 0..5 in the weapon table's order, the one special (+0x468), ticker bombs, the health pool
+                    let sells = [("has_rifle", "rifle"), ("has_snipergun", "snipergun"), ("has_machinegun", "machinegun"), ("has_gurner", "rlgurner"), ("has_sharkgun", "sharkgun"), ("has_vindaloo", "rlvindaloo")]
+                        .iter()
+                        .filter(|(k, _)| n(r, k) != 0.0)
+                        .map(|(_, w)| *w)
+                        .collect();
+                    let special = [("has_topsyturvy", "topsy"), ("has_guyfawkes", "guyfawkes"), ("has_bunchoffives", "bof"), ("has_blackhole", "blackhole"), ("has_stickybomb", "stickybomb")]
+                        .iter()
+                        .find(|(k, _)| n(r, k) != 0.0)
+                        .map(|(_, s)| *s);
+                    pub_info = Some(PubInfo {
+                        sells,
+                        special,
+                        has_tickerbomb: n(r, "has_tickerbomb") != 0.0,
+                        pool: n(r, "health_pool") as f32,
+                        bar_rate: n(r, "health_bar_rate").max(1.0) as f32,
+                    });
+                }
                 t if t.starts_with("grunt_barracks") => barracks.push(Barracks {
                     id: i.id,
                     pos,
@@ -286,6 +361,10 @@ impl Mission {
             sites,
             pub_pos,
             pub_done: false,
+            pub_request: false,
+            pub_exit_pending: false,
+            pub_info,
+            pub_exit_pos,
             barracks,
             hints: f.hints.into_iter().filter_map(|(k, h)| h.text.map(|t| (k, t))).collect(),
             tags,
@@ -303,6 +382,7 @@ impl Mission {
             dead_timer: 0.0,
             log: Vec::new(),
             objectives: String::new(),
+            objectives_raw: String::new(),
             feed: Vec::new(),
         })
     }
@@ -358,6 +438,7 @@ fn start(mut m: Option<ResMut<Mission>>, mut out: MessageWriter<SendTrigger>, pa
     }
     if let Some(t) = m.start_text.clone() {
         m.objectives = long_form(&t);
+        m.objectives_raw = t.clone();
         m.message(&t, 0.0);
     }
     m.log.push("start".into());
@@ -400,6 +481,9 @@ fn sites(
     mut fx: MessageWriter<StartFx>,
     mut hud: ResMut<crate::hud::HudState>,
     data: Res<crate::gamedata::GameData>,
+    mut sounds: MessageWriter<crate::audio::PlaySound>,
+    mut stop: MessageWriter<crate::audio::StopSound>,
+    mut rng: ResMut<crate::fx::FxStats>,
 ) {
     let (Some(m), Ok(p)) = (m.as_deref_mut(), player.single()) else { return };
     let dt = time.delta_secs();
@@ -407,17 +491,28 @@ fn sites(
     let mut prompt = None;
     let holding = keys.pressed(KeyCode::KeyF) || keys.pressed(KeyCode::KeyX) || bot.use_key;
     let tickers = m.tickers;
+    // Game+0xdcf: a ticker bomb is armed and ticking (one at a time)
+    let any_armed = m.sites.iter().any(|s| s.armed.is_some() && !s.done);
     let mut sends = Vec::new();
     let mut logs = Vec::new();
+    let mut arming = None;
+    let mut clock = None;
+    // the wind-up (0x0044e3a0 starts wpn_ticker_windup_lp, 0x0044e430 stops it when Use is let go)
+    let mut wind_down = |stop: &mut MessageWriter<crate::audio::StopSound>, sounds: &mut MessageWriter<crate::audio::PlaySound>, at: Vec3| {
+        stop.write(crate::audio::StopSound("wpn_ticker_windup_lp".into()));
+        sounds.write(crate::audio::PlaySound::at("wpn_ticker_windup_end", at));
+    };
     for s in &mut m.sites {
         if s.done {
             continue;
         }
         if let Some(fuse) = s.armed.as_mut() {
             *fuse -= dt;
-            prompt = Some(format!("{:.0}", fuse.max(0.0).ceil())); // stand-in for ui_clock
+            // ui_clock plays from the arming (g+0x25e4 = 6 s)
+            clock = Some(6.0 - fuse.max(0.0));
             if *fuse <= 0.0 {
                 s.done = true;
+                clock = None;
                 let b = data.props("p_player_tickerbomb");
                 blast.write(Explode {
                     at: s.pos,
@@ -437,6 +532,9 @@ fn sites(
             continue;
         }
         if p.distance(s.pos) > s.radius {
+            if s.hold > 0.0 {
+                wind_down(&mut stop, &mut sounds, s.pos);
+            }
             s.hold = 0.0;
             continue;
         }
@@ -448,32 +546,62 @@ fn sites(
             continue;
         }
         if tickers == 0 {
-            prompt = Some("ui_tickerbomb_none".into());
+            prompt = Some("ui_tickerbomb_none".to_string());
             continue;
         }
-        prompt = Some("ui_tickerbomb_hint".into());
+        // another bomb ticking: "Wait for the other Ticker Bomb to explode!" (0x0044e3a0)
+        if any_armed {
+            prompt = Some("ui_tickerbomb_patience".to_string());
+            continue;
+        }
         if holding {
+            if s.hold == 0.0 {
+                sounds.write(crate::audio::PlaySound::at("wpn_ticker_windup_start", s.pos));
+                sounds.write(crate::audio::PlaySound { looped: Some(true), ..crate::audio::PlaySound::at("wpn_ticker_windup_lp", s.pos) });
+            }
             s.hold += dt;
+            // the arming bar ui_tickerbomb_set fills while Use is held (it takes the prompt's place)
+            arming = Some((s.hold / 2.0).min(1.0));
             if s.hold >= 2.0 {
+                // 0x0044e4a0: wind-up stops, wpn_ticker and one of Roman's two "armed" lines (50 % each), the clock
                 s.armed = Some(6.0);
+                arming = None;
+                clock = Some(0.0);
+                stop.write(crate::audio::StopSound("wpn_ticker_windup_lp".into()));
+                sounds.write(crate::audio::PlaySound::at("wpn_ticker", s.pos));
+                let line = if rng.rand() < 0.5 { "rom50211_tickerarmed" } else { "rom50212_tickerarmed" };
+                sounds.write(crate::audio::PlaySound::at(line, p));
                 logs.push(format!("ticker site {} armed", s.id));
             }
         } else {
+            if s.hold > 0.0 {
+                wind_down(&mut stop, &mut sounds, s.pos);
+            }
             s.hold = 0.0;
+            prompt = Some("ui_tickerbomb_hint".to_string());
         }
     }
     for t in sends {
         out.write(SendTrigger(t));
     }
     m.log.extend(logs);
+    hud.ticker_arming = arming;
+    hud.ticker_clock = clock;
     hud.prompt = prompt.map(|k| if k.starts_with("ui_") { m.hint(&k) } else { k });
 }
 
-/// The pub: near the doorway "Press %s to enter pub"; entering gives the Ticker Bombs (STAND-IN for the pub
-/// screen) and sends send_trigger_exit on leaving.
+/// The pub: near the doorway "Press %s to enter pub"; Use opens the pub screen (gamemenu.rs: awards, health from
+/// the pool, weapons); leaving it sends send_trigger_exit.
 fn pub_door(keys: Res<ButtonInput<KeyCode>>, bot: Res<crate::playtest::Bot>, mut m: Option<ResMut<Mission>>, player: Query<&GlobalTransform, With<Player>>, mut out: MessageWriter<SendTrigger>, mut hud: ResMut<crate::hud::HudState>) {
     let (Some(m), Ok(p)) = (m.as_deref_mut(), player.single()) else { return };
     let Some((pos, r, exit)) = m.pub_pos else { return };
+    if m.pub_exit_pending {
+        m.pub_exit_pending = false;
+        m.log.push(format!("pub screen left -> trigger {exit}"));
+        if exit != 0 {
+            out.write(SendTrigger(exit));
+        }
+    }
     if m.pub_done || p.translation().with_y(0.0).distance(pos.with_y(0.0)) > r {
         return;
     }
@@ -482,12 +610,9 @@ fn pub_door(keys: Res<ButtonInput<KeyCode>>, bot: Res<crate::playtest::Bot>, mut
     }
     if keys.just_pressed(KeyCode::KeyF) || keys.just_pressed(KeyCode::KeyX) || bot.use_key {
         m.pub_done = true;
-        m.tickers = 4;
-        m.message("<rgb=ffffff>The Pub</rgb><br><br>You got Ticker Bombs!", 0.0);
-        m.log.push(format!("pub entered -> tickers, trigger {exit}"));
-        if exit != 0 {
-            out.write(SendTrigger(exit));
-        }
+        m.pub_request = true;
+        hud.prompt = None;
+        m.log.push("pub entered".into());
     }
 }
 
@@ -544,6 +669,7 @@ fn dispatch(
                 Action::ShowText(t) => {
                     let text = m.texts.get(&t).cloned().unwrap_or(t);
                     m.objectives = long_form(&text);
+                    m.objectives_raw = text.clone();
                     m.message(&text, 1.0);
                 }
                 Action::Compass(tag) => m.compass_tag = tag,
@@ -636,9 +762,8 @@ fn outcome(time: Res<Time>, mut m: Option<ResMut<Mission>>, roman: Query<&crate:
         if r.dead && m.outcome == Outcome::Playing {
             m.dead_timer += time.delta_secs();
             if m.dead_timer > 5.0 {
+                // the mission failed page (gamemenu.rs) shows the failure text
                 m.outcome = Outcome::Failed;
-                let t = m.failure_text.clone().unwrap_or("You failed!".into());
-                m.message(&t, 0.0);
                 m.log.push("FAILED".into());
             }
         }

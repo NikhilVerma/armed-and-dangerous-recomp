@@ -220,7 +220,9 @@ impl Library {
                 let base = cpu_v.len() as u32;
                 cpu_v.extend(pos.chunks_exact(3).map(|v| Vec3::new(v[0], v[1], v[2])));
                 cpu_t.extend(idx.chunks_exact(3).map(|t| [t[0] + base, t[1] + base, t[2] + base]));
-                let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD);
+                // skinned meshes keep a main-world copy too (the playtest skinning check skins them on the CPU)
+                let usage = if s.joints.is_some() { RenderAssetUsages::all() } else { RenderAssetUsages::RENDER_WORLD };
+                let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, usage);
                 mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, pos.chunks_exact(3).map(|v| [v[0], v[1], v[2]]).collect::<Vec<_>>());
                 mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, nrm.chunks_exact(3).map(|v| [v[0], v[1], v[2]]).collect::<Vec<_>>());
                 mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uv.chunks_exact(2).map(|v| [v[0], v[1]]).collect::<Vec<_>>());

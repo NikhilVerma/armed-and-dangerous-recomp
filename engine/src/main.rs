@@ -16,6 +16,7 @@ mod fx;
 mod fxvm;
 mod gamedata;
 mod gamemenu;
+mod options;
 mod gameaudio;
 mod hud;
 mod level;
@@ -24,6 +25,7 @@ mod mission;
 mod nav;
 mod physics;
 mod pickup;
+mod pubscreen;
 mod player;
 mod playtest;
 mod scene;
@@ -56,10 +58,12 @@ struct Args {
     fx_test: Option<PathBuf>,
     snap: Option<PathBuf>,
     play: Option<PathBuf>,
+    /// start in the level (Restart the level: the menus start the game again with this)
+    skip_title: bool,
 }
 
 fn args() -> Args {
-    let mut a = Args { scene: PathBuf::from("../work/remaster/lev_1_m1"), size: (1920, 1080), bench: None, vsync: false, no_ai: false, fx_test: None, snap: None, play: None };
+    let mut a = Args { scene: PathBuf::from("../work/remaster/lev_1_m1"), size: (1920, 1080), bench: None, vsync: false, no_ai: false, fx_test: None, snap: None, play: None, skip_title: false };
     let v: Vec<String> = std::env::args().collect();
     let mut bench_secs = None;
     let mut out = PathBuf::from("../work/remaster/bench/latest.json");
@@ -80,6 +84,7 @@ fn args() -> Args {
             "--fx-test" => a.fx_test = Some(PathBuf::from(next)),
             "--snap" => a.snap = Some(PathBuf::from(next)),
             "--play" => a.play = Some(PathBuf::from(next)),
+            "--skip-title" => (a.skip_title, used) = (true, 1),
             other => panic!("unknown argument {other}"),
         }
         i += used;
@@ -134,6 +139,8 @@ fn main() {
     .add_plugins(pickup::PickupPlugin)
     .add_plugins((FrameTimeDiagnosticsPlugin::default(), flycam::FlyCamPlugin, bench::BenchPlugin))
     .add_plugins((physics::PhysicsPlugin, fx::FxPlugin, ai::AiPlugin, player::PlayerPlugin, menu::MenuPlugin, level::LevelPlugin, fxvm::FxVmPlugin, ai::CompanionPlugin, skin::SkinPlugin, charanim::CharAnimPlugin, hud::HudPlugin, mission::MissionPlugin, gameaudio::GameAudioPlugin, campath::CameraPathPlugin, gamemenu::GameMenuPlugin))
+    .add_plugins(options::OptionsPlugin)
+    .add_plugins(pubscreen::PubScreenPlugin)
     .init_state::<AppState>()
     .insert_non_send(physics::Physics::new(level::METERS_PER_UNIT))
     .insert_resource(ClearColor(Color::srgb(0.62, 0.70, 0.80)))
@@ -152,10 +159,16 @@ fn main() {
     if bench {
         app.insert_state(AppState::Playing);
     }
+    if a.skip_title {
+        app.insert_state(AppState::Playing);
+    }
     // --play SCRIPT: scripted input from the start of play (the title menu is skipped)
     if let Some(p) = a.play {
-        app.insert_resource(playtest::Playtest::load(p));
-        app.insert_state(AppState::Playing);
+        let pt = playtest::Playtest::load(p);
+        if !pt.title {
+            app.insert_state(AppState::Playing);
+        }
+        app.insert_resource(pt);
     }
     // --snap FILE: a screenshot of whatever shows after 4 s (the title menu without other options), then exit
     if let Some(path) = a.snap {
@@ -280,7 +293,7 @@ fn setup(
         if hud::spawn(&mut commands, &launch.scene, &assets, &mut meshes, &mut color_materials).is_none() {
             warn!("hud: ui/layout.json missing (run tools/remaster_export_ui.py)");
         } else {
-            gamemenu::spawn(&mut commands, &assets, &mut meshes, &mut color_materials);
+            gamemenu::spawn(&mut commands, &assets, &mut meshes, &mut color_materials, &launch.scene);
         }
         menu.stats = false;
         match mission::Mission::load(&launch.scene) {
@@ -342,7 +355,7 @@ fn bench_ground(physics: NonSend<physics::Physics>, mut bench: ResMut<bench::Ben
 }
 
 /// The playtest log's state line: player, AI, fx.
-fn play_state(mut bank: Option<ResMut<audio::SoundBank>>, bot: Res<playtest::Bot>, mut st: ResMut<playtest::PlayState>, p: Res<player::PlayerStats>, ai: Res<ai::AiStats>, fx: Res<fx::FxStats>, mission: Option<ResMut<mission::Mission>>, hud: Res<hud::HudState>) {
+fn play_state(skin: Res<skin::SkinCheck>, mut bank: Option<ResMut<audio::SoundBank>>, bot: Res<playtest::Bot>, mut st: ResMut<playtest::PlayState>, p: Res<player::PlayerStats>, ai: Res<ai::AiStats>, fx: Res<fx::FxStats>, mission: Option<ResMut<mission::Mission>>, hud: Res<hud::HudState>) {
     let m = &mut st.0;
     if let Some(mut ms) = mission {
         m.insert("mission".into(), format!("{:?}", ms.outcome).into());
@@ -358,6 +371,8 @@ fn play_state(mut bank: Option<ResMut<audio::SoundBank>>, bot: Res<playtest::Bot
         m.insert("message".into(), ms.showing.clone().unwrap_or_default().chars().take(80).collect::<String>().into());
     }
     m.insert("prompt".into(), hud.prompt.clone().unwrap_or_default().into());
+    m.insert("skin".into(), serde_json::json!({"meshes": skin.meshes, "vertices": skin.vertices, "max_stretch": skin.max_stretch, "max_gap": skin.max_gap, "motion": skin.mean_motion}));
+    m.insert("subtitle".into(), hud.subtitle.as_ref().map(|s| s.0.clone()).unwrap_or_default().into());
     if let Some(b) = bank.as_deref_mut() {
         m.insert("sounds_played".into(), b.played.into());
         let mut missing: Vec<String> = b.missing.iter().cloned().collect();
@@ -401,13 +416,19 @@ fn hud_state(
     state: Res<State<AppState>>,
     p: Res<player::PlayerStats>,
     roman: Query<&player::Roman>,
+    menu: Res<gamemenu::GameMenu>,
     companions: Query<(&Name, &fx::Health), With<ai::Companion>>,
     cam: Query<&GlobalTransform, With<Camera3d>>,
 ) {
     // cinematic (a camera path): the HUD meters are hidden (hud.md 6)
-    hud.visible = *state.get() == AppState::Playing && roman.single().is_ok() && !path.active();
+    // the pause menu keeps the HUD on screen (capture orig_ui_play-720.png)
+    let shown = *state.get() == AppState::Playing || (*state.get() == AppState::Paused && menu.hud_under());
+    hud.visible = shown && roman.single().is_ok() && !path.active();
     hud.health = if p.max_health > 0.0 { p.health / p.max_health } else { 0.0 };
     hud.clip = p.clip;
+    hud.ammo = p.ammo;
+    hud.weapon = p.weapon;
+    hud.unlimited = p.unlimited;
     hud.stickies = p.stickies;
     for (n, h) in &companions {
         if n.as_str() == "molmer" {
