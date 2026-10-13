@@ -1,6 +1,6 @@
 # `.big` kind `skin`: model bank (ANM_Skin chunks)
 
-Status: 2026-10-03. Module: `tools/formats/big_kinds/skin.py`, which uses `objchunk.py` (the chunk container,
+Status: 2026-10-03; bones, blend data and skinning (3.3, 3.7, 3.8) added 2026-10-13. Module: `tools/formats/big_kinds/skin.py`, which uses `objchunk.py` (the chunk container,
 shared with `anim`) and `common.py` (docs/formats/big-common.md).
 Roundtrip: `.venv\Scripts\python.exe tools\formats\bigtool.py roundtrip "orig/pc/GameData/**/*_skin.big"` ->
 25 ok. Files are `<level>_big05_skin.big`, magic `0x0BADF00D`. The loader is **0x0045af30
@@ -155,8 +155,7 @@ All offsets are relative to the object. Offsets the loader neither visits nor re
 Slot types (component readers): 6/7/8 = 2/3/4 shorts, 10/11/12 = shorts x 1/32767 (0x005bcb78),
 14/15/16 = floats (0x004efec0, 0x004effa0). Position = component x scale + offset. In retail, positions are
 type 7 (SHORT4, w unused), uvs type 6, normals type 7 or 5 (4 bytes, decoding not read). Blend indices hold
-palette slot x 3 (seen values 0, 6, 12, 15, 24; guess: 3 constant registers per matrix). Blend weights are
-shorts that sum to 32767. 521 meshes (reference and dummy objects) have stride 0 and no vertex data.
+**(palette slot + 1) x 3** and blend weights are shorts / 32767 (3.8). 521 meshes (reference and dummy objects) have stride 0 and no vertex data.
 
 ### 3.4 Drawing
 
@@ -201,11 +200,54 @@ that image. How the renderer turns the path into the bank name was not traced (g
 | ---: | --- | --- |
 | +0x00 | Not visited by the walk. Values vary at random (0 in most bones, -1 in 1700, the rest look like leftover tool memory) | survey, 0x004e8620 |
 | +0x04 | Mesh pointer | 0x004e8620 |
-| +0x08 | u16 id in the bone-name dictionary (root+0x18) | SkinBinding_Create 0x004ed290 looks it up by id, then by name in the skeleton |
-| +0x0C | f32[16] matrix, row-major with translation in column 4 (guess: inverse bind pose) | 0x004e8620 swaps 16 dwords |
+| +0x08 | u16 id in the bone-name dictionary (root+0x18) | SkinBinding_Create 0x004ed290 looks it up by id, then by name in the anim's node tree |
+| +0x0C | f32[16] **inverse bind matrix**, row-major for column vectors (translation in elements 3, 7, 11): maps a model-space bind-pose vertex into the bone's space | fn_004ed5d0 (src/anim/anim_02.cpp) multiplies the node's world matrix by it; inverting it reproduces the grunt_ref node transforms (3.8) |
 | +0x4C | u32 flags (0x11, 0x17, ...) | 0x004e8620 swaps it |
 
-Palette entries (mesh+0x94) index this bone array. A vertex's blend index selects a palette slot.
+Palette entries (mesh+0x94) index this bone array (u16 each).
+
+### 3.8 Skinning
+
+Evidence: SkinBinding_Create 0x004ed290 and AnimSkinBinding_Create 0x004ed410 (src/loader/auto_004e6570.cpp),
+fn_004ed5d0 (src/anim/anim_02.cpp), Skin_BuildPalette 0x004edbe0 (src/renderer/render_r4.cpp), 0x004feb90
+(src/renderer/auto_004fde30.cpp), docs/subsystems/camera.md (c42..c44).
+
+- **There is no skeleton asset.** The skeleton is an anim's node tree (docs/formats/big-anim.md 3.2, 7):
+  AnimSkinBinding_Create binds every skin of a model to the anim's tree (default +0x2c, or one named), and
+  SkinBinding_Create resolves each skin bone by name (bone id -> root+0x18 name -> tree lookup). A missing name logs
+  "Error binding" and leaves the bone null.
+- **Skin matrix** per bone: `node world * inverse bind` (fn_004ed5d0: Matrix_Multiply(B = definition+0x8c + index *
+  0x58 + 0xc, dst = skeleton+0x1c + node index * 0x48, A = pose)). The vertex positions are therefore in model space,
+  bind pose. When two skins share a node, the first one to stamp the slot wins (the slot is per node, not per skin
+  bone); no lev_1_m1 skin has differing matrices for one bone name across its meshes.
+- **Palette** per draw group (Skin_BuildPalette): group +0x1c >= 0 selects mesh+0x94 [group+0x1c] (u16 mesh bone
+  indices); -1 uses all mesh bones in order. 0x004feb90 uploads the palette matrices as 3 registers each from c45,
+  after the unskinned world*view base at c42..c44.
+- **Blend index** = (palette slot + 1) * 3, so index 0 is the base matrix (no bone) and slot s is at c45 + 3s.
+  Survey of all 25 skin banks, SHORT4 indices with SHORT4 weights (375 meshes): 1124588 weighted influences, every
+  one a multiple of 3, none at index 0, none past its palette; reading slot = index / 3 instead overruns the palette
+  (grunt_1 group 1 has a 2-bone palette and indices 3 and 6).
+- **Blend weights**: 4 shorts / 32767; they sum to 32765..32767 (rounding).
+- Other blend formats: UBYTE4 indices without a weight slot (3451 meshes, collision skins such as captain_coll_0:
+  one rigid bone, 1756 vertices at index 0 = no bone) and SHORT2 indices with SHORT2 weights (132 UI meshes).
+- Skinned position = sum_k w_k * world(node(palette[slot_k])) * inverse_bind(palette[slot_k]) * v.
+
+Remaster export (tools/remaster_export_anim.py build_skeleton and skin_vertex_weights; tools/remaster_export.py
+writes the joints and weights): `skeletons/<skin>.json` = {"bones": [{"name", "parent" (-1 root), "t", "r", "s",
+"skinned"}], "inverse_bind": [16 floats column-major per bone], "reference_anim", "inverse_bind_conflicts",
+"max_shear"}. The hierarchy and the unskinned nodes come from a reference anim that binds the skin (a `*_ref` slot of
+a template using the skin first); bind world = inverse(inverse bind) for skinned bones, parent bind world * the
+reference anim's stored local transform for the others; local rest = inverse(parent bind world) * bind world. A
+synthetic identity bone `__model` is added when blend index 0 is weighted. Each model submesh gets "joints" (u16x4
+skeleton bone indices) and "weights" (f32x4, sum 1) byte offsets in its .bin, in the same vertex order as the
+other attributes, and the model json gets "skeleton".
+
+Verification (2026-10-13, `python tools/remaster_export_anim.py lev_1_m1 --check`, PNGs in
+work/remaster/anim_check/): grunt_1's rest skeleton reproduces the bind vertices to 2.6e-6; skinned with grunt_ref
+frame 0 it moves at most 0.08 units (grunt_ref's `center` is 0.02 off the bind pose); with grunt_run frame 0 the
+bounding box is (-2.55, -4.97, -0.11)..(2.74, 3.14, 8.74) against the bind (-4.82, -2.53, -0.04)..(4.86, 1.66, 9.82)
+(arms forward, legs in stride, feet on z = 0). Over 154 binding anims sampled at 7 times each the largest extent is
+14.8 units (grunt_crash_land, lying down); nothing explodes.
 
 ## 4. Dump
 
@@ -270,6 +312,8 @@ For load-time replacement there are two hook points:
   is safe.
 - Material +0x18, +0x34 and +0x38..+0x4c: what do they mean, and how are untextured materials drawn?
 - How are type-5 normals (4 bytes) and the stream-1 tangent/binormal decoded? This needs the vertex shaders.
+- The vertex shader itself was not read: the (slot + 1) * 3 rule rests on 0x004feb90's register layout and the survey
+  in 3.8.
 - Root element list (+0x14, 143 skins): what are the three element types?
 - Mesh +0x20 vs group +0x20: 335 groups do not equal 3 x the strip triangles.
 - Texture path -> txtr bank name resolution: not traced.

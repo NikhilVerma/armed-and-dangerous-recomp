@@ -5,7 +5,10 @@
 Output (game data: lives under work/, never committed):
   scene.json             landscape model, placed instances (template, model, 4x3 transform), lights, bounds
   models/<name>.json     submeshes (one per material): texture, alpha, byte ranges in <name>.bin
-  models/<name>.bin      per submesh: positions f32x3, normals f32x3, uv0 f32x2, indices u32 (triangle list)
+  models/<name>.bin      per submesh: positions f32x3, normals f32x3, uv0 f32x2, indices u32 (triangle list);
+                         skinned submeshes add "joints" (u16x4 skeleton bone indices) and "weights" (f32x4, sum 1)
+                         byte offsets, and the model json names its "skeleton" (skeletons/<name>.json, written by
+                         tools/remaster_export_anim.py; anims too: run that script for the anims/)
   properties.json        every property set: name -> {key: value} (behaviour, damage, fx names, ...)
   templates.json         every object template: name -> {model (LOD 0), lods, property}
   fx.json                every fx script: name -> instructions (docs/formats/big-fx.md; run by engine/src/fxvm.rs)
@@ -114,9 +117,11 @@ def face_normals(pos, tris):
     return out
 
 
-def mesh_submeshes(ch):
-    """Decoded render meshes of one skin chunk -> [(texture stem, positions, normals, uvs, triangles)],
-    one entry per material, vertices remapped to the ones that material uses."""
+def mesh_submeshes(ch, bone_index=None):
+    """Decoded render meshes of one skin chunk -> [(texture stem, positions, normals, uvs, triangles, colour,
+    skin)], one entry per material, vertices remapped to the ones that material uses. With `bone_index` (bone name
+    -> skeleton index, tools/remaster_export_anim.py), skin = (joints, weights) per remapped vertex for skinned
+    meshes (else None)."""
     b = ch.data
     s = skin.decode_skin(ch)
     out = []
@@ -129,6 +134,10 @@ def mesh_submeshes(ch):
         if not pos:
             continue
         uv = m.get("_uv") or [(0.0, 0.0)] * len(pos)
+        jw = None
+        if bone_index is not None:
+            import remaster_export_anim  # noqa: PLC0415 (it imports this module's helpers)
+            jw = remaster_export_anim.skin_vertex_weights(ch, mptr, bone_index)
         by_mat = {}
         for g in m["groups"]:
             tris = [t for t in skin.strip_triangles(g["_idx"]) if max(t) < len(pos)]
@@ -148,7 +157,7 @@ def mesh_submeshes(ch):
             tex = stem(mats[mat]["texture"]) if 0 <= mat < len(mats) else None
             # untextured parts draw in the material's colour (guess: the third of the four colours is diffuse)
             color = int(mats[mat]["colors_50_5c"][2], 16) if 0 <= mat < len(mats) else 0xFFFFFF
-            remap, vp, vn, vt, idx = {}, [], [], [], []
+            remap, vp, vn, vt, idx, vs = {}, [], [], [], [], []
             for t in tris:
                 for v in t:
                     if v not in remap:
@@ -156,17 +165,19 @@ def mesh_submeshes(ch):
                         vp.append(pos[v])
                         vn.append(normals[v])
                         vt.append(uv[v])
+                        if jw:
+                            vs.append(jw[v])
                     idx.append(remap[v])
-            out.append((tex, vp, vn, vt, idx, color))
+            out.append((tex, vp, vn, vt, idx, color, vs if jw else None))
     return out
 
 
-def write_model(out, name, subs, texinfo):
+def write_model(out, name, subs, texinfo, skeleton=None):
     blob = bytearray()
     entries = []
     lo = [math.inf] * 3
     hi = [-math.inf] * 3
-    for tex, vp, vn, vt, idx, color in subs:
+    for tex, vp, vn, vt, idx, color, vs in subs:
         e = {"texture": tex if tex in texinfo else None, "vertices": len(vp), "indices": len(idx),
              "color": [(color >> 16 & 255) / 255, (color >> 8 & 255) / 255, (color & 255) / 255]}
         e["alpha"] = bool(e["texture"] and texinfo[tex]["alpha"])
@@ -175,15 +186,30 @@ def write_model(out, name, subs, texinfo):
             blob += b"".join(struct.pack("<" + fmt, *v) for v in arr)
         e["index_offset"] = len(blob)
         blob += struct.pack(f"<{len(idx)}I", *idx)
+        if vs:  # skinning (tools/remaster_export_anim.py): u16x4 skeleton bone indices, f32x4 weights (sum 1)
+            e["joints"] = len(blob)
+            blob += b"".join(struct.pack("<4H", *j) for j, _ in vs)
+            e["weights"] = len(blob)
+            blob += b"".join(struct.pack("<4f", *w) for _, w in vs)
         for x, y, z in vp:
             lo = [min(lo[0], x), min(lo[1], y), min(lo[2], z)]
             hi = [max(hi[0], x), max(hi[1], y), max(hi[2], z)]
         entries.append(e)
     (out / "models").mkdir(parents=True, exist_ok=True)
     (out / "models" / f"{name}.bin").write_bytes(bytes(blob))
-    (out / "models" / f"{name}.json").write_text(json.dumps({"name": name, "submeshes": entries,
-                                                             "min": lo, "max": hi}, indent=1))
+    doc = {"name": name, "submeshes": entries, "min": lo, "max": hi}
+    if skeleton and any("joints" in e for e in entries):
+        doc["skeleton"] = skeleton
+    (out / "models" / f"{name}.json").write_text(json.dumps(doc, indent=1))
     return sum(e["indices"] for e in entries) // 3
+
+
+def export_model(level, out, name, ch, texinfo):
+    """One skin chunk -> models/<name>.{json,bin}; skinned ones also get skeletons/<name>.json and joints/weights."""
+    import remaster_export_anim  # noqa: PLC0415
+    bone_index = remaster_export_anim.skeleton_for(level, ch, out)
+    subs = mesh_submeshes(ch, bone_index)
+    return write_model(out, name, subs, texinfo, name if bone_index else None) if subs else 0
 
 
 # ---------------------------------------------------------------- level
@@ -235,8 +261,7 @@ def main():
         t = tpl.get(name)
         model = t["lods"][0].decode("latin1").lower() if t and t["lods"] else None
         if model and model not in models and model in skins:
-            subs = mesh_submeshes(skins[model])
-            models[model] = write_model(out, model, subs, texinfo) if subs else 0
+            models[model] = export_model(level, out, model, skins[model], texinfo)
         if not model or not models.get(model):
             skipped[name] = skipped.get(name, 0) + 1
             continue
@@ -261,8 +286,7 @@ def main():
         coll = lods[ci] if isinstance(ci, int) and 0 <= ci < len(lods) else None
         for m in (model, coll):  # the render model and the game's collision model
             if m and m not in models and m in skins:
-                subs = mesh_submeshes(skins[m])
-                models[m] = write_model(out, m, subs, texinfo) if subs else 0
+                models[m] = export_model(level, out, m, skins[m], texinfo)
         tdefs[name] = {"model": model if models.get(model) else None, "lods": lods, "property": pr,
                        "collision": coll if models.get(coll) else None}
     (out / "templates.json").write_text(json.dumps(tdefs, indent=0))
