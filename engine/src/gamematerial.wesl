@@ -17,6 +17,9 @@ import bevy_pbr::render::mesh_functions;
 import bevy_pbr::render::skinning;
 import bevy_pbr::render::view_transformations::position_world_to_clip;
 import bevy_pbr::render::mesh_view_bindings::view;
+import bevy_pbr::render::shadows::fetch_directional_shadow;
+import bevy_pbr::render::mesh_view_bindings as view_bindings;
+import bevy_pbr::render::mesh_view_types;
 
 struct GameMaterialParams {
     kind: u32,
@@ -159,6 +162,20 @@ fn fragment(in: GameOut) -> @location(0) vec4<f32> {
         let s_sun = select(0.0, pow(clamp(dot(n_geo, hs), 0.0, 1.0), p.specular.w), dot(n_geo, to_sun) > 0.0);
         let s_fill = select(0.0, pow(clamp(dot(n_geo, hf), 0.0, 1.0), p.specular.w), dot(n_geo, p.fill_dir.xyz) > 0.0);
         col = col + p.specular.rgb * (p.sun_col.rgb * s_sun + p.fill_col.rgb * s_fill);
+    }
+    // shadows (shadows.md: each caster's silhouette projected along the sun onto the world, drawn in the level's
+    // shadow colour (mission shadow_color_red/green/blue/blend: (0, 0.125, 0.25) at 0.3), alpha-blended); here the
+    // sun's shadow map. Characters receive none (the original projects onto world geometry only)
+@if(!SKINNED)
+    {
+        let vz = (view.view_from_world * vec4(in.world_position.xyz, 1.0)).z;
+        var lit = 1.0;
+        for (var i = 0u; i < view_bindings::lights.n_directional_lights; i = i + 1u) {
+            if ((view_bindings::lights.directional_lights[i].flags & mesh_view_types::DIRECTIONAL_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u) {
+                lit = min(lit, fetch_directional_shadow(i, in.world_position, normalize(in.world_normal), vz, in.position.xy));
+            }
+        }
+        col = mix(col, vec3(0.0, 0.125, 0.25), 0.3 * (1.0 - lit));
     }
     if (p.fog_range.y > p.fog_range.x) {
         col = mix(p.fog_col.rgb, col, in.fog);

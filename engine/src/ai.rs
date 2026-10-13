@@ -653,6 +653,8 @@ pub struct Companion {
     /// Q's healthy tea (0x004857e0, mode 9): the drop anim's time left, and given once (+0xbcc 0x20000)
     pub tea: f32,
     tea_given: bool,
+    /// placed on its formation point beside Roman at the start (0x004836b0 from the player's reset 0x00475650)
+    spawned: bool,
 }
 
 #[derive(Clone)]
@@ -704,6 +706,7 @@ impl Companion {
             replan: 0.0,
             tea: 0.0,
             tea_given: false,
+            spawned: false,
         }
     }
 }
@@ -751,6 +754,16 @@ fn companions(
     let fire_held = (buttons.pressed(MouseButton::Left) || bot.fire_ok) && !r.dead;
     for (e, mut c, mut t) in &mut q {
         let c = &mut *c;
+        // at the start: on the formation point (Roman's ref_q_00 / ref_molmer_00), grounded (0x00455860)
+        if !c.spawned {
+            if let Some(slot) = bone(ra, if c.q { "ref_q_00" } else { "ref_molmer_00" }) {
+                let feet = physics.raycast(slot + Vec3::Y * 1000.0, -Vec3::Y, 10000.0).map(|h| h.1).unwrap_or(slot);
+                physics.place_walker(&c.walker, feet);
+                t.translation = feet;
+                c.yaw = r.yaw + std::f32::consts::PI;
+                c.spawned = true;
+            }
+        }
         let me = t.translation;
         // Q's healthy tea (Q11Voice_PlayAmbient 0x004857e0): once, when Roman's health is at most a quarter of its
         // maximum and he is within 50 units: a line (50 %: q1150174_Ambient_Spec, else q1150026_Ambient at Q), the

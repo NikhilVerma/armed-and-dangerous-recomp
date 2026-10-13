@@ -277,7 +277,9 @@ pub fn spawn(
             }
         }
         if !invisible {
-            let (d, t, hand) = attach_model(commands, e, model, !background, Some(&mut *skin));
+            // shadow casters: objects whose property set has shadow_enable (shadows.md, object +0x3ec bits 1-2)
+            let casts = !background && p.f("shadow_enable", 0.0) != 0.0;
+            let (d, t, hand) = attach_model(commands, e, model, casts, Some(&mut *skin));
             // weapons: Roman's rifle (the level's loadout: player_add_rifle), grunts' rifle or bow
             let weapon = match inst.template.as_str() {
                 "trotter" => Some("player_rifle"),

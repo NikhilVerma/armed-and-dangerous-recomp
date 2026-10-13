@@ -89,6 +89,9 @@ pub struct ParticleMaterial {
     #[sampler(1)]
     pub bank: Handle<Image>,
     pub additive: bool,
+    /// x: the alpha exponent (alpha-blended pools: 2.2, the original blends in gamma space; additive: 1)
+    #[uniform(2)]
+    pub params: Vec4,
 }
 
 impl Material for ParticleMaterial {
@@ -124,6 +127,8 @@ struct Emitter {
     /// Cone axis (game space); fixed once 0x46 set it.
     dir: Vec3,
     fixed_dir: bool,
+    /// 0x47: the rotation re-applied to the object's direction every step (row vectors: v * M)
+    rel: Option<Mat3>,
     prev_pos: Option<Vec3>,
     /// 0x49 alpha ramp: 12 entries.
     ramp: Option<[f32; 12]>,
@@ -146,6 +151,7 @@ impl Emitter {
             uv: [0.0, 1.0, 0.0, 1.0],
             dir,
             fixed_dir: false,
+            rel: None,
             prev_pos: None,
             ramp: None,
         }
@@ -329,7 +335,7 @@ fn setup(mut commands: Commands, assets: Res<AssetServer>, mut meshes: ResMut<As
             fog_enabled: false,
             ..default()
         });
-        commands.spawn((Mesh3d(h.clone()), MeshMaterial3d(mat), Transform::IDENTITY, bevy::camera::visibility::NoFrustumCulling, bevy::light::NotShadowCaster));
+        commands.spawn((Mesh3d(h.clone()), MeshMaterial3d(mat), Transform::IDENTITY, bevy::camera::visibility::NoFrustumCulling, bevy::light::NotShadowCaster, Name::new("fx_streamers")));
         h
     });
     let mut pool_meshes = Vec::new();
@@ -341,8 +347,8 @@ fn setup(mut commands: Commands, assets: Res<AssetServer>, mut meshes: ResMut<As
         mesh.insert_indices(Indices::U32(Vec::new()));
         let h = meshes.add(mesh);
         // Pool 0 draws additive (state 0x100), pools 1 and 2 alpha-blended (0x310): docs/subsystems/fx-vm.md 4
-        let mat = materials.add(ParticleMaterial { bank: assets.load(format!("textures/{tex}.dds")), additive });
-        commands.spawn((Mesh3d(h.clone()), MeshMaterial3d(mat), Transform::IDENTITY, bevy::camera::visibility::NoFrustumCulling, bevy::light::NotShadowCaster));
+        let mat = materials.add(ParticleMaterial { bank: assets.load(format!("textures/{tex}.dds")), additive, params: Vec4::new(if additive { 1.0 } else { 2.2 }, 0.0, 0.0, 0.0) });
+        commands.spawn((Mesh3d(h.clone()), MeshMaterial3d(mat), Transform::IDENTITY, bevy::camera::visibility::NoFrustumCulling, bevy::light::NotShadowCaster, Name::new("fx_pool")));
         pool_meshes.push(h);
     }
     commands.insert_resource(FxVm {
@@ -370,6 +376,13 @@ fn start(mut vm: ResMut<FxVm>, data: Res<GameData>, mut events: MessageReader<St
     for ev in events.read() {
         // a material variant the bank lacks falls back to the base fx (fx_imp_arrow_grunt -> fx_imp_arrow)
         let name = ev.name.to_lowercase();
+        // debug: FXSKIP=name1,name2 does not start those scripts
+        if std::env::var("FXSKIP").is_ok_and(|v| v.split(',').any(|n| n == name)) {
+            continue;
+        }
+        if std::env::var("FXLOG").is_ok() {
+            info!("FXLOG start {name} at {:?}", ev.at);
+        }
         let base = name.rsplit_once('_').map(|(b, _)| b.to_owned()).unwrap_or_default();
         let Some(script) = data.fx.get(&name).or_else(|| data.fx.get(&base)) else {
             warn!("fx {} not in the level's fx bank", ev.name);
@@ -464,6 +477,10 @@ fn create_object(ctx: &mut Ctx<'_, '_, '_, '_, '_>, inst: &Instance, template: &
                     unlit: true,
                     alpha_mode: if additive { AlphaMode::Add } else if textured { AlphaMode::Blend } else { base.alpha_mode },
                     base_color: if textured { tint.unwrap_or(base.base_color) } else { base.base_color },
+                    // back faces culled as the original's renderer does (D3D default): fx_true_story's quad is two
+                    // faces, the back one mirrored; drawn double-sided the caption showed both
+                    double_sided: false,
+                    cull_mode: Some(bevy::render::render_resource::Face::Back),
                     ..base
                 });
                 mats.push(m.clone());
@@ -683,11 +700,13 @@ fn run_script(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_, '_, '_>, idx: usize, dt: 
             "0x46" | "0x47" => {
                 let (x, y, z) = (f(&arg(1)).to_radians(), f(&arg(2)).to_radians(), f(&arg(3)).to_radians());
                 if let Some(o) = emitter!() {
-                    let m = Mat3::from_rotation_x(x) * Mat3::from_rotation_y(y) * Mat3::from_rotation_z(z);
+                    // the original's v * (Rx Ry Rz) with D3D row matrices is (Rz Ry Rx) v with column matrices (the doc's check:
+                    // (0, -1, 0) by (-90, 0, 0) gives +z, particles go up)
+                    let m = Mat3::from_rotation_z(z) * Mat3::from_rotation_y(y) * Mat3::from_rotation_x(x);
                     let e = o.emitters.last_mut().unwrap();
-                    // row-vector convention of the original: v * M
-                    e.dir = (m.transpose() * e.dir).normalize_or(Vec3::Z);
+                    e.dir = (m * e.dir).normalize_or(Vec3::Z);
                     e.fixed_dir = op == "0x46";
+                    e.rel = (op == "0x47").then_some(m);
                 }
             }
             "0x49" => {
@@ -927,7 +946,9 @@ fn objects(
         if body.is_some() {
             o.place = Mat4::from_quat(axes.inverse()) * Mat4::from_rotation_translation(t.rotation, t.translation);
         }
-        o.age += dt;
+        // the original ran at 60 fps: an object's first update steps at least 1/60 s, so scripts with lifespans
+        // under a frame (Roman's snow footsteps: 0.01) end before their emitters run, as there (render_r1.cpp:1071)
+        o.age += if o.age == 0.0 { dt.max(1.0 / 60.0) } else { dt };
         if let Some(life) = o.lifespan {
             if o.age >= life {
                 if let Some(b) = body {
@@ -1056,7 +1077,11 @@ fn objects(
         let mut emitters = std::mem::take(&mut o.emitters);
         for em in &mut emitters {
             if !em.fixed_dir {
-                em.dir = obj_dir;
+                // 0x47 (flag 0x400): the object's direction rotated by M each step (0x0041eef0, render_r1.cpp:870)
+                em.dir = match em.rel {
+                    Some(m) => (m * obj_dir).normalize_or(obj_dir),
+                    None => obj_dir,
+                };
             }
             let prev = em.prev_pos.unwrap_or(pos);
             em.timer -= dt;
@@ -1190,6 +1215,11 @@ fn draw_particles(vm: Res<FxVm>, mut meshes: ResMut<Assets<Mesh>>, cam: Query<&G
             col.extend([[0.0f32; 4]; 3]);
             idx.extend([0, 1, 2]);
         }
+        if std::env::var("PARTDBG").is_ok() {
+            let cp = axes.inverse() * c.translation();
+            let near: Vec<&Particle> = pool.iter().filter(|p| p.pos.distance(cp) < 6.0).collect();
+            if !near.is_empty() { let d: f32 = near.iter().map(|p| p.pos.distance(cp)).sum::<f32>() / near.len() as f32; let v: f32 = near.iter().map(|p| p.vel.length()).sum::<f32>() / near.len() as f32; let sz: f32 = near.iter().map(|p| p.size).sum::<f32>() / near.len() as f32; info!("PARTDBG pool total {} near {} mean dist {:.2} speed {:.2} size {:.2}", pool.len(), near.len(), d, v, sz); }
+        }
         if std::env::var("FX_DEBUG").is_ok() && pos.len() > 3 {
             let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
             for q in &pos {
@@ -1206,7 +1236,7 @@ fn draw_particles(vm: Res<FxVm>, mut meshes: ResMut<Assets<Mesh>>, cam: Query<&G
 }
 
 /// 0x2f children (and fx started on a moving entity) follow their parent; a gone parent ends them.
-fn follow(mut commands: Commands, mut vm: ResMut<FxVm>, parents: Query<&GlobalTransform>, mut q: Query<&mut Transform, With<FxEntity>>, cams: Query<(), With<Camera3d>>) {
+fn follow(mut commands: Commands, mut vm: ResMut<FxVm>, parents: Query<&GlobalTransform>, mut q: Query<&mut Transform, With<FxEntity>>) {
     let pairs: Vec<(Entity, Entity)> = vm.objects.iter().filter_map(|(&e, o)| o.follow.map(|p| (e, p))).collect();
     for (e, p) in pairs {
         let Ok(pt) = parents.get(p).map(|t| t.compute_transform()) else {
@@ -1222,11 +1252,6 @@ fn follow(mut commands: Commands, mut vm: ResMut<FxVm>, parents: Query<&GlobalTr
             t.translation = pt.translation;
             if !pos_only {
                 t.rotation = pt.rotation;
-                // locked to the camera (the intro's white fade and caption): the original's camera frame is mirrored in
-                // x against the engine's (the caption read backwards)
-                if cams.get(p).is_ok() {
-                    t.scale.x = -t.scale.x.abs();
-                }
             }
         }
         if let Some(o) = vm.objects.get_mut(&e) {

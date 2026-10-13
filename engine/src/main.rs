@@ -215,11 +215,11 @@ fn main() {
     }
     // debug: NEAR_DUMP=1 prints the named entities within 45 units of the camera once, 5 s into play
     if std::env::var("NEAR_DUMP").is_ok() {
-        app.add_systems(Update, |time: Res<Time>, mut done: Local<bool>, cam: Query<&GlobalTransform, With<Camera3d>>, q: Query<(&Name, &GlobalTransform)>| {
+        app.add_systems(Update, |time: Res<Time>, mut done: Local<bool>, cam: Query<&GlobalTransform, With<Camera3d>>, q: Query<(&Name, &GlobalTransform)>, meshes: Query<(Entity, &GlobalTransform, Option<&ChildOf>, Has<MeshMaterial3d<StandardMaterial>>, Has<MeshMaterial3d<gamematerial::GameMaterial>>, Has<MeshMaterial3d<fxvm::FxLayerMaterial>>), With<Mesh3d>>, gm: Query<&MeshMaterial3d<gamematerial::GameMaterial>>, gma: Res<Assets<gamematerial::GameMaterial>>| {
             if *done || time.elapsed_secs() < std::env::var("NEAR_DUMP").ok().and_then(|v| v.parse().ok()).unwrap_or(9.0) { return; }
             *done = true;
             let Ok(c) = cam.single() else { return };
-            for (n, t) in &q { let d = t.translation().distance(c.translation()); if d < 45.0 { info!("NEAR {} {:.1} {:?} {:?}", n, d, t.translation(), t.compute_transform().scale); } }
+            for (n, t) in &q { let d = t.translation().distance(c.translation()); if d < 45.0 { info!("NEAR {} {:.1} {:?} {:?}", n, d, t.translation(), t.compute_transform().scale); } } for (e, t, parent, std, game, layer) in &meshes { let d = t.translation().distance(c.translation()); if d < 20.0 { let pn = parent.and_then(|p| q.get(p.parent()).ok()).map(|(n, _)| n.to_string()).unwrap_or_default(); let gp = gm.get(e).ok().and_then(|h| gma.get(&h.0)).map(|m| format!("kind {} em {:?} diff {:?} fog {:?} alpha {}", m.params.kind, m.params.emissive, m.params.diffuse, m.params.fog_range, m.alpha)).unwrap_or_default(); info!("NEARMESH {e:?} {:.1} parent {} std {} game {} layer {} {}", d, pn, std, game, layer, gp); } }
         });
     }
     if let Some(h) = a.debug_hide.clone() {
@@ -305,7 +305,8 @@ fn setup(
         let parts = lib.load_game_parts(&scene.landscape, &lights, &assets, &mut meshes, &mut game_materials, &white);
         let e = commands.spawn((Transform::from_matrix(Mat4::from_quat(level::game_to_engine())), Visibility::default(), Name::new("landscape"))).id();
         for (i, (mesh, mat)) in parts.into_iter().enumerate() {
-            let c = commands.spawn((Mesh3d(mesh), MeshMaterial3d(mat), Name::new(format!("lsub{i}_")))).id();
+            // the landscape casts no shadow (shadows.md: only objects with shadow_enable cast, projected silhouettes)
+            let c = commands.spawn((Mesh3d(mesh), MeshMaterial3d(mat), Name::new(format!("lsub{i}_")), bevy::light::NotShadowCaster)).id();
             commands.entity(e).add_child(c);
         }
         commands.insert_resource(lights);

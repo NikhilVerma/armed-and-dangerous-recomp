@@ -53,15 +53,25 @@ impl Default for GameOptions {
 }
 
 impl GameOptions {
+    /// Scripted runs (--play) use their own file, so the bot's progress (tokens taken, cheats) never reaches the
+    /// player's options.
     fn path() -> PathBuf {
-        std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("options.json"))).unwrap_or_else(|| PathBuf::from("options.json"))
+        let name = if std::env::args().any(|a| a == "--play") { "options_playtest.json" } else { "options.json" };
+        std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join(name))).unwrap_or_else(|| PathBuf::from(name))
     }
 
     pub fn load() -> Self {
+        // scripted runs start from the defaults every time and never save (options_playtest.json is not used)
+        if std::env::args().any(|a| a == "--play") {
+            return Self::default();
+        }
         std::fs::read_to_string(Self::path()).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
     }
 
     pub fn save(&self) {
+        if std::env::args().any(|a| a == "--play") {
+            return;
+        }
         if let Ok(s) = serde_json::to_string_pretty(self) {
             if let Err(e) = std::fs::write(Self::path(), s) {
                 warn!("options: not saved: {e}");

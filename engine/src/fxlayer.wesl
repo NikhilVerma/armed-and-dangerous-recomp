@@ -47,5 +47,6 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let alpha = s1.a * m.a * p.colour.w;
     // additive (SRCALPHA, ONE): the stage colour times the stage alpha. Textures stored premultiplied (DXT2: the
     // snow flakes, the blast ring) are un-premultiplied first: the flakes' colour is white where they show.
-    return vec4(col * alpha, 0.0);
+    // the stage maths run in gamma space (as the original); the target is linear
+    return vec4(pow(max(col * alpha, vec3(0.0)), vec3(2.2)), 0.0);
 }
