@@ -198,9 +198,19 @@ static void TestDumpCamera(unsigned frame)
     fprintf(out, "{\"view\": [");
     for (int i = 0; i < 16; ++i)
         fprintf(out, "%s%.7g", i ? ", " : "", view[i]);
-    fprintf(out, "], \"fov\": %.7g, \"aspect\": %.7g, \"near\": %.7g, \"far\": %.7g, \"letterbox\": [%.7g, %.7g]}\n",
+    fprintf(out, "], \"fov\": %.7g, \"aspect\": %.7g, \"near\": %.7g, \"far\": %.7g, \"letterbox\": [%.7g, %.7g]",
             g_testCameraFov, g_testCameraAspect, f32(cam + 0xf8), f32(cam + 0xd4) * f32(cam + 0xd0),
             *reinterpret_cast<const float*>(0x005bcf24), *reinterpret_cast<const float*>(0x005bcf28));
+    // the player's position (Game+0x748, its vt+0x54(out): as Camera_Update reads it), for movement comparisons
+    void* player = *reinterpret_cast<void* const*>(reinterpret_cast<const uint8_t*>(g_game) + 0x748);
+    if (player)
+    {
+        float pos[4] = {};
+        using GetPos = void(__thiscall*)(void*, float*);
+        reinterpret_cast<GetPos>((*reinterpret_cast<void***>(player))[0x54 / 4])(player, pos);
+        fprintf(out, ", \"player\": [%.7g, %.7g, %.7g]", pos[0], pos[1], pos[2]);
+    }
+    fprintf(out, "}\n");
     fclose(out);
 }
 
