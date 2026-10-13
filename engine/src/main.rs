@@ -15,6 +15,7 @@ mod flycam;
 mod fx;
 mod fxvm;
 mod gamedata;
+mod camdump;
 mod gamemenu;
 mod options;
 mod gameaudio;
@@ -26,6 +27,7 @@ mod nav;
 mod physics;
 mod pickup;
 mod pubscreen;
+mod topsy;
 mod player;
 mod playtest;
 mod scene;
@@ -60,10 +62,14 @@ struct Args {
     play: Option<PathBuf>,
     /// start in the level (Restart the level: the menus start the game again with this)
     skip_title: bool,
+    /// render from a camera dumped from the original (camdump.rs)
+    camera: Option<PathBuf>,
+    /// no HUD or menus (render comparisons)
+    no_hud: bool,
 }
 
 fn args() -> Args {
-    let mut a = Args { scene: PathBuf::from("../work/remaster/lev_1_m1"), size: (1920, 1080), bench: None, vsync: false, no_ai: false, fx_test: None, snap: None, play: None, skip_title: false };
+    let mut a = Args { scene: PathBuf::from("../work/remaster/lev_1_m1"), size: (1920, 1080), bench: None, vsync: false, no_ai: false, fx_test: None, snap: None, play: None, skip_title: false, camera: None, no_hud: false };
     let v: Vec<String> = std::env::args().collect();
     let mut bench_secs = None;
     let mut out = PathBuf::from("../work/remaster/bench/latest.json");
@@ -85,6 +91,8 @@ fn args() -> Args {
             "--snap" => a.snap = Some(PathBuf::from(next)),
             "--play" => a.play = Some(PathBuf::from(next)),
             "--skip-title" => (a.skip_title, used) = (true, 1),
+            "--camera" => a.camera = Some(PathBuf::from(next)),
+            "--no-hud" => (a.no_hud, used) = (true, 1),
             other => panic!("unknown argument {other}"),
         }
         i += used;
@@ -100,6 +108,7 @@ pub struct Launch {
     bench: Option<(f32, PathBuf)>,
     size: (u32, u32),
     no_ai: bool,
+    no_hud: bool,
 }
 
 /// `--fx-test DIR`: camera parked by the powder kegs nearest the level centre; at 1 s the nearest keg is shot
@@ -141,10 +150,11 @@ fn main() {
     .add_plugins((physics::PhysicsPlugin, fx::FxPlugin, ai::AiPlugin, player::PlayerPlugin, menu::MenuPlugin, level::LevelPlugin, fxvm::FxVmPlugin, ai::CompanionPlugin, skin::SkinPlugin, charanim::CharAnimPlugin, hud::HudPlugin, mission::MissionPlugin, gameaudio::GameAudioPlugin, campath::CameraPathPlugin, gamemenu::GameMenuPlugin))
     .add_plugins(options::OptionsPlugin)
     .add_plugins(pubscreen::PubScreenPlugin)
+    .add_plugins(topsy::TopsyPlugin)
     .init_state::<AppState>()
     .insert_non_send(physics::Physics::new(level::METERS_PER_UNIT))
     .insert_resource(ClearColor(Color::srgb(0.62, 0.70, 0.80)))
-    .insert_resource(Launch { fx_test: a.fx_test.is_some(), scene: scene_dir, bench: a.bench, size: a.size, no_ai: a.no_ai })
+    .insert_resource(Launch { fx_test: a.fx_test.is_some(), scene: scene_dir, bench: a.bench, size: a.size, no_ai: a.no_ai, no_hud: a.no_hud })
     .add_systems(Update, fx_test.run_if(resource_exists::<FxTest>))
     .add_systems(Startup, setup)
     .add_systems(Update, (play_state, hud_state))
@@ -161,6 +171,10 @@ fn main() {
     }
     if a.skip_title {
         app.insert_state(AppState::Playing);
+    }
+    app.add_plugins(camdump::CamDumpPlugin);
+    if let Some(c) = &a.camera {
+        app.insert_resource(camdump::CameraDump::load(c).fixed());
     }
     // --play SCRIPT: scripted input from the start of play (the title menu is skipped)
     if let Some(p) = a.play {
@@ -289,7 +303,10 @@ fn setup(
     commands.insert_resource(lib);
     commands.insert_resource(data);
     commands.insert_resource(audio::SoundBank::load(&launch.scene));
-    if has_player && launch.bench.is_none() && !launch.fx_test {
+    if launch.no_hud {
+        menu.stats = false;
+    }
+    if has_player && launch.bench.is_none() && !launch.fx_test && !launch.no_hud {
         if hud::spawn(&mut commands, &launch.scene, &assets, &mut meshes, &mut color_materials).is_none() {
             warn!("hud: ui/layout.json missing (run tools/remaster_export_ui.py)");
         } else {
@@ -430,6 +447,8 @@ fn hud_state(
     hud.weapon = p.weapon;
     hud.unlimited = p.unlimited;
     hud.stickies = p.stickies;
+    hud.special = p.special;
+    hud.topsy = p.topsy;
     for (n, h) in &companions {
         if n.as_str() == "molmer" {
             hud.jonesy_health = h.0 / 500.0;

@@ -16,8 +16,20 @@ impl Plugin for CharAnimPlugin {
     }
 }
 
-fn roman(mut q: Query<(&Roman, &mut Animator)>) {
+fn roman(mut q: Query<(&Roman, &mut Animator)>, topsy: Res<crate::topsy::Topsy>) {
     for (r, mut a) in &mut q {
+        // the Topsy Turvy states (anims 0x20..0x23)
+        let t = match topsy.phase {
+            crate::topsy::Phase::Into => Some(("trotter_topsy_into", false)),
+            crate::topsy::Phase::Turn | crate::topsy::Phase::Back => Some(("trotter_topsy_world_turn", false)),
+            crate::topsy::Phase::Hang => Some(("trotter_topsy_hanging", true)),
+            crate::topsy::Phase::Off => None,
+        };
+        if let (Some((name, looping)), false) = (t, r.dead) {
+            a.play(0, name, looping, Mask::All);
+            a.stop(1);
+            continue;
+        }
         let speed = r.move_local.length();
         let (fwd, side) = (r.move_local.y, r.move_local.x);
         // locomotion: aim stance standing; walk / run (run animations from 12 units/s: anim_walk_run_switch)
@@ -65,9 +77,20 @@ fn return_name(s: &str) -> &'static str {
     }
 }
 
-fn grunts(mut q: Query<(&Grunt, &mut Animator, &Transform)>, mut last: Local<std::collections::HashMap<Entity, Vec3>>, ents: Query<Entity, With<Grunt>>) {
+fn grunts(mut q: Query<(&Grunt, &mut Animator, &Transform, Option<&crate::topsy::Thrown>)>, mut last: Local<std::collections::HashMap<Entity, Vec3>>, ents: Query<Entity, With<Grunt>>) {
     let _ = (&mut last, &ents);
-    for (g, mut a, _t) in &mut q {
+    for (g, mut a, _t, thrown) in &mut q {
+        // thrown by the Topsy Turvy bomb: hanging on, or falling into the sky
+        if let Some(th) = thrown {
+            let (name, looping) = match (th.hangs, th.t < 1.0, th.t < 0.3) {
+                (true, true, _) => ("grunt_hang_into", false),
+                (true, false, _) => ("grunt_hanging", true),
+                (false, _, true) => ("grunt_blown_up_into", false),
+                (false, _, false) => ("grunt_blown_up", true),
+            };
+            a.play(0, name, looping, Mask::All);
+            continue;
+        }
         let limping = g.limp_pct > 0.0 && g.last_health < g.max_health * g.limp_pct / 100.0;
         let (name, looping) = match g.mind {
             Mind::Dead if g.ragdoll => ("grunt_blown_up".to_string(), false),

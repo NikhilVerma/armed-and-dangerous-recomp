@@ -19,6 +19,8 @@ pub struct Pickup {
     pub vel: f32,
     pub ground: f32,
     pub text: Option<String>,
+    /// rotate_rate (PickupObject_Load 0x00471e40: default 180 degrees/s), radians/s; the spin about game z
+    pub spin: f32,
 }
 
 pub struct PickupPlugin;
@@ -70,9 +72,10 @@ fn drop_on_death(
                     stickies: p.f("num_ammo", 0.0) as u32 * (name == "pickup_sticky_bombs") as u32,
                     radius: p.f("sphere_radius", 4.0) + 4.0,
                     life: p.f("linger_time", 300.0),
-                    vel: p.f("upward_force", 70.0) * 0.6,
+                    vel: p.f("upward_force", 70.0),
                     ground,
                     text: p.s("text_lookup").map(str::to_owned),
+                    spin: p.f("rotate_rate", 180.0).to_radians(),
                 },
             ))
             .id();
@@ -98,10 +101,14 @@ fn collect(
     let Ok((pt, mut h, mut r)) = player.single_mut() else { return };
     let mut mission = mission;
     for (e, mut p, mut t) in &mut q {
-        // the pop: up with upward_force, back down to the ground; spin
-        p.vel -= 160.0 * dt;
+        // the pop: upward_force up, the world's gravity (64.348 units/s^2) back down to the ground; the spin about
+        // the vertical at rotate_rate (0x00472170: the matrix spun about z by the angle +0x4b4)
+        p.vel -= 64.348 * dt;
         t.translation.y = (t.translation.y + p.vel * dt).max(p.ground + 1.0);
-        t.rotate_y(dt * 2.0);
+        if t.translation.y <= p.ground + 1.0 {
+            p.vel = 0.0;
+        }
+        t.rotate_y(dt * p.spin);
         p.life -= dt;
         if p.life <= 0.0 {
             commands.entity(e).despawn();

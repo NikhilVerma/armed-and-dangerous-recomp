@@ -8,7 +8,9 @@
 #include <cstdlib>
 #include <cstring>
 
+#include <cstdint>
 #include "config.h"
+#include "game/game_object.h"
 #include "log.h"
 
 static float g_shotTimes[16];
@@ -126,6 +128,34 @@ static unsigned long long HashBackBuffer(IDirect3DDevice9* dev)
 int TestFramesSinceLoad();
 static bool FrameNumber(unsigned absolute, unsigned* f);
 
+extern void* g_testCamera;
+extern float g_testCameraFov, g_testCameraAspect;
+
+// The frame's camera next to its dump (and-frame-N.camera.json), for rendering the same view elsewhere (the remaster
+// engine's comparisons): the view matrix Game+0x704 (as Camera_SetupProjection 0x0040f6e0 passes it to SetView, 16
+// floats in memory order), the FOV (camera +0xf4, after the [camera] adjustments), near (+0xf8), far (+0xd4 * +0xd0),
+// the aspect passed (0: from the viewport) and the letterbox constants 0x005bcf24 / 0x005bcf28.
+static void TestDumpCamera(unsigned frame)
+{
+    if (!g_game || !g_testCamera)
+        return;
+    char path[64];
+    sprintf(path, "and-frame-%05u.camera.json", frame);
+    FILE* out = fopen(path, "w");
+    if (!out)
+        return;
+    const float* view = reinterpret_cast<const float*>(reinterpret_cast<const uint8_t*>(g_game) + 0x704);
+    const uint8_t* cam = static_cast<const uint8_t*>(g_testCamera);
+    auto f32 = [](const void* p) { return *static_cast<const float*>(p); };
+    fprintf(out, "{\"view\": [");
+    for (int i = 0; i < 16; ++i)
+        fprintf(out, "%s%.7g", i ? ", " : "", view[i]);
+    fprintf(out, "], \"fov\": %.7g, \"aspect\": %.7g, \"near\": %.7g, \"far\": %.7g, \"letterbox\": [%.7g, %.7g]}\n",
+            g_testCameraFov, g_testCameraAspect, f32(cam + 0xf8), f32(cam + 0xd4) * f32(cam + 0xd0),
+            *reinterpret_cast<const float*>(0x005bcf24), *reinterpret_cast<const float*>(0x005bcf28));
+    fclose(out);
+}
+
 void TestHashBeforePresent(IDirect3DDevice9* dev)
 {
     unsigned f;
@@ -141,6 +171,7 @@ void TestHashBeforePresent(IDirect3DDevice9* dev)
         char path[64];
         sprintf(path, "and-frame-%05u.bmp", f);
         SaveBackBuffer(dev, path);
+        TestDumpCamera(f);
     }
     if (FILE* out = fopen("and-hashes.txt", "a"))
     {

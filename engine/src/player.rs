@@ -44,6 +44,8 @@ pub struct Roman {
     pub topsy: u32,
     /// the machine gun's fire loop is playing
     pub mg_firing: bool,
+    /// the special in hand (Next Special: Tab): 0 sticky bombs, 1 Topsy Turvy bomb
+    pub special: u8,
     pub stickies: u32,
     pub dead: bool,
     pub base: Quat,
@@ -93,7 +95,9 @@ pub fn spawn_projectile(commands: &mut Commands, fx: &mut MessageWriter<crate::f
     let speed = p.f("speed", 300.0) * 3.0;
     let e = commands
         .spawn((
-            Transform::from_translation(from).looking_to(dir, Vec3::Y),
+            // its game frame (as placed objects carry): game +Y along the flight, game +Z up, so the fx scripts
+            // attached to it (fx_start trails) run in the frame they were authored in
+            Transform::from_translation(from).with_rotation(Transform::IDENTITY.looking_to(dir, Vec3::Y).rotation * crate::level::game_to_engine()),
             Projectile {
                 vel: dir * speed,
                 life: p.f("lifetime", 4.0).min(3.0),
@@ -125,6 +129,9 @@ pub struct PlayerStats {
     pub shots: u32,
     pub weapon: &'static str,
     pub unlimited: bool,
+    /// the special in hand: 0 sticky bombs, 1 the Topsy Turvy bomb; and its count
+    pub special: u8,
+    pub topsy: u32,
 }
 
 pub struct PlayerPlugin;
@@ -177,6 +184,7 @@ pub fn make_roman(physics: &mut Physics, p: &Props, data: &GameData, feet: Vec3,
         use_mg: false,
         topsy: 0,
         mg_firing: false,
+        special: 0,
         stickies: 5,
         dead: false,
         base: game_to_engine(),
@@ -247,6 +255,7 @@ fn control(
     keys: Res<ButtonInput<KeyCode>>,
     motion: Res<AccumulatedMouseMotion>,
     opts: Res<crate::options::GameOptions>,
+    topsy: Res<crate::topsy::Topsy>,
     mut physics: NonSendMut<Physics>,
     mut q: Query<(&mut Roman, &mut Transform, &Health)>,
     mut stats: ResMut<PlayerStats>,
@@ -261,8 +270,11 @@ fn control(
         // mouse look with the options' sensitivity (0.5 = the remaster's 0.0025 rad per count) and invert
         let k = 0.0025 * opts.mouse_factor();
         let inv = if opts.invert_mouse { -1.0 } else { 1.0 };
-        r.yaw -= motion.delta.x * k;
-        r.pitch = (r.pitch - motion.delta.y * k * inv).clamp(-1.1, 0.7);
+        // the topsy states (flags 0x7800000) take the turn input away
+        if !topsy.active() {
+            r.yaw -= motion.delta.x * k;
+            r.pitch = (r.pitch - motion.delta.y * k * inv).clamp(-1.1, 0.7);
+        }
         let mut wish = Vec3::ZERO;
         // playtest bot: turn toward the goal and walk; when fighting, face the nearest live grunt
         let mut bot_walk: Option<Vec3> = None;
@@ -438,6 +450,10 @@ fn control(
                 wish -= s * r.side_speed;
             }
         }
+        // the Topsy Turvy states hold Roman in place
+        if topsy.active() {
+            wish = Vec3::ZERO;
+        }
         // horizontal velocity follows the input quickly, vertical integrates gravity (49 units/s^2 = 9.8 m/s^2)
         let k = (dt * 12.0).min(1.0);
         r.vel.x += (wish.x - r.vel.x) * k;
@@ -471,6 +487,8 @@ fn control(
         stats.ammo = w.ammo;
         stats.weapon = w.name;
         stats.unlimited = w.unlimited;
+        stats.special = r.special;
+        stats.topsy = r.topsy;
         stats.stickies = r.stickies;
     }
 }
@@ -496,6 +514,7 @@ fn weapons(
     mut stop: MessageWriter<crate::audio::StopSound>,
     mut fx: MessageWriter<crate::fx::StartFx>,
     mut rng: ResMut<crate::fx::FxStats>,
+    mut topsy: ResMut<crate::topsy::Topsy>,
 ) {
     let dt = time.delta_secs();
     for (e, mut r, t) in &mut q {
@@ -570,8 +589,20 @@ fn weapons(
         }
         // sticky bomb: thrown along the aim with the game's sticky bomb values (stand-in throw strength)
         let bot_throw = std::mem::take(&mut bot.throw);
+        // Next Special (Tab): sticky bombs / the Topsy Turvy bomb
+        if keys.just_pressed(KeyCode::Tab) && r.topsy > 0 {
+            r.special = 1 - r.special;
+        }
+        if r.special == 1 && r.topsy == 0 {
+            r.special = 0;
+        }
+        // Fire Special with the Topsy Turvy bomb (topsy.rs)
+        if r.special == 1 && buttons.just_pressed(MouseButton::Right) && r.topsy > 0 && !topsy.active() {
+            r.topsy -= 1;
+            topsy.start = true;
+        }
         // Fire Special: Mouse 2 (the original's binding; F is Activate)
-        if (buttons.just_pressed(MouseButton::Right) || bot_throw) && r.stickies > 0 {
+        if r.special == 0 && (buttons.just_pressed(MouseButton::Right) || bot_throw) && r.stickies > 0 {
             r.stickies -= 1;
             let (from, dir) = aim(&r, t);
             spawn_bomb(&mut commands, &mut physics, &bombs, &data, from, dir * 90.0 + Vec3::Y * 20.0, 3.0);
@@ -631,7 +662,8 @@ fn projectiles(
         }
         if let Some((body, at, normal)) = hit {
             if let Some(n) = impact(Some(body)) {
-                let rot = Quat::from_rotation_arc(Vec3::Y, normal.normalize_or(Vec3::Y));
+                // the fx's game +Z (its up) along the surface normal
+                let rot = Quat::from_rotation_arc(Vec3::Y, normal.normalize_or(Vec3::Y)) * crate::level::game_to_engine();
                 fx.write(crate::fx::StartFx { name: n, at, rotation: rot, follow: None, position_only: false });
             }
             if let Some((_, _, mut h)) = chars.iter_mut().find(|(ce, b, _)| b.id == body && Some(*ce) != p.owner) {
@@ -664,13 +696,15 @@ fn follow_camera(
     physics: NonSend<Physics>,
     roman: Query<(&Roman, &Transform), Without<FollowCam>>,
     mut cam: Query<&mut Transform, With<FollowCam>>,
+    topsy: Res<crate::topsy::Topsy>,
 ) {
     if path.active() {
         return;
     }
     let (Ok((r, rt)), Ok(mut c)) = (roman.single(), cam.single_mut()) else { return };
     let pivot = rt.translation + Vec3::Y * 10.0;
-    let rot = Quat::from_euler(EulerRot::YXZ, r.yaw, r.pitch, 0.0);
+    // the Topsy Turvy bomb turns the view over (topsy.rs)
+    let rot = Quat::from_euler(EulerRot::YXZ, r.yaw, r.pitch, topsy.roll);
     let back = rot * Vec3::new(4.0, 2.0, 30.0);
     let len = back.length();
     let dist = physics.raycast(pivot, back / len, len).map(|h| h.1.distance(pivot) - 1.5).unwrap_or(len).max(3.0);

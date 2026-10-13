@@ -192,3 +192,16 @@ How this coexists with faithful recovery:
   it (grunt AI, the player).
 - The D3D9 hook path stays: it is the oracle for the recovered code and the shipping remaster until the new engine
   plays the whole game.
+
+## 2026-10-13: the new engine stays a manual port, one verified piece at a time
+
+- Human, after seeing look-and-feel gaps (single aim pose, flat materials, no terrain snow, dead grunts floating,
+  vertical tracers, pickups): "i am ok with the most efficient approach, we have gotten surprisingly close with
+  manual rewrites", "but i just need to ensure we do it piece by piece and each piece is properly ported".
+- Rule for engine/ from now on: a piece (one system or behaviour) is ported from the recovered code with the
+  function addresses cited in the source, then verified against the original before the next piece starts:
+  a capture of the original (tools/shot.py) side by side with the engine's (tools/ui_compare.py), or a logged
+  value from a playtest run compared with the recovered rule. Guesses stay labelled. A piece is not called done
+  while its comparison shows a difference.
+- Future levels' mechanics (jetpacks, capture the flag, escort missions, ...) are ported the same way, each as its
+  own piece.

@@ -1,25 +1,48 @@
 # Remaster engine
 
 A shared runtime for remastering old games, first used for Armed and Dangerous. Rust, Bevy 0.20, Jolt Physics 5.6
-(oxijolt, built from source with CMake), bevy_egui menus. Decision: docs/decision.md, 2026-10-13.
+(oxijolt, built from source with CMake), bevy_egui (debug panel only). Decisions: docs/decision.md 2026-10-13 (the
+engine) and 2026-10-13 "one verified piece at a time" (how it is ported). Workflow, verification loop, tips and the
+porting order: **docs/remaster-engine.md** (read it before working here).
 
 ## Run (Armed and Dangerous, lev_1_m1)
 
+Export the level once (all exporters write work/remaster/lev_1_m1/, never committed):
+
 ```bash
-python tools/remaster_export.py lev_1_m1
+.venv/Scripts/python.exe tools/remaster_export.py lev_1_m1
 ```
 
 ```bash
-cd engine && cargo run --release
+.venv/Scripts/python.exe tools/remaster_export_anim.py lev_1_m1
 ```
 
-Options: `--size WxH` (physical pixels), `--vsync`, `--no-ai`, `--scene DIR`, `--bench SECONDS --out FILE`
-(scripted flight, frame times and screenshots to FILE), `--fx-test DIR` (a powder-keg chain close-up, screenshots
-every 0.1 s), `--snap FILE` (screenshot after 4 s). `python tools/bench_page.py` turns the benchmark JSON files in
-work/remaster/bench into index.html.
+```bash
+.venv/Scripts/python.exe tools/remaster_export_audio.py lev_1_m1
+```
 
-Controls: right mouse look, WASD / Q E move, Shift fast, left mouse shoot, F throw a tickerbomb, G airstrike (test),
-Esc pause, Tab stats.
+```bash
+.venv/Scripts/python.exe tools/remaster_export_ui.py lev_1_m1
+```
+
+```bash
+.venv/Scripts/python.exe tools/remaster_export_mission.py lev_1_m1
+```
+
+Build and play (cargo is in %USERPROFILE%/.cargo/bin; add it to PATH in Git Bash):
+
+```bash
+cd engine && cargo build --release && ./target/release/and_remaster.exe --size 1600x900
+```
+
+Options: `--size WxH`, `--vsync`, `--no-ai`, `--scene DIR`, `--skip-title` (straight into the level),
+`--play SCRIPT.json` (playtest bot, see docs/remaster-engine.md), `--camera DUMP.json` (render from a camera dumped
+from the original), `--no-hud`, `--snap FILE` (screenshot after 4 s, then exit), `--bench SECONDS --out FILE`,
+`--fx-test DIR`.
+
+Controls (the original's PC bindings where ported): WASD move, mouse look, left mouse fire, right mouse Fire Special
+(sticky bomb / Topsy Turvy), Tab next special, Q next weapon, R reload, Space jump, F or X Activate, Enter continue,
+Esc pause menu, F3 debug stats panel.
 
 ## Layout
 
@@ -27,16 +50,19 @@ Esc pause, Tab stats.
 | --- | --- | --- |
 | scene.rs | yes | the exported scene format: models, DDS textures, placements, lights, settings |
 | gamedata.rs | yes | property sets, templates, fx scripts as the game stores them |
-| physics.rs | yes | Jolt world, static meshes, dynamic bodies, ray casts |
-| fx.rs | yes | area damage, deaths, chain fuses (rules from AreaDamage_Apply / FxExplosion_Die) |
-| fxvm.rs | A&D's fx format | the game's fx script interpreter and particle system (docs/subsystems/fx-vm.md) |
-| bench.rs, flycam.rs, menu.rs | yes | benchmark flight, free camera, egui menus |
-| level.rs | A&D | axes (Z up), units, how property sets map to engine behaviour, force_ground, husks |
-| ai.rs, player.rs | A&D, stand-ins | until the recovered AI and player code are linked in |
+| physics.rs | yes | Jolt world, static meshes, dynamic bodies, walkers (CharacterVirtual), ray casts |
+| fx.rs, fxvm.rs | fx format is A&D's | area damage, deaths, chain fuses; the game's fx script interpreter and particles |
+| skin.rs, charanim.rs | skin.rs yes | skeletons, anims, layers; which anim each A&D character plays; skinning check |
+| level.rs | A&D | axes (Z up), units, property sets -> engine behaviour, force_ground, husks, hand weapons |
+| player.rs, ai.rs, topsy.rs, pickup.rs | A&D | Roman, weapons, grunts, companions, Topsy Turvy, pickups |
+| mission.rs, pubscreen.rs | A&D | the level's trigger graph, prompts, ticker sites, the pub |
+| hud.rs, gamemenu.rs, options.rs | A&D data | HUD and menus from the UI bank, options |
+| audio.rs, gameaudio.rs, campath.rs | A&D data | sounds, music, ambience, subtitles, camera paths |
+| playtest.rs, nav.rs, camdump.rs, bench.rs | yes | the playtest bot, its A* nav, original-camera renders, benchmark |
+| menu.rs, flycam.rs | yes | the F3 debug panel, free camera |
 
-## Not ported yet
+## Not ported yet (see docs/remaster-engine.md for the porting order)
 
-Skinned animation (characters stand in their bind pose), the recovered AI and player, sounds, decals (fx 0x6a),
-fx opcodes outside the powder keg's explosion (0x10, 0x19, 0x35, 0x3c, 0x3d, 0x5b, 0x5e seen in pipe and tree deaths; skipped with
-their operands and logged once),
-uv scrolling (fx 0x40), terrain blend layers and lightmaps (uv1), the level's scripted mission logic.
+Rendering fidelity: terrain layers (snow) and lightmaps, materials (environment / specular: Q's metal), the
+original's fog and lighting model; Roman's and the grunts' 4-way aim blend; ragdolls; decals; several fx opcodes;
+the treasure tokens; save / load; cheats; credits.

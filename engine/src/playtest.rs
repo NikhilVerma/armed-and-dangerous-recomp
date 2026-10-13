@@ -42,6 +42,9 @@ pub struct Event {
     /// debug: take this much damage at once (to test losing)
     #[serde(default)]
     pub hurt: Option<f32>,
+    /// debug: spawn a grunt_regular at this game-space point (as a barracks does)
+    #[serde(default)]
+    pub spawn: Option<[f32; 3]>,
     /// bot: walk to this point (game space x, y, z: as the scene files give positions)
     #[serde(default)]
     pub goto: Option<[f32; 3]>,
@@ -233,6 +236,7 @@ fn drive(
     mut bot: ResMut<Bot>,
     mission: Option<Res<crate::mission::Mission>>,
     mut roman: Query<&mut crate::fx::Health, With<crate::player::Roman>>,
+    mut spawn: MessageWriter<crate::level::SpawnGrunt>,
 ) {
     pt.t += time.delta_secs();
     // the mission over (won or failed): play stops, so a pending goto counts as done
@@ -341,6 +345,9 @@ fn drive(
         }
         if let (Some(d), Ok(mut h)) = (e.hurt, roman.single_mut()) {
             h.0 -= d;
+        }
+        if let Some(g) = e.spawn {
+            spawn.write(crate::level::SpawnGrunt { at: Vec3::new(g[0], g[2], -g[1]), template: "grunt_regular".into() });
         }
     }
 }

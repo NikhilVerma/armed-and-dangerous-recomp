@@ -163,6 +163,9 @@ pub struct HudState {
     /// the ticker bomb: arming progress 0..1 while Use is held; seconds since armed while it ticks
     pub ticker_arming: Option<f32>,
     pub ticker_clock: Option<f32>,
+    /// the special in hand (0 sticky bombs, 1 Topsy Turvy) and the Topsy Turvy count
+    pub special: u8,
+    pub topsy: u32,
 }
 
 pub const HUD_LAYER: usize = 1;
@@ -212,7 +215,7 @@ pub fn spawn(
     const SHOWN: &[&str] = &[
         "ui_weapon_bkd", "ui_player_rifle", "ui_player_grenades", "ui_player_health", "ui_health_q", "ui_health_jonesy",
         "ui_crosshair", "ui_compass", "ui_compass_objective", "ui_ammo_infinity", "ui_ammo_count", "ui_grenade_count",
-        "ui_hit_top", "ui_hit_bottom", "ui_hit_left", "ui_hit_right", "ui_player_mg", "ui_clock", "ui_tickerbomb",
+        "ui_hit_top", "ui_hit_bottom", "ui_hit_left", "ui_hit_right", "ui_player_mg", "ui_player_topsy", "ui_clock", "ui_tickerbomb",
         "ui_tickerbomb_set",
     ];
     for e in hud.layout.elements.iter().filter(|e| SHOWN.contains(&e.name.as_str()) && e.pos.is_some() && e.page_name.as_deref().is_none_or(|p| p == "pui_main")) {
@@ -671,7 +674,7 @@ fn texts(
         t.text = match el.name.as_str() {
             // "%d/" + the infinity sign: the rifle's reserve is unlimited (weapon type 2)
             "ui_ammo_count" => if state.unlimited { format!("{}/", state.clip) } else { format!("{}/{}", state.clip, state.ammo) },
-            "ui_grenade_count" => format!("{}", state.stickies),
+            "ui_grenade_count" => format!("{}", if state.special == 1 { state.topsy } else { state.stickies }),
             "ui_message" => state.messages.join("\n"),
             "ui_prompt" => state.prompt.clone().unwrap_or_default(),
             "ui_briefing" => state.briefing.clone().unwrap_or_default(),
@@ -800,6 +803,8 @@ fn visibility(
                 "ui_compass_objective" => state.objective.is_some(),
                 "ui_player_rifle" => state.weapon != "machinegun",
                 "ui_player_mg" => state.weapon == "machinegun",
+                "ui_player_grenades" => state.special == 0,
+                "ui_player_topsy" => state.special == 1,
                 "ui_ammo_infinity" => state.unlimited,
                 "ui_clock" | "ui_tickerbomb" => state.ticker_clock.is_some(),
                 "ui_tickerbomb_set" => state.ticker_arming.is_some(),

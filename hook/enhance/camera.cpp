@@ -34,8 +34,19 @@ struct
 
 constexpr float kLetterboxTop = 0.1125f, kLetterboxHeight = 0.775f;  // 0x005bcf24, 0x005bcf28
 
+}  // namespace
+
+// The last camera set up and its final projection values, for the test harness's camera dumps (testshot.cpp).
+void* g_testCamera = nullptr;
+float g_testCameraFov = 0.0f, g_testCameraAspect = 0.0f;
+
+namespace
+{
 void Camera_Adjust(void* camera, float* fov, float* aspect)
 {
+    g_testCamera = camera;
+    g_testCameraFov = *fov;
+    g_testCameraAspect = *aspect;
     if (!g_cfg.horPlus && g_cfg.fovScale == 1.0f && g_cfg.letterbox)
         return;  // the original projection, untouched
     float viewportAspect = 0.0f;
@@ -61,6 +72,8 @@ void Camera_Adjust(void* camera, float* fov, float* aspect)
         *aspect = viewportAspect;
     }
     *fov = 2.0f * std::atan(t);
+    g_testCameraFov = *fov;
+    g_testCameraAspect = *aspect;
 }
 
 void PatchFloat(unsigned address, float expected, float value, const char* label)
