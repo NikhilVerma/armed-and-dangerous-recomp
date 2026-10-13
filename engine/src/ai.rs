@@ -226,15 +226,23 @@ fn search(
     mut rng: ResMut<FxStats>,
     physics: NonSend<Physics>,
     player: Query<(Entity, &GlobalTransform, Option<&crate::skin::Animator>), With<Player>>,
+    companions: Query<(Entity, &GlobalTransform, Option<&crate::skin::Animator>), (With<Companion>, Without<Player>)>,
     mut grunts: Query<(Entity, &mut Grunt, &GlobalTransform, &Body)>,
     joints: Query<&GlobalTransform, Without<Grunt>>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
 ) {
     let dt = time.delta_secs();
-    let Ok((pe, pt, pa)) = player.single() else { return };
-    let ppos = pt.translation();
-    // the player's ref_hit_00 (the point AI_FindTarget's sight ray aims at)
-    let phit = pa.and_then(|a| a.skeleton.index.get("ref_hit_00").and_then(|&i| joints.get(a.joints[i]).ok())).map(|j| j.translation()).unwrap_or(ppos + Vec3::Y * 7.0);
+    let Ok((pe, _, _)) = player.single() else { return };
+    // the candidates (the AI's list +0x604: the player and his companions; the original's grunts take Jonesy and Q
+    // too, hook AI dump fightT): each with its position and its ref_hit_00 (the point the sight ray aims at)
+    let hit_point = |t: &GlobalTransform, a: Option<&crate::skin::Animator>| {
+        a.and_then(|a| a.skeleton.index.get("ref_hit_00").and_then(|&i| joints.get(a.joints[i]).ok())).map(|j| j.translation()).unwrap_or(t.translation() + Vec3::Y * 7.0)
+    };
+    let cands: Vec<(Entity, Vec3, Vec3)> =
+        player.iter().chain(companions.iter()).map(|(e, t, a)| (e, t.translation(), hit_point(t, a))).collect();
+    if std::env::var("AIDBG").is_ok() && time.elapsed_secs() < 0.5 {
+        info!("AIDBG candidates player {:?} companions {:?}", pe, companions.iter().map(|c| c.0).collect::<Vec<_>>());
+    }
     let mut spotted: Vec<(i64, Entity, Entity)> = Vec::new();
     for (ge, mut g, t, gbody) in &mut grunts {
         if g.mind == Mind::Dead {
@@ -259,7 +267,7 @@ fn search(
         }
         // a guard (0x0042ec20, every frame of state 0x79) releases its target each time the search timer runs out and
         // searches again: one that loses the cone or the line of sight loses its target within 0.75..1.25 s
-        if g.guard && g.target == Some(pe) {
+        if g.guard && g.target.is_some() {
             g.target = None;
         }
         if g.target.is_some() {
@@ -271,27 +279,36 @@ fn search(
         }
         g.search_timer = rng.range(0.75, 1.25);
         let me = t.translation();
-        let to = ppos - me;
-        let d2 = to.with_y(0.0).length();
-        if d2 > 2.0 * g.scan_distance {
-            continue;
+        // AI_FindTarget's walk of +0x604: within scan_distance (2D), the closest that passes; the player inside
+        // hear_distance is taken at once; otherwise inside the 190-degree cone (or within hear_distance) with line of
+        // sight
+        let fwd = Vec3::new(g.yaw.sin(), 0.0, g.yaw.cos());
+        let mut best: Option<(f32, Entity, bool)> = None;
+        for &(ce, cpos, chit) in &cands {
+            let to = (cpos - me).with_y(0.0);
+            let d2 = to.length();
+            if d2 > g.scan_distance || best.is_some_and(|b| d2 > b.0) {
+                continue;
+            }
+            if ce == pe && d2 < g.hear_distance {
+                best = Some((d2, ce, true));
+                break;
+            }
+            let cone = to.normalize_or_zero().dot(fwd) >= 95f32.to_radians().cos() || d2 < g.hear_distance;
+            if cone && sight_ray(&physics, me, chit, &[gbody.id]) {
+                best = Some((d2, ce, false));
+            }
         }
-        let heard = d2 < g.hear_distance;
-        let seen = d2 < g.scan_distance && {
-            let fwd = Vec3::new(g.yaw.sin(), 0.0, g.yaw.cos());
-            let cone = to.with_y(0.0).normalize_or_zero().dot(fwd) >= 95f32.to_radians().cos();
-            cone && sight_ray(&physics, me, phit, &[gbody.id])
-        };
-        if heard || seen {
-            g.target = Some(pe);
+        if let Some((d2, tgt, heard)) = best {
+            g.target = Some(tgt);
             if g.mind == Mind::WaitTrigger {
                 g.mind = Mind::Roam; // activate 0x0042f5c0 (charge/marker flags: not ported)
             }
-            if std::env::var("AIDBG").is_ok() { info!("AIDBG spotted by {:?} at {:?} d {:.0} heard {} hear {} scan {} mode {:?}", ge, me, d2, heard, g.hear_distance, g.scan_distance, g.mind); }
+            if std::env::var("AIDBG").is_ok() { info!("AIDBG spotted {:?} by {:?} at {:?} d {:.0} heard {} mode {:?}", tgt, ge, me, d2, heard, g.mind); }
             // no bark on spotting: the original's grunts engage and shoot without one (sound log of the first fight:
             // bow shots from frame 696, no _fight line); the Fight bark (vt+0x140) is called from other paths
             if g.alert_group != 0 {
-                spotted.push((g.alert_group, pe, ge));
+                spotted.push((g.alert_group, tgt, ge));
             }
         }
     }
@@ -795,7 +812,7 @@ fn companions(
     bot: Res<crate::playtest::Bot>,
     roman: Query<(&Transform, &crate::player::Roman, &crate::skin::Animator, &Health), Without<Companion>>,
     cam: Query<&GlobalTransform, With<Camera3d>>,
-    mut q: Query<(Entity, &mut Companion, &mut Transform, Option<&crate::skin::Animator>), Without<crate::player::Roman>>,
+    mut q: Query<(Entity, &mut Companion, &mut Transform, Option<&crate::skin::Animator>, Option<&Health>), Without<crate::player::Roman>>,
     grunts: Query<(Entity, &Grunt, &GlobalTransform, Option<&crate::skin::Animator>)>,
     joints: Query<&GlobalTransform, Without<Companion>>,
     mut fx: MessageWriter<crate::fx::StartFx>,
@@ -812,7 +829,7 @@ fn companions(
         physics.raycast(o + d * 20.0, d, 500.0).map(|h| h.1).unwrap_or(o + d * 520.0)
     });
     let fire_held = (buttons.pressed(MouseButton::Left) || bot.fire_ok) && !r.dead;
-    for (e, mut c, mut t, ca) in &mut q {
+    for (e, mut c, mut t, ca, ch) in &mut q {
         if c.range < 0.0 {
             c.range = rng.range(c.fire_range.0, c.fire_range.1);
         }
@@ -922,6 +939,7 @@ fn companions(
         // playtest log: how far each companion is from Roman
         log.0.insert(if c.q { "q_dist".into() } else { "jonesy_dist".into() }, (from_roman.round() as i64).into());
         log.0.insert(if c.q { "q_pos".into() } else { "jonesy_pos".into() }, serde_json::json!([(me.x * 10.0).round() / 10.0, (-me.z * 10.0).round() / 10.0]));
+        log.0.insert(if c.q { "q_health".into() } else { "jonesy_health".into() }, ch.map(|h| h.0).unwrap_or(0.0).into());
         // measured in the original's intro (hook dumps of World+0xe94): both set off within 0.5 s of Roman and run at
         // ~38 units/s about 32 units behind him; so they regroup on the distance to their slot, not to Roman
         let _ = from_roman;

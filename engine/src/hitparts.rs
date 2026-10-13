@@ -18,6 +18,9 @@ pub struct HitHulls {
     pub grunt: Vec<Hull>,
     /// Roman (template trotter: collision_lod_index 2 = trotter_coll_0)
     pub roman: Vec<Hull>,
+    /// Jonesy (molmer: molmer_coll_0) and Q (q111: q111_coll_0)
+    pub molmer: Vec<Hull>,
+    pub q111: Vec<Hull>,
 }
 
 /// Reads a collision model's parts (models/<name>.json / .bin: float3 positions, u32 indices).

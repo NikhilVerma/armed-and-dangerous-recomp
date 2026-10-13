@@ -861,6 +861,7 @@ fn projectiles(
     mut objects: Query<(&crate::level::Placed, &mut Destructible)>,
     roman: Query<(Entity, &Roman, &Transform, Option<&crate::skin::Animator>), Without<Projectile>>,
     mut roman_health: Query<&mut Health, (With<Roman>, Without<crate::physics::Body>, Without<Projectile>)>,
+    mut companions: Query<(&crate::ai::Companion, &Transform, Option<&crate::skin::Animator>, &mut Health), (Without<Roman>, Without<crate::physics::Body>, Without<Projectile>)>,
     mut stats: ResMut<PlayerStats>,
     mut fx: MessageWriter<crate::fx::StartFx>,
     hulls: Option<Res<crate::hitparts::HitHulls>>,
@@ -916,6 +917,39 @@ fn projectiles(
             let mat = body.and_then(|b| physics.materials.get(&b).cloned()).unwrap_or_else(|| "snow".into());
             Some(format!("{base}_{mat}"))
         };
+        // and the companions, on theirs (molmer_coll_0, q111_coll_0): the nearest hit along the step
+        let mut hit_companion = None;
+        if !p.from_player && !hit_roman {
+            if let Some(h) = hulls.as_ref() {
+                let to = from + step;
+                for (c, ct, ca, _) in companions.iter() {
+                    let Some(a) = ca else { continue };
+                    let parts = if c.q { &h.q111 } else { &h.molmer };
+                    let seg = to - from;
+                    let cc = ct.translation + Vec3::Y * 5.0;
+                    let u = ((cc - from).dot(seg) / seg.length_squared().max(1e-6)).clamp(0.0, 1.0);
+                    if parts.is_empty() || (from + seg * u).distance(cc) > 12.0 {
+                        continue;
+                    }
+                    if let Some((f, _)) = crate::hitparts::hit(parts, a, &joints, &binds, from, to) {
+                        if hit_companion.is_none_or(|(bf, _)| f < bf) {
+                            hit_companion = Some((f, c.q));
+                        }
+                    }
+                }
+            }
+        }
+        if let Some((_, q)) = hit_companion {
+            if let Some(n) = impact(None).map(|n| n.replace("_snow", "_grunt")) {
+                fx.write(crate::fx::StartFx { name: n, at: from + step, rotation: Quat::IDENTITY, follow: None, position_only: false });
+            }
+            if let Some((_, _, _, mut ch)) = companions.iter_mut().find(|(c, _, _, _)| c.q == q) {
+                // the companions are teammates of the player (vt+0xe4 true): a grunt's shot hurts them (0x00430340)
+                ch.0 -= p.damage;
+            }
+            commands.entity(e).despawn();
+            continue;
+        }
         if hit_roman {
             if let Some(n) = impact(None).map(|n| n.replace("_snow", "_grunt")) {
                 fx.write(crate::fx::StartFx { name: n, at: from + step, rotation: Quat::IDENTITY, follow: None, position_only: false });

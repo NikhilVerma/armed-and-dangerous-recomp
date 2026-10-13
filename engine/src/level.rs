@@ -429,7 +429,12 @@ pub fn spawn(
     let parts = lib.load_model("player_stickybomb_0", false, assets, meshes, materials).map(|m| m.parts.clone()).unwrap_or_default();
     let dynamite = lib.load_model("molmer_dynamite_0", false, assets, meshes, materials).map(|m| m.parts.clone()).unwrap_or_default();
     // the grunts' collision model (templates grunt / grunt_regular: collision_lod_index 3 = grunt_coll_9), for bullet hits
-    commands.insert_resource(crate::hitparts::HitHulls { grunt: crate::hitparts::load(&lib.dir, "grunt_coll_9"), roman: crate::hitparts::load(&lib.dir, "trotter_coll_0") });
+    commands.insert_resource(crate::hitparts::HitHulls {
+        grunt: crate::hitparts::load(&lib.dir, "grunt_coll_9"),
+        roman: crate::hitparts::load(&lib.dir, "trotter_coll_0"),
+        molmer: crate::hitparts::load(&lib.dir, "molmer_coll_0"),
+        q111: crate::hitparts::load(&lib.dir, "q111_coll_0"),
+    });
     commands.insert_resource(crate::sticky::StickyAssets { parts, dynamite, base: game_to_engine() });
 
     // The level's directional lights (lighttype "dir"): each shines down its local -Z axis.
