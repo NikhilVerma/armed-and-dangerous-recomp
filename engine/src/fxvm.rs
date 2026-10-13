@@ -32,6 +32,37 @@ impl CrtRand {
     }
 }
 
+/// Layered fx meshes (the snow domes): the original's three-stage set-up (fxlayer.wesl), additive.
+#[derive(bevy::render::render_resource::AsBindGroup, Debug, Clone, Asset, bevy::reflect::TypePath)]
+pub struct FxLayerMaterial {
+    #[texture(0)]
+    #[sampler(1)]
+    pub t0: Handle<Image>,
+    #[texture(2)]
+    #[sampler(3)]
+    pub t1: Handle<Image>,
+    #[texture(4)]
+    #[sampler(5)]
+    pub t2: Handle<Image>,
+    #[uniform(6)]
+    pub params: FxLayerParams,
+}
+
+#[derive(bevy::render::render_resource::ShaderType, Debug, Clone, Default)]
+pub struct FxLayerParams {
+    pub offsets: Vec4,
+    pub colour: Vec4,
+}
+
+impl Material for FxLayerMaterial {
+    fn fragment_shader() -> bevy::shader::ShaderRef {
+        bevy::shader::ShaderRef::Path(bevy::asset::AssetPath::from_path_buf(bevy::asset::embedded_path!("fxlayer.wesl")).with_source("embedded"))
+    }
+    fn alpha_mode(&self) -> AlphaMode {
+        AlphaMode::Add
+    }
+}
+
 /// The particle material: bank texture x vertex colour, additive or alpha-blended (particle.wgsl).
 #[derive(bevy::render::render_resource::AsBindGroup, Debug, Clone, Asset, bevy::reflect::TypePath)]
 pub struct ParticleMaterial {
@@ -129,6 +160,9 @@ pub struct FxObject {
     uv_scroll: Option<(Vec2, f32, f32, f32, f32, Vec2)>,
     /// follow only the parent's position (camera_fx position_only)
     follow_pos_only: bool,
+    /// layered parts (FxLayerMaterial) and the uv scroll of layer 2
+    layer_mats: Vec<Handle<FxLayerMaterial>>,
+    uv_scroll2: Option<(Vec2, f32, f32, f32, f32, Vec2)>,
 }
 
 struct Instance {
@@ -190,6 +224,8 @@ pub struct FxVmPlugin;
 impl Plugin for FxVmPlugin {
     fn build(&self, app: &mut App) {
         bevy::asset::embedded_asset!(app, "particle.wesl");
+        bevy::asset::embedded_asset!(app, "fxlayer.wesl");
+        app.add_plugins(MaterialPlugin::<FxLayerMaterial>::default());
         app.add_plugins(MaterialPlugin::<ParticleMaterial>::default());
         app.add_systems(Startup, setup)
             .add_systems(Update, (start, run, objects, particles).chain().after(crate::fx::FxSet))
@@ -260,6 +296,7 @@ struct Ctx<'a, 'cw, 'cs, 'w, 's> {
     assets: &'a AssetServer,
     meshes: &'a mut Assets<Mesh>,
     materials: &'a mut Assets<StandardMaterial>,
+    layer_materials: &'a mut Assets<FxLayerMaterial>,
     physics: &'a mut Physics,
     _q: std::marker::PhantomData<(&'w (), &'s ())>,
 }
@@ -271,6 +308,7 @@ fn create_object(ctx: &mut Ctx<'_, '_, '_, '_, '_>, inst: &Instance, template: &
     let world = Mat4::from_quat(game_to_engine()) * place;
     let mut e = ctx.commands.spawn((Transform::from_matrix(world), Visibility::default(), Name::new(template.to_owned()), FxEntity));
     let mut mats = Vec::new();
+    let mut layers = Vec::new();
     if let Some(model) = t.model.as_ref().and_then(|m| ctx.lib.load_model(m, false, ctx.assets, ctx.meshes, ctx.materials)) {
         let parts = model.parts.clone();
         e.with_children(|c| {
@@ -279,6 +317,20 @@ fn create_object(ctx: &mut Ctx<'_, '_, '_, '_, '_>, inst: &Instance, template: &
                 // when textured: guess from the material flags, docs/subsystems/fx-vm.md 3)
                 let base = ctx.materials.get(&mat).cloned().unwrap_or_default();
                 let textured = base.base_color_texture.is_some();
+                // a part with a second texture and a mask (the snow domes): the layered set-up
+                let layered = ctx.lib.game_defs.get(&mat.id()).filter(|(d, t, _)| t.is_some() && d.texture2.is_some() && d.mask.is_some() && d.normal_map.is_none()).cloned();
+                if let Some((def, Some(tex), _)) = layered {
+                    let load = |n: &str| ctx.assets.load::<Image>(format!("textures/{n}.dds"));
+                    let lm = ctx.layer_materials.add(FxLayerMaterial {
+                        t0: load(&tex),
+                        t1: load(def.texture2.as_deref().unwrap_or(&tex)),
+                        t2: load(def.mask.as_deref().unwrap_or(&tex)),
+                        params: FxLayerParams { offsets: Vec4::ZERO, colour: Vec4::new(def.emissive[0], def.emissive[1], def.emissive[2], 1.0) },
+                    });
+                    layers.push(lm.clone());
+                    c.spawn((Mesh3d(mesh), MeshMaterial3d(lm), bevy::light::NotShadowCaster));
+                    continue;
+                }
                 let m = ctx.materials.add(StandardMaterial {
                     unlit: true,
                     alpha_mode: if textured { AlphaMode::Add } else { base.alpha_mode },
@@ -308,6 +360,8 @@ fn create_object(ctx: &mut Ctx<'_, '_, '_, '_, '_>, inst: &Instance, template: &
         body: None,
         uv_scroll: None,
         follow_pos_only: inst.follow_pos_only,
+        layer_mats: layers,
+        uv_scroll2: None,
     }))
 }
 
@@ -548,8 +602,11 @@ fn run_script(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_, '_, '_>, idx: usize, dt: 
                 // texture stage here
                 let (layer, ang, speed, dur, rin, rout) = (arg(1).as_i64().unwrap_or(1), f(&arg(2)).to_radians(), f(&arg(3)), f(&arg(4)), f(&arg(5)), f(&arg(6)));
                 if let Some(o) = obj!() {
-                    if layer == 1 {
-                        o.uv_scroll = Some((Vec2::new(ang.cos(), ang.sin()), speed, dur, rin, rout, Vec2::ZERO));
+                    let sc = Some((Vec2::new(ang.cos(), ang.sin()), speed, dur, rin, rout, Vec2::ZERO));
+                    match layer {
+                        1 => o.uv_scroll = sc,
+                        2 => o.uv_scroll2 = sc,
+                        _ => {}
                     }
                 }
             }
@@ -620,6 +677,7 @@ fn run(
     assets: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut layer_materials: ResMut<Assets<FxLayerMaterial>>,
     mut physics: NonSendMut<Physics>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     mut paths: MessageWriter<crate::campath::StartCameraPath>,
@@ -627,7 +685,7 @@ fn run(
     let t0 = std::time::Instant::now();
     let dt = time.delta_secs();
     let vm = &mut *vm;
-    let mut ctx = Ctx { commands: &mut commands, data: &data, lib: &mut lib, assets: &assets, meshes: &mut meshes, materials: &mut materials, physics: &mut physics, _q: std::marker::PhantomData };
+    let mut ctx = Ctx { commands: &mut commands, data: &data, lib: &mut lib, assets: &assets, meshes: &mut meshes, materials: &mut materials, layer_materials: &mut layer_materials, physics: &mut physics, _q: std::marker::PhantomData };
     let mut i = 0;
     while i < vm.instances.len() {
         let inst = &mut vm.instances[i];
@@ -678,6 +736,7 @@ fn objects(
     mut vm: ResMut<FxVm>,
     assets: Res<AssetServer>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut layer_materials: ResMut<Assets<FxLayerMaterial>>,
     mut physics: NonSendMut<Physics>,
     cam: Query<&GlobalTransform, With<Camera3d>>,
     mut q: Query<&mut Transform, With<FxEntity>>,
@@ -745,6 +804,22 @@ fn objects(
                 }
             }
             o.uv_scroll = Some((dir, speed, dur, rin, rout, off));
+        }
+        if let Some((dir, speed, dur, rin, rout, mut off)) = o.uv_scroll2 {
+            let fade = if o.age > dur { 0.0 } else if rin > 0.0 && o.age < rin { o.age / rin } else if rout > 0.0 && o.age > dur - rout { 1.0 - (o.age - (dur - rout)) / (dur - rout).max(1e-3) } else { 1.0 };
+            off += dir * speed * fade * dt;
+            off = Vec2::new(off.x.rem_euclid(1.0), off.y.rem_euclid(1.0));
+            o.uv_scroll2 = Some((dir, speed, dur, rin, rout, off));
+        }
+        if !o.layer_mats.is_empty() {
+            let o1 = o.uv_scroll.map(|u| u.5).unwrap_or(Vec2::ZERO);
+            let o2 = o.uv_scroll2.map(|u| u.5).unwrap_or(Vec2::ZERO);
+            for m in &o.layer_mats {
+                if let Some(mut m) = layer_materials.get_mut(m) {
+                    m.params.offsets = Vec4::new(o1.x, o1.y, o2.x, o2.y);
+                    m.params.colour.w = alpha;
+                }
+            }
         }
         // texture animation: "<base>_<frame>"
         if let Some((rate, frames, looping, mut acc, mut frame, base)) = o.texanim.clone() {
