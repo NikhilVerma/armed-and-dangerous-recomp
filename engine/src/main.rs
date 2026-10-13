@@ -28,6 +28,7 @@ mod nav;
 mod physics;
 mod pickup;
 mod pubscreen;
+mod savegame;
 mod topsy;
 mod player;
 mod playtest;
@@ -67,6 +68,8 @@ struct Args {
     camera: Option<PathBuf>,
     /// no HUD or menus (render comparisons)
     no_hud: bool,
+    /// a saved game to continue (savegame.rs)
+    load: Option<PathBuf>,
     /// test runs: the window opens off-screen, unfocused and behind everything, so it does not take over the desktop
     background: bool,
     /// the landscape with Bevy's standard material instead of the original's (A/B comparisons)
@@ -76,7 +79,7 @@ struct Args {
 }
 
 fn args() -> Args {
-    let mut a = Args { scene: PathBuf::from("../work/remaster/lev_1_m1"), size: (1920, 1080), bench: None, vsync: false, no_ai: false, fx_test: None, snap: None, play: None, skip_title: false, camera: None, no_hud: false, background: false, std_materials: false, debug_hide: None };
+    let mut a = Args { scene: PathBuf::from("../work/remaster/lev_1_m1"), size: (1920, 1080), bench: None, vsync: false, no_ai: false, fx_test: None, snap: None, play: None, skip_title: false, camera: None, no_hud: false, background: false, load: None, std_materials: false, debug_hide: None };
     let v: Vec<String> = std::env::args().collect();
     let mut bench_secs = None;
     let mut out = PathBuf::from("../work/remaster/bench/latest.json");
@@ -101,6 +104,7 @@ fn args() -> Args {
             "--camera" => a.camera = Some(PathBuf::from(next)),
             "--no-hud" => (a.no_hud, used) = (true, 1),
             "--background" => (a.background, used) = (true, 1),
+            "--load" => a.load = Some(PathBuf::from(next)),
             "--std-materials" => (a.std_materials, used) = (true, 1),
             "--debug-hide" => a.debug_hide = Some(next),
             other => panic!("unknown argument {other}"),
@@ -189,6 +193,12 @@ fn main() {
         app.insert_state(AppState::Playing);
     }
     app.add_plugins(camdump::CamDumpPlugin);
+    app.add_plugins(savegame::SaveGamePlugin);
+    if let Some(save) = a.load.as_ref().and_then(|p| savegame::read(p)) {
+        app.insert_resource(savegame::PendingLoad(save, 0));
+        app.insert_resource(campath::CameraPath::skipping());
+        app.insert_state(AppState::Playing);
+    }
     // background test runs are silent (playback still runs: positions advance, the audio check counts them)
     if a.background {
         app.add_systems(PostStartup, |mut m: ResMut<audio::Mixer>| m.master = 0.0);
@@ -484,9 +494,13 @@ fn play_state(audio_chk: Res<audio::AudioCheck>, skin: Res<skin::SkinCheck>, mut
 #[derive(Resource)]
 struct CameraFxPending(Vec<(String, bool)>, Entity, Vec3);
 
-fn start_camera_fx(mut commands: Commands, pending: Option<Res<CameraFxPending>>, mut fx: MessageWriter<fx::StartFx>) {
+fn start_camera_fx(mut commands: Commands, pending: Option<Res<CameraFxPending>>, mut fx: MessageWriter<fx::StartFx>, load: Option<Res<savegame::PendingLoad>>) {
     let Some(p) = pending else { return };
     for (name, pos_only) in &p.0 {
+        // a loaded game skips the intro overlay (the camera fx locked to the full camera transform: weather.md)
+        if load.is_some() && !*pos_only {
+            continue;
+        }
         fx.write(fx::StartFx { name: name.clone(), at: p.2, rotation: Quat::IDENTITY, follow: Some(p.1), position_only: *pos_only });
     }
     commands.remove_resource::<CameraFxPending>();

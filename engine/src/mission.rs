@@ -227,7 +227,73 @@ pub fn short_form(t: &str) -> String {
     s.replace("<short>", "").replace("</short>", "").replace("<BR>", "<br>")
 }
 
+/// The mission's state in a saved game (savegame.rs).
+#[derive(serde::Serialize, serde::Deserialize, Default, Clone)]
+pub struct MissionSave {
+    pub triggers_done: Vec<u32>,
+    /// (id, enabled, done)
+    pub sites: Vec<(u32, bool, bool)>,
+    /// (id, active, left)
+    pub barracks: Vec<(u32, bool, i64)>,
+    pub pub_done: bool,
+    pub pub_pool: Option<f32>,
+    pub compass_tag: i64,
+    pub tickers: u32,
+    pub objectives: String,
+    pub objectives_raw: String,
+    pub ears_done: Vec<u32>,
+}
+
 impl Mission {
+    pub fn snapshot(&self) -> MissionSave {
+        MissionSave {
+            triggers_done: self.triggers.iter().filter(|t| t.done).map(|t| t.id).collect(),
+            sites: self.sites.iter().map(|s| (s.id, s.enabled, s.done || s.armed.is_some())).collect(),
+            barracks: self.barracks.iter().map(|b| (b.id, b.active, b.left)).collect(),
+            pub_done: self.pub_done,
+            pub_pool: self.pub_info.as_ref().map(|p| p.pool),
+            compass_tag: self.compass_tag,
+            tickers: self.tickers,
+            objectives: self.objectives.clone(),
+            objectives_raw: self.objectives_raw.clone(),
+            ears_done: self.ears_done.iter().copied().collect(),
+        }
+    }
+
+    /// Back to a saved state; the start trigger and message are not replayed.
+    pub fn restore(&mut self, s: &MissionSave) {
+        for t in &mut self.triggers {
+            if s.triggers_done.contains(&t.id) {
+                t.done = true;
+            }
+        }
+        for st in &mut self.sites {
+            if let Some(&(_, en, done)) = s.sites.iter().find(|x| x.0 == st.id) {
+                st.enabled = en;
+                st.done = done;
+            }
+        }
+        for b in &mut self.barracks {
+            if let Some(&(_, active, left)) = s.barracks.iter().find(|x| x.0 == b.id) {
+                b.active = active;
+                b.left = left;
+            }
+        }
+        self.pub_done = s.pub_done;
+        if let (Some(pool), Some(p)) = (s.pub_pool, self.pub_info.as_mut()) {
+            p.pool = pool;
+        }
+        self.compass_tag = s.compass_tag;
+        self.tickers = s.tickers;
+        self.objectives = s.objectives.clone();
+        self.objectives_raw = s.objectives_raw.clone();
+        self.ears_done = s.ears_done.iter().copied().collect();
+        self.started = true;
+        self.start_text = None;
+        self.queue.clear();
+        self.showing = None;
+    }
+
     pub fn load(dir: &std::path::Path) -> Option<Self> {
         let f: MissionFile = serde_json::from_str(&std::fs::read_to_string(dir.join("mission.json")).ok()?).map_err(|e| warn!("mission.json: {e}")).ok()?;
         let inst: HashMap<u32, &InstanceDef> = f.instances.iter().map(|i| (i.id, i)).collect();

@@ -164,6 +164,14 @@ work/remaster/play/compare/.
 - Extras tokens: placed pickups spin at rotate_rate; the message and unlockables follow fn_004a0850 and the table
   0x0057e878; the count persists in options.json (delete it before a comparison run).
 
+## Save / load
+
+Pause menu Save Game writes saves/quicksave.json next to the exe (savegame.rs); Quick Load, Resume Game and Restart
+from last save start a fresh process with `--load FILE`. Restored: Roman (position, facing, health, weapons, ammo,
+specials), the mission (one-shot triggers, bomb sites, barracks, pub, compass, objectives, voice lines), dead placed
+grunts, destroyed objects (husks, no explosion). Not the original's format; not restored: live grunts a barracks had
+released, companions' positions, the camera pitch. Verified: saved after gate 1, loaded, played on to the win.
+
 ## Running tests without disturbing the desktop
 
 - `--background`: the window opens off-screen, unfocused, behind everything, not in the taskbar; screenshots still

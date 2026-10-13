@@ -29,12 +29,18 @@ struct PathFile {
 #[derive(Resource, Default)]
 pub struct CameraPath {
     pub name: Option<String>,
+    /// a loaded game: the intro path is not replayed
+    pub skip: bool,
     pub time: f32,
     duration: f32,
     track: Option<CamTrack>,
 }
 
 impl CameraPath {
+    /// A loaded game: start paths are ignored.
+    pub fn skipping() -> Self {
+        CameraPath { skip: true, ..default() }
+    }
     pub fn active(&self) -> bool {
         self.name.is_some()
     }
@@ -72,6 +78,9 @@ fn play(
     mut cam: Query<(&mut Transform, &mut Projection), With<Camera3d>>,
 ) {
     for StartCameraPath(name) in ev.read() {
+        if path.skip {
+            continue;
+        }
         let file = std::fs::read_to_string(lib.dir.join("anims").join(format!("{}.json", name.to_lowercase()))).ok();
         if let Some(f) = file.and_then(|t| serde_json::from_str::<PathFile>(&t).ok()) {
             path.track = f.cameras.into_values().next();

@@ -11,7 +11,7 @@
 //! are #404040 and skipped. Sounds: ui_move, ui_select, ui_cancel. Keys: Up/Down (W/S), Left/Right (A/D) for
 //! sliders and lists, Enter or Space to choose, Esc to go back.
 //!
-//! Not ported, shown disabled: Save Game, Quick Load, Restart from last save (no save system yet), Cheats (the
+//! Save Game / Quick Load / Restart from last save / Resume Game: savegame.rs. Not ported, shown disabled: Cheats (the
 //! codes are not recovered), Credits (the names are not in the text bank), Play Cutscene and Replay Mission (disabled
 //! in the original too). Graphics options that have no meaning in the new renderer show their best value, disabled.
 //! Restart the level and Return to title screen start the game again (a fresh process: the level state is not
@@ -117,6 +117,9 @@ pub enum Act {
     ToTitle,
     Apply,
     Cancel,
+    /// save the game (pause menu) / continue the saved game (Quick Load, Resume Game, Restart from last save)
+    Save,
+    LoadSave,
     Slide(Opt),
     Toggle(Flag),
 }
@@ -382,7 +385,7 @@ pub fn spawn(commands: &mut Commands, assets: &AssetServer, meshes: &mut Assets<
         // main menu: rows 48 apart from y 372.3 (captured, orig_ui_menu-800.png), scale 1.3, #d05030
         let main = [
             ("ui_mainmenu_startgame", Act::NewGame),
-            ("ui_mainmenu_loadgame", Act::None),
+            ("ui_mainmenu_loadgame", Act::LoadSave),
             ("ui_mainmenu_options", Act::Go(Page::Options)),
             ("ui_mainmenu_extras", Act::Go(Page::Extras)),
             ("ui_mainmenu_exitgame", Act::Ask(Ask::ExitGame)),
@@ -484,8 +487,8 @@ pub fn spawn(commands: &mut Commands, assets: &AssetServer, meshes: &mut Assets<
         // pause (pui_pausemenu; orig_ui_play-720.png): Save Game and Quick Load are greyed there too
         let pause = [
             ("ui_pausemenu_resumegame", 180.44, Act::Continue),
-            ("ui_pausemenu_savegame", 156.44, Act::None),
-            ("ui_pausemenu_quickload", 132.44, Act::None),
+            ("ui_pausemenu_savegame", 156.44, Act::Save),
+            ("ui_pausemenu_quickload", 132.44, Act::LoadSave),
             ("ui_mfail_restart", 108.44, Act::Ask(Ask::Restart)),
             ("ui_mainmenu_options", 84.44, Act::Go(Page::Options)),
             ("ui_pausemenu_quitgame", 60.44, Act::Ask(Ask::QuitMission)),
@@ -497,11 +500,32 @@ pub fn spawn(commands: &mut Commands, assets: &AssetServer, meshes: &mut Assets<
         // mission failed (pui_missionfailed): the title is the mission's failure text (the bank's
         // ui_mfail_title is the placeholder "ui_mfail_title.")
         s.row(Page::Failed, "ui_mfail_title", Vec2::new(320.0, 324.996), 1.0, GREEN, Act::None, 0.0);
-        s.row(Page::Failed, "ui_mfail_lastsave", Vec2::new(320.0, 228.44), 1.0, DISABLED, Act::None, 0.0);
+        s.row(Page::Failed, "ui_mfail_lastsave", Vec2::new(320.0, 228.44), 1.0, GREEN, Act::LoadSave, 0.0);
         s.row(Page::Failed, "ui_mfail_restart", Vec2::new(320.0, 204.44), 1.0, GREEN, Act::Restart, 0.0);
         s.row(Page::Failed, "ui_mfail_menu", Vec2::new(320.0, 180.44), 1.0, GREEN, Act::ToTitle, 0.0);
     }
     commands.insert_resource(texts);
+}
+
+/// Starts the game again in a fresh process continuing the saved game.
+fn relaunch_load() {
+    let Ok(exe) = std::env::current_exe() else { return };
+    let mut args: Vec<String> = Vec::new();
+    let mut it = std::env::args().skip(1);
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--play" | "--snap" | "--load" => {
+                it.next();
+            }
+            "--skip-title" => {}
+            _ => args.push(a),
+        }
+    }
+    args.push("--load".into());
+    args.push(crate::savegame::save_path().to_string_lossy().into_owned());
+    if let Err(e) = std::process::Command::new(exe).args(&args).spawn() {
+        warn!("menu: could not start the game again: {e}");
+    }
 }
 
 /// Starts the game again in a fresh process: on the title screen, or straight into the level.
@@ -511,7 +535,7 @@ fn relaunch(into_level: bool) {
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
         match a.as_str() {
-            "--play" | "--snap" => {
+            "--play" | "--snap" | "--load" => {
                 it.next();
             }
             "--skip-title" => {}
@@ -558,6 +582,7 @@ fn navigate(
     mut opts: ResMut<GameOptions>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     windows: Query<&Window>,
+    mut save_req: ResMut<crate::savegame::SaveRequest>,
 ) {
     let play = |s: &mut MessageWriter<crate::audio::PlaySound>, n: &str| {
         s.write(crate::audio::PlaySound::ui(n));
@@ -686,6 +711,20 @@ fn navigate(
         Act::ToTitle => {
             relaunch(false);
             exit.write(AppExit::Success);
+        }
+        Act::Save => {
+            save_req.save = true;
+            next.set(AppState::Playing);
+            vtime.unpause();
+        }
+        Act::LoadSave => {
+            if crate::savegame::has_save() {
+                relaunch_load();
+                exit.write(AppExit::Success);
+            } else {
+                play(&mut sounds, "ui_cancel");
+                return;
+            }
         }
         Act::Apply => {
             if let Some(e) = menu.edit.take() {
