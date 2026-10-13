@@ -179,8 +179,14 @@ static void LogHit(uint32_t victim, uint32_t projectile, uint32_t rec)
         if (uint32_t node = orig::fn_00458660(part, victim))
             if (uint32_t name = orig::fn_004eb670(0, node))
                 bone = reinterpret_cast<const char*>(name);
-    fprintf(out, "%d %d %s %.2f %.2f %.2f %.4g\n", TestFramesSinceLoad(), victim == player ? 1 : 0, bone, at[0] - pos[0], at[1] - pos[1],
-            at[2] - pos[2], *reinterpret_cast<const float*>(projectile + 0x46c));
+    // the part's bone in the world (0x00453c50 with the bone name: its matrix, translation in column 3), minus the
+    // victim's position: where the animation has put that part
+    float bm[17] = {};
+    if (bone[0] != '-')
+        orig::fn_00453c50(victim, reinterpret_cast<uint32_t>(bone), reinterpret_cast<uint32_t>(bm), 1, 0, 0, 1, 0, 0);
+    fprintf(out, "%d %d %s %.2f %.2f %.2f %.4g %.2f %.2f %.2f\n", TestFramesSinceLoad(), victim == player ? 1 : 0, bone, at[0] - pos[0],
+            at[1] - pos[1], at[2] - pos[2], *reinterpret_cast<const float*>(projectile + 0x46c), bm[3] - pos[0], bm[7] - pos[1],
+            bm[11] - pos[2]);
     fclose(out);
 }
 

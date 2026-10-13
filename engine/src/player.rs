@@ -942,7 +942,8 @@ fn projectiles(
                         if let (Some((f, part)), true) = (&rh, std::env::var("AIDBG").is_ok()) {
                             // as the hook's [test] log_hits: the part and the hit point minus his position (game axes)
                             let at = crate::level::game_to_engine().inverse() * (from + (to - from) * *f - rt.translation);
-                            info!("AIDBG romanhit {} {:.2} {:.2} {:.2} anim {:.2} ground {}", part, at.x, at.y, at.z, r.hit_anim, r.on_ground);
+                            let jp = a.skeleton.index.get(part.as_str()).and_then(|&i| joints.get(a.joints[i]).ok()).map(|j| crate::level::game_to_engine().inverse() * (j.translation() - rt.translation)).unwrap_or(Vec3::ZERO);
+                            info!("AIDBG romanhit {} {:.2} {:.2} {:.2} anim {:.2} bone {:.2} {:.2} {:.2}", part, at.x, at.y, at.z, r.hit_anim, jp.x, jp.y, jp.z);
                         }
                         rh.is_some()
                     }
