@@ -40,6 +40,8 @@ pub enum Page {
     Pub,
     /// cheat entry (cheats.rs)
     Cheats,
+    /// the credits (credits.txt) scrolling up
+    Credits,
 }
 
 /// The art behind a page.
@@ -57,7 +59,7 @@ impl Page {
     fn back(self) -> Back {
         match self {
             Page::Main | Page::Options | Page::Extras => Back::Title,
-            Page::Gfx | Page::Sfx | Page::Controls | Page::Cheats => Back::Shell,
+            Page::Gfx | Page::Sfx | Page::Controls | Page::Cheats | Page::Credits => Back::Shell,
             Page::YesNo | Page::Pause | Page::Failed | Page::Pub => Back::Game,
         }
     }
@@ -158,6 +160,7 @@ enum PartKind {
     Art(Back),
     CheatTyped,
     CheatResult,
+    Credits,
 }
 
 /// The fill of a bar (scaled in x by the value).
@@ -209,7 +212,7 @@ pub struct GameMenuPlugin;
 
 impl Plugin for GameMenuPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<GameMenu>().init_resource::<Texts>().add_systems(Update, (failed, navigate, animate, values, pause_band).chain());
+        app.init_resource::<GameMenu>().init_resource::<Texts>().add_systems(Update, (failed, navigate, animate, values, pause_band, credits).chain());
     }
 }
 
@@ -415,9 +418,12 @@ pub fn spawn(commands: &mut Commands, assets: &AssetServer, meshes: &mut Assets<
 
         // extras (pui_extrasmenu; the layout has no point for its rows: positions from orig_ui_extras-950.png)
         s.row(Page::Extras, "ui_extrasmenu_title", Vec2::new(320.0, 428.0), 1.4, Color::WHITE, Act::None, 0.0);
-        for (id, y) in [("ui_extrasmenu_cutscene", 330.0), ("ui_extrasmenu_replay", 282.0), ("ui_extrasmenu_credits", 235.0)] {
+        for (id, y) in [("ui_extrasmenu_cutscene", 330.0), ("ui_extrasmenu_replay", 282.0)] {
             s.row(Page::Extras, id, Vec2::new(320.0, y), 1.3, DISABLED, Act::None, 0.0);
         }
+        // Credits: locked on a fresh profile in the original (cost 99 in the token table: unlocked by other means);
+        // the remaster opens it
+        s.row(Page::Extras, "ui_extrasmenu_credits", Vec2::new(320.0, 235.0), 1.3, ORANGE, Act::Go(Page::Credits), 0.0);
         s.row(Page::Extras, "ui_shellmenu_back", Vec2::new(320.0, 84.44), 1.4, YELLOW, Act::Back, 0.0);
 
         // graphics (pui_gfxopt; orig_ui_gfx-1140.png): labels right-aligned at x 240, bar 250..447, value at 460
@@ -490,6 +496,10 @@ pub fn spawn(commands: &mut Commands, assets: &AssetServer, meshes: &mut Assets<
         s.text(Page::Cheats, "", Vec2::new(320.0, 339.564), 1.0, GREEN, 0.0, PartKind::CheatTyped);
         s.text(Page::Cheats, "", Vec2::new(320.0, 252.44), 1.0, GREEN, 0.0, PartKind::CheatResult);
         s.row(Page::Cheats, "ui_shellmenu_back", Vec2::new(320.0, 60.44), 1.4, GREEN, Act::Back, 0.0);
+
+        // credits: the whole text as one block, moved up by the credits system (a lone row so Esc works)
+        let credits = std::fs::read_to_string(scene.join("ui").join("credits.txt")).unwrap_or_default().replace("\r", "").replace('\n', "<br>");
+        s.text(Page::Credits, &credits, Vec2::new(320.0, -10.0), 0.9, Color::WHITE, 0.0, PartKind::Credits);
 
         // yes/no (pui_yesno, hud.md 6): message 1.4 white at y 276.4, Yes 1.1 #a0ffa0, No 1.1 #ff6060
         s.row(Page::YesNo, "ui_yesno_defaulttext", Vec2::new(320.0, 276.4), 1.4, Color::WHITE, Act::None, 0.0);
@@ -598,6 +608,17 @@ fn navigate(
     mut cheats: ResMut<crate::cheats::Cheats>,
 ) {
     cheats.entering = menu.page == Page::Cheats && *state.get() != AppState::Playing;
+    // the credits page: any of Esc / Enter leaves
+    if menu.page == Page::Credits && *state.get() != AppState::Playing {
+        if keys.just_pressed(KeyCode::Escape) || keys.just_pressed(KeyCode::Enter) {
+            if let Some((p, s)) = menu.stack.pop() {
+                menu.page = p;
+                menu.selected = s;
+            }
+            sounds.write(crate::audio::PlaySound::ui("ui_cancel"));
+        }
+        return;
+    }
     // the cheat page takes letters and Enter (cheats.rs); Esc leaves it
     if cheats.entering {
         if keys.just_pressed(KeyCode::Escape) {
@@ -949,4 +970,22 @@ fn pause_band(state: Res<State<AppState>>, mut menu: ResMut<GameMenu>, mission: 
         hud.briefing = None;
         menu.band = false;
     }
+}
+
+/// The credits scroll up (the original's scroll length is (lines + K) / line height, 0x00415940; its speed was not
+/// traced: guess, 30 units of the 640x480 screen per second); they start below the screen each time the page opens.
+fn credits(time: Res<Time<Real>>, menu: Res<GameMenu>, mut q: Query<(&Part, &mut HudElement)>, mut was_open: Local<bool>) {
+    let open = menu.page == Page::Credits;
+    for (p, mut e) in &mut q {
+        if p.kind != PartKind::Credits {
+            continue;
+        }
+        if open && !*was_open {
+            e.pos.y = -40.0 - 586.0 * 22.5 / 2.0;
+        }
+        if open {
+            e.pos.y += 30.0 * time.delta_secs();
+        }
+    }
+    *was_open = open;
 }

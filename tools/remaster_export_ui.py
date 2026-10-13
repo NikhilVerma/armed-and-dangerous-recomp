@@ -435,6 +435,10 @@ def main():
     _, strings = textkind.parse(rx.payload(level, "big01_text"))
     texts = {i.decode("latin-1").lower(): v.decode("utf-16-le", "surrogatepass") for i, v in strings}
     (out / "texts.json").write_text(json.dumps(texts, indent=1, ensure_ascii=False), encoding="utf-8")
+    # the credits (GameData/credits.txt, UTF-16; the credits screen 0x00415940 loads it)
+    cred = ROOT / "orig" / "pc" / "GameData" / "credits.txt"
+    if cred.exists():
+        (out / "credits.txt").write_text(cred.read_bytes().decode("utf-16"), encoding="utf-8")
     nchars = export_font(level, out, textures)
     hud = [e for e in elements if e["page"] == 0]
     print(f"ui: {len(pages)} pages, {len(elements)} elements ({len(hud)} HUD), {len(models)} models, "
