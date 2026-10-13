@@ -682,6 +682,8 @@ pub struct Companion {
     /// the engagement range +0x5d8, rolled once in [fire_range_min, fire_range_max] (0x00425d30); negative: not yet
     range: f32,
     fire_range: (f32, f32),
+    /// in range of the target (engaged, state 0xa); before that it walks toward it (state 0x3c)
+    engaged: bool,
     /// aim elevation weight 0 (down) .. 1 (up), for the anim blend
     pub aim_v: f32,
     target: Option<Entity>,
@@ -748,6 +750,7 @@ impl Companion {
             throwing: None,
             throw_armed: true,
             range: -1.0,
+            engaged: false,
             fire_range: (p.f("fire_range_min", 200.0), p.f("fire_range_max", 350.0)),
             aim_v: 0.5,
             target: None,
@@ -871,7 +874,6 @@ fn companions(
                 c.search = rng.range(0.75, 1.25);
             }
         }
-        let had_target = c.target.is_some();
         if c.target.is_none() && c.search <= 0.0 {
             c.search = rng.range(0.75, 1.25);
             let face = Quat::from_rotation_y(c.yaw) * Vec3::Z;
@@ -894,15 +896,23 @@ fn companions(
                 }
             }
         }
-        // the engage roll (0x00427910 with allow 1: on taking a target, 0x0042be80, and at the reload's end): with the
-        // target in range (2D, the rolled +0x5d8) and flag 1 set, a class that can throw (Molmer's vt+0x1e0; not Q)
-        // throws TNT when rand 0..89 < 30
-        let in_range = |c: &Companion| {
-            c.target.and_then(|tg| grunts.get(tg).ok()).is_some_and(|(_, _, gt, _)| (gt.translation() - me).with_y(0.0).length() < c.range)
-        };
-        if !c.q && !had_target && c.target.is_some() && c.throw_armed && c.throwing.is_none() && in_range(&*c) && rng.rand() * 90.0 < 30.0 {
-            c.throwing = Some(0.0);
+        // engage 0x00427910: a target beyond the rolled range +0x5d8 is approached (state 0x3c: every 0.2..0.4 s, in
+        // range when within 0.9 x +0x5d8 with a clear ray); in range, the engage roll with allow 1: a class that can
+        // throw (Molmer's vt+0x1e0; not Q) with flag 1 set throws TNT when rand 0..89 < 30, else fires (state 0xa).
+        // The original's dump (fightT): Jonesy walks from 181 to 130 units and Q to 153 before firing
+        let tdist = c.target.and_then(|tg| grunts.get(tg).ok()).map(|(_, _, gt, _)| (gt.translation() - me).with_y(0.0).length());
+        let in_range = |c: &Companion| tdist.is_some_and(|d| d < c.range);
+        match tdist {
+            None => c.engaged = false,
+            Some(d) if !c.engaged && d <= 0.9 * c.range => {
+                c.engaged = true;
+                if !c.q && c.throw_armed && c.throwing.is_none() && rng.rand() * 90.0 < 30.0 {
+                    c.throwing = Some(0.0);
+                }
+            }
+            _ => {}
         }
+        let approach = c.target.filter(|_| !c.engaged).and_then(|tg| grunts.get(tg).ok()).map(|(_, _, gt, _)| (gt.translation() - me).with_y(0.0));
         if c.lost > 0.0 {
             c.lost -= dt;
         }
@@ -939,10 +949,14 @@ fn companions(
                 c.route.remove(0);
             }
         }
-        let to = c.route.first().map(|w| (*w - me).with_y(0.0)).unwrap_or(to_slot);
+        // the run anim while approaching (moving is cleared again next frame while it has a target)
+        if approach.is_some() {
+            c.moving = true;
+        }
+        let to = approach.unwrap_or_else(|| c.route.first().map(|w| (*w - me).with_y(0.0)).unwrap_or(to_slot));
         // full move_speed while moving (the original's intro: 38 of 40 units/s at 32 units from Roman)
         // fitted: the original's companions cover 37.3 units/s at move_speed 40 (its drive, move_power 100, not ported)
-        let speed = if c.moving { c.speed * 0.933 } else { 0.0 };
+        let speed = if c.moving || approach.is_some() { c.speed * 0.933 } else { 0.0 };
         let dir = to.normalize_or_zero();
         let vel = dir * speed + Vec3::Y * c.vy;
         if let Some((feet, on)) = physics.move_walker(&c.walker, vel, dt) {
@@ -957,7 +971,7 @@ fn companions(
             d.abs() <= 45f32.to_radians()
         };
         let support = c.target.is_none() && !c.moving && fire_held && heading_ok;
-        let shoot_at = target_pos.or(if support { aim_point } else { None });
+        let shoot_at = if approach.is_some() { None } else { target_pos.or(if support { aim_point } else { None }) };
         // facing: the target, else (support fire / following) Roman's heading, else the way it runs
         let face = target_pos.map(|p| (p - me).with_y(0.0)).filter(|v| v.length() > 0.1);
         if let Some(f) = face {
@@ -973,15 +987,12 @@ fn companions(
         let (notes, loop_len) = if c.q { Q_NOTES } else { JONESY_NOTES };
         if let Some(tt) = c.throwing {
             // molmer_throw_tnt (2.3 s): make_tnt 0.467 (the pistol hidden: not shown), FX fx_wpn_grenade_throw at 1.667
-            // (its sound wpn_grenade_throw), Fire_tnt at 1.733: the dynamite from the hand (0x00428340); then the fire
+            // (its sound wpn_grenade_throw; started by the anim note, gameaudio.rs), Fire_tnt at 1.733: the dynamite from the hand (0x00428340); then the fire
             // cycle again (state 0x10's end: 50% fire, 50% close in first, not ported)
             c.firing = false;
             let now = tt + dt;
             let crossed = |n: f32| tt < n && now >= n;
             let hand = ca.and_then(|a| bone(a, "ref_hand_00")).unwrap_or(me + Vec3::Y * 8.0);
-            if crossed(1.667) {
-                fx.write(crate::fx::StartFx { name: "fx_wpn_grenade_throw".into(), at: hand, rotation: Quat::IDENTITY, follow: None, position_only: true });
-            }
             if crossed(1.733) {
                 c.throw_armed = false;
                 if let Some((ge, _, gt, ga)) = c.target.and_then(|tg| grunts.get(tg).ok()) {
