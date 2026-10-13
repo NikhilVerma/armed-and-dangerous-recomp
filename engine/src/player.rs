@@ -632,9 +632,9 @@ fn weapons(
             if let Some(m) = wp.s("muzzle_fx_name") {
                 fx.write(crate::fx::StartFx { name: m.to_owned(), at: from, rotation: Transform::IDENTITY.looking_to(dir, Vec3::Y).rotation, follow: None, position_only: false });
             }
-            if !mg {
-                sounds.write(crate::audio::PlaySound::at("wpn_rome_rifle_fire", t.translation));
-            }
+            // (the rifle's fire sound comes from its muzzle fx, fx_muzzle_flash_hawkings op 0x39: the original's sound
+            // log has one wpn_rome_rifle_fire per shot)
+            let _ = mg;
         }
         // sticky bomb: thrown along the aim with the game's sticky bomb values (stand-in throw strength)
         let bot_throw = std::mem::take(&mut bot.throw);
