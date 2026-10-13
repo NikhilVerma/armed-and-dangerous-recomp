@@ -122,9 +122,9 @@ fn ray_hits_parts(a: &crate::skin::Animator, joints: &Query<&GlobalTransform>, f
             return false;
         }
         let r = match n.as_str() {
-            "head" | "neck" => 1.0,
-            "chest" | "belly" | "center" => 1.3,
-            _ => 0.7,
+            "head" | "neck" => 0.8,
+            "chest" | "belly" | "center" => 1.0,
+            _ => 0.5,
         };
         let Some(b) = pos(i) else { return false };
         let pa = a.skeleton.parents.get(i).copied().filter(|&q| q >= 0).and_then(|q| pos(q as usize)).unwrap_or(b);
@@ -872,8 +872,8 @@ fn projectiles(
         let mut hit = physics.raycast(from, step.normalize_or(Vec3::Y), step.length().max(0.01));
         // the original's bullets hit a character's collision parts (Projectile_Update 0x0047e580: a detail-level-2 ray
         // against the per-part hulls), not a capsule round the whole body: a ray into a character's capsule only hits
-        // when it passes within a part's radius of the skeleton (bone to parent; radii guessed: torso 1.3, head 1.0,
-        // limbs 0.7). Measured in the original (hook AI dump, fightT): Jonesy's 10-damage shots at 130 units hit about
+        // when it passes within a part's radius of the skeleton (bone to parent; radii guessed: torso 1.0, head 0.8,
+        // limbs 0.5). Measured in the original (hook AI dump, fightT): Jonesy's 10-damage shots at 130 units hit about
         // one grunt in twelve, as this width gives with the aim scatter of 0x004284e0
         if let Some((body, _, _)) = hit {
             if let Some((_, _, _, Some(a), _)) = chars.iter().find(|(ce, b, _, _, _)| b.id == body && Some(*ce) != p.owner) {

@@ -246,6 +246,9 @@ fn companions(mut q: Query<(&Companion, &mut Animator, &Name)>) {
         if c.tea > 0.0 {
             a.play(0, "q111_drop_tea", false, Mask::All);
             a.stop(1);
+        } else if c.throwing.is_some() {
+            a.play(0, "molmer_throw_tnt", false, Mask::All);
+            a.stop(1);
         } else if c.moving {
             a.play(0, &format!("{who}_{}", if c.reloading > 0.0 { "run_reload" } else { "run" }), true, Mask::All);
             a.stop(1);

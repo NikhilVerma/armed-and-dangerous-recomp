@@ -427,7 +427,8 @@ pub fn spawn(
 
     // The sticky bomb (template player_sticky_bomb).
     let parts = lib.load_model("player_stickybomb_0", false, assets, meshes, materials).map(|m| m.parts.clone()).unwrap_or_default();
-    commands.insert_resource(crate::sticky::StickyAssets { parts, base: game_to_engine() });
+    let dynamite = lib.load_model("molmer_dynamite_0", false, assets, meshes, materials).map(|m| m.parts.clone()).unwrap_or_default();
+    commands.insert_resource(crate::sticky::StickyAssets { parts, dynamite, base: game_to_engine() });
 
     // The level's directional lights (lighttype "dir"): each shines down its local -Z axis.
     let (lo, hi) = (Vec3::from(scene.bounds[0]), Vec3::from(scene.bounds[1]));

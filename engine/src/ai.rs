@@ -674,6 +674,14 @@ pub struct Companion {
     /// the fire anim playing (anims), reloading (seconds left of the reload anim)
     pub firing: bool,
     pub reloading: f32,
+    /// Jonesy's TNT throw (anim 39 molmer_throw_tnt, 2.3 s): the time into it
+    pub throwing: Option<f32>,
+    /// +0x484 flag 1: a throw is allowed; set when the fire counters are rolled after a full clip cycle (0x00427600,
+    /// at spawn and at the reload's end), cleared by the throw (0x00428340)
+    throw_armed: bool,
+    /// the engagement range +0x5d8, rolled once in [fire_range_min, fire_range_max] (0x00425d30); negative: not yet
+    range: f32,
+    fire_range: (f32, f32),
     /// aim elevation weight 0 (down) .. 1 (up), for the anim blend
     pub aim_v: f32,
     target: Option<Entity>,
@@ -737,6 +745,10 @@ impl Companion {
             moving: false,
             firing: false,
             reloading: 0.0,
+            throwing: None,
+            throw_armed: true,
+            range: -1.0,
+            fire_range: (p.f("fire_range_min", 200.0), p.f("fire_range_max", 350.0)),
             aim_v: 0.5,
             target: None,
             lost: 0.0,
@@ -780,13 +792,13 @@ fn companions(
     bot: Res<crate::playtest::Bot>,
     roman: Query<(&Transform, &crate::player::Roman, &crate::skin::Animator, &Health), Without<Companion>>,
     cam: Query<&GlobalTransform, With<Camera3d>>,
-    mut q: Query<(Entity, &mut Companion, &mut Transform), Without<crate::player::Roman>>,
+    mut q: Query<(Entity, &mut Companion, &mut Transform, Option<&crate::skin::Animator>), Without<crate::player::Roman>>,
     grunts: Query<(Entity, &Grunt, &GlobalTransform, Option<&crate::skin::Animator>)>,
     joints: Query<&GlobalTransform, Without<Companion>>,
     mut fx: MessageWriter<crate::fx::StartFx>,
     mut log: ResMut<crate::playtest::PlayState>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
-    mut pickups: MessageWriter<crate::pickup::SpawnPickup>,
+    (mut pickups, mut dynamite): (MessageWriter<crate::pickup::SpawnPickup>, MessageWriter<crate::sticky::ThrowDynamite>),
 ) {
     let dt = time.delta_secs();
     let Ok((rt, r, ra, rh)) = roman.single() else { return };
@@ -797,7 +809,10 @@ fn companions(
         physics.raycast(o + d * 20.0, d, 500.0).map(|h| h.1).unwrap_or(o + d * 520.0)
     });
     let fire_held = (buttons.pressed(MouseButton::Left) || bot.fire_ok) && !r.dead;
-    for (e, mut c, mut t) in &mut q {
+    for (e, mut c, mut t, ca) in &mut q {
+        if c.range < 0.0 {
+            c.range = rng.range(c.fire_range.0, c.fire_range.1);
+        }
         let c = &mut *c;
         // at the start: on the formation point (Roman's ref_q_00 / ref_molmer_00), grounded (0x00455860)
         if !c.spawned {
@@ -856,6 +871,7 @@ fn companions(
                 c.search = rng.range(0.75, 1.25);
             }
         }
+        let had_target = c.target.is_some();
         if c.target.is_none() && c.search <= 0.0 {
             c.search = rng.range(0.75, 1.25);
             let face = Quat::from_rotation_y(c.yaw) * Vec3::Z;
@@ -878,6 +894,15 @@ fn companions(
                 }
             }
         }
+        // the engage roll (0x00427910 with allow 1: on taking a target, 0x0042be80, and at the reload's end): with the
+        // target in range (2D, the rolled +0x5d8) and flag 1 set, a class that can throw (Molmer's vt+0x1e0; not Q)
+        // throws TNT when rand 0..89 < 30
+        let in_range = |c: &Companion| {
+            c.target.and_then(|tg| grunts.get(tg).ok()).is_some_and(|(_, _, gt, _)| (gt.translation() - me).with_y(0.0).length() < c.range)
+        };
+        if !c.q && !had_target && c.target.is_some() && c.throw_armed && c.throwing.is_none() && in_range(&*c) && rng.rand() * 90.0 < 30.0 {
+            c.throwing = Some(0.0);
+        }
         if c.lost > 0.0 {
             c.lost -= dt;
         }
@@ -892,6 +917,12 @@ fn companions(
         let _ = from_roman;
         if c.target.is_none() && c.lost <= 0.0 && (slot - me).with_y(0.0).length() > 15.0 {
             c.moving = true;
+        }
+        // with a target they stand and fight (the original's dump, fightT: Q fires from (-232, 884) and Jonesy from
+        // (-221, 865) without moving until they let go of the target)
+        if c.target.is_some() && c.moving {
+            c.moving = false;
+            c.route.clear();
         }
         let to_slot = (slot - me).with_y(0.0);
         if to_slot.length() < 4.0 {
@@ -940,12 +971,38 @@ fn companions(
         t.rotation = Quat::from_rotation_y(c.yaw) * c.base;
         // the fire cycle
         let (notes, loop_len) = if c.q { Q_NOTES } else { JONESY_NOTES };
-        if c.reloading > 0.0 {
+        if let Some(tt) = c.throwing {
+            // molmer_throw_tnt (2.3 s): make_tnt 0.467 (the pistol hidden: not shown), FX fx_wpn_grenade_throw at 1.667
+            // (its sound wpn_grenade_throw), Fire_tnt at 1.733: the dynamite from the hand (0x00428340); then the fire
+            // cycle again (state 0x10's end: 50% fire, 50% close in first, not ported)
+            c.firing = false;
+            let now = tt + dt;
+            let crossed = |n: f32| tt < n && now >= n;
+            let hand = ca.and_then(|a| bone(a, "ref_hand_00")).unwrap_or(me + Vec3::Y * 8.0);
+            if crossed(1.667) {
+                fx.write(crate::fx::StartFx { name: "fx_wpn_grenade_throw".into(), at: hand, rotation: Quat::IDENTITY, follow: None, position_only: true });
+            }
+            if crossed(1.733) {
+                c.throw_armed = false;
+                if let Some((ge, _, gt, ga)) = c.target.and_then(|tg| grunts.get(tg).ok()) {
+                    let point = ga.and_then(|a| bone(a, "ref_hit_00")).unwrap_or(gt.translation() + Vec3::Y * 6.0);
+                    let n = (rng.rand() * 7.0) as usize;
+                    let joint = ga.and_then(|a| a.skeleton.index.get(&format!("ref_hit_0{n}")).map(|&i| a.joints[i]));
+                    dynamite.write(crate::sticky::ThrowDynamite { from: hand, target: ge, joint, point });
+                }
+            }
+            c.throwing = if now >= 2.3 || (c.target.is_none() && tt < 1.733) { None } else { Some(now) };
+        } else if c.reloading > 0.0 {
             c.reloading -= dt;
             c.firing = false;
             if c.reloading <= 0.0 {
                 c.rounds = rng.range(c.p.rounds.0 as f32, c.p.rounds.1 as f32 + 0.999) as u32;
                 c.burst = rng.range(c.p.bursts.0 as f32, c.p.bursts.1 as f32 + 0.999) as u32;
+                // the counters rolled after the clip cycle set flag 1 again; then the engage roll (state 0x32's end)
+                c.throw_armed = true;
+                if !c.q && in_range(&*c) && rng.rand() * 90.0 < 30.0 {
+                    c.throwing = Some(0.0);
+                }
             }
         } else if let Some(at) = shoot_at.filter(|_| std::env::var("NOCOMPFIRE").is_err()) {
             let muzzle = me + Vec3::Y * 7.0 + Quat::from_rotation_y(c.yaw) * Vec3::Z * 3.0;

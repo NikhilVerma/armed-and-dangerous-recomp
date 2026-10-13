@@ -17,7 +17,19 @@ use bevy::prelude::*;
 #[derive(Resource)]
 pub struct StickyAssets {
     pub parts: Vec<(Handle<Mesh>, Handle<StandardMaterial>)>,
+    /// Jonesy's dynamite (template molmer_dynamite, model molmer_dynamite_0)
+    pub dynamite: Vec<(Handle<Mesh>, Handle<StandardMaterial>)>,
     pub base: Quat,
+}
+
+/// Jonesy's thrown dynamite (Fire_tnt note, 0x00428340 with "molmer_dynamite", attach 1): a StickyBombProjectile
+/// of p_molmer_dynamite from his hand toward the target's ref_hit_00, homing on a random ref_hit_0N joint.
+#[derive(Message)]
+pub struct ThrowDynamite {
+    pub from: Vec3,
+    pub target: Entity,
+    pub joint: Option<Entity>,
+    pub point: Vec3,
 }
 
 /// A throw waiting for the weapon queue's delay.
@@ -28,6 +40,8 @@ pub struct StickyThrow {
 
 #[derive(Component)]
 pub struct StickyBomb {
+    /// its property set (p_player_stickybomb, p_molmer_dynamite)
+    props: &'static str,
     vel: Vec3,
     /// the target character and the joint the bomb homes on (ref_hit_0N)
     target: Option<(Entity, Entity)>,
@@ -45,7 +59,9 @@ pub struct StickyPlugin;
 
 impl Plugin for StickyPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<StickyThrow>().add_systems(Update, (throw, fly).chain().run_if(crate::playing));
+        app.init_resource::<StickyThrow>()
+            .add_message::<ThrowDynamite>()
+            .add_systems(Update, (throw, throw_dynamite, fly).chain().run_if(crate::playing));
     }
 }
 
@@ -122,24 +138,12 @@ fn throw(
         }
         None => (c.translation() + fwd * 20.0 + fwd * range, None),
     };
-    // launch (0x004813b0, 0x00471a00): speed = horizontal distance + speed x 3
-    let to = point - Vec3::Y * 4.0;
-    let d = to - from;
-    let h = Vec2::new(d.x, d.z).length();
-    let speed = h + p.f("speed", 10.0) * 3.0;
-    let mut vel = if h > 1e-3 && speed > 1e-3 {
-        let t = h / speed;
-        Vec3::new(d.x / h * speed, (d.y + 0.5 * 64.348 * t * t) / t, d.z / h * speed)
-    } else {
-        fwd * speed.max(1.0)
-    };
-    // turned left (counter-clockwise from above) by launch_angle_degrees
-    vel = Quat::from_rotation_y(p.f("launch_angle_degrees", 30.0).to_radians()) * vel;
+    let (vel, speed) = launch(&p, from, point, fwd);
     let e = commands
         .spawn((
             Transform::from_translation(from).with_rotation(assets.base),
             Visibility::default(),
-            StickyBomb { vel, target: homing, point, speed, range: from.distance(point), flown: 0.0, life: p.f("lifetime", 4.0), gravity: false, stuck: None },
+            StickyBomb { props: "p_player_stickybomb", vel, target: homing, point, speed, range: from.distance(point), flown: 0.0, life: p.f("lifetime", 4.0), gravity: false, stuck: None },
         ))
         .id();
     for (m, mat) in &assets.parts {
@@ -149,6 +153,55 @@ fn throw(
     sounds.write(crate::audio::PlaySound { name: "wpn_sticky_grenade_lp".into(), at: None, follow: Some(e), looped: Some(true), volume: 1.0 });
     if let Some(n) = p.s("fx_start") {
         fx.write(crate::fx::StartFx { name: n.to_owned(), at: from, rotation: Quat::IDENTITY, follow: Some(e), position_only: true });
+    }
+}
+
+/// Launch (0x004813b0, 0x00471a00): speed = horizontal distance + speed x 3 (a 1 s flight at speed 0), the vertical
+/// speed solved for g = 64.348 to the point lowered by 4, turned left (counter-clockwise from above) by
+/// launch_angle_degrees.
+fn launch(p: &crate::gamedata::Props, from: Vec3, point: Vec3, fwd: Vec3) -> (Vec3, f32) {
+    let to = point - Vec3::Y * 4.0;
+    let d = to - from;
+    let h = Vec2::new(d.x, d.z).length();
+    let speed = h + p.f("speed", 10.0) * 3.0;
+    let vel = if h > 1e-3 && speed > 1e-3 {
+        let t = h / speed;
+        Vec3::new(d.x / h * speed, (d.y + 0.5 * 64.348 * t * t) / t, d.z / h * speed)
+    } else {
+        fwd * speed.max(1.0)
+    };
+    (Quat::from_rotation_y(p.f("launch_angle_degrees", 30.0).to_radians()) * vel, speed)
+}
+
+/// Jonesy's dynamite: no flight loop sound (0x004813b0 skips wpn_sticky_grenade_lp for a "dynamite" name), no trail.
+fn throw_dynamite(mut commands: Commands, mut msgs: MessageReader<ThrowDynamite>, assets: Option<Res<StickyAssets>>, data: Res<crate::gamedata::GameData>) {
+    let Some(assets) = assets else { return };
+    let p = data.props("p_molmer_dynamite");
+    for m in msgs.read() {
+        let fwd = (m.point - m.from).with_y(0.0).normalize_or(Vec3::Z);
+        let (vel, speed) = launch(&p, m.from, m.point, fwd);
+        let e = commands
+            .spawn((
+                Transform::from_translation(m.from).with_rotation(assets.base),
+                Visibility::default(),
+                StickyBomb {
+                    props: "p_molmer_dynamite",
+                    vel,
+                    target: m.joint.map(|j| (m.target, j)),
+                    point: m.point,
+                    speed,
+                    range: m.from.distance(m.point),
+                    flown: 0.0,
+                    life: p.f("lifetime", 10.0),
+                    gravity: false,
+                    stuck: None,
+                },
+            ))
+            .id();
+        for (mesh, mat) in &assets.dynamite {
+            let c = commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(mat.clone()))).id();
+            commands.entity(e).add_child(c);
+        }
     }
 }
 
@@ -169,8 +222,8 @@ fn fly(
     mut scare: MessageWriter<crate::ai::StickyStuck>,
 ) {
     let dt = time.delta_secs();
-    let p = data.props("p_player_stickybomb");
     for (e, mut b, mut t) in &mut bombs {
+        let p = data.props(b.props);
         // stuck: held on the object, then the explosion (0x0047e9b0, 0x00481ab0)
         if let Some((obj, local, linger)) = b.stuck.as_mut() {
             if let Some(o) = obj.and_then(|o| others.get(o).ok()) {
@@ -196,7 +249,9 @@ fn fly(
                 g.last_hit = d;
                 h.0 -= d;
             }
-            if let Some(n) = p.s("fx_end") {
+            // p_molmer_dynamite has no fx_end, only fx_end_material (fx_imp_sticky, as the player's fx_end): shown
+            // here (guess: 0x00481ab0 plays fx_end only; the original's dynamite blast was not looked at)
+            if let Some(n) = p.s("fx_end").or(p.s("fx_end_material")) {
                 fx.write(crate::fx::StartFx { name: n.to_owned(), at: t.translation, rotation: crate::level::game_to_engine(), follow: None, position_only: false });
             }
             commands.entity(e).despawn();
@@ -204,7 +259,9 @@ fn fly(
         }
         b.life -= dt;
         if b.life <= 0.0 {
-            stop.write(crate::audio::StopSound("wpn_sticky_grenade_lp".into()));
+            if b.props == "p_player_stickybomb" {
+                stop.write(crate::audio::StopSound("wpn_sticky_grenade_lp".into()));
+            }
             commands.entity(e).despawn();
             continue;
         }
@@ -262,7 +319,9 @@ fn fly(
             continue;
         };
         // stick (0x004817b0)
-        stop.write(crate::audio::StopSound("wpn_sticky_grenade_lp".into()));
+        if b.props == "p_player_stickybomb" {
+            stop.write(crate::audio::StopSound("wpn_sticky_grenade_lp".into()));
+        }
         t.translation = if obj.is_some() { at } else { at - dir * 5.0 };
         let local = obj.and_then(|o| others.get(o).ok()).map(|o| o.affine().inverse().transform_point3(t.translation)).unwrap_or(Vec3::ZERO);
         b.stuck = Some((obj, local, p.f("linger_lifetime", 5.0)));
