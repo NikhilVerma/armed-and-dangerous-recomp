@@ -25,8 +25,9 @@ Measured with the hook's AI dump (target +0x588, health +0x454, anim +0x498; run
 archer at (-173, 744) at frame 840 and leave it at 74 health; Jonesy fires 3 bursts of 4, reloads, throws TNT
 (anim 39 molmer_throw_tnt). Causes found and fixed (287ee9d): grunts' shots hurt grunts in the engine (the original's
 0x00430340 ignores same-team damage), Jonesy's clip (fire_alt wastes a round), targets never dropped, the whole
-capsule counted as a hit. Still open: the part radii are guesses (no collision hulls exported), and Jonesy's TNT
-throw is not ported (being traced).
+capsule counted as a hit, companions kept running toward the target while firing; Jonesy's TNT throw ported
+(3d6c810). The archer now ends at 72..88 health in three runs (original 74). Still open: the part radii are
+guesses (torso 1.0, head 0.8, limbs 0.5; no collision hulls exported).
 
 ## Falling snow in the remaster engine (2026-10-13, partly resolved)
 
