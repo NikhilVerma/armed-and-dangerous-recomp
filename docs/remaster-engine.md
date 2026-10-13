@@ -168,6 +168,13 @@ work/remaster/play/compare/.
 - Anchor scripts to the game, not the clock: `{"until": "message"}` waits for the briefing (loading time varies;
   fixed waits drifted into the intro). With both, repeated runs agree within ~0.3 mae.
 
+## Audio check
+
+Playtest logs carry `audio_check`: every 0.1 s each playing sound's position on the output device is sampled;
+`advancing` / `stalled` / `silent` sinks and the distinct names heard (positions advanced) are counted. A run of
+gaim.json (10 s, speech and fighting): 29 distinct sounds heard advancing, voice lines among them, 0 stalled.
+`--background` runs are muted (master 0; playback and positions still run), so tests do not play over the desk.
+
 ## Tips and traps
 
 - **Axes.** Game space is Z up; engine is Y up: `game_to_engine()` maps (x, y, z) to (x, z, -y). Anything the game

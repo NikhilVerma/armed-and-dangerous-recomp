@@ -175,7 +175,9 @@ impl Plugin for AudioBankPlugin {
             .add_message::<Subtitle>()
             .add_message::<StopSound>()
             .insert_resource(Mixer { master: 1.0, sfx: 1.0, voice: 1.0, music: 0.8 })
-            .add_systems(Update, (stop, play, attenuate).chain());
+            .init_resource::<AudioCheck>()
+            .add_systems(Update, (stop, play, attenuate).chain())
+            .add_systems(Update, audio_check.run_if(resource_exists::<crate::playtest::Playtest>));
     }
 }
 
@@ -260,5 +262,68 @@ fn attenuate(
         if let Some(mut s) = sink {
             s.set_volume(Volume::Linear(p.base * g));
         }
+    }
+}
+
+/// Playback check (playtest evidence that sounds are heard, not just started): every 0.5 s each playing sound's
+/// position on the output device is compared with the last sample; advancing, paused and silent sinks are counted,
+/// and every sound name that advanced at least once is kept.
+#[derive(Resource, Default)]
+pub struct AudioCheck {
+    pub advancing: usize,
+    pub stalled: usize,
+    pub silent: usize,
+    pub heard: std::collections::BTreeSet<String>,
+    pub voice_heard: usize,
+    last: std::collections::HashMap<Entity, f32>,
+    timer: f32,
+}
+
+pub fn audio_check(
+    time: Res<Time<Real>>,
+    mut chk: ResMut<AudioCheck>,
+    sinks: Query<(Entity, &AudioSink, &SoundName)>,
+    spatial: Query<(Entity, &bevy::audio::SpatialAudioSink, &SoundName)>,
+    bank: Option<Res<SoundBank>>,
+) {
+    use bevy::audio::AudioSinkPlayback;
+    chk.timer -= time.delta_secs();
+    if chk.timer > 0.0 {
+        return;
+    }
+    chk.timer = 0.1;
+    let (mut adv, mut stalled, mut silent) = (0, 0, 0);
+    let mut seen = std::collections::HashMap::new();
+    let mut heard = Vec::new();
+    let mut check = |e: Entity, pos: f32, paused: bool, vol: f32, name: &str, last: &std::collections::HashMap<Entity, f32>| {
+        seen.insert(e, pos);
+        if vol <= 1e-4 {
+            silent += 1;
+        }
+        match last.get(&e) {
+            Some(p) if pos > *p && !paused => {
+                adv += 1;
+                heard.push(name.to_owned());
+            }
+            Some(_) => stalled += 1,
+            None => {}
+        }
+    };
+    let last = std::mem::take(&mut chk.last);
+    for (e, s, n) in &sinks {
+        check(e, s.position().as_secs_f32(), s.is_paused(), s.volume().to_linear(), &n.0, &last);
+    }
+    for (e, s, n) in &spatial {
+        check(e, s.position().as_secs_f32(), s.is_paused(), s.volume().to_linear(), &n.0, &last);
+    }
+    chk.last = seen;
+    chk.advancing = adv;
+    chk.stalled = stalled;
+    chk.silent = silent;
+    for n in heard {
+        if bank.as_ref().is_some_and(|b| b.sounds.get(&n.to_lowercase()).is_some_and(|d| d.category.as_deref() == Some("voice"))) || n.starts_with('@') {
+            chk.voice_heard += 1;
+        }
+        chk.heard.insert(n);
     }
 }

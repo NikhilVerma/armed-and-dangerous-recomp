@@ -189,6 +189,10 @@ fn main() {
         app.insert_state(AppState::Playing);
     }
     app.add_plugins(camdump::CamDumpPlugin);
+    // background test runs are silent (playback still runs: positions advance, the audio check counts them)
+    if a.background {
+        app.add_systems(PostStartup, |mut m: ResMut<audio::Mixer>| m.master = 0.0);
+    }
     if let Some(h) = a.debug_hide.clone() {
         app.add_systems(Update, move |mut q: Query<(&Name, &mut Visibility)>| {
             for (n, mut v) in &mut q {
@@ -433,7 +437,7 @@ fn bench_ground(physics: NonSend<physics::Physics>, mut bench: ResMut<bench::Ben
 }
 
 /// The playtest log's state line: player, AI, fx.
-fn play_state(skin: Res<skin::SkinCheck>, mut bank: Option<ResMut<audio::SoundBank>>, bot: Res<playtest::Bot>, mut st: ResMut<playtest::PlayState>, p: Res<player::PlayerStats>, ai: Res<ai::AiStats>, fx: Res<fx::FxStats>, mission: Option<ResMut<mission::Mission>>, hud: Res<hud::HudState>) {
+fn play_state(audio_chk: Res<audio::AudioCheck>, skin: Res<skin::SkinCheck>, mut bank: Option<ResMut<audio::SoundBank>>, bot: Res<playtest::Bot>, mut st: ResMut<playtest::PlayState>, p: Res<player::PlayerStats>, ai: Res<ai::AiStats>, fx: Res<fx::FxStats>, mission: Option<ResMut<mission::Mission>>, hud: Res<hud::HudState>) {
     let m = &mut st.0;
     if let Some(mut ms) = mission {
         m.insert("mission".into(), format!("{:?}", ms.outcome).into());
@@ -450,6 +454,7 @@ fn play_state(skin: Res<skin::SkinCheck>, mut bank: Option<ResMut<audio::SoundBa
     }
     m.insert("prompt".into(), hud.prompt.clone().unwrap_or_default().into());
     m.insert("skin".into(), serde_json::json!({"meshes": skin.meshes, "vertices": skin.vertices, "max_stretch": skin.max_stretch, "max_gap": skin.max_gap, "motion": skin.mean_motion}));
+    m.insert("audio_check".into(), serde_json::json!({"advancing": audio_chk.advancing, "stalled": audio_chk.stalled, "silent": audio_chk.silent, "heard": audio_chk.heard.len(), "voice_heard": audio_chk.voice_heard}));
     m.insert("subtitle".into(), hud.subtitle.as_ref().map(|s| s.0.clone()).unwrap_or_default().into());
     if let Some(b) = bank.as_deref_mut() {
         m.insert("sounds_played".into(), b.played.into());
