@@ -168,7 +168,9 @@ impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Update, hand_weapon);
         app.init_resource::<PlayerStats>()
-            .add_systems(Update, (grab_cursor, control, weapons, projectiles).chain().run_if(crate::playing))
+            .init_resource::<LookDelta>()
+            .add_systems(Update, grab_cursor.before(control))
+            .add_systems(Update, (control, weapons, projectiles).chain().run_if(crate::playing))
             .add_systems(PostUpdate, follow_camera.before(TransformSystems::Propagate).run_if(crate::playing));
     }
 }
@@ -271,16 +273,48 @@ pub fn machinegun(data: &GameData) -> Weapon {
     }
 }
 
-fn grab_cursor(mut cursor: Query<&mut CursorOptions, With<PrimaryWindow>>, mut done: Local<bool>, playtest: Option<Res<crate::playtest::Playtest>>) {
+/// Mouse look input for this frame (window pixels): the cursor's movement from the window centre, where it is put
+/// back every frame. Raw device motion is not used: some trackpads report absolute positions there (the view then
+/// runs away in one direction).
+#[derive(Resource, Default)]
+pub struct LookDelta(pub Vec2);
+
+/// The cursor: confined, hidden and re-centred in play (its movement is the look input, LookDelta), free and shown in
+/// the menus (title, pause, pub screen).
+pub fn grab_cursor(
+    mut windows: Query<(&mut Window, &mut CursorOptions), With<PrimaryWindow>>,
+    playtest: Option<Res<crate::playtest::Playtest>>,
+    state: Res<State<crate::AppState>>,
+    menu: Res<crate::gamemenu::GameMenu>,
+    mut look: ResMut<LookDelta>,
+    mut settle: Local<u32>,
+) {
+    look.0 = Vec2::ZERO;
     // scripted runs leave the mouse to the person at the desk
-    if *done || playtest.is_some() {
+    if playtest.is_some() {
         return;
     }
-    if let Ok(mut c) = cursor.single_mut() {
-        c.grab_mode = CursorGrabMode::Locked;
-        c.visible = false;
-        *done = true;
+    let play = *state.get() == crate::AppState::Playing && menu.page != crate::gamemenu::Page::Pub;
+    let Ok((mut w, mut c)) = windows.single_mut() else { return };
+    let (mode, visible) = if play { (CursorGrabMode::Confined, false) } else { (CursorGrabMode::None, true) };
+    if c.grab_mode != mode || c.visible != visible {
+        c.grab_mode = mode;
+        c.visible = visible;
+        // the first frames after entering play only centre the cursor
+        *settle = 2;
     }
+    if !play || !w.focused {
+        *settle = 2;
+        return;
+    }
+    let centre = Vec2::new(w.width() / 2.0, w.height() / 2.0);
+    if let Some(p) = w.cursor_position() {
+        if *settle == 0 {
+            look.0 = p - centre;
+        }
+    }
+    *settle = settle.saturating_sub(1);
+    w.set_cursor_position(Some(centre));
 }
 
 /// WASD relative to the camera yaw, Space jump, mouse look (stand-in bindings).
@@ -294,6 +328,8 @@ fn control(
     explosives: Query<(&crate::fx::Destructible, &GlobalTransform)>,
     keys: Res<ButtonInput<KeyCode>>,
     motion: Res<AccumulatedMouseMotion>,
+    look: Res<LookDelta>,
+    playtest: Option<Res<crate::playtest::Playtest>>,
     opts: Res<crate::options::GameOptions>,
     topsy: Res<crate::topsy::Topsy>,
     mut physics: NonSendMut<Physics>,
@@ -322,8 +358,10 @@ fn control(
         r.zoom = if zoom_held { (r.zoom + step).min(1.0) } else { (r.zoom - step).max(0.0) };
         let (kt, kp) = if zoom_held { (0.05 / 0.3, 0.25 / 0.95) } else { (1.0, 1.0) };
         if !topsy.active() {
-            r.yaw -= motion.delta.x * k * kt;
-            r.pitch = (r.pitch - motion.delta.y * kpitch * inv * kp).clamp(-1.1, 0.7);
+            // the player's look input is the cursor's movement (LookDelta); scripted runs inject device motion
+            let d = if playtest.is_some() { motion.delta } else { look.0 };
+            r.yaw -= d.x * k * kt;
+            r.pitch = (r.pitch - d.y * kpitch * inv * kp).clamp(-1.1, 0.7);
         }
         let mut wish = Vec3::ZERO;
         // playtest bot: turn toward the goal and walk; when fighting, face the nearest live grunt

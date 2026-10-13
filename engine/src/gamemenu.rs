@@ -605,8 +605,33 @@ fn navigate(
     windows: Query<&Window>,
     mut save_req: ResMut<crate::savegame::SaveRequest>,
     mut cheats: ResMut<crate::cheats::Cheats>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    placed: Query<(&MenuRow, &HudElement, &Visibility)>,
+    mut last_cursor: Local<Option<Vec2>>,
 ) {
     cheats.entering = menu.page == Page::Cheats && *state.get() != AppState::Playing;
+    // the mouse in the menus (the original: Mouse 1 selects, Mouse 2 cancels): the row under the cursor is selected
+    // when the cursor moves, a click activates it. Cursor (window pixels, y down) -> the menus' 640x480 space (y up),
+    // scaled by height / 480 about the centre (hud.rs place)
+    let mut hovered: Option<usize> = None;
+    let mut cursor_moved = false;
+    if *state.get() != AppState::Playing {
+        if let Ok(w) = windows.single() {
+            if let Some(c) = w.cursor_position() {
+                let (ww, wh) = (w.width(), w.height());
+                let s = wh / 480.0;
+                let p = Vec2::new(320.0 + (c.x - ww / 2.0) / s, 240.0 - (c.y - wh / 2.0) / s);
+                cursor_moved = last_cursor.is_some_and(|l| l.distance(c) > 0.5);
+                *last_cursor = Some(c);
+                hovered = placed
+                    .iter()
+                    .filter(|(r, _, v)| r.page == menu.page && **v != Visibility::Hidden && r.order.is_some())
+                    .filter(|(r, e, _)| (p.y - e.pos.y).abs() < 13.0 * r.base_scale && (p.x - e.pos.x).abs() < 150.0)
+                    .min_by(|a, b| (p.y - a.1.pos.y).abs().total_cmp(&(p.y - b.1.pos.y).abs()))
+                    .and_then(|(r, _, _)| r.order);
+            }
+        }
+    }
     // the credits page: any of Esc / Enter leaves
     if menu.page == Page::Credits && *state.get() != AppState::Playing {
         if keys.just_pressed(KeyCode::Escape) || keys.just_pressed(KeyCode::Enter) {
@@ -654,6 +679,12 @@ fn navigate(
     let n = items.len();
     menu.selected = menu.selected.min(n - 1);
     let mut act = None;
+    if let Some(h) = hovered.filter(|h| *h < n) {
+        if (cursor_moved || mouse.just_pressed(MouseButton::Left)) && menu.selected != h {
+            menu.selected = h;
+            play(&mut sounds, "ui_move");
+        }
+    }
     if keys.just_pressed(KeyCode::ArrowDown) || keys.just_pressed(KeyCode::KeyS) {
         menu.selected = (menu.selected + 1) % n;
         play(&mut sounds, "ui_move");
@@ -678,10 +709,11 @@ fn navigate(
             play(&mut sounds, "ui_move");
         }
     }
-    if keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::Space) {
+    let cur = items[menu.selected].1;
+    if keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::Space) || (mouse.just_pressed(MouseButton::Left) && hovered.is_some()) {
         act = Some(cur);
     }
-    if keys.just_pressed(KeyCode::Escape) {
+    if keys.just_pressed(KeyCode::Escape) || mouse.just_pressed(MouseButton::Right) {
         act = match page {
             Page::Main | Page::Failed => None,
             Page::Pause => Some(Act::Continue),
