@@ -382,6 +382,28 @@ fn control(
             }
             info!("bot: route to {:?}: {} waypoints {:?}", bot.goto, bot.route.len(), bot.route.iter().map(|p| [p.x as i32, p.y as i32, p.z as i32]).collect::<Vec<_>>());
         }
+        // no progress toward the goal for 15 s (routes that lead nowhere in a walled yard): retrace the trail out,
+        // then plan afresh from there
+        if let Some(g) = bot.goto {
+            let d = (g - t.translation).with_y(0.0).length();
+            if d < bot.best_goal_dist - 10.0 || bot.best_goal_dist == 0.0 {
+                bot.best_goal_dist = d;
+                bot.no_gain = 0.0;
+            } else {
+                bot.no_gain += dt;
+            }
+            if bot.no_gain > 15.0 && bot.trail.len() > 3 {
+                info!("bot: no progress for 15 s, retracing its trail");
+                bot.route = bot.trail.iter().rev().skip(1).copied().collect();
+                bot.trail.clear();
+                bot.no_gain = 0.0;
+                bot.best_goal_dist = 0.0;
+                bot.replan_timer = 12.0;
+            }
+        } else {
+            bot.best_goal_dist = 0.0;
+            bot.no_gain = 0.0;
+        }
         bot.trail_t += dt;
         if bot.trail_t >= 1.0 {
             bot.trail_t = 0.0;

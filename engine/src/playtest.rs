@@ -109,6 +109,9 @@ pub struct Bot {
     /// where the bot has been (one point a second, the last 20): the way back out of a dead end
     pub trail: Vec<Vec3>,
     pub trail_t: f32,
+    /// progress check: the best distance to the goal and how long since it improved
+    pub best_goal_dist: f32,
+    pub no_gain: f32,
     pub throw_timer: f32,
 }
 
