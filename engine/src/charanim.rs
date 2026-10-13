@@ -146,6 +146,12 @@ fn grunts(
             a.stop(1);
             continue;
         }
+        // turning toward the target before firing (0x0042e050)
+        if let (Some((name, _)), Mind::Fire) = (g.turn, g.mind) {
+            a.play(0, name, false, Mask::All);
+            a.stop(1);
+            continue;
+        }
         let limping = g.limp_pct > 0.0 && g.last_health < g.max_health * g.limp_pct / 100.0;
         let (name, looping) = match g.mind {
             Mind::Dead if g.ragdoll => ("grunt_blown_up".to_string(), false),

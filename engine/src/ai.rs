@@ -80,6 +80,9 @@ pub struct Grunt {
     /// (hook AI dump, second encounter: the guards play fire (anim 0x23) at 740..760, reload (0x2a) by 780..820, and
     /// their first shots come at 800..837; the sound log has none in between), as fire-timing note #7 predicted
     pub dry_first: bool,
+    /// a turn toward the target before firing (0x0042e050: target more than ~45 degrees off: grunt_turn_180 0.6 s
+    /// behind (dot < -0.7), grunt_turn_left / right_90 0.5 s, the archers' grunt_bow_turn 0.633 s): the anim, time left
+    pub turn: Option<(&'static str, f32)>,
     pub last_hit: f32,
     /// hit_level_1 / hit_level_2 (+0x9e8 / +0x9ec): the damage limits of the small and medium hit reactions
     pub hit_level_1: f32,
@@ -201,6 +204,7 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         hit_ragdoll: p.f("hit_ragdoll", 50.0),
         last_health: max_health,
         dry_first: guard,
+        turn: None,
         last_hit: 0.0,
         hit_level_1: p.f("hit_level_1", 10.0),
         hit_level_2: p.f("hit_level_2", 25.0),
@@ -525,8 +529,30 @@ fn think(
                         .map(|j| j.translation())
                         .unwrap_or(p + Vec3::Y * 7.0);
                     let own_hit = ga.and_then(|a| a.skeleton.index.get("ref_hit_00").and_then(|&i| targets.get(a.joints[i]).ok())).map(|j| j.translation()).unwrap_or(pos + Vec3::Y * 6.0);
+                    // the turn toward the target first (no fire while it plays; the yaw keeps turning below)
+                    let fwd = Vec3::new(g.yaw.sin(), 0.0, g.yaw.cos());
+                    let to = flat(p - pos).normalize_or_zero();
+                    if let Some((_, left)) = g.turn.as_mut() {
+                        *left -= dt;
+                        if *left <= 0.0 {
+                            g.turn = None;
+                        }
+                    } else if to.dot(fwd) < 0.7 {
+                        let right = fwd.cross(to).y < 0.0;
+                        g.turn = Some(if g.bow {
+                            ("grunt_bow_turn", 0.633)
+                        } else if to.dot(fwd) < -0.7 {
+                            ("grunt_turn_180", 0.6)
+                        } else if right {
+                            ("grunt_turn_right_90", 0.5)
+                        } else {
+                            ("grunt_turn_left_90", 0.5)
+                        });
+                    }
                     let before = stats.shots;
-                    fire_cycle(&mut commands, &mut g, &physics, &mut rng, pos, p, hit, own_hit, body.id, dt, &mut stats, &mut sounds, &mut fx);
+                    if g.turn.is_none() {
+                        fire_cycle(&mut commands, &mut g, &physics, &mut rng, pos, p, hit, own_hit, body.id, dt, &mut stats, &mut sounds, &mut fx);
+                    }
                     if stats.shots > before && std::env::var("AIDBG").is_ok() {
                         info!("AIDBG gruntshot t {:.3}", rtime.elapsed_secs());
                     }
