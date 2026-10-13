@@ -70,8 +70,10 @@ impl GameOptions {
 #[derive(Component)]
 pub struct ShadowLight;
 
-/// The far plane at draw distance 1.0 (Bevy's default, what the remaster was tuned with).
-const FAR: f32 = 1000.0;
+/// The far plane at draw distance 1.0 as a multiple of the level's fog_far: the original's camera dumps on lev_1_m1
+/// give far 1712.132 with fog_far 1500 (camera +0xd4 * +0xd0; how the game computes it is open, docs/subsystems/
+/// camera.md): guess, the same ratio on every level. Beyond fog_far everything is the fog colour anyway.
+const FAR_OVER_FOG: f32 = 1712.132 / 1500.0;
 
 pub struct OptionsPlugin;
 
@@ -91,6 +93,7 @@ fn apply(
     cams: Query<(Entity, &Projection), With<Camera3d>>,
     mut windows: Query<&mut Window>,
     mut seen_cams: Local<usize>,
+    game_lights: Option<Res<crate::gamematerial::GameLights>>,
 ) {
     // a camera spawned after the last change (level start) gets the options too
     let n = cams.iter().count();
@@ -117,7 +120,8 @@ fn apply(
         });
         if let Projection::Perspective(pp) = p {
             let mut pp = pp.clone();
-            pp.far = FAR * o.draw_distance.clamp(0.25, 1.0);
+            let fog_far = game_lights.as_ref().and_then(|l| l.fog.map(|f| f.1)).unwrap_or(1500.0);
+            pp.far = fog_far * FAR_OVER_FOG * o.draw_distance.clamp(0.25, 1.0);
             commands.entity(e).insert(Projection::Perspective(pp));
         }
     }

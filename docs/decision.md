@@ -211,3 +211,5 @@ How this coexists with faithful recovery:
   poor but the game looks subjectively better then the score is irrelevant"; "it should look a faithful
   remaster/remake". Porting order: rendering, then player movement, the sticky bomb (homing), guns, zoom, the rest;
   verification by playing the same inputs in both (e.g. dismiss the briefing, walk forward 5 s) and comparing.
+- Human, 2026-10-13: "this is such an old game, we can probably live with high LOD for all cases": the engine draws
+  every object's finest LOD at all distances (the original switches by Object_SelectLod 0x00452f50; not ported).

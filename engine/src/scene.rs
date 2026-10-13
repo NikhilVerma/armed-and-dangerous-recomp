@@ -131,6 +131,8 @@ pub struct Library {
     pub materials: HashMap<(Option<String>, bool, bool, [u8; 3]), Handle<StandardMaterial>>,
     /// the landscape is drawn with the original's materials (main.rs), not here
     pub skip_landscape_visual: bool,
+    /// each standard material's original record (texture, alpha): the game material swap (gamematerial.rs)
+    pub game_defs: HashMap<AssetId<StandardMaterial>, (crate::gamematerial::MaterialDef, Option<String>, bool)>,
 }
 
 pub fn game_matrix(t: &[[f32; 4]; 3]) -> Mat4 {
@@ -194,17 +196,21 @@ impl Library {
         out
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn material(
         &mut self,
         texture: Option<&str>,
         alpha: bool,
         unlit: bool,
         color: [f32; 3],
+        def: Option<&crate::gamematerial::MaterialDef>,
         assets: &AssetServer,
         materials: &mut Assets<StandardMaterial>,
     ) -> Handle<StandardMaterial> {
         let color = if texture.is_some() { [1.0; 3] } else { color };
-        let key = (texture.map(str::to_owned), alpha, unlit, color.map(|c| (c * 255.0) as u8));
+        // one material per distinct original record (its colours and maps differ between parts sharing a texture)
+        let tag = def.map(|d| format!("{d:?}")).unwrap_or_default();
+        let key = (Some(format!("{}|{tag}", texture.unwrap_or(""))), alpha, unlit, color.map(|c| (c * 255.0) as u8));
         if let Some(h) = self.materials.get(&key) {
             return h.clone();
         }
@@ -234,6 +240,15 @@ impl Library {
             ..default()
         });
         self.materials.insert(key, h.clone());
+        // the original's record, for the swap to the game material (gamematerial.rs swap); untextured parts of
+        // models (colour only) too, the sky (unlit) never
+        if !unlit {
+            let mut d = def.cloned().unwrap_or_default();
+            if texture.is_none() {
+                d.diffuse = color;
+            }
+            self.game_defs.insert(h.id(), (d, texture.map(str::to_owned), alpha));
+        }
         h
     }
 
@@ -285,7 +300,13 @@ impl Library {
                     mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_INDEX, bevy::mesh::VertexAttributeValues::Uint16x4(j));
                     mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT, w.chunks_exact(4).map(|v| [v[0], v[1], v[2], v[3]]).collect::<Vec<_>>());
                 }
-                let material = self.material(s.texture.as_deref(), s.alpha, unlit, s.color.unwrap_or([1.0; 3]), assets, materials);
+                if let Some(o) = s.uvs1 {
+                    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_1, floats(&bin, o, s.vertices * 2).chunks_exact(2).map(|v| [v[0], v[1]]).collect::<Vec<_>>());
+                }
+                if s.material.as_ref().is_some_and(|m| m.normal_map.is_some()) {
+                    let _ = mesh.generate_tangents();
+                }
+                let material = self.material(s.texture.as_deref(), s.alpha, unlit, s.color.unwrap_or([1.0; 3]), s.material.as_ref(), assets, materials);
                 parts.push((meshes.add(mesh), material));
             }
             self.models.insert(

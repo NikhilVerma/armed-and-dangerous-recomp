@@ -317,11 +317,14 @@ def main():
         model = lods[0] if lods else None
         ci = props.get(pr, {}).get("collision_lod_index")
         coll = lods[ci] if isinstance(ci, int) and 0 <= ci < len(lods) else None
-        for m in (model, coll):  # the render model and the game's collision model
+        # every LOD model (Object_SelectLod 0x00452f50 switches between them by distance), the collision one too
+        for m in lods:
             if m and m not in models and m in skins:
                 models[m] = export_model(level, out, m, skins[m], texinfo)
         tdefs[name] = {"model": model if models.get(model) else None, "lods": lods, "property": pr,
-                       "collision": coll if models.get(coll) else None}
+                       "collision": coll if models.get(coll) else None,
+                       # per LOD index: the exported model, or null (no mesh)
+                       "lod_models": [m if models.get(m) else None for m in lods]}
     (out / "templates.json").write_text(json.dumps(tdefs, indent=0))
     _, fxs = fx.parse(payload(level, "big09_fx"))
     scripts = {e["name"].decode("latin-1").lower(): e["script"] for e in fxs if e["script"] is not None}

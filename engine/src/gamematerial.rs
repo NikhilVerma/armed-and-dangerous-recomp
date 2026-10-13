@@ -61,12 +61,31 @@ pub struct GameMaterialPlugin;
 impl Plugin for GameMaterialPlugin {
     fn build(&self, app: &mut App) {
         bevy::asset::embedded_asset!(app, "gamematerial.wesl");
-        app.add_plugins(MaterialPlugin::<GameMaterial>::default());
+        app.add_plugins(MaterialPlugin::<GameMaterial>::default()).add_systems(PostUpdate, swap.run_if(resource_exists::<GameLights>));
+    }
+}
+
+/// Every part spawned with a standard material that came from an original material record gets the game material
+/// instead (one game material per standard one).
+fn swap(
+    mut commands: Commands,
+    q: Query<(Entity, &MeshMaterial3d<StandardMaterial>), Added<MeshMaterial3d<StandardMaterial>>>,
+    lib: Option<Res<crate::scene::Library>>,
+    lights: Res<GameLights>,
+    assets: Res<AssetServer>,
+    mut materials: ResMut<Assets<GameMaterial>>,
+    mut made: Local<std::collections::HashMap<AssetId<StandardMaterial>, Handle<GameMaterial>>>,
+) {
+    let Some(lib) = lib else { return };
+    for (e, m) in &q {
+        let Some((def, texture, alpha)) = lib.game_defs.get(&m.0.id()) else { continue };
+        let h = made.entry(m.0.id()).or_insert_with(|| materials.add(make(def, texture.as_deref(), *alpha, &lights, &assets, &lights.white))).clone();
+        commands.entity(e).remove::<MeshMaterial3d<StandardMaterial>>().insert(MeshMaterial3d(h));
     }
 }
 
 /// A material record as exported.
-#[derive(Deserialize, Clone, Default)]
+#[derive(Deserialize, Clone, Default, Debug)]
 pub struct MaterialDef {
     #[serde(default)]
     pub kind: u32,
@@ -101,6 +120,8 @@ pub struct GameLights {
     pub fog: Option<(f32, f32, Vec3)>,
     /// the environment cube's colour (approximation: the fog colour, the sky at the horizon)
     pub env: Vec3,
+    /// a white texture for the unused maps
+    pub white: Handle<Image>,
 }
 
 impl GameLights {
@@ -162,7 +183,8 @@ pub fn make(def: &MaterialDef, texture: Option<&str>, alpha: bool, lights: &Game
     let v4 = |c: [f32; 3], w: f32| Vec4::new(c[0], c[1], c[2], w);
     let l3 = |v: Vec3, w: f32| v.extend(w);
     let (fog_col, fog_range) = match lights.fog {
-        Some((near, far, c)) => (c.extend(1.0), Vec4::new(near, far, 0.0, 0.0)),
+        // far plane: fog_far * 1712.132 / 1500 (the original's camera dumps on lev_1_m1; options.rs)
+        Some((near, far, c)) => (c.extend(1.0), Vec4::new(near, far, far * 1712.132 / 1500.0, 0.0)),
         None => (Vec4::ZERO, Vec4::ZERO),
     };
     GameMaterial {
