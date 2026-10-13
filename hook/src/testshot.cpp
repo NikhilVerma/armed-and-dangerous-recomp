@@ -235,7 +235,14 @@ static void TestDumpCamera(unsigned frame)
                 float m[20] = {};
                 using GetMat = void(__thiscall*)(void*, float*);
                 reinterpret_cast<GetMat>((*reinterpret_cast<void***>(obj))[0x5c / 4])(obj, m);
-                fprintf(out, "%s[%.7g, %.7g, %.7g, %u, %.4g, %.4g, %.4g]", first ? "" : ", ", pos[0], pos[1], pos[2], *reinterpret_cast<uint32_t*>(obj), m[1], m[5], m[9]);
+                // AI objects (the AI list, and the companions Q111 0x5a6df8 / Molmer 0x5ae5f8 in the damageable list): the
+                // object's address, its target (+0x588, an address), health (+0x454) and anim state (+0x498)
+                const uint32_t vt = *reinterpret_cast<uint32_t*>(obj);
+                const bool ai = l.off == 0xe7c || vt == 0x5a6df8 || vt == 0x5ae5f8;
+                const uint8_t* b = reinterpret_cast<const uint8_t*>(obj);
+                fprintf(out, "%s[%.7g, %.7g, %.7g, %u, %.4g, %.4g, %.4g, %u, %u, %.4g, %u]", first ? "" : ", ", pos[0], pos[1], pos[2], vt,
+                        m[1], m[5], m[9], o, ai ? *reinterpret_cast<const uint32_t*>(b + 0x588) : 0u,
+                        *reinterpret_cast<const float*>(b + 0x454), ai ? *reinterpret_cast<const uint32_t*>(b + 0x498) : 0u);
                 first = false;
             }
             fprintf(out, "]");

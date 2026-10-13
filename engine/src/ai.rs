@@ -168,7 +168,8 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         alert_group: p.i("alert_group", 0),
         guard,
         trigger_los: p.i("trigger_los", 1) != 0,
-        search_timer: rng.r(0.0, 1.0),
+        // +0x490 starts at 0: the first search runs on the first frame
+        search_timer: 0.0,
         target: None,
         pending: None,
         clips: (p.i("fire_num_clips_min", 1), p.i("fire_num_clips_max", 1)),
@@ -253,7 +254,15 @@ fn search(
             }
         }
         g.search_timer -= dt;
-        if g.search_timer > 0.0 || g.target.is_some() {
+        if g.search_timer > 0.0 {
+            continue;
+        }
+        // a guard (0x0042ec20, every frame of state 0x79) releases its target each time the search timer runs out and
+        // searches again: one that loses the cone or the line of sight loses its target within 0.75..1.25 s
+        if g.guard && g.target == Some(pe) {
+            g.target = None;
+        }
+        if g.target.is_some() {
             continue;
         }
         // waiting for a trigger: only trigger_los grunts look (state 0x8c)
@@ -550,7 +559,7 @@ fn fire_cycle(
     let fwd = Vec3::new(g.yaw.sin(), 0.0, g.yaw.cos());
     let to = (p - pos).with_y(0.0);
     if to.normalize_or_zero().dot(fwd) < 0.0 || !line_of_sight(physics, pos, p) {
-        g.pause = 0.25;
+        // no shot this frame (a guard: state 0x7a and back, the target dropped at the next search tick)
         return;
     }
     // aim error 0x004284e0: sideways L in [-angle, angle], up V in [0, height], scaled by s from the accuracy ranges
@@ -569,8 +578,10 @@ fn fire_cycle(
     let _ = &sounds;
     stats.shots += 1;
     // the fire cycle (0x00428980, counters 0x00427600, as the companions'): a shot on the fire anim's note (0.033 s
-    // into its 0.467 s loop), fire_num_rounds per clip; an empty clip reloads (state 0x32: grunt_reload_br 1.133 s,
-    // grunt_bow_reload_* 1.3 s) after fire_clip_delay. The original's archer: a shot every ~2.35 s (sound log)
+    // into its 0.467 s loop; here at its start), fire_num_rounds per clip. An empty clip plays the reload anim
+    // (grunt_bow_reload_* 1.3 s, grunt_reload_br 1.133 s); a guard (state 0x79, ai_06.cpp:2656) then re-rolls the
+    // counters on the first-call path, without fire_clip_delay, and fires the next frame: anim + 1 frame + reload +
+    // 1 frame = 108 frames for the archer (the original's 837 -> 945); a moving grunt (state 0x32) waits the clip delay
     g.left_rounds -= 1;
     g.pause = 0.467;
     if g.left_rounds <= 0 {
@@ -579,7 +590,8 @@ fn fire_cycle(
         if g.left_bursts <= 0 {
             g.left_clips -= 1;
             g.mind = Mind::Reload;
-            g.pause = 0.467 + rng.range(g.clip_delay.0, g.clip_delay.1) + if g.bow { 1.3 } else { 1.133 };
+            let reload = if g.bow { 1.3 } else { 1.133 };
+            g.pause = 0.467 + reload + if g.guard { 2.0 / 60.0 } else { rng.range(g.clip_delay.0, g.clip_delay.1) };
         }
     }
 }
@@ -666,6 +678,8 @@ pub struct Companion {
     pub aim_v: f32,
     target: Option<Entity>,
     lost: f32,
+    /// AI_FindTarget's timer +0x490: a search every 0.75..1.25 s
+    search: f32,
     rounds: u32,
     burst: u32,
     loop_t: f32,
@@ -726,6 +740,7 @@ impl Companion {
             aim_v: 0.5,
             target: None,
             lost: 0.0,
+            search: 0.0,
             rounds: fire.rounds.0,
             burst: fire.bursts.0,
             loop_t: 0.0,
@@ -827,13 +842,28 @@ fn companions(
                 c.lost = rng.range(3.0, 7.0);
             }
         }
-        if c.target.is_none() {
+        c.search -= dt;
+        // at each search tick a target farther (2D) than scan_distance from Roman is refused (0x004853a0 in formation)
+        // and dropped: the original's companions stand and fight until Roman has moved on (fightT: Jonesy lets go at
+        // ~1350, Q at ~1440, then they run after him)
+        if c.search <= 0.0 {
+            if let Some((_, _, gt, _)) = c.target.and_then(|t| grunts.get(t).ok()) {
+                if (gt.translation() - rt.translation).with_y(0.0).length() > c.scan {
+                    c.target = None;
+                }
+            }
+            if c.target.is_some() {
+                c.search = rng.range(0.75, 1.25);
+            }
+        }
+        if c.target.is_none() && c.search <= 0.0 {
+            c.search = rng.range(0.75, 1.25);
             let face = Quat::from_rotation_y(c.yaw) * Vec3::Z;
             c.target = grunts
                 .iter()
                 .filter(|(_, g, _, _)| g.mind != Mind::Dead)
                 .map(|(ge, _, gt, _)| (ge, gt.translation()))
-                .filter(|(_, p)| p.distance(me) < c.scan && p.distance(rt.translation) < c.scan)
+                .filter(|(_, p)| (*p - me).with_y(0.0).length() < c.scan && (*p - rt.translation).with_y(0.0).length() < c.scan)
                 .filter(|(_, p)| (*p - me).with_y(0.0).normalize_or_zero().dot(face) > (95.0f32).to_radians().cos())
                 .filter(|(ge, p)| {
                     let eye = me + Vec3::Y * 8.0;
@@ -842,6 +872,11 @@ fn companions(
                 })
                 .min_by(|a, b| a.1.distance(me).total_cmp(&b.1.distance(me)))
                 .map(|(ge, _)| ge);
+            if std::env::var("AIDBG").is_ok() {
+                if let Some((_, _, gt, _)) = c.target.and_then(|t| grunts.get(t).ok()) {
+                    info!("AIDBG companion q={} targets grunt at {:?} d {:.0} me {:?} roman {:?}", c.q, gt.translation(), gt.translation().distance(me), me, rt.translation);
+                }
+            }
         }
         if c.lost > 0.0 {
             c.lost -= dt;
@@ -928,7 +963,11 @@ fn companions(
                     let hit = (prev == 0.0 && n == 0.0) || (n > prev && n <= c.loop_t);
                     if hit && c.burst > 0 && c.rounds > 0 {
                         c.burst -= 1;
-                        c.rounds -= 1;
+                        // Jonesy: each molmer_fire_* anim has "fire" at 0 and "fire_alt" at 0.067; the four fire notes
+                        // use up the burst of 4, then each fire_alt finds the burst empty and only wastes a round
+                        // (0x0043d180, ai_05.cpp:1264): a clip of 24 rounds is 3 bursts of 4 shots, as the original's
+                        // sound log and hook AI dump show (fightT)
+                        c.rounds = c.rounds.saturating_sub(if c.q { 1 } else { 2 });
                         // aim error 0x004284e0 (as the grunts'): sideways in [-angle, angle], up in [0, height], scaled
                         // by the distance between fire_accuracy_min and max
                         let to = (at - muzzle).with_y(0.0);

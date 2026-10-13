@@ -113,6 +113,55 @@ pub struct Projectile {
 /// A projectile of a property set (speed x3 as Projectile_Load 0x0047e0c0; damage, lifetime, fx_start trail
 /// following it, fx_end_material on impact).
 /// Bones that stand for collision parts in the hit test (the main body bones, as the ragdoll parts).
+/// Whether the segment from `from` along `seg` passes within a body part's radius of the skeleton (bone to parent).
+fn ray_hits_parts(a: &crate::skin::Animator, joints: &Query<&GlobalTransform>, from: Vec3, seg: Vec3) -> bool {
+    let pos = |i: usize| joints.get(a.joints[i]).ok().map(|j| j.translation());
+    a.skeleton.names.iter().enumerate().any(|(i, n)| {
+        let n = n.trim().to_lowercase();
+        if !BODY_PARTS.contains(&n.as_str()) {
+            return false;
+        }
+        let r = match n.as_str() {
+            "head" | "neck" => 1.0,
+            "chest" | "belly" | "center" => 1.3,
+            _ => 0.7,
+        };
+        let Some(b) = pos(i) else { return false };
+        let pa = a.skeleton.parents.get(i).copied().filter(|&q| q >= 0).and_then(|q| pos(q as usize)).unwrap_or(b);
+        segment_distance(from, from + seg, pa, b) < r
+    })
+}
+
+/// Shortest distance between segments p0-p1 and q0-q1.
+fn segment_distance(p0: Vec3, p1: Vec3, q0: Vec3, q1: Vec3) -> f32 {
+    let (d1, d2, r) = (p1 - p0, q1 - q0, p0 - q0);
+    let (a, e, f) = (d1.length_squared(), d2.length_squared(), d2.dot(r));
+    let (s, t) = if a <= 1e-9 && e <= 1e-9 {
+        (0.0, 0.0)
+    } else if a <= 1e-9 {
+        (0.0, (f / e).clamp(0.0, 1.0))
+    } else {
+        let c = d1.dot(r);
+        if e <= 1e-9 {
+            ((-c / a).clamp(0.0, 1.0), 0.0)
+        } else {
+            let b = d1.dot(d2);
+            let den = a * e - b * b;
+            let mut s = if den > 1e-9 { ((b * f - c * e) / den).clamp(0.0, 1.0) } else { 0.0 };
+            let mut t = (b * s + f) / e;
+            if t < 0.0 {
+                t = 0.0;
+                s = (-c / a).clamp(0.0, 1.0);
+            } else if t > 1.0 {
+                t = 1.0;
+                s = ((b - c) / a).clamp(0.0, 1.0);
+            }
+            (s, t)
+        }
+    };
+    (p0 + d1 * s).distance(q0 + d2 * t)
+}
+
 const BODY_PARTS: [&str; 16] = ["head", "neck", "chest", "belly", "center", "l_shoulder", "r_shoulder", "l_arm", "r_arm", "l_wrist", "r_wrist", "l_leg", "r_leg", "l_shin", "r_shin", "l_ankle"];
 
 pub fn spawn_projectile(commands: &mut Commands, fx: &mut MessageWriter<crate::fx::StartFx>, p: &Props, from: Vec3, dir: Vec3, from_player: bool, owner: Option<Entity>) {
@@ -807,7 +856,7 @@ fn projectiles(
     time: Res<Time>,
     physics: NonSend<Physics>,
     mut q: Query<(Entity, &mut Projectile, &mut Transform)>,
-    mut chars: Query<(Entity, &crate::physics::Body, &mut Health, Option<&crate::skin::Animator>), Without<Projectile>>,
+    mut chars: Query<(Entity, &crate::physics::Body, &mut Health, Option<&crate::skin::Animator>, Has<crate::ai::Grunt>), Without<Projectile>>,
     joints: Query<&GlobalTransform>,
     mut objects: Query<(&crate::level::Placed, &mut Destructible)>,
     roman: Query<(Entity, &Roman, &Transform), Without<Projectile>>,
@@ -820,7 +869,20 @@ fn projectiles(
         let step = p.vel * dt;
         let from = t.translation;
         p.life -= dt;
-        let hit = physics.raycast(from, step.normalize_or(Vec3::Y), step.length().max(0.01));
+        let mut hit = physics.raycast(from, step.normalize_or(Vec3::Y), step.length().max(0.01));
+        // the original's bullets hit a character's collision parts (Projectile_Update 0x0047e580: a detail-level-2 ray
+        // against the per-part hulls), not a capsule round the whole body: a ray into a character's capsule only hits
+        // when it passes within a part's radius of the skeleton (bone to parent; radii guessed: torso 1.3, head 1.0,
+        // limbs 0.7). Measured in the original (hook AI dump, fightT): Jonesy's 10-damage shots at 130 units hit about
+        // one grunt in twelve, as this width gives with the aim scatter of 0x004284e0
+        if let Some((body, _, _)) = hit {
+            if let Some((_, _, _, Some(a), _)) = chars.iter().find(|(ce, b, _, _, _)| b.id == body && Some(*ce) != p.owner) {
+                let seg = step.normalize_or(Vec3::Y) * (step.length() + 10.0);
+                if !ray_hits_parts(a, &joints, from, seg) {
+                    hit = None;
+                }
+            }
+        }
         // enemy bullets hit Roman by distance to his capsule (the walker is not a body)
         let mut hit_roman = false;
         if !p.from_player {
@@ -856,7 +918,13 @@ fn projectiles(
                 let rot = Quat::from_rotation_arc(Vec3::Y, normal.normalize_or(Vec3::Y)) * crate::level::game_to_engine();
                 fx.write(crate::fx::StartFx { name: n, at, rotation: rot, follow: None, position_only: false });
             }
-            if let Some((_, _, mut h, anim)) = chars.iter_mut().find(|(ce, b, _, _)| b.id == body && Some(*ce) != p.owner) {
+            if let Some((_, _, mut h, anim, grunt)) = chars.iter_mut().find(|(ce, b, _, _, _)| b.id == body && Some(*ce) != p.owner) {
+                // same team (0x00430340: the source's and the victim's vt+0xe4 agree): a grunt's shot does no damage
+                // to a grunt (the engine's earlier grunts killed each other with stray arrows)
+                if grunt && !p.from_player {
+                    commands.entity(e).despawn();
+                    continue;
+                }
                 let was_alive = h.0 > 0.0;
                 // the part hit (0x0047eec0: the hit part's bone "head" / "neck" -> head_shot_multiplier, "chest" /
                 // "belly" -> torso_shot_multiplier). The engine's characters collide as one capsule: the part is
@@ -881,6 +949,9 @@ fn projectiles(
                     stats.head_shots += 1;
                 }
                 h.0 -= p.damage * mult;
+                if std::env::var("AIDBG").is_ok() {
+                    info!("AIDBG hit {:?} for {} -> {}", body, p.damage * mult, h.0);
+                }
                 if p.from_player && was_alive && h.0 <= 0.0 {
                     stats.kills += 1;
                 }
