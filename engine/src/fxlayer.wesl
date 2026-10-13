@@ -35,10 +35,8 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // stage 1 alpha SELECTARG1 TEXTURE (the flakes' alpha), stage 2 alpha MODULATE(CURRENT, TEXTURE): flakes x mask
     let fa = textureSample(t1, s1, in.uv + p.offsets.zw).a;
     let alpha = fa * m.a * p.colour.w;
-    // The flake textures are stored premultiplied (DXT2): their colour is dark where their alpha is low, and the
-    // stage maths above (col) leaves them nearly black, while the original's captures show bright white flakes.
-    // Guess, judged against the synced walk captures: the flake colour is the material colour (emissive white),
-    // weighted by the flake and mask alphas. Additive (SRCALPHA, ONE): premultiplied here.
-    // added as is: the original adds in gamma space, where a faint flake still reads bright (2.2 power would dim it)
-    return vec4(p.colour.rgb * alpha, 0.0);
+    // Additive (SRCALPHA, ONE) as the original: the stage colour times the stage alpha. The flake texture is stored
+    // premultiplied (DXT2), so the flake profile is in effect squared: faint specks vanish and the larger flakes
+    // stay, as in the original's sparse round flakes (synced walk frame 520, work/remaster/render/snow_520i.png).
+    return vec4(col * alpha, 0.0);
 }

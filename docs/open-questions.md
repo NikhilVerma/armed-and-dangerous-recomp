@@ -12,10 +12,11 @@
 Snow now shows (synced walk frame 520). Causes found: the fx textures loaded with the default clamp sampler (the
 domes' uvs run 0..12: repeat needed), the mask loaded as data, and an invalid WESL line (`let _ = x;`) that made the
 layer shader fail to compile (watch for `failed to process shader` in the log: a failing shader draws nothing).
-Still a guess: the flake colour. The flake texture is DXT2 (premultiplied, exported as DXT3 unchanged) with dark
-colour; the stage maths of the material log leave the flakes nearly black, so the engine uses the material's
-white times flake alpha times mask alpha, added in gamma space. The engine's snow is a little denser and streakier
-than the original's sparse round flakes.
+Flake colour resolved (2026-10-13): the stage maths as the original (LERP of the two flake layers by the mask
+colour) times the stage alpha (flakes x mask), added. Because the texture is premultiplied this squares the flake
+profile, giving the original's sparse round flakes; the earlier "white x alpha" guess drew too many faint specks.
+Open: the mask's uv set (both uv sets tile it; the logged stage words carry no texcoord index, it lives in the
+renderer slot at +0x640), left on uv set 0.
 
 ## The big red arrow (resolved 2026-10-13)
 
