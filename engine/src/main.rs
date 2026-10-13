@@ -512,6 +512,7 @@ fn play_state(audio_chk: Res<audio::AudioCheck>, skin: Res<skin::SkinCheck>, mut
     m.insert("kills".into(), p.kills.into());
     m.insert("head_shots".into(), p.head_shots.into());
     m.insert("grunts_alive".into(), ai.alive.into());
+    m.insert("grunt_targets".into(), serde_json::json!(ai.targets));
     m.insert("grunt_shots".into(), ai.shots.into());
     m.insert("explosions".into(), fx.explosions.into());
 }

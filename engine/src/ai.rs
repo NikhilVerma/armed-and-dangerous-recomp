@@ -109,6 +109,8 @@ pub struct AiStats {
     pub shots: usize,
     pub enabled: bool,
     pub states: [usize; 8],
+    /// grunts holding a target: the player, a companion (playtest log, for comparisons with the hook's AI dump)
+    pub targets: [usize; 2],
 }
 
 /// Sticky bomb stuck at a point (game_07.cpp:1240: AI within 25 units are scared).
@@ -230,9 +232,16 @@ fn search(
     mut grunts: Query<(Entity, &mut Grunt, &GlobalTransform, &Body)>,
     joints: Query<&GlobalTransform, Without<Grunt>>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
+    mut stats: ResMut<AiStats>,
 ) {
     let dt = time.delta_secs();
     let Ok((pe, _, _)) = player.single() else { return };
+    stats.targets = [0, 0];
+    for (_, g, _, _) in &grunts {
+        if let Some(t) = g.target.filter(|_| g.mind != Mind::Dead) {
+            stats.targets[if t == pe { 0 } else { 1 }] += 1;
+        }
+    }
     // the candidates (the AI's list +0x604: the player and his companions; the original's grunts take Jonesy and Q
     // too, hook AI dump fightT): each with its position and its ref_hit_00 (the point the sight ray aims at)
     let hit_point = |t: &GlobalTransform, a: Option<&crate::skin::Animator>| {
