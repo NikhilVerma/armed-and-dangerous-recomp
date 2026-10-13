@@ -214,6 +214,17 @@ blast (light added over the frame before): original mean 30..42 / p90 70..82, en
 the blast's scorch mark and the bullets' small marks. Open: decals on placed objects; penguins are not knocked
 about by blasts.
 
+## Companions (Q and Jonesy, 2026-10-13)
+
+`engine/src/ai.rs` Companion, from MolmerObject_Slot47 0x00485910 and the fire cycle (spec in the module comment):
+formation on Roman's ref_q_00 / ref_molmer_00 bones (regroup beyond formation_distance + 2.5, speed (d / delay) x
+move_speed), nav.rs routes re-planned every 0.25 s, targets within scan_distance (cone, line of sight), and support
+fire: with Roman's Fire held, no target and his heading within 45 degrees, they shoot at his aim point. Bursts follow
+the fire anims' notes (Jonesy 4 at once per 0.3 s loop, Q 6 per 0.633 s loop), burst / clip delays, reload anims.
+Verified against the original's sound log on the fire-held test (gunA): Jonesy's 4-shot bursts every 33..49 frames
+(original 38..47), Q's machine-gun loop once per burst every 89..133 (95..140). level1b: both follow the whole level
+(q_dist / jonesy_dist in the playtest log). Not ported: the slot swap, orders, retaliation, Q's healthy tea, barks.
+
 ## Comparing sounds with the original
 
 The original logs every sound it starts with `[test] log_sounds=1` (hook, and-sounds.txt in the instance: frame

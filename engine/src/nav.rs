@@ -41,7 +41,10 @@ pub fn path(physics: &Physics, from: Vec3, to: Vec3, blocked: &[Vec3]) -> Option
             physics.raycast(Vec3::new(p.x, from_h + CLIMB, p.y), -Vec3::Y, 400.0).filter(|h| h.2.y > 0.55).map(|h| h.1.y)
         })
     };
-    ground(&mut heights, cell(from), from.y);
+    // the start: where the walker stands (a ray from above may meet a steep object it is against)
+    if ground(&mut heights, cell(from), from.y).is_none() {
+        heights.insert(cell(from), Some(from.y));
+    }
     let (s, g) = (cell(from), cell(to));
     let h = |c: (i32, i32)| pos(c).distance(pos(g));
     let mut open = BinaryHeap::new();

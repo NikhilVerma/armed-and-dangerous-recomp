@@ -327,19 +327,7 @@ pub fn spawn(
             if let Some(walker) = physics.add_walker(pos, p.f("collision_radius", 4.0).clamp(2.0, 5.0), 10.0) {
                 let (yaw, _, _) = (rot * game_to_engine().inverse()).to_euler(EulerRot::YXZ);
                 commands.entity(e).insert((
-                    crate::ai::Companion {
-                        walker,
-                        angle: p.f("formation_angle", 20.0) * if inst.template == "molmer" { -1.0 } else { 1.0 },
-                        distance: p.f("formation_distance", 25.0),
-                        delay: p.f("delay_distance", 50.0),
-                        scan: p.f("scan_distance", 200.0),
-                        speed: p.f("move_speed", 45.0).max(30.0),
-                        fire_timer: 1.0,
-                        base: game_to_engine(),
-                        yaw,
-                        vy: -5.0,
-                        moving: false,
-                    },
+                    crate::ai::Companion::new(walker, &p, data, inst.template == "q111", yaw, game_to_engine()),
                     Health(p.f("max_health", 500.0)),
                     bounds,
                 ));

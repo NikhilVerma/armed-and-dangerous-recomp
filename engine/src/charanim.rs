@@ -220,10 +220,25 @@ fn penguins(
     }
 }
 
+/// The companions' anims (their tables 0x004876c0 / 0x0044ef20): run (run_reload while reloading on the move),
+/// reload_br, the four fire poses blended by the aim elevation (as the grunts'), else the idle poses.
 fn companions(mut q: Query<(&Companion, &mut Animator, &Name)>) {
     for (c, mut a, name) in &mut q {
         let who = if name.as_str() == "molmer" { "molmer" } else { "q111" };
-        let anim = if c.moving { format!("{who}_run") } else if c.fire_timer > 0.0 && c.fire_timer < 0.4 { format!("{who}_fire_tr") } else { format!("{who}_stand") };
-        a.play(0, &anim, true, Mask::All);
+        if c.moving {
+            a.play(0, &format!("{who}_{}", if c.reloading > 0.0 { "run_reload" } else { "run" }), true, Mask::All);
+            a.stop(1);
+        } else if c.reloading > 0.0 {
+            a.play(0, &format!("{who}_reload_br"), false, Mask::All);
+            a.stop(1);
+        } else {
+            let kind = if c.firing { "fire" } else { "idle" };
+            a.play(0, &format!("{who}_{kind}_tl"), true, Mask::All);
+            a.set_pair(0, &format!("{who}_{kind}_tr"), 0.5);
+            a.play(1, &format!("{who}_{kind}_bl"), true, Mask::All);
+            a.set_pair(1, &format!("{who}_{kind}_br"), 0.5);
+            a.set_weight(1, 1.0 - c.aim_v);
+            a.sync(1, 0);
+        }
     }
 }

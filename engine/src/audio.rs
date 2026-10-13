@@ -147,6 +147,8 @@ pub struct Positional {
     pub min: f32,
     pub max: f32,
     pub follow: Option<Entity>,
+    /// a loop on an object stops with it (FxObject_Remove 0x00418db0 stops the object's sound)
+    pub looped: bool,
 }
 
 /// Stops every playing instance of a sound (looped sounds: the machine gun's fire loop, the ticker wind-up), as
@@ -239,6 +241,7 @@ fn play(
                 min: def.min_distance.unwrap_or(10.0),
                 max: def.max_distance.unwrap_or(500.0),
                 follow: ev.follow,
+                looped,
             });
         }
         bank.played += 1;
@@ -261,12 +264,17 @@ fn stop(mut commands: Commands, mut events: MessageReader<StopSound>, playing: Q
 
 /// The game's distance curve; streamed and positional sounds are silent beyond max distance.
 fn attenuate(
+    mut commands: Commands,
     listener: Query<&GlobalTransform, With<SpatialListener>>,
-    mut q: Query<(&Positional, &mut Transform, Option<&mut AudioSink>)>,
+    mut q: Query<(Entity, &Positional, &mut Transform, Option<&mut AudioSink>)>,
     followed: Query<&GlobalTransform, Without<Positional>>,
 ) {
     let Ok(l) = listener.single() else { return };
-    for (p, mut t, sink) in &mut q {
+    for (e, p, mut t, sink) in &mut q {
+        if p.looped && p.follow.is_some_and(|f| followed.get(f).is_err()) {
+            commands.entity(e).despawn();
+            continue;
+        }
         if let Some(f) = p.follow.and_then(|e| followed.get(e).ok()) {
             t.translation = f.translation();
         }

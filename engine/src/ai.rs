@@ -556,22 +556,102 @@ fn die(
     }
 }
 
-/// Roman's companions (Q = q111, Jonesy = molmer), STAND-IN: they keep formation behind him using their property
-/// sets (formation_angle, formation_distance, delay_distance: they stay put while Roman is within delay_distance,
-/// scan_distance, move_speed) and fire at the nearest grunt in range. The recovered companion AI replaces this.
+/// Roman's companions, Q (q111, Q111Object 0x005a6df8) and Jonesy (molmer, MolmerObject 0x005ae5f8): their shared
+/// update MolmerObject_Slot47 0x00485910 (ai_08.cpp).
+/// - Formation: the slot is Roman's bone ref_q_00 / ref_molmer_00 (0x00483d60); idle (mode 1) until the 2D distance
+///   to Roman exceeds formation_distance + 2.5 (0x004860e2), then run to the slot (mode 2) at speed (d / delay) x
+///   move_speed below 2 x delay_distance, else move_speed (0x00486cb0), d the distance to Roman; idle again there.
+///   (The leader swap of the two slots, 0x00483810, is not ported.)
+/// - Targets (0x00485490 -> AI_FindTarget 0x00426920): the nearest live grunt within scan_distance, in the 190 degree
+///   facing cone and in line of sight; refused when farther than scan_distance from Roman (0x004853a0). Lost or dead:
+///   back to formation after 3..7 s.
+/// - Support fire (0x00485580): following, no target, Roman's Fire held and his heading within 45 degrees of the
+///   companion's: the fire cycle at Roman's aim point (Game+0xa6c), turning toward Roman's heading.
+/// - Fire cycle (0x00428980, counters 0x00427600): bursts of fire_num_bursts shots on the fire anims' notes (Jonesy:
+///   the 4 blended 0.3 s anims each fire at 0: 4 at once; Q: 6 notes per 0.633 s loop), fire_burst_delay between
+///   bursts, fire_num_rounds per clip, then the reload anim and fire_clip_delay. Shots: the weapon's projectile at the
+///   aim point (+ scatter up to fire_inaccuracy_height); the muzzle fx carries the sound (Q's is one fx per burst, its
+///   machine-gun loop).
+/// Not ported: the slot swap, defend / attack orders, retaliation, Q's healthy tea, barks.
 #[derive(Component)]
 pub struct Companion {
     pub walker: crate::physics::Walker,
-    pub angle: f32,
+    pub q: bool,
     pub distance: f32,
     pub delay: f32,
     pub scan: f32,
     pub speed: f32,
-    pub fire_timer: f32,
     pub base: Quat,
     pub yaw: f32,
     pub vy: f32,
     pub moving: bool,
+    /// the fire anim playing (anims), reloading (seconds left of the reload anim)
+    pub firing: bool,
+    pub reloading: f32,
+    /// aim elevation weight 0 (down) .. 1 (up), for the anim blend
+    pub aim_v: f32,
+    target: Option<Entity>,
+    lost: f32,
+    rounds: u32,
+    burst: u32,
+    loop_t: f32,
+    delay_t: f32,
+    muzzle: Option<Entity>,
+    p: CompanionFire,
+    /// the route to the slot (0x0046f6d0, re-planned every 0.25 s while moving: nav.rs A*)
+    route: Vec<Vec3>,
+    replan: f32,
+}
+
+#[derive(Clone)]
+struct CompanionFire {
+    rounds: (u32, u32),
+    bursts: (u32, u32),
+    burst_delay: (f32, f32),
+    clip_delay: (f32, f32),
+    height: f32,
+    bullet: String,
+    muzzle_fx: String,
+}
+
+impl Companion {
+    pub fn new(walker: crate::physics::Walker, p: &crate::gamedata::Props, data: &crate::gamedata::GameData, q: bool, yaw: f32, base: Quat) -> Self {
+        let weapon = data.props(if q { "p_q_chaingun" } else { "p_molmer_pistol" });
+        let fire = CompanionFire {
+            rounds: (p.i("fire_num_rounds_min", 30) as u32, p.i("fire_num_rounds_max", 30) as u32),
+            bursts: (p.i("fire_num_bursts_min", 4) as u32, p.i("fire_num_bursts_max", 4) as u32),
+            burst_delay: (p.f("fire_burst_delay_min", 0.2), p.f("fire_burst_delay_max", 0.5)),
+            clip_delay: (p.f("fire_clip_delay_min", 0.5), p.f("fire_clip_delay_max", 1.0)),
+            height: p.f("fire_inaccuracy_height", 1.0),
+            bullet: format!("p_{}", weapon.s("projectile_name").unwrap_or("molmer_bullet")),
+            muzzle_fx: weapon.s("muzzle_fx_name").unwrap_or("").to_owned(),
+        };
+        Companion {
+            walker,
+            q,
+            distance: p.f("formation_distance", 30.0),
+            delay: p.f("delay_distance", 50.0),
+            scan: p.f("scan_distance", 300.0),
+            speed: p.f("move_speed", 46.0),
+            base,
+            yaw,
+            vy: -5.0,
+            moving: false,
+            firing: false,
+            reloading: 0.0,
+            aim_v: 0.5,
+            target: None,
+            lost: 0.0,
+            rounds: fire.rounds.0,
+            burst: fire.bursts.0,
+            loop_t: 0.0,
+            delay_t: 0.0,
+            muzzle: None,
+            p: fire,
+            route: Vec::new(),
+            replan: 0.0,
+        }
+    }
 }
 
 pub struct CompanionPlugin;
@@ -582,57 +662,182 @@ impl Plugin for CompanionPlugin {
     }
 }
 
+/// The fire notes of one loop of the blended fire anims (seconds into the loop) and the loop's length: Jonesy's
+/// molmer_fire_tl/tr/bl/br (0.3 s) each fire at 0; Q's q111_fire_bl (0.033, 0.467) and _br (0, 0.133, 0.3, 0.467).
+const JONESY_NOTES: (&[f32], f32) = (&[0.0, 0.0, 0.0, 0.0], 0.3);
+const Q_NOTES: (&[f32], f32) = (&[0.0, 0.033, 0.133, 0.3, 0.467, 0.467], 0.633);
+
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn companions(
     mut commands: Commands,
     time: Res<Time>,
     mut physics: NonSendMut<Physics>,
     mut rng: ResMut<FxStats>,
-    roman: Query<(&Transform, &crate::player::Roman), Without<Companion>>,
-    mut q: Query<(&mut Companion, &mut Transform), Without<crate::player::Roman>>,
-    grunts: Query<(&Grunt, &GlobalTransform)>,
+    data: Res<crate::gamedata::GameData>,
+    buttons: Res<ButtonInput<MouseButton>>,
+    bot: Res<crate::playtest::Bot>,
+    roman: Query<(&Transform, &crate::player::Roman, &crate::skin::Animator), Without<Companion>>,
+    cam: Query<&GlobalTransform, With<Camera3d>>,
+    mut q: Query<(Entity, &mut Companion, &mut Transform), Without<crate::player::Roman>>,
+    grunts: Query<(Entity, &Grunt, &GlobalTransform, Option<&crate::skin::Animator>)>,
+    joints: Query<&GlobalTransform, Without<Companion>>,
+    mut fx: MessageWriter<crate::fx::StartFx>,
+    mut log: ResMut<crate::playtest::PlayState>,
 ) {
     let dt = time.delta_secs();
-    let Ok((rt, r)) = roman.single() else { return };
-    for (mut c, mut t) in &mut q {
-        let slot_yaw = r.yaw + std::f32::consts::PI + c.angle.to_radians();
-        let slot = rt.translation + Quat::from_rotation_y(slot_yaw) * Vec3::NEG_Z * c.distance;
-        let to = Vec3::new(slot.x - t.translation.x, 0.0, slot.z - t.translation.z);
-        let d = to.length();
-        let from_roman = (rt.translation - t.translation).with_y(0.0).length();
-        if from_roman > c.delay {
+    let Ok((rt, r, ra)) = roman.single() else { return };
+    let bone = |a: &crate::skin::Animator, n: &str| a.skeleton.index.get(n).and_then(|&i| joints.get(a.joints[i]).ok()).map(|t| t.translation());
+    // Roman's aim point (Game+0xa6c): where the crosshair ray meets the world, else far along it
+    let aim_point = cam.single().ok().map(|c| {
+        let (o, d) = (c.translation(), c.forward().as_vec3());
+        physics.raycast(o + d * 20.0, d, 500.0).map(|h| h.1).unwrap_or(o + d * 520.0)
+    });
+    let fire_held = (buttons.pressed(MouseButton::Left) || bot.fire_ok) && !r.dead;
+    for (e, mut c, mut t) in &mut q {
+        let c = &mut *c;
+        let me = t.translation;
+        // targets
+        if let Some(tg) = c.target {
+            if grunts.get(tg).map_or(true, |(_, g, _, _)| g.mind == Mind::Dead) {
+                c.target = None;
+                c.lost = rng.range(3.0, 7.0);
+            }
+        }
+        if c.target.is_none() {
+            let face = Quat::from_rotation_y(c.yaw) * Vec3::Z;
+            c.target = grunts
+                .iter()
+                .filter(|(_, g, _, _)| g.mind != Mind::Dead)
+                .map(|(ge, _, gt, _)| (ge, gt.translation()))
+                .filter(|(_, p)| p.distance(me) < c.scan && p.distance(rt.translation) < c.scan)
+                .filter(|(_, p)| (*p - me).with_y(0.0).normalize_or_zero().dot(face) > (95.0f32).to_radians().cos())
+                .filter(|(ge, p)| {
+                    let eye = me + Vec3::Y * 8.0;
+                    let to = *p + Vec3::Y * 6.0 - eye;
+                    physics.raycast(eye, to.normalize_or(Vec3::Y), to.length()).is_none_or(|(b, _, _)| physics.bodies.get(&b) == Some(ge))
+                })
+                .min_by(|a, b| a.1.distance(me).total_cmp(&b.1.distance(me)))
+                .map(|(ge, _)| ge);
+        }
+        if c.lost > 0.0 {
+            c.lost -= dt;
+        }
+        // formation: Roman's bone for this companion, regroup beyond formation_distance + 2.5
+        let slot = bone(ra, if c.q { "ref_q_00" } else { "ref_molmer_00" }).unwrap_or(rt.translation);
+        let from_roman = (rt.translation - me).with_y(0.0).length();
+        // playtest log: how far each companion is from Roman
+        log.0.insert(if c.q { "q_dist".into() } else { "jonesy_dist".into() }, (from_roman.round() as i64).into());
+        if c.target.is_none() && c.lost <= 0.0 && from_roman > c.distance + 2.5 {
             c.moving = true;
         }
-        if d < 6.0 {
+        let to_slot = (slot - me).with_y(0.0);
+        if to_slot.length() < 4.0 {
             c.moving = false;
+            c.route.clear();
         }
-        let speed = if c.moving { c.speed } else { 0.0 };
+        if c.moving {
+            c.replan -= dt;
+            if c.replan <= 0.0 {
+                c.replan = 0.25;
+                c.route = crate::nav::path(&physics, me, slot, &[]).unwrap_or_default();
+            }
+            while c.route.first().is_some_and(|w| (*w - me).with_y(0.0).length() < 4.0) {
+                c.route.remove(0);
+            }
+        }
+        let to = c.route.first().map(|w| (*w - me).with_y(0.0)).unwrap_or(to_slot);
+        let speed = if !c.moving { 0.0 } else if from_roman < 2.0 * c.delay { (from_roman / c.delay).min(1.0) * c.speed } else { c.speed };
         let dir = to.normalize_or_zero();
         let vel = dir * speed + Vec3::Y * c.vy;
         if let Some((feet, on)) = physics.move_walker(&c.walker, vel, dt) {
             t.translation = feet;
             c.vy = if on { -5.0 } else { (c.vy - 160.0 * dt).max(-200.0) };
         }
-        let target = grunts
-            .iter()
-            .filter(|(g, _)| g.mind != Mind::Dead)
-            .map(|(_, gt)| gt.translation())
-            .filter(|p| p.distance(t.translation) < c.scan)
-            .min_by(|a, b| a.distance(t.translation).total_cmp(&b.distance(t.translation)));
-        let face = target.map(|p| (p - t.translation).with_y(0.0)).filter(|v| v.length() > 0.1).unwrap_or(dir);
-        if face != Vec3::ZERO {
-            c.yaw = face.x.atan2(face.z);
+        // what to shoot at: the target's ref_hit_00, or (support fire) Roman's aim point
+        let target_pos = c.target.and_then(|tg| grunts.get(tg).ok()).map(|(_, _, gt, a)| a.and_then(|a| bone(a, "ref_hit_00")).unwrap_or(gt.translation() + Vec3::Y * 6.0));
+        let roman_heading = r.yaw + std::f32::consts::PI;
+        let heading_ok = {
+            let d = (roman_heading - c.yaw + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+            d.abs() <= 45f32.to_radians()
+        };
+        let support = c.target.is_none() && !c.moving && fire_held && heading_ok;
+        let shoot_at = target_pos.or(if support { aim_point } else { None });
+        // facing: the target, else (support fire / following) Roman's heading, else the way it runs
+        let face = target_pos.map(|p| (p - me).with_y(0.0)).filter(|v| v.length() > 0.1);
+        if let Some(f) = face {
+            c.yaw = f.x.atan2(f.z);
+        } else if c.moving && dir != Vec3::ZERO {
+            c.yaw = dir.x.atan2(dir.z);
+        } else if fire_held {
+            let d = (roman_heading - c.yaw + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+            c.yaw += d * (8.0 * dt).min(1.0);
         }
         t.rotation = Quat::from_rotation_y(c.yaw) * c.base;
-        c.fire_timer -= dt;
-        if let Some(p) = target {
-            if c.fire_timer <= 0.0 {
-                c.fire_timer = rng.range(0.15, 0.4);
-                let muzzle = t.translation + Vec3::Y * 6.0;
-                let dir = (p + Vec3::Y * 5.0 + Vec3::new(rng.rand() - 0.5, 0.0, rng.rand() - 0.5) * 4.0 - muzzle).normalize_or(Vec3::Z);
-                commands.spawn((
-                    Transform::from_translation(muzzle + dir * 4.0),
-                    crate::player::Projectile { vel: dir * 900.0, life: 0.4, damage: 10.0, from_player: true, owner: None, fx_end: Some("fx_imp_flemming".into()), head_mult: 1.0, torso_mult: 1.0 },
-                ));
+        // the fire cycle
+        let (notes, loop_len) = if c.q { Q_NOTES } else { JONESY_NOTES };
+        if c.reloading > 0.0 {
+            c.reloading -= dt;
+            c.firing = false;
+            if c.reloading <= 0.0 {
+                c.rounds = rng.range(c.p.rounds.0 as f32, c.p.rounds.1 as f32 + 0.999) as u32;
+                c.burst = rng.range(c.p.bursts.0 as f32, c.p.bursts.1 as f32 + 0.999) as u32;
+            }
+        } else if let Some(at) = shoot_at {
+            let muzzle = me + Vec3::Y * 7.0 + Quat::from_rotation_y(c.yaw) * Vec3::Z * 3.0;
+            let dz = at - muzzle;
+            let deg = (dz.y / dz.length().max(1e-3)).clamp(-1.0, 1.0).acos().to_degrees() - 90.0;
+            c.aim_v = (deg.clamp(-26.5, 26.5) + 26.5) / 53.0;
+            if c.delay_t > 0.0 {
+                c.delay_t -= dt;
+                c.firing = false;
+            } else {
+                c.firing = true;
+                let prev = c.loop_t;
+                c.loop_t += dt;
+                for &n in notes {
+                    let hit = (prev == 0.0 && n == 0.0) || (n > prev && n <= c.loop_t);
+                    if hit && c.burst > 0 && c.rounds > 0 {
+                        c.burst -= 1;
+                        c.rounds -= 1;
+                        let scatter = Vec3::new(rng.rand() - 0.5, rng.rand() * c.p.height, rng.rand() - 0.5) * 2.0;
+                        let aim = (at + scatter - muzzle).normalize_or(Vec3::Z);
+                        let bullet = data.props(&c.p.bullet);
+                        crate::player::spawn_projectile(&mut commands, &mut fx, &bullet, muzzle, aim, true, Some(e));
+                        if c.q {
+                            // Q's muzzle fx runs for the burst (its machine-gun loop): one per burst
+                            if c.muzzle.is_none() {
+                                let m = commands.spawn((Transform::from_translation(muzzle), Visibility::default())).id();
+                                c.muzzle = Some(m);
+                                fx.write(crate::fx::StartFx { name: c.p.muzzle_fx.clone(), at: muzzle, rotation: Quat::IDENTITY, follow: Some(m), position_only: true });
+                            }
+                        } else if !c.p.muzzle_fx.is_empty() {
+                            fx.write(crate::fx::StartFx { name: c.p.muzzle_fx.clone(), at: muzzle, rotation: Transform::IDENTITY.looking_to(aim, Vec3::Y).rotation, follow: None, position_only: false });
+                        }
+                    }
+                }
+                if c.loop_t >= loop_len {
+                    c.loop_t = 0.0;
+                    if c.burst == 0 || c.rounds == 0 {
+                        c.burst = rng.range(c.p.bursts.0 as f32, c.p.bursts.1 as f32 + 0.999) as u32;
+                        c.delay_t = rng.range(c.p.burst_delay.0, c.p.burst_delay.1);
+                        if let Some(m) = c.muzzle.take() {
+                            commands.entity(m).despawn();
+                        }
+                    }
+                    if c.rounds == 0 {
+                        // the reload anim (molmer_reload_br 3.47 s, q111_reload_br 1.97 s) and the clip delay
+                        c.reloading = if c.q { 1.967 } else { 3.467 } + rng.range(c.p.clip_delay.0, c.p.clip_delay.1);
+                    }
+                }
+            }
+            if let (Some(m), true) = (c.muzzle, c.q) {
+                commands.entity(m).insert(Transform::from_translation(muzzle));
+            }
+        } else {
+            c.firing = false;
+            c.loop_t = 0.0;
+            if let Some(m) = c.muzzle.take() {
+                commands.entity(m).despawn();
             }
         }
     }
