@@ -189,8 +189,17 @@ fn play(
     mixer: Res<Mixer>,
     mut subs: MessageWriter<Subtitle>,
     mut pick: Local<u32>,
+    time: Res<Time>,
+    mut log: Local<Option<std::fs::File>>,
 ) {
     let Some(mut bank) = bank else { return };
+    // debug: AND_SOUND_LOG=<file> writes every sound started (game seconds, name, volume_db), to compare with the
+    // original's [test] log_sounds list on the same inputs (docs/remaster-engine.md)
+    if log.is_none() {
+        if let Ok(path) = std::env::var("AND_SOUND_LOG") {
+            *log = std::fs::File::create(path).ok();
+        }
+    }
     for ev in events.read() {
         *pick = pick.wrapping_mul(1103515245).wrapping_add(12345);
         let Some(key) = bank.resolve(&ev.name, *pick >> 8) else { continue };
@@ -208,6 +217,10 @@ fn play(
             _ => mixer.sfx,
         };
         let base = db_to_gain(def.volume_db) * ev.volume * cat * mixer.master;
+        if let Some(f) = log.as_mut() {
+            use std::io::Write;
+            let _ = writeln!(f, "{:.3} {key} {:.1} {}", time.elapsed_secs(), def.volume_db, if ev.at.is_some() || ev.follow.is_some() { "3d" } else { "2d" });
+        }
         if def.category.as_deref() == Some("voice") {
             if let Some(line) = bank.voice.get(&key).filter(|l| l.subtitle.is_some()) {
                 subs.write(Subtitle { speaker: line.speaker.clone(), text: line.subtitle.clone().unwrap_or_default(), duration: line.duration.max(2.0) });

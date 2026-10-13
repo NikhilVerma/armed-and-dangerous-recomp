@@ -107,7 +107,7 @@ pub struct LevelPlugin;
 impl Plugin for LevelPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<SpawnGrunt>()
-            .add_systems(Update, (husks.after(crate::fx::FxSet), spawn_grunts, rigid_anims))
+            .add_systems(Update, (husks.after(crate::fx::FxSet), spawn_grunts, rigid_anims, audio_loops))
             .add_systems(PostUpdate, follow_camera.before(TransformSystems::Propagate));
     }
 }
@@ -378,6 +378,13 @@ pub fn spawn(
             physics.materials.insert(c, m.to_owned());
         }
         commands.entity(e).insert((Placed { template: inst.template.clone(), collider }, bounds));
+        // attach_audio_loop (the oil pumps' amb_oil_pump_lp): a loop on the object while it lives
+        if let Some(name) = p.s("attach_audio_loop").filter(|n| !n.is_empty() && *n != "none") {
+            commands.entity(e).insert(AudioLoop(name.to_owned()));
+        } else if behavior == "pub" {
+            // the pub's own loop (Pub_StartExteriorLoop 0x0046a790: "amb_pub_exterior_lp", attached, once)
+            commands.entity(e).insert(AudioLoop("amb_pub_exterior_lp".into()));
+        }
         if let Some(d) = destructible(&p) {
             commands.entity(e).insert(d);
             info.destructibles += 1;
@@ -436,6 +443,30 @@ pub fn spawn(
         ));
     }
     info
+}
+
+/// An object's attach_audio_loop sound (0x00450490 reads it into +0x4f4 with flag 0x20000; the per-frame update
+/// 0x004505a0 starts it as a positional loop on the object, and its death stops it).
+#[derive(Component)]
+pub struct AudioLoop(pub String);
+
+fn audio_loops(
+    new: Query<(Entity, &AudioLoop), Added<AudioLoop>>,
+    mut died: MessageReader<Died>,
+    sounds: Query<(Entity, &crate::audio::Positional)>,
+    mut play: MessageWriter<crate::audio::PlaySound>,
+    mut commands: Commands,
+) {
+    for (e, l) in &new {
+        play.write(crate::audio::PlaySound { name: l.0.clone(), at: None, follow: Some(e), looped: Some(true), volume: 1.0 });
+    }
+    for d in died.read() {
+        for (s, p) in &sounds {
+            if p.follow == Some(d.0) {
+                commands.entity(s).despawn();
+            }
+        }
+    }
 }
 
 /// A dead object is replaced by its husk template (felled tree, ruined barracks) or removed, with its collider.

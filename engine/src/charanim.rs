@@ -87,8 +87,21 @@ fn return_name(s: &str) -> &'static str {
 }
 
 #[allow(clippy::type_complexity)]
-fn grunts(mut q: Query<(&Grunt, &mut Animator, &Transform, Option<&crate::topsy::Thrown>), Without<crate::ragdoll::Ragdoll>>, targets: Query<&GlobalTransform>) {
-    for (g, mut a, t, thrown) in &mut q {
+fn grunts(
+    mut q: Query<(Entity, &Grunt, &mut Animator, &Transform, Option<&crate::topsy::Thrown>), Without<crate::ragdoll::Ragdoll>>,
+    targets: Query<&GlobalTransform>,
+    time: Res<Time>,
+    lib: Res<crate::skin::AnimLibrary>,
+    mut fidgets: Local<std::collections::HashMap<Entity, (f32, Option<String>)>>,
+    mut seed: Local<u32>,
+) {
+    let dt = time.delta_secs();
+    let mut rand = || {
+        // MSVC rand(): 0..32767
+        *seed = seed.wrapping_mul(214013).wrapping_add(2531011);
+        (*seed >> 16) & 0x7fff
+    };
+    for (e, g, mut a, t, thrown) in &mut q {
         // thrown by the Topsy Turvy bomb: hanging on, or falling into the sky
         if let Some(th) = thrown {
             let (name, looping) = match (th.hangs, th.t < 1.0, th.t < 0.3) {
@@ -128,8 +141,42 @@ fn grunts(mut q: Query<(&Grunt, &mut Animator, &Transform, Option<&crate::topsy:
             Mind::Flee => ("grunt_run_scared".to_string(), true),
             Mind::Chase if limping => ("grunt_limp".to_string(), true),
             Mind::Chase => ("grunt_run_scan".to_string(), true),
-            Mind::Roam => ("grunt_march".to_string(), true),
-            Mind::Guard | Mind::WaitTrigger => (if g.guard { "grunt_attention".to_string() } else { "grunt_stand_scan_1".to_string() }, true),
+            Mind::Guard | Mind::WaitTrigger | Mind::Roam if g.guard || g.mind == Mind::Roam => {
+                // fidgets (0x0042be80 / 0x00427330): with no target the timer +0x494 (15 + rand * 0.000275 s, also
+                // at load) counts down; on expiry, standing at attention (anim 0xf), one random fidget 0x12..0x1a
+                // plays once (GruntObject 0x0043bd70: 18 shiver on a cold level (Game+0x2708 == 1, not known here:
+                // taken as not) else a random 19..26; 19 cough, 20 sneeze, 21 fly buzz, 22 blow nose, 23..26 the
+                // stand scans); when it ends (or the timer runs out again) attention resumes and the timer is redrawn.
+                // The cough and shiver anims carry the fx notes that play the grunts' _ic sounds.
+                let f = fidgets.entry(e).or_insert_with(|| (15.0 + rand() as f32 * 0.000275, None));
+                f.0 -= dt;
+                let done = f.1.is_some() && a.finished(0, &lib);
+                if f.0 <= 0.0 || done {
+                    f.0 = 15.0 + rand() as f32 * 0.000275;
+                    f.1 = if f.1.is_some() {
+                        None
+                    } else {
+                        let mut id = ((rand() * 9) >> 15) + 0x12;
+                        if id == 0x12 {
+                            id = ((rand() << 3) >> 15) + 0x13;
+                        }
+                        Some(match id {
+                            19 => "grunt_idle_cough",
+                            20 => "grunt_idle_sneeze",
+                            21 => "grunt_idle_fly_buzz",
+                            22 => "grunt_idle_blow_nose",
+                            23 | 25 => "grunt_stand_scan_1",
+                            _ => "grunt_stand_scan_2",
+                        }
+                        .to_string())
+                    };
+                }
+                match &f.1 {
+                    Some(n) => (n.clone(), false),
+                    None => ("grunt_attention".to_string(), true),
+                }
+            }
+            Mind::Guard | Mind::WaitTrigger | Mind::Roam => ("grunt_stand_scan_1".to_string(), true),
         };
         a.play(0, &name, looping, Mask::All);
         a.stop(1);

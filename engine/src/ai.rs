@@ -388,14 +388,11 @@ fn think(
         let mut speed = 0.0;
         match g.mind {
             Mind::Roam => {
-                // stand-in patrol around home at patrol_speed (the original fidgets in place or follows markers)
-                if g.timer <= 0.0 || flat(g.goal - pos).length() < 4.0 {
-                    let a = rng.rand() * std::f32::consts::TAU;
-                    g.goal = g.home + Vec3::new(a.cos(), 0.0, a.sin()) * rng.range(8.0, 40.0);
-                    g.timer = rng.range(3.0, 7.0);
-                }
-                goal = g.goal;
-                speed = g.patrol_speed;
+                // idle / roaming (state 1, grunt-ai.md): with no target the grunt stands at attention where it is and
+                // fidgets (charanim.rs); it only moves along a patrol spline, which no lev_1_m1 grunt has. (The
+                // engine's earlier stand-in wandered round home, marching with footsteps the original never plays.)
+                goal = pos;
+                speed = 0.0;
             }
             Mind::Chase => {
                 // pursue 0x004295d0: a point within +-20 of the target; every 0.2-0.4 s a ray decides to engage
