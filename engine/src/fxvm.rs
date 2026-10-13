@@ -1295,11 +1295,15 @@ fn streamers(
     mut meshes: ResMut<Assets<Mesh>>,
 ) {
     let dt = time.delta_secs();
+    // an fx object spawned this frame has no world transform yet (propagation runs before this): its placement
+    let placed: std::collections::HashMap<Entity, Vec3> =
+        vm.streamers.iter().filter_map(|s| vm.objects.get(&s.owner).map(|o| (s.owner, game_to_engine() * o.place.w_axis.truncate()))).collect();
     for st in vm.streamers.iter_mut() {
         st.time += dt;
         match owners.get(st.owner) {
             Ok(o) if st.emitting => {
-                let p = o.translation();
+                // (the engine's first point at the world origin drew a huge triangle from there: fight2E, 2026-10-14)
+                let p = if o.translation() == Vec3::ZERO { placed.get(&st.owner).copied().unwrap_or(Vec3::ZERO) } else { o.translation() };
                 let x = st.time / (st.life * 0.25);
                 let size = if x < 1.0 { 3.0 * x * x - 2.0 * x * x * x } else { 1.0 };
                 let n = st.points.len();
