@@ -312,6 +312,9 @@ pub fn spawn(
         // Roman, the player: the placed trotter
         if inst.template == "trotter" {
             let (yaw, _, _) = (rot * game_to_engine().inverse()).to_euler(EulerRot::YXZ);
+            // PlayerObject_Load 0x00473da0 puts him on the ground (Object_ForceGround 0x00455860: from 1000 above,
+            // 10000 down): he does not drop from the placement's height at the start
+            let pos = physics.raycast(pos + Vec3::Y * 1000.0, -Vec3::Y, 10000.0).map(|h| pos.with_y(h.1.y)).unwrap_or(pos);
             if let Some(r) = crate::player::make_roman(physics, &p, data, pos, yaw - std::f32::consts::PI) {
                 commands.entity(e).insert((Health(r.max_health), r, bounds, crate::ai::Player));
                 info.player = Some(e);

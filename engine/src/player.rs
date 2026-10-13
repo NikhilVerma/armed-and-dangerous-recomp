@@ -29,8 +29,15 @@ pub struct Roman {
     pub pitch: f32,
     pub vel: Vec3,
     pub on_ground: bool,
+    /// in the jump state (flag 0x80) from the take-off to the landing; a plain fall keeps the ground drive
+    pub jumping: bool,
     pub fwd_speed: f32,
     pub side_speed: f32,
+    /// movement_power_max (full stick: keys), jump_fwd / side_max_speed and jump_movement_power (PlayerObject_Load)
+    pub power: f32,
+    pub jump_fwd_speed: f32,
+    pub jump_side_speed: f32,
+    pub jump_power: f32,
     pub jump_impulse: f32,
     pub fall_speed: f32,
     pub anti_gravity: f32,
@@ -157,8 +164,13 @@ pub fn make_roman(physics: &mut Physics, p: &Props, data: &GameData, feet: Vec3,
         pitch: -0.15,
         vel: Vec3::ZERO,
         on_ground: false,
+        jumping: false,
         fwd_speed: p.f("fwd_max_speed", 40.0),
         side_speed: p.f("side_max_speed", 40.0),
+        power: p.f("movement_power_max", 10.0),
+        jump_fwd_speed: p.f("jump_fwd_max_speed", 2.0),
+        jump_side_speed: p.f("jump_side_max_speed", 2.0),
+        jump_power: p.f("jump_movement_power", 10.0),
         jump_impulse: p.f("jump_impulse", 70.0),
         fall_speed: p.f("fall_speed", -50.0),
         anti_gravity: p.f("jump_anti_gravity", 5.0),
@@ -455,14 +467,42 @@ fn control(
         if topsy.active() {
             wish = Vec3::ZERO;
         }
-        // horizontal velocity follows the input quickly, vertical integrates gravity (49 units/s^2 = 9.8 m/s^2)
-        let k = (dt * 12.0).min(1.0);
-        r.vel.x += (wish.x - r.vel.x) * k;
-        r.vel.z += (wish.z - r.vel.z) * k;
+        // the drive (PlayerObject_Update 0x004799d5 through 0x00471810): force = d * mass * power * s^5, d the wanted
+        // minus the current velocity, s = sqrt(1 - c^2) with c = (d . up) / |d| clamped to [0, 1], the power scaled by
+        // max_speed / |d| when |d| exceeds the max speed. On the ground the max speeds are fwd / side_max_speed (40)
+        // with movement_power (lerp min..max by the stick: keys are full stick, max 10); jumping (state flag 0x80)
+        // jump_fwd / side_max_speed (6.5) with jump_movement_power (4). Integrated exactly per frame.
+        let (max_speed, power) = (r.fwd_speed.max(r.side_speed), r.power);
+        if r.jumping {
+            // air control: the stick adds jump_fwd / side_max_speed x jump_movement_power (6.5 x 4 = 26 units/s^2) to
+            // the take-off velocity. Fitted to the original's measured jump (hook camera dump "player", jumpA: +2.17
+            // units/s every 5 frames from 39.5 to 62.6 in the air, peak 14.6 at 0.42 s); the drive's wanted velocity
+            // in the jump state (+0x4c0 / +0x9xx terms of 0x004799d5) is not fully decoded.
+            if r.fwd_speed > 0.0 {
+                let a = Vec3::new(wish.x, 0.0, wish.z) * (r.jump_fwd_speed / r.fwd_speed) * r.jump_power;
+                r.vel += a * dt;
+            }
+        }
+        let d = Vec3::new(wish.x - r.vel.x, if r.on_ground { 0.0 } else { -r.vel.y }, wish.z - r.vel.z);
+        let dist = d.length();
+        if dist > 1e-4 && !r.jumping {
+            let strength = if max_speed > 0.0 && dist > max_speed { power * max_speed / dist } else { power };
+            let c = (d.y / dist).clamp(0.0, 1.0);
+            let s5 = (1.0 - c * c).max(0.0).sqrt().clamp(0.0, 1.0).powi(5);
+            let k = 1.0 - (-strength * s5 * dt).exp();
+            r.vel.x += d.x * k;
+            r.vel.z += d.z * k;
+            if !r.on_ground {
+                r.vel.y += d.y * k;
+            }
+        }
         if r.on_ground {
             r.vel.y = r.vel.y.max(-5.0);
             if (keys.just_pressed(KeyCode::Space) || (bot.veer > 0.0 && bot.goto.is_some())) && !r.dead {
-                r.vel.y = r.jump_impulse;
+                // the impulse, then this step's gravity as in the airborne steps (velocity before position): the
+                // original's arc (jumpA, peak 14.6) fits 70 and gravity 160.9 that way
+                r.vel.y = r.jump_impulse - 64.348 * r.anti_gravity * 0.5 * dt;
+                r.jumping = true;
             }
         } else {
             // world gravity -64.348 x anti_gravity x 0.5 (0x005bcb4c): -160.9 with jump_anti_gravity 5 in lev_1_m1
@@ -478,6 +518,9 @@ fn control(
                 r.vel.y = 0.0;
             }
             r.on_ground = on;
+            if on && r.vel.y <= 0.0 {
+                r.jumping = false;
+            }
             t.translation = feet;
         }
         // Roman faces where the camera looks (his model faces -Y in game space = +Z engine: turn by pi)
