@@ -198,7 +198,8 @@ pub fn spawn(
             }
             continue;
         }
-        if matches!(behavior, "broadcast" | "fx_ear") || inst.template == "marker" || inst.template == "bigredarrow" {
+        // (the big red arrow over the pub is drawn: the original shows it until trigger 900 removes it)
+        if matches!(behavior, "broadcast" | "fx_ear") || inst.template == "marker" {
             continue;
         }
         // the placement's scale is not applied: the original draws scaled placements (the archways' 0.5, pine trees'

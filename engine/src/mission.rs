@@ -653,6 +653,8 @@ fn dispatch(
     mut events: MessageReader<SendTrigger>,
     mut grunts: Query<(&InstanceId, &mut Grunt)>,
     mut objects: Query<(&InstanceId, &mut Destructible)>,
+    plain: Query<(Entity, &InstanceId), (Without<Destructible>, Without<Grunt>)>,
+    mut commands: Commands,
     player: Query<Entity, With<Player>>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     mut fx: MessageWriter<StartFx>,
@@ -701,10 +703,20 @@ fn dispatch(
                     }
                 }
                 Action::Destroy(id) => {
+                    let mut killed = false;
                     for (i, mut d) in &mut objects {
                         if i.0 == id && d.dying.is_none() {
                             d.health = 0.0;
                             d.dying = Some(0.0);
+                            killed = true;
+                        }
+                    }
+                    // objects without health (the big red arrow): receive_trigger_kill removes them
+                    if !killed {
+                        for (e, i) in &plain {
+                            if i.0 == id {
+                                commands.entity(e).despawn();
+                            }
                         }
                     }
                 }

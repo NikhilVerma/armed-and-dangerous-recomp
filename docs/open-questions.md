@@ -20,3 +20,10 @@ texture right (decode the raw blocks), or is my reading of the op / argument byt
 of stage 2, or TFACTOR / a COMPLEMENT / ALPHAREPLICATE modifier on the flake argument)? Next step: dump the D3D
 texture stage states and the texture the original binds while the snow draws ([test] d3d_dump_frame) and
 reproduce one frame of the dome offline.
+
+## The big red arrow's shape (remaster engine, 2026-10-13)
+
+The arrow over the pub (bigredarrow 258) now draws and is removed by trigger 900, but at 1175 units (synced walk
+frame 520) the original shows the full arrow (shaft and head, facing the camera, bobbing), the engine only a small
+head. Its model is a rigid mesh in the node m_bigarrow (rotation 90 degrees about x in anim bigredarrow_0, which
+also bobs Center with 30 keys): check whether the exported positions need that node transform, and play the bob.
