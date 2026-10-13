@@ -48,6 +48,10 @@ pub struct Event {
     /// debug: spawn a grunt_regular at this game-space point (as a barracks does)
     #[serde(default)]
     pub spawn: Option<[f32; 3]>,
+    /// debug: put Roman's feet at this game-space point facing this yaw (degrees, game space: 0 = +y), to look at
+    /// one spot without walking there
+    #[serde(default)]
+    pub warp: Option<[f32; 4]>,
     /// bot: walk to this point (game space x, y, z: as the scene files give positions)
     #[serde(default)]
     pub goto: Option<[f32; 3]>,
@@ -149,6 +153,8 @@ pub struct Playtest {
     step: usize,
     step_t: f32,
     step_started: bool,
+    /// a warp step waiting for the warp system
+    warp: Option<[f32; 4]>,
 }
 
 /// Lines the game adds to the once-a-second state log (player position, health, mission step, ...).
@@ -162,7 +168,7 @@ impl Playtest {
         let mut events = s.events;
         events.sort_by(|a, b| a.t.total_cmp(&b.t));
         let log = std::fs::File::create(path.with_extension("log.jsonl")).ok();
-        Playtest { path, title: s.title, events, turns: s.turns, next: 0, t: 0.0, taps: vec![], clicks: vec![], log, last_log: -1.0, steps: s.steps, step_shot: None, step: 0, step_t: 0.0, step_started: false }
+        Playtest { warp: None, path, title: s.title, events, turns: s.turns, next: 0, t: 0.0, taps: vec![], clicks: vec![], log, last_log: -1.0, steps: s.steps, step_shot: None, step: 0, step_t: 0.0, step_started: false }
     }
 }
 
@@ -180,8 +186,26 @@ impl Plugin for PlaytestPlugin {
         app.init_resource::<PlayState>()
             .init_resource::<Bot>()
             .add_systems(PreUpdate, drive.after(bevy::input::InputSystems).run_if(resource_exists::<Playtest>))
-            .add_systems(Last, log_state.run_if(resource_exists::<Playtest>));
+            .add_systems(Last, log_state.run_if(resource_exists::<Playtest>))
+            .add_systems(Update, warp.run_if(resource_exists::<Playtest>));
     }
+}
+
+/// The warp step: Roman's walker and transform moved, his yaw set (the bot's goto is cleared).
+fn warp(
+    mut pt: ResMut<Playtest>,
+    mut physics: NonSendMut<crate::physics::Physics>,
+    mut bot: ResMut<Bot>,
+    mut roman: Query<(&mut crate::player::Roman, &mut Transform)>,
+) {
+    let Some(w) = pt.warp else { return };
+    let Ok((mut r, mut t)) = roman.single_mut() else { return };
+    pt.warp = None;
+    let feet = crate::level::game_to_engine() * Vec3::new(w[0], w[1], w[2]);
+    physics.place_walker(&r.walker, feet);
+    t.translation = feet;
+    r.yaw = w[3].to_radians();
+    bot.goto = None;
 }
 
 pub fn key(name: &str) -> Option<KeyCode> {
@@ -380,6 +404,9 @@ fn drive(
                 g.last_hit = d;
                 h.0 -= d;
             }
+        }
+        if let Some(w) = e.warp {
+            pt.warp = Some(w);
         }
         if let Some(g) = e.spawn {
             spawn.write(crate::level::SpawnGrunt { at: Vec3::new(g[0], g[2], -g[1]), template: "grunt_regular".into() });

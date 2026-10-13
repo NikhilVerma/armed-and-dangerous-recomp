@@ -104,7 +104,8 @@ walk (a paused message), so capture frames before ~640 or dismiss it.
 
 `--play SCRIPT.json` drives the game: `steps` run in order (`wait`, `goto` [game x, y, z] with optional `near`,
 `hold_use`, `tap` key, `down` / `up`, `click` / `hold_mouse` / `release_mouse`, `shot` name with optional
-`shot_after` seconds, `fight` true / false, debug `hurt` and `spawn`, `quit`); `"title": true` starts on the title
+`shot_after` seconds, `fight` true / false, debug `hurt`, `spawn` and `warp` [game x, y, z, yaw degrees] to
+put Roman at a spot without walking there (work/remaster/play/pump.json), `quit`); `"title": true` starts on the title
 menu. It logs the game state every second to `<script>.log.jsonl` (position, health, mission events, prompts,
 subtitles, sounds, skinning check) and saves `<script>.<shot>.png`. The full-level script is
 work/remaster/play/level1b.json (pub, both gates, win). Run it in the background and stop on Won / Failed:
