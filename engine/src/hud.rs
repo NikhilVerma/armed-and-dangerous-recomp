@@ -288,58 +288,81 @@ fn place(windows: Query<&Window>, mut q: Query<(&HudElement, &mut Transform)>) {
     }
 }
 
-/// Builds a text mesh: glyph quads in 640x480 units around (0, 0), centred (align 0.5, 0.5); `<br>` and `\n`
-/// break lines; markup tags are skipped.
-fn text_mesh(font: &FontFile, text: &str, scale: f32, offset: Vec2) -> Mesh {
+/// Builds a text mesh: glyph quads in 640x480 units around (0, 0), each line centred, the block centred in y;
+/// `<br>` / `\n` break lines, `<rgb=RRGGBB>`..`</rgb>` colour (vertex colours over `base`), `<tab=N>` moves the
+/// pen to N widths of 'W' from the line start; other tags are skipped. Also returns the block's size.
+fn text_mesh(font: &FontFile, text: &str, scale: f32, offset: Vec2, base: Color) -> (Mesh, Vec2) {
     // in the original a scale-1 line is 25 px at 480 lines (hud.md 3.3)
     let k = scale * 25.0 / font.common.line_height.max(1.0);
-    let clean = text.replace("<br>", "\n");
-    let mut lines: Vec<String> = Vec::new();
+    let clean = text.replace("<br>", "\n").replace("<BR>", "\n");
+    let w_adv = font.chars.get(&('W' as u32).to_string()).map(|g| g.xadvance * k).unwrap_or(10.0 * k);
+    // lay out each line from x = 0: (x, glyph, colour)
+    let mut lines: Vec<(Vec<(f32, Glyph, [f32; 4])>, f32)> = Vec::new();
+    let mut colour = base.to_linear().to_f32_array();
     for l in clean.split('\n') {
-        let mut out = String::new();
-        let mut skip = false;
-        for c in l.chars() {
-            match c {
-                '<' => skip = true,
-                '>' if skip => skip = false,
-                _ if !skip => out.push(c),
-                _ => {}
+        let mut items = Vec::new();
+        let mut x = 0.0f32;
+        let mut chars = l.chars().peekable();
+        while let Some(c) = chars.next() {
+            if c == '<' {
+                let mut tag = String::new();
+                for t in chars.by_ref() {
+                    if t == '>' {
+                        break;
+                    }
+                    tag.push(t);
+                }
+                let tl = tag.to_lowercase();
+                if let Some(v) = tl.strip_prefix("rgb=") {
+                    if let Ok(v) = u32::from_str_radix(v.trim(), 16) {
+                        colour = Color::srgb_u8((v >> 16) as u8, (v >> 8) as u8, v as u8).to_linear().to_f32_array();
+                    }
+                } else if tl == "/rgb" {
+                    colour = base.to_linear().to_f32_array();
+                } else if let Some(n) = tl.strip_prefix("tab=") {
+                    x = x.max(n.trim().parse::<f32>().unwrap_or(0.0) * w_adv);
+                }
+                continue;
             }
+            let Some(g) = font.chars.get(&(c as u32).to_string()).copied() else { continue };
+            items.push((x, g, colour));
+            x += g.xadvance * k;
         }
-        lines.push(out);
+        lines.push((items, x));
     }
-    let (mut pos, mut uv, mut idx) = (Vec::new(), Vec::new(), Vec::new());
+    let (mut pos, mut uv, mut idx, mut col) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     let lh = font.common.line_height * k;
     let total_h = lh * lines.len() as f32;
-    for (li, line) in lines.iter().enumerate() {
-        let width: f32 = line.chars().filter_map(|c| font.chars.get(&(c as u32).to_string())).map(|g| g.xadvance * k).sum();
-        let mut x = -width / 2.0 + offset.x;
+    let max_w = lines.iter().map(|l| l.1).fold(0.0, f32::max);
+    for (li, (items, width)) in lines.iter().enumerate() {
+        let left = -width / 2.0 + offset.x;
         let top = total_h / 2.0 - li as f32 * lh + offset.y;
-        for c in line.chars() {
-            let Some(g) = font.chars.get(&(c as u32).to_string()) else { continue };
+        for (x, g, c) in items {
             if g.width > 0.0 {
-                let (x0, x1) = (x + g.xoffset * k, x + (g.xoffset + g.width) * k);
+                let (x0, x1) = (left + x + g.xoffset * k, left + x + (g.xoffset + g.width) * k);
                 let (y0, y1) = (top - g.height * k, top);
-                let base = pos.len() as u32;
+                let b = pos.len() as u32;
                 pos.extend([[x0, y0, 0.0], [x1, y0, 0.0], [x1, y1, 0.0], [x0, y1, 0.0]]);
                 let (u0, u1) = (g.x / font.common.scale_w, (g.x + g.width) / font.common.scale_w);
                 let (v0, v1) = (g.y / font.common.scale_h, (g.y + g.height) / font.common.scale_h);
                 uv.extend([[u0, v1], [u1, v1], [u1, v0], [u0, v0]]);
-                idx.extend([base, base + 1, base + 2, base, base + 2, base + 3]);
+                col.extend([*c; 4]);
+                idx.extend([b, b + 1, b + 2, b, b + 2, b + 3]);
             }
-            x += g.xadvance * k;
         }
     }
     if pos.is_empty() {
         pos.extend([[0.0f32; 3]; 3]);
         uv.extend([[0.0f32; 2]; 3]);
+        col.extend([[0.0f32; 4]; 3]);
         idx.extend([0, 1, 2]);
     }
     let mut m = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
     m.insert_attribute(Mesh::ATTRIBUTE_POSITION, pos);
     m.insert_attribute(Mesh::ATTRIBUTE_UV_0, uv);
+    m.insert_attribute(Mesh::ATTRIBUTE_COLOR, col);
     m.insert_indices(Indices::U32(idx));
-    m
+    (m, Vec2::new(max_w, total_h))
 }
 
 /// Text elements: the game's values formatted as the drivers do; meshes rebuilt when the text changes.
@@ -371,15 +394,26 @@ fn texts(
                 commands.entity(c).despawn();
             }
         }
-        let text_mat = materials.add(ColorMaterial { color: t.colour, texture: Some(hud.font_image.clone()), ..default() });
+        let text_mat = materials.add(ColorMaterial { color: Color::WHITE, texture: Some(hud.font_image.clone()), ..default() });
         // shadow 2 px right and down (of 480), drawn first
+        let (front_mesh, size) = text_mesh(&hud.font, &t.text, t.scale, Vec2::ZERO, t.colour);
+        let (shadow_mesh, _) = text_mesh(&hud.font, &t.text, t.scale, Vec2::new(2.0, -2.0), Color::BLACK);
         let shadow = commands
-            .spawn((Mesh2d(meshes.add(text_mesh(&hud.font, &t.text, t.scale, Vec2::new(2.0, -2.0)))), MeshMaterial2d(hud.shadow_material.clone()), Transform::from_xyz(0.0, 0.0, 20.0), RenderLayers::layer(HUD_LAYER)))
+            .spawn((Mesh2d(meshes.add(shadow_mesh)), MeshMaterial2d(hud.shadow_material.clone()), Transform::from_xyz(0.0, 0.0, 20.0), RenderLayers::layer(HUD_LAYER)))
             .id();
         let front = commands
-            .spawn((Mesh2d(meshes.add(text_mesh(&hud.font, &t.text, t.scale, Vec2::ZERO))), MeshMaterial2d(text_mat), Transform::from_xyz(0.0, 0.0, 21.0), RenderLayers::layer(HUD_LAYER)))
+            .spawn((Mesh2d(meshes.add(front_mesh)), MeshMaterial2d(text_mat), Transform::from_xyz(0.0, 0.0, 21.0), RenderLayers::layer(HUD_LAYER)))
             .id();
         commands.entity(e).add_children(&[shadow, front]);
+        // the briefing / message box behind paused text (0x00465430: fill 0xc04080c0, outline 0xff4080c0)
+        if el.name == "ui_briefing" && !t.text.is_empty() {
+            let pad = Vec2::new(16.0, 12.0);
+            let fill = materials.add(ColorMaterial { color: Color::srgba_u8(0x40, 0x80, 0xc0, 0xc0), ..default() });
+            let outline = materials.add(ColorMaterial { color: Color::srgba_u8(0x40, 0x80, 0xc0, 0xff), ..default() });
+            let o = commands.spawn((Mesh2d(meshes.add(Rectangle::new(size.x + pad.x * 2.0 + 2.0, size.y + pad.y * 2.0 + 2.0))), MeshMaterial2d(outline), Transform::from_xyz(0.0, 0.0, 18.0), RenderLayers::layer(HUD_LAYER))).id();
+            let f = commands.spawn((Mesh2d(meshes.add(Rectangle::new(size.x + pad.x * 2.0, size.y + pad.y * 2.0))), MeshMaterial2d(fill), Transform::from_xyz(0.0, 0.0, 19.0), RenderLayers::layer(HUD_LAYER))).id();
+            commands.entity(e).add_children(&[o, f]);
+        }
         t.built = Some(t.text.clone());
     }
 }

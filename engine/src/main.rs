@@ -9,6 +9,7 @@
 mod ai;
 mod audio;
 mod bench;
+mod campath;
 mod charanim;
 mod flycam;
 mod fx;
@@ -129,7 +130,7 @@ fn main() {
     .add_plugins(playtest::PlaytestPlugin)
     .add_plugins(audio::AudioBankPlugin)
     .add_plugins((FrameTimeDiagnosticsPlugin::default(), flycam::FlyCamPlugin, bench::BenchPlugin))
-    .add_plugins((physics::PhysicsPlugin, fx::FxPlugin, ai::AiPlugin, player::PlayerPlugin, menu::MenuPlugin, level::LevelPlugin, fxvm::FxVmPlugin, ai::CompanionPlugin, skin::SkinPlugin, charanim::CharAnimPlugin, hud::HudPlugin, mission::MissionPlugin, gameaudio::GameAudioPlugin))
+    .add_plugins((physics::PhysicsPlugin, fx::FxPlugin, ai::AiPlugin, player::PlayerPlugin, menu::MenuPlugin, level::LevelPlugin, fxvm::FxVmPlugin, ai::CompanionPlugin, skin::SkinPlugin, charanim::CharAnimPlugin, hud::HudPlugin, mission::MissionPlugin, gameaudio::GameAudioPlugin, campath::CameraPathPlugin))
     .init_state::<AppState>()
     .insert_non_send(physics::Physics::new(level::METERS_PER_UNIT))
     .insert_resource(ClearColor(Color::srgb(0.62, 0.70, 0.80)))
@@ -266,6 +267,9 @@ fn setup(
         commands.insert_resource(b);
     }
     let has_player = info.player.is_some();
+    for (name, pos_only) in &info.camera_fx {
+        commands.write_message(fx::StartFx { name: name.clone(), at: start, rotation: Quat::IDENTITY, follow: Some(cam), position_only: *pos_only });
+    }
     commands.insert_resource(info);
     commands.insert_resource(lib);
     commands.insert_resource(data);
@@ -376,6 +380,7 @@ fn play_state(mut bank: Option<ResMut<audio::SoundBank>>, bot: Res<playtest::Bot
 
 /// The HUD's values from the game state.
 fn hud_state(
+    path: Res<campath::CameraPath>,
     mut hud: ResMut<hud::HudState>,
     state: Res<State<AppState>>,
     p: Res<player::PlayerStats>,
@@ -383,7 +388,8 @@ fn hud_state(
     companions: Query<(&Name, &fx::Health), With<ai::Companion>>,
     cam: Query<&GlobalTransform, With<Camera3d>>,
 ) {
-    hud.visible = *state.get() == AppState::Playing && roman.single().is_ok();
+    // cinematic (a camera path): the HUD meters are hidden (hud.md 6)
+    hud.visible = *state.get() == AppState::Playing && roman.single().is_ok() && !path.active();
     hud.health = if p.max_health > 0.0 { p.health / p.max_health } else { 0.0 };
     hud.clip = p.clip;
     hud.stickies = p.stickies;

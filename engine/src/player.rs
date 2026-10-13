@@ -91,7 +91,7 @@ pub fn spawn_projectile(commands: &mut Commands, fx: &mut MessageWriter<crate::f
         ))
         .id();
     if let Some(name) = p.s("fx_start") {
-        fx.write(crate::fx::StartFx { name: name.to_owned(), at: from, rotation: Quat::IDENTITY, follow: Some(e) });
+        fx.write(crate::fx::StartFx { name: name.to_owned(), at: from, rotation: Quat::IDENTITY, follow: Some(e), position_only: false });
     }
 }
 
@@ -176,6 +176,7 @@ fn grab_cursor(mut cursor: Query<&mut CursorOptions, With<PrimaryWindow>>, mut d
 /// WASD relative to the camera yaw, Space jump, mouse look (stand-in bindings).
 #[allow(clippy::too_many_arguments)]
 fn control(
+    path: Res<crate::campath::CameraPath>,
     time: Res<Time>,
     mut bot: ResMut<crate::playtest::Bot>,
     grunts: Query<(&crate::ai::Grunt, &GlobalTransform)>,
@@ -223,7 +224,11 @@ fn control(
                 if bot.stuck_timer > 1.0 {
                     let moved = t.translation.with_y(0.0).distance(bot.last_pos.with_y(0.0));
                     bot.veer = if moved < 4.0 { 1.2 } else { (bot.veer - 1.0).max(0.0) };
-                    bot.no_progress = if moved < 6.0 { bot.no_progress + 1.0 } else { 0.0 };
+                    // progress = the distance to the next waypoint (or the goal) shrinking
+                    let target = bot.route.first().copied().unwrap_or(g);
+                    let d_now = (target - t.translation).with_y(0.0).length();
+                    bot.no_progress = if d_now > bot.last_dist - 5.0 { bot.no_progress + 1.0 } else { 0.0 };
+                    bot.last_dist = d_now;
                     bot.last_pos = t.translation;
                     bot.stuck_timer = 0.0;
                     // stuck 3 s: block the waypoint ahead and plan again around it
@@ -234,6 +239,7 @@ fn control(
                         bot.replan_timer = 0.0;
                         bot.planned_for = None;
                         bot.no_progress = 0.0;
+                        bot.last_dist = f32::MAX;
                         info!("bot: stuck near {:?}, replanning", [spot.x as i32, spot.z as i32]);
                     }
                 }
@@ -258,6 +264,10 @@ fn control(
                 r.yaw = (-to.x).atan2(-to.z);
                 r.pitch = (to.y / to.with_y(0.0).length().max(1.0)).atan() - 0.08;
             }
+        }
+        if !r.dead && path.name.as_deref() == Some("camera_path_l1m1") {
+            // PlayerObject_Update 0x004788a0: on lev_1_m1 the stick is held forward while the intro path plays
+            wish += Quat::from_rotation_y(r.yaw) * Vec3::NEG_Z * r.fwd_speed;
         }
         if !r.dead {
             if let Some(dir) = bot_walk {
@@ -366,7 +376,7 @@ fn weapons(
             let bullet = data.props(&format!("p_{}", rifle.s("projectile_name").unwrap_or("player_rifle_bullet")));
             spawn_projectile(&mut commands, &mut fx, &bullet, from, dir, true, Some(e));
             if let Some(m) = rifle.s("muzzle_fx_name") {
-                fx.write(crate::fx::StartFx { name: m.to_owned(), at: from, rotation: Transform::IDENTITY.looking_to(dir, Vec3::Y).rotation, follow: None });
+                fx.write(crate::fx::StartFx { name: m.to_owned(), at: from, rotation: Transform::IDENTITY.looking_to(dir, Vec3::Y).rotation, follow: None, position_only: false });
             }
             sounds.write(crate::audio::PlaySound::at("wpn_rome_rifle_fire", t.translation));
         }
@@ -421,7 +431,7 @@ fn projectiles(
         };
         if hit_roman {
             if let Some(n) = impact(None).map(|n| n.replace("_snow", "_grunt")) {
-                fx.write(crate::fx::StartFx { name: n, at: from + step, rotation: Quat::IDENTITY, follow: None });
+                fx.write(crate::fx::StartFx { name: n, at: from + step, rotation: Quat::IDENTITY, follow: None, position_only: false });
             }
             if let Ok(mut h) = roman_health.single_mut() {
                 h.0 -= p.damage;
@@ -432,7 +442,7 @@ fn projectiles(
         if let Some((body, at, normal)) = hit {
             if let Some(n) = impact(Some(body)) {
                 let rot = Quat::from_rotation_arc(Vec3::Y, normal.normalize_or(Vec3::Y));
-                fx.write(crate::fx::StartFx { name: n, at, rotation: rot, follow: None });
+                fx.write(crate::fx::StartFx { name: n, at, rotation: rot, follow: None, position_only: false });
             }
             if let Some((_, _, mut h)) = chars.iter_mut().find(|(ce, b, _)| b.id == body && Some(*ce) != p.owner) {
                 let was_alive = h.0 > 0.0;
@@ -460,10 +470,14 @@ fn projectiles(
 
 /// Third-person camera behind Roman's shoulder at his yaw and pitch, pulled in when geometry is in the way.
 fn follow_camera(
+    path: Res<crate::campath::CameraPath>,
     physics: NonSend<Physics>,
     roman: Query<(&Roman, &Transform), Without<FollowCam>>,
     mut cam: Query<&mut Transform, With<FollowCam>>,
 ) {
+    if path.active() {
+        return;
+    }
     let (Ok((r, rt)), Ok(mut c)) = (roman.single(), cam.single_mut()) else { return };
     let pivot = rt.translation + Vec3::Y * 10.0;
     let rot = Quat::from_euler(EulerRot::YXZ, r.yaw, r.pitch, 0.0);

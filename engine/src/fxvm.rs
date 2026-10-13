@@ -125,6 +125,10 @@ pub struct FxObject {
     materials: Vec<Handle<StandardMaterial>>,
     alpha: f32,
     body: Option<BodyId>,
+    /// 0x40 uv scroll: (direction, speed, duration, ramp in, ramp out, offset) of layer 1 (the meshes' one stage)
+    uv_scroll: Option<(Vec2, f32, f32, f32, f32, Vec2)>,
+    /// follow only the parent's position (camera_fx position_only)
+    follow_pos_only: bool,
 }
 
 struct Instance {
@@ -136,6 +140,7 @@ struct Instance {
     place: Mat4,
     parent: Option<Entity>,
     follow: bool,
+    follow_pos_only: bool,
 }
 
 struct Particle {
@@ -159,6 +164,7 @@ struct Particle {
 pub struct FxVm {
     /// sounds started by scripts this frame (sent by `run`)
     sounds: Vec<crate::audio::PlaySound>,
+    camera_paths: Vec<String>,
     instances: Vec<Instance>,
     objects: std::collections::HashMap<Entity, FxObject>,
     pools: Vec<Vec<Particle>>,
@@ -207,6 +213,7 @@ fn setup(mut commands: Commands, assets: Res<AssetServer>, mut meshes: ResMut<As
     }
     commands.insert_resource(FxVm {
         sounds: Vec::new(),
+        camera_paths: Vec::new(),
         instances: Vec::new(),
         objects: Default::default(),
         pools: POOLS.iter().map(|(n, _, _)| Vec::with_capacity(n * POOL_SCALE / 4)).collect(),
@@ -233,7 +240,7 @@ fn start(mut vm: ResMut<FxVm>, data: Res<GameData>, mut events: MessageReader<St
         };
         // engine placement -> game space
         let place = Mat4::from_quat(engine_to_game()) * Mat4::from_rotation_translation(ev.rotation, ev.at);
-        vm.instances.push(Instance { script: script.clone(), ip: 0, paused: 0.0, waiting: false, place, parent: ev.follow, follow: ev.follow.is_some() });
+        vm.instances.push(Instance { script: script.clone(), ip: 0, paused: 0.0, waiting: false, place, parent: ev.follow, follow: ev.follow.is_some(), follow_pos_only: ev.position_only });
     }
 }
 
@@ -299,6 +306,8 @@ fn create_object(ctx: &mut Ctx<'_, '_, '_, '_, '_>, inst: &Instance, template: &
         materials: mats,
         alpha: 1.0,
         body: None,
+        uv_scroll: None,
+        follow_pos_only: inst.follow_pos_only,
     }))
 }
 
@@ -367,6 +376,13 @@ fn run_script(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_, '_, '_>, idx: usize, dt: 
                     o.fade_out = Some(v);
                 }
             }
+            "0x0b" => {
+                // uniform scale (from weather.md: 0x0b / 0x0c "set scale linear"): a constant scale
+                let v = vm.rng.r(f(&arg(1)), f(&arg(2)));
+                if let Some(o) = obj!() {
+                    o.scale = Some((v, v, 0));
+                }
+            }
             "0x0c" | "0x0d" | "0x0e" => {
                 let from = vm.rng.r(f(&arg(1)), f(&arg(2)));
                 let to = vm.rng.r(f(&arg(3)), f(&arg(4)));
@@ -382,7 +398,7 @@ fn run_script(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_, '_, '_>, idx: usize, dt: 
                 if let (Some(_), Some(t)) = (cur, top) {
                     if let Some(script) = ctx.data.fx.get(&name) {
                         let place = vm.objects.get(&t).map(|o| o.place).unwrap_or(vm.instances[idx].place);
-                        let child = Instance { script: script.clone(), ip: 0, paused: 0.0, waiting: false, place, parent: Some(t), follow: op == "0x2f" };
+                        let child = Instance { script: script.clone(), ip: 0, paused: 0.0, waiting: false, place, parent: Some(t), follow: op == "0x2f", follow_pos_only: false };
                         spawned.push(child);
                     }
                 }
@@ -519,8 +535,24 @@ fn run_script(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_, '_, '_>, idx: usize, dt: 
                     }
                 }
             }
+            "0x73" => {
+                // Camera_StartPath: not guarded by the created object (weather.md)
+                if let Some(name) = arg(1).as_str() {
+                    vm.camera_paths.push(name.to_owned());
+                }
+            }
             "0x6a" => vm.unported.insert("0x6a decal".into()).then_some(()).unwrap_or(()),
-            "0x40" => vm.unported.insert("0x40 uv scroll".into()).then_some(()).unwrap_or(()),
+            "0x40" => {
+                // Fx_SetUvScroll 0x00420670: layer, angle (deg), speed, duration, ramp in, ramp out; direction from the
+                // sine table (cos, sin of the angle: guess at the table's phase). Layer 1 only: the fx meshes have one
+                // texture stage here
+                let (layer, ang, speed, dur, rin, rout) = (arg(1).as_i64().unwrap_or(1), f(&arg(2)).to_radians(), f(&arg(3)), f(&arg(4)), f(&arg(5)), f(&arg(6)));
+                if let Some(o) = obj!() {
+                    if layer == 1 {
+                        o.uv_scroll = Some((Vec2::new(ang.cos(), ang.sin()), speed, dur, rin, rout, Vec2::ZERO));
+                    }
+                }
+            }
             other => {
                 vm.unported.insert(other.to_owned());
             }
@@ -590,6 +622,7 @@ fn run(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut physics: NonSendMut<Physics>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
+    mut paths: MessageWriter<crate::campath::StartCameraPath>,
 ) {
     let t0 = std::time::Instant::now();
     let dt = time.delta_secs();
@@ -622,6 +655,9 @@ fn run(
     }
     for snd in vm.sounds.drain(..) {
         sounds.write(snd);
+    }
+    for p in vm.camera_paths.drain(..) {
+        paths.write(crate::campath::StartCameraPath(p));
     }
     vm.stats.instances = vm.instances.len();
     vm.stats.ms = t0.elapsed().as_secs_f32() * 1000.0;
@@ -697,6 +733,18 @@ fn objects(
                     }
                 }
             }
+        }
+        // uv scroll (TexAnim_Step 0x00419d30): offset += speed * dir * fade * dt
+        if let Some((dir, speed, dur, rin, rout, mut off)) = o.uv_scroll {
+            let fade = if o.age > dur { 0.0 } else if rin > 0.0 && o.age < rin { o.age / rin } else if rout > 0.0 && o.age > dur - rout { 1.0 - (o.age - (dur - rout)) / (dur - rout).max(1e-3) } else { 1.0 };
+            off += dir * speed * fade * dt;
+            off = Vec2::new(off.x.rem_euclid(1.0), off.y.rem_euclid(1.0));
+            for m in &o.materials {
+                if let Some(mut m) = materials.get_mut(m) {
+                    m.uv_transform = bevy::math::Affine2::from_translation(off);
+                }
+            }
+            o.uv_scroll = Some((dir, speed, dur, rin, rout, off));
         }
         // texture animation: "<base>_<frame>"
         if let Some((rate, frames, looping, mut acc, mut frame, base)) = o.texanim.clone() {
@@ -917,12 +965,19 @@ fn follow(mut commands: Commands, mut vm: ResMut<FxVm>, parents: Query<&GlobalTr
             commands.entity(e).despawn();
             continue;
         };
+        let pos_only = vm.objects.get(&e).is_some_and(|o| o.follow_pos_only);
         if let Ok(mut t) = q.get_mut(e) {
             t.translation = pt.translation;
-            t.rotation = pt.rotation;
+            if !pos_only {
+                t.rotation = pt.rotation;
+            }
         }
         if let Some(o) = vm.objects.get_mut(&e) {
-            o.place = Mat4::from_quat(engine_to_game()) * Mat4::from_rotation_translation(pt.rotation, pt.translation);
+            if pos_only {
+                o.place.w_axis = (engine_to_game() * pt.translation).extend(1.0);
+            } else {
+                o.place = Mat4::from_quat(engine_to_game()) * Mat4::from_rotation_translation(pt.rotation, pt.translation);
+            }
         }
     }
 }

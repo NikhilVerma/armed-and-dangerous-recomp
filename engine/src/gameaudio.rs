@@ -31,7 +31,7 @@ fn notes(mut ev: MessageReader<AnimNote>, q: Query<&GlobalTransform>, mut fx: Me
             "fx_material" => format!("{name}_snow"),
             _ => continue,
         };
-        fx.write(StartFx { name, at: t.translation(), rotation: Quat::IDENTITY, follow: None });
+        fx.write(StartFx { name, at: t.translation(), rotation: Quat::IDENTITY, follow: None, position_only: false });
     }
 }
 

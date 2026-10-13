@@ -70,6 +70,7 @@ pub struct Bot {
     /// places the bot got stuck at (avoided by later plans)
     pub blocked: Vec<Vec3>,
     pub no_progress: f32,
+    pub last_dist: f32,
 }
 
 #[derive(Deserialize)]

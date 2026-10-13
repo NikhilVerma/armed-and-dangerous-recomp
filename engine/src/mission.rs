@@ -326,9 +326,14 @@ impl Plugin for MissionPlugin {
     }
 }
 
-fn start(mut m: Option<ResMut<Mission>>, mut out: MessageWriter<SendTrigger>) {
+fn start(mut m: Option<ResMut<Mission>>, mut out: MessageWriter<SendTrigger>, path: Res<crate::campath::CameraPath>, time: Res<Time>, mut waited: Local<f32>) {
     let Some(m) = m.as_deref_mut() else { return };
     if m.started {
+        return;
+    }
+    // MissionObject_ShowStart: once no camera path is active (it starts on the first frames)
+    *waited += time.delta_secs();
+    if path.active() || *waited < 0.3 {
         return;
     }
     m.started = true;
@@ -338,7 +343,7 @@ fn start(mut m: Option<ResMut<Mission>>, mut out: MessageWriter<SendTrigger>) {
     }
     if let Some(t) = m.start_text.clone() {
         m.objectives = long_form(&t);
-        m.message(&t, 0.5);
+        m.message(&t, 0.0);
     }
     m.log.push("start".into());
 }
@@ -408,7 +413,7 @@ fn sites(
                     source: None,
                     delay: 0.0,
                 });
-                fx.write(StartFx { name: "fx_ticker_bomb".into(), at: s.pos, rotation: Quat::IDENTITY, follow: None });
+                fx.write(StartFx { name: "fx_ticker_bomb".into(), at: s.pos, rotation: Quat::IDENTITY, follow: None, position_only: false });
                 if s.explode != 0 {
                     sends.push(s.explode);
                 }
@@ -535,7 +540,7 @@ fn dispatch(
                     }
                 }
                 Action::Fx(name, at) => {
-                    fx.write(StartFx { name, at, rotation: Quat::IDENTITY, follow: None });
+                    fx.write(StartFx { name, at, rotation: Quat::IDENTITY, follow: None, position_only: false });
                 }
                 Action::Barracks(id) => {
                     for b in &mut m.barracks {

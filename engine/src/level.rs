@@ -35,6 +35,8 @@ pub struct LevelInfo {
     /// The level's fog (global_settings): near, far (game units), colour.
     pub fog: Option<(f32, f32, Color)>,
     pub player: Option<Entity>,
+    /// camera_fx scripts to start on the camera: (fx name, position only)
+    pub camera_fx: Vec<(String, bool)>,
 }
 
 /// The placed instance's 1-based id in the level's inst bank (what triggers and tags refer to).
@@ -176,7 +178,17 @@ pub fn spawn(
         let tpl = data.templates.get(&inst.template);
         let behavior = p.s("behavior").unwrap_or("");
         // markers, trigger volumes, cameras, sound emitters: logic only, never drawn
-        if matches!(behavior, "broadcast" | "camera_fx" | "fx_ear") || inst.template == "marker" || inst.template == "bigredarrow" {
+        // camera_fx (weather domes, intro overlays): their fx starts at load attached to the camera (trigger_start 0;
+        // CameraFXObject_Load 0x004101a0), position-only when position_only = 1 (docs/subsystems/weather.md)
+        if behavior == "camera_fx" {
+            if p.f("trigger_start", 0.0) == 0.0 {
+                if let Some(fx) = p.s("fx_name") {
+                    info.camera_fx.push((fx.to_owned(), p.f("position_only", 1.0) != 0.0));
+                }
+            }
+            continue;
+        }
+        if matches!(behavior, "broadcast" | "fx_ear") || inst.template == "marker" || inst.template == "bigredarrow" {
             continue;
         }
         let mut world = axes * scene::game_matrix(&inst.transform);

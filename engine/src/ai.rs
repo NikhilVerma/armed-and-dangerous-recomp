@@ -489,7 +489,7 @@ fn fire_cycle(
     let dir = (aim - muzzle).normalize_or(Vec3::Z);
     crate::player::spawn_projectile(commands, fx, &g.bullet, muzzle + dir * 4.0, dir, false, None);
     if let Some(m) = g.weapon.s("muzzle_fx_name") {
-        fx.write(crate::fx::StartFx { name: m.to_owned(), at: muzzle + dir * 4.0, rotation: Transform::IDENTITY.looking_to(dir, Vec3::Y).rotation, follow: None });
+        fx.write(crate::fx::StartFx { name: m.to_owned(), at: muzzle + dir * 4.0, rotation: Transform::IDENTITY.looking_to(dir, Vec3::Y).rotation, follow: None, position_only: false });
     }
     sounds.write(crate::audio::PlaySound::at(if g.bow { "wpn_grunt_bow_fire" } else { "wpn_grunt_rifle_fire" }, pos));
     stats.shots += 1;
