@@ -50,7 +50,7 @@ Update this table as items land (commit hash in the last column).
 | Teammate orders (keys 1 / 3) | 0x004852b0, 0x00485120 (companions.md) | P | 2 | Defend Me / Return To Me / Defend Area / Attack, ui_teammate_* text, order lines under vo_delay (team1..5) |
 | Idle fidgets, turn-in-place, land anims | 0x00476a10 | P / M | 3 | idle fidgets trotter_idle_1..5 after 5 s (idle.json); land anims done (f34b289); turn-in-place not yet |
 | Grunt drops (type rule) | cleanup_01.cpp:96, 0x00475a90 | P | 3 | the original's weighted pick (health 0.5 / 0.25, current weapon 0.5 not the rifle, other weapon 0.25, sticky 0.25); MG ammo pickups collected |
-| Pickup generators 219 / 220 | 0x00471b70 | M | 3 | |
+| Pickup generators 219 / 220 | 0x00471b70, 0x00471cb0, 0x00475c30 | P | 3 | one pickup of the current weapon's ammo 4 units up, the next 10 s after it is taken (gen.json) |
 
 ## AI
 

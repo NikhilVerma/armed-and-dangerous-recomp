@@ -34,6 +34,8 @@ pub struct SpawnPickup {
     pub name: String,
     pub at: Vec3,
     pub vel: Vec3,
+    /// stays where it is made (a generator's pickup), no fall to the ground
+    pub hover: bool,
 }
 
 pub struct PickupPlugin;
@@ -41,7 +43,7 @@ pub struct PickupPlugin;
 impl Plugin for PickupPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<SpawnPickup>()
-            .add_systems(Update, (drop_on_death, spawn_pickups, collect, placed_pickups, placed_collect).run_if(crate::playing));
+            .add_systems(Update, (drop_on_death, generators, spawn_pickups, collect, placed_pickups, placed_collect).run_if(crate::playing));
     }
 }
 
@@ -123,6 +125,48 @@ fn drop_on_death(
 }
 
 #[allow(clippy::too_many_arguments)]
+/// Pickup generators (PickupGenerator 0x00471b70 load, 0x00471cb0 update; lev_1_m1's 219 and 220 with the defaults:
+/// delay_time 10, no turbo_boost, no generated_ammo_name, no activate trigger): one pickup at a time, 4 units above
+/// the generator; once it is taken, delay_time later the next; with no name the current weapon's ammo pickup
+/// (0x00475c30: the weapon table's name; rifle -> pickup_rifle_bullets, machine gun -> pickup_mgun_bullets).
+fn generators(
+    time: Res<Time>,
+    lib: Res<crate::skin::AnimLibrary>,
+    mut gens: Local<Option<Vec<(Vec3, f32, bool)>>>,
+    pickups: Query<&GlobalTransform, With<Pickup>>,
+    roman: Query<&crate::player::Roman>,
+    mut out: MessageWriter<SpawnPickup>,
+) {
+    let list = gens.get_or_insert_with(|| {
+        let text = std::fs::read_to_string(lib.dir.join("instance_props.json")).unwrap_or_default();
+        let v: Vec<serde_json::Value> = serde_json::from_str(&text).unwrap_or_default();
+        v.iter()
+            .filter(|i| i.get("template").and_then(|t| t.as_str()) == Some("pickup_generator"))
+            .filter_map(|i| {
+                let p = i.get("pos")?.as_array()?;
+                let g = Vec3::new(p[0].as_f64()? as f32, p[1].as_f64()? as f32, p[2].as_f64()? as f32);
+                Some((game_to_engine() * g + Vec3::Y * 4.0, 0.0, false))
+            })
+            .collect()
+    });
+    let dt = time.delta_secs();
+    let mg = roman.single().is_ok_and(|r| r.use_mg && r.mg.is_some());
+    for (at, timer, made) in list.iter_mut() {
+        // its pickup still there: nothing else happens
+        if *made && pickups.iter().any(|p| p.translation().distance(*at) < 3.0) {
+            *timer = 10.0;
+            continue;
+        }
+        *timer -= dt;
+        if !*made || *timer <= 0.0 {
+            *made = true;
+            *timer = 10.0;
+            let name = if mg { "pickup_mgun_bullets" } else { "pickup_rifle_bullets" };
+            out.write(SpawnPickup { name: name.into(), at: *at, vel: Vec3::ZERO, hover: true });
+        }
+    }
+}
+
 fn spawn_pickups(
     mut commands: Commands,
     mut events: MessageReader<SpawnPickup>,
@@ -136,15 +180,15 @@ fn spawn_pickups(
     for ev in events.read() {
         let Some(tpl) = data.templates.get(&ev.name) else { continue };
         let p = data.template_props(&ev.name);
-        let ground = physics.raycast(ev.at, -Vec3::Y, 400.0).map(|h| h.1.y).unwrap_or(ev.at.y - 4.0);
+        let ground = if ev.hover { ev.at.y - 1.0 } else { physics.raycast(ev.at, -Vec3::Y, 400.0).map(|h| h.1.y).unwrap_or(ev.at.y - 4.0) };
         let pe = commands
             .spawn((
                 Transform::from_translation(ev.at).with_rotation(game_to_engine()),
                 Visibility::default(),
                 Pickup {
                     health: p.f("num_health", 0.0),
-                    stickies: 0,
-                    mg_ammo: 0,
+                    stickies: p.f("num_ammo", 0.0) as u32 * (ev.name == "pickup_sticky_bombs") as u32,
+                    mg_ammo: p.f("num_ammo", 0.0) as u32 * (ev.name == "pickup_mgun_bullets") as u32,
                     radius: p.f("sphere_radius", 4.0) + 4.0,
                     life: p.f("linger_time", 300.0),
                     vel: ev.vel.y,
@@ -172,6 +216,7 @@ fn collect(
     mut player: Query<(&GlobalTransform, &mut Health, &mut crate::player::Roman), With<Player>>,
     mission: Option<ResMut<crate::mission::Mission>>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
+    ui_texts: Res<crate::gamemenu::Texts>,
 ) {
     let dt = time.delta_secs();
     let Ok((pt, mut h, mut r)) = player.single_mut() else { return };
@@ -204,7 +249,7 @@ fn collect(
             w.ammo += p.mg_ammo;
         }
         if let (Some(m), Some(text)) = (mission.as_deref_mut(), p.text.as_ref()) {
-            m.feed(text);
+            m.feed(&ui_texts.get(text));
         }
         // Pickup_PlayHealthSound 0x00472790: Roman's "ROM50193_Ambient" for Q's tea, else the pickup sound
         if p.text.as_deref() == Some("pickup_healthytea") {

@@ -1396,7 +1396,7 @@ fn companions(
             if c.tea <= 0.0 {
                 let to = (rt.translation - me).with_y(0.0).normalize_or_zero();
                 let v = Vec3::new(to.x, 0.7, to.z).normalize() * 40.0;
-                pickups.write(crate::pickup::SpawnPickup { name: "pickup_healthytea".into(), at: me + Vec3::Y * 4.0, vel: v });
+                pickups.write(crate::pickup::SpawnPickup { name: "pickup_healthytea".into(), at: me + Vec3::Y * 4.0, vel: v, hover: false });
             }
             continue;
         }
