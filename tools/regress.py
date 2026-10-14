@@ -13,7 +13,9 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PLAY = os.path.join(ROOT, 'work', 'remaster', 'play')
-SUITE = ['topsyhit2', 'turn_in_place', 'turret1', 'decals_obj', 'oilpump', 'gfxopts']
+SUITE = ['topsyhit2', 'turn_in_place', 'turret1', 'decals_obj', 'oilpump', 'gfxopts', 'cover1', 'cover2', 'cover3']
+# scripts kept in git (engine/playtests) win over work/remaster/play
+TRACKED = os.path.join(ROOT, 'engine', 'playtests')
 
 ap = argparse.ArgumentParser()
 ap.add_argument('names', nargs='*')
@@ -24,7 +26,8 @@ if not os.path.exists(os.path.join(PLAY, 'states', 'after_pub.json')):
     subprocess.run([sys.executable, os.path.join(ROOT, 'tools', 'playtest.py'), os.path.join(PLAY, 'state_after_pub.json'), '--exe', a.exe])
 bad = 0
 for name in a.names or SUITE:
-    p = subprocess.run([sys.executable, os.path.join(ROOT, 'tools', 'playtest.py'), os.path.join(PLAY, name + '.json'), '--exe', a.exe],
+    script = next((d for d in (TRACKED, PLAY) if os.path.exists(os.path.join(d, name + '.json'))), PLAY)
+    p = subprocess.run([sys.executable, os.path.join(ROOT, 'tools', 'playtest.py'), os.path.join(script, name + '.json'), '--exe', a.exe],
                        stdout=subprocess.PIPE, text=True, errors='replace')
     res = re.search(r'PLAYTEST RESULT: (\d+) passed, (\d+) failed', p.stdout)
     fails = [l for l in p.stdout.splitlines() if 'EXPECT FAIL' in l or 'panicked' in l]
