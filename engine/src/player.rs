@@ -1222,7 +1222,7 @@ fn projectiles(
     mut stats: ResMut<PlayerStats>,
     mut fx: MessageWriter<crate::fx::StartFx>,
     hulls: Option<Res<crate::hitparts::HitHulls>>,
-    (rtime, topsy, mounted): (Res<Time<Real>>, Res<crate::topsy::Topsy>, Res<crate::turret::Mounted>),
+    (rtime, topsy, mounted, mut noise): (Res<Time<Real>>, Res<crate::topsy::Topsy>, Res<crate::turret::Mounted>, ResMut<crate::ai::Interests>),
     binds: Res<Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>,
     mut victims: Query<&mut crate::ai::Grunt>,
 ) {
@@ -1231,6 +1231,8 @@ fn projectiles(
         let step = p.vel * dt;
         let from = t.translation;
         p.life -= dt;
+        // the noise of a player's shot (0x00404810; ai.rs Interests): its path and its end point
+        noise.track(e, from + step, p.owner);
         let mut hit = physics.raycast_bullet(from, step.normalize_or(Vec3::Y), step.length().max(0.01));
         // the original's bullets hit a character's collision parts (Projectile_Update 0x0047e580: a detail-level-2 ray
         // against the collision model's parts), not a capsule round the whole body: a ray into a grunt's capsule hits

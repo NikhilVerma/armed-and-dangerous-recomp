@@ -1052,8 +1052,9 @@ fn bark(sounds: &mut MessageWriter<crate::audio::PlaySound>, category: &str, set
 #[derive(Resource, Default)]
 pub struct Interests {
     list: Vec<Interest>,
-    /// Roman's projectiles in flight and their last position (where their end interest goes)
-    flying: std::collections::HashMap<Entity, Vec3>,
+    /// the projectiles in flight (tracked by player.rs's update), their last position (where their end interest goes)
+    /// and owner
+    flying: std::collections::HashMap<Entity, (Vec3, Option<Entity>, bool)>,
 }
 
 struct Interest {
@@ -1068,6 +1069,13 @@ impl Interests {
     pub fn post(&mut self, pos: Vec3, radius: f32, timer: f32) {
         self.list.push(Interest { pos, radius, timer, follow: None });
     }
+
+    /// A projectile's position this frame (player.rs projectiles, before its hit test): the noises follow it and take
+    /// its last one as the end point.
+    pub fn track(&mut self, e: Entity, pos: Vec3, owner: Option<Entity>) {
+        let seen = self.flying.get(&e).is_some_and(|f| f.2);
+        self.flying.insert(e, (pos, owner, seen));
+    }
 }
 
 /// AIInterestObject_Update 0x00404680 and the posting of 0x00404810 for Roman's projectiles.
@@ -1076,19 +1084,24 @@ fn interests(time: Res<Time>, mut it: ResMut<Interests>, shots: Query<(Entity, &
     let Ok(re) = roman.single() else { return };
     let it = &mut *it;
     // the projectiles that ended since last frame: an interest at their end (2 s)
-    let gone: Vec<(Entity, Vec3)> = it.flying.iter().filter(|(e, _)| shots.get(**e).is_err()).map(|(e, p)| (*e, *p)).collect();
+    // (0x00404810 posts for Roman's own projectiles only)
+    it.flying.retain(|_, f| f.1 == Some(re));
+    let gone: Vec<(Entity, Vec3)> = it.flying.iter().filter(|(e, _)| shots.get(**e).is_err()).map(|(e, f)| (*e, f.0)).collect();
     for (e, at) in gone {
         it.flying.remove(&e);
         it.list.push(Interest { pos: at, radius: 200.0, timer: 2.0, follow: None });
+        if std::env::var("AIDBG").is_ok() {
+            let g = crate::level::game_to_engine().inverse() * at;
+            info!("AIDBG noise end {:.0} {:.0} {:.0}", g.x, g.y, g.z);
+        }
     }
-    for (e, t, p) in &shots {
-        if p.owner != Some(re) {
-            continue;
-        }
-        if it.flying.insert(e, t.translation).is_none() {
-            // the start effect's interest (fx_start: both of Roman's bullets have one), following the projectile
-            it.list.push(Interest { pos: t.translation, radius: 200.0, timer: 0.0, follow: Some(e) });
-        }
+    let new: Vec<(Entity, Vec3)> = it.flying.iter_mut().filter(|(_, f)| !f.2).map(|(e, f)| {
+        f.2 = true;
+        (*e, f.0)
+    }).collect();
+    for (e, at) in new {
+        // the start effect's interest (fx_start: both of Roman's bullets have one), following the projectile
+        it.list.push(Interest { pos: at, radius: 200.0, timer: 0.0, follow: Some(e) });
     }
     it.list.retain_mut(|i| {
         if let Some(f) = i.follow {

@@ -1,0 +1,13 @@
+{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+ {"wait": 0.5},
+ {"warp": [400, 100, 16, 0]},
+ {"wait": 0.5},
+ {"send": 98},
+ {"wait": 6.0},
+ {"expect": {"ai.markers": [1, 10]}},
+ {"wait": 14.0},
+ {"expect": {"ai.markers": [3, 30]}},
+ {"wait": 10.0},
+ {"expect": {"ai.spline": 0}},
+ {"quit": true}
+]}
