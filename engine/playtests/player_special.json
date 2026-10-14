@@ -1,0 +1,20 @@
+{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+ {"wait": 1.0},
+ {"mouse": [0, 250]},
+ {"wait": 0.3},
+ {"expect": {"special": 0, "stickies": 5, "sticky_live": 0, "shots": 0}},
+ {"click": "Right"},
+ {"wait": 0.1},
+ {"expect": {"sticky_live": 0, "stickies": 5, "shots": 1}},
+ {"wait": 0.3},
+ {"expect": {"sticky_live": 1, "stickies": 4, "shots": 2}},
+ {"wait": 1.6},
+ {"expect": {"sticky_stuck": 1}},
+ {"wait": 1.0},
+ {"click": "Right"},
+ {"wait": 0.55},
+ {"expect": {"sticky_live": 2, "stickies": 3, "shots": 4, "sticky_fused": 0}},
+ {"wait": 2.2},
+ {"expect": {"sticky_live": 0}},
+ {"quit": true}
+]}

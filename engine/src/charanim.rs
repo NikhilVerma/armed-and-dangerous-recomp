@@ -205,6 +205,15 @@ fn roman(mut q: Query<(&Roman, &mut Animator)>, topsy: Res<crate::topsy::Topsy>,
         // the aim blend (0x00475ff0, game_05.cpp:1499): w = (clamp(2 x pitch, -1, 1) + 1) / 2 of the look pitch, 0 at
         // rest (the engine's rest pitch is -0.15)
         let w = ((2.0 * (r.pitch + 0.15)).clamp(-1.0, 1.0) + 1.0) * 0.5;
+        // a standing jump's wind-up (mode 0x11 trotter_jump_into, its _b / _t pair; the take-off at its end, 0x0047aaf0)
+        if r.jump_wind.is_some() {
+            *idle = Idle::default();
+            a.play(0, "trotter_jump_into_b", false, Mask::All);
+            a.play(1, "trotter_jump_into_t", false, Mask::All);
+            a.set_weight(1, w);
+            a.sync(1, 0);
+            continue;
+        }
         // turning in place (0x00476a10, game_05.cpp:1915): standing with the twist limit hit last frame, the turn
         // anim (mode 0x1c Trotter_turn_left / 0x1d _right; state 1 the _fire pair, other states link to _aim) plays
         // once, the legs catching up (Twist); any mode outside 0..5 clears the idle time

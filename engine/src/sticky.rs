@@ -53,6 +53,45 @@ pub struct StickyBomb {
     gravity: bool,
     /// stuck: the object (or the ground), the offset in the object's frame, linger left
     stuck: Option<(Option<Entity>, Vec3, f32)>,
+    /// the fuse +0x64c (0x00481b90): a blast lights it, a direct hit sets it to 0; at or below 0 it explodes
+    pub fuse: Option<f32>,
+}
+
+impl StickyBomb {
+    /// the object it is stuck to (not the ground)
+    pub fn stuck_to(&self) -> Option<Entity> {
+        self.stuck.and_then(|s| s.0)
+    }
+    pub fn is_stuck(&self) -> bool {
+        self.stuck.is_some()
+    }
+}
+
+/// The bomb's collision radius (Object_BuildRadiusCollision 0x004527d0 from its model's bounds: not read; guess 1.5
+/// for the small sticky_bomb model). Bullets (the list +0xe90) and blasts (+0xe94) reach it (0x00481320).
+pub const BOMB_RADIUS: f32 = 1.5;
+
+/// StickyBombProjectile's damage slot (0x00481b90): health 1 (max_health), so any damage takes it to 0; an area
+/// damage record (flags bit 0, 0x0047f020) lights a random fuse rand() x 2.136e-5 (0 .. 0.7 s), anything else (a
+/// bullet's direct hit) sets it off at once. This handles the blasts; the bullets set `fuse` in player.rs.
+fn chain(mut blasts: MessageReader<crate::fx::Explode>, mut bombs: Query<(&Transform, &mut StickyBomb)>, mut rng: ResMut<crate::fx::FxStats>) {
+    for x in blasts.read() {
+        // AreaDamage_Apply 0x0047f020: nothing unless outer >= 0.01, outer >= inner and damage != 0; a receiver at a
+        // surface distance d <= outer (its bounding sphere)
+        if x.area_damage == 0.0 || x.radius_outer < 0.01 || x.radius_outer < x.radius_inner {
+            continue;
+        }
+        for (t, mut b) in &mut bombs {
+            if b.fuse.is_none() && t.translation.distance(x.at) - BOMB_RADIUS <= x.radius_outer {
+                b.fuse = Some(blast_fuse(rng.rand()));
+            }
+        }
+    }
+}
+
+/// The fuse a blast lights (0x00481b90): rand() x 2.136e-5 (0x005bcc4c), rand() in 0..32767; `u` in [0, 1).
+pub fn blast_fuse(u: f32) -> f32 {
+    (u * 32768.0).floor().min(32767.0) * 2.136e-5
 }
 
 pub struct StickyPlugin;
@@ -61,7 +100,7 @@ impl Plugin for StickyPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<StickyThrow>()
             .add_message::<ThrowDynamite>()
-            .add_systems(Update, (throw, throw_dynamite, fly).chain().run_if(crate::playing));
+            .add_systems(Update, (throw, throw_dynamite, chain, fly).chain().run_if(crate::playing));
     }
 }
 
@@ -81,6 +120,7 @@ fn throw(
     mut fx: MessageWriter<crate::fx::StartFx>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     mut seed: Local<u32>,
+    mut stats: ResMut<crate::player::PlayerStats>,
 ) {
     let Some(left) = pending.pending.as_mut() else { return };
     *left -= time.delta_secs();
@@ -93,6 +133,9 @@ fn throw(
         return;
     }
     rm.stickies -= 1;
+    // the throw anim's note fires the queued bomb (0x00475ff0 state 5 -> 0x004a1970) and counts one more shot
+    // (Game+0x2718, game_05.cpp:1592: the use already counted one, so a sticky bomb counts two)
+    stats.shots += 1;
     let g = data.props("p_globalsettings");
     let p = data.props("p_player_stickybomb");
     let range = g.f("sticky_bomb_range", 10.0);
@@ -190,7 +233,7 @@ fn throw(
         .spawn((
             Transform::from_translation(from).with_rotation(assets.base),
             Visibility::default(),
-            StickyBomb { props: "p_player_stickybomb", vel, target: homing, point, speed, range: from.distance(point), flown: 0.0, life: p.f("lifetime", 4.0), gravity: false, stuck: None },
+            StickyBomb { props: "p_player_stickybomb", vel, target: homing, point, speed, range: from.distance(point), flown: 0.0, life: p.f("lifetime", 4.0), gravity: false, stuck: None, fuse: None },
         ))
         .id();
     for (m, mat) in &assets.parts {
@@ -242,6 +285,7 @@ fn throw_dynamite(mut commands: Commands, mut msgs: MessageReader<ThrowDynamite>
                     life: p.f("lifetime", 10.0),
                     gravity: false,
                     stuck: None,
+                    fuse: None,
                 },
             ))
             .id();
@@ -271,16 +315,29 @@ fn fly(
     let dt = time.delta_secs();
     for (e, mut b, mut t) in &mut bombs {
         let p = data.props(b.props);
+        // the fuse (0x00481520: counts down, at or below 0 StickyBombProjectile_Explode with no hit object: the stuck
+        // one, if any)
+        let mut boom = false;
+        if let Some(f) = b.fuse.as_mut() {
+            *f -= dt;
+            boom = *f <= 0.0;
+        }
         // stuck: held on the object, then the explosion (0x0047e9b0, 0x00481ab0)
         if let Some((obj, local, linger)) = b.stuck.as_mut() {
             if let Some(o) = obj.and_then(|o| others.get(o).ok()) {
                 t.translation = o.transform_point(*local);
             }
             *linger -= dt;
-            if *linger > 0.0 {
+            if *linger > 0.0 && !boom {
                 continue;
             }
-            let obj = *obj;
+            boom = true;
+        }
+        if boom {
+            let obj = b.stuck.and_then(|s| s.0);
+            if b.stuck.is_none() && b.props == "p_player_stickybomb" {
+                stop.write(crate::audio::StopSound("wpn_sticky_grenade_lp".into()));
+            }
             let area = p.f("area_damage", 0.0);
             blasts.write(crate::fx::Explode {
                 at: t.translation,

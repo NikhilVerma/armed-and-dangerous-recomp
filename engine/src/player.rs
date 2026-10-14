@@ -61,6 +61,16 @@ pub struct Roman {
     pub fall_speed: f32,
     pub anti_gravity: f32,
     pub max_health: f32,
+    /// Roman's weapon state (+0xc24, game_09.cpp 723-1990), replaced by these fields: the slot lists and their
+    /// plumbing (list init 0x004a0b10, find / has / add 0x004a0b60 / 0x004a0b50 / 0x004a0b80, state init 0x004a0d00,
+    /// add / remove a weapon 0x004a0ef0 / 0x004a0f30, the current / special ids and objects 0x004a1660 / 0x004a1670 /
+    /// 0x004a15f0 / 0x004a10b0, pending switches 0x004a1680 / 0x004a17a0 / 0x004a1690 / 0x004a17b0, the per-frame
+    /// timers 0x004a1890, the special select 0x004a12c0), the ammo records (getters 0x004a1300 / 0x004a1320 /
+    /// 0x004a1360 / 0x004a1380, setter 0x004a14e0: `clip` / `ammo` / `stickies` / `topsy`), the weapon objects
+    /// (equip 0x004a10e0 and destroy 0x004a0ff0 / 0x004a1060: the hand model's visibility, hand_weapon; attach bones
+    /// 0x004a0ea0 / 0x004a1a30), the PlayerWeapon load (0x004a2150 over WeaponObject 0x004a1bf0: `Weapon` from the
+    /// property set) and its collision description (0x004a1d80: no body), the special's cooldown queue (0x004a1950 /
+    /// 0x004a1930 / 0x004a1970: sticky.rs StickyThrow)
     pub rifle: Weapon,
     /// the Flemming machine gun once taken in the pub (Roman's second weapon slot)
     pub mg: Option<Weapon>,
@@ -111,6 +121,21 @@ pub struct Roman {
     /// (0x00475ff0 -> 0x004a16b0)
     pub wchange: Option<f32>,
     pub move_local: Vec2,
+    /// a standing jump waiting for trotter_jump_into to end (0x0047aaf0: flag 0x40 set, 0x80 not yet: the impulse
+    /// comes when the anim sets 0x80); seconds left
+    pub jump_wind: Option<f32>,
+    /// last frame's horizontal speed (+0x47c, for the stop fx) and the slide fx's anchor (+0x568: fx_roman_slide
+    /// runs while it lives)
+    pub prev_hspeed: f32,
+    pub slide_fx: Option<Entity>,
+    /// +0xc00: 0.5 s after each shot (0x004788a0 at 0x0047a555), counted down by dt; the empty-clip reload and the
+    /// weapon fallback wait for it (0x0047a6af)
+    pub fire_delay: f32,
+    /// Game+0xd68: seconds the Fire key has been held with the machine gun in hand (0 when released); the machine
+    /// gun's scatter grows with it (0x0047f4e0)
+    pub mg_held: f32,
+    /// this frame's wanted horizontal velocity (the drive's input; the slide fx needs it below 2 units/s)
+    pub wish_h: f32,
 }
 
 #[derive(Clone)]
@@ -155,8 +180,6 @@ pub struct Projectile {
     pub no_buildings: bool,
 }
 
-/// A projectile of a property set (speed x3 as Projectile_Load 0x0047e0c0; damage, lifetime, fx_start trail
-/// following it, fx_end_material on impact).
 /// Bones that stand for collision parts in the hit test (the main body bones, as the ragdoll parts).
 /// Whether the segment from `from` along `seg` passes within a body part's radius of the skeleton (bone to parent).
 fn ray_hits_parts(a: &crate::skin::Animator, joints: &Query<&GlobalTransform>, from: Vec3, seg: Vec3) -> bool {
@@ -268,6 +291,12 @@ fn damage_feedback(
 
 const BODY_PARTS: [&str; 16] = ["head", "neck", "chest", "belly", "center", "l_shoulder", "r_shoulder", "l_arm", "r_arm", "l_wrist", "r_wrist", "l_leg", "r_leg", "l_shin", "r_shin", "l_ankle"];
 
+/// A projectile of a property set (Projectile, vtable 0x005ac790). Spawning one stands for the original's create +
+/// launch: the spawn helpers 0x0047dbf0 (from the weapon's emitter bone toward the aim point) / 0x0047de40 (from a
+/// point toward a target point), SetTargetPoint 0x0047e340, SetOwner 0x0047e370 (`owner`), Launch 0x0047e400 (the
+/// velocity "speed" x 3 along the direction: Projectile_Load 0x0047e0c0, GetSpeed 0x0047e360), the start effect
+/// 0x0047ee30 (fx_start following it). No physics body: the collision description 0x0047e320 is replaced by the
+/// per-frame ray (projectiles).
 pub fn spawn_projectile(commands: &mut Commands, fx: &mut MessageWriter<crate::fx::StartFx>, p: &Props, from: Vec3, dir: Vec3, from_player: bool, owner: Option<Entity>) {
     let speed = p.f("speed", 300.0) * 3.0;
     let e = commands
@@ -277,7 +306,8 @@ pub fn spawn_projectile(commands: &mut Commands, fx: &mut MessageWriter<crate::f
             Transform::from_translation(from).with_rotation(Transform::IDENTITY.looking_to(dir, Vec3::Y).rotation * crate::level::game_to_engine()),
             Projectile {
                 vel: dir * speed,
-                life: p.f("lifetime", 4.0).min(3.0),
+                // "lifetime" (Projectile_Load 0x0047e0c0, default 4): removed when it runs out (0x0047e4a0)
+                life: p.f("lifetime", 4.0),
                 damage: p.f("damage", 10.0),
                 from_player,
                 owner,
@@ -325,10 +355,12 @@ impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Update, hand_weapon);
         app.init_resource::<PlayerStats>()
+            .init_resource::<Banter>()
             .init_resource::<LookDelta>()
             .add_systems(Update, grab_cursor.before(control))
-            .add_systems(Update, (control, weapons, projectiles, damage_feedback, death).chain().run_if(crate::playing))
-            .add_systems(PostUpdate, follow_camera.before(TransformSystems::Propagate).run_if(crate::playing));
+            .add_systems(Update, (control, ground_effects, weapons, projectiles, damage_feedback, death).chain().run_if(crate::playing))
+            .add_systems(PostUpdate, follow_camera.before(TransformSystems::Propagate).run_if(crate::playing))
+            .add_systems(Update, (player_state.after(death), idle_banter).run_if(crate::playing));
     }
 }
 
@@ -411,6 +443,12 @@ pub fn make_roman(physics: &mut Physics, p: &Props, data: &GameData, feet: Vec3,
         reload_clock: None,
         wchange: None,
         move_local: Vec2::ZERO,
+        jump_wind: None,
+        prev_hspeed: 0.0,
+        slide_fx: None,
+        fire_delay: 0.0,
+        mg_held: 0.0,
+        wish_h: 0.0,
     })
 }
 
@@ -557,6 +595,7 @@ fn control(
         // zoom: held Zoom (Z, E; 0x00478xxx game_06.cpp:2819-2836) enters the weapon camera; turning and pitching
         // then use the weapon's zoomed speeds (rifle / machine gun 0.05 / 0.25 against 0.3 / 0.95: 0x00475990 /
         // 0x004759e0)
+        // (the toggle form when ToggleZoom is bound, 0x0047bc80(10): unbound by default, so zoom follows the held key)
         let zoom_held = ctl.down(crate::input::Act::Aim) && !r.dead;
         let step = dt / r.zoom_secs.max(1e-3);
         r.zoom = if zoom_held { (r.zoom + step).min(1.0) } else { (r.zoom - step).max(0.0) };
@@ -804,7 +843,8 @@ fn control(
         // jump_fwd / side_max_speed (6.5) with jump_movement_power (4). Integrated exactly per frame.
         // the power: movement_power_min..max by the stick (keys: full stick); for 1 s after a knockback (w = 1 -
         // slow) min becomes w x 7 + (1 - w) and max x (0.5 (1 - w) + w) (game_06.cpp:2572)
-        let stick = (Vec2::new(wish.x, wish.z).length() / r.fwd_speed.max(1e-3)).min(1.0);
+        r.wish_h = Vec2::new(wish.x, wish.z).length();
+        let stick = (r.wish_h / r.fwd_speed.max(1e-3)).min(1.0);
         let w = 1.0 - r.slow;
         let (pmin, pmax) = if r.slow > 0.0 { (w * r.power_min + (1.0 - w), r.power * (0.5 * (1.0 - w) + w)) } else { (r.power_min, r.power) };
         r.slow = (r.slow - dt).max(0.0);
@@ -838,14 +878,30 @@ fn control(
                 r.vel.y += d.y * k;
             }
         }
-        if r.on_ground {
-            r.vel.y = r.vel.y.max(-5.0);
-            if (ctl.pressed(crate::input::Act::Jump) || (bot.veer > 0.0 && bot.goto.is_some())) && !r.dead {
-                // the impulse, then this step's gravity as in the airborne steps (velocity before position): the
-                // original's arc (jumpA, peak 14.6) fits 70 and gravity 160.9 that way
-                r.vel.y = r.jump_impulse - 64.348 * r.anti_gravity * 0.5 * dt;
-                r.jumping = true;
+        // the jump (0x0047aaf0): TurboJump with the grounded grace +0x570 > 0 sets flag 0x40, and 0x80 at once when the
+        // horizontal speed +0x4bc is above 20 (0x005bcbe8); standing, 0x80 comes when trotter_jump_into (0.133 s) ends.
+        // With both: the impulse mass x jump_impulse and "Fx_fs_roman_jump" at the feet (0x00478800)
+        let mut take_off = false;
+        if let Some(w) = r.jump_wind {
+            let w = w - dt;
+            r.jump_wind = if w <= 0.0 || r.dead { None } else { Some(w) };
+            take_off = w <= 0.0 && !r.dead;
+        }
+        if r.on_ground && r.jump_wind.is_none() && !take_off && !r.jumping && (ctl.pressed(crate::input::Act::Jump) || (bot.veer > 0.0 && bot.goto.is_some())) && !r.dead {
+            if Vec2::new(r.vel.x, r.vel.z).length() > 20.0 {
+                take_off = true;
+            } else {
+                r.jump_wind = Some(JUMP_INTO);
             }
+        }
+        if take_off {
+            // the impulse, then this step's gravity as in the airborne steps (velocity before position): the
+            // original's arc (jumpA, peak 14.6) fits 70 and gravity 160.9 that way
+            r.vel.y = r.jump_impulse - 64.348 * r.anti_gravity * 0.5 * dt;
+            r.jumping = true;
+            ground_fx(&physics, &mut fx, t.translation, "fx_fs_roman_jump");
+        } else if r.on_ground {
+            r.vel.y = r.vel.y.max(-5.0);
         } else {
             // world gravity -64.348 x anti_gravity x 0.5 (0x005bcb4c): -160.9 with jump_anti_gravity 5 in lev_1_m1
             // (docs/subsystems/player.md); jump impulse 70 -> about 15 units high
@@ -901,7 +957,9 @@ fn control(
                 r.vel = Vec3::ZERO;
             }
         }
-        // Roman faces where the camera looks (his model faces -Y in game space = +Z engine: turn by pi)
+        // Roman faces where the camera looks (his model faces -Y in game space = +Z engine: turn by pi). The Transform
+        // replaces the original's matrix getters RotZ(+0x974) x base (vt+0x70..+0x7c: 0x00473b60, 0x00473bf0,
+        // 0x00473c80, 0x00473d10)
         t.rotation = Quat::from_rotation_y(r.yaw + std::f32::consts::PI) * r.base;
         stats.position = t.translation;
         let w = if r.use_mg { r.mg.as_ref().unwrap_or(&r.rifle) } else { &r.rifle };
@@ -926,7 +984,7 @@ fn weapons(
     time: Res<Time>,
     buttons: Res<ButtonInput<MouseButton>>,
     ctl: Res<crate::input::Controls>,
-    mut physics: NonSendMut<Physics>,
+    physics: NonSend<Physics>,
     (texts, mut subs): (Res<crate::gamemenu::Texts>, MessageWriter<crate::audio::Subtitle>),
     data: Res<GameData>,
     mut bot: ResMut<crate::playtest::Bot>,
@@ -979,16 +1037,22 @@ fn weapons(
         r.since_fire += dt;
         r.since_throw += dt;
         r.reloading -= dt;
-        // Next Weapon (Q): the rifle and, once taken in the pub, the machine gun
-        // the switch plays the weapon-change anim and completes at its frame 13 (0x004a16b0): the weapon, the chat line
-        // "ui_change_weapon" with its name and the sound ui_weapon_put_away (2D)
-        if ctl.pressed(crate::input::Act::SwitchWeapon) && r.mg.is_some() && r.wchange.is_none() && r.reload_clock.is_none() {
-            r.wchange = Some(0.0);
-        }
+        // +0xc00: set to 0.5 by each shot, counted down by dt (0x004788a0, game_06.cpp:2800)
+        r.fire_delay = (r.fire_delay - dt).max(0.0);
+        // the weapon state (Roman +0xc24, game_09.cpp 723-1990): the primary list holds the rifle and, once taken in
+        // the pub, the machine gun. A slot is usable when its ammo record has clip + spare != 0 (0x004a0c10 /
+        // 0x004a0c70); the rifle's spare is never spent (its reload 0x004a29d0 does not take from it)
+        let usable = |w: &Weapon| w.clip > 0 || w.ammo > 0;
+        // a pending switch (0x004a1680) completes at frame 13 of the weapon-change anim (0x00475ff0 state 4 ->
+        // 0x004a16b0) or when its timer (+0x2c, 0.5 s from 0x004a0bb0) runs out (0x004a1690), whichever first: the
+        // anim, 0.4 s. Completing destroys the old weapon object (0x004a0ff0) with its reload timer and equips the new
+        // one (0x004a10e0); the chat line "ui_change_weapon" with its name and ui_weapon_put_away (2D)
         if let Some(c) = r.wchange {
             let c = c + dt;
-            if c >= 12.0 / 30.0 && c - dt < 12.0 / 30.0 {
+            if c >= SWITCH_AT && c - dt < SWITCH_AT {
                 r.use_mg = !r.use_mg;
+                r.reload_clock = None;
+                r.reloading = 0.0;
                 let name = texts.get(if r.use_mg { "weap_machinegun" } else { "weap_rifle" });
                 subs.write(crate::audio::Subtitle { speaker: None, text: texts.get("ui_change_weapon").replace("%s", &name), duration: 3.0 });
                 sounds.write(crate::audio::PlaySound::ui("ui_weapon_put_away"));
@@ -996,28 +1060,59 @@ fn weapons(
             // the anim's length (trotter_wchange_t 1.13 s; frame 13 is 0.4 s in: its first frame is 1)
             r.wchange = (c < 1.133).then_some(c);
         }
+        // while a switch is pending the player update stops after it (0x004788a0: 0x004a1690 / 0x004a16b0, then done):
+        // no reload, no fire, no special
+        let switching = r.wchange.is_some_and(|c| c < SWITCH_AT);
+        // Next Weapon (Q, input 0xe): the next usable slot as pending (0x004a0bb0, 0.5 s), unless it is the current one;
+        // selecting leaves the zoom mode (0x00475910) and requests the weapon-change anim (+0xa34 |= 0x440000)
+        let other_usable = if r.use_mg { usable(&r.rifle) } else { r.mg.as_ref().is_some_and(usable) };
+        if !switching && ctl.pressed(crate::input::Act::SwitchWeapon) && other_usable {
+            r.wchange = Some(0.0);
+        }
+        let switching = r.wchange.is_some_and(|c| c < SWITCH_AT);
         let mg = r.use_mg && r.mg.is_some();
-        let mut reloaded = false;
         // a tap counts as a shot: a trackpad tap over Moonlight arrives as press and release in one frame, never
         // "pressed" at the frame's end (the player's gun did nothing)
         let fire = ctl.down(crate::input::Act::Fire) || ctl.pressed(crate::input::Act::Fire) || (buttons.just_pressed(MouseButton::Left) && ctl.active_play) || (bot.fight && bot.fire_ok);
-        let idle = r.reload_clock.is_none();
-        let (shoot, reload_time) = {
+        let reloading = r.reload_clock.is_some();
+        let fire_delay = r.fire_delay;
+        let (shoot, starting, out_of_ammo) = {
             let w = if mg { r.mg.as_mut().unwrap() } else { &mut r.rifle };
+            // the recycle gate (0x004a1e40: never fired, or time - last fire +0x544 > recycle_time)
             w.timer -= dt;
-            let starting = idle && ((ctl.pressed(crate::input::Act::Reload) && w.clip < w.clip_size && w.ammo > 0) || (w.clip == 0 && w.ammo > 0 && w.timer <= 0.0));
-            if starting {
-                w.timer = w.reload_time.max(42.0 / 30.0);
-                reloaded = true;
-            }
-            let lock = w.reload_time;
-            (fire && w.timer <= 0.0 && w.clip > 0, lock)
+            // can reload (0x004a22a0): spare ammo and the clip below the descriptor's clip size
+            let can_reload = w.ammo > 0 && w.clip < w.clip_size;
+            // Reload (R, input 0xc): with vt+0x15c the reload starts (0x004a2360) and the reload anim with its load
+            // sound is requested (+0xa34 |= 0x190000); nothing more while reloading (vt+0x164 0x004a2390)
+            let manual = ctl.pressed(crate::input::Act::Reload) && can_reload;
+            // the empty clip (0x0047a6af): +0xc00 run out, no shot this frame and the clip empty (vt+0x158 0x004a2270):
+            // reload when it can, else fall back to the previous usable weapon (0x004a0be0)
+            let empty = fire_delay <= 0.0 && w.clip == 0;
+            let starting = !switching && !reloading && (manual || (empty && can_reload));
+            // ready to fire (vt+0x138 0x004a23b0): not reloading, the clip not empty and the recycle gate
+            let shoot = !switching && !reloading && !starting && fire && w.timer <= 0.0 && w.clip > 0;
+            (shoot, starting, !switching && !reloading && empty && !can_reload)
         };
-        if reloaded {
+        if starting {
             r.reload_clock = Some((0.0, false));
+            // the upper-body reload anim (trotter_reload, 1.97 s)
+            r.reloading = 1.97;
+        }
+        if out_of_ammo {
+            if other_usable {
+                r.wchange = Some(0.0);
+            } else if ctl.pressed(crate::input::Act::Fire) {
+                // nothing usable: the dry-fire sound of the weapon in hand (table 0x0047a938: 0 machine gun
+                // wpn_machgun_dry_fire_1, 1 rifle wpn_rifle_dry_fire_2; unreachable on lev_1_m1, the rifle never runs dry)
+                sounds.write(crate::audio::PlaySound::ui(if mg { "wpn_machgun_dry_fire_1" } else { "wpn_rifle_dry_fire_2" }));
+            }
         }
         // the reload runs on the reload anim's frames (30 per second, counted from its first frame, 1: AnimEventTime
-        // game_05.cpp:1328): the load sound, then the refill
+        // game_05.cpp:1328) for the load sound (0x0059eef4[w]: rifle 10, machine gun 15); the clip refills when the
+        // weapon's reload timer (+0x55c = clip_reload_time, 0x004a2360) runs out (0x004a2220 -> vt+0x168) or when the
+        // anim reaches frame 0x0059eedc[w] = 43 still reloading (0x00475ff0 state 3), whichever comes first: 1.0 s for
+        // both lev_1_m1 weapons. The refill (0x004a22e0) moves min(clip size - clip, spare) into the clip from the
+        // spare; the rifle's (0x004a29d0) leaves the spare as it is
         if let Some((clock, said)) = r.reload_clock {
             let clock = clock + dt;
             let sound_at = if mg { 14.0 } else { 9.0 } / 30.0;
@@ -1026,8 +1121,8 @@ fn weapons(
                 said = true;
                 sounds.write(crate::audio::PlaySound::at(if mg { "wpn_rome_machgun_load" } else { "wpn_rome_rifle_load" }, t.translation));
             }
-            if clock >= 42.0 / 30.0 {
-                let w = if mg { r.mg.as_mut().unwrap() } else { &mut r.rifle };
+            let w = if mg { r.mg.as_mut().unwrap() } else { &mut r.rifle };
+            if clock >= reload_done_at(w.reload_time) {
                 let n = (w.clip_size - w.clip).min(w.ammo);
                 w.clip += n;
                 if !w.unlimited {
@@ -1038,29 +1133,30 @@ fn weapons(
                 r.reload_clock = Some((clock, said));
             }
         }
-        if reloaded {
-            // the upper-body reload anim (trotter_reload, 1.97 s)
-            r.reloading = reload_time.max(1.97);
-        }
         // the machine gun's fire sound: start, loop while the trigger is held, end (wpn_rome_machgun_fire_*)
         if mg && shoot && !r.mg_firing {
             r.mg_firing = true;
             sounds.write(crate::audio::PlaySound::at("wpn_rome_machgun_fire_start", t.translation));
             sounds.write(crate::audio::PlaySound { looped: Some(true), ..crate::audio::PlaySound::at("wpn_rome_machgun_fire_lp", t.translation) });
         }
-        if r.mg_firing && (!fire || !mg || r.mg.as_ref().is_some_and(|w| w.clip == 0)) {
+        if r.mg_firing && (!fire || !mg || switching || r.mg.as_ref().is_some_and(|w| w.clip == 0)) {
             r.mg_firing = false;
             stop.write(crate::audio::StopSound("wpn_rome_machgun_fire_lp".into()));
             sounds.write(crate::audio::PlaySound::at("wpn_rome_machgun_fire_end", t.translation));
         }
         if shoot {
             r.since_fire = 0.0;
+            // a shot ends the reload anim (the fire request 0x8000 takes the state, 0x0047a555)
+            r.reloading = 0.0;
+            r.fire_delay = 0.5;
             let (props, spread) = {
                 let w = if mg { r.mg.as_mut().unwrap() } else { &mut r.rifle };
+                // vt+0x144 (0x004a2450): the last fire time and one round less in the clip
                 w.clip -= 1;
                 w.timer = w.recycle;
                 (w.props, w.spread)
             };
+            // Game+0x2718: the shots fired
             stats.shots += 1;
             let (from, dir) = aim(&r, t);
             // the shot leaves the gun: the weapon's ref_shoot_00 (0x0047dbf0: P = that bone's matrix; measured in the
@@ -1078,53 +1174,93 @@ fn weapons(
                 Some(p) if !(bot.fight && bot.fire_ok) && (p - from).length() > 1.0 => (p - from).normalize_or(dir),
                 _ => dir,
             };
-            // spread: a random offset of up to spread % across the aim
+            // the machine gun's scatter (0x0047f4e0): the target point moves by a random offset in [-s, s] per axis,
+            // s = min(Game+0xd68 x machinegun_spread_pct, machinegun_spread_pct) x distance x 0.01: none on the first
+            // shot, the full spread % after 1 s of holding Fire
             let dir = if spread > 0.0 {
-                let k = spread / 100.0;
-                (dir + Vec3::new(rng.range(-k, k), rng.range(-k, k), rng.range(-k, k))).normalize_or(dir)
+                let dist = aim_point.map_or(1000.0, |p| (p - from).length());
+                let s = mg_scatter(spread, r.mg_held, dist);
+                let target = from + dir * dist + Vec3::new(rng.range(-s, s), rng.range(-s, s), rng.range(-s, s));
+                (target - from).normalize_or(dir)
             } else {
                 dir
             };
             let wp = data.props(props);
             let bullet = data.props(&format!("p_{}", wp.s("projectile_name").unwrap_or("player_rifle_bullet")));
+            // the fire (vt+0x140 0x004a23e0): the projectile, then the muzzle effect (vt+0x154 0x004a1f20: one-shot on
+            // muzzle_bone_name; the rapid-fire machine gun's runs while firing and is released by the weapon update
+            // 0x004a1dd0 on the frame after the last shot: here one per shot, a labelled approximation)
             spawn_projectile(&mut commands, &mut fx, &bullet, from, dir, true, Some(e));
             if let Some(m) = wp.s("muzzle_fx_name") {
                 fx.write(crate::fx::StartFx { name: m.to_owned(), at: from, rotation: Transform::IDENTITY.looking_to(dir, Vec3::Y).rotation, follow: None, position_only: false });
             }
             // (the rifle's fire sound comes from its muzzle fx, fx_muzzle_flash_hawkings op 0x39: the original's sound
             // log has one wpn_rome_rifle_fire per shot)
-            let _ = mg;
         }
-        // sticky bomb: thrown along the aim with the game's sticky bomb values (stand-in throw strength)
+        // Game+0xd68: + dt while Fire is held with weapon 0 (the machine gun) in hand, after this frame's shot; 0 when
+        // Fire is up (0x004788a0 at 0x0047a555)
+        if !switching {
+            r.mg_held = if !fire { 0.0 } else if mg { r.mg_held + dt } else { r.mg_held };
+        }
+        // nothing more while switching or reloading (game_06.cpp:2874 / 2884: vt+0x164 -> done)
+        if switching {
+            continue;
+        }
         let bot_throw = std::mem::take(&mut bot.throw);
-        // Next Special (Tab): sticky bombs / the Topsy Turvy bomb
-        if ctl.pressed(crate::input::Act::NextSpecial) && r.topsy > 0 {
+        // Next Special (Tab, input 0x10): the next usable special as pending with time 0 (0x004a0bb0), completed
+        // on the next frame (0x004a17d0: the chat line "ui_change_special_weapon" and ui_weapon_put_away)
+        let counts = [r.stickies, r.topsy];
+        if ctl.pressed(crate::input::Act::NextSpecial) && counts[1 - r.special as usize] > 0 {
             r.special = 1 - r.special;
-            // 0x004a17d0: the chat line "ui_change_special_weapon" and ui_weapon_put_away
             let name = texts.get(if r.special == 1 { "weap_topsyturvy" } else { "weap_stickybomb" });
             subs.write(crate::audio::Subtitle { speaker: None, text: texts.get("ui_change_special_weapon").replace("%s", &name), duration: 3.0 });
             sounds.write(crate::audio::PlaySound::ui("ui_weapon_put_away"));
         }
-        if r.special == 1 && r.topsy == 0 && !topsy.active() {
-            // the last one used: back to the sticky bomb, with its line (the original's capture topsyO)
-            r.special = 0;
-            subs.write(crate::audio::Subtitle { speaker: None, text: texts.get("ui_change_special_weapon").replace("%s", &texts.get("weap_stickybomb")), duration: 3.0 });
+        if r.reload_clock.is_some() {
+            continue;
+        }
+        // the special in hand used up (its spare 0x004a1380 = 0): the previous usable special (0x004a0be0), with its
+        // line (the original's capture topsyO); none left: it stays
+        let counts = [r.stickies, r.topsy];
+        if counts[r.special as usize] == 0 && counts[1 - r.special as usize] > 0 && !topsy.active() && sticky.pending.is_none() {
+            r.special = 1 - r.special;
+            let name = texts.get(if r.special == 1 { "weap_topsyturvy" } else { "weap_stickybomb" });
+            subs.write(crate::audio::Subtitle { speaker: None, text: texts.get("ui_change_special_weapon").replace("%s", &name), duration: 3.0 });
             sounds.write(crate::audio::PlaySound::ui("ui_weapon_put_away"));
         }
-        // Fire Special with the Topsy Turvy bomb (topsy.rs)
-        if r.special == 1 && ctl.pressed(crate::input::Act::Special) && r.topsy > 0 && !topsy.active() {
+        // Fire Special (Mouse 2, input 9) with a usable special (0x004a1a50), by its id (jump table 0x0047a910):
+        // - the Topsy Turvy bomb (id 8): not in a jump (+0xa34 & 0xc0) and +0x580 clear (the contact callback's object,
+        //   0x00477c90: meaning not settled, not ported), flag 0x800000 (topsy.rs), Game+0x2718 += 1
+        // - the sticky bomb (id 10): 0x004a1aa0 -> 0x004a1930 queues it with a 0.4 s cooldown; the throw anim is
+        //   requested (+0xa34 |= 0x220000 standing in state 0 / 6); Game+0x2718 += 1. The bomb leaves the hand on the
+        //   throw anim's "fire" note, 0.267 s into trotter_throw / trotter_run_throw (0x004a1970, game_05.cpp:1579;
+        //   the 0.4 s queue is only a fallback), and the count drops then (game_09.cpp:1813; sticky.rs). No throw
+        //   sound: the bomb's flight loop starts at launch
+        if r.special == 1 && ctl.pressed(crate::input::Act::Special) && r.topsy > 0 && !topsy.active() && !r.jumping && r.jump_wind.is_none() {
             r.topsy -= 1;
             topsy.start = true;
+            stats.shots += 1;
         }
-        // Fire Special: Mouse 2 (the original's binding; F is Activate)
-        // (0x004a1aa0 -> 0x004a1930: weapon 10 queued; the bomb leaves the hand on the throw anim's "fire" note, 0.267 s
-        // into trotter_throw / trotter_run_throw (0x004a1970, game_05.cpp:1579; the 0.4 s queue is only a fallback),
-        // and the count drops then (game_09.cpp:1813; sticky.rs). No throw sound: the bomb's flight loop starts at launch
         if r.special == 0 && (ctl.pressed(crate::input::Act::Special) || bot_throw) && r.stickies > 0 && sticky.pending.is_none() {
             r.since_throw = 0.0;
             sticky.pending = Some(0.267);
+            stats.shots += 1;
         }
     }
+}
+
+/// The weapon-change anim's frame 13 (counted from 1 at 30 per second): the switch completes (0x00475ff0 state 4)
+const SWITCH_AT: f32 = 12.0 / 30.0;
+
+/// When a reload of `clip_reload_time` refills the clip: the weapon's timer (0x004a2220) or the reload anim's frame
+/// 43 (0x00475ff0 state 3, 0x0059eedc), whichever comes first.
+pub fn reload_done_at(clip_reload_time: f32) -> f32 {
+    clip_reload_time.min(42.0 / 30.0)
+}
+
+/// The machine gun's scatter half-width at the target (0x0047f4e0): min(held x pct, pct) x distance x 0.01.
+pub fn mg_scatter(spread_pct: f32, held: f32, distance: f32) -> f32 {
+    (held * spread_pct).min(spread_pct) * distance * 0.01
 }
 
 /// Roman's death (player.md 6, game_06.cpp:2154-2168): fx_trotter_death and a ragdoll from his pose, pushed by his
@@ -1150,6 +1286,180 @@ fn death(
             }
         }
         info!("EVENT player: died (ragdoll {})", r.ragdolled);
+    }
+}
+
+/// Landing damage (0x00478100 without the flag): t = (-vz - landing_damage_min_speed) / landing_damage_max_speed
+/// (p_trotter 150 / 200; it divides by max_speed, not max - min: an original quirk kept), none when t <= 0, else
+/// lerp(landing_damage_min_hurt 150, max_hurt 300, min(t, 1)).
+pub fn landing_damage(peak_vz: f32) -> Option<f32> {
+    let k = (-peak_vz - 150.0) / 200.0;
+    if !(k > 0.0) {
+        return None;
+    }
+    let k = k.min(1.0);
+    Some((1.0 - k) * 150.0 + k * 300.0)
+}
+
+/// The playtest state log's player fields (weapons, reload, switch, jump, specials, live sticky bombs).
+fn player_state(state: Option<ResMut<crate::playtest::PlayState>>, q: Query<(&Roman, &Transform)>, bombs: Query<&crate::sticky::StickyBomb>, banter: Res<Banter>) {
+    let (Some(mut s), Ok((r, t))) = (state, q.single()) else { return };
+    let m = &mut s.0;
+    let r1 = |v: f32| ((v * 100.0).round() / 100.0) as f64;
+    let w = if r.use_mg { r.mg.as_ref().unwrap_or(&r.rifle) } else { &r.rifle };
+    m.insert("weapon".into(), w.name.into());
+    m.insert("reloading".into(), r.reload_clock.is_some().into());
+    m.insert("switching".into(), r.wchange.is_some_and(|c| c < SWITCH_AT).into());
+    m.insert("jumping".into(), r.jumping.into());
+    m.insert("jump_wind".into(), r.jump_wind.is_some().into());
+    m.insert("on_ground".into(), r.on_ground.into());
+    m.insert("feet_x".into(), r1(t.translation.x).into());
+    m.insert("feet_y".into(), r1(t.translation.y).into());
+    m.insert("hspeed".into(), r1(Vec2::new(r.vel.x, r.vel.z).length()).into());
+    m.insert("mg_held".into(), r1(r.mg_held).into());
+    m.insert("special".into(), r.special.into());
+    m.insert("topsy_left".into(), r.topsy.into());
+    m.insert("dead".into(), r.dead.into());
+    m.insert("landing".into(), r.landing.map_or("", |l| l.0).into());
+    m.insert("sticky_live".into(), bombs.iter().count().into());
+    m.insert("sticky_stuck".into(), bombs.iter().filter(|b| b.is_stuck()).count().into());
+    m.insert("banter_lines".into(), banter.lines.into());
+    m.insert("sticky_fused".into(), bombs.iter().filter(|b| b.fuse.is_some()).count().into());
+}
+
+/// The idle lines' table 0x005ce350 (55 entries, read from the exe): Roman's, Q's and Jonesy's ambient / idle lines.
+const IDLE_LINES: [&str; 55] = [
+    "rom50044_Ambient", "rom50047_Ambient", "rom50048_Ambient", "rom50049_Ambient", "rom50050_Ambient", "rom50171_Ambient",
+    "rom50178_BaseDefendAmb", "rom50187_BaseDefendAmb", "rom50189_BaseDefendAmb", "rom50190_BaseDefendAmb", "rom50191_BaseDefendAmb",
+    "q1150029_Idle", "q1150030_Idle", "q1150027_Ambient", "q1150031_Ambient", "q1150033_Ambient", "q1150034_Ambient",
+    "q1150025_Ambient", "q1150035_Ambient", "q1150036_Ambient", "q1150037_Ambient", "q1150041_Ambient", "q1150048_Ambient",
+    "q1150049_Ambient", "q1154016_Ambient_Spec", "q1150175_Ambient_Spec", "q1150177_Ambient_Spec", "q1154004_Ambient_Spec",
+    "jon50034_Idle", "jon50035_Idle", "jon50036_Idle", "jon50040_Idle", "jon50043_Idle", "jon50027_Ambient", "jon50030_Ambient",
+    "jon50031_Ambient", "jon50032_Ambient", "jon50041_Ambient", "jon50046_Ambient", "jon50050_Ambient", "jon50051_Ambient",
+    "jon50052_Ambient", "jon50053_Ambient", "jon50054_Ambient", "jon50055_Ambient", "jon50164_Ambient", "jon50182_Ambient",
+    "jon50183_Ambient", "jon54001_Ambient_Spec", "jon54012_Ambient_Spec", "jon54014_Ambient_Spec", "jon54017_Ambient_Spec",
+    "jon54019_Ambient_Spec", "jon50162_Ambient_Spec", "jon54005_Ambient_Spec",
+];
+
+/// The idle banter's clocks (Game+0xb0c / +0xafc: when Q / Jonesy last moved, with their positions +0xb10 / +0xb00;
+/// Roman's idle time +0xe5c).
+#[derive(Resource, Default)]
+pub struct Banter {
+    /// lines played (the playtest log's banter_lines)
+    pub lines: u32,
+    t: f32,
+    q: Option<(Vec3, f32)>,
+    jon: Option<(Vec3, f32)>,
+    idle: f32,
+}
+
+/// The idle banter (0x0047b730, every player update): when Q or Jonesy has not moved for more than 30 s (0x005bccbc),
+/// or Roman has been idle for more than 30 s (+0xe5c: dt added in the stance and fidget modes 0..5 of 0x00476a10,
+/// cleared by any other mode and by firing, reloading, switching), one line of table 0x005ce350 plays (0x00493b70 cue
+/// 0x37, filter 0x0047b520) and the clocks restart. A missing companion keeps its clock at now. Guesses: the filter
+/// 0x0047b520 is not recovered: a line plays only when its speaker is there (as the dismay banter, ai.rs) and the
+/// base-defence lines (_BaseDefendAmb) are left out; 0x00493b70's shuffle bag is a uniform pick.
+#[allow(clippy::type_complexity)]
+fn idle_banter(
+    time: Res<Time>,
+    mut st: ResMut<Banter>,
+    roman: Query<(&Roman, &Transform)>,
+    companions: Query<(&crate::ai::Companion, &Transform, Option<&Health>)>,
+    mut rng: ResMut<crate::fx::FxStats>,
+    mut sounds: MessageWriter<crate::audio::PlaySound>,
+) {
+    let dt = time.delta_secs();
+    let st = &mut *st;
+    st.t += dt;
+    let now = st.t;
+    let Ok((r, rt)) = roman.single() else { return };
+    if r.dead {
+        return;
+    }
+    let alive = |q: bool| companions.iter().find(|(c, _, h)| c.q == q && h.is_none_or(|h| h.0 > 0.0)).map(|(_, t, _)| t.translation);
+    for (q, slot) in [(true, &mut st.q), (false, &mut st.jon)] {
+        *slot = match (alive(q), *slot) {
+            (Some(p), Some((last, at))) if p.distance(last) < 1e-3 => Some((p, at)),
+            (Some(p), _) => Some((p, now)),
+            (None, _) => None,
+        };
+    }
+    let idle_mode = r.on_ground && r.move_local.length() < 3.0 && r.landing.is_none() && r.hit_anim <= 0.0 && r.jump_wind.is_none();
+    let busy = r.since_fire < dt * 1.5 || r.reload_clock.is_some() || r.wchange.is_some() || r.since_throw < dt * 1.5;
+    st.idle = if idle_mode && !busy { st.idle + dt } else { 0.0 };
+    let stale = |s: Option<(Vec3, f32)>| s.is_some_and(|(_, at)| now - at > 30.0);
+    if !(stale(st.q) || stale(st.jon) || st.idle > 30.0) {
+        return;
+    }
+    let (qp, jp) = (alive(true), alive(false));
+    let pool: Vec<(&str, Vec3)> = IDLE_LINES
+        .iter()
+        .filter(|n| !n.ends_with("_BaseDefendAmb"))
+        .filter_map(|n| match &n[..3] {
+            "rom" => Some((*n, rt.translation)),
+            "jon" => jp.map(|p| (*n, p)),
+            _ => qp.map(|p| (*n, p)),
+        })
+        .collect();
+    if let Some(&(name, at)) = pool.get(((rng.rand() * pool.len() as f32) as usize).min(pool.len().saturating_sub(1))) {
+        sounds.write(crate::audio::PlaySound::at(name, at));
+    }
+    for s in [&mut st.q, &mut st.jon] {
+        if let Some((_, at)) = s.as_mut() {
+            *at = now;
+        }
+    }
+    st.idle = 0.0;
+    st.lines += 1;
+}
+
+/// trotter_jump_into's length (4 frames at 30 per second): a standing jump's take-off delay (0x0047aaf0)
+const JUMP_INTO: f32 = 4.0 / 30.0;
+
+/// The surface under a point (its physics material; the landscape and unknown bodies: snow, guess).
+fn ground_material(physics: &Physics, at: Vec3) -> String {
+    physics.raycast(at + Vec3::Y * 2.0, Vec3::NEG_Y, 6.0).and_then(|hit| physics.materials.get(&hit.0).cloned()).unwrap_or_else(|| "snow".into())
+}
+
+/// An effect at the player's feet (0x00478800: Fx_Create with the position and, when the ground query vt+0xb8
+/// answers, flag 0x800 and the surface: the fx's material variant `<name>_<material>`).
+fn ground_fx(physics: &Physics, fx: &mut MessageWriter<crate::fx::StartFx>, at: Vec3, name: &str) {
+    let mat = ground_material(physics, at);
+    fx.write(crate::fx::StartFx { name: format!("{name}_{mat}"), at, rotation: crate::level::game_to_engine(), follow: None, position_only: false });
+}
+
+/// The stop and slide effects of the player update (0x004788a0 after the drive, 0x004799d5..0x00479bef):
+/// - grounded (the grace +0x570 > 0) and the horizontal speed dropped by more than 20 (0x005bcd44) since the last
+///   frame: "FX_fs_roman_stop" (0x00478800). The original compares per frame (about 60 per second in the captures);
+///   the remaster scales the threshold by dt x 60 so it does not depend on the frame rate;
+/// - touching the ground (contacts +0x584 > 0), faster than 10 (0x005bcb68) and the wanted velocity below 2 (its
+///   square below 4, 0x005bcbe0): "FX_roman_slide" with the surface (vt+0xb8) runs, kept in +0x568 and released
+///   (Fx_Release 0x0041d030) when that ends. The remaster releases it by despawning the anchor it follows.
+fn ground_effects(mut commands: Commands, time: Res<Time>, physics: NonSend<Physics>, mut q: Query<(&mut Roman, &Transform)>, mut fx: MessageWriter<crate::fx::StartFx>) {
+    let dt = time.delta_secs();
+    for (mut r, t) in &mut q {
+        let h = Vec2::new(r.vel.x, r.vel.z).length();
+        if r.grace > 0.0 && !r.dead && h - r.prev_hspeed < -20.0 * (dt * 60.0).max(1e-3) {
+            ground_fx(&physics, &mut fx, t.translation, "fx_fs_roman_stop");
+        }
+        r.prev_hspeed = h;
+        let slide = r.on_ground && !r.dead && h > 10.0 && r.wish_h * r.wish_h < 4.0;
+        match (slide, r.slide_fx) {
+            (true, None) => {
+                let anchor = commands.spawn(Transform::from_translation(t.translation)).id();
+                let mat = ground_material(&physics, t.translation);
+                fx.write(crate::fx::StartFx { name: format!("fx_roman_slide_{mat}"), at: t.translation, rotation: crate::level::game_to_engine(), follow: Some(anchor), position_only: true });
+                r.slide_fx = Some(anchor);
+            }
+            (true, Some(a)) => {
+                commands.entity(a).insert(Transform::from_translation(t.translation));
+            }
+            (false, Some(a)) => {
+                commands.entity(a).despawn();
+                r.slide_fx = None;
+            }
+            (false, None) => {}
+        }
     }
 }
 
@@ -1185,15 +1495,11 @@ fn fall_and_land(r: &mut Roman, t: &Transform, h: &mut Health, vy: f32, jumped: 
     // landing: grounded after falling (or a jump), once: the land fx, the landing damage from the peak downward speed,
     // the landing anim (land_hard after more than fall_land_hard_time 0.6 s falling, else jump_land)
     if r.on_ground && vy <= 0.0 && (r.falling || jumped) && r.landing.is_none() && !r.dead {
-        let k = (-r.peak_vz - 150.0) / 200.0;
-        if k > 0.0 && !no_hits {
-            let k = k.min(1.0);
-            let d = (1.0 - k) * 150.0 + k * 300.0;
+        if let (Some(d), false) = (landing_damage(r.peak_vz), no_hits) {
             info!("EVENT player: landing damage {d:.0} (vz {:.0})", r.peak_vz);
             h.0 -= d;
         }
-        let mat = physics.raycast(t.translation + Vec3::Y * 2.0, Vec3::NEG_Y, 6.0).and_then(|hit| physics.materials.get(&hit.0).cloned()).unwrap_or_else(|| "snow".into());
-        fx.write(crate::fx::StartFx { name: format!("fx_fs_roman_land_{mat}"), at: t.translation, rotation: crate::level::game_to_engine(), follow: None, position_only: false });
+        ground_fx(physics, fx, t.translation, "fx_fs_roman_land");
         r.landing = Some(if r.fall_fast_t > 0.6 { ("trotter_land_hard", 0.0, 2.633) } else { ("trotter_jump_land", 0.0, 0.633) });
         r.falling = false;
         r.peak_vz = 0.0;
@@ -1222,7 +1528,7 @@ fn projectiles(
     mut stats: ResMut<PlayerStats>,
     mut fx: MessageWriter<crate::fx::StartFx>,
     hulls: Option<Res<crate::hitparts::HitHulls>>,
-    (rtime, topsy, mounted): (Res<Time<Real>>, Res<crate::topsy::Topsy>, Res<crate::turret::Mounted>),
+    (rtime, topsy, mounted, mut bombs): (Res<Time<Real>>, Res<crate::topsy::Topsy>, Res<crate::turret::Mounted>, Query<(&Transform, &mut crate::sticky::StickyBomb), Without<Projectile>>),
     binds: Res<Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>,
     mut victims: Query<&mut crate::ai::Grunt>,
 ) {
@@ -1232,6 +1538,25 @@ fn projectiles(
         let from = t.translation;
         p.life -= dt;
         let mut hit = physics.raycast_bullet(from, step.normalize_or(Vec3::Y), step.length().max(0.01));
+        // sticky bombs are in the bullets' list (+0xe90, 0x00481320): one on the path before the first other hit takes
+        // the damage and goes off at once (0x00481b90: a direct hit's record has no area flag); the bullet ends there
+        let reach = hit.map_or(step.length(), |(_, at, _)| at.distance(from));
+        let bomb = bombs
+            .iter_mut()
+            // (the shooter's chain is skipped, +0x574: a bomb stuck on the shooter is attached to him)
+            .filter(|(bt, b)| {
+                if p.owner.is_some() && b.stuck_to() == p.owner {
+                    return false;
+                }
+                let u = ((bt.translation - from).dot(step) / step.length_squared().max(1e-6)).clamp(0.0, 1.0);
+                (from + step * u).distance(bt.translation) < crate::sticky::BOMB_RADIUS && (bt.translation - from).length() <= reach + crate::sticky::BOMB_RADIUS
+            })
+            .min_by(|a, b| a.0.translation.distance(from).total_cmp(&b.0.translation.distance(from)));
+        if let Some((_, mut b)) = bomb {
+            b.fuse = Some(0.0);
+            commands.entity(e).despawn();
+            continue;
+        }
         // the original's bullets hit a character's collision parts (Projectile_Update 0x0047e580: a detail-level-2 ray
         // against the collision model's parts), not a capsule round the whole body: a ray into a grunt's capsule hits
         // only where it meets one of grunt_coll_9's boxes posed by the skeleton (hitparts.rs); other characters: within
@@ -1328,6 +1653,8 @@ fn projectiles(
             commands.entity(e).despawn();
             continue;
         }
+        // a hit on Roman: PlayerObject vt+0xa8 0x00477c20 (the fxo_rocket_turret mark, bit 31 of +0xa34: no rocket
+        // turret on lev_1_m1) passes it to the base hit, which reaches the hit handler 0x0047afa0 below
         if hit_roman {
             if let Some(n) = impact(None).map(|n| n.replace("_snow", "_grunt")) {
                 fx.write(crate::fx::StartFx { name: n, at: from + step, rotation: Quat::IDENTITY, follow: None, position_only: false });
@@ -1335,6 +1662,7 @@ fn projectiles(
             // ignored during the topsy states (0x0047afa0: +0xa34 & 0x7800000); the bullet still lands
             if let Some(mut h) = roman_health.single_mut().ok().filter(|_| !topsy.active()) {
                 // halved while on a mounted gun (0x0047afa0: Game+0xac8 set -> damage * 0.5, 0x005bcb4c)
+                // (the health set 0x0047af50 is the Health component)
                 h.0 -= if mounted.0.is_some() { p.damage * 0.5 } else { p.damage };
                 if let Ok((_, mut r, _, _)) = roman.single_mut() {
                     r.hit_from = Some(p.vel.normalize_or(Vec3::Z));
@@ -1369,6 +1697,9 @@ fn projectiles(
                 let g = crate::level::game_to_engine().inverse() * at;
                 info!("AIDBG bulletend {} {:.1} {:.1} {:.1} t {:.3}", kind, g.x, g.y, g.z, rtime.elapsed_secs());
             }
+            // the hit handler (vt+0x138 0x0047eae0): moved to the hit point, area damage when it has any (none for the
+            // bullets), the direct damage (0x0047eec0), the end effect (0x0047ed40: fx_end_material with the surface;
+            // the bullets have no fx_end; its AI noise 0x00404810 is not ported) and removed
             if let Some(n) = impact(Some(body)) {
                 // the fx's game +Z (its up) along the surface normal
                 let rot = Quat::from_rotation_arc(Vec3::Y, normal.normalize_or(Vec3::Y)) * crate::level::game_to_engine();
@@ -1446,6 +1777,8 @@ fn projectiles(
             continue;
         }
         t.translation = from + step;
+        // the lifetime (0x0047e4a0) runs out: removed (Projectile_Remove 0x0047ebd0: the despawn; its hit list
+        // 0x0047ecb0 is not needed, a bullet ends at its first hit)
         if p.life <= 0.0 {
             commands.entity(e).despawn();
         }
@@ -1589,4 +1922,50 @@ const TICKERBOMB_FX: &str = "fx_exp_sticky_snow";
 /// Ground under a point with room for Roman above it (the safety net's "freely").
 fn on_free_ground(physics: &Physics, at: Vec3) -> bool {
     physics.raycast(at + Vec3::Y * 12.0, -Vec3::Y, 14.0).is_some()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reload_refills_at_the_timer() {
+        // rifle / machine gun clip_reload_time 1.0: the weapon's timer (0x004a2220) before anim frame 43
+        assert!((reload_done_at(1.0) - 1.0).abs() < 1e-6);
+        // a longer reload time: the anim's frame 43 (1.4 s) completes it first
+        assert!((reload_done_at(1.5) - 1.4).abs() < 1e-6);
+    }
+
+    #[test]
+    fn machine_gun_scatter_ramps_over_a_second() {
+        // machinegun_spread_pct 2 at 100 units: 0 on the first shot, 1 after 0.5 s held, 2 from 1 s on
+        assert_eq!(mg_scatter(2.0, 0.0, 100.0), 0.0);
+        assert!((mg_scatter(2.0, 0.5, 100.0) - 1.0).abs() < 1e-5);
+        assert!((mg_scatter(2.0, 1.0, 100.0) - 2.0).abs() < 1e-5);
+        assert!((mg_scatter(2.0, 7.0, 100.0) - 2.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn landing_damage_from_the_peak_fall_speed() {
+        assert_eq!(landing_damage(-150.0), None);
+        assert_eq!(landing_damage(-100.0), None);
+        // t = (250 - 150) / 200 = 0.5: 225
+        assert!((landing_damage(-250.0).unwrap() - 225.0).abs() < 1e-3);
+        // clamped at t = 1: 300 (from 350 units/s on)
+        assert!((landing_damage(-350.0).unwrap() - 300.0).abs() < 1e-3);
+        assert!((landing_damage(-900.0).unwrap() - 300.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn sticky_blast_fuse_range() {
+        assert_eq!(crate::sticky::blast_fuse(0.0), 0.0);
+        let top = crate::sticky::blast_fuse(0.999_999);
+        assert!(top > 0.69 && top < 0.7, "{top}");
+    }
+
+    #[test]
+    fn segment_distance_basics() {
+        let d = segment_distance(Vec3::ZERO, Vec3::X * 10.0, Vec3::new(5.0, 3.0, 0.0), Vec3::new(5.0, 9.0, 0.0));
+        assert!((d - 3.0).abs() < 1e-5);
+    }
 }
