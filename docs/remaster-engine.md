@@ -153,6 +153,13 @@ work/remaster/play/compare/.
   20000) is never clipped. The original also shows a fog-coloured band at the horizon (measured: ~(205, 213, 208)
   at the left of frame 580); resolved: it is the sky model's untextured disk under the horizon (emissive (212, 218, 212)), now drawn,
   and the sky texture's pale bottom rows fading into it, which only matched once tonemapping was off.
+- The flat pale band hiding the village's lower half (archway, houses, tree trunks) in the --camera comparisons
+  (2026-10-14) was that same disk, lifted: camdump.rs `hold` moved the sky dome to the dumped camera's full position,
+  y included, while level.rs follow_camera (play) moves it horizontally only. The disk (model z -26..-33) then sat at
+  ~107 on walkA 520 (camera at 136.7, from its camera.json), above the village ground (~10; archway placed at 12.4),
+  and occluded it; AND_DEBUG_NOFOG=1 still showed the band, so not fog or the far clip. Fixed in `hold` (x, z only).
+  walkA ssim / mae before -> after: 520 0.516 / 18.8 -> 0.560 / 16.7; 580 0.510 -> 0.577 / 18.9; 640 0.369 ->
+  0.412 / 54.0 (640's remaining gap: the original's token-found overlay). Play was not affected.
 - sound_ears remove themselves after playing unless `reapeat` (sic) is set (0x00497900): a voice line played twice
   before.
 - Alpha textures blend (blend table 0x0057d9e0 entry 3: SRCALPHA / INVSRCALPHA, alpha test on): the bare snowy
