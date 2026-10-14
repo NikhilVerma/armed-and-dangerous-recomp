@@ -70,7 +70,7 @@ Update this table as items land (commit hash in the last column).
 | Barks: Taunt, General_Scream, Help, shared delays | audio_01.cpp:655 | M | 2 | Hurt / Dead / Sticky / Topsy ported |
 | Fidget shiver on level 1 | Game+0x2708 == 1 | S | 3 | never shivers |
 | Companions: formation, targeting, fire, TNT | 0x00485910.. | V | | |
-| Companions: hit reactions, death, friendly fire | generic AI | M | 2 | player shots pass through them |
+| Companions: hit reactions, death, friendly fire | generic AI, 0x00430340 | P / M | 2 | player and companion shots stop on them and do no damage (same team); hit reactions and death still missing |
 | Companions: barks, orders, leader swap, partner target | audio_02.cpp:195.. | M | 2 | |
 | **Kill-streak "dismay" banter** (the remarks after blasts) | MissionObject_Update game_02.cpp:2476, table 0x005ce570, kill meter Game+0xbb8 ≥ 3 | P | 1 | meter +1 per grunt death, drain 0.5/s, 30-45 s cooldown |
 | Sound-ear lines: alive / in range, on the speaker | 0x00497900 | S | 2 | 2D, random |

@@ -1074,7 +1074,7 @@ fn projectiles(
     mut objects: Query<(&crate::level::Placed, &mut Destructible)>,
     mut roman: Query<(Entity, &mut Roman, &Transform, Option<&crate::skin::Animator>), Without<Projectile>>,
     mut roman_health: Query<&mut Health, (With<Roman>, Without<crate::physics::Body>, Without<Projectile>)>,
-    mut companions: Query<(&crate::ai::Companion, &Transform, Option<&crate::skin::Animator>, &mut Health), (Without<Roman>, Without<crate::physics::Body>, Without<Projectile>)>,
+    mut companions: Query<(Entity, &crate::ai::Companion, &Transform, Option<&crate::skin::Animator>, &mut Health), (Without<Roman>, Without<crate::physics::Body>, Without<Projectile>)>,
     mut stats: ResMut<PlayerStats>,
     mut fx: MessageWriter<crate::fx::StartFx>,
     hulls: Option<Res<crate::hitparts::HitHulls>>,
@@ -1143,10 +1143,14 @@ fn projectiles(
         };
         // and the companions, on theirs (molmer_coll_0, q111_coll_0): the nearest hit along the step
         let mut hit_companion = None;
-        if !p.from_player && !hit_roman {
+        // (every shot: characters are in the projectile list +0xe90; the shooter's own chain is skipped)
+        if !hit_roman {
             if let Some(h) = hulls.as_ref() {
                 let to = from + step;
-                for (c, ct, ca, _) in companions.iter() {
+                for (ce, c, ct, ca, _) in companions.iter() {
+                    if p.owner == Some(ce) {
+                        continue;
+                    }
                     let Some(a) = ca else { continue };
                     let parts = if c.q { &h.q111 } else { &h.molmer };
                     let seg = to - from;
@@ -1167,9 +1171,12 @@ fn projectiles(
             if let Some(n) = impact(None).map(|n| n.replace("_snow", "_grunt")) {
                 fx.write(crate::fx::StartFx { name: n, at: from + step, rotation: Quat::IDENTITY, follow: None, position_only: false });
             }
-            if let Some((_, _, _, mut ch)) = companions.iter_mut().find(|(c, _, _, _)| c.q == q) {
-                // the companions are teammates of the player (vt+0xe4 true): a grunt's shot hurts them (0x00430340)
-                ch.0 -= p.damage;
+            // the companions are teammates of the player (vt+0xe4 true): a grunt's shot hurts them, the player's and the
+            // other companion's stop on them and do nothing (0x00430340: source and victim on the same team)
+            if !p.from_player {
+                if let Some((_, _, _, _, mut ch)) = companions.iter_mut().find(|(_, c, _, _, _)| c.q == q) {
+                    ch.0 -= p.damage;
+                }
             }
             commands.entity(e).despawn();
             continue;
