@@ -145,3 +145,12 @@ three times from about (-237, 507) at frames 1617 / 1724 / 1831 (107 frames apar
 fire_range_min..max 35..500 (0x00425d30), came out under its distance; the engine's roll came out over it, so it stays
 and fires every 1.63 s. A random-roll difference (no RNG sync with the original), not a broken mechanic. Still open:
 the engine's 1.63 s cadence for a standing grunt vs the original's 1.78 s for this one (clip delay vs guard path).
+
+## Trench cover (2026-10-14, agent-cover; grunt-ai.md section 12)
+
+- 0x004531e0(target) in FindHidingSpot's reload-first branch: true when +0x424 bit 0x40 or vt+0x80's second output > 0
+  (game_03.cpp:1363); taken false for Roman in the engine (guess: an airborne / moving test). A capture of a grunt at
+  its clip's end would show how often the search is skipped.
+- Does a dead occupant's trench ever free? No death path calls vt+0x188 / vt+0x18c (static); whether the body's removal
+  (reference drop) frees +0x4b0[0] is not traced. The engine keeps it held.
+- Not captured: the original near the trenches (which trenches barracks 25's troops take, the slot timings).

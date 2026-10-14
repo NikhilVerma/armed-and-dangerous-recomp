@@ -104,7 +104,8 @@ walk (a paused message), so capture frames before ~640 or dismiss it.
 
 `--play SCRIPT.json` drives the game: `steps` run in order (`wait`, `goto` [game x, y, z] with optional `near`,
 `hold_use`, `tap` key, `down` / `up`, `click` / `hold_mouse` / `release_mouse`, `shot` name with optional
-`shot_after` seconds, `fight` true / false, debug `hurt`, `spawn` and `warp` [game x, y, z, yaw degrees] to
+`shot_after` seconds, `fight` true / false, debug `hurt`, `cover` (the grunt nearest Roman runs the hiding-spot
+search now; engine/playtests/cover1..3.json check the trenches), `spawn` and `warp` [game x, y, z, yaw degrees] to
 put Roman at a spot without walking there (work/remaster/play/pump.json), `quit`); `"title": true` starts on the title
 menu. It logs the game state every second to `<script>.log.jsonl` (position, health, mission events, prompts,
 subtitles, sounds, skinning check) and saves `<script>.<shot>.png`. The full-level script is
@@ -151,7 +152,7 @@ work/remaster/play/compare/.
 - The landscape is clipped at the original camera's far plane (1712 on lev_1_m1: fog_far * 1712.132 / 1500); without
   it a hard pale band of fully fogged land showed. The camera's own far plane is 50000 so the sky dome (radius
   20000) is never clipped. The original also shows a fog-coloured band at the horizon (measured: ~(205, 213, 208)
-  at the left of frame 580); resolved: it is the sky model's untextured disk under the horizon (emissive (212, 218, 212)), now drawn,
+  at the left of frame 580); resolved: it is the sky model's untextured disk under the horizon (emissive (212, 218, 212)), now drawn,
   and the sky texture's pale bottom rows fading into it, which only matched once tonemapping was off.
 - sound_ears remove themselves after playing unless `reapeat` (sic) is set (0x00497900): a voice line played twice
   before.

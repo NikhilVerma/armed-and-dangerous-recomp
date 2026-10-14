@@ -82,8 +82,21 @@ pitch tips the muzzle down: 55 degrees up, 15 down, 55 each side. (The game_08.c
   +0x5dc, line of sight), or start in one (start_in_turret_tag, AI_ResolveStartObjects 0x00425e20, Game+0x26cc);
   enter 0x00498820 (flag 4), leave 0x00498890; anims grunt_stig_mgun_idle/fire_tl/tr/bl/br with the gun's
   stig_mgun_idle/fire_* corner poses (blended four ways, 0x00408c70); ref_grunt_00..08 slots. An AI gunner fires
-  ai_projectile_name at a target (0x0047de40). lev_1_m1 places no start_in_turret_tag; whether a grunt takes this gun
-  in play is not observed. **Not ported.**
+  ai_projectile_name at a target (0x0047de40). lev_1_m1 places no start_in_turret_tag. **Not ported.**
+- Who takes this gun on lev_1_m1 (traced 2026-10-14, grunt-ai.md section 12): grunt_regular 34 at (55, 98), mode
+  trigger_marker with marker tag 10, woken by trigger 808, runs to marker 35 at (71, 150) whose action is hide:
+  Marker_ProcessArrival 0x0044ba30 -> FindHidingSpot vt+0x240(0, 0, 1) (no target needed) -> 0x0042a100 picks the
+  nearest free gun within scan_distance (350): gun 32, 22 units away; no trench is within his range. Any grunt's later
+  searches (clip end, reload end) can also pick it when it is nearer than every valid trench.
+- The gunner's states (ai_06.cpp:583-797): 0x7b walks to the gun (VC(turret, 0xfc, 0, 2) during the path test,
+  turret vt+0x15c(1) reserves it); on arrival attaches to the gun at ref_grunt_08 (0x004539f0, name 0x005b2868), physics
+  off, +0x484 0x8000, turret vt+0x160 (enter, flag 4), fire counters from the turret tables (+0x89c.. / +0x8cc..),
+  anims grunt_stig_mgun_idle_* (ids 0x87..0x8a) with the gun's stig_mgun_idle_* corner poses (0x00408c70), timer
+  +0x494 = rand(+0x8c4, +0x8c8), state 0x7d. 0x7d: target upkeep; vt+0x190(65 degrees) = the target within the gun's
+  arc; firing through 0x004292f0 with grunt_stig_mgun_fire_* (0x83..0x86) and the gun's fire corner poses, the aim
+  weights +0x580 / +0x584 blending the corners (the AI does not use the pivot callback); target outside the arc with no
+  rounds left and no hold (+0x484 0x200): get off at the gun's node ref_grunt_exit (0x005b27f4), walk there (0x7c), then search again
+  (vt+0x240(1, 0, 0) with flag 4 cleared). Not traced: 0x004292f0, 0x00408c70's blend, the turret table defaults.
 - Damage 0x00498400: ignored at no health or from the same side; with the player on it the player takes the hit;
   with an AI gunner the gun loses health (death vt+0xd4 -> send_trigger_on_death, Object_Kill) and below
   ai_kickout_health_pct the gunner is thrown out (impact force 6000, ai_kickout_fx_name, 10 s stay-out). An empty
