@@ -1,0 +1,19 @@
+{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+ {"wait": 0.5},
+ {"warp": [16, 384, 20, 180]},
+ {"wait": 0.5},
+ {"warp": [71, 235, 20, 180]},
+ {"wait": 4.0},
+ {"hurt": -200},
+ {"expect": {"turret.ai": true, "gunner.phase": "On"}},
+ {"wait": 2.0},
+ {"expect": {"gunner.shots": [1, 100]}},
+ {"warp": [150, 140, 20, 270]},
+ {"wait": 3.0},
+ {"hurt": -200},
+ {"expect": {"turret.ai": false}},
+ {"shot": "left"},
+ {"wait": 3.0},
+ {"shot": "after"},
+ {"quit": true}
+]}

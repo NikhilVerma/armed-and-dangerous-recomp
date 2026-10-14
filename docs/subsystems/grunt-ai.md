@@ -223,7 +223,7 @@ target, target within 80 degrees of ref_barracade's direction seen from ref_barr
 ref_barracade + 5 (+ 5 again in 0x00426fd0) to the target's ref_hit_00 passing through the trench. Nearest wins.
 **0x0042a100 (mounted gun)**: vt+0x1f0, list +0xea8, free (vt+0x158 0x004987a0: ai_can_use, kickout timer over, no
 player (flag 8), no AI (0x14)), within scan_distance; with a target within range of it, target within 65 degrees of the
-gun's heading (0x00453150), sight from the gun + 10.
+gun's heading (0x00453150), sight from the gun + 10. The gunner's states: docs/subsystems/turret.md (ported, agent-gunner).
 
 **The trench states** (ai_06.cpp:2055-2218; anims by 0x0043bd70):
 | State | What | Exit |
