@@ -160,6 +160,27 @@ extern void (*g_testSoundStarted)(const char* name, float volume);
 extern void (*g_testHit)(uint32_t victim, uint32_t projectile, uint32_t record);
 extern void (*g_testRayHit)(uint32_t projectile, uint32_t object, uint32_t record);
 extern void (*g_testShot)(uint32_t weapon, uint32_t muzzle, uint32_t aim);
+extern void (*g_testSpawnShot)(uint32_t parent, uint32_t bone, uint32_t from, uint32_t to, uint32_t useTarget);
+
+// [test] log_hits=1 also writes and-spawnshots.txt: frame, the emitter bone's name (when readable), the parent's
+// position, P minus it, Q, use_target
+static void LogSpawnShot(uint32_t parent, uint32_t bone, uint32_t from, uint32_t to, uint32_t useTarget)
+{
+    FILE* out = fopen("and-spawnshots.txt", "a");
+    if (!out)
+        return;
+    float pos[4] = {};
+    using GetPos = void(__thiscall*)(void*, float*);
+    reinterpret_cast<GetPos>((*reinterpret_cast<void***>(parent))[0x54 / 4])(reinterpret_cast<void*>(parent), pos);
+    const char* nm = "?";
+    if (bone > 0x10000 && !IsBadReadPtr(reinterpret_cast<const void*>(bone), 4))
+        nm = reinterpret_cast<const char*>(bone);
+    const float* p = reinterpret_cast<const float*>(from);
+    const float* q = reinterpret_cast<const float*>(to);
+    fprintf(out, "%d %s %.2f %.2f %.2f %.2f %.2f %.2f %.2f %.2f %.2f %u\n", TestFramesSinceLoad(), nm, pos[0], pos[1], pos[2], p[0] - pos[0],
+            p[1] - pos[1], p[2] - pos[2], q[0], q[1], q[2], useTarget & 0xff);
+    fclose(out);
+}
 
 // [test] log_hits=1 also writes and-shots.txt: every shot: frame, the weapon's owner (+0x54c) position (vt+0x54),
 // the muzzle point minus that position, the aim point
@@ -250,6 +271,8 @@ void TestMaterialLogInit()
         g_testRayHit = LogRayHit;
     if (ConfigInt("test", "log_hits", 0))
         g_testShot = LogShot;
+    if (ConfigInt("test", "log_hits", 0))
+        g_testSpawnShot = LogSpawnShot;
 }
 
 extern void* g_testCamera;

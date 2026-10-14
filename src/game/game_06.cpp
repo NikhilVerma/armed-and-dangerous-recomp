@@ -778,6 +778,9 @@ HOOK(0x0047bc80, "fn_0047bc80", fn_0047bc80_Entry, nullptr);
 // vt+0x14c(object, "ref_hit_00") is called first. Distance |P - Q| goes to +0x568 / +0x56c, vt+0x150(&Q), then the
 // direction Q - P (normalised when > 0) becomes a matrix at P (0x004e3070) for vt+0x140(matrix, owner). Returns the
 // new object or 0.
+// Test hook ([test] log_hits): the start point P, target point Q and use_target of every spawned projectile (the
+// player's shots and throws). Null: nothing.
+void (*g_testSpawnShot)(uint32_t parent, uint32_t bone, uint32_t from, uint32_t to, uint32_t useTarget) = nullptr;
 uint32_t fn_0047dbf0(uint32_t src, uint32_t templ, uint32_t parent, uint32_t a0, uint32_t owner, uint32_t useTarget)
 {
     alignas(4) uint8_t fr[0xb0];
@@ -837,6 +840,8 @@ uint32_t fn_0047dbf0(uint32_t src, uint32_t templ, uint32_t parent, uint32_t a0,
         Fl(S + 0x1c) = Fl(S + 0x1c) * inv;
         Fl(S + 0x20) = inv * Fl(S + 0x20);
     }
+    if (g_testSpawnShot)
+        g_testSpawnShot(parent, src, S + 0x0c, S, useTarget);
     orig::fn_004e3070(S + 0x18, S + 0x6c, 0, S + 0x0c);
     VC(o, 0x140, S + 0x6c, owner);
     return o;

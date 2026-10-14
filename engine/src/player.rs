@@ -794,17 +794,39 @@ fn weapons(
     bombs: Res<BombAssets>,
     data: Res<GameData>,
     mut bot: ResMut<crate::playtest::Bot>,
-    mut q: Query<(Entity, &mut Roman, &Transform)>,
+    mut q: Query<(Entity, &mut Roman, &Transform, Option<&crate::skin::Animator>)>,
     mut stats: ResMut<PlayerStats>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     mut stop: MessageWriter<crate::audio::StopSound>,
     mut fx: MessageWriter<crate::fx::StartFx>,
     mut rng: ResMut<crate::fx::FxStats>,
     mut topsy: ResMut<crate::topsy::Topsy>,
-    mut sticky: ResMut<crate::sticky::StickyThrow>,
+    (mut sticky, cam, joints): (ResMut<crate::sticky::StickyThrow>, Query<&GlobalTransform, With<FollowCam>>, Query<&GlobalTransform, Without<FollowCam>>),
 ) {
     let dt = time.delta_secs();
-    for (e, mut r, t) in &mut q {
+    // the aim point (Game+0xa6c): where the crosshair's ray from the camera meets the world, else far along it; the
+    // player's shots fly from the weapon toward it (they flew parallel to the view from above Roman's head and missed
+    // what the crosshair was on: the player's gun "did nothing")
+    let aim_point = cam.single().ok().map(|c| {
+        let (o, d) = (c.translation(), c.forward().as_vec3());
+        let mut from = o + d * 20.0;
+        let mut left = 1000.0;
+        loop {
+            match physics.raycast(from, d, left) {
+                // past Roman's own body, if any
+                Some((b, at, _)) if physics.bodies.get(&b).is_some_and(|&x| q.get(x).is_ok()) => {
+                    left -= at.distance(from) + 0.05;
+                    from = at + d * 0.05;
+                    if left <= 0.0 {
+                        break o + d * 1020.0;
+                    }
+                }
+                Some((_, at, _)) => break at,
+                None => break o + d * 1020.0,
+            }
+        }
+    });
+    for (e, mut r, t, ra) in &mut q {
         if r.dead {
             continue;
         }
@@ -818,7 +840,9 @@ fn weapons(
         }
         let mg = r.use_mg && r.mg.is_some();
         let mut reloaded = false;
-        let fire = buttons.pressed(MouseButton::Left) || (bot.fight && bot.fire_ok);
+        // a tap counts as a shot: a trackpad tap over Moonlight arrives as press and release in one frame, never
+        // "pressed" at the frame's end (the player's gun did nothing)
+        let fire = buttons.pressed(MouseButton::Left) || buttons.just_pressed(MouseButton::Left) || (bot.fight && bot.fire_ok);
         let (shoot, reload_time) = {
             let w = if mg { r.mg.as_mut().unwrap() } else { &mut r.rifle };
             w.timer -= dt;
@@ -858,6 +882,21 @@ fn weapons(
             };
             stats.shots += 1;
             let (from, dir) = aim(&r, t);
+            // the shot leaves the gun: the weapon's ref_shoot_00 (0x0047dbf0: P = that bone's matrix; measured in the
+            // original, hook and-spawnshots.txt: 2.84 ahead of the weapon's origin in the hand, 0.43 up), and flies
+            // to the crosshair's point (Q = hud +0x88)
+            let hand = ra.and_then(|a| a.skeleton.index.get("ref_rhand").and_then(|&i| joints.get(a.joints[i]).ok())).map(|j| j.translation());
+            let from = match (hand, aim_point) {
+                (Some(h), Some(p)) => {
+                    let d = (p - h).normalize_or(dir);
+                    h + d * 2.84 + Vec3::Y * 0.43
+                }
+                _ => from,
+            };
+            let dir = match aim_point {
+                Some(p) if !(bot.fight && bot.fire_ok) && (p - from).length() > 1.0 => (p - from).normalize_or(dir),
+                _ => dir,
+            };
             // spread: a random offset of up to spread % across the aim
             let dir = if spread > 0.0 {
                 let k = spread / 100.0;

@@ -917,7 +917,7 @@ fn companions(
         let (o, d) = (c.translation(), c.forward().as_vec3());
         physics.raycast(o + d * 20.0, d, 500.0).map(|h| h.1).unwrap_or(o + d * 520.0)
     });
-    let fire_held = (buttons.pressed(MouseButton::Left) || bot.fire_ok) && !r.dead;
+    let fire_held = (buttons.pressed(MouseButton::Left) || buttons.just_pressed(MouseButton::Left) || bot.fire_ok) && !r.dead;
     for (e, mut c, mut t, ca, ch) in &mut q {
         if c.range < 0.0 {
             c.range = rng.range(c.fire_range.0, c.fire_range.1);

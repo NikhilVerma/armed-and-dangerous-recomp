@@ -490,8 +490,18 @@ impl Plugin for MissionPlugin {
     fn build(&self, app: &mut App) {
         // the mission runs once play begins (not behind the title menu); paused messages keep the state Playing
         app.add_message::<SendTrigger>()
-            .add_systems(Update, (start, volumes, sites, pub_door, barracks, dispatch, messages, outcome).chain().run_if(in_state(crate::AppState::Playing)));
+            .add_systems(Update, (start, volumes, sites, pub_door, barracks, dispatch, messages, outcome).chain().run_if(in_state(crate::AppState::Playing)))
+            .add_systems(Update, event_log);
     }
+}
+
+/// The session event log (play.bat keeps the output): every mission event as it happens, with the game time.
+fn event_log(m: Option<Res<Mission>>, time: Res<Time>, mut shown: Local<usize>) {
+    let Some(m) = m else { return };
+    for e in m.log.iter().skip(*shown) {
+        info!("EVENT {:.2} mission: {}", time.elapsed_secs(), e);
+    }
+    *shown = m.log.len();
 }
 
 fn start(mut m: Option<ResMut<Mission>>, mut out: MessageWriter<SendTrigger>, path: Res<crate::campath::CameraPath>, time: Res<Time>, mut waited: Local<f32>) {

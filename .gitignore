@@ -59,3 +59,4 @@ and-crash.dmp
 engine/target/
 
 engine/target-agent/
+engine/logs/
