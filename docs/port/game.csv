@@ -1,0 +1,55 @@
+address,name,disposition,reason
+0x0042e1c0,fn_0042e1c0,replaced,"character's deferred death / knock-down reaction (anims, ragdoll, FxBodyfall): ai.rs death paths and ragdoll.rs (grunt AI subsystem)"
+0x00434330,GoliathFireball_Load,not needed,GoliathFireball: no Goliath on lev_1_m1
+0x00434510,GoliathFireball_OnHit,not needed,GoliathFireball: no Goliath on lev_1_m1
+0x00434550,GoliathFireball_GetGravityScale,not needed,GoliathFireball: no Goliath on lev_1_m1
+0x004473a0,GoliathFireball_Update,not needed,GoliathFireball: no Goliath on lev_1_m1
+0x00434500,fn_00434500,not needed,constant-return virtual slots (true / false / 0) shared by many classes: no vtables in the engine
+0x0043a8c0,fn_0043a8c0,not needed,constant-return virtual slots (true / false / 0) shared by many classes: no vtables in the engine
+0x0043ab30,fn_0043ab30,not needed,constant-return virtual slots (true / false / 0) shared by many classes: no vtables in the engine
+0x00436720,fn_00436720,not needed,ShrubPatrol class: not on lev_1_m1
+0x00436820,ICObject_Load,not needed,ICObject class (IC_* interaction grunts): no IC_ properties in lev_1_m1's export
+0x00436960,fn_00436960,not needed,ICObject class (IC_* interaction grunts): no IC_ properties in lev_1_m1's export
+0x00436980,fn_00436980,not needed,ICObject class (IC_* interaction grunts): no IC_ properties in lev_1_m1's export
+0x00437290,GenericAIObject_Construct,replaced,GenericAIObject constructor defaults: the Grunt component built by ai.rs / level.rs spawn
+0x0043aa00,fn_0043aa00,not needed,SquadObject: not on lev_1_m1
+0x0044a4b0,fn_0044a4b0,replaced,"level start pass (object system load pass, level UI, every object's vt+0x24): level.rs scene load and main.rs setup"
+0x0044a5a0,fn_0044a5a0,replaced,"the pending level name for the loader (game vt+0x38): the remaster loads one level at start-up, no level change"
+0x0044a5c0,fn_0044a5c0,replaced,"the pending level name for the loader (game vt+0x38): the remaster loads one level at start-up, no level change"
+0x0044a5f0,fn_0044a5f0,replaced,level-state record bytes (loading / requested): main.rs AppState
+0x0044a600,fn_0044a600,replaced,level-state record bytes (loading / requested): main.rs AppState
+0x0044f4a0,fn_0044f4a0,replaced,music request record reset at Game_Init (0x0044f4c0; the objective jingle 0x0044f560): gameaudio.rs Music
+0x0044e630,MolmerObject_Load,replaced,Jonesy's hand set-up at load: ai.rs Companion set-up (companion subsystem)
+0x0044e740,MolmerObject_OnAnimEvent,replaced,Jonesy's anim events: make_tnt / Fire_tnt ported in ai.rs (the TNT throw) and sticky.rs (molmer_dynamite); make_bomb / plant_bomb (Jonesy planting a ticker bomb) are not reached on lev_1_m1
+0x0046a5e0,fn_0046a5e0,not needed,the pub screen's 3D marker objects: pubscreen.rs / gamemenu.rs draw the pub screen in 2D
+0x0046a750,fn_0046a750,replaced,"collision descriptors (slot 7: group / radius): Jolt bodies, the engine's volume and pickup radius tests"
+0x00471c20,fn_00471c20,replaced,"collision descriptors (slot 7: group / radius): Jolt bodies, the engine's volume and pickup radius tests"
+0x00471fd0,fn_00471fd0,replaced,"collision descriptors (slot 7: group / radius): Jolt bodies, the engine's volume and pickup radius tests"
+0x0044e100,fn_0044e100,replaced,"collision descriptors (slot 7: group / radius): Jolt bodies, the engine's volume and pickup radius tests"
+0x00497080,fn_00497080,replaced,"collision descriptors (slot 7: group / radius): Jolt bodies, the engine's volume and pickup radius tests"
+0x00471c50,PickupGenerator_Remove,not needed,PickupGenerator removal: generators are never removed on lev_1_m1
+0x004722e0,fn_004722e0,replaced,"pickup placement (force-ground 5 / 20, physics on): pickup.rs ground ray and pop"
+0x004723c0,fn_004723c0,not needed,"an AI's claim on a pickup (callers 0x0042a500 / 0x00432730 / 0x0043ee90, AI side): grunt AI subsystem; no ported grunt seeks pickups (open)"
+0x004723f0,fn_004723f0,not needed,"an AI's claim on a pickup (callers 0x0042a500 / 0x00432730 / 0x0043ee90, AI side): grunt AI subsystem; no ported grunt seeks pickups (open)"
+0x00496da0,fn_00496da0,not needed,ArmyTimerObject update: no army on lev_1_m1
+0x00496e10,fn_00496e10,not needed,GruntLadderObject: no ladders on lev_1_m1
+0x00496e70,fn_00496e70,not needed,GruntLadderObject: no ladders on lev_1_m1
+0x00496e80,fn_00496e80,not needed,GruntLadderObject: no ladders on lev_1_m1
+0x00496e90,fn_00496e90,not needed,"tree objects (behaviour tree, vtable 0x005a2ab0; lev_1_m1's 63 pine trees run the load 0x00496e90): radius x scale, IC_tree_slide grunts (none on lev_1_m1), the AI's tree-cover slot (occupant +0x470, list +0xed4 after a 4x4 nav-grid test) and its positions; guess: no lev_1_m1 grunt uses tree cover (the ported cover is the trenches, grunt-ai.md); trees are level.rs destructibles"
+0x004970a0,fn_004970a0,not needed,"tree objects (behaviour tree, vtable 0x005a2ab0; lev_1_m1's 63 pine trees run the load 0x00496e90): radius x scale, IC_tree_slide grunts (none on lev_1_m1), the AI's tree-cover slot (occupant +0x470, list +0xed4 after a 4x4 nav-grid test) and its positions; guess: no lev_1_m1 grunt uses tree cover (the ported cover is the trenches, grunt-ai.md); trees are level.rs destructibles"
+0x00497110,fn_00497110,not needed,"tree objects (behaviour tree, vtable 0x005a2ab0; lev_1_m1's 63 pine trees run the load 0x00496e90): radius x scale, IC_tree_slide grunts (none on lev_1_m1), the AI's tree-cover slot (occupant +0x470, list +0xed4 after a 4x4 nav-grid test) and its positions; guess: no lev_1_m1 grunt uses tree cover (the ported cover is the trenches, grunt-ai.md); trees are level.rs destructibles"
+0x004970e0,fn_004970e0,not needed,"tree objects (behaviour tree, vtable 0x005a2ab0; lev_1_m1's 63 pine trees run the load 0x00496e90): radius x scale, IC_tree_slide grunts (none on lev_1_m1), the AI's tree-cover slot (occupant +0x470, list +0xed4 after a 4x4 nav-grid test) and its positions; guess: no lev_1_m1 grunt uses tree cover (the ported cover is the trenches, grunt-ai.md); trees are level.rs destructibles"
+0x004971d0,fn_004971d0,not needed,"tree objects (behaviour tree, vtable 0x005a2ab0; lev_1_m1's 63 pine trees run the load 0x00496e90): radius x scale, IC_tree_slide grunts (none on lev_1_m1), the AI's tree-cover slot (occupant +0x470, list +0xed4 after a 4x4 nav-grid test) and its positions; guess: no lev_1_m1 grunt uses tree cover (the ported cover is the trenches, grunt-ai.md); trees are level.rs destructibles"
+0x004971e0,fn_004971e0,not needed,"tree objects (behaviour tree, vtable 0x005a2ab0; lev_1_m1's 63 pine trees run the load 0x00496e90): radius x scale, IC_tree_slide grunts (none on lev_1_m1), the AI's tree-cover slot (occupant +0x470, list +0xed4 after a 4x4 nav-grid test) and its positions; guess: no lev_1_m1 grunt uses tree cover (the ported cover is the trenches, grunt-ai.md); trees are level.rs destructibles"
+0x004971f0,fn_004971f0,not needed,"tree objects (behaviour tree, vtable 0x005a2ab0; lev_1_m1's 63 pine trees run the load 0x00496e90): radius x scale, IC_tree_slide grunts (none on lev_1_m1), the AI's tree-cover slot (occupant +0x470, list +0xed4 after a 4x4 nav-grid test) and its positions; guess: no lev_1_m1 grunt uses tree cover (the ported cover is the trenches, grunt-ai.md); trees are level.rs destructibles"
+0x00497200,fn_00497200,not needed,"tree objects (behaviour tree, vtable 0x005a2ab0; lev_1_m1's 63 pine trees run the load 0x00496e90): radius x scale, IC_tree_slide grunts (none on lev_1_m1), the AI's tree-cover slot (occupant +0x470, list +0xed4 after a 4x4 nav-grid test) and its positions; guess: no lev_1_m1 grunt uses tree cover (the ported cover is the trenches, grunt-ai.md); trees are level.rs destructibles"
+0x00497210,fn_00497210,not needed,"tree objects (behaviour tree, vtable 0x005a2ab0; lev_1_m1's 63 pine trees run the load 0x00496e90): radius x scale, IC_tree_slide grunts (none on lev_1_m1), the AI's tree-cover slot (occupant +0x470, list +0xed4 after a 4x4 nav-grid test) and its positions; guess: no lev_1_m1 grunt uses tree cover (the ported cover is the trenches, grunt-ai.md); trees are level.rs destructibles"
+0x004972f0,fn_004972f0,not needed,"tree objects (behaviour tree, vtable 0x005a2ab0; lev_1_m1's 63 pine trees run the load 0x00496e90): radius x scale, IC_tree_slide grunts (none on lev_1_m1), the AI's tree-cover slot (occupant +0x470, list +0xed4 after a 4x4 nav-grid test) and its positions; guess: no lev_1_m1 grunt uses tree cover (the ported cover is the trenches, grunt-ai.md); trees are level.rs destructibles"
+0x004973b0,fn_004973b0,not needed,"tree objects (behaviour tree, vtable 0x005a2ab0; lev_1_m1's 63 pine trees run the load 0x00496e90): radius x scale, IC_tree_slide grunts (none on lev_1_m1), the AI's tree-cover slot (occupant +0x470, list +0xed4 after a 4x4 nav-grid test) and its positions; guess: no lev_1_m1 grunt uses tree cover (the ported cover is the trenches, grunt-ai.md); trees are level.rs destructibles"
+0x004973c0,fn_004973c0,not needed,"tree objects (behaviour tree, vtable 0x005a2ab0; lev_1_m1's 63 pine trees run the load 0x00496e90): radius x scale, IC_tree_slide grunts (none on lev_1_m1), the AI's tree-cover slot (occupant +0x470, list +0xed4 after a 4x4 nav-grid test) and its positions; guess: no lev_1_m1 grunt uses tree cover (the ported cover is the trenches, grunt-ai.md); trees are level.rs destructibles"
+0x00497410,fn_00497410,not needed,"tree objects (behaviour tree, vtable 0x005a2ab0; lev_1_m1's 63 pine trees run the load 0x00496e90): radius x scale, IC_tree_slide grunts (none on lev_1_m1), the AI's tree-cover slot (occupant +0x470, list +0xed4 after a 4x4 nav-grid test) and its positions; guess: no lev_1_m1 grunt uses tree cover (the ported cover is the trenches, grunt-ai.md); trees are level.rs destructibles"
+0x00497430,fn_00497430,not needed,"tree objects (behaviour tree, vtable 0x005a2ab0; lev_1_m1's 63 pine trees run the load 0x00496e90): radius x scale, IC_tree_slide grunts (none on lev_1_m1), the AI's tree-cover slot (occupant +0x470, list +0xed4 after a 4x4 nav-grid test) and its positions; guess: no lev_1_m1 grunt uses tree cover (the ported cover is the trenches, grunt-ai.md); trees are level.rs destructibles"
+0x00497620,fn_00497620,not needed,TriggerObject's death slot (a one-shot volume killed): nothing damages volumes
+0x004964d0,TimerObject_Command,not needed,create_platoon (an army timer's script command): no army / platoons on lev_1_m1
+0x004968b0,ArmyTimerObject_ReadProps,not needed,ArmyTimerObject (behaviour army_timer): no army on lev_1_m1; the plain timer is ported (mission.rs Timer)
+0x00496c60,ArmyTimerObject_Fire,not needed,ArmyTimerObject: no army on lev_1_m1

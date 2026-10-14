@@ -243,6 +243,7 @@ struct Site {
     radius_outer: f32,
     /// lock_parent_tag (+0x49c; 0x0044e120 attaches the bomb to the tagged object's lock_parent_bone)
     lock_parent_tag: i64,
+    /// armed (+0x460, PlayerTickerBomb_IsArmed 0x0044e390) with the fuse left (Game+0x25e4)
     armed: Option<f32>,
     hold: f32,
     done: bool,
@@ -267,6 +268,7 @@ pub(crate) struct Counter {
     pub activate: i64,
     pub deactivate: i64,
     pub send: i64,
+    /// count (+0x470; its getter 0x00415900)
     pub count: i64,
     pub infinite: bool,
     pub current: i64,
@@ -295,6 +297,91 @@ impl Counter {
             self.off = true;
         }
         None
+    }
+}
+
+/// A TimerObject (vtable 0x005a7d58, behaviour "timer"; TimerObject_ReadProps 0x00496160): runs from load, or from
+/// receive_trigger_activate (+0x460; TimerObject_OnTrigger 0x004965d0); its "send_trigger_time_N" entries
+/// ("trigger/time", N = 1.., up to the first missing; trigger 0 dropped; sorted by time) fire as the elapsed time
+/// passes them (Timer_Advance 0x00496690, TimerObject_Fire 0x00496660); after the last a looping timer wraps, else it
+/// sends send_end_trigger (+0x4a4) and is removed. "display" shows ui_mission_timer with the countdown_time left (or
+/// the time elapsed) (TimerObject_Update 0x00496750). The animated variant (anim_name) and the army timer
+/// (ArmyTimerObject, create_platoon 0x004964d0) are not ported: none on lev_1_m1.
+#[derive(Clone, Debug)]
+pub(crate) struct Timer {
+    pub id: u32,
+    pub activate: i64,
+    pub looped: bool,
+    pub end: i64,
+    pub display: bool,
+    pub countdown: f32,
+    /// (time, trigger), sorted by time
+    pub entries: Vec<(f32, i64)>,
+    pub running: bool,
+    pub elapsed: f32,
+    pub gone: bool,
+}
+
+impl Timer {
+    fn new(id: u32, r: &Map<String, Value>) -> Self {
+        let n = |k: &str| r.get(k).and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let mut entries = Vec::new();
+        for k in 1..=10 {
+            let Some(v) = r.get(&format!("send_trigger_time_{k}")).and_then(|v| v.as_str()) else { break };
+            // "Timer has invalid property format" without a '/': skipped
+            let Some((t, time)) = v.split_once('/') else { continue };
+            let t = t.trim().parse::<i64>().unwrap_or(0);
+            if t != 0 {
+                entries.push((time.trim().parse::<f32>().unwrap_or(0.0), t));
+            }
+        }
+        entries.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let activate = n("receive_trigger_activate") as i64;
+        Timer { id, activate, looped: n("loop") != 0.0, end: n("send_end_trigger") as i64, display: n("display") != 0.0, countdown: n("countdown_time") as f32, entries, running: activate == 0, elapsed: 0.0, gone: false }
+    }
+
+    /// Timer_Advance 0x00496690: the elapsed time moves on by `dt`; every entry from the previous time to the new one
+    /// fires; past the last a loop wraps (previous 0, elapsed less that entry's time), else the end trigger and removal.
+    pub fn advance(&mut self, dt: f32) -> Vec<i64> {
+        let mut out = Vec::new();
+        if !self.running || self.gone {
+            return out;
+        }
+        let mut prev = self.elapsed;
+        self.elapsed += dt;
+        let n = self.entries.len();
+        let mut i = 0;
+        while i < n {
+            let (t, trig) = self.entries[i];
+            if prev > t {
+                i += 1;
+                continue;
+            }
+            if self.elapsed <= t {
+                return out;
+            }
+            out.push(trig);
+            if i + 1 == n {
+                if self.looped && t > 0.0 {
+                    prev = 0.0;
+                    self.elapsed -= t;
+                    i = 0;
+                    continue;
+                }
+                if self.end != 0 {
+                    out.push(self.end);
+                }
+                self.gone = true;
+                return out;
+            }
+            i += 1;
+        }
+        out
+    }
+
+    /// What ui_mission_timer shows: countdown_time less the elapsed time (not below 0), or the elapsed time.
+    pub fn shown(&self) -> f32 {
+        if self.countdown == 0.0 { self.elapsed } else { (self.countdown - self.elapsed).max(0.0) }
     }
 }
 
@@ -380,7 +467,7 @@ pub struct PubInfo {
     /// its special weapon
     pub special: Option<&'static str>,
     pub has_tickerbomb: bool,
-    /// health left in its pool, and the pool bar's scale (health_bar_rate)
+    /// health left in its pool (+0x4b0, get / set 0x0046a6a0 / 0x0046a6b0), and the pool bar's scale (health_bar_rate)
     pub pool: f32,
     pub bar_rate: f32,
 }
@@ -398,7 +485,7 @@ struct PubTriggers {
     was_inside: bool,
 }
 
-/// Mission outcome for the state log.
+/// The level state (Game+0xa64 +0xc, set by 0x0044a580, "over" when > 1: 0x0044a590): playing, won (2), failed (3..8).
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub enum Outcome {
     #[default]
@@ -409,7 +496,7 @@ pub enum Outcome {
 
 #[derive(Resource)]
 pub struct Mission {
-    /// the level's name (the success bonus of lev_1_m1_b / lev_2_m1)
+    /// the level's name (0x0044a660 on Game+0xa64: the success bonus of lev_1_m1_b / lev_2_m1)
     level: String,
     receivers: HashMap<i64, Vec<Action>>,
     /// objects that send a trigger when they die (send_trigger_on_death: DefaultGameObject_OnDeath 0x00450ee0,
@@ -418,6 +505,9 @@ pub struct Mission {
     triggers: Vec<Trigger>,
     sites: Vec<Site>,
     counters: Vec<Counter>,
+    timers: Vec<Timer>,
+    /// a displayed timer's value (ui_mission_timer): hud.rs does not draw it yet (open)
+    pub timer_display: Option<f32>,
     camfx: Vec<CamFx>,
     pub_pos: Option<(Vec3, f32, i64)>,
     pub_triggers: PubTriggers,
@@ -456,7 +546,7 @@ pub struct Mission {
     pub alarm_forced: bool,
     /// Game+0xcbe: the army breach open (no army on lev_1_m1)
     pub breach_open: bool,
-    /// Game+0xdd2: finished (pre-success): failure triggers are ignored from then on
+    /// Game+0xdd2: finished (pre-success; read by 0x0044e620): failure triggers are ignored from then on
     pub finished: bool,
     /// score_value (Loot at the win, game_02.cpp:2262) and next_level_name (Game+0x268c)
     pub score_value: f32,
@@ -701,6 +791,7 @@ impl Mission {
         let mut sites = Vec::new();
         let mut counters = Vec::new();
         let mut camfx = Vec::new();
+        let mut timers = Vec::new();
         let mut barracks = Vec::new();
         // the set-up's rand() (0x0040ad80: the first release delay)
         let mut crt = crate::fxvm::CrtRand::default();
@@ -766,6 +857,12 @@ impl Mission {
                     current: 0,
                     off: false,
                 }),
+                "timer" => {
+                    if s(r, "anim_name").is_some() {
+                        warn!("timer {}: anim_name timers not ported", i.id);
+                    }
+                    timers.push(Timer::new(i.id, r));
+                }
                 "camera_fx" => {
                     if let Some(fx) = s(r, "fx_name") {
                         camfx.push(CamFx {
@@ -854,7 +951,8 @@ impl Mission {
         let m = &f.mission.resolved;
         let text = |k: &str| s(m, k).and_then(|t| f.text.get(&t).cloned());
         // MissionObject_Load 0x0044c170: start_in_turret_tag and camera_startup_path_anim start the level in a turret
-        // / on a camera path (fn_0044d150, Camera_StartPath mode 2): not ported, none on lev_1_m1
+        // / on a camera path (slot 8 0x0044d150, Camera_StartPath mode 2): not ported, none on lev_1_m1. (Slot 9
+        // 0x0044d1b0 resets the mission timer +0x464 and the start flags: `start` below, from the level's start.)
         let mut log = Vec::new();
         for k in ["start_in_turret_tag", "peasant_max_casualties", "peasant_max_saved"] {
             if n(m, k) != 0.0 {
@@ -871,6 +969,8 @@ impl Mission {
             triggers,
             sites,
             counters,
+            timers,
+            timer_display: None,
             camfx,
             pub_pos,
             pub_triggers,
@@ -988,7 +1088,7 @@ impl Plugin for MissionPlugin {
     fn build(&self, app: &mut App) {
         // the mission runs once play begins (not behind the title menu); paused messages keep the state Playing
         app.add_message::<SendTrigger>()
-            .add_systems(Update, (start, volumes, sites, pub_door, barracks, dispatch, messages, outcome).chain().run_if(in_state(crate::AppState::Playing)))
+            .add_systems(Update, (start, volumes, sites, pub_door, barracks, timers, dispatch, messages, outcome).chain().run_if(in_state(crate::AppState::Playing)))
             .add_systems(Update, (event_log, state_log))
             // after the deaths of the frame (fx.rs), before the husk swap (level.rs husks: the Husk marker)
             .add_systems(Update, deaths.after(crate::fx::FxSet).run_if(in_state(crate::AppState::Playing)));
@@ -1417,6 +1517,25 @@ fn barracks(
     m.log.extend(logs);
 }
 
+/// Running timers advance (TimerObject_Update 0x00496750) and send their triggers.
+fn timers(time: Res<Time>, mut m: Option<ResMut<Mission>>, mut out: MessageWriter<SendTrigger>) {
+    let Some(m) = m.as_deref_mut() else { return };
+    let dt = time.delta_secs();
+    let mut display = None;
+    let mut logs = Vec::new();
+    for tm in &mut m.timers {
+        for t in tm.advance(dt) {
+            logs.push(format!("timer {} -> trigger {t}", tm.id));
+            out.write(SendTrigger(t));
+        }
+        if tm.running && !tm.gone && tm.display {
+            display = Some(tm.shown());
+        }
+    }
+    m.timer_display = display;
+    m.log.extend(logs);
+}
+
 #[allow(clippy::too_many_arguments)]
 fn dispatch(
     mut m: Option<ResMut<Mission>>,
@@ -1480,6 +1599,14 @@ fn dispatch(
             if let Some(s) = c.message(*t) {
                 blogs.push(format!("counter {} reached {} -> trigger {s}", c.id, c.count));
                 m_resend.push(s);
+            }
+        }
+        // timers: the activation trigger starts one (TimerObject_OnTrigger 0x004965d0)
+        for tm in &mut m.timers {
+            if *t == tm.activate {
+                tm.running = true;
+                tm.activate = 0;
+                blogs.push(format!("timer {} started", tm.id));
             }
         }
         // camera fx (CameraFXObject 0x004101a0 / 0x004102b0): trigger_start starts the fx on the camera,
@@ -1837,6 +1964,26 @@ mod tests {
         f.mission_trigger(77);
         assert_eq!(f.outcome, Outcome::Playing, "failures are ignored once finished");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn timer_fires_in_order_and_ends() {
+        let r = serde_json::json!({"send_trigger_time_1": "11/2.0", "send_trigger_time_2": "10/1.0", "send_trigger_time_3": "0/1.5", "send_end_trigger": 12});
+        let mut t = Timer::new(1, r.as_object().unwrap());
+        assert_eq!(t.entries, vec![(1.0, 10), (2.0, 11)]);
+        assert!(t.running);
+        assert_eq!(t.advance(0.5), Vec::<i64>::new());
+        assert_eq!(t.advance(0.6), vec![10]);
+        assert_eq!(t.advance(1.0), vec![11, 12]);
+        assert!(t.gone);
+        let r = serde_json::json!({"send_trigger_time_1": "5/1.0", "loop": 1, "receive_trigger_activate": 3, "countdown_time": 10.0});
+        let mut l = Timer::new(2, r.as_object().unwrap());
+        assert_eq!(l.advance(5.0), Vec::<i64>::new(), "waits for its trigger");
+        l.running = true;
+        assert_eq!(l.advance(1.2), vec![5]);
+        assert!((l.elapsed - 0.2).abs() < 1e-4, "wraps");
+        assert!(!l.gone);
+        assert!((l.shown() - 9.8).abs() < 1e-4);
     }
 
     #[test]

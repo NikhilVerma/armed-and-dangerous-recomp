@@ -18,7 +18,8 @@ use bevy::prelude::*;
 /// 0x0045df60 / 0x00461240).
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Kind {
-    /// pickup_*_bullets / rockets / mortars, class 25..30: 0x00472470.. (0x004a13a0 into weapon 0..5: 0 machine gun,
+    /// pickup_*_bullets / rockets / mortars, class 25..30: 0x00472470, 0x004724e0, 0x004724a0, 0x00472520, 0x00472560,
+    /// 0x004725a0 (0x004a13a0 into weapon 0..5: 0 machine gun,
     /// 1 sniper, 2 rifle, 3 vindaloo, 4 gurner, 5 sharkgun)
     Ammo(u8),
     /// special weapons, class 31..35: 0x004725e0 (6 guy fawkes), 0x00472630 (7 bunch of fives), 0x004726d0 (8 topsy
@@ -28,7 +29,8 @@ pub enum Kind {
     /// 0x00472850 (anyone else: num_health)
     Health,
     /// pickup_upgrade_weapon (36, 0x00472770: Game+0xdd0, vindaloo upgraded), pickup_vindaloo_weapon (39, 0x00472930),
-    /// pickup_jumper_pack (40, 0x00472980), pickup_turbo_boost (41, 0x004729c0): not on lev_1_m1, not ported
+    /// pickup_jumper_pack (40, 0x00472980; both load through 0x004728e0), pickup_turbo_boost (41, 0x004729c0): not on
+    /// lev_1_m1, not ported
     Unported,
     /// pickup_token (42): 0x00472aa0 marks it, its update 0x00472a00 runs the token reward (0x004a07a0 / 0x004a0850)
     Token,
@@ -435,7 +437,7 @@ fn collect(
                 p.hvel = Vec3::ZERO;
             }
         }
-        // the spin about the vertical at rotate_rate (0x00472170: the matrix spun about z by the angle +0x4b4)
+        // the spin about the vertical at rotate_rate (0x00472170 / 0x004720e0: the matrix spun about z by +0x4b4)
         t.rotate_y(dt * p.spin);
         // linger_time, then the fade over fade_time (vt+0x100(1 - f); under 0.01 s it goes at once)
         p.life -= dt;
@@ -514,7 +516,9 @@ fn collect(
             commands.entity(e).despawn();
             continue;
         }
-        // anything else in its collision group (ai_can_trigger): vt+0x13c, only the health pickup's gives
+        // anything else in its collision group (ai_can_trigger): vt+0x13c, only the health pickup's gives; never the
+        // thrower (+0x4b8, set by 0x00472080, refused by 0x004720c0, released by 0x00472030): companions do not
+        // take pickups here
         // (0x00472850: the raw num_health, refused when dead or at full health)
         if p.ai && p.kind == Kind::Health {
             for (gt, mut gh, g) in &mut ai {
