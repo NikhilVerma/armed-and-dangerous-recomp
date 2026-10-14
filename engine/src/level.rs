@@ -136,6 +136,25 @@ fn default_anims(mut commands: Commands, mut q: Query<(Entity, &mut DefaultAnim,
     }
 }
 
+/// The state log's "oilpump" (playtest expect steps): the lowest-id oil pump's playing anim and how far its
+/// bone_pump joint has travelled up and down so far (model space z, game units: lo, hi, travel = hi - lo).
+fn log_oilpump(
+    q: Query<(&InstanceId, &Placed, &crate::skin::Animator, &GlobalTransform)>,
+    globals: Query<&GlobalTransform>,
+    state: Option<ResMut<crate::playtest::PlayState>>,
+    mut range: Local<Option<(u32, f32, f32)>>,
+) {
+    let Some(mut state) = state else { return };
+    let Some((id, _, a, g)) = q.iter().filter(|(_, p, _, _)| p.template == "oilpump").min_by_key(|(i, _, _, _)| i.0) else { return };
+    let Some(j) = a.skeleton.index.get("bone_pump").and_then(|&i| globals.get(a.joints[i]).ok()) else { return };
+    let z = g.affine().inverse().transform_point3(j.translation()).z;
+    let r = range.get_or_insert((id.0, z, z));
+    r.1 = r.1.min(z);
+    r.2 = r.2.max(z);
+    let anim = a.layers.first().map(|l| l.anim.clone()).unwrap_or_default();
+    state.0.insert("oilpump".into(), serde_json::json!({ "id": id.0, "anim": anim, "z": z, "lo": r.1, "hi": r.2, "travel": r.2 - r.1 }));
+}
+
 pub struct LevelPlugin;
 
 impl Plugin for LevelPlugin {
@@ -143,7 +162,8 @@ impl Plugin for LevelPlugin {
         app.add_message::<SpawnGrunt>()
             .add_systems(Update, (husks.after(crate::fx::FxSet), spawn_grunts, rigid_anims, audio_loops))
             .add_systems(PostUpdate, follow_camera.before(TransformSystems::Propagate))
-            .add_systems(PostUpdate, default_anims.before(crate::skin::AnimateSet));
+            .add_systems(PostUpdate, default_anims.before(crate::skin::AnimateSet))
+            .add_systems(PostUpdate, log_oilpump.after(TransformSystems::Propagate));
     }
 }
 
