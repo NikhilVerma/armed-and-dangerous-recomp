@@ -59,7 +59,7 @@ pub struct CameraPathPlugin;
 
 impl Plugin for CameraPathPlugin {
     fn build(&self, app: &mut App) {
-        app.add_message::<StartCameraPath>().init_resource::<CameraPath>().add_systems(PostUpdate, play.before(TransformSystems::Propagate));
+        app.add_message::<StartCameraPath>().init_resource::<CameraPath>().add_systems(PostUpdate, play.in_set(crate::camera::CameraPlace).before(TransformSystems::Propagate));
     }
 }
 

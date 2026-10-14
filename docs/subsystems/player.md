@@ -133,6 +133,25 @@ lev_1_m1 values are 150..300 hurt with speeds 150 and 200.
   (global settings; code default 0.5) in 0x0040fbb0. Turn and pitch then use the rifle speeds 0.05 / 0.25.
 - Letterbox: the original renders into the band y = 0.1125 .. 0.8875 (camera.md); the remaster already lifts it.
 
+### The remaster's camera (engine/src/camera.rs, subsystem port 2026-10-14)
+
+`CameraPlugin`: the follow camera (moved out of player.rs), data from player.json `camera` (`CameraRig`: Camera_end
+eye, Camera_start target, the weapons' zoom nodes and FOVs made vertical by 0x0040a4d0's 2 atan(tan(h/2) / 1.702),
+the pitch clamp). Ported, with evidence:
+
+| Piece | Original | Remaster |
+| --- | --- | --- |
+| Pitch limits | +0x74 clamped to [-1.5608, 1.15] (0x005bcebc / 0x005bceb8) | `CameraRig::pitch_limits` in player.rs control (was [-0.95, 0.85] about the rest) |
+| Stick pitch | 0.95 x axis x dt added twice a frame (player update game_06.cpp:2379 and Camera_Update game_01.cpp:2895): 1.9 rad/s | player.rs control (was 1.7, guess) |
+| Zoom | linear over camera_zoom_secs toward the weapon node's eye and FOV (0x0040fbb0) | the rig's zoom nodes per weapon |
+| Death | mode 3 (0x0040fa90 at game_06.cpp:2201): the eye stays, the view turns to the body, smoothed over 1 s (0x0040fd50) | `follow_camera` death branch (looks at the ragdoll's center bone: guess for the node) |
+| After a camera path | Camera_Update's tail (+0x17c == 1): the 1 s smoothing back to the follow camera | `CameraSmooth` when campath.rs lets go |
+| Shake | 0x0040fac0 (amplitude, time); 0x0040e300: the camera height + amplitude, x -0.75 a frame | `ShakeCamera` message (fxvm.rs sends it), applied after every camera owner (`CameraPlace`) and taken off the next frame (the old fxvm.rs shake subtracted last frame's offset from a camera the follow camera had already re-placed) |
+
+Tests: engine/playtests/camera_follow.json (rest distance and height, zoom FOV and eye, back, the pitch limits with
+the arm shortened by the landscape looking up), camera_death.json (shake from a blast, ends; the death camera holds
+its eye and ends on the body). Replaced plumbing: docs/port/camera.csv.
+
 ## 5. Weapons in lev_1_m1
 
 The loadout is the rifle plus 5 sticky bombs. The machine gun is removed by the mission override.

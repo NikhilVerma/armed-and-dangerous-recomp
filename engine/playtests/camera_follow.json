@@ -1,0 +1,21 @@
+{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+ {"wait": 1.0},
+ {"warp": [190.68, -69.44, 13.76, 90]},
+ {"wait": 2.0},
+ {"expect": {"cam_mode": "follow", "cam_dist": [22.6, 23.6], "cam_up": [10.6, 11.7], "cam_fov": [37.0, 38.0], "look_pitch": [-0.16, -0.14]}},
+ {"down": "KeyZ"},
+ {"wait": 0.5},
+ {"expect": {"cam_fov": [17.5, 18.2], "cam_dist": [0, 2.0]}},
+ {"up": "KeyZ"},
+ {"wait": 0.08},
+ {"expect": {"cam_fov": [19.0, 36.5]}},
+ {"wait": 0.5},
+ {"expect": {"cam_fov": [37.0, 38.0], "cam_dist": [22.6, 23.6]}},
+ {"mouse": [0, -3000]},
+ {"wait": 0.3},
+ {"expect": {"look_pitch": [0.99, 1.01], "cam_dist": [0, 16], "cam_up": [-0.5, 8]}},
+ {"mouse": [0, 6000]},
+ {"wait": 0.3},
+ {"expect": {"look_pitch": [-1.72, -1.70], "cam_up": [35.5, 38.0]}},
+ {"quit": true}
+]}

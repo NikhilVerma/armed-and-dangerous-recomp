@@ -63,7 +63,7 @@ impl Plugin for TopsyPlugin {
         app.init_resource::<Topsy>()
             .init_resource::<TopsyCams>()
             .add_systems(Update, (run, thrown).chain().run_if(crate::playing))
-            .add_systems(PostUpdate, camera.after(crate::player::follow_camera).before(bevy::transform::TransformSystems::Propagate).run_if(crate::playing));
+            .add_systems(PostUpdate, camera.after(crate::camera::follow_camera).in_set(crate::camera::CameraPlace).before(bevy::transform::TransformSystems::Propagate).run_if(crate::playing));
     }
 }
 

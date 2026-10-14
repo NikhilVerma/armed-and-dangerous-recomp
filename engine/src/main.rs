@@ -10,6 +10,7 @@ mod ai;
 mod alarm;
 mod audio;
 mod bench;
+mod camera;
 mod campath;
 mod charanim;
 mod flycam;
@@ -228,6 +229,7 @@ fn main() {
         app.insert_state(AppState::Playing);
     }
     app.add_plugins(camdump::CamDumpPlugin);
+    app.add_plugins(camera::CameraPlugin);
     app.add_plugins(savegame::SaveGamePlugin);
     app.add_plugins(cheats::CheatsPlugin);
     app.add_plugins(decals::DecalPlugin);

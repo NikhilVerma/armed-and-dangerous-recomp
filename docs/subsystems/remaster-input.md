@@ -24,8 +24,8 @@ Keyboard and mouse: the original's defaults (player.md 2). Pad: a modern twin-st
 
 | Pad (DualSense / Xbox) | In play | In menus |
 |---|---|---|
-| Left stick | move (analog: speed max x a + (1 - a) x 4) | navigate |
-| Right stick | camera (3 rad/s turn, 1.7 rad/s pitch, shaping ^2, zoomed ^3) | |
+| Left stick | move (analog: the original's response, below) | navigate |
+| Right stick | camera (the original's: 3 rad/s turn, 1.9 rad/s pitch at full deflection, linear) | |
 | R2 / RT | fire | |
 | L2 / LT | aim / zoom (held) | |
 | R1 / RB | throw special | |
@@ -59,3 +59,27 @@ feedback there).
 Headless playtests: pad.json / padps.json (walk, turn, fire, Xbox A and DualSense Cross icons), padmenu.json (title
 -> New Game -> briefing -> pause with Options -> stick navigation -> Circle resumes). Not yet tried on the player's
 DualSense.
+
+## The original's input semantics (subsystem port, 2026-10-14)
+
+Ported from src/input/input_01.cpp and the readers in game_06.cpp / game_01.cpp; `python tools/port_queue.py input`
+is empty, docs/port/input.csv lists what the remaster replaces.
+
+| Original | Remaster |
+| --- | --- |
+| Actions held / pressed this frame / released on either of two bindings (Controls_IsHeld 0x00414810, _IsPressed 0x00414730, _IsReleased 0x004148f0); axes the larger of the bindings' (Controls_AxisMax 0x00414a30) | `Controls::down / pressed / released / axis` from bevy_enhanced_input |
+| An action that did its job is consumed until every binding is up (Controls_Consume 0x00414680, freed by 0x004146c0 each poll) | buttons held across a context change count only after a release (`Controls` blocked) |
+| One active device: the last that gave input; only it is read unless locked (Controls_Poll 0x004145c0, Controls_Lock 0x00414590) | every device is read; the active one picks the prompts and the rumble |
+| Analog axes: dead zone 0.21 per axis, rescaled linearly (InputPC_AxisValue 0x004f9560 with the callers' 0x3e570a3d); digital codes give full deflection | `AXIS_DEAD_ZONE` (Axial, 0.21) on Move and Look |
+| Movement: the axes' vector cut to length 1 (two keys: a diagonal at full speed, not faster), its length through the control curve 0x00414c00 (fmod by control_exponent 2 with bias 0: the identity) and above 0.225 raised by 0.4 (game_06.cpp:2479-2501) | player.rs `move_curve`: a half-pushed stick (0.5) runs at 31.6, 0.35 walks at 10.4 |
+| Turn: turn_max_speed 0.3 x axis x dt x 10 (3 rad/s; zoomed 0.05), linear | right stick and the arrow keys (the original's secondary TurnLeft / Right bindings) |
+| Pitch: pitch_max_speed 0.95 x axis x dt added twice a frame, by the player update (game_06.cpp:2379) and by Camera_Update (game_01.cpp:2895): 1.9 rad/s (zoomed 0.5), clamped to [-1.5608, 1.15] about the rest | right stick and Up / Down arrows; `CameraRig::pitch_limits` |
+| Mouse: counts x sensitivity (option + 0.5; InputPC_SetMouseSensitivity 0x004f7cf0) | player.rs control: the turn and pitch per count measured against the original |
+| Force feedback: rumble samples with envelopes (Rumble_Update 0x004e5750) sent to vt+0x88, which on PC is 0x00477c10 `ret 0xc`: the PC build never rumbles | the remaster's own rumble (above): an improvement, not a port |
+
+The stick's response changed with this port: before it was shaped |a|^2 (zoomed |a|^3) with a guessed 1.7 rad/s pitch
+(the shaping read 0x00414c00 as pow; the recovered code calls the CRT's fmod, and the turn does not go through it). If
+the player prefers the old curve it is a remaster option to add, off by default.
+
+Tests: engine/playtests/input_pad.json (pad move speeds through the curve, walk under 12, right-stick turn and pitch
+rates, R2 fires, the arrow keys turn), camera_follow.json (mouse pitch limits).

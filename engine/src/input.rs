@@ -161,18 +161,28 @@ impl Plugin for InputPlugin {
     }
 }
 
+/// The analog dead zone of every movement and look axis (0x3e570a3d = 0.21 passed to Controls_AxisMax 0x00414a30 by
+/// the player update and Camera_Update), per axis.
+const AXIS_DEAD_ZONE: DeadZone = DeadZone { kind: DeadZoneKind::Axial, lower_threshold: 0.21, upper_threshold: 1.0 };
+
 fn btn(a: Act, binds: impl Bundle) -> impl Bundle {
     (Action::<Btn>::new(), a, binds)
 }
 
+/// The actions and their bindings (keyboard and mouse: the original's defaults, Controls_LoadDefaultBindings
+/// 0x004144a0 from table 0x00588ed8; pads: the remaster's layout, module comment).
 fn spawn_contexts(mut commands: Commands) {
     use GamepadButton as B;
     commands.spawn((
         Gameplay,
         ContextActivity::<Gameplay>::INACTIVE,
         actions!(Gameplay[
-            (Action::<MoveA>::new(), Act::Move, DeadZone::default(), Bindings::spawn((Cardinal::wasd_keys(), Axial::left_stick()))),
-            (Action::<LookA>::new(), Act::Look, DeadZone { lower_threshold: 0.15, ..default() }, Bindings::spawn(Axial::right_stick())),
+            // each axis past the original's dead zone 0.21, rescaled linearly (InputPC_AxisValue 0x004f9560 with the
+            // callers' 0.21, 0x3e570a3d); the vector's response is player.rs move_curve
+            (Action::<MoveA>::new(), Act::Move, AXIS_DEAD_ZONE, Bindings::spawn((Cardinal::wasd_keys(), Axial::left_stick()))),
+            // look: the right stick, and the arrow keys as the original's secondary TurnLeft / TurnRight / LookUp /
+            // LookDown bindings (table 0x00588ed8: digital, full deflection)
+            (Action::<LookA>::new(), Act::Look, AXIS_DEAD_ZONE, Bindings::spawn((Axial::right_stick(), Cardinal::arrows()))),
             btn(Act::Fire, bindings![MouseButton::Left, B::RightTrigger2]),
             btn(Act::Aim, bindings![KeyCode::KeyZ, KeyCode::KeyE, B::LeftTrigger2]),
             btn(Act::Special, bindings![MouseButton::Right, B::RightTrigger]),
@@ -254,8 +264,13 @@ fn contexts(
     *last = Some(want);
 }
 
-/// Copies the evaluated actions into `Controls`; menu navigation steps with key repeat: the first repeat after 0.25 s,
-/// then every 0.1 s (the menu input 0x00491140 through 0x00491090: first delay 0.25, repeat 0.1).
+/// Copies the evaluated actions into `Controls`: held (Controls_IsHeld 0x00414810), pressed this frame
+/// (Controls_IsPressed 0x00414730) and released (Controls_IsReleased 0x004148f0) on any binding, axes the larger of
+/// the bindings' (Controls_AxisMax 0x00414a30 / 0x00414aa0). Buttons held across a context change are consumed until
+/// released (the original consumes an action that did its job, Controls_Consume 0x00414680, and frees it once every
+/// binding is up, 0x004146c0, polled each frame by Controls_Poll 0x004145c0). Menu navigation steps with key repeat:
+/// the first repeat after 0.25 s, then every 0.1 s (the menu input 0x00491140 through 0x00491090: first delay 0.25,
+/// repeat 0.1).
 fn collect(time: Res<Time<Real>>, mut c: ResMut<Controls>, acts: Query<(&Act, &ActionValue, &ActionEvents, &TriggerState)>) {
     let mut out = [ActState::default(); ACTS];
     for (a, v, ev, st) in &acts {
@@ -318,7 +333,9 @@ pub fn pad_active() -> bool {
     DEVICE.load(Ordering::Relaxed) != 0
 }
 
-/// The active device: the one that gave input last (pads only while they count, as above).
+/// The active device: the one that gave input last (pads only while they count, as above). The original makes the
+/// device that pressed something active and reads only it (Controls +4, Controls_Poll 0x004145c0, Controls_Lock
+/// 0x00414590 to listen to all); the remaster reads every device and uses the active one for prompts and rumble.
 fn device(
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,

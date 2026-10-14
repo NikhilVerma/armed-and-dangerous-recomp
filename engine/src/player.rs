@@ -356,9 +356,27 @@ fn launch_projectile(commands: &mut Commands, fx: &mut MessageWriter<crate::fx::
     }
 }
 
-/// The third-person camera rig around Roman.
-#[derive(Component)]
-pub struct FollowCam;
+/// The third-person camera (camera.rs).
+pub use crate::camera::FollowCam;
+
+/// p_trotter turn_max_speed / pitch_max_speed (player.json movement.turn; zoomed: the weapon's, 0x004759e0 /
+/// 0x00475990)
+const TURN_MAX_SPEED: f32 = 0.3;
+const PITCH_MAX_SPEED: f32 = 0.95;
+
+/// The movement input's response (PlayerObject_Update, game_06.cpp:2479-2501): the two axes' vector, longer than 1
+/// cut to 1 (two keys at once: a diagonal at full speed, not faster); its length through the control curve 0x00414c00
+/// (fmod by control_exponent 2 with control_bias 0: the length itself) and above 0.225 (0x005bcfc4) raised by 0.4
+/// (0x005bcd94), at most 1.
+pub fn move_curve(m: Vec2) -> Vec2 {
+    let len = m.length();
+    if len <= 1e-6 {
+        return Vec2::ZERO;
+    }
+    let c = len.min(1.0);
+    let v = if c > 0.225 { (c + 0.4).min(1.0) } else { c };
+    m / len * v
+}
 
 #[derive(Resource, Default)]
 pub struct PlayerStats {
@@ -391,7 +409,6 @@ impl Plugin for PlayerPlugin {
             .init_resource::<LookDelta>()
             .add_systems(Update, grab_cursor.before(control))
             .add_systems(Update, (control, ground_effects, weapons, projectiles, damage_feedback, death).chain().run_if(crate::playing))
-            .add_systems(PostUpdate, follow_camera.before(TransformSystems::Propagate).run_if(crate::playing))
             .add_systems(Update, (player_state.after(death), idle_banter).run_if(crate::playing));
     }
 }
@@ -609,7 +626,7 @@ fn control(
     mut physics: NonSendMut<Physics>,
     mut q: Query<(&mut Roman, &mut Transform, &mut Health)>,
     mut stats: ResMut<PlayerStats>,
-    (ctl, mounted): (Res<crate::input::Controls>, Res<crate::turret::Mounted>),
+    (ctl, mounted, rig): (Res<crate::input::Controls>, Res<crate::turret::Mounted>, Res<crate::camera::CameraRig>),
     mut fx: MessageWriter<crate::fx::StartFx>,
 ) {
     let dt = time.delta_secs();
@@ -625,7 +642,8 @@ fn control(
         }
         // mouse look as the original's: measured with scripted mouse counts (hook MOUSEX / MOUSEY, camera dumps):
         // 0.0100 rad of turn and 0.0057 rad of pitch per count at the default sensitivity, linear; the multiplier is
-        // m_mouseSensitivity + 0.5 (player.md 2: default 0.5 -> 1.0)
+        // m_mouseSensitivity + 0.5 (player.md 2: default 0.5 -> 1.0; InputPC_SetMouseSensitivity 0x004f7cf0 stores it,
+        // InputPC_AxisValue 0x004f9560 multiplies the mouse axes by it)
         let k = 0.0100 * (opts.mouse_sensitivity + 0.5);
         let kpitch = 0.0057 * (opts.mouse_sensitivity + 0.5);
         let inv = if opts.invert_mouse { -1.0 } else { 1.0 };
@@ -639,17 +657,20 @@ fn control(
         r.zoom = if zoom_held { (r.zoom + step).min(1.0) } else { (r.zoom - step).max(0.0) };
         let (kt, kp) = if zoom_held { (0.05 / 0.3, 0.25 / 0.95) } else { (1.0, 1.0) };
         if !topsy.active() {
+            // the look pitch limits: the camera's (+0x74 in [-1.5608, 1.15], Camera_Update 0x0040e350; camera.rs)
+            let (lo, hi) = rig.pitch_limits();
             // the player's look input is the cursor's movement (LookDelta); scripted runs inject device motion
             let d = if playtest.is_some() { motion.delta } else { look.0 };
             r.yaw -= d.x * k * kt;
-            r.pitch = (r.pitch - d.y * kpitch * inv * kp).clamp(-1.1, 0.7);
-            // the right stick (input.rs): shaped |a|^2 (zoomed |a|^3), 3 rad/s of turn and 1.7 of pitch at full
-            // deflection, zoomed 0.05 / 0.25 of 0.3 / 0.95 as the mouse
-            let e = if zoom_held { 3 } else { 2 };
-            let shape = |a: f32| a.signum() * a.abs().powi(e);
+            r.pitch = (r.pitch - d.y * kpitch * inv * kp).clamp(lo, hi);
+            // the right stick and the arrow keys (input.rs; the TurnLeft / Right, LookUp / Down actions, axes past the
+            // dead zone 0.21 linear: Controls_AxisMax 0x00414a30 with InputPC_AxisValue 0x004f9560): the turn
+            // turn_max_speed x axis x dt x 10 (0.3: 3 rad/s at full deflection; zoomed 0.05), the pitch
+            // pitch_max_speed x axis x dt twice, by the player update (game_06.cpp:2379) and by Camera_Update
+            // (game_01.cpp:2895) (0.95: 1.9 rad/s; zoomed 0.25)
             let stick = ctl.axis(crate::input::Act::Look);
-            r.yaw -= shape(stick.x) * 3.0 * dt * kt;
-            r.pitch = (r.pitch + shape(stick.y) * 1.7 * dt * inv * kp).clamp(-1.1, 0.7);
+            r.yaw -= stick.x * TURN_MAX_SPEED * 10.0 * dt * kt;
+            r.pitch = (r.pitch + stick.y * 2.0 * PITCH_MAX_SPEED * dt * inv * kp).clamp(lo, hi);
         }
         let mut wish = Vec3::ZERO;
         // playtest bot: turn toward the goal and walk; when fighting, face the nearest live grunt
@@ -862,7 +883,7 @@ fn control(
             let s = Quat::from_rotation_y(r.yaw) * Vec3::X;
             // the Move action (WASD: full deflection; the left stick: analog): target speed max x a + (1 - a) x min for
             // any deflection a (fwd / side_max_speed_min 4, game_06.cpp:2586); backward at the same speed (measured: backO, the original walks back at 39 units/s)
-            let m = ctl.axis(crate::input::Act::Move).clamp(Vec2::splat(-1.0), Vec2::ONE);
+            let m = move_curve(ctl.axis(crate::input::Act::Move));
             if m != Vec2::ZERO {
                 let sp = |max: f32, a: f32| max * a + (1.0 - a) * 4.0f32.min(max);
                 let fy = if m.y > 0.0 { sp(r.fwd_speed, m.y) } else if m.y < 0.0 { -sp(r.fwd_speed, -m.y) } else { 0.0 };
@@ -1840,100 +1861,6 @@ fn projectiles(
             commands.entity(e).despawn();
         }
     }
-}
-
-/// Third-person camera behind Roman's shoulder at his yaw and pitch, pulled in when geometry is in the way.
-pub fn follow_camera(
-    path: Res<crate::campath::CameraPath>,
-    physics: NonSend<Physics>,
-    roman: Query<(Entity, &Roman, &Transform), Without<FollowCam>>,
-    mut cam: Query<&mut Transform, With<FollowCam>>,
-    topsy: Res<crate::topsy::Topsy>,
-    cheats: Res<crate::cheats::Cheats>,
-    placed: Query<(Entity, &crate::level::Placed)>,
-    mut fade: ResMut<crate::camfade::CameraFade>,
-    mut proj: Query<&mut Projection, With<FollowCam>>,
-    (mut base_fov, mounted): (Local<Option<f32>>, Res<crate::turret::Mounted>),
-) {
-    // on a mounted gun the camera is the gun's camera node (turret.rs)
-    if path.holds_camera() || mounted.0.is_some() {
-        return;
-    }
-    let (Ok((roman_entity, r, rt)), Ok(mut c)) = (roman.single(), cam.single_mut()) else { return };
-    let roman_entity = Some(roman_entity);
-    // Camera_Update 0x0040e350 with the player's camera nodes (player.json, Trotter_ref): the eye at Camera_end
-    // (22.703 behind Roman, 11.128 up, centred), looking at Camera_start's target (7.194 ahead, 6.877 up): at rest
-    // the view tilts down 0.141 rad, as in the original's camera dumps. The look pitch (r.pitch, rest -0.15)
-    // turns the eye about that target. Five rays from the target (to the eye and to the eye +-5 along the view's
-    // right and up axes) pass through objects, which fade (camfade.rs), and the nearest landscape hit shortens the
-    // arm (0x0040e56c: objects hit are excluded and the ray cast again; only what remains stops it).
-    let rest_pitch = -0.15;
-    let yaw = Quat::from_rotation_y(r.yaw);
-    let target = rt.translation + yaw * Vec3::new(0.0, 6.877, -7.194);
-    let arm = Vec3::new(0.0, 11.128 - 6.877, 22.703 + 7.194);
-    let arm = yaw * (Quat::from_rotation_x(r.pitch - rest_pitch) * arm);
-    let len = arm.length();
-    let eye = target + arm;
-    let look = Transform::from_translation(eye).looking_at(target, Vec3::Y);
-    let (right, up) = (look.right().as_vec3() * 5.0, look.up().as_vec3() * 5.0);
-    let mut dist = len;
-    for end in [eye, eye + right, eye - right, eye + up, eye - up] {
-        let dir = (end - target).normalize_or(Vec3::Y);
-        // every ray as long as the arm (0x2c: the eye distance)
-        let full = len;
-        let mut from = target;
-        let mut left = full;
-        // through objects: the landscape alone stops the ray; placed objects and moving bodies hit fade
-        while let Some((body, at, normal)) = physics.raycast(from, dir, left) {
-            // a landscape face hit from behind (the look target inside a steep hill at its foot: Jolt's rays hit back
-            // faces) does not stop the arm; the original's camera stays behind Roman there (fightO 1440, guess: its
-            // Havok landscape ray is one-sided)
-            if physics.landscape == Some(body) && normal.dot(dir) < 0.0 {
-                dist = dist.min(at.distance(target));
-                break;
-            }
-            let object = physics.bodies.get(&body).copied().or_else(|| placed.iter().find(|(_, p)| p.collider == Some(body)).map(|(e, _)| e));
-            if let Some(object) = object.filter(|o| Some(*o) != roman_entity) {
-                fade.hit(object);
-            }
-            let step = at.distance(from) + 0.05;
-            from = at + dir * 0.05;
-            left -= step;
-            if left <= 0.0 {
-                break;
-            }
-        }
-    }
-    c.translation = target + arm / len * dist;
-    // zoom: the weapon's camera node (player.json: Camera_rifle eye (0, 0.13, 7.918) at the head, looking at the same
-    // target; Camera_machinegun the same eye), its FOV horizontal 0.4363 (rifle) / 0.5236 (machine gun) made vertical
-    // for the 1.702 view; position and FOV blended by the weight (0x0040fbb0: fov = target w + fov (1 - w)); the pitch
-    // turns the look about the eye
-    let mut target = target;
-    if let Ok(mut pj) = proj.single_mut() {
-        if let Projection::Perspective(pp) = &mut *pj {
-            if r.zoom <= 0.0 || base_fov.is_none() {
-                *base_fov = Some(pp.fov);
-            }
-            let zoom_h: f32 = if r.use_mg { 0.5235988 } else { 0.4363323 };
-            let zoom_v = 2.0 * ((zoom_h * 0.5).tan() / 1.702_128).atan();
-            let w = r.zoom;
-            pp.fov = base_fov.unwrap_or(pp.fov) * (1.0 - w) + zoom_v * w;
-            if w > 0.0 {
-                let eye_l = Vec3::new(0.0, 7.918, 0.13);
-                let tgt_l = Vec3::new(0.0, 6.877, -7.194);
-                let eye = rt.translation + yaw * eye_l;
-                let look = eye + yaw * (Quat::from_rotation_x(r.pitch - rest_pitch) * (tgt_l - eye_l));
-                c.translation = c.translation.lerp(eye, w);
-                target = target.lerp(look, w);
-            }
-        }
-    }
-    // the Topsy Turvy bomb turns the view over (topsy.rs)
-    let look = Transform::from_translation(c.translation).looking_at(target, Vec3::Y).rotation;
-    // the Topsy Turvy screen cheat (WAAAAAAH, cheats.rs) turns the view over too
-    let flip = if cheats.on(0x4000) { std::f32::consts::PI } else { 0.0 };
-    c.rotation = look * Quat::from_rotation_z(topsy.roll + flip);
 }
 
 pub fn spawn_bomb(commands: &mut Commands, physics: &mut Physics, bombs: &BombAssets, data: &GameData, at: Vec3, velocity: Vec3, fuse: f32) {

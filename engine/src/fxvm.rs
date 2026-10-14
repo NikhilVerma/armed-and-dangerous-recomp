@@ -324,8 +324,6 @@ pub struct FxVm {
     pub rng: CrtRand,
     unported: HashSet<String>,
     pub stats: FxVmStats,
-    /// Camera shake (game units, decays x -0.75 per 1/60 s: the original's per-frame decay at 60 fps).
-    pub shake: (f32, f32),
     streamers: Vec<Streamer>,
     /// decals made by scripts this frame (op 0x6a, sent by `run`)
     decals: Vec<crate::decals::SpawnDecal>,
@@ -354,7 +352,7 @@ impl Plugin for FxVmPlugin {
         app.add_plugins(MaterialPlugin::<ParticleMaterial>::default());
         app.add_systems(Startup, setup)
             .add_systems(Update, (start, run, objects, particles).chain().after(crate::fx::FxSet))
-            .add_systems(PostUpdate, (follow, draw_particles, camera_shake).before(TransformSystems::Propagate))
+            .add_systems(PostUpdate, (follow, draw_particles).before(TransformSystems::Propagate))
             .add_systems(PostUpdate, streamers.after(TransformSystems::Propagate));
     }
 }
@@ -410,7 +408,6 @@ fn setup(mut commands: Commands, assets: Res<AssetServer>, mut meshes: ResMut<As
         rng: CrtRand(1),
         unported: HashSet::new(),
         stats: FxVmStats::default(),
-        shake: (0.0, 0.0),
         streamers: Vec::new(),
         decals: Vec::new(),
         streamer_meshes,
@@ -1161,6 +1158,7 @@ fn objects(
     mut physics: NonSendMut<Physics>,
     cam: Query<&GlobalTransform, With<Camera3d>>,
     mut q: Query<&mut Transform, With<FxEntity>>,
+    mut shakes: MessageWriter<crate::camera::ShakeCamera>,
 ) {
     let dt = time.delta_secs();
     let cam_t = cam.single().ok().map(|c| c.compute_transform());
@@ -1181,6 +1179,18 @@ fn objects(
         }
         // the original ran at 60 fps: an object's first update steps at least 1/60 s, so scripts with lifespans
         // under a frame (Roman's snow footsteps: 0.01) end before their emitters run, as there (render_r1.cpp:1071)
+        // shake: one-shot when the camera is within the radius (camera.rs). Before the lifespan check: the shakes sit on
+        // objects that live 0.01 s (fx_imp_sticky, fx_explosion_powder_keg, fx_explosion_oilpump ...), which the
+        // engine's first step of at least 1/60 s ends at once; their shake would never run (guess: the original's first
+        // update comes before the object has aged, render_r1.cpp:1070 / 1451)
+        if let Some((time_s, radius, amp)) = o.shake.take() {
+            if let Some(c) = cam_t {
+                let pos = axes * o.place.w_axis.truncate();
+                if c.translation.distance(pos) < radius {
+                    shakes.write(crate::camera::ShakeCamera { amplitude: amp, secs: time_s });
+                }
+            }
+        }
         o.age += if o.age == 0.0 { dt.max(1.0 / 60.0) } else { dt };
         if let Some(life) = o.lifespan {
             if o.age >= life {
@@ -1268,15 +1278,6 @@ fn objects(
                 }
             }
             o.texanim = Some((rate, frames, looping, acc, frame, base));
-        }
-        // shake: one-shot when the camera is within the radius
-        if let Some((time_s, radius, amp)) = o.shake.take() {
-            if let Some(c) = cam_t {
-                let pos = axes * o.place.w_axis.truncate();
-                if c.translation.distance(pos) < radius {
-                    vm.shake = (amp, time_s);
-                }
-            }
         }
         // transform: placement, kite (camera-facing), scale animation
         let s = match (o.scale, o.lifespan) {
@@ -1495,23 +1496,6 @@ fn follow(mut commands: Commands, mut vm: ResMut<FxVm>, parents: Query<&GlobalTr
             }
         }
     }
-}
-
-/// Camera shake: the game moves the camera target up and down, amplitude x -0.75 per frame (at 60 fps; the
-/// remaster decays per 1/60 s so the shake lasts the same at any frame rate).
-fn camera_shake(time: Res<Time>, mut vm: ResMut<FxVm>, mut cam: Query<&mut Transform, With<Camera3d>>, mut last: Local<f32>) {
-    let Ok(mut t) = cam.single_mut() else { return };
-    t.translation.y -= *last;
-    *last = 0.0;
-    let (amp, left) = vm.shake;
-    if left <= 0.0 || amp.abs() < 0.01 {
-        return;
-    }
-    let frames = time.delta_secs() * 60.0;
-    let a = amp * (-0.75f32).powf(frames.round().max(1.0));
-    vm.shake = (a, left - time.delta_secs());
-    t.translation.y += a;
-    *last = a;
 }
 
 /// Streamers: emit one point per frame at the owner while it lives (Streamer_AddPoint 0x004958a0: the width fades in
