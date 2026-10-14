@@ -353,6 +353,20 @@ Debt: `ListenerBody.radius` stands in for the original's ownership test (0x0045a
 handles (+0xb4c / +0xb50) are not ported (ai.rs's cue sites pass no speaker); music segments chain on a frame timer
 (the segment's duration), not on the stream's end.
 
+## Animation, camera and input (subsystem port, 2026-10-14)
+
+docs/subsystems/anim.md, player.md 4 (the remaster's camera), remaster-input.md; queues anim / camera / input empty
+(docs/port/anim.csv, camera.csv, input.csv). skin.rs cross-fades every anim change (the AI 0.25 s, Roman by the
+kind table 0x005cb3a8), plays movement anims at their speed-driven rate (backwards for the backward modes) and fires
+notes over [previous, now); charanim.rs plays Roman from the exe's anim table (work/remaster/<level>/player_anims.json,
+made by tools/remaster_export_player_anims.py: rerun it for a new level); footik.rs places his feet. camera.rs owns
+the follow / zoom / death camera, the smoothing and the shake (`ShakeCamera`; camera owners go in `CameraPlace`).
+Changed feel: running while firing plays the run anim (the table links it), the stick look is linear 3 / 1.9 rad/s
+with the original's 0.21 dead zone, the pitch reaches the original's limits, the stick's move speed follows the
+original's curve. Tests: anim_blend, anim_notes, camera_follow, camera_death, input_pad, foot_ik.
+Traps: Python text-mode rewrites and Git Bash `sed -i` turn CRLF files into LF (compare `git diff --stat` with
+`--ignore-cr-at-eol`); `play()` restarts only on a name change, so the same anim as a new entry needs `restart`.
+
 ## Running tests without disturbing the desktop
 
 - `--background`: the window opens off-screen, unfocused, behind everything, not in the taskbar; screenshots still
