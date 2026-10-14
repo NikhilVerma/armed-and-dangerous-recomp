@@ -41,6 +41,7 @@ re-reading is the fix.
   you are working on.
 - Remaster engine (human, 2026-10-14: "be smart and strategic" about tokens and wasted effort):
   - Find code with `python tools/engine_map.py writes|reads|sends|receives|addr|fn|params ...` before grepping.
+  - After a merge or a change to shared code: `python tools/regress.py` (the fast suite, about 3 minutes).
   - Test with `python tools/playtest.py SCRIPT.json`: headless, prints only EVENT / EXPECT / PLAYTEST lines.
     Start scripts from a saved state (`"load": "states/NAME.json"`, written by a `{"save": "NAME"}` step) and
     check with `{"expect": {...}}` steps, so a check takes seconds, not a replay of the intro and the pub.
