@@ -182,6 +182,8 @@ pub struct HudState {
     /// the special in hand (0 sticky bombs, 1 Topsy Turvy) and the Topsy Turvy count
     pub special: u8,
     pub topsy: u32,
+    /// the team order's text (ui_teammate_*: its layout string) and seconds left (3.0, 0x00467890)
+    pub team: Option<(&'static str, f32)>,
 }
 
 pub const HUD_LAYER: usize = 1;
@@ -271,6 +273,8 @@ pub fn spawn(
         ("ui_briefing", Vec2::new(320.0, 281.1), 0.9, Color::srgb_u8(0xd0, 0xd0, 0xff)),
         // speech subtitles (0x00495cb0): size 1.1 fitted to 576 units, centred at x 0.5, y 0.15 of the screen
         ("ui_subtitle", Vec2::new(320.0, 480.0 * 0.15), 1.1, Color::WHITE),
+        // the team order texts ui_teammate_* (ref_team_text 320, 47.5; 0.9 #ffff80), one at a time
+        ("ui_team", Vec2::new(320.0, 47.5), 0.9, Color::srgb_u8(0xff, 0xff, 0x80)),
     ] {
         commands.spawn((
             HudElement { name: name.into(), pos, anchor: Anchor::Centre, full: false },
@@ -739,6 +743,7 @@ fn texts(
             "ui_message" => state.messages.join("\n"),
             "ui_prompt" => state.prompt.clone().unwrap_or_default(),
             "ui_briefing" => state.briefing.clone().unwrap_or_default(),
+            "ui_team" => state.team.and_then(|(n, _)| hud.layout.elements.iter().find(|e| e.name == n)).and_then(|e| e.string.clone()).unwrap_or_default(),
             "ui_subtitle" => match &state.subtitle {
                 Some((s, c, _)) => {
                     if *c != t.colour {
@@ -807,6 +812,12 @@ fn subtitles(time: Res<Time>, mut subs: MessageReader<crate::audio::Subtitle>, h
         sub.2 -= time.delta_secs();
         if sub.2 <= 0.0 {
             state.subtitle = None;
+        }
+    }
+    if let Some(team) = state.team.as_mut() {
+        team.1 -= time.delta_secs();
+        if team.1 <= 0.0 {
+            state.team = None;
         }
     }
 }

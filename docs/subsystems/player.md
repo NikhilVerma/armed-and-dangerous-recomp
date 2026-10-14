@@ -179,7 +179,7 @@ The loadout is the rifle plus 5 sticky bombs. The machine gun is removed by the 
   by formation_distance (0x00483c30). A companion does not move while the player is within delay_distance
   (0x00483810). Paths use the nav mesh (0x00483d60). Set-up: 0x00483250 (ai_08.cpp:192).
 - Orders: key 1 = attack the object under the crosshair, or defend that point; key 3 = return to the player
-  (0x0047a9a0 -> 0x004852b0).
+  (0x0047a9a0 -> 0x004852b0). Details, the order lines and the HUD texts: companions.md.
 - Score: both have score_value -500, so killing a companion costs points.
 
 ## 8. Animations
