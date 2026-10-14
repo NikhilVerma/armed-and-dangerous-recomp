@@ -617,8 +617,10 @@ fn placed_pickups(
 }
 
 /// The playtest state: live pickups by kind and the generators.
-fn state_log(q: Query<&Pickup>, gens: Res<Generators>, state: Option<ResMut<crate::playtest::PlayState>>) {
+fn state_log(q: Query<&Pickup>, gens: Res<Generators>, state: Option<ResMut<crate::playtest::PlayState>>, opts: Res<crate::options::GameOptions>) {
     let Some(mut state) = state else { return };
+    state.0.insert("tokens".into(), opts.tokens.into());
+    state.0.insert("cheats_known".into(), opts.cheats_known.len().into());
     let mut kinds = serde_json::Map::new();
     for p in &q {
         let k = format!("{:?}", p.kind).to_lowercase().replace(['(', ')'], "");

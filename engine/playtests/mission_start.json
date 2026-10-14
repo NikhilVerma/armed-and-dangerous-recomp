@@ -1,0 +1,19 @@
+{"steps": [
+ {"until": "message"},
+ {"wait": 0.5},
+ {"expect": {"mission_obj.objectives_id": "start_text", "mission_obj.showing": true, "triggers.1": 1, "compass_tag": 50, "mission_obj.compass_target": "225", "mission_obj.sites.252.enabled": false, "mission_obj.sites.234.enabled": true, "mission_obj.pub_open": true, "mission": "Playing"}},
+ {"tap": "Enter"},
+ {"wait": 0.5},
+ {"expect": {"mission_obj.showing": false}},
+ {"send": 900},
+ {"wait": 0.4},
+ {"expect": {"mission_obj.showing": false, "mission_obj.queued": 1, "compass_tag": 55, "mission_obj.sites.252.enabled": true, "triggers.900": 1}},
+ {"wait": 1.0},
+ {"expect": {"mission_obj.showing": true, "mission_obj.objectives_id": "l1m1_sub2", "mission_obj.compass_target": "234,252"}},
+ {"tap": "Enter"},
+ {"wait": 0.5},
+ {"send": 901},
+ {"wait": 1.5},
+ {"expect": {"mission_obj.objectives_id": "l1m1_sub3", "compass_tag": 56, "mission_obj.compass_target": "64,259,260", "objects.247.husk": true}},
+ {"quit": true}
+]}

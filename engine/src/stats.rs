@@ -43,7 +43,7 @@ pub struct StatsPlugin;
 
 impl Plugin for StatsPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<MissionStats>().add_systems(Update, (count_enemies, player_counts));
+        app.init_resource::<MissionStats>().add_systems(Update, (count_enemies, player_counts, state_log));
     }
 }
 
@@ -57,4 +57,13 @@ fn player_counts(p: Res<crate::player::PlayerStats>, mut s: ResMut<MissionStats>
 /// Every grunt that appears counts toward the enemy total.
 fn count_enemies(added: Query<(), Added<crate::ai::Grunt>>, mut s: ResMut<MissionStats>) {
     s.enemies_total += added.iter().count() as u32;
+}
+
+/// The playtest state's "mstats": the Stats screen's counters and money lines.
+fn state_log(s: Res<MissionStats>, state: Option<ResMut<crate::playtest::PlayState>>) {
+    let Some(mut state) = state else { return };
+    state.0.insert(
+        "mstats".into(),
+        serde_json::json!({"kills": s.kills_money, "accidents": s.accidents_money, "rescues": s.rescues_money, "loot": s.loot_money, "enemies_killed": s.enemies_killed, "enemies_total": s.enemies_total}),
+    );
 }

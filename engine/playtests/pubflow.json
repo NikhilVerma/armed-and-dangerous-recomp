@@ -1,0 +1,22 @@
+{"steps": [
+ {"until": "message"},
+ {"wait": 0.5},
+ {"tap": "Enter"},
+ {"wait": 3.3333},
+ {"tap": "Enter"},
+ {"wait": 0.5},
+ {"expect": {"tickers": 0, "mission_obj.pub_done": false, "mission_obj.sites.252.enabled": false}},
+ {"warp": [194, -80, 16, 0]},
+ {"wait": 1.0},
+ {"hold_use": 0.3},
+ {"wait": 1.0},
+ {"expect": {"menu.page": "Pub", "pub.open": true, "mission_obj.pub_done": true}},
+ {"tap": "Enter"}, {"wait": 0.3},
+ {"tap": "Enter"}, {"wait": 0.3},
+ {"tap": "Enter"}, {"wait": 0.5},
+ {"tap": "Escape"}, {"wait": 0.5},
+ {"expect": {"pub.open": false, "triggers.900": 1, "tickers": 4, "compass_tag": 55, "mission_obj.sites.252.enabled": true}},
+ {"wait": 1.2},
+ {"expect": {"mission_obj.showing": true, "mission_obj.objectives_id": "l1m1_sub2"}},
+ {"quit": true}
+]}

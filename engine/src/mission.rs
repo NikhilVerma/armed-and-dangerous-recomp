@@ -1053,7 +1053,7 @@ fn state_log(m: Option<Res<Mission>>, state: Option<ResMut<crate::playtest::Play
         serde_json::json!({
             "volumes": vols, "sites": sites, "counters": counters, "camfx": camfx,
             "pub_open": m.pub_triggers.open == 0, "pub_done": m.pub_done,
-            "finished": m.finished, "alarm_forced": m.alarm_forced, "objectives_id": m.objectives_id,
+            "finished": m.finished, "alarm_forced": m.alarm_forced, "ears_done": m.ears_done.len(), "compass_target": m.tags.get(&m.compass_tag).map(|v| v.iter().filter(|(id, _)| !m.untagged.contains(id)).map(|(id, _)| id.to_string()).collect::<Vec<String>>().join(",")), "objectives_id": m.objectives_id,
             "queued": m.queue.len(), "showing": m.showing.is_some(), "failure_text": m.failure_text.clone().unwrap_or_default().chars().take(40).collect::<String>(),
         }),
     );
@@ -1811,6 +1811,32 @@ mod tests {
         t.contact(false);
         t.message(9);
         assert_eq!(t.update(), None);
+    }
+
+    #[test]
+    fn failure_triggers_and_pre_success() {
+        let dir = std::env::temp_dir().join(format!("and_mission_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let j = serde_json::json!({
+            "level": "lev_test",
+            "mission": {"resolved": {"receive_trigger_failure_2": 77, "failure_text": "f1", "failure_text_2": "f2", "receive_trigger_pre_success": 55, "alarm_trigger_activate": 5, "alarm_trigger_deactivate": 6}},
+            "edges": [], "instances": [], "text": {"f1": "First", "f2": "Second"}, "hints": {}
+        });
+        std::fs::write(dir.join("mission.json"), j.to_string()).unwrap();
+        let mut m = Mission::load(&dir).unwrap();
+        m.mission_trigger(5);
+        assert!(m.alarm_forced);
+        m.mission_trigger(6);
+        assert!(!m.alarm_forced);
+        m.mission_trigger(77);
+        assert_eq!(m.outcome, Outcome::Failed);
+        assert_eq!(m.failure_text.as_deref(), Some("Second"));
+        let mut f = Mission::load(&dir).unwrap();
+        f.mission_trigger(55);
+        assert!(f.finished);
+        f.mission_trigger(77);
+        assert_eq!(f.outcome, Outcome::Playing, "failures are ignored once finished");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

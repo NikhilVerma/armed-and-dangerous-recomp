@@ -1,0 +1,11 @@
+{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+ {"wait": 0.5},
+ {"expect": {"mission": "Playing", "mstats.loot": 0}},
+ {"send": 123},
+ {"wait": 0.5},
+ {"expect": {"mission": "Won", "mstats.loot": 1000, "mstats.rescues": 0, "mission_obj.showing": true}},
+ {"send": 123},
+ {"wait": 0.3},
+ {"expect": {"mstats.loot": 1000}},
+ {"quit": true}
+]}
