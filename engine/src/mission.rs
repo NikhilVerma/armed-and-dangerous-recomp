@@ -398,6 +398,8 @@ impl Mission {
                 Action::WakeAi(to)
             } else if action.starts_with("show text_display") {
                 let r = inst.get(&to).map(|i| &i.resolved);
+                // the ui_ear's fields (its Load 0x0046acf0: text_trigger_receive_0N, text_display_0N,
+                // objective_trigger_receive_0N, objective_tag_0N)
                 let objective = r.is_some_and(|r| {
                     (1..=5).any(|k| n(r, &format!("objective_trigger_receive_{k:02}")) as i64 == e.trigger && n(r, &format!("objective_tag_{k:02}")) != 0.0)
                 });
@@ -465,7 +467,8 @@ impl Mission {
                 }),
                 "pub" => {
                     // the doorway: the model's Ref_entrance bone (doorway_bone_name) and doorway_entry_radius
-                    // (0x00467b60: player position within the radius); the exit: Ref_exit (player_exit_bone_name)
+                    // (0x00467b60: player position within the radius; 0x0046a5f0, 0x0046a640); the exit: Ref_exit
+                    // (player_exit_bone_name, 0x0046a650) and send_trigger_exit (0x0046a720)
                     let refs = i.model.as_ref().zip(i.transform.as_ref()).map(|(model, t)| (pub_bone(dir, model, "ref_entrance"), pub_bone(dir, model, "ref_exit"), crate::scene::game_matrix(t)));
                     let world = |b: Option<Vec3>, m: Mat4| b.map(|l| game_to_engine() * m.transform_point3(l));
                     let (door, exit) = refs.map(|(a, b, m)| (world(a, m), world(b, m))).unwrap_or((None, None));
@@ -599,17 +602,22 @@ impl Plugin for MissionPlugin {
         app.add_message::<SendTrigger>()
             .add_systems(Update, (start, volumes, sites, pub_door, barracks, dispatch, messages, outcome).chain().run_if(in_state(crate::AppState::Playing)))
             .add_systems(Update, event_log)
-            .add_systems(Update, deaths.run_if(in_state(crate::AppState::Playing)));
+            // after the deaths of the frame (fx.rs), before the husk swap (level.rs husks: the Husk marker)
+            .add_systems(Update, deaths.after(crate::fx::FxSet).run_if(in_state(crate::AppState::Playing)));
     }
 }
 
 /// An object with send_trigger_on_death died: its trigger goes out.
-fn deaths(mut m: Option<ResMut<Mission>>, mut died: MessageReader<crate::fx::Died>, ids: Query<&InstanceId>, mut out: MessageWriter<SendTrigger>) {
+pub(crate) fn deaths(mut m: Option<ResMut<Mission>>, mut died: MessageReader<crate::fx::Died>, ids: Query<&InstanceId>, husks: Query<(), With<crate::level::Husk>>, mut out: MessageWriter<SendTrigger>) {
     let Some(m) = m.as_deref_mut() else {
         died.clear();
         return;
     };
     for d in died.read() {
+        // a husk dying (the houses' later stages) is a new object, not the placed one (level.rs Husk)
+        if husks.contains(d.0) {
+            continue;
+        }
         // a destroyed barracks releases no more troops (the building is replaced by its husk)
         if let Ok(i) = ids.get(d.0) {
             let mut stopped = false;
@@ -934,6 +942,8 @@ fn dispatch(
     let Some(m) = m.as_deref_mut() else { return };
     let pe = player.single().ok().map(|p| p.0);
     let pt = player.single().ok().map(|p| p.1.translation());
+    // Object_SendTrigger 0x00461870: every object's trigger handler is offered the id; all lev_1_m1 handlers return
+    // false, so it is a broadcast (docs/subsystems/objects.md)
     for SendTrigger(t) in events.read() {
         let actions = m.receivers.get(t).cloned().unwrap_or_default();
         m.log.push(format!("trigger {t}: {} receivers", actions.len()));
@@ -1062,6 +1072,7 @@ fn dispatch(
                 }
                 // handled above by the barracks' own trigger ids
                 Action::Barracks(_) => {}
+                // receive_trigger_kill (DefaultGameObject_OnTrigger 0x00450fb0 -> vt+0xd4, the death slot)
                 Action::Destroy(id) => {
                     let mut killed = false;
                     for (i, mut d) in &mut objects {

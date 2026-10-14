@@ -1426,8 +1426,8 @@ fn projectiles(
                     commands.entity(e).despawn();
                     continue;
                 }
-                d.health -= p.damage;
-                if d.health <= 0.0 && d.dying.is_none() {
+                // Object_TakeDamage 0x004555e0 (fx.rs)
+                if d.take_damage(p.damage) && d.dying.is_none() {
                     d.chain_delay = 0.0;
                     d.dying = Some(0.0);
                 }
@@ -1540,6 +1540,7 @@ pub fn spawn_bomb(commands: &mut Commands, physics: &mut Physics, bombs: &BombAs
     let p = data.props("p_player_tickerbomb");
     let d = Destructible {
         health: 1.0,
+        max_health: 1.0,
         fx_death: Some(TICKERBOMB_FX.into()),
         husk: None,
         area_damage: p.f("area_damage", 100.0),

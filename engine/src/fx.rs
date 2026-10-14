@@ -72,9 +72,14 @@ pub struct StartFx {
 }
 
 /// An object that takes damage and dies with its property set's death fx (kegs, pipes, buildings, trees).
+/// The original's Object base (game_03.cpp): health +0x454 / max_health +0x458 (Object_GetHealth 0x004555b0,
+/// Object_GetMaxHealth 0x004555c0), fx_death +0x3a0 and husk +0x3c0 (Object_LoadBaseProps 0x00451360); dead when
+/// the health is at or below 0 (Object_IsDead 0x00454780). docs/subsystems/objects.md.
 #[derive(Component, Clone)]
 pub struct Destructible {
     pub health: f32,
+    /// max_health: the health never rises above it (Object_TakeDamage 0x004555e0)
+    pub max_health: f32,
     pub fx_death: Option<String>,
     /// Template that replaces the object when it dies (destroyed building, felled tree).
     pub husk: Option<String>,
@@ -103,6 +108,23 @@ pub struct Destructible {
 }
 
 impl Destructible {
+    /// Object_TakeDamage 0x004555e0 (the Object base's damage slot, vt+0xd0): a living object (health > 0) loses the
+    /// record's amount (+0x14); true when this blow kills it (the original then calls vt+0xd4, the death slot); a
+    /// survivor's health is capped at max_health (a negative amount heals, never past the maximum).
+    pub fn take_damage(&mut self, amount: f32) -> bool {
+        if self.health <= 0.0 {
+            return false;
+        }
+        self.health -= amount;
+        if self.health <= 0.0 {
+            return true;
+        }
+        if self.health > self.max_health {
+            self.health = self.max_health;
+        }
+        false
+    }
+
     /// Whether a damage record applies: `no_buildings` is the record's 0x400 bit (a projectile without
     /// damages_buildings: the rifle's and grunts' bullets), `by` its source.
     pub fn accepts(&self, by: Src, no_buildings: bool) -> bool {
@@ -216,8 +238,7 @@ fn damage(
             if dist > b.radius_outer || !d.accepts(b.by, false) {
                 continue;
             }
-            d.health -= b.area_damage * falloff(dist, b.radius_inner, b.radius_outer);
-            if d.health <= 0.0 {
+            if d.take_damage(b.area_damage * falloff(dist, b.radius_inner, b.radius_outer)) {
                 if d.chain {
                     let fuse = b.delay.max(d.min_delay);
                     d.chain_delay = fuse;
@@ -241,6 +262,8 @@ fn damage(
                 }
             }
         }
+        // (the original pushes through its force action pool, World +0xf30: 0x00455a30 / 0x00455aa0 / 0x00455b10 /
+        // 0x00455b80, released by 0x00455a00, the mass-capped push 0x00456050; here Jolt impulses at once)
         // impact force: passed without falloff, direction normalise(n.x, n.y, 0.7) in game axes (z up). How
         // non-character objects turn it into an impulse is not traced: impulse = impact_force (game units)
         // scaled like the fx impulses (guess).
@@ -264,6 +287,10 @@ fn damage(
     }
 }
 
+/// A dead object's death: DefaultGameObject_OnDeath 0x00450ee0 (once: score_value to Kills / Accidents, the
+/// send_trigger_on_death trigger (mission.rs `deaths`, from the Died message), area_damage through 0x0047f020), then
+/// Object_Kill 0x00455640 (the next frame in the original, 0x004505a0 flag 0x10000): removal and Object_SpawnHusk
+/// 0x00455660, the fx_death fx at the object's matrix and the husk object (level.rs `husks`).
 #[allow(clippy::too_many_arguments)]
 fn dying(
     mut commands: Commands,
@@ -327,5 +354,84 @@ fn tracers(mut commands: Commands, time: Res<Time>, mut gizmos: Gizmos, mut q: Q
             continue;
         }
         gizmos.line(t.from, t.to, Color::srgba(1.0, 0.9, 0.5, a));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn object(class: DClass) -> Destructible {
+        Destructible {
+            health: 100.0,
+            max_health: 100.0,
+            fx_death: None,
+            husk: None,
+            area_damage: 0.0,
+            radius_inner: 0.0,
+            radius_outer: 0.0,
+            impact_force: 0.0,
+            chain: false,
+            start_delay: 0.0,
+            min_delay: 0.0,
+            acceleration: 1.0,
+            dying: None,
+            chain_delay: 0.0,
+            class,
+            score: 0.0,
+            takes_damage: false,
+            takes_bullet: false,
+            player_damage: true,
+            teammate_damage: false,
+            badguy_damage: false,
+        }
+    }
+
+    /// Object_TakeDamage 0x004555e0: the killing blow reports once, the dead take nothing, healing stops at max.
+    #[test]
+    fn take_damage_kills_once_and_caps() {
+        let mut d = object(DClass::Open);
+        assert!(!d.take_damage(40.0));
+        assert_eq!(d.health, 60.0);
+        assert!(!d.take_damage(-1000.0));
+        assert_eq!(d.health, 100.0, "healing capped at max_health");
+        assert!(d.take_damage(100.0));
+        assert!(!d.take_damage(5.0), "a dead object takes no more");
+        assert_eq!(d.health, 0.0);
+    }
+
+    /// The damage filters (docs/subsystems/damage.md): DefaultGameObject 0x00450da0, BuildingObject 0x0040ce40,
+    /// FxExplosion 0x0041c4e0, trees / turrets Object_TakeDamage (no filter).
+    #[test]
+    fn damage_filters() {
+        // default object: nothing unless takes_damage; bullets (0x400) only with takes_bullet_damage; no source test
+        let mut d = object(DClass::Default);
+        assert!(!d.accepts(Src::Player, false));
+        d.takes_damage = true;
+        assert!(d.accepts(Src::Badguy, false) && d.accepts(Src::Player, false) && d.accepts(Src::Object, false));
+        assert!(!d.accepts(Src::Player, true), "the archway: blasts yes, bullets no");
+        d.takes_bullet = true;
+        assert!(d.accepts(Src::Player, true), "the oil pump / guard alarm take bullets");
+        // building: takes_damage, bullets, then the source bytes; objects (kegs) pass every source filter
+        let mut b = object(DClass::Building);
+        b.takes_damage = true;
+        b.teammate_damage = true;
+        assert!(b.accepts(Src::Player, false) && b.accepts(Src::Teammate, false) && b.accepts(Src::Object, false));
+        assert!(!b.accepts(Src::Badguy, false), "badguy_damage defaults to 0");
+        assert!(!b.accepts(Src::Player, true), "takes_bullet_damage defaults to 0");
+        // keg: no bullet test, player 1, teammate 0, badguy 0
+        let k = object(DClass::Keg);
+        assert!(k.accepts(Src::Player, true) && k.accepts(Src::Object, false));
+        assert!(!k.accepts(Src::Teammate, false) && !k.accepts(Src::Badguy, false));
+        // trees, turrets: everything
+        let o = object(DClass::Open);
+        assert!(o.accepts(Src::Badguy, true));
+    }
+
+    #[test]
+    fn blast_falloff() {
+        assert_eq!(falloff(5.0, 10.0, 20.0), 1.0);
+        assert_eq!(falloff(15.0, 10.0, 20.0), 0.5);
+        assert_eq!(falloff(25.0, 10.0, 20.0), 0.0);
     }
 }
