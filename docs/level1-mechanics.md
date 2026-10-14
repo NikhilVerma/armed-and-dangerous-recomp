@@ -48,7 +48,7 @@ Update this table as items land (commit hash in the last column).
 | Death presentation (ragdoll, fx_trotter_death, death lines) | vt+0xd4, player.md 6 | P | 2 | ragdoll from his pose (ragdoll.rs; Roman's head end from the neck), fx_trotter_death, death line, failed page after 5 s (dead.json) |
 | Mounted gun stig_mgun 32 | game_08.cpp turret | M | 2 | |
 | Teammate orders (keys 1 / 3) | 0x004852b0, 0x00485120 (companions.md) | P | 2 | Defend Me / Return To Me / Defend Area / Attack, ui_teammate_* text, order lines under vo_delay (team1..5) |
-| Idle fidgets, turn-in-place, land anims | 0x00476a10 | M | 3 | |
+| Idle fidgets, turn-in-place, land anims | 0x00476a10 | P / M | 3 | idle fidgets trotter_idle_1..5 after 5 s (idle.json); land anims done (f34b289); turn-in-place not yet |
 | Grunt drops (type rule) | cleanup_01.cpp:96, 0x00475a90 | P | 3 | the original's weighted pick (health 0.5 / 0.25, current weapon 0.5 not the rifle, other weapon 0.25, sticky 0.25); MG ammo pickups collected |
 | Pickup generators 219 / 220 | 0x00471b70 | M | 3 | |
 

@@ -16,7 +16,17 @@ impl Plugin for CharAnimPlugin {
     }
 }
 
-fn roman(mut q: Query<(&Roman, &mut Animator)>, topsy: Res<crate::topsy::Topsy>) {
+/// Roman's idle (0x00476a10, game_05.cpp:1932-1948): standing, the idle time +0xc04 counts; past 5 s (0x005bcbdc),
+/// each time the playing anim ends (the aim stance's 1.97 s loop or a fidget) a rand picks the stance (one half) or
+/// one of trotter_idle_1..5 (mode 1 + rand * 5 >> 15); any other mode clears the time.
+#[derive(Default)]
+struct Idle {
+    t: f32,
+    left: f32,
+    fidget: Option<u32>,
+}
+
+fn roman(mut q: Query<(&Roman, &mut Animator)>, topsy: Res<crate::topsy::Topsy>, time: Res<Time>, mut idle: Local<Idle>, mut rng: ResMut<crate::fx::FxStats>) {
     for (r, mut a) in &mut q {
         // the Topsy Turvy states (anims 0x20..0x23)
         let t = match topsy.phase {
@@ -100,6 +110,27 @@ fn roman(mut q: Query<(&Roman, &mut Animator)>, topsy: Res<crate::topsy::Topsy>)
         // the aim blend (0x00475ff0, game_05.cpp:1499): w = (clamp(2 x pitch, -1, 1) + 1) / 2 of the look pitch, 0 at
         // rest (the engine's rest pitch is -0.15)
         let w = ((2.0 * (r.pitch + 0.15)).clamp(-1.0, 1.0) + 1.0) * 0.5;
+        if upper == "trotter_aim" && r.on_ground && !r.dead {
+            let dt = time.delta_secs();
+            idle.t += dt;
+            idle.left -= dt;
+            if idle.left <= 0.0 {
+                idle.fidget = None;
+                idle.left = 1.967;
+                if idle.t > 5.0 && rng.rand() < 0.5 {
+                    let k = ((rng.rand() * 5.0) as u32).min(4) + 1;
+                    idle.fidget = Some(k);
+                    idle.left = [3.3, 5.467, 4.8, 5.467, 3.3][k as usize - 1];
+                }
+            }
+            if let Some(k) = idle.fidget {
+                a.play(0, &format!("trotter_idle_{k}"), false, Mask::All);
+                a.stop(1);
+                continue;
+            }
+        } else {
+            *idle = Idle::default();
+        }
         a.play(0, &format!("{upper}_b"), true, Mask::All);
         a.play(1, &format!("{upper}_t"), true, Mask::All);
         a.set_weight(1, w);
