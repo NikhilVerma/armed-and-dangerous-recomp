@@ -424,8 +424,10 @@ pub fn spawn(
         }
 
         // everything else stands still and collides with its collision model (the render model when the
-        // template names none, e.g. invisible walls)
-        let coll_name = tpl.and_then(|t| t.collision.clone()).or_else(|| invisible.then(|| inst.model.clone()));
+        // template names none: invisible walls, and collide_poly objects such as the trenches, p_barracade; the
+        // template's +0x4c flag 1, loader_01.cpp:3446). Broadcast volumes (p_tools) are triggers, never solid.
+        let poly = p.i("collide_poly", 0) != 0 && p.s("behavior") != Some("broadcast");
+        let coll_name = tpl.and_then(|t| t.collision.clone()).or_else(|| (invisible || poly).then(|| inst.model.clone()));
         let collider = coll_name
             .and_then(|n| lib.load_model(&n, false, assets, meshes, materials).map(|m| (m.vertices.clone(), m.tris.clone())))
             .and_then(|(v, t)| {

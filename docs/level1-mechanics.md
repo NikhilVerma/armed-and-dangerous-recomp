@@ -103,7 +103,7 @@ Update this table as items land (commit hash in the last column).
 | Barracks stop releasing when destroyed | | P | 2 | mission.rs deaths(); barracks.json (destroyed 25 releases nothing on 810) |
 | Oil pump animation (oilpump_cycle) | | M | 3 | needs the export: oilpump_1.json has no skeleton / bone binding (3 submeshes); oilpump_cycle (4 s) animates bone_bigarm / bone_pump / bone_gyro |
 | Fx opcodes used by L1 deaths and muzzle flashes | render_r2b.cpp:270-1117 (fx-vm.md) | P | 2 | 0x79, 0x10, 0x14, 0x31, 0x32, 0x3f, 0x4a, 0x55, 0x56 ported (ccd9aec, 6f474db); impulse masses guessed; lights stored, not drawn |
-| Trenches (barricade collision, cover) | p_barracade | M | 3 | |
+| Trenches (barricade collision, cover) | p_barracade, loader_01.cpp:3446 (collide_poly), ai_02.cpp:986-1030 (+0x904 barricade) | P | 3 | collision: collide_poly objects collide with their render mesh (trench.json: the walk into trench 37 follows the landscape's dip as before, 2.2 vs 2.4 at the floor); broadcast volumes stay triggers. Not ported: grunts using a barricade as cover (+0x904, +0x484 0x20000, barricade_* anims, death 0x56): not traced |
 | Guard alarm, grunt generators | | P | 2 | (alarm chain); the siren can be shot (100 health: guess) |
 | Decals on objects | 0x00416f50 | M | 3 | |
 | Shadows | projected silhouettes | B? | | cascaded shadow maps (different technique) |
