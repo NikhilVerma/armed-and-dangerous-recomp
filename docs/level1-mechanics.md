@@ -34,7 +34,7 @@ Update this table as items land (commit hash in the last column).
 | Gun auto-aim | 0x004a2a40 (option, default off) | M | 3 | off by default in the original; B: optional |
 | Rifle: fire gate, recycle, clip | 0x004a1e40, 0x004a23e0 | P | | taps fire (227163b) |
 | Shots from the gun to the crosshair point | 0x0047dbf0 (P = ref_shoot_00, Q = hud+0x5c) | V | | 227163b (spawn offset measured) |
-| Reload (anim-driven refill) | game_05.cpp:1601 | S | 2 | instant refill, 1 s lockout; trotter_reload 1.97 s |
+| Reload (anim-driven refill) | game_05.cpp:1601, tables 0x0059eef4 / 0x0059eedc / 0x005fb9dc | P | 2 | load sound at frame 10 (rifle) / 15 (MG), refill at frame 43 (1.43 s); reload.json |
 | Weapon switch (wchange anim, frame 13) | 0x004a16b0 | S | 2 | instant |
 | Machine gun (pub) | p_player_machinegun | P | | spread distribution guessed |
 | Rifle fire anim | game_05.cpp:1380: fire_sg for rifle / MG | P | 1 | trotter_fire_sg / jump_fire_sg |

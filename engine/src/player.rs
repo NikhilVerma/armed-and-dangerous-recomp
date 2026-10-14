@@ -85,6 +85,9 @@ pub struct Roman {
     /// seconds since Fire Special threw a sticky bomb (the throw anim)
     pub since_throw: f32,
     pub reloading: f32,
+    /// a reload in progress: seconds into the reload anim, and whether its load sound played (0x00475ff0 state 3:
+    /// the sound at frame 0x0059eef4[w] (rifle 10, machine gun 15), the clip refilled at frame 0x0059eedc[w] = 43)
+    pub reload_clock: Option<(f32, bool)>,
     pub move_local: Vec2,
 }
 
@@ -373,6 +376,7 @@ pub fn make_roman(physics: &mut Physics, p: &Props, data: &GameData, feet: Vec3,
         power_min: p.f("movement_power_min", 7.0),
         since_throw: 10.0,
         reloading: 0.0,
+        reload_clock: None,
         move_local: Vec2::ZERO,
     })
 }
@@ -918,23 +922,45 @@ fn weapons(
         // a tap counts as a shot: a trackpad tap over Moonlight arrives as press and release in one frame, never
         // "pressed" at the frame's end (the player's gun did nothing)
         let fire = ctl.down(crate::input::Act::Fire) || ctl.pressed(crate::input::Act::Fire) || (buttons.just_pressed(MouseButton::Left) && ctl.active_play) || (bot.fight && bot.fire_ok);
+        let idle = r.reload_clock.is_none();
         let (shoot, reload_time) = {
             let w = if mg { r.mg.as_mut().unwrap() } else { &mut r.rifle };
             w.timer -= dt;
-            if (ctl.pressed(crate::input::Act::Reload) && w.clip < w.clip_size && w.ammo > 0) || (w.clip == 0 && w.ammo > 0 && w.timer <= 0.0) {
+            let starting = idle && ((ctl.pressed(crate::input::Act::Reload) && w.clip < w.clip_size && w.ammo > 0) || (w.clip == 0 && w.ammo > 0 && w.timer <= 0.0));
+            if starting {
+                w.timer = w.reload_time.max(43.0 / 30.0);
+                reloaded = true;
+            }
+            let lock = w.reload_time;
+            (fire && w.timer <= 0.0 && w.clip > 0, lock)
+        };
+        if reloaded {
+            r.reload_clock = Some((0.0, false));
+        }
+        // the reload runs on the reload anim's frames (30 per second): the load sound, then the refill
+        if let Some((clock, said)) = r.reload_clock {
+            let clock = clock + dt;
+            let sound_at = if mg { 15.0 } else { 10.0 } / 30.0;
+            let mut said = said;
+            if !said && clock >= sound_at {
+                said = true;
+                sounds.write(crate::audio::PlaySound::at(if mg { "wpn_rome_machgun_load" } else { "wpn_rome_rifle_load" }, t.translation));
+            }
+            if clock >= 43.0 / 30.0 {
+                let w = if mg { r.mg.as_mut().unwrap() } else { &mut r.rifle };
                 let n = (w.clip_size - w.clip).min(w.ammo);
                 w.clip += n;
                 if !w.unlimited {
                     w.ammo -= n;
                 }
-                w.timer = w.reload_time;
-                reloaded = true;
-                sounds.write(crate::audio::PlaySound::at(if mg { "wpn_rome_machgun_load" } else { "wpn_rome_rifle_load" }, t.translation));
+                r.reload_clock = None;
+            } else {
+                r.reload_clock = Some((clock, said));
             }
-            (fire && w.timer <= 0.0 && w.clip > 0, w.reload_time)
-        };
+        }
         if reloaded {
-            r.reloading = reload_time;
+            // the upper-body reload anim (trotter_reload, 1.97 s)
+            r.reloading = reload_time.max(1.97);
         }
         // the machine gun's fire sound: start, loop while the trigger is held, end (wpn_rome_machgun_fire_*)
         if mg && shoot && !r.mg_firing {
