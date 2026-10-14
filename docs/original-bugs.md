@@ -132,6 +132,8 @@ Defects found in the original game. Reproduced faithfully and not fixed before M
 | Memory taken from the allocator hook after the parent arena fails is still freed to the parent ("couldn't free block") | 0x004e1e90 / 0x004e1f70 | Disassembly | Faithful |
 | Look-at with a zero-length forward vector, and 0x44 bytes of a local block, read uninitialised | 0x004e2eb0 / 0x004e3070, 0x00453b90 | Disassembly | **Deviation:** locals zeroed |
 | Pub screen state 6 keeps scale z = 1.0 (3, 3, 1) while state 1 sets (3, 3, 3) | PubScreen_HandleInput 0x004695d0 | Disassembly | Faithful (src/engine/missing_01.cpp) |
+| A sticky bomb counts two shots fired: the use adds 1 to Game+0x2718 (0x004788a0 mode_end -> count) and the throw anim's note that releases it adds another (0x00475ff0 state 5, game_05.cpp:1592) | 0x004788a0, 0x00475ff0 | Static (src) | Faithful (engine/src/player.rs, sticky.rs) |
+| The stop fx compares the horizontal speed with the previous frame's (a drop of more than 20 per frame), so it depends on the frame rate | 0x004788a0 (0x004799d5) | Static (src) | **Deviation (remaster):** the threshold is scaled by dt x 60 (engine/src/player.rs ground_effects) |
 
 ## (Recovery slip, not an original bug) LevelProperties_Load zeroed pickup_drop_factor
 

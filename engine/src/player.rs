@@ -69,8 +69,10 @@ pub struct Roman {
     /// 0x004a1360 / 0x004a1380, setter 0x004a14e0: `clip` / `ammo` / `stickies` / `topsy`), the weapon objects
     /// (equip 0x004a10e0 and destroy 0x004a0ff0 / 0x004a1060: the hand model's visibility, hand_weapon; attach bones
     /// 0x004a0ea0 / 0x004a1a30), the PlayerWeapon load (0x004a2150 over WeaponObject 0x004a1bf0: `Weapon` from the
-    /// property set) and its collision description (0x004a1d80: no body), the special's cooldown queue (0x004a1950 /
-    /// 0x004a1930 / 0x004a1970: sticky.rs StickyThrow)
+    /// property set) and its collision description (0x004a1d80: no body), its owner / hand bone (0x004a1e30 /
+    /// 0x004a1e10) and remove (0x004a1da0), the slot arrays 0x004a1600 / 0x004a1630, removing an id 0x004a0cd0, the
+    /// reset 0x004a0fb0, the special's cooldown queue (0x004a1950 / 0x004a1930 / 0x004a1970: sticky.rs StickyThrow;
+    /// can fire 0x004a1900: no throw pending and bombs left)
     pub rifle: Weapon,
     /// the Flemming machine gun once taken in the pub (Roman's second weapon slot)
     pub mg: Option<Weapon>,
@@ -178,6 +180,10 @@ pub struct Projectile {
     /// damages_buildings off (the default): its damage record carries 0x400 (0x0047eba0), which buildings and
     /// objects without takes_bullet_damage ignore
     pub no_buildings: bool,
+    /// an arrow (ArrowProjectile, vtable 0x005a9a40): a ballistic flight under the world's gravity (64.348), and its
+    /// fly-by sound once within 70 of Roman (0x00482620)
+    pub arrow: bool,
+    pub flyby: bool,
 }
 
 /// Bones that stand for collision parts in the hit test (the main body bones, as the ragdoll parts).
@@ -299,13 +305,39 @@ const BODY_PARTS: [&str; 16] = ["head", "neck", "chest", "belly", "center", "l_s
 /// per-frame ray (projectiles).
 pub fn spawn_projectile(commands: &mut Commands, fx: &mut MessageWriter<crate::fx::StartFx>, p: &Props, from: Vec3, dir: Vec3, from_player: bool, owner: Option<Entity>) {
     let speed = p.f("speed", 300.0) * 3.0;
+    launch_projectile(commands, fx, p, from, dir * speed, from_player, owner);
+}
+
+/// A projectile toward a target point (0x0047de40 with its target). The arrows' launch differs (ArrowProjectile
+/// 0x00482510): the flight time T = 3 sqrt(|d|) / speed (speed x 3 from Projectile_Load), the velocity d / T with the
+/// vertical part raised by T x 64.348 / 2, so it lands on the point under gravity; the others fly straight.
+pub fn spawn_projectile_to(commands: &mut Commands, fx: &mut MessageWriter<crate::fx::StartFx>, p: &Props, from: Vec3, target: Vec3, from_player: bool, owner: Option<Entity>) {
+    let speed = p.f("speed", 300.0) * 3.0;
+    let vel = if p.s("behavior") == Some("proj_arrow") { arrow_velocity(from, target, speed) } else { (target - from).normalize_or(Vec3::Z) * speed };
+    launch_projectile(commands, fx, p, from, vel, from_player, owner);
+}
+
+/// The arrow's launch velocity (0x00482510), engine axes (Y up).
+pub fn arrow_velocity(from: Vec3, target: Vec3, speed: f32) -> Vec3 {
+    let d = target - from;
+    let t = 3.0 * d.length().sqrt() / speed.max(1e-3);
+    if t <= 1e-4 {
+        return Vec3::ZERO;
+    }
+    d / t + Vec3::Y * (t * 64.348 * 0.5)
+}
+
+fn launch_projectile(commands: &mut Commands, fx: &mut MessageWriter<crate::fx::StartFx>, p: &Props, from: Vec3, vel: Vec3, from_player: bool, owner: Option<Entity>) {
+    let dir = vel.normalize_or(Vec3::Z);
     let e = commands
         .spawn((
             // its game frame (as placed objects carry): game +Y along the flight, game +Z up, so the fx scripts
             // attached to it (fx_start trails) run in the frame they were authored in
             Transform::from_translation(from).with_rotation(Transform::IDENTITY.looking_to(dir, Vec3::Y).rotation * crate::level::game_to_engine()),
             Projectile {
-                vel: dir * speed,
+                vel,
+                arrow: p.s("behavior") == Some("proj_arrow"),
+                flyby: p.s("behavior") == Some("proj_arrow"),
                 // "lifetime" (Projectile_Load 0x0047e0c0, default 4): removed when it runs out (0x0047e4a0)
                 life: p.f("lifetime", 4.0),
                 damage: p.f("damage", 10.0),
@@ -452,12 +484,18 @@ pub fn make_roman(physics: &mut Physics, p: &Props, data: &GameData, feet: Vec3,
     })
 }
 
-/// Shows the weapon model in use in Roman's hand.
-fn hand_weapon(roman: Query<&Roman>, mut held: Query<(&crate::level::HandWeapon, &mut Visibility)>) {
+/// Shows the weapon model in use in Roman's hand. The Topsy Turvy bomb: trotter_topsy_into's note "topsy_create"
+/// (0.467 s) creates player_topsyturvy in the hand and hides the weapons (PlayerObject_OnTopsyCreate 0x0047bbe0,
+/// 0x004a0e00(0)); it is removed when the effect's timer runs out (Game+0xc80) and the world turns back. When the
+/// weapons come back is not traced (guess: when the effect ends).
+fn hand_weapon(roman: Query<&Roman>, topsy: Res<crate::topsy::Topsy>, mut held: Query<(&crate::level::HandWeapon, &mut Visibility)>) {
     let Ok(r) = roman.single() else { return };
     let mg = r.use_mg && r.mg.is_some();
+    use crate::topsy::Phase;
+    let bomb = matches!(topsy.phase, Phase::Turn | Phase::Hang) || (topsy.phase == Phase::Into && topsy.t >= 14.0 / 30.0);
+    let away = bomb || topsy.phase == Phase::Back;
     for (w, mut v) in &mut held {
-        let show = (w.0 == "machinegun") == mg;
+        let show = if w.0 == "topsyturvy" { bomb } else { !away && (w.0 == "machinegun") == mg };
         let want = if show { Visibility::Inherited } else { Visibility::Hidden };
         if *v != want {
             *v = want;
@@ -1086,7 +1124,8 @@ fn weapons(
             // sound is requested (+0xa34 |= 0x190000); nothing more while reloading (vt+0x164 0x004a2390)
             let manual = ctl.pressed(crate::input::Act::Reload) && can_reload;
             // the empty clip (0x0047a6af): +0xc00 run out, no shot this frame and the clip empty (vt+0x158 0x004a2270):
-            // reload when it can, else fall back to the previous usable weapon (0x004a0be0)
+            // reload when it can, else fall back to the previous usable weapon (0x004a0be0; as 0x004a12e0 does when a
+        // weapon is removed)
             let empty = fire_delay <= 0.0 && w.clip == 0;
             let starting = !switching && !reloading && (manual || (empty && can_reload));
             // ready to fire (vt+0x138 0x004a23b0): not reloading, the clip not empty and the recycle gate
@@ -1151,7 +1190,7 @@ fn weapons(
             r.fire_delay = 0.5;
             let (props, spread) = {
                 let w = if mg { r.mg.as_mut().unwrap() } else { &mut r.rifle };
-                // vt+0x144 (0x004a2450): the last fire time and one round less in the clip
+                // vt+0x144 (0x004a2450): the last fire time (0x004a1f10) and one round less in the clip
                 w.clip -= 1;
                 w.timer = w.recycle;
                 (w.props, w.spread)
@@ -1302,7 +1341,7 @@ pub fn landing_damage(peak_vz: f32) -> Option<f32> {
 }
 
 /// The playtest state log's player fields (weapons, reload, switch, jump, specials, live sticky bombs).
-fn player_state(state: Option<ResMut<crate::playtest::PlayState>>, q: Query<(&Roman, &Transform)>, bombs: Query<&crate::sticky::StickyBomb>, banter: Res<Banter>) {
+fn player_state(state: Option<ResMut<crate::playtest::PlayState>>, q: Query<(&Roman, &Transform)>, bombs: Query<&crate::sticky::StickyBomb>, banter: Res<Banter>, held: Query<(&crate::level::HandWeapon, &Visibility)>) {
     let (Some(mut s), Ok((r, t))) = (state, q.single()) else { return };
     let m = &mut s.0;
     let r1 = |v: f32| ((v * 100.0).round() / 100.0) as f64;
@@ -1324,6 +1363,9 @@ fn player_state(state: Option<ResMut<crate::playtest::PlayState>>, q: Query<(&Ro
     m.insert("sticky_live".into(), bombs.iter().count().into());
     m.insert("sticky_stuck".into(), bombs.iter().filter(|b| b.is_stuck()).count().into());
     m.insert("banter_lines".into(), banter.lines.into());
+    let mut hand: Vec<&str> = held.iter().filter(|(_, v)| **v != Visibility::Hidden).map(|(w, _)| w.0).collect();
+    hand.sort();
+    m.insert("hand".into(), hand.join(",").into());
     m.insert("sticky_fused".into(), bombs.iter().filter(|b| b.fuse.is_some()).count().into());
 }
 
@@ -1528,12 +1570,25 @@ fn projectiles(
     mut stats: ResMut<PlayerStats>,
     mut fx: MessageWriter<crate::fx::StartFx>,
     hulls: Option<Res<crate::hitparts::HitHulls>>,
-    (rtime, topsy, mounted, mut noise, mut bombs): (Res<Time<Real>>, Res<crate::topsy::Topsy>, Res<crate::turret::Mounted>, ResMut<crate::ai::Interests>, Query<(&Transform, &mut crate::sticky::StickyBomb), Without<Projectile>>),
+    (rtime, topsy, mounted, mut noise, mut bombs, mut rng, mut sounds): (Res<Time<Real>>, Res<crate::topsy::Topsy>, Res<crate::turret::Mounted>, ResMut<crate::ai::Interests>, Query<(&Transform, &mut crate::sticky::StickyBomb), Without<Projectile>>, ResMut<crate::fx::FxStats>, MessageWriter<crate::audio::PlaySound>),
     binds: Res<Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>,
     mut victims: Query<&mut crate::ai::Grunt>,
 ) {
     let dt = time.delta_secs();
     for (e, mut p, mut t) in &mut q {
+        // an arrow falls (its physics body under the world's gravity) and passes Roman with a sound once
+        if p.arrow {
+            p.vel.y -= 64.348 * dt;
+            if let (true, Ok((_, _, rt, _))) = (p.flyby, roman.single()) {
+                // ("_1" when (rand() x 100) >> 15 < 50)
+                if t.translation.distance(rt.translation) < 70.0 {
+                    p.flyby = false;
+                    let n = if rng.rand() < 0.5 { "wpn_arrow_norm_by_1" } else { "wpn_arrow_norm_by_2" };
+                    sounds.write(crate::audio::PlaySound::at(n, t.translation));
+                }
+            }
+            t.rotation = Transform::IDENTITY.looking_to(p.vel.normalize_or(Vec3::Z), Vec3::Y).rotation * crate::level::game_to_engine();
+        }
         let step = p.vel * dt;
         let from = t.translation;
         p.life -= dt;
@@ -1963,6 +2018,17 @@ mod tests {
         assert_eq!(crate::sticky::blast_fuse(0.0), 0.0);
         let top = crate::sticky::blast_fuse(0.999_999);
         assert!(top > 0.69 && top < 0.7, "{top}");
+    }
+
+    #[test]
+    fn arrow_lands_on_its_target() {
+        // p_grunt_normal_arrow speed 25 (x 3): 100 units away, T = 3 x 10 / 75 = 0.4 s
+        let (from, to) = (Vec3::new(0.0, 5.0, 0.0), Vec3::new(100.0, 5.0, 0.0));
+        let v = arrow_velocity(from, to, 75.0);
+        let t = 0.4;
+        let at = from + v * t - Vec3::Y * (0.5 * 64.348 * t * t);
+        assert!(at.distance(to) < 1e-3, "{at}");
+        assert!((v.x - 250.0).abs() < 1e-3);
     }
 
     #[test]

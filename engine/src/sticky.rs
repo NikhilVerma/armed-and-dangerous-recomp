@@ -137,6 +137,8 @@ fn throw(
     // (Game+0x2718, game_05.cpp:1592: the use already counted one, so a sticky bomb counts two)
     stats.shots += 1;
     let g = data.props("p_globalsettings");
+    // its properties (StickyBombProjectile_ReadProps 0x00481110: linger_lifetime, fx_stuck_*, launch_angle_degrees
+    // over Projectile_Load)
     let p = data.props("p_player_stickybomb");
     let range = g.f("sticky_bomb_range", 10.0);
     let (fh, fv) = (g.f("autoaim_sticky_factor_horz", 0.4), g.f("autoaim_sticky_factor_vert", 0.6));
@@ -233,6 +235,8 @@ fn throw(
         .spawn((
             Transform::from_translation(from).with_rotation(assets.base),
             Visibility::default(),
+            // range: the distance to the target (0x0047e4d0 -> +0x568); the point without a target is the crosshair's
+            // (vt+0x164 0x00481380: the target list's point)
             StickyBomb { props: "p_player_stickybomb", vel, target: homing, point, speed, range: from.distance(point), flown: 0.0, life: p.f("lifetime", 4.0), gravity: false, stuck: None, fuse: None },
         ))
         .id();
@@ -368,6 +372,7 @@ fn fly(
             commands.entity(e).despawn();
             continue;
         }
+        // the lifetime runs out in flight: removed (StickyBombProjectile_Remove 0x00481c20: the loop sound stopped)
         b.life -= dt;
         if b.life <= 0.0 {
             if b.props == "p_player_stickybomb" {
@@ -406,7 +411,8 @@ fn fly(
             continue;
         }
         let dir = step / len;
-        // the segment cast, through the ignore list (Roman, his companions)
+        // the segment cast, through the ignore list (SetOwner 0x00481220: the owner, the bomb, Roman's companions and
+        // Roman)
         let mut from = pos;
         let mut rest = len;
         let mut hit = None;
