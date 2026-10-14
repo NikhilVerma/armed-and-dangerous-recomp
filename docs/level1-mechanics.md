@@ -100,7 +100,7 @@ Update this table as items land (commit hash in the last column).
 | Damage filters: takes_bullet_damage, player / teammate / badguy_damage, takes_damage | 0x00450da0, 0x0040ce40, 0x0041c4e0 (docs/subsystems/damage.md) | P | 1 | fx.rs `Destructible::accepts`: buildings ignore bullets and grunts, kegs / pipes ignore grunts and companions |
 | Bullet-transparent objects (invisible walls, arrow) | list +0xe90, filter 0x00413a90 | P | 1 | physics.no_bullets (trees do stop bullets); a trigger-killed object's collider is removed |
 | Houses: breakable windows, door anim | 0x0040ad80 | M | 3 | |
-| Barracks stop releasing when destroyed | | M | 2 | |
+| Barracks stop releasing when destroyed | | P | 2 | mission.rs deaths(); barracks.json (destroyed 25 releases nothing on 810) |
 | Oil pump animation (oilpump_cycle) | | M | 3 | |
 | Fx opcodes used by L1 deaths (0x79 set inert ×407, 0x1a, 0x10, 0x19, 0x35, 0x3d, 0x4a, 0x58, 0x5a ...) | render_r2b.cpp:270-1117 | M | 2 | every non-keg explosion and muzzle flashes |
 | Trenches (barricade collision, cover) | p_barracade | M | 3 | |

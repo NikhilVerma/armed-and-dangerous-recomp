@@ -519,6 +519,18 @@ fn deaths(mut m: Option<ResMut<Mission>>, mut died: MessageReader<crate::fx::Die
         return;
     };
     for d in died.read() {
+        // a destroyed barracks releases no more troops (the building is replaced by its husk)
+        if let Ok(i) = ids.get(d.0) {
+            let mut stopped = false;
+            for b in m.barracks.iter_mut().filter(|b| b.id == i.0 && (b.left > 0 || b.active)) {
+                b.left = 0;
+                b.active = false;
+                stopped = true;
+            }
+            if stopped {
+                m.log.push(format!("barracks {} destroyed: no more troops", i.0));
+            }
+        }
         if let Some(t) = ids.get(d.0).ok().and_then(|i| m.death_senders.get(&i.0).copied()) {
             m.log.push(format!("object {} died -> trigger {t}", ids.get(d.0).map(|i| i.0).unwrap_or(0)));
             out.write(SendTrigger(t));

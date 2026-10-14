@@ -45,6 +45,9 @@ pub struct Event {
     /// debug: deal this hit to the nearest live grunt (tests the death paths)
     #[serde(default)]
     pub kill: Option<f32>,
+    /// debug: destroy the placed object with this instance id (as a lethal hit)
+    #[serde(default)]
+    pub destroy: Option<u32>,
     /// debug: send this mission trigger (e.g. 123, lev_1_m1's win)
     #[serde(default)]
     pub send: Option<i64>,
@@ -294,6 +297,7 @@ fn drive(
     mut roman: Query<&mut crate::fx::Health, With<crate::player::Roman>>,
     mut spawn: MessageWriter<crate::level::SpawnGrunt>,
     mut send: MessageWriter<crate::mission::SendTrigger>,
+    mut objects: Query<(&crate::level::InstanceId, &mut crate::fx::Destructible)>,
     cam: Query<&GlobalTransform, With<Camera3d>>,
     player: Query<&GlobalTransform, With<crate::player::Roman>>,
     mut grunts: Query<(&mut crate::ai::Grunt, &mut crate::fx::Health, &GlobalTransform), Without<crate::player::Roman>>,
@@ -400,6 +404,14 @@ fn drive(
         }
         if let Some(t) = e.send {
             send.write(crate::mission::SendTrigger(t));
+        }
+        if let Some(id) = e.destroy {
+            for (i, mut d) in &mut objects {
+                if i.0 == id && d.dying.is_none() {
+                    d.health = 0.0;
+                    d.dying = Some(0.0);
+                }
+            }
         }
         if let Some(p) = e.pad {
             pt.pad.push(p);

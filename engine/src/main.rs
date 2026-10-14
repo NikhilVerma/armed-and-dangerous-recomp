@@ -482,13 +482,15 @@ fn bench_ground(physics: NonSend<physics::Physics>, mut bench: ResMut<bench::Ben
 }
 
 /// The playtest log's state line: player, AI, fx.
-fn play_state(audio_chk: Res<audio::AudioCheck>, skin: Res<skin::SkinCheck>, mut bank: Option<ResMut<audio::SoundBank>>, bot: Res<playtest::Bot>, mut st: ResMut<playtest::PlayState>, p: Res<player::PlayerStats>, ai: Res<ai::AiStats>, fx: Res<fx::FxStats>, mission: Option<ResMut<mission::Mission>>, hud: Res<hud::HudState>) {
+fn play_state(audio_chk: Res<audio::AudioCheck>, skin: Res<skin::SkinCheck>, mut bank: Option<ResMut<audio::SoundBank>>, bot: Res<playtest::Bot>, mut st: ResMut<playtest::PlayState>, p: Res<player::PlayerStats>, ai: Res<ai::AiStats>, fx: Res<fx::FxStats>, mission: Option<ResMut<mission::Mission>>, hud: Res<hud::HudState>, mut seen: Local<usize>) {
     let m = &mut st.0;
     if let Some(mut ms) = mission {
         m.insert("mission".into(), format!("{:?}", ms.outcome).into());
         m.insert("tickers".into(), ms.tickers.into());
         m.insert("compass_tag".into(), ms.compass_tag.into());
-        let log: Vec<String> = ms.log.drain(..).collect();
+        // (read, not drained: the session event log reads the same list)
+        let log: Vec<String> = ms.log.iter().skip(*seen).cloned().collect();
+        *seen = ms.log.len();
         if !log.is_empty() {
             let prev = m.get("events").and_then(|v| v.as_array()).cloned().unwrap_or_default();
             let mut all: Vec<serde_json::Value> = prev;
