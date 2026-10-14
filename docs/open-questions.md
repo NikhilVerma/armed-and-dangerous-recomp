@@ -129,3 +129,8 @@ with the alarm troops). Their health is 500 (x Game+0x554, normal 1) and grunt s
 Not compared: the hook's AI dump (World+0xe7c) lists grunts only (vtables 0x5a9cf0 / 0x5abb88), not Q / Jonesy.
 Next: a hook dump field for the companions' health (+0xad0 / +0xad4 of the player), then the same scripted fight in
 both games.
+Measured (hook dump field "companions", testshot.cpp): first fight (compT, keys 500:MOUSE1, W held 510..1610), frames
+900..2700: original Jonesy 500 -> 500, Q 500 -> 475, Roman 400 -> 340; engine (fightLc, same inputs) Jonesy 500 -> 490,
+Q 500 -> 500, Roman 400 -> 250 at 46 s. Companion damage is of the same size: the deaths in bot runs come from the
+bot's long fights and the alarm's troops. Roman takes more in the engine (the open question above).
+In the warp scenario (warp=720) the companions stay at the start in the original (not comparable there).
