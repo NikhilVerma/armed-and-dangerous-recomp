@@ -448,13 +448,20 @@ fn grunts(
 // Penguins (PenguinObject_Update 0x0048f690, state 2 "wandering", where lev_1_m1's penguins start: no generic_txt,
 /// 0x0048f140): anim 0x17 pngn_scan_chat at load; each time the anim ends a new one by r = rand() * 100 >> 15:
 /// 0x18 pngn_scan_chat1 below 33, 0x17 below 66, else 0x19 (both pngn_scan_chat). pngn_scan_chat's note at 0
-/// (`fx fx_penguin`) is the call. Not ported: physics on (knocked about), hits (state 3: screams 0x0048fd80,
-/// pngn_blown_up), the idle state 1 (only with generic_txt).
+/// (`fx fx_penguin`) is the call. Anim names by PenguinObject_Slot105 0x0048fc90 (0x17 / 0x19 pngn_scan_chat, 0x18
+/// pngn_scan_chat1, 0x49 / 0x4a / 0x61 pngn_blown_up, 0x5d pngn_land_dead). Any hit kills (0x0048fa20, level.rs) with
+/// the death line below. Not ported: physics on while wandering (knocked about by blasts); the bomb carrier (a sticky
+/// bomb stuck on a penguin: PenguinObject_Grab 0x0048f9c0 holds it 300 s, salutes (0xd), then runs to the nearest
+/// visible bad guy within 500 (0x0048f4c0, 0x0042cf40 state 0x3e) and sets it off within 15 of him, else lets it
+/// go in 3..6 s and flees; needs sticky.rs to hand over the bomb's linger); the screams of vt+0x160..0x168 / 0x268
+/// (PenguinObject_Slot88 0x0048fd80: scare, sticky, topsy, which reach penguins only through the carrier: the scare
+/// walks list World+0xe7c, which penguins are not in); the idle state 1 (only with generic_txt, none on lev_1_m1).
 fn penguins(
     mut q: Query<(&mut Animator, &crate::level::Placed, Option<&mut crate::level::Penguin>, &mut Visibility)>,
     lib: Res<crate::skin::AnimLibrary>,
     mut seed: Local<u32>,
     time: Res<Time>,
+    (mut sounds, mut used, tf): (MessageWriter<crate::audio::PlaySound>, Local<Vec<usize>>, Query<&GlobalTransform>),
 ) {
     for (mut a, p, pg, mut vis) in &mut q {
         if p.template != "penguin" {
@@ -469,6 +476,20 @@ fn penguins(
                 if first {
                     a.play(0, "pngn_blown_up", false, Mask::All);
                     a.layers[0].time = 0.0;
+                    // GoRagdoll's death line: the penguin's Dead slot (vt+0x154) is a no, so DeadAtPosition (vt+0x158,
+                    // PenguinObject_Slot86 0x0048fe20): one of its 6 sounds (0x005cb178: ctr_penguin_scream_1..4,
+                    // ctr_penguin_surprise_1..2) by Audio_PlayRandomSound 0x00493b70, which deals them without repeats
+                    // until all have played
+                    const LINES: [&str; 6] = ["ctr_penguin_scream_1", "ctr_penguin_scream_2", "ctr_penguin_scream_3", "ctr_penguin_scream_4", "ctr_penguin_surprise_1", "ctr_penguin_surprise_2"];
+                    if used.len() >= LINES.len() {
+                        used.clear();
+                    }
+                    let free: Vec<usize> = (0..LINES.len()).filter(|i| !used.contains(i)).collect();
+                    *seed = seed.wrapping_mul(214013).wrapping_add(2531011);
+                    let k = free[(((*seed >> 16) & 0x7fff) as usize * free.len()) >> 15];
+                    used.push(k);
+                    let at = a.joints.first().and_then(|j| tf.get(*j).ok()).map(|j| j.translation()).unwrap_or_default();
+                    sounds.write(crate::audio::PlaySound::at(LINES[k], at));
                 } else if *t > 0.967 && a.layers.first().is_some_and(|l| l.anim == "pngn_blown_up") {
                     a.play(0, "pngn_land_dead", false, Mask::All);
                 }
