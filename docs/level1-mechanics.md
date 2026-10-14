@@ -101,7 +101,7 @@ Update this table as items land (commit hash in the last column).
 | Bullet-transparent objects (invisible walls, arrow) | list +0xe90, filter 0x00413a90 | P | 1 | physics.no_bullets (trees do stop bullets); a trigger-killed object's collider is removed |
 | Houses: breakable windows, door anim | 0x0040ad80 | P / M | 3 | village_window panes at ref_win_0N (placement checked: window.json), destructible, removed with the house; breaking not yet seen in a test; door anim not ported |
 | Barracks stop releasing when destroyed | | P | 2 | mission.rs deaths(); barracks.json (destroyed 25 releases nothing on 810) |
-| Oil pump animation (oilpump_cycle) | | M | 3 | needs the export: oilpump_1.json has no skeleton / bone binding (3 submeshes); oilpump_cycle (4 s) animates bone_bigarm / bone_pump / bone_gyro |
+| Oil pump animation (oilpump_cycle) | default anim: Object_LoadProperties 0x004517b0 (0x00408e30 flags 0x81), slot fn_00451780 | V | 3 | rigid parts on 6 bones (UBYTE4 blend indices, no weights) now exported per bone with "skeleton"; level.rs DefaultAnim loops template slot 1. oilpump.json (after_pub, warp 205,-39): bone_pump z 13.425..25.173, the original anim evaluated by tools/remaster_export_anim.py gives the same. Same fix plays guard_alarm_0 (siren) and stig_mgun_ref (code-read, not capture-checked) |
 | Fx opcodes used by L1 deaths and muzzle flashes | render_r2b.cpp:270-1117 (fx-vm.md) | P | 2 | 0x79, 0x10, 0x14, 0x31, 0x32, 0x3f, 0x4a, 0x55, 0x56 ported (ccd9aec, 6f474db); impulse masses guessed; lights stored, not drawn |
 | Trenches (barricade collision, cover) | p_barracade | M | 3 | |
 | Guard alarm, grunt generators | | P | 2 | (alarm chain); the siren can be shot (100 health: guess) |
