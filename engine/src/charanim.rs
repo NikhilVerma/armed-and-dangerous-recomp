@@ -49,8 +49,10 @@ fn roman(mut q: Query<(&Roman, &mut Animator)>, topsy: Res<crate::topsy::Topsy>)
         // the upper body fires / reloads over the same gait
         let upper = if r.reloading > 0.0 {
             gait.replace("_aim", "_reload").replace("trotter_aim", "trotter_reload").replace("jump_idle", "jump_idle_reload")
-        } else if r.since_fire < 0.35 {
-            if gait == "trotter_aim" { "trotter_fire_rr".to_string() } else { gait.replace("_aim", "_fire").replace("jump_idle", "jump_fire_rr") }
+        } else if r.since_fire < 0.3 {
+            // the fire state (game_05.cpp:1380): fire_sg for the rifle and the machine gun (weapon index 0..2), the
+            // fire anims' length 0.3 s
+            if gait == "trotter_aim" { "trotter_fire_sg".to_string() } else { gait.replace("_aim", "_fire").replace("jump_idle", "jump_fire_sg") }
         } else {
             gait.clone()
         };
@@ -78,8 +80,9 @@ fn roman(mut q: Query<(&Roman, &mut Animator)>, topsy: Res<crate::topsy::Topsy>)
             a.stop(1);
             continue;
         }
-        let aim_deg = (r.pitch + 0.15 - 0.141).to_degrees();
-        let w = ((aim_deg + 50.0) / 97.0).clamp(0.0, 1.0);
+        // the aim blend (0x00475ff0, game_05.cpp:1499): w = (clamp(2 x pitch, -1, 1) + 1) / 2 of the look pitch, 0 at
+        // rest (the engine's rest pitch is -0.15)
+        let w = ((2.0 * (r.pitch + 0.15)).clamp(-1.0, 1.0) + 1.0) * 0.5;
         a.play(0, &format!("{upper}_b"), true, Mask::All);
         a.play(1, &format!("{upper}_t"), true, Mask::All);
         a.set_weight(1, w);

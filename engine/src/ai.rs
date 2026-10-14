@@ -54,6 +54,10 @@ pub struct Grunt {
     pub target: Option<Entity>,
     /// alert-group hand-over (+0x578 / +0x57c)
     pub pending: Option<(Entity, f32)>,
+    /// the source of the last damage taken (the hit message's +0x2c), offered as a target (0x0042c820)
+    pub attacker: Option<Entity>,
+    /// game time a target was last adopted by an offer (+0x514)
+    pub offer_t: f32,
     pub clips: (i64, i64),
     pub rounds: (i64, i64),
     pub bursts: (i64, i64),
@@ -127,11 +131,61 @@ pub struct StickyStuck(pub Vec3);
 
 pub struct AiPlugin;
 
+/// The kill meter and the "dismay" banter (MissionObject_Update, game_02.cpp:2473-2494): every bad guy killed adds 1
+/// (Game+0xbb8, ai_04.cpp:594), the meter drains 0.5 / s (+0xbb4); when the cooldown (+0xbc8) has run out and the
+/// meter is at 3 (+0xbbc) or more, one line of table 0x005ce570 plays (Roman, Jonesy, Q: "Ha ha, did you see that?!"
+/// ...; 0x00493b70), the meter is cleared and the cooldown restarts at 30..45 s (+0xbc0 / +0xbc4).
+#[derive(Resource, Default)]
+pub struct KillMeter {
+    pub meter: f32,
+    pub cooldown: f32,
+}
+
+const DISMAY: [&str; 16] = [
+    "rom50039_dismay", "rom50040_dismay", "rom50062_dismay", "rom50174_dismay", "rom50202_dismay", "rom50210_dismay",
+    "rom50045_ambient", "jon50023_dismay", "jon50048_dismay", "jon50049_dismay", "jon50117_dismay", "jon50118_dismay",
+    "jon50119_dismay", "jon50174_dismay", "q1150168_dismay", "q1150115_dismay",
+];
+
+fn dismay(
+    time: Res<Time>,
+    mut km: ResMut<KillMeter>,
+    mut rng: ResMut<FxStats>,
+    companions: Query<(&Companion, &Transform, Option<&Health>)>,
+    mut sounds: MessageWriter<crate::audio::PlaySound>,
+) {
+    let dt = time.delta_secs();
+    km.cooldown -= dt;
+    if km.cooldown < 0.0 && km.meter >= 3.0 {
+        km.cooldown = rng.range(30.0, 45.0);
+        km.meter = 0.0;
+        // a line whose speaker is there (Roman always; Jonesy / Q while alive): guess at 0x00493b70's choice
+        let alive = |q: bool| companions.iter().find(|(c, _, h)| c.q == q && h.is_none_or(|h| h.0 > 0.0)).map(|(_, t, _)| t.translation);
+        let pool: Vec<(&str, Option<Vec3>, bool)> = DISMAY
+            .iter()
+            .filter_map(|n| match &n[..3] {
+                "rom" => Some((*n, None, true)),
+                "jon" => alive(false).map(|p| (*n, Some(p), true)),
+                _ => alive(true).map(|p| (*n, Some(p), true)),
+            })
+            .collect();
+        if !pool.is_empty() {
+            let (name, at, _) = pool[((rng.rand() * pool.len() as f32) as usize).min(pool.len() - 1)];
+            sounds.write(match at {
+                Some(p) => crate::audio::PlaySound::at(name, p),
+                None => crate::audio::PlaySound::ui(name),
+            });
+        }
+    }
+    km.meter = (km.meter - dt * 0.5).max(0.0);
+}
+
 impl Plugin for AiPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(AiStats { enabled: true, ..default() })
+            .init_resource::<KillMeter>()
             .add_message::<StickyStuck>()
-            .add_systems(Update, (search, scare, think, die).chain().after(crate::fx::FxSet));
+            .add_systems(Update, (search, scare, think, die, dismay).chain().after(crate::fx::FxSet));
     }
 }
 
@@ -182,6 +236,8 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         search_timer: 0.0,
         target: None,
         pending: None,
+        attacker: None,
+        offer_t: f32::NEG_INFINITY,
         clips: (p.i("fire_num_clips_min", 1), p.i("fire_num_clips_max", 1)),
         rounds: (p.i("fire_num_rounds_min", 1), p.i("fire_num_rounds_max", 1)),
         bursts: (p.i("fire_num_bursts_min", 1), p.i("fire_num_bursts_max", 1)),
@@ -457,6 +513,26 @@ fn think(
             if g.mind == Mind::WaitTrigger {
                 g.mind = Mind::Roam;
             }
+            // retaliation: the end of GenericAIObject_Slot52 0x00430340 offers the damage source (when it is one of
+            // the grunt's enemies, list +0x604: Roman or a companion) as a target, GenericAI_OfferTarget 0x0042c820:
+            // ignored while a target adopted this way is less than 10 s old (K 0x005bcb68 against +0x514); taken when
+            // there is no target or the source is nearer (3D) than the current one
+            if let Some(a) = g.attacker.take() {
+                let now = time.elapsed_secs();
+                let ap = targets.get(a).ok().map(|t| t.translation());
+                let cur = g.target.and_then(|e| targets.get(e).ok()).map(|t| t.translation());
+                let recent = g.target.is_some() && now - g.offer_t < 10.0;
+                if let (Some(ap), false) = (ap, recent) {
+                    let me = tr.translation;
+                    if cur.is_none_or(|c| (ap - me).length_squared() <= (c - me).length_squared()) {
+                        if std::env::var("AIDBG").is_ok() {
+                            info!("AIDBG retaliate {:?} -> {:?} (had {:?})", body.id, a, g.target);
+                        }
+                        g.target = Some(a);
+                        g.offer_t = now;
+                    }
+                }
+            }
         }
         g.last_health = h.0;
         if !stats.enabled {
@@ -710,12 +786,14 @@ fn die(
     mut grunts: Query<(Entity, &mut Grunt, &Body, &Transform, &Health, Option<&mut crate::skin::Animator>)>,
     joints: Query<&GlobalTransform>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
+    mut km: ResMut<KillMeter>,
 ) {
     for (e, mut g, body, tr, h, animator) in &mut grunts {
         if g.mind == Mind::Dead || h.0 > 0.0 {
             continue;
         }
         g.mind = Mind::Dead;
+        km.meter += 1.0;
         if !g.dead_said {
             g.dead_said = true;
             bark(&mut sounds, "Dead", g.voice_set, tr.translation);

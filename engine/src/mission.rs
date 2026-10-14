@@ -23,6 +23,9 @@ struct EdgeEnd {
     event: Option<String>,
     #[serde(default)]
     action: Option<String>,
+    /// the receiver's parameters (text id, fx name, voice lines...): the export stores them here, under `to`
+    #[serde(default)]
+    detail: Option<Map<String, Value>>,
 }
 
 #[derive(Deserialize)]
@@ -154,6 +157,9 @@ pub enum Outcome {
 #[derive(Resource)]
 pub struct Mission {
     receivers: HashMap<i64, Vec<Action>>,
+    /// objects that send a trigger when they die (send_trigger_on_death: DefaultGameObject_OnDeath 0x00450ee0,
+    /// FxExplosion_Die game_02.cpp:797): instance id -> trigger (pipe 96 -> 711, boom_island 131 -> 301)
+    death_senders: HashMap<u32, i64>,
     triggers: Vec<Trigger>,
     sites: Vec<Site>,
     pub_pos: Option<(Vec3, f32, i64)>,
@@ -197,7 +203,9 @@ pub struct SendTrigger(pub i64);
 
 /// The key names the prompts substitute for %s (the original's default bindings, docs/subsystems/player.md).
 pub const KEY_USE: &str = "F";
-pub const KEY_CONTINUE: &str = "Enter";
+// the continue prompts name MenuSelect's default binding, Mouse 1 (the original's briefing: "Press Mouse 1 to continue"); Enter
+// and Space work too
+pub const KEY_CONTINUE: &str = "Mouse 1";
 
 fn game_pos(p: [f32; 3]) -> Vec3 {
     game_to_engine() * Vec3::from(p)
@@ -301,7 +309,13 @@ impl Mission {
         let n = |m: &Map<String, Value>, k: &str| m.get(k).and_then(|v| v.as_f64()).unwrap_or(0.0);
         let mut receivers: HashMap<i64, Vec<Action>> = HashMap::new();
         let mut triggers = Vec::new();
+        let mut death_senders = HashMap::new();
         for e in &f.edges {
+            if let (Some(fid), Some(ev)) = (e.from.id, e.from.event.as_deref()) {
+                if ev.contains("dies") {
+                    death_senders.insert(fid, e.trigger);
+                }
+            }
             // senders: volumes that fire on enter
             if let (Some(fid), Some(ev)) = (e.from.id, e.from.event.as_deref()) {
                 if ev.contains("enters the volume") && !triggers.iter().any(|t: &Trigger| t.id == fid && t.sends == e.trigger) {
@@ -325,7 +339,9 @@ impl Mission {
             // receivers
             let Some(to) = e.to.id else { continue };
             let action = e.to.action.as_deref().unwrap_or("");
-            let d = e.detail.clone().unwrap_or_default();
+            // (read from `to`: the edge-level field was always empty, so texts, the compass retarget and fx ears were
+            // dropped: no l1m1_sub2 / sub3 briefings, the compass pointing nowhere after the pub)
+            let d = e.to.detail.clone().or_else(|| e.detail.clone()).unwrap_or_default();
             let a = if action.starts_with("AI wakes up") {
                 Action::WakeAi(to)
             } else if action.starts_with("show text_display") {
@@ -428,6 +444,7 @@ impl Mission {
         let m = &f.mission.resolved;
         Some(Mission {
             receivers,
+            death_senders,
             triggers,
             sites,
             pub_pos,
@@ -491,7 +508,22 @@ impl Plugin for MissionPlugin {
         // the mission runs once play begins (not behind the title menu); paused messages keep the state Playing
         app.add_message::<SendTrigger>()
             .add_systems(Update, (start, volumes, sites, pub_door, barracks, dispatch, messages, outcome).chain().run_if(in_state(crate::AppState::Playing)))
-            .add_systems(Update, event_log);
+            .add_systems(Update, event_log)
+            .add_systems(Update, deaths.run_if(in_state(crate::AppState::Playing)));
+    }
+}
+
+/// An object with send_trigger_on_death died: its trigger goes out.
+fn deaths(mut m: Option<ResMut<Mission>>, mut died: MessageReader<crate::fx::Died>, ids: Query<&InstanceId>, mut out: MessageWriter<SendTrigger>) {
+    let Some(m) = m.as_deref_mut() else {
+        died.clear();
+        return;
+    };
+    for d in died.read() {
+        if let Some(t) = ids.get(d.0).ok().and_then(|i| m.death_senders.get(&i.0).copied()) {
+            m.log.push(format!("object {} died -> trigger {t}", ids.get(d.0).map(|i| i.0).unwrap_or(0)));
+            out.write(SendTrigger(t));
+        }
     }
 }
 

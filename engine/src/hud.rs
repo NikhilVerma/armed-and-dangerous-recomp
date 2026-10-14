@@ -96,6 +96,8 @@ pub struct HudElement {
     pub name: String,
     pub pos: Vec2,
     pub anchor: Anchor,
+    /// laid out on the original's whole 640 x 480 (menus, the pub screen), not the letterbox band of the game view
+    pub full: bool,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -226,7 +228,7 @@ pub fn spawn(
             Some("right") => Anchor::Right,
             _ => Anchor::Centre,
         };
-        let el = HudElement { name: e.name.clone(), pos: Vec2::from(e.pos.unwrap_or([320.0, 240.0])), anchor };
+        let el = HudElement { name: e.name.clone(), pos: Vec2::from(e.pos.unwrap_or([320.0, 240.0])), anchor, full: false };
         if e.kind == "text" {
             commands.spawn((
                 el,
@@ -254,7 +256,7 @@ pub fn spawn(
         ("ui_subtitle", Vec2::new(320.0, 480.0 * 0.15), 1.1, Color::WHITE),
     ] {
         commands.spawn((
-            HudElement { name: name.into(), pos, anchor: Anchor::Centre },
+            HudElement { name: name.into(), pos, anchor: Anchor::Centre, full: false },
             HudText { text: String::new(), built: None, scale, colour, fit: if name == "ui_subtitle" { 576.0 } else { 0.0 } },
             Transform::default(),
             Visibility::default(),
@@ -388,7 +390,7 @@ fn spawn_pub(commands: &mut Commands, meshes: &mut Assets<Mesh>, materials: &mut
     let backdrop = commands.spawn((Mesh2d(meshes.add(Rectangle::new(4000.0, 480.0))), MeshMaterial2d(shade), Transform::from_xyz(0.0, 0.0, 1.0), RenderLayers::layer(HUD_LAYER))).id();
     commands
         .spawn((
-            HudElement { name: "pub_backdrop".into(), pos: Vec2::new(320.0, 240.0), anchor: Anchor::Centre },
+            HudElement { name: "pub_backdrop".into(), pos: Vec2::new(320.0, 240.0), anchor: Anchor::Centre, full: true },
             PubPart,
             crate::gamemenu::MenuOwned,
             Transform::from_xyz(0.0, 0.0, -2.0),
@@ -399,7 +401,7 @@ fn spawn_pub(commands: &mut Commands, meshes: &mut Assets<Mesh>, materials: &mut
     let mut slot = 0;
     for e in hud.layout.elements.iter().filter(|e| e.page_name.as_deref() == Some("pui_pub") && e.pos.is_some()) {
         let pos = Vec2::from(e.pos.unwrap_or([320.0, 240.0]));
-        let el = HudElement { name: e.name.clone(), pos, anchor: Anchor::Centre };
+        let el = HudElement { name: e.name.clone(), pos, anchor: Anchor::Centre, full: true };
         if e.kind == "text" {
             let n = e.name.as_str();
             let (text, marker) = if n == "pub_info_rifle" {
@@ -459,7 +461,7 @@ fn spawn_pub(commands: &mut Commands, meshes: &mut Assets<Mesh>, materials: &mut
         commands.entity(root).add_children(&parts);
     }
     commands.spawn((
-        HudElement { name: "pub_icons".into(), pos: Vec2::new(320.0, 240.0), anchor: Anchor::Centre },
+        HudElement { name: "pub_icons".into(), pos: Vec2::new(320.0, 240.0), anchor: Anchor::Centre, full: true },
         PubPart,
         PubIcons,
         crate::gamemenu::MenuOwned,
@@ -571,8 +573,14 @@ fn window_size(windows: &Query<&Window>) -> Vec2 {
 /// 640x480 (y up) -> overlay coordinates (origin at the centre), scaled by height / 480, anchored.
 fn place(windows: Query<&Window>, mut q: Query<(&HudElement, &mut Transform)>) {
     let size = window_size(&windows);
-    let s = size.y / 480.0;
+    // the original draws the game between letterbox bars (rows 54..426 of its 480: camera +0x?? letterbox 0.1125 /
+    // 0.775) and its in-game HUD inside that band, near the band's edges; the remaster has no bars, so the band maps
+    // to the whole window (the player: the HUD sat too far in from the borders). Menus and the pub screen fill the
+    // original's whole 640 x 480 and keep that mapping. The scale is capped by the width (tall windows).
+    let s_menu = size.y / 480.0;
+    let s_game = (size.y / 372.0).min(size.x / 640.0);
     for (e, mut t) in &mut q {
+        let s = if e.full { s_menu } else { s_game };
         let x = match e.anchor {
             Anchor::Left => -size.x / 2.0 + e.pos.x * s,
             Anchor::Right => size.x / 2.0 - (640.0 - e.pos.x) * s,
@@ -750,7 +758,26 @@ fn subtitles(time: Res<Time>, mut subs: MessageReader<crate::audio::Subtitle>, h
 
 /// Health meters: the texture scrolls by t = clamp((1 - value) * 0.5, 0, 0.5); colour band x = 0.5 below 25 %,
 /// 0.25 below 50 %, else 0 (0x00466e70).
-fn meters(state: Res<HudState>, mut materials: ResMut<Assets<ColorMaterial>>, q: Query<(&Meter, &ChildOf)>, parents: Query<&HudElement>) {
+fn meters(state: Res<HudState>, mut materials: ResMut<Assets<ColorMaterial>>, q: Query<(&Meter, &ChildOf)>, parents: Query<&HudElement>, time: Res<Time<Real>>, mut pulse: Local<(f32, bool)>) {
+    // the player's meter pulses at or below 20% (0x00466e70: alpha up 8 / s, down 2 / s)
+    if state.health <= 0.2 && state.health > 0.0 {
+        let dt = time.delta_secs();
+        if pulse.1 {
+            pulse.0 += 8.0 * dt;
+            if pulse.0 >= 1.0 {
+                pulse.0 = 1.0;
+                pulse.1 = false;
+            }
+        } else {
+            pulse.0 -= 2.0 * dt;
+            if pulse.0 <= 0.0 {
+                pulse.0 = 0.0;
+                pulse.1 = true;
+            }
+        }
+    } else {
+        *pulse = (1.0, false);
+    }
     for (m, parent) in &q {
         let Ok(el) = parents.get(parent.parent()) else { continue };
         let v = match el.name.as_str() {
@@ -765,6 +792,9 @@ fn meters(state: Res<HudState>, mut materials: ResMut<Assets<ColorMaterial>>, q:
         if let Some(mut mat) = materials.get_mut(&m.material) {
             // texture v runs downward in Bevy: scrolling "up" in the original's uv is -t here
             mat.uv_transform = Affine2::from_translation(Vec2::new(band, -t));
+            if el.name == "ui_player_health" {
+                mat.color.set_alpha(pulse.0);
+            }
         }
     }
 }

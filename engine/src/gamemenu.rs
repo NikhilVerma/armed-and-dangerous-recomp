@@ -241,7 +241,7 @@ impl Spawner<'_, '_, '_> {
         };
         let text = self.texts.get(id);
         let mut e = self.commands.spawn((
-            HudElement { name: format!("menu_{page:?}_{id}"), pos, anchor: Anchor::Centre },
+            HudElement { name: format!("menu_{page:?}_{id}"), pos, anchor: Anchor::Centre, full: true },
             HudText { text, built: None, scale, colour, fit: 0.0 },
             MenuRow { page, act, order, base_scale: scale, colour, disabled },
             MenuOwned,
@@ -257,7 +257,7 @@ impl Spawner<'_, '_, '_> {
     /// A text that is not a row (a slider's value, a key name).
     fn text(&mut self, page: Page, s: &str, pos: Vec2, scale: f32, colour: Color, align: f32, kind: PartKind) {
         self.commands.spawn((
-            HudElement { name: format!("menu_{page:?}_text"), pos, anchor: Anchor::Centre },
+            HudElement { name: format!("menu_{page:?}_text"), pos, anchor: Anchor::Centre, full: true },
             HudText { text: s.to_owned(), built: None, scale, colour, fit: 0.0 },
             TextAlign(align),
             Part { page: Some(page), kind },
@@ -301,7 +301,7 @@ impl Spawner<'_, '_, '_> {
         let bar = self
             .commands
             .spawn((
-                HudElement { name: format!("menu_{page:?}_bar"), pos: Vec2::new(250.0 + w / 2.0, y), anchor: Anchor::Centre },
+                HudElement { name: format!("menu_{page:?}_bar"), pos: Vec2::new(250.0 + w / 2.0, y), anchor: Anchor::Centre, full: true },
                 Part { page: Some(page), kind: PartKind::Bar(opt) },
                 MenuOwned,
                 Transform::default(),
@@ -323,7 +323,7 @@ impl Spawner<'_, '_, '_> {
         let bar = self
             .commands
             .spawn((
-                HudElement { name: format!("menu_{page:?}_fixed"), pos: Vec2::new(250.0 + w / 2.0, y), anchor: Anchor::Centre },
+                HudElement { name: format!("menu_{page:?}_fixed"), pos: Vec2::new(250.0 + w / 2.0, y), anchor: Anchor::Centre, full: true },
                 Part { page: Some(page), kind: PartKind::Fixed },
                 MenuOwned,
                 Transform::default(),
@@ -349,7 +349,7 @@ impl Spawner<'_, '_, '_> {
         let b = self
             .commands
             .spawn((
-                HudElement { name: format!("menu_{page:?}_check"), pos: Vec2::new(box_x, y), anchor: Anchor::Centre },
+                HudElement { name: format!("menu_{page:?}_check"), pos: Vec2::new(box_x, y), anchor: Anchor::Centre, full: true },
                 Part { page: Some(page), kind: flag.map(PartKind::Check).unwrap_or(PartKind::Fixed) },
                 MenuOwned,
                 Transform::default(),
@@ -368,7 +368,7 @@ impl Spawner<'_, '_, '_> {
         let root = self
             .commands
             .spawn((
-                HudElement { name: format!("menu_art_{back:?}"), pos: Vec2::new(320.0, 240.0), anchor: Anchor::Centre },
+                HudElement { name: format!("menu_art_{back:?}"), pos: Vec2::new(320.0, 240.0), anchor: Anchor::Centre, full: true },
                 Part { page: None, kind: PartKind::Art(back) },
                 MenuOwned,
                 Transform::default(),

@@ -1,0 +1,110 @@
+# Level 1 (lev_1_m1) mechanics checklist
+
+The player's direction (2026-10-14): every mechanic of the level 1:1 with the original **or better**, before going
+further; checked against the oracle (the original under the hook: logs, dumps, captures), not by the player's
+playthrough. Built from four inventories (player, AI, mission scripting, world objects) of the decompiled code
+(`src/`), the data export (`work/remaster/lev_1_m1/`) and the engine (`engine/src/`).
+
+Status: **V** verified against the original (evidence in the journal) · **P** ported, not yet compared · **S**
+stand-in / guess · **M** missing · **B** better than the original (a remaster improvement, gameplay unchanged).
+Priority: 1 = the player meets it in the first minutes, 2 = changes how the level plays, 3 = detail.
+Update this table as items land (commit hash in the last column).
+
+## Player
+
+| Mechanic | Original | Status | Pri | Notes / done |
+|---|---|---|---|---|
+| Walk / run / strafe, drive | 0x004788a0, 0x00471810 | V | | stick shaping 0x00414c00 and the min speeds not ported |
+| Walk back factor 0.7 | (none found) | S | 3 | trace the back speed |
+| Jump, air control | 0x0047aaf0 | V / S | 3 | jump_into stage not modelled; air control fitted |
+| Slopes | 0x00477c90, 0x00478200 | V | | friction blend not ported |
+| Landing anims, landing damage, death by falling | 0x00478100 | M | 2 | |
+| Mouse look rates | 0x00475990.. | V | | pitch clamp narrower than the original (±1.56 / 1.15) |
+| Look from trackpad / Moonlight | — | B | 1 | cursor + raw + absolute raw (98e7700); unconfirmed |
+| Controller support | — | M | 1 | B: gamepad look/move/fire/menus |
+| Follow camera, collision, fade | 0x0040e350, 0x0040e56c | V | | smoothing slerp 0x0040fd50 not ported |
+| Zoom | 0x0040fbb0 | P | 3 | |
+| Intro path, briefing camera hold | 0x0040ff50, 0x0044daf0 | V | | Roman off-screen report: not reproduced (session log next) |
+| HUD layout | UI bank | V | | B: letterbox band mapped to the window, edge-anchored (this change) |
+| Prompts name the binding | "Press %s" | S | 1 | B: templates with the active device's buttons (keyboard / mouse / pad) |
+| Hit-direction markers ui_hit_* | 0x0047afa0 side mask, 0x004670f0 | P | 1 | hit_flash set from the shot direction, damage_flash_duration |
+| Pain sounds | table 0x0064a300, rom50069..73_Hurt | P | 1 | at most 1/s; heavy breathing below 20 % |
+| Low-health pulse + sound cue | 0x00466e70, game_06.cpp:2155 | P | 1 | alpha pulse up 8/s, down 2/s |
+| Crosshair states (_in/_out, friendly) | 0x00406f50 | S | 2 | static crosshair |
+| Gun auto-aim | 0x004a2a40 (option, default off) | M | 3 | off by default in the original; B: optional |
+| Rifle: fire gate, recycle, clip | 0x004a1e40, 0x004a23e0 | P | | taps fire (227163b) |
+| Shots from the gun to the crosshair point | 0x0047dbf0 (P = ref_shoot_00, Q = hud+0x5c) | V | | 227163b (spawn offset measured) |
+| Reload (anim-driven refill) | game_05.cpp:1601 | S | 2 | instant refill, 1 s lockout; trotter_reload 1.97 s |
+| Weapon switch (wchange anim, frame 13) | 0x004a16b0 | S | 2 | instant |
+| Machine gun (pub) | p_player_machinegun | P | | spread distribution guessed |
+| Rifle fire anim | game_05.cpp:1380: fire_sg for rifle / MG | P | 1 | trotter_fire_sg / jump_fire_sg |
+| Aim-pose blend | 0x00475ff0: w = (clamp(2·pitch,-1,1)+1)/2 | P | 1 | traced formula |
+| Sticky: target pick | 0x00406f50 sticky pass | V | | a161975 |
+| Sticky: release at throw-anim frame 9 (~0.3 s), ammo at release | game_05.cpp:1579, game_09.cpp:1813 | P | 1 | release at the anim's fire note (0.267 s), ammo at release |
+| Sticky: flight, homing, stick, blast | 0x004813b0.. | V | | |
+| Ticker bombs (pub award, hold Use, fuse) | 0x0044e3a0 / 0x0044e4a0 | P | | count 4 has no source |
+| Topsy Turvy | game_05.cpp:1790 | S | 2 | view roll stand-in; hits during topsy not ignored |
+| Hit reaction, knockback | 0x0047afa0 | V | | |
+| Death presentation (ragdoll, fx_trotter_death, death lines) | vt+0xd4 | S | 2 | |
+| Mounted gun stig_mgun 32 | game_08.cpp turret | M | 2 | |
+| Teammate orders (keys 1 / 3) | 0x004852b0 | M | 2 | |
+| Idle fidgets, turn-in-place, land anims | 0x00476a10 | M | 3 | |
+| Grunt drops (type rule) | cleanup_01.cpp:96 | S | 3 | |
+| Pickup generators 219 / 220 | 0x00471b70 | M | 3 | |
+
+## AI
+
+| Mechanic | Original | Status | Pri | Notes / done |
+|---|---|---|---|---|
+| Guards (attention / ready / window) | 0x0042d0f0 | P / V | | fire cadence, dry cycle, turns verified |
+| Target search, sight, companions as targets | 0x00426920 | V | | |
+| Fire cycle, aim error, muzzle | 0x00428980, 0x004284e0, 0x004a2010 | V | | second encounter 40 vs 42 shots, 24 vs 22 hits |
+| Retaliation when hit (adopt attacker) | 0x00430340 end, 0x0042c820 | P | 1 | offer-target rule (10 s, nearer); playtest retal.json |
+| Alert group on death / hit | 0x00431720, 0x0042cc70 | M | 2 | only on spotting |
+| Chase with nav routing, wait, go home | 0x00427910, ai_06.cpp:1420 | S | 2 | straight-line chase |
+| Marker paths, hide, cover (FindHidingSpot) | 0x0044ba30, 0x0042a7b0 | M | 2 | trigger_marker grunts 34 / 67, barracks troops |
+| Alarm chain (grunt 67 → marker 151 → siren → generators, captains) | 0x00404e50, 0x0044ba30 | M | 2 | |
+| Barracks release (ref_exit, markers, release_max) | ai_01.cpp:900 | S | 2 | spawns ±12; keeps releasing after destruction |
+| Hit reactions (explosion variants) | 0x00430340 | P | 3 | |
+| Death variants (blown up, ledge, in back, window) | 0x004319e0 | M | 2 | |
+| Barks: Taunt, General_Scream, Help, shared delays | audio_01.cpp:655 | M | 2 | Hurt / Dead / Sticky / Topsy ported |
+| Fidget shiver on level 1 | Game+0x2708 == 1 | S | 3 | never shivers |
+| Companions: formation, targeting, fire, TNT | 0x00485910.. | V | | |
+| Companions: hit reactions, death, friendly fire | generic AI | M | 2 | player shots pass through them |
+| Companions: barks, orders, leader swap, partner target | audio_02.cpp:195.. | M | 2 | |
+| **Kill-streak "dismay" banter** (the remarks after blasts) | MissionObject_Update game_02.cpp:2476, table 0x005ce570, kill meter Game+0xbb8 ≥ 3 | P | 1 | meter +1 per grunt death, drain 0.5/s, 30-45 s cooldown |
+| Sound-ear lines: alive / in range, on the speaker | 0x00497900 | S | 2 | 2D, random |
+| Penguins: physics, hits, death, screams, score, sticky | 0x0048f690.. | M | 2 | anims / calls only |
+
+## Mission scripting
+
+| Mechanic | Original | Status | Pri | Notes / done |
+|---|---|---|---|---|
+| Edge details (texts, compass, fx ears) | mission.json `to.detail` | P | 1 | read from the wrong place: sub2 / sub3 briefings, compass after the pub, fx ears (this change) |
+| Start trigger on the first frame | 0x0044db80 | S | 3 | sent after the path |
+| Triggers 808 / 810 / 98 / 99 / 713 / 711 (volumes, voice) | TriggerObject, SoundEar | V | | |
+| send_trigger_on_death (pipe 96 → 711, boom_island → 301 penguin debris) | 0x00450ee0 | P | 1 | fx::Died → SendTrigger |
+| Gates blown (556 / 901) | 0x0044e150 | V | | |
+| Win sequence (score, sounds stop, stats, next level lev_1_m1_b) | 0x0044a390 / 0x0044a230 | M | 1 | play continues after "Well Done!" |
+| Objective jingle | 0x0044f560 | M | 3 | |
+| Opening movie + 71 subtitles | pre_1_1_opening | M | 3 | |
+| Pub re-entry, barkeep lines, amb_pub_busy | 0x00468dd0 | M | 3 | |
+| Music states | 0x0044f580 | S | 3 | |
+| Score | various | M | 3 | |
+
+## World objects
+
+| Mechanic | Original | Status | Pri | Notes / done |
+|---|---|---|---|---|
+| Powder kegs, pipes: one bullet kills, chains | FxExplosion 0x0041c180.. | P | | |
+| Damage filters: takes_bullet_damage, player / teammate / badguy_damage, takes_damage | game_02.cpp:724, ai_01.cpp:899, game_03.cpp:919 | M | 1 | houses / barracks / arch / island take bullets in the engine; grunt shots set off kegs |
+| Bullet-transparent objects (trees, invisible walls, arrow) | list +0xe90 | M | 1 | engine blocks bullets and the crosshair on them; arrow collider left behind |
+| Houses: breakable windows, door anim | 0x0040ad80 | M | 3 | |
+| Barracks stop releasing when destroyed | | M | 2 | |
+| Oil pump animation (oilpump_cycle) | | M | 3 | |
+| Fx opcodes used by L1 deaths (0x79 set inert ×407, 0x1a, 0x10, 0x19, 0x35, 0x3d, 0x4a, 0x58, 0x5a ...) | render_r2b.cpp:270-1117 | M | 2 | every non-keg explosion and muzzle flashes |
+| Trenches (barricade collision, cover) | p_barracade | M | 3 | |
+| Guard alarm, grunt generators | | M | 2 | (alarm chain) |
+| Decals on objects | 0x00416f50 | M | 3 | |
+| Shadows | projected silhouettes | B? | | cascaded shadow maps (different technique) |
+| Ambient sounds, snow, sky, fog, lights | | V | | |

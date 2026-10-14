@@ -292,6 +292,13 @@ fn drive(
     let turn: Vec2 = pt.turns.iter().filter(|(t0, t1, _, _)| t >= *t0 && t < *t1).map(|(_, _, x, y)| Vec2::new(*x, *y)).sum();
     // scripted runs ignore the real mouse (it moves the camera under the cursor grab): only scripted turns
     motion.delta = turn;
+    // a paused mission message (the mid-mission briefings) is dismissed as a player would, unless the current step
+    // waits for it (`until: message`) or taps it itself
+    let waits_for_message = pt.steps.get(pt.step).is_some_and(|st| st.until.as_deref() == Some("message") || st.tap.is_some());
+    if mission.as_ref().is_some_and(|m| m.showing.is_some()) && !waits_for_message && !pt.taps.contains(&KeyCode::Enter) {
+        keys.press(KeyCode::Enter);
+        pt.taps.push(KeyCode::Enter);
+    }
     // sequential steps
     let mut due: Vec<Event> = Vec::new();
     if pt.step < pt.steps.len() {

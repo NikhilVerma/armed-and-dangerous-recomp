@@ -73,7 +73,7 @@ fn throw(
     assets: Option<Res<StickyAssets>>,
     data: Res<crate::gamedata::GameData>,
     physics: NonSend<Physics>,
-    roman: Query<(&Transform, &crate::skin::Animator), With<crate::player::Roman>>,
+    mut roman: Query<(&Transform, &crate::skin::Animator, &mut crate::player::Roman)>,
     cam: Query<&GlobalTransform, With<Camera3d>>,
     proj: Query<&Projection, With<Camera3d>>,
     grunts: Query<(Entity, &crate::ai::Grunt, &GlobalTransform, Option<&crate::skin::Animator>)>,
@@ -88,7 +88,11 @@ fn throw(
         return;
     }
     pending.pending = None;
-    let (Some(assets), Ok((rt, ra)), Ok(c)) = (assets, roman.single(), cam.single()) else { return };
+    let (Some(assets), Ok((rt, ra, mut rm)), Ok(c)) = (assets, roman.single_mut(), cam.single()) else { return };
+    if rm.stickies == 0 {
+        return;
+    }
+    rm.stickies -= 1;
     let g = data.props("p_globalsettings");
     let p = data.props("p_player_stickybomb");
     let range = g.f("sticky_bomb_range", 10.0);

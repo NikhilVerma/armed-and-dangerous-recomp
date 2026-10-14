@@ -71,6 +71,12 @@ pub struct Roman {
     /// trotter_hit_med, full body, seconds left (0: none); it plays only standing still and the latch (+0xa34 0x4000)
     /// holds further knockback while it plays
     pub hit_anim: f32,
+    /// the last hit's direction of travel (for the hit-side marker), the pain-line gate, the low-health breath timer
+    /// and whether the death line played (PlayerObject_OnHit 0x0047afa0, game_06.cpp:2155, vt+0xd4)
+    pub hit_from: Option<Vec3>,
+    pub pain_t: f32,
+    pub breath_t: f32,
+    pub death_said: bool,
     pub hit_med: bool,
     /// the drive slow-down after a knockback (+0x9b4 from +0x9b8 = 1 s)
     pub slow: f32,
@@ -177,6 +183,61 @@ fn segment_distance(p0: Vec3, p1: Vec3, q0: Vec3, q1: Vec3) -> f32 {
 /// original's push in the second encounter, fight2O: ~13 units back over the fight)
 const ROMAN_MASS: f32 = 80.0;
 
+/// Damage feedback (PlayerObject_OnHit 0x0047afa0 and the update, game_06.cpp:2155): the hit side (the bullet's
+/// travel against Roman's heading: dot >= 0.7 from behind, <= -0.7 from the front, else left / right) lights its
+/// ui_hit_* marker for damage_flash_duration (p_globalsettings, 0.1 s; 0x004670f0); a pain line rom50069..73_Hurt at
+/// most once a second (the fallback of the voice pool 0x0064a300, whose entries are filled at run time: guess that
+/// the fallback is what plays); at or below 20% health one of fol_breath_heavy_1..4 (table 0x005fb9bc) every second;
+/// on death one of rom50063..68_Dead (table 0x005ce334).
+fn damage_feedback(
+    time: Res<Time>,
+    data: Res<GameData>,
+    mut q: Query<(&mut Roman, &Transform, &Health)>,
+    mut hud: ResMut<crate::hud::HudState>,
+    mut sounds: MessageWriter<crate::audio::PlaySound>,
+    mut rng: ResMut<crate::fx::FxStats>,
+) {
+    let dt = time.delta_secs();
+    for f in hud.hit_flash.iter_mut() {
+        *f = (*f - dt).max(0.0);
+    }
+    let Ok((mut r, t, h)) = q.single_mut() else { return };
+    let mut pick = |names: &[&str]| names[((rng.rand() * names.len() as f32) as usize).min(names.len() - 1)].to_owned();
+    if r.dead || h.0 <= 0.0 {
+        if !r.death_said {
+            r.death_said = true;
+            let n = pick(&["rom50063_dead", "rom50064_dead", "rom50065_dead", "rom50066_dead", "rom50067_dead", "rom50068_dead"]);
+            sounds.write(crate::audio::PlaySound::at(&n, t.translation));
+        }
+        return;
+    }
+    if let Some(d) = r.hit_from.take() {
+        let fwd = Quat::from_rotation_y(r.yaw) * Vec3::NEG_Z;
+        let right = Quat::from_rotation_y(r.yaw) * Vec3::X;
+        let d = d.with_y(0.0).normalize_or_zero();
+        let dot = d.dot(fwd);
+        // 0 top (from the front), 1 bottom (from behind), 2 left, 3 right
+        let side = if dot >= 0.7 { 1 } else if dot <= -0.7 { 0 } else if d.dot(right) > 0.0 { 2 } else { 3 };
+        hud.hit_flash[side] = data.props("p_globalsettings").f("damage_flash_duration", 0.1);
+        if r.pain_t <= 0.0 {
+            r.pain_t = 1.0;
+            let n = pick(&["rom50069_hurt", "rom50070_hurt", "rom50071_hurt", "rom50072_hurt", "rom50073_hurt"]);
+            sounds.write(crate::audio::PlaySound::at(&n, t.translation));
+        }
+    }
+    r.pain_t -= dt;
+    if h.0 <= r.max_health * 0.2 {
+        r.breath_t -= dt;
+        if r.breath_t <= 0.0 {
+            r.breath_t = 1.0;
+            let n = pick(&["fol_breath_heavy_1", "fol_breath_heavy_2", "fol_breath_heavy_3", "fol_breath_heavy_4"]);
+            sounds.write(crate::audio::PlaySound::at(&n, t.translation));
+        }
+    } else {
+        r.breath_t = 0.0;
+    }
+}
+
 const BODY_PARTS: [&str; 16] = ["head", "neck", "chest", "belly", "center", "l_shoulder", "r_shoulder", "l_arm", "r_arm", "l_wrist", "r_wrist", "l_leg", "r_leg", "l_shin", "r_shin", "l_ankle"];
 
 pub fn spawn_projectile(commands: &mut Commands, fx: &mut MessageWriter<crate::fx::StartFx>, p: &Props, from: Vec3, dir: Vec3, from_player: bool, owner: Option<Entity>) {
@@ -235,7 +296,7 @@ impl Plugin for PlayerPlugin {
         app.init_resource::<PlayerStats>()
             .init_resource::<LookDelta>()
             .add_systems(Update, grab_cursor.before(control))
-            .add_systems(Update, (control, weapons, projectiles).chain().run_if(crate::playing))
+            .add_systems(Update, (control, weapons, projectiles, damage_feedback).chain().run_if(crate::playing))
             .add_systems(PostUpdate, follow_camera.before(TransformSystems::Propagate).run_if(crate::playing));
     }
 }
@@ -297,6 +358,10 @@ pub fn make_roman(physics: &mut Physics, p: &Props, data: &GameData, feet: Vec3,
         base: game_to_engine(),
         since_fire: 10.0,
         hit_anim: 0.0,
+        hit_from: None,
+        pain_t: 0.0,
+        breath_t: 0.0,
+        death_said: false,
         hit_med: false,
         slow: 0.0,
         power_min: p.f("movement_power_min", 7.0),
@@ -929,12 +994,12 @@ fn weapons(
             topsy.start = true;
         }
         // Fire Special: Mouse 2 (the original's binding; F is Activate)
-        // (0x004a1aa0 -> 0x004a1930: weapon 10 queued with a 0.4 s delay, then the bomb leaves the L_hand; sticky.rs)
+        // (0x004a1aa0 -> 0x004a1930: weapon 10 queued; the bomb leaves the hand on the throw anim's "fire" note, 0.267 s
+        // into trotter_throw / trotter_run_throw (0x004a1970, game_05.cpp:1579; the 0.4 s queue is only a fallback),
+        // and the count drops then (game_09.cpp:1813; sticky.rs). No throw sound: the bomb's flight loop starts at launch
         if r.special == 0 && (buttons.just_pressed(MouseButton::Right) || bot_throw) && r.stickies > 0 && sticky.pending.is_none() {
-            r.stickies -= 1;
             r.since_throw = 0.0;
-            sticky.pending = Some(0.4);
-            sounds.write(crate::audio::PlaySound::at("wpn_grenade_throw", t.translation));
+            sticky.pending = Some(0.267);
         }
     }
 }
@@ -958,6 +1023,7 @@ fn projectiles(
     hulls: Option<Res<crate::hitparts::HitHulls>>,
     rtime: Res<Time<Real>>,
     binds: Res<Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>,
+    mut victims: Query<&mut crate::ai::Grunt>,
 ) {
     let dt = time.delta_secs();
     for (e, mut p, mut t) in &mut q {
@@ -1057,6 +1123,9 @@ fn projectiles(
             }
             if let Ok(mut h) = roman_health.single_mut() {
                 h.0 -= p.damage;
+                if let Ok((_, mut r, _, _)) = roman.single_mut() {
+                    r.hit_from = Some(p.vel.normalize_or(Vec3::Z));
+                }
                 // PlayerObject_OnHit 0x0047afa0: alive, with an impact force and the latch clear: the hit anim (by the
                 // damage: < 65 small) and a knockback, one impulse 0.1 x min(10 x impact_force, 4000) x (d.x, d.y, 0.4)
                 // with d = (forward.xy, 0.7) normalised (0x0047e580), not scaled by mass; then 1 s of a weakened drive
@@ -1086,7 +1155,7 @@ fn projectiles(
                 let rot = Quat::from_rotation_arc(Vec3::Y, normal.normalize_or(Vec3::Y)) * crate::level::game_to_engine();
                 fx.write(crate::fx::StartFx { name: n, at, rotation: rot, follow: None, position_only: false });
             }
-            if let Some((_, _, mut h, anim, grunt)) = chars.iter_mut().find(|(ce, b, _, _, _)| b.id == body && Some(*ce) != p.owner) {
+            if let Some((ce, _, mut h, anim, grunt)) = chars.iter_mut().find(|(ce, b, _, _, _)| b.id == body && Some(*ce) != p.owner) {
                 // same team (0x00430340: the source's and the victim's vt+0xe4 agree): a grunt's shot does no damage
                 // to a grunt (the engine's earlier grunts killed each other with stray arrows)
                 if grunt && !p.from_player {
@@ -1117,6 +1186,10 @@ fn projectiles(
                     stats.head_shots += 1;
                 }
                 h.0 -= p.damage * mult;
+                // the damage message's source (+0x2c): the shooter, offered to the grunt as a target (ai.rs think)
+                if let (Some(o), Ok(mut g)) = (p.owner, victims.get_mut(ce)) {
+                    g.attacker = Some(o);
+                }
                 if std::env::var("AIDBG").is_ok() {
                     info!("AIDBG hit {:?} for {} -> {} part {:?}", body, p.damage * mult, h.0, part);
                 }
