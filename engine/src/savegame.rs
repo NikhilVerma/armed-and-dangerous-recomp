@@ -138,8 +138,14 @@ impl Plugin for SaveGamePlugin {
             .init_resource::<Checkpoints>()
             .init_resource::<crate::gamedata::Difficulty>()
             .add_systems(Update, (record_placed, save, apply))
-            .add_systems(PostUpdate, checkpoints);
+            .add_systems(PostUpdate, (checkpoints, log_state));
     }
+}
+
+/// The state log's "game" (playtest expect steps): the difficulty, the money, the save rule.
+fn log_state(state: Option<ResMut<crate::playtest::PlayState>>, difficulty: Res<crate::gamedata::Difficulty>, opts: Res<crate::options::GameOptions>) {
+    let Some(mut state) = state else { return };
+    state.0.insert("game".into(), serde_json::json!({ "difficulty": difficulty.0, "money": opts.money, "checkpoint_saves": opts.checkpoint_saves }));
 }
 
 /// The placed objects at level start (instance id -> template) and the building windows (building id, index), to

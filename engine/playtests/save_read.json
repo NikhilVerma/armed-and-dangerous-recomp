@@ -1,0 +1,10 @@
+{"load": "states/save_roundtrip.json", "steps": [
+ {"wait": 1.0},
+ {"expect": {"objects.174.template": "v_house_2f_a_db", "objects.174.husk": true, "objects.174.health": 300, "objects.131.template": "boom_island_d", "objects.248.template": "v_prison_gate_d", "objects.258.removed": true}},
+ {"expect": {"triggers.301": null, "object_deaths": 0, "explosions": 0}},
+ {"expect": {"weapon": "machinegun", "clip": 60, "ammo": 140, "stickies": 7, "topsy_left": 1, "health": 220, "game.difficulty": 1}},
+ {"destroy": 174},
+ {"wait": 0.5},
+ {"expect": {"objects.174.template": "v_house_2f_a_dc", "object_deaths": 1}},
+ {"quit": true}
+]}

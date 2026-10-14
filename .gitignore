@@ -78,3 +78,6 @@ engine/playtests/*.log.jsonl
 engine/playtests/*.png
 engine/playtests/*.camera.json
 engine/target-wt-animcam/
+
+# playtest states written by tracked scripts (engine/playtests/save_write.json)
+/engine/playtests/states/
