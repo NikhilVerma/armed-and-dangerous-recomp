@@ -81,7 +81,7 @@ Update this table as items land (commit hash in the last column).
 | Mechanic | Original | Status | Pri | Notes / done |
 |---|---|---|---|---|
 | Edge details (texts, compass, fx ears) | mission.json `to.detail` | P | 1 | read from the wrong place: sub2 / sub3 briefings, compass after the pub, fx ears (this change) |
-| Start trigger on the first frame | 0x0044db80 | S | 3 | sent after the path |
+| Start trigger on the first frame | 0x0044db80 | P | 3 | sent on the first update; the start text after the path |
 | Triggers 808 / 810 / 98 / 99 / 713 / 711 (volumes, voice) | TriggerObject, SoundEar | V | | |
 | send_trigger_on_death (pipe 96 → 711, boom_island → 301 penguin debris) | 0x00450ee0 | P | 1 | fx::Died → SendTrigger |
 | Gates blown (556 / 901) | 0x0044e150 | V | | |

@@ -233,6 +233,8 @@ pub struct Mission {
     pub next_level: Option<String>,
     pub failure_text: Option<String>,
     started: bool,
+    /// send_trigger_start sent (the first update)
+    start_sent: bool,
     /// paused messages waiting for "continue", and the one shown
     queue: Vec<(f32, String)>,
     pub showing: Option<String>,
@@ -346,6 +348,7 @@ impl Mission {
         self.objectives_raw = s.objectives_raw.clone();
         self.ears_done = s.ears_done.iter().copied().collect();
         self.started = true;
+        self.start_sent = true;
         self.start_text = None;
         self.queue.clear();
         self.showing = None;
@@ -549,6 +552,7 @@ impl Mission {
             failure_text: s(m, "failure_text").and_then(|t| f.text.get(&t).cloned()),
             texts: f.text,
             started: false,
+            start_sent: false,
             queue: Vec::new(),
             showing: None,
             tickers: 0,
@@ -639,16 +643,20 @@ fn start(mut m: Option<ResMut<Mission>>, mut out: MessageWriter<SendTrigger>, pa
     if m.started {
         return;
     }
-    // MissionObject_ShowStart: once no camera path is active (it starts on the first frames)
+    // MissionObject_Update 0x0044db80: send_trigger_start is the pending trigger +0x460, sent on its first update
+    if !m.start_sent {
+        m.start_sent = true;
+        if m.start_trigger != 0 {
+            out.write(SendTrigger(m.start_trigger));
+        }
+    }
+    // MissionObject_ShowStart 0x0044daf0: once no camera path is active (it starts on the first frames), the start
+    // text as a paused message
     *waited += time.delta_secs();
     if path.active() || *waited < 0.3 {
         return;
     }
     m.started = true;
-    // MissionObject_Update: the first frame sends send_trigger_start; the start text then shows as a paused message
-    if m.start_trigger != 0 {
-        out.write(SendTrigger(m.start_trigger));
-    }
     if let Some(t) = m.start_text.clone() {
         m.objectives = long_form(&t);
         m.objectives_raw = t.clone();
