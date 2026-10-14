@@ -16,7 +16,14 @@
 //!   v_house_2f_a_db, not its first husk) or gone; and the building windows shot out. They are put straight at that
 //!   stage (level.rs RestoreStage): no death, so no fx, no score and no send_trigger_on_death is sent again;
 //! - the difficulty (Game+0x550, gamedata.rs Difficulty: the header's +0x108, restored by 0x00401f60) and the money
-//!   (Game+0x570, part of the Game object's saved members).
+//!   (Game+0x570, part of the Game object's saved members). The original banks the money at +0x57c (0x00401ef0,
+//!   after the Stats screen) and every level start takes it back from there (0x00401f10 from Game_StartLevel
+//!   0x00403690, whose "-slot" name is a load: SaveGame_Load 0x0048c9b0): a restart costs what was earned since.
+//!   Here the money lives in options.json (GameOptions.money) and only the Stats screen changes it, so the bank is
+//!   that value; a new game sets 5000 (gamemenu.rs).
+//!
+//! Not restored (open): the alarm's raised sirens (the original re-creates their fx_siren after a load, 0x0048c530),
+//! the camera pitch.
 //!
 //! Where a save may be made: anywhere from the pause menu (the remaster's default), or, with the option
 //! "checkpoint_saves" (options.rs), only where the original offers one: its QuickSave screen is pushed through

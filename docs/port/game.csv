@@ -172,3 +172,201 @@ address,name,disposition,reason
 0x004a2950,fn_004a2950,not needed,the shark gun (PlayerWeapon vtable 0x005a4858): not on lev_1_m1
 0x004a2a40,fn_004a2a40,not needed,auto-aim (PlayerWeapon vt+0x16c: Game+0x4c2 unless zoomed or difficulty > 1): the auto-aim option is not ported (hud.md: shown disabled)
 0x004a2a70,fn_004a2a70,not needed,"PlayerWeapon fire along the camera ray (vtable 0x005ac210, the sniper rifle): not on lev_1_m1"
+0x004011e0,Game_Init,replaced,"the Game constructor: main.rs builds the App, each subsystem a Bevy plugin / resource; its pieces are cited where they live (options 0x00401a80 options.rs, weapon table 0x00402110 weapontable.rs, difficulty 0x00401f60 gamedata.rs)"
+0x00401710,Game_Destruct,replaced,the Game destructor: the process ends (resources drop)
+0x00401f40,fn_00401f40,replaced,"after a money change: two refreshes (0x00410ca0, 0x00494b70: not traced) and, with the flag, the bank (0x00401ef0): GameOptions.money is read where shown (savegame.rs money note)"
+0x00402e70,fn_00402e70,replaced,clears the player object pointer Game+0x748 at teardown: the entity despawns
+0x00402e80,Game_Update,replaced,"Game_Update: the Bevy Update schedule; its physics sub-steps (1 - (int)(dt * -20), at most 5, step <= 0.05) are physics.rs FixedUpdate at 60 Hz"
+0x00403370,fn_00403370,replaced,a deferred game callback (Game+0xa58 / +0xa5c): Bevy messages and state transitions
+0x00403390,fn_00403390,replaced,runs the deferred game callback: Bevy messages and state transitions
+0x004033c0,fn_004033c0,replaced,copies the objectives text to Game+0x1de4: mission.rs Mission.objectives
+0x00403590,fn_00403590,replaced,"chooses the start level (the level manager's next, else lev_shell): main.rs loads the level, the title menu is gamemenu.rs"
+0x004035d0,fn_004035d0,replaced,"requests a level by name (Game+0x74d / +0x84e, read by Game_Update): main.rs / gamemenu.rs relaunch"
+0x00403600,fn_00403600,replaced,requests a level by a wide name: main.rs / gamemenu.rs relaunch
+0x00403640,Game_LoadLevelByName,replaced,Game_LoadLevelByName: main.rs loads the scene (one level built)
+0x00403940,fn_00403940,replaced,"level teardown (deferred callback, decals, the object list, the heap, physics shutdown): a level change or load is a fresh process"
+0x004039f0,fn_004039f0,replaced,"renderer start-up and the first level request: Bevy's render plugin, main.rs"
+0x00403aa0,fn_00403aa0,not needed,"the time-scale effect (Game+0xad0 scale, +0xad4 timer): set only by fx op 0x72, which no lev_1_m1 fx script uses, and reset to 1.0 by Game_StartLevel; open: a TimeScale resource for fxvm.rs's 0x72"
+0x00403ac0,fn_00403ac0,not needed,the time-scale effect's update (applied through the sound system vt+0x94; 0.2 when negative): see 0x00403aa0
+0x00403bb0,fn_00403bb0,replaced,"true while the player object exists, is not removed and the level manager state is 1 (guess: in play), read by the menus: gamemenu.rs tests AppState and Roman"
+0x00404550,AIInterestObject_Load,replaced,AIInterestObject load (an interest point the AI reacts to): ai.rs Interests (noises with a radius and a time)
+0x00404600,AIInterestObject_Remove,replaced,AIInterestObject removal: ai.rs Interests expire
+0x004056b0,PeasantObject_Load,not needed,PeasantObject: class with no instance on lev_1_m1 (scene.json behaviours)
+0x00405850,PeasantObject_Remove,not needed,PeasantObject: class with no instance on lev_1_m1 (scene.json behaviours)
+0x00405880,fn_00405880,not needed,PeasantObject: class with no instance on lev_1_m1 (scene.json behaviours)
+0x00406210,fn_00406210,not needed,PeasantObject: class with no instance on lev_1_m1 (scene.json behaviours)
+0x00406280,fn_00406280,not needed,PeasantObject: class with no instance on lev_1_m1 (scene.json behaviours)
+0x004062a0,fn_004062a0,not needed,PeasantObject: class with no instance on lev_1_m1 (scene.json behaviours)
+0x00406330,fn_00406330,not needed,the peasant with the largest count (0x0044d600): class with no instance on lev_1_m1 (scene.json behaviours)
+0x004063a0,fn_004063a0,not needed,banks a peasant's count: class with no instance on lev_1_m1 (scene.json behaviours)
+0x004063f0,fn_004063f0,not needed,a peasant's count: class with no instance on lev_1_m1 (scene.json behaviours)
+0x00406400,fn_00406400,replaced,clears an object's animation-player block (+0x498 / +0xa18 / +0xb08): skin.rs / charanim.rs animation state
+0x00406430,fn_00406430,replaced,drives an animation range on that block: charanim.rs
+0x004087b0,fn_004087b0,replaced,an animation range of the object's table: charanim.rs
+0x004087d0,fn_004087d0,replaced,clears the object's four animation slots (+0x248): charanim.rs layers
+0x00408800,fn_00408800,replaced,the object's animation slot entry (+0x248 + slot * 0x20): charanim.rs layers
+0x0040a700,AnimPlayer_Load,not needed,AnimPlayer: class with no instance on lev_1_m1 (scene.json behaviours)
+0x0040a7d0,AnimPlayer_OnMessage,not needed,AnimPlayer: class with no instance on lev_1_m1 (scene.json behaviours)
+0x0040d390,fn_0040d390,not needed,"characters spawned by a barricade / generator breach (0x0040cf40, ai.csv): not on lev_1_m1"
+0x0040df90,fn_0040df90,not needed,JumpMarker / BuildingObject slot 0x54 (a jump to slot 0x53): JumpMarker class with no instance on lev_1_m1 (scene.json behaviours)
+0x0040dfa0,fn_0040dfa0,not needed,JumpMarker: class with no instance on lev_1_m1 (scene.json behaviours)
+0x0040dfb0,fn_0040dfb0,not needed,JumpMarker: class with no instance on lev_1_m1 (scene.json behaviours)
+0x0042eba0,Corpse_CountDown,replaced,a dead character's removal count-down: ai.rs corpse timer (the dead grunts' linger and fade)
+0x0048f8e0,PenguinObject_Restart,not needed,PenguinObject restart: a level restart is a fresh process
+0x00470d70,GfxMenu_InitResolutionList,replaced,the graphics menu's resolution list: gamemenu.rs / options.rs resolution
+0x00450af0,DefaultGameObject_Collide,not needed,"collision reactions (on_hit_damage, crush, on_hit_fx, boulder sound, on_hit_death): only the village windows have one (on_hit_death) and the recorded runs never reach it; needs contact events on static colliders (physics.rs)"
+0x00450fa0,DefaultGameObject_GetGravity,not needed,gravity getter: no lev_1_m1 object sets gravity
+0x004585f0,fn_004585f0,not needed,gravity getter: no lev_1_m1 object sets gravity
+0x00451040,fn_00451040,not needed,DefaultGameObject vtable 0x005ab650 (class 38) damage + Game+0xdd1: not used on lev_1_m1
+0x00451070,RocketTowerBuilding_Remove,not needed,RocketTowerBuilding: class with no instance on lev_1_m1 (scene.json behaviours)
+0x004510b0,RocketTowerBuilding_SpawnTurret,not needed,RocketTowerBuilding: class with no instance on lev_1_m1 (scene.json behaviours)
+0x00451160,RocketTowerBuilding_OnDeath,not needed,RocketTowerBuilding: class with no instance on lev_1_m1 (scene.json behaviours)
+0x00452790,fn_00452790,not needed,speed_trap: not set on lev_1_m1
+0x00453230,fn_00453230,replaced,"base-class answers (0.0, zeros, 1.0) and the vt+0xb8 contact query: physics queries are Jolt's; nothing on lev_1_m1 depends on the default values"
+0x00453240,fn_00453240,replaced,"base-class answers (0.0, zeros, 1.0) and the vt+0xb8 contact query: physics queries are Jolt's; nothing on lev_1_m1 depends on the default values"
+0x00454bc0,fn_00454bc0,replaced,"base-class answers (0.0, zeros, 1.0) and the vt+0xb8 contact query: physics queries are Jolt's; nothing on lev_1_m1 depends on the default values"
+0x00454be0,fn_00454be0,replaced,"base-class answers (0.0, zeros, 1.0) and the vt+0xb8 contact query: physics queries are Jolt's; nothing on lev_1_m1 depends on the default values"
+0x00454c20,fn_00454c20,replaced,"base-class answers (0.0, zeros, 1.0) and the vt+0xb8 contact query: physics queries are Jolt's; nothing on lev_1_m1 depends on the default values"
+0x00454c60,fn_00454c60,replaced,"base-class answers (0.0, zeros, 1.0) and the vt+0xb8 contact query: physics queries are Jolt's; nothing on lev_1_m1 depends on the default values"
+0x004532b0,fn_004532b0,replaced,velocity query (Body_getLinearVelocity) outside cut scenes: Jolt bodies
+0x00453540,fn_00453540,replaced,"+0x378 / +0x424 bit 0x400: an alpha override set by AI (0x0042eb60) and the pulsing meter 0x00466e70 (guess: opacity); fades live in their systems (ai.rs corpses, pickup.rs)"
+0x00453570,fn_00453570,replaced,"+0x378 / +0x424 bit 0x400: an alpha override set by AI (0x0042eb60) and the pulsing meter 0x00466e70 (guess: opacity); fades live in their systems (ai.rs corpses, pickup.rs)"
+0x00453580,fn_00453580,replaced,"+0x378 / +0x424 bit 0x400: an alpha override set by AI (0x0042eb60) and the pulsing meter 0x00466e70 (guess: opacity); fades live in their systems (ai.rs corpses, pickup.rs)"
+0x00453630,fn_00453630,replaced,"+0x378 / +0x424 bit 0x400: an alpha override set by AI (0x0042eb60) and the pulsing meter 0x00466e70 (guess: opacity); fades live in their systems (ai.rs corpses, pickup.rs)"
+0x004548c0,fn_004548c0,not needed,empty virtual
+0x00454930,fn_00454930,not needed,empty virtual
+0x004548d0,fn_004548d0,not needed,"container callback (float threshold, 8-byte compare): Rust collections"
+0x00454fe0,fn_00454fe0,not needed,"container callback (float threshold, 8-byte compare): Rust collections"
+0x00454c90,fn_00454c90,not needed,+0x424 bits 0x20 / 0x200: meaning not traced (docs/subsystems/objects.md open questions)
+0x004559c0,fn_004559c0,not needed,+0x424 bits 0x20 / 0x200: meaning not traced (docs/subsystems/objects.md open questions)
+0x004559f0,fn_004559f0,not needed,+0x424 bits 0x20 / 0x200: meaning not traced (docs/subsystems/objects.md open questions)
+0x00456180,fn_00456180,not needed,"spawns an attached grunt at a reference bone (IC_* interaction tags): no lev_1_m1 property set has an IC_ key, yet the coverage counts 9 calls (open question, objects.md)"
+0x00456240,Object_GetClassDesc,not needed,RTTI class descriptor getter: the engine has no class objects
+0x00461790,fn_00461790,not needed,"class 98 (vtable 0x005a68b8, no class name), 40 constructions in the coverage runs: behaviour not identified (open question, objects.md)"
+0x00461a30,fn_00461a30,not needed,"per-class constant getter (projectile ranges, type masks of classes 163 / 164 / 166 / 168) read by projectile and AI code: the engine keeps such values in the property data those subsystems read"
+0x00461b30,fn_00461b30,not needed,"per-class constant getter (projectile ranges, type masks of classes 163 / 164 / 166 / 168) read by projectile and AI code: the engine keeps such values in the property data those subsystems read"
+0x00461d10,fn_00461d10,not needed,"per-class constant getter (projectile ranges, type masks of classes 163 / 164 / 166 / 168) read by projectile and AI code: the engine keeps such values in the property data those subsystems read"
+0x00461dc0,fn_00461dc0,not needed,"per-class constant getter (projectile ranges, type masks of classes 163 / 164 / 166 / 168) read by projectile and AI code: the engine keeps such values in the property data those subsystems read"
+0x00461e40,fn_00461e40,not needed,"per-class constant getter (projectile ranges, type masks of classes 163 / 164 / 166 / 168) read by projectile and AI code: the engine keeps such values in the property data those subsystems read"
+0x00461a00,fn_00461a00,not needed,"per-class constant getter (projectile ranges, type masks of classes 163 / 164 / 166 / 168) read by projectile and AI code: the engine keeps such values in the property data those subsystems read"
+0x00461aa0,fn_00461aa0,not needed,"per-class constant getter (projectile ranges, type masks of classes 163 / 164 / 166 / 168) read by projectile and AI code: the engine keeps such values in the property data those subsystems read"
+0x00461b90,fn_00461b90,not needed,"per-class constant getter (projectile ranges, type masks of classes 163 / 164 / 166 / 168) read by projectile and AI code: the engine keeps such values in the property data those subsystems read"
+0x00461bf0,fn_00461bf0,not needed,"per-class constant getter (projectile ranges, type masks of classes 163 / 164 / 166 / 168) read by projectile and AI code: the engine keeps such values in the property data those subsystems read"
+0x00461c00,fn_00461c00,not needed,"per-class constant getter (projectile ranges, type masks of classes 163 / 164 / 166 / 168) read by projectile and AI code: the engine keeps such values in the property data those subsystems read"
+0x00461c10,fn_00461c10,not needed,"per-class constant getter (projectile ranges, type masks of classes 163 / 164 / 166 / 168) read by projectile and AI code: the engine keeps such values in the property data those subsystems read"
+0x00461cb0,fn_00461cb0,not needed,"per-class constant getter (projectile ranges, type masks of classes 163 / 164 / 166 / 168) read by projectile and AI code: the engine keeps such values in the property data those subsystems read"
+0x00461d90,fn_00461d90,not needed,"per-class constant getter (projectile ranges, type masks of classes 163 / 164 / 166 / 168) read by projectile and AI code: the engine keeps such values in the property data those subsystems read"
+0x00461ec0,fn_00461ec0,not needed,"per-class constant getter (projectile ranges, type masks of classes 163 / 164 / 166 / 168) read by projectile and AI code: the engine keeps such values in the property data those subsystems read"
+0x004614f0,Twiglet_Construct,not needed,constructor of a class with no instance on lev_1_m1 (scene.json behaviours)
+0x00461550,CaptainObject_Construct,not needed,constructor of a class with no instance on lev_1_m1 (scene.json behaviours)
+0x00461570,SniperCaptain_Construct,not needed,constructor of a class with no instance on lev_1_m1 (scene.json behaviours)
+0x00461590,Q112Object_Construct,not needed,constructor of a class with no instance on lev_1_m1 (scene.json behaviours)
+0x004615b0,Q112Boss_Construct,not needed,constructor of a class with no instance on lev_1_m1 (scene.json behaviours)
+0x004615d0,PeasantGenAI_Construct,not needed,constructor of a class with no instance on lev_1_m1 (scene.json behaviours)
+0x004615f0,FakeGruntObject_Construct,not needed,constructor of a class with no instance on lev_1_m1 (scene.json behaviours)
+0x00461610,GruntLadderObject_Construct,not needed,constructor of a class with no instance on lev_1_m1 (scene.json behaviours)
+0x00461630,ColossusObject_Construct,not needed,constructor of a class with no instance on lev_1_m1 (scene.json behaviours)
+0x00461650,GoliathObject_Construct,not needed,constructor of a class with no instance on lev_1_m1 (scene.json behaviours)
+0x00461670,Polewart_Construct,not needed,constructor of a class with no instance on lev_1_m1 (scene.json behaviours)
+0x00461690,GoliathFireball_Construct,not needed,constructor of a class with no instance on lev_1_m1 (scene.json behaviours)
+0x004616b0,MonkObject_Construct,not needed,constructor of a class with no instance on lev_1_m1 (scene.json behaviours)
+0x004616d0,GenericAIObject_ConstructFull,not needed,constructor of a class with no instance on lev_1_m1 (scene.json behaviours)
+0x004616f0,ZeppelinObject_Construct,not needed,constructor of a class with no instance on lev_1_m1 (scene.json behaviours)
+0x00461710,SaucerObject_Construct,not needed,constructor of a class with no instance on lev_1_m1 (scene.json behaviours)
+0x00461730,SheepObject_Construct,not needed,constructor of a class with no instance on lev_1_m1 (scene.json behaviours)
+0x00461770,SquadObject_Construct,not needed,constructor of a class with no instance on lev_1_m1 (scene.json behaviours)
+0x004617c0,ICObject_Construct,not needed,constructor of a class with no instance on lev_1_m1 (scene.json behaviours)
+0x004617e0,ShrubPatrol_Construct,not needed,constructor of a class with no instance on lev_1_m1 (scene.json behaviours)
+0x00461930,CaptainRocket_GetClass,not needed,RTTI class descriptor getter: the engine has no class objects
+0x00461960,ICObject_GetClass,not needed,RTTI class descriptor getter: the engine has no class objects
+0x00461970,PubObject_GetClass,not needed,RTTI class descriptor getter: the engine has no class objects
+0x004619b0,BlackHoleBox_GetClass,not needed,RTTI class descriptor getter: the engine has no class objects
+0x004619d0,TreeObject_GetClass,not needed,RTTI class descriptor getter: the engine has no class objects
+0x00461a20,FxExplosion_GetClass,not needed,RTTI class descriptor getter: the engine has no class objects
+0x00461a40,MissionObject_GetClass,not needed,RTTI class descriptor getter: the engine has no class objects
+0x00461a50,CounterObject_GetClass,not needed,RTTI class descriptor getter: the engine has no class objects
+0x00461ad0,PickupGenerator_GetClass,not needed,RTTI class descriptor getter: the engine has no class objects
+0x00461b00,BarricadeObject_GetClass,not needed,RTTI class descriptor getter: the engine has no class objects
+0x00461bb0,TriggerObject_GetClass,not needed,RTTI class descriptor getter: the engine has no class objects
+0x00461bc0,TimerObject_GetClass,not needed,RTTI class descriptor getter: the engine has no class objects
+0x00461be0,ObjectSystem_GetClass,not needed,RTTI class descriptor getter: the engine has no class objects
+0x00461c40,RocketTowerBuilding_GetClass,not needed,RTTI class descriptor getter: the engine has no class objects
+0x00461cc0,SniperGunBullet_GetClass,not needed,RTTI class descriptor getter: the engine has no class objects
+0x00461d50,BridgeObject_GetClass,not needed,RTTI class descriptor getter: the engine has no class objects
+0x00461d70,DefaultGameObject_GetClass,not needed,RTTI class descriptor getter: the engine has no class objects
+0x00461df0,BackgroundObject_GetClass,not needed,RTTI class descriptor getter: the engine has no class objects
+0x00461e80,WeaponObject_GetClass,not needed,RTTI class descriptor getter: the engine has no class objects
+0x00461e90,PlayerTickerBomb_GetClass,not needed,RTTI class descriptor getter: the engine has no class objects
+0x00461ef0,BuildingObject_GetClass,not needed,RTTI class descriptor getter: the engine has no class objects
+0x00461a90,FxObject_GetClass,not needed,RTTI class descriptor getter: the engine has no class objects
+0x00461c50,LightObject_GetClass,not needed,RTTI class descriptor getter: the engine has no class objects
+0x00461e30,CameraFXObject_GetClass,not needed,RTTI class descriptor getter: the engine has no class objects
+0x004690c0,fn_004690c0,replaced,the pub screen's 3D marker objects: the remaster's pub screen is pubscreen.rs / gamemenu.rs (2D); the save offered on leaving (0x004690c0 -> 0x00403560) is savegame.rs's checkpoint
+0x004691c0,fn_004691c0,replaced,the pub screen's 3D marker objects: the remaster's pub screen is pubscreen.rs / gamemenu.rs (2D); the save offered on leaving (0x004690c0 -> 0x00403560) is savegame.rs's checkpoint
+0x00469270,fn_00469270,replaced,the pub screen's 3D marker objects: the remaster's pub screen is pubscreen.rs / gamemenu.rs (2D); the save offered on leaving (0x004690c0 -> 0x00403560) is savegame.rs's checkpoint
+0x00469350,fn_00469350,replaced,the pub screen's 3D marker objects: the remaster's pub screen is pubscreen.rs / gamemenu.rs (2D); the save offered on leaving (0x004690c0 -> 0x00403560) is savegame.rs's checkpoint
+0x00469450,fn_00469450,replaced,the pub screen's 3D marker objects: the remaster's pub screen is pubscreen.rs / gamemenu.rs (2D); the save offered on leaving (0x004690c0 -> 0x00403560) is savegame.rs's checkpoint
+0x004694e0,fn_004694e0,replaced,the pub screen's 3D marker objects: the remaster's pub screen is pubscreen.rs / gamemenu.rs (2D); the save offered on leaving (0x004690c0 -> 0x00403560) is savegame.rs's checkpoint
+0x00497d00,fn_00497d00,replaced,"the turret's property load (recycle_time, projectile / emitter / muzzle names, send_trigger_on_death, the World lists): turret.rs Turret (0x004980c0 / 0x00498d60)"
+0x00497f40,fn_00497f40,replaced,the turret's radius collision description: Jolt collider from its collision model (level.rs)
+0x004983e0,fn_004983e0,replaced,message_radius getter: turret.rs Turret radius
+0x00498740,fn_00498740,replaced,flag 1 of +0x530 (the prompt hidden): turret.rs Turret flags
+0x00498790,fn_00498790,replaced,bit 2 of +0x530 (occupied by an AI): turret.rs Turret flags
+0x00499670,Turret_BoneCallback,replaced,the turret bone callback (calls 0x00498ff0): turret.rs pivot rotation
+0x0049a0b0,MountedTurret_BoneCallback,not needed,"MountedTurret bone callback: not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x00433e70,EmptyMethod_Ret4,not needed,"empty virtual (returns, pops 4)"
+0x004162b0,Shadows_Draw,replaced,"Shadows_Draw: the per-object projected shadows; the remaster casts shadows with Bevy's cascaded shadow maps (level.rs sun, options.rs ShadowLight)"
+0x004163c0,Shadows_Update,replaced,Shadows_Update: see Shadows_Draw (Bevy shadow maps)
+0x00464460,UiPass_Draw,replaced,UiPass_Draw: the HUD / menu pass is hud.rs / gamemenu.rs (Bevy 2D)
+0x00403690,Game_StartLevel,replaced,"Game_StartLevel: main.rs builds the level; ""-slot"" loads are savegame.rs (--load); the money bank (0x00401f10) is cited in savegame.rs; its time-scale reset (0x00403aa0) is not needed (game.csv)"
+0x00497e60,fn_00497e60,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x00497e90,fn_00497e90,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x00497f10,fn_00497f10,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x00497f60,fn_00497f60,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x00498310,fn_00498310,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x00498320,fn_00498320,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x00498350,fn_00498350,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x00498390,fn_00498390,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x004983f0,fn_004983f0,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x00498400,fn_00498400,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x004986b0,fn_004986b0,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x00498780,fn_00498780,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x004987f0,fn_004987f0,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x00498820,fn_00498820,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x00498890,fn_00498890,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x00498a60,fn_00498a60,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x00498d30,fn_00498d30,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x004993b0,fn_004993b0,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x004993c0,fn_004993c0,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x004993e0,fn_004993e0,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x00499630,fn_00499630,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x004996a0,fn_004996a0,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x00499710,fn_00499710,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x004999c0,fn_004999c0,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x00499a30,fn_00499a30,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x00499b30,fn_00499b30,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x00499bb0,fn_00499bb0,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x00499bd0,fn_00499bd0,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x00499c40,fn_00499c40,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x00499f30,fn_00499f30,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x00499f80,fn_00499f80,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x00499fd0,fn_00499fd0,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x0049a0f0,fn_0049a0f0,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x0049a110,fn_0049a110,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x0049a150,fn_0049a150,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x0049a170,fn_0049a170,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x0049a4c0,fn_0049a4c0,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x0049a530,fn_0049a530,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x0049a5c0,fn_0049a5c0,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x0049a6a0,fn_0049a6a0,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x0049abf0,fn_0049abf0,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x0049ac60,fn_0049ac60,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x0049ad60,fn_0049ad60,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x0049aeb0,fn_0049aeb0,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x0049afe0,fn_0049afe0,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x0049b030,fn_0049b030,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x0049bc90,fn_0049bc90,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x0049bcb0,fn_0049bcb0,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x0049bcc0,fn_0049bcc0,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x0049bd80,fn_0049bd80,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x0049be70,fn_0049be70,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
