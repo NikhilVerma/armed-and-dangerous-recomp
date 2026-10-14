@@ -193,6 +193,19 @@ specials), the mission (one-shot triggers, bomb sites, barracks, pub, compass, o
 grunts, destroyed objects (husks, no explosion). Not the original's format; not restored: live grunts a barracks had
 released, companions' positions, the camera pitch. Verified: saved after gate 1, loaded, played on to the win.
 
+## Object model (2026-10-14)
+
+docs/subsystems/objects.md has the Object base class, default objects, the factory and triggers with addresses.
+Replaced by the engine (not ported line by line): the property readers (gamedata.rs `Props`: placement over
+template), the object lists of World +0xe6c.. (components, queries, `physics.no_bullets` for the bullets' list
++0xe90), attachment (the Bevy hierarchy), matrices and scale (Transform / GlobalTransform), visibility (models not
+spawned), reference counts and removal (despawn), the force action pool (Jolt impulses), the per-object update
+(Bevy's Update schedule). Ported: Object_TakeDamage's cap (fx.rs `take_damage`), husk1..husk9 picks and multi-stage
+husks (a husk is a new object with its own health, fx and husk: the two-floor houses go _da -> _db -> _dc), windows
+dying with their house, no_collide / visible / collide_barrier, DefaultGameObject trigger fields (level.rs
+`object_triggers`), impact_force's default 2010. Test: engine/playtests/objects1.json and the unit tests (regress.py
+`unit`).
+
 ## Cheats
 
 Options > Cheats: the 12 codes of the table 0x00589090 (read from the exe: SHOOTMOR full ammo, AMBULNCE full

@@ -232,6 +232,8 @@ fn collect(
             p.hvel = Vec3::ZERO;
         }
         t.rotate_y(dt * p.spin);
+        // PickupObject_Update 0x00472200: the spin, gone after linger_time (its fade over fade_time, default 1 s,
+        // vt+0x100(1 - f), is not ported: the pickup vanishes at once)
         p.life -= dt;
         if p.life <= 0.0 {
             commands.entity(e).despawn();

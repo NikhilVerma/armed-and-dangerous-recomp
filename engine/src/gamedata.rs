@@ -27,7 +27,10 @@ pub struct GameData {
 }
 
 /// One property set (an instance's own values over its template's set), with typed getters (missing keys give
-/// the default).
+/// the default). The original's readers: the placement first, then the class template (Object_ReadStringProp
+/// 0x004533a0, Object_ReadValueProp 0x00453400 / 0x00453450 / 0x004534a0, Object_ReadBoolProp 0x004534f0 over
+/// ParamSet_GetString 0x0045dec0, ParamSet_GetValue 0x0045df00, ParamSet_GetBool 0x0045df30, ParamSet_FindValue
+/// 0x0045dea0 and Object_GetTemplateString / Value / Bool 0x004532e0 / 0x00453320 / 0x00453360).
 #[derive(Clone, Default)]
 pub struct Props(pub Map<String, Value>);
 
