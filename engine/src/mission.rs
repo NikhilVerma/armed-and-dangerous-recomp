@@ -606,7 +606,7 @@ pub fn short_form(t: &str) -> String {
 }
 
 /// The mission's state in a saved game (savegame.rs).
-#[derive(serde::Serialize, serde::Deserialize, Default, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Default, Clone, Debug, PartialEq)]
 pub struct MissionSave {
     pub triggers_done: Vec<u32>,
     /// (id, enabled, done)
@@ -637,6 +637,11 @@ pub struct MissionSave {
 }
 
 impl Mission {
+    /// The mission start has been shown (MissionObject_ShowStart 0x0044daf0; savegame.rs's first checkpoint).
+    pub fn started(&self) -> bool {
+        self.started
+    }
+
     pub fn snapshot(&self) -> MissionSave {
         MissionSave {
             triggers_done: self.triggers.iter().filter(|t| t.fired).map(|t| t.id).collect(),

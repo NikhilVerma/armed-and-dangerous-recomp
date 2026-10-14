@@ -121,32 +121,16 @@ Kill / SpawnHusk / Remove, the DefaultGameObject virtuals used on lev_1_m1, the 
 constructors used on lev_1_m1, ObjectSystem construction / search / teardown, the force action pool (Jolt
 impulses), Object_SendTrigger, the pub doorway / exit, the ui_ear Load, PickupObject_Update (its fade not ported).
 
-Left in the queue, each with its reason:
+The functions left in the queue, each with its reason, are rows of docs/port/game.csv (address, disposition,
+reason; `python tools/port_queue.py game --all --explained` lists them): collision reactions, gravity getters,
+base-class answers, the alpha override, empty virtuals, container callbacks, the unidentified +0x424 bits, the IC
+spawn, class 98, per-class constants, RTTI getters, constructors of classes not on lev_1_m1, the pub markers,
+the turret paths turret.rs does not need.
 
-| Functions | Reason |
-|---|---|
-| 0x00450af0 DefaultGameObject_Collide | collision reactions (on_hit_damage, crush, on_hit_fx, boulder sound, on_hit_death): only the village windows have one (on_hit_death) and the recorded runs never reach it; needs contact events on static colliders (physics.rs). Not ported |
-| 0x00450fa0, 0x004585f0 | gravity getters: no lev_1_m1 object sets gravity |
-| 0x00451040 | DefaultGameObject vtable 0x005ab650 (class 38) damage + Game+0xdd1: not used on lev_1_m1 |
-| 0x00451070, 0x004510b0, 0x00451160 | RocketTowerBuilding: no rocket tower on lev_1_m1 |
-| 0x00452790 | speed_trap: not set on lev_1_m1 |
-| 0x00453230, 0x00453240, 0x00454bc0, 0x00454be0, 0x00454c20, 0x00454c60 | base-class answers (0.0; zeros and 1.0) and the vt+0xb8 contact query (boulder sound, standing): physics queries are Jolt's; nothing on lev_1_m1 depends on the default values |
-| 0x004532b0 | velocity query (Body_getLinearVelocity) outside cut scenes: Jolt bodies |
-| 0x00453540, 0x00453570, 0x00453580, 0x00453630 | +0x378 / +0x424 bit 0x400: an alpha override set by AI (0x0042eb60) and the pulsing meter 0x00466e70 (**guess**: opacity); fades live in their systems (ai.rs corpses, pickup.rs) |
-| 0x004548c0, 0x00454930 | empty virtuals |
-| 0x004548d0, 0x00454fe0 | container callbacks (float threshold, 8-byte compare) |
-| 0x00454c90, 0x004559c0, 0x004559f0 | +0x424 bits 0x20 / 0x200: meaning not traced |
-| 0x00456180 | spawns an attached grunt at a reference bone (IC_* interaction tags of buildings, kegs IC_powder_N, trees): no lev_1_m1 property set in the export has an IC_ key, yet the coverage counts 9 calls (open question) |
-| 0x00456240, the *_GetClass getters (0x00461930..0x00461ef0) | RTTI descriptors: the engine has no class objects |
-| 0x00461a00.. 0x00461ec0 (float getters), 0x00461a30, 0x00461b30, 0x00461bf0, 0x00461d10, 0x00461dc0, 0x00461c00 | per-class constants (projectile ranges, type masks of classes 163 / 164 / 166 / 168) read by projectile and AI code: belong to those subsystems' ports |
-| 0x004614f0, 0x00461550..0x004617e0 not used on lev_1_m1 (Twiglet, Captain, SniperCaptain, Q112, Q112Boss, PeasantGenAI, FakeGrunt, GruntLadder, Colossus, Goliath, Polewart, GoliathFireball, Monk, GenericAI, Zeppelin, Saucer, Sheep, Squad, IC, ShrubPatrol) | classes no lev_1_m1 object uses |
-| 0x00461790 | class 98 (vtable 0x005a68b8, no class name), 40 constructions in the coverage runs: behaviour not identified (open question) |
-| 0x004690c0, 0x004691c0, 0x00469270, 0x00469350, 0x00469450, 0x004694e0, 0x0046a5e0 | the pub screen's 3D marker objects: the remaster's pub screen is pubscreen.rs / gamemenu.rs (2D) |
-| 0x0046a6a0, 0x0046a6b0 | pub health_pool get / set: gamemenu.rs keeps the pool (mission.rs PubInfo) |
-| 0x0046a6c0, 0x0046a6d0, 0x0046a6f0, 0x0046a770 | listen_trigger_open, send_trigger_entry_failure, send_trigger_entry: all 0 on lev_1_m1's pub |
-| 0x0046a750, 0x00471c20, 0x00471fd0 | physics creation info (slot 7): Jolt bodies made by the engine |
-| 0x00471c30, 0x00471c50 | pickup generator activate trigger (0 on lev_1_m1) and removal |
-| 0x00472030, 0x00472080, 0x004720c0, 0x004720e0, 0x004722e0, 0x00472310, 0x004723c0, 0x004723f0, 0x00472470..0x004725a0 | PickupObject virtuals: the pickups subsystem (pickup.rs) |
+Saves (savegame.rs, 2026-10-15): the husk swap is level.rs `StageSwap`, shared by a death (`husks`) and a
+save's restore (`RestoreStage`): a placed object is put straight at its saved stage (a house saved at _db loads
+at _db) without a Died message, so its fx_death, score and send_trigger_on_death are not repeated; the windows
+of a destroyed building go with it, a shot-out window is saved as (building id, window index).
 
 ## Open questions
 
@@ -160,6 +144,4 @@ Left in the queue, each with its reason:
 - **collide_barrier filter 0x40** (the invisible walls): which groups it stops (player only? AI?) is not traced;
   the engine's walls are solid to everything but bullets.
 - **0x00456180's 9 calls** in the coverage runs and **class 98**'s 40 constructions: which lev_1_m1 objects.
-- **Saves and multi-stage husks:** savegame.rs records a destroyed object by instance id and restores its first
-  husk: a house saved at stage _db or _dc loads at _da. Restoring a destroyed object also replays its death
-  (Died), so its send_trigger_on_death is sent again at load (savegame.rs, mission.rs; not changed here).
+- **Saves and multi-stage husks:** settled 2026-10-15 (see "Queue disposition": RestoreStage).

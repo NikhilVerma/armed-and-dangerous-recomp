@@ -49,6 +49,51 @@ impl Props {
     }
 }
 
+/// One difficulty's factors: an entry of the table 0x00589188 (4 entries x 5 floats, read from the exe), which
+/// 0x00401f60 copies to Game+0x554.. when the difficulty Game+0x550 is chosen.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DifficultyFactors {
+    /// Game+0x554: the health of enemy AIs (Ai_InitGeneric 0x004247f0 scales +0x458 / +0x454 when vt+0xe4)
+    pub enemy_health: f32,
+    /// Game+0x558: the health of teammates (the same, when vt+0xe8)
+    pub teammate_health: f32,
+    /// Game+0x55c: the health pickups' amount (pickup.rs)
+    pub health_pickups: f32,
+    /// Game+0x560: reader not traced (open question)
+    pub unknown_560: f32,
+    /// Game+0x564: the Stats screen's money lines (statscreen.rs)
+    pub money: f32,
+}
+
+const fn factors(enemy_health: f32, teammate_health: f32, health_pickups: f32, unknown_560: f32, money: f32) -> DifficultyFactors {
+    DifficultyFactors { enemy_health, teammate_health, health_pickups, unknown_560, money }
+}
+
+/// The table 0x00589188: easy, normal, hard, very hard.
+pub const DIFFICULTIES: [DifficultyFactors; 4] =
+    [factors(2.0, 0.5, 2.0, 2.0, 0.5), factors(1.0, 1.0, 1.0, 1.0, 1.0), factors(1.0, 2.0, 0.75, 0.75, 1.2), factors(0.5, 2.0, 0.6, 0.5, 1.5)];
+
+/// The difficulty chosen (Game+0x550): saved with the game (the savegame header +0x108 and progress.dat).
+#[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Difficulty(pub usize);
+
+impl Default for Difficulty {
+    /// normal (0x004a3930 resets the progress with 0x00401f60(1))
+    fn default() -> Self {
+        Difficulty(1)
+    }
+}
+
+impl Difficulty {
+    /// 0x00401f60: an index past the table (>= 4) is normal.
+    pub fn select(index: usize) -> Self {
+        Difficulty(if index >= DIFFICULTIES.len() { 1 } else { index })
+    }
+    pub fn factors(self) -> DifficultyFactors {
+        DIFFICULTIES[self.0]
+    }
+}
+
 impl GameData {
     pub fn load(dir: &Path) -> Self {
         let read = |f: &str| std::fs::read_to_string(dir.join(f)).unwrap_or_else(|e| panic!("{f}: {e} (re-run tools/remaster_export.py)"));

@@ -1,21 +1,51 @@
 //! Save Game / Quick Load (pause menu) and Restart from last save (mission failed): a snapshot of the state that
 //! matters, in saves/quicksave.json next to the executable. Loading starts the game again in a fresh process with
-//! `--load FILE`; the snapshot is applied once the level is built: Roman (position, facing, health, weapons and
-//! ammo, specials), the mission (one-shot triggers fired, bomb sites, barracks, pub, compass, objectives, voice
-//! lines played), placed grunts that died (removed), placed objects that were destroyed (their husk, no explosion).
-//! The intro (camera path and its white overlay) is not replayed.
+//! `--load FILE`; the snapshot is applied once the level is built. The intro (camera path and its white overlay) is
+//! not replayed.
 //!
-//! Not the original's save format (docs/remaster-engine.md). Limits, labelled: grunts a barracks had already
-//! released and that were alive are not restored (the barracks' remaining counts are); companions start at Roman.
+//! What is saved, and why (the original's save, src/save/save_01.cpp, serialises the whole object graph through the
+//! class descriptor tables: SaveGame_Write 0x0048c620 writes a 0x124-byte header (level, the level manager's index,
+//! the difficulty Game+0x550, the format hash, the time, a 128 x 76 thumbnail) and then every object's described
+//! members, Havok body states and lists (0x0048b780 / 0x0048bda0); SaveGame_Load 0x0048c9b0 reloads the level and
+//! reads them back). The remaster keeps the state a player can see instead of the memory image:
+//! - Roman: position, facing, health, weapons and ammo, specials;
+//! - the mission (mission.rs MissionSave): one-shot triggers fired, volumes, counters, bomb sites, barracks, pub,
+//!   compass, objectives, voice lines played;
+//! - placed grunts that died (removed);
+//! - placed objects no longer as placed: the template each one is now (a multi-stage husk is restored at its stage:
+//!   v_house_2f_a_db, not its first husk) or gone; and the building windows shot out. They are put straight at that
+//!   stage (level.rs RestoreStage): no death, so no fx, no score and no send_trigger_on_death is sent again;
+//! - the difficulty (Game+0x550, gamedata.rs Difficulty: the header's +0x108, restored by 0x00401f60) and the money
+//!   (Game+0x570, part of the Game object's saved members). The original banks the money at +0x57c (0x00401ef0,
+//!   after the Stats screen) and every level start takes it back from there (0x00401f10 from Game_StartLevel
+//!   0x00403690, whose "-slot" name is a load: SaveGame_Load 0x0048c9b0): a restart costs what was earned since.
+//!   Here the money lives in options.json (GameOptions.money) and only the Stats screen changes it, so the bank is
+//!   that value; a new game sets 5000 (gamemenu.rs).
+//!
+//! Not restored (open): the alarm's raised sirens (the original re-creates their fx_siren after a load, 0x0048c530),
+//! the camera pitch.
+//!
+//! Where a save may be made: anywhere from the pause menu (the remaster's default), or, with the option
+//! "checkpoint_saves" (options.rs), only where the original offers one: its QuickSave screen is pushed through
+//! QuickSave_Request 0x00403560 once the mission start has been shown (MissionObject_ShowStart 0x0044daf0) and when
+//! the pub screen is left (0x004690c0). The remaster saves there by itself instead of asking (the save slot / profile
+//! screens are not ported: one quick save).
+//!
+//! Limits, labelled: grunts a barracks had already released and that were alive are not restored (the barracks'
+//! remaining counts are); companions start at Roman.
 
-use crate::fx::{Died, Health};
-use crate::level::InstanceId;
+use crate::fx::Health;
+use crate::level::{InstanceId, RestoreStage, Stage};
 use crate::player::Roman;
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
-#[derive(Serialize, Deserialize, Default, Clone)]
+/// The money a new game starts with (0x00401e80 with flag2: Game+0x570 = 5000, banked at +0x57c).
+pub const NEW_GAME_MONEY: f32 = 5000.0;
+
+#[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq)]
 pub struct SaveData {
     pub level: String,
     pub roman_feet: [f32; 3],
@@ -28,7 +58,57 @@ pub struct SaveData {
     pub topsy: u32,
     pub mission: crate::mission::MissionSave,
     pub dead_grunts: Vec<u32>,
+    /// placed objects no longer as placed: (instance id, the template it is now; None = gone)
+    #[serde(default)]
+    pub objects: Vec<(u32, Option<String>)>,
+    /// building windows shot out: (the building's instance id, the window's index)
+    #[serde(default)]
+    pub windows: Vec<(u32, u8)>,
+    /// Game+0x550
+    #[serde(default = "normal")]
+    pub difficulty: usize,
+    /// Game+0x570
+    #[serde(default)]
+    pub money: Option<f32>,
+    /// saves written before `objects`: destroyed instance ids, restored at their first husk
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub destroyed: Vec<u32>,
+}
+
+fn normal() -> usize {
+    crate::gamedata::Difficulty::default().0
+}
+
+impl SaveData {
+    /// The stage each listed object is restored at.
+    pub fn stages(&self) -> HashMap<u32, Stage> {
+        let mut out: HashMap<u32, Stage> = self.destroyed.iter().map(|&id| (id, Stage::FirstHusk)).collect();
+        for (id, t) in &self.objects {
+            out.insert(*id, t.clone().map_or(Stage::Gone, Stage::Template));
+        }
+        out
+    }
+}
+
+/// What asks for a save.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum SaveSource {
+    /// the pause menu's Save Game
+    #[default]
+    Menu,
+    /// a checkpoint (the mission start shown, the pub left)
+    Checkpoint,
+    /// a playtest 'save' step (always allowed)
+    Script,
+}
+
+/// Whether a save may be made now: anywhere, or with checkpoint_saves only at the checkpoints (scripts always).
+pub fn may_save(checkpoint_saves: bool, source: SaveSource) -> bool {
+    match source {
+        SaveSource::Menu => !checkpoint_saves,
+        SaveSource::Checkpoint => checkpoint_saves,
+        SaveSource::Script => true,
+    }
 }
 
 /// Requests from the menus.
@@ -37,6 +117,7 @@ pub struct SaveRequest {
     pub save: bool,
     /// write here instead of the quicksave (a playtest 'save' step)
     pub path: Option<PathBuf>,
+    pub source: SaveSource,
 }
 
 /// A save to apply after the level is built (`--load`).
@@ -59,8 +140,57 @@ pub struct SaveGamePlugin;
 
 impl Plugin for SaveGamePlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<SaveRequest>().init_resource::<PlacedIds>().add_systems(Update, (record_placed, save, apply));
+        app.init_resource::<SaveRequest>()
+            .init_resource::<PlacedIds>()
+            .init_resource::<Checkpoints>()
+            .init_resource::<crate::gamedata::Difficulty>()
+            .add_systems(Update, (record_placed, save, apply))
+            .add_systems(PostUpdate, (checkpoints, log_state));
     }
+}
+
+/// The state log's "game" (playtest expect steps): the difficulty, the money, the save rule.
+fn log_state(state: Option<ResMut<crate::playtest::PlayState>>, difficulty: Res<crate::gamedata::Difficulty>, opts: Res<crate::options::GameOptions>) {
+    let Some(mut state) = state else { return };
+    state.0.insert("game".into(), serde_json::json!({ "difficulty": difficulty.0, "money": opts.money, "checkpoint_saves": opts.checkpoint_saves }));
+}
+
+/// The placed objects at level start (instance id -> template) and the building windows (building id, index), to
+/// tell what was destroyed.
+#[derive(Resource, Default)]
+pub struct PlacedIds {
+    pub objects: HashMap<u32, String>,
+    pub windows: HashSet<(u32, u8)>,
+}
+
+fn record_placed(
+    mut ids: ResMut<PlacedIds>,
+    q: Query<(&InstanceId, &crate::level::Placed), Added<crate::level::Placed>>,
+    windows: Query<&crate::level::Window, Added<crate::level::Window>>,
+    buildings: Query<&InstanceId>,
+) {
+    for (i, p) in &q {
+        ids.objects.entry(i.0).or_insert_with(|| p.template.clone());
+    }
+    for w in &windows {
+        if let Ok(b) = buildings.get(w.building) {
+            ids.windows.insert((b.0, w.index));
+        }
+    }
+}
+
+/// The objects whose stage differs from the level's (instance id -> its template now, None = gone), sorted.
+fn object_stages(placed: &HashMap<u32, String>, now: &HashMap<u32, String>) -> Vec<(u32, Option<String>)> {
+    let mut out: Vec<(u32, Option<String>)> = placed
+        .iter()
+        .filter_map(|(id, tpl)| match now.get(id) {
+            Some(t) if t == tpl => None,
+            Some(t) => Some((*id, Some(t.clone()))),
+            None => Some((*id, None)),
+        })
+        .collect();
+    out.sort();
+    out
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -70,23 +200,24 @@ fn save(
     roman: Query<(&Roman, &Transform, &Health)>,
     grunts: Query<(&InstanceId, &crate::ai::Grunt)>,
     objects: Query<(&InstanceId, &crate::level::Placed)>,
-    destructible: Query<&crate::fx::Destructible>,
-    data: Res<crate::gamedata::GameData>,
+    windows: Query<&crate::level::Window>,
+    buildings: Query<&InstanceId>,
     scene_ids: Res<PlacedIds>,
+    (opts, difficulty): (Res<crate::options::GameOptions>, Res<crate::gamedata::Difficulty>),
 ) {
     if !std::mem::take(&mut req.save) {
         return;
     }
+    let source = if req.path.is_some() { SaveSource::Script } else { std::mem::take(&mut req.source) };
     let (Some(mut m), Ok((r, t, h))) = (mission, roman.single()) else { return };
-    let present: std::collections::HashSet<u32> = objects.iter().map(|(i, _)| i.0).collect();
-    // destroyed: a placed object now carrying its husk template, or gone from the level
-    let mut destroyed: Vec<u32> = objects
-        .iter()
-        .filter(|(i, p)| scene_ids.0.get(&i.0).is_some_and(|tpl| tpl != &p.template))
-        .map(|(i, _)| i.0)
-        .collect();
-    destroyed.extend(scene_ids.0.keys().filter(|id| !present.contains(id) && !scene_ids.1.contains(id)).copied());
-    let _ = (&destructible, &data);
+    if !may_save(opts.checkpoint_saves, source) {
+        m.feed("Saves are made at checkpoints");
+        return;
+    }
+    let now: HashMap<u32, String> = objects.iter().map(|(i, p)| (i.0, p.template.clone())).collect();
+    let standing: HashSet<(u32, u8)> = windows.iter().filter_map(|w| buildings.get(w.building).ok().map(|b| (b.0, w.index))).collect();
+    let mut broken: Vec<(u32, u8)> = scene_ids.windows.difference(&standing).copied().collect();
+    broken.sort();
     let s = SaveData {
         level: "lev_1_m1".into(),
         roman_feet: (crate::level::game_to_engine().inverse() * t.translation).to_array(),
@@ -99,7 +230,11 @@ fn save(
         topsy: r.topsy,
         mission: m.snapshot(),
         dead_grunts: grunts.iter().filter(|(_, g)| g.mind == crate::ai::Mind::Dead).map(|(i, _)| i.0).collect(),
-        destroyed,
+        objects: object_stages(&scene_ids.objects, &now),
+        windows: broken,
+        difficulty: difficulty.0,
+        money: Some(opts.money),
+        destroyed: Vec::new(),
     };
     let path = req.path.take().unwrap_or_else(save_path);
     if let Some(d) = path.parent() {
@@ -108,21 +243,31 @@ fn save(
     match serde_json::to_string_pretty(&s).map(|j| std::fs::write(&path, j)) {
         Ok(Ok(())) => {
             m.feed("Game saved");
-            m.log.push(format!("saved to {}", path.display()));
+            m.log.push(format!("saved to {} ({source:?})", path.display()));
         }
         _ => warn!("save: could not write {}", path.display()),
     }
 }
 
-fn record_placed(mut ids: ResMut<PlacedIds>, q: Query<(&InstanceId, &crate::level::Placed), Added<crate::level::Placed>>) {
-    for (i, p) in &q {
-        ids.0.entry(i.0).or_insert_with(|| p.template.clone());
-    }
+/// The checkpoints seen (a load counts the mission start as seen: restoring the mission marks it started).
+#[derive(Resource, Default)]
+pub struct Checkpoints {
+    pub start_seen: bool,
 }
 
-/// The placed objects at level start (instance id -> template) and the placed grunts, to tell what was destroyed.
-#[derive(Resource, Default)]
-pub struct PlacedIds(pub std::collections::HashMap<u32, String>, pub std::collections::HashSet<u32>);
+/// The original's save points (see the module doc): the mission start shown, the pub screen left.
+fn checkpoints(mission: Option<Res<crate::mission::Mission>>, mut seen: ResMut<Checkpoints>, mut req: ResMut<SaveRequest>, opts: Res<crate::options::GameOptions>, pending: Option<Res<PendingLoad>>) {
+    let Some(m) = mission else { return };
+    if pending.is_some() {
+        return;
+    }
+    let start = m.started() && !seen.start_seen;
+    seen.start_seen |= m.started();
+    if (start || m.pub_exit_pending) && opts.checkpoint_saves && !req.save {
+        req.save = true;
+        req.source = SaveSource::Checkpoint;
+    }
+}
 
 #[allow(clippy::too_many_arguments)]
 fn apply(
@@ -132,9 +277,11 @@ fn apply(
     mut roman: Query<(&mut Roman, &mut Transform, &mut Health), Without<crate::ai::Grunt>>,
     mut grunts: Query<(Entity, &InstanceId, &mut crate::ai::Grunt, &mut Health, Option<&crate::physics::Body>), Without<Roman>>,
     objects: Query<(Entity, &InstanceId), With<crate::level::Placed>>,
-    mut died: MessageWriter<Died>,
+    windows: Query<(Entity, &crate::level::Window)>,
+    mut restore: MessageWriter<RestoreStage>,
     mut physics: NonSendMut<crate::physics::Physics>,
     data: Res<crate::gamedata::GameData>,
+    (mut opts, mut difficulty, mut seen): (ResMut<crate::options::GameOptions>, ResMut<crate::gamedata::Difficulty>, ResMut<Checkpoints>),
 ) {
     let Some(mut p) = pending else { return };
     // wait two frames after the level exists (placed objects and the rig are spawned by then)
@@ -145,6 +292,11 @@ fn apply(
     }
     let s = p.0.clone();
     m.restore(&s.mission);
+    seen.start_seen = true;
+    *difficulty = crate::gamedata::Difficulty::select(s.difficulty);
+    if let Some(money) = s.money {
+        opts.money = money;
+    }
     let feet = crate::level::game_to_engine() * Vec3::from(s.roman_feet);
     physics.place_walker(&r.walker, feet);
     t.translation = feet;
@@ -172,13 +324,79 @@ fn apply(
             commands.entity(e).despawn();
         }
     }
+    let stages = s.stages();
+    let mut building_ids: HashMap<Entity, u32> = HashMap::new();
     for (e, i) in &objects {
-        if s.destroyed.contains(&i.0) {
-            commands.entity(e).remove::<crate::fx::Destructible>();
-            died.write(Died(e));
+        building_ids.insert(e, i.0);
+        if let Some(stage) = stages.get(&i.0) {
+            restore.write(RestoreStage { entity: e, stage: stage.clone() });
+        }
+    }
+    // windows shot out (a destroyed building's windows go with its RestoreStage)
+    for (we, w) in &windows {
+        if building_ids.get(&w.building).is_some_and(|b| s.windows.contains(&(*b, w.index))) {
+            restore.write(RestoreStage { entity: we, stage: Stage::Gone });
         }
     }
     m.log.push("loaded the saved game".into());
     m.feed("Game loaded");
     commands.remove_resource::<PendingLoad>();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn map(v: &[(u32, &str)]) -> HashMap<u32, String> {
+        v.iter().map(|(i, t)| (*i, t.to_string())).collect()
+    }
+
+    /// A house at its third stage, a removed arrow, an untouched oil pump: only the first two are listed, with the
+    /// stage the house is at now.
+    #[test]
+    fn stages_recorded() {
+        let placed = map(&[(174, "v_house_2f_a"), (258, "bigredarrow"), (224, "oilpump")]);
+        let now = map(&[(174, "v_house_2f_a_db"), (224, "oilpump")]);
+        assert_eq!(object_stages(&placed, &now), vec![(174, Some("v_house_2f_a_db".into())), (258, None)]);
+    }
+
+    /// The save file round trip: every field back as written; an old save (destroyed ids only) restores first husks.
+    #[test]
+    fn round_trip() {
+        let s = SaveData {
+            level: "lev_1_m1".into(),
+            roman_feet: [1.0, 2.0, 3.0],
+            yaw: 0.5,
+            health: 220.0,
+            rifle_clip: 4,
+            mg: Some((60, 140)),
+            use_mg: true,
+            stickies: 7,
+            topsy: 1,
+            dead_grunts: vec![12, 13],
+            objects: vec![(131, Some("boom_island_d".into())), (174, Some("v_house_2f_a_db".into())), (258, None)],
+            windows: vec![(170, 2)],
+            difficulty: 2,
+            money: Some(5120.0),
+            ..Default::default()
+        };
+        let back: SaveData = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert_eq!(back, s);
+        let st = back.stages();
+        assert_eq!(st.get(&174), Some(&Stage::Template("v_house_2f_a_db".into())));
+        assert_eq!(st.get(&258), Some(&Stage::Gone));
+        let old: SaveData = serde_json::from_str(r#"{"level":"lev_1_m1","roman_feet":[0,0,0],"yaw":0,"health":300,"rifle_clip":5,"mg":null,"use_mg":false,"stickies":0,"topsy":0,"mission":{"triggers_done":[],"sites":[],"barracks":[],"pub_done":false,"pub_pool":null,"compass_tag":0,"tickers":0,"objectives":"","objectives_raw":"","ears_done":[]},"dead_grunts":[],"destroyed":[258]}"#).unwrap();
+        assert_eq!(old.stages().get(&258), Some(&Stage::FirstHusk));
+        assert_eq!((old.difficulty, old.money), (1, None));
+    }
+
+    /// Save anywhere by default; with checkpoint_saves only at checkpoints; scripts always.
+    #[test]
+    fn save_rules() {
+        assert!(may_save(false, SaveSource::Menu));
+        assert!(!may_save(false, SaveSource::Checkpoint));
+        assert!(!may_save(true, SaveSource::Menu));
+        assert!(may_save(true, SaveSource::Checkpoint));
+        assert!(may_save(true, SaveSource::Script) && may_save(false, SaveSource::Script));
+    }
 }

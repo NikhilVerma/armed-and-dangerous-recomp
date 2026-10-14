@@ -44,6 +44,10 @@ pub struct LevelInfo {
 pub struct InstanceId(pub u32);
 
 /// `behavior = background` (the sky dome): drawn around the camera, unlit, no fog, no collision.
+/// BackgroundObject_Load 0x0040a890 reads sorting_order (draw order among backgrounds) and fog (default 0: the
+/// materials' fog bit 0x10 cleared); lev_1_m1's one dome (p_background) has fog 0 and is the only background, so
+/// neither is read here (a background with fog 1 would need the level fog on its material). Its slot 7
+/// (0x0040a9e0) sets three flag bytes of its collision description (guess: no collision): no collider here.
 #[derive(Component)]
 pub struct Background;
 
@@ -247,8 +251,9 @@ impl Plugin for LevelPlugin {
         // husks after mission.rs `deaths`: a dead placed object is told from a dying husk by the Husk marker the swap
         // inserts, so the death trigger must be read first
         app.add_message::<SpawnGrunt>()
+            .add_message::<RestoreStage>()
             .init_resource::<TriggerLog>()
-            .add_systems(Update, (husks.after(crate::fx::FxSet).after(crate::mission::deaths), spawn_grunts, rigid_anims, audio_loops, object_triggers))
+            .add_systems(Update, (husks.after(crate::fx::FxSet).after(crate::mission::deaths), restore_stages, spawn_grunts, rigid_anims, audio_loops, object_triggers))
             .add_systems(PostUpdate, follow_camera.before(TransformSystems::Propagate))
             .add_systems(PostUpdate, default_anims.before(crate::skin::AnimateSet))
             .add_systems(PostUpdate, (log_oilpump, log_objects).after(TransformSystems::Propagate));
@@ -423,6 +428,8 @@ pub struct Penguin {
 #[derive(Component)]
 pub struct Window {
     pub building: Entity,
+    /// its ref_win_0N (the save game names a shot-out pane by its building's instance id and this)
+    pub index: u8,
 }
 
 /// One of Roman's weapon models in his hand (player.rs shows the one in use).
@@ -794,7 +801,7 @@ pub fn spawn(
                 let Some(at) = crate::mission::pub_bone(&lib_dir, &anim, &format!("ref_win_{i:02}")) else { break };
                 let Some(wt) = wt.as_ref() else { break };
                 let ww = world * Mat4::from_translation(at);
-                let we = commands.spawn((Transform::from_matrix(ww), Visibility::default(), Name::new("village_window"), Window { building: e })).id();
+                let we = commands.spawn((Transform::from_matrix(ww), Visibility::default(), Name::new("village_window"), Window { building: e, index: i as u8 })).id();
                 if let Some(m) = wt.model.as_ref().and_then(|m| lib.load_model(m, false, assets, meshes, materials)) {
                     let _ = attach_model(commands, we, m, false, None);
                     if m.skeleton.is_none() && wp.f("decal_receive", 1.0) != 0.0 {
@@ -944,24 +951,150 @@ fn audio_loops(
     }
 }
 
+/// The stage swap shared by a death (`husks`) and a save's restore (`restore_stages`): a placed object loses its
+/// parts, collider and decals (Object_Remove 0x004547b0, once: decals, force actions, shadow, detach, lists; the
+/// destructor Object_Destruct 0x004512b0 is the entity's despawn) and becomes another template's object in place
+/// (Object_SpawnHusk 0x00455660), or goes.
+#[derive(bevy::ecs::system::SystemParam)]
+pub struct StageSwap<'w, 's> {
+    commands: Commands<'w, 's>,
+    data: Res<'w, GameData>,
+    lib: ResMut<'w, Library>,
+    physics: NonSendMut<'w, Physics>,
+    assets: Res<'w, AssetServer>,
+    meshes: ResMut<'w, Assets<Mesh>>,
+    materials: ResMut<'w, Assets<StandardMaterial>>,
+    decal_world: Option<ResMut<'w, crate::decals::DecalWorld>>,
+    /// the next stage's husk pick (Object_LoadBaseProps 0x00451360 of the new object)
+    rng: Local<'s, crate::fxvm::CrtRand>,
+}
+
+impl StageSwap<'_, '_> {
+    /// The object's collider and decals go (0x00455640: its decals fade, decals.rs, and it takes no more).
+    fn unlink(&mut self, e: Entity, p: &Placed) {
+        if let Some(c) = p.collider {
+            self.physics.remove_static(c);
+        }
+        if let Some(w) = self.decal_world.as_mut() {
+            w.remove_object(e);
+        }
+    }
+
+    /// Removed for good: unlinked and despawned.
+    fn remove(&mut self, e: Entity, p: &Placed) {
+        self.unlink(e, p);
+        self.commands.entity(e).despawn();
+    }
+
+    /// The object becomes `template` at `world` (its own matrix), keeping its entity and InstanceId: the husk made
+    /// by Object_SpawnHusk 0x00455660 through the factory (ObjectSystem_CreateObject 0x0045f020) from its template
+    /// alone. Without such a template the object is despawned. The caller has unlinked it.
+    fn become_template(&mut self, e: Entity, template: &str, world: Mat4, children: &Children) {
+        for c in children.iter() {
+            self.commands.entity(c).despawn();
+        }
+        let Some(ht) = self.data.templates.get(template).cloned() else {
+            self.commands.entity(e).despawn();
+            return;
+        };
+        let hp = self.data.template_props(template);
+        let mut model_name = None;
+        if let Some(m) = ht.model.as_ref().and_then(|m| self.lib.load_model(m, false, &self.assets, &mut self.meshes, &mut self.materials)) {
+            model_name = ht.model.clone();
+            let _ = attach_model(&mut self.commands, e, m, true, None);
+            // the husk is a new object: a receiver like any other (decal_receive of its template)
+            if m.skeleton.is_none() && hp.f("decal_receive", 1.0) != 0.0 {
+                if let Some(w) = self.decal_world.as_mut() {
+                    w.add_object(e, m, Mat4::from_quat(game_to_engine()).inverse() * world);
+                }
+            }
+            // area damage measures to the husk's own bounds (a destructible husk: the houses' _da / _db stages)
+            self.commands.entity(e).insert(Bounds { center: (m.min + m.max) * 0.5, radius: (m.max - m.min).length() * 0.5 });
+        }
+        // its collision model, or (collide_poly) its render model, as a placed object's
+        let coll_name = ht.collision.clone().or_else(|| (hp.i("collide_poly", 0) != 0).then_some(model_name).flatten());
+        let collider = coll_name
+            .and_then(|n| self.lib.load_model(&n, false, &self.assets, &mut self.meshes, &mut self.materials).map(|m| (m.vertices.clone(), m.tris.clone())))
+            .and_then(|(v, tr)| {
+                let v: Vec<Vec3> = v.iter().map(|x| world.transform_point3(*x)).collect();
+                self.physics.add_static_mesh(&v, &tr)
+            });
+        if let Some(c) = collider {
+            collider_lists(&mut self.physics, &hp, c);
+        }
+        let aim = crate::hud::AimClass::of(&hp);
+        let triggers = if hp.s("behavior").is_none() { ObjectTriggers::of(&hp) } else { ObjectTriggers::default() };
+        let next = pick_husk(&hp, &mut self.rng);
+        let mut ec = self.commands.entity(e);
+        ec.insert((Placed { template: template.to_owned(), collider, husk: next, triggers }, aim, Husk));
+        // a husk with health and its own death fx or husk dies again (v_house_2f_a -> _da -> _db -> _dc)
+        if let Some(dd) = destructible(&hp) {
+            ec.insert(dd);
+        }
+    }
+}
+
+/// What a saved game says a placed object is now (savegame.rs).
+#[derive(Clone, Debug, PartialEq)]
+pub enum Stage {
+    /// gone (destroyed without a husk, or removed)
+    Gone,
+    /// a husk stage: the template it became (v_house_2f_a_db)
+    Template(String),
+    /// the husk picked at load (saves written before stages were recorded)
+    FirstHusk,
+}
+
+/// Put a placed object straight at a saved stage (savegame.rs). No death: no Died message, so no fx_death, no
+/// score, no send_trigger_on_death and no barracks stop (the mission's saved state already holds their effects).
+#[derive(Message, Clone)]
+pub struct RestoreStage {
+    pub entity: Entity,
+    pub stage: Stage,
+}
+
+/// Applies RestoreStage: the object's windows go with it (their bursts happened before the save), its loop stops,
+/// its health and death state are the stage's (none when the stage does not die again), and it becomes the saved
+/// stage or goes.
+fn restore_stages(
+    mut events: MessageReader<RestoreStage>,
+    mut swap: StageSwap,
+    placed: Query<(&Placed, &Transform, &Children)>,
+    windows: Query<(Entity, &Window, &Placed)>,
+    mut stop: MessageWriter<crate::audio::StopSoundsOn>,
+) {
+    for ev in events.read() {
+        let Ok((p, t, children)) = placed.get(ev.entity) else { continue };
+        for (we, w, wpl) in &windows {
+            if w.building == ev.entity {
+                swap.remove(we, wpl);
+            }
+        }
+        stop.write(crate::audio::StopSoundsOn(ev.entity));
+        swap.commands.entity(ev.entity).remove::<(AudioLoop, Destructible)>();
+        let template = match &ev.stage {
+            Stage::Gone => None,
+            Stage::Template(t) => Some(t.clone()),
+            Stage::FirstHusk => p.husk.clone(),
+        };
+        match template {
+            Some(h) => {
+                swap.unlink(ev.entity, p);
+                swap.become_template(ev.entity, &h, t.to_matrix(), children);
+            }
+            None => swap.remove(ev.entity, p),
+        }
+    }
+}
+
 /// A dead object is replaced by its husk template (felled tree, ruined barracks) or removed, with its collider.
-/// Removal (Object_Remove 0x004547b0, once: decals, force actions, shadow, detach, lists) and the destructor
-/// (Object_Destruct 0x004512b0) are the entity's despawn (or, for a husk, the swap of its parts and collider).
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::type_complexity)]
 fn husks(
-    mut commands: Commands,
     mut died: MessageReader<Died>,
-    data: Res<GameData>,
-    mut lib: ResMut<Library>,
-    mut physics: NonSendMut<Physics>,
-    assets: Res<AssetServer>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut swap: StageSwap,
     placed: Query<(&Placed, &Transform, &Children)>,
     mut penguins: Query<&mut Penguin>,
     mut windows: Query<(Entity, &Window, &Placed, Option<&mut Destructible>)>,
-    mut decal_world: Option<ResMut<crate::decals::DecalWorld>>,
-    mut rng: Local<crate::fxvm::CrtRand>,
 ) {
     for d in died.read() {
         // a destroyed building's windows die with it: each window holds its building (+0x520, 0x00450980 from
@@ -977,72 +1110,22 @@ fn husks(
                     }
                     continue;
                 }
-                if let Some(c) = wpl.collider {
-                    physics.remove_static(c);
-                }
-                if let Some(w) = decal_world.as_mut() {
-                    w.remove_object(we);
-                }
-                commands.entity(we).despawn();
+                swap.remove(we, wpl);
             }
         }
         let Ok((p, t, children)) = placed.get(d.0) else { continue };
-        if let Some(c) = p.collider {
-            physics.remove_static(c);
-        }
-        // the object goes (0x00455640): its decals fade (decals.rs) and it takes no more
-        if let Some(w) = decal_world.as_mut() {
-            w.remove_object(d.0);
-        }
+        swap.unlink(d.0, p);
         // a penguin keeps its model: its death anims play (charanim.rs)
         if let Ok(mut pg) = penguins.get_mut(d.0) {
             pg.dead = Some(0.0);
             continue;
         }
-        for c in children.iter() {
-            commands.entity(c).despawn();
-        }
-        // the husk picked at load (Object_LoadBaseProps 0x00451360), made by Object_SpawnHusk 0x00455660 through the
-        // factory (ObjectSystem_CreateObject 0x0045f020) from its template alone, at the dead object's matrix
-        let husk = p.husk.clone();
-        let husk_tpl = husk.as_ref().and_then(|h| data.templates.get(h)).cloned();
-        let (Some(ht), Some(husk)) = (husk_tpl, husk) else {
-            commands.entity(d.0).despawn();
-            continue;
-        };
-        let hp = data.template_props(&husk);
-        let world = t.to_matrix();
-        let mut model_name = None;
-        if let Some(m) = ht.model.as_ref().and_then(|m| lib.load_model(m, false, &assets, &mut meshes, &mut materials)) {
-            model_name = ht.model.clone();
-            let _ = attach_model(&mut commands, d.0, m, true, None);
-            // the husk is a new object: a receiver like any other (decal_receive of its template)
-            if m.skeleton.is_none() && hp.f("decal_receive", 1.0) != 0.0 {
-                if let Some(w) = decal_world.as_mut() {
-                    w.add_object(d.0, m, Mat4::from_quat(game_to_engine()).inverse() * world);
-                }
+        // the husk picked at load (Object_LoadBaseProps 0x00451360), at the dead object's matrix
+        match p.husk.clone() {
+            Some(h) => swap.become_template(d.0, &h, t.to_matrix(), children),
+            None => {
+                swap.commands.entity(d.0).despawn();
             }
-            // area damage measures to the husk's own bounds (a destructible husk: the houses' _da / _db stages)
-            commands.entity(d.0).insert(Bounds { center: (m.min + m.max) * 0.5, radius: (m.max - m.min).length() * 0.5 });
-        }
-        // its collision model, or (collide_poly) its render model, as a placed object's
-        let coll_name = ht.collision.clone().or_else(|| (hp.i("collide_poly", 0) != 0).then_some(model_name).flatten());
-        let collider = coll_name
-            .and_then(|n| lib.load_model(&n, false, &assets, &mut meshes, &mut materials).map(|m| (m.vertices.clone(), m.tris.clone())))
-            .and_then(|(v, tr)| {
-                let v: Vec<Vec3> = v.iter().map(|x| world.transform_point3(*x)).collect();
-                physics.add_static_mesh(&v, &tr)
-            });
-        if let Some(c) = collider {
-            collider_lists(&mut physics, &hp, c);
-        }
-        let aim = crate::hud::AimClass::of(&hp);
-        let triggers = if hp.s("behavior").is_none() { ObjectTriggers::of(&hp) } else { ObjectTriggers::default() };
-        let next = pick_husk(&hp, &mut rng);
-        commands.entity(d.0).insert((Placed { template: husk, collider, husk: next, triggers }, aim, Husk));
-        // a husk with health and its own death fx or husk dies again (v_house_2f_a -> _da -> _db -> _dc)
-        if let Some(dd) = destructible(&hp) {
-            commands.entity(d.0).insert(dd);
         }
     }
 }

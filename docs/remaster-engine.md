@@ -211,13 +211,40 @@ Replaced or not needed: docs/port/game.csv. Tests: mission_start, volumes, ticke
 Trap: a playtest expect value that is a two-number array is a range, so list-like state fields are strings
 (`mission_obj.compass_target` "234,252").
 
-## Save / load
+## Save / load (subsystem port, 2026-10-15)
 
 Pause menu Save Game writes saves/quicksave.json next to the exe (savegame.rs); Quick Load, Resume Game and Restart
-from last save start a fresh process with `--load FILE`. Restored: Roman (position, facing, health, weapons, ammo,
-specials), the mission (one-shot triggers, bomb sites, barracks, pub, compass, objectives, voice lines), dead placed
-grunts, destroyed objects (husks, no explosion). Not the original's format; not restored: live grunts a barracks had
-released, companions' positions, the camera pitch. Verified: saved after gate 1, loaded, played on to the win.
+from last save start a fresh process with `--load FILE`. The original (src/save/save_01.cpp) serialises the whole
+object graph (save manager 0x0048b620, class descriptor passes 0x0048bc80 / 0x0048bda0 / 0x0048c0f0, Havok body
+states) after a 0x124-byte header with the level, the difficulty and a thumbnail, into one of six slots; the
+remaster saves the state a player sees instead (docs/port/save.csv: replaced / not needed, one row each):
+- Roman (position, facing, health, weapons, ammo, specials), the mission (triggers fired, volumes, counters, bomb
+  sites, barracks, pub, compass, objectives, voice lines), dead placed grunts;
+- each placed object no longer as placed: the template it is now (a multi-stage husk loads at its stage) or gone,
+  and the windows shot out. level.rs `RestoreStage` puts it there without a death: no fx, no score, no
+  send_trigger_on_death sent again (both were gaps until 2026-10-15). Saves from before keep loading (`destroyed`
+  ids: first husk);
+- the difficulty (Game+0x550; gamedata.rs `Difficulty`, the table 0x00589188 read by pickup.rs and statscreen.rs)
+  and the money (Game+0x570; a new game starts with 5000, 0x00401e80).
+Options: options.json is read key by key like options.opt (0x00462310: a wrong-typed value keeps that option's
+default, the rest still loads). The option `checkpoint_saves` (off by default) gives the original's rule: the game
+saves only where the original offers its QuickSave screen (0x00403560): when the mission start has been shown
+(0x0044daf0) and when the pub screen is left (0x004690c0); the pause menu then refuses ("Saves are made at
+checkpoints"). Not in the menus yet (options.json only).
+Not restored (open): live grunts a barracks had released, companions' positions, the camera pitch, the alarm's
+raised sirens (the original re-creates their fx_siren after a load, 0x0048c530).
+Tests: save_write then save_read (regress SUITE, in that order: save_write writes engine/playtests/states/,
+git-ignored); unit tests in savegame.rs (stages, file round trip, old saves, the save rule), options.rs (file round
+trip, partial files, draw distance 0x0040f8c0), weapontable.rs (Weapon_BuildTable 0x00402110's values).
+
+## Game object remainder (2026-10-15)
+
+The Game object's own functions (src/game/game_01.cpp, start_level.cpp) are replaced by the App: construction and
+teardown are main.rs and the process, the frame update is the Update schedule with physics in FixedUpdate, the level
+requests are relaunches. Ported as data: the weapon table (weapontable.rs: 28 slots of names, the slot numbers the
+pickups and the AI's pickup_drop_specific use) and the difficulty table (gamedata.rs). Not needed on lev_1_m1: the
+time-scale effect 0x00403aa0 / 0x00403ac0 (only fx op 0x72 sets it; no lev_1_m1 fx script uses it). The rest:
+docs/port/game.csv.
 
 ## Object model (2026-10-14)
 
