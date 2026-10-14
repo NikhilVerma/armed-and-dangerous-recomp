@@ -1033,7 +1033,6 @@ uint32_t LevelProperties_Load(void* obj, uint32_t a0, uint32_t a1, uint32_t a2, 
     orig::fn_004534a0(a3, G() + 0xc60, u(obj), 0x5b7adc /* "pickup_drop_factor" */, a2, 0x3f800000u /* 1 */, 0);  // 0x423e05
     if (Field<float>(g_game, 0xc60) < kPercent)  // pickup_drop_factor below 0.01 -> 0
         Field<uint32_t>(g_game, 0xc60) = 0;
-    Field<uint32_t>(g_game, 0xc60) = 0;
     orig::fn_004534a0(a3, G() + 0xc64, u(obj), 0x5b7abc /* "pickup_low_health_thresh_pct" */, a2, 0x41c80000u /* 25 */, 0);  // 0x423e41
     Field<float>(g_game, 0xc64) = Field<float>(g_game, 0xc64) * kPercent;
     orig::fn_004534a0(a3, G() + 0xc68, u(obj), 0x5b7aa0 /* "pickup_health_weight_low" */, a2, 0x42480000u /* 50 */, 0);  // 0x423e71

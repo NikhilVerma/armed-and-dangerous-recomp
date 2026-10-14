@@ -14,6 +14,8 @@ use bevy::prelude::*;
 pub struct Pickup {
     pub health: f32,
     pub stickies: u32,
+    /// machine gun rounds (pickup_mgun_bullets num_ammo)
+    pub mg_ammo: u32,
     pub radius: f32,
     pub life: f32,
     pub vel: f32,
@@ -58,9 +60,15 @@ fn drop_on_death(
     mut rng: ResMut<crate::fx::FxStats>,
     physics: NonSend<crate::physics::Physics>,
 ) {
-    let hurt = match (player.single(), roman.single()) {
-        (Ok(h), Ok(r)) => h.0 < r.max_health * 0.75,
-        _ => true,
+    // the pick (0x00475a90, weights from the level properties, LevelProperties_Load 0x00423900, defaults x 0.01):
+    // health pickup_health_weight_low 0.5 below pickup_low_health_thresh_pct 25 % health, else _normal 0.25; the
+    // current weapon's ammo pickup_cur_weapon_weight 0.5 (never for the rifle, weapon 2: it has no ammo to find);
+    // the first other weapon (not the rifle) pickup_noncur_weapon_weight 0.25; sticky bombs pickup_sticky_bomb_weight
+    // 0.25. x = rand x (sticky + cur + noncur + health): health below its weight, then the current weapon, the other
+    // one, else sticky bombs
+    let (ratio, mg_owned, mg_in_hand) = match (player.single(), roman.single()) {
+        (Ok(h), Ok(r)) => (h.0 / r.max_health.max(1.0), r.mg.is_some(), r.use_mg && r.mg.is_some()),
+        _ => (1.0, false, false),
     };
     for (e, g, t) in &grunts {
         if g.mind != Mind::Dead || !seen.insert(e) {
@@ -69,7 +77,19 @@ fn drop_on_death(
         if rng.rand() >= g.drop_percent / 100.0 {
             continue;
         }
-        let name = if hurt { "pickup_health_1" } else { "pickup_sticky_bombs" };
+        let hw = if ratio < 0.25 { 0.5 } else { 0.25 };
+        let (cur, sticky) = (0.5, 0.25);
+        let other = if mg_owned && !mg_in_hand { 0.25 } else { 0.0 };
+        let x = rng.rand() * (sticky + cur + other + hw);
+        let name = if x < hw {
+            "pickup_health_1"
+        } else if x < hw + cur && mg_in_hand {
+            "pickup_mgun_bullets"
+        } else if other > 0.0 && x < hw + cur + other {
+            "pickup_mgun_bullets"
+        } else {
+            "pickup_sticky_bombs"
+        };
         let Some(tpl) = data.templates.get(name) else { continue };
         let p = data.template_props(name);
         let at = t.translation() + Vec3::Y * 4.0;
@@ -82,6 +102,7 @@ fn drop_on_death(
                 Pickup {
                     health: p.f("num_health", 0.0),
                     stickies: p.f("num_ammo", 0.0) as u32 * (name == "pickup_sticky_bombs") as u32,
+                    mg_ammo: p.f("num_ammo", 0.0) as u32 * (name == "pickup_mgun_bullets") as u32,
                     radius: p.f("sphere_radius", 4.0) + 4.0,
                     life: p.f("linger_time", 300.0),
                     vel: p.f("upward_force", 70.0),
@@ -123,6 +144,7 @@ fn spawn_pickups(
                 Pickup {
                     health: p.f("num_health", 0.0),
                     stickies: 0,
+                    mg_ammo: 0,
                     radius: p.f("sphere_radius", 4.0) + 4.0,
                     life: p.f("linger_time", 300.0),
                     vel: ev.vel.y,
@@ -178,6 +200,9 @@ fn collect(
         }
         h.0 = (h.0 + p.health).min(r.max_health);
         r.stickies += p.stickies;
+        if let Some(w) = r.mg.as_mut() {
+            w.ammo += p.mg_ammo;
+        }
         if let (Some(m), Some(text)) = (mission.as_deref_mut(), p.text.as_ref()) {
             m.feed(text);
         }
