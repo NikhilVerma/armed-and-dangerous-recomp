@@ -229,3 +229,15 @@ How this coexists with faithful recovery:
 - This replaces the per-level mechanics inventory as the work order (docs/level1-mechanics.md stays as the
   checklist of what level 1 needs); the 2026-10-13 rule (each piece verified against the original, guesses
   labelled) still applies to each subsystem.
+
+## 2026-10-14: the remaster's code is a base for the human's own games
+
+- Human: "in future I would like to build my own games by borrowing mechanics from the decompiled games. So I want
+  to make sure that whatever you do has a good enough code quality that it can be built upon ... hack on, build
+  upon, extend upon, add mod support". A long-term instruction.
+- Rule for engine/ (and shared tooling; src/ stays the faithful decomp, where "no restructuring for taste" still
+  holds): behaviour stays faithful, structure is clean. Each mechanic is a self-contained module / Bevy plugin
+  with a clear public API and no hidden coupling to Armed and Dangerous; game specifics live in data (properties,
+  templates, tuning, mission scripts) so mods can change content without recompiling; names say what things do,
+  with the original's addresses as provenance in doc comments; tests per mechanic double as usage examples;
+  unavoidable hacks are labelled and logged as debt. This adds to the 2026-10-13 "reusable remaster engine" goal.

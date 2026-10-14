@@ -44,6 +44,10 @@ per behaviour area, never passing by luck (gunner1 once relied on a keg blast an
 that shifts the random sequence broke it); drive the outcome directly (kill / hurt / warp steps, aim at the real
 body) and give ranges a margin, added to tools/regress.py's SUITE. `python tools/regress.py --exe [target]` must pass before
 you report.
+Code quality (docs/decision.md 2026-10-14: the human will build their own games from these mechanics): keep
+each mechanic a self-contained module / Bevy plugin with a clear public API, game specifics in data (properties,
+templates, tuning) rather than code, names that say what things do (addresses as provenance in doc comments),
+no copy-paste, split sprawling systems; label any hack as debt in docs/remaster-engine.md.
 Done when: the queue for your subsystem is empty or every remaining entry has a stated reason; tests pass;
 docs/subsystems/<name>.md updated. Report: branch, commits, queue before / after, tests, open questions.
 ```
