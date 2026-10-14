@@ -263,6 +263,7 @@ fn warp(
     physics.place_walker(&r.walker, feet);
     t.translation = feet;
     r.yaw = w[3].to_radians();
+    r.twist_reset = true;
     r.free_trail.clear();
     r.free_trail.push_back(feet);
     // a new ground reference (else a warp down a slope reads as a fall)
