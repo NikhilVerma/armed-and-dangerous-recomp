@@ -288,6 +288,7 @@ fn grunts(
     time: Res<Time>,
     lib: Res<crate::skin::AnimLibrary>,
     mut fidgets: Local<std::collections::HashMap<Entity, (f32, Option<String>)>>,
+    mut runs: Local<std::collections::HashMap<Entity, u32>>,
     mut seed: Local<u32>,
 ) {
     let dt = time.delta_secs();
@@ -296,16 +297,29 @@ fn grunts(
         *seed = seed.wrapping_mul(214013).wrapping_add(2531011);
         (*seed >> 16) & 0x7fff
     };
+    // every name by the class's anim table (vt+0x1a4: GruntObject 0x0043bd70, BowGruntObject 0x0043abc0,
+    // CaptainObject 0x0043b610; ai.rs anim_name); lev_1_m1 is a cold level (Game+0x2708 == 1)
+    let name = |g: &Grunt, id: u32, r: f32| crate::ai::anim_name(g.kind, id, r, true);
+    // the four-pose sets (PlayAnim4 vt+0x1a0, layers 0 / 1 blended by the aim weights): ids tl, tr, bl, br
+    let four = |a: &mut Animator, g: &Grunt, ids: [u32; 4], looping: bool, h: f32, v: f32| {
+        a.play(0, name(g, ids[0], 0.0), looping, Mask::All);
+        a.set_pair(0, name(g, ids[1], 0.0), h);
+        a.play(1, name(g, ids[2], 0.0), looping, Mask::All);
+        a.set_pair(1, name(g, ids[3], 0.0), h);
+        a.set_weight(1, v);
+        a.sync(1, 0);
+    };
     for (e, mut g, mut a, t, thrown) in &mut q {
-        // a hit reaction: its anim once, then the state's anims again
+        // a hit reaction: its anim once (the all-fours breathing 0x36 looped until its timer ends, ai.rs), then the
+        // state's anims again
         if g.mind != Mind::Dead {
-            if let Some((name, _)) = g.hit.clone() {
-                let playing = a.layers.first().is_some_and(|l| l.anim == name);
+            if let Some((n, kind)) = g.hit.clone() {
+                let playing = a.layers.first().is_some_and(|l| l.anim == n);
                 if playing && a.finished(0, &lib) {
                     g.hit = None;
                 } else {
                     if !playing {
-                        a.play(0, &name, false, Mask::All);
+                        a.play(0, &n, kind == 6, Mask::All);
                         a.layers[0].time = 0.0;
                     }
                     a.stop(1);
@@ -315,95 +329,93 @@ fn grunts(
         } else {
             g.hit = None;
         }
-        // thrown by the Topsy Turvy bomb: hanging on, or falling into the sky
+        // thrown by the Topsy Turvy bomb: hanging on, or falling into the sky (ids 113 / 114, 115 / 73)
         if let Some(th) = thrown {
-            let (name, looping) = match (th.hangs, th.t < 1.0, th.t < 0.3) {
-                (true, true, _) => ("grunt_hang_into", false),
-                (true, false, _) => ("grunt_hanging", true),
-                (false, _, true) => ("grunt_blown_up_into", false),
-                (false, _, false) => ("grunt_blown_up", true),
+            let (id, looping) = match (th.hangs, th.t < 1.0, th.t < 0.3) {
+                (true, true, _) => (113, false),
+                (true, false, _) => (114, true),
+                (false, _, true) => (115, false),
+                (false, _, false) => (73, true),
             };
-            a.play(0, name, looping, Mask::All);
+            a.play(0, name(&g, id, 0.0), looping, Mask::All);
             a.stop(1);
             continue;
         }
         // turning toward the target before firing (0x0042e050)
-        if let (Some((name, _)), Mind::Fire) = (g.turn, g.mind) {
-            a.play(0, name, false, Mask::All);
+        if let (Some((n, _)), Mind::Fire) = (g.turn, g.mind) {
+            a.play(0, n, false, Mask::All);
             a.stop(1);
             continue;
         }
         let limping = g.limp_pct > 0.0 && g.last_health < g.max_health * g.limp_pct / 100.0;
-        let (name, looping) = match g.mind {
-            Mind::Dead if g.ragdoll => ("grunt_blown_up".to_string(), false),
-            Mind::Dead => (g.death_name.map(str::to_owned).unwrap_or_else(|| format!("grunt_die_{}", g.death_anim)), false),
+        // the move anim (0x00427210): limping 0x59; else 8 + (rand * 2 >> 15), drawn once per grunt here (the original
+        // keeps a run 8..0xa already playing)
+        let run = *runs.entry(e).or_insert_with(|| 8 + (rand() * 2 >> 15));
+        let mover = |g: &Grunt| if limping { name(g, 0x59, 0.0) } else { name(g, run, if run == 9 { 0.75 } else { 0.25 }) };
+        let (n, looping): (String, bool) = match g.mind {
+            Mind::Dead if g.ragdoll => (name(&g, 73, 0.0).to_owned(), false),
+            Mind::Dead => {
+                // the death anim Character_Die picked (window, ledge, trench: ai.rs death_name) or 0x50 + n
+                let r = (g.death_anim.saturating_sub(1)) as f32 / 6.0;
+                (g.death_name.map(str::to_owned).unwrap_or_else(|| name(&g, 0x4f + g.death_anim as u32, r).to_owned()), false)
+            }
             Mind::Fire => {
-                // the four aim poses blended by the aim weights (fn_00428fc0, PlayAnim4 vt+0x1a0 with ids
+                // the four aim poses blended by the aim weights (fn_00428980, PlayAnim4 vt+0x1a0 with ids
                 // 0x23/0x24/0x21/0x22): horizontal h (the grunt turns to face the target: on target 0.5), vertical
                 // from the elevation to the target, acos(dz / len) * 57.3 - 90 degrees clamped to +-26.5 (0x005bcf0c /
                 // 0x005bcf10): target above -> the top poses
-                let v = g.target.and_then(|e| targets.get(e).ok()).map(|tg| {
-                    let d = tg.translation() + Vec3::Y * 5.0 - (t.translation + Vec3::Y * 7.0);
-                    let deg = (d.y / d.length().max(1e-3)).clamp(-1.0, 1.0).acos().to_degrees() - 90.0;
-                    (deg.clamp(-26.5, 26.5) + 26.5) / 53.0
-                }).unwrap_or(0.5);
-                let h = 0.5;
-                a.play(0, "grunt_fire_tl", true, Mask::All);
-                a.set_pair(0, "grunt_fire_tr", h);
-                a.play(1, "grunt_fire_bl", true, Mask::All);
-                a.set_pair(1, "grunt_fire_br", h);
-                a.set_weight(1, v);
-                a.sync(1, 0);
+                let v = g
+                    .target
+                    .and_then(|e| targets.get(e).ok())
+                    .map(|tg| {
+                        let d = tg.translation() + Vec3::Y * 5.0 - (t.translation + Vec3::Y * 7.0);
+                        let deg = (d.y / d.length().max(1e-3)).clamp(-1.0, 1.0).acos().to_degrees() - 90.0;
+                        (deg.clamp(-26.5, 26.5) + 26.5) / 53.0
+                    })
+                    .unwrap_or(0.5);
+                four(&mut a, &g, [33, 34, 35, 36], true, 0.5, v);
                 continue;
             }
-            // a trench (ai.rs CoverPhase; ids by GruntObject 0x0043bd70): the run there (the move anim of 0x00427210),
-            // 0x66 grunt_barricade_reload, 0x65 grunt_barricade_breathe (looped), 0x67 grunt_barricade_peek, and
-            // standing up the stand set 2, 3, 0, 1 (grunt_stand_bl / br / tl / tr) at the aim weights 0.5
+            // a trench (ai.rs CoverPhase): the run there (the move anim of 0x00427210), 0x66 the duck, 0x65 the
+            // breathing (looped), 0x67 the peek, and standing up the stand set 2, 3, 0, 1 at the aim weights 0.5
             Mind::Cover => match g.cover.map(|c| c.phase) {
-                Some(CoverPhase::Duck) => ("grunt_barricade_reload".to_string(), false),
-                Some(CoverPhase::Breathe) => ("grunt_barricade_breathe".to_string(), true),
-                Some(CoverPhase::Peek) => ("grunt_barricade_peek".to_string(), false),
+                Some(CoverPhase::Duck) => (name(&g, 0x66, 0.0).to_owned(), false),
+                Some(CoverPhase::Breathe) => (name(&g, 0x65, 0.0).to_owned(), true),
+                Some(CoverPhase::Peek) => (name(&g, 0x67, 0.0).to_owned(), false),
+                Some(CoverPhase::Spray) => (name(&g, 0x68, 0.0).to_owned(), false),
                 Some(CoverPhase::Stand) => {
-                    a.play(0, "grunt_stand_tl", false, Mask::All);
-                    a.set_pair(0, "grunt_stand_tr", 0.5);
-                    a.play(1, "grunt_stand_bl", false, Mask::All);
-                    a.set_pair(1, "grunt_stand_br", 0.5);
-                    a.set_weight(1, 0.5);
-                    a.sync(1, 0);
+                    four(&mut a, &g, [0, 1, 2, 3], false, 0.5, 0.5);
                     continue;
                 }
-                _ if limping => ("grunt_limp".to_string(), true),
-                _ => ("grunt_run_scan".to_string(), true),
+                _ => (mover(&g).to_owned(), true),
             },
             // a mounted gun (ai.rs GunPhase): the run there and back, on it the gunner's four corner sets (ids 0x83..0x86
             // fire, 0x87..0x8a idle; PlayAnim4 vt+0x1a0 by the weights +0x580 (0 left .. 1 right) / +0x584 (1 top))
             Mind::Gunner => match g.gun {
                 Some(gn) if gn.phase == GunPhase::On => {
-                    let k = if gn.firing { "fire" } else { "idle" };
-                    a.play(0, &format!("grunt_stig_mgun_{k}_tl"), true, Mask::All);
-                    a.set_pair(0, &format!("grunt_stig_mgun_{k}_tr"), gn.h);
-                    a.play(1, &format!("grunt_stig_mgun_{k}_bl"), true, Mask::All);
-                    a.set_pair(1, &format!("grunt_stig_mgun_{k}_br"), gn.h);
-                    a.set_weight(1, 1.0 - gn.v);
-                    a.sync(1, 0);
+                    let base = if gn.firing { 0x83 } else { 0x87 };
+                    four(&mut a, &g, [base, base + 1, base + 2, base + 3], true, gn.h, 1.0 - gn.v);
                     continue;
                 }
-                _ if limping => ("grunt_limp".to_string(), true),
-                _ => ("grunt_run_scan".to_string(), true),
+                _ => (mover(&g).to_owned(), true),
             },
-            Mind::Reload => ("grunt_reload_tr".to_string(), false),
-            Mind::Flee => ("grunt_run_scared".to_string(), true),
-            Mind::Chase if limping => ("grunt_limp".to_string(), true),
-            Mind::Chase => ("grunt_run_scan".to_string(), true),
-            Mind::ToMarker => ("grunt_run_scan".to_string(), true),
-            Mind::Guard | Mind::WaitTrigger | Mind::Roam if g.guard || g.mind == Mind::Roam => {
-                // fidgets (0x0042be80 / 0x00427330): with no target the timer +0x494 (15 + rand * 0.000275 s, also
-                // at load) counts down; on expiry, standing at attention (anim 0xf), one random fidget 0x12..0x1a
-                // plays once (GruntObject 0x0043bd70: 18 shiver on a cold level (Game+0x2708 == 1: the world number,
-                // 1 for lev_1_m1, as Music_Update's table row), else a random 19..26; 19 cough, 20 sneeze, 21 fly buzz,
-                // 22 blow nose, 23..26 the
-                // stand scans); when it ends (or the timer runs out again) attention resumes and the timer is redrawn.
-                // The cough and shiver anims carry the fx notes that play the grunts' _ic sounds.
+            // the reload set (0x2a, 0x2b, 0x28, 0x29 by PlayAnim4): the engine plays one of them (0x29, tr)
+            Mind::Reload => (name(&g, 0x29, 0.0).to_owned(), false),
+            Mind::Flee => (name(&g, 11, 0.0).to_owned(), true),
+            Mind::Chase | Mind::ToMarker | Mind::Wander => (mover(&g).to_owned(), true),
+            // state 0x50 walks home with anim 0xa (run_scan)
+            Mind::Home => (if limping { name(&g, 0x59, 0.0) } else { name(&g, 0xa, 0.0) }.to_owned(), true),
+            // the taunt (ids 0x32..0x34) and the throw (0x27): once
+            Mind::Taunt | Mind::Throw => {
+                let id = if g.mind == Mind::Throw { 0x27 } else { g.anim_id };
+                (name(&g, id, 0.0).to_owned(), false)
+            }
+            Mind::Guard | Mind::WaitTrigger | Mind::Roam if g.attention => {
+                // attention (anim 0xf) and the fidgets (0x0042be80 / 0x00427330): with no target the timer +0x494
+                // (15 + rand * 0.000275 s, also at load) counts down; on expiry, standing at attention, one random fidget
+                // 0x12..0x1a plays once (18 shiver on a cold level, Game+0x2708 == 1; 19..26 the class's idles and stand
+                // scans); when it ends (or the timer runs out again) attention resumes and the timer is redrawn. The
+                // cough and shiver anims carry the fx notes that play the grunts' _ic sounds.
                 let f = fidgets.entry(e).or_insert_with(|| (15.0 + rand() as f32 * 0.000275, None));
                 f.0 -= dt;
                 let done = f.1.is_some() && a.finished(0, &lib);
@@ -413,31 +425,27 @@ fn grunts(
                         None
                     } else {
                         let id = ((rand() * 9) >> 15) + 0x12;
-                        Some(match id {
-                            18 => "grunt_idle_shiver",
-                            19 => "grunt_idle_cough",
-                            20 => "grunt_idle_sneeze",
-                            21 => "grunt_idle_fly_buzz",
-                            22 => "grunt_idle_blow_nose",
-                            23 | 25 => "grunt_stand_scan_1",
-                            _ => "grunt_stand_scan_2",
-                        }
-                        .to_string())
+                        let r = rand() as f32 / 32768.0;
+                        Some(name(&g, id, r).to_owned())
                     };
                 }
                 match &f.1 {
                     Some(n) => (n.clone(), false),
-                    None => ("grunt_attention".to_string(), true),
+                    None => (name(&g, 0xf, 0.0).to_owned(), true),
                 }
             }
-            Mind::Guard | Mind::WaitTrigger | Mind::Roam => ("grunt_stand_scan_1".to_string(), true),
+            // ready: the stand set (2, 3, 0, 1 at 0.5, 0.5); no fidgets (0x00427330 needs anim 0xf playing)
+            Mind::Guard | Mind::WaitTrigger | Mind::Roam => {
+                four(&mut a, &g, [0, 1, 2, 3], true, 0.5, 0.5);
+                continue;
+            }
         };
-        a.play(0, &name, looping, Mask::All);
+        a.play(0, &n, looping, Mask::All);
         a.stop(1);
     }
 }
 
-/// Penguins (PenguinObject_Update 0x0048f690, state 2 "wandering", where lev_1_m1's penguins start: no generic_txt,
+// Penguins (PenguinObject_Update 0x0048f690, state 2 "wandering", where lev_1_m1's penguins start: no generic_txt,
 /// 0x0048f140): anim 0x17 pngn_scan_chat at load; each time the anim ends a new one by r = rand() * 100 >> 15:
 /// 0x18 pngn_scan_chat1 below 33, 0x17 below 66, else 0x19 (both pngn_scan_chat). pngn_scan_chat's note at 0
 /// (`fx fx_penguin`) is the call. Not ported: physics on (knocked about), hits (state 3: screams 0x0048fd80,

@@ -1,6 +1,9 @@
 """Run the fast remaster playtests (state-based, with expect steps) and print one line each.
 
-    python tools/regress.py [--exe target-agent2] [NAME ...]
+    python tools/regress.py [--exe target-agent2] [--scene DIR] [--play DIR] [NAME ...]
+
+From a git worktree without work/: --play the main checkout's work/remaster/play (its untracked scripts and states),
+--scene its work/remaster/lev_1_m1 (passed on to playtest.py).
 
 Scripts live in work/remaster/play (not in git; each starts from states/after_pub.json, which
 state_after_pub.json writes). Exit code 1 when any script fails. Add a script here when it guards a ported mechanic.
@@ -20,14 +23,19 @@ TRACKED = os.path.join(ROOT, 'engine', 'playtests')
 ap = argparse.ArgumentParser()
 ap.add_argument('names', nargs='*')
 ap.add_argument('--exe', default='target-agent2')
+ap.add_argument('--scene', default=None, help='scene folder for playtest.py (a worktree without work/)')
+ap.add_argument('--play', default=None, help='folder of the untracked scripts and states (default work/remaster/play)')
 a = ap.parse_args()
+if a.play:
+    PLAY = a.play
+scene = ['--scene', a.scene] if a.scene else []
 
 if not os.path.exists(os.path.join(PLAY, 'states', 'after_pub.json')):
-    subprocess.run([sys.executable, os.path.join(ROOT, 'tools', 'playtest.py'), os.path.join(PLAY, 'state_after_pub.json'), '--exe', a.exe])
+    subprocess.run([sys.executable, os.path.join(ROOT, 'tools', 'playtest.py'), os.path.join(PLAY, 'state_after_pub.json'), '--exe', a.exe] + scene)
 bad = 0
 for name in a.names or SUITE:
     script = next((d for d in (TRACKED, PLAY) if os.path.exists(os.path.join(d, name + '.json'))), PLAY)
-    p = subprocess.run([sys.executable, os.path.join(ROOT, 'tools', 'playtest.py'), os.path.join(script, name + '.json'), '--exe', a.exe],
+    p = subprocess.run([sys.executable, os.path.join(ROOT, 'tools', 'playtest.py'), os.path.join(script, name + '.json'), '--exe', a.exe] + scene,
                        stdout=subprocess.PIPE, text=True, errors='replace')
     res = re.search(r'PLAYTEST RESULT: (\d+) passed, (\d+) failed', p.stdout)
     fails = [l for l in p.stdout.splitlines() if 'EXPECT FAIL' in l or 'panicked' in l]

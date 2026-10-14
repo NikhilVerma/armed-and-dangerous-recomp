@@ -404,9 +404,7 @@ pub fn spawn(
             // weapons: Roman's rifle (the level's loadout: player_add_rifle), grunts' rifle or bow
             let weapon = match inst.template.as_str() {
                 "trotter" => Some("player_rifle"),
-                "grunt_regular" => Some("grunt_rifle"),
-                "grunt" => Some("grunt_bow"),
-                _ => None,
+                t => ai::weapon_template(t),
             };
             if let (Some(h), Some(w)) = (hand, weapon.and_then(|w| data.templates.get(w)).and_then(|t| t.model.clone())) {
                 if let Some(m) = lib.load_model(&w, false, assets, meshes, materials) {
@@ -489,7 +487,7 @@ pub fn spawn(
             if let Some(id) = physics.add_dynamic(e, &shape, pos + lift, Quat::IDENTITY, Vec3::ZERO, s) {
                 let (yaw, _, _) = (rot * game_to_engine().inverse()).to_euler(EulerRot::YXZ);
                 physics.materials.insert(id, p.s("material").unwrap_or("grunt").to_owned());
-                let mut g = ai::make_grunt(&p, data, pos, window_yaw.unwrap_or(yaw), &mut rng);
+                let mut g = ai::make_grunt(&p, data, ai::Kind::of(&inst.template), pos, window_yaw.unwrap_or(yaw), &mut rng);
                 if window_yaw.is_some() {
                     g.fixed = Some(pos);
                 }
@@ -654,6 +652,8 @@ pub fn spawn(
         q111: crate::hitparts::load(&lib.dir, "q111_coll_0"),
     });
     commands.insert_resource(crate::sticky::StickyAssets { parts, dynamite, base: game_to_engine() });
+    // the captains' grenade (template captain_grenade: grunt_grenade_1; ai.rs Grenade)
+    commands.insert_resource(crate::ai::GrenadeAssets(lib.load_model("grunt_grenade_1", false, assets, meshes, materials).map(|m| m.parts.clone()).unwrap_or_default()));
 
     // The level's directional lights (lighttype "dir"): each shines down its local -Z axis.
     let (lo, hi) = (Vec3::from(scene.bounds[0]), Vec3::from(scene.bounds[1]));
@@ -817,7 +817,7 @@ fn spawn_grunts(
         }
         let mut ctx = SkinCtx { lib: &mut anim_lib, binds: &mut binds };
         let (_, _, hand) = attach_model(&mut commands, e, &model, true, Some(&mut ctx));
-        if let (Some(h), Some(w)) = (hand, data.templates.get("grunt_rifle").and_then(|t| t.model.clone())) {
+        if let (Some(h), Some(w)) = (hand, ai::weapon_template(&ev.template).and_then(|w| data.templates.get(w)).and_then(|t| t.model.clone())) {
             if let Some(m) = lib.load_model(&w, false, &assets, &mut meshes, &mut materials) {
                 attach_weapon(&mut commands, h, m, Transform::IDENTITY);
             }
@@ -830,10 +830,14 @@ fn spawn_grunts(
             .allowed_dofs(AllowedDofs::TRANSLATION_X | AllowedDofs::TRANSLATION_Y | AllowedDofs::TRANSLATION_Z);
         if let Some(id) = physics.add_dynamic(e, &shape, ev.at + lift, Quat::IDENTITY, Vec3::ZERO, s) {
             physics.materials.insert(id, "grunt".into());
-            let mut g = ai::make_grunt(&p, &data, ev.at, 0.0, &mut rng);
-            if let Some(b) = ev.barracks {
-                // a barracks troop (0x0042db50): its alert group, marker tags and the walk out through the exit
-                commands.entity(e).insert(crate::mission::BarracksTroop(b));
+            let mut g = ai::make_grunt(&p, &data, ai::Kind::of(&ev.template), ev.at, 0.0, &mut rng);
+            if ev.barracks.is_some() || ev.exit.is_some() {
+                // a barracks troop (0x0042db50) or an alarm generator's (0x0042dd50, ai.rs: then +0x488 0x200, the
+                // charge): its alert group, marker tags and the walk out through the exit
+                if let Some(b) = ev.barracks {
+                    commands.entity(e).insert(crate::mission::BarracksTroop(b));
+                }
+                g.charge = ev.alarm;
                 g.alert_group = ev.alert_group;
                 g.marker_tags = ev.marker_tags;
                 g.exit = ev.exit;
