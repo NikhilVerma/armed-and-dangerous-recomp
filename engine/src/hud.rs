@@ -130,6 +130,11 @@ pub struct HudText {
 #[derive(Component)]
 pub struct TextAlign(pub f32);
 
+/// A built text's size in 640 x 480 units (UiText_Layout 0x00465680 measures it into +0x4d8 / +0x4dc): the menus'
+/// hit boxes (gamemenu.rs).
+#[derive(Component, Clone, Copy)]
+pub struct TextSize(pub Vec2);
+
 /// Meter quads (texture scroll by value).
 #[derive(Component)]
 pub struct Meter {
@@ -164,8 +169,12 @@ pub struct HudState {
     pub heading: f32,
     /// bearing of the current compass target relative to the camera (radians) and its distance
     pub objective: Option<(f32, f32)>,
-    /// up to 3 message lines (chat feed: objectives, subtitles)
-    pub messages: Vec<String>,
+    /// new messages for the chat feed (Chat_AddMessage 0x0046aa60: text, colour index into the table of 0x0046a7e0);
+    /// `chat` drains them into its three lines
+    pub chat_in: Vec<(String, u8)>,
+    /// how many primary weapons and specials Roman carries (0x004a1610 / 0x004a1640: the weapon-cycle arrows)
+    pub weapons: u32,
+    pub specials: u32,
     pub prompt: Option<String>,
     pub briefing: Option<String>,
     pub hit_flash: [f32; 4],
@@ -195,7 +204,16 @@ impl Plugin for HudPlugin {
         app.init_resource::<HudState>()
             .init_resource::<PubView>()
             .init_resource::<Crosshair>()
-            .add_systems(Update, (subtitles, crosshair_aim.run_if(crate::playing), crosshair_pose, place, texts, meters, compass, ticker, pub_view, visibility).chain());
+            .init_resource::<Chat>()
+            // in PostUpdate, after every game system of the frame has set HudState (the prompt is written by several
+            // unordered Update systems: reading it in Update could see it half-set and flicker), before the
+            // transforms propagate
+            .add_systems(
+                PostUpdate,
+                (subtitles, chat, crosshair_aim.run_if(crate::playing), crosshair_pose, place, texts, meters, compass, compass_arms, ticker, pub_view, visibility, log_hud)
+                    .chain()
+                    .before(bevy::transform::TransformSystems::Propagate),
+            );
     }
 }
 
@@ -240,9 +258,16 @@ pub fn spawn(
         "ui_crosshair", "ui_compass", "ui_compass_objective", "ui_ammo_infinity", "ui_ammo_count", "ui_grenade_count",
         "ui_hit_top", "ui_hit_bottom", "ui_hit_left", "ui_hit_right", "ui_player_mg", "ui_player_topsy", "ui_clock", "ui_tickerbomb",
         "ui_tickerbomb_set", "ui_mg_crosshair", "ui_crosshair_friendly", "ui_special_crosshair",
+        // the weapon-cycle arrows (0x00463fa0, the HUD's +0x5c..+0x78 by name, strings 0x005a0dac..0x005a0d20)
+        "ui_select_up_on", "ui_select_down_on", "ui_select_left_on", "ui_select_right_on", "ui_select_up_off", "ui_select_down_off",
+        "ui_select_left_off", "ui_select_right_off",
+        // the message feed's three lines (Chat_Update 0x0046a820 finds ui_chat_01..03 by name)
+        "ui_chat_01", "ui_chat_02", "ui_chat_03",
     ];
     for e in hud.layout.elements.iter().filter(|e| SHOWN.contains(&e.name.as_str()) && e.pos.is_some() && e.page_name.as_deref().is_none_or(|p| p == "pui_main")) {
         let anchor = match e.anchor.as_deref() {
+            // the chat lines are centred on x 320 (hud.md 4, open question 6: ui_aspect.cpp lists them left)
+            _ if e.name.starts_with("ui_chat_") => Anchor::Centre,
             Some("left") => Anchor::Left,
             Some("right") => Anchor::Right,
             _ => Anchor::Centre,
@@ -265,10 +290,9 @@ pub fn spawn(
         commands.entity(root).add_children(&parts);
     }
     spawn_pub(commands, meshes, materials, &hud, &ui);
-    // the message feed (ui_chat_01..03: 320, 437.3 down, scale 0.8), the prompt (ref_tickerbomb_text 321.6, 329.8,
-    // scale 1.0, white) and the briefing (320, 281.1 over ui_text_bkd)
+    // the prompt (ref_tickerbomb_text 321.6, 329.8, scale 1.0; its colour the prompt text's own, `prompt_style`,
+    // fitted to 576 units: 0x00465720) and the briefing (320, 281.1 over ui_text_bkd)
     for (name, pos, scale, colour) in [
-        ("ui_message", Vec2::new(320.0, 420.0), 0.8, Color::srgb(1.0, 1.0, 1.0)),
         ("ui_prompt", Vec2::new(321.6, 329.8), 1.0, Color::WHITE),
         ("ui_briefing", Vec2::new(320.0, 281.1), 0.9, Color::srgb_u8(0xd0, 0xd0, 0xff)),
         // speech subtitles (0x00495cb0): size 1.1 fitted to 576 units, centred at x 0.5, y 0.15 of the screen
@@ -278,7 +302,7 @@ pub fn spawn(
     ] {
         commands.spawn((
             HudElement { name: name.into(), pos, anchor: Anchor::Centre, full: false },
-            HudText { text: String::new(), built: None, scale, colour, fit: if name == "ui_subtitle" { 576.0 } else { 0.0 } },
+            HudText { text: String::new(), built: None, scale, colour, fit: if name == "ui_subtitle" || name == "ui_prompt" { 576.0 } else { 0.0 } },
             Transform::default(),
             Visibility::default(),
             RenderLayers::layer(HUD_LAYER),
@@ -342,7 +366,14 @@ fn build_model(commands: &mut Commands, meshes: &mut Assets<Mesh>, materials: &m
         }
         if let Some(b) = bones.get(qi).filter(|b| b.len() == q.vertices.len()) {
             let verts = q.vertices.iter().zip(b).map(|(v, (bone, bind))| (Vec2::new(v[0], v[1]), bone.clone(), *bind)).collect();
-            part.insert(CrossPart { element: el_name.to_owned(), mesh, verts, applied: None });
+            part.insert(CrossPart { element: el_name.to_owned(), mesh: mesh.clone(), verts, applied: None });
+        }
+        // the objective pointer's fan: its arms close with the distance (0x00466790, anim 4)
+        if el_name == "ui_compass_objective" {
+            if let Some(rig) = arm_rig(&hud.dir, model).into_iter().nth(qi).filter(|r| r.len() == q.vertices.len()) {
+                let verts = q.vertices.iter().zip(rig).map(|(v, w)| (Vec2::new(v[0], v[1]), w)).collect();
+                part.insert(ArmPart { mesh, verts, applied: None });
+            }
         }
         out.push(part.id());
     }
@@ -590,6 +621,276 @@ fn ticker(state: Res<HudState>, mut hands: Query<&mut Transform, With<ClockHand>
     }
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// The message feed: Chat (ui_02.cpp:1995-2270, the object Game+0xaac).
+
+/// The chat colour table (Chat_Init 0x0046a7e0: 0xff000000, 0xff1fffff, 0xfff0f01f, 0xffff1fff, 0xff1fffff,
+/// 0xffff0000; the text colour's alpha is forced to 0xff by UiText_Draw). Pickups add their lines with 1
+/// (0x00472310), weapon changes with 2 (game_09.cpp:1730).
+const CHAT_COLOURS: [u32; 6] = [0x000000, 0x1fffff, 0xf0f01f, 0xff1fff, 0x1fffff, 0xff0000];
+
+/// The three chat lines (Chat +0x24, 3 x 0x100 wide characters): text, colour index (+0x18), game time added
+/// (+0x624). Cleared by Chat_Clear 0x0046acb0 (Default).
+#[derive(Resource, Default)]
+pub struct Chat {
+    lines: Vec<(String, u8, f32)>,
+}
+
+impl Chat {
+    /// Chat_AddLine 0x0046a980: the first empty line, or the feed scrolls up one line first; an empty text is stored
+    /// as " " (0x005a05e0), at most 0xff characters.
+    fn add_line(&mut self, text: &str, colour: u8, now: f32) {
+        if self.lines.len() == 3 {
+            self.lines.remove(0);
+        }
+        let t: String = if text.is_empty() { " ".into() } else { text.chars().take(0xff).collect() };
+        self.lines.push((t, colour, now));
+    }
+
+    /// Chat_AddMessage 0x0046aa60: word wrap at 490 units (0x005bccc4) measured at scale 1.0. While the rest is too
+    /// wide, a prefix grows one character at a time; the line breaks at the last space whose prefix fits (the space is
+    /// dropped), else at the first character that overflows, which is lost (an original bug, docs/original-bugs.md:
+    /// reproduced). The text is cut to 300 characters first (wcsncpy 0x12c).
+    fn add_message(&mut self, font: &FontFile, text: &str, colour: u8, now: f32) {
+        const WRAP: f32 = 490.0;
+        let buf: Vec<char> = text.chars().take(0x12c).collect();
+        let width = |s: &[char]| text_width(font, &s.iter().collect::<String>(), 1.0);
+        let mut line = 0usize;
+        while line < buf.len() && width(&buf[line..]) > WRAP {
+            let rest = &buf[line..];
+            if rest.len() < 2 {
+                break;
+            }
+            let (mut space, mut overflow, mut space_w) = (None::<usize>, None::<usize>, 0.0f32);
+            let mut at_space = false;
+            let mut p = 1usize;
+            loop {
+                let prefix_w = width(&rest[..p]);
+                if overflow.is_none() && prefix_w > WRAP {
+                    overflow = Some(p);
+                }
+                if rest[p] == ' ' {
+                    if prefix_w > WRAP && space.is_some() && space_w <= WRAP {
+                        at_space = true;
+                        break;
+                    }
+                    space_w = prefix_w;
+                    space = Some(p);
+                }
+                p += 1;
+                if p >= rest.len() {
+                    break;
+                }
+            }
+            let _ = at_space;
+            if let Some(s) = space {
+                self.add_line(&rest[..s].iter().collect::<String>(), colour, now);
+                line += s + 1;
+            } else if let Some(o) = overflow {
+                self.add_line(&rest[..o].iter().collect::<String>(), colour, now);
+                line += o + 1;
+            } else {
+                break;
+            }
+        }
+        if line < buf.len() {
+            self.add_line(&buf[line..].iter().collect::<String>(), colour, now);
+        }
+    }
+}
+
+/// Chat_Update 0x0046a820 (each frame): the oldest line scrolls off once it is 6 s old (0x005bccf0, game time:
+/// paused with the game); new messages from `HudState::chat_in`.
+fn chat(time: Res<Time>, mut state: ResMut<HudState>, mut chat: ResMut<Chat>, hud: Option<Res<HudAssets>>) {
+    let now = time.elapsed_secs();
+    if chat.lines.first().is_some_and(|l| now - l.2 >= 6.0) {
+        chat.lines.remove(0);
+    }
+    let Some(hud) = hud else {
+        state.chat_in.clear();
+        return;
+    };
+    for (text, colour) in std::mem::take(&mut state.chat_in) {
+        chat.add_message(&hud.font, &text, colour, now);
+    }
+}
+
+/// The width of a text in 640 x 480 units at `scale` (the widest line), laid out as `text_mesh` does (the
+/// renderer's measure, virtual +0x1c0 / 0x00495fa0).
+fn text_width(font: &FontFile, text: &str, scale: f32) -> f32 {
+    let k = scale * 25.0 / font.common.line_height.max(1.0);
+    let w_adv = font.chars.get(&('W' as u32).to_string()).map(|g| g.xadvance * k).unwrap_or(10.0 * k);
+    let icon = font.common.line_height * k * 1.3 * 1.1;
+    let mut best = 0.0f32;
+    for l in text.replace("<br>", "\n").replace("<BR>", "\n").split('\n') {
+        let mut x = 0.0f32;
+        let mut chars = l.chars();
+        while let Some(c) = chars.next() {
+            if c == '<' {
+                let tag: String = chars.by_ref().take_while(|t| *t != '>').collect();
+                let tl = tag.to_lowercase();
+                if let Some(n) = tl.strip_prefix("tab=") {
+                    x = x.max(n.trim().parse::<f32>().unwrap_or(0.0) * w_adv);
+                } else if tl.starts_with("icon=") {
+                    x += icon;
+                }
+                continue;
+            }
+            if let Some(g) = font.chars.get(&(c as u32).to_string()) {
+                x += g.xadvance * k;
+            }
+        }
+        best = best.max(x);
+    }
+    best
+}
+
+/// UiText_FitScale 0x00465720: the largest scale up to `scale` at which the text is at most `width` units wide,
+/// binary-searched 16 times between 0.1 x scale and scale (the first try returns at once when it fits).
+fn fit_scale(font: &FontFile, text: &str, scale: f32, width: f32) -> f32 {
+    if width <= 0.0 {
+        return scale;
+    }
+    let (mut hi, mut lo, mut cur) = (scale, scale * 0.1, scale);
+    let mut result = lo;
+    for i in 0..16 {
+        if text_width(font, text, cur) <= width {
+            result = cur;
+            if i == 0 {
+                return result;
+            }
+            lo = cur;
+        } else {
+            hi = cur;
+        }
+        cur = (hi + lo) * 0.5;
+    }
+    result
+}
+
+/// A prompt's own text element (ui_tickerbomb_hint white, ui_pub_entry_hint / ui_vehicle_* #a0ffa0, ...): the bank
+/// text whose words around `%s` match the prompt (the drivers 0x00467450, 0x00467b60, 0x004662a0, 0x00466210 show
+/// their own ui_text; mission.rs hands the formatted string).
+fn prompt_style<'a>(layout: &'a LayoutFile, prompt: &str) -> Option<&'a ElementDef> {
+    // the longest match wins (a bare "%s" text matches anything)
+    layout
+        .elements
+        .iter()
+        .filter(|e| e.kind == "text" && e.page_name.as_deref() == Some("pui_main"))
+        .filter_map(|e| {
+            let s = e.string.as_deref().filter(|s| !s.is_empty())?;
+            let fits = match s.split_once("%s") {
+                Some((a, b)) => prompt.starts_with(a) && prompt.ends_with(b) && prompt.len() >= a.len() + b.len(),
+                None => prompt == s,
+            };
+            fits.then_some((s.len(), e))
+        })
+        .max_by_key(|x| x.0)
+        .map(|x| x.1)
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// The objective pointer (0x00466790): a fan of eight arms (bones arm01..arm08 of ui_compass_objective's skin) that
+// its anim closes as Roman nears the target: frame (anim 4) = 1 - min(distance x 0.002, 1) (0x005bcc90); at 0 the
+// bind pose, a half disc; at 1 every arm at 90 degrees, a line.
+
+/// Per vertex of a part: the (bone name, weight, bind rotation) of each influence.
+type ArmRig = Vec<(String, f32, Quat)>;
+
+/// The objective pointer's part: layout vertices with their bone weights; rewritten when the frame changes.
+#[derive(Component)]
+pub struct ArmPart {
+    mesh: Handle<Mesh>,
+    verts: Vec<(Vec2, ArmRig)>,
+    applied: Option<f32>,
+}
+
+/// Per part of a model, per vertex: its influences from models/<model>.json / .bin (joints u16 x 4 at `joints`,
+/// weights f32 x 4 at `weights`) and skeletons/<model>.json (each bone's bind rotation).
+fn arm_rig(dir: &Path, model: &str) -> Vec<Vec<ArmRig>> {
+    #[derive(Deserialize)]
+    struct SkBone {
+        name: String,
+        r: [f32; 4],
+    }
+    #[derive(Deserialize)]
+    struct Sk {
+        bones: Vec<SkBone>,
+    }
+    #[derive(Deserialize)]
+    struct Sub {
+        vertices: usize,
+        #[serde(default)]
+        joints: Option<usize>,
+        #[serde(default)]
+        weights: Option<usize>,
+    }
+    #[derive(Deserialize)]
+    struct Md {
+        submeshes: Vec<Sub>,
+    }
+    let json = |sub: &str| std::fs::read_to_string(dir.join(sub).join(format!("{model}.json"))).ok();
+    let (Some(sk), Some(md)) = (json("skeletons").and_then(|t| serde_json::from_str::<Sk>(&t).ok()), json("models").and_then(|t| serde_json::from_str::<Md>(&t).ok())) else {
+        return Vec::new();
+    };
+    let bin = std::fs::read(dir.join("models").join(format!("{model}.bin"))).unwrap_or_default();
+    let u16_at = |o: usize| bin.get(o..o + 2).map(|b| u16::from_le_bytes([b[0], b[1]]));
+    let f32_at = |o: usize| bin.get(o..o + 4).map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]));
+    md.submeshes
+        .iter()
+        .map(|sm| {
+            (0..sm.vertices)
+                .map(|v| {
+                    let (Some(jo), Some(wo)) = (sm.joints, sm.weights) else { return Vec::new() };
+                    (0..4)
+                        .filter_map(|i| {
+                            let j = u16_at(jo + v * 8 + i * 2)? as usize;
+                            let w = f32_at(wo + v * 16 + i * 4)?;
+                            let b = sk.bones.get(j).filter(|_| w > 0.0)?;
+                            Some((b.name.to_lowercase(), w, Quat::from_array(b.r).normalize()))
+                        })
+                        .collect()
+                })
+                .collect()
+        })
+        .collect()
+}
+
+/// Poses the objective pointer: frame = 1 - min(distance x 0.002, 1), each vertex turned by its arms' anim rotation
+/// at frame x duration relative to their bind rotation (the arms sit at the centre).
+fn compass_arms(state: Res<HudState>, lib: Option<ResMut<crate::skin::AnimLibrary>>, mut parts: Query<&mut ArmPart>, mut meshes: ResMut<Assets<Mesh>>) {
+    let Some(mut lib) = lib else { return };
+    let Some((_, dist)) = state.objective else { return };
+    let frame = 1.0 - (dist * 0.002).min(1.0);
+    let Some(anim) = lib.anim("ui_compass_objective") else { return };
+    let t = frame * anim.duration;
+    for mut p in &mut parts {
+        if p.applied.is_some_and(|a| (a - frame).abs() < 1e-4) {
+            continue;
+        }
+        p.applied = Some(frame);
+        let pos: Vec<[f32; 3]> = p
+            .verts
+            .iter()
+            .map(|(v, rig)| {
+                if rig.is_empty() {
+                    return [v.x, v.y, 0.0];
+                }
+                let total: f32 = rig.iter().map(|r| r.1).sum::<f32>().max(1e-6);
+                let mut out = Vec2::ZERO;
+                for (bone, w, bind) in rig {
+                    let q = anim.rotation(bone, t).unwrap_or(*bind);
+                    out += (q * bind.inverse() * v.extend(0.0)).truncate() * (*w / total);
+                }
+                [out.x, out.y, 0.0]
+            })
+            .collect();
+        if let Some(mut m) = meshes.get_mut(&p.mesh) {
+            m.insert_attribute(Mesh::ATTRIBUTE_POSITION, pos);
+        }
+    }
+}
+
 #[derive(Component)]
 pub struct CompassNeedle;
 
@@ -732,16 +1033,42 @@ fn texts(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut q: Query<(Entity, &HudElement, &mut HudText, Option<&Children>, Option<&TextAlign>)>,
-    assets: Res<AssetServer>,
+    (assets, chat): (Res<AssetServer>, Res<Chat>),
 ) {
     let Some(hud) = hud else { return };
     for (e, el, mut t, children, align) in &mut q {
         t.text = match el.name.as_str() {
-            // "%d/" + the infinity sign: the rifle's reserve is unlimited (weapon type 2)
+            // 0x00465a20: "%d/%d" (clip / reserve), or "%d/" + the infinity sign (ui_ammo_infinity) for weapon type 2,
+            // whose reserve is unlimited (the rifle in lev_1_m1)
             "ui_ammo_count" => if state.unlimited { format!("{}/", state.clip) } else { format!("{}/{}", state.clip, state.ammo) },
+            // 0x00465ad0: "%d", the current special's count
             "ui_grenade_count" => format!("{}", if state.special == 1 { state.topsy } else { state.stickies }),
-            "ui_message" => state.messages.join("\n"),
-            "ui_prompt" => state.prompt.clone().unwrap_or_default(),
+            // Chat_Update 0x0046a820: line i in ui_chat_0i, coloured by its index into the chat colour table
+            n if n.starts_with("ui_chat_0") => {
+                let i = n.trim_start_matches("ui_chat_0").parse::<usize>().unwrap_or(1).saturating_sub(1);
+                match chat.lines.get(i) {
+                    Some((s, c, _)) => {
+                        let v = CHAT_COLOURS[(*c as usize).min(5)];
+                        let colour = Color::srgb_u8((v >> 16) as u8, (v >> 8) as u8, v as u8);
+                        if colour != t.colour {
+                            t.colour = colour;
+                            t.built = None;
+                        }
+                        s.clone()
+                    }
+                    None => String::new(),
+                }
+            }
+            "ui_prompt" => {
+                let p = state.prompt.clone().unwrap_or_default();
+                // the prompt's own text colour (white for the ticker bomb's, #a0ffa0 for the pub's and the mounted gun's)
+                let colour = prompt_style(&hud.layout, &p).map(|e| parse_colour(e.colour.as_deref())).unwrap_or(Color::WHITE);
+                if colour != t.colour {
+                    t.colour = colour;
+                    t.built = None;
+                }
+                p
+            }
             "ui_briefing" => state.briefing.clone().unwrap_or_default(),
             "ui_team" => state.team.and_then(|(n, _)| hud.layout.elements.iter().find(|e| e.name == n)).and_then(|e| e.string.clone()).unwrap_or_default(),
             "ui_subtitle" => match &state.subtitle {
@@ -765,9 +1092,11 @@ fn texts(
             }
         }
         let text_mat = materials.add(ColorMaterial { color: Color::WHITE, texture: Some(hud.font_image.clone()), ..default() });
+        // fitted to its box (UiText_FitToBox 0x004656f0 / UiText_FitScale 0x00465720: the prompts' 576 units)
+        let scale = fit_scale(&hud.font, &t.text, t.scale, t.fit);
         // shadow 2 px right and down (of 480), drawn first
-        let (front_mesh, size, icon_mesh) = text_mesh(&hud.font, hud.icons.as_ref(), &t.text, t.scale, Vec2::ZERO, t.colour);
-        let (shadow_mesh, _, _) = text_mesh(&hud.font, hud.icons.as_ref(), &t.text, t.scale, Vec2::new(2.0, -2.0), Color::BLACK);
+        let (front_mesh, size, icon_mesh) = text_mesh(&hud.font, hud.icons.as_ref(), &t.text, scale, Vec2::ZERO, t.colour);
+        let (shadow_mesh, _, _) = text_mesh(&hud.font, hud.icons.as_ref(), &t.text, scale, Vec2::new(2.0, -2.0), Color::BLACK);
         let dx = -align.map(|a| a.0).unwrap_or(0.0) * size.x / 2.0;
         let shadow = commands
             .spawn((Mesh2d(meshes.add(shadow_mesh)), MeshMaterial2d(hud.shadow_material.clone()), Transform::from_xyz(dx, 0.0, 20.0), RenderLayers::layer(HUD_LAYER)))
@@ -775,12 +1104,13 @@ fn texts(
         let front = commands
             .spawn((Mesh2d(meshes.add(front_mesh)), MeshMaterial2d(text_mat), Transform::from_xyz(dx, 0.0, 21.0), RenderLayers::layer(HUD_LAYER)))
             .id();
-        commands.entity(e).add_children(&[shadow, front]);
+        commands.entity(e).add_children(&[shadow, front]).insert(TextSize(size));
         if let (Some(m), Some(mat)) = (icon_mesh, hud.icon_material.clone()) {
             let icon = commands.spawn((Mesh2d(meshes.add(m)), MeshMaterial2d(mat), Transform::from_xyz(dx, 0.0, 22.0), RenderLayers::layer(HUD_LAYER))).id();
             commands.entity(e).add_children(&[icon]);
         }
-        // the message box (ui_mission_briefing, 0x00466060) sits on the band ui_text_bkd: texture b_text_bkd,
+        // the message box (ui_mission_briefing, 0x00466060, sizing its band through 0x00464400) sits on the band
+        // ui_text_bkd: texture b_text_bkd,
         // 856 units wide, stretched vertically to the text (anim 4 = min(text height / 480, 1), 0x00466470); the
         // padding is measured from the original's capture (work/shots/orig_ui_play-480.png: ~12 units)
         if el.name == "ui_briefing" && !t.text.is_empty() {
@@ -822,7 +1152,8 @@ fn subtitles(time: Res<Time>, mut subs: MessageReader<crate::audio::Subtitle>, h
     }
 }
 
-/// Health meters: the texture scrolls by t = clamp((1 - value) * 0.5, 0, 0.5); colour band x = 0.5 below 25 %,
+/// Health meters (the meter init 0x00466c20 names the target: ui_player_health 0, ui_health_enemy 1, ui_health_q 2,
+/// the others 3, Jonesy): the texture scrolls by t = clamp((1 - value) * 0.5, 0, 0.5); colour band x = 0.5 below 25 %,
 /// 0.25 below 50 %, else 0 (0x00466e70).
 fn meters(state: Res<HudState>, mut materials: ResMut<Assets<ColorMaterial>>, q: Query<(&Meter, &ChildOf)>, parents: Query<&HudElement>, time: Res<Time<Real>>, mut pulse: Local<(f32, bool)>) {
     // the player's meter pulses at or below 20% (0x00466e70: alpha up 8 / s, down 2 / s)
@@ -865,7 +1196,8 @@ fn meters(state: Res<HudState>, mut materials: ResMut<Assets<ColorMaterial>>, q:
     }
 }
 
-/// The compass needle turns with the camera heading; the objective arrow points at the compass target.
+/// The compass needle turns with the camera heading (0x00466700: anim 4 = 1 - (pi - atan2(dir.y, dir.x)) / 2 pi of the
+/// camera direction, the ui_compass anim one turn); the objective arrow points at the compass target (0x00466790).
 fn compass(state: Res<HudState>, mut needles: Query<&mut Transform, With<CompassNeedle>>, mut q: Query<(&HudElement, &mut Visibility, &Children)>, mut parts: Query<&mut Transform, Without<CompassNeedle>>) {
     for mut t in &mut needles {
         let z = t.translation.z;
@@ -892,10 +1224,23 @@ fn visibility(
     xhair: Res<Crosshair>,
     mut q: Query<(&HudElement, &mut Visibility), (Without<HudText>, Without<crate::gamemenu::MenuOwned>)>,
     mut texts: Query<(&HudElement, &mut Visibility), (With<HudText>, Without<crate::gamemenu::MenuOwned>)>,
+    (ctl, app, vtime): (Res<crate::input::Controls>, Res<State<crate::AppState>>, Res<Time<Virtual>>),
 ) {
+    // 0x00463fa0: the weapon-cycle arrows. "off" with more than one special (up / down: 0x004a1640) or primary weapon
+    // (left / right: 0x004a1610); "on" while that cycle button is held: IncSpecialWeapon 0x10 up, DecSpecialWeapon
+    // 0x11 down, DecWeapon 0xf left, IncWeapon 0xe right (player.md 2; the remaster binds Next Special and Next
+    // Weapon only). All off in a cut scene (g+0x26cc) and while paused (g+0x2684, hud.md 8).
+    // paused: the game's pause count Game+0x2684 (Game_SetPaused 0x004031e0: any menu screen, 0x00490a40, or a
+    // paused message, 0x00403410); the crosshairs (0x00406790) and the objects with +0x474 0x20 (the prompts:
+    // 0x00465230, UiPass_Draw ui_pass.cpp:98) are not drawn then
+    let paused = *app.get() != crate::AppState::Playing || vtime.is_paused();
+    let arrows = state.visible && !state.cinematic && !paused;
+    let (multi_special, multi_weapon) = (arrows && state.specials > 1, arrows && state.weapons > 1);
     for (el, mut v) in &mut q {
         let show = state.visible
             && match el.name.as_str() {
+                // the hit indicators (init 0x00467010: top 1, bottom 2, left 4, right 8 of the hit mask Game+0x26d0;
+                // 0x004670f0 shows each for Game+0xcb8 s: player.rs damage_flash_duration)
                 "ui_hit_top" => state.hit_flash[0] > 0.0,
                 "ui_hit_bottom" => state.hit_flash[1] > 0.0,
                 "ui_hit_left" => state.hit_flash[2] > 0.0,
@@ -912,10 +1257,15 @@ fn visibility(
                 // Hud_ProjectMarkers 0x00406840: the current weapon's crosshair (list +0x30c by weapon index; the
                 // rifle's hidden over a friendly), ui_crosshair_friendly (+0x37c) over a friendly, ui_special_crosshair
                 // (+0x38c) while a special is selected; all only while 0x00406790 allows (no cinematic, no pause)
-                "ui_crosshair" => !state.cinematic && state.weapon != "machinegun" && !xhair.friendly,
-                "ui_mg_crosshair" => !state.cinematic && state.weapon == "machinegun",
-                "ui_crosshair_friendly" => !state.cinematic && xhair.friendly,
-                "ui_special_crosshair" => !state.cinematic,
+                "ui_crosshair" => !state.cinematic && !paused && state.weapon != "machinegun" && !xhair.friendly,
+                "ui_mg_crosshair" => !state.cinematic && !paused && state.weapon == "machinegun",
+                "ui_crosshair_friendly" => !state.cinematic && !paused && xhair.friendly,
+                "ui_special_crosshair" => !state.cinematic && !paused,
+                "ui_select_up_off" | "ui_select_down_off" => multi_special,
+                "ui_select_left_off" | "ui_select_right_off" => multi_weapon,
+                "ui_select_up_on" => multi_special && ctl.down(crate::input::Act::NextSpecial),
+                "ui_select_right_on" => multi_weapon && ctl.down(crate::input::Act::SwitchWeapon),
+                "ui_select_down_on" | "ui_select_left_on" => false,
                 n if n.starts_with("ui_health") => !state.cinematic,
                 _ => true,
             };
@@ -923,15 +1273,63 @@ fn visibility(
     }
     for (el, mut v) in &mut texts {
         // paused messages (the briefing box) show over cinematics and pauses too
-        let show = state.visible || (el.name == "ui_briefing" && state.briefing.is_some()) || (el.name == "ui_subtitle" && state.subtitle.is_some());
+        let show = (state.visible && !(paused && PAUSE_HIDDEN.contains(&el.name.as_str())))
+            || (el.name == "ui_briefing" && state.briefing.is_some())
+            || (el.name == "ui_subtitle" && state.subtitle.is_some());
         *v = if show { Visibility::Inherited } else { Visibility::Hidden };
     }
+}
+
+/// The state log's "hud" (playtest expect steps): the chat lines and their colour indices, the prompt and its
+/// colour, the weapon-cycle arrows shown, the objective pointer's frame.
+#[allow(clippy::type_complexity)]
+fn log_hud(
+    state: Res<HudState>,
+    chat: Res<Chat>,
+    hud: Option<Res<HudAssets>>,
+    els: Query<(&HudElement, &Visibility, Option<&HudText>), Without<crate::gamemenu::MenuOwned>>,
+    play: Option<ResMut<crate::playtest::PlayState>>,
+) {
+    let Some(mut play) = play else { return };
+    let mut arrows: Vec<&str> = els.iter().filter(|(e, v, _)| e.name.starts_with("ui_select_") && **v != Visibility::Hidden).map(|(e, _, _)| e.name.as_str()).collect();
+    arrows.sort();
+    let prompt_colour = els.iter().find(|(e, _, _)| e.name == "ui_prompt").and_then(|(_, _, t)| t).map(|t| {
+        let c = t.colour.to_srgba();
+        format!("#{:02x}{:02x}{:02x}", (c.red * 255.0).round() as u8, (c.green * 255.0).round() as u8, (c.blue * 255.0).round() as u8)
+    });
+    let prompt_scale = match (&hud, &state.prompt) {
+        (Some(h), Some(p)) => fit_scale(&h.font, p, 1.0, 576.0),
+        _ => 1.0,
+    };
+    play.0.insert(
+        "hud".into(),
+        serde_json::json!({
+            "visible": state.visible,
+            "chat": chat.lines.iter().map(|l| l.0.clone()).collect::<Vec<_>>(),
+            // as a string: a two-number array would read as a range in an expect step
+            "chat_colours": chat.lines.iter().map(|l| l.1.to_string()).collect::<Vec<_>>().join(","),
+            "chat_lines": chat.lines.len(),
+            "prompt": state.prompt.clone().unwrap_or_default(),
+            "prompt_shown": els.iter().any(|(e, v, _)| e.name == "ui_prompt" && *v != Visibility::Hidden),
+            "crosshair_shown": els.iter().any(|(e, v, _)| (e.name == "ui_crosshair" || e.name == "ui_mg_crosshair") && *v != Visibility::Hidden),
+            "prompt_colour": prompt_colour,
+            "prompt_scale": (prompt_scale * 1000.0).round() / 1000.0,
+            "arrows": arrows,
+            "weapons": state.weapons,
+            "specials": state.specials,
+            "objective_frame": state.objective.map(|o| ((1.0 - (o.1 * 0.002).min(1.0)) * 1000.0).round() / 1000.0),
+        }),
+    );
 }
 
 // ---------------------------------------------------------------------------------------------------------------
 // The crosshair: Hud_UpdateCrosshair 0x00406f50 (src/ui/ui_01.cpp:312) picks what is under it, Hud_ProjectMarkers
 // 0x00406840 (src/renderer/render_r0.cpp:143) shows the current weapon's crosshair and plays its `<name>_in` /
 // `<name>_out` anim (0x00466650 / 0x004666a0) when the state changes. docs/subsystems/hud.md section 11.
+
+/// The HUD texts hidden while the game is paused (+0x474 0x20: the prompts, inited by 0x00465230 and the classes
+/// built on it, 0x00467420 / 0x00467790).
+const PAUSE_HIDDEN: &[&str] = &["ui_prompt"];
 
 /// The crosshair elements whose parts follow their skin's bones through the `_in` / `_out` anims.
 const CROSSHAIRS: &[&str] = &["ui_crosshair", "ui_mg_crosshair", "ui_sniper_crosshair"];
@@ -957,7 +1355,8 @@ pub struct Crosshair {
 
 impl Default for Crosshair {
     fn default() -> Self {
-        // the HUD object's constructor 0x004065d0 sets +0x390 = 2 (game_01.cpp:1463)
+        // the HUD object's constructor 0x004065d0 sets +0x390 = 2 (game_01.cpp:1463); its reset 0x00406690 clears the
+        // targets (+0, +0x58, +0x84, the lock slots), as a new Crosshair
         Crosshair { on: false, friendly: false, point: None, object: None, shown: 2, weapon: "", anims: HashMap::new() }
     }
 }
@@ -1220,5 +1619,61 @@ fn crosshair_pose(time: Res<Time>, mut xhair: ResMut<Crosshair>, lib: Option<Res
         if let Some(mut m) = meshes.get_mut(&p.mesh) {
             m.insert_attribute(Mesh::ATTRIBUTE_POSITION, pos);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A monospace font: every printable character 10 units wide at scale 1 (line height 25).
+    fn font() -> FontFile {
+        let g = Glyph { x: 0.0, y: 0.0, width: 9.0, height: 25.0, xoffset: 0.0, xadvance: 10.0 };
+        FontFile { common: FontCommon { line_height: 25.0, scale_w: 256.0, scale_h: 512.0 }, chars: (32u32..127).map(|c| (c.to_string(), g)).collect() }
+    }
+
+    /// Chat_AddMessage 0x0046aa60: breaks at the last space whose prefix fits 490 units (49 characters here).
+    #[test]
+    fn chat_wraps_at_spaces() {
+        let mut c = Chat::default();
+        let words = "aaaa ".repeat(15);
+        c.add_message(&font(), words.trim_end(), 1, 0.0);
+        assert_eq!(c.lines.len(), 2);
+        assert_eq!(c.lines[0].0, "aaaa ".repeat(9) + "aaaa");
+        assert_eq!(c.lines[1].0.len(), 74 - 50);
+        assert!(c.lines.iter().all(|l| l.1 == 1));
+    }
+
+    /// Without a space the line breaks at the first overflowing character, which is lost (original bug).
+    #[test]
+    fn chat_drops_the_overflow_character() {
+        let mut c = Chat::default();
+        let s: String = (0..60).map(|i| char::from(b'a' + (i % 26) as u8)).collect();
+        c.add_message(&font(), &s, 2, 0.0);
+        assert_eq!(c.lines.len(), 2);
+        // the prefix of 50 characters is the first wider than 490 units: it is kept (500 units: the line overflows by
+        // a character) and the 51st character, where the line is cut, is lost
+        assert_eq!(c.lines[0].0.chars().count(), 50);
+        assert_eq!(c.lines[1].0, s[51..]);
+    }
+
+    /// Three lines at most: a fourth scrolls the oldest off (Chat_AddLine 0x0046a980).
+    #[test]
+    fn chat_keeps_three_lines() {
+        let mut c = Chat::default();
+        for t in ["one", "two", "three", "four"] {
+            c.add_message(&font(), t, 1, 0.0);
+        }
+        assert_eq!(c.lines.iter().map(|l| l.0.as_str()).collect::<Vec<_>>(), ["two", "three", "four"]);
+    }
+
+    /// UiText_FitScale 0x00465720: the prompt fitted to 576 units.
+    #[test]
+    fn fit_to_576() {
+        let f = font();
+        assert_eq!(fit_scale(&f, "short", 1.0, 576.0), 1.0);
+        let long = "x".repeat(80);
+        let s = fit_scale(&f, &long, 1.0, 576.0);
+        assert!(text_width(&f, &long, s) <= 576.0 && s > 0.71, "{s}");
     }
 }

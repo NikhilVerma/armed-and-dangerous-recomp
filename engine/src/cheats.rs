@@ -34,6 +34,8 @@ pub struct Cheats {
     pub typed: String,
     pub result: String,
     pub entering: bool,
+    /// check `typed` now (gamemenu.rs: a click on a cheat's name in the grid, Cheats_Check 0x004107c0 state 1)
+    pub submit: bool,
 }
 
 impl Cheats {
@@ -82,7 +84,7 @@ fn entry(
     if buttons.just_pressed(KeyCode::Backspace) {
         c.typed.pop();
     }
-    let enter = buttons.just_pressed(KeyCode::Enter);
+    let enter = buttons.just_pressed(KeyCode::Enter) || std::mem::take(&mut c.submit);
     for _ in 0..usize::from(enter) {
         let k = Key::Enter;
         match &k {
@@ -98,11 +100,7 @@ fn entry(
                         c.active ^= flag;
                         let on = c.on(flag);
                         c.result = get(if on { "ui_cheaton" } else { "ui_cheatoff" }).replacen("%s", &get(id), 1);
-                        if flag == 0x80 {
-                            // List Cheats: the codes known
-                            let list: Vec<String> = CHEATS.iter().filter(|x| opts.cheats_known.contains(&x.2)).map(|x| format!("{}: {}", get(x.0), x.1)).collect();
-                            c.result = list.join("<br>");
-                        }
+                        // List Cheats (0x80): the page's grid then shows every cheat (gamemenu.rs, 0x00410b20)
                         // one-shot effects on activation
                         if on {
                             if let Ok((mut r, mut h)) = roman.single_mut() {

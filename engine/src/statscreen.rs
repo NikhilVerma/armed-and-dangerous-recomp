@@ -161,7 +161,8 @@ fn open(
         spawn_text(&mut commands, "money_label", &texts.get(l), Vec2::new(320.0, y), 1.2, BLUE, 1.0, StatPart::Root);
         spawn_text(&mut commands, "money_value", "", Vec2::new(336.0, y), 1.2, BLUE, -1.0, StatPart::Money(i));
     }
-    // the wanted poster (0x004948d0): b_wanted_reward, 256 x 320 at the end, with the money in black
+    // the wanted poster (0x004948d0; its widget 0x00494790 takes the texture b_wanted_reward, 0x0058fb40): 256 x 320 at
+    // the end, with the money in black
     let poster_mat = materials.add(ColorMaterial { texture: Some(assets.load("textures/b_wanted_reward.dds")), ..default() });
     let poster = commands
         .spawn((
@@ -196,11 +197,16 @@ fn update(
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     mut opts: ResMut<crate::options::GameOptions>,
     mission: Option<Res<crate::mission::Mission>>,
-    playtest: Option<Res<crate::playtest::Playtest>>,
+    (playtest, play): (Option<Res<crate::playtest::Playtest>>, Option<ResMut<crate::playtest::PlayState>>),
     mut exit: MessageWriter<AppExit>,
 ) {
     if !s.open {
         return;
+    }
+    // the state log's "stats" (playtest expect steps): the phase (0 counters, 1 wait, 2 poster, 3 money, 4 wait, 5
+    // leave) and the money shown
+    if let Some(mut p) = play {
+        p.0.insert("stats".into(), serde_json::json!({ "phase": s.phase, "to": s.to }));
     }
     let dt = time.delta_secs();
     s.frame = s.frame.wrapping_add(1);

@@ -13,9 +13,10 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PLAY = os.path.join(ROOT, 'work', 'remaster', 'play')
-SUITE = ['topsyhit2', 'turn_in_place', 'turret1', 'decals_obj', 'oilpump', 'gfxopts', 'cover1', 'cover2', 'cover3', 'gunner1', 'gunner2', 'objects1', 'unit']
+SUITE = ['topsyhit2', 'turn_in_place', 'turret1', 'decals_obj', 'oilpump', 'gfxopts', 'cover1', 'cover2', 'cover3', 'gunner1', 'gunner2', 'objects1',
+         'menus', 'hud', 'flow', 'stats', 'pub', 'unit']
 # 'unit': the engine's Rust unit tests (cargo test --release into the same target dir: pure logic such as the
-# object model's damage filters, trigger fields and husk picks)
+# object model's damage filters, trigger fields and husk picks, the HUD feed wrapping)
 # scripts kept in git (engine/playtests) win over work/remaster/play
 TRACKED = os.path.join(ROOT, 'engine', 'playtests')
 
