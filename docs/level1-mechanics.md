@@ -68,7 +68,7 @@ Update this table as items land (commit hash in the last column).
 | Hit reactions (explosion variants) | 0x00430340 | P | 3 | |
 | Death variants (blown up, ledge, in back, window) | 0x004319e0, 0x00427100 | P / M | 2 | random grunt_die_1..6 (0x50 + rand*6), blown up / ragdoll by hit_ragdoll; not yet: the 0x56 / 0x57 flag variants, ledge_death, the launch velocity of record flag 2 |
 | Barks: Taunt, General_Scream, Help, shared delays | grunt-ai.md "Barks" | P | 2 | voice sets fixed (GR1 / GR3 / GR2), death / vo / taunt delays, Spotted, Fight, Taunt, Hurt two-stage, Dead vs DeadAtPosition, Sticky only on the bomb's grunt; Help (alarm) waits for the alarm chain |
-| Fidget shiver on level 1 | Game+0x2708 == 1 | S | 3 | never shivers |
+| Fidget shiver on level 1 | Game+0x2708 == 1 | P | 3 | fidget 0x12 is grunt_idle_shiver on world 1 |
 | Companions: formation, targeting, fire, TNT | 0x00485910.. | V | | |
 | Companions: hit reactions, death, friendly fire | 0x00430340, 0x004319e0, 0x00486df0 | P | 2 | friendly fire: no damage, FriendlyFire line; hits: Damaged / Hurt lines, hit_mgun / small / med anims; death: Dead line, *_die, -500 accidents, body removed; they take Roman's attacker |
 | Companions: barks, orders, leader swap, partner target | audio_02.cpp:195.., companions.md | P | 2 | Fight cue (Q fight, Jonesy fight / taunt) under vo_delay; the other slots have no caller or are empty |

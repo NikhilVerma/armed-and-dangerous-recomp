@@ -203,8 +203,9 @@ fn grunts(
             Mind::Guard | Mind::WaitTrigger | Mind::Roam if g.guard || g.mind == Mind::Roam => {
                 // fidgets (0x0042be80 / 0x00427330): with no target the timer +0x494 (15 + rand * 0.000275 s, also
                 // at load) counts down; on expiry, standing at attention (anim 0xf), one random fidget 0x12..0x1a
-                // plays once (GruntObject 0x0043bd70: 18 shiver on a cold level (Game+0x2708 == 1, not known here:
-                // taken as not) else a random 19..26; 19 cough, 20 sneeze, 21 fly buzz, 22 blow nose, 23..26 the
+                // plays once (GruntObject 0x0043bd70: 18 shiver on a cold level (Game+0x2708 == 1: the world number,
+                // 1 for lev_1_m1, as Music_Update's table row), else a random 19..26; 19 cough, 20 sneeze, 21 fly buzz,
+                // 22 blow nose, 23..26 the
                 // stand scans); when it ends (or the timer runs out again) attention resumes and the timer is redrawn.
                 // The cough and shiver anims carry the fx notes that play the grunts' _ic sounds.
                 let f = fidgets.entry(e).or_insert_with(|| (15.0 + rand() as f32 * 0.000275, None));
@@ -215,11 +216,9 @@ fn grunts(
                     f.1 = if f.1.is_some() {
                         None
                     } else {
-                        let mut id = ((rand() * 9) >> 15) + 0x12;
-                        if id == 0x12 {
-                            id = ((rand() << 3) >> 15) + 0x13;
-                        }
+                        let id = ((rand() * 9) >> 15) + 0x12;
                         Some(match id {
+                            18 => "grunt_idle_shiver",
                             19 => "grunt_idle_cough",
                             20 => "grunt_idle_sneeze",
                             21 => "grunt_idle_fly_buzz",
