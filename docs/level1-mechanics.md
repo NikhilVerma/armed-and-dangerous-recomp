@@ -64,7 +64,7 @@ Update this table as items land (commit hash in the last column).
 | Chase with nav routing, wait, go home | 0x00427910, ai_06.cpp:1420, 0x0046f6d0 | P / S | 2 | moving grunts route around obstacles (nav.rs A*, replanned every 1 s) when the straight line is blocked; wait / go home not ported |
 | Marker paths, hide, cover (FindHidingSpot) | 0x0044ba30, 0x0042a7b0 | P / M | 2 | trigger_marker runs to the marker (straight line), actions hide (fallback wander 60..100), trigger_charge, scatter; no cover slots, splines, nav routing; barracks troops not on markers yet |
 | Alarm chain (grunt 67 → marker 151 → siren → generators, captains) | 0x00404e50, 0x0044ba30 (mission.md) | P | 2 | alarm.rs: runner, siren fx + Help, controller 2..4 s up to 10, siren destroyed stops it (alarm.json / alarm2.json) |
-| Barracks release (ref_exit, markers, release_max) | ai_01.cpp:900 | S | 2 | spawns ±12; keeps releasing after destruction |
+| Barracks release (ref_exit, markers, release_count) | 0x0040ad80, 0x0040cb10, 0x0040c910 (mission.md) | P | 2 | per-type counts, batches of release_amount while fewer than release_count live, ref_spawn / ref_exit, troops to their markers; activate once, deactivate, reset (agent-barracks) |
 | Hit reactions (explosion variants) | 0x00430340 | P | 3 | |
 | Death variants (blown up, ledge, in back, window) | 0x004319e0, 0x00427100 | P / M | 2 | random grunt_die_1..6 (0x50 + rand*6), blown up / ragdoll by hit_ragdoll; not yet: the 0x56 / 0x57 flag variants, ledge_death, the launch velocity of record flag 2 |
 | Barks: Taunt, General_Scream, Help, shared delays | grunt-ai.md "Barks" | P | 2 | voice sets fixed (GR1 / GR3 / GR2), death / vo / taunt delays, Spotted, Fight, Taunt, Hurt two-stage, Dead vs DeadAtPosition, Sticky only on the bomb's grunt; Help (alarm) waits for the alarm chain |
@@ -73,7 +73,7 @@ Update this table as items land (commit hash in the last column).
 | Companions: hit reactions, death, friendly fire | 0x00430340, 0x004319e0, 0x00486df0 | P | 2 | friendly fire: no damage, FriendlyFire line; hits: Damaged / Hurt lines, hit_mgun / small / med anims; death: Dead line, *_die, -500 accidents, body removed; they take Roman's attacker |
 | Companions: barks, orders, leader swap, partner target | audio_02.cpp:195.., companions.md | P | 2 | Fight cue (Q fight, Jonesy fight / taunt) under vo_delay; the other slots have no caller or are empty |
 | **Kill-streak "dismay" banter** (the remarks after blasts) | MissionObject_Update game_02.cpp:2476, table 0x005ce570, kill meter Game+0xbb8 ≥ 3 | P | 1 | meter +1 per grunt death, drain 0.5/s, 30-45 s cooldown |
-| Sound-ear lines: alive / in range, on the speaker | 0x00497900 | S | 2 | 2D, random |
+| Sound-ear lines: alive / in range, on the speaker | 0x00497900 (audio.md 5) | P | 2 | Roman always a choice (2D), Q / Jonesy if alive and within max_distance (on the speaker), else the nearest |
 | Penguins: physics, hits, death, screams, score, sticky | 0x0048f690.., 0x0048fa20 | P / M | 2 | any hit kills (1 health, no filter), pngn_blown_up (scream note) -> land_dead, gone after 5 s, -10 accidents; not yet: launch physics, sticky salute-and-run (penguin.json) |
 
 ## Mission scripting
@@ -86,10 +86,10 @@ Update this table as items land (commit hash in the last column).
 | send_trigger_on_death (pipe 96 → 711, boom_island → 301 penguin debris) | 0x00450ee0 | P | 1 | fx::Died → SendTrigger |
 | Gates blown (556 / 901) | 0x0044e150 | V | | |
 | Win sequence (score, sounds stop, stats, next level lev_1_m1_b) | 0x0044a390 / 0x0044a230 / 0x00494440 (win-sequence.md) | P | 1 | statscreen.rs: counters (stats.rs), the Stats screen with its phases and poster, money kept; lev_1_m1_b not built: back to the title. Sounds not stopped yet |
-| Objective jingle | 0x0044f560 | M | 3 | |
+| Objective jingle | 0x0044f560, 0x0046afa0 | P | 3 | the l1vic track requested by objective ui_ears (triggers 900, 901) and the win |
 | Opening movie + 71 subtitles | pre_1_1_opening | M | 3 | |
 | Pub re-entry, barkeep lines, amb_pub_busy | 0x00468dd0, 0x00467fe0 | P | 3 | amb_pub_busy loop while inside, the intro line once then one of 15 general lines; extras / once-weapon lines not set up |
-| Music states | 0x0044f580 | S | 3 | |
+| Music states | 0x0044f580 (audio.md 4) | P | 3 | near / far grunt counts, battle / stealth / skirmish tracks, silence 60..300 s, 10 s lock, victory / defeat requests at segment boundaries |
 | Score | various | P | 3 | stats.rs: kills / accidents by score_value, loot (win 1000, tokens 2500) |
 
 ## World objects
