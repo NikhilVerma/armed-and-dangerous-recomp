@@ -104,6 +104,9 @@ impl SoundBank {
         let mut it = rest.split(':');
         let cat = it.next()?.to_lowercase();
         let set: u8 = it.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+        // an optional pool: "last<N>" the category's last N lines (by number), "butlast<N>" the others (the voice
+        // functions pick from fixed pools: Hurt 46..49 vs HurtShort 29..32, Dead 26..28 vs DeadAtPosition 21..25)
+        let pool = it.next().map(str::to_owned);
         let suffix = format!("_{cat}");
         let of = |prefix: &str| {
             let mut v: Vec<&String> = self.sounds.keys().filter(|k| k.starts_with(prefix) && k.ends_with(&suffix)).collect();
@@ -113,6 +116,14 @@ impl SoundBank {
         let mut v = of(&format!("gr{}", set + 1));
         if v.is_empty() {
             v = of("gr");
+        }
+        if let Some(p) = pool.as_deref() {
+            if let Some(n) = p.strip_prefix("butlast").and_then(|n| n.parse::<usize>().ok()) {
+                v.truncate(v.len().saturating_sub(n).max(1));
+            } else if let Some(n) = p.strip_prefix("last").and_then(|n| n.parse::<usize>().ok()) {
+                let k = v.len().saturating_sub(n);
+                v.drain(..k);
+            }
         }
         if v.is_empty() {
             return None;

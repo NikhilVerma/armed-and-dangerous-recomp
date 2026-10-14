@@ -54,6 +54,8 @@ pub struct Grunt {
     pub target: Option<Entity>,
     /// alert-group hand-over (+0x578 / +0x57c)
     pub pending: Option<(Entity, f32)>,
+    /// his own entity: his bullets' owner (the damage record's source +0x2c)
+    pub me: Option<Entity>,
     /// score_value: to the Kills money when he dies (Game+0x2724)
     pub score: f32,
     /// the source of the last damage taken (the hit message's +0x2c), offered as a target (0x0042c820)
@@ -129,7 +131,7 @@ pub struct AiStats {
 
 /// Sticky bomb stuck at a point (game_07.cpp:1240: AI within 25 units are scared).
 #[derive(Message, Clone, Copy)]
-pub struct StickyStuck(pub Vec3);
+pub struct StickyStuck(pub Vec3, pub Option<Entity>);
 
 pub struct AiPlugin;
 
@@ -186,6 +188,7 @@ impl Plugin for AiPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(AiStats { enabled: true, ..default() })
             .init_resource::<KillMeter>()
+            .init_resource::<Barks>()
             .add_message::<StickyStuck>()
             .add_systems(Update, (search, scare, think, die, dismay).chain().after(crate::fx::FxSet));
     }
@@ -239,6 +242,7 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         target: None,
         pending: None,
         score: p.f("score_value", 0.0),
+        me: None,
         attacker: None,
         offer_t: f32::NEG_INFINITY,
         clips: (p.i("fire_num_clips_min", 1), p.i("fire_num_clips_max", 1)),
@@ -272,7 +276,8 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         fixed: None,
         hurt_voice_timer: 0.0,
         dead_said: false,
-        voice_set: if pick < 100 { 0 } else if pick < 200 { 1 } else { 2 },
+        // GruntObject_Slot6 (ai_04.cpp:2340): < 100 GR1 (+0x484 bit 21), < 200 GR3 (+0x488 bit 29), else GR2
+        voice_set: if pick < 100 { 0 } else if pick < 200 { 2 } else { 1 },
         ray_timer: 0.0,
         ragdoll: false,
         death_anim: (rng.rand() % 6) as u8 + 1,
@@ -283,7 +288,48 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
 /// A grunt bark of a category (Fight, Hurt, Dead, Taunt, Help, Sticky_Scream, ...): audio.rs picks a line of
 /// that category and voice set from the bank (audio_01.cpp; index = ((rand*range)>>15)/100).
 pub fn voice(category: &str, set: u8) -> String {
+    // "Cat:{}:pool" puts the set before a pool selector (audio.rs resolve)
+    if category.contains("{}") {
+        return format!("@grunt:{}", category.replace("{}", &set.to_string()));
+    }
     format!("@grunt:{category}:{set}")
+}
+
+/// The barks' shared timers (game_02.cpp:2057-2110), all started at level load and re-rolled when used:
+/// death_delay Game+0xb64 30..45 s (hurt / dead / sticky), vo_delay Game+0xb44 30..45 s (spotted / fight),
+/// taunt_delay Game+0xb84 300..360 s.
+#[derive(Resource, Default)]
+pub struct Barks {
+    /// (last time, interval) each; an interval of 0 is rolled on first use
+    death: (f32, f32),
+    vo: (f32, f32),
+    taunt: (f32, f32),
+}
+
+#[derive(Clone, Copy)]
+pub enum Delay {
+    Death,
+    Vo,
+    Taunt,
+}
+
+impl Barks {
+    /// Whether the delay has passed (then it restarts with a new interval).
+    pub fn take(&mut self, d: Delay, now: f32, rng: &mut FxStats) -> bool {
+        let (t, range) = match d {
+            Delay::Death => (&mut self.death, (30.0, 45.0)),
+            Delay::Vo => (&mut self.vo, (30.0, 45.0)),
+            Delay::Taunt => (&mut self.taunt, (300.0, 360.0)),
+        };
+        if t.1 == 0.0 {
+            t.1 = rng.range(range.0, range.1);
+        }
+        if now - t.0 < t.1 {
+            return false;
+        }
+        *t = (now, rng.range(range.0, range.1));
+        true
+    }
 }
 
 fn bark(sounds: &mut MessageWriter<crate::audio::PlaySound>, category: &str, set: u8, at: Vec3) {
@@ -302,6 +348,7 @@ fn search(
     joints: Query<&GlobalTransform, Without<Grunt>>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     mut stats: ResMut<AiStats>,
+    mut barks: ResMut<Barks>,
 ) {
     let dt = time.delta_secs();
     let Ok((pe, _, _)) = player.single() else { return };
@@ -380,13 +427,16 @@ fn search(
             }
         }
         if let Some((d2, tgt, heard)) = best {
+            // the Spotted cue: a new target when there was none (SetTarget 0x0042cc70 -> vt+0x144), under vo_delay
+            // (30..45 s, from level load: the first fight has no line)
+            if g.target.is_none() && barks.take(Delay::Vo, time.elapsed_secs(), &mut rng) {
+                bark(&mut sounds, "Spotted", g.voice_set, me);
+            }
             g.target = Some(tgt);
             if g.mind == Mind::WaitTrigger {
                 g.mind = Mind::Roam; // activate 0x0042f5c0 (charge/marker flags: not ported)
             }
             if std::env::var("AIDBG").is_ok() { info!("AIDBG spotted {:?} by {:?} at {:?} d {:.0} heard {} mode {:?}", tgt, ge, me, d2, heard, g.mind); }
-            // no bark on spotting: the original's grunts engage and shoot without one (sound log of the first fight:
-            // bow shots from frame 696, no _fight line); the Fight bark (vt+0x140) is called from other paths
             if g.alert_group != 0 {
                 spotted.push((g.alert_group, tgt, ge));
             }
@@ -435,16 +485,25 @@ fn scare(
     mut stuck: MessageReader<StickyStuck>,
     mut rng: ResMut<FxStats>,
     player: Query<&GlobalTransform, With<Player>>,
-    mut grunts: Query<(&mut Grunt, &GlobalTransform)>,
+    mut grunts: Query<(Entity, &mut Grunt, &GlobalTransform)>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
+    mut barks: ResMut<Barks>,
+    time: Res<Time>,
 ) {
     let ppos = player.single().map(|p| p.translation()).unwrap_or_default();
     for s in stuck.read() {
-        for (mut g, t) in &mut grunts {
+        for (ge, mut g, t) in &mut grunts {
             if g.mind == Mind::Dead || t.translation().distance(s.0) >= 25.0 {
                 continue;
             }
-            bark(&mut sounds, "Sticky_Scream", g.voice_set, t.translation());
+            // Scare 0x0042fb60: the grunt the bomb is stuck to says Sticky (death_delay; else General_Scream), the others
+            // General_Scream, a guard without the bomb on him nothing (ai_03.cpp:2930-2943)
+            if s.1 == Some(ge) {
+                let cat = if barks.take(Delay::Death, time.elapsed_secs(), &mut rng) { "Sticky_Scream" } else { "General_Scream" };
+                bark(&mut sounds, cat, g.voice_set, t.translation());
+            } else if !g.guard {
+                bark(&mut sounds, "General_Scream", g.voice_set, t.translation());
+            }
             if g.guard {
                 continue;
             }
@@ -465,17 +524,19 @@ fn think(
     mut physics: NonSendMut<Physics>,
     targets: Query<&GlobalTransform>,
     anims: Query<&crate::skin::Animator, Without<Grunt>>,
-    mut grunts: Query<(&mut Grunt, &Body, &mut Transform, &Health, Option<&crate::skin::Animator>)>,
+    mut grunts: Query<(Entity, &mut Grunt, &Body, &mut Transform, &Health, Option<&crate::skin::Animator>)>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     mut fx: MessageWriter<crate::fx::StartFx>,
     rtime: Res<Time<Real>>,
+    mut barks: ResMut<Barks>,
 ) {
     let t0 = Instant::now();
     let dt = time.delta_secs();
     let k = physics.meters_per_unit;
     let (mut alive, mut dead) = (0, 0);
     let mut states = [0usize; 8];
-    for (mut g, body, mut tr, h, ga) in &mut grunts {
+    for (ge, mut g, body, mut tr, h, ga) in &mut grunts {
+        g.me = Some(ge);
         if g.mind == Mind::Dead {
             dead += 1;
             continue;
@@ -509,9 +570,14 @@ fn think(
             } else {
                 g.hit = Some(("grunt_hit_3".to_owned(), 3));
             }
-            if g.hurt_voice_timer <= 0.0 {
+            // Hurt (0x00439e00, shared pool, death_delay) first; when refused HurtShort (0x00439e30) at most every 4 s
+            // per grunt; the shared one restarts the 4 s too (+0xb48)
+            if barks.take(Delay::Death, time.elapsed_secs(), &mut rng) {
                 g.hurt_voice_timer = 4.0;
-                bark(&mut sounds, "Hurt", g.voice_set, tr.translation);
+                bark(&mut sounds, "Hurt:{}:last4", g.voice_set, tr.translation);
+            } else if g.hurt_voice_timer <= 0.0 {
+                g.hurt_voice_timer = 4.0;
+                bark(&mut sounds, "Hurt:{}:butlast4", g.voice_set, tr.translation);
             }
             if g.mind == Mind::WaitTrigger {
                 g.mind = Mind::Roam;
@@ -638,7 +704,7 @@ fn think(
                     if g.turn.is_none() {
                         // the weapon in its right hand (ref_rhand, grunt init 0x00434fb0): where the shot leaves
                         let hand = ga.and_then(|a| a.skeleton.index.get("ref_rhand").and_then(|&i| targets.get(a.joints[i]).ok())).map(|j| j.translation());
-                        fire_cycle(&mut commands, &mut g, &physics, &mut rng, pos, p, hit, own_hit, hand, body.id, dt, &mut stats, &mut sounds, &mut fx);
+                        fire_cycle(&mut commands, &mut g, &physics, &mut rng, pos, p, hit, own_hit, hand, body.id, dt, &mut stats, &mut sounds, &mut fx, (&mut barks, time.elapsed_secs()));
                     }
                     if stats.shots > before && std::env::var("AIDBG").is_ok() {
                         info!("AIDBG gruntshot t {:.3}", rtime.elapsed_secs());
@@ -703,6 +769,7 @@ fn fire_cycle(
     stats: &mut AiStats,
     sounds: &mut MessageWriter<crate::audio::PlaySound>,
     fx: &mut MessageWriter<crate::fx::StartFx>,
+    (barks, now): (&mut Barks, f32),
 ) {
     g.pause -= dt;
     if g.pause > 0.0 {
@@ -755,12 +822,15 @@ fn fire_cycle(
         g.pause = 0.467 + if g.bow { 1.3 } else { 1.133 } + 2.0 / 60.0;
         return;
     }
-    crate::player::spawn_projectile(commands, fx, &g.bullet, muzzle + dir * 4.0, dir, false, None);
+    crate::player::spawn_projectile(commands, fx, &g.bullet, muzzle + dir * 4.0, dir, false, g.me);
     if let Some(m) = g.weapon.s("muzzle_fx_name") {
         fx.write(crate::fx::StartFx { name: m.to_owned(), at: muzzle + dir * 4.0, rotation: Transform::IDENTITY.looking_to(dir, Vec3::Y).rotation, follow: None, position_only: false });
     }
     // (the shot sound comes from the weapon's muzzle fx: the original's sound log has one per shot)
-    let _ = &sounds;
+    // the Fight cue as the fire anim starts with a target (0x00428980 -> vt+0x13c), under vo_delay
+    if barks.take(Delay::Vo, now, rng) {
+        bark(sounds, "Fight", g.voice_set, pos);
+    }
     stats.shots += 1;
     // the fire cycle (0x00428980, counters 0x00427600, as the companions'): a shot on the fire anim's note (0.033 s
     // into its 0.467 s loop; here at its start), fire_num_rounds per clip. An empty clip plays the reload anim
@@ -773,6 +843,11 @@ fn fire_cycle(
         g.left_bursts -= 1;
         g.pause = 0.467 + rng.range(g.burst_delay.0, g.burst_delay.1);
         if g.left_bursts <= 0 {
+            // a Taunt after the last burst (ai_02.cpp:1956-1981) under taunt_delay (300..360 s, game-wide); the taunt
+            // anims 0x32..0x34 and state 0x6e are not played (guess: the reload follows)
+            if barks.take(Delay::Taunt, now, rng) {
+                bark(sounds, "Taunt", g.voice_set, pos);
+            }
             g.left_clips -= 1;
             g.mind = Mind::Reload;
             let reload = if g.bow { 1.3 } else { 1.133 };
@@ -793,6 +868,7 @@ fn die(
     mut ms: ResMut<crate::stats::MissionStats>,
     mut rng: ResMut<FxStats>,
     alive: Query<&Health>,
+    (mut barks, time): (ResMut<Barks>, Res<Time>),
 ) {
     let mut alerts: Vec<(i64, Entity, Entity)> = Vec::new();
     for (e, mut g, body, tr, h, animator) in &mut grunts {
@@ -813,7 +889,9 @@ fn die(
         ms.killed(g.score);
         if !g.dead_said {
             g.dead_said = true;
-            bark(&mut sounds, "Dead", g.voice_set, tr.translation);
+            // Dead (0x00439e60, pool 26..28) under death_delay, else DeadAtPosition (0x00439ea0, pool 21..25): once
+            let cat = if barks.take(Delay::Death, time.elapsed_secs(), &mut rng) { "Dead:{}:last3" } else { "Dead:{}:butlast3" };
+            bark(&mut sounds, cat, g.voice_set, tr.translation);
         }
         let push = physics.world.body(body.id).map(|b| bv(b.linear_velocity())).unwrap_or(Vec3::ZERO) / physics.meters_per_unit;
         physics.remove(body.id);
@@ -915,6 +993,16 @@ pub struct Companion {
     tea_given: bool,
     /// placed on its formation point beside Roman at the start (0x004836b0 from the player's reset 0x00475650)
     spawned: bool,
+    /// hits and death (GenericAIObject_Slot52 0x00430340 and Character_Die 0x004319e0, no companion overrides):
+    /// health last frame, seconds since the last Hurt bark (+0xb48, 10 s), the reaction anim playing (name, time
+    /// left), a player / teammate shot that hit (FriendlyFire bark, no damage), the attacker to offer as a target,
+    /// dead (permanent: *_die, then the body is removed)
+    pub last_health: f32,
+    pub hurt_t: f32,
+    pub hit: Option<(&'static str, f32)>,
+    pub friendly: bool,
+    pub attacker: Option<Entity>,
+    pub dead: Option<f32>,
 }
 
 #[derive(Clone)]
@@ -978,6 +1066,21 @@ impl Companion {
             tea: 0.0,
             tea_given: false,
             spawned: false,
+        last_health: f32::NAN,
+        hurt_t: 99.0,
+        hit: None,
+        friendly: false,
+        attacker: None,
+        dead: None,
+        }
+    }
+}
+
+impl Companion {
+    /// Roman was hit (0x0047afa0 -> 0x00486df0): unless engaged, the attacker becomes the target.
+    pub fn roman_attacked(&mut self, by: Entity) {
+        if self.dead.is_none() && !self.engaged {
+            self.target = Some(by);
         }
     }
 }
@@ -986,7 +1089,101 @@ pub struct CompanionPlugin;
 
 impl Plugin for CompanionPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, companions.run_if(crate::playing));
+        app.add_systems(Update, (companion_damage, companions).chain().run_if(crate::playing));
+    }
+}
+
+/// The companions' hits and death (no overrides of the generic handlers: GenericAIObject_Slot52 0x00430340,
+/// Character_Die 0x004319e0; barks audio_02.cpp:197-267 (Q), audio_01.cpp:1545-1610 (Jonesy)):
+/// - a player or teammate shot does no damage (same team) but draws the FriendlyFire line (shared delay);
+/// - damage: the Damaged line under the shared delay Game+0xb44, else Hurt at most every 10 s (+0xb48); a reaction
+///   anim by the damage (<= hit_level_1 20 *_hit_mgun, <= hit_level_2 51 *_hit_small, else *_hit_med); the attacker
+///   offered as a target (Slot109 0x00485360: ignored while a live target is held);
+/// - death (permanent): the Dead line, *_die, score_value -500 to Accidents, the body removed after the anim and the
+///   corpse timer (0.5 s + 0.5 s fade: guess on the fade's look).
+/// The shared delay's range (Game+0xb48 / +0xb4c) is not traced: 4..8 s (guess).
+#[allow(clippy::too_many_arguments)]
+fn companion_damage(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut physics: NonSendMut<Physics>,
+    mut q: Query<(Entity, &mut Companion, &Health, &Transform, &mut Visibility)>,
+    alive: Query<&Health, Without<Companion>>,
+    mut sounds: MessageWriter<crate::audio::PlaySound>,
+    mut ms: ResMut<crate::stats::MissionStats>,
+    mut rng: ResMut<FxStats>,
+    mut shared: Local<(f32, f32)>,
+) {
+    let dt = time.delta_secs();
+    let now = time.elapsed_secs();
+    let mut say = |sounds: &mut MessageWriter<crate::audio::PlaySound>, rng: &mut FxStats, list: &[&str], at: Vec3| {
+        let n = list[((rng.rand() * list.len() as f32) as usize).min(list.len() - 1)];
+        sounds.write(crate::audio::PlaySound::at(n, at));
+    };
+    for (e, mut c, h, t, mut vis) in &mut q {
+        let at = t.translation;
+        let len = if c.q { 2.533 } else { 2.0 };
+        if let Some(d) = c.dead.as_mut() {
+            *d += dt;
+            if *d >= len + 1.0 && *vis != Visibility::Hidden {
+                *vis = Visibility::Hidden;
+                physics.remove_walker(&c.walker);
+                commands.entity(e).remove::<Companion>();
+            }
+            continue;
+        }
+        c.hurt_t += dt;
+        if let Some((n, left)) = c.hit {
+            c.hit = (left - dt > 0.0).then_some((n, left - dt));
+        }
+        let shared_ok = now - shared.0 >= shared.1;
+        if std::mem::take(&mut c.friendly) && shared_ok {
+            *shared = (now, rng.range(4.0, 8.0));
+            let l: &[&str] = if c.q { &["q1150068_friendlyfire", "q1150069_friendlyfire", "q1150070_friendlyfire", "q1150071_friendlyfire", "q1150072_friendlyfire", "q1150073_friendlyfire"] } else { &["jon50076_friendlyfire", "jon50077_friendlyfire", "jon50078_friendlyfire", "jon50079_friendlyfire", "jon50080_friendlyfire"] };
+            say(&mut sounds, &mut rng, l, at);
+        }
+        if c.last_health.is_nan() {
+            c.last_health = h.0;
+        }
+        if h.0 <= 0.0 {
+            c.dead = Some(0.0);
+            c.hit = None;
+            let l: &[&str] = if c.q { &["q1150051_dead", "q1150052_dead", "q1150055_dead", "q1150056_dead", "q1150057_dead", "q1150058_dead", "q1150059_dead"] } else { &["jon50062_dead", "jon50063_dead", "jon50064_dead", "jon50065_dead", "jon50066_dead"] };
+            say(&mut sounds, &mut rng, l, at);
+            // not a kill (vt+0xe8 false); score_value -500 to Accidents (0x00431720)
+            ms.killed(-500.0);
+            info!("EVENT {} died", if c.q { "Q" } else { "Jonesy" });
+            continue;
+        }
+        if h.0 < c.last_health {
+            let d = c.last_health - h.0;
+            if shared_ok {
+                *shared = (now, rng.range(4.0, 8.0));
+                let l: &[&str] = if c.q { &["q1150050_help", "q1150053_help", "q1150054_help", "q1150064_hurt", "q1150065_hurt", "q1150066_hurt", "q1150067_hurt"] } else { &["jon50060_help", "jon50061_help", "jon50070_hurt", "jon50071_hurt", "jon50072_hurt", "jon50073_hurt"] };
+                say(&mut sounds, &mut rng, l, at);
+            } else if c.hurt_t >= 10.0 {
+                c.hurt_t = 0.0;
+                let l: &[&str] = if c.q { &["q1150060_hurt", "q1150061_hurt", "q1150062_hurt"] } else { &["jon50067_hurt", "jon50068_hurt"] };
+                say(&mut sounds, &mut rng, l, at);
+            }
+            let (n, len) = if d <= 20.0 {
+                ("hit_mgun", 0.3)
+            } else if d <= 51.0 {
+                ("hit_small", if c.q { 2.133 } else { 0.633 })
+            } else {
+                ("hit_med", if c.q { 2.8 } else { 1.967 })
+            };
+            // a small hit does not restart one already playing (states 0x12f / 0x132)
+            if !(n == "hit_mgun" && c.hit.is_some()) {
+                c.hit = Some((n, len));
+            }
+            if let Some(a) = c.attacker.take().filter(|&a| alive.get(a).is_ok_and(|h| h.0 > 0.0)) {
+                if c.target.is_none_or(|t| alive.get(t).is_err()) {
+                    c.target = Some(a);
+                }
+            }
+        }
+        c.last_health = h.0;
     }
 }
 
@@ -1024,6 +1221,12 @@ fn companions(
     });
     let fire_held = (ctl.down(crate::input::Act::Fire) || ctl.pressed(crate::input::Act::Fire) || bot.fire_ok) && !r.dead;
     for (e, mut c, mut t, ca, ch) in &mut q {
+        // a dead companion does nothing; a hit reaction holds him (states 0x12f..0x131: movement stopped)
+        if c.dead.is_some() || c.hit.is_some() {
+            c.moving = false;
+            c.firing = false;
+            continue;
+        }
         if c.range < 0.0 {
             c.range = rng.range(c.fire_range.0, c.fire_range.1);
         }

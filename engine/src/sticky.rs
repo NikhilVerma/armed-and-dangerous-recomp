@@ -383,6 +383,6 @@ fn fly(
         if let Some(n) = name {
             fx.write(crate::fx::StartFx { name: n.to_owned(), at: t.translation, rotation: crate::level::game_to_engine(), follow: Some(e), position_only: true });
         }
-        scare.write(crate::ai::StickyStuck(t.translation));
+        scare.write(crate::ai::StickyStuck(t.translation, obj));
     }
 }

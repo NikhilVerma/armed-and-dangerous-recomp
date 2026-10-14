@@ -3,12 +3,14 @@
 //! the level's fx bank (fx.json). Game space (Z up, game units) throughout; drawing converts to engine axes.
 //!
 //! Not ported yet (logged once per opcode): sounds (0x39 picks its random name so the RNG order is kept),
-//! decals (0x6a), uv scrolling (0x40), the attach points of 0x104 lists (the object origin is used).
+//! decals (0x6a), uv scrolling (0x40), the attach points of 0x104 lists (the object origin is used), fx lights
+//! (0x4a: stored, the engine's materials take no dynamic lights), force feedback (0x3f: queued, logged with FXLOG),
+//! the collision mask of 0x32 (stored).
 
 use crate::fx::StartFx;
 use crate::gamedata::GameData;
 use crate::level::game_to_engine;
-use crate::physics::{Body, Physics, jv};
+use crate::physics::{Body, Physics, jq, jv};
 use crate::scene::Library;
 use bevy::asset::RenderAssetUsages;
 use bevy::mesh::{Indices, PrimitiveTopology};
@@ -191,6 +193,18 @@ pub struct FxObject {
     /// layered parts (FxLayerMaterial) and the uv scroll of layer 2
     layer_mats: Vec<Handle<FxLayerMaterial>>,
     uv_scroll2: Option<(Vec2, f32, f32, f32, f32, Vec2)>,
+    /// 0x10 impulses (game units, world frame) given before the object has a body: applied when it gets one
+    /// (make_dynamic; scripts give 0x10 before 0x11 almost always: fx_debri_bolt, fx_debri_pipe_*, ...)
+    impulse: Vec3,
+    /// 0x32 "set hit ground" (Fx_SetHitGround 0x0041f9d0: +0x460 |= 0x10000, collision mask vt+0xf8(0x20000), or
+    /// 0x70001 with 0x3c's 0x20000; guess: collides with the ground). Stored only: the engine's bodies collide with
+    /// everything
+    #[allow(dead_code)]
+    hit_ground: bool,
+    /// 0x4a point light (Fx_SetLight 0x0041da90): colour (rgb / 255) and the attach point picked from list 1. Stored
+    /// only: the game materials take no dynamic lights yet
+    #[allow(dead_code)]
+    light: Option<(Vec3, Option<String>)>,
 }
 
 /// A streamer (ribbon trail, render_r4.cpp: Streamers 0x00494d90.., Streamer_AddPoint 0x004958a0, Streamer_Update
@@ -205,6 +219,11 @@ struct Streamer {
     /// per key: r, g, b, a (each quantised to a byte as the original stores them)
     colour: [[f32; 4]; 4],
     additive: bool,
+    /// 0x55 texture (Streamer_SetTexture 0x004952b0, render flags |= 0xc; untextured by default)
+    texture: Option<String>,
+    /// [u0, u1, v0, v1]: 0x56 uvs (Streamer_SetU / SetV 0x00495270 / 0x00495290: +0x48 u0, +0x50 u1, +0x4c v0, +0x54 v1; defaults
+    /// 0x00494d40: 0, 1, 0, 1): u = lerp(u0, u1, age / life) along the strip, v0 on the +side vertex, v1 on the -side
+    uv: [f32; 4],
     time: f32,
     emitting: bool,
     /// (position (engine space), direction, birth time, size)
@@ -220,6 +239,8 @@ impl Streamer {
             width: [1.0, 1.0, 1.0, 0.0],
             colour: [w, w, w, [1.0, 1.0, 1.0, 0.0]],
             additive: false,
+            texture: None,
+            uv: [0.0, 1.0, 0.0, 1.0],
             time: 0.0,
             emitting: true,
             points: Default::default(),
@@ -256,6 +277,22 @@ struct Instance {
     parent: Option<Entity>,
     follow: bool,
     follow_pos_only: bool,
+    /// 0x14 "set logobject" (Fx_SetLogObject 0x0041df20: fx+0x14 |= 0x20, object list fx+0x124): objects destroyed
+    /// when the instance is released (Fx_Release 0x0041d030 -> FxInstance_DestroyEmitters 0x0041cfb0 -> 0x00419290)
+    logged: Vec<Entity>,
+}
+
+/// 0x3f force feedback request (Fx_PlayForce 0x0041ff60): rumble sample name, looping (edi), player only (a3: the
+/// object or an ancestor must be the player, 0x0045a480), gain distances min / max (+0x4e4 / +0x4e8: gain 1 within
+/// min, falling linearly to 0 at max, 1 when max is 0; render_r1.cpp:1467), the object it follows (None: one-shot)
+#[allow(dead_code)]
+struct FxForce {
+    name: String,
+    looping: bool,
+    player_only: bool,
+    min: f32,
+    max: f32,
+    owner: Option<Entity>,
 }
 
 struct Particle {
@@ -292,8 +329,10 @@ pub struct FxVm {
     streamers: Vec<Streamer>,
     /// decals made by scripts this frame (op 0x6a, sent by `run`)
     decals: Vec<crate::decals::SpawnDecal>,
-    /// alpha-blended and additive streamer meshes
-    streamer_meshes: [Handle<Mesh>; 2],
+    /// streamer meshes per (texture, additive): untextured ones made at setup, textured ones (0x55) on first use
+    streamer_meshes: std::collections::HashMap<(Option<String>, bool), Handle<Mesh>>,
+    /// 0x3f force feedback requests this frame (not consumed: the remaster's rumble lives in input.rs; logged with FXLOG)
+    forces: Vec<FxForce>,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -320,27 +359,34 @@ impl Plugin for FxVmPlugin {
     }
 }
 
-fn setup(mut commands: Commands, assets: Res<AssetServer>, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<ParticleMaterial>>, mut std_mats: ResMut<Assets<StandardMaterial>>) {
-    // the streamers' two meshes (untextured: texture 0x55 not ported), vertex colours, unlit, both sides
-    let streamer_meshes = [false, true].map(|additive| {
-        let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
-        mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32; 3]; 3]);
-        mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, vec![[0.0f32; 4]; 3]);
-        mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0f32, 1.0, 0.0]; 3]);
-        mesh.insert_indices(Indices::U32(vec![0, 1, 2]));
-        let h = meshes.add(mesh);
-        let mat = std_mats.add(StandardMaterial {
-            base_color: Color::WHITE,
-            unlit: true,
-            double_sided: true,
-            cull_mode: None,
-            alpha_mode: if additive { AlphaMode::Add } else { AlphaMode::Blend },
-            fog_enabled: false,
-            ..default()
-        });
-        commands.spawn((Mesh3d(h.clone()), MeshMaterial3d(mat), Transform::IDENTITY, bevy::camera::visibility::NoFrustumCulling, bevy::light::NotShadowCaster, Name::new("fx_streamers")));
-        h
+/// One streamer mesh (all streamers of one texture and blend): vertex colours (x the texture when 0x55 set one:
+/// render flags | 0xc, 0x004952b0), unlit, both sides.
+fn streamer_mesh(commands: &mut Commands, meshes: &mut Assets<Mesh>, std_mats: &mut Assets<StandardMaterial>, assets: &AssetServer, texture: Option<&str>, additive: bool) -> Handle<Mesh> {
+    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32; 3]; 3]);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, vec![[0.0f32; 4]; 3]);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0f32, 1.0, 0.0]; 3]);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, vec![[0.0f32; 2]; 3]);
+    mesh.insert_indices(Indices::U32(vec![0, 1, 2]));
+    let h = meshes.add(mesh);
+    let mat = std_mats.add(StandardMaterial {
+        base_color: Color::WHITE,
+        // repeat addressing: 0x56 runs u over 0..5 (fx_trail_cap_mgun)
+        base_color_texture: texture.map(|t| crate::gamematerial::load_tex(assets, t, true)),
+        unlit: true,
+        double_sided: true,
+        cull_mode: None,
+        alpha_mode: if additive { AlphaMode::Add } else { AlphaMode::Blend },
+        fog_enabled: false,
+        ..default()
     });
+    commands.spawn((Mesh3d(h.clone()), MeshMaterial3d(mat), Transform::IDENTITY, bevy::camera::visibility::NoFrustumCulling, bevy::light::NotShadowCaster, Name::new("fx_streamers")));
+    h
+}
+
+fn setup(mut commands: Commands, assets: Res<AssetServer>, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<ParticleMaterial>>, mut std_mats: ResMut<Assets<StandardMaterial>>) {
+    // the untextured streamers' two meshes (alpha-blended, additive)
+    let streamer_meshes = [false, true].into_iter().map(|additive| ((None, additive), streamer_mesh(&mut commands, &mut meshes, &mut std_mats, &assets, None, additive))).collect();
     let mut pool_meshes = Vec::new();
     for (_, tex, additive) in POOLS {
         let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
@@ -368,6 +414,7 @@ fn setup(mut commands: Commands, assets: Res<AssetServer>, mut meshes: ResMut<As
         streamers: Vec::new(),
         decals: Vec::new(),
         streamer_meshes,
+        forces: Vec::new(),
     });
 }
 
@@ -393,7 +440,7 @@ fn start(mut vm: ResMut<FxVm>, data: Res<GameData>, mut events: MessageReader<St
         };
         // engine placement -> game space
         let place = Mat4::from_quat(engine_to_game()) * Mat4::from_rotation_translation(ev.rotation, ev.at);
-        vm.instances.push(Instance { script: script.clone(), ip: 0, paused: 0.0, waiting: false, place, parent: ev.follow, follow: ev.follow.is_some(), follow_pos_only: ev.position_only });
+        vm.instances.push(Instance { script: script.clone(), ip: 0, paused: 0.0, waiting: false, place, parent: ev.follow, follow: ev.follow.is_some(), follow_pos_only: ev.position_only, logged: Vec::new() });
     }
 }
 
@@ -520,6 +567,9 @@ fn create_object(ctx: &mut Ctx<'_, '_, '_, '_, '_>, inst: &Instance, template: &
         follow_pos_only: inst.follow_pos_only,
         layer_mats: layers,
         uv_scroll2: None,
+        impulse: Vec3::ZERO,
+        hit_ground: false,
+        light: None,
     }))
 }
 
@@ -620,7 +670,7 @@ fn run_script(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_, '_, '_>, idx: usize, dt: 
                 if let (Some(_), Some(t)) = (cur, top) {
                     if let Some(script) = ctx.data.fx.get(&name) {
                         let place = vm.objects.get(&t).map(|o| o.place).unwrap_or(vm.instances[idx].place);
-                        let child = Instance { script: script.clone(), ip: 0, paused: 0.0, waiting: false, place, parent: Some(t), follow: op == "0x2f", follow_pos_only: false };
+                        let child = Instance { script: script.clone(), ip: 0, paused: 0.0, waiting: false, place, parent: Some(t), follow: op == "0x2f", follow_pos_only: false, logged: Vec::new() };
                         spawned.push(child);
                     }
                 }
@@ -756,11 +806,7 @@ fn run_script(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_, '_, '_>, idx: usize, dt: 
                     let id = make_dynamic(ctx.physics, ctx.commands, o, top.unwrap(), 1.0);
                     if let Some(id) = id {
                         // Havok impulse in game units: velocity change = impulse / mass (mass unknown, guess below)
-                        let k = ctx.physics.meters_per_unit;
-                        if let Ok(mut b) = ctx.physics.world.body_mut(id) {
-                            b.activate();
-                            let _ = b.add_impulse(jv(game_to_engine() * v * k * IMPULSE_SCALE));
-                        }
+                        add_impulse(ctx.physics, id, v);
                     }
                 }
             }
@@ -775,7 +821,7 @@ fn run_script(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_, '_, '_>, idx: usize, dt: 
                     list1 = None;
                 }
             }
-            "0x4f" | "0x50" | "0x51" | "0x52" | "0x53" | "0x54" | "0x57" => {
+            "0x4f" | "0x50" | "0x51" | "0x52" | "0x53" | "0x54" | "0x55" | "0x56" | "0x57" => {
                 if let (Some(_), Some(t)) = (cur, top) {
                     if let Some(st) = vm.streamers.iter_mut().rev().find(|s| s.owner == t) {
                         let q = |x: f32| (x * 255.0).trunc() / 255.0;
@@ -783,6 +829,11 @@ fn run_script(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_, '_, '_>, idx: usize, dt: 
                             "0x4f" => st.width = curve_keys(&arg(1)),
                             "0x54" => st.life = f(&arg(1)).max(1e-3),
                             "0x57" => st.additive = f(&arg(1)) != 0.0,
+                            // 0x55 (0x00422a8e): Fx_SetStreamerTexture 0x0041f5a0, the name from the texture bank
+                            // Game+0xa78 (0x004881c0) -> Streamer_SetTexture 0x004952b0
+                            "0x55" => st.texture = arg(1).as_str().map(|n| n.to_lowercase()),
+                            // 0x56 (0x00422ac1): Fx_SetStreamerUvs 0x0041f640: SetU(w0, w1), SetV(w2, w3)
+                            "0x56" => st.uv = [f(&arg(1)), f(&arg(2)), f(&arg(3)), f(&arg(4))],
                             _ => {
                                 let ch = match op.as_str() { "0x50" => 3, "0x51" => 0, "0x52" => 1, _ => 2 };
                                 let k = curve_keys(&arg(1));
@@ -825,10 +876,125 @@ fn run_script(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_, '_, '_>, idx: usize, dt: 
                     }
                 }
             }
+            // 0x10 (0x00421379) "set impulse": s = r(w0, w1) always; if cur: reference = FxNameList_PickRandom(list1)
+            // (one rand when list1 is set, null for "null"), Fx_SetImpulse 0x0041e0c0: zero s or no push: nothing; wakes
+            // the object (0x004577b0); no reference: force = -column 1 of its matrix (0x00453150) x s at the centre
+            // (0x00458440 point null); with one: -column 1 of the reference's relative matrix (0x00453c50) at its
+            // translation (attach points are not ported: the object's own axis and centre are used). list1 cleared.
+            // The impulse waits for the body when there is none yet (0x11 follows it in the scripts)
+            "0x10" => {
+                let s = vm.rng.r(f(&arg(1)), f(&arg(2)));
+                if cur.is_some() {
+                    let _reference = list1.as_ref().and_then(|l| pick_name(&mut vm.rng, l));
+                    if let Some(o) = obj!() {
+                        if s != 0.0 {
+                            o.impulse += -o.place.y_axis.truncate() * s;
+                            if let Some(id) = o.body {
+                                add_impulse(ctx.physics, id, std::mem::take(&mut o.impulse));
+                            }
+                        }
+                    }
+                }
+                list1 = None;
+            }
+            // 0x14 (0x0042148e) "set logobject": if cur, Fx_SetLogObject 0x0041df20 adds the pushed object to the
+            // instance's list; Fx_Release destroys them with the instance (see `run`)
+            "0x14" => {
+                if let (Some(_), Some(t)) = (cur, top) {
+                    vm.instances[idx].logged.push(t);
+                }
+            }
+            // 0x31 (0x00421f0f) "initial rotation": a1 = r(w0, w1), a2 = r(w2, w3), a3 = r(w4, w5) always; if cur:
+            // Fx_SetInitialRotation 0x0041f850: R = Matrix_FromEulerDeg 0x004e3db0(a1, a3, a2), X = W * R
+            // (Matrix_Multiply 0x004e2910: the object's matrix W (vt+0x70) times R, so R turns it in its own frame,
+            // the position kept), set by Object_SetTransform 0x00457990
+            "0x31" => {
+                let a1 = vm.rng.r(f(&arg(1)), f(&arg(2)));
+                let a2 = vm.rng.r(f(&arg(3)), f(&arg(4)));
+                let a3 = vm.rng.r(f(&arg(5)), f(&arg(6)));
+                if let Some(o) = obj!() {
+                    o.place *= Mat4::from_mat3(euler_deg(a1, a3, a2));
+                    if let Some(id) = o.body {
+                        let (_, rot, _) = (Mat4::from_quat(game_to_engine()) * o.place).to_scale_rotation_translation();
+                        if let Ok(mut b) = ctx.physics.world.body_mut(id) {
+                            let _ = b.set_rotation(jq(rot), Activation::Activate);
+                        }
+                    }
+                }
+            }
+            // 0x32 (0x00422218): if cur, Fx_SetHitGround 0x0041f9d0 (via 0x0041faf0): flag and collision mask (stored,
+            // see FxObject::hit_ground), then wakes the object (0x004577b0)
+            "0x32" => {
+                if let Some(o) = obj!() {
+                    o.hit_ground = true;
+                    if let Some(id) = o.body {
+                        if let Ok(mut b) = ctx.physics.world.body_mut(id) {
+                            b.activate();
+                        }
+                    }
+                }
+            }
+            // 0x3f (0x00422407, no cur test): name, w0 looping, w1 player only, w2 min, w3 max distance;
+            // Fx_PlayForce 0x0041ff60(top): min and max <= 0 and not looping: a one-shot rumble (Rumble_Start
+            // 0x004e5020) whatever top is; else nothing without top; else (player only: when the object or an
+            // ancestor is the player) a rumble on the object, its gain by camera distance each update. Queued only
+            "0x3f" => {
+                let name = arg(1).as_str().unwrap_or("").to_owned();
+                let (looping, player_only, min, max) = (f(&arg(2)) != 0.0, f(&arg(3)) != 0.0, f(&arg(4)), f(&arg(5)));
+                let one_shot = !(min > 0.0) && !(max > 0.0) && !looping;
+                if one_shot || top.is_some() {
+                    vm.forces.push(FxForce { name, looping, player_only, min, max, owner: if one_shot { None } else { top } });
+                }
+            }
+            // 0x4a (0x0042102a) "set light": w0..w2 colour (0..255); if cur: Fx_SetLight 0x0041da90: no push: nothing;
+            // a D3D point light (diffuse rgb / 255 ([0x005bcc18]), alpha 1, range 1e6, attenuation 1 + 0.1 d) at an
+            // attach point picked from list1 (one rand when set), flag 0x1000000; the update re-adds it at the
+            // point each frame (render_r1.cpp:1526). list1 cleared
+            "0x4a" => {
+                let colour = Vec3::new(f(&arg(1)), f(&arg(2)), f(&arg(3))) * (1.0 / 255.0);
+                if let (Some(_), Some(t)) = (cur, top) {
+                    let point = list1.as_ref().and_then(|l| pick_name(&mut vm.rng, l));
+                    if let Some(o) = vm.objects.get_mut(&t) {
+                        o.light = Some((colour, point));
+                    }
+                }
+                list1 = None;
+            }
             other => {
                 vm.unported.insert(other.to_owned());
             }
         }
+    }
+}
+
+/// FxNameList_PickRandom 0x0041cba0: entry (rand() * count) >> 15 (one rand, also for an empty list), None
+/// for "null" (_stricmp with 0x005bba94).
+fn pick_name(rng: &mut CrtRand, l: &[String]) -> Option<String> {
+    let i = (rng.rand() as usize * l.len()) >> 15;
+    l.get(i).filter(|n| !n.eq_ignore_ascii_case("null")).cloned()
+}
+
+/// Matrix_FromEulerDeg 0x004e3db0 (angles A, B, C in degrees, x [0x005bcba0] = pi/180), rows (column vectors, as the
+/// game's matrices: translation in m3 / m7 / m11): (cC cB, -sA cC sB - sC cA, sC sA - cC sB cA),
+/// (cB sC, cC cA - sC sB sA, -sC sB cA - cC sA), (sB, cB sA, cB cA) = Rz(C) Ry(-B) Rx(A).
+fn euler_deg(a: f32, b: f32, c: f32) -> Mat3 {
+    let (sa, ca) = a.to_radians().sin_cos();
+    let (sb, cb) = b.to_radians().sin_cos();
+    let (sc, cc) = c.to_radians().sin_cos();
+    Mat3::from_cols(
+        Vec3::new(cc * cb, cb * sc, sb),
+        Vec3::new(-(sa * (cc * sb)) - sc * ca, cc * ca - (sc * sb) * sa, cb * sa),
+        Vec3::new(sc * sa - (cc * sb) * ca, -((sc * sb) * ca) - cc * sa, cb * ca),
+    )
+}
+
+/// Body_ApplyImpulse 0x00458440 with point null: a linear impulse (game units, world frame) at the centre of mass,
+/// the body woken; scaled as 0x64's (IMPULSE_SCALE, the fixed fx body mass of make_dynamic).
+fn add_impulse(physics: &mut Physics, id: BodyId, v: Vec3) {
+    let k = physics.meters_per_unit;
+    if let Ok(mut b) = physics.world.body_mut(id) {
+        b.activate();
+        let _ = b.add_impulse(jv(game_to_engine() * v * k * IMPULSE_SCALE));
     }
 }
 
@@ -854,6 +1020,10 @@ fn make_dynamic(physics: &mut Physics, commands: &mut Commands, o: &mut FxObject
     let id = physics.add_dynamic(e, &shape, pos, rot, Vec3::ZERO, s)?;
     commands.entity(e).insert(Body::rigid(id));
     o.body = Some(id);
+    // a 0x10 impulse given before the body existed
+    if o.impulse != Vec3::ZERO {
+        add_impulse(physics, id, std::mem::take(&mut o.impulse));
+    }
     Some(id)
 }
 
@@ -901,6 +1071,7 @@ fn run(
     mut paths: MessageWriter<crate::campath::StartCameraPath>,
     mut decals: MessageWriter<crate::decals::SpawnDecal>,
     cams: Query<Entity, With<Camera3d>>,
+    alive: Query<()>,
 ) {
     let t0 = std::time::Instant::now();
     let dt = time.delta_secs();
@@ -910,6 +1081,13 @@ fn run(
     while i < vm.instances.len() {
         let inst = &mut vm.instances[i];
         if inst.waiting {
+            // the owner of a waiting fx releases it when it goes (Fx_Release 0x0041d030 from the owner; the engine:
+            // its parent entity is gone, as `follow` ends their objects)
+            if inst.parent.is_some_and(|p| !vm.objects.contains_key(&p) && alive.get(p).is_err()) {
+                release_logged(vm, &mut ctx, i);
+                vm.instances.swap_remove(i);
+                continue;
+            }
             i += 1;
             continue;
         }
@@ -926,6 +1104,8 @@ fn run(
         // 0x0f children run at once (nested Fx_Step), 0x2f children from the next pass: both appended here
         vm.instances.extend(spawned);
         if done {
+            // Fx_Step 0x00423360: an ended instance is released (Fx_Release 0x0041d030), its 0x14 objects with it
+            release_logged(vm, &mut ctx, i);
             vm.instances.swap_remove(i);
         } else {
             i += 1;
@@ -940,12 +1120,30 @@ fn run(
     for d in vm.decals.drain(..) {
         decals.write(d);
     }
+    for fo in vm.forces.drain(..) {
+        if std::env::var("FXLOG").is_ok() {
+            info!("FXLOG force {} looping {} player only {} distance {}..{} on {:?}", fo.name, fo.looping, fo.player_only, fo.min, fo.max, fo.owner);
+        }
+    }
     vm.stats.instances = vm.instances.len();
     vm.stats.ms = t0.elapsed().as_secs_f32() * 1000.0;
     if !vm.unported.is_empty() {
         let list: Vec<_> = vm.unported.drain().collect();
         for u in list {
             info!("fx vm: not ported yet: {u}");
+        }
+    }
+}
+
+/// Fx_Release 0x0041d030 with fx+0x14 bit 0x20: FxInstance_DestroyEmitters 0x0041cfb0 ends each logged object
+/// (0x00419290, al = 1; its on-death fx is not ported).
+fn release_logged(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_, '_, '_>, idx: usize) {
+    for e in std::mem::take(&mut vm.instances[idx].logged) {
+        if let Some(o) = vm.objects.remove(&e) {
+            if let Some(b) = o.body {
+                ctx.physics.remove(b);
+            }
+            ctx.commands.entity(e).despawn();
         }
     }
 }
@@ -970,8 +1168,13 @@ fn objects(
     let mut objs = std::mem::take(&mut vm.objects);
     let mut gone = Vec::new();
     for (&e, o) in objs.iter_mut() {
-        let body = o.body;
         let Ok(mut t) = q.get_mut(e) else { continue }; // spawned this frame: starts next frame
+        // a 0x10 impulse on an object no 0x11 / 0x64 made dynamic (fx_trash): its body now, normal gravity (guess, as
+        // 0x64's; whether fx bodies are dynamic from creation is not traced)
+        if o.impulse != Vec3::ZERO && o.body.is_none() && !o.inert {
+            make_dynamic(&mut physics, &mut commands, o, e, 1.0);
+        }
+        let body = o.body;
         // physics-driven objects: read the placement back from the body's pose
         if body.is_some() {
             o.place = Mat4::from_quat(axes.inverse()) * Mat4::from_rotation_translation(t.rotation, t.translation);
@@ -1317,12 +1520,16 @@ fn camera_shake(time: Res<Time>, mut vm: ResMut<FxVm>, mut cam: Query<&mut Trans
 /// streamer when no points remain; then build the strips (Streamer_Draw 0x00495380: side = dir x camera axis (the
 /// view's back axis, switching to its up axis while (dir . axis)^2 > 0.6), not normalised; vertices pos +- side * w,
 /// w = width(t) * size, colour per channel = curve(t), t = age / life, oldest first).
+#[allow(clippy::too_many_arguments)]
 fn streamers(
+    mut commands: Commands,
     time: Res<Time>,
     mut vm: ResMut<FxVm>,
     owners: Query<&GlobalTransform, With<FxEntity>>,
     cam: Query<&GlobalTransform, With<Camera3d>>,
     mut meshes: ResMut<Assets<Mesh>>,
+    mut std_mats: ResMut<Assets<StandardMaterial>>,
+    assets: Res<AssetServer>,
 ) {
     let dt = time.delta_secs();
     // an fx object spawned this frame has no world transform yet (propagation runs before this): its placement
@@ -1357,12 +1564,21 @@ fn streamers(
     vm.streamers.retain(|s| s.emitting || !s.points.is_empty());
     let Ok(c) = cam.single() else { return };
     let (back, up) = (c.back().as_vec3(), c.up().as_vec3());
-    for (k, handle) in vm.streamer_meshes.clone().iter().enumerate() {
-        let additive = k == 1;
+    // a mesh for each texture / blend in use (0x55 textures), made on first use
+    let keys: Vec<(Option<String>, bool)> = vm.streamers.iter().map(|s| (s.texture.clone(), s.additive)).collect();
+    for key in keys {
+        if !vm.streamer_meshes.contains_key(&key) {
+            let h = streamer_mesh(&mut commands, &mut meshes, &mut std_mats, &assets, key.0.as_deref(), key.1);
+            vm.streamer_meshes.insert(key, h);
+        }
+    }
+    for ((texture, additive), handle) in vm.streamer_meshes.clone().iter() {
+        let additive = *additive;
         let mut pos: Vec<[f32; 3]> = Vec::new();
         let mut col: Vec<[f32; 4]> = Vec::new();
+        let mut uvs: Vec<[f32; 2]> = Vec::new();
         let mut idx: Vec<u32> = Vec::new();
-        for st in vm.streamers.iter().filter(|s| s.additive == additive && s.points.len() >= 2) {
+        for st in vm.streamers.iter().filter(|s| s.additive == additive && s.texture == *texture && s.points.len() >= 2) {
             let mut axis = back;
             let base = pos.len() as u32;
             for (i, (p, d, birth, size)) in st.points.iter().enumerate() {
@@ -1380,6 +1596,10 @@ fn streamers(
                 let cl = [lin(colour[0]), lin(colour[1]), lin(colour[2]), colour[3]];
                 col.push(cl);
                 col.push(cl);
+                // Streamer_Draw 0x00495380: u = (u1 - u0) * t + u0, v0 on the +side vertex, v1 on the -side one
+                let u = (st.uv[1] - st.uv[0]) * t + st.uv[0];
+                uvs.push([u, st.uv[2]]);
+                uvs.push([u, st.uv[3]]);
                 if i > 0 {
                     let a = base + (i as u32 - 1) * 2;
                     idx.extend_from_slice(&[a, a + 1, a + 2, a + 1, a + 3, a + 2]);
@@ -1389,6 +1609,7 @@ fn streamers(
         if idx.is_empty() {
             pos = vec![[0.0; 3]; 3];
             col = vec![[0.0; 4]; 3];
+            uvs = vec![[0.0; 2]; 3];
             idx = vec![0, 1, 2];
         }
         if let Some(mut m) = meshes.get_mut(handle) {
@@ -1396,6 +1617,7 @@ fn streamers(
             m.insert_attribute(Mesh::ATTRIBUTE_POSITION, pos);
             m.insert_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0f32, 1.0, 0.0]; n]);
             m.insert_attribute(Mesh::ATTRIBUTE_COLOR, col);
+            m.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
             m.insert_indices(Indices::U32(idx));
         }
     }

@@ -275,7 +275,13 @@ fn penguins(
 fn companions(mut q: Query<(&Companion, &mut Animator, &Name)>) {
     for (c, mut a, name) in &mut q {
         let who = if name.as_str() == "molmer" { "molmer" } else { "q111" };
-        if c.tea > 0.0 {
+        if c.dead.is_some() {
+            a.play(0, &format!("{who}_die"), false, Mask::All);
+            a.stop(1);
+        } else if let Some((n, _)) = c.hit {
+            a.play(0, &format!("{who}_{n}"), false, Mask::All);
+            a.stop(1);
+        } else if c.tea > 0.0 {
             a.play(0, "q111_drop_tea", false, Mask::All);
             a.stop(1);
         } else if c.throwing.is_some() {

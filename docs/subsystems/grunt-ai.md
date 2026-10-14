@@ -158,3 +158,28 @@ amount x 0.15, at most 3 bodies down. Drops: chance 1 - (1 - pickup_drop_percent
 alarm_tag starts fx_siren on the alarm object and the Help bark; the controller 0x00404e50 spawns troops from the
 nearest valid generator (weights num_bow/num_regular/num_captain/...) up to alarm_generator_max_troops, every
 alarm_min..max_delay; spawned troops walk out of ref_exit_00, follow the generator's markers, then charge.
+
+## Barks: when each line plays (traced 2026-10-14; static, mostly not executed in recorded runs)
+
+GruntObject vtable 0x005a9cf0 (BowGrunt the same slots). Voice set (GruntObject_Slot6, ai_04.cpp:2340): rand*300>>15
+< 100: +0x484 bit 21 = GR1; < 200: +0x488 bit 29 = GR3; else GR2 (the audio_01.cpp comments name the sets in the wrong
+order). Shared timers, set to the level start time (game_02.cpp:2057-2110), each re-rolling its interval: death_delay
+Game+0xb64 30..45 s, vo_delay Game+0xb44 30..45 s, taunt_delay Game+0xb84/+0xb90 300..360 s.
+
+| Line | Slot / wrapper | Played when | Delay | Evidence |
+|---|---|---|---|---|
+| Spotted cue | +0x144, 0x004390b0 | SetTarget 0x0042cc70: a new target when there was none | vo_delay | ai_03.cpp:1554 |
+| Fight cue | +0x13c, 0x004392c0 | the fire cycle 0x00428980 starts the fire anim with a target | vo_delay | ai_02.cpp:1860 |
+| Taunt | +0x15c, 0x00439ed0 (range 400/400/500) | after the last burst: target, vt+0x1d8, taunt_delay, +0x484 bit 17 clear, angle < 180, +0xb50 silent; taunt anim 0x32..0x34, state 0x6e | taunt_delay | ai_02.cpp:1956-1981 |
+| Help | +0x264, 0x00438f90 | a marker with alarm_tag when its alarm first starts | none | ai_07.cpp:1336 |
+| Hurt (shared pool) | +0x14c, 0x00439e00 | a non-lethal hit, tried first; sets +0xb48 | death_delay | ai_04.cpp:382 |
+| HurtShort | +0x148, 0x00439e30 | the same hit when Hurt was refused | per grunt 4 s (+0xb48) | ai_04.cpp:385 |
+| Dead | +0x154, 0x00439e60 | Character_Die, GoRagdoll, Character_Launch; once | death_delay, scream +0xb4c silent | game_02.cpp:1246 |
+| DeadAtPosition | +0x158, 0x00439ea0 | when Dead is refused (Launch: General_Scream instead) | none, once | same |
+| General_Scream | +0x160, 0x00438590 | Scare 0x0042fb60 without an attacker (near a stuck bomb, 25 units), Sticky's fallback, launches, state 0x19d | scream not playing | ai_03.cpp:2943 |
+| Sticky | +0x164, 0x00439de0 | Scare with an attacker: only the grunt the bomb is stuck to | death_delay, else General_Scream | ai_03.cpp:2930 |
+| Topsy | +0x168, 0x004387e0 (range 500) | knocked / thrown without recovering, state 0x19c | scream not playing | ai_03.cpp:3025 |
+| ClimbTaunt / LadderPlaced / OpenGate | +0x16c / +0x170 / +0x174 | ladder states, gate opening | vo_delay / none / vo_delay | ai_06.cpp:2020, ai_02.cpp:2563 |
+
+Spotted and Fight cannot play in the first 30..45 s of a level (vo_delay starts at level load): the recorded first
+fight has no line.

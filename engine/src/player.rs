@@ -1174,7 +1174,7 @@ fn projectiles(
     mut objects: Query<(&crate::level::Placed, &mut Destructible)>,
     mut roman: Query<(Entity, &mut Roman, &Transform, Option<&crate::skin::Animator>), Without<Projectile>>,
     mut roman_health: Query<&mut Health, (With<Roman>, Without<crate::physics::Body>, Without<Projectile>)>,
-    mut companions: Query<(Entity, &crate::ai::Companion, &Transform, Option<&crate::skin::Animator>, &mut Health), (Without<Roman>, Without<crate::physics::Body>, Without<Projectile>)>,
+    mut companions: Query<(Entity, &mut crate::ai::Companion, &Transform, Option<&crate::skin::Animator>, &mut Health), (Without<Roman>, Without<crate::physics::Body>, Without<Projectile>)>,
     mut stats: ResMut<PlayerStats>,
     mut fx: MessageWriter<crate::fx::StartFx>,
     hulls: Option<Res<crate::hitparts::HitHulls>>,
@@ -1273,9 +1273,12 @@ fn projectiles(
             }
             // the companions are teammates of the player (vt+0xe4 true): a grunt's shot hurts them, the player's and the
             // other companion's stop on them and do nothing (0x00430340: source and victim on the same team)
-            if !p.from_player {
-                if let Some((_, _, _, _, mut ch)) = companions.iter_mut().find(|(_, c, _, _, _)| c.q == q) {
+            if let Some((_, mut c, _, _, mut ch)) = companions.iter_mut().find(|(_, c, _, _, _)| c.q == q) {
+                if p.from_player {
+                    c.friendly = true;
+                } else {
                     ch.0 -= p.damage;
+                    c.attacker = p.owner;
                 }
             }
             commands.entity(e).despawn();
@@ -1289,6 +1292,12 @@ fn projectiles(
                 h.0 -= p.damage;
                 if let Ok((_, mut r, _, _)) = roman.single_mut() {
                     r.hit_from = Some(p.vel.normalize_or(Vec3::Z));
+                }
+                // each live companion takes the attacker unless engaged (0x00486df0)
+                if let Some(o) = p.owner {
+                    for (_, mut c, _, _, _) in companions.iter_mut() {
+                        c.roman_attacked(o);
+                    }
                 }
                 // PlayerObject_OnHit 0x0047afa0: alive, with an impact force and the latch clear: the hit anim (by the
                 // damage: < 65 small) and a knockback, one impulse 0.1 x min(10 x impact_force, 4000) x (d.x, d.y, 0.4)

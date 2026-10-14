@@ -48,6 +48,9 @@ pub struct Event {
     /// debug: destroy the placed object with this instance id (as a lethal hit)
     #[serde(default)]
     pub destroy: Option<u32>,
+    /// debug: damage a companion: [0 Jonesy / 1 Q, amount]
+    #[serde(default)]
+    pub hurt_companion: Option<[f32; 2]>,
     /// debug: send this mission trigger (e.g. 123, lev_1_m1's win)
     #[serde(default)]
     pub send: Option<i64>,
@@ -173,6 +176,8 @@ pub struct Playtest {
     warp: Option<[f32; 4]>,
     /// virtual gamepad input for pad_drive
     pad: Vec<String>,
+    /// companion damage for hurt_companions
+    hurt_c: Vec<[f32; 2]>,
     /// the virtual gamepad, once connected: scripted runs read only it (input.rs), never a pad on the desk
     pad_e: Option<Entity>,
 }
@@ -194,7 +199,7 @@ impl Playtest {
         let mut events = s.events;
         events.sort_by(|a, b| a.t.total_cmp(&b.t));
         let log = std::fs::File::create(path.with_extension("log.jsonl")).ok();
-        Playtest { pad_e: None, pad: vec![], warp: None, path, title: s.title, events, turns: s.turns, next: 0, t: 0.0, taps: vec![], clicks: vec![], log, last_log: -1.0, steps: s.steps, step_shot: None, step: 0, step_t: 0.0, step_started: false }
+        Playtest { hurt_c: vec![], pad_e: None, pad: vec![], warp: None, path, title: s.title, events, turns: s.turns, next: 0, t: 0.0, taps: vec![], clicks: vec![], log, last_log: -1.0, steps: s.steps, step_shot: None, step: 0, step_t: 0.0, step_started: false }
     }
 }
 
@@ -213,6 +218,7 @@ impl Plugin for PlaytestPlugin {
             .init_resource::<Bot>()
             .add_systems(PreUpdate, drive.after(bevy::input::InputSystems).before(crate::input::InputDevices).run_if(resource_exists::<Playtest>))
             .add_systems(PreUpdate, pad_drive.after(drive).before(crate::input::InputDevices).run_if(resource_exists::<Playtest>))
+            .add_systems(Update, hurt_companions.run_if(resource_exists::<Playtest>))
             .add_systems(Last, log_state.run_if(resource_exists::<Playtest>))
             .add_systems(Update, warp.run_if(resource_exists::<Playtest>));
     }
@@ -422,6 +428,9 @@ fn drive(
         if let Some(p) = e.pad {
             pt.pad.push(p);
         }
+        if let Some(h) = e.hurt_companion {
+            pt.hurt_c.push(h);
+        }
         if let Some(b) = e.click.as_deref().map(button) {
             buttons.press(b);
             pt.clicks.push(b);
@@ -547,6 +556,17 @@ fn pad_drive(
             }
             if let Some(a) = a {
                 raw.write(bevy::input::gamepad::RawGamepadEvent::Axis(bevy::input::gamepad::RawGamepadAxisChangedEvent::new(e, a, v)));
+            }
+        }
+    }
+}
+
+/// The hurt_companion step: damage straight to Jonesy (0) or Q (1).
+fn hurt_companions(mut pt: ResMut<Playtest>, mut q: Query<(&crate::ai::Companion, &mut crate::fx::Health)>) {
+    for [who, amount] in std::mem::take(&mut pt.hurt_c) {
+        for (c, mut h) in &mut q {
+            if c.q == (who >= 0.5) {
+                h.0 -= amount;
             }
         }
     }

@@ -67,10 +67,10 @@ Update this table as items land (commit hash in the last column).
 | Barracks release (ref_exit, markers, release_max) | ai_01.cpp:900 | S | 2 | spawns ±12; keeps releasing after destruction |
 | Hit reactions (explosion variants) | 0x00430340 | P | 3 | |
 | Death variants (blown up, ledge, in back, window) | 0x004319e0 | M | 2 | |
-| Barks: Taunt, General_Scream, Help, shared delays | audio_01.cpp:655 | M | 2 | Hurt / Dead / Sticky / Topsy ported |
+| Barks: Taunt, General_Scream, Help, shared delays | grunt-ai.md "Barks" | P | 2 | voice sets fixed (GR1 / GR3 / GR2), death / vo / taunt delays, Spotted, Fight, Taunt, Hurt two-stage, Dead vs DeadAtPosition, Sticky only on the bomb's grunt; Help (alarm) waits for the alarm chain |
 | Fidget shiver on level 1 | Game+0x2708 == 1 | S | 3 | never shivers |
 | Companions: formation, targeting, fire, TNT | 0x00485910.. | V | | |
-| Companions: hit reactions, death, friendly fire | generic AI, 0x00430340 | P / M | 2 | player and companion shots stop on them and do no damage (same team); hit reactions and death still missing |
+| Companions: hit reactions, death, friendly fire | 0x00430340, 0x004319e0, 0x00486df0 | P | 2 | friendly fire: no damage, FriendlyFire line; hits: Damaged / Hurt lines, hit_mgun / small / med anims; death: Dead line, *_die, -500 accidents, body removed; they take Roman's attacker |
 | Companions: barks, orders, leader swap, partner target | audio_02.cpp:195.. | M | 2 | |
 | **Kill-streak "dismay" banter** (the remarks after blasts) | MissionObject_Update game_02.cpp:2476, table 0x005ce570, kill meter Game+0xbb8 ≥ 3 | P | 1 | meter +1 per grunt death, drain 0.5/s, 30-45 s cooldown |
 | Sound-ear lines: alive / in range, on the speaker | 0x00497900 | S | 2 | 2D, random |
