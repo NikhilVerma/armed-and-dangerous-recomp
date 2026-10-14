@@ -28,3 +28,19 @@ loses work. Final message: branch, commits, what was verified (expect lines), wh
 ```
 
 Scope: one mechanic per agent. If it grows past that, stop at a checkpoint commit and report instead of widening.
+
+## Subsystem port (2026-10-14: the work order is by subsystem)
+
+```
+Subsystem: [name]. Engine files you own: [files]; do not edit others' files except small, stated hooks.
+Original: [recovered source files / classes]. Queue: `python tools/port_queue.py [subsystem]` lists the functions
+the original executes (work/coverage.json) that no engine file cites yet, by source file; `--all` adds the ones
+the coverage scenarios did not reach. Read each source file ONCE, in order, and port everything in it that the
+remaster needs for this subsystem, citing addresses. For each queued function decide: ported (cite it), replaced
+by the engine (say by what, in docs/remaster-engine.md), or not needed (say why).
+Isolation tests: headless playtests from saved states with expect steps (or Rust unit tests for pure logic), one
+per behaviour area, added to tools/regress.py's SUITE. `python tools/regress.py --exe [target]` must pass before
+you report.
+Done when: the queue for your subsystem is empty or every remaining entry has a stated reason; tests pass;
+docs/subsystems/<name>.md updated. Report: branch, commits, queue before / after, tests, open questions.
+```
