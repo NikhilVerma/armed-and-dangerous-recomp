@@ -213,7 +213,9 @@ fn main() {
     app.add_plugins(sticky::StickyPlugin);
     app.add_plugins(camfade::CameraFadePlugin);
     app.add_plugins(ragdoll::RagdollPlugin);
-    if let Some(save) = a.load.as_ref().and_then(|p| savegame::read(p)) {
+    // a script's own "load" (a state a 'save' step wrote) when --load is not given
+    let load = a.load.clone().or_else(|| a.play.as_deref().and_then(playtest::script_load));
+    if let Some(save) = load.as_ref().and_then(|p| savegame::read(p)) {
         app.insert_resource(savegame::PendingLoad(save, 0));
         app.insert_resource(campath::CameraPath::skipping());
         app.insert_state(AppState::Playing);
@@ -267,7 +269,10 @@ fn main() {
             }
         });
     }
-    app.run();
+    // a failed playtest expect exits with its code (tools/playtest.py reads it)
+    if let AppExit::Error(c) = app.run() {
+        std::process::exit(c.get() as i32);
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
