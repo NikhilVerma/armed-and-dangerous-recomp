@@ -1,0 +1,12 @@
+{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+ {"wait": 0.5},
+ {"warp": [-255, -120, 8, 180]},
+ {"wait": 0.5},
+ {"expect": {"cover.held": 0}},
+ {"wait": 12.0},
+ {"shot": "troops"},
+ {"expect": {"cover.held": [2, 5], "cover.in_slot": [2, 5]}},
+ {"wait": 10.0},
+ {"shot": "troops2"},
+ {"quit": true}
+]}
