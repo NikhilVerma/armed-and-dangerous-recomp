@@ -84,6 +84,7 @@ fn open(
     mut vtime: ResMut<Time<Virtual>>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     data: Res<crate::gamedata::GameData>,
+    (mut intro_said, mut rng): (Local<bool>, ResMut<crate::fx::FxStats>),
 ) {
     let Some(m) = mission.as_deref_mut() else { return };
     if !m.pub_request || *state.get() != AppState::Playing {
@@ -126,6 +127,22 @@ fn open(
     next.set(AppState::Paused);
     vtime.pause();
     sounds.write(crate::audio::PlaySound::ui("ui_pub_enter"));
+    // the pub's sounds (0x00467fe0): the busy loop amb_pub_busy and a line (Pub_PlayAmbientLine 0x00468dd0): the
+    // intro once (Game+0x574), then one of the fifteen general lines (the extras +0x144.. and the once lines for new
+    // weapons +0x141.. are not set up in lev_1_m1: guess)
+    sounds.write(crate::audio::PlaySound { looped: Some(true), ..crate::audio::PlaySound::ui("amb_pub_busy") });
+    const LINES: [&str; 15] = [
+        "PE150014_Pub_Ambient", "PE150025_Pub_Ambient", "PE150056_Pub_Ambient", "PE150057_Pub_Ambient", "PE150059_Pub_Ambient",
+        "PE150060_Pub_Ambient", "PE250014_Pub_Ambient", "PE250015_Pub_Ambient", "PE250016_Pub_Ambient", "PE250017_Pub_Ambient",
+        "PE250018_Pub_Ambient", "PE250051_Pub_Ambient", "JON50081_Ambient", "JON50045_Ambient", "ROM50169_Pub",
+    ];
+    let line = if !*intro_said {
+        *intro_said = true;
+        "PE150013_Pub_Once_Intro"
+    } else {
+        LINES[((rng.rand() * 15.0) as usize).min(14)]
+    };
+    sounds.write(crate::audio::PlaySound::ui(line));
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -141,6 +158,7 @@ fn input(
     data: Res<crate::gamedata::GameData>,
     mut physics: NonSendMut<crate::physics::Physics>,
     mouse: Res<ButtonInput<MouseButton>>,
+    mut stop: MessageWriter<crate::audio::StopSound>,
 ) {
     if !screen.open || menu.page != Page::Pub {
         return;
@@ -193,6 +211,7 @@ fn input(
         next.set(AppState::Playing);
         vtime.unpause();
         sounds.write(crate::audio::PlaySound::ui("ui_pub_exit"));
+        stop.write(crate::audio::StopSound("amb_pub_busy".into()));
         if let Some(m) = mission.as_deref_mut() {
             m.pub_exit_pending = true;
             // the player comes out at the pub's exit

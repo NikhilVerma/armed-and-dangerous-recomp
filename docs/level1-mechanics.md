@@ -88,7 +88,7 @@ Update this table as items land (commit hash in the last column).
 | Win sequence (score, sounds stop, stats, next level lev_1_m1_b) | 0x0044a390 / 0x0044a230 / 0x00494440 (win-sequence.md) | P | 1 | statscreen.rs: counters (stats.rs), the Stats screen with its phases and poster, money kept; lev_1_m1_b not built: back to the title. Sounds not stopped yet |
 | Objective jingle | 0x0044f560 | M | 3 | |
 | Opening movie + 71 subtitles | pre_1_1_opening | M | 3 | |
-| Pub re-entry, barkeep lines, amb_pub_busy | 0x00468dd0 | M | 3 | |
+| Pub re-entry, barkeep lines, amb_pub_busy | 0x00468dd0, 0x00467fe0 | P | 3 | amb_pub_busy loop while inside, the intro line once then one of 15 general lines; extras / once-weapon lines not set up |
 | Music states | 0x0044f580 | S | 3 | |
 | Score | various | P | 3 | stats.rs: kills / accidents by score_value, loot (win 1000, tokens 2500) |
 
