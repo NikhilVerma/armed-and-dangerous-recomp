@@ -412,6 +412,8 @@ struct Ctx<'a, 'cw, 'cs, 'w, 's> {
     materials: &'a mut Assets<StandardMaterial>,
     layer_materials: &'a mut Assets<FxLayerMaterial>,
     physics: &'a mut Physics,
+    /// the 3D camera: fx locked to it (the intro overlays) draw over the scene
+    camera: Option<Entity>,
     _q: std::marker::PhantomData<(&'w (), &'s ())>,
 }
 
@@ -473,7 +475,12 @@ fn create_object(ctx: &mut Ctx<'_, '_, '_, '_, '_>, inst: &Instance, template: &
                 // ONE, additive: fx_glow_red, fx_trail_bullet, the snow; without it blend 3, SRCALPHA / INVSRCALPHA:
                 // fx_white (the intro's white fade), fx_true_story (its caption))
                 let additive = def.as_ref().map_or(textured, |d| d.kind & 0x10 != 0);
+                // an fx locked to the camera (the intro's white fade fxo_white: a quad 1.26 in front of the eye, near plane
+                // 1) is drawn over the scene: the camera path passes within 1.26 of the glacier walls, which showed in
+                // front of the white (the player's report, 2026-10-14; the original's capture is all white there)
+                let locked = inst.follow && !inst.follow_pos_only && inst.parent.is_some() && inst.parent == ctx.camera;
                 let m = ctx.materials.add(StandardMaterial {
+                    depth_bias: if locked { 1.0e9 } else { base.depth_bias },
                     unlit: true,
                     alpha_mode: if additive { AlphaMode::Add } else if textured { AlphaMode::Blend } else { base.alpha_mode },
                     base_color: if textured { tint.unwrap_or(base.base_color) } else { base.base_color },
@@ -569,6 +576,16 @@ fn run_script(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_, '_, '_>, idx: usize, dt: 
                 if let Some(o) = obj!() {
                     o.fade_in = Some((s, 1.0 / (e - s).max(1e-4), true));
                     o.alpha = 0.0;
+                    // invisible until its fade starts (the fade loop only writes the materials when alpha changes: the
+                    // intro caption showed opaque for its first 0.5 s, hidden until now behind the white fade)
+                    for m in &o.materials {
+                        if let Some(mut m) = ctx.materials.get_mut(m) {
+                            m.base_color.set_alpha(0.0);
+                            if m.alpha_mode == AlphaMode::Opaque {
+                                m.alpha_mode = AlphaMode::Blend;
+                            }
+                        }
+                    }
                 }
             }
             "0x0a" => {
@@ -871,11 +888,12 @@ fn run(
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     mut paths: MessageWriter<crate::campath::StartCameraPath>,
     mut decals: MessageWriter<crate::decals::SpawnDecal>,
+    cams: Query<Entity, With<Camera3d>>,
 ) {
     let t0 = std::time::Instant::now();
     let dt = time.delta_secs();
     let vm = &mut *vm;
-    let mut ctx = Ctx { commands: &mut commands, data: &data, lib: &mut lib, assets: &assets, meshes: &mut meshes, materials: &mut materials, layer_materials: &mut layer_materials, physics: &mut physics, _q: std::marker::PhantomData };
+    let mut ctx = Ctx { commands: &mut commands, data: &data, lib: &mut lib, assets: &assets, meshes: &mut meshes, materials: &mut materials, layer_materials: &mut layer_materials, physics: &mut physics, camera: cams.iter().next(), _q: std::marker::PhantomData };
     let mut i = 0;
     while i < vm.instances.len() {
         let inst = &mut vm.instances[i];

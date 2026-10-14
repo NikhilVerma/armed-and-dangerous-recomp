@@ -31,3 +31,6 @@ Agents re-read this file after every context compaction (AGENTS.md).
 - Motion blur is per object, never from camera pans. The setting is shutter speed (1/N s), not shutter angle.
 - Tests run after human validation (docs/decision.md).
 - The Afterlight GI is off by default and exposed in the remaster menu.
+| 17 | Remaster engine: "stuck on menu screen" (2026-10-14, trackpad) | Likely the pub screen: it took no mouse input (only Enter / arrows / Esc). Mouse added (799ef2d: left selects, right leaves, select with nothing left leaves). WAITING FOR CONFIRMATION |
+| 18 | Remaster engine: the trackpad cannot move the view (2026-10-14) | OPEN: the look reads the cursor's movement from the window centre (LookDelta); asked whether it fails always or only while keys are held (Windows can switch a touchpad off while typing) |
+| 19 | Remaster engine: the sticky bomb does not snap to the nearest target (2026-10-14) | OPEN: the engine's auto-aim narrows the view by autoaim_sticky_factor (0.04 / 0.12) as tangent scales, a guess; the original's 0x00406f50 / 0x00408390 being traced |

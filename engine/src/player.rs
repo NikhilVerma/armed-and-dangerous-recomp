@@ -359,6 +359,8 @@ pub fn grab_cursor(
     menu: Res<crate::gamemenu::GameMenu>,
     mut look: ResMut<LookDelta>,
     mut settle: Local<u32>,
+    motion: Res<AccumulatedMouseMotion>,
+    mut last_abs: Local<Option<Vec2>>,
 ) {
     look.0 = Vec2::ZERO;
     // scripted runs leave the mouse to the person at the desk
@@ -382,6 +384,24 @@ pub fn grab_cursor(
     if let Some(p) = w.cursor_position() {
         if *settle == 0 {
             look.0 = p - centre;
+        }
+    }
+    // when the cursor did not move, the raw device motion: streamed input (Moonlight from a Mac trackpad) can leave
+    // the cursor still while raw input arrives, and some devices report absolute positions there (0..65535 over the
+    // desktop, which winit passes on as motion: the view ran away "only down"): those are turned into the change
+    // since the last report, scaled to window pixels
+    let raw = motion.delta;
+    if look.0 == Vec2::ZERO && raw != Vec2::ZERO && *settle == 0 {
+        if raw.x.abs() > 2000.0 || raw.y.abs() > 2000.0 {
+            if let Some(prev) = *last_abs {
+                let d = (raw - prev) * Vec2::new(w.width() / 65535.0, w.height() / 65535.0) * 4.0;
+                if d.length() < 400.0 {
+                    look.0 = d;
+                }
+            }
+            *last_abs = Some(raw);
+        } else {
+            look.0 = raw;
         }
     }
     *settle = settle.saturating_sub(1);
