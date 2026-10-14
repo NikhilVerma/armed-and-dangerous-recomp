@@ -1,0 +1,16 @@
+{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+ {"wait": 0.5},
+ {"audio": {"stop_all_but_music": true}},
+ {"wait": 0.2},
+ {"send": 808},
+ {"wait": 0.3},
+ {"expect": {"audio.started.rom50003_l1_ambient": 1, "audio.subtitle": "Oh, I could use a drink ta warm me up.", "audio.level_db.rom50003_l1_ambient": [-0.1, 0.1]}},
+ {"wait": 3.0},
+ {"send": 808},
+ {"wait": 0.3},
+ {"expect": {"audio.started.rom50003_l1_ambient": 1}},
+ {"send": 713},
+ {"wait": 0.3},
+ {"expect": {"audio.refused.out_of_range.jon50004_l1_ambient": 1, "audio.started.jon50004_l1_ambient": null, "audio.started.q1150001_l1_ambient": null}},
+ {"quit": true}
+]}

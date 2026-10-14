@@ -322,12 +322,60 @@ silent placeholders (`blank_vo`, `fol_bodyslide_*_end` 0.1 s of zeros, `skirm2_l
 clicks with mostly high-frequency energy (`wpn_*_load`, `ui_move`, `wpn_ticker`), and speech/gunfire mastered to
 full scale (0.03..0.36 % of samples at +-32767 in the source data, copied unchanged).
 
+## 8. Remaster port (engine/src/audio.rs, gameaudio.rs; 2026-10-14)
+
+`audio.rs` is the sound system as a self-contained module (AudioBankPlugin): a game gives it a bank (sounds.json,
+voice.json) and sends messages; everything per sound is data from the bank. `gameaudio.rs` is lev_1_m1's use of it
+(anim notes, ambient emitters, music, Roman as the listener's body, the playtest hooks).
+
+| Original | Remaster |
+| --- | --- |
+| Play slots +0xc4 / +0xcc / +0xd0 (2D, attached, at a point) | `PlaySound::on / at / ui`; `SoundId` as the handle |
+| Volume 0x004fb170: group + master + def + offset + envelope + distance, silent at -40 dB | `Voice::level_db`, recomputed every frame (options act on playing sounds too) |
+| Group setters 0x004f42e0 / 0x004f4260 / 0x004f42a0: curve(1 - value) | `Mixer::group_db`; 0 dB at the default 0.8 (the remaster's loudness), the original's curve around it, 0 = silent |
+| Distance curve 0x004f4ec0 on positional voices | applied (before: Bevy's spatial sinks never got the curve, positional sounds played at full volume at any distance) |
+| Pan 0x004fb1f0 (clamp(x / d, -0.9, 0.9) x 10000, very hard) | Bevy's spatial pan (two ears); its 1 / d^2 falloff made inert (spatial scale 1e-4) |
+| Exclusive channels and priority 0x004f35e0 | `Channels`: a busy channel with a priority at least the request's drops it, else its voice stops |
+| Pitch variation 0x004f3a80 | `PlaybackSettings.speed` in [1 - v/8, 1 + v/4] (19 lev_1_m1 sounds have v = 1) |
+| Intro / loop / outro 0x004fa340 / 0x004fb360 | looping: intro, then the body; a stop (not immediate) plays the outro. Not looping: the intro once. player.rs / mission.rs no longer play the `_start` / `_end` pieces themselves |
+| Follow-on 0x004f2a80 | on a voice's natural end, the follow-on plays on the same place with the same id (not after a stop) |
+| Envelope 0x004f2730 / stop fade 0x004fb360 | `Envelope::level_at / fade_level`; a stop of an enveloped voice fades it (music: 10 s), a segment that follows continues the fade |
+| Streamed positional voice out of range (0x004fa210 / 0x004fb1f0) | a one-shot beyond max distance does not start / stops; a loop pauses until back in range |
+| Stereo voices cannot play in 3D (0x004fa210) | refused (`refused.stereo_3d`) |
+| Game pause pauses every voice (0x004031e0 -> +0xe0 / +0xe4) | `GamePause`: voices pause with `Time<Virtual>`; those started during the pause and the flagged music play on |
+| Voice flag 0x8000000 (music play flag) | resolved: the pause 0x004f2d60 skips such voices, so the mission's victory / defeat jingles play through the pause; the objective jingle (cl = 1) pauses |
+| Stop-all-but-music 0x004f24e0 | `StopSound(ALL_BUT_MUSIC)` (immediate: no outros) |
+| Stop an object's voices 0x004f3170 | `StopSoundsOn(entity)` (level.rs on a death); a followed entity that disappears ends its loop (with its outro) |
+| Menu sounds 0x00491760 (group 0: offset -sfx) | `PlaySound::menu`: 0 dB whatever the sfx volume (gamemenu.rs, cheats.rs) |
+| Fx opcodes 0x38 / 0x39 / 0x3a (Fx_PlaySound 0x00420080) | 0x38 now plays 2D (gate and house explosions); 0x3a on the player plays 2D through `ListenerBody` |
+| 2D on the player (0x004f32a0, 0x0045a480) | `ListenerBody { radius }` on Roman: positional requests on him or within 8 units play 2D (debt: the remaster's callers give positions, not owners) |
+| AmbientSounds 0x00500520 | ported as the original runs it: timer starts at 0 (first one-shot at once), counts only while no one-shot plays and the game runs, out of range stops both sounds, 2D with the curve as the voice offset |
+| 64 positional voices (0x004fa210) | lifted (docs/engine-limits.md) |
+
+Not ported: the characters' own voice handles (+0xb4c scream, +0xb50 line; "no second scream while one plays", "a
+death line stops the line"): the grunt / captain cue sites live in ai.rs and pass no speaker. The global pitch scale
+(time-scale fx 0x72, unused in lev_1_m1). The focused-screen music lock (0x0044f510 / 0x0044f540). All dispositions:
+docs/port/audio.csv (`python tools/port_queue.py audio --all`: 0 left).
+
+Tests (tools/regress.py SUITE, engine/playtests): `audio_distance` (curve at 5 / 45 / 100 units, the listener's
+body, streamed out of range, stereo refused), `audio_groups` (option volumes on playing sounds, speech / music
+groups), `audio_voice` (subtitle, channel busy / equal priority refused, higher priority takes over, follow-on chain,
+no follow-on after a stop), `audio_ear` (a Roman-only ear, removal without `reapeat`, the nearest speaker when none is
+in range, a streamed line beyond max distance refused), `audio_music` (l1amb, the victory request queued for the
+boundary, l1vic through a pause, silence after), `audio_stopall` (intro / body / outro, stop-all-but-music, the game
+pause), `audio_ambient` (an emitter's first one-shot at once, the next after the one-shot plus the 5 s delay, stopped
+out of range); unit tests in audio.rs (curve, group levels, envelope, pitch range, the grunt pools last / butlast).
+The playtest state log has an `audio` field (started / refused / playing / level_db / paused by name, channels,
+group levels, music, ambient emitters) and an `audio` step (play / stop / stop_all_but_music / mixer / music /
+pause); an expect value of null means "absent".
+
 ## Open questions
 
 - Def flag 0x20 (set on all) and 0x4000000 (music and long ambience): no reader found.
 - Which code calls each character voice slot. (Music_Update's thresholds: resolved, section 4.)
-- The reader of voice flag 0x8000000 that Music_Update's play flag sets (0x004f3b10); and whether the
-  "segment of the queued track plays twice" reading of 0x00500a00 (section 4) holds at run time.
+- Whether the "segment of the queued track plays twice" reading of 0x00500a00 (section 4) holds at run time. (The
+  reader of voice flag 0x8000000: the pause 0x004f2d60, section 8.)
+- Which UI screens carry flag 0x2000 (their focus pauses the music and locks Music_Update, 0x004928f0).
 - Whether the game clock 0x00604a98 (the 180 s re-arm in Music_Update) counts from level start or app start.
 - The audio +0x8c word of the bank (big-aud.md).
 - Triggers of the eight untriggered lev_1_m1 lines (section 5).

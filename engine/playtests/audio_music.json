@@ -1,0 +1,16 @@
+{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+ {"wait": 2.0},
+ {"expect": {"audio.music.state": 0, "audio.music.segment": "l1amb", "audio.music.through_pause": false}},
+ {"audio": {"music": "victory"}},
+ {"wait": 0.2},
+ {"expect": {"audio.music.state": 5, "audio.music.queue": "l1vic", "audio.music.segment": "l1amb", "audio.music.through_pause": true}},
+ {"wait": 5.0},
+ {"expect": {"audio.music.segment": "l1vic", "audio.started.l1vic": 1}},
+ {"audio": {"pause": true}},
+ {"wait": 1.0},
+ {"expect": {"audio.music.paused": false, "audio.paused": [1, 999]}},
+ {"audio": {"pause": false}},
+ {"wait": 16.5},
+ {"expect": {"audio.music.segment": "", "audio.music.state": -1, "audio.playing_by_group.music": 0}},
+ {"quit": true}
+]}

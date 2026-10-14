@@ -1,13 +1,13 @@
-//! Sound the way lev_1_m1 plays it, from the game's data: anim note tracks (FX <fx> / fx_material <fx> + the
-//! surface material: footsteps, foley, weapon handling, run through the fx VM), ambient emitters (ambient.json:
-//! a world loop in 2D, positional one-shots within max_distance after oneshot_delay as the game runs it), and the
-//! dynamic music (Music_Update 0x0044f580: the state from enemy counts and timers, victory / defeat requests, the
-//! segment graph walked by the stream's resolver 0x00500a00; docs/subsystems/audio.md section 4).
+//! Sound the way lev_1_m1 plays it, from the game's data, on the sound system (audio.rs): anim note tracks (FX <fx> /
+//! fx_material <fx> + the surface material: footsteps, foley, weapon handling, run through the fx VM), the ambient
+//! emitters (AmbientSounds 0x00500230..0x00500520: a loop and one-shots per `ambient` instance), the dynamic music
+//! (Music_Update 0x0044f580: the state from enemy counts and timers, victory / defeat requests, the segment graph
+//! walked by the stream's resolver 0x00500a00; docs/subsystems/audio.md section 4), Roman as the listener's body,
+//! and the playtest hooks (audio steps, the `audio` state-log field).
 
-use crate::audio::{PlaySound, SoundBank};
+use crate::audio::{level_curve, ListenerBody, PlaySound, SetVoiceOffset, SoundBank, SoundId, StopVoice, Voice};
 use crate::fx::StartFx;
 use crate::skin::AnimNote;
-use bevy::audio::Volume;
 use bevy::prelude::*;
 use serde::Deserialize;
 
@@ -15,7 +15,21 @@ pub struct GameAudioPlugin;
 
 impl Plugin for GameAudioPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Music>().add_systems(Update, (notes, ambient, (music_state, music_voice).chain()));
+        app.init_resource::<Music>()
+            .init_resource::<Ambience>()
+            .add_systems(Update, (mark_listener_body, notes, ambient, (music_state, music_voice).chain()))
+            .add_systems(Update, (playtest_audio, log_audio).run_if(resource_exists::<crate::playtest::Playtest>));
+    }
+}
+
+/// Roman's body radius for the listener's body (audio.rs ListenerBody): a remaster value (guess: he is about 7 units
+/// tall; the fx objects at his feet and the code sounds at his position fall within it).
+const BODY_RADIUS: f32 = 8.0;
+
+/// The player is the listener's own body: his sounds play 2D (0x004f32a0, 0x0045a480).
+fn mark_listener_body(mut commands: Commands, q: Query<Entity, (With<crate::player::Roman>, Without<ListenerBody>)>) {
+    for e in &q {
+        commands.entity(e).insert(ListenerBody { radius: BODY_RADIUS });
     }
 }
 
@@ -38,6 +52,8 @@ fn notes(mut ev: MessageReader<AnimNote>, q: Query<&GlobalTransform>, mut fx: Me
 
 #[derive(Deserialize, Clone)]
 struct AmbientDef {
+    #[serde(default)]
+    instance: u32,
     position: [f32; 3],
     world: bool,
     #[serde(default)]
@@ -45,7 +61,10 @@ struct AmbientDef {
     #[serde(default)]
     oneshots: Vec<String>,
     #[serde(default)]
+    min_distance: Option<f32>,
+    #[serde(default)]
     max_distance: Option<f32>,
+    /// as the game runs it (both bounds read min_delay: docs/original-bugs.md)
     #[serde(default)]
     oneshot_delay: Option<(f32, f32)>,
 }
@@ -55,56 +74,119 @@ struct AmbientFile {
     ambients: Vec<AmbientDef>,
 }
 
+/// One emitter (an AmbientSounds element, 0x005002e0): `world` ones have no position; handle A the loop, handle B a
+/// one-shot; the one-shot timer starts at 0 and is redrawn in the delay range (20..45 s unless the instance sets one,
+/// 0x004f58a0); positional ones use the curve over min..max distance (0x004f58d0; the loader's defaults 100 / 300).
+/// The export's ambient.json holds what Object_LoadAmbientSoundProperties 0x00493950 reads (world, loop1..10,
+/// oneshot1..10, the distances and delays) and passes to slots +0x13c / +0x144 / +0x148 (0x004f5820 / 0x004f5860 /
+/// 0x004f5880).
 struct Emitter {
     def: AmbientDef,
     pos: Vec3,
     timer: f32,
-    looping: bool,
+    delay: (f32, f32),
+    range: (f32, f32),
+    looping: Option<SoundId>,
+    oneshot: Option<SoundId>,
+    /// the one-shot was requested this frame (not yet a voice)
+    fresh: bool,
+    /// one-shots started, the last offset (for the playtest log)
+    started: u32,
+    offset: f32,
 }
 
+/// The level's ambient emitters (the AmbientSounds list, audio +0x74), loaded on first use.
+#[derive(Resource, Default)]
+struct Ambience(Option<Vec<Emitter>>);
+
+/// AmbientSounds_Update 0x00500520, once a frame unless the game is paused (0x004f2a80 skips it while audio +0xa8).
+/// A positional emitter beyond max distance stops both its sounds. Otherwise a random loop is kept running and,
+/// while no one-shot plays, the timer counts down and a random one-shot starts on expiry. Both play 2D (the
+/// loader's +0x13c passes 0 for "with position"), positional ones with the distance curve as their offset.
+#[allow(clippy::too_many_arguments)]
 fn ambient(
-    mut started: Local<Option<Vec<Emitter>>>,
+    mut ambience: ResMut<Ambience>,
     launch: Option<Res<crate::Launch>>,
-    time: Res<Time>,
+    time: Res<Time<Virtual>>,
     listener: Query<&GlobalTransform, With<SpatialListener>>,
+    voices: Query<&SoundId, With<Voice>>,
     mut sounds: MessageWriter<PlaySound>,
+    (mut stop, mut offsets): (MessageWriter<StopVoice>, MessageWriter<SetVoiceOffset>),
     mut rng: ResMut<crate::fx::FxStats>,
 ) {
     let Some(launch) = launch else { return };
-    let ems = started.get_or_insert_with(|| {
+    let ems = ambience.0.get_or_insert_with(|| {
         std::fs::read_to_string(launch.scene.join("audio").join("ambient.json"))
             .ok()
             .and_then(|t| serde_json::from_str::<AmbientFile>(&t).ok())
             .map(|f| {
                 f.ambients
                     .into_iter()
-                    .map(|d| Emitter { pos: crate::level::game_to_engine() * Vec3::from(d.position), timer: 1.0, looping: false, def: d })
+                    .map(|d| Emitter {
+                        pos: crate::level::game_to_engine() * Vec3::from(d.position),
+                        timer: 0.0,
+                        delay: d.oneshot_delay.filter(|_| !d.oneshots.is_empty()).unwrap_or((20.0, 45.0)),
+                        range: (d.min_distance.unwrap_or(100.0), d.max_distance.unwrap_or(300.0)),
+                        looping: None,
+                        oneshot: None,
+                        fresh: false,
+                        started: 0,
+                        offset: 0.0,
+                        def: d,
+                    })
                     .collect()
             })
             .unwrap_or_default()
     });
+    if time.is_paused() {
+        return;
+    }
     let Ok(l) = listener.single() else { return };
+    let playing: std::collections::HashSet<SoundId> = voices.iter().copied().collect();
+    let dt = time.delta_secs();
+    let pick = |rng: &mut crate::fx::FxStats, list: &[String]| list[((rng.rand() * list.len() as f32) as usize).min(list.len() - 1)].clone();
     for e in ems.iter_mut() {
-        let near = e.def.world || e.def.max_distance.is_none_or(|m| e.pos.distance(l.translation()) < m);
-        // one random loop is kept running (world emitters in 2D)
-        if !e.looping && !e.def.loops.is_empty() && near {
-            let i = (rng.rand() * e.def.loops.len() as f32) as usize % e.def.loops.len();
-            let mut s = if e.def.world { PlaySound::ui(e.def.loops[i].clone()) } else { PlaySound::at(e.def.loops[i].clone(), e.pos) };
-            s.looped = Some(true);
-            sounds.write(s);
-            e.looping = true;
-        }
-        if e.def.oneshots.is_empty() || !near {
+        let distance = e.pos.distance(l.translation());
+        if !e.def.world && distance > e.range.1 {
+            for id in [e.looping.take(), e.oneshot.take()].into_iter().flatten() {
+                stop.write(StopVoice { id, immediate: false });
+            }
             continue;
         }
-        e.timer -= time.delta_secs();
-        if e.timer <= 0.0 {
-            let (a, b) = e.def.oneshot_delay.unwrap_or((5.0, 10.0));
-            e.timer = rng.range(a, b.max(a));
-            let i = (rng.rand() * e.def.oneshots.len() as f32) as usize % e.def.oneshots.len();
-            // positional ambients get the distance curve but play 2D, no pan (0x00500520)
-            sounds.write(PlaySound::ui(e.def.oneshots[i].clone()));
+        let offset = if e.def.world { 0.0 } else { level_curve(distance, e.range.0, e.range.1) };
+        e.offset = offset;
+        if e.looping.is_none() && !e.def.loops.is_empty() {
+            let id = SoundId::new();
+            sounds.write(PlaySound { offset_db: offset, ..PlaySound::ui(pick(&mut rng, &e.def.loops)).looping(true).with_id(id) });
+            e.looping = Some(id);
+            e.timer = rng.range(e.delay.0, e.delay.1);
         }
+        if let Some(id) = e.looping.filter(|_| !e.def.world) {
+            offsets.write(SetVoiceOffset { id, db: offset });
+        }
+        if let Some(id) = e.oneshot {
+            if e.fresh || playing.contains(&id) {
+                e.fresh = false;
+                if !e.def.world {
+                    offsets.write(SetVoiceOffset { id, db: offset });
+                }
+                continue;
+            }
+            e.oneshot = None;
+        }
+        if e.def.oneshots.is_empty() {
+            continue;
+        }
+        e.timer -= dt;
+        if !(e.timer < 0.0) {
+            continue;
+        }
+        let id = SoundId::new();
+        sounds.write(PlaySound { offset_db: offset, ..PlaySound::ui(pick(&mut rng, &e.def.oneshots)).looping(false).with_id(id) });
+        e.oneshot = Some(id);
+        e.fresh = true;
+        e.started += 1;
+        e.timer = rng.range(e.delay.0, e.delay.1);
     }
 }
 
@@ -112,7 +194,7 @@ fn ambient(
 const TRACKS: [&str; 7] = ["l1amb", "stealth", "skirm2", "l1bat", "skirm1", "l1vic", "l1def"];
 /// Battle / stealth re-arm time (0x005bcbb8 = 180.0).
 const REARM: f32 = 180.0;
-/// Music fade-out on stop: the music definitions' envelope `fade_out` (0x004fb360); offset (1 - level) * -40 dB.
+/// Music fade-out on stop when a segment has no envelope: the music definitions' envelope `fade_out` (0x004fb360).
 const FADE_OUT: f32 = 10.0;
 
 /// Dynamic music: the record Game+0xa88 updated by Music_Update 0x0044f580 (audio_01.cpp), plus the music voice of
@@ -125,10 +207,9 @@ pub struct Music {
     hold: f32,
     state: i32,
     /// +0x10 victory request, +0x11 (cl of 0x0044f560), +0x12 defeat request. The play call's flag byte is
-    /// !+0x11 for a victory, 1 for a defeat: it sets voice flag 0x8000000 (0x004f3b10), whose reader is not found,
-    /// so it is kept but unused here.
+    /// !+0x11 for a victory, 1 for a defeat: it sets voice flag 0x8000000 (0x004f3b10), which the game's pause skips
+    /// (0x004f2d60): the mission's victory and defeat jingles play on through the pause.
     victory: bool,
-    #[allow(dead_code)]
     no_flag: bool,
     defeat: bool,
     /// +0x14 / +0x18 enemy counts (near / far)
@@ -140,6 +221,11 @@ pub struct Music {
     /// the music voice: the segment playing and its time left, the queued track (audio +0x94), the stop mark
     /// (voice +0x64 bit 0x800), a fade-out in progress (seconds into it), a fresh start pending
     segment: Option<String>,
+    /// the segment's voice and whether it plays through a pause (voice flag 0x8000000)
+    voice: Option<SoundId>,
+    pub through_pause: bool,
+    /// a stop to send to the voice (its envelope fades it)
+    pending_stop: bool,
     left: f32,
     queue: Option<String>,
     stopping: bool,
@@ -165,6 +251,9 @@ impl Default for Music {
             last_battle: 0.0,
             last_stealth: 0.0,
             segment: None,
+            voice: None,
+            through_pause: false,
+            pending_stop: false,
             left: 0.0,
             queue: None,
             stopping: false,
@@ -194,9 +283,10 @@ impl Music {
     fn playing(&self) -> bool {
         self.segment.is_some() || self.start.is_some()
     }
-    /// Audio +0xd4 (0x004f3b10): while the music plays the track is queued (+0x94) for a segment boundary, else it
-    /// starts now with its first segment (the definition named like the track).
-    fn play(&mut self, name: &str) {
+    /// Audio +0xd4 (0x004f4100 -> 0x004f3b10): while the music plays the track is queued (+0x94) for a segment boundary, else it
+    /// starts now with its first segment (the definition named like the track). `flag` goes on the music voice.
+    fn play(&mut self, name: &str, flag: bool) {
+        self.through_pause = flag;
         if self.segment.is_some() {
             self.queue = Some(name.to_string());
         } else {
@@ -210,7 +300,10 @@ impl Music {
         if self.segment.is_some() {
             self.stopping = true;
             self.queue = None;
-            self.fade.get_or_insert(0.0);
+            if self.fade.is_none() {
+                self.fade = Some(0.0);
+                self.pending_stop = true;
+            }
         }
     }
     /// 0x0044f4c0 (level start / restart): state -1, timers 0, hold 1 s, requests cleared, Game+0xd78 / +0xd7c = 0,
@@ -508,50 +601,73 @@ fn music_state(
         return;
     }
     m.hold = 10.0;
-    m.play(TRACKS[next as usize]);
+    // the play call's flag byte (0x0044f580): !cl for a victory, 1 for a defeat, else 0
+    let flag = match next {
+        5 => !m.no_flag,
+        6 => true,
+        _ => false,
+    };
+    m.play(TRACKS[next as usize], flag);
 }
 
 /// The music voice (the driver's stream, 0x00500890 / 0x00500a00): plays the segments one after the other,
-/// resolving the next one at each boundary; a stop fades out over 10 s. It runs while paused too (real time).
+/// resolving the next one at each boundary. A stop is the voice's envelope fade (audio.rs); a segment that starts
+/// during it continues the fade. It pauses with the game unless flagged (a jingle through the pause).
 fn music_voice(
     mut music: ResMut<Music>,
-    time: Res<Time<Real>>,
+    (real, virt): (Res<Time<Real>>, Res<Time<Virtual>>),
     bank: Option<Res<SoundBank>>,
     mut sounds: MessageWriter<PlaySound>,
-    mut stop: MessageWriter<crate::audio::StopSound>,
-    mut sinks: Query<(&crate::audio::SoundCategory, &PlaybackSettings, &mut AudioSink)>,
+    mut stop: MessageWriter<StopVoice>,
+    mut voices: Query<(&SoundId, &mut Voice)>,
 ) {
     let Some(bank) = bank else { return };
     let m: &mut Music = &mut music;
-    let dt = time.delta_secs();
+    let dt = if m.through_pause { real.delta_secs() } else { virt.delta_secs() };
+    // 0x004f3b10 sets or clears the flag on the current voice at every play request
+    if let Some(id) = m.voice {
+        for (i, mut v) in &mut voices {
+            if *i == id && v.through_pause != m.through_pause {
+                v.through_pause = m.through_pause;
+            }
+        }
+    }
+    let segment = |name: &str, m: &Music| {
+        let id = SoundId::new();
+        (id, PlaySound { through_pause: m.through_pause, fade_elapsed: m.fade, ..PlaySound::ui(name).looping(false).with_id(id) })
+    };
     if let Some(name) = m.start.take() {
-        if let Some(seg) = m.segment.take() {
-            stop.write(crate::audio::StopSound(seg));
+        if let Some(id) = m.voice.take() {
+            stop.write(StopVoice { id, immediate: true });
         }
         m.queue = None;
         m.stopping = false;
         m.fade = None;
+        m.pending_stop = false;
         m.left = bank.sounds.get(&name).map(|d| d.duration).unwrap_or(4.0);
-        sounds.write(PlaySound::ui(name.clone()));
+        let (id, p) = segment(&name, m);
+        sounds.write(p);
+        m.voice = Some(id);
         m.segment = Some(name);
         return;
     }
     let Some(cur) = m.segment.clone() else { return };
+    if m.pending_stop {
+        m.pending_stop = false;
+        if let Some(id) = m.voice {
+            stop.write(StopVoice { id, immediate: false });
+        }
+    }
     if let Some(f) = m.fade.as_mut() {
         *f += dt;
-        let t = *f;
-        if t >= FADE_OUT {
-            stop.write(crate::audio::StopSound(cur));
+        let fade_out = bank.sounds.get(&cur).and_then(|d| d.envelope).map(|e| e.fade_out).filter(|f| *f > 0.0).unwrap_or(FADE_OUT);
+        if *f >= fade_out {
+            // the envelope has ended the voice
             m.segment = None;
+            m.voice = None;
             m.fade = None;
             m.queue = None;
             return;
-        }
-        let gain = 10f32.powf(-40.0 * (t / FADE_OUT) / 20.0);
-        for (c, s, mut sink) in &mut sinks {
-            if c.0 == "music" {
-                sink.set_volume(Volume::Linear(s.volume.to_linear() * gain));
-            }
         }
     }
     m.left -= dt;
@@ -563,11 +679,109 @@ fn music_voice(
     m.queue = queue;
     let Some(seg) = next else {
         m.segment = None;
+        m.voice = None;
         m.fade = None;
         m.queue = None;
         return;
     };
     m.left = bank.sounds.get(&seg).map(|d| d.duration).unwrap_or(4.0);
-    sounds.write(PlaySound::ui(seg.clone()));
+    let (id, p) = segment(&seg, m);
+    sounds.write(p);
+    m.voice = Some(id);
     m.segment = Some(seg);
+}
+
+/// Playtest `audio` steps (playtest.rs): {"play": NAME, "offset": [x, y, z] game-space offset from the listener |
+/// "at": [x, y, z] game space | "on_roman": true, "looped": bool}, {"stop": NAME}, {"stop_all_but_music": true},
+/// {"mixer": {"sfx" / "voice" / "music": 0..1}}, {"music": "victory" | "objective" | "defeat"}, {"pause": bool}.
+#[allow(clippy::too_many_arguments)]
+fn playtest_audio(
+    mut pt: ResMut<crate::playtest::Playtest>,
+    mut sounds: MessageWriter<PlaySound>,
+    mut stop: MessageWriter<crate::audio::StopSound>,
+    mut mixer: ResMut<crate::audio::Mixer>,
+    mut music: ResMut<Music>,
+    mut vtime: ResMut<Time<Virtual>>,
+    listener: Query<&GlobalTransform, With<SpatialListener>>,
+    roman: Query<Entity, With<crate::player::Roman>>,
+) {
+    let v3 = |v: &serde_json::Value| -> Option<Vec3> {
+        let a = v.as_array()?;
+        Some(crate::level::game_to_engine() * Vec3::new(a.first()?.as_f64()? as f32, a.get(1)?.as_f64()? as f32, a.get(2)?.as_f64()? as f32))
+    };
+    for c in std::mem::take(&mut pt.audio) {
+        if let Some(name) = c.get("play").and_then(|v| v.as_str()) {
+            let mut p = PlaySound::ui(name);
+            if let (Some(o), Ok(l)) = (c.get("offset").and_then(v3), listener.single()) {
+                p.at = Some(l.translation() + o);
+            }
+            if let Some(a) = c.get("at").and_then(v3) {
+                p.at = Some(a);
+            }
+            if c.get("on_roman").and_then(|v| v.as_bool()) == Some(true) {
+                p.follow = roman.single().ok();
+            }
+            p.looped = c.get("looped").and_then(|v| v.as_bool());
+            info!("EVENT playtest: sound {name}");
+            sounds.write(p);
+        }
+        if let Some(name) = c.get("stop").and_then(|v| v.as_str()) {
+            stop.write(crate::audio::StopSound(name.to_owned()));
+        }
+        if c.get("stop_all_but_music").and_then(|v| v.as_bool()) == Some(true) {
+            stop.write(crate::audio::StopSound(crate::audio::ALL_BUT_MUSIC.into()));
+        }
+        if let Some(m) = c.get("mixer").and_then(|v| v.as_object()) {
+            let get = |k: &str, d: f32| m.get(k).and_then(|v| v.as_f64()).map_or(d, |v| v as f32);
+            mixer.sfx = get("sfx", mixer.sfx);
+            mixer.voice = get("voice", mixer.voice);
+            mixer.music = get("music", mixer.music);
+        }
+        match c.get("music").and_then(|v| v.as_str()) {
+            Some("victory") => music.request_victory(false),
+            Some("objective") => music.request_victory(true),
+            Some("defeat") => music.request_defeat(),
+            _ => {}
+        }
+        match c.get("pause").and_then(|v| v.as_bool()) {
+            Some(true) => vtime.pause(),
+            Some(false) => vtime.unpause(),
+            None => {}
+        }
+    }
+}
+
+/// The playtest state log's `audio` field: audio.rs `summary` and the music's state.
+fn log_audio(
+    stats: Res<crate::audio::AudioStats>,
+    mixer: Res<crate::audio::Mixer>,
+    channels: Res<crate::audio::Channels>,
+    (music, ambience): (Res<Music>, Res<Ambience>),
+    voices: Query<&Voice>,
+    ids: Query<(&SoundId, &Voice)>,
+    state: Option<ResMut<crate::playtest::PlayState>>,
+) {
+    let Some(mut state) = state else { return };
+    let mut v = crate::audio::summary(&stats, &mixer, &voices, &channels);
+    let music_paused = music.voice.is_some_and(|id| ids.iter().any(|(i, v)| *i == id && v.paused));
+    let ambient: serde_json::Map<String, serde_json::Value> = ambience
+        .0
+        .iter()
+        .flatten()
+        .map(|e| {
+            let active = e.looping.is_some() || e.oneshot.is_some();
+            (e.def.instance.to_string(), serde_json::json!({"active": active, "started": e.started, "offset_db": (e.offset * 10.0).round() / 10.0}))
+        })
+        .collect();
+    v["ambient"] = ambient.into();
+    v["music"] = serde_json::json!({
+        "state": music.state,
+        "track": TRACKS.get(music.state as usize).copied().unwrap_or("silence"),
+        "segment": music.segment.clone().unwrap_or_default(),
+        "queue": music.queue.clone().unwrap_or_default(),
+        "fading": music.fade.is_some(),
+        "through_pause": music.through_pause,
+        "paused": music_paused,
+    });
+    state.0.insert("audio".into(), v);
 }

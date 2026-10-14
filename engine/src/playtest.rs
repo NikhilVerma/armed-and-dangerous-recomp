@@ -44,7 +44,8 @@ pub struct Event {
     #[serde(default)]
     pub save: Option<String>,
     /// check state-log fields now: `{"health": [270, 290], "won": false}` (an array of two numbers is an inclusive
-    /// range, anything else must be equal). Prints EXPECT PASS / FAIL; any failure makes the exit code 1
+    /// range, null means absent, anything else must be equal). Prints EXPECT PASS / FAIL; any failure makes the exit
+    /// code 1
     #[serde(default)]
     pub expect: Option<serde_json::Map<String, serde_json::Value>>,
     /// debug: take this much damage at once (to test losing)
@@ -117,6 +118,10 @@ pub struct Event {
     /// "rifle_clip", "health"} (pickup.rs)
     #[serde(default)]
     pub loadout: Option<serde_json::Map<String, serde_json::Value>>,
+    /// debug: a sound-system command (gameaudio.rs playtest_audio: play / stop / stop_all_but_music / mixer / music /
+    /// pause)
+    #[serde(default)]
+    pub audio: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
 /// The playtest bot's orders, read by the player's control and weapon systems.
@@ -199,6 +204,8 @@ pub struct Playtest {
     /// pickup / loadout steps for pickup.rs
     pub pickups: Vec<String>,
     pub loadouts: Vec<serde_json::Map<String, serde_json::Value>>,
+    /// audio steps for gameaudio.rs
+    pub audio: Vec<serde_json::Map<String, serde_json::Value>>,
     pub path: PathBuf,
     pub title: bool,
     events: Vec<Event>,
@@ -247,7 +254,7 @@ impl Playtest {
         let mut events = s.events;
         events.sort_by(|a, b| a.t.total_cmp(&b.t));
         let log = std::fs::File::create(path.with_extension("log.jsonl")).ok();
-        Playtest { pickups: vec![], loadouts: vec![], passed: 0, failed: 0, hurt_c: vec![], blasts: vec![], pad_e: None, pad: vec![], warp: None, path, title: s.title, events, turns: s.turns, next: 0, t: 0.0, taps: vec![], clicks: vec![], log, last_log: -1.0, steps: s.steps, step_shot: None, step: 0, step_t: 0.0, step_started: false }
+        Playtest { pickups: vec![], loadouts: vec![], audio: vec![], passed: 0, failed: 0, hurt_c: vec![], blasts: vec![], pad_e: None, pad: vec![], warp: None, path, title: s.title, events, turns: s.turns, next: 0, t: 0.0, taps: vec![], clicks: vec![], log, last_log: -1.0, steps: s.steps, step_shot: None, step: 0, step_t: 0.0, step_started: false }
     }
 }
 
@@ -489,6 +496,9 @@ fn drive(
         if let Some(l) = e.loadout {
             pt.loadouts.push(l);
         }
+        if let Some(a) = e.audio {
+            pt.audio.push(a);
+        }
         if let Some(h) = e.hurt_companion {
             pt.hurt_c.push(h);
         }
@@ -547,7 +557,8 @@ fn drive(
                 let ok = match (w.as_array(), got) {
                     (Some(r), Some(g)) if r.len() == 2 && r.iter().all(|v| v.is_number()) => g.as_f64().is_some_and(|v| v >= r[0].as_f64().unwrap() && v <= r[1].as_f64().unwrap()),
                     (_, Some(g)) => g == w || (g.is_number() && w.is_number() && g.as_f64() == w.as_f64()),
-                    _ => false,
+                    // null: the field is absent
+                    (_, None) => w.is_null(),
                 };
                 if ok { pt.passed += 1 } else { pt.failed += 1 }
                 let got = got.map(|g| g.to_string()).unwrap_or_else(|| "(missing)".into());

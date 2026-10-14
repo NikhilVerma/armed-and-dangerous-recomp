@@ -762,10 +762,18 @@ fn run_script(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_, '_, '_>, idx: usize, dt: 
                 let l = names(&arg(1));
                 let pick = if l.is_empty() { None } else { l.get((vm.rng.rand() as usize * l.len()) >> 15).cloned() };
                 let looping = arg(2).as_i64().unwrap_or(0) != 0;
-                list1 = None;
-                if let (Some(name), Some(t)) = (pick, top.filter(|_| cur.is_some())) {
-                    let at = vm.objects.get(&t).map(|o| game_to_engine() * o.place.w_axis.truncate());
-                    vm.sounds.push(crate::audio::PlaySound { name, at, follow: Some(t), looped: Some(looping), volume: 1.0 });
+                // Fx_PlaySound 0x00420080: 0x38 plays 2D (always, list1 kept); 0x39 / 0x3a on the object (only with
+                // cur; 0x3a in 2D on the player: audio.rs ListenerBody)
+                if op == "0x38" {
+                    if let Some(name) = pick {
+                        vm.sounds.push(crate::audio::PlaySound::ui(name).looping(looping));
+                    }
+                } else {
+                    list1 = None;
+                    if let (Some(name), Some(t)) = (pick, top.filter(|_| cur.is_some())) {
+                        let at = vm.objects.get(&t).map(|o| game_to_engine() * o.place.w_axis.truncate());
+                        vm.sounds.push(crate::audio::PlaySound { at, ..crate::audio::PlaySound::on(name, t).looping(looping) });
+                    }
                 }
             }
             "0x3b" => {

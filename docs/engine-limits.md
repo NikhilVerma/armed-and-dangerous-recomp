@@ -10,6 +10,7 @@ Sources: two read-only code audits (2026-10-12) and the playground captures. Gue
 
 | Limit | Evidence | Original | Remaster |
 |---|---|---|---|
+| Positional voices | 0x004fa210 (a 3D start fails when +0x120 > 0x3f) | 64 | no limit (Bevy mixes every voice; engine/src/audio.rs) |
 | Simultaneous ragdolls | Character_GoRagdoll, src/physics/physics_01.cpp (`downCount <= g_ragdollLimit`) | 4 | `[persistence] ragdoll_limit` 64; held bodies don't count |
 | Corpse fade | Corpse_CountDown 0x0042eba0 (src/game/corpses.cpp) | fade after 1-5.5 s | `bodies_keep` 1, `bodies_max` 64 |
 | Explosion debris lifespan | FxObject update 0x0041a350 | 1-12 s | `debris_keep` 1, `debris_max` 1000 |

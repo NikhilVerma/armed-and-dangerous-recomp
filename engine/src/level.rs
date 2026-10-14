@@ -933,19 +933,14 @@ pub struct AudioLoop(pub String);
 fn audio_loops(
     new: Query<(Entity, &AudioLoop), Added<AudioLoop>>,
     mut died: MessageReader<Died>,
-    sounds: Query<(Entity, &crate::audio::Positional)>,
     mut play: MessageWriter<crate::audio::PlaySound>,
-    mut commands: Commands,
+    mut stop: MessageWriter<crate::audio::StopSoundsOn>,
 ) {
     for (e, l) in &new {
-        play.write(crate::audio::PlaySound { name: l.0.clone(), at: None, follow: Some(e), looped: Some(true), volume: 1.0 });
+        play.write(crate::audio::PlaySound::on(l.0.clone(), e).looping(true));
     }
     for d in died.read() {
-        for (s, p) in &sounds {
-            if p.follow == Some(d.0) {
-                commands.entity(s).despawn();
-            }
-        }
+        stop.write(crate::audio::StopSoundsOn(d.0));
     }
 }
 

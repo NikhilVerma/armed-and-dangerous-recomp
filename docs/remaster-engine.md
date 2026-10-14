@@ -333,6 +333,26 @@ grunts' idle chatter (fidget anims' fx notes) match. Open: penguin calls (Pengui
 stand still; the original calls in bursts, every penguin at once, at load and ~frame 238). Music segments after the
 first go through the streaming path and are not in the original's log. The ambient voice line is a random pick.
 
+## Audio (subsystem port, 2026-10-14)
+
+engine/src/audio.rs is the sound system as a module (bank + messages; docs/subsystems/audio.md section 8 maps it to
+the original), gameaudio.rs the level's use of it. What changed for everything that plays sounds:
+
+- Positional sounds now get the original's distance curve (before, Bevy's spatial sinks never received it: every
+  positional sound played at full volume at any distance). Grunts' footsteps beyond 80 units are silent, as in the
+  original.
+- Sounds on Roman (`ListenerBody`, radius 8) play 2D, as the original plays the player's own sounds.
+- The bank's sequences play by themselves: a looping `*_lp` with an intro / outro starts with the intro and ends with
+  the outro on a StopSound; callers send only the loop and the stop.
+- Option volumes act on playing sounds; menu sounds use `PlaySound::menu` (0 dB, as the original).
+- The game pause (`Time<Virtual>`) pauses the voices, except those started during it and the flagged music jingles.
+- Playtests: `{"audio": {...}}` steps and the `audio` state-log field (see audio.md section 8); `"x": null` in an
+  expect means the field is absent.
+
+Debt: `ListenerBody.radius` stands in for the original's ownership test (0x0045a480); the characters' own voice
+handles (+0xb4c / +0xb50) are not ported (ai.rs's cue sites pass no speaker); music segments chain on a frame timer
+(the segment's duration), not on the stream's end.
+
 ## Running tests without disturbing the desktop
 
 - `--background`: the window opens off-screen, unfocused, behind everything, not in the taskbar; screenshots still

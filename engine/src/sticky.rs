@@ -244,7 +244,7 @@ fn throw(
         let c = commands.spawn((Mesh3d(m.clone()), MeshMaterial3d(mat.clone()))).id();
         commands.entity(e).add_child(c);
     }
-    sounds.write(crate::audio::PlaySound { name: "wpn_sticky_grenade_lp".into(), at: None, follow: Some(e), looped: Some(true), volume: 1.0 });
+    sounds.write(crate::audio::PlaySound::on("wpn_sticky_grenade_lp", e).looping(true));
     if let Some(n) = p.s("fx_start") {
         fx.write(crate::fx::StartFx { name: n.to_owned(), at: from, rotation: Quat::IDENTITY, follow: Some(e), position_only: true });
     }
