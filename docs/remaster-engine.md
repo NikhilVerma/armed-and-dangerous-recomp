@@ -186,7 +186,8 @@ work/remaster/play/compare/.
 ## HUD and menus (subsystem port, 2026-10-14)
 
 What the remaster does: docs/subsystems/hud.md section 12 and menus.md section 4. `python tools/port_queue.py ui`
-went from 168 to 121 entries; every remaining one is replaced by the engine or not needed:
+went from 168 to 121 entries; every remaining one is replaced by the engine or not needed, one row per function in
+docs/port/ui.csv (which `port_queue.py` reads):
 
 | Original | Remaster | Why no port |
 | --- | --- | --- |
