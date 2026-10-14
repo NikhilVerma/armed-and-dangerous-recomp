@@ -1209,6 +1209,8 @@ HOOK(0x0047e4d0, "fn_0047e4d0", fn_0047e4d0_Entry, nullptr);
 // game+0xa84 +0xe90; Ray_Cast 0x00413e10) and every hit is passed to vt+0x138(object, record, part) until that
 // returns false. The 0x34-byte hit record: +4 point, +0x10 part, +0x18 direction (x, y of +0x52c, z 0.7,
 // normalised), +0x24 "impact_force".
+// Test hook ([test] log_hits): every ray hit of a projectile (object, record), the landscape's too. Null: nothing.
+void (*g_testRayHit)(uint32_t projectile, uint32_t object, uint32_t record) = nullptr;
 uint32_t Projectile_Update(uint32_t o)
 {
     alignas(4) uint8_t fr[0xa0];
@@ -1310,6 +1312,8 @@ uint32_t Projectile_Update(uint32_t o)
             Fl(h + 0x1c) = Fl(h + 0x1c) * inv;
             Fl(h + 0x20) = inv * K(0x005bcd48);  // 0.7
         }
+        if (g_testRayHit)
+            g_testRayHit(o, D(q + 0x34), h);
         r = VC(o, 0x138, D(q + 0x34), h, D(q + 0x44));
         if (!static_cast<uint8_t>(r))
             return r;

@@ -551,7 +551,9 @@ fn think(
                     }
                     let before = stats.shots;
                     if g.turn.is_none() {
-                        fire_cycle(&mut commands, &mut g, &physics, &mut rng, pos, p, hit, own_hit, body.id, dt, &mut stats, &mut sounds, &mut fx);
+                        // the weapon in its right hand (ref_rhand, grunt init 0x00434fb0): where the shot leaves
+                        let hand = ga.and_then(|a| a.skeleton.index.get("ref_rhand").and_then(|&i| targets.get(a.joints[i]).ok())).map(|j| j.translation());
+                        fire_cycle(&mut commands, &mut g, &physics, &mut rng, pos, p, hit, own_hit, hand, body.id, dt, &mut stats, &mut sounds, &mut fx);
                     }
                     if stats.shots > before && std::env::var("AIDBG").is_ok() {
                         info!("AIDBG gruntshot t {:.3}", rtime.elapsed_secs());
@@ -610,6 +612,7 @@ fn fire_cycle(
     p: Vec3,
     hit: Vec3,
     own_hit: Vec3,
+    hand: Option<Vec3>,
     own: BodyId,
     dt: f32,
     stats: &mut AiStats,
@@ -644,8 +647,13 @@ fn fire_cycle(
     let s = if d <= lo { 0.1 } else if d >= hi { 1.0 } else { ((d * d - lo * lo) / (hi * hi - lo * lo)).max(0.1) };
     let side = Vec3::new(-to.z, 0.0, to.x).normalize_or_zero();
     let aim = hit + side * rng.range(-g.inaccuracy_angle, g.inaccuracy_angle) * s + Vec3::Y * rng.range(0.0, g.inaccuracy_height) * s;
-    let muzzle = pos + Vec3::Y * 7.0;
+    // the shot leaves the weapon (0x004a2010: its emitter's matrix): the hand holding it, the muzzle ~3 along the aim
+    // (the weapon's emitter node is not exported: the length is a guess); the original's bullets pass on the
+    // weapon's side of a grunt (they hit a grunt standing in front of a shooter, hook ray-hit log; the engine's
+    // from the body's centre line missed it)
+    let muzzle = hand.unwrap_or(pos + Vec3::Y * 7.0);
     let dir = (aim - muzzle).normalize_or(Vec3::Z);
+    let muzzle = muzzle + dir * 3.0 - dir * 4.0;
     if g.dry_first {
         // the dry first cycle: the fire anim without a shot, then the reload as after an empty clip
         g.dry_first = false;

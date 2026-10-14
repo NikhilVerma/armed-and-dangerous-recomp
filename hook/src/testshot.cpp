@@ -158,6 +158,21 @@ static void LogMaterial(const uint8_t* m, const char* const names[4])
 
 extern void (*g_testSoundStarted)(const char* name, float volume);
 extern void (*g_testHit)(uint32_t victim, uint32_t projectile, uint32_t record);
+extern void (*g_testRayHit)(uint32_t projectile, uint32_t object, uint32_t record);
+
+// [test] log_hits=1 also writes and-rayhits.txt: every projectile ray hit: frame, object (0 for none), 1 when the
+// object is the player, the object's vtable, the point (record +4)
+static void LogRayHit(uint32_t projectile, uint32_t object, uint32_t rec)
+{
+    FILE* out = fopen("and-rayhits.txt", "a");
+    if (!out)
+        return;
+    const uint32_t player = *reinterpret_cast<const uint32_t*>(reinterpret_cast<const uint8_t*>(g_game) + 0x748);
+    const float* at = reinterpret_cast<const float*>(rec + 4);
+    fprintf(out, "%d %u %d %u %.2f %.2f %.2f\n", TestFramesSinceLoad(), object, object == player ? 1 : 0,
+            object ? *reinterpret_cast<const uint32_t*>(object) : 0u, at[0], at[1], at[2]);
+    fclose(out);
+}
 int TestFramesSinceLoad();  // testscenario.cpp
 
 // [test] log_hits=1: every projectile hit (and-hits.txt): frame since load, 1 when the victim is the player, the
@@ -209,6 +224,8 @@ void TestMaterialLogInit()
         g_testSoundStarted = LogSound;
     if (ConfigInt("test", "log_hits", 0))
         g_testHit = LogHit;
+    if (ConfigInt("test", "log_hits", 0))
+        g_testRayHit = LogRayHit;
 }
 
 extern void* g_testCamera;

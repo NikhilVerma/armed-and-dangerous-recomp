@@ -1017,6 +1017,11 @@ fn projectiles(
             continue;
         }
         if let Some((body, at, normal)) = hit {
+            if !p.from_player && std::env::var("AIDBG").is_ok() {
+                let kind = if physics.landscape == Some(body) { "ground" } else if chars.iter().any(|(_, b, _, _, g)| b.id == body && g) { "grunt" } else { "other" };
+                let g = crate::level::game_to_engine().inverse() * at;
+                info!("AIDBG bulletend {} {:.1} {:.1} {:.1} t {:.3}", kind, g.x, g.y, g.z, rtime.elapsed_secs());
+            }
             if let Some(n) = impact(Some(body)) {
                 // the fx's game +Z (its up) along the surface normal
                 let rot = Quat::from_rotation_arc(Vec3::Y, normal.normalize_or(Vec3::Y)) * crate::level::game_to_engine();
