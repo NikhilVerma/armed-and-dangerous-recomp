@@ -101,7 +101,7 @@ Update this table as items land (commit hash in the last column).
 | Bullet-transparent objects (invisible walls, arrow) | list +0xe90, filter 0x00413a90 | P | 1 | physics.no_bullets (trees do stop bullets); a trigger-killed object's collider is removed |
 | Houses: breakable windows, door anim | 0x0040ad80 | M | 3 | |
 | Barracks stop releasing when destroyed | | P | 2 | mission.rs deaths(); barracks.json (destroyed 25 releases nothing on 810) |
-| Oil pump animation (oilpump_cycle) | | M | 3 | |
+| Oil pump animation (oilpump_cycle) | | M | 3 | needs the export: oilpump_1.json has no skeleton / bone binding (3 submeshes); oilpump_cycle (4 s) animates bone_bigarm / bone_pump / bone_gyro |
 | Fx opcodes used by L1 deaths and muzzle flashes | render_r2b.cpp:270-1117 (fx-vm.md) | P | 2 | 0x79, 0x10, 0x14, 0x31, 0x32, 0x3f, 0x4a, 0x55, 0x56 ported (ccd9aec, 6f474db); impulse masses guessed; lights stored, not drawn |
 | Trenches (barricade collision, cover) | p_barracade | M | 3 | |
 | Guard alarm, grunt generators | | P | 2 | (alarm chain); the siren can be shot (100 health: guess) |
