@@ -60,6 +60,10 @@ pub struct Grunt {
     pub marker_tags: Option<(i64, i64)>,
     pub marker: Option<(usize, Vec3)>,
     pub marker_done: bool,
+    /// a route to the goal over the ground when the straight line is blocked (the original walks the nav grid,
+    /// 0x0046f6d0; here nav.rs A*, re-planned every second)
+    route: Vec<Vec3>,
+    replan: f32,
     /// his own entity: his bullets' owner (the damage record's source +0x2c)
     pub me: Option<Entity>,
     /// score_value: to the Kills money when he dies (Game+0x2724)
@@ -252,6 +256,8 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         marker_tags: (p.s("mode") == Some("trigger_marker")).then(|| (p.i("marker_tag_min", 0), p.i("marker_tag_max", 0))),
         marker: None,
         marker_done: false,
+        route: Vec::new(),
+        replan: 0.0,
         attacker: None,
         offer_t: f32::NEG_INFINITY,
         clips: (p.i("fire_num_clips_min", 1), p.i("fire_num_clips_max", 1)),
@@ -774,6 +780,22 @@ fn think(
                 }
                 let _ = b.set_linear_velocity(jv(Vec3::ZERO));
             }
+        }
+        let mut goal = goal;
+        g.replan -= dt;
+        if speed > 0.0 && flat(goal - pos).length() > 15.0 && !line_of_sight(&physics, pos, goal) {
+            if g.replan <= 0.0 || g.route.is_empty() {
+                g.replan = 1.0;
+                g.route = crate::nav::path(&physics, pos, goal, &[]).unwrap_or_default();
+            }
+            while g.route.first().is_some_and(|w| flat(*w - pos).length() < 4.0) {
+                g.route.remove(0);
+            }
+            if let Some(w) = g.route.first() {
+                goal = *w;
+            }
+        } else {
+            g.route.clear();
         }
         let dir = flat(goal - pos).normalize_or_zero();
         let face = match (g.mind, target) {

@@ -61,7 +61,7 @@ Update this table as items land (commit hash in the last column).
 | Fire cycle, aim error, muzzle | 0x00428980, 0x004284e0, 0x004a2010 | V | | second encounter 40 vs 42 shots, 24 vs 22 hits |
 | Retaliation when hit (adopt attacker) | 0x00430340 end, 0x0042c820 | P | 1 | offer-target rule (10 s, nearer); playtest retal.json |
 | Alert group on death / hit | 0x00431720, 0x0042cc70, 0x0042c700 | P | 2 | spotting and death hand the killer / target to the group after 0.25..1 s (group.json) |
-| Chase with nav routing, wait, go home | 0x00427910, ai_06.cpp:1420 | S | 2 | straight-line chase |
+| Chase with nav routing, wait, go home | 0x00427910, ai_06.cpp:1420, 0x0046f6d0 | P / S | 2 | moving grunts route around obstacles (nav.rs A*, replanned every 1 s) when the straight line is blocked; wait / go home not ported |
 | Marker paths, hide, cover (FindHidingSpot) | 0x0044ba30, 0x0042a7b0 | P / M | 2 | trigger_marker runs to the marker (straight line), actions hide (fallback wander 60..100), trigger_charge, scatter; no cover slots, splines, nav routing; barracks troops not on markers yet |
 | Alarm chain (grunt 67 → marker 151 → siren → generators, captains) | 0x00404e50, 0x0044ba30 (mission.md) | P | 2 | alarm.rs: runner, siren fx + Help, controller 2..4 s up to 10, siren destroyed stops it (alarm.json / alarm2.json) |
 | Barracks release (ref_exit, markers, release_max) | ai_01.cpp:900 | S | 2 | spawns ±12; keeps releasing after destruction |
