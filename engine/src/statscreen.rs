@@ -95,7 +95,7 @@ fn open(
     assets: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
-    opts: Res<crate::options::GameOptions>,
+    (opts, difficulty): (Res<crate::options::GameOptions>, Res<crate::gamedata::Difficulty>),
 ) {
     let Some(m) = mission else { return };
     if s.shown || m.outcome != crate::mission::Outcome::Won || m.showing.is_some() || *state.get() != AppState::Playing {
@@ -105,7 +105,7 @@ fn open(
     s.open = true;
     s.phase = 0;
     s.reveal = 0.0;
-    s.money_lines = [stats.kills_money, stats.accidents_money, stats.rescues_money, stats.loot_money].map(|v| v * 1.0);
+    s.money_lines = [stats.kills_money, stats.accidents_money, stats.rescues_money, stats.loot_money].map(|v| v * difficulty.factors().money);
     s.from = opts.money;
     s.to = (opts.money + s.money_lines.iter().map(|v| v.trunc()).sum::<f32>()).max(0.0);
     menu.page = crate::gamemenu::Page::Stats;

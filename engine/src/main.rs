@@ -43,6 +43,7 @@ mod ragdoll;
 mod savegame;
 mod topsy;
 mod turret;
+mod weapontable;
 mod player;
 mod playtest;
 mod scene;

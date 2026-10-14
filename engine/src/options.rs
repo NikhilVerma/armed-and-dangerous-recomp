@@ -1,5 +1,13 @@
 //! The options the menus edit: the Game object's option block (docs/subsystems/menus.md 1, options.opt), kept in
-//! options.json next to the executable. Defaults are the original's (0x00401a80): volumes 0.8, brightness 1.5, draw
+//! options.json next to the executable. The original registers each option with its default (Options_Register
+//! 0x00401a80 through 0x00462160 bool / 0x00462190 int / 0x004621c0 float / 0x004621f0 blob, the registry
+//! 0x00462110, reset 0x00462250 and its callback 0x00462220), loads options.opt record by record (0x00462660 ->
+//! 0x00462310: a record of the wrong type is skipped with "Option is incorrect type", the others still load) and
+//! writes it when changed (0x00401e60 -> 0x00462610 / 0x004625d0 / 0x00462450). Here serde is the registry: the
+//! fields and their defaults, loaded key by key the same way (`from_json`), saved whenever a menu changes one.
+//! Not kept (the remaster's renderer decides them): enablePostFx, enableBumpMapping, enableDecals,
+//! enablePixelShaders, modelLod, textureLod, textureQuality, skinHQ, maxTextures; the input bindings
+//! (m_control->m_inputActions) are input.rs's. Defaults are the original's (0x00401a80): volumes 0.8, brightness 1.5, draw
 //! distance 1.0, shadows on, mouse sensitivity 0.5; both subtitle options on (guess: 0x00447630 picks the default
 //! by language). Applied to the engine whenever they change: the mixer, the subtitle line, the shadow-casting sun,
 //! camera exposure (brightness), the far plane (draw distance), the window size, mouse look (player.rs).
@@ -33,6 +41,9 @@ pub struct GameOptions {
     pub money: f32,
     /// cheats whose code was entered once (Game+0x48c)
     pub cheats_known: Vec<u32>,
+    /// the original's save rule: the game saves itself at the checkpoints only (the mission start, leaving the pub;
+    /// savegame.rs) and the pause menu cannot save. Off: save anywhere (the remaster's)
+    pub checkpoint_saves: bool,
 }
 
 impl Default for GameOptions {
@@ -54,6 +65,7 @@ impl Default for GameOptions {
             tokens_taken: Vec::new(),
             money: 0.0,
             cheats_known: Vec::new(),
+            checkpoint_saves: false,
         }
     }
 }
@@ -71,7 +83,28 @@ impl GameOptions {
         if std::env::args().any(|a| a == "--play") {
             return Self::default();
         }
-        std::fs::read_to_string(Self::path()).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
+        std::fs::read_to_string(Self::path()).map(|s| Self::from_json(&s)).unwrap_or_default()
+    }
+
+    /// The options in a file, key by key as 0x00462310 reads records: a known key whose value has the wrong type is
+    /// skipped (logged), unknown keys are ignored, missing ones keep their defaults; a file that is not a JSON object
+    /// gives the defaults.
+    pub fn from_json(text: &str) -> Self {
+        let Ok(serde_json::Value::Object(file)) = serde_json::from_str::<serde_json::Value>(text) else { return Self::default() };
+        let Ok(serde_json::Value::Object(mut merged)) = serde_json::to_value(Self::default()) else { return Self::default() };
+        for (k, v) in file {
+            if !merged.contains_key(&k) {
+                continue;
+            }
+            let mut trial = merged.clone();
+            trial.insert(k.clone(), v.clone());
+            if serde_json::from_value::<Self>(serde_json::Value::Object(trial)).is_ok() {
+                merged.insert(k, v);
+            } else {
+                warn!("options: {k} is of the wrong type, kept its default");
+            }
+        }
+        serde_json::from_value(serde_json::Value::Object(merged)).unwrap_or_default()
     }
 
     pub fn save(&self) {
@@ -94,6 +127,14 @@ impl GameOptions {
 /// The light whose shadows the "Enable Shadows" option switches (the level's first directional light).
 #[derive(Component)]
 pub struct ShadowLight;
+
+/// The draw distance the camera uses: 0x0040f8c0 (the option Game+0x4b0, applied at level start by Game_StartLevel
+/// 0x00403690 and after a load) keeps a value in (0.25, 1.0), takes 1.0 at or above 1.0 ([0x005bcb2c]) and 0.25 at
+/// or below 0.25 ([0x005bcbe4]), and scales the fog range by it. (It also takes 1.0 when 0x0044e600 answers true:
+/// not traced.)
+pub fn draw_distance_scale(v: f32) -> f32 {
+    if v > 0.25 { v.min(1.0) } else { 0.25 }
+}
 
 /// The far plane at draw distance 1.0 as a multiple of the level's fog_far: the original's camera dumps on lev_1_m1
 /// give far 1712.132 with fog_far 1500 (camera +0xd4 * +0xd0; how the game computes it is open, docs/subsystems/
@@ -148,7 +189,7 @@ fn apply(
             let mut pp = pp.clone();
             let fog_far = game_lights.as_ref().and_then(|l| l.fog.map(|f| f.1)).unwrap_or(1500.0);
             // the sky dome (radius 20000) must fit: the game material clips the world at the original far plane itself
-            pp.far = (fog_far * FAR_OVER_FOG * o.draw_distance.clamp(0.25, 1.0)).max(50000.0);
+            pp.far = (fog_far * FAR_OVER_FOG * draw_distance_scale(o.draw_distance)).max(50000.0);
             commands.entity(e).insert(Projection::Perspective(pp));
         }
     }
@@ -179,5 +220,41 @@ fn toggle_fullscreen(keys: Res<ButtonInput<KeyCode>>, mut o: ResMut<GameOptions>
     if keys.just_pressed(KeyCode::F11) || (alt && keys.just_pressed(KeyCode::Enter)) {
         o.fullscreen = !o.fullscreen;
         o.save();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The options file round trip: written and read back equal; the original's defaults (0x00401a80).
+    #[test]
+    fn round_trip() {
+        let d = GameOptions::default();
+        assert_eq!((d.sound_volume, d.brightness, d.draw_distance, d.mouse_sensitivity, d.shadows), (0.8, 1.5, 1.0, 0.5, true));
+        let mut o = d.clone();
+        o.music_volume = 0.3;
+        o.invert_mouse = true;
+        o.resolution = (1280, 720);
+        o.tokens_taken = vec!["lev_1_m1:12".into()];
+        o.checkpoint_saves = true;
+        assert_eq!(GameOptions::from_json(&serde_json::to_string(&o).unwrap()), o);
+    }
+
+    /// Record by record (0x00462310): a wrong type keeps that option's default only; unknown and missing keys.
+    #[test]
+    fn partial_files() {
+        let o = GameOptions::from_json(r#"{"music_volume": 0.25, "brightness": "bright", "no_such_option": 3}"#);
+        assert_eq!((o.music_volume, o.brightness), (0.25, 1.5));
+        assert_eq!(o.sound_volume, 0.8);
+        assert_eq!(GameOptions::from_json("not json"), GameOptions::default());
+    }
+
+    #[test]
+    fn draw_distance() {
+        assert_eq!(draw_distance_scale(0.1), 0.25);
+        assert_eq!(draw_distance_scale(0.25), 0.25);
+        assert_eq!(draw_distance_scale(0.6), 0.6);
+        assert_eq!(draw_distance_scale(3.0), 1.0);
     }
 }

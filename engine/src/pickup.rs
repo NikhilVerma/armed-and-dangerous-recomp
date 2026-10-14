@@ -57,9 +57,6 @@ impl Kind {
     }
 }
 
-/// The health pickups' scale by difficulty (Game+0x55c: the third float of the table 0x00589188 entry Game+0x550, read
-/// from the exe: easy 2.0, normal 1.0, hard 0.75, very hard 0.6).
-const HEALTH_SCALE: [f32; 4] = [2.0, 1.0, 0.75, 0.6];
 
 #[derive(Component)]
 pub struct Pickup {
@@ -222,7 +219,9 @@ fn drop_on_death(
 
 /// The player's weapon names in the weapon table (Game+0x2890 + id x 0x150: the ammo pickup of each weapon).
 fn ammo_pickup(r: &crate::player::Roman) -> &'static str {
-    if r.use_mg && r.mg.is_some() { "pickup_mgun_bullets" } else { "pickup_rifle_bullets" }
+    use crate::weapontable::{MACHINEGUN, RIFLE, WEAPON_TABLE};
+    let slot = if r.use_mg && r.mg.is_some() { MACHINEGUN } else { RIFLE };
+    WEAPON_TABLE[slot].pickup.unwrap_or_default()
 }
 
 /// Pickup generators (PickupGenerator_Update 0x00471cb0): nothing while listen_activate_trigger is pending
@@ -357,7 +356,7 @@ fn add_ammo(w: &mut crate::player::Weapon, amount: u32, max_ammo: u32, max_clip:
 }
 
 /// The player collects (vt+0x138 of the class): true when he took it.
-fn give(p: &Pickup, r: &mut crate::player::Roman, h: &mut Health, data: &GameData) -> bool {
+fn give(p: &Pickup, r: &mut crate::player::Roman, h: &mut Health, data: &GameData, health_scale: f32) -> bool {
     let g = data.props("p_globalsettings");
     let amount = p.amount.max(0.0) as u32;
     if amount == 0 && matches!(p.kind, Kind::Ammo(_) | Kind::Special(_)) {
@@ -399,7 +398,8 @@ fn give(p: &Pickup, r: &mut crate::player::Roman, h: &mut Health, data: &GameDat
             if h.0 >= r.max_health {
                 return false;
             }
-            h.0 = (h.0 + p.amount * HEALTH_SCALE[DIFFICULTY]).min(r.max_health);
+            // scaled by difficulty (Game+0x55c, gamedata.rs DIFFICULTIES)
+            h.0 = (h.0 + p.amount * health_scale).min(r.max_health);
             true
         }
         Kind::Token => true,
@@ -417,7 +417,7 @@ fn collect(
     mut ai: Query<(&GlobalTransform, &mut Health, &Grunt), Without<Player>>,
     mut mission: Option<ResMut<crate::mission::Mission>>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
-    (ui_texts, data, mut opts, mut ms): (Res<crate::gamemenu::Texts>, Res<GameData>, ResMut<crate::options::GameOptions>, ResMut<crate::stats::MissionStats>),
+    (ui_texts, data, mut opts, mut ms, difficulty): (Res<crate::gamemenu::Texts>, Res<GameData>, ResMut<crate::options::GameOptions>, ResMut<crate::stats::MissionStats>, Res<crate::gamedata::Difficulty>),
     mut out: MessageWriter<crate::mission::SendTrigger>,
     mut mats: Query<&mut MeshMaterial3d<StandardMaterial>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -475,7 +475,7 @@ fn collect(
         let at = t.translation;
         if at.distance(me) <= p.radius {
             // the player (vt+0x138): refused, it stays
-            if !give(&p, &mut r, &mut h, &data) {
+            if !give(&p, &mut r, &mut h, &data, difficulty.factors().health_pickups) {
                 continue;
             }
             if let (Some(m), Some(text)) = (mission.as_deref_mut(), p.text.as_ref()) {
@@ -501,7 +501,7 @@ fn collect(
                     opts.tokens_taken.push(k.clone());
                 }
                 opts.save();
-                let (msg, unlocked) = token_message(&ui_texts, opts.tokens);
+                let (msg, unlocked) = token_message(&ui_texts, opts.tokens, *difficulty);
                 if let Some(u) = unlocked.filter(|u| u.1 == "token_cheat") {
                     crate::cheats::unlock(u.0, false, &mut opts, Some(&mut cheats));
                 }
@@ -561,12 +561,10 @@ const UNLOCKS: [(&str, &str, [u32; 4]); 20] = [
     ("ui_extrasmenu_credits", "token_feature", [99, 99, 99, 99]),
 ];
 const TOKENS_TOTAL: u32 = 21;
-/// Game+0x550 difficulty index (guess: 1 = normal, the default)
-const DIFFICULTY: usize = 1;
 
 /// The token message (fn_004a0850): "token_got" with the count, then the unlockable just paid for (the dearest
 /// affordable, compared with the count before) or the next one with what it still needs; and that unlockable.
-pub fn token_message(texts: &crate::gamemenu::Texts, count: u32) -> (String, Option<&'static (&'static str, &'static str, [u32; 4])>) {
+pub fn token_message(texts: &crate::gamemenu::Texts, count: u32, difficulty: crate::gamedata::Difficulty) -> (String, Option<&'static (&'static str, &'static str, [u32; 4])>) {
     let fill = |s: String, args: &[String]| {
         let mut out = s;
         for a in args {
@@ -575,7 +573,7 @@ pub fn token_message(texts: &crate::gamemenu::Texts, count: u32) -> (String, Opt
         out
     };
     let got = texts.get("token_got").replacen("%d", &count.to_string(), 1).replacen("%d", &TOKENS_TOTAL.to_string(), 1);
-    let cost = |u: &(&str, &str, [u32; 4])| u.2[DIFFICULTY];
+    let cost = |u: &(&str, &str, [u32; 4])| u.2[difficulty.0];
     let unlocked = UNLOCKS.iter().filter(|u| cost(u) == count).max_by_key(|u| cost(u));
     let next = UNLOCKS.iter().filter(|u| cost(u) > count && cost(u) != 99).min_by_key(|u| cost(u));
     let line = if let Some(u) = unlocked {

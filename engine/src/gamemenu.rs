@@ -902,7 +902,13 @@ fn navigate(
     };
     match act {
         Act::None => return,
-        Act::NewGame | Act::Continue => {
+        Act::NewGame => {
+            // a new game's money (0x00401e80 at the front end; savegame.rs)
+            opts.money = crate::savegame::NEW_GAME_MONEY;
+            next.set(AppState::Playing);
+            vtime.unpause();
+        }
+        Act::Continue => {
             next.set(AppState::Playing);
             vtime.unpause();
         }
