@@ -12,7 +12,94 @@ pub struct CharAnimPlugin;
 
 impl Plugin for CharAnimPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, (roman, grunts, companions, penguins));
+        app.init_resource::<Twist>().add_systems(Update, (roman, grunts, companions, penguins));
+        app.add_systems(PostUpdate, twist.after(crate::skin::AnimateSet).before(bevy::transform::TransformSystems::Propagate));
+    }
+}
+
+/// Roman's standing torso twist and turn in place. The player's bone callbacks (PlayerObject_Load binds table
+/// 0x005fb760: 0x004735f0 to "center" kind 0 and "belly" kind 1, 0x00472cc0 to "l_foot") read the look-at record
+/// actor+0x68c, which 0x00475ff0 rebuilds at each mode change: anim-table kinds 2 (mode 0, the aim stance) and 3
+/// (modes 0x1c / 0x1d, Trotter_turn_left / right) set flag 2 (kind 3 also flag 8), with the limit +0x24 =
+/// normal_twist_limit (+0x560); the stored direction +8 (the legs' facing) is the previous record's for kinds
+/// 1/2/3/5/8 and the actor's facing (0x00453150) otherwise (the fidgets are kind 12: no flag, no twist). Each frame
+/// 0x004735f0 takes the angle between the facing and +8, drags +8 to within the limit (less 0.001) and, outside the
+/// turn modes and the record's first frame, raises +0xa34 0x2000 with +0x980 = (+8 x facing).z; flag 8 scales the
+/// limit by the anim's progress left, so the legs reach the facing as the turn anim ends. "center" turns by the
+/// angle (the legs keep their facing), "belly" by minus it (the torso follows the view); actor+0x978 / +0x97c are
+/// 0 for the player (game_05.cpp:831, no other writer found). The anim update 0x00476a10 (game_05.cpp:1915) plays
+/// mode 0x1c when +0x980 >= 0, else 0x1d, standing, until the anim ends.
+#[derive(Resource, Default)]
+pub struct Twist {
+    /// the stance's record has flag 2 this frame (the aim stance or a turn anim)
+    pub active: bool,
+    /// the legs' facing (record +8) as a yaw; None: the body's
+    pub leg_yaw: Option<f32>,
+    /// the torso's twist from the legs (record +0x28; + = the view left of the legs)
+    pub angle: f32,
+    /// the limit hit (+0xa34 0x2000) and its side (+0x980 > 0: left), for the next frame's anim update
+    pub raised: Option<bool>,
+    /// the turn anim playing: (left, seconds into it)
+    pub turn: Option<(bool, f32)>,
+    /// the record's first frame (record byte 0): no 0x2000
+    pub fresh: bool,
+    /// turn anims started (playtest evidence)
+    pub turns: u32,
+}
+
+/// Trotter_turn_left / right_aim_b / _t: 29 frames at 30 fps
+const TURN_LEN: f32 = 0.9667;
+
+fn wrap(a: f32) -> f32 {
+    (a + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI
+}
+
+/// The bone callback 0x004735f0 (flag 2) on Roman's "center" and "belly" after the anims set the joints.
+fn twist(mut tw: ResMut<Twist>, q: Query<(&Roman, &Animator)>, mut joints: Query<&mut Transform>, mut state: Option<ResMut<crate::playtest::PlayState>>) {
+    for (r, a) in &q {
+        if !tw.active || r.dead {
+            tw.leg_yaw = None;
+            tw.angle = 0.0;
+            tw.raised = None;
+            tw.fresh = true;
+        } else {
+            // flag 8 (the turn modes): the limit times the anim's progress left (end - t) / (end - start)
+            let lim = r.twist_limit * tw.turn.map_or(1.0, |(_, t)| (1.0 - t / TURN_LEN).max(0.0));
+            let leg = *tw.leg_yaw.get_or_insert(r.yaw);
+            let mut ang = wrap(r.yaw - leg);
+            if ang.abs() > lim {
+                ang -= (ang.abs() - lim + 0.001) * ang.signum();
+                tw.leg_yaw = Some(r.yaw - ang);
+                if !tw.fresh && tw.turn.is_none() {
+                    tw.raised = Some(ang > 0.0);
+                }
+            }
+            tw.fresh = false;
+            tw.angle = ang;
+            // the world's up in the model's space (the rig's parent turns by yaw + pi about it); "center" turns by
+            // -angle about it (legs at leg_yaw), "belly" back by +angle about the same axis in center's frame
+            let up = r.base.inverse() * Vec3::Y;
+            let idx = |n: &str| a.skeleton.index.get(n).and_then(|&i| a.joints.get(i).copied());
+            if let (Some(c), Some(b)) = (idx("center"), idx("belly")) {
+                let mut crot = Quat::IDENTITY;
+                if let Ok(mut jt) = joints.get_mut(c) {
+                    jt.rotation = Quat::from_axis_angle(up, -ang) * jt.rotation;
+                    crot = jt.rotation;
+                }
+                if let Ok(mut jt) = joints.get_mut(b) {
+                    jt.rotation = Quat::from_axis_angle((crot.inverse() * up).normalize(), ang) * jt.rotation;
+                }
+            }
+        }
+        if let Some(s) = state.as_mut() {
+            let d = |v: f32| (wrap(v).to_degrees() * 10.0).round() / 10.0;
+            s.0.insert("twist_deg".into(), d(tw.angle).into());
+            s.0.insert("yaw_deg".into(), d(r.yaw).into());
+            s.0.insert("leg_yaw_deg".into(), d(tw.leg_yaw.unwrap_or(r.yaw)).into());
+            s.0.insert("turn_anim".into(), tw.turn.map_or("", |(l, _)| if l { "left" } else { "right" }).into());
+            s.0.insert("turns".into(), tw.turns.into());
+        }
+        break;
     }
 }
 
@@ -26,8 +113,10 @@ struct Idle {
     fidget: Option<u32>,
 }
 
-fn roman(mut q: Query<(&Roman, &mut Animator)>, topsy: Res<crate::topsy::Topsy>, time: Res<Time>, mut idle: Local<Idle>, mut rng: ResMut<crate::fx::FxStats>) {
+fn roman(mut q: Query<(&Roman, &mut Animator)>, topsy: Res<crate::topsy::Topsy>, time: Res<Time>, mut idle: Local<Idle>, mut rng: ResMut<crate::fx::FxStats>, mut tw: ResMut<Twist>) {
     for (r, mut a) in &mut q {
+        // the twist's record flag 2 (set below for the aim stance and the turn anims)
+        tw.active = false;
         // the Topsy Turvy states (anims 0x20..0x23)
         let t = match topsy.phase {
             crate::topsy::Phase::Into => Some(("trotter_topsy_into", false)),
@@ -110,6 +199,39 @@ fn roman(mut q: Query<(&Roman, &mut Animator)>, topsy: Res<crate::topsy::Topsy>,
         // the aim blend (0x00475ff0, game_05.cpp:1499): w = (clamp(2 x pitch, -1, 1) + 1) / 2 of the look pitch, 0 at
         // rest (the engine's rest pitch is -0.15)
         let w = ((2.0 * (r.pitch + 0.15)).clamp(-1.0, 1.0) + 1.0) * 0.5;
+        // turning in place (0x00476a10, game_05.cpp:1915): standing with the twist limit hit last frame, the turn
+        // anim (mode 0x1c Trotter_turn_left / 0x1d _right; state 1 the _fire pair, other states link to _aim) plays
+        // once, the legs catching up (Twist); any mode outside 0..5 clears the idle time
+        let stance = gait == "trotter_aim" && r.on_ground && !r.dead;
+        if !stance {
+            tw.turn = None;
+            tw.raised = None;
+        } else if tw.turn.is_none() {
+            if let Some(left) = tw.raised.take() {
+                tw.turn = Some((left, 0.0));
+                tw.fresh = true;
+                tw.turns += 1;
+            }
+        }
+        if let Some((left, t)) = tw.turn {
+            *idle = Idle::default();
+            let name = format!("trotter_turn_{}_{}", if left { "left" } else { "right" }, if r.since_fire < 0.3 { "fire" } else { "aim" });
+            a.play(0, &format!("{name}_b"), false, Mask::All);
+            a.play(1, &format!("{name}_t"), false, Mask::All);
+            a.layers[0].time = t;
+            a.set_weight(1, w);
+            a.sync(1, 0);
+            tw.active = true;
+            let t = t + time.delta_secs();
+            if t >= TURN_LEN {
+                // the anim ended: +0xa34 0x2000 cleared, the aim stance's record from this one (the legs kept)
+                tw.turn = None;
+                tw.fresh = true;
+            } else {
+                tw.turn = Some((left, t));
+            }
+            continue;
+        }
         if upper == "trotter_aim" && r.on_ground && !r.dead {
             let dt = time.delta_secs();
             idle.t += dt;
@@ -135,6 +257,8 @@ fn roman(mut q: Query<(&Roman, &mut Animator)>, topsy: Res<crate::topsy::Topsy>,
         a.play(1, &format!("{upper}_t"), true, Mask::All);
         a.set_weight(1, w);
         a.sync(1, 0);
+        // the aim stance (mode 0, kind 2) twists; the fidgets (kind 12) and the moving modes do not
+        tw.active = stance;
     }
 }
 
