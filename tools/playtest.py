@@ -25,6 +25,8 @@ ap.add_argument('--timeout', type=float, default=300)
 ap.add_argument('--grep', default=None)
 ap.add_argument('--size', default='640x372')
 ap.add_argument('--env', action='append', default=[], help='NAME=VALUE, e.g. AIDBG=1')
+ap.add_argument('--scene', default=None, help='scene folder (default the engine\'s ../work/remaster/lev_1_m1); '
+                'e.g. a test export, or the main checkout\'s from a worktree without work/')
 a = ap.parse_args()
 
 engine = os.path.join(ROOT, 'engine')
@@ -40,7 +42,8 @@ t0 = time.time()
 code = 0
 with open(out, 'w', encoding='utf-8', errors='replace') as f:
     try:
-        p = subprocess.run([exe, '--background', '--size', a.size, '--play', script], cwd=engine, env=env,
+        scene = ['--scene', os.path.abspath(a.scene)] if a.scene else []
+        p = subprocess.run([exe, '--background', '--size', a.size, '--play', script] + scene, cwd=engine, env=env,
                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=a.timeout)
         text = p.stdout.decode('utf-8', 'replace')
         code = p.returncode

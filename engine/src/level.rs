@@ -6,7 +6,7 @@ use crate::fx::{Bounds, DClass, Destructible, Died, Health};
 use crate::gamedata::{GameData, Props};
 use crate::physics::{Body, Physics};
 use crate::player::BombAssets;
-use crate::scene::{self, ClonedParts, Library, SceneFile};
+use crate::scene::{self, ClonedParts, Library, PartBind, SceneFile};
 use bevy::light::{CascadeShadowConfigBuilder, NotShadowCaster};
 use bevy::prelude::*;
 use oxijolt::prelude::*;
@@ -109,13 +109,61 @@ fn rigid_anims(time: Res<Time>, mut q: Query<(&mut RigidAnim, &mut Transform)>) 
     }
 }
 
+/// The default animation every object starts at load: Object_LoadProperties 0x004517b0 plays anim slot vt+0x40
+/// (fn_00451780: slot 1 of the template, slot 0 being "staticmodel") through 0x00408e30 with flags 0x81 (flag 1 =
+/// loop). Placed objects whose model has a skeleton get it: the oil pumps' oilpump_cycle (4 s), the guard alarm's
+/// guard_alarm_0 (the siren turning, 6.7 s), stig_mgun_ref (a still pose). Characters' own anim systems (charanim.rs)
+/// replace it: it is played only when nothing else has started an anim by the frame after spawning. Not ported:
+/// "anim_rand" (flags 0xa01 at a random phase; no lev_1_m1 property set has it).
+#[derive(Component)]
+pub struct DefaultAnim {
+    anim: String,
+    seen: bool,
+}
+
+fn default_anims(mut commands: Commands, mut q: Query<(Entity, &mut DefaultAnim, &mut crate::skin::Animator)>, mut lib: ResMut<crate::skin::AnimLibrary>) {
+    for (e, mut d, mut a) in &mut q {
+        // one Update pass first, for the characters' systems to pick their own anim
+        if !d.seen {
+            d.seen = true;
+            continue;
+        }
+        commands.entity(e).remove::<DefaultAnim>();
+        if a.layers.first().is_some_and(|l| !l.anim.is_empty()) || lib.anim(&d.anim).is_none() {
+            continue;
+        }
+        a.play(0, &d.anim, true, crate::skin::Mask::All);
+    }
+}
+
+/// The state log's "oilpump" (playtest expect steps): the lowest-id oil pump's playing anim and how far its
+/// bone_pump joint has travelled up and down so far (model space z, game units: lo, hi, travel = hi - lo).
+fn log_oilpump(
+    q: Query<(&InstanceId, &Placed, &crate::skin::Animator, &GlobalTransform)>,
+    globals: Query<&GlobalTransform>,
+    state: Option<ResMut<crate::playtest::PlayState>>,
+    mut range: Local<Option<(u32, f32, f32)>>,
+) {
+    let Some(mut state) = state else { return };
+    let Some((id, _, a, g)) = q.iter().filter(|(_, p, _, _)| p.template == "oilpump").min_by_key(|(i, _, _, _)| i.0) else { return };
+    let Some(j) = a.skeleton.index.get("bone_pump").and_then(|&i| globals.get(a.joints[i]).ok()) else { return };
+    let z = g.affine().inverse().transform_point3(j.translation()).z;
+    let r = range.get_or_insert((id.0, z, z));
+    r.1 = r.1.min(z);
+    r.2 = r.2.max(z);
+    let anim = a.layers.first().map(|l| l.anim.clone()).unwrap_or_default();
+    state.0.insert("oilpump".into(), serde_json::json!({ "id": id.0, "anim": anim, "z": z, "lo": r.1, "hi": r.2, "travel": r.2 - r.1 }));
+}
+
 pub struct LevelPlugin;
 
 impl Plugin for LevelPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<SpawnGrunt>()
             .add_systems(Update, (husks.after(crate::fx::FxSet), spawn_grunts, rigid_anims, audio_loops))
-            .add_systems(PostUpdate, follow_camera.before(TransformSystems::Propagate));
+            .add_systems(PostUpdate, follow_camera.before(TransformSystems::Propagate))
+            .add_systems(PostUpdate, default_anims.before(crate::skin::AnimateSet))
+            .add_systems(PostUpdate, log_oilpump.after(TransformSystems::Propagate));
     }
 }
 
@@ -137,20 +185,39 @@ pub struct SkinCtx<'a> {
 /// Spawns one model's parts under `e`; a skinned model also gets its joint entities and an Animator on `e`
 /// (upper/lower body split at "belly", the bone the _t / _b anim halves divide at). Returns (draws, triangles).
 fn attach_model(commands: &mut Commands, e: Entity, model: &scene::Model, shadows: bool, skin: Option<&mut SkinCtx>) -> (usize, usize, Option<Entity>) {
+    let mut inverse_bind: Vec<Mat4> = Vec::new();
     let rig = match (model.skeleton.as_deref(), skin) {
-        (Some(name), Some(ctx)) => ctx.lib.skeleton(name, ctx.binds).map(|sk| crate::skin::build_rig(commands, e, sk, Some("belly"))),
+        (Some(name), Some(ctx)) => ctx.lib.skeleton(name, ctx.binds).map(|sk| {
+            inverse_bind = ctx.binds.get(&sk.inverse_bind).map(|b| b.to_vec()).unwrap_or_default();
+            crate::skin::build_rig(commands, e, sk, Some("belly"))
+        }),
         _ => None,
     };
-    for (mesh, mat) in &model.parts {
+    for (i, (mesh, mat)) in model.parts.iter().enumerate() {
         let mut c = commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(mat.clone())));
         if !shadows {
             c.insert(NotShadowCaster);
         }
+        // the part's owner: the model's entity, or (a rigid part) its bone's joint, the part placed at the bone's
+        // inverse bind so that it follows the bone as the original's one-matrix blend does (joint world * inverse
+        // bind * vertex, fn_004ed5d0)
+        let mut owner = e;
         if let Some(r) = &rig {
-            c.insert((crate::skin::skinned_mesh(r), bevy::camera::visibility::NoFrustumCulling));
+            match model.binds.get(i) {
+                Some(PartBind::Skinned) | None => {
+                    c.insert((crate::skin::skinned_mesh(r), bevy::camera::visibility::NoFrustumCulling));
+                }
+                Some(PartBind::Bone(b)) => {
+                    if let (Some(&j), Some(ib)) = (r.skeleton.index.get(b), r.skeleton.index.get(b).and_then(|&j| inverse_bind.get(j))) {
+                        owner = r.joints[j];
+                        c.insert(Transform::from_matrix(*ib));
+                    }
+                }
+                Some(PartBind::None) => {}
+            }
         }
         let c = c.id();
-        commands.entity(e).add_child(c);
+        commands.entity(owner).add_child(c);
     }
     // the right-hand weapon bone (characters carry their weapon at "ref_rhand": grunt init 0x00434fb0)
     let hand = rig.as_ref().and_then(|r| r.skeleton.index.get("ref_rhand").map(|&i| r.joints[i]));
@@ -314,6 +381,11 @@ pub fn spawn(
         if model.skeleton.is_none() {
             if let Some(ra) = RigidAnim::load(&lib_dir, &inst.model) {
                 commands.entity(e).insert(ra);
+            }
+        } else if !invisible {
+            // a model with a skeleton plays its template's default anim (oilpump: oilpump_cycle), see DefaultAnim
+            if let Some(anim) = tpl.and_then(|t| t.default_anim.clone()) {
+                commands.entity(e).insert(DefaultAnim { anim, seen: false });
             }
         }
         if !invisible {

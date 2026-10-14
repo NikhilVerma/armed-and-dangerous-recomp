@@ -157,10 +157,16 @@ def mesh_submeshes(ch, bone_index=None):
                 "emissive": rgb(col(0x50)), "ambient": rgb(col(0x54)), "diffuse": rgb(col(0x58)),
                 "specular": rgb(col(0x5C)), "power": struct.unpack_from("<f", b, p + 0x60)[0],
             })
-        jw = None
+        jw = rigid = None
         if bone_index is not None:
             import remaster_export_anim  # noqa: PLC0415 (it imports this module's helpers)
             jw = remaster_export_anim.skin_vertex_weights(ch, mptr, bone_index)
+            # rigid parts on several bones (UBYTE4 blend indices, no weights: oilpump_1's arm, strut, gyro and pump
+            # follow oilpump_cycle): each material's triangles split by bone, each part exported with its "bone"
+            if jw is None:
+                rigid = remaster_export_anim.rigid_vertex_bones(ch, mptr)
+                if rigid is not None and len({r for r in rigid if r}) < 2:
+                    rigid = None
         by_mat = {}
         for g in m["groups"]:
             tris = [t for t in skin.strip_triangles(g["_idx"]) if max(t) < len(pos)]
@@ -173,7 +179,19 @@ def mesh_submeshes(ch, bone_index=None):
             agree = sum(1 for a, c in zip(stored, computed) if a[0] * c[0] + a[1] * c[1] + a[2] * c[2] > 0.3)
             if agree > 0.8 * len(pos):
                 normals = stored
+        parts = []
         for mat, tris in by_mat.items():
+            if rigid is None:
+                parts.append((mat, tris, None))
+                continue
+            by_bone = {}
+            for t in tris:  # a triangle's bone = its first vertex's (the three agree in every lev_1_m1 mesh)
+                by_bone.setdefault(rigid[t[0]], []).append(t)
+            mixed = sum(1 for t in tris if len({rigid[v] for v in t}) > 1)
+            if mixed:
+                print(f"{ch.name}: {mixed} triangles span two rigid bones (split by their first vertex)")
+            parts += [(mat, ts, bone or "") for bone, ts in by_bone.items()]
+        for mat, tris, rigid_bone in parts:
             if not tris:
                 continue
             mats = m["materials"]
@@ -198,6 +216,10 @@ def mesh_submeshes(ch, bone_index=None):
             # a mesh bound to one bone (the collision models' parts: grunt_coll_9 m_chest -> chest ...): its bone
             if len(m.get("bones") or []) == 1:
                 extra["bone"] = m["bones"][0]["name"]
+            # a rigid part of a multi-bone mesh: its bone ("" = the base matrix, no bone); the model gets "skeleton"
+            if rigid_bone is not None:
+                extra["bone"] = rigid_bone or None
+                extra["rigid"] = True
             out.append((tex, vp, vn, vt, idx, color, vs if jw else None, extra))
     return out
 
@@ -216,7 +238,7 @@ def write_model(out, name, subs, texinfo, skeleton=None):
         # the material as the original shades it (mesh_submeshes): kind, extra maps, colours
         if extra:
             e["material"] = {k: (v if not (k in ("normal_map", "texture2", "mask") and v not in texinfo) else None)
-                             for k, v in extra.items() if k not in ("uv1", "bone")}
+                             for k, v in extra.items() if k not in ("uv1", "bone", "rigid")}
         if extra.get("bone"):
             e["bone"] = extra["bone"]
         for key, arr, fmt in (("positions", vp, "3f"), ("normals", vn, "3f"), ("uvs", vt, "2f")):
@@ -239,8 +261,11 @@ def write_model(out, name, subs, texinfo, skeleton=None):
     (out / "models").mkdir(parents=True, exist_ok=True)
     (out / "models" / f"{name}.bin").write_bytes(bytes(blob))
     doc = {"name": name, "submeshes": entries, "min": lo, "max": hi}
-    if skeleton and any("joints" in e for e in entries):
+    # skinned (joints / weights) or rigid parts carried by bones ("bone" per part, posed by the skeleton)
+    if skeleton and (any("joints" in e for e in entries) or any(s[7].get("rigid") for s in subs if len(s) > 7)):
         doc["skeleton"] = skeleton
+        if not any("joints" in e for e in entries):
+            doc["rigid"] = True
     (out / "models" / f"{name}.json").write_text(json.dumps(doc, indent=1))
     return sum(e["indices"] for e in entries) // 3
 
@@ -331,6 +356,11 @@ def main():
                 models[m] = export_model(level, out, m, skins[m], texinfo)
         tdefs[name] = {"model": model if models.get(model) else None, "lods": lods, "property": pr,
                        "collision": coll if models.get(coll) else None,
+                       # the default animation every object plays in a loop from load (Object_LoadProperties
+                       # 0x004517b0: 0x00408e30 flags 0x81, 0xa01 at a random phase with anim_rand): slot index
+                       # vt+0x40 = fn_00451780: 0 with one slot (slot 0 is "staticmodel"), else the slot named
+                       # like the object (guess: never the case for placed objects), else 1
+                       "default_anim": t["slots"][1].decode("latin1").lower() if len(t["slots"]) > 1 else None,
                        # per LOD index: the exported model, or null (no mesh)
                        "lod_models": [m if models.get(m) else None for m in lods]}
     (out / "templates.json").write_text(json.dumps(tdefs, indent=0))
