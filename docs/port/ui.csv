@@ -1,0 +1,143 @@
+address,name,disposition,reason
+0x00401010,fn_00401010,replaced,options apply: options.rs applies each option
+0x004067e0,fn_004067e0,not needed,"auto-aim pass: option off by default, shown disabled; open: port with an auto-aim option"
+0x00408050,fn_00408050,not needed,"auto-aim pass: option off by default, shown disabled; open: port with an auto-aim option"
+0x00408190,fn_00408190,not needed,"auto-aim pass: option off by default, shown disabled; open: port with an auto-aim option"
+0x004082a0,fn_004082a0,not needed,"auto-aim pass: option off by default, shown disabled; open: port with an auto-aim option"
+0x00410bd0,fn_00410bd0,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00410ca0,fn_00410ca0,replaced,cheat flags at level start: cheats.rs applies effects on activation (0x2000 object pass 0x00418690 not ported)
+0x00415910,fn_00415910,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
+0x00415d50,fn_00415d50,replaced,poster render target / widget release: statscreen.rs draws the poster as a quad
+0x00447600,UI_GetLoadingText,not needed,loading screen: the remaster loads the level before the title menu
+0x00447d20,fn_00447d20,not needed,key rebinding: controls page shows the device's bindings; open: rebinding not ported
+0x00447e20,fn_00447e20,not needed,key rebinding: controls page shows the device's bindings; open: rebinding not ported
+0x00447f50,UI_ShowAssignKeyPrompt,not needed,key rebinding: controls page shows the device's bindings; open: rebinding not ported
+0x004481b0,fn_004481b0,not needed,key rebinding: controls page shows the device's bindings; open: rebinding not ported
+0x004626e0,fn_004626e0,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00462770,fn_00462770,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x004629b0,Hud_CreateLevelUi,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x004637d0,fn_004637d0,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00463ad0,ObjectList_FindByName,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00463c50,fn_00463c50,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00463c90,fn_00463c90,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00463d60,fn_00463d60,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00463df0,fn_00463df0,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00463e80,fn_00463e80,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00463f30,fn_00463f30,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x004643b0,fn_004643b0,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x004643f0,fn_004643f0,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x004648a0,fn_004648a0,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x004648b0,fn_004648b0,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00464990,fn_00464990,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00464a00,fn_00464a00,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00464ae0,fn_00464ae0,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00464b10,fn_00464b10,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00464e10,fn_00464e10,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00465130,fn_00465130,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00465160,fn_00465160,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x004651a0,fn_004651a0,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00465350,fn_00465350,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00465470,UiText_ExtendBounds,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00465850,UiText_SetName,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x004658a0,UiText_SetWideText,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00465970,UiText_Format,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x004659b0,UiText_SetScale,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x004659d0,UiText_SetColour,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x004659e0,UiText_SetPosition,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00465be0,fn_00465be0,not needed,mode counters: Game+0x26ec unset in lev_1_m1 (capture modes)
+0x00465c90,fn_00465c90,not needed,mode counters: Game+0x26ec unset in lev_1_m1 (capture modes)
+0x00465ce0,fn_00465ce0,not needed,mode counters: Game+0x26ec unset in lev_1_m1 (capture modes)
+0x00465d30,fn_00465d30,not needed,mode counters: Game+0x26ec unset in lev_1_m1 (capture modes)
+0x00465d50,fn_00465d50,not needed,flag / handle meters: Game+0x26fc unset in lev_1_m1
+0x00465de0,fn_00465de0,not needed,flag / handle meters: Game+0x26fc unset in lev_1_m1
+0x00465e30,fn_00465e30,not needed,flag / handle meters: Game+0x26fc unset in lev_1_m1
+0x00465f30,fn_00465f30,not needed,flag / handle meters: Game+0x26fc unset in lev_1_m1
+0x00465f70,fn_00465f70,not needed,flag / handle meters: Game+0x26fc unset in lev_1_m1
+0x00466010,fn_00466010,not needed,flag / handle meters: Game+0x26fc unset in lev_1_m1
+0x00466430,fn_00466430,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00466520,fn_00466520,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00466530,fn_00466530,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00466580,fn_00466580,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00467170,fn_00467170,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x004671b0,fn_004671b0,not needed,"one-time hint keyed to Game+0xcbc, unset in lev_1_m1"
+0x00467220,fn_00467220,not needed,UI element not identified (hud.md open question 7); not in lev_1_m1
+0x00467270,fn_00467270,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x004676f0,fn_004676f0,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00467740,fn_00467740,not needed,UI element not identified (hud.md open question 7); not in lev_1_m1
+0x004677c0,fn_004677c0,not needed,UI element not identified (hud.md open question 7); not in lev_1_m1
+0x004679f0,fn_004679f0,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00467d90,fn_00467d90,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00467f00,fn_00467f00,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00467fd0,fn_00467fd0,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x0046b0a0,Ui_PixelToScreen,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x0046bbe0,Ui_ArrowInit,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x0046bdd0,ListBox_Init,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
+0x0046be90,ListBox_Destroy,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
+0x0046bec0,fn_0046bec0,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
+0x0046bed0,ListBox_Layout,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
+0x0046bf30,ListBox_HitEntry,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
+0x0046bfd0,ListBox_HitArrows,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
+0x0046c020,ListBox_HitTest,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
+0x0046c070,ListBox_Render,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
+0x0046c1d0,ListBox_Clear,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
+0x0046c2b0,ListBox_SortA,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
+0x0046c2c0,ListBox_SortB,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
+0x0046c2d0,ListBox_Sort,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
+0x0046c310,ListBox_AddEntryDefault,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
+0x0046c320,ListBox_AddEntry,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
+0x0046c4d0,ListBox_SetHighlight,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
+0x0046c530,ListBox_SelectEntry,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
+0x0046c560,ListBox_Select,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
+0x0046c5f0,ListBox_SetTop,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
+0x0046c740,ListBox_GetEntry,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
+0x0046c760,ListBox_GetEntryTextA,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
+0x0046c7e0,ListBox_GetEntryTextW,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
+0x0046c840,ListBox_GetSelectedTextA,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
+0x0046c850,ListBox_GetSelectedTextW,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
+0x0046c860,ListBox_HandleInput,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
+0x0046c980,ListBox_SetRows,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
+0x0046cbc0,CheckBox_Init,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x0046ce40,fn_0046ce40,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x0046cf70,Stepper_SetSteps,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x0046d400,FitText_Init,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x0046d580,FitText_SetScale,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x0046d630,Spline_Coefficients,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00470c90,DisplayMode_Pack,replaced,display mode pack / unpack: window size in options.json
+0x00470cc0,DisplayMode_Unpack,replaced,display mode pack / unpack: window size in options.json
+0x0048ff90,UI_Init,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
+0x00490760,Ui_DestroyScreens,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
+0x004909f0,fn_004909f0,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
+0x00490a20,fn_00490a20,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
+0x00490a30,fn_00490a30,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
+0x00490a80,fn_00490a80,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
+0x00490b40,fn_00490b40,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
+0x00491020,fn_00491020,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
+0x00491110,fn_00491110,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
+0x004916e0,UiScreen_Construct,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
+0x00491750,fn_00491750,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
+0x004918b0,fn_004918b0,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
+0x004919c0,fn_004919c0,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
+0x00491ae0,fn_00491ae0,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
+0x00491b60,fn_00491b60,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
+0x004927a0,fn_004927a0,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
+0x004928f0,fn_004928f0,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
+0x004929a0,fn_004929a0,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
+0x00493150,fn_00493150,not needed,movie screens: no movies in the remaster yet
+0x00493190,fn_00493190,not needed,movie screens: no movies in the remaster yet
+0x004931b0,fn_004931b0,not needed,movie screens: no movies in the remaster yet
+0x00493240,fn_00493240,not needed,movie screens: no movies in the remaster yet
+0x00493270,fn_00493270,not needed,movie screens: no movies in the remaster yet
+0x004932e0,fn_004932e0,not needed,movie screens: no movies in the remaster yet
+0x00493320,fn_00493320,not needed,movie screens: no movies in the remaster yet
+0x004933b0,fn_004933b0,not needed,movie screens: no movies in the remaster yet
+0x004933e0,fn_004933e0,not needed,movie screens: no movies in the remaster yet
+0x00493520,fn_00493520,not needed,timed splash screens (LegalText): remaster starts on the main menu; pusher not traced
+0x00493590,fn_00493590,not needed,timed splash screens (LegalText): remaster starts on the main menu; pusher not traced
+0x00493770,fn_00493770,not needed,exit screen
+0x00494000,fn_00494000,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
+0x00494030,fn_00494030,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
+0x00494820,fn_00494820,replaced,poster render target / widget release: statscreen.rs draws the poster as a quad
+0x00495e50,fn_00495e50,replaced,text table: Texts
+0x004a2f70,fn_004a2f70,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
+0x004a2fd0,fn_004a2fd0,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
+0x004a2fe0,fn_004a2fe0,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)

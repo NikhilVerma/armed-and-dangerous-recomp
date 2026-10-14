@@ -771,7 +771,7 @@ fn navigate(
                 if *vis != Visibility::Hidden && (p - e.pos).abs().cmple(half).all() {
                     cheats.typed = crate::cheats::CHEATS[i].1.to_owned();
                     cheats.submit = true;
-                    sounds.write(crate::audio::PlaySound::ui("ui_select"));
+                    sounds.write(crate::audio::PlaySound::menu("ui_select"));
                 }
             }
         }
@@ -790,7 +790,7 @@ fn navigate(
                 let before = value(target, o, win).1;
                 set_position(target, o, frac, win);
                 if value(target, o, win).1 != before {
-                    sounds.write(crate::audio::PlaySound::ui("ui_move"));
+                    sounds.write(crate::audio::PlaySound::menu("ui_move"));
                 }
             }
         }
@@ -802,7 +802,7 @@ fn navigate(
                 menu.page = p;
                 menu.selected = s;
             }
-            sounds.write(crate::audio::PlaySound::ui("ui_cancel"));
+            sounds.write(crate::audio::PlaySound::menu("ui_cancel"));
         }
         return;
     }
@@ -816,12 +816,12 @@ fn navigate(
                 menu.page = p;
                 menu.selected = s;
             }
-            sounds.write(crate::audio::PlaySound::ui("ui_cancel"));
+            sounds.write(crate::audio::PlaySound::menu("ui_cancel"));
         }
         return;
     }
     let play = |s: &mut MessageWriter<crate::audio::PlaySound>, n: &str| {
-        s.write(crate::audio::PlaySound::ui(n));
+        s.write(crate::audio::PlaySound::menu(n));
     };
     // Esc in play opens the pause menu (not over a paused mission message)
     if *state.get() == AppState::Playing {

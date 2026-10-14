@@ -1193,16 +1193,15 @@ fn weapons(
                 r.reload_clock = Some((clock, said));
             }
         }
-        // the machine gun's fire sound: start, loop while the trigger is held, end (wpn_rome_machgun_fire_*)
+        // the machine gun's fire sound, looping while the trigger is held: the bank's sequence plays its start
+        // before the loop and its end on the stop (wpn_rome_machgun_fire_lp intro / outro, audio.rs)
         if mg && shoot && !r.mg_firing {
             r.mg_firing = true;
-            sounds.write(crate::audio::PlaySound::at("wpn_rome_machgun_fire_start", t.translation));
-            sounds.write(crate::audio::PlaySound { looped: Some(true), ..crate::audio::PlaySound::at("wpn_rome_machgun_fire_lp", t.translation) });
+            sounds.write(crate::audio::PlaySound::at("wpn_rome_machgun_fire_lp", t.translation).looping(true));
         }
         if r.mg_firing && (!fire || !mg || switching || r.mg.as_ref().is_some_and(|w| w.clip == 0)) {
             r.mg_firing = false;
             stop.write(crate::audio::StopSound("wpn_rome_machgun_fire_lp".into()));
-            sounds.write(crate::audio::PlaySound::at("wpn_rome_machgun_fire_end", t.translation));
         }
         if shoot {
             r.since_fire = 0.0;

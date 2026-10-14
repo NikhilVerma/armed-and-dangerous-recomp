@@ -185,7 +185,7 @@ fn run(
                             physics.remove(b.id);
                             commands.entity(e).remove::<crate::physics::Body>();
                         }
-                        sounds.write(crate::audio::PlaySound { name: crate::ai::voice("Topsy_Scream", gr.voice_set), at: Some(gt.translation()), follow: None, looped: Some(false), volume: 1.0 });
+                        sounds.write(crate::audio::PlaySound::at(crate::ai::voice("Topsy_Scream", gr.voice_set), gt.translation()).looping(false));
                         fall += 1;
                     } else {
                         hang += 1;

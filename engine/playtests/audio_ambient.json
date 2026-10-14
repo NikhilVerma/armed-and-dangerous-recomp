@@ -1,0 +1,15 @@
+{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+ {"wait": 0.5},
+ {"expect": {"audio.ambient.277.active": false, "audio.ambient.277.started": 0, "audio.ambient.276.active": true}},
+ {"warp": [-25, 895, 127, 0]},
+ {"wait": 0.5},
+ {"expect": {"audio.ambient.277.active": true, "audio.ambient.277.started": 1, "audio.ambient.277.offset_db": [-12, 0]}},
+ {"wait": 4.0},
+ {"expect": {"audio.ambient.277.started": 1}},
+ {"wait": 5.0},
+ {"expect": {"audio.ambient.277.started": 2}},
+ {"warp": [16, 300, 9, 0]},
+ {"wait": 0.5},
+ {"expect": {"audio.ambient.277.active": false, "audio.ambient.277.started": 2}},
+ {"quit": true}
+]}
