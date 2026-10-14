@@ -99,7 +99,7 @@ Update this table as items land (commit hash in the last column).
 | Powder kegs, pipes: one bullet kills, chains | FxExplosion 0x0041c180.. | P | | |
 | Damage filters: takes_bullet_damage, player / teammate / badguy_damage, takes_damage | 0x00450da0, 0x0040ce40, 0x0041c4e0 (docs/subsystems/damage.md) | P | 1 | fx.rs `Destructible::accepts`: buildings ignore bullets and grunts, kegs / pipes ignore grunts and companions |
 | Bullet-transparent objects (invisible walls, arrow) | list +0xe90, filter 0x00413a90 | P | 1 | physics.no_bullets (trees do stop bullets); a trigger-killed object's collider is removed |
-| Houses: breakable windows, door anim | 0x0040ad80 | M | 3 | |
+| Houses: breakable windows, door anim | 0x0040ad80 | P / M | 3 | village_window panes at ref_win_0N (placement checked: window.json), destructible, removed with the house; breaking not yet seen in a test; door anim not ported |
 | Barracks stop releasing when destroyed | | P | 2 | mission.rs deaths(); barracks.json (destroyed 25 releases nothing on 810) |
 | Oil pump animation (oilpump_cycle) | | M | 3 | needs the export: oilpump_1.json has no skeleton / bone binding (3 submeshes); oilpump_cycle (4 s) animates bone_bigarm / bone_pump / bone_gyro |
 | Fx opcodes used by L1 deaths and muzzle flashes | render_r2b.cpp:270-1117 (fx-vm.md) | P | 2 | 0x79, 0x10, 0x14, 0x31, 0x32, 0x3f, 0x4a, 0x55, 0x56 ported (ccd9aec, 6f474db); impulse masses guessed; lights stored, not drawn |

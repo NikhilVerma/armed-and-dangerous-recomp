@@ -180,6 +180,14 @@ pub struct Penguin {
     pub dead: Option<f32>,
 }
 
+/// A building's window pane (TwigletGenerator_Slot84 0x0040ad80 "windows": a "village_window" DefaultGameObject at
+/// each ref_win_0%d matrix of the building's model, attached to it): shot out on its own (p_village_window: 5 health,
+/// takes bullets, fx_explosion_village_window); gone with its building.
+#[derive(Component)]
+pub struct Window {
+    pub building: Entity,
+}
+
 /// One of Roman's weapon models in his hand (player.rs shows the one in use).
 #[derive(Component)]
 pub struct HandWeapon(pub &'static str);
@@ -451,6 +459,36 @@ pub fn spawn(
             // the pub's own loop (Pub_StartExteriorLoop 0x0046a790: "amb_pub_exterior_lp", attached, once)
             commands.entity(e).insert(AudioLoop("amb_pub_exterior_lp".into()));
         }
+        // the building's windows (0x0040ad80): a village_window at each ref_win_0N of its reference anim
+        if p.f("windows", 0.0) != 0.0 {
+            let anim = p.s("ref_anim_name").unwrap_or(inst.model.as_str()).to_owned();
+            let wp = data.template_props("village_window");
+            let wt = data.templates.get("village_window").cloned();
+            for i in 0..10 {
+                let Some(at) = crate::mission::pub_bone(&lib_dir, &anim, &format!("ref_win_{i:02}")) else { break };
+                let Some(wt) = wt.as_ref() else { break };
+                let ww = world * Mat4::from_translation(at);
+                let we = commands.spawn((Transform::from_matrix(ww), Visibility::default(), Name::new("village_window"), Window { building: e })).id();
+                if let Some(m) = wt.model.as_ref().and_then(|m| lib.load_model(m, false, assets, meshes, materials)) {
+                    let _ = attach_model(commands, we, m, false, None);
+                }
+                let collider = wt
+                    .collision
+                    .as_ref()
+                    .and_then(|n| lib.load_model(n, false, assets, meshes, materials).map(|m| (m.vertices.clone(), m.tris.clone())))
+                    .and_then(|(v, t)| {
+                        let v: Vec<Vec3> = v.iter().map(|x| ww.transform_point3(*x)).collect();
+                        physics.add_static_mesh(&v, &t)
+                    });
+                if let (Some(c), Some(mt)) = (collider, wp.s("material")) {
+                    physics.materials.insert(c, mt.to_owned());
+                }
+                commands.entity(we).insert((Placed { template: "village_window".into(), collider }, Bounds { center: Vec3::ZERO, radius: 4.0 }));
+                if let Some(d) = destructible(&wp) {
+                    commands.entity(we).insert(d);
+                }
+            }
+        }
         if let Some(d) = destructible(&p) {
             commands.entity(e).insert(d);
             info.destructibles += 1;
@@ -587,8 +625,18 @@ fn husks(
     mut materials: ResMut<Assets<StandardMaterial>>,
     placed: Query<(&Placed, &Transform, &Children)>,
     mut penguins: Query<&mut Penguin>,
+    windows: Query<(Entity, &Window, &Placed)>,
 ) {
     for d in died.read() {
+        // a destroyed building's windows go with it
+        for (we, w, wpl) in &windows {
+            if w.building == d.0 {
+                if let Some(c) = wpl.collider {
+                    physics.remove_static(c);
+                }
+                commands.entity(we).despawn();
+            }
+        }
         let Ok((p, t, children)) = placed.get(d.0) else { continue };
         if let Some(c) = p.collider {
             physics.remove_static(c);
