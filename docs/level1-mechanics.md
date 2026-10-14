@@ -105,6 +105,6 @@ Update this table as items land (commit hash in the last column).
 | Fx opcodes used by L1 deaths and muzzle flashes | render_r2b.cpp:270-1117 (fx-vm.md) | P | 2 | 0x79, 0x10, 0x14, 0x31, 0x32, 0x3f, 0x4a, 0x55, 0x56 ported (ccd9aec, 6f474db); impulse masses guessed; lights stored, not drawn |
 | Trenches (barricade collision, cover) | p_barracade, loader_01.cpp:3446 (collide_poly), ai_02.cpp:986-1030 (+0x904 barricade) | P | 3 | collision: collide_poly objects collide with their render mesh (trench.json: the walk into trench 37 follows the landscape's dip as before, 2.2 vs 2.4 at the floor); broadcast volumes stay triggers. Not ported: grunts using a barricade as cover (+0x904, +0x484 0x20000, barricade_* anims, death 0x56): not traced |
 | Guard alarm, grunt generators | | P | 2 | (alarm chain); the siren can be shot (100 health: guess) |
-| Decals on objects | 0x00416f50 | M | 3 | |
+| Decals on objects | 0x00416f50, 0x00416bf0, 0x00416e90, 0x00418610 | P | 3 | render mesh of decal_receive objects (no skeleton / anim), blended submeshes skipped, shared 128-vertex budget, 4 receivers, 0.1 s fade on the receiver's death (decals-bodies.md); decals_obj.json from after_pub: 4 expect PASS. Rifle / MG leave no decal on houses (fx data: only fx_imp_flemming_snow has op 0x6a). No original capture compared |
 | Shadows | projected silhouettes | B? | | cascaded shadow maps (different technique) |
 | Ambient sounds, snow, sky, fog, lights | | V | | |
