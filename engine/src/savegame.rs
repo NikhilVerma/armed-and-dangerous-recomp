@@ -35,6 +35,8 @@ pub struct SaveData {
 #[derive(Resource, Default)]
 pub struct SaveRequest {
     pub save: bool,
+    /// write here instead of the quicksave (a playtest 'save' step)
+    pub path: Option<PathBuf>,
 }
 
 /// A save to apply after the level is built (`--load`).
@@ -99,7 +101,7 @@ fn save(
         dead_grunts: grunts.iter().filter(|(_, g)| g.mind == crate::ai::Mind::Dead).map(|(i, _)| i.0).collect(),
         destroyed,
     };
-    let path = save_path();
+    let path = req.path.take().unwrap_or_else(save_path);
     if let Some(d) = path.parent() {
         let _ = std::fs::create_dir_all(d);
     }

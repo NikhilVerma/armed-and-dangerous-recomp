@@ -20,6 +20,9 @@ pub struct Explode {
     pub delay: f32,
     /// who the damage record names as its source (+0x2c): the thrower, or the exploding object itself
     pub by: Src,
+    /// record flag 0x80 (allow_cartoon_death): the sticky bomb's records (0x00481ab0 flags 0x80 | 1); a window /
+    /// tower grunt it kills is blown out of the window (Character_Die 0x004319e0)
+    pub cartoon: bool,
 }
 
 /// The kind of a damage record's source (+0x2c), as the damage filters ask it: an object (its vt+0xe0 true: kegs,
@@ -190,8 +193,12 @@ fn damage(
     mut blasts: MessageReader<Explode>,
     mut physics: NonSendMut<Physics>,
     mut objects: Query<(Entity, &GlobalTransform, &mut Destructible, Option<&Bounds>)>,
-    mut chars: Query<(Entity, &GlobalTransform, &mut Health, Option<&Bounds>)>,
+    mut chars: Query<(Entity, &GlobalTransform, &mut Health, Option<&Bounds>, Option<&mut crate::ai::Grunt>)>,
+    roman: Query<(), With<crate::player::Roman>>,
+    topsy: Option<Res<crate::topsy::Topsy>>,
 ) {
+    // the player's hit handler ignores everything during the topsy states (0x0047afa0, +0xa34 & 0x7800000)
+    let no_hits = topsy.is_some_and(|t| t.active());
     // surface distance: |C - centre| - R, and the direction n
     let surface = |t: &GlobalTransform, b: Option<&Bounds>, at: Vec3| {
         let (c, r) = b.map(|b| (t.transform_point(b.center), b.radius)).unwrap_or((t.translation(), 0.0));
@@ -221,14 +228,17 @@ fn damage(
                 }
             }
         }
-        for (ce, t, mut h, bounds) in &mut chars {
+        for (ce, t, mut h, bounds, grunt) in &mut chars {
             // the excluded object (a sticky bomb's stuck character takes its direct damage instead)
-            if Some(ce) == b.source {
+            if Some(ce) == b.source || (no_hits && roman.contains(ce)) {
                 continue;
             }
             let (dist, _) = surface(t, bounds, b.at);
             if dist <= b.radius_outer {
                 h.0 -= b.area_damage * falloff(dist, b.radius_inner, b.radius_outer);
+                if let Some(mut g) = grunt {
+                    g.cartoon = b.cartoon;
+                }
             }
         }
         // impact force: passed without falloff, direction normalise(n.x, n.y, 0.7) in game axes (z up). How
@@ -287,6 +297,7 @@ fn dying(
                 delay,
                 // the keg / object itself is the record's source (FxExplosion_Die 0x0041c570, 0x00450ee0)
                 by: Src::Object,
+                cartoon: false,
             });
         }
         if let Some(name) = &d.fx_death {

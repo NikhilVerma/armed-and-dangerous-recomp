@@ -105,6 +105,7 @@ pub enum Flag {
     Shadows,
     SubsGame,
     InvertMouse,
+    Fullscreen,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -215,8 +216,19 @@ pub struct GameMenuPlugin;
 
 impl Plugin for GameMenuPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<GameMenu>().init_resource::<Texts>().add_systems(Update, (failed, navigate, animate, values, pause_band, credits).chain());
+        app.init_resource::<GameMenu>().init_resource::<Texts>().add_systems(Update, (failed, navigate, animate, values, pause_band, credits, log_menu).chain());
     }
+}
+
+/// The state log's "menu": the page and the selected row's text id (playtest expect steps: "menu.selected").
+fn log_menu(menu: Res<GameMenu>, rows: Query<(&MenuRow, &crate::hud::HudElement)>, state: Option<ResMut<crate::playtest::PlayState>>) {
+    let Some(mut state) = state else { return };
+    if !menu.is_changed() {
+        return;
+    }
+    let prefix = format!("menu_{:?}_", menu.page);
+    let sel = rows.iter().find(|(r, _)| r.page == menu.page && r.order == Some(menu.selected)).map(|(_, h)| h.name.trim_start_matches(&prefix).to_owned());
+    state.0.insert("menu".into(), serde_json::json!({ "page": format!("{:?}", menu.page), "selected": sel }));
 }
 
 const ORANGE: Color = Color::srgb(0xd0 as f32 / 255.0, 0x50 as f32 / 255.0, 0x30 as f32 / 255.0);
@@ -437,7 +449,8 @@ pub fn spawn(commands: &mut Commands, assets: &AssetServer, meshes: &mut Assets<
         let (tq, lod) = (best(&texts, "ui_gfxmenu_tq2"), best(&texts, "ui_gfxmenu_lod4"));
         s.fixed(Page::Gfx, "ui_gfxmenu_texturequality", 318.691, &tq, 1.0);
         s.fixed(Page::Gfx, "ui_gfxmenu_texturelod", 294.691, &lod, 1.0);
-        s.fixed(Page::Gfx, "ui_gfxmenu_maxtextures", 270.691, "-", 1.0);
+        // remaster: Fullscreen in place of Max Textures (no meaning in the new renderer)
+        s.check(Page::Gfx, "Fullscreen", 250.0, 190.0, 270.691, Some(Flag::Fullscreen), true);
         s.fixed(Page::Gfx, "ui_gfxmenu_modellod", 246.691, &lod, 1.0);
         s.slider(Page::Gfx, "ui_gfxmenu_drawdistance", 222.691, Opt::DrawDistance, true);
         s.check(Page::Gfx, "ui_gfxmenu_bumpmap", 51.0, 171.215, 174.691, None, true);
@@ -820,11 +833,12 @@ fn navigate(
         }
         Act::Slide(_) => return,
         Act::Toggle(f) => {
-            let target = if f == Flag::Shadows { menu.edit.get_or_insert_with(|| opts.clone()) } else { &mut *opts };
+            let target = if matches!(f, Flag::Shadows | Flag::Fullscreen) { menu.edit.get_or_insert_with(|| opts.clone()) } else { &mut *opts };
             match f {
                 Flag::Shadows => target.shadows = !target.shadows,
                 Flag::SubsGame => target.subtitles_game = !target.subtitles_game,
                 Flag::InvertMouse => target.invert_mouse = !target.invert_mouse,
+                Flag::Fullscreen => target.fullscreen = !target.fullscreen,
             }
         }
     }
@@ -978,6 +992,7 @@ fn values(
             Flag::Shadows => gfx.shadows,
             Flag::SubsGame => opts.subtitles_game,
             Flag::InvertMouse => opts.invert_mouse,
+            Flag::Fullscreen => gfx.fullscreen,
         };
         if let Some(mut mat) = materials.get_mut(&m.0) {
             mat.color = if on { Color::srgb(0.55, 0.05, 0.05) } else { Color::srgb(0.05, 0.08, 0.1) };

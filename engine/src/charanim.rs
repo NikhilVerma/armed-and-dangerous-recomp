@@ -206,7 +206,7 @@ fn grunts(
         let limping = g.limp_pct > 0.0 && g.last_health < g.max_health * g.limp_pct / 100.0;
         let (name, looping) = match g.mind {
             Mind::Dead if g.ragdoll => ("grunt_blown_up".to_string(), false),
-            Mind::Dead => (format!("grunt_die_{}", g.death_anim), false),
+            Mind::Dead => (g.death_name.map(str::to_owned).unwrap_or_else(|| format!("grunt_die_{}", g.death_anim)), false),
             Mind::Fire => {
                 // the four aim poses blended by the aim weights (fn_00428fc0, PlayAnim4 vt+0x1a0 with ids
                 // 0x23/0x24/0x21/0x22): horizontal h (the grunt turns to face the target: on target 0.5), vertical

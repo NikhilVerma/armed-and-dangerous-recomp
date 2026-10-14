@@ -114,6 +114,15 @@ work/remaster/play/level1b.json (pub, both gates, win). Run it in the background
 cd engine && ./target/release/and_remaster.exe --size 1600x900 --play ../work/remaster/play/run.json > ../work/remaster/play/run.stdout.txt 2>&1
 ```
 
+Fast checks (2026-10-14): `python tools/playtest.py SCRIPT.json [--exe target-agent2] [--grep AIDBG]` runs one
+script headless and prints only EVENT / EXPECT / PLAYTEST lines, the time and the exit code (full log in
+`SCRIPT.out`). A `{"save": "NAME"}` step writes `states/NAME.json` next to the script (savegame.rs: Roman,
+mission, dead grunts, destroyed objects); a script with top-level `"load": "states/NAME.json"` starts there with
+the intro skipped. `{"expect": {"health": [200, 290], "stickies": 5}}` checks state-log fields (two numbers: an
+inclusive range; else equality) and prints EXPECT PASS / FAIL; any failure exits 1. `{"blast": D}` sets off a
+badguy explosion of area damage D at Roman. States: `after_pub` (state_after_pub.json, 23 s to make). Example:
+topsyhit2.json (24 s; the same check replayed from the start took about 4 minutes).
+
 The bot is debug tooling, not game logic: its tactics (holding at range, backing off, keg awareness) live in
 player.rs under `bot` and must never change how the game plays for a human.
 

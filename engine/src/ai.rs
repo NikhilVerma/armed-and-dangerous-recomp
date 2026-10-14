@@ -122,6 +122,14 @@ pub struct Grunt {
     pub ragdoll: bool,
     /// which death anim (grunt_die_1..6) when not ragdolled
     pub death_anim: u8,
+    /// the death anim Character_Die picked instead of grunt_die_N (window, ledge)
+    pub death_name: Option<&'static str>,
+    /// ledge_death (+0x484 bit 31): falls off his ledge when he dies
+    pub ledge_death: bool,
+    /// a window or tower grunt (+0x488 & 0x200080: modes *_window / *_tower)
+    pub window: bool,
+    /// the last damage record had flag 0x80 (allow_cartoon_death: the sticky bomb's)
+    pub cartoon: bool,
     /// chance in % of a pickup on death (pickup_drop_percent, default 100)
     pub drop_percent: f32,
 }
@@ -300,6 +308,10 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         ray_timer: 0.0,
         ragdoll: false,
         death_anim: (rng.rand() % 6) as u8 + 1,
+        death_name: None,
+        ledge_death: p.i("ledge_death", 0) != 0,
+        window: mode.contains("window") || mode.contains("tower"),
+        cartoon: false,
         drop_percent: p.f("pickup_drop_percent", 100.0),
     }
 }
@@ -986,8 +998,27 @@ fn die(
         }
         let push = physics.world.body(body.id).map(|b| bv(b.linear_velocity())).unwrap_or(Vec3::ZERO) / physics.meters_per_unit;
         physics.remove(body.id);
-        // a hit below hit_ragdoll plays a death anim where he stands (Character_Die); harder hits ragdoll
-        g.ragdoll = g.last_hit >= g.hit_ragdoll || push.length() > 30.0;
+        // the death (Character_Die 0x004319e0, in its order): a window / tower grunt killed by a record with flag
+        // 0x80 (the sticky bomb) is blown out of the window (anim 0x3e); a hit of at least hit_ragdoll ragdolls; a
+        // ledge_death grunt falls (0x39 + rand*4: grunt_hit_fall_1 / _2 / _1 / _2); a window / tower grunt
+        // grunt_hit_window (0x3d); else grunt_die_1..6 (0x00427100). Not reached here: the 0x56 / 0x57 flag variants
+        // (barricade, in back: no lev_1_m1 grunt sets them) and record flag 2's launch.
+        let blown_out = g.window && g.cartoon;
+        g.ragdoll = !blown_out && (g.last_hit >= g.hit_ragdoll || push.length() > 30.0);
+        g.death_name = if blown_out {
+            Some("grunt_window_blown_out")
+        } else if g.ragdoll {
+            None
+        } else if g.ledge_death {
+            Some(if rng.rand() < 0.5 { "grunt_hit_fall_1" } else { "grunt_hit_fall_2" })
+        } else if g.window {
+            Some("grunt_hit_window")
+        } else {
+            None
+        };
+        if std::env::var("AIDBG").is_ok() {
+            info!("AIDBG death {e:?}: {:?} ragdoll {} (hit {:.0}, cartoon {})", g.death_name, g.ragdoll, g.last_hit, g.cartoon);
+        }
         if !g.ragdoll {
             commands.entity(e).remove::<Body>();
             continue;
