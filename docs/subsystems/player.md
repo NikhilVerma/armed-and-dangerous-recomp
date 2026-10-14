@@ -208,7 +208,12 @@ The loadout is the rifle plus 5 sticky bombs. The machine gun is removed by the 
 
 - Whether 0x00414c00 is pow or fmod (CRT 0x00566790 is labelled differently in different files).
 - What Game+0xd58 is: it scales the move and turn input by (1 - 0.25 * value).
-- Where friction +0x5a0 is consumed, and who uses turn_power_min/max and the twist limits.
+- Where friction +0x5a0 is consumed. The twist limits: normal_twist_limit (+0x560, x 0x005bcba0 to radians) becomes
+  the look-at record's limit +0x24 (actor+0x6b0) at each mode change in 0x00475ff0, running_twist_limit (+0x564)
+  for kind-4 (walk / run) entries with an aim source; read by the bone callback 0x004735f0 on "center" / "belly"
+  (table 0x005fb760). turn_power_min/max (+0x9f0 / +0x9f4): no reader found in src/ (grep of the player code);
+  the same offsets are the Character's corpse timer / fade (corpses.cpp, 0x00427100 writes 0.5 at death), so
+  **guess**: read at load and never used for turning.
 - The exact eye/pivot roles of Camera_start and Camera_end, and whether the camera nodes are animated in other
   anims (trotter_idle_1 carries Camera01/Camera02 tracks).
 - p_trotter keys that the exe never reads (no such string in the exe): sniper2_turn/pitch_max_speed and

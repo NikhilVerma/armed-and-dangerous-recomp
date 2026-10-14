@@ -149,6 +149,7 @@ fn apply(
     physics.place_walker(&r.walker, feet);
     t.translation = feet;
     r.yaw = s.yaw;
+    r.twist_reset = true;
     h.0 = s.health;
     r.rifle.clip = s.rifle_clip;
     r.mg = s.mg.map(|(clip, ammo)| {

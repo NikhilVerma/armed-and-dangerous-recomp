@@ -100,6 +100,9 @@ pub struct Roman {
     /// "normal_twist_limit" (+0x560, degrees x 0x005bcba0 at load: radians): how far the torso twists from the legs
     /// standing before the turn anim (charanim.rs twist)
     pub twist_limit: f32,
+    /// a teleport (a loaded game, a playtest warp) set the yaw: the legs take it too (the original builds a new
+    /// player and look-at record)
+    pub twist_reset: bool,
     pub reloading: f32,
     /// a reload in progress: seconds into the reload anim, and whether its load sound played (0x00475ff0 state 3:
     /// the sound at frame 0x0059eef4[w] (rifle 10, machine gun 15), the clip refilled at frame 0x0059eedc[w] = 43)
@@ -403,6 +406,7 @@ pub fn make_roman(physics: &mut Physics, p: &Props, data: &GameData, feet: Vec3,
         power_min: p.f("movement_power_min", 7.0),
         since_throw: 10.0,
         twist_limit: p.f("normal_twist_limit", 45.0).to_radians(),
+        twist_reset: true,
         reloading: 0.0,
         reload_clock: None,
         wchange: None,
