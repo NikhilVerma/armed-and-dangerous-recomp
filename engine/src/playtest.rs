@@ -45,6 +45,9 @@ pub struct Event {
     /// debug: deal this hit to the nearest live grunt (tests the death paths)
     #[serde(default)]
     pub kill: Option<f32>,
+    /// debug: send this mission trigger (e.g. 123, lev_1_m1's win)
+    #[serde(default)]
+    pub send: Option<i64>,
     /// debug: spawn a grunt_regular at this game-space point (as a barracks does)
     #[serde(default)]
     pub spawn: Option<[f32; 3]>,
@@ -73,7 +76,8 @@ pub struct Event {
     /// steps only: hold Use for this many seconds
     #[serde(default)]
     pub hold_use: Option<f32>,
-    /// a virtual gamepad (connected on first use): "South=1,LeftStickY=0.8" sets buttons / axes (Bevy names)
+    /// a virtual gamepad (connected on first use; "PlayStation" in the first command makes it a DualSense): "South=1,
+    /// LeftStickY=0.8" sets buttons / axes (Bevy names)
     #[serde(default)]
     pub pad: Option<String>,
 }
@@ -166,6 +170,14 @@ pub struct Playtest {
     warp: Option<[f32; 4]>,
     /// virtual gamepad input for pad_drive
     pad: Vec<String>,
+    /// the virtual gamepad, once connected: scripted runs read only it (input.rs), never a pad on the desk
+    pad_e: Option<Entity>,
+}
+
+impl Playtest {
+    pub fn pad_entity(&self) -> Option<Entity> {
+        self.pad_e
+    }
 }
 
 /// Lines the game adds to the once-a-second state log (player position, health, mission step, ...).
@@ -179,7 +191,7 @@ impl Playtest {
         let mut events = s.events;
         events.sort_by(|a, b| a.t.total_cmp(&b.t));
         let log = std::fs::File::create(path.with_extension("log.jsonl")).ok();
-        Playtest { pad: vec![], warp: None, path, title: s.title, events, turns: s.turns, next: 0, t: 0.0, taps: vec![], clicks: vec![], log, last_log: -1.0, steps: s.steps, step_shot: None, step: 0, step_t: 0.0, step_started: false }
+        Playtest { pad_e: None, pad: vec![], warp: None, path, title: s.title, events, turns: s.turns, next: 0, t: 0.0, taps: vec![], clicks: vec![], log, last_log: -1.0, steps: s.steps, step_shot: None, step: 0, step_t: 0.0, step_started: false }
     }
 }
 
@@ -196,8 +208,8 @@ impl Plugin for PlaytestPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PlayState>()
             .init_resource::<Bot>()
-            .add_systems(PreUpdate, drive.after(bevy::input::InputSystems).run_if(resource_exists::<Playtest>))
-            .add_systems(PreUpdate, pad_drive.after(drive).run_if(resource_exists::<Playtest>))
+            .add_systems(PreUpdate, drive.after(bevy::input::InputSystems).before(crate::input::InputDevices).run_if(resource_exists::<Playtest>))
+            .add_systems(PreUpdate, pad_drive.after(drive).before(crate::input::InputDevices).run_if(resource_exists::<Playtest>))
             .add_systems(Last, log_state.run_if(resource_exists::<Playtest>))
             .add_systems(Update, warp.run_if(resource_exists::<Playtest>));
     }
@@ -281,6 +293,7 @@ fn drive(
     mission: Option<Res<crate::mission::Mission>>,
     mut roman: Query<&mut crate::fx::Health, With<crate::player::Roman>>,
     mut spawn: MessageWriter<crate::level::SpawnGrunt>,
+    mut send: MessageWriter<crate::mission::SendTrigger>,
     cam: Query<&GlobalTransform, With<Camera3d>>,
     player: Query<&GlobalTransform, With<crate::player::Roman>>,
     mut grunts: Query<(&mut crate::ai::Grunt, &mut crate::fx::Health, &GlobalTransform), Without<crate::player::Roman>>,
@@ -289,7 +302,8 @@ fn drive(
     // the mission over (won or failed): play stops, so a pending goto counts as done
     let ended = mission.as_ref().is_some_and(|m| m.outcome != crate::mission::Outcome::Playing);
     let t = pt.t;
-    for k in std::mem::take(&mut pt.taps) {
+    let released: Vec<KeyCode> = std::mem::take(&mut pt.taps);
+    for &k in &released {
         keys.release(k);
     }
     for b in std::mem::take(&mut pt.clicks) {
@@ -301,7 +315,8 @@ fn drive(
     // a paused mission message (the mid-mission briefings) is dismissed as a player would while the bot walks,
     // fights or holds Use (those steps would never end on a paused game); other steps leave it to the script
     let waits_for_message = pt.steps.get(pt.step).is_none_or(|st| st.goto.is_none() && st.fight.is_none() && st.hold_use.is_none());
-    if mission.as_ref().is_some_and(|m| m.showing.is_some()) && !waits_for_message && !pt.taps.contains(&KeyCode::Enter) {
+    // (a frame up between taps, as a finger gives: input.rs needs a release before a held key counts again)
+    if mission.as_ref().is_some_and(|m| m.showing.is_some()) && !waits_for_message && !pt.taps.contains(&KeyCode::Enter) && !released.contains(&KeyCode::Enter) {
         keys.press(KeyCode::Enter);
         pt.taps.push(KeyCode::Enter);
     }
@@ -376,6 +391,9 @@ fn drive(
         }
         if let Some(m) = e.mouse {
             motion.delta += Vec2::from(m);
+        }
+        if let Some(t) = e.send {
+            send.write(crate::mission::SendTrigger(t));
         }
         if let Some(p) = e.pad {
             pt.pad.push(p);
@@ -457,17 +475,18 @@ fn log_state(mut pt: ResMut<Playtest>, mut state: ResMut<PlayState>) {
 fn pad_drive(
     mut commands: Commands,
     mut pt: ResMut<Playtest>,
-    mut pad: Local<Option<Entity>>,
     mut conn: MessageWriter<bevy::input::gamepad::GamepadConnectionEvent>,
     mut raw: MessageWriter<bevy::input::gamepad::RawGamepadEvent>,
 ) {
     use bevy::input::gamepad::{GamepadAxis as A, GamepadButton as B};
     for cmd in std::mem::take(&mut pt.pad) {
-        let e = *pad.get_or_insert_with(|| {
+        // "PlayStation" in the first command makes it a DualSense (Sony vendor id), else an Xbox pad
+        let sony = cmd.contains("PlayStation");
+        let e = *pt.pad_e.get_or_insert_with(|| {
             let e = commands.spawn_empty().id();
             conn.write(bevy::input::gamepad::GamepadConnectionEvent::new(
                 e,
-                bevy::input::gamepad::GamepadConnection::Connected { name: "playtest pad".into(), vendor_id: Some(0x045e), product_id: None },
+                bevy::input::gamepad::GamepadConnection::Connected { name: "playtest pad".into(), vendor_id: Some(if sony { 0x054c } else { 0x045e }), product_id: None },
             ));
             e
         });

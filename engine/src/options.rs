@@ -27,6 +27,8 @@ pub struct GameOptions {
     /// ("level:instance id"), so each is found once
     pub tokens: u32,
     pub tokens_taken: Vec<String>,
+    /// the money carried from level to level (Game+0x570; the Stats screen counts it up at a win)
+    pub money: f32,
     /// cheats whose code was entered once (Game+0x48c)
     pub cheats_known: Vec<u32>,
 }
@@ -47,6 +49,7 @@ impl Default for GameOptions {
             invert_mouse: false,
             tokens: 0,
             tokens_taken: Vec::new(),
+            money: 0.0,
             cheats_known: Vec::new(),
         }
     }

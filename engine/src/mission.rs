@@ -180,6 +180,9 @@ pub struct Mission {
     start_trigger: i64,
     start_text: Option<String>,
     success_text: Option<String>,
+    /// score_value (Loot at the win, game_02.cpp:2262) and next_level_name (Game+0x268c)
+    pub score_value: f32,
+    pub next_level: Option<String>,
     pub failure_text: Option<String>,
     started: bool,
     /// paused messages waiting for "continue", and the one shown
@@ -454,6 +457,8 @@ impl Mission {
             start_trigger: n(m, "send_trigger_start") as i64,
             start_text: s(m, "start_text").and_then(|t| f.text.get(&t).cloned()),
             success_text: s(m, "success_text").and_then(|t| f.text.get(&t).cloned()),
+            score_value: n(m, "score_value") as f32,
+            next_level: s(m, "next_level_name"),
             failure_text: s(m, "failure_text").and_then(|t| f.text.get(&t).cloned()),
             texts: f.text,
             started: false,
@@ -581,7 +586,7 @@ fn volumes(mut m: Option<ResMut<Mission>>, player: Query<&GlobalTransform, With<
 #[allow(clippy::too_many_arguments)]
 fn sites(
     time: Res<Time>,
-    keys: Res<ButtonInput<KeyCode>>,
+    ctl: Res<crate::input::Controls>,
     bot: Res<crate::playtest::Bot>,
     mut m: Option<ResMut<Mission>>,
     player: Query<&GlobalTransform, With<Player>>,
@@ -598,7 +603,7 @@ fn sites(
     let dt = time.delta_secs();
     let p = p.translation();
     let mut prompt = None;
-    let holding = keys.pressed(KeyCode::KeyF) || keys.pressed(KeyCode::KeyX) || bot.use_key;
+    let holding = ctl.down(crate::input::Act::Use) || bot.use_key;
     let tickers = m.tickers;
     // Game+0xdcf: a ticker bomb is armed and ticking (one at a time)
     let any_armed = m.sites.iter().any(|s| s.armed.is_some() && !s.done);
@@ -703,7 +708,7 @@ fn sites(
 
 /// The pub: near the doorway "Press %s to enter pub"; Use opens the pub screen (gamemenu.rs: awards, health from
 /// the pool, weapons); leaving it sends send_trigger_exit.
-fn pub_door(keys: Res<ButtonInput<KeyCode>>, bot: Res<crate::playtest::Bot>, mut m: Option<ResMut<Mission>>, player: Query<&GlobalTransform, With<Player>>, mut out: MessageWriter<SendTrigger>, mut hud: ResMut<crate::hud::HudState>) {
+fn pub_door(ctl: Res<crate::input::Controls>, bot: Res<crate::playtest::Bot>, mut m: Option<ResMut<Mission>>, player: Query<&GlobalTransform, With<Player>>, mut out: MessageWriter<SendTrigger>, mut hud: ResMut<crate::hud::HudState>) {
     let (Some(m), Ok(p)) = (m.as_deref_mut(), player.single()) else { return };
     let Some((pos, r, exit)) = m.pub_pos else { return };
     if m.pub_exit_pending {
@@ -719,7 +724,7 @@ fn pub_door(keys: Res<ButtonInput<KeyCode>>, bot: Res<crate::playtest::Bot>, mut
     if hud.prompt.is_none() {
         hud.prompt = Some(m.hint("ui_pub_entry_hint"));
     }
-    if keys.just_pressed(KeyCode::KeyF) || keys.just_pressed(KeyCode::KeyX) || bot.use_key {
+    if ctl.pressed(crate::input::Act::Use) || bot.use_key {
         m.pub_done = true;
         m.pub_request = true;
         hud.prompt = None;
@@ -764,6 +769,7 @@ fn dispatch(
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     mut fx: MessageWriter<StartFx>,
     mut rng: ResMut<crate::fx::FxStats>,
+    mut ms: ResMut<crate::stats::MissionStats>,
 ) {
     let Some(m) = m.as_deref_mut() else { return };
     let pe = player.single().ok();
@@ -839,6 +845,8 @@ fn dispatch(
                 Action::Win => {
                     if m.outcome == Outcome::Playing {
                         m.outcome = Outcome::Won;
+                        // the mission's score_value to Loot (MissionObject_OnTrigger 0x0044d600, game_02.cpp:2262)
+                        ms.loot_money += m.score_value;
                         let t = m.success_text.clone().unwrap_or("Well Done!".into());
                         m.message(&t, 0.0);
                         m.log.push("WIN".into());
@@ -852,7 +860,7 @@ fn dispatch(
 /// Paused messages (0x00403410 flag 1): the game pauses on the message with "Press %s to continue".
 fn messages(
     time: Res<Time<Real>>,
-    keys: Res<ButtonInput<KeyCode>>,
+    ctl: Res<crate::input::Controls>,
     buttons: Res<ButtonInput<MouseButton>>,
     mut m: Option<ResMut<Mission>>,
     mut hud: ResMut<crate::hud::HudState>,
@@ -882,11 +890,12 @@ fn messages(
     hud.messages = m.feed.iter().map(|f| f.1.clone()).collect();
     // "Press %s to continue" names the MenuSelect binding of the device in use (input.rs), kept current while shown
     let page = |m: &Mission, text: &str| {
-        let cont = m.hints.get("ui_stats_ok").cloned().unwrap_or("Press %s to continue".into()).replace("%s", &crate::input::key(crate::input::Act::Select));
+        let cont = m.hints.get("ui_stats_ok").cloned().unwrap_or("Press %s to continue".into()).replace("%s", &crate::input::key(crate::input::Act::Continue));
         format!("{text}<br><br>{cont}")
     };
     if let Some(text) = m.showing.clone() {
-        if keys.just_pressed(KeyCode::Enter) || buttons.just_pressed(MouseButton::Left) {
+        // (a trackpad tap arrives as press and release in one frame: the raw click counts too)
+        if ctl.pressed(crate::input::Act::Continue) || buttons.just_pressed(MouseButton::Left) {
             m.showing = None;
             hud.briefing = None;
             vtime.unpause();

@@ -130,7 +130,7 @@ fn open(
 
 #[allow(clippy::too_many_arguments)]
 fn input(
-    keys: Res<ButtonInput<KeyCode>>,
+    ctl: Res<crate::input::Controls>,
     mut next: ResMut<NextState<AppState>>,
     mut menu: ResMut<GameMenu>,
     mut screen: ResMut<PubScreen>,
@@ -146,8 +146,8 @@ fn input(
         return;
     }
     // the mouse as in the menus (Mouse 1 selects, Mouse 2 cancels): a player on a mouse or trackpad was stuck here
-    let select = keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::Space) || mouse.just_pressed(MouseButton::Left);
-    let leave = keys.just_pressed(KeyCode::Escape) || mouse.just_pressed(MouseButton::Right);
+    let select = ctl.pressed(crate::input::Act::Select) || mouse.just_pressed(MouseButton::Left);
+    let leave = ctl.pressed(crate::input::Act::Back);
     if screen.step < screen.steps.len() {
         if select {
             screen.step += 1;
@@ -159,11 +159,11 @@ fn input(
     // choosing: the pub's inventory, left / right
     let n = screen.offer.len();
     if n > 0 {
-        if keys.just_pressed(KeyCode::ArrowRight) || keys.just_pressed(KeyCode::KeyD) {
+        if ctl.step.x > 0 {
             screen.cursor = (screen.cursor + 1) % n;
             sounds.write(crate::audio::PlaySound::ui("ui_pub_move_1"));
         }
-        if keys.just_pressed(KeyCode::ArrowLeft) || keys.just_pressed(KeyCode::KeyA) {
+        if ctl.step.x < 0 {
             screen.cursor = (screen.cursor + n - 1) % n;
             sounds.write(crate::audio::PlaySound::ui("ui_pub_move_2"));
         }

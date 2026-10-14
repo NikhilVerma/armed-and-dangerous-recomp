@@ -90,6 +90,14 @@ struct FontFile {
     chars: HashMap<String, Glyph>,
 }
 
+/// The input prompt icons (tools/remaster_export_icons.py: Kenney Input Prompts, CC0), drawn for `<icon=name>`.
+#[derive(Deserialize)]
+struct IconAtlas {
+    width: f32,
+    height: f32,
+    icons: HashMap<String, [f32; 4]>,
+}
+
 /// One drawn HUD element and how to place it.
 #[derive(Component, Clone)]
 pub struct HudElement {
@@ -136,6 +144,8 @@ pub struct HudAssets {
     textures: HashMap<String, Handle<Image>>,
     pub text_material: Handle<ColorMaterial>,
     pub shadow_material: Handle<ColorMaterial>,
+    icons: Option<IconAtlas>,
+    icon_material: Option<Handle<ColorMaterial>>,
 }
 
 /// What the HUD shows this frame (filled by the game systems).
@@ -213,7 +223,9 @@ pub fn spawn(
         Camera { order: 1, clear_color: ClearColorConfig::None, ..default() },
         RenderLayers::layer(HUD_LAYER),
     ));
-    let hud = HudAssets { layout, font, font_image, textures, text_material, shadow_material };
+    let icons: Option<IconAtlas> = std::fs::read_to_string(ui.join("icons.json")).ok().and_then(|s| serde_json::from_str(&s).map_err(|e| warn!("hud: icons.json: {e}")).ok());
+    let icon_material = icons.as_ref().map(|_| materials.add(ColorMaterial { color: Color::WHITE, texture: Some(assets.load("ui/icons.png")), ..default() }));
+    let hud = HudAssets { layout, font, font_image, textures, text_material, shadow_material, icons, icon_material };
 
     // the elements of the in-game HUD (page pui_main) this level uses
     const SHOWN: &[&str] = &[
@@ -593,17 +605,21 @@ fn place(windows: Query<&Window>, mut q: Query<(&HudElement, &mut Transform)>) {
 
 /// Builds a text mesh: glyph quads in 640x480 units around (0, 0), each line centred, the block centred in y;
 /// `<br>` / `\n` break lines, `<rgb=RRGGBB>`..`</rgb>` colour (vertex colours over `base`), `<tab=N>` moves the
-/// pen to N widths of 'W' from the line start; other tags are skipped. Also returns the block's size.
-fn text_mesh(font: &FontFile, text: &str, scale: f32, offset: Vec2, base: Color) -> (Mesh, Vec2) {
+/// pen to N widths of 'W' from the line start, `<icon=name>` places an input prompt icon (a square of 1.3 line
+/// heights, in the returned icon mesh; without the atlas it is skipped); other tags are skipped. Also returns the
+/// block's size.
+fn text_mesh(font: &FontFile, icons: Option<&IconAtlas>, text: &str, scale: f32, offset: Vec2, base: Color) -> (Mesh, Vec2, Option<Mesh>) {
     // in the original a scale-1 line is 25 px at 480 lines (hud.md 3.3)
     let k = scale * 25.0 / font.common.line_height.max(1.0);
     let clean = text.replace("<br>", "\n").replace("<BR>", "\n");
     let w_adv = font.chars.get(&('W' as u32).to_string()).map(|g| g.xadvance * k).unwrap_or(10.0 * k);
     // lay out each line from x = 0: (x, glyph, colour)
-    let mut lines: Vec<(Vec<(f32, Glyph, [f32; 4])>, f32)> = Vec::new();
+    let mut lines: Vec<(Vec<(f32, Glyph, [f32; 4])>, f32, Vec<(f32, [f32; 4])>)> = Vec::new();
+    let icon_size = font.common.line_height * k * 1.3;
     let mut colour = base.to_linear().to_f32_array();
     for l in clean.split('\n') {
         let mut items = Vec::new();
+        let mut line_icons = Vec::new();
         let mut x = 0.0f32;
         let mut chars = l.chars().peekable();
         while let Some(c) = chars.next() {
@@ -624,6 +640,9 @@ fn text_mesh(font: &FontFile, text: &str, scale: f32, offset: Vec2, base: Color)
                     colour = base.to_linear().to_f32_array();
                 } else if let Some(n) = tl.strip_prefix("tab=") {
                     x = x.max(n.trim().parse::<f32>().unwrap_or(0.0) * w_adv);
+                } else if let Some(r) = tl.strip_prefix("icon=").and_then(|n| icons.and_then(|a| a.icons.get(n.trim()))) {
+                    line_icons.push((x + icon_size * 0.05, *r));
+                    x += icon_size * 1.1;
                 }
                 continue;
             }
@@ -631,13 +650,14 @@ fn text_mesh(font: &FontFile, text: &str, scale: f32, offset: Vec2, base: Color)
             items.push((x, g, colour));
             x += g.xadvance * k;
         }
-        lines.push((items, x));
+        lines.push((items, x, line_icons));
     }
     let (mut pos, mut uv, mut idx, mut col) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     let lh = font.common.line_height * k;
     let total_h = lh * lines.len() as f32;
     let max_w = lines.iter().map(|l| l.1).fold(0.0, f32::max);
-    for (li, (items, width)) in lines.iter().enumerate() {
+    let (mut ipos, mut iuv, mut iidx) = (Vec::new(), Vec::new(), Vec::new());
+    for (li, (items, width, line_icons)) in lines.iter().enumerate() {
         let left = -width / 2.0 + offset.x;
         let top = total_h / 2.0 - li as f32 * lh + offset.y;
         for (x, g, c) in items {
@@ -653,7 +673,27 @@ fn text_mesh(font: &FontFile, text: &str, scale: f32, offset: Vec2, base: Color)
                 idx.extend([b, b + 1, b + 2, b, b + 2, b + 3]);
             }
         }
+        if let Some(a) = icons {
+            for (x, r) in line_icons {
+                let mid = top - lh / 2.0;
+                let (x0, x1) = (left + x, left + x + icon_size);
+                let (y0, y1) = (mid - icon_size / 2.0, mid + icon_size / 2.0);
+                let b = ipos.len() as u32;
+                ipos.extend([[x0, y0, 0.0], [x1, y0, 0.0], [x1, y1, 0.0], [x0, y1, 0.0]]);
+                let (u0, u1) = (r[0] / a.width, (r[0] + r[2]) / a.width);
+                let (v0, v1) = (r[1] / a.height, (r[1] + r[3]) / a.height);
+                iuv.extend([[u0, v1], [u1, v1], [u1, v0], [u0, v0]]);
+                iidx.extend([b, b + 1, b + 2, b, b + 2, b + 3]);
+            }
+        }
     }
+    let icon_mesh = (!ipos.is_empty()).then(|| {
+        let mut m = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+        m.insert_attribute(Mesh::ATTRIBUTE_POSITION, ipos);
+        m.insert_attribute(Mesh::ATTRIBUTE_UV_0, iuv);
+        m.insert_indices(Indices::U32(iidx));
+        m
+    });
     if pos.is_empty() {
         pos.extend([[0.0f32; 3]; 3]);
         uv.extend([[0.0f32; 2]; 3]);
@@ -665,7 +705,7 @@ fn text_mesh(font: &FontFile, text: &str, scale: f32, offset: Vec2, base: Color)
     m.insert_attribute(Mesh::ATTRIBUTE_UV_0, uv);
     m.insert_attribute(Mesh::ATTRIBUTE_COLOR, col);
     m.insert_indices(Indices::U32(idx));
-    (m, Vec2::new(max_w, total_h))
+    (m, Vec2::new(max_w, total_h), icon_mesh)
 }
 
 /// Text elements: the game's values formatted as the drivers do; meshes rebuilt when the text changes.
@@ -710,8 +750,8 @@ fn texts(
         }
         let text_mat = materials.add(ColorMaterial { color: Color::WHITE, texture: Some(hud.font_image.clone()), ..default() });
         // shadow 2 px right and down (of 480), drawn first
-        let (front_mesh, size) = text_mesh(&hud.font, &t.text, t.scale, Vec2::ZERO, t.colour);
-        let (shadow_mesh, _) = text_mesh(&hud.font, &t.text, t.scale, Vec2::new(2.0, -2.0), Color::BLACK);
+        let (front_mesh, size, icon_mesh) = text_mesh(&hud.font, hud.icons.as_ref(), &t.text, t.scale, Vec2::ZERO, t.colour);
+        let (shadow_mesh, _, _) = text_mesh(&hud.font, hud.icons.as_ref(), &t.text, t.scale, Vec2::new(2.0, -2.0), Color::BLACK);
         let dx = -align.map(|a| a.0).unwrap_or(0.0) * size.x / 2.0;
         let shadow = commands
             .spawn((Mesh2d(meshes.add(shadow_mesh)), MeshMaterial2d(hud.shadow_material.clone()), Transform::from_xyz(dx, 0.0, 20.0), RenderLayers::layer(HUD_LAYER)))
@@ -720,6 +760,10 @@ fn texts(
             .spawn((Mesh2d(meshes.add(front_mesh)), MeshMaterial2d(text_mat), Transform::from_xyz(dx, 0.0, 21.0), RenderLayers::layer(HUD_LAYER)))
             .id();
         commands.entity(e).add_children(&[shadow, front]);
+        if let (Some(m), Some(mat)) = (icon_mesh, hud.icon_material.clone()) {
+            let icon = commands.spawn((Mesh2d(meshes.add(m)), MeshMaterial2d(mat), Transform::from_xyz(dx, 0.0, 22.0), RenderLayers::layer(HUD_LAYER))).id();
+            commands.entity(e).add_children(&[icon]);
+        }
         // the message box (ui_mission_briefing, 0x00466060) sits on the band ui_text_bkd: texture b_text_bkd,
         // 856 units wide, stretched vertically to the text (anim 4 = min(text height / 480, 1), 0x00466470); the
         // padding is measured from the original's capture (work/shots/orig_ui_play-480.png: ~12 units)

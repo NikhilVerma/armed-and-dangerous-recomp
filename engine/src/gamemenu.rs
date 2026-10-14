@@ -41,6 +41,8 @@ pub enum Page {
     Cheats,
     /// the credits (credits.txt) scrolling up
     Credits,
+    /// the end-of-mission statistics (statscreen.rs draws and drives it)
+    Stats,
 }
 
 /// The art behind a page.
@@ -59,7 +61,7 @@ impl Page {
         match self {
             Page::Main | Page::Options | Page::Extras => Back::Title,
             Page::Gfx | Page::Sfx | Page::Controls | Page::Cheats | Page::Credits => Back::Shell,
-            Page::YesNo | Page::Pause | Page::Failed | Page::Pub => Back::Game,
+            Page::YesNo | Page::Pause | Page::Failed | Page::Pub | Page::Stats => Back::Game,
         }
     }
 }
@@ -160,6 +162,8 @@ enum PartKind {
     CheatTyped,
     CheatResult,
     Credits,
+    /// an action's binding on the device in use (input::key)
+    Binding(crate::input::Act),
 }
 
 /// The fill of a bar (scaled in x by the value).
@@ -458,28 +462,27 @@ pub fn spawn(commands: &mut Commands, assets: &AssetServer, meshes: &mut Assets<
         // controls (pui_showcontrols; orig_ui_controls-1100.png): the remaster's bindings, two columns of
         // "action: key" (labels right-aligned at x 172 / 466, keys from x 187 / 482), rows 24 apart
         s.row(Page::Controls, "ui_mainmenu_controls", Vec2::new(320.0, 420.996), 1.4, GREEN, Act::None, 0.0);
+        // the bindings of the device in use (keyboard and mouse, or the pad last pressed: input.rs), as icons
+        use crate::input::Act as I;
         let left = [
-            ("Move Forward", "W"),
-            ("Move Backward", "S"),
-            ("Move Left", "A"),
-            ("Move Right", "D"),
-            ("Turn Left", "Mouse Left"),
-            ("Turn Right", "Mouse Right"),
-            ("Look Up", "Mouse Up"),
-            ("Look Down", "Mouse Down"),
-            ("Fire Weapon", "Mouse 1"),
-            ("Fire Special", "Mouse 2"),
+            ("Move", I::Move),
+            ("Look", I::Look),
+            ("Fire Weapon", I::Fire),
+            ("Aim / Zoom", I::Aim),
+            ("Fire Special", I::Special),
+            ("Next Special", I::NextSpecial),
+            ("Next Weapon", I::SwitchWeapon),
         ];
-        let right = [("Jump", "Space"), ("Reload", "R"), ("Activate", "X or F"), ("Continue", "Enter"), ("Pause", "Esc")];
+        let right = [("Jump", I::Jump), ("Reload", I::Reload), ("Activate", I::Use), ("Send Team", I::TeamSend), ("Recall Team", I::TeamRecall), ("Continue", I::Continue), ("Pause", I::Pause)];
         for (i, (a, k)) in left.iter().enumerate() {
-            let y = 390.691 - 24.0 * i as f32;
+            let y = 390.691 - 30.0 * i as f32;
             s.text(Page::Controls, a, Vec2::new(172.0, y), 0.8, GREEN, 1.0, PartKind::Fixed);
-            s.text(Page::Controls, k, Vec2::new(187.0, y), 0.8, GREEN, -1.0, PartKind::Fixed);
+            s.text(Page::Controls, "", Vec2::new(187.0, y), 0.8, GREEN, -1.0, PartKind::Binding(*k));
         }
         for (i, (a, k)) in right.iter().enumerate() {
-            let y = 388.0 - 24.0 * i as f32;
+            let y = 390.691 - 30.0 * i as f32;
             s.text(Page::Controls, a, Vec2::new(466.0, y), 0.8, GREEN, 1.0, PartKind::Fixed);
-            s.text(Page::Controls, k, Vec2::new(482.0, y), 0.8, GREEN, -1.0, PartKind::Fixed);
+            s.text(Page::Controls, "", Vec2::new(482.0, y), 0.8, GREEN, -1.0, PartKind::Binding(*k));
         }
         s.slider(Page::Controls, "ui_controls_mousescale", 150.691, Opt::MouseSens, true);
         // no auto-aim in the remaster yet
@@ -550,6 +553,11 @@ fn relaunch_load() {
 }
 
 /// Starts the game again in a fresh process: on the title screen, or straight into the level.
+/// Back to the title screen (a fresh process, as the menu's Return to title).
+pub fn relaunch_to_title() {
+    relaunch(false);
+}
+
 fn relaunch(into_level: bool) {
     let Ok(exe) = std::env::current_exe() else { return };
     let mut args: Vec<String> = Vec::new();
@@ -592,7 +600,7 @@ fn failed(mission: Option<Res<crate::mission::Mission>>, state: Res<State<AppSta
 
 #[allow(clippy::too_many_arguments)]
 fn navigate(
-    keys: Res<ButtonInput<KeyCode>>,
+    ctl: Res<crate::input::Controls>,
     state: Res<State<AppState>>,
     mut next: ResMut<NextState<AppState>>,
     mut menu: ResMut<GameMenu>,
@@ -634,7 +642,7 @@ fn navigate(
     }
     // the credits page: any of Esc / Enter leaves
     if menu.page == Page::Credits && *state.get() != AppState::Playing {
-        if keys.just_pressed(KeyCode::Escape) || keys.just_pressed(KeyCode::Enter) {
+        if ctl.pressed(crate::input::Act::Back) || ctl.pressed(crate::input::Act::Select) {
             if let Some((p, s)) = menu.stack.pop() {
                 menu.page = p;
                 menu.selected = s;
@@ -645,7 +653,7 @@ fn navigate(
     }
     // the cheat page takes letters and Enter (cheats.rs); Esc leaves it
     if cheats.entering {
-        if keys.just_pressed(KeyCode::Escape) {
+        if ctl.pressed(crate::input::Act::Back) {
             cheats.typed.clear();
             cheats.result.clear();
             if let Some((p, s)) = menu.stack.pop() {
@@ -661,7 +669,7 @@ fn navigate(
     };
     // Esc in play opens the pause menu (not over a paused mission message)
     if *state.get() == AppState::Playing {
-        if keys.just_pressed(KeyCode::Escape) && mission.as_ref().is_none_or(|m| m.showing.is_none()) {
+        if ctl.pressed(crate::input::Act::Pause) && mission.as_ref().is_none_or(|m| m.showing.is_none()) {
             next.set(AppState::Paused);
             vtime.pause();
             menu.page = Page::Pause;
@@ -685,22 +693,16 @@ fn navigate(
             play(&mut sounds, "ui_move");
         }
     }
-    if keys.just_pressed(KeyCode::ArrowDown) || keys.just_pressed(KeyCode::KeyS) {
+    if ctl.step.y < 0 {
         menu.selected = (menu.selected + 1) % n;
         play(&mut sounds, "ui_move");
     }
-    if keys.just_pressed(KeyCode::ArrowUp) || keys.just_pressed(KeyCode::KeyW) {
+    if ctl.step.y > 0 {
         menu.selected = (menu.selected + n - 1) % n;
         play(&mut sounds, "ui_move");
     }
     let cur = items[menu.selected].1;
-    let step = if keys.just_pressed(KeyCode::ArrowRight) || keys.just_pressed(KeyCode::KeyD) {
-        1.0
-    } else if keys.just_pressed(KeyCode::ArrowLeft) || keys.just_pressed(KeyCode::KeyA) {
-        -1.0
-    } else {
-        0.0
-    };
+    let step = ctl.step.x as f32;
     if step != 0.0 {
         if let Act::Slide(o) = cur {
             let win = windows.single().map(|w| (w.resolution.width() as u32, w.resolution.height() as u32)).unwrap_or((1920, 1080));
@@ -710,10 +712,10 @@ fn navigate(
         }
     }
     let cur = items[menu.selected].1;
-    if keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::Space) || (mouse.just_pressed(MouseButton::Left) && hovered.is_some()) {
+    if ctl.pressed(crate::input::Act::Select) || (mouse.just_pressed(MouseButton::Left) && hovered.is_some()) {
         act = Some(cur);
     }
-    if keys.just_pressed(KeyCode::Escape) || mouse.just_pressed(MouseButton::Right) {
+    if ctl.pressed(crate::input::Act::Back) {
         act = match page {
             Page::Main | Page::Failed => None,
             Page::Pause => Some(Act::Continue),
@@ -949,6 +951,7 @@ fn values(
         let line = match p.kind {
             PartKind::CheatTyped => Some(format!("{}_", cheats.typed)),
             PartKind::CheatResult => Some(cheats.result.clone()),
+            PartKind::Binding(a) => Some(crate::input::key(a)),
             _ => None,
         };
         if let Some(l) = line {

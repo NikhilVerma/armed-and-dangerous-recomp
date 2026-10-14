@@ -293,6 +293,7 @@ fn placed_collect(
     mut opts: ResMut<crate::options::GameOptions>,
     texts: Option<Res<crate::gamemenu::Texts>>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
+    mut ms: ResMut<crate::stats::MissionStats>,
 ) {
     let dt = time.delta_secs();
     let Ok(pt) = player.single() else { return };
@@ -308,6 +309,8 @@ fn placed_collect(
             m.feed(text);
         }
         if p.behavior == "pickup_token" {
+            // 2500 Loot per token (0x004a0850, ui_03.cpp:3102)
+            ms.loot_money += 2500.0;
             opts.tokens += 1;
             opts.tokens_taken.push(p.key.clone());
             opts.save();

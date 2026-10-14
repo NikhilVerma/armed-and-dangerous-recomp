@@ -285,6 +285,8 @@ pub struct PlayerStats {
     pub position: Vec3,
     pub kills: u32,
     pub shots: u32,
+    /// player shots that hit a character (Game+0x271c)
+    pub hits: u32,
     pub weapon: &'static str,
     pub unlimited: bool,
     /// the special in hand: 0 sticky bombs, 1 the Topsy Turvy bomb; and its count
@@ -486,7 +488,6 @@ fn control(
     grunts: Query<(&crate::ai::Grunt, &GlobalTransform)>,
     pickups: Query<&GlobalTransform, With<crate::pickup::Pickup>>,
     explosives: Query<(&crate::fx::Destructible, &GlobalTransform)>,
-    keys: Res<ButtonInput<KeyCode>>,
     motion: Res<AccumulatedMouseMotion>,
     look: Res<LookDelta>,
     playtest: Option<Res<crate::playtest::Playtest>>,
@@ -495,7 +496,7 @@ fn control(
     mut physics: NonSendMut<Physics>,
     mut q: Query<(&mut Roman, &mut Transform, &Health)>,
     mut stats: ResMut<PlayerStats>,
-    pad: Res<crate::input::PadState>,
+    ctl: Res<crate::input::Controls>,
 ) {
     let dt = time.delta_secs();
     for (mut r, mut t, h) in &mut q {
@@ -514,7 +515,7 @@ fn control(
         // zoom: held Zoom (Z, E; 0x00478xxx game_06.cpp:2819-2836) enters the weapon camera; turning and pitching
         // then use the weapon's zoomed speeds (rifle / machine gun 0.05 / 0.25 against 0.3 / 0.95: 0x00475990 /
         // 0x004759e0)
-        let zoom_held = (keys.pressed(KeyCode::KeyZ) || keys.pressed(KeyCode::KeyE)) && !r.dead;
+        let zoom_held = ctl.down(crate::input::Act::Aim) && !r.dead;
         let step = dt / r.zoom_secs.max(1e-3);
         r.zoom = if zoom_held { (r.zoom + step).min(1.0) } else { (r.zoom - step).max(0.0) };
         let (kt, kp) = if zoom_held { (0.05 / 0.3, 0.25 / 0.95) } else { (1.0, 1.0) };
@@ -527,8 +528,9 @@ fn control(
             // deflection, zoomed 0.05 / 0.25 of 0.3 / 0.95 as the mouse
             let e = if zoom_held { 3 } else { 2 };
             let shape = |a: f32| a.signum() * a.abs().powi(e);
-            r.yaw -= shape(pad.look.x) * 3.0 * dt * kt;
-            r.pitch = (r.pitch + shape(pad.look.y) * 1.7 * dt * inv * kp).clamp(-1.1, 0.7);
+            let stick = ctl.axis(crate::input::Act::Look);
+            r.yaw -= shape(stick.x) * 3.0 * dt * kt;
+            r.pitch = (r.pitch + shape(stick.y) * 1.7 * dt * inv * kp).clamp(-1.1, 0.7);
         }
         let mut wish = Vec3::ZERO;
         // playtest bot: turn toward the goal and walk; when fighting, face the nearest live grunt
@@ -729,21 +731,9 @@ fn control(
             }
             let f = Quat::from_rotation_y(r.yaw) * Vec3::NEG_Z;
             let s = Quat::from_rotation_y(r.yaw) * Vec3::X;
-            if keys.pressed(KeyCode::KeyW) {
-                wish += f * r.fwd_speed;
-            }
-            if keys.pressed(KeyCode::KeyS) {
-                wish -= f * r.fwd_speed * 0.7;
-            }
-            if keys.pressed(KeyCode::KeyD) {
-                wish += s * r.side_speed;
-            }
-            if keys.pressed(KeyCode::KeyA) {
-                wish -= s * r.side_speed;
-            }
-            // the left stick: target speed max x a + (1 - a) x min for any deflection a (fwd / side_max_speed_min 4,
-            // game_06.cpp:2586); backward at the keys' 0.7
-            let m = pad.mv;
+            // the Move action (WASD: full deflection; the left stick: analog): target speed max x a + (1 - a) x min for
+            // any deflection a (fwd / side_max_speed_min 4, game_06.cpp:2586); backward at 0.7 (stand-in)
+            let m = ctl.axis(crate::input::Act::Move).clamp(Vec2::splat(-1.0), Vec2::ONE);
             if m != Vec2::ZERO {
                 let sp = |max: f32, a: f32| max * a + (1.0 - a) * 4.0f32.min(max);
                 let fy = if m.y > 0.0 { sp(r.fwd_speed, m.y) } else if m.y < 0.0 { -sp(r.fwd_speed, -m.y) * 0.7 } else { 0.0 };
@@ -798,7 +788,7 @@ fn control(
         }
         if r.on_ground {
             r.vel.y = r.vel.y.max(-5.0);
-            if (keys.just_pressed(KeyCode::Space) || (bot.veer > 0.0 && bot.goto.is_some())) && !r.dead {
+            if (ctl.pressed(crate::input::Act::Jump) || (bot.veer > 0.0 && bot.goto.is_some())) && !r.dead {
                 // the impulse, then this step's gravity as in the airborne steps (velocity before position): the
                 // original's arc (jumpA, peak 14.6) fits 70 and gravity 160.9 that way
                 r.vel.y = r.jump_impulse - 64.348 * r.anti_gravity * 0.5 * dt;
@@ -874,7 +864,7 @@ fn weapons(
     mut commands: Commands,
     time: Res<Time>,
     buttons: Res<ButtonInput<MouseButton>>,
-    keys: Res<ButtonInput<KeyCode>>,
+    ctl: Res<crate::input::Controls>,
     mut physics: NonSendMut<Physics>,
     bombs: Res<BombAssets>,
     data: Res<GameData>,
@@ -919,7 +909,7 @@ fn weapons(
         r.since_throw += dt;
         r.reloading -= dt;
         // Next Weapon (Q): the rifle and, once taken in the pub, the machine gun
-        if keys.just_pressed(KeyCode::KeyQ) && r.mg.is_some() {
+        if ctl.pressed(crate::input::Act::SwitchWeapon) && r.mg.is_some() {
             r.use_mg = !r.use_mg;
             sounds.write(crate::audio::PlaySound::at("ui_weapon_put_away", t.translation));
         }
@@ -927,11 +917,11 @@ fn weapons(
         let mut reloaded = false;
         // a tap counts as a shot: a trackpad tap over Moonlight arrives as press and release in one frame, never
         // "pressed" at the frame's end (the player's gun did nothing)
-        let fire = buttons.pressed(MouseButton::Left) || buttons.just_pressed(MouseButton::Left) || (bot.fight && bot.fire_ok);
+        let fire = ctl.down(crate::input::Act::Fire) || ctl.pressed(crate::input::Act::Fire) || (buttons.just_pressed(MouseButton::Left) && ctl.active_play) || (bot.fight && bot.fire_ok);
         let (shoot, reload_time) = {
             let w = if mg { r.mg.as_mut().unwrap() } else { &mut r.rifle };
             w.timer -= dt;
-            if (keys.just_pressed(KeyCode::KeyR) && w.clip < w.clip_size && w.ammo > 0) || (w.clip == 0 && w.ammo > 0 && w.timer <= 0.0) {
+            if (ctl.pressed(crate::input::Act::Reload) && w.clip < w.clip_size && w.ammo > 0) || (w.clip == 0 && w.ammo > 0 && w.timer <= 0.0) {
                 let n = (w.clip_size - w.clip).min(w.ammo);
                 w.clip += n;
                 if !w.unlimited {
@@ -1002,14 +992,14 @@ fn weapons(
         // sticky bomb: thrown along the aim with the game's sticky bomb values (stand-in throw strength)
         let bot_throw = std::mem::take(&mut bot.throw);
         // Next Special (Tab): sticky bombs / the Topsy Turvy bomb
-        if keys.just_pressed(KeyCode::Tab) && r.topsy > 0 {
+        if ctl.pressed(crate::input::Act::NextSpecial) && r.topsy > 0 {
             r.special = 1 - r.special;
         }
         if r.special == 1 && r.topsy == 0 {
             r.special = 0;
         }
         // Fire Special with the Topsy Turvy bomb (topsy.rs)
-        if r.special == 1 && buttons.just_pressed(MouseButton::Right) && r.topsy > 0 && !topsy.active() {
+        if r.special == 1 && ctl.pressed(crate::input::Act::Special) && r.topsy > 0 && !topsy.active() {
             r.topsy -= 1;
             topsy.start = true;
         }
@@ -1017,7 +1007,7 @@ fn weapons(
         // (0x004a1aa0 -> 0x004a1930: weapon 10 queued; the bomb leaves the hand on the throw anim's "fire" note, 0.267 s
         // into trotter_throw / trotter_run_throw (0x004a1970, game_05.cpp:1579; the 0.4 s queue is only a fallback),
         // and the count drops then (game_09.cpp:1813; sticky.rs). No throw sound: the bomb's flight loop starts at launch
-        if r.special == 0 && (buttons.just_pressed(MouseButton::Right) || bot_throw) && r.stickies > 0 && sticky.pending.is_none() {
+        if r.special == 0 && (ctl.pressed(crate::input::Act::Special) || bot_throw) && r.stickies > 0 && sticky.pending.is_none() {
             r.since_throw = 0.0;
             sticky.pending = Some(0.267);
         }
@@ -1206,6 +1196,9 @@ fn projectiles(
                     stats.head_shots += 1;
                 }
                 h.0 -= p.damage * mult;
+                if p.from_player && grunt && p.owner.is_some_and(|o| roman.contains(o)) {
+                    stats.hits += 1;
+                }
                 // the damage message's source (+0x2c): the shooter, offered to the grunt as a target (ai.rs think)
                 if let (Some(o), Ok(mut g)) = (p.owner, victims.get_mut(ce)) {
                     g.attacker = Some(o);
@@ -1357,6 +1350,7 @@ pub fn spawn_bomb(commands: &mut Commands, physics: &mut Physics, bombs: &BombAs
         chain_delay: 0.0,
         // the fuse sets it off, not damage
         class: crate::fx::DClass::Default,
+        score: 0.0,
         takes_damage: false,
         takes_bullet: false,
         player_damage: false,

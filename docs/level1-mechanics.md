@@ -21,12 +21,12 @@ Update this table as items land (commit hash in the last column).
 | Landing anims, landing damage, death by falling | 0x00478100 | M | 2 | |
 | Mouse look rates | 0x00475990.. | V | | pitch clamp narrower than the original (±1.56 / 1.15) |
 | Look from trackpad / Moonlight | — | B | 1 | cursor + raw + absolute raw (98e7700); unconfirmed |
-| Controller support | 0x004f8600 joystick; hook pad layout (qol.md) | B | 1 | input.rs: any pad, analog move (min speed 4) and look (3 rad/s, shaping ^2), menus; playtest `pad` steps (pad.json) |
+| Controller support | 0x004f8600 joystick | B | 1 | input.rs on bevy_enhanced_input: modern twin-stick layout, contexts, rumble, focus-gated pads (remaster-input.md) |
 | Follow camera, collision, fade | 0x0040e350, 0x0040e56c | V | | smoothing slerp 0x0040fd50 not ported |
 | Zoom | 0x0040fbb0 | P | 3 | |
 | Intro path, briefing camera hold | 0x0040ff50, 0x0044daf0 | V | | Roman off-screen report: not reproduced (session log next) |
 | HUD layout | UI bank | V | | B: letterbox band mapped to the window, edge-anchored (this change) |
-| Prompts name the binding | "Press %s" 0x00465280 | B | 1 | active device: last-used key (X / F, Mouse 1 / Enter) or the pad's coloured face button; kept current while shown |
+| Prompts name the binding | "Press %s" 0x00465280 | B | 1 | Kenney icons inline (keys, mouse, Xbox, DualSense) for the device in use; Controls page too |
 | Hit-direction markers ui_hit_* | 0x0047afa0 side mask, 0x004670f0 | P | 1 | hit_flash set from the shot direction, damage_flash_duration |
 | Pain sounds | table 0x0064a300, rom50069..73_Hurt | P | 1 | at most 1/s; heavy breathing below 20 % |
 | Low-health pulse + sound cue | 0x00466e70, game_06.cpp:2155 | P | 1 | alpha pulse up 8/s, down 2/s |
@@ -85,12 +85,12 @@ Update this table as items land (commit hash in the last column).
 | Triggers 808 / 810 / 98 / 99 / 713 / 711 (volumes, voice) | TriggerObject, SoundEar | V | | |
 | send_trigger_on_death (pipe 96 → 711, boom_island → 301 penguin debris) | 0x00450ee0 | P | 1 | fx::Died → SendTrigger |
 | Gates blown (556 / 901) | 0x0044e150 | V | | |
-| Win sequence (score, sounds stop, stats, next level lev_1_m1_b) | 0x0044a390 / 0x0044a230 | M | 1 | play continues after "Well Done!" |
+| Win sequence (score, sounds stop, stats, next level lev_1_m1_b) | 0x0044a390 / 0x0044a230 / 0x00494440 (win-sequence.md) | P | 1 | statscreen.rs: counters (stats.rs), the Stats screen with its phases and poster, money kept; lev_1_m1_b not built: back to the title. Sounds not stopped yet |
 | Objective jingle | 0x0044f560 | M | 3 | |
 | Opening movie + 71 subtitles | pre_1_1_opening | M | 3 | |
 | Pub re-entry, barkeep lines, amb_pub_busy | 0x00468dd0 | M | 3 | |
 | Music states | 0x0044f580 | S | 3 | |
-| Score | various | M | 3 | |
+| Score | various | P | 3 | stats.rs: kills / accidents by score_value, loot (win 1000, tokens 2500) |
 
 ## World objects
 

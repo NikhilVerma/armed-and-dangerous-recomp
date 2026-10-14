@@ -90,6 +90,8 @@ pub struct Destructible {
     pub dying: Option<f32>,
     pub chain_delay: f32,
     pub class: DClass,
+    /// score_value: to the Kills (or, negative, Accidents) money when it dies (0x00450ee0)
+    pub score: f32,
     pub takes_damage: bool,
     pub takes_bullet: bool,
     pub player_damage: bool,
@@ -257,6 +259,7 @@ fn dying(
     mut commands: Commands,
     time: Res<Time>,
     mut stats: ResMut<FxStats>,
+    mut ms: ResMut<crate::stats::MissionStats>,
     mut q: Query<(Entity, &GlobalTransform, &mut Destructible)>,
     mut blasts: MessageWriter<Explode>,
     mut fx: MessageWriter<StartFx>,
@@ -269,6 +272,7 @@ fn dying(
             continue;
         }
         stats.deaths += 1;
+        ms.killed(d.score);
         if d.area_damage > 0.0 {
             stats.explosions += 1;
             // killed by its fuse: acceleration_rate x the fuse; killed directly: start_delay

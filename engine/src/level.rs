@@ -188,6 +188,7 @@ fn destructible(p: &Props) -> Option<Destructible> {
         radius_outer: p.f("damage_radius_outer", 0.0),
         impact_force: p.f("impact_force", 0.0),
         chain: p.s("behavior") == Some("fx_explosion"),
+        score: p.f("score_value", 0.0),
         class: match p.s("behavior").unwrap_or("") {
             "building" => DClass::Building,
             "fx_explosion" => DClass::Keg,

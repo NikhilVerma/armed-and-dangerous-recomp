@@ -1,110 +1,332 @@
-//! Controllers and the active input device (remaster improvement: the original PC build reads a DirectInput
-//! joystick with fixed Xbox-era names; here any SDL / gilrs pad works, and the prompts name the buttons of the
-//! device in hand).
+//! Input: the game's actions, bound to keyboard / mouse and gamepads through bevy_enhanced_input (remaster
+//! improvement: the original PC build reads a DirectInput joystick with fixed Xbox-era names).
 //!
-//! The pad drives the game's actions with the layout of the hook's gamepad layer (docs/subsystems/qol.md, "Game
-//! controllers"): left stick move, right stick turn and look, R2 fire, L2 special weapon, R1 / L1 next weapon,
-//! D-pad left / right next special weapon, D-pad up / down send / recall teammates, South jump and menu select, East
-//! menu back, West reload, North use, R3 toggle zoom, Start pause. Buttons are fed in as the keyboard / mouse
-//! bindings they stand for, so every system that reads those reads the pad too; the sticks are analog
-//! (`PadState`, read by player.rs).
+//! Three contexts, one active at a time: `Gameplay` (in play), `Menus` (front end, pause, pub screen) and `Message`
+//! (a paused mission message). Systems read the resulting `Controls` resource, not raw devices.
 //!
-//! Stick look as the original's (player.md 3: turn_max_speed 0.3 -> yaw rate axis x 0.3 x 10 = 3 rad/s at full
-//! deflection, zoomed 0.05; stick shaping exponent 2, zoomed 3 (0x00414c00, pow taken)); pitch at 0.95 / 0.3 of the
-//! turn rate scaled like the mouse's measured pitch:turn (0.57): 1.7 rad/s (**guess**: the pitch path's time scale
-//! is not traced).
+//! Keyboard and mouse keep the original's default bindings (player.md 2: table 0x00588ed8). The pad layout is a
+//! modern twin-stick one (agreed with the player 2026-10-14):
 //!
-//! Prompts: `key(Act)` gives the text for a prompt's %s on the active device: the keyboard / mouse binding the
-//! player last used for the action (the original shows the first binding, 0x00465280: Use "X", MenuSelect
-//! "Mouse 1"), or the pad's button in its face colour (Xbox A / B / X / Y, PlayStation Cross / Circle / Square /
-//! Triangle).
+//! | Pad (DualSense / Xbox) | In play | In menus |
+//! |---|---|---|
+//! | Left stick | move (analog) | navigate |
+//! | Right stick | camera | |
+//! | R2 / RT | fire | |
+//! | L2 / LT | aim / zoom (held) | |
+//! | R1 / RB | throw special (sticky bomb, Topsy Turvy) | |
+//! | L1 / LB, D-pad left / right | next special weapon | navigate |
+//! | Cross / A | jump | confirm, continue |
+//! | Square / X | use (hold for ticker bombs) | |
+//! | Triangle / Y | switch weapon | |
+//! | Circle / B | reload | back |
+//! | D-pad up / down | send / recall teammates | navigate |
+//! | Options / Menu | pause | back |
+//!
+//! Stick look as the original's analog turn (player.md 3: turn_max_speed 0.3 -> 3 rad/s at full deflection, zoomed
+//! 0.05; shaping exponent 2, zoomed 3, 0x00414c00 pow taken); pitch 1.7 rad/s (**guess**). Applied in player.rs.
+//!
+//! Gamepads count only while the game window has focus (the player may be playing something else), and scripted
+//! runs (--play) read only their virtual pad.
+//!
+//! Prompts: `key(Act)` gives the text for a prompt's %s on the active device (`hud.rs` draws `<icon=...>` tags with
+//! the Kenney Input Prompts icons when present): the keyboard / mouse binding the player last used for the action
+//! (the original shows the first binding, 0x00465280: Use "X", MenuSelect "Mouse 1"), or the pad's button.
 
 use bevy::input::gamepad::{Gamepad, GamepadButton};
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
+use bevy::window::PrimaryWindow;
+use bevy_enhanced_input::prelude::*;
 use std::sync::atomic::{AtomicU8, Ordering};
 
 /// 0 keyboard and mouse, 1 Xbox-style pad, 2 PlayStation pad
 static DEVICE: AtomicU8 = AtomicU8::new(0);
-/// the Use binding last pressed: 0 X (the original's first binding), 1 F
+/// the Use key last pressed: 0 X (the original's first binding), 1 F
 static USE_KEY: AtomicU8 = AtomicU8::new(0);
 /// the MenuSelect binding last pressed: 0 Mouse 1 (first binding), 1 Enter, 2 Space
 static SELECT_KEY: AtomicU8 = AtomicU8::new(0);
 
-/// The actions prompts name.
-#[derive(Clone, Copy)]
+/// The pad last used (rumble goes to it).
+#[derive(Resource, Default)]
+pub struct ActivePad(pub Option<Entity>);
+
+/// The game's actions.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Component)]
 pub enum Act {
-    Use,
-    /// MenuSelect: continue a message, pick in the pub
-    Select,
-    /// MenuCancel
-    Cancel,
+    // play
+    Move,
+    Look,
     Fire,
+    Aim,
+    Special,
+    NextSpecial,
+    SwitchWeapon,
+    Jump,
+    Use,
+    Reload,
+    TeamSend,
+    TeamRecall,
+    Pause,
+    // menus
+    Nav,
+    Select,
+    Back,
+    // a paused message
+    Continue,
+}
+
+const ACTS: usize = Act::Continue as usize + 1;
+
+/// One action's state this frame.
+#[derive(Clone, Copy, Default, Debug)]
+pub struct ActState {
+    pub value: Vec2,
+    pub down: bool,
+    pub pressed: bool,
+    pub released: bool,
+}
+
+/// The actions' states this frame (filled after bevy_enhanced_input evaluated the active context).
+#[derive(Resource, Default)]
+pub struct Controls {
+    acts: [ActState; ACTS],
+    /// menu navigation steps this frame (stick / D-pad / keys with key repeat): -1, 0, 1 on each axis
+    pub step: IVec2,
+    nav_held: f32,
+    /// the Gameplay context is active (in play, no paused message)
+    pub active_play: bool,
+    /// the active context changed: buttons held across the change count only after a release (the Options press
+    /// that opens the pause menu is not also the menu's Back; the R2 that dismisses a message does not also fire)
+    switched: bool,
+    blocked: [bool; ACTS],
+}
+
+impl Controls {
+    pub fn get(&self, a: Act) -> ActState {
+        self.acts[a as usize]
+    }
+    pub fn down(&self, a: Act) -> bool {
+        self.acts[a as usize].down
+    }
+    pub fn pressed(&self, a: Act) -> bool {
+        self.acts[a as usize].pressed
+    }
+    pub fn released(&self, a: Act) -> bool {
+        self.acts[a as usize].released
+    }
+    pub fn axis(&self, a: Act) -> Vec2 {
+        self.acts[a as usize].value
+    }
+}
+
+#[derive(InputAction)]
+#[action_output(Vec2)]
+struct MoveA;
+#[derive(InputAction)]
+#[action_output(Vec2)]
+struct LookA;
+#[derive(InputAction)]
+#[action_output(Vec2)]
+struct NavA;
+#[derive(InputAction)]
+#[action_output(bool)]
+struct Btn;
+
+/// Contexts (components on their own entities).
+#[derive(Component)]
+pub struct Gameplay;
+#[derive(Component)]
+pub struct Menus;
+#[derive(Component)]
+pub struct Message;
+
+pub struct InputPlugin;
+
+/// The device and context choice (scripted input is fed in before it).
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct InputDevices;
+
+impl Plugin for InputPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_plugins(EnhancedInputPlugin)
+            .add_input_context::<Gameplay>()
+            .add_input_context::<Menus>()
+            .add_input_context::<Message>()
+            .init_resource::<Controls>()
+            .init_resource::<ActivePad>()
+            .add_systems(Update, rumble.run_if(in_state(crate::AppState::Playing)))
+            .add_systems(Startup, spawn_contexts)
+            .add_systems(PreUpdate, (device, contexts).chain().in_set(InputDevices).after(bevy::input::InputSystems).before(EnhancedInputSystems::Prepare))
+            .add_systems(PreUpdate, collect.after(EnhancedInputSystems::Apply));
+    }
+}
+
+fn btn(a: Act, binds: impl Bundle) -> impl Bundle {
+    (Action::<Btn>::new(), a, binds)
+}
+
+fn spawn_contexts(mut commands: Commands) {
+    use GamepadButton as B;
+    commands.spawn((
+        Gameplay,
+        ContextActivity::<Gameplay>::INACTIVE,
+        actions!(Gameplay[
+            (Action::<MoveA>::new(), Act::Move, DeadZone::default(), Bindings::spawn((Cardinal::wasd_keys(), Axial::left_stick()))),
+            (Action::<LookA>::new(), Act::Look, DeadZone { lower_threshold: 0.15, ..default() }, Bindings::spawn(Axial::right_stick())),
+            btn(Act::Fire, bindings![MouseButton::Left, B::RightTrigger2]),
+            btn(Act::Aim, bindings![KeyCode::KeyZ, KeyCode::KeyE, B::LeftTrigger2]),
+            btn(Act::Special, bindings![MouseButton::Right, B::RightTrigger]),
+            btn(Act::NextSpecial, bindings![KeyCode::Tab, B::LeftTrigger, B::DPadRight, B::DPadLeft]),
+            btn(Act::SwitchWeapon, bindings![KeyCode::KeyQ, B::North]),
+            btn(Act::Jump, bindings![KeyCode::Space, MouseButton::Middle, B::South]),
+            btn(Act::Use, bindings![KeyCode::KeyX, KeyCode::KeyF, B::West]),
+            btn(Act::Reload, bindings![KeyCode::KeyR, B::East]),
+            btn(Act::TeamSend, bindings![KeyCode::Digit1, B::DPadUp]),
+            btn(Act::TeamRecall, bindings![KeyCode::Digit3, B::DPadDown]),
+            btn(Act::Pause, bindings![KeyCode::Escape, B::Start]),
+        ]),
+    ));
+    commands.spawn((
+        Menus,
+        ContextActivity::<Menus>::ACTIVE,
+        actions!(Menus[
+            (Action::<NavA>::new(), Act::Nav, DeadZone { lower_threshold: 0.5, ..default() },
+                Bindings::spawn((Cardinal::arrows(), Cardinal::wasd_keys(), Cardinal::dpad(), Axial::left_stick()))),
+            btn(Act::Select, bindings![KeyCode::Enter, KeyCode::Space, B::South]),
+            btn(Act::Back, bindings![KeyCode::Escape, MouseButton::Right, B::East, B::Start]),
+        ]),
+    ));
+    commands.spawn((
+        Message,
+        ContextActivity::<Message>::INACTIVE,
+        actions!(Message[
+            // MenuSelect, MenuCancel or Fire dismiss it (0x00462790, ui_01.cpp:2250)
+            btn(Act::Continue, bindings![KeyCode::Enter, MouseButton::Left, B::South, B::East, B::RightTrigger2]),
+        ]),
+    ));
+}
+
+/// Which context is active, and which pads count.
+#[allow(clippy::too_many_arguments)]
+fn contexts(
+    mut commands: Commands,
+    state: Res<State<crate::AppState>>,
+    menu: Res<crate::gamemenu::GameMenu>,
+    mission: Option<Res<crate::mission::Mission>>,
+    playtest: Option<Res<crate::playtest::Playtest>>,
+    window: Query<&Window, With<PrimaryWindow>>,
+    mut sources: ResMut<ActionSources>,
+    ctx: Query<(Entity, Has<Gameplay>, Has<Menus>, Has<Message>, Option<&GamepadDevice>)>,
+    mut last: Local<Option<(bool, bool, bool)>>,
+    mut controls: ResMut<Controls>,
+) {
+    let showing = mission.as_ref().is_some_and(|m| m.showing.is_some());
+    let play = *state.get() == crate::AppState::Playing && menu.page != crate::gamemenu::Page::Pub;
+    let want = (play && !showing, !play, play && showing);
+    controls.active_play = want.0;
+    if last.is_some_and(|l| l != want) {
+        controls.switched = true;
+    }
+    let pad = match playtest.as_ref() {
+        Some(p) => p.pad_entity().map_or(GamepadDevice::None, GamepadDevice::Single),
+        None => GamepadDevice::Any,
+    };
+    // the player may be in another program: pads only reach a focused window (scripted runs are never focused)
+    let focused = playtest.is_some() || window.single().is_ok_and(|w| w.focused);
+    sources.gamepad_button = focused;
+    sources.gamepad_axis = focused;
+    for (e, g, m, msg, dev) in &ctx {
+        if dev != Some(&pad) {
+            commands.entity(e).insert(pad);
+        }
+        if *last != Some(want) {
+            if g {
+                commands.entity(e).insert(ContextActivity::<Gameplay>::new(want.0));
+            }
+            if m {
+                commands.entity(e).insert(ContextActivity::<Menus>::new(want.1));
+            }
+            if msg {
+                commands.entity(e).insert(ContextActivity::<Message>::new(want.2));
+            }
+        }
+    }
+    *last = Some(want);
+}
+
+/// Copies the evaluated actions into `Controls`; menu navigation steps with key repeat (0.4 s, then every 0.12 s).
+fn collect(time: Res<Time<Real>>, mut c: ResMut<Controls>, acts: Query<(&Act, &ActionValue, &ActionEvents, &TriggerState)>) {
+    let mut out = [ActState::default(); ACTS];
+    for (a, v, ev, st) in &acts {
+        let value = match *v {
+            ActionValue::Bool(b) => Vec2::new(b as u8 as f32, 0.0),
+            ActionValue::Axis1D(x) => Vec2::new(x, 0.0),
+            ActionValue::Axis2D(v) => v,
+            ActionValue::Axis3D(v) => v.truncate(),
+        };
+        out[*a as usize] = ActState {
+            value,
+            down: *st == TriggerState::Fired,
+            pressed: ev.contains(ActionEvents::START),
+            released: ev.contains(ActionEvents::COMPLETE),
+        };
+    }
+    if std::mem::take(&mut c.switched) {
+        c.blocked = [true; ACTS];
+    }
+    for (i, st) in out.iter_mut().enumerate() {
+        // axes (move, look, menu navigation) carry on
+        if matches!(i, x if x == Act::Move as usize || x == Act::Look as usize || x == Act::Nav as usize) {
+            c.blocked[i] = false;
+        }
+        if c.blocked[i] && (st.down || st.pressed) {
+            *st = ActState::default();
+        } else {
+            c.blocked[i] = false;
+        }
+    }
+    if std::env::var("AIDBG").is_ok() {
+        for (i, st) in out.iter().enumerate() {
+            if st.pressed {
+                info!("AIDBG input pressed {i} play {}", c.active_play);
+            }
+        }
+    }
+    let nav = out[Act::Nav as usize].value;
+    let dir = if nav.length() > 0.5 {
+        if nav.y.abs() >= nav.x.abs() { IVec2::new(0, nav.y.signum() as i32) } else { IVec2::new(nav.x.signum() as i32, 0) }
+    } else {
+        IVec2::ZERO
+    };
+    let prev = c.nav_held;
+    c.step = IVec2::ZERO;
+    if dir == IVec2::ZERO {
+        c.nav_held = 0.0;
+    } else {
+        let t = prev + time.delta_secs();
+        let fire = prev == 0.0 || (t >= 0.4 && ((t - 0.4) / 0.12).floor() > ((prev - 0.4).max(-0.12) / 0.12).floor());
+        if fire {
+            c.step = dir;
+        }
+        c.nav_held = t.max(1e-6);
+    }
+    c.acts = out;
 }
 
 pub fn pad_active() -> bool {
     DEVICE.load(Ordering::Relaxed) != 0
 }
 
-/// The text for a prompt's %s.
-pub fn key(a: Act) -> String {
-    let dev = DEVICE.load(Ordering::Relaxed);
-    if dev == 0 {
-        return match a {
-            Act::Use => ["X", "F"][USE_KEY.load(Ordering::Relaxed) as usize % 2].into(),
-            Act::Select => ["Mouse 1", "Enter", "Space"][SELECT_KEY.load(Ordering::Relaxed) as usize % 3].into(),
-            Act::Cancel => "Esc".into(),
-            Act::Fire => "Mouse 1".into(),
-        };
-    }
-    let ps = dev == 2;
-    // face buttons in their print colours
-    let (name, rgb) = match (a, ps) {
-        (Act::Use, false) => ("Y", "f0d040"),
-        (Act::Use, true) => ("Triangle", "40d0a0"),
-        (Act::Select, false) => ("A", "60d060"),
-        (Act::Select, true) => ("Cross", "80a8ff"),
-        (Act::Cancel, false) => ("B", "ff5050"),
-        (Act::Cancel, true) => ("Circle", "ff5050"),
-        (Act::Fire, false) => ("RT", "ffffff"),
-        (Act::Fire, true) => ("R2", "ffffff"),
-    };
-    format!("<rgb={rgb}>{name}</rgb>")
-}
-
-/// The pad's analog input this frame (dead zones applied; zero while the keyboard and mouse are in use).
-#[derive(Resource, Default)]
-pub struct PadState {
-    /// left stick: x right, y forward, length <= 1
-    pub mv: Vec2,
-    /// right stick: x right, y up, length <= 1, not yet shaped
-    pub look: Vec2,
-    zoom: bool,
-    menu_dir: Option<KeyCode>,
-    count: usize,
-    which: Option<Entity>,
-}
-
-pub struct InputPlugin;
-
-impl Plugin for InputPlugin {
-    fn build(&self, app: &mut App) {
-        app.init_resource::<PadState>().add_systems(PreUpdate, (device, pad).chain().after(bevy::input::InputSystems));
-    }
-}
-
-/// a radial dead zone, rescaled so the edge of the zone reads 0
-fn dead(v: Vec2, zone: f32) -> Vec2 {
-    let l = v.length();
-    if l <= zone {
-        Vec2::ZERO
-    } else {
-        v / l * ((l - zone) / (1.0 - zone)).min(1.0)
-    }
-}
-
-/// The active device: the one that gave input last.
-fn device(keys: Res<ButtonInput<KeyCode>>, mouse: Res<ButtonInput<MouseButton>>, motion: Res<AccumulatedMouseMotion>, pads: Query<&Gamepad>) {
+/// The active device: the one that gave input last (pads only while they count, as above).
+fn device(
+    keys: Res<ButtonInput<KeyCode>>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    motion: Res<AccumulatedMouseMotion>,
+    pads: Query<(Entity, &Gamepad)>,
+    playtest: Option<Res<crate::playtest::Playtest>>,
+    window: Query<&Window, With<PrimaryWindow>>,
+    mut active: ResMut<ActivePad>,
+) {
     if keys.just_pressed(KeyCode::KeyX) {
         USE_KEY.store(0, Ordering::Relaxed);
     }
@@ -118,123 +340,138 @@ fn device(keys: Res<ButtonInput<KeyCode>>, mouse: Res<ButtonInput<MouseButton>>,
     } else if keys.just_pressed(KeyCode::Space) {
         SELECT_KEY.store(2, Ordering::Relaxed);
     }
-    for p in &pads {
+    let focused = playtest.is_some() || window.single().is_ok_and(|w| w.focused);
+    let only = playtest.as_ref().map(|p| p.pad_entity());
+    for (e, p) in &pads {
+        if !focused || only.is_some_and(|o| o != Some(e)) {
+            continue;
+        }
         let used = p.get_just_pressed().next().is_some() || p.left_stick().length() > 0.5 || p.right_stick().length() > 0.5;
         if used {
             // Sony's USB vendor id
             let ps = p.vendor_id() == Some(0x054c);
             DEVICE.store(if ps { 2 } else { 1 }, Ordering::Relaxed);
+            active.0 = Some(e);
             return;
         }
     }
-    // the pad's own presses come back as keys (below) one frame later: only real keyboard / mouse input switches
-    // back, so a key the pad pressed does not (`pad` presses through ButtonInput after this system)
     if keys.get_just_pressed().next().is_some() || mouse.get_just_pressed().next().is_some() || motion.delta.length() > 3.0 {
         DEVICE.store(0, Ordering::Relaxed);
     }
 }
 
-/// Feeds the pad into the game: buttons as the bindings they stand for, sticks into `PadState`.
-#[allow(clippy::too_many_arguments)]
-fn pad(
-    pads: Query<(Entity, &Gamepad)>,
-    mut st: ResMut<PadState>,
-    mut keys: ResMut<ButtonInput<KeyCode>>,
-    mut mouse: ResMut<ButtonInput<MouseButton>>,
-    state: Res<State<crate::AppState>>,
-    menu: Res<crate::gamemenu::GameMenu>,
-) {
-    st.mv = Vec2::ZERO;
-    st.look = Vec2::ZERO;
-    let n = pads.iter().count();
-    if n != st.count {
-        info!("input: {n} gamepad(s)");
-        st.count = n;
-    }
-    // the pad in use: the last one pressed or pushed (a second pad, or a virtual one, may be connected)
-    for (e, p) in &pads {
-        if p.get_just_pressed().next().is_some() || p.left_stick().length() > 0.5 || p.right_stick().length() > 0.5 || p.get(GamepadButton::RightTrigger2).unwrap_or(0.0) > 0.3 {
-            st.which = Some(e);
-        }
-    }
-    let Some(p) = st.which.and_then(|e| pads.get(e).ok().map(|(_, p)| p)).or_else(|| pads.iter().next().map(|(_, p)| p)) else { return };
-    let in_menu = *state.get() != crate::AppState::Playing || menu.page == crate::gamemenu::Page::Pub;
+/// A pad button's prompt: an icon from the Kenney Input Prompts pack (hud.rs draws `<icon=name>`), falling back to
+/// its name when the icons are missing.
+fn pad_button(ps: bool, b: GamepadButton) -> String {
     use GamepadButton as B;
-    let edge = |keys: &mut ButtonInput<KeyCode>, b: B, k: KeyCode| {
-        if p.just_pressed(b) {
-            keys.press(k);
-        } else if p.just_released(b) {
-            keys.release(k);
-        }
+    let (ps_icon, xb_icon) = match b {
+        B::South => ("playstation_button_color_cross", "xbox_button_color_a"),
+        B::East => ("playstation_button_color_circle", "xbox_button_color_b"),
+        B::West => ("playstation_button_color_square", "xbox_button_color_x"),
+        B::North => ("playstation_button_color_triangle", "xbox_button_color_y"),
+        B::RightTrigger2 => ("playstation_trigger_r2", "xbox_rt"),
+        B::LeftTrigger2 => ("playstation_trigger_l2", "xbox_lt"),
+        B::RightTrigger => ("playstation_trigger_r1", "xbox_rb"),
+        B::LeftTrigger => ("playstation_trigger_l1", "xbox_lb"),
+        B::Start => ("playstation5_button_options", "xbox_button_menu"),
+        B::DPadUp => ("playstation_dpad_up", "xbox_dpad_up"),
+        B::DPadDown => ("playstation_dpad_down", "xbox_dpad_down"),
+        _ => ("playstation_button_cross", "xbox_button_a"),
     };
-    // South: jump in play, select in menus and on messages
-    edge(&mut keys, B::South, KeyCode::Space);
-    edge(&mut keys, B::South, KeyCode::Enter);
-    edge(&mut keys, B::West, KeyCode::KeyR);
-    edge(&mut keys, B::North, KeyCode::KeyF);
-    edge(&mut keys, B::RightTrigger, KeyCode::KeyQ);
-    edge(&mut keys, B::LeftTrigger, KeyCode::KeyQ);
-    edge(&mut keys, B::Start, KeyCode::Escape);
-    edge(&mut keys, B::Select, KeyCode::KeyH);
-    edge(&mut keys, B::DPadUp, KeyCode::Digit1);
-    edge(&mut keys, B::DPadDown, KeyCode::Digit3);
-    if in_menu {
-        edge(&mut keys, B::East, KeyCode::Escape);
-        edge(&mut keys, B::DPadUp, KeyCode::ArrowUp);
-        edge(&mut keys, B::DPadDown, KeyCode::ArrowDown);
-        edge(&mut keys, B::DPadLeft, KeyCode::ArrowLeft);
-        edge(&mut keys, B::DPadRight, KeyCode::ArrowRight);
-        // the left stick steps the menus too, one step per push
-        let s = p.left_stick();
-        let dir = if s.y > 0.6 {
-            Some(KeyCode::ArrowUp)
-        } else if s.y < -0.6 {
-            Some(KeyCode::ArrowDown)
-        } else if s.x > 0.6 {
-            Some(KeyCode::ArrowRight)
-        } else if s.x < -0.6 {
-            Some(KeyCode::ArrowLeft)
-        } else {
-            None
+    format!("<icon={}>", if ps { ps_icon } else { xb_icon })
+}
+
+/// The text for a prompt's %s: the binding of `a` on the device in use.
+pub fn key(a: Act) -> String {
+    use GamepadButton as B;
+    let dev = DEVICE.load(Ordering::Relaxed);
+    if dev == 0 {
+        // key and mouse button icons
+        let k = match a {
+            Act::Use => ["keyboard_x", "keyboard_f"][USE_KEY.load(Ordering::Relaxed) as usize % 2],
+            Act::Select | Act::Continue => ["mouse_left", "keyboard_enter", "keyboard_space"][SELECT_KEY.load(Ordering::Relaxed) as usize % 3],
+            Act::Back | Act::Pause => "keyboard_escape",
+            Act::Fire => "mouse_left",
+            Act::Special => "mouse_right",
+            Act::Jump => "keyboard_space",
+            Act::Reload => "keyboard_r",
+            Act::SwitchWeapon => "keyboard_q",
+            Act::NextSpecial => "keyboard_tab",
+            Act::Aim => "keyboard_z",
+            Act::TeamSend => "keyboard_1",
+            Act::TeamRecall => "keyboard_3",
+            Act::Move => return "<icon=keyboard_w><icon=keyboard_a><icon=keyboard_s><icon=keyboard_d>".into(),
+            Act::Look => "mouse_move",
+            Act::Nav => return String::new(),
         };
-        if dir != st.menu_dir {
-            if let Some(k) = st.menu_dir {
-                keys.release(k);
-            }
-            if let Some(k) = dir {
-                keys.press(k);
-            }
-            st.menu_dir = dir;
-        }
+        return format!("<icon={k}>");
+    }
+    let b = match a {
+        Act::Select | Act::Continue | Act::Jump => B::South,
+        Act::Back | Act::Reload => B::East,
+        Act::Use => B::West,
+        Act::SwitchWeapon => B::North,
+        Act::Fire => B::RightTrigger2,
+        Act::Aim => B::LeftTrigger2,
+        Act::Special => B::RightTrigger,
+        Act::NextSpecial => B::LeftTrigger,
+        Act::Pause => B::Start,
+        Act::TeamSend => B::DPadUp,
+        Act::TeamRecall => B::DPadDown,
+        Act::Move => return format!("<icon={}>", if dev == 2 { "playstation_stick_l" } else { "xbox_stick_l" }),
+        Act::Look => return format!("<icon={}>", if dev == 2 { "playstation_stick_r" } else { "xbox_stick_r" }),
+        Act::Nav => return String::new(),
+    };
+    pad_button(dev == 2, b)
+}
+
+/// Rumble on the pad in use (remaster improvement; the original drives DirectInput force feedback from
+/// Rumble_Update, not ported): a short light pulse per shot, a heavier one when Roman is hit (by the damage), and
+/// explosions by distance (full within 50 units, none beyond 300).
+#[allow(clippy::too_many_arguments)]
+fn rumble(
+    active: Res<ActivePad>,
+    playtest: Option<Res<crate::playtest::Playtest>>,
+    window: Query<&Window, With<PrimaryWindow>>,
+    roman: Query<(&crate::player::Roman, &crate::fx::Health, &GlobalTransform)>,
+    mut blasts: MessageReader<crate::fx::Explode>,
+    mut out: MessageWriter<bevy::input::gamepad::GamepadRumbleRequest>,
+    mut last: Local<(f32, f32)>,
+) {
+    use bevy::input::gamepad::{GamepadRumbleIntensity, GamepadRumbleRequest};
+    use std::time::Duration;
+    let Ok((r, h, t)) = roman.single() else {
+        blasts.clear();
         return;
+    };
+    let (prev_fire, prev_health) = std::mem::replace(&mut *last, (r.since_fire, h.0));
+    let focused = window.single().is_ok_and(|w| w.focused);
+    let Some(pad) = active.0.filter(|_| pad_active() && (focused || playtest.is_some())) else {
+        blasts.clear();
+        return;
+    };
+    let mut add = |strong: f32, weak: f32, secs: f32| {
+        if std::env::var("AIDBG").is_ok() {
+            info!("AIDBG rumble strong {strong:.2} weak {weak:.2} for {secs:.2} s");
+        }
+        out.write(GamepadRumbleRequest::Add {
+            gamepad: pad,
+            intensity: GamepadRumbleIntensity { strong_motor: strong.clamp(0.0, 1.0), weak_motor: weak.clamp(0.0, 1.0) },
+            duration: Duration::from_secs_f32(secs),
+        });
+    };
+    if r.since_fire < prev_fire {
+        add(0.0, 0.35, 0.07);
     }
-    if let Some(k) = st.menu_dir.take() {
-        keys.release(k);
+    if h.0 < prev_health && h.0 > 0.0 {
+        let d = prev_health - h.0;
+        add((d / 60.0).min(0.9), 0.4, 0.25);
     }
-    edge(&mut keys, B::DPadLeft, KeyCode::Tab);
-    edge(&mut keys, B::DPadRight, KeyCode::Tab);
-    // triggers as the mouse buttons (past 30 %: qol.md)
-    let trig = |b: B| p.get(b).unwrap_or(0.0) > 0.3;
-    for (b, m) in [(B::RightTrigger2, MouseButton::Left), (B::LeftTrigger2, MouseButton::Right)] {
-        let down = trig(b);
-        if down && !mouse.pressed(m) {
-            mouse.press(m);
-        } else if !down && mouse.pressed(m) && pad_active() {
-            mouse.release(m);
+    for b in blasts.read() {
+        let dist = b.at.distance(t.translation());
+        if dist < 300.0 && b.area_damage > 0.0 {
+            let k = (1.0 - (dist - 50.0).max(0.0) / 250.0).clamp(0.0, 1.0);
+            add(0.8 * k, 0.5 * k, 0.15 + 0.35 * k);
         }
     }
-    // R3 toggles zoom (ToggleZoom bound: game_06.cpp:2819); held as the Zoom key while on
-    if p.just_pressed(B::RightThumb) {
-        st.zoom = !st.zoom;
-        if st.zoom {
-            keys.press(KeyCode::KeyZ);
-        } else {
-            keys.release(KeyCode::KeyZ);
-        }
-    }
-    if std::env::var("AIDBG").is_ok() && (p.left_stick() != Vec2::ZERO || p.right_stick() != Vec2::ZERO) {
-        info!("AIDBG pad {:?} move {:?} look {:?} which {:?}", st.which, p.left_stick(), p.right_stick(), st.which);
-    }
-    st.mv = dead(p.left_stick(), 0.2);
-    st.look = dead(p.right_stick(), 0.15);
 }

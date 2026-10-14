@@ -921,6 +921,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "bevy_enhanced_input"
+version = "0.26.0"
+source = "git+https://github.com/simgine/bevy_enhanced_input?rev=cb50e459add7445bbf704a1c9cff37fba4c05dd1#cb50e459add7445bbf704a1c9cff37fba4c05dd1"
+dependencies = [
+ "bevy",
+ "bevy_enhanced_input_macros",
+ "bitflags 2.13.2",
+ "log",
+ "smallvec",
+ "variadics_please",
+]
+
+[[package]]
+name = "bevy_enhanced_input_macros"
+version = "0.26.0"
+source = "git+https://github.com/simgine/bevy_enhanced_input?rev=cb50e459add7445bbf704a1c9cff37fba4c05dd1#cb50e459add7445bbf704a1c9cff37fba4c05dd1"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.9",
+]
+
+[[package]]
 name = "bevy_extract"
 version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5008,6 +5031,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "bevy_egui",
+ "bevy_enhanced_input",
  "oxijolt",
  "serde",
  "serde_json",

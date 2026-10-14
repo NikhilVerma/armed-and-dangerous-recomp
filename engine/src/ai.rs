@@ -54,6 +54,8 @@ pub struct Grunt {
     pub target: Option<Entity>,
     /// alert-group hand-over (+0x578 / +0x57c)
     pub pending: Option<(Entity, f32)>,
+    /// score_value: to the Kills money when he dies (Game+0x2724)
+    pub score: f32,
     /// the source of the last damage taken (the hit message's +0x2c), offered as a target (0x0042c820)
     pub attacker: Option<Entity>,
     /// game time a target was last adopted by an offer (+0x514)
@@ -236,6 +238,7 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         search_timer: 0.0,
         target: None,
         pending: None,
+        score: p.f("score_value", 0.0),
         attacker: None,
         offer_t: f32::NEG_INFINITY,
         clips: (p.i("fire_num_clips_min", 1), p.i("fire_num_clips_max", 1)),
@@ -787,6 +790,7 @@ fn die(
     joints: Query<&GlobalTransform>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     mut km: ResMut<KillMeter>,
+    mut ms: ResMut<crate::stats::MissionStats>,
 ) {
     for (e, mut g, body, tr, h, animator) in &mut grunts {
         if g.mind == Mind::Dead || h.0 > 0.0 {
@@ -794,6 +798,9 @@ fn die(
         }
         g.mind = Mind::Dead;
         km.meter += 1.0;
+        // an enemy killed, any cause (0x00431720), and his score_value
+        ms.enemies_killed += 1;
+        ms.killed(g.score);
         if !g.dead_said {
             g.dead_said = true;
             bark(&mut sounds, "Dead", g.voice_set, tr.translation);
@@ -975,7 +982,7 @@ fn companions(
     mut physics: NonSendMut<Physics>,
     mut rng: ResMut<FxStats>,
     data: Res<crate::gamedata::GameData>,
-    buttons: Res<ButtonInput<MouseButton>>,
+    ctl: Res<crate::input::Controls>,
     bot: Res<crate::playtest::Bot>,
     roman: Query<(&Transform, &crate::player::Roman, &crate::skin::Animator, &Health), Without<Companion>>,
     cam: Query<&GlobalTransform, With<Camera3d>>,
@@ -995,7 +1002,7 @@ fn companions(
         let (o, d) = (c.translation(), c.forward().as_vec3());
         physics.raycast(o + d * 20.0, d, 500.0).map(|h| h.1).unwrap_or(o + d * 520.0)
     });
-    let fire_held = (buttons.pressed(MouseButton::Left) || buttons.just_pressed(MouseButton::Left) || bot.fire_ok) && !r.dead;
+    let fire_held = (ctl.down(crate::input::Act::Fire) || ctl.pressed(crate::input::Act::Fire) || bot.fire_ok) && !r.dead;
     for (e, mut c, mut t, ca, ch) in &mut q {
         if c.range < 0.0 {
             c.range = rng.range(c.fire_range.0, c.fire_range.1);
