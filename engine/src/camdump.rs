@@ -60,7 +60,10 @@ impl Plugin for CamDumpPlugin {
 }
 
 /// Holds the 3D camera at the dumped view (after the follow camera and camera paths have run), and the sky dome
-/// around it (level.rs follow_camera placed it at the camera's earlier position this frame).
+/// around it (level.rs follow_camera placed it at the camera's earlier position this frame). Horizontally only, as
+/// follow_camera does: the dome keeps its authored height. Moving it up with the camera (y too) lifted the dome's
+/// untextured disk under the horizon (model z -26..-33, emissive (212, 218, 212)) to ~107 on walkA 520, above the
+/// village ground (~10): a flat pale band hid the archway and houses' lower halves in every --camera comparison.
 #[allow(clippy::type_complexity)]
 fn hold(
     fixed: Res<FixedCamera>,
@@ -70,7 +73,8 @@ fn hold(
     // this runs after transform propagation, while the follow camera rewrites Transform every frame before it: the
     // GlobalTransforms that culling and the renderer read are set here too
     for (mut s, mut g) in &mut sky {
-        s.translation = fixed.transform.translation;
+        s.translation.x = fixed.transform.translation.x;
+        s.translation.z = fixed.transform.translation.z;
         *g = GlobalTransform::from(*s);
     }
     for (mut t, mut g, mut p) in &mut cam {
