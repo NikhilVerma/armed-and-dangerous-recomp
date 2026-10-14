@@ -745,6 +745,7 @@ fn sites(
                     delay: 0.0,
                     // planted by the player (guess: the ticker's damage record is not traced)
                     by: crate::fx::Src::Player,
+                    cartoon: false,
                 });
                 fx.write(StartFx { name: "fx_ticker_bomb".into(), at: s.pos, rotation: Quat::IDENTITY, follow: None, position_only: false });
                 if s.explode != 0 {

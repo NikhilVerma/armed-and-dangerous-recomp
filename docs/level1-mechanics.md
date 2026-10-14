@@ -18,7 +18,7 @@ Update this table as items land (commit hash in the last column).
 | Walk back speed | (no factor) | V | 3 | original backO: 39 units/s backward, as forward; the engine's 0.7 removed |
 | Jump, air control | 0x0047aaf0 | V / S | 3 | jump_into stage not modelled; air control fitted |
 | Slopes | 0x00477c90, 0x00478200 | V | | friction blend not ported |
-| Landing anims, landing damage, death by falling | 0x00478100, 0x00478200 (player.md) | P | 2 | fall_loop, land_hard / jump_land (move cancels), damage 150..300 from 150 u/s, death past 110 units or 1 s falling, no drive while falling, land fx by material (fall.json) |
+| Landing anims, landing damage, death by falling | 0x00478100, 0x00478200 (player.md) | V / P | 2 | landing damage verified (fallO: a 100-unit drop at (-216, 1053) costs 168.7 in the original, 172 in the engine); death past 110 units / 1 s, anims, no air drive, land fx (fall.json) |
 | Mouse look rates | 0x00475990.. | V | | pitch clamp narrower than the original (±1.56 / 1.15) |
 | Look from trackpad / Moonlight | — | B | 1 | cursor + raw + absolute raw (98e7700); unconfirmed |
 | Controller support | 0x004f8600 joystick | B | 1 | input.rs on bevy_enhanced_input: modern twin-stick layout, contexts, rumble, focus-gated pads (remaster-input.md) |
@@ -43,7 +43,7 @@ Update this table as items land (commit hash in the last column).
 | Sticky: release at throw-anim frame 9 (~0.3 s), ammo at release | game_05.cpp:1579, game_09.cpp:1813 | P | 1 | release at the anim's fire note (0.267 s), ammo at release |
 | Sticky: flight, homing, stick, blast | 0x004813b0.. | V | | |
 | Ticker bombs (pub award, hold Use, fuse) | 0x0044e3a0 / 0x0044e4a0 | P | | count 4 has no source |
-| Topsy Turvy | game_05.cpp:1790 | P | 2 | the view follows the anims' Camera_topsy track in Roman's frame (back = world_turn reversed: guess); hits during topsy not ignored yet (topsy.json) |
+| Topsy Turvy | game_05.cpp:1790 | P | 2 | the view follows the anims' Camera_topsy track in Roman's frame (back = world_turn reversed: guess); hits are ignored during the topsy states as in the hit handler 0x0047afa0 (+0xa34 & 0x7800000): bullets, blasts, landing and fall damage (topsyhit.json: a 120 blast during the turn does nothing, after it 120) |
 | Hit reaction, knockback | 0x0047afa0 | V | | |
 | Death presentation (ragdoll, fx_trotter_death, death lines) | vt+0xd4, player.md 6 | P | 2 | ragdoll from his pose (ragdoll.rs; Roman's head end from the neck), fx_trotter_death, death line, failed page after 5 s (dead.json) |
 | Mounted gun stig_mgun 32 | game_08.cpp turret | M | 2 | |
@@ -66,7 +66,7 @@ Update this table as items land (commit hash in the last column).
 | Alarm chain (grunt 67 → marker 151 → siren → generators, captains) | 0x00404e50, 0x0044ba30 (mission.md) | P | 2 | alarm.rs: runner, siren fx + Help, controller 2..4 s up to 10, siren destroyed stops it (alarm.json / alarm2.json) |
 | Barracks release (ref_exit, markers, release_count) | 0x0040ad80, 0x0040cb10, 0x0040c910 (mission.md) | P | 2 | per-type counts, batches of release_amount while fewer than release_count live, ref_spawn / ref_exit, troops to their markers; activate once, deactivate, reset (agent-barracks) |
 | Hit reactions (explosion variants) | 0x00430340 | P | 3 | |
-| Death variants (blown up, ledge, in back, window) | 0x004319e0, 0x00427100 | P / M | 2 | random grunt_die_1..6 (0x50 + rand*6), blown up / ragdoll by hit_ragdoll; not yet: the 0x56 / 0x57 flag variants, ledge_death, the launch velocity of record flag 2 |
+| Death variants (blown up, ledge, in back, window) | 0x004319e0, 0x00427100 | P / M | 2 | Character_Die's order: window / tower grunt + record 0x80 (sticky) -> grunt_window_blown_out; hit >= hit_ragdoll -> ragdoll; ledge_death -> grunt_hit_fall_1 / _2; window / tower -> grunt_hit_window; else grunt_die_1..6 (deaths.json: grunt 66 hit_fall_1, window grunts hit_window). Not ported: 0x56 / 0x57 (barricade, in back: no lev_1_m1 grunt sets them), record flag 2's launch; blown_out not yet seen in a test |
 | Barks: Taunt, General_Scream, Help, shared delays | grunt-ai.md "Barks" | P | 2 | voice sets fixed (GR1 / GR3 / GR2), death / vo / taunt delays, Spotted, Fight, Taunt, Hurt two-stage, Dead vs DeadAtPosition, Sticky only on the bomb's grunt; Help (alarm) waits for the alarm chain |
 | Fidget shiver on level 1 | Game+0x2708 == 1 | P | 3 | fidget 0x12 is grunt_idle_shiver on world 1 |
 | Companions: formation, targeting, fire, TNT | 0x00485910.. | V | | |
@@ -85,7 +85,7 @@ Update this table as items land (commit hash in the last column).
 | Triggers 808 / 810 / 98 / 99 / 713 / 711 (volumes, voice) | TriggerObject, SoundEar | V | | |
 | send_trigger_on_death (pipe 96 → 711, boom_island → 301 penguin debris) | 0x00450ee0 | P | 1 | fx::Died → SendTrigger |
 | Gates blown (556 / 901) | 0x0044e150 | V | | |
-| Win sequence (score, sounds stop, stats, next level lev_1_m1_b) | 0x0044a390 / 0x0044a230 / 0x00494440 (win-sequence.md) | P | 1 | statscreen.rs: counters (stats.rs), the Stats screen with its phases and poster, money kept; lev_1_m1_b not built: back to the title. Sounds not stopped yet |
+| Win sequence (score, sounds stop, stats, next level lev_1_m1_b) | 0x0044a390 / 0x0044a230 / 0x00494440 (win-sequence.md) | P | 1 | statscreen.rs: counters (stats.rs), the Stats screen with its phases and poster, money kept; lev_1_m1_b not built: back to the title. Every sound but the music stops at the win |
 | Objective jingle | 0x0044f560, 0x0046afa0 | P | 3 | the l1vic track requested by objective ui_ears (triggers 900, 901) and the win |
 | Opening movie + 71 subtitles | pre_1_1_opening | M | 3 | |
 | Pub re-entry, barkeep lines, amb_pub_busy | 0x00468dd0, 0x00467fe0 | P | 3 | amb_pub_busy loop while inside, the intro line once then one of 15 general lines; extras / once-weapon lines not set up |

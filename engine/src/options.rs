@@ -19,8 +19,10 @@ pub struct GameOptions {
     pub brightness: f32,
     pub draw_distance: f32,
     pub shadows: bool,
-    /// window size; (0, 0) = the size the game was started with
+    /// window size; (0, 0) = the size the game was started with (windowed only)
     pub resolution: (u32, u32),
+    /// borderless fullscreen on the current monitor at its own resolution (remaster; on by default, F11 / Alt+Enter)
+    pub fullscreen: bool,
     pub mouse_sensitivity: f32,
     pub invert_mouse: bool,
     /// Extras tokens found (Game+0x200, saved like the original's options), and the placed tokens already taken
@@ -45,6 +47,7 @@ impl Default for GameOptions {
             draw_distance: 1.0,
             shadows: true,
             resolution: (0, 0),
+            fullscreen: true,
             mouse_sensitivity: 0.5,
             invert_mouse: false,
             tokens: 0,
@@ -101,7 +104,7 @@ pub struct OptionsPlugin;
 
 impl Plugin for OptionsPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(GameOptions::load()).add_systems(Update, apply);
+        app.insert_resource(GameOptions::load()).add_systems(Update, (toggle_fullscreen, apply).chain());
     }
 }
 
@@ -116,6 +119,7 @@ fn apply(
     mut windows: Query<&mut Window>,
     mut seen_cams: Local<usize>,
     game_lights: Option<Res<crate::gamematerial::GameLights>>,
+    (scripted, mut state): (Option<Res<crate::playtest::Playtest>>, Option<ResMut<crate::playtest::PlayState>>),
 ) {
     // a camera spawned after the last change (level start) gets the options too
     let n = cams.iter().count();
@@ -148,11 +152,28 @@ fn apply(
             commands.entity(e).insert(Projection::Perspective(pp));
         }
     }
-    if o.resolution != (0, 0) {
-        for mut w in &mut windows {
-            if (w.resolution.width() as u32, w.resolution.height() as u32) != o.resolution {
-                w.resolution.set(o.resolution.0 as f32, o.resolution.1 as f32);
-            }
+    // scripted (headless) runs stay windowed off-screen; the option is still logged so a script can check it
+    let full = o.fullscreen && scripted.is_none();
+    for mut w in &mut windows {
+        let mode = if full { bevy::window::WindowMode::BorderlessFullscreen(bevy::window::MonitorSelection::Current) } else { bevy::window::WindowMode::Windowed };
+        if w.mode != mode {
+            w.mode = mode;
         }
+        if !full && o.resolution != (0, 0) && (w.resolution.width() as u32, w.resolution.height() as u32) != o.resolution {
+            w.resolution.set(o.resolution.0 as f32, o.resolution.1 as f32);
+        }
+        if let Some(s) = state.as_mut() {
+            let size = if !full && o.resolution != (0, 0) { o.resolution } else { (w.resolution.width() as u32, w.resolution.height() as u32) };
+            s.0.insert("window".into(), serde_json::json!({ "fullscreen": o.fullscreen, "width": size.0, "height": size.1, "brightness": o.brightness, "shadows": o.shadows, "draw_distance": o.draw_distance }));
+        }
+    }
+}
+
+/// F11 or Alt+Enter: fullscreen on / off, saved at once.
+fn toggle_fullscreen(keys: Res<ButtonInput<KeyCode>>, mut o: ResMut<GameOptions>) {
+    let alt = keys.any_pressed([KeyCode::AltLeft, KeyCode::AltRight]);
+    if keys.just_pressed(KeyCode::F11) || (alt && keys.just_pressed(KeyCode::Enter)) {
+        o.fullscreen = !o.fullscreen;
+        o.save();
     }
 }

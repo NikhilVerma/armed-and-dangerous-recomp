@@ -39,6 +39,15 @@ re-reading is the fix.
   test, set a function's stage.
 - Never load a whole disassembly listing or a whole generated file into context. Query for the one function
   you are working on.
+- Remaster engine (human, 2026-10-14: "be smart and strategic" about tokens and wasted effort):
+  - Find code with `python tools/engine_map.py writes|reads|sends|receives|addr|fn|params ...` before grepping.
+  - Test with `python tools/playtest.py SCRIPT.json`: headless, prints only EVENT / EXPECT / PLAYTEST lines.
+    Start scripts from a saved state (`"load": "states/NAME.json"`, written by a `{"save": "NAME"}` step) and
+    check with `{"expect": {...}}` steps, so a check takes seconds, not a replay of the intro and the pub.
+  - `cargo check` until clean before `cargo build --release`; bundle system parameters past 16 in tuples.
+  - Edit CRLF files with tools/crlf_edit.py. Brief background agents with docs/agent-brief.md (branch, own target
+    dir, tools, a measurable "done", checkpoint commits).
+  - Before handing the human a build: launch, fullscreen / window, the options apply, gamepad, start a level.
 
 ## One tracker
 
