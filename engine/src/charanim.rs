@@ -60,8 +60,11 @@ fn roman(mut q: Query<(&Roman, &mut Animator)>, topsy: Res<crate::topsy::Topsy>)
             gait.clone()
         };
         if r.dead {
-            a.play(0, "trotter_fall_loop", true, Mask::All);
-            a.stop(1);
+            // the ragdoll drives the bones (ragdoll.rs); without one, the fall pose
+            if !r.ragdolled {
+                a.play(0, "trotter_fall_loop", true, Mask::All);
+                a.stop(1);
+            }
             continue;
         }
         // `_b` / `_t` are the bottom and top of an aim-pitch blend (as the grunts' fire_bl / tl): the rifle points

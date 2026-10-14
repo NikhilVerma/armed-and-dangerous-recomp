@@ -50,9 +50,16 @@ pub fn start(physics: &mut Physics, a: &Animator, joints: &Query<&GlobalTransfor
     let mut shapes = Vec::new();
     let mut poses = Vec::new();
     for (bone, _, to, r, _, _) in PARTS {
-        let (bi, ti) = (idx(bone)?, idx(to)?);
+        let bi = idx(bone)?;
         let w = joints.get(a.joints[bi]).ok()?.compute_transform();
-        let wt = joints.get(a.joints[ti]).ok()?.translation();
+        // the end bone; a skeleton without one (Roman's has no "mouth") extends the bone from its parent's joint
+        let wt = match idx(to) {
+            Some(ti) => joints.get(a.joints[ti]).ok()?.translation(),
+            None => {
+                let up = idx("neck").and_then(|n| joints.get(a.joints[n]).ok()).map(|n| w.translation - n.translation()).unwrap_or(Vec3::Y * 2.0);
+                w.translation + up * 0.8
+            }
+        };
         // the capsule from the bone to the next one, in the bone's frame
         let local = w.rotation.inverse() * (wt - w.translation);
         let len = local.length().max(0.2);

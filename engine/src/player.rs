@@ -74,6 +74,9 @@ pub struct Roman {
     pub special: u8,
     pub stickies: u32,
     pub dead: bool,
+    /// the death presentation started (fx_trotter_death, the ragdoll), and whether the ragdoll took
+    pub death_shown: bool,
+    pub ragdolled: bool,
     pub base: Quat,
     /// seconds since the last shot, and of reload left (for the anims)
     pub since_fire: f32,
@@ -318,7 +321,7 @@ impl Plugin for PlayerPlugin {
         app.init_resource::<PlayerStats>()
             .init_resource::<LookDelta>()
             .add_systems(Update, grab_cursor.before(control))
-            .add_systems(Update, (control, weapons, projectiles, damage_feedback).chain().run_if(crate::playing))
+            .add_systems(Update, (control, weapons, projectiles, damage_feedback, death).chain().run_if(crate::playing))
             .add_systems(PostUpdate, follow_camera.before(TransformSystems::Propagate).run_if(crate::playing));
     }
 }
@@ -383,6 +386,8 @@ pub fn make_roman(physics: &mut Physics, p: &Props, data: &GameData, feet: Vec3,
         special: 0,
         stickies: 5,
         dead: false,
+        death_shown: false,
+        ragdolled: false,
         base: game_to_engine(),
         since_fire: 10.0,
         hit_anim: 0.0,
@@ -1078,6 +1083,32 @@ fn weapons(
             r.since_throw = 0.0;
             sticky.pending = Some(0.267);
         }
+    }
+}
+
+/// Roman's death (player.md 6, game_06.cpp:2154-2168): fx_trotter_death and a ragdoll from his pose, pushed by his
+/// velocity (the 5 s to the mission failed screen: mission.rs).
+fn death(
+    mut commands: Commands,
+    mut physics: NonSendMut<Physics>,
+    mut q: Query<(Entity, &mut Roman, &Transform, Option<&mut crate::skin::Animator>)>,
+    joints: Query<&GlobalTransform>,
+    mut fx: MessageWriter<crate::fx::StartFx>,
+) {
+    for (e, mut r, t, a) in &mut q {
+        if !r.dead || r.death_shown {
+            continue;
+        }
+        r.death_shown = true;
+        fx.write(crate::fx::StartFx { name: "fx_trotter_death".into(), at: t.translation, rotation: crate::level::game_to_engine(), follow: Some(e), position_only: true });
+        if let Some(mut a) = a {
+            if let Some(rd) = crate::ragdoll::start(&mut physics, &a, &joints, r.vel) {
+                a.layers.clear();
+                commands.entity(e).insert(rd);
+                r.ragdolled = true;
+            }
+        }
+        info!("EVENT player: died (ragdoll {})", r.ragdolled);
     }
 }
 

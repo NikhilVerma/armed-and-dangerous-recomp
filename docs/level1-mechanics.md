@@ -45,7 +45,7 @@ Update this table as items land (commit hash in the last column).
 | Ticker bombs (pub award, hold Use, fuse) | 0x0044e3a0 / 0x0044e4a0 | P | | count 4 has no source |
 | Topsy Turvy | game_05.cpp:1790 | S | 2 | view roll stand-in; hits during topsy not ignored |
 | Hit reaction, knockback | 0x0047afa0 | V | | |
-| Death presentation (ragdoll, fx_trotter_death, death lines) | vt+0xd4 | S | 2 | |
+| Death presentation (ragdoll, fx_trotter_death, death lines) | vt+0xd4, player.md 6 | P | 2 | ragdoll from his pose (ragdoll.rs; Roman's head end from the neck), fx_trotter_death, death line, failed page after 5 s (dead.json) |
 | Mounted gun stig_mgun 32 | game_08.cpp turret | M | 2 | |
 | Teammate orders (keys 1 / 3) | 0x004852b0 | M | 2 | |
 | Idle fidgets, turn-in-place, land anims | 0x00476a10 | M | 3 | |
