@@ -226,3 +226,25 @@ z > 0.7, or when ((vz - prev vz) / dt)^2 < 200 (0x005bcda8) and vz > -5 (0x005bc
 > -0.1 (0x005bcd14). PlayerObject_Update (0x004799d5) releases the drive force action when the timer has run out
 while touching something, so on a steep face he slides under gravity with no drive. The drive 0x00471810 weakens an
 uphill push by about cos^5 of its angle. The remaster: Jolt walker max slope acos(0.7) (engine/src/player.rs).
+
+## Landing and falling (traced 2026-10-14, static: 0x00478100 / 0x00478200 not executed in recorded runs)
+
+Flags +0xa34: 0x1000 grounded this frame, 0x200 falling, 0x400 fall_into, 0x100 landing, 0x80 / 0x40 jump, 0x20 jump
+just fired, 2 turbo, 4 jetpack flight.
+- Falling (physics_03.cpp:1602-1622, vz <= 0): vz below fall_speed (-50; jumped -70; turbo / pack -200; never in
+  jetpack flight) sets 0x600 and adds dt to +0xa60 (time falling fast); also a foot ray hit below -4 (anim_01.cpp:3029).
+  +0x56c keeps the most negative vz; the ground reference z (+0x520) is the position up to 0.5 s after the last contact.
+- Death by falling (1633-1655), 0x00478100 with flag 1 (damage = current health, record flag 0x400000 past
+  invulnerability): z < -1000, or dropped more than death_falling_distance (110; turbo 600) below the ground reference,
+  or +0xa60 > death_falling_time (1.0 s; turbo 6), or a hit by fxo_rocket_turret (bit 31). No scream / camera code.
+- Landing (1557-1575): grounded with 0x200 (or 0x80 without 0x40), not 0x20, not already 0x100: Fx_fs_roman_land,
+  cue 0x00493b70, landing damage from +0x56c (t = (-vz - landing_damage_min_speed) / landing_damage_max_speed, none
+  when t <= 0, clamped to 1, damage = lerp(min_hurt, max_hurt, t): Roman 150..300 from 150 units/s), +0x550 =
+  horizontal speed, 0x100 set, landing bob timer 0.25 s.
+- Landing anims (game_05.cpp:1855-1878), holding 0x100 until they end: land_hard (mode 8) when +0xa60 >
+  fall_land_hard_time (0.6), else jump_land (0x13); in the air fall_into then fall_loop. Moving (> 0.01 a frame with a
+  move speed) cancels the landing anim (1721-1726).
+- Drive power while landing (game_06.cpp:2506-2547): from landing_power (3 / 2; jump 3 / 2; turbo 2 / 4) back to
+  movement_power (7 / 10) over the anim; 0 in the fall state without 0x100 (no air control while falling).
+- Landing bob (anim_01.cpp:3035-3049): sin(pi (t / 0.25) + pi), up to 1 unit, only running faster than land_speed (30).
+- Grounded grace +0x570 = 0.5 s (1531-1543): coyote time for jumps (game_06.cpp:366, 449), the ground reference.

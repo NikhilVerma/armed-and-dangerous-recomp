@@ -181,6 +181,9 @@ pub struct FxObject {
     materials: Vec<Handle<StandardMaterial>>,
     alpha: f32,
     body: Option<BodyId>,
+    /// opcode 0x79 "set inert" (Fx_SetInert 0x0041e230: +0x424 |= 0x20000): no collision shape, never in the
+    /// physics world (physics_02.cpp:383, physics_03.cpp:1091)
+    inert: bool,
     /// 0x40 uv scroll: (direction, speed, duration, ramp in, ramp out, offset) of layer 1 (the meshes' one stage)
     uv_scroll: Option<(Vec2, f32, f32, f32, f32, Vec2)>,
     /// follow only the parent's position (camera_fx position_only)
@@ -512,6 +515,7 @@ fn create_object(ctx: &mut Ctx<'_, '_, '_, '_, '_>, inst: &Instance, template: &
         materials: mats,
         alpha: 1.0,
         body: None,
+        inert: false,
         uv_scroll: None,
         follow_pos_only: inst.follow_pos_only,
         layer_mats: layers,
@@ -693,6 +697,11 @@ fn run_script(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_, '_, '_>, idx: usize, dt: 
                     o.emitters.last_mut().unwrap().uv = uv;
                 }
             }
+            "0x79" => {
+                if let Some(o) = obj!() {
+                    o.inert = true;
+                }
+            }
             "0x2e" => {
                 if let Some(o) = obj!() {
                     o.kite = true;
@@ -833,6 +842,9 @@ pub const IMPULSE_SCALE: f32 = 1.0 / 66.0;
 fn make_dynamic(physics: &mut Physics, commands: &mut Commands, o: &mut FxObject, e: Entity, gravity: f32) -> Option<BodyId> {
     if let Some(b) = o.body {
         return Some(b);
+    }
+    if o.inert {
+        return None;
     }
     let k = physics.meters_per_unit;
     let world = Mat4::from_quat(game_to_engine()) * o.place;
