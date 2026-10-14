@@ -128,6 +128,9 @@ pub struct SpawnDecal {
 #[derive(Resource, Default)]
 struct Decals {
     live: std::collections::VecDeque<Entity>,
+    /// made so far, and how many of them lie on placed objects (playtest state "decals")
+    made: u32,
+    on_objects: u32,
 }
 
 /// A live decal: the objects it lies on (up to 4), and its fade (left, total) once one of them died.
@@ -194,6 +197,7 @@ fn spawn(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut textures: Local<HashMap<String, Handle<StandardMaterial>>>,
+    mut state: Option<ResMut<crate::playtest::PlayState>>,
 ) {
     let Some(world) = world else {
         events.clear();
@@ -228,8 +232,7 @@ fn spawn(
         let half = axes.iter().fold(Vec3::ZERO, |h, a| h + a.abs()) * s;
         let (blo, bhi) = (p - half, p + half);
         let mut receivers: Vec<Entity> = Vec::new();
-        info!("TEMPDECAL landscape {} verts, full {full}", verts.len());
-        if !full && std::env::var("TEMP_NO_OBJ").is_err() {
+        if !full {
             let mut cand: Vec<u32> = cell_range(blo, bhi)
                 .flat_map(|c| world.ocells.get(&c).map(|v| v.as_slice()).unwrap_or(&[]).iter().copied())
                 .filter(|&ti| {
@@ -258,7 +261,6 @@ fn spawn(
                 }
             }
         }
-        info!("TEMPDECAL {} at {p:?}: {} verts, receivers {receivers:?}", ev.texture, verts.len());
         if idx.is_empty() {
             continue;
         }
@@ -281,6 +283,7 @@ fn spawn(
             })
             .collect();
         let normals = vec![[0.0f32, 0.0, 1.0]; verts.len()];
+        let (receivers_copy, nverts) = (receivers.clone(), verts.len());
         let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
         mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, verts.iter().map(|v| v.to_array()).collect::<Vec<_>>());
         mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
@@ -318,6 +321,14 @@ fn spawn(
                 Decal { receivers, fade: None },
             ))
             .id();
+        decals.made += 1;
+        decals.on_objects += u32::from(!receivers_copy.is_empty());
+        if let Some(st) = state.as_mut() {
+            st.0.insert(
+                "decals".into(),
+                serde_json::json!({ "made": decals.made, "on_objects": decals.on_objects, "last_receivers": receivers_copy.len(), "last_vertices": nverts }),
+            );
+        }
         decals.live.push_back(e);
         if decals.live.len() > POOL {
             if let Some(old) = decals.live.pop_front() {
