@@ -51,6 +51,9 @@ pub struct Event {
     /// debug: damage a companion: [0 Jonesy / 1 Q, amount]
     #[serde(default)]
     pub hurt_companion: Option<[f32; 2]>,
+    /// debug: a badguy blast of this area damage at Roman's feet (through the blast damage path, fx.rs)
+    #[serde(default)]
+    pub blast: Option<f32>,
     /// debug: send this mission trigger (e.g. 123, lev_1_m1's win)
     #[serde(default)]
     pub send: Option<i64>,
@@ -178,6 +181,8 @@ pub struct Playtest {
     pad: Vec<String>,
     /// companion damage for hurt_companions
     hurt_c: Vec<[f32; 2]>,
+    /// blast steps for hurt_companions
+    blasts: Vec<f32>,
     /// the virtual gamepad, once connected: scripted runs read only it (input.rs), never a pad on the desk
     pad_e: Option<Entity>,
 }
@@ -199,7 +204,7 @@ impl Playtest {
         let mut events = s.events;
         events.sort_by(|a, b| a.t.total_cmp(&b.t));
         let log = std::fs::File::create(path.with_extension("log.jsonl")).ok();
-        Playtest { hurt_c: vec![], pad_e: None, pad: vec![], warp: None, path, title: s.title, events, turns: s.turns, next: 0, t: 0.0, taps: vec![], clicks: vec![], log, last_log: -1.0, steps: s.steps, step_shot: None, step: 0, step_t: 0.0, step_started: false }
+        Playtest { hurt_c: vec![], blasts: vec![], pad_e: None, pad: vec![], warp: None, path, title: s.title, events, turns: s.turns, next: 0, t: 0.0, taps: vec![], clicks: vec![], log, last_log: -1.0, steps: s.steps, step_shot: None, step: 0, step_t: 0.0, step_started: false }
     }
 }
 
@@ -431,6 +436,9 @@ fn drive(
         if let Some(h) = e.hurt_companion {
             pt.hurt_c.push(h);
         }
+        if let Some(d) = e.blast {
+            pt.blasts.push(d);
+        }
         if let Some(b) = e.click.as_deref().map(button) {
             buttons.press(b);
             pt.clicks.push(b);
@@ -561,8 +569,19 @@ fn pad_drive(
     }
 }
 
-/// The hurt_companion step: damage straight to Jonesy (0) or Q (1).
-fn hurt_companions(mut pt: ResMut<Playtest>, mut q: Query<(&crate::ai::Companion, &mut crate::fx::Health)>) {
+/// The hurt_companion step: damage straight to Jonesy (0) or Q (1). The blast step: an explosion at Roman.
+fn hurt_companions(
+    mut pt: ResMut<Playtest>,
+    mut q: Query<(&crate::ai::Companion, &mut crate::fx::Health)>,
+    roman: Query<(&GlobalTransform, &crate::fx::Health), (With<crate::player::Roman>, Without<crate::ai::Companion>)>,
+    mut boom: MessageWriter<crate::fx::Explode>,
+) {
+    for d in std::mem::take(&mut pt.blasts) {
+        if let Ok((t, h)) = roman.single() {
+            info!("EVENT playtest: blast {d} at Roman (health {:.0})", h.0);
+            boom.write(crate::fx::Explode { at: t.translation(), area_damage: d, radius_inner: 10.0, radius_outer: 20.0, impact_force: 0.0, source: None, delay: 0.0, by: crate::fx::Src::Badguy });
+        }
+    }
     for [who, amount] in std::mem::take(&mut pt.hurt_c) {
         for (c, mut h) in &mut q {
             if c.q == (who >= 0.5) {

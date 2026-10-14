@@ -191,7 +191,11 @@ fn damage(
     mut physics: NonSendMut<Physics>,
     mut objects: Query<(Entity, &GlobalTransform, &mut Destructible, Option<&Bounds>)>,
     mut chars: Query<(Entity, &GlobalTransform, &mut Health, Option<&Bounds>)>,
+    roman: Query<(), With<crate::player::Roman>>,
+    topsy: Option<Res<crate::topsy::Topsy>>,
 ) {
+    // the player's hit handler ignores everything during the topsy states (0x0047afa0, +0xa34 & 0x7800000)
+    let no_hits = topsy.is_some_and(|t| t.active());
     // surface distance: |C - centre| - R, and the direction n
     let surface = |t: &GlobalTransform, b: Option<&Bounds>, at: Vec3| {
         let (c, r) = b.map(|b| (t.transform_point(b.center), b.radius)).unwrap_or((t.translation(), 0.0));
@@ -223,7 +227,7 @@ fn damage(
         }
         for (ce, t, mut h, bounds) in &mut chars {
             // the excluded object (a sticky bomb's stuck character takes its direct damage instead)
-            if Some(ce) == b.source {
+            if Some(ce) == b.source || (no_hits && roman.contains(ce)) {
                 continue;
             }
             let (dist, _) = surface(t, bounds, b.at);

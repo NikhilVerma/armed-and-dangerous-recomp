@@ -43,7 +43,7 @@ Update this table as items land (commit hash in the last column).
 | Sticky: release at throw-anim frame 9 (~0.3 s), ammo at release | game_05.cpp:1579, game_09.cpp:1813 | P | 1 | release at the anim's fire note (0.267 s), ammo at release |
 | Sticky: flight, homing, stick, blast | 0x004813b0.. | V | | |
 | Ticker bombs (pub award, hold Use, fuse) | 0x0044e3a0 / 0x0044e4a0 | P | | count 4 has no source |
-| Topsy Turvy | game_05.cpp:1790 | P | 2 | the view follows the anims' Camera_topsy track in Roman's frame (back = world_turn reversed: guess); hits during topsy not ignored yet (topsy.json) |
+| Topsy Turvy | game_05.cpp:1790 | P | 2 | the view follows the anims' Camera_topsy track in Roman's frame (back = world_turn reversed: guess); hits are ignored during the topsy states as in the hit handler 0x0047afa0 (+0xa34 & 0x7800000): bullets, blasts, landing and fall damage (topsyhit.json: a 120 blast during the turn does nothing, after it 120) |
 | Hit reaction, knockback | 0x0047afa0 | V | | |
 | Death presentation (ragdoll, fx_trotter_death, death lines) | vt+0xd4, player.md 6 | P | 2 | ragdoll from his pose (ragdoll.rs; Roman's head end from the neck), fx_trotter_death, death line, failed page after 5 s (dead.json) |
 | Mounted gun stig_mgun 32 | game_08.cpp turret | M | 2 | |
@@ -85,7 +85,7 @@ Update this table as items land (commit hash in the last column).
 | Triggers 808 / 810 / 98 / 99 / 713 / 711 (volumes, voice) | TriggerObject, SoundEar | V | | |
 | send_trigger_on_death (pipe 96 → 711, boom_island → 301 penguin debris) | 0x00450ee0 | P | 1 | fx::Died → SendTrigger |
 | Gates blown (556 / 901) | 0x0044e150 | V | | |
-| Win sequence (score, sounds stop, stats, next level lev_1_m1_b) | 0x0044a390 / 0x0044a230 / 0x00494440 (win-sequence.md) | P | 1 | statscreen.rs: counters (stats.rs), the Stats screen with its phases and poster, money kept; lev_1_m1_b not built: back to the title. Sounds not stopped yet |
+| Win sequence (score, sounds stop, stats, next level lev_1_m1_b) | 0x0044a390 / 0x0044a230 / 0x00494440 (win-sequence.md) | P | 1 | statscreen.rs: counters (stats.rs), the Stats screen with its phases and poster, money kept; lev_1_m1_b not built: back to the title. Every sound but the music stops at the win |
 | Objective jingle | 0x0044f560, 0x0046afa0 | P | 3 | the l1vic track requested by objective ui_ears (triggers 900, 901) and the win |
 | Opening movie + 71 subtitles | pre_1_1_opening | M | 3 | |
 | Pub re-entry, barkeep lines, amb_pub_busy | 0x00468dd0, 0x00467fe0 | P | 3 | amb_pub_busy loop while inside, the intro line once then one of 15 general lines; extras / once-weapon lines not set up |

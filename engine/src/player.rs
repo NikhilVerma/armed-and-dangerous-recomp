@@ -852,7 +852,7 @@ fn control(
             }
             t.translation = feet;
         }
-        fall_and_land(&mut r, &t, &mut h, vy, was_jump, dt, &physics, &mut fx, t.translation.distance(before));
+        fall_and_land(&mut r, &t, &mut h, vy, was_jump, dt, &physics, &mut fx, t.translation.distance(before), topsy.active());
         // safety net (remaster): pushing for 1.5 s without moving at all and without ground under him (wedged in a
         // wall's collider: seen in a bot run next to v_wall_tall_a) puts him back where he last moved freely. Standing
         // against a wall or the foot of a steep slope is the original's behaviour and is left alone
@@ -1125,7 +1125,10 @@ fn death(
 
 /// Falling and landing (0x00478200 / 0x00478100; player.md "Landing and falling").
 #[allow(clippy::too_many_arguments)]
-fn fall_and_land(r: &mut Roman, t: &Transform, h: &mut Health, vy: f32, jumped: bool, dt: f32, physics: &Physics, fx: &mut MessageWriter<crate::fx::StartFx>, moved: f32) {
+/// `no_hits`: the hit handler ignores every message during the topsy states (0x0047afa0, +0xa34 & 0x7800000), the
+/// fall's and the landing's damage included (both go through it, 0x00478100)
+#[allow(clippy::too_many_arguments)]
+fn fall_and_land(r: &mut Roman, t: &Transform, h: &mut Health, vy: f32, jumped: bool, dt: f32, physics: &Physics, fx: &mut MessageWriter<crate::fx::StartFx>, moved: f32, no_hits: bool) {
     let y = t.translation.y;
     r.grace = if r.on_ground { 0.5 } else { (r.grace - dt).max(0.0) };
     if r.grace > 0.0 {
@@ -1145,7 +1148,7 @@ fn fall_and_land(r: &mut Roman, t: &Transform, h: &mut Health, vy: f32, jumped: 
     // death by falling: below z -1000, more than death_falling_distance (110) under the ground reference, or falling
     // fast for longer than death_falling_time (1 s): the whole health as damage (0x00478100 flag 1)
     let game_z = (crate::level::game_to_engine().inverse() * t.translation).z;
-    if !r.dead && h.0 > 0.0 && (game_z < -1000.0 || y < r.ground_ref - 110.0 || r.fall_fast_t > 1.0) {
+    if !r.dead && !no_hits && h.0 > 0.0 && (game_z < -1000.0 || y < r.ground_ref - 110.0 || r.fall_fast_t > 1.0) {
         info!("EVENT player: fell to his death (dropped {:.0}, {:.2} s falling)", r.ground_ref - y, r.fall_fast_t);
         h.0 = 0.0;
     }
@@ -1153,7 +1156,7 @@ fn fall_and_land(r: &mut Roman, t: &Transform, h: &mut Health, vy: f32, jumped: 
     // the landing anim (land_hard after more than fall_land_hard_time 0.6 s falling, else jump_land)
     if r.on_ground && vy <= 0.0 && (r.falling || jumped) && r.landing.is_none() && !r.dead {
         let k = (-r.peak_vz - 150.0) / 200.0;
-        if k > 0.0 {
+        if k > 0.0 && !no_hits {
             let k = k.min(1.0);
             let d = (1.0 - k) * 150.0 + k * 300.0;
             info!("EVENT player: landing damage {d:.0} (vz {:.0})", r.peak_vz);
@@ -1189,7 +1192,7 @@ fn projectiles(
     mut stats: ResMut<PlayerStats>,
     mut fx: MessageWriter<crate::fx::StartFx>,
     hulls: Option<Res<crate::hitparts::HitHulls>>,
-    rtime: Res<Time<Real>>,
+    (rtime, topsy): (Res<Time<Real>>, Res<crate::topsy::Topsy>),
     binds: Res<Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>,
     mut victims: Query<&mut crate::ai::Grunt>,
 ) {
@@ -1299,7 +1302,8 @@ fn projectiles(
             if let Some(n) = impact(None).map(|n| n.replace("_snow", "_grunt")) {
                 fx.write(crate::fx::StartFx { name: n, at: from + step, rotation: Quat::IDENTITY, follow: None, position_only: false });
             }
-            if let Ok(mut h) = roman_health.single_mut() {
+            // ignored during the topsy states (0x0047afa0: +0xa34 & 0x7800000); the bullet still lands
+            if let Some(mut h) = roman_health.single_mut().ok().filter(|_| !topsy.active()) {
                 h.0 -= p.damage;
                 if let Ok((_, mut r, _, _)) = roman.single_mut() {
                     r.hit_from = Some(p.vel.normalize_or(Vec3::Z));
