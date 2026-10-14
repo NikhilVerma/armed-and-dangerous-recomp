@@ -238,6 +238,10 @@ and the highlight fade (+0x4e0, 0.2 per frame: 12 / s) of UiText_Draw 0x00464750
   without one (0x004a2c10 / 0x004a2e90, as orig_ui_menu-800.png and orig_ui_play-720.png show). Save Game stays
   enabled (the remaster saves anywhere; the original only at checkpoints, Game+0x568 bit 8).
 - **Main menu:** the version text "v1.00" bottom right (0x004927f0, screen flag 0x800).
+- **Pub screen** (pubscreen.rs): the pointer moves the highlight onto an offered weapon's slot or the exit button
+  (ui_pub_cursor's exit point 493, 416), a click takes the weapon or leaves (the pub shows the mouse cursor:
+  0x004930c0); the exit prompt names Back on the device in use. Credits: a click leaves too. State log `pub`; test
+  engine/playtests/pub.json (keyboard and pad).
 - State log `menu` (playtests): page, shown page, selected row, fading, the selected stepper's value, cheats shown.
   Tests: engine/playtests/menus.json (every shell page), gfxopts.json, flow.json (pause, yes / no with its fade, the
   pad, mission failed), stats.json.

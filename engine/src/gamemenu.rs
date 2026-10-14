@@ -795,9 +795,9 @@ fn navigate(
             }
         }
     }
-    // the credits page: any of Esc / Enter leaves
+    // the credits page: any of Esc / Enter / a click (a trackpad tap) leaves
     if menu.page == Page::Credits && *state.get() != AppState::Playing {
-        if ctl.pressed(crate::input::Act::Back) || ctl.pressed(crate::input::Act::Select) {
+        if ctl.pressed(crate::input::Act::Back) || ctl.pressed(crate::input::Act::Select) || mouse.just_pressed(MouseButton::Left) {
             if let Some((p, s)) = menu.stack.pop() {
                 menu.page = p;
                 menu.selected = s;
