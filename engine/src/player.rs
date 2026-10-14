@@ -29,6 +29,16 @@ pub struct Roman {
     pub pitch: f32,
     pub vel: Vec3,
     pub on_ground: bool,
+    /// falling and landing (0x00478200, player.md "Landing and falling"): the grounded grace (+0x570, 0.5 s after the
+    /// last contact), the ground reference height (+0x520), the most negative vertical speed in the air (+0x56c),
+    /// the time falling faster than fall_speed (+0xa60), the falling state (+0xa34 0x200), and the landing anim
+    /// playing (0x100: its name, time in it, length)
+    pub grace: f32,
+    pub ground_ref: f32,
+    pub peak_vz: f32,
+    pub fall_fast_t: f32,
+    pub falling: bool,
+    pub landing: Option<(&'static str, f32, f32)>,
     /// remaster safety net (not in the original): the last place where Roman moved freely, and how long he has
     /// been pushing without moving (wedged in a collider)
     pub free_trail: std::collections::VecDeque<Vec3>,
@@ -327,6 +337,12 @@ pub fn make_roman(physics: &mut Physics, p: &Props, data: &GameData, feet: Vec3,
         pitch: -0.15,
         vel: Vec3::ZERO,
         on_ground: false,
+        grace: 0.0,
+        ground_ref: 0.0,
+        peak_vz: 0.0,
+        fall_fast_t: 0.0,
+        falling: false,
+        landing: None,
         free_trail: std::collections::VecDeque::from([feet]),
         free_t: 0.0,
         wedged: 0.0,
@@ -502,12 +518,13 @@ fn control(
     opts: Res<crate::options::GameOptions>,
     topsy: Res<crate::topsy::Topsy>,
     mut physics: NonSendMut<Physics>,
-    mut q: Query<(&mut Roman, &mut Transform, &Health)>,
+    mut q: Query<(&mut Roman, &mut Transform, &mut Health)>,
     mut stats: ResMut<PlayerStats>,
     ctl: Res<crate::input::Controls>,
+    mut fx: MessageWriter<crate::fx::StartFx>,
 ) {
     let dt = time.delta_secs();
-    for (mut r, mut t, h) in &mut q {
+    for (mut r, mut t, mut h) in &mut q {
         stats.health = h.0.max(0.0);
         stats.max_health = r.max_health;
         if h.0 <= 0.0 {
@@ -783,7 +800,7 @@ fn control(
         }
         let d = Vec3::new(wish.x - r.vel.x, if r.on_ground { 0.0 } else { -r.vel.y }, wish.z - r.vel.z);
         let dist = d.length();
-        if dist > 1e-4 && !r.jumping {
+        if dist > 1e-4 && !r.jumping && !(r.falling && !r.on_ground) {
             let strength = if max_speed > 0.0 && dist > max_speed { power * max_speed / dist } else { power };
             let c = (d.y / dist).clamp(0.0, 1.0);
             let s5 = (1.0 - c * c).max(0.0).sqrt().clamp(0.0, 1.0).powi(5);
@@ -812,6 +829,8 @@ fn control(
         let right = Quat::from_rotation_y(r.yaw) * Vec3::X;
         r.move_local = Vec2::new(vel.dot(right), vel.dot(fwd));
         let before = t.translation;
+        let vy = r.vel.y;
+        let was_jump = r.jumping;
         if let Some((feet, on)) = physics.move_walker(&r.walker, vel, dt) {
             if on && r.vel.y <= 0.0 {
                 r.vel.y = 0.0;
@@ -822,6 +841,7 @@ fn control(
             }
             t.translation = feet;
         }
+        fall_and_land(&mut r, &t, &mut h, vy, was_jump, dt, &physics, &mut fx, t.translation.distance(before));
         // safety net (remaster): pushing for 1.5 s without moving at all and without ground under him (wedged in a
         // wall's collider: seen in a bot run next to v_wall_tall_a) puts him back where he last moved freely. Standing
         // against a wall or the foot of a steep slope is the original's behaviour and is left alone
@@ -1058,6 +1078,55 @@ fn weapons(
             r.since_throw = 0.0;
             sticky.pending = Some(0.267);
         }
+    }
+}
+
+/// Falling and landing (0x00478200 / 0x00478100; player.md "Landing and falling").
+#[allow(clippy::too_many_arguments)]
+fn fall_and_land(r: &mut Roman, t: &Transform, h: &mut Health, vy: f32, jumped: bool, dt: f32, physics: &Physics, fx: &mut MessageWriter<crate::fx::StartFx>, moved: f32) {
+    let y = t.translation.y;
+    r.grace = if r.on_ground { 0.5 } else { (r.grace - dt).max(0.0) };
+    if r.grace > 0.0 {
+        r.ground_ref = y;
+    }
+    if !r.on_ground {
+        r.peak_vz = r.peak_vz.min(vy);
+        // falling: slower than fall_speed (-50; after a jump fall_speed_jump -70)
+        let threshold = if jumped { -70.0 } else { -50.0 };
+        if vy <= 0.0 && vy < threshold {
+            r.falling = true;
+            r.fall_fast_t += dt;
+        }
+    } else if r.grace > 0.0 && r.landing.is_none() {
+        r.fall_fast_t = 0.0;
+    }
+    // death by falling: below z -1000, more than death_falling_distance (110) under the ground reference, or falling
+    // fast for longer than death_falling_time (1 s): the whole health as damage (0x00478100 flag 1)
+    let game_z = (crate::level::game_to_engine().inverse() * t.translation).z;
+    if !r.dead && h.0 > 0.0 && (game_z < -1000.0 || y < r.ground_ref - 110.0 || r.fall_fast_t > 1.0) {
+        info!("EVENT player: fell to his death (dropped {:.0}, {:.2} s falling)", r.ground_ref - y, r.fall_fast_t);
+        h.0 = 0.0;
+    }
+    // landing: grounded after falling (or a jump), once: the land fx, the landing damage from the peak downward speed,
+    // the landing anim (land_hard after more than fall_land_hard_time 0.6 s falling, else jump_land)
+    if r.on_ground && vy <= 0.0 && (r.falling || jumped) && r.landing.is_none() && !r.dead {
+        let k = (-r.peak_vz - 150.0) / 200.0;
+        if k > 0.0 {
+            let k = k.min(1.0);
+            let d = (1.0 - k) * 150.0 + k * 300.0;
+            info!("EVENT player: landing damage {d:.0} (vz {:.0})", r.peak_vz);
+            h.0 -= d;
+        }
+        let mat = physics.raycast(t.translation + Vec3::Y * 2.0, Vec3::NEG_Y, 6.0).and_then(|hit| physics.materials.get(&hit.0).cloned()).unwrap_or_else(|| "snow".into());
+        fx.write(crate::fx::StartFx { name: format!("fx_fs_roman_land_{mat}"), at: t.translation, rotation: crate::level::game_to_engine(), follow: None, position_only: false });
+        r.landing = Some(if r.fall_fast_t > 0.6 { ("trotter_land_hard", 0.0, 2.633) } else { ("trotter_jump_land", 0.0, 0.633) });
+        r.falling = false;
+        r.peak_vz = 0.0;
+    }
+    if let Some((n, el, len)) = r.landing {
+        // moving ends it (game_05.cpp:1721-1726)
+        let el = el + dt;
+        r.landing = if el >= len || (moved > 0.01 && Vec2::new(r.vel.x, r.vel.z).length() > 3.0) { None } else { Some((n, el, len)) };
     }
 }
 

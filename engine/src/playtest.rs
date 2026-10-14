@@ -234,6 +234,12 @@ fn warp(
     r.yaw = w[3].to_radians();
     r.free_trail.clear();
     r.free_trail.push_back(feet);
+    // a new ground reference (else a warp down a slope reads as a fall)
+    r.ground_ref = feet.y;
+    r.grace = 0.5;
+    r.falling = false;
+    r.fall_fast_t = 0.0;
+    r.peak_vz = 0.0;
     bot.goto = None;
 }
 

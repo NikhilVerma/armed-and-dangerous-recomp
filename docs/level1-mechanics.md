@@ -18,7 +18,7 @@ Update this table as items land (commit hash in the last column).
 | Walk back factor 0.7 | (none found) | S | 3 | trace the back speed |
 | Jump, air control | 0x0047aaf0 | V / S | 3 | jump_into stage not modelled; air control fitted |
 | Slopes | 0x00477c90, 0x00478200 | V | | friction blend not ported |
-| Landing anims, landing damage, death by falling | 0x00478100 | M | 2 | |
+| Landing anims, landing damage, death by falling | 0x00478100, 0x00478200 (player.md) | P | 2 | fall_loop, land_hard / jump_land (move cancels), damage 150..300 from 150 u/s, death past 110 units or 1 s falling, no drive while falling, land fx by material (fall.json) |
 | Mouse look rates | 0x00475990.. | V | | pitch clamp narrower than the original (±1.56 / 1.15) |
 | Look from trackpad / Moonlight | — | B | 1 | cursor + raw + absolute raw (98e7700); unconfirmed |
 | Controller support | 0x004f8600 joystick | B | 1 | input.rs on bevy_enhanced_input: modern twin-stick layout, contexts, rumble, focus-gated pads (remaster-input.md) |

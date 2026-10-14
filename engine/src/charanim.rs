@@ -77,6 +77,17 @@ fn roman(mut q: Query<(&Roman, &mut Animator)>, topsy: Res<crate::topsy::Topsy>)
             a.stop(1);
             continue;
         }
+        // landing (modes 8 land_hard / 0x13 jump_land, whole body, once); falling (mode 7 fall_loop)
+        if let Some((n, _, _)) = r.landing {
+            a.play(0, n, false, Mask::All);
+            a.stop(1);
+            continue;
+        }
+        if r.falling && !r.on_ground && !r.jumping {
+            a.play(0, "trotter_fall_loop", true, Mask::All);
+            a.stop(1);
+            continue;
+        }
         let (throw, dur) = if speed < 3.0 { ("trotter_throw", 0.633) } else { ("trotter_run_throw", 0.767) };
         if r.since_throw < dur {
             a.play(0, throw, false, Mask::All);
