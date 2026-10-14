@@ -76,7 +76,8 @@ pub struct Grunt {
     pub bow: bool,
     pub hit_ragdoll: f32,
     pub last_health: f32,
-    /// a guard's first fire cycle is dry (no shot: the counters are empty), then the reload: measured in the original
+    /// a guard's first fire cycle after a turn toward its target is dry (no shot: the counters are empty), then the
+    /// reload: measured in the original
     /// (hook AI dump, second encounter: the guards play fire (anim 0x23) at 740..760, reload (0x2a) by 780..820, and
     /// their first shots come at 800..837; the sound log has none in between), as fire-timing note #7 predicted
     pub dry_first: bool,
@@ -203,7 +204,7 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         bow,
         hit_ragdoll: p.f("hit_ragdoll", 50.0),
         last_health: max_health,
-        dry_first: guard,
+        dry_first: false,
         turn: None,
         last_hit: 0.0,
         hit_level_1: p.f("hit_level_1", 10.0),
@@ -539,6 +540,11 @@ fn think(
                         }
                     } else if to.dot(fwd) < 0.7 {
                         let right = fwd.cross(to).y < 0.0;
+                        // after a turn a guard's first fire cycle is dry (measured: the original's courtyard guards,
+                        // most of which turn, fire anim then reload and first shots ~80 frames later, two that faced
+                        // the player shooting at once; the first fight's archer, facing, shoots at once). Guess at the
+                        // path: engage -> state 0xa -> back to the guard cycle with empty counters (note #7)
+                        g.dry_first = g.guard;
                         g.turn = Some(if g.bow {
                             ("grunt_bow_turn", 0.633)
                         } else if to.dot(fwd) < -0.7 {
