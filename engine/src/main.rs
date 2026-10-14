@@ -283,14 +283,16 @@ fn main() {
         // advance one 60 Hz step per frame (fight2E: grunts fired in lockstep after each screenshot's stall)
         app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(std::time::Duration::from_secs_f64(1.0 / 60.0)));
     }
-    // --snap FILE: a screenshot of whatever shows after 4 s (the title menu without other options), then exit
+    // --snap FILE: a screenshot of whatever shows after 4 s (the title menu without other options), then exit.
+    // AND_SNAP_DELAY=SECONDS waits longer (a busy machine loads the level's objects later than 4 s)
     if let Some(path) = a.snap {
+        let delay: f32 = std::env::var("AND_SNAP_DELAY").ok().and_then(|v| v.parse().ok()).unwrap_or(4.0);
         app.add_systems(Update, move |mut commands: Commands, time: Res<Time<Real>>, mut done: Local<u8>, mut exit: MessageWriter<AppExit>| {
             let t = time.elapsed_secs();
-            if t > 4.0 && *done == 0 {
+            if t > delay && *done == 0 {
                 commands.spawn(bevy::render::view::screenshot::Screenshot::primary_window()).observe(bevy::render::view::screenshot::save_to_disk(path.clone()));
                 *done = 1;
-            } else if t > 5.5 {
+            } else if t > delay + 1.5 {
                 exit.write(AppExit::Success);
             }
         });

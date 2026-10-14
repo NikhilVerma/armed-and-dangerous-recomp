@@ -50,7 +50,12 @@ pub struct CamDumpPlugin;
 
 impl Plugin for CamDumpPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Last, hold.run_if(resource_exists::<FixedCamera>));
+        // after propagation (the camera writers have all run) and before the frusta: culling and rendering both see
+        // the held view (in Last, frustum culling still used the follow camera: objects outside its view vanished)
+        app.add_systems(
+            PostUpdate,
+            hold.after(bevy::transform::TransformSystems::Propagate).before(bevy::camera::visibility::VisibilitySystems::UpdateFrusta).run_if(resource_exists::<FixedCamera>),
+        );
     }
 }
 
@@ -62,8 +67,8 @@ fn hold(
     mut cam: Query<(&mut Transform, &mut GlobalTransform, &mut Projection), (With<Camera3d>, Without<crate::level::Background>)>,
     mut sky: Query<(&mut Transform, &mut GlobalTransform), (With<crate::level::Background>, Without<Camera3d>)>,
 ) {
-    // this runs in Last, after transform propagation, while the follow camera rewrites Transform every frame before
-    // it: the GlobalTransforms the renderer extracts are set here too, or the held view never reaches the screen
+    // this runs after transform propagation, while the follow camera rewrites Transform every frame before it: the
+    // GlobalTransforms that culling and the renderer read are set here too
     for (mut s, mut g) in &mut sky {
         s.translation = fixed.transform.translation;
         *g = GlobalTransform::from(*s);
