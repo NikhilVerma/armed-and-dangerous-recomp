@@ -762,11 +762,11 @@ fn control(
             let f = Quat::from_rotation_y(r.yaw) * Vec3::NEG_Z;
             let s = Quat::from_rotation_y(r.yaw) * Vec3::X;
             // the Move action (WASD: full deflection; the left stick: analog): target speed max x a + (1 - a) x min for
-            // any deflection a (fwd / side_max_speed_min 4, game_06.cpp:2586); backward at 0.7 (stand-in)
+            // any deflection a (fwd / side_max_speed_min 4, game_06.cpp:2586); backward at the same speed (measured: backO, the original walks back at 39 units/s)
             let m = ctl.axis(crate::input::Act::Move).clamp(Vec2::splat(-1.0), Vec2::ONE);
             if m != Vec2::ZERO {
                 let sp = |max: f32, a: f32| max * a + (1.0 - a) * 4.0f32.min(max);
-                let fy = if m.y > 0.0 { sp(r.fwd_speed, m.y) } else if m.y < 0.0 { -sp(r.fwd_speed, -m.y) * 0.7 } else { 0.0 };
+                let fy = if m.y > 0.0 { sp(r.fwd_speed, m.y) } else if m.y < 0.0 { -sp(r.fwd_speed, -m.y) } else { 0.0 };
                 let sx = if m.x != 0.0 { m.x.signum() * sp(r.side_speed, m.x.abs()) } else { 0.0 };
                 wish += f * fy + s * sx;
             }
