@@ -1,12 +1,16 @@
 //! Grunt AI ported from the recovered state machine (GenericAI_Update 0x0043ee90 and its helpers, documented in
-//! docs/subsystems/grunt-ai.md sections 3-5 and 11), on the game's own per-instance parameters. Reduced to the
-//! states lev_1_m1 uses: idle/roaming (1), guard (0x79), wait for trigger (0x8c), chase (0x3c), firing (0xa) with the
-//! fire cycle (clips x bursts x rounds, 180-degree cone + line of sight, aim error 0x004284e0), reload (0x32),
-//! flee from a stuck sticky bomb (0xc8), limping, death and ragdoll, and the trenches as cover (the hiding-spot search
-//! 0x0042a7b0 / 0x00429f00 and the barricade states 0xa0..0xa5: `find_hiding_spot`, `CoverPhase`). Hit-reaction
-//! states, the generic cover slots, taunts and the alarm controller are not ported yet; AI gunners on the mounted gun:
-//! `GunPhase` (states 0x7b / 0x7d / 0x7c)
-//! (see the doc).
+//! docs/subsystems/grunt-ai.md), on the game's own per-instance parameters, for the classes lev_1_m1 makes (`Kind`:
+//! GruntObject, BowGruntObject, CaptainObject) and the companions Q / Jonesy (`Companion`).
+//! - The state +0x460 is `Mind` (GenericAI_SetState 0x004262c0); the anims by id through the class tables (`anim_name`),
+//!   played by charanim.rs as PlayAnim 0x004262d0 (one) / PlayAnim4 0x00426480 (the four-pose sets) do.
+//! - States: idle / roaming (1), guard (0x79, become guard 0x0042d0f0, its flag cleared by 0x0042cff0), wait for a
+//!   trigger (0x8c; the trigger handler 0x0042f870 runs in mission.rs's dispatch), chase (0x3c), firing (0xa) with the
+//!   fire cycle 0x00428980, reload (0x32), flee (0xc8), the marker splines (0x96 / 0x97, `SplineRun`), the wander
+//!   (0x3d / 0x5b), home (0x50, after 0x0042bc60), the taunt (0x6e), the captain's grenade (0x10), the hit reactions
+//!   (0x12f..0x132, 300..0x12e), the trenches (0xa0..0xa6), the mounted gun (0x7b / 0x7d / 0x7c), death.
+//! - Targets: AI_FindTarget 0x00426920 (`search`: the noises of the player's shots, `Interests`, then the cone
+//!   Object_IsInViewCone 0x00455d90 and the sight ray), the alert groups, retaliation 0x0042c820.
+//! Functions this port does not cite are explained in docs/port/ai.csv (replaced by the engine, or not needed).
 
 use crate::fx::{FxStats, Health};
 use crate::physics::{Body, Physics, bv, jv};
@@ -3283,6 +3287,8 @@ pub struct Companion {
     swap_timer: f32,
     /// an order asks for a forced pick (the area order 0x00484ca0: 0x00483810(1))
     force_swap: bool,
+    /// +0xbcc flag 0x80: the partner started a regroup (0x004837b0), so this one regroups too at its next idle frame
+    regroup_req: bool,
 }
 
 /// The pair's standing order (+0xbcc flags; 0x004844c0, 0x00484290, 0x00485120).
@@ -3375,6 +3381,7 @@ impl Companion {
         roman_dir: Vec3::ZERO,
         swap_timer: 0.25,
         force_swap: false,
+        regroup_req: false,
         }
     }
 }
@@ -3552,6 +3559,7 @@ fn companions(
     // the pair as the leader pick sees it (entity, position, moving = mode 2, its pick time)
     let pair: Vec<(Entity, Vec3, bool, f32)> = q.iter().filter(|(_, c, ..)| c.dead.is_none()).map(|(e, c, t, ..)| (e, t.translation, c.moving, c.swap_t)).collect();
     let mut lead_changes: Vec<(Entity, bool)> = Vec::new();
+    let mut regroup_reqs: Vec<Entity> = Vec::new();
     let mut silent_return = false;
     for (e, mut c, mut t, ca, ch) in &mut q {
         // a dead companion does nothing; a hit reaction holds him (states 0x12f..0x131: movement stopped)
@@ -3712,9 +3720,15 @@ fn companions(
             Order::Loose => from_roman > c.delay,
             Order::Area { at, .. } | Order::Attack { at, .. } => (at - me).with_y(0.0).length() > c.distance + 2.5,
         };
-        if c.target.is_none() && c.lost <= 0.0 && regroup {
-            // the regroup's start (mode 1, ai_08.cpp:1948-1961): the pick, forced when Roman faces more than 90 degrees
+        if c.target.is_none() && c.lost <= 0.0 && (regroup || (std::mem::take(&mut c.regroup_req) && !c.moving)) {
+            // the regroup's start (mode 1, ai_08.cpp:1948-1961): the partner is asked to follow (0x004837b0: flag 0x80
+            // unless it holds an area / attack anchor), then the pick, forced when Roman faces more than 90 degrees
             // away from his direction at the last one (dot < 0); not under an area / attack order (flag 1 without 8)
+            if !c.moving {
+                if let Some(p) = pair.iter().find(|p| p.0 != e && !p.2) {
+                    regroup_reqs.push(p.0);
+                }
+            }
             if !c.moving && matches!(c.order, Order::Guard | Order::Loose) {
                 let force = roman_dir.dot(c.roman_dir) < 0.0;
                 leader_pick(c, e, me, force, &pair, &mut lead_changes, points, rt.translation, roman_dir, now);
@@ -3908,6 +3922,11 @@ fn companions(
             if let Some(m) = c.muzzle.take() {
                 commands.entity(m).despawn();
             }
+        }
+    }
+    for pe in regroup_reqs {
+        if let Ok((_, mut c, ..)) = q.get_mut(pe) {
+            c.regroup_req = matches!(c.order, Order::Guard | Order::Loose);
         }
     }
     for (pe, lead) in lead_changes {

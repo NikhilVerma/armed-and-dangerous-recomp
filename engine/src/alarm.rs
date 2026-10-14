@@ -1,17 +1,16 @@
-//! Markers and the alarm chain (docs/subsystems/mission.md "lev_1_m1 alarm chain").
+//! Markers and the alarm chain (docs/subsystems/mission.md "lev_1_m1 alarm chain", grunt-ai.md 13).
 //!
-//! - Markers (template `marker`): a grunt in mode trigger_marker, once awake (its trigger, a target found, or hurt:
-//!   ai_01.cpp:2498-2531), runs to a marker of its marker_tag_min..max (AI_FollowMarkerSpline 0x0042d1b0; ai.rs
-//!   Mind::ToMarker). On arrival (Marker_ProcessArrival 0x0044ba30): with an alarm_tag, the object of that tag joins the
-//!   siren list World+0xef0 once: fx_siren on it and the runner's Help bark (vt+0x264, 0x00438f90); then the action:
-//!   hide (FindHidingSpot 0x0042a7b0; no cover slots here: its fallback, a wander 60..100), trigger_charge (at the
-//!   player, 0x0042ce70), else the scatter wander scatter_min..max (0x0042d430; ready_roaming / follow are not parsed
-//!   on PC).
-//! - The alarm controller (0x00404e50, ai_01.cpp:468-660) while a siren is listed: every alarm_min..max_delay (2..4 s)
-//!   one troop while fewer than alarm_generator_max_troops (10) of its troops live, from the generator nearest the
-//!   player that he does not see (180 degree cone and a sight ray) and is not one of the last 3 used (unless only those
-//!   remain); the troop type weighted by the generator's num_regular / num_captain. Troops hunt the player (their tags
-//!   12..14 lead to trigger_charge markers or a wander: guess, the spline choice is not traced).
+//! - Markers (template `marker`, MarkerObject_LoadProperties 0x0044b130 and its getters Marker_GetSequence 0x0044b480,
+//!   Marker_GetTrigger 0x0044b8b0 ...): the splines by tag (MarkerObject_BuildSpline 0x0044b540), followed by grunts
+//!   (ai.rs `follow_spline`, `marker_arrival`: AI_FollowMarkerSpline 0x0042d1b0, Marker_ProcessArrival 0x0044ba30,
+//!   AIMarker_Advance 0x0044b980). On arrival with an alarm_tag the object of that tag (Object_FindByTag 0x004592e0:
+//!   `tagged`) joins the siren list World+0xef0 once: fx_siren on it and the runner's Help bark (vt+0x264, 0x00438f90).
+//! - The alarm controller (0x00404e50, ai_01.cpp:468-660; its globals 0x0063a1e8.. are this resource) while a siren is
+//!   listed: every alarm_min..max_delay (2..4 s) one troop while fewer than alarm_generator_max_troops (10) of its
+//!   troops live, from the generator (AlarmGenerator_Slot6 0x00405490) nearest the player that he does not see
+//!   (0x00404d00) and is not one of the last 3 spawn points (else the first such: the fallback), the troop type by the
+//!   six weights, made at the generator's ref_spawn_00; the troop walks to its ref_exit_00 and follows the spline of a
+//!   tag in the generator's marker_tag_min..max (0x0042dd50), or charges with no tags.
 //! - A destroyed siren leaves the list (guess: Object_Remove unlinks it; unverified) and its loop stops.
 
 use crate::level::{InstanceId, game_to_engine};
