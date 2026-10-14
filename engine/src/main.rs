@@ -7,6 +7,7 @@
 //! Game-specific: level (A&D templates, axes, units, lights), ai (grunts), player.
 
 mod ai;
+mod alarm;
 mod audio;
 mod bench;
 mod campath;
@@ -178,6 +179,7 @@ fn main() {
     .add_plugins((physics::PhysicsPlugin, fx::FxPlugin, ai::AiPlugin, player::PlayerPlugin, menu::MenuPlugin, level::LevelPlugin, fxvm::FxVmPlugin, ai::CompanionPlugin, skin::SkinPlugin, charanim::CharAnimPlugin, hud::HudPlugin, mission::MissionPlugin, gameaudio::GameAudioPlugin, campath::CameraPathPlugin, gamemenu::GameMenuPlugin))
     .add_plugins(options::OptionsPlugin)
     .add_plugins(input::InputPlugin)
+    .add_plugins(alarm::AlarmPlugin)
     .add_plugins(stats::StatsPlugin)
     .add_plugins(statscreen::StatScreenPlugin)
     .add_plugins(gamematerial::GameMaterialPlugin)
@@ -423,6 +425,7 @@ fn setup(
             gamemenu::spawn(&mut commands, &assets, &mut meshes, &mut color_materials, &launch.scene);
         }
         menu.stats = false;
+        commands.insert_resource(alarm::Markers::load(&launch.scene));
         match mission::Mission::load(&launch.scene) {
             Some(m) => commands.insert_resource(m),
             None => warn!("mission: mission.json missing (run tools/remaster_export_mission.py)"),

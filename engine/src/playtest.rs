@@ -486,7 +486,7 @@ fn drive(
             pt.warp = Some(w);
         }
         if let Some(g) = e.spawn {
-            spawn.write(crate::level::SpawnGrunt { at: Vec3::new(g[0], g[2], -g[1]), template: "grunt_regular".into() });
+            spawn.write(crate::level::SpawnGrunt { at: Vec3::new(g[0], g[2], -g[1]), template: "grunt_regular".into(), alarm: false });
         }
     }
 }

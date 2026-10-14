@@ -62,8 +62,8 @@ Update this table as items land (commit hash in the last column).
 | Retaliation when hit (adopt attacker) | 0x00430340 end, 0x0042c820 | P | 1 | offer-target rule (10 s, nearer); playtest retal.json |
 | Alert group on death / hit | 0x00431720, 0x0042cc70, 0x0042c700 | P | 2 | spotting and death hand the killer / target to the group after 0.25..1 s (group.json) |
 | Chase with nav routing, wait, go home | 0x00427910, ai_06.cpp:1420 | S | 2 | straight-line chase |
-| Marker paths, hide, cover (FindHidingSpot) | 0x0044ba30, 0x0042a7b0 | M | 2 | trigger_marker grunts 34 / 67, barracks troops |
-| Alarm chain (grunt 67 → marker 151 → siren → generators, captains) | 0x00404e50, 0x0044ba30 | M | 2 | |
+| Marker paths, hide, cover (FindHidingSpot) | 0x0044ba30, 0x0042a7b0 | P / M | 2 | trigger_marker runs to the marker (straight line), actions hide (fallback wander 60..100), trigger_charge, scatter; no cover slots, splines, nav routing; barracks troops not on markers yet |
+| Alarm chain (grunt 67 → marker 151 → siren → generators, captains) | 0x00404e50, 0x0044ba30 (mission.md) | P | 2 | alarm.rs: runner, siren fx + Help, controller 2..4 s up to 10, siren destroyed stops it (alarm.json / alarm2.json) |
 | Barracks release (ref_exit, markers, release_max) | ai_01.cpp:900 | S | 2 | spawns ±12; keeps releasing after destruction |
 | Hit reactions (explosion variants) | 0x00430340 | P | 3 | |
 | Death variants (blown up, ledge, in back, window) | 0x004319e0 | M | 2 | |
@@ -104,7 +104,7 @@ Update this table as items land (commit hash in the last column).
 | Oil pump animation (oilpump_cycle) | | M | 3 | |
 | Fx opcodes used by L1 deaths (0x79 set inert ×407, 0x1a, 0x10, 0x19, 0x35, 0x3d, 0x4a, 0x58, 0x5a ...) | render_r2b.cpp:270-1117 | M | 2 | every non-keg explosion and muzzle flashes |
 | Trenches (barricade collision, cover) | p_barracade | M | 3 | |
-| Guard alarm, grunt generators | | M | 2 | (alarm chain) |
+| Guard alarm, grunt generators | | P | 2 | (alarm chain); the siren can be shot (100 health: guess) |
 | Decals on objects | 0x00416f50 | M | 3 | |
 | Shadows | projected silhouettes | B? | | cascaded shadow maps (different technique) |
 | Ambient sounds, snow, sky, fog, lights | | V | | |

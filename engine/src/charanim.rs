@@ -199,6 +199,7 @@ fn grunts(
             Mind::Flee => ("grunt_run_scared".to_string(), true),
             Mind::Chase if limping => ("grunt_limp".to_string(), true),
             Mind::Chase => ("grunt_run_scan".to_string(), true),
+            Mind::ToMarker => ("grunt_run_scan".to_string(), true),
             Mind::Guard | Mind::WaitTrigger | Mind::Roam if g.guard || g.mind == Mind::Roam => {
                 // fidgets (0x0042be80 / 0x00427330): with no target the timer +0x494 (15 + rand * 0.000275 s, also
                 // at load) counts down; on expiry, standing at attention (anim 0xf), one random fidget 0x12..0x1a

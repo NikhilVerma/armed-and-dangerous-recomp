@@ -27,6 +27,8 @@ pub enum Mind {
     Reload,
     /// state 0xc8
     Flee,
+    /// state 0x96: running to a marker (trigger_marker mode, alarm.rs)
+    ToMarker,
     Dead,
 }
 
@@ -54,6 +56,10 @@ pub struct Grunt {
     pub target: Option<Entity>,
     /// alert-group hand-over (+0x578 / +0x57c)
     pub pending: Option<(Entity, f32)>,
+    /// trigger_marker mode (ai_01.cpp:2498): marker_tag_min..max, the marker run (marker index, goal) and done
+    pub marker_tags: Option<(i64, i64)>,
+    pub marker: Option<(usize, Vec3)>,
+    pub marker_done: bool,
     /// his own entity: his bullets' owner (the damage record's source +0x2c)
     pub me: Option<Entity>,
     /// score_value: to the Kills money when he dies (Game+0x2724)
@@ -124,7 +130,7 @@ pub struct AiStats {
     pub dead: usize,
     pub shots: usize,
     pub enabled: bool,
-    pub states: [usize; 8],
+    pub states: [usize; 9],
     /// grunts holding a target: the player, a companion (playtest log, for comparisons with the hook's AI dump)
     pub targets: [usize; 2],
 }
@@ -243,6 +249,9 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         pending: None,
         score: p.f("score_value", 0.0),
         me: None,
+        marker_tags: (p.s("mode") == Some("trigger_marker")).then(|| (p.i("marker_tag_min", 0), p.i("marker_tag_max", 0))),
+        marker: None,
+        marker_done: false,
         attacker: None,
         offer_t: f32::NEG_INFINITY,
         clips: (p.i("fire_num_clips_min", 1), p.i("fire_num_clips_max", 1)),
@@ -529,12 +538,13 @@ fn think(
     mut fx: MessageWriter<crate::fx::StartFx>,
     rtime: Res<Time<Real>>,
     mut barks: ResMut<Barks>,
+    (markers, mut arrive): (Res<crate::alarm::Markers>, MessageWriter<crate::alarm::MarkerArrival>),
 ) {
     let t0 = Instant::now();
     let dt = time.delta_secs();
     let k = physics.meters_per_unit;
     let (mut alive, mut dead) = (0, 0);
-    let mut states = [0usize; 8];
+    let mut states = [0usize; 9];
     for (ge, mut g, body, mut tr, h, ga) in &mut grunts {
         g.me = Some(ge);
         if g.mind == Mind::Dead {
@@ -625,7 +635,42 @@ fn think(
         // a guard whose target is beyond its range fires with the infinite accuracy ranges (ai_03.cpp:1383)
         g.infinite = g.guard && target.is_some() && !in_range;
         // engage 0x00427910
+        // a trigger_marker grunt, once awake (its trigger, a target found, or hurt), runs to his marker first
+        if g.marker.is_none() && !g.marker_done && g.mind != Mind::WaitTrigger {
+            if let Some(i) = g.marker_tags.and_then(|tags| markers.find(tags, rng.rand())) {
+                g.marker = Some((i, markers.markers[i].pos));
+                g.mind = Mind::ToMarker;
+            } else {
+                g.marker_done = true;
+            }
+        }
+        if let Some((i, goal_m)) = g.marker {
+            if flat(goal_m - pos).length() < 8.0 {
+                // Marker_ProcessArrival 0x0044ba30: the alarm (alarm.rs), then the action
+                g.marker = None;
+                g.marker_done = true;
+                arrive.write(crate::alarm::MarkerArrival { marker: i, at: pos, voice_set: g.voice_set });
+                let mk = &markers.markers[i];
+                let (lo, hi) = match mk.action.as_str() {
+                    "hide" => (60.0, 100.0),
+                    "trigger_charge" => (0.0, 0.0),
+                    _ => mk.scatter,
+                };
+                if hi > 0.0 {
+                    let a = rng.range(0.0, std::f32::consts::TAU);
+                    g.goal = pos + Vec3::new(a.cos(), 0.0, a.sin()) * rng.range(lo, hi);
+                    g.timer = 3.0;
+                    g.mind = Mind::Flee;
+                } else {
+                    g.mind = Mind::Chase;
+                }
+                info!("EVENT ai: grunt reached marker {} ({})", mk.id, mk.action);
+            } else {
+                g.mind = Mind::ToMarker;
+            }
+        }
         g.mind = match (g.mind, target) {
+            (Mind::ToMarker, _) => Mind::ToMarker,
             (Mind::Flee, _) if g.timer > 0.0 => Mind::Flee,
             (Mind::Flee, _) => {
                 g.target = g.target.or(None);
@@ -663,6 +708,10 @@ fn think(
             }
             Mind::Flee => {
                 goal = g.goal;
+                speed = run_speed;
+            }
+            Mind::ToMarker => {
+                goal = g.marker.map(|m| m.1).unwrap_or(pos);
                 speed = run_speed;
             }
             Mind::Fire => {

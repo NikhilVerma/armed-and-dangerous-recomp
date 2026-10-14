@@ -760,7 +760,7 @@ fn barracks(time: Res<Time>, mut m: Option<ResMut<Mission>>, mut rng: ResMut<cra
         b.timer = rng.range(b.release.0, b.release.1);
         for _ in 0..b.amount.min(b.left) {
             let at = b.pos + Vec3::new(rng.range(-12.0, 12.0), 2.0, rng.range(-12.0, 12.0));
-            spawn.write(crate::level::SpawnGrunt { at, template: "grunt_regular".into() });
+            spawn.write(crate::level::SpawnGrunt { at, template: "grunt_regular".into(), alarm: false });
             b.left -= 1;
         }
         logs.push(format!("barracks {} released troops ({} left)", b.id, b.left));

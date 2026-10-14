@@ -59,6 +59,8 @@ pub struct Placed {
 pub struct SpawnGrunt {
     pub at: Vec3,
     pub template: String,
+    /// a troop of the alarm controller (alarm.rs)
+    pub alarm: bool,
 }
 
 /// The `Center` translation track of a rigid (unskinned) model's own anim, played in a loop on its placement.
@@ -184,11 +186,14 @@ fn static_collider(physics: &mut Physics, model: &scene::Model, world: Mat4) -> 
 
 fn destructible(p: &Props) -> Option<Destructible> {
     // Objects with a death fx or a husk and finite health die from damage (behaviour fx_explosion, building, tree).
-    if !(p.has("max_health") && (p.s("fx_death").is_some() || p.s("husk").is_some())) || p.f("max_health", 0.0) >= 100000.0 {
+    // (an object that takes damage and has a death fx but no max_health, the guard alarm: the base default health,
+    // 100 (guess: Object_Load's default is not traced))
+    let takes = p.f("takes_damage", 0.0) != 0.0 && p.s("fx_death").is_some();
+    if !((p.has("max_health") || takes) && (p.s("fx_death").is_some() || p.s("husk").is_some())) || p.f("max_health", 0.0) >= 100000.0 {
         return None;
     }
     Some(Destructible {
-        health: p.f("max_health", 1.0),
+        health: p.f("max_health", 100.0),
         fx_death: p.s("fx_death").map(str::to_owned),
         husk: p.s("husk").map(str::to_owned),
         area_damage: p.f("area_damage", 0.0),
@@ -634,6 +639,9 @@ fn spawn_grunts(
         let Some(model) = lib.load_model(&model_name, false, &assets, &mut meshes, &mut materials).cloned_parts() else { continue };
         let world = Mat4::from_rotation_translation(game_to_engine(), ev.at);
         let e = commands.spawn((Transform::from_matrix(world), Visibility::default(), Name::new(ev.template.clone()))).id();
+        if ev.alarm {
+            commands.entity(e).insert(crate::alarm::AlarmTroop);
+        }
         let mut ctx = SkinCtx { lib: &mut anim_lib, binds: &mut binds };
         let (_, _, hand) = attach_model(&mut commands, e, &model, true, Some(&mut ctx));
         if let (Some(h), Some(w)) = (hand, data.templates.get("grunt_rifle").and_then(|t| t.model.clone())) {
