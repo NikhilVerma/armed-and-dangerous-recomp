@@ -155,8 +155,75 @@ voice code also keeps per-character handles (+0xb4c scream, +0xb50 line) and sha
 
 Dynamic music, Music_Update 0x0044f580 (audio_01.cpp:1660): per level a 7-entry table at 0x005ce4e0 +
 0x1c * (Game+0x2708 - 1). For level 1: `l1amb`, `stealth`, `skirm2`, `l1bat`, `skirm1`, `l1vic`, `l1def` (state
-0..6; -1 silence). The state is chosen from enemy counts near/far of the player and timers (Game+0xd6c..+0xd8c;
-values not read here). The request goes to slot +0xd4 (0x004f3b10).
+0..6; -1 silence; strings read from game.unpacked.exe). The request goes to slot +0xd4 (0x004f3b10).
+
+**Inputs.** The record is Game+0xa88 (+0 timer, +4 time played, +8 hold, +0xc handle, +0x10/+0x11/+0x12
+victory / its cl / defeat, +0x14/+0x18 near / far counts, +0x1c state, +0x20 lock). Thresholds are level
+properties read by LevelProperties_Load 0x00424530 (render_r6.cpp:1098-1104), lev_1_m1 values from
+p_globalsettings (code default in brackets):
+
+| Game | Property | lev_1_m1 |
+| --- | --- | --- |
+| +0xd6c | music_nearby_suspense (far count limit) | 2 [2] |
+| +0xd70 | music_agro_battle (near count limit) | 4 [4] |
+| +0xd80 | music_nearby_range | 100 [100] |
+| +0xd74 | music_agro_range | 500000 [500000] |
+| +0xd84 | music_play_time | 600 [600] |
+| +0xd88 / +0xd8c | music_play_delay_min / max | 60 / 300 [30 / 60] |
+
++0xd78 / +0xd7c are the game times of the last battle / stealth track (0 = never), re-armed after 180 s
+(0x005bcbb8 = 180.0). The reset 0x0044f4c0 (level start) sets state -1, hold 1 s, timers and requests 0,
++0xd78 = +0xd7c = 0 and stops the music.
+
+**Per frame** (called from Game_Update 0x00402e80; returns while paused, Game+0x2684, and while the lock +0x20 is
+set): with state -1 and music still playing (a fade-out) nothing happens. timer -= dt; played += dt while music
+plays, else 0. While hold > 0: hold -= dt and return. While a track is queued (audio +0x94): hold = 10 s and
+return. After `music_play_time` (600 s) of continuous music the default becomes silence. Victory / defeat:
+only while music plays and the state is not 5/6 (and not base defend 0x0044e600): defeat -> 6, else victory ->
+5. Otherwise, when timer <= 0 (redrawn uniform 0.5..1 s, 0x0046e2c0), count World+0xe7c (the grunts; vt+0xe4
+false, vt+0xe8 true, alive 0x00454780): **near** = AI (vt+0x10c) with a target (+0x588, 0x0042c6f0) within
+music_agro_range (effectively all), **far** = any within music_nearby_range (100). Grunt vtables 0x5a9cf0 /
+0x5abb88 have vt+0xe4 = 0x00435250 (false), vt+0xe8 = 0x00419280 (!vt+0xe4), vt+0x10c = 0x00433fa0 (true).
+
+| State | Rule |
+| --- | --- |
+| -1 | near >= 4: battle; far >= 2: stealth when the last one is 180 s old, else l1amb (arming +0xd7c when 0); else l1amb |
+| 0 l1amb | near >= 4: battle; far >= 2 and 180 s since the last stealth: stealth |
+| 1 stealth | near >= 4: battle; far == 0: silence |
+| 2 skirm2 / 4 skirm1 | near >= 2: l1bat when the last battle is 180 s old; else stealth (if 180 s old) or, with near = far = 0, silence |
+| 3 l1bat | near >= 2: skirm1 when the last battle is 180 s old; else as above |
+| 5 / 6 | when the jingle has ended: requests cleared, silence |
+
+battle = skirm2 when the last battle is 180 s old (re-armed), else l1bat (arming +0xd78 when 0). A new track sets
+hold = 10 s; silence sets hold = time played clamped to [delay_min, delay_max] (60..300 s in lev_1_m1; 60 s after
+a jingle, since played is 0 then) and stops the music with immediate = 1: voice +0x64 |= 0x800, the queue
+cleared, the envelope's 10 s fade-out (0x004f30e0 -> 0x004f26a0). The play call's fourth argument is a flag
+byte (victory: !+0x11, defeat: 1) that sets voice flag 0x8000000 in 0x004f3b10; no reader of that voice flag was
+found (open).
+
+**Requests.** 0x0044f560 (eax = record, cl): +0x10 = 1, +0x11 = cl, hold = 0. Callers: the ui_ear trigger handler
+0x0046afa0 with cl = 1 when the trigger marked an objective (objective_trigger_receive_0N with a non-zero
+objective_tag_0N) and shows that ear's text (text_trigger_receive_0N), and the level state machine 0x0044a390
+state 2 (mission success) with cl = 0. 0x0044f570: +0x12 = 1, hold = 0; callers the player's death vt+0xd4
+0x0047ae40 and 0x0044a390 states 3..8 (mission failed). So the **objective jingle** is the `l1vic` track: in
+lev_1_m1 ui_ear 65 requests it on trigger 900 (leaving the pub, `l1m1_sub2`, tag 55) and trigger 901 (the first
+gate blown, `l1m1_sub3`, tag 56); ui_ear 253 (trigger 7, `l1m3_bomb`) has no objective. The request waits while
+the game is paused (the message pauses it) and while no music plays; it then queues `l1vic` for the next
+segment boundary; `l1vic.next = [none]` ends the music after its 13.7 s, then 60 s of silence.
+
+**Segment resolution details** (Audio_ResolveSound 0x00500a00, disassembly 0x00500ae6..0x00500ce7): `params`
+is voice +0x64 and params[2] (voice +0x6c) the segment that just ended. A queued track equal to that segment
+clears the queue and ends the music. With a queue: the first `next` entry whose base (cut at the last `_`)
+is the track; else the first entry whose own `next` has such an entry (two-step route); else the first entry.
+The queue is **not** cleared there: it is cleared only when a segment whose base is the queued track ends, and
+that segment is then chosen again (it plays twice; static reading, not observed at run time: the sound log
+hook sees only voice starts, not stream continuations). Without a queue: `none` ends; a stopped voice (+0x64
+0x800) at a segment with flag 0x8000000 (music_last_segment, e.g. `l1amb_033`) takes the second entry
+(`l1amb_loopend`).
+
+Remaster port: engine/src/gameaudio.rs (`Music`, music_state = 0x0044f580, music_voice = the resolver), requests
+from engine/src/mission.rs (objective) and the mission outcome / Roman's death. Original check (shot.py level
+scenario, test.log_sounds): `l1amb` starts at frame 59 (0.98 s); the remaster starts it at 1.03 s.
 
 The tracks are **segment graphs**, not single files. Each music definition (flag 0x2000000, 281 in lev_1_m1,
 stereo 44100 Hz, 2..35 s each) has a `next` list of variants (`+0x17c` count, names at `+0x180`). When a segment
@@ -190,7 +257,15 @@ big12_ui tables, 0x00495cb0, option +0x176 (docs/formats/big-ui.md).
   instance's `trigger_id` message arrives, it picks among the lines it has (`roman_sound`, `q_sound`,
   `jonsey_sound`, `ai_sound`) whose speaker is alive and within `max_distance` (default 300) of the player, at
   random (`rand`), or the nearest when none is in range. Roman's line plays 2D (+0xd0); the others play on the
-  speaker (+0xc4). The ear removes itself unless `reapeat` (sic). The triggers come from trigger volumes
+  speaker (+0xc4). The ear removes itself unless `reapeat` (sic). Details (game_08.cpp:718): a line counts only
+  when the **placement** sets it (Object_ReadStringProp 0x004533a0 returns 1; template "none" does not). Roman's
+  line is always one choice (no distance test). Q is the player's 0x00475d40, Jonesy 0x00475d30, the AI the
+  object tagged `ai_tag` (0x004592e0); each is dropped when absent or dead (0x00454780) and counted when its
+  squared distance to the player is below max_distance^2. With no choice but someone present, the nearest
+  (strictly smaller distance) is taken; with nobody at all the ear removes itself even with `reapeat`.
+  `pick = (rand() * count) >> 15` then maps literally (0x00497bdc..0x00497cc3): with Roman, 0 = Roman, 1 =
+  first in range of Q / Jonesy / AI, 2 = Jonesy when both Q and Jonesy are in range else AI; without Roman, 0 =
+  first in range, 1 = Jonesy when both else AI. The triggers come from trigger volumes
   (`bb_40x40` / `bb_300x300` `on_enter`) or objects (`send_trigger_on_death`), listed as `trigger_senders`.
   lev_1_m1 has 7 ears (e.g. trigger 711: `jon50001_l1_ambient` / `rom50001_l1_ambient`, sent by
   `bb_300x300` 269 on enter and `snow_pipe_curved` 96 on death).
@@ -250,7 +325,10 @@ full scale (0.03..0.36 % of samples at +-32767 in the source data, copied unchan
 ## Open questions
 
 - Def flag 0x20 (set on all) and 0x4000000 (music and long ambience): no reader found.
-- What sets Music_Update's thresholds (Game+0xd6c..+0xd8c) and which code calls each character voice slot.
+- Which code calls each character voice slot. (Music_Update's thresholds: resolved, section 4.)
+- The reader of voice flag 0x8000000 that Music_Update's play flag sets (0x004f3b10); and whether the
+  "segment of the queued track plays twice" reading of 0x00500a00 (section 4) holds at run time.
+- Whether the game clock 0x00604a98 (the 180 s re-arm in Music_Update) counts from level start or app start.
 - The audio +0x8c word of the bank (big-aud.md).
 - Triggers of the eight untriggered lev_1_m1 lines (section 5).
 - Whether the DirectSound 3D listener calls matter on any hardware path (no CTRL3D buffer is ever created).

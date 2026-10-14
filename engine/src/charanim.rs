@@ -16,7 +16,17 @@ impl Plugin for CharAnimPlugin {
     }
 }
 
-fn roman(mut q: Query<(&Roman, &mut Animator)>, topsy: Res<crate::topsy::Topsy>) {
+/// Roman's idle (0x00476a10, game_05.cpp:1932-1948): standing, the idle time +0xc04 counts; past 5 s (0x005bcbdc),
+/// each time the playing anim ends (the aim stance's 1.97 s loop or a fidget) a rand picks the stance (one half) or
+/// one of trotter_idle_1..5 (mode 1 + rand * 5 >> 15); any other mode clears the time.
+#[derive(Default)]
+struct Idle {
+    t: f32,
+    left: f32,
+    fidget: Option<u32>,
+}
+
+fn roman(mut q: Query<(&Roman, &mut Animator)>, topsy: Res<crate::topsy::Topsy>, time: Res<Time>, mut idle: Local<Idle>, mut rng: ResMut<crate::fx::FxStats>) {
     for (r, mut a) in &mut q {
         // the Topsy Turvy states (anims 0x20..0x23)
         let t = match topsy.phase {
@@ -100,6 +110,27 @@ fn roman(mut q: Query<(&Roman, &mut Animator)>, topsy: Res<crate::topsy::Topsy>)
         // the aim blend (0x00475ff0, game_05.cpp:1499): w = (clamp(2 x pitch, -1, 1) + 1) / 2 of the look pitch, 0 at
         // rest (the engine's rest pitch is -0.15)
         let w = ((2.0 * (r.pitch + 0.15)).clamp(-1.0, 1.0) + 1.0) * 0.5;
+        if upper == "trotter_aim" && r.on_ground && !r.dead {
+            let dt = time.delta_secs();
+            idle.t += dt;
+            idle.left -= dt;
+            if idle.left <= 0.0 {
+                idle.fidget = None;
+                idle.left = 1.967;
+                if idle.t > 5.0 && rng.rand() < 0.5 {
+                    let k = ((rng.rand() * 5.0) as u32).min(4) + 1;
+                    idle.fidget = Some(k);
+                    idle.left = [3.3, 5.467, 4.8, 5.467, 3.3][k as usize - 1];
+                }
+            }
+            if let Some(k) = idle.fidget {
+                a.play(0, &format!("trotter_idle_{k}"), false, Mask::All);
+                a.stop(1);
+                continue;
+            }
+        } else {
+            *idle = Idle::default();
+        }
         a.play(0, &format!("{upper}_b"), true, Mask::All);
         a.play(1, &format!("{upper}_t"), true, Mask::All);
         a.set_weight(1, w);
@@ -175,7 +206,7 @@ fn grunts(
         let limping = g.limp_pct > 0.0 && g.last_health < g.max_health * g.limp_pct / 100.0;
         let (name, looping) = match g.mind {
             Mind::Dead if g.ragdoll => ("grunt_blown_up".to_string(), false),
-            Mind::Dead => (format!("grunt_die_{}", g.death_anim), false),
+            Mind::Dead => (g.death_name.map(str::to_owned).unwrap_or_else(|| format!("grunt_die_{}", g.death_anim)), false),
             Mind::Fire => {
                 // the four aim poses blended by the aim weights (fn_00428fc0, PlayAnim4 vt+0x1a0 with ids
                 // 0x23/0x24/0x21/0x22): horizontal h (the grunt turns to face the target: on target 0.5), vertical
@@ -203,8 +234,9 @@ fn grunts(
             Mind::Guard | Mind::WaitTrigger | Mind::Roam if g.guard || g.mind == Mind::Roam => {
                 // fidgets (0x0042be80 / 0x00427330): with no target the timer +0x494 (15 + rand * 0.000275 s, also
                 // at load) counts down; on expiry, standing at attention (anim 0xf), one random fidget 0x12..0x1a
-                // plays once (GruntObject 0x0043bd70: 18 shiver on a cold level (Game+0x2708 == 1, not known here:
-                // taken as not) else a random 19..26; 19 cough, 20 sneeze, 21 fly buzz, 22 blow nose, 23..26 the
+                // plays once (GruntObject 0x0043bd70: 18 shiver on a cold level (Game+0x2708 == 1: the world number,
+                // 1 for lev_1_m1, as Music_Update's table row), else a random 19..26; 19 cough, 20 sneeze, 21 fly buzz,
+                // 22 blow nose, 23..26 the
                 // stand scans); when it ends (or the timer runs out again) attention resumes and the timer is redrawn.
                 // The cough and shiver anims carry the fx notes that play the grunts' _ic sounds.
                 let f = fidgets.entry(e).or_insert_with(|| (15.0 + rand() as f32 * 0.000275, None));
@@ -215,11 +247,9 @@ fn grunts(
                     f.1 = if f.1.is_some() {
                         None
                     } else {
-                        let mut id = ((rand() * 9) >> 15) + 0x12;
-                        if id == 0x12 {
-                            id = ((rand() << 3) >> 15) + 0x13;
-                        }
+                        let id = ((rand() * 9) >> 15) + 0x12;
                         Some(match id {
+                            18 => "grunt_idle_shiver",
                             19 => "grunt_idle_cough",
                             20 => "grunt_idle_sneeze",
                             21 => "grunt_idle_fly_buzz",

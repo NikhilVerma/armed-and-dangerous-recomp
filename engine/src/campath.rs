@@ -11,12 +11,12 @@ use serde::Deserialize;
 #[derive(Message, Clone)]
 pub struct StartCameraPath(pub String);
 
-#[derive(Deserialize)]
-struct CamTrack {
-    t: Vec<[f32; 4]>,
-    r: Vec<[f32; 5]>,
+#[derive(Deserialize, Clone)]
+pub(crate) struct CamTrack {
+    pub t: Vec<[f32; 4]>,
+    pub r: Vec<[f32; 5]>,
     #[serde(default)]
-    fov: Vec<[f32; 2]>,
+    pub fov: Vec<[f32; 2]>,
 }
 
 #[derive(Deserialize)]
@@ -63,7 +63,7 @@ impl Plugin for CameraPathPlugin {
     }
 }
 
-fn lerp_key<const N: usize>(keys: &[[f32; N]], t: f32) -> Option<([f32; N], [f32; N], f32)> {
+pub(crate) fn lerp_key<const N: usize>(keys: &[[f32; N]], t: f32) -> Option<([f32; N], [f32; N], f32)> {
     if keys.is_empty() {
         return None;
     }

@@ -762,11 +762,11 @@ fn control(
             let f = Quat::from_rotation_y(r.yaw) * Vec3::NEG_Z;
             let s = Quat::from_rotation_y(r.yaw) * Vec3::X;
             // the Move action (WASD: full deflection; the left stick: analog): target speed max x a + (1 - a) x min for
-            // any deflection a (fwd / side_max_speed_min 4, game_06.cpp:2586); backward at 0.7 (stand-in)
+            // any deflection a (fwd / side_max_speed_min 4, game_06.cpp:2586); backward at the same speed (measured: backO, the original walks back at 39 units/s)
             let m = ctl.axis(crate::input::Act::Move).clamp(Vec2::splat(-1.0), Vec2::ONE);
             if m != Vec2::ZERO {
                 let sp = |max: f32, a: f32| max * a + (1.0 - a) * 4.0f32.min(max);
-                let fy = if m.y > 0.0 { sp(r.fwd_speed, m.y) } else if m.y < 0.0 { -sp(r.fwd_speed, -m.y) * 0.7 } else { 0.0 };
+                let fy = if m.y > 0.0 { sp(r.fwd_speed, m.y) } else if m.y < 0.0 { -sp(r.fwd_speed, -m.y) } else { 0.0 };
                 let sx = if m.x != 0.0 { m.x.signum() * sp(r.side_speed, m.x.abs()) } else { 0.0 };
                 wish += f * fy + s * sx;
             }
@@ -836,6 +836,12 @@ fn control(
         let before = t.translation;
         let vy = r.vel.y;
         let was_jump = r.jumping;
+        // dead, the player object stays where it died (the original's capture fall2O: the position holds at the death
+        // height while the ragdoll falls; the camera looks down from there)
+        let vel = if r.dead { Vec3::ZERO } else { vel };
+        if r.dead {
+            r.vel = Vec3::ZERO;
+        }
         if let Some((feet, on)) = physics.move_walker(&r.walker, vel, dt) {
             if on && r.vel.y <= 0.0 {
                 r.vel.y = 0.0;
@@ -846,7 +852,7 @@ fn control(
             }
             t.translation = feet;
         }
-        fall_and_land(&mut r, &t, &mut h, vy, was_jump, dt, &physics, &mut fx, t.translation.distance(before));
+        fall_and_land(&mut r, &t, &mut h, vy, was_jump, dt, &physics, &mut fx, t.translation.distance(before), topsy.active());
         // safety net (remaster): pushing for 1.5 s without moving at all and without ground under him (wedged in a
         // wall's collider: seen in a bot run next to v_wall_tall_a) puts him back where he last moved freely. Standing
         // against a wall or the foot of a steep slope is the original's behaviour and is left alone
@@ -909,13 +915,15 @@ fn weapons(
     mut fx: MessageWriter<crate::fx::StartFx>,
     mut rng: ResMut<crate::fx::FxStats>,
     mut topsy: ResMut<crate::topsy::Topsy>,
-    (mut sticky, cam, joints): (ResMut<crate::sticky::StickyThrow>, Query<&GlobalTransform, With<FollowCam>>, Query<&GlobalTransform, Without<FollowCam>>),
+    (mut sticky, cam, joints, xhair): (ResMut<crate::sticky::StickyThrow>, Query<&GlobalTransform, With<FollowCam>>, Query<&GlobalTransform, Without<FollowCam>>, Res<crate::hud::Crosshair>),
 ) {
     let dt = time.delta_secs();
     // the aim point (Game+0xa6c): where the crosshair's ray from the camera meets the world, else far along it; the
     // player's shots fly from the weapon toward it (they flew parallel to the view from above Roman's head and missed
     // what the crosshair was on: the player's gun "did nothing")
-    let aim_point = cam.single().ok().map(|c| {
+    // (the crosshair's own ray, hud.rs crosshair_aim: Hud_UpdateCrosshair 0x00406f50's hud +0x5c, weapon range,
+    // characters by their collision parts; this one is the fallback before it has run)
+    let aim_point = xhair.point.or_else(|| cam.single().ok().map(|c| {
         let (o, d) = (c.translation(), c.forward().as_vec3());
         let mut from = o + d * 20.0;
         let mut left = 1000.0;
@@ -933,7 +941,7 @@ fn weapons(
                 None => break o + d * 1020.0,
             }
         }
-    });
+    }));
     for (e, mut r, t, ra) in &mut q {
         if r.dead {
             continue;
@@ -1067,8 +1075,11 @@ fn weapons(
             subs.write(crate::audio::Subtitle { speaker: None, text: texts.get("ui_change_special_weapon").replace("%s", &name), duration: 3.0 });
             sounds.write(crate::audio::PlaySound::ui("ui_weapon_put_away"));
         }
-        if r.special == 1 && r.topsy == 0 {
+        if r.special == 1 && r.topsy == 0 && !topsy.active() {
+            // the last one used: back to the sticky bomb, with its line (the original's capture topsyO)
             r.special = 0;
+            subs.write(crate::audio::Subtitle { speaker: None, text: texts.get("ui_change_special_weapon").replace("%s", &texts.get("weap_stickybomb")), duration: 3.0 });
+            sounds.write(crate::audio::PlaySound::ui("ui_weapon_put_away"));
         }
         // Fire Special with the Topsy Turvy bomb (topsy.rs)
         if r.special == 1 && ctl.pressed(crate::input::Act::Special) && r.topsy > 0 && !topsy.active() {
@@ -1114,7 +1125,10 @@ fn death(
 
 /// Falling and landing (0x00478200 / 0x00478100; player.md "Landing and falling").
 #[allow(clippy::too_many_arguments)]
-fn fall_and_land(r: &mut Roman, t: &Transform, h: &mut Health, vy: f32, jumped: bool, dt: f32, physics: &Physics, fx: &mut MessageWriter<crate::fx::StartFx>, moved: f32) {
+/// `no_hits`: the hit handler ignores every message during the topsy states (0x0047afa0, +0xa34 & 0x7800000), the
+/// fall's and the landing's damage included (both go through it, 0x00478100)
+#[allow(clippy::too_many_arguments)]
+fn fall_and_land(r: &mut Roman, t: &Transform, h: &mut Health, vy: f32, jumped: bool, dt: f32, physics: &Physics, fx: &mut MessageWriter<crate::fx::StartFx>, moved: f32, no_hits: bool) {
     let y = t.translation.y;
     r.grace = if r.on_ground { 0.5 } else { (r.grace - dt).max(0.0) };
     if r.grace > 0.0 {
@@ -1134,7 +1148,7 @@ fn fall_and_land(r: &mut Roman, t: &Transform, h: &mut Health, vy: f32, jumped: 
     // death by falling: below z -1000, more than death_falling_distance (110) under the ground reference, or falling
     // fast for longer than death_falling_time (1 s): the whole health as damage (0x00478100 flag 1)
     let game_z = (crate::level::game_to_engine().inverse() * t.translation).z;
-    if !r.dead && h.0 > 0.0 && (game_z < -1000.0 || y < r.ground_ref - 110.0 || r.fall_fast_t > 1.0) {
+    if !r.dead && !no_hits && h.0 > 0.0 && (game_z < -1000.0 || y < r.ground_ref - 110.0 || r.fall_fast_t > 1.0) {
         info!("EVENT player: fell to his death (dropped {:.0}, {:.2} s falling)", r.ground_ref - y, r.fall_fast_t);
         h.0 = 0.0;
     }
@@ -1142,7 +1156,7 @@ fn fall_and_land(r: &mut Roman, t: &Transform, h: &mut Health, vy: f32, jumped: 
     // the landing anim (land_hard after more than fall_land_hard_time 0.6 s falling, else jump_land)
     if r.on_ground && vy <= 0.0 && (r.falling || jumped) && r.landing.is_none() && !r.dead {
         let k = (-r.peak_vz - 150.0) / 200.0;
-        if k > 0.0 {
+        if k > 0.0 && !no_hits {
             let k = k.min(1.0);
             let d = (1.0 - k) * 150.0 + k * 300.0;
             info!("EVENT player: landing damage {d:.0} (vz {:.0})", r.peak_vz);
@@ -1178,7 +1192,7 @@ fn projectiles(
     mut stats: ResMut<PlayerStats>,
     mut fx: MessageWriter<crate::fx::StartFx>,
     hulls: Option<Res<crate::hitparts::HitHulls>>,
-    rtime: Res<Time<Real>>,
+    (rtime, topsy): (Res<Time<Real>>, Res<crate::topsy::Topsy>),
     binds: Res<Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>,
     mut victims: Query<&mut crate::ai::Grunt>,
 ) {
@@ -1288,7 +1302,8 @@ fn projectiles(
             if let Some(n) = impact(None).map(|n| n.replace("_snow", "_grunt")) {
                 fx.write(crate::fx::StartFx { name: n, at: from + step, rotation: Quat::IDENTITY, follow: None, position_only: false });
             }
-            if let Ok(mut h) = roman_health.single_mut() {
+            // ignored during the topsy states (0x0047afa0: +0xa34 & 0x7800000); the bullet still lands
+            if let Some(mut h) = roman_health.single_mut().ok().filter(|_| !topsy.active()) {
                 h.0 -= p.damage;
                 if let Ok((_, mut r, _, _)) = roman.single_mut() {
                     r.hit_from = Some(p.vel.normalize_or(Vec3::Z));
@@ -1366,6 +1381,10 @@ fn projectiles(
                 if let (Some(o), Ok(mut g)) = (p.owner, victims.get_mut(ce)) {
                     g.attacker = Some(o);
                 }
+                // a bullet's record has no 0x80 (allow_cartoon_death 0, p_player_rifle_bullet)
+                if let Ok(mut g) = victims.get_mut(ce) {
+                    g.cartoon = false;
+                }
                 if std::env::var("AIDBG").is_ok() {
                     info!("AIDBG hit {:?} for {} -> {} part {:?}", body, p.damage * mult, h.0, part);
                 }
@@ -1403,7 +1422,7 @@ fn projectiles(
 }
 
 /// Third-person camera behind Roman's shoulder at his yaw and pitch, pulled in when geometry is in the way.
-fn follow_camera(
+pub fn follow_camera(
     path: Res<crate::campath::CameraPath>,
     physics: NonSend<Physics>,
     roman: Query<(Entity, &Roman, &Transform), Without<FollowCam>>,

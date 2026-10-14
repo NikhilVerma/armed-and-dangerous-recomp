@@ -39,6 +39,14 @@ pub struct Event {
     pub shot_after: Option<f32>,
     #[serde(default)]
     pub quit: bool,
+    /// write the game state to `states/NAME.json` next to the script; a script with `"load": "states/NAME.json"`
+    /// starts from it (savegame.rs: Roman, mission, dead grunts, destroyed objects; the intro skipped)
+    #[serde(default)]
+    pub save: Option<String>,
+    /// check state-log fields now: `{"health": [270, 290], "won": false}` (an array of two numbers is an inclusive
+    /// range, anything else must be equal). Prints EXPECT PASS / FAIL; any failure makes the exit code 1
+    #[serde(default)]
+    pub expect: Option<serde_json::Map<String, serde_json::Value>>,
     /// debug: take this much damage at once (to test losing)
     #[serde(default)]
     pub hurt: Option<f32>,
@@ -51,6 +59,9 @@ pub struct Event {
     /// debug: damage a companion: [0 Jonesy / 1 Q, amount]
     #[serde(default)]
     pub hurt_companion: Option<[f32; 2]>,
+    /// debug: a badguy blast of this area damage at Roman's feet (through the blast damage path, fx.rs)
+    #[serde(default)]
+    pub blast: Option<f32>,
     /// debug: send this mission trigger (e.g. 123, lev_1_m1's win)
     #[serde(default)]
     pub send: Option<i64>,
@@ -142,6 +153,15 @@ struct Script {
     /// start on the title screen (menu tests) instead of in the level
     #[serde(default)]
     title: bool,
+    /// start from this saved state (relative to the script; written by a 'save' step)
+    #[serde(default)]
+    load: Option<PathBuf>,
+}
+
+/// The state file a script starts from (its "load"), resolved against the script's folder.
+pub fn script_load(script: &std::path::Path) -> Option<PathBuf> {
+    let s: Script = serde_json::from_str(&std::fs::read_to_string(script).ok()?).ok()?;
+    s.load.map(|l| script.parent().map(|d| d.join(&l)).unwrap_or(l))
 }
 
 struct StepView<'a>(&'a Event);
@@ -169,6 +189,9 @@ pub struct Playtest {
     steps: Vec<Event>,
     /// a step's deferred shot (shot_after)
     step_shot: Option<String>,
+    /// expect results so far
+    passed: u32,
+    failed: u32,
     step: usize,
     step_t: f32,
     step_started: bool,
@@ -178,6 +201,8 @@ pub struct Playtest {
     pad: Vec<String>,
     /// companion damage for hurt_companions
     hurt_c: Vec<[f32; 2]>,
+    /// blast steps for hurt_companions
+    blasts: Vec<f32>,
     /// the virtual gamepad, once connected: scripted runs read only it (input.rs), never a pad on the desk
     pad_e: Option<Entity>,
 }
@@ -199,7 +224,7 @@ impl Playtest {
         let mut events = s.events;
         events.sort_by(|a, b| a.t.total_cmp(&b.t));
         let log = std::fs::File::create(path.with_extension("log.jsonl")).ok();
-        Playtest { hurt_c: vec![], pad_e: None, pad: vec![], warp: None, path, title: s.title, events, turns: s.turns, next: 0, t: 0.0, taps: vec![], clicks: vec![], log, last_log: -1.0, steps: s.steps, step_shot: None, step: 0, step_t: 0.0, step_started: false }
+        Playtest { passed: 0, failed: 0, hurt_c: vec![], blasts: vec![], pad_e: None, pad: vec![], warp: None, path, title: s.title, events, turns: s.turns, next: 0, t: 0.0, taps: vec![], clicks: vec![], log, last_log: -1.0, steps: s.steps, step_shot: None, step: 0, step_t: 0.0, step_started: false }
     }
 }
 
@@ -308,7 +333,7 @@ fn drive(
     mission: Option<Res<crate::mission::Mission>>,
     mut roman: Query<&mut crate::fx::Health, With<crate::player::Roman>>,
     mut spawn: MessageWriter<crate::level::SpawnGrunt>,
-    mut send: MessageWriter<crate::mission::SendTrigger>,
+    (mut send, state, mut save_req): (MessageWriter<crate::mission::SendTrigger>, Res<PlayState>, ResMut<crate::savegame::SaveRequest>),
     mut objects: Query<(&crate::level::InstanceId, &mut crate::fx::Destructible)>,
     cam: Query<&GlobalTransform, With<Camera3d>>,
     player: Query<&GlobalTransform, With<crate::player::Roman>>,
@@ -431,6 +456,9 @@ fn drive(
         if let Some(h) = e.hurt_companion {
             pt.hurt_c.push(h);
         }
+        if let Some(d) = e.blast {
+            pt.blasts.push(d);
+        }
         if let Some(b) = e.click.as_deref().map(button) {
             buttons.press(b);
             pt.clicks.push(b);
@@ -469,8 +497,30 @@ fn drive(
         if let Some(u) = e.r#use {
             bot.use_key = u;
         }
+        if let Some(name) = &e.save {
+            let dir = pt.path.parent().map(|d| d.join("states")).unwrap_or_else(|| "states".into());
+            save_req.save = true;
+            save_req.path = Some(dir.join(format!("{name}.json")));
+            info!("EVENT playtest: state saved as {name}");
+        }
+        if let Some(want) = &e.expect {
+            for (k, w) in want {
+                // a dotted key reads into an object field: "window.width"
+                let mut parts = k.split('.');
+                let got = parts.next().and_then(|h| state.0.get(h)).and_then(|v| parts.try_fold(v, |v, p| v.get(p)));
+                let ok = match (w.as_array(), got) {
+                    (Some(r), Some(g)) if r.len() == 2 && r.iter().all(|v| v.is_number()) => g.as_f64().is_some_and(|v| v >= r[0].as_f64().unwrap() && v <= r[1].as_f64().unwrap()),
+                    (_, Some(g)) => g == w || (g.is_number() && w.is_number() && g.as_f64() == w.as_f64()),
+                    _ => false,
+                };
+                if ok { pt.passed += 1 } else { pt.failed += 1 }
+                let got = got.map(|g| g.to_string()).unwrap_or_else(|| "(missing)".into());
+                info!("EXPECT {} {k} = {got} (want {w}) at {:.2} s", if ok { "PASS" } else { "FAIL" }, pt.t);
+            }
+        }
         if e.quit {
-            exit.write(AppExit::Success);
+            info!("PLAYTEST RESULT: {} passed, {} failed", pt.passed, pt.failed);
+            exit.write(if pt.failed > 0 { AppExit::error() } else { AppExit::Success });
         }
         if let (Some(d), Ok(mut h)) = (e.hurt, roman.single_mut()) {
             h.0 -= d;
@@ -486,7 +536,7 @@ fn drive(
             pt.warp = Some(w);
         }
         if let Some(g) = e.spawn {
-            spawn.write(crate::level::SpawnGrunt { at: Vec3::new(g[0], g[2], -g[1]), template: "grunt_regular".into(), alarm: false });
+            spawn.write(crate::level::SpawnGrunt { at: Vec3::new(g[0], g[2], -g[1]), template: "grunt_regular".into(), ..default() });
         }
     }
 }
@@ -561,8 +611,19 @@ fn pad_drive(
     }
 }
 
-/// The hurt_companion step: damage straight to Jonesy (0) or Q (1).
-fn hurt_companions(mut pt: ResMut<Playtest>, mut q: Query<(&crate::ai::Companion, &mut crate::fx::Health)>) {
+/// The hurt_companion step: damage straight to Jonesy (0) or Q (1). The blast step: an explosion at Roman.
+fn hurt_companions(
+    mut pt: ResMut<Playtest>,
+    mut q: Query<(&crate::ai::Companion, &mut crate::fx::Health)>,
+    roman: Query<(&GlobalTransform, &crate::fx::Health), (With<crate::player::Roman>, Without<crate::ai::Companion>)>,
+    mut boom: MessageWriter<crate::fx::Explode>,
+) {
+    for d in std::mem::take(&mut pt.blasts) {
+        if let Ok((t, h)) = roman.single() {
+            info!("EVENT playtest: blast {d} at Roman (health {:.0})", h.0);
+            boom.write(crate::fx::Explode { at: t.translation(), area_damage: d, radius_inner: 10.0, radius_outer: 20.0, impact_force: 0.0, source: None, delay: 0.0, by: crate::fx::Src::Badguy, cartoon: false });
+        }
+    }
     for [who, amount] in std::mem::take(&mut pt.hurt_c) {
         for (c, mut h) in &mut q {
             if c.q == (who >= 0.5) {

@@ -146,6 +146,8 @@ pub struct HudAssets {
     pub shadow_material: Handle<ColorMaterial>,
     icons: Option<IconAtlas>,
     icon_material: Option<Handle<ColorMaterial>>,
+    /// the level's export folder (models/ and skeletons/ for the crosshairs' bones)
+    dir: std::path::PathBuf,
 }
 
 /// What the HUD shows this frame (filled by the game systems).
@@ -180,6 +182,8 @@ pub struct HudState {
     /// the special in hand (0 sticky bombs, 1 Topsy Turvy) and the Topsy Turvy count
     pub special: u8,
     pub topsy: u32,
+    /// the team order's text (ui_teammate_*: its layout string) and seconds left (3.0, 0x00467890)
+    pub team: Option<(&'static str, f32)>,
 }
 
 pub const HUD_LAYER: usize = 1;
@@ -188,7 +192,10 @@ pub struct HudPlugin;
 
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<HudState>().init_resource::<PubView>().add_systems(Update, (subtitles, place, texts, meters, compass, ticker, pub_view, visibility).chain());
+        app.init_resource::<HudState>()
+            .init_resource::<PubView>()
+            .init_resource::<Crosshair>()
+            .add_systems(Update, (subtitles, crosshair_aim.run_if(crate::playing), crosshair_pose, place, texts, meters, compass, ticker, pub_view, visibility).chain());
     }
 }
 
@@ -225,14 +232,14 @@ pub fn spawn(
     ));
     let icons: Option<IconAtlas> = std::fs::read_to_string(ui.join("icons.json")).ok().and_then(|s| serde_json::from_str(&s).map_err(|e| warn!("hud: icons.json: {e}")).ok());
     let icon_material = icons.as_ref().map(|_| materials.add(ColorMaterial { color: Color::WHITE, texture: Some(assets.load("ui/icons.png")), ..default() }));
-    let hud = HudAssets { layout, font, font_image, textures, text_material, shadow_material, icons, icon_material };
+    let hud = HudAssets { layout, font, font_image, textures, text_material, shadow_material, icons, icon_material, dir: dir.to_path_buf() };
 
     // the elements of the in-game HUD (page pui_main) this level uses
     const SHOWN: &[&str] = &[
         "ui_weapon_bkd", "ui_player_rifle", "ui_player_grenades", "ui_player_health", "ui_health_q", "ui_health_jonesy",
         "ui_crosshair", "ui_compass", "ui_compass_objective", "ui_ammo_infinity", "ui_ammo_count", "ui_grenade_count",
         "ui_hit_top", "ui_hit_bottom", "ui_hit_left", "ui_hit_right", "ui_player_mg", "ui_player_topsy", "ui_clock", "ui_tickerbomb",
-        "ui_tickerbomb_set",
+        "ui_tickerbomb_set", "ui_mg_crosshair", "ui_crosshair_friendly", "ui_special_crosshair",
     ];
     for e in hud.layout.elements.iter().filter(|e| SHOWN.contains(&e.name.as_str()) && e.pos.is_some() && e.page_name.as_deref().is_none_or(|p| p == "pui_main")) {
         let anchor = match e.anchor.as_deref() {
@@ -266,6 +273,8 @@ pub fn spawn(
         ("ui_briefing", Vec2::new(320.0, 281.1), 0.9, Color::srgb_u8(0xd0, 0xd0, 0xff)),
         // speech subtitles (0x00495cb0): size 1.1 fitted to 576 units, centred at x 0.5, y 0.15 of the screen
         ("ui_subtitle", Vec2::new(320.0, 480.0 * 0.15), 1.1, Color::WHITE),
+        // the team order texts ui_teammate_* (ref_team_text 320, 47.5; 0.9 #ffff80), one at a time
+        ("ui_team", Vec2::new(320.0, 47.5), 0.9, Color::srgb_u8(0xff, 0xff, 0x80)),
     ] {
         commands.spawn((
             HudElement { name: name.into(), pos, anchor: Anchor::Centre, full: false },
@@ -284,7 +293,8 @@ pub fn spawn(
 fn build_model(commands: &mut Commands, meshes: &mut Assets<Mesh>, materials: &mut Assets<ColorMaterial>, hud: &HudAssets, el_name: &str, model: &str) -> Vec<Entity> {
     let mut out = Vec::new();
     let Some(quads) = hud.layout.models.get(model) else { return out };
-    for q in quads {
+    let bones = if CROSSHAIRS.contains(&el_name) { cross_bones(&hud.dir, model) } else { Vec::new() };
+    for (qi, q) in quads.iter().enumerate() {
         if q.vertices.is_empty() {
             continue;
         }
@@ -304,8 +314,9 @@ fn build_model(commands: &mut Commands, meshes: &mut Assets<Mesh>, materials: &m
             Color::srgba(c.blue, c.green, c.red, a)
         };
         let mat = materials.add(ColorMaterial { color, texture: tex, alpha_mode: bevy::sprite_render::AlphaMode2d::Blend, ..default() });
+        let mesh = meshes.add(mesh);
         let mut part = commands.spawn((
-            Mesh2d(meshes.add(mesh)),
+            Mesh2d(mesh.clone()),
             MeshMaterial2d(mat.clone()),
             // the original's z order: more negative z draws further back
             Transform::from_xyz(0.0, 0.0, 10.0 + q.z),
@@ -328,6 +339,10 @@ fn build_model(commands: &mut Commands, meshes: &mut Assets<Mesh>, materials: &m
                 part.insert(PubMeter { pool: el_name == "ui_pub_healthpool", material: mat });
             }
             _ => {}
+        }
+        if let Some(b) = bones.get(qi).filter(|b| b.len() == q.vertices.len()) {
+            let verts = q.vertices.iter().zip(b).map(|(v, (bone, bind))| (Vec2::new(v[0], v[1]), bone.clone(), *bind)).collect();
+            part.insert(CrossPart { element: el_name.to_owned(), mesh, verts, applied: None });
         }
         out.push(part.id());
     }
@@ -728,6 +743,7 @@ fn texts(
             "ui_message" => state.messages.join("\n"),
             "ui_prompt" => state.prompt.clone().unwrap_or_default(),
             "ui_briefing" => state.briefing.clone().unwrap_or_default(),
+            "ui_team" => state.team.and_then(|(n, _)| hud.layout.elements.iter().find(|e| e.name == n)).and_then(|e| e.string.clone()).unwrap_or_default(),
             "ui_subtitle" => match &state.subtitle {
                 Some((s, c, _)) => {
                     if *c != t.colour {
@@ -796,6 +812,12 @@ fn subtitles(time: Res<Time>, mut subs: MessageReader<crate::audio::Subtitle>, h
         sub.2 -= time.delta_secs();
         if sub.2 <= 0.0 {
             state.subtitle = None;
+        }
+    }
+    if let Some(team) = state.team.as_mut() {
+        team.1 -= time.delta_secs();
+        if team.1 <= 0.0 {
+            state.team = None;
         }
     }
 }
@@ -867,6 +889,7 @@ fn compass(state: Res<HudState>, mut needles: Query<&mut Transform, With<Compass
 #[allow(clippy::type_complexity)]
 fn visibility(
     state: Res<HudState>,
+    xhair: Res<Crosshair>,
     mut q: Query<(&HudElement, &mut Visibility), (Without<HudText>, Without<crate::gamemenu::MenuOwned>)>,
     mut texts: Query<(&HudElement, &mut Visibility), (With<HudText>, Without<crate::gamemenu::MenuOwned>)>,
 ) {
@@ -886,6 +909,13 @@ fn visibility(
                 "ui_clock" | "ui_tickerbomb" => state.ticker_clock.is_some(),
                 "ui_tickerbomb_set" => state.ticker_arming.is_some(),
                 "ui_player_health" | "ui_health_q" | "ui_health_jonesy" => !state.cinematic,
+                // Hud_ProjectMarkers 0x00406840: the current weapon's crosshair (list +0x30c by weapon index; the
+                // rifle's hidden over a friendly), ui_crosshair_friendly (+0x37c) over a friendly, ui_special_crosshair
+                // (+0x38c) while a special is selected; all only while 0x00406790 allows (no cinematic, no pause)
+                "ui_crosshair" => !state.cinematic && state.weapon != "machinegun" && !xhair.friendly,
+                "ui_mg_crosshair" => !state.cinematic && state.weapon == "machinegun",
+                "ui_crosshair_friendly" => !state.cinematic && xhair.friendly,
+                "ui_special_crosshair" => !state.cinematic,
                 n if n.starts_with("ui_health") => !state.cinematic,
                 _ => true,
             };
@@ -895,5 +925,298 @@ fn visibility(
         // paused messages (the briefing box) show over cinematics and pauses too
         let show = state.visible || (el.name == "ui_briefing" && state.briefing.is_some()) || (el.name == "ui_subtitle" && state.subtitle.is_some());
         *v = if show { Visibility::Inherited } else { Visibility::Hidden };
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// The crosshair: Hud_UpdateCrosshair 0x00406f50 (src/ui/ui_01.cpp:312) picks what is under it, Hud_ProjectMarkers
+// 0x00406840 (src/renderer/render_r0.cpp:143) shows the current weapon's crosshair and plays its `<name>_in` /
+// `<name>_out` anim (0x00466650 / 0x004666a0) when the state changes. docs/subsystems/hud.md section 11.
+
+/// The crosshair elements whose parts follow their skin's bones through the `_in` / `_out` anims.
+const CROSSHAIRS: &[&str] = &["ui_crosshair", "ui_mg_crosshair", "ui_sniper_crosshair"];
+
+/// What the crosshair's aim ray found this frame (the HUD object Game+0xa6c).
+#[derive(Resource)]
+pub struct Crosshair {
+    /// word hud +0x392: the object under the crosshair is a target (the crosshair closes: `<name>_in`)
+    pub on: bool,
+    /// byte hud +0x394: it is a friendly (an AI teammate, vt+0x10c and vt+0xe4: Q, Jonesy; or a peasant)
+    pub friendly: bool,
+    /// hud +0x5c: where the ray hit, else its end (start + direction x the weapon's range)
+    pub point: Option<Vec3>,
+    /// hud +0x58: what it hit
+    pub object: Option<Entity>,
+    /// word hud +0x390: the state the anims last showed; 2 = none yet / the weapon changed (every crosshair plays
+    /// `_out`, then the current one the state's anim)
+    shown: u8,
+    weapon: &'static str,
+    /// per element: playing `_in` (true) or `_out`, seconds since it started (Anim_Set flags 0x80: once, held)
+    anims: HashMap<String, (bool, f32)>,
+}
+
+impl Default for Crosshair {
+    fn default() -> Self {
+        // the HUD object's constructor 0x004065d0 sets +0x390 = 2 (game_01.cpp:1463)
+        Crosshair { on: false, friendly: false, point: None, object: None, shown: 2, weapon: "", anims: HashMap::new() }
+    }
+}
+
+/// How a level object answers the crosshair's test (0x00406f50, ui_01.cpp:557-588): by its class (behaviour, the
+/// class id +0x418) and its damage flags. Vtable slots read from the exe: DefaultGameObject 0x005a2bf0 has vt+0x110
+/// true, BuildingObject 0x005aeeb8 vt+0x114 true; trees 0x005a2e60, kegs 0x005a4300 neither.
+#[derive(Component, Clone, Copy, PartialEq, Debug)]
+pub enum AimClass {
+    /// vt+0x110: on when takes_damage (+0x4d0 bit 0, game_03.cpp:508)
+    Default { takes_damage: bool },
+    /// vt+0x114: with takes_damage (+0x460 0x1000), for weapons 0 / 2 (machine gun, rifle) takes_bullet_damage
+    /// (0x2000), for the other weapons always
+    Building { takes_damage: bool, takes_bullet: bool },
+    /// class 0x91 twiglet_generator, 0x37 pub, 0x4e stig_mgun_turret, 0x4f forge_cannon: never on
+    Never,
+    /// class 0x35 peasant: never on, but friendly (+0x394)
+    Peasant,
+    /// every other class (trees, kegs, rocket tower turrets, ...): on
+    Other,
+}
+
+impl AimClass {
+    pub fn of(p: &crate::gamedata::Props) -> Self {
+        match p.s("behavior").unwrap_or("") {
+            // no behaviour: DefaultGameObject_Load 0x0044fd20 (takes_damage default 0)
+            "" => AimClass::Default { takes_damage: p.f("takes_damage", 0.0) != 0.0 },
+            // BuildingObject 0x0040ad80 (ai_01.cpp:961: takes_damage default 1, takes_bullet_damage 0)
+            "building" => AimClass::Building { takes_damage: p.f("takes_damage", 1.0) != 0.0, takes_bullet: p.f("takes_bullet_damage", 0.0) != 0.0 },
+            "twiglet_generator" | "pub" | "stig_mgun_turret" | "forge_cannon" => AimClass::Never,
+            "peasant" => AimClass::Peasant,
+            _ => AimClass::Other,
+        }
+    }
+
+    /// `gun`: the weapon is 0 or 2 (the machine gun or the rifle: both of the player's guns in lev_1_m1)
+    fn on(self, gun: bool) -> bool {
+        match self {
+            AimClass::Default { takes_damage } => takes_damage,
+            AimClass::Building { takes_damage, takes_bullet } => takes_damage && (takes_bullet || !gun),
+            AimClass::Never | AimClass::Peasant => false,
+            AimClass::Other => true,
+        }
+    }
+}
+
+/// A crosshair part whose vertices follow its skin's bones: per vertex the layout position, the bone (lower case)
+/// and that bone's bind position; the mesh is rewritten when the pose changes.
+#[derive(Component)]
+pub struct CrossPart {
+    element: String,
+    mesh: Handle<Mesh>,
+    verts: Vec<(Vec2, Option<String>, Vec2)>,
+    applied: Option<(bool, f32)>,
+}
+
+/// Per layout part of a crosshair model, per vertex: its bone (lower case) and that bone's bind position (x, y), from
+/// models/<model>.json / .bin (joints: u16 x 4 per vertex, all weight on the first) and skeletons/<model>.json
+/// (bind = inverse of the inverse bind matrix). ui_crosshair: Box01..04 = the left, top, right, bottom arm (bind
+/// +-1). Parts exported without blend data are rigid on their skin mesh's one bone (the big05_skin mesh bone lists):
+/// ui_mg_crosshair's red corners Circle01..04 on "target", the blue ring m_center on "center".
+fn cross_bones(dir: &Path, model: &str) -> Vec<Vec<(Option<String>, Vec2)>> {
+    #[derive(Deserialize)]
+    struct SkBone {
+        name: String,
+    }
+    #[derive(Deserialize)]
+    struct Sk {
+        bones: Vec<SkBone>,
+        inverse_bind: Vec<[f32; 16]>,
+    }
+    #[derive(Deserialize)]
+    struct Sub {
+        vertices: usize,
+        #[serde(default)]
+        joints: Option<usize>,
+    }
+    #[derive(Deserialize)]
+    struct Md {
+        submeshes: Vec<Sub>,
+    }
+    let json = |sub: &str, ext: &str| std::fs::read_to_string(dir.join(sub).join(format!("{model}.{ext}"))).ok();
+    let (Some(sk), Some(md)) = (
+        json("skeletons", "json").and_then(|t| serde_json::from_str::<Sk>(&t).ok()),
+        json("models", "json").and_then(|t| serde_json::from_str::<Md>(&t).ok()),
+    ) else {
+        return Vec::new();
+    };
+    let bin = std::fs::read(dir.join("models").join(format!("{model}.bin"))).unwrap_or_default();
+    let bone = |i: usize| -> (Option<String>, Vec2) {
+        let bind = sk.inverse_bind.get(i).map(|m| Mat4::from_cols_array(m).inverse().w_axis.truncate().truncate()).unwrap_or(Vec2::ZERO);
+        (sk.bones.get(i).map(|b| b.name.to_lowercase()), bind)
+    };
+    md.submeshes
+        .iter()
+        .enumerate()
+        .map(|(si, sm)| match sm.joints {
+            Some(off) => (0..sm.vertices)
+                .map(|v| bin.get(off + v * 8..off + v * 8 + 2).map(|b| bone(u16::from_le_bytes([b[0], b[1]]) as usize)).unwrap_or((None, Vec2::ZERO)))
+                .collect(),
+            None => {
+                let name = match (model, si) {
+                    ("ui_mg_crosshair", 0..=3) => "target",
+                    ("ui_mg_crosshair", _) => "center",
+                    _ => "",
+                };
+                let b = sk.bones.iter().position(|b| b.name.eq_ignore_ascii_case(name)).map(bone).unwrap_or((None, Vec2::ZERO));
+                vec![b; sm.vertices]
+            }
+        })
+        .collect()
+}
+
+enum AimHit {
+    Object(Option<Entity>, oxijolt::prelude::BodyId),
+    Grunt(Entity),
+    Friend(Entity),
+}
+
+/// Hud_UpdateCrosshair 0x00406f50's aim ray and state (ui_01.cpp:519-588): from the camera (20 ahead unless the
+/// camera is zooming, 0x0040fba0 = camera +0x6c), along its direction, as long as the current weapon's range
+/// (Game+0x28b8 + index * 0x150: machinegun_range / rifle_range), against list World+0xe9c (every collidable object
+/// and every AI, ignoring the player: 0x00413d40) at detail level 2 (characters by their collision parts). The hit
+/// object decides word +0x392 (on target) and byte +0x394 (friendly); Hud_ProjectMarkers then plays the anims.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+fn crosshair_aim(
+    mut xhair: ResMut<Crosshair>,
+    state: Res<HudState>,
+    physics: NonSend<crate::physics::Physics>,
+    data: Res<crate::gamedata::GameData>,
+    cam: Query<&GlobalTransform, With<crate::player::FollowCam>>,
+    roman: Query<(Entity, &crate::player::Roman)>,
+    grunts: Query<(Entity, &crate::physics::Body, &GlobalTransform, Option<&crate::skin::Animator>), With<crate::ai::Grunt>>,
+    companions: Query<(Entity, &crate::ai::Companion, &GlobalTransform, Option<&crate::skin::Animator>)>,
+    classes: Query<&AimClass>,
+    placed: Query<(Entity, &crate::level::Placed)>,
+    joints: Query<&GlobalTransform>,
+    hulls: Option<Res<crate::hitparts::HitHulls>>,
+    binds: Res<Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>,
+) {
+    let Ok(c) = cam.single() else { return };
+    let (eye, dir) = (c.translation(), c.forward().as_vec3());
+    let (roman_e, zoomed) = roman.single().map(|(e, r)| (Some(e), r.zoom > 0.0)).unwrap_or((None, false));
+    let start = if zoomed { eye } else { eye + dir * 20.0 };
+    let gun_mg = state.weapon == "machinegun";
+    let g = data.props("p_globalsettings");
+    let range = g.f(if gun_mg { "machinegun_range" } else { "rifle_range" }, 10.0);
+    let end = start + dir * range;
+    let mut best: Option<(f32, AimHit)> = None;
+    // the level and the objects: the physics ray, through Roman and the grunts' capsules (their parts are below)
+    let grunt_bodies: std::collections::HashSet<_> = grunts.iter().map(|g| g.1.id).collect();
+    let (mut from, mut left) = (start, range);
+    while left > 0.0 {
+        let Some((b, at, _)) = physics.raycast(from, dir, left) else { break };
+        let e = physics.bodies.get(&b).copied();
+        if grunt_bodies.contains(&b) || (e.is_some() && e == roman_e) {
+            left -= at.distance(from) + 0.05;
+            from = at + dir * 0.05;
+            continue;
+        }
+        best = Some((at.distance(start), AimHit::Object(e, b)));
+        break;
+    }
+    // the AIs (Ai_InitGeneric 0x004247f0 puts every AI in +0xe9c): their collision parts posed by the skeleton
+    if let Some(h) = hulls.as_ref() {
+        let near = |p: Vec3| (start + dir * (p - start).dot(dir).clamp(0.0, range)).distance(p) < 15.0;
+        let mut test = |parts: &[crate::hitparts::Hull], a: &crate::skin::Animator, hit: AimHit| {
+            if parts.is_empty() {
+                return;
+            }
+            if let Some((f, _)) = crate::hitparts::hit(parts, a, &joints, &binds, start, end) {
+                let d = f * range;
+                if best.as_ref().is_none_or(|(bd, _)| d < *bd) {
+                    best = Some((d, hit));
+                }
+            }
+        };
+        for (e, _, t, a) in &grunts {
+            if let Some(a) = a.filter(|_| near(t.translation() + Vec3::Y * 5.0)) {
+                test(&h.grunt, a, AimHit::Grunt(e));
+            }
+        }
+        for (e, c, t, a) in &companions {
+            if let Some(a) = a.filter(|_| near(t.translation() + Vec3::Y * 5.0)) {
+                test(if c.q { &h.q111 } else { &h.molmer }, a, AimHit::Friend(e));
+            }
+        }
+    }
+    // +0x392: an AI is a target (its class is none of the five excluded); +0x394: an AI teammate (vt+0x10c and
+    // vt+0xe4: Q111Object 0x005a6df8, MolmerObject 0x005ae5f8; grunts 0x005a9cf0 have vt+0xe4 false)
+    let (on, friendly, object) = match best.as_ref().map(|b| &b.1) {
+        Some(AimHit::Grunt(e)) => (true, false, Some(*e)),
+        Some(AimHit::Friend(e)) => (true, true, Some(*e)),
+        Some(AimHit::Object(e, b)) => {
+            let e = e.or_else(|| placed.iter().find(|(_, p)| p.collider == Some(*b)).map(|(e, _)| e));
+            let class = e.and_then(|e| classes.get(e).ok().copied());
+            (class.is_some_and(|c| c.on(true)), class == Some(AimClass::Peasant), e)
+        }
+        None => (false, false, None),
+    };
+    if std::env::var("CROSSDBG").is_ok() && (on != xhair.on || friendly != xhair.friendly || object != xhair.object) {
+        let what = match best.as_ref().map(|b| &b.1) {
+            Some(AimHit::Grunt(_)) => "grunt".to_owned(),
+            Some(AimHit::Friend(e)) => format!("companion q={}", companions.get(*e).is_ok_and(|c| c.1.q)),
+            Some(AimHit::Object(..)) => object.and_then(|e| placed.get(e).ok()).map_or("level".to_owned(), |p| p.1.template.clone()),
+            None => "nothing".to_owned(),
+        };
+        info!("CROSSDBG on {on} friendly {friendly} {what} at {:.1}", best.as_ref().map_or(-1.0, |b| b.0));
+    }
+    xhair.on = on;
+    xhair.friendly = friendly;
+    xhair.object = object;
+    xhair.point = Some(start + dir * best.as_ref().map_or(range, |b| b.0));
+    // Hud_ProjectMarkers 0x00406840: a weapon change sets +0x390 = 2 (0x004a16b0, game_09.cpp:1758); with 2 every crosshair plays
+    // `_out`, then a state change plays the current one's `_in` (on) or `_out` (off) from its start
+    if xhair.weapon != state.weapon {
+        xhair.weapon = state.weapon;
+        xhair.shown = 2;
+    }
+    if state.visible && !state.cinematic {
+        if xhair.shown == 2 {
+            for n in CROSSHAIRS {
+                xhair.anims.insert((*n).to_owned(), (false, 0.0));
+            }
+        }
+        let s = on as u8;
+        if s != xhair.shown {
+            let cur = if gun_mg { "ui_mg_crosshair" } else { "ui_crosshair" };
+            xhair.anims.insert(cur.to_owned(), (on, 0.0));
+            xhair.shown = s;
+        }
+    }
+}
+
+/// Poses the crosshair parts by their anim (`<element>_in` / `_out`), bone translation minus its bind position.
+fn crosshair_pose(time: Res<Time>, mut xhair: ResMut<Crosshair>, lib: Option<ResMut<crate::skin::AnimLibrary>>, mut parts: Query<&mut CrossPart>, mut meshes: ResMut<Assets<Mesh>>) {
+    let Some(mut lib) = lib else { return };
+    let dt = time.delta_secs();
+    for (_, t) in xhair.anims.values_mut() {
+        *t += dt;
+    }
+    for mut p in &mut parts {
+        let Some(&(on, t)) = xhair.anims.get(&p.element) else { continue };
+        let Some(anim) = lib.anim(&format!("{}_{}", p.element, if on { "in" } else { "out" })) else { continue };
+        let t = t.min(anim.duration);
+        if p.applied == Some((on, t)) {
+            continue;
+        }
+        p.applied = Some((on, t));
+        let pos: Vec<[f32; 3]> = p
+            .verts
+            .iter()
+            .map(|(v, bone, bind)| {
+                let o = bone.as_ref().and_then(|b| anim.translation(b, t)).map(|a| a.truncate() - *bind).unwrap_or(Vec2::ZERO);
+                [v.x + o.x, v.y + o.y, 0.0]
+            })
+            .collect();
+        if let Some(mut m) = meshes.get_mut(&p.mesh) {
+            m.insert_attribute(Mesh::ATTRIBUTE_POSITION, pos);
+        }
     }
 }

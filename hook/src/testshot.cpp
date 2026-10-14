@@ -310,6 +310,24 @@ static void TestDumpCamera(unsigned frame)
         fprintf(out, ", \"player\": [%.7g, %.7g, %.7g]", pos[0], pos[1], pos[2]);
         // its health (+0x454, as every damageable object's: Object_TakeDamage 0x004555e0)
         fprintf(out, ", \"player_health\": %.7g", *reinterpret_cast<const float*>(reinterpret_cast<const uint8_t*>(player) + 0x454));
+        // the companions the player holds (+0xad0 Jonesy, +0xad4 Q: 0x0047afa0 ai_07.cpp:3924): position and health
+        // (+0x454), null when gone
+        fprintf(out, ", \"companions\": [");
+        for (int i = 0; i < 2; ++i)
+        {
+            void* c = *reinterpret_cast<void* const*>(reinterpret_cast<const uint8_t*>(player) + 0xad0 + 4 * i);
+            if (i)
+                fprintf(out, ", ");
+            if (!c)
+            {
+                fprintf(out, "null");
+                continue;
+            }
+            float cp[4] = {};
+            reinterpret_cast<GetPos>((*reinterpret_cast<void***>(c))[0x54 / 4])(c, cp);
+            fprintf(out, "[%.7g, %.7g, %.7g, %.7g]", cp[0], cp[1], cp[2], *reinterpret_cast<const float*>(reinterpret_cast<const uint8_t*>(c) + 0x454));
+        }
+        fprintf(out, "]");
         // the mission's shooter limit (Game+0xc50, ai_max_fire: grunts beyond it fire fake bullets, ai_02.cpp:1217)
         // its "ref_hit_00" point (0x00428280: where the AI aim and look), for aim comparisons
         float hp[4] = {};

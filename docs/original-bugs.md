@@ -132,3 +132,9 @@ Defects found in the original game. Reproduced faithfully and not fixed before M
 | Memory taken from the allocator hook after the parent arena fails is still freed to the parent ("couldn't free block") | 0x004e1e90 / 0x004e1f70 | Disassembly | Faithful |
 | Look-at with a zero-length forward vector, and 0x44 bytes of a local block, read uninitialised | 0x004e2eb0 / 0x004e3070, 0x00453b90 | Disassembly | **Deviation:** locals zeroed |
 | Pub screen state 6 keeps scale z = 1.0 (3, 3, 1) while state 1 sets (3, 3, 3) | PubScreen_HandleInput 0x004695d0 | Disassembly | Faithful (src/engine/missing_01.cpp) |
+
+## (Recovery slip, not an original bug) LevelProperties_Load zeroed pickup_drop_factor
+
+src/renderer/render_r6.cpp (0x00423900, at 0x423e05) set Game+0xc60 = 0 unconditionally after the < 0.01 test, so with
+the recovered function active grunts never dropped pickups (chance 1 - (1 - p)^0). Ghidra (work/decomp/0x00423900.c)
+has only the conditional store. Fixed 2026-10-14.

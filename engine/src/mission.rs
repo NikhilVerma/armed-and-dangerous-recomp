@@ -49,6 +49,9 @@ struct InstanceDef {
     model: Option<String>,
     #[serde(default)]
     resolved: Map<String, Value>,
+    /// the placement's own values (a sound_ear's line counts only when the placement sets it: 0x004533a0 returns 1)
+    #[serde(default)]
+    props: Map<String, Value>,
     #[serde(default)]
     volume: Option<Map<String, Value>>,
 }
@@ -75,12 +78,17 @@ struct MissionInst {
 #[derive(Clone, Debug)]
 enum Action {
     WakeAi(u32),
-    ShowText(String),
+    /// the text, and whether the same ui_ear marked an objective on this trigger (objective_trigger_receive_0N with a
+    /// non-zero objective_tag_0N: 0x0046afa0 then requests the victory music, 0x0044f560 cl = 1)
+    ShowText(String, bool),
     Compass(i64),
-    /// a sound_ear's line; it removes itself after playing unless `reapeat` (sic) is set (0x00497900)
-    Voice { ear: u32, repeat: bool, q: Option<String>, jonesy: Option<String>, roman: Option<String> },
+    /// a sound_ear's line (SoundEar 0x00497750 / 0x00497900): the placement's q_sound / jonsey_sound / roman_sound
+    /// (ai_sound + ai_tag: no lev_1_m1 ear has one, not ported), max_distance; it removes itself after playing unless
+    /// `reapeat` (sic) is set
+    Voice { ear: u32, repeat: bool, max_distance: f32, q: Option<String>, jonesy: Option<String>, roman: Option<String> },
     Fx(String, Vec3),
-    Barracks(u32),
+    /// (the barracks match the trigger ids themselves in dispatch, 0x0040d1b0; kept for the receiver count)
+    Barracks(#[allow(dead_code)] u32),
     Destroy(u32),
     EnableSite(u32),
     Win,
@@ -113,15 +121,55 @@ struct Site {
     done: bool,
 }
 
+/// A troop generator (TwigletGenerator / BarricadeObject, set-up 0x0040ad80, update 0x0040cb10, release 0x0040c910,
+/// triggers 0x0040d1b0; docs/subsystems/mission.md "Barracks troop release").
 struct Barracks {
     id: u32,
-    pos: Vec3,
-    left: i64,
-    amount: i64,
+    /// the troops still to release by type (+0x53c: bow, regular, jumper captain, captain, rocket captain, monk) and
+    /// the counts as loaded (+0x554, the reset trigger's refill)
+    counts: [i64; 6],
+    initial: [i64; 6],
+    /// the batch still to come (+0x59c), release_amount (+0x598), release_count (+0x594)
+    batch: u32,
+    amount: u32,
+    count: u32,
+    /// the release delay +0x574, rolled in release_time_min..max (+0x578 / +0x57c)
     timer: f32,
     release: (f32, f32),
+    /// +0x460 bit 3: releasing
     active: bool,
+    /// receive_trigger_activate (+0x534; cleared once used, 0x0040d1b0), deactivate (+0x538), trigger_reset (+0x5a4)
+    activate: i64,
+    deactivate: i64,
+    reset: i64,
+    /// alert_group (+0x530), marker_tag_min/max (+0x580 / +0x584): handed to every troop (0x0042db50)
+    alert_group: i64,
+    marker_tags: (i64, i64),
+    /// the exit slot's "ref_spawn_00" and "ref_exit_00" points (engine space); none: no exit slot, no troops
+    spawn: Option<(Vec3, Vec3)>,
+    /// health when last seen: damage while `activate` is set starts the release (BarricadeObject_Slot52 0x0040ce40)
+    health: Option<f32>,
+    /// a troop asked for and not yet spawned (the original creates it at once and it joins the list +0x5a0 there;
+    /// here the spawn is a message handled a frame later: it counts as alive and walking out meanwhile)
+    pending: bool,
 }
+
+impl Barracks {
+    fn left(&self) -> i64 {
+        self.counts.iter().sum()
+    }
+    /// the troop type with the most remaining, the first of equals (0x0040c910)
+    fn most(&self) -> usize {
+        (1..6).fold(0, |best, k| if self.counts[k] > self.counts[best] { k } else { best })
+    }
+}
+
+/// A troop released by barracks `0` (counted in its list +0x5a0 while alive).
+#[derive(Component)]
+pub struct BarracksTroop(pub u32);
+
+/// The troop templates by type (0x0040c590's table: 0 "grunt", 1 "grunt_regular", 2..4 "captain", 5 "monk").
+const TROOP_TEMPLATES: [&str; 6] = ["grunt", "grunt_regular", "captain", "captain", "captain", "monk"];
 
 /// A reference bone of a model (its reference anim's first key: anims/<model>.json), in the model's game space.
 pub(crate) fn pub_bone(dir: &std::path::Path, model: &str, bone: &str) -> Option<Vec3> {
@@ -185,6 +233,8 @@ pub struct Mission {
     pub next_level: Option<String>,
     pub failure_text: Option<String>,
     started: bool,
+    /// send_trigger_start sent (the first update)
+    start_sent: bool,
     /// paused messages waiting for "continue", and the one shown
     queue: Vec<(f32, String)>,
     pub showing: Option<String>,
@@ -254,7 +304,7 @@ impl Mission {
         MissionSave {
             triggers_done: self.triggers.iter().filter(|t| t.done).map(|t| t.id).collect(),
             sites: self.sites.iter().map(|s| (s.id, s.enabled, s.done || s.armed.is_some())).collect(),
-            barracks: self.barracks.iter().map(|b| (b.id, b.active, b.left)).collect(),
+            barracks: self.barracks.iter().map(|b| (b.id, b.active, b.left())).collect(),
             pub_done: self.pub_done,
             pub_pool: self.pub_info.as_ref().map(|p| p.pool),
             compass_tag: self.compass_tag,
@@ -281,7 +331,11 @@ impl Mission {
         for b in &mut self.barracks {
             if let Some(&(_, active, left)) = s.barracks.iter().find(|x| x.0 == b.id) {
                 b.active = active;
-                b.left = left;
+                // the save keeps the total: take the rest off the types with the most remaining (0x0040c910's order)
+                while b.left() > left.max(0) {
+                    let t = b.most();
+                    b.counts[t] -= 1;
+                }
             }
         }
         self.pub_done = s.pub_done;
@@ -294,6 +348,7 @@ impl Mission {
         self.objectives_raw = s.objectives_raw.clone();
         self.ears_done = s.ears_done.iter().copied().collect();
         self.started = true;
+        self.start_sent = true;
         self.start_text = None;
         self.queue.clear();
         self.showing = None;
@@ -342,20 +397,26 @@ impl Mission {
             let a = if action.starts_with("AI wakes up") {
                 Action::WakeAi(to)
             } else if action.starts_with("show text_display") {
+                let r = inst.get(&to).map(|i| &i.resolved);
+                let objective = r.is_some_and(|r| {
+                    (1..=5).any(|k| n(r, &format!("objective_trigger_receive_{k:02}")) as i64 == e.trigger && n(r, &format!("objective_tag_{k:02}")) != 0.0)
+                });
                 match s(&d, "text_id") {
-                    Some(t) => Action::ShowText(t),
+                    Some(t) => Action::ShowText(t, objective),
                     None => continue,
                 }
             } else if action.starts_with("compass target") {
                 Action::Compass(d.get("objective_tag").and_then(|v| v.as_i64()).unwrap_or(0))
             } else if action.starts_with("play one voice line") {
                 let r = inst.get(&to).map(|i| &i.resolved);
+                let placed = |k: &str| inst.get(&to).and_then(|i| i.props.get(k)).and_then(|v| v.as_str()).map(str::to_owned);
                 Action::Voice {
                     ear: to as u32,
                     repeat: r.and_then(|r| r.get("reapeat")).and_then(|v| v.as_f64()).unwrap_or(0.0) != 0.0,
-                    q: r.and_then(|r| s(r, "q_sound")),
-                    jonesy: r.and_then(|r| s(r, "jonsey_sound")),
-                    roman: r.and_then(|r| s(r, "roman_sound")),
+                    max_distance: r.and_then(|r| r.get("max_distance")).and_then(|v| v.as_f64()).unwrap_or(300.0) as f32,
+                    q: placed("q_sound"),
+                    jonesy: placed("jonsey_sound"),
+                    roman: placed("roman_sound"),
                 }
             } else if action.starts_with("toggle the fx") {
                 match (s(&d, "fx_name"), inst.get(&to).and_then(|i| i.position)) {
@@ -377,6 +438,8 @@ impl Mission {
         }
         let mut sites = Vec::new();
         let mut barracks = Vec::new();
+        // the set-up's rand() (0x0040ad80: the first release delay)
+        let mut crt = crate::fxvm::CrtRand::default();
         let mut pub_pos = None;
         let mut pub_info = None;
         let mut pub_exit_pos = None;
@@ -426,15 +489,42 @@ impl Mission {
                         bar_rate: n(r, "health_bar_rate").max(1.0) as f32,
                     });
                 }
-                t if t.starts_with("grunt_barracks") => barracks.push(Barracks {
-                    id: i.id,
-                    pos,
-                    left: (n(r, "num_regular") + n(r, "num_bow") + n(r, "num_captain")) as i64,
-                    amount: n(r, "release_amount").max(1.0) as i64,
-                    timer: 0.0,
-                    release: (n(r, "release_time_min").max(0.2) as f32, n(r, "release_time_max").max(0.5) as f32),
-                    active: false,
-                }),
+                t if t.starts_with("grunt_barracks") => {
+                    // 0x0040ad80: the slots from the model's matrices; a barracks with an exit slot ("ref_exit_0%d")
+                    // releases troops created at "ref_spawn_0%d" (lev_1_m1's mini barracks have one of each)
+                    let spawn = i.model.as_ref().zip(i.transform.as_ref()).and_then(|(model, t)| {
+                        let m = crate::scene::game_matrix(t);
+                        let w = |b: &str| pub_bone(dir, model, b).map(|l| game_to_engine() * m.transform_point3(l));
+                        w("ref_spawn_00").zip(w("ref_exit_00"))
+                    });
+                    let counts = ["num_bow", "num_regular", "num_jumper_captain", "num_captain", "num_rocket_captain", "num_monk"].map(|k| n(r, k) as i64);
+                    // release times: defaults 1 / 2, also when either is <= 0 ("%s has bad release times, setting
+                    // defaults"); the first delay is rolled at set-up
+                    let (mut lo, mut hi) = (r.get("release_time_min").and_then(|v| v.as_f64()).unwrap_or(1.0) as f32, r.get("release_time_max").and_then(|v| v.as_f64()).unwrap_or(2.0) as f32);
+                    if lo <= 0.0 || hi <= 0.0 {
+                        (lo, hi) = (1.0, 2.0);
+                    }
+                    let int = |k: &str, d: i64| r.get(k).and_then(|v| v.as_f64()).map(|v| v as i64).unwrap_or(d);
+                    barracks.push(Barracks {
+                        id: i.id,
+                        counts,
+                        initial: counts,
+                        batch: 0,
+                        amount: int("release_amount", 3) as u32,
+                        count: int("release_count", 0) as u32,
+                        timer: crt.r(lo, hi),
+                        release: (lo, hi),
+                        active: false,
+                        activate: n(r, "receive_trigger_activate") as i64,
+                        deactivate: n(r, "receive_trigger_deactivate") as i64,
+                        reset: n(r, "trigger_reset") as i64,
+                        alert_group: n(r, "alert_group") as i64,
+                        marker_tags: (n(r, "marker_tag_min") as i64, n(r, "marker_tag_max") as i64),
+                        spawn,
+                        health: None,
+                        pending: false,
+                    })
+                }
                 _ => {}
             }
         }
@@ -462,6 +552,7 @@ impl Mission {
             failure_text: s(m, "failure_text").and_then(|t| f.text.get(&t).cloned()),
             texts: f.text,
             started: false,
+            start_sent: false,
             queue: Vec::new(),
             showing: None,
             tickers: 0,
@@ -522,8 +613,8 @@ fn deaths(mut m: Option<ResMut<Mission>>, mut died: MessageReader<crate::fx::Die
         // a destroyed barracks releases no more troops (the building is replaced by its husk)
         if let Ok(i) = ids.get(d.0) {
             let mut stopped = false;
-            for b in m.barracks.iter_mut().filter(|b| b.id == i.0 && (b.left > 0 || b.active)) {
-                b.left = 0;
+            for b in m.barracks.iter_mut().filter(|b| b.id == i.0 && (b.left() > 0 || b.active)) {
+                b.counts = [0; 6];
                 b.active = false;
                 stopped = true;
             }
@@ -552,16 +643,20 @@ fn start(mut m: Option<ResMut<Mission>>, mut out: MessageWriter<SendTrigger>, pa
     if m.started {
         return;
     }
-    // MissionObject_ShowStart: once no camera path is active (it starts on the first frames)
+    // MissionObject_Update 0x0044db80: send_trigger_start is the pending trigger +0x460, sent on its first update
+    if !m.start_sent {
+        m.start_sent = true;
+        if m.start_trigger != 0 {
+            out.write(SendTrigger(m.start_trigger));
+        }
+    }
+    // MissionObject_ShowStart 0x0044daf0: once no camera path is active (it starts on the first frames), the start
+    // text as a paused message
     *waited += time.delta_secs();
     if path.active() || *waited < 0.3 {
         return;
     }
     m.started = true;
-    // MissionObject_Update: the first frame sends send_trigger_start; the start text then shows as a paused message
-    if m.start_trigger != 0 {
-        out.write(SendTrigger(m.start_trigger));
-    }
     if let Some(t) = m.start_text.clone() {
         m.objectives = long_form(&t);
         m.objectives_raw = t.clone();
@@ -650,6 +745,7 @@ fn sites(
                     delay: 0.0,
                     // planted by the player (guess: the ticker's damage record is not traced)
                     by: crate::fx::Src::Player,
+                    cartoon: false,
                 });
                 fx.write(StartFx { name: "fx_ticker_bomb".into(), at: s.pos, rotation: Quat::IDENTITY, follow: None, position_only: false });
                 if s.explode != 0 {
@@ -744,26 +840,75 @@ fn pub_door(ctl: Res<crate::input::Controls>, bot: Res<crate::playtest::Bot>, mu
     }
 }
 
-/// Barracks release their troops (num_* grunts, release_amount at a time every release_time_min..max).
-fn barracks(time: Res<Time>, mut m: Option<ResMut<Mission>>, mut rng: ResMut<crate::fx::FxStats>, mut spawn: MessageWriter<crate::level::SpawnGrunt>) {
+/// Barracks release their troops: the generator update 0x0040cb10 (its non-window branch) and the release 0x0040c910.
+/// While releasing (+0x460 bit 3): with no batch under way (+0x59c == 0) and at least release_count troops of its list
+/// alive the delay is re-rolled (it waits); otherwise it counts down, and a new batch of release_amount starts when
+/// fewer than release_count are alive. When the delay runs out one troop of the type with the most remaining comes
+/// out of the first free exit slot (created at "ref_spawn_0%d", walking out to "ref_exit_0%d", then to its marker),
+/// the batch drops by one, and the delay is re-rolled; none left: it stops (bit 3 cleared). Damage while the
+/// activate trigger is still armed starts it too (0x0040ce40). release_max (+0x590) is read but not used here.
+fn barracks(
+    time: Res<Time>,
+    mut m: Option<ResMut<Mission>>,
+    mut crt: Local<crate::fxvm::CrtRand>,
+    troops: Query<(&BarracksTroop, &Grunt)>,
+    objects: Query<(&InstanceId, &Destructible)>,
+    mut spawn: MessageWriter<crate::level::SpawnGrunt>,
+) {
     let Some(m) = m.as_deref_mut() else { return };
     let dt = time.delta_secs();
     let mut logs = Vec::new();
     for b in &mut m.barracks {
-        if !b.active || b.left <= 0 {
+        if let Some(h) = objects.iter().find(|(i, _)| i.0 == b.id).map(|(_, d)| d.health) {
+            if b.activate != 0 && b.health.is_some_and(|o| h < o) {
+                b.active = true;
+                logs.push(format!("barracks {} damaged: releasing", b.id));
+            }
+            b.health = Some(h);
+        }
+        if !b.active {
             continue;
         }
-        b.timer -= dt;
+        // the list +0x5a0: its released troops still alive (guess: a dead troop leaves the list)
+        if b.pending && troops.iter().any(|(t, g)| t.0 == b.id && g.exit.is_some()) {
+            b.pending = false;
+        }
+        let alive = troops.iter().filter(|(t, g)| t.0 == b.id && g.mind != Mind::Dead).count() as u32 + b.pending as u32;
+        if b.batch == 0 && alive >= b.count {
+            b.timer = crt.r(b.release.0, b.release.1);
+        } else {
+            b.timer -= dt;
+        }
+        if b.batch == 0 && alive < b.count {
+            b.batch = b.amount;
+        }
         if b.timer > 0.0 {
             continue;
         }
-        b.timer = rng.range(b.release.0, b.release.1);
-        for _ in 0..b.amount.min(b.left) {
-            let at = b.pos + Vec3::new(rng.range(-12.0, 12.0), 2.0, rng.range(-12.0, 12.0));
-            spawn.write(crate::level::SpawnGrunt { at, template: "grunt_regular".into(), alarm: false });
-            b.left -= 1;
+        let ty = b.most();
+        if b.counts[ty] <= 0 {
+            b.active = false;
+            logs.push(format!("barracks {} empty: stops", b.id));
+            continue;
         }
-        logs.push(format!("barracks {} released troops ({} left)", b.id, b.left));
+        // the first free exit slot: taken while a troop walks out through it (guess at when it is freed)
+        let busy = b.pending || troops.iter().any(|(t, g)| t.0 == b.id && g.exit.is_some() && g.mind != Mind::Dead);
+        if let (Some((at, exit)), false) = (b.spawn, busy) {
+            spawn.write(crate::level::SpawnGrunt {
+                at,
+                template: TROOP_TEMPLATES[ty].into(),
+                alarm: false,
+                barracks: Some(b.id),
+                exit: Some(exit),
+                marker_tags: (b.marker_tags.0 != 0).then_some(b.marker_tags),
+                alert_group: b.alert_group,
+            });
+            b.batch = b.batch.wrapping_sub(1);
+            b.pending = true;
+            b.counts[ty] -= 1;
+            logs.push(format!("barracks {} released a {} ({} left, {} of its troops were alive, batch {})", b.id, TROOP_TEMPLATES[ty], b.left(), alive, b.batch));
+        }
+        b.timer = crt.r(b.release.0, b.release.1);
     }
     m.log.extend(logs);
 }
@@ -777,18 +922,42 @@ fn dispatch(
     plain: Query<(Entity, &InstanceId, Option<&crate::level::Placed>), (Without<Destructible>, Without<Grunt>)>,
     mut physics: NonSendMut<crate::physics::Physics>,
     mut commands: Commands,
-    player: Query<Entity, With<Player>>,
+    player: Query<(Entity, &GlobalTransform), With<Player>>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     mut fx: MessageWriter<StartFx>,
     mut rng: ResMut<crate::fx::FxStats>,
     mut ms: ResMut<crate::stats::MissionStats>,
     mut stop: MessageWriter<crate::audio::StopSound>,
+    companions: Query<(Entity, &crate::ai::Companion, &GlobalTransform)>,
+    mut music: ResMut<crate::gameaudio::Music>,
 ) {
     let Some(m) = m.as_deref_mut() else { return };
-    let pe = player.single().ok();
+    let pe = player.single().ok().map(|p| p.0);
+    let pt = player.single().ok().map(|p| p.1.translation());
     for SendTrigger(t) in events.read() {
         let actions = m.receivers.get(t).cloned().unwrap_or_default();
         m.log.push(format!("trigger {t}: {} receivers", actions.len()));
+        // the barracks' trigger handler 0x0040d1b0: activate starts the release and is used up (+0x534 = 0),
+        // deactivate stops it, reset starts it with the troop counts refilled
+        let mut blogs = Vec::new();
+        for b in &mut m.barracks {
+            if *t == 0 {
+                break;
+            }
+            if *t == b.activate {
+                b.active = true;
+                b.activate = 0;
+                blogs.push(format!("barracks {} activated", b.id));
+            } else if *t == b.deactivate {
+                b.active = false;
+                blogs.push(format!("barracks {} deactivated", b.id));
+            } else if *t == b.reset {
+                b.active = true;
+                b.counts = b.initial;
+                blogs.push(format!("barracks {} reset", b.id));
+            }
+        }
+        m.log.extend(blogs);
         for a in actions {
             match a {
                 Action::WakeAi(id) => {
@@ -799,33 +968,100 @@ fn dispatch(
                         }
                     }
                 }
-                Action::ShowText(t) => {
+                Action::ShowText(t, objective) => {
+                    // the objective jingle: the victory music request (0x0046afa0 -> 0x0044f560, cl = 1)
+                    if objective {
+                        music.request_victory(true);
+                        m.log.push("music: victory request (objective)".into());
+                    }
                     let text = m.texts.get(&t).cloned().unwrap_or(t);
                     m.objectives = long_form(&text);
                     m.objectives_raw = text.clone();
                     m.message(&text, 1.0);
                 }
                 Action::Compass(tag) => m.compass_tag = tag,
-                Action::Voice { ear, repeat, q, jonesy, roman } => {
-                    if !repeat && !m.ears_done.insert(ear) {
+                Action::Voice { ear, repeat, max_distance, q, jonesy, roman } => {
+                    // a removed ear receives nothing
+                    if m.ears_done.contains(&ear) {
                         continue;
                     }
-                    let pick: Vec<String> = [q, jonesy, roman].into_iter().flatten().collect();
-                    if !pick.is_empty() {
-                        let i = (rng.rand() * pick.len() as f32) as usize % pick.len();
-                        sounds.write(crate::audio::PlaySound::ui(pick[i].clone()));
+                    let Some(pp) = pt else { continue };
+                    let r2 = max_distance * max_distance;
+                    // candidates (0x00497900): Roman's line always counts; Q (0x00475d40) and Jonesy (0x00475d30)
+                    // when present and alive, counted when nearer than max_distance (squared distances)
+                    let speaker = |want_q: bool| companions.iter().find(|(_, c, _)| c.q == want_q && c.dead.is_none()).map(|(e, _, t)| (e, t.translation().distance_squared(pp)));
+                    let me = roman.is_some();
+                    let mut count = u32::from(me);
+                    let (mut d1, mut d2, d3) = (1.0e8f32, 1.0e8f32, 1.0e8f32);
+                    let (mut t1, mut t2) = (None, None);
+                    let (mut near1, mut near2) = (false, false);
+                    if q.is_some() {
+                        if let Some((e, d)) = speaker(true) {
+                            t1 = Some(e);
+                            d1 = d;
+                            if d1 < r2 {
+                                count += 1;
+                                near1 = true;
+                            }
+                        }
+                    }
+                    if jonesy.is_some() {
+                        if let Some((e, d)) = speaker(false) {
+                            t2 = Some(e);
+                            d2 = d;
+                            if d2 < r2 {
+                                count += 1;
+                                near2 = true;
+                            }
+                        }
+                    }
+                    if count == 0 {
+                        // nobody at all: the ear removes itself (vt+0xdc, even with reapeat)
+                        if t1.is_none() && t2.is_none() {
+                            m.ears_done.insert(ear);
+                            m.log.push(format!("sound ear {ear}: no speaker, removed"));
+                            continue;
+                        }
+                        // else the nearest one
+                        if d1 < d2 && d1 < d3 {
+                            near1 = true;
+                        } else if d2 < d1 && d2 < d3 {
+                            near2 = true;
+                        }
+                        count = 1;
+                    }
+                    // (rand() * count) >> 15, the original's branches 0x00497bdc..0x00497cc3 literally
+                    let r15 = ((rng.rand() * 32768.0) as i32).min(32767);
+                    let pick = (r15 * count as i32) >> 15;
+                    let first = if near1 { 1 } else if near2 { 2 } else { 3 };
+                    let line = match pick {
+                        0 if me => 0,
+                        0 => first,
+                        1 if me => first,
+                        1 => if near1 && near2 { 2 } else { 3 },
+                        2 if me => if near1 && near2 { 2 } else { 3 },
+                        _ => 3,
+                    };
+                    // Roman's line in 2D (+0xd0); the others on the speaker (+0xc4, his audio position)
+                    let play = match line {
+                        0 => roman.map(crate::audio::PlaySound::ui),
+                        1 => q.zip(t1).map(|(n, e)| crate::audio::PlaySound { follow: Some(e), at: companions.get(e).ok().map(|c| c.2.translation()), ..crate::audio::PlaySound::ui(n) }),
+                        2 => jonesy.zip(t2).map(|(n, e)| crate::audio::PlaySound { follow: Some(e), at: companions.get(e).ok().map(|c| c.2.translation()), ..crate::audio::PlaySound::ui(n) }),
+                        _ => None,
+                    };
+                    if let Some(p) = play.filter(|p| p.name != "none") {
+                        m.log.push(format!("sound ear {ear}: {} ({})", p.name, if p.follow.is_some() { "on the speaker" } else { "2d" }));
+                        sounds.write(p);
+                    }
+                    if !repeat {
+                        m.ears_done.insert(ear);
                     }
                 }
                 Action::Fx(name, at) => {
                     fx.write(StartFx { name, at, rotation: Quat::IDENTITY, follow: None, position_only: false });
                 }
-                Action::Barracks(id) => {
-                    for b in &mut m.barracks {
-                        if b.id == id {
-                            b.active = true;
-                        }
-                    }
-                }
+                // handled above by the barracks' own trigger ids
+                Action::Barracks(_) => {}
                 Action::Destroy(id) => {
                     let mut killed = false;
                     for (i, mut d) in &mut objects {

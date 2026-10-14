@@ -14,6 +14,8 @@ use bevy::prelude::*;
 pub struct Pickup {
     pub health: f32,
     pub stickies: u32,
+    /// machine gun rounds (pickup_mgun_bullets num_ammo)
+    pub mg_ammo: u32,
     pub radius: f32,
     pub life: f32,
     pub vel: f32,
@@ -32,6 +34,8 @@ pub struct SpawnPickup {
     pub name: String,
     pub at: Vec3,
     pub vel: Vec3,
+    /// stays where it is made (a generator's pickup), no fall to the ground
+    pub hover: bool,
 }
 
 pub struct PickupPlugin;
@@ -39,7 +43,7 @@ pub struct PickupPlugin;
 impl Plugin for PickupPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<SpawnPickup>()
-            .add_systems(Update, (drop_on_death, spawn_pickups, collect, placed_pickups, placed_collect).run_if(crate::playing));
+            .add_systems(Update, (drop_on_death, generators, spawn_pickups, collect, placed_pickups, placed_collect).run_if(crate::playing));
     }
 }
 
@@ -58,9 +62,15 @@ fn drop_on_death(
     mut rng: ResMut<crate::fx::FxStats>,
     physics: NonSend<crate::physics::Physics>,
 ) {
-    let hurt = match (player.single(), roman.single()) {
-        (Ok(h), Ok(r)) => h.0 < r.max_health * 0.75,
-        _ => true,
+    // the pick (0x00475a90, weights from the level properties, LevelProperties_Load 0x00423900, defaults x 0.01):
+    // health pickup_health_weight_low 0.5 below pickup_low_health_thresh_pct 25 % health, else _normal 0.25; the
+    // current weapon's ammo pickup_cur_weapon_weight 0.5 (never for the rifle, weapon 2: it has no ammo to find);
+    // the first other weapon (not the rifle) pickup_noncur_weapon_weight 0.25; sticky bombs pickup_sticky_bomb_weight
+    // 0.25. x = rand x (sticky + cur + noncur + health): health below its weight, then the current weapon, the other
+    // one, else sticky bombs
+    let (ratio, mg_owned, mg_in_hand) = match (player.single(), roman.single()) {
+        (Ok(h), Ok(r)) => (h.0 / r.max_health.max(1.0), r.mg.is_some(), r.use_mg && r.mg.is_some()),
+        _ => (1.0, false, false),
     };
     for (e, g, t) in &grunts {
         if g.mind != Mind::Dead || !seen.insert(e) {
@@ -69,7 +79,19 @@ fn drop_on_death(
         if rng.rand() >= g.drop_percent / 100.0 {
             continue;
         }
-        let name = if hurt { "pickup_health_1" } else { "pickup_sticky_bombs" };
+        let hw = if ratio < 0.25 { 0.5 } else { 0.25 };
+        let (cur, sticky) = (0.5, 0.25);
+        let other = if mg_owned && !mg_in_hand { 0.25 } else { 0.0 };
+        let x = rng.rand() * (sticky + cur + other + hw);
+        let name = if x < hw {
+            "pickup_health_1"
+        } else if x < hw + cur && mg_in_hand {
+            "pickup_mgun_bullets"
+        } else if other > 0.0 && x < hw + cur + other {
+            "pickup_mgun_bullets"
+        } else {
+            "pickup_sticky_bombs"
+        };
         let Some(tpl) = data.templates.get(name) else { continue };
         let p = data.template_props(name);
         let at = t.translation() + Vec3::Y * 4.0;
@@ -82,6 +104,7 @@ fn drop_on_death(
                 Pickup {
                     health: p.f("num_health", 0.0),
                     stickies: p.f("num_ammo", 0.0) as u32 * (name == "pickup_sticky_bombs") as u32,
+                    mg_ammo: p.f("num_ammo", 0.0) as u32 * (name == "pickup_mgun_bullets") as u32,
                     radius: p.f("sphere_radius", 4.0) + 4.0,
                     life: p.f("linger_time", 300.0),
                     vel: p.f("upward_force", 70.0),
@@ -102,6 +125,48 @@ fn drop_on_death(
 }
 
 #[allow(clippy::too_many_arguments)]
+/// Pickup generators (PickupGenerator 0x00471b70 load, 0x00471cb0 update; lev_1_m1's 219 and 220 with the defaults:
+/// delay_time 10, no turbo_boost, no generated_ammo_name, no activate trigger): one pickup at a time, 4 units above
+/// the generator; once it is taken, delay_time later the next; with no name the current weapon's ammo pickup
+/// (0x00475c30: the weapon table's name; rifle -> pickup_rifle_bullets, machine gun -> pickup_mgun_bullets).
+fn generators(
+    time: Res<Time>,
+    lib: Res<crate::skin::AnimLibrary>,
+    mut gens: Local<Option<Vec<(Vec3, f32, bool)>>>,
+    pickups: Query<&GlobalTransform, With<Pickup>>,
+    roman: Query<&crate::player::Roman>,
+    mut out: MessageWriter<SpawnPickup>,
+) {
+    let list = gens.get_or_insert_with(|| {
+        let text = std::fs::read_to_string(lib.dir.join("instance_props.json")).unwrap_or_default();
+        let v: Vec<serde_json::Value> = serde_json::from_str(&text).unwrap_or_default();
+        v.iter()
+            .filter(|i| i.get("template").and_then(|t| t.as_str()) == Some("pickup_generator"))
+            .filter_map(|i| {
+                let p = i.get("pos")?.as_array()?;
+                let g = Vec3::new(p[0].as_f64()? as f32, p[1].as_f64()? as f32, p[2].as_f64()? as f32);
+                Some((game_to_engine() * g + Vec3::Y * 4.0, 0.0, false))
+            })
+            .collect()
+    });
+    let dt = time.delta_secs();
+    let mg = roman.single().is_ok_and(|r| r.use_mg && r.mg.is_some());
+    for (at, timer, made) in list.iter_mut() {
+        // its pickup still there: nothing else happens
+        if *made && pickups.iter().any(|p| p.translation().distance(*at) < 3.0) {
+            *timer = 10.0;
+            continue;
+        }
+        *timer -= dt;
+        if !*made || *timer <= 0.0 {
+            *made = true;
+            *timer = 10.0;
+            let name = if mg { "pickup_mgun_bullets" } else { "pickup_rifle_bullets" };
+            out.write(SpawnPickup { name: name.into(), at: *at, vel: Vec3::ZERO, hover: true });
+        }
+    }
+}
+
 fn spawn_pickups(
     mut commands: Commands,
     mut events: MessageReader<SpawnPickup>,
@@ -115,14 +180,15 @@ fn spawn_pickups(
     for ev in events.read() {
         let Some(tpl) = data.templates.get(&ev.name) else { continue };
         let p = data.template_props(&ev.name);
-        let ground = physics.raycast(ev.at, -Vec3::Y, 400.0).map(|h| h.1.y).unwrap_or(ev.at.y - 4.0);
+        let ground = if ev.hover { ev.at.y - 1.0 } else { physics.raycast(ev.at, -Vec3::Y, 400.0).map(|h| h.1.y).unwrap_or(ev.at.y - 4.0) };
         let pe = commands
             .spawn((
                 Transform::from_translation(ev.at).with_rotation(game_to_engine()),
                 Visibility::default(),
                 Pickup {
                     health: p.f("num_health", 0.0),
-                    stickies: 0,
+                    stickies: p.f("num_ammo", 0.0) as u32 * (ev.name == "pickup_sticky_bombs") as u32,
+                    mg_ammo: p.f("num_ammo", 0.0) as u32 * (ev.name == "pickup_mgun_bullets") as u32,
                     radius: p.f("sphere_radius", 4.0) + 4.0,
                     life: p.f("linger_time", 300.0),
                     vel: ev.vel.y,
@@ -150,6 +216,7 @@ fn collect(
     mut player: Query<(&GlobalTransform, &mut Health, &mut crate::player::Roman), With<Player>>,
     mission: Option<ResMut<crate::mission::Mission>>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
+    ui_texts: Res<crate::gamemenu::Texts>,
 ) {
     let dt = time.delta_secs();
     let Ok((pt, mut h, mut r)) = player.single_mut() else { return };
@@ -178,8 +245,11 @@ fn collect(
         }
         h.0 = (h.0 + p.health).min(r.max_health);
         r.stickies += p.stickies;
+        if let Some(w) = r.mg.as_mut() {
+            w.ammo += p.mg_ammo;
+        }
         if let (Some(m), Some(text)) = (mission.as_deref_mut(), p.text.as_ref()) {
-            m.feed(text);
+            m.feed(&ui_texts.get(text));
         }
         // Pickup_PlayHealthSound 0x00472790: Roman's "ROM50193_Ambient" for Q's tea, else the pickup sound
         if p.text.as_deref() == Some("pickup_healthytea") {

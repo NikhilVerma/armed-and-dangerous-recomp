@@ -209,7 +209,7 @@ fn controller(
         pick -= w;
     }
     let (id, at) = (g.id, g.pos);
-    spawn.write(crate::level::SpawnGrunt { at: at + Vec3::Y * 2.0, template: tpl.into(), alarm: true });
+    spawn.write(crate::level::SpawnGrunt { at: at + Vec3::Y * 2.0, template: tpl.into(), alarm: true, ..default() });
     m.recent.push_back(id);
     if m.recent.len() > 3 {
         m.recent.pop_front();

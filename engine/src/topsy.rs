@@ -60,7 +60,68 @@ pub struct TopsyPlugin;
 
 impl Plugin for TopsyPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Topsy>().add_systems(Update, (run, thrown).chain().run_if(crate::playing));
+        app.init_resource::<Topsy>()
+            .init_resource::<TopsyCams>()
+            .add_systems(Update, (run, thrown).chain().run_if(crate::playing))
+            .add_systems(PostUpdate, camera.after(crate::player::follow_camera).before(bevy::transform::TransformSystems::Propagate).run_if(crate::playing));
+    }
+}
+
+/// The anims' Camera_topsy tracks (trotter_topsy_into / _world_turn / _hanging; the view the original shows during the
+/// effect, in Roman's model frame): loaded on first use.
+#[derive(Resource, Default)]
+struct TopsyCams {
+    loaded: bool,
+    into: Option<crate::campath::CamTrack>,
+    turn: Option<crate::campath::CamTrack>,
+    hang: Option<crate::campath::CamTrack>,
+}
+
+/// The view follows the anim's Camera_topsy node (Roman's frame) while the effect runs; turning back plays the world
+/// turn's track backwards (guess: the original's anim 0x23 is not identified; its anim slots play reversed with flag
+/// 0x40, game_05.cpp:1333).
+fn camera(
+    topsy: Res<Topsy>,
+    mut cams: ResMut<TopsyCams>,
+    lib: Res<crate::skin::AnimLibrary>,
+    roman: Query<&Transform, (With<Roman>, Without<crate::player::FollowCam>)>,
+    mut cam: Query<(&mut Transform, &mut Projection), With<crate::player::FollowCam>>,
+) {
+    if !topsy.active() {
+        return;
+    }
+    if !cams.loaded {
+        cams.loaded = true;
+        let load = |n: &str| -> Option<crate::campath::CamTrack> {
+            #[derive(serde::Deserialize)]
+            struct F {
+                cameras: std::collections::HashMap<String, crate::campath::CamTrack>,
+            }
+            let t = std::fs::read_to_string(lib.dir.join("anims").join(format!("{n}.json"))).ok()?;
+            serde_json::from_str::<F>(&t).ok()?.cameras.remove("Camera_topsy")
+        };
+        cams.into = load("trotter_topsy_into");
+        cams.turn = load("trotter_topsy_world_turn");
+        cams.hang = load("trotter_topsy_hanging");
+    }
+    let (track, t) = match topsy.phase {
+        Phase::Into => (cams.into.as_ref(), topsy.t),
+        Phase::Turn => (cams.turn.as_ref(), topsy.t),
+        Phase::Hang => (cams.hang.as_ref(), topsy.t),
+        Phase::Back => (cams.turn.as_ref(), (TURN - topsy.t).max(0.0)),
+        Phase::Off => (None, 0.0),
+    };
+    let (Some(track), Ok(rt), Ok((mut ct, mut proj))) = (track, roman.single(), cam.single_mut()) else { return };
+    if let (Some((a, b, u)), Some((ra, rb, ru))) = (crate::campath::lerp_key(&track.t, t), crate::campath::lerp_key(&track.r, t)) {
+        let p = Vec3::new(a[1], a[2], a[3]).lerp(Vec3::new(b[1], b[2], b[3]), u);
+        let q = Quat::from_xyzw(ra[1], ra[2], ra[3], ra[4]).slerp(Quat::from_xyzw(rb[1], rb[2], rb[3], rb[4]), ru);
+        let m = Mat4::from_rotation_translation(rt.rotation, rt.translation) * Mat4::from_rotation_translation(q.normalize(), p);
+        let (_, rot, pos) = m.to_scale_rotation_translation();
+        ct.translation = pos;
+        ct.rotation = rot;
+    }
+    if let (Some((a, _, _)), Projection::Perspective(pp)) = (crate::campath::lerp_key(&track.fov, t), proj.as_mut()) {
+        pp.fov = a[1];
     }
 }
 

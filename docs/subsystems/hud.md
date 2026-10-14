@@ -218,7 +218,7 @@ shadow at 2 px of 480 (scaled). Fixes worth keeping off by default: the anchors 
 - Cinematic g+0xdce: health meters and progress meters hidden.
 - Paused (g+0x2684): objects with `+0x474 & 0x20` hidden (prompts created with 0x00465230 and the classes using
   0x00466580); the weapon-cycle arrows are forced off.
-- Crosshair: `_in` / `_out` anims on target acquisition (Hud_UpdateCrosshair); friendly variant over allies.
+- Crosshair: `_in` / `_out` anims when the target state changes, friendly variant over AI teammates (section 11).
 - Hit flashes: per-side timer g+0xcb8.
 - Health at or below 20 %: alpha pulse; colour band changes at 50 % and 25 %.
 - Selected menu item: white, size pulse 1.0-1.15 at 5 rad/s with a 0.2-per-frame fade.
@@ -257,14 +257,100 @@ shadow at 2 px of 480 (scaled). Fixes worth keeping off by default: the anchors 
   origin, upright); `xadvance = x_offset + advance` (pen advance). Checked by rendering "Storm the Base!" from it.
 - `font.png`, `textures/<name>.png`, `ui_bank.json` (raw bank dump).
 
+## 11. The crosshair (Hud_UpdateCrosshair 0x00406f50, Hud_ProjectMarkers 0x00406840)
+
+Traced 2026-10-14 from `src/ui/ui_01.cpp:297-686` and `src/renderer/render_r0.cpp:87-260`; strings and vtable slots
+read from the unpacked exe. Ported in `engine/src/hud.rs` (`Crosshair`, `AimClass`, `crosshair_aim`,
+`crosshair_pose`).
+
+**The HUD object.** Game+0xa6c (0x3b0 bytes, constructor 0x004065d0, reset 0x00406690). Hud_UpdateCrosshair runs
+in the game update (0x00402e80) and only computes; Hud_ProjectMarkers runs in ScenePass_Render (flag 0x80) and shows
+the sprites and plays their anims. Fields used here:
+
+| Field | Meaning | Written by |
+| --- | --- | --- |
+| +0 .. +0x2c | auto-aim target (object, point +4, screen point +0x10) | frustum pass, only when the weapon's vt+0x16c (0x004a2a40: option byte Game+0x4c2 m_autoAim, default 0; off while zooming or Game+0x550 > 1) |
+| +0x154 + 0x2c * i | up to 4 multi-lock targets (weapon type 3 or Game+0xac8 == 1) | same pass |
+| +0x84 / +0x88 | the special's target / the aim point: with no target, start + dir * sticky_bomb_range (Game+0x35d8) | special pass (ported in `engine/src/sticky.rs`) |
+| +0x58 .. +0x80 | the aim ray's hit: object +0x58, point +0x5c (start + dir * distance), byte +0x79 hit | aim ray |
+| word +0x392 | crosshair state: 1 = on a target | aim ray, below |
+| byte +0x394 | friendly under the crosshair | aim ray |
+| byte +0x3ac | the hit object is an AI (vt+0x10c): turn / pitch speeds are multiplied by targeting_control_drag (0x00475990 / 0x004759e0, game_05.cpp:1077; 1.0 in lev_1_m1, so no effect) | aim ray |
+| word +0x390 | the state the anims last showed; 2 = reset (constructor 0x004065d0; weapon switch done 0x004a16b0, game_09.cpp:1758; 0x004690c0, game_04.cpp:955) | Hud_ProjectMarkers |
+| +0x30c [28] | the per-weapon crosshair sprites, found by name from the weapon table (Game+0x2830 + i * 0x150: weapon 0 `ui_mg_crosshair`, 1 `ui_sniper_crosshair`, 2 `ui_crosshair` (rifle), 3 `ui_vindaloo_crosshair`, 4 `ui_gurner_crosshair`, 5 `ui_sharkgun_crosshair`; game_01.cpp:506-551) | first update |
+| +0x37c .. +0x38c | `ui_crosshair_friendly` (0x005bbbf0), `ui_stig_mg_crosshair` (0x005bbbd8), `ui_forge_crosshair` (0x005bbbc4), `ui_bd_crosshair` (0x005bbbb4), `ui_special_crosshair` (0x005bbb9c) | first update |
+
+**The aim ray** (0x00407680, ui_01.cpp:519-548). Start: the camera position, plus 20 * direction unless the camera
+is zooming (0x0040fba0 = camera +0x6c, camera.md). Length: 5000, 1500 / 500 / 2000 in Game+0xac8 modes 1 / 3 / 4,
+otherwise the current weapon's range (Game+0x28b8 + index * 0x150; render_r6.cpp:1066-1070: `machinegun_range` 400,
+`snipergun_range` 4000, `rifle_range` 500 in lev_1_m1's p_globalsettings). List World+0xe9c in mode 0 (+0xea4
+otherwise), the player excluded (0x00413d40), detail level 2 (query +0x9c = 2, as bullets: characters by their
+collision parts). World+0xe9c holds every collidable default object (game_03.cpp:555) and every AI (Ai_InitGeneric
+0x004247f0, ai_01.cpp:2340); AIs leave it when killed outright (0x1000 message, ai_04.cpp:305) or hidden
+(0x0043ccb0). So the ray stops on invisible walls that bullets pass (damage.md).
+
+**The state** (ui_01.cpp:557-610). Word +0x392 = 0, then for the hit object (vtable slots read from the exe: 0x00433fa0
+returns true, 0x00435250 false):
+
+| Hit object | vt slot | +0x392 |
+| --- | --- | --- |
+| DefaultGameObject (vtable 0x005a2bf0) | +0x110 true | takes_damage (+0x4d0 bit 0, game_03.cpp:508) |
+| BuildingObject (0x005aeeb8) | +0x114 true | with takes_damage (+0x460 0x1000): weapon 0 or 2 (machine gun, rifle): takes_bullet_damage (0x2000); other weapons 1 |
+| anything else: grunts (0x005a9cf0), Q (0x005a6df8), Jonesy (0x005ae5f8), trees (0x005a2e60), kegs (0x005a4300), ... | | 0 for class id (+0x418) 0x91 twiglet_generator, 0x37 pub, 0x4e stig_mgun_turret, 0x35 peasant, 0x4f forge_cannon (names from the behaviour table 0x0045df60); else 1 |
+| nothing (or the landscape) | | 0 |
+
+Then: with an auto-aim target (+0) and weapon 0 or 2, +0x392 = 1 unless that target is a default object or a
+building; in a turret (0x0044e600: Game+0x26cc start_in_turret_tag) +0x392 = any target. Byte +0x394 (friendly) =
+the hit object is an AI (vt+0x10c) and a teammate (vt+0xe4: true for Q and Jonesy, false for grunts), or its class
+is 0x35 peasant. So a tree, a keg or a grunt corpse closes the crosshair too; the pub does not.
+
+**What is shown** (Hud_ProjectMarkers, render_r0.cpp:212-272), while 0x00406790 allows (no cinematic Game+0xdce, not
+paused, camera mode 0x0040fab0 == 0 or Game+0xac8 set) and there is a player:
+- +0x390 == 2: every per-weapon crosshair plays `<name>_out`;
+- the current weapon's crosshair (index 0x004a1660, Game+0xac8 == 0) is shown, the others hidden; for the rifle
+  (index 2) it is hidden while +0x394 is set; when +0x392 differs from +0x390 it plays `<name>_in` (0x00466650) for
+  1 or `<name>_out` (0x004666a0) for 0, and +0x390 = +0x392;
+- `ui_crosshair_friendly` shown with +0x394 (it has no anims: its bind pose, the arms in, in green
+  `b_crosshair_friendly`);
+- `ui_stig_mg_crosshair` in mode 4, `ui_forge_crosshair` in mode 3, `ui_special_crosshair` while a special weapon is
+  selected (0x004a1670 != -1; no anims, arms at the out pose);
+- in a turret: only `ui_bd_crosshair`, animated by the same state.
+
+**The anims** (anims/ `<name>_in` / `_out`, Anim_Set flags 0x80: played once, held). `ui_crosshair` is one skinned
+mesh (crosshair_07, bones Box04 / Box03 / Box02 / Box01 = bottom / right / top / left arm, bind at +-1 px):
+`_in` moves each arm from 5 to 1 px out over 1.0 s (linear), `_out` from 1 to 5 over 0.2 s. So the crosshair opens
+4 px (arms 4.7 .. 11.1 px of 480, as `work/visual/diag_lev_1_m1/00690.bmp` shows) and closes slowly onto a target.
+`ui_sniper_crosshair` is the same cross bound at +-5 (its `_in` takes 0.167 s). `ui_mg_crosshair`: the four red
+corners (meshes Circle01..04) ride bone `target`, the blue ring (m_center) bone `center` (big05_skin mesh bone lists);
+`_out` puts `target` at y -680.7 (off screen), `_in` at 0: the red corners show only on a target. A new anim starts
+from its first frame (no blend), so `_out` during an unfinished `_in` snaps the arms in before opening them.
+
+**Remaster** (`engine/src/hud.rs`): `crosshair_aim` casts the same ray (physics ray through Roman and the grunts'
+capsules, then grunt / Q / Jonesy collision parts, hitparts.rs), sets `Crosshair { on, friendly, point, object }`
+by `AimClass` (inserted on every placed object and husk in level.rs), and runs the +0x390 / +0x392 state machine;
+`crosshair_pose` poses each crosshair part from its anim (bone translation minus bind; vertex bones from the model's
+joints, or the mesh bone above). `player.rs` aims its shots at `Crosshair.point` (hud +0x5c). Not ported: the
+auto-aim target pass (option off by default; the remaster has no auto-aim option), multi-lock and turret modes
+(not in lev_1_m1), targeting_control_drag (1.0).
+
+Checked headless (640x372, `CROSSDBG=1` logs each state change): `work/remaster/play/crossG.json` (warp to
+[-171, -170, 12, 0], mouse [-10, -35] onto the grunt): "on true ... grunt at 87.2", the arms close over 1 s
+(shots in0 / in05 / in15), turning away snaps them in and opens them over 0.2 s (out0 / out04), the landscape
+leaves it open. `crossF.json` (jumps right from the start): "on true friendly true companion q=true", shot s001
+shows the green `ui_crosshair_friendly` with the special crosshair round it and the rifle's hidden. Not checked:
+the machine gun's crosshair (needs the pub), a peasant / building / default object that takes damage.
+Unconfirmed: whether an AI killed the normal way leaves World+0xe9c (no unlink found; the port keeps corpses
+targetable); `ui_special_crosshair` while the special count is 0 (0x004a1670 reads the slot, not the count; the
+port always shows it).
+
 ## Open questions
 
 1. Which anim poses each page object: `pui_mainmenu` and other menu pages name model `pui_pub` in big07_obj,
    yet their refs (`ref_info`, `ref_main_menu`, `ref_options_menu`) exist only in `pui_general` (and
    `ref_main_menu` also in `pui_pressstart`, at a different y). 0x00453c50's fallback through the object system
    bone table (0x0045ace0 / 0x004eb5d0) is the likely path; not traced.
-2. Ref nodes all have rest transforms and no keys in lev_1_m1 (`keyed` absent); `ui_*_in/_out` anims animate
-   the crosshair bones (not exported as curves; rotation keys are undecoded, big-anim.md).
+2. Ref nodes all have rest transforms and no keys in lev_1_m1 (`keyed` absent). (The `ui_*_in/_out` crosshair
+   anims are exported to anims/ and decoded: section 11.)
 3. The in-game subtitles option (Game +0x177) has no reader in `src/`; how conversation lines are captioned in
    play is not traced (they may go through Chat).
 4. Blend state of UI meshes (alpha test vs blend, additive for `b_hit`?) comes from skin materials and the batch

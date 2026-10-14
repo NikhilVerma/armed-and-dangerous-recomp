@@ -60,6 +60,13 @@ pub struct Grunt {
     pub marker_tags: Option<(i64, i64)>,
     pub marker: Option<(usize, Vec3)>,
     pub marker_done: bool,
+    /// a barracks troop walking out to the exit slot's point (state 0x5a, set by 0x0042db50); then his marker run
+    /// (marker tags set: 0x0042d1b0) or 20..50 ahead within 45 degrees (state 0x5b) and idle
+    pub exit: Option<Vec3>,
+    /// a route to the goal over the ground when the straight line is blocked (the original walks the nav grid,
+    /// 0x0046f6d0; here nav.rs A*, re-planned every second)
+    route: Vec<Vec3>,
+    replan: f32,
     /// his own entity: his bullets' owner (the damage record's source +0x2c)
     pub me: Option<Entity>,
     /// score_value: to the Kills money when he dies (Game+0x2724)
@@ -115,6 +122,14 @@ pub struct Grunt {
     pub ragdoll: bool,
     /// which death anim (grunt_die_1..6) when not ragdolled
     pub death_anim: u8,
+    /// the death anim Character_Die picked instead of grunt_die_N (window, ledge)
+    pub death_name: Option<&'static str>,
+    /// ledge_death (+0x484 bit 31): falls off his ledge when he dies
+    pub ledge_death: bool,
+    /// a window or tower grunt (+0x488 & 0x200080: modes *_window / *_tower)
+    pub window: bool,
+    /// the last damage record had flag 0x80 (allow_cartoon_death: the sticky bomb's)
+    pub cartoon: bool,
     /// chance in % of a pickup on death (pickup_drop_percent, default 100)
     pub drop_percent: f32,
 }
@@ -252,6 +267,9 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         marker_tags: (p.s("mode") == Some("trigger_marker")).then(|| (p.i("marker_tag_min", 0), p.i("marker_tag_max", 0))),
         marker: None,
         marker_done: false,
+        exit: None,
+        route: Vec::new(),
+        replan: 0.0,
         attacker: None,
         offer_t: f32::NEG_INFINITY,
         clips: (p.i("fire_num_clips_min", 1), p.i("fire_num_clips_max", 1)),
@@ -290,6 +308,10 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         ray_timer: 0.0,
         ragdoll: false,
         death_anim: (rng.rand() % 6) as u8 + 1,
+        death_name: None,
+        ledge_death: p.i("ledge_death", 0) != 0,
+        window: mode.contains("window") || mode.contains("tower"),
+        cartoon: false,
         drop_percent: p.f("pickup_drop_percent", 100.0),
     }
 }
@@ -635,8 +657,24 @@ fn think(
         // a guard whose target is beyond its range fires with the infinite accuracy ranges (ai_03.cpp:1383)
         g.infinite = g.guard && target.is_some() && !in_range;
         // engage 0x00427910
+        // a barracks troop first walks out of the door (state 0x5a 0x00442407: following its path, nothing else)
+        if let Some(x) = g.exit {
+            if flat(x - pos).length() < 4.0 {
+                g.exit = None;
+                if g.marker_tags.is_none() {
+                    // no marker tag: a point 20..50 ahead, within +-45 degrees of its heading (state 0x5b), then idle
+                    let a = g.yaw + rng.range(-std::f32::consts::FRAC_PI_4, std::f32::consts::FRAC_PI_4);
+                    let d = rng.range(20.0, 50.0);
+                    g.goal = pos + Vec3::new(a.sin(), 0.0, a.cos()) * d;
+                    g.timer = d / run_speed.max(1.0);
+                    g.mind = Mind::Flee;
+                }
+            } else {
+                g.mind = Mind::ToMarker;
+            }
+        }
         // a trigger_marker grunt, once awake (its trigger, a target found, or hurt), runs to his marker first
-        if g.marker.is_none() && !g.marker_done && g.mind != Mind::WaitTrigger {
+        if g.exit.is_none() && g.marker.is_none() && !g.marker_done && g.mind != Mind::WaitTrigger {
             if let Some(i) = g.marker_tags.and_then(|tags| markers.find(tags, rng.rand())) {
                 g.marker = Some((i, markers.markers[i].pos));
                 g.mind = Mind::ToMarker;
@@ -711,7 +749,7 @@ fn think(
                 speed = run_speed;
             }
             Mind::ToMarker => {
-                goal = g.marker.map(|m| m.1).unwrap_or(pos);
+                goal = g.exit.or(g.marker.map(|m| m.1)).unwrap_or(pos);
                 speed = run_speed;
             }
             Mind::Fire => {
@@ -774,6 +812,22 @@ fn think(
                 }
                 let _ = b.set_linear_velocity(jv(Vec3::ZERO));
             }
+        }
+        let mut goal = goal;
+        g.replan -= dt;
+        if speed > 0.0 && flat(goal - pos).length() > 15.0 && !line_of_sight(&physics, pos, goal) {
+            if g.replan <= 0.0 || g.route.is_empty() {
+                g.replan = 1.0;
+                g.route = crate::nav::path(&physics, pos, goal, &[]).unwrap_or_default();
+            }
+            while g.route.first().is_some_and(|w| flat(*w - pos).length() < 4.0) {
+                g.route.remove(0);
+            }
+            if let Some(w) = g.route.first() {
+                goal = *w;
+            }
+        } else {
+            g.route.clear();
         }
         let dir = flat(goal - pos).normalize_or_zero();
         let face = match (g.mind, target) {
@@ -944,8 +998,27 @@ fn die(
         }
         let push = physics.world.body(body.id).map(|b| bv(b.linear_velocity())).unwrap_or(Vec3::ZERO) / physics.meters_per_unit;
         physics.remove(body.id);
-        // a hit below hit_ragdoll plays a death anim where he stands (Character_Die); harder hits ragdoll
-        g.ragdoll = g.last_hit >= g.hit_ragdoll || push.length() > 30.0;
+        // the death (Character_Die 0x004319e0, in its order): a window / tower grunt killed by a record with flag
+        // 0x80 (the sticky bomb) is blown out of the window (anim 0x3e); a hit of at least hit_ragdoll ragdolls; a
+        // ledge_death grunt falls (0x39 + rand*4: grunt_hit_fall_1 / _2 / _1 / _2); a window / tower grunt
+        // grunt_hit_window (0x3d); else grunt_die_1..6 (0x00427100). Not reached here: the 0x56 / 0x57 flag variants
+        // (barricade, in back: no lev_1_m1 grunt sets them) and record flag 2's launch.
+        let blown_out = g.window && g.cartoon;
+        g.ragdoll = !blown_out && (g.last_hit >= g.hit_ragdoll || push.length() > 30.0);
+        g.death_name = if blown_out {
+            Some("grunt_window_blown_out")
+        } else if g.ragdoll {
+            None
+        } else if g.ledge_death {
+            Some(if rng.rand() < 0.5 { "grunt_hit_fall_1" } else { "grunt_hit_fall_2" })
+        } else if g.window {
+            Some("grunt_hit_window")
+        } else {
+            None
+        };
+        if std::env::var("AIDBG").is_ok() {
+            info!("AIDBG death {e:?}: {:?} ragdoll {} (hit {:.0}, cartoon {})", g.death_name, g.ragdoll, g.last_hit, g.cartoon);
+        }
         if !g.ragdoll {
             commands.entity(e).remove::<Body>();
             continue;
@@ -996,7 +1069,10 @@ fn die(
 ///   bursts, fire_num_rounds per clip, then the reload anim and fire_clip_delay. Shots: the weapon's projectile at the
 ///   aim point (+ scatter up to fire_inaccuracy_height); the muzzle fx carries the sound (Q's is one fx per burst, its
 ///   machine-gun loop).
-/// Not ported: the slot swap, defend / attack orders, retaliation, Q's healthy tea, barks.
+/// - Team orders (fn team_orders): Defend Me / Return To Me / Defend Area / Attack, their lines and HUD texts; the
+///   Fight cue at the fire anim's start (docs/subsystems/companions.md).
+/// Not ported: the slot swap (leader flag 0x10, 0x00483810), the order marker fx (Game+0xd34), object types 0x51 /
+/// 0x53 as attack targets.
 #[derive(Component)]
 pub struct Companion {
     pub walker: crate::physics::Walker,
@@ -1052,6 +1128,27 @@ pub struct Companion {
     pub friendly: bool,
     pub attacker: Option<Entity>,
     pub dead: Option<f32>,
+    /// the standing order (flags +0xbcc 1 / 4 / 8; docs/subsystems/companions.md)
+    pub order: Order,
+    /// formation_angle (+0xbc0, default 20): the spread of the formation points round an order's anchor (0x00483c30)
+    angle: f32,
+    /// +0xb68 after an attack order: seconds idle before the pair returns silently (3..7 s, 0x00484100)
+    linger: f32,
+}
+
+/// The pair's standing order (+0xbcc flags; 0x004844c0, 0x00484290, 0x00485120).
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Order {
+    /// flags 1 | 8, the start (0x004836b0): "Defend Me". Formation on Roman's ref bones; targets within scan_distance
+    /// of Roman (0x004853a0); regroup when away from the slot
+    Guard,
+    /// no flag 1 (a second "return" toggles to it): "Return To Me". Generic targeting (0x0043ee90, no anchor limit);
+    /// regroup only when Roman is farther than delay_distance (mode 1, 0x0048631c)
+    Loose,
+    /// flag 1 without 8: "Defend Area" at the aimed point, facing Roman's direction at the order (0x00484ca0)
+    Area { at: Vec3, dir: Vec3 },
+    /// flags 1 | 4: "Attack" the grunt under the crosshair, anchored where it stood (0x00484100)
+    Attack { at: Vec3, dir: Vec3 },
 }
 
 #[derive(Clone)]
@@ -1121,6 +1218,9 @@ impl Companion {
         friendly: false,
         attacker: None,
         dead: None,
+        order: Order::Guard,
+        angle: p.f("formation_angle", 20.0),
+        linger: 0.0,
         }
     }
 }
@@ -1150,7 +1250,8 @@ impl Plugin for CompanionPlugin {
 ///   offered as a target (Slot109 0x00485360: ignored while a live target is held);
 /// - death (permanent): the Dead line, *_die, score_value -500 to Accidents, the body removed after the anim and the
 ///   corpse timer (0.5 s + 0.5 s fade: guess on the fade's look).
-/// The shared delay's range (Game+0xb48 / +0xb4c) is not traced: 4..8 s (guess).
+/// The shared delay is vo_delay Game+0xb44 (range Game+0xb48 / +0xb4c = 30..45 s from level load, game_02.cpp:2057),
+/// the one the grunts' Spotted / Fight cues use (Barks, Delay::Vo).
 #[allow(clippy::too_many_arguments)]
 fn companion_damage(
     mut commands: Commands,
@@ -1161,7 +1262,7 @@ fn companion_damage(
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     mut ms: ResMut<crate::stats::MissionStats>,
     mut rng: ResMut<FxStats>,
-    mut shared: Local<(f32, f32)>,
+    mut barks: ResMut<Barks>,
 ) {
     let dt = time.delta_secs();
     let now = time.elapsed_secs();
@@ -1185,9 +1286,7 @@ fn companion_damage(
         if let Some((n, left)) = c.hit {
             c.hit = (left - dt > 0.0).then_some((n, left - dt));
         }
-        let shared_ok = now - shared.0 >= shared.1;
-        if std::mem::take(&mut c.friendly) && shared_ok {
-            *shared = (now, rng.range(4.0, 8.0));
+        if std::mem::take(&mut c.friendly) && barks.take(Delay::Vo, now, &mut rng) {
             let l: &[&str] = if c.q { &["q1150068_friendlyfire", "q1150069_friendlyfire", "q1150070_friendlyfire", "q1150071_friendlyfire", "q1150072_friendlyfire", "q1150073_friendlyfire"] } else { &["jon50076_friendlyfire", "jon50077_friendlyfire", "jon50078_friendlyfire", "jon50079_friendlyfire", "jon50080_friendlyfire"] };
             say(&mut sounds, &mut rng, l, at);
         }
@@ -1206,8 +1305,7 @@ fn companion_damage(
         }
         if h.0 < c.last_health {
             let d = c.last_health - h.0;
-            if shared_ok {
-                *shared = (now, rng.range(4.0, 8.0));
+            if barks.take(Delay::Vo, now, &mut rng) {
                 let l: &[&str] = if c.q { &["q1150050_help", "q1150053_help", "q1150054_help", "q1150064_hurt", "q1150065_hurt", "q1150066_hurt", "q1150067_hurt"] } else { &["jon50060_help", "jon50061_help", "jon50070_hurt", "jon50071_hurt", "jon50072_hurt", "jon50073_hurt"] };
                 say(&mut sounds, &mut rng, l, at);
             } else if c.hurt_t >= 10.0 {
@@ -1258,9 +1356,16 @@ fn companions(
     mut fx: MessageWriter<crate::fx::StartFx>,
     mut log: ResMut<crate::playtest::PlayState>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
-    (mut pickups, mut dynamite): (MessageWriter<crate::pickup::SpawnPickup>, MessageWriter<crate::sticky::ThrowDynamite>),
+    (mut pickups, mut dynamite, mut barks, mut hud, mut pending): (
+        MessageWriter<crate::pickup::SpawnPickup>,
+        MessageWriter<crate::sticky::ThrowDynamite>,
+        ResMut<Barks>,
+        Option<ResMut<crate::hud::HudState>>,
+        Local<(bool, bool)>,
+    ),
 ) {
     let dt = time.delta_secs();
+    let now = time.elapsed_secs();
     let Ok((rt, r, ra, rh)) = roman.single() else { return };
     let bone = |a: &crate::skin::Animator, n: &str| a.skeleton.index.get(n).and_then(|&i| joints.get(a.joints[i]).ok()).map(|t| t.translation());
     // Roman's aim point (Game+0xa6c): where the crosshair ray meets the world, else far along it
@@ -1269,6 +1374,28 @@ fn companions(
         physics.raycast(o + d * 20.0, d, 500.0).map(|h| h.1).unwrap_or(o + d * 520.0)
     });
     let fire_held = (ctl.down(crate::input::Act::Fire) || ctl.pressed(crate::input::Act::Fire) || bot.fire_ok) && !r.dead;
+    // Roman's direction (0x00453150), flat
+    let roman_dir = (Quat::from_rotation_y(r.yaw + std::f32::consts::PI) * Vec3::Z).with_y(0.0).normalize_or(Vec3::Z);
+    let may_act = !r.dead && !hud.as_ref().is_some_and(|h| h.cinematic);
+    team_orders(
+        &mut q,
+        &mut pending,
+        &mut barks,
+        hud.as_deref_mut(),
+        &mut sounds,
+        &mut rng,
+        &physics,
+        &grunts,
+        (ctl.pressed(crate::input::Act::TeamSend), ctl.pressed(crate::input::Act::TeamRecall)),
+        may_act,
+        cam.single().ok().map(|c| (c.translation(), c.forward().as_vec3())),
+        aim_point,
+        roman_dir,
+        now,
+    );
+    // who is fighting (the attack order's linger waits for the partner: 0x0042c6f0, guess "has a target")
+    let fighting: Vec<(bool, bool)> = q.iter().filter(|(_, c, ..)| c.dead.is_none()).map(|(_, c, ..)| (c.q, c.target.is_some())).collect();
+    let mut silent_return = false;
     for (e, mut c, mut t, ca, ch) in &mut q {
         // a dead companion does nothing; a hit reaction holds him (states 0x12f..0x131: movement stopped)
         if c.dead.is_some() || c.hit.is_some() {
@@ -1300,7 +1427,7 @@ fn companions(
             if c.tea <= 0.0 {
                 let to = (rt.translation - me).with_y(0.0).normalize_or_zero();
                 let v = Vec3::new(to.x, 0.7, to.z).normalize() * 40.0;
-                pickups.write(crate::pickup::SpawnPickup { name: "pickup_healthytea".into(), at: me + Vec3::Y * 4.0, vel: v });
+                pickups.write(crate::pickup::SpawnPickup { name: "pickup_healthytea".into(), at: me + Vec3::Y * 4.0, vel: v, hover: false });
             }
             continue;
         }
@@ -1324,12 +1451,19 @@ fn companions(
             }
         }
         c.search -= dt;
-        // at each search tick a target farther (2D) than scan_distance from Roman is refused (0x004853a0 in formation)
-        // and dropped: the original's companions stand and fight until Roman has moved on (fightT: Jonesy lets go at
-        // ~1350, Q at ~1440, then they run after him)
+        // the anchor targets must stay near (0x004853a0 / 0x004852e0, flag 1): Roman (Defend Me: the anchor follows
+        // him, flag 8), the order's point (Defend Area / Attack); none in Return To Me (flag 1 clear)
+        let anchor = match c.order {
+            Order::Guard => Some(rt.translation),
+            Order::Loose => None,
+            Order::Area { at, .. } | Order::Attack { at, .. } => Some(at),
+        };
+        // at each search tick a target farther (2D) than scan_distance from the anchor is refused (0x004853a0 in
+        // formation) and dropped: the original's companions stand and fight until Roman has moved on (fightT: Jonesy
+        // lets go at ~1350, Q at ~1440, then they run after him). The attack order's own target is kept (+0xbb0)
         if c.search <= 0.0 {
-            if let Some((_, _, gt, _)) = c.target.and_then(|t| grunts.get(t).ok()) {
-                if (gt.translation() - rt.translation).with_y(0.0).length() > c.scan {
+            if let (Some((_, _, gt, _)), Some(a)) = (c.target.and_then(|t| grunts.get(t).ok()), anchor.filter(|_| !matches!(c.order, Order::Attack { .. }))) {
+                if (gt.translation() - a).with_y(0.0).length() > c.scan {
                     c.target = None;
                 }
             }
@@ -1344,7 +1478,7 @@ fn companions(
                 .iter()
                 .filter(|(_, g, _, _)| g.mind != Mind::Dead)
                 .map(|(ge, _, gt, _)| (ge, gt.translation()))
-                .filter(|(_, p)| (*p - me).with_y(0.0).length() < c.scan && (*p - rt.translation).with_y(0.0).length() < c.scan)
+                .filter(|(_, p)| (*p - me).with_y(0.0).length() < c.scan && anchor.is_none_or(|a| (*p - a).with_y(0.0).length() < c.scan))
                 .filter(|(_, p)| (*p - me).with_y(0.0).normalize_or_zero().dot(face) > (95.0f32).to_radians().cos())
                 .filter(|(ge, p)| {
                     let eye = me + Vec3::Y * 8.0;
@@ -1379,18 +1513,53 @@ fn companions(
         if c.lost > 0.0 {
             c.lost -= dt;
         }
-        // formation: Roman's bone for this companion, regroup beyond formation_distance + 2.5
-        let slot = bone(ra, if c.q { "ref_q_00" } else { "ref_molmer_00" }).unwrap_or(rt.translation);
+        // formation: Roman's bone for this companion; under an area / attack order the point beside the anchor
+        // (0x00483c30: the reversed direction turned by +-formation_angle, x formation_distance; the side is the one
+        // of the companion's bone, guess for the leader flag 0x10 of 0x00483810)
+        let bone_slot = bone(ra, if c.q { "ref_q_00" } else { "ref_molmer_00" }).unwrap_or(rt.translation);
+        let slot = match c.order {
+            Order::Area { at, dir } | Order::Attack { at, dir } => {
+                let side = |d: Vec3, v: Vec3| (d.x * v.z - d.z * v.x).signum();
+                let want = side(roman_dir, bone_slot - rt.translation);
+                let back = -dir;
+                let a = c.angle.to_radians();
+                let p1 = at + Quat::from_rotation_y(a) * back * c.distance;
+                let p2 = at + Quat::from_rotation_y(-a) * back * c.distance;
+                if side(dir, p1 - at) == want { p1 } else { p2 }
+            }
+            _ => bone_slot,
+        };
         let from_roman = (rt.translation - me).with_y(0.0).length();
         // playtest log: how far each companion is from Roman
         log.0.insert(if c.q { "q_dist".into() } else { "jonesy_dist".into() }, (from_roman.round() as i64).into());
         log.0.insert(if c.q { "q_pos".into() } else { "jonesy_pos".into() }, serde_json::json!([(me.x * 10.0).round() / 10.0, (-me.z * 10.0).round() / 10.0]));
         log.0.insert(if c.q { "q_health".into() } else { "jonesy_health".into() }, ch.map(|h| h.0).unwrap_or(0.0).into());
+        let order = match c.order {
+            Order::Guard => "defend_me",
+            Order::Loose => "return",
+            Order::Area { .. } => "defend_area",
+            Order::Attack { .. } => "attack",
+        };
+        log.0.insert(if c.q { "q_order".into() } else { "jonesy_order".into() }, order.into());
         // measured in the original's intro (hook dumps of World+0xe94): both set off within 0.5 s of Roman and run at
         // ~38 units/s about 32 units behind him; so they regroup on the distance to their slot, not to Roman
-        let _ = from_roman;
-        if c.target.is_none() && c.lost <= 0.0 && (slot - me).with_y(0.0).length() > 15.0 {
+        // regroup (mode 1, 0x0048631c): Defend Me on the distance to the slot (as measured); Return To Me only when
+        // Roman is farther than delay_distance; an anchored order beyond formation_distance + 2.5 of the anchor
+        let regroup = match c.order {
+            Order::Guard => (slot - me).with_y(0.0).length() > 15.0,
+            Order::Loose => from_roman > c.delay,
+            Order::Area { at, .. } | Order::Attack { at, .. } => (at - me).with_y(0.0).length() > c.distance + 2.5,
+        };
+        if c.target.is_none() && c.lost <= 0.0 && regroup {
             c.moving = true;
+        }
+        // the attack order (flag 4) idle in formation with the partner not fighting: +0xb68 runs down, then the pair
+        // returns to Defend Me without a line or a HUD text (0x004845b0(0), mode 1 at 0x004862d2)
+        if matches!(c.order, Order::Attack { .. }) && c.target.is_none() && !c.moving && !fighting.iter().any(|&(q, f)| q != c.q && f) {
+            c.linger -= dt;
+            if c.linger <= 0.0 {
+                silent_return = true;
+            }
         }
         // with a target they stand and fight (the original's dump, fightT: Q fires from (-232, 884) and Jonesy from
         // (-221, 865) without moving until they let go of the target)
@@ -1434,7 +1603,7 @@ fn companions(
             let d = (roman_heading - c.yaw + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
             d.abs() <= 45f32.to_radians()
         };
-        let support = c.target.is_none() && !c.moving && fire_held && heading_ok;
+        let support = c.target.is_none() && !c.moving && fire_held && heading_ok && matches!(c.order, Order::Guard | Order::Loose);
         let shoot_at = if approach.is_some() { None } else { target_pos.or(if support { aim_point } else { None }) };
         // facing: the target, else (support fire / following) Roman's heading, else the way it runs
         let face = target_pos.map(|p| (p - me).with_y(0.0)).filter(|v| v.length() > 0.1);
@@ -1488,6 +1657,14 @@ fn companions(
                 c.delay_t -= dt;
                 c.firing = false;
             } else {
+                // the fire anim starting with a target (0x00428980 -> vt+0x13c, ai_02.cpp:1860): the Fight cue under
+                // vo_delay (Q11Voice 0x004875d0: Q1150038 / Q1150040_Fight; AIVoice 0x0044eab0: JON50026_Fight,
+                // JON50028 / JON50029_Taunt; equal odds)
+                if !c.firing && c.target.is_some() && barks.take(Delay::Vo, now, &mut rng) {
+                    let l: &[&str] = if c.q { &["Q1150038_Fight", "Q1150040_Fight"] } else { &["JON50026_Fight", "JON50028_Taunt", "JON50029_Taunt"] };
+                    let n = l[((rng.rand() * l.len() as f32) as usize).min(l.len() - 1)];
+                    sounds.write(crate::audio::PlaySound::at(n, me));
+                }
                 c.firing = true;
                 let prev = c.loop_t;
                 c.loop_t += dt;
@@ -1549,4 +1726,183 @@ fn companions(
             }
         }
     }
+    if silent_return {
+        for (_, mut c, ..) in &mut q {
+            if c.dead.is_none() {
+                c.order = Order::Guard;
+                c.route.clear();
+            }
+        }
+    }
+}
+
+/// Picks one of `n` entries the way the voice code does: (rand() * range) >> 15, here range x a uniform [0, 1).
+fn roll(rng: &mut FxStats, range: f32) -> u32 {
+    (rng.rand() * range) as u32
+}
+
+/// Team orders (0x0047a9a0 -> 0x004852b0 -> 0x00485120; docs/subsystems/companions.md). Key 1 / D-pad up
+/// (TeammatesSend 0x12) and key 3 / D-pad down (TeammatesReturn 0x13) set the pending flags 0x2000 / 0x4000 of both
+/// companions while Roman may act (0x0047a950: alive, not in a cinematic). The first of the pair to update handles
+/// them for both, then clears both flags ("return" wins when both are set), unless one of them is busy with an
+/// animation (modes 5 / 10: here Q's tea); a dead companion is dropped from the pair.
+/// - Return (0x004845b0(1), 0x00484290 on each): Defend Me <-> Return To Me (an area / attack order -> Defend Me);
+///   targets dropped, back to formation; a line under vo_delay; the HUD text "ui_teammate_defend_player" /
+///   "ui_teammate_return".
+/// - Send: a live grunt under the crosshair (0x00408020 of the aim) -> attack it (0x00484830 / 0x00484100: anchored
+///   at it, its target, +0xb68 = 3..7 s), "ui_teammate_attack", the attack lines; else defend the aimed point
+///   (0x00484ca0), "ui_teammate_defend_loc", the defend lines.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+fn team_orders(
+    q: &mut Query<(Entity, &mut Companion, &mut Transform, Option<&crate::skin::Animator>, Option<&Health>), Without<crate::player::Roman>>,
+    pending: &mut (bool, bool),
+    barks: &mut Barks,
+    hud: Option<&mut crate::hud::HudState>,
+    sounds: &mut MessageWriter<crate::audio::PlaySound>,
+    rng: &mut FxStats,
+    physics: &Physics,
+    grunts: &Query<(Entity, &Grunt, &GlobalTransform, Option<&crate::skin::Animator>)>,
+    (send, ret): (bool, bool),
+    may_act: bool,
+    ray: Option<(Vec3, Vec3)>,
+    aim_point: Option<Vec3>,
+    roman_dir: Vec3,
+    now: f32,
+) {
+    if may_act {
+        pending.0 |= send;
+        pending.1 |= ret;
+    }
+    if !pending.0 && !pending.1 {
+        return;
+    }
+    // (entity, is Q, position) of the live pair; the first is "self" (+0xbcc flag 0x200: Q)
+    let live: Vec<(Entity, bool, Vec3)> = q.iter().filter(|(_, c, ..)| c.dead.is_none()).map(|(e, c, t, ..)| (e, c.q, t.translation)).collect();
+    if live.is_empty() {
+        *pending = (false, false);
+        return;
+    }
+    if q.iter().any(|(_, c, ..)| c.dead.is_none() && c.tea > 0.0) {
+        return;
+    }
+    let (send, ret) = std::mem::take(pending);
+    let pair = live.len() == 2;
+    let self_q = live[0].1;
+    let at_of = |is_q: bool| live.iter().find(|l| l.1 == is_q).map(|l| l.2);
+    let say = |sounds: &mut MessageWriter<crate::audio::PlaySound>, n: &str, who: Option<bool>| {
+        sounds.write(match who.and_then(at_of) {
+            Some(p) => crate::audio::PlaySound::at(n, p),
+            // Roman's lines play without a speaker (audio +0xd0)
+            None => crate::audio::PlaySound::ui(n),
+        });
+    };
+    let text: &'static str;
+    if ret {
+        let mut guard = false;
+        for &(e, ..) in &live {
+            if let Ok((_, mut c, ..)) = q.get_mut(e) {
+                c.order = if c.order == Order::Guard { Order::Loose } else { Order::Guard };
+                guard = c.order == Order::Guard;
+                c.target = None;
+                c.engaged = false;
+                c.lost = 0.0;
+                c.route.clear();
+            }
+        }
+        if barks.take(Delay::Vo, now, rng) {
+            let generic = if pair {
+                let v = roll(rng, 1000.0);
+                if v < 800 {
+                    true
+                } else {
+                    // 0x004845b0: Jonesy's or Q's line, each said by its own speaker
+                    if v < 900 {
+                        say(sounds, "jon25002_B_Return", Some(false))
+                    } else {
+                        say(sounds, "q1111007_B_Return", Some(true))
+                    }
+                    false
+                }
+            } else if roll(rng, 500.0) < 400 {
+                true
+            } else {
+                say(sounds, if self_q { "q1111007_B_Return" } else { "jon25002_B_Return" }, Some(self_q));
+                false
+            };
+            if generic {
+                let l = ["rom50030_Return", "rom50031_Return", "rom50057_Return", "rom50058_Return"];
+                say(sounds, l[(roll(rng, 400.0) / 100).min(3) as usize], None);
+            }
+        }
+        text = if guard { "ui_teammate_defend_player" } else { "ui_teammate_return" };
+    } else {
+        debug_assert!(send);
+        // the object under the crosshair: a live grunt (the enemy list +0x604; object types 0x51 / 0x53 not ported)
+        let target = ray
+            .and_then(|(o, d)| physics.raycast_bullet(o + d * 20.0, d, 1000.0))
+            .and_then(|(b, _, _)| physics.bodies.get(&b).copied())
+            .and_then(|ge| grunts.get(ge).ok())
+            .filter(|(_, g, _, _)| g.mind != Mind::Dead)
+            .map(|(ge, _, gt, _)| (ge, gt.translation()));
+        let (order, attack) = match (target, aim_point) {
+            (Some((_, at)), _) => (Order::Attack { at, dir: roman_dir }, true),
+            (None, Some(at)) => (Order::Area { at, dir: roman_dir }, false),
+            (None, None) => return,
+        };
+        for &(e, ..) in &live {
+            if let Ok((_, mut c, ..)) = q.get_mut(e) {
+                c.order = order;
+                c.route.clear();
+                c.lost = 0.0;
+                if let Some((ge, _)) = target {
+                    if c.target != Some(ge) {
+                        c.engaged = false;
+                    }
+                    c.target = Some(ge);
+                    c.linger = rng.range(3.0, 7.0);
+                }
+            }
+        }
+        if barks.take(Delay::Vo, now, rng) {
+            // pair: half generic, a quarter Jonesy's, a quarter Q's; alone 70 % generic, else his own
+            let who = if pair {
+                match roll(rng, 400.0) {
+                    v if v < 200 => None,
+                    v if v < 300 => Some(false),
+                    _ => Some(true),
+                }
+            } else if roll(rng, 1000.0) < 700 {
+                None
+            } else {
+                Some(self_q)
+            };
+            match who {
+                None if attack => {
+                    // ROM50117..119 (with Q alive) are not in lev_1_m1's bank: silent there, as in the original
+                    let m = if at_of(true).is_some() { 600.0 } else { 299.0 };
+                    let l = ["rom50027_Attack", "rom50032_Attack", "rom50034_Attack", "ROM50117_Attack", "ROM50118_Attack", "ROM50119_Attack"];
+                    say(sounds, l[(roll(rng, m) / 100).min(5) as usize], None);
+                }
+                None => {
+                    let l = ["rom50028_Defend", "rom50029_Defend", "rom50114_Defend", "rom50116_Defend"];
+                    say(sounds, l[(roll(rng, 400.0) / 100).min(3) as usize], None);
+                }
+                // the same lines for both orders (0x004849b5 / 0x00484c5a, 0x00484a5a / 0x00484be8)
+                Some(false) => {
+                    let l = ["jon50025_Send", "jon50131_Attack", "JON50033_Defend", "JON50130_Defend"];
+                    say(sounds, l[(roll(rng, 400.0) / 100).min(3) as usize], Some(false));
+                }
+                Some(true) => {
+                    let v = roll(rng, 400.0);
+                    say(sounds, if v < 100 { "q1150039_Send" } else if v < 200 { "Q1150116_Defend" } else { "Q1150118_Defend" }, Some(true));
+                }
+            }
+        }
+        text = if attack { "ui_teammate_attack" } else { "ui_teammate_defend_loc" };
+    }
+    // 0x00463890 + flag 4: the order's text for 3.0 s, hiding the others (0x00467890)
+    if let Some(h) = hud {
+        h.team = Some((text, 3.0));
+    }
+    info!("EVENT team order {text}");
 }

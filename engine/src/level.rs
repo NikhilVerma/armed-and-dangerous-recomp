@@ -55,12 +55,17 @@ pub struct Placed {
 }
 
 /// A troop to spawn (barracks / alarm generators): a grunt template at a point, awake and hunting the player.
-#[derive(Message, Clone)]
+#[derive(Message, Clone, Default)]
 pub struct SpawnGrunt {
     pub at: Vec3,
     pub template: String,
     /// a troop of the alarm controller (alarm.rs)
     pub alarm: bool,
+    /// a troop of this barracks (mission.rs): it walks out to `exit`, then to a marker of `marker_tags`
+    pub barracks: Option<u32>,
+    pub exit: Option<Vec3>,
+    pub marker_tags: Option<(i64, i64)>,
+    pub alert_group: i64,
 }
 
 /// The `Center` translation track of a rigid (unskinned) model's own anim, played in a loop on its placement.
@@ -173,6 +178,14 @@ fn attach_weapon(commands: &mut Commands, hand: Entity, model: &scene::Model, fi
 #[derive(Component, Default)]
 pub struct Penguin {
     pub dead: Option<f32>,
+}
+
+/// A building's window pane (TwigletGenerator_Slot84 0x0040ad80 "windows": a "village_window" DefaultGameObject at
+/// each ref_win_0%d matrix of the building's model, attached to it): shot out on its own (p_village_window: 5 health,
+/// takes bullets, fx_explosion_village_window); gone with its building.
+#[derive(Component)]
+pub struct Window {
+    pub building: Entity,
 }
 
 /// One of Roman's weapon models in his hand (player.rs shows the one in use).
@@ -438,13 +451,43 @@ pub fn spawn(
                 physics.no_bullets.insert(c);
             }
         }
-        commands.entity(e).insert((Placed { template: inst.template.clone(), collider }, bounds));
+        commands.entity(e).insert((Placed { template: inst.template.clone(), collider }, bounds, crate::hud::AimClass::of(&p)));
         // attach_audio_loop (the oil pumps' amb_oil_pump_lp): a loop on the object while it lives
         if let Some(name) = p.s("attach_audio_loop").filter(|n| !n.is_empty() && *n != "none") {
             commands.entity(e).insert(AudioLoop(name.to_owned()));
         } else if behavior == "pub" {
             // the pub's own loop (Pub_StartExteriorLoop 0x0046a790: "amb_pub_exterior_lp", attached, once)
             commands.entity(e).insert(AudioLoop("amb_pub_exterior_lp".into()));
+        }
+        // the building's windows (0x0040ad80): a village_window at each ref_win_0N of its reference anim
+        if p.f("windows", 0.0) != 0.0 {
+            let anim = p.s("ref_anim_name").unwrap_or(inst.model.as_str()).to_owned();
+            let wp = data.template_props("village_window");
+            let wt = data.templates.get("village_window").cloned();
+            for i in 0..10 {
+                let Some(at) = crate::mission::pub_bone(&lib_dir, &anim, &format!("ref_win_{i:02}")) else { break };
+                let Some(wt) = wt.as_ref() else { break };
+                let ww = world * Mat4::from_translation(at);
+                let we = commands.spawn((Transform::from_matrix(ww), Visibility::default(), Name::new("village_window"), Window { building: e })).id();
+                if let Some(m) = wt.model.as_ref().and_then(|m| lib.load_model(m, false, assets, meshes, materials)) {
+                    let _ = attach_model(commands, we, m, false, None);
+                }
+                let collider = wt
+                    .collision
+                    .as_ref()
+                    .and_then(|n| lib.load_model(n, false, assets, meshes, materials).map(|m| (m.vertices.clone(), m.tris.clone())))
+                    .and_then(|(v, t)| {
+                        let v: Vec<Vec3> = v.iter().map(|x| ww.transform_point3(*x)).collect();
+                        physics.add_static_mesh(&v, &t)
+                    });
+                if let (Some(c), Some(mt)) = (collider, wp.s("material")) {
+                    physics.materials.insert(c, mt.to_owned());
+                }
+                commands.entity(we).insert((Placed { template: "village_window".into(), collider }, Bounds { center: Vec3::ZERO, radius: 4.0 }));
+                if let Some(d) = destructible(&wp) {
+                    commands.entity(we).insert(d);
+                }
+            }
         }
         if let Some(d) = destructible(&p) {
             commands.entity(e).insert(d);
@@ -582,8 +625,18 @@ fn husks(
     mut materials: ResMut<Assets<StandardMaterial>>,
     placed: Query<(&Placed, &Transform, &Children)>,
     mut penguins: Query<&mut Penguin>,
+    windows: Query<(Entity, &Window, &Placed)>,
 ) {
     for d in died.read() {
+        // a destroyed building's windows go with it
+        for (we, w, wpl) in &windows {
+            if w.building == d.0 {
+                if let Some(c) = wpl.collider {
+                    physics.remove_static(c);
+                }
+                commands.entity(we).despawn();
+            }
+        }
         let Ok((p, t, children)) = placed.get(d.0) else { continue };
         if let Some(c) = p.collider {
             physics.remove_static(c);
@@ -614,7 +667,8 @@ fn husks(
                 let v: Vec<Vec3> = v.iter().map(|x| world.transform_point3(*x)).collect();
                 physics.add_static_mesh(&v, &tr)
             });
-        commands.entity(d.0).insert(Placed { template: husk.unwrap_or_default(), collider });
+        let aim = crate::hud::AimClass::of(&data.template_props(husk.as_deref().unwrap_or_default()));
+        commands.entity(d.0).insert((Placed { template: husk.unwrap_or_default(), collider }, aim));
     }
 }
 
@@ -658,9 +712,22 @@ fn spawn_grunts(
         if let Some(id) = physics.add_dynamic(e, &shape, ev.at + lift, Quat::IDENTITY, Vec3::ZERO, s) {
             physics.materials.insert(id, "grunt".into());
             let mut g = ai::make_grunt(&p, &data, ev.at, 0.0, &mut rng);
-            // spawned troops charge the player (0x0042dd50 -> state 0x5b -> 0x0042ce70)
-            g.target = player.single().ok();
-            g.mind = ai::Mind::Chase;
+            if let Some(b) = ev.barracks {
+                // a barracks troop (0x0042db50): its alert group, marker tags and the walk out through the exit
+                commands.entity(e).insert(crate::mission::BarracksTroop(b));
+                g.alert_group = ev.alert_group;
+                g.marker_tags = ev.marker_tags;
+                g.exit = ev.exit;
+                g.mind = ai::Mind::ToMarker;
+                if let Some(x) = ev.exit {
+                    let d = (x - ev.at).with_y(0.0);
+                    g.yaw = d.x.atan2(d.z);
+                }
+            } else {
+                // spawned troops charge the player (0x0042dd50 -> state 0x5b -> 0x0042ce70)
+                g.target = player.single().ok();
+                g.mind = ai::Mind::Chase;
+            }
             let bounds = Bounds { center: (model.min + model.max) * 0.5, radius: (model.max - model.min).length() * 0.5 };
             commands.entity(e).insert((Body { id, offset: lift, sync_rotation: false }, Health(p.f("max_health", 100.0)), bounds, g));
         }

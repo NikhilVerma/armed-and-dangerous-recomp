@@ -121,3 +121,27 @@ and the other HUD parts match (work/remaster/render/hud_zoom.png).
 It bobs: its own anim moves Center z from 20 to 46 above the placement (loop 0.97 s). Without it the arrow sat
 behind the arch's top and only the head showed. RigidAnim (level.rs) plays a rigid model's Center track; it now
 matches the original's synced captures.
+
+## Companions dying in engine bot runs (2026-10-14)
+
+Since companion death was ported (ccd9aec), Q and Jonesy die in most full-level bot runs (level1h: Q; level1j: both,
+with the alarm troops). Their health is 500 (x Game+0x554, normal 1) and grunt shots hurt them in full, as traced.
+Not compared: the hook's AI dump (World+0xe7c) lists grunts only (vtables 0x5a9cf0 / 0x5abb88), not Q / Jonesy.
+Next: a hook dump field for the companions' health (+0xad0 / +0xad4 of the player), then the same scripted fight in
+both games.
+Measured (hook dump field "companions", testshot.cpp): first fight (compT, keys 500:MOUSE1, W held 510..1610), frames
+900..2700: original Jonesy 500 -> 500, Q 500 -> 475, Roman 400 -> 340; engine (fightLc, same inputs) Jonesy 500 -> 490,
+Q 500 -> 500, Roman 400 -> 250 at 46 s. Companion damage is of the same size: the deaths in bot runs come from the
+bot's long fights and the alarm's troops. Roman takes more in the engine (the open question above).
+In the warp scenario (warp=720) the companions stay at the start in the original (not comparable there).
+Why Roman loses more in the first fight (compT2 with log_hits vs engine fightLc with AIDBG): the original's 63 shots
+group by shooter (and-shots.txt); grunt 201 at (-271, 607) fires once (frame 1182). In the engine it fires ~14 times
+from t 21.5 s, every 1.63 s, hitting Roman each time: the engine's Roman ends the held-W walk at about (-235, 492),
+the original's at (-215, 504), in 201's sight. The aim error is the original's formula (0x004284e0). Next: compare the
+two walks frame by frame after frame 1100 (the slope down to the trench; the walk was verified only to frame 900).
+Resolved (walkT, AI dumps every second): the walks match (both Romans stop at about (-230, 492) by frame 1620). In the
+original grunt 201 fires once (1182), then runs toward Roman ((-261, 576) at 1320, (-251, 538) at 1380) and hits him
+three times from about (-237, 507) at frames 1617 / 1724 / 1831 (107 frames apart): its fire range, rolled in
+fire_range_min..max 35..500 (0x00425d30), came out under its distance; the engine's roll came out over it, so it stays
+and fires every 1.63 s. A random-roll difference (no RNG sync with the original), not a broken mechanic. Still open:
+the engine's 1.63 s cadence for a standing grunt vs the original's 1.78 s for this one (clip delay vs guard path).
