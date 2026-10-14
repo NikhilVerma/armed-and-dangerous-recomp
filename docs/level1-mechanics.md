@@ -30,7 +30,7 @@ Update this table as items land (commit hash in the last column).
 | Hit-direction markers ui_hit_* | 0x0047afa0 side mask, 0x004670f0 | P | 1 | hit_flash set from the shot direction, damage_flash_duration |
 | Pain sounds | table 0x0064a300, rom50069..73_Hurt | P | 1 | at most 1/s; heavy breathing below 20 % |
 | Low-health pulse + sound cue | 0x00466e70, game_06.cpp:2155 | P | 1 | alpha pulse up 8/s, down 2/s |
-| Crosshair states (_in/_out, friendly) | 0x00406f50 | S | 2 | static crosshair |
+| Crosshair states (_in/_out, friendly) | 0x00406f50, 0x00406840 (hud.md 11) | P | 2 | aim ray over list +0xe9c, on-target classes, friendly crosshair, _in / _out anims, special crosshair; shots aim at its point (crossG / crossF) |
 | Gun auto-aim | 0x004a2a40 (option, default off) | M | 3 | off by default in the original; B: optional |
 | Rifle: fire gate, recycle, clip | 0x004a1e40, 0x004a23e0 | P | | taps fire (227163b) |
 | Shots from the gun to the crosshair point | 0x0047dbf0 (P = ref_shoot_00, Q = hud+0x5c) | V | | 227163b (spawn offset measured) |
@@ -47,7 +47,7 @@ Update this table as items land (commit hash in the last column).
 | Hit reaction, knockback | 0x0047afa0 | V | | |
 | Death presentation (ragdoll, fx_trotter_death, death lines) | vt+0xd4, player.md 6 | P | 2 | ragdoll from his pose (ragdoll.rs; Roman's head end from the neck), fx_trotter_death, death line, failed page after 5 s (dead.json) |
 | Mounted gun stig_mgun 32 | game_08.cpp turret | M | 2 | |
-| Teammate orders (keys 1 / 3) | 0x004852b0 | M | 2 | |
+| Teammate orders (keys 1 / 3) | 0x004852b0, 0x00485120 (companions.md) | P | 2 | Defend Me / Return To Me / Defend Area / Attack, ui_teammate_* text, order lines under vo_delay (team1..5) |
 | Idle fidgets, turn-in-place, land anims | 0x00476a10 | M | 3 | |
 | Grunt drops (type rule) | cleanup_01.cpp:96 | S | 3 | |
 | Pickup generators 219 / 220 | 0x00471b70 | M | 3 | |
@@ -71,7 +71,7 @@ Update this table as items land (commit hash in the last column).
 | Fidget shiver on level 1 | Game+0x2708 == 1 | S | 3 | never shivers |
 | Companions: formation, targeting, fire, TNT | 0x00485910.. | V | | |
 | Companions: hit reactions, death, friendly fire | 0x00430340, 0x004319e0, 0x00486df0 | P | 2 | friendly fire: no damage, FriendlyFire line; hits: Damaged / Hurt lines, hit_mgun / small / med anims; death: Dead line, *_die, -500 accidents, body removed; they take Roman's attacker |
-| Companions: barks, orders, leader swap, partner target | audio_02.cpp:195.. | M | 2 | |
+| Companions: barks, orders, leader swap, partner target | audio_02.cpp:195.., companions.md | P | 2 | Fight cue (Q fight, Jonesy fight / taunt) under vo_delay; the other slots have no caller or are empty |
 | **Kill-streak "dismay" banter** (the remarks after blasts) | MissionObject_Update game_02.cpp:2476, table 0x005ce570, kill meter Game+0xbb8 ≥ 3 | P | 1 | meter +1 per grunt death, drain 0.5/s, 30-45 s cooldown |
 | Sound-ear lines: alive / in range, on the speaker | 0x00497900 | S | 2 | 2D, random |
 | Penguins: physics, hits, death, screams, score, sticky | 0x0048f690.., 0x0048fa20 | P / M | 2 | any hit kills (1 health, no filter), pngn_blown_up (scream note) -> land_dead, gone after 5 s, -10 accidents; not yet: launch physics, sticky salute-and-run (penguin.json) |
