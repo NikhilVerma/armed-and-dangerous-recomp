@@ -114,6 +114,13 @@ impl AnimLibrary {
     }
 }
 
+impl Anim {
+    /// A bone's translation key track sampled at `t` seconds (held at the ends); None without one.
+    pub fn translation(&self, bone: &str, t: f32) -> Option<Vec3> {
+        sample3(&self.tracks.get(&bone.to_lowercase())?.t, t)
+    }
+}
+
 fn sample3(keys: &[[f32; 4]], t: f32) -> Option<Vec3> {
     let (a, b, u) = bracket(keys.len(), |i| keys[i][0], t)?;
     let va = Vec3::new(keys[a][1], keys[a][2], keys[a][3]);

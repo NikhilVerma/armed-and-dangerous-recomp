@@ -909,13 +909,15 @@ fn weapons(
     mut fx: MessageWriter<crate::fx::StartFx>,
     mut rng: ResMut<crate::fx::FxStats>,
     mut topsy: ResMut<crate::topsy::Topsy>,
-    (mut sticky, cam, joints): (ResMut<crate::sticky::StickyThrow>, Query<&GlobalTransform, With<FollowCam>>, Query<&GlobalTransform, Without<FollowCam>>),
+    (mut sticky, cam, joints, xhair): (ResMut<crate::sticky::StickyThrow>, Query<&GlobalTransform, With<FollowCam>>, Query<&GlobalTransform, Without<FollowCam>>, Res<crate::hud::Crosshair>),
 ) {
     let dt = time.delta_secs();
     // the aim point (Game+0xa6c): where the crosshair's ray from the camera meets the world, else far along it; the
     // player's shots fly from the weapon toward it (they flew parallel to the view from above Roman's head and missed
     // what the crosshair was on: the player's gun "did nothing")
-    let aim_point = cam.single().ok().map(|c| {
+    // (the crosshair's own ray, hud.rs crosshair_aim: Hud_UpdateCrosshair 0x00406f50's hud +0x5c, weapon range,
+    // characters by their collision parts; this one is the fallback before it has run)
+    let aim_point = xhair.point.or_else(|| cam.single().ok().map(|c| {
         let (o, d) = (c.translation(), c.forward().as_vec3());
         let mut from = o + d * 20.0;
         let mut left = 1000.0;
@@ -933,7 +935,7 @@ fn weapons(
                 None => break o + d * 1020.0,
             }
         }
-    });
+    }));
     for (e, mut r, t, ra) in &mut q {
         if r.dead {
             continue;

@@ -438,7 +438,7 @@ pub fn spawn(
                 physics.no_bullets.insert(c);
             }
         }
-        commands.entity(e).insert((Placed { template: inst.template.clone(), collider }, bounds));
+        commands.entity(e).insert((Placed { template: inst.template.clone(), collider }, bounds, crate::hud::AimClass::of(&p)));
         // attach_audio_loop (the oil pumps' amb_oil_pump_lp): a loop on the object while it lives
         if let Some(name) = p.s("attach_audio_loop").filter(|n| !n.is_empty() && *n != "none") {
             commands.entity(e).insert(AudioLoop(name.to_owned()));
@@ -614,7 +614,8 @@ fn husks(
                 let v: Vec<Vec3> = v.iter().map(|x| world.transform_point3(*x)).collect();
                 physics.add_static_mesh(&v, &tr)
             });
-        commands.entity(d.0).insert(Placed { template: husk.unwrap_or_default(), collider });
+        let aim = crate::hud::AimClass::of(&data.template_props(husk.as_deref().unwrap_or_default()));
+        commands.entity(d.0).insert((Placed { template: husk.unwrap_or_default(), collider }, aim));
     }
 }
 
