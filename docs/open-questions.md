@@ -154,3 +154,13 @@ the engine's 1.63 s cadence for a standing grunt vs the original's 1.78 s for th
 - Does a dead occupant's trench ever free? No death path calls vt+0x188 / vt+0x18c (static); whether the body's removal
   (reference drop) frees +0x4b0[0] is not traced. The engine keeps it held.
 - Not captured: the original near the trenches (which trenches barracks 25's troops take, the slot timings).
+
+## Remaster debt: shared random stream raced by unordered systems (2026-10-15)
+
+Many per-frame systems draw from the one shared `FxStats` random stream (ai.rs think / fire_cycle, charanim.rs
+roman, gameaudio.rs ambient / music_state, player.rs idle_banter, ...) with no fixed order under Bevy's
+multi-threaded executor, so which system gets which number varies between runs (evidence: player_move after the
+game / save merge — grunt 854v0's shot at 4.317 s vs 4.700 s from the same spotting; agent-gamesave-fix 437777e).
+Playtests now run Update single-threaded (main.rs, --play only), which hides it in tests. Real fix (pending the
+human's call): per-subsystem random streams (AI, audio, anim, fx), each seeded from the level seed, or a fixed
+order for every FxStats user. The original had one CRT rand() called in a fixed update order.
