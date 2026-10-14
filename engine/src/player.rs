@@ -1381,6 +1381,10 @@ fn projectiles(
                 if let (Some(o), Ok(mut g)) = (p.owner, victims.get_mut(ce)) {
                     g.attacker = Some(o);
                 }
+                // a bullet's record has no 0x80 (allow_cartoon_death 0, p_player_rifle_bullet)
+                if let Ok(mut g) = victims.get_mut(ce) {
+                    g.cartoon = false;
+                }
                 if std::env::var("AIDBG").is_ok() {
                     info!("AIDBG hit {:?} for {} -> {} part {:?}", body, p.damage * mult, h.0, part);
                 }

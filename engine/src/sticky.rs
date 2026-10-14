@@ -292,10 +292,13 @@ fn fly(
                 delay: 0.0,
                 // the thrower (0x0047e3a0): Roman's sticky bomb, or Jonesy's dynamite (a teammate)
                 by: if b.props.contains("molmer") { crate::fx::Src::Teammate } else { crate::fx::Src::Player },
+                // flags 0x80 | 1 (0x00481ab0)
+                cartoon: true,
             });
             if let Some((mut g, mut h)) = obj.and_then(|o| grunts.get_mut(o).ok()) {
                 let d = area + p.f("damage", 10.0);
                 g.last_hit = d;
+                g.cartoon = true;
                 h.0 -= d;
             }
             // p_molmer_dynamite has no fx_end, only fx_end_material: the original's blast (capture tntO, frame 1607,

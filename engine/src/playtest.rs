@@ -579,7 +579,7 @@ fn hurt_companions(
     for d in std::mem::take(&mut pt.blasts) {
         if let Ok((t, h)) = roman.single() {
             info!("EVENT playtest: blast {d} at Roman (health {:.0})", h.0);
-            boom.write(crate::fx::Explode { at: t.translation(), area_damage: d, radius_inner: 10.0, radius_outer: 20.0, impact_force: 0.0, source: None, delay: 0.0, by: crate::fx::Src::Badguy });
+            boom.write(crate::fx::Explode { at: t.translation(), area_damage: d, radius_inner: 10.0, radius_outer: 20.0, impact_force: 0.0, source: None, delay: 0.0, by: crate::fx::Src::Badguy, cartoon: false });
         }
     }
     for [who, amount] in std::mem::take(&mut pt.hurt_c) {
