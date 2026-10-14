@@ -212,9 +212,9 @@ fn view(screen: Res<PubScreen>, mut v: ResMut<PubView>, texts: Res<Texts>, roman
     let key = |s: String, k: &str| s.replace("%s", k);
     let choosing = screen.step >= screen.steps.len();
     let message = if !choosing {
-        key(texts.get(screen.steps[screen.step]), crate::mission::KEY_CONTINUE)
+        key(texts.get(screen.steps[screen.step]), &crate::input::key(crate::input::Act::Select))
     } else if !screen.offer.is_empty() {
-        key(texts.get("pub_notify_select"), crate::mission::KEY_CONTINUE)
+        key(texts.get("pub_notify_select"), &crate::input::key(crate::input::Act::Select))
     } else {
         String::new()
     };

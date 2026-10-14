@@ -491,6 +491,7 @@ fn control(
     mut physics: NonSendMut<Physics>,
     mut q: Query<(&mut Roman, &mut Transform, &Health)>,
     mut stats: ResMut<PlayerStats>,
+    pad: Res<crate::input::PadState>,
 ) {
     let dt = time.delta_secs();
     for (mut r, mut t, h) in &mut q {
@@ -518,6 +519,12 @@ fn control(
             let d = if playtest.is_some() { motion.delta } else { look.0 };
             r.yaw -= d.x * k * kt;
             r.pitch = (r.pitch - d.y * kpitch * inv * kp).clamp(-1.1, 0.7);
+            // the right stick (input.rs): shaped |a|^2 (zoomed |a|^3), 3 rad/s of turn and 1.7 of pitch at full
+            // deflection, zoomed 0.05 / 0.25 of 0.3 / 0.95 as the mouse
+            let e = if zoom_held { 3 } else { 2 };
+            let shape = |a: f32| a.signum() * a.abs().powi(e);
+            r.yaw -= shape(pad.look.x) * 3.0 * dt * kt;
+            r.pitch = (r.pitch + shape(pad.look.y) * 1.7 * dt * inv * kp).clamp(-1.1, 0.7);
         }
         let mut wish = Vec3::ZERO;
         // playtest bot: turn toward the goal and walk; when fighting, face the nearest live grunt
@@ -729,6 +736,15 @@ fn control(
             }
             if keys.pressed(KeyCode::KeyA) {
                 wish -= s * r.side_speed;
+            }
+            // the left stick: target speed max x a + (1 - a) x min for any deflection a (fwd / side_max_speed_min 4,
+            // game_06.cpp:2586); backward at the keys' 0.7
+            let m = pad.mv;
+            if m != Vec2::ZERO {
+                let sp = |max: f32, a: f32| max * a + (1.0 - a) * 4.0f32.min(max);
+                let fy = if m.y > 0.0 { sp(r.fwd_speed, m.y) } else if m.y < 0.0 { -sp(r.fwd_speed, -m.y) * 0.7 } else { 0.0 };
+                let sx = if m.x != 0.0 { m.x.signum() * sp(r.side_speed, m.x.abs()) } else { 0.0 };
+                wish += f * fy + s * sx;
             }
         }
         // the Topsy Turvy states hold Roman in place

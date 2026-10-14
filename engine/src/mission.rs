@@ -201,12 +201,6 @@ pub struct Mission {
 #[derive(Message, Clone, Copy)]
 pub struct SendTrigger(pub i64);
 
-/// The key names the prompts substitute for %s (the original's default bindings, docs/subsystems/player.md).
-pub const KEY_USE: &str = "F";
-// the continue prompts name MenuSelect's default binding, Mouse 1 (the original's briefing: "Press Mouse 1 to continue"); Enter
-// and Space work too
-pub const KEY_CONTINUE: &str = "Mouse 1";
-
 fn game_pos(p: [f32; 3]) -> Vec3 {
     game_to_engine() * Vec3::from(p)
 }
@@ -488,7 +482,7 @@ impl Mission {
     }
 
     fn hint(&self, key: &str) -> String {
-        self.hints.get(key).cloned().unwrap_or_default().replace("%s", KEY_USE)
+        self.hints.get(key).cloned().unwrap_or_default().replace("%s", &crate::input::key(crate::input::Act::Use))
     }
 
     pub fn message(&mut self, text: &str, delay: f32) {
@@ -879,11 +873,21 @@ fn messages(
     }
     m.feed.retain(|f| f.0 > 0.0);
     hud.messages = m.feed.iter().map(|f| f.1.clone()).collect();
-    if m.showing.is_some() {
+    // "Press %s to continue" names the MenuSelect binding of the device in use (input.rs), kept current while shown
+    let page = |m: &Mission, text: &str| {
+        let cont = m.hints.get("ui_stats_ok").cloned().unwrap_or("Press %s to continue".into()).replace("%s", &crate::input::key(crate::input::Act::Select));
+        format!("{text}<br><br>{cont}")
+    };
+    if let Some(text) = m.showing.clone() {
         if keys.just_pressed(KeyCode::Enter) || buttons.just_pressed(MouseButton::Left) {
             m.showing = None;
             hud.briefing = None;
             vtime.unpause();
+        } else {
+            let b = page(m, &text);
+            if hud.briefing.as_ref() != Some(&b) {
+                hud.briefing = Some(b);
+            }
         }
         return;
     }
@@ -893,8 +897,7 @@ fn messages(
     }
     if let Some(i) = m.queue.iter().position(|q| q.0 <= 0.0) {
         let (_, text) = m.queue.remove(i);
-        let cont = m.hints.get("ui_stats_ok").cloned().unwrap_or("Press %s to continue".into()).replace("%s", KEY_CONTINUE);
-        hud.briefing = Some(format!("{text}<br><br>{cont}"));
+        hud.briefing = Some(page(m, &text));
         m.showing = Some(text);
         vtime.pause();
     }

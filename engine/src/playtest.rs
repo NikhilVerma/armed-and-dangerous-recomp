@@ -73,6 +73,9 @@ pub struct Event {
     /// steps only: hold Use for this many seconds
     #[serde(default)]
     pub hold_use: Option<f32>,
+    /// a virtual gamepad (connected on first use): "South=1,LeftStickY=0.8" sets buttons / axes (Bevy names)
+    #[serde(default)]
+    pub pad: Option<String>,
 }
 
 /// The playtest bot's orders, read by the player's control and weapon systems.
@@ -161,6 +164,8 @@ pub struct Playtest {
     step_started: bool,
     /// a warp step waiting for the warp system
     warp: Option<[f32; 4]>,
+    /// virtual gamepad input for pad_drive
+    pad: Vec<String>,
 }
 
 /// Lines the game adds to the once-a-second state log (player position, health, mission step, ...).
@@ -174,7 +179,7 @@ impl Playtest {
         let mut events = s.events;
         events.sort_by(|a, b| a.t.total_cmp(&b.t));
         let log = std::fs::File::create(path.with_extension("log.jsonl")).ok();
-        Playtest { warp: None, path, title: s.title, events, turns: s.turns, next: 0, t: 0.0, taps: vec![], clicks: vec![], log, last_log: -1.0, steps: s.steps, step_shot: None, step: 0, step_t: 0.0, step_started: false }
+        Playtest { pad: vec![], warp: None, path, title: s.title, events, turns: s.turns, next: 0, t: 0.0, taps: vec![], clicks: vec![], log, last_log: -1.0, steps: s.steps, step_shot: None, step: 0, step_t: 0.0, step_started: false }
     }
 }
 
@@ -192,6 +197,7 @@ impl Plugin for PlaytestPlugin {
         app.init_resource::<PlayState>()
             .init_resource::<Bot>()
             .add_systems(PreUpdate, drive.after(bevy::input::InputSystems).run_if(resource_exists::<Playtest>))
+            .add_systems(PreUpdate, pad_drive.after(drive).run_if(resource_exists::<Playtest>))
             .add_systems(Last, log_state.run_if(resource_exists::<Playtest>))
             .add_systems(Update, warp.run_if(resource_exists::<Playtest>));
     }
@@ -292,9 +298,9 @@ fn drive(
     let turn: Vec2 = pt.turns.iter().filter(|(t0, t1, _, _)| t >= *t0 && t < *t1).map(|(_, _, x, y)| Vec2::new(*x, *y)).sum();
     // scripted runs ignore the real mouse (it moves the camera under the cursor grab): only scripted turns
     motion.delta = turn;
-    // a paused mission message (the mid-mission briefings) is dismissed as a player would, unless the current step
-    // waits for it (`until: message`) or taps it itself
-    let waits_for_message = pt.steps.get(pt.step).is_some_and(|st| st.until.as_deref() == Some("message") || st.tap.is_some());
+    // a paused mission message (the mid-mission briefings) is dismissed as a player would while the bot walks,
+    // fights or holds Use (those steps would never end on a paused game); other steps leave it to the script
+    let waits_for_message = pt.steps.get(pt.step).is_none_or(|st| st.goto.is_none() && st.fight.is_none() && st.hold_use.is_none());
     if mission.as_ref().is_some_and(|m| m.showing.is_some()) && !waits_for_message && !pt.taps.contains(&KeyCode::Enter) {
         keys.press(KeyCode::Enter);
         pt.taps.push(KeyCode::Enter);
@@ -371,6 +377,9 @@ fn drive(
         if let Some(m) = e.mouse {
             motion.delta += Vec2::from(m);
         }
+        if let Some(p) = e.pad {
+            pt.pad.push(p);
+        }
         if let Some(b) = e.click.as_deref().map(button) {
             buttons.press(b);
             pt.clicks.push(b);
@@ -441,5 +450,61 @@ fn log_state(mut pt: ResMut<Playtest>, mut state: ResMut<PlayState>) {
     line.insert("t".into(), ((pt.t * 100.0).round() / 100.0).into());
     if let Some(f) = pt.log.as_mut() {
         let _ = writeln!(f, "{}", serde_json::Value::Object(line));
+    }
+}
+
+/// The script's virtual gamepad: raw button / axis changes, processed by Bevy's gamepad systems next frame.
+fn pad_drive(
+    mut commands: Commands,
+    mut pt: ResMut<Playtest>,
+    mut pad: Local<Option<Entity>>,
+    mut conn: MessageWriter<bevy::input::gamepad::GamepadConnectionEvent>,
+    mut raw: MessageWriter<bevy::input::gamepad::RawGamepadEvent>,
+) {
+    use bevy::input::gamepad::{GamepadAxis as A, GamepadButton as B};
+    for cmd in std::mem::take(&mut pt.pad) {
+        let e = *pad.get_or_insert_with(|| {
+            let e = commands.spawn_empty().id();
+            conn.write(bevy::input::gamepad::GamepadConnectionEvent::new(
+                e,
+                bevy::input::gamepad::GamepadConnection::Connected { name: "playtest pad".into(), vendor_id: Some(0x045e), product_id: None },
+            ));
+            e
+        });
+        for part in cmd.split(',') {
+            let Some((n, v)) = part.split_once('=') else { continue };
+            let v: f32 = v.trim().parse().unwrap_or(0.0);
+            let b = match n.trim() {
+                "South" => Some(B::South),
+                "East" => Some(B::East),
+                "West" => Some(B::West),
+                "North" => Some(B::North),
+                "LeftTrigger" => Some(B::LeftTrigger),
+                "RightTrigger" => Some(B::RightTrigger),
+                "LeftTrigger2" => Some(B::LeftTrigger2),
+                "RightTrigger2" => Some(B::RightTrigger2),
+                "Start" => Some(B::Start),
+                "Select" => Some(B::Select),
+                "RightThumb" => Some(B::RightThumb),
+                "DPadUp" => Some(B::DPadUp),
+                "DPadDown" => Some(B::DPadDown),
+                "DPadLeft" => Some(B::DPadLeft),
+                "DPadRight" => Some(B::DPadRight),
+                _ => None,
+            };
+            let a = match n.trim() {
+                "LeftStickX" => Some(A::LeftStickX),
+                "LeftStickY" => Some(A::LeftStickY),
+                "RightStickX" => Some(A::RightStickX),
+                "RightStickY" => Some(A::RightStickY),
+                _ => None,
+            };
+            if let Some(b) = b {
+                raw.write(bevy::input::gamepad::RawGamepadEvent::Button(bevy::input::gamepad::RawGamepadButtonChangedEvent::new(e, b, v)));
+            }
+            if let Some(a) = a {
+                raw.write(bevy::input::gamepad::RawGamepadEvent::Axis(bevy::input::gamepad::RawGamepadAxisChangedEvent::new(e, a, v)));
+            }
+        }
     }
 }

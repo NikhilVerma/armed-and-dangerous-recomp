@@ -26,6 +26,7 @@ mod gamematerial;
 mod options;
 mod gameaudio;
 mod hud;
+mod input;
 mod level;
 mod menu;
 mod mission;
@@ -174,6 +175,7 @@ fn main() {
     .add_plugins((FrameTimeDiagnosticsPlugin::default(), flycam::FlyCamPlugin, bench::BenchPlugin))
     .add_plugins((physics::PhysicsPlugin, fx::FxPlugin, ai::AiPlugin, player::PlayerPlugin, menu::MenuPlugin, level::LevelPlugin, fxvm::FxVmPlugin, ai::CompanionPlugin, skin::SkinPlugin, charanim::CharAnimPlugin, hud::HudPlugin, mission::MissionPlugin, gameaudio::GameAudioPlugin, campath::CameraPathPlugin, gamemenu::GameMenuPlugin))
     .add_plugins(options::OptionsPlugin)
+    .add_plugins(input::InputPlugin)
     .add_plugins(gamematerial::GameMaterialPlugin)
     .add_plugins(pubscreen::PubScreenPlugin)
     .add_plugins(topsy::TopsyPlugin)

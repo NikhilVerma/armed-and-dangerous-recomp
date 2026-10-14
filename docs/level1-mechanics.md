@@ -21,12 +21,12 @@ Update this table as items land (commit hash in the last column).
 | Landing anims, landing damage, death by falling | 0x00478100 | M | 2 | |
 | Mouse look rates | 0x00475990.. | V | | pitch clamp narrower than the original (±1.56 / 1.15) |
 | Look from trackpad / Moonlight | — | B | 1 | cursor + raw + absolute raw (98e7700); unconfirmed |
-| Controller support | — | M | 1 | B: gamepad look/move/fire/menus |
+| Controller support | 0x004f8600 joystick; hook pad layout (qol.md) | B | 1 | input.rs: any pad, analog move (min speed 4) and look (3 rad/s, shaping ^2), menus; playtest `pad` steps (pad.json) |
 | Follow camera, collision, fade | 0x0040e350, 0x0040e56c | V | | smoothing slerp 0x0040fd50 not ported |
 | Zoom | 0x0040fbb0 | P | 3 | |
 | Intro path, briefing camera hold | 0x0040ff50, 0x0044daf0 | V | | Roman off-screen report: not reproduced (session log next) |
 | HUD layout | UI bank | V | | B: letterbox band mapped to the window, edge-anchored (this change) |
-| Prompts name the binding | "Press %s" | S | 1 | B: templates with the active device's buttons (keyboard / mouse / pad) |
+| Prompts name the binding | "Press %s" 0x00465280 | B | 1 | active device: last-used key (X / F, Mouse 1 / Enter) or the pad's coloured face button; kept current while shown |
 | Hit-direction markers ui_hit_* | 0x0047afa0 side mask, 0x004670f0 | P | 1 | hit_flash set from the shot direction, damage_flash_duration |
 | Pain sounds | table 0x0064a300, rom50069..73_Hurt | P | 1 | at most 1/s; heavy breathing below 20 % |
 | Low-health pulse + sound cue | 0x00466e70, game_06.cpp:2155 | P | 1 | alpha pulse up 8/s, down 2/s |
