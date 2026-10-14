@@ -37,7 +37,8 @@ Original: [recovered source files / classes]. Queue: `python tools/port_queue.py
 the original executes (work/coverage.json) that no engine file cites yet, by source file; `--all` adds the ones
 the coverage scenarios did not reach. Read each source file ONCE, in order, and port everything in it that the
 remaster needs for this subsystem, citing addresses. For each queued function decide: ported (cite it), replaced
-by the engine (say by what, in docs/remaster-engine.md), or not needed (say why).
+by the engine, or not needed: those two go in docs/port/<subsystem>.csv (address,disposition,reason), which
+tools/port_queue.py reads, so the queue shows only real work left (`--explained` lists them).
 Isolation tests: headless playtests from saved states with expect steps (or Rust unit tests for pure logic), one
 per behaviour area, never passing by luck (gunner1 once relied on a keg blast and one stray bullet: any code change
 that shifts the random sequence broke it); drive the outcome directly (kill / hurt / warp steps, aim at the real

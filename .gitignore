@@ -71,6 +71,7 @@ engine/target-wt-barracks/
 engine/target-wt-decals/
 engine/target-wt-pump/
 engine/target-wt-oilpump/
+engine/target-wt-ai/
 engine/target-wt-ui/
 engine/playtests/*.out
 engine/playtests/*.log.jsonl

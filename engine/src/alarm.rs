@@ -1,42 +1,82 @@
-//! Markers and the alarm chain (docs/subsystems/mission.md "lev_1_m1 alarm chain").
+//! Markers and the alarm chain (docs/subsystems/mission.md "lev_1_m1 alarm chain", grunt-ai.md 13).
 //!
-//! - Markers (template `marker`): a grunt in mode trigger_marker, once awake (its trigger, a target found, or hurt:
-//!   ai_01.cpp:2498-2531), runs to a marker of its marker_tag_min..max (AI_FollowMarkerSpline 0x0042d1b0; ai.rs
-//!   Mind::ToMarker). On arrival (Marker_ProcessArrival 0x0044ba30): with an alarm_tag, the object of that tag joins the
-//!   siren list World+0xef0 once: fx_siren on it and the runner's Help bark (vt+0x264, 0x00438f90); then the action:
-//!   hide (FindHidingSpot 0x0042a7b0; no cover slots here: its fallback, a wander 60..100), trigger_charge (at the
-//!   player, 0x0042ce70), else the scatter wander scatter_min..max (0x0042d430; ready_roaming / follow are not parsed
-//!   on PC).
-//! - The alarm controller (0x00404e50, ai_01.cpp:468-660) while a siren is listed: every alarm_min..max_delay (2..4 s)
-//!   one troop while fewer than alarm_generator_max_troops (10) of its troops live, from the generator nearest the
-//!   player that he does not see (180 degree cone and a sight ray) and is not one of the last 3 used (unless only those
-//!   remain); the troop type weighted by the generator's num_regular / num_captain. Troops hunt the player (their tags
-//!   12..14 lead to trigger_charge markers or a wander: guess, the spline choice is not traced).
+//! - Markers (template `marker`, MarkerObject_LoadProperties 0x0044b130 and its getters Marker_GetSequence 0x0044b480,
+//!   Marker_GetTrigger 0x0044b8b0 ...): the splines by tag (MarkerObject_BuildSpline 0x0044b540), followed by grunts
+//!   (ai.rs `follow_spline`, `marker_arrival`: AI_FollowMarkerSpline 0x0042d1b0, Marker_ProcessArrival 0x0044ba30,
+//!   AIMarker_Advance 0x0044b980). On arrival with an alarm_tag the object of that tag (Object_FindByTag 0x004592e0:
+//!   `tagged`) joins the siren list World+0xef0 once: fx_siren on it and the runner's Help bark (vt+0x264, 0x00438f90).
+//! - The alarm controller (0x00404e50, ai_01.cpp:468-660; its globals 0x0063a1e8.. are this resource) while a siren is
+//!   listed: every alarm_min..max_delay (2..4 s) one troop while fewer than alarm_generator_max_troops (10) of its
+//!   troops live, from the generator (AlarmGenerator_Slot6 0x00405490) nearest the player that he does not see
+//!   (0x00404d00) and is not one of the last 3 spawn points (else the first such: the fallback), the troop type by the
+//!   six weights, made at the generator's ref_spawn_00; the troop walks to its ref_exit_00 and follows the spline of a
+//!   tag in the generator's marker_tag_min..max (0x0042dd50), or charges with no tags.
 //! - A destroyed siren leaves the list (guess: Object_Remove unlinks it; unverified) and its loop stops.
 
 use crate::level::{InstanceId, game_to_engine};
 use bevy::prelude::*;
 use std::collections::{HashMap, VecDeque};
 
+/// A marker's properties (MarkerObject_LoadProperties 0x0044b130; getters 0x0044b470..0x0044b960).
 pub struct Marker {
     pub id: u32,
     pub pos: Vec3,
+    /// its facing (0x00453150: the placement's forward), used with face_dir
+    pub dir: Vec3,
     pub tag: i64,
+    /// "sequence" +0x46c: the order on its tag's spline (0 = the head)
+    pub sequence: i64,
+    /// "marker_next_min" / "marker_next_max" +0x464 / +0x468: the spline to switch to here (0: stay)
+    pub next: (i64, i64),
+    /// +0x490 bit 0 "strict": no target update on the way to the next marker; bit 7 "face_dir"
+    pub strict: bool,
+    pub face_dir: bool,
     pub alarm_tag: i64,
+    /// "trigger" +0x498: sent on arrival (Object_SendTrigger 0x00461870)
+    pub trigger: i64,
     pub action: String,
+    /// the action flags +0x490 the load maps the name to: hide 0x100000, attention_guard 0x200000, ready_guard
+    /// 0x400000, trigger_charge 0x800000, trigger_charge_tag 0x2000000, ic_* 0x1000000; other names (ready_roaming,
+    /// trigger_marker on lev_1_m1) set nothing
+    pub flags: u32,
     pub scatter: (f32, f32),
 }
 
+impl Marker {
+    pub const HIDE: u32 = 0x100000;
+    pub const ATTENTION_GUARD: u32 = 0x200000;
+    pub const READY_GUARD: u32 = 0x400000;
+    pub const TRIGGER_CHARGE: u32 = 0x800000;
+    pub const IC: u32 = 0x1000000;
+    pub const TRIGGER_CHARGE_TAG: u32 = 0x2000000;
+}
+
+/// An alarm generator (AlarmGenerator, vtable 0x005a2058; its set-up slot 6 0x00405490).
 struct Generator {
     id: u32,
     pos: Vec3,
-    /// (template, weight): num_regular -> grunt_regular, num_captain -> captain
-    weights: Vec<(&'static str, f32)>,
+    /// its model's "ref_spawn_00" (where troops are made) and "ref_exit_00" (where they walk first, 0x0042dd50)
+    spawn: Vec3,
+    exit: Vec3,
+    /// the six weights +0x464.. in the controller's type order (0x00404e50): num_bow "grunt", num_regular
+    /// "grunt_regular", num_jumper_captain "captain" (jumper), num_captain "captain", num_rocket_captain (no type: the
+    /// original's bug, logged and never reached on lev_1_m1), num_monk "monk"
+    weights: [i64; 6],
+    /// min_spawn_distance +0x494, max_distance +0x461 (only within 0.75 x Game+0xd64 of the player)
+    min_distance: f32,
+    max_distance: bool,
+    /// marker_tag_min / max +0x480 / +0x484, alert_group +0x490, priority_target_tag_min / max +0x488 / +0x48c
+    tags: (i64, i64),
+    alert_group: i64,
+    priority: (i64, i64),
 }
 
 #[derive(Resource, Default)]
 pub struct Markers {
     pub markers: Vec<Marker>,
+    /// the splines by tag (MarkerObject_BuildSpline 0x0044b540 on each head, sequence 0): the tag's markers in
+    /// sequence order; a tag without a head has none (Marker_FindSpline 0x0044c030 looks the head up)
+    pub splines: HashMap<i64, Vec<usize>>,
     generators: Vec<Generator>,
     /// instance ids by their `tag` property (alarm targets)
     tagged: HashMap<i64, Vec<u32>>,
@@ -53,39 +93,96 @@ impl Markers {
         let Ok(text) = std::fs::read_to_string(dir.join("instance_props.json")) else { return m };
         let Ok(list) = serde_json::from_str::<Vec<serde_json::Value>>(&text) else { return m };
         let num = |p: &serde_json::Value, k: &str| p.get(k).and_then(|v| v.as_f64()).unwrap_or(0.0);
+        // the placements' matrices (scene.json): a marker's facing, a generator's ref_spawn_00 / ref_exit_00
+        let mats: HashMap<u32, Mat4> = std::fs::read_to_string(dir.join("scene.json"))
+            .ok()
+            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+            .and_then(|s| {
+                let list = s.get("instances")?.as_array()?.clone();
+                Some(
+                    list.iter()
+                        .filter_map(|i| {
+                            let t: [[f32; 4]; 3] = serde_json::from_value(i.get("transform")?.clone()).ok()?;
+                            Some((i.get("id")?.as_u64()? as u32, crate::scene::game_matrix(&t)))
+                        })
+                        .collect(),
+                )
+            })
+            .unwrap_or_default();
         for v in &list {
             let id = v.get("id").and_then(|x| x.as_u64()).unwrap_or(0) as u32;
             let tpl = v.get("template").and_then(|x| x.as_str()).unwrap_or("");
-            let pos = v.get("pos").and_then(|p| p.as_array()).map(|a| Vec3::new(a[0].as_f64().unwrap_or(0.0) as f32, a[1].as_f64().unwrap_or(0.0) as f32, a[2].as_f64().unwrap_or(0.0) as f32)).unwrap_or_default();
-            let pos = game_to_engine() * pos;
+            let gpos = v.get("pos").and_then(|p| p.as_array()).map(|a| Vec3::new(a[0].as_f64().unwrap_or(0.0) as f32, a[1].as_f64().unwrap_or(0.0) as f32, a[2].as_f64().unwrap_or(0.0) as f32)).unwrap_or_default();
+            let pos = game_to_engine() * gpos;
+            let mat = mats.get(&id).copied().unwrap_or(Mat4::from_translation(gpos));
             let p = v.get("props").cloned().unwrap_or_default();
             let tag = num(&p, "tag") as i64;
             if tag != 0 {
                 m.tagged.entry(tag).or_default().push(id);
             }
             match tpl {
-                "marker" => m.markers.push(Marker {
-                    id,
-                    pos,
-                    tag: num(&p, "marker_tag") as i64,
-                    alarm_tag: num(&p, "alarm_tag") as i64,
-                    action: p.get("action").and_then(|x| x.as_str()).unwrap_or("").to_owned(),
-                    scatter: (num(&p, "scatter_min") as f32, num(&p, "scatter_max") as f32),
-                }),
+                "marker" => {
+                    let action = p.get("action").and_then(|x| x.as_str()).unwrap_or("none").to_owned();
+                    // the action name -> flags (0x0044b130: _stricmp, "ic_" by a 3-character compare)
+                    let flags = match action.to_ascii_lowercase().as_str() {
+                        "hide" => Marker::HIDE,
+                        "attention_guard" => Marker::ATTENTION_GUARD,
+                        "ready_guard" => Marker::READY_GUARD,
+                        "trigger_charge" => Marker::TRIGGER_CHARGE,
+                        "trigger_charge_tag" => Marker::TRIGGER_CHARGE_TAG,
+                        a if a.starts_with("ic_") => Marker::IC,
+                        _ => 0,
+                    };
+                    m.markers.push(Marker {
+                        id,
+                        pos,
+                        // guess: the placement's -y axis as for the trenches' ref_barracade (0x00453150 not traced)
+                        dir: (game_to_engine() * -mat.y_axis.truncate()).with_y(0.0).normalize_or(Vec3::Z),
+                        tag: num(&p, "marker_tag") as i64,
+                        sequence: num(&p, "sequence") as i64,
+                        next: (num(&p, "marker_next_min") as i64, num(&p, "marker_next_max") as i64),
+                        strict: num(&p, "strict") != 0.0,
+                        face_dir: num(&p, "face_dir") != 0.0,
+                        alarm_tag: num(&p, "alarm_tag") as i64,
+                        trigger: num(&p, "trigger") as i64,
+                        action,
+                        flags,
+                        scatter: (num(&p, "scatter_min") as f32, num(&p, "scatter_max") as f32),
+                    })
+                }
                 "grunt_generator" => {
-                    let mut w = Vec::new();
-                    if num(&p, "num_regular") > 0.0 {
-                        w.push(("grunt_regular", num(&p, "num_regular") as f32));
-                    }
-                    if num(&p, "num_captain") > 0.0 {
-                        w.push(("captain", num(&p, "num_captain") as f32));
-                    }
-                    if !w.is_empty() {
-                        m.generators.push(Generator { id, pos, weights: w });
+                    // AlarmGenerator_Slot6 0x00405490: the six counts (num_rocket_captain and num_monk default 0), the
+                    // distances and tags
+                    let weights = ["num_bow", "num_regular", "num_jumper_captain", "num_captain", "num_rocket_captain", "num_monk"].map(|k| num(&p, k) as i64);
+                    let bone = |b: &str| {
+                        let local = crate::mission::pub_bone(dir, "grunt_generator", b).unwrap_or(Vec3::ZERO);
+                        game_to_engine() * mat.transform_point3(local)
+                    };
+                    if weights.iter().sum::<i64>() > 0 {
+                        m.generators.push(Generator {
+                            id,
+                            pos,
+                            spawn: bone("ref_spawn_00"),
+                            exit: bone("ref_exit_00"),
+                            weights,
+                            min_distance: num(&p, "min_spawn_distance") as f32,
+                            max_distance: num(&p, "max_distance") != 0.0,
+                            tags: (num(&p, "marker_tag_min") as i64, num(&p, "marker_tag_max") as i64),
+                            alert_group: num(&p, "alert_group") as i64,
+                            priority: (num(&p, "priority_target_tag_min") as i64, num(&p, "priority_target_tag_max") as i64),
+                        });
                     }
                 }
                 _ => {}
             }
+        }
+        // MarkerObject_BuildSpline 0x0044b540: every head (sequence 0) collects the markers of its tag in sequence order
+        let mut tags: Vec<i64> = m.markers.iter().filter(|k| k.sequence == 0).map(|k| k.tag).collect();
+        tags.dedup();
+        for tag in tags {
+            let mut list: Vec<usize> = (0..m.markers.len()).filter(|&i| m.markers[i].tag == tag).collect();
+            list.sort_by_key(|&i| m.markers[i].sequence);
+            m.splines.insert(tag, list);
         }
         // the mission's alarm settings (Game+0x26d4, +0xb3c / +0xb40)
         if let Ok(mt) = std::fs::read_to_string(dir.join("mission.json")).map(|t| serde_json::from_str::<serde_json::Value>(&t).unwrap_or_default()) {
@@ -101,10 +198,28 @@ impl Markers {
         m
     }
 
-    /// A marker of a tag in min..=max (the first found: lev_1_m1 has one per tag).
-    pub fn find(&self, tags: (i64, i64), pick: f32) -> Option<usize> {
-        let c: Vec<usize> = self.markers.iter().enumerate().filter(|(_, m)| m.tag >= tags.0 && m.tag <= tags.1).map(|(i, _)| i).collect();
-        if c.is_empty() { None } else { Some(c[((pick * c.len() as f32) as usize).min(c.len() - 1)]) }
+    /// AI_FollowMarkerSpline 0x0042d1b0's pick: a tag in min..=max by ((rand * (max - min + 1)) >> 15) + min, and its
+    /// spline (Marker_FindSpline 0x0044c030: the head, sequence 0). None: the original logs "AI : Can't find marker
+    /// spline group" and removes the grunt (vt+0xdc); here he stays where he is (guess-free fallback: no lev_1_m1 tag
+    /// lacks a head).
+    pub fn pick_spline(&self, tags: (i64, i64), r: f32) -> Option<i64> {
+        let n = (tags.1 - tags.0 + 1).max(1);
+        let tag = tags.0 + ((r * n as f32) as i64).min(n - 1);
+        self.splines.contains_key(&tag).then_some(tag)
+    }
+
+    /// The marker index `i` of a spline.
+    pub fn spline_marker(&self, tag: i64, i: usize) -> Option<&Marker> {
+        self.splines.get(&tag).and_then(|s| s.get(i)).map(|&k| &self.markers[k])
+    }
+
+    /// The marker's index into `markers`.
+    pub fn spline_index(&self, tag: i64, i: usize) -> Option<usize> {
+        self.splines.get(&tag).and_then(|s| s.get(i)).copied()
+    }
+
+    pub fn spline_len(&self, tag: i64) -> usize {
+        self.splines.get(&tag).map_or(0, |s| s.len())
     }
 }
 
@@ -193,23 +308,55 @@ fn controller(
     // seen by the player (0x00404d00): in his 180 degree view and in sight of his chest
     let fwd = Quat::from_rotation_y(r.yaw) * Vec3::NEG_Z;
     let seen = |g: &Generator| (g.pos - pp).with_y(0.0).normalize_or_zero().dot(fwd) > 0.0 && crate::ai::line_of_sight(&physics, g.pos, pp);
-    let mut order: Vec<usize> = (0..m.generators.len()).filter(|&i| !seen(&m.generators[i])).collect();
-    order.sort_by(|&a, &b| (m.generators[a].pos - pp).with_y(0.0).length().total_cmp(&(m.generators[b].pos - pp).with_y(0.0).length()));
-    let fresh: Vec<usize> = order.iter().copied().filter(|&i| !m.recent.contains(&m.generators[i].id)).collect();
-    let Some(&gi) = fresh.first().or(order.first()) else { return };
-    let g = &m.generators[gi];
-    let total: f32 = g.weights.iter().map(|w| w.1).sum();
-    let mut pick = rng.rand() * total;
-    let mut tpl = g.weights[0].0;
-    for (t, w) in &g.weights {
-        if pick < *w {
-            tpl = t;
-            break;
+    // the walk of the generator list 0x0063a1f0 (in load order): a candidate no nearer than the best so far is skipped
+    // first; then inside its min_spawn_distance, beyond 0.75 x Game+0xd64 with max_distance (Game+0xd64 not exported:
+    // no lev_1_m1 generator sets max_distance), seen: skipped; one of the last three spawn points becomes the fallback
+    // (the first such met) instead of the best
+    let (mut best, mut best_d, mut fallback): (Option<usize>, f32, Option<usize>) = (None, 0.0, None);
+    for (i, g) in m.generators.iter().enumerate() {
+        let d2 = (g.pos - pp).with_y(0.0).length_squared();
+        if best.is_some() && d2 >= best_d {
+            continue;
         }
-        pick -= w;
+        if g.min_distance > 0.0 && d2 < g.min_distance * g.min_distance {
+            continue;
+        }
+        if seen(g) {
+            continue;
+        }
+        if m.recent.contains(&g.id) {
+            fallback = fallback.or(Some(i));
+            continue;
+        }
+        best = Some(i);
+        best_d = d2;
     }
-    let (id, at) = (g.id, g.pos);
-    spawn.write(crate::level::SpawnGrunt { at: at + Vec3::Y * 2.0, template: tpl.into(), alarm: true, ..default() });
+    let Some(gi) = best.or_else(|| {
+        // the fallback's spawn-point slot is released (it no longer counts as recent)
+        let f = fallback?;
+        let id = m.generators[f].id;
+        m.recent.retain(|&x| x != id);
+        Some(f)
+    }) else {
+        return;
+    };
+    let g = &m.generators[gi];
+    // the troop type by weight: pick = (rand * total >> 15) + 1, the first type whose running sum reaches it
+    let total: i64 = g.weights.iter().sum();
+    let pick = ((rng.rand() * total as f32) as i64).min(total - 1) + 1;
+    let (mut sum, mut ty) = (g.weights[0], 0usize);
+    while pick > sum && ty < 5 {
+        ty += 1;
+        sum += g.weights[ty];
+    }
+    // "grunt", "grunt_regular", "captain" (jumper: 0x00425d30(1), not reached here), "captain", none (num_rocket_captain:
+    // "Generator : unkown troop type" and the original's stack-slot bug, not reached on lev_1_m1), "monk"
+    let Some(tpl) = ["grunt", "grunt_regular", "captain", "captain", "", "monk"].get(ty).filter(|t| !t.is_empty()) else { return };
+    let (id, at) = (g.id, g.spawn);
+    // 0x0042dd50: the generator's marker tags and alert group; the walk to its ref_exit_00 (state 0x5a), then the marker
+    // spline of a tag, or with no tags 20..50 ahead and the charge (+0x488 0x200, state 0x5b -> 0x0042ce70)
+    let tags = (g.tags.0 != 0).then_some(g.tags);
+    spawn.write(crate::level::SpawnGrunt { at, template: (*tpl).into(), alarm: true, exit: Some(g.exit), marker_tags: tags, alert_group: g.alert_group, ..default() });
     m.recent.push_back(id);
     if m.recent.len() > 3 {
         m.recent.pop_front();

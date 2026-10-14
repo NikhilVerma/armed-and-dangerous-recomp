@@ -129,3 +129,20 @@ a damage with flag 0x20000 (sniper; none in lev_1_m1).
   "Attack", the pair kills it and returns to Defend Me 3..7 s later; key 1 on open ground gives Defend Area with Q
   ~25 and Jonesy ~50 units short of the aimed point; a return at 48.6 s played `rom50031_Return`; with --no-ai
   (no grunt cues) Jonesy's Fight cue played `jon50028_taunt` at the start of a burst.
+
+## 7. The leader pick and the regroup (ported 2026-10-14, engine/src/ai.rs `leader_pick`)
+
+Flag 0x10 of +0xbcc marks the leader (Q starts with it: Q111Object_Slot6 0x00486eb0 sets 0x10 | 0x200). The leader
+takes Roman's ref_q_00 and the other ref_molmer_00 (0x00483d60); under an area / attack order the leader's formation
+point is the anchor's reversed direction turned by +formation_angle, the other's by - (0x00483c30; the rotation's
+sense is a guess). The pick 0x00483810 runs when a regroup starts (mode 1 -> 2, forced when Roman faces more than 90
+degrees from his direction at the last pick), every 0.25 s on the move and on arrival (both unless the partner idles),
+and forced by Defend Area (0x00484ca0): a partner's newer pick is copied; else the one of the pair nearer the anchor
+(Roman, or the order's point) is `ebp`, nothing changes while the anchor is within delay_distance of it (unless
+forced), and `ebp` leads when it is nearer the leader's point (idle) or, moving, when the other point is the less
+aligned with Roman's direction (`|cos b| < |cos a|`); the partner takes the opposite flag. A regroup asks the idle
+partner to regroup too (flag 0x80, 0x004837b0). Moving far behind Roman the two run nearly parallel and the flag can
+change several times a second (leader1's log), as the compare implies. The playtest log has `q_lead` / `jonesy_lead`.
+
+Not ported (docs/port/ai.csv): the tower mode (trigger marker paths, Molmer_Tower), the carried modes, Q's cape cloth,
+the companions' last-shot stamps (Roman's 30 s idle cue 0x0047b730 reads them), defend_min_distance's engage test.

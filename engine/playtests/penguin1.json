@@ -1,0 +1,8 @@
+{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+ {"wait": 1.0},
+ {"destroy": 243},
+ {"wait": 1.2},
+ {"destroy": 244},
+ {"wait": 1.2},
+ {"quit": true}
+]}

@@ -1,0 +1,13 @@
+{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+ {"wait": 0.5},
+ {"warp": [-255, -120, 8, 180]},
+ {"wait": 0.5},
+ {"spawn": [-255, -170, 8], "template": "captain"},
+ {"wait": 0.5},
+ {"expect": {"ai.captains": 1, "ai.near.kind": "Captain"}},
+ {"wait": 6.0},
+ {"shot": "captain"},
+ {"expect": {"ai.near.targets_player": true}},
+ {"wait": 4.0},
+ {"quit": true}
+]}

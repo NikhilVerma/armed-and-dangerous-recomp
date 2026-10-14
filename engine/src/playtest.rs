@@ -68,6 +68,15 @@ pub struct Event {
     /// debug: spawn a grunt_regular at this game-space point (as a barracks does)
     #[serde(default)]
     pub spawn: Option<[f32; 3]>,
+    /// debug: with spawn, the template instead of grunt_regular (grunt: the archer, captain)
+    #[serde(default)]
+    pub template: Option<String>,
+    /// debug: a noise of Roman's at this game-space point (as his bullet's impact: ai.rs Interests, radius 200, 2 s)
+    #[serde(default)]
+    pub noise: Option<[f32; 3]>,
+    /// debug: the grunts' shared bark delays (death / vo / taunt) count as passed (the taunt after a clip at once)
+    #[serde(default)]
+    pub barks_ready: Option<bool>,
     /// debug: the live grunt nearest Roman runs the hiding-spot search now (as at a reload's end; ai.rs
     /// find_hiding_spot), so a trench's use can be checked without waiting for its rolls
     #[serde(default)]
@@ -348,7 +357,13 @@ fn drive(
     mission: Option<Res<crate::mission::Mission>>,
     mut roman: Query<&mut crate::fx::Health, With<crate::player::Roman>>,
     mut spawn: MessageWriter<crate::level::SpawnGrunt>,
-    (mut send, state, mut save_req): (MessageWriter<crate::mission::SendTrigger>, Res<PlayState>, ResMut<crate::savegame::SaveRequest>),
+    (mut send, state, mut save_req, mut noise, mut barks): (
+        MessageWriter<crate::mission::SendTrigger>,
+        Res<PlayState>,
+        ResMut<crate::savegame::SaveRequest>,
+        ResMut<crate::ai::Interests>,
+        ResMut<crate::ai::Barks>,
+    ),
     mut objects: Query<(&crate::level::InstanceId, &mut crate::fx::Destructible)>,
     cam: Query<&GlobalTransform, With<Camera3d>>,
     player: Query<&GlobalTransform, With<crate::player::Roman>>,
@@ -563,7 +578,14 @@ fn drive(
             }
         }
         if let Some(g) = e.spawn {
-            spawn.write(crate::level::SpawnGrunt { at: Vec3::new(g[0], g[2], -g[1]), template: "grunt_regular".into(), ..default() });
+            let template = e.template.clone().unwrap_or_else(|| "grunt_regular".into());
+            spawn.write(crate::level::SpawnGrunt { at: Vec3::new(g[0], g[2], -g[1]), template, ..default() });
+        }
+        if let Some(g) = e.noise {
+            noise.post(Vec3::new(g[0], g[2], -g[1]), 200.0, 2.0);
+        }
+        if e.barks_ready == Some(true) {
+            barks.all_ready();
         }
     }
 }
