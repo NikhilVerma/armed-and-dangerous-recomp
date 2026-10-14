@@ -219,7 +219,8 @@ impl GameMenu {
     }
 }
 
-/// The display strings (ui/texts.json).
+/// The display strings (ui/texts.json). A missing id shows itself (as 0x004187e0 copies the key when Text_Lookup
+/// 0x00495f00 finds nothing; Text_Lookup itself would show "Text lookup failure: %s").
 #[derive(Resource, Default)]
 pub struct Texts(pub HashMap<String, String>);
 
@@ -565,7 +566,7 @@ pub fn spawn(commands: &mut Commands, assets: &AssetServer, meshes: &mut Assets<
         // the code box (ui_cheatbox, row 5 of ref_cheat_menu): what is typed, then the result (Cheats_Check
         // 0x004107c0 sets the box's own text)
         s.text(Page::Cheats, "", Vec2::new(320.0, 339.564), 1.0, GREEN, 0.0, PartKind::CheatTyped);
-        // the cheats known (ui_cheatdesc, code 64, rows 0..11 = the table 0x00589090's entries: 0x00410be0): placed
+        // the cheats known (ui_cheatdesc, class init 0x00410ad0, code 64, rows 0..11 = the table 0x00589090's entries: 0x00410be0): placed
         // on ref_info (320, 276.44) by 0x00410c20 in three columns, x + (n % 3 - 1) x 0.25 of the screen, y - (n / 3
         // x 40 + 24) units; shown (0x00410b20) when known (Game+0x48c) or active (Game+0x4c8) or List Cheats (0x80) is
         // on, greyed (+0x474 0x40) unless active
@@ -690,6 +691,11 @@ fn failed(mission: Option<Res<crate::mission::Mission>>, state: Res<State<AppSta
     }
 }
 
+/// A menu screen's input (UiScreen_Update 0x004929e0 through the menu input 0x00491140): the mouse (the cursor,
+/// 0x00491380 / 0x00463ac0, mapped to the 640 x 480 layout) selects the item under it with the move sound when it
+/// moves, a click activates it; up / down move the selection (the items' nav links, 0x00464a10, here the rows'
+/// order), left / right step a stepper, select activates (UiScreen_Activate 0x004921a0 by the item's action),
+/// back cancels (0x00490b60 with the cancel sound).
 #[allow(clippy::too_many_arguments)]
 fn navigate(
     ctl: Res<crate::input::Controls>,
@@ -788,6 +794,7 @@ fn navigate(
     // the cheat page takes letters and Enter (cheats.rs); Esc or a click on Back leaves it
     if cheats.entering {
         if ctl.pressed(crate::input::Act::Back) || (mouse.just_pressed(MouseButton::Left) && hovered.is_some()) {
+            // the box forgets the typed code (0x00410710, as its init 0x004106d0)
             cheats.typed.clear();
             cheats.result.clear();
             if let Some((p, s)) = menu.stack.pop() {
@@ -1064,8 +1071,9 @@ fn value(o: &GameOptions, opt: Opt, win: (u32, u32)) -> (f32, String) {
 
 /// Whether a change between two screens is instant (no fade): the original skips the fade when the current top
 /// screen and the new one (or none) both have flag 4 (0x00490e90 at time 0 with mgr+0xf0 bit 2: the pause menu
-/// 0x100c, mission failed 0x24; with no screen the bit is set, 0x00490c20). The remaster also makes every change
-/// into or out of play instant (the game would run under a fading menu).
+/// 0x100c, mission failed 0x24; with no screen the bit is set, 0x00490c20; a push 0x00490ba0 sets it from the new top).
+/// The requests (0x00490cb0, run by 0x00490d80 at the fade's middle) are the navigate's page changes. The remaster
+/// also makes every change into or out of play instant (the game would run under a fading menu).
 fn instant(from: Option<Page>, to: Option<Page>) -> bool {
     let flag4 = |p: Option<Page>| p.is_none_or(|p| matches!(p, Page::Pause | Page::Failed));
     from.is_none() || to.is_none() || (flag4(from) && flag4(to))
@@ -1189,6 +1197,7 @@ fn values(
     mut fills: Query<(&BarFill, &mut Transform)>,
     checks: Query<(&CheckFill, &MeshMaterial2d<ColorMaterial>)>,
     mut materials: ResMut<Assets<ColorMaterial>>,
+    bank: Res<Texts>,
 ) {
     let win = windows.single().map(|w| (w.resolution.width() as u32, w.resolution.height() as u32)).unwrap_or((1920, 1080));
     let gfx = menu.edit.as_ref().unwrap_or(&opts);
@@ -1211,10 +1220,20 @@ fn values(
         let line = match p.kind {
             // the box shows the result until the next letter (Cheats_Check 0x004107c0 sets the box's text)
             PartKind::CheatTyped => Some(if cheats.typed.is_empty() && !cheats.result.is_empty() { cheats.result.clone() } else { format!("{}_", cheats.typed) }),
-            PartKind::Binding(a) => Some(crate::input::key(a)),
+            // a key binding entry's label (0x00447e70, refreshed each frame as 0x00448260 does when the bindings
+            // change): both bindings as "%s or %s" (pms_input_aorb), one alone, or "Unassigned"
+            PartKind::Binding(a) => Some(match crate::input::keys(a).as_slice() {
+                [] => bank.get("pms_input_unassigned"),
+                [k] => k.clone(),
+                [k1, k2, ..] => bank.get("pms_input_aorb").replacen("%s", k1, 1).replacen("%s", k2, 1),
+            }),
             _ => None,
         };
         if let Some(l) = line {
+            // the key label fitted to 128 units (0x00447da0: FitText_SetWidth 0x0046d5a0)
+            if matches!(p.kind, PartKind::Binding(_)) {
+                t.fit = 128.0;
+            }
             if t.text != l {
                 t.text = l;
             }

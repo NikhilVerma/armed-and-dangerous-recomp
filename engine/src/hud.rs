@@ -1109,7 +1109,8 @@ fn texts(
             let icon = commands.spawn((Mesh2d(meshes.add(m)), MeshMaterial2d(mat), Transform::from_xyz(dx, 0.0, 22.0), RenderLayers::layer(HUD_LAYER))).id();
             commands.entity(e).add_children(&[icon]);
         }
-        // the message box (ui_mission_briefing, 0x00466060) sits on the band ui_text_bkd: texture b_text_bkd,
+        // the message box (ui_mission_briefing, 0x00466060, sizing its band through 0x00464400) sits on the band
+        // ui_text_bkd: texture b_text_bkd,
         // 856 units wide, stretched vertically to the text (anim 4 = min(text height / 480, 1), 0x00466470); the
         // padding is measured from the original's capture (work/shots/orig_ui_play-480.png: ~12 units)
         if el.name == "ui_briefing" && !t.text.is_empty() {
@@ -1151,7 +1152,8 @@ fn subtitles(time: Res<Time>, mut subs: MessageReader<crate::audio::Subtitle>, h
     }
 }
 
-/// Health meters: the texture scrolls by t = clamp((1 - value) * 0.5, 0, 0.5); colour band x = 0.5 below 25 %,
+/// Health meters (the meter init 0x00466c20 names the target: ui_player_health 0, ui_health_enemy 1, ui_health_q 2,
+/// the others 3, Jonesy): the texture scrolls by t = clamp((1 - value) * 0.5, 0, 0.5); colour band x = 0.5 below 25 %,
 /// 0.25 below 50 %, else 0 (0x00466e70).
 fn meters(state: Res<HudState>, mut materials: ResMut<Assets<ColorMaterial>>, q: Query<(&Meter, &ChildOf)>, parents: Query<&HudElement>, time: Res<Time<Real>>, mut pulse: Local<(f32, bool)>) {
     // the player's meter pulses at or below 20% (0x00466e70: alpha up 8 / s, down 2 / s)
@@ -1194,7 +1196,8 @@ fn meters(state: Res<HudState>, mut materials: ResMut<Assets<ColorMaterial>>, q:
     }
 }
 
-/// The compass needle turns with the camera heading; the objective arrow points at the compass target.
+/// The compass needle turns with the camera heading (0x00466700: anim 4 = 1 - (pi - atan2(dir.y, dir.x)) / 2 pi of the
+/// camera direction, the ui_compass anim one turn); the objective arrow points at the compass target (0x00466790).
 fn compass(state: Res<HudState>, mut needles: Query<&mut Transform, With<CompassNeedle>>, mut q: Query<(&HudElement, &mut Visibility, &Children)>, mut parts: Query<&mut Transform, Without<CompassNeedle>>) {
     for mut t in &mut needles {
         let z = t.translation.z;
@@ -1236,6 +1239,8 @@ fn visibility(
     for (el, mut v) in &mut q {
         let show = state.visible
             && match el.name.as_str() {
+                // the hit indicators (init 0x00467010: top 1, bottom 2, left 4, right 8 of the hit mask Game+0x26d0;
+                // 0x004670f0 shows each for Game+0xcb8 s: player.rs damage_flash_duration)
                 "ui_hit_top" => state.hit_flash[0] > 0.0,
                 "ui_hit_bottom" => state.hit_flash[1] > 0.0,
                 "ui_hit_left" => state.hit_flash[2] > 0.0,
@@ -1350,7 +1355,8 @@ pub struct Crosshair {
 
 impl Default for Crosshair {
     fn default() -> Self {
-        // the HUD object's constructor 0x004065d0 sets +0x390 = 2 (game_01.cpp:1463)
+        // the HUD object's constructor 0x004065d0 sets +0x390 = 2 (game_01.cpp:1463); its reset 0x00406690 clears the
+        // targets (+0, +0x58, +0x84, the lock slots), as a new Crosshair
         Crosshair { on: false, friendly: false, point: None, object: None, shown: 2, weapon: "", anims: HashMap::new() }
     }
 }

@@ -16,9 +16,7 @@ loop, the commands, and the traps found so far. Keep it current at the end of ev
 6. Later levels' mechanics (jetpacks, capture the flag, escorts ...) the same way, each its own piece.
 
 Known open differences, each a piece: aim blend (the original blends four aim poses tl / tr / bl / br by the aim
-direction, ids 0x21..0x24 in fn_00428980; the engine plays one, so guns point up), treasure tokens (pickup_treasure1: "You have found a token! ... 1 out of 21"), speech
-subtitles (the original shows them in the top message feed as "Speaker: line" in the speaker's colour; the engine
-puts them at y 0.15 without the name: wrong, fix), the grunts' shot cadence (fire anim 0.47 s, engine 0.6 s).
+direction, ids 0x21..0x24 in fn_00428980; the engine plays one, so guns point up), treasure tokens (pickup_treasure1: "You have found a token! ... 1 out of 21"), the grunts' shot cadence (fire anim 0.47 s, engine 0.6 s).
 
 ## What "done" means (the human, 2026-10-13)
 
@@ -184,6 +182,25 @@ work/remaster/play/compare/.
   every feed line; there is no bottom subtitle line in game.
 - Extras tokens: placed pickups spin at rotate_rate; the message and unlockables follow fn_004a0850 and the table
   0x0057e878; the count persists in options.json (delete it before a comparison run).
+
+## HUD and menus (subsystem port, 2026-10-14)
+
+What the remaster does: docs/subsystems/hud.md section 12 and menus.md section 4. `python tools/port_queue.py ui`
+went from 168 to 123 entries; every remaining one is replaced by the engine or not needed:
+
+| Original | Remaster | Why no port |
+| --- | --- | --- |
+| UI object framework: 0x004626e0, 0x00462770, Hud_CreateLevelUi 0x004629b0, 0x004637d0, ObjectList_FindByName 0x00463ad0, 0x00463c50, 0x00463c90, page shown bits 0x00463d60 / 0x00463df0 / 0x00463e80 / 0x00463f30, 0x004643b0, 0x004643f0, kind bits 0x004648a0 / 0x00465350 / 0x00410bd0 / 0x0046ce40, base init 0x004648b0, hit rect 0x00464990, 0x00464a00, 0x00464ae0, placement 0x00464b10, 0x00464e10, 0x00465130, 0x00465160, text init 0x004651a0, the UiText setters 0x00465470 / 0x00465850 / 0x004658a0 / 0x00465970 / 0x004659b0 / 0x004659d0 / 0x004659e0, class inits 0x00466430 / 0x00466520 / 0x00466530 / 0x00466580 / 0x00467170 / 0x00467270 / 0x004676f0 / 0x004679f0 / 0x00467d90 / 0x00467f00, 0x00467fd0, 0x0046b0a0, 0x0046bbe0, CheckBox_Init 0x0046cbc0, Stepper_SetSteps 0x0046cf70, FitText_Init / SetScale 0x0046d400 / 0x0046d580, Spline_Coefficients 0x0046d630 | Bevy entities spawned from layout.json (hud.rs `spawn`, gamemenu.rs `Spawner`), `HudElement` / `HudText` / `MenuRow`, `place` | plumbing of the original's object system |
+| Screen manager: UI_Init 0x0048ff90, 0x00490760, 0x004909f0, 0x00490a20, 0x00490a30, 0x00490a80, 0x00490b40, 0x00491020, 0x00491110, UiScreen_Construct 0x004916e0, 0x00491750, show 0x004918b0, selection 0x004919c0 / 0x00491b20 / 0x00491b60, 0x00491ae0, enable 0x004927a0, focus 0x004928f0, list 0x004929a0, stats screen ctor / dtor 0x00494000 / 0x00494030, credits ctor 0x00415910 | `GameMenu` (page, stack, fades), `navigate` / `animate` | plumbing |
+| Save / load lists: ListBox 0x0046bdd0 / 0x0046be90 / 0x0046bec0 / 0x0046bed0 / 0x0046c5f0 / 0x0046c980, save slots 0x004a2c10 / 0x004a2f70 / 0x004a2fd0 / 0x004a2fe0 | the single quick save (savegame.rs) | the remaster's save design |
+| 0x00415d50 (poster render target), 0x00494820 (poster widget release), 0x00495e50 (text table), DisplayMode_Pack / Unpack 0x00470c90 / 0x00470cc0 | statscreen.rs draws the poster as a quad; `Texts`; the window size in options.json | renderer / storage plumbing |
+| 0x00401010, Options_Apply 0x00401ce0 | options.rs applies each option (window, exposure, far plane, mixer, mouse) | owned by options.rs |
+| Mode counters 0x00465be0 / 0x00465c90 / 0x00465ce0 / 0x00465d30, flag and handle meters 0x00465d50 / 0x00465de0 / 0x00465e30 / 0x00465f30 / 0x00465f70 / 0x00466010, 0x004671b0 | none | not in lev_1_m1 (Game+0x26ec, +0x26fc, +0xcbc unset); later levels' mechanics |
+| Auto-aim pass 0x004067e0 / 0x00408050 / 0x00408190 / 0x004082a0 | none (the option shown disabled) | option off by default; open: port with an auto-aim option |
+| Key rebinding entries 0x00447d20 / 0x00447e20 (labels "A or B" ported, 0x00447e70) | the controls page shows the device's bindings | open: rebinding not ported |
+| 0x00410ca0 (cheat flags applied at level start) | cheats.rs applies effects on activation | the 0x2000 object pass (0x00418690) is not ported |
+| UI_GetLoadingText 0x00447600, movie screens 0x00493150 / 0x004931b0 / 0x00493240 / 0x00493270 / 0x004932e0 / 0x00493320 / 0x004933b0 / 0x004933e0, timed splash 0x00493520 / 0x00493590, exit screen 0x00493770 | none | no loading screen (the level loads before the title menu), no movies yet, who pushes LegalText is not traced |
+| 0x00467220, 0x00467740, 0x004677c0 | none | their UI elements are not identified (hud.md open question 7) |
 
 ## Save / load
 

@@ -426,6 +426,26 @@ pub fn key(a: Act) -> String {
     pad_button(dev == 2, b)
 }
 
+/// Every binding of `a` on the device in use, for the controls page (gamemenu.rs shows two as "%s or %s", as the
+/// original's key binding entries 0x00447e70 show both keys of an action). Keyboard and mouse: the bindings of
+/// `spawn_contexts` (keep in step); a pad: its one button (`key`).
+pub fn keys(a: Act) -> Vec<String> {
+    if DEVICE.load(Ordering::Relaxed) != 0 {
+        return vec![key(a)];
+    }
+    let icon = |n: &str| format!("<icon={n}>");
+    match a {
+        Act::Use => vec![icon("keyboard_x"), icon("keyboard_f")],
+        Act::Aim => vec![icon("keyboard_z"), icon("keyboard_e")],
+        // no icon for the middle button in the exported set
+        Act::Jump => vec![icon("keyboard_space"), "Mouse 3".into()],
+        Act::Select => vec![icon("keyboard_enter"), icon("keyboard_space")],
+        Act::Continue => vec![icon("keyboard_enter"), icon("mouse_left")],
+        Act::Back => vec![icon("keyboard_escape"), icon("mouse_right")],
+        _ => vec![key(a)],
+    }
+}
+
 /// Rumble on the pad in use (remaster improvement; the original drives DirectInput force feedback from
 /// Rumble_Update, not ported): a short light pulse per shot, a heavier one when Roman is hit (by the damage), and
 /// explosions by distance (full within 50 units, none beyond 300).
