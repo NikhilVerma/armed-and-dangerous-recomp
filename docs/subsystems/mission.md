@@ -427,3 +427,22 @@ Transforms are the game's 3 rows of (r0, r1, r2, t): world = row · local + t (a
   presumably wakes an AI by sight; not read.
 - **Trigger 711:** why does `snow_pipe_curved` 96 send it (a cold-weather line when a pipe blows up)? Probably a
   designer slip; reproduce as data.
+
+## lev_1_m1 alarm chain (traced 2026-10-14; static, not executed in recorded runs)
+
+- Runner: grunt_regular 67 (-180, -87, 21), trigger_marker, receive_trigger_activate 556 (ticker site 252's blast),
+  marker tags 14..14; trigger_los 1 (default), so he also wakes on finding a target or being hurt. Activation
+  0x0042f5c0 -> AI_FollowMarkerSpline 0x0042d1b0 (ai_03.cpp:1756): the tag's spline, reached by nav (state 0x96).
+- Marker 151 (-98, -103, 14): tag 14, alarm_tag 4, scatter 5..30 (ready_roaming / follow are not parsed on PC).
+  Arrival (Marker_ProcessArrival 0x0044ba30): the object tagged 4, guard_alarm 33 (-201, -65, 13; p_guard_alarm
+  takes bullets, fx_death fx_explosion_siren), joins the siren list World+0xef0 once: fx_siren (fxo_glow_red,
+  alm_airraid_lp) and the runner's Help bark; then he wanders 5..30 (0x0042d430).
+- Controller 0x00404e50 (ai_01.cpp:468-660) while any siren is listed: every 2..4 s (alarm_min / max_delay) one troop
+  while fewer than 10 (alarm_generator_max_troops) live; generator: nearest to the player, not seen by him (180 deg
+  cone + ray to ref_hit_01), not one of the last 3; type by weights (152: num_regular 5; 215: num_regular 5,
+  num_captain 2); spawned at ref_spawn_00, walks to ref_exit_00, tags 12..14 (markers 36 / 205 trigger_charge, 151
+  wander: guess, a random spline of the range).
+- Stops: kill the runner first (no siren); destroying the siren (removal from the list: unverified). No mission
+  trigger involved.
+- Other markers: grunt 34 (trigger 808) -> marker 35 `hide` (FindHidingSpot 0x0042a7b0, else wander 60..100);
+  barracks 25 -> marker 179 hide; barracks 235 -> markers 264 / 265 hide (scatter 5..100), 266 / 267 scatter.

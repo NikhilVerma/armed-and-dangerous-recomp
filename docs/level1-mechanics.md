@@ -74,7 +74,7 @@ Update this table as items land (commit hash in the last column).
 | Companions: barks, orders, leader swap, partner target | audio_02.cpp:195.. | M | 2 | |
 | **Kill-streak "dismay" banter** (the remarks after blasts) | MissionObject_Update game_02.cpp:2476, table 0x005ce570, kill meter Game+0xbb8 ≥ 3 | P | 1 | meter +1 per grunt death, drain 0.5/s, 30-45 s cooldown |
 | Sound-ear lines: alive / in range, on the speaker | 0x00497900 | S | 2 | 2D, random |
-| Penguins: physics, hits, death, screams, score, sticky | 0x0048f690.. | M | 2 | anims / calls only |
+| Penguins: physics, hits, death, screams, score, sticky | 0x0048f690.., 0x0048fa20 | P / M | 2 | any hit kills (1 health, no filter), pngn_blown_up (scream note) -> land_dead, gone after 5 s, -10 accidents; not yet: launch physics, sticky salute-and-run (penguin.json) |
 
 ## Mission scripting
 

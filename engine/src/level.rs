@@ -165,6 +165,14 @@ fn attach_weapon(commands: &mut Commands, hand: Entity, model: &scene::Model, fi
     holder
 }
 
+/// A penguin (PenguinObject, vtable 0x005a1768): any hit kills it (damage 0x0048fa20, no amount threshold, no team
+/// filter), score_value -10 to Accidents; `dead` counts the time since (pngn_blown_up, then pngn_land_dead, the
+/// body lingering 5 s and fading 0.5 s: GoRagdoll 0x00431310's corpse timer).
+#[derive(Component, Default)]
+pub struct Penguin {
+    pub dead: Option<f32>,
+}
+
 /// One of Roman's weapon models in his hand (player.rs shows the one in use).
 #[derive(Component)]
 pub struct HandWeapon(pub &'static str);
@@ -436,6 +444,33 @@ pub fn spawn(
         if let Some(d) = destructible(&p) {
             commands.entity(e).insert(d);
             info.destructibles += 1;
+        } else if inst.template == "penguin" {
+            // in the projectile and area damage lists (+0xe90, +0xe94): 1 health, no filter
+            commands.entity(e).insert((
+                Destructible {
+                    health: 1.0,
+                    fx_death: None,
+                    husk: None,
+                    area_damage: 0.0,
+                    radius_inner: 0.0,
+                    radius_outer: 0.0,
+                    impact_force: 0.0,
+                    chain: false,
+                    start_delay: 0.0,
+                    min_delay: 0.0,
+                    acceleration: 1.0,
+                    dying: None,
+                    chain_delay: 0.0,
+                    class: DClass::Open,
+                    score: p.f("score_value", -10.0),
+                    takes_damage: true,
+                    takes_bullet: true,
+                    player_damage: true,
+                    teammate_damage: true,
+                    badguy_damage: true,
+                },
+                Penguin::default(),
+            ));
         }
     }
     let g = |k: &str| scene.settings.get(k).and_then(|v| v.as_f64()).map(|v| v as f32);
@@ -541,11 +576,17 @@ fn husks(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     placed: Query<(&Placed, &Transform, &Children)>,
+    mut penguins: Query<&mut Penguin>,
 ) {
     for d in died.read() {
         let Ok((p, t, children)) = placed.get(d.0) else { continue };
         if let Some(c) = p.collider {
             physics.remove_static(c);
+        }
+        // a penguin keeps its model: its death anims play (charanim.rs)
+        if let Ok(mut pg) = penguins.get_mut(d.0) {
+            pg.dead = Some(0.0);
+            continue;
         }
         for c in children.iter() {
             commands.entity(c).despawn();

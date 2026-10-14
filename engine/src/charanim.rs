@@ -247,13 +247,32 @@ fn grunts(
 /// (`fx fx_penguin`) is the call. Not ported: physics on (knocked about), hits (state 3: screams 0x0048fd80,
 /// pngn_blown_up), the idle state 1 (only with generic_txt).
 fn penguins(
-    mut q: Query<(&mut Animator, &crate::level::Placed)>,
+    mut q: Query<(&mut Animator, &crate::level::Placed, Option<&mut crate::level::Penguin>, &mut Visibility)>,
     lib: Res<crate::skin::AnimLibrary>,
     mut seed: Local<u32>,
+    time: Res<Time>,
 ) {
-    for (mut a, p) in &mut q {
+    for (mut a, p, pg, mut vis) in &mut q {
         if p.template != "penguin" {
             continue;
+        }
+        // dead (0x0048fa20 -> GoRagdoll 0x00431310): pngn_blown_up (0.97 s; its note fx_penguin_blow_up screams), then
+        // pngn_land_dead; the body lingers 5 s, then goes (the 0.5 s fade not drawn: guess)
+        if let Some(mut pg) = pg {
+            if let Some(t) = pg.dead.as_mut() {
+                let first = *t == 0.0;
+                *t += time.delta_secs();
+                if first {
+                    a.play(0, "pngn_blown_up", false, Mask::All);
+                    a.layers[0].time = 0.0;
+                } else if *t > 0.967 && a.layers.first().is_some_and(|l| l.anim == "pngn_blown_up") {
+                    a.play(0, "pngn_land_dead", false, Mask::All);
+                }
+                if *t > 0.967 + 5.5 {
+                    *vis = Visibility::Hidden;
+                }
+                continue;
+            }
         }
         let start = a.layers.first().is_none_or(|l| l.anim.is_empty());
         if start || a.finished(0, &lib) {
