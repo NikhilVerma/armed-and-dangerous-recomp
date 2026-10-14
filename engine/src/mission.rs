@@ -49,6 +49,9 @@ struct InstanceDef {
     model: Option<String>,
     #[serde(default)]
     resolved: Map<String, Value>,
+    /// the placement's own values (a sound_ear's line counts only when the placement sets it: 0x004533a0 returns 1)
+    #[serde(default)]
+    props: Map<String, Value>,
     #[serde(default)]
     volume: Option<Map<String, Value>>,
 }
@@ -75,10 +78,14 @@ struct MissionInst {
 #[derive(Clone, Debug)]
 enum Action {
     WakeAi(u32),
-    ShowText(String),
+    /// the text, and whether the same ui_ear marked an objective on this trigger (objective_trigger_receive_0N with a
+    /// non-zero objective_tag_0N: 0x0046afa0 then requests the victory music, 0x0044f560 cl = 1)
+    ShowText(String, bool),
     Compass(i64),
-    /// a sound_ear's line; it removes itself after playing unless `reapeat` (sic) is set (0x00497900)
-    Voice { ear: u32, repeat: bool, q: Option<String>, jonesy: Option<String>, roman: Option<String> },
+    /// a sound_ear's line (SoundEar 0x00497750 / 0x00497900): the placement's q_sound / jonsey_sound / roman_sound
+    /// (ai_sound + ai_tag: no lev_1_m1 ear has one, not ported), max_distance; it removes itself after playing unless
+    /// `reapeat` (sic) is set
+    Voice { ear: u32, repeat: bool, max_distance: f32, q: Option<String>, jonesy: Option<String>, roman: Option<String> },
     Fx(String, Vec3),
     Barracks(u32),
     Destroy(u32),
@@ -342,20 +349,26 @@ impl Mission {
             let a = if action.starts_with("AI wakes up") {
                 Action::WakeAi(to)
             } else if action.starts_with("show text_display") {
+                let r = inst.get(&to).map(|i| &i.resolved);
+                let objective = r.is_some_and(|r| {
+                    (1..=5).any(|k| n(r, &format!("objective_trigger_receive_{k:02}")) as i64 == e.trigger && n(r, &format!("objective_tag_{k:02}")) != 0.0)
+                });
                 match s(&d, "text_id") {
-                    Some(t) => Action::ShowText(t),
+                    Some(t) => Action::ShowText(t, objective),
                     None => continue,
                 }
             } else if action.starts_with("compass target") {
                 Action::Compass(d.get("objective_tag").and_then(|v| v.as_i64()).unwrap_or(0))
             } else if action.starts_with("play one voice line") {
                 let r = inst.get(&to).map(|i| &i.resolved);
+                let placed = |k: &str| inst.get(&to).and_then(|i| i.props.get(k)).and_then(|v| v.as_str()).map(str::to_owned);
                 Action::Voice {
                     ear: to as u32,
                     repeat: r.and_then(|r| r.get("reapeat")).and_then(|v| v.as_f64()).unwrap_or(0.0) != 0.0,
-                    q: r.and_then(|r| s(r, "q_sound")),
-                    jonesy: r.and_then(|r| s(r, "jonsey_sound")),
-                    roman: r.and_then(|r| s(r, "roman_sound")),
+                    max_distance: r.and_then(|r| r.get("max_distance")).and_then(|v| v.as_f64()).unwrap_or(300.0) as f32,
+                    q: placed("q_sound"),
+                    jonesy: placed("jonsey_sound"),
+                    roman: placed("roman_sound"),
                 }
             } else if action.starts_with("toggle the fx") {
                 match (s(&d, "fx_name"), inst.get(&to).and_then(|i| i.position)) {
@@ -777,15 +790,18 @@ fn dispatch(
     plain: Query<(Entity, &InstanceId, Option<&crate::level::Placed>), (Without<Destructible>, Without<Grunt>)>,
     mut physics: NonSendMut<crate::physics::Physics>,
     mut commands: Commands,
-    player: Query<Entity, With<Player>>,
+    player: Query<(Entity, &GlobalTransform), With<Player>>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     mut fx: MessageWriter<StartFx>,
     mut rng: ResMut<crate::fx::FxStats>,
     mut ms: ResMut<crate::stats::MissionStats>,
     mut stop: MessageWriter<crate::audio::StopSound>,
+    companions: Query<(Entity, &crate::ai::Companion, &GlobalTransform)>,
+    mut music: ResMut<crate::gameaudio::Music>,
 ) {
     let Some(m) = m.as_deref_mut() else { return };
-    let pe = player.single().ok();
+    let pe = player.single().ok().map(|p| p.0);
+    let pt = player.single().ok().map(|p| p.1.translation());
     for SendTrigger(t) in events.read() {
         let actions = m.receivers.get(t).cloned().unwrap_or_default();
         m.log.push(format!("trigger {t}: {} receivers", actions.len()));
@@ -799,21 +815,93 @@ fn dispatch(
                         }
                     }
                 }
-                Action::ShowText(t) => {
+                Action::ShowText(t, objective) => {
+                    // the objective jingle: the victory music request (0x0046afa0 -> 0x0044f560, cl = 1)
+                    if objective {
+                        music.request_victory(true);
+                        m.log.push("music: victory request (objective)".into());
+                    }
                     let text = m.texts.get(&t).cloned().unwrap_or(t);
                     m.objectives = long_form(&text);
                     m.objectives_raw = text.clone();
                     m.message(&text, 1.0);
                 }
                 Action::Compass(tag) => m.compass_tag = tag,
-                Action::Voice { ear, repeat, q, jonesy, roman } => {
-                    if !repeat && !m.ears_done.insert(ear) {
+                Action::Voice { ear, repeat, max_distance, q, jonesy, roman } => {
+                    // a removed ear receives nothing
+                    if m.ears_done.contains(&ear) {
                         continue;
                     }
-                    let pick: Vec<String> = [q, jonesy, roman].into_iter().flatten().collect();
-                    if !pick.is_empty() {
-                        let i = (rng.rand() * pick.len() as f32) as usize % pick.len();
-                        sounds.write(crate::audio::PlaySound::ui(pick[i].clone()));
+                    let Some(pp) = pt else { continue };
+                    let r2 = max_distance * max_distance;
+                    // candidates (0x00497900): Roman's line always counts; Q (0x00475d40) and Jonesy (0x00475d30)
+                    // when present and alive, counted when nearer than max_distance (squared distances)
+                    let speaker = |want_q: bool| companions.iter().find(|(_, c, _)| c.q == want_q && c.dead.is_none()).map(|(e, _, t)| (e, t.translation().distance_squared(pp)));
+                    let me = roman.is_some();
+                    let mut count = u32::from(me);
+                    let (mut d1, mut d2, d3) = (1.0e8f32, 1.0e8f32, 1.0e8f32);
+                    let (mut t1, mut t2) = (None, None);
+                    let (mut near1, mut near2) = (false, false);
+                    if q.is_some() {
+                        if let Some((e, d)) = speaker(true) {
+                            t1 = Some(e);
+                            d1 = d;
+                            if d1 < r2 {
+                                count += 1;
+                                near1 = true;
+                            }
+                        }
+                    }
+                    if jonesy.is_some() {
+                        if let Some((e, d)) = speaker(false) {
+                            t2 = Some(e);
+                            d2 = d;
+                            if d2 < r2 {
+                                count += 1;
+                                near2 = true;
+                            }
+                        }
+                    }
+                    if count == 0 {
+                        // nobody at all: the ear removes itself (vt+0xdc, even with reapeat)
+                        if t1.is_none() && t2.is_none() {
+                            m.ears_done.insert(ear);
+                            m.log.push(format!("sound ear {ear}: no speaker, removed"));
+                            continue;
+                        }
+                        // else the nearest one
+                        if d1 < d2 && d1 < d3 {
+                            near1 = true;
+                        } else if d2 < d1 && d2 < d3 {
+                            near2 = true;
+                        }
+                        count = 1;
+                    }
+                    // (rand() * count) >> 15, the original's branches 0x00497bdc..0x00497cc3 literally
+                    let r15 = ((rng.rand() * 32768.0) as i32).min(32767);
+                    let pick = (r15 * count as i32) >> 15;
+                    let first = if near1 { 1 } else if near2 { 2 } else { 3 };
+                    let line = match pick {
+                        0 if me => 0,
+                        0 => first,
+                        1 if me => first,
+                        1 => if near1 && near2 { 2 } else { 3 },
+                        2 if me => if near1 && near2 { 2 } else { 3 },
+                        _ => 3,
+                    };
+                    // Roman's line in 2D (+0xd0); the others on the speaker (+0xc4, his audio position)
+                    let play = match line {
+                        0 => roman.map(crate::audio::PlaySound::ui),
+                        1 => q.zip(t1).map(|(n, e)| crate::audio::PlaySound { follow: Some(e), at: companions.get(e).ok().map(|c| c.2.translation()), ..crate::audio::PlaySound::ui(n) }),
+                        2 => jonesy.zip(t2).map(|(n, e)| crate::audio::PlaySound { follow: Some(e), at: companions.get(e).ok().map(|c| c.2.translation()), ..crate::audio::PlaySound::ui(n) }),
+                        _ => None,
+                    };
+                    if let Some(p) = play.filter(|p| p.name != "none") {
+                        m.log.push(format!("sound ear {ear}: {} ({})", p.name, if p.follow.is_some() { "on the speaker" } else { "2d" }));
+                        sounds.write(p);
+                    }
+                    if !repeat {
+                        m.ears_done.insert(ear);
                     }
                 }
                 Action::Fx(name, at) => {

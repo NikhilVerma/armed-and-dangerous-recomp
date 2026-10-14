@@ -27,6 +27,9 @@ pub struct SoundDef {
     pub next: Vec<String>,
     #[serde(default)]
     pub duration: f32,
+    /// definition flags by name (sounds.json; music_last_segment: 0x00500a00)
+    #[serde(default)]
+    pub flag_names: Vec<String>,
 }
 
 #[derive(Deserialize)]
