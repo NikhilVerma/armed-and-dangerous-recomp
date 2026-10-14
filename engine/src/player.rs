@@ -88,6 +88,9 @@ pub struct Roman {
     /// a reload in progress: seconds into the reload anim, and whether its load sound played (0x00475ff0 state 3:
     /// the sound at frame 0x0059eef4[w] (rifle 10, machine gun 15), the clip refilled at frame 0x0059eedc[w] = 43)
     pub reload_clock: Option<(f32, bool)>,
+    /// a weapon switch in progress: seconds into the weapon-change anim (trotter_wchange); it completes at frame 13
+    /// (0x00475ff0 -> 0x004a16b0)
+    pub wchange: Option<f32>,
     pub move_local: Vec2,
 }
 
@@ -377,6 +380,7 @@ pub fn make_roman(physics: &mut Physics, p: &Props, data: &GameData, feet: Vec3,
         since_throw: 10.0,
         reloading: 0.0,
         reload_clock: None,
+        wchange: None,
         move_local: Vec2::ZERO,
     })
 }
@@ -870,7 +874,7 @@ fn weapons(
     buttons: Res<ButtonInput<MouseButton>>,
     ctl: Res<crate::input::Controls>,
     mut physics: NonSendMut<Physics>,
-    bombs: Res<BombAssets>,
+    (texts, mut subs): (Res<crate::gamemenu::Texts>, MessageWriter<crate::audio::Subtitle>),
     data: Res<GameData>,
     mut bot: ResMut<crate::playtest::Bot>,
     mut q: Query<(Entity, &mut Roman, &Transform, Option<&crate::skin::Animator>)>,
@@ -913,9 +917,21 @@ fn weapons(
         r.since_throw += dt;
         r.reloading -= dt;
         // Next Weapon (Q): the rifle and, once taken in the pub, the machine gun
-        if ctl.pressed(crate::input::Act::SwitchWeapon) && r.mg.is_some() {
-            r.use_mg = !r.use_mg;
-            sounds.write(crate::audio::PlaySound::at("ui_weapon_put_away", t.translation));
+        // the switch plays the weapon-change anim and completes at its frame 13 (0x004a16b0): the weapon, the chat line
+        // "ui_change_weapon" with its name and the sound ui_weapon_put_away (2D)
+        if ctl.pressed(crate::input::Act::SwitchWeapon) && r.mg.is_some() && r.wchange.is_none() && r.reload_clock.is_none() {
+            r.wchange = Some(0.0);
+        }
+        if let Some(c) = r.wchange {
+            let c = c + dt;
+            if c >= 12.0 / 30.0 && c - dt < 12.0 / 30.0 {
+                r.use_mg = !r.use_mg;
+                let name = texts.get(if r.use_mg { "weap_machinegun" } else { "weap_rifle" });
+                subs.write(crate::audio::Subtitle { speaker: None, text: texts.get("ui_change_weapon").replace("%s", &name), duration: 3.0 });
+                sounds.write(crate::audio::PlaySound::ui("ui_weapon_put_away"));
+            }
+            // the anim's length (trotter_wchange_t 1.13 s; frame 13 is 0.4 s in: its first frame is 1)
+            r.wchange = (c < 1.133).then_some(c);
         }
         let mg = r.use_mg && r.mg.is_some();
         let mut reloaded = false;
@@ -928,7 +944,7 @@ fn weapons(
             w.timer -= dt;
             let starting = idle && ((ctl.pressed(crate::input::Act::Reload) && w.clip < w.clip_size && w.ammo > 0) || (w.clip == 0 && w.ammo > 0 && w.timer <= 0.0));
             if starting {
-                w.timer = w.reload_time.max(43.0 / 30.0);
+                w.timer = w.reload_time.max(42.0 / 30.0);
                 reloaded = true;
             }
             let lock = w.reload_time;
@@ -937,16 +953,17 @@ fn weapons(
         if reloaded {
             r.reload_clock = Some((0.0, false));
         }
-        // the reload runs on the reload anim's frames (30 per second): the load sound, then the refill
+        // the reload runs on the reload anim's frames (30 per second, counted from its first frame, 1: AnimEventTime
+        // game_05.cpp:1328): the load sound, then the refill
         if let Some((clock, said)) = r.reload_clock {
             let clock = clock + dt;
-            let sound_at = if mg { 15.0 } else { 10.0 } / 30.0;
+            let sound_at = if mg { 14.0 } else { 9.0 } / 30.0;
             let mut said = said;
             if !said && clock >= sound_at {
                 said = true;
                 sounds.write(crate::audio::PlaySound::at(if mg { "wpn_rome_machgun_load" } else { "wpn_rome_rifle_load" }, t.translation));
             }
-            if clock >= 43.0 / 30.0 {
+            if clock >= 42.0 / 30.0 {
                 let w = if mg { r.mg.as_mut().unwrap() } else { &mut r.rifle };
                 let n = (w.clip_size - w.clip).min(w.ammo);
                 w.clip += n;
@@ -1020,6 +1037,10 @@ fn weapons(
         // Next Special (Tab): sticky bombs / the Topsy Turvy bomb
         if ctl.pressed(crate::input::Act::NextSpecial) && r.topsy > 0 {
             r.special = 1 - r.special;
+            // 0x004a17d0: the chat line "ui_change_special_weapon" and ui_weapon_put_away
+            let name = texts.get(if r.special == 1 { "weap_topsyturvy" } else { "weap_stickybomb" });
+            subs.write(crate::audio::Subtitle { speaker: None, text: texts.get("ui_change_special_weapon").replace("%s", &name), duration: 3.0 });
+            sounds.write(crate::audio::PlaySound::ui("ui_weapon_put_away"));
         }
         if r.special == 1 && r.topsy == 0 {
             r.special = 0;

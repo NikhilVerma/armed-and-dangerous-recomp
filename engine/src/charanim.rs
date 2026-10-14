@@ -47,7 +47,10 @@ fn roman(mut q: Query<(&Roman, &mut Animator)>, topsy: Res<crate::topsy::Topsy>)
         };
         let gait = gait.to_string();
         // the upper body fires / reloads over the same gait
-        let upper = if r.reloading > 0.0 {
+        let upper = if r.wchange.is_some() {
+            // the weapon-change anim over the gait (trotter_wchange_t, trotter_run_wchange_t, ...)
+            gait.replace("_aim", "_wchange_t").replace("trotter_wchange_t", "trotter_wchange_t").replace("jump_idle", "jump_idle_wchange_t")
+        } else if r.reloading > 0.0 {
             gait.replace("_aim", "_reload").replace("trotter_aim", "trotter_reload").replace("jump_idle", "jump_idle_reload")
         } else if r.since_fire < 0.3 {
             // the fire state (game_05.cpp:1380): fire_sg for the rifle and the machine gun (weapon index 0..2), the
