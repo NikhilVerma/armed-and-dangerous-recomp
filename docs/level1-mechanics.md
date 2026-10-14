@@ -18,7 +18,7 @@ Update this table as items land (commit hash in the last column).
 | Walk back speed | (no factor) | V | 3 | original backO: 39 units/s backward, as forward; the engine's 0.7 removed |
 | Jump, air control | 0x0047aaf0 | V / S | 3 | jump_into stage not modelled; air control fitted |
 | Slopes | 0x00477c90, 0x00478200 | V | | friction blend not ported |
-| Landing anims, landing damage, death by falling | 0x00478100, 0x00478200 (player.md) | P | 2 | fall_loop, land_hard / jump_land (move cancels), damage 150..300 from 150 u/s, death past 110 units or 1 s falling, no drive while falling, land fx by material (fall.json) |
+| Landing anims, landing damage, death by falling | 0x00478100, 0x00478200 (player.md) | V / P | 2 | landing damage verified (fallO: a 100-unit drop at (-216, 1053) costs 168.7 in the original, 172 in the engine); death past 110 units / 1 s, anims, no air drive, land fx (fall.json) |
 | Mouse look rates | 0x00475990.. | V | | pitch clamp narrower than the original (±1.56 / 1.15) |
 | Look from trackpad / Moonlight | — | B | 1 | cursor + raw + absolute raw (98e7700); unconfirmed |
 | Controller support | 0x004f8600 joystick | B | 1 | input.rs on bevy_enhanced_input: modern twin-stick layout, contexts, rumble, focus-gated pads (remaster-input.md) |
