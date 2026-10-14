@@ -204,11 +204,13 @@ pub struct GameMenu {
     shown: Option<Page>,
     shown_sel: usize,
     shown_under: Option<Page>,
+    /// a saved game exists (the rows that load it are disabled without one)
+    pub has_save: bool,
 }
 
 impl Default for GameMenu {
     fn default() -> Self {
-        GameMenu { page: Page::Main, selected: 0, stack: Vec::new(), ask: None, phase: 0.0, edit: None, failed_shown: false, band: false, fade: 0.0, shown: None, shown_sel: 0, shown_under: None }
+        GameMenu { page: Page::Main, selected: 0, stack: Vec::new(), ask: None, phase: 0.0, edit: None, failed_shown: false, band: false, fade: 0.0, shown: None, shown_sel: 0, shown_under: None, has_save: false }
     }
 }
 
@@ -248,7 +250,8 @@ fn log_menu(
 ) {
     let Some(mut state) = state else { return };
     let prefix = format!("menu_{:?}_", menu.page);
-    let row = rows.iter().find(|(r, _)| r.page == menu.page && r.order == Some(menu.selected));
+    let sel_order = rows_of(rows.iter().map(|x| x.0), menu.page, menu.has_save).get(menu.selected).map(|x| x.0);
+    let row = rows.iter().find(|(r, _)| r.page == menu.page && r.order.is_some() && r.order == sel_order);
     let sel = row.map(|(_, h)| h.name.trim_start_matches(&prefix).to_owned());
     // the selected stepper's value text (the graphics page's edit copy while it is open)
     let win = windows.single().map(|w| (w.resolution.width() as u32, w.resolution.height() as u32)).unwrap_or((1920, 1080));
@@ -470,6 +473,9 @@ pub fn spawn(commands: &mut Commands, assets: &AssetServer, meshes: &mut Assets<
             let c = if act == Act::None { DISABLED } else { ORANGE };
             s.row(Page::Main, id, Vec2::new(320.0, 372.3 - 48.0 * i as f32), 1.3, c, act, 0.0);
         }
+        // the version text of a screen with flag 0x800 (the main menu, 0x8a0): 0x004927f0 draws "v%d.%02d" of 1, 0 in
+        // 0xffc0c0c0 at scale 0.8, its right edge at x 0.9 and y 0.1 of the screen (orig_ui_menu-800.png: "v1.00")
+        s.text(Page::Main, "v1.00", Vec2::new(576.0, 38.0), 0.8, Color::srgb_u8(0xc0, 0xc0, 0xc0), 1.0, PartKind::Fixed);
 
         // options (pui_options, layout positions; matches orig_ui_opts-950.png)
         s.row(Page::Options, "ui_options_title", Vec2::new(320.0, 427.761), 1.4, Color::WHITE, Act::None, 0.0);
@@ -657,8 +663,11 @@ fn relaunch(into_level: bool) {
     }
 }
 
-fn rows_of<'a>(rows: impl Iterator<Item = &'a MenuRow>, page: Page) -> Vec<(usize, Act)> {
-    let mut v: Vec<(usize, Act)> = rows.filter(|r| r.page == page).filter_map(|r| r.order.map(|o| (o, r.act))).collect();
+/// The page's selectable rows in up / down order: (order, action). A row that loads the saved game is disabled
+/// (+0x474 0x40, skipped by the selection: 0x00491b20) while there is none: Load Game (code 2, 0x004a2c10 slot -1),
+/// Quick Load and Restart from last save (code 34, 0x004a2e90).
+fn rows_of<'a>(rows: impl Iterator<Item = &'a MenuRow>, page: Page, has_save: bool) -> Vec<(usize, Act)> {
+    let mut v: Vec<(usize, Act)> = rows.filter(|r| r.page == page && (has_save || r.act != Act::LoadSave)).filter_map(|r| r.order.map(|o| (o, r.act))).collect();
     v.sort_by_key(|x| x.0);
     v
 }
@@ -712,7 +721,13 @@ fn navigate(
     mut save_req: ResMut<crate::savegame::SaveRequest>,
     mut cheats: ResMut<crate::cheats::Cheats>,
     mouse: Res<ButtonInput<MouseButton>>,
-    (placed, names, mut last_cursor): (Query<(&MenuRow, &HudElement, Option<&TextSize>, Option<&TextAlign>)>, Query<(&Part, &HudElement, Option<&TextSize>, &Visibility)>, Local<Option<Vec2>>),
+    (placed, names, mut last_cursor, time_real, mut save_t): (
+        Query<(&MenuRow, &HudElement, Option<&TextSize>, Option<&TextAlign>)>,
+        Query<(&Part, &HudElement, Option<&TextSize>, &Visibility)>,
+        Local<Option<Vec2>>,
+        Res<Time<Real>>,
+        Local<f32>,
+    ),
 ) {
     cheats.entering = menu.page == Page::Cheats && *state.get() != AppState::Playing;
     // a screen transition is under way (0x004915b0: no input while a request is pending)
@@ -821,7 +836,15 @@ fn navigate(
         return;
     }
     let page = menu.page;
-    let items = rows_of(rows.iter().map(|x| x.0), page);
+    // whether a saved game exists (checked twice a second: the save rows' enabling)
+    *save_t -= time_real.delta_secs();
+    if *save_t <= 0.0 {
+        *save_t = 0.5;
+        menu.has_save = crate::savegame::has_save();
+    }
+    let items = rows_of(rows.iter().map(|x| x.0), page, menu.has_save);
+    // the row under the mouse as an index into this list
+    let hovered = hovered.and_then(|h| items.iter().position(|x| x.0 == h));
     if items.is_empty() {
         return;
     }
@@ -1145,11 +1168,11 @@ fn animate(
         *v = if show { Visibility::Inherited } else { Visibility::Hidden };
     }
     // a page entered "on its last row" (Options opens on Back: usize::MAX) is clamped here too, as navigate does
-    let n = rows_of(rows.iter().map(|x| x.0), menu.page).len();
+    let n = rows_of(rows.iter().map(|x| x.0), menu.page, menu.has_save).len();
     if n > 0 && menu.selected >= n {
         menu.selected = n - 1;
     }
-    let order = rows_of(rows.iter().map(|x| x.0), page.unwrap_or(menu.page));
+    let order = rows_of(rows.iter().map(|x| x.0), page.unwrap_or(menu.page), menu.has_save);
     let sel_order = order.get(if page == Some(menu.page) { menu.selected } else { menu.shown_sel }).map(|x| x.0);
     for (r, mut t, mut v, mut glow) in &mut rows {
         let shown = Some(r.page) == page;
@@ -1177,7 +1200,13 @@ fn animate(
         glow.0 = if sel { (glow.0 + 12.0 * dt).min(1.0) } else { (glow.0 - 12.0 * dt).max(0.0) };
         let pulse = (menu.phase.sin() * 0.15).abs() + 1.0;
         let scale = ((pulse - 1.0) * glow.0 + 1.0) * r.base_scale;
-        let colour = if sel { Color::WHITE } else { r.colour };
+        let colour = if sel {
+            Color::WHITE
+        } else if r.act == Act::LoadSave && !menu.has_save {
+            DISABLED
+        } else {
+            r.colour
+        };
         if (scale - t.scale).abs() > 0.01 || colour != t.colour {
             t.scale = scale;
             t.colour = colour;

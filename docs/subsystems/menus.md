@@ -233,7 +233,11 @@ and the highlight fade (+0x4e0, 0.2 per frame: 12 / s) of UiText_Draw 0x00464750
   use as icons); a keyboard action with two bindings shows "%s or %s" (pms_input_aorb, as the key binding entries
   0x00447e70), labels fitted to 128 units. Rebinding (UI_ShowAssignKeyPrompt 0x00447f50, 0x004481b0, 0x00448260's
   key capture) is not ported. "Invert mouse" has a checkbox (the original's code 13 is a plain toggle text).
-- **Pause / yes-no / failed / stats:** as before (statscreen.rs: 0x00494440 / 0x00494050 / 0x004948d0).
+- **Pause / yes-no / failed / stats:** as before (statscreen.rs: 0x00494440 / 0x00494050 / 0x004948d0). The rows that
+  load the saved game (main menu Resume Game, pause Quick Load, failed Restart from last save) are greyed and skipped
+  without one (0x004a2c10 / 0x004a2e90, as orig_ui_menu-800.png and orig_ui_play-720.png show). Save Game stays
+  enabled (the remaster saves anywhere; the original only at checkpoints, Game+0x568 bit 8).
+- **Main menu:** the version text "v1.00" bottom right (0x004927f0, screen flag 0x800).
 - State log `menu` (playtests): page, shown page, selected row, fading, the selected stepper's value, cheats shown.
   Tests: engine/playtests/menus.json (every shell page), gfxopts.json, flow.json (pause, yes / no with its fade, the
   pad, mission failed), stats.json.
@@ -243,7 +247,7 @@ Replaced by the engine (no port needed): the screen objects and their manager (U
 0x004918b0 / 0x004928f0, selection 0x004919c0 / 0x00491b20 / 0x00491b60, enabling 0x004927a0, the id split
 0x00491ae0) are the `GameMenu` page stack and `MenuRow`s; the widget classes' inits and kind bits (CheckBox_Init,
 FitText_*, Stepper_SetSteps, 0x0046ce40, ...) are `Spawner`'s rows and parts; the list boxes (0x0046bdd0..0x0046c980:
-save slots, mission and movie lists) and the save-slot widgets (0x004a2c10, 0x004a2f70..0x004a2fe0) are replaced by
+save slots, mission and movie lists) and the save-slot widgets (0x004a2f70..0x004a2fe0; their enabling rule, 0x004a2c10 / 0x004a2e90, is ported: the load rows are greyed without a saved game) are replaced by
 the single quick save (savegame.rs); DisplayMode_Pack / Unpack (0x00470c90 / 0x00470cc0) by the window size in
 options.json; Text_Lookup (0x00495f00, 0x00495e50) by `Texts`. Not needed: the movie screens (0x00493150..0x004933e0:
 no movies in the remaster yet), the timed splash screens (0x00493520 / 0x00493590: LegalText; who pushes it is not

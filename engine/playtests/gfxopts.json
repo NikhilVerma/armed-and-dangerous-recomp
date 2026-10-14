@@ -11,19 +11,19 @@
    }
   },
   {
-   "tap": "ArrowDown"
+   "tap": "ArrowUp"
   },
   {
    "wait": 0.4
   },
   {
-   "expect": {
-    "menu.page": "Main",
-    "menu.selected": "ui_mainmenu_loadgame"
-   }
+   "tap": "ArrowUp"
   },
   {
-   "tap": "ArrowDown"
+   "wait": 0.4
+  },
+  {
+   "tap": "ArrowUp"
   },
   {
    "wait": 0.4
