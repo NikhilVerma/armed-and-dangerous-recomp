@@ -82,6 +82,10 @@ Turn anims ported (d2aa9ef): shots 39 vs 42, first real volley 864 vs 800, hits 
 shots). Checked: the scatter constant 0x005bcbfc is 0.1 (read from the exe); a lower muzzle (5 instead of 7 above
 the feet) changes nothing. The original's misses are not logged yet (log_hits sees only object hits): logging where
 its bullets end (Projectile_Update's ray hits on the landscape) would show whether they strike the ground first.
+Logged since (log_hits' and-rayhits.txt): of the original's ~40 grunt bullets in 720-1250, 22 hit Roman, 11 the
+ground, 4-5 a grunt standing in front of a shooter. The engine's shots came from the body's centre line and passed
+beside that grunt; from the weapon hand (c8088ae) they hit it 4 times. Now: Roman 25 of 39 shots (original 22 of
+42). Left: the muzzle's exact place (the weapon's emitter node is not exported; ~3 along the aim from ref_rhand).
 
 ## Falling snow in the remaster engine (2026-10-13, partly resolved)
 
