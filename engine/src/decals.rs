@@ -17,6 +17,11 @@
 //! Not ported: the pressure fade (0x00416440), which never runs in the original (docs/subsystems/decals-bodies.md,
 //! "Measured"). The original interleaves landscape cells and objects cell by cell; here the landscape goes first.
 //! docs/subsystems/decals-bodies.md section 1.1.
+//!
+//! The clip is Polygon_ClipPlanes 0x00416010 over Polygon_ClipPlane 0x00415eb0 (Sutherland-Hodgman, kept when the
+//! distance is not below 0); the pool recycles its oldest decal (Decal_Recycle 0x00417110, Decals_Spawn); the draw is
+//! Decal_Render 0x00416740 through Decals_Draw (here one mesh per decal: texture x the fade; the original's vertex
+//! colour, its white record times each vertex's w, is not reproduced: unverified).
 
 use bevy::asset::RenderAssetUsages;
 use bevy::image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor};

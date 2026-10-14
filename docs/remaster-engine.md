@@ -367,6 +367,32 @@ original's curve. Tests: anim_blend, anim_notes, camera_follow, camera_death, in
 Traps: Python text-mode rewrites and Git Bash `sed -i` turn CRLF files into LF (compare `git diff --stat` with
 `--ignore-cr-at-eol`); `play()` restarts only on a name change, so the same anim as a new entry needs `restart`.
 
+## Effects (subsystem port, 2026-10-15)
+
+docs/subsystems/fx-vm.md section 7; queue render-fx empty (docs/port/render-fx.csv). engine/src/fxvm/ is a module
+folder: `script` (the interpreter, every opcode lev_1_m1's fx bank uses), `object` (the fx object update), `particles`,
+`streamers`, `attach` (attach points: the named nodes of a template's default anim, `anims/<name>.json`), `body`
+(physics glue and ground hits), `screen` (post-process effects), `materials`, `rng`. Start an fx with
+`crate::fx::StartFx` (`Quat::IDENTITY` = unrotated in game space; before, it meant the engine's identity and laid
+position-only fx on their side). What changed for everything that starts fx:
+
+- Debris and children start at their attach points (`ref_debri_NN` ...), not all at the fx origin.
+- Mesh emitters run: muzzle flashes repeat their flash (0x30) and eject shells (0x36); explosions spawn fx along
+  points (0x19).
+- Ground hits act: on-hit fx (`fx_imp_rock_large` ... with the surface variant), on-hit area damage (the arch's
+  falling blocks deal 300 within 30..60: an `Explode`), on-hit death / delete; on-death fx (0x1d); spins (0x1a).
+- Particles carry their age within their birth frame the right way round (they used to advance by the wrong part of
+  the frame) and are drawn half a move ahead, as the original.
+- Screen effects (`screen::ScreenEffects`): phases and weights as the original; only the fade is drawn (a UI overlay).
+- Fx lights are published (`FxVm::lights`) but not drawn: the original shows none (engine-limits.md R4).
+
+Playtests: `{"fx": {"name", "at", "yaw", "clear"}}` steps and the `fx` state-log field (counts per pool and template,
+bodies, hits, lights, extent, screen); scripts fx_particles, fx_debris, fx_emit, fx_lights, fx_screen, fx_hits.
+
+Debt (guesses to measure against the original): the impulse / spin scales (body.rs IMPULSE_SCALE, MAX_SPIN), every
+fx body is a 1.5-unit box, the ground-hit test is a ray along the velocity (the original: Havok contacts), the glow /
+blur / screen-texture post effects are not drawn, the mesh emitter's interpolation weight ([0x005bcb5c] taken as -1).
+
 ## Running tests without disturbing the desktop
 
 - `--background`: the window opens off-screen, unfocused, behind everything, not in the taskbar; screenshots still

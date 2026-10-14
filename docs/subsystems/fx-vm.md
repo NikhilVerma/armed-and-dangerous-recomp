@@ -1,6 +1,7 @@
 # FX script VM: semantics reference
 
-Status: 2026-10-13, static reading of the recovered C++ (no new oracle runs). Purpose: port the fx interpreter
+Status: 2026-10-13, static reading of the recovered C++ (no new oracle runs); the engine port's state and the
+opcodes added on 2026-10-15 are in section 7. Purpose: port the fx interpreter
 0x00420770 to the Rust engine so explosions behave like the original. Scope: the opcodes used by
 `fx_explosion_powder_keg` and the fx it starts (`fx_keg_trail`, `fx_powder_keg_fire`, `fx_sticky_blast_ring_snowk`,
 `fx_sticky_flashk`), the fx object, the particle system and the powder keg's death (area damage, chain reaction).
@@ -169,12 +170,40 @@ Frame 0 (one run until the 0x12):
 Frame 1 (after `0x12 0.01`): `fxo_ref_plume` hidden, raised 16 units, pool 1 every 0.05 s for 0.2 s: stretch 3, size
 8..16, life 4, cone 3, speed 10..20, uv (0.25..0.5, 0.625..0.875), gravity -0.05..0.01, fade 0 / 0 / 1.0.
 
+## 7. Engine port (2026-10-15, engine/src/fxvm/)
+
+Supersedes the "Engine:" notes in the table above (0x10 now uses the reference point's axis, 0x32 drives ground hits,
+0x4a lights are published). Static reading of render_r0 .. r7, r2a, missing_02 (no new oracle runs).
+
+| Item | Original | Engine | Evidence |
+| --- | --- | --- | --- |
+| Attach points (0x104 lists) | 0x00453c50 (object, key, ..., a3 = 1, a6 = 1, a8 = 1): the node's world matrix, translation scaled by the object's scale | `attach.rs`: the template's default anim (`anims/<name>.json`), nodes at their first key, parents chained; "null" / unknown = the object's matrix | anim_01.cpp:2241; fxo_ref_explosion_medium has `center` (scale 2.1) and `ref_debri_00..10` |
+| Random picks per opcode | 0x0f / 0x2f / 0x30: one rand for list1, one for list2 (Fx_StartOnObject 0x0041dc80); 0x39 / 0x3a with cur: one for the point; 0x13: one when there is an owner | as the original (the engine drew none for 0x0f and 0x39 before) | r2a.cpp:872-932; audio_01.cpp:235 |
+| Mesh emitters 0x17 / 0x18 / 0x19 / 0x30 / 0x36 | Fx_Emit 0x0041e4d0: interval +0x28, timer +0x2c = -interval; spawn while timer <= -interval (timer += interval, the pass repeats with dt 0); 0x30 (flag 1): a child fx following the object when the timer goes negative, timer = interval; 0x19 (flag 2) a point of list1, the matrix interpolated by interval / -timer (guess for [0x005bcb5c] = -1), list2 the child's point; 0x36 adds a random Euler rotation from three rand() (object flag 0x4000); 0x2a stops one (timeout +0x38) | `object.rs` MeshEmitter | render_r1.cpp:1233-1385 |
+| Ground hits | the Havok contact callback (FxObject slot 0x2a, 0x00419330: +0x464 \|= 0x2000, contact point +0x544, other body +0x554); the next update: on hit create (0x35: `<fx>_<material>`, at most w0 times, w1 s apart), area damage (0x76: impact w0, damage w1, inner w2, outer w3, once), delete (0x33) / death (0x34) | a ray from the body's centre along its velocity (down when at rest) excluding itself; a contact counts when it starts. Area damage = `crate::fx::Explode` | render_r1.cpp:1026-1058; r2a.cpp:2011-2083; render_r6.cpp:900 |
+| On death (0x1d) | +0x51c fx, flag 1: started at the object's position (params 0x38) when it ends with al = 1 (lifespan, on hit death, logged release) | `object::end_object` | render_r1.cpp:514 |
+| Spin (0x1a) | Fx_RotateObject 0x0041f8f0 -> ForceActionPool_Add 0x00403fb0 flags 0x30: an angular impulse of the vector x remaining (1/120) | an angular velocity change of the vector in degrees / s, capped at 20 rad/s (guess) | physics_01.cpp:251, 372 |
+| Gravity list | every fx body is registered on Game+0xa84 +0xf1c by its body set-up fn_00419020 0x00419020; +0x48c = 0 from FxObject_Load, so a body without 0x11 would be weightless | answers the open question; the engine still gives such bodies (only fx_trash) gravity 1 (guess kept until compared) | render_r1.cpp:443; render_r6.cpp:805 |
+| Particle birth time | SpawnAlong 0x0046e650 carries -timer - dt, so the first step advances the particle by its age within the frame | fixed (the engine advanced it by the other part of the frame) | render_r3.cpp:1048 |
+| Particle quad centre | position + half the last move (dx * 0.5 + pos), not the midpoint | as the original | render_r3.cpp:862 |
+| Pool full | Particle_Alloc 0x0046d910 fails before the set-up: no random numbers drawn | as the original | render_r3.cpp:1060 |
+| Uv transforms 0x40 / 0x41..0x44 / 0x45 | the stage matrix = rotation (0x45, deg) x scale (0x41..0x44 path block) + scroll offset (mod 64); the scroll's duration 0 means no end (its ramps are set only with a duration) | `object.rs` UvLayer (layer 1 on the mesh material's uv transform, layer 2's offset on the layered domes); the engine ended a scroll at once for duration 0 before | render_r1.cpp:547, 770-855; r2a.cpp:2186-2268 |
+| Lights 0x4a / 0x58 / 0x59 / 0x5a | D3D point light at its attach point, re-added each update | `FxVm::lights` (engine space), not drawn (engine-limits.md R4) | r2a.cpp:757-812 |
+| Post effects 0x5b..0x61 / 0x70 / 0x71 / 0x77 | PostEffects (Game+0xa9c), id = the object; phases in / hold / out (defaults 1, -1, 1), weights, distance / edge fades, accumulators (PostEffect_Apply 0x0047c200) | `screen.rs`; the fade drawn as a UI overlay; glow / blur / overlay computed, not drawn | render_r3.cpp:1085-2135 |
+| Camera paths 0x73 / 0x74 | Camera_StartPath 0x0040ff50 mode 1 / 2 (2 takes the path's Camera01 matrix once) | both send StartCameraPath (campath.rs plays mode 1) | game_02.cpp:244 |
+| Fx ears (bb_ear) | FxOwner_Toggle / OnMessage / Update 0x0041bf60 / 0x0041c050 / 0x0041c110: random initial delay, cool-down, looping handle toggled off by a second message, lock_fx = on the owner | mission.rs Action::Fx starts the fx on each trigger (lev_1_m1's ears set none of the delays or looping_fx) | r2a.cpp:96-207 |
+
+Opcodes not ported (not in lev_1_m1's fx bank; logged once as "fx vm: not ported" when met): 0x1f, 0x28, 0x29, 0x2d
+(other particle emitter shapes), 0x3e, 0x4b, 0x4c, 0x62, 0x66, 0x67..0x69, 0x6b..0x6f, 0x72, 0x75.
+
 ## Open questions
 
 - The per-frame caller of Fx_Step (fx system update over list +4) and the order of fx update vs object update vs the
   particle draw in a frame (affects the first-frame dt of new objects and emitters).
-- Whether fx objects are members of the gravity-scale list Game+0xa84 +0xf1c by default (decides if +0x48c = 0 means
-  weightless); only the unlink for 1.0 is traced.
+- Answered (section 7): fx bodies are registered on the gravity-scale list by fn_00419020, so a body without 0x11
+  is weightless in the original. Open: whether fx_trash (0x10 without 0x11) floats in a capture.
+- The Havok units of 0x10 / 0x64 impulses and 0x1a spins (the engine's scales are guesses), and the [0x005bcb5c]
+  constant of the mesh emitters' interpolation.
 - What vt+0x100 does exactly (alpha assumed), and vt+0x60 (assumed: pointer to the world matrix, used by 0x6a).
 - Meaning of state bit 0x10 in the pool 1/2 draw flags and of the base flags 0x530a0; the blend mapping above is
   inferred, not read from the state-block applier (Game+0x40 vt+0x14).

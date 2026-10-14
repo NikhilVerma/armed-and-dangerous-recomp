@@ -21,9 +21,9 @@ FN = re.compile(r'^\s*(?:pub(?:\([^)]*\))?\s+)?fn\s+(\w+)\s*(?:<[^>]*>)?\s*\(', 
 
 
 def functions():
-    for name in sorted(os.listdir(SRC)):
-        if not name.endswith('.rs'):
-            continue
+    # engine/src and its module folders (engine/src/fxvm/...): names relative to src
+    names = sorted(os.path.relpath(os.path.join(d, f), SRC).replace('\\', '/') for d, _, fs in os.walk(SRC) for f in fs if f.endswith('.rs'))
+    for name in names:
         text = open(os.path.join(SRC, name), encoding='utf-8').read()
         for m in FN.finditer(text):
             # the parameter list: up to the matching ')'

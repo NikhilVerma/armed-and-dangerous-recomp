@@ -1,0 +1,12 @@
+{
+ "load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json",
+ "steps": [
+  {"wait": 1.0},
+  {"fx": {"name": "fx_explosion_mountain", "clear": true}},
+  {"wait": 0.4},
+  {"expect": {"fx.screen": 1, "fx.screen_glow": [0.6, 1.95]}},
+  {"wait": 1.5},
+  {"expect": {"fx.screen": 0, "fx.screen_glow": 0.0}},
+  {"quit": true}
+ ]
+}

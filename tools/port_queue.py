@@ -28,7 +28,7 @@ def load():
     cov = json.load(open(os.path.join(ROOT, 'work', 'coverage.json')))
     hit = {int(v['address'], 16): v['calls'] for v in cov.values() if v['calls'] > 0}
     cited = set()
-    for f in glob.glob(os.path.join(ROOT, 'engine', 'src', '*.rs')):
+    for f in glob.glob(os.path.join(ROOT, 'engine', 'src', '**', '*.rs'), recursive=True):
         for m in re.finditer(r'0x00([4-5][0-9a-fA-F]{5})\b', open(f, encoding='utf-8').read()):
             cited.add(int('0x00' + m.group(1), 16))
     # recovered source file per address (HOOK(0x..., "name") lines)

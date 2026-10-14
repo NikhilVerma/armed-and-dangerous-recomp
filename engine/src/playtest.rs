@@ -122,6 +122,10 @@ pub struct Event {
     /// pause)
     #[serde(default)]
     pub audio: Option<serde_json::Map<String, serde_json::Value>>,
+    /// debug: start an fx script (fxvm playtest_fx): {"name", "at": [game x, y, z] (default: Roman's feet), "yaw"
+    /// degrees, "clear": true ends every live fx first}
+    #[serde(default)]
+    pub fx: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
 /// The playtest bot's orders, read by the player's control and weapon systems.
@@ -206,6 +210,8 @@ pub struct Playtest {
     pub loadouts: Vec<serde_json::Map<String, serde_json::Value>>,
     /// audio steps for gameaudio.rs
     pub audio: Vec<serde_json::Map<String, serde_json::Value>>,
+    /// fx steps for fxvm.rs
+    pub fx: Vec<serde_json::Map<String, serde_json::Value>>,
     pub path: PathBuf,
     pub title: bool,
     events: Vec<Event>,
@@ -254,7 +260,7 @@ impl Playtest {
         let mut events = s.events;
         events.sort_by(|a, b| a.t.total_cmp(&b.t));
         let log = std::fs::File::create(path.with_extension("log.jsonl")).ok();
-        Playtest { pickups: vec![], loadouts: vec![], audio: vec![], passed: 0, failed: 0, hurt_c: vec![], blasts: vec![], pad_e: None, pad: vec![], warp: None, path, title: s.title, events, turns: s.turns, next: 0, t: 0.0, taps: vec![], clicks: vec![], log, last_log: -1.0, steps: s.steps, step_shot: None, step: 0, step_t: 0.0, step_started: false }
+        Playtest { pickups: vec![], loadouts: vec![], audio: vec![], fx: vec![], passed: 0, failed: 0, hurt_c: vec![], blasts: vec![], pad_e: None, pad: vec![], warp: None, path, title: s.title, events, turns: s.turns, next: 0, t: 0.0, taps: vec![], clicks: vec![], log, last_log: -1.0, steps: s.steps, step_shot: None, step: 0, step_t: 0.0, step_started: false }
     }
 }
 
@@ -498,6 +504,9 @@ fn drive(
         }
         if let Some(a) = e.audio {
             pt.audio.push(a);
+        }
+        if let Some(f) = e.fx {
+            pt.fx.push(f);
         }
         if let Some(h) = e.hurt_companion {
             pt.hurt_c.push(h);

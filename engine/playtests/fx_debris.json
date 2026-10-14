@@ -1,0 +1,16 @@
+{
+ "load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json",
+ "steps": [
+  {"wait": 1.0},
+  {"warp": [-210, 380, 25, 0]},
+  {"wait": 0.5},
+  {"fx": {"name": "fx_explosion_village_house_1", "at": [-210, 480, 25], "clear": true}},
+  {"wait": 0.1},
+  {"expect": {"fx.max_extent": [15, 1000], "fx.by_template.fxo_debri_village_1": [1, 100]}},
+  {"wait": 2.0},
+  {"expect": {"fx.max_bodies": [5, 200], "fx.hits": [1, 10000]}},
+  {"wait": 15.0},
+  {"expect": {"fx.bodies": 0}},
+  {"quit": true}
+ ]
+}
