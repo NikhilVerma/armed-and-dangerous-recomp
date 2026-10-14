@@ -143,6 +143,11 @@ pitch tips the muzzle down: 55 degrees up, 15 down, 55 each side. (The game_08.c
   kills him, Roman mounts: 7/7) and gunner2.json (target moved out of the arc: off the gun, 4/4).
   Not ported: start_in_turret_tag, the kickout (+0x60c 50 % of 10000 health, impact 6000, 10 s stay-out), flag 1's
   predicted aim point (0x004580a0), the gun's own fire vs idle corner difference (both drive the same pivot here).
+  Killing the gunner: the gun's collision (stig_mgun_coll_0, in the bullets' list as the original's turrets) stops
+  shots at its front; he is hit over the shield or by blasts (gunner1: the powder keg 169 at (51, 141) gives 96, then
+  one chest hit). The playtest bot aims at his head at the seat (his entity sits at the gun's origin; aiming there
+  put every shot into the gun: the 2026-10-14 gunner1 regression after the object-model merge, where a changed random
+  sequence moved the keg's death from 8.5 s to 10.2 s and the one stray leg hit of the earlier run did not recur).
   **Guesses**: the path to the gun ends at ref_grunt_exit (4 units) and snaps onto the seat; a grunt beaten to the gun
   by Roman pursues (the original's 0x0042b8e0 would search again).
 - Open: the -0.5 * object +0x2dc offset 0x0040a4d0 applies to the camera matrix (zero for a static

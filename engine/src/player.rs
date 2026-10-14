@@ -631,7 +631,17 @@ fn control(
         // the bot's tactics, as a player would play (debug tooling): engage the nearest grunt in rifle range with line
         // of sight; hold position while it is far, back off when badly hurt, a sticky bomb for a group
         let me = t.translation;
-        let live: Vec<Vec3> = grunts.iter().filter(|(g, _)| g.mind != crate::ai::Mind::Dead).map(|(_, gt)| gt.translation()).collect();
+        // where a player sees each grunt: his position, except a mounted gun's gunner, whose entity sits at the gun's
+        // origin (ref_grunt_08) while his body is at the seat 7.5 behind it (ai.rs GunPhase::On): aiming at the origin
+        // puts every shot into the gun's own collision (stig_mgun_coll_0); aimed (+5 below) at his head above the gun's shield, 8.5 over the origin
+        let live: Vec<Vec3> = grunts
+            .iter()
+            .filter(|(g, _)| g.mind != crate::ai::Mind::Dead)
+            .map(|(g, gt)| match g.gun {
+                Some(gn) if gn.phase == crate::ai::GunPhase::On => gn.origin + Quat::from_rotation_y(gn.yaw) * crate::level::game_to_engine() * Vec3::new(0.3, 7.5, 0.0) + Vec3::Y * 3.5,
+                _ => gt.translation(),
+            })
+            .collect();
         let target = if bot.fight {
             live.iter()
                 .copied()
