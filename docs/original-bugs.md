@@ -132,6 +132,9 @@ Defects found in the original game. Reproduced faithfully and not fixed before M
 | Memory taken from the allocator hook after the parent arena fails is still freed to the parent ("couldn't free block") | 0x004e1e90 / 0x004e1f70 | Disassembly | Faithful |
 | Look-at with a zero-length forward vector, and 0x44 bytes of a local block, read uninitialised | 0x004e2eb0 / 0x004e3070, 0x00453b90 | Disassembly | **Deviation:** locals zeroed |
 | Pub screen state 6 keeps scale z = 1.0 (3, 3, 1) while state 1 sets (3, 3, 3) | PubScreen_HandleInput 0x004695d0 | Disassembly | Faithful (src/engine/missing_01.cpp) |
+| send_trigger_non_enabled is not a one-shot: a player holding ticker bombs at a disabled site re-sends it every 6th frame, and a ui_ear on that trigger queues its paused message again and again (lev_1_m1: trigger 7 -> ui_ear 253; practically unreachable, the pub's exit enables site 252) | 0x00467450 -> 0x0044e0e0, 0x0046afa0 | Static reading | Faithful (engine/src/mission.rs `sites`) |
+| MissionObject_Update's nearest-object scan (every vo_delay) computes a result and drops it | 0x0044db80 | Static reading | Not ported (no effect) |
+| The success trigger (+0x46c) does not set the finished flag Game+0xdd2 (only pre-success does): a failure trigger after the win would still change the level state | 0x0044d600 | Static reading | **Deviation:** the remaster ignores failures once the outcome is decided (no lev_1_m1 failure triggers) |
 
 ## (Recovery slip, not an original bug) LevelProperties_Load zeroed pickup_drop_factor
 

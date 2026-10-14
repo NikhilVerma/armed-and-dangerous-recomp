@@ -202,6 +202,14 @@ went from 168 to 121 entries; every remaining one is replaced by the engine or n
 | UI_GetLoadingText 0x00447600, movie screens 0x00493150 / 0x004931b0 / 0x00493240 / 0x00493270 / 0x004932e0 / 0x00493320 / 0x004933b0 / 0x004933e0, timed splash 0x00493520 / 0x00493590, exit screen 0x00493770 | none | no loading screen (the level loads before the title menu), no movies yet, who pushes LegalText is not traced |
 | 0x00467220, 0x00467740, 0x004677c0 | none | their UI elements are not identified (hud.md open question 7) |
 
+## Mission, triggers, pickups and camera fx (subsystem port, 2026-10-14)
+
+docs/subsystems/mission.md "Remaster port": every logic object (volumes, ticker sites, counters, timers, camera fx,
+the pub, generators, the mission object) compares the broadcast trigger with its own fields, from the instances.
+Replaced or not needed: docs/port/game.csv. Tests: mission_start, volumes, ticker, pickups, pubflow, winfail.
+Trap: a playtest expect value that is a two-number array is a range, so list-like state fields are strings
+(`mission_obj.compass_target` "234,252").
+
 ## Save / load
 
 Pause menu Save Game writes saves/quicksave.json next to the exe (savegame.rs); Quick Load, Resume Game and Restart

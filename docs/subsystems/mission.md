@@ -496,3 +496,35 @@ the release waits for a free slot); dead troops leave the list +0x5a0 (engine: c
 spline group by sequence, 0x0042d1b0: tag 33 has 266 at sequence 0 and 264 at 1); the `fx_smoking_grunt`
 variant 0x0042dc20 (from 0x0040c850, a destroyed generator's husk spawning a troop) is not ported (needs bit 11,
 toss_peasants, unset in lev_1_m1).
+
+## Remaster port (subsystem pass, 2026-10-14, branch agent-mission)
+
+engine/src/mission.rs, pickup.rs, camfade.rs (ObjectAlpha), cheats.rs (Cheat_* lookups), stats.rs (state log).
+Every logic object now compares a broadcast trigger with its own fields, built from the instances (mission.json
+`instances[].resolved`), as the original's handlers do; the export's edges remain only for ui_ears, sound_ears, AI
+wake-ups, kills, fx ears and the win.
+
+| Piece | Original | Remaster |
+| --- | --- | --- |
+| Trigger volumes | TriggerObject 0x00497460 / 0x004976a0 / 0x00497640 / 0x00497720 | `Trigger`: on_enter (pending, sent while enabled), on_exit, one_shot, door_mat, enable / disable, ai_can_trigger (grunts and companions count), per-body contact sets |
+| Mission object | 0x0044c170 / 0x0044d600 / 0x0044db80 / 0x0044daf0 | start trigger and text, success (score, rescue bonus on lev_1_m1_b / lev_2_m1), pre-success (finished: failures ignored), failures 1..4 with failure_text(_N), alarm / army breach switches (`alarm_forced`, `breach_open`: flags only) |
+| Ticker sites | 0x0044de90 / 0x0044e150 / 0x0044e4a0 / 0x0044e5e0 / 0x0044e0c0 / 0x0044e0e0 | per-instance arm_time, message_radius, damage values; send_trigger_set; receive_trigger_enable; non-enabled every 6th frame; unarmed alpha (unarmed_falloff 0.5 on lev_1_m1) then 1.0; the armed bomb loses its tag (the compass moves to the other site); the bomb object goes at the blast |
+| Counters | CounterObject 0x00415770 / 0x00415860 | `Counter` (behaviour "counter") |
+| Timers | TimerObject 0x00496160..0x00496750 | `Timer` (behaviour "timer"); the display value is in `Mission::timer_display`, not drawn yet (open) |
+| Camera fx | CameraFXObject 0x004101a0 | trigger_start != 0 starts the fx on a camera child; receive_trigger_kill despawns it (the load-started ones, main.rs, cannot be killed yet: none on lev_1_m1 has a kill trigger) |
+| Pub | 0x0046a200, 0x0046a6c0..0x0046a770, prompt 0x00467b60 | listen_trigger_open (closed: "ui_pub_fail" prompt, entry_failure on stepping in: guess at the edge), send_trigger_entry once on entering |
+| Compass | 0x00466790 | the tag's live objects: dead / killed objects and armed bombs drop out |
+| Pickups | PickupObject 0x00471e40 / 0x00472200 / 0x00472310, collect slots 0x00472470..0x00472aa0, 0x00472800 / 0x00472850 | one `Pickup` for placed, dropped, generated and thrown pickups; collect refused when full (0x004a13a0: spare to max_ammo, rest to the clip); specials select themselves (0x004a12a0); health x difficulty scale (Game+0x55c, table 0x00589188: 1.0 normal); grunts with ai_can_trigger take health pickups; on_enter sent; fade over fade_time |
+| Generators | 0x00471b70 / 0x00471cb0 / 0x00471c30 / 0x00475c30 / 0x00475c70 | listen_activate_trigger; the current weapon's ammo only when its spare is 0: with the rifle (unlimited) nothing is made, as in the coverage runs (0x00475c30 called every frame of both generators, no pickup update besides the token's); the remaster used to make rifle bullets every 10 s |
+| Tokens | 0x00472aa0 / 0x00472a00 -> 0x004a0850 | as before, plus Cheat_Unlock 0x00410e40 when the unlockable paid for is a cheat |
+
+Tests (tools/regress.py SUITE, engine/playtests): mission_start (start trigger, briefing, 900 / 901 texts, compass
+targets), volumes (sphere and box volumes, one-shot vs re-entry), ticker (alpha, arming, tag, blast, gate),
+pickups (refusals and takes, generators with rifle / empty machine gun, token), pubflow (enter, award, exit,
+objectives), winfail (win, score once); unit tests for volumes, counters, timers, failures, ammo adds.
+
+Open (this pass): the timer display widget (hud.rs), the alarm_forced flag is not read by alarm.rs, AI pickup
+claims (0x004723c0 / 0x004723f0), start_in_turret_tag / camera_startup_path_anim (0x0044d150), peasants; the
+pickup fade on placed objects only through ObjectAlpha (GameMaterial). Not compared with the original yet: the pickup
+refusals and the generators' silence with the rifle come from the code and the coverage counts, not from a capture.
+Dispositions of the functions not cited: docs/port/game.csv.
