@@ -63,7 +63,9 @@ pub struct Bounds {
 #[derive(Message, Clone)]
 pub struct StartFx {
     pub name: String,
+    /// engine space
     pub at: Vec3,
+    /// the placement's engine-space rotation; `Quat::IDENTITY` means unrotated in game space (fxvm `start`)
     pub rotation: Quat,
     /// objects of this fx follow this entity (fx started on a moving object: projectile trails)
     pub follow: Option<Entity>,
