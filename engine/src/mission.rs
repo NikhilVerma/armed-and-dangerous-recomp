@@ -247,8 +247,8 @@ pub struct Mission {
     pub objectives_raw: String,
     /// sound_ears that played and removed themselves
     pub ears_done: std::collections::HashSet<u32>,
-    /// the message feed: (seconds left, line)
-    pub feed: Vec<(f32, String)>,
+    /// new messages for the feed: (chat colour index, text), handed to hud.rs's Chat each frame
+    pub feed: Vec<(u8, String)>,
 }
 
 #[derive(Message, Clone, Copy)]
@@ -566,15 +566,13 @@ impl Mission {
         })
     }
 
-    /// A line in the in-level message feed (Chat_AddMessage: 3 lines, the oldest scrolls off after 6 s), from a
-    /// text id or a literal.
+    /// A message for the in-level feed (Chat_AddMessage 0x0046aa60: hud.rs wraps it into the three chat lines, the
+    /// oldest scrolling off after 6 s), from a text id or a literal.
     pub fn feed(&mut self, text_or_id: &str) {
         let t = self.texts.get(text_or_id).cloned().unwrap_or_else(|| text_or_id.to_owned());
-        // the chat colour table's entry 1, #1fffff (0x0046a7e0; measured on the original's capture, frame 815)
-        self.feed.push((6.0, format!("<rgb=1fffff>{}", long_form(&t))));
-        if self.feed.len() > 3 {
-            self.feed.remove(0);
-        }
+        // the chat colour table's entry 1, #1fffff (0x0046a7e0; pickups use it, 0x00472310; measured on the original's
+        // capture, frame 815)
+        self.feed.push((1, long_form(&t)));
     }
 
     pub(crate) fn hint(&self, key: &str) -> String {
@@ -1131,14 +1129,17 @@ fn messages(
             Some(sp) if !s.text.starts_with(&format!("{sp}:")) => format!("{sp}: {}", s.text),
             _ => s.text.clone(),
         };
-        m.feed(&line);
+        // speech in colour 1 (#1fffff); the lines without a speaker are player.rs's weapon changes
+        // ("ui_change_weapon" / "ui_change_special_weapon"), which the original adds in colour 2 (#f0f01f,
+        // game_09.cpp:1730)
+        if s.speaker.is_none() {
+            m.feed.push((2, crate::mission::long_form(&line)));
+        } else {
+            m.feed(&line);
+        }
     }
-    // the feed: the oldest line scrolls off after 6 s
-    for f in &mut m.feed {
-        f.0 -= time.delta_secs();
-    }
-    m.feed.retain(|f| f.0 > 0.0);
-    hud.messages = m.feed.iter().map(|f| f.1.clone()).collect();
+    // the feed's new messages go to the HUD's chat (hud.rs: wrap, three lines, 6 s scroll)
+    hud.chat_in.extend(m.feed.drain(..).map(|(c, t)| (t, c)));
     // "Press %s to continue" names the MenuSelect binding of the device in use (input.rs), kept current while shown
     let page = |m: &Mission, text: &str| {
         let cont = m.hints.get("ui_stats_ok").cloned().unwrap_or("Press %s to continue".into()).replace("%s", &crate::input::key(crate::input::Act::Continue));
@@ -1185,11 +1186,12 @@ fn outcome(time: Res<Time>, mut m: Option<ResMut<Mission>>, roman: Query<&crate:
     }
     // compass objective: bearing of the target relative to the camera, and its distance
     if let (Ok(c), Ok(p)) = (cam.single(), player.single()) {
+        // 0x00466790: from the camera (Camera_GetPosition), the distance in 3D (the pointer's anim frame)
         hud.objective = m.compass_target(p.translation()).map(|t| {
-            let to = (t - p.translation()).with_y(0.0);
+            let to = (t - c.translation()).with_y(0.0);
             let f = c.forward();
             let rel = to.x.atan2(-to.z) - f.x.atan2(-f.z);
-            (-rel, to.length())
+            (-rel, (t - c.translation()).length())
         });
     }
 }

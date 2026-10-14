@@ -196,11 +196,16 @@ fn update(
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     mut opts: ResMut<crate::options::GameOptions>,
     mission: Option<Res<crate::mission::Mission>>,
-    playtest: Option<Res<crate::playtest::Playtest>>,
+    (playtest, play): (Option<Res<crate::playtest::Playtest>>, Option<ResMut<crate::playtest::PlayState>>),
     mut exit: MessageWriter<AppExit>,
 ) {
     if !s.open {
         return;
+    }
+    // the state log's "stats" (playtest expect steps): the phase (0 counters, 1 wait, 2 poster, 3 money, 4 wait, 5
+    // leave) and the money shown
+    if let Some(mut p) = play {
+        p.0.insert("stats".into(), serde_json::json!({ "phase": s.phase, "to": s.to }));
     }
     let dt = time.delta_secs();
     s.frame = s.frame.wrapping_add(1);

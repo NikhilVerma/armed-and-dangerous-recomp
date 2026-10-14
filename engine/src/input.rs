@@ -254,7 +254,8 @@ fn contexts(
     *last = Some(want);
 }
 
-/// Copies the evaluated actions into `Controls`; menu navigation steps with key repeat (0.4 s, then every 0.12 s).
+/// Copies the evaluated actions into `Controls`; menu navigation steps with key repeat: the first repeat after 0.25 s,
+/// then every 0.1 s (the menu input 0x00491140 through 0x00491090: first delay 0.25, repeat 0.1).
 fn collect(time: Res<Time<Real>>, mut c: ResMut<Controls>, acts: Query<(&Act, &ActionValue, &ActionEvents, &TriggerState)>) {
     let mut out = [ActState::default(); ACTS];
     for (a, v, ev, st) in &acts {
@@ -304,7 +305,7 @@ fn collect(time: Res<Time<Real>>, mut c: ResMut<Controls>, acts: Query<(&Act, &A
         c.nav_held = 0.0;
     } else {
         let t = prev + time.delta_secs();
-        let fire = prev == 0.0 || (t >= 0.4 && ((t - 0.4) / 0.12).floor() > ((prev - 0.4).max(-0.12) / 0.12).floor());
+        let fire = prev == 0.0 || (t >= 0.25 && ((t - 0.25) / 0.1).floor() > ((prev - 0.25).max(-0.1) / 0.1).floor());
         if fire {
             c.step = dir;
         }
