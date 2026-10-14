@@ -5,7 +5,18 @@
 //! vertices, u_k = a_k . (x - p) / (2 size) + 0.5 (the stretch by the third coordinate, 0x004175c0, taken on the
 //! normalised coordinate: guess). Texture x (1, 1, 1, fade), alpha-blended, no depth write, clamped, fogged; the
 //! texture sampled as stored (premultiplied textures blended straight, as the original). 160 decals, the oldest
-//! recycled at once; no expiry. Not ported: decals on placed static objects (0x00416f50), the pressure fade.
+//! recycled at once; no expiry.
+//!
+//! Placed objects receive them too (Decals_ProjectOnEntity 0x00416f50, the object callback of the world walk
+//! 0x0048eb60 that Decal_Build passes unless `single`; the fx op passes 0): objects with decal_receive (default 1,
+//! +0x3ec bit 8, Object_LoadBaseProps 0x00451360) that neither animate (0x00418610) nor have a mesh with +8 set
+//! (Entity_DecalExcluded 0x00416e90; taken here as skinned models: guess), and whose bounding sphere is not wholly
+//! outside a box plane. Their render mesh (DecalGeometry_AddEntity 0x00416bf0: every submesh but those whose material
+//! has bit 0x10 of +0x34, the blended ones) is clipped like the landscape, into the same 128-vertex / 384-index
+//! budget. Up to 4 receivers are recorded; a receiver's death fades its decals in 0.1 s (0x00418580 via 0x00416620).
+//! Not ported: the pressure fade (0x00416440), which never runs in the original (docs/subsystems/decals-bodies.md,
+//! "Measured"). The original interleaves landscape cells and objects cell by cell; here the landscape goes first.
+//! docs/subsystems/decals-bodies.md section 1.1.
 
 use bevy::asset::RenderAssetUsages;
 use bevy::image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor};
@@ -16,12 +27,39 @@ use bevy::prelude::*;
 const CELL: f32 = 32.0;
 const POOL: usize = 160;
 
-/// The landscape's triangles (game space), bucketed by x/y cells.
+fn bucket(cells: &mut HashMap<(i32, i32), Vec<u32>>, lo: Vec3, hi: Vec3, i: u32) {
+    for x in (lo.x / CELL).floor() as i32..=(hi.x / CELL).floor() as i32 {
+        for y in (lo.y / CELL).floor() as i32..=(hi.y / CELL).floor() as i32 {
+            cells.entry((x, y)).or_default().push(i);
+        }
+    }
+}
+
+fn cell_range(lo: Vec3, hi: Vec3) -> impl Iterator<Item = (i32, i32)> {
+    let ys = (lo.y / CELL).floor() as i32..=(hi.y / CELL).floor() as i32;
+    ((lo.x / CELL).floor() as i32..=(hi.x / CELL).floor() as i32).flat_map(move |x| ys.clone().map(move |y| (x, y)))
+}
+
+/// A placed object that takes decals: its entity, its world box (game space), whether it still stands.
+struct Receiver {
+    entity: Entity,
+    lo: Vec3,
+    hi: Vec3,
+    alive: bool,
+}
+
+/// The landscape's triangles and the receiving objects' triangles (game space, world-transformed once at load),
+/// bucketed by x/y cells.
 #[derive(Resource)]
 pub struct DecalWorld {
     verts: Vec<Vec3>,
     tris: Vec<[u32; 3]>,
     cells: HashMap<(i32, i32), Vec<u32>>,
+    overts: Vec<Vec3>,
+    otris: Vec<[u32; 3]>,
+    owner: Vec<u32>,
+    ocells: HashMap<(i32, i32), Vec<u32>>,
+    receivers: Vec<Receiver>,
 }
 
 impl DecalWorld {
@@ -29,15 +67,53 @@ impl DecalWorld {
         let mut cells: HashMap<(i32, i32), Vec<u32>> = HashMap::default();
         for (i, t) in tris.iter().enumerate() {
             let (a, b, c) = (verts[t[0] as usize], verts[t[1] as usize], verts[t[2] as usize]);
-            let lo = a.min(b).min(c);
-            let hi = a.max(b).max(c);
-            for x in (lo.x / CELL).floor() as i32..=(hi.x / CELL).floor() as i32 {
-                for y in (lo.y / CELL).floor() as i32..=(hi.y / CELL).floor() as i32 {
-                    cells.entry((x, y)).or_default().push(i as u32);
-                }
-            }
+            bucket(&mut cells, a.min(b).min(c), a.max(b).max(c), i as u32);
         }
-        DecalWorld { verts: verts.to_vec(), tris: tris.to_vec(), cells }
+        DecalWorld {
+            verts: verts.to_vec(),
+            tris: tris.to_vec(),
+            cells,
+            overts: Vec::new(),
+            otris: Vec::new(),
+            owner: Vec::new(),
+            ocells: HashMap::default(),
+            receivers: Vec::new(),
+        }
+    }
+
+    /// A placed object's render mesh as a receiver (`place`: model space to game space).
+    pub fn add_object(&mut self, entity: Entity, model: &crate::scene::Model, place: Mat4) {
+        let r = self.receivers.len() as u32;
+        let base = self.overts.len() as u32;
+        self.overts.extend(model.vertices.iter().map(|v| place.transform_point3(*v)));
+        let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+        for (k, t) in model.tris.iter().enumerate() {
+            if model.no_decal.iter().any(|s| s.contains(&(k as u32))) {
+                continue;
+            }
+            let t = [t[0] + base, t[1] + base, t[2] + base];
+            let (a, b, c) = (self.overts[t[0] as usize], self.overts[t[1] as usize], self.overts[t[2] as usize]);
+            let (tl, th) = (a.min(b).min(c), a.max(b).max(c));
+            lo = lo.min(tl);
+            hi = hi.max(th);
+            let i = self.otris.len() as u32;
+            self.otris.push(t);
+            self.owner.push(r);
+            bucket(&mut self.ocells, tl, th, i);
+        }
+        self.receivers.push(Receiver { entity, lo, hi, alive: lo.x <= hi.x });
+    }
+
+    /// The object is gone (destroyed, or replaced by its husk): it takes no more decals.
+    pub fn remove_object(&mut self, entity: Entity) {
+        for r in self.receivers.iter_mut().filter(|r| r.entity == entity) {
+            r.alive = false;
+        }
+    }
+
+    /// (standing receivers, receiver triangles)
+    pub fn receiver_stats(&self) -> (usize, usize) {
+        (self.receivers.iter().filter(|r| r.alive).count(), self.otris.len())
     }
 }
 
@@ -52,13 +128,25 @@ pub struct SpawnDecal {
 #[derive(Resource, Default)]
 struct Decals {
     live: std::collections::VecDeque<Entity>,
+    /// made so far, and how many of them lie on placed objects (playtest state "decals")
+    made: u32,
+    on_objects: u32,
+    /// faded out after their receiver died
+    faded: u32,
+}
+
+/// A live decal: the objects it lies on (up to 4), and its fade (left, total) once one of them died.
+#[derive(Component)]
+struct Decal {
+    receivers: Vec<Entity>,
+    fade: Option<(f32, f32)>,
 }
 
 pub struct DecalPlugin;
 
 impl Plugin for DecalPlugin {
     fn build(&self, app: &mut App) {
-        app.add_message::<SpawnDecal>().init_resource::<Decals>().add_systems(Update, spawn);
+        app.add_message::<SpawnDecal>().init_resource::<Decals>().add_systems(Update, (spawn, receiver_died, fade).chain());
     }
 }
 
@@ -77,6 +165,30 @@ fn clip(poly: Vec<Vec3>, n: Vec3, c: f32) -> Vec<Vec3> {
     out
 }
 
+/// Clips one triangle to the box and appends it as a fan. None once the build is out of room (capacity 128
+/// vertices / 384 indices: DecalGeometry_AddSubmesh 0x00416930 stops there); Some(added).
+fn add_clipped(tri: [Vec3; 3], planes: &[(Vec3, f32)], verts: &mut Vec<Vec3>, idx: &mut Vec<u32>) -> Option<bool> {
+    let mut poly = tri.to_vec();
+    for (n, c) in planes {
+        if poly.is_empty() {
+            break;
+        }
+        poly = clip(poly, *n, *c);
+    }
+    if poly.len() < 3 {
+        return Some(false);
+    }
+    if verts.len() + poly.len() > 128 || idx.len() + (poly.len() - 2) * 3 > 384 {
+        return None;
+    }
+    let base = verts.len() as u32;
+    verts.extend(poly.iter());
+    for k in 1..poly.len() as u32 - 1 {
+        idx.extend_from_slice(&[base, base + k, base + k + 1]);
+    }
+    Some(true)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn spawn(
     mut commands: Commands,
@@ -87,6 +199,7 @@ fn spawn(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut textures: Local<HashMap<String, Handle<StandardMaterial>>>,
+    mut state: Option<ResMut<crate::playtest::PlayState>>,
 ) {
     let Some(world) = world else {
         events.clear();
@@ -101,33 +214,52 @@ fn spawn(
         let reach = axes.iter().map(|a| a.length()).fold(0.0, f32::max) * s * 1.8;
         let mut verts: Vec<Vec3> = Vec::new();
         let mut idx: Vec<u32> = Vec::new();
+        let mut full = false;
         let mut seen = std::collections::HashSet::new();
-        'cells: for x in ((p.x - reach) / CELL).floor() as i32..=((p.x + reach) / CELL).floor() as i32 {
-            for y in ((p.y - reach) / CELL).floor() as i32..=((p.y + reach) / CELL).floor() as i32 {
-                for &ti in world.cells.get(&(x, y)).map(|v| v.as_slice()).unwrap_or(&[]) {
-                    if !seen.insert(ti) {
-                        continue;
-                    }
-                    let t = world.tris[ti as usize];
-                    let mut poly = vec![world.verts[t[0] as usize], world.verts[t[1] as usize], world.verts[t[2] as usize]];
-                    for (n, c) in &planes {
-                        if poly.is_empty() {
-                            break;
+        'cells: for c in cell_range(p - Vec3::splat(reach), p + Vec3::splat(reach)) {
+            for &ti in world.cells.get(&c).map(|v| v.as_slice()).unwrap_or(&[]) {
+                if !seen.insert(ti) {
+                    continue;
+                }
+                let t = world.tris[ti as usize];
+                let tri = [world.verts[t[0] as usize], world.verts[t[1] as usize], world.verts[t[2] as usize]];
+                if add_clipped(tri, &planes, &mut verts, &mut idx).is_none() {
+                    full = true;
+                    break 'cells;
+                }
+            }
+        }
+        // placed objects (Decals_ProjectOnEntity 0x00416f50): standing receivers whose box meets the decal's box
+        // (the original: the bounding sphere against the six planes)
+        let half = axes.iter().fold(Vec3::ZERO, |h, a| h + a.abs()) * s;
+        let (blo, bhi) = (p - half, p + half);
+        let mut receivers: Vec<Entity> = Vec::new();
+        if !full {
+            let mut cand: Vec<u32> = cell_range(blo, bhi)
+                .flat_map(|c| world.ocells.get(&c).map(|v| v.as_slice()).unwrap_or(&[]).iter().copied())
+                .filter(|&ti| {
+                    let r = &world.receivers[world.owner[ti as usize] as usize];
+                    r.alive && r.lo.cmple(bhi).all() && r.hi.cmpge(blo).all()
+                })
+                .collect();
+            cand.sort_unstable();
+            cand.dedup();
+            for ti in cand {
+                let t = world.otris[ti as usize];
+                let tri = [world.overts[t[0] as usize], world.overts[t[1] as usize], world.overts[t[2] as usize]];
+                if tri[0].min(tri[1]).min(tri[2]).cmpgt(bhi).any() || tri[0].max(tri[1]).max(tri[2]).cmplt(blo).any() {
+                    continue;
+                }
+                match add_clipped(tri, &planes, &mut verts, &mut idx) {
+                    None => break,
+                    Some(true) => {
+                        // the first 4 objects are recorded (DecalGeometry_AddEntity 0x00416bf0)
+                        let e = world.receivers[world.owner[ti as usize] as usize].entity;
+                        if !receivers.contains(&e) && receivers.len() < 4 {
+                            receivers.push(e);
                         }
-                        poly = clip(poly, *n, *c);
                     }
-                    if poly.len() < 3 {
-                        continue;
-                    }
-                    // capacity 128 vertices / 384 indices: the build stops there
-                    if verts.len() + poly.len() > 128 || idx.len() + (poly.len() - 2) * 3 > 384 {
-                        break 'cells;
-                    }
-                    let base = verts.len() as u32;
-                    verts.extend(poly.iter());
-                    for k in 1..poly.len() as u32 - 1 {
-                        idx.extend_from_slice(&[base, base + k, base + k + 1]);
-                    }
+                    Some(false) => {}
                 }
             }
         }
@@ -153,6 +285,7 @@ fn spawn(
             })
             .collect();
         let normals = vec![[0.0f32, 0.0, 1.0]; verts.len()];
+        let (receivers_copy, nverts) = (receivers.clone(), verts.len());
         let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
         mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, verts.iter().map(|v| v.to_array()).collect::<Vec<_>>());
         mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
@@ -187,13 +320,70 @@ fn spawn(
                 MeshMaterial3d(mat),
                 Transform::from_rotation(crate::level::game_to_engine()),
                 bevy::light::NotShadowCaster,
+                Decal { receivers, fade: None },
             ))
             .id();
+        decals.made += 1;
+        decals.on_objects += u32::from(!receivers_copy.is_empty());
+        if let Some(st) = state.as_mut() {
+            st.0.insert(
+                "decals".into(),
+                serde_json::json!({ "made": decals.made, "on_objects": decals.on_objects, "last_receivers": receivers_copy.len(), "last_vertices": nverts, "faded": decals.faded }),
+            );
+        }
         decals.live.push_back(e);
         if decals.live.len() > POOL {
             if let Some(old) = decals.live.pop_front() {
                 commands.entity(old).despawn();
             }
+        }
+    }
+}
+
+/// A receiver's death fades the decals on it over 0.1 s (0x00416620 from 0x004547b0 calls the decal's slot +0x1c,
+/// 0x00418580); each gets its own material for the fade.
+fn receiver_died(
+    mut died: MessageReader<crate::fx::Died>,
+    mut q: Query<(&mut Decal, &mut MeshMaterial3d<StandardMaterial>)>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    for d in died.read() {
+        for (mut decal, mut mat) in &mut q {
+            if decal.fade.is_none() && decal.receivers.contains(&d.0) {
+                decal.fade = Some((0.1, 0.1));
+                if let Some(m) = materials.get(&mat.0).cloned() {
+                    mat.0 = materials.add(m);
+                }
+            }
+        }
+    }
+}
+
+/// Decal_Update 0x00417180 while fading: alpha = left / total; recycled at 0.
+fn fade(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut decals: ResMut<Decals>,
+    mut q: Query<(Entity, &mut Decal, &MeshMaterial3d<StandardMaterial>)>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut state: Option<ResMut<crate::playtest::PlayState>>,
+) {
+    let dt = time.delta_secs();
+    for (e, mut decal, mat) in &mut q {
+        let Some((left, total)) = decal.fade else { continue };
+        let left = left - dt;
+        if left <= 0.0 {
+            commands.entity(e).despawn();
+            decals.live.retain(|x| *x != e);
+            decals.faded += 1;
+            if let Some(d) = state.as_mut().and_then(|s| s.0.get_mut("decals")).and_then(|d| d.as_object_mut()) {
+                d.insert("faded".into(), decals.faded.into());
+            }
+            continue;
+        }
+        decal.fade = Some((left, total));
+        if let Some(mut m) = materials.get_mut(&mat.0) {
+            m.base_color = Color::srgba(1.0, 1.0, 1.0, left / total);
         }
     }
 }

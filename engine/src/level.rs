@@ -321,6 +321,8 @@ pub fn spawn(
 
     // landscape: its own mesh is its collision
     let skip_visual = lib.skip_landscape_visual;
+    let mut decal_world = crate::decals::DecalWorld::new(&[], &[]);
+    let to_game = axes.inverse();
     if let Some(model) = lib.load_model(&scene.landscape, false, assets, meshes, materials) {
         if !skip_visual {
             let e = commands.spawn((Transform::from_matrix(axes), Visibility::default(), Name::new("landscape"))).id();
@@ -329,7 +331,7 @@ pub fn spawn(
             info.triangles += t;
         }
         physics.landscape = static_collider(physics, model, axes);
-        commands.insert_resource(crate::decals::DecalWorld::new(&model.vertices, &model.tris));
+        decal_world = crate::decals::DecalWorld::new(&model.vertices, &model.tris);
     }
 
     for inst in &scene.instances {
@@ -378,15 +380,22 @@ pub fn spawn(
         }
         let e = e.id();
         // a rigid model's own anim moving its root (the big red arrow bobs: Center z 20..46, anim bigredarrow_0)
+        let mut animated = false;
         if model.skeleton.is_none() {
             if let Some(ra) = RigidAnim::load(&lib_dir, &inst.model) {
                 commands.entity(e).insert(ra);
+                animated = true;
             }
         } else if !invisible {
             // a model with a skeleton plays its template's default anim (oilpump: oilpump_cycle), see DefaultAnim
             if let Some(anim) = tpl.and_then(|t| t.default_anim.clone()) {
                 commands.entity(e).insert(DefaultAnim { anim, seen: false });
             }
+        }
+        // decal receivers (Decals_ProjectOnEntity 0x00416f50): decal_receive (default 1, +0x3ec bit 8), not animating
+        // (0x00418610), not skinned (Entity_DecalExcluded 0x00416e90: guess); characters are skinned
+        if !invisible && !background && !animated && model.skeleton.is_none() && p.f("decal_receive", 1.0) != 0.0 {
+            decal_world.add_object(e, model, to_game * world);
         }
         if !invisible {
             // shadow casters: objects whose property set has shadow_enable (shadows.md, object +0x3ec bits 1-2)
@@ -545,6 +554,9 @@ pub fn spawn(
                 let we = commands.spawn((Transform::from_matrix(ww), Visibility::default(), Name::new("village_window"), Window { building: e })).id();
                 if let Some(m) = wt.model.as_ref().and_then(|m| lib.load_model(m, false, assets, meshes, materials)) {
                     let _ = attach_model(commands, we, m, false, None);
+                    if m.skeleton.is_none() && wp.f("decal_receive", 1.0) != 0.0 {
+                        decal_world.add_object(we, m, to_game * ww);
+                    }
                 }
                 let collider = wt
                     .collision
@@ -600,6 +612,9 @@ pub fn spawn(
         let c = Color::srgb_u8(g("fog_red").unwrap_or(200.0) as u8, g("fog_green").unwrap_or(200.0) as u8, g("fog_blue").unwrap_or(200.0) as u8);
         info.fog = Some((near, far, c));
     }
+    let (receivers, receiver_tris) = decal_world.receiver_stats();
+    info!("decal receivers: {receivers} objects, {receiver_tris} triangles");
+    commands.insert_resource(decal_world);
     info.models = lib.models.len();
     info.static_bodies = physics.static_bodies;
     info.static_triangles = physics.static_triangles;
@@ -700,6 +715,7 @@ fn husks(
     placed: Query<(&Placed, &Transform, &Children)>,
     mut penguins: Query<&mut Penguin>,
     windows: Query<(Entity, &Window, &Placed)>,
+    mut decal_world: Option<ResMut<crate::decals::DecalWorld>>,
 ) {
     for d in died.read() {
         // a destroyed building's windows go with it
@@ -708,12 +724,19 @@ fn husks(
                 if let Some(c) = wpl.collider {
                     physics.remove_static(c);
                 }
+                if let Some(w) = decal_world.as_mut() {
+                    w.remove_object(we);
+                }
                 commands.entity(we).despawn();
             }
         }
         let Ok((p, t, children)) = placed.get(d.0) else { continue };
         if let Some(c) = p.collider {
             physics.remove_static(c);
+        }
+        // the object goes (0x00455640): its decals fade (decals.rs) and it takes no more
+        if let Some(w) = decal_world.as_mut() {
+            w.remove_object(d.0);
         }
         // a penguin keeps its model: its death anims play (charanim.rs)
         if let Ok(mut pg) = penguins.get_mut(d.0) {
@@ -732,6 +755,12 @@ fn husks(
         let world = t.to_matrix();
         if let Some(m) = ht.model.as_ref().and_then(|m| lib.load_model(m, false, &assets, &mut meshes, &mut materials)) {
             let _ = attach_model(&mut commands, d.0, m, true, None);
+            // the husk is a new object: a receiver like any other (decal_receive of its template)
+            if m.skeleton.is_none() && data.template_props(husk.as_deref().unwrap_or_default()).f("decal_receive", 1.0) != 0.0 {
+                if let Some(w) = decal_world.as_mut() {
+                    w.add_object(d.0, m, Mat4::from_quat(game_to_engine()).inverse() * world);
+                }
+            }
         }
         let collider = ht
             .collision

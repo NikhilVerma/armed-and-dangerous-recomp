@@ -117,6 +117,9 @@ pub struct Model {
     /// CPU copy for physics: every submesh's vertices (model space, game axes) and triangles.
     pub vertices: Vec<Vec3>,
     pub tris: Vec<[u32; 3]>,
+    /// triangle ranges (into `tris`) of submeshes whose material has bit 0x10 of its +0x34 byte (`kind`): blended
+    /// materials, which take no decals (DecalGeometry_AddEntity 0x00416bf0 skips them)
+    pub no_decal: Vec<std::ops::Range<u32>>,
     /// skeletons/<name>.json when the model is skinned
     pub skeleton: Option<String>,
     /// per part: how it follows the skeleton
@@ -133,6 +136,7 @@ impl Model {
             triangles: self.triangles,
             vertices: Vec::new(),
             tris: Vec::new(),
+            no_decal: Vec::new(),
             skeleton: self.skeleton.clone(),
             binds: self.binds.clone(),
         }
@@ -294,6 +298,7 @@ impl Library {
             let mut triangles = 0;
             let mut cpu_v: Vec<Vec3> = Vec::new();
             let mut cpu_t: Vec<[u32; 3]> = Vec::new();
+            let mut no_decal = Vec::new();
             for s in &file.submeshes {
                 // a sky's untextured parts (l1_bob_m1_sky_0: the disk under the horizon, emissive (212, 218, 212), and the
                 // cap at the top) draw in their emissive colour: the disk is the original's pale grey horizon band where
@@ -308,6 +313,9 @@ impl Library {
                     .collect();
                 triangles += idx.len() / 3;
                 let base = cpu_v.len() as u32;
+                if s.material.as_ref().is_some_and(|m| m.kind & 0x10 != 0) {
+                    no_decal.push(cpu_t.len() as u32..(cpu_t.len() + idx.len() / 3) as u32);
+                }
                 cpu_v.extend(pos.chunks_exact(3).map(|v| Vec3::new(v[0], v[1], v[2])));
                 cpu_t.extend(idx.chunks_exact(3).map(|t| [t[0] + base, t[1] + base, t[2] + base]));
                 // skinned meshes keep a main-world copy too (the playtest skinning check skins them on the CPU)
@@ -342,7 +350,7 @@ impl Library {
             }
             self.models.insert(
                 name.to_owned(),
-                Model { parts, min: Vec3::from(file.min), max: Vec3::from(file.max), triangles, vertices: cpu_v, tris: cpu_t, skeleton: file.skeleton.clone(), binds },
+                Model { parts, min: Vec3::from(file.min), max: Vec3::from(file.max), triangles, vertices: cpu_v, tris: cpu_t, no_decal, skeleton: file.skeleton.clone(), binds },
             );
         }
         self.models.get(name)
