@@ -1043,7 +1043,7 @@ impl Barks {
 }
 
 fn bark(sounds: &mut MessageWriter<crate::audio::PlaySound>, category: &str, set: u8, at: Vec3) {
-    sounds.write(crate::audio::PlaySound { name: voice(category, set), at: Some(at), follow: None, looped: Some(false), volume: 1.0 });
+    sounds.write(crate::audio::PlaySound::at(voice(category, set), at).looping(false));
 }
 
 /// The "ai_interest" noises of the player (AIInterestObject, vtable 0x005a7820, in the list World+0xee0): posted by

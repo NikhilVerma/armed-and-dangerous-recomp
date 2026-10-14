@@ -127,9 +127,9 @@ fn apply(
         return;
     }
     *seen_cams = n;
-    // the original's 0.8 defaults are the remaster's tuned levels
-    mixer.sfx = o.sound_volume / 0.8;
-    mixer.voice = o.voice_volume / 0.8;
+    // the option values; audio.rs turns them into group levels (the original's curve, 0 dB at the 0.8 default)
+    mixer.sfx = o.sound_volume;
+    mixer.voice = o.voice_volume;
     mixer.music = o.music_volume;
     hud.subtitles_off = !o.subtitles_game;
     if !o.subtitles_game {

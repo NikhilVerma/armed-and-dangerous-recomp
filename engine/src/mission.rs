@@ -1272,9 +1272,9 @@ pub(crate) fn sites(
     let mut arming = None;
     let mut clock = None;
     // the wind-up (0x0044e3a0 starts wpn_ticker_windup_lp, 0x0044e430 stops it when Use is let go)
-    let mut wind_down = |stop: &mut MessageWriter<crate::audio::StopSound>, sounds: &mut MessageWriter<crate::audio::PlaySound>, at: Vec3| {
+    // (the bank's sequence plays wpn_ticker_windup_start before the loop and wpn_ticker_windup_end on its stop)
+    let wind_down = |stop: &mut MessageWriter<crate::audio::StopSound>, _sounds: &mut MessageWriter<crate::audio::PlaySound>, _at: Vec3| {
         stop.write(crate::audio::StopSound("wpn_ticker_windup_lp".into()));
-        sounds.write(crate::audio::PlaySound::at("wpn_ticker_windup_end", at));
     };
     for s in &mut m.sites {
         if s.done {
@@ -1358,8 +1358,7 @@ pub(crate) fn sites(
         }
         if holding {
             if s.hold == 0.0 {
-                sounds.write(crate::audio::PlaySound::at("wpn_ticker_windup_start", s.pos));
-                sounds.write(crate::audio::PlaySound { looped: Some(true), ..crate::audio::PlaySound::at("wpn_ticker_windup_lp", s.pos) });
+                sounds.write(crate::audio::PlaySound::at("wpn_ticker_windup_lp", s.pos).looping(true));
             }
             s.hold += dt;
             // the arming bar ui_tickerbomb_set fills while Use is held (it takes the prompt's place): (T - +0x464) /

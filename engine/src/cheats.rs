@@ -149,11 +149,11 @@ fn entry(
                                 }
                             }
                         }
-                        sounds.write(crate::audio::PlaySound::ui("ui_select"));
+                        sounds.write(crate::audio::PlaySound::menu("ui_select"));
                     }
                     None => {
                         c.result = get("ui_cheatunknown");
-                        sounds.write(crate::audio::PlaySound::ui("ui_cancel"));
+                        sounds.write(crate::audio::PlaySound::menu("ui_cancel"));
                     }
                 }
             }
