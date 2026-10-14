@@ -139,3 +139,9 @@ group by shooter (and-shots.txt); grunt 201 at (-271, 607) fires once (frame 118
 from t 21.5 s, every 1.63 s, hitting Roman each time: the engine's Roman ends the held-W walk at about (-235, 492),
 the original's at (-215, 504), in 201's sight. The aim error is the original's formula (0x004284e0). Next: compare the
 two walks frame by frame after frame 1100 (the slope down to the trench; the walk was verified only to frame 900).
+Resolved (walkT, AI dumps every second): the walks match (both Romans stop at about (-230, 492) by frame 1620). In the
+original grunt 201 fires once (1182), then runs toward Roman ((-261, 576) at 1320, (-251, 538) at 1380) and hits him
+three times from about (-237, 507) at frames 1617 / 1724 / 1831 (107 frames apart): its fire range, rolled in
+fire_range_min..max 35..500 (0x00425d30), came out under its distance; the engine's roll came out over it, so it stays
+and fires every 1.63 s. A random-roll difference (no RNG sync with the original), not a broken mechanic. Still open:
+the engine's 1.63 s cadence for a standing grunt vs the original's 1.78 s for this one (clip delay vs guard path).
