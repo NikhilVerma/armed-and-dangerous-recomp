@@ -134,3 +134,8 @@ Measured (hook dump field "companions", testshot.cpp): first fight (compT, keys 
 Q 500 -> 500, Roman 400 -> 250 at 46 s. Companion damage is of the same size: the deaths in bot runs come from the
 bot's long fights and the alarm's troops. Roman takes more in the engine (the open question above).
 In the warp scenario (warp=720) the companions stay at the start in the original (not comparable there).
+Why Roman loses more in the first fight (compT2 with log_hits vs engine fightLc with AIDBG): the original's 63 shots
+group by shooter (and-shots.txt); grunt 201 at (-271, 607) fires once (frame 1182). In the engine it fires ~14 times
+from t 21.5 s, every 1.63 s, hitting Roman each time: the engine's Roman ends the held-W walk at about (-235, 492),
+the original's at (-215, 504), in 201's sight. The aim error is the original's formula (0x004284e0). Next: compare the
+two walks frame by frame after frame 1100 (the slope down to the trench; the walk was verified only to frame 900).
