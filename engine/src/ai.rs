@@ -647,13 +647,21 @@ fn fire_cycle(
     let s = if d <= lo { 0.1 } else if d >= hi { 1.0 } else { ((d * d - lo * lo) / (hi * hi - lo * lo)).max(0.1) };
     let side = Vec3::new(-to.z, 0.0, to.x).normalize_or_zero();
     let aim = hit + side * rng.range(-g.inaccuracy_angle, g.inaccuracy_angle) * s + Vec3::Y * rng.range(0.0, g.inaccuracy_height) * s;
-    // the shot leaves the weapon (0x004a2010: its emitter's matrix): the hand holding it, the muzzle ~3 along the aim
-    // (the weapon's emitter node is not exported: the length is a guess); the original's bullets pass on the
-    // weapon's side of a grunt (they hit a grunt standing in front of a shooter, hook ray-hit log; the engine's
-    // from the body's centre line missed it)
-    let muzzle = hand.unwrap_or(pos + Vec3::Y * 7.0);
+    // the shot leaves the weapon's emitter (0x004a2010): measured in the original (hook log_hits' and-shots.txt,
+    // second encounter, eight grunts facing their target: the muzzle minus the grunt's position) ~6.9 ahead, 1.3..1.5
+    // to its right (the rifle at the right shoulder) and 8.4 up; the bullets then pass where the original's do (a
+    // grunt standing in front of a shooter is hit)
+    let _ = hand;
+    let right = Vec3::new(-fwd.z, 0.0, fwd.x);
+    let emitter = pos + fwd * 6.9 + right * 1.4 + Vec3::Y * 8.4;
+    let muzzle = emitter - (aim - emitter).normalize_or(Vec3::Z) * 4.0;
     let dir = (aim - muzzle).normalize_or(Vec3::Z);
-    let muzzle = muzzle + dir * 3.0 - dir * 4.0;
+    if std::env::var("AIDBG").is_ok() {
+        let o = crate::level::game_to_engine().inverse() * (muzzle + dir * 4.0 - pos);
+        let tg = crate::level::game_to_engine().inverse() * (p - pos);
+        let gp = crate::level::game_to_engine().inverse() * pos;
+        info!("AIDBG muzzle {:.1} {:.1} off {:.2} {:.2} {:.2}", gp.x, gp.y, o.x, o.y, o.z);
+    }
     if g.dry_first {
         // the dry first cycle: the fire anim without a shot, then the reload as after an empty clip
         g.dry_first = false;

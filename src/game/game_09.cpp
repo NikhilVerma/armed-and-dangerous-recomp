@@ -2286,6 +2286,8 @@ HOOK(0x004a1f20, "fn_004a1f20", fn_004a1f20_Entry, nullptr);
 // flag 0x20 toggled (alternating emitters), the projectile 0x0047de40(eax = &muzzle, ebx = aim; Game+0xaa8, owner
 // +0x54c, &+0x460, 0) and with a target its vt+0x14c(target, bone). Then vt+0x144() (last fire time) and al = 1.
 // Called by 0x004284e0, 0x004a2100.
+// Test hook ([test] log_hits, hook/src/testshot.cpp): every shot's weapon, muzzle point and aim point. Null: nothing.
+void (*g_testShot)(uint32_t weapon, uint32_t muzzle, uint32_t aim) = nullptr;
 uint32_t fn_004a2010(uint32_t aim, uint32_t w, uint32_t target, uint32_t bone, uint32_t noShot)
 {
     if (aim == 0)
@@ -2301,6 +2303,8 @@ uint32_t fn_004a2010(uint32_t aim, uint32_t w, uint32_t target, uint32_t bone, u
         D(u(pos), 0) = D(u(m), 0xc);
         D(u(pos), 4) = D(u(m), 0x1c);
         D(u(pos), 8) = D(u(m), 0x2c);
+        if (g_testShot)
+            g_testShot(w, u(pos), aim);
         const uint32_t proj = orig::fn_0047de40(u(pos), aim, D(G(), 0xaa8), D(w, 0x54c), w + 0x460, 0);
         if (proj != 0 && target != 0)
             VCall<uint32_t>(P(proj), 0x14c / 4, target, bone);

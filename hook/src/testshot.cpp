@@ -159,6 +159,28 @@ static void LogMaterial(const uint8_t* m, const char* const names[4])
 extern void (*g_testSoundStarted)(const char* name, float volume);
 extern void (*g_testHit)(uint32_t victim, uint32_t projectile, uint32_t record);
 extern void (*g_testRayHit)(uint32_t projectile, uint32_t object, uint32_t record);
+extern void (*g_testShot)(uint32_t weapon, uint32_t muzzle, uint32_t aim);
+
+// [test] log_hits=1 also writes and-shots.txt: every shot: frame, the weapon's owner (+0x54c) position (vt+0x54),
+// the muzzle point minus that position, the aim point
+static void LogShot(uint32_t weapon, uint32_t muzzle, uint32_t aim)
+{
+    FILE* out = fopen("and-shots.txt", "a");
+    if (!out)
+        return;
+    const uint32_t owner = *reinterpret_cast<const uint32_t*>(weapon + 0x54c);
+    float pos[4] = {};
+    if (owner)
+    {
+        using GetPos = void(__thiscall*)(void*, float*);
+        reinterpret_cast<GetPos>((*reinterpret_cast<void***>(owner))[0x54 / 4])(reinterpret_cast<void*>(owner), pos);
+    }
+    const float* m = reinterpret_cast<const float*>(muzzle);
+    const float* a = reinterpret_cast<const float*>(aim);
+    fprintf(out, "%d %.2f %.2f %.2f %.2f %.2f %.2f %.2f %.2f %.2f\n", TestFramesSinceLoad(), pos[0], pos[1], pos[2], m[0] - pos[0], m[1] - pos[1],
+            m[2] - pos[2], a[0], a[1], a[2]);
+    fclose(out);
+}
 
 // [test] log_hits=1 also writes and-rayhits.txt: every projectile ray hit: frame, object (0 for none), 1 when the
 // object is the player, the object's vtable, the point (record +4)
@@ -226,6 +248,8 @@ void TestMaterialLogInit()
         g_testHit = LogHit;
     if (ConfigInt("test", "log_hits", 0))
         g_testRayHit = LogRayHit;
+    if (ConfigInt("test", "log_hits", 0))
+        g_testShot = LogShot;
 }
 
 extern void* g_testCamera;
