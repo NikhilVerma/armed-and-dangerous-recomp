@@ -92,6 +92,20 @@ struct SubmeshDef {
     /// the second uv set (terrain blend masks)
     #[serde(default)]
     uvs1: Option<usize>,
+    /// the skin bone carrying this part (a rigid part of a multi-bone mesh, or a one-bone mesh)
+    #[serde(default)]
+    bone: Option<String>,
+}
+
+/// How a model part follows its skeleton (when the model has one and is spawned with its rig).
+#[derive(Clone, Debug, PartialEq)]
+pub enum PartBind {
+    /// fixed in model space
+    None,
+    /// GPU skinned (joints and weights)
+    Skinned,
+    /// rigid on one bone (oilpump_1's arm and struts: UBYTE4 blend indices without weights, tools/remaster_export.py)
+    Bone(String),
 }
 
 /// One loaded model: a mesh and material per submesh, plus its bounds (model space, game axes).
@@ -108,12 +122,24 @@ pub struct Model {
     pub no_decal: Vec<std::ops::Range<u32>>,
     /// skeletons/<name>.json when the model is skinned
     pub skeleton: Option<String>,
+    /// per part: how it follows the skeleton
+    pub binds: Vec<PartBind>,
 }
 
 impl Model {
     /// A copy without the CPU collision data (for spawning while the library stays borrowed).
     pub fn light_clone(&self) -> Model {
-        Model { parts: self.parts.clone(), min: self.min, max: self.max, triangles: self.triangles, vertices: Vec::new(), tris: Vec::new(), no_decal: Vec::new(), skeleton: self.skeleton.clone() }
+        Model {
+            parts: self.parts.clone(),
+            min: self.min,
+            max: self.max,
+            triangles: self.triangles,
+            vertices: Vec::new(),
+            tris: Vec::new(),
+            no_decal: Vec::new(),
+            skeleton: self.skeleton.clone(),
+            binds: self.binds.clone(),
+        }
     }
 }
 
@@ -268,6 +294,7 @@ impl Library {
             let file: ModelFile = serde_json::from_str(&json).ok()?;
             let bin = std::fs::read(self.dir.join("models").join(format!("{name}.bin"))).ok()?;
             let mut parts = Vec::new();
+            let mut binds = Vec::new();
             let mut triangles = 0;
             let mut cpu_v: Vec<Vec3> = Vec::new();
             let mut cpu_t: Vec<[u32; 3]> = Vec::new();
@@ -315,10 +342,15 @@ impl Library {
                 }
                 let material = self.material(s.texture.as_deref(), s.alpha, unlit, colour.unwrap_or([1.0; 3]), s.material.as_ref(), assets, materials);
                 parts.push((meshes.add(mesh), material));
+                binds.push(match (s.joints, &s.bone) {
+                    (Some(_), _) => PartBind::Skinned,
+                    (None, Some(b)) => PartBind::Bone(b.to_lowercase()),
+                    (None, None) => PartBind::None,
+                });
             }
             self.models.insert(
                 name.to_owned(),
-                Model { parts, min: Vec3::from(file.min), max: Vec3::from(file.max), triangles, vertices: cpu_v, tris: cpu_t, no_decal, skeleton: file.skeleton.clone() },
+                Model { parts, min: Vec3::from(file.min), max: Vec3::from(file.max), triangles, vertices: cpu_v, tris: cpu_t, no_decal, skeleton: file.skeleton.clone(), binds },
             );
         }
         self.models.get(name)

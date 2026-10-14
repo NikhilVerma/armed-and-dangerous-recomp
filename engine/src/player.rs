@@ -525,7 +525,7 @@ fn control(
     mut physics: NonSendMut<Physics>,
     mut q: Query<(&mut Roman, &mut Transform, &mut Health)>,
     mut stats: ResMut<PlayerStats>,
-    ctl: Res<crate::input::Controls>,
+    (ctl, mounted): (Res<crate::input::Controls>, Res<crate::turret::Mounted>),
     mut fx: MessageWriter<crate::fx::StartFx>,
 ) {
     let dt = time.delta_secs();
@@ -534,6 +534,10 @@ fn control(
         stats.max_health = r.max_health;
         if h.0 <= 0.0 {
             r.dead = true;
+        }
+        // on a mounted gun the player update takes no input (PlayerCanAct: Game+0xac8 set); turret.rs holds him
+        if mounted.0.is_some() {
+            continue;
         }
         // mouse look as the original's: measured with scripted mouse counts (hook MOUSEX / MOUSEY, camera dumps):
         // 0.0100 rad of turn and 0.0057 rad of pitch per count at the default sensitivity, linear; the multiplier is
@@ -915,7 +919,7 @@ fn weapons(
     mut fx: MessageWriter<crate::fx::StartFx>,
     mut rng: ResMut<crate::fx::FxStats>,
     mut topsy: ResMut<crate::topsy::Topsy>,
-    (mut sticky, cam, joints, xhair): (ResMut<crate::sticky::StickyThrow>, Query<&GlobalTransform, With<FollowCam>>, Query<&GlobalTransform, Without<FollowCam>>, Res<crate::hud::Crosshair>),
+    (mut sticky, cam, joints, xhair, mounted): (ResMut<crate::sticky::StickyThrow>, Query<&GlobalTransform, With<FollowCam>>, Query<&GlobalTransform, Without<FollowCam>>, Res<crate::hud::Crosshair>, Res<crate::turret::Mounted>),
 ) {
     let dt = time.delta_secs();
     // the aim point (Game+0xa6c): where the crosshair's ray from the camera meets the world, else far along it; the
@@ -944,6 +948,14 @@ fn weapons(
     }));
     for (e, mut r, t, ra) in &mut q {
         if r.dead {
+            continue;
+        }
+        // on a mounted gun Roman's weapons are put away (0x00498a80: 0x004a0e00(0)); a machine gun loop stops
+        if mounted.0.is_some() {
+            if r.mg_firing {
+                r.mg_firing = false;
+                stop.write(crate::audio::StopSound("wpn_rome_machgun_fire_lp".into()));
+            }
             continue;
         }
         r.since_fire += dt;
@@ -1192,7 +1204,7 @@ fn projectiles(
     mut stats: ResMut<PlayerStats>,
     mut fx: MessageWriter<crate::fx::StartFx>,
     hulls: Option<Res<crate::hitparts::HitHulls>>,
-    (rtime, topsy): (Res<Time<Real>>, Res<crate::topsy::Topsy>),
+    (rtime, topsy, mounted): (Res<Time<Real>>, Res<crate::topsy::Topsy>, Res<crate::turret::Mounted>),
     binds: Res<Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>,
     mut victims: Query<&mut crate::ai::Grunt>,
 ) {
@@ -1304,7 +1316,8 @@ fn projectiles(
             }
             // ignored during the topsy states (0x0047afa0: +0xa34 & 0x7800000); the bullet still lands
             if let Some(mut h) = roman_health.single_mut().ok().filter(|_| !topsy.active()) {
-                h.0 -= p.damage;
+                // halved while on a mounted gun (0x0047afa0: Game+0xac8 set -> damage * 0.5, 0x005bcb4c)
+                h.0 -= if mounted.0.is_some() { p.damage * 0.5 } else { p.damage };
                 if let Ok((_, mut r, _, _)) = roman.single_mut() {
                     r.hit_from = Some(p.vel.normalize_or(Vec3::Z));
                 }
@@ -1432,9 +1445,10 @@ pub fn follow_camera(
     placed: Query<(Entity, &crate::level::Placed)>,
     mut fade: ResMut<crate::camfade::CameraFade>,
     mut proj: Query<&mut Projection, With<FollowCam>>,
-    mut base_fov: Local<Option<f32>>,
+    (mut base_fov, mounted): (Local<Option<f32>>, Res<crate::turret::Mounted>),
 ) {
-    if path.holds_camera() {
+    // on a mounted gun the camera is the gun's camera node (turret.rs)
+    if path.holds_camera() || mounted.0.is_some() {
         return;
     }
     let (Ok((roman_entity, r, rt)), Ok(mut c)) = (roman.single(), cam.single_mut()) else { return };

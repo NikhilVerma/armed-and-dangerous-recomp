@@ -63,8 +63,11 @@ engine/target-agent2/
 engine/target-agent3/
 engine/target-agent4/
 engine/target-wt-team/
+engine/target-wt-mgun/
 engine/target-wt-audio/
 engine/logs/
 engine/target-wt-cross/
 engine/target-wt-barracks/
 engine/target-wt-decals/
+engine/target-wt-pump/
+engine/target-wt-oilpump/

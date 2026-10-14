@@ -119,7 +119,7 @@ fn apply(
     mut windows: Query<&mut Window>,
     mut seen_cams: Local<usize>,
     game_lights: Option<Res<crate::gamematerial::GameLights>>,
-    (scripted, mut state): (Option<Res<crate::playtest::Playtest>>, Option<ResMut<crate::playtest::PlayState>>),
+    (windowed, mut state): (Option<Res<Windowed>>, Option<ResMut<crate::playtest::PlayState>>),
 ) {
     // a camera spawned after the last change (level start) gets the options too
     let n = cams.iter().count();
@@ -152,8 +152,8 @@ fn apply(
             commands.entity(e).insert(Projection::Perspective(pp));
         }
     }
-    // scripted (headless) runs stay windowed off-screen; the option is still logged so a script can check it
-    let full = o.fullscreen && scripted.is_none();
+    // tool runs stay windowed (main.rs inserts Windowed); the option is still logged so a script can check it
+    let full = o.fullscreen && windowed.is_none();
     for mut w in &mut windows {
         let mode = if full { bevy::window::WindowMode::BorderlessFullscreen(bevy::window::MonitorSelection::Current) } else { bevy::window::WindowMode::Windowed };
         if w.mode != mode {
@@ -168,6 +168,10 @@ fn apply(
         }
     }
 }
+
+/// A tool run (--background, --size, --snap, --bench, --camera, --play): never fullscreen.
+#[derive(Resource)]
+pub struct Windowed;
 
 /// F11 or Alt+Enter: fullscreen on / off, saved at once.
 fn toggle_fullscreen(keys: Res<ButtonInput<KeyCode>>, mut o: ResMut<GameOptions>) {
