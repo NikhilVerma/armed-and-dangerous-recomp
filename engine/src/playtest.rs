@@ -68,6 +68,10 @@ pub struct Event {
     /// debug: spawn a grunt_regular at this game-space point (as a barracks does)
     #[serde(default)]
     pub spawn: Option<[f32; 3]>,
+    /// debug: the live grunt nearest Roman runs the hiding-spot search now (as at a reload's end; ai.rs
+    /// find_hiding_spot), so a trench's use can be checked without waiting for its rolls
+    #[serde(default)]
+    pub cover: Option<bool>,
     /// debug: put Roman's feet at this game-space point facing this yaw (degrees, game space: 0 = +y), to look at
     /// one spot without walking there
     #[serde(default)]
@@ -534,6 +538,12 @@ fn drive(
         }
         if let Some(w) = e.warp {
             pt.warp = Some(w);
+        }
+        if let (Some(true), Ok(p)) = (e.cover, player.single()) {
+            let me = p.translation();
+            if let Some((mut g, _, _)) = grunts.iter_mut().filter(|(g, _, _)| g.mind != crate::ai::Mind::Dead).min_by(|a, b| a.2.translation().distance(me).total_cmp(&b.2.translation().distance(me))) {
+                g.force_hide = true;
+            }
         }
         if let Some(g) = e.spawn {
             spawn.write(crate::level::SpawnGrunt { at: Vec3::new(g[0], g[2], -g[1]), template: "grunt_regular".into(), ..default() });

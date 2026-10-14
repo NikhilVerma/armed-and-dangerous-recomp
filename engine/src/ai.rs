@@ -2,8 +2,10 @@
 //! docs/subsystems/grunt-ai.md sections 3-5 and 11), on the game's own per-instance parameters. Reduced to the
 //! states lev_1_m1 uses: idle/roaming (1), guard (0x79), wait for trigger (0x8c), chase (0x3c), firing (0xa) with the
 //! fire cycle (clips x bursts x rounds, 180-degree cone + line of sight, aim error 0x004284e0), reload (0x32),
-//! flee from a stuck sticky bomb (0xc8), limping, death and ragdoll. Hit-reaction states, cover/peek, taunts,
-//! barricades and the alarm controller are not ported yet (see the doc).
+//! flee from a stuck sticky bomb (0xc8), limping, death and ragdoll, and the trenches as cover (the hiding-spot search
+//! 0x0042a7b0 / 0x00429f00 and the barricade states 0xa0..0xa5: `find_hiding_spot`, `CoverPhase`). Hit-reaction
+//! states, the generic cover slots, taunts, AI gunners on the mounted gun and the alarm controller are not ported yet
+//! (see the doc).
 
 use crate::fx::{FxStats, Health};
 use crate::physics::{Body, Physics, bv, jv};
@@ -29,7 +31,59 @@ pub enum Mind {
     Flee,
     /// state 0x96: running to a marker (trigger_marker mode, alarm.rs)
     ToMarker,
+    /// states 0xa0..0xa5: going to and using a trench's slot (`Grunt::cover`, its phase)
+    Cover,
     Dead,
+}
+
+/// A trench (BarricadeObject, vtable 0x005a7068, behavior "barracade" = class 141, game_03.cpp:3067; lev_1_m1's
+/// `trench` 37..41). Its type (vt+0x138 0x004563c0) is 3, so its load (ai_01.cpp:1019) gives it one ground slot with
+/// limit 1: one grunt at a time. vt+0x14c 0x0040dcb0 gives its ref_exit, vt+0x150 0x0040dd10 its ref_barracade (point
+/// = the node's translation, direction = -(its y axis)); vt+0x148 0x0040c100 (free: no occupant, count < limit),
+/// vt+0x158 0x0040c400 (occupy), vt+0x15c 0x0040c4a0 (free the slot).
+#[derive(Component)]
+pub struct Barricade {
+    /// the object's position (vt+0x54: the placement), ref_exit, ref_barracade and its facing (horizontal)
+    pub origin: Vec3,
+    pub exit: Vec3,
+    pub spot: Vec3,
+    pub dir: Vec3,
+    /// the slot's occupant (+0x4b0[0]); no code path frees it when the occupant dies (static reading: Character_Die
+    /// 0x004319e0 / 0x00427100 call neither vt+0x188 nor vt+0x18c), so a dead grunt keeps his trench
+    pub occupant: Option<Entity>,
+    /// its collision mesh: the cover's own line-of-sight test passes through it (0x00426fd0's `exclude`)
+    pub collider: Option<BodyId>,
+}
+
+/// The barricade states (GenericAI_Update 0x0043ee90, ai_06.cpp:2055-2218; anim ids by GruntObject 0x0043bd70).
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum CoverPhase {
+    /// 0xa0: running to ref_exit (the path of 0x0046f6d0)
+    ToExit,
+    /// 0xa1: from there to ref_barracade; on arrival +0x484 |= 0x20000, anim 0x66
+    ToSpot,
+    /// 0xa2: grunt_barricade_reload (0x66, 1.333 s) facing the slot's direction; at its end the fire counters are
+    /// rolled (0x00427600) and 0xa3 follows
+    Duck,
+    /// 0xa3: grunt_barricade_breathe (0x65, looped) for 1..6 s (0 when the target is outside 80 degrees of the slot's
+    /// direction); then 90 % stand up (0xa4), else peek (0xa5)
+    Breathe,
+    /// 0xa5: grunt_barricade_peek (0x67, 2.633 s, no fire notes), then back to 0xa3 (counters left) or 0xa2
+    Peek,
+    /// 0xa4: the stand set (ids 2, 3, 0, 1: grunt_stand_*, 1.967 s) turning to the target; at its end engage
+    /// (0x00427910): in range the fire state 0xa (keeping the trench), else 0xa2; no target 0xa2
+    Stand,
+}
+
+/// A grunt's trench (+0x904 with its slot +0x914 = 0, ref_barracade +0x934, the slot direction +0x908).
+#[derive(Clone, Copy, Debug)]
+pub struct Cover {
+    pub trench: Entity,
+    pub phase: CoverPhase,
+    pub timer: f32,
+    pub exit: Vec3,
+    pub spot: Vec3,
+    pub dir: Vec3,
 }
 
 #[derive(Component)]
@@ -132,6 +186,16 @@ pub struct Grunt {
     pub cartoon: bool,
     /// chance in % of a pickup on death (pickup_drop_percent, default 100)
     pub drop_percent: f32,
+    /// the trench held (+0x904) and its phase (states 0xa0..0xa5)
+    pub cover: Option<Cover>,
+    /// +0x484 0x20000: in the trench's slot (set on arrival, 0xa1; cleared on leaving, 0x004273a0 / 0x004274e0): the
+    /// target search sees all round (AI_FindTarget ai_02.cpp:771), the clip's end and a lost line of sight duck
+    /// (0xa2) instead of reloading or pursuing, and the death anim is 0x56 grunt_barricade_death (0x00427100)
+    pub at_barricade: bool,
+    /// +0x918 / +0x91c / +0x920: the covers left last (0x004273a0); the search skips the first two
+    pub cover_history: [Option<Entity>; 3],
+    /// debug (playtest `cover` step): run the hiding-spot search now, as at a reload's end (flag 4 set)
+    pub force_hide: bool,
 }
 
 /// What the AI hunts: Roman.
@@ -145,7 +209,7 @@ pub struct AiStats {
     pub dead: usize,
     pub shots: usize,
     pub enabled: bool,
-    pub states: [usize; 9],
+    pub states: [usize; 10],
     /// grunts holding a target: the player, a companion (playtest log, for comparisons with the hook's AI dump)
     pub targets: [usize; 2],
 }
@@ -211,8 +275,23 @@ impl Plugin for AiPlugin {
             .init_resource::<KillMeter>()
             .init_resource::<Barks>()
             .add_message::<StickyStuck>()
-            .add_systems(Update, (search, scare, think, die, dismay).chain().after(crate::fx::FxSet));
+            .add_systems(Update, (search, scare, think, die, dismay, log_cover).chain().after(crate::fx::FxSet));
     }
+}
+
+/// The playtest state's `cover`: trenches held, grunts in a slot, the first held cover's phase, deaths in a trench.
+fn log_cover(grunts: Query<&Grunt>, trenches: Query<(&Barricade, &crate::level::InstanceId)>, state: Option<ResMut<crate::playtest::PlayState>>) {
+    let Some(mut state) = state else { return };
+    let held = trenches.iter().filter(|(b, _)| b.occupant.is_some()).count();
+    // each trench by instance id: held or not ("cover.slots.37")
+    let slots: serde_json::Map<String, serde_json::Value> = trenches.iter().map(|(b, i)| (i.0.to_string(), b.occupant.is_some().into())).collect();
+    let live = grunts.iter().filter(|g| g.mind != Mind::Dead);
+    let in_slot = live.clone().filter(|g| g.at_barricade).count();
+    let going = live.clone().filter(|g| g.cover.is_some() && !g.at_barricade).count();
+    let phase = live.clone().find_map(|g| g.cover.map(|c| format!("{:?}", c.phase))).unwrap_or_default();
+    let firing = live.filter(|g| g.at_barricade && g.mind == Mind::Fire).count();
+    let deaths = grunts.iter().filter(|g| g.mind == Mind::Dead && g.death_name == Some("grunt_barricade_death")).count();
+    state.0.insert("cover".into(), serde_json::json!({"held": held, "in_slot": in_slot, "going": going, "phase": phase, "firing": firing, "deaths": deaths, "slots": slots}));
 }
 
 /// Capsule of a character with the game's `collision_radius`, as tall as a grunt (9.8 units).
@@ -313,6 +392,10 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         window: mode.contains("window") || mode.contains("tower"),
         cartoon: false,
         drop_percent: p.f("pickup_drop_percent", 100.0),
+        cover: None,
+        at_barricade: false,
+        cover_history: [None; 3],
+        force_hide: false,
     }
 }
 
@@ -452,7 +535,8 @@ fn search(
                 best = Some((d2, ce, true));
                 break;
             }
-            let cone = to.normalize_or_zero().dot(fwd) >= 95f32.to_radians().cos() || d2 < g.hear_distance;
+            // at a barricade (+0x484 0x20000) the cone test is skipped (ai_02.cpp:771)
+            let cone = to.normalize_or_zero().dot(fwd) >= 95f32.to_radians().cos() || d2 < g.hear_distance || g.at_barricade;
             if cone && sight_ray(&physics, own_hit, chit, &[gbody.id]) {
                 best = Some((d2, ce, false));
             }
@@ -546,6 +630,140 @@ fn scare(
     }
 }
 
+/// 0x0042b860: `point` lies within `angle` degrees of `facing` seen from `from` (2D; both directions normalised, a
+/// zero vector giving 90 degrees).
+pub fn within_arc(point: Vec3, from: Vec3, facing: Vec3, angle: f32) -> bool {
+    let a = (point - from).with_y(0.0).normalize_or_zero();
+    let f = facing.with_y(0.0).normalize_or_zero();
+    a.dot(f).clamp(-1.0, 1.0).acos().to_degrees() < angle
+}
+
+/// A trench as the frame's searches see it (occupancy written back after the grunts' loop).
+struct TrenchView {
+    e: Entity,
+    origin: Vec3,
+    exit: Vec3,
+    spot: Vec3,
+    dir: Vec3,
+    occupant: Option<Entity>,
+    collider: Option<BodyId>,
+}
+
+/// The barricade candidate of the hiding-spot search, 0x00429f00 (needs vt+0x1f4: true for grunts, 0x00433fa0): the
+/// trench (vt+0x138 == 3) nearest the grunt (2D, from its origin) whose slot 0 is free (vt+0x148), that is not one of
+/// the last two left (+0x918 / +0x91c), within scan_distance (+0x5dc) of the grunt; with a target also within the
+/// engagement range (+0x5d8) of the target, the target within 80 degrees of ref_barracade's direction seen from
+/// ref_barracade (0x0042b860), and a clear line from ref_barracade + 5 (and + 5 again in 0x00426fd0) to the target's
+/// ref_hit_00, the trench itself passed through. No target with need_target (every caller here): none.
+fn pick_trench(g: &Grunt, me: Entity, pos: Vec3, target: Option<(Vec3, Vec3)>, trenches: &[TrenchView], physics: &Physics, own: BodyId) -> Option<usize> {
+    let (tpos, thit) = target?;
+    let mut best: Option<(usize, f32)> = None;
+    for (i, t) in trenches.iter().enumerate() {
+        if t.occupant.is_some_and(|o| o != me) || g.cover_history[..2].contains(&Some(t.e)) {
+            continue;
+        }
+        let d = (t.origin - pos).with_y(0.0).length_squared();
+        if d > g.scan_distance * g.scan_distance || best.is_some_and(|b| !(b.1 > d)) {
+            continue;
+        }
+        if (t.origin - tpos).with_y(0.0).length_squared() > g.range * g.range {
+            continue;
+        }
+        if !within_arc(tpos, t.spot, t.dir, 80.0) {
+            continue;
+        }
+        let skip: Vec<BodyId> = t.collider.into_iter().chain([own]).collect();
+        if !sight_ray(physics, t.spot + Vec3::Y * 5.0, thit, &skip) {
+            continue;
+        }
+        best = Some((i, d));
+    }
+    best.map(|b| b.0)
+}
+
+/// What the hiding-spot search chose.
+enum Hide {
+    /// a trench taken (state 0xa0 next)
+    Cover,
+    /// the reload in place (anims 0x2a/0x2b/0x28/0x29, state 0x32)
+    Reload,
+    /// pursue (vt+0x184 0x004295d0)
+    Pursue,
+}
+
+/// Leaves a held trench: vt+0x188 0x004273a0 (history: +0x918 = the trench, the older two cleared, as without flag
+/// 0x10, which only the generic cover slots set) or vt+0x18c 0x004274e0 (history cleared); the slot is freed (vt+0x15c)
+/// and +0x484 0x20000 cleared.
+fn leave_cover(g: &mut Grunt, me: Entity, trenches: &mut [TrenchView], history: bool) {
+    if let Some(c) = g.cover.take() {
+        if let Some(t) = trenches.iter_mut().find(|t| t.e == c.trench && t.occupant == Some(me)) {
+            t.occupant = None;
+        }
+        g.cover_history = if history { [Some(c.trench), None, None] } else { [None; 3] };
+    } else if !history {
+        g.cover_history = [None; 3];
+    }
+    g.at_barricade = false;
+}
+
+/// GenericAI_FindHidingSpot 0x0042a7b0 (vt+0x240) as lev_1_m1's grunts reach it, with need_target (a0 = 1: at the clip's
+/// end through 0x0042b8e0, and at a reload's end, state 0x32):
+/// - a clip's end (+0x484 flag 4 clear) with a target: 90 % (0x2d0000) the reload in place, the search skipped
+///   (0x004531e0(target), true for an airborne target, taken false: guess);
+/// - pickup_grab_pct (+0x86c, default 1) % 0x0042a500, a grab of a pickup: not ported;
+/// - a held cover is left (vt+0x188); no target: nothing found;
+/// - the candidates: the nearest free mounted gun (0x0042a100: not ported here, see docs/subsystems/turret.md) and the
+///   nearest trench (0x00429f00, `pick_trench`); a trench nearer than the gun wins; then the generic cover slots of the
+///   list World+0xed4 (kinds 1 ground / 6 enter of objects other than type 3), which lev_1_m1 has none of (its
+///   barracks have only ref_exit / ref_spawn nodes; the trenches are type 3, skipped there);
+/// - a trench: the path to its ref_exit must exist (0x0046f6d0 == 1: a straight line or a nav route here), then the slot
+///   is taken (vt+0x158) and state 0xa0 starts;
+/// - nothing: flag 4 set -> pursue (vt+0x184), else the reload in place (state 0x32).
+#[allow(clippy::too_many_arguments)]
+fn find_hiding_spot(g: &mut Grunt, me: Entity, flag4: bool, pos: Vec3, target: Option<(Vec3, Vec3)>, trenches: &mut [TrenchView], physics: &Physics, own: BodyId, rng: &mut FxStats) -> Hide {
+    if !flag4 && target.is_some() && rng.rand() < 0.9 {
+        return Hide::Reload;
+    }
+    leave_cover(g, me, trenches, true);
+    let fail = if flag4 { Hide::Pursue } else { Hide::Reload };
+    let Some(i) = pick_trench(g, me, pos, target, trenches, physics, own) else { return fail };
+    let exit = trenches[i].exit;
+    if !line_of_sight(physics, pos, exit) && crate::nav::path(physics, pos, exit, &[]).is_none() {
+        return fail;
+    }
+    trenches[i].occupant = Some(me);
+    let t = &trenches[i];
+    g.cover = Some(Cover { trench: t.e, phase: CoverPhase::ToExit, timer: 0.0, exit: t.exit, spot: t.spot, dir: t.dir });
+    g.route.clear();
+    Hide::Cover
+}
+
+/// The barricade anims' lengths (lev_1_m1_big03_anim): grunt_barricade_reload, _peek, the stand set.
+const DUCK_TIME: f32 = 1.333;
+const PEEK_TIME: f32 = 2.633;
+const STAND_TIME: f32 = 1.967;
+
+/// Duck at the trench: anim 0x66 and state 0xa2 (0x00427910 out of range, 0x00428980 line of sight lost, 0x0042b8e0
+/// target within the slot's 80 degrees).
+fn duck(g: &mut Grunt) {
+    if let Some(c) = g.cover.as_mut() {
+        c.phase = CoverPhase::Duck;
+        c.timer = DUCK_TIME;
+        g.mind = Mind::Cover;
+        g.turn = None;
+    }
+}
+
+/// What ended the fire cycle's frame.
+#[derive(PartialEq)]
+enum FireEnd {
+    None,
+    /// the last burst of the clip (0x00428980 -> 0x0042b8e0)
+    Clip,
+    /// no line of sight to the target (los_lost)
+    Sight,
+}
+
 #[allow(clippy::too_many_arguments)]
 fn think(
     mut commands: Commands,
@@ -560,13 +778,17 @@ fn think(
     mut fx: MessageWriter<crate::fx::StartFx>,
     rtime: Res<Time<Real>>,
     mut barks: ResMut<Barks>,
-    (markers, mut arrive): (Res<crate::alarm::Markers>, MessageWriter<crate::alarm::MarkerArrival>),
+    (markers, mut arrive, mut trenches): (Res<crate::alarm::Markers>, MessageWriter<crate::alarm::MarkerArrival>, Query<(Entity, &mut Barricade)>),
 ) {
     let t0 = Instant::now();
     let dt = time.delta_secs();
     let k = physics.meters_per_unit;
     let (mut alive, mut dead) = (0, 0);
-    let mut states = [0usize; 9];
+    let mut states = [0usize; 10];
+    let mut views: Vec<TrenchView> = trenches
+        .iter()
+        .map(|(e, b)| TrenchView { e, origin: b.origin, exit: b.exit, spot: b.spot, dir: b.dir, occupant: b.occupant, collider: b.collider })
+        .collect();
     for (ge, mut g, body, mut tr, h, ga) in &mut grunts {
         g.me = Some(ge);
         if g.mind == Mind::Dead {
@@ -575,6 +797,10 @@ fn think(
         }
         alive += 1;
         states[g.mind as usize] += 1;
+        // a trench held by a grunt another system took elsewhere (a scare, a throw): let it go (guess: as vt+0x18c)
+        if g.cover.is_some() && !matches!(g.mind, Mind::Cover | Mind::Fire | Mind::Reload) {
+            leave_cover(&mut g, ge, &mut views, false);
+        }
         // hurt: bark at most every 4 s (0x004394c0); a hurt grunt waiting for a trigger activates (ai_04.cpp:420)
         g.hurt_voice_timer -= dt;
         if h.0 < g.last_health && h.0 > 0.0 {
@@ -614,6 +840,17 @@ fn think(
             if g.mind == Mind::WaitTrigger {
                 g.mind = Mind::Roam;
             }
+            // a hit reaction lets a trench go unless the grunt is in its slot (0x00430340's stopMove: vt+0x18c without
+            // +0x484 0x20000); in the slot the reaction's end ducks again (state 0x132 -> anim 0x66, 0xa2). Let go:
+            // pursue (guess: the reaction's end with flag 4 set, vt+0x184)
+            if g.cover.is_some() {
+                if g.at_barricade {
+                    duck(&mut g);
+                } else {
+                    leave_cover(&mut g, ge, &mut views, false);
+                    g.mind = Mind::Chase;
+                }
+            }
             // retaliation: the end of GenericAIObject_Slot52 0x00430340 offers the damage source (when it is one of
             // the grunt's enemies, list +0x604: Roman or a companion) as a target, GenericAI_OfferTarget 0x0042c820:
             // ignored while a target adopted this way is less than 10 s old (K 0x005bcb68 against +0x514); taken when
@@ -622,7 +859,8 @@ fn think(
                 let now = time.elapsed_secs();
                 let ap = targets.get(a).ok().map(|t| t.translation());
                 let cur = g.target.and_then(|e| targets.get(e).ok()).map(|t| t.translation());
-                let recent = g.target.is_some() && now - g.offer_t < 10.0;
+                // (ignored too on the way to a cover: +0x904 held without +0x484 0x20000, 0x0042c820)
+                let recent = (g.target.is_some() && now - g.offer_t < 10.0) || (g.cover.is_some() && !g.at_barricade);
                 if let (Some(ap), false) = (ap, recent) {
                     let me = tr.translation;
                     if cur.is_none_or(|c| (ap - me).length_squared() <= (c - me).length_squared()) {
@@ -707,6 +945,26 @@ fn think(
                 g.mind = Mind::ToMarker;
             }
         }
+        // the target's ref_hit_00 (0x00428280) and the grunt's own: the sight rays' ends
+        let target_hit = target.map(|p| {
+            g.target
+                .and_then(|e| anims.get(e).ok())
+                .and_then(|a| a.skeleton.index.get("ref_hit_00").and_then(|&i| targets.get(a.joints[i]).ok()))
+                .map(|j| j.translation())
+                .unwrap_or(p + Vec3::Y * 7.0)
+        });
+        let own_hit = ga.and_then(|a| a.skeleton.index.get("ref_hit_00").and_then(|&i| targets.get(a.joints[i]).ok())).map(|j| j.translation()).unwrap_or(pos + Vec3::Y * 6.0);
+        let tgt = target.zip(target_hit);
+        // debug: the search as at a reload's end (playtest `cover` step)
+        if g.force_hide {
+            g.force_hide = false;
+            g.mind = match find_hiding_spot(&mut g, ge, true, pos, tgt, &mut views, &physics, body.id, &mut rng) {
+                Hide::Cover => Mind::Cover,
+                Hide::Pursue => Mind::Chase,
+                Hide::Reload => Mind::Reload,
+            };
+            info!("EVENT ai: cover search -> {:?}", g.mind);
+        }
         g.mind = match (g.mind, target) {
             (Mind::ToMarker, _) => Mind::ToMarker,
             (Mind::Flee, _) if g.timer > 0.0 => Mind::Flee,
@@ -714,7 +972,41 @@ fn think(
                 g.target = g.target.or(None);
                 Mind::Chase
             }
+            // the trench's states run their own course (below)
+            (Mind::Cover, _) if g.cover.is_some() => Mind::Cover,
+            // in the slot the fire state 0xa keeps firing while the target is held (its exits: the clip's end, a lost
+            // line of sight); no target: duck (guess: 0x0042bc60's path is not traced for a barricade grunt)
+            (Mind::Fire, Some(_)) if g.at_barricade => Mind::Fire,
+            (Mind::Fire, None) if g.at_barricade => {
+                duck(&mut g);
+                Mind::Cover
+            }
             (Mind::Reload, _) if g.pause > 0.0 => Mind::Reload,
+            // the reload's end (state 0x32, ai_06.cpp:1223): in the slot engage (0x00427910: in range fire, else duck);
+            // otherwise in range (2D, +0x5d8) with a line of sight fire again (vt+0x230), else leave any cover and 50 %
+            // search for a hiding spot (vt+0x240(1, 0, 0) with flag 4 set: nothing found -> pursue), 50 % pursue
+            (Mind::Reload, Some(_)) if g.at_barricade => {
+                if in_range {
+                    Mind::Fire
+                } else {
+                    duck(&mut g);
+                    Mind::Cover
+                }
+            }
+            (Mind::Reload, Some(_)) if !g.guard => {
+                let (_, thit) = tgt.unwrap_or((pos, pos));
+                if in_range && sight_ray(&physics, own_hit, thit, &[body.id]) {
+                    Mind::Fire
+                } else if rng.rand() < 0.5 {
+                    match find_hiding_spot(&mut g, ge, true, pos, tgt, &mut views, &physics, body.id, &mut rng) {
+                        Hide::Cover => Mind::Cover,
+                        _ => Mind::Chase,
+                    }
+                } else {
+                    leave_cover(&mut g, ge, &mut views, true);
+                    Mind::Chase
+                }
+            }
             (Mind::WaitTrigger, None) => Mind::WaitTrigger,
             (_, Some(_)) if in_range || g.guard => Mind::Fire,
             (_, Some(_)) => Mind::Chase,
@@ -788,14 +1080,116 @@ fn think(
                         });
                     }
                     let before = stats.shots;
+                    let mut end = FireEnd::None;
                     if g.turn.is_none() {
                         // the weapon in its right hand (ref_rhand, grunt init 0x00434fb0): where the shot leaves
                         let hand = ga.and_then(|a| a.skeleton.index.get("ref_rhand").and_then(|&i| targets.get(a.joints[i]).ok())).map(|j| j.translation());
-                        fire_cycle(&mut commands, &mut g, &physics, &mut rng, pos, p, hit, own_hit, hand, body.id, dt, &mut stats, &mut sounds, &mut fx, (&mut barks, time.elapsed_secs()));
+                        end = fire_cycle(&mut commands, &mut g, &physics, &mut rng, pos, p, hit, own_hit, hand, body.id, dt, &mut stats, &mut sounds, &mut fx, (&mut barks, time.elapsed_secs()));
                     }
                     if stats.shots > before && std::env::var("AIDBG").is_ok() {
                         info!("AIDBG gruntshot t {:.3}", rtime.elapsed_secs());
                     }
+                    match end {
+                        // in the slot a lost line of sight ducks (0x00428980: anim 0x66, state 0xa2)
+                        FireEnd::Sight if g.at_barricade => duck(&mut g),
+                        // the clip's end (0x0042b8e0): in the slot, the target within 80 degrees of its direction ->
+                        // duck, else leave it (vt+0x188) and search again (vt+0x240(1, 1, 0)); elsewhere a non-guard
+                        // searches (vt+0x240(1, 0, 0)): 90 % the reload in place first
+                        FireEnd::Clip if g.at_barricade => {
+                            let c = g.cover.expect("at a barricade without a cover");
+                            if within_arc(p, c.spot, c.dir, 80.0) {
+                                duck(&mut g);
+                            } else {
+                                leave_cover(&mut g, ge, &mut views, true);
+                                if let Hide::Cover = find_hiding_spot(&mut g, ge, false, pos, tgt, &mut views, &physics, body.id, &mut rng) {
+                                    g.mind = Mind::Cover;
+                                }
+                            }
+                        }
+                        FireEnd::Clip if !g.guard => {
+                            if let Hide::Cover = find_hiding_spot(&mut g, ge, false, pos, tgt, &mut views, &physics, body.id, &mut rng) {
+                                g.mind = Mind::Cover;
+                            }
+                        }
+                        _ => {}
+                    }
+                    if g.mind == Mind::Cover {
+                        info!("EVENT ai: grunt {ge:?} cover {:?}", g.cover.map(|c| c.phase));
+                    }
+                }
+            }
+            Mind::Cover => {
+                // the barricade states 0xa0..0xa5 (ai_06.cpp:2055-2218)
+                let mut c = g.cover.expect("cover state without a cover");
+                c.timer -= dt;
+                match c.phase {
+                    CoverPhase::ToExit => {
+                        goal = c.exit;
+                        speed = run_speed;
+                        if flat(c.exit - pos).length() < 3.0 {
+                            c.phase = CoverPhase::ToSpot;
+                        }
+                    }
+                    CoverPhase::ToSpot => {
+                        goal = c.spot;
+                        speed = run_speed;
+                        if flat(c.spot - pos).length() < 1.5 {
+                            // in the slot: +0x484 0x20000, anim 0x66, state 0xa2 (with no target one is searched for,
+                            // AI_FindTarget: the search system's next tick, all round now)
+                            g.at_barricade = true;
+                            c.phase = CoverPhase::Duck;
+                            c.timer = DUCK_TIME;
+                            info!("EVENT ai: grunt {ge:?} in trench at {:.0} {:.0}", c.spot.x, -c.spot.z);
+                        }
+                    }
+                    CoverPhase::Duck => {
+                        if c.timer <= 0.0 {
+                            // the fire counters rolled afresh (0x00427600), 1..6 s of breathing (0xa3)
+                            g.left_clips = 0;
+                            c.phase = CoverPhase::Breathe;
+                            c.timer = rng.range(1.0, 6.0);
+                        }
+                    }
+                    CoverPhase::Breathe => {
+                        // the target outside the slot's 80 degrees (or none): the timer is cut to 0
+                        if target.is_none_or(|p| !within_arc(p, c.spot, c.dir, 80.0)) {
+                            c.timer = 0.0;
+                        }
+                        if c.timer <= 0.0 {
+                            // rand(1000) >= 100: stand up (0xa4); else peek (0xa5: the fire-spray branch needs vt+0x1fc,
+                            // false for grunts 0x00435250)
+                            if rng.rand() >= 0.1 {
+                                c.phase = CoverPhase::Stand;
+                                c.timer = STAND_TIME;
+                            } else {
+                                c.phase = CoverPhase::Peek;
+                                c.timer = PEEK_TIME;
+                            }
+                        }
+                    }
+                    CoverPhase::Peek => {
+                        // its end: rounds left (+0x5bc > 0 after the fresh roll) -> breathe again
+                        if c.timer <= 0.0 {
+                            c.phase = CoverPhase::Breathe;
+                            c.timer = rng.range(1.0, 6.0);
+                        }
+                    }
+                    CoverPhase::Stand => {
+                        if c.timer <= 0.0 {
+                            // engage (0x00427910): in range the fire state 0xa, keeping the trench; else (or no
+                            // target, L_4459e4) duck
+                            if target.is_some() && in_range {
+                                g.mind = Mind::Fire;
+                                g.pause = 0.0;
+                            } else {
+                                c.phase = CoverPhase::Duck;
+                                c.timer = DUCK_TIME;
+                            }
+                        }
+                    }
+                }
+                if g.cover.is_some() {
+                    g.cover = Some(c);
                 }
             }
             Mind::Reload => g.pause -= dt,
@@ -830,8 +1224,13 @@ fn think(
             g.route.clear();
         }
         let dir = flat(goal - pos).normalize_or_zero();
-        let face = match (g.mind, target) {
-            (Mind::Fire, Some(p)) | (Mind::Chase, Some(p)) => flat(p - pos).normalize_or_zero(),
+        let face = match (g.mind, target, g.cover.map(|c| c.phase)) {
+            (Mind::Fire, Some(p), _) | (Mind::Chase, Some(p), _) => flat(p - pos).normalize_or_zero(),
+            // in the slot: its direction +0x908 (0x00454e60), standing up: the target (0x0042df70)
+            (Mind::Cover, Some(p), Some(CoverPhase::Stand)) => flat(p - pos).normalize_or_zero(),
+            (Mind::Cover, _, Some(CoverPhase::Duck | CoverPhase::Breathe | CoverPhase::Peek | CoverPhase::Stand)) => {
+                g.cover.map(|c| flat(c.dir).normalize_or_zero()).unwrap_or(dir)
+            }
             _ => dir,
         };
         if face != Vec3::ZERO {
@@ -846,6 +1245,13 @@ fn think(
             let _ = b.set_linear_velocity(jv(Vec3::new(want.x, v.y, want.z)));
             if speed > 0.0 {
                 b.activate();
+            }
+        }
+    }
+    for v in &views {
+        if let Ok((_, mut b)) = trenches.get_mut(v.e) {
+            if b.occupant != v.occupant {
+                b.occupant = v.occupant;
             }
         }
     }
@@ -873,10 +1279,10 @@ fn fire_cycle(
     sounds: &mut MessageWriter<crate::audio::PlaySound>,
     fx: &mut MessageWriter<crate::fx::StartFx>,
     (barks, now): (&mut Barks, f32),
-) {
+) -> FireEnd {
     g.pause -= dt;
     if g.pause > 0.0 {
-        return;
+        return FireEnd::None;
     }
     if g.left_clips <= 0 {
         g.left_clips = rng.range(g.clips.0 as f32, g.clips.1 as f32 + 0.999) as i64;
@@ -892,9 +1298,13 @@ fn fire_cycle(
     // fires only inside the 180-degree cone with line of sight
     let fwd = Vec3::new(g.yaw.sin(), 0.0, g.yaw.cos());
     let to = (p - pos).with_y(0.0);
-    if to.normalize_or_zero().dot(fwd) < 0.0 || !sight_ray(physics, own_hit, hit, &[own]) {
-        // no shot this frame (a guard: state 0x7a and back, the target dropped at the next search tick)
-        return;
+    if to.normalize_or_zero().dot(fwd) < 0.0 {
+        return FireEnd::None;
+    }
+    if !sight_ray(physics, own_hit, hit, &[own]) {
+        // no shot this frame (a guard: state 0x7a and back, the target dropped at the next search tick; in a trench:
+        // duck, the caller)
+        return FireEnd::Sight;
     }
     // aim error 0x004284e0: sideways L in [-angle, angle], up V in [0, height], scaled by s from the accuracy ranges
     let d = to.length();
@@ -923,7 +1333,7 @@ fn fire_cycle(
         g.left_clips = 0;
         g.mind = Mind::Reload;
         g.pause = 0.467 + if g.bow { 1.3 } else { 1.133 } + 2.0 / 60.0;
-        return;
+        return FireEnd::None;
     }
     crate::player::spawn_projectile(commands, fx, &g.bullet, muzzle + dir * 4.0, dir, false, g.me);
     if let Some(m) = g.weapon.s("muzzle_fx_name") {
@@ -948,15 +1358,18 @@ fn fire_cycle(
         if g.left_bursts <= 0 {
             // a Taunt after the last burst (ai_02.cpp:1956-1981) under taunt_delay (300..360 s, game-wide); the taunt
             // anims 0x32..0x34 and state 0x6e are not played (guess: the reload follows)
-            if barks.take(Delay::Taunt, now, rng) {
+            // (not in a trench: +0x484 0x20000, ai_02.cpp:1959)
+            if !g.at_barricade && barks.take(Delay::Taunt, now, rng) {
                 bark(sounds, "Taunt", g.voice_set, pos);
             }
             g.left_clips -= 1;
             g.mind = Mind::Reload;
             let reload = if g.bow { 1.3 } else { 1.133 };
             g.pause = 0.467 + reload + if g.guard { 2.0 / 60.0 } else { rng.range(g.clip_delay.0, g.clip_delay.1) };
+            return FireEnd::Clip;
         }
     }
+    FireEnd::None
 }
 
 /// Character_Die: Dead bark once; ragdoll (a tumbling rigid body here) when the killing hit was at least
@@ -1001,8 +1414,8 @@ fn die(
         // the death (Character_Die 0x004319e0, in its order): a window / tower grunt killed by a record with flag
         // 0x80 (the sticky bomb) is blown out of the window (anim 0x3e); a hit of at least hit_ragdoll ragdolls; a
         // ledge_death grunt falls (0x39 + rand*4: grunt_hit_fall_1 / _2 / _1 / _2); a window / tower grunt
-        // grunt_hit_window (0x3d); else grunt_die_1..6 (0x00427100). Not reached here: the 0x56 / 0x57 flag variants
-        // (barricade, in back: no lev_1_m1 grunt sets them) and record flag 2's launch.
+        // grunt_hit_window (0x3d); else 0x00427100: grunt_barricade_death (0x56) in a trench's slot, else grunt_die_1..6.
+        // Not reached here: the 0x57 flag variant (in back: no lev_1_m1 grunt sets it) and record flag 2's launch.
         let blown_out = g.window && g.cartoon;
         g.ragdoll = !blown_out && (g.last_hit >= g.hit_ragdoll || push.length() > 30.0);
         g.death_name = if blown_out {
@@ -1013,6 +1426,9 @@ fn die(
             Some(if rng.rand() < 0.5 { "grunt_hit_fall_1" } else { "grunt_hit_fall_2" })
         } else if g.window {
             Some("grunt_hit_window")
+        } else if g.at_barricade {
+            // 0x00427100: +0x484 0x20000 -> anim 0x56 (GruntObject 0x0043bd70: grunt_barricade_death)
+            Some("grunt_barricade_death")
         } else {
             None
         };
