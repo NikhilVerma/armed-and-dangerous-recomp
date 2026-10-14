@@ -577,7 +577,7 @@ impl Mission {
         }
     }
 
-    fn hint(&self, key: &str) -> String {
+    pub(crate) fn hint(&self, key: &str) -> String {
         self.hints.get(key).cloned().unwrap_or_default().replace("%s", &crate::input::key(crate::input::Act::Use))
     }
 
@@ -691,7 +691,7 @@ fn volumes(mut m: Option<ResMut<Mission>>, player: Query<&GlobalTransform, With<
 /// Ticker bomb sites (PlayerTickerBomb): in range with ticker bombs: "Hold down %s to set the ticker bomb!";
 /// held for 2 s it arms with a 6 s fuse (0x0044e4a0), then explodes and sends send_trigger_explode.
 #[allow(clippy::too_many_arguments)]
-fn sites(
+pub(crate) fn sites(
     time: Res<Time>,
     ctl: Res<crate::input::Controls>,
     bot: Res<crate::playtest::Bot>,

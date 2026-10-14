@@ -1096,7 +1096,7 @@ fn crosshair_aim(
     placed: Query<(Entity, &crate::level::Placed)>,
     joints: Query<&GlobalTransform>,
     hulls: Option<Res<crate::hitparts::HitHulls>>,
-    binds: Res<Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>,
+    (binds, mounted): (Res<Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>, Res<crate::turret::Mounted>),
 ) {
     let Ok(c) = cam.single() else { return };
     let (eye, dir) = (c.translation(), c.forward().as_vec3());
@@ -1105,6 +1105,8 @@ fn crosshair_aim(
     let gun_mg = state.weapon == "machinegun";
     let g = data.props("p_globalsettings");
     let range = g.f(if gun_mg { "machinegun_range" } else { "rifle_range" }, 10.0);
+    // on the mounted gun (Game+0xac8 = 4) the ray is 2000 long (0x00406f50)
+    let range = if mounted.0.is_some() { 2000.0 } else { range };
     let end = start + dir * range;
     let mut best: Option<(f32, AimHit)> = None;
     // the level and the objects: the physics ray, through Roman and the grunts' capsules (their parts are below)

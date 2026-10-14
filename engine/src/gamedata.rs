@@ -14,6 +14,9 @@ pub struct Template {
     pub lods: Vec<String>,
     pub property: String,
     pub collision: Option<String>,
+    /// the anim slot every object plays in a loop from load (template slot 1; tools/remaster_export.py)
+    #[serde(default)]
+    pub default_anim: Option<String>,
 }
 
 #[derive(Resource, Default)]

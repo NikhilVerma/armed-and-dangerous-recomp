@@ -230,6 +230,9 @@ fn_004ed5d0 (src/anim/anim_02.cpp), Skin_BuildPalette 0x004edbe0 (src/renderer/r
 - **Blend weights**: 4 shorts / 32767; they sum to 32765..32767 (rounding).
 - Other blend formats: UBYTE4 indices without a weight slot (3451 meshes, collision skins such as captain_coll_0:
   one rigid bone, 1756 vertices at index 0 = no bone) and SHORT2 indices with SHORT2 weights (132 UI meshes).
+  Some UBYTE4 meshes carry rigid parts on several bones (lev_1_m1 oilpump_1: first index byte 3..18, multiples of 3,
+  decoded like SHORT4 through the group palette; also guard_alarm_*, stig_mgun_*, the weapons' LODs). The remaster
+  export (rigid_vertex_bones) splits those per bone, each part with its "bone", and gives the model "skeleton".
 - Skinned position = sum_k w_k * world(node(palette[slot_k])) * inverse_bind(palette[slot_k]) * v.
 
 Remaster export (tools/remaster_export_anim.py build_skeleton and skin_vertex_weights; tools/remaster_export.py
