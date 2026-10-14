@@ -75,6 +75,7 @@ fn throw(
     physics: NonSend<Physics>,
     roman: Query<(&Transform, &crate::skin::Animator), With<crate::player::Roman>>,
     cam: Query<&GlobalTransform, With<Camera3d>>,
+    proj: Query<&Projection, With<Camera3d>>,
     grunts: Query<(Entity, &crate::ai::Grunt, &GlobalTransform, Option<&crate::skin::Animator>)>,
     joints: Query<&GlobalTransform>,
     mut fx: MessageWriter<crate::fx::StartFx>,
@@ -98,34 +99,76 @@ fn throw(
     // within range, and the line of sight hitting it first
     let eye = rt.translation + Vec3::Y * 4.0;
     let (fwd, right, up) = (c.forward().as_vec3(), c.right().as_vec3(), c.up().as_vec3());
-    let half_v = (0.654f32 * 0.5).tan();
-    let half_h = half_v * 1.702;
-    let mut cands: Vec<(f32, Entity, Vec3, Option<&crate::skin::Animator>)> = grunts
+    // the sticky target (Hud_UpdateCrosshair 0x00406f50's sticky pass, ui_01.cpp:455-505): the view volume narrowed
+    // by autoaim_sticky_factor_horz / vert in clip space from the CAMERA (0x00408390: |x_ndc| <= 0.04, |y_ndc| <= 0.12 at
+    // the current FOV; aspect 1.7204), each candidate's model bounds centre with a slack R = (half diagonal + smallest
+    // half extent) / 2 (grunt_1: centre ~4.9 up, R ~4.66); candidates the 21 nearest to the eye (Roman + 4) by their
+    // origin, dead ones counted (fn_00408190); the first out of sticky_bomb_range ends the search; the line of sight
+    // from the eye to the target's ref_hit_00 (d + 10) is blocked only by the level and props, not by other characters
+    let half_v = match proj.single() {
+        Ok(Projection::Perspective(pp)) => (pp.fov * 0.5).tan(),
+        _ => (0.654f32 * 0.5).tan(),
+    };
+    let half_h = half_v * 1.7204;
+    let cam_pos = c.translation();
+    let mut cands: Vec<(f32, Entity, bool, Vec3, Vec3, Option<&crate::skin::Animator>)> = grunts
         .iter()
-        .filter(|(_, g, _, _)| g.mind != crate::ai::Mind::Dead)
-        .map(|(e, _, t, a)| {
-            let centre = a.and_then(|a| bone(a, "ref_hit_00")).unwrap_or(t.translation() + Vec3::Y * 6.0);
-            (centre.distance(eye), e, centre, a)
+        .map(|(e, g, t, a)| {
+            let origin = t.translation();
+            let hit = a.and_then(|a| bone(a, "ref_hit_00")).unwrap_or(origin + Vec3::Y * 6.0);
+            (origin.distance(eye), e, g.mind == crate::ai::Mind::Dead, origin + Vec3::Y * 4.9, hit, a)
         })
         .collect();
     cands.sort_by(|a, b| a.0.total_cmp(&b.0));
     let mut target = None;
-    for (dist, e, centre, a) in cands.into_iter().take(21) {
-        let v = centre - eye;
+    for (_, e, dead, centre, hit, a) in cands.into_iter().take(21) {
+        if dead {
+            continue;
+        }
+        // the view volume's side planes from the camera, the slack in world units (normalised planes)
+        let v = centre - cam_pos;
         let z = v.dot(fwd);
-        if dist > range || z <= 0.0 {
+        let r = 4.66;
+        let (x, y) = (v.dot(right), v.dot(up));
+        if x.abs() - half_h * fh * z > r * (1.0 + (half_h * fh).powi(2)).sqrt() || y.abs() - half_v * fv * z > r * (1.0 + (half_v * fv).powi(2)).sqrt() {
             continue;
         }
-        let r = 4.0 / z;
-        if (v.dot(right) / z).abs() > half_h * fh + r || (v.dot(up) / z).abs() > half_v * fv + r {
+        let to = hit - eye;
+        let dist = to.length();
+        if to.dot(fwd) < 0.0 {
             continue;
         }
-        let los = physics.raycast(eye, v / dist, dist + 10.0).is_none_or(|(b, _, _)| physics.bodies.get(&b) == Some(&e));
-        if !los {
+        if dist > range {
+            break;
+        }
+        // the ray: passes other characters, stops at the level / props; it must reach the candidate
+        let dir = to / dist.max(1e-3);
+        let (mut from, mut left, mut seen) = (eye, dist + 10.0, false);
+        while let Some((b, at, _)) = physics.raycast(from, dir, left) {
+            let owner = physics.bodies.get(&b).copied();
+            if owner == Some(e) {
+                seen = true;
+                break;
+            }
+            if owner.is_some_and(|o| grunts.get(o).is_ok()) {
+                let step = at.distance(from) + 0.05;
+                from = at + dir * 0.05;
+                left -= step;
+                if left <= 0.0 {
+                    break;
+                }
+                continue;
+            }
+            break;
+        }
+        if !seen {
             continue;
         }
-        target = Some((e, centre, a));
+        target = Some((e, hit, a));
         break;
+    }
+    if std::env::var("AIDBG").is_ok() {
+        info!("AIDBG sticky target {:?}", target.map(|t| t.0));
     }
     let from = bone(ra, "l_hand").unwrap_or(rt.translation + Vec3::Y * 8.0);
     let (point, homing) = match target {
@@ -327,6 +370,9 @@ fn fly(
         t.translation = if obj.is_some() { at } else { at - dir * 5.0 };
         let local = obj.and_then(|o| others.get(o).ok()).map(|o| o.affine().inverse().transform_point3(t.translation)).unwrap_or(Vec3::ZERO);
         b.stuck = Some((obj, local, p.f("linger_lifetime", 5.0)));
+        if std::env::var("AIDBG").is_ok() {
+            info!("AIDBG sticky stuck to {:?} at {:?} target {:?} flown {:.1}", obj, t.translation, b.target.map(|x| x.0), b.flown);
+        }
         let name = if obj.is_some() { p.s("fx_stuck_object") } else { p.s("fx_stuck_ground") };
         if let Some(n) = name {
             fx.write(crate::fx::StartFx { name: n.to_owned(), at: t.translation, rotation: crate::level::game_to_engine(), follow: Some(e), position_only: true });
