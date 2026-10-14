@@ -66,6 +66,8 @@ pub fn playing(state: Res<State<AppState>>) -> bool {
 struct Args {
     scene: PathBuf,
     size: (u32, u32),
+    /// --size given: the run wants that window (tools, captures), never the fullscreen option
+    size_given: bool,
     bench: Option<(f32, PathBuf)>,
     vsync: bool,
     no_ai: bool,
@@ -89,7 +91,7 @@ struct Args {
 }
 
 fn args() -> Args {
-    let mut a = Args { scene: PathBuf::from("../work/remaster/lev_1_m1"), size: (1920, 1080), bench: None, vsync: false, no_ai: false, fx_test: None, snap: None, play: None, skip_title: false, camera: None, no_hud: false, background: false, load: None, std_materials: false, debug_hide: None };
+    let mut a = Args { scene: PathBuf::from("../work/remaster/lev_1_m1"), size: (1920, 1080), bench: None, vsync: false, no_ai: false, fx_test: None, snap: None, play: None, skip_title: false, camera: None, no_hud: false, background: false, size_given: false, load: None, std_materials: false, debug_hide: None };
     let v: Vec<String> = std::env::args().collect();
     let mut bench_secs = None;
     let mut out = PathBuf::from("../work/remaster/bench/latest.json");
@@ -100,6 +102,7 @@ fn args() -> Args {
         match v[i].as_str() {
             "--scene" => a.scene = PathBuf::from(next),
             "--size" => {
+                a.size_given = true;
                 let (w, h) = next.split_once('x').expect("--size WxH");
                 a.size = (w.parse().unwrap(), h.parse().unwrap());
             }
@@ -161,6 +164,7 @@ fn main() {
     let a = args();
     let scene_dir = std::fs::canonicalize(&a.scene).unwrap_or_else(|_| panic!("scene folder {}", a.scene.display()));
     let bench = a.bench.is_some();
+    let tool_run = a.background || a.size_given || a.snap.is_some() || bench || a.camera.is_some() || a.play.is_some();
     let mut app = App::new();
     app.add_plugins(
         DefaultPlugins
@@ -234,6 +238,11 @@ fn main() {
         app.insert_resource(savegame::PendingLoad(save, 0));
         app.insert_resource(campath::CameraPath::skipping());
         app.insert_state(AppState::Playing);
+    }
+    // tool runs (off-screen, an explicit --size, snaps, benches, camera dumps, scripts) keep their window: the
+    // player's fullscreen option is for playing
+    if tool_run {
+        app.insert_resource(options::Windowed);
     }
     // background test runs are silent (playback still runs: positions advance, the audio check counts them)
     if a.background {

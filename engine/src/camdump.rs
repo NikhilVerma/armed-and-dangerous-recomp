@@ -59,14 +59,18 @@ impl Plugin for CamDumpPlugin {
 #[allow(clippy::type_complexity)]
 fn hold(
     fixed: Res<FixedCamera>,
-    mut cam: Query<(&mut Transform, &mut Projection), (With<Camera3d>, Without<crate::level::Background>)>,
-    mut sky: Query<&mut Transform, (With<crate::level::Background>, Without<Camera3d>)>,
+    mut cam: Query<(&mut Transform, &mut GlobalTransform, &mut Projection), (With<Camera3d>, Without<crate::level::Background>)>,
+    mut sky: Query<(&mut Transform, &mut GlobalTransform), (With<crate::level::Background>, Without<Camera3d>)>,
 ) {
-    for mut s in &mut sky {
+    // this runs in Last, after transform propagation, while the follow camera rewrites Transform every frame before
+    // it: the GlobalTransforms the renderer extracts are set here too, or the held view never reaches the screen
+    for (mut s, mut g) in &mut sky {
         s.translation = fixed.transform.translation;
+        *g = GlobalTransform::from(*s);
     }
-    for (mut t, mut p) in &mut cam {
+    for (mut t, mut g, mut p) in &mut cam {
         *t = fixed.transform;
+        *g = GlobalTransform::from(fixed.transform);
         if let Projection::Perspective(pp) = &mut *p {
             pp.fov = fixed.fov;
             pp.far = fixed.far;
