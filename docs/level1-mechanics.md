@@ -46,7 +46,7 @@ Update this table as items land (commit hash in the last column).
 | Topsy Turvy | game_05.cpp:1790 | P | 2 | the view follows the anims' Camera_topsy track in Roman's frame (back = world_turn reversed: guess); hits are ignored during the topsy states as in the hit handler 0x0047afa0 (+0xa34 & 0x7800000): bullets, blasts, landing and fall damage (topsyhit.json: a 120 blast during the turn does nothing, after it 120) |
 | Hit reaction, knockback | 0x0047afa0 | V | | |
 | Death presentation (ragdoll, fx_trotter_death, death lines) | vt+0xd4, player.md 6 | P | 2 | ragdoll from his pose (ragdoll.rs; Roman's head end from the neck), fx_trotter_death, death line, failed page after 5 s (dead.json) |
-| Mounted gun stig_mgun 32 | game_08.cpp turret | M | 2 | |
+| Mounted gun stig_mgun 32 | game_08.cpp turret (docs/subsystems/turret.md) | P | 2 | turret.rs: prompt, Use enters / leaves, gun camera node, aim (rates, clamps, pivot turns the mesh), 20 rounds/s to the crosshair, held muzzle fx, half damage; playmgun/turret1.json 7/7 expects. Needs the RIGID_SKINNED re-export of stig_mgun_0/_9; AI gunners not ported; not compared with the original |
 | Teammate orders (keys 1 / 3) | 0x004852b0, 0x00485120 (companions.md) | P | 2 | Defend Me / Return To Me / Defend Area / Attack, ui_teammate_* text, order lines under vo_delay (team1..5) |
 | Idle fidgets, turn-in-place, land anims | 0x00476a10 | P / M | 3 | idle fidgets trotter_idle_1..5 after 5 s (idle.json); land anims done (f34b289); turn-in-place not yet |
 | Grunt drops (type rule) | cleanup_01.cpp:96, 0x00475a90 | P | 3 | the original's weighted pick (health 0.5 / 0.25, current weapon 0.5 not the rifle, other weapon 0.25, sticky 0.25); MG ammo pickups collected |
