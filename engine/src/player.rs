@@ -836,6 +836,12 @@ fn control(
         let before = t.translation;
         let vy = r.vel.y;
         let was_jump = r.jumping;
+        // dead, the player object stays where it died (the original's capture fall2O: the position holds at the death
+        // height while the ragdoll falls; the camera looks down from there)
+        let vel = if r.dead { Vec3::ZERO } else { vel };
+        if r.dead {
+            r.vel = Vec3::ZERO;
+        }
         if let Some((feet, on)) = physics.move_walker(&r.walker, vel, dt) {
             if on && r.vel.y <= 0.0 {
                 r.vel.y = 0.0;
