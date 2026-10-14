@@ -139,7 +139,7 @@ The loadout is the rifle plus 5 sticky bombs. The machine gun is removed by the 
 
 | Weapon | Numbers | Evidence |
 | --- | --- | --- |
-| Rifle `player_rifle` (behaviour 0x2d) | recycle 0.5 s, clip 8, max ammo 62, reload 1.0 s, range 500, two-handed, muzzle fx_muzzle_flash_hawkings | p_player_rifle, p_globalsettings |
+| Rifle `player_rifle` (behaviour 0x2d) | recycle 0.5 s, clip 8, max ammo 62, reload 1.0 s (clip_reload_time; section 10), range 500, two-handed, muzzle fx_muzzle_flash_hawkings | p_player_rifle, p_globalsettings |
 | Rifle bullet `proj_rifle_bullet` | speed 300 * 3 = 900 units/s, lifetime 4 s, damage 50, head (bones head/neck) x3, impact_force 7370 | p_player_rifle_bullet; Projectile_Load 0x0047e0c0 multiplies speed by 3 (game_06.cpp:959); hit 0x0047eec0 |
 | Sticky bomb `proj_stickybomb` | 5 carried, launch angle 10 deg, ballistic arc with g = 64.348, homes, sticks, explodes after linger_lifetime 4 s: damage 200, area 100, radius 30 / 45, impact 15000, range 250 | p_player_stickybomb; game_07.cpp:892-1270 |
 | Punch (no ammo) | trotter_punch_1..3; bof_* global factors | p_globalsettings |
@@ -253,3 +253,53 @@ just fired, 2 turbo, 4 jetpack flight.
   movement_power (7 / 10) over the anim; 0 in the fall state without 0x100 (no air control while falling).
 - Landing bob (anim_01.cpp:3035-3049): sin(pi (t / 0.25) + pi), up to 1 unit, only running faster than land_speed (30).
 - Grounded grace +0x570 = 0.5 s (1531-1543): coyote time for jumps (game_06.cpp:366, 449), the ground reference.
+
+## 10. The remaster port (subsystem port, 2026-10-14)
+
+Engine files: engine/src/player.rs (movement, jump, falls, camera, weapons, projectiles, death, idle banter),
+sticky.rs, topsy.rs, charanim.rs (Roman), turret.rs (the player's side, unchanged). Every ported function is cited by
+address in the source; `python tools/port_queue.py game` lists what is left, docs/port/game.csv the functions replaced
+or not needed, each with its reason.
+
+What the original does and the remaster now does (static, from src/game/game_05..09.cpp):
+
+| Mechanic | Original | Evidence |
+| --- | --- | --- |
+| Standing jump | TurboJump sets 0x40; 0x80 (the impulse) only when trotter_jump_into ends (0.133 s), at once when the horizontal speed is above 20 | 0x0047aaf0, game_06.cpp:449-476 |
+| Jump / stop / slide fx | Fx_fs_roman_jump at take-off, FX_fs_roman_stop when the horizontal speed drops by more than 20 in a frame (grounded), FX_roman_slide (looping) while touching the ground faster than 10 with no stick input; all with the surface variant | 0x00478800, game_06.cpp:2679-2708 |
+| Reload | R (vt+0x15c can reload: spare > 0, clip below size) or the empty clip once +0xc00 (0.5 s after the last shot) has run out; the clip refills when the weapon's timer clip_reload_time (1.0 s) runs out (0x004a2220) or at reload anim frame 43, whichever first: **1.0 s** (the engine refilled at 1.43 s before) | 0x004a2360, 0x004a2220, 0x004a22e0 / 0x004a29d0, game_05.cpp:1601-1628, game_06.cpp:2874-3059 |
+| Fire gate | not reloading, clip not empty, never fired or time - last > recycle_time | 0x004a23b0, 0x004a1e40 |
+| Weapon switch | Q selects the next usable slot (clip + spare != 0) as pending (0.5 s timer); it completes at the wchange anim's frame 13 (0.4 s); while pending nothing else of the weapon code runs (no fire, reload, special); an empty weapon that cannot reload falls back to the other | 0x004a0bb0 / 0x004a0be0, 0x004a0c10 / 0x004a0c70, 0x004a1690, 0x004a16b0 |
+| Specials | blocked while reloading; Topsy Turvy not in a jump (+0xa34 & 0xc0) and with +0x580 clear; the special in hand used up switches to the other only when that one has any left | game_06.cpp:2884-2970 |
+| Machine-gun scatter | the target point moves by up to s per axis, s = min(Game+0xd68 x machinegun_spread_pct, pct) x distance x 0.01, Game+0xd68 = seconds Fire held with the machine gun (0 when released): the first shot is exact, full spread after 1 s | 0x0047f4e0, game_06.cpp:2975-3011 |
+| Shots fired (Game+0x2718) | each shot, each special use, and the sticky bomb's release once more (a sticky bomb counts two: docs/original-bugs.md) | game_06.cpp:2972, 2999; game_05.cpp:1592 |
+| Sticky bomb damage | health 1: a blast (area record) lights a fuse rand() x 2.136e-5 (0..0.7 s), a direct hit (a bullet) sets it off now; bombs are in the bullets' and the blasts' lists | 0x00481b90, 0x00481320, 0x00481520 |
+| Projectile lifetime | the property's (4 s; the engine capped it at 3) | 0x0047e4a0 |
+| Arrows (grunt bows) | flight time T = 3 sqrt(\|d\|) / (speed x 3), velocity d / T with T x 32.17 added upward: an arc landing on the aim point; a fly-by sound within 70 of Roman | 0x00482510, 0x00482620 |
+| Topsy Turvy bomb in the hand | topsy_create (0.467 s into trotter_topsy_into) creates player_topsyturvy in the hand and hides the weapons | 0x0047bbe0, 0x004a0e00 |
+| Idle banter | Q or Jonesy still for 30 s, or Roman idle for 30 s: one line of table 0x005ce350 (55 lines) | 0x0047b730 |
+
+Tests (tools/regress.py SUITE): engine/playtests/player_move (speed 40, running jump at once, standing jump after the
+wind-up, apex 14.7 at 0.42 s), player_fall (no damage from 60 units, about 170 from 100, death from 400),
+player_weapons (machine gun rate and held time, R reload 1.0 s, switch blocks fire, rifle empty-clip reload at 0.5 +
+1.0 s), player_special (sticky bomb release, two shots each, a blast sets off a second bomb before its own linger
+ends), player_topsy (refused in a jump, the bomb in the hand, weapons back after), player_banter (a line after 30 s
+idle); unit tests in player.rs (reload time, scatter, landing damage, blast fuse, arrow arc).
+
+Compared with the original: the jump apex (14.7 against the jumpA capture's 14.6 at 0.42 s), the running speed (40),
+the reload's load-sound timing (reloadO: 0.8 s after the last shot, unchanged). Not compared (no capture): the 1.0 s
+refill, the switch timing, the machine-gun scatter ramp, the sticky chain, the stop / slide fx, the idle banter; these
+follow the code only.
+
+Open questions:
+- +0x580 (the Topsy Turvy gate): written by the contact callback 0x00477c90 with the touched body's entity; whether
+  the landscape gives 0 is not settled, so the remaster does not test it.
+- The idle banter's filter callback 0x0047b520 is not recovered (not in symbols/functions.csv): the remaster plays a
+  line only when its speaker is there and leaves the base-defence lines out (guess).
+- 0x0047f4e0 sits in a PickupObject vtable by the .rdata scan; that it is the machine-gun bullet's target-point slot is
+  inferred from what it reads (machinegun_spread_pct, Game+0xd68).
+- The sticky bomb's collision radius (Object_BuildRadiusCollision from its model) is not read: 1.5 (guess).
+- When the weapons reappear after the Topsy Turvy effect is not traced (guess: when it ends).
+- Left in the queue: the pickups of game_05 (0x004725e0..0x00472aa0, 0x00475a30, 0x00475c70: the pickup agent's,
+  pickup.rs), the ticker bombs (PlayerTickerBomb 0x0044de90..0x0044e5e0: mission.rs sites, the mission agent's), the
+  penguin restart and the timer objects of game_07 (0x0048f8e0, 0x00496160..0x00496c60: not player code).

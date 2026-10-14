@@ -647,6 +647,19 @@ pub fn spawn(
                         let held = attach_weapon(commands, h, m, Transform::IDENTITY);
                         commands.entity(held).insert((HandWeapon("machinegun"), Visibility::Hidden));
                     }
+                    // the Topsy Turvy bomb in the hand during its use (0x0047bbe0; shown by player.rs hand_weapon)
+                    // (its model is skinned: drawn in its rest pose, the joint attributes dropped)
+                    if let Some(parts) = data.templates.get("player_topsyturvy").and_then(|t| t.model.clone()).and_then(|n| lib.load_model(&n, false, assets, meshes, materials)).map(|m| m.parts.clone()) {
+                        let held = commands.spawn((Transform::IDENTITY, Visibility::Hidden, HandWeapon("topsyturvy"))).id();
+                        commands.entity(h).add_child(held);
+                        for (mh, mt) in parts {
+                            if let Some(x) = meshes.get(&mh).cloned() {
+                                let x = meshes.add(x.with_removed_attribute(Mesh::ATTRIBUTE_JOINT_INDEX).with_removed_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT));
+                                let c = commands.spawn((Mesh3d(x), MeshMaterial3d(mt))).id();
+                                commands.entity(held).add_child(c);
+                            }
+                        }
+                    }
                 }
             }
             info.instances += 1;

@@ -2977,7 +2977,7 @@ fn shoot(commands: &mut Commands, fx: &mut MessageWriter<crate::fx::StartFx>, g:
         let gp = crate::level::game_to_engine().inverse() * pos;
         info!("AIDBG muzzle {:.1} {:.1} off {:.2} {:.2} {:.2}", gp.x, gp.y, o.x, o.y, o.z);
     }
-    crate::player::spawn_projectile(commands, fx, &g.bullet, muzzle + dir * 4.0, dir, false, g.me);
+    crate::player::spawn_projectile_to(commands, fx, &g.bullet, muzzle + dir * 4.0, aim, false, g.me);
     if let Some(m) = g.weapon.s("muzzle_fx_name") {
         fx.write(crate::fx::StartFx { name: m.to_owned(), at: muzzle + dir * 4.0, rotation: Transform::IDENTITY.looking_to(dir, Vec3::Y).rotation, follow: None, position_only: false });
     }

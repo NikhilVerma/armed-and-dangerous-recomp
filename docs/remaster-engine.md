@@ -231,6 +231,16 @@ dying with their house, no_collide / visible / collide_barrier, DefaultGameObjec
 `object_triggers`), impact_force's default 2010. Test: engine/playtests/objects1.json and the unit tests (regress.py
 `unit`).
 
+## Player and weapons (subsystem port, 2026-10-14)
+
+docs/subsystems/player.md section 10 has what was ported with addresses, the tests and the open questions. Replaced
+by the engine (docs/port/game.csv): the weapon-state slot lists and ammo records (Roman's `rifle` / `mg` / `special`
+fields), the PlayerWeapon objects (the hand models, `Weapon` from the property set), the Projectile object's create /
+launch / remove (spawn_projectile and a per-frame ray, no physics body), Object_Release and the spatial grid (Bevy
+despawn, Jolt's broad phase). Changed play: the reload refills at clip_reload_time (1.0 s, was 1.43), a standing jump
+takes off after trotter_jump_into (0.133 s), the machine gun's scatter grows over the first second of fire, sticky
+bombs set each other off, grunts' arrows fly an arc (spawn_projectile_to), Roman says an idle line after 30 s.
+
 ## Cheats
 
 Options > Cheats: the 12 codes of the table 0x00589090 (read from the exe: SHOOTMOR full ammo, AMBULNCE full

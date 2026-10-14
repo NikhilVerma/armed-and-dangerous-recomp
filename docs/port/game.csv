@@ -1,44 +1,134 @@
 address,name,disposition,reason
 0x0042e1c0,fn_0042e1c0,replaced,"character's deferred death / knock-down reaction (anims, ragdoll, FxBodyfall): ai.rs death paths and ragdoll.rs (grunt AI subsystem)"
 0x00434330,GoliathFireball_Load,not needed,GoliathFireball: no Goliath on lev_1_m1
+0x00434500,fn_00434500,not needed,constant-return virtual slots (true / false / 0) shared by many classes: no vtables in the engine
 0x00434510,GoliathFireball_OnHit,not needed,GoliathFireball: no Goliath on lev_1_m1
 0x00434550,GoliathFireball_GetGravityScale,not needed,GoliathFireball: no Goliath on lev_1_m1
-0x004473a0,GoliathFireball_Update,not needed,GoliathFireball: no Goliath on lev_1_m1
-0x00434500,fn_00434500,not needed,constant-return virtual slots (true / false / 0) shared by many classes: no vtables in the engine
-0x0043a8c0,fn_0043a8c0,not needed,constant-return virtual slots (true / false / 0) shared by many classes: no vtables in the engine
-0x0043ab30,fn_0043ab30,not needed,constant-return virtual slots (true / false / 0) shared by many classes: no vtables in the engine
 0x00436720,fn_00436720,not needed,ShrubPatrol class: not on lev_1_m1
 0x00436820,ICObject_Load,not needed,ICObject class (IC_* interaction grunts): no IC_ properties in lev_1_m1's export
 0x00436960,fn_00436960,not needed,ICObject class (IC_* interaction grunts): no IC_ properties in lev_1_m1's export
 0x00436980,fn_00436980,not needed,ICObject class (IC_* interaction grunts): no IC_ properties in lev_1_m1's export
 0x00437290,GenericAIObject_Construct,replaced,GenericAIObject constructor defaults: the Grunt component built by ai.rs / level.rs spawn
+0x0043a8c0,fn_0043a8c0,not needed,constant-return virtual slots (true / false / 0) shared by many classes: no vtables in the engine
 0x0043aa00,fn_0043aa00,not needed,SquadObject: not on lev_1_m1
+0x0043ab30,fn_0043ab30,not needed,constant-return virtual slots (true / false / 0) shared by many classes: no vtables in the engine
+0x004473a0,GoliathFireball_Update,not needed,GoliathFireball: no Goliath on lev_1_m1
 0x0044a4b0,fn_0044a4b0,replaced,"level start pass (object system load pass, level UI, every object's vt+0x24): level.rs scene load and main.rs setup"
 0x0044a5a0,fn_0044a5a0,replaced,"the pending level name for the loader (game vt+0x38): the remaster loads one level at start-up, no level change"
 0x0044a5c0,fn_0044a5c0,replaced,"the pending level name for the loader (game vt+0x38): the remaster loads one level at start-up, no level change"
 0x0044a5f0,fn_0044a5f0,replaced,level-state record bytes (loading / requested): main.rs AppState
 0x0044a600,fn_0044a600,replaced,level-state record bytes (loading / requested): main.rs AppState
-0x0044f4a0,fn_0044f4a0,replaced,music request record reset at Game_Init (0x0044f4c0; the objective jingle 0x0044f560): gameaudio.rs Music
+0x0044e100,fn_0044e100,replaced,"collision descriptors (slot 7: group / radius): Jolt bodies, the engine's volume and pickup radius tests"
 0x0044e630,MolmerObject_Load,replaced,Jonesy's hand set-up at load: ai.rs Companion set-up (companion subsystem)
 0x0044e740,MolmerObject_OnAnimEvent,replaced,Jonesy's anim events: make_tnt / Fire_tnt ported in ai.rs (the TNT throw) and sticky.rs (molmer_dynamite); make_bomb / plant_bomb (Jonesy planting a ticker bomb) are not reached on lev_1_m1
+0x0044f4a0,fn_0044f4a0,replaced,music request record reset at Game_Init (0x0044f4c0; the objective jingle 0x0044f560): gameaudio.rs Music
+0x004619e0,ForgeCannonProjectile_GetClass,not needed,RTTI class descriptor getters of the player / weapon / projectile classes: the engine has no class objects
+0x00461a60,GurnerProjectile_GetClass,not needed,RTTI class descriptor getters of the player / weapon / projectile classes: the engine has no class objects
+0x00461a80,GrenadeProjectile_GetClass,not needed,RTTI class descriptor getters of the player / weapon / projectile classes: the engine has no class objects
+0x00461ab0,SharkGunProjectile_GetClass,not needed,RTTI class descriptor getters of the player / weapon / projectile classes: the engine has no class objects
+0x00461ba0,RocketBudProjectile_GetClass,not needed,RTTI class descriptor getters of the player / weapon / projectile classes: the engine has no class objects
+0x00461c20,StickyBombProjectile_GetClass,not needed,RTTI class descriptor getters of the player / weapon / projectile classes: the engine has no class objects
+0x00461c90,PlayerVindaloo_GetClass,not needed,RTTI class descriptor getters of the player / weapon / projectile classes: the engine has no class objects
+0x00461ca0,MonkBasketProjectile_GetClass,not needed,RTTI class descriptor getters of the player / weapon / projectile classes: the engine has no class objects
+0x00461cd0,ArrowProjectile_GetClass,not needed,RTTI class descriptor getters of the player / weapon / projectile classes: the engine has no class objects
+0x00461d20,PlayerObject_GetClass,not needed,RTTI class descriptor getters of the player / weapon / projectile classes: the engine has no class objects
+0x00461da0,RocketTowerProjectile_GetClass,not needed,RTTI class descriptor getters of the player / weapon / projectile classes: the engine has no class objects
+0x00461de0,PlayerWeapon_GetClass,not needed,RTTI class descriptor getters of the player / weapon / projectile classes: the engine has no class objects
+0x00461e60,BlackHoleProjectile_GetClass,not needed,RTTI class descriptor getters of the player / weapon / projectile classes: the engine has no class objects
+0x00461ed0,Projectile_GetClass,not needed,RTTI class descriptor getters of the player / weapon / projectile classes: the engine has no class objects
 0x0046a5e0,fn_0046a5e0,not needed,the pub screen's 3D marker objects: pubscreen.rs / gamemenu.rs draw the pub screen in 2D
 0x0046a750,fn_0046a750,replaced,"collision descriptors (slot 7: group / radius): Jolt bodies, the engine's volume and pickup radius tests"
 0x00471c20,fn_00471c20,replaced,"collision descriptors (slot 7: group / radius): Jolt bodies, the engine's volume and pickup radius tests"
-0x00471fd0,fn_00471fd0,replaced,"collision descriptors (slot 7: group / radius): Jolt bodies, the engine's volume and pickup radius tests"
-0x0044e100,fn_0044e100,replaced,"collision descriptors (slot 7: group / radius): Jolt bodies, the engine's volume and pickup radius tests"
-0x00497080,fn_00497080,replaced,"collision descriptors (slot 7: group / radius): Jolt bodies, the engine's volume and pickup radius tests"
 0x00471c50,PickupGenerator_Remove,not needed,PickupGenerator removal: generators are never removed on lev_1_m1
+0x00471fd0,fn_00471fd0,replaced,"collision descriptors (slot 7: group / radius): Jolt bodies, the engine's volume and pickup radius tests"
 0x004722e0,fn_004722e0,replaced,"pickup placement (force-ground 5 / 20, physics on): pickup.rs ground ray and pop"
 0x004723c0,fn_004723c0,not needed,"an AI's claim on a pickup (callers 0x0042a500 / 0x00432730 / 0x0043ee90, AI side): grunt AI subsystem; no ported grunt seeks pickups (open)"
 0x004723f0,fn_004723f0,not needed,"an AI's claim on a pickup (callers 0x0042a500 / 0x00432730 / 0x0043ee90, AI side): grunt AI subsystem; no ported grunt seeks pickups (open)"
+0x00472ab0,PlayerObject_Remove,replaced,"PlayerObject_Remove (level teardown: sound handles, attachments, turbo pack, weapon state): Roman is despawned with the level"
+0x00475630,fn_00475630,not needed,PlayerObject vt+0x48 answers 1.0 (out param): the query's meaning is not traced (open question in player.md); nothing in the port asks it
+0x00477c10,fn_00477c10,not needed,empty virtual (ret 0xc only)
+0x00478890,fn_00478890,not needed,PlayerObject vt+0x8c answers 0.5: the query's meaning is not traced; not executed
+0x0047b8b0,PlayerObject_HasTurboPack,not needed,the turbo (jet) pack and its boost: lev_1_m1 has none (mission player_has_jetpack 0; Load / reset only call it with off). Later levels' mechanic
+0x0047b8c0,fn_0047b8c0,not needed,the turbo (jet) pack and its boost: lev_1_m1 has none (mission player_has_jetpack 0; Load / reset only call it with off). Later levels' mechanic
+0x0047b8e0,fn_0047b8e0,not needed,the turbo (jet) pack and its boost: lev_1_m1 has none (mission player_has_jetpack 0; Load / reset only call it with off). Later levels' mechanic
+0x0047b900,PlayerObject_SetTurboBoost,not needed,the turbo (jet) pack and its boost: lev_1_m1 has none (mission player_has_jetpack 0; Load / reset only call it with off). Later levels' mechanic
+0x0047b9f0,PlayerObject_SetTurboPack,not needed,the turbo (jet) pack and its boost: lev_1_m1 has none (mission player_has_jetpack 0; Load / reset only call it with off). Later levels' mechanic
+0x0047bba0,PlayerObject_PlayChestFx,not needed,the turbo (jet) pack and its boost: lev_1_m1 has none (mission player_has_jetpack 0; Load / reset only call it with off). Later levels' mechanic
+0x0047df70,fn_0047df70,not needed,"projectile spawn helpers used by the turrets, the vindaloo and the armed jaws: none on lev_1_m1"
+0x0047dfd0,fn_0047dfd0,not needed,"projectile spawn helpers used by the turrets, the vindaloo and the armed jaws: none on lev_1_m1"
+0x0047e050,fn_0047e050,not needed,"projectile spawn helpers used by the turrets, the vindaloo and the armed jaws: none on lev_1_m1"
+0x0047e3b0,Projectile_SetTarget,not needed,"Projectile_SetTarget (homing target of the rocket classes): no homing projectile on lev_1_m1 but the sticky bomb, whose own 0x004811e0 is ported (sticky.rs)"
+0x0047e9f0,fn_0047e9f0,not needed,sticks a projectile to a target's part (the arrows' hit): the engine's arrows have no model to leave stuck (the trail ends at the hit); sticky.rs sticks by 0x004817b0 / 0x0047e9b0
+0x0047f210,fn_0047f210,not needed,a piercing projectile class that drops health pickups by kill count (vtable 0x005a94e0): not on lev_1_m1
+0x0047f2a0,fn_0047f2a0,not needed,a piercing projectile class that drops health pickups by kill count (vtable 0x005a94e0): not on lev_1_m1
+0x0047f4d0,fn_0047f4d0,not needed,"Projectile vt+0x13c: damage flags | 0x20000 (meaning not traced); the engine's records carry only the bits it uses (0x400 buildings, 0x80 cartoon)"
+0x0047f5d0,fn_0047f5d0,not needed,the shark gun's projectile (sharkbite): not on lev_1_m1
+0x0047f600,fn_0047f600,not needed,the shark gun's projectile (sharkbite): not on lev_1_m1
+0x0047f6b0,fn_0047f6b0,not needed,the shark gun's projectile (sharkbite): not on lev_1_m1
+0x0047f6d0,fn_0047f6d0,not needed,the armed jaws weapon (wpn_armed_jaws_loop): not on lev_1_m1
+0x0047f7b0,fn_0047f7b0,not needed,the armed jaws weapon (wpn_armed_jaws_loop): not on lev_1_m1
+0x0047f7e0,fn_0047f7e0,not needed,the armed jaws weapon (wpn_armed_jaws_loop): not on lev_1_m1
+0x0047f920,fn_0047f920,not needed,the armed jaws weapon (wpn_armed_jaws_loop): not on lev_1_m1
+0x0047f980,fn_0047f980,not needed,the armed jaws weapon (wpn_armed_jaws_loop): not on lev_1_m1
+0x0047fa70,fn_0047fa70,not needed,the armed jaws weapon (wpn_armed_jaws_loop): not on lev_1_m1
+0x0047fc90,SharkGunProjectile_Update,not needed,SharkGunProjectile: not on lev_1_m1
+0x00480510,VindalooProjectile_ReadProps,not needed,VindalooProjectile: not on lev_1_m1 (no vindaloo)
+0x004805e0,VindalooProjectile_Flags,not needed,VindalooProjectile: not on lev_1_m1 (no vindaloo)
+0x004805f0,VindalooProjectile_Update,not needed,VindalooProjectile: not on lev_1_m1 (no vindaloo)
+0x00480920,RocketTowerProjectile_ReadProps,not needed,RocketTowerProjectile: p_rocket_tower_missile is in the bank but no rocket tower is placed on lev_1_m1
+0x00480a20,RocketTowerProjectile_Update,not needed,RocketTowerProjectile: p_rocket_tower_missile is in the bank but no rocket tower is placed on lev_1_m1
+0x00480d60,RocketBudProjectile_ReadProps,not needed,RocketBudProjectile: not on lev_1_m1
+0x00480db0,RocketBudProjectile_Launch,not needed,RocketBudProjectile: not on lev_1_m1
+0x00480e20,RocketBudProjectile_Update,not needed,RocketBudProjectile: not on lev_1_m1
+0x00480ec0,Projectile_Launch_00480ec0,not needed,ForgeCannonProjectile: not on lev_1_m1
+0x00480f60,ForgeCannonProjectile_Update,not needed,ForgeCannonProjectile: not on lev_1_m1
+0x00481000,ForgeCannonProjectile_Flags,not needed,ForgeCannonProjectile: not on lev_1_m1
+0x00481010,fn_00481010,not needed,flag / target slots of the Projectile vtables 0x005aec10 / 0x005ab120 (classes 3 / 13): no lev_1_m1 property set was traced to them (guess: later levels' projectiles)
+0x00481020,fn_00481020,not needed,flag / target slots of the Projectile vtables 0x005aec10 / 0x005ab120 (classes 3 / 13): no lev_1_m1 property set was traced to them (guess: later levels' projectiles)
+0x00481030,fn_00481030,not needed,flag / target slots of the Projectile vtables 0x005aec10 / 0x005ab120 (classes 3 / 13): no lev_1_m1 property set was traced to them (guess: later levels' projectiles)
+0x00481790,fn_00481790,not needed,+0x58c setter / getter for the penguin and AI callers (0x0048f690 / 0x0048f9c0 / 0x0043ee90): not the sticky bomb's own path; not executed
+0x004817a0,fn_004817a0,not needed,+0x58c setter / getter for the penguin and AI callers (0x0048f690 / 0x0048f9c0 / 0x0043ee90): not the sticky bomb's own path; not executed
+0x00481c90,fn_00481c90,not needed,Gurner / Grenade / Projectile vtables 0x005a6608 / 0x005adc78 load / update / hit: the captain's grenade (p_captain_grenade) is in the bank but no captain is placed on lev_1_m1
+0x00481ce0,fn_00481ce0,not needed,Gurner / Grenade / Projectile vtables 0x005a6608 / 0x005adc78 load / update / hit: the captain's grenade (p_captain_grenade) is in the bank but no captain is placed on lev_1_m1
+0x00481d00,fn_00481d00,not needed,Gurner / Grenade / Projectile vtables 0x005a6608 / 0x005adc78 load / update / hit: the captain's grenade (p_captain_grenade) is in the bank but no captain is placed on lev_1_m1
+0x00481d10,fn_00481d10,not needed,Gurner / Grenade / Projectile vtables 0x005a6608 / 0x005adc78 load / update / hit: the captain's grenade (p_captain_grenade) is in the bank but no captain is placed on lev_1_m1
+0x00481db0,BlackHoleProjectile_ReadProps,not needed,the black hole special and its box: not on lev_1_m1
+0x00481ef0,BlackHoleProjectile_Update,not needed,the black hole special and its box: not on lev_1_m1
+0x00482120,BlackHoleBox_ReadProps,not needed,the black hole special and its box: not on lev_1_m1
+0x004821a0,BlackHole_Remove,not needed,the black hole special and its box: not on lev_1_m1
+0x004821b0,BlackHoleBox_Launch,not needed,the black hole special and its box: not on lev_1_m1
+0x004822b0,BlackHoleBox_Update,not needed,the black hole special and its box: not on lev_1_m1
+0x00482460,ArrowProjectile_ReadProps,not needed,"ArrowProjectile load / remove / hit: the arrow lingers stuck to what it hit with its model (linger 2.5 s); the engine's projectiles have no model, so the trail ends at the hit (the launch, the fall and the fly-by sound are ported: player.rs spawn_projectile_to, 0x00482510 / 0x00482620)"
+0x004824e0,ArrowProjectile_Remove,not needed,"ArrowProjectile load / remove / hit: the arrow lingers stuck to what it hit with its model (linger 2.5 s); the engine's projectiles have no model, so the trail ends at the hit (the launch, the fall and the fly-by sound are ported: player.rs spawn_projectile_to, 0x00482510 / 0x00482620)"
+0x00482780,ArrowProjectile_Hit,not needed,"ArrowProjectile load / remove / hit: the arrow lingers stuck to what it hit with its model (linger 2.5 s); the engine's projectiles have no model, so the trail ends at the hit (the launch, the fall and the fly-by sound are ported: player.rs spawn_projectile_to, 0x00482510 / 0x00482620)"
+0x00482870,GrenadeProjectile_Launch,not needed,"GrenadeProjectile throw: the captain's grenade, no captain on lev_1_m1"
+0x004829e0,CaptainRocket_ReadProps,not needed,the captain's rocket: no captain on lev_1_m1
+0x00482ab0,CaptainRocket_SetOwner,not needed,the captain's rocket: no captain on lev_1_m1
+0x00482b40,CaptainRocket_Update,not needed,the captain's rocket: no captain on lev_1_m1
+0x00482d10,CaptainRocket_InitCollision,not needed,the captain's rocket: no captain on lev_1_m1
+0x00482d60,CaptainRocket_Damage,not needed,the captain's rocket: no captain on lev_1_m1
+0x00482e80,fn_00482e80,not needed,the captain's rocket: no captain on lev_1_m1
+0x004830e0,MonkBasketProjectile_ReadProps,not needed,the monk's basket: not on lev_1_m1
+0x00483180,MonkBasketProjectile_Launch,not needed,the monk's basket: not on lev_1_m1
+0x00483210,Projectile_Update_00483210,not needed,the monk's basket: not on lev_1_m1
+0x00487da0,Object_Release,replaced,"Object_Release and its helper (reference counting, delete): Bevy despawn"
+0x00487df0,fn_00487df0,replaced,"Object_Release and its helper (reference counting, delete): Bevy despawn"
+0x0048ece0,Grid_UpdateCell,replaced,"the spatial grid of objects (cells, nodes, update, removal): Jolt's broad phase and Bevy queries"
+0x0048ed90,Grid_Update,replaced,"the spatial grid of objects (cells, nodes, update, removal): Jolt's broad phase and Bevy queries"
+0x0048f040,Grid_RemoveObject,replaced,"the spatial grid of objects (cells, nodes, update, removal): Jolt's broad phase and Bevy queries"
+0x0048f0d0,GridNode_Alloc,replaced,"the spatial grid of objects (cells, nodes, update, removal): Jolt's broad phase and Bevy queries"
+0x004964d0,TimerObject_Command,not needed,create_platoon (an army timer's script command): no army / platoons on lev_1_m1
+0x004968b0,ArmyTimerObject_ReadProps,not needed,ArmyTimerObject (behaviour army_timer): no army on lev_1_m1; the plain timer is ported (mission.rs Timer)
+0x00496c60,ArmyTimerObject_Fire,not needed,ArmyTimerObject: no army on lev_1_m1
 0x00496da0,fn_00496da0,not needed,ArmyTimerObject update: no army on lev_1_m1
 0x00496e10,fn_00496e10,not needed,GruntLadderObject: no ladders on lev_1_m1
 0x00496e70,fn_00496e70,not needed,GruntLadderObject: no ladders on lev_1_m1
 0x00496e80,fn_00496e80,not needed,GruntLadderObject: no ladders on lev_1_m1
 0x00496e90,fn_00496e90,not needed,"tree objects (behaviour tree, vtable 0x005a2ab0; lev_1_m1's 63 pine trees run the load 0x00496e90): radius x scale, IC_tree_slide grunts (none on lev_1_m1), the AI's tree-cover slot (occupant +0x470, list +0xed4 after a 4x4 nav-grid test) and its positions; guess: no lev_1_m1 grunt uses tree cover (the ported cover is the trenches, grunt-ai.md); trees are level.rs destructibles"
+0x00497080,fn_00497080,replaced,"collision descriptors (slot 7: group / radius): Jolt bodies, the engine's volume and pickup radius tests"
 0x004970a0,fn_004970a0,not needed,"tree objects (behaviour tree, vtable 0x005a2ab0; lev_1_m1's 63 pine trees run the load 0x00496e90): radius x scale, IC_tree_slide grunts (none on lev_1_m1), the AI's tree-cover slot (occupant +0x470, list +0xed4 after a 4x4 nav-grid test) and its positions; guess: no lev_1_m1 grunt uses tree cover (the ported cover is the trenches, grunt-ai.md); trees are level.rs destructibles"
-0x00497110,fn_00497110,not needed,"tree objects (behaviour tree, vtable 0x005a2ab0; lev_1_m1's 63 pine trees run the load 0x00496e90): radius x scale, IC_tree_slide grunts (none on lev_1_m1), the AI's tree-cover slot (occupant +0x470, list +0xed4 after a 4x4 nav-grid test) and its positions; guess: no lev_1_m1 grunt uses tree cover (the ported cover is the trenches, grunt-ai.md); trees are level.rs destructibles"
 0x004970e0,fn_004970e0,not needed,"tree objects (behaviour tree, vtable 0x005a2ab0; lev_1_m1's 63 pine trees run the load 0x00496e90): radius x scale, IC_tree_slide grunts (none on lev_1_m1), the AI's tree-cover slot (occupant +0x470, list +0xed4 after a 4x4 nav-grid test) and its positions; guess: no lev_1_m1 grunt uses tree cover (the ported cover is the trenches, grunt-ai.md); trees are level.rs destructibles"
+0x00497110,fn_00497110,not needed,"tree objects (behaviour tree, vtable 0x005a2ab0; lev_1_m1's 63 pine trees run the load 0x00496e90): radius x scale, IC_tree_slide grunts (none on lev_1_m1), the AI's tree-cover slot (occupant +0x470, list +0xed4 after a 4x4 nav-grid test) and its positions; guess: no lev_1_m1 grunt uses tree cover (the ported cover is the trenches, grunt-ai.md); trees are level.rs destructibles"
 0x004971d0,fn_004971d0,not needed,"tree objects (behaviour tree, vtable 0x005a2ab0; lev_1_m1's 63 pine trees run the load 0x00496e90): radius x scale, IC_tree_slide grunts (none on lev_1_m1), the AI's tree-cover slot (occupant +0x470, list +0xed4 after a 4x4 nav-grid test) and its positions; guess: no lev_1_m1 grunt uses tree cover (the ported cover is the trenches, grunt-ai.md); trees are level.rs destructibles"
 0x004971e0,fn_004971e0,not needed,"tree objects (behaviour tree, vtable 0x005a2ab0; lev_1_m1's 63 pine trees run the load 0x00496e90): radius x scale, IC_tree_slide grunts (none on lev_1_m1), the AI's tree-cover slot (occupant +0x470, list +0xed4 after a 4x4 nav-grid test) and its positions; guess: no lev_1_m1 grunt uses tree cover (the ported cover is the trenches, grunt-ai.md); trees are level.rs destructibles"
 0x004971f0,fn_004971f0,not needed,"tree objects (behaviour tree, vtable 0x005a2ab0; lev_1_m1's 63 pine trees run the load 0x00496e90): radius x scale, IC_tree_slide grunts (none on lev_1_m1), the AI's tree-cover slot (occupant +0x470, list +0xed4 after a 4x4 nav-grid test) and its positions; guess: no lev_1_m1 grunt uses tree cover (the ported cover is the trenches, grunt-ai.md); trees are level.rs destructibles"
@@ -50,6 +140,35 @@ address,name,disposition,reason
 0x00497410,fn_00497410,not needed,"tree objects (behaviour tree, vtable 0x005a2ab0; lev_1_m1's 63 pine trees run the load 0x00496e90): radius x scale, IC_tree_slide grunts (none on lev_1_m1), the AI's tree-cover slot (occupant +0x470, list +0xed4 after a 4x4 nav-grid test) and its positions; guess: no lev_1_m1 grunt uses tree cover (the ported cover is the trenches, grunt-ai.md); trees are level.rs destructibles"
 0x00497430,fn_00497430,not needed,"tree objects (behaviour tree, vtable 0x005a2ab0; lev_1_m1's 63 pine trees run the load 0x00496e90): radius x scale, IC_tree_slide grunts (none on lev_1_m1), the AI's tree-cover slot (occupant +0x470, list +0xed4 after a 4x4 nav-grid test) and its positions; guess: no lev_1_m1 grunt uses tree cover (the ported cover is the trenches, grunt-ai.md); trees are level.rs destructibles"
 0x00497620,fn_00497620,not needed,TriggerObject's death slot (a one-shot volume killed): nothing damages volumes
-0x004964d0,TimerObject_Command,not needed,create_platoon (an army timer's script command): no army / platoons on lev_1_m1
-0x004968b0,ArmyTimerObject_ReadProps,not needed,ArmyTimerObject (behaviour army_timer): no army on lev_1_m1; the plain timer is ported (mission.rs Timer)
-0x00496c60,ArmyTimerObject_Fire,not needed,ArmyTimerObject: no army on lev_1_m1
+0x0049bf20,fn_0049bf20,not needed,BaseDefendTurret / RocketTowerTurret / RocketBudTurret virtuals: none placed on lev_1_m1
+0x0049c2a0,fn_0049c2a0,not needed,BaseDefendTurret / RocketTowerTurret / RocketBudTurret virtuals: none placed on lev_1_m1
+0x0049c320,fn_0049c320,not needed,BaseDefendTurret / RocketTowerTurret / RocketBudTurret virtuals: none placed on lev_1_m1
+0x0049c4c0,fn_0049c4c0,not needed,BaseDefendTurret / RocketTowerTurret / RocketBudTurret virtuals: none placed on lev_1_m1
+0x0049c520,fn_0049c520,not needed,BaseDefendTurret / RocketTowerTurret / RocketBudTurret virtuals: none placed on lev_1_m1
+0x0049c530,fn_0049c530,not needed,BaseDefendTurret / RocketTowerTurret / RocketBudTurret virtuals: none placed on lev_1_m1
+0x0049c540,fn_0049c540,not needed,BaseDefendTurret / RocketTowerTurret / RocketBudTurret virtuals: none placed on lev_1_m1
+0x0049c5b0,fn_0049c5b0,not needed,BaseDefendTurret / RocketTowerTurret / RocketBudTurret virtuals: none placed on lev_1_m1
+0x0049c610,fn_0049c610,not needed,BaseDefendTurret / RocketTowerTurret / RocketBudTurret virtuals: none placed on lev_1_m1
+0x0049c6a0,fn_0049c6a0,not needed,BaseDefendTurret / RocketTowerTurret / RocketBudTurret virtuals: none placed on lev_1_m1
+0x0049c9b0,fn_0049c9b0,not needed,BaseDefendTurret / RocketTowerTurret / RocketBudTurret virtuals: none placed on lev_1_m1
+0x0049ca90,fn_0049ca90,not needed,BaseDefendTurret / RocketTowerTurret / RocketBudTurret virtuals: none placed on lev_1_m1
+0x0049cab0,fn_0049cab0,not needed,BaseDefendTurret / RocketTowerTurret / RocketBudTurret virtuals: none placed on lev_1_m1
+0x0049cbe0,fn_0049cbe0,not needed,BaseDefendTurret / RocketTowerTurret / RocketBudTurret virtuals: none placed on lev_1_m1
+0x004a0690,fn_004a0690,not needed,level-name kind tests (lev_ / pre_ / post_ / lev_bonus) and the level table lookup: the engine loads lev_1_m1 by name and has no level list
+0x004a0720,fn_004a0720,not needed,level-name kind tests (lev_ / pre_ / post_ / lev_bonus) and the level table lookup: the engine loads lev_1_m1 by name and has no level list
+0x004a0da0,fn_004a0da0,not needed,"scales the weapon objects (called by 0x0042eb60, the AI's scale): the engine's weapon models follow the hand bone"
+0x004a0f70,fn_004a0f70,not needed,"replace / equip a weapon by id (called by 0x00493130, a later levels' weapon swap): not on lev_1_m1"
+0x004a10c0,fn_004a10c0,not needed,"replace / equip a weapon by id (called by 0x00493130, a later levels' weapon swap): not on lev_1_m1"
+0x004a12a0,fn_004a12a0,not needed,selects a special by id for the ammo pickups: lev_1_m1's pickups give health and tokens only (pickup.rs)
+0x004a1bb0,fn_004a1bb0,not needed,releases the current weapon's muzzle effect for the pub's 3D markers (0x004690c0): the remaster's pub screen is 2D
+0x004a1e20,fn_004a1e20,not needed,"""two_handed"" flag getter: every lev_1_m1 player weapon is two-handed; the engine's hand pose does not ask"
+0x004a1e90,fn_004a1e90,not needed,the emitter matrix getter: the shot's start is measured from ref_rhand (player.rs weapons)
+0x004a2100,fn_004a2100,not needed,"WeaponObject fire at the target list / ready: the grunts' weapons (0x004284e0), ported by the AI subsystem (ai.rs shoot)"
+0x004a2140,fn_004a2140,not needed,"WeaponObject fire at the target list / ready: the grunts' weapons (0x004284e0), ported by the AI subsystem (ai.rs shoot)"
+0x004a2480,fn_004a2480,not needed,"PlayerWeapon fire along the camera ray (vtable 0x005ac210, the sniper rifle): not on lev_1_m1"
+0x004a24d0,fn_004a24d0,not needed,PlayerVindaloo load / fan of rockets: not on lev_1_m1
+0x004a2550,fn_004a2550,not needed,PlayerVindaloo load / fan of rockets: not on lev_1_m1
+0x004a2910,fn_004a2910,not needed,the shark gun (PlayerWeapon vtable 0x005a4858): not on lev_1_m1
+0x004a2950,fn_004a2950,not needed,the shark gun (PlayerWeapon vtable 0x005a4858): not on lev_1_m1
+0x004a2a40,fn_004a2a40,not needed,auto-aim (PlayerWeapon vt+0x16c: Game+0x4c2 unless zoomed or difficulty > 1): the auto-aim option is not ported (hud.md: shown disabled)
+0x004a2a70,fn_004a2a70,not needed,"PlayerWeapon fire along the camera ray (vtable 0x005ac210, the sniper rifle): not on lev_1_m1"

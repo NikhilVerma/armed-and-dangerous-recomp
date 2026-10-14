@@ -135,6 +135,8 @@ Defects found in the original game. Reproduced faithfully and not fixed before M
 | send_trigger_non_enabled is not a one-shot: a player holding ticker bombs at a disabled site re-sends it every 6th frame, and a ui_ear on that trigger queues its paused message again and again (lev_1_m1: trigger 7 -> ui_ear 253; practically unreachable, the pub's exit enables site 252) | 0x00467450 -> 0x0044e0e0, 0x0046afa0 | Static reading | Faithful (engine/src/mission.rs `sites`) |
 | MissionObject_Update's nearest-object scan (every vo_delay) computes a result and drops it | 0x0044db80 | Static reading | Not ported (no effect) |
 | The success trigger (+0x46c) does not set the finished flag Game+0xdd2 (only pre-success does): a failure trigger after the win would still change the level state | 0x0044d600 | Static reading | **Deviation:** the remaster ignores failures once the outcome is decided (no lev_1_m1 failure triggers) |
+| A sticky bomb counts two shots fired: the use adds 1 to Game+0x2718 (0x004788a0 mode_end -> count) and the throw anim's note that releases it adds another (0x00475ff0 state 5, game_05.cpp:1592) | 0x004788a0, 0x00475ff0 | Static (src) | Faithful (engine/src/player.rs, sticky.rs) |
+| The stop fx compares the horizontal speed with the previous frame's (a drop of more than 20 per frame), so it depends on the frame rate | 0x004788a0 (0x004799d5) | Static (src) | **Deviation (remaster):** the threshold is scaled by dt x 60 (engine/src/player.rs ground_effects) |
 
 ## (Recovery slip, not an original bug) LevelProperties_Load zeroed pickup_drop_factor
 

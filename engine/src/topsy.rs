@@ -2,7 +2,7 @@
 //! game_06.cpp 2330) and the AI's reaction (fn_0042fe50, ai_03.cpp 2977):
 //! - Fire Special with it selected (Tab picks the special): flag 0x800000, trotter_topsy_into (its notes: the
 //!   fx_trotter_topsy fx, topsy_create attaches the bomb to the hand); then trotter_topsy_world_turn while the view
-//!   turns over (the Camera_topsy track); the weapon fires (0x004a1aa0): every AI within topsy_turvy_radius (100) of
+//!   turns over (the Camera_topsy track); the weapon fires (0x004a1aa0): every AI within topsy_turvy_radius (200) of
 //!   Roman is thrown; the timer Game+0xc80 = topsy_turvy_duration (5 s) runs with Roman hanging
 //!   (trotter_topsy_hanging), unable to turn; at 0 the bomb is removed and the world turns back.
 //! - A thrown grunt rolls rand * 100: at or above topsy_turvy_fall_pct (50), with more than 3 s of the effect left,
@@ -173,7 +173,9 @@ fn run(
                 let me = rt.translation();
                 let (mut hang, mut fall) = (0, 0);
                 for (e, mut gr, gt, body) in &mut grunts {
-                    if gr.mind == Mind::Dead || gt.translation().distance(me) > radius {
+                    // AreaDamage_Apply 0x0047f020 (from 0x004a1aa0, id 8, r = Game+0xc84 topsy_turvy_radius): a receiver
+                    // within r of its bounding sphere's surface (grunt bounds radius about 4.66, as sticky.rs: guess)
+                    if gr.mind == Mind::Dead || gt.translation().distance(me) - 4.66 > radius {
                         continue;
                     }
                     let roll = rng.rand() * 100.0;
