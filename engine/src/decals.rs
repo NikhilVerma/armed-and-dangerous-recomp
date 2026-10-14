@@ -131,6 +131,8 @@ struct Decals {
     /// made so far, and how many of them lie on placed objects (playtest state "decals")
     made: u32,
     on_objects: u32,
+    /// faded out after their receiver died
+    faded: u32,
 }
 
 /// A live decal: the objects it lies on (up to 4), and its fade (left, total) once one of them died.
@@ -326,7 +328,7 @@ fn spawn(
         if let Some(st) = state.as_mut() {
             st.0.insert(
                 "decals".into(),
-                serde_json::json!({ "made": decals.made, "on_objects": decals.on_objects, "last_receivers": receivers_copy.len(), "last_vertices": nverts }),
+                serde_json::json!({ "made": decals.made, "on_objects": decals.on_objects, "last_receivers": receivers_copy.len(), "last_vertices": nverts, "faded": decals.faded }),
             );
         }
         decals.live.push_back(e);
@@ -364,6 +366,7 @@ fn fade(
     mut decals: ResMut<Decals>,
     mut q: Query<(Entity, &mut Decal, &MeshMaterial3d<StandardMaterial>)>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut state: Option<ResMut<crate::playtest::PlayState>>,
 ) {
     let dt = time.delta_secs();
     for (e, mut decal, mat) in &mut q {
@@ -372,6 +375,10 @@ fn fade(
         if left <= 0.0 {
             commands.entity(e).despawn();
             decals.live.retain(|x| *x != e);
+            decals.faded += 1;
+            if let Some(d) = state.as_mut().and_then(|s| s.0.get_mut("decals")).and_then(|d| d.as_object_mut()) {
+                d.insert("faded".into(), decals.faded.into());
+            }
             continue;
         }
         decal.fade = Some((left, total));
