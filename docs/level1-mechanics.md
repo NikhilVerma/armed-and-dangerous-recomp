@@ -34,7 +34,7 @@ Update this table as items land (commit hash in the last column).
 | Gun auto-aim | 0x004a2a40 (option, default off) | M | 3 | off by default in the original; B: optional |
 | Rifle: fire gate, recycle, clip | 0x004a1e40, 0x004a23e0 | P | | taps fire (227163b) |
 | Shots from the gun to the crosshair point | 0x0047dbf0 (P = ref_shoot_00, Q = hud+0x5c) | V | | 227163b (spawn offset measured) |
-| Reload (anim-driven refill) | game_05.cpp:1601, tables 0x0059eef4 / 0x0059eedc / 0x005fb9dc | P | 2 | load sound at frame 10 (rifle) / 15 (MG), refill at frame 43 (1.43 s); reload.json |
+| Reload (anim-driven refill) | game_05.cpp:1601, tables 0x0059eef4 / 0x0059eedc / 0x005fb9dc | V | 2 | original (reloadO capture): load sound 48 frames (0.8 s) after the 8th shot, engine 0.80 s; load sound at frame 10 (rifle) / 15 (MG), refill at frame 43 (1.43 s); reload.json |
 | Weapon switch (wchange anim, frame 13) | 0x004a16b0, 0x004a17d0 | P | 2 | trotter_*_wchange_t, swap at frame 13 (0.4 s), chat "ROME: I've switched to the %s", ui_weapon_put_away; special switch line too (wchange.json) |
 | Machine gun (pub) | p_player_machinegun | P | | spread distribution guessed |
 | Rifle fire anim | game_05.cpp:1380: fire_sg for rifle / MG | P | 1 | trotter_fire_sg / jump_fire_sg |
@@ -66,7 +66,7 @@ Update this table as items land (commit hash in the last column).
 | Alarm chain (grunt 67 → marker 151 → siren → generators, captains) | 0x00404e50, 0x0044ba30 (mission.md) | P | 2 | alarm.rs: runner, siren fx + Help, controller 2..4 s up to 10, siren destroyed stops it (alarm.json / alarm2.json) |
 | Barracks release (ref_exit, markers, release_max) | ai_01.cpp:900 | S | 2 | spawns ±12; keeps releasing after destruction |
 | Hit reactions (explosion variants) | 0x00430340 | P | 3 | |
-| Death variants (blown up, ledge, in back, window) | 0x004319e0 | M | 2 | |
+| Death variants (blown up, ledge, in back, window) | 0x004319e0, 0x00427100 | P / M | 2 | random grunt_die_1..6 (0x50 + rand*6), blown up / ragdoll by hit_ragdoll; not yet: the 0x56 / 0x57 flag variants, ledge_death, the launch velocity of record flag 2 |
 | Barks: Taunt, General_Scream, Help, shared delays | grunt-ai.md "Barks" | P | 2 | voice sets fixed (GR1 / GR3 / GR2), death / vo / taunt delays, Spotted, Fight, Taunt, Hurt two-stage, Dead vs DeadAtPosition, Sticky only on the bomb's grunt; Help (alarm) waits for the alarm chain |
 | Fidget shiver on level 1 | Game+0x2708 == 1 | S | 3 | never shivers |
 | Companions: formation, targeting, fire, TNT | 0x00485910.. | V | | |
