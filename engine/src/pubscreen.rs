@@ -140,11 +140,14 @@ fn input(
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     data: Res<crate::gamedata::GameData>,
     mut physics: NonSendMut<crate::physics::Physics>,
+    mouse: Res<ButtonInput<MouseButton>>,
 ) {
     if !screen.open || menu.page != Page::Pub {
         return;
     }
-    let select = keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::Space);
+    // the mouse as in the menus (Mouse 1 selects, Mouse 2 cancels): a player on a mouse or trackpad was stuck here
+    let select = keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::Space) || mouse.just_pressed(MouseButton::Left);
+    let leave = keys.just_pressed(KeyCode::Escape) || mouse.just_pressed(MouseButton::Right);
     if screen.step < screen.steps.len() {
         if select {
             screen.step += 1;
@@ -152,6 +155,7 @@ fn input(
         }
         return;
     }
+    let nothing_left = screen.offer.is_empty();
     // choosing: the pub's inventory, left / right
     let n = screen.offer.len();
     if n > 0 {
@@ -179,7 +183,8 @@ fn input(
             }
         }
     }
-    if keys.just_pressed(KeyCode::Escape) {
+    // leaving: Esc / Mouse 2, or selecting with nothing left to take
+    if leave || (select && nothing_left) {
         screen.open = false;
         menu.page = Page::Main;
         next.set(AppState::Playing);
