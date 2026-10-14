@@ -1,10 +1,18 @@
 //! The level's mission logic as the original runs it: numbered triggers between placed objects
-//! (docs/subsystems/mission.md; data: tools/remaster_export_mission.py -> mission.json). Senders: trigger volumes
-//! (on enter, one-shot or not), the mission (start), ticker bomb sites (explode, not enabled), the pub (exit),
-//! deaths. Receivers: ui_ears (objective text as a paused message + compass target), sound_ears (voice line),
-//! AI (wake up), barracks (release troops), objects (destroyed), bomb sites (enable), the mission (win).
+//! (docs/subsystems/mission.md; data: tools/remaster_export_mission.py -> mission.json). Every logic object compares
+//! a broadcast trigger (Object_SendTrigger 0x00461870) with its own fields, as the original's handlers do:
+//! - the mission object (MissionObject_Load 0x0044c170, _OnTrigger 0x0044d600, _Update 0x0044db80, _ShowStart
+//!   0x0044daf0): start trigger and text, success, pre-success, failures 1..4, the alarm switch, score;
+//! - trigger volumes (TriggerObject 0x00497460 load, 0x004976a0 enter / leave, 0x00497640 send, 0x00497720 enable /
+//!   disable): on_enter / on_exit, one_shot, door_mat, enable / disable, ai_can_trigger;
+//! - ticker bomb sites (PlayerTickerBomb 0x0044de90 load, 0x0044e150 update, 0x0044e5e0 enable, 0x0044e0c0 set,
+//!   0x0044e0e0 not enabled), counters (CounterObject 0x00415770 / 0x00415860), camera fx (CameraFXObject 0x004101a0:
+//!   trigger_start / receive_trigger_kill), the pub (PubObject 0x0046a200, 0x0046a770 open, 0x0046a6c0..0x0046a720),
+//!   the barracks (0x0040d1b0);
+//! - from the export's edges: ui_ears (objective text as a paused message + compass target), sound_ears (voice
+//!   line), AI (wake up), objects (destroyed), fx ears, the win.
 //! Prompts ("Hold down %s to set the ticker bomb!", "Press %s to enter pub") come from the hint texts with the
-//! bound key's name. STAND-INS, labelled where used: the pub screen (a message), the bomb clock (text).
+//! bound key's name.
 
 use crate::ai::{Grunt, Mind, Player};
 use crate::fx::{Destructible, Explode, StartFx};
@@ -12,12 +20,13 @@ use crate::level::{InstanceId, game_to_engine};
 use bevy::prelude::*;
 use serde::Deserialize;
 use serde_json::{Map, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Deserialize)]
 struct EdgeEnd {
     id: Option<u32>,
     #[serde(default)]
+    #[allow(dead_code)]
     template: Option<String>,
     #[serde(default)]
     event: Option<String>,
@@ -63,6 +72,8 @@ struct Hint {
 
 #[derive(Deserialize)]
 struct MissionFile {
+    #[serde(default)]
+    level: String,
     mission: MissionInst,
     edges: Vec<Edge>,
     instances: Vec<InstanceDef>,
@@ -78,8 +89,8 @@ struct MissionInst {
 #[derive(Clone, Debug)]
 enum Action {
     WakeAi(u32),
-    /// the text, and whether the same ui_ear marked an objective on this trigger (objective_trigger_receive_0N with a
-    /// non-zero objective_tag_0N: 0x0046afa0 then requests the victory music, 0x0044f560 cl = 1)
+    /// the text id, and whether the same ui_ear marked an objective on this trigger (objective_trigger_receive_0N
+    /// with a non-zero objective_tag_0N: 0x0046afa0 then requests the victory music, 0x0044f560 cl = 1)
     ShowText(String, bool),
     Compass(i64),
     /// a sound_ear's line (SoundEar 0x00497750 / 0x00497900): the placement's q_sound / jonsey_sound / roman_sound
@@ -90,35 +101,216 @@ enum Action {
     /// (the barracks match the trigger ids themselves in dispatch, 0x0040d1b0; kept for the receiver count)
     Barracks(#[allow(dead_code)] u32),
     Destroy(u32),
-    EnableSite(u32),
     Win,
 }
 
-enum Volume {
+/// A trigger volume's shape.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Volume {
     Sphere(Vec3, f32),
     /// engine-space aabb
     Box(Vec3, Vec3),
 }
 
-struct Trigger {
-    id: u32,
-    sends: i64,
-    volume: Volume,
-    one_shot: bool,
-    inside: bool,
-    done: bool,
+impl Volume {
+    /// `p` is a point 5 units above the feet (the body's centre, guess for the collision proxy's reach).
+    fn contains(&self, p: Vec3) -> bool {
+        match *self {
+            Volume::Sphere(c, r) => c.distance(p) <= r,
+            Volume::Box(a, b) => p.cmpge(a - Vec3::splat(2.0)).all() && p.cmple(b + Vec3::Y * 20.0).all(),
+        }
+    }
 }
 
+/// A TriggerObject (vtable 0x005a7c20, behaviour "broadcast"): TriggerObject_Load 0x00497460 reads on_enter (+0x460),
+/// on_exit (+0x464), enable (+0x468; none: flag 8, enabled at once), disable (+0x46c), sphere_radius (+0x470) and the
+/// flags +0x474: 1 one_shot, 2 ai_can_trigger, 4 pending enter, 8 enabled, 0x10 door_mat. Its collision group is 8, or
+/// 0x18 with ai_can_trigger (TriggerObject_BuildCollision 0x004975d0: the player, and AI with the flag).
+#[derive(Clone, Debug)]
+pub(crate) struct Trigger {
+    pub id: u32,
+    pub on_enter: i64,
+    pub on_exit: i64,
+    pub enable: i64,
+    pub disable: i64,
+    pub one_shot: bool,
+    pub door_mat: bool,
+    pub ai: bool,
+    pub enabled: bool,
+    pub pending: bool,
+    pub volume: Volume,
+    /// the objects in contact now (player, AI)
+    inside: HashSet<Entity>,
+    /// on_enter was used up by a one-shot send (the save keeps it)
+    pub fired: bool,
+}
+
+impl Trigger {
+    fn new(id: u32, r: &Map<String, Value>, volume: Volume) -> Self {
+        let n = |k: &str| r.get(k).and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let enable = n("enable") as i64;
+        Trigger {
+            id,
+            on_enter: n("on_enter") as i64,
+            on_exit: n("on_exit") as i64,
+            enable,
+            disable: n("disable") as i64,
+            one_shot: n("one_shot") != 0.0,
+            door_mat: n("door_mat") != 0.0,
+            ai: n("ai_can_trigger") != 0.0,
+            enabled: enable == 0,
+            pending: false,
+            volume,
+            inside: HashSet::new(),
+            fired: false,
+        }
+    }
+
+    /// The contact callback 0x004976a0: nothing without an on_enter or on_exit trigger; entering sets "pending"
+    /// (flag 4, sent by the update); leaving clears it and, enabled, sends on_exit (a one-shot volume clears it first).
+    pub fn contact(&mut self, entering: bool) -> Option<i64> {
+        if self.on_enter == 0 && self.on_exit == 0 {
+            return None;
+        }
+        if entering {
+            self.pending = true;
+            return None;
+        }
+        self.pending = false;
+        let t = self.on_exit;
+        if t == 0 || !self.enabled {
+            return None;
+        }
+        if self.one_shot {
+            self.on_exit = 0;
+        }
+        Some(t)
+    }
+
+    /// The update 0x00497640: a pending enter with no on_enter is dropped; enabled, on_enter is sent and the
+    /// pending flag cleared, a one-shot volume without door_mat then clearing on_enter. Disabled, it stays pending.
+    pub fn update(&mut self) -> Option<i64> {
+        if !self.pending {
+            return None;
+        }
+        if self.on_enter == 0 {
+            self.pending = false;
+            return None;
+        }
+        if !self.enabled {
+            return None;
+        }
+        let t = self.on_enter;
+        self.pending = false;
+        if self.one_shot && !self.door_mat {
+            self.on_enter = 0;
+            self.fired = true;
+        }
+        Some(t)
+    }
+
+    /// The trigger handler 0x00497720: the enable message sets flag 8, the disable message clears it.
+    pub fn message(&mut self, t: i64) {
+        if t == self.enable {
+            self.enabled = true;
+        } else if t == self.disable {
+            self.enabled = false;
+        }
+    }
+}
+
+/// A ticker bomb site (PlayerTickerBomb, vtable 0x005ae380; PlayerTickerBomb_Load 0x0044de90).
 struct Site {
     id: u32,
     pos: Vec3,
+    /// message_radius (+0x498, default 10)
     radius: f32,
-    enabled: bool,
+    /// receive_trigger_enable (+0x474): non-zero = not enabled yet (PlayerTickerBomb_IsEnabled 0x0044e380); the
+    /// trigger clears it (PlayerTickerBomb_OnTrigger 0x0044e5e0)
+    enable_trigger: i64,
+    /// send_trigger_explode (+0x478; explode2 / 3 +0x47c / +0x480 are read but never sent), send_trigger_set (+0x46c),
+    /// send_trigger_non_enabled (+0x470)
     explode: i64,
+    set: i64,
     non_enabled: i64,
+    /// arm_time (+0x468, 2.0), unarmed_falloff (vt+0x100: the unarmed bomb's alpha, 0.3)
+    arm_time: f32,
+    falloff: f32,
+    /// impact_force +0x484 (2010), area_damage +0x488, damage_radius_inner / outer +0x48c / +0x490
+    impact_force: f32,
+    area_damage: f32,
+    radius_inner: f32,
+    radius_outer: f32,
+    /// lock_parent_tag (+0x49c; 0x0044e120 attaches the bomb to the tagged object's lock_parent_bone)
+    lock_parent_tag: i64,
     armed: Option<f32>,
     hold: f32,
     done: bool,
+    /// the ticker prompt runs every 6th frame (0x00467450 counter +0x4f8)
+    nag: u32,
+    /// the bomb object took its alpha (unarmed_falloff, then 1.0 when armed)
+    shown: Option<f32>,
+}
+
+impl Site {
+    fn enabled(&self) -> bool {
+        self.enable_trigger == 0
+    }
+}
+
+/// A CounterObject (vtable 0x005a4b00, behaviour "counter"; Counter_Init 0x00415770, CounterObject_OnTrigger
+/// 0x00415860): counts receive_trigger_activate (+0x460); on reaching count (+0x470) it sends send_trigger (+0x468)
+/// and restarts with infinite (+0x474), else it is removed (vt+0xdc). receive_trigger_deactivate (+0x464) removes it.
+#[derive(Clone, Debug)]
+pub(crate) struct Counter {
+    pub id: u32,
+    pub activate: i64,
+    pub deactivate: i64,
+    pub send: i64,
+    pub count: i64,
+    pub infinite: bool,
+    pub current: i64,
+    /// +0x475: deactivated (removed)
+    pub off: bool,
+}
+
+impl Counter {
+    pub fn message(&mut self, t: i64) -> Option<i64> {
+        if self.off {
+            return None;
+        }
+        if t == self.activate {
+            self.current += 1;
+            if self.current != self.count {
+                return None;
+            }
+            if self.infinite {
+                self.current = 0;
+            } else {
+                self.off = true;
+            }
+            return (self.send != 0).then_some(self.send);
+        }
+        if t == self.deactivate {
+            self.off = true;
+        }
+        None
+    }
+}
+
+/// A CameraFXObject (vtable 0x005ad058, behaviour "camera_fx"; Load 0x004101a0): its fx starts at load when
+/// trigger_start (+0x480) is 0 (level.rs / main.rs start those), else when that trigger arrives; receive_trigger_kill
+/// (+0x484) removes it and its fx.
+struct CamFx {
+    id: u32,
+    start: i64,
+    kill: i64,
+    fx: String,
+    position_only: bool,
+    /// the running fx's owner (a child of the camera): despawning it ends the fx (fxvm.rs releases an fx whose
+    /// owner is gone, Fx_Release 0x0041d030)
+    holder: Option<Entity>,
+    gone: bool,
 }
 
 /// A troop generator (TwigletGenerator / BarricadeObject, set-up 0x0040ad80, update 0x0040cb10, release 0x0040c910,
@@ -193,6 +385,19 @@ pub struct PubInfo {
     pub bar_rate: f32,
 }
 
+/// The pub's trigger fields (PubObject_Load 0x0046a200): listen_trigger_open +0x4c8 (closed until it arrives,
+/// 0x0046a6c0; PubObject_OnTrigger 0x0046a770 clears it), send_trigger_entry +0x4c0 (once, 0x0046a6f0),
+/// send_trigger_entry_failure +0x4bc (0x0046a6d0), send_trigger_exit +0x4c4 (once, 0x0046a720).
+#[derive(Clone, Debug, Default)]
+struct PubTriggers {
+    open: i64,
+    entry: i64,
+    entry_failure: i64,
+    /// the player was inside the doorway radius last frame (the failure is sent on stepping in: guess, the prompt
+    /// 0x00467b60 compares two player points, +0xc0c inside and +0xc18 outside the radius)
+    was_inside: bool,
+}
+
 /// Mission outcome for the state log.
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub enum Outcome {
@@ -204,13 +409,18 @@ pub enum Outcome {
 
 #[derive(Resource)]
 pub struct Mission {
+    /// the level's name (the success bonus of lev_1_m1_b / lev_2_m1)
+    level: String,
     receivers: HashMap<i64, Vec<Action>>,
     /// objects that send a trigger when they die (send_trigger_on_death: DefaultGameObject_OnDeath 0x00450ee0,
     /// FxExplosion_Die game_02.cpp:797): instance id -> trigger (pipe 96 -> 711, boom_island 131 -> 301)
     death_senders: HashMap<u32, i64>,
     triggers: Vec<Trigger>,
     sites: Vec<Site>,
+    counters: Vec<Counter>,
+    camfx: Vec<CamFx>,
     pub_pos: Option<(Vec3, f32, i64)>,
+    pub_triggers: PubTriggers,
     pub_done: bool,
     /// the player entered the pub: the pub screen opens (gamemenu.rs)
     pub pub_request: bool,
@@ -223,11 +433,31 @@ pub struct Mission {
     barracks: Vec<Barracks>,
     texts: HashMap<String, String>,
     hints: HashMap<String, String>,
-    tags: HashMap<i64, Vec<Vec3>>,
+    /// objects by tag (+0x390): instance id and position; `untagged` ids lost their tag or died (an armed ticker
+    /// bomb's +0x390 = 0, 0x0044e4a0; a removed object leaves the lists the compass walks)
+    tags: HashMap<i64, Vec<(u32, Vec3)>>,
+    untagged: HashSet<u32>,
     pub compass_tag: i64,
     start_trigger: i64,
     start_text: Option<String>,
     success_text: Option<String>,
+    /// receive_trigger_success (+0x46c), receive_trigger_pre_success (+0x470), receive_trigger_failure[_2.._4]
+    /// (+0x474..+0x480) and their texts (Game+0x2664..+0x2670)
+    success: i64,
+    pre_success: i64,
+    failures: [i64; 4],
+    failure_texts: [Option<String>; 4],
+    /// alarm_trigger_activate / _deactivate (Game+0x26d8 / +0x26dc: Game+0xdcc, the alarm forced on),
+    /// army_breach_open / close_trigger (Game+0xc3c / +0xc40: Game+0xcbe), peasant_saved_trigger (Game+0x26f0)
+    alarm_triggers: (i64, i64),
+    breach_triggers: (i64, i64),
+    peasant_saved: i64,
+    /// Game+0xdcc: the alarm forced by the mission (the alarm controller is alarm.rs; no lev_1_m1 trigger sets it)
+    pub alarm_forced: bool,
+    /// Game+0xcbe: the army breach open (no army on lev_1_m1)
+    pub breach_open: bool,
+    /// Game+0xdd2: finished (pre-success): failure triggers are ignored from then on
+    pub finished: bool,
     /// score_value (Loot at the win, game_02.cpp:2262) and next_level_name (Game+0x268c)
     pub score_value: f32,
     pub next_level: Option<String>,
@@ -243,12 +473,15 @@ pub struct Mission {
     dead_timer: f32,
     pub log: Vec<String>,
     pub objectives: String,
-    /// the objectives text with both forms (the pause menu shows the short one)
+    /// the objectives text with both forms (the pause menu shows the short one), and its text id
     pub objectives_raw: String,
+    pub objectives_id: String,
     /// sound_ears that played and removed themselves
     pub ears_done: std::collections::HashSet<u32>,
     /// new messages for the feed: (chat colour index, text), handed to hud.rs's Chat each frame
     pub feed: Vec<(u8, String)>,
+    /// triggers a handler sends while handling another (a counter reaching its count): sent next frame
+    resend: Vec<i64>,
 }
 
 #[derive(Message, Clone, Copy)]
@@ -297,13 +530,27 @@ pub struct MissionSave {
     pub objectives: String,
     pub objectives_raw: String,
     pub ears_done: Vec<u32>,
+    /// (id, enabled, on_exit cleared) of each volume; counters (id, current, off); objects without their tag; the
+    /// pub opened; the mission finished; the alarm forced
+    #[serde(default)]
+    pub volumes: Vec<(u32, bool, bool)>,
+    #[serde(default)]
+    pub counters: Vec<(u32, i64, bool)>,
+    #[serde(default)]
+    pub untagged: Vec<u32>,
+    #[serde(default)]
+    pub pub_open: bool,
+    #[serde(default)]
+    pub finished: bool,
+    #[serde(default)]
+    pub alarm_forced: bool,
 }
 
 impl Mission {
     pub fn snapshot(&self) -> MissionSave {
         MissionSave {
-            triggers_done: self.triggers.iter().filter(|t| t.done).map(|t| t.id).collect(),
-            sites: self.sites.iter().map(|s| (s.id, s.enabled, s.done || s.armed.is_some())).collect(),
+            triggers_done: self.triggers.iter().filter(|t| t.fired).map(|t| t.id).collect(),
+            sites: self.sites.iter().map(|s| (s.id, s.enabled(), s.done || s.armed.is_some())).collect(),
             barracks: self.barracks.iter().map(|b| (b.id, b.active, b.left())).collect(),
             pub_done: self.pub_done,
             pub_pool: self.pub_info.as_ref().map(|p| p.pool),
@@ -312,6 +559,12 @@ impl Mission {
             objectives: self.objectives.clone(),
             objectives_raw: self.objectives_raw.clone(),
             ears_done: self.ears_done.iter().copied().collect(),
+            volumes: self.triggers.iter().map(|t| (t.id, t.enabled, t.on_exit == 0)).collect(),
+            counters: self.counters.iter().map(|c| (c.id, c.current, c.off)).collect(),
+            untagged: self.untagged.iter().copied().collect(),
+            pub_open: self.pub_triggers.open == 0,
+            finished: self.finished,
+            alarm_forced: self.alarm_forced,
         }
     }
 
@@ -319,13 +572,28 @@ impl Mission {
     pub fn restore(&mut self, s: &MissionSave) {
         for t in &mut self.triggers {
             if s.triggers_done.contains(&t.id) {
-                t.done = true;
+                t.fired = true;
+                t.on_enter = 0;
+            }
+            if let Some(&(_, en, exit_gone)) = s.volumes.iter().find(|x| x.0 == t.id) {
+                t.enabled = en;
+                if exit_gone {
+                    t.on_exit = 0;
+                }
             }
         }
         for st in &mut self.sites {
             if let Some(&(_, en, done)) = s.sites.iter().find(|x| x.0 == st.id) {
-                st.enabled = en;
+                if en {
+                    st.enable_trigger = 0;
+                }
                 st.done = done;
+            }
+        }
+        for c in &mut self.counters {
+            if let Some(&(_, cur, off)) = s.counters.iter().find(|x| x.0 == c.id) {
+                c.current = cur;
+                c.off = off;
             }
         }
         for b in &mut self.barracks {
@@ -342,6 +610,18 @@ impl Mission {
         if let (Some(pool), Some(p)) = (s.pub_pool, self.pub_info.as_mut()) {
             p.pool = pool;
         }
+        if s.pub_open {
+            self.pub_triggers.open = 0;
+        }
+        self.untagged.extend(s.untagged.iter().copied());
+        // (sites saved as done or armed have lost their tag: 0x0044e4a0 clears it when arming)
+        for st in &self.sites {
+            if st.done {
+                self.untagged.insert(st.id);
+            }
+        }
+        self.finished = s.finished;
+        self.alarm_forced = s.alarm_forced;
         self.compass_tag = s.compass_tag;
         self.tickers = s.tickers;
         self.objectives = s.objectives.clone();
@@ -360,32 +640,11 @@ impl Mission {
         let s = |m: &Map<String, Value>, k: &str| m.get(k).and_then(|v| v.as_str()).filter(|v| !v.is_empty() && *v != "none").map(str::to_owned);
         let n = |m: &Map<String, Value>, k: &str| m.get(k).and_then(|v| v.as_f64()).unwrap_or(0.0);
         let mut receivers: HashMap<i64, Vec<Action>> = HashMap::new();
-        let mut triggers = Vec::new();
         let mut death_senders = HashMap::new();
         for e in &f.edges {
             if let (Some(fid), Some(ev)) = (e.from.id, e.from.event.as_deref()) {
                 if ev.contains("dies") {
                     death_senders.insert(fid, e.trigger);
-                }
-            }
-            // senders: volumes that fire on enter
-            if let (Some(fid), Some(ev)) = (e.from.id, e.from.event.as_deref()) {
-                if ev.contains("enters the volume") && !triggers.iter().any(|t: &Trigger| t.id == fid && t.sends == e.trigger) {
-                    if let Some(i) = inst.get(&fid) {
-                        let vol = i.volume.as_ref();
-                        let kind = vol.and_then(|v| v.get("kind")).and_then(|v| v.as_str()).unwrap_or("sphere");
-                        let volume = if kind == "box" {
-                            let aabb = vol.and_then(|v| v.get("world_aabb")).and_then(|v| v.as_array()).cloned().unwrap_or_default();
-                            let p = |i: usize| aabb.get(i).and_then(|v| v.as_array()).map(|a| [a[0].as_f64().unwrap_or(0.0) as f32, a[1].as_f64().unwrap_or(0.0) as f32, a[2].as_f64().unwrap_or(0.0) as f32]).unwrap_or([0.0; 3]);
-                            let (a, b) = (game_pos(p(0)), game_pos(p(1)));
-                            Volume::Box(a.min(b), a.max(b))
-                        } else {
-                            let r = vol.and_then(|v| v.get("radius")).and_then(|v| v.as_f64()).unwrap_or(20.0) as f32;
-                            Volume::Sphere(game_pos(i.position.unwrap_or_default()), r)
-                        };
-                        let one_shot = vol.and_then(|v| v.get("one_shot")).and_then(|v| v.as_i64()).unwrap_or(1) != 0;
-                        triggers.push(Trigger { id: fid, sends: e.trigger, volume, one_shot, inside: false, done: false });
-                    }
                 }
             }
             // receivers
@@ -413,7 +672,7 @@ impl Mission {
                 let r = inst.get(&to).map(|i| &i.resolved);
                 let placed = |k: &str| inst.get(&to).and_then(|i| i.props.get(k)).and_then(|v| v.as_str()).map(str::to_owned);
                 Action::Voice {
-                    ear: to as u32,
+                    ear: to,
                     repeat: r.and_then(|r| r.get("reapeat")).and_then(|v| v.as_f64()).unwrap_or(0.0) != 0.0,
                     max_distance: r.and_then(|r| r.get("max_distance")).and_then(|v| v.as_f64()).unwrap_or(300.0) as f32,
                     q: placed("q_sound"),
@@ -429,42 +688,97 @@ impl Mission {
                 Action::Barracks(to)
             } else if action.starts_with("destroyed") {
                 Action::Destroy(to)
-            } else if action.starts_with("enable this bomb site") {
-                Action::EnableSite(to)
             } else if action.starts_with("WIN") {
                 Action::Win
             } else {
+                // (bomb site enable, volume enable / disable, counters, camera fx, the pub's open trigger: the
+                // objects' own trigger fields, compared in dispatch)
                 continue;
             };
             receivers.entry(e.trigger).or_default().push(a);
         }
+        let mut triggers = Vec::new();
         let mut sites = Vec::new();
+        let mut counters = Vec::new();
+        let mut camfx = Vec::new();
         let mut barracks = Vec::new();
         // the set-up's rand() (0x0040ad80: the first release delay)
         let mut crt = crate::fxvm::CrtRand::default();
         let mut pub_pos = None;
         let mut pub_info = None;
         let mut pub_exit_pos = None;
-        let mut tags: HashMap<i64, Vec<Vec3>> = HashMap::new();
+        let mut pub_triggers = PubTriggers::default();
+        let mut tags: HashMap<i64, Vec<(u32, Vec3)>> = HashMap::new();
         for i in &f.instances {
             let r = &i.resolved;
             let pos = game_pos(i.position.unwrap_or_default());
             let tag = n(r, "tag") as i64;
             if tag != 0 {
-                tags.entry(tag).or_default().push(pos);
+                tags.entry(tag).or_default().push((i.id, pos));
             }
-            match i.template.as_str() {
+            // the class: the resolved behaviour, else the template name (ObjectSystem_CreateObject 0x0045f020)
+            let behavior = s(r, "behavior").unwrap_or_else(|| i.template.clone());
+            match behavior.as_str() {
+                "broadcast" => {
+                    // the shape: sphere_radius > 0 a sphere (TriggerObject_BuildCollision 0x004975d0), else the
+                    // model's own collision (the export's box of its vertices: guess, mission.md)
+                    let vol = i.volume.as_ref();
+                    let kind = vol.and_then(|v| v.get("kind")).and_then(|v| v.as_str()).unwrap_or("sphere");
+                    let volume = if kind == "box" {
+                        let aabb = vol.and_then(|v| v.get("world_aabb")).and_then(|v| v.as_array()).cloned().unwrap_or_default();
+                        let p = |i: usize| aabb.get(i).and_then(|v| v.as_array()).map(|a| [a[0].as_f64().unwrap_or(0.0) as f32, a[1].as_f64().unwrap_or(0.0) as f32, a[2].as_f64().unwrap_or(0.0) as f32]).unwrap_or([0.0; 3]);
+                        let (a, b) = (game_pos(p(0)), game_pos(p(1)));
+                        Volume::Box(a.min(b), a.max(b))
+                    } else {
+                        let rad = vol.and_then(|v| v.get("radius")).and_then(|v| v.as_f64()).unwrap_or(n(r, "sphere_radius")) as f32;
+                        Volume::Sphere(pos, rad)
+                    };
+                    triggers.push(Trigger::new(i.id, r, volume));
+                }
                 "player_tickerbomb" => sites.push(Site {
                     id: i.id,
                     pos,
-                    radius: n(r, "message_radius").max(10.0) as f32,
-                    enabled: n(r, "receive_trigger_enable") == 0.0,
+                    radius: r.get("message_radius").and_then(|v| v.as_f64()).unwrap_or(10.0) as f32,
+                    enable_trigger: n(r, "receive_trigger_enable") as i64,
                     explode: n(r, "send_trigger_explode") as i64,
+                    set: n(r, "send_trigger_set") as i64,
                     non_enabled: n(r, "send_trigger_non_enabled") as i64,
+                    arm_time: r.get("arm_time").and_then(|v| v.as_f64()).unwrap_or(2.0) as f32,
+                    falloff: r.get("unarmed_falloff").and_then(|v| v.as_f64()).unwrap_or(0.3) as f32,
+                    impact_force: r.get("impact_force").and_then(|v| v.as_f64()).unwrap_or(2010.0) as f32,
+                    area_damage: n(r, "area_damage") as f32,
+                    radius_inner: n(r, "damage_radius_inner") as f32,
+                    radius_outer: n(r, "damage_radius_outer") as f32,
+                    lock_parent_tag: n(r, "lock_parent_tag") as i64,
                     armed: None,
                     hold: 0.0,
                     done: false,
+                    nag: 0,
+                    shown: None,
                 }),
+                "counter" => counters.push(Counter {
+                    id: i.id,
+                    activate: n(r, "receive_trigger_activate") as i64,
+                    deactivate: n(r, "receive_trigger_deactivate") as i64,
+                    send: n(r, "send_trigger") as i64,
+                    count: r.get("count").and_then(|v| v.as_f64()).unwrap_or(1.0) as i64,
+                    infinite: n(r, "infinite") != 0.0,
+                    current: 0,
+                    off: false,
+                }),
+                "camera_fx" => {
+                    if let Some(fx) = s(r, "fx_name") {
+                        camfx.push(CamFx {
+                            id: i.id,
+                            start: n(r, "trigger_start") as i64,
+                            kill: n(r, "receive_trigger_kill") as i64,
+                            fx,
+                            position_only: r.get("position_only").and_then(|v| v.as_f64()).unwrap_or(1.0) != 0.0,
+                            holder: None,
+                            gone: false,
+                        });
+                    }
+                }
                 "pub" => {
                     // the doorway: the model's Ref_entrance bone (doorway_bone_name) and doorway_entry_radius
                     // (0x00467b60: player position within the radius; 0x0046a5f0, 0x0046a640); the exit: Ref_exit
@@ -474,6 +788,12 @@ impl Mission {
                     let (door, exit) = refs.map(|(a, b, m)| (world(a, m), world(b, m))).unwrap_or((None, None));
                     pub_exit_pos = exit;
                     pub_pos = Some((door.unwrap_or(pos), n(r, "doorway_entry_radius").max(1.0) as f32, n(r, "send_trigger_exit") as i64));
+                    pub_triggers = PubTriggers {
+                        open: n(r, "listen_trigger_open") as i64,
+                        entry: n(r, "send_trigger_entry") as i64,
+                        entry_failure: n(r, "send_trigger_entry_failure") as i64,
+                        was_inside: false,
+                    };
                     // weapons 0..5 in the weapon table's order, the one special (+0x468), ticker bombs, the health pool
                     let sells = [("has_rifle", "rifle"), ("has_snipergun", "snipergun"), ("has_machinegun", "machinegun"), ("has_gurner", "rlgurner"), ("has_sharkgun", "sharkgun"), ("has_vindaloo", "rlvindaloo")]
                         .iter()
@@ -492,7 +812,7 @@ impl Mission {
                         bar_rate: n(r, "health_bar_rate").max(1.0) as f32,
                     });
                 }
-                t if t.starts_with("grunt_barracks") => {
+                _ if i.template.starts_with("grunt_barracks") => {
                     // 0x0040ad80: the slots from the model's matrices; a barracks with an exit slot ("ref_exit_0%d")
                     // releases troops created at "ref_spawn_0%d" (lev_1_m1's mini barracks have one of each)
                     let spawn = i.model.as_ref().zip(i.transform.as_ref()).and_then(|(model, t)| {
@@ -532,12 +852,28 @@ impl Mission {
             }
         }
         let m = &f.mission.resolved;
+        let text = |k: &str| s(m, k).and_then(|t| f.text.get(&t).cloned());
+        // MissionObject_Load 0x0044c170: start_in_turret_tag and camera_startup_path_anim start the level in a turret
+        // / on a camera path (fn_0044d150, Camera_StartPath mode 2): not ported, none on lev_1_m1
+        let mut log = Vec::new();
+        for k in ["start_in_turret_tag", "peasant_max_casualties", "peasant_max_saved"] {
+            if n(m, k) != 0.0 {
+                log.push(format!("mission: {k} {} not ported", n(m, k)));
+            }
+        }
+        if let Some(p) = s(m, "camera_startup_path_anim") {
+            log.push(format!("mission: camera_startup_path_anim {p} not ported"));
+        }
         Some(Mission {
+            level: f.level.clone(),
             receivers,
             death_senders,
             triggers,
             sites,
+            counters,
+            camfx,
             pub_pos,
+            pub_triggers,
             pub_done: false,
             pub_request: false,
             pub_exit_pending: false,
@@ -546,13 +882,24 @@ impl Mission {
             barracks,
             hints: f.hints.into_iter().filter_map(|(k, h)| h.text.map(|t| (k, t))).collect(),
             tags,
+            untagged: HashSet::new(),
             compass_tag: n(m, "compass_objective_tag") as i64,
             start_trigger: n(m, "send_trigger_start") as i64,
-            start_text: s(m, "start_text").and_then(|t| f.text.get(&t).cloned()),
-            success_text: s(m, "success_text").and_then(|t| f.text.get(&t).cloned()),
+            start_text: text("start_text"),
+            success_text: text("success_text"),
+            success: n(m, "receive_trigger_success") as i64,
+            pre_success: n(m, "receive_trigger_pre_success") as i64,
+            failures: ["receive_trigger_failure", "receive_trigger_failure_2", "receive_trigger_failure_3", "receive_trigger_failure_4"].map(|k| n(m, k) as i64),
+            failure_texts: ["failure_text", "failure_text_2", "failure_text_3", "failure_text_4"].map(text),
+            alarm_triggers: (n(m, "alarm_trigger_activate") as i64, n(m, "alarm_trigger_deactivate") as i64),
+            breach_triggers: (n(m, "army_breach_open_trigger") as i64, n(m, "army_breach_close_trigger") as i64),
+            peasant_saved: n(m, "peasant_saved_trigger") as i64,
+            alarm_forced: false,
+            breach_open: false,
+            finished: false,
             score_value: n(m, "score_value") as f32,
             next_level: s(m, "next_level_name"),
-            failure_text: s(m, "failure_text").and_then(|t| f.text.get(&t).cloned()),
+            failure_text: text("failure_text"),
             texts: f.text,
             started: false,
             start_sent: false,
@@ -561,11 +908,13 @@ impl Mission {
             tickers: 0,
             outcome: Outcome::Playing,
             dead_timer: 0.0,
-            log: Vec::new(),
+            log,
             objectives: String::new(),
             objectives_raw: String::new(),
+            objectives_id: String::new(),
             ears_done: Default::default(),
             feed: Vec::new(),
+            resend: Vec::new(),
         })
     }
 
@@ -586,9 +935,50 @@ impl Mission {
         self.queue.push((delay, long_form(text)));
     }
 
-    /// The nearest object of the compass tag (engine space).
+    /// The nearest object of the compass tag (engine space; ui_compass_objective 0x00466790 walks the live objects
+    /// whose tag +0x390 equals Game+0x2658).
     pub fn compass_target(&self, from: Vec3) -> Option<Vec3> {
-        self.tags.get(&self.compass_tag)?.iter().copied().min_by(|a, b| a.distance(from).total_cmp(&b.distance(from)))
+        self.tags.get(&self.compass_tag)?.iter().filter(|(id, _)| !self.untagged.contains(id)).map(|(_, p)| *p).min_by(|a, b| a.distance(from).total_cmp(&b.distance(from)))
+    }
+
+    /// The mission object's trigger handler MissionObject_OnTrigger 0x0044d600 for the triggers it reads into the Game
+    /// object: pre-success (+0x470: Game+0xdd2 = 1; the teammates' retreat runs only in start_in_turret levels,
+    /// 0x0044e600), failures (+0x474..+0x480, level state 4..7 while not finished), the army breach (Game+0xc3c /
+    /// +0xc40), the alarm switch (Game+0x26d8 / +0x26dc). The success trigger is the Win edge (dispatch).
+    fn mission_trigger(&mut self, t: i64) {
+        if t == 0 {
+            return;
+        }
+        if t == self.pre_success {
+            self.finished = true;
+            self.log.push("pre-success: mission finished (failure triggers ignored)".into());
+            return;
+        }
+        if let Some(k) = self.failures.iter().position(|&f| f == t) {
+            if self.finished || self.outcome != Outcome::Playing {
+                return;
+            }
+            // 0x0044a580(Game+0xa64, 4 + k); 0x0044a390 then pushes "MissionFailed" with failure_text(_N)
+            self.outcome = Outcome::Failed;
+            self.failure_text = self.failure_texts[k].clone().or_else(|| self.failure_text.clone());
+            self.log.push(format!("FAILED (failure trigger {t}, state {})", 4 + k));
+            return;
+        }
+        if t == self.peasant_saved {
+            self.log.push(format!("peasant_saved_trigger {t}: peasants not ported"));
+        }
+        if t == self.breach_triggers.0 && !self.finished {
+            self.breach_open = true;
+        } else if t == self.breach_triggers.1 && !self.finished {
+            self.breach_open = false;
+        }
+        if t == self.alarm_triggers.0 {
+            self.alarm_forced = true;
+            self.log.push("alarm forced on".into());
+        } else if t == self.alarm_triggers.1 {
+            self.alarm_forced = false;
+            self.log.push("alarm forced off".into());
+        }
     }
 }
 
@@ -599,7 +989,7 @@ impl Plugin for MissionPlugin {
         // the mission runs once play begins (not behind the title menu); paused messages keep the state Playing
         app.add_message::<SendTrigger>()
             .add_systems(Update, (start, volumes, sites, pub_door, barracks, dispatch, messages, outcome).chain().run_if(in_state(crate::AppState::Playing)))
-            .add_systems(Update, event_log)
+            .add_systems(Update, (event_log, state_log))
             // after the deaths of the frame (fx.rs), before the husk swap (level.rs husks: the Husk marker)
             .add_systems(Update, deaths.after(crate::fx::FxSet).run_if(in_state(crate::AppState::Playing)));
     }
@@ -616,8 +1006,10 @@ pub(crate) fn deaths(mut m: Option<ResMut<Mission>>, mut died: MessageReader<cra
         if husks.contains(d.0) {
             continue;
         }
-        // a destroyed barracks releases no more troops (the building is replaced by its husk)
         if let Ok(i) = ids.get(d.0) {
+            // a dead object leaves the lists the compass walks
+            m.untagged.insert(i.0);
+            // a destroyed barracks releases no more troops (the building is replaced by its husk)
             let mut stopped = false;
             for b in m.barracks.iter_mut().filter(|b| b.id == i.0 && (b.left() > 0 || b.active)) {
                 b.counts = [0; 6];
@@ -644,6 +1036,29 @@ fn event_log(m: Option<Res<Mission>>, time: Res<Time>, mut shown: Local<usize>) 
     *shown = m.log.len();
 }
 
+/// The playtest state log's "mission_obj": the logic objects' state (volumes, sites, counters, camera fx, the pub,
+/// the mission's flags), for expect steps.
+fn state_log(m: Option<Res<Mission>>, state: Option<ResMut<crate::playtest::PlayState>>) {
+    let (Some(m), Some(mut state)) = (m, state) else { return };
+    let vols: Map<String, Value> = m.triggers.iter().map(|t| (t.id.to_string(), serde_json::json!({"on_enter": t.on_enter, "on_exit": t.on_exit, "enabled": t.enabled, "pending": t.pending, "inside": t.inside.len()}))).collect();
+    let sites: Map<String, Value> = m
+        .sites
+        .iter()
+        .map(|s| (s.id.to_string(), serde_json::json!({"enabled": s.enabled(), "armed": s.armed.is_some(), "done": s.done, "tagged": !m.untagged.contains(&s.id), "alpha": s.shown})))
+        .collect();
+    let counters: Map<String, Value> = m.counters.iter().map(|c| (c.id.to_string(), serde_json::json!({"current": c.current, "off": c.off}))).collect();
+    let camfx: Map<String, Value> = m.camfx.iter().map(|c| (c.id.to_string(), serde_json::json!({"running": c.holder.is_some(), "gone": c.gone}))).collect();
+    state.0.insert(
+        "mission_obj".into(),
+        serde_json::json!({
+            "volumes": vols, "sites": sites, "counters": counters, "camfx": camfx,
+            "pub_open": m.pub_triggers.open == 0, "pub_done": m.pub_done,
+            "finished": m.finished, "alarm_forced": m.alarm_forced, "objectives_id": m.objectives_id,
+            "queued": m.queue.len(), "showing": m.showing.is_some(), "failure_text": m.failure_text.clone().unwrap_or_default().chars().take(40).collect::<String>(),
+        }),
+    );
+}
+
 fn start(mut m: Option<ResMut<Mission>>, mut out: MessageWriter<SendTrigger>, path: Res<crate::campath::CameraPath>, time: Res<Time>, mut waited: Local<f32>) {
     let Some(m) = m.as_deref_mut() else { return };
     if m.started {
@@ -666,36 +1081,67 @@ fn start(mut m: Option<ResMut<Mission>>, mut out: MessageWriter<SendTrigger>, pa
     if let Some(t) = m.start_text.clone() {
         m.objectives = long_form(&t);
         m.objectives_raw = t.clone();
+        m.objectives_id = "start_text".into();
         m.message(&t, 0.0);
     }
     m.log.push("start".into());
 }
 
-/// Trigger volumes: the player entering sends the trigger (one-shot volumes once).
-fn volumes(mut m: Option<ResMut<Mission>>, player: Query<&GlobalTransform, With<Player>>, mut out: MessageWriter<SendTrigger>) {
-    let (Some(m), Ok(p)) = (m.as_deref_mut(), player.single()) else { return };
-    let p = p.translation() + Vec3::Y * 5.0;
+/// Trigger volumes: the player (and, with ai_can_trigger, AI) entering or leaving (the contact callback 0x004976a0),
+/// then each volume's update (0x00497640) sends a pending on_enter.
+fn volumes(
+    mut m: Option<ResMut<Mission>>,
+    player: Query<(Entity, &GlobalTransform), With<Player>>,
+    grunts: Query<(Entity, &GlobalTransform, &Grunt)>,
+    companions: Query<(Entity, &GlobalTransform, &crate::ai::Companion)>,
+    mut out: MessageWriter<SendTrigger>,
+) {
+    let Some(m) = m.as_deref_mut() else { return };
+    let mut bodies: Vec<(Entity, Vec3, bool)> = player.iter().map(|(e, t)| (e, t.translation(), false)).collect();
+    bodies.extend(grunts.iter().filter(|(_, _, g)| g.mind != Mind::Dead).map(|(e, t, _)| (e, t.translation(), true)));
+    bodies.extend(companions.iter().filter(|(_, _, c)| c.dead.is_none()).map(|(e, t, _)| (e, t.translation(), true)));
+    let mut logs = Vec::new();
+    for t in std::mem::take(&mut m.resend) {
+        out.write(SendTrigger(t));
+    }
     for t in &mut m.triggers {
-        if t.done {
-            continue;
+        let mut sends = Vec::new();
+        let present: HashSet<Entity> = bodies.iter().map(|b| b.0).collect();
+        // gone (died, removed) while inside: it leaves
+        let left: Vec<Entity> = t.inside.iter().copied().filter(|e| !present.contains(e)).collect();
+        for e in left {
+            t.inside.remove(&e);
+            sends.extend(t.contact(false));
         }
-        let inside = match t.volume {
-            Volume::Sphere(c, r) => c.distance(p) <= r,
-            Volume::Box(a, b) => p.cmpge(a - Vec3::splat(2.0)).all() && p.cmple(b + Vec3::Y * 20.0).all(),
-        };
-        if inside && !t.inside {
-            out.write(SendTrigger(t.sends));
-            m.log.push(format!("volume {} -> trigger {}", t.id, t.sends));
-            if t.one_shot {
-                t.done = true;
+        for &(e, p, ai) in &bodies {
+            // collision group 8 (the player) or 0x18 with ai_can_trigger (0x004975d0)
+            if ai && !t.ai {
+                continue;
+            }
+            let inside = t.volume.contains(p + Vec3::Y * 5.0);
+            let was = t.inside.contains(&e);
+            if inside != was {
+                if inside {
+                    t.inside.insert(e);
+                } else {
+                    t.inside.remove(&e);
+                }
+                sends.extend(t.contact(inside));
             }
         }
-        t.inside = inside;
+        sends.extend(t.update());
+        for s in sends {
+            logs.push(format!("volume {} -> trigger {s}", t.id));
+            out.write(SendTrigger(s));
+        }
     }
+    m.log.extend(logs);
 }
 
-/// Ticker bomb sites (PlayerTickerBomb): in range with ticker bombs: "Hold down %s to set the ticker bomb!";
-/// held for 2 s it arms with a 6 s fuse (0x0044e4a0), then explodes and sends send_trigger_explode.
+/// Ticker bomb sites (PlayerTickerBomb_Update 0x0044e150 and the prompt 0x00467450): in range with ticker bombs,
+/// "Hold down %s to set the ticker bomb!"; Use held for arm_time arms it (0x0044e4a0: send_trigger_set, its tag
+/// cleared, alpha 1, a 6 s fuse Game+0x25e4), then it explodes (area damage at the bomb), sends send_trigger_explode
+/// and is removed (vt+0xd4).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn sites(
     time: Res<Time>,
@@ -703,14 +1149,14 @@ pub(crate) fn sites(
     bot: Res<crate::playtest::Bot>,
     mut m: Option<ResMut<Mission>>,
     player: Query<&GlobalTransform, With<Player>>,
-    mut out: MessageWriter<SendTrigger>,
-    mut blast: MessageWriter<Explode>,
-    mut fx: MessageWriter<StartFx>,
+    (mut out, mut blast, mut fx): (MessageWriter<SendTrigger>, MessageWriter<Explode>, MessageWriter<StartFx>),
     mut hud: ResMut<crate::hud::HudState>,
-    data: Res<crate::gamedata::GameData>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     mut stop: MessageWriter<crate::audio::StopSound>,
     mut rng: ResMut<crate::fx::FxStats>,
+    mut commands: Commands,
+    placed: Query<(Entity, &InstanceId, Option<&crate::level::Placed>)>,
+    mut physics: NonSendMut<crate::physics::Physics>,
 ) {
     let (Some(m), Ok(p)) = (m.as_deref_mut(), player.single()) else { return };
     let dt = time.delta_secs();
@@ -722,6 +1168,7 @@ pub(crate) fn sites(
     let any_armed = m.sites.iter().any(|s| s.armed.is_some() && !s.done);
     let mut sends = Vec::new();
     let mut logs = Vec::new();
+    let mut untag = Vec::new();
     let mut arming = None;
     let mut clock = None;
     // the wind-up (0x0044e3a0 starts wpn_ticker_windup_lp, 0x0044e430 stops it when Use is let go)
@@ -733,6 +1180,17 @@ pub(crate) fn sites(
         if s.done {
             continue;
         }
+        // the bomb object's alpha (vt+0x100): unarmed_falloff at load (0x0044de90), 1.0 once armed (0x0044e4a0)
+        let alpha = if s.armed.is_some() { 1.0 } else { s.falloff };
+        if s.shown != Some(alpha) {
+            if let Some((e, _, _)) = placed.iter().find(|(_, i, _)| i.0 == s.id) {
+                commands.entity(e).insert(crate::camfade::ObjectAlpha(alpha));
+                s.shown = Some(alpha);
+            }
+        }
+        if s.lock_parent_tag != 0 && s.nag == 0 {
+            logs.push(format!("ticker site {}: lock_parent_tag {} not ported (0x0044e120)", s.id, s.lock_parent_tag));
+        }
         if let Some(fuse) = s.armed.as_mut() {
             *fuse -= dt;
             // ui_clock plays from the arming (g+0x25e4 = 6 s)
@@ -740,16 +1198,16 @@ pub(crate) fn sites(
             if *fuse <= 0.0 {
                 s.done = true;
                 clock = None;
-                let b = data.props("p_player_tickerbomb");
                 blast.write(Explode {
                     at: s.pos,
-                    area_damage: b.f("area_damage", 100.0),
-                    radius_inner: b.f("damage_radius_inner", 40.0),
-                    radius_outer: b.f("damage_radius_outer", 60.0),
-                    impact_force: b.f("impact_force", 25000.0),
+                    area_damage: s.area_damage,
+                    radius_inner: s.radius_inner,
+                    radius_outer: s.radius_outer,
+                    impact_force: s.impact_force,
                     source: None,
                     delay: 0.0,
-                    // planted by the player (guess: the ticker's damage record is not traced)
+                    // 0x0047f020 with no source object (stack: 0, &pos, 0, ...); planted by the player (guess: the
+                    // record's flags are not traced)
                     by: crate::fx::Src::Player,
                     cartoon: false,
                 });
@@ -757,6 +1215,16 @@ pub(crate) fn sites(
                 if s.explode != 0 {
                     sends.push(s.explode);
                 }
+                // vt+0xd4(0): the bomb object goes
+                for (e, i, pl) in &placed {
+                    if i.0 == s.id {
+                        if let Some(c) = pl.and_then(|pl| pl.collider) {
+                            physics.remove_static(c);
+                        }
+                        commands.entity(e).despawn();
+                    }
+                }
+                untag.push(s.id);
                 logs.push(format!("ticker site {} exploded -> trigger {}", s.id, s.explode));
             }
             continue;
@@ -768,10 +1236,14 @@ pub(crate) fn sites(
             s.hold = 0.0;
             continue;
         }
-        if !s.enabled {
-            if tickers > 0 && s.non_enabled != 0 {
-                sends.push(s.non_enabled);
-                s.non_enabled = 0;
+        if !s.enabled() {
+            // the prompt (every 6th frame, 0x00467450) sends send_trigger_non_enabled while the player, holding ticker
+            // bombs, stands at a disabled site (PlayerTickerBomb_SendNonEnabled 0x0044e0e0; not a one-shot)
+            if tickers > 0 && s.non_enabled != 0 && dt > 0.0 {
+                if s.nag % 6 == 0 {
+                    sends.push(s.non_enabled);
+                }
+                s.nag += 1;
             }
             continue;
         }
@@ -790,10 +1262,12 @@ pub(crate) fn sites(
                 sounds.write(crate::audio::PlaySound { looped: Some(true), ..crate::audio::PlaySound::at("wpn_ticker_windup_lp", s.pos) });
             }
             s.hold += dt;
-            // the arming bar ui_tickerbomb_set fills while Use is held (it takes the prompt's place)
-            arming = Some((s.hold / 2.0).min(1.0));
-            if s.hold >= 2.0 {
-                // 0x0044e4a0: wind-up stops, wpn_ticker and one of Roman's two "armed" lines (50 % each), the clock
+            // the arming bar ui_tickerbomb_set fills while Use is held (it takes the prompt's place): (T - +0x464) /
+            // arm_time
+            arming = Some((s.hold / s.arm_time.max(0.01)).min(1.0));
+            if s.hold >= s.arm_time {
+                // 0x0044e4a0: wind-up stops, wpn_ticker and one of Roman's two "armed" lines (50 % each), send_trigger_set
+                // (0x0044e0c0), its tag cleared (+0x390 = 0), the clock
                 s.armed = Some(6.0);
                 arming = None;
                 clock = Some(0.0);
@@ -801,6 +1275,10 @@ pub(crate) fn sites(
                 sounds.write(crate::audio::PlaySound::at("wpn_ticker", s.pos));
                 let line = if rng.rand() < 0.5 { "rom50211_tickerarmed" } else { "rom50212_tickerarmed" };
                 sounds.write(crate::audio::PlaySound::at(line, p));
+                if s.set != 0 {
+                    sends.push(s.set);
+                }
+                untag.push(s.id);
                 logs.push(format!("ticker site {} armed", s.id));
             }
         } else {
@@ -814,14 +1292,17 @@ pub(crate) fn sites(
     for t in sends {
         out.write(SendTrigger(t));
     }
+    m.untagged.extend(untag);
     m.log.extend(logs);
     hud.ticker_arming = arming;
     hud.ticker_clock = clock;
     hud.prompt = prompt.map(|k| if k.starts_with("ui_") { m.hint(&k) } else { k });
 }
 
-/// The pub: near the doorway "Press %s to enter pub"; Use opens the pub screen (gamemenu.rs: awards, health from
-/// the pool, weapons); leaving it sends send_trigger_exit.
+/// The pub: near the doorway "Press %s to enter pub" while open, "CLOSED until troops are destroyed" (ui_pub_fail)
+/// while its listen_trigger_open has not arrived (0x00467b60, 0x0046a6c0; stepping in sends send_trigger_entry_failure,
+/// 0x0046a6d0); Use opens the pub screen (gamemenu.rs) and sends send_trigger_entry once (0x0046a6f0); leaving the
+/// screen sends send_trigger_exit (0x0046a720).
 fn pub_door(ctl: Res<crate::input::Controls>, bot: Res<crate::playtest::Bot>, mut m: Option<ResMut<Mission>>, player: Query<&GlobalTransform, With<Player>>, mut out: MessageWriter<SendTrigger>, mut hud: ResMut<crate::hud::HudState>) {
     let (Some(m), Ok(p)) = (m.as_deref_mut(), player.single()) else { return };
     let Some((pos, r, exit)) = m.pub_pos else { return };
@@ -832,7 +1313,20 @@ fn pub_door(ctl: Res<crate::input::Controls>, bot: Res<crate::playtest::Bot>, mu
             out.write(SendTrigger(exit));
         }
     }
-    if m.pub_done || p.translation().with_y(0.0).distance(pos.with_y(0.0)) > r {
+    let inside = p.translation().with_y(0.0).distance(pos.with_y(0.0)) <= r;
+    let stepped_in = inside && !m.pub_triggers.was_inside;
+    m.pub_triggers.was_inside = inside;
+    if m.pub_done || !inside {
+        return;
+    }
+    if m.pub_triggers.open != 0 {
+        if stepped_in && m.pub_triggers.entry_failure != 0 {
+            m.log.push(format!("pub closed -> trigger {}", m.pub_triggers.entry_failure));
+            out.write(SendTrigger(m.pub_triggers.entry_failure));
+        }
+        if hud.prompt.is_none() {
+            hud.prompt = Some(m.hint("ui_pub_fail"));
+        }
         return;
     }
     if hud.prompt.is_none() {
@@ -843,6 +1337,10 @@ fn pub_door(ctl: Res<crate::input::Controls>, bot: Res<crate::playtest::Bot>, mu
         m.pub_request = true;
         hud.prompt = None;
         m.log.push("pub entered".into());
+        let entry = std::mem::take(&mut m.pub_triggers.entry);
+        if entry != 0 {
+            out.write(SendTrigger(entry));
+        }
     }
 }
 
@@ -936,22 +1434,23 @@ fn dispatch(
     mut stop: MessageWriter<crate::audio::StopSound>,
     companions: Query<(Entity, &crate::ai::Companion, &GlobalTransform)>,
     mut music: ResMut<crate::gameaudio::Music>,
+    cam: Query<(Entity, &GlobalTransform), With<Camera3d>>,
 ) {
     let Some(m) = m.as_deref_mut() else { return };
     let pe = player.single().ok().map(|p| p.0);
     let pt = player.single().ok().map(|p| p.1.translation());
     // Object_SendTrigger 0x00461870: every object's trigger handler is offered the id; all lev_1_m1 handlers return
-    // false, so it is a broadcast (docs/subsystems/objects.md)
-    for SendTrigger(t) in events.read() {
+    // false, so it is a broadcast (docs/subsystems/objects.md). Id 0 is never sent ("sent 0 trigger BAD BAD BAD").
+    let ids: Vec<i64> = events.read().map(|e| e.0).filter(|t| *t != 0).collect();
+    for t in ids {
+        let t = &t;
         let actions = m.receivers.get(t).cloned().unwrap_or_default();
         m.log.push(format!("trigger {t}: {} receivers", actions.len()));
         // the barracks' trigger handler 0x0040d1b0: activate starts the release and is used up (+0x534 = 0),
         // deactivate stops it, reset starts it with the troop counts refilled
         let mut blogs = Vec::new();
+        let mut m_resend = Vec::new();
         for b in &mut m.barracks {
-            if *t == 0 {
-                break;
-            }
             if *t == b.activate {
                 b.active = true;
                 b.activate = 0;
@@ -965,7 +1464,54 @@ fn dispatch(
                 blogs.push(format!("barracks {} reset", b.id));
             }
         }
+        // volumes' enable / disable (0x00497720)
+        for v in &mut m.triggers {
+            v.message(*t);
+        }
+        // bomb sites: receive_trigger_enable clears itself (PlayerTickerBomb_OnTrigger 0x0044e5e0)
+        for s in &mut m.sites {
+            if *t == s.enable_trigger {
+                s.enable_trigger = 0;
+                blogs.push(format!("ticker site {} enabled", s.id));
+            }
+        }
+        // counters (CounterObject_OnTrigger 0x00415860): the count reached sends its trigger at once (re-entrant)
+        for c in &mut m.counters {
+            if let Some(s) = c.message(*t) {
+                blogs.push(format!("counter {} reached {} -> trigger {s}", c.id, c.count));
+                m_resend.push(s);
+            }
+        }
+        // camera fx (CameraFXObject 0x004101a0 / 0x004102b0): trigger_start starts the fx on the camera,
+        // receive_trigger_kill removes the object and its fx
+        if let Ok((ce, ct)) = cam.single() {
+            for c in &mut m.camfx {
+                if c.gone {
+                    continue;
+                }
+                if *t == c.start && c.holder.is_none() {
+                    let h = commands.spawn((Transform::default(), Visibility::default(), ChildOf(ce))).id();
+                    fx.write(StartFx { name: c.fx.clone(), at: ct.translation(), rotation: Quat::IDENTITY, follow: Some(h), position_only: c.position_only });
+                    c.holder = Some(h);
+                    blogs.push(format!("camera fx {} started {}", c.id, c.fx));
+                }
+                if *t == c.kill {
+                    if let Some(h) = c.holder.take() {
+                        commands.entity(h).despawn();
+                    }
+                    c.gone = true;
+                    blogs.push(format!("camera fx {} killed", c.id));
+                }
+            }
+        }
+        // the pub's open trigger (PubObject_OnTrigger 0x0046a770 clears listen_trigger_open)
+        if *t == m.pub_triggers.open {
+            m.pub_triggers.open = 0;
+            blogs.push("pub opened".into());
+        }
         m.log.extend(blogs);
+        m.resend.extend(m_resend);
+        m.mission_trigger(*t);
         for a in actions {
             match a {
                 Action::WakeAi(id) => {
@@ -982,9 +1528,11 @@ fn dispatch(
                         music.request_victory(true);
                         m.log.push("music: victory request (objective)".into());
                     }
-                    let text = m.texts.get(&t).cloned().unwrap_or(t);
+                    let text = m.texts.get(&t).cloned().unwrap_or(t.clone());
                     m.objectives = long_form(&text);
                     m.objectives_raw = text.clone();
+                    m.objectives_id = t;
+                    // 0x00403410 flags 3 / 0x13: queued (shown 1 s later), paused, "Press %s to continue"
                     m.message(&text, 1.0);
                 }
                 Action::Compass(tag) => m.compass_tag = tag,
@@ -1072,11 +1620,17 @@ fn dispatch(
                 Action::Barracks(_) => {}
                 // receive_trigger_kill (DefaultGameObject_OnTrigger 0x00450fb0 -> vt+0xd4, the death slot)
                 Action::Destroy(id) => {
+                    m.untagged.insert(id);
                     let mut killed = false;
                     for (i, mut d) in &mut objects {
                         if i.0 == id && d.dying.is_none() {
                             d.health = 0.0;
                             d.dying = Some(0.0);
+                            // an explosive (FxExplosion_OnTrigger 0x0041c6e0 -> FxExplosion_Die 0x0041c570 with no
+                            // record) passes acceleration_rate x start_delay on (fx.rs `dying` uses the chain delay)
+                            if d.chain {
+                                d.chain_delay = d.start_delay;
+                            }
                             killed = true;
                         }
                     }
@@ -1093,17 +1647,14 @@ fn dispatch(
                         }
                     }
                 }
-                Action::EnableSite(id) => {
-                    for s in &mut m.sites {
-                        if s.id == id {
-                            s.enabled = true;
-                        }
-                    }
-                }
                 Action::Win => {
-                    if m.outcome == Outcome::Playing {
+                    if m.outcome == Outcome::Playing && *t == m.success {
                         m.outcome = Outcome::Won;
-                        // the mission's score_value to Loot (MissionObject_OnTrigger 0x0044d600, game_02.cpp:2262)
+                        // MissionObject_OnTrigger 0x0044d600 +0x46c: on lev_1_m1_b and lev_2_m1 Rescues (Game+0x272c)
+                        // += 1000; score_value to Loot (+0x2730, game_02.cpp:2262); level state 2
+                        if m.level.eq_ignore_ascii_case("lev_1_m1_b") || m.level.eq_ignore_ascii_case("lev_2_m1") {
+                            ms.rescues_money += 1000.0;
+                        }
                         ms.loot_money += m.score_value;
                         // every sound but the music stops (0x0044a390: audio vt+0xa8(0), 0x004f24e0)
                         stop.write(crate::audio::StopSound(crate::audio::ALL_BUT_MUSIC.into()));
@@ -1204,5 +1755,76 @@ fn outcome(time: Res<Time>, mut m: Option<ResMut<Mission>>, roman: Query<&crate:
             let rel = to.x.atan2(-to.z) - f.x.atan2(-f.z);
             (-rel, (t - c.translation()).length())
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn volume(props: serde_json::Value) -> Trigger {
+        Trigger::new(1, props.as_object().unwrap(), Volume::Sphere(Vec3::ZERO, 10.0))
+    }
+
+    #[test]
+    fn one_shot_enter_sends_once() {
+        let mut t = volume(serde_json::json!({"on_enter": 5, "one_shot": 1}));
+        assert_eq!(t.contact(true), None);
+        assert_eq!(t.update(), Some(5));
+        assert_eq!(t.update(), None);
+        t.contact(false);
+        t.contact(true);
+        assert_eq!(t.update(), None, "one_shot clears on_enter");
+        assert!(t.fired);
+    }
+
+    #[test]
+    fn door_mat_keeps_on_enter() {
+        let mut t = volume(serde_json::json!({"on_enter": 5, "one_shot": 1, "door_mat": 1}));
+        t.contact(true);
+        assert_eq!(t.update(), Some(5));
+        t.contact(false);
+        t.contact(true);
+        assert_eq!(t.update(), Some(5));
+    }
+
+    #[test]
+    fn disabled_volume_waits_and_on_exit() {
+        let mut t = volume(serde_json::json!({"on_enter": 5, "on_exit": 6, "enable": 9, "disable": 8, "one_shot": 1}));
+        assert!(!t.enabled, "an enable trigger means it starts disabled");
+        t.contact(true);
+        assert_eq!(t.update(), None);
+        assert!(t.pending, "stays pending while disabled");
+        t.message(9);
+        assert_eq!(t.update(), Some(5));
+        assert_eq!(t.contact(false), Some(6));
+        t.contact(true);
+        assert_eq!(t.contact(false), None, "one_shot clears on_exit");
+        t.message(8);
+        assert!(!t.enabled);
+    }
+
+    #[test]
+    fn leaving_clears_pending() {
+        let mut t = volume(serde_json::json!({"on_enter": 5, "enable": 9}));
+        t.contact(true);
+        t.contact(false);
+        t.message(9);
+        assert_eq!(t.update(), None);
+    }
+
+    #[test]
+    fn counter_counts_and_finishes() {
+        let mut c = Counter { id: 1, activate: 3, deactivate: 4, send: 7, count: 2, infinite: false, current: 0, off: false };
+        assert_eq!(c.message(3), None);
+        assert_eq!(c.message(3), Some(7));
+        assert_eq!(c.message(3), None, "removed after sending");
+        let mut i = Counter { infinite: true, off: false, current: 0, ..c.clone() };
+        assert_eq!(i.message(3), None);
+        assert_eq!(i.message(3), Some(7));
+        assert_eq!(i.message(3), None);
+        assert_eq!(i.message(3), Some(7), "infinite restarts");
+        i.message(4);
+        assert_eq!(i.message(3), None);
     }
 }

@@ -304,6 +304,7 @@ fn dying(
 ) {
     for (e, t, mut d) in &mut q {
         let Some(left) = d.dying.as_mut() else { continue };
+        // a lit fuse counts down by the frame time, then the death slot (FxExplosion_Update 0x0041c6a0)
         *left -= time.delta_secs();
         if *left > 0.0 {
             continue;

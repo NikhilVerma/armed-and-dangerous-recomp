@@ -27,6 +27,36 @@ pub const CHEATS: [(&str, &str, u32); 12] = [
     ("ui_cheat_showall", "DAJIGSUP", 0x80),
 ];
 
+/// Cheat_FlagByName 0x00410e00: a cheat's flag by its text id (_stricmp over the table), 0 when none matches.
+pub fn flag_by_name(id: &str) -> u32 {
+    CHEATS.iter().find(|c| c.0.eq_ignore_ascii_case(id)).map(|c| c.2).unwrap_or(0)
+}
+
+/// Cheat_IsUnlocked 0x00410ea0: the cheat's flag is in the known mask Game+0x48c (options.json `cheats_known`).
+pub fn is_unlocked(id: &str, opts: &crate::options::GameOptions) -> bool {
+    let f = flag_by_name(id);
+    f != 0 && opts.cheats_known.contains(&f)
+}
+
+/// Cheat_Unlock 0x00410e40 (from the token reward 0x004a0850, enable 0): the flag joins Game+0x48c (saved with the
+/// options, Options_Apply 0x00401ce0); with `enable` it is also switched on (Game+0x4c8). False for an unknown id.
+pub fn unlock(id: &str, enable: bool, opts: &mut crate::options::GameOptions, cheats: Option<&mut Cheats>) -> bool {
+    let f = flag_by_name(id);
+    if f == 0 {
+        return false;
+    }
+    if !opts.cheats_known.contains(&f) {
+        opts.cheats_known.push(f);
+        opts.save();
+    }
+    if enable {
+        if let Some(c) = cheats {
+            c.active |= f;
+        }
+    }
+    true
+}
+
 /// The active cheats (Game+0x4c8) and the cheat entry page's state.
 #[derive(Resource, Default)]
 pub struct Cheats {

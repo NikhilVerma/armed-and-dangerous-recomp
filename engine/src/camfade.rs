@@ -26,7 +26,7 @@ pub struct CameraFadePlugin;
 
 impl Plugin for CameraFadePlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<CameraFade>().add_systems(Update, fade);
+        app.init_resource::<CameraFade>().add_systems(Update, (fade, object_alpha));
     }
 }
 
@@ -80,6 +80,35 @@ fn fade(
                     mm.0 = shared;
                 }
                 materials.remove(&own);
+            }
+        }
+    }
+}
+
+/// An object's own alpha (the objects' vt+0x100 setter: a ticker bomb site at unarmed_falloff until armed,
+/// PlayerTickerBomb_Load 0x0044de90 / 0x0044e4a0; PickupObject_Update 0x00472200's fade). Its meshes draw with their
+/// own copies of their materials, the alpha in emissive.w as the camera fade's (1 - alpha).
+#[derive(Component, Clone, Copy, PartialEq, Debug)]
+pub struct ObjectAlpha(pub f32);
+
+fn object_alpha(
+    q: Query<(Entity, &ObjectAlpha), Changed<ObjectAlpha>>,
+    children: Query<&Children>,
+    mut meshes: Query<&mut MeshMaterial3d<GameMaterial>>,
+    mut materials: ResMut<Assets<GameMaterial>>,
+    mut own: Local<HashSet<AssetId<GameMaterial>>>,
+) {
+    for (e, a) in &q {
+        for m in std::iter::once(e).chain(children.iter_descendants(e)) {
+            let Ok(mut mm) = meshes.get_mut(m) else { continue };
+            if !own.contains(&mm.0.id()) {
+                let Some(copy) = materials.get(&mm.0).cloned() else { continue };
+                let h = materials.add(copy);
+                own.insert(h.id());
+                mm.0 = h;
+            }
+            if let Some(mut mat) = materials.get_mut(&mm.0) {
+                mat.params.emissive.w = 1.0 - a.0.clamp(0.0, 1.0);
             }
         }
     }
