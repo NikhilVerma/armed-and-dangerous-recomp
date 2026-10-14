@@ -1403,7 +1403,7 @@ fn projectiles(
 }
 
 /// Third-person camera behind Roman's shoulder at his yaw and pitch, pulled in when geometry is in the way.
-fn follow_camera(
+pub fn follow_camera(
     path: Res<crate::campath::CameraPath>,
     physics: NonSend<Physics>,
     roman: Query<(Entity, &Roman, &Transform), Without<FollowCam>>,

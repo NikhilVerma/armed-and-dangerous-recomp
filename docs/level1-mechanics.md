@@ -43,7 +43,7 @@ Update this table as items land (commit hash in the last column).
 | Sticky: release at throw-anim frame 9 (~0.3 s), ammo at release | game_05.cpp:1579, game_09.cpp:1813 | P | 1 | release at the anim's fire note (0.267 s), ammo at release |
 | Sticky: flight, homing, stick, blast | 0x004813b0.. | V | | |
 | Ticker bombs (pub award, hold Use, fuse) | 0x0044e3a0 / 0x0044e4a0 | P | | count 4 has no source |
-| Topsy Turvy | game_05.cpp:1790 | S | 2 | view roll stand-in; hits during topsy not ignored |
+| Topsy Turvy | game_05.cpp:1790 | P | 2 | the view follows the anims' Camera_topsy track in Roman's frame (back = world_turn reversed: guess); hits during topsy not ignored yet (topsy.json) |
 | Hit reaction, knockback | 0x0047afa0 | V | | |
 | Death presentation (ragdoll, fx_trotter_death, death lines) | vt+0xd4, player.md 6 | P | 2 | ragdoll from his pose (ragdoll.rs; Roman's head end from the neck), fx_trotter_death, death line, failed page after 5 s (dead.json) |
 | Mounted gun stig_mgun 32 | game_08.cpp turret | M | 2 | |
