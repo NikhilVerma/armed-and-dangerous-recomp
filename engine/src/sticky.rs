@@ -290,6 +290,8 @@ fn fly(
                 impact_force: p.f("impact_force", 2010.0),
                 source: obj,
                 delay: 0.0,
+                // the thrower (0x0047e3a0): Roman's sticky bomb, or Jonesy's dynamite (a teammate)
+                by: if b.props.contains("molmer") { crate::fx::Src::Teammate } else { crate::fx::Src::Player },
             });
             if let Some((mut g, mut h)) = obj.and_then(|o| grunts.get_mut(o).ok()) {
                 let d = area + p.f("damage", 10.0);

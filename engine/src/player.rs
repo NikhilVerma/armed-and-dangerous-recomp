@@ -125,6 +125,9 @@ pub struct Projectile {
     /// head_shot_multiplier / torso_shot_multiplier (Projectile_ApplyHitDamage 0x0047eec0; code defaults 1)
     pub head_mult: f32,
     pub torso_mult: f32,
+    /// damages_buildings off (the default): its damage record carries 0x400 (0x0047eba0), which buildings and
+    /// objects without takes_bullet_damage ignore
+    pub no_buildings: bool,
 }
 
 /// A projectile of a property set (speed x3 as Projectile_Load 0x0047e0c0; damage, lifetime, fx_start trail
@@ -257,6 +260,7 @@ pub fn spawn_projectile(commands: &mut Commands, fx: &mut MessageWriter<crate::f
                 head_mult: p.f("head_shot_multiplier", 1.0),
                 torso_mult: p.f("torso_shot_multiplier", 1.0),
                 impact: p.f("impact_force", 2010.0),
+                no_buildings: p.f("damages_buildings", 0.0) == 0.0,
             },
         ))
         .id();
@@ -1046,7 +1050,7 @@ fn projectiles(
         let step = p.vel * dt;
         let from = t.translation;
         p.life -= dt;
-        let mut hit = physics.raycast(from, step.normalize_or(Vec3::Y), step.length().max(0.01));
+        let mut hit = physics.raycast_bullet(from, step.normalize_or(Vec3::Y), step.length().max(0.01));
         // the original's bullets hit a character's collision parts (Projectile_Update 0x0047e580: a detail-level-2 ray
         // against the collision model's parts), not a capsule round the whole body: a ray into a grunt's capsule hits
         // only where it meets one of grunt_coll_9's boxes posed by the skeleton (hitparts.rs); other characters: within
@@ -1213,7 +1217,19 @@ fn projectiles(
                     stats.kills += 1;
                 }
             } else if let Some((_, mut d)) = objects.iter_mut().find(|(pl, _)| pl.collider == Some(body)) {
-                // a direct hit (not a blast): kills exploding props at once (FxExplosion_Die, non-chain record)
+                // a direct hit (not a blast): kills exploding props at once (FxExplosion_Die, non-chain record); the
+                // object's damage filter first (the record's source: the shooter, Projectile_ApplyHitDamage 0x0047eec0)
+                let by = if !p.from_player {
+                    crate::fx::Src::Badguy
+                } else if p.owner.is_some_and(|o| roman.contains(o)) {
+                    crate::fx::Src::Player
+                } else {
+                    crate::fx::Src::Teammate
+                };
+                if !d.accepts(by, p.no_buildings) {
+                    commands.entity(e).despawn();
+                    continue;
+                }
                 d.health -= p.damage;
                 if d.health <= 0.0 && d.dying.is_none() {
                     d.chain_delay = 0.0;
@@ -1339,6 +1355,13 @@ pub fn spawn_bomb(commands: &mut Commands, physics: &mut Physics, bombs: &BombAs
         acceleration: 1.0,
         dying: None,
         chain_delay: 0.0,
+        // the fuse sets it off, not damage
+        class: crate::fx::DClass::Default,
+        takes_damage: false,
+        takes_bullet: false,
+        player_damage: false,
+        teammate_damage: false,
+        badguy_damage: false,
     };
     let e = commands.spawn((Transform::from_translation(at).with_rotation(bombs.base), Visibility::default(), d, Fuse(fuse))).id();
     for (m, mat) in &bombs.parts {

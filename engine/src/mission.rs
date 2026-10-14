@@ -631,6 +631,8 @@ fn sites(
                     impact_force: b.f("impact_force", 25000.0),
                     source: None,
                     delay: 0.0,
+                    // planted by the player (guess: the ticker's damage record is not traced)
+                    by: crate::fx::Src::Player,
                 });
                 fx.write(StartFx { name: "fx_ticker_bomb".into(), at: s.pos, rotation: Quat::IDENTITY, follow: None, position_only: false });
                 if s.explode != 0 {
@@ -755,7 +757,8 @@ fn dispatch(
     mut events: MessageReader<SendTrigger>,
     mut grunts: Query<(&InstanceId, &mut Grunt)>,
     mut objects: Query<(&InstanceId, &mut Destructible)>,
-    plain: Query<(Entity, &InstanceId), (Without<Destructible>, Without<Grunt>)>,
+    plain: Query<(Entity, &InstanceId, Option<&crate::level::Placed>), (Without<Destructible>, Without<Grunt>)>,
+    mut physics: NonSendMut<crate::physics::Physics>,
     mut commands: Commands,
     player: Query<Entity, With<Player>>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
@@ -815,8 +818,12 @@ fn dispatch(
                     }
                     // objects without health (the big red arrow): receive_trigger_kill removes them
                     if !killed {
-                        for (e, i) in &plain {
+                        for (e, i, pl) in &plain {
                             if i.0 == id {
+                                // with its collision (the arrow's body stayed behind, blocking the crosshair)
+                                if let Some(c) = pl.and_then(|pl| pl.collider) {
+                                    physics.remove_static(c);
+                                }
                                 commands.entity(e).despawn();
                             }
                         }

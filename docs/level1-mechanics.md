@@ -97,8 +97,8 @@ Update this table as items land (commit hash in the last column).
 | Mechanic | Original | Status | Pri | Notes / done |
 |---|---|---|---|---|
 | Powder kegs, pipes: one bullet kills, chains | FxExplosion 0x0041c180.. | P | | |
-| Damage filters: takes_bullet_damage, player / teammate / badguy_damage, takes_damage | game_02.cpp:724, ai_01.cpp:899, game_03.cpp:919 | M | 1 | houses / barracks / arch / island take bullets in the engine; grunt shots set off kegs |
-| Bullet-transparent objects (trees, invisible walls, arrow) | list +0xe90 | M | 1 | engine blocks bullets and the crosshair on them; arrow collider left behind |
+| Damage filters: takes_bullet_damage, player / teammate / badguy_damage, takes_damage | 0x00450da0, 0x0040ce40, 0x0041c4e0 (docs/subsystems/damage.md) | P | 1 | fx.rs `Destructible::accepts`: buildings ignore bullets and grunts, kegs / pipes ignore grunts and companions |
+| Bullet-transparent objects (invisible walls, arrow) | list +0xe90, filter 0x00413a90 | P | 1 | physics.no_bullets (trees do stop bullets); a trigger-killed object's collider is removed |
 | Houses: breakable windows, door anim | 0x0040ad80 | M | 3 | |
 | Barracks stop releasing when destroyed | | M | 2 | |
 | Oil pump animation (oilpump_cycle) | | M | 3 | |

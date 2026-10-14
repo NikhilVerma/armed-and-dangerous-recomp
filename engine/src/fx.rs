@@ -18,6 +18,34 @@ pub struct Explode {
     pub source: Option<Entity>,
     /// The chain delay this blast passes to exploding props it kills (record +0x30).
     pub delay: f32,
+    /// who the damage record names as its source (+0x2c): the thrower, or the exploding object itself
+    pub by: Src,
+}
+
+/// The kind of a damage record's source (+0x2c), as the damage filters ask it: an object (its vt+0xe0 true: kegs,
+/// default objects, a dead grunt) passes every source filter; the player (vt+0xe4 true, vt+0xe8 false), a teammate
+/// (vt+0xe4 true) and a bad guy (grunts: vt+0xe8 true) need player_ / teammate_ / badguy_damage.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Src {
+    #[default]
+    Object,
+    Player,
+    Teammate,
+    Badguy,
+}
+
+/// The damage handler class of a destructible (by its behaviour; vt+0xd0):
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum DClass {
+    /// no behaviour, DefaultGameObject_OnDamage 0x00450da0: takes_damage, takes_bullet_damage (both default 0)
+    Default,
+    /// BuildingObject 0x0040ce40: takes_damage (default 1), takes_bullet_damage (0), player / teammate (1) /
+    /// badguy_damage (0)
+    Building,
+    /// FxExplosion_OnDamage 0x0041c4e0: player_damage (1), teammate / badguy_damage (0); no bullet test
+    Keg,
+    /// trees, rocket tower turrets: Object_TakeDamage 0x004555e0 with no filter
+    Open,
 }
 
 /// Bounding sphere of a damage target (model space centre, radius in game units): area damage is measured to
@@ -61,6 +89,31 @@ pub struct Destructible {
     /// Seconds until it dies once its health ran out, and the fuse it was lit with (0: killed directly).
     pub dying: Option<f32>,
     pub chain_delay: f32,
+    pub class: DClass,
+    pub takes_damage: bool,
+    pub takes_bullet: bool,
+    pub player_damage: bool,
+    pub teammate_damage: bool,
+    pub badguy_damage: bool,
+}
+
+impl Destructible {
+    /// Whether a damage record applies: `no_buildings` is the record's 0x400 bit (a projectile without
+    /// damages_buildings: the rifle's and grunts' bullets), `by` its source.
+    pub fn accepts(&self, by: Src, no_buildings: bool) -> bool {
+        let source = || match by {
+            Src::Object => true,
+            Src::Player => self.player_damage,
+            Src::Teammate => self.teammate_damage,
+            Src::Badguy => self.badguy_damage,
+        };
+        match self.class {
+            DClass::Default => self.takes_damage && (!no_buildings || self.takes_bullet),
+            DClass::Building => self.takes_damage && (!no_buildings || self.takes_bullet) && source(),
+            DClass::Keg => source(),
+            DClass::Open => true,
+        }
+    }
 }
 
 /// A thrown or placed bomb that goes off when its fuse runs out.
@@ -151,7 +204,7 @@ fn damage(
                 continue; // a keg already at health <= 0 ignores further damage
             }
             let (dist, _) = surface(t, bounds, b.at);
-            if dist > b.radius_outer {
+            if dist > b.radius_outer || !d.accepts(b.by, false) {
                 continue;
             }
             d.health -= b.area_damage * falloff(dist, b.radius_inner, b.radius_outer);
@@ -228,6 +281,8 @@ fn dying(
                 impact_force: d.impact_force,
                 source: Some(e),
                 delay,
+                // the keg / object itself is the record's source (FxExplosion_Die 0x0041c570, 0x00450ee0)
+                by: Src::Object,
             });
         }
         if let Some(name) = &d.fx_death {

@@ -2,7 +2,7 @@
 //! (`behavior`, `collision_lod_index`, health and damage keys) decides what it becomes in the engine.
 
 use crate::ai;
-use crate::fx::{Bounds, Destructible, Died, Health};
+use crate::fx::{Bounds, DClass, Destructible, Died, Health};
 use crate::gamedata::{GameData, Props};
 use crate::physics::{Body, Physics};
 use crate::player::BombAssets;
@@ -188,6 +188,19 @@ fn destructible(p: &Props) -> Option<Destructible> {
         radius_outer: p.f("damage_radius_outer", 0.0),
         impact_force: p.f("impact_force", 0.0),
         chain: p.s("behavior") == Some("fx_explosion"),
+        class: match p.s("behavior").unwrap_or("") {
+            "building" => DClass::Building,
+            "fx_explosion" => DClass::Keg,
+            "tree" | "rocket_tower_turret" => DClass::Open,
+            _ => DClass::Default,
+        },
+        // defaults by class: DefaultGameObject_Load 0x0044fd20, BuildingObject 0x0040ad80 (ai_01.cpp:961),
+        // FxExplosion_Load 0x0041c180
+        takes_damage: p.f("takes_damage", if p.s("behavior") == Some("building") { 1.0 } else { 0.0 }) != 0.0,
+        takes_bullet: p.f("takes_bullet_damage", 0.0) != 0.0,
+        player_damage: p.f("player_damage", 1.0) != 0.0,
+        teammate_damage: p.f("teammate_damage", if p.s("behavior") == Some("building") { 1.0 } else { 0.0 }) != 0.0,
+        badguy_damage: p.f("badguy_damage", 0.0) != 0.0,
         start_delay: p.f("start_delay", 0.0),
         min_delay: p.f("min_delay", 0.0),
         acceleration: p.f("acceleration_rate", 1.0),
@@ -394,6 +407,22 @@ pub fn spawn(
             });
         if let (Some(c), Some(m)) = (collider, p.s("material")) {
             physics.materials.insert(c, m.to_owned());
+        }
+        // bullets hit only objects in the projectile list World +0xe90 (Projectile_Update 0x0047e580, filter
+        // 0x00413a90): buildings (unless base_defend or invisible), trees, kegs, turrets always; objects without a
+        // behaviour only when they take damage or block projectiles (game_03.cpp:560); invisible_material never
+        // (0x004138c0). Invisible walls (blocks_projectiles 0) let bullets through.
+        if let Some(c) = collider {
+            let flag = |k: &str| p.f(k, 0.0) != 0.0;
+            let listed = match behavior {
+                "building" => !(invisible || flag("base_defend")),
+                "tree" | "fx_explosion" | "rocket_tower_turret" => true,
+                "" => (flag("takes_damage") || flag("blocks_projectiles")) && !flag("no_collide"),
+                _ => true,
+            };
+            if !listed || p.s("material") == Some("invisible_material") {
+                physics.no_bullets.insert(c);
+            }
         }
         commands.entity(e).insert((Placed { template: inst.template.clone(), collider }, bounds));
         // attach_audio_loop (the oil pumps' amb_oil_pump_lp): a loop on the object while it lives

@@ -14,6 +14,8 @@ pub struct Physics {
     /// Dynamic bodies and the entity each one moves.
     pub bodies: HashMap<BodyId, Entity>,
     pub static_bodies: usize,
+    /// bodies projectiles pass through: objects not in the projectile list (World +0xe90) and invisible_material
+    pub no_bullets: std::collections::HashSet<BodyId>,
     /// the game material of a body (property `material`: snow, stone, wood, metal, grunt, ...) for impact fx
     pub materials: HashMap<BodyId, String>,
     pub static_triangles: usize,
@@ -52,6 +54,7 @@ impl Physics {
             meters_per_unit,
             bodies: HashMap::new(),
             static_bodies: 0,
+            no_bullets: Default::default(),
             materials: HashMap::new(),
             static_triangles: 0,
             landscape: None,
@@ -132,6 +135,24 @@ impl Physics {
             hit.push((id, falloff));
         }
         hit
+    }
+
+    /// A projectile's ray (Projectile_Update 0x0047e580): as raycast, through the bodies bullets pass.
+    pub fn raycast_bullet(&self, from: Vec3, dir: Vec3, length: f32) -> Option<(BodyId, Vec3, Vec3)> {
+        let d = dir.normalize_or(Vec3::Y);
+        let (mut from, mut left) = (from, length);
+        for _ in 0..16 {
+            let h = self.raycast(from, d, left)?;
+            if !self.no_bullets.contains(&h.0) {
+                return Some(h);
+            }
+            left -= h.1.distance(from) + 0.05;
+            if left <= 0.0 {
+                return None;
+            }
+            from = h.1 + d * 0.05;
+        }
+        None
     }
 
     pub fn raycast(&self, from: Vec3, dir: Vec3, length: f32) -> Option<(BodyId, Vec3, Vec3)> {
