@@ -40,6 +40,7 @@ mod pubscreen;
 mod ragdoll;
 mod savegame;
 mod topsy;
+mod turret;
 mod player;
 mod playtest;
 mod scene;
@@ -200,6 +201,7 @@ fn main() {
     .add_plugins(gamematerial::GameMaterialPlugin)
     .add_plugins(pubscreen::PubScreenPlugin)
     .add_plugins(topsy::TopsyPlugin)
+    .add_plugins(turret::TurretPlugin)
     .init_state::<AppState>()
     .insert_non_send(physics::Physics::new(level::METERS_PER_UNIT))
     .insert_resource(ClearColor(Color::srgb(0.62, 0.70, 0.80)))
