@@ -541,6 +541,14 @@ class _AnyIndex(dict):
         return 0
 
 
+# Skins whose meshes carry UBYTE4 blend indices without weights (rigid: each vertex follows the bone of its first
+# index) and whose bones the game moves at run time, exported skinned (weight 1 on that bone). Opt-in, because ~40
+# lev_1_m1 skins have that layout (collision models, ui objects, the big red arrow) and the engine treats them as
+# rigid models today. stig_mgun: base (stand, sandbags), center (pivot) and gun (barrel) by index 3 / 6 / 9; the
+# turret's pivot-bone callback 0x00499670 / 0x00498ff0 turns center (docs/subsystems/turret.md).
+RIGID_SKINNED = {"stig_mgun_0", "stig_mgun_9"}
+
+
 def skin_vertex_weights(ch, mesh_ptr, bone_index):
     """Per render vertex of one mesh: (joints [4] skeleton bone indices, weights [4] summing to 1), or None when the
     mesh has no blend data. Blend index = palette slot * 3 (constant registers per matrix, 0x004feb90 uploads 3
@@ -552,7 +560,8 @@ def skin_vertex_weights(ch, mesh_ptr, bone_index):
     if not sb:
         return None
     di, dw = tuple(b[sb + 0xAC + 52:sb + 0xB0 + 52]), tuple(b[sb + 0xAC + 4:sb + 0xB0 + 4])
-    if not di[2] or not dw[2] or not u32(b, m + M_NBONE):
+    rigid = di[2] == 5 and not dw[2] and getattr(ch, "name", "").lower() in RIGID_SKINNED
+    if not di[2] or (not dw[2] and not rigid) or not u32(b, m + M_NBONE):
         return None
     names = {i: n for n, _, i in objchunk.dict_items(b, u32(b, ch.root + 0x18))}
     mesh_bones = [names[u16(b, u32(b, m + M_BONE) + k * 0x58 + 8)] for k in range(u32(b, m + M_NBONE))]
