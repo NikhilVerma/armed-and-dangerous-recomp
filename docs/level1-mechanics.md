@@ -60,7 +60,7 @@ Update this table as items land (commit hash in the last column).
 | Target search, sight, companions as targets | 0x00426920 | V | | |
 | Fire cycle, aim error, muzzle | 0x00428980, 0x004284e0, 0x004a2010 | V | | second encounter 40 vs 42 shots, 24 vs 22 hits |
 | Retaliation when hit (adopt attacker) | 0x00430340 end, 0x0042c820 | P | 1 | offer-target rule (10 s, nearer); playtest retal.json |
-| Alert group on death / hit | 0x00431720, 0x0042cc70 | M | 2 | only on spotting |
+| Alert group on death / hit | 0x00431720, 0x0042cc70, 0x0042c700 | P | 2 | spotting and death hand the killer / target to the group after 0.25..1 s (group.json) |
 | Chase with nav routing, wait, go home | 0x00427910, ai_06.cpp:1420 | S | 2 | straight-line chase |
 | Marker paths, hide, cover (FindHidingSpot) | 0x0044ba30, 0x0042a7b0 | M | 2 | trigger_marker grunts 34 / 67, barracks troops |
 | Alarm chain (grunt 67 → marker 151 → siren → generators, captains) | 0x00404e50, 0x0044ba30 | M | 2 | |

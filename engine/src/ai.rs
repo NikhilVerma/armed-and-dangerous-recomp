@@ -791,13 +791,23 @@ fn die(
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     mut km: ResMut<KillMeter>,
     mut ms: ResMut<crate::stats::MissionStats>,
+    mut rng: ResMut<FxStats>,
+    alive: Query<&Health>,
 ) {
+    let mut alerts: Vec<(i64, Entity, Entity)> = Vec::new();
     for (e, mut g, body, tr, h, animator) in &mut grunts {
         if g.mind == Mind::Dead || h.0 > 0.0 {
             continue;
         }
         g.mind = Mind::Dead;
         km.meter += 1.0;
+        // his alert group hears of it (0x00431720): with a group id (+0x574) and a living killer, every other living
+        // member takes the killer as a target after 0.25..1 s (0x0042c700 -> the +0x578 hand-over)
+        if let Some(k) = g.attacker.take().filter(|&k| alive.get(k).is_ok_and(|h| h.0 > 0.0)) {
+            if g.alert_group != 0 {
+                alerts.push((g.alert_group, k, e));
+            }
+        }
         // an enemy killed, any cause (0x00431720), and his score_value
         ms.enemies_killed += 1;
         ms.killed(g.score);
@@ -829,6 +839,16 @@ fn die(
         let settings = BodySettings::new_dynamic().mass(80.0).friction(0.8).angular_damping(0.4);
         if let Some(id) = physics.add_dynamic(e, &shape, origin, tr.rotation, push, settings) {
             commands.entity(e).insert(Body { id, offset: center_local, sync_rotation: true });
+        }
+    }
+    for (group, killer, who) in alerts {
+        for (ge, mut g, _, _, _, _) in &mut grunts {
+            if ge != who && g.alert_group == group && g.mind != Mind::Dead && g.pending.is_none() {
+                if std::env::var("AIDBG").is_ok() {
+                    info!("AIDBG group {group} alerted by a death: {ge:?} -> {killer:?}");
+                }
+                g.pending = Some((killer, rng.range(0.25, 1.0)));
+            }
         }
     }
 }

@@ -355,7 +355,13 @@ fn drive(
         }
         let done = if st.until.as_deref() == Some("message") {
             mission.as_ref().is_some_and(|m| m.showing.is_some()) || pt.step_t > 60.0
-        } else if st.goto.is_some() {
+        } else if let Some(g) = st.goto {
+            // a bot that has not arrived after 240 s is stuck (its route-finding is a test aid, not the game): it is
+            // warped to the goal and the run goes on, logged so a run that needed it is not mistaken for a clean one
+            if !bot.arrived && !ended && pt.step_t > 240.0 {
+                warn!("EVENT playtest: bot stuck on the way to {g:?}: warped there");
+                pt.warp = Some([g[0], g[1], g[2] + 3.0, 0.0]);
+            }
             bot.arrived || ended || pt.step_t > 240.0
         } else if let Some(w) = st.wait {
             pt.step_t >= w
