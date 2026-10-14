@@ -287,6 +287,11 @@ fn main() {
         // longer jumps every timer at once, and runs compare frame for frame with the original's captures, which
         // advance one 60 Hz step per frame (fight2E: grunts fired in lockstep after each screenshot's stall)
         app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(std::time::Duration::from_secs_f64(1.0 / 60.0)));
+        // the same system order every run: many unordered systems draw from the shared random stream (FxStats), so
+        // the multi-threaded executor's run-to-run order changed which grunt shot when (player_move, 2026-10-15)
+        app.edit_schedule(Update, |s| {
+            s.set_executor(bevy::ecs::schedule::SingleThreadedExecutor::new());
+        });
     }
     // --snap FILE: a screenshot of whatever shows after 4 s (the title menu without other options), then exit.
     // AND_SNAP_DELAY=SECONDS waits longer (a busy machine loads the level's objects later than 4 s)
