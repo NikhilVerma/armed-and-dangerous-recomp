@@ -160,6 +160,13 @@ pub struct StopSound(pub String);
 #[derive(Component)]
 pub struct SoundName(pub String);
 
+/// A playing sound's bank category (music, voice, ...).
+#[derive(Component)]
+pub struct SoundCategory(pub String);
+
+/// StopSound name that stops every sound but the music (the win, 0x0044a390: audio vt+0xa8(0) 0x004f24e0)
+pub const ALL_BUT_MUSIC: &str = "*all_but_music";
+
 /// Category volumes (settings menu).
 #[derive(Resource)]
 pub struct Mixer {
@@ -234,7 +241,7 @@ fn play(
             spatial: ev.at.is_some() || ev.follow.is_some(),
             ..default()
         };
-        let mut e = commands.spawn((AudioPlayer(handle), settings, Transform::from_translation(ev.at.unwrap_or_default()), SoundName(ev.name.clone())));
+        let mut e = commands.spawn((AudioPlayer(handle), settings, Transform::from_translation(ev.at.unwrap_or_default()), SoundName(ev.name.clone()), SoundCategory(def.category.clone().unwrap_or_default())));
         if ev.at.is_some() || ev.follow.is_some() {
             e.insert(Positional {
                 base,
@@ -252,10 +259,10 @@ fn play(
     }
 }
 
-fn stop(mut commands: Commands, mut events: MessageReader<StopSound>, playing: Query<(Entity, &SoundName)>) {
+fn stop(mut commands: Commands, mut events: MessageReader<StopSound>, playing: Query<(Entity, &SoundName, Option<&SoundCategory>)>) {
     for ev in events.read() {
-        for (e, n) in &playing {
-            if n.0 == ev.0 {
+        for (e, n, c) in &playing {
+            if n.0 == ev.0 || (ev.0 == ALL_BUT_MUSIC && c.is_none_or(|c| c.0 != "music")) {
                 commands.entity(e).despawn();
             }
         }

@@ -770,6 +770,7 @@ fn dispatch(
     mut fx: MessageWriter<StartFx>,
     mut rng: ResMut<crate::fx::FxStats>,
     mut ms: ResMut<crate::stats::MissionStats>,
+    mut stop: MessageWriter<crate::audio::StopSound>,
 ) {
     let Some(m) = m.as_deref_mut() else { return };
     let pe = player.single().ok();
@@ -847,6 +848,8 @@ fn dispatch(
                         m.outcome = Outcome::Won;
                         // the mission's score_value to Loot (MissionObject_OnTrigger 0x0044d600, game_02.cpp:2262)
                         ms.loot_money += m.score_value;
+                        // every sound but the music stops (0x0044a390: audio vt+0xa8(0), 0x004f24e0)
+                        stop.write(crate::audio::StopSound(crate::audio::ALL_BUT_MUSIC.into()));
                         let t = m.success_text.clone().unwrap_or("Well Done!".into());
                         m.message(&t, 0.0);
                         m.log.push("WIN".into());
