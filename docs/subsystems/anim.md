@@ -82,9 +82,18 @@ the run's rate 1.39 at 40 units/s, backwards -1.39, the side run's block), anim_
 running at the rate's 3.6 a second; a slow stick walks), unit tests in skin.rs (note intervals forwards / backwards /
 at the ends, the cosine ease, the rate block).
 
-## 3. Leg IK and foot placement
+## 3. Leg IK and foot placement (engine/src/footik.rs)
 
-See section 4 (to be filled by the foot placement port).
+0x00477570 after the anims each frame, the leg callback 0x00472cc0 (records found by 0x00472c30, lifts read by
+0x00472c90): a ray down from 6 above each ankle (12 long, doubling after a hit; a miss gives 0 and the next foot no
+ray) finds the foot's ground height (hit + 0.1 relative to the base) and normal, eased by min(dt x 10, 1); the lowest
+foot (>= -2.5) drops the body by lowest x 0.75 - 0.1 (only downwards); each leg's ankle is lifted by its height above
+the lowest with a law-of-cosines two-bone solve (hip, knee), the ankle keeps its orientation, turned onto the ground
+normal. Not ported: the landing bob, the fall flags (the player's fall code decides), the body's pull onto the ground.
+`FootPlacement` is game-neutral (any skeleton with hip -> knee -> ankle legs); the player gets one.
+
+Test: engine/playtests/foot_ik.json (flat ground: feet at 0.1, body -0.1, no lift; the slope at 150, 140: lift
+0.4..2.5, body down; back to flat after walking); unit tests (the drop / lift rule, the two-bone solve).
 
 ## 4. Open questions
 

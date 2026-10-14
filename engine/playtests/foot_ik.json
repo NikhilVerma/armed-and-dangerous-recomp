@@ -1,0 +1,16 @@
+{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+ {"wait": 1.0},
+ {"warp": [190.68, -69.44, 13.76, 90]},
+ {"wait": 1.5},
+ {"expect": {"foot_l": [0.0, 0.25], "foot_r": [0.0, 0.25], "foot_drop": [-0.11, -0.09], "foot_lift": [0, 0.2]}},
+ {"warp": [150, 140, 20, 270]},
+ {"wait": 1.5},
+ {"expect": {"foot_drop": [-1.5, -0.2], "foot_lift": [0.4, 2.5]}},
+ {"down": "KeyW"},
+ {"wait": 0.5},
+ {"up": "KeyW"},
+ {"warp": [190.68, -69.44, 13.76, 90]},
+ {"wait": 1.5},
+ {"expect": {"foot_drop": [-0.11, -0.09], "foot_lift": [0, 0.2]}},
+ {"quit": true}
+]}

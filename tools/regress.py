@@ -20,7 +20,8 @@ SUITE = ['topsyhit2', 'turn_in_place', 'turret1', 'decals_obj', 'oilpump', 'gfxo
          'menus', 'hud', 'flow', 'stats', 'pub', 'unit',
          'hits1', 'noise1', 'noise2', 'splines1', 'alarm1', 'captain1', 'taunt1', 'leader1',
          'mission_start', 'volumes', 'ticker', 'pickups', 'pubflow', 'winfail',
-         'player_move', 'player_fall', 'player_weapons', 'player_special', 'player_topsy', 'player_banter']
+         'player_move', 'player_fall', 'player_weapons', 'player_special', 'player_topsy', 'player_banter',
+         'anim_blend', 'anim_notes', 'camera_follow', 'camera_death', 'input_pad', 'foot_ik']
 # 'unit': the engine's Rust unit tests (cargo test --release into the same target dir: pure logic such as the
 # object model's damage filters, trigger fields and husk picks, the HUD feed wrapping)
 # scripts kept in git (engine/playtests) win over work/remaster/play
