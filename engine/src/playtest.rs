@@ -505,7 +505,9 @@ fn drive(
         }
         if let Some(want) = &e.expect {
             for (k, w) in want {
-                let got = state.0.get(k);
+                // a dotted key reads into an object field: "window.width"
+                let mut parts = k.split('.');
+                let got = parts.next().and_then(|h| state.0.get(h)).and_then(|v| parts.try_fold(v, |v, p| v.get(p)));
                 let ok = match (w.as_array(), got) {
                     (Some(r), Some(g)) if r.len() == 2 && r.iter().all(|v| v.is_number()) => g.as_f64().is_some_and(|v| v >= r[0].as_f64().unwrap() && v <= r[1].as_f64().unwrap()),
                     (_, Some(g)) => g == w || (g.is_number() && w.is_number() && g.as_f64() == w.as_f64()),

@@ -146,6 +146,17 @@ struct FxTest {
     target: Option<Entity>,
 }
 
+fn resize_tolerant(e: &bevy::render::error_handler::RenderError, _: &mut World, _: &mut World) -> bevy::render::error_handler::RenderErrorPolicy {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static SEEN: AtomicU32 = AtomicU32::new(0);
+    if e.description.contains("differing sizes") && SEEN.fetch_add(1, Ordering::Relaxed) < 120 {
+        warn!("render: attachment size mismatch during a resize, frame skipped");
+        return bevy::render::error_handler::RenderErrorPolicy::Ignore;
+    }
+    error!("Quitting the application due to {:?} RenderError", e.ty);
+    std::process::exit(1);
+}
+
 fn main() {
     let a = args();
     let scene_dir = std::fs::canonicalize(&a.scene).unwrap_or_else(|_| panic!("scene folder {}", a.scene.display()));
@@ -172,6 +183,10 @@ fn main() {
             .set(bevy::audio::AudioPlugin { default_spatial_scale: bevy::audio::SpatialScale::new(0.002), ..default() }),
     )
     .add_plugins(EguiPlugin::default())
+    // a window resize (the Resolution / Fullscreen options) leaves the HUD camera's depth one frame behind its
+    // colour target: wgpu reports "Attachments have differing sizes" for that frame. Bevy's default handler quits
+    // on any render error; this one renders on through that transient (at most 120 times, then it quits as before)
+    .insert_resource(bevy::render::error_handler::RenderErrorHandler(resize_tolerant))
     .add_plugins(playtest::PlaytestPlugin)
     .add_plugins(audio::AudioBankPlugin)
     .add_plugins(pickup::PickupPlugin)
