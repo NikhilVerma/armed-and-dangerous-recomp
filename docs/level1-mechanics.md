@@ -102,7 +102,7 @@ Update this table as items land (commit hash in the last column).
 | Houses: breakable windows, door anim | 0x0040ad80 | M | 3 | |
 | Barracks stop releasing when destroyed | | P | 2 | mission.rs deaths(); barracks.json (destroyed 25 releases nothing on 810) |
 | Oil pump animation (oilpump_cycle) | | M | 3 | |
-| Fx opcodes used by L1 deaths (0x79 set inert ×407, 0x1a, 0x10, 0x19, 0x35, 0x3d, 0x4a, 0x58, 0x5a ...) | render_r2b.cpp:270-1117 | M | 2 | every non-keg explosion and muzzle flashes |
+| Fx opcodes used by L1 deaths and muzzle flashes | render_r2b.cpp:270-1117 (fx-vm.md) | P | 2 | 0x79, 0x10, 0x14, 0x31, 0x32, 0x3f, 0x4a, 0x55, 0x56 ported (ccd9aec, 6f474db); impulse masses guessed; lights stored, not drawn |
 | Trenches (barricade collision, cover) | p_barracade | M | 3 | |
 | Guard alarm, grunt generators | | P | 2 | (alarm chain); the siren can be shot (100 health: guess) |
 | Decals on objects | 0x00416f50 | M | 3 | |
