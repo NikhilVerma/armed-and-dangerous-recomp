@@ -59,6 +59,68 @@ pub struct Turret {
     fx_anchor: Option<Entity>,
     /// the move loop playing (+0x65c)
     moving: bool,
+    /// the AI side (shared with Roman's mounting, as the original's one object): the AI occupant +0x628 (flag 4 of
+    /// +0x530: hides Roman's prompt, 0x00498760), the grunt walking to it (flag 0x10, vt+0x15c(1): the AI search
+    /// skips it, Roman's prompt does not), ai_can_use (flag 0x100), ai_never_leave (bit 9 clear when set), the AI
+    /// projectile (ai_projectile_name +0x480) and ref_grunt_exit
+    pub ai: Option<Entity>,
+    pub reserved: Option<Entity>,
+    pub ai_can_use: bool,
+    pub never_leave: bool,
+    pub ai_projectile: String,
+    pub grunt_exit: Option<usize>,
+}
+
+impl Turret {
+    /// An AI gunner's aim (0x00408c70: the gun's four corner poses stig_mgun_*_tl/tr/bl/br blended by the gunner's
+    /// weights +0x580 horizontal (0 left .. 1 right) and +0x584 vertical (0 bottom .. 1 top)). The corners turn the
+    /// pivot by about +-65 degrees about z and +-25 about x (stig_mgun_idle_tl center = qz(65) * qx(-25)); the blend is
+    /// taken as the angles' blend (guess at the quaternion blend's difference, under 1 degree inside the corners).
+    pub fn ai_aim(&mut self, h: f32, v: f32) {
+        self.yaw = 65f32.to_radians() * (1.0 - 2.0 * h);
+        self.pitch = 25f32.to_radians() * (1.0 - 2.0 * v);
+    }
+
+    /// The muzzle bone's world matrix and others for the AI side.
+    pub fn bone_world(&self, gt: &GlobalTransform, a: &crate::skin::Animator, i: usize) -> Mat4 {
+        gt.to_matrix() * bone_model(&a.skeleton, i, self.pivot, turn(self))
+    }
+
+    pub fn emitter(&self) -> usize {
+        self.emitter
+    }
+
+    /// The gun's forward at rest (model -y through the pivot), world.
+    pub fn forward(&self, gt: &GlobalTransform, a: &crate::skin::Animator) -> Vec3 {
+        (gt.to_matrix() * bone_model(&a.skeleton, self.pivot, usize::MAX, Quat::IDENTITY)).transform_vector3(Vec3::NEG_Y)
+    }
+
+    /// A shot's muzzle flash (vt+0x144 0x00497fd0 with rapid_fire): one held fx on the muzzle bone, kept while shots
+    /// come (flag 0x40), released two updates after the last (0x00497ed0).
+    pub fn flash(&mut self, commands: &mut Commands, fx: &mut MessageWriter<crate::fx::StartFx>, a: &crate::skin::Animator, joints: &Query<&GlobalTransform>) {
+        self.fx_flags = (self.fx_flags | 0x40) & !0x80;
+        if self.fx_anchor.is_none() {
+            if let (Some(name), Some(&joint)) = (self.muzzle_fx.clone(), a.joints.get(self.muzzle)) {
+                let anchor = commands.spawn((Transform::IDENTITY, Visibility::default())).id();
+                commands.entity(joint).add_child(anchor);
+                let jm = joints.get(joint).map(|j| j.compute_transform()).unwrap_or_default();
+                fx.write(crate::fx::StartFx { name, at: jm.translation, rotation: jm.rotation, follow: Some(anchor), position_only: false });
+                self.fx_anchor = Some(anchor);
+            }
+        }
+    }
+
+    /// The muzzle fx step of the update (0x00498710 -> 0x00497ed0): 0x40 set -> clear; else 0x80 clear -> set; else
+    /// release.
+    fn fx_step(&mut self, commands: &mut Commands) {
+        if self.fx_flags & 0x40 != 0 {
+            self.fx_flags &= !0x40;
+        } else if self.fx_flags & 0x80 == 0 {
+            self.fx_flags |= 0x80;
+        } else if let Some(anchor) = self.fx_anchor.take() {
+            commands.entity(anchor).despawn();
+        }
+    }
 }
 
 pub struct TurretPlugin;
@@ -155,6 +217,12 @@ fn setup(
             fx_flags: 0,
             fx_anchor: None,
             moving: false,
+            ai: None,
+            reserved: None,
+            ai_can_use: p.i("ai_can_use", 1) != 0,
+            never_leave: p.i("ai_never_leave", 0) != 0,
+            ai_projectile: format!("p_{}", p.s("ai_projectile_name").or(p.s("projectile_name")).unwrap_or("")),
+            grunt_exit: a.skeleton.index.get("ref_grunt_exit").copied(),
         });
         info!("turret {name}: pivot {pivot} camera {:?}", camera.w_axis.truncate());
     }
@@ -195,14 +263,8 @@ fn ride(
             mounted.0 = None;
             return;
         };
-        // the muzzle fx step (0x00498710 -> 0x00497ed0): 0x40 set -> clear; else 0x80 clear -> set; else release
-        if t.fx_flags & 0x40 != 0 {
-            t.fx_flags &= !0x40;
-        } else if t.fx_flags & 0x80 == 0 {
-            t.fx_flags |= 0x80;
-        } else if let Some(anchor) = t.fx_anchor.take() {
-            commands.entity(anchor).despawn();
-        }
+        // the muzzle fx step (0x00498710 -> 0x00497ed0)
+        t.fx_step(&mut commands);
         // leaving: Use again (0x004788a0 -> vt+0x17c), or death (0x0047ae40)
         if dead || use_pressed {
             if let Some(anchor) = t.fx_anchor.take() {
@@ -268,25 +330,23 @@ fn ride(
                     stats.shots += 1;
                     t.last_fire = Some(now);
                     // the muzzle flash (0x00497fd0, rapid fire: one held fx on the muzzle bone)
-                    if t.fx_anchor.is_none() {
-                        if let (Some(name), Some(&joint)) = (t.muzzle_fx.clone(), a.joints.get(t.muzzle)) {
-                            let anchor = commands.spawn((Transform::IDENTITY, Visibility::default())).id();
-                            commands.entity(joint).add_child(anchor);
-                            let jm = joints.get(joint).map(|j| j.compute_transform()).unwrap_or_default();
-                            fx.write(crate::fx::StartFx { name, at: jm.translation, rotation: jm.rotation, follow: Some(anchor), position_only: false });
-                            t.fx_anchor = Some(anchor);
-                        }
-                    }
+                    t.flash(&mut commands, &mut fx, a, &joints);
                 }
             }
             if hud.prompt.is_none() {
                 hud.prompt = Some(hint(&mission, "ui_vehicle_exit"));
             }
         }
-        state.0.insert("turret".into(), serde_json::json!({"mounted": mounted.0.is_some(), "yaw": t.yaw.to_degrees(), "pitch": t.pitch.to_degrees()}));
+        state.0.insert("turret".into(), serde_json::json!({"mounted": mounted.0.is_some(), "yaw": t.yaw.to_degrees(), "pitch": t.pitch.to_degrees(), "ai": false}));
     } else {
-        // the prompt (0x004662a0): the first free gun whose message_radius reaches the player (3D distance)
-        let near = turrets.iter().find(|(_, t, gt, _)| gt.translation().distance(rt.translation) <= t.radius).map(|(e, ..)| e);
+        // the muzzle fx step of the guns an AI uses
+        for (_, mut t, _, _) in &mut turrets {
+            t.fx_step(&mut commands);
+        }
+        // the prompt (0x004662a0): the first gun not held by an AI (0x00498760: flag 4 clear; a grunt only walking to it
+        // does not hide it) whose message_radius reaches the player (3D distance)
+        let near = turrets.iter().find(|(_, t, gt, _)| t.ai.is_none() && gt.translation().distance(rt.translation) <= t.radius).map(|(e, ..)| e);
+        let ai = turrets.iter().find_map(|(_, t, gt, _)| t.ai.map(|_| (t.yaw.to_degrees(), t.pitch.to_degrees(), gt.translation())));
         if let (Some(e), true) = (near, can_act) {
             if hud.prompt.is_none() {
                 hud.prompt = Some(hint(&mission, "ui_vehicle_entry"));
@@ -310,7 +370,7 @@ fn ride(
                 }
             }
         }
-        state.0.insert("turret".into(), serde_json::json!({"mounted": false, "near": near.is_some()}));
+        state.0.insert("turret".into(), serde_json::json!({"mounted": false, "near": near.is_some(), "ai": ai.is_some(), "yaw": ai.map(|a| a.0).unwrap_or(0.0), "pitch": ai.map(|a| a.1).unwrap_or(0.0)}));
     }
     if let Some(m) = mission.as_mut() {
         m.log.extend(log);

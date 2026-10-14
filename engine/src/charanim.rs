@@ -3,7 +3,7 @@
 //! "belly"); grunts, Q and Jonesy play whole-body anims. The original picks grunt anims by id through
 //! vt+0x1a4 (docs/subsystems/grunt-ai.md 11); the state -> anim pairs here follow the states there.
 
-use crate::ai::{Companion, CoverPhase, Grunt, Mind};
+use crate::ai::{Companion, CoverPhase, GunPhase, Grunt, Mind};
 use crate::player::Roman;
 use crate::skin::{Animator, Mask};
 use bevy::prelude::*;
@@ -369,6 +369,22 @@ fn grunts(
                     a.play(1, "grunt_stand_bl", false, Mask::All);
                     a.set_pair(1, "grunt_stand_br", 0.5);
                     a.set_weight(1, 0.5);
+                    a.sync(1, 0);
+                    continue;
+                }
+                _ if limping => ("grunt_limp".to_string(), true),
+                _ => ("grunt_run_scan".to_string(), true),
+            },
+            // a mounted gun (ai.rs GunPhase): the run there and back, on it the gunner's four corner sets (ids 0x83..0x86
+            // fire, 0x87..0x8a idle; PlayAnim4 vt+0x1a0 by the weights +0x580 (0 left .. 1 right) / +0x584 (1 top))
+            Mind::Gunner => match g.gun {
+                Some(gn) if gn.phase == GunPhase::On => {
+                    let k = if gn.firing { "fire" } else { "idle" };
+                    a.play(0, &format!("grunt_stig_mgun_{k}_tl"), true, Mask::All);
+                    a.set_pair(0, &format!("grunt_stig_mgun_{k}_tr"), gn.h);
+                    a.play(1, &format!("grunt_stig_mgun_{k}_bl"), true, Mask::All);
+                    a.set_pair(1, &format!("grunt_stig_mgun_{k}_br"), gn.h);
+                    a.set_weight(1, 1.0 - gn.v);
                     a.sync(1, 0);
                     continue;
                 }

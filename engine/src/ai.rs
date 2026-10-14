@@ -4,7 +4,8 @@
 //! fire cycle (clips x bursts x rounds, 180-degree cone + line of sight, aim error 0x004284e0), reload (0x32),
 //! flee from a stuck sticky bomb (0xc8), limping, death and ragdoll, and the trenches as cover (the hiding-spot search
 //! 0x0042a7b0 / 0x00429f00 and the barricade states 0xa0..0xa5: `find_hiding_spot`, `CoverPhase`). Hit-reaction
-//! states, the generic cover slots, taunts, AI gunners on the mounted gun and the alarm controller are not ported yet
+//! states, the generic cover slots, taunts and the alarm controller are not ported yet; AI gunners on the mounted gun:
+//! `GunPhase` (states 0x7b / 0x7d / 0x7c)
 //! (see the doc).
 
 use crate::fx::{FxStats, Health};
@@ -33,7 +34,63 @@ pub enum Mind {
     ToMarker,
     /// states 0xa0..0xa5: going to and using a trench's slot (`Grunt::cover`, its phase)
     Cover,
+    /// states 0x7b / 0x7d / 0x7c: going to, manning and leaving a mounted gun (`Grunt::gun`)
+    Gunner,
     Dead,
+}
+
+/// The mounted-gun states (GenericAI_Update ai_06.cpp:583-797).
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum GunPhase {
+    /// 0x7b: running to the gun (reserved: flag 0x10)
+    ToGun,
+    /// 0x7d: on it (attached at ref_grunt_08, +0x484 0x8000, the gun's flag 4)
+    On,
+    /// 0x7c: got off, walking to ref_grunt_exit; then the hiding-spot search
+    Off,
+}
+
+/// A grunt's mounted gun (+0x898) and the gunner's own counters and aim.
+#[derive(Clone, Copy, Debug)]
+pub struct Gun {
+    pub turret: Entity,
+    pub phase: GunPhase,
+    /// the gun's origin (ref_grunt_08: the gunner's root; his anims put his body 7.5 behind), ref_grunt_exit, the
+    /// gun's heading (yaw in engine terms, and its forward), the gunner's body centre offset there
+    pub origin: Vec3,
+    pub exit: Vec3,
+    pub yaw: f32,
+    pub fwd: Vec3,
+    pub lift: Vec3,
+    /// +0x494: the delay before a burst sequence (stig_fire_delay)
+    pub timer: f32,
+    /// aim weights +0x580 (0 left .. 1 right) / +0x584 (0 bottom .. 1 top)
+    pub h: f32,
+    pub v: f32,
+    /// +0x5b4 clips, +0x5bc rounds, +0x5b8 burst rounds, +0x5c8 clip pause, +0x5cc burst delay
+    pub clips: i64,
+    pub rounds: i64,
+    pub burst: i64,
+    pub pause: f32,
+    pub delay: f32,
+    /// the fire set (0x83..0x86) playing, its time (its "fire" notes at 0.067 / 0.233 of 0.3 s)
+    pub firing: bool,
+    pub anim_t: f32,
+    /// +0x48c flag 1: the counters ran out together (the aim snaps, firing continues out of the arc)
+    pub snap: bool,
+    pub shots: u32,
+}
+
+/// The gunner's tables (Ai_InitGeneric ai_01.cpp:2376-2381, kind 1 guns): stig_fire_num_clips 3..5, _clip_delay 1..1,
+/// _num_rounds 10..10, _num_bursts 5..5, _burst_delay 0.25..0.5, _delay 0.5..0.75; lev_1_m1 sets none.
+#[derive(Clone, Copy, Debug)]
+pub struct StigTable {
+    pub clips: (i64, i64),
+    pub clip_delay: (f32, f32),
+    pub rounds: (i64, i64),
+    pub bursts: (i64, i64),
+    pub burst_delay: (f32, f32),
+    pub delay: (f32, f32),
 }
 
 /// A trench (BarricadeObject, vtable 0x005a7068, behavior "barracade" = class 141, game_03.cpp:3067; lev_1_m1's
@@ -202,6 +259,9 @@ pub struct Grunt {
     /// +0x484 0x200 (FindHidingSpot's a2, a hide marker's search): in the trench the breathing is not cut short by a
     /// target outside the slot's arc, and without a target the grunt peeks instead of standing up
     pub hold: bool,
+    /// the mounted gun held (+0x898) and its state
+    pub gun: Option<Gun>,
+    pub stig: StigTable,
 }
 
 /// What the AI hunts: Roman.
@@ -215,7 +275,7 @@ pub struct AiStats {
     pub dead: usize,
     pub shots: usize,
     pub enabled: bool,
-    pub states: [usize; 10],
+    pub states: [usize; 11],
     /// grunts holding a target: the player, a companion (playtest log, for comparisons with the hook's AI dump)
     pub targets: [usize; 2],
 }
@@ -297,6 +357,15 @@ fn log_cover(grunts: Query<&Grunt>, trenches: Query<(&Barricade, &crate::level::
     let phase = live.clone().find_map(|g| g.cover.map(|c| format!("{:?}", c.phase))).unwrap_or_default();
     let firing = live.filter(|g| g.at_barricade && g.mind == Mind::Fire).count();
     let deaths = grunts.iter().filter(|g| g.mind == Mind::Dead && g.death_name == Some("grunt_barricade_death")).count();
+    // the first grunt with a mounted gun: its phase, shots, aim weights
+    let gunner = grunts.iter().filter(|g| g.mind != Mind::Dead).find_map(|g| g.gun);
+    state.0.insert(
+        "gunner".into(),
+        match gunner {
+            Some(gn) => serde_json::json!({"phase": format!("{:?}", gn.phase), "shots": gn.shots, "h": gn.h, "v": gn.v, "firing": gn.firing}),
+            None => serde_json::json!({"phase": "", "shots": 0}),
+        },
+    );
     state.0.insert("cover".into(), serde_json::json!({"held": held, "in_slot": in_slot, "going": going, "phase": phase, "firing": firing, "deaths": deaths, "slots": slots}));
 }
 
@@ -404,6 +473,15 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         force_hide: false,
         fire_ready: true,
         hold: false,
+        gun: None,
+        stig: StigTable {
+            clips: (p.i("stig_fire_num_clips_min", 3), p.i("stig_fire_num_clips_max", 5)),
+            clip_delay: (p.f("stig_fire_clip_delay_min", 1.0), p.f("stig_fire_clip_delay_max", 1.0)),
+            rounds: (p.i("stig_fire_num_rounds_min", 10), p.i("stig_fire_num_rounds_max", 10)),
+            bursts: (p.i("stig_fire_num_bursts_min", 5), p.i("stig_fire_num_bursts_max", 5)),
+            burst_delay: (p.f("stig_fire_burst_delay_min", 0.25), p.f("stig_fire_burst_delay_max", 0.5)),
+            delay: (p.f("stig_fire_delay_min", 0.5), p.f("stig_fire_delay_max", 0.75)),
+        },
     }
 }
 
@@ -694,10 +772,200 @@ fn pick_trench(g: &Grunt, me: Entity, pos: Vec3, target: Option<(Vec3, Vec3)>, n
     best.map(|b| b.0)
 }
 
+impl Hide {
+    /// the state a found spot starts
+    fn mind(&self) -> Option<Mind> {
+        match self {
+            Hide::Cover => Some(Mind::Cover),
+            Hide::Gunner => Some(Mind::Gunner),
+            _ => None,
+        }
+    }
+}
+
+/// A mounted gun as the frame's searches see it (written back after the grunts' loop).
+struct GunView {
+    e: Entity,
+    origin: Vec3,
+    exit: Vec3,
+    yaw: f32,
+    fwd: Vec3,
+    /// 0x004987a0: ai_can_use, no kickout time left (kickout not ported), no player on it (flag 8)
+    usable: bool,
+    reserved: Option<Entity>,
+    ai: Option<Entity>,
+    collider: Option<BodyId>,
+}
+
+/// The frame's cover objects.
+struct Spots {
+    trenches: Vec<TrenchView>,
+    guns: Vec<GunView>,
+}
+
+/// The mounted-gun candidate of the hiding-spot search, 0x0042a100 (needs vt+0x1f0: true for grunts): the free gun
+/// (0x004987a0: usable, flags 0x14 clear: no AI on it or walking to it) nearest the grunt (2D) within scan_distance; with a
+/// target also within the engagement range of the target, the target within 65 degrees of the gun's heading
+/// (0x00453150) seen from the gun, and a clear line from the gun + 5 (+ 5 in 0x00426fd0) to the target's ref_hit_00.
+fn pick_gun(g: &Grunt, pos: Vec3, target: Option<(Vec3, Vec3)>, need_target: bool, guns: &[GunView], physics: &Physics, own: BodyId) -> Option<usize> {
+    if need_target && target.is_none() {
+        return None;
+    }
+    let mut best: Option<(usize, f32)> = None;
+    for (i, t) in guns.iter().enumerate() {
+        if !t.usable || t.reserved.is_some() || t.ai.is_some() {
+            continue;
+        }
+        let d = (t.origin - pos).with_y(0.0).length_squared();
+        if d > g.scan_distance * g.scan_distance || best.is_some_and(|b| !(b.1 > d)) {
+            continue;
+        }
+        if let Some((tpos, thit)) = target {
+            if (t.origin - tpos).with_y(0.0).length_squared() > g.range * g.range || !within_arc(tpos, t.origin, t.fwd, 65.0) {
+                continue;
+            }
+            let skip: Vec<BodyId> = t.collider.into_iter().chain([own]).collect();
+            if !sight_ray(physics, t.origin + Vec3::Y * 5.0, thit, &skip) {
+                continue;
+            }
+        }
+        best = Some((i, d));
+    }
+    best.map(|b| b.0)
+}
+
+/// The gunner's counters (0x00427600 with a kind-1 gun): the first time (flag 4 clear) clips 3..5, rounds, burst and no
+/// pause; later rounds, burst and the clip pause; the burst delay cleared, the burst at most the rounds.
+fn gun_roll(g: &mut Grunt, gn: &mut Gun, rng: &mut FxStats) {
+    let int = |rng: &mut FxStats, (lo, hi): (i64, i64)| rng.range(lo as f32, hi as f32 + 0.999) as i64;
+    let st = g.stig;
+    if !g.fire_ready {
+        g.fire_ready = true;
+        gn.clips = int(rng, st.clips);
+        gn.rounds = int(rng, st.rounds);
+        gn.burst = int(rng, st.bursts);
+        gn.pause = 0.0;
+    } else {
+        gn.rounds = int(rng, st.rounds);
+        gn.burst = int(rng, st.bursts);
+        gn.pause = rng.range(st.clip_delay.0, st.clip_delay.1);
+    }
+    gn.delay = 0.0;
+    gn.burst = gn.burst.min(gn.rounds);
+}
+
+/// The gun's firing cycle 0x004292f0 (kind 1): the clip pause (idle), the burst delay, the fire set while rounds and
+/// burst last; a spent burst re-rolls the burst and its delay; a spent clip counts the clips down (a pause between, flag
+/// 4 cleared after the last). Returns firing.
+fn gun_cycle(g: &mut Grunt, gn: &mut Gun, rng: &mut FxStats, dt: f32) -> bool {
+    if gn.pause > 0.0 {
+        gn.firing = false;
+        gn.pause -= dt;
+        return false;
+    }
+    if !gn.firing {
+        if gn.delay > 0.0 {
+            gn.delay -= dt;
+            return false;
+        }
+        if gn.rounds > 0 && gn.burst > 0 {
+            gn.firing = true;
+            gn.anim_t = 0.0;
+            return true;
+        }
+    } else if gn.rounds > 0 && gn.burst > 0 {
+        return true;
+    }
+    if gn.rounds > 0 {
+        let st = g.stig;
+        gn.burst = rng.range(st.bursts.0 as f32, st.bursts.1 as f32 + 0.999) as i64;
+        gn.delay = rng.range(st.burst_delay.0, st.burst_delay.1);
+        gn.burst = gn.burst.min(gn.rounds);
+    } else {
+        gn.clips -= 1;
+        if gn.clips > 0 {
+            gn.pause = rng.range(g.stig.clip_delay.0, g.stig.clip_delay.1);
+        } else {
+            g.fire_ready = false;
+        }
+    }
+    gn.firing = false;
+    false
+}
+
+/// The gunner's aim 0x00428fc0 (vt+0x190, window in degrees): the horizontal weight from the angle between the gun's
+/// heading and the target (inside +-window: 1 - (angle + window) / (2 window), on target; beyond: 1 right or 0 left),
+/// the vertical from the elevation acos(dz / len) - 90 (inside +-26.5: 1 - (e + 26.5) / 53; above: 1, below: 0, off
+/// target); with flag 1 and on target set at once, else stepped by dt / (2 window * 0.0037037); no target: (0.5, 0.5),
+/// flag 1 cleared, on target. (The flagged case's predicted target point, 0x004580a0, is not ported.)
+fn gun_aim(gn: &mut Gun, from: Vec3, target: Option<Vec3>, window: f32, dt: f32) -> bool {
+    let (th, tv, ok) = match target {
+        None => {
+            gn.snap = false;
+            (0.5, 0.5, true)
+        }
+        Some(p) => {
+            let d = p - from;
+            let flat = d.with_y(0.0).normalize_or_zero();
+            let ang = gn.fwd.cross(flat).y.atan2(gn.fwd.dot(flat)).to_degrees();
+            let (th, mut ok) = if ang < -window {
+                (1.0, false)
+            } else if ang > window {
+                (0.0, false)
+            } else {
+                (1.0 - (ang + window) / (2.0 * window), true)
+            };
+            let e = (d.y / d.length().max(1e-3)).clamp(-1.0, 1.0).acos().to_degrees() - 90.0;
+            let tv = if e > 26.5 {
+                ok = false;
+                0.0
+            } else if e < -26.5 {
+                ok = false;
+                1.0
+            } else {
+                1.0 - (e + 26.5) / 53.0
+            };
+            (th, tv, ok)
+        }
+    };
+    if gn.snap && ok {
+        gn.h = th;
+        gn.v = tv;
+        return ok;
+    }
+    let r = dt / (2.0 * window * 0.003_703_7);
+    let step = |c: f32, t: f32| if t < c { (c - r).max(t) } else { (c + r).min(t) };
+    gn.h = step(gn.h, th);
+    gn.v = step(gn.v, tv);
+    ok
+}
+
+/// Off a gun (0x004266b0): the gun's flags 4 / 0x10 cleared, the body back on its feet, +0x8000 / flag 1 cleared.
+/// Returns the gun when the grunt was on it (its aim back to the centre: the corner set at 0.5, 0.5).
+fn leave_gun(g: &mut Grunt, me: Entity, body: &mut Body, guns: &mut [GunView]) -> Option<Entity> {
+    let gn = g.gun.take()?;
+    for v in guns.iter_mut().filter(|v| v.e == gn.turret) {
+        if v.ai == Some(me) {
+            v.ai = None;
+        }
+        if v.reserved == Some(me) {
+            v.reserved = None;
+        }
+    }
+    if gn.phase == GunPhase::On {
+        body.offset = gn.lift;
+        g.fixed = None;
+        return Some(gn.turret);
+    }
+    None
+}
+
 /// What the hiding-spot search chose.
 enum Hide {
     /// a trench taken (state 0xa0 next)
     Cover,
+    /// a mounted gun taken (state 0x7b next)
+    Gunner,
     /// the reload in place (anims 0x2a/0x2b/0x28/0x29, state 0x32)
     Reload,
     /// pursue (vt+0x184 0x004295d0)
@@ -726,7 +994,7 @@ fn leave_cover(g: &mut Grunt, me: Entity, trenches: &mut [TrenchView], history: 
 ///   (0x004531e0(target), true for an airborne target, taken false: guess);
 /// - pickup_grab_pct (+0x86c, default 1) % 0x0042a500, a grab of a pickup: not ported;
 /// - a held cover is left (vt+0x188); need_target without a target: nothing found;
-/// - the candidates: the nearest free mounted gun (0x0042a100: not ported here, see docs/subsystems/turret.md) and the
+/// - the candidates: the nearest free mounted gun (0x0042a100, `pick_gun`; docs/subsystems/turret.md) and the
 ///   nearest trench (0x00429f00, `pick_trench`); a trench nearer than the gun wins; then the generic cover slots of the
 ///   list World+0xed4 (kinds 1 ground / 6 enter of objects other than type 3), which lev_1_m1 has none of (its
 ///   barracks have only ref_exit / ref_spawn nodes; the trenches are type 3, skipped there);
@@ -734,15 +1002,58 @@ fn leave_cover(g: &mut Grunt, me: Entity, trenches: &mut [TrenchView], history: 
 ///   is taken (vt+0x158) and state 0xa0 starts; +0x484 0x200 = hold (a2);
 /// - nothing: flag 4 set -> pursue (vt+0x184), else the reload in place (state 0x32).
 #[allow(clippy::too_many_arguments)]
-fn find_hiding_spot(g: &mut Grunt, me: Entity, (need_target, hold): (bool, bool), pos: Vec3, target: Option<(Vec3, Vec3)>, trenches: &mut [TrenchView], physics: &Physics, own: BodyId, rng: &mut FxStats) -> Hide {
+fn find_hiding_spot(g: &mut Grunt, me: Entity, (need_target, hold): (bool, bool), pos: Vec3, target: Option<(Vec3, Vec3)>, spots: &mut Spots, physics: &Physics, own: BodyId, rng: &mut FxStats) -> Hide {
     let flag4 = g.fire_ready;
     if !flag4 && target.is_some() && rng.rand() < 0.9 {
         return Hide::Reload;
     }
-    leave_cover(g, me, trenches, true);
+    leave_cover(g, me, &mut spots.trenches, true);
     g.hold = false;
     let fail = if flag4 { Hide::Pursue } else { Hide::Reload };
-    let Some(i) = pick_trench(g, me, pos, target, need_target, trenches, physics, own) else { return fail };
+    // the two candidates by 2D squared distance from the grunt: a trench nearer than the gun wins, else the gun
+    let gi = pick_gun(g, pos, target, need_target, &spots.guns, physics, own);
+    let ti = pick_trench(g, me, pos, target, need_target, &spots.trenches, physics, own);
+    let d2 = |p: Vec3| (p - pos).with_y(0.0).length_squared();
+    let ti = match (gi, ti) {
+        (Some(gi), Some(ti)) => (d2(spots.trenches[ti].origin) < d2(spots.guns[gi].origin)).then_some(ti),
+        (_, t) => t,
+    };
+    if let (Some(i), None) = (gi, ti) {
+        // the gun: the path to it (0x0046f6b0 with the gun's collision off; here to ref_grunt_exit: guess), reserved
+        // (vt+0x15c(1)), state 0x7b
+        let gv = &spots.guns[i];
+        if !line_of_sight(physics, pos, gv.exit) && crate::nav::path(physics, pos, gv.exit, &[]).is_none() {
+            return fail;
+        }
+        spots.guns[i].reserved = Some(me);
+        let gv = &spots.guns[i];
+        g.gun = Some(Gun {
+            turret: gv.e,
+            phase: GunPhase::ToGun,
+            origin: gv.origin,
+            exit: gv.exit,
+            yaw: gv.yaw,
+            fwd: gv.fwd,
+            lift: Vec3::ZERO,
+            timer: 0.0,
+            h: 0.5,
+            v: 0.5,
+            clips: 0,
+            rounds: 0,
+            burst: 0,
+            pause: 0.0,
+            delay: 0.0,
+            firing: false,
+            anim_t: 0.0,
+            snap: false,
+            shots: 0,
+        });
+        g.route.clear();
+        g.hold = hold;
+        return Hide::Gunner;
+    }
+    let trenches = &mut spots.trenches;
+    let Some(i) = ti else { return fail };
     let exit = trenches[i].exit;
     if !line_of_sight(physics, pos, exit) && crate::nav::path(physics, pos, exit, &[]).is_none() {
         return fail;
@@ -790,23 +1101,49 @@ fn think(
     mut physics: NonSendMut<Physics>,
     targets: Query<&GlobalTransform>,
     anims: Query<&crate::skin::Animator, Without<Grunt>>,
-    mut grunts: Query<(Entity, &mut Grunt, &Body, &mut Transform, &Health, Option<&crate::skin::Animator>)>,
+    mut grunts: Query<(Entity, &mut Grunt, &mut Body, &mut Transform, &Health, Option<&crate::skin::Animator>)>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     mut fx: MessageWriter<crate::fx::StartFx>,
     rtime: Res<Time<Real>>,
     mut barks: ResMut<Barks>,
-    (markers, mut arrive, mut trenches): (Res<crate::alarm::Markers>, MessageWriter<crate::alarm::MarkerArrival>, Query<(Entity, &mut Barricade)>),
+    (markers, mut arrive, mut trenches, mut guns, mounted, data): (
+        Res<crate::alarm::Markers>,
+        MessageWriter<crate::alarm::MarkerArrival>,
+        Query<(Entity, &mut Barricade)>,
+        Query<(Entity, &mut crate::turret::Turret, &GlobalTransform, &crate::skin::Animator, Option<&crate::level::Placed>), Without<Grunt>>,
+        Res<crate::turret::Mounted>,
+        Res<crate::gamedata::GameData>,
+    ),
 ) {
     let t0 = Instant::now();
     let dt = time.delta_secs();
     let k = physics.meters_per_unit;
     let (mut alive, mut dead) = (0, 0);
-    let mut states = [0usize; 10];
-    let mut views: Vec<TrenchView> = trenches
+    let mut states = [0usize; 11];
+    let views: Vec<TrenchView> = trenches
         .iter()
         .map(|(e, b)| TrenchView { e, origin: b.origin, exit: b.exit, spot: b.spot, dir: b.dir, occupant: b.occupant, collider: b.collider })
         .collect();
-    for (ge, mut g, body, mut tr, h, ga) in &mut grunts {
+    let gun_views: Vec<GunView> = guns
+        .iter()
+        .map(|(e, t, gt, a, placed)| {
+            let (rot, origin) = (gt.rotation(), gt.translation());
+            let (yaw, _, _) = (rot * crate::level::game_to_engine().inverse()).to_euler(EulerRot::YXZ);
+            GunView {
+                e,
+                origin,
+                exit: t.grunt_exit.map(|i| t.bone_world(gt, a, i).w_axis.truncate()).unwrap_or(origin),
+                yaw,
+                fwd: t.forward(gt, a).with_y(0.0).normalize_or_zero(),
+                usable: t.ai_can_use && mounted.0 != Some(e),
+                reserved: t.reserved,
+                ai: t.ai,
+                collider: placed.and_then(|p| p.collider),
+            }
+        })
+        .collect();
+    let mut spots = Spots { trenches: views, guns: gun_views };
+    for (ge, mut g, mut body, mut tr, h, ga) in &mut grunts {
         g.me = Some(ge);
         if g.mind == Mind::Dead {
             dead += 1;
@@ -816,7 +1153,15 @@ fn think(
         states[g.mind as usize] += 1;
         // a trench held by a grunt another system took elsewhere (a scare, a throw): let it go (guess: as vt+0x18c)
         if g.cover.is_some() && !matches!(g.mind, Mind::Cover | Mind::Fire | Mind::Reload) {
-            leave_cover(&mut g, ge, &mut views, false);
+            leave_cover(&mut g, ge, &mut spots.trenches, false);
+        }
+        // likewise a gun (0x004266b0)
+        if g.gun.is_some() && g.mind != Mind::Gunner {
+            if let Some(t) = leave_gun(&mut g, ge, &mut body, &mut spots.guns) {
+                if let Ok((_, mut tu, ..)) = guns.get_mut(t) {
+                    tu.ai_aim(0.5, 0.5);
+                }
+            }
         }
         // hurt: bark at most every 4 s (0x004394c0); a hurt grunt waiting for a trigger activates (ai_04.cpp:420)
         g.hurt_voice_timer -= dt;
@@ -845,6 +1190,10 @@ fn think(
             } else {
                 g.hit = Some(("grunt_hit_3".to_owned(), 3));
             }
+            // on a gun no hit reaction (0x00430340: +0x484 0x8000 skips it)
+            if g.gun.is_some_and(|x| x.phase == GunPhase::On) {
+                g.hit = None;
+            }
             // Hurt (0x00439e00, shared pool, death_delay) first; when refused HurtShort (0x00439e30) at most every 4 s
             // per grunt; the shared one restarts the 4 s too (+0xb48)
             if barks.take(Delay::Death, time.elapsed_secs(), &mut rng) {
@@ -864,7 +1213,7 @@ fn think(
                 if g.at_barricade {
                     duck(&mut g);
                 } else {
-                    leave_cover(&mut g, ge, &mut views, false);
+                    leave_cover(&mut g, ge, &mut spots.trenches, false);
                     g.mind = Mind::Chase;
                 }
             }
@@ -960,10 +1309,9 @@ fn think(
                     _ => mk.scatter,
                 };
                 // hide: the hiding-spot search (vt+0x240(0, 0, 1): no target needed, hold), else the wander
-                let hidden = mk.action == "hide"
-                    && matches!(find_hiding_spot(&mut g, ge, (false, true), pos, tgt, &mut views, &physics, body.id, &mut rng), Hide::Cover);
-                if hidden {
-                    g.mind = Mind::Cover;
+                let hidden = if mk.action == "hide" { find_hiding_spot(&mut g, ge, (false, true), pos, tgt, &mut spots, &physics, body.id, &mut rng).mind() } else { None };
+                if let Some(m) = hidden {
+                    g.mind = m;
                 } else if hi > 0.0 {
                     let a = rng.range(0.0, std::f32::consts::TAU);
                     g.goal = pos + Vec3::new(a.cos(), 0.0, a.sin()) * rng.range(lo, hi);
@@ -985,8 +1333,9 @@ fn think(
         if g.force_hide {
             g.force_hide = false;
             g.fire_ready = true;
-            g.mind = match find_hiding_spot(&mut g, ge, (true, false), pos, tgt, &mut views, &physics, body.id, &mut rng) {
+            g.mind = match find_hiding_spot(&mut g, ge, (true, false), pos, tgt, &mut spots, &physics, body.id, &mut rng) {
                 Hide::Cover => Mind::Cover,
+                Hide::Gunner => Mind::Gunner,
                 Hide::Pursue => Mind::Chase,
                 Hide::Reload => Mind::Reload,
             };
@@ -1001,6 +1350,7 @@ fn think(
             }
             // the trench's states run their own course (below)
             (Mind::Cover, _) if g.cover.is_some() => Mind::Cover,
+            (Mind::Gunner, _) if g.gun.is_some() => Mind::Gunner,
             // in the slot the fire state 0xa keeps firing while the target is held (its exits: the clip's end, a lost
             // line of sight); no target: duck (guess: 0x0042bc60's path is not traced for a barricade grunt)
             (Mind::Fire, Some(_)) if g.at_barricade => Mind::Fire,
@@ -1025,12 +1375,9 @@ fn think(
                 if in_range && sight_ray(&physics, own_hit, thit, &[body.id]) {
                     Mind::Fire
                 } else if rng.rand() < 0.5 {
-                    match find_hiding_spot(&mut g, ge, (true, false), pos, tgt, &mut views, &physics, body.id, &mut rng) {
-                        Hide::Cover => Mind::Cover,
-                        _ => Mind::Chase,
-                    }
+                    find_hiding_spot(&mut g, ge, (true, false), pos, tgt, &mut spots, &physics, body.id, &mut rng).mind().unwrap_or(Mind::Chase)
                 } else {
-                    leave_cover(&mut g, ge, &mut views, true);
+                    leave_cover(&mut g, ge, &mut spots.trenches, true);
                     Mind::Chase
                 }
             }
@@ -1127,15 +1474,15 @@ fn think(
                             if within_arc(p, c.spot, c.dir, 80.0) {
                                 duck(&mut g);
                             } else {
-                                leave_cover(&mut g, ge, &mut views, true);
-                                if let Hide::Cover = find_hiding_spot(&mut g, ge, (true, false), pos, tgt, &mut views, &physics, body.id, &mut rng) {
-                                    g.mind = Mind::Cover;
+                                leave_cover(&mut g, ge, &mut spots.trenches, true);
+                                if let Some(m) = find_hiding_spot(&mut g, ge, (true, false), pos, tgt, &mut spots, &physics, body.id, &mut rng).mind() {
+                                    g.mind = m;
                                 }
                             }
                         }
                         FireEnd::Clip if !g.guard => {
-                            if let Hide::Cover = find_hiding_spot(&mut g, ge, (true, false), pos, tgt, &mut views, &physics, body.id, &mut rng) {
-                                g.mind = Mind::Cover;
+                            if let Some(m) = find_hiding_spot(&mut g, ge, (true, false), pos, tgt, &mut spots, &physics, body.id, &mut rng).mind() {
+                                g.mind = m;
                             }
                         }
                         _ => {}
@@ -1221,6 +1568,140 @@ fn think(
                     g.cover = Some(c);
                 }
             }
+            Mind::Gunner => {
+                // the mounted-gun states 0x7b / 0x7d / 0x7c (ai_06.cpp:583-797)
+                let mut gn = g.gun.expect("gunner state without a gun");
+                let vi = spots.guns.iter().position(|v| v.e == gn.turret);
+                match (gn.phase, vi) {
+                    (_, None) => {
+                        g.gun = None;
+                        g.mind = if target.is_some() { Mind::Chase } else { Mind::Roam };
+                    }
+                    (GunPhase::ToGun, Some(i)) => {
+                        if mounted.0 == Some(gn.turret) {
+                            // the player got on first (vt+0x14c, flag 8): 0x004266b0, vt+0x18c, 0x0042b8e0 (guess: pursue
+                            // or idle; the search's re-run is not done here)
+                            leave_gun(&mut g, ge, &mut body, &mut spots.guns);
+                            g.mind = if target.is_some() { Mind::Chase } else { Mind::Roam };
+                        } else if flat(gn.exit - pos).length() < 4.0 {
+                            // attached at ref_grunt_08 (the gun's origin): the body held at the seat the anims show (their
+                            // centre 0.3, 7.5 behind the origin), +0x484 0x8000, the gun's flag 4 (vt+0x160), the
+                            // counters from the stig tables (0x00427600 with flag 4 cleared), +0x494 = stig_fire_delay,
+                            // +0x490 = 0, state 0x7d
+                            spots.guns[i].ai = Some(ge);
+                            spots.guns[i].reserved = None;
+                            gn.lift = body.offset;
+                            body.offset = gn.lift + Quat::from_rotation_y(gn.yaw) * crate::level::game_to_engine() * Vec3::new(0.3, 7.5, 0.0);
+                            g.fixed = Some(gn.origin);
+                            tr.translation = gn.origin;
+                            g.yaw = gn.yaw;
+                            g.fire_ready = false;
+                            gun_roll(&mut g, &mut gn, &mut rng);
+                            gn.timer = rng.range(g.stig.delay.0, g.stig.delay.1);
+                            g.search_timer = 0.0;
+                            gn.phase = GunPhase::On;
+                            g.gun = Some(gn);
+                            info!("EVENT ai: grunt {ge:?} on the mounted gun");
+                        } else {
+                            goal = gn.exit;
+                            speed = run_speed;
+                        }
+                    }
+                    (GunPhase::On, Some(i)) => {
+                        g.yaw = gn.yaw;
+                        // the aim (vt+0x190 0x00428fc0 with 65 degrees: state 0x7d calls it twice a frame)
+                        gun_aim(&mut gn, pos, target, 65.0, dt);
+                        let mut cl = gun_aim(&mut gn, pos, target, 65.0, dt);
+                        if gn.snap && (gn.clips != 0 || gn.rounds != 0 || gn.burst != 0) {
+                            cl = true;
+                        }
+                        let never_leave = guns.get(gn.turret).map(|(_, t, ..)| t.never_leave).unwrap_or(false);
+                        let mut off = false;
+                        if !(cl || g.hold) {
+                            if !never_leave {
+                                off = true;
+                            }
+                        } else if gn.timer <= 0.0 && target.is_some() && cl {
+                            g.hold = false;
+                            gun_cycle(&mut g, &mut gn, &mut rng, dt);
+                            if gn.clips <= 0 {
+                                gn.timer = rng.range(g.stig.delay.0, g.stig.delay.1);
+                            }
+                        } else {
+                            gn.firing = false;
+                            gn.timer -= dt;
+                            if gn.timer <= 0.0 {
+                                if gn.clips == 0 && gn.rounds == 0 && gn.burst == 0 {
+                                    gn.snap = true;
+                                }
+                                gun_roll(&mut g, &mut gn, &mut rng);
+                            }
+                        }
+                        if off {
+                            // off (0x004266b0) at ref_grunt_exit, walking there (0x7c)
+                            g.gun = Some(gn);
+                            if let Some(t) = leave_gun(&mut g, ge, &mut body, &mut spots.guns) {
+                                if let Ok((_, mut tu, ..)) = guns.get_mut(t) {
+                                    tu.ai_aim(0.5, 0.5);
+                                }
+                            }
+                            gn.phase = GunPhase::Off;
+                            g.gun = Some(gn);
+                            info!("EVENT ai: grunt {ge:?} off the mounted gun (target out of its arc)");
+                        } else {
+                            spots.guns[i].ai = Some(ge);
+                            if let Ok((_, mut tu, gt, ta, _)) = guns.get_mut(gn.turret) {
+                                tu.ai_aim(gn.h, gn.v);
+                                // the fire set's "fire" notes (0.067, 0.233 of its 0.3 s loop): with rounds and burst left a
+                                // shot (0x0043d180 -> vt+0x194 0x004284e0: the aim error -> the gun's vt+0x13c: ai_projectile
+                                // from the emitter, the muzzle flash), both counters down
+                                if gn.firing {
+                                    let t0 = gn.anim_t;
+                                    gn.anim_t += dt;
+                                    for note in [0.0667f32, 0.2333] {
+                                        let crossed = ((t0 - note) / 0.3).floor() != ((gn.anim_t - note) / 0.3).floor();
+                                        if !(crossed && gn.rounds > 0 && gn.burst > 0) {
+                                            continue;
+                                        }
+                                        gn.rounds -= 1;
+                                        gn.burst -= 1;
+                                        let (Some(p), Some(hit)) = (target, target_hit) else { continue };
+                                        let to = (p - pos).with_y(0.0);
+                                        let d = to.length();
+                                        let (lo, hi) = g.accuracy;
+                                        let s = if d <= lo { 0.1 } else if d >= hi { 1.0 } else { ((d * d - lo * lo) / (hi * hi - lo * lo)).max(0.1) };
+                                        let side = Vec3::new(-to.z, 0.0, to.x).normalize_or_zero();
+                                        let aim = hit + side * rng.range(-g.inaccuracy_angle, g.inaccuracy_angle) * s + Vec3::Y * rng.range(0.0, g.inaccuracy_height) * s;
+                                        let from = tu.bone_world(gt, ta, tu.emitter()).w_axis.truncate();
+                                        let dir = (aim - from).normalize_or(gn.fwd);
+                                        let bullet = data.props(&tu.ai_projectile);
+                                        crate::player::spawn_projectile(&mut commands, &mut fx, &bullet, from, dir, false, Some(ge));
+                                        tu.flash(&mut commands, &mut fx, ta, &targets);
+                                        stats.shots += 1;
+                                        gn.shots += 1;
+                                    }
+                                }
+                            }
+                            g.gun = Some(gn);
+                        }
+                    }
+                    (GunPhase::Off, Some(_)) => {
+                        goal = gn.exit;
+                        speed = run_speed;
+                        if flat(gn.exit - pos).length() < 4.0 {
+                            // 0x7c's end: flag 4 cleared, the hiding-spot search (vt+0x240(1, 0, 0))
+                            g.gun = None;
+                            g.fire_ready = false;
+                            g.mind = find_hiding_spot(&mut g, ge, (true, false), pos, tgt, &mut spots, &physics, body.id, &mut rng).mind().unwrap_or(Mind::Reload);
+                            if g.mind == Mind::Reload {
+                                g.pause = 0.467 + 1.133;
+                            }
+                        } else {
+                            g.gun = Some(gn);
+                        }
+                    }
+                }
+            }
             Mind::Reload => g.pause -= dt,
             _ => {}
         }
@@ -1277,11 +1758,17 @@ fn think(
             }
         }
     }
-    for v in &views {
+    for v in &spots.trenches {
         if let Ok((_, mut b)) = trenches.get_mut(v.e) {
             if b.occupant != v.occupant {
                 b.occupant = v.occupant;
             }
+        }
+    }
+    for v in &spots.guns {
+        if let Ok((_, mut t, ..)) = guns.get_mut(v.e) {
+            t.reserved = v.reserved;
+            t.ai = v.ai;
         }
     }
     stats.alive = alive;
@@ -1407,19 +1894,36 @@ fn fire_cycle(
 fn die(
     mut commands: Commands,
     mut physics: NonSendMut<Physics>,
-    mut grunts: Query<(Entity, &mut Grunt, &Body, &Transform, &Health, Option<&mut crate::skin::Animator>)>,
+    mut grunts: Query<(Entity, &mut Grunt, &Body, &mut Transform, &Health, Option<&mut crate::skin::Animator>)>,
     joints: Query<&GlobalTransform>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     mut km: ResMut<KillMeter>,
     mut ms: ResMut<crate::stats::MissionStats>,
     mut rng: ResMut<FxStats>,
     alive: Query<&Health>,
-    (mut barks, time): (ResMut<Barks>, Res<Time>),
+    (mut barks, time, mut guns): (ResMut<Barks>, Res<Time>, Query<&mut crate::turret::Turret>),
 ) {
     let mut alerts: Vec<(i64, Entity, Entity)> = Vec::new();
-    for (e, mut g, body, tr, h, animator) in &mut grunts {
+    for (e, mut g, body, mut tr, h, animator) in &mut grunts {
         if g.mind == Mind::Dead || h.0 > 0.0 {
             continue;
+        }
+        // a gunner's death lets the gun go (0x00431720 -> 0x004266b0: flag 4 cleared, the gun's corner set back to the
+        // centre); he dies where his body is, at the seat behind the gun
+        if let Some(gn) = g.gun.take() {
+            if let Ok(mut t) = guns.get_mut(gn.turret) {
+                if t.ai == Some(e) {
+                    t.ai = None;
+                    t.ai_aim(0.5, 0.5);
+                }
+                if t.reserved == Some(e) {
+                    t.reserved = None;
+                }
+            }
+            if gn.phase == GunPhase::On {
+                tr.translation += body.offset - gn.lift;
+                g.fixed = None;
+            }
         }
         g.mind = Mind::Dead;
         km.meter += 1.0;

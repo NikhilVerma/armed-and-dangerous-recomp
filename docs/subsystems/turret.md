@@ -82,7 +82,8 @@ pitch tips the muzzle down: 55 degrees up, 15 down, 55 each side. (The game_08.c
   +0x5dc, line of sight), or start in one (start_in_turret_tag, AI_ResolveStartObjects 0x00425e20, Game+0x26cc);
   enter 0x00498820 (flag 4), leave 0x00498890; anims grunt_stig_mgun_idle/fire_tl/tr/bl/br with the gun's
   stig_mgun_idle/fire_* corner poses (blended four ways, 0x00408c70); ref_grunt_00..08 slots. An AI gunner fires
-  ai_projectile_name at a target (0x0047de40). lev_1_m1 places no start_in_turret_tag. **Not ported.**
+  ai_projectile_name at a target (0x0047de40). lev_1_m1 places no start_in_turret_tag. Ported 2026-10-14 (branch
+  agent-gunner, ai.rs `GunPhase`, `pick_gun`, `gun_cycle`, `gun_aim`), except start_in_turret_tag and the kickout.
 - Who takes this gun on lev_1_m1 (traced 2026-10-14, grunt-ai.md section 12): grunt_regular 34 at (55, 98), mode
   trigger_marker with marker tag 10, woken by trigger 808, runs to marker 35 at (71, 150) whose action is hide:
   Marker_ProcessArrival 0x0044ba30 -> FindHidingSpot vt+0x240(0, 0, 1) (no target needed) -> 0x0042a100 picks the
@@ -96,7 +97,31 @@ pitch tips the muzzle down: 55 degrees up, 15 down, 55 each side. (The game_08.c
   arc; firing through 0x004292f0 with grunt_stig_mgun_fire_* (0x83..0x86) and the gun's fire corner poses, the aim
   weights +0x580 / +0x584 blending the corners (the AI does not use the pivot callback); target outside the arc with no
   rounds left and no hold (+0x484 0x200): get off at the gun's node ref_grunt_exit (0x005b27f4), walk there (0x7c), then search again
-  (vt+0x240(1, 0, 0) with flag 4 cleared). Not traced: 0x004292f0, 0x00408c70's blend, the turret table defaults.
+  (vt+0x240(1, 0, 0) with flag 4 cleared).
+- Sharing with Roman (one object, one set of flags +0x530): Roman's prompt and Use need flag 4 clear (0x00498760: no AI
+  on the gun; a grunt only walking to it, flag 0x10, does not hide the prompt); the AI search needs ai_can_use (flag
+  0x100, 0x004993c0), no kickout time left (+0x614), no player (flag 8) and flags 0x14 clear (0x004987a0); a grunt on his
+  way (0x7b) gives up when Roman got on first (vt+0x14c = flag 8). ai_never_leave sets bit 9 clear (vt+0x154): the
+  gunner never gets off for an out-of-arc target.
+- The gunner's counters (Ai_InitGeneric ai_01.cpp:2376-2381, defaults, no lev_1_m1 overrides): stig_fire_num_clips 3..5
+  (+0x5b4), _clip_delay 1..1 (+0x5c8), _num_rounds 10 (+0x5bc), _num_bursts 5 (+0x5b8, at most the rounds),
+  _burst_delay 0.25..0.5 (+0x5cc), _delay 0.5..0.75 (+0x494). 0x00427600 rolls them (first time: clips too, no pause);
+  0x004292f0 (kind 1, vt+0x168 = 1 for StigTurret) plays the fire set while rounds and burst last, re-rolls a spent
+  burst with its delay, counts a spent clip down with the clip pause, and clears flag 4 after the last; state 0x7d then
+  waits stig_fire_delay and re-rolls (flag 1 of +0x48c when all three ran out). The shots come from the fire set's
+  "fire" notes (grunt_stig_mgun_fire_bl: 0.067 and 0.233 of a 0.3 s loop) through GenericAIObject_HandleEvent
+  0x0043d180 (anim ids 0x23 / 0x85 / 0x6a / 0x68): rounds and burst > 0 -> vt+0x194 0x004284e0 (the grunt's aim error
+  at the target's ref_hit_00) -> the gun's vt+0x13c 0x00498960(0, point): ai_projectile_name from the emitter bone
+  (0x0047de40), the muzzle flash; both counters down. In effect: 10 rounds at 6.7 / s in two bursts of 5 with 0.25..0.5
+  s between, then (clips - 1) x 1 s and 0.5..0.75 s of pause.
+- The aim 0x00428fc0 (vt+0x190, window 65, called twice a frame by 0x7d): weights +0x580 from the angle between the
+  gun's heading (0x00453150) and the target (inside +-65: 1 - (angle + 65) / 130; outside 0 / 1 and "off target"), +0x584
+  from the elevation (acos(dz / len) * 57.3 - 90; inside +-26.5: 1 - (e + 26.5) / 53), stepped by dt / 0.481 s (set at
+  once with flag 1). The gun follows through its corner poses (0x00408c70 with the same weights: stig_mgun_fire_* while
+  firing, else stig_mgun_idle_*): their pivot is qz(+-65) * qx(-+25) (stig_mgun_idle_tl center = qz(65) qx(-25)); the
+  gunner's own anims grunt_stig_mgun_* blend the same way (vt+0x1a0, ids 0x83..0x8a). Getting off or dying sets the
+  gun's corners back to (0.5, 0.5) (0x004266b0).
+- No hit reaction on the gun (0x00430340: +0x484 0x8000). His death releases the gun (0x00431720 -> 0x004266b0).
 - Damage 0x00498400: ignored at no health or from the same side; with the player on it the player takes the hit;
   with an AI gunner the gun loses health (death vt+0xd4 -> send_trigger_on_death, Object_Kill) and below
   ai_kickout_health_pct the gunner is thrown out (impact force 6000, ai_kickout_fx_name, 10 s stay-out). An empty
@@ -110,6 +135,16 @@ pitch tips the muzzle down: 55 degrees up, 15 down, 55 each side. (The game_08.c
   counted, half damage while mounted, leaving on death.
 - Data: stig_mgun_0 / _9 must be re-exported with `RIGID_SKINNED` (tools/remaster_export_anim.py) for the gun to
   turn; with the old export the camera and shots turn but the mesh stays still.
-- Open: AI gunners; the -0.5 * object +0x2dc offset 0x0040a4d0 applies to the camera matrix (zero for a static
+- AI gunner (ai.rs): the search candidate (0x0042a100, compared with the trenches by distance), 0x7b running to
+  ref_grunt_exit and attaching (body held at the seat the anims show: 0.3, 7.5 behind the origin), 0x7d aim / counters /
+  notes / shots of p_stig_mgun_bullet_ai with the muzzle flash, the gun's pivot from the corner weights (Turret::ai_aim:
+  the corners' angles blended linearly, **guess** at the quaternion blend), 0x7c getting off; Roman's prompt hidden while
+  a grunt is on it; death releases it. Playtests engine/playtests/gunner1.json (grunt 34 mans and fires, Roman's fight
+  kills him, Roman mounts: 7/7) and gunner2.json (target moved out of the arc: off the gun, 4/4).
+  Not ported: start_in_turret_tag, the kickout (+0x60c 50 % of 10000 health, impact 6000, 10 s stay-out), flag 1's
+  predicted aim point (0x004580a0), the gun's own fire vs idle corner difference (both drive the same pivot here).
+  **Guesses**: the path to the gun ends at ref_grunt_exit (4 units) and snaps onto the seat; a grunt beaten to the gun
+  by Roman pursues (the original's 0x0042b8e0 would search again).
+- Open: the -0.5 * object +0x2dc offset 0x0040a4d0 applies to the camera matrix (zero for a static
   object, **guess**); Roman's pose on the gun (hidden in the original, so none); the gun's corner anims
   (stig_mgun_idle_*) for the player are not played by any traced code; no capture of the original yet.

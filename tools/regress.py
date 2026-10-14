@@ -13,7 +13,7 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PLAY = os.path.join(ROOT, 'work', 'remaster', 'play')
-SUITE = ['topsyhit2', 'turn_in_place', 'turret1', 'decals_obj', 'oilpump', 'gfxopts', 'cover1', 'cover2', 'cover3']
+SUITE = ['topsyhit2', 'turn_in_place', 'turret1', 'decals_obj', 'oilpump', 'gfxopts', 'cover1', 'cover2', 'cover3', 'gunner1', 'gunner2']
 # scripts kept in git (engine/playtests) win over work/remaster/play
 TRACKED = os.path.join(ROOT, 'engine', 'playtests')
 
