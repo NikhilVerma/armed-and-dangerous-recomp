@@ -535,6 +535,22 @@ pub fn spawn(
             }
         }
         commands.entity(e).insert((Placed { template: inst.template.clone(), collider }, bounds, crate::hud::AimClass::of(&p)));
+        // a trench (behavior "barracade", BarricadeObject): its cover slot for the grunts (ai.rs Barricade): ref_exit
+        // (0x0040dcb0) and ref_barracade (0x0040dd10) from its reference anim; the direction is -(the node's y axis),
+        // the nodes' rotations being identity in trench_0
+        if behavior == "barracade" {
+            let node = |n: &str| crate::mission::pub_bone(&lib_dir, &inst.model, n);
+            if let (Some(s), Some(x)) = (node("ref_barracade"), node("ref_exit")) {
+                commands.entity(e).insert(crate::ai::Barricade {
+                    origin: world.transform_point3(Vec3::ZERO),
+                    exit: world.transform_point3(x),
+                    spot: world.transform_point3(s),
+                    dir: (-world.transform_vector3(Vec3::Y)).with_y(0.0).normalize_or_zero(),
+                    occupant: None,
+                    collider,
+                });
+            }
+        }
         // attach_audio_loop (the oil pumps' amb_oil_pump_lp): a loop on the object while it lives
         if let Some(name) = p.s("attach_audio_loop").filter(|n| !n.is_empty() && *n != "none") {
             commands.entity(e).insert(AudioLoop(name.to_owned()));

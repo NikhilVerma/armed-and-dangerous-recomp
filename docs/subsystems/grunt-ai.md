@@ -183,3 +183,66 @@ Game+0xb64 30..45 s, vo_delay Game+0xb44 30..45 s, taunt_delay Game+0xb84/+0xb90
 
 Spotted and Fight cannot play in the first 30..45 s of a level (vo_delay starts at level load): the recorded first
 fight has no line.
+
+## 12. Cover: trenches (and the mounted gun) (traced 2026-10-14; static, not executed in recorded runs)
+
+Engine port: `engine/src/ai.rs` (`find_hiding_spot`, `pick_trench`, `CoverPhase`, `Barricade`), playtests
+engine/playtests/cover1..3.json. Evidence by address; **guess** where marked.
+
+**The trench object.** Behavior "barracade" is class 141 (string table game_03.cpp:3067) = BarricadeObject, vtable
+0x005a7068. Its vt+0x138 is 0x004563c0 (returns 3), so its load (ai_01.cpp:1019) gives it one ground slot with limit 1
+(+0x46c = +0x484 = 1): one grunt per trench. vt+0x14c 0x0040dcb0 = ref_exit, vt+0x150 0x0040dd10 = ref_barracade (point
+= the node's translation, direction = -(its y axis)); vt+0x148 0x0040c100 free, vt+0x158 0x0040c400 occupy, vt+0x15c
+0x0040c4a0 free the slot. trench_0: ref_barracade (0, 5.03, 0.72), ref_exit (0, 22.2, 6.13), identity rotations; on
+lev_1_m1 the five trenches face game +y (north, 0..10 degrees).
+
+**Who searches, when** (GenericAI_FindHidingSpot 0x0042a7b0 = vt+0x240(need_target, a1, hold)):
+- a hide marker's arrival: Marker_ProcessArrival 0x0044ba30 -> vt+0x240(0, 0, 1), else AI_Wander(60, 100). On
+  lev_1_m1: barracks 25's troops (marker tag 20 -> marker 179 at (-238, -379), 80..140 from the trenches) and grunt 34
+  (tag 10 -> marker 35 at (71, 150), 22 from the mounted gun 32: no trench within its scan_distance);
+- a non-guard's clip end: fire cycle 0x00428980 -> 0x0042b8e0 -> vt+0x240(1, 0, 0) while the target is within 2 x
+  scan_distance; guards (+0x484 0x2000000) go to 0x7a instead;
+- a reload's end (state 0x32, ai_06.cpp:1223): in range (+0x5d8, 2D) with sight -> engage; else 50 % vt+0x240(1, 0, 0),
+  50 % pursue;
+- leaving a trench whose arc lost the target (0x0042b8e0 with +0x484 0x20000) -> vt+0x188, vt+0x240(1, 1, 0);
+- (other callers: states 0x34, 0x96/0x97, 0xf3, 0x0042b480: not lev_1_m1 grunt paths, not ported).
+
+**The search** (0x0042a7b0): dead -> 1; flag 4 of +0x484 (fire counters rolled, 0x00427600) clear, a target, and
+0x004531e0(target) false (**guess**: true for an airborne target): rand*100>>15 < 90 -> reload in place (anims 0x2a..0x29,
+state 0x32), return 0; rand < pickup_grab_pct (+0x86c, default 1) -> 0x0042a500 (grab a pickup: not ported); a held
+cover is left (vt+0x188, history); need_target without a target -> nothing; the candidates turret = 0x0042a100 and
+trench = 0x00429f00, compared by 2D squared distance from the grunt (the trench wins when nearer; the winner's distance
+x 0.25 bounds the next stage); the generic slot walk of World+0xed4 (kinds 1 / 6 of objects other than type 3: none on
+lev_1_m1, barracks have only ref_exit / ref_spawn); then the turret (path to it, state 0x7b) or the trench (path to
+ref_exit via 0x0046f6d0 == 1, occupy slot 0, +0x908 = ref_exit's direction, state 0xa0), +0x484 0x200 = hold (a2).
+Nothing: flag 4 set -> pursue (vt+0x184), else reload (state 0x32); returns 0 (a hide marker then wanders).
+
+**0x00429f00 (trench)**: needs vt+0x1f4 (grunts: 0x00433fa0, true); list World+0xed4, type 3, slot 0 free, not +0x918 /
++0x91c (the last left), within scan_distance (+0x5dc, 2D from its origin); with a target also: within +0x5d8 of the
+target, target within 80 degrees of ref_barracade's direction seen from ref_barracade (0x0042b860), sight from
+ref_barracade + 5 (+ 5 again in 0x00426fd0) to the target's ref_hit_00 passing through the trench. Nearest wins.
+**0x0042a100 (mounted gun)**: vt+0x1f0, list +0xea8, free (vt+0x158 0x004987a0: ai_can_use, kickout timer over, no
+player (flag 8), no AI (0x14)), within scan_distance; with a target within range of it, target within 65 degrees of the
+gun's heading (0x00453150), sight from the gun + 10.
+
+**The trench states** (ai_06.cpp:2055-2218; anims by 0x0043bd70):
+| State | What | Exit |
+|---|---|---|
+| 0xa0 | run to ref_exit | arrived: ref_barracade into +0x934 / +0x908, 0x004324d0, path there, 0xa1 |
+| 0xa1 | run to ref_barracade | arrived: no target -> AI_FindTarget; +0x484 0x20000; anim 0x66; 0xa2 |
+| 0xa2 | grunt_barricade_reload (0x66, 1.333 s), face +0x908 | end: flag 4 cleared and counters rolled (0x00427600); breathe 1..6 s; 0xa3 |
+| 0xa3 | grunt_barricade_breathe (0x65, loop) | no target or target outside 80 degrees (not with hold): timer 0. At 0: rand(1000) >= 100 and (target or out of arc) -> stand set (ids 2, 3, 0, 1), 0xa4; else peek 0x67, 0xa5 (fire spray 0x68 / 0xa6 needs vt+0x1fc: false for grunts) |
+| 0xa5 | grunt_barricade_peek (0x67, 2.633 s, no notes) | end: flag 4 and rounds left -> breathe 0xa3; else 0x66 / 0xa2 |
+| 0xa4 | stand (1.967 s), turn to the target | end: no target -> 0x66 / 0xa2; else engage 0x00427910 (in range with flag 4: fire state 0xa keeping the trench; else 0x66 / 0xa2) |
+In the slot (+0x484 0x20000): AI_FindTarget skips the view cone (ai_02.cpp:771); the fire cycle's lost sight -> 0x66 /
+0xa2; its clip end (0x0042b8e0): target within 80 degrees of the slot -> 0x66 / 0xa2, else leave (vt+0x188: history =
+this trench) and search (1, 1, 0); no taunt after the last burst (ai_02.cpp:1959); a reload's end engages; a hit
+reaction keeps the trench (0x00430340 stopMove skips vt+0x18c) and its end ducks (state 0x132 -> 0x66 / 0xa2); on the
+way (0xa0 / 0xa1) a hit lets it go (vt+0x18c) and retaliation offers are refused (0x0042c820). Death: 0x00427100 plays
+0x56 grunt_barricade_death (after the ragdoll / ledge / window cases of Character_Die). No death path frees the slot
+(Character_Die / 0x00427100 / GoRagdoll call neither vt+0x188 nor vt+0x18c): a dead grunt keeps his trench (static
+reading).
+
+Engine deviations (**guesses**): the paths are the engine's straight line or nav.rs route; the fire state with no target
+in the slot ducks; a hit on the way to a trench pursues after the reaction; a grunt whose mind another system changed
+(scare, topsy) lets his trench go.

@@ -3,7 +3,7 @@
 //! "belly"); grunts, Q and Jonesy play whole-body anims. The original picks grunt anims by id through
 //! vt+0x1a4 (docs/subsystems/grunt-ai.md 11); the state -> anim pairs here follow the states there.
 
-use crate::ai::{Companion, Grunt, Mind};
+use crate::ai::{Companion, CoverPhase, Grunt, Mind};
 use crate::player::Roman;
 use crate::skin::{Animator, Mask};
 use bevy::prelude::*;
@@ -356,6 +356,25 @@ fn grunts(
                 a.sync(1, 0);
                 continue;
             }
+            // a trench (ai.rs CoverPhase; ids by GruntObject 0x0043bd70): the run there (the move anim of 0x00427210),
+            // 0x66 grunt_barricade_reload, 0x65 grunt_barricade_breathe (looped), 0x67 grunt_barricade_peek, and
+            // standing up the stand set 2, 3, 0, 1 (grunt_stand_bl / br / tl / tr) at the aim weights 0.5
+            Mind::Cover => match g.cover.map(|c| c.phase) {
+                Some(CoverPhase::Duck) => ("grunt_barricade_reload".to_string(), false),
+                Some(CoverPhase::Breathe) => ("grunt_barricade_breathe".to_string(), true),
+                Some(CoverPhase::Peek) => ("grunt_barricade_peek".to_string(), false),
+                Some(CoverPhase::Stand) => {
+                    a.play(0, "grunt_stand_tl", false, Mask::All);
+                    a.set_pair(0, "grunt_stand_tr", 0.5);
+                    a.play(1, "grunt_stand_bl", false, Mask::All);
+                    a.set_pair(1, "grunt_stand_br", 0.5);
+                    a.set_weight(1, 0.5);
+                    a.sync(1, 0);
+                    continue;
+                }
+                _ if limping => ("grunt_limp".to_string(), true),
+                _ => ("grunt_run_scan".to_string(), true),
+            },
             Mind::Reload => ("grunt_reload_tr".to_string(), false),
             Mind::Flee => ("grunt_run_scared".to_string(), true),
             Mind::Chase if limping => ("grunt_limp".to_string(), true),
