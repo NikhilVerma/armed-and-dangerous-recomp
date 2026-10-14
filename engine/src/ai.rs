@@ -60,6 +60,9 @@ pub struct Grunt {
     pub marker_tags: Option<(i64, i64)>,
     pub marker: Option<(usize, Vec3)>,
     pub marker_done: bool,
+    /// a barracks troop walking out to the exit slot's point (state 0x5a, set by 0x0042db50); then his marker run
+    /// (marker tags set: 0x0042d1b0) or 20..50 ahead within 45 degrees (state 0x5b) and idle
+    pub exit: Option<Vec3>,
     /// a route to the goal over the ground when the straight line is blocked (the original walks the nav grid,
     /// 0x0046f6d0; here nav.rs A*, re-planned every second)
     route: Vec<Vec3>,
@@ -256,6 +259,7 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         marker_tags: (p.s("mode") == Some("trigger_marker")).then(|| (p.i("marker_tag_min", 0), p.i("marker_tag_max", 0))),
         marker: None,
         marker_done: false,
+        exit: None,
         route: Vec::new(),
         replan: 0.0,
         attacker: None,
@@ -641,8 +645,24 @@ fn think(
         // a guard whose target is beyond its range fires with the infinite accuracy ranges (ai_03.cpp:1383)
         g.infinite = g.guard && target.is_some() && !in_range;
         // engage 0x00427910
+        // a barracks troop first walks out of the door (state 0x5a 0x00442407: following its path, nothing else)
+        if let Some(x) = g.exit {
+            if flat(x - pos).length() < 4.0 {
+                g.exit = None;
+                if g.marker_tags.is_none() {
+                    // no marker tag: a point 20..50 ahead, within +-45 degrees of its heading (state 0x5b), then idle
+                    let a = g.yaw + rng.range(-std::f32::consts::FRAC_PI_4, std::f32::consts::FRAC_PI_4);
+                    let d = rng.range(20.0, 50.0);
+                    g.goal = pos + Vec3::new(a.sin(), 0.0, a.cos()) * d;
+                    g.timer = d / run_speed.max(1.0);
+                    g.mind = Mind::Flee;
+                }
+            } else {
+                g.mind = Mind::ToMarker;
+            }
+        }
         // a trigger_marker grunt, once awake (its trigger, a target found, or hurt), runs to his marker first
-        if g.marker.is_none() && !g.marker_done && g.mind != Mind::WaitTrigger {
+        if g.exit.is_none() && g.marker.is_none() && !g.marker_done && g.mind != Mind::WaitTrigger {
             if let Some(i) = g.marker_tags.and_then(|tags| markers.find(tags, rng.rand())) {
                 g.marker = Some((i, markers.markers[i].pos));
                 g.mind = Mind::ToMarker;
@@ -717,7 +737,7 @@ fn think(
                 speed = run_speed;
             }
             Mind::ToMarker => {
-                goal = g.marker.map(|m| m.1).unwrap_or(pos);
+                goal = g.exit.or(g.marker.map(|m| m.1)).unwrap_or(pos);
                 speed = run_speed;
             }
             Mind::Fire => {
