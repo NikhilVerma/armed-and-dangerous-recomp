@@ -39,7 +39,9 @@ the coverage scenarios did not reach. Read each source file ONCE, in order, and 
 remaster needs for this subsystem, citing addresses. For each queued function decide: ported (cite it), replaced
 by the engine (say by what, in docs/remaster-engine.md), or not needed (say why).
 Isolation tests: headless playtests from saved states with expect steps (or Rust unit tests for pure logic), one
-per behaviour area, added to tools/regress.py's SUITE. `python tools/regress.py --exe [target]` must pass before
+per behaviour area, never passing by luck (gunner1 once relied on a keg blast and one stray bullet: any code change
+that shifts the random sequence broke it); drive the outcome directly (kill / hurt / warp steps, aim at the real
+body) and give ranges a margin, added to tools/regress.py's SUITE. `python tools/regress.py --exe [target]` must pass before
 you report.
 Done when: the queue for your subsystem is empty or every remaining entry has a stated reason; tests pass;
 docs/subsystems/<name>.md updated. Report: branch, commits, queue before / after, tests, open questions.

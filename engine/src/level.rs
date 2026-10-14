@@ -50,8 +50,88 @@ pub struct Background;
 /// The model parts (children) and static collider of a placed object, so its husk can replace them.
 #[derive(Component)]
 pub struct Placed {
+    /// the class template's name (+0x414, 0x004555d0; Object_GetName 0x00453270). The tag (+0x390, 0x00453290) is
+    /// read from the property set where it is used (mission.rs tags, the window grunts' obj_tag).
     pub template: String,
     pub collider: Option<BodyId>,
+    /// the husk template it becomes when it dies, picked at load (Object_LoadBaseProps 0x00451360: husk, or one of
+    /// husk, husk1..husk9 at random), with the instance's own values over the template's
+    pub husk: Option<String>,
+    /// a default object's trigger fields (DefaultGameObject_OnTrigger 0x00450fb0)
+    pub triggers: ObjectTriggers,
+}
+
+/// A husk: the object a dead one became (Object_SpawnHusk 0x00455660 creates it through ObjectSystem_CreateObject
+/// 0x0045f020 from the husk template alone: no placement values, no instance id of its own). The engine keeps the
+/// entity (and its InstanceId, which the save game uses); this marks that it is no longer the placed object, so the
+/// placed object's send_trigger_on_death is not sent again when a destructible husk dies (mission.rs `deaths`).
+#[derive(Component)]
+pub struct Husk;
+
+/// The receive_trigger_* fields of a default object (DefaultGameObject_Load 0x0044fd20: +0x4c4 kill, +0x4c8
+/// deactivate, +0x4cc start_blocking). 0 = none. Each clears itself when it fires (0x00450fb0).
+#[derive(Clone, Copy, Default, Debug, PartialEq)]
+pub struct ObjectTriggers {
+    pub kill: i64,
+    pub deactivate: i64,
+    pub start_blocking: i64,
+}
+
+/// What a received trigger does to a default object (0x00450fb0).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TriggerAct {
+    /// vt+0xd4(0): the death slot (DefaultGameObject_OnDeath 0x00450ee0), then Object_Kill (fx_death, husk)
+    Kill,
+    /// vt+0xdc(): removal (Object_Remove 0x004547b0): gone, no death fx, no husk, no death trigger, no score
+    Deactivate,
+    /// collision vt+0xf8(0x40, 0) and the projectile list World +0xe90 (0x004546d0): bullets stop on it
+    StartBlocking,
+}
+
+impl ObjectTriggers {
+    pub fn of(p: &Props) -> Self {
+        ObjectTriggers {
+            kill: p.i("receive_trigger_kill", 0),
+            deactivate: p.i("receive_trigger_deactivate", 0),
+            start_blocking: p.i("receive_trigger_start_blocking", 0),
+        }
+    }
+    /// DefaultGameObject_OnTrigger 0x00450fb0: the first field equal to the trigger (kill, deactivate, start
+    /// blocking, in that order) acts and is cleared; the handler always returns false, so Object_SendTrigger
+    /// 0x00461870 goes on offering the trigger to the other objects. Trigger 0 never matches (0x00461870 drops it).
+    pub fn receive(&mut self, trigger: i64) -> Option<TriggerAct> {
+        if trigger == 0 {
+            return None;
+        }
+        if trigger == self.kill {
+            self.kill = 0;
+            Some(TriggerAct::Kill)
+        } else if trigger == self.deactivate {
+            self.deactivate = 0;
+            Some(TriggerAct::Deactivate)
+        } else if trigger == self.start_blocking {
+            self.start_blocking = 0;
+            Some(TriggerAct::StartBlocking)
+        } else {
+            None
+        }
+    }
+}
+
+/// The husk an object becomes (Object_LoadBaseProps 0x00451360): none when `husk` is missing or "null"; with
+/// husk1..husk9 (read while they are present, in order) one of the n names at random, (rand() * n) >> 15.
+pub fn pick_husk(p: &Props, rng: &mut crate::fxvm::CrtRand) -> Option<String> {
+    let first = p.s("husk").filter(|h| !h.eq_ignore_ascii_case("null"))?;
+    let mut names = vec![first.to_owned()];
+    for n in 1..=9 {
+        match p.s(&format!("husk{n}")) {
+            Some(h) => names.push(h.to_owned()),
+            None => break,
+        }
+    }
+    // (the original draws rand() for a single name too)
+    let i = ((rng.rand() as usize) * names.len()) >> 15;
+    names.get(i).cloned()
 }
 
 /// A troop to spawn (barracks / alarm generators): a grunt template at a point, awake and hunting the player.
@@ -110,7 +190,7 @@ fn rigid_anims(time: Res<Time>, mut q: Query<(&mut RigidAnim, &mut Transform)>) 
 }
 
 /// The default animation every object starts at load: Object_LoadProperties 0x004517b0 plays anim slot vt+0x40
-/// (fn_00451780: slot 1 of the template, slot 0 being "staticmodel") through 0x00408e30 with flags 0x81 (flag 1 =
+/// (0x00451780: slot 1 of the template, slot 0 being "staticmodel") through 0x00408e30 with flags 0x81 (flag 1 =
 /// loop). Placed objects whose model has a skeleton get it: the oil pumps' oilpump_cycle (4 s), the guard alarm's
 /// guard_alarm_0 (the siren turning, 6.7 s), stig_mgun_ref (a still pose). Characters' own anim systems (charanim.rs)
 /// replace it: it is played only when nothing else has started an anim by the frame after spawning. Not ported:
@@ -155,16 +235,104 @@ fn log_oilpump(
     state.0.insert("oilpump".into(), serde_json::json!({ "id": id.0, "anim": anim, "z": z, "lo": r.1, "hi": r.2, "travel": r.2 - r.1 }));
 }
 
+/// The object model's systems: the original's ObjectSystem (ObjectSystem_Construct 0x0045a4e0: the object lists,
+/// the force action pool, the behaviour table) as plugin state; each object's update (Object_Update 0x004540b0, once
+/// per game time, 0x004540a0 resets it: the animation advance and its events) is Bevy's Update schedule plus
+/// skin.rs; the level's teardown (kill everything 0x0045d670, delete 0x0045da20) is the process ending or
+/// restarting (a load starts a fresh process, savegame.rs).
 pub struct LevelPlugin;
 
 impl Plugin for LevelPlugin {
     fn build(&self, app: &mut App) {
+        // husks after mission.rs `deaths`: a dead placed object is told from a dying husk by the Husk marker the swap
+        // inserts, so the death trigger must be read first
         app.add_message::<SpawnGrunt>()
-            .add_systems(Update, (husks.after(crate::fx::FxSet), spawn_grunts, rigid_anims, audio_loops))
+            .init_resource::<TriggerLog>()
+            .add_systems(Update, (husks.after(crate::fx::FxSet).after(crate::mission::deaths), spawn_grunts, rigid_anims, audio_loops, object_triggers))
             .add_systems(PostUpdate, follow_camera.before(TransformSystems::Propagate))
             .add_systems(PostUpdate, default_anims.before(crate::skin::AnimateSet))
-            .add_systems(PostUpdate, log_oilpump.after(TransformSystems::Propagate));
+            .add_systems(PostUpdate, (log_oilpump, log_objects).after(TransformSystems::Propagate));
     }
+}
+
+/// Triggers delivered to default objects (Object_SendTrigger 0x00461870 offers every trigger to every object's
+/// handler; mission.rs dispatches them as SendTrigger messages). DefaultGameObject_OnTrigger 0x00450fb0: kill is
+/// delivered by mission.rs (`Action::Destroy`, from mission.json's "destroyed" edges, which are exactly the
+/// receive_trigger_kill fields), so here only its field is cleared; deactivate removes the object (Object_Remove
+/// 0x004547b0: no fx, no husk, no death trigger); start_blocking puts its collider in the bullets' list +0xe90.
+/// No lev_1_m1 object has deactivate or a non-zero start_blocking (w_l1_m1_01 / 02: 0).
+fn object_triggers(
+    mut commands: Commands,
+    mut events: MessageReader<crate::mission::SendTrigger>,
+    mut objects: Query<(Entity, &mut Placed, Option<&InstanceId>)>,
+    mut physics: NonSendMut<Physics>,
+    mut decal_world: Option<ResMut<crate::decals::DecalWorld>>,
+    mut sent: ResMut<TriggerLog>,
+) {
+    for crate::mission::SendTrigger(t) in events.read() {
+        *sent.0.entry(*t).or_default() += 1;
+        for (e, mut p, id) in &mut objects {
+            let Some(act) = p.triggers.receive(*t) else { continue };
+            info!("EVENT object {}: trigger {t} -> {act:?}", id.map(|i| i.0).unwrap_or(0));
+            match act {
+                TriggerAct::Kill => {}
+                TriggerAct::Deactivate => {
+                    if let Some(c) = p.collider.take() {
+                        physics.remove_static(c);
+                    }
+                    if let Some(w) = decal_world.as_mut() {
+                        w.remove_object(e);
+                    }
+                    commands.entity(e).despawn();
+                }
+                TriggerAct::StartBlocking => {
+                    if let Some(c) = p.collider {
+                        physics.no_bullets.remove(&c);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Every trigger sent so far, with how many times (the state log's "triggers": "triggers.301" = 1).
+#[derive(Resource, Default)]
+pub struct TriggerLog(pub std::collections::BTreeMap<i64, u32>);
+
+/// The state log's "objects" (playtest expect steps): per placed object's instance id, its template (a husk's once
+/// it died), health and max health (destructibles), whether it is a husk; "removed" once it is gone. And
+/// "triggers": the triggers sent so far.
+#[allow(clippy::type_complexity)]
+fn log_objects(
+    q: Query<(&InstanceId, &Placed, Option<&Destructible>, Has<Husk>)>,
+    state: Option<ResMut<crate::playtest::PlayState>>,
+    mut seen: Local<std::collections::HashSet<u32>>,
+    sent: Res<TriggerLog>,
+    fx: Res<crate::fx::FxStats>,
+) {
+    let Some(mut state) = state else { return };
+    // every object death so far (fx.rs `dying`: placed objects, windows, kegs, thrown bombs)
+    state.0.insert("object_deaths".into(), fx.deaths.into());
+    let triggers: serde_json::Map<String, serde_json::Value> = sent.0.iter().map(|(t, n)| (t.to_string(), (*n).into())).collect();
+    state.0.insert("triggers".into(), triggers.into());
+    let mut out = serde_json::Map::new();
+    for (i, p, d, husk) in &q {
+        // the objects the object model acts on (not every rock: the log is written every second)
+        if d.is_none() && !husk && p.triggers == ObjectTriggers::default() && !seen.contains(&i.0) {
+            continue;
+        }
+        seen.insert(i.0);
+        let mut o = serde_json::json!({ "template": p.template, "husk": husk });
+        if let Some(d) = d {
+            o["health"] = d.health.into();
+            o["max_health"] = d.max_health.into();
+        }
+        out.insert(i.0.to_string(), o);
+    }
+    for id in seen.iter() {
+        out.entry(id.to_string()).or_insert_with(|| serde_json::json!({ "removed": true }));
+    }
+    state.0.insert("objects".into(), out.into());
 }
 
 fn follow_camera(cam: Query<&Transform, (With<Camera3d>, Without<Background>)>, mut sky: Query<&mut Transform, With<Background>>) {
@@ -228,7 +396,9 @@ fn attach_model(commands: &mut Commands, e: Entity, model: &scene::Model, shadow
 }
 
 /// A weapon model in a character's hand: its ref_hand_00 bone is at the weapon's origin, so the model hangs
-/// straight off the hand joint.
+/// straight off the hand joint. The original's attachment (Object_Attach 0x004539f0: parent +0x34 referenced, the
+/// parent and child bone names, flags +0x424 bits 1 / 2; Object_Detach 0x00453b20; Object_GetParent 0x004539d0) is
+/// the Bevy hierarchy here (a child entity under the bone's joint; 0x004539e0 "has a parent" is ChildOf).
 fn attach_weapon(commands: &mut Commands, hand: Entity, model: &scene::Model, fix: Transform) -> Entity {
     let holder = commands.spawn((Transform::IDENTITY, Visibility::default())).id();
     commands.entity(hand).add_child(holder);
@@ -264,6 +434,33 @@ fn static_collider(physics: &mut Physics, model: &scene::Model, world: Mat4) -> 
     physics.add_static_mesh(&v, &model.tris)
 }
 
+/// A placed object's collider joins the world: its material, and whether bullets stop on it. Bullets hit only
+/// objects in the projectile list World +0xe90 (Projectile_Update 0x0047e580, filter 0x00413a90): buildings (unless
+/// base_defend or invisible, ai_01.cpp:1063), trees, kegs, turrets always; default objects (no behaviour) only when
+/// they take damage or block projectiles, and neither no_collide nor collide_barrier (DefaultGameObject_Load
+/// 0x0044fd20, game_03.cpp:526-567, lists +0xe90 / +0xe94 / +0xea0 / +0xea4); invisible_material never (0x004138c0).
+/// Invisible walls (collide_barrier, blocks_projectiles 0) let bullets through.
+fn collider_lists(physics: &mut Physics, p: &Props, c: BodyId) {
+    if let Some(m) = p.s("material") {
+        physics.materials.insert(c, m.to_owned());
+    }
+    if !in_bullet_list(p) {
+        physics.no_bullets.insert(c);
+    }
+}
+
+/// Whether an object's collider stops bullets (see `collider_lists`).
+fn in_bullet_list(p: &Props) -> bool {
+    let flag = |k: &str| p.f(k, 0.0) != 0.0;
+    let listed = match p.s("behavior").unwrap_or("") {
+        "building" => !(flag("invisible") || flag("base_defend")),
+        "tree" | "fx_explosion" | "rocket_tower_turret" => true,
+        "" => (flag("takes_damage") || flag("blocks_projectiles")) && !flag("no_collide") && !flag("collide_barrier"),
+        _ => true,
+    };
+    listed && p.s("material") != Some("invisible_material")
+}
+
 fn destructible(p: &Props) -> Option<Destructible> {
     // Objects with a death fx or a husk and finite health die from damage (behaviour fx_explosion, building, tree).
     // (an object that takes damage and has a death fx but no max_health, the guard alarm: the base default health,
@@ -272,14 +469,21 @@ fn destructible(p: &Props) -> Option<Destructible> {
     if !((p.has("max_health") || takes) && (p.s("fx_death").is_some() || p.s("husk").is_some())) || p.f("max_health", 0.0) >= 100000.0 {
         return None;
     }
+    // impact_force defaults to 2010 for default objects (0x0044fd20) and fx_explosion props (FxExplosion_Load
+    // 0x0041c180, game_02.cpp:700); every lev_1_m1 set that has area damage gives its own
+    let default_force = match p.s("behavior").unwrap_or("") {
+        "" | "fx_explosion" => 2010.0,
+        _ => 0.0,
+    };
     Some(Destructible {
         health: p.f("max_health", 100.0),
-        fx_death: p.s("fx_death").map(str::to_owned),
+        max_health: p.f("max_health", 100.0),
+        fx_death: p.s("fx_death").filter(|s| !s.eq_ignore_ascii_case("null")).map(str::to_owned),
         husk: p.s("husk").map(str::to_owned),
         area_damage: p.f("area_damage", 0.0),
         radius_inner: p.f("damage_radius_inner", 0.0),
         radius_outer: p.f("damage_radius_outer", 0.0),
-        impact_force: p.f("impact_force", 0.0),
+        impact_force: p.f("impact_force", default_force),
         chain: p.s("behavior") == Some("fx_explosion"),
         score: p.f("score_value", 0.0),
         class: match p.s("behavior").unwrap_or("") {
@@ -303,6 +507,18 @@ fn destructible(p: &Props) -> Option<Destructible> {
     })
 }
 
+/// The level's objects (docs/subsystems/objects.md). The original spawns every entry of the level's object table
+/// whose spawn mask has the pass's bit (0x0045d930 -> 0x0045d7a0) through ObjectSystem_CreateObject 0x0045f020:
+/// the `behavior` name (or the template name) hashed into the behaviour table (0x0045df60) gives a class id, the id
+/// a constructor (Object_Construct 0x004511d0 plus the class vtable, or GruntObject 0x00461510, BowGruntObject
+/// 0x00461530, PenguinObject 0x00461750, MolmerObject 0x00461800, Q111Object 0x00461820, PlayerObject 0x00461840
+/// stored as the player), then its Load (vt+0x18) and, outside a save restore, vt+0x20 (0x0045d9b0). Here the
+/// `behavior` match below picks the components instead; every instance is spawned (the spawn mask is not used).
+/// The object lists of the ObjectSystem (World +0xe6c.., ObjectList_Link 0x004546d0 / _Unlink 0x00454750 /
+/// _Contains 0x00454690, Object_UnlinkAll 0x004546f0) are components and queries; finding an object by id
+/// (0x0045d570, word +0x396) or name (ObjectSystem_FindByName 0x0045d5f0, Object_GetName 0x00453270) is a query on
+/// InstanceId / Placed.template. The level table walk (0x0045d750) is scene.json's instance list; reference counts
+/// (+0x28, the release callback 0x0045a450) and the "not removed" test (0x00454770) are entity lifetimes.
 #[allow(clippy::too_many_arguments)]
 pub fn spawn(
     commands: &mut Commands,
@@ -317,6 +533,8 @@ pub fn spawn(
 ) -> LevelInfo {
     let axes = Mat4::from_quat(game_to_engine());
     let mut rng = crate::fxvm::CrtRand::default();
+    // husk picks draw from their own stream, so the grunts' rolls stay as they were
+    let mut husk_rng = crate::fxvm::CrtRand::default();
     let mut info = LevelInfo { name: scene.level.clone(), ..default() };
 
     // landscape: its own mesh is its collision
@@ -356,6 +574,10 @@ pub fn spawn(
         // the placement's scale is not applied: the original draws scaled placements (the archways' 0.5, pine trees'
         // 0.55..0.88) at full size; measured against its captures (frame 580 of the synced walk: the arch and the
         // trees' tops land where the unscaled models project, docs/remaster-engine.md). Only rotation and position.
+        // the object's matrices (world +0x2e8 / scaled +0x32c rebuilt from the body, 0x00457c20; the getters
+        // 0x00457d60, 0x00457d90, 0x00457ea0, 0x00457eb0, 0x00457ec0, 0x00457f40, 0x00457f80; the layout transpose
+        // 0x00457ba0; without a body 0x00457f00 / 0x00458270; the position offset +0x2dc 0x00457820 / 0x00457850; Object_SetScale
+        // 0x004535d0 / 0x004535a0; the body +0x1c4, 0x004592c0) are the entity's Transform / GlobalTransform and physics.rs bodies
         let placed = scene::game_matrix(&inst.transform);
         let (_, r, tr) = placed.to_scale_rotation_translation();
         let mut world = axes * Mat4::from_rotation_translation(r, tr);
@@ -369,7 +591,11 @@ pub fn spawn(
         }
         let (_, rot, pos) = world.to_scale_rotation_translation();
         let background = behavior == "background";
-        let invisible = inst.property.contains("invisible") || p.f("invisible", 0.0) != 0.0;
+        // visible (default 1; 0 hides it: Object_LoadBaseProps 0x00451360, vt+0xf4(0)): p_invisible_walls and p_ui
+        // have 0; buildings read their own "invisible" (BuildingObject 0x0040ad80). Hiding (0x004536b0: +0x424 bit 4,
+        // out of the shadow list +0xe78 and the render list, 0x00453640 / 0x00453670; 0x00453740 asks) is not
+        // spawning the model here, or Bevy's Visibility
+        let invisible = p.f("visible", 1.0) == 0.0 || p.f("invisible", 0.0) != 0.0;
         let lib_dir = lib.dir.clone();
         let Some(model) = lib.load_model(&inst.model, background, assets, meshes, materials) else { continue };
         let (scale, _, _) = world.to_scale_rotation_translation();
@@ -507,32 +733,22 @@ pub fn spawn(
         // template's +0x4c flag 1, loader_01.cpp:3446). Broadcast volumes (p_tools) are triggers, never solid.
         let poly = p.i("collide_poly", 0) != 0 && p.s("behavior") != Some("broadcast");
         let coll_name = tpl.and_then(|t| t.collision.clone()).or_else(|| (invisible || poly).then(|| inst.model.clone()));
+        // a default object with no_collide (flag 8: the big red arrow) skips its whole collision set-up in
+        // DefaultGameObject_Load 0x0044fd20 (no vt+0xf8 filter, no lists): no collider (guess: a body without the
+        // filter collides with nothing; the crosshair's list +0xe9c and the bullets' +0xe90 never hold it)
+        let coll_name = coll_name.filter(|_| !(behavior.is_empty() && p.f("no_collide", 0.0) != 0.0));
         let collider = coll_name
             .and_then(|n| lib.load_model(&n, false, assets, meshes, materials).map(|m| (m.vertices.clone(), m.tris.clone())))
             .and_then(|(v, t)| {
                 let v: Vec<Vec3> = v.iter().map(|x| world.transform_point3(*x)).collect();
                 physics.add_static_mesh(&v, &t)
             });
-        if let (Some(c), Some(m)) = (collider, p.s("material")) {
-            physics.materials.insert(c, m.to_owned());
-        }
-        // bullets hit only objects in the projectile list World +0xe90 (Projectile_Update 0x0047e580, filter
-        // 0x00413a90): buildings (unless base_defend or invisible), trees, kegs, turrets always; objects without a
-        // behaviour only when they take damage or block projectiles (game_03.cpp:560); invisible_material never
-        // (0x004138c0). Invisible walls (blocks_projectiles 0) let bullets through.
         if let Some(c) = collider {
-            let flag = |k: &str| p.f(k, 0.0) != 0.0;
-            let listed = match behavior {
-                "building" => !(invisible || flag("base_defend")),
-                "tree" | "fx_explosion" | "rocket_tower_turret" => true,
-                "" => (flag("takes_damage") || flag("blocks_projectiles")) && !flag("no_collide"),
-                _ => true,
-            };
-            if !listed || p.s("material") == Some("invisible_material") {
-                physics.no_bullets.insert(c);
-            }
+            collider_lists(physics, &p, c);
         }
-        commands.entity(e).insert((Placed { template: inst.template.clone(), collider }, bounds, crate::hud::AimClass::of(&p)));
+        let triggers = if behavior.is_empty() { ObjectTriggers::of(&p) } else { ObjectTriggers::default() };
+        let husk = pick_husk(&p, &mut husk_rng);
+        commands.entity(e).insert((Placed { template: inst.template.clone(), collider, husk, triggers }, bounds, crate::hud::AimClass::of(&p)));
         // a trench (behavior "barracade", BarricadeObject): its cover slot for the grunts (ai.rs Barricade): ref_exit
         // (0x0040dcb0) and ref_barracade (0x0040dd10) from its reference anim; the direction is -(the node's y axis),
         // the nodes' rotations being identity in trench_0
@@ -583,7 +799,8 @@ pub fn spawn(
                 if let (Some(c), Some(mt)) = (collider, wp.s("material")) {
                     physics.materials.insert(c, mt.to_owned());
                 }
-                commands.entity(we).insert((Placed { template: "village_window".into(), collider }, Bounds { center: Vec3::ZERO, radius: 4.0 }));
+                let (husk, triggers) = (pick_husk(&wp, &mut husk_rng), ObjectTriggers::of(&wp));
+                commands.entity(we).insert((Placed { template: "village_window".into(), collider, husk, triggers }, Bounds { center: Vec3::ZERO, radius: 4.0 }));
                 if let Some(d) = destructible(&wp) {
                     commands.entity(we).insert(d);
                 }
@@ -597,6 +814,7 @@ pub fn spawn(
             commands.entity(e).insert((
                 Destructible {
                     health: 1.0,
+                    max_health: 1.0,
                     fx_death: None,
                     husk: None,
                     area_damage: 0.0,
@@ -693,8 +911,9 @@ pub fn spawn(
     info
 }
 
-/// An object's attach_audio_loop sound (0x00450490 reads it into +0x4f4 with flag 0x20000; the per-frame update
-/// 0x004505a0 starts it as a positional loop on the object, and its death stops it).
+/// An object's attach_audio_loop sound (DefaultGameObject_Load 0x0044fd20 reads it into +0x4f4 with flag 0x20000;
+/// the per-frame update 0x004505a0 starts it as a positional loop on the object; its removal 0x00450490 stops it). The object's own sound handle
+/// (+0x410, 0x00457aa0) is the Positional sound that follows it.
 #[derive(Component)]
 pub struct AudioLoop(pub String);
 
@@ -718,6 +937,8 @@ fn audio_loops(
 }
 
 /// A dead object is replaced by its husk template (felled tree, ruined barracks) or removed, with its collider.
+/// Removal (Object_Remove 0x004547b0, once: decals, force actions, shadow, detach, lists) and the destructor
+/// (Object_Destruct 0x004512b0) are the entity's despawn (or, for a husk, the swap of its parts and collider).
 #[allow(clippy::too_many_arguments)]
 fn husks(
     mut commands: Commands,
@@ -730,13 +951,24 @@ fn husks(
     mut materials: ResMut<Assets<StandardMaterial>>,
     placed: Query<(&Placed, &Transform, &Children)>,
     mut penguins: Query<&mut Penguin>,
-    windows: Query<(Entity, &Window, &Placed)>,
+    mut windows: Query<(Entity, &Window, &Placed, Option<&mut Destructible>)>,
     mut decal_world: Option<ResMut<crate::decals::DecalWorld>>,
+    mut rng: Local<crate::fxvm::CrtRand>,
 ) {
     for d in died.read() {
-        // a destroyed building's windows go with it
-        for (we, w, wpl) in &windows {
+        // a destroyed building's windows die with it: each window holds its building (+0x520, 0x00450980 from
+        // BuildingObject 0x0040ad80) and its update 0x004505a0 calls its death slot once the building is dead, so
+        // each pane bursts with its own fx_death (fx_explosion_village_window) through the usual death path
+        for (we, w, wpl, wd) in &mut windows {
             if w.building == d.0 {
+                if let Some(mut wd) = wd {
+                    if wd.dying.is_none() {
+                        wd.health = 0.0;
+                        wd.chain_delay = 0.0;
+                        wd.dying = Some(0.0);
+                    }
+                    continue;
+                }
                 if let Some(c) = wpl.collider {
                     physics.remove_static(c);
                 }
@@ -762,32 +994,48 @@ fn husks(
         for c in children.iter() {
             commands.entity(c).despawn();
         }
-        let husk = data.template_props(&p.template).s("husk").map(str::to_owned);
+        // the husk picked at load (Object_LoadBaseProps 0x00451360), made by Object_SpawnHusk 0x00455660 through the
+        // factory (ObjectSystem_CreateObject 0x0045f020) from its template alone, at the dead object's matrix
+        let husk = p.husk.clone();
         let husk_tpl = husk.as_ref().and_then(|h| data.templates.get(h)).cloned();
-        let Some(ht) = husk_tpl else {
+        let (Some(ht), Some(husk)) = (husk_tpl, husk) else {
             commands.entity(d.0).despawn();
             continue;
         };
+        let hp = data.template_props(&husk);
         let world = t.to_matrix();
+        let mut model_name = None;
         if let Some(m) = ht.model.as_ref().and_then(|m| lib.load_model(m, false, &assets, &mut meshes, &mut materials)) {
+            model_name = ht.model.clone();
             let _ = attach_model(&mut commands, d.0, m, true, None);
             // the husk is a new object: a receiver like any other (decal_receive of its template)
-            if m.skeleton.is_none() && data.template_props(husk.as_deref().unwrap_or_default()).f("decal_receive", 1.0) != 0.0 {
+            if m.skeleton.is_none() && hp.f("decal_receive", 1.0) != 0.0 {
                 if let Some(w) = decal_world.as_mut() {
                     w.add_object(d.0, m, Mat4::from_quat(game_to_engine()).inverse() * world);
                 }
             }
+            // area damage measures to the husk's own bounds (a destructible husk: the houses' _da / _db stages)
+            commands.entity(d.0).insert(Bounds { center: (m.min + m.max) * 0.5, radius: (m.max - m.min).length() * 0.5 });
         }
-        let collider = ht
-            .collision
-            .as_ref()
-            .and_then(|n| lib.load_model(n, false, &assets, &mut meshes, &mut materials).map(|m| (m.vertices.clone(), m.tris.clone())))
+        // its collision model, or (collide_poly) its render model, as a placed object's
+        let coll_name = ht.collision.clone().or_else(|| (hp.i("collide_poly", 0) != 0).then_some(model_name).flatten());
+        let collider = coll_name
+            .and_then(|n| lib.load_model(&n, false, &assets, &mut meshes, &mut materials).map(|m| (m.vertices.clone(), m.tris.clone())))
             .and_then(|(v, tr)| {
                 let v: Vec<Vec3> = v.iter().map(|x| world.transform_point3(*x)).collect();
                 physics.add_static_mesh(&v, &tr)
             });
-        let aim = crate::hud::AimClass::of(&data.template_props(husk.as_deref().unwrap_or_default()));
-        commands.entity(d.0).insert((Placed { template: husk.unwrap_or_default(), collider }, aim));
+        if let Some(c) = collider {
+            collider_lists(&mut physics, &hp, c);
+        }
+        let aim = crate::hud::AimClass::of(&hp);
+        let triggers = if hp.s("behavior").is_none() { ObjectTriggers::of(&hp) } else { ObjectTriggers::default() };
+        let next = pick_husk(&hp, &mut rng);
+        commands.entity(d.0).insert((Placed { template: husk, collider, husk: next, triggers }, aim, Husk));
+        // a husk with health and its own death fx or husk dies again (v_house_2f_a -> _da -> _db -> _dc)
+        if let Some(dd) = destructible(&hp) {
+            commands.entity(d.0).insert(dd);
+        }
     }
 }
 
@@ -854,5 +1102,63 @@ fn spawn_grunts(
             let bounds = Bounds { center: (model.min + model.max) * 0.5, radius: (model.max - model.min).length() * 0.5 };
             commands.entity(e).insert((Body { id, offset: lift, sync_rotation: false }, Health(p.f("max_health", 100.0)), bounds, g));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn props(v: serde_json::Value) -> Props {
+        Props(v.as_object().cloned().unwrap_or_default())
+    }
+
+    /// DefaultGameObject_OnTrigger 0x00450fb0: kill, deactivate, start_blocking in that order; a field fires once.
+    #[test]
+    fn trigger_receive_is_one_shot() {
+        // v_prison_gate 248 (instance values over p_prison_gate): receive_trigger_kill 556
+        let mut t = ObjectTriggers::of(&props(serde_json::json!({ "receive_trigger_kill": 556, "takes_damage": 0 })));
+        assert_eq!(t.receive(900), None);
+        assert_eq!(t.receive(0), None, "trigger 0 is never delivered (0x00461870)");
+        assert_eq!(t.receive(556), Some(TriggerAct::Kill));
+        assert_eq!(t.receive(556), None, "cleared once it fired");
+        let mut t = ObjectTriggers { kill: 7, deactivate: 7, start_blocking: 8 };
+        assert_eq!(t.receive(7), Some(TriggerAct::Kill), "kill is tested first");
+        assert_eq!(t.receive(7), Some(TriggerAct::Deactivate));
+        assert_eq!(t.receive(8), Some(TriggerAct::StartBlocking));
+        assert_eq!(t, ObjectTriggers::default());
+    }
+
+    /// Object_LoadBaseProps 0x00451360: husk, husk1..husk9 while present, (rand() * n) >> 15; "null" is none.
+    #[test]
+    fn husk_pick() {
+        let mut rng = crate::fxvm::CrtRand::default();
+        assert_eq!(pick_husk(&props(serde_json::json!({})), &mut rng), None);
+        assert_eq!(pick_husk(&props(serde_json::json!({ "husk": "null" })), &mut rng), None);
+        assert_eq!(pick_husk(&props(serde_json::json!({ "husk": "oilpump_d" })), &mut rng).as_deref(), Some("oilpump_d"));
+        // husk3 is not read: husk2 is missing
+        let p = props(serde_json::json!({ "husk": "a", "husk1": "b", "husk3": "d" }));
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..200 {
+            seen.insert(pick_husk(&p, &mut rng).unwrap());
+        }
+        assert_eq!(seen, ["a", "b"].iter().map(|s| s.to_string()).collect());
+    }
+
+    /// The bullets' list +0xe90 for default objects (0x0044fd20): damage takers and projectile blockers, never
+    /// no_collide or collide_barrier objects.
+    #[test]
+    fn default_objects_in_the_bullet_list() {
+        let listed = |v: serde_json::Value| in_bullet_list(&props(v));
+        assert!(listed(serde_json::json!({ "takes_damage": 1, "material": "metal" })), "oil pump");
+        assert!(listed(serde_json::json!({ "blocks_projectiles": 1 })), "igloo");
+        assert!(!listed(serde_json::json!({ "takes_damage": 0 })), "a plain rock");
+        assert!(!listed(serde_json::json!({ "blocks_projectiles": 0, "collide_barrier": 1, "visible": 0 })), "invisible walls");
+        assert!(!listed(serde_json::json!({ "no_collide": 1, "takes_damage": 1 })), "no_collide");
+        assert!(!listed(serde_json::json!({ "takes_damage": 1, "material": "invisible_material" })));
+        // other classes: buildings unless base_defend / invisible, trees and kegs always
+        assert!(listed(serde_json::json!({ "behavior": "building" })));
+        assert!(!listed(serde_json::json!({ "behavior": "building", "base_defend": 1 })));
+        assert!(listed(serde_json::json!({ "behavior": "tree" })) && listed(serde_json::json!({ "behavior": "fx_explosion" })));
     }
 }
