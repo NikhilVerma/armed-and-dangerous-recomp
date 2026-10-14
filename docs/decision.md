@@ -213,3 +213,19 @@ How this coexists with faithful recovery:
   verification by playing the same inputs in both (e.g. dismiss the briefing, walk forward 5 s) and comparing.
 - Human, 2026-10-13: "this is such an old game, we can probably live with high LOD for all cases": the engine draws
   every object's finest LOD at all distances (the original switches by Object_SelectLod 0x00452f50; not ported).
+
+## 2026-10-14: port by subsystem, each working in isolation; levels after
+
+- Human: "Instead of vertical slices, let's do subsystems and ensure they work in isolation. And eventually, we
+  will have enough of them built to start testing levels." Context: the game logic is about a third of the exe
+  (symbols/functions.csv: AI 12 %, game 11 %, UI / audio / anim / camera / input / save the rest; libraries
+  Havok / qhull / D3DX / CRT / zlib 42 %), all of it already recovered as C++ in src/. Porting one level
+  mechanic at a time re-read the same code from cold for each feature and cost 200k-400k tokens per mechanic.
+- Rule for engine/ from now on: one subsystem at a time (e.g. grunt AI, player, mission / triggers, weapons and
+  projectiles, pickups, HUD, audio cues), ported in one pass from its recovered source files with addresses
+  cited, scoped to the functions the levels reach (hook coverage of the original). Each subsystem gets its own
+  isolation tests (headless playtests from saved states, or unit tests, with expect checks), added to
+  tools/regress.py. Level playthroughs and look comparisons come once enough subsystems stand.
+- This replaces the per-level mechanics inventory as the work order (docs/level1-mechanics.md stays as the
+  checklist of what level 1 needs); the 2026-10-13 rule (each piece verified against the original, guesses
+  labelled) still applies to each subsystem.

@@ -19,7 +19,7 @@ re-reading is the fix.
   D3DX, CRT, zlib), then rebuild the game in a modern way. "When in doubt, decompile."
 - **Engine limits:** `docs/engine-limits.md` lists the original engine's hard limits and whether the remaster lifts them. Lift them, do not accept them; add new ones as they turn up.
 - **Remaster engine (`engine/`, Rust + Bevy + Jolt):** a manual port of the game, one verified piece at a time
-  (docs/decision.md 2026-10-13). Read **docs/remaster-engine.md** first: the porting order (rendering, player
+  (docs/decision.md 2026-10-13), ported **by subsystem, each tested in isolation, levels after** (2026-10-14). Read **docs/remaster-engine.md** first: the porting order (rendering, player
   movement, sticky bomb, guns, zoom, ...), the same-camera render comparison (tools/shot.py camera dumps,
   `--camera`, tools/render_compare.py), the playtest bot, and the traps. A piece is not done while its comparison
   with the original shows a difference; update that file and the journal at the end of every session.
