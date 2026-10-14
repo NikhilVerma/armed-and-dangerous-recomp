@@ -1,8 +1,9 @@
 # Grunt AI (lev_1_m1)
 
-Status 2026-10-13: static research for the remaster port. Partial: the set-up, the target search, alert groups,
-fire range, voice lines and the level data are traced; the per-frame state machine GenericAI_Update 0x0043ee90
-(src/ai/ai_06.cpp, 29223 bytes, switch on state +0x460) is mapped only at the dispatch level. Port numbers:
+Status 2026-10-14: the states lev_1_m1's grunts reach are traced and ported (section 13: classes, anim tables,
+stance, hit reactions, lost targets, marker splines, alarm troops, noises, taunt, the captain); every function of the
+ai port queue is ported or explained in docs/port/ai.csv (`python tools/port_queue.py ai --explained`). Sections
+1-12 are the earlier research (some of their "not traced" notes are now settled in 13). Port numbers:
 `work/remaster/lev_1_m1/grunt_ai.json`. Guesses are labelled **guess**.
 
 ## 1. Templates and instances in lev_1_m1
@@ -246,3 +247,87 @@ reading).
 Engine deviations (**guesses**): the paths are the engine's straight line or nav.rs route; the fire state with no target
 in the slot ducks; a hit on the way to a trench pursues after the reaction; a grunt whose mind another system changed
 (scare, topsy) lets his trench go.
+
+## 13. The port of 2026-10-14 (agent-ai: engine/src/ai.rs, alarm.rs, charanim.rs)
+
+Static reading of the recovered code, then headless playtests (engine/playtests, in tools/regress.py). Not compared
+with the original by capture in this round (see 14).
+
+**Classes.** BowGruntObject_Slot6 0x004347b0 runs 9 times per level load in the coverage runs: the 9 `grunt` instances
+are archers (`Kind::Bow`), `grunt_regular` GruntObject, `captain` CaptainObject (alarm generator 215 only). Their
+vtables (diffed with tools/vtable.py) differ in: the anim table vt+0x1a4 (0x0043bd70 / 0x0043abc0 / 0x0043b610, ported
+whole as ai.rs `anim_name`: e.g. the archers' grunt_bow_idle_* stand set, grunt_bow_fire_*, grunt_bow_reload_* 1.3 s,
+bow_die_1..3; the captain's captain_idle_*, captain_fire_* 0.633 s looped by +0x484 0x1000), the weapon (0x004a0ef0
+index 0xe bow at ref_lhand, 0xf rifle, 0x10 captain_mg at ref_rhand: level.rs now hands the captain his gun), and yes /
+no slots: trenches vt+0x1f4 (not the archers), mounted guns vt+0x1f0 (not the captain), the close attack vt+0x1e0 and
+the trench fire spray vt+0x1fc (the captain), the all-fours fall vt+0x200 (the captain), turn anims vt+0x218 (not the
+captain), the chase's ray-only engage vt+0x1cc (not the archers: they first need 0.9 x +0x5d8).
+
+**Stance.** Ai_InitGeneric: attention_* modes and the trigger modes stand at attention (anim 0xf) and fidget
+(0x00427330 only fires while 0xf plays); ready_* modes (196, 208, the window grunts) hold the stand set and never
+fidget; every return to rest after a fight plays the stand set (0x0042bc60, 0x7a, L_442860), so a grunt that has fought
+stops fidgeting.
+
+**Hit reactions** (0x00430340, ai_04.cpp:444-535; exits ai_06.cpp:3191-3412): on a gun none; the captain's all-fours
+fall when the health crosses allfours_pct (0x35, then 0x36 breathing 3..7 s, 0x38 standing up); damage <= hit_level_1
+small 0x3f..0x42 (not while one plays), <= hit_level_2 medium 0x43 / 0x44 alternating, else big 0x45 / 0x46. A hit
+leaves a trench held on the way, not the slot. Ends: a small one with health <= long_hit_pct % starts a long hit (0x4b..0x4f:
+grunt_hit_long(_2), grunt_dazed_1..3, up to 8 s); small / long: in the slot duck, a guard re-guards, else pursue with
+flag 4 or search (vt+0x240(1, 0, 0)); medium / big: in the slot duck, a guard re-guards, else with a target and flag 4
+fire when in range and in sight, else pursue; without: search.
+
+**Losing the target** (0x0042bc60): a guard re-guards, the slot ducks, else a new search, then with the counters spent
+the reload, else walk home (+0x4c0, run_scan, state 0x50) and stand. (The pursuit of a still-live enemy has no target
+to follow and ends there too.) State 2 (5..15 s wait at a chase's route end) lasts one frame with a target (the target
+update engages at once) and is not ported separately.
+
+**Marker splines** (0x0044b130, 0x0044b540, 0x0042d1b0, 0x0044ba30, states 0x96 / 0x97): a tag picked in the range,
+its head (sequence 0) walked to, then each marker's arrival: trigger, alarm, then hide (search (0, 0, 1), else wander
+60..100), ready / attention_guard (a guard there), trigger_charge (the player), a positive scatter_min (wander
+scatter_min..max: 0x0042d430 turns the facing by -45..+45 degrees and rolls the distance per axis, state 0x3d, home =
+there), else the next marker (marker_next_min..max switches spline; the end stops unless marker_looping). A strict
+marker (the one walked from) keeps targets from interrupting. `ready_roaming` and `trigger_marker` are not parsed by
+the PC exe: markers 151 / 266 / 267 act through their scatter. So barracks 235's troops (tags 33..34) walk to marker
+266 or 267 and wander 5..100, never reaching 264 / 265 (their hide markers): faithful.
+
+**Alarm troops** (0x00404e50, 0x00405490, 0x0042dd50): made at the generator's ref_spawn_00, walk to its ref_exit_00,
+then follow the spline of a tag in 12..14 (36 / 205 trigger_charge, 151 scatter + alarm), with no tags 20..50 ahead and
+the charge (+0x488 0x200). Generator choice: the nearest unseen one not among the last three spawn points, else the first
+such in list order: once both lev_1_m1 generators are recent, generator 152 sends nearly every troop (215, the only one
+with captains, only when 152 is seen): the original's rule, reproduced.
+
+**Noises** (0x00404810, AIInterestObject 0x00404680, AI_FindTarget step 2): Roman's own projectiles post a noise
+following each bullet (fx_start: both his guns' bullets have one) and one at its end for 2 s, radius 200. A grunt whose
+ref_hit_00 lies within a noise's radius (3D) takes the player when he is within 2 x scan_distance, with no cone or line
+of sight: shooting near grunts alerts them (noise1: eight courtyard guards 400+ units from Roman turn on him).
+
+**Taunt** (0x00428980 ai_02.cpp:1955-1981, state 0x6e): after the last clip with a target, outside a trench, when
+taunt_delay (300..360 s, game-wide) has passed: the Taunt bark and anim 0x32..0x34; its end as the clip's end (a guard:
+its reload, guess). The heading test (< 180 degrees) passes but for opposite facings; the speech-handle test is taken as
+silent (the engine keeps no per-grunt handle).
+
+**The captain's grenade** (engage 0x00427910 roll < 30 of 200 with flag 1, anim 0x27 captain_grenade_throw, the "throw"
+note at 1.333 s -> 0x00428340): a captain_grenade from his hand at Roman's ref_hit_00, the target pulled back 20 toward
+him (0x00482870), launched at speed 35 x 3 under g 64.348 (the lower arc: guess), ending at its first hit (0x0047eae0):
+area damage 30 (10..30), 50 to what it hit, fx_imp_sticky. Flag 1 is set again when the counters are rolled after a
+spent cycle. The trench spray (0x68, 0xa6) fires at each of the anim's 15 "fire" notes.
+
+Tests (headless, tools/regress.py): hits1 (small, long, medium hits and their ends), noise1 (a noise wakes guards out
+of sight), noise2 (Roman's shots post and expire noises), splines1 (barracks 235's troops reach 266 / 267 and wander),
+alarm1 (grunt 67's run to marker 151 raises the siren; generators send troops that follow tags 12..14), captain1 (a
+captain spawns with his class and fights; a grenade was thrown in the run), taunt1 (with the bark delays forced, a
+spawned grunt taunts after a clip), leader1 (companions, companions.md 7).
+
+## 14. Open points
+
+- **Tree grunts** (not created): three lev_1_m1 pine trees (47, 61, 76: ic_tree_slide_2 / 3 / 1 = triggers 99 / 98 /
+  99, trigger_los) hide a grunt_regular each at ref_grunt_tree_N (0x00496e90 -> 0x00456180 -> 0x0042d000: state 0x8c
+  with the IC anim mover_grunt_tree_N, slide down when triggered). level.rs does not create them; the IC anim path
+  (GenericAI_PlayICAnim 0x0042c410 and its helpers) is then needed. Trigger 98 is barracks 235's activation.
+- The captain's own voice lines (AIVoice_* 0x00437690 / 0x00437860 / 0x004375c0 ...): captains use the grunt barks.
+- The run anims' playback speed scaled to the move speed (vt+0x1a8, anim_run_* / anim_limp_*): played at speed 1.
+- The falling watchdog 0x0042e910 (state 0x82) and the contact reactions (slots 42 / 44): not ported.
+- Bullets on captains use the grunt's collision parts (hitparts.rs grunt_coll_9; captain_coll_0 not loaded).
+- Nothing in this round was compared with the original by capture (the rates and ranges come from the code and the
+  property sets); first candidates: the alarm troops' arrival times, a captain's damage rate (Roman 400 -> 0 in ~10 s
+  at 50 units in captain1), the long-hit frequency.

@@ -1528,7 +1528,7 @@ fn projectiles(
     mut stats: ResMut<PlayerStats>,
     mut fx: MessageWriter<crate::fx::StartFx>,
     hulls: Option<Res<crate::hitparts::HitHulls>>,
-    (rtime, topsy, mounted, mut bombs): (Res<Time<Real>>, Res<crate::topsy::Topsy>, Res<crate::turret::Mounted>, Query<(&Transform, &mut crate::sticky::StickyBomb), Without<Projectile>>),
+    (rtime, topsy, mounted, mut noise, mut bombs): (Res<Time<Real>>, Res<crate::topsy::Topsy>, Res<crate::turret::Mounted>, ResMut<crate::ai::Interests>, Query<(&Transform, &mut crate::sticky::StickyBomb), Without<Projectile>>),
     binds: Res<Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>,
     mut victims: Query<&mut crate::ai::Grunt>,
 ) {
@@ -1537,6 +1537,8 @@ fn projectiles(
         let step = p.vel * dt;
         let from = t.translation;
         p.life -= dt;
+        // the noise of a player's shot (0x00404810; ai.rs Interests): its path and its end point
+        noise.track(e, from + step, p.owner);
         let mut hit = physics.raycast_bullet(from, step.normalize_or(Vec3::Y), step.length().max(0.01));
         // sticky bombs are in the bullets' list (+0xe90, 0x00481320): one on the path before the first other hit takes
         // the damage and goes off at once (0x00481b90: a direct hit's record has no area flag); the bullet ends there
@@ -1699,7 +1701,7 @@ fn projectiles(
             }
             // the hit handler (vt+0x138 0x0047eae0): moved to the hit point, area damage when it has any (none for the
             // bullets), the direct damage (0x0047eec0), the end effect (0x0047ed40: fx_end_material with the surface;
-            // the bullets have no fx_end; its AI noise 0x00404810 is not ported) and removed
+            // the bullets have no fx_end; its AI noise 0x00404810: ai.rs Interests, above) and removed
             if let Some(n) = impact(Some(body)) {
                 // the fx's game +Z (its up) along the surface normal
                 let rot = Quat::from_rotation_arc(Vec3::Y, normal.normalize_or(Vec3::Y)) * crate::level::game_to_engine();

@@ -277,6 +277,24 @@ facing x, y, z, address, target address (+0x588), health (+0x454), anim id (+0x4
 `tools/shot.py --scenario level --frames 600,630,... --keys "500:MOUSE1,510:17*1100,700:MOUSE1" --name fightT` and
 read work/instances/main/and-frame-N.camera.json. AIDBG=1 logs the engine's companion targets and character hits.
 
+## Grunt AI and companions: what the engine replaces (2026-10-14)
+
+The ai port queue (`python tools/port_queue.py ai`) is empty: each function is cited in engine/src or listed with a
+reason in docs/port/ai.csv (`--explained` prints them). What the engine replaces rather than ports:
+- the nav grid Game+0xaa4 (grid marking, A*, path smoothing, the route follower AIRoute_*, the body drive 0x00454d80):
+  nav.rs A* over the Jolt world, re-planned every 1 s (grunts) / 0.25 s (companions), velocities set from the
+  property sets' speeds;
+- object plumbing: the AI position / matrix slots, in-frustum culling, the class descriptors, teardown, physics
+  descriptions, collision filters, the alarm controller's global lists (alarm.rs `Markers`), the trench slot
+  bookkeeping (ai.rs `Barricade`), the companions' pairing;
+- the marker getters (alarm.rs `Marker` fields) and the per-grunt speech handles (the engine keeps none: the taunt and
+  the barks take a grunt as silent).
+Behaviour state and tests: docs/subsystems/grunt-ai.md 13-14, companions.md 7. New playtest steps: `"template"` with
+`spawn` (e.g. "captain"), `"noise": [x, y, z]` (a noise of Roman's, as a bullet's impact), `"barks_ready": true`
+(the shared bark delays count as passed); state-log fields `ai.*` (live, minds, reacting, long_hits, spline, markers,
+taunts, throws, captains, noise, near.{mind, kind, reaction, targets_player}) and `q_lead` / `jonesy_lead`.
+`tools/regress.py --scene DIR --play DIR` runs the suite from a worktree without work/.
+
 ## Comparing sounds with the original
 
 The original logs every sound it starts with `[test] log_sounds=1` (hook, and-sounds.txt in the instance: frame
