@@ -101,6 +101,13 @@ pub struct Event {
     /// LeftStickY=0.8" sets buttons / axes (Bevy names)
     #[serde(default)]
     pub pad: Option<String>,
+    /// debug: make a pickup of this template at Roman's feet (pickup.rs)
+    #[serde(default)]
+    pub pickup: Option<String>,
+    /// debug: set Roman's loadout: {"stickies", "topsy", "mg" (spare ammo; gives the gun), "mg_clip", "use_mg",
+    /// "rifle_clip", "health"} (pickup.rs)
+    #[serde(default)]
+    pub loadout: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
 /// The playtest bot's orders, read by the player's control and weapon systems.
@@ -180,6 +187,9 @@ impl serde::Serialize for StepView<'_> {
 
 #[derive(Resource)]
 pub struct Playtest {
+    /// pickup / loadout steps for pickup.rs
+    pub pickups: Vec<String>,
+    pub loadouts: Vec<serde_json::Map<String, serde_json::Value>>,
     pub path: PathBuf,
     pub title: bool,
     events: Vec<Event>,
@@ -228,7 +238,7 @@ impl Playtest {
         let mut events = s.events;
         events.sort_by(|a, b| a.t.total_cmp(&b.t));
         let log = std::fs::File::create(path.with_extension("log.jsonl")).ok();
-        Playtest { passed: 0, failed: 0, hurt_c: vec![], blasts: vec![], pad_e: None, pad: vec![], warp: None, path, title: s.title, events, turns: s.turns, next: 0, t: 0.0, taps: vec![], clicks: vec![], log, last_log: -1.0, steps: s.steps, step_shot: None, step: 0, step_t: 0.0, step_started: false }
+        Playtest { pickups: vec![], loadouts: vec![], passed: 0, failed: 0, hurt_c: vec![], blasts: vec![], pad_e: None, pad: vec![], warp: None, path, title: s.title, events, turns: s.turns, next: 0, t: 0.0, taps: vec![], clicks: vec![], log, last_log: -1.0, steps: s.steps, step_shot: None, step: 0, step_t: 0.0, step_started: false }
     }
 }
 
@@ -457,6 +467,12 @@ fn drive(
         }
         if let Some(p) = e.pad {
             pt.pad.push(p);
+        }
+        if let Some(p) = e.pickup {
+            pt.pickups.push(p);
+        }
+        if let Some(l) = e.loadout {
+            pt.loadouts.push(l);
         }
         if let Some(h) = e.hurt_companion {
             pt.hurt_c.push(h);
