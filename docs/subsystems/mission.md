@@ -446,3 +446,53 @@ Transforms are the game's 3 rows of (r0, r1, r2, t): world = row · local + t (a
   trigger involved.
 - Other markers: grunt 34 (trigger 808) -> marker 35 `hide` (FindHidingSpot 0x0042a7b0, else wander 60..100);
   barracks 25 -> marker 179 hide; barracks 235 -> markers 264 / 265 hide (scatter 5..100), 266 / 267 scatter.
+
+## Barracks troop release (traced 2026-10-14; static, not executed in recorded runs)
+
+The two `grunt_barracks_mini` (25 at (-229, -450), 235 at (309, -559); class TwigletGenerator/BarricadeObject,
+property set `p_barracks_mini`) release troops. Engine: engine/src/mission.rs `Barracks` / fn `barracks`, troops
+walk out in engine/src/ai.rs (`Grunt::exit`).
+
+- **Set-up** `TwigletGenerator_Slot84` 0x0040ad80 (ai_01.cpp:900). Slots from the model's matrices (`ref_ground_0%d`,
+  `ref_window_0%d`, `ref_roof_0%d`, `ref_enter`, `ref_exit_0%d`). Only with an exit slot (or as a window generator)
+  are the release parameters read: receive_trigger_activate / _deactivate / trigger_reset (+0x534 / +0x538 / +0x5a4),
+  the six counts num_bow, num_regular, num_jumper_captain, num_captain, num_rocket_captain, num_monk (+0x53c..,
+  copied to +0x554.. for the refill), release_time_min / max (+0x578 / +0x57c, defaults 1 / 2, also when either is
+  <= 0), release_max +0x590 (default 3), release_amount +0x598 (default 3), release_count +0x594 (reader default 0),
+  marker_tag_min / max (+0x580 / +0x584), marker_sequence_min / max (+0x588 / +0x58c), alert_group +0x530. The first
+  delay +0x574 = min + rand() * (max - min) / 32768. The mini barracks model (anims/grunt_barracks_mini_0.json) has
+  one `ref_spawn_00` (local (0, 0.10, 2.78): inside, at the centre) and one `ref_exit_00` (local (0.24, -46.26,
+  0.14): 46 units out of the door). World: barracks 25 exit (-233.1, -403.4), barracks 235 exit (306.1, -605.2).
+- **Triggers** `BarricadeObject_Slot14` 0x0040d1b0: activate sets +0x460 bit 3 (releasing) and clears +0x534 (used
+  up: a second send does nothing); deactivate clears bit 3; reset sets bit 3 and refills the counts. Damage while
+  +0x534 is still set also sets bit 3 (`BarricadeObject_Slot52` 0x0040ce40). lev_1_m1 has only activate edges
+  (810 -> 25, 98 -> 235; trigger_reset 0 in p_barracks_mini).
+- **Update** 0x0040cb10 (game_01.cpp:1792), non-window branch, while bit 3 and (guess: not in a cutscene) Game
+  +0xc80 <= 0, +0xcbc, +0xadc, +0xae0 all 0: n = troops alive in its list +0x5a0. Batch +0x59c == 0 and n >=
+  release_count: the delay is re-rolled (it waits). Otherwise it counts down; batch 0 and n < release_count: batch =
+  release_amount. Delay <= 0: 0x0040c910.
+- **Release** 0x0040c910 (ai_01.cpp:1652): the troop type with the most remaining (first maximum; none left: bit 3
+  cleared, stop). At the first free exit slot it creates the troop (0x0040c590 table: 0 "grunt", 1 "grunt_regular",
+  2..4 "captain", 5 "monk") at `ref_spawn_0%d`, batch -= 1, set-up 0x0042db50, joins +0x5a0, type count -= 1. The
+  delay is re-rolled whether or not a slot was free. release_max is not used here.
+- **Troop** 0x0042db50 (ai_03.cpp:2128): marker tags +0x558 / +0x55c, sequences +0x560 / +0x564, alert group +0x574
+  = the barracks' +0x530; takes the slot and walks to its point (slot 83/161: the `ref_exit_0%d` translation),
+  state 0x5a. State 0x5a (ai_06.cpp:1847) when the path ends: with a marker tag, the marker run 0x0042d1b0 (state
+  0x96); without, a point 20..50 ahead within +-45 degrees and state 0x5b, then idle (state 1).
+- **Stops** when destroyed (0x0040cf40; engine mission.rs fn deaths clears the counts).
+
+lev_1_m1: release_count 3, release_amount 3, times 1..2 (defaults of p_barracks_mini). Barracks 25: 5 regulars, 3
+come out about 1..2 s apart, then it waits until fewer than 3 are alive, then the last 2. Barracks 235: 6 regulars,
+the same 3-at-a-time rhythm, to markers of tags 33..34.
+
+Engine test (playtests in the agent's scratchpad, 2026-10-14): send 810 -> "barracks 25 released a grunt_regular"
+at 10.97, 13.23, 14.88 s, then it waits with 3 alive; every troop reaches marker 179 (hide); screenshots show them
+leaving the door. Send 98 twice (the second is ignored), kill two: releases at 11.18, 13.45, 15.10, then a new batch
+at 20.12, 22.78, 24.42; troops reach markers 264, 266, 267.
+
+Guesses and open points: when the exit slot is freed again (engine: when the troop reaches the exit point or dies;
+the release waits for a free slot); dead troops leave the list +0x5a0 (engine: counted while alive); the Game
++0xc80.. conditions are not modelled; the marker run picks any marker of the tag range (the original follows the
+spline group by sequence, 0x0042d1b0: tag 33 has 266 at sequence 0 and 264 at 1); the `fx_smoking_grunt`
+variant 0x0042dc20 (from 0x0040c850, a destroyed generator's husk spawning a troop) is not ported (needs bit 11,
+toss_peasants, unset in lev_1_m1).
