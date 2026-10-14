@@ -77,3 +77,4 @@ engine/playtests/*.out
 engine/playtests/*.log.jsonl
 engine/playtests/*.png
 engine/playtests/*.camera.json
+engine/target-wt-animcam/
