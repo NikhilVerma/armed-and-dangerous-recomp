@@ -605,6 +605,12 @@ fn hud_state(
     hud.stickies = p.stickies;
     hud.special = p.special;
     hud.topsy = p.topsy;
+    // the weapon-cycle arrows (hud.rs, 0x00463fa0): the rifle and the machine gun once carried; the sticky bombs and
+    // the Topsy Turvy bomb while any are left (player.rs cycles to it only then)
+    if let Ok(r) = roman.single() {
+        hud.weapons = 1 + r.mg.is_some() as u32;
+        hud.specials = 1 + (r.topsy > 0) as u32;
+    }
     for (n, h) in &companions {
         if n.as_str() == "molmer" {
             hud.jonesy_health = h.0 / 500.0;

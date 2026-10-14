@@ -119,6 +119,12 @@ impl Anim {
     pub fn translation(&self, bone: &str, t: f32) -> Option<Vec3> {
         sample3(&self.tracks.get(&bone.to_lowercase())?.t, t)
     }
+
+    /// A bone's rotation key track sampled at `t` seconds (held at the ends); None without one (hud.rs: the
+    /// objective pointer's arms).
+    pub fn rotation(&self, bone: &str, t: f32) -> Option<Quat> {
+        sample_q(&self.tracks.get(&bone.to_lowercase())?.r, t)
+    }
 }
 
 fn sample3(keys: &[[f32; 4]], t: f32) -> Option<Vec3> {

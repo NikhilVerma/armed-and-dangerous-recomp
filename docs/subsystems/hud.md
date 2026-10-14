@@ -216,7 +216,7 @@ shadow at 2 px of 480 (scaled). Fixes worth keeping off by default: the anchors 
 
 - No player (g+0x748) or a cut scene/flag g+0x26cc: weapon icons, arrows, panel and infinity hidden (0x00463fa0).
 - Cinematic g+0xdce: health meters and progress meters hidden.
-- Paused (g+0x2684): objects with `+0x474 & 0x20` hidden (prompts created with 0x00465230 and the classes using
+- Paused (g+0x2684, the pause count of Game_SetPaused 0x004031e0: raised while any menu screen is up, 0x00490a40, and by a paused message, 0x00403410): objects with `+0x474 & 0x20` hidden (prompts created with 0x00465230 and the classes using
   0x00466580); the weapon-cycle arrows are forced off.
 - Crosshair: `_in` / `_out` anims when the target state changes, friendly variant over AI teammates (section 11).
 - Hit flashes: per-side timer g+0xcb8.
@@ -342,6 +342,48 @@ the machine gun's crosshair (needs the pub), a peasant / building / default obje
 Unconfirmed: whether an AI killed the normal way leaves World+0xe9c (no unlink found; the port keeps corpses
 targetable); `ui_special_crosshair` while the special count is 0 (0x004a1670 reads the slot, not the count; the
 port always shows it).
+
+## 12. The remaster engine's HUD (engine/src/hud.rs, 2026-10-14)
+
+What `hud.rs` does, each with the original's address in the source. The HUD systems run in PostUpdate, after every
+game system of the frame (several unordered Update systems write the prompt; reading it in Update made it flicker).
+
+- **Layout:** layout.json (section 10) in 640 x 480 units, the game view's 372-row band mapped to the window, scaled
+  by height, left / right anchors pinned to the edges (section 7's rule); the chat lines are centred (open question 6).
+- **Message feed** (Chat, `Chat` resource): mission.rs hands it raw messages with a colour index; Chat_AddMessage's
+  wrap at 490 units at scale 1.0 (the overflow-character loss reproduced, docs/original-bugs.md), three lines in
+  ui_chat_01..03 (y 437.3 / 419.9 / 396.9), the oldest gone once 6 s old (game time: it waits through pauses), the
+  colour table 0x0046a7e0. Speech goes in colour 1 (#1fffff); player.rs's weapon-change lines (no speaker) in colour
+  2 (#f0f01f, game_09.cpp:1730); pickups and "Game saved" in 1.
+- **Weapon-cycle arrows** (0x00463fa0; the eight widgets +0x5c.. are, by the strings 0x005a0dac..0x005a0d20,
+  up_on, down_on, left_on, right_on, up_off, down_off, left_off, right_off): "off" up / down with more than one
+  special (0x004a1640), left / right with more than one primary (0x004a1610); "on" while that cycle button is held
+  (IncSpecialWeapon 0x10 up, DecSpecialWeapon 0x11 down, DecWeapon 0xf left, IncWeapon 0xe right). The remaster
+  binds Next Special (up) and Next Weapon (right) only. All off while paused or in a cut scene.
+- **Prompts:** one text at ref_tickerbomb_text in the prompt's own colour (the bank text whose words around `%s`
+  match: ticker bomb texts white, pub and mounted-gun texts #a0ffa0), fitted to 576 units (UiText_FitScale
+  0x00465720), hidden while the game is paused (+0x474 0x20: any menu or a paused message, the pause count
+  Game+0x2684 of Game_SetPaused 0x004031e0).
+- **Crosshairs** hidden while paused (0x00406790 tests Game+0x2684), section 11 otherwise.
+- **Objective pointer** (0x00466790): the fan of eight arms (bones arm01..arm08 of the ui_compass_objective skin) posed
+  by its anim at frame 1 - min(distance x 0.002, 1): a half disc 500 units or more from the target, closing to a
+  line on arrival; distance and bearing from the camera (Camera_GetPosition).
+- **Health meters, hit flashes, compass, ammo and special counts, ticker clock and arming bar, team texts, message
+  box band:** as sections 3-5 (0x00466e70, 0x00466c20, 0x00467010 / 0x004670f0, 0x00466700, 0x00465a20, 0x00465ad0,
+  0x00467450, 0x00467890, 0x00466060 / 0x00466470).
+- **Device prompts:** `%s` becomes the active device's binding as an `<icon=...>` (input.rs `key`), keyboard / mouse
+  or the pad last used (Xbox or PlayStation icons).
+- State log `hud` (playtests): visible, chat lines and colours, prompt, prompt colour / scale / shown, crosshair
+  shown, arrows shown, weapon and special counts, the pointer's frame. Tests: engine/playtests/hud.json, flow.json,
+  hud.rs unit tests (wrap, fit).
+
+Not ported (not in lev_1_m1 or not reached): the auto-aim target pass (0x004067e0, 0x00408050, 0x00408190,
+0x004082a0: the option m_autoAim is off by default and the remaster has no auto-aim; its checkbox is shown disabled),
+the mode counters (0x00465be0, 0x00465c90, 0x00465ce0, 0x00465d30: Game+0x26ec is 0 outside the capture modes), the
+flag / handle meters (0x00465d50, 0x00465de0, 0x00465e30, 0x00465f30, 0x00465f70, 0x00466010: Game+0x26fc unset),
+0x004671b0 (a one-time hint keyed to Game+0xcbc, unset in lev_1_m1), 0x00467220 (shown with Game+0xd90 and ticker
+bomb sites left: its element is not identified, see open question 7), the timed-message classes 0x004677c0 /
+0x00467740 (their elements not identified), multi-lock markers, the mission timer (no timer in lev_1_m1).
 
 ## Open questions
 

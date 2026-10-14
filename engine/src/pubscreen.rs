@@ -31,6 +31,8 @@ pub struct PubScreen {
     /// the weapons on offer (sold, not held)
     offer: Vec<&'static str>,
     cursor: usize,
+    /// the pointer is on the exit button (hud.rs moves the highlight there)
+    on_exit: bool,
 }
 
 pub struct PubScreenPlugin;
@@ -121,7 +123,7 @@ fn open(
     if !offer.is_empty() {
         steps.push("pub_notify_new");
     }
-    *screen = PubScreen { open: true, steps, step: 0, offer, cursor: 0 };
+    *screen = PubScreen { open: true, steps, step: 0, offer, cursor: 0, on_exit: false };
     m.log.push(format!("pub screen: {:?}, offer {:?}", screen.steps, screen.offer));
     menu.page = Page::Pub;
     next.set(AppState::Paused);
@@ -159,13 +161,45 @@ fn input(
     mut physics: NonSendMut<crate::physics::Physics>,
     mouse: Res<ButtonInput<MouseButton>>,
     mut stop: MessageWriter<crate::audio::StopSound>,
+    (windows, slots, mut last): (Query<&Window>, Query<(&crate::hud::PubSlot, &crate::hud::HudElement)>, Local<Option<Vec2>>),
 ) {
     if !screen.open || menu.page != Page::Pub {
         return;
     }
+    // the pointer (the pub screen shows the mouse cursor: 0x004930c0 sets the HUD's +0x50): over one of the offer's
+    // slots it moves the highlight there, over the exit button (ui_pub_cursor's exit point 493, 416 of 640 x 480)
+    // onto it; a click acts on what is under it. The layout is the menus' (height / 480 about the centre).
+    let mut pointed: Option<Option<usize>> = None;
+    if let Some((w, c)) = windows.single().ok().and_then(|w| w.cursor_position().map(|c| (w, c))) {
+        let s = w.height() / 480.0;
+        let p = Vec2::new(320.0 + (c.x - w.width() / 2.0) / s, 240.0 - (c.y - w.height() / 2.0) / s);
+        let moved = last.is_some_and(|l| l.distance(c) > 0.5);
+        *last = Some(c);
+        let n = screen.offer.len();
+        let slot = slots.iter().find(|(sl, e)| sl.0 < n && (p - e.pos).abs().cmple(Vec2::new(48.0, 24.0)).all()).map(|(sl, _)| sl.0);
+        let exit = (p - Vec2::new(493.072, 416.366)).abs().cmple(Vec2::new(60.0, 20.0)).all();
+        if slot.is_some() || exit {
+            pointed = Some(slot);
+        }
+        if moved || mouse.just_pressed(MouseButton::Left) {
+            if let Some(i) = slot.filter(|i| *i != screen.cursor || screen.on_exit) {
+                screen.cursor = i;
+                screen.on_exit = false;
+                sounds.write(crate::audio::PlaySound::ui("ui_pub_move_1"));
+            } else if exit && !screen.on_exit {
+                screen.on_exit = true;
+                sounds.write(crate::audio::PlaySound::ui("ui_pub_move_2"));
+            } else if slot.is_none() && !exit && moved {
+                screen.on_exit = false;
+            }
+        }
+    }
     // the mouse as in the menus (Mouse 1 selects, Mouse 2 cancels): a player on a mouse or trackpad was stuck here
-    let select = ctl.pressed(crate::input::Act::Select) || mouse.just_pressed(MouseButton::Left);
-    let leave = ctl.pressed(crate::input::Act::Back);
+    let click = mouse.just_pressed(MouseButton::Left);
+    let select = ctl.pressed(crate::input::Act::Select) || click;
+    // a click away from the slots and the exit button only steps the award lines (below), it takes nothing
+    let select_item = select && !screen.on_exit && (!click || pointed.is_some_and(|s| s.is_some()));
+    let leave = ctl.pressed(crate::input::Act::Back) || (select && screen.on_exit);
     if screen.step < screen.steps.len() {
         if select {
             screen.step += 1;
@@ -177,6 +211,9 @@ fn input(
     // choosing: the pub's inventory, left / right
     let n = screen.offer.len();
     if n > 0 {
+        if ctl.step.x != 0 {
+            screen.on_exit = false;
+        }
         if ctl.step.x > 0 {
             screen.cursor = (screen.cursor + 1) % n;
             sounds.write(crate::audio::PlaySound::ui("ui_pub_move_1"));
@@ -185,7 +222,7 @@ fn input(
             screen.cursor = (screen.cursor + n - 1) % n;
             sounds.write(crate::audio::PlaySound::ui("ui_pub_move_2"));
         }
-        if select {
+        if select_item {
             let w = screen.offer[screen.cursor.min(n - 1)];
             if let Ok(mut r) = roman.single_mut() {
                 if w == "machinegun" && r.mg.is_none() {
@@ -204,9 +241,10 @@ fn input(
             }
         }
     }
-    // leaving: Esc / Mouse 2, or selecting with nothing left to take
+    // leaving: Esc / Mouse 2, the exit button, or selecting with nothing left to take
     if leave || (select && nothing_left) {
         screen.open = false;
+        screen.on_exit = false;
         menu.page = Page::Main;
         next.set(AppState::Playing);
         vtime.unpause();
@@ -223,7 +261,21 @@ fn input(
 }
 
 /// Fills the view hud.rs draws.
-fn view(screen: Res<PubScreen>, mut v: ResMut<PubView>, texts: Res<Texts>, roman: Query<(&Roman, &Health)>, mission: Option<Res<crate::mission::Mission>>) {
+fn view(
+    screen: Res<PubScreen>,
+    mut v: ResMut<PubView>,
+    texts: Res<Texts>,
+    roman: Query<(&Roman, &Health)>,
+    mission: Option<Res<crate::mission::Mission>>,
+    play: Option<ResMut<crate::playtest::PlayState>>,
+) {
+    // the state log's "pub" (playtest expect steps)
+    if let Some(mut p) = play {
+        p.0.insert(
+            "pub".into(),
+            serde_json::json!({ "open": screen.open, "step": screen.step, "cursor": screen.cursor, "on_exit": screen.on_exit, "offer": screen.offer.len(), "exit_text": v.exit_text.clone() }),
+        );
+    }
     if !screen.open {
         if v.open {
             v.open = false;
@@ -242,7 +294,8 @@ fn view(screen: Res<PubScreen>, mut v: ResMut<PubView>, texts: Res<Texts>, roman
     };
     let highlight = (choosing && !screen.offer.is_empty()).then_some(screen.cursor.min(screen.offer.len().saturating_sub(1)));
     let info = highlight.map(|i| texts.get(&info_id(screen.offer[i]))).unwrap_or_default();
-    let exit_text = if choosing { key(texts.get("pub_notify_exit"), "Esc") } else { String::new() };
+    // the exit prompt names Back on the device in use (input.rs: Esc, or the pad's button)
+    let exit_text = if choosing { key(texts.get("pub_notify_exit"), &crate::input::key(crate::input::Act::Back)) } else { String::new() };
     // icons: the offer in the inventory row, Roman's weapons and specials, the ticker bombs
     let mut icons: Vec<(usize, &'static str)> = screen.offer.iter().enumerate().map(|(i, w)| (i, icon(w))).collect();
     let mut weapons = vec!["rifle"];
@@ -273,7 +326,7 @@ fn view(screen: Res<PubScreen>, mut v: ResMut<PubView>, texts: Res<Texts>, roman
     v.info = info;
     v.exit_text = exit_text;
     v.highlight = highlight;
-    v.on_exit = false;
+    v.on_exit = choosing && screen.on_exit;
     v.health = h.0 / r.max_health.max(1.0);
     v.pool = pool;
     if changed {

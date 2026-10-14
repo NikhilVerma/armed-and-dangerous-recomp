@@ -254,7 +254,8 @@ fn contexts(
     *last = Some(want);
 }
 
-/// Copies the evaluated actions into `Controls`; menu navigation steps with key repeat (0.4 s, then every 0.12 s).
+/// Copies the evaluated actions into `Controls`; menu navigation steps with key repeat: the first repeat after 0.25 s,
+/// then every 0.1 s (the menu input 0x00491140 through 0x00491090: first delay 0.25, repeat 0.1).
 fn collect(time: Res<Time<Real>>, mut c: ResMut<Controls>, acts: Query<(&Act, &ActionValue, &ActionEvents, &TriggerState)>) {
     let mut out = [ActState::default(); ACTS];
     for (a, v, ev, st) in &acts {
@@ -304,7 +305,7 @@ fn collect(time: Res<Time<Real>>, mut c: ResMut<Controls>, acts: Query<(&Act, &A
         c.nav_held = 0.0;
     } else {
         let t = prev + time.delta_secs();
-        let fire = prev == 0.0 || (t >= 0.4 && ((t - 0.4) / 0.12).floor() > ((prev - 0.4).max(-0.12) / 0.12).floor());
+        let fire = prev == 0.0 || (t >= 0.25 && ((t - 0.25) / 0.1).floor() > ((prev - 0.25).max(-0.1) / 0.1).floor());
         if fire {
             c.step = dir;
         }
@@ -423,6 +424,26 @@ pub fn key(a: Act) -> String {
         Act::Nav => return String::new(),
     };
     pad_button(dev == 2, b)
+}
+
+/// Every binding of `a` on the device in use, for the controls page (gamemenu.rs shows two as "%s or %s", as the
+/// original's key binding entries 0x00447e70 show both keys of an action). Keyboard and mouse: the bindings of
+/// `spawn_contexts` (keep in step); a pad: its one button (`key`).
+pub fn keys(a: Act) -> Vec<String> {
+    if DEVICE.load(Ordering::Relaxed) != 0 {
+        return vec![key(a)];
+    }
+    let icon = |n: &str| format!("<icon={n}>");
+    match a {
+        Act::Use => vec![icon("keyboard_x"), icon("keyboard_f")],
+        Act::Aim => vec![icon("keyboard_z"), icon("keyboard_e")],
+        // no icon for the middle button in the exported set
+        Act::Jump => vec![icon("keyboard_space"), "Mouse 3".into()],
+        Act::Select => vec![icon("keyboard_enter"), icon("keyboard_space")],
+        Act::Continue => vec![icon("keyboard_enter"), icon("mouse_left")],
+        Act::Back => vec![icon("keyboard_escape"), icon("mouse_right")],
+        _ => vec![key(a)],
+    }
 }
 
 /// Rumble on the pad in use (remaster improvement; the original drives DirectInput force feedback from

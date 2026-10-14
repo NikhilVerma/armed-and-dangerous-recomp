@@ -1,0 +1,16 @@
+{"steps": [
+ {"until": "message"},
+ {"wait": 1.0},
+ {"shot": "briefing"},
+ {"expect": {"hud.prompt_shown": false, "hud.crosshair_shown": false}},
+ {"tap": "Enter"},
+ {"wait": 1.0},
+ {"expect": {"hud.crosshair_shown": true}},
+ {"shot": "play"},
+ {"tap": "Escape"},
+ {"wait": 0.5},
+ {"expect": {"menu.page": "Pause"}},
+ {"shot": "pause"},
+ {"wait": 0.5},
+ {"quit": true}
+]}

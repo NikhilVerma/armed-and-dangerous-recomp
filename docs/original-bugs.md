@@ -66,7 +66,7 @@ Defects found in the original game. Reproduced faithfully and not fixed before M
 | "ref_spawn_0%d" index subtracts only the ground and window counts (roof and enter slots ignored) (**guess**) | 0x0040c850 / 0x0040c910 | Disassembly | Faithful |
 | Damage-flag path reads the damage record before its null check | 0x00450da0 | Disassembly | Faithful (src/game/game_03.cpp) |
 | After 0x00487da0 frees an unreferenced object, 0x00458dd0 / 0x00458db0 still run on it (**guess**: use after free) | 0x004547b0 | Disassembly | Faithful |
-| Chat word wrap drops the character at the overflow point when a line has no space; a 300+ character message copied with wcsncpy(.., 300) is not terminated | 0x0046aa60 | Disassembly | Faithful (src/ui/ui_02.cpp) |
+| Chat word wrap drops the character at the overflow point when a line has no space; a 300+ character message copied with wcsncpy(.., 300) is not terminated | 0x0046aa60 | Disassembly | Faithful (src/ui/ui_02.cpp; the remaster engine too: engine/src/hud.rs Chat::add_message, the text cut to 300 characters) |
 | Object name + "_in"/"_out" copied into a 0x28-byte stack buffer with no length check | 0x00466580, 0x00466650, 0x004666a0 | Disassembly | Faithful |
 | Slider divides by (max - min) without a zero check | 0x0046cae0 | Disassembly | Faithful |
 | Missing "fx_origin_start_lock_child" clears descriptor +0x74 instead of +0x18 | Object_LoadProperties 0x004517b0 | Disassembly | Faithful (src/physics/physics_02.cpp) |
