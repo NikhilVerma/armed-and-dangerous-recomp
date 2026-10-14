@@ -121,3 +121,11 @@ and the other HUD parts match (work/remaster/render/hud_zoom.png).
 It bobs: its own anim moves Center z from 20 to 46 above the placement (loop 0.97 s). Without it the arrow sat
 behind the arch's top and only the head showed. RigidAnim (level.rs) plays a rigid model's Center track; it now
 matches the original's synced captures.
+
+## Companions dying in engine bot runs (2026-10-14)
+
+Since companion death was ported (ccd9aec), Q and Jonesy die in most full-level bot runs (level1h: Q; level1j: both,
+with the alarm troops). Their health is 500 (x Game+0x554, normal 1) and grunt shots hurt them in full, as traced.
+Not compared: the hook's AI dump (World+0xe7c) lists grunts only (vtables 0x5a9cf0 / 0x5abb88), not Q / Jonesy.
+Next: a hook dump field for the companions' health (+0xad0 / +0xad4 of the player), then the same scripted fight in
+both games.
