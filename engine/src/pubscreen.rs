@@ -172,6 +172,9 @@ fn input(
             if let Ok(mut r) = roman.single_mut() {
                 if w == "machinegun" && r.mg.is_none() {
                     r.mg = Some(crate::player::machinegun(&data));
+                    // a taken weapon goes into his hands (the original's capture topsyO: after the pub the HUD shows the machine
+                    // gun, 100/1000)
+                    r.use_mg = true;
                     let i = screen.cursor.min(n - 1);
                     screen.offer.remove(i);
                     screen.cursor = 0;

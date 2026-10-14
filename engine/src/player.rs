@@ -1067,8 +1067,11 @@ fn weapons(
             subs.write(crate::audio::Subtitle { speaker: None, text: texts.get("ui_change_special_weapon").replace("%s", &name), duration: 3.0 });
             sounds.write(crate::audio::PlaySound::ui("ui_weapon_put_away"));
         }
-        if r.special == 1 && r.topsy == 0 {
+        if r.special == 1 && r.topsy == 0 && !topsy.active() {
+            // the last one used: back to the sticky bomb, with its line (the original's capture topsyO)
             r.special = 0;
+            subs.write(crate::audio::Subtitle { speaker: None, text: texts.get("ui_change_special_weapon").replace("%s", &texts.get("weap_stickybomb")), duration: 3.0 });
+            sounds.write(crate::audio::PlaySound::ui("ui_weapon_put_away"));
         }
         // Fire Special with the Topsy Turvy bomb (topsy.rs)
         if r.special == 1 && ctl.pressed(crate::input::Act::Special) && r.topsy > 0 && !topsy.active() {
