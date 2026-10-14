@@ -86,6 +86,9 @@ Logged since (log_hits' and-rayhits.txt): of the original's ~40 grunt bullets in
 ground, 4-5 a grunt standing in front of a shooter. The engine's shots came from the body's centre line and passed
 beside that grunt; from the weapon hand (c8088ae) they hit it 4 times. Now: Roman 25 of 39 shots (original 22 of
 42). Left: the muzzle's exact place (the weapon's emitter node is not exported; ~3 along the aim from ref_rhand).
+Since: the muzzle measured in the original (and-shots.txt: ~6.9 ahead, 1.3..1.5 right, 8.4 up) and the dry
+cycle tied to a turn: shots 40 vs 42, Roman's hits 24 vs 22 (frames 720-1250); the first fight's first arrow 683 vs
+696. Open: the source of the dry cycle after a turn (guessed: engage -> state 0xa -> guard cycle, note #7).
 
 ## Falling snow in the remaster engine (2026-10-13, partly resolved)
 
