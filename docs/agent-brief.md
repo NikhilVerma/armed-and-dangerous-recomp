@@ -16,7 +16,7 @@ Setup:
 - Find code with `python tools/engine_map.py writes|reads|sends|receives|addr|fn ...` before grepping.
 
 Testing:
-- While the human's game runs (`tasklist | findstr and_remaster` showing engine	argetelease), do NOT build
+- While the human's game runs (`tasklist | findstr and_remaster` showing engine\target\release), do NOT build
   or run anything: it eats their CPU (2026-10-15: "100% CPU and i cant play anymore"). Wait, or work by reading.
 - Every run --background (off-screen, muted, no mouse grab): never a visible window, not even a short bench,
   unless the human has given a time slot (their screen got spammed, 2026-10-15). Captures of the original game
