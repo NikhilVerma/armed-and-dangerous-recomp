@@ -723,7 +723,15 @@ pub fn spawn(
             // PlayerObject_Load 0x00473da0 puts him on the ground (Object_ForceGround 0x00455860: from 1000 above,
             // 10000 down): he does not drop from the placement's height at the start
             let pos = physics.raycast_landscape(pos + Vec3::Y * 1000.0, -Vec3::Y, 10000.0).map(|h| pos.with_y(h.y)).unwrap_or(pos);
-            if let Some(r) = crate::player::make_roman(physics, &p, data, pos, yaw - std::f32::consts::PI) {
+            if let Some(mut r) = crate::player::make_roman(physics, &p, data, pos, yaw - std::f32::consts::PI) {
+                // the mission's loadout (player_add_* ...; the p_mission defaults without a mission object)
+                let loadout = scene
+                    .logic
+                    .iter()
+                    .find(|l| l.template == "mission")
+                    .map(|m| crate::player::Loadout::from_mission(&data.instance_props(&m.template, &m.props)))
+                    .unwrap_or_default();
+                loadout.apply(&mut r, data);
                 commands.entity(e).insert((Health(r.max_health), r, bounds, crate::ai::Player));
                 info.player = Some(e);
             }

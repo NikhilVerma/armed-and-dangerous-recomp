@@ -742,7 +742,7 @@ fn hud_state(
     // the weapon-cycle arrows (hud.rs, 0x00463fa0): the rifle and the machine gun once carried; the sticky bombs and
     // the Topsy Turvy bomb while any are left (player.rs cycles to it only then)
     if let Ok(r) = roman.single() {
-        hud.weapons = 1 + r.mg.is_some() as u32;
+        hud.weapons = r.has_rifle as u32 + r.mg.is_some() as u32;
         hud.specials = 1 + (r.topsy > 0) as u32;
     }
     for (n, h) in &companions {

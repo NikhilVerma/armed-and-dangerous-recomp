@@ -75,7 +75,10 @@ pub struct Roman {
     /// reset 0x004a0fb0, the special's cooldown queue (0x004a1950 / 0x004a1930 / 0x004a1970: sticky.rs StickyThrow;
     /// can fire 0x004a1900: no throw pending and bombs left)
     pub rifle: Weapon,
-    /// the Flemming machine gun once taken in the pub (Roman's second weapon slot)
+    /// the rifle is in the primary list (the mission's player_add_rifle, `Loadout`); its ammo record (`rifle`)
+    /// exists either way, as every weapon id's does in the original (+0x140 / +0x144 per id)
+    pub has_rifle: bool,
+    /// the Flemming machine gun: given by the mission (player_add_machinegun, `Loadout`) or taken in the pub
     pub mg: Option<Weapon>,
     /// the machine gun is in hand (Next Weapon: Q)
     pub use_mg: bool,
@@ -480,6 +483,7 @@ pub fn make_roman(physics: &mut Physics, p: &Props, data: &GameData, feet: Vec3,
             impact_force: b.f("impact_force", 7370.0),
             timer: 0.0,
         },
+        has_rifle: true,
         mg: None,
         use_mg: false,
         topsy: 0,
@@ -559,6 +563,88 @@ pub fn machinegun(data: &GameData) -> Weapon {
         range: g.f("machinegun_range", 400.0),
         impact_force: b.f("impact_force", 5695.0),
         timer: 0.0,
+    }
+}
+
+/// The mission's starting loadout. MissionObject_Load (0x0044c170, game_02.cpp:1999-2027) reads the mission
+/// instance's player_add_* flags (Game+0xd93 + weapon id; template defaults: machine gun 1, the others 0),
+/// player_set_ammo_* (+0x25e8 + 4 * id, default -2) and player_set_num_* (+0x2600.., default -1); the player's reset
+/// (0x00475650) applies them to his weapon state: adds in weapon-id order (machine gun 0, sniper 1, rifle 2, ...;
+/// 0x004a0ef0 into the first free slot), sets the ammo of every id whose value is not -1 (0x004a14e0: -2 fills clip
+/// and spare, n gives clip min(n, clip size) and spare the rest) and equips slot 0 (0x004a10e0): the machine gun is in
+/// hand whenever the mission gives it. Only the rifle and the machine gun are ported; the sniper, vindaloo, gurner and
+/// shark gun the later missions add are not. Its player_remove_* flags (+0xdaf.., applied first) act on the weapons
+/// Roman already holds: none at a level's start, so they do not appear here.
+/// Original data quirk (mission.md): the topsy count is read as player_set_num_topsyturvy (0x005b1e04), which no mission
+/// sets (they set player_set_num_topsy): Roman starts every level without Topsy Turvy bombs.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Loadout {
+    pub machinegun: bool,
+    pub rifle: bool,
+    /// player_set_ammo_machinegun / _rifle (-1 leave, -2 full)
+    pub mg_ammo: i64,
+    pub rifle_ammo: i64,
+    /// player_set_num_stickybomb / _topsyturvy (-1 leave)
+    pub stickies: i64,
+    pub topsy: i64,
+}
+
+impl Default for Loadout {
+    /// The p_mission defaults (MissionObject_Load's fallbacks).
+    fn default() -> Self {
+        Self { machinegun: true, rifle: false, mg_ammo: -2, rifle_ammo: -2, stickies: -1, topsy: -1 }
+    }
+}
+
+impl Loadout {
+    /// From the mission instance's resolved properties.
+    pub fn from_mission(p: &Props) -> Self {
+        let d = Self::default();
+        Self {
+            machinegun: p.i("player_add_machinegun", d.machinegun as i64) != 0,
+            rifle: p.i("player_add_rifle", d.rifle as i64) != 0,
+            mg_ammo: p.i("player_set_ammo_machinegun", d.mg_ammo),
+            rifle_ammo: p.i("player_set_ammo_rifle", d.rifle_ammo),
+            stickies: p.i("player_set_num_stickybomb", d.stickies),
+            topsy: p.i("player_set_num_topsyturvy", d.topsy),
+        }
+    }
+
+    /// Gives Roman the loadout (the reset 0x00475650 on his fresh weapon state).
+    pub fn apply(&self, r: &mut Roman, data: &GameData) {
+        r.has_rifle = self.rifle;
+        r.mg = self.machinegun.then(|| machinegun(data));
+        if let Some(w) = r.mg.as_mut() {
+            set_ammo(w, self.mg_ammo);
+        }
+        set_ammo(&mut r.rifle, self.rifle_ammo);
+        if self.stickies >= 0 {
+            r.stickies = self.stickies as u32;
+        }
+        if self.topsy >= 0 {
+            r.topsy = self.topsy as u32;
+        }
+        // slot 0 of the primary list, filled in id order: the machine gun (id 0) before the rifle (id 2)
+        r.use_mg = r.mg.is_some();
+    }
+}
+
+/// A weapon's ammo as 0x004a14e0 sets it (-1: unchanged; -2: clip and spare full; n: clip min(n, clip size), spare the
+/// rest). An unlimited reserve (the rifle's) stays unlimited.
+fn set_ammo(w: &mut Weapon, amount: i64) {
+    match amount {
+        -1 => {}
+        -2 => {
+            w.clip = w.clip_size;
+        }
+        n if n >= 0 => {
+            let n = n as u32;
+            w.clip = n.min(w.clip_size);
+            if !w.unlimited {
+                w.ammo = n - w.clip;
+            }
+        }
+        _ => {}
     }
 }
 
@@ -1027,7 +1113,7 @@ fn weapons(
         let switching = r.wchange.is_some_and(|c| c < SWITCH_AT);
         // Next Weapon (Q, input 0xe): the next usable slot as pending (0x004a0bb0, 0.5 s), unless it is the current one;
         // selecting leaves the zoom mode (0x00475910) and requests the weapon-change anim (+0xa34 |= 0x440000)
-        let other_usable = if r.use_mg { usable(&r.rifle) } else { r.mg.as_ref().is_some_and(usable) };
+        let other_usable = if r.use_mg { r.has_rifle && usable(&r.rifle) } else { r.mg.as_ref().is_some_and(usable) };
         if !switching && ctl.pressed(crate::input::Act::SwitchWeapon) && other_usable {
             r.wchange = Some(0.0);
         }
