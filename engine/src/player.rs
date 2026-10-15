@@ -75,6 +75,8 @@ pub struct Roman {
     /// reset 0x004a0fb0, the special's cooldown queue (0x004a1950 / 0x004a1930 / 0x004a1970: sticky.rs StickyThrow;
     /// can fire 0x004a1900: no throw pending and bombs left)
     pub rifle: Weapon,
+    /// the rifle is in his weapon list (the level's loadout: lev_1_m4 and others give only the machine gun)
+    pub has_rifle: bool,
     /// the Flemming machine gun once taken in the pub (Roman's second weapon slot)
     pub mg: Option<Weapon>,
     /// the machine gun is in hand (Next Weapon: Q)
@@ -404,13 +406,47 @@ pub struct PlayerPlugin;
 
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, hand_weapon);
+        app.add_systems(Update, (apply_loadout, hand_weapon).chain());
         app.init_level_resource::<PlayerStats>()
             .init_level_resource::<Banter>()
             .init_level_resource::<LookDelta>()
             .add_systems(Update, grab_cursor.before(control))
             .add_systems(Update, (control, ground_effects, weapons, projectiles, damage_feedback, death).chain().run_if(crate::playing))
             .add_systems(Update, (player_state.after(death), idle_banter).run_if(crate::playing));
+    }
+}
+
+/// Gives the new Roman the level's loadout (mission.rs Loadout; the player's reset 0x00475650): the rifle and the
+/// machine gun when the mission adds them, filled as player_set_ammo_* says, the first by weapon id in hand (the
+/// machine gun before the rifle), and the specials' counts. The other weapons and specials are not ported (logged).
+fn apply_loadout(mut q: Query<&mut Roman, Added<Roman>>, mission: Option<ResMut<crate::mission::Mission>>, data: Option<Res<GameData>>) {
+    let (Some(mut m), Some(data)) = (mission, data) else { return };
+    for mut r in &mut q {
+        let l = m.loadout.clone();
+        r.has_rifle = l.has("rifle");
+        match l.ammo.get("rifle").copied().unwrap_or(-2) {
+            -2 => r.rifle.clip = r.rifle.clip_size,
+            -1 => {}
+            n => r.rifle.clip = (n.max(0) as u32).min(r.rifle.clip_size),
+        }
+        r.mg = l.has("machinegun").then(|| {
+            let mut w = machinegun(&data);
+            match l.ammo.get("machinegun").copied().unwrap_or(-2) {
+                // -1 leaves the new player's empty record
+                -1 => (w.clip, w.ammo) = (0, 0),
+                n if n >= 0 => {
+                    w.clip = (n as u32).min(w.clip_size);
+                    w.ammo = n as u32 - w.clip;
+                }
+                _ => {}
+            }
+            w
+        });
+        r.use_mg = l.weapons.first() == Some(&"machinegun") || (!r.has_rifle && r.mg.is_some());
+        r.stickies = l.special("stickybomb");
+        r.topsy = l.special("topsyturvy");
+        let missing: Vec<&str> = l.weapons.iter().copied().filter(|w| !matches!(*w, "rifle" | "machinegun")).chain(l.specials.iter().filter(|(s, n)| **n > 0 && !matches!(**s, "stickybomb" | "topsyturvy")).map(|(s, _)| *s)).collect();
+        m.log.push(format!("loadout: {} in hand, stickies {}, topsy {}{}", if r.use_mg { "machinegun" } else { "rifle" }, r.stickies, r.topsy, if missing.is_empty() { String::new() } else { format!(" (not ported: {})", missing.join(", ")) }));
     }
 }
 
@@ -467,6 +503,7 @@ pub fn make_roman(physics: &mut Physics, p: &Props, data: &GameData, feet: Vec3,
             impact_force: b.f("impact_force", 7370.0),
             timer: 0.0,
         },
+        has_rifle: true,
         mg: None,
         use_mg: false,
         topsy: 0,
@@ -983,7 +1020,7 @@ fn weapons(
         let switching = r.wchange.is_some_and(|c| c < SWITCH_AT);
         // Next Weapon (Q, input 0xe): the next usable slot as pending (0x004a0bb0, 0.5 s), unless it is the current one;
         // selecting leaves the zoom mode (0x00475910) and requests the weapon-change anim (+0xa34 |= 0x440000)
-        let other_usable = if r.use_mg { usable(&r.rifle) } else { r.mg.as_ref().is_some_and(usable) };
+        let other_usable = if r.use_mg { r.has_rifle && usable(&r.rifle) } else { r.mg.as_ref().is_some_and(usable) };
         if !switching && ctl.pressed(crate::input::Act::SwitchWeapon) && other_usable {
             r.wchange = Some(0.0);
         }

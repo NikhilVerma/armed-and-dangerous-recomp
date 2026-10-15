@@ -286,6 +286,14 @@ impl GameMenu {
             _ => None,
         }
     }
+
+    /// Opens `page` as a screen pushed by the game (the end sequence's Credits, campaign.rs); leaving it shows `under`.
+    pub fn open_over(&mut self, page: Page, under: Page) {
+        self.stack.clear();
+        self.stack.push((under, 0));
+        self.page = page;
+        self.selected = 0;
+    }
 }
 
 impl GameMenu {

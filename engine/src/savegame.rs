@@ -295,7 +295,7 @@ fn save(
     windows: Query<&crate::level::Window>,
     buildings: Query<&InstanceId>,
     scene_ids: Res<PlacedIds>,
-    (opts, difficulty): (Res<crate::options::GameOptions>, Res<crate::gamedata::Difficulty>),
+    (opts, difficulty, levels): (Res<crate::options::GameOptions>, Res<crate::gamedata::Difficulty>, Res<crate::campaign::Levels>),
 ) {
     if !std::mem::take(&mut req.save) {
         return;
@@ -311,7 +311,8 @@ fn save(
     let mut broken: Vec<(u32, u8)> = scene_ids.windows.difference(&standing).copied().collect();
     broken.sort();
     let s = SaveData {
-        level: "lev_1_m1".into(),
+        // the level loaded (the header's +0, 0x0044a660): a load enters it first (levelreset.rs)
+        level: levels.current_name(),
         roman_feet: (crate::level::game_to_engine().inverse() * t.translation).to_array(),
         yaw: r.yaw,
         health: h.0,

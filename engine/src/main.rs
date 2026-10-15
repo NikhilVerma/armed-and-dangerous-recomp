@@ -29,6 +29,7 @@ mod fxvm;
 mod gamedata;
 mod camdump;
 mod camfade;
+mod campaign;
 mod cheats;
 mod cutscenes;
 mod decals;
@@ -93,6 +94,8 @@ pub fn playing(state: Res<State<AppState>>) -> bool {
 
 struct Args {
     scene: PathBuf,
+    /// --scene given (otherwise a saved game to continue starts in its own level)
+    scene_given: bool,
     size: (u32, u32),
     /// --size given: the run wants that window (tools, captures), never the fullscreen option
     size_given: bool,
@@ -129,7 +132,7 @@ struct Args {
 }
 
 fn args() -> Args {
-    let mut a = Args { scene: PathBuf::from("../work/remaster/lev_1_m1"), size: (1920, 1080), bench: None, vsync: false, no_ai: false, fx_test: None, snap: None, play: None, skip_title: false, camera: None, no_hud: false, background: false, size_given: false, load: None, std_materials: false, debug_hide: None, no_intro: false, movies: None, preset: None, graphics: None, profile: false };
+    let mut a = Args { scene: PathBuf::from("../work/remaster").join(campaign::FIRST_LEVEL), scene_given: false, size: (1920, 1080), bench: None, vsync: false, no_ai: false, fx_test: None, snap: None, play: None, skip_title: false, camera: None, no_hud: false, background: false, size_given: false, load: None, std_materials: false, debug_hide: None, no_intro: false, movies: None, preset: None, graphics: None, profile: false };
     let v: Vec<String> = std::env::args().collect();
     let mut bench_secs = None;
     let mut out = PathBuf::from("../work/remaster/bench/latest.json");
@@ -138,7 +141,10 @@ fn args() -> Args {
         let next = v.get(i + 1).cloned().unwrap_or_default();
         let mut used = 2;
         match v[i].as_str() {
-            "--scene" => a.scene = PathBuf::from(next),
+            "--scene" => {
+                a.scene = PathBuf::from(next);
+                a.scene_given = true;
+            }
             "--size" => {
                 a.size_given = true;
                 let (w, h) = next.split_once('x').expect("--size WxH");
@@ -205,7 +211,18 @@ fn resize_tolerant(e: &bevy::render::error_handler::RenderError, _: &mut World, 
 
 fn main() {
     let a = args();
-    let scene_dir = std::fs::canonicalize(&a.scene).unwrap_or_else(|_| panic!("scene folder {}", a.scene.display()));
+    // the level behind the title menu (lev_1_m1 unless --scene), and the level the run starts in: a saved game to
+    // continue (--load, a script's "load") is in its own level unless --scene names one (campaign.rs)
+    let home_dir = std::fs::canonicalize(&a.scene).unwrap_or_else(|_| panic!("scene folder {}", a.scene.display()));
+    let load = a.load.clone().or_else(|| a.play.as_deref().and_then(playtest::script_load));
+    let saved = load.as_ref().and_then(|p| savegame::read(p));
+    let scene_dir = saved
+        .as_ref()
+        .filter(|_| !a.scene_given)
+        .and_then(|s| campaign::Levels::new(&home_dir, &home_dir).dir(&s.level))
+        .and_then(|d| std::fs::canonicalize(d).ok())
+        .unwrap_or_else(|| home_dir.clone());
+    let levels = campaign::Levels::new(&home_dir, &scene_dir);
     let bench = a.bench.is_some();
     let tool_run = a.background || a.size_given || a.snap.is_some() || bench || a.camera.is_some() || a.play.is_some();
     // presentation: chosen before the app is built (the default sampler and the texture set depend on it)
@@ -224,6 +241,9 @@ fn main() {
     if !tool_run {
         app.set_error_handler(bevy::ecs::error::warn);
     }
+    // the asset server reads the loaded level's folder (a level change points it at the next one: campaign.rs)
+    app.register_asset_source(bevy::asset::io::AssetSourceId::Default, levels.asset_source());
+    app.insert_resource(levels);
     app.add_plugins(
         DefaultPlugins
             .set(gfx.image_plugin())
@@ -264,6 +284,7 @@ fn main() {
     .add_plugins(alarm::AlarmPlugin)
     .add_plugins(stats::StatsPlugin)
     .add_plugins(statscreen::StatScreenPlugin)
+    .add_plugins(campaign::CampaignPlugin)
     .add_plugins(gamematerial::GameMaterialPlugin)
     .add_plugins(sdffont::SdfFontPlugin)
     .add_plugins(pubscreen::PubScreenPlugin)
@@ -352,11 +373,10 @@ fn main() {
     app.insert_resource(movie::MovieSettings { dir: movies_dir, ..default() });
     let script_intro = a.play.as_deref().is_some_and(|p| playtest::Playtest::load_intro(p));
     let mut cut = cutscenes::Cutscenes::from_scene(&scene_dir, (!tool_run && !a.no_intro) || script_intro);
-    cut.from_save = a.load.is_some() || a.play.as_deref().and_then(playtest::script_load).is_some();
+    cut.from_save = load.is_some();
     app.insert_resource(cut);
-    // a script's own "load" (a state a 'save' step wrote) when --load is not given
-    let load = a.load.clone().or_else(|| a.play.as_deref().and_then(playtest::script_load));
-    if let Some(save) = load.as_ref().and_then(|p| savegame::read(p)) {
+    // --load, or a script's own "load" (a state a 'save' step wrote) when --load is not given
+    if let Some(save) = saved {
         app.insert_resource(savegame::PendingLoad(save, 0));
         app.insert_resource(campath::CameraPath::skipping());
         app.insert_state(AppState::Playing);
