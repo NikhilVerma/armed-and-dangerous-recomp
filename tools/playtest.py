@@ -7,9 +7,9 @@ log goes to SCRIPT.out. Exit code 1 when an expect failed or the game crashed or
 
 Fast scripts start from a saved state: a script with {"save": "NAME"} writes work/remaster/play/states/NAME.json,
 and a script with "load": "states/NAME.json" starts there (intro skipped). See docs/remaster-engine.md "Playtests".
-A script of another level names it: "scene": "lev_2_m1" (the folder work/remaster/<level>; --scene overrides it).
 """
 import argparse
+import json
 import os
 import re
 import subprocess
@@ -43,22 +43,16 @@ t0 = time.time()
 code = 0
 with open(out, 'w', encoding='utf-8', errors='replace') as f:
     try:
-        # a script may name its level ("scene": "lev_2_m1": work/remaster/<level>); --scene wins
-        level = None
-        try:
-            import json
-            level = json.load(open(script, encoding='utf-8')).get('scene')
-        except Exception:
-            pass
-        if a.scene and level:
-            # --scene names an export folder (another checkout's): the script's level beside it
-            scene = ['--scene', os.path.join(os.path.dirname(os.path.abspath(a.scene)), level)]
-        elif a.scene:
-            scene = ['--scene', os.path.abspath(a.scene)]
-        elif level:
-            scene = ['--scene', os.path.join(ROOT, 'work', 'remaster', level)]
-        else:
-            scene = []
+        # the script's own "scene" (a level folder under work/remaster, e.g. "lev_2_m1", or a path) unless --scene
+        level = a.scene
+        if not level:
+            try:
+                level = json.load(open(script, encoding='utf-8')).get('scene')
+            except (OSError, ValueError):
+                level = None
+            if level and not os.path.isabs(level):
+                level = os.path.join(ROOT, 'work', 'remaster', level)
+        scene = ['--scene', os.path.abspath(level)] if level else []
         p = subprocess.run([exe, '--background', '--size', a.size, '--play', script] + scene, cwd=engine, env=env,
                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=a.timeout)
         text = p.stdout.decode('utf-8', 'replace')

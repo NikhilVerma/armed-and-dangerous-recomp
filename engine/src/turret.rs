@@ -23,8 +23,9 @@
 //! "wpn_forgecan_move_lp"), one shot a press with recycle_time 1 s of forge_cannon_bullet (a lobbed shell,
 //! vehicles/rockets.rs) to the crosshair's point, the one-shot muzzle fx (0x0049a5c0: mortar_muzzle_fx_name for the
 //! player) and the recoil anim "forge_cannon_fire" (0x00408d90 flags 0x80, then its default anim again). Its camera
-//! is Camera01 on "center" looking at Camera01.Target on "gun" (the forge_cannon_ref node table). Grunts do not take it
-//! (the AI's turret search is the stig gun's; ref_molmer_00 / ref_q_00 suggest the companions could: open question).
+//! is Camera01 on "center" looking at Camera01.Target on "gun" (the forge_cannon_ref node table). Grunts do not look
+//! for it (ai_can_use off); turret-mode grunts start on it (ai.rs). ref_molmer_00 / ref_q_00 suggest the companions
+//! could use it: open question.
 //!
 //! Hooks outside this file: player.rs (control / weapons skip Roman while mounted, follow_camera yields, damage
 //! halved), hud.rs (crosshair range), mission.rs (`sites` and `hint` visible for ordering and the hint texts).

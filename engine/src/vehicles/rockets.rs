@@ -188,6 +188,20 @@ pub fn launch(commands: &mut Commands, fx: &mut MessageWriter<crate::fx::StartFx
     Some(e)
 }
 
+/// One shot of a projectile property set (`p_<template>`) from a gun: a rocket or shell flies here, a bullet is the
+/// player's projectile (player.rs). For guns shared with other modules (an AI gunner on a forge cannon, ai.rs).
+#[allow(clippy::too_many_arguments)]
+pub fn shoot(commands: &mut Commands, fx: &mut MessageWriter<crate::fx::StartFx>, data: &crate::gamedata::GameData, set: &str, from: Vec3, to: Vec3, owner: Option<Entity>, by: Src) {
+    let p = data.props(set);
+    if is_rocket(&p) {
+        // (only a rocket tower's missile rolls at launch: a fixed stream is enough for these)
+        let mut rng = super::VehicleRng(crate::fxvm::CrtRand::seeded(0x5a5e));
+        launch(commands, fx, data, &mut rng, Launch { template: set.trim_start_matches("p_"), from, to, along: None, target: None, owner, by });
+    } else {
+        crate::player::spawn_projectile_to(commands, fx, &p, from, to, by == Src::Player, owner);
+    }
+}
+
 /// The launch velocity of a lobbed shell (Ballistic_LaunchVelocity 0x00471a00 with keep = 1): `speed` across toward
 /// the target, the time t = across distance / speed, the vertical speed (dz + t^2 g / 2) / t. Engine axes (Y up).
 pub fn lob(from: Vec3, to: Vec3, speed: f32) -> Vec3 {

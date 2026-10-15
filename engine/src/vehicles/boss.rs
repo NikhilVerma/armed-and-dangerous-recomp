@@ -642,7 +642,7 @@ fn notes(
                         .unwrap_or(gt.translation());
                     let skip: Vec<BodyId> = pl.and_then(|p| p.collider).into_iter().collect();
                     let feet = ground(&physics, at - Vec3::Y * 50.0, &skip).map_or(at, |y| at.with_y(y));
-                    spawn.write(crate::level::SpawnGrunt { at: feet, template: template.to_owned(), alarm: false, barracks: None, exit: None, marker_tags: None, alert_group: 0 });
+                    spawn.write(crate::level::SpawnGrunt { at: feet, template: template.to_owned(), ..default() });
                 }
                 _ => {}
             }

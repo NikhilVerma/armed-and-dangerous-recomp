@@ -34,6 +34,7 @@ mod hitparts;
 mod gamematerial;
 mod graphics;
 mod options;
+mod oracle;
 mod gameaudio;
 mod hud;
 mod input;
@@ -243,7 +244,7 @@ fn main() {
     // on any render error; this one renders on through that transient (at most 120 times, then it quits as before)
     .insert_resource(bevy::render::error_handler::RenderErrorHandler(resize_tolerant))
     .add_plugins(levelreset::LevelResetPlugin)
-    .add_plugins((playtest::PlaytestPlugin, bot::BotPlugin))
+    .add_plugins((playtest::PlaytestPlugin, bot::BotPlugin, oracle::OraclePlugin))
     // (bot.rs is another agent's: its state is registered as the level's here)
     .init_level_resource::<bot::Bot>()
     .add_plugins(audio::AudioBankPlugin)

@@ -254,3 +254,21 @@ How this coexists with faithful recovery:
   preset (the original's textures and look) that every tool run uses automatically (--play, --snap, --camera,
   --bench comparisons, render_compare). Builds handed to the human must have the Remaster preset working; the
   4K 100 fps floor applies to it.
+
+## 2026-10-15: the goal restated — a clean, idiomatic Rust rewrite with the game as the oracle
+
+- Human: "Our goal is to rewrite the game in Bevy and Rust. Imagine someone sat down on a desk and they had the game
+  in front of them and they could play the game and reproduce the code. The game is the oracle and they are writing
+  the code. The code that is written should be native to how someone in an idiomatic Rust code would write. And it
+  should be written in a way that can be then updated in the future so that the outcome is greater or equal to the
+  original game. So no hacks, ... a clean room or clean code implementation and it should be mimicking the original
+  game and ... be greater than or equals to the original game. Once it's done, we will then refactor the code and
+  remaster the game by adding advanced features, rendering features, and advanced gameplay features. We can add level
+  selectors, we can modify difficulty selectors. For example, difficulties can increase the enemy count."
+- Rule for engine/: behaviour is the specification (the running original is the oracle; the recovered C++ explains
+  what and why). The Rust is designed, not transliterated: idiomatic types and names, Bevy-native structure (plugins,
+  components, resources, messages, states, schedules), data-driven where the game is data-driven, no hacks (a
+  workaround is either replaced by the real mechanism or logged as debt with a plan). Addresses stay as provenance in
+  doc comments. Outcome >= original: faithful first, then better.
+- Phase 2, after the 1:1 rewrite: refactor, then remaster features (rendering, gameplay), e.g. a level selector and
+  difficulty settings that scale things like enemy counts. Design now so those are data / settings, not rewrites.

@@ -44,7 +44,10 @@ port's).
   the path notes (deactivate, anim_loop / anim_intro, captain drops), Roman's zeppelin remark (0x00436260).
 - **Forge cannon** (`turret.rs`): the stig gun's mount / aim / leave with two pivots (0x00499fd0), its sounds, one
   lobbed forge_cannon_bullet a press (recycle_time 1) to the crosshair's point, the one-shot muzzle fx, the recoil
-  anim, the Camera01 view aimed at Camera01.Target. Empty, it takes no damage (0x00498400); grunts do not use it.
+  anim, the Camera01 view aimed at Camera01.Target. Empty, it takes no damage (0x00498400). Grunts do not look for it
+  (ai_can_use off: the AI's turret search is the stig gun's), but turret-mode grunts start on it by obj_tag (ai.rs,
+  merged from agent-infantry); their shells fly through `vehicles::rockets::shoot` (a one-line hook in ai.rs's gunner
+  shot), lobbed as the player's.
 
 ## Data and tuning
 
