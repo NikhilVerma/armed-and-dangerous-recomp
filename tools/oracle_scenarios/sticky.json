@@ -1,0 +1,15 @@
+{
+ "about": "three sticky bomb throws at the start point (MOUSE2): count, explosions",
+ "level": "lev_1_m1",
+ "keys": "0:ENTER*3,40:MOUSE2*5,130:MOUSE2*5,220:MOUSE2*5",
+ "frames": 360,
+ "trace_every": 2,
+ "suite": true,
+ "known": {
+  "roman.pos": "B1: Roman still slides ~6 units after the briefing (remaster), at rest in the original",
+  "events.sounds": "B1 (follows from it: the stop / slide foley plays at other frames)",
+  "grunt.pos": "B3: grunt 181 placed at z 108 (on a roof) instead of z 14",
+  "grunt.mind": "B6: a far grunt reacts to the blast / landing in the original (target roman), not in the remaster",
+  "grunt.target": "B6: a far grunt reacts to the blast / landing in the original (target roman), not in the remaster"
+ }
+}

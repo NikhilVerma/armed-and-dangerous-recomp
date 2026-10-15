@@ -9,6 +9,7 @@
 // [test] resize_frame=N           resize the game window to an 800x600 client area at frame N
 // [test] parallel=1               the game's single-instance mutex (CreateMutexA) gets a name of its own per process,
 //                                 so several test instances (tools/instances.py) run at once
+// [test] offscreen=1              no window on any monitor, no focus, cursor free, muted (testoffscreen.cpp)
 #include <windows.h>
 
 #include <cstdio>
@@ -83,8 +84,14 @@ WNDPROC g_gameWndProc;
 using RegisterClassA_t = ATOM(WINAPI*)(const WNDCLASSA*);
 RegisterClassA_t g_realRegisterClassA;
 
+bool TestOffscreenWndProc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp, LRESULT* result);  // testoffscreen.cpp
+bool TestOffscreen();
+
 LRESULT CALLBACK Test_WndProc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
 {
+    LRESULT handled = 0;
+    if (TestOffscreenWndProc(wnd, msg, wp, lp, &handled))
+        return handled;
     switch (msg)
     {
     case WM_ACTIVATEAPP:
@@ -122,9 +129,11 @@ void TestScenarioInit()
         if (PatchImport("KERNEL32.dll", "CreateMutexA", reinterpret_cast<void*>(Test_CreateMutexA),
                         reinterpret_cast<void**>(&g_realCreateMutexA)))
             Log("test: per-process instance mutex");
+    }
+    // the window procedure in front of the game's: kept active when unfocused (parallel), held off-screen (offscreen)
+    if (ConfigInt("test", "parallel", 0) || TestOffscreen())
         PatchImport("USER32.dll", "RegisterClassA", reinterpret_cast<void*>(Test_RegisterClassA),
                     reinterpret_cast<void**>(&g_realRegisterClassA));
-    }
     if (ConfigInt("test", "no_movies", 0))
     {
         void* real;
@@ -146,6 +155,7 @@ void TestScenarioInit()
 
 void D3DTraceFlush();
 void TestClockSet(double seconds);  // testclock.cpp
+void TestOracleOnFrame();           // testoracle.cpp
 void D3DTraceFinish();
 void RhiWriteCalls();
 
@@ -179,6 +189,7 @@ void TestScenarioOnFrame()
             }
         }
     }
+    TestOracleOnFrame();
     if (g_resizeFrame && g_frame == g_resizeFrame)
     {
         Log("test: resizing the game window to 800x600 client at frame %u", g_frame);

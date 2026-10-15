@@ -78,13 +78,66 @@ def write_ini(hooks_on, level, frames, keys="", test=None, render=None, extra_se
               "keys": "", "keys_frames": keys,
               "hash_frames": (DUMP + ':1:1') if DUMP and ':' not in DUMP else DUMP, "dump_hashed": 1 if DUMP else 0,
               "record_input": 0, "fixed_dt_ms": 0, "no_movies": 1,
-              "parallel": 1}
+              "parallel": 1,
+              # never a window on the desk, no focus, no sound (hook/src/testoffscreen.cpp); a run may pass offscreen=0
+              "offscreen": 1}
     values.update(test or {})  # scenario settings replace the defaults (an ini key must appear once)
     lines += [f"{k}={v}" for k, v in values.items()]
     if render:
         lines += ["", "[render]"] + [f"{k}={v}" for k, v in render.items()]
     with open(os.path.join(game_dir or GAME_DIR, "and.ini"), "w") as f:
         f.write("\n".join(lines) + "\n")
+
+
+def launch(game_dir):
+    """Starts the game in an instance folder. Shown without activation (SW_SHOWNOACTIVATE): with [test] offscreen=1 the
+    hook also keeps its window off every monitor, so a test run never takes the focus or appears on the desk."""
+    # a hook DLL from before [test] offscreen would show the window: refuse to start the game with it
+    dll = os.path.join(game_dir, "dinput8.dll")
+    if not os.path.exists(dll) or b"test: offscreen v2" not in open(dll, "rb").read():
+        raise RuntimeError(f"{dll}: no [test] offscreen support (rebuild: pwsh tools/build.ps1); not starting a visible game")
+    # no error dialogs on the desk ("Bad Image", crash boxes): the child inherits this process's error mode
+    import ctypes
+    ctypes.windll.kernel32.SetErrorMode(0x0001 | 0x0002 | 0x8000)  # FAILCRITICALERRORS | NOGPFAULTERRORBOX | NOOPENFILEERRORBOX
+    si = subprocess.STARTUPINFO()
+    si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    si.wShowWindow = 4  # SW_SHOWNOACTIVATE
+    proc = subprocess.Popen([os.path.join(game_dir, os.path.basename(EXE))], cwd=game_dir, startupinfo=si)
+    guard_offscreen(proc)
+    return proc
+
+
+def guard_offscreen(proc):
+    """Safety net for [test] offscreen: a thread that kills the game the moment one of its visible windows overlaps
+    the desktop (a code path the hook does not hold off-screen), and says so."""
+    import ctypes
+    import ctypes.wintypes as W
+    import threading
+    u = ctypes.windll.user32
+    desk = W.RECT(u.GetSystemMetrics(76), u.GetSystemMetrics(77), 0, 0)  # SM_X/YVIRTUALSCREEN
+    desk.right, desk.bottom = desk.left + u.GetSystemMetrics(78), desk.top + u.GetSystemMetrics(79)
+
+    def watch():
+        found = []
+
+        @ctypes.WINFUNCTYPE(W.BOOL, W.HWND, W.LPARAM)
+        def each(h, _):
+            pid = W.DWORD()
+            u.GetWindowThreadProcessId(h, ctypes.byref(pid))
+            if pid.value == proc.pid and u.IsWindowVisible(h):
+                r = W.RECT()
+                u.GetWindowRect(h, ctypes.byref(r))
+                if r.right > desk.left and r.left < desk.right and r.bottom > desk.top and r.top < desk.bottom:
+                    found.append((r.left, r.top, r.right, r.bottom))
+            return True
+        while proc.poll() is None:
+            u.EnumWindows(each, 0)
+            if found:
+                proc.kill()
+                print(f"  guard: the game showed a window on the desktop at {found[0]}: killed (fix hook/src/testoffscreen.cpp)")
+                return
+            time.sleep(0.01)
+    threading.Thread(target=watch, daemon=True).start()
 
 
 def run_once(label, hooks_on, level, frames, timeout, keys="", test=None, render=None, extra_sections=None,
@@ -103,7 +156,7 @@ def run_once(label, hooks_on, level, frames, timeout, keys="", test=None, render
         if os.path.exists(p):
             os.remove(p)
     t = time.time()
-    proc = subprocess.Popen([os.path.join(gd, os.path.basename(EXE))], cwd=gd)
+    proc = launch(gd)
     try:
         proc.wait(timeout=timeout)
     except subprocess.TimeoutExpired:

@@ -160,6 +160,7 @@ void DisplayAdjustParams(D3DPRESENT_PARAMETERS* pp)
 }
 
 static HWND g_window;  // the game's window, once DisplayAdjustWindow has seen it
+bool TestOffscreen();  // hook/src/testoffscreen.cpp
 
 // Fullscreen (Vulkan) and borderless: a popup covering the monitor.
 static void CoverMonitor(HWND wnd)
@@ -197,7 +198,8 @@ void DisplayAdjustWindow(HWND wnd, const D3DPRESENT_PARAMETERS* pp)
 {
     if (wnd)
         g_window = wnd;
-    if (!wnd || !(g_cfg.windowed || g_cfg.vulkanFullscreen))
+    // [test] offscreen=1 (hook/src/testoffscreen.cpp): the window stays where the test put it, off every monitor
+    if (!wnd || !(g_cfg.windowed || g_cfg.vulkanFullscreen) || TestOffscreen())
         return;
     LONG style = GetWindowLongA(wnd, GWL_STYLE);
     if (g_cfg.borderless || g_cfg.vulkanFullscreen)
