@@ -127,9 +127,13 @@ pub struct Roman {
     /// a standing jump waiting for trotter_jump_into to end (0x0047aaf0: flag 0x40 set, 0x80 not yet: the impulse
     /// comes when the anim sets 0x80); seconds left
     pub jump_wind: Option<f32>,
-    /// last frame's horizontal speed (+0x47c, for the stop fx) and the slide fx's anchor (+0x568: fx_roman_slide
+    /// this frame's horizontal speed as the update measures it before the drive (+0x4bc: the body's velocity from
+    /// the last step), last frame's (+0x47c, for the stop fx) and the slide fx's anchor (+0x568: fx_roman_slide
     /// runs while it lives)
+    pub hspeed: f32,
     pub prev_hspeed: f32,
+    /// friction_min (+0x5a8), friction_max (+0x5a4), friction_exponent (+0x5ac): the ground contacts' friction blend
+    pub friction: (f32, f32, f32),
     pub slide_fx: Option<Entity>,
     /// +0xc00: 0.5 s after each shot (0x004788a0 at 0x0047a555), counted down by dt; the empty-clip reload and the
     /// weapon fallback wait for it (0x0047a6af)
@@ -365,6 +369,14 @@ pub use crate::camera::FollowCam;
 const TURN_MAX_SPEED: f32 = 0.3;
 const PITCH_MAX_SPEED: f32 = 0.95;
 
+/// How hard the drive's force action pulls the body's velocity to the wanted one, per unit of movement power. Measured
+/// on the original (oracle trace, tools/oracle_scenarios/stop.json, every frame on the lev_1_m1 start slope): from
+/// rest, full stick reaches 36.6 units/s in the first moving frame (k = 0.92 at 60 fps, power 10) and his full 39.2
+/// in the next; releasing the stick stops him within one frame (no slide). How the force action pool
+/// (0x00455a30 -> ForceActionPool_Add 0x00403fb0) applies the force through the Havok steps is not decoded; this gain
+/// on the drive's power, with the ground friction modelled after it (control), reproduces the measured profile.
+const DRIVE_GAIN: f32 = 15.0;
+
 /// The movement input's response (PlayerObject_Update, game_06.cpp:2479-2501): the two axes' vector, longer than 1
 /// cut to 1 (two keys at once: a diagonal at full speed, not faster); its length through the control curve 0x00414c00
 /// (fmod by control_exponent 2 with control_bias 0: the length itself) and above 0.225 (0x005bcfc4) raised by 0.4
@@ -495,7 +507,10 @@ pub fn make_roman(physics: &mut Physics, p: &Props, data: &GameData, feet: Vec3,
         wchange: None,
         move_local: Vec2::ZERO,
         jump_wind: None,
+        hspeed: 0.0,
         prev_hspeed: 0.0,
+        // (not in p_trotter: PlayerObject_Load's defaults, game_05.cpp:573)
+        friction: (p.f("friction_min", 0.3), p.f("friction_max", 2.0), p.f("friction_exponent", 4.0)),
         slide_fx: None,
         fire_delay: 0.0,
         mg_held: 0.0,
@@ -652,7 +667,7 @@ impl CursorSettle {
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn control(
     path: Res<crate::campath::CameraPath>,
-    time: Res<Time>,
+    (time, vtime): (Res<Time>, Res<Time<Virtual>>),
     bot: Res<crate::bot::Bot>,
     motion: Res<AccumulatedMouseMotion>,
     look: Res<LookDelta>,
@@ -664,6 +679,12 @@ pub(crate) fn control(
     (ctl, mounted, rig): (Res<crate::input::Controls>, Res<crate::turret::Mounted>, Res<crate::camera::CameraRig>),
     mut fx: MessageWriter<crate::fx::StartFx>,
 ) {
+    // the player's update does not run while the game is paused, from the frame a pause starts (the mission's paused
+    // messages run before this: the original's briefing comes on the frame the intro path ends, Roman still at full
+    // speed, and he stops only after it)
+    if vtime.is_paused() {
+        return;
+    }
     let dt = time.delta_secs();
     for (mut r, mut t, mut h) in &mut q {
         if h.0 <= 0.0 {
@@ -743,10 +764,12 @@ pub(crate) fn control(
         // minus the current velocity, s = sqrt(1 - c^2) with c = (d . up) / |d| clamped to [0, 1], the power scaled by
         // max_speed / |d| when |d| exceeds the max speed. On the ground the max speeds are fwd / side_max_speed (40)
         // with movement_power (lerp min..max by the stick: keys are full stick, max 10); jumping (state flag 0x80)
-        // jump_fwd / side_max_speed (6.5) with jump_movement_power (4). Integrated exactly per frame.
+        // jump_fwd / side_max_speed (6.5) with jump_movement_power (4). Integrated exactly per frame, the power times
+        // DRIVE_GAIN (the original's measured stiffness: full speed in a frame, a dead stop on release).
         // the power: movement_power_min..max by the stick (keys: full stick); for 1 s after a knockback (w = 1 -
         // slow) min becomes w x 7 + (1 - w) and max x (0.5 (1 - w) + w) (game_06.cpp:2572)
         r.wish_h = Vec2::new(wish.x, wish.z).length();
+        r.hspeed = Vec2::new(r.vel.x, r.vel.z).length();
         let stick = (r.wish_h / r.fwd_speed.max(1e-3)).min(1.0);
         let w = 1.0 - r.slow;
         let (pmin, pmax) = if r.slow > 0.0 { (w * r.power_min + (1.0 - w), r.power * (0.5 * (1.0 - w) + w)) } else { (r.power_min, r.power) };
@@ -774,11 +797,29 @@ pub(crate) fn control(
             let strength = if max_speed > 0.0 && dist > max_speed { power * max_speed / dist } else { power };
             let c = (d.y / dist).clamp(0.0, 1.0);
             let s5 = (1.0 - c * c).max(0.0).sqrt().clamp(0.0, 1.0).powi(5);
-            let k = 1.0 - (-strength * s5 * dt).exp();
+            let k = 1.0 - (-strength * DRIVE_GAIN * s5 * dt).exp();
             r.vel.x += d.x * k;
             r.vel.z += d.z * k;
             if !r.on_ground {
                 r.vel.y += d.y * k;
+            }
+        }
+        // the ground contacts' friction (+0x5a0, 0x00478200; consumed by the step's contact solver): friction_max at
+        // rest blending to friction_min at the max speed, w = (1 - min(|v.xy| / max speed, 1))^friction_exponent,
+        // against the horizontal velocity at mu x gravity. It holds full stick at 39.2 units/s (the original's
+        // measured walk: 0.653 units a frame, stop.json / the intro). The blend is taken on the speed the drive leaves
+        // (the step solves drive and friction together; on the speed before it the first frame from rest would be 31
+        // units/s, the original's is 36.6)
+        if r.on_ground && !r.jumping && !r.dead {
+            let h = Vec2::new(r.vel.x, r.vel.z);
+            let speed = h.length();
+            if speed > 1e-4 {
+                let w = if max_speed > 0.0 { (1.0 - (speed / max_speed).min(1.0)).powf(r.friction.2) } else { 0.0 };
+                let mu = r.friction.0 * (1.0 - w) + r.friction.1 * w;
+                let gravity = 64.348 * r.anti_gravity * 0.5;
+                let s = (speed - mu * gravity * dt).max(0.0) / speed;
+                r.vel.x *= s;
+                r.vel.z *= s;
             }
         }
         // the jump (0x0047aaf0): TurboJump with the grounded grace +0x570 > 0 sets flag 0x40, and 0x80 at once when the
@@ -1366,7 +1407,10 @@ fn ground_fx(physics: &Physics, fx: &mut MessageWriter<crate::fx::StartFx>, at: 
 fn ground_effects(mut commands: Commands, time: Res<Time>, physics: NonSend<Physics>, mut q: Query<(&mut Roman, &Transform)>, mut fx: MessageWriter<crate::fx::StartFx>) {
     let dt = time.delta_secs();
     for (mut r, t) in &mut q {
-        let h = Vec2::new(r.vel.x, r.vel.z).length();
+        // the speed the update measured before its drive (+0x4bc): released at full speed, the slide fx starts on that
+        // frame and the stop fx on the next (the original's trace: fol_bodyslide_snow_lp and fs_boot_heavy_snow_stop
+        // together as Roman stops dead)
+        let h = r.hspeed;
         if r.grace > 0.0 && !r.dead && h - r.prev_hspeed < -20.0 * (dt * 60.0).max(1e-3) {
             ground_fx(&physics, &mut fx, t.translation, "fx_fs_roman_stop");
         }
