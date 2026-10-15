@@ -578,8 +578,8 @@ fn grunts(
         (*seed >> 16) & 0x7fff
     };
     // every name by the class's anim table (vt+0x1a4: GruntObject 0x0043bd70, BowGruntObject 0x0043abc0,
-    // CaptainObject 0x0043b610; ai.rs anim_name); lev_1_m1 is a cold level (Game+0x2708 == 1)
-    let name = |g: &Grunt, id: u32, r: f32| crate::ai::anim_name(g.kind, id, r, true);
+    // CaptainObject 0x0043b610; ai.rs anim_name_with, by the grunt's state: Grunt::anim)
+    let name = |g: &Grunt, id: u32, r: f32| g.anim(id, r);
     // the four-pose sets (PlayAnim4 vt+0x1a0, layers 0 / 1 blended by the aim weights): ids tl, tr, bl, br
     let four = |a: &mut Animator, g: &Grunt, ids: [u32; 4], looping: bool, h: f32, v: f32| {
         a.play(0, name(g, ids[0], 0.0), looping, Mask::All);
@@ -622,8 +622,24 @@ fn grunts(
             a.stop(1);
             continue;
         }
+        // a pose that holds the grunt (the sniper's attach / detach, state 0x104): once
+        if let Some((n, _)) = g.pose {
+            let playing = a.layers.first().is_some_and(|l| l.anim == n);
+            a.play(0, n, false, Mask::All);
+            if !playing {
+                a.layers[0].time = 0.0;
+            }
+            a.stop(1);
+            continue;
+        }
+        // a bully scaring his peasant (grunt_scare, anim 0x7d: bully.rs)
+        if g.bully.is_some_and(|b| b.scaring.is_some()) {
+            a.play(0, name(&g, 0x7d, 0.0), false, Mask::All);
+            a.stop(1);
+            continue;
+        }
         // turning toward the target before firing (0x0042e050)
-        if let (Some((n, _)), Mind::Fire) = (g.turn, g.mind) {
+        if let (Some((n, _)), Mind::Fire | Mind::Guard) = (g.turn, g.mind) {
             a.play(0, n, false, Mask::All);
             a.stop(1);
             continue;
@@ -633,7 +649,16 @@ fn grunts(
         // keeps a run 8..0xa already playing)
         let run = *runs.entry(e).or_insert_with(|| 8 + (rand() * 2 >> 15));
         let mover = |g: &Grunt| if limping { name(g, 0x59, 0.0) } else { name(g, run, if run == 9 { 0.75 } else { 0.25 }) };
-        let (n, looping): (String, bool) = match g.mind {
+        // a guard firing from his guard state: the reload set at a clip's end (0x29 here, as Reload), else the fire set
+        let guard_fire = g.mind == Mind::Guard && g.guard_firing;
+        if guard_fire && g.reloading && g.shot_age > g.fire_len {
+            a.play(0, name(&g, 0x29, 0.0), false, Mask::All);
+            a.stop(1);
+            continue;
+        }
+        // (a guard firing shows what the fire state shows)
+        let mind = if guard_fire { Mind::Fire } else { g.mind };
+        let (n, looping): (String, bool) = match mind {
             Mind::Dead if g.ragdoll => (name(&g, 73, 0.0).to_owned(), false),
             Mind::Dead => {
                 // the death anim Character_Die picked (window, ledge, trench: ai.rs death_name) or 0x50 + n
@@ -654,7 +679,20 @@ fn grunts(
                         (deg.clamp(-26.5, 26.5) + 26.5) / 53.0
                     })
                     .unwrap_or(0.5);
-                four(&mut a, &g, [33, 34, 35, 36], true, 0.5, v);
+                // a one-shot fire anim (the sniper, the rocket captain: no +0x484 0x1000) plays once a shot, then the
+                // aim set (ids 0..3: the sniper's raised-gun poses) until the next (guess at what state 0xa shows
+                // between shots)
+                let one_shot = g.kind == crate::ai::Kind::Sniper || g.rocket;
+                if one_shot && g.shot_age > g.fire_len {
+                    four(&mut a, &g, [0, 1, 2, 3], true, 0.5, v);
+                } else {
+                    let fresh = one_shot && g.shot_age <= 0.0;
+                    four(&mut a, &g, [33, 34, 35, 36], !one_shot, 0.5, v);
+                    if fresh {
+                        a.layers[0].time = 0.0;
+                        a.sync(1, 0);
+                    }
+                }
                 continue;
             }
             // a trench (ai.rs CoverPhase): the run there (the move anim of 0x00427210), 0x66 the duck, 0x65 the
@@ -684,6 +722,19 @@ fn grunts(
             Mind::Reload => (name(&g, 0x29, 0.0).to_owned(), false),
             Mind::Flee => (name(&g, 11, 0.0).to_owned(), true),
             Mind::Chase | Mind::ToMarker | Mind::Wander => (mover(&g).to_owned(), true),
+            // a monk's teleport (anim 0x6b monk_turbo) and his cast (0x26)
+            Mind::Teleport => (name(&g, 0x6b, 0.0).to_owned(), true),
+            Mind::Cast => (name(&g, 0x26, 0.0).to_owned(), false),
+            // a squad member: the march (0xe) while the squad moves, else attention (0xf)
+            Mind::InSquad => (name(&g, if g.walking { 0xe } else { 0xf }, 0.0).to_owned(), true),
+            // a jumper's flight (0xc4 / 0xc5: captain_jumper_forward 0x6b; the glide 0xbd: its set by the aim weights)
+            Mind::Jump => match g.jumper.and_then(|j| j.flight) {
+                Some(crate::ai::jumper::Flight::Glide) => {
+                    four(&mut a, &g, [0x6d, 0x6e, 0x6f, 0x70], true, 0.5, 0.5);
+                    continue;
+                }
+                _ => (name(&g, 0x6b, 0.0).to_owned(), true),
+            },
             // state 0x50 walks home with anim 0xa (run_scan)
             Mind::Home => (if limping { name(&g, 0x59, 0.0) } else { name(&g, 0xa, 0.0) }.to_owned(), true),
             // the taunt (ids 0x32..0x34) and the throw (0x27): once
