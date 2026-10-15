@@ -463,6 +463,23 @@ original's curve. Tests: anim_blend, anim_notes, camera_follow, camera_death, in
 Traps: Python text-mode rewrites and Git Bash `sed -i` turn CRLF files into LF (compare `git diff --stat` with
 `--ignore-cr-at-eol`); `play()` restarts only on a name change, so the same anim as a new entry needs `restart`.
 
+## Level export (every level, 2026-10-15)
+
+`.venv/Scripts/python.exe tools/export_level.py LEVEL` (or `--all`, `--steps a,b`, `--report FILE`) runs every
+exporter for a level into work/remaster/LEVEL in order: scene, anims, audio, mission, ui, icons, player
+(player.json), instance_props, grunt_ai, player_anims, textures (textures_remaster). It stops a level at the first
+failing exporter with its error, prints one line per level (and a table with --all), and checks the fixed paths
+engine/src reads from a level folder. All 24 levels export cleanly (about 80 s and 400-600 MB each). player.json,
+instance_props.json and grunt_ai.json were hand-made for lev_1_m1 before; tools/remaster_export_player.py,
+remaster_export_instance_props.py and remaster_export_grunt_ai.py (shared loader tools/remaster_level.py) make them
+for any level and reproduce lev_1_m1's files (grunt_ai.json differs only in the grunt's weapon, now grunt_bow).
+Data oddities in other levels: three invisible-wall skins with no vertices (x_3m1box_0 lev_3_m1, w_l4_m2_01
+lev_4_m2, w_l5_m4_03 lev_5_m4: placed but not in scene.json); skins without a reference anim (captain_flare_1/9,
+shrub_bomber_0, wildwoodgate_1/2); mission.json still has unsent / unreceived trigger ids where a level's logic
+uses classes the mission export does not know yet (twiglet_generator, jump_marker, object_ic, zeppelin, squad,
+anim_player, base_turret, peasant). player.json's loadout is the mission object's add / remove flags only: in the
+campaign the weapons carried over from earlier levels add to it (not modelled).
+
 ## Effects (subsystem port, 2026-10-15)
 
 docs/subsystems/fx-vm.md section 7; queue render-fx empty (docs/port/render-fx.csv). engine/src/fxvm/ is a module
