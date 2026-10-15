@@ -247,6 +247,14 @@ and the highlight fade (+0x4e0, 0.2 per frame: 12 / s) of UiText_Draw 0x00464750
   (newest save). Not ported: the thumbnail; where the screen title is drawn (guess: above the slots). Test
   engine/playtests/save_slots.json.
 - **Main menu:** the version text "v1.00" bottom right (0x004927f0, screen flag 0x800).
+- **Extras** (2026-10-16; gamemenu.rs `extras_pages`, extras.rs; campaign.md "Front end"): Play Cutscene and Replay
+  Mission are enabled by the token unlockables ui_extrasmenu_cutscene / ui_extrasmenu_replay or the AMATINEE /
+  MISSIONS cheats (UiScreen_InitItem cases 11 / 41), else greyed as before. Play Cutscene lists the story movies seen
+  (category 0; titles "<name>.vid") and plays one (code 12); Replay Mission lists the levels reached (category 1, at
+  the mission start) and the bonus levels bought (category 3), and plays one in replay mode (codes 6 / 42; back to
+  the title after its Stats). The three pages are built when they open. Not ported: the profile choice before the
+  list ("ChooseGame"), the lists' scrolling (the remaster shows them whole; layout a guess: no capture of these
+  pages). Test engine/playtests/campaign_extras.json.
 - **Pub screen** (pubscreen.rs): the pointer moves the highlight onto an offered weapon's slot or the exit button
   (ui_pub_cursor's exit point 493, 416), a click takes the weapon or leaves (the pub shows the mouse cursor:
   0x004930c0); the exit prompt names Back on the device in use. Credits: a click leaves too. State log `pub`; test
@@ -260,7 +268,8 @@ Replaced by the engine (no port needed): the screen objects and their manager (U
 0x004918b0 / 0x004928f0, selection 0x004919c0 / 0x00491b20 / 0x00491b60, enabling 0x004927a0, the id split
 0x00491ae0) are the `GameMenu` page stack and `MenuRow`s; the widget classes' inits and kind bits (CheckBox_Init,
 FitText_*, Stepper_SetSteps, 0x0046ce40, ...) are `Spawner`'s rows and parts; the list boxes (0x0046bdd0..0x0046c980)
-belong to the level / movie / director select pages (not in the remaster); the save-slot widgets' init and thumbnail
+belong to the level / movie / director select pages (the remaster's Replay Mission and Play Cutscene pages are rows
+built from the unlocks, unscrolled: extras.rs; no director page); the save-slot widgets' init and thumbnail
 release (0x004a2f70..0x004a2fe0) have no counterpart (no thumbnails); DisplayMode_Pack / Unpack (0x00470c90 / 0x00470cc0) by the window size in
 options.json; Text_Lookup (0x00495f00, 0x00495e50) by `Texts`. The movie screens (0x00493150..0x004933e0) are movie.rs /
 cutscenes.rs (docs/subsystems/movie.md). Not needed: the timed splash screens (0x00493520 / 0x00493590: LegalText,

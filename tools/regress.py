@@ -27,6 +27,7 @@ SUITE = ['save_write', 'save_read', 'topsyhit2', 'turn_in_place', 'turret1', 'de
          'fx_particles', 'fx_debris', 'fx_emit', 'fx_lights', 'fx_screen', 'fx_hits',
          'movie_intro', 'movie_subs', 'movie_screens', 'movie_credits', 'movie_pub',
          'launch_newgame', 'launch_options', 'launch_restart', 'restart_parity', 'save_slots',
+         'campaign_next', 'campaign_chain', 'campaign_save', 'campaign_movie', 'campaign_end', 'campaign_extras',
          'defence_l1m4', 'defence_l1m4_fail', 'defence_l2m4', 'defence_l3m4', 'defence_l4m5', 'defence_l5m5',
          'vehicles_rocket_tower', 'vehicles_rocket_bud', 'vehicles_zeppelin', 'vehicles_saucer', 'vehicles_colossus', 'vehicles_forge_cannon']
 # 'launch_*': the real launch path as the player plays (the Remaster preset chosen by the options, the intro, the
@@ -36,6 +37,11 @@ SUITE = ['save_write', 'save_read', 'topsyhit2', 'turn_in_place', 'turret1', 'de
 # 'restart_parity': wall-clock game time ("real_time", as the player's game): after Restart Level, Abandon -> title ->
 # New Game and Restart from last save, the counts (Romans, companions, grunts, entities), the camera's pitch and the
 # frame / main-world times and game steps match a fresh New Game's (feedback 28)
+# 'campaign_*': the level sequence (campaign.rs): a won level's Stats -> the next level in-process with the money, tokens
+# and difficulty carried and the next mission's loadout (next); three levels by their win triggers, with a success
+# movie (chain); a save in the second level loaded from the main menu (save); a defence level's next level with its
+# start movie (movie); lev_5_m5 -> its end movie -> the credits -> the title (end); Extras: tokens open Play Cutscene
+# and Replay Mission, a movie seen is listed and plays, a level reached is replayed and returns to the title (extras)
 # 'defence_*': the base-defence levels (army.rs, defence.rs, icobject.rs, goliath.rs, shrubpatrol.rs): Roman starts in
 # the base turret, the army marches and releases, kills and the win / fail chains (each script names its level)
 # 'save_slots': the save / load slot screens (feedback 26): save to slot 2, then slot 1, load slot 2 -> slot 2's

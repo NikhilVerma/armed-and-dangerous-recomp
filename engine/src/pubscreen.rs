@@ -104,8 +104,15 @@ pub struct PubScreenPlugin;
 
 impl Plugin for PubScreenPlugin {
     fn build(&self, app: &mut App) {
-        app.init_level_resource::<PubScreen>().add_systems(Update, (open, input, leave_pub, view).chain());
+        app.init_level_resource::<PubScreen>().init_level_resource::<PubLines>().add_systems(Update, (open, input, leave_pub, view).chain());
     }
+}
+
+/// The pub's once-only lines heard in this level (Game+0x574's intro flag, live): the campaign banks it at the
+/// level's end (campaign.rs, with the money: 0x00401ef0), so a restarted level hears it again as the original does.
+#[derive(Resource, Default)]
+pub struct PubLines {
+    pub intro_said: bool,
 }
 
 fn icon(item: &str) -> &'static str {
@@ -183,7 +190,7 @@ fn open(
     mut vtime: ResMut<Time<Virtual>>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     data: Res<crate::gamedata::GameData>,
-    (mut intro_said, mut rng): (crate::levelreset::PerLevel<bool>, ResMut<crate::fx::FxStats>),
+    (mut lines, mut rng, opts): (ResMut<PubLines>, ResMut<crate::fx::FxStats>, Res<crate::options::GameOptions>),
 ) {
     let Some(m) = mission.as_deref_mut() else { return };
     if !m.pub_request || *state.get() != AppState::Playing {
@@ -246,17 +253,17 @@ fn open(
     vtime.pause();
     sounds.write(crate::audio::PlaySound::ui("ui_pub_enter"));
     // the pub's sounds (0x00467fe0): the busy loop amb_pub_busy and a line (Pub_PlayAmbientLine 0x00468dd0): the
-    // intro once (Game+0x574), then one of the fifteen general lines (the extras +0x144.. and the once lines for new
-    // weapons +0x141.. are not set up in lev_1_m1: guess)
+    // intro once a campaign (Game+0x574: this level's flag or the one banked by earlier levels), then one of the
+    // fifteen general lines (the extras +0x144.. and the once lines for new weapons +0x141.. are not set up in
+    // lev_1_m1: guess)
     sounds.write(crate::audio::PlaySound { looped: Some(true), ..crate::audio::PlaySound::ui("amb_pub_busy") });
     const LINES: [&str; 15] = [
         "PE150014_Pub_Ambient", "PE150025_Pub_Ambient", "PE150056_Pub_Ambient", "PE150057_Pub_Ambient", "PE150059_Pub_Ambient",
         "PE150060_Pub_Ambient", "PE250014_Pub_Ambient", "PE250015_Pub_Ambient", "PE250016_Pub_Ambient", "PE250017_Pub_Ambient",
         "PE250018_Pub_Ambient", "PE250051_Pub_Ambient", "JON50081_Ambient", "JON50045_Ambient", "ROM50169_Pub",
     ];
-    let intro_said = intro_said.get();
-    let line = if !*intro_said {
-        *intro_said = true;
+    let line = if !lines.intro_said && !opts.pub_intro_heard {
+        lines.intro_said = true;
         "PE150013_Pub_Once_Intro"
     } else {
         LINES[((rng.rand() * 15.0) as usize).min(14)]

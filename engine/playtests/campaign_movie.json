@@ -1,0 +1,16 @@
+{"scene": "lev_1_m4", "steps": [
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 3.5}, {"tap": "Enter"},
+ {"wait": 1.0},
+ {"expect": {"campaign.level": "lev_1_m4", "loadout.rifle": false, "loadout.in_hand": "machinegun", "loadout.mg": 1100}},
+ {"send": 123}, {"until": "message"}, {"wait": 0.5},
+ {"expect": {"mission": "Won"}},
+ {"tap": "Enter"}, {"wait": 1.0},
+ {"expect": {"menu.page": "Stats"}},
+ {"tap": "Enter"}, {"wait": 0.3}, {"tap": "Enter"}, {"wait": 0.7}, {"tap": "Enter"}, {"wait": 0.3},
+ {"expect": {"stats.phase": 4}},
+ {"tap": "Enter"}, {"wait": 0.5}, {"until": "loaded"}, {"wait": 1.0},
+ {"expect": {"campaign.level": "lev_2_m1", "level_generation": 1, "movie.name": "pre_2_1_sacred_lamb", "loadout.rifle": true, "loadout.in_hand": "machinegun"}},
+ {"tap": "Enter"}, {"wait": 1.0},
+ {"expect": {"movie": null}},
+ {"quit": true}
+]}

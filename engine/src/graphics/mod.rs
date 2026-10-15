@@ -25,7 +25,7 @@
 mod farclip;
 mod textures;
 
-pub use textures::{texture_path, world_sampler};
+pub use textures::{set_level as set_level_textures, texture_path, world_sampler};
 
 use bevy::anti_alias::contrast_adaptive_sharpening::ContrastAdaptiveSharpening;
 use bevy::anti_alias::smaa::{Smaa, SmaaPreset};

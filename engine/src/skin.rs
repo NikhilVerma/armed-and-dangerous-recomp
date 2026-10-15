@@ -74,6 +74,16 @@ pub struct AnimLibrary {
 }
 
 impl AnimLibrary {
+    /// Another level's folder (campaign.rs): the caches start over (a level can lack an anim another has, and a
+    /// skeleton of the same name can differ: player_rlvindaloomissile_0 in lev_3_m1).
+    pub fn set_dir(&mut self, dir: &std::path::Path) {
+        if self.dir != dir {
+            self.dir = dir.to_path_buf();
+            self.skeletons.clear();
+            self.anims.clear();
+        }
+    }
+
     pub fn skeleton(&mut self, name: &str, binds: &mut Assets<SkinnedMeshInverseBindposes>) -> Option<Arc<Skeleton>> {
         if let Some(s) = self.skeletons.get(name) {
             return Some(s.clone());

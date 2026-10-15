@@ -603,7 +603,9 @@ fn skip(
     motion: Res<bevy::input::mouse::AccumulatedMouseMotion>,
 ) {
     let Some(cur) = p.current.as_mut() else { return };
-    if !cur.skippable || !matches!(cur.view, MovieView::FullWindow { .. }) {
+    // (not on the frame it opens: the press that asked for it, a menu row's select (Extras' cutscene list), is not a
+    // skip; the original's PlayMovie screen opens behind a screen transition)
+    if !cur.skippable || !matches!(cur.view, MovieView::FullWindow { .. }) || cur.age <= 0.0 {
         return;
     }
     use crate::input::Act;
