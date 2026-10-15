@@ -17,6 +17,16 @@
 //!   muzzle_bone_name, 0x00497fd0, released two updates after the trigger is let go, 0x00497ed0). No ammo, no heat.
 //! - The player takes half damage while mounted (0x0047afa0, player.rs hook).
 //!
+//! The forge cannon (behaviour forge_cannon, ForgeTurret vtable 0x005a1050; load 0x00499c40, update 0x0049a170) is the
+//! same gun with its own data: two pivots (pivot_yaw_bone_name "center" turned about z, pivot_pitch_bone_name "gun" about
+//! x: the bone callback 0x00499fd0), its sounds ("wpn_forgecan_mount" 0x00499f30, "wpn_forgecan_dismount" 0x00499f80,
+//! "wpn_forgecan_move_lp"), one shot a press with recycle_time 1 s of forge_cannon_bullet (a lobbed shell,
+//! vehicles/rockets.rs) to the crosshair's point, the one-shot muzzle fx (0x0049a5c0: mortar_muzzle_fx_name for the
+//! player) and the recoil anim "forge_cannon_fire" (0x00408d90 flags 0x80, then its default anim again). Its camera
+//! is Camera01 on "center" looking at Camera01.Target on "gun" (the forge_cannon_ref node table). Grunts do not look
+//! for it (ai_can_use off); turret-mode grunts start on it (ai.rs). ref_molmer_00 / ref_q_00 suggest the companions
+//! could use it: open question.
+//!
 //! Hooks outside this file: player.rs (control / weapons skip Roman while mounted, follow_camera yields, damage
 //! halved), hud.rs (crosshair range), mission.rs (`sites` and `hint` visible for ordering and the hint texts).
 
@@ -45,8 +55,21 @@ pub struct Turret {
     recycle: f32,
     projectile: String,
     muzzle_fx: Option<String>,
-    /// bones (skeleton indices): pivot, emitter, muzzle, player, exit
+    /// bones (skeleton indices): pivot (the yaw pivot when the gun has a pitch pivot of its own), emitter, muzzle,
+    /// player, exit
     pivot: usize,
+    /// the pitch pivot of a two-pivot gun (the forge cannon's "gun"); None: the pivot takes both turns
+    pitch_pivot: Option<usize>,
+    /// the camera's look-at node (Camera01.Target), when the camera aims at one
+    look_at: Option<usize>,
+    /// the gun's sounds and its fire anim (the class's own strings)
+    sounds: GunSounds,
+    fire_anim: Option<String>,
+    rest_anim: Option<String>,
+    /// rapid_fire: the muzzle fx is held while firing (else one per shot)
+    rapid_fire: bool,
+    /// a fire anim to start (turret_anims)
+    recoil: bool,
     emitter: usize,
     muzzle: usize,
     seat: usize,
@@ -72,6 +95,23 @@ pub struct Turret {
     pub grunt_exit: Option<usize>,
 }
 
+/// A gun class's sounds (StigTurret: 0x00498f60 / 0x004990a0; ForgeTurret: 0x00499f30 / 0x00499f80 / 0x0049a170).
+#[derive(Clone, Copy, Debug)]
+pub struct GunSounds {
+    pub mount: &'static str,
+    pub dismount: Option<&'static str>,
+    pub move_loop: &'static str,
+}
+
+impl GunSounds {
+    fn of(behavior: &str) -> Self {
+        match behavior {
+            "forge_cannon" => GunSounds { mount: "wpn_forgecan_mount", dismount: Some("wpn_forgecan_dismount"), move_loop: "wpn_forgecan_move_lp" },
+            _ => GunSounds { mount: "wpn_stig_mount", dismount: None, move_loop: "wpn_stig_move_lp" },
+        }
+    }
+}
+
 impl Turret {
     /// An AI gunner's aim (0x00408c70: the gun's four corner poses stig_mgun_*_tl/tr/bl/br blended by the gunner's
     /// weights +0x580 horizontal (0 left .. 1 right) and +0x584 vertical (0 bottom .. 1 top)). The corners turn the
@@ -84,7 +124,7 @@ impl Turret {
 
     /// The muzzle bone's world matrix and others for the AI side.
     pub fn bone_world(&self, gt: &GlobalTransform, a: &crate::skin::Animator, i: usize) -> Mat4 {
-        gt.to_matrix() * bone_model(&a.skeleton, i, self.pivot, turn(self))
+        gt.to_matrix() * bone_model(&a.skeleton, i, &turns(self))
     }
 
     pub fn emitter(&self) -> usize {
@@ -93,7 +133,7 @@ impl Turret {
 
     /// The gun's forward at rest (model -y through the pivot), world.
     pub fn forward(&self, gt: &GlobalTransform, a: &crate::skin::Animator) -> Vec3 {
-        (gt.to_matrix() * bone_model(&a.skeleton, self.pivot, usize::MAX, Quat::IDENTITY)).transform_vector3(Vec3::NEG_Y)
+        (gt.to_matrix() * bone_model(&a.skeleton, self.pivot, &[])).transform_vector3(Vec3::NEG_Y)
     }
 
     /// A shot's muzzle flash (vt+0x144 0x00497fd0 with rapid_fire): one held fx on the muzzle bone, kept while shots
@@ -129,21 +169,21 @@ pub struct TurretPlugin;
 impl Plugin for TurretPlugin {
     fn build(&self, app: &mut App) {
         app.init_level_resource::<Mounted>()
-            .add_systems(Update, setup)
+            .add_systems(Update, (setup, turret_anims))
             .add_systems(Update, ride.after(crate::mission::sites).after(crate::player::grab_cursor).run_if(crate::playing))
             .add_systems(PostUpdate, pose.after(crate::skin::AnimateSet).before(TransformSystems::Propagate));
     }
 }
 
-/// A bone's model-space matrix (game frame) from the skeleton's rest pose, with the pivot turned.
-fn bone_model(sk: &crate::skin::Skeleton, i: usize, pivot: usize, turn: Quat) -> Mat4 {
+/// A bone's model-space matrix (game frame) from the skeleton's rest pose, with the pivots turned.
+fn bone_model(sk: &crate::skin::Skeleton, i: usize, turns: &[(usize, Quat)]) -> Mat4 {
     let mut m = Mat4::IDENTITY;
     let mut j = i as i32;
     while j >= 0 {
         let k = j as usize;
         let mut t = sk.rest[k];
-        if k == pivot {
-            t.rotation *= turn;
+        if let Some((_, q)) = turns.iter().find(|(b, _)| *b == k) {
+            t.rotation *= *q;
         }
         m = t.to_matrix() * m;
         j = sk.parents[k];
@@ -151,9 +191,13 @@ fn bone_model(sk: &crate::skin::Skeleton, i: usize, pivot: usize, turn: Quat) ->
     m
 }
 
-/// The pivot callback's rotation (0x00498ff0: dest = source * qz(+0x620) * qx(+0x61c), Quat_Mul(a, b) = b * a).
-fn turn(t: &Turret) -> Quat {
-    Quat::from_rotation_z(t.yaw) * Quat::from_rotation_x(t.pitch)
+/// The pivot callbacks' rotations: one pivot takes qz(yaw) * qx(pitch) (0x00498ff0, Quat_Mul(a, b) = b * a); a
+/// two-pivot gun turns its yaw pivot by qz(yaw) and its pitch pivot by qx(pitch) (0x00499fd0).
+fn turns(t: &Turret) -> Vec<(usize, Quat)> {
+    match t.pitch_pivot {
+        Some(p) => vec![(t.pivot, Quat::from_rotation_z(t.yaw)), (p, Quat::from_rotation_x(t.pitch))],
+        None => vec![(t.pivot, Quat::from_rotation_z(t.yaw) * Quat::from_rotation_x(t.pitch))],
+    }
 }
 
 /// Mounted-gun components for the placed guns (their model must be skinned: tools/remaster_export_anim.py
@@ -171,11 +215,12 @@ pub(crate) fn setup(
             continue;
         }
         let p = data.template_props(name.as_str());
-        if p.s("behavior") != Some("stig_mgun_turret") {
+        let behavior = p.s("behavior").unwrap_or("").to_owned();
+        if !matches!(behavior.as_str(), "stig_mgun_turret" | "forge_cannon") {
             continue;
         }
         let bone = |k: &str| p.s(k).and_then(|n| a.skeleton.index.get(&n.to_lowercase()).copied());
-        let (Some(pivot), Some(emitter), Some(seat)) = (bone("pivot_bone_name"), bone("emitter_bone_name"), bone("player_bone_name")) else {
+        let (Some(pivot), Some(emitter), Some(seat)) = (bone("pivot_bone_name").or(bone("pivot_yaw_bone_name")), bone("emitter_bone_name"), bone("player_bone_name")) else {
             warn!("turret {name}: bones missing");
             continue;
         };
@@ -196,7 +241,8 @@ pub(crate) fn setup(
             warn!("turret {name}: no camera node {cam_name} in {reference}");
             continue;
         };
-        let camera = bone_model(&a.skeleton, pivot, usize::MAX, Quat::IDENTITY).inverse() * cam;
+        let camera = bone_model(&a.skeleton, pivot, &[]).inverse() * cam;
+        let forge = behavior == "forge_cannon";
         let deg = |k: &str, d: f32| p.f(k, d).to_radians();
         commands.entity(e).insert(Turret {
             yaw: 0.0,
@@ -210,6 +256,13 @@ pub(crate) fn setup(
             projectile: format!("p_{}", p.s("projectile_name").unwrap_or("")),
             muzzle_fx: p.s("muzzle_fx_name").map(str::to_owned),
             pivot,
+            pitch_pivot: bone("pivot_pitch_bone_name"),
+            look_at: a.skeleton.index.get(&format!("{cam_name}.target")).copied(),
+            sounds: GunSounds::of(&behavior),
+            fire_anim: forge.then(|| "forge_cannon_fire".to_owned()),
+            rest_anim: data.templates.get(name.as_str()).and_then(|t| t.default_anim.clone()),
+            rapid_fire: p.i("rapid_fire", 0) != 0,
+            recoil: false,
             emitter,
             muzzle: bone("muzzle_bone_name").unwrap_or(emitter),
             seat,
@@ -221,7 +274,7 @@ pub(crate) fn setup(
             moving: false,
             ai: None,
             reserved: None,
-            ai_can_use: p.i("ai_can_use", 1) != 0,
+            ai_can_use: !forge && p.i("ai_can_use", 1) != 0,
             never_leave: p.i("ai_never_leave", 0) != 0,
             ai_projectile: format!("p_{}", p.s("ai_projectile_name").or(p.s("projectile_name")).unwrap_or("")),
             grunt_exit: a.skeleton.index.get("ref_grunt_exit").copied(),
@@ -229,6 +282,10 @@ pub(crate) fn setup(
         info!("turret {name}: pivot {pivot} camera {:?}", camera.w_axis.truncate());
     }
 }
+
+/// How far ahead a shell flies when the crosshair has no point (0x0047dbf0's default target: guess, the crosshair ray's
+/// length in the turret's camera mode).
+const FAR_AIM: f32 = 2000.0;
 
 /// The clamp of a turret angle, skipped when either limit is 0 (0x004990a0).
 fn clamp(v: f32, (lo, hi): (f32, f32)) -> f32 {
@@ -246,7 +303,7 @@ fn ride(
     (mut physics, path, topsy): (NonSendMut<crate::physics::Physics>, Res<crate::campath::CameraPath>, Res<crate::topsy::Topsy>),
     (mut hud, mut mission, xhair): (ResMut<crate::hud::HudState>, Option<ResMut<crate::mission::Mission>>, Res<crate::hud::Crosshair>),
     (mut sounds, mut stop, mut fx): (MessageWriter<crate::audio::PlaySound>, MessageWriter<crate::audio::StopSound>, MessageWriter<crate::fx::StartFx>),
-    (data, mut stats, mut state): (Res<crate::gamedata::GameData>, ResMut<crate::player::PlayerStats>, ResMut<crate::playtest::PlayState>),
+    (data, mut stats, mut state, mut vrng): (Res<crate::gamedata::GameData>, ResMut<crate::player::PlayerStats>, ResMut<crate::playtest::PlayState>, ResMut<crate::vehicles::VehicleRng>),
     joints: Query<&GlobalTransform>,
 ) {
     let Ok((re, mut r, mut rt, health, mut vis)) = roman.single_mut() else { return };
@@ -258,7 +315,7 @@ fn ride(
     let use_pressed = ctl.pressed(Act::Use);
     let hint = |m: &Option<ResMut<crate::mission::Mission>>, k: &str| m.as_ref().map(|m| m.hint(k)).unwrap_or_default();
     let mut log = Vec::new();
-    let world_of = |gt: &GlobalTransform, a: &crate::skin::Animator, t: &Turret, i: usize| gt.to_matrix() * bone_model(&a.skeleton, i, t.pivot, turn(t));
+    let world_of = |gt: &GlobalTransform, a: &crate::skin::Animator, t: &Turret, i: usize| gt.to_matrix() * bone_model(&a.skeleton, i, &turns(t));
 
     if let Some(me) = mounted.0 {
         let Ok((_, mut t, gt, a)) = turrets.get_mut(me) else {
@@ -274,7 +331,10 @@ fn ride(
             }
             if t.moving {
                 t.moving = false;
-                stop.write(crate::audio::StopSound("wpn_stig_move_lp".into()));
+                stop.write(crate::audio::StopSound(t.sounds.move_loop.into()));
+            }
+            if let Some(d) = t.sounds.dismount {
+                sounds.write(crate::audio::PlaySound::ui(d));
             }
             // the exit bone's position (before the angles reset: ref_exit is a root bone), grounded (Object_ForceGround
             // 10, 20: a ray from 10 above, 20 down)
@@ -309,10 +369,10 @@ fn ride(
             let moved = (t.yaw - y0).abs() > 0.0 || (t.pitch - p0).abs() > 0.0;
             if moved && !t.moving {
                 t.moving = true;
-                sounds.write(crate::audio::PlaySound { looped: Some(true), ..crate::audio::PlaySound::at("wpn_stig_move_lp", gt.translation()) });
+                sounds.write(crate::audio::PlaySound { looped: Some(true), ..crate::audio::PlaySound::at(t.sounds.move_loop, gt.translation()) });
             } else if !moved && t.moving {
                 t.moving = false;
-                stop.write(crate::audio::StopSound("wpn_stig_move_lp".into()));
+                stop.write(crate::audio::StopSound(t.sounds.move_loop.into()));
             }
             // Roman stays at the seat (Object_Attach to player_bone_name)
             let seat = world_of(gt, a, &t, t.seat).w_axis.truncate();
@@ -328,11 +388,25 @@ fn ride(
                     let fwd = em.transform_vector3(Vec3::NEG_Y).normalize_or(Vec3::NEG_Z);
                     let dir = xhair.point.map(|q| (q - from).normalize_or(fwd)).filter(|d| d.dot(fwd) > 0.0).unwrap_or(fwd);
                     let bullet = data.props(&t.projectile);
-                    crate::player::spawn_projectile(&mut commands, &mut fx, &bullet, from, dir, true, Some(re));
+                    if crate::vehicles::rockets::is_rocket(&bullet) {
+                        // a shell (the forge cannon: 0x0047dbf0 toward the crosshair's point, or ahead along the gun)
+                        let to = xhair.point.filter(|q| (*q - from).dot(fwd) > 0.0).unwrap_or(from + fwd * FAR_AIM);
+                        let template = t.projectile.trim_start_matches("p_").to_owned();
+                        let launch = crate::vehicles::rockets::Launch { template: &template, from, to, along: None, target: None, owner: Some(re), by: crate::fx::Src::Player };
+                        crate::vehicles::rockets::launch(&mut commands, &mut fx, &data, &mut vrng, launch);
+                    } else {
+                        crate::player::spawn_projectile(&mut commands, &mut fx, &bullet, from, dir, true, Some(re));
+                    }
                     stats.shots += 1;
                     t.last_fire = Some(now);
-                    // the muzzle flash (0x00497fd0, rapid fire: one held fx on the muzzle bone)
-                    t.flash(&mut commands, &mut fx, a, &joints);
+                    t.recoil = t.fire_anim.is_some();
+                    // the muzzle flash (0x00497fd0: rapid fire holds one on the muzzle bone; else one per shot, 0x0049a5c0)
+                    if t.rapid_fire {
+                        t.flash(&mut commands, &mut fx, a, &joints);
+                    } else if let (Some(name), Some(&joint)) = (t.muzzle_fx.clone(), a.joints.get(t.muzzle)) {
+                        let jm = joints.get(joint).map(|j| j.compute_transform()).unwrap_or_default();
+                        fx.write(crate::fx::StartFx { name, at: jm.translation, rotation: jm.rotation, follow: None, position_only: false });
+                    }
                 }
             }
             if hud.prompt.is_none() {
@@ -360,12 +434,12 @@ fn ride(
                     physics.place_walker(&r.walker, seat);
                     rt.translation = seat;
                     // facing the gun's forward (model -y)
-                    let fwd = (gt.to_matrix() * bone_model(&a.skeleton, t.pivot, usize::MAX, Quat::IDENTITY)).transform_vector3(Vec3::NEG_Y);
+                    let fwd = (gt.to_matrix() * bone_model(&a.skeleton, t.pivot, &[])).transform_vector3(Vec3::NEG_Y);
                     r.yaw = (-fwd.x).atan2(-fwd.z);
                     r.zoom = 0.0;
                     r.vel = Vec3::ZERO;
                     *vis = Visibility::Hidden;
-                    sounds.write(crate::audio::PlaySound::ui("wpn_stig_mount"));
+                    sounds.write(crate::audio::PlaySound::ui(t.sounds.mount));
                     mounted.0 = Some(e);
                     hud.prompt = Some(hint(&mission, "ui_vehicle_exit"));
                     log.push("mounted gun entered".to_string());
@@ -388,17 +462,43 @@ fn pose(
     mut cam: Query<&mut Transform, With<crate::player::FollowCam>>,
 ) {
     for (e, t, gt, a) in &turrets {
-        if let (Some(&j), Some(rest)) = (a.joints.get(t.pivot), a.skeleton.rest.get(t.pivot)) {
-            if let Ok(mut jt) = joints.get_mut(j) {
-                jt.rotation = rest.rotation * turn(t);
+        let turned = turns(t);
+        for (b, q) in &turned {
+            if let (Some(&j), Some(rest)) = (a.joints.get(*b), a.skeleton.rest.get(*b)) {
+                if let Ok(mut jt) = joints.get_mut(j) {
+                    jt.rotation = rest.rotation * *q;
+                }
             }
         }
         if mounted.0 == Some(e) {
             if let Ok(mut c) = cam.single_mut() {
-                let m = gt.to_matrix() * bone_model(&a.skeleton, t.pivot, t.pivot, turn(t)) * t.camera;
+                let m = gt.to_matrix() * bone_model(&a.skeleton, t.pivot, &turned) * t.camera;
                 let (_, rot, pos) = m.to_scale_rotation_translation();
                 c.translation = pos;
                 c.rotation = rot;
+                // a camera with a look-at node aims at it (the forge cannon's Camera01.Target on the pitching "gun")
+                if let Some(target) = t.look_at.map(|i| (gt.to_matrix() * bone_model(&a.skeleton, i, &turned)).w_axis.truncate()) {
+                    if (target - pos).length_squared() > 1e-4 {
+                        c.look_at(target, gt.to_matrix().transform_vector3(Vec3::Z).normalize_or(Vec3::Y));
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The gun's recoil anim after a shot (the forge cannon's "forge_cannon_fire", 0x0049a170: Anim_Set 0x00408d90 flags
+/// 0x80), its default anim again once it ends (0x00408e30 flags 0x81).
+fn turret_anims(mut q: Query<(&mut Turret, &mut crate::skin::Animator)>, lib: Res<crate::skin::AnimLibrary>) {
+    for (mut t, mut a) in &mut q {
+        if std::mem::take(&mut t.recoil) {
+            if let Some(f) = t.fire_anim.clone() {
+                a.play(0, &f, false, crate::skin::Mask::All);
+                a.restart(0);
+            }
+        } else if t.fire_anim.as_ref().is_some_and(|f| a.layers.first().is_some_and(|l| &l.anim == f)) && a.finished(0, &lib) {
+            if let Some(r) = t.rest_anim.clone() {
+                a.play(0, &r, true, crate::skin::Mask::All);
             }
         }
     }

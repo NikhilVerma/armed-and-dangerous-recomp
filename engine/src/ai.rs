@@ -3392,9 +3392,9 @@ fn think(
                                         let side = Vec3::new(-to.z, 0.0, to.x).normalize_or_zero();
                                         let aim = hit + side * rng.range(-g.inaccuracy_angle, g.inaccuracy_angle) * s + Vec3::Y * rng.range(0.0, g.inaccuracy_height) * s;
                                         let from = tu.bone_world(gt, ta, tu.emitter()).w_axis.truncate();
-                                        let dir = (aim - from).normalize_or(gn.fwd);
-                                        let bullet = data.props(&tu.ai_projectile);
-                                        crate::player::spawn_projectile(&mut commands, &mut fx, &bullet, from, dir, false, Some(ge));
+                                        // (a forge cannon's shell flies as vehicles/rockets.rs lobs it; a bullet as before)
+                                        let to = from + (aim - from).normalize_or(gn.fwd) * from.distance(aim).max(1.0);
+                                        crate::vehicles::rockets::shoot(&mut commands, &mut fx, &data, &tu.ai_projectile, from, to, Some(ge), crate::fx::Src::Badguy);
                                         tu.flash(&mut commands, &mut fx, ta, &targets);
                                         stats.shots += 1;
                                         gn.shots += 1;

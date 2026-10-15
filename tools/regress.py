@@ -26,7 +26,8 @@ SUITE = ['save_write', 'save_read', 'topsyhit2', 'turn_in_place', 'turret1', 'de
          'anim_blend', 'anim_notes', 'camera_follow', 'camera_death', 'input_pad', 'foot_ik',
          'fx_particles', 'fx_debris', 'fx_emit', 'fx_lights', 'fx_screen', 'fx_hits',
          'movie_intro', 'movie_subs', 'movie_screens', 'movie_credits', 'movie_pub',
-         'launch_newgame', 'launch_options', 'launch_restart', 'restart_parity', 'save_slots']
+         'launch_newgame', 'launch_options', 'launch_restart', 'restart_parity', 'save_slots',
+         'vehicles_rocket_tower', 'vehicles_rocket_bud', 'vehicles_zeppelin', 'vehicles_saucer', 'vehicles_colossus', 'vehicles_forge_cannon']
 # 'launch_*': the real launch path as the player plays (the Remaster preset chosen by the options, the intro, the
 # title menu): New Game shows the world (menu art gone, every camera on one target, the strips beside the 4:3 centre
 # not black), Abandon -> title -> New Game in-process, the Graphics page applies, Restart / Quick Load / Restart from
@@ -36,6 +37,9 @@ SUITE = ['save_write', 'save_read', 'topsyhit2', 'turn_in_place', 'turret1', 'de
 # frame / main-world times and game steps match a fresh New Game's (feedback 28)
 # 'save_slots': the save / load slot screens (feedback 26): save to slot 2, then slot 1, load slot 2 -> slot 2's
 # state; the main menu's Load Game and the pause menu's Save Game open the slot list
+# 'vehicles_*': the later levels' units (engine/src/vehicles, the forge cannon in turret.rs), each script on its own level
+# ("scene"): rocket towers / buds (lev_3_m1), the zeppelin and the saucer (lev_2_m1), the colossus (lev_1_m3), the forge
+# cannon (lev_2_m1): woken, moving, targeting Roman, firing, hit, destroyed
 # 'unit': the engine's Rust unit tests (cargo test --release into the same target dir: pure logic such as the
 # object model's damage filters, trigger fields and husk picks, the HUD feed wrapping)
 # scripts kept in git (engine/playtests) win over work/remaster/play

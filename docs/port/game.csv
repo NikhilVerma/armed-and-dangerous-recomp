@@ -71,8 +71,6 @@ address,name,disposition,reason
 0x00450fa0,DefaultGameObject_GetGravity,not needed,gravity getter: no lev_1_m1 object sets gravity
 0x00451040,fn_00451040,not needed,DefaultGameObject vtable 0x005ab650 (class 38) damage + Game+0xdd1: not used on lev_1_m1
 0x00451070,RocketTowerBuilding_Remove,not needed,RocketTowerBuilding: class with no instance on lev_1_m1 (scene.json behaviours)
-0x004510b0,RocketTowerBuilding_SpawnTurret,not needed,RocketTowerBuilding: class with no instance on lev_1_m1 (scene.json behaviours)
-0x00451160,RocketTowerBuilding_OnDeath,not needed,RocketTowerBuilding: class with no instance on lev_1_m1 (scene.json behaviours)
 0x00452790,fn_00452790,not needed,speed_trap: not set on lev_1_m1
 0x00453230,fn_00453230,replaced,"base-class answers (0.0, zeros, 1.0) and the vt+0xb8 contact query: physics queries are Jolt's; nothing on lev_1_m1 depends on the default values"
 0x00453240,fn_00453240,replaced,"base-class answers (0.0, zeros, 1.0) and the vt+0xb8 contact query: physics queries are Jolt's; nothing on lev_1_m1 depends on the default values"
@@ -195,7 +193,6 @@ address,name,disposition,reason
 0x0047b9f0,PlayerObject_SetTurboPack,not needed,the turbo (jet) pack and its boost: lev_1_m1 has none (mission player_has_jetpack 0; Load / reset only call it with off). Later levels' mechanic
 0x0047bba0,PlayerObject_PlayChestFx,not needed,the turbo (jet) pack and its boost: lev_1_m1 has none (mission player_has_jetpack 0; Load / reset only call it with off). Later levels' mechanic
 0x0047df70,fn_0047df70,not needed,"projectile spawn helpers used by the turrets, the vindaloo and the armed jaws: none on lev_1_m1"
-0x0047dfd0,fn_0047dfd0,not needed,"projectile spawn helpers used by the turrets, the vindaloo and the armed jaws: none on lev_1_m1"
 0x0047e050,fn_0047e050,not needed,"projectile spawn helpers used by the turrets, the vindaloo and the armed jaws: none on lev_1_m1"
 0x0047e3b0,Projectile_SetTarget,not needed,"Projectile_SetTarget (homing target of the rocket classes): no homing projectile on lev_1_m1 but the sticky bomb, whose own 0x004811e0 is ported (sticky.rs)"
 0x0047e9f0,fn_0047e9f0,not needed,sticks a projectile to a target's part (the arrows' hit): the engine's arrows have no model to leave stuck (the trail ends at the hit); sticky.rs sticks by 0x004817b0 / 0x0047e9b0
@@ -215,12 +212,8 @@ address,name,disposition,reason
 0x00480510,VindalooProjectile_ReadProps,not needed,VindalooProjectile: not on lev_1_m1 (no vindaloo)
 0x004805e0,VindalooProjectile_Flags,not needed,VindalooProjectile: not on lev_1_m1 (no vindaloo)
 0x004805f0,VindalooProjectile_Update,not needed,VindalooProjectile: not on lev_1_m1 (no vindaloo)
-0x00480920,RocketTowerProjectile_ReadProps,not needed,RocketTowerProjectile: p_rocket_tower_missile is in the bank but no rocket tower is placed on lev_1_m1
-0x00480a20,RocketTowerProjectile_Update,not needed,RocketTowerProjectile: p_rocket_tower_missile is in the bank but no rocket tower is placed on lev_1_m1
 0x00480d60,RocketBudProjectile_ReadProps,not needed,RocketBudProjectile: not on lev_1_m1
-0x00480db0,RocketBudProjectile_Launch,not needed,RocketBudProjectile: not on lev_1_m1
 0x00480e20,RocketBudProjectile_Update,not needed,RocketBudProjectile: not on lev_1_m1
-0x00480ec0,Projectile_Launch_00480ec0,not needed,ForgeCannonProjectile: not on lev_1_m1
 0x00480f60,ForgeCannonProjectile_Update,not needed,ForgeCannonProjectile: not on lev_1_m1
 0x00481000,ForgeCannonProjectile_Flags,not needed,ForgeCannonProjectile: not on lev_1_m1
 0x00481010,fn_00481010,not needed,flag / target slots of the Projectile vtables 0x005aec10 / 0x005ab120 (classes 3 / 13): no lev_1_m1 property set was traced to them (guess: later levels' projectiles)
@@ -242,9 +235,7 @@ address,name,disposition,reason
 0x004824e0,ArrowProjectile_Remove,not needed,"ArrowProjectile load / remove / hit: the arrow lingers stuck to what it hit with its model (linger 2.5 s); the engine's projectiles have no model, so the trail ends at the hit (the launch, the fall and the fly-by sound are ported: player.rs spawn_projectile_to, 0x00482510 / 0x00482620)"
 0x00482780,ArrowProjectile_Hit,not needed,"ArrowProjectile load / remove / hit: the arrow lingers stuck to what it hit with its model (linger 2.5 s); the engine's projectiles have no model, so the trail ends at the hit (the launch, the fall and the fly-by sound are ported: player.rs spawn_projectile_to, 0x00482510 / 0x00482620)"
 0x00482870,GrenadeProjectile_Launch,not needed,"GrenadeProjectile throw: the captain's grenade, no captain on lev_1_m1"
-0x004829e0,CaptainRocket_ReadProps,not needed,the captain's rocket: no captain on lev_1_m1
 0x00482ab0,CaptainRocket_SetOwner,not needed,the captain's rocket: no captain on lev_1_m1
-0x00482b40,CaptainRocket_Update,not needed,the captain's rocket: no captain on lev_1_m1
 0x00482d10,CaptainRocket_InitCollision,not needed,the captain's rocket: no captain on lev_1_m1
 0x00482d60,CaptainRocket_Damage,not needed,the captain's rocket: no captain on lev_1_m1
 0x00482e80,fn_00482e80,not needed,the captain's rocket: no captain on lev_1_m1
@@ -315,18 +306,12 @@ address,name,disposition,reason
 0x00499b30,fn_00499b30,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
 0x00499bb0,fn_00499bb0,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
 0x00499bd0,fn_00499bd0,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
-0x00499c40,fn_00499c40,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
-0x00499f30,fn_00499f30,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
-0x00499f80,fn_00499f80,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
-0x00499fd0,fn_00499fd0,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
 0x0049a0b0,MountedTurret_BoneCallback,not needed,"MountedTurret bone callback: not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
 0x0049a0f0,fn_0049a0f0,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
 0x0049a110,fn_0049a110,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
 0x0049a150,fn_0049a150,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
-0x0049a170,fn_0049a170,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
 0x0049a4c0,fn_0049a4c0,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
 0x0049a530,fn_0049a530,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
-0x0049a5c0,fn_0049a5c0,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
 0x0049a6a0,fn_0049a6a0,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
 0x0049abf0,fn_0049abf0,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
 0x0049ac60,fn_0049ac60,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
@@ -341,18 +326,8 @@ address,name,disposition,reason
 0x0049be70,fn_0049be70,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
 0x0049bf20,fn_0049bf20,not needed,BaseDefendTurret / RocketTowerTurret / RocketBudTurret virtuals: none placed on lev_1_m1
 0x0049c2a0,fn_0049c2a0,not needed,BaseDefendTurret / RocketTowerTurret / RocketBudTurret virtuals: none placed on lev_1_m1
-0x0049c320,fn_0049c320,not needed,BaseDefendTurret / RocketTowerTurret / RocketBudTurret virtuals: none placed on lev_1_m1
 0x0049c4c0,fn_0049c4c0,not needed,BaseDefendTurret / RocketTowerTurret / RocketBudTurret virtuals: none placed on lev_1_m1
-0x0049c520,fn_0049c520,not needed,BaseDefendTurret / RocketTowerTurret / RocketBudTurret virtuals: none placed on lev_1_m1
-0x0049c530,fn_0049c530,not needed,BaseDefendTurret / RocketTowerTurret / RocketBudTurret virtuals: none placed on lev_1_m1
-0x0049c540,fn_0049c540,not needed,BaseDefendTurret / RocketTowerTurret / RocketBudTurret virtuals: none placed on lev_1_m1
-0x0049c5b0,fn_0049c5b0,not needed,BaseDefendTurret / RocketTowerTurret / RocketBudTurret virtuals: none placed on lev_1_m1
-0x0049c610,fn_0049c610,not needed,BaseDefendTurret / RocketTowerTurret / RocketBudTurret virtuals: none placed on lev_1_m1
-0x0049c6a0,fn_0049c6a0,not needed,BaseDefendTurret / RocketTowerTurret / RocketBudTurret virtuals: none placed on lev_1_m1
-0x0049c9b0,fn_0049c9b0,not needed,BaseDefendTurret / RocketTowerTurret / RocketBudTurret virtuals: none placed on lev_1_m1
 0x0049ca90,fn_0049ca90,not needed,BaseDefendTurret / RocketTowerTurret / RocketBudTurret virtuals: none placed on lev_1_m1
-0x0049cab0,fn_0049cab0,not needed,BaseDefendTurret / RocketTowerTurret / RocketBudTurret virtuals: none placed on lev_1_m1
-0x0049cbe0,fn_0049cbe0,not needed,BaseDefendTurret / RocketTowerTurret / RocketBudTurret virtuals: none placed on lev_1_m1
 0x004a0690,fn_004a0690,not needed,level-name kind tests (lev_ / pre_ / post_ / lev_bonus) and the level table lookup: the engine loads lev_1_m1 by name and has no level list
 0x004a0720,fn_004a0720,not needed,level-name kind tests (lev_ / pre_ / post_ / lev_bonus) and the level table lookup: the engine loads lev_1_m1 by name and has no level list
 0x004a0da0,fn_004a0da0,not needed,"scales the weapon objects (called by 0x0042eb60, the AI's scale): the engine's weapon models follow the hand bone"
