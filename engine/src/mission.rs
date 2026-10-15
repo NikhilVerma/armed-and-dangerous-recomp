@@ -1206,7 +1206,18 @@ fn state_log(m: Option<Res<Mission>>, state: Option<ResMut<crate::playtest::Play
     );
 }
 
-fn start(mut m: Option<ResMut<Mission>>, mut out: MessageWriter<SendTrigger>, path: Res<crate::campath::CameraPath>, time: Res<Time>, mut waited: crate::levelreset::PerLevel<f32>) {
+/// Frames the remaster's pipeline takes from play start until a camera path that the level's camera fx start at load
+/// is playing: start_camera_fx -> the fx VM's first step (op 0x73) -> campath, one frame each at most. The original
+/// runs that inside its first frame, so its start text shows on the load frame unless a cinematic plays (oracle B10).
+const START_PATH_LATENCY: u32 = 2;
+
+fn start(
+    mut m: Option<ResMut<Mission>>,
+    mut out: MessageWriter<SendTrigger>,
+    path: Res<crate::campath::CameraPath>,
+    turrets: Query<&crate::defence::BaseTurret>,
+    mut waited: crate::levelreset::PerLevel<u32>,
+) {
     let Some(m) = m.as_deref_mut() else { return };
     let waited = waited.get();
     if m.started {
@@ -1219,10 +1230,12 @@ fn start(mut m: Option<ResMut<Mission>>, mut out: MessageWriter<SendTrigger>, pa
             out.write(SendTrigger(m.start_trigger));
         }
     }
-    // MissionObject_ShowStart 0x0044daf0: once no camera path is active (it starts on the first frames), the start
-    // text as a paused message
-    *waited += time.delta_secs();
-    if path.active() || *waited < 0.3 {
+    // MissionObject_ShowStart 0x0044daf0, tried every update until it runs: once no cinematic plays (Game byte +0xdce:
+    // a camera path, or the base turret's mount intro on the defence levels, 279-399 frames), the start text as a
+    // paused message
+    *waited += 1;
+    let cinematic = path.active() || turrets.iter().any(|t| t.in_intro());
+    if cinematic || *waited <= START_PATH_LATENCY {
         return;
     }
     m.started = true;
