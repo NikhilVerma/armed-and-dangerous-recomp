@@ -63,16 +63,13 @@ address,name,disposition,reason
 0x00429a40,fn_00429a40,replaced,the weapon attachment's visibility (+0x61c list): level.rs attaches the weapon model to the hand
 0x00429ac0,fn_00429ac0,not needed,"the scale-wall assault needs Game+0xc54 > 0 (the IC event base_defend): no defence level sends it (army.rs, defence.md)"
 0x00429ce0,fn_00429ce0,not needed,"the ladder / scale-wall assault and jet-pack launches (army levels: Game+0xcbe, ladders list +0xee4 with ic_* markers, turbo captains): none on lev_1_m1"
-0x0042a660,fn_0042a660,not needed,the marker-run pick by marker index (tower / squad markers 0x0042a660: +0x560..+0x564): only the tower and squad modes call it
 0x0042b9e0,fn_0042b9e0,not needed,"the ladder / scale-wall assault and jet-pack launches (army levels: Game+0xcbe, ladders list +0xee4 with ic_* markers, turbo captains): none on lev_1_m1"
 0x0042ba30,fn_0042ba30,not needed,"the ladder / scale-wall assault and jet-pack launches (army levels: Game+0xcbe, ladders list +0xee4 with ic_* markers, turbo captains): none on lev_1_m1"
 0x0042bb10,fn_0042bb10,not needed,the counted shooter list World+0xf18 (0x0042bb10 hands over to another shooter): only with Game+0xc50 (ai_max_fire 0 on lev_1_m1)
 0x0042bf70,fn_0042bf70,not needed,"the IC (in-character) anims: GenericAI_PlayICAnim and its wake / callbacks (0x0042c410, 0x0042c0e0, 0x0042bf70, 0x0042c380, 0x0042c080, 0x0042c670) and the scripted mode 0x0042d000: on lev_1_m1 only the three tree grunts use them (pine trees 47 / 61 / 76, IC_tree_slide_1..3 with mover_grunt_tree_1..3, created by 0x00496e90 -> 0x00456180); level.rs does not create those grunts yet (open item: grunt-ai.md 14)"
 0x0042c080,fn_0042c080,not needed,"the IC (in-character) anims: GenericAI_PlayICAnim and its wake / callbacks (0x0042c410, 0x0042c0e0, 0x0042bf70, 0x0042c380, 0x0042c080, 0x0042c670) and the scripted mode 0x0042d000: on lev_1_m1 only the three tree grunts use them (pine trees 47 / 61 / 76, IC_tree_slide_1..3 with mover_grunt_tree_1..3, created by 0x00496e90 -> 0x00456180); level.rs does not create those grunts yet (open item: grunt-ai.md 14)"
-0x0042c0e0,fn_0042c0e0,not needed,"the IC (in-character) anims: GenericAI_PlayICAnim and its wake / callbacks (0x0042c410, 0x0042c0e0, 0x0042bf70, 0x0042c380, 0x0042c080, 0x0042c670) and the scripted mode 0x0042d000: on lev_1_m1 only the three tree grunts use them (pine trees 47 / 61 / 76, IC_tree_slide_1..3 with mover_grunt_tree_1..3, created by 0x00496e90 -> 0x00456180); level.rs does not create those grunts yet (open item: grunt-ai.md 14)"
 0x0042c670,fn_0042c670,not needed,"the IC (in-character) anims: GenericAI_PlayICAnim and its wake / callbacks (0x0042c410, 0x0042c0e0, 0x0042bf70, 0x0042c380, 0x0042c080, 0x0042c670) and the scripted mode 0x0042d000: on lev_1_m1 only the three tree grunts use them (pine trees 47 / 61 / 76, IC_tree_slide_1..3 with mover_grunt_tree_1..3, created by 0x00496e90 -> 0x00456180); level.rs does not create those grunts yet (open item: grunt-ai.md 14)"
 0x0042c790,fn_0042c790,not needed,"a guard's ranges to 99999 when its target is beyond +0x5d8 (0x0042c790) is ported as the infinite accuracy flag (ai.rs g.infinite); the range change itself only matters for the chase, which guards do not run"
-0x0042d000,fn_0042d000,not needed,"the IC (in-character) anims: GenericAI_PlayICAnim and its wake / callbacks (0x0042c410, 0x0042c0e0, 0x0042bf70, 0x0042c380, 0x0042c080, 0x0042c670) and the scripted mode 0x0042d000: on lev_1_m1 only the three tree grunts use them (pine trees 47 / 61 / 76, IC_tree_slide_1..3 with mover_grunt_tree_1..3, created by 0x00496e90 -> 0x00456180); level.rs does not create those grunts yet (open item: grunt-ai.md 14)"
 0x0042d650,fn_0042d650,not needed,"the carried ladder object (grunt_ladder attached while running, AI_ClimbLadder): not drawn by army.rs, debt in docs/subsystems/defence.md"
 0x0042d690,fn_0042d690,not needed,"the smoking (wounded) troop of a barracks exit slot and the cover window slot of the generators (0x0042d690, 0x0042dc20): the lev_1_m1 barracks have no window slots and no smoking troops (mission.rs)"
 0x0042d780,fn_0042d780,not needed,"the failure mob on the base turret (0x0049ad60): not ported, defence.md debt (a failure in the turret fails at once)"
@@ -82,7 +79,6 @@ address,name,disposition,reason
 0x0042dc20,fn_0042dc20,not needed,"the smoking (wounded) troop of a barracks exit slot and the cover window slot of the generators (0x0042d690, 0x0042dc20): the lev_1_m1 barracks have no window slots and no smoking troops (mission.rs)"
 0x0042de30,fn_0042de30,not needed,"the paratroop drop (0x0042da00 / 0x0042daa0: state 0x82 with the parachute), the squad / goliath joins (0x0042de30, 0x0042de60), slot 141 (0x0042db00): no paratroops, squads or goliaths on lev_1_m1"
 0x0042e910,fn_0042e910,not needed,"the falling watchdog (0x0042e910: downward speed 0.2 s -> state 0x82 with anim 0x61 for up to 5 s, then death or the old state on landing): the engine's grunts are upright capsules that do not leave the ground except through ragdolls (death) and the topsy bomb (topsy.rs); a ledge death is ported in die. Open: grunts knocked off a ledge alive"
-0x0042ecf0,GenericAI_TurretUpdate,not needed,"the turret-boss gunner update (Colossus / Q112 boss turrets, +0x488 bit 11 / +0x48c bit 9): the stig_mgun gunner is ai.rs GunPhase (states 0x7b..0x7d)"
 0x0042f190,fn_0042f190,not needed,"knocked down / thrown / launch states (0x19a, 0x0042f190, 0x0042f1d0, 0x0042f2f0, 0x0042fe50): the Topsy Turvy bomb's throw is topsy.rs (another owner); the player-held grunt (grab) does not exist on lev_1_m1"
 0x0042f1d0,fn_0042f1d0,not needed,"knocked down / thrown / launch states (0x19a, 0x0042f190, 0x0042f1d0, 0x0042f2f0, 0x0042fe50): the Topsy Turvy bomb's throw is topsy.rs (another owner); the player-held grunt (grab) does not exist on lev_1_m1"
 0x0042f2f0,fn_0042f2f0,not needed,"knocked down / thrown / launch states (0x19a, 0x0042f190, 0x0042f1d0, 0x0042f2f0, 0x0042fe50): the Topsy Turvy bomb's throw is topsy.rs (another owner); the player-held grunt (grab) does not exist on lev_1_m1"
@@ -129,18 +125,11 @@ address,name,disposition,reason
 0x00435330,PeasantGenAI_Slot55,not needed,"civilians thrown out of a destroyed building (toss_peasants): buildings subsystem, not ported"
 0x00435380,PeasantGenAI_Slot64,not needed,"civilians thrown out of a destroyed building (toss_peasants): buildings subsystem, not ported"
 0x004353b0,PeasantGenAI_Slot95,not needed,"civilians thrown out of a destroyed building (toss_peasants): buildings subsystem, not ported"
-0x00435420,fn_00435420,not needed,"boss set-up / targeting (Saucer, Zeppelin, Colossus, Q112Boss)"
 0x00435770,Q112Boss_Slot8,not needed,"the Q112 boss (spawned by Q's q112_marker note): a turret-style boss, not grunt-class infantry: not in this port"
 0x00435860,Q112Boss_Slot55,not needed,"the Q112 boss (spawned by Q's q112_marker note): a turret-style boss, not grunt-class infantry: not in this port"
-0x00435940,Q112Boss_Slot102,not needed,"the Q112 boss (spawned by Q's q112_marker note): a turret-style boss, not grunt-class infantry: not in this port"
-0x00435b50,fn_00435b50,not needed,"boss set-up / targeting (Saucer, Zeppelin, Colossus, Q112Boss)"
-0x00435fa0,SaucerObject_Slot52,not needed,"class Saucer has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
-0x00436010,Q112Boss_Slot53,not needed,"the Q112 boss (spawned by Q's q112_marker note): a turret-style boss, not grunt-class infantry: not in this port"
 0x00436090,SaucerObject_Slot6,not needed,"class Saucer has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
 0x00436180,ZeppelinObject_Slot6,not needed,"class Zeppelin has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
-0x00436390,ColossusObject_Slot6,not needed,"class Colossus has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
 0x004364b0,Q112Boss_Slot6,not needed,"the Q112 boss (spawned by Q's q112_marker note): a turret-style boss, not grunt-class infantry: not in this port"
-0x00436600,Q112Boss_Slot52,not needed,"the Q112 boss (spawned by Q's q112_marker note): a turret-style boss, not grunt-class infantry: not in this port"
 0x004367a0,ShrubPatrol_Slot18,replaced,ShrubPatrol slot: shrubpatrol.rs
 0x00436b30,fn_00436b30,replaced,the monk's stance-set call collapses to one anim: anim_name_with (Kind::Monk) gives monk_stand for every stand id
 0x00436b50,fn_00436b50,replaced,monk vt+0x188 (+0x484 0x10 then the object history): leave_cover's history (ai.rs)
@@ -192,7 +181,6 @@ address,name,disposition,reason
 0x00446de0,fn_00446de0,replaced,goliath update helpers: goliath.rs guard
 0x00446f30,Polewart_Update,not needed,"class Polewart has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
 0x00447020,fn_00447020,replaced,goliath update helpers: goliath.rs guard
-0x00447400,Q112Boss_Update,not needed,"the Q112 boss (spawned by Q's q112_marker note): a turret-style boss, not grunt-class infantry: not in this port"
 0x00447500,MonkObject_Update,debt,MonkObject_Update: the hang state 0xf4 timers (see 0x004371e0); the rest is GenericAI_Update (docs/subsystems/infantry.md section 6)
 0x0044b490,Marker_GetSpeed,not needed,"marker speed (+0x494 ""speed"", AIMarker_PrevSpeed): every lev_1_m1 marker has speed 0, so the run uses move_speed"
 0x0044b4a0,Marker_IsStrict,replaced,"the marker getters and per-AI accessors: alarm.rs Marker fields (strict, flags, trigger, alarm_tag, action, scatter, next range) read by ai.rs marker_arrival"

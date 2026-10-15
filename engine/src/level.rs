@@ -465,7 +465,7 @@ fn static_collider(physics: &mut Physics, model: &scene::Model, world: Mat4) -> 
 /// they take damage or block projectiles, and neither no_collide nor collide_barrier (DefaultGameObject_Load
 /// 0x0044fd20, game_03.cpp:526-567, lists +0xe90 / +0xe94 / +0xea0 / +0xea4); invisible_material never (0x004138c0).
 /// Invisible walls (collide_barrier, blocks_projectiles 0) let bullets through.
-fn collider_lists(physics: &mut Physics, p: &Props, c: BodyId) {
+pub(crate) fn collider_lists(physics: &mut Physics, p: &Props, c: BodyId) {
     if let Some(m) = p.s("material") {
         physics.materials.insert(c, m.to_owned());
     }

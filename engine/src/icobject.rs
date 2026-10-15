@@ -79,7 +79,8 @@ impl Plugin for IcObjectPlugin {
     fn build(&self, app: &mut App) {
         app.add_level_message::<TurretUpgrade>()
             .init_level_resource::<IcStats>()
-            .add_systems(Update, (setup, triggers, notes, drops, anim_players, log).chain().run_if(crate::playing));
+            // (drops read fx::Died before the husk swap removes the entity: before mission::deaths)
+            .add_systems(Update, (setup, triggers, notes, drops, anim_players, log).chain().after(crate::fx::FxSet).before(crate::mission::deaths).run_if(crate::playing));
     }
 }
 

@@ -686,6 +686,19 @@ submit_pending_command_buffers +1.1, write_binned_instance_buffers<Opaque3dPrepa
 groups / allocate_uniforms / unpack_bins for the extra phase +1.4, bloom encoding +0.5. Open: cut the per-phase GPU
 preprocessing overhead (the scene has only 760 draws), bloom's mip chain, then re-measure.
 
+## Vehicles and big units (subsystem port, 2026-10-15)
+
+engine/src/vehicles (VehiclesPlugin): rocket towers and buds, the turret bosses (zeppelin, saucer, colossus), their
+rockets and shells, the IC flight paths; the forge cannon is turret.rs's. docs/subsystems/vehicles.md has the
+behaviour with addresses, the tests (engine/playtests/vehicles_*.json, each naming its level with "scene") and the open
+questions. Unit numbers come from the property sets; the original's code constants and difficulty scales are
+`VehicleTuning`. Debt (labelled in the code): the colossus walks straight to its markers (plan: nav.rs routes); a
+boss takes Roman as the attacker of any hit (plan: a damage source on Destructible); dropped captains appear on the
+ground (plan: IC movers for characters); the forge cannon's mounted view needs a capture of the original.
+New playtest steps: `damage` [instance id, amount], `damage_template` [template, amount]. State log: `vehicles.<id>`
+(bosses: phase, health, target, shots, volleys, pos.x/y/z; rocket buds; `<id>t` a tower's turret) and
+`vehicles.rockets` (fired, ended, hit_roman, near_roman, player_fired, player_ended).
+
 ## Running tests without disturbing the desktop
 
 - `--background`: the window opens off-screen, unfocused, behind everything, not in the taskbar; screenshots still

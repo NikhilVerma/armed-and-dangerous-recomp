@@ -1,4 +1,5 @@
 address,name,disposition,reason
+0x004011e0,Game_Init,replaced,"the Game constructor: main.rs builds the App, each subsystem a Bevy plugin / resource; its pieces are cited where they live (options 0x00401a80 options.rs, weapon table 0x00402110 weapontable.rs, difficulty 0x00401f60 gamedata.rs)"
 0x00401710,Game_Destruct,replaced,the Game destructor: the process ends (resources drop)
 0x00401f40,fn_00401f40,replaced,"after a money change: two refreshes (0x00410ca0, 0x00494b70: not traced) and, with the flag, the bank (0x00401ef0): GameOptions.money is read where shown (savegame.rs money note)"
 0x00402e70,fn_00402e70,replaced,clears the player object pointer Game+0x748 at teardown: the entity despawns
@@ -10,6 +11,7 @@ address,name,disposition,reason
 0x004035d0,fn_004035d0,replaced,"requests a level by name (Game+0x74d / +0x84e, read by Game_Update): main.rs / gamemenu.rs relaunch"
 0x00403600,fn_00403600,replaced,requests a level by a wide name: main.rs / gamemenu.rs relaunch
 0x00403640,Game_LoadLevelByName,replaced,Game_LoadLevelByName: main.rs loads the scene (one level built)
+0x00403690,Game_StartLevel,replaced,"Game_StartLevel: main.rs builds the level; ""-slot"" loads are savegame.rs (--load); the money bank (0x00401f10) is cited in savegame.rs; its time-scale reset (0x00403aa0) is not needed (game.csv)"
 0x00403940,fn_00403940,replaced,"level teardown (deferred callback, decals, the object list, the heap, physics shutdown): a level change or load is a fresh process"
 0x004039f0,fn_004039f0,replaced,"renderer start-up and the first level request: Bevy's render plugin, main.rs"
 0x00403aa0,fn_00403aa0,not needed,"the time-scale effect (Game+0xad0 scale, +0xad4 timer): set only by fx op 0x72, which no lev_1_m1 fx script uses, and reset to 1.0 by Game_StartLevel; open: a TimeScale resource for fxvm.rs's 0x72"
@@ -65,8 +67,6 @@ address,name,disposition,reason
 0x00450fa0,DefaultGameObject_GetGravity,not needed,gravity getter: no lev_1_m1 object sets gravity
 0x00451040,fn_00451040,not needed,DefaultGameObject vtable 0x005ab650 (class 38) damage + Game+0xdd1: not used on lev_1_m1
 0x00451070,RocketTowerBuilding_Remove,not needed,RocketTowerBuilding: class with no instance on lev_1_m1 (scene.json behaviours)
-0x004510b0,RocketTowerBuilding_SpawnTurret,not needed,RocketTowerBuilding: class with no instance on lev_1_m1 (scene.json behaviours)
-0x00451160,RocketTowerBuilding_OnDeath,not needed,RocketTowerBuilding: class with no instance on lev_1_m1 (scene.json behaviours)
 0x00452790,fn_00452790,not needed,speed_trap: not set on lev_1_m1
 0x00453230,fn_00453230,replaced,"base-class answers (0.0, zeros, 1.0) and the vt+0xb8 contact query: physics queries are Jolt's; nothing on lev_1_m1 depends on the default values"
 0x00453240,fn_00453240,replaced,"base-class answers (0.0, zeros, 1.0) and the vt+0xb8 contact query: physics queries are Jolt's; nothing on lev_1_m1 depends on the default values"
@@ -162,8 +162,10 @@ address,name,disposition,reason
 0x00461ed0,Projectile_GetClass,not needed,RTTI class descriptor getters of the player / weapon / projectile classes: the engine has no class objects
 0x00461ef0,BuildingObject_GetClass,not needed,RTTI class descriptor getter: the engine has no class objects
 0x00464460,UiPass_Draw,replaced,UiPass_Draw: the HUD / menu pass is hud.rs / gamemenu.rs (Bevy 2D)
+0x004690c0,fn_004690c0,replaced,the pub screen's 3D marker objects: the remaster's pub screen is pubscreen.rs / gamemenu.rs (2D); the save offered on leaving (0x004690c0 -> 0x00403560) is savegame.rs's checkpoint
 0x004691c0,fn_004691c0,replaced,the pub screen's 3D marker objects: the remaster's pub screen is pubscreen.rs / gamemenu.rs (2D); the save offered on leaving (0x004690c0 -> 0x00403560) is savegame.rs's checkpoint
 0x00469270,fn_00469270,replaced,the pub screen's 3D marker objects: the remaster's pub screen is pubscreen.rs / gamemenu.rs (2D); the save offered on leaving (0x004690c0 -> 0x00403560) is savegame.rs's checkpoint
+0x00469350,fn_00469350,replaced,the pub screen's 3D marker objects: the remaster's pub screen is pubscreen.rs / gamemenu.rs (2D); the save offered on leaving (0x004690c0 -> 0x00403560) is savegame.rs's checkpoint
 0x00469450,fn_00469450,replaced,the pub screen's 3D marker objects: the remaster's pub screen is pubscreen.rs / gamemenu.rs (2D); the save offered on leaving (0x004690c0 -> 0x00403560) is savegame.rs's checkpoint
 0x004694e0,fn_004694e0,replaced,the pub screen's 3D marker objects: the remaster's pub screen is pubscreen.rs / gamemenu.rs (2D); the save offered on leaving (0x004690c0 -> 0x00403560) is savegame.rs's checkpoint
 0x0046a5e0,fn_0046a5e0,not needed,the pub screen's 3D marker objects: pubscreen.rs / gamemenu.rs draw the pub screen in 2D
@@ -181,11 +183,11 @@ address,name,disposition,reason
 0x00478890,fn_00478890,not needed,PlayerObject vt+0x8c answers 0.5: the query's meaning is not traced; not executed
 0x0047b8b0,PlayerObject_HasTurboPack,not needed,the turbo (jet) pack and its boost: lev_1_m1 has none (mission player_has_jetpack 0; Load / reset only call it with off). Later levels' mechanic
 0x0047b8c0,fn_0047b8c0,not needed,the turbo (jet) pack and its boost: lev_1_m1 has none (mission player_has_jetpack 0; Load / reset only call it with off). Later levels' mechanic
+0x0047b8e0,fn_0047b8e0,not needed,the turbo (jet) pack and its boost: lev_1_m1 has none (mission player_has_jetpack 0; Load / reset only call it with off). Later levels' mechanic
 0x0047b900,PlayerObject_SetTurboBoost,not needed,the turbo (jet) pack and its boost: lev_1_m1 has none (mission player_has_jetpack 0; Load / reset only call it with off). Later levels' mechanic
 0x0047b9f0,PlayerObject_SetTurboPack,not needed,the turbo (jet) pack and its boost: lev_1_m1 has none (mission player_has_jetpack 0; Load / reset only call it with off). Later levels' mechanic
 0x0047bba0,PlayerObject_PlayChestFx,not needed,the turbo (jet) pack and its boost: lev_1_m1 has none (mission player_has_jetpack 0; Load / reset only call it with off). Later levels' mechanic
 0x0047df70,fn_0047df70,not needed,"projectile spawn helpers used by the turrets, the vindaloo and the armed jaws: none on lev_1_m1"
-0x0047dfd0,fn_0047dfd0,not needed,"projectile spawn helpers used by the turrets, the vindaloo and the armed jaws: none on lev_1_m1"
 0x0047e050,fn_0047e050,not needed,"projectile spawn helpers used by the turrets, the vindaloo and the armed jaws: none on lev_1_m1"
 0x0047e3b0,Projectile_SetTarget,not needed,"Projectile_SetTarget (homing target of the rocket classes): no homing projectile on lev_1_m1 but the sticky bomb, whose own 0x004811e0 is ported (sticky.rs)"
 0x0047e9f0,fn_0047e9f0,not needed,sticks a projectile to a target's part (the arrows' hit): the engine's arrows have no model to leave stuck (the trail ends at the hit); sticky.rs sticks by 0x004817b0 / 0x0047e9b0
@@ -205,10 +207,7 @@ address,name,disposition,reason
 0x00480510,VindalooProjectile_ReadProps,not needed,VindalooProjectile: not on lev_1_m1 (no vindaloo)
 0x004805e0,VindalooProjectile_Flags,not needed,VindalooProjectile: not on lev_1_m1 (no vindaloo)
 0x004805f0,VindalooProjectile_Update,not needed,VindalooProjectile: not on lev_1_m1 (no vindaloo)
-0x00480920,RocketTowerProjectile_ReadProps,not needed,RocketTowerProjectile: p_rocket_tower_missile is in the bank but no rocket tower is placed on lev_1_m1
-0x00480a20,RocketTowerProjectile_Update,not needed,RocketTowerProjectile: p_rocket_tower_missile is in the bank but no rocket tower is placed on lev_1_m1
 0x00480d60,RocketBudProjectile_ReadProps,not needed,RocketBudProjectile: not on lev_1_m1
-0x00480db0,RocketBudProjectile_Launch,not needed,RocketBudProjectile: not on lev_1_m1
 0x00480e20,RocketBudProjectile_Update,not needed,RocketBudProjectile: not on lev_1_m1
 0x00480f60,ForgeCannonProjectile_Update,not needed,ForgeCannonProjectile: not on lev_1_m1
 0x00481000,ForgeCannonProjectile_Flags,not needed,ForgeCannonProjectile: not on lev_1_m1
@@ -230,9 +229,8 @@ address,name,disposition,reason
 0x00482460,ArrowProjectile_ReadProps,not needed,"ArrowProjectile load / remove / hit: the arrow lingers stuck to what it hit with its model (linger 2.5 s); the engine's projectiles have no model, so the trail ends at the hit (the launch, the fall and the fly-by sound are ported: player.rs spawn_projectile_to, 0x00482510 / 0x00482620)"
 0x004824e0,ArrowProjectile_Remove,not needed,"ArrowProjectile load / remove / hit: the arrow lingers stuck to what it hit with its model (linger 2.5 s); the engine's projectiles have no model, so the trail ends at the hit (the launch, the fall and the fly-by sound are ported: player.rs spawn_projectile_to, 0x00482510 / 0x00482620)"
 0x00482780,ArrowProjectile_Hit,not needed,"ArrowProjectile load / remove / hit: the arrow lingers stuck to what it hit with its model (linger 2.5 s); the engine's projectiles have no model, so the trail ends at the hit (the launch, the fall and the fly-by sound are ported: player.rs spawn_projectile_to, 0x00482510 / 0x00482620)"
-0x004829e0,CaptainRocket_ReadProps,not needed,the captain's rocket: no captain on lev_1_m1
+0x00482870,GrenadeProjectile_Launch,not needed,"GrenadeProjectile throw: the captain's grenade, no captain on lev_1_m1"
 0x00482ab0,CaptainRocket_SetOwner,not needed,the captain's rocket: no captain on lev_1_m1
-0x00482b40,CaptainRocket_Update,not needed,the captain's rocket: no captain on lev_1_m1
 0x00482d10,CaptainRocket_InitCollision,not needed,the captain's rocket: no captain on lev_1_m1
 0x00482d60,CaptainRocket_Damage,not needed,the captain's rocket: no captain on lev_1_m1
 0x00482e80,fn_00482e80,not needed,the captain's rocket: no captain on lev_1_m1
@@ -297,18 +295,12 @@ address,name,disposition,reason
 0x00499b30,fn_00499b30,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
 0x00499bb0,fn_00499bb0,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
 0x00499bd0,fn_00499bd0,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
-0x00499c40,fn_00499c40,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
-0x00499f30,fn_00499f30,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
-0x00499f80,fn_00499f80,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
-0x00499fd0,fn_00499fd0,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
 0x0049a0b0,MountedTurret_BoneCallback,not needed,"MountedTurret bone callback: not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
 0x0049a0f0,fn_0049a0f0,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
 0x0049a110,fn_0049a110,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
 0x0049a150,fn_0049a150,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
-0x0049a170,fn_0049a170,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
 0x0049a4c0,fn_0049a4c0,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
 0x0049a530,fn_0049a530,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
-0x0049a5c0,fn_0049a5c0,not needed,"not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
 0x0049abf0,fn_0049abf0,not needed,"the fake mortar / homing launcher helpers (visual): not drawn, defence.md debt"
 0x0049ac60,fn_0049ac60,replaced,base turret removal: level restart despawns (defence.rs owns nothing else)
 0x0049ad60,fn_0049ad60,not needed,"the failure mob on the base turret (six grunt_regulars, 5 s, then failed): not ported, defence.md debt"
@@ -316,22 +308,13 @@ address,name,disposition,reason
 0x0049bcb0,fn_0049bcb0,not needed,base turret dying flag: the turret does not die on the defence levels (0x0049afe0)
 0x0049bd80,fn_0049bd80,not needed,"base turret dismount: never (start_in_turret: Use does not leave, game_06.cpp:2224)"
 0x0049c2a0,fn_0049c2a0,not needed,BaseDefendTurret / RocketTowerTurret / RocketBudTurret virtuals: none placed on lev_1_m1
-0x0049c320,fn_0049c320,not needed,BaseDefendTurret / RocketTowerTurret / RocketBudTurret virtuals: none placed on lev_1_m1
 0x0049c4c0,fn_0049c4c0,not needed,BaseDefendTurret / RocketTowerTurret / RocketBudTurret virtuals: none placed on lev_1_m1
-0x0049c520,fn_0049c520,not needed,BaseDefendTurret / RocketTowerTurret / RocketBudTurret virtuals: none placed on lev_1_m1
-0x0049c530,fn_0049c530,not needed,BaseDefendTurret / RocketTowerTurret / RocketBudTurret virtuals: none placed on lev_1_m1
-0x0049c540,fn_0049c540,not needed,BaseDefendTurret / RocketTowerTurret / RocketBudTurret virtuals: none placed on lev_1_m1
-0x0049c5b0,fn_0049c5b0,not needed,BaseDefendTurret / RocketTowerTurret / RocketBudTurret virtuals: none placed on lev_1_m1
-0x0049c610,fn_0049c610,not needed,BaseDefendTurret / RocketTowerTurret / RocketBudTurret virtuals: none placed on lev_1_m1
-0x0049c6a0,fn_0049c6a0,not needed,BaseDefendTurret / RocketTowerTurret / RocketBudTurret virtuals: none placed on lev_1_m1
-0x0049c9b0,fn_0049c9b0,not needed,BaseDefendTurret / RocketTowerTurret / RocketBudTurret virtuals: none placed on lev_1_m1
 0x0049ca90,fn_0049ca90,not needed,BaseDefendTurret / RocketTowerTurret / RocketBudTurret virtuals: none placed on lev_1_m1
-0x0049cab0,fn_0049cab0,not needed,BaseDefendTurret / RocketTowerTurret / RocketBudTurret virtuals: none placed on lev_1_m1
-0x0049cbe0,fn_0049cbe0,not needed,BaseDefendTurret / RocketTowerTurret / RocketBudTurret virtuals: none placed on lev_1_m1
 0x004a0690,fn_004a0690,not needed,level-name kind tests (lev_ / pre_ / post_ / lev_bonus) and the level table lookup: the engine loads lev_1_m1 by name and has no level list
 0x004a0da0,fn_004a0da0,not needed,"scales the weapon objects (called by 0x0042eb60, the AI's scale): the engine's weapon models follow the hand bone"
 0x004a0f70,fn_004a0f70,not needed,"replace / equip a weapon by id (called by 0x00493130, a later levels' weapon swap): not on lev_1_m1"
 0x004a10c0,fn_004a10c0,not needed,"replace / equip a weapon by id (called by 0x00493130, a later levels' weapon swap): not on lev_1_m1"
+0x004a12a0,fn_004a12a0,not needed,selects a special by id for the ammo pickups: lev_1_m1's pickups give health and tokens only (pickup.rs)
 0x004a1bb0,fn_004a1bb0,not needed,releases the current weapon's muzzle effect for the pub's 3D markers (0x004690c0): the remaster's pub screen is 2D
 0x004a1e20,fn_004a1e20,not needed,"""two_handed"" flag getter: every lev_1_m1 player weapon is two-handed; the engine's hand pose does not ask"
 0x004a1e90,fn_004a1e90,not needed,the emitter matrix getter: the shot's start is measured from ref_rhand (player.rs weapons)

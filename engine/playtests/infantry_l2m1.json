@@ -1,6 +1,6 @@
 {"scene": "lev_2_m1", "steps": [
  {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 3.5}, {"tap": "Enter"}, {"wait": 1.0},
- {"expect": {"ai.snipers": 8, "ai.aiming": 0, "ai.on_guns": [6, 6], "squad.count": 2, "squad.members": 15, "squad.phase": "Waiting", "squad.marching": 0}},
+ {"expect": {"ai.snipers": 8, "ai.aiming": 0, "ai.on_guns": [9, 9], "squad.count": 2, "squad.members": 15, "squad.phase": "Waiting", "squad.marching": 0}},
  {"spawn": [17, -180, -193], "template": "captain_sniper"},
  {"wait": 0.5},
  {"warp": [17, -165, -193, 180]},
