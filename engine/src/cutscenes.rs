@@ -147,7 +147,10 @@ fn screens(menu: Res<GameMenu>, player: Res<MoviePlayer>, mut last: Local<Option
 struct GamePausedByMovie(bool);
 
 /// A full-window movie pauses the game (Game_SetPaused 0x004031e0 for any screen).
-fn pause_game(player: Res<MoviePlayer>, mut vtime: ResMut<Time<Virtual>>, mut by: ResMut<GamePausedByMovie>) {
+fn pause_game(player: Res<MoviePlayer>, mut vtime: ResMut<Time<Virtual>>, mut by: ResMut<GamePausedByMovie>, play: Option<ResMut<crate::playtest::PlayState>>) {
+    if let Some(mut p) = play {
+        p.0.insert("game_paused".into(), vtime.is_paused().into());
+    }
     let on = player.takes_input() && player.busy();
     if on && !vtime.is_paused() {
         vtime.pause();
@@ -161,10 +164,17 @@ fn pause_game(player: Res<MoviePlayer>, mut vtime: ResMut<Time<Virtual>>, mut by
 }
 
 /// Playtest `movie` steps: "name,name" (a skippable list), or {"play": "list", "at": seconds into the first,
-/// "skippable": bool, "loop": bool, "behind": z}, or {"stop": true}.
-fn playtest_movies(pt: Option<ResMut<crate::playtest::Playtest>>, mut play: MessageWriter<PlayMovies>, mut stop: MessageWriter<StopMovies>) {
+/// "skippable": bool, "loop": bool, "behind": z, "subtitles": the movie subtitle option}, or {"stop": true}.
+fn playtest_movies(pt: Option<ResMut<crate::playtest::Playtest>>, mut play: MessageWriter<PlayMovies>, mut stop: MessageWriter<StopMovies>, mut opts: ResMut<crate::options::GameOptions>) {
     let Some(mut pt) = pt else { return };
     for m in std::mem::take(&mut pt.movies) {
+        // {"subtitles": bool}: the movie subtitle option, as the audio page's checkbox sets it
+        if let Some(on) = m["subtitles"].as_bool() {
+            opts.subtitles_movie = on;
+            if m.get("play").is_none() {
+                continue;
+            }
+        }
         if let Some(s) = m.as_str() {
             play.write(PlayMovies::list(s));
             continue;

@@ -104,6 +104,8 @@ pub enum Opt {
 pub enum Flag {
     Shadows,
     SubsGame,
+    /// the movie subtitle option (Game+0x176: movie.rs shows the lines that are not always shown)
+    SubsMovie,
     InvertMouse,
     Fullscreen,
 }
@@ -527,8 +529,7 @@ pub fn spawn(commands: &mut Commands, assets: &AssetServer, meshes: &mut Assets<
         s.slider(Page::Sfx, "ui_sfxmenu_soundvolume", it(342.691), 1.0, Opt::Effects, true);
         s.slider(Page::Sfx, "ui_sfxmenu_musicvolume", it(294.691), 1.0, Opt::Music, true);
         s.slider(Page::Sfx, "ui_sfxmenu_voicevolume", it(246.691), 1.0, Opt::Voice, true);
-        // no cutscene movies in the remaster yet: the movie subtitle option has nothing to switch
-        s.check(Page::Sfx, "ui_sfxmenu_subtitles_movie", 200.0, 320.0, 132.996, None, true);
+        s.check(Page::Sfx, "ui_sfxmenu_subtitles_movie", 200.0, 320.0, 132.996, Some(Flag::SubsMovie), true);
         s.check(Page::Sfx, "ui_sfxmenu_subtitles_ingame", 200.0, 320.0, 108.996, Some(Flag::SubsGame), true);
         s.row(Page::Sfx, "ui_shellmenu_back", Vec2::new(320.0, 60.44), 1.4, YELLOW, Act::Back, 0.0);
 
@@ -997,6 +998,7 @@ fn navigate(
             match f {
                 Flag::Shadows => target.shadows = !target.shadows,
                 Flag::SubsGame => target.subtitles_game = !target.subtitles_game,
+                Flag::SubsMovie => target.subtitles_movie = !target.subtitles_movie,
                 Flag::InvertMouse => target.invert_mouse = !target.invert_mouse,
                 Flag::Fullscreen => target.fullscreen = !target.fullscreen,
             }
@@ -1296,6 +1298,7 @@ fn values(
         let on = match c.0 {
             Flag::Shadows => gfx.shadows,
             Flag::SubsGame => opts.subtitles_game,
+            Flag::SubsMovie => opts.subtitles_movie,
             Flag::InvertMouse => opts.invert_mouse,
             Flag::Fullscreen => gfx.fullscreen,
         };

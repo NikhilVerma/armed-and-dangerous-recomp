@@ -1,0 +1,18 @@
+{
+ "title": true,
+ "steps": [
+  {"wait": 2.0},
+  {"tap": "ArrowUp"}, {"wait": 0.3},
+  {"tap": "ArrowUp"}, {"wait": 0.3},
+  {"tap": "ArrowUp"}, {"wait": 0.3},
+  {"tap": "ArrowDown"}, {"wait": 0.3},
+  {"tap": "Enter"}, {"wait": 1.0},
+  {"expect": {"menu.page": "Extras", "menu.selected": "ui_extrasmenu_credits", "movie": null}},
+  {"tap": "Enter"}, {"wait": 2.0},
+  {"expect": {"menu.page": "Credits", "movie.name": "credits", "movie.time": [1.4, 2.1], "movie.prompt": false, "game_paused": false}},
+  {"shot": "credits"},
+  {"tap": "Escape"}, {"wait": 1.0},
+  {"expect": {"menu.page": "Extras", "movie": null}},
+  {"quit": true}
+ ]
+}

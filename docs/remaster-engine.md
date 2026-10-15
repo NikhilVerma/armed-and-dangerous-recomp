@@ -200,7 +200,7 @@ docs/port/ui.csv (which `port_queue.py` reads):
 | Auto-aim pass 0x004067e0 / 0x00408050 / 0x00408190 / 0x004082a0 | none (the option shown disabled) | option off by default; open: port with an auto-aim option |
 | Key rebinding entries 0x00447d20 / 0x00447e20 (labels "A or B" ported, 0x00447e70) | the controls page shows the device's bindings | open: rebinding not ported |
 | 0x00410ca0 (cheat flags applied at level start) | cheats.rs applies effects on activation | the 0x2000 object pass (0x00418690) is not ported |
-| UI_GetLoadingText 0x00447600, movie screens 0x00493150 / 0x004931b0 / 0x00493240 / 0x00493270 / 0x004932e0 / 0x00493320 / 0x004933b0 / 0x004933e0, timed splash 0x00493520 / 0x00493590, exit screen 0x00493770 | none | no loading screen (the level loads before the title menu), no movies yet, who pushes LegalText is not traced |
+| UI_GetLoadingText 0x00447600, timed splash 0x00493520 / 0x00493590, exit screen 0x00493770 | none | no loading screen (the level loads before the title menu); LegalText's art is not exported (the movie screens are movie.rs since 2026-10-15) |
 | 0x00467220, 0x00467740, 0x004677c0 | none | their UI elements are not identified (hud.md open question 7) |
 
 ## Mission, triggers, pickups and camera fx (subsystem port, 2026-10-14)
@@ -419,6 +419,21 @@ bodies, hits, lights, extent, screen); scripts fx_particles, fx_debris, fx_emit,
 Debt (guesses to measure against the original): the impulse / spin scales (body.rs IMPULSE_SCALE, MAX_SPIN), every
 fx body is a 1.5-unit box, the ground-hit test is a ray along the velocity (the original: Havok contacts), the glow /
 blur / screen-texture post effects are not drawn, the mesh emitter's interpolation weight ([0x005bcb5c] taken as -1).
+
+## Movies (subsystem port, 2026-10-15)
+
+docs/subsystems/movie.md. `python tools/remaster_export_movies.py` (ffmpeg, once) writes work/remaster/movies/<name>/
+(video.rmjv: per-frame JPEGs; audio.wav; movie.json with the subtitle lines and styles); the engine looks in
+`<scene>/../movies` (`--movies DIR`). engine/src/movie.rs is the game-neutral player (`PlayMovies` / `StopMovies` /
+`MovieEvent`, `MovieView::FullWindow` on its own camera or `Behind` on the HUD layer), engine/src/cutscenes.rs says when
+A&D plays what: the boot intro list before the title menu (once a session: relaunches pass `--no-intro`; tool runs skip
+it; a title playtest asks with `"intro": true`), level start movies (none on lev_1_m1), the pub's pub_01 loop behind its
+art (it replaces the guessed dark middle) and the credits movie. Queue movie: empty (docs/port/movie.csv). Playtests:
+`{"movie": "a,b"}` or `{"movie": {"play", "at", "skippable", "loop", "behind", "subtitles"}}`, `{"until": "movie_done"}`,
+the state-log fields `movie` (name, time, frame, frames, audio_time, drift, rate, subtitle, prompt, left; absent when
+none plays) and `game_paused`. `tools/movie_compare.py` matches captures (the original's or the engine's) to movie frames
+and checks the subtitle band. Trap: in scripted runs the game clock is a fixed 1/60 s per frame while the soundtrack
+plays in real time, so the logged drift is bounded by the 0.5 s seek, not ~0 as in play.
 
 ## Running tests without disturbing the desktop
 

@@ -122,17 +122,17 @@ address,name,disposition,reason
 0x004927a0,fn_004927a0,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
 0x004928f0,fn_004928f0,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
 0x004929a0,fn_004929a0,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
-0x00493150,fn_00493150,not needed,movie screens: no movies in the remaster yet
-0x00493190,fn_00493190,not needed,movie screens: no movies in the remaster yet
-0x004931b0,fn_004931b0,not needed,movie screens: no movies in the remaster yet
-0x00493240,fn_00493240,not needed,movie screens: no movies in the remaster yet
-0x00493270,fn_00493270,not needed,movie screens: no movies in the remaster yet
-0x004932e0,fn_004932e0,not needed,movie screens: no movies in the remaster yet
-0x00493320,fn_00493320,not needed,movie screens: no movies in the remaster yet
-0x004933b0,fn_004933b0,not needed,movie screens: no movies in the remaster yet
-0x004933e0,fn_004933e0,not needed,movie screens: no movies in the remaster yet
-0x00493520,fn_00493520,not needed,timed splash screens (LegalText): remaster starts on the main menu; pusher not traced
-0x00493590,fn_00493590,not needed,timed splash screens (LegalText): remaster starts on the main menu; pusher not traced
+0x00493150,fn_00493150,replaced,"movie screen constructor: movie.rs MoviePlayer takes a PlayMovies request (the screens PlayMovie / PlayMovieNoSkip / AttractMode are its skippable flag and view)"
+0x00493190,fn_00493190,replaced,"movie screen hide stops its movie: a new PlayMovies or StopMovies stops it (movie.rs requests); cutscenes.rs stops the page movies when their page closes"
+0x004931b0,fn_004931b0,replaced,"play one movie of the list: movie.rs start_next / open (movies/<name>/); the seen mark 0x004a07a0 for the movie select list is not ported (no movie select page)"
+0x00493240,fn_00493240,replaced,stop the open movie: movie.rs close
+0x00493270,fn_00493270,replaced,"next name of the play list: ported in movie.rs (PlayMovies::list splits at , and ;)"
+0x004932e0,fn_004932e0,replaced,set the play list: PlayMovies::list
+0x00493320,fn_00493320,replaced,"movie screen show / hide: cutscenes.rs pauses the game during a full-window movie; the post-process targets it releases are renderer plumbing"
+0x004933b0,fn_004933b0,not needed,"pauses the movie when another screen takes the focus: no remaster screen opens over a movie"
+0x004933e0,fn_004933e0,replaced,"movie screen update (end / skip -> next movie; none left -> pop): ported in movie.rs advance / skip"
+0x00493520,fn_00493520,not needed,"timed splash screens: LegalText (b_legal, 4.0 s) is pushed by Game_StartLevel 0x00403690 (start_level.cpp:121) above the intro movies, so it shows first (capture work/shots/origmovA frame 300); its art is not in the exported UI bank: open"
+0x00493590,fn_00493590,not needed,"timed splash screen update (LegalText): see 0x00493520"
 0x00493770,fn_00493770,not needed,exit screen
 0x00494000,fn_00494000,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
 0x00494030,fn_00494030,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"

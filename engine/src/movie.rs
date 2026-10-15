@@ -255,6 +255,7 @@ impl VideoFile {
         Ok(VideoFile { file, width, height, fps: num as f64 / den as f64, index, buf: Vec::new() })
     }
 
+    /// The frame count (the duration 0x0050e750 is frames / fps).
     pub fn frames(&self) -> usize {
         self.index.len()
     }
@@ -292,7 +293,7 @@ struct Playing {
     /// the first update after opening adds no time (opening read the files); the clock waits for the audio
     fresh: bool,
     audio: Option<Entity>,
-    /// the audio playback-rate factor +0x220
+    /// the audio playback-rate factor +0x220 (its getter 0x0050e3a0)
     rate: f32,
     /// last audio time read (the playtest log)
     audio_time: Option<f64>,
@@ -357,6 +358,7 @@ fn requests(mut p: ResMut<MoviePlayer>, mut play: MessageReader<PlayMovies>, mut
     }
 }
 
+/// Ends a movie (Movie_Close 0x0050e060: the file, the frame buffer, the texture and the audio stream go).
 fn close(commands: &mut Commands, cur: Playing, skipped: bool, events: &mut MessageWriter<MovieEvent>) {
     for e in &cur.entities {
         commands.entity(*e).despawn();
@@ -405,6 +407,7 @@ fn start_next(
     events.write(MovieEvent::ListDone);
 }
 
+/// Opens a movie's files (Movie_OpenDivx 0x0050de70; the movie is usable unless that failed, 0x0050e770).
 fn open(settings: &MovieSettings, name: &str) -> Result<(MovieMeta, VideoFile), String> {
     let dir = settings.dir.join(name.to_lowercase());
     let text = std::fs::read_to_string(dir.join("movie.json")).map_err(|e| format!("{}: {e}", dir.join("movie.json").display()))?;
@@ -413,6 +416,8 @@ fn open(settings: &MovieSettings, name: &str) -> Result<(MovieMeta, VideoFile), 
     Ok((meta, video))
 }
 
+/// The playing movie's state and what draws it (the movie object, Movie_Construct 0x0050dcf0; its picture is one
+/// textured quad with uv (0, 0)..(1, 1), as Movie_Draw 0x0050e520 submits it, here a sprite).
 #[allow(clippy::too_many_arguments)]
 fn spawn(
     commands: &mut Commands,
@@ -618,6 +623,7 @@ fn sync_audio(mut p: ResMut<MoviePlayer>, mut sinks: Query<&mut AudioSink, With<
     if cur.fresh {
         return;
     }
+    // the audio time (0x0050e3b0: bytes played / bytes per second; here the sink's position)
     let audio = sink.position().as_secs_f64();
     cur.audio_time = Some(audio);
     let video = cur.video_time();
@@ -685,7 +691,8 @@ fn parse_colour(s: &str) -> Color {
     u32::from_str_radix(s.trim_start_matches('#'), 16).map(|v| Color::srgb_u8((v >> 16) as u8, (v >> 8) as u8, v as u8)).unwrap_or(Color::WHITE)
 }
 
-/// Sizes the picture and the backdrop to the window: the original's 640 x 480 screen scaled to fit, centred.
+/// Sizes the picture (its size in pixels: 0x0050e4e0) and the backdrop to the window: the original's 640 x 480
+/// screen scaled to fit, centred.
 fn layout(windows: Query<&Window>, mut frames: Query<(&MovieFrame, &mut Sprite), Without<MovieBackdrop>>, mut backs: Query<&mut Sprite, With<MovieBackdrop>>) {
     let size = windows.single().map(|w| Vec2::new(w.physical_width() as f32, w.physical_height() as f32)).unwrap_or(Vec2::new(1920.0, 1080.0));
     let s = (size.y / 480.0).min(size.x / 640.0);
@@ -747,7 +754,7 @@ mod tests {
         assert_eq!(line_at(&lines, 9.5).map(|l| l.text_id.as_str()), Some("a"));
         assert!(line_at(&lines, 10.0).is_none());
         assert!(line_at(&lines, 0.05).is_none());
-        assert_eq!(line_at(&lines, 15.15), None);
+        assert!(line_at(&lines, 15.15).is_none());
         assert_eq!(line_at(&lines, 20.0).map(|l| l.text_id.as_str()), Some("c"));
         assert!(line_at(&[], 1.0).is_none());
     }
