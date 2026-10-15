@@ -11,7 +11,8 @@
 //! are #404040 and skipped. Sounds: ui_move, ui_select, ui_cancel. Keys: Up/Down (W/S), Left/Right (A/D) for
 //! sliders and lists, Enter or Space to choose, Esc to go back.
 //!
-//! Save Game / Quick Load / Restart from last save / Resume Game: savegame.rs. Cheats: cheats.rs. Credits: credits.txt
+//! Save Game (the save screen) / Resume Game (the load screen): the slot pages here, drawn by saveslots.rs, the files
+//! savegame.rs; Quick Load / Restart from last save load the newest save. Cheats: cheats.rs. Credits: credits.txt
 //! scrolling (this file). Shown disabled: Play Cutscene and Replay Mission (disabled in the original too). Graphics options that have no meaning in the new renderer show their best value, disabled.
 //! Restart the level, Return to title screen and the rows that load the saved game start the level again in this
 //! process (levelreset.rs), as the original does.
@@ -45,6 +46,10 @@ pub enum Page {
     Credits,
     /// the end-of-mission statistics (statscreen.rs draws and drives it)
     Stats,
+    /// the save / load screens' six slots (pui_savegame; saveslots.rs): SaveGame from the pause menu, LoadGame from
+    /// the main menu's Resume Game
+    SaveSlots,
+    LoadSlots,
 }
 
 /// The art behind a page.
@@ -62,7 +67,8 @@ impl Page {
     fn back(self) -> Back {
         match self {
             Page::Main | Page::Options | Page::Extras => Back::Title,
-            Page::Gfx | Page::Sfx | Page::Controls | Page::Cheats | Page::Credits => Back::Shell,
+            // the save page draws ui_background (layout.json pui_savegame: model ui_background_01)
+            Page::Gfx | Page::Sfx | Page::Controls | Page::Cheats | Page::Credits | Page::SaveSlots | Page::LoadSlots => Back::Shell,
             Page::YesNo | Page::Pause | Page::Failed | Page::Pub | Page::Stats => Back::Game,
         }
     }
@@ -75,6 +81,10 @@ pub enum Ask {
     QuitMission,
     ResetExtras,
     ResetControls,
+    /// save over the saved game in this slot (0..6; 0x004a36f0's "ui_yesno_overwrite")
+    Overwrite(u8),
+    /// delete the saved game in this slot ("ui_yesno_delete")
+    Delete(u8),
 }
 
 impl Ask {
@@ -85,6 +95,8 @@ impl Ask {
             Ask::QuitMission => "ui_yesno_quitgame",
             Ask::ResetExtras => "ui_yesno_reset",
             Ask::ResetControls => "ui_yesno_resetcontrols",
+            Ask::Overwrite(_) => "ui_yesno_overwrite",
+            Ask::Delete(_) => "ui_yesno_delete",
         }
     }
 }
@@ -141,11 +153,22 @@ pub enum Act {
     ToTitle,
     Apply,
     Cancel,
-    /// save the game (pause menu) / continue the saved game (Quick Load, Resume Game, Restart from last save)
-    Save,
+    /// continue the newest saved game (Quick Load, Restart from last save, the load screen's Continue)
     LoadSave,
+    /// the load screen (the main menu's Resume Game, code 2)
+    LoadMenu,
+    /// a save slot (0..6) of the save / load screen (code 72)
+    Slot(u8),
     Slide(Opt),
     Toggle(Flag),
+}
+
+impl Act {
+    /// A row that needs a saved game: disabled (+0x474 0x40, skipped by the selection: 0x00491b20) while there is none
+    /// (Load Game: code 2, 0x004a2c10 slot -1; Quick Load and Restart from last save: code 34, 0x004a2e90).
+    fn needs_save(self) -> bool {
+        matches!(self, Act::LoadSave | Act::LoadMenu)
+    }
 }
 
 /// One menu row: a text (HudText) at its layout position.
@@ -160,6 +183,8 @@ pub struct MenuRow {
     pub disabled: bool,
     /// an x range (640 units) the hit box covers besides the text: a stepper's gauge and value, a checkbox's box
     pub extra: Option<(f32, f32)>,
+    /// the hit box instead of the text's (a save slot's panel), corners in 640 x 480 units
+    pub panel: Option<(Vec2, Vec2)>,
 }
 
 /// Every entity the menus own (the HUD's visibility rules leave them alone).
@@ -224,11 +249,42 @@ pub struct GameMenu {
     shown_under: Option<Page>,
     /// a saved game exists (the rows that load it are disabled without one)
     pub has_save: bool,
+    /// the save slots as the save / load screens show them (savegame.rs), and the slot selected there (0..6; None
+    /// on another row or page)
+    pub slots: Vec<crate::savegame::Slot>,
+    pub slot_sel: Option<u8>,
 }
 
 impl Default for GameMenu {
     fn default() -> Self {
-        GameMenu { page: Page::Main, selected: 0, stack: Vec::new(), ask: None, phase: 0.0, edit: None, failed_shown: false, band: false, fade: 0.0, shown: None, shown_sel: 0, shown_under: None, has_save: false }
+        GameMenu {
+            page: Page::Main,
+            selected: 0,
+            stack: Vec::new(),
+            ask: None,
+            phase: 0.0,
+            edit: None,
+            failed_shown: false,
+            band: false,
+            fade: 0.0,
+            shown: None,
+            shown_sel: 0,
+            shown_under: None,
+            has_save: false,
+            slots: Vec::new(),
+            slot_sel: None,
+        }
+    }
+}
+
+impl GameMenu {
+    /// The save / load screen open now, if any.
+    pub fn slot_mode(&self) -> Option<crate::saveslots::Mode> {
+        match self.page {
+            Page::SaveSlots => Some(crate::saveslots::Mode::Save),
+            Page::LoadSlots => Some(crate::saveslots::Mode::Load),
+            _ => None,
+        }
     }
 }
 
@@ -252,9 +308,16 @@ impl Texts {
 
 pub struct GameMenuPlugin;
 
+/// The menus' update (input, page changes, drawing state); other screens' drawing runs after it.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct MenuSystems;
+
 impl Plugin for GameMenuPlugin {
     fn build(&self, app: &mut App) {
-        app.init_level_resource::<GameMenu>().init_resource::<Texts>().add_systems(Update, (failed, navigate.run_if(crate::movie::no_movie_input), animate, values, pause_band, credits, log_menu).chain());
+        app.init_level_resource::<GameMenu>()
+            .init_resource::<Texts>()
+            .add_systems(Update, (failed, navigate.run_if(crate::movie::no_movie_input), animate, values, pause_band, credits, log_menu).chain().in_set(MenuSystems))
+            .add_plugins(crate::saveslots::SaveSlotsPlugin);
     }
 }
 
@@ -285,7 +348,7 @@ fn log_menu(
     });
     state.0.insert(
         "menu".into(),
-        serde_json::json!({ "page": format!("{:?}", menu.page), "selected": sel, "fading": menu.fade > 0.0, "shown": menu.shown.map(|p| format!("{p:?}")), "value": value, "cheats_shown": cheats_shown, "art": art }),
+        serde_json::json!({ "page": format!("{:?}", menu.page), "selected": sel, "fading": menu.fade > 0.0, "shown": menu.shown.map(|p| format!("{p:?}")), "value": value, "cheats_shown": cheats_shown, "art": art, "slot": menu.slot_sel.map(|s| s + 1) }),
     );
 }
 
@@ -302,6 +365,8 @@ struct Spawner<'a, 'w, 's> {
     orders: HashMap<Page, usize>,
     /// the next row's fit width (0: none) and extra hit range (`slider`, `check`)
     next: (f32, Option<(f32, f32)>),
+    /// the next row's hit box (`save_slot`)
+    panel: Option<(Vec2, Vec2)>,
 }
 
 impl Spawner<'_, '_, '_> {
@@ -320,7 +385,7 @@ impl Spawner<'_, '_, '_> {
         let mut e = self.commands.spawn((
             HudElement { name: format!("menu_{page:?}_{id}"), pos, anchor: Anchor::Centre, full: true },
             HudText { text, built: None, scale, colour, fit },
-            MenuRow { page, act, order, base_scale: scale, colour, disabled, extra },
+            MenuRow { page, act, order, base_scale: scale, colour, disabled, extra, panel: self.panel.take() },
             Glow::default(),
             MenuOwned,
             Transform::default(),
@@ -333,7 +398,7 @@ impl Spawner<'_, '_, '_> {
     }
 
     /// A text that is not a row (a slider's value, a key name).
-    fn text(&mut self, page: Page, s: &str, pos: Vec2, scale: f32, colour: Color, align: f32, kind: PartKind) {
+    fn text(&mut self, page: Page, s: &str, pos: Vec2, scale: f32, colour: Color, align: f32, kind: PartKind) -> Entity {
         self.commands.spawn((
             HudElement { name: format!("menu_{page:?}_text"), pos, anchor: Anchor::Centre, full: true },
             HudText { text: s.to_owned(), built: None, scale, colour, fit: 0.0 },
@@ -343,7 +408,60 @@ impl Spawner<'_, '_, '_> {
             Transform::default(),
             Visibility::Hidden,
             RenderLayers::layer(HUD_LAYER),
-        ));
+        ))
+        .id()
+    }
+
+    /// One slot of a save / load screen (saveslots.rs: 0x004a3260 places it, 0x004a33d0 draws it): the panel, the
+    /// name as the selectable row (the whole panel its hit box), the state and info lines and the blinking prompt,
+    /// which saveslots::draw_slots fills.
+    fn save_slot(&mut self, page: Page, mode: crate::saveslots::Mode, slot: u8) {
+        use crate::saveslots::{LINE_Y, NAME_Y, PANEL, PROMPT_Y, SlotLine, SlotPanel, slot_point};
+        let (x, y) = slot_point(slot as usize);
+        let ((x0, y0), (x1, y1)) = PANEL;
+        let (w, h) = (x1 - x0, y1 - y0);
+        let mat = self.materials.add(ColorMaterial { color: crate::saveslots::panel_colour(false), alpha_mode: bevy::sprite_render::AlphaMode2d::Blend, ..default() });
+        let quad = self.commands.spawn((Mesh2d(self.meshes.add(Rectangle::new(w, h))), MeshMaterial2d(mat), SlotPanel { mode, slot }, Transform::from_xyz(0.0, 0.0, 3.0), RenderLayers::layer(HUD_LAYER))).id();
+        self.commands
+            .spawn((
+                HudElement { name: format!("menu_{page:?}_panel"), pos: Vec2::new(x + (x0 + x1) / 2.0, y + (y0 + y1) / 2.0), anchor: Anchor::Centre, full: true },
+                Part { page: Some(page), kind: PartKind::Fixed },
+                MenuOwned,
+                Transform::default(),
+                Visibility::Hidden,
+                RenderLayers::layer(HUD_LAYER),
+            ))
+            .add_child(quad);
+        self.panel = Some((Vec2::new(x + x0, y + y0), Vec2::new(x + x1, y + y1)));
+        self.row(page, &format!("ui_savegame_slot{}", slot + 1), Vec2::new(x, y + NAME_Y), 1.0, Color::WHITE, Act::Slot(slot), 0.0);
+        // the prompt fitted to the panel's width (0x004a3300: 192)
+        let p = self.text(page, "", Vec2::new(x, y + PROMPT_Y), 1.0, Color::WHITE, 0.0, PartKind::Fixed);
+        self.commands.entity(p).insert(SlotLine { mode, slot, line: 0 });
+        for (i, dy) in LINE_Y.iter().enumerate() {
+            let scale = if i == 0 { 1.0 } else { 0.75 };
+            let t = self.text(page, "", Vec2::new(x, y + dy), scale, Color::WHITE, 0.0, PartKind::Fixed);
+            self.commands.entity(t).insert(SlotLine { mode, slot, line: i as u8 + 1 });
+        }
+    }
+
+    /// A save / load screen (pui_savegame, saveslots.rs): its title, the six slots, then "Continue without saving"
+    /// (the load screen: "Continue", the newest save) and Cancel, and the remaster's delete hint.
+    fn slot_page(&mut self, page: Page, mode: crate::saveslots::Mode) {
+        use crate::saveslots::Mode;
+        // the title the show passes on (0x004a3b60); where the base show draws it was not traced: guess, above the slots
+        let title = if mode == Mode::Save { "ui_savemenu_title" } else { "ui_loadmenu_title" };
+        self.row(page, title, Vec2::new(320.0, 466.0), 1.0, Color::WHITE, Act::None, 0.0);
+        for slot in 0..crate::savegame::SLOTS {
+            self.save_slot(page, mode, slot);
+        }
+        // layout.json: ui_tcrc42_nosave (320, 84.44) 1.0 #a0ffa0 code 73; ui_shellmenu_cancel (320, 60.44) 1.4 #ff2020
+        match mode {
+            Mode::Save => self.row(page, "ui_tcrc42_nosave", Vec2::new(320.0, 84.44), 1.0, GREEN, Act::Continue, 0.0),
+            Mode::Load => self.row(page, "ui_savegame_continue", Vec2::new(320.0, 84.44), 1.0, GREEN, Act::LoadSave, 0.0),
+        }
+        self.row(page, "ui_shellmenu_cancel", Vec2::new(320.0, 60.44), 1.4, Color::srgb(1.0, 0x20 as f32 / 255.0, 0x20 as f32 / 255.0), Act::Back, 0.0);
+        let hint = self.text(page, "", Vec2::new(624.0, 72.0), 0.8, GREEN, 1.0, PartKind::Fixed);
+        self.commands.entity(hint).insert(crate::saveslots::DeleteHint(mode));
     }
 
     fn rect(&mut self, size: Vec2, colour: Color, z: f32) -> Entity {
@@ -465,7 +583,7 @@ impl Spawner<'_, '_, '_> {
 pub fn spawn(commands: &mut Commands, assets: &AssetServer, meshes: &mut Assets<Mesh>, materials: &mut Assets<ColorMaterial>, scene: &std::path::Path) {
     let texts = Texts(std::fs::read_to_string(scene.join("ui").join("texts.json")).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default());
     {
-        let mut s = Spawner { commands, meshes, materials, texts: &texts, orders: HashMap::new(), next: (0.0, None) };
+        let mut s = Spawner { commands, meshes, materials, texts: &texts, orders: HashMap::new(), next: (0.0, None), panel: None };
         // the steppers' and checkboxes' item points (layout.json: ref_text_05 x 171.215, ref_text_04 x 465.773)
         let it = |y: f32| Vec2::new(171.215, y);
         s.art(Back::Title, assets.load("ui/textures/and_title.png"));
@@ -487,7 +605,7 @@ pub fn spawn(commands: &mut Commands, assets: &AssetServer, meshes: &mut Assets<
         // main menu: rows 48 apart from y 372.3 (captured, orig_ui_menu-800.png), scale 1.3, #d05030
         let main = [
             ("ui_mainmenu_startgame", Act::NewGame),
-            ("ui_mainmenu_loadgame", Act::LoadSave),
+            ("ui_mainmenu_loadgame", Act::LoadMenu),
             ("ui_mainmenu_options", Act::Go(Page::Options)),
             ("ui_mainmenu_extras", Act::Go(Page::Extras)),
             ("ui_mainmenu_exitgame", Act::Ask(Ask::ExitGame)),
@@ -623,7 +741,7 @@ pub fn spawn(commands: &mut Commands, assets: &AssetServer, meshes: &mut Assets<
         // pause (pui_pausemenu; orig_ui_play-720.png): Save Game and Quick Load are greyed there too
         let pause = [
             ("ui_pausemenu_resumegame", 180.44, Act::Continue),
-            ("ui_pausemenu_savegame", 156.44, Act::Save),
+            ("ui_pausemenu_savegame", 156.44, Act::Go(Page::SaveSlots)),
             ("ui_pausemenu_quickload", 132.44, Act::LoadSave),
             ("ui_mfail_restart", 108.44, Act::Ask(Ask::Restart)),
             ("ui_mainmenu_options", 84.44, Act::Go(Page::Options)),
@@ -639,6 +757,10 @@ pub fn spawn(commands: &mut Commands, assets: &AssetServer, meshes: &mut Assets<
         s.row(Page::Failed, "ui_mfail_lastsave", Vec2::new(320.0, 228.44), 1.0, GREEN, Act::LoadSave, 0.0);
         s.row(Page::Failed, "ui_mfail_restart", Vec2::new(320.0, 204.44), 1.0, GREEN, Act::Restart, 0.0);
         s.row(Page::Failed, "ui_mfail_menu", Vec2::new(320.0, 180.44), 1.0, GREEN, Act::ToTitle, 0.0);
+
+        // the save / load screens (pui_savegame; saveslots.rs)
+        s.slot_page(Page::SaveSlots, crate::saveslots::Mode::Save);
+        s.slot_page(Page::LoadSlots, crate::saveslots::Mode::Load);
     }
     commands.insert_resource(texts);
 }
@@ -647,15 +769,26 @@ pub fn spawn(commands: &mut Commands, assets: &AssetServer, meshes: &mut Assets<
 /// (+0x474 0x40, skipped by the selection: 0x00491b20) while there is none: Load Game (code 2, 0x004a2c10 slot -1),
 /// Quick Load and Restart from last save (code 34, 0x004a2e90).
 fn rows_of<'a>(rows: impl Iterator<Item = &'a MenuRow>, page: Page, has_save: bool) -> Vec<(usize, Act)> {
-    let mut v: Vec<(usize, Act)> = rows.filter(|r| r.page == page && (has_save || r.act != Act::LoadSave)).filter_map(|r| r.order.map(|o| (o, r.act))).collect();
+    let mut v: Vec<(usize, Act)> = rows.filter(|r| r.page == page && (has_save || !r.act.needs_save())).filter_map(|r| r.order.map(|o| (o, r.act))).collect();
     v.sort_by_key(|x| x.0);
     v
+}
+
+/// Save the game to a slot (0..6) of the save screen (savegame.rs writes it this frame; the pause menu's rule on where
+/// a save may be made still applies).
+fn save_to_slot(req: &mut crate::savegame::SaveRequest, slot: u8) {
+    req.save = true;
+    req.path = Some(crate::savegame::slot_path(slot + 1));
+    req.source = crate::savegame::SaveSource::Menu;
 }
 
 /// A row's hit box in 640 x 480 units (corners): its text's bounds (TextSize, placed by its TextAlign) grown by 32 in
 /// x and 4 in y (UiText_SetBounds 0x004655b0: 32 and 4 pixels at the original's 640 x 480), joined with its `extra`
 /// x range. None before the text is built.
 fn hit_box(r: &MenuRow, e: &HudElement, size: Option<&TextSize>, align: Option<&TextAlign>) -> Option<(Vec2, Vec2)> {
+    if r.panel.is_some() {
+        return r.panel;
+    }
     let size = size?.0;
     let cx = e.pos.x - align.map(|a| a.0).unwrap_or(0.0) * size.x / 2.0;
     let mut lo = Vec2::new(cx - size.x / 2.0 - 32.0, e.pos.y - size.y / 2.0 - 4.0);
@@ -823,6 +956,10 @@ fn navigate(
     if *save_t <= 0.0 {
         *save_t = 0.5;
         menu.has_save = crate::savegame::has_save();
+        // the slots as the save / load screens show them (refilled as 0x004a3020 does on each show)
+        if menu.slot_mode().is_some() {
+            menu.slots = crate::savegame::slots();
+        }
     }
     let items = rows_of(rows.iter().map(|x| x.0), page, menu.has_save);
     // the row under the mouse as an index into this list
@@ -839,15 +976,40 @@ fn navigate(
             play(&mut sounds, "ui_move");
         }
     }
-    if ctl.step.y < 0 {
-        menu.selected = (menu.selected + 1) % n;
-        play(&mut sounds, "ui_move");
-    }
-    if ctl.step.y > 0 {
-        menu.selected = (menu.selected + n - 1) % n;
-        play(&mut sounds, "ui_move");
+    if menu.slot_mode().is_some() {
+        // the slot grid moves by the items' nav links in four directions (0x00464a10; saveslots::nav), not past the
+        // edges; a link to a row that is not there (the load screen's Continue without a save) goes on past it
+        let dir = ctl.step;
+        if dir != IVec2::ZERO {
+            let from = items[menu.selected].0;
+            let mut to = crate::saveslots::nav(from, dir.x, dir.y);
+            while let Some(t) = to.filter(|t| !items.iter().any(|x| x.0 == *t)) {
+                to = crate::saveslots::nav(t, dir.x, dir.y);
+            }
+            if let Some(i) = to.and_then(|t| items.iter().position(|x| x.0 == t)) {
+                menu.selected = i;
+                play(&mut sounds, "ui_move");
+            }
+        }
+    } else {
+        if ctl.step.y < 0 {
+            menu.selected = (menu.selected + 1) % n;
+            play(&mut sounds, "ui_move");
+        }
+        if ctl.step.y > 0 {
+            menu.selected = (menu.selected + n - 1) % n;
+            play(&mut sounds, "ui_move");
+        }
     }
     let cur = items[menu.selected].1;
+    // the remaster's Delete on a saved slot (saveslots.rs): asks first
+    if let (Act::Slot(i), true) = (cur, ctl.pressed(crate::input::Act::Delete)) {
+        if menu.slots.get(i as usize).is_some_and(|s| *s != crate::savegame::Slot::Empty) {
+            act = Some(Act::Ask(Ask::Delete(i)));
+        } else {
+            play(&mut sounds, "ui_cancel");
+        }
+    }
     let step = ctl.step.x as f32;
     if step != 0.0 {
         if let Act::Slide(o) = cur {
@@ -873,8 +1035,13 @@ fn navigate(
     let go = |menu: &mut GameMenu, p: Page| {
         menu.stack.push((menu.page, menu.selected));
         menu.page = p;
-        // the options page opens on Back, as in the original
+        // the options page opens on Back, as in the original; a save / load screen on its default slot (0x004a3b60:
+        // saving the first empty one, loading the newest save)
         menu.selected = if p == Page::Options { usize::MAX } else { 0 };
+        if let Some(mode) = menu.slot_mode() {
+            menu.slots = crate::savegame::slots();
+            menu.selected = crate::saveslots::default_slot(&menu.slots, mode);
+        }
     };
     let back = |menu: &mut GameMenu| {
         if let Some((p, s)) = menu.stack.pop() {
@@ -928,21 +1095,49 @@ fn navigate(
                     opts.invert_mouse = d.invert_mouse;
                     opts.save();
                 }
+                Some(Ask::Overwrite(slot)) => {
+                    save_to_slot(&mut save_req, slot);
+                    // the Saving screen returns to the pause menu (0x004a3a80)
+                    back(&mut menu);
+                }
+                Some(Ask::Delete(slot)) => {
+                    crate::savegame::delete_slot(slot + 1);
+                    menu.slots = crate::savegame::slots();
+                    menu.has_save = crate::savegame::has_save();
+                }
             }
         }
         Act::Restart => restart.to = Some(RestartTo::Play),
         Act::ToTitle => restart.to = Some(RestartTo::Title),
-        Act::Save => {
-            save_req.save = true;
-            next.set(AppState::Playing);
-            vtime.unpause();
-        }
-        Act::LoadSave => {
-            if crate::savegame::has_save() {
-                restart.to = Some(RestartTo::Load(crate::savegame::save_path()));
-            } else {
+        Act::LoadMenu => go(&mut menu, Page::LoadSlots),
+        Act::LoadSave => match crate::savegame::last_save() {
+            Some(p) => restart.to = Some(RestartTo::Load(p)),
+            None => {
                 play(&mut sounds, "ui_cancel");
                 return;
+            }
+        },
+        // a slot (0x004a36f0): saving, an empty slot is saved and an occupied one asks to overwrite; loading, an empty
+        // slot refuses, a damaged one asks to delete, a saved one is loaded
+        Act::Slot(slot) => {
+            let state = menu.slots.get(slot as usize).cloned().unwrap_or(crate::savegame::Slot::Empty);
+            let ask = |menu: &mut GameMenu, a: Ask| {
+                menu.ask = Some(a);
+                go(menu, Page::YesNo);
+                menu.selected = 1;
+            };
+            match (menu.slot_mode(), state) {
+                (Some(crate::saveslots::Mode::Save), crate::savegame::Slot::Empty) => {
+                    save_to_slot(&mut save_req, slot);
+                    back(&mut menu);
+                }
+                (Some(crate::saveslots::Mode::Save), _) => ask(&mut menu, Ask::Overwrite(slot)),
+                (_, crate::savegame::Slot::Empty) => {
+                    play(&mut sounds, "ui_cancel");
+                    return;
+                }
+                (_, crate::savegame::Slot::Damaged) => ask(&mut menu, Ask::Delete(slot)),
+                (_, crate::savegame::Slot::Saved { .. }) => restart.to = Some(RestartTo::Load(crate::savegame::slot_path(slot + 1))),
             }
         }
         Act::Apply => {
@@ -1168,6 +1363,14 @@ fn animate(
     if n > 0 && menu.selected >= n {
         menu.selected = n - 1;
     }
+    // the slot selected on a save / load screen (saveslots::draw_slots: its panel and blinking prompt)
+    let slot_sel = match menu.slot_mode() {
+        Some(_) => rows_of(rows.iter().map(|x| x.0), menu.page, menu.has_save).get(menu.selected).and_then(|x| if let Act::Slot(s) = x.1 { Some(s) } else { None }),
+        None => None,
+    };
+    if menu.slot_sel != slot_sel {
+        menu.slot_sel = slot_sel;
+    }
     let order = rows_of(rows.iter().map(|x| x.0), page.unwrap_or(menu.page), menu.has_save);
     let sel_order = order.get(if page == Some(menu.page) { menu.selected } else { menu.shown_sel }).map(|x| x.0);
     for (r, mut t, mut v, mut glow) in &mut rows {
@@ -1198,7 +1401,7 @@ fn animate(
         let scale = ((pulse - 1.0) * glow.0 + 1.0) * r.base_scale;
         let colour = if sel {
             Color::WHITE
-        } else if r.act == Act::LoadSave && !menu.has_save {
+        } else if r.act.needs_save() && !menu.has_save {
             DISABLED
         } else {
             r.colour

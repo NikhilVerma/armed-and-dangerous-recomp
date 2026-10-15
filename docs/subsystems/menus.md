@@ -237,6 +237,15 @@ and the highlight fade (+0x4e0, 0.2 per frame: 12 / s) of UiText_Draw 0x00464750
   load the saved game (main menu Resume Game, pause Quick Load, failed Restart from last save) are greyed and skipped
   without one (0x004a2c10 / 0x004a2e90, as orig_ui_menu-800.png and orig_ui_play-720.png show). Save Game stays
   enabled (the remaster saves anywhere; the original only at checkpoints, Game+0x568 bit 8).
+- **Save / load screens** (2026-10-15, feedback 26; gamemenu.rs slot pages, saveslots.rs, savegame.rs): pause Save
+  Game opens the SaveGame screen, main menu Resume Game the LoadGame screen (pui_savegame: six slots in a 3 x 2 grid,
+  0x004a3260; each slot's panel, name, level, difficulty, local file date, tokens, 0x004a3020 / 0x004a33d0; the
+  blinking prompt of table 0x005fb920 with the device's Select button; overwrite / delete prompts, 0x004a36f0; the
+  nav links of layout.json in four directions; the panel is the mouse's hit box). Saving returns to the pause menu
+  (0x004a3a80). Files saves/game1..6.json; Quick Load and Restart from last save load the newest save (quick save or
+  slot). Remaster additions: Delete (Delete / Backspace / pad West) on any saved slot, the load screen's Continue
+  (newest save). Not ported: the thumbnail; where the screen title is drawn (guess: above the slots). Test
+  engine/playtests/save_slots.json.
 - **Main menu:** the version text "v1.00" bottom right (0x004927f0, screen flag 0x800).
 - **Pub screen** (pubscreen.rs): the pointer moves the highlight onto an offered weapon's slot or the exit button
   (ui_pub_cursor's exit point 493, 416), a click takes the weapon or leaves (the pub shows the mouse cursor:
@@ -250,9 +259,9 @@ Replaced by the engine (no port needed): the screen objects and their manager (U
 0x004916e0, the request queue 0x00490ba0 / 0x00490c20 / 0x00490d80 / 0x00491020 / 0x004929a0, show / focus
 0x004918b0 / 0x004928f0, selection 0x004919c0 / 0x00491b20 / 0x00491b60, enabling 0x004927a0, the id split
 0x00491ae0) are the `GameMenu` page stack and `MenuRow`s; the widget classes' inits and kind bits (CheckBox_Init,
-FitText_*, Stepper_SetSteps, 0x0046ce40, ...) are `Spawner`'s rows and parts; the list boxes (0x0046bdd0..0x0046c980:
-save slots, mission and movie lists) and the save-slot widgets (0x004a2f70..0x004a2fe0; their enabling rule, 0x004a2c10 / 0x004a2e90, is ported: the load rows are greyed without a saved game) are replaced by
-the single quick save (savegame.rs); DisplayMode_Pack / Unpack (0x00470c90 / 0x00470cc0) by the window size in
+FitText_*, Stepper_SetSteps, 0x0046ce40, ...) are `Spawner`'s rows and parts; the list boxes (0x0046bdd0..0x0046c980)
+belong to the level / movie / director select pages (not in the remaster); the save-slot widgets' init and thumbnail
+release (0x004a2f70..0x004a2fe0) have no counterpart (no thumbnails); DisplayMode_Pack / Unpack (0x00470c90 / 0x00470cc0) by the window size in
 options.json; Text_Lookup (0x00495f00, 0x00495e50) by `Texts`. The movie screens (0x00493150..0x004933e0) are movie.rs /
 cutscenes.rs (docs/subsystems/movie.md). Not needed: the timed splash screens (0x00493520 / 0x00493590: LegalText,
 pushed by Game_StartLevel 0x00403690 over the intro movies; its art is not exported), the exit screen 0x00493770, the loading screen (UI_GetLoadingText

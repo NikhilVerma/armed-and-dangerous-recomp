@@ -31,7 +31,7 @@ ICONS = {
     "Keyboard & Mouse": [
         "keyboard_x", "keyboard_f", "keyboard_space", "keyboard_enter", "keyboard_escape", "keyboard_r",
         "keyboard_q", "keyboard_tab", "keyboard_z", "keyboard_e", "keyboard_1", "keyboard_3", "keyboard_w",
-        "keyboard_a", "keyboard_s", "keyboard_d", "mouse_left", "mouse_right", "mouse_move",
+        "keyboard_a", "keyboard_s", "keyboard_d", "mouse_left", "mouse_right", "mouse_move", "keyboard_delete",
     ],
 }
 

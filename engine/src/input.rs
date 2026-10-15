@@ -72,6 +72,8 @@ pub enum Act {
     Nav,
     Select,
     Back,
+    /// delete the selected saved game (the save / load screens: saveslots.rs; remaster)
+    Delete,
     // a paused message
     Continue,
 }
@@ -205,6 +207,7 @@ fn spawn_contexts(mut commands: Commands) {
                 Bindings::spawn((Cardinal::arrows(), Cardinal::wasd_keys(), Cardinal::dpad(), Axial::left_stick()))),
             btn(Act::Select, bindings![KeyCode::Enter, KeyCode::Space, B::South]),
             btn(Act::Back, bindings![KeyCode::Escape, MouseButton::Right, B::East, B::Start]),
+            btn(Act::Delete, bindings![KeyCode::Delete, KeyCode::Backspace, B::West]),
         ]),
     ));
     commands.spawn((
@@ -412,6 +415,7 @@ pub fn key(a: Act) -> String {
             Act::Use => ["keyboard_x", "keyboard_f"][USE_KEY.load(Ordering::Relaxed) as usize % 2],
             Act::Select | Act::Continue => ["mouse_left", "keyboard_enter", "keyboard_space"][SELECT_KEY.load(Ordering::Relaxed) as usize % 3],
             Act::Back | Act::Pause => "keyboard_escape",
+            Act::Delete => "keyboard_delete",
             Act::Fire => "mouse_left",
             Act::Special => "mouse_right",
             Act::Jump => "keyboard_space",
@@ -430,7 +434,7 @@ pub fn key(a: Act) -> String {
     let b = match a {
         Act::Select | Act::Continue | Act::Jump => B::South,
         Act::Back | Act::Reload => B::East,
-        Act::Use => B::West,
+        Act::Use | Act::Delete => B::West,
         Act::SwitchWeapon => B::North,
         Act::Fire => B::RightTrigger2,
         Act::Aim => B::LeftTrigger2,

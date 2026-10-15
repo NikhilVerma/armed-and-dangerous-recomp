@@ -59,6 +59,9 @@ pub struct Event {
     /// keep the state log as it is now under this name, for later expects' {"as": name}
     #[serde(default)]
     pub note: Option<String>,
+    /// delete every save in the build's saves/ (savegame.rs): the save / load screens start empty
+    #[serde(default)]
+    pub clear_saves: bool,
     /// debug: take this much damage at once (to test losing)
     #[serde(default)]
     pub hurt: Option<f32>,
@@ -610,7 +613,12 @@ fn drive(
             let dir = pt.path.parent().map(|d| d.join("states")).unwrap_or_else(|| "states".into());
             save_req.save = true;
             save_req.path = Some(dir.join(format!("{name}.json")));
+            save_req.source = crate::savegame::SaveSource::Script;
             info!("EVENT playtest: state saved as {name}");
+        }
+        if e.clear_saves {
+            crate::savegame::clear_saves();
+            info!("EVENT playtest: saves cleared");
         }
         if let Some(name) = &e.note {
             pt.notes.insert(name.clone(), state.0.clone());

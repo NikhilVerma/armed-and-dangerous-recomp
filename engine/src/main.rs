@@ -50,6 +50,7 @@ mod pickup;
 mod pubscreen;
 mod ragdoll;
 mod savegame;
+mod saveslots;
 mod topsy;
 mod turret;
 mod weapontable;
