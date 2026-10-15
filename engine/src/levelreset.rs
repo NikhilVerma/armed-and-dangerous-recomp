@@ -16,18 +16,18 @@
 //! 4. runs the level spawners again ([`LevelAppExt::add_level_spawner`]: main.rs setup, the fx pools); the resources
 //!    a spawner makes ([`LevelAppExt::spawned_level_resource`]: the mission, the scene library, ...) are taken out
 //!    first, so none of the old level's survives a spawner that no longer makes it, and dropped only after the
-//!    spawners ran, so the textures both levels use stay loaded instead of being read from disk again;
+//!    spawners ran; then the new entities' transforms are propagated (as PostStartup does at launch);
 //! 5. loads ([`AppState::Loading`]: the world runs behind the loading screen, as it does behind the title menu after
 //!    a launch) until the level has settled: a few frames in, its frames quick again (the rebuild's long frame, the
 //!    new level's first uploads); then it enters the asked state: the title menu, play from the start, or play from
 //!    a saved game.
 //!
-//! Step 5 makes Restart start play the way Abandon -> title -> New Game does, which the player found smooth (feedback
-//! 28: "3 fps, characters missing, Roman looking down" after Restart only). Before, play began in the frame after the
-//! rebuild, whose seconds became play's first time step (Time<Virtual> clamps it to 0.25 s: fifteen physics steps
-//! and a quarter second of AI, walkers and camera at once), while New Game starts from the title, many quick frames
-//! later; the playtests never saw it (their game time is a fixed 1/60 s a frame). Guess, by reading: that is the
-//! cause; restart_parity (a "real_time" script) measures the time steps, frame times and counts after each path.
+//! Feedback 28 ("3 fps, characters missing, Roman looking down" after a restart): the rebuilt level's entities had no
+//! GlobalTransform yet in the next frame (a launch propagates them in PostStartup; a restart did not), so every
+//! grunt found Roman at distance 0 at the origin, the whole level took him as its target and the alarm sent its
+//! troops (restart_parity: 30 grunts against a fresh game's 27; AIDBG "spotted ... at (0, 0, 0) d 0" by all 27).
+//! Step 4 now propagates the transforms; step 5 also keeps play from taking the rebuild's seconds as its first time
+//! step (Time<Virtual> clamps it to 0.25 s), as New Game from the title does.
 //!
 //! What stays: the options, the graphics settings, the mixer, the controls, the cheats entered, the playtest
 //! script, the movie settings, the "boot intro played" flag (the intro plays once a session, as the original's shell
@@ -281,6 +281,12 @@ fn restart(world: &mut World) {
     let held: Vec<Box<dyn Any + Send + Sync>> = takes.into_iter().filter_map(|take| take(world)).collect();
     run_spawners(world);
     drop(held);
+    // the new level's GlobalTransforms now, as a launch gets them in PostStartup (bevy_transform: "so the first update
+    // is correct"). Without this the frame after a restart saw every new entity at the origin: each grunt "heard"
+    // Roman at distance 0 (ai.rs AI_FindTarget's hear_distance), the whole level took him as its target, the alarm
+    // rose and its generators sent troops (feedback 28: "3 fps, characters missing"; AIDBG: 27 grunts spotted
+    // Roman at (0, 0, 0) on the first frame after Restart)
+    propagate_transforms(world);
     // the debug overlay's egui context lived on the old 3D camera (bevy_egui attaches it to the first camera only)
     let cam = world.query_filtered::<Entity, With<Camera3d>>().iter(world).next();
     if let Some(cam) = cam {
@@ -313,6 +319,17 @@ fn restart(world: &mut World) {
     if let Some(mut st) = world.get_resource_mut::<crate::playtest::PlayState>() {
         st.0.insert("level_generation".into(), generation.into());
         st.0.insert("loading".into(), true.into());
+    }
+}
+
+/// Bevy's transform propagation (PostStartup / PostUpdate's TransformSystems::Propagate), run once now; a new system
+/// state treats every transform as changed.
+fn propagate_transforms(world: &mut World) {
+    use bevy::ecs::system::RunSystemOnce;
+    use bevy::transform::systems::{mark_dirty_trees, propagate_parent_transforms, sync_simple_transforms};
+    let ok = world.run_system_once(mark_dirty_trees).is_ok() && world.run_system_once(propagate_parent_transforms).is_ok() && world.run_system_once(sync_simple_transforms).is_ok();
+    if !ok {
+        error!("level: the new level's transforms could not be propagated");
     }
 }
 

@@ -361,6 +361,8 @@ pub fn key(name: &str) -> Option<KeyCode> {
         "Escape" => KeyCode::Escape,
         "F3" => KeyCode::F3,
         "Enter" => KeyCode::Enter,
+        "Delete" => KeyCode::Delete,
+        "Backspace" => KeyCode::Backspace,
         "Tab" => KeyCode::Tab,
         "ShiftLeft" => KeyCode::ShiftLeft,
         "ControlLeft" => KeyCode::ControlLeft,
