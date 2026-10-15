@@ -125,6 +125,20 @@ topsyhit2.json (24 s; the same check replayed from the start took about 4 minute
 The bot is debug tooling, not game logic: its tactics (holding at range, backing off, keg awareness) live in
 player.rs under `bot` and must never change how the game plays for a human.
 
+### Widening the original's coverage to a whole level
+
+The port queues (`python tools/port_queue.py`) list only functions the original was seen to execute
+(work/coverage.json). tools/coverage.py runs the short comparison scenarios; `python tools/coverage_level.py`
+(the .venv python: PIL, capstone) adds one level's mechanics: a list of scenarios in the script, each one run of
+the original (hooks off, `[test] hook_coverage=1`) with one `[test] warp=FRAME:x,y,z` next to a mechanic and
+scripted keys (pub and awards, topsy, ticker bomb at gate 1 and the alarm chain, the courtyard fight to death and
+MissionFailed, mounted gun, kegs, pipes, penguins, pickups, a fall and the extras token, the win and Stats). Counts per
+run go to work/coverage_runs/ and are merged into coverage.json without double counting (`--merge` after rerunning
+tools/coverage.py). To steer a new scenario, `--only NAME --shots first:every:count` saves frames as
+work/shots/cov-NAME-F.png and prints Roman's position and health per frame (it switches on the recovered
+Camera_SetupProjection for the camera dump; rerun without `--shots` for the counts). Roman keeps his heading after the
+warp (facing -y on lev_1_m1: W -y, S +y, D -x). For a later level add a LEVELS entry with its own positions.
+
 ### Capturing the original's menus and screens
 
 `tools/shot.py --scenario menu --frames 800` (main menu), `--scenario play` (briefing at 480, pause at 720), keys to
