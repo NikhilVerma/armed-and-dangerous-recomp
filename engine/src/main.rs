@@ -201,6 +201,11 @@ fn main() {
     }
     let gfx = graphics::GraphicsPlugin::new(graphics::GraphicsLaunch::new(a.preset, tool_run && script_preset.is_none(), a.graphics.as_deref()), &start_options, &scene_dir);
     let mut app = App::new();
+    // the player's game logs a failed ECS command (e.g. one queued for an entity a level restart despawned) instead of
+    // crashing; tool and test runs keep Bevy's panicking handler, so such bugs still fail the tests
+    if !tool_run {
+        app.set_error_handler(bevy::ecs::error::warn);
+    }
     app.add_plugins(
         DefaultPlugins
             .set(gfx.image_plugin())

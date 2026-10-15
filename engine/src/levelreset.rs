@@ -163,7 +163,10 @@ fn take_persistent(world: &mut World, mut done: Local<bool>) {
 /// Entities the engine spawns while running that are not the level's.
 fn engine_owned(world: &World, e: Entity) -> bool {
     let Ok(r) = world.get_entity(e) else { return true };
-    r.contains::<Window>()
+    // resources are entities in Bevy 0.20: one inserted after start-up is in neither list (a despawn of it warns
+    // "Resource entities are not supposed to be despawned" and breaks the queued commands that use it)
+    r.contains::<bevy::ecs::resource::IsResource>()
+        || r.contains::<Window>()
         || r.contains::<bevy::window::Monitor>()
         || r.contains::<bevy::ecs::observer::Observer>()
         || r.contains::<bevy::input::gamepad::Gamepad>()
