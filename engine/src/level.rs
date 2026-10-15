@@ -979,8 +979,8 @@ pub struct StageSwap<'w, 's> {
     meshes: ResMut<'w, Assets<Mesh>>,
     materials: ResMut<'w, Assets<StandardMaterial>>,
     decal_world: Option<ResMut<'w, crate::decals::DecalWorld>>,
-    /// the next stage's husk pick (Object_LoadBaseProps 0x00451360 of the new object)
-    rng: Local<'s, crate::fxvm::CrtRand>,
+    /// the next stage's husk pick (Object_LoadBaseProps 0x00451360 of the new object); each level starts it over
+    rng: crate::levelreset::PerLevel<'w, 's, crate::fxvm::CrtRand>,
 }
 
 impl StageSwap<'_, '_> {
@@ -1038,7 +1038,7 @@ impl StageSwap<'_, '_> {
         }
         let aim = crate::hud::AimClass::of(&hp);
         let triggers = if hp.s("behavior").is_none() { ObjectTriggers::of(&hp) } else { ObjectTriggers::default() };
-        let next = pick_husk(&hp, &mut self.rng);
+        let next = pick_husk(&hp, self.rng.get());
         let mut ec = self.commands.entity(e);
         ec.insert((Placed { template: template.to_owned(), collider, husk: next, triggers }, aim, Husk));
         // a husk with health and its own death fx or husk dies again (v_house_2f_a -> _da -> _db -> _dc)
@@ -1157,8 +1157,10 @@ fn spawn_grunts(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     player: Query<Entity, With<crate::ai::Player>>,
-    mut rng: Local<crate::fxvm::CrtRand>,
+    // the troops' random stream: each level starts it over
+    mut rng: crate::levelreset::PerLevel<crate::fxvm::CrtRand>,
 ) {
+    let rng = rng.get();
     for ev in events.read() {
         let p = data.template_props(&ev.template);
         let Some(model_name) = data.templates.get(&ev.template).and_then(|t| t.model.clone()) else { continue };
@@ -1183,7 +1185,7 @@ fn spawn_grunts(
             .allowed_dofs(AllowedDofs::TRANSLATION_X | AllowedDofs::TRANSLATION_Y | AllowedDofs::TRANSLATION_Z);
         if let Some(id) = physics.add_dynamic(e, &shape, ev.at + lift, Quat::IDENTITY, Vec3::ZERO, s) {
             physics.materials.insert(id, "grunt".into());
-            let mut g = ai::make_grunt(&p, &data, ai::Kind::of(&ev.template), ev.at, 0.0, &mut rng);
+            let mut g = ai::make_grunt(&p, &data, ai::Kind::of(&ev.template), ev.at, 0.0, rng);
             if ev.barracks.is_some() || ev.exit.is_some() {
                 // a barracks troop (0x0042db50) or an alarm generator's (0x0042dd50, ai.rs: then +0x488 0x200, the
                 // charge): its alert group, marker tags and the walk out through the exit

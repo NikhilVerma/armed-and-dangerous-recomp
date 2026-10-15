@@ -71,31 +71,31 @@ address,name,disposition,reason
 0x00467fd0,fn_00467fd0,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
 0x0046b0a0,Ui_PixelToScreen,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
 0x0046bbe0,Ui_ArrowInit,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
-0x0046bdd0,ListBox_Init,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
-0x0046be90,ListBox_Destroy,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
-0x0046bec0,fn_0046bec0,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
-0x0046bed0,ListBox_Layout,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
-0x0046bf30,ListBox_HitEntry,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
-0x0046bfd0,ListBox_HitArrows,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
-0x0046c020,ListBox_HitTest,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
-0x0046c070,ListBox_Render,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
-0x0046c1d0,ListBox_Clear,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
-0x0046c2b0,ListBox_SortA,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
-0x0046c2c0,ListBox_SortB,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
-0x0046c2d0,ListBox_Sort,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
-0x0046c310,ListBox_AddEntryDefault,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
-0x0046c320,ListBox_AddEntry,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
-0x0046c4d0,ListBox_SetHighlight,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
-0x0046c530,ListBox_SelectEntry,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
-0x0046c560,ListBox_Select,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
-0x0046c5f0,ListBox_SetTop,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
-0x0046c740,ListBox_GetEntry,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
-0x0046c760,ListBox_GetEntryTextA,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
-0x0046c7e0,ListBox_GetEntryTextW,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
-0x0046c840,ListBox_GetSelectedTextA,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
-0x0046c850,ListBox_GetSelectedTextW,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
-0x0046c860,ListBox_HandleInput,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
-0x0046c980,ListBox_SetRows,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
+0x0046bdd0,ListBox_Init,not needed,"not needed for the save screens: the list boxes are the level / movie / director select pages' (layout.json pui_levelselect, pui_movieselect, pui_directorselect, ui_listbox), which the remaster does not have"
+0x0046be90,ListBox_Destroy,not needed,"not needed for the save screens: the list boxes are the level / movie / director select pages' (layout.json pui_levelselect, pui_movieselect, pui_directorselect, ui_listbox), which the remaster does not have"
+0x0046bec0,fn_0046bec0,not needed,"not needed for the save screens: the list boxes are the level / movie / director select pages' (layout.json pui_levelselect, pui_movieselect, pui_directorselect, ui_listbox), which the remaster does not have"
+0x0046bed0,ListBox_Layout,not needed,"not needed for the save screens: the list boxes are the level / movie / director select pages' (layout.json pui_levelselect, pui_movieselect, pui_directorselect, ui_listbox), which the remaster does not have"
+0x0046bf30,ListBox_HitEntry,not needed,"not needed for the save screens: the list boxes are the level / movie / director select pages' (layout.json pui_levelselect, pui_movieselect, pui_directorselect, ui_listbox), which the remaster does not have"
+0x0046bfd0,ListBox_HitArrows,not needed,"not needed for the save screens: the list boxes are the level / movie / director select pages' (layout.json pui_levelselect, pui_movieselect, pui_directorselect, ui_listbox), which the remaster does not have"
+0x0046c020,ListBox_HitTest,not needed,"not needed for the save screens: the list boxes are the level / movie / director select pages' (layout.json pui_levelselect, pui_movieselect, pui_directorselect, ui_listbox), which the remaster does not have"
+0x0046c070,ListBox_Render,not needed,"not needed for the save screens: the list boxes are the level / movie / director select pages' (layout.json pui_levelselect, pui_movieselect, pui_directorselect, ui_listbox), which the remaster does not have"
+0x0046c1d0,ListBox_Clear,not needed,"not needed for the save screens: the list boxes are the level / movie / director select pages' (layout.json pui_levelselect, pui_movieselect, pui_directorselect, ui_listbox), which the remaster does not have"
+0x0046c2b0,ListBox_SortA,not needed,"not needed for the save screens: the list boxes are the level / movie / director select pages' (layout.json pui_levelselect, pui_movieselect, pui_directorselect, ui_listbox), which the remaster does not have"
+0x0046c2c0,ListBox_SortB,not needed,"not needed for the save screens: the list boxes are the level / movie / director select pages' (layout.json pui_levelselect, pui_movieselect, pui_directorselect, ui_listbox), which the remaster does not have"
+0x0046c2d0,ListBox_Sort,not needed,"not needed for the save screens: the list boxes are the level / movie / director select pages' (layout.json pui_levelselect, pui_movieselect, pui_directorselect, ui_listbox), which the remaster does not have"
+0x0046c310,ListBox_AddEntryDefault,not needed,"not needed for the save screens: the list boxes are the level / movie / director select pages' (layout.json pui_levelselect, pui_movieselect, pui_directorselect, ui_listbox), which the remaster does not have"
+0x0046c320,ListBox_AddEntry,not needed,"not needed for the save screens: the list boxes are the level / movie / director select pages' (layout.json pui_levelselect, pui_movieselect, pui_directorselect, ui_listbox), which the remaster does not have"
+0x0046c4d0,ListBox_SetHighlight,not needed,"not needed for the save screens: the list boxes are the level / movie / director select pages' (layout.json pui_levelselect, pui_movieselect, pui_directorselect, ui_listbox), which the remaster does not have"
+0x0046c530,ListBox_SelectEntry,not needed,"not needed for the save screens: the list boxes are the level / movie / director select pages' (layout.json pui_levelselect, pui_movieselect, pui_directorselect, ui_listbox), which the remaster does not have"
+0x0046c560,ListBox_Select,not needed,"not needed for the save screens: the list boxes are the level / movie / director select pages' (layout.json pui_levelselect, pui_movieselect, pui_directorselect, ui_listbox), which the remaster does not have"
+0x0046c5f0,ListBox_SetTop,not needed,"not needed for the save screens: the list boxes are the level / movie / director select pages' (layout.json pui_levelselect, pui_movieselect, pui_directorselect, ui_listbox), which the remaster does not have"
+0x0046c740,ListBox_GetEntry,not needed,"not needed for the save screens: the list boxes are the level / movie / director select pages' (layout.json pui_levelselect, pui_movieselect, pui_directorselect, ui_listbox), which the remaster does not have"
+0x0046c760,ListBox_GetEntryTextA,not needed,"not needed for the save screens: the list boxes are the level / movie / director select pages' (layout.json pui_levelselect, pui_movieselect, pui_directorselect, ui_listbox), which the remaster does not have"
+0x0046c7e0,ListBox_GetEntryTextW,not needed,"not needed for the save screens: the list boxes are the level / movie / director select pages' (layout.json pui_levelselect, pui_movieselect, pui_directorselect, ui_listbox), which the remaster does not have"
+0x0046c840,ListBox_GetSelectedTextA,not needed,"not needed for the save screens: the list boxes are the level / movie / director select pages' (layout.json pui_levelselect, pui_movieselect, pui_directorselect, ui_listbox), which the remaster does not have"
+0x0046c850,ListBox_GetSelectedTextW,not needed,"not needed for the save screens: the list boxes are the level / movie / director select pages' (layout.json pui_levelselect, pui_movieselect, pui_directorselect, ui_listbox), which the remaster does not have"
+0x0046c860,ListBox_HandleInput,not needed,"not needed for the save screens: the list boxes are the level / movie / director select pages' (layout.json pui_levelselect, pui_movieselect, pui_directorselect, ui_listbox), which the remaster does not have"
+0x0046c980,ListBox_SetRows,not needed,"not needed for the save screens: the list boxes are the level / movie / director select pages' (layout.json pui_levelselect, pui_movieselect, pui_directorselect, ui_listbox), which the remaster does not have"
 0x0046cbc0,CheckBox_Init,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
 0x0046ce40,fn_0046ce40,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
 0x0046cf70,Stepper_SetSteps,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
@@ -122,34 +122,34 @@ address,name,disposition,reason
 0x004927a0,fn_004927a0,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
 0x004928f0,fn_004928f0,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
 0x004929a0,fn_004929a0,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
-0x00493150,fn_00493150,replaced,"movie screen constructor: movie.rs MoviePlayer takes a PlayMovies request (the screens PlayMovie / PlayMovieNoSkip / AttractMode are its skippable flag and view)"
-0x00493190,fn_00493190,replaced,"movie screen hide stops its movie: a new PlayMovies or StopMovies stops it (movie.rs requests); cutscenes.rs stops the page movies when their page closes"
-0x004931b0,fn_004931b0,replaced,"play one movie of the list: movie.rs start_next / open (movies/<name>/); the seen mark 0x004a07a0 for the movie select list is not ported (no movie select page)"
+0x00493150,fn_00493150,replaced,movie screen constructor: movie.rs MoviePlayer takes a PlayMovies request (the screens PlayMovie / PlayMovieNoSkip / AttractMode are its skippable flag and view)
+0x00493190,fn_00493190,replaced,movie screen hide stops its movie: a new PlayMovies or StopMovies stops it (movie.rs requests); cutscenes.rs stops the page movies when their page closes
+0x004931b0,fn_004931b0,replaced,play one movie of the list: movie.rs start_next / open (movies/<name>/); the seen mark 0x004a07a0 for the movie select list is not ported (no movie select page)
 0x00493240,fn_00493240,replaced,stop the open movie: movie.rs close
 0x00493270,fn_00493270,replaced,"next name of the play list: ported in movie.rs (PlayMovies::list splits at , and ;)"
 0x004932e0,fn_004932e0,replaced,set the play list: PlayMovies::list
-0x00493320,fn_00493320,replaced,"movie screen show / hide: cutscenes.rs pauses the game during a full-window movie; the post-process targets it releases are renderer plumbing"
-0x004933b0,fn_004933b0,not needed,"pauses the movie when another screen takes the focus: no remaster screen opens over a movie"
-0x004933e0,fn_004933e0,replaced,"movie screen update (end / skip -> next movie; none left -> pop): ported in movie.rs advance / skip"
+0x00493320,fn_00493320,replaced,movie screen show / hide: cutscenes.rs pauses the game during a full-window movie; the post-process targets it releases are renderer plumbing
+0x004933b0,fn_004933b0,not needed,pauses the movie when another screen takes the focus: no remaster screen opens over a movie
+0x004933e0,fn_004933e0,replaced,movie screen update (end / skip -> next movie; none left -> pop): ported in movie.rs advance / skip
 0x00493520,fn_00493520,not needed,"timed splash screens: LegalText (b_legal, 4.0 s) is pushed by Game_StartLevel 0x00403690 (start_level.cpp:121) above the intro movies, so it shows first (capture work/shots/origmovA frame 300); its art is not in the exported UI bank: open"
-0x00493590,fn_00493590,not needed,"timed splash screen update (LegalText): see 0x00493520"
+0x00493590,fn_00493590,not needed,timed splash screen update (LegalText): see 0x00493520
 0x00493770,fn_00493770,not needed,exit screen
 0x00494000,fn_00494000,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
 0x00494030,fn_00494030,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
 0x00494820,fn_00494820,replaced,poster render target / widget release: statscreen.rs draws the poster as a quad
 0x00495e50,fn_00495e50,replaced,text table: Texts
-0x004a2f70,fn_004a2f70,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
-0x004a2fd0,fn_004a2fd0,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
-0x004a2fe0,fn_004a2fe0,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
+0x004a2f70,fn_004a2f70,replaced,the slot widget's init / thumbnail release: the remaster's slots (saveslots.rs) keep no thumbnail (open)
+0x004a2fd0,fn_004a2fd0,replaced,the slot widget's init / thumbnail release: the remaster's slots (saveslots.rs) keep no thumbnail (open)
+0x004a2fe0,fn_004a2fe0,replaced,the slot widget's init / thumbnail release: the remaster's slots (saveslots.rs) keep no thumbnail (open)
 0x004907c0,fn_004907c0,replaced,"the level-loading screen (the level name it loads, its show 0x00492f80, its update 0x00492fd0 with the existence check 0x00418730 / 0x00418790 and the ui_corruptcontent fallback to lev_shell): Restart the level starts the game again into the level (gamemenu.rs relaunch); the next level after the Stats screen returns to the title (statscreen.rs)"
-0x00492f80,fn_00492f80,replaced,"the level-loading screen's show (copies the level name): Restart the level relaunches the process into the level (gamemenu.rs relaunch)"
+0x00492f80,fn_00492f80,replaced,the level-loading screen's show (copies the level name): Restart the level relaunches the process into the level (gamemenu.rs relaunch)
 0x00492fd0,fn_00492fd0,replaced,"the level-loading screen's update (loads the named level on its 6th frame, starts it on the 11th; ui_corruptcontent and lev_shell when it is missing): the remaster loads lev_1_m1 at start (level.rs) and relaunches to restart"
-0x00418730,fn_00418730,replaced,"narrows the loading screen's level name and checks the level exists (0x00418790): the remaster loads its exported level (level.rs) and relaunches to restart"
+0x00418730,fn_00418730,replaced,narrows the loading screen's level name and checks the level exists (0x00418790): the remaster loads its exported level (level.rs) and relaunches to restart
 0x00418790,fn_00418790,replaced,"resolves a level name to its file and checks it (the loading screen, 0x00418730): the remaster loads its exported level (level.rs)"
-0x00464430,fn_00464430,replaced,"adds a UI object to the HUD's on-top list +0x9c (the blinking save slot highlight, 0x004a33d0): save / load list boxes and save slots: the single quick save (savegame.rs)"
-0x0046b0d0,Ui_DrawFrame,replaced,"the bordered box of the list boxes and save slots (ListBox_Render 0x0046c070, 0x004a33d0; the failed page's Load last save list): save / load list boxes and save slots: the single quick save (savegame.rs)"
-0x004a3020,fn_004a3020,replaced,"fills a save slot (thumbnail, level, difficulty, date): save / load list boxes and save slots: the single quick save (savegame.rs)"
-0x004a36c0,fn_004a36c0,replaced,"a save slot's free-space check before saving: save / load list boxes and save slots: the single quick save (savegame.rs)"
-0x004a36f0,fn_004a36f0,replaced,"a save slot's input (save / overwrite / load / delete prompts): save / load list boxes and save slots: the single quick save (savegame.rs)"
-0x004a37e0,fn_004a37e0,replaced,"a save slot's layout box: save / load list boxes and save slots: the single quick save (savegame.rs)"
-0x004a3b60,fn_004a3b60,replaced,"the save / load screen's show (title, default slot): save / load list boxes and save slots: the single quick save (savegame.rs)"
+0x00464430,fn_00464430,ported,ported: saveslots.rs (the blinking prompt drawn over the slot; the on-top list is the texts' z)
+0x0046b0d0,Ui_DrawFrame,ported,"ported: saveslots.rs / gamemenu.rs save_slot (the slot panel, -96..96 x 0..-184, 0x800a2532 / 0xe00a2532)"
+0x004a3020,fn_004a3020,ported,"ported: saveslots.rs view / savegame.rs slots (name, empty / damaged, level, difficulty, local file date, tokens; the default slot)"
+0x004a36c0,fn_004a36c0,ported,ported: saveslots.rs (the free-space check before saving to an empty slot: the remaster does not check)
+0x004a36f0,fn_004a36f0,ported,ported: gamemenu.rs navigate Act::Slot (save / overwrite prompt / load / delete prompt)
+0x004a37e0,fn_004a37e0,ported,ported: gamemenu.rs save_slot (the panel is the hit box: MenuRow::panel)
+0x004a3b60,fn_004a3b60,ported,"ported: gamemenu.rs slot_page / navigate go (title, default slot: saveslots::default_slot)"

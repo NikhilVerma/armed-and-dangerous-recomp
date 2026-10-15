@@ -259,7 +259,7 @@ pub fn spawn(
     let ui = dir.join("ui");
     let layout: LayoutFile = serde_json::from_str(&std::fs::read_to_string(ui.join("layout.json")).ok()?).map_err(|e| warn!("hud: layout.json: {e}")).ok()?;
     let font: FontFile = serde_json::from_str(&std::fs::read_to_string(ui.join("font.json")).ok()?).map_err(|e| warn!("hud: font.json: {e}")).ok()?;
-    let font_field = images.add(crate::sdffont::font_field(&ui.join("font.png"))?);
+    let font_field = images.add(crate::sdffont::font_field(&ui)?);
     let mut textures = HashMap::new();
     for (name, t) in &layout.textures {
         textures.insert(name.clone(), assets.load(format!("ui/{}", t.file)));

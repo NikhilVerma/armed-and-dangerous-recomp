@@ -567,10 +567,10 @@ fn grunts(
     targets: Query<&GlobalTransform>,
     time: Res<Time>,
     lib: Res<crate::skin::AnimLibrary>,
-    mut fidgets: Local<std::collections::HashMap<Entity, (f32, Option<String>)>>,
-    mut runs: Local<std::collections::HashMap<Entity, u32>>,
-    mut seed: Local<u32>,
+    // per grunt: the fidget timer and anim, the run anim; the anim random stream (a level starts them over)
+    mut per_level: crate::levelreset::PerLevel<(std::collections::HashMap<Entity, (f32, Option<String>)>, std::collections::HashMap<Entity, u32>, u32)>,
 ) {
+    let (fidgets, runs, seed) = per_level.get();
     let dt = time.delta_secs();
     let mut rand = || {
         // MSVC rand(): 0..32767
@@ -740,10 +740,12 @@ fn grunts(
 fn penguins(
     mut q: Query<(&mut Animator, &crate::level::Placed, Option<&mut crate::level::Penguin>, &mut Visibility)>,
     lib: Res<crate::skin::AnimLibrary>,
-    mut seed: Local<u32>,
+    // the random stream and the scream lines used (a level starts them over)
+    mut per_level: crate::levelreset::PerLevel<(u32, Vec<usize>)>,
     time: Res<Time>,
-    (mut sounds, mut used, tf): (MessageWriter<crate::audio::PlaySound>, Local<Vec<usize>>, Query<&GlobalTransform>),
+    (mut sounds, tf): (MessageWriter<crate::audio::PlaySound>, Query<&GlobalTransform>),
 ) {
+    let (seed, used) = per_level.get();
     for (mut a, p, pg, mut vis) in &mut q {
         if p.template != "penguin" {
             continue;

@@ -1,30 +1,49 @@
 //! Starting the level again inside the running game: Abandon Mission / Return to title, Restart, Load Game and
-//! Restart from last save (docs/player-feedback.md 23). The original tears the level down and builds it again in
+//! Restart from last save (docs/player-feedback.md 23, 28). The original tears the level down and builds it again in
 //! the same process (the level teardown, kill everything 0x0045d670 / delete 0x0045da20, then Game_StartLevel
-//! 0x00403690); before this module the remaster started a fresh process instead, which closed the window.
+//! 0x00403690) behind its loading screen; before this module the remaster started a fresh process instead, which
+//! closed the window.
 //!
 //! A restart, at the end of the frame it is asked for ([`RestartLevel`]):
 //! 1. despawns every entity the level made: the ones its spawners made at start-up and everything spawned since,
 //!    except the engine's own (windows, monitors, observers, gamepads) and what existed before the level
 //!    (the input contexts, Bevy's own entities);
 //! 2. puts every level resource back to its first value (plugins register them with
-//!    [`LevelAppExt::init_level_resource`]) and gives physics a new Jolt world;
+//!    [`LevelAppExt::init_level_resource`]), empties the level's message queues
+//!    ([`LevelAppExt::add_level_message`]: a trigger, a spawn or an fx the old level sent is not delivered to the new
+//!    one) and gives physics a new Jolt world;
 //! 3. bumps [`LevelGeneration`], which resets the systems' per-level locals ([`PerLevel`]);
-//! 4. runs the level spawners again ([`LevelAppExt::add_level_spawner`]: main.rs setup, the fx pools);
-//! 5. enters the asked state: the title menu, play from the start, or play from a saved game.
+//! 4. runs the level spawners again ([`LevelAppExt::add_level_spawner`]: main.rs setup, the fx pools); the resources
+//!    a spawner makes ([`LevelAppExt::spawned_level_resource`]: the mission, the scene library, ...) are taken out
+//!    first, so none of the old level's survives a spawner that no longer makes it, and dropped only after the
+//!    spawners ran; then the new entities' transforms are propagated (as PostStartup does at launch);
+//! 5. loads ([`AppState::Loading`]: the world runs behind the loading screen, as it does behind the title menu after
+//!    a launch) until the level has settled: a few frames in, its frames quick again (the rebuild's long frame, the
+//!    new level's first uploads); then it enters the asked state: the title menu, play from the start, or play from
+//!    a saved game.
+//!
+//! Feedback 28 ("3 fps, characters missing, Roman looking down" after a restart): the rebuilt level's entities had no
+//! GlobalTransform yet in the next frame (a launch propagates them in PostStartup; a restart did not), so every
+//! grunt found Roman at distance 0 at the origin, the whole level took him as its target and the alarm sent its
+//! troops (restart_parity: 30 grunts against a fresh game's 27; AIDBG "spotted ... at (0, 0, 0) d 0" by all 27).
+//! Step 4 now propagates the transforms; step 5 also keeps play from taking the rebuild's seconds as its first time
+//! step (Time<Virtual> clamps it to 0.25 s), as New Game from the title does.
 //!
 //! What stays: the options, the graphics settings, the mixer, the controls, the cheats entered, the playtest
 //! script, the movie settings, the "boot intro played" flag (the intro plays once a session, as the original's shell
 //! flag 2), caches keyed by name (animation library, textures).
 //!
 //! API: [`LevelResetPlugin`], [`RestartLevel`] (set `to` to ask), [`LevelAppExt`], [`PerLevel`],
-//! [`LevelGeneration`].
+//! [`LevelGeneration`], [`LevelSettle`] (the loading wait's limits).
 
 use crate::AppState;
+use bevy::ecs::message::{Message, Messages};
 use bevy::ecs::system::{SystemId, SystemParam};
 use bevy::prelude::*;
+use std::any::Any;
 use std::collections::HashSet;
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 /// Where a restart goes.
 #[derive(Clone, Debug, PartialEq)]
@@ -63,11 +82,49 @@ impl<T: Default + Send + Sync + 'static> PerLevel<'_, '_, T> {
     }
 }
 
-/// The level spawners (run in this order at start-up and on each restart) and how to put the level resources back.
+/// When a rebuilt level has settled (step 5 of the module doc): at least `min_frames` frames, the last `calm_frames`
+/// of them each shorter than `calm_frame`; or `max_wait` after the rebuild, whatever the frames.
+#[derive(Resource, Clone, Copy, Debug)]
+pub struct LevelSettle {
+    pub min_frames: u32,
+    pub calm_frames: u32,
+    pub calm_frame: Duration,
+    pub max_wait: Duration,
+}
+
+impl Default for LevelSettle {
+    fn default() -> Self {
+        LevelSettle { min_frames: 10, calm_frames: 5, calm_frame: Duration::from_millis(100), max_wait: Duration::from_secs(10) }
+    }
+}
+
+impl LevelSettle {
+    /// Whether the level has settled after `frames` frames, `calm` of the latest in a row quick, `waited` since the
+    /// rebuild.
+    pub fn settled(&self, frames: u32, calm: u32, waited: Duration) -> bool {
+        (frames >= self.min_frames && calm >= self.calm_frames) || waited >= self.max_wait
+    }
+}
+
+/// A rebuilt level waiting to settle (AppState::Loading), and the state it enters then.
+#[derive(Resource)]
+struct Settling {
+    to: AppState,
+    frames: u32,
+    calm: u32,
+    since: Instant,
+    last: Instant,
+}
+
+type TakeResource = fn(&mut World) -> Option<Box<dyn Any + Send + Sync>>;
+
+/// The level spawners (run in this order at start-up and on each restart), how to put the level resources back and
+/// empty the level's message queues, and the resources the spawners make.
 #[derive(Resource, Default)]
 struct LevelParts {
     spawners: Vec<SystemId>,
     resets: Vec<fn(&mut World)>,
+    spawned: Vec<TakeResource>,
 }
 
 /// The entities that are not the level's (taken on the first frame).
@@ -85,6 +142,12 @@ pub trait LevelAppExt {
     fn insert_level_resource<R: Resource>(&mut self, make: fn() -> R) -> &mut Self;
     /// A system that builds part of the level: run at start-up and again on each restart, in the order added.
     fn add_level_spawner<M>(&mut self, system: impl IntoSystem<(), (), M> + 'static) -> &mut Self;
+    /// A resource a level spawner inserts: removed before the spawners run again on a restart (kept alive until they
+    /// ran, see the module doc), so a level without it has none.
+    fn spawned_level_resource<R: Resource>(&mut self) -> &mut Self;
+    /// A message the level's objects send each other: registered (as `add_message`), and its queue emptied on a
+    /// restart.
+    fn add_level_message<M: Message>(&mut self) -> &mut Self;
 }
 
 impl LevelAppExt for App {
@@ -113,6 +176,21 @@ impl LevelAppExt for App {
         self.world_mut().get_resource_or_init::<LevelParts>().spawners.push(id);
         self
     }
+
+    fn spawned_level_resource<R: Resource>(&mut self) -> &mut Self {
+        self.world_mut().get_resource_or_init::<LevelParts>().spawned.push(|w| w.remove_resource::<R>().map(|r| Box::new(r) as Box<dyn Any + Send + Sync>));
+        self
+    }
+
+    fn add_level_message<M: Message>(&mut self) -> &mut Self {
+        self.add_message::<M>();
+        self.world_mut().get_resource_or_init::<LevelParts>().resets.push(|w| {
+            if let Some(mut m) = w.get_resource_mut::<Messages<M>>() {
+                m.clear();
+            }
+        });
+        self
+    }
 }
 
 #[derive(Resource)]
@@ -124,11 +202,13 @@ impl Plugin for LevelResetPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<RestartLevel>()
             .init_resource::<LevelGeneration>()
+            .init_resource::<LevelSettle>()
             .init_resource::<Persistent>()
             .init_resource::<StartupLevel>()
             .init_resource::<LevelParts>()
             .add_systems(Startup, spawn_level)
             .add_systems(First, take_persistent)
+            .add_systems(Update, settle.run_if(resource_exists::<Settling>))
             .add_systems(Last, restart.run_if(|r: Res<RestartLevel>| r.to.is_some()));
     }
 }
@@ -175,7 +255,7 @@ fn engine_owned(world: &World, e: Entity) -> bool {
 
 fn restart(world: &mut World) {
     let Some(to) = world.resource_mut::<RestartLevel>().to.take() else { return };
-    let t = std::time::Instant::now();
+    let t = Instant::now();
     // 1. the level's entities
     let keep = std::mem::take(&mut world.resource_mut::<Persistent>().0);
     let all: Vec<Entity> = world.query::<Entity>().iter(world).collect();
@@ -187,7 +267,7 @@ fn restart(world: &mut World) {
         }
     }
     world.resource_mut::<Persistent>().0 = keep;
-    // 2. the level's resources and physics
+    // 2. the level's resources, message queues and physics
     let resets = world.resource::<LevelParts>().resets.clone();
     for r in resets {
         r(world);
@@ -196,14 +276,23 @@ fn restart(world: &mut World) {
     world.remove_resource::<crate::savegame::PendingLoad>();
     // 3. the systems' per-level locals
     world.resource_mut::<LevelGeneration>().0 += 1;
-    // 4. the level again
+    // 4. the level again; what the spawners made last time is held (not in the world) until they ran
+    let takes = world.resource::<LevelParts>().spawned.clone();
+    let held: Vec<Box<dyn Any + Send + Sync>> = takes.into_iter().filter_map(|take| take(world)).collect();
     run_spawners(world);
+    drop(held);
+    // the new level's GlobalTransforms now, as a launch gets them in PostStartup (bevy_transform: "so the first update
+    // is correct"). Without this the frame after a restart saw every new entity at the origin: each grunt "heard"
+    // Roman at distance 0 (ai.rs AI_FindTarget's hear_distance), the whole level took him as its target, the alarm
+    // rose and its generators sent troops (feedback 28: "3 fps, characters missing"; AIDBG: 27 grunts spotted
+    // Roman at (0, 0, 0) on the first frame after Restart)
+    propagate_transforms(world);
     // the debug overlay's egui context lived on the old 3D camera (bevy_egui attaches it to the first camera only)
     let cam = world.query_filtered::<Entity, With<Camera3d>>().iter(world).next();
     if let Some(cam) = cam {
         world.entity_mut(cam).insert((bevy_egui::EguiContext::default(), bevy_egui::PrimaryEguiContext));
     }
-    // 5. where to
+    // 5. where to, once the level has settled (`settle`)
     let from_save = match &to {
         RestartTo::Load(p) => match crate::savegame::read(p) {
             Some(save) => {
@@ -219,11 +308,77 @@ fn restart(world: &mut World) {
         _ => false,
     };
     world.resource_mut::<crate::cutscenes::Cutscenes>().from_save = from_save;
-    world.resource_mut::<NextState<AppState>>().set(if to == RestartTo::Title { AppState::Title } else { AppState::Playing });
+    let target = if to == RestartTo::Title { AppState::Title } else { AppState::Playing };
+    let now = Instant::now();
+    world.insert_resource(Settling { to: target, frames: 0, calm: 0, since: now, last: now });
+    world.resource_mut::<NextState<AppState>>().set(AppState::Loading);
+    // the clock runs while loading, as behind the title menu: the rebuild's long frame is spent there, not in play
     world.resource_mut::<Time<Virtual>>().unpause();
     let generation = world.resource::<LevelGeneration>().0;
     info!("EVENT level: restarted ({to:?}, generation {generation}): {count} entities despawned, rebuilt in {:.0} ms", t.elapsed().as_secs_f32() * 1000.0);
     if let Some(mut st) = world.get_resource_mut::<crate::playtest::PlayState>() {
         st.0.insert("level_generation".into(), generation.into());
+        st.0.insert("loading".into(), true.into());
+    }
+}
+
+/// Bevy's transform propagation (PostStartup / PostUpdate's TransformSystems::Propagate), run once now; a new system
+/// state treats every transform as changed.
+fn propagate_transforms(world: &mut World) {
+    use bevy::ecs::system::RunSystemOnce;
+    use bevy::transform::systems::{mark_dirty_trees, propagate_parent_transforms, sync_simple_transforms};
+    let ok = world.run_system_once(mark_dirty_trees).is_ok() && world.run_system_once(propagate_parent_transforms).is_ok() && world.run_system_once(sync_simple_transforms).is_ok();
+    if !ok {
+        error!("level: the new level's transforms could not be propagated");
+    }
+}
+
+/// The loading wait (step 5 of the module doc): frames are counted from the first one in AppState::Loading; once the
+/// level has settled the asked state is entered, play as New Game enters it (the clock running).
+fn settle(
+    mut commands: Commands,
+    limits: Res<LevelSettle>,
+    mut s: ResMut<Settling>,
+    state: Res<State<AppState>>,
+    mut next: ResMut<NextState<AppState>>,
+    mut vtime: ResMut<Time<Virtual>>,
+    play: Option<ResMut<crate::playtest::PlayState>>,
+) {
+    let now = Instant::now();
+    if *state.get() != AppState::Loading {
+        s.last = now;
+        return;
+    }
+    let frame = now - s.last;
+    s.last = now;
+    s.frames += 1;
+    s.calm = if frame < limits.calm_frame { s.calm + 1 } else { 0 };
+    if !limits.settled(s.frames, s.calm, now - s.since) {
+        return;
+    }
+    next.set(s.to);
+    vtime.unpause();
+    info!("EVENT level: settled after {} frames, {:.0} ms: {:?}", s.frames, (now - s.since).as_secs_f32() * 1000.0, s.to);
+    if let Some(mut p) = play {
+        p.0.insert("loading".into(), false.into());
+    }
+    commands.remove_resource::<Settling>();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The loading wait: not before min_frames, then once calm_frames quick frames follow each other; a level that
+    /// never calms down still starts after max_wait.
+    #[test]
+    fn settle_rule() {
+        let l = LevelSettle::default();
+        let s = Duration::from_millis(500);
+        assert!(!l.settled(3, 3, s), "too few frames");
+        assert!(!l.settled(12, 4, s), "not calm long enough");
+        assert!(l.settled(12, 5, s));
+        assert!(!l.settled(40, 0, Duration::from_secs(9)), "slow frames keep it loading");
+        assert!(l.settled(40, 0, Duration::from_secs(10)), "but not past max_wait");
     }
 }

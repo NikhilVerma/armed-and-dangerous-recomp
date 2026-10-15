@@ -175,7 +175,7 @@ fn spawn_one(commands: &mut Commands, data: &GameData, lib: &mut Library, assets
 
 #[allow(clippy::too_many_arguments)]
 fn drop_on_death(
-    mut seen: Local<std::collections::HashSet<Entity>>,
+    mut seen: crate::levelreset::PerLevel<std::collections::HashSet<Entity>>,
     grunts: Query<(Entity, &Grunt, &GlobalTransform)>,
     player: Query<&Health, With<Player>>,
     roman: Query<&crate::player::Roman>,
@@ -192,6 +192,7 @@ fn drop_on_death(
         (Ok(h), Ok(r)) => (h.0 / r.max_health.max(1.0), r.mg.is_some(), r.use_mg && r.mg.is_some()),
         _ => (1.0, false, false),
     };
+    let seen = seen.get();
     for (e, g, t) in &grunts {
         if g.mind != Mind::Dead || !seen.insert(e) {
             continue;

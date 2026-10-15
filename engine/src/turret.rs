@@ -163,8 +163,9 @@ fn setup(
     data: Res<crate::gamedata::GameData>,
     lib: Res<crate::skin::AnimLibrary>,
     q: Query<(Entity, &Name, &crate::skin::Animator), (With<crate::level::InstanceId>, Without<Turret>)>,
-    mut done: Local<std::collections::HashSet<Entity>>,
+    mut done: crate::levelreset::PerLevel<std::collections::HashSet<Entity>>,
 ) {
+    let done = done.get();
     for (e, name, a) in &q {
         if !done.insert(e) {
             continue;

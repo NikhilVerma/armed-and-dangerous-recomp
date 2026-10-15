@@ -1,5 +1,7 @@
-//! Save Game / Quick Load (pause menu) and Restart from last save (mission failed): a snapshot of the state that
-//! matters, in saves/quicksave.json next to the executable. Loading starts the game again in a fresh process with
+//! Saved games: a snapshot of the state that matters, in saves/ next to the executable: the six slots of the save /
+//! load screens (saves/game1.json .. game6.json: Save Game in the pause menu, Resume Game in the main menu;
+//! saveslots.rs) and the quick save (saves/quicksave.json: the checkpoints). Quick Load and Restart from last save
+//! load the newest of them. Loading restarts the level in the running game (levelreset.rs) or starts with
 //! `--load FILE`; the snapshot is applied once the level is built. The intro (camera path and its white overlay) is
 //! not replayed.
 //!
@@ -28,8 +30,8 @@
 //! Where a save may be made: anywhere from the pause menu (the remaster's default), or, with the option
 //! "checkpoint_saves" (options.rs), only where the original offers one: its QuickSave screen is pushed through
 //! QuickSave_Request 0x00403560 once the mission start has been shown (MissionObject_ShowStart 0x0044daf0) and when
-//! the pub screen is left (0x004690c0). The remaster saves there by itself instead of asking (the save slot / profile
-//! screens are not ported: one quick save).
+//! the pub screen is left (0x004690c0). The remaster saves there by itself to the quick save instead of asking (the
+//! profile screens are not ported).
 //!
 //! Limits, labelled: grunts a barracks had already released and that were alive are not restored (the barracks'
 //! remaining counts are); companions start at Roman.
@@ -116,7 +118,7 @@ pub fn may_save(checkpoint_saves: bool, source: SaveSource) -> bool {
 #[derive(Resource, Default)]
 pub struct SaveRequest {
     pub save: bool,
-    /// write here instead of the quicksave (a playtest 'save' step)
+    /// write here instead of the quicksave (a save slot, a playtest 'save' step)
     pub path: Option<PathBuf>,
     pub source: SaveSource,
 }
@@ -125,12 +127,89 @@ pub struct SaveRequest {
 #[derive(Resource)]
 pub struct PendingLoad(pub SaveData, pub u32);
 
+/// The saves' folder: saves/ next to the executable (scripted runs use their own build's: tools/playtest.py never
+/// runs the player's engine/target).
+pub fn saves_dir() -> PathBuf {
+    std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("saves"))).unwrap_or_else(|| PathBuf::from("saves"))
+}
+
+/// Deletes every save of the folder (a playtest's `clear_saves` step: a script starts from no saves).
+pub fn clear_saves() {
+    let dir = saves_dir();
+    for p in std::iter::once(dir.join("quicksave.json")).chain((1..=SLOTS).map(|n| slot_file(&dir, n))) {
+        let _ = std::fs::remove_file(p);
+    }
+}
+
+/// The quick save (checkpoints with checkpoint_saves; Quick Load).
 pub fn save_path() -> PathBuf {
-    std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("saves").join("quicksave.json"))).unwrap_or_else(|| PathBuf::from("quicksave.json"))
+    saves_dir().join("quicksave.json")
+}
+
+/// The save / load screens' slots 1..=SLOTS (0x004a2c10: "Game 1".."Game 6", ui_savegame_slot%d), one file each.
+pub const SLOTS: u8 = 6;
+
+pub fn slot_path(slot: u8) -> PathBuf {
+    slot_file(&saves_dir(), slot)
+}
+
+fn slot_file(dir: &std::path::Path, slot: u8) -> PathBuf {
+    dir.join(format!("game{slot}.json"))
+}
+
+/// What a slot holds (0x004a3020: empty +0x4f8, damaged +0x4f9, else the header's level, difficulty and file time).
+#[derive(Clone, Debug, PartialEq)]
+pub enum Slot {
+    Empty,
+    /// a file that does not read as a save
+    Damaged,
+    Saved { level: String, difficulty: usize, written: std::time::SystemTime },
+}
+
+fn read_slot(path: &std::path::Path) -> Slot {
+    let Ok(meta) = std::fs::metadata(path) else { return Slot::Empty };
+    match read(path) {
+        Some(s) => Slot::Saved { level: s.level, difficulty: s.difficulty, written: meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH) },
+        None => Slot::Damaged,
+    }
+}
+
+/// The six slots in order (index 0 is slot 1).
+pub fn slots() -> Vec<Slot> {
+    slots_in(&saves_dir())
+}
+
+fn slots_in(dir: &std::path::Path) -> Vec<Slot> {
+    (1..=SLOTS).map(|n| read_slot(&slot_file(dir, n))).collect()
+}
+
+/// The newest readable save, the quick save or a slot: what Quick Load and Restart from last save load (the original
+/// loads its quick save, 0x004a2e90 / 0x004a2ef0; the remaster's saves are made in slots too, so "last" means newest).
+pub fn last_save() -> Option<PathBuf> {
+    last_save_in(&saves_dir())
+}
+
+fn last_save_in(dir: &std::path::Path) -> Option<PathBuf> {
+    std::iter::once(dir.join("quicksave.json"))
+        .chain((1..=SLOTS).map(|n| slot_file(dir, n)))
+        .filter_map(|p| {
+            let t = std::fs::metadata(&p).and_then(|m| m.modified()).ok()?;
+            read(&p).map(|_| (t, p))
+        })
+        .max_by_key(|(t, _)| *t)
+        .map(|(_, p)| p)
 }
 
 pub fn has_save() -> bool {
-    save_path().exists()
+    last_save().is_some()
+}
+
+/// Deletes a slot's save (0x004a2e40: the slot's files, then the slot refilled).
+pub fn delete_slot(slot: u8) {
+    let p = slot_path(slot);
+    if let Err(e) = std::fs::remove_file(&p) {
+        warn!("save: could not delete {}: {e}", p.display());
+    }
 }
 
 pub fn read(path: &std::path::Path) -> Option<SaveData> {
@@ -151,9 +230,21 @@ impl Plugin for SaveGamePlugin {
 }
 
 /// The state log's "game" (playtest expect steps): the difficulty, the money, the save rule.
-fn log_state(state: Option<ResMut<crate::playtest::PlayState>>, difficulty: Res<crate::gamedata::Difficulty>, opts: Res<crate::options::GameOptions>) {
+fn log_state(state: Option<ResMut<crate::playtest::PlayState>>, difficulty: Res<crate::gamedata::Difficulty>, opts: Res<crate::options::GameOptions>, time: Res<Time<Real>>, mut next: Local<f32>) {
     let Some(mut state) = state else { return };
     state.0.insert("game".into(), serde_json::json!({ "difficulty": difficulty.0, "money": opts.money, "checkpoint_saves": opts.checkpoint_saves }));
+    // "saves": each slot's state and which file is the newest save (1..6 a slot, 0 the quick save), twice a second
+    if time.elapsed_secs() < *next {
+        return;
+    }
+    *next = time.elapsed_secs() + 0.5;
+    let slots: Vec<&str> = slots().iter().map(|s| match s {
+        Slot::Empty => "empty",
+        Slot::Damaged => "damaged",
+        Slot::Saved { .. } => "saved",
+    }).collect();
+    let newest = last_save().map(|p| (1..=SLOTS).find(|n| slot_path(*n) == p).unwrap_or(0));
+    state.0.insert("saves".into(), serde_json::json!({ "slots": slots, "newest": newest }));
 }
 
 /// The placed objects at level start (instance id -> template) and the building windows (building id, index), to
@@ -209,7 +300,7 @@ fn save(
     if !std::mem::take(&mut req.save) {
         return;
     }
-    let source = if req.path.is_some() { SaveSource::Script } else { std::mem::take(&mut req.source) };
+    let source = std::mem::take(&mut req.source);
     let (Some(mut m), Ok((r, t, h))) = (mission, roman.single()) else { return };
     if !may_save(opts.checkpoint_saves, source) {
         m.feed("Saves are made at checkpoints");
@@ -389,6 +480,30 @@ mod tests {
         let old: SaveData = serde_json::from_str(r#"{"level":"lev_1_m1","roman_feet":[0,0,0],"yaw":0,"health":300,"rifle_clip":5,"mg":null,"use_mg":false,"stickies":0,"topsy":0,"mission":{"triggers_done":[],"sites":[],"barracks":[],"pub_done":false,"pub_pool":null,"compass_tag":0,"tickers":0,"objectives":"","objectives_raw":"","ears_done":[]},"dead_grunts":[],"destroyed":[258]}"#).unwrap();
         assert_eq!(old.stages().get(&258), Some(&Stage::FirstHusk));
         assert_eq!((old.difficulty, old.money), (1, None));
+    }
+
+    /// The slot files: empty, damaged (not a save), saved; the newest readable save wins, a damaged file never.
+    #[test]
+    fn slot_files() {
+        let dir = std::env::temp_dir().join(format!("and_slots_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let save = |p: PathBuf, health: f32| std::fs::write(p, serde_json::to_string(&SaveData { level: "lev_1_m1".into(), health, difficulty: 2, ..Default::default() }).unwrap()).unwrap();
+        assert_eq!(slots_in(&dir), vec![Slot::Empty; SLOTS as usize]);
+        assert_eq!(last_save_in(&dir), None);
+        save(slot_file(&dir, 2), 100.0);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        save(slot_file(&dir, 1), 200.0);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::fs::write(slot_file(&dir, 4), "not a save").unwrap();
+        let s = slots_in(&dir);
+        assert!(matches!(&s[0], Slot::Saved { level, difficulty: 2, .. } if level == "lev_1_m1"));
+        assert!(matches!(s[1], Slot::Saved { .. }));
+        assert_eq!((s[2].clone(), s[3].clone()), (Slot::Empty, Slot::Damaged));
+        assert_eq!(last_save_in(&dir), Some(slot_file(&dir, 1)), "slot 1 was written last; the damaged slot 4 is not a save");
+        save(dir.join("quicksave.json"), 300.0);
+        assert_eq!(last_save_in(&dir), Some(dir.join("quicksave.json")));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Save anywhere by default; with checkpoint_saves only at checkpoints; scripts always.

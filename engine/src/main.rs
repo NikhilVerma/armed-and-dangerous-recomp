@@ -50,6 +50,7 @@ mod pickup;
 mod pubscreen;
 mod ragdoll;
 mod savegame;
+mod saveslots;
 mod topsy;
 mod turret;
 mod weapontable;
@@ -72,6 +73,9 @@ pub enum AppState {
     Title,
     Playing,
     Paused,
+    /// a level rebuilt in the running game, settling behind the loading screen before play or the title menu
+    /// (levelreset.rs)
+    Loading,
 }
 
 pub fn playing(state: Res<State<AppState>>) -> bool {
@@ -262,6 +266,38 @@ fn main() {
     .insert_resource(Launch { fx_test: a.fx_test.is_some(), scene: scene_dir.clone(), bench: a.bench, size: a.size, no_ai: a.no_ai, no_hud: a.no_hud, std_materials: a.std_materials })
     .add_systems(Update, fx_test.run_if(resource_exists::<FxTest>))
     .add_level_spawner(setup)
+    // what setup (and level::spawn, hud::spawn, gamemenu::spawn under it) inserts: none of the old level's survives a
+    // restart whose setup does not make it again
+    .spawned_level_resource::<mission::Mission>()
+    .spawned_level_resource::<level::LevelInfo>()
+    .spawned_level_resource::<scene::Library>()
+    .spawned_level_resource::<gamedata::GameData>()
+    .spawned_level_resource::<audio::SoundBank>()
+    .spawned_level_resource::<gamematerial::GameLights>()
+    .spawned_level_resource::<CameraFxPending>()
+    .spawned_level_resource::<decals::DecalWorld>()
+    .spawned_level_resource::<player::BombAssets>()
+    .spawned_level_resource::<hitparts::HitHulls>()
+    .spawned_level_resource::<sticky::StickyAssets>()
+    .spawned_level_resource::<hud::HudAssets>()
+    .spawned_level_resource::<fxvm::FxVm>()
+    // the messages the level's objects send each other: a restart empties their queues (levelreset.rs)
+    .add_level_message::<mission::SendTrigger>()
+    .add_level_message::<level::SpawnGrunt>()
+    .add_level_message::<level::RestoreStage>()
+    .add_level_message::<fx::Explode>()
+    .add_level_message::<fx::StartFx>()
+    .add_level_message::<fx::Died>()
+    .add_level_message::<ai::StickyStuck>()
+    .add_level_message::<pickup::SpawnPickup>()
+    .add_level_message::<decals::SpawnDecal>()
+    .add_level_message::<camera::ShakeCamera>()
+    .add_level_message::<campath::StartCameraPath>()
+    .add_level_message::<alarm::MarkerArrival>()
+    .add_level_message::<audio::PlaySound>()
+    .add_level_message::<audio::Subtitle>()
+    .add_level_message::<sticky::ThrowDynamite>()
+    .add_level_message::<skin::AnimNote>()
     .add_systems(Update, (play_state, hud_state))
     .add_systems(Update, start_camera_fx.run_if(playing))
     .add_systems(Update, (bench_scenario, bench_record).run_if(resource_exists::<bench::Bench>))
@@ -349,11 +385,14 @@ fn main() {
         if !pt.title {
             app.insert_state(AppState::Playing);
         }
-        app.insert_resource(pt);
         // game time advances exactly 1/60 s per frame (real and virtual): a slow frame (a screenshot, loading) no
         // longer jumps every timer at once, and runs compare frame for frame with the original's captures, which
-        // advance one 60 Hz step per frame (fight2E: grunts fired in lockstep after each screenshot's stall)
-        app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(std::time::Duration::from_secs_f64(1.0 / 60.0)));
+        // advance one 60 Hz step per frame (fight2E: grunts fired in lockstep after each screenshot's stall); a
+        // "real_time" script keeps the wall clock, as the player's game does
+        if !pt.real_time {
+            app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(std::time::Duration::from_secs_f64(1.0 / 60.0)));
+        }
+        app.insert_resource(pt);
         // the same system order every run: many unordered systems draw from the shared random stream (FxStats), so
         // the multi-threaded executor's run-to-run order changed which grunt shot when (player_move, 2026-10-15)
         app.edit_schedule(Update, |s| {

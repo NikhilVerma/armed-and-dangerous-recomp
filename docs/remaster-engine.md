@@ -280,9 +280,13 @@ Trap: a playtest expect value that is a two-number array is a range, so list-lik
 
 ## Save / load (subsystem port, 2026-10-15)
 
-Pause menu Save Game writes saves/quicksave.json next to the exe (savegame.rs); Quick Load, Resume Game and Restart
-from last save restart the level in the running game and apply the save (levelreset.rs, 2026-10-15; before, a fresh
-process with `--load FILE`). The original (src/save/save_01.cpp) serialises the whole
+Pause menu Save Game opens the original's save screen (six slots, saves/game1..6.json next to the exe; saveslots.rs,
+feedback 26), main menu Resume Game its load screen; checkpoints write saves/quicksave.json. Quick Load and Restart
+from last save load the newest save; every load restarts the level in the running game and applies the save
+(levelreset.rs, 2026-10-15; before, a fresh process with `--load FILE`). A level restart enters AppState::Loading
+until the rebuilt level's frames are quick again, then play / the title (feedback 28: play right after the rebuild
+took its seconds as one time step). Playtests: `clear_saves`, `note` + {"as": note} expects, until "loaded",
+"real_time" scripts; state "saves", "frame_ms", "main_ms", "dt_max_ms", "entities". The original (src/save/save_01.cpp) serialises the whole
 object graph (save manager 0x0048b620, class descriptor passes 0x0048bc80 / 0x0048bda0 / 0x0048c0f0, Havok body
 states) after a 0x124-byte header with the level, the difficulty and a thumbnail, into one of six slots; the
 remaster saves the state a player sees instead (docs/port/save.csv: replaced / not needed, one row each):
