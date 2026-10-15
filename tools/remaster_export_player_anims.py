@@ -1,6 +1,6 @@
 """Export the player's animation table to the remaster engine (game data: lives under work/, never committed).
 
-  python tools/remaster_export_player_anims.py [lev_1_m1]     -> work/remaster/<level>/player_anims.json
+  python tools/remaster_export_player_anims.py [lev_1_m1] [--out DIR]  -> work/remaster/<level>/player_anims.json
 
 Reads, from orig/pc/GameData/game.unpacked.exe:
 - the mode table 0x005cb650 (0x28-byte entries, index mode * 7 + state; type +0 0 = "link to state +4 of this mode";
@@ -15,11 +15,11 @@ Output: {"modes": [{"mode", "state", "name", "type", "flags", "kind", "rate"} ..
 "blend": [[13 floats] x 13], "rate_dirs": {block: [x, y, z]}}. Model space: game axes, the model faces -Y, +X is its
 left.
 """
+import argparse
 import json
 import math
 import pathlib
 import struct
-import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 MAIN = ROOT if (ROOT / "orig").exists() else ROOT.parents[2]   # a worktree reads the main checkout's orig/ and work/
@@ -40,7 +40,11 @@ def side_dirs():
 
 
 def main():
-    level = sys.argv[1] if len(sys.argv) > 1 else "lev_1_m1"
+    ap = argparse.ArgumentParser()
+    ap.add_argument("level", nargs="?", default="lev_1_m1")
+    ap.add_argument("--out", help="level folder (default work/remaster/<level>)")
+    a = ap.parse_args()
+    level = a.level
     import pefile
     img = pefile.PE(str(EXE)).get_memory_mapped_image()
     u32 = lambda va: struct.unpack_from("<I", img, va - BASE)[0]
@@ -67,7 +71,7 @@ def main():
             "side_walk_right": right}
     out = {"_doc": "the player's anim table 0x005cb650, cross-fade times 0x005cb3a8 [previous kind][kind], rate block "
                    "directions (tools/remaster_export_player_anims.py)", "modes": modes, "links": links, "blend": blend, "rate_dirs": dirs}
-    path = MAIN / "work" / "remaster" / level / "player_anims.json"
+    path = (pathlib.Path(a.out) if a.out else MAIN / "work" / "remaster" / level) / "player_anims.json"
     path.write_text(json.dumps(out, indent=1))
     print(f"{path}: {len(modes)} entries, {len(links)} links")
 
