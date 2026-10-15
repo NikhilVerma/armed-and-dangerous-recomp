@@ -615,8 +615,18 @@ pub fn spawn(commands: &mut Commands, assets: &AssetServer, meshes: &mut Assets<
     commands.insert_resource(texts);
 }
 
+/// A scripted run (--play) never starts an unscripted game: a relaunch ends the run (exit code 3), so the runner
+/// sees it instead of waiting on a fresh process that has no script.
+fn end_scripted_run(what: &str) {
+    if std::env::args().any(|a| a == "--play") {
+        info!("EVENT playtest: {what} requested: the scripted run ends here");
+        std::process::exit(3);
+    }
+}
+
 /// Starts the game again in a fresh process continuing the saved game.
 fn relaunch_load() {
+    end_scripted_run("load / restart from last save");
     let Ok(exe) = std::env::current_exe() else { return };
     let mut args: Vec<String> = Vec::new();
     let mut it = std::env::args().skip(1);
@@ -643,6 +653,7 @@ pub fn relaunch_to_title() {
 }
 
 fn relaunch(into_level: bool) {
+    end_scripted_run(if into_level { "restart level" } else { "return to title" });
     let Ok(exe) = std::env::current_exe() else { return };
     let mut args: Vec<String> = Vec::new();
     let mut it = std::env::args().skip(1);
