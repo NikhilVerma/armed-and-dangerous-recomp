@@ -50,6 +50,10 @@ pub enum Page {
     /// the main menu's Resume Game
     SaveSlots,
     LoadSlots,
+    /// Extras: Replay Level ("ReplayLevel", pui_levelselect) and Cutscenes ("MovieSelect", pui_movieselect), their
+    /// lists of what is unlocked (extras.rs), built each time the page opens
+    Replay,
+    Movies,
 }
 
 /// The art behind a page.
@@ -68,7 +72,7 @@ impl Page {
         match self {
             Page::Main | Page::Options | Page::Extras => Back::Title,
             // the save page draws ui_background (layout.json pui_savegame: model ui_background_01)
-            Page::Gfx | Page::Sfx | Page::Controls | Page::Cheats | Page::Credits | Page::SaveSlots | Page::LoadSlots => Back::Shell,
+            Page::Gfx | Page::Sfx | Page::Controls | Page::Cheats | Page::Credits | Page::SaveSlots | Page::LoadSlots | Page::Replay | Page::Movies => Back::Shell,
             Page::YesNo | Page::Pause | Page::Failed | Page::Pub | Page::Stats => Back::Game,
         }
     }
@@ -159,6 +163,10 @@ pub enum Act {
     LoadMenu,
     /// a save slot (0..6) of the save / load screen (code 72)
     Slot(u8),
+    /// a level of the Replay Level lists (codes 6 / 42: played in replay mode, campaign.rs)
+    Replay(&'static str),
+    /// a movie of the Cutscenes list (code 12: "PlayMovie")
+    Movie(&'static str),
     Slide(Opt),
     Toggle(Flag),
 }
@@ -291,6 +299,14 @@ impl GameMenu {
     pub fn on_screen(&self) -> Option<Page> {
         self.shown
     }
+
+    /// Opens `page` as a screen pushed by the game (the end sequence's Credits, campaign.rs); leaving it shows `under`.
+    pub fn open_over(&mut self, page: Page, under: Page) {
+        self.stack.clear();
+        self.stack.push((under, 0));
+        self.page = page;
+        self.selected = 0;
+    }
 }
 
 impl GameMenu {
@@ -321,7 +337,7 @@ impl Plugin for GameMenuPlugin {
     fn build(&self, app: &mut App) {
         app.init_level_resource::<GameMenu>()
             .init_resource::<Texts>()
-            .add_systems(Update, (failed, navigate.run_if(crate::movie::no_movie_input), animate, values, pause_band, credits, log_menu).chain().in_set(MenuSystems))
+            .add_systems(Update, (failed, navigate.run_if(crate::movie::no_movie_input), extras_pages, animate, values, pause_band, credits, log_menu).chain().in_set(MenuSystems))
             .add_plugins(crate::saveslots::SaveSlotsPlugin);
     }
 }
@@ -400,6 +416,49 @@ impl Spawner<'_, '_, '_> {
         if align != 0.0 {
             e.insert(TextAlign(align));
         }
+    }
+
+    /// The Extras page (pui_extrasmenu; the layout has no point for its rows: positions from orig_ui_extras-950.png):
+    /// Play Cutscene and Replay Mission enabled when unlocked (UiScreen_InitItem cases 11 / 41), else greyed.
+    fn extras_page(&mut self, u: &crate::extras::Unlocks) {
+        self.row(Page::Extras, "ui_extrasmenu_title", Vec2::new(320.0, 428.0), 1.4, Color::WHITE, Act::None, 0.0);
+        for (id, y, open, page) in [("ui_extrasmenu_cutscene", 330.0, u.movies, Page::Movies), ("ui_extrasmenu_replay", 282.0, u.replay, Page::Replay)] {
+            let (colour, act) = if open { (ORANGE, Act::Go(page)) } else { (DISABLED, Act::None) };
+            self.row(Page::Extras, id, Vec2::new(320.0, y), 1.3, colour, act, 0.0);
+        }
+        // Credits: locked on a fresh profile in the original (cost 99 in the token table: unlocked by other means);
+        // the remaster opens it
+        self.row(Page::Extras, "ui_extrasmenu_credits", Vec2::new(320.0, 235.0), 1.3, ORANGE, Act::Go(Page::Credits), 0.0);
+        self.row(Page::Extras, "ui_shellmenu_back", Vec2::new(320.0, 84.44), 1.4, YELLOW, Act::Back, 0.0);
+    }
+
+    /// Replay Mission (pui_levelselect): the levels reached ("ui_listbox_missionlist", 12 rows in the original's
+    /// scrolling list box) and the bonus levels bought ("ui_listbox_bonusmissions", 4 rows), each by its title.
+    /// Remaster layout (no capture of the page: guess): the title at ref_replay_menu, the lists unscrolled in the
+    /// left / right item columns (ref_text_05 / ref_text_04 x), the rows 15 apart.
+    fn replay_page(&mut self, u: &crate::extras::Unlocks) {
+        self.row(Page::Replay, "ui_extrasmenu_replay", Vec2::new(320.0, 445.586), 1.4, Color::WHITE, Act::None, 0.0);
+        for (x, heading, list) in [(171.215, "ui_listbox_missionlist", &u.levels), (465.773, "ui_listbox_bonusmissions", &u.bonus)] {
+            self.row(Page::Replay, heading, Vec2::new(x, 405.0), 1.0, GREEN, Act::None, 0.0);
+            for (i, level) in list.iter().enumerate() {
+                self.next.0 = 280.0;
+                self.row(Page::Replay, level, Vec2::new(x, 382.0 - 15.0 * i as f32), 0.75, ORANGE, Act::Replay(level), 0.0);
+            }
+        }
+        self.row(Page::Replay, "ui_shellmenu_back", Vec2::new(320.0, 46.0), 1.4, YELLOW, Act::Back, 0.0);
+    }
+
+    /// Play Cutscene (pui_movieselect): the movies seen ("ui_listbox_movielist", 14 rows in the original's scrolling
+    /// list box), each by its title ("<name>.vid"). Remaster layout (guess): two columns of 11.
+    fn movies_page(&mut self, u: &crate::extras::Unlocks) {
+        self.row(Page::Movies, "ui_extrasmenu_cutscene", Vec2::new(320.0, 444.894), 1.4, Color::WHITE, Act::None, 0.0);
+        self.row(Page::Movies, "ui_listbox_movielist", Vec2::new(320.0, 405.0), 1.0, GREEN, Act::None, 0.0);
+        for (i, movie) in u.movie_list.iter().enumerate() {
+            let x = if i < 11 { 171.215 } else { 465.773 };
+            self.next.0 = 280.0;
+            self.row(Page::Movies, &format!("{movie}.vid"), Vec2::new(x, 380.0 - 26.0 * (i % 11) as f32), 0.85, ORANGE, Act::Movie(movie), 0.0);
+        }
+        self.row(Page::Movies, "ui_shellmenu_back", Vec2::new(320.0, 46.0), 1.4, YELLOW, Act::Back, 0.0);
     }
 
     /// A text that is not a row (a slider's value, a key name).
@@ -637,15 +696,7 @@ pub fn spawn(commands: &mut Commands, assets: &AssetServer, meshes: &mut Assets<
         }
         s.row(Page::Options, "ui_shellmenu_back", Vec2::new(320.0, 60.44), 1.4, YELLOW, Act::Back, 0.0);
 
-        // extras (pui_extrasmenu; the layout has no point for its rows: positions from orig_ui_extras-950.png)
-        s.row(Page::Extras, "ui_extrasmenu_title", Vec2::new(320.0, 428.0), 1.4, Color::WHITE, Act::None, 0.0);
-        for (id, y) in [("ui_extrasmenu_cutscene", 330.0), ("ui_extrasmenu_replay", 282.0)] {
-            s.row(Page::Extras, id, Vec2::new(320.0, y), 1.3, DISABLED, Act::None, 0.0);
-        }
-        // Credits: locked on a fresh profile in the original (cost 99 in the token table: unlocked by other means);
-        // the remaster opens it
-        s.row(Page::Extras, "ui_extrasmenu_credits", Vec2::new(320.0, 235.0), 1.3, ORANGE, Act::Go(Page::Credits), 0.0);
-        s.row(Page::Extras, "ui_shellmenu_back", Vec2::new(320.0, 84.44), 1.4, YELLOW, Act::Back, 0.0);
+        // extras, replay level, cutscenes: built each time they open, from what is unlocked (`extras_pages`)
 
         // graphics (pui_gfxopt; orig_ui_gfx-1140.png): labels right-aligned at x 240, bar 250..447, value at 460
         s.row(Page::Gfx, "ui_gfxmenu_title", Vec2::new(320.0, 420.996), 1.4, GREEN, Act::None, 0.0);
@@ -770,6 +821,42 @@ pub fn spawn(commands: &mut Commands, assets: &AssetServer, meshes: &mut Assets<
     commands.insert_resource(texts);
 }
 
+/// Builds the Extras, Replay Mission and Play Cutscene pages when one opens, from what is unlocked now (extras.rs;
+/// the original fills its list boxes as the screen's items are set up, UiScreen_InitItem 0x00491b70 cases 6 / 12 /
+/// 41 / 42).
+#[allow(clippy::too_many_arguments)]
+fn extras_pages(
+    mut commands: Commands,
+    menu: Res<GameMenu>,
+    mut last: crate::levelreset::PerLevel<Option<Page>>,
+    rows: Query<(Entity, &MenuRow)>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    texts: Res<Texts>,
+    (opts, difficulty, cheats, levels): (Res<GameOptions>, Res<crate::gamedata::Difficulty>, Res<crate::cheats::Cheats>, Res<crate::campaign::Levels>),
+) {
+    let last = last.get();
+    if *last == Some(menu.page) {
+        return;
+    }
+    *last = Some(menu.page);
+    if !matches!(menu.page, Page::Extras | Page::Replay | Page::Movies) {
+        return;
+    }
+    for (e, r) in &rows {
+        if r.page == menu.page {
+            commands.entity(e).despawn();
+        }
+    }
+    let u = crate::extras::Unlocks::new(&opts, *difficulty, &cheats, &levels);
+    let mut s = Spawner { commands: &mut commands, meshes: &mut meshes, materials: &mut materials, texts: &texts, orders: HashMap::new(), next: (0.0, None), panel: None };
+    match menu.page {
+        Page::Extras => s.extras_page(&u),
+        Page::Replay => s.replay_page(&u),
+        _ => s.movies_page(&u),
+    }
+}
+
 /// The page's selectable rows in up / down order: (order, action). A row that loads the saved game is disabled
 /// (+0x474 0x40, skipped by the selection: 0x00491b20) while there is none: Load Game (code 2, 0x004a2c10 slot -1),
 /// Quick Load and Restart from last save (code 34, 0x004a2e90).
@@ -840,12 +927,14 @@ fn navigate(
     mut cheats: ResMut<crate::cheats::Cheats>,
     mouse: Res<ButtonInput<MouseButton>>,
     mut restart: ResMut<crate::levelreset::RestartLevel>,
-    (placed, names, mut last_cursor, time_real, mut save_t): (
+    (placed, names, mut last_cursor, time_real, mut save_t, mut replay, mut movies): (
         Query<(&MenuRow, &HudElement, Option<&TextSize>, Option<&TextAlign>)>,
         Query<(&Part, &HudElement, Option<&TextSize>, &Visibility)>,
         Local<Option<Vec2>>,
         Res<Time<Real>>,
         Local<f32>,
+        ResMut<crate::campaign::ReplayMode>,
+        MessageWriter<crate::movie::PlayMovies>,
     ),
 ) {
     cheats.entering = menu.page == Page::Cheats && *state.get() != AppState::Playing;
@@ -1057,8 +1146,9 @@ fn navigate(
     match act {
         Act::None => return,
         Act::NewGame => {
-            // a new game's money (0x00401e80 at the front end; savegame.rs)
-            opts.money = crate::savegame::NEW_GAME_MONEY;
+            // a new game's money and pub intro (0x00401e80 at the front end; campaign.rs); not a replay (case 1)
+            crate::campaign::new_game(&mut opts);
+            replay.0 = false;
             next.set(AppState::Playing);
             vtime.unpause();
         }
@@ -1114,7 +1204,22 @@ fn navigate(
         }
         Act::Restart => restart.to = Some(RestartTo::Play),
         Act::ToTitle => restart.to = Some(RestartTo::Title),
-        Act::LoadMenu => go(&mut menu, Page::LoadSlots),
+        Act::LoadMenu => {
+            // Load Game (case 2) leaves the replay mode
+            replay.0 = false;
+            go(&mut menu, Page::LoadSlots);
+        }
+        Act::Replay(level) => {
+            // codes 6 / 42 in replay mode: the level straight from the front end (no Difficulty screen), with the
+            // front end's money (lev_shell's load reset it: 0x00401e80); after its Stats, back here (campaign.rs)
+            crate::campaign::new_game(&mut opts);
+            replay.0 = true;
+            restart.to = Some(RestartTo::Level(level.to_owned()));
+        }
+        Act::Movie(movie) => {
+            // code 12: "PlayMovie" over the page (skippable; the page shows again after it)
+            movies.write(crate::movie::PlayMovies::list(movie));
+        }
         Act::LoadSave => match crate::savegame::last_save() {
             Some(p) => restart.to = Some(RestartTo::Load(p)),
             None => {

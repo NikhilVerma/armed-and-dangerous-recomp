@@ -25,9 +25,10 @@ recorded runs". A capture of the original's win would confirm the order and the 
      money counts into Game+0x570 (0x00401f40). Phase 4: wait for MenuSelect. Phase 5: pop (0.25 s fade).
    - MenuSelect jumps the current reveal to 1 (ui_select when it was waiting); a ui_move tick at most every 0.1 s
      while a value changes.
-6. **0x0044a230, state 11**: success_movie (Game+0x2680, none on lev_1_m1: guess) and Credits (lev_5_m5 only)
-   skipped; 0x00401ef0 commits the money (+0x570.. to +0x57c); 0x004907c0 sets next_level_name (Game+0x268c,
-   "lev_1_m1_b"; NULL -> lev_shell when Game+0x568 bit 2); pushes "Loading".
+6. **0x0044a230, state 11**: success_movie (Game+0x2680, empty on lev_1_m1: mission.json) and Credits (lev_5_m5
+   only) skipped; 0x00401ef0 commits the money (+0x570.. to +0x57c); 0x004907c0 sets next_level_name (Game+0x268c,
+   "lev_1_m1_b"; NULL -> lev_shell when Game+0x568 bit 2, the Extras replay mode); pushes "Loading". The whole
+   sequence after the Stats screen, and what a level carries into the next: campaign.md (remaster: campaign.rs).
 7. **Loading** 0x00492f80 / 0x00492fd0 (ui_03.cpp:2026-2072): frame 5 loads the level (0x00418730; failure ->
    lev_shell with ui_corruptcontent), frame 10 starts it (0x00403600). Drawn by LoadingScreen_Draw 0x00449ac0.
 

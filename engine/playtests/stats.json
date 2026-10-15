@@ -19,6 +19,7 @@
  {"shot": "money"},
  {"tap": "Enter"},
  {"wait": 0.3},
- {"expect": {"level_generation": 1, "menu.page": "Main"}},
+ {"until": "loaded"},
+ {"expect": {"level_generation": 1, "campaign.level": "lev_1_m1_b"}},
  {"quit": true}
 ]}

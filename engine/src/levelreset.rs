@@ -1,5 +1,6 @@
 //! Starting the level again inside the running game: Abandon Mission / Return to title, Restart, Load Game and
-//! Restart from last save (docs/player-feedback.md 23, 28). The original tears the level down and builds it again in
+//! Restart from last save (docs/player-feedback.md 23, 28), and the campaign's next level (campaign.rs enters the
+//! other level's folder before the rebuild). The original tears the level down and builds it again in
 //! the same process (the level teardown, kill everything 0x0045d670 / delete 0x0045da20, then Game_StartLevel
 //! 0x00403690) behind its loading screen; before this module the remaster started a fresh process instead, which
 //! closed the window.
@@ -48,12 +49,14 @@ use std::time::{Duration, Instant};
 /// Where a restart goes.
 #[derive(Clone, Debug, PartialEq)]
 pub enum RestartTo {
-    /// the title menu over a fresh level (Abandon Mission, Return to title, the end of the statistics)
+    /// the title menu over the campaign's home level (Abandon Mission, Return to title, the end of the campaign)
     Title,
     /// play from the level's start (Restart)
     Play,
-    /// play from this saved game (Load Game, Quick Load, Restart from last save)
+    /// play from this saved game, in its level (Load Game, Quick Load, Restart from last save)
     Load(PathBuf),
+    /// play this level from its start (the campaign's next level, campaign.rs)
+    Level(String),
 }
 
 /// Ask for a restart: `to` is taken at the end of the frame.
@@ -256,6 +259,27 @@ fn engine_owned(world: &World, e: Entity) -> bool {
 fn restart(world: &mut World) {
     let Some(to) = world.resource_mut::<RestartLevel>().to.take() else { return };
     let t = Instant::now();
+    // 0. the level to build: the title stands on the campaign's home level, a saved game is in its own level
+    let save = match &to {
+        RestartTo::Load(p) => {
+            let s = crate::savegame::read(p);
+            if s.is_none() {
+                warn!("level: the saved game {} could not be read: starting the level", p.display());
+            }
+            s
+        }
+        _ => None,
+    };
+    let levels = world.resource::<crate::campaign::Levels>().clone();
+    let dir = match &to {
+        RestartTo::Title => Some(levels.home().to_path_buf()),
+        RestartTo::Play => None,
+        RestartTo::Load(_) => save.as_ref().and_then(|s| levels.dir(&s.level)),
+        RestartTo::Level(name) => levels.dir(name),
+    };
+    if let Some(dir) = dir {
+        crate::campaign::enter(world, &dir);
+    }
     // 1. the level's entities
     let keep = std::mem::take(&mut world.resource_mut::<Persistent>().0);
     let all: Vec<Entity> = world.query::<Entity>().iter(world).collect();
@@ -293,19 +317,13 @@ fn restart(world: &mut World) {
         world.entity_mut(cam).insert((bevy_egui::EguiContext::default(), bevy_egui::PrimaryEguiContext));
     }
     // 5. where to, once the level has settled (`settle`)
-    let from_save = match &to {
-        RestartTo::Load(p) => match crate::savegame::read(p) {
-            Some(save) => {
-                world.insert_resource(crate::savegame::PendingLoad(save, 0));
-                world.insert_resource(crate::campath::CameraPath::skipping());
-                true
-            }
-            None => {
-                warn!("level: the saved game {} could not be read: starting the level", p.display());
-                false
-            }
-        },
-        _ => false,
+    let from_save = match save {
+        Some(save) => {
+            world.insert_resource(crate::savegame::PendingLoad(save, 0));
+            world.insert_resource(crate::campath::CameraPath::skipping());
+            true
+        }
+        None => false,
     };
     world.resource_mut::<crate::cutscenes::Cutscenes>().from_save = from_save;
     let target = if to == RestartTo::Title { AppState::Title } else { AppState::Playing };
