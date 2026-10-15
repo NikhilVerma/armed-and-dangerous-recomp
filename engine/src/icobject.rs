@@ -111,8 +111,9 @@ fn setup(
                 }
                 commands.entity(e).insert(IcObject { activate: p.i("receive_trigger_activate", 0), script: p.s("generic_txt").unwrap_or("none").to_lowercase(), started: false, show_on_start: false });
             }
-            // an AI waiting in mode trigger_ic for its script (the goliath, the shrub patrols: GenericAI state 0x8c)
-            b if p.s("mode") == Some("trigger_ic") && p.s("generic_txt").is_some_and(|g| !g.eq_ignore_ascii_case("none")) => {
+            // the defence levels' AIs waiting in mode trigger_ic for their script (GenericAI state 0x8c): the goliath and the
+            // shrub patrols (other trigger_ic classes, e.g. the saucer, belong to their own modules)
+            b @ ("goliath" | "shrubpatrol") if p.s("mode") == Some("trigger_ic") && p.s("generic_txt").is_some_and(|g| !g.eq_ignore_ascii_case("none")) => {
                 let hidden = b == "shrubpatrol";
                 if hidden {
                     *vis = Visibility::Hidden;

@@ -2582,6 +2582,9 @@ fn think(
                     commands.entity(ge).despawn();
                     continue;
                 }
+                // the guns not set up yet this frame (turret.rs `setup` runs in the same Update): he asks again next
+                // frame (the order of the systems decided it before: the first frame could miss them)
+                None if spots.guns.is_empty() => g.start_gun = Some(id),
                 // a gun the engine does not make (the forge cannons): he stands guard where he is (debt)
                 None => {
                     g.guard = true;
