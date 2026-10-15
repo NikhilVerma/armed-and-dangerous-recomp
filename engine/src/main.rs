@@ -2,6 +2,7 @@
 //! Bevy 0.20 rendering, Jolt Physics 5.6, grunt AI, explosions, bevy_egui menus and a benchmark mode.
 //!
 //!   and_remaster [--scene DIR] [--size WxH] [--vsync] [--no-ai] [--bench SECONDS --out FILE] [--preset remaster|original]
+//!                [--profile]
 //!
 //! Presentation: graphics.rs (the Remaster preset for play; tool runs use the Original unless --preset says).
 //!
@@ -13,6 +14,7 @@ mod alarm;
 mod audio;
 mod bot;
 mod bench;
+mod profile;
 mod camera;
 mod campath;
 mod charanim;
@@ -106,10 +108,12 @@ struct Args {
     preset: Option<graphics::Preset>,
     /// --graphics key=value,...: single presentation settings over the preset (A/B comparisons, benches)
     graphics: Option<String>,
+    /// --profile (with --bench): per-pass GPU and CPU frame costs into the bench JSON (profile.rs)
+    profile: bool,
 }
 
 fn args() -> Args {
-    let mut a = Args { scene: PathBuf::from("../work/remaster/lev_1_m1"), size: (1920, 1080), bench: None, vsync: false, no_ai: false, fx_test: None, snap: None, play: None, skip_title: false, camera: None, no_hud: false, background: false, size_given: false, load: None, std_materials: false, debug_hide: None, no_intro: false, movies: None, preset: None, graphics: None };
+    let mut a = Args { scene: PathBuf::from("../work/remaster/lev_1_m1"), size: (1920, 1080), bench: None, vsync: false, no_ai: false, fx_test: None, snap: None, play: None, skip_title: false, camera: None, no_hud: false, background: false, size_given: false, load: None, std_materials: false, debug_hide: None, no_intro: false, movies: None, preset: None, graphics: None, profile: false };
     let v: Vec<String> = std::env::args().collect();
     let mut bench_secs = None;
     let mut out = PathBuf::from("../work/remaster/bench/latest.json");
@@ -142,6 +146,7 @@ fn args() -> Args {
             "--movies" => a.movies = Some(PathBuf::from(next)),
             "--preset" => a.preset = Some(graphics::Preset::parse(&next).expect("--preset remaster|original")),
             "--graphics" => a.graphics = Some(next),
+            "--profile" => (a.profile, used) = (true, 1),
             other => panic!("unknown argument {other}"),
         }
         i += used;
@@ -248,6 +253,11 @@ fn main() {
     }
     if bench {
         app.insert_state(AppState::Playing);
+        // Bevy's default updates an unfocused window at 60 Hz at most: a background bench would measure that cap
+        app.insert_resource(bevy::winit::WinitSettings { focused_mode: bevy::winit::UpdateMode::Continuous, unfocused_mode: bevy::winit::UpdateMode::Continuous });
+        if a.profile {
+            app.add_plugins(profile::ProfilePlugin);
+        }
     }
     if a.skip_title {
         app.insert_state(AppState::Playing);
