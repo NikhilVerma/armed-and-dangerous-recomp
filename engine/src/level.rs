@@ -484,7 +484,7 @@ fn in_bullet_list(p: &Props) -> bool {
     listed && p.s("material") != Some("invisible_material")
 }
 
-fn destructible(p: &Props) -> Option<Destructible> {
+pub(crate) fn destructible(p: &Props) -> Option<Destructible> {
     // Objects with a death fx or a husk and finite health die from damage (behaviour fx_explosion, building, tree).
     // (an object that takes damage and has a death fx but no max_health, the guard alarm: the base default health,
     // 100 (guess: Object_Load's default is not traced))

@@ -128,6 +128,8 @@ struct DefenceState {
     start_tag: i64,
     started: bool,
     roman_health: Option<f32>,
+    /// the counter of the mission's grunt_wall_counter_tag (Game+0x26fc): the HUD's grunts over the wall
+    wall_counter: Option<u32>,
 }
 
 /// A playtest's debug command (playtest.rs `defence`): {"aim": "army"} keeps the turret on the nearest army grunt
@@ -184,6 +186,17 @@ fn setup(
     if state.start_tag == 0 {
         if let Some(m) = scene.logic.iter().find(|l| l.template == "mission") {
             state.start_tag = m.props.get("start_in_turret_tag").and_then(|v| v.as_i64()).unwrap_or(0);
+            let tag = m.props.get("grunt_wall_counter_tag").and_then(|v| v.as_i64()).unwrap_or(0);
+            if tag != 0 {
+                state.wall_counter = scene
+                    .instances
+                    .iter()
+                    .find(|i| {
+                        let p = data.instance_props(&i.template, &i.props);
+                        i.template == "counter" && p.i("tag", 0) == tag
+                    })
+                    .map(|i| i.id);
+            }
         }
     }
     for (e, id, a, placed) in &q {
@@ -409,7 +422,7 @@ fn ride(
     (mut physics, data, xhair): (NonSendMut<crate::physics::Physics>, Res<crate::gamedata::GameData>, Res<crate::hud::Crosshair>),
     (mut sounds, mut stop, mut fx, mut triggers): (MessageWriter<crate::audio::PlaySound>, MessageWriter<crate::audio::StopSound>, MessageWriter<crate::fx::StartFx>, MessageWriter<crate::mission::SendTrigger>),
     (mut stats, mut hud, army): (ResMut<crate::player::PlayerStats>, ResMut<crate::hud::HudState>, Res<crate::army::Army>),
-    joints: Query<&GlobalTransform>,
+    (joints, mut upgrades): (Query<&GlobalTransform>, MessageReader<crate::icobject::TurretUpgrade>),
     mut kit: crate::army::ModelKit,
 ) {
     let dt = time.delta_secs();
@@ -548,7 +561,11 @@ fn ride(
     r.fall_fast_t = 0.0;
     r.grace = 0.5;
     *vis = Visibility::Hidden;
-    // the ammo upgrade (Game+0xdd1 starts it) counts down
+    // the ammo upgrade (Game+0xdd1, a shot turret_upgrade: icobject.rs) starts, counts down
+    if upgrades.read().count() > 0 {
+        t.upgrade = t.upgrade_duration;
+        info!("EVENT defence: ammo upgrade for {} s", t.upgrade_duration);
+    }
     t.upgrade = (t.upgrade - dt).max(0.0);
     // the crowd ambience every 10 s by the army's live grunts (<15, <30, <60, more)
     t.crowd.1 -= dt;
@@ -730,8 +747,16 @@ fn pose(
     }
 }
 
-/// The turret in the playtest state log.
-fn log(mounted: Res<crate::turret::Mounted>, q: Query<(Entity, &BaseTurret, &GlobalTransform)>, state: Option<ResMut<crate::playtest::PlayState>>) {
+/// The turret in the playtest state log; the HUD's grunts over the wall.
+fn log(
+    mounted: Res<crate::turret::Mounted>,
+    q: Query<(Entity, &BaseTurret, &GlobalTransform)>,
+    state: Option<ResMut<crate::playtest::PlayState>>,
+    defence: Res<DefenceState>,
+    mission: Option<Res<crate::mission::Mission>>,
+    mut hud: ResMut<crate::hud::HudState>,
+) {
+    hud.over_wall = defence.wall_counter.and_then(|id| mission.as_ref()?.counter(id));
     let Some(mut state) = state else { return };
     let Some((e, t, gt)) = q.iter().next() else { return };
     let p = gt.translation();
@@ -746,5 +771,6 @@ fn log(mounted: Res<crate::turret::Mounted>, q: Query<(Entity, &BaseTurret, &Glo
         "overrun": t.overrun,
         "upgrade": t.upgrade,
         "pos": [p.x, -p.z, p.y],
+        "over_wall": hud.over_wall.map(|c| c.0),
     }));
 }

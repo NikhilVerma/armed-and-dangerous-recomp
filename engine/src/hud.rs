@@ -198,6 +198,9 @@ pub struct HudState {
     pub weapons: u32,
     pub specials: u32,
     pub prompt: Option<String>,
+    /// the grunts over the wall so far and the count that loses the level (the counter of grunt_wall_counter_tag,
+    /// Game+0x26fc: ui_grunt_over_wall_count "%d" 0x00465f70, the ui_flag_base meter 0x00465e30; defence.rs)
+    pub over_wall: Option<(i64, i64)>,
     pub briefing: Option<String>,
     pub hit_flash: [f32; 4],
     /// the speech subtitle: text, speaker colour, seconds left (in-game subtitles option)
@@ -1153,6 +1156,7 @@ fn texts(
                 p
             }
             "ui_briefing" => state.briefing.clone().unwrap_or_default(),
+            "ui_grunt_over_wall_count" => state.over_wall.map(|(n, _)| n.to_string()).unwrap_or_default(),
             "ui_team" => state.team.and_then(|(n, _)| hud.layout.elements.iter().find(|e| e.name == n)).and_then(|e| e.string.clone()).unwrap_or_default(),
             "ui_subtitle" => match &state.subtitle {
                 Some((s, c, _)) => {
@@ -1349,6 +1353,8 @@ fn visibility(
                 "ui_select_right_on" => multi_weapon && ctl.down(crate::input::Act::SwitchWeapon),
                 "ui_select_down_on" | "ui_select_left_on" => false,
                 n if n.starts_with("ui_health") => !state.cinematic,
+                // the base flag meter: only with the grunts-over-the-wall counter, not in a cinematic (0x00465e30)
+                "ui_flag_base" => state.over_wall.is_some() && !state.cinematic,
                 _ => true,
             };
         *v = if show { Visibility::Inherited } else { Visibility::Hidden };

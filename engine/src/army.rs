@@ -283,7 +283,12 @@ fn load(mut army: ResMut<Army>, launch: Res<crate::Launch>, data: Res<crate::gam
 
 /// Army timers' activation (TimerObject_OnTrigger 0x004965d0) and the mission's pre-success (the army stops:
 /// Game+0xbf0 = +0xbf8 = 0, every army grunt retreats, MissionObject_OnTrigger 0x0044d600).
-fn triggers(mut army: ResMut<Army>, mut events: MessageReader<crate::mission::SendTrigger>, mut grunts: Query<&mut Grunt, With<ArmyGrunt>>) {
+fn triggers(
+    mut army: ResMut<Army>,
+    mut events: MessageReader<crate::mission::SendTrigger>,
+    mut grunts: Query<(&mut Grunt, &GlobalTransform), With<ArmyGrunt>>,
+    player: Query<&GlobalTransform, (With<crate::ai::Player>, Without<ArmyGrunt>)>,
+) {
     let ids: Vec<i64> = events.read().map(|e| e.0).collect();
     for t in ids {
         for timer in army.timers.iter_mut().filter(|x| x.activate != 0 && x.activate == t) {
@@ -295,11 +300,17 @@ fn triggers(mut army: ResMut<Army>, mut events: MessageReader<crate::mission::Se
             army.stopped = true;
             army.limit = 0;
             army.unpause = 0;
-            // the retreat (vt+0x234(&dir) on each AI): guess: they run off (Flee)
-            for mut g in &mut grunts {
+            // the retreat (vt+0x234(&dir) on each AI, the direction of the marker tagged -1): guess: each runs away
+            // from Roman for good (Flee with a goal far off)
+            let from = player.single().map(|p| p.translation()).unwrap_or_default();
+            for (mut g, gt) in &mut grunts {
                 if g.mind != Mind::Dead {
+                    let away = (gt.translation() - from).with_y(0.0).normalize_or(Vec3::X);
                     g.spline = None;
                     g.fixed = None;
+                    g.target = None;
+                    g.goal = gt.translation() + away * 3000.0;
+                    g.timer = 1.0e6;
                     g.mind = Mind::Flee;
                 }
             }
@@ -408,7 +419,7 @@ fn timers(
             members.push(Member { visual, ..member });
         }
         army.stats.platoons += 1;
-        info!("EVENT army: timer {id} created a platoon ({} members, path {gen_text}, markers {:?}, ladders {:?}) at {:.0}", members.len(), set(&army.marker_sets, e.a), set(&army.ladder_sets, e.b), e.time);
+        debug!("army: timer {id} created a platoon ({} members, path {gen_text}, markers {:?}, ladders {:?}) at {:.0}", members.len(), set(&army.marker_sets, e.a), set(&army.ladder_sets, e.b), e.time);
         commands.entity(pe).insert((
             mover,
             Platoon {

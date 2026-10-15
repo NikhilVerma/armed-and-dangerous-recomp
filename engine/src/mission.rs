@@ -641,6 +641,12 @@ pub struct MissionSave {
 }
 
 impl Mission {
+    /// A counter's count so far and its target, by instance id (defence.rs: the grunts-over-the-wall counter,
+    /// grunt_wall_counter_tag, ui_grunt_over_wall_count)
+    pub fn counter(&self, id: u32) -> Option<(i64, i64)> {
+        self.counters.iter().find(|c| c.id == id && !c.off).map(|c| (c.current, c.count))
+    }
+
     /// The mission start has been shown (MissionObject_ShowStart 0x0044daf0; savegame.rs's first checkpoint).
     pub fn started(&self) -> bool {
         self.started
@@ -960,11 +966,11 @@ impl Mission {
         }
         let m = &f.mission.resolved;
         let text = |k: &str| s(m, k).and_then(|t| f.text.get(&t).cloned());
-        // MissionObject_Load 0x0044c170: start_in_turret_tag and camera_startup_path_anim start the level in a turret
-        // / on a camera path (slot 8 0x0044d150, Camera_StartPath mode 2): not ported, none on lev_1_m1. (Slot 9
+        // MissionObject_Load 0x0044c170: start_in_turret_tag starts the level in a turret (defence.rs) and
+        // camera_startup_path_anim on a camera path (slot 8 0x0044d150, Camera_StartPath mode 2): the path is not ported, none on lev_1_m1. (Slot 9
         // 0x0044d1b0 resets the mission timer +0x464 and the start flags: `start` below, from the level's start.)
         let mut log = Vec::new();
-        for k in ["start_in_turret_tag", "peasant_max_casualties", "peasant_max_saved"] {
+        for k in ["peasant_max_casualties", "peasant_max_saved"] {
             if n(m, k) != 0.0 {
                 log.push(format!("mission: {k} {} not ported", n(m, k)));
             }
