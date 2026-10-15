@@ -418,7 +418,9 @@ fn fly(
         let mut from = pos;
         let mut rest = len;
         let mut hit = None;
-        while let Some((body, at, _)) = physics.raycast(from, dir, rest) {
+        // through the bodies projectiles pass (the projectile list, Projectile_Update 0x0047e580): invisible walls
+        // (collide_barrier, blocks_projectiles 0) stop characters, not bombs — a long throw used to stick in mid-air
+        while let Some((body, at, _)) = physics.raycast_bullet(from, dir, rest) {
             let owner = physics.bodies.get(&body).copied();
             if owner.is_some_and(|o| companions.get(o).is_ok()) {
                 rest -= at.distance(from) + 0.05;
