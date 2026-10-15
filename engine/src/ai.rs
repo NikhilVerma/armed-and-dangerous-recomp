@@ -1017,7 +1017,7 @@ impl Plugin for AiPlugin {
             .init_resource::<GrenadeAssets>()
             .init_level_resource::<Interests>()
             .init_level_resource::<bully::BullyLines>()
-            .add_systems(Update, (squad::update_squads, interests, search, scare, think, bully::bullies, die, dismay, log_cover, log_ai, squad::log_squads, grenades).chain().after(crate::fx::FxSet));
+            .add_systems(Update, (squad::update_squads, interests, search, scare, think, bully::bullies, die, dismay, log_cover, log_ai, squad::log_squads, grenades).chain().after(crate::fx::FxSet).after(crate::turret::setup));
     }
 }
 

@@ -158,7 +158,7 @@ fn turn(t: &Turret) -> Quat {
 
 /// Mounted-gun components for the placed guns (their model must be skinned: tools/remaster_export_anim.py
 /// RIGID_SKINNED).
-fn setup(
+pub(crate) fn setup(
     mut commands: Commands,
     data: Res<crate::gamedata::GameData>,
     lib: Res<crate::skin::AnimLibrary>,
