@@ -3,6 +3,15 @@
 One line per item, with its status. Newest session first. Each fix needs evidence: a capture, a log or a test.
 Agents re-read this file after every context compaction (AGENTS.md).
 
+## 2026-10-15 (desktop shortcut, Remaster preset)
+
+| # | Feedback (the player's words, short) | Status / plan |
+|---|---|---|
+| 22 | "new game is broken, the menu never goes away" | REPRODUCED (newgame_remaster.json, --preset remaster): the title menu's background art stays over the world after New Game, Remaster preset only (Original shows the world). Fixing |
+| 23 | "abandon mission quits and restarts the game" | The pause menu's Abandon / return to title relaunches the process (gamemenu.rs relaunch_to_title). Fixing: back to the title in-process |
+| 24 | "fonts are blurry" | Fixing: HUD / menu text sharp at any resolution |
+| 25 | "you should have built enough hooks and controls for you to get to specific states" | Right: the state tooling exists but no test ran the real launch path (Remaster preset, title menu, intro). Adding real-launch smoke tests to the suite |
+
 ## 2026-10-12 (play session after the overnight verification)
 
 | # | Feedback (the player's words, short) | Status / plan |
