@@ -322,6 +322,13 @@ alarm1 (grunt 67's run to marker 151 raises the siren; generators send troops th
 captain spawns with his class and fights; a grenade was thrown in the run), taunt1 (with the bark delays forced, a
 spawned grunt taunts after a clip), leader1 (companions, companions.md 7).
 
+**Guards fire from their guard state (2026-10-15, oracle finding B8).** State 0x79 (ai_06.cpp:2645-2698) runs the fire
+cycle itself (vt+0x198 with may_move clear) while +0x588 is held; at a clip's end it plays the reload set 0x2a.. in
+place and rolls the counters (0x00427600) when the anim ends. ai.rs: a guard engages as Mind::Guard with
+`guard_firing`, the fire cycle's Reload becomes his guard state with `reloading`. The later classes and modes:
+docs/subsystems/infantry.md. **Roman's sticky bomb** is a projectile to the grunts' ears (B6): its start and end
+effects post noises like his bullets' (sticky.rs -> Interests::follow / end_at).
+
 ## 14. Open points
 
 - **Tree grunts** (not created): three lev_1_m1 pine trees (47, 61, 76: ic_tree_slide_2 / 3 / 1 = triggers 99 / 98 /

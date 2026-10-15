@@ -153,6 +153,8 @@ pub struct SpawnGrunt {
     pub alert_group: i64,
     /// a grunt released by the army (army.rs): the orders it carries, inserted as its component
     pub army: Option<crate::army::ArmyGrunt>,
+    /// a squad member (ai/squad.rs): his squad and bone; idle at it until the squad moves
+    pub squad: Option<ai::squad::SquadLink>,
 }
 
 /// The `Center` translation track of a rigid (unskinned) model's own anim, played in a loop on its placement.
@@ -373,7 +375,7 @@ pub struct SkinCtx<'a> {
 
 /// Spawns one model's parts under `e`; a skinned model also gets its joint entities and an Animator on `e`
 /// (upper/lower body split at "belly", the bone the _t / _b anim halves divide at). Returns (draws, triangles).
-pub(crate) fn attach_model(commands: &mut Commands, e: Entity, model: &scene::Model, shadows: bool, skin: Option<&mut SkinCtx>) -> (usize, usize, Option<Entity>) {
+pub(crate) fn attach_model(commands: &mut Commands, e: Entity, model: &scene::Model, shadows: bool, skin: Option<&mut SkinCtx>, hand_bone: &str) -> (usize, usize, Option<Entity>) {
     let mut inverse_bind: Vec<Mat4> = Vec::new();
     let rig = match (model.skeleton.as_deref(), skin) {
         (Some(name), Some(ctx)) => ctx.lib.skeleton(name, ctx.binds).map(|sk| {
@@ -408,8 +410,8 @@ pub(crate) fn attach_model(commands: &mut Commands, e: Entity, model: &scene::Mo
         let c = c.id();
         commands.entity(owner).add_child(c);
     }
-    // the right-hand weapon bone (characters carry their weapon at "ref_rhand": grunt init 0x00434fb0)
-    let hand = rig.as_ref().and_then(|r| r.skeleton.index.get("ref_rhand").map(|&i| r.joints[i]));
+    // the weapon bone (characters carry their weapon at "ref_rhand": grunt init 0x00434fb0; ai::Kind::weapon_bone)
+    let hand = rig.as_ref().and_then(|r| r.skeleton.index.get(hand_bone).map(|&i| r.joints[i]));
     if let Some(r) = rig {
         commands.entity(e).insert(r);
     }
@@ -567,7 +569,7 @@ pub fn spawn(
     if let Some(model) = lib.load_model(&scene.landscape, false, assets, meshes, materials) {
         if !skip_visual {
             let e = commands.spawn((Transform::from_matrix(axes), Visibility::default(), Name::new("landscape"))).id();
-            let (d, t, _) = attach_model(commands, e, model, true, None);
+            let (d, t, _) = attach_model(commands, e, model, true, None, "ref_rhand");
             info.draws += d;
             info.triangles += t;
         }
@@ -587,6 +589,26 @@ pub fn spawn(
                 if let Some(fx) = p.s("fx_name") {
                     info.camera_fx.push((fx.to_owned(), p.f("position_only", 1.0) != 0.0));
                 }
+            }
+            continue;
+        }
+        // a squad (ai/squad.rs, Squad_Init 0x00433220): an undrawn anchor with its members to make; a jump marker
+        // (JumpMarker 0x005ac628): a landing point for the jumper captains (ai/jumper.rs)
+        if behavior == "squad" || behavior == "jump_marker" {
+            let m = scene::game_matrix(&inst.transform);
+            let mut at = axes.transform_point3(m.w_axis.truncate());
+            if p.f("force_ground", 0.0) != 0.0 {
+                if let Some((_, hit, _)) = physics.raycast(at + Vec3::Y * 1000.0, -Vec3::Y, 10000.0) {
+                    at.y = hit.y + 0.1;
+                }
+            }
+            let (_, r, _) = (axes * m).to_scale_rotation_translation();
+            let (yaw, _, _) = (r * game_to_engine().inverse()).to_euler(EulerRot::YXZ);
+            let mut e = commands.spawn((Transform::from_translation(at), Visibility::default(), Name::new(inst.template.clone()), InstanceId(inst.id)));
+            if behavior == "squad" {
+                e.insert(ai::squad::Squad::from_props(&p, &lib.dir, &inst.template, at, yaw));
+            } else {
+                e.insert(ai::JumpMarker { tag: p.i("marker_tag", 0), occupant: None });
             }
             continue;
         }
@@ -649,7 +671,8 @@ pub fn spawn(
         if !invisible {
             // shadow casters: objects whose property set has shadow_enable (shadows.md, object +0x3ec bits 1-2)
             let casts = !background && p.f("shadow_enable", 0.0) != 0.0;
-            let (d, t, hand) = attach_model(commands, e, model, casts, Some(&mut *skin));
+            let hand_bone = ai::Kind::from_template(&inst.template).map_or("ref_rhand", ai::Kind::weapon_bone);
+            let (d, t, hand) = attach_model(commands, e, model, casts, Some(&mut *skin), hand_bone);
             // weapons: Roman's rifle (the level's loadout: player_add_rifle), grunts' rifle or bow
             let weapon = match inst.template.as_str() {
                 "trotter" => Some("player_rifle"),
@@ -719,7 +742,8 @@ pub fn spawn(
         }
         // characters: property sets with an AI mode (grunts). Their AI here is a stand-in driven by the game's
         // own parameters (speeds, ranges); the recovered AI (src/ai) replaces it later.
-        if p.has("mode") && inst.model.starts_with("grunt_") {
+        // (the grunt-class templates by ai::Kind: grunt, grunt_regular, captain, captain_sniper)
+        if p.has("mode") && ai::Kind::from_template(&inst.template).is_some() {
             // window / tower grunts (AI_ResolveStartObjects 0x00425e20): placed at the generic_txt bone of the object
             // whose tag is obj_tag (the house), physics off: they stay there. Facing: away from the object's centre
             // (guess: the original takes the bone's whole matrix)
@@ -750,6 +774,32 @@ pub fn spawn(
                 let (yaw, _, _) = (rot * game_to_engine().inverse()).to_euler(EulerRot::YXZ);
                 physics.materials.insert(id, p.s("material").unwrap_or("grunt").to_owned());
                 let mut g = ai::make_grunt(&p, data, ai::Kind::of(&inst.template), pos, window_yaw.unwrap_or(yaw), &mut rng);
+                g.cold = ai::cold_level(&lib_dir);
+                // mode bully: the peasant whose tag is obj_tag (the peasant list +0xef8)
+                if mode == "bully" {
+                    let tag = p.i("obj_tag", 0);
+                    let peasant = scene.instances.iter().find(|h| {
+                        tag != 0 && h.props.get("tag").and_then(|v| v.as_i64()) == Some(tag) && data.template_props(&h.template).s("behavior") == Some("peasant")
+                    });
+                    match peasant {
+                        Some(h) => g.bully = Some(ai::bully::Bully::new(h.id, &mut rng)),
+                        None => warn!("ai: bully {} finds no peasant of tag {tag}: ready roaming", inst.id),
+                    }
+                    g.attention = false;
+                }
+                // mode turret: the gun whose tag is obj_tag (the turret list +0xea8: stig_mgun / forge_cannon)
+                if mode == "turret" {
+                    let tag = p.i("obj_tag", 0);
+                    g.start_gun = scene
+                        .instances
+                        .iter()
+                        .find(|h| {
+                            tag != 0
+                                && h.props.get("tag").and_then(|v| v.as_i64()) == Some(tag)
+                                && matches!(data.template_props(&h.template).s("behavior"), Some("stig_mgun_turret" | "forge_cannon"))
+                        })
+                        .map(|h| h.id);
+                }
                 if window_yaw.is_some() {
                     g.fixed = Some(pos);
                 }
@@ -819,7 +869,7 @@ pub fn spawn(
                 let ww = world * Mat4::from_translation(at);
                 let we = commands.spawn((Transform::from_matrix(ww), Visibility::default(), Name::new("village_window"), Window { building: e, index: i as u8 })).id();
                 if let Some(m) = wt.model.as_ref().and_then(|m| lib.load_model(m, false, assets, meshes, materials)) {
-                    let _ = attach_model(commands, we, m, false, None);
+                    let _ = attach_model(commands, we, m, false, None, "ref_rhand");
                     if m.skeleton.is_none() && wp.f("decal_receive", 1.0) != 0.0 {
                         decal_world.add_object(we, m, to_game * ww);
                     }
@@ -1017,7 +1067,7 @@ impl StageSwap<'_, '_> {
         let mut model_name = None;
         if let Some(m) = ht.model.as_ref().and_then(|m| self.lib.load_model(m, false, &self.assets, &mut self.meshes, &mut self.materials)) {
             model_name = ht.model.clone();
-            let _ = attach_model(&mut self.commands, e, m, true, None);
+            let _ = attach_model(&mut self.commands, e, m, true, None, "ref_rhand");
             // the husk is a new object: a receiver like any other (decal_receive of its template)
             if m.skeleton.is_none() && hp.f("decal_receive", 1.0) != 0.0 {
                 if let Some(w) = self.decal_world.as_mut() {
@@ -1181,7 +1231,8 @@ fn spawn_grunts(
             commands.entity(e).insert(crate::mission::DeathTrigger(on_death));
         }
         let mut ctx = SkinCtx { lib: &mut anim_lib, binds: &mut binds };
-        let (_, _, hand) = attach_model(&mut commands, e, &model, true, Some(&mut ctx));
+        let hand_bone = ai::Kind::from_template(&ev.template).map_or("ref_rhand", ai::Kind::weapon_bone);
+        let (_, _, hand) = attach_model(&mut commands, e, &model, true, Some(&mut ctx), hand_bone);
         if let (Some(h), Some(w)) = (hand, ai::weapon_template(&ev.template).and_then(|w| data.templates.get(w)).and_then(|t| t.model.clone())) {
             if let Some(m) = lib.load_model(&w, false, &assets, &mut meshes, &mut materials) {
                 attach_weapon(&mut commands, h, m, Transform::IDENTITY);
@@ -1196,7 +1247,14 @@ fn spawn_grunts(
         if let Some(id) = physics.add_dynamic(e, &shape, ev.at + lift, Quat::IDENTITY, Vec3::ZERO, s) {
             physics.materials.insert(id, "grunt".into());
             let mut g = ai::make_grunt(&p, &data, ai::Kind::of(&ev.template), ev.at, 0.0, rng);
-            if ev.barracks.is_some() || ev.exit.is_some() {
+            g.cold = ai::cold_level(&lib.dir);
+            if let Some(link) = ev.squad {
+                // a squad member (0x0042de60): his group, his bone, state 0xde
+                g.squad = Some(link);
+                g.alert_group = ev.alert_group;
+                g.mind = ai::Mind::InSquad;
+                g.attention = true;
+            } else if ev.barracks.is_some() || ev.exit.is_some() {
                 // a barracks troop (0x0042db50) or an alarm generator's (0x0042dd50, ai.rs: then +0x488 0x200, the
                 // charge): its alert group, marker tags and the walk out through the exit
                 if let Some(b) = ev.barracks {

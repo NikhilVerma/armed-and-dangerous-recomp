@@ -294,6 +294,11 @@ impl Playtest {
     pub fn pad_entity(&self) -> Option<Entity> {
         self.pad_e
     }
+
+    /// A warp as the script's warp step: Roman's feet to game-space [x, y, z] facing yaw degrees (oracle.rs).
+    pub fn request_warp(&mut self, w: [f32; 4]) {
+        self.warp = Some(w);
+    }
 }
 
 /// Lines the game adds to the once-a-second state log (player position, health, mission step, ...).
@@ -409,7 +414,7 @@ fn button(name: &str) -> MouseButton {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn drive(
+pub(crate) fn drive(
     mut commands: Commands,
     time: Res<Time<Real>>,
     mut pt: ResMut<Playtest>,

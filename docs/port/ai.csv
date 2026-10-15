@@ -31,15 +31,14 @@ address,name,disposition,reason
 0x0040ce30,BarricadeObject_Slot57,not needed,"the window / exit troop dispatch and removal of the barracks-like generators (TwigletGenerator slots): lev_1_m1 barracks are run by mission.rs (0x0040ad80 / 0x0040c910 path, cited there); these window / roof variants have no instance"
 0x0040cef0,fn_0040cef0,not needed,"the window / exit troop dispatch and removal of the barracks-like generators (TwigletGenerator slots): lev_1_m1 barracks are run by mission.rs (0x0040ad80 / 0x0040c910 path, cited there); these window / roof variants have no instance"
 0x0040cf40,BarricadeObject_Slot53,not needed,"the window / exit troop dispatch and removal of the barracks-like generators (TwigletGenerator slots): lev_1_m1 barracks are run by mission.rs (0x0040ad80 / 0x0040c910 path, cited there); these window / roof variants have no instance"
-0x0040dd70,JumpMarker_Slot6,not needed,"class JumpMarker has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
-0x0040de00,JumpMarker_Slot55,not needed,"class JumpMarker has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
-0x0040de30,JumpMarker_Slot79,not needed,"class JumpMarker has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
-0x0040de40,JumpMarker_Slot82,not needed,"class JumpMarker has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
-0x00424610,fn_00424610,not needed,the AI's breadcrumb point list +0x958 (a pool of followed points): written only by state 0x3c's lost-route path for AI with +0x958 set (Ai_InitGeneric creates it for Q112 only: 0x004246c0 al = 1); no lev_1_m1 class
-0x00424630,fn_00424630,not needed,the AI's breadcrumb point list +0x958 (a pool of followed points): written only by state 0x3c's lost-route path for AI with +0x958 set (Ai_InitGeneric creates it for Q112 only: 0x004246c0 al = 1); no lev_1_m1 class
-0x004246a0,fn_004246a0,not needed,the AI's breadcrumb point list +0x958 (a pool of followed points): written only by state 0x3c's lost-route path for AI with +0x958 set (Ai_InitGeneric creates it for Q112 only: 0x004246c0 al = 1); no lev_1_m1 class
-0x004246c0,fn_004246c0,not needed,the AI's breadcrumb point list +0x958 (a pool of followed points): written only by state 0x3c's lost-route path for AI with +0x958 set (Ai_InitGeneric creates it for Q112 only: 0x004246c0 al = 1); no lev_1_m1 class
-0x004247a0,fn_004247a0,not needed,the AI's breadcrumb point list +0x958 (a pool of followed points): written only by state 0x3c's lost-route path for AI with +0x958 set (Ai_InitGeneric creates it for Q112 only: 0x004246c0 al = 1); no lev_1_m1 class
+0x0040de00,JumpMarker_Slot55,replaced,the jump marker's removal: ai/jumper.rs JumpMarker is a component that goes with its entity
+0x0040de30,JumpMarker_Slot79,replaced,JumpMarker occupied test: ai/jumper.rs JumpMarker::occupant
+0x0040de40,JumpMarker_Slot82,replaced,JumpMarker free test: ai/jumper.rs MarkerView::free
+0x00424610,fn_00424610,debt,"the breadcrumb point list +0x958: only the Q112 creates it (state 0x3c lost route): not ported, the Q112 re-plans with nav.rs"
+0x00424630,fn_00424630,debt,the breadcrumb point list +0x958 (see 0x00424610)
+0x004246a0,fn_004246a0,debt,the breadcrumb point list +0x958 (see 0x00424610)
+0x004246c0,fn_004246c0,debt,the breadcrumb point list +0x958 (see 0x00424610)
+0x004247a0,fn_004247a0,debt,the breadcrumb point list +0x958 (see 0x00424610)
 0x00425be0,fn_00425be0,not needed,the knock-away of state 0xc..0xe (the hand-to-hand fight 0x00427e80): needs a target with vt+0x104 (the fight-able: none of Roman / Q / Jonesy) and an AI with vt+0x1e4 (false for the three grunt classes)
 0x00425df0,fn_00425df0,replaced,the physics description slot 7 / the shared physics parameters (Object_BuildRadiusCollision): level.rs capsule bodies (ai.rs capsule)
 0x004265c0,fn_004265c0,not needed,"Q112 / companion helpers of the tower mode (state tests 1 / 0x79 / 0x7a / 0x50, Molmer tower): no tower trigger on lev_1_m1 (Q / Jonesy receive_trigger_activate 0)"
@@ -55,7 +54,7 @@ address,name,disposition,reason
 0x004271c0,fn_004271c0,not needed,the wait state 0x11 and its anims 0x74..0x76 / the engage variant: reached only with Game+0xc50 (mission ai_max_fire) set; lev_1_m1 sets 0
 0x00427c80,fn_00427c80,not needed,the wait state 0x11 and its anims 0x74..0x76 / the engage variant: reached only with Game+0xc50 (mission ai_max_fire) set; lev_1_m1 sets 0
 0x00427e80,fn_00427e80,not needed,the knock-away of state 0xc..0xe (the hand-to-hand fight 0x00427e80): needs a target with vt+0x104 (the fight-able: none of Roman / Q / Jonesy) and an AI with vt+0x1e4 (false for the three grunt classes)
-0x00428160,fn_00428160,not needed,"the close-range anim 0x5f / 0x60 and state 0xb: needs the target inside +0x5fc, which Ai_InitGeneric leaves 0 for the grunt classes (only Q112 sets 25)"
+0x00428160,fn_00428160,debt,"the close-range attack (anim 0x5f / 0x60, state 0xb) within +0x5fc: only the Q112 sets it (25, damage 35): its q112_gun_hit melee is not ported (docs/subsystems/infantry.md section 7)"
 0x00428220,fn_00428220,not needed,"flag 0x100000 of +0x484 (set by the ""release"" event of fake grunts / squads)"
 0x00429790,fn_00429790,replaced,"the drive parameters move_power +0x944 / the speeds (vt+0x80 / +0x84 / +0x88, Q's constant 0.5) fed to the body drive 0x00454d80: the engine sets the velocity from move_speed / patrol / limp speeds (ai.rs, the companions' fitted 0.933 x move_speed)"
 0x004297a0,fn_004297a0,replaced,"the drive parameters move_power +0x944 / the speeds (vt+0x80 / +0x84 / +0x88, Q's constant 0.5) fed to the body drive 0x00454d80: the engine sets the velocity from move_speed / patrol / limp speeds (ai.rs, the companions' fitted 0.933 x move_speed)"
@@ -64,9 +63,7 @@ address,name,disposition,reason
 0x00429a40,fn_00429a40,replaced,the weapon attachment's visibility (+0x61c list): level.rs attaches the weapon model to the hand
 0x00429ac0,fn_00429ac0,not needed,"the scale-wall assault needs Game+0xc54 > 0 (the IC event base_defend): no defence level sends it (army.rs, defence.md)"
 0x00429ce0,fn_00429ce0,not needed,"the ladder / scale-wall assault and jet-pack launches (army levels: Game+0xcbe, ladders list +0xee4 with ic_* markers, turbo captains): none on lev_1_m1"
-0x0042a2c0,fn_0042a2c0,not needed,"the ladder / scale-wall assault and jet-pack launches (army levels: Game+0xcbe, ladders list +0xee4 with ic_* markers, turbo captains): none on lev_1_m1"
 0x0042a660,fn_0042a660,not needed,the marker-run pick by marker index (tower / squad markers 0x0042a660: +0x560..+0x564): only the tower and squad modes call it
-0x0042b480,fn_0042b480,not needed,"the ladder / scale-wall assault and jet-pack launches (army levels: Game+0xcbe, ladders list +0xee4 with ic_* markers, turbo captains): none on lev_1_m1"
 0x0042b9e0,fn_0042b9e0,not needed,"the ladder / scale-wall assault and jet-pack launches (army levels: Game+0xcbe, ladders list +0xee4 with ic_* markers, turbo captains): none on lev_1_m1"
 0x0042ba30,fn_0042ba30,not needed,"the ladder / scale-wall assault and jet-pack launches (army levels: Game+0xcbe, ladders list +0xee4 with ic_* markers, turbo captains): none on lev_1_m1"
 0x0042bb10,fn_0042bb10,not needed,the counted shooter list World+0xf18 (0x0042bb10 hands over to another shooter): only with Game+0xc50 (ai_max_fire 0 on lev_1_m1)
@@ -84,14 +81,12 @@ address,name,disposition,reason
 0x0042db00,fn_0042db00,not needed,"the paratroop drop (0x0042da00 / 0x0042daa0: state 0x82 with the parachute), the squad / goliath joins (0x0042de30, 0x0042de60), slot 141 (0x0042db00): no paratroops, squads or goliaths on lev_1_m1"
 0x0042dc20,fn_0042dc20,not needed,"the smoking (wounded) troop of a barracks exit slot and the cover window slot of the generators (0x0042d690, 0x0042dc20): the lev_1_m1 barracks have no window slots and no smoking troops (mission.rs)"
 0x0042de30,fn_0042de30,not needed,"the paratroop drop (0x0042da00 / 0x0042daa0: state 0x82 with the parachute), the squad / goliath joins (0x0042de30, 0x0042de60), slot 141 (0x0042db00): no paratroops, squads or goliaths on lev_1_m1"
-0x0042de60,fn_0042de60,not needed,"the paratroop drop (0x0042da00 / 0x0042daa0: state 0x82 with the parachute), the squad / goliath joins (0x0042de30, 0x0042de60), slot 141 (0x0042db00): no paratroops, squads or goliaths on lev_1_m1"
 0x0042e910,fn_0042e910,not needed,"the falling watchdog (0x0042e910: downward speed 0.2 s -> state 0x82 with anim 0x61 for up to 5 s, then death or the old state on landing): the engine's grunts are upright capsules that do not leave the ground except through ragdolls (death) and the topsy bomb (topsy.rs); a ledge death is ported in die. Open: grunts knocked off a ledge alive"
 0x0042ecf0,GenericAI_TurretUpdate,not needed,"the turret-boss gunner update (Colossus / Q112 boss turrets, +0x488 bit 11 / +0x48c bit 9): the stig_mgun gunner is ai.rs GunPhase (states 0x7b..0x7d)"
 0x0042f190,fn_0042f190,not needed,"knocked down / thrown / launch states (0x19a, 0x0042f190, 0x0042f1d0, 0x0042f2f0, 0x0042fe50): the Topsy Turvy bomb's throw is topsy.rs (another owner); the player-held grunt (grab) does not exist on lev_1_m1"
 0x0042f1d0,fn_0042f1d0,not needed,"knocked down / thrown / launch states (0x19a, 0x0042f190, 0x0042f1d0, 0x0042f2f0, 0x0042fe50): the Topsy Turvy bomb's throw is topsy.rs (another owner); the player-held grunt (grab) does not exist on lev_1_m1"
 0x0042f2f0,fn_0042f2f0,not needed,"knocked down / thrown / launch states (0x19a, 0x0042f190, 0x0042f1d0, 0x0042f2f0, 0x0042fe50): the Topsy Turvy bomb's throw is topsy.rs (another owner); the player-held grunt (grab) does not exist on lev_1_m1"
 0x0042f470,fn_0042f470,not needed,"the squad join of the player (0x0042f470, slot 74): army levels"
-0x0042f8d0,fn_0042f8d0,not needed,the busy test of a grab / hand-to-hand offer (slot 94): no grabs or fights on lev_1_m1
 0x0042fe50,fn_0042fe50,not needed,"knocked down / thrown / launch states (0x19a, 0x0042f190, 0x0042f1d0, 0x0042f2f0, 0x0042fe50): the Topsy Turvy bomb's throw is topsy.rs (another owner); the player-held grunt (grab) does not exist on lev_1_m1"
 0x00430140,fn_00430140,not needed,set alight (fx_guy_fawkes): no fire weapons on lev_1_m1
 0x00431f70,GenericAIObject_Slot46,not needed,slot 46: the AI's own +0x468 / +0x46c pair (an interest-like target) returns 0 for every lev_1_m1 grunt (nothing they run sets them: guess from the writers)
@@ -100,21 +95,17 @@ address,name,disposition,reason
 0x00432590,GenericAIObject_Slot40,not needed,"the squad target +0x50c / +0x510 (0x004324d0, slots 40 / 41): squads only"
 0x00432620,GenericAIObject_Slot41,not needed,"the squad target +0x50c / +0x510 (0x004324d0, slots 40 / 41): squads only"
 0x00432630,GenericAIObject_Slot62,replaced,the body's collision filter by state (slot 62): physics.rs layers
-0x004326b0,GenericAIObject_Slot35,not needed,slot 35: the anti-gravity of a thrown / jet-pack grunt (+0x888 bof_anti_gravity with flag 0x1000000): no bof launches on lev_1_m1 apart from ragdolls (ragdoll.rs)
 0x00432730,GenericAIObject_Slot55,replaced,"the AI teardown (slot 55: lists, references): Bevy despawn"
 0x00432de0,FakeGruntObject_Slot55,replaced,FakeGrunt removal: army.rs despawns the platoon and its member models
 0x00432e60,FakeGruntObject_Slot7,replaced,FakeGrunt collision description: army.rs fake_hits tests the members (guess at the box)
 0x00432ee0,fn_00432ee0,replaced,the member ref name digits: army.rs member_points probes ref_<kind>_0N
-0x00433220,Squad_Init,not needed,"class Squad has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
-0x00433a10,SquadObject_Slot14,not needed,"class Squad has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
-0x00433a90,SquadObject_Slot55,not needed,"class Squad has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
-0x00433b60,SquadObject_Slot7,not needed,"class Squad has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
+0x00433a90,SquadObject_Slot55,replaced,squad destroy: ai/squad.rs despawns the squad entity when it has no members and no goliath; members keep living as free grunts
+0x00433b60,SquadObject_Slot7,replaced,squad message slot: ai/squad.rs reads the mission triggers itself (SendTrigger) and alerts members through Grunt::pending
 0x00433b80,fn_00433b80,not needed,fake grunt / squad helpers
 0x00433b90,fn_00433b90,not needed,fake grunt / squad helpers
 0x00433ba0,fn_00433ba0,not needed,fake grunt / squad helpers
 0x00433bb0,fn_00433bb0,replaced,"a shared ""remove"" slot (vt+0xdc wrapper)"
 0x00433bc0,fn_00433bc0,not needed,fake grunt / squad helpers
-0x00433c70,SquadObject_Slot143,not needed,"class Squad has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
 0x00433e80,Polewart_Slot6,not needed,"class Polewart has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
 0x00433f30,Polewart_Slot42,not needed,"class Polewart has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
 0x00433fb0,Polewart_Slot32,not needed,"class Polewart has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
@@ -130,39 +121,32 @@ address,name,disposition,reason
 0x00434580,GruntLadderObject_Slot6,not needed,"class GruntLadder has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
 0x00434670,GruntLadderObject_Slot7,not needed,"class GruntLadder has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
 0x004346a0,BowGruntObject_Slot66,not needed,"the player grabbing a grunt / bow grunt (slots 66, 147): Roman cannot grab grunts on lev_1_m1 (no grab weapon)"
-0x004348a0,SniperCaptain_Slot6,not needed,"class SniperCaptain has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
 0x00434a80,fn_00434a80,not needed,an unreferenced range roller (no callers or vtable references)
-0x00434ac0,RocketCaptain_ReadProperties,not needed,"class RocketCaptain has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
 0x00434e10,GruntObject_Slot147,not needed,"the player grabbing a grunt / bow grunt (slots 66, 147): Roman cannot grab grunts on lev_1_m1 (no grab weapon)"
 0x00434ea0,GruntObject_Slot66,not needed,"the player grabbing a grunt / bow grunt (slots 66, 147): Roman cannot grab grunts on lev_1_m1 (no grab weapon)"
-0x00435090,Q112Object_Slot6,not needed,"class Q112Object has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
-0x00435220,Q112Object_Slot53,not needed,"class Q112Object has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
-0x00435260,PeasantGenAI_Slot6,not needed,"class PeasantGenAI has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
-0x00435330,PeasantGenAI_Slot55,not needed,"class PeasantGenAI has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
-0x00435380,PeasantGenAI_Slot64,not needed,"class PeasantGenAI has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
-0x004353b0,PeasantGenAI_Slot95,not needed,"class PeasantGenAI has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
+0x00435220,Q112Object_Slot53,debt,"Q112 death: stops the eye loop (fol_q112_eye_*_lp below 25 % health), which is not ported (docs/subsystems/infantry.md section 7)"
+0x00435260,PeasantGenAI_Slot6,not needed,"civilians thrown out of a destroyed building (toss_peasants): buildings subsystem, not ported"
+0x00435330,PeasantGenAI_Slot55,not needed,"civilians thrown out of a destroyed building (toss_peasants): buildings subsystem, not ported"
+0x00435380,PeasantGenAI_Slot64,not needed,"civilians thrown out of a destroyed building (toss_peasants): buildings subsystem, not ported"
+0x004353b0,PeasantGenAI_Slot95,not needed,"civilians thrown out of a destroyed building (toss_peasants): buildings subsystem, not ported"
 0x00435420,fn_00435420,not needed,"boss set-up / targeting (Saucer, Zeppelin, Colossus, Q112Boss)"
-0x00435770,Q112Boss_Slot8,not needed,"class Q112Boss has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
-0x00435860,Q112Boss_Slot55,not needed,"class Q112Boss has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
-0x00435940,Q112Boss_Slot102,not needed,"class Q112Boss has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
+0x00435770,Q112Boss_Slot8,not needed,"the Q112 boss (spawned by Q's q112_marker note): a turret-style boss, not grunt-class infantry: not in this port"
+0x00435860,Q112Boss_Slot55,not needed,"the Q112 boss (spawned by Q's q112_marker note): a turret-style boss, not grunt-class infantry: not in this port"
+0x00435940,Q112Boss_Slot102,not needed,"the Q112 boss (spawned by Q's q112_marker note): a turret-style boss, not grunt-class infantry: not in this port"
 0x00435b50,fn_00435b50,not needed,"boss set-up / targeting (Saucer, Zeppelin, Colossus, Q112Boss)"
 0x00435fa0,SaucerObject_Slot52,not needed,"class Saucer has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
-0x00436010,Q112Boss_Slot53,not needed,"class Q112Boss has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
+0x00436010,Q112Boss_Slot53,not needed,"the Q112 boss (spawned by Q's q112_marker note): a turret-style boss, not grunt-class infantry: not in this port"
 0x00436090,SaucerObject_Slot6,not needed,"class Saucer has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
 0x00436180,ZeppelinObject_Slot6,not needed,"class Zeppelin has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
 0x00436390,ColossusObject_Slot6,not needed,"class Colossus has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
-0x004364b0,Q112Boss_Slot6,not needed,"class Q112Boss has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
-0x00436600,Q112Boss_Slot52,not needed,"class Q112Boss has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
+0x004364b0,Q112Boss_Slot6,not needed,"the Q112 boss (spawned by Q's q112_marker note): a turret-style boss, not grunt-class infantry: not in this port"
+0x00436600,Q112Boss_Slot52,not needed,"the Q112 boss (spawned by Q's q112_marker note): a turret-style boss, not grunt-class infantry: not in this port"
 0x004367a0,ShrubPatrol_Slot18,replaced,ShrubPatrol slot: shrubpatrol.rs
-0x004369a0,MonkObject_Init,not needed,"class Monk has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
-0x00436b30,fn_00436b30,not needed,monk slots
-0x00436b50,fn_00436b50,not needed,monk slots
-0x00436b60,fn_00436b60,not needed,monk slots
-0x00436b90,fn_00436b90,not needed,monk slots
-0x00436bb0,MonkObject_Bamf,not needed,"class Monk has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
-0x00437130,fn_00437130,not needed,monk slots
-0x004371e0,fn_004371e0,not needed,monk slots
-0x00437240,fn_00437240,not needed,monk slots
+0x00436b30,fn_00436b30,replaced,the monk's stance-set call collapses to one anim: anim_name_with (Kind::Monk) gives monk_stand for every stand id
+0x00436b50,fn_00436b50,replaced,monk vt+0x188 (+0x484 0x10 then the object history): leave_cover's history (ai.rs)
+0x00436b60,fn_00436b60,replaced,monk vt+0x18c: leave_cover (ai.rs)
+0x004371e0,fn_004371e0,debt,"monk damage message: flag 0x20 starts the knock-over timer to the hang state 0xf4 (monk_hanging, then a bamf): not ported (docs/subsystems/infantry.md section 6)"
+0x00437240,fn_00437240,debt,monk knocked over (vt+0x1b0): state 0xf4 with monk_hanging: not ported (docs/subsystems/infantry.md section 6)
 0x004375c0,fn_004375c0,not needed,"the captain's voice slots (AIVoice_* 0x00437690 / 0x00437860 / 0x004375c0) are reached only when a captain speaks; the engine's barks use the grunt sets for captains too (open: captain voice table, grunt-ai.md 14)"
 0x00437690,fn_00437690,not needed,"the captain's voice slots (AIVoice_* 0x00437690 / 0x00437860 / 0x004375c0) are reached only when a captain speaks; the engine's barks use the grunt sets for captains too (open: captain voice table, grunt-ai.md 14)"
 0x00437860,fn_00437860,not needed,"the captain's voice slots (AIVoice_* 0x00437690 / 0x00437860 / 0x004375c0) are reached only when a captain speaks; the engine's barks use the grunt sets for captains too (open: captain voice table, grunt-ai.md 14)"
@@ -183,7 +167,7 @@ address,name,disposition,reason
 0x0043c640,fn_0043c640,not needed,fake grunt / zeppelin / colossus / Q112 boss anim tables
 0x0043c650,fn_0043c650,not needed,fake grunt / zeppelin / colossus / Q112 boss anim tables
 0x0043c7d0,fn_0043c7d0,not needed,fake grunt / zeppelin / colossus / Q112 boss anim tables
-0x0043c860,Q112Boss_HandleEvent,not needed,"class Q112Boss has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
+0x0043c860,Q112Boss_HandleEvent,not needed,"the Q112 boss (spawned by Q's q112_marker note): a turret-style boss, not grunt-class infantry: not in this port"
 0x0043ccb0,fn_0043ccb0,not needed,the hide / unhide events (hide_tag): no script on lev_1_m1 sends them
 0x0043cd70,fn_0043cd70,not needed,the hide / unhide events (hide_tag): no script on lev_1_m1 sends them
 0x0043e520,fn_0043e520,not needed,the knock-back toward the player root of a barricade breach (0x0040cf40's caller)
@@ -205,12 +189,11 @@ address,name,disposition,reason
 0x0043ec60,fn_0043ec60,not needed,the turret target test (+0x898 of kind 2: Colossus turrets)
 0x0043edb0,fn_0043edb0,replaced,"contact callbacks (slots 42 / 44: bumped by a body, the contact record +0x538 and list +0x518) and the list release 0x0043edb0: Jolt bodies collide; the per-state contact reactions are not ported (open: a grunt bumped by the player's car / props; none on lev_1_m1)"
 0x00446440,ShrubPatrol_Update,replaced,ShrubPatrol update: shrubpatrol.rs (guard)
-0x00446ba0,SquadObject_Update,not needed,"class Squad has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
 0x00446de0,fn_00446de0,replaced,goliath update helpers: goliath.rs guard
 0x00446f30,Polewart_Update,not needed,"class Polewart has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
 0x00447020,fn_00447020,replaced,goliath update helpers: goliath.rs guard
-0x00447400,Q112Boss_Update,not needed,"class Q112Boss has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
-0x00447500,MonkObject_Update,not needed,"class Monk has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
+0x00447400,Q112Boss_Update,not needed,"the Q112 boss (spawned by Q's q112_marker note): a turret-style boss, not grunt-class infantry: not in this port"
+0x00447500,MonkObject_Update,debt,MonkObject_Update: the hang state 0xf4 timers (see 0x004371e0); the rest is GenericAI_Update (docs/subsystems/infantry.md section 6)
 0x0044b490,Marker_GetSpeed,not needed,"marker speed (+0x494 ""speed"", AIMarker_PrevSpeed): every lev_1_m1 marker has speed 0, so the run uses move_speed"
 0x0044b4a0,Marker_IsStrict,replaced,"the marker getters and per-AI accessors: alarm.rs Marker fields (strict, flags, trigger, alarm_tag, action, scatter, next range) read by ai.rs marker_arrival"
 0x0044b4b0,AIMarker_PrevIsStrict,replaced,"the marker getters and per-AI accessors: alarm.rs Marker fields (strict, flags, trigger, alarm_tag, action, scatter, next range) read by ai.rs marker_arrival"
@@ -249,11 +232,11 @@ address,name,disposition,reason
 0x00461940,PenguinObject_GetClass,replaced,"the class descriptor: the engine's component types carry the class (ai.rs Grunt with Kind, Companion, level.rs Penguin, alarm.rs Marker)"
 0x00461950,StigTurret_GetClass,not needed,"class StigTurret_GetClass has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
 0x00461980,AlarmGenerator_GetClass,replaced,"the class descriptor: the engine's component types carry the class (ai.rs Grunt with Kind, Companion, level.rs Penguin, alarm.rs Marker)"
-0x00461990,Q112Object_GetClass,not needed,"class Q112Object has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
+0x00461990,Q112Object_GetClass,replaced,"class chosen by ai::Kind::from_template / level.rs (squads, jump markers: their components)"
 0x004619a0,ArmyTimerObject_GetClass,not needed,"class ArmyTimer has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
 0x004619f0,GruntLadderObject_GetClass,not needed,"class GruntLadder has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
-0x00461a10,Q112Boss_GetClass,not needed,"class Q112Boss has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
-0x00461a70,FakeGruntObject_GetClass,not needed,"class FakeGrunt has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
+0x00461a10,Q112Boss_GetClass,not needed,"the Q112 boss (spawned by Q's q112_marker note): a turret-style boss, not grunt-class infantry: not in this port"
+0x00461a70,FakeGruntObject_GetClass,not needed,"the fake grunt platoon (FakeGruntObject 0x005a4da8): particle soldiers, not a grunt-class AI: not in this port"
 0x00461ac0,SaucerObject_GetClass,not needed,"class Saucer has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
 0x00461ae0,TeammateMarker_GetClass,not needed,"class TeammateMarker has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
 0x00461af0,Q111Object_GetClass,replaced,"the class descriptor: the engine's component types carry the class (ai.rs Grunt with Kind, Companion, level.rs Penguin, alarm.rs Marker)"
@@ -261,23 +244,23 @@ address,name,disposition,reason
 0x00461b20,TwigletController_GetClass,not needed,"class TwigletController has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
 0x00461b80,AIInterestObject_GetClass,not needed,"class AIInterestObject_GetClass has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
 0x00461bd0,ShrubPatrol_GetClass,not needed,"class ShrubPatrol has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
-0x00461c30,PeasantObject_GetClass,not needed,"class PeasantObject has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
+0x00461c30,PeasantObject_GetClass,not needed,"the rescue peasants are a pickup / mission object (rope chain, doormat drop-off): not grunt-class AI, not ported"
 0x00461c60,RocketTowerTurret_GetClass,not needed,"class RocketTower has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
 0x00461c70,SheepObject_GetClass,not needed,"class Sheep has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
 0x00461ce0,GruntObject_GetClass,replaced,"the class descriptor: the engine's component types carry the class (ai.rs Grunt with Kind, Companion, level.rs Penguin, alarm.rs Marker)"
 0x00461cf0,BaseDefendTurret_GetClass,not needed,"class BaseDefend has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
 0x00461d00,ColossusObject_GetClass,not needed,"class Colossus has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
-0x00461d30,PeasantGenAI_GetClass,not needed,"class PeasantGenAI has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
-0x00461d40,MonkObject_GetClass,not needed,"class Monk has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
-0x00461d60,SquadObject_GetClass,not needed,"class Squad has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
+0x00461d30,PeasantGenAI_GetClass,not needed,"civilians thrown out of a destroyed building (toss_peasants): buildings subsystem, not ported"
+0x00461d40,MonkObject_GetClass,replaced,"class chosen by ai::Kind::from_template / level.rs (squads, jump markers: their components)"
+0x00461d60,SquadObject_GetClass,replaced,"class chosen by ai::Kind::from_template / level.rs (squads, jump markers: their components)"
 0x00461db0,BowGruntObject_GetClass,replaced,"the class descriptor: the engine's component types carry the class (ai.rs Grunt with Kind, Companion, level.rs Penguin, alarm.rs Marker)"
 0x00461dd0,ZeppelinTurret_GetClass,not needed,"class Zeppelin has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
-0x00461e00,JumpMarker_GetClass,not needed,"class JumpMarker has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
+0x00461e00,JumpMarker_GetClass,replaced,"class chosen by ai::Kind::from_template / level.rs (squads, jump markers: their components)"
 0x00461e20,CaptainObject_GetClass,replaced,"the class descriptor: the engine's component types carry the class (ai.rs Grunt with Kind, Companion, level.rs Penguin, alarm.rs Marker)"
 0x00461e50,MarkerObject_GetClass,replaced,"the class descriptor: the engine's component types carry the class (ai.rs Grunt with Kind, Companion, level.rs Penguin, alarm.rs Marker)"
 0x00461e70,RocketBudTurret_GetClass,not needed,"class RocketBud has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
 0x00461ea0,MolmerObject_GetClass,replaced,"the class descriptor: the engine's component types carry the class (ai.rs Grunt with Kind, Companion, level.rs Penguin, alarm.rs Marker)"
-0x00461eb0,SniperCaptain_GetClass,not needed,"class SniperCaptain has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
+0x00461eb0,SniperCaptain_GetClass,replaced,"class chosen by ai::Kind::from_template / level.rs (squads, jump markers: their components)"
 0x00461ee0,TwigletGenerator_GetClass,not needed,"class TwigletGenerator_GetClass has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
 0x0046e770,NavGrid_Init,replaced,"the nav grid (Game+0xaa4): grid marking (Object_MarkGrid, DefaultGameObject_MarkGrid, Grid_RasterTriangle, Poly_ClipToPlane), cells, A* (AStar_*), path smoothing and the route follower (AIRoute_*, 0x004548f0, 0x00454d80 the push toward the route point, 0x00454cc0 the spin damping): nav.rs A* over the Jolt world, re-planned every 1 s (grunts) / 0.25 s (companions), and Jolt / walker movement"
 0x0046e7c0,NavGrid_Free,replaced,"the nav grid (Game+0xaa4): grid marking (Object_MarkGrid, DefaultGameObject_MarkGrid, Grid_RasterTriangle, Poly_ClipToPlane), cells, A* (AStar_*), path smoothing and the route follower (AIRoute_*, 0x004548f0, 0x00454d80 the push toward the route point, 0x00454cc0 the spin damping): nav.rs A* over the Jolt world, re-planned every 1 s (grunts) / 0.25 s (companions), and Jolt / walker movement"

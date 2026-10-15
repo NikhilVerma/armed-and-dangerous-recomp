@@ -374,7 +374,7 @@ impl ModelKit<'_> {
         let m = self.lib.load_model(model, false, &self.assets, &mut self.meshes, &mut self.materials).cloned_parts()?;
         let e = commands.spawn((tr, Visibility::default(), Name::new(model.to_owned()))).id();
         let mut ctx = crate::level::SkinCtx { lib: &mut self.anims, binds: &mut self.binds };
-        crate::level::attach_model(commands, e, &m, shadows, Some(&mut ctx));
+        crate::level::attach_model(commands, e, &m, shadows, Some(&mut ctx), "ref_rhand");
         Some(e)
     }
 

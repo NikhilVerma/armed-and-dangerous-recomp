@@ -17,6 +17,8 @@
 #include "log.h"
 
 int TestFramesSinceLoad();  // testscenario.cpp
+int TestFramesSincePlay();  // testoracle.cpp
+bool TestKeysFromPlay();
 
 // Enhancement points (hook/enhance/qol.cpp): the keyboard state the game receives (after scripted keys), and the
 // mouse movement before the game reads it. Null: unchanged.
@@ -34,7 +36,7 @@ struct ScriptedKey
     int dx, dy;
     float hold;  // frame mode: frames held ("KEY*N"; 3 by default)
 };
-ScriptedKey g_keys[64];
+ScriptedKey g_keys[1024];  // lockstep scenarios (tools/oracle.py) script long timelines
 int g_keyCount;
 ULONGLONG g_start;
 bool g_frameMode;          // [test] keys_frames: schedule in presented frames (deterministic with the test clock)
@@ -48,6 +50,8 @@ float KeyClock()
 {
     if (!g_frameMode)
         return (GetTickCount64() - g_start) / 1000.0f;
+    if (TestKeysFromPlay())  // [test] keys_from_play=1 (testoracle.cpp)
+        return static_cast<float>(TestFramesSincePlay());
     static const bool fromLoad = ConfigInt("test", "keys_from_load", 0) != 0;
     if (fromLoad)
     {
@@ -287,14 +291,17 @@ HRESULT STDMETHODCALLTYPE Hook_CreateDevice(IDirectInput8A* di, REFGUID guid, LP
 void InputHooksInit()
 {
     g_start = GetTickCount64();
-    char ini[MAX_PATH], buf[2048];
+    char ini[MAX_PATH];
+    static char buf[32768];
     GetModuleFileNameA(nullptr, ini, MAX_PATH);
     strcpy(strrchr(ini, '\\') + 1, "and.ini");
     GetPrivateProfileStringA("test", "keys_frames", "", buf, sizeof(buf), ini);
-    g_frameMode = buf[0] != 0;
-    if (!g_frameMode)
+    // [test] offscreen=1 (testoffscreen.cpp): frame mode even without keys, so the desk's keyboard and mouse never
+    // reach a test game
+    g_frameMode = buf[0] != 0 || GetPrivateProfileIntA("test", "offscreen", 0, ini) != 0;
+    if (!buf[0] && !g_frameMode)
         GetPrivateProfileStringA("test", "keys", "", buf, sizeof(buf), ini);
-    for (char* tok = strtok(buf, ","); tok && g_keyCount < 64; tok = strtok(nullptr, ","))
+    for (char* tok = strtok(buf, ","); tok && g_keyCount < 1024; tok = strtok(nullptr, ","))
     {
         char* colon = strchr(tok, ':');
         if (!colon)
@@ -327,7 +334,7 @@ void InputHooksInit()
 // Called by the dinput8 proxy with the real IDirectInput8 the game receives.
 void InputHooksOnDirectInput(void* directInput)
 {
-    if ((!g_keyCount && !g_record) || g_realCreateDevice)
+    if ((!g_keyCount && !g_record && !g_frameMode) || g_realCreateDevice)
         return;
     void** vt = *reinterpret_cast<void***>(directInput);
     HookAt(vt[3], reinterpret_cast<void*>(Hook_CreateDevice), reinterpret_cast<void**>(&g_realCreateDevice),

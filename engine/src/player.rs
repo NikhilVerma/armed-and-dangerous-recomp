@@ -1680,7 +1680,8 @@ fn projectiles(
                 if p.from_player && mult > 1.0 && matches!(part.as_deref(), Some("head" | "neck")) {
                     stats.head_shots += 1;
                 }
-                h.0 -= p.damage * mult;
+                // (a class's bullet share: the Q112's bullet_scale, ai.rs)
+                h.0 -= p.damage * mult * victims.get(ce).map_or(1.0, |g| g.bullet_scale);
                 if p.from_player && grunt && p.owner.is_some_and(|o| roman.contains(o)) {
                     stats.hits += 1;
                 }
