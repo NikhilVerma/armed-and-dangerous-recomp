@@ -798,6 +798,16 @@ pub(crate) fn control(
             if on && r.vel.y <= 0.0 {
                 r.jumping = false;
             }
+            // in the air, the horizontal speed is what the walker achieved: blocked by a wall or wedged, the speed
+            // into it is lost, as the original's Havok body loses it at the contact (without this the air control
+            // piled up speed while wedged: 2000 units/s after 80 s in a bot run, then a fling across the map)
+            if !on && dt > 0.0 && !r.dead {
+                let done = (feet - before) / dt;
+                if Vec2::new(done.x, done.z).length() < Vec2::new(r.vel.x, r.vel.z).length() {
+                    r.vel.x = done.x;
+                    r.vel.z = done.z;
+                }
+            }
             t.translation = feet;
         }
         fall_and_land(&mut r, &t, &mut h, vy, was_jump, dt, &physics, &mut fx, t.translation.distance(before), topsy.active());

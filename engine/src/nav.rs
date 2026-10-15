@@ -9,6 +9,8 @@ use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap};
 
 const STEP: f32 = 6.0;
+/// the highest drop a route may take (Roman's landing hurts from much higher: fallO, 100 units cost 168.7)
+const DROP: f32 = 30.0;
 
 #[derive(Copy, Clone, PartialEq)]
 struct Node {
@@ -81,14 +83,17 @@ pub fn path(physics: &Physics, from: Vec3, to: Vec3, blocked: &[Vec3]) -> Option
                 continue;
             }
             let d = if dx != 0 && dz != 0 { STEP * 1.414 } else { STEP };
-            if (hn - hc).abs() > d * 1.2 {
+            // up: a step under 50 degrees; down: a drop of up to DROP (a bot that jumped onto a roof or a wall's top found
+            // no way back down and stood there for minutes)
+            if hn - hc > d * 1.2 || hc - hn > DROP.max(d * 1.2) {
                 continue;
             }
             // from the start cell, rays leave from where the walker actually stands (the cell centre may be inside
             // a wall's collider: the bot then found no route at all)
             let (a, b) = (if c == s { Vec2::new(from.x, from.z) } else { pos(c) }, pos(n));
             let a3 = Vec3::new(a.x, hc + 5.0, a.y);
-            let b3 = Vec3::new(b.x, hn + 5.0, b.y);
+            // (a drop is tested at the upper level: over the edge, then down)
+            let b3 = Vec3::new(b.x, hn.max(hc) + 5.0, b.y);
             if physics.raycast(a3, (b3 - a3).normalize_or(Vec3::X), (b3 - a3).length()).is_some() {
                 continue;
             }

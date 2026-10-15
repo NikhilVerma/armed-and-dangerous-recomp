@@ -51,6 +51,10 @@ pub struct Bot {
     pub no_gain: f32,
     /// what the bot did last frame (the state log's "bot"): route, duel, cover, to_cover, back_off, keg, pickup
     pub mode: &'static str,
+    /// where the bot has stood for pin_t seconds (within 8 units); push_t: seconds left of pushing on regardless
+    pub pin_pos: Vec3,
+    pub pin_t: f32,
+    pub push_t: f32,
     /// last frame the bot walked its route (not holding, in cover or on a pickup detour)
     pub advancing: bool,
     pub throw_timer: f32,
@@ -204,12 +208,12 @@ pub fn think(
     time: Res<Time>,
     mut bot: ResMut<Bot>,
     grunts: Query<(&crate::ai::Grunt, &GlobalTransform)>,
-    pickups: Query<&GlobalTransform, With<crate::pickup::Pickup>>,
+    pickups: Query<(&crate::pickup::Pickup, &GlobalTransform)>,
     explosives: Query<(&crate::fx::Destructible, &GlobalTransform)>,
     physics: NonSend<Physics>,
     roman: Query<(&crate::player::Roman, &Transform, &crate::fx::Health)>,
     mounted: Res<crate::turret::Mounted>,
-    cam: Query<&GlobalTransform, With<crate::camera::FollowCam>>,
+    (cam, xhair): (Query<&GlobalTransform, With<crate::camera::FollowCam>>, Res<crate::hud::Crosshair>),
 ) {
     let dt = time.delta_secs();
     bot.walk = None;
@@ -255,7 +259,6 @@ pub fn think(
         .filter(|(d, _)| d.area_damage > 0.0 && d.health > 0.0 && d.dying.is_none())
         .map(|(d, gt)| (gt.translation() + Vec3::Y * 2.0, d.radius_outer))
         .collect();
-    let danger = kegs.iter().any(|(k, r)| k.distance(me) < r + 25.0);
     let keg_target = if bot.fight {
         kegs.iter()
             .filter(|(k, r)| {
@@ -277,6 +280,14 @@ pub fn think(
     bot.burst_t += dt;
     let far = target.is_some_and(|p| p.distance(me) > 80.0) || keg_target.is_some();
     let release = far && bot.burst_t % BURST_CYCLE > BURST_CYCLE - BURST_GAP;
+    // hold fire when a keg Roman would catch in its blast is on the line of fire (or the machine gun's scatter, 8)
+    let danger = aim_at.is_some_and(|a| {
+        let eye = me + Vec3::Y * 8.5;
+        kegs.iter().any(|(k, r)| {
+            let u = ((*k - eye).dot(a - eye) / (a - eye).length_squared().max(1e-3)).clamp(0.0, 1.0);
+            k.distance(me) < r + 10.0 && (eye + (a - eye) * u).distance(*k) < 8.0
+        })
+    });
     bot.fire_ok = aim_at.is_some() && !danger && !release;
     let low = h.0 < r.max_health * 0.35;
     bot.throw_timer -= dt;
@@ -293,12 +304,17 @@ pub fn think(
         let clear = physics.raycast(eye, v.normalize_or(Vec3::Y), v.length()).is_none_or(|h| h.1.distance(p) < 8.0);
         // and with the crosshair on him, as the sticky auto-aim wants (sticky.rs: the camera's narrowed view, else
         // the bomb flies along the camera ray and may land at Roman's feet)
+        // (the same test as sticky.rs, a little tighter: |x| within the view's half-width x 0.04 at that depth plus the
+        // grunt's slack 4.66, |y| within the half-height x 0.12 plus the slack; the follow camera's FOV 0.654)
         let on_him = cam.single().is_ok_and(|c| {
             let v = p + Vec3::Y * 4.9 - c.translation();
             let z = v.dot(c.forward().as_vec3());
-            z > 0.0 && (v.dot(c.right().as_vec3()) / z).abs() < 0.02 && (v.dot(c.up().as_vec3()) / z).abs() < 0.04
+            let half_v = (0.654f32 * 0.5).tan();
+            z > 0.0 && v.dot(c.right().as_vec3()).abs() < 0.8 * (half_v * 1.7204 * 0.04 * z + 4.66) && v.dot(c.up().as_vec3()).abs() < 0.8 * (half_v * 0.12 * z + 4.66)
         });
-        if d > 60.0 && d < STICKY_REACH && clear && on_him && (group >= 2 || bot.threats.len() >= 3) && r.stickies > 0 && bot.throw_timer <= 0.0 {
+        // (and the crosshair closed on a grunt: hud.rs Crosshair, what the player sees)
+        let on_him = on_him && xhair.on && !xhair.friendly && xhair.object.is_some_and(|o| grunts.get(o).is_ok_and(|(g, _)| g.mind != crate::ai::Mind::Dead));
+        if d > 80.0 && d < STICKY_REACH && clear && on_him && (group >= 2 || bot.threats.len() >= 3) && r.stickies > 0 && bot.throw_timer <= 0.0 {
             bot.throw = true;
             bot.throw_timer = 4.0;
         }
@@ -325,26 +341,54 @@ pub fn think(
         bot.cover = None;
     }
     // an explosive beside Roman while under fire: step away from it (the bot holds its fire there)
-    let near_keg = kegs.iter().filter(|(k, r)| k.distance(me) < r + 25.0).map(|(k, _)| *k).min_by(|a, b| a.distance(me).total_cmp(&b.distance(me)));
+    // (inside its blast, and only where the way out is open: against a wall it would stand there for good)
+    let near_keg = kegs
+        .iter()
+        .filter(|(k, r)| k.distance(me) < r + 10.0)
+        .map(|(k, _)| *k)
+        .min_by(|a, b| a.distance(me).total_cmp(&b.distance(me)))
+        .filter(|k| physics.raycast(me + Vec3::Y * 5.0, (me - *k).with_y(0.0).normalize_or(Vec3::X), 10.0).is_none());
     let (mode, tactic): (&'static str, Option<Vec3>) = match (bot.cover, target) {
-        (_, Some(_)) if near_keg.is_some() => ("keg", near_keg.map(|k| (me - k).with_y(0.0).normalize_or_zero())),
+        (None, Some(_)) if near_keg.is_some() && seen <= 2 => ("keg", near_keg.map(|k| (me - k).with_y(0.0).normalize_or_zero())),
         // to the cover spot, then about it (fighting what it sees, never standing still in a grunt's sight)
         (Some(c), _) if (c - me).with_y(0.0).length() > 12.0 => ("to_cover", Some((c - me).with_y(0.0).normalize_or_zero())),
         (Some(_), Some(p)) => ("cover", Some(strafe(&mut bot, &physics, me, p, dt))),
         (Some(_), None) => ("cover", Some(Vec3::ZERO)),
         (None, Some(p)) if low => ("back_off", Some((me - p).with_y(0.0).normalize_or_zero())),
+        // losing health fast to several grunts with no cover in reach: back the way it came (cleared ground)
+        (None, _) if bot.hurt > 45.0 && seen >= 2 && bot.trail.len() >= 4 => {
+            let back = bot.trail[bot.trail.len() - 4];
+            ("retreat", Some((back - me).with_y(0.0).normalize_or_zero()))
+        }
         // a duel at range: stay and shoot while at most two grunts can see Roman, side-stepping: their bullets
         // (450 units/s) fly at where he stood
         (None, Some(p)) if p.distance(me) > 120.0 && bot.hold < 20.0 && seen <= 2 => ("duel", Some(strafe(&mut bot, &physics, me, p, dt))),
         _ => ("route", None),
     };
+    // pinned: 12 s within 8 units of one spot while a tactic holds it there (a keg against a wall, cover it cannot
+    // leave): push on along the route for 6 s
+    if me.distance(bot.pin_pos) > 8.0 {
+        bot.pin_pos = me;
+        bot.pin_t = 0.0;
+    } else {
+        bot.pin_t += dt;
+    }
+    bot.push_t -= dt;
+    if bot.pin_t > 12.0 && tactic.is_some() && bot.goto.is_some() {
+        info!("bot: pinned at {:?} ({mode}), pushing on", [me.x as i32, me.z as i32]);
+        bot.pin_t = 0.0;
+        bot.push_t = 6.0;
+        bot.cover = None;
+    }
+    let (mode, tactic) = if bot.push_t > 0.0 { ("push", None) } else { (mode, tactic) };
     bot.mode = mode;
     // a hurt bot detours to a pickup nearby (farther when badly hurt, not into a crowd), as a player would
     let reach = if low { 250.0 } else { 150.0 };
     let detour = if bot.goto.is_some() && h.0 < r.max_health * 0.7 && (seen <= 1 || low) {
         pickups
             .iter()
-            .map(|p| p.translation())
+            .filter(|(k, _)| k.kind == crate::pickup::Kind::Health)
+            .map(|(_, p)| p.translation())
             .filter(|p| p.distance(me) < reach && !bot.skip_pickups.iter().any(|s| s.distance(*p) < 6.0))
             .min_by(|a, b| a.distance(me).total_cmp(&b.distance(me)))
     } else {
