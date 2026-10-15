@@ -603,10 +603,11 @@ pub fn spawn(
         let (_, r, tr) = placed.to_scale_rotation_translation();
         let mut world = axes * Mat4::from_rotation_translation(r, tr);
         // force_ground (Object_ForceGround 0x00455860 with (1000, 10000)): raised 1000 units, a ray cast down
-        // 10000, placed at the hit + 0.1 (the penetration bisection that follows is not ported)
+        // 10000 that sees only the landscape, placed at the hit + 0.1 (the penetration bisection that follows is not
+        // ported)
         if p.f("force_ground", 0.0) != 0.0 {
             let at = world.w_axis.truncate();
-            if let Some((_, hit, _)) = physics.raycast(at + Vec3::Y * 1000.0, -Vec3::Y, 10000.0) {
+            if let Some(hit) = physics.raycast_landscape(at + Vec3::Y * 1000.0, -Vec3::Y, 10000.0) {
                 world.w_axis.y = hit.y + 0.1;
             }
         }
@@ -696,7 +697,7 @@ pub fn spawn(
             let (yaw, _, _) = (rot * game_to_engine().inverse()).to_euler(EulerRot::YXZ);
             // PlayerObject_Load 0x00473da0 puts him on the ground (Object_ForceGround 0x00455860: from 1000 above,
             // 10000 down): he does not drop from the placement's height at the start
-            let pos = physics.raycast(pos + Vec3::Y * 1000.0, -Vec3::Y, 10000.0).map(|h| pos.with_y(h.1.y)).unwrap_or(pos);
+            let pos = physics.raycast_landscape(pos + Vec3::Y * 1000.0, -Vec3::Y, 10000.0).map(|h| pos.with_y(h.y)).unwrap_or(pos);
             if let Some(r) = crate::player::make_roman(physics, &p, data, pos, yaw - std::f32::consts::PI) {
                 commands.entity(e).insert((Health(r.max_health), r, bounds, crate::ai::Player));
                 info.player = Some(e);

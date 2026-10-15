@@ -155,6 +155,28 @@ impl Physics {
         None
     }
 
+    /// The ground under a point as Object_ForceGround (0x00455860) finds it, the hit point: its ray (0x004137e0 ->
+    /// Ray_CastQuery 0x00414110) has a fresh include stamp and no include list, so the collector (0x00413a90) keeps
+    /// only bodies without an owner object (+0x78 set): the landscape. Objects over the point are passed through (grunt
+    /// 181 stands under the archway v_archway_a: the original puts him on the ground, not on the arch at z 108). Without
+    /// a landscape body, the first hit.
+    pub fn raycast_landscape(&self, from: Vec3, dir: Vec3, length: f32) -> Option<Vec3> {
+        let d = dir.normalize_or(Vec3::NEG_Y);
+        let (mut from, mut left) = (from, length);
+        for _ in 0..64 {
+            let (body, at, _) = self.raycast(from, d, left)?;
+            if self.landscape.is_none_or(|l| l == body) {
+                return Some(at);
+            }
+            left -= at.distance(from) + 0.05;
+            if left <= 0.0 {
+                return None;
+            }
+            from = at + d * 0.05;
+        }
+        None
+    }
+
     pub fn raycast(&self, from: Vec3, dir: Vec3, length: f32) -> Option<(BodyId, Vec3, Vec3)> {
         let k = self.meters_per_unit;
         let ray = RayCast::new(jr(from * k), jv(dir.normalize() * length * k));

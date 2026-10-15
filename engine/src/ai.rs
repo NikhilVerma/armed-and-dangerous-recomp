@@ -3576,7 +3576,7 @@ fn companions(
         // at the start: on the formation point (Roman's ref_q_00 / ref_molmer_00), grounded (0x00455860)
         if !c.spawned {
             if let Some(slot) = bone(ra, if c.q { "ref_q_00" } else { "ref_molmer_00" }) {
-                let feet = physics.raycast(slot + Vec3::Y * 1000.0, -Vec3::Y, 10000.0).map(|h| h.1).unwrap_or(slot);
+                let feet = physics.raycast_landscape(slot + Vec3::Y * 1000.0, -Vec3::Y, 10000.0).unwrap_or(slot);
                 physics.place_walker(&c.walker, feet);
                 t.translation = feet;
                 c.yaw = r.yaw + std::f32::consts::PI;
