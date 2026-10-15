@@ -50,7 +50,10 @@ with open(out, 'w', encoding='utf-8', errors='replace') as f:
             level = json.load(open(script, encoding='utf-8')).get('scene')
         except Exception:
             pass
-        if a.scene:
+        if a.scene and level:
+            # --scene names an export folder (another checkout's): the script's level beside it
+            scene = ['--scene', os.path.join(os.path.dirname(os.path.abspath(a.scene)), level)]
+        elif a.scene:
             scene = ['--scene', os.path.abspath(a.scene)]
         elif level:
             scene = ['--scene', os.path.join(ROOT, 'work', 'remaster', level)]

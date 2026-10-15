@@ -404,7 +404,8 @@ fn bud_update(
 }
 
 /// The deaths that take the other half with them: the turret's kills its tower (0x0049c540), the tower's its turret
-/// (0x00451160). A dead bud's log entry stays (its health 0).
+/// (0x00451160); the removal stops the turn loop (0x0049c4c0, RocketTowerBuilding_Remove 0x00451070: the sounds on
+/// the entity stop with it). A dead bud's log entry stays.
 #[allow(clippy::type_complexity)]
 fn deaths(
     mut died: MessageReader<Died>,

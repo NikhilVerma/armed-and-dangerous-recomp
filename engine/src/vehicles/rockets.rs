@@ -42,11 +42,17 @@ pub struct RocketStats {
     pub ended: u32,
     pub hit_roman: u32,
     pub near_roman: u32,
+    /// the player's shells (the forge cannon): launched, ended
+    pub player_fired: u32,
+    pub player_ended: u32,
 }
 
 fn log_rockets(stats: Res<RocketStats>, mut log: ResMut<super::VehicleLog>) {
-    if stats.fired > 0 {
-        log.0.insert("rockets".into(), serde_json::json!({"fired": stats.fired, "ended": stats.ended, "hit_roman": stats.hit_roman, "near_roman": stats.near_roman}));
+    if stats.fired > 0 || stats.player_fired > 0 {
+        log.0.insert(
+            "rockets".into(),
+            serde_json::json!({"fired": stats.fired, "ended": stats.ended, "hit_roman": stats.hit_roman, "near_roman": stats.near_roman, "player_fired": stats.player_fired, "player_ended": stats.player_ended}),
+        );
     }
 }
 
@@ -214,7 +220,9 @@ fn dress_rockets(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     for (e, r) in &q {
-        if r.by != Src::Player {
+        if r.by == Src::Player {
+            stats.player_fired += 1;
+        } else {
             stats.fired += 1;
         }
         let Some(model) = data.templates.get(&r.template).and_then(|t| t.model.clone()) else { continue };
@@ -357,7 +365,9 @@ fn fly(
         // (the vehicles' damage scale applies to the bad guys' rockets; the player's shells are his weapon's)
         let scale = if r.by == Src::Player { 1.0 } else { tuning.damage_scale };
         let direct = (r.damage + r.area) * scale;
-        if r.by != Src::Player {
+        if r.by == Src::Player {
+            stats.player_ended += 1;
+        } else {
             stats.ended += 1;
             if obj.is_some() && obj == roman_at.map(|(re, _)| re) {
                 stats.hit_roman += 1;

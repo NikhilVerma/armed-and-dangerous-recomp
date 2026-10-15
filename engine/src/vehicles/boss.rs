@@ -21,6 +21,8 @@
 //! - **The colossus's walk** (states 0x10e / 0x10f / 0x110). To a random marker of its tag range (marker_tag_min..max,
 //!   sequence 0..marker_sequence_max, not one of its last two: 0x0042a660), on to the next on arrival; with a target it
 //!   stops after stop_volley_count volleys (at once with stop_and_fire) and turns to face the target until it is gone.
+//! - **Init.** SaucerObject_Slot6 0x00436090 / ZeppelinObject_Slot6 0x00436180 (TurretBossInit) and ColossusObject_Slot6
+//!   0x00436390 over the shared 0x00435420; the target tags resolve as Q112Boss_Slot8 0x00435770 does.
 //! - **Damage and death.** max_health times the difficulty's bad-guy factor (Ai_InitGeneric); bad guys' shots do
 //!   nothing (same side); bullets are scaled by bullet_scale (the colossus: 0.08). Death: send_trigger_on_death, the
 //!   score, fx_death (fx_zeppelin_crash drops the wreck, fx_exp_saucer, fx_explosion_colossus) and the husk
@@ -671,11 +673,29 @@ fn log(q: Query<(&Boss, &GlobalTransform, &Destructible)>, mut log: ResMut<super
     }
 }
 
-/// A dead boss: its weapon goes with it, its log entry says so (the fx, score, trigger and husk are the engine's death
-/// path: fx.rs `dying`, mission.rs `deaths`, level.rs `husks`).
-fn deaths(mut commands: Commands, mut died: MessageReader<Died>, q: Query<&Boss>, mut log: ResMut<super::VehicleLog>, mut stop: MessageWriter<crate::audio::StopSoundsOn>) {
+/// A dead boss: its weapon goes with it (the destroy Q112Boss_Slot55 0x00435860), its log entry says so (the fx,
+/// score, trigger and husk are the engine's death path: fx.rs `dying`, mission.rs `deaths`, level.rs `husks`). A
+/// zeppelin's death has Roman remark on it under the shared voice delay (AIVoice_PlayZeppelin 0x00436260:
+/// ROM50206 / 50208 / 50209_Zeppelin at equal odds, ((rand() x 300) >> 15) / 100).
+#[allow(clippy::too_many_arguments)]
+fn deaths(
+    mut commands: Commands,
+    mut died: MessageReader<Died>,
+    q: Query<&Boss>,
+    mut log: ResMut<super::VehicleLog>,
+    (mut stop, mut sounds): (MessageWriter<crate::audio::StopSoundsOn>, MessageWriter<crate::audio::PlaySound>),
+    (time, mut barks, mut fxrng): (Res<Time>, ResMut<crate::ai::Barks>, ResMut<crate::fx::FxStats>),
+    roman: Query<Entity, With<crate::player::Roman>>,
+    mut rng: ResMut<VehicleRng>,
+) {
     for d in died.read() {
         let Ok(b) = q.get(d.0) else { continue };
+        if b.kind == BossKind::Zeppelin && barks.take(crate::ai::Delay::Vo, time.elapsed_secs(), &mut fxrng) {
+            let line = ["ROM50206_Zeppelin", "ROM50208_Zeppelin", "ROM50209_Zeppelin"][((rng.0.rand() * 300) >> 15).min(299) as usize / 100];
+            if let Ok(r) = roman.single() {
+                sounds.write(crate::audio::PlaySound::on(line, r));
+            }
+        }
         log.0.insert(b.id.to_string(), serde_json::json!({"kind": b.kind.name(), "dead": true, "shots": b.shots, "volleys": b.cycle.volleys}));
         if let Some(w) = &b.weapon {
             stop.write(crate::audio::StopSoundsOn(w.entity));
