@@ -1,8 +1,10 @@
 # Player character (Roman) in lev_1_m1
 
 Status 2026-10-13: static research for the remaster port (engine/). Nothing here was checked at runtime. The
-numbers the port needs are in `work/remaster/lev_1_m1/player.json` (not committed; generated from the retail banks).
-Per-instance property overrides of the level are in `work/remaster/lev_1_m1/instance_props.json`.
+numbers the port needs are in `work/remaster/lev_1_m1/player.json` (not committed; generated from the retail banks
+by `tools/remaster_export_player.py LEVEL`, any level). Per-instance property overrides of the level are in
+`work/remaster/lev_1_m1/instance_props.json` (`tools/remaster_export_instance_props.py LEVEL`). All of a level's
+exports: `tools/export_level.py LEVEL` (docs/remaster-engine.md "Level export").
 Guesses are labelled **guess**. "(exe)" = read from `orig/pc/GameData/game.unpacked.exe` with a read-only script.
 
 ## 1. Identity, model, spawn

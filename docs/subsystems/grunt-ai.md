@@ -4,7 +4,9 @@ Status 2026-10-14: the states lev_1_m1's grunts reach are traced and ported (sec
 stance, hit reactions, lost targets, marker splines, alarm troops, noises, taunt, the captain); every function of the
 ai port queue is ported or explained in docs/port/ai.csv (`python tools/port_queue.py ai --explained`). Sections
 1-12 are the earlier research (some of their "not traced" notes are now settled in 13). Port numbers:
-`work/remaster/lev_1_m1/grunt_ai.json`. Guesses are labelled **guess**.
+`work/remaster/lev_1_m1/grunt_ai.json` (`tools/remaster_export_grunt_ai.py LEVEL`, any level; the engine does not
+read it, it is the reference). Guesses are labelled **guess**. The grunt's weapon is grunt_bow (engine/src/ai.rs
+Kind::weapon, 0x004a0ef0), settled since the table below was written.
 
 ## 1. Templates and instances in lev_1_m1
 
