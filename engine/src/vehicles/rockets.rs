@@ -57,8 +57,8 @@ pub enum Flight {
     Straight,
     /// CaptainRocket_Update 0x00482b40: the velocity pulled toward (T - p) clamped to [min, max] at turn_power per s
     Captain { min: f32, max: f32, turn: f32 },
-    /// RocketTowerProjectile_Update 0x00480a20 (see the module table); `initial` is the launch distance (+0x568),
-    /// `factor` the pull that grows by 4 a second (+0x59c)
+    /// RocketTowerProjectile_Update 0x00480a20 (see the module table); `initial` is the distance to the target at the
+    /// launch, `factor` the pull, which grows by 4 a second
     Tower { start: f32, max: f32, delay: f32, full: f32, stop: f32, initial: f32, factor: f32 },
     /// a lobbed shell under GRAVITY
     Ballistic,
@@ -71,9 +71,9 @@ pub struct Rocket {
     pub flight: Flight,
     /// what it homes on: an entity and its node ("chest" for the rocket towers, 0x0049c610)
     pub target: Option<(Entity, Option<String>)>,
-    /// lifetime +0x464 (default 4)
+    /// seconds left (lifetime, default 4)
     pub life: f32,
-    /// damage +0x46c (10), area_damage +0x474, radii +0x478 / +0x47c, impact_force +0x470 (2010)
+    /// damage (default 10), area_damage and its radii, impact_force (2010): Projectile_Load 0x0047e0c0
     pub damage: f32,
     pub area: f32,
     pub inner: f32,
@@ -120,7 +120,7 @@ pub fn launch(commands: &mut Commands, fx: &mut MessageWriter<crate::fx::StartFx
     let (vel, flight, passby) = match p.s("behavior").unwrap_or("") {
         "proj_captain_rocket" => {
             // CaptainRocket_ReadProps 0x004829e0: min_speed 10, max_speed 30, turn_power 30 (both speeds x 3); the
-            // launch speed +0x460 is the max speed; dumb_fire flies straight (0x00482b40 returns at once)
+            // launch speed is the max speed; dumb_fire flies straight (0x00482b40 returns at once)
             let (min, max) = (k3(p.f("min_speed", 10.0)), k3(p.f("max_speed", 30.0)));
             let flight = if p.i("dumb_fire", 0) != 0 { Flight::Straight } else { Flight::Captain { min, max, turn: p.f("turn_power", 30.0) } };
             (l.along.unwrap_or(aim) * max, flight, Some(("wpn_rocket_passby_med_1", 4900.0)))
@@ -143,7 +143,7 @@ pub fn launch(commands: &mut Commands, fx: &mut MessageWriter<crate::fx::StartFx
             (l.along.unwrap_or(aim) * start, flight, Some((name, 2500.0)))
         }
         "proj_rocket_bud" => (lob(l.from, l.to, k3(p.f("speed", 10.0))), Flight::Ballistic, Some(("wpn_rocket_passby_med_3", 4900.0))),
-        // Projectile_Launch_00480ec0: the speed is the horizontal distance / +0x568 x +0x568 + 5
+        // Projectile_Launch_00480ec0: the speed is the horizontal distance to the target + 5
         "proj_forge_mortar" => {
             let h = (l.to - l.from).with_y(0.0).length();
             (lob(l.from, l.to, h + 5.0), Flight::Ballistic, Some(("wpn_rocket_passby_med_2", 4900.0)))
@@ -240,7 +240,7 @@ fn fly(
     chars: Query<(Entity, &crate::physics::Body, Has<crate::ai::Grunt>), Without<Rocket>>,
     mut grunt_health: Query<&mut crate::fx::Health, (With<crate::ai::Grunt>, Without<crate::player::Roman>, Without<crate::ai::Companion>, Without<Rocket>)>,
     mut objects: Query<(Entity, &crate::level::Placed, &mut Destructible, Option<&crate::vehicles::boss::BulletScale>)>,
-    (data, mounted, topsy, mut stats): (Res<crate::gamedata::GameData>, Res<crate::turret::Mounted>, Res<crate::topsy::Topsy>, ResMut<RocketStats>),
+    (data, mounted, topsy, mut stats, tuning): (Res<crate::gamedata::GameData>, Res<crate::turret::Mounted>, Res<crate::topsy::Topsy>, ResMut<RocketStats>, Res<super::VehicleTuning>),
     (mut fx, mut blasts, mut sounds): (MessageWriter<crate::fx::StartFx>, MessageWriter<Explode>, MessageWriter<crate::audio::PlaySound>),
 ) {
     let dt = time.delta_secs();
@@ -354,7 +354,9 @@ fn fly(
         };
         // the hit 0x0047eae0: at the point; area damage to all but the object hit; the direct damage (damage +
         // area_damage, 0x0047eec0); the end effects (0x0047ed40); removed
-        let direct = r.damage + r.area;
+        // (the vehicles' damage scale applies to the bad guys' rockets; the player's shells are his weapon's)
+        let scale = if r.by == Src::Player { 1.0 } else { tuning.damage_scale };
+        let direct = (r.damage + r.area) * scale;
         if r.by != Src::Player {
             stats.ended += 1;
             if obj.is_some() && obj == roman_at.map(|(re, _)| re) {
@@ -364,7 +366,7 @@ fn fly(
             }
         }
         if r.area != 0.0 {
-            blasts.write(Explode { at, area_damage: r.area, radius_inner: r.inner, radius_outer: r.outer, impact_force: r.impact, source: obj, delay: 0.0, by: r.by, cartoon: false });
+            blasts.write(Explode { at, area_damage: r.area * scale, radius_inner: r.inner, radius_outer: r.outer, impact_force: r.impact, source: obj, delay: 0.0, by: r.by, cartoon: false });
         }
         if let Some(o) = obj {
             if let Ok((_, mut rm, _, mut h)) = roman.get_mut(o) {

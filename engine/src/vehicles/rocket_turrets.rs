@@ -22,7 +22,7 @@
 //! emitter ref_nozzle_00 at Roman's position spread by +-inaccuracy_range (10) in x and y, the muzzle fx
 //! fx_muzzle_flash_rocket_bud (one-shot, 0x00497fd0).
 
-use super::nodes::{self, Nodes};
+use super::nodes::Nodes;
 use super::rockets::{self, Launch};
 use crate::fx::{DClass, Destructible, Died, Src};
 use crate::level::{InstanceId, Placed};
@@ -32,11 +32,13 @@ pub struct RocketTurretsPlugin;
 
 impl Plugin for RocketTurretsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, (setup, (tower_update, bud_update), deaths).chain().after(crate::fx::FxSet).run_if(crate::playing));
+        app.add_systems(Update, (setup, (tower_update, bud_update)).chain().after(crate::fx::FxSet).run_if(crate::playing))
+            // before the husk swap removes the dead (level.rs husks runs after mission.rs deaths)
+            .add_systems(Update, deaths.after(crate::fx::FxSet).before(crate::mission::deaths));
     }
 }
 
-/// A rocket tower (the building): its turret (+0x524).
+/// A rocket tower (the building) and the turret it made.
 #[derive(Component)]
 pub struct RocketTower {
     pub turret: Option<Entity>,
@@ -46,9 +48,12 @@ pub struct RocketTower {
 #[derive(Component)]
 pub struct RocketTowerTurret {
     pub tower: Entity,
+    /// the tower's collision: the turret sits in it, and its sight line starts inside it (the tower is the turret's
+    /// linked object, 0x0049c520, passed over by the sight query with the turret)
+    pub tower_body: Option<oxijolt::prelude::BodyId>,
     /// the tower's instance id (the state log's key: "<id>t")
     pub id: u32,
-    /// +0x5bc: where it was made (its range is measured from here)
+    /// where it was made (its range is measured from here)
     pub home: Vec3,
     pub range: f32,
     pub spin_max: f32,
@@ -58,25 +63,31 @@ pub struct RocketTowerTurret {
     pub recycle: f32,
     pub projectile: String,
     pub nozzles: [String; 4],
-    /// +0x5e4 the turn anim's fraction, +0x5e8 the spin speed
+    /// how far round it has turned (the turn anim's fraction) and how fast it turns (fractions a second)
     pub angle: f32,
     pub spin: f32,
-    /// +0x5d5 in range last frame, +0x5c8 the sight timer, +0x5d4 seen, +0x5cc the time last seen, +0x524 last fire
+    /// Roman in range last frame; the next sight check in; Roman seen at the last check; when he was last seen; when
+    /// it last fired (0: not since he came in range)
     pub in_range: bool,
     pub sight: f32,
     pub seen: bool,
     pub seen_at: f32,
     pub last_fire: f32,
-    /// the turn loop sound plays (+0x5f0)
+    /// the turn loop sound plays
     pub turning: bool,
     pub volleys: u32,
+    /// the "center" node's stand-in (the parts hang off it), the turn anim the angle scrubs (its fraction: 0x00408800(4)
+    /// +4 with Anim_Set 0x00408d90 flags 0x210) and the nozzles' places on "center" (the anim's first frame)
+    pub holder: Entity,
+    pub turn: String,
+    pub nodes: Nodes,
 }
 
 /// A rocket bud (RocketBudTurret: the fields of 0x0049c9b0).
 #[derive(Component)]
 pub struct RocketBud {
     pub id: u32,
-    /// +0x550: its spawn point
+    /// where it stands (its range is measured from here)
     pub home: Vec3,
     pub range: f32,
     pub spread: f32,
@@ -85,7 +96,7 @@ pub struct RocketBud {
     pub projectile: String,
     pub emitter: String,
     pub muzzle_fx: Option<(String, String)>,
-    /// +0x540 the sight timer, +0x54c seen, +0x544 the time last seen, +0x524 last fire
+    /// the next sight check in; Roman seen at the last check; when he was last seen; when it last fired
     pub sight: f32,
     pub seen: bool,
     pub seen_at: f32,
@@ -110,7 +121,7 @@ fn setup(
         ResMut<Assets<StandardMaterial>>,
     ),
     mut physics: NonSendMut<crate::physics::Physics>,
-    time: Res<Time>,
+    (time, tuning): (Res<Time>, Res<super::VehicleTuning>),
 ) {
     let done = done.get().get_or_insert_with(Default::default);
     let placed = props.get().get_or_insert_with(|| super::placements(&anim_lib.dir, &data));
@@ -130,7 +141,7 @@ fn setup(
                     continue;
                 };
                 let world = t.to_matrix() * at;
-                let turret = spawn_turret(&mut commands, &data, &mut lib, &mut anim_lib, &mut binds, &assets, &mut meshes, &mut materials, &mut physics, world, e, id.0, p);
+                let turret = spawn_turret(&mut commands, &data, &mut lib, &mut anim_lib, &mut binds, &assets, &mut meshes, &mut materials, &mut physics, world, (e, pl.collider), id.0, &tuning);
                 commands.entity(e).insert(RocketTower { turret });
             }
             "rocket_bud_turret" => {
@@ -142,19 +153,19 @@ fn setup(
                         range: tp.f("active_range", 500.0),
                         spread: tp.f("inaccuracy_range", 10.0),
                         blind: tp.f("blind_fire_duration", 10.0),
-                        recycle: tp.f("recycle_time", 1.0),
+                        recycle: tp.f("recycle_time", 1.0) * tuning.fire_pause_scale,
                         projectile: tp.s("projectile_name").unwrap_or("").to_owned(),
                         emitter: tp.s("emitter_bone_name").unwrap_or("ref_nozzle_00").to_owned(),
                         muzzle_fx: tp.s("muzzle_fx_name").zip(tp.s("muzzle_bone_name")).map(|(a, b)| (a.to_owned(), b.to_owned())),
                         sight: 1.0,
                         seen: false,
                         seen_at: f32::NEG_INFINITY,
-                        // +0x524 = the time at load: the first shot waits recycle_time
+                        // its fire time starts at the load (0x0049c9b0): the first shot waits recycle_time
                         last_fire: time.elapsed_secs(),
                         shots: 0,
                     },
                     // Object_TakeDamage: every hit (the placed object's own record replaced)
-                    super::unit_health(tp, DClass::Open, pl.husk.clone()),
+                    super::unit_health(tp, DClass::Open, pl.husk.clone(), tuning.health_scale),
                 ));
             }
             _ => {}
@@ -176,21 +187,27 @@ fn spawn_turret(
     materials: &mut Assets<StandardMaterial>,
     physics: &mut crate::physics::Physics,
     world: Mat4,
-    tower: Entity,
+    (tower, tower_body): (Entity, Option<oxijolt::prelude::BodyId>),
     id: u32,
-    tower_props: &crate::gamedata::Props,
+    tuning: &super::VehicleTuning,
 ) -> Option<Entity> {
     let name = "v_rockettower_turret";
     let tpl = data.templates.get(name)?.clone();
     let p = data.template_props(name);
     let e = commands.spawn((Transform::from_matrix(world), Visibility::default(), Name::new(name))).id();
+    // the model's parts hang off its "center" node (every part is bound to it), which the turn anim turns: a holder
+    // entity stands for that node
+    let holder = commands.spawn((Transform::IDENTITY, Visibility::default())).id();
+    commands.entity(e).add_child(holder);
     let model = tpl.model.clone()?;
     if let Some(m) = lib.load_model(&model, false, assets, meshes, materials) {
         let mut ctx = crate::level::SkinCtx { lib: anim_lib, binds };
-        let _ = crate::level::attach_model(commands, e, m, true, Some(&mut ctx));
+        let _ = crate::level::attach_model(commands, holder, m, true, Some(&mut ctx));
         let bounds = crate::fx::Bounds { center: (m.min + m.max) * 0.5, radius: (m.max - m.min).length() * 0.5 };
         commands.entity(e).insert(bounds);
     }
+    let turn = tpl.default_anim.clone().unwrap_or_default();
+    let nodes = Nodes::from_anim(&anim_lib.dir, &turn).unwrap_or_default();
     let collider = tpl.collision.as_ref().and_then(|c| lib.load_model(c, false, assets, meshes, materials)).map(|m| (m.vertices.clone(), m.tris.clone())).and_then(|(v, t)| {
         let v: Vec<Vec3> = v.iter().map(|x| world.transform_point3(*x)).collect();
         physics.add_static_mesh(&v, &t)
@@ -198,7 +215,7 @@ fn spawn_turret(
     if let Some(c) = collider {
         crate::level::collider_lists(physics, &p, c);
     }
-    let health = super::unit_health(&p, DClass::Open, None);
+    let health = super::unit_health(&p, DClass::Open, None, tuning.health_scale);
     let nozzle = |i: usize, d: &str| p.s(&format!("emitter_bone_name_{i}")).unwrap_or(d).to_owned();
     commands.entity(e).insert((
         Placed { template: name.to_owned(), collider, husk: None, triggers: Default::default() },
@@ -206,6 +223,7 @@ fn spawn_turret(
         health,
         RocketTowerTurret {
             tower,
+            tower_body,
             id,
             home: world.w_axis.truncate(),
             range: p.f("active_range", 500.0),
@@ -213,7 +231,7 @@ fn spawn_turret(
             spin_accel: p.f("spin_accel", 0.5),
             spin_stop: p.f("spin_stop_accel", 0.8),
             blind: p.f("blind_fire_duration", 1.0),
-            recycle: p.f("recycle_time", 1.0),
+            recycle: p.f("recycle_time", 1.0) * tuning.fire_pause_scale,
             projectile: p.s("projectile_name").unwrap_or("").to_owned(),
             nozzles: [nozzle(1, "ref_nozzle_00"), nozzle(2, "ref_nozzle_01"), nozzle(3, "ref_nozzle_02"), nozzle(4, "ref_nozzle_03")],
             angle: 0.0,
@@ -225,24 +243,18 @@ fn spawn_turret(
             last_fire: 0.0,
             turning: false,
             volleys: 0,
+            holder,
+            turn,
+            nodes,
         },
     ));
-    // the turn anim, driven by the angle (0x00408800(4) +4, Anim_Set 0x00408d90 flags 0x210)
-    if let Some(anim) = tpl.default_anim {
-        commands.entity(e).insert(TurnAnim(anim));
-    }
-    let _ = tower_props;
     Some(e)
 }
 
-/// The anim the tower turret's angle scrubs.
-#[derive(Component)]
-pub struct TurnAnim(pub String);
-
 /// The sight check of both turrets (Turret_SightHit, game_09.cpp): from 10 above the point to Roman's centre, nothing
 /// in between but the shooter's own collision.
-fn sees(physics: &crate::physics::Physics, blind: &super::SightBlind, from: Vec3, roman: Vec3, own: Option<oxijolt::prelude::BodyId>) -> bool {
-    super::sight(physics, blind, from + Vec3::Y * 5.0, roman, &own.into_iter().collect::<Vec<_>>())
+fn sees(physics: &crate::physics::Physics, blind: &super::SightBlind, from: Vec3, roman: Vec3, own: &[oxijolt::prelude::BodyId]) -> bool {
+    super::sight(physics, blind, from + Vec3::Y * 5.0, roman, own)
 }
 
 /// RocketTowerTurret_Update 0x0049c6a0 and its fire 0x0049c610.
@@ -252,9 +264,9 @@ fn tower_update(
     time: Res<Time>,
     data: Res<crate::gamedata::GameData>,
     (physics, blind): (NonSend<crate::physics::Physics>, Res<super::SightBlind>),
-    mut q: Query<(Entity, &mut RocketTowerTurret, &Placed, &GlobalTransform, Option<&mut crate::skin::Animator>, Option<&TurnAnim>)>,
+    mut q: Query<(Entity, &mut RocketTowerTurret, &Placed, &GlobalTransform, Option<&Destructible>)>,
+    mut holders: Query<&mut Transform, Without<crate::player::Roman>>,
     roman: Query<(Entity, &crate::player::Roman, &Transform)>,
-    joints: Query<&GlobalTransform>,
     (mut fx, mut sounds, mut stop): (MessageWriter<crate::fx::StartFx>, MessageWriter<crate::audio::PlaySound>, MessageWriter<crate::audio::StopSoundsOn>),
     (mut rng, mut log, mut lib): (ResMut<super::VehicleRng>, ResMut<super::VehicleLog>, ResMut<crate::skin::AnimLibrary>),
 ) {
@@ -262,7 +274,11 @@ fn tower_update(
     let now = time.elapsed_secs();
     let Ok((re, r, rt)) = roman.single() else { return };
     let roman_at = rt.translation + Vec3::Y * r.walker.lift;
-    for (e, mut tt, pl, gt, anim, turn) in &mut q {
+    for (e, mut tt, pl, gt, health) in &mut q {
+        // dead (its record gone this frame; the husk swap removes it)
+        let Some(health) = health else { continue };
+        // the "center" node at the angle (the turn anim sampled at the fraction)
+        let spin = lib.anim(&tt.turn).and_then(|a| a.rotation("center", tt.angle * a.duration)).unwrap_or(Quat::IDENTITY);
         // 0x00497ed0 (the muzzle fx step: the tower has no muzzle fx)
         if roman_at.distance_squared(tt.home) <= tt.range * tt.range {
             if !tt.in_range {
@@ -281,7 +297,8 @@ fn tower_update(
                     tt.sight -= dt;
                     if tt.sight <= 0.0 {
                         tt.sight = 1.0;
-                        tt.seen = sees(&physics, &blind, tt.home + Vec3::Y * 5.0, roman_at, pl.collider);
+                        let own: Vec<_> = pl.collider.into_iter().chain(tt.tower_body).collect();
+                        tt.seen = sees(&physics, &blind, tt.home + Vec3::Y * 5.0, roman_at, &own);
                         if tt.seen {
                             tt.seen_at = now;
                         }
@@ -289,7 +306,11 @@ fn tower_update(
                     if tt.seen || now - tt.seen_at < tt.blind {
                         // 0x0049c610: a rocket from each nozzle, each homing on Roman's chest
                         for n in tt.nozzles.clone() {
-                            let Some(m) = nodes::world(gt, &Nodes::default(), anim.as_deref(), &joints, &n) else { continue };
+                            let Some(node) = tt.nodes.get(&n) else {
+                                warn!("rocket tower {}: no nozzle {n} in {}", tt.id, tt.turn);
+                                continue;
+                            };
+                            let m = gt.to_matrix() * Mat4::from_quat(spin) * node;
                             let from = m.w_axis.truncate();
                             // the nozzle's facing (0x00453150: its -Y)
                             let along = m.transform_vector3(Vec3::NEG_Y).normalize_or(Vec3::Y);
@@ -314,15 +335,10 @@ fn tower_update(
         while tt.angle > 1.0 {
             tt.angle -= 1.0;
         }
-        if let (Some(mut a), Some(turn)) = (anim, turn) {
-            let len = lib.anim(&turn.0).map_or(1.0, |x| x.duration);
-            a.play(0, &turn.0, true, crate::skin::Mask::All);
-            if let Some(l) = a.layers.get_mut(0) {
-                l.speed = 0.0;
-                l.time = tt.angle * len;
-            }
+        if let Ok(mut h) = holders.get_mut(tt.holder) {
+            h.rotation = spin;
         }
-        log.0.insert(format!("{}t", tt.id), serde_json::json!({"kind": "rocket_tower_turret", "spin": tt.spin, "in_range": tt.in_range, "seen": tt.seen, "volleys": tt.volleys}));
+        log.0.insert(format!("{}t", tt.id), serde_json::json!({"kind": "rocket_tower_turret", "health": health.health, "spin": tt.spin, "in_range": tt.in_range, "seen": tt.seen, "volleys": tt.volleys}));
     }
 }
 
@@ -345,7 +361,7 @@ fn bud_update(
     let roman_at = roman_feet + Vec3::Y * r.walker.lift;
     let cache = nodes_cache.get();
     for (e, mut b, pl, gt, d) in &mut q {
-        let health = d.map_or(0.0, |d| d.health);
+        let Some(health) = d.map(|d| d.health) else { continue };
         log.0.insert(b.id.to_string(), serde_json::json!({"kind": "rocket_bud", "health": health, "shots": b.shots, "seen": b.seen}));
         if roman_at.distance_squared(b.home) > b.range * b.range {
             continue;
@@ -357,7 +373,7 @@ fn bud_update(
         b.sight -= dt;
         if b.sight <= 0.0 {
             b.sight = 1.0;
-            b.seen = sees(&physics, &blind, b.home + Vec3::Y * 5.0, roman_at, pl.collider);
+            b.seen = sees(&physics, &blind, b.home + Vec3::Y * 5.0, roman_at, &pl.collider.into_iter().collect::<Vec<_>>());
             if b.seen {
                 b.seen_at = now;
             }

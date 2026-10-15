@@ -2,13 +2,13 @@
 //! zeppelins, saucers and the lev_5_m4 colossus (Ai_InitGeneric 0x004247f0: generic_txt is the anim,
 //! receive_trigger_activate the trigger that starts it, trigger_los also starts it when a target is in range).
 //!
-//! - Set up 0x0042d000 (state 0x8c, waiting): the trigger handler 0x0042f870 (id +0x52c) or, with trigger_los, a target
+//! - Set up 0x0042d000 (state 0x8c, waiting): the trigger handler 0x0042f870 (receive_trigger_activate) or, with trigger_los, a target
 //!   found within range (ai_06.cpp:1658-1668) calls 0x0042f5c0, which plays the anim (GenericAI_PlayICAnim 0x0042c410):
-//!   the object's matrix then is the start (+0xa28), physics off, state 0x64.
-//! - State 0x64 (ai_06.cpp:1900-1958): the time +0xa20 += dt; the root node's transform at that time times the start
+//!   the object's matrix then is the start, physics off, state 0x64.
+//! - State 0x64 (ai_06.cpp:1900-1958): the time goes on by dt; the root node's transform at that time times the start
 //!   is the object's matrix (0x004e2910, Object_SetTransform 0x00457990), its velocity the step. The end test 0x00406430:
-//!   past the end with ic_loop (+0xad8) the time wraps (by the length) and the path starts over from the same start
-//!   (ic_loop_snap +0xad9 also puts the object back at the start); without, it holds the end and wakes (0x0042c0e0).
+//!   past the end with ic_loop the time wraps (by the length) and the path starts over from the same start
+//!   (ic_loop_snap also puts the object back at the start); without, it holds the end and wakes (0x0042c0e0).
 //! - The anim's notes along the way (GenericAIObject_HandleEvent 0x0043d180): ic_loop / ic_loop_snap, flying (the
 //!   collision filter 0x100, nothing here), anim_loop / anim_intro / animloop (the body's own anim), deactivate
 //!   (removal, vt+0xdc: no death, no fx, no trigger), and the zeppelins' drops (create_object_ic, create_rocket_captain_IC:
@@ -31,11 +31,11 @@ impl Plugin for MoverPlugin {
 #[derive(Component, Clone, Debug)]
 pub struct Mover {
     pub anim: String,
-    /// the object's matrix when the anim started (+0xa28), engine space (the entity's frame is the game's model space)
+    /// the object's matrix when the anim started, engine space (the entity's frame is the game's model space)
     pub start: Mat4,
-    /// seconds into the anim (+0xa20)
+    /// seconds into the anim
     pub t: f32,
-    /// ic_loop (+0xad8)
+    /// an ic_loop note was passed: the path loops
     pub looping: bool,
     /// ended without a loop (0x00406430 returned true)
     pub done: bool,

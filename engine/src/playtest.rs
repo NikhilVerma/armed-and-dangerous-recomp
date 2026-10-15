@@ -79,6 +79,9 @@ pub struct Event {
     /// killing blow takes the death path), to test a unit's damage and death without waiting for shots to land
     #[serde(default)]
     pub damage: Option<[f32; 2]>,
+    /// debug: the same hit on every live object of a template: ["v_rockettower_turret", 100]
+    #[serde(default)]
+    pub damage_template: Option<(String, f32)>,
     /// debug: damage a companion: [0 Jonesy / 1 Q, amount]
     #[serde(default)]
     pub hurt_companion: Option<[f32; 2]>,
@@ -427,7 +430,7 @@ fn drive(
         ResMut<crate::ai::Interests>,
         ResMut<crate::ai::Barks>,
     ),
-    mut objects: Query<(&crate::level::InstanceId, &mut crate::fx::Destructible)>,
+    mut objects: Query<(Entity, Option<&crate::level::InstanceId>, Option<&crate::level::Placed>, &mut crate::fx::Destructible)>,
     cam: Query<&GlobalTransform, With<Camera3d>>,
     player: Query<&GlobalTransform, With<crate::player::Roman>>,
     mut grunts: Query<(&mut crate::ai::Grunt, &mut crate::fx::Health, &GlobalTransform), Without<crate::player::Roman>>,
@@ -542,20 +545,30 @@ fn drive(
             send.write(crate::mission::SendTrigger(t));
         }
         if let Some(id) = e.destroy {
-            for (i, mut d) in &mut objects {
-                if i.0 == id && d.dying.is_none() {
+            for (_, i, _, mut d) in &mut objects {
+                if i.is_some_and(|i| i.0 == id) && d.dying.is_none() {
                     d.health = 0.0;
                     d.dying = Some(0.0);
                 }
             }
         }
-        if let Some([id, amount]) = e.damage {
-            for (i, mut d) in &mut objects {
-                if i.0 == id as u32 && d.take_damage(amount) && d.dying.is_none() {
+        // a hit on placed objects by instance id, or on every live object of a template (parts made at run time,
+        // such as a rocket tower's turret)
+        let hits = e.damage.map(|[id, amount]| (Some(id as u32), None, amount)).into_iter().chain(e.damage_template.clone().map(|(t, amount)| (None, Some(t), amount)));
+        for (id, template, amount) in hits {
+            let mut n = 0;
+            for (_, i, pl, mut d) in &mut objects {
+                let hit = id.is_some_and(|id| i.is_some_and(|i| i.0 == id)) || template.as_ref().is_some_and(|t| pl.is_some_and(|pl| &pl.template == t));
+                if !hit {
+                    continue;
+                }
+                n += 1;
+                if d.take_damage(amount) && d.dying.is_none() {
                     d.chain_delay = 0.0;
                     d.dying = Some(0.0);
                 }
             }
+            info!("EVENT playtest: damage {amount} to {n} objects ({})", template.unwrap_or_else(|| format!("id {}", id.unwrap_or(0))));
         }
         if let Some(p) = e.pad {
             pt.pad.push(p);

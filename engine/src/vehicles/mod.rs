@@ -14,6 +14,7 @@
 //! Docs: docs/subsystems/vehicles.md (what is ported, with addresses; open questions).
 
 pub mod boss;
+pub mod gunnery;
 pub mod mover;
 pub mod nodes;
 pub mod rocket_turrets;
@@ -30,12 +31,53 @@ pub struct VehiclesPlugin;
 impl Plugin for VehiclesPlugin {
     fn build(&self, app: &mut App) {
         app.insert_level_resource(|| VehicleRng(crate::fxvm::CrtRand::seeded(0x5a5e)))
+            .init_resource::<VehicleTuning>()
             .init_level_resource::<VehicleLog>()
             .init_level_resource::<SightBlind>()
             .add_systems(Update, (start_lock_fx, sight_blind))
             .add_systems(PostUpdate, move_colliders.after(TransformSystems::Propagate))
             .add_systems(Last, publish_log)
             .add_plugins((rockets::RocketsPlugin, mover::MoverPlugin, rocket_turrets::RocketTurretsPlugin, boss::BossPlugin));
+    }
+}
+
+/// The vehicles' numbers that are not in the property sets: the original's code constants (with the function that
+/// holds each), and scales for later settings (difficulty, mods). Every unit's own numbers stay in its property set;
+/// this resource scales them. Defaults = the original.
+#[derive(Resource, Clone, Debug)]
+pub struct VehicleTuning {
+    /// the turret bosses' weapon turns toward its aim by this fraction per second of what is left (0x0042ecf0: 4)
+    pub weapon_turn_rate: f32,
+    /// a boss looks for a target every `retarget_every` + up to `retarget_jitter` seconds (0x00435b50: 1 + rand)
+    pub retarget_every: f32,
+    pub retarget_jitter: f32,
+    /// the colossus's fire range (ColossusObject_Slot6 0x00436390: 400, over its fire_range_*)
+    pub colossus_range: f32,
+    /// how fast a walking boss turns, radians a second (360 degrees: 0x00436390, 0x0042df70)
+    pub boss_turn_speed: f32,
+    /// a marker counts as reached within this distance (the remaster's straight walk; the original's route follower
+    /// 0x00470c30 decides on its grid)
+    pub marker_reached: f32,
+    /// scales: every unit's health (on top of the difficulty's bad-guy factor for the AI bosses), the damage of every
+    /// vehicle's projectile, every unit's pauses between shots (below 1: faster fire)
+    pub health_scale: f32,
+    pub damage_scale: f32,
+    pub fire_pause_scale: f32,
+}
+
+impl Default for VehicleTuning {
+    fn default() -> Self {
+        VehicleTuning {
+            weapon_turn_rate: 4.0,
+            retarget_every: 1.0,
+            retarget_jitter: 1.0,
+            colossus_range: 400.0,
+            boss_turn_speed: 360f32.to_radians(),
+            marker_reached: 15.0,
+            health_scale: 1.0,
+            damage_scale: 1.0,
+            fire_pause_scale: 1.0,
+        }
     }
 }
 
@@ -131,12 +173,13 @@ pub fn class_of<'a>(p: &'a crate::gamedata::Props, template: &'a str) -> &'a str
     p.s("behavior").filter(|b| !b.is_empty()).unwrap_or(template)
 }
 
-/// A unit's health and death record (the Object base: health +0x454 / max_health +0x458, fx_death +0x3a0, husk +0x3c0,
+/// A unit's health and death record (the Object base: health and max_health, fx_death, husk,
 /// score_value; Object_LoadBaseProps 0x00451360), with the damage rule of its class: `Open` for the turrets that take
 /// every hit (Object_TakeDamage 0x004555e0), `Building` with only badguy_damage off for the AI bosses (a bad guy's
-/// shot does nothing to a bad guy: the same-team rule, docs/subsystems/damage.md).
-pub fn unit_health(p: &crate::gamedata::Props, class: crate::fx::DClass, husk: Option<String>) -> crate::fx::Destructible {
-    let max = p.f("max_health", 100.0);
+/// shot does nothing to a bad guy: the same-team rule, docs/subsystems/damage.md). `scale` multiplies max_health (the
+/// difficulty's factor for AI characters, Ai_InitGeneric 0x004247f0, and VehicleTuning.health_scale).
+pub fn unit_health(p: &crate::gamedata::Props, class: crate::fx::DClass, husk: Option<String>, scale: f32) -> crate::fx::Destructible {
+    let max = p.f("max_health", 100.0) * scale;
     crate::fx::Destructible {
         health: max,
         max_health: max,
@@ -202,25 +245,30 @@ fn sight_blind(
 /// A sight line (0x00426fd0 / Turret_SightHit): from `from` to `to`, nothing in between but the bodies in `skip`
 /// (the looker's and the target's own) and the ones sight passes (SightBlind).
 pub fn sight(physics: &Physics, blind: &SightBlind, from: Vec3, to: Vec3, skip: &[oxijolt::prelude::BodyId]) -> bool {
+    blocker(physics, blind, from, to, skip).is_none()
+}
+
+/// What stops a sight line first (its body and the point), if anything.
+pub fn blocker(physics: &Physics, blind: &SightBlind, from: Vec3, to: Vec3, skip: &[oxijolt::prelude::BodyId]) -> Option<(oxijolt::prelude::BodyId, Vec3)> {
     let dir = (to - from).normalize_or(Vec3::Y);
     let (mut at, mut left) = (from, (to - from).length());
     for _ in 0..32 {
-        let Some((b, hit, _)) = physics.raycast(at, dir, left) else { return true };
+        let (b, hit, _) = physics.raycast(at, dir, left)?;
         if !skip.contains(&b) && !blind.bodies.contains(&b) {
-            return false;
+            return Some((b, hit));
         }
         left -= hit.distance(at) + 0.05;
         if left <= 0.0 {
-            return true;
+            return None;
         }
         at = hit + dir * 0.05;
     }
-    true
+    None
 }
 
 /// The game-space position of an engine-space point (the state log speaks game coordinates, as the scene files).
-pub fn game_pos(p: Vec3) -> [f64; 3] {
+pub fn game_pos(p: Vec3) -> serde_json::Value {
     let g = crate::level::game_to_engine().inverse() * p;
     let r = |v: f32| (v as f64 * 10.0).round() / 10.0;
-    [r(g.x), r(g.y), r(g.z)]
+    serde_json::json!({"x": r(g.x), "y": r(g.y), "z": r(g.z)})
 }

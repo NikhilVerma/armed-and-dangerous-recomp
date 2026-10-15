@@ -82,17 +82,6 @@ impl Nodes {
     }
 }
 
-/// A node's live world matrix: the skinned model's joint when it has one (animated), else the model-space node under
-/// the object's matrix.
-pub fn world(gt: &GlobalTransform, nodes: &Nodes, anim: Option<&crate::skin::Animator>, joints: &Query<&GlobalTransform>, name: &str) -> Option<Mat4> {
-    if let Some(a) = anim {
-        if let Some(j) = a.skeleton.index.get(&name.to_lowercase()).and_then(|&i| a.joints.get(i)).and_then(|&j| joints.get(j).ok()) {
-            return Some(j.to_matrix());
-        }
-    }
-    nodes.get(name).map(|m| gt.to_matrix() * m)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
