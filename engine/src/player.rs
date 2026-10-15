@@ -677,7 +677,7 @@ pub(crate) fn control(
     mut physics: NonSendMut<Physics>,
     mut q: Query<(&mut Roman, &mut Transform, &mut Health)>,
     (ctl, mounted, rig): (Res<crate::input::Controls>, Res<crate::turret::Mounted>, Res<crate::camera::CameraRig>),
-    mut fx: MessageWriter<crate::fx::StartFx>,
+    mut fx: MessageWriter<crate::surface::StartSurfaceFx>,
 ) {
     let dt = time.delta_secs();
     for (mut r, mut t, mut h) in &mut q {
@@ -1381,16 +1381,17 @@ fn idle_banter(
 /// trotter_jump_into's length (4 frames at 30 per second): a standing jump's take-off delay (0x0047aaf0)
 const JUMP_INTO: f32 = 4.0 / 30.0;
 
-/// The surface under a point (its physics material; the landscape and unknown bodies: snow, guess).
-fn ground_material(physics: &Physics, at: Vec3) -> String {
-    physics.raycast(at + Vec3::Y * 2.0, Vec3::NEG_Y, 6.0).and_then(|hit| physics.materials.get(&hit.0).cloned()).unwrap_or_else(|| "snow".into())
+/// The surface under the player's feet (the ground query vt+0xb8, 0x00454b20; surface.rs): nothing within 4 units
+/// below gives the plain fx.
+fn ground_surface(physics: &Physics, at: Vec3) -> crate::surface::Surface {
+    physics.surface_below(at, 4.0).unwrap_or_default()
 }
 
 /// An effect at the player's feet (0x00478800: Fx_Create with the position and, when the ground query vt+0xb8
-/// answers, flag 0x800 and the surface: the fx's material variant `<name>_<material>`).
-fn ground_fx(physics: &Physics, fx: &mut MessageWriter<crate::fx::StartFx>, at: Vec3, name: &str) {
-    let mat = ground_material(physics, at);
-    fx.write(crate::fx::StartFx { name: format!("{name}_{mat}"), at, rotation: crate::level::game_to_engine(), follow: None, position_only: false });
+/// answers, flag 0x800 and the surface: the fx's material variant, surface.rs).
+fn ground_fx(physics: &Physics, fx: &mut MessageWriter<crate::surface::StartSurfaceFx>, at: Vec3, name: &str) {
+    let fx_at = crate::fx::StartFx { name: name.to_owned(), at, rotation: crate::level::game_to_engine(), follow: None, position_only: false };
+    fx.write(crate::surface::StartSurfaceFx { fx: fx_at, surface: ground_surface(physics, at) });
 }
 
 /// The stop and slide effects of the player update (0x004788a0 after the drive, 0x004799d5..0x00479bef):
@@ -1400,7 +1401,7 @@ fn ground_fx(physics: &Physics, fx: &mut MessageWriter<crate::fx::StartFx>, at: 
 /// - touching the ground (contacts +0x584 > 0), faster than 10 (0x005bcb68) and the wanted velocity below 2 (its
 ///   square below 4, 0x005bcbe0): "FX_roman_slide" with the surface (vt+0xb8) runs, kept in +0x568 and released
 ///   (Fx_Release 0x0041d030) when that ends. The remaster releases it by despawning the anchor it follows.
-fn ground_effects(mut commands: Commands, time: Res<Time>, physics: NonSend<Physics>, mut q: Query<(&mut Roman, &Transform)>, mut fx: MessageWriter<crate::fx::StartFx>) {
+fn ground_effects(mut commands: Commands, time: Res<Time>, physics: NonSend<Physics>, mut q: Query<(&mut Roman, &Transform)>, mut fx: MessageWriter<crate::surface::StartSurfaceFx>) {
     let dt = time.delta_secs();
     for (mut r, t) in &mut q {
         // the speed the update measured before its drive (+0x4bc): released at full speed, the slide fx starts on that
@@ -1415,8 +1416,8 @@ fn ground_effects(mut commands: Commands, time: Res<Time>, physics: NonSend<Phys
         match (slide, r.slide_fx) {
             (true, None) => {
                 let anchor = commands.spawn(Transform::from_translation(t.translation)).id();
-                let mat = ground_material(&physics, t.translation);
-                fx.write(crate::fx::StartFx { name: format!("fx_roman_slide_{mat}"), at: t.translation, rotation: crate::level::game_to_engine(), follow: Some(anchor), position_only: true });
+                let slide = crate::fx::StartFx { name: "fx_roman_slide".into(), at: t.translation, rotation: crate::level::game_to_engine(), follow: Some(anchor), position_only: true };
+                fx.write(crate::surface::StartSurfaceFx { fx: slide, surface: ground_surface(&physics, t.translation) });
                 r.slide_fx = Some(anchor);
             }
             (true, Some(a)) => {
@@ -1436,7 +1437,7 @@ fn ground_effects(mut commands: Commands, time: Res<Time>, physics: NonSend<Phys
 /// `no_hits`: the hit handler ignores every message during the topsy states (0x0047afa0, +0xa34 & 0x7800000), the
 /// fall's and the landing's damage included (both go through it, 0x00478100)
 #[allow(clippy::too_many_arguments)]
-fn fall_and_land(r: &mut Roman, t: &Transform, h: &mut Health, vy: f32, jumped: bool, dt: f32, physics: &Physics, fx: &mut MessageWriter<crate::fx::StartFx>, moved: f32, no_hits: bool) {
+fn fall_and_land(r: &mut Roman, t: &Transform, h: &mut Health, vy: f32, jumped: bool, dt: f32, physics: &Physics, fx: &mut MessageWriter<crate::surface::StartSurfaceFx>, moved: f32, no_hits: bool) {
     let y = t.translation.y;
     r.grace = if r.on_ground { 0.5 } else { (r.grace - dt).max(0.0) };
     if r.grace > 0.0 {
@@ -1494,7 +1495,7 @@ fn projectiles(
     mut roman_health: Query<(&mut Health, Option<&mut crate::fx::DamageShield>), (With<Roman>, Without<crate::physics::Body>, Without<Projectile>)>,
     mut companions: Query<(Entity, &mut crate::ai::Companion, &Transform, Option<&crate::skin::Animator>, &mut Health), (Without<Roman>, Without<crate::physics::Body>, Without<Projectile>)>,
     mut stats: ResMut<PlayerStats>,
-    mut fx: MessageWriter<crate::fx::StartFx>,
+    mut surface_fx: MessageWriter<crate::surface::StartSurfaceFx>,
     hulls: Option<Res<crate::hitparts::HitHulls>>,
     (rtime, topsy, mounted, mut noise, mut bombs, mut rng, mut sounds): (Res<Time<Real>>, Res<crate::topsy::Topsy>, Res<crate::turret::Mounted>, ResMut<crate::ai::Interests>, Query<(&Transform, &mut crate::sticky::StickyBomb), Without<Projectile>>, ResMut<crate::fx::FxStats>, MessageWriter<crate::audio::PlaySound>),
     binds: Res<Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>,
@@ -1587,11 +1588,12 @@ fn projectiles(
                 };
             }
         }
-        // impact fx: fx_end_material + the surface's material (landscape: snow, guess)
-        let impact = |body: Option<BodyId>| -> Option<String> {
-            let base = p.fx_end.clone()?;
-            let mat = body.and_then(|b| physics.materials.get(&b).cloned()).unwrap_or_else(|| "snow".into());
-            Some(format!("{base}_{mat}"))
+        // impact fx: fx_end_material with the variant of what it hit (surface.rs): a body's surface at the hit point,
+        // a character's material ("grunt")
+        let impact = |body: Option<(BodyId, Vec3)>, at: Vec3, rotation: Quat| -> Option<crate::surface::StartSurfaceFx> {
+            let fx = crate::fx::StartFx { name: p.fx_end.clone()?, at, rotation, follow: None, position_only: false };
+            let surface = body.map_or_else(|| crate::surface::Surface::of_property("grunt"), |(b, at)| physics.surface(b, at));
+            Some(crate::surface::StartSurfaceFx { fx, surface })
         };
         // and the companions, on theirs (molmer_coll_0, q111_coll_0): the nearest hit along the step
         let mut hit_companion = None;
@@ -1620,8 +1622,8 @@ fn projectiles(
             }
         }
         if let Some((_, q)) = hit_companion {
-            if let Some(n) = impact(None).map(|n| n.replace("_snow", "_grunt")) {
-                fx.write(crate::fx::StartFx { name: n, at: from + step, rotation: Quat::IDENTITY, follow: None, position_only: false });
+            if let Some(f) = impact(None, from + step, Quat::IDENTITY) {
+                surface_fx.write(f);
             }
             // the companions are teammates of the player (vt+0xe4 true): a grunt's shot hurts them, the player's and the
             // other companion's stop on them and do nothing (0x00430340: source and victim on the same team)
@@ -1639,8 +1641,8 @@ fn projectiles(
         // a hit on Roman: PlayerObject vt+0xa8 0x00477c20 (the fxo_rocket_turret mark, bit 31 of +0xa34: no rocket
         // turret on lev_1_m1) passes it to the base hit, which reaches the hit handler 0x0047afa0 below
         if hit_roman {
-            if let Some(n) = impact(None).map(|n| n.replace("_snow", "_grunt")) {
-                fx.write(crate::fx::StartFx { name: n, at: from + step, rotation: Quat::IDENTITY, follow: None, position_only: false });
+            if let Some(f) = impact(None, from + step, Quat::IDENTITY) {
+                surface_fx.write(f);
             }
             // ignored during the topsy states (0x0047afa0: +0xa34 & 0x7800000); the bullet still lands
             if let Some((mut h, shield)) = roman_health.single_mut().ok().filter(|_| !topsy.active()) {
@@ -1692,10 +1694,10 @@ fn projectiles(
             // the hit handler (vt+0x138 0x0047eae0): moved to the hit point, area damage when it has any (none for the
             // bullets), the direct damage (0x0047eec0), the end effect (0x0047ed40: fx_end_material with the surface;
             // the bullets have no fx_end; its AI noise 0x00404810: ai.rs Interests, above) and removed
-            if let Some(n) = impact(Some(body)) {
-                // the fx's game +Z (its up) along the surface normal
-                let rot = Quat::from_rotation_arc(Vec3::Y, normal.normalize_or(Vec3::Y)) * crate::level::game_to_engine();
-                fx.write(crate::fx::StartFx { name: n, at, rotation: rot, follow: None, position_only: false });
+            // the fx's game +Z (its up) along the surface normal
+            let rot = Quat::from_rotation_arc(Vec3::Y, normal.normalize_or(Vec3::Y)) * crate::level::game_to_engine();
+            if let Some(f) = impact(Some((body, at)), at, rot) {
+                surface_fx.write(f);
             }
             if let Some((ce, _, mut h, anim, grunt)) = chars.iter_mut().find(|(ce, b, _, _, _)| b.id == body && Some(*ce) != p.owner) {
                 // same team (0x00430340: the source's and the victim's vt+0xe4 agree): a grunt's shot does no damage

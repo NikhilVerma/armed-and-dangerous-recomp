@@ -139,6 +139,7 @@ fn run(
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     mut fx: MessageWriter<crate::fx::StartFx>,
     mut log: Option<ResMut<crate::mission::Mission>>,
+    voices: crate::audio::PlayingVoices,
 ) {
     let dt = time.delta_secs();
     let g = data.props("p_globalsettings");
@@ -186,7 +187,11 @@ fn run(
                             physics.remove(b.id);
                             commands.entity(e).remove::<crate::physics::Body>();
                         }
-                        sounds.write(crate::audio::PlaySound::at(crate::ai::voice("Topsy_Scream", gr.voice_set), gt.translation()).looping(false));
+                        // the topsy scream (0x004387e0) keeps his scream handle: none while one plays
+                        let set = gr.voice_set;
+                        if let Some(req) = gr.speech.scream(&voices, crate::ai::bark_request("Topsy_Scream", set, gt.translation())) {
+                            sounds.write(req);
+                        }
                         fall += 1;
                     } else {
                         hang += 1;

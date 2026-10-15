@@ -248,8 +248,9 @@ pub struct SoundBank {
     pub voice: HashMap<String, VoiceLine>,
     /// the last sounds started (for the playtest log)
     pub recent: Vec<String>,
-    /// every sound definition started, in order, while log_started is on (oracle.rs drains it: the original's
-    /// [test] trace_every logs the definition names StartVoice is given)
+    /// every sound definition that reaches the driver's start, in order, while log_started is on (oracle.rs drains
+    /// it: the original's [test] trace_every logs the definition names StartVoice is given, the driver's refusals
+    /// of a far streamed one-shot or a stereo sound in 3D included)
     pub started_keys: Vec<String>,
     pub log_started: bool,
 }
@@ -362,7 +363,7 @@ pub enum Part {
     Whole,
     /// the loop body after its intro
     Body,
-    /// exactly this definition (an outro, a follow-on), on no exclusive channel
+    /// exactly this definition (an outro, the music's next segment), on no exclusive channel
     Piece,
 }
 
@@ -440,6 +441,74 @@ pub struct StopVoice {
 /// Stops every voice on an entity, not immediately (0x004f3170, slot +0x120: an object removed).
 #[derive(Message, Clone, Copy)]
 pub struct StopSoundsOn(pub Entity);
+
+/// Which voices still play (the "plays" slot +0xdc, 0x004f4380, asked with a handle). A handle requested less than
+/// `STARTING` ago counts as playing: its voice entity appears a frame or two after the request.
+#[derive(bevy::ecs::system::SystemParam)]
+pub struct PlayingVoices<'w, 's> {
+    voices: Query<'w, 's, &'static SoundId, With<Voice>>,
+    time: Res<'w, Time>,
+}
+
+/// How long a requested voice counts as playing before its entity exists (seconds).
+const STARTING: f32 = 0.1;
+
+impl PlayingVoices<'_, '_> {
+    fn plays(&self, handle: Option<(SoundId, f32)>) -> bool {
+        handle.is_some_and(|(id, at)| self.time.elapsed_secs() - at < STARTING || self.voices.iter().any(|v| *v == id))
+    }
+
+    fn now(&self) -> f32 {
+        self.time.elapsed_secs()
+    }
+}
+
+/// A character's own voice handles: the scream (+0xb4c) and the line (+0xb50) the character voice methods keep
+/// (audio_01.cpp 0x00437a20..0x00439f00; Fight, Spotted and the short Hurt keep none). A scream does not start while
+/// the last one plays (0x004383a0, 0x004385c0, 0x00438810); a death line is not said while a scream plays (Dead
+/// 0x004396a0) and stops the line before it (0x004396a0, DeadAtPosition 0x00439890: audio +0xd8 (handle, 0)).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Speech {
+    scream: Option<(SoundId, f32)>,
+    line: Option<(SoundId, f32)>,
+}
+
+impl Speech {
+    /// Whether the last scream still plays.
+    pub fn screaming(&self, voices: &PlayingVoices) -> bool {
+        voices.plays(self.scream)
+    }
+
+    /// Whether the last line still plays.
+    pub fn saying(&self, voices: &PlayingVoices) -> bool {
+        voices.plays(self.line)
+    }
+
+    /// A scream, unless the last one still plays: the request to send, kept as the scream handle.
+    pub fn scream(&mut self, voices: &PlayingVoices, request: PlaySound) -> Option<PlaySound> {
+        if self.screaming(voices) {
+            return None;
+        }
+        let id = SoundId::new();
+        self.scream = Some((id, voices.now()));
+        Some(request.with_id(id))
+    }
+
+    /// A line, kept as the line handle (a line before it plays on).
+    pub fn line(&mut self, voices: &PlayingVoices, request: PlaySound) -> PlaySound {
+        let id = SoundId::new();
+        self.line = Some((id, voices.now()));
+        request.with_id(id)
+    }
+
+    /// A death line: the line playing stops (not immediately), then this one is kept as the line.
+    pub fn death_line(&mut self, voices: &PlayingVoices, stop: &mut MessageWriter<StopVoice>, request: PlaySound) -> PlaySound {
+        if let Some((id, _)) = self.line.take() {
+            stop.write(StopVoice { id, immediate: false });
+        }
+        self.line(voices, request)
+    }
+}
 
 /// Sets a voice's extra dB (slot +0xf8, 0x004f4540: voice +0x14).
 #[derive(Message, Clone, Copy)]
@@ -681,6 +750,12 @@ fn play(
             _ => 0.0,
         };
         let looped = ev.looped.unwrap_or(def.r#loop);
+        // the oracle's sound events: every play call that reaches the driver's start, as the original's trace logs it
+        // (StartVoice, audio_02.cpp: before the driver call 0x004fa210 and its refusals below); a sequence's body or
+        // outro and the music's next segment are the sound system's own starts, which the trace does not see
+        if bank.log_started && ev.part == Part::Whole {
+            bank.started_keys.push(key.clone());
+        }
         // the driver's start (0x004fa210): a stereo sound cannot play positionally; a streamed one-shot beyond its
         // max distance does not start
         if positional && def.channels >= 2 {
@@ -768,9 +843,6 @@ fn play(
         *stats.started.entry(file.clone()).or_default() += 1;
         *stats.started_by_group.entry(group.name().to_owned()).or_default() += 1;
         bank.played += 1;
-        if bank.log_started {
-            bank.started_keys.push(key.clone());
-        }
         bank.recent.push(file);
         if bank.recent.len() > 40 {
             bank.recent.remove(0);

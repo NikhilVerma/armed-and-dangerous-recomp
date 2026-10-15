@@ -388,11 +388,6 @@ pub fn end_object(o: &FxObject, data: &GameData, physics: &mut Physics, commands
     Some(Instance::new(n, script, Mat4::from_translation(o.place.w_axis.truncate())))
 }
 
-/// The surface material of a physics body (its physics material; the landscape and unknown bodies: snow, guess) as
-/// the fx material variant name.
-fn surface(physics: &Physics, body: oxijolt::prelude::BodyId) -> String {
-    physics.materials.get(&body).cloned().unwrap_or_else(|| "snow".into())
-}
 
 /// The fx object update (fn_0041a350 0x0041a350, render_r1.cpp:974), once per frame for every live object, in the
 /// original's order: the ground hit's actions (+0x464 bit 0x2000), the camera shake (moved before the life check:
@@ -442,7 +437,8 @@ pub fn objects(
                 vm.stats.hits += 1;
                 if let Some(c) = o.hit.create.as_mut() {
                     if c.count != 0 && now - c.spacing > c.last {
-                        let name = format!("{}_{}", c.fx, surface(&physics, other));
+                        // the variant of the surface it landed on (surface.rs)
+                        let name = physics.surface(other, at).variant(&c.fx, |n| data.fx.contains_key(n));
                         if let Some((n, script)) = find(&data, &name) {
                             spawned.push(Instance::new(n, script, Mat4::from_translation(at)));
                         }

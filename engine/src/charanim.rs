@@ -13,7 +13,7 @@ pub struct CharAnimPlugin;
 
 impl Plugin for CharAnimPlugin {
     fn build(&self, app: &mut App) {
-        app.init_level_resource::<Twist>().init_level_resource::<PlayerAnimTable>().add_systems(Update, (roman, grunts, companions, penguins));
+        app.init_level_resource::<Twist>().init_level_resource::<PlayerAnimTable>().add_systems(Update, (roman, grunts, companions, critters));
         app.add_systems(PostUpdate, twist.after(crate::skin::AnimateSet).before(bevy::transform::TransformSystems::Propagate));
         app.add_systems(PostUpdate, count_notes.after(crate::skin::AnimateSet).run_if(resource_exists::<crate::playtest::PlayState>));
     }
@@ -777,76 +777,123 @@ fn grunts(
     }
 }
 
-// Penguins (PenguinObject_Update 0x0048f690, state 2 "wandering", where lev_1_m1's penguins start: no generic_txt,
-/// 0x0048f140): anim 0x17 pngn_scan_chat at load; each time the anim ends a new one by r = rand() * 100 >> 15:
-/// 0x18 pngn_scan_chat1 below 33, 0x17 below 66, else 0x19 (both pngn_scan_chat). pngn_scan_chat's note at 0
-/// (`fx fx_penguin`) is the call. Anim names by PenguinObject_Slot105 0x0048fc90 (0x17 / 0x19 pngn_scan_chat, 0x18
-/// pngn_scan_chat1, 0x49 / 0x4a / 0x61 pngn_blown_up, 0x5d pngn_land_dead). Any hit kills (0x0048fa20, level.rs) with
-/// the death line below. Not ported: physics on while wandering (knocked about by blasts); the bomb carrier (a sticky
-/// bomb stuck on a penguin: PenguinObject_Grab 0x0048f9c0 holds it 300 s, salutes (0xd), then runs to the nearest
-/// visible bad guy within 500 (0x0048f4c0, 0x0042cf40 state 0x3e) and sets it off within 15 of him, else lets it
-/// go in 3..6 s and flees; needs sticky.rs to hand over the bomb's linger); the screams of vt+0x160..0x168 / 0x268
-/// (PenguinObject_Slot88 0x0048fd80: scare, sticky, topsy, which reach penguins only through the carrier: the scare
-/// walks list World+0xe7c, which penguins are not in); the idle state 1 (only with generic_txt, none on lev_1_m1).
-fn penguins(
-    mut q: Query<(&mut Animator, &crate::level::Placed, Option<&mut crate::level::Penguin>, &mut Visibility)>,
+/// Critters, penguins and sheep (PenguinObject_Update 0x0048f690, shared by both classes; level.rs `Critter`). At load
+/// (the property read 0x0048f140) a roaming critter (+0xb60) starts walking one time in two ((rand() x 100) <
+/// 0x190000, 5..10 s), else every critter grazes (20..35 s). Walking (state 1): the walk anim (8) until the timer
+/// runs out, then grazing with a fresh timer. Grazing (state 2): anim 0x17 at first; each time the anim ends a new
+/// one by r = rand() * 100 >> 15: 0x18 below 33, 0x17 below 66, else 0x19; when the timer has run out by then, a
+/// roaming critter walks again, the others draw a fresh timer after the pick. Names by species (Slot105): the
+/// penguin's 0x17 / 0x19 pngn_scan_chat (its note at 0, `fx fx_penguin`, is the call), 0x18 pngn_scan_chat1; the
+/// sheep's 0x17 sheep_graze, 0x18 sheep_scan, 0x19 sheep_bleat (its note `fx FX_Sheep_bleat`), 8 sheep_walk (notes
+/// `FX FX_ctr_fs_sheep`, the hoof steps). Timers: the load's rand() x 5 / 32768 + 5 and rand() x 15 / 32768 + 20; the
+/// update's random(5, 10) / random(20, 35) (0x0046e2c0, taken as lo + rand() x (hi - lo) / 32768: guess). Any hit
+/// kills (0x0048fa20, level.rs) with the death line below.
+///
+/// Not ported: what GenericAI_Update does while a critter walks (its generic_txt, mover_sheep_roam, played by
+/// vt+0x238 at load; the mover's root does not move, so the sheep walk on the spot) and the load's "stamp" (0x004ec410
+/// on the mover anim: the sheep placed at a point of it); physics on while grazing (knocked about by blasts); the bomb
+/// carrier (a sticky bomb stuck on a penguin: PenguinObject_Grab 0x0048f9c0 holds it 300 s, salutes (0xd), then runs
+/// to the nearest visible bad guy within 500 (0x0048f4c0, 0x0042cf40 state 0x3e) and sets it off within 15 of him,
+/// else lets it go in 3..6 s and flees; needs sticky.rs to hand over the bomb's linger); the screams of vt+0x160..0x168
+/// / 0x268 (Slot88 0x0048fd80 / 0x0048fbc0: scare, sticky, topsy, which reach critters only through the carrier: the
+/// scare walks list World+0xe7c, which critters are not in).
+fn critters(
+    mut q: Query<(&mut Animator, &mut crate::level::Critter, &mut Visibility)>,
     lib: Res<crate::skin::AnimLibrary>,
-    // the random stream and the scream lines used (a level starts them over)
-    mut per_level: crate::levelreset::PerLevel<(u32, Vec<usize>)>,
+    // the random stream and the death lines used per species (a level starts them over)
+    mut per_level: crate::levelreset::PerLevel<(u32, [Vec<usize>; 2])>,
     time: Res<Time>,
     (mut sounds, tf): (MessageWriter<crate::audio::PlaySound>, Query<&GlobalTransform>),
 ) {
+    use crate::level::CritterState::{Grazing, Walking};
     let (seed, used) = per_level.get();
-    for (mut a, p, pg, mut vis) in &mut q {
-        if p.template != "penguin" {
+    let dt = time.delta_secs();
+    let mut rand = || {
+        *seed = seed.wrapping_mul(214013).wrapping_add(2531011);
+        (*seed >> 16) & 0x7fff
+    };
+    for (mut a, mut c, mut vis) in &mut q {
+        a.blend = AI_BLEND;
+        let species = c.species;
+        let play = |a: &mut Animator, id: u32, looping: bool| {
+            a.play(0, species.anim(id), looping, Mask::All);
+            a.layers[0].time = 0.0;
+        };
+        // dead (0x0048fa20 -> GoRagdoll 0x00431310): blown_up (0.97 s, both species; its note screams for the
+        // penguin, fx_penguin_blow_up), then land_dead; the body lingers 5 s, then goes (the 0.5 s fade not drawn:
+        // guess)
+        if let Some(t) = c.dead.as_mut() {
+            let first = *t == 0.0;
+            *t += dt;
+            let t = *t;
+            if first {
+                play(&mut a, 0x49, false);
+                // GoRagdoll's death line: the Dead slot (vt+0x154) is a no, so DeadAtPosition (vt+0x158): one of the
+                // species' lines by Audio_PlayRandomSound 0x00493b70, which deals them without repeats until all
+                // have played
+                let lines = species.death_lines();
+                let used = &mut used[species as usize];
+                if used.len() >= lines.len() {
+                    used.clear();
+                }
+                let free: Vec<usize> = (0..lines.len()).filter(|i| !used.contains(i)).collect();
+                let k = free[(rand() as usize * free.len()) >> 15];
+                used.push(k);
+                let at = a.joints.first().and_then(|j| tf.get(*j).ok()).map(|j| j.translation()).unwrap_or_default();
+                sounds.write(crate::audio::PlaySound::at(lines[k], at));
+            } else if t > BLOWN_UP && a.layers.first().is_some_and(|l| l.anim == species.anim(0x49)) {
+                play(&mut a, 0x5d, false);
+            }
+            if t > BLOWN_UP + 5.5 {
+                *vis = Visibility::Hidden;
+            }
             continue;
         }
-        a.blend = AI_BLEND;
-        // dead (0x0048fa20 -> GoRagdoll 0x00431310): pngn_blown_up (0.97 s; its note fx_penguin_blow_up screams), then
-        // pngn_land_dead; the body lingers 5 s, then goes (the 0.5 s fade not drawn: guess)
-        if let Some(mut pg) = pg {
-            if let Some(t) = pg.dead.as_mut() {
-                let first = *t == 0.0;
-                *t += time.delta_secs();
-                if first {
-                    a.play(0, "pngn_blown_up", false, Mask::All);
-                    a.layers[0].time = 0.0;
-                    // GoRagdoll's death line: the penguin's Dead slot (vt+0x154) is a no, so DeadAtPosition (vt+0x158,
-                    // PenguinObject_Slot86 0x0048fe20): one of its 6 sounds (0x005cb178: ctr_penguin_scream_1..4,
-                    // ctr_penguin_surprise_1..2) by Audio_PlayRandomSound 0x00493b70, which deals them without repeats
-                    // until all have played
-                    const LINES: [&str; 6] = ["ctr_penguin_scream_1", "ctr_penguin_scream_2", "ctr_penguin_scream_3", "ctr_penguin_scream_4", "ctr_penguin_surprise_1", "ctr_penguin_surprise_2"];
-                    if used.len() >= LINES.len() {
-                        used.clear();
-                    }
-                    let free: Vec<usize> = (0..LINES.len()).filter(|i| !used.contains(i)).collect();
-                    *seed = seed.wrapping_mul(214013).wrapping_add(2531011);
-                    let k = free[(((*seed >> 16) & 0x7fff) as usize * free.len()) >> 15];
-                    used.push(k);
-                    let at = a.joints.first().and_then(|j| tf.get(*j).ok()).map(|j| j.translation()).unwrap_or_default();
-                    sounds.write(crate::audio::PlaySound::at(LINES[k], at));
-                } else if *t > 0.967 && a.layers.first().is_some_and(|l| l.anim == "pngn_blown_up") {
-                    a.play(0, "pngn_land_dead", false, Mask::All);
+        let state = match c.state {
+            // the load (0x0048f140)
+            None => {
+                if c.roams && rand() * 100 < 0x190000 {
+                    play(&mut a, 8, true);
+                    Walking(rand() as f32 * 5.0 / 32768.0 + 5.0)
+                } else {
+                    play(&mut a, 0x17, false);
+                    Grazing(rand() as f32 * 15.0 / 32768.0 + 20.0)
                 }
-                if *t > 0.967 + 5.5 {
-                    *vis = Visibility::Hidden;
-                }
-                continue;
             }
-        }
-        let start = a.layers.first().is_none_or(|l| l.anim.is_empty());
-        if start || a.finished(0, &lib) {
-            let name = if start {
-                "pngn_scan_chat"
-            } else {
-                *seed = seed.wrapping_mul(214013).wrapping_add(2531011);
-                let r = ((*seed >> 16) & 0x7fff) * 100 >> 15;
-                if r < 33 { "pngn_scan_chat1" } else { "pngn_scan_chat" }
-            };
-            a.play(0, name, false, Mask::All);
-            a.layers[0].time = 0.0;
-        }
+            Some(Walking(t)) => {
+                let t = t - dt;
+                if t > 0.0 {
+                    Walking(t)
+                } else {
+                    play(&mut a, 0x17, false);
+                    Grazing(random(&mut rand, 20.0, 35.0))
+                }
+            }
+            Some(Grazing(t)) => {
+                let t = t - dt;
+                if !a.finished(0, &lib) {
+                    Grazing(t)
+                } else if t < 0.0 && c.roams {
+                    let walk = random(&mut rand, 5.0, 10.0);
+                    play(&mut a, 8, true);
+                    Walking(walk)
+                } else {
+                    let r = rand() * 100 >> 15;
+                    play(&mut a, if r < 33 { 0x18 } else if r < 66 { 0x17 } else { 0x19 }, false);
+                    Grazing(if t < 0.0 { random(&mut rand, 20.0, 35.0) } else { t })
+                }
+            }
+        };
+        c.state = Some(state);
     }
+}
+
+/// The critters' blown-up anim length (pngn_blown_up, sheep_blown_up: 29 frames at 30 per second).
+const BLOWN_UP: f32 = 29.0 / 30.0;
+
+/// random(lo, hi) of 0x0046e2c0 (one rand(), guess at the scaling).
+fn random(rand: &mut impl FnMut() -> u32, lo: f32, hi: f32) -> f32 {
+    lo + rand() as f32 * (hi - lo) / 32768.0
 }
 
 /// The companions' anims (their tables 0x004876c0 / 0x0044ef20): run (run_reload while reloading on the move),

@@ -18,6 +18,8 @@ pub struct Physics {
     pub no_bullets: std::collections::HashSet<BodyId>,
     /// the game material of a body (property `material`: snow, stone, wood, metal, grunt, ...) for impact fx
     pub materials: HashMap<BodyId, String>,
+    /// a static mesh body's surface names per triangle (surface.rs)
+    pub surfaces: HashMap<BodyId, crate::surface::SurfaceMap>,
     pub static_triangles: usize,
     /// the landscape's collision body (the follow camera's rays stop on it alone, camfade.rs)
     pub landscape: Option<BodyId>,
@@ -56,6 +58,7 @@ impl Physics {
             static_bodies: 0,
             no_bullets: Default::default(),
             materials: HashMap::new(),
+            surfaces: HashMap::new(),
             static_triangles: 0,
             landscape: None,
             step_ms: 0.0,
@@ -101,6 +104,7 @@ impl Physics {
     }
 
     pub fn remove_static(&mut self, id: BodyId) {
+        self.surfaces.remove(&id);
         if self.world.remove_body(id).is_ok() {
             self.static_bodies = self.static_bodies.saturating_sub(1);
         }
@@ -173,6 +177,33 @@ impl Physics {
                 return None;
             }
             from = at + d * 0.05;
+        }
+        None
+    }
+
+    /// What a point of a body is made of (surface.rs): its mesh surface there and its material property.
+    pub fn surface(&self, body: BodyId, at: Vec3) -> crate::surface::Surface {
+        crate::surface::Surface {
+            mesh: self.surfaces.get(&body).and_then(|m| m.at(at)).map(str::to_owned),
+            property: self.materials.get(&body).cloned(),
+        }
+    }
+
+    /// The surface under a point (a foot): the first static body a ray down from 2 units above meets within `depth`
+    /// below, past the dynamic bodies (the character's own and others': the original asks the character's own
+    /// ground contact, 0x00454b20). None over nothing.
+    pub fn surface_below(&self, at: Vec3, depth: f32) -> Option<crate::surface::Surface> {
+        let (mut from, mut left) = (at + Vec3::Y * 2.0, depth + 2.0);
+        for _ in 0..8 {
+            let (body, hit, _) = self.raycast(from, Vec3::NEG_Y, left)?;
+            if !self.bodies.contains_key(&body) {
+                return Some(self.surface(body, hit));
+            }
+            left -= from.y - hit.y + 0.05;
+            if left <= 0.0 {
+                return None;
+            }
+            from = hit + Vec3::NEG_Y * 0.05;
         }
         None
     }
