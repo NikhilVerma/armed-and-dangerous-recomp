@@ -122,8 +122,24 @@ inclusive range; else equality) and prints EXPECT PASS / FAIL; any failure exits
 badguy explosion of area damage D at Roman. States: `after_pub` (state_after_pub.json, 23 s to make). Example:
 topsyhit2.json (24 s; the same check replayed from the start took about 4 minutes).
 
-The bot is debug tooling, not game logic: its tactics (holding at range, backing off, keg awareness) live in
-player.rs under `bot` and must never change how the game plays for a human.
+The bot is debug tooling, not game logic: it lives in engine/src/bot.rs (`BotPlugin`; `think` runs before
+player::control and leaves its walk / facing / aim in the `Bot` resource, which control and weapons read as they read
+the keys) and must never change how the game plays for a human. Tactics (2026-10-15, after the AI port made the
+grunts dangerous): the grunts that can see Roman are counted with a bullet ray (muzzle 8.4 up to his chest,
+`raycast_bullet`); a duel at range (at most two in sight) is fought side-stepping (their bullets fly at where he
+was: at 450 units/s a moving Roman is missed at range, a standing one is hit by nearly every shot); under fire from
+three or more it takes the nearby open-ground spot that sees one of them (else none) and fights from there; badly hurt
+it backs off; sticky bombs at groups only with the crosshair on the target and a clear line (a throw without a target
+flies along the camera ray and can land at Roman's feet); machine-gun bursts at range (the scatter grows over the
+first second held); kegs: no fire when one Roman would catch is on the line of fire; detours to health pickups; 12 s
+pinned by a tactic -> push on 6 s. The state log's `bot` field shows its mode (route, duel, cover, to_cover,
+back_off, keg, pickup, push) and the grunts in sight. AIDBG adds `romandmg` lines: every hit on Roman with the
+shooter's kind, weapon, distance (who killed him).
+
+Full-level run (not in the suite: about 8 minutes of game, 20 to 40 of wall time on a loaded machine):
+`python tools/playtest.py engine/playtests/level1u.json --exe target-NAME --timeout 3600` (expects Won at the end).
+The script gives the bot the player's route between the gates (waypoints through the village west of the trenches,
+past the guard camp at (0, -515)), as a player picks a way; the alarm siren is still destroyed by a debug step.
 
 ### Widening the original's coverage to a whole level
 

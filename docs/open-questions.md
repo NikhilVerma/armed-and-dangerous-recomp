@@ -164,3 +164,20 @@ game / save merge — grunt 854v0's shot at 4.317 s vs 4.700 s from the same spo
 Playtests now run Update single-threaded (main.rs, --play only), which hides it in tests. Real fix (pending the
 human's call): per-subsystem random streams (AI, audio, anim, fx), each seeded from the level seed, or a fixed
 order for every FxStats user. The original had one CRT rand() called in a fixed update order.
+
+## Roman's death on the gate-2 leg (2026-10-15, agent-level1: faithful by code and data, not by capture)
+
+level1t (wip/full-decomp 2f5c75e) lost 400 health in about 9 s near (-60, -320). AIDBG `romandmg` (bot.rs / player.rs
+projectiles) on the same spot (wt-play deathspot / leg2 runs): every hit is a grunt_rifle bullet of 15 from the eight
+attention_guard grunt_regulars of the camp at (0, -515), 200..250 units away (later runs: 440..495 once alerted), each
+standing guard hitting a standing Roman about every 1.6..1.7 s; in level1t's alert about five fired at once (~27
+hits in 9 s). Not the captains (none near; captain_mg 30 never logged) and no blasts. Compared with the original:
+damage 15 (p_grunt_rifle_bullet), aim error 0x004284e0 with fire_inaccuracy_angle 15 (the exe's default: the data's
+fire_inaccuracy_xy is never read) x 0.1 inside fire_accuracy_min 70 / infinite_accuracy_min 210 (a guard beyond its
+rolled range uses the infinite ranges): at 200..500 units the scatter is +-1.5..+-2.8 sideways, so a standing Roman is
+hit by nearly every shot and a moving one (bullet 450 units/s) is missed; a fired-at target is kept to 2 x
+scan_distance (700) (ai_06.cpp:869). The first-fight capture comparison (above) gave the same order: 22 / 42 hits
+original, 24 / 40 engine on a walking Roman. Difficulty: normal, every factor 1 (gamedata.rs; the health factors
+are not applied on any difficulty yet, and were named the wrong way round until this commit). Open: the standing
+grunt's cadence (engine 1.63 s, original 1.78 s for grunt 201: the clip-delay vs guard path, above), no capture of
+the camp fight itself (the original was not run: the game was in use by other agents' captures).

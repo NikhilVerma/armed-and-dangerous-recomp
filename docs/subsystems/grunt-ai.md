@@ -25,7 +25,9 @@ alarm delay 2-4 s, alarm_ai_max_distance 1000.
 
 ## 2. Set-up: Ai_InitGeneric 0x004247f0 (src/ai/ai_01.cpp:2289-2590)
 
-- Health +0x458 = max_health * Game+0x554 (enemies; difficulty enemy-health factor: easy 0.5, normal 1, hard 2).
+- Health +0x458 = max_health * Game+0x558 for bad guys (vt+0xe8: easy 0.5, normal 1, hard / very hard 2), * Game+0x554
+  for the player's side (vt+0xe4: easy 2, normal 1, hard 1, very hard 0.5) (ai_01.cpp:2329-2340, table 0x00589188;
+  corrected 2026-10-15: the factor names were swapped here and in gamedata.rs). The remaster applies neither yet.
 - Parameters with code defaults (offset): scan_distance +0x5dc (300), hear_distance +0x5e0 (20), alert_group +0x574,
   fire_num_clips/rounds/bursts min/max (1), clip/burst delays (0), fire_inaccuracy_height +0x5e4 (10),
   fire_inaccuracy_angle +0x5e8 (15), fire_accuracy_min/max +0x5ec/+0x5f0 (50/150), fire_infinite_accuracy_min/max

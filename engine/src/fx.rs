@@ -259,6 +259,9 @@ fn damage(
             let (dist, _) = surface(t, bounds, b.at);
             if dist <= b.radius_outer {
                 h.0 -= b.area_damage * falloff(dist, b.radius_inner, b.radius_outer);
+                if roman.contains(ce) && std::env::var("AIDBG").is_ok() {
+                    info!("AIDBG romandmg blast {:.0} of {:.0} by {:?} {:?} d {:.0} r {:.0}..{:.0} health {:.0}", b.area_damage * falloff(dist, b.radius_inner, b.radius_outer), b.area_damage, b.by, b.source, dist, b.radius_inner, b.radius_outer, h.0);
+                }
                 if let Some(mut g) = grunt {
                     g.cartoon = b.cartoon;
                 }

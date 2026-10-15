@@ -54,6 +54,10 @@ pub struct Event {
     /// debug: deal this hit to the nearest live grunt (tests the death paths)
     #[serde(default)]
     pub kill: Option<f32>,
+    /// debug: deal this hit to every live grunt that holds, is going to or just left a mounted gun (a gunner test drives his
+    /// death instead of waiting for the bot's bullets to find him)
+    #[serde(default)]
+    pub kill_gunner: Option<f32>,
     /// debug: destroy the placed object with this instance id (as a lethal hit)
     #[serde(default)]
     pub destroy: Option<u32>,
@@ -131,46 +135,6 @@ pub struct Event {
     /// degrees, "clear": true ends every live fx first}
     #[serde(default)]
     pub fx: Option<serde_json::Map<String, serde_json::Value>>,
-}
-
-/// The playtest bot's orders, read by the player's control and weapon systems.
-#[derive(Resource, Default)]
-pub struct Bot {
-    pub goto: Option<Vec3>,
-    pub fight: bool,
-    pub arrived: bool,
-    pub use_key: bool,
-    pub stuck_timer: f32,
-    pub last_pos: Vec3,
-    pub veer: f32,
-    /// planned waypoints toward `goto` (nav.rs)
-    pub route: Vec<Vec3>,
-    pub planned_for: Option<Vec3>,
-    pub replan_timer: f32,
-    /// places the bot got stuck at (avoided by later plans)
-    pub blocked: Vec<Vec3>,
-    pub no_progress: f32,
-    pub last_dist: f32,
-    /// seconds spent holding position on the current engagement
-    pub hold: f32,
-    /// seconds without a target (the hold resets after 5)
-    pub no_target: f32,
-    /// the bot has something worth shooting and no explosive next to it
-    pub fire_ok: bool,
-    /// the current goto's arrival distance (0: the default 12)
-    pub near: f32,
-    /// seconds on the current pickup detour; pickups given up on (unreachable)
-    pub detour_t: f32,
-    pub skip_pickups: Vec<Vec3>,
-    /// throw a sticky bomb this frame; seconds until the next may be thrown
-    pub throw: bool,
-    /// where the bot has been (one point a second, the last 20): the way back out of a dead end
-    pub trail: Vec<Vec3>,
-    pub trail_t: f32,
-    /// progress check: the best distance to the goal and how long since it improved
-    pub best_goal_dist: f32,
-    pub no_gain: f32,
-    pub throw_timer: f32,
 }
 
 #[derive(Deserialize)]
@@ -295,7 +259,6 @@ pub struct PlaytestPlugin;
 impl Plugin for PlaytestPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PlayState>()
-            .init_resource::<Bot>()
             .add_systems(PreUpdate, drive.after(bevy::input::InputSystems).before(crate::input::InputDevices).run_if(resource_exists::<Playtest>))
             .add_systems(PreUpdate, pad_drive.after(drive).before(crate::input::InputDevices).run_if(resource_exists::<Playtest>))
             .add_systems(Update, hurt_companions.run_if(resource_exists::<Playtest>))
@@ -308,7 +271,7 @@ impl Plugin for PlaytestPlugin {
 fn warp(
     mut pt: ResMut<Playtest>,
     mut physics: NonSendMut<crate::physics::Physics>,
-    mut bot: ResMut<Bot>,
+    mut bot: ResMut<crate::bot::Bot>,
     mut roman: Query<(&mut crate::player::Roman, &mut Transform)>,
 ) {
     let Some(w) = pt.warp else { return };
@@ -385,7 +348,7 @@ fn drive(
     mut buttons: ResMut<ButtonInput<MouseButton>>,
     mut motion: ResMut<AccumulatedMouseMotion>,
     mut exit: MessageWriter<AppExit>,
-    mut bot: ResMut<Bot>,
+    mut bot: ResMut<crate::bot::Bot>,
     mission: Option<Res<crate::mission::Mission>>,
     mut roman: Query<&mut crate::fx::Health, With<crate::player::Roman>>,
     mut spawn: MessageWriter<crate::level::SpawnGrunt>,
@@ -609,6 +572,12 @@ fn drive(
         if let (Some(d), Ok(p)) = (e.kill, player.single()) {
             let me = p.translation();
             if let Some((mut g, mut h, _)) = grunts.iter_mut().filter(|(g, _, _)| g.mind != crate::ai::Mind::Dead).min_by(|a, b| a.2.translation().distance(me).total_cmp(&b.2.translation().distance(me))) {
+                g.last_hit = d;
+                h.0 -= d;
+            }
+        }
+        if let Some(d) = e.kill_gunner {
+            for (mut g, mut h, _) in grunts.iter_mut().filter(|(g, _, _)| g.mind != crate::ai::Mind::Dead && g.gun.is_some()) {
                 g.last_hit = d;
                 h.0 -= d;
             }

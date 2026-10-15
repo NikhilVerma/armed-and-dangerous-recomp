@@ -1256,7 +1256,7 @@ fn volumes(
 pub(crate) fn sites(
     time: Res<Time>,
     ctl: Res<crate::input::Controls>,
-    bot: Res<crate::playtest::Bot>,
+    bot: Res<crate::bot::Bot>,
     mut m: Option<ResMut<Mission>>,
     player: Query<&GlobalTransform, With<Player>>,
     (mut out, mut blast, mut fx): (MessageWriter<SendTrigger>, MessageWriter<Explode>, MessageWriter<StartFx>),
@@ -1412,7 +1412,7 @@ pub(crate) fn sites(
 /// while its listen_trigger_open has not arrived (0x00467b60, 0x0046a6c0; stepping in sends send_trigger_entry_failure,
 /// 0x0046a6d0); Use opens the pub screen (gamemenu.rs) and sends send_trigger_entry once (0x0046a6f0); leaving the
 /// screen sends send_trigger_exit (0x0046a720).
-fn pub_door(ctl: Res<crate::input::Controls>, bot: Res<crate::playtest::Bot>, mut m: Option<ResMut<Mission>>, player: Query<&GlobalTransform, With<Player>>, mut out: MessageWriter<SendTrigger>, mut hud: ResMut<crate::hud::HudState>) {
+fn pub_door(ctl: Res<crate::input::Controls>, bot: Res<crate::bot::Bot>, mut m: Option<ResMut<Mission>>, player: Query<&GlobalTransform, With<Player>>, mut out: MessageWriter<SendTrigger>, mut hud: ResMut<crate::hud::HudState>) {
     let (Some(m), Ok(p)) = (m.as_deref_mut(), player.single()) else { return };
     let Some((pos, r, exit)) = m.pub_pos else { return };
     if m.pub_exit_pending {
