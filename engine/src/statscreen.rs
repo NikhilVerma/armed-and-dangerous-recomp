@@ -12,8 +12,8 @@
 //! 0.1 s); 1 wait for MenuSelect; 2 the poster over 0.5 s (rotation v x 6.8068 rad, size 1.5 - v^2), ui_select;
 //! 3 the money counts up over 3 s; 4 wait; 5 leave. MenuSelect jumps the current phase to its end.
 //!
-//! The next level (next_level_name, lev_1_m1_b) is not built yet: the game returns to the title screen (the
-//! original's lev_shell fallback when a level fails to load) with the money kept (options.json).
+//! Leaving it hands over to the end sequence (campaign.rs): the level's success movie, then the next level
+//! (next_level_name) or, after lev_5_m5, the credits; the money is kept (options.json).
 
 use crate::levelreset::LevelAppExt;
 use crate::AppState;
@@ -198,9 +198,8 @@ fn update(
     mut text_tf: Query<(&StatPart, &mut Transform), With<HudText>>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     mut opts: ResMut<crate::options::GameOptions>,
-    mission: Option<Res<crate::mission::Mission>>,
     play: Option<ResMut<crate::playtest::PlayState>>,
-    mut restart: ResMut<crate::levelreset::RestartLevel>,
+    (mut commands, screen, mut end): (Commands, Query<Entity, (With<StatPart>, Without<ChildOf>)>, ResMut<crate::campaign::LevelEnd>),
 ) {
     if !s.open {
         return;
@@ -257,13 +256,17 @@ fn update(
         }
         _ => {}
     }
-    // phase 5: leave for the next level
+    // phase 5: the screen is popped (0x00494440 phase 5); the end sequence goes on (the success movie, the next level
+    // or the credits: campaign.rs)
     if s.phase >= 5 && !s.left {
         s.left = true;
+        s.open = false;
+        for e in &screen {
+            commands.entity(e).despawn();
+        }
         opts.save();
-        let next = mission.as_ref().and_then(|m| m.next_level.clone()).unwrap_or_else(|| "lev_shell".into());
-        info!("EVENT stats done: money {} -> next level {next} (not built: back to the title)", s.to);
-        restart.to = Some(crate::levelreset::RestartTo::Title);
+        info!("EVENT stats done: money {}", s.to);
+        *end = crate::campaign::LevelEnd::Requested;
         return;
     }
     let r0 = if s.phase == 0 { s.reveal } else { 1.0 };

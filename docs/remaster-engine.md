@@ -677,8 +677,25 @@ Data oddities in other levels: three invisible-wall skins with no vertices (x_3m
 lev_4_m2, w_l5_m4_03 lev_5_m4: placed but not in scene.json); skins without a reference anim (captain_flare_1/9,
 shrub_bomber_0, wildwoodgate_1/2); mission.json still has unsent / unreceived trigger ids where a level's logic
 uses classes the mission export does not know yet (twiglet_generator, jump_marker, object_ic, zeppelin, squad,
-anim_player, base_turret, peasant). player.json's loadout is the mission object's add / remove flags only: in the
-campaign the weapons carried over from earlier levels add to it (not modelled).
+anim_player, base_turret, peasant). The loadout is the mission object's add / ammo / count flags only: nothing is
+carried over from earlier levels (correction 2026-10-16: the player object is built with each level and its reset
+0x00475650 gives it the mission's loadout; docs/subsystems/campaign.md; mission.rs `Loadout`).
+
+## Campaign flow (2026-10-16)
+
+campaign.rs: after a won level's Stats screen the end sequence (0x0044a230 states 11-14) plays the level's
+success_movie, then loads next_level_name in-process through levelreset.rs (`RestartTo::Level`: the Loading state,
+as New Game's restarts), or after lev_5_m5 shows the credits and returns to the title. The level folders are
+`campaign::Levels` (work/remaster/<level>); the default asset source reads the loaded one (`LevelAssetReader`: every
+asset-server file but ui/icons.png is byte-identical across the 24 exports, checked), and `campaign::enter` points the
+spawners' folder (`Launch::scene`), the remaster texture list, the animation library's caches and the level's movies
+at the next level before the rebuild. Carried: the money and the pub's once-only intro (the bank, Game+0x570..),
+tokens and unlocks, the difficulty; not the weapons (mission.rs `Loadout`, player.rs `apply_loadout`: the mission's
+weapons with full ammo, the first by weapon id in hand). Saves record their level and a load enters it; the title
+always stands on the launch level (lev_1_m1), so New Game starts it. Extras' Replay Mission / Play Cutscene:
+extras.rs. Tests: campaign_next (with failure -> Restart on lev_1_m1_b), campaign_chain, campaign_save,
+campaign_movie, campaign_end, campaign_extras. Not ported: the Difficulty screen of New Game (case 71), the profile
+choice (SaveGame / ChooseGame before a new game or a replay), an oracle run across a level change (open question).
 
 ## Base-defence levels (subsystem port, 2026-10-15)
 
