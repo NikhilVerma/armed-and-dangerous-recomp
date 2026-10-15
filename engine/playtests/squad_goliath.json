@@ -1,0 +1,12 @@
+{"scene": "lev_3_m1", "steps": [
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 3.5}, {"tap": "Enter"}, {"wait": 1.0},
+ {"expect": {"squad.count": 3, "goliath.phase": "InSquad", "goliath.health": 3000, "goliath.walked": [0, 1]}},
+ {"loadout": {"health": 400}},
+ {"send": 1600},
+ {"wait": 6.0},
+ {"expect": {"squad.phase": "Moving", "goliath.walked": [20, 2000], "triggers.3000": null}},
+ {"send": 2001},
+ {"wait": 1.0},
+ {"expect": {"triggers.3000": 1, "squad.charged": [2, 20]}},
+ {"quit": true}
+]}

@@ -85,3 +85,4 @@ engine/target-wt-defence/
 
 # playtest states written by tracked scripts (engine/playtests/save_write.json)
 /engine/playtests/states/
+engine/target-wt-aispawn/

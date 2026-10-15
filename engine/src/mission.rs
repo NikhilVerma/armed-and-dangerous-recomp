@@ -1598,7 +1598,8 @@ fn dispatch(
     mut events: MessageReader<SendTrigger>,
     mut grunts: Query<(&InstanceId, &mut Grunt)>,
     mut objects: Query<(&InstanceId, &mut Destructible)>,
-    plain: Query<(Entity, &InstanceId, Option<&crate::level::Placed>), (Without<Destructible>, Without<Grunt>)>,
+    // (a squad hands its receive_trigger_kill to its goliath and keeps none: Squad_Init 0x00433220, goliath.rs)
+    plain: Query<(Entity, &InstanceId, Option<&crate::level::Placed>), (Without<Destructible>, Without<Grunt>, Without<crate::ai::squad::Squad>)>,
     mut physics: NonSendMut<crate::physics::Physics>,
     mut commands: Commands,
     player: Query<(Entity, &GlobalTransform), With<Player>>,

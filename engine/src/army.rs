@@ -370,12 +370,22 @@ pub struct ModelKit<'w> {
 impl ModelKit<'_> {
     /// One model under a new entity at `tr` (skinned models get their rig and an Animator).
     pub fn spawn(&mut self, commands: &mut Commands, model: &str, tr: Transform, shadows: bool) -> Option<Entity> {
+        let e = commands.spawn((tr, Visibility::default(), Name::new(model.to_owned()))).id();
+        if self.attach(commands, e, model, shadows).is_none() {
+            commands.entity(e).despawn();
+            return None;
+        }
+        Some(e)
+    }
+
+    /// One model's parts (and rig) under an existing entity; its bounds (model space), or None when the model is
+    /// missing.
+    pub fn attach(&mut self, commands: &mut Commands, e: Entity, model: &str, shadows: bool) -> Option<crate::fx::Bounds> {
         use crate::scene::ClonedParts;
         let m = self.lib.load_model(model, false, &self.assets, &mut self.meshes, &mut self.materials).cloned_parts()?;
-        let e = commands.spawn((tr, Visibility::default(), Name::new(model.to_owned()))).id();
         let mut ctx = crate::level::SkinCtx { lib: &mut self.anims, binds: &mut self.binds };
         crate::level::attach_model(commands, e, &m, shadows, Some(&mut ctx), "ref_rhand");
-        Some(e)
+        Some(crate::fx::Bounds { center: (m.min + m.max) * 0.5, radius: (m.max - m.min).length() * 0.5 })
     }
 
     pub fn anim(&mut self, name: &str) -> Option<std::sync::Arc<crate::skin::Anim>> {

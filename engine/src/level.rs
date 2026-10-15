@@ -210,6 +210,13 @@ pub struct DefaultAnim {
     seen: bool,
 }
 
+impl DefaultAnim {
+    /// `anim` looped from the frame after the spawn unless something else plays first.
+    pub fn new(anim: &str) -> Self {
+        DefaultAnim { anim: anim.to_owned(), seen: false }
+    }
+}
+
 fn default_anims(mut commands: Commands, mut q: Query<(Entity, &mut DefaultAnim, &mut crate::skin::Animator)>, mut lib: ResMut<crate::skin::AnimLibrary>) {
     for (e, mut d, mut a) in &mut q {
         // one Update pass first, for the characters' systems to pick their own anim

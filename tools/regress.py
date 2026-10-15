@@ -19,7 +19,7 @@ PLAY = os.path.join(ROOT, 'work', 'remaster', 'play')
 SUITE = ['save_write', 'save_read', 'topsyhit2', 'turn_in_place', 'turret1', 'decals_obj', 'oilpump', 'gfxopts', 'cover1', 'cover2', 'cover3', 'gunner1', 'gunner2', 'objects1',
          'menus', 'hud', 'flow', 'stats', 'pub', 'pub_screen', 'unit',
          'hits1', 'noise1', 'noise2', 'splines1', 'alarm1', 'captain1', 'taunt1', 'leader1',
-         'infantry_l2m1', 'infantry_l3m1', 'infantry_l4m2', 'infantry_l2m2',
+         'infantry_l2m1', 'infantry_l3m1', 'infantry_l4m2', 'infantry_l2m2', 'squad_goliath',
          'mission_start', 'volumes', 'ticker', 'pickups', 'pubflow', 'winfail',
          'player_move', 'player_fall', 'player_weapons', 'player_special', 'player_topsy', 'player_banter',
          'audio_distance', 'audio_groups', 'audio_voice', 'audio_ear', 'audio_music', 'audio_stopall', 'audio_ambient',

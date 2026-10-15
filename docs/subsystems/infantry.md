@@ -204,8 +204,13 @@ Debt and guesses (each with its plan):
   as on the ground; the walk 1000 ahead (state 0xbc's grid path) is the chase's own movement. Plan: oracle a jumper
   scenario on lev_3_m1.
 - Squad speed: patrol_speed with marker_patrol, else move_speed (guess at the speed getter); members ease into their
-  bone within a few units (the original steers by force). The goliath member is the goliath module's
-  (`Squad::goliath` is the hook: set it and the squad charges when it dies).
+  bone within a few units (the original steers by force). The goliath member (2026-10-16, B11): the squad reserves its
+  entity and goliath.rs makes it (`SpawnGoliath`): health 3000, goliath_stand, then goliath_walk to its bone while the
+  squad moves (speed: the AI default 46, guess: p_goliath has no move_speed), never fighting; the cage and its peasant
+  at the chest are drawn only (peasants not ported); it takes the squad's receive_trigger_kill, send_trigger_on_death
+  and tag (the squad keeps none: mission.rs leaves a squad out of receive_trigger_kill removals). The tag reaches no
+  ticker site yet (mission.rs lock_parent_tag, 0x0044e120). Test: engine/playtests/squad_goliath.json; oracle lev_3_m1
+  / lev_4_m1 start: the goliaths' kind, position and health agree.
 - Monk: the teleport's speed (2 x move_speed, ramp 1 s, slow within 20, no gravity) is a guess at the force's result; the
   twiglet summon (no twiglets in the engine: that roll fires) and the knock-over hang (0xf4) are not ported.
 - Q112: the melee (q112_gun_hit within 25), the low-health eye loop and the breadcrumb route are not ported;

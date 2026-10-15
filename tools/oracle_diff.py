@@ -36,7 +36,8 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCENARIOS = os.path.join(ROOT, "tools", "oracle_scenarios")
-OUT = os.path.join(ROOT, "work", "oracle")
+# ORACLE_OUT: another folder for the traces and reports (parallel agents sharing one work/ keep theirs apart)
+OUT = os.environ.get("ORACLE_OUT") or os.path.join(ROOT, "work", "oracle")
 
 # The original's AI state (+0x460, docs/subsystems/grunt-ai.md) as the remaster's Mind (engine/src/ai.rs: the variants
 # document the states they stand for). Hit reactions (0x12f..0x132) and falling (0x82) have no Mind of their own: the
@@ -273,9 +274,47 @@ def known_absent(g):
     return g.get("id") == 0 and g.get("state") == 0x8c
 
 
-# Vehicles the original traces as grunts (GruntObject-derived classes, by vtable) while the remaster's trace lists ai::Grunt
-# only (engine/src/oracle.rs; the vehicles live in engine/src/vehicles): left out of the grunt families, counted in a note.
-VEHICLE_CLASSES = {0x5aa238: "colossus", 0x5af500: "mini_zeppelin", 0x5a5e98: "saucer"}
+# Vehicles and big units the original's AI list holds among its grunts (GruntObject-derived classes, by vtable): left out
+# of the grunt families. Both traces list them under "vehicles" (hook/src/testoracle.cpp VehicleKind, engine/src/oracle.rs
+# VehicleKind), compared by kind: their count alive, and the position / health of each pair.
+VEHICLE_CLASSES = {0x5aa238: "colossus", 0x5af500: "mini_zeppelin", 0x5a5e98: "saucer", 0x5af298: "goliath"}
+
+
+def match_vehicles(o0, r0, tol):
+    """Pairs (index in the original's list, index in the remaster's) at the first common line: the same kind and
+    instance id, else the same kind and the nearest within tol (a squad's goliath has no id)."""
+    ov, rv = o0.get("vehicles") or [], r0.get("vehicles") or []
+    pairs, claimed = {}, set()
+    for i, a in enumerate(ov):
+        j = next((j for j, b in enumerate(rv) if j not in claimed and b["kind"] == a["kind"] and a["id"] and b["id"] == a["id"]), None)
+        if j is not None:
+            pairs[i] = j
+            claimed.add(j)
+    for i, a in enumerate(ov):
+        if i in pairs:
+            continue
+        cand = [(dist(a["pos"], b["pos"]), j) for j, b in enumerate(rv) if j not in claimed and b["kind"] == a["kind"]]
+        if cand and min(cand)[0] <= tol:
+            j = min(cand)[1]
+            pairs[i] = j
+            claimed.add(j)
+    return pairs
+
+
+def follow_unit(units, last, key):
+    """The unit `last[key]` was on this line: the same kind and instance id, or (id 0) the nearest of its kind to where
+    it was (within 100 units); `last` is updated. None once it is gone (dead units leave the lists)."""
+    prev = last[key]
+    same = [v for v in units if v["kind"] == prev["kind"] and v["id"] == prev["id"]]
+    if prev["id"]:
+        hit = same[0] if same else None
+    else:
+        hit = min(same, key=lambda v: dist(v["pos"], prev["pos"]), default=None)
+        if hit and dist(hit["pos"], prev["pos"]) > 100:
+            hit = None
+    if hit:
+        last[key] = hit
+    return hit
 
 
 def compare_traces(sc, orig, rem):
@@ -292,6 +331,8 @@ def compare_traces(sc, orig, rem):
     frames = sorted(set(orig) & set(rem))
     notes = []
     if not frames:
+        # (a run that crashed or wrote nothing must not pass)
+        fam.check("timing", 0, False, "no common frames: a trace is empty (see remaster.out / original.log)")
         return fam, ["no common frames"], {}
     o0, r0 = orig[frames[0]], rem[frames[0]]
     pairs, how = match_grunts(o0, r0, tol["grunt_pos"] * 2)
@@ -299,8 +340,20 @@ def compare_traces(sc, orig, rem):
                  f"{len(pairs)} of {len(o0.get('grunts', []))} original / {len(r0.get('grunts', []))} remaster")
     if absent:
         notes.append(f"{absent} original grunt(s) left out as a known gap (tree grunts, grunt-ai.md section 14)")
-    if vehicles:
-        notes.append(f"{vehicles} original vehicle(s) (colossus / zeppelin / saucer) left out: the remaster's trace has no vehicles")
+    has_vehicles = all("vehicles" in orig[f] for f in frames[:1]) and all("vehicles" in rem[f] for f in frames[:1])
+    if vehicles and not has_vehicles:
+        notes.append(f"{vehicles} original vehicle(s) (goliath / colossus / zeppelin / saucer) left out of the grunts; "
+                     "a trace has no \"vehicles\" (an older run): not compared")
+    vpairs = match_vehicles(o0, r0, tol["grunt_pos"] * 2) if has_vehicles else {}
+    # each paired unit's last record, to find it on the next line
+    vlast = {("o", i): (o0.get("vehicles") or [])[i] for i in vpairs}
+    vlast.update({("r", j): (r0.get("vehicles") or [])[j] for j in vpairs.values()})
+    if has_vehicles:
+        ov0, rv0 = o0.get("vehicles", []), r0.get("vehicles", [])
+        notes.append(f"vehicles at frame {frames[0]}: original {len(ov0)}, remaster {len(rv0)}, {len(vpairs)} matched by kind")
+        lone = [f"{v['kind']} {v['id']} at {v['pos']}" for i, v in enumerate(ov0) if i not in vpairs]
+        if lone:
+            notes.append("original vehicles with no remaster counterpart: " + ", ".join(lone))
     unmatched = [g["id"] for g in o0.get("grunts", []) if g["id"] not in pairs]
     if unmatched:
         notes.append(f"original grunts with no remaster counterpart at frame {frames[0]}: "
@@ -374,6 +427,24 @@ def compare_traces(sc, orig, rem):
             ta = pairs.get(ta, ta) if isinstance(ta, int) else ta
             fam.check("grunt.target", f, persistent(rem, rf, f, lambda x, rid=rid: next((g.get("target") for g in x.get("grunts", []) if g["id"] == rid), None), ta, win),
                       f"grunt {oid} target {a.get('target')} vs {tb}")
+        if has_vehicles:
+            def alive(row):
+                c = {}
+                for v in row.get("vehicles") or []:
+                    if v["health"] > 0:
+                        c[v["kind"]] = c.get(v["kind"], 0) + 1
+                return c
+            ca = alive(o)
+            fam.check("vehicles.alive", f, persistent(rem, rf, f, alive, ca, win), f"vehicles alive {ca} vs {alive(r)}")
+            for i, j in vpairs.items():
+                a = follow_unit(o.get("vehicles") or [], vlast, ("o", i))
+                b = follow_unit(r.get("vehicles") or [], vlast, ("r", j))
+                if not a or not b:
+                    continue
+                d = dist(a["pos"], b["pos"])
+                fam.check("vehicle.pos", f, d <= tol["grunt_pos"], f"{a['kind']} {a['id']} at {a['pos']} vs {b['pos']} ({d:.1f} apart)")
+                fam.check("vehicle.health", f, abs(a["health"] - b["health"]) <= tol["health"],
+                          f"{a['kind']} {a['id']} health {a['health']} vs {b['health']}")
         om, rm = o.get("mission", {}), r.get("mission", {})
         fam.check("mission.state", f, MISSION.get(om.get("state"), str(om.get("state"))) == rm.get("state", "Playing"),
                   f"mission {om.get('state')} ({MISSION.get(om.get('state'))}) vs {rm.get('state')}")
@@ -435,6 +506,9 @@ HINTS = {
     "grunt.target": "ai.rs target acquisition (sight, hearing, offers); original +0x588 (AI_FindTarget)",
     "grunt.health": "damage to grunts: weapons, blasts (fx.rs); original Object_TakeDamage 0x004555e0",
     "grunts.alive": "grunt spawns (barracks, generators: level.rs) or deaths",
+    "vehicles.alive": "vehicles / big units made or killed: engine/src/vehicles, goliath.rs (squad goliaths: ai/squad.rs)",
+    "vehicle.pos": "vehicles/boss.rs paths and walks, goliath.rs; original vt+0x54 position",
+    "vehicle.health": "damage to vehicles (fx.rs Destructible); original +0x454",
     "companion.jonesy.pos": "ai.rs companions (follow / defend); companions.md",
     "companion.q.pos": "ai.rs companions (follow / defend); companions.md",
     "companion.jonesy.health": "ai.rs companion_damage",

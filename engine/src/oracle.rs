@@ -16,12 +16,89 @@
 //! - The trace (`<script>.trace.jsonl`): one line every `trace_every` frames from play frame `trace_from` (every frame
 //!   before frame 0; lines before the briefing are kept until it fixes the play frames), the schema of
 //!   hook/src/testoracle.cpp in game space (Z up), "t" counted from the first line; the run quits after `frames`.
-//!   Events (triggers, deaths, sounds) before the first line are dropped.
+//!   Events (triggers, deaths, sounds) before the first line are dropped. "vehicles": the big units by kind
+//!   ([`VehicleKind`]: the hook names them by class), each {"id", "kind", "pos", "health"}.
 
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
 use serde::Deserialize;
 use std::io::Write;
+
+/// The trace's vehicles and big units, as the hook names the original's classes (testoracle.cpp `kVehicles`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VehicleKind {
+    /// GoliathObject 0x005af298 (placed on the base levels, or a squad's)
+    Goliath,
+    /// SaucerObject 0x005a5e98, ZeppelinObject 0x005af500, ColossusObject 0x005aa238
+    Saucer,
+    MiniZeppelin,
+    Colossus,
+    /// RocketTowerBuilding 0x005a87c0, RocketTowerTurret 0x005a8b88, RocketBudTurret 0x005adde8
+    RocketTower,
+    RocketTowerTurret,
+    RocketBud,
+}
+
+impl VehicleKind {
+    pub fn name(self) -> &'static str {
+        match self {
+            VehicleKind::Goliath => "goliath",
+            VehicleKind::Saucer => "saucer",
+            VehicleKind::MiniZeppelin => "mini_zeppelin",
+            VehicleKind::Colossus => "colossus",
+            VehicleKind::RocketTower => "rocket_tower",
+            VehicleKind::RocketTowerTurret => "rocket_tower_turret",
+            VehicleKind::RocketBud => "rocket_bud",
+        }
+    }
+}
+
+/// The units the trace lists under "vehicles", by the components that make them.
+#[derive(bevy::ecs::system::SystemParam)]
+pub struct Vehicles<'w, 's> {
+    goliaths: Query<'w, 's, (Entity, &'static GlobalTransform), With<crate::goliath::Goliath>>,
+    bosses: Query<'w, 's, (Entity, &'static GlobalTransform, &'static crate::vehicles::boss::Boss)>,
+    towers: Query<'w, 's, (Entity, &'static GlobalTransform), With<crate::vehicles::rocket_turrets::RocketTower>>,
+    turrets: Query<'w, 's, (Entity, &'static GlobalTransform), With<crate::vehicles::rocket_turrets::RocketTowerTurret>>,
+    buds: Query<'w, 's, (Entity, &'static GlobalTransform), With<crate::vehicles::rocket_turrets::RocketBud>>,
+    health: Query<'w, 's, &'static crate::fx::Destructible>,
+    ids: Query<'w, 's, &'static crate::level::InstanceId>,
+}
+
+impl Vehicles<'_, '_> {
+    /// Every live unit: (kind, instance id or 0, position, health). A unit whose Destructible is gone is dead (the
+    /// original unlinks it from its lists).
+    pub fn list(&self) -> Vec<(VehicleKind, u32, Vec3, f32)> {
+        use crate::vehicles::boss::BossKind;
+        let mut out = Vec::new();
+        let mut add = |kind: VehicleKind, e: Entity, t: &GlobalTransform| {
+            if let Some(d) = self.health.get(e).ok().filter(|d| d.health > 0.0 && d.dying.is_none()) {
+                out.push((kind, self.ids.get(e).map_or(0, |i| i.0), t.translation(), d.health));
+            }
+        };
+        for (e, t) in &self.goliaths {
+            add(VehicleKind::Goliath, e, t);
+        }
+        for (e, t, b) in &self.bosses {
+            let kind = match b.kind {
+                BossKind::Saucer => VehicleKind::Saucer,
+                BossKind::Zeppelin => VehicleKind::MiniZeppelin,
+                BossKind::Colossus => VehicleKind::Colossus,
+            };
+            add(kind, e, t);
+        }
+        for (e, t) in &self.towers {
+            add(VehicleKind::RocketTower, e, t);
+        }
+        for (e, t) in &self.turrets {
+            add(VehicleKind::RocketTowerTurret, e, t);
+        }
+        for (e, t) in &self.buds {
+            add(VehicleKind::RocketBud, e, t);
+        }
+        out
+    }
+}
 
 #[derive(Deserialize, Clone, Default)]
 pub struct OracleConfig {
@@ -255,6 +332,7 @@ fn trace(
     companions: Query<(&crate::ai::Companion, &crate::fx::Health, &GlobalTransform)>,
     ids: Query<&crate::level::InstanceId>,
     objects: Query<(&crate::level::InstanceId, &crate::fx::Destructible)>,
+    vehicles: Vehicles,
 ) {
     if o.out.is_none() {
         return;
@@ -332,6 +410,9 @@ fn trace(
         })
         .collect();
     line.insert("grunts".into(), gs.into());
+    let vs: Vec<serde_json::Value> =
+        vehicles.list().into_iter().map(|(k, id, p, h)| serde_json::json!({"id": id, "kind": k.name(), "pos": g(p), "health": r2(h)})).collect();
+    line.insert("vehicles".into(), vs.into());
     if let Some(m) = &mission {
         line.insert("mission".into(), serde_json::json!({"state": format!("{:?}", m.outcome), "objective": m.compass_tag}));
     }
