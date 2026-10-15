@@ -54,6 +54,10 @@ pub struct Event {
     /// debug: deal this hit to the nearest live grunt (tests the death paths)
     #[serde(default)]
     pub kill: Option<f32>,
+    /// debug: deal this hit to every live grunt that holds, is going to or just left a mounted gun (a gunner test drives his
+    /// death instead of waiting for the bot's bullets to find him)
+    #[serde(default)]
+    pub kill_gunner: Option<f32>,
     /// debug: destroy the placed object with this instance id (as a lethal hit)
     #[serde(default)]
     pub destroy: Option<u32>,
@@ -568,6 +572,12 @@ fn drive(
         if let (Some(d), Ok(p)) = (e.kill, player.single()) {
             let me = p.translation();
             if let Some((mut g, mut h, _)) = grunts.iter_mut().filter(|(g, _, _)| g.mind != crate::ai::Mind::Dead).min_by(|a, b| a.2.translation().distance(me).total_cmp(&b.2.translation().distance(me))) {
+                g.last_hit = d;
+                h.0 -= d;
+            }
+        }
+        if let Some(d) = e.kill_gunner {
+            for (mut g, mut h, _) in grunts.iter_mut().filter(|(g, _, _)| g.mind != crate::ai::Mind::Dead && g.gun.is_some()) {
                 g.last_hit = d;
                 h.0 -= d;
             }

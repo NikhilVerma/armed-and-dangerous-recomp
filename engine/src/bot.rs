@@ -60,6 +60,9 @@ pub struct Bot {
     pub cover: Option<Vec3>,
     pub cover_t: f32,
     pub cover_eval_t: f32,
+    /// the side-step: seconds left on this leg and its direction (+1 / -1)
+    pub strafe_t: f32,
+    pub strafe_sign: f32,
     /// the machine gun burst clock
     pub burst_t: f32,
     /// this frame: the direction to walk (engine space, unit or zero to stand), None: no bot input
@@ -201,6 +204,7 @@ pub fn think(
     physics: NonSend<Physics>,
     roman: Query<(&crate::player::Roman, &Transform, &crate::fx::Health)>,
     mounted: Res<crate::turret::Mounted>,
+    cam: Query<&GlobalTransform, With<crate::camera::FollowCam>>,
 ) {
     let dt = time.delta_secs();
     bot.walk = None;
@@ -226,7 +230,7 @@ pub fn think(
     bot.scan_t -= dt;
     if bot.scan_t <= 0.0 {
         bot.scan_t = 0.25;
-        bot.threats = live.iter().copied().filter(|p| p.distance(me) < THREAT_RANGE && crate::ai::line_of_sight(&physics, *p, me)).collect();
+        bot.threats = live.iter().copied().filter(|p| p.distance(me) < THREAT_RANGE && bullet_line(&physics, *p, me)).collect();
     }
     // the damage taken lately (decays by half a second): the sign of being shot at
     let lost = (bot.last_health - h.0).max(0.0);
@@ -282,7 +286,14 @@ pub fn think(
         let eye = me + Vec3::Y * 8.0;
         let v = p + Vec3::Y * 5.0 - eye;
         let clear = physics.raycast(eye, v.normalize_or(Vec3::Y), v.length()).is_none_or(|h| h.1.distance(p) < 8.0);
-        if d > 60.0 && d < STICKY_REACH && clear && (group >= 2 || bot.threats.len() >= 3) && r.stickies > 0 && bot.throw_timer <= 0.0 {
+        // and with the crosshair on him, as the sticky auto-aim wants (sticky.rs: the camera's narrowed view, else
+        // the bomb flies along the camera ray and may land at Roman's feet)
+        let on_him = cam.single().is_ok_and(|c| {
+            let v = p + Vec3::Y * 4.9 - c.translation();
+            let z = v.dot(c.forward().as_vec3());
+            z > 0.0 && (v.dot(c.right().as_vec3()) / z).abs() < 0.02 && (v.dot(c.up().as_vec3()) / z).abs() < 0.04
+        });
+        if d > 60.0 && d < STICKY_REACH && clear && on_him && (group >= 2 || bot.threats.len() >= 3) && r.stickies > 0 && bot.throw_timer <= 0.0 {
             bot.throw = true;
             bot.throw_timer = 4.0;
         }
@@ -312,11 +323,14 @@ pub fn think(
     let near_keg = kegs.iter().filter(|(k, r)| k.distance(me) < r + 25.0).map(|(k, _)| *k).min_by(|a, b| a.distance(me).total_cmp(&b.distance(me)));
     let tactic: Option<Vec3> = match (bot.cover, target) {
         (_, Some(_)) if near_keg.is_some() => near_keg.map(|k| (me - k).with_y(0.0).normalize_or_zero()),
-        // to the cover spot, then stay there (fighting what it sees)
-        (Some(c), _) => Some(if (c - me).with_y(0.0).length() > 3.0 { (c - me).with_y(0.0).normalize_or_zero() } else { Vec3::ZERO }),
+        // to the cover spot, then about it (fighting what it sees, never standing still in a grunt's sight)
+        (Some(c), _) if (c - me).with_y(0.0).length() > 12.0 => Some((c - me).with_y(0.0).normalize_or_zero()),
+        (Some(_), Some(p)) => Some(strafe(&mut bot, &physics, me, p, dt)),
+        (Some(_), None) => Some(Vec3::ZERO),
         (None, Some(p)) if low => Some((me - p).with_y(0.0).normalize_or_zero()),
-        // a duel at range: hold and shoot while at most two grunts can see Roman
-        (None, Some(p)) if p.distance(me) > 120.0 && bot.hold < 20.0 && seen <= 2 => Some(Vec3::ZERO),
+        // a duel at range: stay and shoot while at most two grunts can see Roman, side-stepping: their bullets
+        // (450 units/s) fly at where he stood
+        (None, Some(p)) if p.distance(me) > 120.0 && bot.hold < 20.0 && seen <= 2 => Some(strafe(&mut bot, &physics, me, p, dt)),
         _ => None,
     };
     // a hurt bot detours to a pickup nearby (farther when badly hurt, not into a crowd), as a player would
@@ -364,6 +378,31 @@ pub fn think(
     }
 }
 
+/// Side-steps across the line to `foe`, turning back every STRAFE_LEG seconds or at a wall: a grunt's bullet flies
+/// at where Roman was when it left the gun (0x004284e0 aims at the target's ref_hit_00; no lead), so a moving Roman is
+/// missed at range, as a player dodges.
+fn strafe(bot: &mut Bot, physics: &Physics, me: Vec3, foe: Vec3, dt: f32) -> Vec3 {
+    bot.strafe_t -= dt;
+    let side = Vec3::new(-(foe - me).z, 0.0, (foe - me).x).normalize_or_zero();
+    let blocked = |dir: Vec3| physics.raycast(me + Vec3::Y * 5.0, dir, 10.0).is_some();
+    if bot.strafe_t <= 0.0 || blocked(side * bot.strafe_sign) {
+        bot.strafe_t = STRAFE_LEG;
+        bot.strafe_sign = if bot.strafe_sign > 0.0 { -1.0 } else { 1.0 };
+    }
+    side * bot.strafe_sign
+}
+
+/// Whether a grunt standing at `shooter` (feet) has a clear shot at `target` (feet): from his muzzle height (8.4,
+/// ai.rs shoot) to the chest, through what bullets pass (Physics::raycast_bullet)
+fn bullet_line(physics: &Physics, shooter: Vec3, target: Vec3) -> bool {
+    let (a, b) = (shooter + Vec3::Y * 8.4, target + Vec3::Y * 6.0);
+    let v = b - a;
+    let dir = v.normalize_or(Vec3::Y);
+    physics.raycast_bullet(a + dir * 4.0, dir, (v.length() - 4.0).max(0.1)).is_none()
+}
+
+/// how long a side-step lasts before it turns back
+const STRAFE_LEG: f32 = 1.2;
 /// A grunt this far away counts as a threat when he can see Roman (the grunts' fire_range_max: 500 for the
 /// regulars, 350 for the captains; their aim stays tight out there, grunt-ai.md 0x004284e0)
 const THREAT_RANGE: f32 = 500.0;
@@ -397,7 +436,7 @@ fn find_cover(physics: &Physics, me: Vec3, threats: &[Vec3], hide: bool) -> Opti
             if physics.raycast(a3, (b3 - a3).normalize_or(Vec3::X), (b3 - a3).length()).is_some() {
                 continue;
             }
-            let seen = threats.iter().filter(|t| crate::ai::line_of_sight(physics, **t, g)).count();
+            let seen = threats.iter().filter(|t| bullet_line(physics, **t, g)).count();
             // one grunt in sight is a duel worth having (none: nothing to shoot), unless hiding
             let score = match (hide, seen) {
                 (true, n) => n as f32 * 1000.0,
