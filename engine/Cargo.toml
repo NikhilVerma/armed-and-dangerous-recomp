@@ -21,6 +21,8 @@ zune-core = "0.5"
 # Jolt Physics 5.6 through joltc, built from the vendored sources with CMake (no prebuilt download).
 oxijolt = { version = "1.1.0", default-features = false }
 bevy_egui = "0.43.1"
+# the typeface's outlines for the text's distance field (sdffont.rs); already in the tree through bevy_text
+swash = "0.2.10"
 # Input actions, contexts and gamepad bindings (Bevy 0.20 support is on master; pinned until a release).
 bevy_enhanced_input = { git = "https://github.com/simgine/bevy_enhanced_input", rev = "cb50e459add7445bbf704a1c9cff37fba4c05dd1" }
 
