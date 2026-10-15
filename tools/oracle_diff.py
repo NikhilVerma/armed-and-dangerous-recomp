@@ -309,7 +309,10 @@ def compare_traces(sc, orig, rem):
                     # the remaster keeps no count for an unlimited reserve (the rifle, weapon type 2): only the
                     # original's own count is shown, never compared
                     continue
-                fam.check(f"roman.{k}", f, persistent(rem, rf, f, lambda x, k=k: (x.get("roman") or {}).get(k), ro[k], win),
+                # (an unlimited reserve near the frame counts as agreeing too: a weapon change a frame apart)
+                key = (lambda x, k=k: (x.get("roman") or {}).get(k)) if k != "ammo" else \
+                    (lambda x, v=ro[k]: v if (x.get("roman") or {}).get("ammo") == UNLIMITED else (x.get("roman") or {}).get("ammo"))
+                fam.check(f"roman.{k}", f, persistent(rem, rf, f, key, ro[k], win),
                           f"{k} {ro[k]} vs {rr[k]}")
         oc, rc = o.get("companions", []), r.get("companions", [])
         for i, name in enumerate(("jonesy", "q")):

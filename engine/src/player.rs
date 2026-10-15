@@ -410,6 +410,7 @@ impl Plugin for PlayerPlugin {
             .init_level_resource::<LookDelta>()
             .add_systems(Update, grab_cursor.before(control))
             .add_systems(Update, (control, ground_effects, weapons, projectiles, damage_feedback, death).chain().run_if(crate::playing))
+            .add_systems(Update, publish_stats.after(control).before(weapons))
             .add_systems(Update, (player_state.after(death), idle_banter).run_if(crate::playing));
     }
 }
@@ -660,14 +661,11 @@ pub(crate) fn control(
     topsy: Res<crate::topsy::Topsy>,
     mut physics: NonSendMut<Physics>,
     mut q: Query<(&mut Roman, &mut Transform, &mut Health)>,
-    mut stats: ResMut<PlayerStats>,
     (ctl, mounted, rig): (Res<crate::input::Controls>, Res<crate::turret::Mounted>, Res<crate::camera::CameraRig>),
     mut fx: MessageWriter<crate::fx::StartFx>,
 ) {
     let dt = time.delta_secs();
     for (mut r, mut t, mut h) in &mut q {
-        stats.health = h.0.max(0.0);
-        stats.max_health = r.max_health;
         if h.0 <= 0.0 {
             r.dead = true;
         }
@@ -879,16 +877,25 @@ pub(crate) fn control(
         // replaces the original's matrix getters RotZ(+0x974) x base (vt+0x70..+0x7c: 0x00473b60, 0x00473bf0,
         // 0x00473c80, 0x00473d10)
         t.rotation = Quat::from_rotation_y(r.yaw + std::f32::consts::PI) * r.base;
-        stats.position = t.translation;
-        let w = if r.use_mg { r.mg.as_ref().unwrap_or(&r.rifle) } else { &r.rifle };
-        stats.clip = w.clip;
-        stats.ammo = w.ammo;
-        stats.weapon = w.name;
-        stats.unlimited = w.unlimited;
-        stats.special = r.special;
-        stats.topsy = r.topsy;
-        stats.stickies = r.stickies;
     }
+}
+
+/// Roman's state as the HUD, the pub and the traces read it (PlayerStats), every frame: also while the game is paused,
+/// so a weapon taken in the pub is the one in hand at once (the original's trace: the machine gun from the frame it is
+/// taken, the pub still open).
+fn publish_stats(q: Query<(&Roman, &Transform, &Health)>, mut stats: ResMut<PlayerStats>) {
+    let Ok((r, t, h)) = q.single() else { return };
+    stats.health = h.0.max(0.0);
+    stats.max_health = r.max_health;
+    stats.position = t.translation;
+    let w = if r.use_mg { r.mg.as_ref().unwrap_or(&r.rifle) } else { &r.rifle };
+    stats.clip = w.clip;
+    stats.ammo = w.ammo;
+    stats.weapon = w.name;
+    stats.unlimited = w.unlimited;
+    stats.special = r.special;
+    stats.topsy = r.topsy;
+    stats.stickies = r.stickies;
 }
 
 fn aim(r: &Roman, t: &Transform) -> (Vec3, Vec3) {

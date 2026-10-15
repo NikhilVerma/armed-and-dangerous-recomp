@@ -286,6 +286,11 @@ impl GameMenu {
             _ => None,
         }
     }
+
+    /// The page on screen now (it lags `page` through a fade).
+    pub fn on_screen(&self) -> Option<Page> {
+        self.shown
+    }
 }
 
 impl GameMenu {
@@ -1282,8 +1287,13 @@ fn value(o: &GameOptions, opt: Opt, win: (u32, u32)) -> (f32, String) {
 /// screen and the new one (or none) both have flag 4 (0x00490e90 at time 0 with mgr+0xf0 bit 2: the pause menu
 /// 0x100c, mission failed 0x24; with no screen the bit is set, 0x00490c20; a push 0x00490ba0 sets it from the new top).
 /// The requests (0x00490cb0, run by 0x00490d80 at the fade's middle) are the navigate's page changes. The remaster
-/// also makes every change into or out of play instant (the game would run under a fading menu).
+/// also makes every change into or out of play instant (the game would run under a fading menu), except leaving the
+/// pub screen: it fades out as in the original, the game still paused under it until the change (pubscreen.rs: the
+/// exit trigger and the unpause come then, 0.5 s after Back, as the oracle's pub scenario shows).
 fn instant(from: Option<Page>, to: Option<Page>) -> bool {
+    if from == Some(Page::Pub) {
+        return false;
+    }
     let flag4 = |p: Option<Page>| p.is_none_or(|p| matches!(p, Page::Pause | Page::Failed));
     from.is_none() || to.is_none() || (flag4(from) && flag4(to))
 }

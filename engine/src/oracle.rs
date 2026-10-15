@@ -265,6 +265,9 @@ fn trace(
     if let Some(m) = &mission {
         let new: Vec<i64> = m.log.iter().skip(o.log_seen).filter_map(|l| l.strip_prefix("trigger ").and_then(|r| r.split(':').next()).and_then(|t| t.parse::<i64>().ok())).collect();
         o.triggers.extend(new);
+        // placed objects without health removed by receive_trigger_kill (the big red arrow: its death slot vt+0xd4)
+        let removed: Vec<u32> = m.log.iter().skip(o.log_seen).filter_map(|l| l.strip_prefix("object ").and_then(|r| r.strip_suffix(" removed")).and_then(|t| t.parse::<u32>().ok())).collect();
+        o.deaths.extend(removed);
         o.log_seen = m.log.len();
     }
     if let Some(b) = bank.as_deref_mut() {

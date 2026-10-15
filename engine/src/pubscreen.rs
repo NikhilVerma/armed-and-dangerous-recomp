@@ -25,7 +25,8 @@
 //!   bombs' slot.
 //!
 //! Remaster additions, labelled: a pointer button on the exit prompt (a click leaves), a click away from the slots
-//! takes nothing, and Select with nothing left to take leaves (player feedback 17: a trackpad player was stuck); a
+//! takes nothing, and a click with nothing left to take leaves (player feedback 17: a trackpad player was stuck; the
+//! keys' Select does not leave: the original leaves only on Back, oracle scenario pub); a
 //! taken weapon goes into Roman's hands (the original's capture topsyO shows the machine gun after the pub). Guesses:
 //! the dark backdrop behind the pub art (hud.rs). Not ported: weapons other than the rifle and the machine gun, and
 //! the carry / swap when Roman's three weapon slots are full (0x004695d0's +0x74; lev_1_m1's Roman holds two at
@@ -95,13 +96,15 @@ pub struct PubScreen {
     rate: f32,
     /// presentation steps taken (awards and the notice), for the state log
     steps: usize,
+    /// left: the screen fades out (gamemenu.rs), the game paused under it; the exit happens when it is gone
+    closing: bool,
 }
 
 pub struct PubScreenPlugin;
 
 impl Plugin for PubScreenPlugin {
     fn build(&self, app: &mut App) {
-        app.init_level_resource::<PubScreen>().add_systems(Update, (open, input, view).chain());
+        app.init_level_resource::<PubScreen>().add_systems(Update, (open, input, leave_pub, view).chain());
     }
 }
 
@@ -233,6 +236,7 @@ fn open(
         health: (health_before, h.0, r.max_health.max(1.0)),
         rate,
         steps: 0,
+        closing: false,
     };
     m.log.push(format!("pub screen: awards {:?}, offer {:?}", screen.awards.iter().map(|a| a.item).collect::<Vec<_>>(), screen.shop));
     menu.page = Page::Pub;
@@ -273,10 +277,8 @@ fn input(
     mut screen: ResMut<PubScreen>,
     mut mission: Option<ResMut<crate::mission::Mission>>,
     mut roman: Query<&mut Roman>,
-    mut vtime: ResMut<Time<Virtual>>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     data: Res<crate::gamedata::GameData>,
-    mut physics: NonSendMut<crate::physics::Physics>,
     mouse: Res<ButtonInput<MouseButton>>,
     mut stop: MessageWriter<crate::audio::StopSound>,
     (windows, slots, mut last): (Query<&Window>, Query<(&PubSlot, &HudElement)>, Local<Option<Vec2>>),
@@ -414,25 +416,35 @@ fn input(
                 }
             }
         }
-        // Back leaves except on the ticker bombs' slot; the exit prompt and Select with nothing left (remaster)
+        // Back leaves except on the ticker bombs' slot; the exit prompt and a click with nothing left (remaster, for
+        // the pointer: the keys' Select stays on the screen as in the original, which leaves only on Back)
         let on_bombs = s.cursor.is_some_and(|c| c.0 == PubSlotKind::Bombs);
-        leave = (back && !on_bombs) || (select && s.on_exit) || (select && nothing_left);
+        leave = (back && !on_bombs) || (select && s.on_exit) || (click && nothing_left);
     }
     if leave {
+        // the page closes through the menus' fade (gamemenu.rs instant: 0.5 s out); the screen's hide (0x004930c0 ->
+        // 0x004690c0) sends the exit trigger when it is gone (leave_pub)
         s.open = false;
         s.on_exit = false;
+        s.closing = true;
         menu.page = Page::Main;
         next.set(AppState::Playing);
-        vtime.unpause();
         sounds.write(crate::audio::PlaySound::ui("ui_pub_exit"));
         stop.write(crate::audio::StopSound("amb_pub_busy".into()));
-        if let Some(m) = mission.as_deref_mut() {
-            m.pub_exit_pending = true;
-            // the player comes out at the pub's exit
-            if let (Some(at), Ok(r)) = (m.pub_exit_pos, roman.single()) {
-                physics.place_walker(&r.walker, at);
-            }
-        }
+    }
+}
+
+/// The pub screen hidden (0x004930c0 with show 0 -> 0x004690c0) once its fade-out has run: the exit trigger
+/// (0x0046a720) and the game running again, Roman where he entered (the exit bone's position 0x0046a650 is taken and
+/// dropped). The original's trace: Esc at play frame 440, trigger 900 and the unpause at 472, Roman not moved.
+fn leave_pub(menu: Res<GameMenu>, mut screen: ResMut<PubScreen>, mut mission: Option<ResMut<crate::mission::Mission>>, mut vtime: ResMut<Time<Virtual>>) {
+    if !screen.closing || menu.on_screen() == Some(Page::Pub) {
+        return;
+    }
+    screen.closing = false;
+    vtime.unpause();
+    if let Some(m) = mission.as_deref_mut() {
+        m.pub_exit_pending = true;
     }
 }
 

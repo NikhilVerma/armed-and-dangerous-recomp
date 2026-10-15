@@ -534,8 +534,6 @@ pub struct Mission {
     pub pub_exit_pending: bool,
     /// what the pub has (its property set with the instance's overrides)
     pub pub_info: Option<PubInfo>,
-    /// where the player stands after the pub screen (the pub's Ref_exit bone, player_exit_bone_name)
-    pub pub_exit_pos: Option<Vec3>,
     barracks: Vec<Barracks>,
     texts: HashMap<String, String>,
     hints: HashMap<String, String>,
@@ -818,7 +816,6 @@ impl Mission {
         let mut crt = crate::fxvm::CrtRand::default();
         let mut pub_pos = None;
         let mut pub_info = None;
-        let mut pub_exit_pos = None;
         let mut pub_triggers = PubTriggers::default();
         let mut tags: HashMap<i64, Vec<(u32, Vec3)>> = HashMap::new();
         for i in &f.instances {
@@ -903,12 +900,11 @@ impl Mission {
                 }
                 "pub" => {
                     // the doorway: the model's Ref_entrance bone (doorway_bone_name) and doorway_entry_radius
-                    // (0x00467b60: player position within the radius; 0x0046a5f0, 0x0046a640); the exit: Ref_exit
-                    // (player_exit_bone_name, 0x0046a650) and send_trigger_exit (0x0046a720)
-                    let refs = i.model.as_ref().zip(i.transform.as_ref()).map(|(model, t)| (pub_bone(dir, model, "ref_entrance"), pub_bone(dir, model, "ref_exit"), crate::scene::game_matrix(t)));
-                    let world = |b: Option<Vec3>, m: Mat4| b.map(|l| game_to_engine() * m.transform_point3(l));
-                    let (door, exit) = refs.map(|(a, b, m)| (world(a, m), world(b, m))).unwrap_or((None, None));
-                    pub_exit_pos = exit;
+                    // (0x00467b60: player position within the radius; 0x0046a5f0, 0x0046a640); the exit sends
+                    // send_trigger_exit (0x0046a720). The leave (0x004690c0) also takes the Ref_exit bone's position
+                    // (player_exit_bone_name, 0x0046a650) but never uses it: Roman stays at the door (oracle pub: he
+                    // is at the warp point before and after the screen)
+                    let door = i.model.as_ref().zip(i.transform.as_ref()).and_then(|(model, t)| pub_bone(dir, model, "ref_entrance").map(|l| game_to_engine() * crate::scene::game_matrix(t).transform_point3(l)));
                     pub_pos = Some((door.unwrap_or(pos), n(r, "doorway_entry_radius").max(1.0) as f32, n(r, "send_trigger_exit") as i64));
                     pub_triggers = PubTriggers {
                         open: n(r, "listen_trigger_open") as i64,
@@ -1004,7 +1000,6 @@ impl Mission {
             pub_request: false,
             pub_exit_pending: false,
             pub_info,
-            pub_exit_pos,
             barracks,
             hints: f.hints.into_iter().filter_map(|(k, h)| h.text.map(|t| (k, t))).collect(),
             tags,
@@ -1800,6 +1795,7 @@ fn dispatch(
                     if !killed {
                         for (e, i, pl) in &plain {
                             if i.0 == id {
+                                m.log.push(format!("object {id} removed"));
                                 // with its collision (the arrow's body stayed behind, blocking the crosshair)
                                 if let Some(c) = pl.and_then(|pl| pl.collider) {
                                     physics.remove_static(c);
