@@ -542,6 +542,8 @@ fn ride(
     let seat = t.seat.map(|i| bone_world(i).w_axis.truncate()).unwrap_or(tt.translation);
     physics.place_walker(&r.walker, seat);
     rt.translation = seat;
+    // (the player update skips a mounted Roman: his position for the HUD / state log is the seat's)
+    stats.position = seat;
     r.vel = Vec3::ZERO;
     r.falling = false;
     r.fall_fast_t = 0.0;
