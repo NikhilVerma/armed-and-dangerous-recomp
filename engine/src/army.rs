@@ -46,6 +46,8 @@ use crate::levelreset::LevelAppExt;
 pub struct ArmyGrunt {
     /// the ladder spline it carries a ladder along (AI_ClimbLadder 0x0042d710)
     pub ladder: Option<i64>,
+    /// sent through the open gate (the army breach, 0x00429a50)
+    breach: bool,
     /// the ic_* script running (an anim overlay on slot 4) and the time into it
     script: Option<IcScript>,
 }
@@ -137,6 +139,11 @@ pub struct Army {
     crowd_at: f32,
     /// the fraction of a platoon owed by wave_scale (ArmyTuning)
     wave_carry: f32,
+    /// the army breach (mission army_breach_marker_tag Game+0xc44, army_breach_run_max +0xc4c, the runners sent so
+    /// far +0xc48): while the gate stands open (Mission::breach_open, Game+0xcbe) grunts run its spline into the base
+    breach_tag: i64,
+    breach_max: u32,
+    breach_runners: u32,
     pub stats: ArmyStats,
 }
 
@@ -207,7 +214,7 @@ impl Plugin for ArmyPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ArmyTuning>()
             .init_level_resource::<Army>()
-            .add_systems(Update, (load, triggers, timers, platoons, fake_hits, army_grunts, log).chain().before(crate::fx::FxSet).run_if(crate::playing));
+            .add_systems(Update, (load, triggers, timers, platoons, fake_hits, army_grunts, breach, log).chain().before(crate::fx::FxSet).run_if(crate::playing));
     }
 }
 
@@ -280,6 +287,8 @@ fn load(mut army: ResMut<Army>, tuning: Res<ArmyTuning>, launch: Res<crate::Laun
     }
     army.ladder_delay = (mp.f("army_ladder_delay_min", 1.0), mp.f("army_ladder_delay_max", 1.0));
     army.pre_success = mp.i("receive_trigger_pre_success", 0);
+    army.breach_tag = mp.i("army_breach_marker_tag", 0);
+    army.breach_max = mp.i("army_breach_run_max", 5).max(0) as u32;
     for inst in &scene.instances {
         let p = data.instance_props(&inst.template, &inst.props);
         if p.s("behavior") != Some("army_timer") {
@@ -425,10 +434,11 @@ fn timers(
                     made.push((t.id, t.origin, w[1].to_lowercase(), t.gen_text.clone(), Entry { time: t.anim_t, a: num(2), b: num(3) }));
                 }
             }
+            // the anim's end removes the timer (TimerObject_Update 0x00496750); until then its lists run too (0x00496da0)
             if t.anim_t >= anim.duration {
                 t.removed = true;
+                continue;
             }
-            continue;
         }
         let (fired, end_a) = advance(&t.platoons, &mut t.elapsed.0, dt);
         for e in fired {
@@ -825,6 +835,51 @@ fn army_grunts(
     }
 }
 
+/// The army breach (0x00429a50, from the AI's update while Game+0xcbe is set and fewer than army_breach_run_max have
+/// gone): an army grunt drops what it does and runs the breach spline (AI_FollowMarkerSpline 0x0042d1b0 with
+/// army_breach_marker_tag) through the open gate; its last marker sends 5000 (ai.rs, the marker's trigger) and its
+/// "deactivate" flag (Marker_ProcessArrival 0x0044ba30: vt+0xd4) takes the grunt out of the game, here.
+fn breach(
+    mut commands: Commands,
+    mut army: ResMut<Army>,
+    mission: Option<Res<crate::mission::Mission>>,
+    markers: Option<Res<crate::alarm::Markers>>,
+    mut q: Query<(Entity, &mut ArmyGrunt, &mut Grunt, &GlobalTransform)>,
+) {
+    let (Some(mission), Some(mk)) = (mission, markers) else { return };
+    let tag = army.breach_tag;
+    let len = mk.spline_len(tag);
+    if tag == 0 || len == 0 {
+        return;
+    }
+    let end = mk.spline_marker(tag, len - 1).map(|m| m.pos);
+    let mut sent = false;
+    for (e, mut ag, mut g, gt) in &mut q {
+        if g.mind == Mind::Dead {
+            continue;
+        }
+        if ag.breach {
+            // through: at the last marker the spline ends (ai.rs stands it there)
+            if g.spline.is_none() && end.is_some_and(|p| (p - gt.translation()).with_y(0.0).length() < 10.0) {
+                army.stats.over_wall += 1;
+                commands.entity(e).despawn();
+            }
+            continue;
+        }
+        if sent || !mission.breach_open || army.breach_runners >= army.breach_max || ag.script.is_some() || ag.ladder.is_some() || g.mind == Mind::Flee {
+            continue;
+        }
+        ag.breach = true;
+        g.target = None;
+        g.fixed = None;
+        g.spline = Some(SplineRun { tag, index: 0, started: false });
+        g.mind = Mind::ToMarker;
+        army.breach_runners += 1;
+        sent = true;
+        info!("EVENT army: grunt {e:?} runs the breach ({} of {})", army.breach_runners, army.breach_max);
+    }
+}
+
 /// The army in the playtest state log.
 fn log(army: Res<Army>, state: Option<ResMut<crate::playtest::PlayState>>) {
     if !army.loaded || army.timers.is_empty() {
@@ -841,6 +896,7 @@ fn log(army: Res<Army>, state: Option<ResMut<crate::playtest::PlayState>>) {
         "over_wall": army.stats.over_wall,
         "limit": army.limit,
         "planted": army.planted.len(),
+        "breach_runners": army.breach_runners,
         "stopped": army.stopped,
     }));
 }

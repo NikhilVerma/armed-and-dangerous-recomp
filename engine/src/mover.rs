@@ -43,11 +43,25 @@ impl Mover {
         Self { anim: anim.to_lowercase(), t: 0.0, origin, paused: false, looping: false, orient: false, generic: true, ended: false, world: origin, last_pos: None }
     }
 
-    /// The game-space matrix at the mover's time: origin * T(track) * R(track).
+    /// The game-space matrix at the mover's time: origin * T(track) * R(track). A character's IC anim (a whole
+    /// skeleton's: the goliath's mover_goliath_*) has no track of its own name: its root bone "center" carries the
+    /// path, taken relative to where it starts (the character faces along it: `orient`).
     pub fn sample(&self, anim: &crate::skin::Anim) -> Mat4 {
-        let t = anim.translation(&self.anim, self.t).unwrap_or(Vec3::ZERO);
-        let r = anim.rotation(&self.anim, self.t).unwrap_or(Quat::IDENTITY);
-        self.origin * Mat4::from_rotation_translation(r, t)
+        match anim.translation(&self.anim, self.t) {
+            Some(t) => {
+                let r = anim.rotation(&self.anim, self.t).unwrap_or(Quat::IDENTITY);
+                self.origin * Mat4::from_rotation_translation(r, t)
+            }
+            None => {
+                let c = |t: f32| anim.translation("center", t).unwrap_or(Vec3::ZERO);
+                self.origin * Mat4::from_translation(c(self.t) - c(0.0))
+            }
+        }
+    }
+
+    /// Whether `anim` moves its object by its root bone (a character's IC anim) rather than its own track.
+    pub fn by_root(&self, anim: &crate::skin::Anim) -> bool {
+        anim.translation(&self.anim, 0.0).is_none()
     }
 }
 
@@ -96,6 +110,9 @@ fn advance(time: Res<Time>, mut lib: ResMut<crate::skin::AnimLibrary>, mut q: Qu
             m.ended = true;
             continue;
         };
+        if m.t == 0.0 && m.by_root(&anim) {
+            m.orient = true;
+        }
         let t0 = m.t;
         let mut t1 = t0 + dt;
         for text in notes_between(&anim, t0, t1.min(anim.duration)) {
@@ -131,22 +148,46 @@ fn advance(time: Res<Time>, mut lib: ResMut<crate::skin::AnimLibrary>, mut q: Qu
     }
 }
 
-/// The generic notes of movers that ask for them: "fx NAME" (Fx_Create at the object), "trigger N"
-/// (Object_SendTrigger), "deactivate" (vt+0xd4: the object removed).
+/// The generic notes of movers that ask for them (GenericAIObject_HandleEvent 0x0043d180): "fx NAME" (Fx_Create at
+/// the object), "fxlockedbone NAME BONE" (an fx held on the object, "null": its origin), "trigger N"
+/// (Object_SendTrigger), "anim_loop NAME" (the object's own anim looped, 0x00408e30 0x81), "anim_full" (the IC anim
+/// itself on the whole skeleton from where the script is, 0x0042c380; its root track still carries the object), "visible" / "invisible" (vt+0xf4), "deactivate" (vt+0xd4: the object removed).
 fn generic_notes(
     mut commands: Commands,
     mut notes: MessageReader<MoverNote>,
-    q: Query<(&Mover, &GlobalTransform)>,
+    mut q: Query<(&Mover, &GlobalTransform, &mut Visibility, Option<&mut crate::skin::Animator>)>,
     mut fx: MessageWriter<crate::fx::StartFx>,
     mut triggers: MessageWriter<crate::mission::SendTrigger>,
 ) {
     for n in notes.read() {
-        let Ok((m, gt)) = q.get(n.entity) else { continue };
+        let Ok((m, gt, mut vis, animator)) = q.get_mut(n.entity) else { continue };
         if !m.generic {
             continue;
         }
         let mut words = n.text.split_whitespace();
         match words.next().unwrap_or("").to_lowercase().as_str() {
+            "fxlockedbone" => {
+                if let Some(name) = words.next() {
+                    let (_, rot, at) = gt.to_scale_rotation_translation();
+                    fx.write(crate::fx::StartFx { name: name.to_lowercase(), at, rotation: rot, follow: Some(n.entity), position_only: false });
+                }
+            }
+            "anim_loop" => {
+                if let (Some(name), Some(mut a)) = (words.next(), animator) {
+                    if !name.eq_ignore_ascii_case(&m.anim) {
+                        a.play(0, &name.to_lowercase(), true, crate::skin::Mask::All);
+                    }
+                }
+            }
+            "anim_full" => {
+                if let Some(mut a) = animator {
+                    let t = m.t;
+                    let anim = m.anim.clone();
+                    a.play_at(0, &anim, false, crate::skin::Mask::All, t);
+                }
+            }
+            "visible" => *vis = Visibility::Inherited,
+            "invisible" => *vis = Visibility::Hidden,
             "fx" => {
                 if let Some(name) = words.next() {
                     let (_, rot, at) = gt.to_scale_rotation_translation();

@@ -304,6 +304,11 @@ impl Animator {
         self.play_from(slot, anim, looping, mask, s);
     }
 
+    /// As `play`, starting `time` seconds into the anim (an IC anim taken up part way: "anim_full", mover.rs).
+    pub fn play_at(&mut self, slot: usize, anim: &str, looping: bool, mask: Mask, time: f32) {
+        self.play_from(slot, anim, looping, mask, StartAt::Time(time));
+    }
+
     fn play_from(&mut self, slot: usize, anim: &str, looping: bool, mask: Mask, start: StartAt) {
         let anim = anim.to_lowercase();
         while self.layers.len() <= slot {

@@ -153,7 +153,7 @@ impl Plugin for DefencePlugin {
         app.init_level_resource::<DefenceState>()
             .init_level_resource::<DefenceDebug>()
             .add_message::<DefenceCommand>()
-            .add_systems(Update, (setup, start, debug_commands, (ride, shells, overrun, log).chain().after(crate::turret::ride).after(crate::hud_state)).chain().run_if(crate::playing))
+            .add_systems(Update, (setup, start, debug_commands, (ride, overrun, log).chain().after(crate::turret::ride).after(crate::hud_state)).chain().run_if(crate::playing))
             .add_systems(PostUpdate, pose.after(crate::skin::AnimateSet).before(TransformSystems::Propagate));
     }
 }
@@ -178,13 +178,14 @@ fn setup(
     q: Query<(Entity, &crate::level::InstanceId, &crate::skin::Animator, Option<&crate::level::Placed>), Without<BaseTurret>>,
     mut physics: NonSendMut<crate::physics::Physics>,
     mission: Option<Res<crate::mission::Mission>>,
-    mut done: crate::levelreset::PerLevel<Option<crate::scene::SceneFile>>,
+    mut done: crate::levelreset::PerLevel<(Option<crate::scene::SceneFile>, std::collections::HashSet<Entity>)>,
     mut kit: crate::army::ModelKit,
 ) {
-    if mission.is_none() || q.is_empty() {
+    let (scene, seen) = done.get();
+    if mission.is_none() || q.iter().all(|(e, ..)| seen.contains(&e)) {
         return;
     }
-    let scene = done.get().get_or_insert_with(|| crate::scene::read_scene(&launch.scene));
+    let scene = scene.get_or_insert_with(|| crate::scene::read_scene(&launch.scene));
     let dir = kit.dir();
     if state.start_tag == 0 {
         if let Some(m) = scene.logic.iter().find(|l| l.template == "mission") {
@@ -203,6 +204,9 @@ fn setup(
         }
     }
     for (e, id, a, placed) in &q {
+        if !seen.insert(e) {
+            continue;
+        }
         let Some(inst) = scene.instances.iter().find(|i| i.id == id.0) else { continue };
         let p = data.instance_props(&inst.template, &inst.props);
         if p.s("behavior") != Some("base_turret") {
@@ -352,7 +356,7 @@ fn debug_commands(
             if let (Some(target), Some(em)) = (nearest_platoon(), t.emitters[2]) {
                 let start = (gt.to_matrix() * bone_model(&a.skeleton, em)).w_axis.truncate();
                 let template = t.mortar.0.clone();
-                fire_shell(&mut commands, &data, &mut kit, &mut fx, &template, start, target);
+                crate::shell::launch(&mut commands, &data, &mut kit, &mut fx, &template, start, target, crate::shell::Lob { by: crate::fx::Src::Player, flight: None });
                 info!("EVENT defence: debug mortar at the nearest platoon, {:.0} away", (target - start).length());
             }
         }
@@ -397,15 +401,6 @@ fn bone_model(sk: &crate::skin::Skeleton, i: usize) -> Mat4 {
 /// The clamp of a turret angle, skipped when either limit is 0 (0x004990a0).
 fn clamp(v: f32, (lo, hi): (f32, f32)) -> f32 {
     if lo == 0.0 || hi == 0.0 { v } else { v.clamp(lo, hi) }
-}
-
-/// A mortar shell in flight (Projectile vtable 0x005adc78 / homing 0x005a8100; launch 0x00480ec0): under the world's
-/// gravity (64.348), exploding where it lands (area damage, fx_end) or when its lifetime runs out.
-#[derive(Component)]
-struct Shell {
-    vel: Vec3,
-    life: f32,
-    props: crate::gamedata::Props,
 }
 
 /// The mounted turret's update (0x0049b030), the window's shield and the start-in-turret hold on Roman.
@@ -614,7 +609,7 @@ fn ride(
                 let fwd = engine.transform_vector3(Vec3::NEG_Y);
                 let target = xhair.point.unwrap_or(from + fwd * 500.0);
                 let template = if t.upgrade > 0.0 { t.mortar.1.clone() } else { t.mortar.0.clone() };
-                fire_shell(&mut commands, &data, &mut kit, &mut fx, &template, from, target);
+                crate::shell::launch(&mut commands, &data, &mut kit, &mut fx, &template, from, target, crate::shell::Lob { by: crate::fx::Src::Player, flight: None });
                 if let Some(name) = t.mortar_fx.clone() {
                     let (_, rot, at) = bone_world(t.muzzles[2].unwrap_or(em)).to_scale_rotation_translation();
                     fx.write(crate::fx::StartFx { name, at, rotation: rot, follow: None, position_only: false });
@@ -624,67 +619,6 @@ fn ride(
                 info!("EVENT defence: mortar {template} at {:.0}", (target - from).length());
             }
         }
-    }
-}
-
-/// A shell toward `target` (Projectile_Launch 0x00480ec0 + 0x00471a00): horizontal speed = the horizontal distance + 5
-/// (so about one second of flight), the vertical speed solved for gravity 64.348 (engine axes, Y up).
-fn fire_shell(commands: &mut Commands, data: &crate::gamedata::GameData, kit: &mut crate::army::ModelKit, fx: &mut MessageWriter<crate::fx::StartFx>, template: &str, from: Vec3, target: Vec3) {
-    let p = data.template_props(template);
-    let d = target - from;
-    let flat = d.with_y(0.0);
-    let speed = flat.length() + 5.0;
-    let time = (flat.length() / speed).max(0.05);
-    let vel = flat / time + Vec3::Y * (d.y / time + 0.5 * 64.348 * time);
-    let model = data.templates.get(template).and_then(|t| t.model.clone());
-    let rot = Transform::IDENTITY.looking_to(vel.normalize_or(Vec3::NEG_Z), Vec3::Y).rotation * crate::level::game_to_engine();
-    let tr = Transform::from_translation(from).with_rotation(rot);
-    let e = model.and_then(|m| kit.spawn(commands, &m, tr, true)).unwrap_or_else(|| commands.spawn((tr, Visibility::default())).id());
-    commands.entity(e).insert(Shell { vel, life: p.f("lifetime", 15.0), props: p.clone() });
-    if let Some(name) = p.s("fx_start") {
-        fx.write(crate::fx::StartFx { name: name.to_lowercase(), at: from, rotation: rot, follow: Some(e), position_only: false });
-    }
-}
-
-/// Shells fly and land (Projectile update 0x00483210 / 0x0047e580): the first hit along the step explodes it.
-fn shells(
-    mut commands: Commands,
-    time: Res<Time>,
-    mut q: Query<(Entity, &mut Shell, &mut Transform)>,
-    physics: NonSend<crate::physics::Physics>,
-    mut blasts: MessageWriter<crate::fx::Explode>,
-    mut fx: MessageWriter<crate::fx::StartFx>,
-) {
-    let dt = time.delta_secs();
-    for (e, mut s, mut tr) in &mut q {
-        s.life -= dt;
-        let from = tr.translation;
-        s.vel.y -= 64.348 * dt;
-        let step = s.vel * dt;
-        let hit = physics.raycast(from, step.normalize_or(Vec3::NEG_Y), step.length()).map(|h| h.1);
-        if hit.is_none() && s.life > 0.0 {
-            tr.translation = from + step;
-            tr.rotation = Transform::IDENTITY.looking_to(s.vel.normalize_or(Vec3::NEG_Z), Vec3::Y).rotation * crate::level::game_to_engine();
-            continue;
-        }
-        let at = hit.unwrap_or(from);
-        info!("EVENT defence: shell lands at {:.0} {:.0} {:.0} ({})", at.x, -at.z, at.y, if hit.is_some() { "hit" } else { "lifetime" });
-        let p = &s.props;
-        blasts.write(crate::fx::Explode {
-            at,
-            area_damage: p.f("area_damage", 0.0),
-            radius_inner: p.f("damage_radius_inner", 0.0),
-            radius_outer: p.f("damage_radius_outer", 0.0),
-            impact_force: p.f("impact_force", 2010.0),
-            source: None,
-            delay: 0.0,
-            by: crate::fx::Src::Player,
-            cartoon: false,
-        });
-        if let Some(name) = p.s("fx_end") {
-            fx.write(crate::fx::StartFx { name: name.to_lowercase(), at, rotation: Quat::IDENTITY, follow: None, position_only: false });
-        }
-        commands.entity(e).despawn();
     }
 }
 

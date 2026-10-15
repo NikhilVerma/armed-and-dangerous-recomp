@@ -26,16 +26,22 @@ pub struct IcObject {
     activate: i64,
     script: String,
     started: bool,
+    /// hidden until its trigger (ShrubPatrol: load 0x00436630 vt+0xf4(0), trigger 0x004367c0 vt+0xf4(1))
+    show_on_start: bool,
 }
 
-/// An AnimPlayer: its anim, triggers, and which way it last played.
+/// An AnimPlayer: its anim, triggers, and where in the anim it is and which way it plays.
 #[derive(Component)]
 pub struct AnimPlayer {
     anim: String,
     activate: i64,
     backward: i64,
-    /// +0x460 bit 0 (forward) / bit 1 (backward)
-    state: u8,
+    /// the time into the anim and the play direction: 0 held, 1 forward (+0x460 bit 0), -1 backward (bit 1)
+    t: f32,
+    direction: f32,
+    /// a model without a skeleton whose parts ride one bone (the gate: base_gate_l5_m5_0 on b_gate): the bone the anim
+    /// moves them by
+    rigid_bone: Option<String>,
 }
 
 /// A dropped object waiting to be shot (or to fall to the ground and time out).
@@ -54,6 +60,15 @@ enum DropKind {
     TurretUpgrade,
 }
 
+/// What the scripted objects did (the playtest state log's "ic").
+#[derive(Resource, Default, Debug)]
+struct IcStats {
+    started: u32,
+    drops: u32,
+    shot: u32,
+    gates: u32,
+}
+
 /// A shot turret upgrade (Game+0xdd1): the base turret's ammo upgrade starts (defence.rs).
 #[derive(Message, Clone, Copy)]
 pub struct TurretUpgrade;
@@ -63,7 +78,8 @@ pub struct IcObjectPlugin;
 impl Plugin for IcObjectPlugin {
     fn build(&self, app: &mut App) {
         app.add_level_message::<TurretUpgrade>()
-            .add_systems(Update, (setup, triggers, notes, drops, anim_players).chain().run_if(crate::playing));
+            .init_level_resource::<IcStats>()
+            .add_systems(Update, (setup, triggers, notes, drops, anim_players, log).chain().run_if(crate::playing));
     }
 }
 
@@ -75,6 +91,7 @@ fn setup(
     mut q: Query<(Entity, &crate::level::InstanceId, &mut Visibility, Option<&mut crate::skin::Animator>), (Without<IcObject>, Without<AnimPlayer>)>,
     mut scene: crate::levelreset::PerLevel<Option<crate::scene::SceneFile>>,
     mut done: crate::levelreset::PerLevel<std::collections::HashSet<Entity>>,
+    lib: Res<crate::scene::Library>,
 ) {
     let done = done.get();
     if q.iter().all(|(e, ..)| done.contains(&e)) {
@@ -92,20 +109,28 @@ fn setup(
                 if p.f("invisible", 0.0) != 0.0 {
                     *vis = Visibility::Hidden;
                 }
-                commands.entity(e).insert(IcObject { activate: p.i("receive_trigger_activate", 0), script: p.s("generic_txt").unwrap_or("none").to_lowercase(), started: false });
+                commands.entity(e).insert(IcObject { activate: p.i("receive_trigger_activate", 0), script: p.s("generic_txt").unwrap_or("none").to_lowercase(), started: false, show_on_start: false });
+            }
+            // an AI waiting in mode trigger_ic for its script (the goliath, the shrub patrols: GenericAI state 0x8c)
+            b if p.s("mode") == Some("trigger_ic") && p.s("generic_txt").is_some_and(|g| !g.eq_ignore_ascii_case("none")) => {
+                let hidden = b == "shrubpatrol";
+                if hidden {
+                    *vis = Visibility::Hidden;
+                }
+                commands.entity(e).insert(IcObject { activate: p.i("receive_trigger_activate", 0), script: p.s("generic_txt").unwrap_or("none").to_lowercase(), started: false, show_on_start: hidden });
             }
             "anim_player" => {
-                let anim = p.s("anim").unwrap_or("none").to_lowercase();
                 // Anim_Set(anim, 0x90) at load: set, held at its start
+                let anim = p.s("anim").unwrap_or("none").to_lowercase();
                 if let Some(mut a) = animator {
                     if anim != "none" {
                         a.play(0, &anim, false, crate::skin::Mask::All);
-                        if let Some(l) = a.layers.get_mut(0) {
-                            l.speed = 0.0;
-                        }
                     }
                 }
-                commands.entity(e).insert(AnimPlayer { anim, activate: p.i("receive_trigger_activate", 0), backward: p.i("receive_trigger_bkwd", 0), state: 0 });
+                let rigid_bone = lib.models.get(&inst.model).and_then(|m| {
+                    m.skeleton.is_none().then(|| m.binds.iter().find_map(|b| if let crate::scene::PartBind::Bone(b) = b { Some(b.clone()) } else { None })).flatten()
+                });
+                commands.entity(e).insert(AnimPlayer { anim, activate: p.i("receive_trigger_activate", 0), backward: p.i("receive_trigger_bkwd", 0), t: 0.0, direction: 0.0, rigid_bone });
             }
             _ => {}
         }
@@ -117,82 +142,93 @@ fn setup(
 fn triggers(
     mut commands: Commands,
     mut events: MessageReader<crate::mission::SendTrigger>,
-    mut ics: Query<(Entity, &mut IcObject, &GlobalTransform)>,
-    mut players: Query<(&mut AnimPlayer, &mut crate::skin::Animator)>,
+    mut ics: Query<(Entity, &mut IcObject, &GlobalTransform, &mut Visibility)>,
+    mut players: Query<&mut AnimPlayer>,
+    mut stats: ResMut<IcStats>,
 ) {
     let ids: Vec<i64> = events.read().map(|e| e.0).filter(|t| *t != 0).collect();
     for t in ids {
-        for (e, mut ic, gt) in &mut ics {
+        for (e, mut ic, gt, mut vis) in &mut ics {
             if ic.started || ic.activate != t || ic.script == "none" {
                 continue;
             }
             ic.started = true;
+            stats.started += 1;
+            if ic.show_on_start {
+                *vis = Visibility::Inherited;
+            }
             // the object's matrix, game axes (engine -> game: the inverse of game_to_engine)
             let to_game = Mat4::from_quat(crate::level::game_to_engine().inverse());
             let (_, r, p) = (to_game * gt.to_matrix()).to_scale_rotation_translation();
             commands.entity(e).insert(Mover::new(&ic.script, Mat4::from_rotation_translation(r, p)));
             info!("EVENT ic: object {e:?} starts {}", ic.script);
         }
-        for (mut ap, mut a) in &mut players {
+        // forward from where it is (0x20000 once it went backward), backward likewise (0x20040)
+        for mut ap in &mut players {
             if ap.anim == "none" {
                 continue;
             }
-            if t == ap.activate && ap.state & 1 == 0 {
-                let from = a.layers.first().map(|l| l.time).unwrap_or(0.0);
-                a.play(0, &ap.anim, false, crate::skin::Mask::All);
-                if let Some(l) = a.layers.get_mut(0) {
-                    l.speed = 1.0;
-                    if ap.state & 2 != 0 {
-                        l.time = from;
-                    }
-                }
-                ap.state = 1;
+            if t == ap.activate && ap.direction <= 0.0 {
+                ap.direction = 1.0;
+                stats.gates += 1;
                 info!("EVENT ic: anim player plays {}", ap.anim);
-            } else if t == ap.backward && ap.state & 2 == 0 {
-                if let Some(l) = a.layers.get_mut(0) {
-                    l.speed = -1.0;
-                }
-                ap.state = 2;
+            } else if t == ap.backward && ap.direction >= 0.0 {
+                ap.direction = -1.0;
                 info!("EVENT ic: anim player plays {} backward", ap.anim);
             }
         }
     }
 }
 
-/// An AnimPlayer's anim rests at its ends (a one-shot anim held by the skin module): nothing to do per frame but keep
-/// a held anim from restarting.
-fn anim_players(mut q: Query<(&AnimPlayer, &mut crate::skin::Animator)>) {
-    for (ap, mut a) in &mut q {
-        if ap.state == 0 {
-            if let Some(l) = a.layers.get_mut(0) {
+/// AnimPlayers advance their anim in their direction and rest at its ends: a skinned model's anim layer is held at
+/// the time; a rigid one's parts (no skeleton, every part on one bone) move by that bone's track (its key at the time
+/// over its key at the start, in the model's frame).
+fn anim_players(
+    time: Res<Time>,
+    mut q: Query<(&mut AnimPlayer, Option<&mut crate::skin::Animator>, Option<&Children>)>,
+    mut parts: Query<&mut Transform, With<Mesh3d>>,
+    mut lib: ResMut<crate::skin::AnimLibrary>,
+) {
+    let dt = time.delta_secs();
+    for (mut ap, animator, children) in &mut q {
+        if ap.anim == "none" {
+            continue;
+        }
+        let Some(anim) = lib.anim(&ap.anim) else { continue };
+        ap.t = (ap.t + ap.direction * dt).clamp(0.0, anim.duration);
+        if let Some(mut a) = animator {
+            if let Some(l) = a.layers.get_mut(0).filter(|l| l.anim == ap.anim) {
                 l.speed = 0.0;
+                l.time = ap.t;
+            }
+            continue;
+        }
+        let (Some(bone), Some(children)) = (ap.rigid_bone.as_deref(), children) else { continue };
+        let key = |t: f32| Mat4::from_rotation_translation(anim.rotation(bone, t).unwrap_or(Quat::IDENTITY), anim.translation(bone, t).unwrap_or(Vec3::ZERO));
+        let delta = key(ap.t) * key(0.0).inverse();
+        for c in children.iter() {
+            if let Ok(mut tr) = parts.get_mut(c) {
+                *tr = Transform::from_matrix(delta);
             }
         }
     }
 }
 
-/// The ICObjects' script notes beyond the generic ones (mover.rs): visibility and drops.
+/// The ICObjects' script notes beyond the generic ones (mover.rs): the drops.
 #[allow(clippy::too_many_arguments)]
 fn notes(
     mut commands: Commands,
     mut notes: MessageReader<MoverNote>,
-    mut ics: Query<(&mut Visibility, &GlobalTransform), With<IcObject>>,
+    ics: Query<&GlobalTransform, With<IcObject>>,
     data: Res<crate::gamedata::GameData>,
     mut kit: crate::army::ModelKit,
     mut physics: NonSendMut<crate::physics::Physics>,
+    mut stats: ResMut<IcStats>,
 ) {
     for n in notes.read() {
-        let Ok((mut vis, gt)) = ics.get_mut(n.entity) else { continue };
+        let Ok(gt) = ics.get(n.entity) else { continue };
         let word = n.text.split_whitespace().next().unwrap_or("").to_lowercase();
         let (template, kind) = match word.as_str() {
-            "visible" => {
-                *vis = Visibility::Inherited;
-                continue;
-            }
-            "invisible" => {
-                *vis = Visibility::Hidden;
-                continue;
-            }
             "powderkeg" => ("powderkeg_bomber", DropKind::Keg),
             // token_or_health: a token when the level's is still to find (0x004a0720(level, 2)): guess, health always
             "health" | "token_or_health" => ("shootable_health", DropKind::Health(data.template_props("shootable_health").f("on_death_player_health", 50.0))),
@@ -245,6 +281,7 @@ fn notes(
             crate::fx::Bounds { center: Vec3::ZERO, radius: 3.0 },
             Drop { kind, left: p.f("death_timeout", 20.0), body },
         ));
+        stats.drops += 1;
         info!("EVENT ic: {word} dropped");
     }
 }
@@ -259,9 +296,11 @@ fn drops(
     mut physics: NonSendMut<crate::physics::Physics>,
     mut roman: Query<(&mut crate::fx::Health, &crate::player::Roman)>,
     mut upgrade: MessageWriter<TurretUpgrade>,
+    mut stats: ResMut<IcStats>,
 ) {
     for d in died.read() {
         let Ok((_, drop)) = q.get(d.0) else { continue };
+        stats.shot += 1;
         physics.remove(drop.body);
         match drop.kind {
             DropKind::Health(h) => {
@@ -286,4 +325,12 @@ fn drops(
             commands.entity(e).despawn();
         }
     }
+}
+
+fn log(stats: Res<IcStats>, state: Option<ResMut<crate::playtest::PlayState>>) {
+    let Some(mut state) = state else { return };
+    if stats.started == 0 && stats.gates == 0 {
+        return;
+    }
+    state.0.insert("ic".into(), serde_json::json!({ "started": stats.started, "drops": stats.drops, "shot": stats.shot, "gates": stats.gates }));
 }
