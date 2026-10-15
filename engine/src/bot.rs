@@ -234,6 +234,11 @@ pub fn think(
     // the bot's tactics, as a player would play (docs/remaster-engine.md, the playtest bot): engage the nearest grunt in range with line of sight;
     // under fire from several, take cover where fewer see it and fight them from there; sticky bombs for groups;
     // bursts with the machine gun at range; health pickups when hurt
+    // no walk or fight step active: the script drives Roman itself (warp, hold_use, keys); the tactics would walk
+    // him away (pub_screen: a hurt step set off "retreat" and Roman never reached the pub door)
+    if !bot.fight && bot.goto.is_none() {
+        return;
+    }
     let live = live_grunts(&grunts);
     // the grunts that can see Roman (refreshed four times a second: the cover search needs them too)
     bot.scan_t -= dt;
