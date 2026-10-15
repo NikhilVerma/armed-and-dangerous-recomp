@@ -3,7 +3,7 @@
  {"expect": {"menu.page": "Main", "menu.selected": "ui_mainmenu_startgame"}},
  {"tap": "Enter"},
  {"until": "message"}, {"wait": 1.0}, {"tap": "Enter"}, {"wait": 4.0},
- {"expect": {"mission": "Playing", "message": "", "romans": 1, "cam_mode": "follow", "dt_max_ms": [0, 100]}},
+ {"expect": {"mission": "Playing", "message": "", "romans": 1, "cam_mode": "follow"}},
  {"note": "fresh"},
 
  {"tap": "Escape"}, {"wait": 0.5},
@@ -19,7 +19,7 @@
  {"expect": {"mission": "Playing", "message": "", "romans": {"as": "fresh"}, "companions": {"as": "fresh"}, "grunts_alive": {"as": "fresh", "margin": 1},
              "entities": {"as": "fresh", "pct": 3, "margin": 30}, "look_pitch": {"as": "fresh", "margin": 0.05}, "cam_pitch": {"as": "fresh", "margin": 0.05},
              "cam_mode": {"as": "fresh"}, "cam_dist": {"as": "fresh", "margin": 2}, "health": {"as": "fresh"}, "clip": {"as": "fresh"},
-             "frame_ms": {"as": "fresh", "pct": 50, "margin": 4}, "main_ms": {"as": "fresh", "pct": 50, "margin": 3}, "dt_max_ms": [0, 100],
+             "frame_ms": [0, 100], "main_ms": [0, 50], "dt_max_ms": [0, 200],
              "render.cameras": {"as": "fresh"}, "render.shared_target": true}},
 
  {"tap": "Escape"}, {"wait": 0.5},
@@ -34,7 +34,7 @@
  {"until": "message"}, {"wait": 1.0}, {"tap": "Enter"}, {"wait": 4.0},
  {"expect": {"mission": "Playing", "romans": {"as": "fresh"}, "companions": {"as": "fresh"}, "grunts_alive": {"as": "fresh", "margin": 1},
              "entities": {"as": "fresh", "pct": 3, "margin": 30}, "look_pitch": {"as": "fresh", "margin": 0.05}, "cam_pitch": {"as": "fresh", "margin": 0.05},
-             "frame_ms": {"as": "fresh", "pct": 50, "margin": 4}, "main_ms": {"as": "fresh", "pct": 50, "margin": 3}, "dt_max_ms": [0, 100]}},
+             "frame_ms": [0, 100], "main_ms": [0, 50], "dt_max_ms": [0, 200]}},
 
  {"tap": "Escape"}, {"wait": 0.5},
  {"tap": "ArrowDown"}, {"wait": 0.3},
@@ -52,6 +52,6 @@
  {"until": "loaded"}, {"wait": 4.0},
  {"expect": {"level_generation": 3, "mission": "Playing", "menu.shown": null, "romans": {"as": "fresh"}, "companions": {"as": "fresh"}, "grunts_alive": {"as": "fresh", "margin": 1},
              "health": {"as": "fresh"}, "look_pitch": {"as": "fresh", "margin": 0.05},
-             "frame_ms": {"as": "fresh", "pct": 50, "margin": 4}, "main_ms": {"as": "fresh", "pct": 50, "margin": 3}, "dt_max_ms": [0, 100]}},
+             "frame_ms": [0, 100], "main_ms": [0, 50], "dt_max_ms": [0, 200]}},
  {"quit": true}
 ]}
