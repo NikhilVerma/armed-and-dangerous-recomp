@@ -26,9 +26,10 @@ pub struct Bot {
     pub last_pos: Vec3,
     /// seconds the walk has made under 4 units a second (the escape turns further round the longer it lasts)
     pub veer: f32,
-    /// this frame: press Jump (stuck 2 s, and again every 4 s after: a jump onto a wall's top or into a gap between
-    /// walls had wedged Roman for good when it jumped every frame it was stuck)
+    /// this frame: press Jump (held for jump_t: stuck 2 s, and again every 4 s after: a jump onto a wall's top or
+    /// into a gap between walls had wedged Roman for good when it jumped every frame it was stuck)
     pub jump: bool,
+    pub jump_t: f32,
     /// planned waypoints toward `goto` (nav.rs)
     pub route: Vec<Vec3>,
     pub planned_for: Option<Vec3>,
@@ -185,7 +186,9 @@ fn step_to_goal(bot: &mut Bot, me: Vec3, dt: f32) -> Option<Vec3> {
     if bot.stuck_timer > 1.0 {
         let moved = me.with_y(0.0).distance(bot.last_pos.with_y(0.0));
         bot.veer = if moved < 4.0 { bot.veer + 1.0 } else { 0.0 };
-        bot.jump = bot.veer >= 2.0 && (bot.veer as i32 - 2) % 4 == 0;
+        if bot.veer >= 2.0 && (bot.veer as i32 - 2) % 4 == 0 {
+            bot.jump_t = 0.3;
+        }
         // progress = the distance to the next waypoint (or the goal) shrinking
         let target = bot.route.first().copied().unwrap_or(g);
         let d_now = (target - me).with_y(0.0).length();
@@ -204,6 +207,9 @@ fn step_to_goal(bot: &mut Bot, me: Vec3, dt: f32) -> Option<Vec3> {
             info!("bot: stuck near {:?}, replanning", [spot.x as i32, spot.z as i32]);
         }
     }
+    // (held a moment: Roman takes off only from the ground)
+    bot.jump_t -= dt;
+    bot.jump = bot.jump_t > 0.0;
     let dir = to.normalize();
     // the escape turn: +-45, +-90, +-135, 180 degrees by the seconds stuck, round again after 8
     let k = if bot.veer < 1.0 { 0 } else { (bot.veer as i32 - 1) % 8 + 1 };
@@ -333,6 +339,13 @@ pub fn think(
     // no walk or fight step active: the script drives Roman itself (warp, hold_use, keys); the tactics would walk
     // him away (pub_screen: a hurt step set off "retreat" and Roman never reached the pub door)
     if !bot.fight && bot.goto.is_none() {
+        return;
+    }
+    // holding Use (setting a ticker bomb, the pub door): stand still, as a player does (a duel's side-step had walked
+    // Roman off the ticker site before the bomb was set)
+    if bot.use_key {
+        bot.walk = Some(Vec3::ZERO);
+        bot.mode = "use";
         return;
     }
     let view = View {

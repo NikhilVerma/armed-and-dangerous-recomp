@@ -13,6 +13,8 @@ const STEP: f32 = 6.0;
 const DROP: f32 = 30.0;
 /// the side rays' offset from a walk's middle (Roman's radius 4, less a little: gates and doors stay open)
 const CLEARANCE: f32 = 3.0;
+/// the extra cost of a step with less room than that
+const TIGHT_COST: f32 = 12.0;
 
 #[derive(Copy, Clone, PartialEq)]
 struct Node {
@@ -100,7 +102,10 @@ pub fn path(physics: &Physics, from: Vec3, to: Vec3, blocked: &[Vec3]) -> Option
             if physics.raycast(a3, (b3 - a3).normalize_or(Vec3::X), (b3 - a3).length()).is_some() {
                 continue;
             }
-            let nc = cc + d + (hn - hc).max(0.0) * 0.5;
+            // a step that brushes something (no room for Roman's width) costs more: routes keep off walls and trees
+            // where there is room (hugging a wall's end next to a tree wedged him for good)
+            let tight = if walkable(physics, a3, b3) { 0.0 } else { TIGHT_COST };
+            let nc = cc + d + (hn - hc).max(0.0) * 0.5 + tight;
             if cost.get(&n).is_none_or(|&old| nc < old) {
                 cost.insert(n, nc);
                 came.insert(n, c);

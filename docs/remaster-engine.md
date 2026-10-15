@@ -138,8 +138,31 @@ shooter's kind, weapon, distance (who killed him).
 
 Full-level run (not in the suite: about 8 minutes of game, 20 to 40 of wall time on a loaded machine):
 `python tools/playtest.py engine/playtests/level1u.json --exe target-NAME --timeout 3600` (expects Won at the end).
-The script gives the bot the player's route between the gates (waypoints through the village west of the trenches,
-past the guard camp at (0, -515)), as a player picks a way; the alarm siren is still destroyed by a debug step.
+The script gives the bot the player's route between the gates (waypoints through the blown gate 1 at x -88, the
+village west of the trenches, past the guard camp at (0, -515)), as a player picks a way; no debug steps. It saves
+states at each leg's start (engine/playtests/states/, ignored): l1_after_pub, l1_at_gate1, l1_before_camp,
+l1_before_gate2. The leg scripts start there and save the next one, to iterate on one leg in minutes: l1_leg_pub
+(cold start, about 2 min wall), l1_leg_gate1, l1_leg_siren (gate 1 blown, the siren shot, the trenches; about 7 min
+wall), l1_leg_camp, l1_leg_gate2 (expects Won). Run level1u or the legs in order once to make the states. A loaded
+state has the live grunts at their placements and no raised siren (not saved), so the legs are for iteration; the
+cold-start run is the test. The playtest warps a bot that has not arrived after 240 s ("bot stuck ... warped"): a run
+with that line is not clean.
+
+Aim and targets (2026-10-15, agent-bot): the bot aims as a player does, the crosshair on the target
+(camera.rs `CameraRig::look_at`: the yaw / pitch whose follow-camera ray passes through the point) and fires only while
+the crosshair's point is on it, so its shots take the player's path (gun to crosshair point). Before, it looked
+straight at the target from the eye while the shot left the hand parallel to that line: about 5 % of shots hit (1339
+shots, 69 hits); the pub leg now takes about 40 shots for 15 kills. A target the crosshair cannot reach for 1.5 s is
+skipped for 4 s. Targets: a raised siren (alarm.rs `Markers::sirens`, within 400 and in sight) before anything but a
+grunt within 60; kegs with grunts beside them; else the nearest grunt. Explosions: no sticky throw, keg shot or fire
+past a keg whose blast, or chain of blasts (`blast_reaches`), would reach Roman (three kegs by the siren killed a
+full-health Roman 30 units away); cover spots keep out of keg blasts and the bot steps out of one under fire. Stickies
+go at groups with the crosshair closed on a grunt. Holding Use (ticker sites) the bot stands still. Stuck: escape
+turns of 45, 90, 135, 180 degrees by the seconds stuck, a jump at 2 s and every 4 s after (jumping every stuck frame
+put Roman on a wall top and into a pocket between walls he never left). nav.rs: steps without room for Roman's width
+cost more; waypoints are kept where the straight walk between them would brush something. `NAVMAP=<cells>` (env)
+prints the planner's map round Roman at each new goal ('.' open, '|' / '-' blocked from the west / north, 'x' no
+ground, '^' / 'v' above / below).
 
 ### Widening the original's coverage to a whole level
 
