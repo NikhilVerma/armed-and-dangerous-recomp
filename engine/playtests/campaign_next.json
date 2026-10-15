@@ -1,4 +1,5 @@
 {"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+ {"clear_saves": true},
  {"wait": 1.0},
  {"expect": {"campaign.level": "lev_1_m1", "loadout.rifle": true, "loadout.stickies": [0, 5]}},
  {"send": 123},
@@ -22,5 +23,11 @@
  {"expect": {"campaign.level": "lev_1_m1_b", "level_generation": 1, "campaign.money": {"as": "won"}, "campaign.tokens": {"as": "won"}, "campaign.difficulty": {"as": "won"}}},
  {"wait": 2.0},
  {"expect": {"loadout.rifle": true, "loadout.mg": 1100, "loadout.in_hand": "machinegun", "loadout.stickies": 5, "loadout.topsy": 0, "health": [1, 100000]}},
+
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 1.0},
+ {"hurt": 100000}, {"wait": 6.5},
+ {"expect": {"mission": "Failed", "menu.page": "Failed", "menu.selected": "ui_mfail_restart"}},
+ {"tap": "Enter"}, {"wait": 0.5}, {"until": "loaded"}, {"wait": 1.0},
+ {"expect": {"campaign.level": "lev_1_m1_b", "level_generation": 2, "mission": "Playing", "health": 400, "campaign.money": {"as": "won"}, "loadout.in_hand": "machinegun"}},
  {"quit": true}
 ]}
