@@ -31,6 +31,7 @@
 //! Remaster additions: a skip prompt with the active device's button (`MovieSettings::skip_prompt`); a mouse click
 //! (a trackpad tap) also skips.
 
+use crate::levelreset::LevelAppExt;
 use crate::gamemenu::MenuOwned;
 use crate::hud::{Anchor, HudElement, HudText, TextAlign};
 use bevy::asset::RenderAssetUsages;
@@ -159,7 +160,7 @@ pub struct MoviePlugin;
 
 impl Plugin for MoviePlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<MoviePlayer>()
+        app.init_level_resource::<MoviePlayer>()
             .init_resource::<MovieSettings>()
             .add_message::<PlayMovies>()
             .add_message::<StopMovies>()

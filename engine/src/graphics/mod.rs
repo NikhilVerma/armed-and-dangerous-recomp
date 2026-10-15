@@ -408,15 +408,16 @@ fn apply_cameras(
         warn!("graphics: ambient occlusion needs an anti-aliasing other than MSAA (Bevy's SSAO); off");
     }
     let hdr = s.bloom > 0.0;
+    let msaa = match s.anti_aliasing {
+        AntiAliasing::Msaa => Msaa::Sample4,
+        _ => Msaa::Off,
+    };
     for e in &cams {
         let mut c = commands.entity(e);
         // start from the Original's camera, then add
         c.remove::<(TemporalAntiAliasing, TemporalJitter, MipBias, Smaa, ContrastAdaptiveSharpening, ScreenSpaceAmbientOcclusion)>()
             .remove::<(DepthPrepass, NormalPrepass, MotionVectorPrepass, Bloom, Hdr, ShadowFilteringMethod)>();
-        c.insert(match s.anti_aliasing {
-            AntiAliasing::Msaa => Msaa::Sample4,
-            _ => Msaa::Off,
-        });
+        c.insert(msaa);
         match s.anti_aliasing {
             AntiAliasing::Taa => {
                 c.insert((TemporalAntiAliasing::default(), ShadowFilteringMethod::Temporal));
@@ -456,8 +457,12 @@ fn apply_cameras(
             ));
         }
     }
-    // the HUD and movie cameras draw over the 3D view: the same target format, or their output replaces it
+    // the HUD and movie cameras draw over the 3D view: the same target format and sample count, or Bevy gives them
+    // a main texture of their own. The HUD camera never clears (ClearColorConfig::None), so its own texture kept the
+    // title menu's art after New Game and was blended over the world (docs/player-feedback.md 22: Remaster only,
+    // where the 3D camera's TAA turns MSAA off while a 2D camera's default is 4x)
     for e in &others {
+        commands.entity(e).insert(msaa);
         if hdr {
             commands.entity(e).insert(Hdr);
         } else {

@@ -13,6 +13,7 @@
 //!   tag in the generator's marker_tag_min..max (0x0042dd50), or charges with no tags.
 //! - A destroyed siren leaves the list (guess: Object_Remove unlinks it; unverified) and its loop stops.
 
+use crate::levelreset::LevelAppExt;
 use crate::level::{InstanceId, game_to_engine};
 use bevy::prelude::*;
 use std::collections::{HashMap, VecDeque};
@@ -239,7 +240,7 @@ pub struct AlarmPlugin;
 
 impl Plugin for AlarmPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Markers>().add_message::<MarkerArrival>().add_systems(Update, (arrivals, sirens_gone, controller).chain().run_if(crate::playing));
+        app.init_level_resource::<Markers>().add_message::<MarkerArrival>().add_systems(Update, (arrivals, sirens_gone, controller).chain().run_if(crate::playing));
     }
 }
 

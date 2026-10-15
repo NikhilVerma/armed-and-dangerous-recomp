@@ -4,6 +4,7 @@
 //! 0.3 on lev_1_m1; read at 0x00424456..0x00424494). A faded object draws with its own copies of its materials
 //! (the fade in the game material's emissive.w); at 1 the shared ones come back.
 
+use crate::levelreset::LevelAppExt;
 use crate::gamematerial::GameMaterial;
 use bevy::platform::collections::{HashMap, HashSet};
 use bevy::prelude::*;
@@ -26,7 +27,7 @@ pub struct CameraFadePlugin;
 
 impl Plugin for CameraFadePlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<CameraFade>().add_systems(Update, (fade, object_alpha));
+        app.init_level_resource::<CameraFade>().add_systems(Update, (fade, object_alpha));
     }
 }
 

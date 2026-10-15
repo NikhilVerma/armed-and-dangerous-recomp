@@ -4,6 +4,7 @@
 //! Rules from the recovered code: docs/subsystems/fx-vm.md section 5 (AreaDamage_Apply 0x0047f020,
 //! FxExplosion_Die 0x0041c570).
 
+use crate::levelreset::LevelAppExt;
 use crate::physics::{Physics, jr, jv};
 use bevy::prelude::*;
 
@@ -185,7 +186,7 @@ impl Plugin for FxPlugin {
         app.add_message::<Explode>()
             .add_message::<StartFx>()
             .add_message::<Died>()
-            .insert_resource(FxStats { rng: 0x5eed, ..default() })
+            .insert_level_resource(|| FxStats { rng: 0x5eed, ..default() })
             .add_systems(Update, (fuses, damage, dying, tracers).chain().in_set(FxSet));
     }
 }

@@ -12,6 +12,7 @@
 //! Simplified, labelled: the view rolls 180 degrees about its axis over the turn instead of following the
 //! Camera_topsy track; the world turns back over the same 0.97 s (the original's anim 0x23 is not identified).
 
+use crate::levelreset::LevelAppExt;
 use crate::ai::{Grunt, Mind};
 use crate::fx::FxStats;
 use crate::player::Roman;
@@ -60,8 +61,8 @@ pub struct TopsyPlugin;
 
 impl Plugin for TopsyPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Topsy>()
-            .init_resource::<TopsyCams>()
+        app.init_level_resource::<Topsy>()
+            .init_level_resource::<TopsyCams>()
             .add_systems(Update, (run, thrown).chain().run_if(crate::playing))
             .add_systems(PostUpdate, camera.after(crate::camera::follow_camera).in_set(crate::camera::CameraPlace).before(bevy::transform::TransformSystems::Propagate).run_if(crate::playing));
     }

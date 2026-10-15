@@ -15,6 +15,7 @@
 //! The next level (next_level_name, lev_1_m1_b) is not built yet: the game returns to the title screen (the
 //! original's lev_shell fallback when a level fails to load) with the money kept (options.json).
 
+use crate::levelreset::LevelAppExt;
 use crate::AppState;
 use crate::hud::{Anchor, HUD_LAYER, HudElement, HudText, TextAlign};
 use bevy::camera::visibility::RenderLayers;
@@ -61,7 +62,7 @@ pub struct StatScreenPlugin;
 
 impl Plugin for StatScreenPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<StatScreen>().add_systems(Update, (open, update).chain());
+        app.init_level_resource::<StatScreen>().add_systems(Update, (open, update).chain());
     }
 }
 
@@ -198,8 +199,8 @@ fn update(
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     mut opts: ResMut<crate::options::GameOptions>,
     mission: Option<Res<crate::mission::Mission>>,
-    (playtest, play): (Option<Res<crate::playtest::Playtest>>, Option<ResMut<crate::playtest::PlayState>>),
-    mut exit: MessageWriter<AppExit>,
+    play: Option<ResMut<crate::playtest::PlayState>>,
+    mut restart: ResMut<crate::levelreset::RestartLevel>,
 ) {
     if !s.open {
         return;
@@ -262,10 +263,7 @@ fn update(
         opts.save();
         let next = mission.as_ref().and_then(|m| m.next_level.clone()).unwrap_or_else(|| "lev_shell".into());
         info!("EVENT stats done: money {} -> next level {next} (not built: back to the title)", s.to);
-        if playtest.is_none() {
-            crate::gamemenu::relaunch_to_title();
-            exit.write(AppExit::Success);
-        }
+        restart.to = Some(crate::levelreset::RestartTo::Title);
         return;
     }
     let r0 = if s.phase == 0 { s.reveal } else { 1.0 };

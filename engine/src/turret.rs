@@ -20,6 +20,7 @@
 //! Hooks outside this file: player.rs (control / weapons skip Roman while mounted, follow_camera yields, damage
 //! halved), hud.rs (crosshair range), mission.rs (`sites` and `hint` visible for ordering and the hint texts).
 
+use crate::levelreset::LevelAppExt;
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
 use bevy::transform::TransformSystems;
@@ -127,7 +128,7 @@ pub struct TurretPlugin;
 
 impl Plugin for TurretPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Mounted>()
+        app.init_level_resource::<Mounted>()
             .add_systems(Update, setup)
             .add_systems(Update, ride.after(crate::mission::sites).after(crate::player::grab_cursor).run_if(crate::playing))
             .add_systems(PostUpdate, pose.after(crate::skin::AnimateSet).before(TransformSystems::Propagate));

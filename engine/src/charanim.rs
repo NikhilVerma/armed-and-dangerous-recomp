@@ -3,6 +3,7 @@
 //! "belly"); grunts, Q and Jonesy play whole-body anims. The original picks grunt anims by id through
 //! vt+0x1a4 (docs/subsystems/grunt-ai.md 11); the state -> anim pairs here follow the states there.
 
+use crate::levelreset::LevelAppExt;
 use crate::ai::{Companion, CoverPhase, GunPhase, Grunt, Mind};
 use crate::player::Roman;
 use crate::skin::{Animator, Mask};
@@ -12,7 +13,7 @@ pub struct CharAnimPlugin;
 
 impl Plugin for CharAnimPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Twist>().init_resource::<PlayerAnimTable>().add_systems(Update, (roman, grunts, companions, penguins));
+        app.init_level_resource::<Twist>().init_level_resource::<PlayerAnimTable>().add_systems(Update, (roman, grunts, companions, penguins));
         app.add_systems(PostUpdate, twist.after(crate::skin::AnimateSet).before(bevy::transform::TransformSystems::Propagate));
         app.add_systems(PostUpdate, count_notes.after(crate::skin::AnimateSet).run_if(resource_exists::<crate::playtest::PlayState>));
     }
@@ -401,16 +402,17 @@ fn roman(
     mut q: Query<(&Roman, &mut Animator)>,
     topsy: Res<crate::topsy::Topsy>,
     time: Res<Time>,
-    mut idle: Local<Idle>,
+    mut idle: crate::levelreset::PerLevel<Idle>,
     mut rng: ResMut<crate::fx::FxStats>,
     mut tw: ResMut<Twist>,
-    (mut table, lib, mut st, ps): (ResMut<PlayerAnimTable>, Res<crate::skin::AnimLibrary>, Local<RomanAnim>, Option<ResMut<crate::playtest::PlayState>>),
+    (mut table, lib, mut st, ps): (ResMut<PlayerAnimTable>, Res<crate::skin::AnimLibrary>, crate::levelreset::PerLevel<RomanAnim>, Option<ResMut<crate::playtest::PlayState>>),
 ) {
     if !table.loaded {
         table.load(&lib.dir);
     }
     let table = &*table;
-    let st = &mut *st;
+    let st = st.get();
+    let idle = idle.get();
     if let (Some(mut ps), Some((_, a))) = (ps, q.iter().next()) {
         // playtest evidence: the mode / state / entry playing, layer 0's time and rate, the cross-fade
         let l0 = a.layers.first();

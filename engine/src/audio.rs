@@ -16,6 +16,7 @@
 //! original refreshes every voice when a level changes (0x004f3000): group + definition + offset + envelope +
 //! distance, in dB, silent at or below -40 dB (0x004fb170, 0x004fa1d0).
 
+use crate::levelreset::LevelAppExt;
 use bevy::audio::{AudioSinkPlayback, PlaybackMode, SpatialAudioSink, SpatialScale, Volume};
 use bevy::prelude::*;
 use serde::Deserialize;
@@ -591,8 +592,8 @@ impl Plugin for AudioBankPlugin {
             .add_message::<StopSoundsOn>()
             .add_message::<SetVoiceOffset>()
             .init_resource::<Mixer>()
-            .init_resource::<GamePause>()
-            .init_resource::<Channels>()
+            .init_level_resource::<GamePause>()
+            .init_level_resource::<Channels>()
             .init_resource::<AudioStats>()
             .init_resource::<AudioCheck>()
             .add_systems(Update, (track_pause, stop, play, update_voices).chain())

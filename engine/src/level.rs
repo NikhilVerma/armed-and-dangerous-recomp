@@ -1,6 +1,7 @@
 //! Armed and Dangerous specifics: the game's axes and units, and how a placed object's property set
 //! (`behavior`, `collision_lod_index`, health and damage keys) decides what it becomes in the engine.
 
+use crate::levelreset::LevelAppExt;
 use crate::ai;
 use crate::fx::{Bounds, DClass, Destructible, Died, Health};
 use crate::gamedata::{GameData, Props};
@@ -226,9 +227,10 @@ fn log_oilpump(
     q: Query<(&InstanceId, &Placed, &crate::skin::Animator, &GlobalTransform)>,
     globals: Query<&GlobalTransform>,
     state: Option<ResMut<crate::playtest::PlayState>>,
-    mut range: Local<Option<(u32, f32, f32)>>,
+    mut range: crate::levelreset::PerLevel<Option<(u32, f32, f32)>>,
 ) {
     let Some(mut state) = state else { return };
+    let range = range.get();
     let Some((id, _, a, g)) = q.iter().filter(|(_, p, _, _)| p.template == "oilpump").min_by_key(|(i, _, _, _)| i.0) else { return };
     let Some(j) = a.skeleton.index.get("bone_pump").and_then(|&i| globals.get(a.joints[i]).ok()) else { return };
     let z = g.affine().inverse().transform_point3(j.translation()).z;
@@ -252,7 +254,7 @@ impl Plugin for LevelPlugin {
         // inserts, so the death trigger must be read first
         app.add_message::<SpawnGrunt>()
             .add_message::<RestoreStage>()
-            .init_resource::<TriggerLog>()
+            .init_level_resource::<TriggerLog>()
             .add_systems(Update, (husks.after(crate::fx::FxSet).after(crate::mission::deaths), restore_stages, spawn_grunts, rigid_anims, audio_loops, object_triggers))
             .add_systems(PostUpdate, follow_camera.before(TransformSystems::Propagate))
             .add_systems(PostUpdate, sky_never_culled)
@@ -312,11 +314,12 @@ pub struct TriggerLog(pub std::collections::BTreeMap<i64, u32>);
 fn log_objects(
     q: Query<(&InstanceId, &Placed, Option<&Destructible>, Has<Husk>)>,
     state: Option<ResMut<crate::playtest::PlayState>>,
-    mut seen: Local<std::collections::HashSet<u32>>,
+    mut seen: crate::levelreset::PerLevel<std::collections::HashSet<u32>>,
     sent: Res<TriggerLog>,
     fx: Res<crate::fx::FxStats>,
 ) {
     let Some(mut state) = state else { return };
+    let seen = seen.get();
     // every object death so far (fx.rs `dying`: placed objects, windows, kegs, thrown bombs)
     state.0.insert("object_deaths".into(), fx.deaths.into());
     let triggers: serde_json::Map<String, serde_json::Value> = sent.0.iter().map(|(t, n)| (t.to_string(), (*n).into())).collect();

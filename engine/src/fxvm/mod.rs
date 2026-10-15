@@ -34,6 +34,7 @@ pub use materials::{FxLayerMaterial, ParticleMaterial};
 pub use rng::CrtRand;
 
 use crate::fx::StartFx;
+use crate::levelreset::LevelAppExt;
 use crate::gamedata::GameData;
 use crate::level::game_to_engine;
 use bevy::prelude::*;
@@ -119,7 +120,7 @@ impl Plugin for FxVmPlugin {
         app.add_plugins(MaterialPlugin::<FxLayerMaterial>::default());
         app.add_plugins(MaterialPlugin::<ParticleMaterial>::default());
         app.add_plugins(screen::ScreenFxPlugin);
-        app.add_systems(Startup, setup)
+        app.add_level_spawner(setup)
             .add_systems(
                 Update,
                 (start, script::run, object::objects, particles_step, send_outbox, playtest_state).chain().in_set(FxVmSet).after(crate::fx::FxSet),

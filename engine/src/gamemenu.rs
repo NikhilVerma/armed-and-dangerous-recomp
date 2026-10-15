@@ -13,11 +13,13 @@
 //!
 //! Save Game / Quick Load / Restart from last save / Resume Game: savegame.rs. Cheats: cheats.rs. Credits: credits.txt
 //! scrolling (this file). Shown disabled: Play Cutscene and Replay Mission (disabled in the original too). Graphics options that have no meaning in the new renderer show their best value, disabled.
-//! Restart the level and Return to title screen start the game again (a fresh process: the level state is not
-//! reset in place).
+//! Restart the level, Return to title screen and the rows that load the saved game start the level again in this
+//! process (levelreset.rs), as the original does.
 
+use crate::levelreset::LevelAppExt;
 use crate::AppState;
 use crate::hud::{Anchor, HUD_LAYER, HudElement, HudText, TextAlign, TextSize};
+use crate::levelreset::RestartTo;
 use crate::options::GameOptions;
 use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;
@@ -252,7 +254,7 @@ pub struct GameMenuPlugin;
 
 impl Plugin for GameMenuPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<GameMenu>().init_resource::<Texts>().add_systems(Update, (failed, navigate.run_if(crate::movie::no_movie_input), animate, values, pause_band, credits, log_menu).chain());
+        app.init_level_resource::<GameMenu>().init_resource::<Texts>().add_systems(Update, (failed, navigate.run_if(crate::movie::no_movie_input), animate, values, pause_band, credits, log_menu).chain());
     }
 }
 
@@ -636,69 +638,6 @@ pub fn spawn(commands: &mut Commands, assets: &AssetServer, meshes: &mut Assets<
     commands.insert_resource(texts);
 }
 
-/// A scripted run (--play) never starts an unscripted game: a relaunch ends the run (exit code 3), so the runner
-/// sees it instead of waiting on a fresh process that has no script.
-fn end_scripted_run(what: &str) {
-    if std::env::args().any(|a| a == "--play") {
-        info!("EVENT playtest: {what} requested: the scripted run ends here");
-        std::process::exit(3);
-    }
-}
-
-/// Starts the game again in a fresh process continuing the saved game.
-fn relaunch_load() {
-    end_scripted_run("load / restart from last save");
-    let Ok(exe) = std::env::current_exe() else { return };
-    let mut args: Vec<String> = Vec::new();
-    let mut it = std::env::args().skip(1);
-    while let Some(a) = it.next() {
-        match a.as_str() {
-            "--play" | "--snap" | "--load" => {
-                it.next();
-            }
-            "--skip-title" => {}
-            _ => args.push(a),
-        }
-    }
-    args.push("--load".into());
-    args.push(crate::savegame::save_path().to_string_lossy().into_owned());
-    if let Err(e) = std::process::Command::new(exe).args(&args).spawn() {
-        warn!("menu: could not start the game again: {e}");
-    }
-}
-
-/// Starts the game again in a fresh process: on the title screen, or straight into the level.
-/// Back to the title screen (a fresh process, as the menu's Return to title).
-pub fn relaunch_to_title() {
-    relaunch(false);
-}
-
-fn relaunch(into_level: bool) {
-    end_scripted_run(if into_level { "restart level" } else { "return to title" });
-    let Ok(exe) = std::env::current_exe() else { return };
-    let mut args: Vec<String> = Vec::new();
-    let mut it = std::env::args().skip(1);
-    while let Some(a) = it.next() {
-        match a.as_str() {
-            "--play" | "--snap" | "--load" => {
-                it.next();
-            }
-            "--skip-title" => {}
-            _ => args.push(a),
-        }
-    }
-    if into_level {
-        args.push("--skip-title".into());
-    }
-    // the boot intro movies play once a session (cutscenes.rs)
-    if !args.iter().any(|a| a == "--no-intro") {
-        args.push("--no-intro".into());
-    }
-    if let Err(e) = std::process::Command::new(exe).args(&args).spawn() {
-        warn!("menu: could not start the game again: {e}");
-    }
-}
-
 /// The page's selectable rows in up / down order: (order, action). A row that loads the saved game is disabled
 /// (+0x474 0x40, skipped by the selection: 0x00491b20) while there is none: Load Game (code 2, 0x004a2c10 slot -1),
 /// Quick Load and Restart from last save (code 34, 0x004a2e90).
@@ -757,6 +696,7 @@ fn navigate(
     mut save_req: ResMut<crate::savegame::SaveRequest>,
     mut cheats: ResMut<crate::cheats::Cheats>,
     mouse: Res<ButtonInput<MouseButton>>,
+    mut restart: ResMut<crate::levelreset::RestartLevel>,
     (placed, names, mut last_cursor, time_real, mut save_t): (
         Query<(&MenuRow, &HudElement, Option<&TextSize>, Option<&TextAlign>)>,
         Query<(&Part, &HudElement, Option<&TextSize>, &Visibility)>,
@@ -972,14 +912,8 @@ fn navigate(
                 Some(Ask::ExitGame) => {
                     exit.write(AppExit::Success);
                 }
-                Some(Ask::Restart) => {
-                    relaunch(true);
-                    exit.write(AppExit::Success);
-                }
-                Some(Ask::QuitMission) => {
-                    relaunch(false);
-                    exit.write(AppExit::Success);
-                }
+                Some(Ask::Restart) => restart.to = Some(RestartTo::Play),
+                Some(Ask::QuitMission) => restart.to = Some(RestartTo::Title),
                 // nothing is unlocked in the remaster yet: nothing to reset
                 Some(Ask::ResetExtras) | None => {}
                 Some(Ask::ResetControls) => {
@@ -990,14 +924,8 @@ fn navigate(
                 }
             }
         }
-        Act::Restart => {
-            relaunch(true);
-            exit.write(AppExit::Success);
-        }
-        Act::ToTitle => {
-            relaunch(false);
-            exit.write(AppExit::Success);
-        }
+        Act::Restart => restart.to = Some(RestartTo::Play),
+        Act::ToTitle => restart.to = Some(RestartTo::Title),
         Act::Save => {
             save_req.save = true;
             next.set(AppState::Playing);
@@ -1005,8 +933,7 @@ fn navigate(
         }
         Act::LoadSave => {
             if crate::savegame::has_save() {
-                relaunch_load();
-                exit.write(AppExit::Success);
+                restart.to = Some(RestartTo::Load(crate::savegame::save_path()));
             } else {
                 play(&mut sounds, "ui_cancel");
                 return;

@@ -88,15 +88,15 @@ time, skipping and looping are exact. An upscaled set (a later enhancement) only
 - the layout keeps the original's 640 x 480 screen scaled to fit the window (centred): the picture 512 units wide
   for the movie screens, 640 for page movies; subtitles are HUD texts (hud.rs) at the speaker's (x, y).
 
-`engine/src/cutscenes.rs` (A&D): the boot list before the title menu (once a session: relaunches pass
-`--no-intro`; tool runs skip it; a title playtest asks with `"intro": true`), the level's start movie (none on
+`engine/src/cutscenes.rs` (A&D): the boot list before the title menu (once a session: a level restart,
+levelreset.rs, keeps the boot flag; tool runs skip it; a title playtest asks with `"intro": true`), the level's start movie (none on
 lev_1_m1), the pub and credits page movies, the game paused during a full-window movie, the options (movie
 subtitles = Game+0x176, now the audio page's "Subtitles (cutscene)" checkbox; volume = the master volume, a guess:
 the stream is in no volume group the options set). `Cutscenes::end_movie` is ready for the level change once a
 next level is built.
 
 Hooks in other modules: input.rs (`contexts`: a full-window movie takes the Menus context), gamemenu.rs (`navigate`
-waits for `no_movie_input`; the relaunch adds `--no-intro`; the movie subtitle checkbox), hud.rs (a text's glyphs
+waits for `no_movie_input`; a level restart keeps the boot flag; the movie subtitle checkbox), hud.rs (a text's glyphs
 take its entity's render layer), playtest.rs (`movie` steps, `"intro"`, `until: "movie_done"`), main.rs
 (`--no-intro`, `--movies DIR`; default `<scene>/../movies`).
 

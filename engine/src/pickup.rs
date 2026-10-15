@@ -7,6 +7,7 @@
 //! stays), with its text in the feed and its on_enter trigger sent; anything else in its collision group (AI, with
 //! ai_can_trigger) through vt+0x13c (only the health pickups give anything: 0x00472850).
 
+use crate::levelreset::LevelAppExt;
 use crate::ai::{Grunt, Mind, Player};
 use crate::fx::Health;
 use crate::gamedata::GameData;
@@ -142,7 +143,7 @@ pub struct PickupPlugin;
 impl Plugin for PickupPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<SpawnPickup>()
-            .init_resource::<Generators>()
+            .init_level_resource::<Generators>()
             .add_systems(Update, (drop_on_death, generators, spawn_pickups, placed_pickups, collect, state_log).chain().run_if(crate::playing))
             .add_systems(Update, playtest_steps.run_if(resource_exists::<crate::playtest::Playtest>));
     }
