@@ -23,6 +23,7 @@
 //! Decal_Render 0x00416740 through Decals_Draw (here one mesh per decal: texture x the fade; the original's vertex
 //! colour, its white record times each vertex's w, is not reproduced: unverified).
 
+use crate::levelreset::LevelAppExt;
 use bevy::asset::RenderAssetUsages;
 use bevy::image::{ImageAddressMode, ImageLoaderSettings, ImageSampler};
 use bevy::mesh::{Indices, PrimitiveTopology};
@@ -151,7 +152,7 @@ pub struct DecalPlugin;
 
 impl Plugin for DecalPlugin {
     fn build(&self, app: &mut App) {
-        app.add_message::<SpawnDecal>().init_resource::<Decals>().add_systems(Update, (spawn, receiver_died, fade).chain());
+        app.add_message::<SpawnDecal>().init_level_resource::<Decals>().add_systems(Update, (spawn, receiver_died, fade).chain());
     }
 }
 

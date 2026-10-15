@@ -12,6 +12,7 @@
 //!   Object_IsInViewCone 0x00455d90 and the sight ray), the alert groups, retaliation 0x0042c820.
 //! Functions this port does not cite are explained in docs/port/ai.csv (replaced by the engine, or not needed).
 
+use crate::levelreset::LevelAppExt;
 use crate::fx::{FxStats, Health};
 use crate::physics::{Body, Physics, bv, jv};
 use bevy::prelude::*;
@@ -748,12 +749,12 @@ fn dismay(
 
 impl Plugin for AiPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(AiStats { enabled: true, ..default() })
-            .init_resource::<KillMeter>()
-            .init_resource::<Barks>()
+        app.insert_level_resource(|| AiStats { enabled: true, ..default() })
+            .init_level_resource::<KillMeter>()
+            .init_level_resource::<Barks>()
             .add_message::<StickyStuck>()
             .init_resource::<GrenadeAssets>()
-            .init_resource::<Interests>()
+            .init_level_resource::<Interests>()
             .add_systems(Update, (interests, search, scare, think, die, dismay, log_cover, log_ai, grenades).chain().after(crate::fx::FxSet));
     }
 }
@@ -3522,7 +3523,7 @@ fn companions(
         MessageWriter<crate::sticky::ThrowDynamite>,
         ResMut<Barks>,
         Option<ResMut<crate::hud::HudState>>,
-        Local<(bool, bool)>,
+        crate::levelreset::PerLevel<(bool, bool)>,
     ),
 ) {
     let dt = time.delta_secs();
@@ -3540,7 +3541,7 @@ fn companions(
     let may_act = !r.dead && !hud.as_ref().is_some_and(|h| h.cinematic);
     team_orders(
         &mut q,
-        &mut pending,
+        pending.get(),
         &mut barks,
         hud.as_deref_mut(),
         &mut sounds,

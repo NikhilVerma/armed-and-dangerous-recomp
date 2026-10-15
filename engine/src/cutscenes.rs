@@ -3,8 +3,8 @@
 //! - **Boot.** The first front-end load pushes "PlayMovie" with the intro list `LucasAnim,pm_logo,pre_1_1_opening`
 //!   (0x005bc108) under the main menu, unless the startup options turn it off (Game_StartLevel 0x00403690,
 //!   src/game/start_level.cpp:120; `g_startupOptions.playIntroMovies`). The remaster plays it before the title menu
-//!   once per session: a relaunch (Return to title, a new level) passes `--no-intro`, as the original's shell flag
-//!   2 keeps it to the first load. The story opening, pre_1_1_opening, is the last of the list.
+//!   once per session (a level restart, levelreset.rs, keeps the boot flag), as the original's shell flag 2 keeps it
+//!   to the first load. The story opening, pre_1_1_opening, is the last of the list.
 //! - **Level start.** Once the mission timer passes, the mission's `start_movie` is pushed as "PlayMovie", except on
 //!   `lev_1_m1` (MissionObject_Update 0x0044db80, `_stricmp(level, "lev_1_m1")` 0x005b1738): its start movie,
 //!   pre_1_1_opening, already played at boot, so a new game goes straight to the fly-in.
@@ -17,6 +17,7 @@
 //! While a full-window movie plays the game is paused, as for every menu screen (Game_SetPaused 0x004031e0 from
 //! 0x00490a40), and the menus' input goes to the movie (input.rs, gamemenu.rs).
 
+use crate::levelreset::LevelAppExt;
 use crate::AppState;
 use crate::gamemenu::{GameMenu, Page};
 use crate::movie::{MoviePlayer, MovieSettings, MovieView, PlayMovies, StopMovies};
@@ -76,7 +77,7 @@ pub struct CutscenesPlugin;
 impl Plugin for CutscenesPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Cutscenes>()
-            .init_resource::<GamePausedByMovie>()
+            .init_level_resource::<GamePausedByMovie>()
             .add_systems(Update, (settings, boot, level_start, screens, playtest_movies).before(crate::movie::MovieSystems))
             .add_systems(Update, (pause_game, crate::movie::log_state).after(crate::movie::MovieSystems));
     }
@@ -105,7 +106,8 @@ fn boot(mut done: Local<bool>, cut: Res<Cutscenes>, state: Res<State<AppState>>,
 }
 
 /// The level's start movie once play begins (none on lev_1_m1).
-fn level_start(mut done: Local<bool>, cut: Res<Cutscenes>, state: Res<State<AppState>>, mut play: MessageWriter<PlayMovies>) {
+fn level_start(mut done: crate::levelreset::PerLevel<bool>, cut: Res<Cutscenes>, state: Res<State<AppState>>, mut play: MessageWriter<PlayMovies>) {
+    let done = done.get();
     if *done || *state.get() != AppState::Playing {
         return;
     }

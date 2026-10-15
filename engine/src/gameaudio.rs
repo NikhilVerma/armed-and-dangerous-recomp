@@ -5,6 +5,7 @@
 //! walked by the stream's resolver 0x00500a00; docs/subsystems/audio.md section 4), Roman as the listener's body,
 //! and the playtest hooks (audio steps, the `audio` state-log field).
 
+use crate::levelreset::LevelAppExt;
 use crate::audio::{level_curve, ListenerBody, PlaySound, SetVoiceOffset, SoundBank, SoundId, StopVoice, Voice};
 use crate::fx::StartFx;
 use crate::skin::AnimNote;
@@ -15,8 +16,8 @@ pub struct GameAudioPlugin;
 
 impl Plugin for GameAudioPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Music>()
-            .init_resource::<Ambience>()
+        app.init_level_resource::<Music>()
+            .init_level_resource::<Ambience>()
             .add_systems(Update, (mark_listener_body, notes, ambient, (music_state, music_voice).chain()))
             .add_systems(Update, (playtest_audio, log_audio).run_if(resource_exists::<crate::playtest::Playtest>));
     }

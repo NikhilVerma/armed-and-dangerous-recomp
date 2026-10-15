@@ -38,6 +38,7 @@ mod input;
 mod stats;
 mod statscreen;
 mod level;
+mod levelreset;
 mod menu;
 mod movie;
 mod mission;
@@ -53,12 +54,14 @@ mod weapontable;
 mod player;
 mod playtest;
 mod scene;
+mod sdffont;
 mod skin;
 
 use bevy::diagnostic::FrameTimeDiagnosticsPlugin;
 use bevy::prelude::*;
 use bevy::window::{PresentMode, WindowResolution};
 use bevy_egui::EguiPlugin;
+use levelreset::LevelAppExt;
 use std::path::PathBuf;
 
 #[derive(States, Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -188,7 +191,15 @@ fn main() {
     let bench = a.bench.is_some();
     let tool_run = a.background || a.size_given || a.snap.is_some() || bench || a.camera.is_some() || a.play.is_some();
     // presentation: chosen before the app is built (the default sampler and the texture set depend on it)
-    let gfx = graphics::GraphicsPlugin::new(graphics::GraphicsLaunch::new(a.preset, tool_run, a.graphics.as_deref()), &options::GameOptions::load(), &scene_dir);
+    // a script's "preset" (playtest.rs) plays as the player's launch: chosen by the options, not pinned (--preset still
+    // pins)
+    let script_preset = if a.preset.is_none() { a.play.as_deref().and_then(playtest::script_preset) } else { None };
+    let mut start_options = options::GameOptions::load();
+    if let Some(p) = script_preset {
+        start_options.graphics_preset = p;
+        start_options.graphics.clear();
+    }
+    let gfx = graphics::GraphicsPlugin::new(graphics::GraphicsLaunch::new(a.preset, tool_run && script_preset.is_none(), a.graphics.as_deref()), &start_options, &scene_dir);
     let mut app = App::new();
     app.add_plugins(
         DefaultPlugins
@@ -216,7 +227,10 @@ fn main() {
     // colour target: wgpu reports "Attachments have differing sizes" for that frame. Bevy's default handler quits
     // on any render error; this one renders on through that transient (at most 120 times, then it quits as before)
     .insert_resource(bevy::render::error_handler::RenderErrorHandler(resize_tolerant))
+    .add_plugins(levelreset::LevelResetPlugin)
     .add_plugins((playtest::PlaytestPlugin, bot::BotPlugin))
+    // (bot.rs is another agent's: its state is registered as the level's here)
+    .init_level_resource::<bot::Bot>()
     .add_plugins(audio::AudioBankPlugin)
     .add_plugins(pickup::PickupPlugin)
     .add_plugins((FrameTimeDiagnosticsPlugin::default(), flycam::FlyCamPlugin, bench::BenchPlugin))
@@ -228,6 +242,7 @@ fn main() {
     .add_plugins(stats::StatsPlugin)
     .add_plugins(statscreen::StatScreenPlugin)
     .add_plugins(gamematerial::GameMaterialPlugin)
+    .add_plugins(sdffont::SdfFontPlugin)
     .add_plugins(pubscreen::PubScreenPlugin)
     .add_plugins(topsy::TopsyPlugin)
     .add_plugins(turret::TurretPlugin)
@@ -236,11 +251,17 @@ fn main() {
     .insert_resource(ClearColor(Color::srgb(0.62, 0.70, 0.80)))
     .insert_resource(Launch { fx_test: a.fx_test.is_some(), scene: scene_dir.clone(), bench: a.bench, size: a.size, no_ai: a.no_ai, no_hud: a.no_hud, std_materials: a.std_materials })
     .add_systems(Update, fx_test.run_if(resource_exists::<FxTest>))
-    .add_systems(Startup, setup)
+    .add_level_spawner(setup)
     .add_systems(Update, (play_state, hud_state))
     .add_systems(Update, start_camera_fx.run_if(playing))
     .add_systems(Update, (bench_scenario, bench_record).run_if(resource_exists::<bench::Bench>))
     .add_systems(Update, bench_ground.after(bench::BenchSet).run_if(resource_exists::<bench::Bench>));
+    if let Some(p) = script_preset {
+        app.add_systems(PreStartup, move |mut o: ResMut<options::GameOptions>| {
+            o.graphics_preset = p;
+            o.graphics.clear();
+        });
+    }
     if let Some(dir) = a.fx_test {
         let _ = std::fs::create_dir_all(&dir);
         app.insert_resource(FxTest { dir, t: 0.0, shot: 0, target: None });
@@ -369,6 +390,7 @@ fn setup(
     mut binds: ResMut<Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>,
     mut images: ResMut<Assets<Image>>,
     mut game_materials: ResMut<Assets<gamematerial::GameMaterial>>,
+    mut font_materials: ResMut<Assets<sdffont::FontMaterial>>,
 ) {
     let t = std::time::Instant::now();
     let scene = scene::read_scene(&launch.scene);
@@ -493,7 +515,7 @@ fn setup(
         menu.stats = false;
     }
     if has_player && launch.bench.is_none() && !launch.fx_test && !launch.no_hud {
-        if hud::spawn(&mut commands, &launch.scene, &assets, &mut meshes, &mut color_materials).is_none() {
+        if hud::spawn(&mut commands, &launch.scene, &assets, &mut meshes, &mut color_materials, (&mut images, &mut font_materials)).is_none() {
             warn!("hud: ui/layout.json missing (run tools/remaster_export_ui.py)");
         } else {
             gamemenu::spawn(&mut commands, &assets, &mut meshes, &mut color_materials, &launch.scene);
@@ -559,13 +581,14 @@ fn bench_ground(physics: NonSend<physics::Physics>, mut bench: ResMut<bench::Ben
 }
 
 /// The playtest log's state line: player, AI, fx.
-fn play_state(audio_chk: Res<audio::AudioCheck>, skin: Res<skin::SkinCheck>, mut bank: Option<ResMut<audio::SoundBank>>, bot: Res<bot::Bot>, mut st: ResMut<playtest::PlayState>, p: Res<player::PlayerStats>, ai: Res<ai::AiStats>, fx: Res<fx::FxStats>, mission: Option<ResMut<mission::Mission>>, hud: Res<hud::HudState>, mut seen: Local<usize>) {
+fn play_state(audio_chk: Res<audio::AudioCheck>, skin: Res<skin::SkinCheck>, mut bank: Option<ResMut<audio::SoundBank>>, bot: Res<bot::Bot>, mut st: ResMut<playtest::PlayState>, p: Res<player::PlayerStats>, ai: Res<ai::AiStats>, fx: Res<fx::FxStats>, mission: Option<ResMut<mission::Mission>>, hud: Res<hud::HudState>, mut seen: levelreset::PerLevel<usize>) {
     let m = &mut st.0;
     if let Some(mut ms) = mission {
         m.insert("mission".into(), format!("{:?}", ms.outcome).into());
         m.insert("tickers".into(), ms.tickers.into());
         m.insert("compass_tag".into(), ms.compass_tag.into());
         // (read, not drained: the session event log reads the same list)
+        let seen = seen.get();
         let log: Vec<String> = ms.log.iter().skip(*seen).cloned().collect();
         *seen = ms.log.len();
         if !log.is_empty() {

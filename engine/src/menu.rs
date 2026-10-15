@@ -1,5 +1,6 @@
 //! Menus with bevy_egui (community plugin): title menu, pause menu (Esc), a live stats panel (Tab).
 
+use crate::levelreset::LevelAppExt;
 use crate::AppState;
 use crate::ai::AiStats;
 use crate::fx::FxStats;
@@ -18,7 +19,7 @@ pub struct MenuPlugin;
 
 impl Plugin for MenuPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(MenuState { stats: true })
+        app.insert_level_resource(|| MenuState { stats: true })
             .add_systems(EguiPrimaryContextPass, ui)
             .add_systems(Update, keys);
     }

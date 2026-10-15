@@ -19,6 +19,6 @@
  {"shot": "money"},
  {"tap": "Enter"},
  {"wait": 0.3},
- {"expect": {"stats.phase": 5}},
+ {"expect": {"level_generation": 1, "menu.page": "Main"}},
  {"quit": true}
 ]}

@@ -27,6 +27,7 @@
 //! - Shake (0x0040fac0 starts it, 0x0040e300 applies it to the final camera matrix): the camera's height moves by the
 //!   amplitude, which flips sign and shrinks by 0.75 every frame (0x005bcc20 = -0.75) until the time runs out.
 
+use crate::levelreset::LevelAppExt;
 use crate::physics::Physics;
 use crate::player::Roman;
 use bevy::prelude::*;
@@ -44,9 +45,9 @@ pub struct CameraPlugin;
 
 impl Plugin for CameraPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<CameraRig>()
-            .init_resource::<CameraShake>()
-            .init_resource::<CameraSmooth>()
+        app.init_level_resource::<CameraRig>()
+            .init_level_resource::<CameraShake>()
+            .init_level_resource::<CameraSmooth>()
             .add_message::<ShakeCamera>()
             .add_systems(First, unshake)
             .add_systems(PostUpdate, follow_camera.in_set(CameraPlace).before(TransformSystems::Propagate).run_if(crate::playing))

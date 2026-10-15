@@ -34,6 +34,7 @@
 //! Limits, labelled: grunts a barracks had already released and that were alive are not restored (the barracks'
 //! remaining counts are); companions start at Roman.
 
+use crate::levelreset::LevelAppExt;
 use crate::fx::Health;
 use crate::level::{InstanceId, RestoreStage, Stage};
 use crate::player::Roman;
@@ -140,9 +141,9 @@ pub struct SaveGamePlugin;
 
 impl Plugin for SaveGamePlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<SaveRequest>()
-            .init_resource::<PlacedIds>()
-            .init_resource::<Checkpoints>()
+        app.init_level_resource::<SaveRequest>()
+            .init_level_resource::<PlacedIds>()
+            .init_level_resource::<Checkpoints>()
             .init_resource::<crate::gamedata::Difficulty>()
             .add_systems(Update, (record_placed, save, apply))
             .add_systems(PostUpdate, (checkpoints, log_state));

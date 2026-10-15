@@ -4,12 +4,14 @@
 //! widescreen rule, hook/enhance/ui_aspect.cpp). Health meters empty by scrolling their texture (3.2), text has a
 //! 2 px black shadow, lines are 25 x scale px at 480.
 
+use crate::levelreset::LevelAppExt;
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::RenderLayers;
 use bevy::math::Affine2;
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
 use bevy::sprite_render::{ColorMaterial, MeshMaterial2d};
+use crate::sdffont::FontMaterial;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::Path;
@@ -164,10 +166,11 @@ pub struct Meter {
 pub struct HudAssets {
     layout: LayoutFile,
     font: FontFile,
-    font_image: Handle<Image>,
     textures: HashMap<String, Handle<Image>>,
-    pub text_material: Handle<ColorMaterial>,
-    pub shadow_material: Handle<ColorMaterial>,
+    /// the glyphs (white, coloured by the text mesh's vertex colours) and their black shadow, drawn from the font's
+    /// distance field (sdffont.rs: sharp at any resolution)
+    text_material: Handle<FontMaterial>,
+    shadow_material: Handle<FontMaterial>,
     icons: Option<IconAtlas>,
     icon_material: Option<Handle<ColorMaterial>>,
     /// the level's export folder (models/ and skeletons/ for the crosshairs' bones)
@@ -220,10 +223,10 @@ pub struct HudPlugin;
 
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<HudState>()
-            .init_resource::<PubView>()
-            .init_resource::<Crosshair>()
-            .init_resource::<Chat>()
+        app.init_level_resource::<HudState>()
+            .init_level_resource::<PubView>()
+            .init_level_resource::<Crosshair>()
+            .init_level_resource::<Chat>()
             // in PostUpdate, after every game system of the frame has set HudState (the prompt is written by several
             // unordered Update systems: reading it in Update could see it half-set and flicker), before the
             // transforms propagate
@@ -251,17 +254,18 @@ pub fn spawn(
     assets: &AssetServer,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<ColorMaterial>,
+    (images, font_materials): (&mut Assets<Image>, &mut Assets<FontMaterial>),
 ) -> Option<()> {
     let ui = dir.join("ui");
     let layout: LayoutFile = serde_json::from_str(&std::fs::read_to_string(ui.join("layout.json")).ok()?).map_err(|e| warn!("hud: layout.json: {e}")).ok()?;
     let font: FontFile = serde_json::from_str(&std::fs::read_to_string(ui.join("font.json")).ok()?).map_err(|e| warn!("hud: font.json: {e}")).ok()?;
-    let font_image = assets.load("ui/font.png");
+    let font_field = images.add(crate::sdffont::font_field(&ui.join("font.png"))?);
     let mut textures = HashMap::new();
     for (name, t) in &layout.textures {
         textures.insert(name.clone(), assets.load(format!("ui/{}", t.file)));
     }
-    let text_material = materials.add(ColorMaterial { color: Color::WHITE, texture: Some(font_image.clone()), ..default() });
-    let shadow_material = materials.add(ColorMaterial { color: Color::BLACK, texture: Some(font_image.clone()), ..default() });
+    let text_material = font_materials.add(FontMaterial { color: LinearRgba::WHITE, field: font_field.clone() });
+    let shadow_material = font_materials.add(FontMaterial { color: LinearRgba::BLACK, field: font_field });
     commands.spawn((
         Camera2d,
         Camera { order: 1, clear_color: ClearColorConfig::None, ..default() },
@@ -269,7 +273,7 @@ pub fn spawn(
     ));
     let icons: Option<IconAtlas> = std::fs::read_to_string(ui.join("icons.json")).ok().and_then(|s| serde_json::from_str(&s).map_err(|e| warn!("hud: icons.json: {e}")).ok());
     let icon_material = icons.as_ref().map(|_| materials.add(ColorMaterial { color: Color::WHITE, texture: Some(assets.load("ui/icons.png")), ..default() }));
-    let hud = HudAssets { layout, font, font_image, textures, text_material, shadow_material, icons, icon_material, dir: dir.to_path_buf() };
+    let hud = HudAssets { layout, font, textures, text_material, shadow_material, icons, icon_material, dir: dir.to_path_buf() };
 
     // the elements of the in-game HUD (page pui_main) this level uses
     const SHOWN: &[&str] = &[
@@ -613,7 +617,7 @@ fn pub_view(
     pub_meters: Query<&PubMeter>,
     icons: Query<(Entity, Option<&Children>), With<PubIcons>>,
     mut icon_tf: Query<(&PubIcon, &mut Transform)>,
-    mut last: Local<u32>,
+    mut last: crate::levelreset::PerLevel<u32>,
 ) {
     for (mut v, a) in &mut parts {
         let show = view.open && a.is_none_or(|a| a.0 == view.award);
@@ -653,6 +657,7 @@ fn pub_view(
         }
     }
     let Some(hud) = hud else { return };
+    let last = last.get();
     if *last == view.version {
         return;
     }
@@ -1169,7 +1174,6 @@ fn texts(
                 commands.entity(c).despawn();
             }
         }
-        let text_mat = materials.add(ColorMaterial { color: Color::WHITE, texture: Some(hud.font_image.clone()), ..default() });
         // fitted to its box (UiText_FitToBox 0x004656f0 / UiText_FitScale 0x00465720: the prompts' 576 units)
         let scale = fit_scale(&hud.font, &t.text, t.scale, t.fit);
         // shadow 2 px right and down (of 480), drawn first
@@ -1180,7 +1184,7 @@ fn texts(
             .spawn((Mesh2d(meshes.add(shadow_mesh)), MeshMaterial2d(hud.shadow_material.clone()), Transform::from_xyz(dx, 0.0, 20.0), layer.clone()))
             .id();
         let front = commands
-            .spawn((Mesh2d(meshes.add(front_mesh)), MeshMaterial2d(text_mat), Transform::from_xyz(dx, 0.0, 21.0), layer.clone()))
+            .spawn((Mesh2d(meshes.add(front_mesh)), MeshMaterial2d(hud.text_material.clone()), Transform::from_xyz(dx, 0.0, 21.0), layer.clone()))
             .id();
         commands.entity(e).add_children(&[shadow, front]).insert(TextSize(size));
         if let (Some(m), Some(mat)) = (icon_mesh, hud.icon_material.clone()) {

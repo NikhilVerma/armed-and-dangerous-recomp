@@ -3,6 +3,7 @@
 //! vertical FOV. On lev_1_m1 the player walks forward on his own while `camera_path_l1m1` plays
 //! (PlayerObject_Update 0x004788a0, game_06.cpp:2451). The mission's start text waits for the path to end.
 
+use crate::levelreset::LevelAppExt;
 use crate::level::game_to_engine;
 use crate::skin::AnimLibrary;
 use bevy::prelude::*;
@@ -59,7 +60,7 @@ pub struct CameraPathPlugin;
 
 impl Plugin for CameraPathPlugin {
     fn build(&self, app: &mut App) {
-        app.add_message::<StartCameraPath>().init_resource::<CameraPath>().add_systems(PostUpdate, play.in_set(crate::camera::CameraPlace).before(TransformSystems::Propagate));
+        app.add_message::<StartCameraPath>().init_level_resource::<CameraPath>().add_systems(PostUpdate, play.in_set(crate::camera::CameraPlace).before(TransformSystems::Propagate));
     }
 }
 

@@ -4,6 +4,7 @@
 //! mission instance: player_add_rifle). Controls and the camera follow are STAND-INS until the original's
 //! input map and camera nodes are ported (docs/subsystems/player.md, camera.md).
 
+use crate::levelreset::LevelAppExt;
 use crate::fx::{Destructible, Fuse, Health};
 use crate::gamedata::{GameData, Props};
 use crate::level::game_to_engine;
@@ -404,9 +405,9 @@ pub struct PlayerPlugin;
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Update, hand_weapon);
-        app.init_resource::<PlayerStats>()
-            .init_resource::<Banter>()
-            .init_resource::<LookDelta>()
+        app.init_level_resource::<PlayerStats>()
+            .init_level_resource::<Banter>()
+            .init_level_resource::<LookDelta>()
             .add_systems(Update, grab_cursor.before(control))
             .add_systems(Update, (control, ground_effects, weapons, projectiles, damage_feedback, death).chain().run_if(crate::playing))
             .add_systems(Update, (player_state.after(death), idle_banter).run_if(crate::playing));

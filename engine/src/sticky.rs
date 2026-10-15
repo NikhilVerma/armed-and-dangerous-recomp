@@ -11,6 +11,7 @@
 //! explodes (0x00481ab0): area damage (excluding the stuck object), area_damage + damage to the stuck object,
 //! fx_end. lifetime runs out in flight: removed without exploding.
 
+use crate::levelreset::LevelAppExt;
 use crate::physics::Physics;
 use bevy::prelude::*;
 
@@ -98,7 +99,7 @@ pub struct StickyPlugin;
 
 impl Plugin for StickyPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<StickyThrow>()
+        app.init_level_resource::<StickyThrow>()
             .add_message::<ThrowDynamite>()
             .add_systems(Update, (throw, throw_dynamite, chain, fly).chain().run_if(crate::playing));
     }

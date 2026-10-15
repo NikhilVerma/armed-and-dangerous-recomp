@@ -1138,8 +1138,9 @@ pub(crate) fn deaths(mut m: Option<ResMut<Mission>>, mut died: MessageReader<cra
 }
 
 /// The session event log (play.bat keeps the output): every mission event as it happens, with the game time.
-fn event_log(m: Option<Res<Mission>>, time: Res<Time>, mut shown: Local<usize>) {
+fn event_log(m: Option<Res<Mission>>, time: Res<Time>, mut shown: crate::levelreset::PerLevel<usize>) {
     let Some(m) = m else { return };
+    let shown = shown.get();
     for e in m.log.iter().skip(*shown) {
         info!("EVENT {:.2} mission: {}", time.elapsed_secs(), e);
     }
@@ -1169,8 +1170,9 @@ fn state_log(m: Option<Res<Mission>>, state: Option<ResMut<crate::playtest::Play
     );
 }
 
-fn start(mut m: Option<ResMut<Mission>>, mut out: MessageWriter<SendTrigger>, path: Res<crate::campath::CameraPath>, time: Res<Time>, mut waited: Local<f32>) {
+fn start(mut m: Option<ResMut<Mission>>, mut out: MessageWriter<SendTrigger>, path: Res<crate::campath::CameraPath>, time: Res<Time>, mut waited: crate::levelreset::PerLevel<f32>) {
     let Some(m) = m.as_deref_mut() else { return };
+    let waited = waited.get();
     if m.started {
         return;
     }

@@ -258,7 +258,8 @@ Trap: a playtest expect value that is a two-number array is a range, so list-lik
 ## Save / load (subsystem port, 2026-10-15)
 
 Pause menu Save Game writes saves/quicksave.json next to the exe (savegame.rs); Quick Load, Resume Game and Restart
-from last save start a fresh process with `--load FILE`. The original (src/save/save_01.cpp) serialises the whole
+from last save restart the level in the running game and apply the save (levelreset.rs, 2026-10-15; before, a fresh
+process with `--load FILE`). The original (src/save/save_01.cpp) serialises the whole
 object graph (save manager 0x0048b620, class descriptor passes 0x0048bc80 / 0x0048bda0 / 0x0048c0f0, Havok body
 states) after a 0x124-byte header with the level, the difficulty and a thumbnail, into one of six slots; the
 remaster saves the state a player sees instead (docs/port/save.csv: replaced / not needed, one row each):
@@ -285,7 +286,8 @@ trip, partial files, draw distance 0x0040f8c0), weapontable.rs (Weapon_BuildTabl
 
 The Game object's own functions (src/game/game_01.cpp, start_level.cpp) are replaced by the App: construction and
 teardown are main.rs and the process, the frame update is the Update schedule with physics in FixedUpdate, the level
-requests are relaunches. Ported as data: the weapon table (weapontable.rs: 28 slots of names, the slot numbers the
+requests (Restart, Return to title, Load) restart the level in-process (levelreset.rs: the level's entities
+despawned, its resources re-initialised, its spawners run again). Ported as data: the weapon table (weapontable.rs: 28 slots of names, the slot numbers the
 pickups and the AI's pickup_drop_specific use) and the difficulty table (gamedata.rs). Not needed on lev_1_m1: the
 time-scale effect 0x00403aa0 / 0x00403ac0 (only fx op 0x72 sets it; no lev_1_m1 fx script uses it). The rest:
 docs/port/game.csv.
@@ -470,7 +472,7 @@ docs/subsystems/movie.md. `python tools/remaster_export_movies.py` (ffmpeg, once
 (video.rmjv: per-frame JPEGs; audio.wav; movie.json with the subtitle lines and styles); the engine looks in
 `<scene>/../movies` (`--movies DIR`). engine/src/movie.rs is the game-neutral player (`PlayMovies` / `StopMovies` /
 `MovieEvent`, `MovieView::FullWindow` on its own camera or `Behind` on the HUD layer), engine/src/cutscenes.rs says when
-A&D plays what: the boot intro list before the title menu (once a session: relaunches pass `--no-intro`; tool runs skip
+A&D plays what: the boot intro list before the title menu (once a session: a level restart keeps the flag; tool runs skip
 it; a title playtest asks with `"intro": true`), level start movies (none on lev_1_m1), the pub's pub_01 loop behind its
 art (it replaces the guessed dark middle) and the credits movie. Queue movie: empty (docs/port/movie.csv). Playtests:
 `{"movie": "a,b"}` or `{"movie": {"play", "at", "skippable", "loop", "behind", "subtitles"}}`, `{"until": "movie_done"}`,

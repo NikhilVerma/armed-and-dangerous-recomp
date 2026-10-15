@@ -170,12 +170,13 @@ fn apply(
     mut lights: Query<&mut DirectionalLight, With<ShadowLight>>,
     cams: Query<(Entity, &Projection), With<Camera3d>>,
     mut windows: Query<&mut Window>,
-    mut seen_cams: Local<usize>,
+    mut seen_cams: crate::levelreset::PerLevel<usize>,
     game_lights: Option<Res<crate::gamematerial::GameLights>>,
     (windowed, mut state): (Option<Res<Windowed>>, Option<ResMut<crate::playtest::PlayState>>),
 ) {
     // a camera spawned after the last change (level start) gets the options too
     let n = cams.iter().count();
+    let seen_cams = seen_cams.get();
     if !o.is_changed() && n == *seen_cams {
         return;
     }

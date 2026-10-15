@@ -8,6 +8,7 @@
 //! (0x0047d5c0, 0x0047d6d0) are computed but not drawn yet (debt: docs/remaster-engine.md); lev_1_m1 uses them only in
 //! the end explosions (fx_explosion_mountain, fx_explosion_black_hole).
 
+use crate::levelreset::LevelAppExt;
 use bevy::prelude::*;
 
 /// What an effect adds (the node's type +8 and its parameters +0x44..).
@@ -200,7 +201,7 @@ pub struct ScreenFxPlugin;
 
 impl Plugin for ScreenFxPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<ScreenEffects>().add_systems(Update, update.after(super::FxVmSet));
+        app.init_level_resource::<ScreenEffects>().add_systems(Update, update.after(super::FxVmSet));
     }
 }
 

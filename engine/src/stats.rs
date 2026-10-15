@@ -2,6 +2,7 @@
 //! fired, +0x271c shots hit, +0x270c enemies killed of +0x2710, +0x2714 head shots, and the money lines +0x2724
 //! kills, +0x2728 accidents, +0x272c rescues, +0x2730 loot; Game+0x570 the money carried between levels.
 
+use crate::levelreset::LevelAppExt;
 use bevy::prelude::*;
 
 #[derive(Resource, Default, Clone, Debug)]
@@ -43,7 +44,7 @@ pub struct StatsPlugin;
 
 impl Plugin for StatsPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<MissionStats>().add_systems(Update, (count_enemies, player_counts, state_log));
+        app.init_level_resource::<MissionStats>().add_systems(Update, (count_enemies, player_counts, state_log));
     }
 }
 

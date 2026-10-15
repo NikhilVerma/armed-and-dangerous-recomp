@@ -31,6 +31,7 @@
 //! the carry / swap when Roman's three weapon slots are full (0x004695d0's +0x74; lev_1_m1's Roman holds two at
 //! most), the Topsy Turvy bomb's throw.
 
+use crate::levelreset::LevelAppExt;
 use crate::AppState;
 use crate::fx::Health;
 use crate::gamemenu::{GameMenu, Page, Texts};
@@ -100,7 +101,7 @@ pub struct PubScreenPlugin;
 
 impl Plugin for PubScreenPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<PubScreen>().add_systems(Update, (open, input, view).chain());
+        app.init_level_resource::<PubScreen>().add_systems(Update, (open, input, view).chain());
     }
 }
 
@@ -177,7 +178,7 @@ fn open(
     mut vtime: ResMut<Time<Virtual>>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     data: Res<crate::gamedata::GameData>,
-    (mut intro_said, mut rng): (Local<bool>, ResMut<crate::fx::FxStats>),
+    (mut intro_said, mut rng): (crate::levelreset::PerLevel<bool>, ResMut<crate::fx::FxStats>),
 ) {
     let Some(m) = mission.as_deref_mut() else { return };
     if !m.pub_request || *state.get() != AppState::Playing {
@@ -247,6 +248,7 @@ fn open(
         "PE150060_Pub_Ambient", "PE250014_Pub_Ambient", "PE250015_Pub_Ambient", "PE250016_Pub_Ambient", "PE250017_Pub_Ambient",
         "PE250018_Pub_Ambient", "PE250051_Pub_Ambient", "JON50081_Ambient", "JON50045_Ambient", "ROM50169_Pub",
     ];
+    let intro_said = intro_said.get();
     let line = if !*intro_said {
         *intro_said = true;
         "PE150013_Pub_Once_Intro"
