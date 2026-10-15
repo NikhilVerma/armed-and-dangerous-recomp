@@ -24,7 +24,12 @@ SUITE = ['save_write', 'save_read', 'topsyhit2', 'turn_in_place', 'turret1', 'de
          'audio_distance', 'audio_groups', 'audio_voice', 'audio_ear', 'audio_music', 'audio_stopall', 'audio_ambient',
          'anim_blend', 'anim_notes', 'camera_follow', 'camera_death', 'input_pad', 'foot_ik',
          'fx_particles', 'fx_debris', 'fx_emit', 'fx_lights', 'fx_screen', 'fx_hits',
-         'movie_intro', 'movie_subs', 'movie_screens', 'movie_credits', 'movie_pub']
+         'movie_intro', 'movie_subs', 'movie_screens', 'movie_credits', 'movie_pub',
+         'launch_newgame', 'launch_options', 'launch_restart']
+# 'launch_*': the real launch path as the player plays (the Remaster preset chosen by the options, the intro, the
+# title menu): New Game shows the world (menu art gone, every camera on one target, the strips beside the 4:3 centre
+# not black), Abandon -> title -> New Game in-process, the Graphics page applies, Restart / Quick Load / Restart from
+# last save in-process (level_generation)
 # 'unit': the engine's Rust unit tests (cargo test --release into the same target dir: pure logic such as the
 # object model's damage filters, trigger fields and husk picks, the HUD feed wrapping)
 # scripts kept in git (engine/playtests) win over work/remaster/play

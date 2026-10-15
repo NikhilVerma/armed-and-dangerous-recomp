@@ -191,7 +191,15 @@ fn main() {
     let bench = a.bench.is_some();
     let tool_run = a.background || a.size_given || a.snap.is_some() || bench || a.camera.is_some() || a.play.is_some();
     // presentation: chosen before the app is built (the default sampler and the texture set depend on it)
-    let gfx = graphics::GraphicsPlugin::new(graphics::GraphicsLaunch::new(a.preset, tool_run, a.graphics.as_deref()), &options::GameOptions::load(), &scene_dir);
+    // a script's "preset" (playtest.rs) plays as the player's launch: chosen by the options, not pinned (--preset still
+    // pins)
+    let script_preset = if a.preset.is_none() { a.play.as_deref().and_then(playtest::script_preset) } else { None };
+    let mut start_options = options::GameOptions::load();
+    if let Some(p) = script_preset {
+        start_options.graphics_preset = p;
+        start_options.graphics.clear();
+    }
+    let gfx = graphics::GraphicsPlugin::new(graphics::GraphicsLaunch::new(a.preset, tool_run && script_preset.is_none(), a.graphics.as_deref()), &start_options, &scene_dir);
     let mut app = App::new();
     app.add_plugins(
         DefaultPlugins
@@ -248,6 +256,12 @@ fn main() {
     .add_systems(Update, start_camera_fx.run_if(playing))
     .add_systems(Update, (bench_scenario, bench_record).run_if(resource_exists::<bench::Bench>))
     .add_systems(Update, bench_ground.after(bench::BenchSet).run_if(resource_exists::<bench::Bench>));
+    if let Some(p) = script_preset {
+        app.add_systems(PreStartup, move |mut o: ResMut<options::GameOptions>| {
+            o.graphics_preset = p;
+            o.graphics.clear();
+        });
+    }
     if let Some(dir) = a.fx_test {
         let _ = std::fs::create_dir_all(&dir);
         app.insert_resource(FxTest { dir, t: 0.0, shot: 0, target: None });

@@ -8,7 +8,7 @@
 
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
-use bevy::render::view::screenshot::{Screenshot, save_to_disk};
+use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
 use serde::Deserialize;
 use std::io::Write;
 use std::path::PathBuf;
@@ -34,6 +34,12 @@ pub struct Event {
     pub release_mouse: Option<String>,
     #[serde(default)]
     pub shot: Option<String>,
+    /// a screenshot measured into the state log's "screen" once captured (a few frames later: wait before an expect;
+    /// also saved as <script>.<name>.png): {"name", "side_dark": the near-black fraction of the strips beside the
+    /// 4:3 centre (x < 12 % and > 88 %, y 74..83 %: the title menu's black backdrop covers them, the world never
+    /// does), "luma": the frame's mean luminance 0..1}
+    #[serde(default)]
+    pub screen: Option<String>,
     /// steps only: take this step's shot this many seconds into the step (e.g. mid hold_use)
     #[serde(default)]
     pub shot_after: Option<f32>,
@@ -157,6 +163,15 @@ struct Script {
     /// start from this saved state (relative to the script; written by a 'save' step)
     #[serde(default)]
     load: Option<PathBuf>,
+    /// play with this graphics preset as a normal launch does ("remaster": the player's default): the options
+    /// choose it (not pinned), so the Graphics page applies live, as for the player (main.rs)
+    #[serde(default)]
+    preset: Option<crate::graphics::Preset>,
+}
+
+/// The graphics preset a script plays with as a normal launch (its "preset").
+pub fn script_preset(script: &std::path::Path) -> Option<crate::graphics::Preset> {
+    serde_json::from_str::<Script>(&std::fs::read_to_string(script).ok()?).ok()?.preset
 }
 
 /// A title script that asks for the boot intro movies ("title" and "intro").
@@ -177,7 +192,7 @@ struct StepView<'a>(&'a Event);
 impl serde::Serialize for StepView<'_> {
     fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         let e = self.0;
-        let v = serde_json::json!({"goto": e.goto, "wait": e.wait, "hold_use": e.hold_use, "tap": e.tap, "shot": e.shot, "fight": e.fight});
+        let v = serde_json::json!({"goto": e.goto, "wait": e.wait, "hold_use": e.hold_use, "tap": e.tap, "shot": e.shot, "screen": e.screen, "fight": e.fight});
         v.serialize(s)
     }
 }
@@ -262,7 +277,7 @@ impl Plugin for PlaytestPlugin {
             .add_systems(PreUpdate, drive.after(bevy::input::InputSystems).before(crate::input::InputDevices).run_if(resource_exists::<Playtest>))
             .add_systems(PreUpdate, pad_drive.after(drive).before(crate::input::InputDevices).run_if(resource_exists::<Playtest>))
             .add_systems(Update, hurt_companions.run_if(resource_exists::<Playtest>))
-            .add_systems(Last, log_state.run_if(resource_exists::<Playtest>))
+            .add_systems(Last, (log_render, log_state).chain().run_if(resource_exists::<Playtest>))
             .add_systems(Update, warp.run_if(resource_exists::<Playtest>));
     }
 }
@@ -528,6 +543,10 @@ fn drive(
                 let _ = std::fs::write(pt.path.with_extension(format!("{name}.camera.json")), j.to_string());
             }
         }
+        if let Some(name) = e.screen {
+            let path = pt.path.with_extension(format!("{name}.png"));
+            commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path)).observe(measure_screen(name));
+        }
         if let Some(g) = e.goto {
             // game space (Z up) -> engine (Y up)
             bot.goto = Some(Vec3::new(g[0], g[2], -g[1]));
@@ -602,6 +621,47 @@ fn drive(
             barks.all_ready();
         }
     }
+}
+
+/// The `screen` step's measures of a captured frame (see Event::screen).
+fn measure_screen(name: String) -> impl FnMut(On<ScreenshotCaptured>, ResMut<PlayState>) {
+    move |shot, mut state| {
+        let img = &shot.image;
+        let (w, h) = (img.width(), img.height());
+        let px = |x: u32, y: u32| img.get_color_at(x, y).map(|c| c.to_srgba()).ok();
+        let (mut side, mut dark) = (0u32, 0u32);
+        for y in (h * 74 / 100)..(h * 83 / 100) {
+            for x in (0..w * 12 / 100).chain(w * 88 / 100..w) {
+                if let Some(c) = px(x, y) {
+                    side += 1;
+                    dark += (c.red.max(c.green).max(c.blue) < 16.0 / 255.0) as u32;
+                }
+            }
+        }
+        let (mut n, mut luma) = (0u32, 0.0f64);
+        for y in (0..h).step_by(4) {
+            for x in (0..w).step_by(4) {
+                if let Some(c) = px(x, y) {
+                    n += 1;
+                    luma += (0.2126 * c.red + 0.7152 * c.green + 0.0722 * c.blue) as f64;
+                }
+            }
+        }
+        let r = |v: f64| (v * 1000.0).round() / 1000.0;
+        let side_dark = r(dark as f64 / side.max(1) as f64);
+        let luma = r(luma / n.max(1) as f64);
+        info!("EVENT playtest: screen {name}: side_dark {side_dark}, luma {luma}");
+        state.0.insert("screen".into(), serde_json::json!({"name": name, "side_dark": side_dark, "luma": luma}));
+    }
+}
+
+/// The state log's "render": the active cameras and whether they draw into one target texture (the same MSAA and
+/// HDR; else Bevy gives a camera a texture of its own, and the HUD camera, which never clears, kept the title
+/// menu's art: docs/player-feedback.md 22), and whether a 3D camera is among them.
+fn log_render(cams: Query<(&Camera, Option<&Msaa>, Has<bevy::camera::Hdr>, Has<Camera3d>)>, mut state: ResMut<PlayState>) {
+    let active: Vec<_> = cams.iter().filter(|c| c.0.is_active).map(|(_, m, hdr, c3)| (m.map_or(1, |m| m.samples()), hdr, c3)).collect();
+    let shared = active.windows(2).all(|w| w[0].0 == w[1].0 && w[0].1 == w[1].1);
+    state.0.insert("render".into(), serde_json::json!({"cameras": active.len(), "camera3d": active.iter().any(|c| c.2), "shared_target": shared}));
 }
 
 fn log_state(mut pt: ResMut<Playtest>, mut state: ResMut<PlayState>) {

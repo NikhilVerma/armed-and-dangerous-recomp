@@ -278,9 +278,14 @@ fn log_menu(
         _ => None,
     });
     let cheats_shown = parts.iter().filter(|(p, v)| matches!(p.kind, PartKind::CheatName(_)) && **v != Visibility::Hidden).count();
+    // the page art on screen (Title / Shell), null in play: the real-launch tests check it is gone after New Game
+    let art = parts.iter().find_map(|(p, v)| match p.kind {
+        PartKind::Art(b) if *v != Visibility::Hidden => Some(format!("{b:?}")),
+        _ => None,
+    });
     state.0.insert(
         "menu".into(),
-        serde_json::json!({ "page": format!("{:?}", menu.page), "selected": sel, "fading": menu.fade > 0.0, "shown": menu.shown.map(|p| format!("{p:?}")), "value": value, "cheats_shown": cheats_shown }),
+        serde_json::json!({ "page": format!("{:?}", menu.page), "selected": sel, "fading": menu.fade > 0.0, "shown": menu.shown.map(|p| format!("{p:?}")), "value": value, "cheats_shown": cheats_shown, "art": art }),
     );
 }
 
