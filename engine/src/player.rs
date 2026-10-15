@@ -667,7 +667,7 @@ impl CursorSettle {
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn control(
     path: Res<crate::campath::CameraPath>,
-    (time, vtime): (Res<Time>, Res<Time<Virtual>>),
+    time: Res<Time>,
     bot: Res<crate::bot::Bot>,
     motion: Res<AccumulatedMouseMotion>,
     look: Res<LookDelta>,
@@ -679,12 +679,6 @@ pub(crate) fn control(
     (ctl, mounted, rig): (Res<crate::input::Controls>, Res<crate::turret::Mounted>, Res<crate::camera::CameraRig>),
     mut fx: MessageWriter<crate::fx::StartFx>,
 ) {
-    // the player's update does not run while the game is paused, from the frame a pause starts (the mission's paused
-    // messages run before this: the original's briefing comes on the frame the intro path ends, Roman still at full
-    // speed, and he stops only after it)
-    if vtime.is_paused() {
-        return;
-    }
     let dt = time.delta_secs();
     for (mut r, mut t, mut h) in &mut q {
         if h.0 <= 0.0 {
@@ -736,8 +730,10 @@ pub(crate) fn control(
             r.yaw = yaw;
             r.pitch = pitch;
         }
-        if !r.dead && path.name.as_deref() == Some("camera_path_l1m1") {
-            // PlayerObject_Update 0x004788a0: on lev_1_m1 the stick is held forward while the intro path plays
+        if !r.dead && path.until_text() == Some("camera_path_l1m1") {
+            // PlayerObject_Update 0x004788a0: on lev_1_m1 the stick is held forward while the intro path plays (and
+            // until the briefing it ends on pauses the game: the original's pause comes on the path's last frame, Roman
+            // still at full speed; he stops only after it)
             wish += Quat::from_rotation_y(r.yaw) * Vec3::NEG_Z * r.fwd_speed;
         }
         if !r.dead {

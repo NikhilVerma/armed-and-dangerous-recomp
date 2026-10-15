@@ -45,3 +45,6 @@ Open / next:
 - B10 (new): footstep notes after a start / stop at other frames (charanim.rs notes during the run / stop blend).
 - pub: barracks troops after 900 come 30 frames earlier in the remaster (release delay roll), grunt 34 ToMarker (AI).
 - B6, B8: the AI agent.
+- Open question: the partial-stick walk speed. With the friction model a half stick (LeftStickY 0.35) walks at ~7.8
+  units/s instead of the drive's 10.5 target (playtest input_pad range moved to [7, 9.5]); the oracle's scripted input
+  has no pad axes, so this is the model's, not measured. A hook pad-axis input (keys_frames) would settle it.

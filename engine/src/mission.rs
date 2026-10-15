@@ -1109,8 +1109,7 @@ impl Plugin for MissionPlugin {
     fn build(&self, app: &mut App) {
         // the mission runs once play begins (not behind the title menu); paused messages keep the state Playing
         app.add_message::<SendTrigger>()
-            // before the player's update: a paused message shown this frame stops it this frame (player.rs control)
-            .add_systems(Update, (start, volumes, sites, pub_door, barracks, timers, dispatch, messages, outcome).chain().before(crate::player::control).run_if(in_state(crate::AppState::Playing)))
+            .add_systems(Update, (start, volumes, sites, pub_door, barracks, timers, dispatch, messages, outcome).chain().run_if(in_state(crate::AppState::Playing)))
             .add_systems(Update, (event_log, state_log))
             // after the deaths of the frame (fx.rs), before the husk swap (level.rs husks: the Husk marker)
             .add_systems(Update, deaths.after(crate::fx::FxSet).run_if(in_state(crate::AppState::Playing)));

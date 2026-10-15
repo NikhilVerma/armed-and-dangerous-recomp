@@ -40,6 +40,8 @@ pub struct CameraPath {
     pub hold: bool,
     hold_seen: bool,
     hold_t: f32,
+    /// the path that ended and holds the camera
+    held: Option<String>,
 }
 
 impl CameraPath {
@@ -53,6 +55,12 @@ impl CameraPath {
     /// The camera is the path's (playing, or held at its end).
     pub fn holds_camera(&self) -> bool {
         self.name.is_some() || self.hold
+    }
+    /// The path playing, or the one that just ended while the mission text it leads to has not come up yet. In the
+    /// original that text pauses the game on the path's last frame; here it comes a frame later (the mission's
+    /// update), so what the path drives (Roman's walk on lev_1_m1) goes on until then.
+    pub fn until_text(&self) -> Option<&str> {
+        self.name.as_deref().or(self.held.as_deref().filter(|_| self.hold && !self.hold_seen))
     }
 }
 
@@ -139,7 +147,7 @@ fn play(
     }
     path.time += time.delta_secs();
     if path.time >= path.duration {
-        path.name = None;
+        path.held = path.name.take();
         path.track = None;
         path.hold = true;
         path.hold_seen = false;
