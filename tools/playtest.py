@@ -9,6 +9,7 @@ Fast scripts start from a saved state: a script with {"save": "NAME"} writes wor
 and a script with "load": "states/NAME.json" starts there (intro skipped). See docs/remaster-engine.md "Playtests".
 """
 import argparse
+import json
 import os
 import re
 import subprocess
@@ -42,7 +43,16 @@ t0 = time.time()
 code = 0
 with open(out, 'w', encoding='utf-8', errors='replace') as f:
     try:
-        scene = ['--scene', os.path.abspath(a.scene)] if a.scene else []
+        # the script's own "scene" (a level folder under work/remaster, e.g. "lev_2_m1", or a path) unless --scene
+        level = a.scene
+        if not level:
+            try:
+                level = json.load(open(script, encoding='utf-8')).get('scene')
+            except (OSError, ValueError):
+                level = None
+            if level and not os.path.isabs(level):
+                level = os.path.join(ROOT, 'work', 'remaster', level)
+        scene = ['--scene', os.path.abspath(level)] if level else []
         p = subprocess.run([exe, '--background', '--size', a.size, '--play', script] + scene, cwd=engine, env=env,
                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=a.timeout)
         text = p.stdout.decode('utf-8', 'replace')

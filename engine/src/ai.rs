@@ -1,7 +1,7 @@
 //! Grunt AI ported from the recovered state machine (GenericAI_Update 0x0043ee90 and its helpers, documented in
 //! docs/subsystems/grunt-ai.md), on the game's own per-instance parameters, for the classes lev_1_m1 makes (`Kind`:
 //! GruntObject, BowGruntObject, CaptainObject) and the companions Q / Jonesy (`Companion`).
-//! - The state +0x460 is `Mind` (GenericAI_SetState 0x004262c0); the anims by id through the class tables (`anim_name`),
+//! - The state +0x460 is `Mind` (GenericAI_SetState 0x004262c0); the anims by id through the class tables (`anim_name_with`),
 //!   played by charanim.rs as PlayAnim 0x004262d0 (one) / PlayAnim4 0x00426480 (the four-pose sets) do.
 //! - States: idle / roaming (1), guard (0x79, become guard 0x0042d0f0, its flag cleared by 0x0042cff0), wait for a
 //!   trigger (0x8c; the trigger handler 0x0042f870 runs in mission.rs's dispatch), chase (0x3c), firing (0xa) with the
@@ -11,6 +11,11 @@
 //! - Targets: AI_FindTarget 0x00426920 (`search`: the noises of the player's shots, `Interests`, then the cone
 //!   Object_IsInViewCone 0x00455d90 and the sight ray), the alert groups, retaliation 0x0042c820.
 //! Functions this port does not cite are explained in docs/port/ai.csv (replaced by the engine, or not needed).
+
+pub mod jumper;
+pub mod squad;
+
+pub use jumper::{JumpMarker, Jumper};
 
 use crate::levelreset::LevelAppExt;
 use crate::fx::{FxStats, Health};
@@ -53,6 +58,10 @@ pub enum Mind {
     Taunt,
     /// state 0x10: the close attack (anim 0x27): the captain's grenade throw (0x00427910 roll < 30 with +0x484 flag 1)
     Throw,
+    /// states 0xdc / 0xde: a squad member following his bone of the squad (or idle while it waits): squad.rs
+    InSquad,
+    /// states 0xc4 / 0xc5 / 0xbd: a jumper captain flying to a jump marker (jumper.rs `Flight`)
+    Jump,
 }
 
 /// The grunt classes a lev_1_m1 template makes (counted in the coverage runs: BowGruntObject_Slot6 0x004347b0 runs 9
@@ -69,35 +78,50 @@ pub enum Kind {
     Bow,
     /// CaptainObject 0x005acb78 (`captain`)
     Captain,
+    /// SniperCaptain 0x005ae868 (`captain_sniper`, behavior "captain_sniper"): CaptainObject's vtable but for the init
+    /// (0x004348a0: the captain_snipergun, weapon index 0x12, at ref_chest), the anim table (0x0043b110), no close attack
+    /// (vt+0x1e0 0x00435250) and SetTarget (vt+0x23c 0x00434930: the gun raised to the eye, `Grunt::aiming`)
+    Sniper,
 }
 
 impl Kind {
     pub fn of(template: &str) -> Kind {
+        Kind::from_template(template).unwrap_or(Kind::Grunt)
+    }
+    /// The class a template makes, for the grunt-class templates (ObjectSystem_CreateObject 0x0045f020 by the property
+    /// set's "behavior", else the template name): None for anything else
+    pub fn from_template(template: &str) -> Option<Kind> {
         match template {
-            "grunt" => Kind::Bow,
-            "captain" => Kind::Captain,
-            _ => Kind::Grunt,
+            "grunt" => Some(Kind::Bow),
+            "grunt_regular" => Some(Kind::Grunt),
+            "captain" => Some(Kind::Captain),
+            "captain_sniper" => Some(Kind::Sniper),
+            _ => None,
         }
+    }
+    /// CaptainObject and SniperCaptain share the captain's slots but for those listed on `Sniper`
+    pub fn captain_like(self) -> bool {
+        matches!(self, Kind::Captain | Kind::Sniper)
     }
     /// vt+0x1f4: may take a trench (0x00429f00); the archers may not
     pub fn uses_trenches(self) -> bool {
         self != Kind::Bow
     }
-    /// vt+0x1f0: may man a mounted gun (0x0042a100); the captains may not
+    /// vt+0x1f0: may man a mounted gun (0x0042a100); the captains (and snipers) may not
     pub fn uses_guns(self) -> bool {
-        self != Kind::Captain
+        !self.captain_like()
     }
     /// vt+0x1e0: the close attack of the engage roll (0x00427910: anim 0x27, state 0x10), the captain's grenade
     pub fn close_attack(self) -> bool {
         self == Kind::Captain
     }
-    /// vt+0x1fc: the fire spray from a trench (anim 0x68, state 0xa6)
+    /// vt+0x1fc: the fire spray from a trench (anim 0x68, state 0xa6); the sniper's vtable keeps the captain's
     pub fn spray(self) -> bool {
-        self == Kind::Captain
+        self.captain_like()
     }
     /// vt+0x200: the all-fours reaction when the health falls past allfours_pct (anim 0x35, state 300)
     pub fn allfours(self) -> bool {
-        self == Kind::Captain
+        self.captain_like()
     }
     /// vt+0x1cc: the chase engages on the ray alone (state 0x3c); without it the target must first be within
     /// +0x5d8 x K(0x005bcc38) (the archers)
@@ -110,13 +134,42 @@ impl Kind {
             Kind::Grunt => "grunt_rifle",
             Kind::Bow => "grunt_bow",
             Kind::Captain => "captain_mg",
+            Kind::Sniper => "captain_snipergun",
+        }
+    }
+    /// The bone level.rs hangs the weapon model from: the sniper's gun at ref_chest (0x004348a0: 0x004a0ea0 with
+    /// "ref_chest"), the rest at ref_rhand (the bow's 0xe names ref_lhand; the engine has always drawn it from
+    /// ref_rhand: not compared)
+    pub fn weapon_bone(self) -> &'static str {
+        match self {
+            Kind::Sniper => "ref_chest",
+            _ => "ref_rhand",
         }
     }
 }
 
+/// Game+0x2708 == 1 (world 1: the snow levels lev_1_*), from the level's folder name: id 18 is the shiver there
+pub fn cold_level(dir: &std::path::Path) -> bool {
+    dir.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("lev_1_"))
+}
+
 /// The weapon template a grunt template holds (Kind::weapon): level.rs attaches its model to the hand.
 pub fn weapon_template(template: &str) -> Option<&'static str> {
-    matches!(template, "grunt" | "grunt_regular" | "captain").then(|| Kind::of(template).weapon())
+    Kind::from_template(template).map(Kind::weapon)
+}
+
+
+/// What the class anim tables read of the object besides the id (0x0043b610, 0x0043b110).
+#[derive(Clone, Copy, Default, Debug)]
+pub struct AnimFlags {
+    /// Game+0x2708 == 1 (world 1): id 18 is the shiver
+    pub cold: bool,
+    /// +0x484 0x8000000: a rocket captain (rocket_captain): ids 0..3 / 33..36 the rocket sets
+    pub rocket: bool,
+    /// state 0xbd: a jumper captain gliding: ids 0..3 / 33..36 the glide sets
+    pub glide: bool,
+    /// +0x588 held (the sniper's SetTarget 0x00434930): ids 0..3 the aim poses, else captain_sniper_stand
+    pub aiming: bool,
 }
 
 /// The anim name for an anim id (the class's vt+0x1a4: GruntObject 0x0043bd70, BowGruntObject 0x0043abc0,
@@ -124,13 +177,32 @@ pub fn weapon_template(template: &str) -> Option<&'static str> {
 /// deaths 80..85, the idle 18 off a cold level); `cold` is Game+0x2708 == 1 (world 1: lev_1_m1). Ids the class has no
 /// anim for give its error anim (the original's "grunt_anim_error"); ids 8 / 9 give grunt_run (grunt_run_no_sound only
 /// in a cutscene, 0x0044e600).
-pub fn anim_name(kind: Kind, id: u32, r: f32, cold: bool) -> &'static str {
+/// With the object's state (`AnimFlags`): `Grunt::anim`.
+pub fn anim_name_with(kind: Kind, id: u32, r: f32, fl: AnimFlags) -> &'static str {
+    let cold = fl.cold;
     let idle18 = |k: Kind| -> &'static str {
         if cold {
-            return if k == Kind::Captain { "captain_idle_shiver" } else { "grunt_idle_shiver" };
+            return if k.captain_like() { "captain_idle_shiver" } else { "grunt_idle_shiver" };
         }
         // this virtual again with (rand << 3 >> 15) + 0x13: 19..26
-        anim_name(k, 19 + (r * 8.0) as u32 % 8, 0.0, cold)
+        anim_name_with(k, 19 + (r * 8.0) as u32 % 8, 0.0, fl)
+    };
+    // the captain's aim / fire sets: rocket (+0x484 0x8000000) before glide (state 0xbd) for 0..3, glide first for 33..36
+    let captain_set = |id: u32| -> &'static str {
+        const IDLE: [&str; 4] = ["captain_idle_tl", "captain_idle_tr", "captain_idle_bl", "captain_idle_br"];
+        const ROCKET: [&str; 4] = ["captain_rocket_tl", "captain_rocket_tr", "captain_rocket_bl", "captain_rocket_br"];
+        const GLIDE: [&str; 4] = ["captain_jumper_glide_tl", "captain_jumper_glide_tr", "captain_jumper_glide_bl", "captain_jumper_glide_br"];
+        const FIRE: [&str; 4] = ["captain_fire_tl", "captain_fire_tr", "captain_fire_bl", "captain_fire_br"];
+        const RFIRE: [&str; 4] = ["captain_rocket_fire_tl", "captain_rocket_fire_tr", "captain_rocket_fire_bl", "captain_rocket_fire_br"];
+        const GFIRE: [&str; 4] = ["captain_jumper_glide_fire_tl", "captain_jumper_glide_fire_tr", "captain_jumper_glide_fire_bl", "captain_jumper_glide_fire_br"];
+        match id {
+            0..=3 if fl.rocket => ROCKET[id as usize],
+            0..=3 if fl.glide => GLIDE[id as usize],
+            0..=3 => IDLE[id as usize],
+            _ if fl.glide => GFIRE[(id - 33) as usize],
+            _ if fl.rocket => RFIRE[(id - 33) as usize],
+            _ => FIRE[(id - 33) as usize],
+        }
     };
     match kind {
         Kind::Grunt => match id {
@@ -319,10 +391,7 @@ pub fn anim_name(kind: Kind, id: u32, r: f32, cold: bool) -> &'static str {
         // the rocket (+0x484 0x8000000) and jumper glide (state 0xbd) variants of ids 0..3 / 33..36 are not reached:
         // lev_1_m1's captains are neither (rocket_captain 0; generator 215 sets no num_jumper_captain)
         Kind::Captain => match id {
-            0 => "captain_idle_tl",
-            1 => "captain_idle_tr",
-            2 => "captain_idle_bl",
-            3 => "captain_idle_br",
+            0..=3 | 33..=36 => captain_set(id),
             4 => "captain_turn",
             8 | 9 => "captain_run",
             10 => "captain_run_scan",
@@ -340,10 +409,6 @@ pub fn anim_name(kind: Kind, id: u32, r: f32, cold: bool) -> &'static str {
             24 => "captain_stand_scan_2",
             25 => "captain_stand_scan_3",
             26 => "captain_stand_scan_4",
-            33 => "captain_fire_tl",
-            34 => "captain_fire_tr",
-            35 => "captain_fire_bl",
-            36 => "captain_fire_br",
             39 => "captain_grenade_throw",
             40 => "captain_reload_tl",
             41 => "captain_reload_tr",
@@ -386,12 +451,21 @@ pub fn anim_name(kind: Kind, id: u32, r: f32, cold: bool) -> &'static str {
             87 => "captain_hit_in_back",
             88 => "captain_sharkbite",
             89 => "captain_limp",
+            91 => "captain_jumper_hit_ground",
+            92 => "captain_jumper_fall",
+            94 => "captain_jumper_hit_ground_get_up",
             97 => "captain_fall",
             98 => "captain_parachute",
             101 => "captain_barricade_hide",
             102 => "captain_barricade_reload",
             103 => "captain_barricade_peek",
             104 => "captain_barricade_fire_spray",
+            107 => "captain_jumper_forward",
+            108 => "captain_jumper_land",
+            109 => "captain_jumper_glide_tl",
+            110 => "captain_jumper_glide_tr",
+            111 => "captain_jumper_glide_bl",
+            112 => "captain_jumper_glide_br",
             113 => "captain_hang_into",
             114 => "captain_hanging",
             115 => "captain_blown_up_into",
@@ -399,6 +473,27 @@ pub fn anim_name(kind: Kind, id: u32, r: f32, cold: bool) -> &'static str {
             117 => "captain_idle_base_2",
             118 => "captain_idle_base_3",
             _ => "captain_error_anim",
+        },
+        // SniperCaptain 0x0043b110: the captain's table but for these (the exe's names are matched case-blind:
+        // "Captain_sniper_aim_tl" is the export's captain_sniper_aim_tl)
+        Kind::Sniper => match id {
+            0..=3 if fl.aiming => ["captain_sniper_aim_tl", "captain_sniper_aim_tr", "captain_sniper_aim_bl", "captain_sniper_aim_br"][id as usize],
+            0..=3 | 15 => "captain_sniper_stand",
+            23 => "captain_sniper_scan_1",
+            24 => "captain_sniper_scan_2",
+            33 => "captain_sniper_fire_tl",
+            34 => "captain_sniper_fire_tr",
+            35 => "captain_sniper_fire_bl",
+            36 => "captain_sniper_fire_br",
+            40 => "captain_sniper_reload_tl",
+            41 => "captain_sniper_reload_tr",
+            42 => "captain_sniper_reload_bl",
+            43 => "captain_sniper_reload_br",
+            5..=7 | 13 | 27..=32 | 37 | 38 | 44..=49 | 90 | 95 | 96 | 99 | 100 | 105..=107 | 109..=112 => "sniper_captain_error_anim",
+            _ => match anim_name_with(Kind::Captain, id, r, AnimFlags { rocket: false, glide: false, ..fl }) {
+                "captain_error_anim" => "sniper_captain_error_anim",
+                n => n,
+            },
         },
     }
 }
@@ -443,6 +538,33 @@ pub struct Gun {
     /// +0x48c flag 1: the counters ran out together (the aim snaps, firing continues out of the arc)
     pub snap: bool,
     pub shots: u32,
+}
+
+impl Gun {
+    /// Going to this gun (state 0x7b)
+    fn to(gv: &GunView) -> Gun {
+        Gun {
+            turret: gv.e,
+            phase: GunPhase::ToGun,
+            origin: gv.origin,
+            exit: gv.exit,
+            yaw: gv.yaw,
+            fwd: gv.fwd,
+            lift: Vec3::ZERO,
+            timer: 0.0,
+            h: 0.5,
+            v: 0.5,
+            clips: 0,
+            rounds: 0,
+            burst: 0,
+            pause: 0.0,
+            delay: 0.0,
+            firing: false,
+            anim_t: 0.0,
+            snap: false,
+            shots: 0,
+        }
+    }
 }
 
 /// The gunner's tables (Ai_InitGeneric ai_01.cpp:2376-2381, kind 1 guns): stig_fire_num_clips 3..5, _clip_delay 1..1,
@@ -660,6 +782,38 @@ pub struct Grunt {
     /// the priority target tags (+0x858 / +0x85c: an alarm troop's generator's priority_target_tag_min / max,
     /// 0x0042cc60; a window grunt's): AI_FindTarget takes the first live object of these tags (not on lev_1_m1)
     pub priority_tags: (i64, i64),
+    /// Game+0x2708 == 1: a world-1 (cold) level, where id 18 is the shiver (level.rs sets it from the level's folder)
+    pub cold: bool,
+    /// +0x484 0x8000000 (rocket_captain): the rocket launcher and its aim / fire sets
+    pub rocket: bool,
+    /// +0x488 0x4000000 with +0x588 held: the sniper has his gun raised at a target (SetTarget 0x00434930)
+    pub aiming: bool,
+    /// a jumper captain's turbo pack (+0xb08, 0x00425d30) and its flight
+    pub jumper: Option<Jumper>,
+    /// mode turret: the instance id of the gun his obj_tag names (level.rs), taken by the first frame
+    pub start_gun: Option<u32>,
+    /// his squad and his bone in it (+0x9bc / +0x9c0, joined by 0x0042de60)
+    pub squad: Option<squad::SquadLink>,
+    /// moving this frame (charanim.rs: the march of a squad member)
+    pub walking: bool,
+    /// a one-shot anim that holds the grunt still while it plays (the sniper's attach / detach, state 0x104; the
+    /// jumper's landing 0xbf): its name and time left
+    pub pose: Option<(&'static str, f32)>,
+    /// the fire anim's length (one shot each), the reload's: 0 until think reads them from the class's anims
+    pub fire_len: f32,
+    pub reload_len: f32,
+    /// seconds since his last shot (charanim.rs: a one-shot fire anim, then the aim set)
+    pub shot_age: f32,
+}
+
+impl Grunt {
+    /// The anim of an id by the class's table and this grunt's state (vt+0x1a4, `anim_name_with`)
+    pub fn anim(&self, id: u32, r: f32) -> &'static str {
+        anim_name_with(self.kind, id, r, self.anim_flags())
+    }
+    pub fn anim_flags(&self) -> AnimFlags {
+        AnimFlags { cold: self.cold, rocket: self.rocket, glide: false, aiming: self.aiming }
+    }
 }
 
 /// A grunt's marker spline run (AI_FollowMarkerSpline 0x0042d1b0).
@@ -683,13 +837,20 @@ pub struct AiStats {
     pub dead: usize,
     pub shots: usize,
     pub enabled: bool,
-    pub states: [usize; 16],
+    pub states: [usize; 24],
     /// grunts holding a target: the player, a companion (playtest log, for comparisons with the hook's AI dump)
     pub targets: [usize; 2],
     /// marker arrivals so far, taunts, grenades thrown (playtest log)
     pub markers: usize,
     pub taunts: usize,
     pub throws: usize,
+    /// shots by class (playtest log "ai.shots_by"): the snipers', the rocket captains', the jumpers' in a glide
+    pub sniper_shots: usize,
+    pub rocket_shots: usize,
+    pub glide_shots: usize,
+    /// jumps to a marker started, landings
+    pub jumps: usize,
+    pub landings: usize,
 }
 
 /// Sticky bomb stuck at a point (game_07.cpp:1240: AI within 25 units are scared).
@@ -755,7 +916,7 @@ impl Plugin for AiPlugin {
             .add_message::<StickyStuck>()
             .init_resource::<GrenadeAssets>()
             .init_level_resource::<Interests>()
-            .add_systems(Update, (interests, search, scare, think, die, dismay, log_cover, log_ai, grenades).chain().after(crate::fx::FxSet));
+            .add_systems(Update, (squad::update_squads, interests, search, scare, think, die, dismay, log_cover, log_ai, squad::log_squads, grenades).chain().after(crate::fx::FxSet));
     }
 }
 
@@ -824,6 +985,16 @@ fn log_ai(
             "long_hits": count(&|g| g.reacting == 4),
             "spline": count(&|g| g.spline.is_some()),
             "captains": count(&|g| g.kind == Kind::Captain),
+            "snipers": count(&|g| g.kind == Kind::Sniper),
+            "aiming": count(&|g| g.aiming),
+            "rockets": count(&|g| g.rocket),
+            "jumpers": count(&|g| g.jumper.is_some()),
+            "flying": count(&|g| g.jumper.is_some_and(|j| j.flight.is_some())),
+            "sniper_shots": stats.sniper_shots,
+            "rocket_shots": stats.rocket_shots,
+            "glide_shots": stats.glide_shots,
+            "jumps": stats.jumps,
+            "landings": stats.landings,
             "archers": count(&|g| g.kind == Kind::Bow),
             "attention": count(&|g| g.attention),
             "targets_player": live.iter().filter(|(_, g, _)| g.target.is_some() && g.target == re).count(),
@@ -855,11 +1026,25 @@ pub fn capsule_lift(_radius: f32) -> f32 {
 /// 0x10 at ref_rhand; a captain's +0x484 0x1000: the fire set loops, 0x00428250), the voice set, the mode's start state.
 pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, kind: Kind, home: Vec3, yaw: f32, rng: &mut crate::fxvm::CrtRand) -> Grunt {
     let mode = p.s("mode").unwrap_or("attention_roaming").to_owned();
-    let (rmin, rmax) = (p.f("fire_range_min", 200.0), p.f("fire_range_max", 350.0));
+    // a rocket captain (CaptainObject_Slot6 0x00434cd0 -> RocketCaptain_ReadProperties 0x00434ac0): the rkt_fire_* set
+    // replaces the fire parameters (defaults: range 200 / 350, accuracy 50 / 150, infinite 400 / 8000) and the weapon is
+    // the rocket launcher (index 0x11); a jumper captain (0x00425d30: the turbo pack +0xb08) fires from
+    // jumper_fire_range_min / max (400 / 450)
+    let rocket = kind == Kind::Captain && p.i("rocket_captain", 0) != 0;
+    let jumper = kind == Kind::Captain && p.i("jumper_captain", 0) != 0;
+    let fk = |k: &str| if rocket { format!("rkt_{k}") } else { k.to_owned() };
+    let (rmin, rmax) = if rocket {
+        (p.f("rkt_fire_range_min", 200.0), p.f("rkt_fire_range_max", 350.0))
+    } else if jumper {
+        (p.f("jumper_fire_range_min", 400.0), p.f("jumper_fire_range_max", 450.0))
+    } else {
+        (p.f("fire_range_min", 200.0), p.f("fire_range_max", 350.0))
+    };
     // the weapon by class (0x004a0ef0's index into the weapon table); projectile speed x3 (Projectile_Load)
     let bow = kind == Kind::Bow;
-    let weapon = data.props(&format!("p_{}", kind.weapon()));
-    let proj = data.props(&format!("p_{}", weapon.s("projectile_name").unwrap_or("grunt_rifle_bullet")));
+    // (by the templates' property sets: captain_sniper_bullet's is p_captain_sniperbullet)
+    let weapon = data.template_props(if rocket { "captain_rocketlauncher" } else { kind.weapon() });
+    let proj = data.template_props(weapon.s("projectile_name").unwrap_or("grunt_rifle_bullet"));
     let move_speed = p.f("move_speed", 46.0);
     let guard = mode.contains("guard") || mode.contains("window") || mode.contains("tower");
     let mind = if mode.starts_with("trigger") { Mind::WaitTrigger } else if guard { Mind::Guard } else { Mind::Roam };
@@ -895,16 +1080,16 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         replan: 0.0,
         attacker: None,
         offer_t: f32::NEG_INFINITY,
-        clips: (p.i("fire_num_clips_min", 1), p.i("fire_num_clips_max", 1)),
-        rounds: (p.i("fire_num_rounds_min", 1), p.i("fire_num_rounds_max", 1)),
-        bursts: (p.i("fire_num_bursts_min", 1), p.i("fire_num_bursts_max", 1)),
-        burst_delay: (p.f("fire_burst_delay_min", 0.0), p.f("fire_burst_delay_max", 0.0)),
-        clip_delay: (p.f("fire_clip_delay_min", 0.0), p.f("fire_clip_delay_max", 0.0)),
+        clips: (p.i(&fk("fire_num_clips_min"), 1), p.i(&fk("fire_num_clips_max"), 1)),
+        rounds: (p.i(&fk("fire_num_rounds_min"), 1), p.i(&fk("fire_num_rounds_max"), 1)),
+        bursts: (p.i(&fk("fire_num_bursts_min"), 1), p.i(&fk("fire_num_bursts_max"), 1)),
+        burst_delay: (p.f(&fk("fire_burst_delay_min"), 0.0), p.f(&fk("fire_burst_delay_max"), 0.0)),
+        clip_delay: (p.f(&fk("fire_clip_delay_min"), 0.0), p.f(&fk("fire_clip_delay_max"), 0.0)),
         // the exe reads fire_inaccuracy_angle (default 15), not the data's fire_inaccuracy_xy
-        inaccuracy_angle: p.f("fire_inaccuracy_angle", 15.0),
-        inaccuracy_height: p.f("fire_inaccuracy_height", 10.0),
-        accuracy: (p.f("fire_accuracy_min", 50.0), p.f("fire_accuracy_max", 150.0)),
-        infinite_accuracy: (p.f("fire_infinite_accuracy_min", 400.0), p.f("fire_infinite_accuracy_max", 800.0)),
+        inaccuracy_angle: p.f(&fk("fire_inaccuracy_angle"), 15.0),
+        inaccuracy_height: p.f(&fk("fire_inaccuracy_height"), 10.0),
+        accuracy: (p.f(&fk("fire_accuracy_min"), 50.0), p.f(&fk("fire_accuracy_max"), 150.0)),
+        infinite_accuracy: (p.f(&fk("fire_infinite_accuracy_min"), 400.0), p.f(&fk("fire_infinite_accuracy_max"), if rocket { 8000.0 } else { 800.0 })),
         infinite: false,
         left_rounds: 0,
         left_bursts: 0,
@@ -967,6 +1152,30 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         long_hit_pct: p.f("long_hit_pct", 60.0),
         allfours_pct: p.f("allfours_pct", 20.0),
         priority_tags: (0, 0),
+        cold: true,
+        rocket,
+        jumper: jumper.then(|| Jumper::read(p)),
+        start_gun: None,
+        squad: None,
+        walking: false,
+        aiming: false,
+        pose: None,
+        // the fire anim's length a shot (captain_fire_* 0.633 s looped by +0x484 0x1000, grunt_fire_* / grunt_bow_fire_*
+        // 0.467 s); the sniper's and the rocket captain's (one-shot: no 0x00428250(1)) from their anims (think)
+        fire_len: match kind {
+            Kind::Grunt | Kind::Bow => 0.467,
+            Kind::Captain if !rocket => 0.633,
+            _ => 0.0,
+        },
+        // the reload set's length (grunt_reload_br 1.133 s, grunt_bow_reload_* 1.3 s, captain_reload_* 2.3 s); the
+        // sniper's from its anim (think)
+        reload_len: match kind {
+            Kind::Grunt => 1.133,
+            Kind::Bow => 1.3,
+            Kind::Captain => 2.3,
+            Kind::Sniper => 0.0,
+        },
+        shot_age: f32::INFINITY,
     }
 }
 
@@ -1144,6 +1353,7 @@ fn search(
     mut stats: ResMut<AiStats>,
     mut barks: ResMut<Barks>,
     noise: Res<Interests>,
+    squads: Query<&squad::Squad>,
 ) {
     let dt = time.delta_secs();
     let Ok((pe, _, _)) = player.single() else { return };
@@ -1180,6 +1390,11 @@ fn search(
             } else {
                 g.pending = Some((tgt, left - dt));
             }
+        }
+        // a squad member does not look for targets himself while the squad is not halted (0x0042f8d0: states 0xdc /
+        // 0xde are busy); the squad scans (squad.rs)
+        if g.squad.is_some_and(|l| squads.get(l.squad).is_ok_and(|s| !s.members_engage())) {
+            continue;
         }
         g.search_timer -= dt;
         if g.search_timer > 0.0 {
@@ -1401,6 +1616,8 @@ struct GunView {
     reserved: Option<Entity>,
     ai: Option<Entity>,
     collider: Option<BodyId>,
+    /// the placed gun's instance id (a turret-mode grunt's obj_tag resolves to it, level.rs)
+    instance: Option<u32>,
 }
 
 /// The frame's cover objects.
@@ -1634,27 +1851,7 @@ fn find_hiding_spot(g: &mut Grunt, me: Entity, (need_target, hold): (bool, bool)
         }
         spots.guns[i].reserved = Some(me);
         let gv = &spots.guns[i];
-        g.gun = Some(Gun {
-            turret: gv.e,
-            phase: GunPhase::ToGun,
-            origin: gv.origin,
-            exit: gv.exit,
-            yaw: gv.yaw,
-            fwd: gv.fwd,
-            lift: Vec3::ZERO,
-            timer: 0.0,
-            h: 0.5,
-            v: 0.5,
-            clips: 0,
-            rounds: 0,
-            burst: 0,
-            pause: 0.0,
-            delay: 0.0,
-            firing: false,
-            anim_t: 0.0,
-            snap: false,
-            shots: 0,
-        });
+        g.gun = Some(Gun::to(gv));
         g.route.clear();
         g.hold = hold;
         return Hide::Gunner;
@@ -1691,14 +1888,6 @@ fn duck(g: &mut Grunt) {
 
 /// The reload set's length (anims 0x2a, 0x2b, 0x28, 0x29 by PlayAnim4: the engine times the one it plays):
 /// grunt_reload_br 1.133 s, grunt_bow_reload_* 1.3 s, captain_reload_* 2.3 s.
-fn reload_len(kind: Kind) -> f32 {
-    match kind {
-        Kind::Grunt => 1.133,
-        Kind::Bow => 1.3,
-        Kind::Captain => 2.3,
-    }
-}
-
 /// The state the hiding-spot search's answer starts (0x0042a7b0): a trench (0xa0), a gun (0x7b), the reload in place
 /// (anims 0x2a.., state 0x32), or the pursuit (vt+0x184 0x004295d0, state 0x3c; without a target it ends in 0x0042bc60
 /// at once: home).
@@ -1707,7 +1896,7 @@ fn hide_to_mind(g: &mut Grunt, h: Hide) -> Mind {
         Hide::Cover => Mind::Cover,
         Hide::Gunner => Mind::Gunner,
         Hide::Reload => {
-            g.pause = reload_len(g.kind);
+            g.pause = g.reload_len;
             Mind::Reload
         }
         Hide::Pursue => Mind::Chase,
@@ -1731,7 +1920,7 @@ fn lost_target(g: &mut Grunt, me: Entity, trenches: &mut [TrenchView]) -> Mind {
     }
     g.search_timer = 0.0;
     if !g.fire_ready {
-        g.pause = reload_len(g.kind);
+        g.pause = g.reload_len;
         return Mind::Reload;
     }
     leave_cover(g, me, trenches, true);
@@ -1910,7 +2099,7 @@ fn reaction_end(
     match kind {
         1 if health / g.max_health <= g.long_hit_pct / 100.0 => {
             let id = 0x4b + ((rng.rand() * 500.0) as u32 / 100).min(4);
-            g.hit = Some((anim_name(g.kind, id, rng.rand(), true).to_owned(), 4));
+            g.hit = Some((g.anim(id, rng.rand()).to_owned(), 4));
             g.hit_id = id;
             g.reacting = 4;
             None
@@ -1933,13 +2122,13 @@ fn reaction_end(
             })
         }
         5 => {
-            g.hit = Some((anim_name(g.kind, 0x36, 0.0, true).to_owned(), 6));
+            g.hit = Some((g.anim(0x36, 0.0).to_owned(), 6));
             g.reacting = 6;
             g.anim_left = rng.range(3.0, 7.0);
             None
         }
         6 => {
-            let n = anim_name(g.kind, 0x38, 0.0, true);
+            let n = g.anim(0x38, 0.0);
             g.hit = Some((n.to_owned(), 7));
             g.reacting = 7;
             let _ = anim_len(lib, n);
@@ -2110,15 +2299,16 @@ fn think(
         Res<crate::alarm::Markers>,
         MessageWriter<crate::alarm::MarkerArrival>,
         Query<(Entity, &mut Barricade)>,
-        Query<(Entity, &mut crate::turret::Turret, &GlobalTransform, &crate::skin::Animator, Option<&crate::level::Placed>), Without<Grunt>>,
+        Query<(Entity, &mut crate::turret::Turret, &GlobalTransform, &crate::skin::Animator, (Option<&crate::level::Placed>, Option<&crate::level::InstanceId>)), Without<Grunt>>,
         Res<crate::turret::Mounted>,
         Res<crate::gamedata::GameData>,
     ),
-    (mut lib, player_q, mut triggers, grenade_assets): (
+    (mut lib, player_q, mut triggers, grenade_assets, squads): (
         ResMut<crate::skin::AnimLibrary>,
         Query<Entity, With<Player>>,
         MessageWriter<crate::mission::SendTrigger>,
         Option<Res<GrenadeAssets>>,
+        Query<&squad::Squad>,
     ),
 ) {
     let t0 = Instant::now();
@@ -2126,14 +2316,14 @@ fn think(
     let dt = time.delta_secs();
     let k = physics.meters_per_unit;
     let (mut alive, mut dead) = (0, 0);
-    let mut states = [0usize; 16];
+    let mut states = [0usize; 24];
     let views: Vec<TrenchView> = trenches
         .iter()
         .map(|(e, b)| TrenchView { e, origin: b.origin, exit: b.exit, spot: b.spot, dir: b.dir, occupant: b.occupant, collider: b.collider })
         .collect();
     let gun_views: Vec<GunView> = guns
         .iter()
-        .map(|(e, t, gt, a, placed)| {
+        .map(|(e, t, gt, a, (placed, inst))| {
             let (rot, origin) = (gt.rotation(), gt.translation());
             let (yaw, _, _) = (rot * crate::level::game_to_engine().inverse()).to_euler(EulerRot::YXZ);
             GunView {
@@ -2146,6 +2336,7 @@ fn think(
                 reserved: t.reserved,
                 ai: t.ai,
                 collider: placed.and_then(|p| p.collider),
+                instance: inst.map(|i| i.0),
             }
         })
         .collect();
@@ -2170,12 +2361,45 @@ fn think(
                 }
             }
         }
+        // mode turret (+0x488 0x40000000): AI_ResolveStartObjects 0x00425e20 puts him on the gun of his obj_tag at once
+        // (+0x898, the gun's flag 4, +0x484 0x8000 | 0x200: he holds it until his first firing cycle starts, state 0x7d)
+        if let Some(id) = g.start_gun.take() {
+            match spots.guns.iter().position(|v| v.instance == Some(id)) {
+                Some(i) if spots.guns[i].ai.is_none() && spots.guns[i].reserved.is_none() => {
+                    let gv = &spots.guns[i];
+                    g.gun = Some(Gun::to(gv));
+                    g.hold = true;
+                    g.mind = Mind::Gunner;
+                    spots.guns[i].reserved = Some(ge);
+                    // (the start path attaches him with no walk: here he is put at the gun's exit, and the 0x7b arrival
+                    // below mounts him this frame)
+                    let at = spots.guns[i].exit;
+                    tr.translation = at;
+                    if let Ok(mut b) = physics.world.body_mut(body.id) {
+                        let _ = b.set_position(crate::physics::jr((at + body.offset) * k), Activation::Activate);
+                    }
+                }
+                // occupied: "Can't start in turret (turret occupied)" and the grunt removed (vt+0xdc)
+                Some(_) => {
+                    warn!("ai: grunt {ge:?} can't start in turret {id} (occupied): removed");
+                    g.mind = Mind::Dead;
+                    physics.remove(body.id);
+                    commands.entity(ge).despawn();
+                    continue;
+                }
+                // a gun the engine does not make (the forge cannons): he stands guard where he is (debt)
+                None => {
+                    g.guard = true;
+                    g.mind = Mind::Guard;
+                }
+            }
+        }
         // hurt: bark at most every 4 s (0x004394c0); a hurt grunt waiting for a trigger activates (ai_04.cpp:420)
         g.hurt_voice_timer -= dt;
         if h.0 < g.last_health && h.0 > 0.0 {
             g.last_hit = g.last_health - h.0;
             // the hit reaction (GenericAIObject_Slot52 0x00430340, ai_04.cpp:444-535; anim names by the class's table,
-            // `anim_name`), in its order: on a gun (+0x484 0x8000) none; the all-fours fall (vt+0x200: the captain)
+            // `anim_name_with`), in its order: on a gun (+0x484 0x8000) none; the all-fours fall (vt+0x200: the captain)
             // when the health crosses allfours_pct (+0x9e0) %: anim 0x35, state 300; then (vt+0x204: all three) damage
             // <= hit_level_1 a small hit (not while one or a long hit plays, states 0x12f / 0x132): one of ids
             // 0x3f..0x42 by rand * 400 >> 15, state 0x12f; <= hit_level_2 a medium hit, 0x43 / 0x44 alternating on the
@@ -2185,7 +2409,6 @@ fn think(
             let on_gun = g.gun.is_some_and(|x| x.phase == GunPhase::On);
             let (before, after) = (g.last_health / g.max_health, h.0 / g.max_health);
             let fours = g.allfours_pct / 100.0;
-            let cold = true; // Game+0x2708 == 1 (world 1)
             let react: Option<(u32, u8)> = if on_gun {
                 None
             } else if g.kind.allfours() && before > fours && after <= fours {
@@ -2204,7 +2427,7 @@ fn think(
                 Some((0x45 + (rng.rand() * 2.0) as u32 % 2, 3))
             };
             if let Some((id, kind)) = react {
-                g.hit = Some((anim_name(g.kind, id, rng.rand(), cold).to_owned(), kind));
+                g.hit = Some((g.anim(id, rng.rand()).to_owned(), kind));
                 g.hit_id = id;
                 g.reacting = kind;
                 g.turn = None;
@@ -2364,8 +2587,44 @@ fn think(
             };
             info!("EVENT ai: cover search -> {:?}", g.mind);
         }
+        // the one-shot fire and reload anims' lengths of the classes whose cycle follows its anims (the sniper, the
+        // rocket captain)
+        if g.fire_len <= 0.0 {
+            g.fire_len = anim_len(&mut lib, g.anim(0x23, 0.0));
+        }
+        if g.reload_len <= 0.0 {
+            g.reload_len = anim_len(&mut lib, g.anim(0x29, 0.0));
+        }
+        g.shot_age += dt;
+        // the sniper's SetTarget 0x00434930: a target taken raises the gun to the eye (Captain_sniper_attach), one lost
+        // lowers it (Captain_sniper_detach); state 0x104 holds him still while the anim plays, then engages
+        if g.kind == Kind::Sniper && g.pose.is_none() && g.target.is_some() != g.aiming {
+            g.aiming = g.target.is_some();
+            let n = if g.aiming { "captain_sniper_attach" } else { "captain_sniper_detach" };
+            g.pose = Some((n, anim_len(&mut lib, n)));
+            g.pause = 0.0;
+            info!("EVENT ai: sniper {ge:?} {}", if g.aiming { "aims" } else { "lowers his gun" });
+        }
+        if let Some((n, left)) = g.pose {
+            g.pose = (left > dt).then_some((n, left - dt));
+        }
+        // a squad member (+0x9bc): follows his bone (0xdc) or idles (0xde) unless the squad is halted and he has a
+        // target: then he fights where he stands (0xdd, ai_06.cpp:2644-2698). A squad gone lets him go.
+        let in_squad = g.squad.and_then(|l| squads.get(l.squad).ok().map(|s| (l, s)));
+        if g.squad.is_some() && in_squad.is_none() {
+            g.squad = None;
+            g.alert_group = 0;
+            if g.mind == Mind::InSquad {
+                g.mind = Mind::Roam;
+            }
+        }
+        let squad_fight = in_squad.is_some_and(|(_, s)| s.members_engage() && g.target.is_some());
+        if in_squad.is_some() && !squad_fight && !matches!(g.mind, Mind::Dead) {
+            g.mind = Mind::InSquad;
+        }
         let was = g.mind;
         g.mind = match (g.mind, target) {
+            (Mind::InSquad, _) if !squad_fight => Mind::InSquad,
             (Mind::ToMarker, _) => Mind::ToMarker,
             (Mind::Flee, _) if g.timer > 0.0 => Mind::Flee,
             // the scare's end charges the player (0x0042ce70)
@@ -2421,13 +2680,15 @@ fn think(
                 // (vt+0x1e0: the captain), allow_close_attack, flag 1 and rand * 200 >> 15 < 30; else the fire state 0xa
                 if was != Mind::Fire && g.kind.close_attack() && in_range && g.fire_ready && g.throw_armed && rng.rand() * 200.0 < 30.0 {
                     g.anim_id = 0x27;
-                    g.anim_left = anim_len(&mut lib, anim_name(g.kind, 0x27, 0.0, true));
+                    g.anim_left = anim_len(&mut lib, g.anim(0x27, 0.0));
                     g.thrown = false;
                     Mind::Throw
                 } else {
                     Mind::Fire
                 }
             }
+            // a squad member fights in place (0xdd): no pursuit
+            (_, Some(_)) if squad_fight => Mind::Fire,
             (_, Some(_)) => Mind::Chase,
             (Mind::Guard, None) => Mind::Guard,
             // the target gone from the states that need one (0x0042bc60)
@@ -2441,8 +2702,16 @@ fn think(
         let mut goal = pos;
         let mut speed = 0.0;
         // a hit reaction holds the grunt (states 0x12f..0x131)
-        let reacting = g.hit.is_some();
+        let reacting = g.hit.is_some() || g.pose.is_some();
         match if reacting { Mind::Dead } else { g.mind } {
+            Mind::InSquad => {
+                // 0xdc: to the bone; 0xde (the squad waiting): stand
+                if let Some((l, s)) = in_squad {
+                    if s.phase != squad::SquadPhase::Waiting {
+                        (goal, speed) = squad::member_goal(s, l, pos, g.move_speed);
+                    }
+                }
+            }
             Mind::Roam => {
                 // idle / roaming (state 1, grunt-ai.md): with no target the grunt stands at attention where it is and
                 // fidgets (charanim.rs); it only moves along a patrol spline, which no lev_1_m1 grunt has. (The
@@ -2506,7 +2775,7 @@ fn think(
                 g.anim_left -= dt;
                 if g.anim_left <= 0.0 {
                     g.mind = if g.guard {
-                        g.pause = reload_len(g.kind);
+                        g.pause = g.reload_len;
                         Mind::Reload
                     } else if target.is_some() {
                         let h = find_hiding_spot(&mut g, ge, (true, false), pos, tgt, &mut spots, &physics, body.id, &mut rng);
@@ -2521,7 +2790,7 @@ fn think(
                 // the grenade (0x0043d180 "throw" -> 0x00428340: the captain_grenade from the hand at the target's
                 // ref_hit_00; flag 1 cleared); the end: a guard 0x7a, flag 4 clear the clip's end (0x0042b8e0), else
                 // 50 % that and 50 % engage again (ai_06.cpp:813-836)
-                let total = anim_len(&mut lib, anim_name(g.kind, 0x27, 0.0, true));
+                let total = anim_len(&mut lib, g.anim(0x27, 0.0));
                 let before = total - g.anim_left;
                 g.anim_left -= dt;
                 if !g.thrown && before + dt >= 1.333 {
@@ -2569,7 +2838,7 @@ fn think(
                         if *left <= 0.0 {
                             g.turn = None;
                         }
-                    } else if to.dot(fwd) < 0.7 && g.kind != Kind::Captain {
+                    } else if to.dot(fwd) < 0.7 && !g.kind.captain_like() {
                         let right = fwd.cross(to).y < 0.0;
                         // after a turn a guard's first fire cycle is dry (measured: the original's courtyard guards,
                         // most of which turn, fire anim then reload and first shots ~80 frames later, two that faced
@@ -2586,7 +2855,7 @@ fn think(
                         } else {
                             6
                         };
-                        let n = anim_name(g.kind, id, 0.0, true);
+                        let n = g.anim(id, 0.0);
                         g.turn = Some((n, anim_len(&mut lib, n)));
                     }
                     let before = stats.shots;
@@ -2624,7 +2893,7 @@ fn think(
                         // the taunt after the last clip (state 0x6e): its anim's length
                         FireEnd::Taunt => {
                             stats.taunts += 1;
-                            let n = anim_name(g.kind, g.anim_id, 0.0, true);
+                            let n = g.anim(g.anim_id, 0.0);
                             g.anim_left = anim_len(&mut lib, n);
                         }
                         _ => {}
@@ -2686,7 +2955,7 @@ fn think(
                                 c.timer = STAND_TIME;
                             } else if rng.rand() >= 0.5 && target.is_some() && g.kind.spray() {
                                 c.phase = CoverPhase::Spray;
-                                c.timer = anim_len(&mut lib, anim_name(g.kind, 0x68, 0.0, true));
+                                c.timer = anim_len(&mut lib, g.anim(0x68, 0.0));
                             } else {
                                 c.phase = CoverPhase::Peek;
                                 c.timer = PEEK_TIME;
@@ -2703,7 +2972,7 @@ fn think(
                     CoverPhase::Spray => {
                         // each "fire" note of the spray anim a shot at the target (the fire event 0x0043d180 -> vt+0x13c),
                         // rounds counted down; its end: flag 4 with rounds left -> breathe (the counters rolled), else duck
-                        let name = anim_name(g.kind, 0x68, 0.0, true);
+                        let name = g.anim(0x68, 0.0);
                         let notes: Vec<f32> = lib.anim(name).map(|a| a.notes.iter().filter(|n| n.1.trim().eq_ignore_ascii_case("fire")).map(|n| n.0).collect()).unwrap_or_default();
                         let len = anim_len(&mut lib, name);
                         let (t0, t1) = (len - (c.timer + dt), len - c.timer);
@@ -2910,6 +3179,11 @@ fn think(
         } else {
             g.route.clear();
         }
+        // fighting in a squad: he holds his place in the formation
+        if squad_fight {
+            speed = 0.0;
+        }
+        g.walking = speed > 1.0 && flat(goal - pos).length() > 1.0;
         let dir = flat(goal - pos).normalize_or_zero();
         let face = match (g.mind, target, g.cover.map(|c| c.phase)) {
             (Mind::Fire | Mind::Chase | Mind::Taunt | Mind::Throw, Some(p), _) => flat(p - pos).normalize_or_zero(),
@@ -3035,10 +3309,20 @@ fn fire_cycle(
         g.dry_first = false;
         g.left_clips = 0;
         g.mind = Mind::Reload;
-        g.pause = 0.467 + reload_len(g.kind) + 2.0 / 60.0;
+        g.pause = 0.467 + g.reload_len + 2.0 / 60.0;
         return FireEnd::None;
     }
     shoot(commands, fx, g, rng, pos, hit);
+    g.shot_age = 0.0;
+    if g.kind == Kind::Sniper {
+        stats.sniper_shots += 1;
+    }
+    if g.rocket {
+        stats.rocket_shots += 1;
+    }
+    if g.jumper.is_some_and(|j| j.flight == Some(jumper::Flight::Glide)) {
+        stats.glide_shots += 1;
+    }
     // (the shot sound comes from the weapon's muzzle fx: the original's sound log has one per shot)
     // the Fight cue as the fire anim starts with a target (0x00428980 -> vt+0x13c), under vo_delay
     if barks.take(Delay::Vo, now, rng) {
@@ -3052,7 +3336,7 @@ fn fire_cycle(
     // 1 frame = 108 frames for the archer (the original's 837 -> 945); a moving grunt (state 0x32) waits the clip delay
     // the fire anim's length per shot: grunt_fire_* / grunt_bow_fire_* 0.467 s (one "fire" note each), the captain's
     // captain_fire_* 0.633 s looped (+0x484 0x1000: 0x00428250(1) at CaptainObject_Slot6) with one note per loop
-    let fire_len = if g.kind == Kind::Captain { 0.633 } else { 0.467 };
+    let fire_len = g.fire_len;
     g.left_rounds -= 1;
     g.pause = fire_len;
     if g.left_rounds <= 0 {
@@ -3074,7 +3358,7 @@ fn fire_cycle(
                 return FireEnd::Taunt;
             }
             g.mind = Mind::Reload;
-            g.pause = fire_len + reload_len(g.kind) + if g.guard { 2.0 / 60.0 } else { rng.range(g.clip_delay.0, g.clip_delay.1) };
+            g.pause = fire_len + g.reload_len + if g.guard { 2.0 / 60.0 } else { rng.range(g.clip_delay.0, g.clip_delay.1) };
             return FireEnd::Clip;
         }
     }
