@@ -19,11 +19,10 @@
 //! changes); [`texture_path`] / [`world_sampler`] for asset loading (textures.rs). Libraries: Bevy's SSAO (an
 //! XeGTAO implementation), TAA, SMAA, contrast-adaptive sharpening, PCSS soft shadows, bloom.
 //!
-//! Debt: the game material clips at the original's far plane per pixel, but Bevy's depth prepass (TAA, SSAO, soft
-//! particles) has no such clip (a material prepass shader would cost the shadow passes their batching: 4K 113 -> 64
-//! fps). Objects wholly beyond the far plane are culled (options.rs), so only the far part of an object straddling
-//! it can show the clear (fog) colour instead of the sky behind it in the Remaster.
+//! The far clip with a depth prepass (TAA, SSAO, soft particles): farclip.rs has the sky fill the pixels the game
+//! material clips, whose depth the prepass holds, so the sky shows beyond the clip as in the Original.
 
+mod farclip;
 mod textures;
 
 pub use textures::{texture_path, world_sampler};
@@ -373,6 +372,7 @@ impl Plugin for GraphicsPlugin {
         app.insert_resource(self.launch.clone())
             .insert_resource(self.initial.clone())
             .insert_resource(DirectionalLightShadowMap { size: self.initial.shadow_map_size as usize })
+            .add_plugins(farclip::FarClipPlugin)
             .add_systems(PostUpdate, (sync, apply_cameras, apply_shadows, apply_materials).chain());
     }
 }
