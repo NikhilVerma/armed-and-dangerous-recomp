@@ -101,13 +101,13 @@ def _process_paths():
 
 def player_busy():
     """The human is playing: their remaster copy (engine\\target\\release\\and_remaster.exe of any checkout) or the
-    original from its own game folder (orig\\pc\\GameData\\game.exe, not a test instance) is running. Test runs pause
+    original from its own game folder (an .exe in orig\\pc\\GameData, e.g. game.unpacked.exe; not a test instance) is running. Test runs pause
     meanwhile (docs/agent-brief.md: they eat the player's CPU)."""
     for p in _process_paths():
         low = p.lower().replace("/", "\\")
         if low.endswith("\\engine\\target\\release\\and_remaster.exe"):
             return p
-        if low.endswith("\\orig\\pc\\gamedata\\game.exe"):
+        if "\\orig\\pc\\gamedata\\" in low and low.endswith(".exe") and "\\work\\instances\\" not in low:
             return p
     return None
 

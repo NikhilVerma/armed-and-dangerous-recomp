@@ -26,6 +26,7 @@ ap.add_argument('--timeout', type=float, default=300)
 ap.add_argument('--grep', default=None)
 ap.add_argument('--size', default='640x372')
 ap.add_argument('--env', action='append', default=[], help='NAME=VALUE, e.g. AIDBG=1')
+ap.add_argument('--arg', action='append', default=[], help='an extra engine argument (repeat; e.g. --arg=--movies --arg=DIR)')
 ap.add_argument('--scene', default=None, help='scene folder (default the engine\'s ../work/remaster/lev_1_m1); '
                 'e.g. a test export, or the main checkout\'s from a worktree without work/')
 a = ap.parse_args()
@@ -53,7 +54,7 @@ with open(out, 'w', encoding='utf-8', errors='replace') as f:
             if level and not os.path.isabs(level):
                 level = os.path.join(ROOT, 'work', 'remaster', level)
         scene = ['--scene', os.path.abspath(level)] if level else []
-        p = subprocess.run([exe, '--background', '--size', a.size, '--play', script] + scene, cwd=engine, env=env,
+        p = subprocess.run([exe, '--background', '--size', a.size, '--play', script] + scene + a.arg, cwd=engine, env=env,
                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=a.timeout)
         text = p.stdout.decode('utf-8', 'replace')
         code = p.returncode

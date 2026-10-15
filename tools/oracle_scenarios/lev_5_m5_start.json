@@ -1,8 +1,9 @@
 {
- "about": "lev_5_m5: the level start: the briefing (or the 600-frame fallback) dismissed, Roman's spawn, camera, the first enemies and triggers for 10 s, a 2 s walk forward from 2 s",
+ "about": "lev_5_m5: the level start: the briefing (or the 600-frame fallback) dismissed, Roman's spawn, camera, the first enemies and triggers for 10 s (traced from 60 frames before play frame 0, so events before a later briefing in one game are seen), a 2 s walk forward from 2 s",
  "level": "lev_5_m5",
  "keys": "0:ENTER*3,120:17*120",
  "frames": 600,
  "trace_every": 2,
+ "trace_from": -60,
  "suite": false
 }
