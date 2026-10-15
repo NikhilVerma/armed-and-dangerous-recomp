@@ -40,7 +40,7 @@ for lv in levels:
     script = os.path.join(script_dir, f'{lv}.json')
     # dismiss whatever message the level starts with, then play; shots at the end for a look
     steps = [{"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 3.5}, {"tap": "Enter"}, {"wait": a.seconds},
-             {"shot": "end"}, {"quit": True}]
+             {"shot": "end"}, {"wait": 0.5}, {"quit": True}]
     json.dump({"steps": steps}, open(script, 'w'))
     try:
         p = subprocess.run([exe, '--background', '--size', '1280x720', '--scene', os.path.join(WORK, lv), '--play', script],
