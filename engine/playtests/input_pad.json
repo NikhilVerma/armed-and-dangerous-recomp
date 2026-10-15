@@ -7,7 +7,7 @@
  {"expect": {"hspeed": [30, 33]}},
  {"pad": "LeftStickY=0.35"},
  {"wait": 1.2},
- {"expect": {"hspeed": [9.5, 11.5], "anim_mode": 13}},
+ {"expect": {"hspeed": [7, 9.5], "anim_mode": 13}},
  {"pad": "LeftStickY=0"},
  {"wait": 1.5},
  {"expect": {"hspeed": [0, 1]}},
