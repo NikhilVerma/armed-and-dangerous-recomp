@@ -45,6 +45,8 @@ STATE_MIND = {1: "Roam", 0xf: "Roam", 2: "Chase", 0x3c: "Chase", 0x3e: "Chase", 
               0x7a: "Guard", 0x8c: "WaitTrigger", 0xa: "Fire", 0x11: "Fire", 0x32: "Reload", 0xc1: "Reload",
               0xc8: "Flee", 0x96: "ToMarker", 0x50: "Home", 0x3d: "Wander", 0x6e: "Taunt", 0x10: "Throw",
               **{s: "Cover" for s in range(0xa0, 0xa6)}, **{s: "Gunner" for s in (0x7b, 0x7c, 0x7d)},
+              0x97: "ToMarker", 0xdc: "InSquad", 0xde: "InSquad", 0xc4: "Jump", 0xc5: "Jump", 0xbd: "Jump",
+              0xf0: "Teleport", 0xf1: "Cast",  # ai.rs Mind docs (2026-10-16)
               0x82: "*", 0x12f: "*", 0x130: "*", 0x131: "*", 0x132: "*"}
 # The level state (Game+0xa64 +0xc: 1 playing, 2 / 10 won, 3..9 failed) as the remaster's mission Outcome
 MISSION = {0: "Playing", 1: "Playing", 2: "Won", 10: "Won", **{s: "Failed" for s in range(3, 10)}}
@@ -72,12 +74,13 @@ def out_dir(sc):
 
 # --- runs ------------------------------------------------------------------------------------------------------
 
-def run_original(sc, hooks_on=False, timeout=900):
+def run_original(sc, hooks_on=False, timeout=900, inst="oracle"):
     """The original game in the "oracle" instance (tools/instances.py), every recovered function off (hooks off: the
     shipped code) unless hooks_on. Returns the trace path or None."""
     import compare
     import instances
-    gd = instances.instance_dir("oracle")
+    instances.wait_while_player_plays()
+    gd = instances.instance_dir(inst)
     for f in ("and-trace.jsonl", "and.log"):
         p = os.path.join(gd, f)
         if os.path.exists(p):
@@ -131,14 +134,19 @@ def run_remaster(sc, exe, timeout=900):
         oracle["warp"] = sc["warp"]
     body = {"oracle": oracle}
     if sc.get("level", "lev_1_m1") != "lev_1_m1":
-        print("  remaster: only lev_1_m1 is wired (the playtest scene default)")
+        body["scene"] = sc["level"]  # tools/playtest.py: work/remaster/<level>
     json.dump(body, open(script, "w"), indent=1)
     trace = os.path.join(d, "remaster.trace.jsonl")
     if os.path.exists(trace):
         os.remove(trace)
+    import instances
+    instances.wait_while_player_plays()
     t = time.time()
+    # no movies, as the original's [test] no_movies=1 (compare.write_ini): a movie folder that does not exist ends every
+    # movie at once (movie.rs: missing), so a level's start movie does not hold the remaster's clock
     r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "playtest.py"), script, "--exe", exe,
-                        "--timeout", str(timeout)], capture_output=True, text=True)
+                        "--timeout", str(timeout), "--arg=--movies", "--arg=" + os.path.join(d, "no-movies")],
+                       capture_output=True, text=True)
     if not os.path.exists(trace):
         print("  remaster: no trace\n" + r.stdout[-2000:])
         return None
@@ -265,13 +273,21 @@ def known_absent(g):
     return g.get("id") == 0 and g.get("state") == 0x8c
 
 
+# Vehicles the original traces as grunts (GruntObject-derived classes, by vtable) while the remaster's trace lists ai::Grunt
+# only (engine/src/oracle.rs; the vehicles live in engine/src/vehicles): left out of the grunt families, counted in a note.
+VEHICLE_CLASSES = {0x5aa238: "colossus", 0x5af500: "mini_zeppelin", 0x5a5e98: "saucer"}
+
+
 def compare_traces(sc, orig, rem):
     tol = dict(TOL, **sc.get("tolerance", {}))
     absent = 0
+    vehicles = 0
     for row in orig.values():
         keep = [g for g in row.get("grunts", []) if not known_absent(g)]
         absent = max(absent, len(row.get("grunts", [])) - len(keep))
-        row["grunts"] = keep
+        cars = [g for g in keep if g.get("class") in VEHICLE_CLASSES]
+        vehicles = max(vehicles, len(cars))
+        row["grunts"] = [g for g in keep if g.get("class") not in VEHICLE_CLASSES]
     fam = Families()
     frames = sorted(set(orig) & set(rem))
     notes = []
@@ -283,6 +299,8 @@ def compare_traces(sc, orig, rem):
                  f"{len(pairs)} of {len(o0.get('grunts', []))} original / {len(r0.get('grunts', []))} remaster")
     if absent:
         notes.append(f"{absent} original grunt(s) left out as a known gap (tree grunts, grunt-ai.md section 14)")
+    if vehicles:
+        notes.append(f"{vehicles} original vehicle(s) (colossus / zeppelin / saucer) left out: the remaster's trace has no vehicles")
     unmatched = [g["id"] for g in o0.get("grunts", []) if g["id"] not in pairs]
     if unmatched:
         notes.append(f"original grunts with no remaster counterpart at frame {frames[0]}: "
@@ -293,12 +311,15 @@ def compare_traces(sc, orig, rem):
         notes.append(f"remaster grunts with no original counterpart at frame {frames[0]}: "
                      + ", ".join(f"{g['id']} at {g['pos']} ({g.get('mind')})" for g in extra))
     win = tol["frames"]
+    # game time from the first common line: each game counts "t" from its own first line, and a scenario traced from
+    # before the briefing starts the two at different frames (the remaster's briefing comes later on most levels)
+    t0o, t0r = orig[frames[0]]["t"], rem[frames[0]]["t"]
     rf = sorted(rem)
     of = sorted(orig)
     for f in frames:
         o, r = orig[f], rem[f]
-        fam.check("timing", f, abs(o["t"] - r["t"]) <= tol["time"],
-                  f"game time original {o['t']:.2f} s, remaster {r['t']:.2f} s")
+        fam.check("timing", f, abs((o["t"] - t0o) - (r["t"] - t0r)) <= tol["time"],
+                  f"game time since frame {frames[0]}: original {o['t'] - t0o:.2f} s, remaster {r['t'] - t0r:.2f} s")
         ro, rr = o.get("roman"), r.get("roman")
         if ro and rr:
             d = dist(ro["pos"], rr["pos"])
@@ -360,11 +381,17 @@ def compare_traces(sc, orig, rem):
                   f"objective tag {om.get('objective')} vs {rm.get('objective')}")
     # pauses (briefings, the token message, menus): each span of at least 4 frames starts within `frames` of one in the
     # other game (a 1 or 2 frame difference is input latency: the original dismisses a message a frame after the key)
+    last = frames[-1]
     so, sr = pause_spans(orig), pause_spans(rem)
     for side, mine, other in (("original", so, sr), ("remaster", sr, so)):
         for a, b in mine:
             if b - a >= 4 and not any(abs(a - c) <= win for c, d in other if d - c >= 4):
                 fam.check("paused", a, False, f"paused frames {a}..{b} only in the {side}")
+                break
+            # the same pause, ended at another time (a message dismissed by a different key, a second message)
+            match = next(((c, d) for c, d in other if d - c >= 4 and abs(a - c) <= win), None)
+            if side == "original" and b - a >= 4 and match and abs(b - match[1]) > win and min(b, match[1]) < last:
+                fam.check("paused", a, False, f"paused frames {a}..{b} in the original, {match[0]}..{match[1]} in the remaster")
                 break
         fam.checked.add("paused")
     # events: each one must have a counterpart in the other game within event_frames
@@ -466,12 +493,13 @@ def main():
     ap.add_argument("--hooks", choices=["off", "on"], default="off",
                     help="the original's recovered functions: off = the shipped code (default), on = recovered code")
     ap.add_argument("--timeout", type=float, default=900)
+    ap.add_argument("--instance", default="oracle", help="the original's game instance (tools/instances.py): parallel agents use their own")
     a = ap.parse_args()
     sc = load_scenario(a.scenario)
     d = out_dir(sc)
     if not a.no_run:
         if a.only != "remaster":
-            if not run_original(sc, a.hooks == "on", a.timeout):
+            if not run_original(sc, a.hooks == "on", a.timeout, a.instance):
                 sys.exit(2)
         if a.only != "original":
             if not run_remaster(sc, a.exe, a.timeout):

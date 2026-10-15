@@ -1,0 +1,21 @@
+{
+ "about": "lev_1_m1: the level start: the briefing (or the 600-frame fallback) dismissed, Roman's spawn, camera, the first enemies and triggers for 10 s (traced from 60 frames before play frame 0, so events before a later briefing in one game are seen), a 2 s walk forward from 2 s",
+ "level": "lev_1_m1",
+ "keys": "0:ENTER*3,120:17*120",
+ "frames": 600,
+ "trace_every": 2,
+ "trace_from": -60,
+ "suite": false,
+ "known": {
+  "companion.jonesy.pos": "C1: a companion 12-13 units from the original's (follow distance / start spot), just past the tolerance",
+  "companion.q.health": "B6: far grunts react in the original, not in the remaster",
+  "companion.q.pos": "C1: a companion 12-13 units from the original's (follow distance / start spot), just past the tolerance",
+  "events.sounds": "B1: Roman still slides after the briefing (remaster)",
+  "events.triggers": "B2: rotated trigger box tested as its world AABB (lev_1_m3 volume 219 -> 801 wakes grunt 161)",
+  "grunt.pos": "B3: placement height (force_ground) differs: a grunt / companion on another surface",
+  "grunt.target": "B6: far grunts react in the original, not in the remaster",
+  "paused": "B1: Roman still slides after the briefing (remaster)",
+  "roman.pos": "B1: Roman still slides after the briefing (remaster)",
+  "timing": "B1: Roman still slides after the briefing (remaster)"
+ }
+}

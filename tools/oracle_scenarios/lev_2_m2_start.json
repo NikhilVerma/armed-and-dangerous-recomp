@@ -1,0 +1,21 @@
+{
+ "about": "lev_2_m2: the level start: the briefing (or the 600-frame fallback) dismissed, Roman's spawn, camera, the first enemies and triggers for 10 s (traced from 60 frames before play frame 0, so events before a later briefing in one game are seen), a 2 s walk forward from 2 s",
+ "level": "lev_2_m2",
+ "keys": "0:ENTER*3,120:17*120",
+ "frames": 600,
+ "trace_every": 2,
+ "trace_from": -60,
+ "suite": false,
+ "known": {
+  "companion.jonesy.pos": "C1: a companion 12-13 units from the original's (follow distance / start spot), just past the tolerance",
+  "companion.q.pos": "C1: a companion 12-13 units from the original's (follow distance / start spot), just past the tolerance",
+  "events.sounds": "B17: sounds the remaster does not start (or does not report): the pubs' amb_pub_exterior_lp at load, sheep, zeppelin creaks, shrub bomber loop, water footsteps",
+  "grunt.mind": "B15: grunt generators spawn differently (lev_2_m2: 17 / 25 / 27 spawn in the remaster only; lev_bonus_m2: 171 in the original only)",
+  "grunt.pos": "B10: the start message comes 20 frames after the load in the remaster, at once in the original (grunts walk 20 more frames)",
+  "grunts.alive": "B15: grunt generators spawn differently (lev_2_m2: 17 / 25 / 27 spawn in the remaster only; lev_bonus_m2: 171 in the original only)",
+  "roman.clip": "B9: the remaster starts on the rifle; the original holds the machine gun (weapon 0, clip 100) the mission gives (player_add_machinegun 1)",
+  "roman.heading": "B4: Roman's model heading ignores the start facing (look yaw is right)",
+  "roman.pos": "R1: Roman walks 3-6 units farther in 2 s in the remaster (speed / acceleration)",
+  "roman.weapon": "B9: the remaster starts on the rifle; the original holds the machine gun (weapon 0, clip 100) the mission gives (player_add_machinegun 1)"
+ }
+}

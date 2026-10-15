@@ -106,26 +106,120 @@ LEVELS = {
 }
 
 
-def run_scenario(level, name, sc, timeout, shots):
+ALL_LEVELS = ["lev_1_m1", "lev_1_m1_b", "lev_1_m3", "lev_1_m4", "lev_2_m1", "lev_2_m2", "lev_2_m3", "lev_2_m4",
+              "lev_3_m1", "lev_3_m2", "lev_3_m3", "lev_3_m4_bd", "lev_4_m1", "lev_4_m2", "lev_4_m3", "lev_4_m5",
+              "lev_5_m1", "lev_5_m2", "lev_5_m3", "lev_5_m4", "lev_5_m5", "lev_bonus_m1", "lev_bonus_m2",
+              "lev_bonus_m3"]
+
+# --- generic scenarios: any level, from its export (work/remaster/<level>/mission.json) ----------------------------
+# They count frames from the level's first paused message (the briefing; [test] keys_from_play, testoracle.cpp, as
+# the oracle runs do), so no level's load time or start movie shifts them: play frame 0 = play_delay frames after the
+# briefing appears, "0:ENTER*3" dismisses it, play_warp puts Roman at a point at play frame -10. Levels without a
+# briefing start the play clock 600 frames after the load.
+
+# behaviours of enemies (warps to their clusters) and of objects worth a warp (one per behaviour), most specific first
+ENEMIES = {"grunt_regular", "grunt", "captain", "captain_sniper", "monk", "goliath", "shrubpatrol", "squad"}
+OBJECTS = ["stig_mgun_turret", "pub", "forge_cannon", "zeppelin", "saucer", "colossus", "base_turret", "goliath",
+           "player_tickerbomb", "pickup_upgrade_weapon", "pickup_jumper_pack", "jump_marker", "pickup_topsy_weapon",
+           "pickup_blackhole", "pickup_guyfawkes", "pickup_vindaloo_mortars", "pickup_bunchoffives",
+           "pickup_sticky_bombs", "pickup_health", "pickup_generator", "pickup_token", "lamb", "rexus", "sheep",
+           "peasant", "penguin", "wildwoodgate", "guard_brazier", "guard_lantern", "guard_alarm", "object_ic",
+           "boulder_large", "q112", "base_shrub_platform", "crane_1", "oilpump", "fx_explosion", "barracade"]
+
+
+def keys_fire(start, count, every=12, key="MOUSE1"):
+    return [f"{start + i * every}:{key}" for i in range(count)]
+
+
+def clusters(points, radius=150.0):
+    """Greedy clusters of (x, y, z) points: [(count, centroid)], largest first."""
+    left = list(points)
+    out = []
+    while left:
+        seed = max(left, key=lambda p: sum(1 for q in left if (p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2 <= radius ** 2))
+        near = [q for q in left if (seed[0] - q[0]) ** 2 + (seed[1] - q[1]) ** 2 <= radius ** 2]
+        left = [q for q in left if q not in near]
+        out.append((len(near), tuple(sum(c) / len(near) for c in zip(*near))))
+    return sorted(out, key=lambda c: -c[0])
+
+
+def generic_scenarios(level, groups=2, objects=5):
+    """The generic scenarios of one level: start (walk, look, fire, sticky, jump, weapons, zoom, orders), fall (from
+    1500 units above the start: landing death), group<n> (the n-th largest enemy cluster: fire and stickies while
+    turning, until Roman dies or the time is up), obj-<behaviour> (next to one object of that behaviour: hold Use,
+    fire, sticky)."""
+    m = json.load(open(os.path.join(ROOT, "work", "remaster", level, "mission.json")))
+    start = m["player_start"][0]["position"] if m.get("player_start") else None
+    # a level with a start movie: with movies off ([test] no_movies) the movie still pauses the original and takes the
+    # first ENTER; its start message follows and needs a second one (tools/oracle_scenarios lev_2_m1_start, E1)
+    go = ["0:ENTER*3", "40:ENTER*3"] if m["mission"]["resolved"].get("start_movie") else ["0:ENTER*3"]
+    out = {}
+    if start:
+        out["start"] = {"play": True, "frames": 1200,
+                        "keys": go + ["50:17*240", "80:MOUSEX6*40"] + keys_fire(300, 15) +
+                                ["500:MOUSE2*5", "560:57", "600:16"] + keys_fire(640, 10, 10) +
+                                ["760:19", "800:15", "830:MOUSE2*5", "900:44*60", "1000:2", "1020:4"]}
+        out["fall"] = {"play": True, "frames": 600, "warp": [start[0], start[1], start[2] + 1500],
+                       "keys": go}
+    insts = m["instances"]
+    foes = [tuple(i["position"]) for i in insts if i["behaviour"] in ENEMIES]
+    for n, (count, c) in enumerate(clusters(foes)[:groups]):
+        out[f"group{n + 1}"] = {"play": True, "frames": 1100, "warp": [c[0] + 60, c[1], c[2] + 20],
+                                "about": f"{count} enemies round ({c[0]:.0f}, {c[1]:.0f}, {c[2]:.0f})",
+                                "keys": go + ["50:MOUSEX10*400"] + keys_fire(60, 45, 20) +
+                                        ["100:MOUSE2*5", "400:MOUSE2*5", "700:MOUSE2*5"]}
+    seen = set()
+    for b in OBJECTS:
+        if len(seen) >= objects:
+            break
+        hits = [i for i in insts if i["behaviour"] == b]
+        if not hits:
+            continue
+        seen.add(b)
+        p = hits[0]["position"]
+        out[f"obj-{b}"] = {"play": True, "frames": 900, "warp": [p[0] + 30, p[1], p[2] + 20],
+                           "about": f"{hits[0]['template']} {hits[0]['id']} at ({p[0]:.0f}, {p[1]:.0f}, {p[2]:.0f})",
+                           "keys": go + ["50:45*150", "200:45*6", "300:MOUSEX10*200"] +
+                                   keys_fire(260, 20, 15) + ["600:MOUSE2*5", "700:45*6"]}
+    return out
+
+
+def scenarios_for(level):
+    """A level's hand-made scenarios (lev_1_m1: they cover more than the generic ones would), else the generic ones."""
+    return LEVELS[level] if level in LEVELS else generic_scenarios(level)
+
+
+def run_scenario(level, name, sc, timeout, shots, inst="cov-main", out=print):
+    instances.wait_while_player_plays(out)
     off = {n: False for n in compare.hook_names()}
     test = {"hook_coverage": 1, "coverage_skip": ",".join(sorted(coverage.UNSAFE))}
-    if sc.get("warp"):
+    frames = sc["frames"]
+    if sc.get("play"):
+        # play-frame keys (testoracle.cpp): no frame count exit, play_frames ends the run
+        test.update({"keys_from_play": 1, "play_delay": 30, "play_frames": sc["frames"], "exit_frame": 0,
+                     "trace_every": 0})
+        if sc.get("warp"):
+            test["play_warp"] = ",".join(f"{v:.1f}" for v in sc["warp"])
+        frames = 0
+    elif sc.get("warp"):
         test["warp"] = sc["warp"]
     if shots:
         test.update({"hash_frames": shots, "dump_hashed": 1})
         # the camera dumps (player position, health) need the recovered Camera_SetupProjection (testshot.cpp);
         # shot runs are for steering a scenario, the counts of the plain run are the ones to keep
         off["Camera_SetupProjection"] = True
-    gd = instances.instance_dir("main")
+    gd = instances.instance_dir(inst)
     path = os.path.join(gd, "and-coverage.txt")
     for f in [path] + glob.glob(os.path.join(gd, "and-frame-*")):
-        os.remove(f)
+        if os.path.exists(f):
+            os.remove(f)
     t = time.time()
-    compare.run_once(f"coverage {level}.{name}", off, level, sc["frames"], timeout, ",".join(sc["keys"]), test)
+    compare.run_once(f"coverage {level}.{name}", off, level, frames, timeout, ",".join(sc["keys"]), test,
+                     game_dir=gd, out=out)
     log = open(os.path.join(gd, "and.log"), encoding="latin1").read()
     for line in log.splitlines():
-        if "test warp" in line:
-            print("  " + line.strip())
+        if "test warp" in line or "test: briefing" in line or "warp" in line.lower() and "test" in line:
+            out(f"  {level}.{name}: " + line.strip())
     if shots:
         from PIL import Image
         os.makedirs(os.path.join(ROOT, "work", "shots"), exist_ok=True)
@@ -139,7 +233,7 @@ def run_scenario(level, name, sc, timeout, shots):
                 print(f"  frame {n}: player {[round(v) for v in c.get('player', [])]} health "
                       f"{c.get('player_health', 0):.0f}")
     if not os.path.exists(path):
-        print(f"  {name}: no and-coverage.txt written ({time.time() - t:.0f}s)")
+        out(f"  {level}.{name}: no and-coverage.txt written ({time.time() - t:.0f}s)")
         return False
     counts = {}
     for line in open(path):
@@ -147,7 +241,8 @@ def run_scenario(level, name, sc, timeout, shots):
         counts[fn] = {"address": addr, "calls": int(count)}
     os.makedirs(RUNS, exist_ok=True)
     json.dump(counts, open(os.path.join(RUNS, f"{level}.{name}.json"), "w"), indent=0)
-    print(f"  {name}: {sum(1 for v in counts.values() if v['calls'])} functions executed ({time.time() - t:.0f}s)")
+    out(f"  {level}.{name}: {sum(1 for v in counts.values() if v['calls'])} functions executed "
+        f"({time.time() - t:.0f}s)")
     return True
 
 
@@ -176,27 +271,66 @@ def merge():
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--level", default="lev_1_m1")
-    ap.add_argument("--only", default="")
+    ap.add_argument("--level", default="lev_1_m1", help="a level, several (comma-separated) or all")
+    ap.add_argument("--only", default="", help="scenario names (comma-separated)")
     ap.add_argument("--list", action="store_true")
     ap.add_argument("--merge", action="store_true", help="only rebuild coverage.json from work/coverage_runs")
     ap.add_argument("--shots", default="", help="first:every:count presented frames to save as PNGs")
     ap.add_argument("--timeout", type=int, default=240)
+    ap.add_argument("--jobs", type=int, default=1, help="runs at once, each in its own game instance (cov<n>)")
+    ap.add_argument("--resume", action="store_true", help="skip runs whose counts are already in work/coverage_runs")
     a = ap.parse_args()
     os.chdir(ROOT)
-    scenarios = LEVELS[a.level]
+    levels = ALL_LEVELS if a.level == "all" else a.level.split(",")
+    work = []
+    for lv in levels:
+        scen = scenarios_for(lv)
+        for n, sc in scen.items():
+            if a.only and n not in a.only.split(","):
+                continue
+            if a.resume and os.path.exists(os.path.join(RUNS, f"{lv}.{n}.json")):
+                continue
+            work.append((lv, n, sc))
     if a.list:
-        for n, sc in scenarios.items():
-            print(f"{n:14} frames {sc['frames']:5} warp {sc.get('warp', '-'):24} keys {len(sc['keys'])}")
+        for lv, n, sc in work:
+            print(f"{lv:13} {n:28} frames {sc['frames']:5} warp {str(sc.get('warp', '-')):40} {sc.get('about', '')}")
         return 0
     if not a.merge:
         coverage.UNSAFE = coverage.unsafe_hooked()
-        names = a.only.split(",") if a.only else list(scenarios)
-        backup = os.path.join(ROOT, "work", f"coverage_before_{a.level}.json")
+        tag = a.level if len(levels) == 1 else "all_levels"
+        backup = os.path.join(ROOT, "work", f"coverage_before_{tag}.json")
         if not os.path.exists(backup) and os.path.exists(OUT):
             shutil.copy2(OUT, backup)
-        for n in names:
-            run_scenario(a.level, n, scenarios[n], a.timeout, a.shots)
+        if a.jobs <= 1:
+            for lv, n, sc in work:
+                run_scenario(lv, n, sc, a.timeout, a.shots)
+        else:
+            import queue
+            import threading
+            q = queue.Queue()
+            for w in work:
+                q.put(w)
+            lock = threading.Lock()
+
+            def say(s):
+                with lock:
+                    print(s, flush=True)
+
+            def worker(slot):
+                while True:
+                    try:
+                        lv, n, sc = q.get_nowait()
+                    except queue.Empty:
+                        return
+                    try:
+                        run_scenario(lv, n, sc, a.timeout, "", f"cov{slot}", say)
+                    except Exception as e:  # one failed run must not stop the others
+                        say(f"  {lv}.{n}: failed: {e}")
+            threads = [threading.Thread(target=worker, args=(i,)) for i in range(a.jobs)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
     merge()
     return 0
 

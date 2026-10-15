@@ -385,7 +385,16 @@ void TestOracleOnFrame()
         }
     }
     if (!g_traceEvery)
+    {
+        // keys only (tools/coverage_level.py: play-frame keys, no trace): play_frames still ends the run
+        if (g_playFrames && g_briefFrame >= 0 && f >= g_playFrames)
+        {
+            Log("test: play frames done (%d)", f);
+            HooksWriteCoverage();
+            TerminateProcess(GetCurrentProcess(), 0);
+        }
         return;
+    }
     if (g_briefFrame < 0)
     {
         // the play frames are not known yet: keep every frame's line (trace_from < 0), else drop the events
@@ -415,6 +424,7 @@ void TestOracleOnFrame()
         Log("test: play frames done (%d)", f);
         if (g_out)
             fclose(g_out), g_out = nullptr;
+        HooksWriteCoverage();  // [test] hook_coverage runs (TerminateProcess skips atexit)
         TerminateProcess(GetCurrentProcess(), 0);
     }
 }

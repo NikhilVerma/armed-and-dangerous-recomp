@@ -1,0 +1,19 @@
+{
+ "about": "lev_bonus_m2: the level start: the briefing (or the 600-frame fallback) dismissed, Roman's spawn, camera, the first enemies and triggers for 10 s (traced from 60 frames before play frame 0, so events before a later briefing in one game are seen), a 2 s walk forward from 2 s",
+ "level": "lev_bonus_m2",
+ "keys": "0:ENTER*3,120:17*120",
+ "frames": 600,
+ "trace_every": 2,
+ "trace_from": -60,
+ "suite": false,
+ "known": {
+  "events.sounds": "B17: sounds the remaster does not start (or does not report): the pubs' amb_pub_exterior_lp at load, sheep, zeppelin creaks, shrub bomber loop, water footsteps",
+  "grunt.mind": "B13: grunts in the bully state 0x118 (bully.rs) roam in the remaster",
+  "grunt.pos": "B3: placement height (force_ground) differs: a grunt / companion on another surface",
+  "grunt.target": "B18: grunts take Roman as target at the start in the remaster only (lev_1_m1_b captain 134 patrols in the original, 0x96)",
+  "grunts.alive": "B15: grunt generators spawn differently (lev_2_m2: 17 / 25 / 27 spawn in the remaster only; lev_bonus_m2: 171 in the original only)",
+  "roman.clip": "B9: the remaster starts on the rifle; the original holds the machine gun (weapon 0, clip 100) the mission gives (player_add_machinegun 1)",
+  "roman.heading": "B4: Roman's model heading ignores the start facing (look yaw is right)",
+  "roman.weapon": "B9: the remaster starts on the rifle; the original holds the machine gun (weapon 0, clip 100) the mission gives (player_add_machinegun 1)"
+ }
+}

@@ -78,6 +78,54 @@ def default_count():
     return max(2, (os.cpu_count() or 8) // 4)
 
 
+def _process_paths():
+    """Full image paths of the running processes (Win32: EnumProcesses + QueryFullProcessImageNameW)."""
+    import ctypes
+    import ctypes.wintypes as W
+    k32, psapi = ctypes.windll.kernel32, ctypes.windll.psapi
+    pids = (W.DWORD * 4096)()
+    got = W.DWORD()
+    psapi.EnumProcesses(pids, ctypes.sizeof(pids), ctypes.byref(got))
+    out = []
+    for pid in pids[:got.value // 4]:
+        h = k32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            continue
+        buf = ctypes.create_unicode_buffer(1024)
+        n = W.DWORD(1024)
+        if k32.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(n)):
+            out.append(buf.value)
+        k32.CloseHandle(h)
+    return out
+
+
+def player_busy():
+    """The human is playing: their remaster copy (engine\\target\\release\\and_remaster.exe of any checkout) or the
+    original from its own game folder (an .exe in orig\\pc\\GameData, e.g. game.unpacked.exe; not a test instance) is running. Test runs pause
+    meanwhile (docs/agent-brief.md: they eat the player's CPU)."""
+    for p in _process_paths():
+        low = p.lower().replace("/", "\\")
+        if low.endswith("\\engine\\target\\release\\and_remaster.exe"):
+            return p
+        if "\\orig\\pc\\gamedata\\" in low and low.endswith(".exe") and "\\work\\instances\\" not in low:
+            return p
+    return None
+
+
+def wait_while_player_plays(out=print, poll=30):
+    """Blocks while player_busy(); says so once."""
+    import time
+    said = False
+    while True:
+        p = player_busy()
+        if not p:
+            return
+        if not said:
+            out(f"  the player's game is running ({p}): waiting")
+            said = True
+        time.sleep(poll)
+
+
 if __name__ == "__main__":
     count = int(sys.argv[1]) if len(sys.argv) > 1 else default_count()
     for n in range(count):

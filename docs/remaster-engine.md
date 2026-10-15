@@ -160,6 +160,82 @@ not compared); the original unpauses a frame after the dismissing key (pauses un
 Open: state 0x1f (sticky, grunt 201) is not in grunt-ai.md's table; restart scenarios (pause menu -> restart) are not
 written yet (menu navigation of the original's pause page to script).
 
+### Oracle findings on every level (2026-10-16, agent-oracle-all)
+
+`tools/oracle_scenarios/<level>_start.json` for all 24 levels: the start message dismissed (`0:ENTER*3`; lev_2_m1 /
+lev_5_m1 also `40:ENTER*3`, see E1), 10 s of play with a 2 s walk (W from 120), traced from play frame -60 so events
+before a later start message in one game are seen. Run them all (about 25 min with two at once):
+
+```bash
+.venv/Scripts/python.exe tools/oracle_suite.py --exe target-NAME --jobs 2 --instance oracle-NAME lev_1_m1_b_start ...
+```
+
+Harness changes that came with them (tools/oracle_diff.py): the remaster runs with `--movies <a folder that does not
+exist>` (the original's `[test] no_movies=1`; before, lev_2_m1 / lev_5_m1 / lev_5_m5 played their start movie and the
+remaster's clock waited 600 frames); vehicles (colossus 0x5aa238, mini_zeppelin 0x5af500, saucer 0x5a5e98) are left out
+of the grunt families with a note (the remaster's trace, engine/src/oracle.rs, lists `ai::Grunt` only: adding the
+vehicles there would let them be compared); states 0x97, 0xdc / 0xde, 0xc4 / 0xc5 / 0xbd, 0xf0, 0xf1 map to ToMarker,
+InSquad, Jump, Teleport, Cast (ai.rs `Mind`); game time is compared from the first common line; a pause that both games
+start but end at different frames is a divergence (before, only the start was checked: this now flags pub's B7);
+`--instance` gives parallel agents their own original instance. Each scenario's `known` names the bugs below, so it
+passes and still guards every other family; the nine with deterministic divergences only are in the suite (lev_1_m4,
+lev_2_m3, lev_2_m4, lev_3_m2, lev_3_m4_bd, lev_4_m3, lev_4_m5, lev_5_m2, lev_5_m4: rerun twice, same result).
+
+| Id | Remaster bug or difference (first divergence) | Evidence (work/oracle/<level>_start/) |
+| --- | --- | --- |
+| B9 | Every level starts on the rifle; the original holds the machine gun (weapon 0, clip 100) when the mission gives it (`player_add_machinegun` 1: all levels but lev_1_m1). Look at the loadout at level start (player.rs `use_mg`, pickup.rs loadout) | roman.weapon / roman.clip at the first line on 23 levels: original 0 / 100, remaster "rifle" / 8 |
+| B10 | The start message: the remaster shows it 20 frames after the load, the original at once (load frame 0), so the remaster's patrols walk 20 more frames (grunt.pos 12-26 units: lev_1_m1_b grunt 1, lev_2_m2 16, lev_3_m2 69, lev_bonus_m3 201). Base-defence levels (lev_1_m4, lev_2_m4, lev_3_m4_bd, lev_4_m5): the original's comes 279-399 frames after the load, after its start sequence (lev_4_m5 traced from the load: trigger 1 at load, 2 and the `basedefend` sting at +59, 90..94 at +164..+184, the message at +399); the remaster's at +20, so on its play clock the timed triggers (3, 402, 400, 11) and the army's first grunts come ~350 frames later (only-original events) | original.log / remaster.out "briefing at"; work/oracle/lev_4_m5_long (trace_from -460) |
+| B4 (more) | Roman's model heading ignores the start facing (the look yaw is right: look_yaw = -heading): 0 on identity starts where the original has 180, 20-110 deg off elsewhere | roman.heading on 15 levels, e.g. lev_2_m3 69.5 vs -123.7, lev_4_m1 49 vs -45 |
+| B3 (more) | `force_ground` placement picks another surface: lev_3_m3 grunt 32 / lev_bonus_m2 grunt 23 (placed z 20) at z 114 (original 20); lev_5_m1 captain 66 (placed 102) at 227 (original 298); lev_5_m3 grunt 44 at 287 (316); lev_bonus_m3 Jonesy 114 units higher | grunt.pos, companion.jonesy.pos at -30 |
+| B2 (more) | lev_1_m3: volume 219 (bb_300x300 rotated 141 deg, z 149) fires 801 when Roman walks below it (remaster only), waking grunts 161-164 / 170 | events.triggers 801 at 186 only in the remaster; grunt 161 Chase vs WaitTrigger at 206 |
+| B11 | Squad goliaths are not created: `squad_goliath_*` squads carry a GoliathObject (0x5af298, 3000 health) in the original; ai/squad.rs leaves `Squad::goliath` to the goliath module, which never spawns one (lev_3_m1 3, lev_4_m1 3) | grunts.alive 59 vs 56 / 57 vs 54; grunt.health "3000 vs 150" (the goliath paired with a captain by position) |
+| B12 | Building IC grunts present at load (id 0, state 0x64, beside v_house_* with `ic_door_*` / `ic_climb_*` / `ic_roof_jump_*`) are not created: lev_1_m1_b 6, lev_5_m1 2 | grunts.alive 36 vs 30 at -30 |
+| B13 | Grunts in the bully state 0x118 (bully.rs: a peasant to bully) are in Roam in the remaster: lev_3_m3 grunt 9, lev_4_m2 grunt 40, lev_bonus_m2 grunt 8 | grunt.mind at -30 |
+| B14 | lev_bonus_m1's opening assault does not happen: in the original 17 `veh_jumper_blastoff` at load, jumper captains flying (grunt 8 state 0xc4), forge cannon and captain rocket fire from frame 6, Roman hit for 200 at 66; the remaster's grunt 8 waits for its trigger, Roman keeps 400 | grunt.mind / target, roman.health, events.sounds |
+| B15 | Grunt generators: lev_2_m2's `grunt_generator` 17 / 25 / 27 spawn troops in the first 10 s in the remaster only (no alarm raised); lev_bonus_m2's 171 spawns in the original only | grunts.alive 32 vs 33..36 (from 162), 38 vs 37 (from 218) |
+| B16 | lev_4_m2: 9 grunts come out at the l4 trees (l4_tree_d 121, l4_tree_dense_d 128 / 131) in the first 10 s in the original; none in the remaster (the tree grunts gap, grunt-ai.md section 14) | grunts.alive 24 -> 33 vs 22 |
+| B17 | Sounds the remaster does not start, or does not report: the pubs' `amb_pub_exterior_lp` at load (18 levels: level.rs:858 inserts an `AudioLoop` but no start reaches the sound bank's `started_keys` the oracle reads: confirm which), sheep (`ctr_sheep_call_idle`, `ctr_fs_sheep`: lev_2_m4, lev_3_m4_bd), `veh_zeppelin_creak` (lev_4_m5), the shrub bomber's `veh_bomber_lp` (lev_5_m5), `fs_water_shallow` (lev_bonus_m3 water). The other way: lev_1_m4 plays `wpn_stig_mount` for `start_in_turret`, the original mounts silently | events.sounds |
+| B18 | Grunts take Roman as target at the start in the remaster only: lev_1_m1_b captain 134 (trigger_marker with `marker_patrol`, activate 900) patrols in the original (0x96) but chases Roman at -30; lev_3_m3 grunt 51, lev_bonus_m2 grunt 40 likewise | grunt.mind / grunt.target at -30 |
+| B19 | lev_1_m1_b, original only (open): sphere 376 (`on_enter` 700, `ai_can_trigger` 0, one shot, far from Roman) sends 700 at load; an object without an instance id dies at 36 (`imp_turret_glass_break`); Roman loses 15 health at 548 | events.triggers / deaths, roman.health |
+| B20 | Original only (open): lev_5_m5 base turret 166 sends 90 at 180; lev_5_m1 an object without an instance id dies at 74 | events.triggers, events.deaths |
+| C1 | A companion 12-13 units from the original's (tolerance 12) while Roman walks (lev_1_m1, lev_2_m2, lev_5_m3, lev_bonus_m3) or at the start (lev_4_m2 Jonesy): follow distance / start spot | companion.*.pos |
+| R1 | Roman walks 3-6 units farther in 2 s of W on 20 levels (original 76-81, remaster 79-87; lev_1_m1 the other way, B1): speed or acceleration at the walk start | roman.pos from 110 to 300 (lev_2_m2 6.1 apart at 210) |
+| E1 | Expected: with movies off in both, the original's start movie still pauses and takes the first ENTER (its start message follows), the remaster's missing movie ends at once (lev_2_m1, lev_5_m1: paused -30..42 vs -31..0; lev_5_m5 timing) | paused, timing |
+
+Per level (first divergence frame in brackets; families not listed are the same within tolerance):
+
+| Level | Divergences | Suite |
+| --- | --- | --- |
+| lev_1_m1 | B3 grunt 181 (-60), B1 slide / sounds / token pause (2, 18, 236), B2 711 (138), C1 (264), B6 (304) | walk etc. |
+| lev_1_m1_b | B9, B4, B17 pub loop, B19 700 / death / health, B18 captain 134, B10 grunt 1, B12 6 IC grunts | |
+| lev_1_m3 | B9, B4, B17 pub loop, B2 volume 219 -> 801 (186) and grunt 161 (204-206) | |
+| lev_1_m4 | B9, B4, B17 stig mount (-48), B10 base start (trigger 3 at 22) | yes |
+| lev_2_m1 | B9, B4, B17 pub loop, E1 | |
+| lev_2_m2 | B9, B17, B10 grunt 16 (2), B15 generators (162, 180), C1 (184, 274), R1 (210) | |
+| lev_2_m3 | B9, B4, B17 pub loop | yes |
+| lev_2_m4 | B9, B17 sheep (24), B10 base start (402 at 322, army at 418) | yes |
+| lev_3_m1 | B9, B4, B17 pub loop, B11 3 squad goliaths | |
+| lev_3_m2 | B9, B4, B17 pub loop, B10 grunt 69 | yes |
+| lev_3_m3 | B9, B4, B17, B13 grunt 9, B3 grunt 32, B18 grunt 51, B16-like spawn timing (520) | |
+| lev_3_m4_bd | B9, B17 sheep (-48), B10 base start (400 at 184, army at 450) | yes |
+| lev_4_m1 | B9, B4, B17 pub loop, B11 3 squad goliaths | |
+| lev_4_m2 | B9, B4, B17, C1 Jonesy (-30), B13 grunt 40, B16 tree spawns (60) | |
+| lev_4_m3 | B9, B4, B17 pub loop | yes |
+| lev_4_m5 | B9, B17 zeppelin creak (174), B10 base start (11 at 502, army at 568) | yes |
+| lev_5_m1 | B9, B4, B17, B3 captain 66, B12 2 IC grunts, E1, B20 death (74) | |
+| lev_5_m2 | B9, B17 pub loop | yes |
+| lev_5_m3 | B9, B17, B3 grunt 44, C1 Q (198) | |
+| lev_5_m4 | B9, B17 pub loop | yes |
+| lev_5_m5 | B9, B17 bomber loop, E1 timing, B20 trigger 90 (180) | |
+| lev_bonus_m1 | B9, B4, B17, B14 opening assault (-30 .. 328) | |
+| lev_bonus_m2 | B9, B4, B17, B13 grunt 8, B3 grunt 23, B18 grunt 40, B15 generator 171 (218) | |
+| lev_bonus_m3 | B9, B4, B3 Jonesy, B10 grunt 201, B17 water footsteps (12), C1 Q (168) | |
+
+Also from the remaster's own logs on these runs (`not ported` lines in remaster.out): mission `peasant_max_saved` /
+`peasant_max_casualties` (lev_2_m3, lev_3_m1, lev_3_m3, lev_4_m1, lev_4_m2, lev_bonus_m2), ticker sites'
+`lock_parent_tag` (0x0044e120: lev_3_m1, lev_4_m1), fx vm opcodes 0x4c (lev_3_m3, lev_5_m1, lev_5_m3, lev_bonus_m1,
+lev_bonus_m2) and 0x62 (lev_5_m1..m3).
+
 ### Same-camera render comparison (rendering pieces)
 
 **Caution:** `--camera` (fixed camera from a dump) disagreed with the synced run on 2026-10-13 (rock walls where the
@@ -282,6 +358,21 @@ tools/coverage.py). To steer a new scenario, `--only NAME --shots first:every:co
 work/shots/cov-NAME-F.png and prints Roman's position and health per frame (it switches on the recovered
 Camera_SetupProjection for the camera dump; rerun without `--shots` for the counts). Roman keeps his heading after the
 warp (facing -y on lev_1_m1: W -y, S +y, D -x). For a later level add a LEVELS entry with its own positions.
+
+Every level (2026-10-16): `python tools/coverage_level.py --level all --jobs 3 --resume` (or `--level lev_2_m1,lev_3_m1`;
+`--list` shows the runs). A level without a LEVELS entry gets generic scenarios built from its export
+(work/remaster/<level>/mission.json): `start` (walk, look, fire, sticky, jump, next weapon, reload, special, zoom, the
+teammate orders), `fall` (1500 units above the start), `group1` / `group2` (the two largest enemy clusters: fire while
+turning, stickies, until Roman dies or time is up) and `obj-<behaviour>` (next to the first object of up to five
+behaviours from `OBJECTS`, mounted guns and pubs first: hold Use, fire, sticky). They count play frames from the start
+message ([test] keys_from_play, play_warp, play_frames; the hook now writes the coverage before a play_frames exit), so
+no load time or start movie shifts them; a level with a start movie gets a second ENTER at 40 (E1 under "Oracle
+findings on every level"). Each run is 30-55 s; the 200 runs of all levels took about 2 h 10 min with three at once
+in instances cov0..cov2. Result (2026-10-16): 2306 -> 2605 of 3491 registered functions executed; 299 newly reached,
+22 of them left for the port: docs/port/queue-after-all-levels.md (`python tools/port_queue.py --new-since
+work/coverage_before_all_levels.json --md docs/port/queue-after-all-levels.md`). Test runs wait while the player's game
+runs (tools/instances.py `wait_while_player_plays`: engine\target\release\and_remaster.exe or an exe in
+orig\pc\GameData).
 
 ### Capturing the original's menus and screens
 
