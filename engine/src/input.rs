@@ -228,10 +228,12 @@ fn contexts(
     mut sources: ResMut<ActionSources>,
     ctx: Query<(Entity, Has<Gameplay>, Has<Menus>, Has<Message>, Option<&GamepadDevice>)>,
     mut last: Local<Option<(bool, bool, bool)>>,
-    mut controls: ResMut<Controls>,
+    (mut controls, movie): (ResMut<Controls>, Option<Res<crate::movie::MoviePlayer>>),
 ) {
     let showing = mission.as_ref().is_some_and(|m| m.showing.is_some());
-    let play = *state.get() == crate::AppState::Playing && menu.page != crate::gamemenu::Page::Pub;
+    // a full-window movie takes the menus' buttons (select / back skip it: movie.rs)
+    let movie = movie.is_some_and(|m| m.takes_input());
+    let play = *state.get() == crate::AppState::Playing && menu.page != crate::gamemenu::Page::Pub && !movie;
     let want = (play && !showing, !play, play && showing);
     controls.active_play = want.0;
     if last.is_some_and(|l| l != want) {

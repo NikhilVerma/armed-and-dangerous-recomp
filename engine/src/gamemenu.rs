@@ -236,7 +236,7 @@ pub struct GameMenuPlugin;
 
 impl Plugin for GameMenuPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<GameMenu>().init_resource::<Texts>().add_systems(Update, (failed, navigate, animate, values, pause_band, credits, log_menu).chain());
+        app.init_resource::<GameMenu>().init_resource::<Texts>().add_systems(Update, (failed, navigate.run_if(crate::movie::no_movie_input), animate, values, pause_band, credits, log_menu).chain());
     }
 }
 
@@ -657,6 +657,10 @@ fn relaunch(into_level: bool) {
     }
     if into_level {
         args.push("--skip-title".into());
+    }
+    // the boot intro movies play once a session (cutscenes.rs)
+    if !args.iter().any(|a| a == "--no-intro") {
+        args.push("--no-intro".into());
     }
     if let Err(e) = std::process::Command::new(exe).args(&args).spawn() {
         warn!("menu: could not start the game again: {e}");
