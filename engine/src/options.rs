@@ -200,8 +200,10 @@ fn apply(
         if let Projection::Perspective(pp) = p {
             let mut pp = pp.clone();
             let fog_far = game_lights.as_ref().and_then(|l| l.fog.map(|f| f.1)).unwrap_or(1500.0);
-            // the sky dome (radius 20000) must fit: the game material clips the world at the original far plane itself
-            pp.far = world_far(fog_far, o.draw_distance).max(50000.0);
+            // the original's far plane: objects wholly beyond it are culled (the game material also clips each pixel
+            // there, so nothing visible changes); the sky dome (radius 20000) is never culled (level.rs). Culled
+            // objects also stay out of the remaster's depth prepass, where their clipped depth would hide the sky
+            pp.far = world_far(fog_far, o.draw_distance);
             commands.entity(e).insert(Projection::Perspective(pp));
         }
     }

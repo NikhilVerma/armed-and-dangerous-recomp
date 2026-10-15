@@ -18,6 +18,11 @@
 //! API: [`GraphicsPlugin`]; [`GraphicsSettings`] (resource, the settings in effect); [`resolve`] (a preset plus
 //! changes); [`texture_path`] / [`world_sampler`] for asset loading (textures.rs). Libraries: Bevy's SSAO (an
 //! XeGTAO implementation), TAA, SMAA, contrast-adaptive sharpening, PCSS soft shadows, bloom.
+//!
+//! Debt: the game material clips at the original's far plane per pixel, but Bevy's depth prepass (TAA, SSAO, soft
+//! particles) has no such clip (a material prepass shader would cost the shadow passes their batching: 4K 113 -> 64
+//! fps). Objects wholly beyond the far plane are culled (options.rs), so only the far part of an object straddling
+//! it can show the clear (fog) colour instead of the sky behind it in the Remaster.
 
 mod textures;
 
@@ -433,10 +438,9 @@ fn apply_cameras(
             };
             c.insert(ScreenSpaceAmbientOcclusion { quality_level, radius: s.ao_radius.max(0.01), constant_object_thickness: s.ao_radius * 0.3 });
         }
-        // soft particles read the depth prepass; with normals too, so the game material's prepass fragment (its far
-        // clip) always runs (a depth-only prepass skips fragments and would keep the clipped land's depth)
+        // soft particles read the depth prepass
         if s.soft_particles > 0.0 {
-            c.insert((DepthPrepass, NormalPrepass));
+            c.insert(DepthPrepass);
         }
         if hdr {
             // only what is brighter than white blooms (the game's surfaces are clamped to white: gamematerial.wesl),

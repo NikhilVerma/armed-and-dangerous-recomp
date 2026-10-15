@@ -255,6 +255,7 @@ impl Plugin for LevelPlugin {
             .init_resource::<TriggerLog>()
             .add_systems(Update, (husks.after(crate::fx::FxSet).after(crate::mission::deaths), restore_stages, spawn_grunts, rigid_anims, audio_loops, object_triggers))
             .add_systems(PostUpdate, follow_camera.before(TransformSystems::Propagate))
+            .add_systems(PostUpdate, sky_never_culled)
             .add_systems(PostUpdate, default_anims.before(crate::skin::AnimateSet))
             .add_systems(PostUpdate, (log_oilpump, log_objects).after(TransformSystems::Propagate));
     }
@@ -338,6 +339,16 @@ fn log_objects(
         out.entry(id.to_string()).or_insert_with(|| serde_json::json!({ "removed": true }));
     }
     state.0.insert("objects".into(), out.into());
+}
+
+/// The sky dome's parts are never frustum culled: the camera's far plane is the original's (options.rs), the dome
+/// lies far beyond it.
+fn sky_never_culled(mut commands: Commands, parts: Query<(Entity, &ChildOf), Added<Mesh3d>>, sky: Query<(), With<Background>>) {
+    for (e, parent) in &parts {
+        if sky.contains(parent.parent()) {
+            commands.entity(e).insert(bevy::camera::visibility::NoFrustumCulling);
+        }
+    }
 }
 
 fn follow_camera(cam: Query<&Transform, (With<Camera3d>, Without<Background>)>, mut sky: Query<&mut Transform, With<Background>>) {

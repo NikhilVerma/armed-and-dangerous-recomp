@@ -59,11 +59,9 @@ impl Material for GameMaterial {
     fn fragment_shader() -> bevy::shader::ShaderRef {
         bevy::shader::ShaderRef::Path(bevy::asset::AssetPath::from_path_buf(bevy::asset::embedded_path!("gamematerial.wesl")).with_source("embedded"))
     }
-    /// The prepass (depth / normals / motion vectors: only with remaster settings, graphics.rs) clips at the far
-    /// plane as the main pass does, or the clipped land's depth would hide the sky behind it.
-    fn prepass_fragment_shader() -> bevy::shader::ShaderRef {
-        bevy::shader::ShaderRef::Path(bevy::asset::AssetPath::from_path_buf(bevy::asset::embedded_path!("gamematerial_prepass.wesl")).with_source("embedded"))
-    }
+    // No prepass fragment shader of its own: one makes Bevy bind the material in every depth-only pass (the sun's
+    // four shadow cascades lost their batching: 4K 113 -> 64 fps, 2026-10-15). The far clip in the remaster's depth
+    // prepass is handled by culling at the far plane instead (options.rs).
     fn alpha_mode(&self) -> AlphaMode {
         // alpha textures blend (the material log: flags bits 8-11 = 3 -> blend table 0x0057d9e0 entry 3 = SRCALPHA,
         // INVSRCALPHA, ADD, with alpha test on), not a hard 0.5 cut: thin soft twigs as in the original
@@ -77,7 +75,6 @@ pub struct GameMaterialPlugin;
 impl Plugin for GameMaterialPlugin {
     fn build(&self, app: &mut App) {
         bevy::asset::embedded_asset!(app, "gamematerial.wesl");
-        bevy::asset::embedded_asset!(app, "gamematerial_prepass.wesl");
         app.add_plugins(MaterialPlugin::<GameMaterial>::default()).add_systems(PostUpdate, swap.run_if(resource_exists::<GameLights>));
     }
 }
