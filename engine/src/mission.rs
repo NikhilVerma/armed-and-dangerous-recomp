@@ -108,16 +108,28 @@ enum Action {
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Volume {
     Sphere(Vec3, f32),
-    /// engine-space aabb
-    Box(Vec3, Vec3),
+    /// the model's box in its own space (game axes, z up) and the map from engine space into it: the placement's
+    /// rotation is kept, so a slab turned about z is tested as the slab, not its world aabb (trigger 269, a 20-unit
+    /// bb_300x300 turned ~13 degrees, reached Roman's start point through its aabb)
+    Box { to_local: Mat4, min: Vec3, max: Vec3 },
 }
 
 impl Volume {
-    /// `p` is a point 5 units above the feet (the body's centre, guess for the collision proxy's reach).
+    /// The box volume of a model placed by `placement` (the instance's game-space matrix), `min` / `max` its box.
+    fn oriented_box(placement: Mat4, min: Vec3, max: Vec3) -> Self {
+        let to_engine = Mat4::from_quat(game_to_engine()) * placement;
+        Volume::Box { to_local: to_engine.inverse(), min: min.min(max), max: min.max(max) }
+    }
+
+    /// `p` is a point 5 units above the feet (the body's centre, guess for the collision proxy's reach); a box is
+    /// reached 2 units outside its faces and 20 above its top (the body's height over a thin floor slab).
     fn contains(&self, p: Vec3) -> bool {
         match *self {
             Volume::Sphere(c, r) => c.distance(p) <= r,
-            Volume::Box(a, b) => p.cmpge(a - Vec3::splat(2.0)).all() && p.cmple(b + Vec3::Y * 20.0).all(),
+            Volume::Box { to_local, min, max } => {
+                let l = to_local.transform_point3(p);
+                l.cmpge(min - Vec3::splat(2.0)).all() && l.cmple(max + Vec3::new(2.0, 2.0, 20.0)).all()
+            }
         }
     }
 }
@@ -825,10 +837,14 @@ impl Mission {
                     let vol = i.volume.as_ref();
                     let kind = vol.and_then(|v| v.get("kind")).and_then(|v| v.as_str()).unwrap_or("sphere");
                     let volume = if kind == "box" {
-                        let aabb = vol.and_then(|v| v.get("world_aabb")).and_then(|v| v.as_array()).cloned().unwrap_or_default();
-                        let p = |i: usize| aabb.get(i).and_then(|v| v.as_array()).map(|a| [a[0].as_f64().unwrap_or(0.0) as f32, a[1].as_f64().unwrap_or(0.0) as f32, a[2].as_f64().unwrap_or(0.0) as f32]).unwrap_or([0.0; 3]);
-                        let (a, b) = (game_pos(p(0)), game_pos(p(1)));
-                        Volume::Box(a.min(b), a.max(b))
+                        // the model's box (local_min / local_max) under the placement's transform
+                        let corner = |k: &str| -> Vec3 {
+                            let a = vol.and_then(|v| v.get(k)).and_then(|v| v.as_array());
+                            let c = |j: usize| a.and_then(|a| a.get(j)).and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+                            Vec3::new(c(0), c(1), c(2))
+                        };
+                        let placement = i.transform.as_ref().map(crate::scene::game_matrix).unwrap_or(Mat4::from_translation(Vec3::from(i.position.unwrap_or_default())));
+                        Volume::oriented_box(placement, corner("local_min"), corner("local_max"))
                     } else {
                         let rad = vol.and_then(|v| v.get("radius")).and_then(|v| v.as_f64()).unwrap_or(n(r, "sphere_radius")) as f32;
                         Volume::Sphere(pos, rad)
