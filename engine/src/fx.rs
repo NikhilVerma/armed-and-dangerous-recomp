@@ -150,6 +150,25 @@ impl Destructible {
 #[derive(Component)]
 pub struct Fuse(pub f32);
 
+/// Armour in front of a character that takes its hits first: whole hits while its health lasts (the base turret's
+/// glass window over Roman, base_turret_l5_m5_window 40: BaseDefendTurret damage 0x0049aeb0 gives the window the hit
+/// while it exists, the player only after; defence.rs puts it on him while mounted).
+#[derive(Component, Clone, Copy, Debug)]
+pub struct DamageShield {
+    pub health: f32,
+}
+
+impl DamageShield {
+    /// Takes a hit of `amount`: true when the shield took it (it stood before the hit).
+    pub fn absorb(&mut self, amount: f32) -> bool {
+        if self.health <= 0.0 {
+            return false;
+        }
+        self.health -= amount;
+        true
+    }
+}
+
 /// Health of characters (grunts): area damage takes it, `max_health` from their property set.
 #[derive(Component)]
 pub struct Health(pub f32);
@@ -218,7 +237,7 @@ fn damage(
     mut blasts: MessageReader<Explode>,
     mut physics: NonSendMut<Physics>,
     mut objects: Query<(Entity, &GlobalTransform, &mut Destructible, Option<&Bounds>)>,
-    mut chars: Query<(Entity, &GlobalTransform, &mut Health, Option<&Bounds>, Option<&mut crate::ai::Grunt>)>,
+    mut chars: Query<(Entity, &GlobalTransform, &mut Health, Option<&Bounds>, Option<&mut crate::ai::Grunt>, Option<&mut DamageShield>)>,
     roman: Query<(), With<crate::player::Roman>>,
     topsy: Option<Res<crate::topsy::Topsy>>,
 ) {
@@ -252,14 +271,17 @@ fn damage(
                 }
             }
         }
-        for (ce, t, mut h, bounds, grunt) in &mut chars {
+        for (ce, t, mut h, bounds, grunt, shield) in &mut chars {
             // the excluded object (a sticky bomb's stuck character takes its direct damage instead)
             if Some(ce) == b.source || (no_hits && roman.contains(ce)) {
                 continue;
             }
             let (dist, _) = surface(t, bounds, b.at);
             if dist <= b.radius_outer {
-                h.0 -= b.area_damage * falloff(dist, b.radius_inner, b.radius_outer);
+                let amount = b.area_damage * falloff(dist, b.radius_inner, b.radius_outer);
+                if !shield.is_some_and(|mut s| s.absorb(amount)) {
+                    h.0 -= amount;
+                }
                 if roman.contains(ce) && std::env::var("AIDBG").is_ok() {
                     info!("AIDBG romandmg blast {:.0} of {:.0} by {:?} {:?} d {:.0} r {:.0}..{:.0} health {:.0}", b.area_damage * falloff(dist, b.radius_inner, b.radius_outer), b.area_damage, b.by, b.source, dist, b.radius_inner, b.radius_outer, h.0);
                 }

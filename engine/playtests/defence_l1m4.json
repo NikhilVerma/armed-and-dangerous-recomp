@@ -1,0 +1,20 @@
+{"scene": "lev_1_m4", "steps": [
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 3.5}, {"tap": "Enter"},
+ {"wait": 0.5},
+ {"expect": {"base_turret.mounted": true, "base_turret.intro": true, "dead": false}},
+ {"wait": 7.0},
+ {"expect": {"base_turret.intro": false, "army.platoons": [5, 200], "army.members": [25, 1000]}},
+ {"shot": "turret"},
+ {"defence": {"mortar": "platoon"}}, {"wait": 2.5},
+ {"expect": {"army.fake_killed": [1, 1000]}},
+ {"wait": 22.0},
+ {"expect": {"army.released": [1, 1000], "grunts_alive": [1, 100]}},
+ {"defence": {"aim": "army"}}, {"hold_mouse": "Left"}, {"wait": 10.0}, {"release_mouse": "Left"}, {"defence": {"aim": false}},
+ {"shot": "fight"},
+ {"expect": {"kills": [1, 1000], "dead": false}},
+ {"send": 456}, {"wait": 1.0},
+ {"expect": {"army.stopped": true, "army.limit": 0}},
+ {"wait": 11.0},
+ {"expect": {"mission": "Won"}},
+ {"quit": true}
+]}

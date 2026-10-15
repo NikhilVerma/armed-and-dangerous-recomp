@@ -148,6 +148,9 @@ Environment:
   human plays); rerun: `python tools/bisect_hooks.py --files src/physics/physics_01.cpp src/anim/anim_01.cpp --scenario
   level` on a freshly built DLL (tools/compare.py now ignores names the DLL lacks).
   Suspects: the zero-initialised query bytes in 0x00414110 (a documented deviation) or a recovery error.
+- physics_03 / physics_04 showed 31 "S0" functions in tools/recovery_status.py: they are Havok library code fenced
+  after the batches were made (hkInertiaTensorComputer, display builders, three Havok singletons, the hard key-frame
+  utility; evidence in docs/subsystems/physics.md). recovery_status.py now counts fenced rows separately (2026-10-16).
 - 0x004eb5d0 ECX question: resolved statically (every original call site passes edx = 0, so the ECX slot is never
   read); see docs/original-bugs.md.
 - The trace coverage gap (section 4) means "not executed" is probably overstated for virtual methods.

@@ -37,7 +37,14 @@ def main():
     lines = []
     tot = collections.Counter()
     for key, b in batches.items():
-        addrs = [int(x, 16) for x in b["addrs"]]
+        # Functions fenced off as library code after the batches were made (subsystem havok / qhull / ...; e.g. the
+        # hkInertiaTensorComputer block inside physics_03 / physics_04, docs/subsystems/physics.md) are not game code:
+        # count them as "fenced", not as S0.
+        all_addrs = [int(x, 16) for x in b["addrs"]]
+        # Addresses without a tracker row were removed as not functions (padding / mid-function, journal 2026-10-06).
+        addrs = [x for x in all_addrs if x in rows and rows[x][3] not in LIBRARY]
+        fenced = len([x for x in all_addrs if x in rows and rows[x][3] in LIBRARY])
+        tot["fenced"] += fenced
         hooks = hooks_in(os.path.join(ROOT, b["file"] + ".cpp"))
         stages = collections.Counter(rows[x][4] for x in addrs if x in rows)
         hooked = len([x for x in addrs if hooks and x in hooks])
@@ -51,6 +58,8 @@ def main():
         tot["hooked"] += hooked
         for s, n in stages.items():
             tot[s] += n
+        if fenced:
+            status += f" (+{fenced} fenced library)"
         lines.append((key, len(addrs), hooked, stages.get("S0", 0), stages.get("S1", 0), stages.get("S2", 0), status))
     if a.markdown:
         print("| Batch | Functions | Hooked | S0 | S1 | S2 | Status |\n| --- | ---: | ---: | ---: | ---: | ---: | --- |")
@@ -59,8 +68,8 @@ def main():
     else:
         for l in lines:
             print(f"{l[0]:12} {l[1]:4} funcs  hooked {l[2]:4}  S0 {l[3]:4} S1 {l[4]:4} S2 {l[5]:4}  {l[6]}")
-    print(f"\nbatches total: {tot['functions']} functions, {tot['hooked']} hooked; "
-          f"S0 {tot['S0']}, S1 {tot['S1']}, S2 {tot['S2']}")
+    print(f"\nbatches total: {tot['functions']} game functions, {tot['hooked']} hooked; "
+          f"S0 {tot['S0']}, S1 {tot['S1']}, S2 {tot['S2']}; {tot['fenced']} fenced as library code (not counted)")
     game = [r for r in rows.values() if r[3] not in LIBRARY]
     st = collections.Counter(r[4] for r in game)
     print(f"tracker, game code (libraries excluded): {len(game)} functions: " +

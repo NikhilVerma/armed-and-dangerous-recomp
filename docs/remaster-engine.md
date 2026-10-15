@@ -589,6 +589,17 @@ uses classes the mission export does not know yet (twiglet_generator, jump_marke
 anim_player, base_turret, peasant). player.json's loadout is the mission object's add / remove flags only: in the
 campaign the weapons carried over from earlier levels add to it (not modelled).
 
+## Base-defence levels (subsystem port, 2026-10-15)
+
+lev_1_m4, lev_2_m4, lev_3_m4_bd, lev_4_m5, lev_5_m5: the army (army.rs: army timers, platoons, the grunt limit, the
+release, ladders, the breach, ArmyTuning for a difficulty setting), the base turret Roman starts in (defence.rs),
+scripted objects and AIs (icobject.rs: bombers, flak, drops, gates; goliath.rs; shrubpatrol.rs), movers (mover.rs) and
+lobbed shells (shell.rs). Spec and debt: docs/subsystems/defence.md. Tests: engine/playtests/defence_*.json (a
+script's "scene" names its level; a `defence` step drives the turret: {"aim": "army"}, {"mortar": "platoon"},
+{"frame": F}). Debt: the ic_* marker arrival is detected by army.rs from the grunt's position (plan: an ai.rs message);
+the failure mob, the carried ladder and the turret's launcher models are not ported; ~450 platoon member models at once
+(measure the 4K floor).
+
 ## Effects (subsystem port, 2026-10-15)
 
 docs/subsystems/fx-vm.md section 7; queue render-fx empty (docs/port/render-fx.csv). engine/src/fxvm/ is a module

@@ -1491,7 +1491,7 @@ fn projectiles(
     joints: Query<&GlobalTransform>,
     mut objects: Query<(&crate::level::Placed, &mut Destructible, Option<&crate::vehicles::boss::BulletScale>)>,
     mut roman: Query<(Entity, &mut Roman, &Transform, Option<&crate::skin::Animator>), Without<Projectile>>,
-    mut roman_health: Query<&mut Health, (With<Roman>, Without<crate::physics::Body>, Without<Projectile>)>,
+    mut roman_health: Query<(&mut Health, Option<&mut crate::fx::DamageShield>), (With<Roman>, Without<crate::physics::Body>, Without<Projectile>)>,
     mut companions: Query<(Entity, &mut crate::ai::Companion, &Transform, Option<&crate::skin::Animator>, &mut Health), (Without<Roman>, Without<crate::physics::Body>, Without<Projectile>)>,
     mut stats: ResMut<PlayerStats>,
     mut fx: MessageWriter<crate::fx::StartFx>,
@@ -1643,10 +1643,13 @@ fn projectiles(
                 fx.write(crate::fx::StartFx { name: n, at: from + step, rotation: Quat::IDENTITY, follow: None, position_only: false });
             }
             // ignored during the topsy states (0x0047afa0: +0xa34 & 0x7800000); the bullet still lands
-            if let Some(mut h) = roman_health.single_mut().ok().filter(|_| !topsy.active()) {
-                // halved while on a mounted gun (0x0047afa0: Game+0xac8 set -> damage * 0.5, 0x005bcb4c)
+            if let Some((mut h, shield)) = roman_health.single_mut().ok().filter(|_| !topsy.active()) {
+                // a shield in front of him takes the whole hit first (the base turret's window, fx.rs DamageShield);
+                // else halved while on a mounted gun (0x0047afa0: Game+0xac8 set -> damage * 0.5, 0x005bcb4c)
                 // (the health set 0x0047af50 is the Health component)
-                h.0 -= if mounted.0.is_some() { p.damage * 0.5 } else { p.damage };
+                if !shield.is_some_and(|mut s| s.absorb(p.damage)) {
+                    h.0 -= if mounted.0.is_some() { p.damage * 0.5 } else { p.damage };
+                }
                 if std::env::var("AIDBG").is_ok() {
                     // who hurt Roman: the shooter's kind and weapon, the distance it flew, his health after
                     let (kind, weapon) = p.owner.and_then(|o| victims.get(o).ok()).map_or(("?".to_string(), "?".to_string()), |g| (format!("{:?}", g.kind), g.kind.weapon().to_string()));

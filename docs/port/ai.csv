@@ -58,26 +58,21 @@ address,name,disposition,reason
 0x00428220,fn_00428220,not needed,"flag 0x100000 of +0x484 (set by the ""release"" event of fake grunts / squads)"
 0x00429790,fn_00429790,replaced,"the drive parameters move_power +0x944 / the speeds (vt+0x80 / +0x84 / +0x88, Q's constant 0.5) fed to the body drive 0x00454d80: the engine sets the velocity from move_speed / patrol / limp speeds (ai.rs, the companions' fitted 0.933 x move_speed)"
 0x004297a0,fn_004297a0,replaced,"the drive parameters move_power +0x944 / the speeds (vt+0x80 / +0x84 / +0x88, Q's constant 0.5) fed to the body drive 0x00454d80: the engine sets the velocity from move_speed / patrol / limp speeds (ai.rs, the companions' fitted 0.933 x move_speed)"
-0x00429870,fn_00429870,not needed,the carried ladder / the turret attach: grunt_ladder and turret grunts are not on lev_1_m1
-0x004298a0,fn_004298a0,not needed,the carried ladder / the turret attach: grunt_ladder and turret grunts are not on lev_1_m1
-0x00429900,fn_00429900,not needed,the carried ladder / the turret attach: grunt_ladder and turret grunts are not on lev_1_m1
+0x00429870,fn_00429870,not needed,"the carried ladder object (grunt_ladder attached while running, AI_ClimbLadder): not drawn by army.rs, debt in docs/subsystems/defence.md"
+0x004298a0,fn_004298a0,not needed,"the carried ladder object (grunt_ladder attached while running, AI_ClimbLadder): not drawn by army.rs, debt in docs/subsystems/defence.md"
 0x00429a40,fn_00429a40,replaced,the weapon attachment's visibility (+0x61c list): level.rs attaches the weapon model to the hand
-0x00429a50,fn_00429a50,not needed,"the ladder / scale-wall assault and jet-pack launches (army levels: Game+0xcbe, ladders list +0xee4 with ic_* markers, turbo captains): none on lev_1_m1"
-0x00429ac0,fn_00429ac0,not needed,"the ladder / scale-wall assault and jet-pack launches (army levels: Game+0xcbe, ladders list +0xee4 with ic_* markers, turbo captains): none on lev_1_m1"
+0x00429ac0,fn_00429ac0,not needed,"the scale-wall assault needs Game+0xc54 > 0 (the IC event base_defend): no defence level sends it (army.rs, defence.md)"
 0x00429ce0,fn_00429ce0,not needed,"the ladder / scale-wall assault and jet-pack launches (army levels: Game+0xcbe, ladders list +0xee4 with ic_* markers, turbo captains): none on lev_1_m1"
 0x0042b9e0,fn_0042b9e0,not needed,"the ladder / scale-wall assault and jet-pack launches (army levels: Game+0xcbe, ladders list +0xee4 with ic_* markers, turbo captains): none on lev_1_m1"
 0x0042ba30,fn_0042ba30,not needed,"the ladder / scale-wall assault and jet-pack launches (army levels: Game+0xcbe, ladders list +0xee4 with ic_* markers, turbo captains): none on lev_1_m1"
 0x0042bb10,fn_0042bb10,not needed,the counted shooter list World+0xf18 (0x0042bb10 hands over to another shooter): only with Game+0xc50 (ai_max_fire 0 on lev_1_m1)
 0x0042bf70,fn_0042bf70,not needed,"the IC (in-character) anims: GenericAI_PlayICAnim and its wake / callbacks (0x0042c410, 0x0042c0e0, 0x0042bf70, 0x0042c380, 0x0042c080, 0x0042c670) and the scripted mode 0x0042d000: on lev_1_m1 only the three tree grunts use them (pine trees 47 / 61 / 76, IC_tree_slide_1..3 with mover_grunt_tree_1..3, created by 0x00496e90 -> 0x00456180); level.rs does not create those grunts yet (open item: grunt-ai.md 14)"
 0x0042c080,fn_0042c080,not needed,"the IC (in-character) anims: GenericAI_PlayICAnim and its wake / callbacks (0x0042c410, 0x0042c0e0, 0x0042bf70, 0x0042c380, 0x0042c080, 0x0042c670) and the scripted mode 0x0042d000: on lev_1_m1 only the three tree grunts use them (pine trees 47 / 61 / 76, IC_tree_slide_1..3 with mover_grunt_tree_1..3, created by 0x00496e90 -> 0x00456180); level.rs does not create those grunts yet (open item: grunt-ai.md 14)"
-0x0042c380,fn_0042c380,not needed,"the IC (in-character) anims: GenericAI_PlayICAnim and its wake / callbacks (0x0042c410, 0x0042c0e0, 0x0042bf70, 0x0042c380, 0x0042c080, 0x0042c670) and the scripted mode 0x0042d000: on lev_1_m1 only the three tree grunts use them (pine trees 47 / 61 / 76, IC_tree_slide_1..3 with mover_grunt_tree_1..3, created by 0x00496e90 -> 0x00456180); level.rs does not create those grunts yet (open item: grunt-ai.md 14)"
 0x0042c670,fn_0042c670,not needed,"the IC (in-character) anims: GenericAI_PlayICAnim and its wake / callbacks (0x0042c410, 0x0042c0e0, 0x0042bf70, 0x0042c380, 0x0042c080, 0x0042c670) and the scripted mode 0x0042d000: on lev_1_m1 only the three tree grunts use them (pine trees 47 / 61 / 76, IC_tree_slide_1..3 with mover_grunt_tree_1..3, created by 0x00496e90 -> 0x00456180); level.rs does not create those grunts yet (open item: grunt-ai.md 14)"
 0x0042c790,fn_0042c790,not needed,"a guard's ranges to 99999 when its target is beyond +0x5d8 (0x0042c790) is ported as the infinite accuracy flag (ai.rs g.infinite); the range change itself only matters for the chase, which guards do not run"
-0x0042d650,fn_0042d650,not needed,the carried ladder / the turret attach: grunt_ladder and turret grunts are not on lev_1_m1
+0x0042d650,fn_0042d650,not needed,"the carried ladder object (grunt_ladder attached while running, AI_ClimbLadder): not drawn by army.rs, debt in docs/subsystems/defence.md"
 0x0042d690,fn_0042d690,not needed,"the smoking (wounded) troop of a barracks exit slot and the cover window slot of the generators (0x0042d690, 0x0042dc20): the lev_1_m1 barracks have no window slots and no smoking troops (mission.rs)"
-0x0042d710,AI_ClimbLadder,not needed,the carried ladder / the turret attach: grunt_ladder and turret grunts are not on lev_1_m1
-0x0042d780,fn_0042d780,not needed,the carried ladder / the turret attach: grunt_ladder and turret grunts are not on lev_1_m1
-0x0042d8f0,fn_0042d8f0,not needed,the carried ladder / the turret attach: grunt_ladder and turret grunts are not on lev_1_m1
+0x0042d780,fn_0042d780,not needed,"the failure mob on the base turret (0x0049ad60): not ported, defence.md debt (a failure in the turret fails at once)"
 0x0042da00,fn_0042da00,not needed,"the paratroop drop (0x0042da00 / 0x0042daa0: state 0x82 with the parachute), the squad / goliath joins (0x0042de30, 0x0042de60), slot 141 (0x0042db00): no paratroops, squads or goliaths on lev_1_m1"
 0x0042daa0,fn_0042daa0,not needed,"the paratroop drop (0x0042da00 / 0x0042daa0: state 0x82 with the parachute), the squad / goliath joins (0x0042de30, 0x0042de60), slot 141 (0x0042db00): no paratroops, squads or goliaths on lev_1_m1"
 0x0042db00,fn_0042db00,not needed,"the paratroop drop (0x0042da00 / 0x0042daa0: state 0x82 with the parachute), the squad / goliath joins (0x0042de30, 0x0042de60), slot 141 (0x0042db00): no paratroops, squads or goliaths on lev_1_m1"
@@ -93,18 +88,13 @@ address,name,disposition,reason
 0x00431f70,GenericAIObject_Slot46,not needed,slot 46: the AI's own +0x468 / +0x46c pair (an interest-like target) returns 0 for every lev_1_m1 grunt (nothing they run sets them: guess from the writers)
 0x00431fd0,GenericAIObject_Slot42,replaced,"contact callbacks (slots 42 / 44: bumped by a body, the contact record +0x538 and list +0x518) and the list release 0x0043edb0: Jolt bodies collide; the per-state contact reactions are not ported (open: a grunt bumped by the player's car / props; none on lev_1_m1)"
 0x004320b0,GenericAIObject_Slot44,replaced,"contact callbacks (slots 42 / 44: bumped by a body, the contact record +0x538 and list +0x518) and the list release 0x0043edb0: Jolt bodies collide; the per-state contact reactions are not ported (open: a grunt bumped by the player's car / props; none on lev_1_m1)"
-0x004324d0,fn_004324d0,not needed,"the squad target +0x50c / +0x510 (0x004324d0, slots 40 / 41): squads only"
 0x00432590,GenericAIObject_Slot40,not needed,"the squad target +0x50c / +0x510 (0x004324d0, slots 40 / 41): squads only"
 0x00432620,GenericAIObject_Slot41,not needed,"the squad target +0x50c / +0x510 (0x004324d0, slots 40 / 41): squads only"
 0x00432630,GenericAIObject_Slot62,replaced,the body's collision filter by state (slot 62): physics.rs layers
 0x00432730,GenericAIObject_Slot55,replaced,"the AI teardown (slot 55: lists, references): Bevy despawn"
-0x00432cb0,FakeGruntObject_Slot6,not needed,"the fake grunt platoon (FakeGruntObject 0x005a4da8): particle soldiers, not a grunt-class AI: not in this port"
-0x00432de0,FakeGruntObject_Slot55,not needed,"the fake grunt platoon (FakeGruntObject 0x005a4da8): particle soldiers, not a grunt-class AI: not in this port"
-0x00432e60,FakeGruntObject_Slot7,not needed,"the fake grunt platoon (FakeGruntObject 0x005a4da8): particle soldiers, not a grunt-class AI: not in this port"
-0x00432ee0,fn_00432ee0,not needed,fake grunt / squad helpers
-0x00432ef0,fn_00432ef0,not needed,fake grunt / squad helpers
-0x00433000,FakeGruntObject_Slot52,not needed,"the fake grunt platoon (FakeGruntObject 0x005a4da8): particle soldiers, not a grunt-class AI: not in this port"
-0x004331f0,fn_004331f0,not needed,fake grunt / squad helpers
+0x00432de0,FakeGruntObject_Slot55,replaced,FakeGrunt removal: army.rs despawns the platoon and its member models
+0x00432e60,FakeGruntObject_Slot7,replaced,FakeGrunt collision description: army.rs fake_hits tests the members (guess at the box)
+0x00432ee0,fn_00432ee0,replaced,the member ref name digits: army.rs member_points probes ref_<kind>_0N
 0x00433a90,SquadObject_Slot55,replaced,squad destroy: ai/squad.rs despawns the squad entity when it has no members and no goliath; members keep living as free grunts
 0x00433b60,SquadObject_Slot7,replaced,squad message slot: ai/squad.rs reads the mission triggers itself (SendTrigger) and alerts members through Grunt::pending
 0x00433b80,fn_00433b80,not needed,fake grunt / squad helpers
@@ -115,15 +105,15 @@ address,name,disposition,reason
 0x00433e80,Polewart_Slot6,not needed,"class Polewart has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
 0x00433f30,Polewart_Slot42,not needed,"class Polewart has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
 0x00433fb0,Polewart_Slot32,not needed,"class Polewart has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
-0x00433fe0,GoliathObject_Slot6,not needed,"class Goliath has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
-0x00434110,GoliathObject_Slot55,not needed,"class Goliath has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
-0x00434150,GoliathObject_Slot7,not needed,"class Goliath has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
-0x00434290,GoliathObject_Slot96,not needed,"class Goliath has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
-0x004342b0,GoliathObject_Slot109,not needed,"class Goliath has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
-0x004342d0,GoliathObject_Slot14,not needed,"class Goliath has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
-0x004344b0,GoliathFireball_Slot55,not needed,"class GoliathFireball has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
-0x00434560,fn_00434560,not needed,goliath fireball helpers
-0x00434570,fn_00434570,not needed,goliath fireball helpers
+0x00433fe0,GoliathObject_Slot6,replaced,Goliath init: goliath.rs setup
+0x00434110,GoliathObject_Slot55,replaced,"Goliath removal: the Destructible death and husk (fx.rs / level.rs), goliath.rs"
+0x00434150,GoliathObject_Slot7,replaced,Goliath collision description: goliath.rs hit body
+0x00434290,GoliathObject_Slot96,replaced,Goliath slot: goliath.rs
+0x004342b0,GoliathObject_Slot109,replaced,Goliath slot: goliath.rs
+0x004342d0,GoliathObject_Slot14,replaced,Goliath trigger slot: icobject.rs (trigger_ic start)
+0x004344b0,GoliathFireball_Slot55,replaced,GoliathFireball removal: shell.rs
+0x00434560,fn_00434560,replaced,goliath fireball helpers: shell.rs launch
+0x00434570,fn_00434570,replaced,goliath fireball helpers: goliath.rs notes
 0x00434580,GruntLadderObject_Slot6,not needed,"class GruntLadder has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
 0x00434670,GruntLadderObject_Slot7,not needed,"class GruntLadder has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
 0x004346a0,BowGruntObject_Slot66,not needed,"the player grabbing a grunt / bow grunt (slots 66, 147): Roman cannot grab grunts on lev_1_m1 (no grab weapon)"
@@ -140,9 +130,7 @@ address,name,disposition,reason
 0x00436090,SaucerObject_Slot6,not needed,"class Saucer has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
 0x00436180,ZeppelinObject_Slot6,not needed,"class Zeppelin has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
 0x004364b0,Q112Boss_Slot6,not needed,"the Q112 boss (spawned by Q's q112_marker note): a turret-style boss, not grunt-class infantry: not in this port"
-0x00436630,ShrubPatrol_Slot6,not needed,"class ShrubPatrol has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
-0x004367a0,ShrubPatrol_Slot18,not needed,"class ShrubPatrol has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
-0x004367c0,ShrubPatrol_Slot14,not needed,"class ShrubPatrol has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
+0x004367a0,ShrubPatrol_Slot18,replaced,ShrubPatrol slot: shrubpatrol.rs
 0x00436b30,fn_00436b30,replaced,the monk's stance-set call collapses to one anim: anim_name_with (Kind::Monk) gives monk_stand for every stand id
 0x00436b50,fn_00436b50,replaced,monk vt+0x188 (+0x484 0x10 then the object history): leave_cover's history (ai.rs)
 0x00436b60,fn_00436b60,replaced,monk vt+0x18c: leave_cover (ai.rs)
@@ -171,9 +159,6 @@ address,name,disposition,reason
 0x0043c860,Q112Boss_HandleEvent,not needed,"the Q112 boss (spawned by Q's q112_marker note): a turret-style boss, not grunt-class infantry: not in this port"
 0x0043ccb0,fn_0043ccb0,not needed,the hide / unhide events (hide_tag): no script on lev_1_m1 sends them
 0x0043cd70,fn_0043cd70,not needed,the hide / unhide events (hide_tag): no script on lev_1_m1 sends them
-0x0043ce10,fn_0043ce10,not needed,a count of World+0xe84 (army levels)
-0x0043ce30,FakeGruntObject_HandleEvent,not needed,"the fake grunt platoon (FakeGruntObject 0x005a4da8): particle soldiers, not a grunt-class AI: not in this port"
-0x0043cef0,GoliathObject_HandleEvent,not needed,"class Goliath has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
 0x0043e520,fn_0043e520,not needed,the knock-back toward the player root of a barricade breach (0x0040cf40's caller)
 0x0043e900,fn_0043e900,replaced,the AI position / matrix accessors (slots +0x54..+0x7c: the IC anim matrices +0xa6c / +0xa28 or the body): Transform / GlobalTransform
 0x0043e930,fn_0043e930,replaced,the AI position / matrix accessors (slots +0x54..+0x7c: the IC anim matrices +0xa6c / +0xa28 or the body): Transform / GlobalTransform
@@ -192,24 +177,22 @@ address,name,disposition,reason
 0x0043ec50,fn_0043ec50,replaced,dead test slot +0xe0: Mind::Dead / Health
 0x0043ec60,fn_0043ec60,not needed,the turret target test (+0x898 of kind 2: Colossus turrets)
 0x0043edb0,fn_0043edb0,replaced,"contact callbacks (slots 42 / 44: bumped by a body, the contact record +0x538 and list +0x518) and the list release 0x0043edb0: Jolt bodies collide; the per-state contact reactions are not ported (open: a grunt bumped by the player's car / props; none on lev_1_m1)"
-0x00446440,ShrubPatrol_Update,not needed,"class ShrubPatrol has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
-0x00446460,FakeGrunt_Update,not needed,"the fake grunt platoon (FakeGruntObject 0x005a4da8): particle soldiers, not a grunt-class AI: not in this port"
-0x00446de0,fn_00446de0,not needed,polewart / goliath update helpers
+0x00446440,ShrubPatrol_Update,replaced,ShrubPatrol update: shrubpatrol.rs (guard)
+0x00446de0,fn_00446de0,replaced,goliath update helpers: goliath.rs guard
 0x00446f30,Polewart_Update,not needed,"class Polewart has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
-0x00447020,fn_00447020,not needed,polewart / goliath update helpers
-0x00447040,GoliathObject_Update,not needed,"class Goliath has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
+0x00447020,fn_00447020,replaced,goliath update helpers: goliath.rs guard
 0x00447500,MonkObject_Update,debt,MonkObject_Update: the hang state 0xf4 timers (see 0x004371e0); the rest is GenericAI_Update (docs/subsystems/infantry.md section 6)
 0x0044b490,Marker_GetSpeed,not needed,"marker speed (+0x494 ""speed"", AIMarker_PrevSpeed): every lev_1_m1 marker has speed 0, so the run uses move_speed"
 0x0044b4a0,Marker_IsStrict,replaced,"the marker getters and per-AI accessors: alarm.rs Marker fields (strict, flags, trigger, alarm_tag, action, scatter, next range) read by ai.rs marker_arrival"
 0x0044b4b0,AIMarker_PrevIsStrict,replaced,"the marker getters and per-AI accessors: alarm.rs Marker fields (strict, flags, trigger, alarm_tag, action, scatter, next range) read by ai.rs marker_arrival"
 0x0044b4f0,AIMarker_PrevSpeed,not needed,"marker speed (+0x494 ""speed"", AIMarker_PrevSpeed): every lev_1_m1 marker has speed 0, so the run uses move_speed"
 0x0044b680,MarkerObject_Remove,replaced,marker removal (spline array references): Markers resource lives with the level
-0x0044b710,Spline_GetEndPoint,not needed,the ladder / scale-wall spline ends and the marker bits 4 / 6 used by the ladder code: no ladders on lev_1_m1
-0x0044b760,Spline_EndsAtScaleWall,not needed,the ladder / scale-wall spline ends and the marker bits 4 / 6 used by the ladder code: no ladders on lev_1_m1
-0x0044b7b0,fn_0044b7b0,not needed,the ladder / scale-wall spline ends and the marker bits 4 / 6 used by the ladder code: no ladders on lev_1_m1
+0x0044b710,Spline_GetEndPoint,not needed,the scale-wall spline end (0x00429ac0): no defence level enables the scale-wall assault
+0x0044b760,Spline_EndsAtScaleWall,not needed,the scale-wall spline test (0x00429ac0): no defence level enables the scale-wall assault
+0x0044b7b0,fn_0044b7b0,replaced,ladder spline in use / planted (spline bits): army.rs Army::planted and the ladders taken by live army grunts
 0x0044b7c0,fn_0044b7c0,not needed,the ladder / scale-wall spline ends and the marker bits 4 / 6 used by the ladder code: no ladders on lev_1_m1
-0x0044b7e0,fn_0044b7e0,not needed,the ladder / scale-wall spline ends and the marker bits 4 / 6 used by the ladder code: no ladders on lev_1_m1
-0x0044b7f0,fn_0044b7f0,not needed,the ladder / scale-wall spline ends and the marker bits 4 / 6 used by the ladder code: no ladders on lev_1_m1
+0x0044b7e0,fn_0044b7e0,replaced,ladder spline in use / planted (spline bits): army.rs Army::planted and the ladders taken by live army grunts
+0x0044b7f0,fn_0044b7f0,replaced,ladder spline in use / planted (spline bits): army.rs Army::planted and the ladders taken by live army grunts
 0x0044b810,Marker_GetNextRange,replaced,"the marker getters and per-AI accessors: alarm.rs Marker fields (strict, flags, trigger, alarm_tag, action, scatter, next range) read by ai.rs marker_arrival"
 0x0044b880,Marker_GetFlags,replaced,"the marker getters and per-AI accessors: alarm.rs Marker fields (strict, flags, trigger, alarm_tag, action, scatter, next range) read by ai.rs marker_arrival"
 0x0044b890,AIMarker_CurFlags,replaced,"the marker getters and per-AI accessors: alarm.rs Marker fields (strict, flags, trigger, alarm_tag, action, scatter, next range) read by ai.rs marker_arrival"

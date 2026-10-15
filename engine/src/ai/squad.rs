@@ -217,6 +217,7 @@ pub fn update_squads(
                 marker_tags: None,
                 alert_group: sq.group,
                 squad: Some(SquadLink { squad: se, offset }),
+                ..default()
             });
         }
         // the members spawn_grunts made for this squad join its list

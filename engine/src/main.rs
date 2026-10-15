@@ -11,6 +11,10 @@
 
 mod ai;
 mod alarm;
+mod army;
+mod defence;
+mod icobject;
+mod mover;
 mod audio;
 mod bot;
 mod bench;
@@ -30,6 +34,7 @@ mod cutscenes;
 mod decals;
 mod sticky;
 mod gamemenu;
+mod goliath;
 mod hitparts;
 mod gamematerial;
 mod graphics;
@@ -59,6 +64,8 @@ mod weapontable;
 mod player;
 mod playtest;
 mod scene;
+mod shell;
+mod shrubpatrol;
 mod sdffont;
 mod skin;
 
@@ -262,6 +269,8 @@ fn main() {
     .add_plugins(pubscreen::PubScreenPlugin)
     .add_plugins(topsy::TopsyPlugin)
     .add_plugins(turret::TurretPlugin)
+    // the base-defence levels: movers (scripted paths), the army, the base turret (army.rs, defence.rs)
+    .add_plugins((mover::MoverPlugin, army::ArmyPlugin, defence::DefencePlugin, icobject::IcObjectPlugin, shell::ShellPlugin, goliath::GoliathPlugin, shrubpatrol::ShrubPatrolPlugin))
     .add_plugins(vehicles::VehiclesPlugin)
     .init_state::<AppState>()
     .insert_non_send(physics::Physics::new(level::METERS_PER_UNIT))

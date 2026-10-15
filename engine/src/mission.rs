@@ -591,6 +591,12 @@ pub struct Mission {
 #[derive(Message, Clone, Copy)]
 pub struct SendTrigger(pub i64);
 
+/// The send_trigger_on_death of a grunt made during play (barracks troops, the army's released grunts, alarm troops):
+/// it has no placed instance, so its template's trigger rides on it (DefaultGameObject_OnDeath 0x00450ee0 sends
+/// +0x488 for any object). Sent once, when it dies (`troop_deaths`).
+#[derive(Component, Clone, Copy, Debug)]
+pub struct DeathTrigger(pub i64);
+
 fn game_pos(p: [f32; 3]) -> Vec3 {
     game_to_engine() * Vec3::from(p)
 }
@@ -651,6 +657,12 @@ pub struct MissionSave {
 }
 
 impl Mission {
+    /// A counter's count so far and its target, by instance id (defence.rs: the grunts-over-the-wall counter,
+    /// grunt_wall_counter_tag, ui_grunt_over_wall_count)
+    pub fn counter(&self, id: u32) -> Option<(i64, i64)> {
+        self.counters.iter().find(|c| c.id == id && !c.off).map(|c| (c.current, c.count))
+    }
+
     /// The mission start has been shown (MissionObject_ShowStart 0x0044daf0; savegame.rs's first checkpoint).
     pub fn started(&self) -> bool {
         self.started
@@ -931,7 +943,9 @@ impl Mission {
                         bar_rate: if n(r, "health_bar_rate") > 0.0 { n(r, "health_bar_rate") as f32 * 0.01 } else { 0.5 },
                     });
                 }
-                _ if i.template.starts_with("grunt_barracks") => {
+                // a troop generator: a building whose set has troop counts (BuildingObject 0x0040ad80: grunt_barracks_*,
+                // the defence levels' grunt_generator_base)
+                _ if i.template.starts_with("grunt_barracks") || r.get("num_regular").is_some() => {
                     // 0x0040ad80: the slots from the model's matrices; a barracks with an exit slot ("ref_exit_0%d")
                     // releases troops created at "ref_spawn_0%d" (lev_1_m1's mini barracks have one of each)
                     let spawn = i.model.as_ref().zip(i.transform.as_ref()).and_then(|(model, t)| {
@@ -972,11 +986,11 @@ impl Mission {
         }
         let m = &f.mission.resolved;
         let text = |k: &str| s(m, k).and_then(|t| f.text.get(&t).cloned());
-        // MissionObject_Load 0x0044c170: start_in_turret_tag and camera_startup_path_anim start the level in a turret
-        // / on a camera path (slot 8 0x0044d150, Camera_StartPath mode 2): not ported, none on lev_1_m1. (Slot 9
+        // MissionObject_Load 0x0044c170: start_in_turret_tag starts the level in a turret (defence.rs) and
+        // camera_startup_path_anim on a camera path (slot 8 0x0044d150, Camera_StartPath mode 2): the path is not ported, none on lev_1_m1. (Slot 9
         // 0x0044d1b0 resets the mission timer +0x464 and the start flags: `start` below, from the level's start.)
         let mut log = Vec::new();
-        for k in ["start_in_turret_tag", "peasant_max_casualties", "peasant_max_saved"] {
+        for k in ["peasant_max_casualties", "peasant_max_saved"] {
             if n(m, k) != 0.0 {
                 log.push(format!("mission: {k} {} not ported", n(m, k)));
             }
@@ -1112,11 +1126,22 @@ impl Plugin for MissionPlugin {
             .add_systems(Update, (start, volumes, sites, pub_door, barracks, timers, dispatch, messages, outcome).chain().run_if(in_state(crate::AppState::Playing)))
             .add_systems(Update, (event_log, state_log))
             // after the deaths of the frame (fx.rs), before the husk swap (level.rs husks: the Husk marker)
-            .add_systems(Update, deaths.after(crate::fx::FxSet).run_if(in_state(crate::AppState::Playing)));
+            .add_systems(Update, deaths.after(crate::fx::FxSet).run_if(in_state(crate::AppState::Playing)))
+            .add_systems(Update, troop_deaths.run_if(in_state(crate::AppState::Playing)));
     }
 }
 
 /// An object with send_trigger_on_death died: its trigger goes out.
+/// A grunt made during play died: its DeathTrigger goes out (once: the component is removed).
+fn troop_deaths(mut commands: Commands, q: Query<(Entity, &DeathTrigger, &Grunt)>, mut out: MessageWriter<SendTrigger>) {
+    for (e, t, g) in &q {
+        if g.mind == crate::ai::Mind::Dead {
+            out.write(SendTrigger(t.0));
+            commands.entity(e).remove::<DeathTrigger>();
+        }
+    }
+}
+
 pub(crate) fn deaths(mut m: Option<ResMut<Mission>>, mut died: MessageReader<crate::fx::Died>, ids: Query<&InstanceId>, husks: Query<(), With<crate::level::Husk>>, mut out: MessageWriter<SendTrigger>) {
     let Some(m) = m.as_deref_mut() else {
         died.clear();
