@@ -58,6 +58,22 @@ def steps_for(level, out):
 
 STEP_NAMES = [name for name, _ in steps_for("x", pathlib.Path("x"))]
 
+# the fixed paths engine/src reads from a level folder (grep of engine/src, 2026-10-15); models/, skeletons/ and
+# anims/<name>.json are read by name from scene.json / templates.json
+ENGINE_FILES = [
+    "scene.json", "properties.json", "templates.json", "fx.json",          # gamedata.rs, alarm.rs, scene.rs
+    "mission.json", "instance_props.json",                                  # mission.rs, alarm.rs
+    "player.json", "player_anims.json",                                     # camera.rs, charanim.rs, main.rs
+    "anims/index.json",                                                     # charanim.rs, skin.rs
+    "audio/sounds.json", "audio/voice.json", "audio/ambient.json",          # audio.rs, gameaudio.rs
+    "ui/layout.json", "ui/font.json", "ui/font.png", "ui/texts.json",       # hud.rs, gamemenu.rs
+    "ui/icons.json", "ui/icons.png", "ui/credits.txt",
+    "ui/textures/and_title.png", "ui/textures/b_background_01.png",          # gamemenu.rs, statscreen.rs
+    "ui/textures/b_text_bkd.png",                                           # hud.rs (subtitle band)
+    "textures/b_wanted_reward.dds",                                         # statscreen.rs
+    "textures_remaster",                                                    # graphics/textures.rs (optional)
+]
+
 
 def levels():
     return sorted(p.name for p in GAME.iterdir() if p.is_dir() and p.name.startswith("lev_") and p.name != "lev_shell"
@@ -100,26 +116,30 @@ def export(level, out, only=None, quiet=False):
                   f"{result['messages'][name][:160]}", flush=True)
     result["seconds"] = round(time.time() - t0, 1)
     result["bytes"], result["files"] = folder_size(out)
+    result["missing_engine_files"] = [f for f in ENGINE_FILES if not (out / f).exists()]
     return result
 
 
 def summary(r):
     bad = [f"{k} {v}" for k, v in r["steps"].items() if v not in ("ok", "skipped")]
     state = "ok" if not bad else bad[0]
+    missing = r.get("missing_engine_files")
     return (f"{r['level']}: {state}; {sum(v == 'ok' for v in r['steps'].values())}/{len(r['steps'])} steps, "
-            f"{r['bytes'] / 1e6:.0f} MB in {r['files']} files, {r['seconds']:.0f} s")
+            f"{r['bytes'] / 1e6:.0f} MB in {r['files']} files, {r['seconds']:.0f} s"
+            + (f"; engine files missing: {', '.join(missing)}" if missing else ""))
 
 
 def table(results):
     names = [n for n in STEP_NAMES if any(n in r["steps"] for r in results)]
-    head = "| level | " + " | ".join(names) + " | MB | files |"
-    rows = [head, "|" + " --- |" * (len(names) + 3)]
+    head = "| level | " + " | ".join(names) + " | MB | files | engine files missing |"
+    rows = [head, "|" + " --- |" * (len(names) + 4)]
     for r in results:
         cells = []
         for n in names:
             v = r["steps"].get(n, "-")
             cells.append("ok" if v == "ok" else "skipped" if v == "skipped" else "-" if v == "-" else "FAILED")
-        rows.append(f"| {r['level']} | " + " | ".join(cells) + f" | {r['bytes'] / 1e6:.0f} | {r['files']} |")
+        rows.append(f"| {r['level']} | " + " | ".join(cells) + f" | {r['bytes'] / 1e6:.0f} | {r['files']} | "
+                    f"{', '.join(r.get('missing_engine_files', [])) or '-'} |")
     errors = [f"- {r['level']} {n}: {v}" for r in results for n, v in r["steps"].items() if v not in ("ok", "skipped")]
     return "\n".join(rows + ([""] + errors if errors else []))
 

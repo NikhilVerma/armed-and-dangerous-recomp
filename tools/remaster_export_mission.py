@@ -69,6 +69,10 @@ CLASSES = {
     "fx_explosion": ("FxExplosion (explosive pipe / keg)", 90, "vtable 0x005a4300; die slot 0x0041c570 sends "
                                                                "send_trigger_on_death +0x488"),
     "envmapmarker": ("EnvMapMarker", 92, "behaviour name 'EnvMapMarker'; hash case-insensitivity not checked"),
+    # later levels' mission logic (ids from the 0x0045df60 table: src/game/game_03.cpp kBehaviours)
+    "counter": ("CounterObject", 132, "vtable 0x005a4b00; Counter_Init 0x00415770"),
+    "timer": ("TimerObject", 133, "vtable 0x005a7d58; TimerObject_ReadProps 0x00496160"),
+    "army_timer": ("ArmyTimerObject", 134, "vtable 0x005a2800 (derived from TimerObject: same properties)"),
 }
 DEFAULT_CLASS = ("DefaultGameObject", 0, "vtable 0x005a2bf0 (unknown behaviour name)")
 
@@ -103,6 +107,18 @@ SENDS = {
     ("pub", "send_trigger_exit"): ("player leaves the pub screen", "PubObject_Load 0x0046a200 (+0x4c4); "
                                                                    "0x0046a720 from 0x004690c0"),
     ("marker", "trigger"): ("an AI reaches this marker", "AI marker arrival 0x0044ba30 sends the marker's trigger"),
+    ("counter", "send_trigger"): ("its activate trigger arrived `count` times (with `infinite` the count restarts, "
+                                  "else the counter finishes)",
+                                  "Counter_Init 0x00415770 (+0x468, count +0x470); CounterObject_OnTrigger 0x00415860 "
+                                  "-> Object_SendTrigger 0x00461870"),
+    **{(c, "send_trigger_time_N"): ("the timer reached its time (seconds after it started; 'trigger/time' "
+                                    "entries sorted by time)",
+                                    "TimerObject_ReadProps 0x00496160 parses 'send_trigger_time_%d' (first missing "
+                                    "index ends the list; only without anim_name); update 0x00496750 -> "
+                                    "TimerObject_Fire 0x00496660") for c in ("timer", "army_timer")},
+    **{(c, "send_end_trigger"): ("the timer's animation ended (anim_name set, not looping)",
+                                 "TimerObject_ReadProps 0x00496160 (+0x4a4); update 0x00496750")
+       for c in ("timer", "army_timer")},
     ("*", "send_trigger_on_death"): ("this object dies / is destroyed",
                                      "DefaultGameObject_OnDeath 0x00450ee0 (+0x4e8); AI 0x00431720 path (+0x528); "
                                      "buildings +0x5a8"),
@@ -157,6 +173,13 @@ RECEIVES = {
                                          "runs its mode (e.g. trigger_marker: run its marker path)",
                                          "GenericAIObject set-up (ai_01.cpp 0x00426xxx mode table); tower/turret "
                                          "variants ai_08.cpp"),
+    ("counter", "receive_trigger_activate"): ("count one (sends send_trigger on reaching `count`)",
+                                              "CounterObject_OnTrigger 0x00415860 (+0x460)"),
+    ("counter", "receive_trigger_deactivate"): ("stop counting for good", "CounterObject_OnTrigger 0x00415860 "
+                                                                          "(+0x464 -> +0x475, vt+0xdc)"),
+    **{(c, "receive_trigger_activate"): ("start the timer (without this trigger it runs from the level start)",
+                                         "TimerObject_OnTrigger 0x004965d0 (+0x460 -> running +0x4a9)")
+       for c in ("timer", "army_timer")},
     ("*", "receive_trigger_kill"): ("destroyed: death fx, husk, its own send_trigger_on_death",
                                     "DefaultGameObject_OnTrigger 0x00450fb0 (+0x4c4) -> vt+0xd4"),
     ("*", "receive_trigger_deactivate"): ("deactivated", "DefaultGameObject_OnTrigger 0x00450fb0 (+0x4c8)"),
@@ -257,6 +280,30 @@ def numbered(prop_name):
     if len(prop_name) > 3 and prop_name[-3] == "_" and prop_name[-2:].isdigit() and prop_name[-2] == "0":
         return prop_name[:-2] + "0N", int(prop_name[-2:])
     return prop_name, None
+
+
+def timer_entries(cls, resolved):
+    """A timer's "send_trigger_time_%d" entries as TimerObject_ReadProps 0x00496160 reads them: only without an
+    anim_name, indices 1..10 until the first missing one, "trigger/time" (atol / atof), trigger 0 dropped (an entry
+    without '/' is logged by the game and skipped). -> [(trigger, key, seconds)] sorted by time."""
+    if cls not in ("timer", "army_timer") or str(resolved.get("anim_name", "none")).lower() != "none":
+        return []
+    out = []
+    for i in range(1, 11):
+        k = f"send_trigger_time_{i}"
+        if k not in resolved:
+            break
+        text = str(resolved[k])
+        if "/" not in text:
+            continue
+        tid, secs = text.split("/", 1)
+        try:
+            tid, secs = int(tid.strip() or 0), float(secs.strip() or 0)
+        except ValueError:
+            continue
+        if tid:
+            out.append((tid, k, secs))
+    return sorted(out, key=lambda e: e[2])
 
 
 def lookup(table, cls, name):
@@ -371,6 +418,11 @@ def main():
 
     for r in instances:
         cls = r["behaviour"]
+        for tid, k, secs in timer_entries(cls, r["resolved"]):
+            s = SENDS[(cls, "send_trigger_time_N")]
+            slot(tid)["senders"].append({"id": r["id"], "template": r["template"], "class": r["class"],
+                                         "property": k, "event": f"{s[0]}: {secs:g} s", "evidence": s[1],
+                                         "position": r["position"], "time": secs})
         for k, v in r["resolved"].items():
             if not isinstance(v, int) or isinstance(v, bool) or v == 0:
                 continue

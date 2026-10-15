@@ -61,6 +61,8 @@ COMPANIONS = {"q111", "molmer"}
 # the weapon template each class holds (0x004a0ef0's index -> the weapon table, game_01.cpp:600; engine/src/ai.rs
 # Kind::weapon) and the captain's thrown grenade (its close attack, vt+0x1e0)
 WEAPON = {"grunt_regular": "grunt_rifle", "grunt": "grunt_bow", "captain": "captain_mg"}
+# guess: by name only (an aiweapon template named after the class); the classes' weapon index is not traced
+WEAPON_GUESS = {"captain_sniper": "captain_snipergun", "monk": "monk_gun", "q112": "q112_chaingun"}
 EXTRA_WEAPONS = {"captain": ["captain_grenade"]}
 # alarm generator / barracks troop counts -> template (the controller's type order, 0x00404e50; num_rocket_captain
 # has no type: the original's bug, docs/subsystems/mission.md)
@@ -84,7 +86,11 @@ CONSTANTS = {
 
 
 def is_ai(level, template):
-    return template not in COMPANIONS and "mode" in level.template_props(template)
+    """A soldier AI template: its set has a mode and the soldier fire / hit parameters (grunt, grunt_regular,
+    captain, captain_sniper, monk, q112). The other templates with a mode are vehicles, squads and ic objects
+    (saucer, zeppelin, goliath, colossus, squad_*, object_ic, shrubpatrol) with their own classes, not covered here."""
+    p = level.template_props(template)
+    return (template not in COMPANIONS and "mode" in p and "hit_level_1" in p and "fire_num_clips_min" in p)
 
 
 def ai_templates(level):
@@ -116,14 +122,26 @@ def template_entry(level, name):
             data_only[key] = v
         elif key not in PARAM_KEYS and not key.startswith(NOT_EXTRA):
             extra[key] = v
-    return {"property": level.property_set(name), "model": level.templates[name].get("model"),
-            "weapon": WEAPON.get(name), "params": params, "data_only_unread_by_exe": data_only, "extra": extra}
+    entry = {"property": level.property_set(name), "model": level.templates[name].get("model"),
+             "weapon": weapon_of(level, name)}
+    if name not in WEAPON:
+        entry["weapon_note"] = ("guess: the aiweapon template named after the class; its weapon index is not traced"
+                                if entry["weapon"] else "not traced")
+    entry.update({"params": params, "data_only_unread_by_exe": data_only, "extra": extra})
+    return entry
+
+
+def weapon_of(level, template):
+    if template in WEAPON:
+        return WEAPON[template]
+    w = WEAPON_GUESS.get(template)
+    return w if w in level.templates else None
 
 
 def weapon_sets(level, templates):
     out = {}
     for t in templates:
-        for w in ([WEAPON[t]] if t in WEAPON else []) + EXTRA_WEAPONS.get(t, []):
+        for w in [x for x in [weapon_of(level, t)] if x] + EXTRA_WEAPONS.get(t, []):
             ps = level.property_set(w)
             if not ps:
                 continue
