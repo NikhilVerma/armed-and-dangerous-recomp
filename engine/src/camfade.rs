@@ -97,8 +97,9 @@ fn object_alpha(
     children: Query<&Children>,
     mut meshes: Query<&mut MeshMaterial3d<GameMaterial>>,
     mut materials: ResMut<Assets<GameMaterial>>,
-    mut own: Local<HashSet<AssetId<GameMaterial>>>,
+    mut own: crate::levelreset::PerLevel<HashSet<AssetId<GameMaterial>>>,
 ) {
+    let own = own.get();
     for (e, a) in &q {
         for m in std::iter::once(e).chain(children.iter_descendants(e)) {
             let Ok(mut mm) = meshes.get_mut(m) else { continue };

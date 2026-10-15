@@ -52,8 +52,13 @@ pub struct Event {
     /// check state-log fields now: `{"health": [270, 290], "won": false}` (an array of two numbers is an inclusive
     /// range, null means absent, anything else must be equal). Prints EXPECT PASS / FAIL; any failure makes the exit
     /// code 1
+    /// An expect value may also compare with a noted state: {"as": "fresh", "margin": 2, "pct": 10} passes when the
+    /// field is within margin + pct % of what it was at the `note` step "fresh" (both default 0: equal)
     #[serde(default)]
     pub expect: Option<serde_json::Map<String, serde_json::Value>>,
+    /// keep the state log as it is now under this name, for later expects' {"as": name}
+    #[serde(default)]
+    pub note: Option<String>,
     /// debug: take this much damage at once (to test losing)
     #[serde(default)]
     pub hurt: Option<f32>,
@@ -109,7 +114,7 @@ pub struct Event {
     #[serde(default)]
     pub near: Option<f32>,
     /// steps only: wait until the game shows a paused message (the briefing): "message", max 60 s; or until no movie
-    /// plays: "movie_done", max 600 s
+    /// plays: "movie_done", max 600 s; or until a restarted level has left its loading screen: "loaded", max 30 s
     #[serde(default)]
     pub until: Option<String>,
     /// steps only: wait this many seconds
@@ -167,6 +172,10 @@ struct Script {
     /// choose it (not pinned), so the Graphics page applies live, as for the player (main.rs)
     #[serde(default)]
     preset: Option<crate::graphics::Preset>,
+    /// game time follows the wall clock, as in the player's game (default: exactly 1/60 s a frame, main.rs): a slow
+    /// frame is then a long game step, as the player gets it (restart_parity: the rebuild's frame)
+    #[serde(default)]
+    real_time: bool,
 }
 
 /// The graphics preset a script plays with as a normal launch (its "preset").
@@ -212,6 +221,8 @@ pub struct Playtest {
     pub intro: bool,
     pub path: PathBuf,
     pub title: bool,
+    /// the script's "real_time"
+    pub real_time: bool,
     events: Vec<Event>,
     turns: Vec<(f32, f32, f32, f32)>,
     next: usize,
@@ -239,6 +250,36 @@ pub struct Playtest {
     blasts: Vec<f32>,
     /// the virtual gamepad, once connected: scripted runs read only it (input.rs), never a pad on the desk
     pad_e: Option<Entity>,
+    /// the states kept by `note` steps
+    notes: std::collections::HashMap<String, serde_json::Map<String, serde_json::Value>>,
+}
+
+/// A state-log field (a dotted key reads into an object field: "window.width").
+fn field<'a>(state: &'a serde_json::Map<String, serde_json::Value>, key: &str) -> Option<&'a serde_json::Value> {
+    let mut parts = key.split('.');
+    parts.next().and_then(|h| state.get(h)).and_then(|v| parts.try_fold(v, |v, p| v.get(p)))
+}
+
+/// Whether an expect step's value `want` holds for `got` (see Event::expect); `notes` for {"as": name}.
+fn expect_holds(key: &str, want: &serde_json::Value, got: Option<&serde_json::Value>, notes: &std::collections::HashMap<String, serde_json::Map<String, serde_json::Value>>) -> bool {
+    if let Some(name) = want.get("as").and_then(|v| v.as_str()) {
+        let Some(noted) = notes.get(name).and_then(|n| field(n, key)) else { return false };
+        let Some(got) = got else { return false };
+        return match (got.as_f64(), noted.as_f64()) {
+            (Some(g), Some(n)) => {
+                let margin = want.get("margin").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let pct = want.get("pct").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                (g - n).abs() <= margin + pct / 100.0 * n.abs()
+            }
+            _ => got == noted,
+        };
+    }
+    match (want.as_array(), got) {
+        (Some(r), Some(g)) if r.len() == 2 && r.iter().all(|v| v.is_number()) => g.as_f64().is_some_and(|v| v >= r[0].as_f64().unwrap() && v <= r[1].as_f64().unwrap()),
+        (_, Some(g)) => g == want || (g.is_number() && want.is_number() && g.as_f64() == want.as_f64()),
+        // null: the field is absent
+        (_, None) => want.is_null(),
+    }
 }
 
 impl Playtest {
@@ -258,7 +299,7 @@ impl Playtest {
         let mut events = s.events;
         events.sort_by(|a, b| a.t.total_cmp(&b.t));
         let log = std::fs::File::create(path.with_extension("log.jsonl")).ok();
-        Playtest { pickups: vec![], loadouts: vec![], audio: vec![], fx: vec![], movies: vec![], intro: s.intro, passed: 0, failed: 0, hurt_c: vec![], blasts: vec![], pad_e: None, pad: vec![], warp: None, path, title: s.title, events, turns: s.turns, next: 0, t: 0.0, taps: vec![], clicks: vec![], log, last_log: -1.0, steps: s.steps, step_shot: None, step: 0, step_t: 0.0, step_started: false }
+        Playtest { pickups: vec![], loadouts: vec![], audio: vec![], fx: vec![], movies: vec![], intro: s.intro, passed: 0, failed: 0, hurt_c: vec![], blasts: vec![], pad_e: None, notes: Default::default(), pad: vec![], warp: None, path, title: s.title, real_time: s.real_time, events, turns: s.turns, next: 0, t: 0.0, taps: vec![], clicks: vec![], log, last_log: -1.0, steps: s.steps, step_shot: None, step: 0, step_t: 0.0, step_started: false }
     }
 }
 
@@ -274,6 +315,9 @@ pub struct PlaytestPlugin;
 impl Plugin for PlaytestPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PlayState>()
+            .init_resource::<FrameClock>()
+            .add_systems(First, frame_begin.run_if(resource_exists::<Playtest>))
+            .add_systems(Last, log_frames.before(log_render).run_if(resource_exists::<Playtest>))
             .add_systems(PreUpdate, drive.after(bevy::input::InputSystems).before(crate::input::InputDevices).run_if(resource_exists::<Playtest>))
             .add_systems(PreUpdate, pad_drive.after(drive).before(crate::input::InputDevices).run_if(resource_exists::<Playtest>))
             .add_systems(Update, hurt_companions.run_if(resource_exists::<Playtest>))
@@ -439,6 +483,9 @@ fn drive(
         } else if st.until.as_deref() == Some("movie_done") {
             // no movie in the state log (movie.rs log_state) once the step had a frame to start one; max 600 s
             (pt.step_t > 0.1 && !state.0.contains_key("movie")) || pt.step_t > 600.0
+        } else if st.until.as_deref() == Some("loaded") {
+            // a restarted level has left its loading screen (levelreset.rs "loading"); max 30 s
+            (pt.step_t > 0.1 && state.0.get("loading").and_then(|v| v.as_bool()) != Some(true)) || pt.step_t > 30.0
         } else if let Some(g) = st.goto {
             // a bot that has not arrived after 240 s is stuck (its route-finding is a test aid, not the game): it is
             // warped to the goal and the run goes on, logged so a run that needed it is not mistaken for a clean one
@@ -565,20 +612,18 @@ fn drive(
             save_req.path = Some(dir.join(format!("{name}.json")));
             info!("EVENT playtest: state saved as {name}");
         }
+        if let Some(name) = &e.note {
+            pt.notes.insert(name.clone(), state.0.clone());
+            info!("EVENT playtest: state noted as {name}");
+        }
         if let Some(want) = &e.expect {
             for (k, w) in want {
-                // a dotted key reads into an object field: "window.width"
-                let mut parts = k.split('.');
-                let got = parts.next().and_then(|h| state.0.get(h)).and_then(|v| parts.try_fold(v, |v, p| v.get(p)));
-                let ok = match (w.as_array(), got) {
-                    (Some(r), Some(g)) if r.len() == 2 && r.iter().all(|v| v.is_number()) => g.as_f64().is_some_and(|v| v >= r[0].as_f64().unwrap() && v <= r[1].as_f64().unwrap()),
-                    (_, Some(g)) => g == w || (g.is_number() && w.is_number() && g.as_f64() == w.as_f64()),
-                    // null: the field is absent
-                    (_, None) => w.is_null(),
-                };
+                let got = field(&state.0, k);
+                let ok = expect_holds(k, w, got, &pt.notes);
                 if ok { pt.passed += 1 } else { pt.failed += 1 }
                 let got = got.map(|g| g.to_string()).unwrap_or_else(|| "(missing)".into());
-                info!("EXPECT {} {k} = {got} (want {w}) at {:.2} s", if ok { "PASS" } else { "FAIL" }, pt.t);
+                let noted = w.get("as").and_then(|n| n.as_str()).and_then(|n| pt.notes.get(n)).and_then(|s| field(s, k)).map(|v| format!(", noted {v}")).unwrap_or_default();
+                info!("EXPECT {} {k} = {got} (want {w}{noted}) at {:.2} s", if ok { "PASS" } else { "FAIL" }, pt.t);
             }
         }
         if e.quit {
@@ -662,6 +707,57 @@ fn log_render(cams: Query<(&Camera, Option<&Msaa>, Has<bevy::camera::Hdr>, Has<C
     let active: Vec<_> = cams.iter().filter(|c| c.0.is_active).map(|(_, m, hdr, c3)| (m.map_or(1, |m| m.samples()), hdr, c3)).collect();
     let shared = active.windows(2).all(|w| w[0].0 == w[1].0 && w[0].1 == w[1].1);
     state.0.insert("render".into(), serde_json::json!({"cameras": active.len(), "camera3d": active.iter().any(|c| c.2), "shared_target": shared}));
+}
+
+/// The wall-clock frame measures (scripts advance game time by 1/60 s a frame, so Time says nothing of how long a
+/// frame really took): when this frame began, and the last FRAMES frames' wall time, main-world time and game step.
+#[derive(Resource, Default)]
+pub struct FrameClock {
+    began: Option<std::time::Instant>,
+    frames: std::collections::VecDeque<(f32, f32, f32)>,
+}
+
+impl FrameClock {
+    const FRAMES: usize = 60;
+}
+
+fn frame_begin(mut clock: ResMut<FrameClock>) {
+    clock.began = Some(std::time::Instant::now());
+}
+
+/// The state log's frame measures, over the last 60 frames: "frame_ms" (mean wall time from one frame's start to the
+/// next), "frame_ms_max", "main_ms" (mean main-world time, First to Last: the CPU the game's systems take),
+/// "dt_max_ms" (the longest game time step), and the level's size: "entities", "romans", "companions" (alive)
+/// (restart_parity compares them after a restart with a fresh level's).
+#[allow(clippy::type_complexity)]
+fn log_frames(
+    mut clock: ResMut<FrameClock>,
+    mut state: ResMut<PlayState>,
+    vtime: Res<Time<Virtual>>,
+    entities: Query<()>,
+    romans: Query<(), With<crate::player::Roman>>,
+    companions: Query<&crate::ai::Companion>,
+    mut last_begin: Local<Option<std::time::Instant>>,
+) {
+    let now = std::time::Instant::now();
+    let Some(began) = clock.began else { return };
+    let wall = last_begin.map_or(0.0, |l| (began - l).as_secs_f32() * 1000.0);
+    *last_begin = Some(began);
+    let main = (now - began).as_secs_f32() * 1000.0;
+    clock.frames.push_back((wall, main, vtime.delta_secs() * 1000.0));
+    while clock.frames.len() > FrameClock::FRAMES {
+        clock.frames.pop_front();
+    }
+    let n = clock.frames.len().max(1) as f32;
+    let r = |v: f32| (v * 10.0).round() / 10.0;
+    let (sum_wall, max_wall, sum_main, max_dt) = clock.frames.iter().fold((0.0, 0.0f32, 0.0, 0.0f32), |a, f| (a.0 + f.0, a.1.max(f.0), a.2 + f.1, a.3.max(f.2)));
+    state.0.insert("frame_ms".into(), r(sum_wall / n).into());
+    state.0.insert("frame_ms_max".into(), r(max_wall).into());
+    state.0.insert("main_ms".into(), r(sum_main / n).into());
+    state.0.insert("dt_max_ms".into(), r(max_dt).into());
+    state.0.insert("entities".into(), entities.iter().count().into());
+    state.0.insert("romans".into(), romans.iter().count().into());
+    state.0.insert("companions".into(), companions.iter().filter(|c| c.dead.is_none()).count().into());
 }
 
 fn log_state(mut pt: ResMut<Playtest>, mut state: ResMut<PlayState>) {
@@ -753,5 +849,31 @@ fn hurt_companions(
                 h.0 -= amount;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// Expect values: equal, a range, null for absent, and {"as": note} within margin + pct of the noted value.
+    #[test]
+    fn expects() {
+        let fresh = json!({"grunts_alive": 20, "frame_ms": 10.0, "cam_mode": "follow", "render": {"cameras": 3}});
+        let notes: std::collections::HashMap<String, _> = [("fresh".to_string(), fresh.as_object().unwrap().clone())].into();
+        let holds = |k: &str, w: serde_json::Value, g: Option<serde_json::Value>| expect_holds(k, &w, g.as_ref(), &notes);
+        assert!(holds("clip", json!(8), Some(json!(8.0))));
+        assert!(holds("health", json!([399, 401]), Some(json!(400))));
+        assert!(holds("menu.art", json!(null), None));
+        assert!(holds("grunts_alive", json!({"as": "fresh"}), Some(json!(20))));
+        assert!(!holds("grunts_alive", json!({"as": "fresh"}), Some(json!(19))));
+        assert!(holds("grunts_alive", json!({"as": "fresh", "margin": 1}), Some(json!(19))));
+        assert!(holds("frame_ms", json!({"as": "fresh", "pct": 50, "margin": 3}), Some(json!(18.0))));
+        assert!(!holds("frame_ms", json!({"as": "fresh", "pct": 50, "margin": 3}), Some(json!(300.0))), "the 3 fps of feedback 28");
+        assert!(holds("cam_mode", json!({"as": "fresh"}), Some(json!("follow"))));
+        assert!(holds("render.cameras", json!({"as": "fresh"}), Some(json!(3))));
+        assert!(!holds("grunts_alive", json!({"as": "nothing"}), Some(json!(20))), "no such note");
+        assert!(!holds("grunts_alive", json!({"as": "fresh"}), None), "missing now");
     }
 }

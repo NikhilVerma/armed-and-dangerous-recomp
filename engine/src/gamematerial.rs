@@ -90,9 +90,11 @@ fn swap(
     lights: Res<GameLights>,
     assets: Res<AssetServer>,
     mut materials: ResMut<Assets<GameMaterial>>,
-    mut made: Local<std::collections::HashMap<AssetId<StandardMaterial>, Handle<GameMaterial>>>,
+    // per level: the next level's library has standard materials of its own (the old ones' game materials go with it)
+    mut made: crate::levelreset::PerLevel<std::collections::HashMap<AssetId<StandardMaterial>, Handle<GameMaterial>>>,
 ) {
     let Some(lib) = lib else { return };
+    let made = made.get();
     for (e, m) in &q {
         let Some((def, texture, alpha)) = lib.game_defs.get(&m.0.id()) else { continue };
         let h = made.entry(m.0.id()).or_insert_with(|| materials.add(make(def, texture.as_deref(), *alpha, &lights, &assets, &lights.white))).clone();

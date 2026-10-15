@@ -20,7 +20,7 @@
  {"expect": {"menu.page": "YesNo", "menu.selected": "ui_yesno_no"}},
  {"tap": "ArrowUp"}, {"wait": 0.3},
  {"expect": {"menu.selected": "ui_yesno_yes"}},
- {"tap": "Enter"}, {"wait": 2.0},
+ {"tap": "Enter"}, {"until": "loaded"}, {"wait": 1.0},
  {"expect": {"level_generation": 1, "menu.page": "Main", "menu.selected": "ui_mainmenu_startgame", "menu.art": "Title", "render.camera3d": true, "render.shared_target": true}},
  {"shot": "title_again"},
  {"tap": "Enter"},

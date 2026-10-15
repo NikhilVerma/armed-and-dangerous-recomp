@@ -210,8 +210,10 @@ pub fn follow_camera(
     placed: Query<(Entity, &crate::level::Placed)>,
     mut fade: ResMut<crate::camfade::CameraFade>,
     (topsy, cheats, mounted, lib): (Res<crate::topsy::Topsy>, Res<crate::cheats::Cheats>, Res<crate::turret::Mounted>, Res<crate::skin::AnimLibrary>),
-    (mut rig, mut smooth, mut base_fov): (ResMut<CameraRig>, ResMut<CameraSmooth>, Local<Option<f32>>),
+    (mut rig, mut smooth, mut base_fov): (ResMut<CameraRig>, ResMut<CameraSmooth>, crate::levelreset::PerLevel<Option<f32>>),
 ) {
+    // the unzoomed FOV, taken from the level's camera (a restart while zoomed must not keep the zoomed one)
+    let base_fov = base_fov.get();
     if !rig.loaded {
         rig.load(&lib.dir);
     }
@@ -392,6 +394,8 @@ fn log_camera(
     ps.0.insert("cam_mode".into(), mode.into());
     ps.0.insert("cam_held".into(), r2(smooth.death.map_or(0.0, |d| d.distance(c.translation()))).into());
     ps.0.insert("look_pitch".into(), r2(r.pitch).into());
+    // where the camera itself looks (radians above the horizon): a restart must start at the fresh level's view
+    ps.0.insert("cam_pitch".into(), r2(c.forward().y.clamp(-1.0, 1.0).asin()).into());
     let look = rt.translation + Vec3::Y * rig.follow.target.y;
     ps.0.insert("cam_dist".into(), r2(c.translation().distance(look)).into());
     ps.0.insert("cam_up".into(), r2(c.translation().y - rt.translation.y).into());

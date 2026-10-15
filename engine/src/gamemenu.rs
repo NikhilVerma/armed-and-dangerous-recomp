@@ -711,8 +711,9 @@ fn navigate(
     ),
 ) {
     cheats.entering = menu.page == Page::Cheats && *state.get() != AppState::Playing;
-    // a screen transition is under way (0x004915b0: no input while a request is pending)
-    if menu.fade > 0.0 {
+    // a screen transition is under way (0x004915b0: no input while a request is pending); the loading screen
+    // (levelreset.rs) takes none either
+    if menu.fade > 0.0 || *state.get() == AppState::Loading {
         return;
     }
     // the mouse in the menus (the original: Mouse 1 selects, Mouse 2 cancels): the row under the cursor is selected
@@ -1113,7 +1114,8 @@ fn animate(
     while menu.phase > std::f32::consts::PI {
         menu.phase -= std::f32::consts::TAU;
     }
-    let want = if *state.get() == AppState::Playing { None } else { Some(menu.page) };
+    // no page in play, nor on the loading screen (levelreset.rs: the shell art alone)
+    let want = if matches!(*state.get(), AppState::Playing | AppState::Loading) { None } else { Some(menu.page) };
     if menu.fade == 0.0 && want != menu.shown {
         if instant(menu.shown, want) {
             menu.shown = want;
@@ -1147,7 +1149,11 @@ fn animate(
         }
     }
     let page = menu.shown;
-    let back = page.map(|p| p.back()).or(if *state.get() == AppState::Title { Some(Back::Title) } else { None });
+    let back = page.map(|p| p.back()).or(match *state.get() {
+        AppState::Title => Some(Back::Title),
+        AppState::Loading => Some(Back::Shell),
+        _ => None,
+    });
     // the yes/no box shows over the page that asked
     let art = if page == Some(Page::YesNo) { menu.shown_under.map(|p| p.back()) } else { back };
     for (p, mut v) in &mut parts {

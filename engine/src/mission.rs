@@ -1465,12 +1465,14 @@ fn pub_door(ctl: Res<crate::input::Controls>, bot: Res<crate::bot::Bot>, mut m: 
 fn barracks(
     time: Res<Time>,
     mut m: Option<ResMut<Mission>>,
-    mut crt: Local<crate::fxvm::CrtRand>,
+    // the release delays' random stream: each level starts it over
+    mut crt: crate::levelreset::PerLevel<crate::fxvm::CrtRand>,
     troops: Query<(&BarracksTroop, &Grunt)>,
     objects: Query<(&InstanceId, &Destructible)>,
     mut spawn: MessageWriter<crate::level::SpawnGrunt>,
 ) {
     let Some(m) = m.as_deref_mut() else { return };
+    let crt = crt.get();
     let dt = time.delta_secs();
     let mut logs = Vec::new();
     for b in &mut m.barracks {
