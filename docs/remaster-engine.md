@@ -479,6 +479,58 @@ none plays) and `game_paused`. `tools/movie_compare.py` matches captures (the or
 and checks the subtitle band. Trap: in scripted runs the game clock is a fixed 1/60 s per frame while the soundtrack
 plays in real time, so the logged drift is bounded by the 0.5 s seek, not ~0 as in play.
 
+## Presentation presets: Remaster and Original (graphics.rs, 2026-10-15)
+
+docs/decision.md 2026-10-15: the player plays the **Remaster** preset (the default for a normal launch); every tool
+run (--play, --snap, --camera, --bench, --background, --size) is pinned to the **Original** preset, the engine's
+faithful look, so comparisons and the playtest suite never see a remaster feature. `--preset remaster|original`
+overrides the preset for a run and `--graphics key=value,...` changes single settings over it (A/B comparisons,
+benches; values JSON or bare words, e.g. `--graphics anti_aliasing=smaa,bloom=0`). No setting reaches physics, AI
+or timing: gameplay is identical in both.
+
+Module: `engine/src/graphics/` (GraphicsPlugin; `GraphicsSettings` resource; `resolve(preset, changes)`;
+`texture_path` / `world_sampler` for asset loading; `graphics::menu` for the Graphics page). Options file:
+`graphics_preset` ("remaster" / "original") and `graphics` (any setting by name over the preset; the Graphics page
+writes only differences, a preset choice clears them). Settings and what they use:
+
+| Setting | Original | Remaster | How |
+|---|---|---|---|
+| remaster_textures (+ remaster_textures_exclude) | off | on | the AI retextures, prepared by `tools/remaster_textures.py LEVEL` into work/remaster/LEVEL/textures_remaster (never committed); chosen when the level loads |
+| ambient_occlusion, ao_quality / radius / strength, ao_exempt | off | on, High, 4 units, 1, ["ground", "snow"] | Bevy's SSAO (an XeGTAO implementation) read in gamematerial.wesl on the ambient + fill light only (not the sun, not emissive); surfaces whose base / second / normal map name contains an exempt part (the snow landscape) and blended surfaces get none |
+| anti_aliasing, sharpening | MSAA 4x, 0 | TAA, 0.35 | Bevy's TAA (with the temporal shadow filter) or SMAA High, then contrast-adaptive sharpening; Off / MSAA / SMAA / TAA on the Graphics page |
+| anisotropy, anisotropic_fx | 16, off | 16, on | world samplers 16x in both (the engine's look since 2026-10-13); the Remaster adds it to decals and effects (the default sampler) |
+| shadow_map_size, shadow_cascades, shadow_distance | 2048, 4, 0 (the level's: half its extent) | 4096, 4, 1.0 x the world's far clip | cascades fitted to what is drawn (options.rs world_far), 30 % overlap: every shadow in view is in a cascade |
+| soft_shadows, shadow_softness | off | on, 6 | Bevy's PCSS (feature experimental_pbr_pcss) |
+| soft_particles | 0 | 6 units | particle.wesl fades a particle over that depth where it meets the depth prepass: no hard line where a quad cuts the ground |
+| far_fade | off | on | the far clip (the original's far plane) dissolves over its last 15 % (moving dither, smoothed by TAA) instead of a hard cut; draw distance stays the original's maximum, LOD always the finest |
+| bloom | 0 | 0.08 | HDR target; only what is brighter than white blooms (threshold 1: stacked additive fire and flashes; the game's surfaces are clamped to white), added on top. Tonemapping stays off (the game's colours) |
+
+Traps found on the way:
+- Never give the game material a prepass shader of its own: Bevy then binds the material in every depth-only pass
+  and the sun's four shadow cascades lose their batching (4K bench 113 -> 64 fps, in both presets). The depth
+  prepass (TAA, SSAO, soft particles) therefore has no per-pixel far clip; the camera's far plane is the original's
+  (options.rs world_far), so objects wholly beyond it are culled, and the sky dome is never culled (level.rs). Debt:
+  the far part of an object straddling the far plane shows the clear (fog) colour instead of the sky in the
+  Remaster.
+- SSAO needs MSAA off (AO is skipped with a warning when the player picks MSAA).
+- Retextures: locking the override's colour to the original in sRGB bytes left the snow 6 levels too bright (the GPU
+  filters the finer detail in linear light): the lock and the mips are in linear light. The AI normal maps changed
+  the lighting itself (n_b_t_snow: the snow +7 brighter): normal maps stay original. A fidelity gate (shrunk back,
+  more than 12 levels from the original) keeps 7 originals (fx_snow_flakes' overrides are big white flakes for the
+  original's dim dots).
+
+Measured (2026-10-15, walkA same cameras, tools/render_compare.py against the original game's captures; snaps in
+work/remaster/render/p4 and p5): Original preset mae 15.8 / 17.8 / 52.7 at frames 520 / 580 / 640, Remaster 14.6 /
+17.0 / 52.0 (closer, no colour shift: mean colours within 1-2 levels of the Original preset). The Original preset
+matches the build before the presets (differences at the level of two runs of the old build: snow particles).
+
+Performance (4K, visible window, driver cap 119, `--bench 20`): Original 112.0 / 111.9 fps average (75-79 fps 1 %
+low; the old build 113.1), Remaster 90.4 / 92.6 (55 1 % low): **below the 100 fps floor, open**. Single settings off
+(bloom, AO, soft shadows) each gave back only 1-2 fps; Remaster with SMAA, no AO and no soft particles (no depth
+prepass at all) 105. The engine is CPU-bound at 4K (the prepass draws every opaque mesh a second time); next: a
+profile of the prepass and TAA cost, then batching or a cheaper default (SMAA). Background runs are capped at 60 fps,
+so the uncapped figure needs a visible window and the human's go-ahead.
+
 ## Running tests without disturbing the desktop
 
 - `--background`: the window opens off-screen, unfocused, behind everything, not in the taskbar; screenshots still

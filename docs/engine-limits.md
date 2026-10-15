@@ -57,6 +57,8 @@ Sources: two read-only code audits (2026-10-12) and the playground captures. Gue
 | 640x480 4:3 UI | 0x004f01c0 | | `ui anchor`, `text_scale`, `camera hor_plus` |
 | Texture resolution, terrain detail, hard particle edges, no AO | | | override packs, `terrain_detail` 8, `soft_particles` 1, `ao` 1 |
 
+Remaster engine (engine/, Bevy; 2026-10-15, engine/src/graphics/, Remaster preset; the Original preset keeps the engine's faithful look): textures -> the AI retextures (tools/remaster_textures.py); no AO -> Bevy SSAO, snow exempt; aliasing -> TAA + sharpening (SMAA / MSAA selectable); shadows -> 4096 PCSS cascades fitted to the far clip; hard particle edges -> soft particles (depth prepass); far clip -> dissolve; anisotropy 16x on effects and decals too; bloom above white. Draw distance stays the original's maximum (fog unchanged), LOD always the finest.
+
 ### Not lifted
 
 | # | Limit | Evidence | Original | Plan | Effort |
