@@ -253,9 +253,9 @@ Replaced by the engine (no port needed): the screen objects and their manager (U
 FitText_*, Stepper_SetSteps, 0x0046ce40, ...) are `Spawner`'s rows and parts; the list boxes (0x0046bdd0..0x0046c980:
 save slots, mission and movie lists) and the save-slot widgets (0x004a2f70..0x004a2fe0; their enabling rule, 0x004a2c10 / 0x004a2e90, is ported: the load rows are greyed without a saved game) are replaced by
 the single quick save (savegame.rs); DisplayMode_Pack / Unpack (0x00470c90 / 0x00470cc0) by the window size in
-options.json; Text_Lookup (0x00495f00, 0x00495e50) by `Texts`. Not needed: the movie screens (0x00493150..0x004933e0:
-no movies in the remaster yet), the timed splash screens (0x00493520 / 0x00493590: LegalText; who pushes it is not
-traced, the remaster starts on the main menu), the exit screen 0x00493770, the loading screen (UI_GetLoadingText
+options.json; Text_Lookup (0x00495f00, 0x00495e50) by `Texts`. The movie screens (0x00493150..0x004933e0) are movie.rs /
+cutscenes.rs (docs/subsystems/movie.md). Not needed: the timed splash screens (0x00493520 / 0x00493590: LegalText,
+pushed by Game_StartLevel 0x00403690 over the intro movies; its art is not exported), the exit screen 0x00493770, the loading screen (UI_GetLoadingText
 0x00447600: the remaster loads the level before the title menu).
 
 ## Open questions

@@ -1,0 +1,19 @@
+{
+ "title": true,
+ "intro": true,
+ "steps": [
+  {"wait": 2.0},
+  {"expect": {"movie.name": "lucasanim", "movie.time": [1.6, 2.1], "movie.frame": [46, 63], "movie.drift": [-0.6, 0.6], "movie.left": 2, "movie.prompt": true, "game_paused": true}},
+  {"shot": "lucasanim"},
+  {"wait": 1.0},
+  {"expect": {"movie.name": "lucasanim", "movie.time": [2.6, 3.1], "movie.frame": [76, 93], "movie.audio_time": [2.0, 3.8], "movie.rate": [0.94, 1.06]}},
+  {"tap": "Enter"}, {"wait": 0.6},
+  {"expect": {"movie.name": "pm_logo", "movie.left": 1, "menu.page": "Main"}},
+  {"pad": "South=1"}, {"wait": 0.1}, {"pad": "South=0"}, {"wait": 1.0},
+  {"expect": {"movie.name": "pre_1_1_opening", "movie.left": 0, "movie.subtitle": "sup_011", "movie.time": [0.4, 1.1]}},
+  {"shot": "opening"},
+  {"click": "Left"}, {"wait": 0.5},
+  {"expect": {"movie": null, "menu.page": "Main", "menu.selected": "ui_mainmenu_startgame", "game_paused": false}},
+  {"quit": true}
+ ]
+}

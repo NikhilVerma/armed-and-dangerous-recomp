@@ -98,7 +98,8 @@ pub struct Event {
     /// bot: with goto, arrive within this many units (default 12)
     #[serde(default)]
     pub near: Option<f32>,
-    /// steps only: wait until the game shows a paused message (the briefing): "message"; max 60 s
+    /// steps only: wait until the game shows a paused message (the briefing): "message", max 60 s; or until no movie
+    /// plays: "movie_done", max 600 s
     #[serde(default)]
     pub until: Option<String>,
     /// steps only: wait this many seconds
@@ -122,6 +123,10 @@ pub struct Event {
     /// pause)
     #[serde(default)]
     pub audio: Option<serde_json::Map<String, serde_json::Value>>,
+    /// a movie command (cutscenes.rs playtest_movies): "a,b" plays a skippable list; {"play", "at" seconds into the
+    /// first, "skippable", "loop", "behind" z}; {"stop": true}
+    #[serde(default)]
+    pub movie: Option<serde_json::Value>,
     /// debug: start an fx script (fxvm playtest_fx): {"name", "at": [game x, y, z] (default: Roman's feet), "yaw"
     /// degrees, "clear": true ends every live fx first}
     #[serde(default)]
@@ -182,9 +187,19 @@ struct Script {
     /// start on the title screen (menu tests) instead of in the level
     #[serde(default)]
     title: bool,
+    /// with title: play the boot intro movies first
+    #[serde(default)]
+    intro: bool,
     /// start from this saved state (relative to the script; written by a 'save' step)
     #[serde(default)]
     load: Option<PathBuf>,
+}
+
+/// A title script that asks for the boot intro movies ("title" and "intro").
+impl Playtest {
+    pub fn load_intro(script: &std::path::Path) -> bool {
+        std::fs::read_to_string(script).ok().and_then(|t| serde_json::from_str::<Script>(&t).ok()).is_some_and(|s| s.title && s.intro)
+    }
 }
 
 /// The state file a script starts from (its "load"), resolved against the script's folder.
@@ -212,6 +227,10 @@ pub struct Playtest {
     pub audio: Vec<serde_json::Map<String, serde_json::Value>>,
     /// fx steps for fxvm.rs
     pub fx: Vec<serde_json::Map<String, serde_json::Value>>,
+    /// movie steps for cutscenes.rs
+    pub movies: Vec<serde_json::Value>,
+    /// play the boot intro movies before the title menu (a title script skips them unless it sets "intro")
+    pub intro: bool,
     pub path: PathBuf,
     pub title: bool,
     events: Vec<Event>,
@@ -260,7 +279,7 @@ impl Playtest {
         let mut events = s.events;
         events.sort_by(|a, b| a.t.total_cmp(&b.t));
         let log = std::fs::File::create(path.with_extension("log.jsonl")).ok();
-        Playtest { pickups: vec![], loadouts: vec![], audio: vec![], fx: vec![], passed: 0, failed: 0, hurt_c: vec![], blasts: vec![], pad_e: None, pad: vec![], warp: None, path, title: s.title, events, turns: s.turns, next: 0, t: 0.0, taps: vec![], clicks: vec![], log, last_log: -1.0, steps: s.steps, step_shot: None, step: 0, step_t: 0.0, step_started: false }
+        Playtest { pickups: vec![], loadouts: vec![], audio: vec![], fx: vec![], movies: vec![], intro: s.intro, passed: 0, failed: 0, hurt_c: vec![], blasts: vec![], pad_e: None, pad: vec![], warp: None, path, title: s.title, events, turns: s.turns, next: 0, t: 0.0, taps: vec![], clicks: vec![], log, last_log: -1.0, steps: s.steps, step_shot: None, step: 0, step_t: 0.0, step_started: false }
     }
 }
 
@@ -439,6 +458,9 @@ fn drive(
         }
         let done = if st.until.as_deref() == Some("message") {
             mission.as_ref().is_some_and(|m| m.showing.is_some()) || pt.step_t > 60.0
+        } else if st.until.as_deref() == Some("movie_done") {
+            // no movie in the state log (movie.rs log_state) once the step had a frame to start one; max 600 s
+            (pt.step_t > 0.1 && !state.0.contains_key("movie")) || pt.step_t > 600.0
         } else if let Some(g) = st.goto {
             // a bot that has not arrived after 240 s is stuck (its route-finding is a test aid, not the game): it is
             // warped to the goal and the run goes on, logged so a run that needed it is not mistaken for a clean one
@@ -507,6 +529,9 @@ fn drive(
         }
         if let Some(f) = e.fx {
             pt.fx.push(f);
+        }
+        if let Some(m) = e.movie {
+            pt.movies.push(m);
         }
         if let Some(h) = e.hurt_companion {
             pt.hurt_c.push(h);

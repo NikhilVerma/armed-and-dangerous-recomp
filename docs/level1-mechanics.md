@@ -87,7 +87,7 @@ Update this table as items land (commit hash in the last column).
 | Gates blown (556 / 901) | 0x0044e150 | V | | |
 | Win sequence (score, sounds stop, stats, next level lev_1_m1_b) | 0x0044a390 / 0x0044a230 / 0x00494440 (win-sequence.md) | P | 1 | statscreen.rs: counters (stats.rs), the Stats screen with its phases and poster, money kept; lev_1_m1_b not built: back to the title. Every sound but the music stops at the win |
 | Objective jingle | 0x0044f560, 0x0046afa0 | P | 3 | the l1vic track requested by objective ui_ears (triggers 900, 901) and the win |
-| Opening movie + 71 subtitles | pre_1_1_opening | M | 3 | |
+| Opening movie + 71 subtitles | pre_1_1_opening; boot list 0x005bc108, Movie_Update 0x0050e110, subtitles 0x00495cb0 | V | 3 | movie.rs / cutscenes.rs (docs/subsystems/movie.md): plays at boot after LucasAnim and pm_logo, before the title menu, as the original (lev_1_m1's own start movie is skipped, 0x005b1738); subtitles at the original's times and look (compared with the capture origmovA), skip with select / back / click, prompt with the device's button; tests movie_intro, movie_subs |
 | Pub re-entry, barkeep lines, amb_pub_busy | 0x00468dd0, 0x00467fe0 | P | 3 | amb_pub_busy loop while inside, the intro line once then one of 15 general lines; extras / once-weapon lines not set up |
 | Music states | 0x0044f580 (audio.md 4) | P | 3 | near / far grunt counts, battle / stealth / skirmish tracks, silence 60..300 s, 10 s lock, victory / defeat requests at segment boundaries |
 | Score | various | P | 3 | stats.rs: kills / accidents by score_value, loot (win 1000, tokens 2500) |
