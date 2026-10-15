@@ -302,8 +302,9 @@ fn trace(
     line.insert("paused".into(), (vtime.is_paused() as i32).into());
     if let Some((_, t, rm)) = roman_e {
         // his feet from the transform (PlayerStats.position is a frame behind a warp: the player update runs first)
-        // the model's facing (its -Y axis in game space) as the hook reports it
-        let facing = to_game * (t.rotation() * (crate::level::game_to_engine() * Vec3::NEG_Y));
+        // the model's facing as the hook reports it: its own -Y axis (model space is game space) taken to the world by
+        // the Transform, then to game space
+        let facing = to_game * (t.rotation() * Vec3::NEG_Y);
         line.insert(
             "roman".into(),
             serde_json::json!({"pos": g(t.translation()), "heading": r2(facing.x.atan2(facing.y).to_degrees()), "look_yaw": r2(rm.yaw.to_degrees()), "health": r2(p.health),
