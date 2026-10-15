@@ -1596,7 +1596,7 @@ fn timers(time: Res<Time>, mut m: Option<ResMut<Mission>>, mut out: MessageWrite
 fn dispatch(
     mut m: Option<ResMut<Mission>>,
     mut events: MessageReader<SendTrigger>,
-    mut grunts: Query<(&InstanceId, &mut Grunt)>,
+    mut grunts: Query<(&InstanceId, &mut Grunt, Has<crate::ai::ic::IcEntry>)>,
     mut objects: Query<(&InstanceId, &mut Destructible)>,
     // (a squad hands its receive_trigger_kill to its goliath and keeps none: Squad_Init 0x00433220, goliath.rs)
     plain: Query<(Entity, &InstanceId, Option<&crate::level::Placed>), (Without<Destructible>, Without<Grunt>, Without<crate::ai::squad::Squad>)>,
@@ -1699,10 +1699,9 @@ fn dispatch(
         for a in actions {
             match a {
                 Action::WakeAi(id) => {
-                    for (i, mut g) in &mut grunts {
-                        if i.0 == id && g.mind == Mind::WaitTrigger {
-                            g.mind = Mind::Roam;
-                            g.target = pe;
+                    for (i, mut g, ic) in &mut grunts {
+                        if i.0 == id {
+                            crate::ai::activate(&mut g, ic, pe);
                         }
                     }
                 }

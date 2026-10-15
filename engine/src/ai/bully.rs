@@ -2,7 +2,7 @@
 //! +0xef8) and scare him now and then until they see the player or the peasant dies. docs/subsystems/infantry.md
 //! section 5.
 //! - Start (AI_ResolveStartObjects 0x00425e20, ai_02.cpp:181-202): the peasant found: timer 10..30 s, the stand set,
-//!   the peasant's peasant_man_stand, state 0x118; not found: ready roaming (state 1).
+//!   the peasant's peasant_man_stand, state 0x118 (`Mind::Bully`); not found: ready roaming (state 1).
 //! - State 0x118 (ai_06.cpp:2546-2642): the timer out -> under the game-wide bully delay (bully_delay_min / max 60..75 s)
 //!   a line (70 % the peasant's, 30 % the grunt's), then grunt_scare (anim 0x7d) with the peasant's Peasant_man_scare;
 //!   its end: a new 10..30 s and the stand set again.
@@ -91,7 +91,8 @@ pub fn bullies(
             info!("EVENT ai: bully {ge:?} lets his peasant go");
             continue;
         }
-        g.mind = Mind::Roam;
+        // state 0x118 (a hurt or alerted bully has a target: the end above)
+        g.mind = Mind::Bully;
         match b.scaring {
             Some(left) if left - dt > 0.0 => b.scaring = Some(left - dt),
             Some(_) => {

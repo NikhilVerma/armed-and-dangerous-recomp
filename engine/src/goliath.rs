@@ -124,7 +124,7 @@ fn spawn_for_squads(
         let p = data.template_props("goliath");
         let Some(model) = data.templates.get("goliath").and_then(|t| t.model.clone()) else { continue };
         let world = Transform::from_translation(ev.at).with_rotation(Quat::from_rotation_y(ev.yaw) * crate::level::game_to_engine());
-        commands.entity(ev.entity).insert((world, Visibility::default(), Name::new("goliath")));
+        commands.entity(ev.entity).insert((world, GlobalTransform::from(world), Visibility::default(), Name::new("goliath")));
         let Some(bounds) = kit.attach(&mut commands, ev.entity, &model, p.f("shadow_enable", 0.0) != 0.0) else { continue };
         let Some((body, lift)) = hit_body(&mut physics, ev.entity, ev.at, p.s("material")) else { continue };
         let husk = crate::level::pick_husk(&p, husk_rng.get());

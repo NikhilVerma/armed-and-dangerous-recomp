@@ -219,12 +219,14 @@ std::string Body()
     }
     o += ']';
     // the vehicles and big units (docs/subsystems/vehicles.md, defence.md) by class: the bosses and goliaths are on the
-    // AI list too, the rocket towers / buds only on the damageable (+0xe94) and projectile (+0xe90) lists; each once
+    // AI list too, the rocket towers / buds only on the damageable (+0xe94) and projectile (+0xe90) lists; a goliath
+    // waiting for its script (trigger_ic) is off the AI list (GoliathObject_Slot6 0x00433fe0): the collidable (+0xe9c),
+    // +0xea0 and +0xea4 lists are walked too; each object once
     o += ",\"vehicles\":[";
     if (world)
     {
         std::vector<uint32_t> seen;
-        for (const unsigned list : {0xe7cu, 0xe94u, 0xe90u})
+        for (const unsigned list : {0xe7cu, 0xe94u, 0xe90u, 0xe9cu, 0xea0u, 0xea4u})
         {
             uint32_t iter[2] = {0, 0};
             for (uint32_t a = orig::fn_004e7340(At<uint32_t>(reinterpret_cast<void*>(world), list),
