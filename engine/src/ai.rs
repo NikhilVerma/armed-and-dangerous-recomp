@@ -3508,7 +3508,7 @@ fn companions(
     mut rng: ResMut<FxStats>,
     data: Res<crate::gamedata::GameData>,
     ctl: Res<crate::input::Controls>,
-    bot: Res<crate::playtest::Bot>,
+    bot: Res<crate::bot::Bot>,
     roman: Query<(&Transform, &crate::player::Roman, &crate::skin::Animator, &Health), Without<Companion>>,
     cam: Query<&GlobalTransform, With<Camera3d>>,
     mut q: Query<(Entity, &mut Companion, &mut Transform, Option<&crate::skin::Animator>, Option<&Health>), Without<crate::player::Roman>>,

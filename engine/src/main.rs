@@ -9,6 +9,7 @@
 mod ai;
 mod alarm;
 mod audio;
+mod bot;
 mod bench;
 mod camera;
 mod campath;
@@ -195,7 +196,7 @@ fn main() {
     // colour target: wgpu reports "Attachments have differing sizes" for that frame. Bevy's default handler quits
     // on any render error; this one renders on through that transient (at most 120 times, then it quits as before)
     .insert_resource(bevy::render::error_handler::RenderErrorHandler(resize_tolerant))
-    .add_plugins(playtest::PlaytestPlugin)
+    .add_plugins((playtest::PlaytestPlugin, bot::BotPlugin))
     .add_plugins(audio::AudioBankPlugin)
     .add_plugins(pickup::PickupPlugin)
     .add_plugins((FrameTimeDiagnosticsPlugin::default(), flycam::FlyCamPlugin, bench::BenchPlugin))
@@ -528,7 +529,7 @@ fn bench_ground(physics: NonSend<physics::Physics>, mut bench: ResMut<bench::Ben
 }
 
 /// The playtest log's state line: player, AI, fx.
-fn play_state(audio_chk: Res<audio::AudioCheck>, skin: Res<skin::SkinCheck>, mut bank: Option<ResMut<audio::SoundBank>>, bot: Res<playtest::Bot>, mut st: ResMut<playtest::PlayState>, p: Res<player::PlayerStats>, ai: Res<ai::AiStats>, fx: Res<fx::FxStats>, mission: Option<ResMut<mission::Mission>>, hud: Res<hud::HudState>, mut seen: Local<usize>) {
+fn play_state(audio_chk: Res<audio::AudioCheck>, skin: Res<skin::SkinCheck>, mut bank: Option<ResMut<audio::SoundBank>>, bot: Res<bot::Bot>, mut st: ResMut<playtest::PlayState>, p: Res<player::PlayerStats>, ai: Res<ai::AiStats>, fx: Res<fx::FxStats>, mission: Option<ResMut<mission::Mission>>, hud: Res<hud::HudState>, mut seen: Local<usize>) {
     let m = &mut st.0;
     if let Some(mut ms) = mission {
         m.insert("mission".into(), format!("{:?}", ms.outcome).into());

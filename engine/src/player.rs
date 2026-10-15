@@ -611,13 +611,10 @@ pub fn grab_cursor(
 
 /// WASD relative to the camera yaw, Space jump, mouse look (stand-in bindings).
 #[allow(clippy::too_many_arguments)]
-fn control(
+pub(crate) fn control(
     path: Res<crate::campath::CameraPath>,
     time: Res<Time>,
-    mut bot: ResMut<crate::playtest::Bot>,
-    grunts: Query<(&crate::ai::Grunt, &GlobalTransform)>,
-    pickups: Query<&GlobalTransform, With<crate::pickup::Pickup>>,
-    explosives: Query<(&crate::fx::Destructible, &GlobalTransform)>,
+    bot: Res<crate::bot::Bot>,
     motion: Res<AccumulatedMouseMotion>,
     look: Res<LookDelta>,
     playtest: Option<Res<crate::playtest::Playtest>>,
@@ -673,203 +670,14 @@ fn control(
             r.pitch = (r.pitch + stick.y * 2.0 * PITCH_MAX_SPEED * dt * inv * kp).clamp(lo, hi);
         }
         let mut wish = Vec3::ZERO;
-        // playtest bot: turn toward the goal and walk; when fighting, face the nearest live grunt
-        let mut bot_walk: Option<Vec3> = None;
-        // plan a route when the goal changes (A* over the ground, nav.rs), then follow its waypoints
-        // (re)plan: a new goal, or the partial route ran out short of the goal
-        let route_done = bot.route.is_empty() && bot.goto.is_some_and(|g| (g - t.translation).with_y(0.0).length() > 30.0);
-        bot.replan_timer -= dt;
-        if bot.goto.is_some() && (bot.planned_for != bot.goto || (route_done && bot.replan_timer <= 0.0)) {
-            bot.planned_for = bot.goto;
-            bot.replan_timer = 1.5;
-            let blocked = bot.blocked.clone();
-            bot.route = crate::nav::path(&physics, t.translation, bot.goto.unwrap(), &blocked).unwrap_or_default();
-            // no route from here (a dead end the planner cannot see out of): back along the way it came, then plan
-            // again from there
-            if bot.route.is_empty() && bot.trail.len() > 3 {
-                bot.route = bot.trail.iter().rev().skip(1).take(8).copied().collect();
-            }
-            info!("bot: route to {:?}: {} waypoints {:?}", bot.goto, bot.route.len(), bot.route.iter().map(|p| [p.x as i32, p.y as i32, p.z as i32]).collect::<Vec<_>>());
+        // the playtest bot's decisions (bot.rs `think`, before this system): its walk, and its facing / aim over the look
+        let bot_walk = bot.walk;
+        if let Some(yaw) = bot.face {
+            r.yaw = yaw;
         }
-        // no progress toward the goal for 15 s (routes that lead nowhere in a walled yard): retrace the trail out,
-        // then plan afresh from there
-        if let Some(g) = bot.goto {
-            let d = (g - t.translation).with_y(0.0).length();
-            if d < bot.best_goal_dist - 10.0 || bot.best_goal_dist == 0.0 {
-                bot.best_goal_dist = d;
-                bot.no_gain = 0.0;
-            } else {
-                bot.no_gain += dt;
-            }
-            if bot.no_gain > 15.0 && bot.trail.len() > 3 {
-                info!("bot: no progress for 15 s, retracing its trail");
-                bot.route = bot.trail.iter().rev().skip(1).copied().collect();
-                bot.trail.clear();
-                bot.no_gain = 0.0;
-                bot.best_goal_dist = 0.0;
-                bot.replan_timer = 12.0;
-            }
-        } else {
-            bot.best_goal_dist = 0.0;
-            bot.no_gain = 0.0;
-        }
-        bot.trail_t += dt;
-        if bot.trail_t >= 1.0 {
-            bot.trail_t = 0.0;
-            if bot.trail.last().is_none_or(|l| l.distance(t.translation) > 6.0) {
-                bot.trail.push(t.translation);
-                if bot.trail.len() > 20 {
-                    bot.trail.remove(0);
-                }
-            }
-        }
-        while bot.route.first().is_some_and(|w| (*w - t.translation).with_y(0.0).length() < 8.0) {
-            bot.route.remove(0);
-        }
-        // the bot's tactics, as a player would play (debug tooling): engage the nearest grunt in rifle range with line
-        // of sight; hold position while it is far, back off when badly hurt, a sticky bomb for a group
-        let me = t.translation;
-        // where a player sees each grunt: his position, except a mounted gun's gunner, whose entity sits at the gun's
-        // origin (ref_grunt_08) while his body is at the seat 7.5 behind it (ai.rs GunPhase::On): aiming at the origin
-        // puts every shot into the gun's own collision (stig_mgun_coll_0); aimed (+5 below) at his head above the gun's shield, 8.5 over the origin
-        let live: Vec<Vec3> = grunts
-            .iter()
-            .filter(|(g, _)| g.mind != crate::ai::Mind::Dead)
-            .map(|(g, gt)| match g.gun {
-                Some(gn) if gn.phase == crate::ai::GunPhase::On => gn.origin + Quat::from_rotation_y(gn.yaw) * crate::level::game_to_engine() * Vec3::new(0.3, 7.5, 0.0) + Vec3::Y * 3.5,
-                _ => gt.translation(),
-            })
-            .collect();
-        let target = if bot.fight {
-            live.iter()
-                .copied()
-                .filter(|p| p.distance(me) < 450.0 && crate::ai::line_of_sight(&physics, me, *p))
-                .min_by(|a, b| a.distance(me).total_cmp(&b.distance(me)))
-        } else {
-            None
-        };
-        // explosives (kegs): never shoot with one next to Roman; shoot one from a distance when grunts stand by it
-        let kegs: Vec<(Vec3, f32)> = explosives
-            .iter()
-            .filter(|(d, _)| d.area_damage > 0.0 && d.health > 0.0 && d.dying.is_none())
-            .map(|(d, gt)| (gt.translation() + Vec3::Y * 2.0, d.radius_outer))
-            .collect();
-        let danger = kegs.iter().any(|(k, r)| k.distance(me) < r + 25.0);
-        let keg_target = if bot.fight {
-            kegs.iter()
-                .filter(|(k, r)| {
-                    let d = k.distance(me);
-                    d > r + 50.0 && d < 400.0 && live.iter().any(|g| g.distance(*k) < *r) && {
-                        let eye = me + Vec3::Y * 8.0;
-                        let v = *k - eye;
-                        physics.raycast(eye, v.normalize_or(Vec3::Y), v.length() + 2.0).is_none_or(|h| h.1.distance(*k) < 6.0)
-                    }
-                })
-                .map(|(k, _)| *k)
-                .min_by(|a, b| a.distance(me).total_cmp(&b.distance(me)))
-        } else {
-            None
-        };
-        let aim_at = keg_target.or(target.map(|p| p + Vec3::Y * 5.0));
-        bot.fire_ok = aim_at.is_some() && !danger;
-        let low = h.0 < r.max_health * 0.35;
-        bot.throw_timer -= dt;
-        // an engagement: hold up to 20 s, then push on for 15 s; it ends after 5 s without a target
-        bot.no_target = if target.is_some() { 0.0 } else { bot.no_target + dt };
-        bot.hold = if bot.no_target > 5.0 || bot.hold > 35.0 { 0.0 } else { bot.hold + dt };
-        if let Some(p) = target {
-            let d = p.distance(me);
-            let group = live.iter().filter(|q| q.distance(p) < 35.0).count();
-            if d < 150.0 && group >= 2 && r.stickies > 0 && bot.throw_timer <= 0.0 {
-                bot.throw = true;
-                bot.throw_timer = 3.0;
-            }
-        }
-        // an explosive beside Roman while under fire: step away from it (the bot holds its fire there)
-        let near_keg = kegs.iter().filter(|(k, r)| k.distance(me) < r + 25.0).map(|(k, _)| *k).min_by(|a, b| a.distance(me).total_cmp(&b.distance(me)));
-        let tactic: Option<Vec3> = match target {
-            Some(_) if near_keg.is_some() => near_keg.map(|k| (me - k).with_y(0.0).normalize_or_zero()),
-            Some(p) if low => Some((me - p).with_y(0.0).normalize_or_zero()),
-            Some(p) if p.distance(me) > 120.0 && bot.hold < 20.0 => Some(Vec3::ZERO),
-            _ => None,
-        };
-        // a hurt bot detours to a pickup nearby (farther when badly hurt), as a player would
-        let reach = if low { 200.0 } else { 100.0 };
-        let detour = if bot.goto.is_some() && h.0 < r.max_health * 0.6 {
-            pickups
-                .iter()
-                .map(|p| p.translation())
-                .filter(|p| p.distance(t.translation) < reach && !bot.skip_pickups.iter().any(|s| s.distance(*p) < 6.0))
-                .min_by(|a, b| a.distance(t.translation).total_cmp(&b.distance(t.translation)))
-        } else {
-            None
-        };
-        // a pickup not reached in 8 s is given up on
-        bot.detour_t = if detour.is_some() { bot.detour_t + dt } else { 0.0 };
-        let detour = match detour {
-            Some(p) if bot.detour_t > 8.0 => {
-                info!("bot: pickup at {:?} not reached (Roman at {:?}), skipping", [p.x as i32, p.y as i32, p.z as i32], [me.x as i32, me.y as i32, me.z as i32]);
-                bot.skip_pickups.push(p);
-                bot.detour_t = 0.0;
-                None
-            }
-            d => d,
-        };
-        if let (Some(dir), None) = (tactic, detour) {
-            // hold (zero) or back off; the route is kept for later
-            bot_walk = Some(dir);
-        } else if let Some(p) = detour {
-            let dir = (p - t.translation).with_y(0.0).normalize_or_zero();
-            if !bot.fight {
-                r.yaw = (-dir.x).atan2(-dir.z);
-            }
-            bot_walk = Some(dir);
-        } else if let Some(g) = bot.goto {
-            let to = (bot.route.first().copied().unwrap_or(g) - t.translation).with_y(0.0);
-            let near = if bot.near > 0.0 { bot.near } else { 12.0 };
-            let to = if (g - t.translation).with_y(0.0).length() < 12.0 { (g - t.translation).with_y(0.0) } else { to };
-            if (g - t.translation).with_y(0.0).length() < near {
-                bot.goto = None;
-                bot.arrived = true;
-            } else {
-                // stuck (under 4 units of progress in a second): jump and veer for a moment
-                bot.stuck_timer += dt;
-                if bot.stuck_timer > 1.0 {
-                    let moved = t.translation.with_y(0.0).distance(bot.last_pos.with_y(0.0));
-                    bot.veer = if moved < 4.0 { 1.2 } else { (bot.veer - 1.0).max(0.0) };
-                    // progress = the distance to the next waypoint (or the goal) shrinking
-                    let target = bot.route.first().copied().unwrap_or(g);
-                    let d_now = (target - t.translation).with_y(0.0).length();
-                    bot.no_progress = if d_now > bot.last_dist - 5.0 { bot.no_progress + 1.0 } else { 0.0 };
-                    bot.last_dist = d_now;
-                    bot.last_pos = t.translation;
-                    bot.stuck_timer = 0.0;
-                    // stuck 3 s: block the waypoint ahead and plan again around it
-                    if bot.no_progress >= 3.0 {
-                        let spot = bot.route.first().copied().unwrap_or(t.translation);
-                        bot.blocked.push(spot);
-                        bot.route.clear();
-                        bot.replan_timer = 0.0;
-                        bot.planned_for = None;
-                        bot.no_progress = 0.0;
-                        bot.last_dist = f32::MAX;
-                        info!("bot: stuck near {:?}, replanning", [spot.x as i32, spot.z as i32]);
-                    }
-                }
-                let dir = to.normalize();
-                let dir = if bot.veer > 0.0 { Quat::from_rotation_y(0.9 * if (bot.veer * 10.0) as i32 % 2 == 0 { 1.0 } else { -1.0 }) * dir } else { dir };
-                if !bot.fight {
-                    r.yaw = (-dir.x).atan2(-dir.z);
-                }
-                bot_walk = Some(dir);
-            }
-        }
-        if bot.fight {
-            if let Some(p) = aim_at {
-                let to = p - (me + Vec3::Y * 8.5);
-                r.yaw = (-to.x).atan2(-to.z);
-                r.pitch = (to.y / to.with_y(0.0).length().max(1.0)).atan() - 0.08;
-            }
+        if let Some((yaw, pitch)) = bot.aim {
+            r.yaw = yaw;
+            r.pitch = pitch;
         }
         if !r.dead && path.name.as_deref() == Some("camera_path_l1m1") {
             // PlayerObject_Update 0x004788a0: on lev_1_m1 the stick is held forward while the intro path plays
@@ -1046,7 +854,7 @@ fn weapons(
     physics: NonSend<Physics>,
     (texts, mut subs): (Res<crate::gamemenu::Texts>, MessageWriter<crate::audio::Subtitle>),
     data: Res<GameData>,
-    mut bot: ResMut<crate::playtest::Bot>,
+    mut bot: ResMut<crate::bot::Bot>,
     mut q: Query<(Entity, &mut Roman, &Transform, Option<&crate::skin::Animator>)>,
     mut stats: ResMut<PlayerStats>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
@@ -1741,6 +1549,12 @@ fn projectiles(
                 // halved while on a mounted gun (0x0047afa0: Game+0xac8 set -> damage * 0.5, 0x005bcb4c)
                 // (the health set 0x0047af50 is the Health component)
                 h.0 -= if mounted.0.is_some() { p.damage * 0.5 } else { p.damage };
+                if std::env::var("AIDBG").is_ok() {
+                    // who hurt Roman: the shooter's kind and weapon, the distance it flew, his health after
+                    let (kind, weapon) = p.owner.and_then(|o| victims.get(o).ok()).map_or(("?".to_string(), "?".to_string()), |g| (format!("{:?}", g.kind), g.kind.weapon().to_string()));
+                    let d = p.owner.and_then(|o| joints.get(o).ok()).map_or(-1.0, |gt| gt.translation().distance(from));
+                    info!("AIDBG romandmg bullet {:.0} by {kind} {weapon} {:?} d {:.0} health {:.0} t {:.2}", p.damage, p.owner, d, h.0, time.elapsed_secs());
+                }
                 if let Ok((_, mut r, _, _)) = roman.single_mut() {
                     r.hit_from = Some(p.vel.normalize_or(Vec3::Z));
                 }
