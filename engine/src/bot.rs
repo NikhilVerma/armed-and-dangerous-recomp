@@ -4,9 +4,10 @@
 //! It never changes a game rule: everything it does a player could do with the controls.
 //!
 //! Movement: a route over the ground (nav.rs A*), replanned when stuck; a trail of where it has been to back out of
-//! dead ends. Tactics: engage the nearest grunt in range with line of sight, hold position while it is far, back off
-//! when badly hurt, a sticky bomb for a group, shoot explosives beside grunts (never one beside Roman), detour to
-//! health pickups when hurt.
+//! dead ends. Tactics: engage the nearest grunt in range with line of sight; hold position for a duel at range while
+//! at most two grunts see Roman; under fire from more, take the nearby spot the fewest of them can see and fight from
+//! there; back off when badly hurt; sticky bombs at groups; machine-gun bursts at range; shoot explosives beside grunts
+//! (never one beside Roman); detour to health pickups when hurt.
 
 use crate::physics::Physics;
 use bevy::prelude::*;
@@ -49,6 +50,18 @@ pub struct Bot {
     pub best_goal_dist: f32,
     pub no_gain: f32,
     pub throw_timer: f32,
+    /// the grunts that can see Roman (refreshed every 0.25 s by scan_t)
+    pub threats: Vec<Vec3>,
+    pub scan_t: f32,
+    /// the damage taken lately (decaying) and the health last frame
+    pub hurt: f32,
+    pub last_health: f32,
+    /// the cover spot being taken or held, for cover_t more seconds; the next search after cover_eval_t
+    pub cover: Option<Vec3>,
+    pub cover_t: f32,
+    pub cover_eval_t: f32,
+    /// the machine gun burst clock
+    pub burst_t: f32,
     /// this frame: the direction to walk (engine space, unit or zero to stand), None: no bot input
     pub walk: Option<Vec3>,
     /// this frame: the yaw to face while walking without a fight
@@ -199,10 +212,26 @@ pub fn think(
         return;
     }
     let me = t.translation;
+    let t0 = std::time::Instant::now();
     follow_route(&mut bot, &physics, me, dt);
-    // the bot's tactics, as a player would play: engage the nearest grunt in rifle range with line of sight; hold
-    // position while it is far, back off when badly hurt, a sticky bomb for a group
+    let route_ms = t0.elapsed().as_secs_f32() * 1000.0;
+    if route_ms > 50.0 {
+        info!("bot: route planning took {route_ms:.0} ms");
+    }
+    // the bot's tactics, as a player would play (docs/remaster-engine.md, the playtest bot): engage the nearest grunt in range with line of sight;
+    // under fire from several, take cover where fewer see it and fight them from there; sticky bombs for groups;
+    // bursts with the machine gun at range; health pickups when hurt
     let live = live_grunts(&grunts);
+    // the grunts that can see Roman (refreshed four times a second: the cover search needs them too)
+    bot.scan_t -= dt;
+    if bot.scan_t <= 0.0 {
+        bot.scan_t = 0.25;
+        bot.threats = live.iter().copied().filter(|p| p.distance(me) < THREAT_RANGE && crate::ai::line_of_sight(&physics, *p, me)).collect();
+    }
+    // the damage taken lately (decays by half a second): the sign of being shot at
+    let lost = (bot.last_health - h.0).max(0.0);
+    bot.last_health = h.0;
+    bot.hurt = bot.hurt * (-dt / 2.0f32).exp() + lost;
     let target = if bot.fight {
         live.iter()
             .copied()
@@ -234,31 +263,65 @@ pub fn think(
         None
     };
     let aim_at = keg_target.or(target.map(|p| p + Vec3::Y * 5.0));
-    bot.fire_ok = aim_at.is_some() && !danger;
+    // fire in bursts at range: the machine gun's scatter grows over the first second held (player.rs mg_scatter),
+    // so a short release every half second keeps it on target, as a player taps the trigger
+    bot.burst_t += dt;
+    let far = target.is_some_and(|p| p.distance(me) > 80.0) || keg_target.is_some();
+    let release = far && bot.burst_t % BURST_CYCLE > BURST_CYCLE - BURST_GAP;
+    bot.fire_ok = aim_at.is_some() && !danger && !release;
     let low = h.0 < r.max_health * 0.35;
     bot.throw_timer -= dt;
     // an engagement: hold up to 20 s, then push on for 15 s; it ends after 5 s without a target
     bot.no_target = if target.is_some() { 0.0 } else { bot.no_target + dt };
     bot.hold = if bot.no_target > 5.0 || bot.hold > 35.0 { 0.0 } else { bot.hold + dt };
+    // a sticky bomb (area 100 within 30: a grunt_regular's whole health) at a group, or at anyone while several shoot
     if let Some(p) = target {
         let d = p.distance(me);
-        let group = live.iter().filter(|q| q.distance(p) < 35.0).count();
-        if d < 150.0 && group >= 2 && r.stickies > 0 && bot.throw_timer <= 0.0 {
+        let group = live.iter().filter(|q| q.distance(p) < 30.0).count();
+        // (only along a clear line: a bomb that meets a wall close by sticks there and hurts Roman)
+        let eye = me + Vec3::Y * 8.0;
+        let v = p + Vec3::Y * 5.0 - eye;
+        let clear = physics.raycast(eye, v.normalize_or(Vec3::Y), v.length()).is_none_or(|h| h.1.distance(p) < 8.0);
+        if d > 60.0 && d < STICKY_REACH && clear && (group >= 2 || bot.threats.len() >= 3) && r.stickies > 0 && bot.throw_timer <= 0.0 {
             bot.throw = true;
-            bot.throw_timer = 3.0;
+            bot.throw_timer = 4.0;
         }
+    }
+    // cover: under fire from several grunts (or hurt and seen), a nearby spot fewer of them can see
+    bot.cover_eval_t -= dt;
+    let seen = bot.threats.len();
+    let pressed = bot.fight && (seen >= 3 || (seen >= 2 && bot.hurt > 25.0) || (low && seen >= 1));
+    if pressed && bot.cover.is_none() && bot.cover_eval_t <= 0.0 {
+        bot.cover_eval_t = 0.5;
+        if let Some((spot, n)) = find_cover(&physics, me, &bot.threats, low) {
+            info!("bot: cover at {:?} ({} of {} grunts see it)", [spot.x as i32, spot.y as i32, spot.z as i32], n, seen);
+            bot.cover = Some(spot);
+            bot.cover_t = COVER_HOLD;
+        }
+    }
+    bot.cover_t -= dt;
+    // in cover with nothing to shoot for 2 s: move on (and no new cover for a while, so it does not hide forever)
+    if bot.cover.is_some() && bot.no_target > 2.0 && bot.cover_t < COVER_HOLD - 2.0 {
+        bot.cover_t = 0.0;
+        bot.cover_eval_t = 4.0;
+    }
+    if bot.cover_t <= 0.0 || !bot.fight {
+        bot.cover = None;
     }
     // an explosive beside Roman while under fire: step away from it (the bot holds its fire there)
     let near_keg = kegs.iter().filter(|(k, r)| k.distance(me) < r + 25.0).map(|(k, _)| *k).min_by(|a, b| a.distance(me).total_cmp(&b.distance(me)));
-    let tactic: Option<Vec3> = match target {
-        Some(_) if near_keg.is_some() => near_keg.map(|k| (me - k).with_y(0.0).normalize_or_zero()),
-        Some(p) if low => Some((me - p).with_y(0.0).normalize_or_zero()),
-        Some(p) if p.distance(me) > 120.0 && bot.hold < 20.0 => Some(Vec3::ZERO),
+    let tactic: Option<Vec3> = match (bot.cover, target) {
+        (_, Some(_)) if near_keg.is_some() => near_keg.map(|k| (me - k).with_y(0.0).normalize_or_zero()),
+        // to the cover spot, then stay there (fighting what it sees)
+        (Some(c), _) => Some(if (c - me).with_y(0.0).length() > 3.0 { (c - me).with_y(0.0).normalize_or_zero() } else { Vec3::ZERO }),
+        (None, Some(p)) if low => Some((me - p).with_y(0.0).normalize_or_zero()),
+        // a duel at range: hold and shoot while at most two grunts can see Roman
+        (None, Some(p)) if p.distance(me) > 120.0 && bot.hold < 20.0 && seen <= 2 => Some(Vec3::ZERO),
         _ => None,
     };
-    // a hurt bot detours to a pickup nearby (farther when badly hurt), as a player would
-    let reach = if low { 200.0 } else { 100.0 };
-    let detour = if bot.goto.is_some() && h.0 < r.max_health * 0.6 {
+    // a hurt bot detours to a pickup nearby (farther when badly hurt, not into a crowd), as a player would
+    let reach = if low { 250.0 } else { 150.0 };
+    let detour = if bot.goto.is_some() && h.0 < r.max_health * 0.7 && (seen <= 1 || low) {
         pickups
             .iter()
             .map(|p| p.translation())
@@ -267,10 +330,10 @@ pub fn think(
     } else {
         None
     };
-    // a pickup not reached in 8 s is given up on
+    // a pickup not reached in 10 s is given up on
     bot.detour_t = if detour.is_some() { bot.detour_t + dt } else { 0.0 };
     let detour = match detour {
-        Some(p) if bot.detour_t > 8.0 => {
+        Some(p) if bot.detour_t > 10.0 => {
             info!("bot: pickup at {:?} not reached (Roman at {:?}), skipping", [p.x as i32, p.y as i32, p.z as i32], [me.x as i32, me.y as i32, me.z as i32]);
             bot.skip_pickups.push(p);
             bot.detour_t = 0.0;
@@ -279,7 +342,7 @@ pub fn think(
         d => d,
     };
     if let (Some(dir), None) = (tactic, detour) {
-        // hold (zero) or back off; the route is kept for later
+        // hold (zero), take cover or back off; the route is kept for later
         bot.walk = Some(dir);
     } else if let Some(p) = detour {
         let dir = (p - me).with_y(0.0).normalize_or_zero();
@@ -299,4 +362,53 @@ pub fn think(
             bot.aim = Some((yaw_of(to), (to.y / to.with_y(0.0).length().max(1.0)).atan() - 0.08));
         }
     }
+}
+
+/// A grunt this far away counts as a threat when he can see Roman (the grunts' fire_range_max: 500 for the
+/// regulars, 350 for the captains; their aim stays tight out there, grunt-ai.md 0x004284e0)
+const THREAT_RANGE: f32 = 500.0;
+/// how far the bot throws a sticky bomb (sticky_bomb_range 250, p_globalsettings, less a margin)
+const STICKY_REACH: f32 = 230.0;
+/// the machine gun bursts: a release of BURST_GAP every BURST_CYCLE seconds
+const BURST_CYCLE: f32 = 0.6;
+const BURST_GAP: f32 = 0.05;
+/// how long the bot stays in a cover spot before it moves on (or looks for a better one)
+const COVER_HOLD: f32 = 6.0;
+
+/// The best cover near Roman from the grunts that see him: spots on rings round him (10 to 80 units) he can walk to
+/// in a straight line on about his level, scored by how many of the grunts would see him there, then by the way
+/// to it: one grunt in sight is best (a duel), then none. None unless it at least halves the grunts that see him.
+/// With `hide` (badly hurt) the fewer the better.
+fn find_cover(physics: &Physics, me: Vec3, threats: &[Vec3], hide: bool) -> Option<(Vec3, usize)> {
+    let here = threats.len();
+    let mut best: Option<(f32, Vec3, usize)> = None;
+    for ring in 1..=8 {
+        let rad = ring as f32 * 10.0;
+        for k in 0..16 {
+            let a = k as f32 * std::f32::consts::TAU / 16.0 + ring as f32 * 0.2;
+            let p = me + Vec3::new(a.cos(), 0.0, a.sin()) * rad;
+            // the ground there, within a step or two of Roman's level
+            let Some((_, g, n)) = physics.raycast(p + Vec3::Y * 20.0, -Vec3::Y, 60.0) else { continue };
+            if n.y < 0.7 || (g.y - me.y).abs() > 12.0 {
+                continue;
+            }
+            // walkable in a straight line (a knee-high ray, as nav.rs)
+            let (a3, b3) = (me + Vec3::Y * 5.0, g + Vec3::Y * 5.0);
+            if physics.raycast(a3, (b3 - a3).normalize_or(Vec3::X), (b3 - a3).length()).is_some() {
+                continue;
+            }
+            let seen = threats.iter().filter(|t| crate::ai::line_of_sight(physics, **t, g)).count();
+            // one grunt in sight is a duel worth having (none: nothing to shoot), unless hiding
+            let score = match (hide, seen) {
+                (true, n) => n as f32 * 1000.0,
+                (false, 0) => 400.0,
+                (false, n) => (n - 1) as f32 * 1000.0,
+            } + rad;
+            if best.is_none_or(|(s, _, _)| score < s) {
+                best = Some((score, g, seen));
+            }
+        }
+    }
+    // worth the move only when it halves the grunts in sight (or leaves one)
+    best.filter(|&(_, _, n)| n <= 1 || n * 2 <= here).map(|(_, p, n)| (p, n))
 }
