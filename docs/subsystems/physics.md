@@ -34,7 +34,21 @@ Exceptions inside the ranges:
   a third singleton 0x004dfe80-0x004dff20 (all in Havok's singleton init list 0x005fb718-0x005fb758), and the hard
   key-frame utility 0x004df0d0 (inlined hk quaternion math; **strong guess**) are Havok. Game code in those ranges:
   speed trap 0x004a85a0-0x004a9180 (shape type 0x12, agent vtable 0x0058e674), type-0x19 agent / listener / shape
-  0x004df540-0x004dfda0, PMS heap 0x004e07f0 / 0x004e08d0. Correction: 0x004df8a0's `[[ecx+8]+0x23c]` is the world's
+  0x004df540-0x004dfda0, PMS heap 0x004e07f0 / 0x004e08d0.
+  Re-checked 2026-10-16 (all 31 fenced rows of batches physics_03 / physics_04; tools/recover.py callers, a scan of
+  the unpacked exe): (a) the mass-properties block's internal callers are all inside it or in Havok (0x004a4600 is
+  called only by hkmath 0x004deb20), the game calls only its entry points (0x004a46c0, 0x004a5160, 0x004a5ed0,
+  0x004a62f0, 0x004a6950 from 0x00411960 / 0x00412450 / 0x00413450 / 0x004527d0 / 0x00456c40), and the chain
+  0x004a7a60 -> 0x004a7300 -> 0x004a7080 -> 0x004a69c0 has the shape of Mirtich's volume / face / projection
+  integrals; (b) 0x004dff20, 0x004dfe40 and 0x004a84a0 are create functions in Havok's singleton init list next to
+  Havok's own 0x0050ee50 / 0x0050f030 / 0x004aa910 (0x005fb718..0x005fb758: {create, 0, instance pointer}), and have
+  no direct callers; 0x004dfe00 (edi = the 0x004dfe40 singleton; forwards 4 arguments to each handler's virtual +0x1c,
+  `ret 0x10`) has the shape of hkDebugDisplay::displayLine; (c) 0x004df0d0 (ecx = position; stack: rotation,
+  inverse step, body) activates the island (0x004ad130) and calls the motion's virtual +0x50 setLinearVelocity and
+  +0x54 (angular velocity) from the position / quaternion difference: the shape of
+  hkKeyFrameUtility::applyHardKeyFrame(nextPosition, nextOrientation, invDeltaTime, body), at the start of the range
+  right after the hkmath tail. All stay fenced (decision.md 2026-10-05); tools/recovery_status.py counts them as
+  "fenced library", not S0. Correction: 0x004df8a0's `[[ecx+8]+0x23c]` is the world's
   collision filter, not game data.
 - ICF-folded tiny game functions are called from Havok and sit in game space: 0x403c40 (vector-ctor iterator), 0x413770/0x414240 (64-byte copy), 0x4142b0/0x4143f0 (zero/identity), 0x459730, 0x412fa0 and 0x407ff0. These are not callbacks.
 - Some game-space functions are vtable slots of Havok classes because of ICF (`ret`, `xor eax,eax`, `mov eax,1`): 0x418600, 0x4548c0, 0x4648a0, 0x4270f0, 0x4563c0, 0x433e70.
