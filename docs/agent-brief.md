@@ -16,6 +16,9 @@ Setup:
 - Find code with `python tools/engine_map.py writes|reads|sends|receives|addr|fn ...` before grepping.
 
 Testing:
+- Every run --background (off-screen, muted, no mouse grab): never a visible window, not even a short bench,
+  unless the human has given a time slot (their screen got spammed, 2026-10-15). Captures of the original game
+  need the human's OK too.
 - Headless only: `python tools/playtest.py work/remaster/play/SCRIPT.json --exe target-wt-NAME`.
 - Start from a saved state ("load": "states/NAME.json"; states written by a {"save": "NAME"} step; existing:
   [list, e.g. after_pub]) and check with {"expect": {...}} steps. A test should take under a minute.
