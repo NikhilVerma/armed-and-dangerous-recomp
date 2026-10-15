@@ -1032,11 +1032,13 @@ fn texts(
     state: Res<HudState>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
-    mut q: Query<(Entity, &HudElement, &mut HudText, Option<&Children>, Option<&TextAlign>)>,
+    mut q: Query<(Entity, &HudElement, &mut HudText, Option<&Children>, Option<&TextAlign>, Option<&RenderLayers>)>,
     (assets, chat): (Res<AssetServer>, Res<Chat>),
 ) {
     let Some(hud) = hud else { return };
-    for (e, el, mut t, children, align) in &mut q {
+    for (e, el, mut t, children, align, layers) in &mut q {
+        // a text on another layer (the movies' subtitles: movie.rs) draws its glyphs there
+        let layer = layers.cloned().unwrap_or(RenderLayers::layer(HUD_LAYER));
         t.text = match el.name.as_str() {
             // 0x00465a20: "%d/%d" (clip / reserve), or "%d/" + the infinity sign (ui_ammo_infinity) for weapon type 2,
             // whose reserve is unlimited (the rifle in lev_1_m1)
@@ -1099,14 +1101,14 @@ fn texts(
         let (shadow_mesh, _, _) = text_mesh(&hud.font, hud.icons.as_ref(), &t.text, scale, Vec2::new(2.0, -2.0), Color::BLACK);
         let dx = -align.map(|a| a.0).unwrap_or(0.0) * size.x / 2.0;
         let shadow = commands
-            .spawn((Mesh2d(meshes.add(shadow_mesh)), MeshMaterial2d(hud.shadow_material.clone()), Transform::from_xyz(dx, 0.0, 20.0), RenderLayers::layer(HUD_LAYER)))
+            .spawn((Mesh2d(meshes.add(shadow_mesh)), MeshMaterial2d(hud.shadow_material.clone()), Transform::from_xyz(dx, 0.0, 20.0), layer.clone()))
             .id();
         let front = commands
-            .spawn((Mesh2d(meshes.add(front_mesh)), MeshMaterial2d(text_mat), Transform::from_xyz(dx, 0.0, 21.0), RenderLayers::layer(HUD_LAYER)))
+            .spawn((Mesh2d(meshes.add(front_mesh)), MeshMaterial2d(text_mat), Transform::from_xyz(dx, 0.0, 21.0), layer.clone()))
             .id();
         commands.entity(e).add_children(&[shadow, front]).insert(TextSize(size));
         if let (Some(m), Some(mat)) = (icon_mesh, hud.icon_material.clone()) {
-            let icon = commands.spawn((Mesh2d(meshes.add(m)), MeshMaterial2d(mat), Transform::from_xyz(dx, 0.0, 22.0), RenderLayers::layer(HUD_LAYER))).id();
+            let icon = commands.spawn((Mesh2d(meshes.add(m)), MeshMaterial2d(mat), Transform::from_xyz(dx, 0.0, 22.0), layer.clone())).id();
             commands.entity(e).add_children(&[icon]);
         }
         // the message box (ui_mission_briefing, 0x00466060, sizing its band through 0x00464400) sits on the band
@@ -1115,7 +1117,7 @@ fn texts(
         // padding is measured from the original's capture (work/shots/orig_ui_play-480.png: ~12 units)
         if el.name == "ui_briefing" && !t.text.is_empty() {
             let band = materials.add(ColorMaterial { texture: Some(assets.load("ui/textures/b_text_bkd.png")), ..default() });
-            let f = commands.spawn((Mesh2d(meshes.add(Rectangle::new(856.0, size.y + 24.0))), MeshMaterial2d(band), Transform::from_xyz(0.0, 0.0, 19.0), RenderLayers::layer(HUD_LAYER))).id();
+            let f = commands.spawn((Mesh2d(meshes.add(Rectangle::new(856.0, size.y + 24.0))), MeshMaterial2d(band), Transform::from_xyz(0.0, 0.0, 19.0), layer.clone())).id();
             commands.entity(e).add_children(&[f]);
         }
         t.built = Some(t.text.clone());

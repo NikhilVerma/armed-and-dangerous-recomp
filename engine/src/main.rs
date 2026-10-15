@@ -22,6 +22,7 @@ mod gamedata;
 mod camdump;
 mod camfade;
 mod cheats;
+mod cutscenes;
 mod decals;
 mod sticky;
 mod gamemenu;
@@ -35,6 +36,7 @@ mod stats;
 mod statscreen;
 mod level;
 mod menu;
+mod movie;
 mod mission;
 mod nav;
 mod physics;
@@ -93,10 +95,14 @@ struct Args {
     std_materials: bool,
     /// debug: hide "landscape" or the placed objects whose template contains this text (render comparisons)
     debug_hide: Option<String>,
+    /// no boot intro movies (a relaunch within a session: the original plays them on the first front-end load only)
+    no_intro: bool,
+    /// the exported movies (default: ../movies next to the scene folder; tools/remaster_export_movies.py)
+    movies: Option<PathBuf>,
 }
 
 fn args() -> Args {
-    let mut a = Args { scene: PathBuf::from("../work/remaster/lev_1_m1"), size: (1920, 1080), bench: None, vsync: false, no_ai: false, fx_test: None, snap: None, play: None, skip_title: false, camera: None, no_hud: false, background: false, size_given: false, load: None, std_materials: false, debug_hide: None };
+    let mut a = Args { scene: PathBuf::from("../work/remaster/lev_1_m1"), size: (1920, 1080), bench: None, vsync: false, no_ai: false, fx_test: None, snap: None, play: None, skip_title: false, camera: None, no_hud: false, background: false, size_given: false, load: None, std_materials: false, debug_hide: None, no_intro: false, movies: None };
     let v: Vec<String> = std::env::args().collect();
     let mut bench_secs = None;
     let mut out = PathBuf::from("../work/remaster/bench/latest.json");
@@ -125,6 +131,8 @@ fn args() -> Args {
             "--load" => a.load = Some(PathBuf::from(next)),
             "--std-materials" => (a.std_materials, used) = (true, 1),
             "--debug-hide" => a.debug_hide = Some(next),
+            "--no-intro" => (a.no_intro, used) = (true, 1),
+            "--movies" => a.movies = Some(PathBuf::from(next)),
             other => panic!("unknown argument {other}"),
         }
         i += used;
@@ -213,7 +221,7 @@ fn main() {
     .init_state::<AppState>()
     .insert_non_send(physics::Physics::new(level::METERS_PER_UNIT))
     .insert_resource(ClearColor(Color::srgb(0.62, 0.70, 0.80)))
-    .insert_resource(Launch { fx_test: a.fx_test.is_some(), scene: scene_dir, bench: a.bench, size: a.size, no_ai: a.no_ai, no_hud: a.no_hud, std_materials: a.std_materials })
+    .insert_resource(Launch { fx_test: a.fx_test.is_some(), scene: scene_dir.clone(), bench: a.bench, size: a.size, no_ai: a.no_ai, no_hud: a.no_hud, std_materials: a.std_materials })
     .add_systems(Update, fx_test.run_if(resource_exists::<FxTest>))
     .add_systems(Startup, setup)
     .add_systems(Update, (play_state, hud_state))
@@ -240,6 +248,15 @@ fn main() {
     app.add_plugins(sticky::StickyPlugin);
     app.add_plugins(camfade::CameraFadePlugin);
     app.add_plugins(ragdoll::RagdollPlugin);
+    // movies (movie.rs) and when the game plays them (cutscenes.rs): the boot intro before the title menu, unless a
+    // tool run or a relaunch; a title script asks for it with "intro"
+    app.add_plugins((movie::MoviePlugin, cutscenes::CutscenesPlugin));
+    let movies_dir = a.movies.clone().unwrap_or_else(|| scene_dir.parent().map(|p| p.join("movies")).unwrap_or_else(|| PathBuf::from("movies")));
+    app.insert_resource(movie::MovieSettings { dir: movies_dir, ..default() });
+    let script_intro = a.play.as_deref().is_some_and(|p| playtest::Playtest::load_intro(p));
+    let mut cut = cutscenes::Cutscenes::from_scene(&scene_dir, (!tool_run && !a.no_intro) || script_intro);
+    cut.from_save = a.load.is_some() || a.play.as_deref().and_then(playtest::script_load).is_some();
+    app.insert_resource(cut);
     // a script's own "load" (a state a 'save' step wrote) when --load is not given
     let load = a.load.clone().or_else(|| a.play.as_deref().and_then(playtest::script_load));
     if let Some(save) = load.as_ref().and_then(|p| savegame::read(p)) {
