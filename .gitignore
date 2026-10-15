@@ -79,6 +79,7 @@ engine/playtests/*.png
 engine/playtests/*.camera.json
 engine/target-wt-animcam/
 engine/target-wt-gamesave/
+engine/target-wt-remaster/
 
 # playtest states written by tracked scripts (engine/playtests/save_write.json)
 /engine/playtests/states/

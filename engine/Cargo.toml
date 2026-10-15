@@ -10,7 +10,9 @@ name = "and_remaster"
 path = "src/main.rs"
 
 [dependencies]
-bevy = { version = "0.20.0", features = ["dds", "wav"] }
+# experimental_pbr_pcss: soft (percentage-closer) shadows; bluenoise_texture: the noise the temporal shadow filter and
+# SSAO sample (graphics.rs, the Remaster preset)
+bevy = { version = "0.20.0", features = ["dds", "wav", "experimental_pbr_pcss", "bluenoise_texture"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # movies (movie.rs): the exported frames are baseline JPEGs; pure Rust, already in the tree through `image`

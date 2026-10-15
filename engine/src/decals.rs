@@ -24,7 +24,7 @@
 //! colour, its white record times each vertex's w, is not reproduced: unverified).
 
 use bevy::asset::RenderAssetUsages;
-use bevy::image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor};
+use bevy::image::{ImageAddressMode, ImageLoaderSettings, ImageSampler};
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
@@ -299,13 +299,11 @@ fn spawn(
         let mat = textures
             .entry(ev.texture.to_lowercase())
             .or_insert_with(|| {
-                let tex = assets.load_builder().with_settings(|s: &mut ImageLoaderSettings| {
-                    s.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
-                        address_mode_u: ImageAddressMode::ClampToEdge,
-                        address_mode_v: ImageAddressMode::ClampToEdge,
-                        ..ImageSamplerDescriptor::linear()
-                    });
-                }).load(format!("textures/{}.dds", ev.texture.to_lowercase()));
+                // clamped, trilinear (anisotropic with the remaster's anisotropic_fx: graphics.rs)
+                let sampler = crate::graphics::world_sampler(ImageAddressMode::ClampToEdge, true);
+                let tex = assets.load_builder().with_settings(move |s: &mut ImageLoaderSettings| {
+                    s.sampler = ImageSampler::Descriptor(sampler.clone());
+                }).load(crate::graphics::texture_path(&ev.texture.to_lowercase()));
                 materials.add(StandardMaterial {
                     base_color_texture: Some(tex),
                     unlit: true,

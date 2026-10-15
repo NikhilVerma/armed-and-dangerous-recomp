@@ -93,6 +93,9 @@ pub enum Opt {
     Brightness,
     Resolution,
     DrawDistance,
+    /// remaster: the presentation preset (graphics.rs) and the anti-aliasing, steppers over named values
+    Preset,
+    AntiAliasing,
     Effects,
     Music,
     Voice,
@@ -108,6 +111,17 @@ pub enum Flag {
     SubsMovie,
     InvertMouse,
     Fullscreen,
+    /// remaster: a boolean presentation setting by its name in graphics.rs (options.json `graphics`)
+    Graphics(&'static str),
+}
+
+/// The options the graphics page edits on its copy (Apply keeps them, Cancel drops them).
+fn on_gfx_copy(o: Opt) -> bool {
+    matches!(o, Opt::Brightness | Opt::Resolution | Opt::DrawDistance | Opt::Preset | Opt::AntiAliasing)
+}
+
+fn flag_on_gfx_copy(f: Flag) -> bool {
+    matches!(f, Flag::Shadows | Flag::Fullscreen | Flag::Graphics(_))
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -258,7 +272,7 @@ fn log_menu(
     // the selected stepper's value text (the graphics page's edit copy while it is open)
     let win = windows.single().map(|w| (w.resolution.width() as u32, w.resolution.height() as u32)).unwrap_or((1920, 1080));
     let value = row.and_then(|(r, _)| match r.act {
-        Act::Slide(o) => Some(value(if matches!(o, Opt::Brightness | Opt::Resolution | Opt::DrawDistance) { menu.edit.as_ref().unwrap_or(&opts) } else { &opts }, o, win).1),
+        Act::Slide(o) => Some(value(if on_gfx_copy(o) { menu.edit.as_ref().unwrap_or(&opts) } else { &opts }, o, win).1),
         _ => None,
     });
     let cheats_shown = parts.iter().filter(|(p, v)| matches!(p.kind, PartKind::CheatName(_)) && **v != Visibility::Hidden).count();
@@ -508,12 +522,13 @@ pub fn spawn(commands: &mut Commands, assets: &AssetServer, meshes: &mut Assets<
         s.slider(Page::Gfx, "ui_gfxmenu_brightness", it(366.691), 1.0, Opt::Brightness, true);
         s.slider(Page::Gfx, "ui_gfxmenu_resolution", it(342.691), 1.0, Opt::Resolution, true);
         let best = |t: &Texts, id: &str| t.get(id);
-        let (tq, lod) = (best(&texts, "ui_gfxmenu_tq2"), best(&texts, "ui_gfxmenu_lod4"));
+        let tq = best(&texts, "ui_gfxmenu_tq2");
         s.fixed(Page::Gfx, "ui_gfxmenu_texturequality", it(318.691), &tq, 3, 1.0);
-        s.fixed(Page::Gfx, "ui_gfxmenu_texturelod", it(294.691), &lod, 5, 1.0);
-        // remaster: Fullscreen in place of Max Textures (no meaning in the new renderer)
+        // remaster: the presentation preset (graphics.rs) in place of Texture LOD, and the anti-aliasing in place of
+        // Model LOD (both always the finest in the new renderer), as Fullscreen took Max Textures' place
+        s.slider(Page::Gfx, "Graphics", it(294.691), 1.0, Opt::Preset, true);
         s.check(Page::Gfx, "Fullscreen", 250.0, 190.0, 270.691, Some(Flag::Fullscreen), true);
-        s.fixed(Page::Gfx, "ui_gfxmenu_modellod", it(246.691), &lod, 5, 1.0);
+        s.slider(Page::Gfx, "Anti-aliasing", it(246.691), 1.0, Opt::AntiAliasing, true);
         s.slider(Page::Gfx, "ui_gfxmenu_drawdistance", it(222.691), 1.0, Opt::DrawDistance, true);
         s.check(Page::Gfx, "ui_gfxmenu_bumpmap", 51.0, 171.215, 174.691, None, true);
         s.check(Page::Gfx, "ui_gfxmenu_pixelshaders", 51.0, 171.215, 150.691, None, true);
@@ -521,6 +536,11 @@ pub fn spawn(commands: &mut Commands, assets: &AssetServer, meshes: &mut Assets<
         s.check(Page::Gfx, "ui_gfxmenu_skinquality", 346.0, 465.773, 172.0, None, true);
         s.check(Page::Gfx, "ui_gfxmenu_shadows", 346.0, 465.773, 148.0, Some(Flag::Shadows), true);
         s.check(Page::Gfx, "ui_gfxmenu_decals", 346.0, 465.773, 124.0, None, false);
+        // remaster: the preset's main switches, a row of additions under the original's checkboxes
+        s.check(Page::Gfx, "Remaster Textures", 51.0, 171.215, 100.691, Some(Flag::Graphics("remaster_textures")), false);
+        s.check(Page::Gfx, "Ambient Occlusion", 346.0, 465.773, 100.0, Some(Flag::Graphics("ambient_occlusion")), false);
+        s.check(Page::Gfx, "Soft Particles", 51.0, 171.215, 80.691, Some(Flag::Graphics("soft_particles")), false);
+        s.check(Page::Gfx, "Soft Shadows", 346.0, 465.773, 80.0, Some(Flag::Graphics("soft_shadows")), false);
         s.row(Page::Gfx, "ui_gfxmenu_apply", Vec2::new(320.0, 60.44), 1.2, GREEN, Act::Apply, 0.0);
         s.row(Page::Gfx, "ui_shellmenu_cancel", Vec2::new(320.0, 36.44), 1.1, GREEN, Act::Cancel, 0.0);
 
@@ -802,7 +822,7 @@ fn navigate(
                     continue;
                 }
                 let frac = (p.x - (e.pos.x + 80.0)) / 192.0;
-                let target = if matches!(o, Opt::Brightness | Opt::Resolution | Opt::DrawDistance) { menu.edit.get_or_insert_with(|| opts.clone()) } else { &mut *opts };
+                let target = if on_gfx_copy(o) { menu.edit.get_or_insert_with(|| opts.clone()) } else { &mut *opts };
                 let before = value(target, o, win).1;
                 set_position(target, o, frac, win);
                 if value(target, o, win).1 != before {
@@ -885,7 +905,7 @@ fn navigate(
     let step = ctl.step.x as f32;
     if step != 0.0 {
         if let Act::Slide(o) = cur {
-            let target = if o == Opt::Brightness || o == Opt::Resolution || o == Opt::DrawDistance { menu.edit.get_or_insert_with(|| opts.clone()) } else { &mut *opts };
+            let target = if on_gfx_copy(o) { menu.edit.get_or_insert_with(|| opts.clone()) } else { &mut *opts };
             slide(target, o, step, win);
             play(&mut sounds, "ui_move");
         }
@@ -1005,13 +1025,14 @@ fn navigate(
         }
         Act::Slide(_) => return,
         Act::Toggle(f) => {
-            let target = if matches!(f, Flag::Shadows | Flag::Fullscreen) { menu.edit.get_or_insert_with(|| opts.clone()) } else { &mut *opts };
+            let target = if flag_on_gfx_copy(f) { menu.edit.get_or_insert_with(|| opts.clone()) } else { &mut *opts };
             match f {
                 Flag::Shadows => target.shadows = !target.shadows,
                 Flag::SubsGame => target.subtitles_game = !target.subtitles_game,
                 Flag::SubsMovie => target.subtitles_movie = !target.subtitles_movie,
                 Flag::InvertMouse => target.invert_mouse = !target.invert_mouse,
                 Flag::Fullscreen => target.fullscreen = !target.fullscreen,
+                Flag::Graphics(key) => crate::graphics::menu::toggle(target, key),
             }
         }
     }
@@ -1029,6 +1050,8 @@ fn range(opt: Opt) -> (f32, f32, usize) {
         Opt::DrawDistance => (0.25, 1.0, 16),
         Opt::MouseSens | Opt::Effects | Opt::Music | Opt::Voice => (0.0, 1.0, 21),
         Opt::Resolution => (0.0, 1.0, SIZES.len()),
+        Opt::Preset => (0.0, 1.0, crate::graphics::menu::PRESETS.len()),
+        Opt::AntiAliasing => (0.0, 1.0, crate::graphics::AntiAliasing::ALL.len()),
     }
 }
 
@@ -1061,6 +1084,14 @@ fn slide(o: &mut GameOptions, opt: Opt, step: f32, win: (u32, u32)) {
         Opt::Music => o.music_volume = bump(o.music_volume),
         Opt::Voice => o.voice_volume = bump(o.voice_volume),
         Opt::MouseSens => o.mouse_sensitivity = bump(o.mouse_sensitivity),
+        Opt::Preset => {
+            let i = crate::graphics::menu::preset_index(o) as i32 + step as i32;
+            crate::graphics::menu::set_preset(o, i.clamp(0, positions(opt) as i32 - 1) as usize);
+        }
+        Opt::AntiAliasing => {
+            let i = crate::graphics::menu::aa_index(o) as i32 + step as i32;
+            crate::graphics::menu::set_aa(o, i.clamp(0, positions(opt) as i32 - 1) as usize);
+        }
         Opt::Resolution => {
             let cur = if o.resolution == (0, 0) { win } else { o.resolution };
             let mut list: Vec<(u32, u32)> = SIZES.to_vec();
@@ -1088,6 +1119,8 @@ fn set_position(o: &mut GameOptions, opt: Opt, frac: f32, win: (u32, u32)) {
         Opt::Music => o.music_volume = v,
         Opt::Voice => o.voice_volume = v,
         Opt::MouseSens => o.mouse_sensitivity = v,
+        Opt::Preset => crate::graphics::menu::set_preset(o, i),
+        Opt::AntiAliasing => crate::graphics::menu::set_aa(o, i),
         Opt::Resolution => {
             let cur = if o.resolution == (0, 0) { win } else { o.resolution };
             let _ = cur;
@@ -1107,6 +1140,8 @@ fn value(o: &GameOptions, opt: Opt, win: (u32, u32)) -> (f32, String) {
         Opt::Music => (frac(o.music_volume), format!("{:.0}", o.music_volume * 100.0)),
         Opt::Voice => (frac(o.voice_volume), format!("{:.0}", o.voice_volume * 100.0)),
         Opt::MouseSens => (frac(o.mouse_sensitivity), format!("{:.0}", o.mouse_sensitivity * 100.0)),
+        Opt::Preset => (crate::graphics::menu::preset_index(o) as f32 / (positions(opt) - 1) as f32, crate::graphics::menu::preset_text(o)),
+        Opt::AntiAliasing => (crate::graphics::menu::aa_index(o) as f32 / (positions(opt) - 1) as f32, crate::graphics::menu::aa_text(o)),
         Opt::Resolution => {
             let r = if o.resolution == (0, 0) { win } else { o.resolution };
             let i = SIZES.iter().position(|s| *s == r).map(|i| i as f32 / (SIZES.len() - 1) as f32).unwrap_or(0.5);
@@ -1253,7 +1288,7 @@ fn values(
 ) {
     let win = windows.single().map(|w| (w.resolution.width() as u32, w.resolution.height() as u32)).unwrap_or((1920, 1080));
     let gfx = menu.edit.as_ref().unwrap_or(&opts);
-    let pick = |o: Opt| -> &GameOptions { if matches!(o, Opt::Brightness | Opt::Resolution | Opt::DrawDistance) { gfx } else { &opts } };
+    let pick = |o: Opt| -> &GameOptions { if on_gfx_copy(o) { gfx } else { &opts } };
     for (p, mut t, mut vis) in &mut texts {
         // the cheat grid (0x00410b20): shown when known, active or with List Cheats on; greyed unless active
         if let PartKind::CheatName(n) = p.kind {
@@ -1312,6 +1347,7 @@ fn values(
             Flag::SubsMovie => opts.subtitles_movie,
             Flag::InvertMouse => opts.invert_mouse,
             Flag::Fullscreen => gfx.fullscreen,
+            Flag::Graphics(key) => crate::graphics::menu::flag(gfx, key),
         };
         if let Some(mut mat) = materials.get_mut(&m.0) {
             mat.color = if on { Color::srgb(0.55, 0.05, 0.05) } else { Color::srgb(0.05, 0.08, 0.1) };

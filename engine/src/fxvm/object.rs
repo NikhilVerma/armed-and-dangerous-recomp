@@ -536,7 +536,7 @@ pub fn objects(
                 ta.acc -= whole as f32 / ta.rate;
                 ta.frame = if ta.looping { (ta.frame + whole) % ta.frames } else { (ta.frame + whole).min(ta.frames - 1) };
                 let name = if ta.frame == 0 { ta.base.clone() } else { format!("{}_{}", ta.base, ta.frame) };
-                let h: Handle<Image> = assets.load(format!("textures/{name}.dds"));
+                let h: Handle<Image> = assets.load(crate::graphics::texture_path(&name));
                 for m in &o.materials {
                     if let Some(mut m) = materials.get_mut(m) {
                         m.base_color_texture = Some(h.clone());
