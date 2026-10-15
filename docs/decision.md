@@ -241,3 +241,16 @@ How this coexists with faithful recovery:
   templates, tuning, mission scripts) so mods can change content without recompiling; names say what things do,
   with the original's addresses as provenance in doc comments; tests per mechanic double as usage examples;
   unavoidable hacks are labelled and logged as debt. This adds to the 2026-10-13 "reusable remaster engine" goal.
+
+## 2026-10-15: two presets — Remaster for the human, Original for comparisons
+
+- Human: "For your own comparisons, feel free to use the original game settings. For ME to play: you must have
+  implemented proper remaster with the new textures, better shadows, better physics and all the goodies we agreed
+  on." The Bevy engine had the original's look only; the remaster goodies (AI retextures in
+  GameData/overrides/textures, AO with snow exempt, temporal AA via libraries, 16x anisotropic, no shadow pop-in,
+  max draw distance, soft particles; docs/decision.md 2026-10-08, memory priorities-2026-10-08) existed only on the
+  D3D9 / Vulkan hook route.
+- Rule: the engine has a Remaster preset (default for a normal launch: what the human plays) and an Original
+  preset (the original's textures and look) that every tool run uses automatically (--play, --snap, --camera,
+  --bench comparisons, render_compare). Builds handed to the human must have the Remaster preset working; the
+  4K 100 fps floor applies to it.
