@@ -61,7 +61,8 @@ for lv in levels:
     health = last.get('health')
     ms = [s['frame_ms'] for s in states if isinstance(s.get('frame_ms'), (int, float))]
     med = round(statistics.median(ms), 1) if ms else None
-    problem = next((l.strip() for l in out.splitlines() if 'panicked' in l or ' ERROR ' in l), '')
+    # 'Failed to send screenshot' is Bevy's harmless message when the app quits right after a shot
+    problem = next((l.strip() for l in out.splitlines() if ('panicked' in l or ' ERROR ' in l) and 'Failed to send screenshot' not in l), '')
     if not problem and code not in (0,):
         problem = f'exit {code}'
     ok = loaded and roman and not problem
