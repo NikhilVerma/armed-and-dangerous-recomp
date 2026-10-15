@@ -14,7 +14,7 @@
  {"tap": "Enter"}, {"wait": 0.6},
  {"tap": "Enter"}, {"wait": 0.6},
  {"tap": "Enter"}, {"wait": 0.5},
- {"tap": "Escape"}, {"wait": 0.5},
+ {"tap": "Escape"}, {"wait": 0.7},
  {"expect": {"pub.open": false, "triggers.900": 1, "tickers": 4, "compass_tag": 55, "mission_obj.sites.252.enabled": true}},
  {"wait": 1.2},
  {"expect": {"mission_obj.showing": true, "mission_obj.objectives_id": "l1m1_sub2"}},
