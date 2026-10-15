@@ -153,3 +153,4 @@ address,name,disposition,reason
 0x004a36f0,fn_004a36f0,ported,ported: gamemenu.rs navigate Act::Slot (save / overwrite prompt / load / delete prompt)
 0x004a37e0,fn_004a37e0,ported,ported: gamemenu.rs save_slot (the panel is the hit box: MenuRow::panel)
 0x004a3b60,fn_004a3b60,ported,"ported: gamemenu.rs slot_page / navigate go (title, default slot: saveslots::default_slot)"
+0x00406740,fn_00406740,not needed,"whether the HUD draws the vindaloo's lock-on markers (hud +0x152, the four sprites at +0x164; four with vindaloo_is_upgraded Game+0xdd0): the rocket launcher is not ported (player.rs: rifle and machine gun)"

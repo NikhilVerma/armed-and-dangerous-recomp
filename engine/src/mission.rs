@@ -522,7 +522,7 @@ pub struct Mission {
     sites: Vec<Site>,
     counters: Vec<Counter>,
     timers: Vec<Timer>,
-    /// a displayed timer's value (ui_mission_timer): hud.rs does not draw it yet (open)
+    /// a displayed timer's value (ui_mission_timer, drawn by hud.rs mission_time_text)
     pub timer_display: Option<f32>,
     camfx: Vec<CamFx>,
     pub_pos: Option<(Vec3, f32, i64)>,
