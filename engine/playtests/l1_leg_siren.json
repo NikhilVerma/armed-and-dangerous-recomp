@@ -1,0 +1,19 @@
+{"load": "states/l1_at_gate1.json", "steps": [
+ {"wait": 0.5},
+ {"fight": true},
+ {"hold_use": 2.6},
+ {"wait": 2.0},
+ {"goto": [0, 150, 20]},
+ {"wait": 5.0},
+ {"goto": [-55, 30, 13]},
+ {"goto": [-120, 25, 13]},
+ {"goto": [-160, -14, 13]},
+ {"goto": [-160, -96, 13]},
+ {"goto": [-127, -131, 11]},
+ {"goto": [-150, -174, 9]},
+ {"goto": [-85, -242, 9]},
+ {"goto": [-60, -340, 10]},
+ {"save": "l1_before_camp"},
+ {"expect": {"dead": false, "mission": "Playing"}},
+ {"quit": true}
+]}
