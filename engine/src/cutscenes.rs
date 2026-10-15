@@ -9,7 +9,7 @@
 //!   `lev_1_m1` (MissionObject_Update 0x0044db80, `_stricmp(level, "lev_1_m1")` 0x005b1738): its start movie,
 //!   pre_1_1_opening, already played at boot, so a new game goes straight to the fly-in.
 //! - **Level end.** The end sequence (0x0044a230) pushes "Stats", then "PlayMovie" with `success_movie` when one
-//!   is set (lev_1_m1 has none), then "Loading" for the next level (`end_movie` below).
+//!   is set (lev_1_m1 has none), then "Loading" for the next level (`end_movie` below; campaign.rs runs it).
 //! - **Pub.** The pub screen opens "pub_01" (0x004930c0, 0x0058fd4c) and sets it looping (movie virtual +0x1c),
 //!   drawn across the whole 640-wide screen behind the pub art (the screen has no flag 0x8000).
 //! - **Credits.** The credits screen (0x00415940) opens the movie "credits" (0x005b9740) behind the scrolling text.
@@ -44,7 +44,6 @@ pub struct Cutscenes {
     /// the level's name and its mission's start / success movies (mission.json)
     pub level: String,
     pub start_movie: String,
-    #[allow(dead_code)]
     pub success_movie: String,
     /// the run continues a saved game (past the level's start: no start movie)
     pub from_save: bool,
@@ -59,14 +58,17 @@ impl Cutscenes {
         Cutscenes { intro, level: v["level"].as_str().unwrap_or_default().to_owned(), start_movie: s("start_movie"), success_movie: s("success_movie"), from_save: false }
     }
 
+    /// Another level is loaded (campaign.rs): its name and movies; the boot intro flag stays.
+    pub fn set_level(&mut self, scene: &Path) {
+        *self = Cutscenes { intro: self.intro, from_save: self.from_save, ..Cutscenes::from_scene(scene, self.intro) };
+    }
+
     /// The movie the level starts with: its start_movie, except on lev_1_m1 (0x0044db80).
     pub fn level_start_movie(&self) -> Option<&str> {
         (!self.start_movie.is_empty() && !self.level.eq_ignore_ascii_case(NO_START_MOVIE_LEVEL)).then_some(self.start_movie.as_str())
     }
 
-    /// The movie after the level's statistics (0x0044a230 state 11), if any. lev_1_m1 has none and the remaster has
-    /// no next level yet (statscreen.rs returns to the title): call this from the level change once one exists.
-    #[allow(dead_code)]
+    /// The movie after the level's statistics (0x0044a230 state 11), if any (lev_1_m1 has none; campaign.rs plays it).
     pub fn end_movie(&self) -> Option<&str> {
         (!self.success_movie.is_empty()).then_some(self.success_movie.as_str())
     }

@@ -73,6 +73,9 @@ pub struct SaveData {
     /// Game+0x570
     #[serde(default)]
     pub money: Option<f32>,
+    /// Game+0x574: the pub's intro heard in this campaign (pubscreen.rs)
+    #[serde(default)]
+    pub pub_intro_heard: Option<bool>,
     /// saves written before `objects`: destroyed instance ids, restored at their first husk
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub destroyed: Vec<u32>,
@@ -295,7 +298,7 @@ fn save(
     windows: Query<&crate::level::Window>,
     buildings: Query<&InstanceId>,
     scene_ids: Res<PlacedIds>,
-    (opts, difficulty): (Res<crate::options::GameOptions>, Res<crate::gamedata::Difficulty>),
+    (opts, difficulty, levels, pub_lines): (Res<crate::options::GameOptions>, Res<crate::gamedata::Difficulty>, Res<crate::campaign::Levels>, Res<crate::pubscreen::PubLines>),
 ) {
     if !std::mem::take(&mut req.save) {
         return;
@@ -311,7 +314,8 @@ fn save(
     let mut broken: Vec<(u32, u8)> = scene_ids.windows.difference(&standing).copied().collect();
     broken.sort();
     let s = SaveData {
-        level: "lev_1_m1".into(),
+        // the level loaded (the header's +0, 0x0044a660): a load enters it first (levelreset.rs)
+        level: levels.current_name(),
         roman_feet: (crate::level::game_to_engine().inverse() * t.translation).to_array(),
         yaw: r.yaw,
         health: h.0,
@@ -326,6 +330,7 @@ fn save(
         windows: broken,
         difficulty: difficulty.0,
         money: Some(opts.money),
+        pub_intro_heard: Some(opts.pub_intro_heard || pub_lines.intro_said),
         destroyed: Vec::new(),
     };
     let path = req.path.take().unwrap_or_else(save_path);
@@ -388,6 +393,9 @@ fn apply(
     *difficulty = crate::gamedata::Difficulty::select(s.difficulty);
     if let Some(money) = s.money {
         opts.money = money;
+    }
+    if let Some(heard) = s.pub_intro_heard {
+        opts.pub_intro_heard = heard;
     }
     let feet = crate::level::game_to_engine() * Vec3::from(s.roman_feet);
     physics.place_walker(&r.walker, feet);

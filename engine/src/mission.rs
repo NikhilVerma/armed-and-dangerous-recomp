@@ -510,6 +510,49 @@ pub enum Outcome {
     Failed,
 }
 
+/// The player's weapons by id (the weapon state's slots, game_09.cpp; names of MissionObject_Load's properties).
+const WEAPONS: [&str; 6] = ["machinegun", "snipergun", "rifle", "vindaloo", "gurner", "sharkgun"];
+/// The specials by id 6..10.
+const SPECIALS: [&str; 5] = ["guyfawkes", "bunchoffives", "topsyturvy", "blackhole", "stickybomb"];
+
+/// The player's loadout at the level's start. MissionObject_Load 0x0044c170 reads player_add_* (Game+0xd93 + id, default
+/// 1 for the machine gun, 0 for the others), player_remove_* (+0xdaf + id), player_set_ammo_* (+0x25e8 + 4 id, default
+/// -2) and player_set_num_* (+0x2600.., default -1); the player's reset 0x00475650 applies them to the player object the
+/// level builds (so nothing is carried from the last level): the removes (on its empty list: no effect), the adds in id
+/// order (0x004a0ef0; the primary list holds 3), the amounts (0x004a14e0: -2 fills clip and spare to the maximum, -1
+/// leaves the record, n sets it; a special with n > 0 joins the special list), then it equips slot 0 (0x004a10e0): the
+/// first weapon by id is in hand. The topsy count is read as player_set_num_topsyturvy (0x005b1e04), a name the
+/// mission template does not use (it says player_set_num_topsy): the template's value never applies (original data quirk).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Loadout {
+    /// the weapons held, in slot order (the first in hand)
+    pub weapons: Vec<&'static str>,
+    /// player_set_ammo_* of each weapon (-2 full, -1 unchanged, n rounds)
+    pub ammo: HashMap<&'static str, i64>,
+    /// player_set_num_* of each special (-1 unchanged, so none on a new player)
+    pub specials: HashMap<&'static str, i64>,
+}
+
+impl Loadout {
+    /// From the mission object's resolved properties.
+    pub fn from_props(m: &Map<String, Value>) -> Self {
+        let n = |k: String, default: i64| m.get(&k).and_then(|v| v.as_f64()).map_or(default, |v| v as i64);
+        let weapons = WEAPONS.iter().copied().filter(|w| n(format!("player_add_{w}"), (*w == "machinegun") as i64) != 0).take(3).collect();
+        let ammo = WEAPONS.iter().map(|w| (*w, n(format!("player_set_ammo_{w}"), -2))).collect();
+        let specials = SPECIALS.iter().map(|s| (*s, n(format!("player_set_num_{s}"), -1))).collect();
+        Loadout { weapons, ammo, specials }
+    }
+
+    pub fn has(&self, weapon: &str) -> bool {
+        self.weapons.contains(&weapon)
+    }
+
+    /// A special's count on a new player (-1 leaves it at 0).
+    pub fn special(&self, name: &str) -> u32 {
+        self.specials.get(name).copied().unwrap_or(-1).max(0) as u32
+    }
+}
+
 #[derive(Resource)]
 pub struct Mission {
     /// the level's name (0x0044a660 on Game+0xa64: the success bonus of lev_1_m1_b / lev_2_m1)
@@ -565,6 +608,8 @@ pub struct Mission {
     /// score_value (Loot at the win, game_02.cpp:2262) and next_level_name (Game+0x268c)
     pub score_value: f32,
     pub next_level: Option<String>,
+    /// the player's weapons and specials at the start (player.rs applies it)
+    pub loadout: Loadout,
     pub failure_text: Option<String>,
     started: bool,
     /// send_trigger_start sent (the first update)
@@ -1034,6 +1079,7 @@ impl Mission {
             finished: false,
             score_value: n(m, "score_value") as f32,
             next_level: s(m, "next_level_name"),
+            loadout: Loadout::from_props(m),
             failure_text: text("failure_text"),
             texts: f.text,
             started: false,
@@ -1945,6 +1991,26 @@ fn outcome(time: Res<Time>, mut m: Option<ResMut<Mission>>, roman: Query<&crate:
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The loadout rules of MissionObject_Load / 0x00475650: adds in weapon-id order (the machine gun first, in hand),
+    /// the machine gun added by default, at most 3 weapons, set_num -1 gives none, and the topsy count read under
+    /// player_set_num_topsyturvy (the template's player_set_num_topsy never applies).
+    #[test]
+    fn loadout_rules() {
+        let m = |v: serde_json::Value| Loadout::from_props(v.as_object().unwrap());
+        // lev_1_m1_b
+        let l = m(serde_json::json!({"player_add_machinegun": 1, "player_add_rifle": 1, "player_add_snipergun": 0, "player_set_num_stickybomb": 5, "player_set_num_topsy": 2}));
+        assert_eq!(l.weapons, vec!["machinegun", "rifle"]);
+        assert_eq!((l.special("stickybomb"), l.special("topsyturvy"), l.special("blackhole")), (5, 0, 0));
+        assert_eq!(l.ammo["machinegun"], -2);
+        // lev_1_m1: the rifle only; nothing named: the machine gun by default
+        assert_eq!(m(serde_json::json!({"player_add_machinegun": 0, "player_add_rifle": 1})).weapons, vec!["rifle"]);
+        assert_eq!(m(serde_json::json!({})).weapons, vec!["machinegun"]);
+        // the primary list holds three
+        let all = m(serde_json::json!({"player_add_snipergun": 1, "player_add_rifle": 1, "player_add_vindaloo": 1, "player_add_sharkgun": 1}));
+        assert_eq!(all.weapons, vec!["machinegun", "snipergun", "rifle"]);
+        assert_eq!(m(serde_json::json!({"player_set_num_topsyturvy": 2})).special("topsyturvy"), 2);
+    }
 
     fn volume(props: serde_json::Value) -> Trigger {
         Trigger::new(1, props.as_object().unwrap(), Volume::Sphere(Vec3::ZERO, 10.0))
