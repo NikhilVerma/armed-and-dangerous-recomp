@@ -10,8 +10,9 @@ Done (cause, fix; before -> after in the scenario reports):
   (the original: full speed in one frame, dead stop on release, 39.2 units/s, measured every frame in stop.json); and
   the briefing came one frame after the intro path's end, so the remaster's Roman lost the stick a frame before the
   pause. Fix (player.rs): DRIVE_GAIN on the drive's power, the ground contacts' friction +0x5a0 (friction_max ->
-  friction_min blend x gravity), the slide / stop fx on the speed before the drive (+0x4bc); the mission's systems
-  ordered before `control`, which does not run while the game is paused. walk roman.pos: KNOWN at 0 (1057.8 vs
+  friction_min blend x gravity), the slide / stop fx on the speed before the drive (+0x4bc); the intro's forced stick
+  lasts until the path's text comes up (campath.rs until_text; a first try ordered the mission before `control`,
+  which reshuffled Bevy's order of unrelated systems). walk roman.pos: KNOWN at 0 (1057.8 vs
   1059.7, 4.8 units of slide) -> same; intro roman.pos same over the whole intro; stop roman.pos same (start / stop
   within a frame).
 - B2 trigger volume 269 as a world AABB. Fix: oriented boxes (mission.rs Volume::Box with the placement's inverse).
@@ -32,6 +33,11 @@ Done (cause, fix; before -> after in the scenario reports):
 - Harness: sound_key compares a sound ear's voice line by kind (the speaker is a roll: jon50001 vs rom50001); an
   unlimited reserve near a weapon change agrees; remaster deaths include placed objects removed by
   receive_trigger_kill (bigredarrow 258).
+
+- Found while testing after the infantry merge: ai.rs think took the start gunners' guns before turret.rs setup's
+  commands were applied whenever Bevy happened to order it first (any new system could flip it: publish_stats did);
+  think's chain now runs after turret::setup (one line). infantry_l2m1's sniper check (aiming at 75.7 s, 3-4 shots)
+  depends on the random stream: it failed once after that fix, passed after the vehicles merge.
 
 Learned:
 - The original's movement is stiff: velocity follows the stick within a frame; its 39.2 units/s is the friction's

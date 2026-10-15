@@ -134,8 +134,11 @@ How B1-B7 were fixed (each cause found with the traces; the scenario files no lo
   walk. player.rs now has the drive gain (DRIVE_GAIN, fitted) and the ground contacts' friction (+0x5a0: friction_max
   2 at rest to friction_min 0.3 at full speed, x gravity; it sets the 39.2); the slide / stop fx read the speed
   measured before the drive (+0x4bc). Also the briefing: the original pauses on the frame the intro path ends, Roman
-  still walking; the remaster gave him one unpaused frame without the stick. The mission's systems now run before the
-  player's update and `control` does not run while the game is paused. Intro trace (trace_from -900): roman.pos same.
+  still walking; the remaster gave him one unpaused frame without the stick. The forced stick now lasts until the
+  path's text comes up (campath.rs until_text; ordering the mission before the player instead shifted Bevy's order of
+  unrelated systems). Intro trace (trace_from -900): roman.pos same.
+- Found on the way: ai.rs think took the start gunners' guns before turret.rs setup had run (an order left to Bevy);
+  think's chain is now after setup (infantry_l2m1 lost its 6 gunners when an unrelated system was added).
 - B2: box volumes are oriented boxes (mission.rs Volume::Box: the model's local box under the placement's matrix).
 - B3: Object_ForceGround's ray (0x00455860 -> 0x004137e0 -> Ray_CastQuery 0x00414110: no include list, "accept bodies
   without owner") hits only the landscape; grunt 181 is under the archway v_archway_a, whose top the remaster's ray

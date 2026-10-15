@@ -265,9 +265,13 @@ impl Physics {
     /// of the velocity). Returns the new feet position and whether it stands on ground.
     pub fn move_walker(&mut self, w: &Walker, velocity: Vec3, dt: f32) -> Option<(Vec3, bool)> {
         let k = self.meters_per_unit;
-        self.world.character_mut(w.id).ok()?.set_linear_velocity(jv(velocity * k)).ok()?;
-        let g = j::Vec3::new(0.0, -9.81, 0.0);
-        self.world.update_character(w.id, dt.clamp(1e-4, 0.1), g, &ExtendedUpdateSettings::default(), &QueryFilter::new()).ok()?;
+        // no time, no move (a paused game: the update used to run 1e-4 s anyway, and Roman crept on through a
+        // briefing at 0.004 units a frame)
+        if dt > 0.0 {
+            self.world.character_mut(w.id).ok()?.set_linear_velocity(jv(velocity * k)).ok()?;
+            let g = j::Vec3::new(0.0, -9.81, 0.0);
+            self.world.update_character(w.id, dt.min(0.1), g, &ExtendedUpdateSettings::default(), &QueryFilter::new()).ok()?;
+        }
         let c = self.world.character(w.id).ok()?;
         let on = matches!(c.ground_state(), oxijolt::GroundState::OnGround);
         Some((br(c.position()) / k, on))
