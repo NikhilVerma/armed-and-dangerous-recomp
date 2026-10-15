@@ -7,9 +7,12 @@
 // [test] play_delay=30        see above
 // [test] play_warp=x,y,z      at play frame -10 (the briefing still up) Roman is put there (Object_SetPosition
 //                             0x00457870, as [test] warp)
+// [test] trace_from=-N        start the trace N frames before play frame 0 (down to the level load: lines before the
+//                             briefing are kept in memory until it appears and fixes the play frames)
 // [test] play_frames=N        terminate the process after play frame N (the trace flushed)
-// [test] trace_every=N        and-trace.jsonl: from play frame 0, every N frames one JSON line:
-//   {"f": play frame, "t": game seconds since play frame 0, "paused": 0/1,
+// [test] trace_every=N        and-trace.jsonl: from play frame trace_from, every N frames one JSON line (every frame
+//                             before play frame 0):
+//   {"f": play frame, "t": game seconds since the first line, "paused": 0/1,
 //    "roman": {"pos": [x, y, z], "heading": degrees (the model's facing, atan2(x, y) of its -Y axis), "health",
 //              "max_health", "weapon": id (descriptors Game+0x2770 + id * 0x150: 0 machine gun, 2 rifle), "clip",
 //              "ammo", "stickies"},
@@ -54,8 +57,18 @@ bool g_fromPlay;
 int g_briefFrame = -1;  // frame since load at which the briefing appeared
 float g_warp[3];
 bool g_warpOn, g_warpDone;
-float g_playClock0;  // game clock at play frame 0
+int g_traceFrom;
 FILE* g_out;
+bool g_traced;      // a line has been written or kept
+float g_clockFirst;  // game clock at the first line
+// lines made before the briefing fixed the play frames: frame since the load, game clock, the line after "t"
+struct Pending
+{
+    int since;
+    float clock;
+    std::string body;
+};
+std::vector<Pending> g_pending;
 std::vector<uint32_t> g_triggers, g_senders, g_deaths;
 std::vector<std::string> g_sounds;
 
@@ -104,12 +117,11 @@ int Id(const void* obj)
     return At<uint16_t>(obj, 0x396);  // the 1-based level object table entry (CreateObject a6, game_04.cpp:576)
 }
 
-void WriteLine(int frame)
+// One trace line from "paused" on (the frame and the time are put in front by Emit); takes the events gathered so far.
+std::string Body()
 {
     void* player = Player();
-    std::string o = "{\"f\":" + std::to_string(frame) + ",\"t\":";
-    Num(o, GameClock() - g_playClock0);
-    o += ",\"paused\":" + std::to_string(At<int>(g_game, 0x2684) ? 1 : 0);
+    std::string o = "\"paused\":" + std::to_string(At<int>(g_game, 0x2684) ? 1 : 0);
     if (player)
     {
         float pos[4] = {};
@@ -206,6 +218,23 @@ void WriteLine(int frame)
         o += (i ? ",\"" : "\"") + g_sounds[i] + "\"";
     o += "]}\n";
     g_triggers.clear(), g_senders.clear(), g_deaths.clear(), g_sounds.clear();
+    return o;
+}
+
+void ClearEvents()
+{
+    g_triggers.clear(), g_senders.clear(), g_deaths.clear(), g_sounds.clear();
+}
+
+void Emit(int frame, float clock, const std::string& body)
+{
+    if (!g_out)
+        return;
+    if (!g_traced)
+        g_clockFirst = clock, g_traced = true;
+    std::string o = "{\"f\":" + std::to_string(frame) + ",\"t\":";
+    Num(o, clock - g_clockFirst);
+    o += "," + body;
     fputs(o.c_str(), g_out);
     fflush(g_out);
 }
@@ -218,7 +247,7 @@ void* g_nextFxDie;
 
 void __stdcall OnTrigger(uint32_t id, uint32_t sender)
 {
-    if (!g_out)
+    if (!g_traceEvery)
         return;
     g_triggers.push_back(id);
     g_senders.push_back(Readable(sender, 0x398) ? Id(reinterpret_cast<void*>(sender)) : 0);
@@ -239,7 +268,7 @@ __declspec(naked) void Wrap_SendTrigger()
 
 void __stdcall OnDgoDeath(void* obj)
 {
-    if (g_out && !(At<uint32_t>(obj, 0x4d0) & 0x10000))  // once: the flag the function sets (game_03.cpp:966)
+    if (g_traceEvery && !(At<uint32_t>(obj, 0x4d0) & 0x10000))  // once: the flag the function sets (game_03.cpp:966)
         g_deaths.push_back(Id(obj));
 }
 
@@ -258,7 +287,7 @@ __declspec(naked) void Wrap_DgoDeath()
 void __stdcall OnFxDie(void* obj, uint32_t rec)
 {
     // a chain-reaction record (flag 0x40) only lights the fuse (game_02.cpp:766)
-    if (g_out && !(rec && (*reinterpret_cast<const uint8_t*>(rec) & 0x40)))
+    if (g_traceEvery && !(rec && (*reinterpret_cast<const uint8_t*>(rec) & 0x40)))
         g_deaths.push_back(Id(obj));
 }
 
@@ -281,7 +310,7 @@ static void (*g_prevSoundStarted)(const char* name, float volume);
 
 static void OnSound(const char* name, float volume)
 {
-    if (g_out && name)
+    if (g_traceEvery && name)
     {
         std::string s;
         for (int i = 0; i < 32 && name[i] >= 0x20 && name[i] < 0x7f && name[i] != '"' && name[i] != '\\'; ++i)
@@ -312,6 +341,7 @@ void TestOracleInit()
     g_fromPlay = ConfigInt("test", "keys_from_play", 0) != 0;
     g_playDelay = ConfigInt("test", "play_delay", 30);
     g_playFrames = ConfigInt("test", "play_frames", 0);
+    g_traceFrom = ConfigInt("test", "trace_from", 0);
     char buf[128];
     ConfigString("test", "play_warp", "", buf, sizeof(buf));
     g_warpOn = sscanf(buf, "%f,%f,%f", &g_warp[0], &g_warp[1], &g_warp[2]) == 3;
@@ -354,15 +384,32 @@ void TestOracleOnFrame()
             Log("test: play warp at %d to %.1f %.1f %.1f", f, g_warp[0], g_warp[1], g_warp[2]);
         }
     }
-    if (!g_traceEvery || f < 0)
+    if (!g_traceEvery)
         return;
-    if (f == 0)
+    if (g_briefFrame < 0)
     {
-        g_playClock0 = GameClock();
-        g_out = fopen("and-trace.jsonl", "w");
+        // the play frames are not known yet: keep every frame's line (trace_from < 0), else drop the events
+        if (g_traceFrom < 0)
+            g_pending.push_back({since, GameClock(), Body()});
+        else
+            ClearEvents();
+        return;
     }
-    if (g_out && f % g_traceEvery == 0)
-        WriteLine(f);
+    if (!g_out && f >= g_traceFrom)
+    {
+        g_out = fopen("and-trace.jsonl", "w");
+        for (const Pending& p : g_pending)
+        {
+            const int pf = p.since - (g_briefFrame + g_playDelay);
+            if (pf >= g_traceFrom)
+                Emit(pf, p.clock, p.body);
+        }
+        g_pending.clear();
+    }
+    if (!g_out)
+        ClearEvents();
+    else if (f < 0 || f % g_traceEvery == 0)
+        Emit(f, GameClock(), Body());
     if (g_playFrames && f >= g_playFrames)
     {
         Log("test: play frames done (%d)", f);

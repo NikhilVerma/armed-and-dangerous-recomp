@@ -4,5 +4,12 @@
  "keys": "0:ENTER*3,30:57,80:17*90,110:57",
  "frames": 220,
  "trace_every": 2,
- "suite": false
+ "suite": true,
+ "known": {
+  "roman.pos": "B1: Roman still slides ~6 units after the briefing (remaster), at rest in the original",
+  "events.sounds": "B1 (follows from it: the stop / slide foley plays at other frames)",
+  "events.triggers": "B2: volume 269 tested as the world AABB of a rotated slab (mission.rs Volume::Box): 711 fires in the intro",
+  "grunt.pos": "B3: grunt 181 placed at z 108 (on a roof) instead of z 14",
+  "grunt.target": "B6: a far grunt reacts to the blast / landing in the original (target roman), not in the remaster"
+ }
 }

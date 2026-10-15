@@ -8,7 +8,7 @@ traces and reports the first divergence per field family (docs/remaster-engine.m
 
 SCENARIO: a name in tools/oracle_scenarios/ (or a path to a .json). A scenario:
     {"level": "lev_1_m1", "keys": "0:ENTER*3,40:17*300", "frames": 400, "trace_every": 2,
-     "warp": [x, y, z] (optional), "play_delay": 30 (optional),
+     "warp": [x, y, z] (optional), "play_delay": 30 (optional), "trace_from": -30 (optional: the briefing on),
      "tolerance": {"pos": 6, "grunt_pos": 12, "heading": 12, "health": 1, "frames": 20, "event_frames": 30},
      "expected": {"family": "why this family differs (an accepted difference, with evidence)"},
      "suite": true (part of tools/oracle_suite.py)}
@@ -58,6 +58,8 @@ def load_scenario(name):
     sc.setdefault("level", "lev_1_m1")
     sc.setdefault("trace_every", 2)
     sc.setdefault("play_delay", 30)
+    # from the briefing on (both games are paused there; the warp at frame -10 and what it sets off are traced)
+    sc.setdefault("trace_from", -sc["play_delay"])
     return sc
 
 
@@ -80,6 +82,7 @@ def run_original(sc, hooks_on=False, timeout=900):
         if os.path.exists(p):
             os.remove(p)
     test = {"keys_from_play": 1, "trace_every": sc["trace_every"], "play_delay": sc["play_delay"],
+            "trace_from": sc["trace_from"],
             "play_frames": sc["frames"], "reseed_on_load": 1, "d3d_trace": 0, "offscreen": 1, "parallel": 1,
             # no exit by frame count: play_frames ends the run
             "exit_frame": 0}
@@ -122,7 +125,7 @@ def run_remaster(sc, exe, timeout=900):
     d = out_dir(sc)
     script = os.path.join(d, "remaster.json")
     oracle = {"keys": sc["keys"], "frames": sc["frames"], "trace_every": sc["trace_every"],
-              "play_delay": sc["play_delay"]}
+              "play_delay": sc["play_delay"], "trace_from": sc["trace_from"]}
     if sc.get("warp"):
         oracle["warp"] = sc["warp"]
     body = {"oracle": oracle}
@@ -151,7 +154,7 @@ def read(path):
     for line in open(path):
         line = line.strip()
         if line:
-            r = json.loads(line)
+            r = json.loads(line, parse_float=lambda s: round(float(s), 2))  # the remaster writes f32 noise
             rows[r["f"]] = r
     return rows
 
@@ -211,7 +214,9 @@ def match_grunts(o0, r0, tol):
     pairs, claimed, how = {}, set(), "id"
     for g in o0.get("grunts", []):
         r = ro.get(g["id"])
-        if r and dist(g["pos"], r["pos"]) <= tol and g["id"] not in claimed:
+        # a non-zero id is the level entry in both games (verified on lev_1_m1: 26 of 27 placed grunts within a unit at
+        # frame 0); 0 = spawned without an entry (troops, tree grunts): matched by position below
+        if r and g["id"] and g["id"] not in claimed:
             pairs[g["id"]] = g["id"]
             claimed.add(g["id"])
     for g in o0.get("grunts", []):
@@ -247,8 +252,20 @@ def persistent(rows, frames, f, key, value, window):
     return False
 
 
+def known_absent(g):
+    """Original grunts the remaster does not create yet, a stated gap rather than a divergence: the three lev_1_m1 tree
+    grunts (spawned by pine trees 47 / 61 / 76 at load with no level entry of their own, so instance id 0, waiting for
+    trigger 98 / 99 in state 0x8c; docs/subsystems/grunt-ai.md section 14 "Tree grunts (not created)")."""
+    return g.get("id") == 0 and g.get("state") == 0x8c
+
+
 def compare_traces(sc, orig, rem):
     tol = dict(TOL, **sc.get("tolerance", {}))
+    absent = 0
+    for row in orig.values():
+        keep = [g for g in row.get("grunts", []) if not known_absent(g)]
+        absent = max(absent, len(row.get("grunts", [])) - len(keep))
+        row["grunts"] = keep
     fam = Families()
     frames = sorted(set(orig) & set(rem))
     notes = []
@@ -258,6 +275,8 @@ def compare_traces(sc, orig, rem):
     pairs, how = match_grunts(o0, r0, tol["grunt_pos"] * 2)
     notes.append(f"frames compared: {frames[0]}..{frames[-1]} ({len(frames)} lines); grunts matched by {how}: "
                  f"{len(pairs)} of {len(o0.get('grunts', []))} original / {len(r0.get('grunts', []))} remaster")
+    if absent:
+        notes.append(f"{absent} original grunt(s) left out as a known gap (tree grunts, grunt-ai.md section 14)")
     unmatched = [g["id"] for g in o0.get("grunts", []) if g["id"] not in pairs]
     if unmatched:
         notes.append(f"original grunts with no remaster counterpart at frame {frames[0]}: "
@@ -302,8 +321,8 @@ def compare_traces(sc, orig, rem):
                 fam.check(f"companion.{name}.health", f, abs(a[3] - b[3]) <= tol["health"], f"{name} health {a[3]} vs {b[3]}")
         og = {g["id"]: g for g in o.get("grunts", [])}
         rg = {g["id"]: g for g in r.get("grunts", [])}
-        alive_o = sum(1 for g in og.values() if g["health"] > 0)
-        alive_r = sum(1 for g in rg.values() if g["health"] > 0 and g.get("mind") != "Dead")
+        alive_o = sum(1 for g in o.get("grunts", []) if g["health"] > 0)
+        alive_r = sum(1 for g in r.get("grunts", []) if g["health"] > 0 and g.get("mind") != "Dead")
         fam.check("grunts.alive", f, persistent(rem, rf, f, lambda x: sum(1 for g in x.get("grunts", []) if g["health"] > 0 and g.get("mind") != "Dead"), alive_o, win),
                   f"grunts alive {alive_o} vs {alive_r}")
         for oid, rid in pairs.items():
@@ -350,7 +369,12 @@ def compare_traces(sc, orig, rem):
             for f, v in mine:
                 hit = next((i for i, (g, w) in enumerate(other) if not used[i] and w == v and abs(g - f) <= ew), None)
                 if hit is None:
-                    fam.check(f"events.{kind}", f, False, f"{kind[:-1]} {v} at frame {f} only in the {side}")
+                    who = ""
+                    if kind == "triggers" and side == "original":
+                        row = orig[f]
+                        senders = dict(zip(row.get("triggers", []), row.get("trigger_senders", [])))
+                        who = f" (sent by object {senders.get(v, '?')})"
+                    fam.check(f"events.{kind}", f, False, f"{kind[:-1]} {v}{who} at frame {f} only in the {side}")
                     break
                 used[hit] = True
             fam.checked.add(f"events.{kind}")
@@ -359,28 +383,69 @@ def compare_traces(sc, orig, rem):
     return fam, notes, pairs
 
 
+# Where to look when a family diverges: the remaster's code and the original's (docs/subsystems/*.md has the rest).
+HINTS = {
+    "timing": "pauses (messages, menus) differ in start or length: see the paused family and mission.rs messages",
+    "paused": "mission.rs paused messages / gamemenu.rs; original Game_SetPaused 0x004031e0, messages 0x00403410",
+    "roman.pos": "player.rs control (PlayerObject_Update 0x004788a0 drive), physics.rs walker",
+    "roman.heading": "player.rs Roman's Transform vs his look yaw (the trace's look_yaw); original world matrix vt+0x5c",
+    "roman.health": "who hit him: AIDBG romandmg (ai.rs); original Object_TakeDamage 0x004555e0",
+    "roman.weapon": "player.rs weapons / pickup.rs loadout; original weapon block P+0xc24 (game_09.cpp:723)",
+    "roman.clip": "player.rs weapons (fire gate, reload); original ammo records P+0xc84 + id * 0xc",
+    "roman.ammo": "player.rs weapons; original ammo records",
+    "roman.stickies": "sticky.rs / player.rs specials; original weapon 10's spare",
+    "grunt.pos": "level.rs placement / ai.rs movement; original +0x396 instance, vt+0x54 position",
+    "grunt.mind": "ai.rs Mind transitions; original state +0x460 (grunt-ai.md section 11)",
+    "grunt.target": "ai.rs target acquisition (sight, hearing, offers); original +0x588 (AI_FindTarget)",
+    "grunt.health": "damage to grunts: weapons, blasts (fx.rs); original Object_TakeDamage 0x004555e0",
+    "grunts.alive": "grunt spawns (barracks, generators: level.rs) or deaths",
+    "companion.jonesy.pos": "ai.rs companions (follow / defend); companions.md",
+    "companion.q.pos": "ai.rs companions (follow / defend); companions.md",
+    "companion.jonesy.health": "ai.rs companion_damage",
+    "companion.q.health": "ai.rs companion_damage",
+    "mission.state": "mission.rs outcome; original level state Game+0xa64 +0xc",
+    "mission.objective": "mission.rs compass (ui_ear objective_tag); original Game+0x2658",
+    "events.triggers": "mission.rs volumes / dispatch (the sender's instance id names the object); original Object_SendTrigger 0x00461870",
+    "events.deaths": "fx.rs Destructible deaths; original DefaultGameObject_OnDeath 0x00450ee0 / FxExplosion_Die 0x0041c570",
+    "events.sounds": "audio.rs / gameaudio.rs: who starts that sound definition (variant numbers ignored)",
+}
+
+
 def report(sc, fam, notes, as_json=False):
+    """The summary table. A diverging family is EXPECTED when the scenario's "expected" explains it (an accepted
+    difference), KNOWN when its "known" names an open remaster bug (docs/remaster-engine.md "Oracle findings"):
+    neither fails the run, so the scenario still guards every other family; anything else is DIVERGE."""
     expected = sc.get("expected", {})
+    known = sc.get("known", {})
     rows = []
     for family in sorted(fam.checked):
         if family in fam.first:
             f, detail = fam.first[family]
-            status = "EXPECTED" if family in expected else "DIVERGE"
-            rows.append((family, status, f, detail + (f"  [{expected[family]}]" if family in expected else "")))
+            if family in expected:
+                rows.append((family, "EXPECTED", f, f"{detail}  [{expected[family]}]"))
+            elif family in known:
+                rows.append((family, "KNOWN", f, f"{detail}  [{known[family]}]"))
+            else:
+                rows.append((family, "DIVERGE", f, detail))
         else:
             rows.append((family, "same", "", ""))
     lines = [f"oracle {sc['name']}: {sc.get('about', '')}"] + [f"  {n}" for n in notes]
     w = max(len(r[0]) for r in rows) if rows else 10
-    lines.append(f"  {'family':<{w}}  status    frame  first divergence")
-    for family, status, f, detail in rows:
+    lines.append(f"  {'family':<{w}}  status    frame  first divergence (earliest first: later ones may follow from it)")
+    for family, status, f, detail in sorted((r for r in rows if r[1] != "same"), key=lambda r: r[2]):
         lines.append(f"  {family:<{w}}  {status:<8}  {str(f):>5}  {detail}")
-    bad = [r for r in rows if r[1] == "DIVERGE"]
-    lines.append(f"ORACLE {sc['name']}: {'PASS' if not bad else 'FAIL'} ({len(bad)} unexpected divergence(s), "
-                 f"{sum(1 for r in rows if r[1] == 'EXPECTED')} expected, {sum(1 for r in rows if r[1] == 'same')} same)")
-    text = "\n".join(lines)
+        if status == "DIVERGE" and family in HINTS:
+            lines.append(f"  {'':<{w}}  {'':<8}  {'':>5}    look at: {HINTS[family]}")
+    same = [r[0] for r in rows if r[1] == "same"]
+    if same:
+        lines.append(f"  same: {', '.join(same)}")
+    count = {s: sum(1 for r in rows if r[1] == s) for s in ("DIVERGE", "KNOWN", "EXPECTED", "same")}
+    ok = count["DIVERGE"] == 0
+    lines.append(f"ORACLE {sc['name']}: {'PASS' if ok else 'FAIL'} ({count['DIVERGE']} unexpected divergence(s), "
+                 f"{count['KNOWN']} known bug(s), {count['EXPECTED']} expected, {count['same']} same)")
     if as_json:
-        return json.dumps({"scenario": sc["name"], "rows": rows, "notes": notes, "pass": not bad})
-    return text, not bad
+        return json.dumps({"scenario": sc["name"], "rows": rows, "notes": notes, "pass": ok})
+    return "\n".join(lines), ok
 
 
 def main():

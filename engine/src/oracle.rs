@@ -13,8 +13,10 @@
 //!   DirectInput scan code (17 W, 30 A, 31 S, 32 D, 57 Space ...), ENTER / ESC / SPACE / UP / DOWN / LEFT / RIGHT,
 //!   MOUSE1..3, or MOUSEX<n> / MOUSEY<n> (mouse counts per frame while held).
 //! - `warp`: Roman is put there (game space) at play frame -10, keeping his heading, as [test] play_warp.
-//! - The trace (`<script>.trace.jsonl`): one line every `trace_every` frames from frame 0, the schema of
-//!   hook/src/testoracle.cpp in game space (Z up); the run quits after `frames`.
+//! - The trace (`<script>.trace.jsonl`): one line every `trace_every` frames from play frame `trace_from` (every frame
+//!   before frame 0; lines before the briefing are kept until it fixes the play frames), the schema of
+//!   hook/src/testoracle.cpp in game space (Z up), "t" counted from the first line; the run quits after `frames`.
+//!   Events (triggers, deaths, sounds) before the first line are dropped.
 
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
@@ -33,6 +35,8 @@ pub struct OracleConfig {
     pub play_delay: i64,
     #[serde(default)]
     pub warp: Option<[f32; 3]>,
+    #[serde(default)]
+    pub trace_from: i64,
 }
 
 fn default_delay() -> i64 {
@@ -147,14 +151,19 @@ pub struct Oracle {
     frame: i64,
     /// the frame the briefing appeared
     brief: Option<i64>,
-    clock0: f32,
+    /// game time at the first line (None: no line yet)
+    clock0: Option<f32>,
     out: Option<std::fs::File>,
+    /// lines made before the briefing: frame, game time, the line without "f" / "t"
+    pending: Vec<(i64, f32, serde_json::Map<String, serde_json::Value>)>,
     log_seen: usize,
+    triggers: Vec<i64>,
+    sounds: Vec<String>,
     warped: bool,
     /// inputs down last frame (released when their span ends)
     down: Vec<Input>,
     /// placed destructible objects alive last frame, and the ones gone since the last trace line
-    alive: std::collections::HashSet<u32>,
+    alive: Option<std::collections::HashSet<u32>>,
     deaths: Vec<u32>,
 }
 
@@ -181,7 +190,7 @@ fn setup(mut commands: Commands, pt: Res<crate::playtest::Playtest>) {
     let keys = parse_keys(&cfg.keys);
     let out = (cfg.trace_every > 0).then(|| std::fs::File::create(pt.path.with_extension("trace.jsonl")).ok()).flatten();
     info!("EVENT oracle: {} scripted inputs, {} frames, trace every {}", keys.len(), cfg.frames, cfg.trace_every);
-    commands.insert_resource(Oracle { cfg, keys, frame: 0, brief: None, clock0: 0.0, out, log_seen: 0, warped: false, down: Vec::new(), alive: Default::default(), deaths: Vec::new() });
+    commands.insert_resource(Oracle { cfg, keys, frame: 0, brief: None, clock0: None, out, pending: Vec::new(), log_seen: 0, triggers: Vec::new(), sounds: Vec::new(), warped: false, down: Vec::new(), alive: None, deaths: Vec::new() });
 }
 
 fn count(mut o: ResMut<Oracle>, mission: Option<Res<crate::mission::Mission>>) {
@@ -241,32 +250,46 @@ fn trace(
     p: Res<crate::player::PlayerStats>,
     mission: Option<Res<crate::mission::Mission>>,
     mut bank: Option<ResMut<crate::audio::SoundBank>>,
-    roman: Query<(Entity, &GlobalTransform), With<crate::player::Roman>>,
+    roman: Query<(Entity, &GlobalTransform, &crate::player::Roman)>,
     grunts: Query<(Entity, &crate::ai::Grunt, &crate::fx::Health, &GlobalTransform, Option<&crate::level::InstanceId>)>,
     companions: Query<(&crate::ai::Companion, &crate::fx::Health, &GlobalTransform)>,
     ids: Query<&crate::level::InstanceId>,
     objects: Query<(&crate::level::InstanceId, &crate::fx::Destructible)>,
 ) {
-    let Some(f) = o.play_frame() else { return };
-    if let Some(b) = bank.as_deref_mut() {
-        b.log_started = f >= 0 && o.out.is_some();
-    }
-    if f < 0 || o.out.is_none() {
+    if o.out.is_none() {
         return;
     }
-    // deaths: a placed destructible gone (despawned, or replaced by its husk) or out of health with no fuse burning, as
-    // the original's DefaultGameObject_OnDeath 0x00450ee0 / FxExplosion_Die 0x0041c570 (the hook's "deaths")
+    // events every frame: triggers from the mission log, sounds started, placed destructibles gone (despawned, replaced
+    // by the husk, or out of health with no fuse burning: the original's DefaultGameObject_OnDeath 0x00450ee0 /
+    // FxExplosion_Die 0x0041c570, the hook's "deaths")
+    if let Some(m) = &mission {
+        let new: Vec<i64> = m.log.iter().skip(o.log_seen).filter_map(|l| l.strip_prefix("trigger ").and_then(|r| r.split(':').next()).and_then(|t| t.parse::<i64>().ok())).collect();
+        o.triggers.extend(new);
+        o.log_seen = m.log.len();
+    }
+    if let Some(b) = bank.as_deref_mut() {
+        b.log_started = true;
+        let s = std::mem::take(&mut b.started_keys);
+        o.sounds.extend(s);
+    }
     let alive: std::collections::HashSet<u32> = objects.iter().filter(|(_, d)| d.health > 0.0 || d.dying.is_some_and(|t| t > 0.0)).map(|(i, _)| i.0).collect();
-    if f > 0 {
-        let gone: Vec<u32> = o.alive.difference(&alive).copied().collect();
+    if let Some(before) = o.alive.take() {
+        let gone: Vec<u32> = before.difference(&alive).copied().collect();
         o.deaths.extend(gone);
     }
-    o.alive = alive;
-    if f == 0 {
-        o.clock0 = vtime.elapsed_secs();
-        o.log_seen = mission.as_ref().map_or(0, |m| m.log.len());
-    }
-    if f % o.cfg.trace_every.max(1) != 0 {
+    o.alive = Some(alive);
+    let (from, every) = (o.cfg.trace_from, o.cfg.trace_every.max(1));
+    let want = match o.play_frame() {
+        None => from < 0,
+        Some(f) => f >= from && (f < 0 || f % every == 0),
+    };
+    if !want {
+        if o.clock0.is_none() && o.pending.is_empty() {
+            // nothing traced yet: events before the first line are dropped
+            o.triggers.clear();
+            o.sounds.clear();
+            o.deaths.clear();
+        }
         return;
     }
     let to_game = crate::level::game_to_engine().inverse();
@@ -276,15 +299,14 @@ fn trace(
     };
     let roman_e = roman.single().ok();
     let mut line = serde_json::Map::new();
-    line.insert("f".into(), f.into());
-    line.insert("t".into(), r2(vtime.elapsed_secs() - o.clock0).into());
     line.insert("paused".into(), (vtime.is_paused() as i32).into());
-    if let Some((_, t)) = roman_e {
+    if let Some((_, t, rm)) = roman_e {
+        // his feet from the transform (PlayerStats.position is a frame behind a warp: the player update runs first)
         // the model's facing (its -Y axis in game space) as the hook reports it
         let facing = to_game * (t.rotation() * (crate::level::game_to_engine() * Vec3::NEG_Y));
         line.insert(
             "roman".into(),
-            serde_json::json!({"pos": g(p.position), "heading": r2(facing.x.atan2(facing.y).to_degrees()), "health": r2(p.health),
+            serde_json::json!({"pos": g(t.translation()), "heading": r2(facing.x.atan2(facing.y).to_degrees()), "look_yaw": r2(rm.yaw.to_degrees()), "health": r2(p.health),
                 "max_health": r2(p.max_health), "weapon": p.weapon, "clip": p.clip, "ammo": p.ammo, "stickies": p.stickies}),
         );
     }
@@ -306,25 +328,33 @@ fn trace(
         })
         .collect();
     line.insert("grunts".into(), gs.into());
-    let mut triggers = Vec::new();
     if let Some(m) = &mission {
         line.insert("mission".into(), serde_json::json!({"state": format!("{:?}", m.outcome), "objective": m.compass_tag}));
-        for l in m.log.iter().skip(o.log_seen) {
-            // mission.rs dispatch: "trigger {t}: {n} receivers"
-            if let Some(t) = l.strip_prefix("trigger ").and_then(|r| r.split(':').next()).and_then(|t| t.parse::<i64>().ok()) {
-                triggers.push(t);
-            }
-        }
-        o.log_seen = m.log.len();
     }
-    line.insert("triggers".into(), triggers.into());
+    line.insert("triggers".into(), std::mem::take(&mut o.triggers).into());
     let mut deaths = std::mem::take(&mut o.deaths);
     deaths.sort_unstable();
     line.insert("deaths".into(), deaths.into());
-    let sounds: Vec<String> = bank.as_deref_mut().map(|b| std::mem::take(&mut b.started_keys)).unwrap_or_default();
-    line.insert("sounds".into(), sounds.into());
-    if let Some(out) = o.out.as_mut() {
-        let _ = writeln!(out, "{}", serde_json::Value::Object(line));
+    line.insert("sounds".into(), std::mem::take(&mut o.sounds).into());
+    let clock = vtime.elapsed_secs();
+    let Some(f) = o.play_frame() else {
+        let frame = o.frame;
+        o.pending.push((frame, clock, line));
+        return;
+    };
+    let base = o.brief.unwrap_or(0) + o.cfg.play_delay;
+    let mut lines: Vec<(i64, f32, serde_json::Map<String, serde_json::Value>)> =
+        std::mem::take(&mut o.pending).into_iter().map(|(fr, c, l)| (fr - base, c, l)).filter(|(pf, _, _)| *pf >= from).collect();
+    lines.push((f, clock, line));
+    for (pf, c, l) in lines {
+        let c0 = *o.clock0.get_or_insert(c);
+        let mut full = serde_json::Map::new();
+        full.insert("f".into(), pf.into());
+        full.insert("t".into(), r2(c - c0).into());
+        full.extend(l);
+        if let Some(out) = o.out.as_mut() {
+            let _ = writeln!(out, "{}", serde_json::Value::Object(full));
+        }
     }
 }
 
