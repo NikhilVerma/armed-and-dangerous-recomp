@@ -1,0 +1,8 @@
+{
+ "about": "ten rifle shots and a reload at the start point (clip / ammo, the shots' sounds)",
+ "level": "lev_1_m1",
+ "keys": "0:ENTER*3,30:MOUSE1,42:MOUSE1,54:MOUSE1,66:MOUSE1,78:MOUSE1,90:MOUSE1,102:MOUSE1,114:MOUSE1,126:MOUSE1,138:MOUSE1,170:19",
+ "frames": 300,
+ "trace_every": 2,
+ "suite": false
+}

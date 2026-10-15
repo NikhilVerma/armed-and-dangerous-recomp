@@ -264,6 +264,8 @@ add_library(and_hook SHARED
   src/profiler.cpp
   src/d3d_trace.cpp
   src/testscenario.cpp
+  src/testoffscreen.cpp
+  src/testoracle.cpp
   enhance/display.cpp
   enhance/startup.cpp
   enhance/render.cpp

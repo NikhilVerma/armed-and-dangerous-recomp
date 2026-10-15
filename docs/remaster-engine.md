@@ -55,6 +55,40 @@ original softer blue-grey), the ruined arch
 looks smaller in the engine (unexplained: check its instance transform / scale), the token pickup's model, Roman
 aim pose and his screen position (camera 4-7 units off: check Camera_Update 0x0040e350).
 
+### Oracle runs: the original as ground truth (lockstep traces, 2026-10-15)
+
+The human (2026-10-15): "the Oracle is always in front of us, as we have a known source of ground truth". Every
+remaster bug can be found by running the original on the same input; `tools/oracle_diff.py SCENARIO` does that.
+
+- **Off-screen original** (`[test] offscreen=1`, hook/src/testoffscreen.cpp; tools/compare.py writes it for every
+  harness run, so shot.py, coverage.py, coverage_level.py and the rest never show a window): the game's window is
+  created at (-20000, -20000) as a tool window (no taskbar button, no Alt+Tab), never activated, held there through
+  WM_WINDOWPOSCHANGING whoever moves it; SetForegroundWindow / ClipCursor / SetCapture are no-ops, GetCursorPos reads
+  a point outside the window (the menus' mouse, 0x00491380), MessageBoxA is logged instead of shown, DirectInput gets
+  only scripted input, and the process's audio sessions are muted. Pause on focus loss (App_WndProc 0x004e0110 ->
+  0x005fb918 -> AppBase_UpdateActive) never fires: deactivations reach the game as activations and both flags start
+  at 1 in the image. Frame pacing: the virtual clock steps 1/60 s per presented frame, so speed does not matter.
+  compare.launch refuses a hook DLL without this support (it would show the window).
+- **One input format**: the hook's keys_frames text (`frame:KEY*held`, scan codes, MOUSE1..3, MOUSEX<n>), read by the
+  hook ([test] keys_from_play) and by the remaster (engine/src/oracle.rs, a playtest script's `"oracle"` section).
+  Frame 0 is `play_delay` (30) frames after the briefing (the first paused message after the load) appears; the
+  scenario's `0:ENTER*3` dismisses it. `warp` puts Roman at a point at play frame -10 in both, keeping his heading.
+- **Same randomness**: the original's CRT srand runs once in App_Init from GetTickCount (virtual: deterministic) and
+  again with 12345 at the end of the level load ([test] reseed_on_load). The remaster's streams are its own
+  (fx::FxStats seeded 0x5eed per level, fxvm CrtRand, level.rs CrtRand(0)): same-seed parity is not possible, so
+  outcomes that depend on rolls (AI choices, spread) are compared with tolerances, not bit for bit.
+- **One trace schema** (`and-trace.jsonl` / `<script>.trace.jsonl`, every `trace_every` frames; hook/src/testoracle.cpp
+  documents it): game time since frame 0, paused, Roman (position, heading, health, weapon, clip, ammo, stickies), the
+  companions, each grunt (instance id +0x396 / InstanceId, position, health, mind: the original's state +0x460 mapped
+  to ai.rs Mind, target), mission state and objective tag, and the events since the last line: triggers sent
+  (Object_SendTrigger 0x00461870 / mission.rs dispatch), placed objects that died (0x00450ee0, 0x0041c570 / a
+  destructible gone), sounds started (definition names).
+- **The diff** reports the first divergence per field family (timing, roman.pos, roman.heading, ..., grunt.mind,
+  events.triggers) with tolerances (scenario `tolerance`: positions in units, discrete fields and events within N
+  frames) and marks a family EXPECTED when the scenario's `expected` explains it. Scenarios: tools/oracle_scenarios/.
+  `tools/oracle_suite.py` runs the ones marked `"suite": true` (separate from regress.py: the original's load costs
+  a minute or more per scenario).
+
 ### Same-camera render comparison (rendering pieces)
 
 **Caution:** `--camera` (fixed camera from a dump) disagreed with the synced run on 2026-10-13 (rock walls where the

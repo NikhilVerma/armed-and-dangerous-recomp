@@ -1,0 +1,8 @@
+{
+ "about": "walk and turn with the mouse, then strafe right",
+ "level": "lev_1_m1",
+ "keys": "0:ENTER*3,30:17*200,60:MOUSEX10*40,140:MOUSEX-10*40,230:32*60",
+ "frames": 320,
+ "trace_every": 2,
+ "suite": false
+}

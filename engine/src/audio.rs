@@ -248,6 +248,10 @@ pub struct SoundBank {
     pub voice: HashMap<String, VoiceLine>,
     /// the last sounds started (for the playtest log)
     pub recent: Vec<String>,
+    /// every sound definition started, in order, while log_started is on (oracle.rs drains it: the original's
+    /// [test] trace_every logs the definition names StartVoice is given)
+    pub started_keys: Vec<String>,
+    pub log_started: bool,
 }
 
 impl SoundBank {
@@ -764,6 +768,9 @@ fn play(
         *stats.started.entry(file.clone()).or_default() += 1;
         *stats.started_by_group.entry(group.name().to_owned()).or_default() += 1;
         bank.played += 1;
+        if bank.log_started {
+            bank.started_keys.push(key.clone());
+        }
         bank.recent.push(file);
         if bank.recent.len() > 40 {
             bank.recent.remove(0);

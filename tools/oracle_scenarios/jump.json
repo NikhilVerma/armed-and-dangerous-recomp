@@ -1,0 +1,8 @@
+{
+ "about": "jump standing, then a running jump",
+ "level": "lev_1_m1",
+ "keys": "0:ENTER*3,30:57,80:17*90,110:57",
+ "frames": 220,
+ "trace_every": 2,
+ "suite": false
+}
