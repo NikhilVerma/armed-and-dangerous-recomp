@@ -1216,8 +1216,11 @@ fn start(mut m: Option<ResMut<Mission>>, mut out: MessageWriter<SendTrigger>, pa
 }
 
 /// Trigger volumes: the player (and, with ai_can_trigger, AI) entering or leaving (the contact callback 0x004976a0),
-/// then each volume's update (0x00497640) sends a pending on_enter.
+/// then each volume's update (0x00497640) sends a pending on_enter. Neither runs while the game is paused (a paused
+/// message, the pub): the contacts come from the physics step and the update from the object update, which a pause
+/// stops (the original's trace: trigger 98 at the courtyard warp comes 2 frames after the briefing is dismissed).
 fn volumes(
+    vtime: Res<Time<Virtual>>,
     mut m: Option<ResMut<Mission>>,
     player: Query<(Entity, &GlobalTransform), With<Player>>,
     grunts: Query<(Entity, &GlobalTransform, &Grunt)>,
@@ -1231,6 +1234,9 @@ fn volumes(
     let mut logs = Vec::new();
     for t in std::mem::take(&mut m.resend) {
         out.write(SendTrigger(t));
+    }
+    if vtime.is_paused() {
+        return;
     }
     for t in &mut m.triggers {
         let mut sends = Vec::new();
