@@ -27,6 +27,7 @@ import argparse
 import json
 import math
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -188,6 +189,11 @@ def sound_key(name):
     """A sound definition's name without its random variant number (fs_boot_heavy_snow_run_3 -> fs_boot_heavy_snow_run):
     the variant is a roll, and the two games' random streams differ."""
     n = str(name).lower()
+    # a sound ear's voice line: the speaker (Roman, Jonesy or Q: rom / jon / q11 + line number) is a roll among the
+    # candidates in range (SoundEar 0x00497900: rand() x count), so only the line's kind (l1_ambient, mission) compares
+    voice = re.match(r"^(rom|jon|q11)\d{5}_(.+)$", n)
+    if voice:
+        return "voice line " + voice.group(2)
     head, _, tail = n.rpartition("_")
     return head if head and tail.isdigit() and len(tail) <= 2 else n
 

@@ -6,8 +6,6 @@
  "trace_every": 2,
  "suite": true,
  "known": {
-  "roman.pos": "B1: Roman still slides ~6 units after the briefing (remaster), at rest in the original",
-  "events.sounds": "B1 (follows from it: the stop / slide foley plays at other frames)",
-  "grunt.pos": "B3: grunt 181 placed at z 108 (on a roof) instead of z 14"
+  "events.sounds": "B10: footstep notes after a start / stop come at other frames (original: the run cycle's fs_* notes at 2, 6, 18, 20, 36 after the briefing stop; remaster 12, 16, 32: charanim.rs notes of the run / stop blend)"
  }
 }

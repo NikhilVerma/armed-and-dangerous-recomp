@@ -1,0 +1,13 @@
+{
+ "about": "walk 1 s from the start point, release, strafe right, walk back: the movement profile every frame (start in one frame, dead stop on release, 39.2 units/s)",
+ "level": "lev_1_m1",
+ "keys": "0:ENTER*3,30:17*60,130:32*40,200:31*50",
+ "frames": 280,
+ "trace_every": 1,
+ "suite": true,
+ "known": {
+  "companion.jonesy.pos": "B9: the companions do not idle at their formation slot while Roman walks off (original: they stop ~20 units behind him, then follow; ai.rs companions arrive only within 4 units of the slot)",
+  "companion.q.pos": "B9",
+  "events.sounds": "B10: footstep notes after a start / stop come at other frames (charanim.rs notes of the run / stop blend)"
+ }
+}

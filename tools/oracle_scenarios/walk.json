@@ -6,10 +6,8 @@
  "trace_every": 2,
  "suite": true,
  "known": {
-  "roman.pos": "B1: Roman still slides ~6 units after the briefing (remaster), at rest in the original",
-  "events.sounds": "B1 (follows from it: the stop / slide foley plays at other frames)",
-  "events.triggers": "B2: volume 269 tested as the world AABB of a rotated slab (mission.rs Volume::Box): 711 fires in the intro",
-  "grunt.pos": "B3: grunt 181 placed at z 108 (on a roof) instead of z 14",
-  "timing": "B1 (follows from it: the token message comes 10 frames earlier)"
+  "events.sounds": "B10: footstep notes after a start / stop come at other frames (original: the run cycle's fs_* notes at 2, 6, 18, 20, 36 after the briefing stop; remaster 12, 16, 32: charanim.rs notes of the run / stop blend)",
+  "companion.jonesy.pos": "B9: the companions do not idle at their formation slot while Roman walks off (original: they stop ~20 units behind him from frame ~38 to ~54, then follow; ai.rs companions arrive only within 4 units of the slot)",
+  "companion.q.pos": "B9: the companions do not idle at their formation slot while Roman walks off (original: they stop ~20 units behind him from frame ~38 to ~54, then follow; ai.rs companions arrive only within 4 units of the slot)"
  }
 }

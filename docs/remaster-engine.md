@@ -112,6 +112,9 @@ field family, earliest first, each with where to look (the remaster's file, the 
 
 Evidence: work/oracle/<scenario>/report.txt and the traces (`tools/oracle_show.py`).
 
+Fixed on 2026-10-15 (agent-oraclefix; docs/journal/2026-10-15-oraclefix.md): B1, B2, B3, B4, B5, B7; open: B6, B8 (AI),
+B9, B10 (new, below).
+
 | Id | Remaster bug (first divergence) | Evidence |
 | --- | --- | --- |
 | B1 | Roman is still sliding when the briefing appears and keeps going ~4.8 units after it is dismissed with no input; the original's Roman is at rest | walk roman.pos: original y 1059.67 from frame -30 to 30; remaster 1057.8 at 0 -> 1053.0 at 30. Follows: the stop / slide foley at other frames, the treasure token reached 10 frames early (timing at 154) |
@@ -122,6 +125,32 @@ Evidence: work/oracle/<scenario>/report.txt and the traces (`tools/oracle_show.p
 | B6 | Far grunts react in the original, not in the remaster | sticky: grunt 201 (~450 units away) takes Roman as target in state 0x1f at frame 150 after the blasts; jump: grunt 208 targets Roman at 138 after the running jump |
 | B7 | After the pub the original holds the machine gun (weapon 0, clip 100) from frame 322; the remaster keeps the rifle. The pub screen: the remaster leaves on the fifth ENTER (900 at 382), the original only on ESC (900 at 472) | pub roman.weapon / clip, events.triggers |
 | B8 | Guards: the original's stay in state 0x79 (Guard) while firing; the remaster's switch to Reload. First hit on Roman at frame 14 in the remaster (15) vs ~30 (45) in the original, then less damage (295 vs 235 health at 196) | courtyard grunt:175.mind, roman.health |
+| B9 | The companions do not idle at their formation slot while Roman walks off: the original's stop ~20 units behind him from frame ~38 to ~54 (walk), the remaster's run on (ai.rs companions arrive only within 4 units of the slot). Seen once B1 was fixed | walk companion.jonesy.pos at 54 (12.2 apart) |
+| B10 | Footstep notes after a start / stop come at other frames: after the briefing stop the original plays the run cycle's fs_* notes at 2, 6, 18, 20, 36, the remaster at 12, 16, 32 (charanim.rs notes of the run / stop blend); the walk's step notes drift by up to 6 frames | fire_rifle / walk events.sounds |
+
+How B1-B7 were fixed (each cause found with the traces; the scenario files no longer list them):
+- B1: the ground drive was far too soft and nothing slowed Roman but the drive. Measured every frame on the original
+  (a `stop` scenario: walk 1 s, release, strafe, back): full speed in a frame, a dead stop on release, a 39.2 units/s
+  walk. player.rs now has the drive gain (DRIVE_GAIN, fitted) and the ground contacts' friction (+0x5a0: friction_max
+  2 at rest to friction_min 0.3 at full speed, x gravity; it sets the 39.2); the slide / stop fx read the speed
+  measured before the drive (+0x4bc). Also the briefing: the original pauses on the frame the intro path ends, Roman
+  still walking; the remaster gave him one unpaused frame without the stick. The mission's systems now run before the
+  player's update and `control` does not run while the game is paused. Intro trace (trace_from -900): roman.pos same.
+- B2: box volumes are oriented boxes (mission.rs Volume::Box: the model's local box under the placement's matrix).
+- B3: Object_ForceGround's ray (0x00455860 -> 0x004137e0 -> Ray_CastQuery 0x00414110: no include list, "accept bodies
+  without owner") hits only the landscape; grunt 181 is under the archway v_archway_a, whose top the remaster's ray
+  hit. physics.rs raycast_landscape, used for force_ground, Roman's and the companions' grounding.
+- B4: a trace bug: oracle.rs took the facing as rotation x game_to_engine x -Y (the up axis: atan2 of noise). The
+  model's -Y through the Transform is right; the model does turn with the look yaw.
+- B5: mission.rs volumes return while Time<Virtual> is paused (the contacts and the volume update stop with the game).
+- B7: the keys' Select no longer leaves the pub with nothing left (a click still does: feedback 17); the pub page
+  fades out over 0.5 s as in the original (gamemenu.rs instant), the game paused under it, and the exit trigger and
+  the unpause come when it is gone (pubscreen.rs leave_pub: 900 at 470 vs 472); Roman is not moved to Ref_exit
+  (0x004690c0 takes that bone's position and drops it: the original's Roman stays at the door); PlayerStats is
+  published every frame (player.rs publish_stats), so the machine gun shows as taken in the pub.
+- Harness: a voice line from a sound ear compares by its kind (the speaker is a roll, oracle_diff.py sound_key); an
+  unlimited reserve near a weapon change compares as agreeing; the remaster's trace counts placed objects without
+  health removed by receive_trigger_kill as deaths (the big red arrow 258).
 
 Not bugs: the rifle's reserve (the original keeps 62 and never spends it, the remaster reports u32::MAX: unlimited,
 not compared); the original unpauses a frame after the dismissing key (pauses under 4 frames are ignored).
