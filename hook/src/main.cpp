@@ -30,6 +30,8 @@ void TestMaterialLogInit();
 void InputHooksInit();
 void TestHashInit();
 void TestScenarioInit();
+void TestOffscreenInit();
+void TestOracleInit();
 void TestScenarioOnExit();
 void TestFatalTraceInit();
 void TestClockInit();
@@ -60,6 +62,7 @@ static void Startup()
     TestShotInit();
     TestMaterialLogInit();
     TestHashInit();
+    TestOffscreenInit();  // before TestScenarioInit (its window procedure asks TestOffscreen)
     TestScenarioInit();
     InputHooksInit();
     CrashInstall();
@@ -85,6 +88,7 @@ static void Startup()
     OverridesInit();
     RemasterMenuInit();  // after every enhancement has registered its settings
     TestFatalTraceInit();  // a wrapper: registered before the hooks are installed
+    TestOracleInit();      // wrappers too; after TestMaterialLogInit (it chains the sound callback)
     HooksInstallAll();
     D3D9HooksInstall();
 }

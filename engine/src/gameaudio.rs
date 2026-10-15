@@ -94,6 +94,8 @@ struct Emitter {
     /// one-shots started, the last offset (for the playtest log)
     started: u32,
     offset: f32,
+    /// the listener was within max distance on the last update (the playtest log)
+    in_range: bool,
 }
 
 /// The level's ambient emitters (the AmbientSounds list, audio +0x74), loaded on first use.
@@ -133,6 +135,7 @@ fn ambient(
                         fresh: false,
                         started: 0,
                         offset: 0.0,
+                        in_range: false,
                         def: d,
                     })
                     .collect()
@@ -148,7 +151,8 @@ fn ambient(
     let pick = |rng: &mut crate::fx::FxStats, list: &[String]| list[((rng.rand() * list.len() as f32) as usize).min(list.len() - 1)].clone();
     for e in ems.iter_mut() {
         let distance = e.pos.distance(l.translation());
-        if !e.def.world && distance > e.range.1 {
+        e.in_range = e.def.world || distance <= e.range.1;
+        if !e.in_range {
             for id in [e.looping.take(), e.oneshot.take()].into_iter().flatten() {
                 stop.write(StopVoice { id, immediate: false });
             }
@@ -770,8 +774,10 @@ fn log_audio(
         .iter()
         .flatten()
         .map(|e| {
+            // active: a sound of its plays now (a one-shot ends in real time, as the voice finishes: a check of it at a
+            // game time depends on the frame rate); in_range: the listener is within its max distance (or world)
             let active = e.looping.is_some() || e.oneshot.is_some();
-            (e.def.instance.to_string(), serde_json::json!({"active": active, "started": e.started, "offset_db": (e.offset * 10.0).round() / 10.0}))
+            (e.def.instance.to_string(), serde_json::json!({"active": active, "in_range": e.in_range, "started": e.started, "offset_db": (e.offset * 10.0).round() / 10.0}))
         })
         .collect();
     v["ambient"] = ambient.into();

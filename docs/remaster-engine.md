@@ -55,6 +55,79 @@ original softer blue-grey), the ruined arch
 looks smaller in the engine (unexplained: check its instance transform / scale), the token pickup's model, Roman
 aim pose and his screen position (camera 4-7 units off: check Camera_Update 0x0040e350).
 
+### Oracle runs: the original as ground truth (lockstep traces, 2026-10-15)
+
+The human (2026-10-15): "the Oracle is always in front of us, as we have a known source of ground truth". Every
+remaster bug can be found by running the original on the same input; `tools/oracle_diff.py SCENARIO` does that: it
+runs the original (off-screen) and the remaster (--background) on one scenario and prints the first divergence per
+field family, earliest first, each with where to look (the remaster's file, the original's function).
+
+```bash
+.venv/Scripts/python.exe tools/oracle_diff.py walk --exe target-NAME        # both games, ~1 min
+.venv/Scripts/python.exe tools/oracle_diff.py walk --only remaster          # after an engine change: reuse the original's trace
+.venv/Scripts/python.exe tools/oracle_diff.py walk --no-run                 # re-diff the traces in work/oracle/walk/
+.venv/Scripts/python.exe tools/oracle_show.py walk roman.pos --every 6      # one field side by side (grunt:67.mind, events, ...)
+.venv/Scripts/python.exe tools/oracle_suite.py --exe target-NAME            # every "suite" scenario, one line each
+```
+
+- **Off-screen original** (`[test] offscreen=1`, hook/src/testoffscreen.cpp; tools/compare.py writes it for every
+  harness run, so shot.py, coverage.py, coverage_level.py and the rest never show a window): the game's window is
+  created at (-20000, -20000) as a tool window (no taskbar button, no Alt+Tab), never activated; the game's own
+  SetWindowPos calls (Renderer_ResizeWindow 0x005080d0 passes SWP_NOSENDCHANGING with insert-after HWND_TOP; 0x00508210
+  asks for HWND_TOPMOST) are rewritten to stay there at the bottom, and WM_WINDOWPOSCHANGING holds everyone else's;
+  SetForegroundWindow / ClipCursor / SetCapture are no-ops, GetCursorPos reads a point outside the window (the menus'
+  mouse, 0x00491380), MessageBoxA is logged instead of shown, DirectInput gets only scripted input, and the process's
+  audio sessions are muted. Pause on focus loss (App_WndProc 0x004e0110 -> 0x005fb918 -> AppBase_UpdateActive) never
+  fires: deactivations reach the game as activations and both flags start at 1 in the image. Frame pacing: the
+  virtual clock steps 1/60 s per presented frame, so speed does not matter. compare.launch refuses a hook DLL without
+  this support, sets an error mode with no crash / "Bad Image" boxes, and kills a game whose visible window reaches
+  the desktop (a guard thread, 10 ms polls). Measured: the window stayed at -20000 for the whole run, no foreground
+  change (first build, without the SetWindowPos rewrite, showed the window at 0,0 for one run: fixed).
+- **One input format**: the hook's keys_frames text (`frame:KEY*held`, scan codes, MOUSE1..3, MOUSEX<n>), read by the
+  hook ([test] keys_from_play) and by the remaster (engine/src/oracle.rs, a playtest script's `"oracle"` section).
+  Frame 0 is `play_delay` (30) frames after the briefing (the first paused message after the load) appears; the
+  scenario's `0:ENTER*3` dismisses it. `warp` puts Roman at a point at play frame -10 in both, keeping his heading.
+- **Randomness**: the original's CRT srand runs once in App_Init from GetTickCount (virtual: deterministic) and again
+  with 12345 at the end of the level load ([test] reseed_on_load): two runs of the original give identical traces
+  (checked: sticky, 211 lines). The remaster's streams are its own (fx::FxStats seeded 0x5eed per level, fxvm CrtRand,
+  level.rs CrtRand(0)); reruns agree except a sound's start frame by one or two. Same-seed parity with the original is
+  not possible, so roll-dependent outcomes (AI choices, spread, sound variants) get tolerances, not bit equality.
+- **One trace schema** (`and-trace.jsonl` / `<script>.trace.jsonl`; hook/src/testoracle.cpp documents it): every
+  `trace_every` frames from `trace_from` (default -play_delay: the briefing on; every frame before frame 0): game
+  time, paused, Roman (position, heading, health, weapon, clip, ammo, stickies; the remaster adds look_yaw), the
+  companions, each grunt (instance id +0x396 / InstanceId, position, health, state +0x460 mapped to ai.rs Mind,
+  target), mission state and objective tag, and the events since the last line: triggers sent with their senders
+  (Object_SendTrigger 0x00461870 / mission.rs dispatch), placed objects that died (0x00450ee0, 0x0041c570 / a
+  destructible gone), sounds started (definition names; the original's come from the recovered play functions
+  fn_004f32f0 / fn_004f3740 / fn_004f3c60, switched on for that while every other function runs the shipped code).
+- **The diff**: tolerances per scenario (`tolerance`: positions in units, discrete fields and events within N frames,
+  sound variant numbers ignored, pauses shorter than 4 frames ignored). A diverging family is EXPECTED (an accepted
+  difference, `expected`), KNOWN (an open remaster bug below, `known`: it does not fail the scenario, so the scenario
+  still guards everything else) or DIVERGE. Scenarios: tools/oracle_scenarios/; the three tree grunts (instance id 0,
+  state 0x8c) are left out everywhere (grunt-ai.md section 14). `tools/oracle_suite.py` runs those marked `"suite"`
+  (walk, walk_turn, jump, fire_rifle, sticky: all PASS with their known bugs on 2026-10-15); separate from regress.py
+  because each scenario also loads the original (about 35-120 s wall). pub and courtyard are exploratory (AI rolls).
+
+### Oracle findings on lev_1_m1 (2026-10-15, first runs)
+
+Evidence: work/oracle/<scenario>/report.txt and the traces (`tools/oracle_show.py`).
+
+| Id | Remaster bug (first divergence) | Evidence |
+| --- | --- | --- |
+| B1 | Roman is still sliding when the briefing appears and keeps going ~4.8 units after it is dismissed with no input; the original's Roman is at rest | walk roman.pos: original y 1059.67 from frame -30 to 30; remaster 1057.8 at 0 -> 1053.0 at 30. Follows: the stop / slide foley at other frames, the treasure token reached 10 frames early (timing at 154) |
+| B2 | Trigger volume 269 (bb_300x300, a 20-unit slab rotated ~13 deg) is tested as the world AABB of its corners (mission.rs Volume::Box from `world_aabb`), so trigger 711 and Jonesy's jon50001_l1_ambient fire 4.3 s into the intro | original: 711 sent by 269 at walk frame 48 (Roman at y ~1048.5 after 18 frames of W), running jump frame 110, never when Roman stands (fire_rifle); remaster: "volume 269 -> trigger 711" at 4.32 s, before the briefing. Use the oriented box (world_corners) |
+| B3 | Grunt 181 (grunt_regular, placed at z 10.4) stands at z 108 (on a roof) | every scenario, frame -30: original (19.39, -548.29, 13.97), remaster (19.25, -548.34, 107.98) |
+| B4 | Roman's model heading stops at exactly 0 deg (+y) while his look yaw keeps turning | walk_turn: 40 frames of 10 counts turn the original 229 deg (model heading -179.5 -> 49.6) and the remaster's look_yaw 229 deg (-180.5 -> -409.7), but its Transform heading holds 0.0 from frame 88 to 136 |
+| B5 | Trigger volumes are evaluated while the briefing pauses the game | courtyard: 98 at frame -9 (the warp, still paused) vs 2 in the original; pub: 810 likewise |
+| B6 | Far grunts react in the original, not in the remaster | sticky: grunt 201 (~450 units away) takes Roman as target in state 0x1f at frame 150 after the blasts; jump: grunt 208 targets Roman at 138 after the running jump |
+| B7 | After the pub the original holds the machine gun (weapon 0, clip 100) from frame 322; the remaster keeps the rifle. The pub screen: the remaster leaves on the fifth ENTER (900 at 382), the original only on ESC (900 at 472) | pub roman.weapon / clip, events.triggers |
+| B8 | Guards: the original's stay in state 0x79 (Guard) while firing; the remaster's switch to Reload. First hit on Roman at frame 14 in the remaster (15) vs ~30 (45) in the original, then less damage (295 vs 235 health at 196) | courtyard grunt:175.mind, roman.health |
+
+Not bugs: the rifle's reserve (the original keeps 62 and never spends it, the remaster reports u32::MAX: unlimited,
+not compared); the original unpauses a frame after the dismissing key (pauses under 4 frames are ignored).
+Open: state 0x1f (sticky, grunt 201) is not in grunt-ai.md's table; restart scenarios (pause menu -> restart) are not
+written yet (menu navigation of the original's pause page to script).
+
 ### Same-camera render comparison (rendering pieces)
 
 **Caution:** `--camera` (fixed camera from a dump) disagreed with the synced run on 2026-10-13 (rock walls where the
