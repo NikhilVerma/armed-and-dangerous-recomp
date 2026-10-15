@@ -16,6 +16,10 @@
 //!   objects they pass (camfade.rs).
 //! - Zoom (0x00475880 / 0x00475910 / 0x0040fbb0): while Zoom is held the camera blends linearly, over camera_zoom_secs,
 //!   toward the weapon's node (Camera_rifle / Camera_machinegun: eye at the head, the same look point) and its FOV.
+//!   The original flips the zoom mode whenever the held state and the mode differ (0x00475850): entering (0x00475880)
+//!   names the weapon's camera node (0x0040fae0: blend state 1, up), leaving (0x00475910 flag 0) starts the blend back
+//!   (0x0040fb00: state 2), and with flag 1 (mounting a gun, respawn) drops it at once (0x0040fb50: state 0; turret.rs
+//!   zeroes `Roman::zoom`). `Roman::zoom` is that blend weight (0x0040fbb0: +0x68 over camera_zoom_secs).
 //! - Death (PlayerObject_Update 0x004788a0 at game_06.cpp:2201 sets mode 3 with 0x0040fa90): the camera stays where
 //!   it is and turns to look at the player's body, smoothed over 1 s (0x0040fd50 with +0x160 = +0x164 = 1).
 //! - After a camera path (Camera_Update's tail: +0x17c == 1 sets the 1 s smoothing again): the follow camera is

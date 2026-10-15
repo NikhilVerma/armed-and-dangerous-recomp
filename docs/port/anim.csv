@@ -41,3 +41,8 @@ address,name,disposition,reason
 0x004ed5d0,fn_004ed5d0,replaced,"poses one entry of an instance's definition (multi-skeleton instances): one Animator per skinned model"
 0x004ed710,fn_004ed710,replaced,"poses every entry of an instance (0x004ed5d0): one Animator per skinned model"
 0x004ed760,fn_004ed760,replaced,"poses an instance's skeleton from blend records: skin.rs play_layers"
+0x00426290,fn_00426290,not needed,"the AI objects' texture override (vt+0x2c): with +0x488 bit 31 the ""b_grunt_burnt"" texture; that bit is set only by the smoking troop of a barracks window slot (0x0042dc20), which lev_1_m1 does not have (docs/port/ai.csv 0x0042dc20); executed every draw, always without the bit"
+0x00458040,fn_00458040,replaced,"an actor's ""ref_hit_00"" bone position (the aim / sight point): the engine reads the ref_hit_00 joint's GlobalTransform by name (ai.rs sight rays and aim points, skeleton.index)"
+0x00458660,fn_00458660,replaced,"the bone record of a collision part index (projectile hits: the head / torso multiplier and sticking to a part, 0x0047eec0 / 0x0047e9f0): hitparts.rs hulls carry their bone name, which player.rs's projectile damage reads directly"
+0x00458720,fn_00458720,replaced,"the part index (signed +0xa of the bone's part record) a whole-body damage record carries (+0x10; falls, blasts, deaths): the engine's damage events carry the part's bone name only for bullet hits (hitparts.rs), the rest hit the whole body"
+0x004ebc30,fn_004ebc30,replaced,"linear scalar key sampler: the exporter samples with the game's own samplers at every frame, skin.rs / campath.rs lerp between frames"

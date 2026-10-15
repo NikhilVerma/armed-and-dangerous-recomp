@@ -37,3 +37,5 @@ address,name,disposition,reason
 0x004f8aa0,InputPC_ControllerButtonDown,replaced,the first controller button held: Bevy's Gamepad
 0x004f8b20,InputPC_IsPressed,replaced,"a code pressed this frame (keys, mouse axes / buttons crossing the threshold, pad buttons, POV, axes): bevy_enhanced_input's action events (Controls::pressed); the original's D-pad pressed test is really the release edge (a bug of a path not taken on PC: the pad has no default bindings)"
 0x004f8f00,InputPC_IsHeld,replaced,a code held: bevy_enhanced_input's trigger state (Controls::down)
+0x004e5130,Rumble_Stop,not needed,"stops one rumble by id (fade-out times from its sample, flag 0x80000000) in the rumble list: bookkeeping for Rumble_Update, whose motor output on PC is 0x00477c10 `ret 0xc` (no force feedback on PC); the remaster's own rumble is input.rs rumble()"
+0x004e51f0,Rumble_SetGain,not needed,"sets one rumble's gain (+0x10) by id (the distance falloff of a looping rumble, render_r1.cpp:1006): only scales the motor values that the PC build drops (vt+0x88 = 0x00477c10, ret 0xc)"
