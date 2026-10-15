@@ -1,9 +1,22 @@
 {
- "about": "lev_5_m1: the level start: the briefing (or the 600-frame fallback) dismissed, Roman's spawn, camera, the first enemies and triggers for 10 s (traced from 60 frames before play frame 0, so events before a later briefing in one game are seen), a 2 s walk forward from 2 s",
+ "about": "lev_5_m1: the level start: the briefing (or the 600-frame fallback) dismissed, Roman's spawn, camera, the first enemies and triggers for 10 s (traced from 60 frames before play frame 0, so events before a later briefing in one game are seen), a 2 s walk forward from 2 s; a second ENTER at 40: with movies off the original's first pause is the start movie's, the briefing follows it",
  "level": "lev_5_m1",
- "keys": "0:ENTER*3,120:17*120",
+ "keys": "0:ENTER*3,40:ENTER*3,120:17*120",
  "frames": 600,
  "trace_every": 2,
  "trace_from": -60,
- "suite": false
+ "suite": false,
+ "known": {
+  "events.deaths": "B20: lev_5_m1: an id-0 object dies at 74 in the original only (open)",
+  "events.sounds": "B17: sounds the remaster does not start (or does not report): the pubs' amb_pub_exterior_lp at load, sheep, zeppelin creaks, shrub bomber loop, water footsteps",
+  "grunt.pos": "B3: placement height (force_ground) differs: a grunt / companion on another surface",
+  "grunts.alive": "B12: building IC grunts present at load in the original (id 0, state 0x64 at the houses) are not created",
+  "roman.clip": "B9: the remaster starts on the rifle; the original holds the machine gun (weapon 0, clip 100) the mission gives (player_add_machinegun 1)",
+  "roman.heading": "B4: Roman's model heading ignores the start facing (look yaw is right)",
+  "roman.weapon": "B9: the remaster starts on the rifle; the original holds the machine gun (weapon 0, clip 100) the mission gives (player_add_machinegun 1)"
+ },
+ "expected": {
+  "paused": "E1: movies off in both, but the original's start movie still pauses and takes the first ENTER (its briefing follows it); the remaster's missing movie ends at once",
+  "timing": "E1: movies off in both, but the original's start movie still pauses and takes the first ENTER (its briefing follows it); the remaster's missing movie ends at once"
+ }
 }

@@ -372,11 +372,17 @@ def compare_traces(sc, orig, rem):
                   f"objective tag {om.get('objective')} vs {rm.get('objective')}")
     # pauses (briefings, the token message, menus): each span of at least 4 frames starts within `frames` of one in the
     # other game (a 1 or 2 frame difference is input latency: the original dismisses a message a frame after the key)
+    last = frames[-1]
     so, sr = pause_spans(orig), pause_spans(rem)
     for side, mine, other in (("original", so, sr), ("remaster", sr, so)):
         for a, b in mine:
             if b - a >= 4 and not any(abs(a - c) <= win for c, d in other if d - c >= 4):
                 fam.check("paused", a, False, f"paused frames {a}..{b} only in the {side}")
+                break
+            # the same pause, ended at another time (a message dismissed by a different key, a second message)
+            match = next(((c, d) for c, d in other if d - c >= 4 and abs(a - c) <= win), None)
+            if side == "original" and b - a >= 4 and match and abs(b - match[1]) > win and min(b, match[1]) < last:
+                fam.check("paused", a, False, f"paused frames {a}..{b} in the original, {match[0]}..{match[1]} in the remaster")
                 break
         fam.checked.add("paused")
     # events: each one must have a counterpart in the other game within event_frames

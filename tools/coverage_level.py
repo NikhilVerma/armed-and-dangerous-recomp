@@ -150,20 +150,23 @@ def generic_scenarios(level, groups=2, objects=5):
     fire, sticky)."""
     m = json.load(open(os.path.join(ROOT, "work", "remaster", level, "mission.json")))
     start = m["player_start"][0]["position"] if m.get("player_start") else None
+    # a level with a start movie: with movies off ([test] no_movies) the movie still pauses the original and takes the
+    # first ENTER; its start message follows and needs a second one (tools/oracle_scenarios lev_2_m1_start, E1)
+    go = ["0:ENTER*3", "40:ENTER*3"] if m["mission"]["resolved"].get("start_movie") else ["0:ENTER*3"]
     out = {}
     if start:
         out["start"] = {"play": True, "frames": 1200,
-                        "keys": ["0:ENTER*3", "30:17*240", "60:MOUSEX6*40"] + keys_fire(300, 15) +
+                        "keys": go + ["50:17*240", "80:MOUSEX6*40"] + keys_fire(300, 15) +
                                 ["500:MOUSE2*5", "560:57", "600:16"] + keys_fire(640, 10, 10) +
                                 ["760:19", "800:15", "830:MOUSE2*5", "900:44*60", "1000:2", "1020:4"]}
         out["fall"] = {"play": True, "frames": 600, "warp": [start[0], start[1], start[2] + 1500],
-                       "keys": ["0:ENTER*3"]}
+                       "keys": go}
     insts = m["instances"]
     foes = [tuple(i["position"]) for i in insts if i["behaviour"] in ENEMIES]
     for n, (count, c) in enumerate(clusters(foes)[:groups]):
         out[f"group{n + 1}"] = {"play": True, "frames": 1100, "warp": [c[0] + 60, c[1], c[2] + 20],
                                 "about": f"{count} enemies round ({c[0]:.0f}, {c[1]:.0f}, {c[2]:.0f})",
-                                "keys": ["0:ENTER*3", "20:MOUSEX10*400"] + keys_fire(30, 45, 20) +
+                                "keys": go + ["50:MOUSEX10*400"] + keys_fire(60, 45, 20) +
                                         ["100:MOUSE2*5", "400:MOUSE2*5", "700:MOUSE2*5"]}
     seen = set()
     for b in OBJECTS:
@@ -176,7 +179,7 @@ def generic_scenarios(level, groups=2, objects=5):
         p = hits[0]["position"]
         out[f"obj-{b}"] = {"play": True, "frames": 900, "warp": [p[0] + 30, p[1], p[2] + 20],
                            "about": f"{hits[0]['template']} {hits[0]['id']} at ({p[0]:.0f}, {p[1]:.0f}, {p[2]:.0f})",
-                           "keys": ["0:ENTER*3", "20:45*150", "200:45*6", "300:MOUSEX10*200"] +
+                           "keys": go + ["50:45*150", "200:45*6", "300:MOUSEX10*200"] +
                                    keys_fire(260, 20, 15) + ["600:MOUSE2*5", "700:45*6"]}
     return out
 

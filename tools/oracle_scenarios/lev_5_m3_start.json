@@ -5,5 +5,13 @@
  "frames": 600,
  "trace_every": 2,
  "trace_from": -60,
- "suite": false
+ "suite": false,
+ "known": {
+  "companion.q.pos": "C1: a companion 12-13 units from the original's (follow distance / start spot), just past the tolerance",
+  "events.sounds": "B17: sounds the remaster does not start (or does not report): the pubs' amb_pub_exterior_lp at load, sheep, zeppelin creaks, shrub bomber loop, water footsteps",
+  "grunt.pos": "B3: placement height (force_ground) differs: a grunt / companion on another surface",
+  "roman.clip": "B9: the remaster starts on the rifle; the original holds the machine gun (weapon 0, clip 100) the mission gives (player_add_machinegun 1)",
+  "roman.heading": "B4: Roman's model heading ignores the start facing (look yaw is right)",
+  "roman.weapon": "B9: the remaster starts on the rifle; the original holds the machine gun (weapon 0, clip 100) the mission gives (player_add_machinegun 1)"
+ }
 }

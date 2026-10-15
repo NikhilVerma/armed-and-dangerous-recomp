@@ -82,6 +82,14 @@ def newly_reached(before_path, out_md):
         summary.append(f"| {s} | {sum(c.values())} | {c['left']} | {c['ported']} | {c['explained']} |")
     lines += ['| subsystem | newly reached | left | ported | explained |', '| --- | ---: | ---: | ---: | ---: |'] + summary
     lines += [f"| all | {sum(total.values())} | {total['left']} | {total['ported']} | {total['explained']} |", '']
+    lines += ['## Left: the remaining port work', '', '| subsystem | file | address | name | size | levels |',
+              '| --- | --- | --- | --- | ---: | --- |']
+    for s in sorted(by, key=lambda s: (s not in GAME, GAME.index(s) if s in GAME else 0, s)):
+        for f in sorted(by[s]):
+            for a, name, size, state, lv in sorted(by[s][f]):
+                if state == 'left':
+                    lines.append(f"| {s} | {f} | 0x{a:08x} | {name} | {size} | {', '.join(l[4:] for l in lv)} |")
+    lines += ['', '## Every newly reached function', '']
     for s in sorted(by, key=lambda s: (s not in GAME, GAME.index(s) if s in GAME else 0, s)):
         lines += [f'## {s}', '']
         for f in sorted(by[s]):

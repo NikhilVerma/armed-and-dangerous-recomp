@@ -5,5 +5,12 @@
  "frames": 600,
  "trace_every": 2,
  "trace_from": -60,
- "suite": false
+ "suite": true,
+ "known": {
+  "events.sounds": "B17: sounds the remaster does not start (or does not report): the pubs' amb_pub_exterior_lp at load, sheep, zeppelin creaks, shrub bomber loop, water footsteps",
+  "grunt.pos": "B10: the start message comes 20 frames after the load in the remaster, at once in the original (grunts walk 20 more frames)",
+  "roman.clip": "B9: the remaster starts on the rifle; the original holds the machine gun (weapon 0, clip 100) the mission gives (player_add_machinegun 1)",
+  "roman.heading": "B4: Roman's model heading ignores the start facing (look yaw is right)",
+  "roman.weapon": "B9: the remaster starts on the rifle; the original holds the machine gun (weapon 0, clip 100) the mission gives (player_add_machinegun 1)"
+ }
 }
