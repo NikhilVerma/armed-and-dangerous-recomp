@@ -20,6 +20,7 @@ import bevy_pbr::render::mesh_view_bindings::view;
 import bevy_pbr::render::shadows::fetch_directional_shadow;
 import bevy_pbr::render::mesh_view_bindings as view_bindings;
 import bevy_pbr::render::mesh_view_types;
+import and_remaster::gamematerial_shared::far_clipped;
 
 struct GameMaterialParams {
     kind: u32,
@@ -100,21 +101,6 @@ fn vertex(vertex_in: Vertex) -> GameOut {
     return out;
 }
 
-// Interleaved gradient noise (Jimenez 2014), moving each frame so TAA averages the dissolve into a fade.
-fn dither(pixel: vec2<f32>) -> f32 {
-    let p = pixel + 5.588238 * f32(view_bindings::globals.frame_count % 64u);
-    return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715))));
-}
-
-// The original's far clip at fog_range.z (its camera's far plane): a hard cut, or (remaster.y) a dissolve.
-fn far_clipped(depth: f32, pixel: vec2<f32>) -> bool {
-    if (p.remaster.y > 0.0) {
-        let t = smoothstep(p.fog_range.z * 0.85, p.fog_range.z, depth);
-        return t >= 1.0 || (t > 0.0 && dither(pixel) < t);
-    }
-    return depth > p.fog_range.z;
-}
-
 // The original computes in gamma space (D3D9: texture bytes times light bytes, no sRGB). Bevy samples sRGB textures
 // as linear and writes linear to an sRGB target, so samples go back to gamma here and only the result to linear.
 fn to_gamma(c: vec3<f32>) -> vec3<f32> {
@@ -127,11 +113,9 @@ fn to_linear(c: vec3<f32>) -> vec3<f32> {
 @fragment
 fn fragment(in: GameOut) -> @location(0) vec4<f32> {
     // the original's far plane clips (Bevy's projection is infinite): beyond it the sky shows
-    if (p.fog_range.z > 0.0) {
-        let depth = -(view.view_from_world * vec4(in.world_position.xyz, 1.0)).z;
-        if (far_clipped(depth, in.position.xy)) {
-            discard;
-        }
+    let depth = -(view.view_from_world * vec4(in.world_position.xyz, 1.0)).z;
+    if (far_clipped(depth, p.fog_range.z, p.remaster.y > 0.0, in.position.xy, view_bindings::globals.frame_count)) {
+        discard;
     }
     let base_s = textureSample(base_tex, base_smp, in.uv);
     let base = vec4(to_gamma(base_s.rgb), base_s.a);

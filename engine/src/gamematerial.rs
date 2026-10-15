@@ -60,8 +60,8 @@ impl Material for GameMaterial {
         bevy::shader::ShaderRef::Path(bevy::asset::AssetPath::from_path_buf(bevy::asset::embedded_path!("gamematerial.wesl")).with_source("embedded"))
     }
     // No prepass fragment shader of its own: one makes Bevy bind the material in every depth-only pass (the sun's
-    // four shadow cascades lost their batching: 4K 113 -> 64 fps, 2026-10-15). The far clip in the remaster's depth
-    // prepass is handled by culling at the far plane instead (options.rs).
+    // four shadow cascades lost their batching: 4K 113 -> 64 fps, 2026-10-15). Where the depth prepass holds the
+    // depth of pixels this material clips at the far plane, the sky fills them (graphics/farclip.rs).
     fn alpha_mode(&self) -> AlphaMode {
         // alpha textures blend (the material log: flags bits 8-11 = 3 -> blend table 0x0057d9e0 entry 3 = SRCALPHA,
         // INVSRCALPHA, ADD, with alpha test on), not a hard 0.5 cut: thin soft twigs as in the original
@@ -75,6 +75,8 @@ pub struct GameMaterialPlugin;
 impl Plugin for GameMaterialPlugin {
     fn build(&self, app: &mut App) {
         bevy::asset::embedded_asset!(app, "gamematerial.wesl");
+        // the far clip, shared with the sky (graphics/farclip.rs)
+        bevy::shader::load_shader_library!(app, "gamematerial_shared.wesl");
         app.add_plugins(MaterialPlugin::<GameMaterial>::default()).add_systems(PostUpdate, swap.run_if(resource_exists::<GameLights>));
     }
 }
@@ -194,7 +196,7 @@ pub fn make(def: &MaterialDef, texture: Option<&str>, alpha: bool, lights: &Game
     let (fog_col, fog_range) = match lights.fog {
         // far clip at the original camera's far plane (1712 = fog_far * 1712.132 / 1500, its camera dumps): beyond
         // it the sky dome shows, as in its captures (without the clip a hard pale band of fully fogged land showed)
-        Some((near, far, c)) => (c.extend(1.0), Vec4::new(near, far, far * 1712.132 / 1500.0, 0.0)),
+        Some((near, far, c)) => (c.extend(1.0), Vec4::new(near, far, crate::options::world_far(far, 1.0), 0.0)),
         None => (Vec4::ZERO, Vec4::ZERO),
     };
     // debug (render investigations): AND_DEBUG_NOFOG=1 draws without fog and far clip

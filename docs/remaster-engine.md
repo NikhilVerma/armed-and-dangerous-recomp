@@ -511,9 +511,18 @@ Traps found on the way:
 - Never give the game material a prepass shader of its own: Bevy then binds the material in every depth-only pass
   and the sun's four shadow cascades lose their batching (4K bench 113 -> 64 fps, in both presets). The depth
   prepass (TAA, SSAO, soft particles) therefore has no per-pixel far clip; the camera's far plane is the original's
-  (options.rs world_far), so objects wholly beyond it are culled, and the sky dome is never culled (level.rs). Debt:
-  the far part of an object straddling the far plane shows the clear (fog) colour instead of the sky in the
-  Remaster.
+  (options.rs world_far), so objects wholly beyond it are culled, and the sky dome is never culled (level.rs). The
+  far part of an object straddling the far plane used to show the clear (fog) colour instead of the sky in the
+  Remaster: since 2026-10-15 the sky fills those pixels (graphics/farclip.rs: the sky's parts use Bevy's standard
+  material with a fragment shader that, with a prepass, draws without a depth test and keeps only its own pixels and
+  the ones the game material clipped, the same test on the prepass depth; gamematerial_shared.wesl). Rejected: a twin
+  material with a prepass shader for just the meshes reaching the clip (~+1.8 ms render CPU, +1.2 ms main, and a 2 s
+  pipeline-compile stall when the first twins appear).
+- Never assume a material plugin can load another plugin's embedded shader before that plugin's build ran: the load
+  fails ("Path not found: and_remaster\gamematerial.wesl") and the failed handle is shared, so the game material
+  drew nothing at all.
+- Bevy's CPU instance buffer path (`PbrPlugin { use_gpu_instance_buffer_builder: false }`) halves the render CPU
+  but draws none of the game's meshes (2026-10-15): not usable as is.
 - SSAO needs MSAA off (AO is skipped with a warning when the player picks MSAA).
 - Retextures: locking the override's colour to the original in sRGB bytes left the snow 6 levels too bright (the GPU
   filters the finer detail in linear light): the lock and the mips are in linear light. The AI normal maps changed
@@ -529,9 +538,25 @@ matches the build before the presets (differences at the level of two runs of th
 Performance (4K, visible window, driver cap 119, `--bench 20`): Original 112.0 / 111.9 fps average (75-79 fps 1 %
 low; the old build 113.1), Remaster 90.4 / 92.6 (55 1 % low): **below the 100 fps floor, open**. Single settings off
 (bloom, AO, soft shadows) each gave back only 1-2 fps; Remaster with SMAA, no AO and no soft particles (no depth
-prepass at all) 105. The engine is CPU-bound at 4K (the prepass draws every opaque mesh a second time); next: a
-profile of the prepass and TAA cost, then batching or a cheaper default (SMAA). Background runs are capped at 60 fps,
-so the uncapped figure needs a visible window and the human's go-ahead.
+prepass at all) 105.
+
+Profile (2026-10-15, `--bench 20 --size 3840x2160 --background --profile`, main.rs / profile.rs): the background
+cap was Bevy's unfocused-window update mode (60 Hz), not the presentation; benches now update continuously, so a
+background bench gives the uncapped rate (below the driver's 119 cap): Original 115.6 fps, Remaster 97.4-100.3,
+in line with the visible runs. Costs per frame (ms; GPU = sum of top-level pass timestamps):
+
+| | render CPU | main CPU | GPU | fps |
+|---|---|---|---|---|
+| Original | 5.7-6.7 | 3.7-4.4 | 1.0 | 115.6 |
+| Remaster | 8.6-9.5 | 4.1-4.8 | 2.6-2.8 | 97-100 |
+| Remaster, no prepass (SMAA, no AO, no soft particles) | 6.3 | 3.8 | 1.7 | - |
+| Remaster minus one of: SMAA instead of TAA / no AO / no soft particles / level cascades / 2048 maps / no PCSS / no bloom / original textures | 8.2-9.3 | | | - |
+
+The GPU is far from the limit (SSAO 0.7, TAA 0.2, bloom 0.2, prepass 0.1 ms); the frame is the render world's CPU.
+Any prepass costs ~3 ms of it: a chrome trace (bevy/trace_chrome) diff Remaster - Original gives queue submit +0.75,
+submit_pending_command_buffers +1.1, write_binned_instance_buffers<Opaque3dPrepass> +1.0, GPU-preprocessing bind
+groups / allocate_uniforms / unpack_bins for the extra phase +1.4, bloom encoding +0.5. Open: cut the per-phase GPU
+preprocessing overhead (the scene has only 760 draws), bloom's mip chain, then re-measure.
 
 ## Running tests without disturbing the desktop
 
