@@ -108,8 +108,12 @@ pub struct BaseTurret {
     cameras: (Mat4, Option<Mat4>),
     /// the intro (+0x62d): its anim and camera, the time into it
     intro: Option<(String, Option<CameraTrack>, f32)>,
-    /// the glass window's health (base_turret_l5_m5_window, 40) and its model
-    window: Option<(f32, Option<Entity>)>,
+    /// the glass window's model (base_turret_l5_m5_window, attached at ref_window) and its health: the
+    /// fx::DamageShield put on the player while mounted
+    window: Option<Entity>,
+    window_health: f32,
+    /// intro_anim_name (+0x644, default base_turret_enter)
+    intro_anim: String,
     /// the overrun trigger +0x834, set +0x62f, and the next overrun grunt (+0x838)
     overrun_trigger: i64,
     pub overrun: bool,
@@ -127,7 +131,6 @@ struct DefenceState {
     /// start_in_turret_tag (Game+0x26cc) and whether the start mount was done
     start_tag: i64,
     started: bool,
-    roman_health: Option<f32>,
     /// the counter of the mission's grunt_wall_counter_tag (Game+0x26fc): the HUD's grunts over the wall
     wall_counter: Option<u32>,
 }
@@ -228,15 +231,12 @@ fn setup(
         let window_model = data.templates.get("base_turret_l5_m5_window").and_then(|t| t.model.clone());
         let window_at = a.skeleton.index.get("ref_window").map(|&i| a.skeleton.rest[i].translation);
         let window = match (window_model, window_at) {
-            (Some(m), Some(at)) => {
-                let w = kit.spawn(&mut commands, &m, Transform::from_translation(at), false);
-                if let Some(w) = w {
-                    commands.entity(e).add_child(w);
-                }
-                Some((data.props("p_base_turret_l5_m5_window").f("max_health", 40.0), w))
-            }
+            (Some(m), Some(at)) => kit.spawn(&mut commands, &m, Transform::from_translation(at), false),
             _ => None,
         };
+        if let Some(w) = window {
+            commands.entity(e).add_child(w);
+        }
         commands.entity(e).insert(BaseTurret {
             tag,
             yaw: 0.0,
@@ -269,6 +269,8 @@ fn setup(
             cameras: (normal, zoom),
             intro: None,
             window,
+            window_health: data.props("p_base_turret_l5_m5_window").f("max_health", 40.0),
+            intro_anim: p.s("intro_anim_name").unwrap_or("base_turret_enter").to_lowercase(),
             overrun_trigger: p.i("overrun", 0),
             overrun: false,
             overrun_next: 0.0,
@@ -284,33 +286,30 @@ fn setup(
 /// The level's start in the turret (0x0044d150 -> mount 0x0049bcc0).
 #[allow(clippy::too_many_arguments)]
 fn start(
+    mut commands: Commands,
     mut state: ResMut<DefenceState>,
     mut mounted: ResMut<crate::turret::Mounted>,
     mut turrets: Query<(Entity, &mut BaseTurret, &mut crate::skin::Animator)>,
-    mut roman: Query<(&mut crate::player::Roman, &mut Visibility)>,
+    mut roman: Query<(Entity, &mut crate::player::Roman, &mut Visibility)>,
     lib: Res<crate::skin::AnimLibrary>,
-    data: Res<crate::gamedata::GameData>,
-    launch: Res<crate::Launch>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
 ) {
     if state.started || state.start_tag == 0 {
         return;
     }
     let Some((e, mut t, mut a)) = turrets.iter_mut().find(|(_, t, _)| t.tag == state.start_tag) else { return };
-    let Ok((mut r, mut vis)) = roman.single_mut() else { return };
+    let Ok((re, mut r, mut vis)) = roman.single_mut() else { return };
     state.started = true;
     mounted.0 = Some(e);
     *vis = Visibility::Hidden;
     r.vel = Vec3::ZERO;
     r.zoom = 0.0;
-    // the intro (intro_anim_name, default base_turret_enter) with its camera Camera_normal
-    let scene = crate::scene::read_scene(&launch.scene);
-    let intro = scene
-        .instances
-        .iter()
-        .find(|i| data.instance_props(&i.template, &i.props).s("behavior") == Some("base_turret") && data.instance_props(&i.template, &i.props).i("tag", 0) == t.tag)
-        .map(|i| data.instance_props(&i.template, &i.props).s("intro_anim_name").unwrap_or("base_turret_enter").to_lowercase())
-        .unwrap_or_else(|| "base_turret_enter".into());
+    // the window in front of him takes the hits first (0x0049aeb0)
+    if t.window.is_some() {
+        commands.entity(re).insert(crate::fx::DamageShield { health: t.window_health });
+    }
+    // the intro (intro_anim_name) with its camera Camera_normal
+    let intro = t.intro_anim.clone();
     let cam = CameraTrack::load(&lib.dir, &intro, "camera_normal");
     a.play(0, &intro, false, crate::skin::Mask::All);
     t.intro = Some((intro.clone(), cam, 0.0));
@@ -416,9 +415,8 @@ fn ride(
     time: Res<Time>,
     (ctl, motion, look, playtest, opts): (Res<crate::input::Controls>, Res<AccumulatedMouseMotion>, Res<crate::player::LookDelta>, Option<Res<crate::playtest::Playtest>>, Res<crate::options::GameOptions>),
     mounted: Res<crate::turret::Mounted>,
-    mut state: ResMut<DefenceState>,
     mut turrets: Query<(Entity, &mut BaseTurret, &mut crate::skin::Animator, &mut Transform)>,
-    mut roman: Query<(Entity, &mut crate::player::Roman, &mut Transform, &mut crate::fx::Health, &mut Visibility), Without<BaseTurret>>,
+    mut roman: Query<(Entity, &mut crate::player::Roman, &mut Transform, &crate::fx::Health, &mut Visibility, Option<&crate::fx::DamageShield>), Without<BaseTurret>>,
     (mut physics, data, xhair): (NonSendMut<crate::physics::Physics>, Res<crate::gamedata::GameData>, Res<crate::hud::Crosshair>),
     (mut sounds, mut stop, mut fx, mut triggers): (MessageWriter<crate::audio::PlaySound>, MessageWriter<crate::audio::StopSound>, MessageWriter<crate::fx::StartFx>, MessageWriter<crate::mission::SendTrigger>),
     (mut stats, mut hud, army): (ResMut<crate::player::PlayerStats>, ResMut<crate::hud::HudState>, Res<crate::army::Army>),
@@ -429,26 +427,19 @@ fn ride(
     let now = time.elapsed_secs();
     let Some(me) = mounted.0 else { return };
     let Ok((te, mut t, mut a, mut tt)) = turrets.get_mut(me) else { return };
-    let Ok((re, mut r, mut rt, mut health, mut vis)) = roman.single_mut() else { return };
+    let Ok((re, mut r, mut rt, health, mut vis, shield)) = roman.single_mut() else { return };
     let track = kit.anim(&t.track_anim);
     let skeleton = a.skeleton.clone();
     let to_engine = Mat4::from_quat(crate::level::game_to_engine());
-    // the window takes the hits while it lasts (0x0049aeb0): the player's loss since the last frame is given back
-    if let (Some(last), Some((wh, wm))) = (state.roman_health, t.window.as_mut()) {
-        let lost = last - health.0;
-        if lost > 0.0 && !r.dead {
-            health.0 = last;
-            // the player's hit was halved (mounted); the glass takes the record's full damage
-            *wh -= lost * 2.0;
-            if *wh <= 0.0 {
-                let at = wm.and_then(|w| joints.get(w).ok()).map(|g| g.translation()).unwrap_or(tt.translation);
-                fx.write(crate::fx::StartFx { name: "fx_explosion_turret_window".into(), at, rotation: Quat::IDENTITY, follow: None, position_only: false });
-                if let Some(w) = wm.take() {
-                    commands.entity(w).despawn();
-                }
-                t.window = None;
-                info!("EVENT defence: the turret's window is shot out");
-            }
+    // the window shot out (its shield used up): it bursts (fx_death of p_base_turret_l5_m5_window)
+    if let (Some(w), Some(s)) = (t.window, shield) {
+        if s.health <= 0.0 {
+            let at = joints.get(w).map(|g| g.translation()).unwrap_or(tt.translation);
+            fx.write(crate::fx::StartFx { name: "fx_explosion_turret_window".into(), at, rotation: Quat::IDENTITY, follow: None, position_only: false });
+            commands.entity(w).despawn();
+            commands.entity(re).remove::<crate::fx::DamageShield>();
+            t.window = None;
+            info!("EVENT defence: the turret's window is shot out");
         }
     }
     let dead = r.dead || health.0 <= 0.0;
@@ -634,7 +625,6 @@ fn ride(
             }
         }
     }
-    state.roman_health = Some(health.0);
 }
 
 /// A shell toward `target` (Projectile_Launch 0x00480ec0 + 0x00471a00): horizontal speed = the horizontal distance + 5
@@ -767,7 +757,7 @@ fn log(
         "yaw": t.yaw.to_degrees(),
         "pitch": t.pitch.to_degrees(),
         "zoomed": t.zoomed,
-        "window": t.window.as_ref().map(|w| w.0),
+        "window": t.window.is_some(),
         "overrun": t.overrun,
         "upgrade": t.upgrade,
         "pos": [p.x, -p.z, p.y],

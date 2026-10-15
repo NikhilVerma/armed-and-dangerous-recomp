@@ -46,11 +46,8 @@ use crate::levelreset::LevelAppExt;
 pub struct ArmyGrunt {
     /// the ladder spline it carries a ladder along (AI_ClimbLadder 0x0042d710)
     pub ladder: Option<i64>,
-    /// the trigger its death sends (send_trigger_on_death of its template; the runtime grunts have no instance id)
-    pub death_trigger: i64,
     /// the ic_* script running (an anim overlay on slot 4) and the time into it
     script: Option<IcScript>,
-    dead_seen: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -87,6 +84,31 @@ struct ArmyTimer {
     origin: Mat4,
     platoon: String,
     gen_text: String,
+    /// anim_name (+0x464, +0x4aa set): an animated timer plays it on itself; its notes are commands
+    /// ("create_platoon NAME A B": TimerObject_Command 0x004964d0); it ends with the anim (TimerObject_Update 0x00496750)
+    anim: Option<String>,
+    anim_t: f32,
+}
+
+/// How big the army is, as a setting (a later difficulty selector scales the waves; 1.0 is the original): each platoon
+/// the level's timers create becomes `wave_scale` platoons (fractions carried over: 1.5 adds one every second
+/// platoon, beside it), and the grunt limits (max and unpause counts) are multiplied by `limit_scale`.
+#[derive(Resource, Clone, Copy, Debug)]
+pub struct ArmyTuning {
+    pub wave_scale: f32,
+    pub limit_scale: f32,
+}
+
+impl Default for ArmyTuning {
+    fn default() -> Self {
+        Self { wave_scale: 1.0, limit_scale: 1.0 }
+    }
+}
+
+impl ArmyTuning {
+    fn limit(&self, n: i64) -> i64 {
+        (n as f32 * self.limit_scale).round() as i64
+    }
 }
 
 /// The army's shared state (the Game fields +0xbf0..+0xc38, +0xaec..+0xaf8).
@@ -113,6 +135,8 @@ pub struct Army {
     stopped: bool,
     /// the last crowd charge sound (Game+0xb38, every 20 s at most)
     crowd_at: f32,
+    /// the fraction of a platoon owed by wave_scale (ArmyTuning)
+    wave_carry: f32,
     pub stats: ArmyStats,
 }
 
@@ -181,7 +205,8 @@ pub struct ArmyPlugin;
 
 impl Plugin for ArmyPlugin {
     fn build(&self, app: &mut App) {
-        app.init_level_resource::<Army>()
+        app.init_resource::<ArmyTuning>()
+            .init_level_resource::<Army>()
             .add_systems(Update, (load, triggers, timers, platoons, fake_hits, army_grunts, log).chain().before(crate::fx::FxSet).run_if(crate::playing));
     }
 }
@@ -230,7 +255,7 @@ fn advance(list: &[Entry], elapsed: &mut f32, dt: f32) -> (Vec<Entry>, bool) {
 }
 
 /// The army's data from the level (once per level).
-fn load(mut army: ResMut<Army>, launch: Res<crate::Launch>, data: Res<crate::gamedata::GameData>, mission: Option<Res<crate::mission::Mission>>) {
+fn load(mut army: ResMut<Army>, tuning: Res<ArmyTuning>, launch: Res<crate::Launch>, data: Res<crate::gamedata::GameData>, mission: Option<Res<crate::mission::Mission>>) {
     if army.loaded || mission.is_none() {
         return;
     }
@@ -246,9 +271,9 @@ fn load(mut army: ResMut<Army>, launch: Res<crate::Launch>, data: Res<crate::gam
             mp.0.insert(k.clone(), v.clone());
         }
     }
-    army.max = gs.i("army_max_grunts", 16);
+    army.max = tuning.limit(gs.i("army_max_grunts", 16));
     army.limit = army.max;
-    army.unpause = gs.i("army_unpause_count", 14);
+    army.unpause = tuning.limit(gs.i("army_unpause_count", 14));
     for i in 1..=3 {
         army.marker_sets[i] = (gs.i(&format!("army_marker{i}_tag_min"), 0), gs.i(&format!("army_marker{i}_tag_max"), 0));
         army.ladder_sets[i] = (gs.i(&format!("army_ladder{i}_tag_min"), 0), gs.i(&format!("army_ladder{i}_tag_max"), 0));
@@ -273,11 +298,14 @@ fn load(mut army: ResMut<Army>, launch: Res<crate::Launch>, data: Res<crate::gam
             origin: Mat4::from_rotation_translation(r, t),
             platoon: p.s("platoon_name").unwrap_or("noPlatoonNameGive").to_owned(),
             gen_text: p.s("gen_text").unwrap_or("none").to_owned(),
+            anim: p.s("anim_name").filter(|a| !a.eq_ignore_ascii_case("none")).map(str::to_lowercase),
+            anim_t: 0.0,
         });
     }
     if !army.timers.is_empty() {
         let n: usize = army.timers.iter().map(|t| t.platoons.len()).sum();
-        info!("EVENT army: {} timers, {} platoons to come; grunt limit {} (unpause {})", army.timers.len(), n, army.max, army.unpause);
+        let animated = army.timers.iter().filter(|t| t.anim.is_some()).count();
+        info!("EVENT army: {} timers ({animated} animated), {} platoons listed; grunt limit {} (unpause {})", army.timers.len(), n, army.max, army.unpause);
     }
 }
 
@@ -373,6 +401,7 @@ fn timers(
     mut commands: Commands,
     time: Res<Time>,
     mut army: ResMut<Army>,
+    tuning: Res<ArmyTuning>,
     data: Res<crate::gamedata::GameData>,
     mut kit: ModelKit,
 ) {
@@ -381,6 +410,26 @@ fn timers(
     let mut made = Vec::new();
     let mut limits = Vec::new();
     for t in army.timers.iter_mut().filter(|t| t.running && !t.removed) {
+        // an animated timer: its anim's notes (TimerObject_Command 0x004964d0), the end with the anim
+        if let Some(name) = t.anim.clone() {
+            let Some(anim) = kit.anim(&name) else {
+                t.removed = true;
+                continue;
+            };
+            let t0 = t.anim_t;
+            t.anim_t += dt;
+            for line in crate::mover::notes_between(&anim, t0, t.anim_t) {
+                let w: Vec<&str> = line.split_whitespace().collect();
+                if w.first().is_some_and(|c| c.eq_ignore_ascii_case("create_platoon")) && w.len() >= 2 {
+                    let num = |i: usize| w.get(i).and_then(|x| x.parse::<i64>().ok()).unwrap_or(0);
+                    made.push((t.id, t.origin, w[1].to_lowercase(), t.gen_text.clone(), Entry { time: t.anim_t, a: num(2), b: num(3) }));
+                }
+            }
+            if t.anim_t >= anim.duration {
+                t.removed = true;
+            }
+            continue;
+        }
         let (fired, end_a) = advance(&t.platoons, &mut t.elapsed.0, dt);
         for e in fired {
             made.push((t.id, t.origin, t.platoon.clone(), t.gen_text.clone(), e));
@@ -393,11 +442,26 @@ fn timers(
     }
     // grunt limits (ArmyTimerObject_Fire with +0x78d): +0xbf0 = max when it was at the max, else the unpause count
     for e in limits {
-        army.limit = if army.limit == army.max { e.a } else { e.b };
-        army.max = e.a;
-        army.unpause = e.b;
+        let (max, unpause) = (tuning.limit(e.a), tuning.limit(e.b));
+        army.limit = if army.limit == army.max { max } else { unpause };
+        army.max = max;
+        army.unpause = unpause;
         info!("EVENT army: grunt limit {} (unpause {})", army.max, army.unpause);
     }
+    // the wave scale: each platoon listed becomes wave_scale platoons, the extra ones beside it
+    let made: Vec<_> = made
+        .into_iter()
+        .flat_map(|m| {
+            army.wave_carry += tuning.wave_scale;
+            let n = army.wave_carry.floor().max(0.0) as usize;
+            army.wave_carry -= n as f32;
+            (0..n).map(move |k| {
+                let (id, origin, template, gen_text, e) = m.clone();
+                let side = if k % 2 == 1 { 1.0 } else { -1.0 } * (k as f32 / 2.0).ceil() * 60.0;
+                (id, origin * Mat4::from_translation(Vec3::X * side), template, gen_text, e)
+            })
+        })
+        .collect();
     for (id, origin, template, gen_text, e) in made {
         let p = data.template_props(&template);
         let points = member_points(&mut kit, &data, &template);
@@ -522,13 +586,12 @@ fn platoons(
                     }
                 }
                 let tags = ladder.map(|t| (t, t)).or((p.markers.0 != 0).then_some(p.markers));
-                let death_trigger = 0; // filled from the template when the grunt is seen (army_grunts)
                 spawn.write(crate::level::SpawnGrunt {
                     at,
                     template: member.template().into(),
                     exit: Some(at + fwd),
                     marker_tags: tags,
-                    army: Some(ArmyGrunt { ladder, death_trigger, ..default() }),
+                    army: Some(ArmyGrunt { ladder, ..default() }),
                     ..default()
                 });
                 live_n += 1;
@@ -633,9 +696,8 @@ fn army_grunts(
     mut commands: Commands,
     time: Res<Time>,
     mut army: ResMut<Army>,
-    data: Res<crate::gamedata::GameData>,
     markers: Option<Res<crate::alarm::Markers>>,
-    mut q: Query<(Entity, &mut ArmyGrunt, &mut Grunt, &GlobalTransform, &Name, Option<&mut crate::skin::Animator>)>,
+    mut q: Query<(Entity, &mut ArmyGrunt, &mut Grunt, &GlobalTransform, Option<&mut crate::skin::Animator>)>,
     mut anims: ResMut<crate::skin::AnimLibrary>,
     mut triggers: MessageWriter<crate::mission::SendTrigger>,
     mut fx: MessageWriter<crate::fx::StartFx>,
@@ -643,25 +705,19 @@ fn army_grunts(
 ) {
     let dt = time.delta_secs();
     let seen = done.get();
-    for (e, mut ag, mut g, gt, name, animator) in &mut q {
+    for (e, mut ag, mut g, gt, animator) in &mut q {
         if seen.insert(e) {
-            ag.death_trigger = data.template_props(name.as_str()).i("send_trigger_on_death", 0);
             if let Some(tag) = ag.ladder {
                 army.pending_ladders.retain(|(t, _)| *t != tag);
             }
         }
+        // dead (its send_trigger_on_death: mission.rs DeathTrigger): a script it was running ends
         if g.mind == Mind::Dead {
-            if !ag.dead_seen {
-                ag.dead_seen = true;
-                if ag.death_trigger != 0 {
-                    triggers.write(crate::mission::SendTrigger(ag.death_trigger));
+            if ag.script.take().is_some() {
+                if let Some(mut a) = animator {
+                    a.stop(SCRIPT_SLOT);
                 }
-                if ag.script.take().is_some() {
-                    if let Some(mut a) = animator {
-                        a.stop(SCRIPT_SLOT);
-                    }
-                    g.fixed = None;
-                }
+                g.fixed = None;
             }
             continue;
         }

@@ -581,6 +581,12 @@ pub struct Mission {
 #[derive(Message, Clone, Copy)]
 pub struct SendTrigger(pub i64);
 
+/// The send_trigger_on_death of a grunt made during play (barracks troops, the army's released grunts, alarm troops):
+/// it has no placed instance, so its template's trigger rides on it (DefaultGameObject_OnDeath 0x00450ee0 sends
+/// +0x488 for any object). Sent once, when it dies (`troop_deaths`).
+#[derive(Component, Clone, Copy, Debug)]
+pub struct DeathTrigger(pub i64);
+
 fn game_pos(p: [f32; 3]) -> Vec3 {
     game_to_engine() * Vec3::from(p)
 }
@@ -925,7 +931,9 @@ impl Mission {
                         bar_rate: if n(r, "health_bar_rate") > 0.0 { n(r, "health_bar_rate") as f32 * 0.01 } else { 0.5 },
                     });
                 }
-                _ if i.template.starts_with("grunt_barracks") => {
+                // a troop generator: a building whose set has troop counts (BuildingObject 0x0040ad80: grunt_barracks_*,
+                // the defence levels' grunt_generator_base)
+                _ if i.template.starts_with("grunt_barracks") || r.get("num_regular").is_some() => {
                     // 0x0040ad80: the slots from the model's matrices; a barracks with an exit slot ("ref_exit_0%d")
                     // releases troops created at "ref_spawn_0%d" (lev_1_m1's mini barracks have one of each)
                     let spawn = i.model.as_ref().zip(i.transform.as_ref()).and_then(|(model, t)| {
@@ -1107,11 +1115,22 @@ impl Plugin for MissionPlugin {
             .add_systems(Update, (start, volumes, sites, pub_door, barracks, timers, dispatch, messages, outcome).chain().run_if(in_state(crate::AppState::Playing)))
             .add_systems(Update, (event_log, state_log))
             // after the deaths of the frame (fx.rs), before the husk swap (level.rs husks: the Husk marker)
-            .add_systems(Update, deaths.after(crate::fx::FxSet).run_if(in_state(crate::AppState::Playing)));
+            .add_systems(Update, deaths.after(crate::fx::FxSet).run_if(in_state(crate::AppState::Playing)))
+            .add_systems(Update, troop_deaths.run_if(in_state(crate::AppState::Playing)));
     }
 }
 
 /// An object with send_trigger_on_death died: its trigger goes out.
+/// A grunt made during play died: its DeathTrigger goes out (once: the component is removed).
+fn troop_deaths(mut commands: Commands, q: Query<(Entity, &DeathTrigger, &Grunt)>, mut out: MessageWriter<SendTrigger>) {
+    for (e, t, g) in &q {
+        if g.mind == crate::ai::Mind::Dead {
+            out.write(SendTrigger(t.0));
+            commands.entity(e).remove::<DeathTrigger>();
+        }
+    }
+}
+
 pub(crate) fn deaths(mut m: Option<ResMut<Mission>>, mut died: MessageReader<crate::fx::Died>, ids: Query<&InstanceId>, husks: Query<(), With<crate::level::Husk>>, mut out: MessageWriter<SendTrigger>) {
     let Some(m) = m.as_deref_mut() else {
         died.clear();

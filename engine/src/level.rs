@@ -1175,6 +1175,11 @@ fn spawn_grunts(
         if let Some(a) = &ev.army {
             commands.entity(e).insert(a.clone());
         }
+        // its template's send_trigger_on_death (no placed instance carries it: mission.rs DeathTrigger)
+        let on_death = p.i("send_trigger_on_death", 0);
+        if on_death != 0 {
+            commands.entity(e).insert(crate::mission::DeathTrigger(on_death));
+        }
         let mut ctx = SkinCtx { lib: &mut anim_lib, binds: &mut binds };
         let (_, _, hand) = attach_model(&mut commands, e, &model, true, Some(&mut ctx));
         if let (Some(h), Some(w)) = (hand, ai::weapon_template(&ev.template).and_then(|w| data.templates.get(w)).and_then(|t| t.model.clone())) {
