@@ -75,6 +75,10 @@ pub struct Event {
     /// debug: destroy the placed object with this instance id (as a lethal hit)
     #[serde(default)]
     pub destroy: Option<u32>,
+    /// debug: deal [instance id, amount] to that placed object's health as a hit (Object_TakeDamage 0x004555e0: a
+    /// killing blow takes the death path), to test a unit's damage and death without waiting for shots to land
+    #[serde(default)]
+    pub damage: Option<[f32; 2]>,
     /// debug: damage a companion: [0 Jonesy / 1 Q, amount]
     #[serde(default)]
     pub hurt_companion: Option<[f32; 2]>,
@@ -541,6 +545,14 @@ fn drive(
             for (i, mut d) in &mut objects {
                 if i.0 == id && d.dying.is_none() {
                     d.health = 0.0;
+                    d.dying = Some(0.0);
+                }
+            }
+        }
+        if let Some([id, amount]) = e.damage {
+            for (i, mut d) in &mut objects {
+                if i.0 == id as u32 && d.take_damage(amount) && d.dying.is_none() {
+                    d.chain_delay = 0.0;
                     d.dying = Some(0.0);
                 }
             }

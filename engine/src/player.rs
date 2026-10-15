@@ -1442,7 +1442,7 @@ fn projectiles(
     mut q: Query<(Entity, &mut Projectile, &mut Transform)>,
     mut chars: Query<(Entity, &crate::physics::Body, &mut Health, Option<&crate::skin::Animator>, Has<crate::ai::Grunt>), Without<Projectile>>,
     joints: Query<&GlobalTransform>,
-    mut objects: Query<(&crate::level::Placed, &mut Destructible)>,
+    mut objects: Query<(&crate::level::Placed, &mut Destructible, Option<&crate::vehicles::boss::BulletScale>)>,
     mut roman: Query<(Entity, &mut Roman, &Transform, Option<&crate::skin::Animator>), Without<Projectile>>,
     mut roman_health: Query<&mut Health, (With<Roman>, Without<crate::physics::Body>, Without<Projectile>)>,
     mut companions: Query<(Entity, &mut crate::ai::Companion, &Transform, Option<&crate::skin::Animator>, &mut Health), (Without<Roman>, Without<crate::physics::Body>, Without<Projectile>)>,
@@ -1695,7 +1695,7 @@ fn projectiles(
                 if p.from_player && was_alive && h.0 <= 0.0 {
                     stats.kills += 1;
                 }
-            } else if let Some((_, mut d)) = objects.iter_mut().find(|(pl, _)| pl.collider == Some(body)) {
+            } else if let Some((_, mut d, scale)) = objects.iter_mut().find(|(pl, _, _)| pl.collider == Some(body)) {
                 // a direct hit (not a blast): kills exploding props at once (FxExplosion_Die, non-chain record); the
                 // object's damage filter first (the record's source: the shooter, Projectile_ApplyHitDamage 0x0047eec0)
                 let by = if !p.from_player {
@@ -1709,8 +1709,10 @@ fn projectiles(
                     commands.entity(e).despawn();
                     continue;
                 }
-                // Object_TakeDamage 0x004555e0 (fx.rs)
-                if d.take_damage(p.damage) && d.dying.is_none() {
+                // Object_TakeDamage 0x004555e0 (fx.rs); a bullet's record (0x400) on a colossus is scaled by its
+                // bullet_scale (Q112Boss_Slot52 0x00436600, vehicles/boss.rs)
+                let amount = if p.no_buildings { p.damage * scale.map_or(1.0, |s| s.0) } else { p.damage };
+                if d.take_damage(amount) && d.dying.is_none() {
                     d.chain_delay = 0.0;
                     d.dying = Some(0.0);
                 }
