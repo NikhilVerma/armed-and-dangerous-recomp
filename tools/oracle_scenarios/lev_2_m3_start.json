@@ -1,0 +1,8 @@
+{
+ "about": "lev_2_m3: the level start: the briefing (or the 600-frame fallback) dismissed, Roman's spawn, camera, the first enemies and triggers for 10 s, a 2 s walk forward from 2 s",
+ "level": "lev_2_m3",
+ "keys": "0:ENTER*3,120:17*120",
+ "frames": 600,
+ "trace_every": 2,
+ "suite": false
+}

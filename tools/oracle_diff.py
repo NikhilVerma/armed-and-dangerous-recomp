@@ -71,12 +71,13 @@ def out_dir(sc):
 
 # --- runs ------------------------------------------------------------------------------------------------------
 
-def run_original(sc, hooks_on=False, timeout=900):
+def run_original(sc, hooks_on=False, timeout=900, inst="oracle"):
     """The original game in the "oracle" instance (tools/instances.py), every recovered function off (hooks off: the
     shipped code) unless hooks_on. Returns the trace path or None."""
     import compare
     import instances
-    gd = instances.instance_dir("oracle")
+    instances.wait_while_player_plays()
+    gd = instances.instance_dir(inst)
     for f in ("and-trace.jsonl", "and.log"):
         p = os.path.join(gd, f)
         if os.path.exists(p):
@@ -130,11 +131,13 @@ def run_remaster(sc, exe, timeout=900):
         oracle["warp"] = sc["warp"]
     body = {"oracle": oracle}
     if sc.get("level", "lev_1_m1") != "lev_1_m1":
-        print("  remaster: only lev_1_m1 is wired (the playtest scene default)")
+        body["scene"] = sc["level"]  # tools/playtest.py: work/remaster/<level>
     json.dump(body, open(script, "w"), indent=1)
     trace = os.path.join(d, "remaster.trace.jsonl")
     if os.path.exists(trace):
         os.remove(trace)
+    import instances
+    instances.wait_while_player_plays()
     t = time.time()
     r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "playtest.py"), script, "--exe", exe,
                         "--timeout", str(timeout)], capture_output=True, text=True)
@@ -457,12 +460,13 @@ def main():
     ap.add_argument("--hooks", choices=["off", "on"], default="off",
                     help="the original's recovered functions: off = the shipped code (default), on = recovered code")
     ap.add_argument("--timeout", type=float, default=900)
+    ap.add_argument("--instance", default="oracle", help="the original's game instance (tools/instances.py): parallel agents use their own")
     a = ap.parse_args()
     sc = load_scenario(a.scenario)
     d = out_dir(sc)
     if not a.no_run:
         if a.only != "remaster":
-            if not run_original(sc, a.hooks == "on", a.timeout):
+            if not run_original(sc, a.hooks == "on", a.timeout, a.instance):
                 sys.exit(2)
         if a.only != "original":
             if not run_remaster(sc, a.exe, a.timeout):

@@ -49,7 +49,58 @@ def explained():
     return out
 
 
+def newly_reached(before_path, out_md):
+    """The functions work/coverage.json reaches that the coverage in before_path did not, by subsystem and source file,
+    with the levels whose runs reach them (the runs' tags, "<level>.<scenario>"), as a Markdown page; port state per
+    function: ported (an engine file cites it), explained (docs/port/*.csv) or left."""
+    hit, cited, where, rows = load()
+    why = explained()
+    before = json.load(open(before_path))
+    old = {int(v['address'], 16) for v in before.values() if v['calls'] > 0}
+    cov = json.load(open(os.path.join(ROOT, 'work', 'coverage.json')))
+    levels = {}
+    for v in cov.values():
+        levels[int(v['address'], 16)] = sorted({t.split('.')[0] for t in v['scenarios'] if t.startswith('lev_')})
+    by = collections.defaultdict(lambda: collections.defaultdict(list))
+    for x in rows:
+        a = int(x['address'], 16)
+        if a in hit and a not in old:
+            state = 'ported' if a in cited else ('explained' if a in why else 'left')
+            by[x['subsystem']][where.get(a, '?')].append((a, x['name'], x['size'], state, levels.get(a, [])))
+    lines = ['# Port queue after the all-levels coverage', '',
+             f'Functions the original executes on the other levels (tools/coverage_level.py --level all) that the '
+             f'coverage before ({os.path.basename(before_path)}) did not reach, by subsystem and recovered source file. '
+             f'State: **left** = the remaining port work (no engine file cites it, no reason in docs/port/*.csv); '
+             f'ported / explained = already handled. Levels: the levels whose coverage runs execute it. Regenerate: '
+             f'`python tools/port_queue.py --new-since {os.path.relpath(before_path, ROOT).replace(os.sep, "/")} '
+             f'--md {os.path.relpath(out_md, ROOT).replace(os.sep, "/")}`.', '']
+    total = collections.Counter()
+    summary = []
+    for s in sorted(by, key=lambda s: (s not in GAME, GAME.index(s) if s in GAME else 0, s)):
+        c = collections.Counter(e[3] for f in by[s].values() for e in f)
+        total.update(c)
+        summary.append(f"| {s} | {sum(c.values())} | {c['left']} | {c['ported']} | {c['explained']} |")
+    lines += ['| subsystem | newly reached | left | ported | explained |', '| --- | ---: | ---: | ---: | ---: |'] + summary
+    lines += [f"| all | {sum(total.values())} | {total['left']} | {total['ported']} | {total['explained']} |", '']
+    for s in sorted(by, key=lambda s: (s not in GAME, GAME.index(s) if s in GAME else 0, s)):
+        lines += [f'## {s}', '']
+        for f in sorted(by[s]):
+            lines += [f'### {f}', '', '| address | name | size | state | levels |', '| --- | --- | ---: | --- | --- |']
+            for a, name, size, state, lv in sorted(by[s][f]):
+                short = ', '.join(l[4:] for l in lv) if len(lv) < 24 else 'all'
+                lines.append(f'| 0x{a:08x} | {name} | {size} | {state} | {short} |')
+            lines.append('')
+    open(out_md, 'w', encoding='utf-8', newline='\n').write('\n'.join(lines))
+    print(f"{sum(total.values())} newly reached ({total['left']} left, {total['ported']} ported, "
+          f"{total['explained']} explained) -> {out_md}")
+
+
 def main():
+    if '--new-since' in sys.argv:
+        i = sys.argv.index('--new-since')
+        md = sys.argv[sys.argv.index('--md') + 1] if '--md' in sys.argv else os.path.join(ROOT, 'docs', 'port', 'queue-new.md')
+        newly_reached(sys.argv[i + 1], md)
+        return
     hit, cited, where, rows = load()
     why = explained()
     args = [a for a in sys.argv[1:] if not a.startswith('--')]
