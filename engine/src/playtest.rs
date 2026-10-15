@@ -84,6 +84,11 @@ pub struct Event {
     /// debug: send this mission trigger (e.g. 123, lev_1_m1's win)
     #[serde(default)]
     pub send: Option<i64>,
+    /// debug: a base-defence command (defence.rs DefenceCommand): {"aim": "army"} keeps the base turret on the nearest
+    /// army grunt (or marching platoon), {"aim": false} stops; {"mortar": "platoon"} fires a shell at the nearest
+    /// platoon's members; {"frame": F} moves the turret along its wall track
+    #[serde(default)]
+    pub defence: Option<serde_json::Value>,
     /// debug: spawn a grunt_regular at this game-space point (as a barracks does)
     #[serde(default)]
     pub spawn: Option<[f32; 3]>,
@@ -416,12 +421,13 @@ fn drive(
     mission: Option<Res<crate::mission::Mission>>,
     mut roman: Query<&mut crate::fx::Health, With<crate::player::Roman>>,
     mut spawn: MessageWriter<crate::level::SpawnGrunt>,
-    (mut send, state, mut save_req, mut noise, mut barks): (
+    (mut send, state, mut save_req, mut noise, mut barks, mut defence): (
         MessageWriter<crate::mission::SendTrigger>,
         Res<PlayState>,
         ResMut<crate::savegame::SaveRequest>,
         ResMut<crate::ai::Interests>,
         ResMut<crate::ai::Barks>,
+        MessageWriter<crate::defence::DefenceCommand>,
     ),
     mut objects: Query<(&crate::level::InstanceId, &mut crate::fx::Destructible)>,
     cam: Query<&GlobalTransform, With<Camera3d>>,
@@ -536,6 +542,9 @@ fn drive(
         }
         if let Some(t) = e.send {
             send.write(crate::mission::SendTrigger(t));
+        }
+        if let Some(v) = &e.defence {
+            defence.write(crate::defence::DefenceCommand(v.clone()));
         }
         if let Some(id) = e.destroy {
             for (i, mut d) in &mut objects {

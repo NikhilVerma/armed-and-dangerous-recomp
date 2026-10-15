@@ -151,6 +151,8 @@ pub struct SpawnGrunt {
     pub exit: Option<Vec3>,
     pub marker_tags: Option<(i64, i64)>,
     pub alert_group: i64,
+    /// a grunt released by the army (army.rs): the orders it carries, inserted as its component
+    pub army: Option<crate::army::ArmyGrunt>,
 }
 
 /// The `Center` translation track of a rigid (unskinned) model's own anim, played in a loop on its placement.
@@ -371,7 +373,7 @@ pub struct SkinCtx<'a> {
 
 /// Spawns one model's parts under `e`; a skinned model also gets its joint entities and an Animator on `e`
 /// (upper/lower body split at "belly", the bone the _t / _b anim halves divide at). Returns (draws, triangles).
-fn attach_model(commands: &mut Commands, e: Entity, model: &scene::Model, shadows: bool, skin: Option<&mut SkinCtx>) -> (usize, usize, Option<Entity>) {
+pub(crate) fn attach_model(commands: &mut Commands, e: Entity, model: &scene::Model, shadows: bool, skin: Option<&mut SkinCtx>) -> (usize, usize, Option<Entity>) {
     let mut inverse_bind: Vec<Mat4> = Vec::new();
     let rig = match (model.skeleton.as_deref(), skin) {
         (Some(name), Some(ctx)) => ctx.lib.skeleton(name, ctx.binds).map(|sk| {
@@ -1169,6 +1171,9 @@ fn spawn_grunts(
         let e = commands.spawn((Transform::from_matrix(world), Visibility::default(), Name::new(ev.template.clone()))).id();
         if ev.alarm {
             commands.entity(e).insert(crate::alarm::AlarmTroop);
+        }
+        if let Some(a) = &ev.army {
+            commands.entity(e).insert(a.clone());
         }
         let mut ctx = SkinCtx { lib: &mut anim_lib, binds: &mut binds };
         let (_, _, hand) = attach_model(&mut commands, e, &model, true, Some(&mut ctx));

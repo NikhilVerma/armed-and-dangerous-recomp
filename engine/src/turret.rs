@@ -236,7 +236,7 @@ fn clamp(v: f32, (lo, hi): (f32, f32)) -> f32 {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn ride(
+pub(crate) fn ride(
     mut commands: Commands,
     time: Res<Time>,
     (ctl, motion, look, playtest, opts): (Res<crate::input::Controls>, Res<AccumulatedMouseMotion>, Res<crate::player::LookDelta>, Option<Res<crate::playtest::Playtest>>, Res<crate::options::GameOptions>),
@@ -261,8 +261,8 @@ fn ride(
     let world_of = |gt: &GlobalTransform, a: &crate::skin::Animator, t: &Turret, i: usize| gt.to_matrix() * bone_model(&a.skeleton, i, t.pivot, turn(t));
 
     if let Some(me) = mounted.0 {
+        // a mount of another kind is not this module's (defence.rs: the base turret)
         let Ok((_, mut t, gt, a)) = turrets.get_mut(me) else {
-            mounted.0 = None;
             return;
         };
         // the muzzle fx step (0x00498710 -> 0x00497ed0)

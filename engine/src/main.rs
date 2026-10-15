@@ -11,6 +11,9 @@
 
 mod ai;
 mod alarm;
+mod army;
+mod defence;
+mod mover;
 mod audio;
 mod bot;
 mod bench;
@@ -260,6 +263,8 @@ fn main() {
     .add_plugins(pubscreen::PubScreenPlugin)
     .add_plugins(topsy::TopsyPlugin)
     .add_plugins(turret::TurretPlugin)
+    // the base-defence levels: movers (scripted paths), the army, the base turret (army.rs, defence.rs)
+    .add_plugins((mover::MoverPlugin, army::ArmyPlugin, defence::DefencePlugin))
     .init_state::<AppState>()
     .insert_non_send(physics::Physics::new(level::METERS_PER_UNIT))
     .insert_resource(ClearColor(Color::srgb(0.62, 0.70, 0.80)))

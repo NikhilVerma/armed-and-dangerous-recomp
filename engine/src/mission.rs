@@ -1519,6 +1519,7 @@ fn barracks(
                 exit: Some(exit),
                 marker_tags: (b.marker_tags.0 != 0).then_some(b.marker_tags),
                 alert_group: b.alert_group,
+                army: None,
             });
             b.batch = b.batch.wrapping_sub(1);
             b.pending = true;
