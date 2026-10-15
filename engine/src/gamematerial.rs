@@ -3,7 +3,7 @@
 //! (the sun per pixel through the normal map, the ambient-only light and the fill per vertex), the level's linear
 //! fog. Rendering piece 1 (docs/remaster-engine.md): the landscape first, compared with tools/render_compare.py.
 
-use bevy::image::{ImageAddressMode, ImageFilterMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor};
+use bevy::image::{ImageAddressMode, ImageLoaderSettings, ImageSampler};
 use bevy::prelude::*;
 use bevy::render::render_resource::{AsBindGroup, ShaderType};
 use serde::Deserialize;
@@ -26,6 +26,9 @@ pub struct GameMaterialParams {
     pub ambient_light: Vec4,
     pub fog_col: Vec4,
     pub fog_range: Vec4,
+    /// presentation settings (graphics.rs; zero in the Original): x the ambient occlusion's weight (0: exempt, as
+    /// snow), y 1 = dissolve at the far clip instead of a hard cut
+    pub remaster: Vec4,
 }
 
 #[derive(AsBindGroup, Debug, Clone, Asset, TypePath)]
@@ -45,6 +48,8 @@ pub struct GameMaterial {
     #[uniform(8)]
     pub params: GameMaterialParams,
     pub alpha: bool,
+    /// no ambient occlusion on this surface (graphics.rs `ao_exempt`: snow; blended surfaces)
+    pub ao_exempt: bool,
 }
 
 impl Material for GameMaterial {
@@ -53,6 +58,11 @@ impl Material for GameMaterial {
     }
     fn fragment_shader() -> bevy::shader::ShaderRef {
         bevy::shader::ShaderRef::Path(bevy::asset::AssetPath::from_path_buf(bevy::asset::embedded_path!("gamematerial.wesl")).with_source("embedded"))
+    }
+    /// The prepass (depth / normals / motion vectors: only with remaster settings, graphics.rs) clips at the far
+    /// plane as the main pass does, or the clipped land's depth would hide the sky behind it.
+    fn prepass_fragment_shader() -> bevy::shader::ShaderRef {
+        bevy::shader::ShaderRef::Path(bevy::asset::AssetPath::from_path_buf(bevy::asset::embedded_path!("gamematerial_prepass.wesl")).with_source("embedded"))
     }
     fn alpha_mode(&self) -> AlphaMode {
         // alpha textures blend (the material log: flags bits 8-11 = 3 -> blend table 0x0057d9e0 entry 3 = SRCALPHA,
@@ -67,6 +77,7 @@ pub struct GameMaterialPlugin;
 impl Plugin for GameMaterialPlugin {
     fn build(&self, app: &mut App) {
         bevy::asset::embedded_asset!(app, "gamematerial.wesl");
+        bevy::asset::embedded_asset!(app, "gamematerial_prepass.wesl");
         app.add_plugins(MaterialPlugin::<GameMaterial>::default()).add_systems(PostUpdate, swap.run_if(resource_exists::<GameLights>));
     }
 }
@@ -165,22 +176,17 @@ impl GameLights {
     }
 }
 
+/// A texture by its game name (the remaster's version when the preset uses one: graphics.rs), with the world
+/// sampler (repeat, trilinear, anisotropic).
 pub fn load_tex(assets: &AssetServer, name: &str, srgb: bool) -> Handle<Image> {
+    let sampler = crate::graphics::world_sampler(ImageAddressMode::Repeat, false);
     assets
         .load_builder()
         .with_settings(move |s: &mut ImageLoaderSettings| {
             s.is_srgb = srgb;
-            s.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
-                address_mode_u: ImageAddressMode::Repeat,
-                address_mode_v: ImageAddressMode::Repeat,
-                mag_filter: ImageFilterMode::Linear,
-                min_filter: ImageFilterMode::Linear,
-                mipmap_filter: ImageFilterMode::Linear,
-                anisotropy_clamp: 16,
-                ..default()
-            });
+            s.sampler = ImageSampler::Descriptor(sampler.clone());
         })
-        .load(format!("textures/{name}.dds"))
+        .load(crate::graphics::texture_path(name))
 }
 
 /// A game material for one submesh.
@@ -196,6 +202,9 @@ pub fn make(def: &MaterialDef, texture: Option<&str>, alpha: bool, lights: &Game
     };
     // debug (render investigations): AND_DEBUG_NOFOG=1 draws without fog and far clip
     let (fog_col, fog_range) = if std::env::var("AND_DEBUG_NOFOG").is_ok() { (Vec4::ZERO, Vec4::ZERO) } else { (fog_col, fog_range) };
+    // blended surfaces are not in the depth prepass: the occlusion there would be the surface's behind them
+    let ao_exempt = alpha || crate::graphics::ao_exempt(&[texture, def.texture2.as_deref(), def.normal_map.as_deref()]);
+    let g = crate::graphics::current();
     GameMaterial {
         base: tex(texture, true),
         normal: tex(def.normal_map.as_deref(), false),
@@ -219,7 +228,9 @@ pub fn make(def: &MaterialDef, texture: Option<&str>, alpha: bool, lights: &Game
             ambient_light: l3(lights.ambient, 0.0),
             fog_col,
             fog_range,
+            remaster: Vec4::new(if ao_exempt { 0.0 } else { g.ao_strength }, if g.far_fade { 1.0 } else { 0.0 }, 0.0, 0.0),
         },
         alpha,
+        ao_exempt,
     }
 }

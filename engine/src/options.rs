@@ -44,6 +44,10 @@ pub struct GameOptions {
     /// the original's save rule: the game saves itself at the checkpoints only (the mission start, leaving the pub;
     /// savegame.rs) and the pause menu cannot save. Off: save anywhere (the remaster's)
     pub checkpoint_saves: bool,
+    /// remaster: the presentation preset (graphics.rs: Remaster, or Original = the faithful look) and any of its
+    /// settings changed by name ({"ambient_occlusion": false, ...}); tool runs ignore both (Original)
+    pub graphics_preset: crate::graphics::Preset,
+    pub graphics: serde_json::Map<String, serde_json::Value>,
 }
 
 impl Default for GameOptions {
@@ -66,6 +70,8 @@ impl Default for GameOptions {
             money: 0.0,
             cheats_known: Vec::new(),
             checkpoint_saves: false,
+            graphics_preset: crate::graphics::Preset::Remaster,
+            graphics: serde_json::Map::new(),
         }
     }
 }
@@ -141,6 +147,12 @@ pub fn draw_distance_scale(v: f32) -> f32 {
 /// camera.md): guess, the same ratio on every level. Beyond fog_far everything is the fog colour anyway.
 const FAR_OVER_FOG: f32 = 1712.132 / 1500.0;
 
+/// Where the world ends for the camera: the original's far plane at this draw distance option (the game material
+/// clips there; graphics.rs fits the shadow cascades to it).
+pub fn world_far(fog_far: f32, draw_distance: f32) -> f32 {
+    fog_far * FAR_OVER_FOG * draw_distance_scale(draw_distance)
+}
+
 pub struct OptionsPlugin;
 
 impl Plugin for OptionsPlugin {
@@ -189,7 +201,7 @@ fn apply(
             let mut pp = pp.clone();
             let fog_far = game_lights.as_ref().and_then(|l| l.fog.map(|f| f.1)).unwrap_or(1500.0);
             // the sky dome (radius 20000) must fit: the game material clips the world at the original far plane itself
-            pp.far = (fog_far * FAR_OVER_FOG * draw_distance_scale(o.draw_distance)).max(50000.0);
+            pp.far = world_far(fog_far, o.draw_distance).max(50000.0);
             commands.entity(e).insert(Projection::Perspective(pp));
         }
     }
@@ -205,7 +217,7 @@ fn apply(
         }
         if let Some(s) = state.as_mut() {
             let size = if !full && o.resolution != (0, 0) { o.resolution } else { (w.resolution.width() as u32, w.resolution.height() as u32) };
-            s.0.insert("window".into(), serde_json::json!({ "fullscreen": o.fullscreen, "width": size.0, "height": size.1, "brightness": o.brightness, "shadows": o.shadows, "draw_distance": o.draw_distance }));
+            s.0.insert("window".into(), serde_json::json!({ "fullscreen": o.fullscreen, "width": size.0, "height": size.1, "brightness": o.brightness, "shadows": o.shadows, "draw_distance": o.draw_distance, "graphics_preset": o.graphics_preset, "graphics": o.graphics }));
         }
     }
 }
@@ -238,6 +250,8 @@ mod tests {
         o.resolution = (1280, 720);
         o.tokens_taken = vec!["lev_1_m1:12".into()];
         o.checkpoint_saves = true;
+        o.graphics_preset = crate::graphics::Preset::Original;
+        o.graphics.insert("bloom".into(), 0.2.into());
         assert_eq!(GameOptions::from_json(&serde_json::to_string(&o).unwrap()), o);
     }
 

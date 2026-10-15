@@ -2,7 +2,7 @@
 //! Game-neutral: a game's exporter writes this format and the engine loads it the same way for every game.
 
 use bevy::asset::RenderAssetUsages;
-use bevy::image::{ImageAddressMode, ImageFilterMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor};
+use bevy::image::{ImageAddressMode, ImageLoaderSettings, ImageSampler};
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
 use serde::Deserialize;
@@ -244,17 +244,10 @@ impl Library {
             return h.clone();
         }
         let image = texture.map(|t| {
-            assets.load_builder().with_settings(|s: &mut ImageLoaderSettings| {
-                s.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
-                    address_mode_u: ImageAddressMode::Repeat,
-                    address_mode_v: ImageAddressMode::Repeat,
-                    mag_filter: ImageFilterMode::Linear,
-                    min_filter: ImageFilterMode::Linear,
-                    mipmap_filter: ImageFilterMode::Linear,
-                    anisotropy_clamp: 16,
-                    ..default()
-                });
-            }).load(format!("textures/{t}.dds"))
+            let sampler = crate::graphics::world_sampler(ImageAddressMode::Repeat, false);
+            assets.load_builder().with_settings(move |s: &mut ImageLoaderSettings| {
+                s.sampler = ImageSampler::Descriptor(sampler.clone());
+            }).load(crate::graphics::texture_path(t))
         });
         let h = materials.add(StandardMaterial {
             base_color: Color::srgb(color[0], color[1], color[2]),

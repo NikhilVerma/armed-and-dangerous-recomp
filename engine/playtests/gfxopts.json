@@ -97,6 +97,29 @@
   {
    "expect": {
     "menu.page": "Gfx",
+    "menu.selected": "Graphics"
+   }
+  },
+  {
+   "tap": "ArrowRight"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "expect": {
+    "menu.value": "Original"
+   }
+  },
+  {
+   "tap": "ArrowDown"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "expect": {
+    "menu.page": "Gfx",
     "menu.selected": "Fullscreen"
    }
   },
@@ -105,6 +128,29 @@
   },
   {
    "wait": 1.0
+  },
+  {
+   "tap": "ArrowDown"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "expect": {
+    "menu.page": "Gfx",
+    "menu.selected": "Anti-aliasing"
+   }
+  },
+  {
+   "tap": "ArrowRight"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "expect": {
+    "menu.value": "SMAA"
+   }
   },
   {
    "tap": "ArrowDown"
@@ -154,6 +200,60 @@
   {
    "expect": {
     "menu.page": "Gfx",
+    "menu.selected": "Remaster Textures"
+   }
+  },
+  {
+   "tap": "Enter"
+  },
+  {
+   "wait": 1.0
+  },
+  {
+   "tap": "ArrowDown"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "expect": {
+    "menu.page": "Gfx",
+    "menu.selected": "Ambient Occlusion"
+   }
+  },
+  {
+   "tap": "ArrowDown"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "expect": {
+    "menu.page": "Gfx",
+    "menu.selected": "Soft Particles"
+   }
+  },
+  {
+   "tap": "ArrowDown"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "expect": {
+    "menu.page": "Gfx",
+    "menu.selected": "Soft Shadows"
+   }
+  },
+  {
+   "tap": "ArrowDown"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "expect": {
+    "menu.page": "Gfx",
     "menu.selected": "ui_gfxmenu_apply"
    }
   },
@@ -172,7 +272,10 @@
     "window.draw_distance": [
      0.94,
      0.96
-    ]
+    ],
+    "window.graphics_preset": "original",
+    "window.graphics.anti_aliasing": "smaa",
+    "window.graphics.remaster_textures": true
    }
   },
   {

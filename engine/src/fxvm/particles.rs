@@ -125,7 +125,7 @@ pub fn setup_pools(commands: &mut Commands, assets: &AssetServer, meshes: &mut A
         mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, Vec::<[f32; 4]>::new());
         mesh.insert_indices(Indices::U32(Vec::new()));
         let h = meshes.add(mesh);
-        let mat = materials.add(ParticleMaterial { bank: assets.load(format!("textures/{tex}.dds")), additive, params: Vec4::new(if additive { 1.0 } else { 2.2 }, 0.0, 0.0, 0.0) });
+        let mat = materials.add(ParticleMaterial { bank: assets.load(crate::graphics::texture_path(tex)), additive, params: Vec4::new(if additive { 1.0 } else { 2.2 }, 0.0, 0.0, 0.0) });
         commands.spawn((Mesh3d(h.clone()), MeshMaterial3d(mat), Transform::IDENTITY, bevy::camera::visibility::NoFrustumCulling, bevy::light::NotShadowCaster, Name::new("fx_pool")));
         handles.push(h);
     }

@@ -1,7 +1,9 @@
 //! Armed and Dangerous on the remaster engine (MVP): a level from the retail data (tools/remaster_export.py),
 //! Bevy 0.20 rendering, Jolt Physics 5.6, grunt AI, explosions, bevy_egui menus and a benchmark mode.
 //!
-//!   and_remaster [--scene DIR] [--size WxH] [--vsync] [--no-ai] [--bench SECONDS --out FILE]
+//!   and_remaster [--scene DIR] [--size WxH] [--vsync] [--no-ai] [--bench SECONDS --out FILE] [--preset remaster|original]
+//!
+//! Presentation: graphics.rs (the Remaster preset for play; tool runs use the Original unless --preset says).
 //!
 //! Game-neutral modules: scene (format), physics (Jolt), fx (explosions), flycam, bench, menu.
 //! Game-specific: level (A&D templates, axes, units, lights), ai (grunts), player.
@@ -28,6 +30,7 @@ mod sticky;
 mod gamemenu;
 mod hitparts;
 mod gamematerial;
+mod graphics;
 mod options;
 mod gameaudio;
 mod hud;
@@ -99,10 +102,14 @@ struct Args {
     no_intro: bool,
     /// the exported movies (default: ../movies next to the scene folder; tools/remaster_export_movies.py)
     movies: Option<PathBuf>,
+    /// the presentation preset for this run (graphics.rs; tool runs default to the Original)
+    preset: Option<graphics::Preset>,
+    /// --graphics key=value,...: single presentation settings over the preset (A/B comparisons, benches)
+    graphics: Option<String>,
 }
 
 fn args() -> Args {
-    let mut a = Args { scene: PathBuf::from("../work/remaster/lev_1_m1"), size: (1920, 1080), bench: None, vsync: false, no_ai: false, fx_test: None, snap: None, play: None, skip_title: false, camera: None, no_hud: false, background: false, size_given: false, load: None, std_materials: false, debug_hide: None, no_intro: false, movies: None };
+    let mut a = Args { scene: PathBuf::from("../work/remaster/lev_1_m1"), size: (1920, 1080), bench: None, vsync: false, no_ai: false, fx_test: None, snap: None, play: None, skip_title: false, camera: None, no_hud: false, background: false, size_given: false, load: None, std_materials: false, debug_hide: None, no_intro: false, movies: None, preset: None, graphics: None };
     let v: Vec<String> = std::env::args().collect();
     let mut bench_secs = None;
     let mut out = PathBuf::from("../work/remaster/bench/latest.json");
@@ -133,6 +140,8 @@ fn args() -> Args {
             "--debug-hide" => a.debug_hide = Some(next),
             "--no-intro" => (a.no_intro, used) = (true, 1),
             "--movies" => a.movies = Some(PathBuf::from(next)),
+            "--preset" => a.preset = Some(graphics::Preset::parse(&next).expect("--preset remaster|original")),
+            "--graphics" => a.graphics = Some(next),
             other => panic!("unknown argument {other}"),
         }
         i += used;
@@ -178,9 +187,12 @@ fn main() {
     let scene_dir = std::fs::canonicalize(&a.scene).unwrap_or_else(|_| panic!("scene folder {}", a.scene.display()));
     let bench = a.bench.is_some();
     let tool_run = a.background || a.size_given || a.snap.is_some() || bench || a.camera.is_some() || a.play.is_some();
+    // presentation: chosen before the app is built (the default sampler and the texture set depend on it)
+    let gfx = graphics::GraphicsPlugin::new(graphics::GraphicsLaunch::new(a.preset, tool_run, a.graphics.as_deref()), &options::GameOptions::load(), &scene_dir);
     let mut app = App::new();
     app.add_plugins(
         DefaultPlugins
+            .set(gfx.image_plugin())
             .set(WindowPlugin {
                 primary_window: Some(Window {
                     title: "Armed and Dangerous - remaster engine".into(),
@@ -210,6 +222,7 @@ fn main() {
     .add_plugins((FrameTimeDiagnosticsPlugin::default(), flycam::FlyCamPlugin, bench::BenchPlugin))
     .add_plugins((physics::PhysicsPlugin, fx::FxPlugin, ai::AiPlugin, player::PlayerPlugin, menu::MenuPlugin, level::LevelPlugin, fxvm::FxVmPlugin, ai::CompanionPlugin, skin::SkinPlugin, charanim::CharAnimPlugin, hud::HudPlugin, mission::MissionPlugin, gameaudio::GameAudioPlugin, campath::CameraPathPlugin, gamemenu::GameMenuPlugin))
     .add_plugins(options::OptionsPlugin)
+    .add_plugins(gfx)
     .add_plugins(input::InputPlugin)
     .add_plugins(alarm::AlarmPlugin)
     .add_plugins(stats::StatsPlugin)

@@ -42,6 +42,9 @@ struct GameMaterialParams {
     // fog colour rgb; near, far in fog_range.xy (0 0: no fog); fog_range.z the far plane (0: none)
     fog_col: vec4<f32>,
     fog_range: vec4<f32>,
+    // presentation (graphics.rs; zero in the Original): x the ambient occlusion's weight (0: exempt, as snow),
+    // y 1 = dissolve over the last 15 % before the far clip instead of a hard cut
+    remaster: vec4<f32>,
 }
 
 @group(constants::MATERIAL_BIND_GROUP) @binding(0) var base_tex: texture_2d<f32>;
@@ -97,6 +100,21 @@ fn vertex(vertex_in: Vertex) -> GameOut {
     return out;
 }
 
+// Interleaved gradient noise (Jimenez 2014), moving each frame so TAA averages the dissolve into a fade.
+fn dither(pixel: vec2<f32>) -> f32 {
+    let p = pixel + 5.588238 * f32(view_bindings::globals.frame_count % 64u);
+    return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715))));
+}
+
+// The original's far clip at fog_range.z (its camera's far plane): a hard cut, or (remaster.y) a dissolve.
+fn far_clipped(depth: f32, pixel: vec2<f32>) -> bool {
+    if (p.remaster.y > 0.0) {
+        let t = smoothstep(p.fog_range.z * 0.85, p.fog_range.z, depth);
+        return t >= 1.0 || (t > 0.0 && dither(pixel) < t);
+    }
+    return depth > p.fog_range.z;
+}
+
 // The original computes in gamma space (D3D9: texture bytes times light bytes, no sRGB). Bevy samples sRGB textures
 // as linear and writes linear to an sRGB target, so samples go back to gamma here and only the result to linear.
 fn to_gamma(c: vec3<f32>) -> vec3<f32> {
@@ -111,7 +129,7 @@ fn fragment(in: GameOut) -> @location(0) vec4<f32> {
     // the original's far plane clips (Bevy's projection is infinite): beyond it the sky shows
     if (p.fog_range.z > 0.0) {
         let depth = -(view.view_from_world * vec4(in.world_position.xyz, 1.0)).z;
-        if (depth > p.fog_range.z) {
+        if (far_clipped(depth, in.position.xy)) {
             discard;
         }
     }
@@ -129,8 +147,16 @@ fn fragment(in: GameOut) -> @location(0) vec4<f32> {
         }
     }
     let to_sun = normalize(p.sun_dir.xyz);
-    let v0 = p.emissive.rgb + p.ambient_light.rgb * p.ambient.rgb
-        + p.fill_col.rgb * p.diffuse.rgb * clamp(dot(n_geo, normalize(p.fill_dir.xyz)), 0.0, 1.0);
+    // remaster: screen-space ambient occlusion (Bevy's SSAO, graphics.rs) on the ambient and fill light, the
+    // light that comes from all around; the sun and emissive stay as they are, exempt surfaces (snow) keep all
+    var ao = 1.0;
+@if(SCREEN_SPACE_AMBIENT_OCCLUSION)
+    {
+        let ssao = textureLoad(view_bindings::screen_space_ambient_occlusion_texture, vec2<i32>(in.position.xy - view.viewport.xy), 0i).r;
+        ao = mix(1.0, ssao, p.remaster.x);
+    }
+    let v0 = p.emissive.rgb + (p.ambient_light.rgb * p.ambient.rgb
+        + p.fill_col.rgb * p.diffuse.rgb * clamp(dot(n_geo, normalize(p.fill_dir.xyz)), 0.0, 1.0)) * ao;
     let c1 = p.sun_col.rgb * p.diffuse.rgb;
     let light = clamp(clamp(dot(n, to_sun), 0.0, 1.0) * c1 + v0, vec3(0.0), vec3(1.0));
     var albedo = base.rgb;
