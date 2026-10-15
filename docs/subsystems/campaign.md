@@ -62,10 +62,16 @@ with tokens, category 3 (4 rows); all with the unlocklevels cheat, bit 11). Both
 (UiScreen_InitItem cases 11 / 41: 0x004a0720 and Game+0x4c8 bits 0x1000 / 0x800): the token unlockables
 ui_extrasmenu_cutscene and ui_extrasmenu_replay (pickup.rs UNLOCKS). The remaster: see docs/subsystems/menus.md.
 
+Observed (2026-10-16, the original off-screen with hooks off, oracle_diff.run_original in an instance of its own,
+the trace's `roman` after the briefing): lev_1_m1 rifle in hand (weapon 2), clip 8 / 62, 5 sticky bombs, health 400;
+lev_1_m1_b machine gun in hand (weapon 0), 100 / 1000, 5 sticky bombs, 400; lev_2_m1 (machine gun, sniper gun and
+rifle added) the machine gun in hand, 100 / 1000, 5. The remaster's campaign tests expect the same.
+
 ## Open questions
 
-- The original was not run through a level change (the coverage runs never won a level); an oracle run across
-  lev_1_m1 -> lev_1_m1_b would confirm the loadout and money rules above by observation.
+- The original was not run through a level change (the coverage runs never won a level, and the harness cannot send
+  a trigger); the loadouts above were observed on levels loaded directly. A run across lev_1_m1 -> lev_1_m1_b would
+  confirm the carry-over (money, the absence of lev_1_m1's pub Topsy bombs) by observation.
 - Game+0x568 bit 0x20 gates recording a level as reached at its start (0x0044daf0); what sets it is not traced
   (guess: a profile chosen).
 - What the credits screen does at its end in the campaign (0x00415940): the remaster leaves it on a key press.
