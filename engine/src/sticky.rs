@@ -317,9 +317,16 @@ fn fly(
     mut stop: MessageWriter<crate::audio::StopSound>,
     mut blasts: MessageWriter<crate::fx::Explode>,
     mut scare: MessageWriter<crate::ai::StickyStuck>,
+    mut interests: ResMut<crate::ai::Interests>,
 ) {
     let dt = time.delta_secs();
     for (e, mut b, mut t) in &mut bombs {
+        // Roman's bomb is a projectile to the grunts' ears (0x00404810 from its start effect fx_trail_sticky, following it
+        // while it lives; from its end effect at the blast, 2 s: ai.rs Interests)
+        let roman_bomb = b.props == "p_player_stickybomb";
+        if roman_bomb {
+            interests.follow(e, t.translation);
+        }
         let p = data.props(b.props);
         // the fuse (0x00481520: counts down, at or below 0 StickyBombProjectile_Explode with no hit object: the stuck
         // one, if any)
@@ -371,6 +378,9 @@ fn fly(
             if let Some(n) = end.as_deref() {
                 fx.write(crate::fx::StartFx { name: n.to_owned(), at: t.translation, rotation: crate::level::game_to_engine(), follow: None, position_only: false });
             }
+            if roman_bomb {
+                interests.end_at(e, t.translation);
+            }
             commands.entity(e).despawn();
             continue;
         }
@@ -380,6 +390,8 @@ fn fly(
             if b.props == "p_player_stickybomb" {
                 stop.write(crate::audio::StopSound("wpn_sticky_grenade_lp".into()));
             }
+            // removed without its end effect: no end noise
+            interests.forget(e);
             commands.entity(e).despawn();
             continue;
         }

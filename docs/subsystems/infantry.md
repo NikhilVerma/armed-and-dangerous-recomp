@@ -161,3 +161,59 @@ PeasantObject (placed peasant_man / peasant_woman, p_peasants): no AI. Picked up
 a rope chain; a doormat (on_enter = peasant_saved_trigger) banks one (score 500); killed: killed_score, casualties, the
 level lost at peasant_max_casualties. PeasantGenAI: civilians thrown from destroyed buildings with toss_peasants
 (blown_up_chair anims, ragdoll), not counted.
+
+## 9. The port (2026-10-15, agent-infantry)
+
+Engine: `engine/src/ai.rs` (the shared state machine, `Kind` with the class tables, the class slots as `Kind` methods)
+and its modules `ai/jumper.rs` (turbo pack, jump markers, flight), `ai/squad.rs` (squad anchor, formation, halt and
+charge), `ai/monk.rs` (special roll, teleport, basket rain), `ai/bully.rs` (bully and peasant); level.rs makes every
+grunt-class template (`ai::Kind::from_template`), squads and jump markers; charanim.rs plays the class anims through
+`Grunt::anim` (`AnimFlags`: cold level, rocket, glide, sniper aiming).
+
+What each class does here, with the tests (headless playtests from each level's start, tools/regress.py SUITE):
+- **Placed captains** (all levels): created now (level.rs took only grunt_* models before); counts checked on lev_3_m1.
+- **Sniper** (infantry_l2m1): the gun raised (captain_sniper_attach, a pose that holds him) when a target is taken,
+  lowered when lost; one shot per clip, reload, clip delay 3..6 s; the captain_snipergun at ref_chest; bullets of
+  p_captain_sniperbullet (damage 60, speed 500 x 3). Expect: a spawned sniper hears Roman, aims, keeps aiming at 120
+  units and fires 1..6 shots in 8 s.
+- **Rocket captain**: the rkt_fire_* set, the rocket launcher and its projectile, the rocket aim / fire anims (one-shot).
+  Counted on lev_3_m1 (6); its firing is not driven by a test yet.
+- **Jumper captain** (infantry_l3m1): on the ground the pursuit walks 0.2..0.4 s then glides at the target (launch at
+  turbo_glide_xyvel under the glide's gravity, firing in the glide); in the air it flies to a jump marker (0x0042b480's
+  choice, unit-tested in jumper.rs); lands (captain_jumper_land) and engages or reloads. Expect: jumps and landings
+  after Roman is heard and steps 500 away.
+- **Squad** (infantry_l2m1): members made at the formation bones, idle until the squad's trigger, then march with it
+  along the spline; the squad's scan or a member's hit halts it, charge_count members charge, the rest fight in place;
+  resumes when no member fights. Expect: 2 squads / 15 members, 5 marching after trigger 1600, a halt and a charge when
+  Roman stands ahead.
+- **Turret mode** (infantry_l2m1): six grunts on their stig_mgun at the start (the three forge-cannon grunts stand guard:
+  the engine has no forge cannon yet).
+- **Bully** (infantry_l4m2): four bullies scare their peasants every 10..30 s (grunt_scare, Peasant_man_scare, lines
+  under the shared 60..75 s delay); Roman heard by one ends it (the peasant released, the target pursued).
+- **Monk** (infantry_l4m2): the pursuit is a teleport flight round the target (5 headings, 30..200 out, on the ground),
+  then it engages; the special roll casts the basket rain. Expect: a monk spawned 600 away teleports and arrives.
+- **Q112** (infantry_l2m2): its anims, chaingun at ref_chaingun, bullet_scale (bullets do 5 %: player.rs), knees
+  reaction; expect it engages Roman.
+
+Debt and guesses (each with its plan):
+- Fire notes: most fire anims carry no "fire" note in the export (q112_fire_tl 1.3 s, none); the engine fires one round
+  per anim length (looped sets: per note when there are notes). The Q112's chaingun therefore fires far slower than
+  its 30..40 rounds a burst suggest. Plan: read the note tracks from the .anm sources (tools/remaster_export_anim.py) or
+  measure the original's rate with the oracle.
+- Jumper on an object (0x00454c20 true, guess: standing on something): this port treats "ground under the feet within 3"
+  as on the ground; the walk 1000 ahead (state 0xbc's grid path) is the chase's own movement. Plan: oracle a jumper
+  scenario on lev_3_m1.
+- Squad speed: patrol_speed with marker_patrol, else move_speed (guess at the speed getter); members ease into their
+  bone within a few units (the original steers by force). The goliath member is the goliath module's
+  (`Squad::goliath` is the hook: set it and the squad charges when it dies).
+- Monk: the teleport's speed (2 x move_speed, ramp 1 s, slow within 20, no gravity) is a guess at the force's result; the
+  twiglet summon (no twiglets in the engine: that roll fires) and the knock-over hang (0xf4) are not ported.
+- Q112: the melee (q112_gun_hit within 25), the low-health eye loop and the breadcrumb route are not ported;
+  bullet_scale applies to every direct projectile hit (the original: bullet records, flag 0x400). Plan: carry the
+  damage record's flags on player.rs Projectile.
+- Turret mode on a forge cannon: the gun is not in the engine, the grunt stands guard. Plan: when the forge cannon is
+  ported, `Grunt::start_gun` resolves to it (55 degree window, never gets off).
+- Peasants (PeasantObject: rope chain, doormat drop-off, casualties) and PeasantGenAI are a mission / pickup subsystem,
+  not grunt-class AI: not in this port. Bully lines use the peasant line names lower-cased (not checked against the
+  bank).
+- Not compared with the original by capture: every rate above comes from the code and the property sets.

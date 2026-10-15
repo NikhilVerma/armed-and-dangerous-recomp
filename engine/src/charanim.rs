@@ -639,7 +639,7 @@ fn grunts(
             continue;
         }
         // turning toward the target before firing (0x0042e050)
-        if let (Some((n, _)), Mind::Fire) = (g.turn, g.mind) {
+        if let (Some((n, _)), Mind::Fire | Mind::Guard) = (g.turn, g.mind) {
             a.play(0, n, false, Mask::All);
             a.stop(1);
             continue;
@@ -649,7 +649,16 @@ fn grunts(
         // keeps a run 8..0xa already playing)
         let run = *runs.entry(e).or_insert_with(|| 8 + (rand() * 2 >> 15));
         let mover = |g: &Grunt| if limping { name(g, 0x59, 0.0) } else { name(g, run, if run == 9 { 0.75 } else { 0.25 }) };
-        let (n, looping): (String, bool) = match g.mind {
+        // a guard firing from his guard state: the reload set at a clip's end (0x29 here, as Reload), else the fire set
+        let guard_fire = g.mind == Mind::Guard && g.guard_firing;
+        if guard_fire && g.reloading && g.shot_age > g.fire_len {
+            a.play(0, name(&g, 0x29, 0.0), false, Mask::All);
+            a.stop(1);
+            continue;
+        }
+        // (a guard firing shows what the fire state shows)
+        let mind = if guard_fire { Mind::Fire } else { g.mind };
+        let (n, looping): (String, bool) = match mind {
             Mind::Dead if g.ragdoll => (name(&g, 73, 0.0).to_owned(), false),
             Mind::Dead => {
                 // the death anim Character_Die picked (window, ledge, trench: ai.rs death_name) or 0x50 + n

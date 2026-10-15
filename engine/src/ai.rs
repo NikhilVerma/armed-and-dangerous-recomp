@@ -895,6 +895,10 @@ pub struct Grunt {
     pub bullet_scale: f32,
     /// a monk's special counter and teleport (monk.rs)
     pub monk: Option<monk::Monk>,
+    /// a guard engaging his target from his guard state (0x79 with +0x588 held: the fire cycle runs there)
+    pub guard_firing: bool,
+    /// a guard's reload set playing at a clip's end (anim 0x2a with flag 4 clear)
+    pub reloading: bool,
     /// mode bully: his peasant and the scares (bully.rs)
     pub bully: Option<bully::Bully>,
 }
@@ -1282,6 +1286,8 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         // (vt+0xd0 0x00435170); the other classes take them whole
         bullet_scale: if kind == Kind::Q112 { p.f("bullet_scale", 0.5) } else { 1.0 },
         monk: (kind == Kind::Monk).then(|| monk::Monk::new(rng)),
+        guard_firing: false,
+        reloading: false,
         bully: None,
         shot_age: f32::INFINITY,
     }
@@ -1398,10 +1404,37 @@ impl Interests {
         let seen = self.flying.get(&e).is_some_and(|f| f.2);
         self.flying.insert(e, (pos, owner, seen));
     }
+
+    /// A projectile removed without its end effect (a sticky bomb's lifetime out in flight): no end noise; its
+    /// following one ends
+    pub fn forget(&mut self, e: Entity) {
+        self.flying.remove(&e);
+        self.list.retain(|i| i.follow != Some(e));
+    }
+
+    /// A projectile of Roman's that is not a player.rs `Projectile` (his sticky bomb): its start effect's noise,
+    /// following it while it lives (0x0047ee30 -> 0x00404810(200, 0, the projectile)); posted once
+    pub fn follow(&mut self, e: Entity, pos: Vec3) {
+        if !self.list.iter().any(|i| i.follow == Some(e)) {
+            self.list.push(Interest { pos, radius: 200.0, timer: 0.0, follow: Some(e) });
+        }
+    }
+
+    /// ... and its end effect's noise at a point for 2 s (0x0047ed40 -> 0x00404810(200, 2, -, the position))
+    pub fn end_at(&mut self, e: Entity, pos: Vec3) {
+        self.list.retain(|i| i.follow != Some(e));
+        self.list.push(Interest { pos, radius: 200.0, timer: 2.0, follow: None });
+    }
 }
 
 /// AIInterestObject_Update 0x00404680 and the posting of 0x00404810 for Roman's projectiles.
-fn interests(time: Res<Time>, mut it: ResMut<Interests>, shots: Query<(Entity, &Transform, &crate::player::Projectile)>, roman: Query<Entity, With<crate::player::Roman>>) {
+fn interests(
+    time: Res<Time>,
+    mut it: ResMut<Interests>,
+    shots: Query<(Entity, &Transform, &crate::player::Projectile)>,
+    roman: Query<Entity, With<crate::player::Roman>>,
+    followed: Query<&Transform>,
+) {
     let dt = time.delta_secs();
     let Ok(re) = roman.single() else { return };
     let it = &mut *it;
@@ -1427,8 +1460,8 @@ fn interests(time: Res<Time>, mut it: ResMut<Interests>, shots: Query<(Entity, &
     }
     it.list.retain_mut(|i| {
         if let Some(f) = i.follow {
-            match shots.get(f) {
-                Ok((_, t, _)) => i.pos = t.translation,
+            match followed.get(f) {
+                Ok(t) => i.pos = t.translation,
                 Err(_) => {
                     i.follow = None;
                     if i.timer == 0.0 {
@@ -2846,8 +2879,9 @@ fn think(
                 // engage 0x00427910 on coming into it: in range with flag 4, the close attack when the class has one
                 // (vt+0x1e0: the captain), allow_close_attack, flag 1 and rand * 200 >> 15 < 30; else the fire state 0xa
                 // a monk's roll first (vt+0x220 0x00437130): the basket rain, else the fire state (the twiglets: fire)
+                let engaged = was == Mind::Fire || (was == Mind::Guard && g.guard_firing);
                 let act = match g.monk.as_mut() {
-                    Some(m) if was != Mind::Fire => m.roll(&mut rng),
+                    Some(m) if !engaged => m.roll(&mut rng),
                     _ => monk::MonkAct::Fire,
                 };
                 if act == monk::MonkAct::Baskets {
@@ -2857,11 +2891,16 @@ fn think(
                         m.cast = false;
                     }
                     Mind::Cast
-                } else if was != Mind::Fire && g.kind.close_attack() && in_range && g.fire_ready && g.throw_armed && rng.rand() * 200.0 < 30.0 {
+                } else if !engaged && g.kind.close_attack() && in_range && g.fire_ready && g.throw_armed && rng.rand() * 200.0 < 30.0 {
                     g.anim_id = 0x27;
                     g.anim_left = anim_len(&mut lib, g.anim(0x27, 0.0));
                     g.thrown = false;
                     Mind::Throw
+                } else if g.guard {
+                    // a guard fires from his guard state (0x79, ai_06.cpp:2664-2673: the fire cycle vt+0x198 with
+                    // may_move clear, its clip's end the reload set 0x2a.. in place, the counters rolled at its end)
+                    g.guard_firing = true;
+                    Mind::Guard
                 } else {
                     Mind::Fire
                 }
@@ -3054,8 +3093,8 @@ fn think(
                     };
                 }
             }
-            Mind::Fire => {
-                if let Some(p) = target {
+            Mind::Fire | Mind::Guard => {
+                if let Some(p) = target.filter(|_| g.mind == Mind::Fire || g.guard_firing) {
                     // the target's ref_hit_00 (0x00428280): the aim point of 0x004284e0 and the sight ray's end
                     let hit = g
                         .target
@@ -3494,6 +3533,23 @@ fn think(
         } else {
             g.route.clear();
         }
+        // a guard's clip ends in the reload set where he stands (state 0x79 keeps running: the anim 0x2a with flag 4
+        // clear, then 0x00427600); the fire cycle's own Reload is his guard state with the reload under way
+        if g.guard && g.mind == Mind::Reload {
+            g.mind = Mind::Guard;
+            g.guard_firing = true;
+            g.reloading = true;
+        }
+        if g.reloading && g.pause <= 2.0 / 60.0 {
+            g.reloading = false;
+            if !g.fire_ready {
+                g.throw_armed = true;
+            }
+            g.fire_ready = true;
+        }
+        if g.target.is_none() {
+            g.guard_firing = false;
+        }
         // fighting in a squad: he holds his place in the formation
         if squad_fight {
             speed = 0.0;
@@ -3502,6 +3558,8 @@ fn think(
         let dir = flat(goal - pos).normalize_or_zero();
         let face = match (g.mind, target, g.cover.map(|c| c.phase)) {
             (Mind::Fire | Mind::Chase | Mind::Taunt | Mind::Throw | Mind::Cast, Some(p), _) => flat(p - pos).normalize_or_zero(),
+            // a guard firing turns to his target (0x0042df70, 45 degrees)
+            (Mind::Guard, Some(p), _) if g.guard_firing => flat(p - pos).normalize_or_zero(),
             // in the slot: its direction +0x908 (0x00454e60), standing up: the target (0x0042df70)
             (Mind::Cover, Some(p), Some(CoverPhase::Stand)) => flat(p - pos).normalize_or_zero(),
             (Mind::Cover, _, Some(CoverPhase::Duck | CoverPhase::Breathe | CoverPhase::Peek | CoverPhase::Stand | CoverPhase::Spray)) => {
