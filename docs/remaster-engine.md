@@ -217,6 +217,20 @@ docs/port/ui.csv (which `port_queue.py` reads):
 | UI_GetLoadingText 0x00447600, movie screens 0x00493150 / 0x004931b0 / 0x00493240 / 0x00493270 / 0x004932e0 / 0x00493320 / 0x004933b0 / 0x004933e0, timed splash 0x00493520 / 0x00493590, exit screen 0x00493770 | none | no loading screen (the level loads before the title menu), no movies yet, who pushes LegalText is not traced |
 | 0x00467220, 0x00467740, 0x004677c0 | none | their UI elements are not identified (hud.md open question 7) |
 
+Level-1 coverage follow-up (2026-10-15, branch agent-reach): `tools/coverage_level.py` reached 43 more functions.
+- The pub screen's update 0x00493130 -> 0x004695d0 is now ported in full in pubscreen.rs (docs/subsystems/ui.md section 4).
+  That covers the bar run-down, the award grow / shrink / glide, the notice, cursor moves along the bank's nav links,
+  the pointer boxes, the 0.1 s glides and the weapon info of the selected slot. The pool bar's full scale is now
+  health_pool, not health_bar_rate.
+- Cited where the remaster already did the work: the Stats screen's line fillers (0x00494160 / 0x00494280 /
+  0x00494310, Stepper / FitText, Ui_DrawPixelRect, 0x00494870), the prompt formatter 0x004652b0 and the sticky's
+  range test 0x00408330.
+- The loading screen and the save / load slots are replaced, listed in ui.csv.
+- Camera zoom state 0x0040fae0 / 0x0040fb00 / 0x0040fb50 / 0x00475850 is cited in camera.rs.
+- anim and input rows are in their CSVs.
+- Test: pub_screen.
+- Not ported: the carry / swap when Roman's three weapon slots are full (needs a third weapon).
+
 ## Mission, triggers, pickups and camera fx (subsystem port, 2026-10-14)
 
 docs/subsystems/mission.md "Remaster port": every logic object (volumes, ticker sites, counters, timers, camera fx,

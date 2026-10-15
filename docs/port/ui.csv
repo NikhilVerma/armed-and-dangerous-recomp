@@ -141,3 +141,15 @@ address,name,disposition,reason
 0x004a2f70,fn_004a2f70,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
 0x004a2fd0,fn_004a2fd0,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
 0x004a2fe0,fn_004a2fe0,replaced,save / load list boxes and save slots: the single quick save (savegame.rs)
+0x004907c0,fn_004907c0,replaced,"the level-loading screen (the level name it loads, its show 0x00492f80, its update 0x00492fd0 with the existence check 0x00418730 / 0x00418790 and the ui_corruptcontent fallback to lev_shell): Restart the level starts the game again into the level (gamemenu.rs relaunch); the next level after the Stats screen returns to the title (statscreen.rs)"
+0x00492f80,fn_00492f80,replaced,"the level-loading screen's show (copies the level name): Restart the level relaunches the process into the level (gamemenu.rs relaunch)"
+0x00492fd0,fn_00492fd0,replaced,"the level-loading screen's update (loads the named level on its 6th frame, starts it on the 11th; ui_corruptcontent and lev_shell when it is missing): the remaster loads lev_1_m1 at start (level.rs) and relaunches to restart"
+0x00418730,fn_00418730,replaced,"narrows the loading screen's level name and checks the level exists (0x00418790): the remaster loads its exported level (level.rs) and relaunches to restart"
+0x00418790,fn_00418790,replaced,"resolves a level name to its file and checks it (the loading screen, 0x00418730): the remaster loads its exported level (level.rs)"
+0x00464430,fn_00464430,replaced,"adds a UI object to the HUD's on-top list +0x9c (the blinking save slot highlight, 0x004a33d0): save / load list boxes and save slots: the single quick save (savegame.rs)"
+0x0046b0d0,Ui_DrawFrame,replaced,"the bordered box of the list boxes and save slots (ListBox_Render 0x0046c070, 0x004a33d0; the failed page's Load last save list): save / load list boxes and save slots: the single quick save (savegame.rs)"
+0x004a3020,fn_004a3020,replaced,"fills a save slot (thumbnail, level, difficulty, date): save / load list boxes and save slots: the single quick save (savegame.rs)"
+0x004a36c0,fn_004a36c0,replaced,"a save slot's free-space check before saving: save / load list boxes and save slots: the single quick save (savegame.rs)"
+0x004a36f0,fn_004a36f0,replaced,"a save slot's input (save / overwrite / load / delete prompts): save / load list boxes and save slots: the single quick save (savegame.rs)"
+0x004a37e0,fn_004a37e0,replaced,"a save slot's layout box: save / load list boxes and save slots: the single quick save (savegame.rs)"
+0x004a3b60,fn_004a3b60,replaced,"the save / load screen's show (title, default slot): save / load list boxes and save slots: the single quick save (savegame.rs)"

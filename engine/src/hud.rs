@@ -43,6 +43,21 @@ struct ElementDef {
     scale: Option<f32>,
     #[serde(default)]
     colour: Option<String>,
+    /// the ref node the element sits on (ref_slot_01, ref_weapon_02, ...)
+    #[serde(default, rename = "ref")]
+    ref_name: Option<String>,
+    /// the element's record id and its neighbours' ids (+0x478..+0x488: id, left, right, up, down; -1 none)
+    #[serde(default)]
+    nav: Option<NavDef>,
+}
+
+#[derive(Deserialize, Clone, Copy)]
+struct NavDef {
+    id: i32,
+    left: i32,
+    right: i32,
+    up: i32,
+    down: i32,
 }
 
 #[derive(Deserialize)]
@@ -97,6 +112,10 @@ struct IconAtlas {
     height: f32,
     icons: HashMap<String, [f32; 4]>,
 }
+
+/// An extra scale on an element (the pub's award icon growing, Object_SetScale 0x004535d0); 1 when absent.
+#[derive(Component, Clone, Copy)]
+pub struct ElementScale(pub f32);
 
 /// One drawn HUD element and how to place it.
 #[derive(Component, Clone)]
@@ -394,10 +413,43 @@ pub struct TickerBar {
 #[derive(Component)]
 pub struct PubPart;
 
-/// A pub slot frame: 0..4 the pub's inventory (top row), 5..7 Roman's weapons, 8..12 his specials, 13 ticker bombs
-/// (the 14 ref markers of 0x00467fe0, in the bank's order).
-#[derive(Component)]
-pub struct PubSlot(pub usize);
+/// What a pub slot holds (the marker kinds +0x4a4 that 0x00467fe0 gives the 14 ref markers): Roman's weapons
+/// (ref_weapon_*: 0), his specials (ref_sp_weapon_*: 1), the pub's inventory (ref_slot_*: 2), the ticker bombs
+/// (ref_mission_bombs: 3).
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum PubSlotKind {
+    Weapon,
+    Special,
+    Shop,
+    Bombs,
+}
+
+impl PubSlotKind {
+    fn of_ref(r: &str) -> Option<Self> {
+        if r.starts_with("ref_weapon_") {
+            Some(Self::Weapon)
+        } else if r.starts_with("ref_sp_weapon_") {
+            Some(Self::Special)
+        } else if r.starts_with("ref_slot_") {
+            Some(Self::Shop)
+        } else if r == "ref_mission_bombs" {
+            Some(Self::Bombs)
+        } else {
+            None
+        }
+    }
+}
+
+/// A pub slot frame (a ui_slot on one of the 14 ref markers), in the bank's order within its kind.
+#[derive(Component, Clone, Copy)]
+pub struct PubSlot {
+    pub kind: PubSlotKind,
+    /// its place among the slots of its kind (the bank's order: ref_slot_01 first)
+    pub order: usize,
+    /// the slot's record id and its neighbours' (id, left, right, up, down; -1 none): the keys move the cursor
+    /// along them (0x004695d0 with 0x00463b90)
+    pub nav: [i32; 5],
+}
 
 #[derive(Component)]
 pub struct PubHighlight;
@@ -419,23 +471,28 @@ pub struct PubText(pub &'static str);
 #[derive(Component)]
 pub struct PubIcons;
 
-/// What the pub screen shows (gamemenu.rs fills it).
+/// One item icon of the pub screen (its index in PubView::icons).
+#[derive(Component)]
+struct PubIcon(usize);
+
+/// What the pub screen shows (pubscreen.rs fills it); positions in the 640 x 480 layout.
 #[derive(Resource, Default)]
 pub struct PubView {
     pub open: bool,
     pub message: String,
     pub info: String,
     pub exit_text: String,
-    /// the highlighted slot, or the exit button when `on_exit`
-    pub highlight: Option<usize>,
-    pub on_exit: bool,
-    /// (slot, texture) of each item shown
-    pub icons: Vec<(usize, &'static str)>,
-    /// the award being shown (the suffix of ui_pub_award_*), or empty
+    /// where the cursor (ui_pub_cursor) is
+    pub cursor: Vec2,
+    /// (position, texture) of each item shown
+    pub icons: Vec<(Vec2, &'static str)>,
+    /// the award being shown (the suffix of ui_pub_award_*), or empty; where and how big
     pub award: String,
+    pub award_pos: Vec2,
+    pub award_scale: f32,
     pub health: f32,
     pub pool: f32,
-    /// bumped when the icons change
+    /// bumped when the icons' textures change
     pub version: u32,
 }
 
@@ -456,7 +513,7 @@ fn spawn_pub(commands: &mut Commands, meshes: &mut Assets<Mesh>, materials: &mut
             RenderLayers::layer(HUD_LAYER),
         ))
         .add_child(backdrop);
-    let mut slot = 0;
+    let mut order: HashMap<PubSlotKind, usize> = HashMap::new();
     for e in hud.layout.elements.iter().filter(|e| e.page_name.as_deref() == Some("pui_pub") && e.pos.is_some()) {
         let pos = Vec2::from(e.pos.unwrap_or([320.0, 240.0]));
         let el = HudElement { name: e.name.clone(), pos, anchor: Anchor::Centre, full: true };
@@ -504,14 +561,18 @@ fn spawn_pub(commands: &mut Commands, meshes: &mut Assets<Mesh>, materials: &mut
             .id();
         match e.name.as_str() {
             "ui_slot" => {
-                commands.entity(root).insert(PubSlot(slot));
-                slot += 1;
+                if let Some(kind) = e.ref_name.as_deref().and_then(PubSlotKind::of_ref) {
+                    let nav = e.nav.map_or([-1; 5], |n| [n.id, n.left, n.right, n.up, n.down]);
+                    let n = order.entry(kind).or_default();
+                    commands.entity(root).insert(PubSlot { kind, order: *n, nav });
+                    *n += 1;
+                }
             }
             "ui_pub_cursor" => {
                 commands.entity(root).insert(PubHighlight);
             }
             n if n.starts_with("ui_pub_award_") => {
-                commands.entity(root).insert(PubAward(n.trim_start_matches("ui_pub_award_").to_owned()));
+                commands.entity(root).insert((PubAward(n.trim_start_matches("ui_pub_award_").to_owned()), ElementScale(1.0)));
             }
             _ => {}
         }
@@ -545,16 +606,17 @@ fn pub_view(
     hud: Option<Res<HudAssets>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
-    mut parts: Query<(&mut Visibility, Option<&PubHighlight>, Option<&PubAward>), With<PubPart>>,
+    mut parts: Query<(&mut Visibility, Option<&PubAward>), With<PubPart>>,
     mut texts: Query<(&PubText, &mut HudText)>,
-    slots: Query<(&PubSlot, &HudElement), Without<PubHighlight>>,
     mut hl: Query<&mut HudElement, With<PubHighlight>>,
+    mut awards: Query<(&mut HudElement, &mut ElementScale), (With<PubAward>, Without<PubHighlight>)>,
     pub_meters: Query<&PubMeter>,
     icons: Query<(Entity, Option<&Children>), With<PubIcons>>,
+    mut icon_tf: Query<(&PubIcon, &mut Transform)>,
     mut last: Local<u32>,
 ) {
-    for (mut v, h, a) in &mut parts {
-        let show = view.open && (h.is_none() || view.highlight.is_some() || view.on_exit) && a.is_none_or(|a| a.0 == view.award);
+    for (mut v, a) in &mut parts {
+        let show = view.open && a.is_none_or(|a| a.0 == view.award);
         *v = if show { Visibility::Inherited } else { Visibility::Hidden };
     }
     if !view.open {
@@ -570,17 +632,24 @@ fn pub_view(
             t.text = s.clone();
         }
     }
-    let slot_pos = |i: usize| slots.iter().find(|(s, _)| s.0 == i).map(|(_, e)| e.pos);
     for mut e in &mut hl {
-        let p = if view.on_exit { Some(Vec2::new(493.072, 416.366)) } else { view.highlight.and_then(slot_pos) };
-        if let Some(p) = p {
-            e.pos = p;
-        }
+        e.pos = view.cursor;
+    }
+    for (mut e, mut k) in &mut awards {
+        e.pos = view.award_pos;
+        k.0 = view.award_scale;
     }
     for m in &pub_meters {
         let v = if m.pool { view.pool } else { view.health }.clamp(0.0, 1.0);
         if let Some(mut mat) = materials.get_mut(&m.material) {
             mat.uv_transform = Affine2::from_translation(Vec2::new(0.0, -((1.0 - v) * 0.5)));
+        }
+    }
+    // the icons move (a bought weapon into Roman's slot): placed every frame, rebuilt when the textures change
+    for (i, mut t) in &mut icon_tf {
+        if let Some((p, _)) = view.icons.get(i.0) {
+            t.translation.x = p.x - 320.0;
+            t.translation.y = p.y - 240.0;
         }
     }
     let Some(hud) = hud else { return };
@@ -594,12 +663,18 @@ fn pub_view(
                 commands.entity(c).despawn();
             }
         }
-        for (slot, tex) in &view.icons {
-            let (Some(p), Some(img)) = (slot_pos(*slot), hud.textures.get(*tex)) else { continue };
+        for (i, (p, tex)) in view.icons.iter().enumerate() {
+            let Some(img) = hud.textures.get(*tex) else { continue };
             let size = icon_size(tex);
             let mat = materials.add(ColorMaterial { texture: Some(img.clone()), ..default() });
             let q = commands
-                .spawn((Mesh2d(meshes.add(Rectangle::new(size.x, size.y))), MeshMaterial2d(mat), Transform::from_xyz(p.x - 320.0, p.y - 240.0, 12.0), RenderLayers::layer(HUD_LAYER)))
+                .spawn((
+                    Mesh2d(meshes.add(Rectangle::new(size.x, size.y))),
+                    MeshMaterial2d(mat),
+                    Transform::from_xyz(p.x - 320.0, p.y - 240.0, 12.0),
+                    PubIcon(i),
+                    RenderLayers::layer(HUD_LAYER),
+                ))
                 .id();
             commands.entity(root).add_child(q);
         }
@@ -899,7 +974,7 @@ fn window_size(windows: &Query<&Window>) -> Vec2 {
 }
 
 /// 640x480 (y up) -> overlay coordinates (origin at the centre), scaled by height / 480, anchored.
-fn place(windows: Query<&Window>, mut q: Query<(&HudElement, &mut Transform)>) {
+fn place(windows: Query<&Window>, mut q: Query<(&HudElement, &mut Transform, Option<&ElementScale>)>) {
     let size = window_size(&windows);
     // the original draws the game between letterbox bars (rows 54..426 of its 480: camera +0x?? letterbox 0.1125 /
     // 0.775) and its in-game HUD inside that band, near the band's edges; the remaster has no bars, so the band maps
@@ -907,7 +982,7 @@ fn place(windows: Query<&Window>, mut q: Query<(&HudElement, &mut Transform)>) {
     // original's whole 640 x 480 and keep that mapping. The scale is capped by the width (tall windows).
     let s_menu = size.y / 480.0;
     let s_game = (size.y / 372.0).min(size.x / 640.0);
-    for (e, mut t) in &mut q {
+    for (e, mut t, k) in &mut q {
         let s = if e.full { s_menu } else { s_game };
         let x = match e.anchor {
             Anchor::Left => -size.x / 2.0 + e.pos.x * s,
@@ -915,7 +990,8 @@ fn place(windows: Query<&Window>, mut q: Query<(&HudElement, &mut Transform)>) {
             Anchor::Centre => (e.pos.x - 320.0) * s,
         };
         t.translation = Vec3::new(x, (e.pos.y - 240.0) * s, t.translation.z);
-        t.scale = Vec3::new(s, s, 1.0);
+        let k = k.map_or(1.0, |k| k.0);
+        t.scale = Vec3::new(s * k, s * k, 1.0);
     }
 }
 

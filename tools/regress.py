@@ -17,7 +17,7 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PLAY = os.path.join(ROOT, 'work', 'remaster', 'play')
 SUITE = ['save_write', 'save_read', 'topsyhit2', 'turn_in_place', 'turret1', 'decals_obj', 'oilpump', 'gfxopts', 'cover1', 'cover2', 'cover3', 'gunner1', 'gunner2', 'objects1',
-         'menus', 'hud', 'flow', 'stats', 'pub', 'unit',
+         'menus', 'hud', 'flow', 'stats', 'pub', 'pub_screen', 'unit',
          'hits1', 'noise1', 'noise2', 'splines1', 'alarm1', 'captain1', 'taunt1', 'leader1',
          'mission_start', 'volumes', 'ticker', 'pickups', 'pubflow', 'winfail',
          'player_move', 'player_fall', 'player_weapons', 'player_special', 'player_topsy', 'player_banter',

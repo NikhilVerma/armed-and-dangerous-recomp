@@ -109,6 +109,24 @@ Let k = (4/3) / (W/H) (k < 1 on wide screens). Express each element in 4:3 space
 - **The comparison scenarios do not execute GetAspect or QueryInfo** (src comments), so 0x00464e20 and
   0x00465720 may not run in menu+level. Trace which UI paths run before relying on them.
 
+## 4. The pub screen's slots and cursor (2026-10-15, from src/engine/missing_01.cpp and the level-1 coverage run)
+
+- The pub screen's per-frame handler is the screen's input slot 0x00493130, a tail jump to 0x004695d0 with the pub
+  controller (Game+0xa74). It runs the two bars, the award presentation (states 0..9 of +0xa8), the new-weapons
+  notice and the cursor. Ported in engine/src/pubscreen.rs; the module doc lists the steps and the remaster's additions.
+- The 14 slots are `ui_slot` objects on the ref markers: ref_weapon_01..03 (kind 0), ref_sp_weapon_01..05 (1),
+  ref_mission_bombs (3), ref_slot_01..05 (2) (0x00467fe0, strings read from the exe). Their record ids and nav links
+  (+0x478..+0x488: id, left, right, up, down) are in the bank and in layout.json `nav`. The pub row links only
+  left / right, so after the notice the keys stay on that row. Only the pointer reaches Roman's slots from there.
+- Input bits (0x00491140): 1 up, 2 down, 4 left, 8 right, 0x10 accept, 0x20 back. The keys follow +0x47c / +0x480 /
+  +0x484 / +0x488 for bits 4 / 8 / 1 / 2. The target is looked up by record id (0x00463b90).
+- Pointer: 0x00463a00 picks the visible object whose hit test (vt+0x140) contains the cursor. A slot's box is set by
+  0x00467f50 to +-0.08 x +-0.07 of the screen about its ref point. ref_mission_bombs gets no box.
+- Moves between anchors (0x00464c60 start, 0x00464c90 advance): t = (now - start) x 10, so 0.1 s, blending only
+  the translation.
+- Capture (work/shots/cov-pub-700..900.png): the cursor starts on Roman's first weapon slot. "Press Esc to exit pub"
+  shows from the start, and "Select the weapon you want" stays up after the only weapon is taken.
+
 ## Open questions
 
 - Which object owns the `ref_*` nodes (0x00463c90 name argument), and what are object +0x37c..+0x384 in 0x00464e20?

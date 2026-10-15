@@ -136,7 +136,8 @@ fn open(
         let y = BAR_Y[i];
         spawn_text(&mut commands, "bar_label", &texts.get(l), Vec2::new(240.0, y), 1.0, GREEN, 1.0, StatPart::Root);
         spawn_text(&mut commands, "bar_value", "", Vec2::new(459.0, y), 1.0, GREEN, -1.0, StatPart::BarValue(i));
-        // the bar (0x0046d130): frame 0xff204000, fill 0xff40c040
+        // the bar (0x0046d130: three rectangles through Ui_DrawPixelRect 0x0046b200, the frame, the fill to the
+        // position and the rest): frame 0xff204000, fill 0xff40c040
         let frame = materials.add(ColorMaterial { color: Color::srgb_u8(0x20, 0x40, 0x00), ..default() });
         let fill = materials.add(ColorMaterial { color: Color::srgb_u8(0x40, 0xc0, 0x40), ..default() });
         let bar = commands
@@ -211,7 +212,10 @@ fn update(
     let dt = time.delta_secs();
     s.frame = s.frame.wrapping_add(1);
     let confirm = ctl.pressed(crate::input::Act::Select) || mouse.just_pressed(MouseButton::Left);
-    // the bars: shown = min(max x reveal, value)
+    // the lines (0x00494310 every frame of phase 0): the bars through 0x00494160, shown = min(max x reveal, value),
+    // the label "%d" / "%d (%d%%)" (Stepper_SetLabelA 0x0046d110) and the bar's position shown / max (the stepper's
+    // change callback Stepper_Notify 0x0046d030: none on these bars); the money lines through 0x00494280, "$%d" /
+    // "-$%d" of the line x reveal (FitText_SetTextA 0x0046d5c0, fitted by FitText_Layout 0x0046d4b0)
     let bar_vals = |r: f32| -> [(f32, f32); 4] {
         let fired = stats.shots_fired as f32;
         let total = stats.enemies_total.max(stats.enemies_killed) as f32;
@@ -267,6 +271,7 @@ fn update(
     let r0 = if s.phase == 0 { s.reveal } else { 1.0 };
     let bars = bar_vals(r0);
     let money_r = if s.phase == 0 { s.reveal } else { 1.0 };
+    // the poster's spin fraction (phase 2: 0x00494870 stores it clamped to 0..1)
     let poster_v = match s.phase {
         0 | 1 => 0.0,
         2 => s.reveal,

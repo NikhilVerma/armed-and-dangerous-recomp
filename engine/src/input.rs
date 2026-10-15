@@ -30,7 +30,8 @@
 //!
 //! Prompts: `key(Act)` gives the text for a prompt's %s on the active device (`hud.rs` draws `<icon=...>` tags with
 //! the Kenney Input Prompts icons when present): the keyboard / mouse binding the player last used for the action
-//! (the original shows the first binding, 0x00465280: Use "X", MenuSelect "Mouse 1"), or the pad's button.
+//! (the original shows the first binding, 0x00465280: Use "X", MenuSelect "Mouse 1", formatted into the prompt by
+//! 0x004652b0 when the keys change), or the pad's button.
 
 use bevy::input::gamepad::{Gamepad, GamepadButton};
 use bevy::input::mouse::AccumulatedMouseMotion;

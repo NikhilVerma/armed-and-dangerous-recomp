@@ -467,8 +467,12 @@ pub struct PubInfo {
     /// its special weapon
     pub special: Option<&'static str>,
     pub has_tickerbomb: bool,
-    /// health left in its pool (+0x4b0, get / set 0x0046a6a0 / 0x0046a6b0), and the pool bar's scale (health_bar_rate)
+    /// health left in its pool (+0x46c "health_pool", get / set 0x0046a6a0 / 0x0046a6b0)
     pub pool: f32,
+    /// the pool at load (+0x470, a copy of health_pool): the pool bar's full scale
+    pub pool_full: f32,
+    /// the pub screen's bars move by this fraction of their full scale per second (+0x474: health_bar_rate x 0.01,
+    /// default 50)
     pub bar_rate: f32,
 }
 
@@ -911,7 +915,8 @@ impl Mission {
                         special,
                         has_tickerbomb: n(r, "has_tickerbomb") != 0.0,
                         pool: n(r, "health_pool") as f32,
-                        bar_rate: n(r, "health_bar_rate").max(1.0) as f32,
+                        pool_full: n(r, "health_pool") as f32,
+                        bar_rate: if n(r, "health_bar_rate") > 0.0 { n(r, "health_bar_rate") as f32 * 0.01 } else { 0.5 },
                     });
                 }
                 _ if i.template.starts_with("grunt_barracks") => {

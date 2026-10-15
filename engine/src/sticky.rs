@@ -187,6 +187,7 @@ fn throw(
         if to.dot(fwd) < 0.0 {
             continue;
         }
+        // the range test 0x00408330 (weapon 10: the weapon table's range, sticky_bomb_range; a range of 0 fails)
         if dist > range {
             break;
         }
