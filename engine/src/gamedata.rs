@@ -53,10 +53,13 @@ impl Props {
 /// 0x00401f60 copies to Game+0x554.. when the difficulty Game+0x550 is chosen.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DifficultyFactors {
-    /// Game+0x554: the health of enemy AIs (Ai_InitGeneric 0x004247f0 scales +0x458 / +0x454 when vt+0xe4)
-    pub enemy_health: f32,
-    /// Game+0x558: the health of teammates (the same, when vt+0xe8)
-    pub teammate_health: f32,
+    /// Game+0x554: the health of the player's side (Ai_InitGeneric 0x004247f0 scales +0x458 / +0x454 by it when vt+0xe4:
+    /// the player and the companions; the player's max_health too, player.md 6): easy 2, normal 1, hard 1, very hard 0.5.
+    /// Not applied by the remaster yet (open question: only normal is played)
+    pub friendly_health: f32,
+    /// Game+0x558: the health of the bad guys (the same, when vt+0xe8: grunts, captains; damage.md): easy 0.5,
+    /// normal 1, hard and very hard 2. Not applied by the remaster yet
+    pub badguy_health: f32,
     /// Game+0x55c: the health pickups' amount (pickup.rs)
     pub health_pickups: f32,
     /// Game+0x560: reader not traced (open question)
@@ -65,8 +68,8 @@ pub struct DifficultyFactors {
     pub money: f32,
 }
 
-const fn factors(enemy_health: f32, teammate_health: f32, health_pickups: f32, unknown_560: f32, money: f32) -> DifficultyFactors {
-    DifficultyFactors { enemy_health, teammate_health, health_pickups, unknown_560, money }
+const fn factors(friendly_health: f32, badguy_health: f32, health_pickups: f32, unknown_560: f32, money: f32) -> DifficultyFactors {
+    DifficultyFactors { friendly_health, badguy_health, health_pickups, unknown_560, money }
 }
 
 /// The table 0x00589188: easy, normal, hard, very hard.

@@ -49,6 +49,10 @@ pub struct Bot {
     /// progress check: the best distance to the goal and how long since it improved
     pub best_goal_dist: f32,
     pub no_gain: f32,
+    /// what the bot did last frame (the state log's "bot"): route, duel, cover, to_cover, back_off, keg, pickup
+    pub mode: &'static str,
+    /// last frame the bot walked its route (not holding, in cover or on a pickup detour)
+    pub advancing: bool,
     pub throw_timer: f32,
     /// the grunts that can see Roman (refreshed every 0.25 s by scan_t)
     pub threats: Vec<Vec3>,
@@ -110,7 +114,8 @@ fn follow_route(bot: &mut Bot, physics: &Physics, me: Vec3, dt: f32) {
         if d < bot.best_goal_dist - 10.0 || bot.best_goal_dist == 0.0 {
             bot.best_goal_dist = d;
             bot.no_gain = 0.0;
-        } else {
+        } else if bot.advancing {
+            // (only while walking the route: holding, cover and pickups are not a lack of progress)
             bot.no_gain += dt;
         }
         if bot.no_gain > 15.0 && bot.trail.len() > 3 {
@@ -321,18 +326,19 @@ pub fn think(
     }
     // an explosive beside Roman while under fire: step away from it (the bot holds its fire there)
     let near_keg = kegs.iter().filter(|(k, r)| k.distance(me) < r + 25.0).map(|(k, _)| *k).min_by(|a, b| a.distance(me).total_cmp(&b.distance(me)));
-    let tactic: Option<Vec3> = match (bot.cover, target) {
-        (_, Some(_)) if near_keg.is_some() => near_keg.map(|k| (me - k).with_y(0.0).normalize_or_zero()),
+    let (mode, tactic): (&'static str, Option<Vec3>) = match (bot.cover, target) {
+        (_, Some(_)) if near_keg.is_some() => ("keg", near_keg.map(|k| (me - k).with_y(0.0).normalize_or_zero())),
         // to the cover spot, then about it (fighting what it sees, never standing still in a grunt's sight)
-        (Some(c), _) if (c - me).with_y(0.0).length() > 12.0 => Some((c - me).with_y(0.0).normalize_or_zero()),
-        (Some(_), Some(p)) => Some(strafe(&mut bot, &physics, me, p, dt)),
-        (Some(_), None) => Some(Vec3::ZERO),
-        (None, Some(p)) if low => Some((me - p).with_y(0.0).normalize_or_zero()),
+        (Some(c), _) if (c - me).with_y(0.0).length() > 12.0 => ("to_cover", Some((c - me).with_y(0.0).normalize_or_zero())),
+        (Some(_), Some(p)) => ("cover", Some(strafe(&mut bot, &physics, me, p, dt))),
+        (Some(_), None) => ("cover", Some(Vec3::ZERO)),
+        (None, Some(p)) if low => ("back_off", Some((me - p).with_y(0.0).normalize_or_zero())),
         // a duel at range: stay and shoot while at most two grunts can see Roman, side-stepping: their bullets
         // (450 units/s) fly at where he stood
-        (None, Some(p)) if p.distance(me) > 120.0 && bot.hold < 20.0 && seen <= 2 => Some(strafe(&mut bot, &physics, me, p, dt)),
-        _ => None,
+        (None, Some(p)) if p.distance(me) > 120.0 && bot.hold < 20.0 && seen <= 2 => ("duel", Some(strafe(&mut bot, &physics, me, p, dt))),
+        _ => ("route", None),
     };
+    bot.mode = mode;
     // a hurt bot detours to a pickup nearby (farther when badly hurt, not into a crowd), as a player would
     let reach = if low { 250.0 } else { 150.0 };
     let detour = if bot.goto.is_some() && h.0 < r.max_health * 0.7 && (seen <= 1 || low) {
@@ -355,16 +361,19 @@ pub fn think(
         }
         d => d,
     };
+    bot.advancing = false;
     if let (Some(dir), None) = (tactic, detour) {
         // hold (zero), take cover or back off; the route is kept for later
         bot.walk = Some(dir);
     } else if let Some(p) = detour {
+        bot.mode = "pickup";
         let dir = (p - me).with_y(0.0).normalize_or_zero();
         if !bot.fight {
             bot.face = Some(yaw_of(dir));
         }
         bot.walk = Some(dir);
     } else if let Some(dir) = step_to_goal(&mut bot, me, dt) {
+        bot.advancing = true;
         if !bot.fight {
             bot.face = Some(yaw_of(dir));
         }
@@ -427,8 +436,10 @@ fn find_cover(physics: &Physics, me: Vec3, threats: &[Vec3], hide: bool) -> Opti
             let a = k as f32 * std::f32::consts::TAU / 16.0 + ring as f32 * 0.2;
             let p = me + Vec3::new(a.cos(), 0.0, a.sin()) * rad;
             // the ground there, within a step or two of Roman's level
-            let Some((_, g, n)) = physics.raycast(p + Vec3::Y * 20.0, -Vec3::Y, 60.0) else { continue };
-            if n.y < 0.7 || (g.y - me.y).abs() > 12.0 {
+            // the ground there (the landscape, not a roof or a wall's top it would have to jump onto), within a step of
+            // Roman's level
+            let Some((b, g, n)) = physics.raycast(p + Vec3::Y * 20.0, -Vec3::Y, 60.0) else { continue };
+            if n.y < 0.7 || (g.y - me.y).abs() > 6.0 || physics.landscape != Some(b) {
                 continue;
             }
             // walkable in a straight line (a knee-high ray, as nav.rs)

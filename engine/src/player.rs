@@ -767,9 +767,12 @@ pub(crate) fn control(
             r.vel.y = r.jump_impulse - 64.348 * r.anti_gravity * 0.5 * dt;
             r.jumping = true;
             ground_fx(&physics, &mut fx, t.translation, "fx_fs_roman_jump");
-        } else if r.on_ground {
+        } else if r.on_ground && !r.jumping {
             r.vel.y = r.vel.y.max(-5.0);
         } else {
+            // (in the jump state gravity acts even when the walker reports ground: wedged under an overhang or on a
+            // ledge's edge it did, the rising speed never decayed, the jump never ended and the air control piled up
+            // horizontal speed: a bot run at (-102, -5) reached 394 units/s and was flung 640 units when it came free)
             // world gravity -64.348 x anti_gravity x 0.5 (0x005bcb4c): -160.9 with jump_anti_gravity 5 in lev_1_m1
             // (docs/subsystems/player.md); jump impulse 70 -> about 15 units high
             r.vel.y = (r.vel.y - 64.348 * r.anti_gravity * 0.5 * dt).max(r.fall_speed.min(-50.0) * 4.0);

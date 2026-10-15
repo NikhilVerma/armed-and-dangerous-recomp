@@ -577,7 +577,7 @@ fn play_state(audio_chk: Res<audio::AudioCheck>, skin: Res<skin::SkinCheck>, mut
             m.insert("sounds".into(), recent.into());
         }
     }
-    m.insert("bot".into(), format!("route {} veer {:.1} goto {:?}", bot.route.len(), bot.veer, bot.goto.map(|g| [g.x as i32, g.z as i32])).into());
+    m.insert("bot".into(), format!("{} seen {} route {} veer {:.1} goto {:?}", bot.mode, bot.threats.len(), bot.route.len(), bot.veer, bot.goto.map(|g| [g.x as i32, -g.z as i32])).into());
     let r = |v: f32| (v * 10.0).round() / 10.0;
     m.insert("pos".into(), serde_json::json!([r(p.position.x), r(p.position.y), r(p.position.z)]));
     m.insert("health".into(), r(p.health).into());
