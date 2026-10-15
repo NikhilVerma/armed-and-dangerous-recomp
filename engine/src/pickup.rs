@@ -564,6 +564,11 @@ const UNLOCKS: [(&str, &str, [u32; 4]); 20] = [
 ];
 const TOKENS_TOTAL: u32 = 21;
 
+/// The tokens an unlockable costs at this difficulty (None: not in the table, or never: 99).
+pub fn unlock_cost(name: &str, difficulty: crate::gamedata::Difficulty) -> Option<u32> {
+    UNLOCKS.iter().find(|u| u.0.eq_ignore_ascii_case(name)).map(|u| u.2[difficulty.0.min(3)]).filter(|&c| c != 99)
+}
+
 /// The token message (fn_004a0850): "token_got" with the count, then the unlockable just paid for (the dearest
 /// affordable, compared with the count before) or the next one with what it still needs; and that unlockable.
 pub fn token_message(texts: &crate::gamemenu::Texts, count: u32, difficulty: crate::gamedata::Difficulty) -> (String, Option<&'static (&'static str, &'static str, [u32; 4])>) {

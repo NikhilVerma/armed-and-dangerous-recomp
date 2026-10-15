@@ -33,6 +33,7 @@ mod campaign;
 mod cheats;
 mod cutscenes;
 mod decals;
+mod extras;
 mod sticky;
 mod gamemenu;
 mod goliath;
@@ -284,7 +285,7 @@ fn main() {
     .add_plugins(alarm::AlarmPlugin)
     .add_plugins(stats::StatsPlugin)
     .add_plugins(statscreen::StatScreenPlugin)
-    .add_plugins(campaign::CampaignPlugin)
+    .add_plugins((campaign::CampaignPlugin, extras::ExtrasPlugin))
     .add_plugins(gamematerial::GameMaterialPlugin)
     .add_plugins(sdffont::SdfFontPlugin)
     .add_plugins(pubscreen::PubScreenPlugin)

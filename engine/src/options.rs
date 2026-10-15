@@ -37,8 +37,15 @@ pub struct GameOptions {
     /// ("level:instance id"), so each is found once
     pub tokens: u32,
     pub tokens_taken: Vec<String>,
+    /// the profile's unlock records (Unlock_Add 0x004a07a0): category 1, the levels whose mission start was shown, and
+    /// category 0, the story movies seen (extras.rs: the Replay Level and Cutscenes pages)
+    pub levels_reached: Vec<String>,
+    pub movies_seen: Vec<String>,
     /// the money carried from level to level (Game+0x570; the Stats screen counts it up at a win)
     pub money: f32,
+    /// the pub's one-time intro line was heard (Game+0x574, banked with the money by 0x00401ef0 and reset by a new game:
+    /// once per campaign, pubscreen.rs)
+    pub pub_intro_heard: bool,
     /// cheats whose code was entered once (Game+0x48c)
     pub cheats_known: Vec<u32>,
     /// the original's save rule: the game saves itself at the checkpoints only (the mission start, leaving the pub;
@@ -67,7 +74,10 @@ impl Default for GameOptions {
             invert_mouse: false,
             tokens: 0,
             tokens_taken: Vec::new(),
+            levels_reached: Vec::new(),
+            movies_seen: Vec::new(),
             money: 0.0,
+            pub_intro_heard: false,
             cheats_known: Vec::new(),
             checkpoint_saves: false,
             graphics_preset: crate::graphics::Preset::Remaster,

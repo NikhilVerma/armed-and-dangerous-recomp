@@ -1974,6 +1974,26 @@ fn outcome(time: Res<Time>, mut m: Option<ResMut<Mission>>, roman: Query<&crate:
 mod tests {
     use super::*;
 
+    /// The loadout rules of MissionObject_Load / 0x00475650: adds in weapon-id order (the machine gun first, in hand),
+    /// the machine gun added by default, at most 3 weapons, set_num -1 gives none, and the topsy count read under
+    /// player_set_num_topsyturvy (the template's player_set_num_topsy never applies).
+    #[test]
+    fn loadout_rules() {
+        let m = |v: serde_json::Value| Loadout::from_props(v.as_object().unwrap());
+        // lev_1_m1_b
+        let l = m(serde_json::json!({"player_add_machinegun": 1, "player_add_rifle": 1, "player_add_snipergun": 0, "player_set_num_stickybomb": 5, "player_set_num_topsy": 2}));
+        assert_eq!(l.weapons, vec!["machinegun", "rifle"]);
+        assert_eq!((l.special("stickybomb"), l.special("topsyturvy"), l.special("blackhole")), (5, 0, 0));
+        assert_eq!(l.ammo["machinegun"], -2);
+        // lev_1_m1: the rifle only; nothing named: the machine gun by default
+        assert_eq!(m(serde_json::json!({"player_add_machinegun": 0, "player_add_rifle": 1})).weapons, vec!["rifle"]);
+        assert_eq!(m(serde_json::json!({})).weapons, vec!["machinegun"]);
+        // the primary list holds three
+        let all = m(serde_json::json!({"player_add_snipergun": 1, "player_add_rifle": 1, "player_add_vindaloo": 1, "player_add_sharkgun": 1}));
+        assert_eq!(all.weapons, vec!["machinegun", "snipergun", "rifle"]);
+        assert_eq!(m(serde_json::json!({"player_set_num_topsyturvy": 2})).special("topsyturvy"), 2);
+    }
+
     fn volume(props: serde_json::Value) -> Trigger {
         Trigger::new(1, props.as_object().unwrap(), Volume::Sphere(Vec3::ZERO, 10.0))
     }

@@ -1,0 +1,19 @@
+{"scene": "lev_5_m5", "steps": [
+ {"wait": 1.0}, {"expect": {"movie.name": "pre_5_5_jerosa"}}, {"tap": "Enter"},
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"},
+ {"wait": 2.0},
+ {"expect": {"campaign.level": "lev_5_m5", "mission": "Playing"}},
+ {"send": 123}, {"until": "message"}, {"wait": 0.5},
+ {"expect": {"mission": "Won"}},
+ {"tap": "Enter"}, {"wait": 1.0},
+ {"expect": {"menu.page": "Stats"}},
+ {"tap": "Enter"}, {"wait": 0.3}, {"tap": "Enter"}, {"wait": 0.7}, {"tap": "Enter"}, {"wait": 0.3},
+ {"expect": {"stats.phase": 4}},
+ {"tap": "Enter"}, {"wait": 1.0},
+ {"expect": {"campaign.end": "movie"}},
+ {"tap": "Enter"}, {"wait": 1.5},
+ {"expect": {"campaign.end": "credits", "menu.page": "Credits", "level_generation": null}},
+ {"tap": "Enter"}, {"wait": 0.5}, {"until": "loaded"}, {"wait": 0.5},
+ {"expect": {"campaign.end": "none", "menu.page": "Main", "level_generation": 1, "campaign.level": "lev_5_m5"}},
+ {"quit": true}
+]}

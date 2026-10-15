@@ -172,12 +172,16 @@ pub struct CampaignPlugin;
 
 impl Plugin for CampaignPlugin {
     fn build(&self, app: &mut App) {
-        app.init_level_resource::<LevelEnd>().add_systems(Update, (end_sequence, log_state).after(crate::gamemenu::MenuSystems));
+        app.init_level_resource::<LevelEnd>().init_resource::<ReplayMode>().add_systems(Update, (end_sequence, log_state).after(crate::gamemenu::MenuSystems));
     }
 }
 
-/// Where the campaign goes after this level: the next level when it was exported, else the title (lev_shell).
-fn next_target(levels: &Levels, mission: Option<&crate::mission::Mission>) -> RestartTo {
+/// Where the campaign goes after this level: the next level when it was exported, else (and in replay mode) the title
+/// (lev_shell).
+fn next_target(levels: &Levels, mission: Option<&crate::mission::Mission>, replay: bool) -> RestartTo {
+    if replay {
+        return RestartTo::Title;
+    }
     let next = mission.and_then(|m| m.next_level.clone()).unwrap_or_default();
     if next.eq_ignore_ascii_case(SHELL_LEVEL) || next.is_empty() {
         return RestartTo::Title;
@@ -192,9 +196,23 @@ fn next_target(levels: &Levels, mission: Option<&crate::mission::Mission>) -> Re
     }
 }
 
+/// Game+0x568 bit 2, the replay mode: a level played from Extras' Replay Mission (UiScreen_Activate case 41) goes back
+/// to the title after its Stats instead of on to the next level (0x0044a230 state 11: 0x004907c0(NULL)). New Game and
+/// Load Game clear it (cases 1 / 2).
+#[derive(Resource, Default, Debug)]
+pub struct ReplayMode(pub bool);
+
+/// A new game's campaign state (0x00401e80 with flag2 at the front end: Game+0x570.. = {5000, 0, 0}, banked at +0x57c):
+/// the money and the pub's once-a-campaign intro.
+pub fn new_game(opts: &mut crate::options::GameOptions) {
+    opts.money = crate::savegame::NEW_GAME_MONEY;
+    opts.pub_intro_heard = false;
+}
+
 #[allow(clippy::too_many_arguments)]
 fn end_sequence(
     mut end: ResMut<LevelEnd>,
+    (mut opts, pub_lines, replay): (ResMut<crate::options::GameOptions>, Res<crate::pubscreen::PubLines>, Res<ReplayMode>),
     levels: Res<Levels>,
     cut: Res<crate::cutscenes::Cutscenes>,
     mission: Option<Res<crate::mission::Mission>>,
@@ -211,7 +229,7 @@ fn end_sequence(
             info!("EVENT campaign: the end: credits");
             LevelEnd::Credits
         } else {
-            let to = next_target(&levels, mission.as_deref());
+            let to = next_target(&levels, mission.as_deref(), replay.0);
             info!("EVENT campaign: {level} done -> {to:?}");
             restart.to = Some(to);
             LevelEnd::None
@@ -220,6 +238,11 @@ fn end_sequence(
     match *end {
         LevelEnd::None => {}
         LevelEnd::Requested => {
+            // the bank (0x00401ef0): the money is already the Stats screen's; the pub's intro heard here is kept
+            if pub_lines.intro_said && !opts.pub_intro_heard {
+                opts.pub_intro_heard = true;
+                opts.save();
+            }
             *end = match cut.end_movie() {
                 Some(m) => {
                     info!("EVENT campaign: end movie {m}");
@@ -255,7 +278,7 @@ fn log_state(
     levels: Res<Levels>,
     opts: Res<crate::options::GameOptions>,
     difficulty: Res<crate::gamedata::Difficulty>,
-    end: Res<LevelEnd>,
+    (end, replay): (Res<LevelEnd>, Res<ReplayMode>),
     roman: Query<&crate::player::Roman>,
     state: Option<ResMut<crate::playtest::PlayState>>,
 ) {
@@ -270,5 +293,5 @@ fn log_state(
         LevelEnd::Movie { .. } => "movie",
         LevelEnd::Credits => "credits",
     };
-    state.0.insert("campaign".into(), serde_json::json!({ "level": levels.current_name(), "money": opts.money, "tokens": opts.tokens, "difficulty": difficulty.0, "end": end }));
+    state.0.insert("campaign".into(), serde_json::json!({ "level": levels.current_name(), "money": opts.money, "tokens": opts.tokens, "difficulty": difficulty.0, "end": end, "replay": replay.0, "levels_reached": opts.levels_reached.len(), "movies_seen": opts.movies_seen.len() }));
 }
