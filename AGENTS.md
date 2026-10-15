@@ -21,7 +21,10 @@ re-reading is the fix.
 - **Remaster engine (`engine/`, Rust + Bevy + Jolt):** a manual port of the game, one verified piece at a time
   (docs/decision.md 2026-10-13), ported **by subsystem, each tested in isolation, levels after** (2026-10-14). **Code quality matters:** the
   human will build their own games from these mechanics (decision.md 2026-10-14): each mechanic a clean,
-  self-contained module / Bevy plugin with a clear API, game specifics in data, mod-friendly, no garbage. Read **docs/remaster-engine.md** first: the porting order (rendering, player
+  self-contained module / Bevy plugin with a clear API, game specifics in data, mod-friendly, no garbage.
+  **The game is the oracle; the Rust is a clean, idiomatic rewrite, not a transliteration** (decision.md
+  2026-10-15): behaviour is the spec, the recovered C++ explains it, no hacks, outcome >= the original; phase 2
+  adds remaster features (level select, difficulty scaling enemy counts, rendering). Read **docs/remaster-engine.md** first: the porting order (rendering, player
   movement, sticky bomb, guns, zoom, ...), the same-camera render comparison (tools/shot.py camera dumps,
   `--camera`, tools/render_compare.py), the playtest bot, and the traps. A piece is not done while its comparison
   with the original shows a difference; update that file and the journal at the end of every session.
