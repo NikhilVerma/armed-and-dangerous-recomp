@@ -628,7 +628,7 @@ fn play_state(audio_chk: Res<audio::AudioCheck>, skin: Res<skin::SkinCheck>, mut
             m.insert("sounds".into(), recent.into());
         }
     }
-    m.insert("bot".into(), format!("{} seen {} route {} veer {:.1} goto {:?}", bot.mode, bot.threats.len(), bot.route.len(), bot.veer, bot.goto.map(|g| [g.x as i32, -g.z as i32])).into());
+    m.insert("bot".into(), format!("{} {} seen {} route {} veer {:.1} goto {:?}", bot.mode, bot.target_kind, bot.threats.len(), bot.route.len(), bot.veer, bot.goto.map(|g| [g.x as i32, -g.z as i32])).into());
     let r = |v: f32| (v * 10.0).round() / 10.0;
     m.insert("pos".into(), serde_json::json!([r(p.position.x), r(p.position.y), r(p.position.z)]));
     m.insert("health".into(), r(p.health).into());
@@ -636,6 +636,7 @@ fn play_state(audio_chk: Res<audio::AudioCheck>, skin: Res<skin::SkinCheck>, mut
     m.insert("ammo".into(), p.ammo.into());
     m.insert("stickies".into(), p.stickies.into());
     m.insert("shots".into(), p.shots.into());
+    m.insert("hits".into(), p.hits.into());
     m.insert("kills".into(), p.kills.into());
     m.insert("head_shots".into(), p.head_shots.into());
     m.insert("grunts_alive".into(), ai.alive.into());

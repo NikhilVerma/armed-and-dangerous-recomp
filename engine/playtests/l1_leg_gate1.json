@@ -1,0 +1,8 @@
+{"load": "states/l1_after_pub.json", "steps": [
+ {"wait": 0.5},
+ {"fight": true},
+ {"goto": [-75, 45, 20]},
+ {"save": "l1_at_gate1"},
+ {"expect": {"dead": false, "mission": "Playing"}},
+ {"quit": true}
+]}

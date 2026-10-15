@@ -89,6 +89,11 @@ pub struct Markers {
 }
 
 impl Markers {
+    /// The raised sirens (the list the controller sends troops for while it is not empty).
+    pub fn sirens(&self) -> &[Entity] {
+        &self.sirens
+    }
+
     pub fn load(dir: &std::path::Path) -> Self {
         let mut m = Markers { max_troops: 10, delay: (2.0, 4.0), ..default() };
         let Ok(text) = std::fs::read_to_string(dir.join("instance_props.json")) else { return m };

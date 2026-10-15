@@ -11,6 +11,10 @@ use std::collections::{BinaryHeap, HashMap};
 const STEP: f32 = 6.0;
 /// the highest drop a route may take (Roman's landing hurts from much higher: fallO, 100 units cost 168.7)
 const DROP: f32 = 30.0;
+/// the side rays' offset from a walk's middle (Roman's radius 4, less a little: gates and doors stay open)
+const CLEARANCE: f32 = 3.0;
+/// the extra cost of a step with less room than that
+const TIGHT_COST: f32 = 12.0;
 
 #[derive(Copy, Clone, PartialEq)]
 struct Node {
@@ -94,10 +98,14 @@ pub fn path(physics: &Physics, from: Vec3, to: Vec3, blocked: &[Vec3]) -> Option
             let a3 = Vec3::new(a.x, hc + 5.0, a.y);
             // (a drop is tested at the upper level: over the edge, then down)
             let b3 = Vec3::new(b.x, hn.max(hc) + 5.0, b.y);
+            // (a middle ray: side rays here closed doorways the 6-unit grid does not line up with)
             if physics.raycast(a3, (b3 - a3).normalize_or(Vec3::X), (b3 - a3).length()).is_some() {
                 continue;
             }
-            let nc = cc + d + (hn - hc).max(0.0) * 0.5;
+            // a step that brushes something (no room for Roman's width) costs more: routes keep off walls and trees
+            // where there is room (hugging a wall's end next to a tree wedged him for good)
+            let tight = if walkable(physics, a3, b3) { 0.0 } else { TIGHT_COST };
+            let nc = cc + d + (hn - hc).max(0.0) * 0.5 + tight;
             if cost.get(&n).is_none_or(|&old| nc < old) {
                 cost.insert(n, nc);
                 came.insert(n, c);
@@ -113,15 +121,64 @@ pub fn path(physics: &Physics, from: Vec3, to: Vec3, blocked: &[Vec3]) -> Option
         cells.push(p);
     }
     cells.reverse();
-    // keep every 4th cell as a waypoint
-    let pts: Vec<Vec3> = cells
-        .iter()
-        .enumerate()
-        .filter(|(i, _)| i % 4 == 0 || *i == cells.len() - 1)
-        .map(|(_, &c)| {
-            let p = pos(c);
-            Vec3::new(p.x, heights.get(&c).copied().flatten().unwrap_or(0.0), p.y)
-        })
-        .collect();
+    let at = |c: (i32, i32)| {
+        let p = pos(c);
+        Vec3::new(p.x, heights.get(&c).copied().flatten().unwrap_or(0.0), p.y)
+    };
+    // waypoints: every 4th cell, or sooner where the straight walk from the last waypoint to the cell after next
+    // would clip something (cutting the corner round a tree or a wall's end snagged the walker)
+    let mut pts = vec![at(cells[0])];
+    let mut last = 0;
+    for i in 1..cells.len() {
+        let next = cells[(i + 1).min(cells.len() - 1)];
+        let (a, b) = (pts[pts.len() - 1] + Vec3::Y * 5.0, at(next) + Vec3::Y * 5.0);
+        if i == cells.len() - 1 || i - last >= 4 || !walkable(physics, a.with_y(a.y.max(b.y)), b.with_y(a.y.max(b.y))) {
+            pts.push(at(cells[i]));
+            last = i;
+        }
+    }
     Some(pts)
+}
+
+/// Debug: the planner's view of the ground round `center` (engine space) as text, one character per cell, rows
+/// north (game +y) first: '.' open, '|' the way from the west neighbour blocked, '-' from the north one, '+' both,
+/// 'x' no walkable ground, '^' / 'v' ground over 8 units above / below the centre. For the bot's NAVMAP variable.
+pub fn ascii_map(physics: &Physics, center: Vec3, cells: i32) -> String {
+    let ground = |x: f32, z: f32| physics.raycast(Vec3::new(x, center.y + 20.0, z), -Vec3::Y, 400.0).filter(|h| h.2.y > 0.55).map(|h| h.1.y);
+    let open = |a: Vec3, b: Vec3| physics.raycast(a, (b - a).normalize_or(Vec3::X), (b - a).length()).is_none();
+    let mut out = String::new();
+    for j in -cells..=cells {
+        for i in -cells..=cells {
+            let (x, z) = (center.x + i as f32 * STEP, center.z + j as f32 * STEP);
+            let c = match ground(x, z) {
+                None => 'x',
+                Some(h) if h > center.y + 8.0 => '^',
+                Some(h) if h < center.y - 8.0 => 'v',
+                Some(h) => {
+                    let p = Vec3::new(x, h + 5.0, z);
+                    let w = !open(p, p - Vec3::X * STEP);
+                    let n = !open(p, p - Vec3::Z * STEP);
+                    match (w, n) {
+                        (true, true) => '+',
+                        (true, false) => '|',
+                        (false, true) => '-',
+                        _ => '.',
+                    }
+                }
+            };
+            out.push(c);
+        }
+        out.push('\n');
+    }
+    out
+}
+
+/// Whether the walker fits along a straight walk from `a` to `b` (knee height), for the waypoints: a ray down the
+/// middle and one each side at CLEARANCE (Roman's collision radius is 4: with a middle ray only, walks between
+/// waypoints four cells apart cut corners and snagged on trees and wall ends).
+fn walkable(physics: &Physics, a: Vec3, b: Vec3) -> bool {
+    let v = b - a;
+    let dir = v.normalize_or(Vec3::X);
+    let side = Vec3::new(-dir.z, 0.0, dir.x).normalize_or_zero() * CLEARANCE;
+    [Vec3::ZERO, side, -side].iter().all(|o| physics.raycast(a + *o, dir, v.length()).is_none())
 }

@@ -755,7 +755,7 @@ pub(crate) fn control(
             r.jump_wind = if w <= 0.0 || r.dead { None } else { Some(w) };
             take_off = w <= 0.0 && !r.dead;
         }
-        if r.on_ground && r.jump_wind.is_none() && !take_off && !r.jumping && (ctl.pressed(crate::input::Act::Jump) || (bot.veer > 0.0 && bot.goto.is_some())) && !r.dead {
+        if r.on_ground && r.jump_wind.is_none() && !take_off && !r.jumping && (ctl.pressed(crate::input::Act::Jump) || bot.jump) && !r.dead {
             if Vec2::new(r.vel.x, r.vel.z).length() > 20.0 {
                 take_off = true;
             } else {
@@ -1052,7 +1052,7 @@ fn weapons(
                 _ => from,
             };
             let dir = match aim_point {
-                Some(p) if !(bot.fight && bot.fire_ok) && (p - from).length() > 1.0 => (p - from).normalize_or(dir),
+                Some(p) if (p - from).length() > 1.0 => (p - from).normalize_or(dir),
                 _ => dir,
             };
             // the machine gun's scatter (0x0047f4e0): the target point moves by a random offset in [-s, s] per axis,

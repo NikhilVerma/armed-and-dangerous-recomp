@@ -168,6 +168,26 @@ impl CameraRig {
     pub fn pitch_limits(&self) -> (f32, f32) {
         (self.pitch.0 + REST_PITCH, self.pitch.1 + REST_PITCH)
     }
+
+    /// The look yaw and pitch (Roman::yaw / pitch) that put the unzoomed follow camera's crosshair on `point` for
+    /// Roman at `feet`: the crosshair's ray runs from the eye through the look point (follow_camera), so the look point
+    /// must see `point` along the arm reversed. (For the playtest bot, which aims as a player does: crosshair on target.)
+    pub fn look_at(&self, feet: Vec3, point: Vec3) -> (f32, f32) {
+        let node = self.follow;
+        // the view direction at rest (pitch REST_PITCH), in Roman's frame: from the eye to the look point
+        let rest = (node.target - node.eye).normalize_or(Vec3::NEG_Z);
+        let rest_yaw = (-rest.x).atan2(-rest.z);
+        let rest_elev = rest.y.atan2(rest.with_y(0.0).length());
+        // the look point moves with the yaw: a few fixed-point steps (one when the nodes are centred)
+        let mut yaw = { let d = point - feet; (-d.x).atan2(-d.z) };
+        let mut to = point - feet;
+        for _ in 0..3 {
+            to = point - (feet + Quat::from_rotation_y(yaw) * node.target);
+            yaw = (-to.x).atan2(-to.z) - rest_yaw;
+        }
+        let elev = to.y.atan2(to.with_y(0.0).length());
+        (yaw, elev - rest_elev + REST_PITCH)
+    }
 }
 
 /// One step of 0x0040fd50: the time counts down by dt; the view is the target blended with the last view shown by
