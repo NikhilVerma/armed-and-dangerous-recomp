@@ -1,0 +1,8 @@
+{"scene": "lev_2_m2", "steps": [
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 3.5}, {"tap": "Enter"}, {"wait": 1.0},
+ {"expect": {"ai.q112": 1}},
+ {"spawn": [-248, 169, -25], "template": "q112"},
+ {"wait": 8.0},
+ {"expect": {"ai.q112": 2, "ai.near.kind": "Q112", "ai.near.mind": "Fire", "ai.near.targets_player": true}},
+ {"quit": true}
+]}

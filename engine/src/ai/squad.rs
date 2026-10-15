@@ -72,9 +72,6 @@ pub struct Squad {
     pub goliath_slot: Option<Vec3>,
     /// the members still to make: (template, offset), made on the first frame (spawn_grunts links them)
     pub pending: Vec<(&'static str, Vec3)>,
-    /// playtest log: halts, charges
-    pub halts: usize,
-    pub charged: usize,
 }
 
 impl Squad {
@@ -117,8 +114,6 @@ impl Squad {
             goliath: None,
             goliath_slot: bone("ref_goliath_00"),
             pending,
-            halts: 0,
-            charged: 0,
         }
     }
 
@@ -142,7 +137,7 @@ pub fn member_goal(sq: &Squad, link: SquadLink, pos: Vec3, move_speed: f32) -> (
 }
 
 /// SquadObject_Slot143 0x00433c70: halt, charge, tell the group.
-fn alert(sq: &mut Squad, target: Entity, grunts: &mut Query<(Entity, &mut Grunt, &Health)>, rng: &mut FxStats) {
+fn alert(sq: &mut Squad, target: Entity, grunts: &mut Query<(Entity, &mut Grunt, &Health)>, rng: &mut FxStats, stats: &mut super::AiStats) {
     let t = rng.range(sq.resume.0, sq.resume.1);
     if t > sq.halt {
         sq.halt = t;
@@ -150,7 +145,7 @@ fn alert(sq: &mut Squad, target: Entity, grunts: &mut Query<(Entity, &mut Grunt,
     if sq.phase != SquadPhase::Halted {
         sq.resume_phase = sq.phase;
         sq.phase = SquadPhase::Halted;
-        sq.halts += 1;
+        stats.squad_halts += 1;
         info!("EVENT ai: squad halts ({} members)", sq.members.len());
     }
     if sq.charge <= 0.0 {
@@ -173,7 +168,7 @@ fn alert(sq: &mut Squad, target: Entity, grunts: &mut Query<(Entity, &mut Grunt,
             sent += 1;
             false
         });
-        sq.charged += sent;
+        stats.squad_charged += sent;
         if sent > 0 {
             info!("EVENT ai: squad sends {sent} to charge");
         }
@@ -202,7 +197,7 @@ pub fn update_squads(
     markers: Res<crate::alarm::Markers>,
     mut triggers: MessageReader<crate::mission::SendTrigger>,
     mut spawn: MessageWriter<crate::level::SpawnGrunt>,
-    (mut rng, physics): (ResMut<FxStats>, NonSend<Physics>),
+    (mut rng, physics, mut stats): (ResMut<FxStats>, NonSend<Physics>, ResMut<super::AiStats>),
 ) {
     let dt = time.delta_secs();
     let got: Vec<i64> = triggers.read().map(|t| t.0).collect();
@@ -252,7 +247,7 @@ pub fn update_squads(
                 sq.halt = 0.0;
                 sq.charge = 0.0;
                 if let Some(p) = pe {
-                    alert(&mut sq, p, &mut grunts, &mut rng);
+                    alert(&mut sq, p, &mut grunts, &mut rng, &mut stats);
                 }
             }
         }
@@ -274,7 +269,7 @@ pub fn update_squads(
         }
         if hurt {
             if let Some(p) = pe {
-                alert(&mut sq, p, &mut grunts, &mut rng);
+                alert(&mut sq, p, &mut grunts, &mut rng, &mut stats);
             }
         }
         match sq.phase {
@@ -285,7 +280,7 @@ pub fn update_squads(
                     sq.scan_timer = rng.range(0.75, 1.25);
                     if let Some(p) = pe {
                         if (pp - sq.pos).with_y(0.0).length() <= sq.scan && super::line_of_sight(&physics, sq.pos, pp) {
-                            alert(&mut sq, p, &mut grunts, &mut rng);
+                            alert(&mut sq, p, &mut grunts, &mut rng, &mut stats);
                         }
                     }
                 }
@@ -335,7 +330,7 @@ pub fn update_squads(
                     match (fighting, sq.target.or(pe)) {
                         (true, Some(t)) => {
                             sq.halt = rng.range(sq.resume.0, sq.resume.1);
-                            alert(&mut sq, t, &mut grunts, &mut rng);
+                            alert(&mut sq, t, &mut grunts, &mut rng, &mut stats);
                         }
                         _ => {
                             sq.target = None;
@@ -354,7 +349,7 @@ pub fn update_squads(
 
 /// The playtest state's `squad`: squads, the first's phase, members in squads, halts and charges so far, members
 /// following (state 0xdc, walking), members fighting in place (0xdd).
-pub fn log_squads(squads: Query<&Squad>, grunts: Query<&Grunt>, state: Option<ResMut<crate::playtest::PlayState>>) {
+pub fn log_squads(squads: Query<&Squad>, grunts: Query<&Grunt>, state: Option<ResMut<crate::playtest::PlayState>>, stats: Res<super::AiStats>) {
     let Some(mut state) = state else { return };
     let first = squads.iter().next();
     state.0.insert(
@@ -363,8 +358,8 @@ pub fn log_squads(squads: Query<&Squad>, grunts: Query<&Grunt>, state: Option<Re
             "count": squads.iter().count(),
             "phase": first.map(|s| format!("{:?}", s.phase)).unwrap_or_default(),
             "members": squads.iter().map(|s| s.members.len()).sum::<usize>(),
-            "halts": squads.iter().map(|s| s.halts).sum::<usize>(),
-            "charged": squads.iter().map(|s| s.charged).sum::<usize>(),
+            "halts": stats.squad_halts,
+            "charged": stats.squad_charged,
             "marching": grunts.iter().filter(|g| g.squad.is_some() && g.walking).count(),
             "fighting": grunts.iter().filter(|g| g.squad.is_some() && g.mind == Mind::Fire).count(),
         }),

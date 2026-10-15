@@ -773,6 +773,18 @@ pub fn spawn(
                 physics.materials.insert(id, p.s("material").unwrap_or("grunt").to_owned());
                 let mut g = ai::make_grunt(&p, data, ai::Kind::of(&inst.template), pos, window_yaw.unwrap_or(yaw), &mut rng);
                 g.cold = ai::cold_level(&lib_dir);
+                // mode bully: the peasant whose tag is obj_tag (the peasant list +0xef8)
+                if mode == "bully" {
+                    let tag = p.i("obj_tag", 0);
+                    let peasant = scene.instances.iter().find(|h| {
+                        tag != 0 && h.props.get("tag").and_then(|v| v.as_i64()) == Some(tag) && data.template_props(&h.template).s("behavior") == Some("peasant")
+                    });
+                    match peasant {
+                        Some(h) => g.bully = Some(ai::bully::Bully::new(h.id, &mut rng)),
+                        None => warn!("ai: bully {} finds no peasant of tag {tag}: ready roaming", inst.id),
+                    }
+                    g.attention = false;
+                }
                 // mode turret: the gun whose tag is obj_tag (the turret list +0xea8: stig_mgun / forge_cannon)
                 if mode == "turret" {
                     let tag = p.i("obj_tag", 0);

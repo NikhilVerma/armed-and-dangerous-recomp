@@ -632,6 +632,12 @@ fn grunts(
             a.stop(1);
             continue;
         }
+        // a bully scaring his peasant (grunt_scare, anim 0x7d: bully.rs)
+        if g.bully.is_some_and(|b| b.scaring.is_some()) {
+            a.play(0, name(&g, 0x7d, 0.0), false, Mask::All);
+            a.stop(1);
+            continue;
+        }
         // turning toward the target before firing (0x0042e050)
         if let (Some((n, _)), Mind::Fire) = (g.turn, g.mind) {
             a.play(0, n, false, Mask::All);
@@ -707,6 +713,9 @@ fn grunts(
             Mind::Reload => (name(&g, 0x29, 0.0).to_owned(), false),
             Mind::Flee => (name(&g, 11, 0.0).to_owned(), true),
             Mind::Chase | Mind::ToMarker | Mind::Wander => (mover(&g).to_owned(), true),
+            // a monk's teleport (anim 0x6b monk_turbo) and his cast (0x26)
+            Mind::Teleport => (name(&g, 0x6b, 0.0).to_owned(), true),
+            Mind::Cast => (name(&g, 0x26, 0.0).to_owned(), false),
             // a squad member: the march (0xe) while the squad moves, else attention (0xf)
             Mind::InSquad => (name(&g, if g.walking { 0xe } else { 0xf }, 0.0).to_owned(), true),
             // a jumper's flight (0xc4 / 0xc5: captain_jumper_forward 0x6b; the glide 0xbd: its set by the aim weights)

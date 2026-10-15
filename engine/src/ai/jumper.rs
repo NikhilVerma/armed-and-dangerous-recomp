@@ -37,6 +37,8 @@ pub struct Jumper {
     pub anti_gravity: f32,
     /// turbo_glide_anti_gravity x 0.5 (+0xb04, default +0xaec x 0.25): the glide's gravity scale
     pub glide_anti_gravity: f32,
+    /// turbo_force +0xae8 (175): the hop's kick
+    pub force: f32,
     /// turbo_glide_xyvel +0xaf8, turbo_glide_zvel +0xafc, turbo_glide_fwd_max_speed +0xaf4
     pub glide_xyvel: f32,
     pub glide_zvel: f32,
@@ -53,6 +55,8 @@ pub struct Jumper {
     pub goal: Vec3,
     /// the markers left last (+0x918 / +0x91c): skipped by the next choice
     pub history: [Option<Entity>; 2],
+    /// the pursuit's walk before a glide launch (state 0xbc, +0x490): its time left
+    pub walk: Option<f32>,
 }
 
 impl Jumper {
@@ -62,6 +66,7 @@ impl Jumper {
         Jumper {
             anti_gravity: anti,
             glide_anti_gravity: p.f("turbo_glide_anti_gravity", anti * 0.25) * 0.5,
+            force: p.f("turbo_force", 175.0),
             glide_xyvel: p.f("turbo_glide_xyvel", 30.0),
             glide_zvel: p.f("turbo_glide_zvel", 10.0),
             glide_fwd_max: p.f("turbo_glide_fwd_max_speed", 4.0),
@@ -73,6 +78,7 @@ impl Jumper {
             marker: None,
             goal: Vec3::ZERO,
             history: [None; 2],
+            walk: None,
         }
     }
 
@@ -84,6 +90,61 @@ impl Jumper {
             None => GRAVITY,
         }
     }
+
+    /// The launch to a marker (0x0042b480's success): the ballistic velocity at twice the move speed under the jet's
+    /// gravity, +0x484 |= 0x10000010, state 0xc4 (`closer`) or 0xc5.
+    pub fn start(&mut self, from: Vec3, marker: Entity, to: Vec3, closer: bool, move_speed: f32) {
+        self.flight = Some(if closer { Flight::ToGlide } else { Flight::Jump });
+        self.vel = launch(from, to, 2.0 * move_speed, self.anti_gravity * GRAVITY);
+        self.marker = Some(marker);
+        self.goal = to;
+    }
+
+    /// The glide launch toward a point (0x0042a2c0 from state 0xbc): within 50 (2D) a hop (the velocity cleared and
+    /// an upward kick of turbo_force x 0.25 per unit mass), else the ballistic launch at turbo_glide_xyvel under the
+    /// glide's gravity with the wings out (+0x484 0x30000000, state 0xbd).
+    pub fn glide(&mut self, from: Vec3, to: Vec3) {
+        self.marker = None;
+        self.goal = to;
+        if (to - from).with_y(0.0).length_squared() < 2500.0 {
+            self.flight = Some(Flight::Jump);
+            self.vel = Vec3::Y * self.force * 0.25;
+        } else {
+            self.flight = Some(Flight::Glide);
+            self.vel = launch(from, to, self.glide_xyvel, self.glide_anti_gravity * GRAVITY);
+        }
+    }
+
+    /// One frame of the flight: gravity by phase; 0xc4 once falling re-aims into the glide (ai_06.cpp:2393-2430);
+    /// falling onto something (`grounded`: the contact of GenericAIObject_Slot44 0x004320b0 with vz <= 0) lands.
+    pub fn step(&mut self, pos: Vec3, dt: f32, grounded: bool) -> FlightStep {
+        self.vel.y -= self.gravity() * dt;
+        if self.flight == Some(Flight::ToGlide) && self.vel.y < 0.0 {
+            let h = glide_speed(pos, self.goal, self.glide_anti_gravity * GRAVITY);
+            let d = (self.goal - pos).with_y(0.0).normalize_or_zero() * h;
+            self.vel = Vec3::new(d.x, self.vel.y, d.z);
+            self.flight = Some(Flight::Glide);
+            return FlightStep::WingsOut;
+        }
+        if self.vel.y <= 0.0 && grounded {
+            // 0x0042e1c0: the turbo stopped; the marker becomes the last one left (+0x918 / +0x91c)
+            self.flight = None;
+            self.vel = Vec3::ZERO;
+            self.history = [self.marker.take(), self.history[0]];
+            return FlightStep::Landed;
+        }
+        FlightStep::Flying
+    }
+}
+
+/// What a flight's frame did.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum FlightStep {
+    Flying,
+    /// 0xc4 -> 0xbd: the wings out (Jumper_PlayWingSounds 0x0047bb30)
+    WingsOut,
+    /// on the ground: the landing anim (0x6c captain_jumper_land, state 0xbf)
+    Landed,
 }
 
 /// A marker as the choice sees it.

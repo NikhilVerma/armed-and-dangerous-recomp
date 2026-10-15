@@ -1,0 +1,11 @@
+{"scene": "lev_3_m1", "steps": [
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 3.5}, {"tap": "Enter"}, {"wait": 1.0},
+ {"expect": {"ai.captains": 23, "ai.jumpers": 14, "ai.rockets": 6, "ai.snipers": 6, "ai.flying": 0, "ai.jumps": 0}},
+ {"loadout": {"health": 400}},
+ {"warp": [108, -365, 915, 0]},
+ {"wait": 1.5},
+ {"warp": [-253, -726, 915, 45]},
+ {"wait": 10.0},
+ {"expect": {"ai.jumps": [1, 14], "ai.landings": [1, 14]}},
+ {"quit": true}
+]}

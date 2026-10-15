@@ -12,7 +12,9 @@
 //!   Object_IsInViewCone 0x00455d90 and the sight ray), the alert groups, retaliation 0x0042c820.
 //! Functions this port does not cite are explained in docs/port/ai.csv (replaced by the engine, or not needed).
 
+pub mod bully;
 pub mod jumper;
+pub mod monk;
 pub mod squad;
 
 pub use jumper::{JumpMarker, Jumper};
@@ -62,6 +64,10 @@ pub enum Mind {
     InSquad,
     /// states 0xc4 / 0xc5 / 0xbd: a jumper captain flying to a jump marker (jumper.rs `Flight`)
     Jump,
+    /// state 0xf0: a monk's teleport flight (MonkObject_Bamf 0x00436bb0) to `Grunt::goal`
+    Teleport,
+    /// state 0xf1: a monk casting the basket rain (anim 0x26 cast_spell_1)
+    Cast,
 }
 
 /// The grunt classes a lev_1_m1 template makes (counted in the coverage runs: BowGruntObject_Slot6 0x004347b0 runs 9
@@ -82,6 +88,12 @@ pub enum Kind {
     /// (0x004348a0: the captain_snipergun, weapon index 0x12, at ref_chest), the anim table (0x0043b110), no close attack
     /// (vt+0x1e0 0x00435250) and SetTarget (vt+0x23c 0x00434930: the gun raised to the eye, `Grunt::aiming`)
     Sniper,
+    /// Q112Object 0x005a2440 (`q112`): a heavy chaingun grunt (init 0x00435090: q112_chaingun, index 0x13, at
+    /// ref_chaingun; the fire anim loops; bullets scaled by bullet_scale), anims 0x0043c330
+    Q112,
+    /// MonkObject 0x005aac28 (`monk`): monk_gun (0x19) at ref_shoot_00 (init 0x004369a0), anims 0x0043cb40, the special
+    /// roll vt+0x220 0x00437130 and the teleport MonkObject_Bamf 0x00436bb0 as its hiding-spot search
+    Monk,
 }
 
 impl Kind {
@@ -96,6 +108,8 @@ impl Kind {
             "grunt_regular" => Some(Kind::Grunt),
             "captain" => Some(Kind::Captain),
             "captain_sniper" => Some(Kind::Sniper),
+            "q112" => Some(Kind::Q112),
+            "monk" => Some(Kind::Monk),
             _ => None,
         }
     }
@@ -103,13 +117,21 @@ impl Kind {
     pub fn captain_like(self) -> bool {
         matches!(self, Kind::Captain | Kind::Sniper)
     }
-    /// vt+0x1f4: may take a trench (0x00429f00); the archers may not
+    /// vt+0x1f4: may take a trench (0x00429f00); the archers, the Q112 and the monk may not
     pub fn uses_trenches(self) -> bool {
-        self != Kind::Bow
+        !matches!(self, Kind::Bow | Kind::Q112 | Kind::Monk)
     }
-    /// vt+0x1f0: may man a mounted gun (0x0042a100); the captains (and snipers) may not
+    /// vt+0x218: the turn anims before firing (0x0042e050): the grunts and archers only
+    pub fn turns(self) -> bool {
+        matches!(self, Kind::Grunt | Kind::Bow)
+    }
+    /// vt+0x1d8: the taunt after the last burst: not the Q112 nor the monk
+    pub fn taunts(self) -> bool {
+        !matches!(self, Kind::Q112 | Kind::Monk)
+    }
+    /// vt+0x1f0: may man a mounted gun (0x0042a100); the captains (and snipers), the Q112 and the monk may not
     pub fn uses_guns(self) -> bool {
-        !self.captain_like()
+        matches!(self, Kind::Grunt | Kind::Bow)
     }
     /// vt+0x1e0: the close attack of the engage roll (0x00427910: anim 0x27, state 0x10), the captain's grenade
     pub fn close_attack(self) -> bool {
@@ -119,14 +141,15 @@ impl Kind {
     pub fn spray(self) -> bool {
         self.captain_like()
     }
-    /// vt+0x200: the all-fours reaction when the health falls past allfours_pct (anim 0x35, state 300)
+    /// vt+0x200: the all-fours reaction when the health falls past allfours_pct (anim 0x35, state 300); the Q112's
+    /// knees
     pub fn allfours(self) -> bool {
-        self.captain_like()
+        self.captain_like() || self == Kind::Q112
     }
     /// vt+0x1cc: the chase engages on the ray alone (state 0x3c); without it the target must first be within
-    /// +0x5d8 x K(0x005bcc38) (the archers)
+    /// +0x5d8 x K(0x005bcc38) (the archers, the Q112)
     pub fn chase_ray_only(self) -> bool {
-        self != Kind::Bow
+        !matches!(self, Kind::Bow | Kind::Q112)
     }
     /// The weapon template held (0x004a0ef0's index -> the weapon table, game_01.cpp:600)
     pub fn weapon(self) -> &'static str {
@@ -135,6 +158,8 @@ impl Kind {
             Kind::Bow => "grunt_bow",
             Kind::Captain => "captain_mg",
             Kind::Sniper => "captain_snipergun",
+            Kind::Q112 => "q112_chaingun",
+            Kind::Monk => "monk_gun",
         }
     }
     /// The bone level.rs hangs the weapon model from: the sniper's gun at ref_chest (0x004348a0: 0x004a0ea0 with
@@ -143,6 +168,8 @@ impl Kind {
     pub fn weapon_bone(self) -> &'static str {
         match self {
             Kind::Sniper => "ref_chest",
+            Kind::Q112 => "ref_chaingun",
+            Kind::Monk => "ref_shoot_00",
             _ => "ref_rhand",
         }
     }
@@ -474,6 +501,66 @@ pub fn anim_name_with(kind: Kind, id: u32, r: f32, fl: AnimFlags) -> &'static st
             118 => "captain_idle_base_3",
             _ => "captain_error_anim",
         },
+        // Q112Object 0x0043c330 (the ids it does not list: q112_anim_error)
+        Kind::Q112 => match id {
+            0 => "q112_aim_tl",
+            1 => "q112_aim_tr",
+            2 => "q112_aim_bl",
+            3 => "q112_aim_br",
+            4 => "q112_turn",
+            8 | 9 => "q112_run",
+            10 => "q112_walk_scan",
+            14 => "q112_march",
+            15 => "q112_stand_attention",
+            18 | 21 | 22 => "q112_stand_scan_3",
+            19 | 23 | 25 => "q112_stand_scan_1",
+            20 | 24 | 26 => "q112_stand_scan_2",
+            33 => "q112_fire_tl",
+            34 => "q112_fire_tr",
+            35 => "q112_fire_bl",
+            36 => "q112_fire_br",
+            40 => "q112_reload_tl",
+            41 => "q112_reload_tr",
+            42 => "q112_reload_bl",
+            43 => "q112_reload_br",
+            53 => "q112_hit_to_knees",
+            54 | 75..=79 => "q112_hit_knees_breathe",
+            55 => "q112_hit_knees_die",
+            56 => "q112_hit_knees_standup",
+            67 | 68 => "q112_hit_med",
+            69 | 70 => "q112_hit_big",
+            71 => "q112_hit_head",
+            72 => "q112_hit_head_2",
+            73 | 74 | 97 | 98 => "q112_fall",
+            80 | 83 => "q112_die",
+            81 | 84 => "q112_die_2",
+            82 | 85 => "q112_die_3",
+            89 => "q112_walk",
+            95 | 96 => "q112_gun_hit",
+            99 => "q112_land",
+            _ => "q112_anim_error",
+        },
+        // MonkObject 0x0043cb40 (the rest: monk_anim_error)
+        Kind::Monk => match id {
+            0..=3 | 15 | 40..=43 => "monk_stand",
+            4 | 8..=10 | 14 | 89 => "monk_walk",
+            18 | 21 | 22 => "monk_scan_3",
+            19 | 23 | 25 => "monk_scan_1",
+            20 | 24 | 26 => "monk_scan_2",
+            33..=36 => "monk_fire",
+            37 => "monk_cast_spell_2",
+            38 => "monk_cast_spell_1",
+            71 | 72 => "monk_hit_head_shot",
+            80 | 83 => "monk_die_1",
+            81 | 84 => "monk_die_2",
+            82 | 85 | 93 => "monk_die_3",
+            92 | 97 | 98 => "monk_fall",
+            107 => "monk_turbo",
+            113 => "monk_hang_into",
+            114 => "monk_hanging",
+            115 => "monk_blown_up_into",
+            _ => "monk_anim_error",
+        },
         // SniperCaptain 0x0043b110: the captain's table but for these (the exe's names are matched case-blind:
         // "Captain_sniper_aim_tl" is the export's captain_sniper_aim_tl)
         Kind::Sniper => match id {
@@ -804,6 +891,12 @@ pub struct Grunt {
     pub reload_len: f32,
     /// seconds since his last shot (charanim.rs: a one-shot fire anim, then the aim set)
     pub shot_age: f32,
+    /// the share of a bullet's damage he takes (player.rs; the Q112's bullet_scale)
+    pub bullet_scale: f32,
+    /// a monk's special counter and teleport (monk.rs)
+    pub monk: Option<monk::Monk>,
+    /// mode bully: his peasant and the scares (bully.rs)
+    pub bully: Option<bully::Bully>,
 }
 
 impl Grunt {
@@ -812,7 +905,7 @@ impl Grunt {
         anim_name_with(self.kind, id, r, self.anim_flags())
     }
     pub fn anim_flags(&self) -> AnimFlags {
-        AnimFlags { cold: self.cold, rocket: self.rocket, glide: false, aiming: self.aiming }
+        AnimFlags { cold: self.cold, rocket: self.rocket, glide: self.jumper.is_some_and(|j| j.flight == Some(jumper::Flight::Glide)), aiming: self.aiming }
     }
 }
 
@@ -851,6 +944,9 @@ pub struct AiStats {
     /// jumps to a marker started, landings
     pub jumps: usize,
     pub landings: usize,
+    /// squads halted by a target, members sent to charge (squad.rs)
+    pub squad_halts: usize,
+    pub squad_charged: usize,
 }
 
 /// Sticky bomb stuck at a point (game_07.cpp:1240: AI within 25 units are scared).
@@ -916,7 +1012,8 @@ impl Plugin for AiPlugin {
             .add_message::<StickyStuck>()
             .init_resource::<GrenadeAssets>()
             .init_level_resource::<Interests>()
-            .add_systems(Update, (squad::update_squads, interests, search, scare, think, die, dismay, log_cover, log_ai, squad::log_squads, grenades).chain().after(crate::fx::FxSet));
+            .init_level_resource::<bully::BullyLines>()
+            .add_systems(Update, (squad::update_squads, interests, search, scare, think, bully::bullies, die, dismay, log_cover, log_ai, squad::log_squads, grenades).chain().after(crate::fx::FxSet));
     }
 }
 
@@ -994,6 +1091,12 @@ fn log_ai(
             "rocket_shots": stats.rocket_shots,
             "glide_shots": stats.glide_shots,
             "jumps": stats.jumps,
+            "bullies": count(&|g| g.bully.is_some()),
+            "on_guns": count(&|g| g.gun.is_some_and(|x| x.phase == GunPhase::On)),
+            "scares": live.iter().filter_map(|(_, g, _)| g.bully).map(|b| b.scares).sum::<u32>(),
+            "q112": count(&|g| g.kind == Kind::Q112),
+            "monks": count(&|g| g.kind == Kind::Monk),
+            "teleporting": count(&|g| g.mind == Mind::Teleport),
             "landings": stats.landings,
             "archers": count(&|g| g.kind == Kind::Bow),
             "attention": count(&|g| g.attention),
@@ -1173,8 +1276,13 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
             Kind::Grunt => 1.133,
             Kind::Bow => 1.3,
             Kind::Captain => 2.3,
-            Kind::Sniper => 0.0,
+            _ => 0.0,
         },
+        // bullet_scale +0xb58 (Q112 init 0x00435090, default 0.5): bullets (damage flag 0x400) hurt him this much
+        // (vt+0xd0 0x00435170); the other classes take them whole
+        bullet_scale: if kind == Kind::Q112 { p.f("bullet_scale", 0.5) } else { 1.0 },
+        monk: (kind == Kind::Monk).then(|| monk::Monk::new(rng)),
+        bully: None,
         shot_age: f32::INFINITY,
     }
 }
@@ -1493,6 +1601,24 @@ pub fn sight_ray(physics: &Physics, from_hit: Vec3, target: Vec3, skip: &[BodyId
     true
 }
 
+/// What is under a character's feet within `depth` (his own body passed through: the feet are 0.3 under his capsule's
+/// bottom, so the ray starts inside it).
+pub fn ground_below(physics: &Physics, feet: Vec3, depth: f32, own: BodyId) -> Option<BodyId> {
+    let mut from = feet + Vec3::Y * 1.0;
+    let mut left = depth + 1.0;
+    while let Some((b, at, _)) = physics.raycast(from, -Vec3::Y, left) {
+        if b != own {
+            return Some(b);
+        }
+        left -= from.y - at.y + 0.05;
+        from = at - Vec3::Y * 0.05;
+        if left <= 0.0 {
+            break;
+        }
+    }
+    None
+}
+
 pub fn line_of_sight(physics: &Physics, from_feet: Vec3, to_feet: Vec3) -> bool {
     let eye = from_feet + Vec3::Y * 8.0;
     let aim = to_feet + Vec3::Y * 7.0;
@@ -1599,6 +1725,9 @@ impl Hide {
         match self {
             Hide::Cover => Some(Mind::Cover),
             Hide::Gunner => Some(Mind::Gunner),
+            Hide::Teleport => Some(Mind::Teleport),
+            Hide::Engage => Some(Mind::Fire),
+            Hide::Rest => Some(Mind::Roam),
             _ => None,
         }
     }
@@ -1794,6 +1923,12 @@ enum Hide {
     Reload,
     /// pursue (vt+0x184 0x004295d0)
     Pursue,
+    /// a monk's teleport (MonkObject_Bamf 0x00436bb0: state 0xf0 to `Grunt::goal`)
+    Teleport,
+    /// a monk with specials left re-engages (vt+0x230 0x00427910: in range the fire state)
+    Engage,
+    /// ... else state 1
+    Rest,
 }
 
 /// Leaves a held trench: vt+0x188 0x004273a0 (history: +0x918 = the trench, the older two cleared, as without flag
@@ -1827,6 +1962,25 @@ fn leave_cover(g: &mut Grunt, me: Entity, trenches: &mut [TrenchView], history: 
 /// - nothing: flag 4 set -> pursue (vt+0x184), else the reload in place (state 0x32).
 #[allow(clippy::too_many_arguments)]
 fn find_hiding_spot(g: &mut Grunt, me: Entity, (need_target, hold): (bool, bool), pos: Vec3, target: Option<(Vec3, Vec3)>, spots: &mut Spots, physics: &Physics, own: BodyId, rng: &mut FxStats) -> Hide {
+    // a monk's search is MonkObject_Bamf 0x00436bb0: with specials left he re-engages (in range) or rests; at 0 he
+    // teleports round the target (or the player: here the target only)
+    if let Some(m) = g.monk.as_mut() {
+        if m.special > 0 {
+            return match target {
+                Some((p, _)) if (p - pos).with_y(0.0).length() <= g.range => Hide::Engage,
+                _ => Hide::Rest,
+            };
+        }
+        let Some((p, _)) = target else { return Hide::Rest };
+        return match monk::bamf_point(p, physics, rng) {
+            Some(to) => {
+                m.flight_t = 0.0;
+                g.goal = to;
+                Hide::Teleport
+            }
+            None => Hide::Rest,
+        };
+    }
     let flag4 = g.fire_ready;
     if !flag4 && target.is_some() && rng.rand() < 0.9 {
         return Hide::Reload;
@@ -1900,6 +2054,9 @@ fn hide_to_mind(g: &mut Grunt, h: Hide) -> Mind {
             Mind::Reload
         }
         Hide::Pursue => Mind::Chase,
+        Hide::Teleport => Mind::Teleport,
+        Hide::Engage => Mind::Fire,
+        Hide::Rest => Mind::Roam,
     }
 }
 
@@ -2303,12 +2460,13 @@ fn think(
         Res<crate::turret::Mounted>,
         Res<crate::gamedata::GameData>,
     ),
-    (mut lib, player_q, mut triggers, grenade_assets, squads): (
+    (mut lib, player_q, mut triggers, grenade_assets, squads, mut jmarks): (
         ResMut<crate::skin::AnimLibrary>,
         Query<Entity, With<Player>>,
         MessageWriter<crate::mission::SendTrigger>,
         Option<Res<GrenadeAssets>>,
         Query<&squad::Squad>,
+        Query<(Entity, &mut JumpMarker, &Transform), Without<Grunt>>,
     ),
 ) {
     let t0 = Instant::now();
@@ -2341,6 +2499,10 @@ fn think(
         })
         .collect();
     let mut spots = Spots { trenches: views, guns: gun_views };
+    // the jump markers (World+0xf10) as the jumpers' choice sees them; their occupants written back at the end
+    let mut jviews: Vec<jumper::MarkerView> =
+        jmarks.iter().map(|(e, m, t)| jumper::MarkerView { e, pos: t.translation, tag: m.tag, free: m.occupant.is_none() }).collect();
+    let mut joccupy: Vec<(Entity, Option<Entity>)> = Vec::new();
     for (ge, mut g, mut body, mut tr, h, ga) in &mut grunts {
         g.me = Some(ge);
         if g.mind == Mind::Dead {
@@ -2579,18 +2741,20 @@ fn think(
         if g.force_hide {
             g.force_hide = false;
             g.fire_ready = true;
-            g.mind = match find_hiding_spot(&mut g, ge, (true, false), pos, tgt, &mut spots, &physics, body.id, &mut rng) {
-                Hide::Cover => Mind::Cover,
-                Hide::Gunner => Mind::Gunner,
-                Hide::Pursue => Mind::Chase,
+            let h = find_hiding_spot(&mut g, ge, (true, false), pos, tgt, &mut spots, &physics, body.id, &mut rng);
+            g.mind = match h {
                 Hide::Reload => Mind::Reload,
+                h => hide_to_mind(&mut g, h),
             };
             info!("EVENT ai: cover search -> {:?}", g.mind);
         }
         // the one-shot fire and reload anims' lengths of the classes whose cycle follows its anims (the sniper, the
         // rocket captain)
         if g.fire_len <= 0.0 {
-            g.fire_len = anim_len(&mut lib, g.anim(0x23, 0.0));
+            // a shot per "fire" note: the anim's length over its notes (a looped chaingun set has several)
+            let n = g.anim(0x23, 0.0);
+            let notes = lib.anim(n).map(|a| a.notes.iter().filter(|x| x.1.trim().eq_ignore_ascii_case("fire")).count()).unwrap_or(0).max(1);
+            g.fire_len = anim_len(&mut lib, n) / notes as f32;
         }
         if g.reload_len <= 0.0 {
             g.reload_len = anim_len(&mut lib, g.anim(0x29, 0.0));
@@ -2625,6 +2789,9 @@ fn think(
         let was = g.mind;
         g.mind = match (g.mind, target) {
             (Mind::InSquad, _) if !squad_fight => Mind::InSquad,
+            (Mind::Jump, _) if g.jumper.is_some_and(|j| j.flight.is_some()) => Mind::Jump,
+            (Mind::Teleport, _) => Mind::Teleport,
+            (Mind::Cast, _) => Mind::Cast,
             (Mind::ToMarker, _) => Mind::ToMarker,
             (Mind::Flee, _) if g.timer > 0.0 => Mind::Flee,
             // the scare's end charges the player (0x0042ce70)
@@ -2678,7 +2845,19 @@ fn think(
             (_, Some(_)) if in_range || g.guard => {
                 // engage 0x00427910 on coming into it: in range with flag 4, the close attack when the class has one
                 // (vt+0x1e0: the captain), allow_close_attack, flag 1 and rand * 200 >> 15 < 30; else the fire state 0xa
-                if was != Mind::Fire && g.kind.close_attack() && in_range && g.fire_ready && g.throw_armed && rng.rand() * 200.0 < 30.0 {
+                // a monk's roll first (vt+0x220 0x00437130): the basket rain, else the fire state (the twiglets: fire)
+                let act = match g.monk.as_mut() {
+                    Some(m) if was != Mind::Fire => m.roll(&mut rng),
+                    _ => monk::MonkAct::Fire,
+                };
+                if act == monk::MonkAct::Baskets {
+                    g.anim_id = 0x26;
+                    g.anim_left = anim_len(&mut lib, g.anim(0x26, 0.0));
+                    if let Some(m) = g.monk.as_mut() {
+                        m.cast = false;
+                    }
+                    Mind::Cast
+                } else if was != Mind::Fire && g.kind.close_attack() && in_range && g.fire_ready && g.throw_armed && rng.rand() * 200.0 < 30.0 {
                     g.anim_id = 0x27;
                     g.anim_left = anim_len(&mut lib, g.anim(0x27, 0.0));
                     g.thrown = false;
@@ -2695,12 +2874,67 @@ fn think(
             (Mind::Fire | Mind::Chase | Mind::Reload, None) => lost_target(&mut g, ge, &mut spots.trenches),
             _ => Mind::Roam,
         };
+        // a monk's pursuit is a teleport (vt+0x184 0x00436b90: +0xb58 = 0, then the bamf)
+        if g.mind == Mind::Chase && g.monk.is_some() {
+            if let Some(m) = g.monk.as_mut() {
+                m.special = 0;
+            }
+            let h = find_hiding_spot(&mut g, ge, (true, false), pos, tgt, &mut spots, &physics, body.id, &mut rng);
+            g.mind = hide_to_mind(&mut g, h);
+            if g.mind == Mind::Teleport {
+                info!("EVENT ai: monk {ge:?} teleports");
+            }
+        }
+        // a jumper captain's pursuit (vt+0x184 0x004295d0): +0x934 = a point within 20 of the target; on the ground
+        // (0x00454c20: vt+0xb8's contact, guess) state 0xbc, whose end (its walk of 0.2..0.4 s, +0x490) launches a
+        // glide there (0x0042a2c0: within 50 a hop, else the ballistic launch at turbo_glide_xyvel under the glide's
+        // gravity, the wings out, state 0xbd); in the air he flies to a jump marker (0x0042b480), none: the hiding-spot
+        // search
+        if g.mind == Mind::Chase && g.jumper.is_some_and(|j| j.flight.is_none()) {
+            if let Some(p) = target {
+                let ground = ground_below(&physics, pos, 3.0, body.id).is_some();
+                let to = p + Vec3::new(rng.range(-20.0, 20.0), 0.0, rng.range(-20.0, 20.0));
+                let (range, ms) = (g.range, g.move_speed);
+                let j = g.jumper.as_mut().expect("a jumper");
+                if ground {
+                    // the walk (0xbc) first, then the launch
+                    let left = j.walk.unwrap_or_else(|| rng.range(0.2, 0.4)) - dt;
+                    if left > 0.0 {
+                        j.walk = Some(left);
+                    } else {
+                        j.walk = None;
+                        j.glide(pos, to);
+                        stats.jumps += 1;
+                        g.mind = Mind::Jump;
+                        info!("EVENT ai: jumper {ge:?} takes off {:.0} from the target", (to - pos).with_y(0.0).length());
+                    }
+                } else {
+                    match jumper::pick_marker(j, pos, target, range, &jviews) {
+                        Some((i, closer)) => {
+                            let (m, at) = (jviews[i].e, jviews[i].pos);
+                            jviews[i].free = false;
+                            joccupy.push((m, Some(ge)));
+                            j.start(pos, m, at, closer, ms);
+                            g.mind = Mind::Jump;
+                            stats.jumps += 1;
+                            info!("EVENT ai: jumper {ge:?} jumps to a marker {:.0} away", (at - pos).with_y(0.0).length());
+                        }
+                        None => {
+                            let h = find_hiding_spot(&mut g, ge, (true, false), pos, tgt, &mut spots, &physics, body.id, &mut rng);
+                            g.mind = hide_to_mind(&mut g, h);
+                        }
+                    }
+                }
+            }
+        }
         // (the playtest log and the anims see the stance: at rest after a fight the stand set)
         if matches!(g.mind, Mind::Fire | Mind::Chase | Mind::Reload | Mind::Cover | Mind::Gunner | Mind::Throw) {
             g.attention = false;
         }
         let mut goal = pos;
         let mut speed = 0.0;
+        // a jumper in the air: his own velocity (jumper.rs), not the walk's
+        let mut fly: Option<Vec3> = None;
         // a hit reaction holds the grunt (states 0x12f..0x131)
         let reacting = g.hit.is_some() || g.pose.is_some();
         match if reacting { Mind::Dead } else { g.mind } {
@@ -2838,7 +3072,7 @@ fn think(
                         if *left <= 0.0 {
                             g.turn = None;
                         }
-                    } else if to.dot(fwd) < 0.7 && !g.kind.captain_like() {
+                    } else if to.dot(fwd) < 0.7 && g.kind.turns() {
                         let right = fwd.cross(to).y < 0.0;
                         // after a turn a guard's first fire cycle is dry (measured: the original's courtyard guards,
                         // most of which turn, fire anim then reload and first shots ~80 frames later, two that faced
@@ -3149,6 +3383,87 @@ fn think(
                 }
             }
             Mind::Reload => g.pause -= dt,
+            Mind::Teleport => {
+                // state 0xf0: the flight (no gravity: physics flag 0x100, guess) for at most 5 s; within 8 he lands on the
+                // ground there and engages (vt+0x230) or rests
+                let mut m = g.monk.expect("a monk");
+                m.flight_t += dt;
+                let near = (g.goal - pos).length() < 8.0;
+                if near || m.flight_t > 5.0 {
+                    if let Some((_, hit, _)) = physics.raycast(pos + Vec3::Y * 20.0, -Vec3::Y, 200.0) {
+                        tr.translation = hit;
+                        if let Ok(mut b) = physics.world.body_mut(body.id) {
+                            let _ = b.set_position(crate::physics::jr((hit + body.offset) * k), Activation::Activate);
+                        }
+                    }
+                    g.home = pos;
+                    g.mind = if target.is_some() { Mind::Fire } else { Mind::Roam };
+                    stats.landings += 1;
+                    info!("EVENT ai: monk {ge:?} arrives");
+                } else {
+                    fly = Some(monk::bamf_velocity(pos, g.goal, m.flight_t, 2.0 * g.move_speed));
+                }
+                g.monk = Some(m);
+            }
+            Mind::Cast => {
+                // state 0xf1: cast_spell_1; its event (here halfway) drops the baskets round the target, the end runs the
+                // bamf (which, the counter re-rolled, re-engages)
+                let total = anim_len(&mut lib, g.anim(0x26, 0.0));
+                g.anim_left -= dt;
+                if let Some(mut m) = g.monk {
+                    if !m.cast && g.anim_left <= total * 0.5 {
+                        m.cast = true;
+                        if let Some(p) = target {
+                            monk::baskets(&mut commands, &mut fx, &data, p, ge, &mut rng);
+                            stats.throws += 1;
+                            info!("EVENT ai: monk {ge:?} casts the baskets");
+                        }
+                    }
+                    g.monk = Some(m);
+                }
+                if g.anim_left <= 0.0 {
+                    let h = find_hiding_spot(&mut g, ge, (true, false), pos, tgt, &mut spots, &physics, body.id, &mut rng);
+                    g.mind = hide_to_mind(&mut g, h);
+                }
+            }
+            Mind::Jump => {
+                // the flight (0xc4 / 0xc5 / 0xbd): the ground under him with vz <= 0 lands (0x0042e1c0)
+                let grounded = ground_below(&physics, pos, 1.5, body.id).is_some();
+                let mut j = g.jumper.expect("a jumper in flight");
+                match j.step(pos, dt, grounded) {
+                    jumper::FlightStep::WingsOut => info!("EVENT ai: jumper {ge:?} glides"),
+                    jumper::FlightStep::Landed => {
+                        if let Some(m) = j.history[0] {
+                            joccupy.push((m, None));
+                        }
+                        stats.landings += 1;
+                        info!("EVENT ai: jumper {ge:?} lands");
+                        // anim 0x6c (state 0xbf), then +0x4ac = 0xc3: with flag 4 and a target engage, else reload
+                        let n = g.anim(0x6c, 0.0);
+                        g.pose = Some((n, anim_len(&mut lib, n)));
+                        g.mind = if target.is_some() && g.fire_ready {
+                            Mind::Fire
+                        } else {
+                            g.pause = g.reload_len;
+                            Mind::Reload
+                        };
+                    }
+                    jumper::FlightStep::Flying => {}
+                }
+                // gliding (0xbd) he fires with flag 4 (vt+0x198); a lost line of sight does not end it (ai_02.cpp:1894)
+                if j.flight == Some(jumper::Flight::Glide) {
+                    if let (Some(p), Some(thit), true) = (target, target_hit, g.fire_ready) {
+                        g.jumper = Some(j);
+                        fire_cycle(&mut commands, &mut g, &physics, &mut rng, pos, p, thit, own_hit, None, body.id, dt, &mut stats, &mut sounds, &mut fx, (&mut barks, time.elapsed_secs()));
+                        g.mind = Mind::Jump;
+                        j = g.jumper.expect("a jumper");
+                    }
+                }
+                if j.flight.is_some() {
+                    fly = Some(j.vel);
+                }
+                g.jumper = Some(j);
+            }
             _ => {}
         }
         // a window / tower grunt stays at its place
@@ -3186,7 +3501,7 @@ fn think(
         g.walking = speed > 1.0 && flat(goal - pos).length() > 1.0;
         let dir = flat(goal - pos).normalize_or_zero();
         let face = match (g.mind, target, g.cover.map(|c| c.phase)) {
-            (Mind::Fire | Mind::Chase | Mind::Taunt | Mind::Throw, Some(p), _) => flat(p - pos).normalize_or_zero(),
+            (Mind::Fire | Mind::Chase | Mind::Taunt | Mind::Throw | Mind::Cast, Some(p), _) => flat(p - pos).normalize_or_zero(),
             // in the slot: its direction +0x908 (0x00454e60), standing up: the target (0x0042df70)
             (Mind::Cover, Some(p), Some(CoverPhase::Stand)) => flat(p - pos).normalize_or_zero(),
             (Mind::Cover, _, Some(CoverPhase::Duck | CoverPhase::Breathe | CoverPhase::Peek | CoverPhase::Stand | CoverPhase::Spray)) => {
@@ -3199,14 +3514,36 @@ fn think(
             let d = (want - g.yaw + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
             g.yaw += d * (dt * 8.0).min(1.0);
         }
+        if let Some(v) = fly {
+            // in the air: facing the target while gliding with one, else the velocity (0xc5 / rising 0xc4)
+            let gliding = g.jumper.is_some_and(|j| j.flight == Some(jumper::Flight::Glide));
+            let f = match target {
+                Some(p) if gliding => flat(p - pos),
+                _ => flat(v),
+            }
+            .normalize_or_zero();
+            if f != Vec3::ZERO {
+                g.yaw = f.x.atan2(f.z);
+            }
+        }
         tr.rotation = Quat::from_rotation_y(g.yaw) * g.base;
         if let Ok(mut b) = physics.world.body_mut(body.id) {
-            let v = bv(b.linear_velocity());
-            let want = dir * speed * k;
-            let _ = b.set_linear_velocity(jv(Vec3::new(want.x, v.y, want.z)));
-            if speed > 0.0 {
+            if let Some(v) = fly {
+                let _ = b.set_linear_velocity(jv(v * k));
                 b.activate();
+            } else {
+                let v = bv(b.linear_velocity());
+                let want = dir * speed * k;
+                let _ = b.set_linear_velocity(jv(Vec3::new(want.x, v.y, want.z)));
+                if speed > 0.0 {
+                    b.activate();
+                }
             }
+        }
+    }
+    for (m, who) in joccupy {
+        if let Ok((_, mut jm, _)) = jmarks.get_mut(m) {
+            jm.occupant = who;
         }
     }
     for v in &spots.trenches {
@@ -3350,7 +3687,7 @@ fn fire_cycle(
             // the heading test (0x004e81a0 of the two facings < 180) passes but for opposite facings, and the grunt's own
             // speech handle +0xb50 is taken as silent (the engine keeps none per grunt): the Taunt bark (vt+0x15c), a
             // taunt anim 0x32 + (rand * 3 >> 15), state 0x6e; the timer restarts only then
-            if !g.at_barricade && barks.ready(Delay::Taunt, now, rng) {
+            if !g.at_barricade && g.kind.taunts() && barks.ready(Delay::Taunt, now, rng) {
                 barks.take(Delay::Taunt, now, rng);
                 bark(sounds, "Taunt", g.voice_set, pos);
                 g.anim_id = 0x32 + ((rng.rand() * 3.0) as u32).min(2);
