@@ -596,8 +596,11 @@ fn bench_ground(physics: NonSend<physics::Physics>, mut bench: ResMut<bench::Ben
 }
 
 /// The playtest log's state line: player, AI, fx.
-fn play_state(audio_chk: Res<audio::AudioCheck>, skin: Res<skin::SkinCheck>, mut bank: Option<ResMut<audio::SoundBank>>, bot: Res<bot::Bot>, mut st: ResMut<playtest::PlayState>, p: Res<player::PlayerStats>, ai: Res<ai::AiStats>, fx: Res<fx::FxStats>, mission: Option<ResMut<mission::Mission>>, hud: Res<hud::HudState>, mut seen: levelreset::PerLevel<usize>) {
+fn play_state(audio_chk: Res<audio::AudioCheck>, skin: Res<skin::SkinCheck>, mut bank: Option<ResMut<audio::SoundBank>>, bot: Res<bot::Bot>, mut st: ResMut<playtest::PlayState>, p: Res<player::PlayerStats>, ai: Res<ai::AiStats>, fx: Res<fx::FxStats>, mission: Option<ResMut<mission::Mission>>, hud: Res<hud::HudState>, mut seen: levelreset::PerLevel<usize>, (time, entities): (Res<Time<Real>>, Query<()>)) {
     let m = &mut st.0;
+    // the frame's wall time and the world's entity count (level smoke tests, restart parity)
+    m.insert("frame_ms".into(), serde_json::json!((time.delta_secs() * 1000.0 * 10.0).round() / 10.0));
+    m.insert("entities".into(), entities.iter().count().into());
     if let Some(mut ms) = mission {
         m.insert("mission".into(), format!("{:?}", ms.outcome).into());
         m.insert("tickers".into(), ms.tickers.into());
