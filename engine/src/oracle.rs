@@ -13,6 +13,8 @@
 //!   DirectInput scan code (17 W, 30 A, 31 S, 32 D, 57 Space ...), ENTER / ESC / SPACE / UP / DOWN / LEFT / RIGHT,
 //!   MOUSE1..3, or MOUSEX<n> / MOUSEY<n> (mouse counts per frame while held).
 //! - `warp`: Roman is put there (game space) at play frame -10, keeping his heading, as [test] play_warp.
+//! - `warp_at`: [frame, x, y, z]: a second warp after that play frame (the hook's [test] warp with hash_from_load
+//!   moves him at the frame's present, so the original's trace has him there from the next frame on).
 //! - The trace (`<script>.trace.jsonl`): one line every `trace_every` frames from play frame `trace_from` (every frame
 //!   before frame 0; lines before the briefing are kept until it fixes the play frames), the schema of
 //!   hook/src/testoracle.cpp in game space (Z up), "t" counted from the first line; the run quits after `frames`.
@@ -112,6 +114,8 @@ pub struct OracleConfig {
     pub play_delay: i64,
     #[serde(default)]
     pub warp: Option<[f32; 3]>,
+    #[serde(default)]
+    pub warp_at: Option<[f32; 4]>,
     #[serde(default)]
     pub trace_from: i64,
 }
@@ -237,6 +241,7 @@ pub struct Oracle {
     triggers: Vec<i64>,
     sounds: Vec<String>,
     warped: bool,
+    warped_at: bool,
     /// inputs down last frame (released when their span ends)
     down: Vec<Input>,
     /// placed destructible objects alive last frame, and the ones gone since the last trace line
@@ -269,7 +274,7 @@ fn setup(mut commands: Commands, pt: Res<crate::playtest::Playtest>) {
     let keys = parse_keys(&cfg.keys);
     let out = (cfg.trace_every > 0).then(|| std::fs::File::create(pt.path.with_extension("trace.jsonl")).ok()).flatten();
     info!("EVENT oracle: {} scripted inputs, {} frames, trace every {}", keys.len(), cfg.frames, cfg.trace_every);
-    commands.insert_resource(Oracle { cfg, keys, frame: 0, brief: None, clock0: None, out, pending: Vec::new(), log_seen: 0, triggers: Vec::new(), sounds: Vec::new(), warped: false, down: Vec::new(), alive: None, panes: None, deaths: Vec::new() });
+    commands.insert_resource(Oracle { cfg, keys, frame: 0, brief: None, clock0: None, out, pending: Vec::new(), log_seen: 0, triggers: Vec::new(), sounds: Vec::new(), warped: false, warped_at: false, down: Vec::new(), alive: None, panes: None, deaths: Vec::new() });
 }
 
 fn count(mut o: ResMut<Oracle>, mission: Option<Res<crate::mission::Mission>>, bank: Option<ResMut<crate::audio::SoundBank>>) {
@@ -301,6 +306,12 @@ fn drive(
         if f >= -10 {
             o.warped = true;
             pt.request_warp([w[0], w[1], w[2], r.yaw.to_degrees()]);
+        }
+    }
+    if let (Some([at, x, y, z]), false, Ok(r)) = (o.cfg.warp_at, o.warped_at, roman.single()) {
+        if f > at as i64 {
+            o.warped_at = true;
+            pt.request_warp([x, y, z, r.yaw.to_degrees()]);
         }
     }
     let now: Vec<Input> = o.keys.iter().filter(|k| f >= k.at && f < k.at + k.hold).map(|k| k.input.clone()).collect();

@@ -29,10 +29,14 @@ pub enum Kind {
     /// pickup_health / pickup_healthytea, class 37: 0x00472800 (the player: num_health x Game+0x55c, 0x00475a30) and
     /// 0x00472850 (anyone else: num_health)
     Health,
-    /// pickup_upgrade_weapon (36, 0x00472770: Game+0xdd0, vindaloo upgraded), pickup_vindaloo_weapon (39, 0x00472930),
-    /// pickup_jumper_pack (40, 0x00472980; both load through 0x004728e0), pickup_turbo_boost (41, 0x004729c0): not on
-    /// lev_1_m1, not ported
+    /// pickup_upgrade_weapon (36, 0x00472770: Game+0xdd0, vindaloo upgraded), pickup_vindaloo_weapon (39, 0x00472930):
+    /// not ported
     Unported,
+    /// pickup_jumper_pack (40, 0x00472980; loads through 0x004728e0): the jumper pack (jetpack.rs), refused when he
+    /// has one
+    JumperPack,
+    /// pickup_turbo_boost (41, 0x004729c0): a boost on the pack, refused when pack and boost are both there
+    TurboBoost,
     /// pickup_token (42): 0x00472aa0 marks it, its update 0x00472a00 runs the token reward (0x004a07a0 / 0x004a0850)
     Token,
 }
@@ -53,6 +57,8 @@ impl Kind {
             "pickup_sticky_bombs" => Kind::Special(10),
             "pickup_health" | "pickup_healthytea" => Kind::Health,
             "pickup_token" => Kind::Token,
+            "pickup_jumper_pack" => Kind::JumperPack,
+            "pickup_turbo_boost" => Kind::TurboBoost,
             _ => Kind::Unported,
         }
     }
@@ -228,7 +234,8 @@ fn ammo_pickup(r: &crate::player::Roman) -> &'static str {
 
 /// Pickup generators (PickupGenerator_Update 0x00471cb0): nothing while listen_activate_trigger is pending
 /// (PickupGenerator_OnTrigger 0x00471c30 clears it) or while its pickup is there; else the countdown runs and, at 0
-/// (or before the first), the template: turbo generators "pickup_turbo_boost" (not ported); generated_ammo_name (after
+/// (or before the first), the template: turbo generators "pickup_turbo_boost" unless the pack has its boost (0x0047b8e0:
+/// pack and boost; no level places a turbo generator); generated_ammo_name (after
 /// the first only while the player is out of that weapon's ammo, 0x00475c70); else the current weapon's ammo pickup
 /// when that weapon's spare ammo is 0 (0x00475c30). None: retry in 1 s; one: made 4 units above the generator, the
 /// countdown back at delay_time. (The coverage runs, rifle in hand, call 0x00475c30 every frame of both lev_1_m1
@@ -239,7 +246,7 @@ fn generators(
     mut gens: ResMut<Generators>,
     lib_dir: Res<crate::skin::AnimLibrary>,
     pickups: Query<(), With<Pickup>>,
-    roman: Query<&crate::player::Roman>,
+    roman: Query<(&crate::player::Roman, Option<&crate::jetpack::JetPack>)>,
     mut triggers: MessageReader<crate::mission::SendTrigger>,
     mut commands: Commands,
     data: Res<GameData>,
@@ -281,7 +288,7 @@ fn generators(
         }
     }
     let dt = time.delta_secs();
-    let r = roman.single().ok();
+    let (r, jet) = roman.single().map_or((None, None), |(r, j)| (Some(r), j));
     for g in list.iter_mut() {
         if g.listen != 0 {
             continue;
@@ -297,8 +304,7 @@ fn generators(
             continue;
         }
         let name: Option<String> = if g.turbo {
-            // 0x0047b8e0 (the player's turbo pack): the turbo boost is not ported
-            None
+            (!jet.is_some_and(|j| j.pack && j.boost)).then(|| "pickup_turbo_boost".to_owned())
         } else if let Some(n) = &g.name {
             // 0x00475c70: the named weapon is the player's and its ammo is out
             let out = |n: &str| match (n, r) {
@@ -358,7 +364,7 @@ fn add_ammo(w: &mut crate::player::Weapon, amount: u32, max_ammo: u32, max_clip:
 }
 
 /// The player collects (vt+0x138 of the class): true when he took it.
-fn give(p: &Pickup, r: &mut crate::player::Roman, h: &mut Health, data: &GameData, health_scale: f32) -> bool {
+fn give(p: &Pickup, r: &mut crate::player::Roman, h: &mut Health, jet: Option<&mut crate::jetpack::JetPack>, data: &GameData, health_scale: f32) -> bool {
     let g = data.props("p_globalsettings");
     let amount = p.amount.max(0.0) as u32;
     if amount == 0 && matches!(p.kind, Kind::Ammo(_) | Kind::Special(_)) {
@@ -395,6 +401,8 @@ fn give(p: &Pickup, r: &mut crate::player::Roman, h: &mut Health, data: &GameDat
             true
         }
         Kind::Special(_) | Kind::Unported => true,
+        Kind::JumperPack => jet.is_some_and(crate::jetpack::give_pack),
+        Kind::TurboBoost => jet.is_some_and(crate::jetpack::give_boost),
         // 0x00472800 -> 0x00475a30: refused at full health, else up to the maximum
         Kind::Health => {
             if h.0 >= r.max_health {
@@ -415,7 +423,7 @@ fn collect(
     mut commands: Commands,
     time: Res<Time>,
     mut q: Query<(Entity, &mut Pickup, &mut Transform, Option<&Children>)>,
-    mut player: Query<(&GlobalTransform, &mut Health, &mut crate::player::Roman), With<Player>>,
+    mut player: Query<(&GlobalTransform, &mut Health, &mut crate::player::Roman, Option<&mut crate::jetpack::JetPack>), With<Player>>,
     mut ai: Query<(&GlobalTransform, &mut Health, &Grunt), Without<Player>>,
     mut mission: Option<ResMut<crate::mission::Mission>>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
@@ -426,7 +434,7 @@ fn collect(
     mut cheats: ResMut<crate::cheats::Cheats>,
 ) {
     let dt = time.delta_secs();
-    let Ok((pt, mut h, mut r)) = player.single_mut() else { return };
+    let Ok((pt, mut h, mut r, mut jet)) = player.single_mut() else { return };
     let me = pt.translation() + Vec3::Y * 4.0;
     for (e, mut p, mut t, children) in &mut q {
         // the pop: upward_force up, the world's gravity (64.348 units/s^2) back down to the ground
@@ -477,7 +485,7 @@ fn collect(
         let at = t.translation;
         if at.distance(me) <= p.radius {
             // the player (vt+0x138): refused, it stays
-            if !give(&p, &mut r, &mut h, &data, difficulty.factors().health_pickups) {
+            if !give(&p, &mut r, &mut h, jet.as_deref_mut(), &data, difficulty.factors().health_pickups) {
                 continue;
             }
             if let (Some(m), Some(text)) = (mission.as_deref_mut(), p.text.as_ref()) {
@@ -598,6 +606,16 @@ pub fn token_message(texts: &crate::gamemenu::Texts, count: u32, difficulty: cra
     (if line.is_empty() { got } else { format!("{got}<br>{line}") }, unlocked)
 }
 
+/// The level part of a legacy token key (options.rs `tokens_keyed_by_level`): taken on some level, with that id.
+pub const ANY_LEVEL: &str = "any";
+
+/// A placed pickup's persistent key: its level (the export folder's name) and instance id. It used to say "lev_1_m1"
+/// on every level, so a token taken on one level hid the token of the same id on every other.
+fn token_key(level_dir: &std::path::Path, id: u32) -> String {
+    let level = level_dir.file_name().and_then(|n| n.to_str()).unwrap_or("level");
+    format!("{level}:{id}")
+}
+
 /// A pickup placed in the level (PickupObject, behaviour pickup_*, or an ammo pickup's template name): the same
 /// pickup, staying where it is placed. A token already taken removes itself (0x00472a00: 0x004a0720 asks whether the
 /// level's token was found).
@@ -606,15 +624,30 @@ fn placed_pickups(
     q: Query<(Entity, &crate::level::Placed, &crate::level::InstanceId, &Transform), Added<crate::level::Placed>>,
     data: Res<GameData>,
     opts: Res<crate::options::GameOptions>,
+    lib_dir: Res<crate::skin::AnimLibrary>,
+    mut own: crate::levelreset::PerLevel<Option<std::collections::HashMap<u32, serde_json::Map<String, serde_json::Value>>>>,
 ) {
+    if q.is_empty() {
+        return;
+    }
+    // the instances' own property values over the template's (an instance's on_enter: lev_4_m3's jumper packs send
+    // 3997)
+    let own = own.get().get_or_insert_with(|| {
+        let text = std::fs::read_to_string(lib_dir.dir.join("instance_props.json")).unwrap_or_default();
+        let v: Vec<serde_json::Value> = serde_json::from_str(&text).unwrap_or_default();
+        v.iter()
+            .filter_map(|i| Some((i.get("id")?.as_u64()? as u32, i.get("props").and_then(|p| p.as_object()).cloned().unwrap_or_default())))
+            .collect()
+    });
     for (e, placed, id, t) in &q {
-        let p = data.template_props(&placed.template);
+        let p = own.get(&id.0).map_or_else(|| data.template_props(&placed.template), |o| data.instance_props(&placed.template, o));
         let class = p.s("behavior").map(str::to_owned).unwrap_or_else(|| placed.template.clone());
         if !class.starts_with("pickup") || class == "pickup_generator" {
             continue;
         }
-        let key = format!("lev_1_m1:{}", id.0);
-        if class == "pickup_token" && opts.tokens_taken.contains(&key) {
+        let key = token_key(&lib_dir.dir, id.0);
+        let legacy = format!("{ANY_LEVEL}:{}", id.0);
+        if class == "pickup_token" && (opts.tokens_taken.contains(&key) || opts.tokens_taken.contains(&legacy)) {
             commands.entity(e).despawn();
             continue;
         }

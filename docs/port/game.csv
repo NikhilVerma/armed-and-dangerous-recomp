@@ -181,12 +181,12 @@ address,name,disposition,reason
 0x00475630,fn_00475630,not needed,"no behaviour: PlayerObject constant query slots (vt+0x48 answers 1.0, vt+0x8c answers 0.5); a ported caller uses the constant"
 0x00477c10,fn_00477c10,not needed,no behaviour: an empty virtual
 0x00478890,fn_00478890,not needed,"no behaviour: PlayerObject constant query slots (vt+0x48 answers 1.0, vt+0x8c answers 0.5); a ported caller uses the constant"
-0x0047b8b0,PlayerObject_HasTurboPack,deferred,feature: jetpack; the turbo (jet) pack and its boost: lev_1_m1 has none (mission player_has_jetpack 0; Load / reset only call it with off). Later levels' mechanic
-0x0047b8c0,fn_0047b8c0,deferred,feature: jetpack; the turbo (jet) pack and its boost: lev_1_m1 has none (mission player_has_jetpack 0; Load / reset only call it with off). Later levels' mechanic
-0x0047b8e0,fn_0047b8e0,deferred,feature: jetpack; the turbo (jet) pack and its boost: lev_1_m1 has none (mission player_has_jetpack 0; Load / reset only call it with off). Later levels' mechanic
-0x0047b900,PlayerObject_SetTurboBoost,deferred,feature: jetpack; the turbo (jet) pack and its boost: lev_1_m1 has none (mission player_has_jetpack 0; Load / reset only call it with off). Later levels' mechanic
-0x0047b9f0,PlayerObject_SetTurboPack,deferred,feature: jetpack; the turbo (jet) pack and its boost: lev_1_m1 has none (mission player_has_jetpack 0; Load / reset only call it with off). Later levels' mechanic
-0x0047bba0,PlayerObject_PlayChestFx,deferred,feature: jetpack; the turbo (jet) pack and its boost: lev_1_m1 has none (mission player_has_jetpack 0; Load / reset only call it with off). Later levels' mechanic
+0x0047b8b0,PlayerObject_HasTurboPack,ported,jetpack.rs JetPack::pack (give_pack refuses a second pack: the pickup 0x00472980)
+0x0047b8c0,fn_0047b8c0,ported,jetpack.rs equip (the mission's player_has_jetpack, Game byte +0xd92, at the player's reset)
+0x0047b8e0,fn_0047b8e0,ported,jetpack.rs JetPack::boost (the launch's boost; pickup.rs generators' turbo branch)
+0x0047b900,PlayerObject_SetTurboBoost,ported,jetpack.rs give_boost / jump_input (boost used up) / models (pickup_turbo_boost at the pack's ref_turbo)
+0x0047b9f0,PlayerObject_SetTurboPack,ported,jetpack.rs models (the turbo model by its chest at Roman's chest; turbo_idle)
+0x0047bba0,PlayerObject_PlayChestFx,ported,jetpack.rs effects (fx_turbo_launch at the chest)
 0x0047df70,fn_0047df70,deferred,"feature: turret-vehicle-paths; projectile spawn helpers used by the turrets, the vindaloo and the armed jaws: none on lev_1_m1"
 0x0047e050,fn_0047e050,deferred,"feature: vindaloo; projectile spawn helpers used by the turrets, the vindaloo and the armed jaws: none on lev_1_m1"
 0x0047e3b0,Projectile_SetTarget,deferred,"feature: homing-projectiles; Projectile_SetTarget (homing target of the rocket classes): no homing projectile on lev_1_m1 but the sticky bomb, whose own 0x004811e0 is ported (sticky.rs)"
@@ -328,6 +328,6 @@ address,name,disposition,reason
 0x004a2a40,fn_004a2a40,deferred,feature: auto-aim; auto-aim (PlayerWeapon vt+0x16c: Game+0x4c2 unless zoomed or difficulty > 1): the auto-aim option is not ported (hud.md: shown disabled)
 0x004a2a70,fn_004a2a70,deferred,"feature: sniper-rifle; PlayerWeapon fire along the camera ray (vtable 0x005ac210, the sniper rifle): not on lev_1_m1"
 0x0044d150,fn_0044d150,deferred,"feature: camera-startup-path; camera_startup_path_anim on a camera path (slot 8, Camera_StartPath mode 2): mission.rs cites it as not ported"
-0x0044e120,PlayerTickerBomb_AttachToParent,deferred,"feature: ticker-lock-parent; attaches a ticker bomb site to the object tagged lock_parent_tag (at its lock_parent_bone): mission.rs logs it as not ported. lev_3_m1 sites 173..175 ride the goliath squads 170..172 (tags 2001..2003); lev_4_m1 sites 330 / 367 / 368"
+0x0044e120,PlayerTickerBomb_AttachToParent,ported,"mission.rs lock_sites: a site with lock_parent_tag rides the lock_parent_bone (ref_ticker) of the run-time object of that tag (the squad's goliath, level.rs ObjectTag from goliath.rs); lev_3_m1 sites 173..175, lev_4_m1 330 / 367 / 368. Oracle ticker_l3m1 (Object_Attach's parent: the goliath), playtests ticker_goliath / ticker_goliath_l4m1"
 0x00477c90,fn_00477c90,deferred,"feature: untraced; player.rs cites it as 'meaning not settled, not ported'"
 0x004987a0,fn_004987a0,deferred,"feature: turret-vehicle-paths; a turret's ai_can_use test with the kickout time: ai.rs cites it, the kickout is not ported"

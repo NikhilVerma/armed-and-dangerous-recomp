@@ -95,6 +95,14 @@ pub mod mode {
     pub const JUMP_IDLE: u32 = 18;
     pub const JUMP_LAND: u32 = 19;
     pub const LAND_SOFT: u32 = 20;
+    /// the jumper pack's flight (flag 2: game_05.cpp:1867-1883): idle, the landings, and by the stick
+    pub const TURBO_IDLE: u32 = 21;
+    pub const TURBO_LAND: u32 = 22;
+    pub const TURBO_SKID: u32 = 23;
+    pub const TURBO_FORWARD: u32 = 24;
+    pub const TURBO_BACK: u32 = 25;
+    pub const TURBO_LEFT: u32 = 26;
+    pub const TURBO_RIGHT: u32 = 27;
     pub const TURN_LEFT: u32 = 28;
     pub const TURN_RIGHT: u32 = 29;
     pub const HIT_SMALL: u32 = 30;
@@ -399,7 +407,7 @@ struct Idle {
 /// +0xa34), the table plays them (`play_mode`).
 #[allow(clippy::too_many_arguments)]
 fn roman(
-    mut q: Query<(&Roman, &mut Animator)>,
+    mut q: Query<(&Roman, &mut Animator, Option<&crate::jetpack::JetPack>)>,
     topsy: Res<crate::topsy::Topsy>,
     time: Res<Time>,
     mut idle: crate::levelreset::PerLevel<Idle>,
@@ -413,7 +421,7 @@ fn roman(
     let table = &*table;
     let st = st.get();
     let idle = idle.get();
-    if let (Some(mut ps), Some((_, a))) = (ps, q.iter().next()) {
+    if let (Some(mut ps), Some((_, a, _))) = (ps, q.iter().next()) {
         // playtest evidence: the mode / state / entry playing, layer 0's time and rate, the cross-fade
         let l0 = a.layers.first();
         ps.0.insert("anim_mode".into(), st.mode.map_or(-1, |m| m as i64).into());
@@ -425,7 +433,7 @@ fn roman(
         ps.0.insert("anim_fade".into(), ((a.fade_weight() * 1000.0).round() / 1000.0).into());
         ps.0.insert("anim_blend".into(), ((a.blend * 1000.0).round() / 1000.0).into());
     }
-    for (r, mut a) in &mut q {
+    for (r, mut a, jet) in &mut q {
         let a = &mut *a;
         // the twist's record flag 2 (set below for the aim stance and the turn anims)
         tw.active = false;
@@ -465,12 +473,16 @@ fn roman(
             let m = match n {
                 "trotter_land_hard" => mode::LAND_HARD,
                 "trotter_land_soft" => mode::LAND_SOFT,
+                "trotter_turbo_land" => mode::TURBO_LAND,
+                "trotter_turbo_skid" => mode::TURBO_SKID,
                 _ => mode::JUMP_LAND,
             };
             play(a, m, state::NONE);
             continue;
         }
-        if r.falling && !r.on_ground && !r.jumping {
+        // (the fall state wins over a jumper pack's flight, game_05.cpp:1855: dropping faster than fall_speed_turbo)
+        let turbo = jet.is_some_and(|j| j.flight == crate::jetpack::Flight::Turbo);
+        if r.falling && !r.on_ground && (!r.jumping || turbo) {
             play(a, mode::FALL_LOOP, state::NONE);
             continue;
         }
@@ -481,8 +493,19 @@ fn roman(
             continue;
         }
         let speed = r.move_local.length();
-        // the movement mode: in the air the jump idle (mode 0x12), standing the stance, else the gait's
-        let m = if !r.on_ground {
+        // the movement mode: in a jumper pack's flight by the stick (the dominant of forward / side, 0x15 when they are
+        // equal: game_05.cpp:1879-1883), in the air the jump idle (mode 0x12), standing the stance, else the gait's
+        let flight = jet.filter(|j| j.flight != crate::jetpack::Flight::None && !r.on_ground);
+        let m = if let Some(j) = flight {
+            let s = j.stick;
+            if s.y.abs() > s.x.abs() {
+                if s.y > 0.0 { mode::TURBO_FORWARD } else { mode::TURBO_BACK }
+            } else if s.x.abs() > s.y.abs() {
+                if s.x > 0.0 { mode::TURBO_RIGHT } else { mode::TURBO_LEFT }
+            } else {
+                mode::TURBO_IDLE
+            }
+        } else if !r.on_ground {
             mode::JUMP_IDLE
         } else if speed < 3.0 {
             mode::STANCE

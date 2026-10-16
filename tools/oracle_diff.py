@@ -9,6 +9,9 @@ traces and reports the first divergence per field family (docs/remaster-engine.m
 SCENARIO: a name in tools/oracle_scenarios/ (or a path to a .json). A scenario:
     {"level": "lev_1_m1", "keys": "0:ENTER*3,40:17*300", "frames": 400, "trace_every": 2,
      "warp": [x, y, z] (optional), "play_delay": 30 (optional), "trace_from": -30 (optional: the briefing on),
+     "warp_at": [frame, x, y, z] (optional: a second warp at that play frame; the original's [test] warp counts frames
+                since the load (hash_from_load), so the briefing must appear on the load frame, as on lev_3_m1: the
+                hook's call lines show "since N play N - play_delay"),
      "tolerance": {"pos": 6, "grunt_pos": 12, "heading": 12, "health": 1, "frames": 20, "event_frames": 30,
                    "twiglet_frames": 30, "twiglet_dist": 20, "peasant_frames": 10, "peasant_dist": 6, "peasant_rope": 1.5},
      "expected": {"family": "why this family differs (an accepted difference, with evidence)"},
@@ -101,6 +104,10 @@ def run_original(sc, hooks_on=False, timeout=900, inst="oracle"):
     test.update(sc.get("hook_test", {}))
     if sc.get("warp"):
         test["play_warp"] = ",".join(str(v) for v in sc["warp"])
+    if sc.get("warp_at"):
+        f, x, y, z = sc["warp_at"]
+        test["hash_from_load"] = 1
+        test["warp"] = f"{int(f) + sc['play_delay']}:{x},{y},{z}"
     hooks = {n: hooks_on for n in compare.hook_names()}
     # The sound log is a callback in the recovered play functions (StartVoice, src/audio/audio_02.cpp:1495): these
     # three run recovered code (S2, verified by tools/compare.py) so the original's sounds are traced too.
@@ -141,6 +148,8 @@ def run_remaster(sc, exe, timeout=900):
               "play_delay": sc["play_delay"], "trace_from": sc["trace_from"]}
     if sc.get("warp"):
         oracle["warp"] = sc["warp"]
+    if sc.get("warp_at"):
+        oracle["warp_at"] = sc["warp_at"]
     body = {"oracle": oracle}
     if sc.get("level", "lev_1_m1") != "lev_1_m1":
         body["scene"] = sc["level"]  # tools/playtest.py: work/remaster/<level>

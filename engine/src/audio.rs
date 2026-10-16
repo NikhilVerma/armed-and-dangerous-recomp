@@ -423,6 +423,28 @@ impl PlaySound {
     }
 }
 
+/// A table of sounds dealt at random without repeats until each has played (Audio_PlayRandomSound 0x00493b70: its
+/// `used` counter and the swaps of the table's entries): the index to play of a table of `n`. `rand` gives 0..1.
+#[derive(Default, Debug)]
+pub struct RandomDeck {
+    used: Vec<usize>,
+}
+
+impl RandomDeck {
+    pub fn deal(&mut self, n: usize, mut rand: impl FnMut() -> f32) -> usize {
+        if n == 0 {
+            return 0;
+        }
+        if self.used.len() >= n {
+            self.used.clear();
+        }
+        let free: Vec<usize> = (0..n).filter(|i| !self.used.contains(i)).collect();
+        let k = free[((rand() * free.len() as f32) as usize).min(free.len() - 1)];
+        self.used.push(k);
+        k
+    }
+}
+
 /// Stops every playing voice of a sound name, not immediately (0x004f30e0 with immediate 0: a looping sequence
 /// plays its outro, an envelope fades out). `ALL_BUT_MUSIC` stops every voice but the music, immediately.
 #[derive(Message, Clone)]

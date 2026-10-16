@@ -44,6 +44,12 @@ pub struct LevelInfo {
 #[derive(Component, Clone, Copy)]
 pub struct InstanceId(pub u32);
 
+/// An object's tag (+0x390, its getter 0x00453290) on an object made at run time that something finds by tag
+/// (Object_FindByTag 0x004592e0): a squad's goliath takes its squad's tag (goliath.rs), which the ticker bomb sites
+/// locked to it look up (mission.rs `lock_sites`). Placed objects' tags are read from their property sets.
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ObjectTag(pub i64);
+
 /// `behavior = background` (the sky dome): drawn around the camera, unlit, no fog, no collision.
 /// BackgroundObject_Load 0x0040a890 reads sorting_order (draw order among backgrounds) and fog (default 0: the
 /// materials' fog bit 0x10 cleared); lev_1_m1's one dome (p_background) has fog 0 and is the only background, so
