@@ -204,6 +204,7 @@ lev_2_m3, lev_2_m4, lev_3_m2, lev_3_m4_bd, lev_4_m3, lev_4_m5, lev_5_m2, lev_5_m
 | R1 | Roman walks 3-6 units farther in 2 s of W on 20 levels (original 76-81, remaster 79-87; lev_1_m1 the other way, B1): speed or acceleration at the walk start | roman.pos from 110 to 300 (lev_2_m2 6.1 apart at 210) |
 | B24 | lev_3_m1 captain_sniper 228 (force_ground 0) on v_rockettower2 272 falls through the tower's top in the remaster (original stays at z 899.7) **CAUSE FOUND, OPEN (agent-vehicles2): he is not over the deck but beside a beam (its ridge 1.6 units west at z 897.5, its top edge 3.6 west at 900.9, nothing under him). The original's body is a sphere of collision_radius (5) on the feet (Object_BuildRadiusCollision 0x004527d0) with friction 0.8 against statics at default_friction 1.0: it rests on the beam's edge. The remaster's frictionless capsule (radius 0.55 x 5) slides off. Tried: that sphere + frictions holds him at 899.56, but breaks infantry_l2m1 squad charges and defence_l2m4 (the wider sphere) and infantry_l3m1 jumper landings (the friction); backed out. Next: the original's character-character collision filter (0x00411710 / 0x00411850) and its walking / flight under friction, then the body.** | grunt.pos from 58 |
 | V1 | The saucers / mini zeppelins on mover paths started at load run ahead along the same path in the remaster (the original covers 11 units in its first second, the remaster 57; ~60 frames ahead after 3 s): the original's mover starts slowly (lev_2_m1, 2_m3, 5_m2, 5_m3; vehicles now traced: hook "vehicles", oracle.rs VehicleKind) **FIXED (agent-vehicles2): state 0x64 is a chase: the gap to the path's pose is set as the body's velocity (0x00458510), so the object starts from rest and runs a second of path behind (vehicles/mover.rs; the model matches the original within 0.03 units over 9 s). vehicle.pos same on 2_m3, 5_m2, 5_m3; lev_2_m1 differs only by E1 (within 0.2 units at equal game time).** | vehicle.pos |
+| T1 | Twiglets were not in the remaster (lev_4_m1's trees activated by trigger 200 give 30 in the original: twiglets_l4m1) **PORTED (agent-twiglets): twiglet.rs, the hook and the remaster trace "twiglets" / "swarm"; twiglets_l4m1 PASS (counts within 14 frames, the nearest within 7.5 units to frame 1240); the first bomb 1300 vs 1258 (each game's Roman elsewhere by B6's hits: past the traced window).** | twiglets.*, twiglet.nearest |
 | E1 | Expected: with movies off in both, the original's start movie still pauses and takes the first ENTER (its start message follows), the remaster's missing movie ends at once (lev_2_m1, lev_5_m1: paused -30..42 vs -31..0; lev_5_m5 timing) | paused, timing |
 
 Per level (first divergence frame in brackets; families not listed are the same within tolerance):
@@ -715,7 +716,7 @@ for any level and reproduce lev_1_m1's files (grunt_ai.json differs only in the 
 Data oddities in other levels: three invisible-wall skins with no vertices (x_3m1box_0 lev_3_m1, w_l4_m2_01
 lev_4_m2, w_l5_m4_03 lev_5_m4: placed but not in scene.json); skins without a reference anim (captain_flare_1/9,
 shrub_bomber_0, wildwoodgate_1/2); mission.json still has unsent / unreceived trigger ids where a level's logic
-uses classes the mission export does not know yet (twiglet_generator, jump_marker, object_ic, zeppelin, squad,
+uses classes the mission export does not know yet (twiglet_generator (read by twiglet.rs from the props), jump_marker, object_ic, zeppelin, squad,
 anim_player, base_turret, peasant). The loadout is the mission object's add / ammo / count flags only: nothing is
 carried over from earlier levels (correction 2026-10-16: the player object is built with each level and its reset
 0x00475650 gives it the mission's loadout; docs/subsystems/campaign.md; mission.rs `Loadout`).
@@ -884,6 +885,20 @@ ground (plan: IC movers for characters); the forge cannon's mounted view needs a
 New playtest steps: `damage` [instance id, amount], `damage_template` [template, amount]. State log: `vehicles.<id>`
 (bosses: phase, health, target, shots, volleys, pos.x/y/z; rocket buds; `<id>t` a tower's turret) and
 `vehicles.rockets` (fired, ended, hit_roman, near_roman, player_fired, player_ended).
+
+## Twiglets (2026-10-16)
+
+engine/src/twiglet.rs (TwigletPlugin), docs/subsystems/twiglets.md: the twiglet_generator trees (`Generator`, made by
+level.rs from the tree's properties and its reference anim's mover nodes), the swarm controller (`Swarm`: one twiglet
+every 0.1..0.25 s from the active tree with the most left, at most 100 alive), the twiglet (`Twiglet`, Twiglet_Update
+0x0049dcf0 states 1 / 0x32 / 0x0a / 0x46 / 0x1e / 0x1f: out of the tree along its IC mover, the bomb out, the run at
+Roman, the bomb set off within 10 units, blast-proof while carrying one: fx.rs `BlastProof`), the monk's summon
+(ai/monk.rs `Spell::Twiglets`, states 0xf2 / 0xf3). In the shipped data only lev_4_m1's trees are ever activated (200,
+205, 207); elsewhere twiglets come from the monks. Messages: `SpawnTwiglet` (at, mover). State log `twiglets` (live,
+made, killed, bombs, idle, emerging, running, generators, left); playtest step `monk_spell` ("twiglets" / "baskets":
+the next roll of every monk with a target). Tests: playtests twiglets, monk_summon (regress); oracle twiglets_l4m1
+(suite: PASS with B6 known). The run's speed is the original's drive on a wood body with a fitted friction
+(`ground_speed`, documented in the subsystem doc): label it if the fit is ever replaced by a real contact model.
 
 ## Running tests without disturbing the desktop
 

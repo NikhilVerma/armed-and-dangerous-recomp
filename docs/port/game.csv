@@ -233,7 +233,7 @@ address,name,disposition,reason
 0x00482ab0,CaptainRocket_SetOwner,not needed,the captain's rocket: no captain on lev_1_m1
 0x00482d10,CaptainRocket_InitCollision,not needed,the captain's rocket: no captain on lev_1_m1
 0x00482d60,CaptainRocket_Damage,not needed,the captain's rocket: no captain on lev_1_m1
-0x00482e80,fn_00482e80,not needed,the captain's rocket: no captain on lev_1_m1
+0x00482e80,fn_00482e80,not needed,"the hit of monk_gun2's projectile monk_twiglet_cluster (proj_monk_twiglet_cluster): five idle twiglets round the impact, as the summon's; which monk state fires monk_gun2 (weapon 0x1a, set up by 0x004369a0) is not found, so nothing fires it yet (docs/subsystems/twiglets.md, open)"
 0x004830e0,MonkBasketProjectile_ReadProps,not needed,the monk's basket: not on lev_1_m1
 0x00483180,MonkBasketProjectile_Launch,not needed,the monk's basket: not on lev_1_m1
 0x00487da0,Object_Release,replaced,"Object_Release and its helper (reference counting, delete): Bevy despawn"
