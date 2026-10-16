@@ -1,0 +1,14 @@
+{"scene": "lev_1_m4", "steps": [
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 3.5}, {"tap": "Enter"},
+ {"wait": 2.0},
+ {"expect": {"health": 400}},
+ {"cheat": "SHIELDME"}, {"wait": 0.2},
+ {"blast": 30}, {"wait": 0.5}, {"blast": 30}, {"wait": 0.5},
+ {"expect": {"health": 400}},
+ {"cheat": "SHIELDME"}, {"wait": 0.2},
+ {"blast": 30}, {"wait": 0.5},
+ {"expect": {"health": [1, 399.9]}},
+ {"cheat": "AMBULNCE"}, {"wait": 0.2},
+ {"expect": {"health": 400}},
+ {"quit": true}
+]}

@@ -82,6 +82,10 @@ pub struct Event {
     /// debug: the same hit on every live object of a template: ["v_rockettower_turret", 100]
     #[serde(default)]
     pub damage_template: Option<(String, f32)>,
+    /// enter a cheat code as on the Cheats page (cheats.rs: "SHIELDME" invincible, "NDMRBLTS" infinite ammo, ...);
+    /// a second entry of the same code switches it off again, as in the game
+    #[serde(default)]
+    pub cheat: Option<String>,
     /// debug: damage a companion: [0 Jonesy / 1 Q, amount]
     #[serde(default)]
     pub hurt_companion: Option<[f32; 2]>,
@@ -450,13 +454,14 @@ pub(crate) fn drive(
     mission: Option<Res<crate::mission::Mission>>,
     mut roman: Query<&mut crate::fx::Health, With<crate::player::Roman>>,
     mut spawn: MessageWriter<crate::level::SpawnGrunt>,
-    (mut send, state, mut save_req, mut noise, mut barks, mut defence): (
+    (mut send, state, mut save_req, mut noise, mut barks, mut defence, mut cheats): (
         MessageWriter<crate::mission::SendTrigger>,
         Res<PlayState>,
         ResMut<crate::savegame::SaveRequest>,
         ResMut<crate::ai::Interests>,
         ResMut<crate::ai::Barks>,
         MessageWriter<crate::defence::DefenceCommand>,
+        ResMut<crate::cheats::Cheats>,
     ),
     mut objects: Query<(Entity, Option<&crate::level::InstanceId>, Option<&crate::level::Placed>, &mut crate::fx::Destructible)>,
     cam: Query<&GlobalTransform, With<Camera3d>>,
@@ -571,6 +576,9 @@ pub(crate) fn drive(
         }
         if let Some(t) = e.send {
             send.write(crate::mission::SendTrigger(t));
+        }
+        if let Some(code) = &e.cheat {
+            cheats.enter(code);
         }
         if let Some(v) = &e.defence {
             defence.write(crate::defence::DefenceCommand(v.clone()));
