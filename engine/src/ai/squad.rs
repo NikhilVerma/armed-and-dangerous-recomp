@@ -54,6 +54,8 @@ pub struct Squad {
     /// the speed now: the original's anchor is a body pushed toward `speed` (Squad_Init's mass setting 0x00458270), so
     /// it gathers pace from a halt (`PACE_TIME`)
     pub pace: f32,
+    /// the spline run's route planning before the first step (state 0x96, ai.rs ROUTE_PLAN)
+    pub route_wait: f32,
     /// scan_distance +0x5dc (default 300): the squad's own target scan
     pub scan: f32,
     scan_timer: f32,
@@ -108,6 +110,7 @@ impl Squad {
             run: None,
             speed: if p.i("marker_patrol", 0) != 0 { p.f("patrol_speed", 10.0) } else { p.f("move_speed", 40.0) },
             pace: 0.0,
+            route_wait: 0.0,
             scan: p.f("scan_distance", 300.0),
             scan_timer: 0.0,
             // (0 would be no group: the original logs and uses 0xfffe7e53)
@@ -302,6 +305,7 @@ pub fn update_squads(
                 Some(tag) => {
                     sq.run = Some((tag, 0));
                     sq.phase = SquadPhase::Moving;
+                    sq.route_wait = super::ROUTE_PLAN;
                     info!("EVENT ai: squad moves on spline {tag}");
                 }
                 None => warn!("ai: squad {se:?}: no spline in {:?}", sq.tags),
@@ -346,6 +350,8 @@ pub fn update_squads(
                                     sq.phase = SquadPhase::Done;
                                     info!("EVENT ai: squad at the end of its spline");
                                 }
+                            } else if sq.route_wait > 0.0 {
+                                sq.route_wait -= dt;
                             } else {
                                 sq.pace += (sq.speed - sq.pace) * (1.0 - (-dt / PACE_TIME).exp());
                                 let step = to.normalize_or_zero() * (sq.pace * dt).min(to.length());

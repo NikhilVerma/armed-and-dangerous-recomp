@@ -8,7 +8,8 @@
  "suite": false,
  "known": {
   "events.sounds": "B17: sounds the remaster does not start (or does not report): the pubs' amb_pub_exterior_lp at load, sheep, zeppelin creaks, shrub bomber loop, water footsteps",
-  "events.triggers": "B20: lev_5_m5: base turret 166 sends 90 at 180 in the original only (open)"
+  "events.triggers": "B20: lev_5_m5: base turret 166 sends 90 at 180 in the original only (open)",
+  "grunts.alive": "E1: timer 171 sends 400 ten seconds after the load; with the original's start movie pause it comes after this trace, in the remaster at play frame -29, and base generator 17 releases its first troop"
  },
  "expected": {
   "timing": "E1: movies off in both, but the original's start movie still pauses and takes the first ENTER (its briefing follows it); the remaster's missing movie ends at once",

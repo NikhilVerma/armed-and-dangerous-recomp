@@ -782,7 +782,10 @@ pub fn spawn(
                 let tag = p.f("obj_tag", 0.0) as i64;
                 let house = scene.instances.iter().find(|h| h.props.get("tag").and_then(|v| v.as_i64()) == Some(tag) && tag != 0);
                 if let (Some(h), Some(bone)) = (house, p.s("generic_txt")) {
-                    if let Some(b) = crate::mission::pub_bone(&lib.dir, &h.model, bone) {
+                    // the house's reference anim: its template's default anim (ww_house_2f_b carries v_house_2f_b_0),
+                    // else its model's own (0x00453c50 reads the matrices of the anim set at load)
+                    let anim = data.templates.get(&h.template).and_then(|t| t.default_anim.clone()).unwrap_or_else(|| h.model.clone());
+                    if let Some(b) = crate::mission::pub_bone(&lib.dir, &anim, bone).or_else(|| crate::mission::pub_bone(&lib.dir, &h.model, bone)) {
                         let m = crate::scene::game_matrix(&h.transform);
                         let at = game_to_engine() * m.transform_point3(b);
                         let centre = game_to_engine() * m.w_axis.truncate();

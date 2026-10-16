@@ -8,6 +8,6 @@
  "suite": true,
  "known": {
   "events.sounds": "B17: sounds the remaster does not start (or does not report): the pubs' amb_pub_exterior_lp at load, sheep, zeppelin creaks, shrub bomber loop, water footsteps",
-  "grunt.pos": "B23: window grunt 72 at the house's window bone sits 21 units lower than the original's (level.rs window placement)"
+  "grunt.pos": "B21: grunts on a marker walk set off later in the original (grunt 69 still at its start at frame 60; lev_2_m2 grunt 16 ~18 frames): the route planning delay varies (ai.rs ROUTE_PLAN 0.3 s covers part)"
  }
 }

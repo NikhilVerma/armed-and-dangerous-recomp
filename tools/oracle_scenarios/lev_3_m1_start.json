@@ -8,8 +8,6 @@
  "suite": false,
  "known": {
   "events.sounds": "B17: sounds the remaster does not start (or does not report): the pubs' amb_pub_exterior_lp at load, sheep, zeppelin creaks, shrub bomber loop, water footsteps",
-  "grunt.health": "B11: squad goliaths (squad_goliath_*: GoliathObject 0x5af298 member) are not created",
-  "grunt.pos": "B11: squad goliaths (squad_goliath_*: GoliathObject 0x5af298 member) are not created",
-  "grunts.alive": "B11: squad goliaths (squad_goliath_*: GoliathObject 0x5af298 member) are not created"
+  "grunt.pos": "B24: captain_sniper 228 (force_ground 0) on v_rockettower2 272 falls through the tower's top in the remaster (original stays at z 899.7)"
  }
 }

@@ -9,6 +9,7 @@
  "known": {
   "companion.q.pos": "C1: a companion 12-13 units from the original's (follow distance / start spot), just past the tolerance",
   "events.sounds": "B17: sounds the remaster does not start (or does not report): the pubs' amb_pub_exterior_lp at load, sheep, zeppelin creaks, shrub bomber loop, water footsteps",
-  "grunt.pos": "B3b: the grunt is placed as the original (force_ground's lift out of the overhang) but falls in the remaster; the original's stays (its body not woken)"
+  "grunt.pos": "B3b: the grunt is placed as the original (force_ground's lift out of the overhang) but falls in the remaster; the original's stays (its body not woken)",
+  "vehicle.pos": "V1: the saucers / mini zeppelins on mover paths started at load run ahead along the same path in the remaster (the original covers 11 units in its first second, the remaster 57; ~60 frames ahead after 3 s, positions within 1-5 units at that offset): the original's mover starts slowly (vehicles/boss.rs, icobject.rs)"
  }
 }

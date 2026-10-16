@@ -13,7 +13,6 @@
   "grunt.mind": "B18: grunts take Roman as target at the start in the remaster only (lev_1_m1_b captain 134 patrols in the original, 0x96)",
   "grunt.pos": "B18: grunts take Roman as target at the start in the remaster only (lev_1_m1_b captain 134 patrols in the original, 0x96; lev_3_m3 grunt 51, lev_bonus_m2 grunt 40 chase him)",
   "grunt.target": "B18: grunts take Roman as target at the start in the remaster only (lev_1_m1_b captain 134 patrols in the original, 0x96)",
-  "grunts.alive": "B12: building IC grunts present at load in the original (id 0, state 0x64 at the houses) are not created",
   "roman.health": "B19: lev_1_m1_b: sphere 376 sends 700 at load, an id-0 object dies at 36 (imp_turret_glass_break), Roman -15 at 548: original only (open)"
  }
 }

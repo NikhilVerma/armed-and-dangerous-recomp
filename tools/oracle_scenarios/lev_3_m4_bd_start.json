@@ -8,7 +8,6 @@
  "suite": true,
  "known": {
   "events.sounds": "B17: sounds the remaster does not start (or does not report): the pubs' amb_pub_exterior_lp at load, sheep, zeppelin creaks, shrub bomber loop, water footsteps",
-  "events.triggers": "B10 residual: the start text comes at remaster frame 4 (original 0): trigger 6 lands on the trace's last frame in the remaster only",
-  "grunts.alive": "B22: the defence army's first release comes in the original only within 10 s (army.rs: its timers list 0 platoons)"
+  "events.triggers": "B10 residual: the start text comes at remaster frame 4 (original 0): trigger 6 lands on the trace's last frame in the remaster only"
  }
 }

@@ -758,6 +758,9 @@ pub struct Grunt {
     /// 0x0046f6d0; here nav.rs A*, re-planned every second)
     route: Vec<Vec3>,
     replan: f32,
+    /// a marker run's start (state 0x96: 0x00470aa0 plans the route on the grid before 0x00470c30 walks it): the time
+    /// left before he sets off (`ROUTE_PLAN`)
+    pub route_wait: f32,
     /// his own entity: his bullets' owner (the damage record's source +0x2c)
     pub me: Option<Entity>,
     /// score_value: to the Kills money when he dies (Game+0x2724)
@@ -1197,6 +1200,7 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         exit: None,
         route: Vec::new(),
         replan: 0.0,
+        route_wait: 0.0,
         attacker: None,
         offer_t: f32::NEG_INFINITY,
         clips: (p.i(&fk("fire_num_clips_min"), 1), p.i(&fk("fire_num_clips_max"), 1)),
@@ -2167,11 +2171,17 @@ fn wander(g: &mut Grunt, pos: Vec3, (min, max): (f32, f32), speed: f32, rng: &mu
 /// (state 0x96, anim 0x00427210). (+0x484 bit 16 marker_startloc, riding the spline from its start, is no lev_1_m1
 /// grunt's.) A tag without a spline: the original removes the grunt ("AI : Can't find marker spline group"); here
 /// he stays (none on lev_1_m1).
+/// Seconds a marker run waits for its route before the first step (oracle, agent-startfix: lev_2_m2 grunt 16 and
+/// lev_bonus_m3's squad set off ~18 frames after the unpause in the original; the grid route request 0x00470aa0 /
+/// 0x00470c30 of state 0x96 is the guess at why).
+pub const ROUTE_PLAN: f32 = 0.3;
+
 fn follow_spline(g: &mut Grunt, markers: &crate::alarm::Markers, tags: (i64, i64), r: f32) {
     match markers.pick_spline(tags, r) {
         Some(tag) => {
             g.spline = Some(SplineRun { tag, index: 0, started: false });
             g.mind = Mind::ToMarker;
+            g.route_wait = ROUTE_PLAN;
         }
         None => {
             g.spline = None;
@@ -3044,6 +3054,10 @@ fn think(
                 let mk = g.spline.and_then(|r| markers.spline_marker(r.tag, r.index)).map(|m| m.pos);
                 goal = g.exit.or(mk).unwrap_or(pos);
                 speed = run_speed;
+                if g.route_wait > 0.0 && g.exit.is_none() {
+                    g.route_wait -= dt;
+                    speed = 0.0;
+                }
                 if g.exit.is_none() && mk.is_none() {
                     g.mind = Mind::Roam;
                 }

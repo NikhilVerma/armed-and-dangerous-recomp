@@ -7,9 +7,6 @@
  "trace_from": -60,
  "suite": false,
  "known": {
-  "events.sounds": "B17: sounds the remaster does not start (or does not report): the pubs' amb_pub_exterior_lp at load, sheep, zeppelin creaks, shrub bomber loop, water footsteps",
-  "grunt.health": "B11: squad goliaths (squad_goliath_*: GoliathObject 0x5af298 member) are not created",
-  "grunt.pos": "B11: squad goliaths (squad_goliath_*: GoliathObject 0x5af298 member) are not created",
-  "grunts.alive": "B11: squad goliaths (squad_goliath_*: GoliathObject 0x5af298 member) are not created"
+  "events.sounds": "B17: sounds the remaster does not start (or does not report): the pubs' amb_pub_exterior_lp at load, sheep, zeppelin creaks, shrub bomber loop, water footsteps"
  }
 }
