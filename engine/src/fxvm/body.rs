@@ -106,6 +106,6 @@ pub fn touching(physics: &Physics, id: BodyId, half: Vec3, dt: f32) -> Option<(V
     let dir = if v.length() > 0.5 { v.normalize() } else { Vec3::NEG_Y };
     let len = half.max_element() * 1.2 + v.length() * dt;
     let ray = RayCast::new(crate::physics::jr(centre * k), jv(dir * len * k));
-    let hit = physics.world.cast_ray(&ray, &crate::physics::Physics::query().exclude_body(id)).ok()??;
+    let hit = physics.world.cast_ray(&ray, &QueryFilter::new().exclude_body(id)).ok()??;
     Some((game_to_engine().inverse() * (centre + dir * hit.distance / k), hit.body))
 }

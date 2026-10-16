@@ -674,12 +674,10 @@ The AI characters' bodies are the original's (ai/body.rs, Object_BuildRadiusColl
   hitparts.rs). The sphere is in `no_bullets`; `Physics::hit_volumes` holds a capsule round the model (0.55 x the
   radius, 0.3..10.1 above the feet) that `raycast_bullet` tests besides the world (a head above the sphere still
   takes a shot).
-- **The landscape collides from both sides** in the solver (Havok's MOPP meshes are two-sided):
-  `add_static_mesh(.., two_sided)` builds a compound of the triangles and the triangles turned round;
-  `Physics::query()` (every ray / shape query and Roman's CharacterVirtual) skips the turned-round child, so queries
-  and their normals are unchanged. Placed objects stay one-sided (many are hulls in the original; barracks troops walk
-  out through their building's mesh: every placed mesh two-sided broke alarm1 / splines1 / cover3). Statics have the
-  default material's friction 1.0. force_ground's touch tolerance is 0.3 (world 0.2 + mesh radius 0.1).
+- Statics have the default material's friction 1.0. force_ground's touch tolerance is 0.3 (world 0.2 + mesh radius
+  0.1: the original's lifted grunts end 0.31 off the overhang). Jolt's solver collides with triangles from the front
+  only, Havok's from both sides; a turned-round copy of the landscape was tried for B3b and dropped (it did not hold
+  the grunts and cost ~12% frame time in lev_1_m1, which also broke audio_voice: its follow-on lines end in real time).
 - The AI's line of sight (`line_of_sight`: the squad's scan, a walk's straight leg) passes AI bodies as 0x00426fd0.
 
 The squads and jumpers that broke when only the sphere was tried (c6e6fae): squad members pushed each other apart and

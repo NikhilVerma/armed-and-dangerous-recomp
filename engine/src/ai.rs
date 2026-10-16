@@ -1039,8 +1039,8 @@ impl Plugin for AiPlugin {
             .add_systems(
                 Update,
                 (
-                    (body::bumps, squad::update_squads, interests, mark_army_targets, search, ic::activate, scare, think, ic::run, bully::bullies, die, dismay),
-                    (body::apply_rules, log_cover, log_ai, squad::log_squads, ic::log, grenades),
+                    (body::bumps, squad::update_squads, interests, mark_army_targets, search, ic::activate, scare, think, ic::run, bully::bullies, die, dismay).chain(),
+                    (body::apply_rules, log_cover, log_ai, squad::log_squads, ic::log, grenades).chain(),
                 )
                     .chain()
                     .after(crate::fx::FxSet)

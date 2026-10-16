@@ -11,10 +11,6 @@ use std::time::Instant;
 
 pub use crate::contacts::{ContactRule, Touch};
 
-/// A static mesh's children (compound user data): its triangles as given, and the same triangles turned round, which
-/// only the solver sees (`Physics::query`).
-const FRONT_FACES: u32 = 0;
-const BACK_FACES: u32 = 1;
 
 pub struct Physics {
     pub world: PhysicsWorld,
@@ -93,27 +89,15 @@ impl Physics {
         br(p) / self.meters_per_unit
     }
 
-    /// A static triangle mesh, vertices already in engine space (game units). Jolt's solver collides with triangles
-    /// from the front only. `two_sided`: from both sides too, as Havok's MOPP meshes (the landscape): the body is a
-    /// compound of the triangles and the triangles turned round (`BACK_FACES`), which every query here skips (rays and
-    /// shape tests already see both sides, and their hits keep the triangles' own normals): a body under an overhang
-    /// meets its underside (lev_5_m3 grunt 44: in contact with the landscape from behind from the unpause on,
-    /// GenericAIObject_Slot42 / Slot44 traced, docs/journal/2026-10-16-charbody.md). The placed objects stay one-sided:
-    /// many of the original's are convex hulls, and a troop leaving a barracks walks out through its mesh. Friction
-    /// 1.0: the original's default material (PhysMaterial_Load 0x00412140: "%s_friction", else default_friction, 1.0 on
-    /// every level; wood's 20 is not modelled).
-    pub fn add_static_mesh(&mut self, vertices: &[Vec3], triangles: &[[u32; 3]], two_sided: bool) -> Option<BodyId> {
+    /// A static triangle mesh, vertices already in engine space (game units). Friction 1.0: the original's default
+    /// material (PhysMaterial_Load 0x00412140: "%s_friction", else default_friction, 1.0 on every level; wood's 20 is
+    /// not modelled). Jolt's solver collides with triangles from the front only, Havok's MOPP meshes from both sides:
+    /// a turned-round copy of the landscape's downward-facing triangles was tried for B3b (docs/journal/2026-10-16-charbody.md)
+    /// and dropped: it did not hold the grunts and made lev_1_m1's frames ~12% slower.
+    pub fn add_static_mesh(&mut self, vertices: &[Vec3], triangles: &[[u32; 3]]) -> Option<BodyId> {
         let k = self.meters_per_unit;
         let v: Vec<j::Vec3> = vertices.iter().map(|p| jv(*p * k)).collect();
-        let (front, _dropped) = Shape::new_mesh(&v, triangles).ok()?;
-        let shape = if two_sided {
-            let reversed: Vec<[u32; 3]> = triangles.iter().map(|t| [t[0], t[2], t[1]]).collect();
-            let (back, _dropped) = Shape::new_mesh(&v, &reversed).ok()?;
-            let child = |shape, user_data| CompoundChild { shape, position: j::Vec3::new(0.0, 0.0, 0.0), rotation: jq(Quat::IDENTITY), user_data };
-            Shape::new_compound(&[child(&front, FRONT_FACES), child(&back, BACK_FACES)]).ok()?
-        } else {
-            front
-        };
+        let (shape, _dropped) = Shape::new_mesh(&v, triangles).ok()?;
         let id = self.world.create_body(&shape, &BodySettings::new_static().friction(1.0)).ok()?;
         self.static_bodies += 1;
         self.static_triangles += triangles.len();
@@ -252,7 +236,7 @@ impl Physics {
         let (mut from, mut left, mut skip) = (at + Vec3::Y * 2.0, depth + 2.0, None);
         for _ in 0..8 {
             // past the last dynamic body met (a ray that starts inside one hits it at once)
-            let filter = skip.map_or(Self::query(), |b| Self::query().exclude_body(b));
+            let filter = skip.map_or(QueryFilter::new(), |b| QueryFilter::new().exclude_body(b));
             let hit = self.world.cast_ray(&RayCast::new(jr(from * k), jv(Vec3::NEG_Y * left * k)), &filter).ok()??;
             let point = from + Vec3::NEG_Y * hit.distance / k;
             if !self.bodies.contains_key(&hit.body) {
@@ -313,12 +297,7 @@ impl Physics {
         let Some(landscape) = self.landscape else { return false };
         let k = self.meters_per_unit;
         let q = CollideShape::new(shape, self.to_m(centre), j::Quat::IDENTITY).max_separation_distance(0.3 * k).collide_with_back_faces(true);
-        self.world.collide_shape(&q, &Self::query()).is_ok_and(|hits| hits.iter().any(|h| h.body == landscape))
-    }
-
-    /// The filter of every query: everything but the static meshes' turned-round triangles (`add_static_mesh`).
-    pub fn query() -> QueryFilter<'static> {
-        QueryFilter::new().child_groups(1 << FRONT_FACES)
+        self.world.collide_shape(&q, &QueryFilter::new()).is_ok_and(|hits| hits.iter().any(|h| h.body == landscape))
     }
 
     /// Sets a body's contact rule (contacts.rs); a changed rule drops the body's cached contacts, so the solver asks
@@ -339,7 +318,7 @@ impl Physics {
     pub fn raycast(&self, from: Vec3, dir: Vec3, length: f32) -> Option<(BodyId, Vec3, Vec3)> {
         let k = self.meters_per_unit;
         let ray = RayCast::new(jr(from * k), jv(dir.normalize() * length * k));
-        let hit = self.world.cast_ray(&ray, &Self::query()).ok()??;
+        let hit = self.world.cast_ray(&ray, &QueryFilter::new()).ok()??;
         Some((hit.body, from + dir.normalize() * hit.distance / k, bv(hit.normal)))
     }
 }
@@ -470,7 +449,7 @@ impl Physics {
             .max_slope_angle(max_slope)
             .mass(80.0);
         let id = self.world.create_character(&settings, self.to_m(feet), j::Quat { x: 0.0, y: 0.0, z: 0.0, w: 1.0 }).ok()?;
-        let _ = self.world.refresh_character_contacts(id, &Self::query());
+        let _ = self.world.refresh_character_contacts(id, &QueryFilter::new());
         Some(Walker { id, lift })
     }
 
@@ -483,7 +462,7 @@ impl Physics {
         if dt > 0.0 {
             self.world.character_mut(w.id).ok()?.set_linear_velocity(jv(velocity * k)).ok()?;
             let g = j::Vec3::new(0.0, -9.81, 0.0);
-            self.world.update_character(w.id, dt.min(0.1), g, &ExtendedUpdateSettings::default(), &Self::query()).ok()?;
+            self.world.update_character(w.id, dt.min(0.1), g, &ExtendedUpdateSettings::default(), &QueryFilter::new()).ok()?;
         }
         let c = self.world.character(w.id).ok()?;
         let on = matches!(c.ground_state(), oxijolt::GroundState::OnGround);

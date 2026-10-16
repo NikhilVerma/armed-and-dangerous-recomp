@@ -193,17 +193,17 @@ the camp fight itself (the original was not run: the game was in use by other ag
   see, or 0x004292f0's clip pause is not the one the remaster waits for. Evidence: the GUNDBG2 run in the journal
   (grunt 664v0: timer 0.69 -> fire at 1.98 s); next: hook trace_calls of 0x004292f0 / fn_00427600 on lev_bonus_m1.
   Roman, hit sooner, dies ~190 frames earlier (the scenario's known entries).
-- **B3b (lifted grunts fall in the remaster).** lev_5_m1 captain 66 / lev_5_m3 grunt 44 (force_ground lifts them out
-  of an overhang's underside to z 297.9 / 315.8) stay there in the original as dynamic bodies (the hook's new `kf`
-  field: 0, not keyframed; a 0.2 settle after the unpause), and fall in the remaster: a downward ray from the lifted
-  point meets no landscape within 60 units, and widening the capsule to collision_radius (the original's sphere,
-  havok-layouts.md: offset sphere + feet ray from 0x004527d0) did not hold them. The force_ground touch test meets
-  the landscape there only from behind (collide_with_back_faces), and Jolt's simulation ignores triangle back faces
-  (PhysicsSystem's CollideShapeSettings: IgnoreBackFaces) where Havok's MOPP mesh collides both sides: the grunts
-  most likely rest on the back of the overhang's faces. Plan: a second, simulation-only static body with the
-  landscape's triangles reversed, excluded from every ray query (physics.rs raycast / surface_below / the camera
-  ray, which skips landscape back faces) and from the characters' filter; check ragdolls and debris that sink below
-  the ground, then rerun lev_5_m1 / 5_m3.
+- **B3b (lifted grunts fall in the remaster).** lev_5_m1 captain 66 / lev_5_m3 grunt 44 are lifted by force_ground out
+  of an overhang (now at the original's height: the touch tolerance is 0.3, 2026-10-16 agent-charbody) and stay there
+  in the original. Traced (hook trace fields entity / awake / vel, trace_calls GenericAIObject_Slot42 / Slot44,
+  Body_setLinearVelocity, Body_wakeAndSetLinearVelocity; docs/journal/2026-10-16-charbody.md): grunt 44's body falls
+  freely for 4 frames, gets a contact with an owner-less body (the landscape) at play frame 3 and every frame after,
+  and from frame 5 its velocity is exactly 0 while its island stays awake; no game call sets it (the speed-trap wakes
+  at play 2..6 are another entity's). The only landscape in reach is an 82-degree face 4.29 from his centre, from
+  behind (the sphere 0.29 off it). So Havok's solver stops a sphere dead against the back of a near-vertical face;
+  Jolt with a turned-round copy of the landscape lets it slide (~4.5 units/s: friction 0.95 cannot hold 82 degrees)
+  and the copy cost ~12% frame time, so it was dropped. Next: trace the contact's normal and distance (the listener's
+  point +0x10, CollisionListener_OnContactAdded 0x00413240) to see what Havok solves against.
 - **B21 rest (the 0.3 s before a marker walk's first step).** Grunt 16 (lev_2_m2) and lev_bonus_m3's squad set off
   18 frames after the unpause in both games (ai.rs ROUTE_PLAN = 0.3 s, fitted): the route update (AIRoute_Update
   0x00470aa0, AIRoute_Plan 0x0046fa80, Grid_FindPath 0x0046fd20) plans at once, so the wait is not the route;

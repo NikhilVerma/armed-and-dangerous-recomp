@@ -546,11 +546,10 @@ pub struct Window {
 #[derive(Component)]
 pub struct HandWeapon(pub &'static str);
 
-/// A model as a static mesh collider placed at `world`, with its triangles' surface names (surface.rs); two-sided for
-/// the landscape (Physics::add_static_mesh).
-fn static_collider(physics: &mut Physics, model: &scene::Model, world: Mat4, two_sided: bool) -> Option<BodyId> {
+/// A model as a static mesh collider placed at `world`, with its triangles' surface names (surface.rs).
+fn static_collider(physics: &mut Physics, model: &scene::Model, world: Mat4) -> Option<BodyId> {
     let v: Vec<Vec3> = model.vertices.iter().map(|p| world.transform_point3(*p)).collect();
-    let id = physics.add_static_mesh(&v, &model.tris, two_sided)?;
+    let id = physics.add_static_mesh(&v, &model.tris)?;
     if let Some(m) = crate::surface::SurfaceMap::new(&v, &model.tris, &model.surfaces) {
         physics.surfaces.insert(id, m);
     }
@@ -671,7 +670,7 @@ pub fn spawn(
             info.draws += d;
             info.triangles += t;
         }
-        physics.landscape = static_collider(physics, model, axes, true);
+        physics.landscape = static_collider(physics, model, axes);
         decal_world = crate::decals::DecalWorld::new(&model.vertices, &model.tris);
     }
 
@@ -941,7 +940,7 @@ pub fn spawn(
         // filter collides with nothing; the crosshair's list +0xe9c and the bullets' +0xe90 never hold it)
         let coll_name = coll_name.filter(|_| !(behavior.is_empty() && p.f("no_collide", 0.0) != 0.0));
         let collider = match coll_name {
-            Some(n) => lib.load_model(&n, false, assets, meshes, materials).and_then(|m| static_collider(physics, m, world, false)),
+            Some(n) => lib.load_model(&n, false, assets, meshes, materials).and_then(|m| static_collider(physics, m, world)),
             None => None,
         };
         if let Some(c) = collider {
@@ -990,7 +989,7 @@ pub fn spawn(
                     }
                 }
                 let collider = match wt.collision.as_ref() {
-                    Some(n) => lib.load_model(n, false, assets, meshes, materials).and_then(|m| static_collider(physics, m, ww, false)),
+                    Some(n) => lib.load_model(n, false, assets, meshes, materials).and_then(|m| static_collider(physics, m, ww)),
                     None => None,
                 };
                 if let (Some(c), Some(mt)) = (collider, wp.s("material")) {
@@ -1191,7 +1190,7 @@ impl StageSwap<'_, '_> {
         // its collision model, or (collide_poly) its render model, as a placed object's
         let coll_name = ht.collision.clone().or_else(|| (hp.i("collide_poly", 0) != 0).then_some(model_name).flatten());
         let collider = match coll_name {
-            Some(n) => self.lib.load_model(&n, false, &self.assets, &mut self.meshes, &mut self.materials).and_then(|m| static_collider(&mut self.physics, m, world, false)),
+            Some(n) => self.lib.load_model(&n, false, &self.assets, &mut self.meshes, &mut self.materials).and_then(|m| static_collider(&mut self.physics, m, world)),
             None => None,
         };
         if let Some(c) = collider {
