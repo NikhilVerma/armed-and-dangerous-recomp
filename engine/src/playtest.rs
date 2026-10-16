@@ -134,6 +134,14 @@ pub struct Event {
     /// bot: aim at the nearest live grunt within range and fire (true) / stop (false)
     #[serde(default)]
     pub fight: Option<bool>,
+    /// bot: aim at the placed object with this instance id and fire while the crosshair is on it, until it is destroyed
+    /// ("EVENT bot: object N destroyed"; 0 cancels); it takes the place of the fight's targets meanwhile
+    #[serde(default)]
+    pub shoot: Option<i64>,
+    /// bot: as shoot, with sticky bombs (thrown while the crosshair rests on it, 2 s apart, from beyond their blast):
+    /// for buildings, which take no bullets
+    #[serde(default)]
+    pub bomb: Option<i64>,
     /// bot: hold the Use key (true) / release (false)
     #[serde(default)]
     pub r#use: Option<bool>,
@@ -680,6 +688,14 @@ pub(crate) fn drive(
         }
         if let Some(f) = e.fight {
             bot.fight = f;
+        }
+        if let Some(id) = e.shoot {
+            bot.shoot = (id > 0).then_some(id as u32);
+            bot.shoot_bombs = false;
+        }
+        if let Some(id) = e.bomb {
+            bot.shoot = (id > 0).then_some(id as u32);
+            bot.shoot_bombs = true;
         }
         if let Some(u) = e.r#use {
             bot.use_key = u;

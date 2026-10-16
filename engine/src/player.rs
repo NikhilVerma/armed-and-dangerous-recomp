@@ -1072,7 +1072,7 @@ fn weapons(
         let mg = r.use_mg && r.mg.is_some();
         // a tap counts as a shot: a trackpad tap over Moonlight arrives as press and release in one frame, never
         // "pressed" at the frame's end (the player's gun did nothing)
-        let fire = ctl.down(crate::input::Act::Fire) || ctl.pressed(crate::input::Act::Fire) || (buttons.just_pressed(MouseButton::Left) && ctl.active_play) || (bot.fight && bot.fire_ok);
+        let fire = ctl.down(crate::input::Act::Fire) || ctl.pressed(crate::input::Act::Fire) || (buttons.just_pressed(MouseButton::Left) && ctl.active_play) || ((bot.fight || bot.shoot.is_some()) && bot.fire_ok);
         let reloading = r.reload_clock.is_some();
         let fire_delay = r.fire_delay;
         let (shoot, starting, out_of_ammo) = {
