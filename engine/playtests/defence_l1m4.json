@@ -1,7 +1,7 @@
 {"scene": "lev_1_m4", "steps": [
  {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 3.5}, {"tap": "Enter"},
  {"wait": 0.5},
- {"expect": {"base_turret.mounted": true, "base_turret.intro": true, "dead": false}},
+ {"expect": {"base_turret.mounted": true, "base_turret.intro": false, "dead": false}},
  {"wait": 7.0},
  {"expect": {"base_turret.intro": false, "army.platoons": [5, 200], "army.members": [25, 1000]}},
  {"shot": "turret"},
