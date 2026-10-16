@@ -202,8 +202,13 @@ the camp fight itself (the original was not run: the game was in use by other ag
   at play 2..6 are another entity's). The only landscape in reach is an 82-degree face 4.29 from his centre, from
   behind (the sphere 0.29 off it). So Havok's solver stops a sphere dead against the back of a near-vertical face;
   Jolt with a turned-round copy of the landscape lets it slide (~4.5 units/s: friction 0.95 cannot hold 82 degrees)
-  and the copy cost ~12% frame time, so it was dropped. Next: trace the contact's normal and distance (the listener's
-  point +0x10, CollisionListener_OnContactAdded 0x00413240) to see what Havok solves against.
+  and the copy cost ~12% frame time, so it was dropped. The hook's `trace_contacts=44` (and.log "contact" lines from
+  CollisionListener_OnContactAdded 0x00413240) shows one contact added, at play frame 3, on the face at (-1407.58,
+  2029.58, 319.31) with normal (0.2457, -0.9589, 0.1417) (the face's back side, toward the grunt) and w -0.68: Havok
+  counts the sphere 0.68 inside the face although the centre is 4.29 from it (radius 4): either the w is not the
+  distance or the body's sphere is larger than collision_radius (0x004a3c50 scales the game sphere's +0x20 by cinfo +8:
+  unread). Next: read the sphere shape's radius (+0x20 after 0x004a3d70) and the contact's w convention, then model
+  that contact (a penetrating back-face contact the solver holds) in Jolt.
 - **B21 rest (the 0.3 s before a marker walk's first step).** Grunt 16 (lev_2_m2) and lev_bonus_m3's squad set off
   18 frames after the unpause in both games (ai.rs ROUTE_PLAN = 0.3 s, fitted): the route update (AIRoute_Update
   0x00470aa0, AIRoute_Plan 0x0046fa80, Grid_FindPath 0x0046fd20) plans at once, so the wait is not the route;

@@ -366,6 +366,60 @@ __declspec(naked) void Wrap_SendTrigger()
     }
 }
 
+// [test] trace_contacts=<instance id>: and.log gets one "contact" line per contact added on that object's body
+// (CollisionListener_OnContactAdded 0x00413240: event +8 / +0xc collidables, +0x14 the contact point: position +0,
+// normal +0x10 with its w), with the other owner's id (0: none, the landscape) and the combined friction (+0x18 -> +8)
+int g_traceContacts;
+void* g_nextContactAdded;
+
+// the owning game object of a collidable: its entity (+0x1c) pair array (+0x78 data, +0x7c count) key 0
+static void* ContactOwner(uint32_t collidable)
+{
+    if (!Readable(collidable, 0x20))
+        return nullptr;
+    const uint32_t entity = At<uint32_t>(reinterpret_cast<void*>(collidable), 0x1c);
+    if (!Readable(entity, 0x80))
+        return nullptr;
+    const uint32_t data = At<uint32_t>(reinterpret_cast<void*>(entity), 0x78);
+    const int count = At<int>(reinterpret_cast<void*>(entity), 0x7c);
+    for (int i = 0; i < count && i < 16 && Readable(data + i * 8, 8); ++i)
+        if (At<uint32_t>(reinterpret_cast<void*>(data), i * 8) == 0)
+        {
+            const uint32_t o = At<uint32_t>(reinterpret_cast<void*>(data), i * 8 + 4);
+            return Readable(o, 0x398) ? reinterpret_cast<void*>(o) : nullptr;
+        }
+    return nullptr;
+}
+
+void __stdcall OnContactAdded(uint32_t event)
+{
+    if (!g_traceContacts || !Readable(event, 0x1c))
+        return;
+    void* a = ContactOwner(At<uint32_t>(reinterpret_cast<void*>(event), 8));
+    void* b = ContactOwner(At<uint32_t>(reinterpret_cast<void*>(event), 0xc));
+    const bool ia = a && Id(a) == g_traceContacts, ib = b && Id(b) == g_traceContacts;
+    if (!ia && !ib)
+        return;
+    const uint32_t p = At<uint32_t>(reinterpret_cast<void*>(event), 0x14);
+    if (!Readable(p, 0x20))
+        return;
+    const float* f = reinterpret_cast<const float*>(p);
+    Log("contact #%d other #%d (%s) at %.3f %.3f %.3f n %.4f %.4f %.4f w %.4f", g_traceContacts, ia ? (b ? Id(b) : 0) : (a ? Id(a) : 0),
+        ia ? "A" : "B", f[0], f[1], f[2], f[4], f[5], f[6], f[7]);
+}
+
+// CollisionListener_OnContactAdded 0x00413240: ecx unused; stack: event; ret 4
+__declspec(naked) void Wrap_ContactAdded()
+{
+    __asm {
+        pushad
+        push dword ptr [esp + 36]  // event
+        call OnContactAdded
+        popad
+        jmp dword ptr [g_nextContactAdded]
+    }
+}
+
 void __stdcall OnDgoDeath(void* obj)
 {
     if (g_traceEvery && !(At<uint32_t>(obj, 0x4d0) & 0x10000))  // once: the flag the function sets (game_03.cpp:966)
@@ -528,6 +582,9 @@ void TestOracleInit()
         if (HookWrap(name, reinterpret_cast<void*>(g_callWraps[slot]), &g_callNext[slot]))
             ++slot;
     }
+    g_traceContacts = ConfigInt("test", "trace_contacts", 0);
+    if (g_traceContacts)
+        HookWrap("CollisionListener_OnContactAdded", reinterpret_cast<void*>(Wrap_ContactAdded), &g_nextContactAdded);
     if (!g_traceEvery && !g_fromPlay)
         return;
     if (g_traceEvery)
