@@ -12,6 +12,9 @@
 // [test] play_triggers=F:ID,...  at play frame F send trigger ID to the level (Object_SendTrigger 0x00461870, no
 //                             sender), as the remaster's oracle "triggers": for a sequence that needs a trigger the
 //                             scripted input cannot produce (lev_4_m2's peasant_success_trigger 7001)
+// [test] play_hold_health=1  from play frame -10 Roman's health is put back to his maximum every frame (+0x454 =
+//                             +0x458), as the remaster's oracle "hold_health": a scenario about something else is not
+//                             ended by his death (lev_4_m2_tower: the troops at the start, a roll in both games)
 // [test] play_frames=N        terminate the process after play frame N (the trace flushed)
 // [test] trace_every=N        and-trace.jsonl: from play frame trace_from, every N frames one JSON line (every frame
 //                             before play frame 0):
@@ -77,6 +80,7 @@ struct PlayTrigger
     bool sent;
 };
 std::vector<PlayTrigger> g_playTriggers;
+bool g_holdHealth;
 int g_traceFrom;
 FILE* g_out;
 bool g_traced;      // a line has been written or kept
@@ -674,6 +678,7 @@ void TestOracleInit()
     ConfigString("test", "play_warp", "", buf, sizeof(buf));
     g_warpOn = sscanf(buf, "%f,%f,%f", &g_warp[0], &g_warp[1], &g_warp[2]) == 3;
     char trig[512];
+    g_holdHealth = ConfigInt("test", "play_hold_health", 0) != 0;
     ConfigString("test", "play_triggers", "", trig, sizeof(trig));
     for (char* item = strtok(trig, ", "); item; item = strtok(nullptr, ", "))
     {
@@ -732,6 +737,11 @@ void TestOracleOnFrame()
             orig::fn_00457870(0, reinterpret_cast<uint32_t>(g_warp), reinterpret_cast<uint32_t>(player), 0, 0, 0);
             Log("test: play warp at %d to %.1f %.1f %.1f", f, g_warp[0], g_warp[1], g_warp[2]);
         }
+    }
+    if (g_holdHealth && g_briefFrame >= 0 && f >= -10)
+    {
+        if (void* player = Player())
+            *reinterpret_cast<float*>(reinterpret_cast<uint8_t*>(player) + 0x454) = At<float>(player, 0x458);
     }
     for (PlayTrigger& t : g_playTriggers)
     {

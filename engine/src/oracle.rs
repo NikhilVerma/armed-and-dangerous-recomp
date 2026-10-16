@@ -13,6 +13,8 @@
 //!   DirectInput scan code (17 W, 30 A, 31 S, 32 D, 57 Space ...), ENTER / ESC / SPACE / UP / DOWN / LEFT / RIGHT,
 //!   MOUSE1..3, or MOUSEX<n> / MOUSEY<n> (mouse counts per frame while held).
 //! - `warp`: Roman is put there (game space) at play frame -10, keeping his heading, as [test] play_warp.
+//! - `hold_health`: Roman's health put back to his maximum every frame from play frame -10, as [test]
+//!   play_hold_health (a scenario about something else is not ended by his death).
 //! - `triggers`: `[[play frame, trigger id], ...]` sent to the level at those frames, as [test] play_triggers
 //!   (Object_SendTrigger with no sender): a sequence the scripted input cannot reach (lev_4_m2's 7001).
 //! - The trace (`<script>.trace.jsonl`): one line every `trace_every` frames from play frame `trace_from` (every frame
@@ -118,6 +120,8 @@ pub struct OracleConfig {
     pub trace_from: i64,
     #[serde(default)]
     pub triggers: Vec<(i64, i64)>,
+    #[serde(default)]
+    pub hold_health: bool,
 }
 
 fn default_delay() -> i64 {
@@ -300,8 +304,14 @@ fn drive(
     roman: Query<&crate::player::Roman>,
     mut exit: MessageWriter<AppExit>,
     mut send: MessageWriter<crate::mission::SendTrigger>,
+    mut roman_health: Query<(&crate::player::Roman, &mut crate::fx::Health)>,
 ) {
     let Some(f) = o.play_frame() else { return };
+    if o.cfg.hold_health && f >= -10 {
+        if let Ok((r, mut h)) = roman_health.single_mut() {
+            h.0 = r.max_health;
+        }
+    }
     // the scenario's triggers, each once at its frame
     let due: Vec<i64> = o.cfg.triggers.iter().filter(|(at, _)| *at == f).map(|(_, t)| *t).collect();
     for t in due {

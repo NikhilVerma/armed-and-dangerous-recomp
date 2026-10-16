@@ -105,6 +105,9 @@ def run_original(sc, hooks_on=False, timeout=900, inst="oracle"):
         # [[play frame, trigger id], ...]: sent to the level as Object_SendTrigger would (testoracle.cpp play_triggers;
         # needs a hook built with it: AND_HOOK_BUILD, tools/instances.py)
         test["play_triggers"] = ",".join(f"{f}:{t}" for f, t in sc["triggers"])
+    if sc.get("hold_health"):
+        # Roman's health held at its maximum from play frame -10 (testoracle.cpp play_hold_health)
+        test["play_hold_health"] = 1
     hooks = {n: hooks_on for n in compare.hook_names()}
     # The sound log is a callback in the recovered play functions (StartVoice, src/audio/audio_02.cpp:1495): these
     # three run recovered code (S2, verified by tools/compare.py) so the original's sounds are traced too.
@@ -147,6 +150,8 @@ def run_remaster(sc, exe, timeout=900):
         oracle["warp"] = sc["warp"]
     if sc.get("triggers"):
         oracle["triggers"] = sc["triggers"]
+    if sc.get("hold_health"):
+        oracle["hold_health"] = True
     body = {"oracle": oracle}
     if sc.get("level", "lev_1_m1") != "lev_1_m1":
         body["scene"] = sc["level"]  # tools/playtest.py: work/remaster/<level>
