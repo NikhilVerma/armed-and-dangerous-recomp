@@ -803,6 +803,8 @@ pub struct Grunt {
     pub hurt_voice_timer: f32,
     pub dead_said: bool,
     pub voice_set: u8,
+    /// his own voice handles (+0xb4c scream, +0xb50 line): audio.rs Speech
+    pub speech: crate::audio::Speech,
     pub ray_timer: f32,
     /// died by a hit of at least hit_ragdoll (blown away as a body) rather than a death anim
     pub ragdoll: bool,
@@ -1218,6 +1220,7 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         fixed: None,
         hurt_voice_timer: 0.0,
         dead_said: false,
+        speech: crate::audio::Speech::default(),
         // GruntObject_Slot6 (ai_04.cpp:2340): < 100 GR1 (+0x484 bit 21), < 200 GR3 (+0x488 bit 29), else GR2
         voice_set: if pick < 100 { 0 } else if pick < 200 { 2 } else { 1 },
         ray_timer: 0.0,
@@ -1367,7 +1370,12 @@ impl Barks {
 }
 
 fn bark(sounds: &mut MessageWriter<crate::audio::PlaySound>, category: &str, set: u8, at: Vec3) {
-    sounds.write(crate::audio::PlaySound::at(voice(category, set), at).looping(false));
+    sounds.write(bark_request(category, set, at));
+}
+
+/// A bark's request, for the barks kept as a voice handle (audio.rs Speech).
+pub fn bark_request(category: &str, set: u8, at: Vec3) -> crate::audio::PlaySound {
+    crate::audio::PlaySound::at(voice(category, set), at).looping(false)
 }
 
 /// The "ai_interest" noises of the player (AIInterestObject, vtable 0x005a7820, in the list World+0xee0): posted by
@@ -1669,6 +1677,7 @@ fn scare(
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     mut barks: ResMut<Barks>,
     time: Res<Time>,
+    voices: crate::audio::PlayingVoices,
 ) {
     let ppos = player.single().map(|p| p.translation()).unwrap_or_default();
     for s in stuck.read() {
@@ -1677,12 +1686,24 @@ fn scare(
                 continue;
             }
             // Scare 0x0042fb60: the grunt the bomb is stuck to says Sticky (death_delay; else General_Scream), the others
-            // General_Scream, a guard without the bomb on him nothing (ai_03.cpp:2930-2943)
-            if s.1 == Some(ge) {
-                let cat = if barks.take(Delay::Death, time.elapsed_secs(), &mut rng) { "Sticky_Scream" } else { "General_Scream" };
-                bark(&mut sounds, cat, g.voice_set, t.translation());
-            } else if !g.guard {
-                bark(&mut sounds, "General_Scream", g.voice_set, t.translation());
+            // General_Scream, a guard without the bomb on him nothing (ai_03.cpp:2930-2943). Screams keep his scream
+            // handle: none starts while it plays; the sticky one (0x00438810) then leaves death_delay as it is
+            let at = t.translation();
+            let scream = if s.1 == Some(ge) {
+                if !barks.ready(Delay::Death, time.elapsed_secs(), &mut rng) {
+                    Some("General_Scream")
+                } else if !g.speech.screaming(&voices) {
+                    barks.take(Delay::Death, time.elapsed_secs(), &mut rng);
+                    Some("Sticky_Scream")
+                } else {
+                    None
+                }
+            } else {
+                (!g.guard).then_some("General_Scream")
+            };
+            let set = g.voice_set;
+            if let Some(req) = scream.and_then(|cat| g.speech.scream(&voices, bark_request(cat, set, at))) {
+                sounds.write(req);
             }
             if g.guard {
                 continue;
@@ -2484,7 +2505,7 @@ fn think(
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     mut fx: MessageWriter<crate::fx::StartFx>,
     rtime: Res<Time<Real>>,
-    mut barks: ResMut<Barks>,
+    (mut barks, voices): (ResMut<Barks>, crate::audio::PlayingVoices),
     (markers, mut arrive, mut trenches, mut guns, mounted, data): (
         Res<crate::alarm::Markers>,
         MessageWriter<crate::alarm::MarkerArrival>,
@@ -2639,7 +2660,10 @@ fn think(
             // per grunt; the shared one restarts the 4 s too (+0xb48)
             if barks.take(Delay::Death, time.elapsed_secs(), &mut rng) {
                 g.hurt_voice_timer = 4.0;
-                bark(&mut sounds, "Hurt:{}:last4", g.voice_set, tr.translation);
+                // (kept as his line, 0x00439e00 -> +0xb50)
+                let set = g.voice_set;
+                let req = g.speech.line(&voices, bark_request("Hurt:{}:last4", set, tr.translation));
+                sounds.write(req);
             } else if g.hurt_voice_timer <= 0.0 {
                 g.hurt_voice_timer = 4.0;
                 bark(&mut sounds, "Hurt:{}:butlast4", g.voice_set, tr.translation);
@@ -3139,7 +3163,7 @@ fn think(
                     if g.turn.is_none() {
                         // the weapon in its right hand (ref_rhand, grunt init 0x00434fb0): where the shot leaves
                         let hand = ga.and_then(|a| a.skeleton.index.get("ref_rhand").and_then(|&i| targets.get(a.joints[i]).ok())).map(|j| j.translation());
-                        end = fire_cycle(&mut commands, &mut g, &physics, &mut rng, pos, p, hit, own_hit, hand, body.id, dt, &mut stats, &mut sounds, &mut fx, (&mut barks, time.elapsed_secs()));
+                        end = fire_cycle(&mut commands, &mut g, &physics, &mut rng, pos, p, hit, own_hit, hand, body.id, dt, &mut stats, &mut sounds, &mut fx, (&mut barks, time.elapsed_secs(), &voices));
                     }
                     if stats.shots > before && std::env::var("AIDBG").is_ok() {
                         info!("AIDBG gruntshot t {:.3}", rtime.elapsed_secs());
@@ -3496,7 +3520,7 @@ fn think(
                 if j.flight == Some(jumper::Flight::Glide) {
                     if let (Some(p), Some(thit), true) = (target, target_hit, g.fire_ready) {
                         g.jumper = Some(j);
-                        fire_cycle(&mut commands, &mut g, &physics, &mut rng, pos, p, thit, own_hit, None, body.id, dt, &mut stats, &mut sounds, &mut fx, (&mut barks, time.elapsed_secs()));
+                        fire_cycle(&mut commands, &mut g, &physics, &mut rng, pos, p, thit, own_hit, None, body.id, dt, &mut stats, &mut sounds, &mut fx, (&mut barks, time.elapsed_secs(), &voices));
                         g.mind = Mind::Jump;
                         j = g.jumper.expect("a jumper");
                     }
@@ -3673,7 +3697,7 @@ fn fire_cycle(
     stats: &mut AiStats,
     sounds: &mut MessageWriter<crate::audio::PlaySound>,
     fx: &mut MessageWriter<crate::fx::StartFx>,
-    (barks, now): (&mut Barks, f32),
+    (barks, now, voices): (&mut Barks, f32, &crate::audio::PlayingVoices),
 ) -> FireEnd {
     g.pause -= dt;
     if g.pause > 0.0 {
@@ -3746,11 +3770,13 @@ fn fire_cycle(
             // the taunt after the last burst (0x00428980, ai_02.cpp:1955-1981): a target, vt+0x1d8 (all three classes),
             // taunt_delay passed (Game+0xb84 / +0xb90, 300..360 s game-wide), not in a trench's slot (+0x484 0x20000);
             // the heading test (0x004e81a0 of the two facings < 180) passes but for opposite facings, and the grunt's own
-            // speech handle +0xb50 is taken as silent (the engine keeps none per grunt): the Taunt bark (vt+0x15c), a
-            // taunt anim 0x32 + (rand * 3 >> 15), state 0x6e; the timer restarts only then
-            if !g.at_barricade && g.kind.taunts() && barks.ready(Delay::Taunt, now, rng) {
+            // line +0xb50 silent: the Taunt bark (vt+0x15c, kept as his line), a taunt anim 0x32 + (rand * 3 >> 15),
+            // state 0x6e; the timer restarts only then
+            if !g.at_barricade && g.kind.taunts() && barks.ready(Delay::Taunt, now, rng) && !g.speech.saying(voices) {
                 barks.take(Delay::Taunt, now, rng);
-                bark(sounds, "Taunt", g.voice_set, pos);
+                let set = g.voice_set;
+                let req = g.speech.line(voices, bark_request("Taunt", set, pos));
+                sounds.write(req);
                 g.anim_id = 0x32 + ((rng.rand() * 3.0) as u32).min(2);
                 g.mind = Mind::Taunt;
                 return FireEnd::Taunt;
@@ -3776,6 +3802,7 @@ fn die(
     mut rng: ResMut<FxStats>,
     alive: Query<&Health>,
     (mut barks, time, mut guns): (ResMut<Barks>, Res<Time>, Query<&mut crate::turret::Turret>),
+    (voices, mut stop): (crate::audio::PlayingVoices, MessageWriter<crate::audio::StopVoice>),
 ) {
     let mut alerts: Vec<(i64, Entity, Entity)> = Vec::new();
     for (e, mut g, body, mut tr, h, animator) in &mut grunts {
@@ -3813,9 +3840,13 @@ fn die(
         ms.killed(g.score);
         if !g.dead_said {
             g.dead_said = true;
-            // Dead (0x00439e60, pool 26..28) under death_delay, else DeadAtPosition (0x00439ea0, pool 21..25): once
-            let cat = if barks.take(Delay::Death, time.elapsed_secs(), &mut rng) { "Dead:{}:last3" } else { "Dead:{}:butlast3" };
-            bark(&mut sounds, cat, g.voice_set, tr.translation);
+            // Dead (0x00439e60, pool 26..28) under death_delay and with no scream playing, else DeadAtPosition
+            // (0x00439ea0, pool 21..25): once; either stops his line first and is kept as the line
+            let dead = !g.speech.screaming(&voices) && barks.take(Delay::Death, time.elapsed_secs(), &mut rng);
+            let cat = if dead { "Dead:{}:last3" } else { "Dead:{}:butlast3" };
+            let set = g.voice_set;
+            let req = g.speech.death_line(&voices, &mut stop, bark_request(cat, set, tr.translation));
+            sounds.write(req);
         }
         let push = physics.world.body(body.id).map(|b| bv(b.linear_velocity())).unwrap_or(Vec3::ZERO) / physics.meters_per_unit;
         physics.remove(body.id);

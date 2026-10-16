@@ -34,7 +34,7 @@ impl Plugin for VehiclesPlugin {
             .init_resource::<VehicleTuning>()
             .init_level_resource::<VehicleLog>()
             .init_level_resource::<SightBlind>()
-            .add_systems(Update, (start_lock_fx, sight_blind))
+            .add_systems(Update, ((start_lock_fx, attach_start_lock_fx).chain(), sight_blind))
             .add_systems(PostUpdate, move_colliders.after(TransformSystems::Propagate))
             .add_systems(Last, publish_log)
             .add_plugins((rockets::RocketsPlugin, mover::MoverPlugin, rocket_turrets::RocketTurretsPlugin, boss::BossPlugin));
@@ -127,12 +127,47 @@ fn move_colliders(mut physics: NonSendMut<Physics>, q: Query<(&MovingCollider, &
 
 /// "fx_origin_start_lock" (Object_LoadProperties 0x004517b0, physics_02.cpp:620-630): an fx started at load and kept
 /// on the object (Fx_Create 0x0041cc60, flag 4), at the "fx_origin_start_lock_parent" node unless "null". The
-/// zeppelin's propeller and engine hum (fx_zeppelin_prop at ref_prop), the saucer's loop (fx_saucer_lp).
+/// zeppelin's propeller and engine hum (fx_zeppelin_prop at ref_prop), the saucer's loop (fx_saucer_lp), the shrub
+/// bombers' loop (fx_shrub_bomber), the pickups' fx_peasant, the doormat, the lanterns, the monks' glow.
 #[derive(Component)]
 pub struct StartLockFx {
     pub name: String,
     /// model-space node position (game axes) or the origin
     pub at: Vec3,
+}
+
+/// Every placed object reads its start-lock fx when it loads (Object_LoadProperties is the base property read of all
+/// object classes), once: a stage swap's husk keeps what it had. The fx starts the next frame (start_lock_fx runs
+/// first), when the object's transform has been propagated.
+#[allow(clippy::type_complexity)]
+fn attach_start_lock_fx(
+    mut commands: Commands,
+    data: Res<crate::gamedata::GameData>,
+    anim_lib: Res<crate::skin::AnimLibrary>,
+    q: Query<(Entity, &crate::level::InstanceId, &crate::level::Placed, Option<&crate::skin::Animator>), Added<crate::level::Placed>>,
+    mut per_level: crate::levelreset::PerLevel<(Option<std::collections::HashMap<u32, crate::gamedata::Props>>, std::collections::HashSet<Entity>)>,
+) {
+    if q.is_empty() {
+        return;
+    }
+    let (placed, done) = per_level.get();
+    let placed = placed.get_or_insert_with(|| placements(&anim_lib.dir, &data));
+    for (e, id, pl, anim) in &q {
+        if !done.insert(e) {
+            continue;
+        }
+        let Some(p) = placed.get(&id.0) else { continue };
+        let Some(fx) = p.s("fx_origin_start_lock").filter(|s| !s.is_empty() && *s != "null" && *s != "none") else { continue };
+        let at = p
+            .s("fx_origin_start_lock_parent")
+            .filter(|s| !s.is_empty() && *s != "null")
+            .and_then(|n| {
+                let model = data.templates.get(&pl.template).and_then(|t| t.model.clone()).unwrap_or_default();
+                nodes::Nodes::of_model(&anim_lib.dir, &model, anim.map(|a| &*a.skeleton)).point(n)
+            })
+            .unwrap_or(Vec3::ZERO);
+        commands.entity(e).insert(StartLockFx { name: fx.to_owned(), at });
+    }
 }
 
 fn start_lock_fx(mut commands: Commands, q: Query<(Entity, &StartLockFx, &GlobalTransform)>, mut fx: MessageWriter<crate::fx::StartFx>) {

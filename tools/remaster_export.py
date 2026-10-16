@@ -141,6 +141,10 @@ def mesh_submeshes(ch, bone_index=None):
         # ps, 0x0f the terrain ps t0 normal / t1 base / t2 second / t3 mask, 0x05 environment cube map * factor +
         # texture * lighting), +0x50.. emissive, ambient, diffuse, specular, +0x60 power
         texids = {i: stem(name) for name, _p, i in objchunk.dict_items(b, objchunk.u32(b, mptr + 0x74))}
+        # the material-name dictionary (+0x70; a record's +0x14 id): the surface name the physics mesh parts carry
+        # (MeshPart_LoadMaterial 0x004122f0: material +0x10), whose "_" tokens pick an fx's material variant
+        # (Fx_Create 0x0041cc60 flag 0x800: fx_fs_roman_run_shallow for "Water_shallow_path_streambed")
+        names = {i: (n.decode("latin1") if isinstance(n, bytes) else n) for n, _p, i in objchunk.dict_items(b, objchunk.u32(b, mptr + 0x70))}
         mat_raw = []
         for k in range(objchunk.u32(b, mptr + 0x78)):
             p = objchunk.u32(b, mptr + 0x7C) + k * 0x64
@@ -156,6 +160,7 @@ def mesh_submeshes(ch, bone_index=None):
                 "mask": texids.get(h(0x1C)),
                 "emissive": rgb(col(0x50)), "ambient": rgb(col(0x54)), "diffuse": rgb(col(0x58)),
                 "specular": rgb(col(0x5C)), "power": struct.unpack_from("<f", b, p + 0x60)[0],
+                "surface": names.get(h(0x14)),
             })
         jw = rigid = None
         if bone_index is not None:
@@ -238,7 +243,9 @@ def write_model(out, name, subs, texinfo, skeleton=None):
         # the material as the original shades it (mesh_submeshes): kind, extra maps, colours
         if extra:
             e["material"] = {k: (v if not (k in ("normal_map", "texture2", "mask") and v not in texinfo) else None)
-                             for k, v in extra.items() if k not in ("uv1", "bone", "rigid")}
+                             for k, v in extra.items() if k not in ("uv1", "bone", "rigid", "surface")}
+        if extra.get("surface"):
+            e["surface"] = extra["surface"]
         if extra.get("bone"):
             e["bone"] = extra["bone"]
         for key, arr, fmt in (("positions", vp, "3f"), ("normals", vn, "3f"), ("uvs", vt, "2f")):

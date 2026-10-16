@@ -304,7 +304,6 @@ fn start(
     mut turrets: Query<(Entity, &mut BaseTurret, &mut crate::skin::Animator)>,
     mut roman: Query<(Entity, &mut crate::player::Roman, &mut Visibility)>,
     lib: Res<crate::skin::AnimLibrary>,
-    mut sounds: MessageWriter<crate::audio::PlaySound>,
 ) {
     if state.started || state.start_tag == 0 {
         return;
@@ -325,7 +324,8 @@ fn start(
     let cam = CameraTrack::load(&lib.dir, &intro, "camera_normal");
     a.play(0, &intro, false, crate::skin::Mask::All);
     t.intro = Some((intro.clone(), cam, 0.0));
-    sounds.write(crate::audio::PlaySound::ui("wpn_stig_mount"));
+    // silent: the base turret's mount 0x0049bcc0 plays no sound (the stig gun's 0x00498f60 plays wpn_stig_mount;
+    // the oracle's lev_1_m4_start: the original mounts without it)
     info!("EVENT defence: Roman starts in the base turret (tag {}), intro {intro}", t.tag);
 }
 

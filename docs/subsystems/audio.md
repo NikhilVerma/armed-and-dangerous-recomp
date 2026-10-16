@@ -351,9 +351,23 @@ voice.json) and sends messages; everything per sound is data from the bank. `gam
 | 2D on the player (0x004f32a0, 0x0045a480) | `ListenerBody { radius }` on Roman: positional requests on him or within 8 units play 2D (debt: the remaster's callers give positions, not owners) |
 | AmbientSounds 0x00500520 | ported as the original runs it: timer starts at 0 (first one-shot at once), counts only while no one-shot plays and the game runs, out of range stops both sounds, 2D with the curve as the voice offset |
 | 64 positional voices (0x004fa210) | lifted (docs/engine-limits.md) |
+| Characters' voice handles +0xb4c scream / +0xb50 line (0x004383a0, 0x004385c0, 0x00438810, 0x004396a0, 0x00439890) | `audio::Speech` (a grunt's `speech`, ai.rs / topsy.rs): no second scream while one plays (General, Sticky, Topsy), the sticky scream then leaves death_delay as it is; Dead is refused while a scream plays (DeadAtPosition instead); either death line stops the line first; Hurt and Taunt are kept as the line and the taunt waits for a silent line. "Plays" = a voice with the handle, or requested < 0.1 s ago (`PlayingVoices`) |
+| Music table 0x005ce4e0 by world (Game+0x2708 = the mission's env_type) | `TRACKS[world]`: l2amb .. l5amb on the later worlds (before: level 1's row everywhere, so no music outside lev_1_*); the bonus levels' worlds 3 / 2 / 4 |
+| fx_origin_start_lock (Object_LoadProperties 0x004517b0, every object class) | vehicles/mod.rs `attach_start_lock_fx` for every placed object (before: the bosses only): the shrub bombers' veh_bomber_lp, the pickups' fx_peasant, lanterns, monks, doormats |
+| Surface materials of footsteps / impacts (Fx_Create 0x0041cc60 flag 0x800, MeshPart_LoadMaterial 0x004122f0) | surface.rs: the skin materials' names per triangle (export "surface") -> `Physics::surface`; the variant is the first "_" token with an fx, then the object's material property, then the plain fx (before: "snow" everywhere: dirt / grass / stone / wood / shallow water levels stepped on snow) |
+| SheepObject (vtable 0x005a8d00: PenguinObject's methods, its own anims and lines) | level.rs `Critter` / charanim.rs `critters`: graze / scan / bleat (before: the template's default anim, sheep_bleat looping: every sheep bleated every 1.6 s); a generic_txt sheep loaded after a start_in_turret mission walks 5..10 s between grazes |
 
-Not ported: the characters' own voice handles (+0xb4c scream, +0xb50 line; "no second scream while one plays", "a
-death line stops the line"): the grunt / captain cue sites live in ai.rs and pass no speaker. The global pitch scale
+Oracle sound events (engine/src/oracle.rs, tools/oracle_diff.py "events.sounds"): the remaster lists every play call that
+reaches the driver's start, as the original's StartVoice log does (before the driver's refusals of far streamed
+one-shots and stereo sounds in 3D: the zeppelins' creaks far away are listed in both), from the first frame (the
+bank's list was switched on in the trace's first Last pass, after the level's first-frame loops: the pubs'
+amb_pub_exterior_lp, the oil pumps' and the world ambient loops were never listed). A sequence's body or outro and
+the music's next segment are the sound system's own starts and are not listed (the original's trace does not see
+them).
+
+Not ported: the captains' and companions' own voice handles (only the grunt cue sites of ai.rs and topsy.rs keep
+theirs; the alarm's Help in alarm.rs has no grunt to hold it); DeadAtPosition's play at a point for the gr1 / gr3 sets
+(on the grunt here). The global pitch scale
 (time-scale fx 0x72, unused in lev_1_m1). The focused-screen music lock (0x0044f510 / 0x0044f540). All dispositions:
 docs/port/audio.csv (`python tools/port_queue.py audio --all`: 0 left).
 

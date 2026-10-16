@@ -423,9 +423,8 @@ fn fly(
             fx.write(crate::fx::StartFx { name: n.clone(), at, rotation: Quat::IDENTITY, follow: None, position_only: false });
         }
         if let Some(base) = &r.fx_end_material {
-            let mat = body.and_then(|b| physics.materials.get(&b).cloned()).unwrap_or_else(|| "snow".into());
-            let name = format!("{base}_{mat}");
-            let name = if data.fx.contains_key(&name) { name } else { base.clone() };
+            // the variant of the surface it hit (surface.rs)
+            let name = body.map(|b| physics.surface(b, at)).unwrap_or_default().variant(base, |n| data.fx.contains_key(n));
             fx.write(crate::fx::StartFx { name, at, rotation: Quat::IDENTITY, follow: None, position_only: false });
         }
         commands.entity(e).despawn();
