@@ -313,6 +313,7 @@ pub fn think(
     pickups: Query<(&crate::pickup::Pickup, &GlobalTransform)>,
     explosives: Query<(Entity, &crate::fx::Destructible, &GlobalTransform, Option<&crate::level::InstanceId>)>,
     placed_ai: Query<(Entity, &crate::ai::Grunt, &GlobalTransform, &crate::level::InstanceId)>,
+    towers: Query<(&crate::level::InstanceId, &crate::vehicles::rocket_turrets::RocketTower)>,
     physics: NonSend<Physics>,
     roman: Query<(&crate::player::Roman, &Transform, &crate::fx::Health)>,
     mounted: Res<crate::turret::Mounted>,
@@ -383,10 +384,17 @@ pub fn think(
     // a "shoot" order: that object while it stands (aimed a little above its origin: its base is often in the ground),
     // else the fight's own pick
     let ordered = bot.shoot.and_then(|id| {
-        let object = explosives
-            .iter()
-            .find(|(_, d, _, i)| i.is_some_and(|i| i.0 == id) && d.health > 0.0 && d.dying.is_none())
-            .map(|(e, _, gt, _)| Target { kind: "object", at: gt.translation() + Vec3::Y * SHOOT_LIFT, reach: 6.0, feet: gt.translation(), object: Some(e) });
+        // a rocket tower takes no damage itself: its turret is the target (its death kills the tower, rocket_turrets.rs)
+        let turret = towers.iter().find(|(i, _)| i.0 == id).and_then(|(_, t)| t.turret);
+        let alive = |d: &crate::fx::Destructible| d.health > 0.0 && d.dying.is_none();
+        let object = match turret {
+            // (aimed at its pivot: a crosshair point on its shell, about 12 across, counts)
+            Some(te) => explosives.get(te).ok().filter(|(_, d, _, _)| alive(d)).map(|(e, _, gt, _)| Target { kind: "object", at: gt.translation(), reach: 14.0, feet: gt.translation(), object: Some(e) }),
+            None => explosives
+                .iter()
+                .find(|(_, d, _, i)| i.is_some_and(|i| i.0 == id) && alive(d))
+                .map(|(e, _, gt, _)| Target { kind: "object", at: gt.translation() + Vec3::Y * SHOOT_LIFT, reach: 6.0, feet: gt.translation(), object: Some(e) }),
+        };
         // or a placed AI of that id (a gunner, a captain the objective names)
         let ai = || {
             placed_ai
@@ -408,13 +416,15 @@ pub fn think(
     aim_and_fire(&mut bot, target, &view, &xhair, &rig, dt);
     bot.throw_timer -= dt;
     if let (Some(tg), true) = (ordered, bot.shoot_bombs) {
-        // bombs, not bullets: one each time the crosshair rests on it, kept out of the bomb's own blast
+        // bombs, not bullets: one each time the crosshair rests on it, kept out of the bomb's own blast; the next only
+        // after the last one has gone off (linger_lifetime 4 s): a bomb stuck on a building takes 300 at once, so a
+        // second one thrown meanwhile is wasted or lands on whatever stands by (lev_2_m2: a civilian house)
         let ready = bot.fire_ok && bot.throw_timer <= 0.0 && r.stickies > 0 && tg.feet.distance(me) > STICKY_BLAST;
         bot.fire_ok = false;
         if ready {
             info!("bot: sticky bomb at object {} {:.0} away", bot.shoot.unwrap_or(0), tg.feet.distance(me));
             bot.throw = true;
-            bot.throw_timer = 2.0;
+            bot.throw_timer = 5.5;
         }
     }
     let low = h.0 < r.max_health * 0.35;

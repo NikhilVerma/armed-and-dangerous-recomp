@@ -389,12 +389,12 @@ fn warp(
     mut physics: NonSendMut<crate::physics::Physics>,
     mut bot: ResMut<crate::bot::Bot>,
     mut roman: Query<(&mut crate::player::Roman, &mut Transform)>,
-    objects: Query<(&crate::level::InstanceId, &GlobalTransform)>,
+    objects: Query<(&crate::level::InstanceId, &GlobalTransform, Option<&crate::level::Placed>)>,
 ) {
     if let Some((id, d, sight)) = pt.land_by.take() {
-        match objects.iter().find(|(i, _)| i.0 == id) {
-            Some((_, at)) => {
-                pt.warp = land_beside(&physics, at.translation(), d, sight);
+        match objects.iter().find(|(i, ..)| i.0 == id) {
+            Some((_, at, placed)) => {
+                pt.warp = land_beside(&physics, at.translation(), placed.and_then(|p| p.collider), d, sight);
                 if pt.warp.is_none() {
                     warn!("EVENT playtest: land_by: no spot {d} from object {id}{}", if sight { " in sight of it" } else { "" });
                 }
@@ -436,7 +436,7 @@ fn warp(
 
 /// The land_by step's spot: of eight points `d` from the object (engine space), the one whose landscape is nearest
 /// the object's height, as a land warp (game space, facing the object).
-fn land_beside(physics: &crate::physics::Physics, at: Vec3, d: f32, sight: bool) -> Option<[f32; 4]> {
+fn land_beside(physics: &crate::physics::Physics, at: Vec3, body: Option<oxijolt::prelude::BodyId>, d: f32, sight: bool) -> Option<[f32; 4]> {
     let to_game = crate::level::game_to_engine().inverse();
     // with `sight` (land_sight): of sixteen points, those from whose eye height a bullet reaches the object's chest
     // (nothing in the way, or what is hit is within 8 of it), else none
@@ -447,7 +447,7 @@ fn land_beside(physics: &crate::physics::Physics, at: Vec3, d: f32, sight: bool)
         let back = (g - to).with_y(0.0).normalize_or(Vec3::Z);
         [g + Vec3::Y * 10.0, g + back * 30.0 + Vec3::Y * 15.0]
             .iter()
-            .all(|&eye| physics.raycast_bullet(eye, to - eye, (to - eye).length()).is_none_or(|h| h.1.distance(to) < 8.0))
+            .all(|&eye| physics.raycast_bullet(eye, to - eye, (to - eye).length()).is_none_or(|h| h.1.distance(to) < 8.0 || Some(h.0) == body))
     };
     let best = (0..n)
         .filter_map(|k| {
@@ -617,7 +617,7 @@ pub(crate) fn drive(
             pt.taps.push(KeyCode::Enter);
         }
         let done = if st.until.as_deref() == Some("message") {
-            mission.as_ref().is_some_and(|m| m.showing.is_some()) || pt.step_t > 60.0
+            mission.as_ref().is_some_and(|m| m.showing.is_some()) || pt.step_t > st.wait.unwrap_or(60.0)
         } else if st.until.as_deref() == Some("movie_done") {
             // no movie in the state log (movie.rs log_state) once the step had a frame to start one; max 600 s
             (pt.step_t > 0.1 && !state.0.contains_key("movie")) || pt.step_t > 600.0
