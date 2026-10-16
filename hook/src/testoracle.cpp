@@ -392,9 +392,22 @@ constexpr int kCallSlots = 8;
 char g_callNames[kCallSlots][64];
 void* g_callNext[kCallSlots];
 
+// Readable without touching the memory: a call's registers hold any value, and IsBadReadPtr's probe of a bad one
+// raises a first-chance exception the crash logger reports
+bool Mapped(uint32_t p, unsigned n)
+{
+    MEMORY_BASIC_INFORMATION m;
+    if (p < 0x10000 || !VirtualQuery(reinterpret_cast<const void*>(p), &m, sizeof(m)) || m.State != MEM_COMMIT)
+        return false;
+    const DWORD readable = PAGE_READONLY | PAGE_READWRITE | PAGE_WRITECOPY | PAGE_EXECUTE_READ |
+                           PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY;
+    return (m.Protect & readable) && !(m.Protect & (PAGE_GUARD | PAGE_NOACCESS)) &&
+           p + n <= reinterpret_cast<uint32_t>(m.BaseAddress) + m.RegionSize;
+}
+
 const char* Arg(char* buf, uint32_t v)
 {
-    if (Readable(v, 0x398) && Readable(*reinterpret_cast<const uint32_t*>(v), 4) && Id(reinterpret_cast<void*>(v)))
+    if (Mapped(v, 0x398) && Mapped(*reinterpret_cast<const uint32_t*>(v), 4) && Id(reinterpret_cast<void*>(v)))
         sprintf(buf, "%08x#%d", v, Id(reinterpret_cast<void*>(v)));
     else
         sprintf(buf, "%08x", v);

@@ -23,6 +23,9 @@ pub struct Physics {
     pub static_triangles: usize,
     /// the landscape's collision body (the follow camera's rays stop on it alone, camfade.rs)
     pub landscape: Option<BodyId>,
+    /// the AI characters' bodies (the AI list World+0xe7c): the AI's sight rays pass through them (0x00426fd0 excludes
+    /// the looker's list +0x608, which is World+0xe7c for a grunt)
+    pub ai_bodies: std::collections::HashSet<BodyId>,
     /// CPU time of the last steps (ms), for the benchmark.
     pub step_ms: f32,
     poses: Vec<BodyPose>,
@@ -61,6 +64,7 @@ impl Physics {
             surfaces: HashMap::new(),
             static_triangles: 0,
             landscape: None,
+            ai_bodies: Default::default(),
             step_ms: 0.0,
             poses: Vec::new(),
         }
@@ -112,6 +116,7 @@ impl Physics {
 
     pub fn remove(&mut self, id: BodyId) {
         self.bodies.remove(&id);
+        self.ai_bodies.remove(&id);
         let _ = self.world.remove_body(id);
     }
 

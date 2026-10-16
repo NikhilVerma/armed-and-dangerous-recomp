@@ -51,6 +51,8 @@ pub struct Marker {
     /// trigger_marker on lev_1_m1) set nothing
     pub flags: u32,
     pub scatter: (f32, f32),
+    /// "speed" +0x494 (Marker_GetSpeed 0x0044b490): the walk speed of the leg that ends here, 0 the walker's own
+    pub speed: f32,
 }
 
 impl Marker {
@@ -169,6 +171,7 @@ impl Markers {
                         action,
                         flags,
                         scatter: (num(&p, "scatter_min") as f32, num(&p, "scatter_max") as f32),
+                        speed: num(&p, "speed") as f32,
                     })
                 }
                 "grunt_generator" => {
@@ -237,6 +240,14 @@ impl Markers {
     /// The marker's index into `markers`.
     pub fn spline_index(&self, tag: i64, i: usize) -> Option<usize> {
         self.splines.get(&tag).and_then(|s| s.get(i)).copied()
+    }
+
+    /// The speed of the walk to marker `i` of the spline (AIMarker_PrevSpeed 0x0044b4f0): the speed of the marker
+    /// before it, for the head the last marker's; 0 when it names none.
+    pub fn leg_speed(&self, tag: i64, i: usize) -> f32 {
+        let Some(s) = self.splines.get(&tag).filter(|s| !s.is_empty()) else { return 0.0 };
+        let prev = if i > 0 { i - 1 } else { s.len() - 1 };
+        s.get(prev).map_or(0.0, |&k| self.markers[k].speed)
     }
 
     pub fn spline_len(&self, tag: i64) -> usize {

@@ -9,6 +9,6 @@
  "known": {
   "companion.q.pos": "C1: a companion 12-13 units from the original's (follow distance / start spot), just past the tolerance",
   "events.sounds": "B17 rest (the sound causes fixed by agent-sound): what is left comes from other families or chance: load-time sounds outside one game's traced window (B10 / E1 start message timing: the base levels' loops, the first ambient one-shot at load vs frame 2), random picks (ambient one-shots, thunder, sheep bleats), the grunts' gait (walk vs run footstep notes, charanim.rs), the grunts' _ic anim-event lines and boulder rolls (not in the remaster yet), vehicle loops (B14, vehicles not traced)",
-  "grunt.pos": "B21: grunts on a marker walk (state 0x96) set off ~18 frames after the unpause in the original, at once in the remaster (AI)"
+  "grunt.pos": "B21 rest: the squad sets off on the same frame (ROUTE_PLAN) but its members gather pace on a fitted curve (squad.rs, time constant 1.3 s): squad grunt 0 12 units ahead at 42"
  }
 }

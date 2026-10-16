@@ -858,6 +858,8 @@ pub struct Grunt {
     pub spline: Option<SplineRun>,
     /// +0x488 bit 1 marker_looping (wrap at the spline's end), bit 0 marker_patrol: read by Ai_InitGeneric
     pub looping: bool,
+    /// +0x488 bit 0 marker_patrol: a spline walked at patrol_speed (+0x954) where its markers name no speed
+    pub patrol: bool,
     /// +0x488 0x200: a troop of an alarm generator (0x0042dd50) charges the player when it has no marker tags
     pub charge: bool,
     /// mode trigger_charge (+0x488 0x100): his activation (0x0042f5c0) is a charge (0x0042ce70)
@@ -1144,6 +1146,21 @@ pub fn capsule(physics: &Physics, radius: f32) -> Shape {
     Shape::new_capsule((4.9 - r).max(0.5) * k, r * k).expect("capsule")
 }
 
+/// A grunt's body: the dynamic capsule (translation only, no friction, 80 kg) with its feet at `feet`, its game
+/// material, listed with the AI bodies the AI's sight passes through (`Physics::ai_bodies`).
+pub fn add_body(physics: &mut Physics, e: Entity, radius: f32, feet: Vec3, material: &str) -> Option<Body> {
+    let shape = capsule(physics, radius);
+    let s = oxijolt::prelude::BodySettings::new_dynamic()
+        .mass(80.0)
+        .friction(0.0)
+        .allowed_dofs(oxijolt::prelude::AllowedDofs::TRANSLATION_X | oxijolt::prelude::AllowedDofs::TRANSLATION_Y | oxijolt::prelude::AllowedDofs::TRANSLATION_Z);
+    let offset = Vec3::Y * capsule_lift(radius);
+    let id = physics.add_dynamic(e, &shape, feet + offset, Quat::IDENTITY, Vec3::ZERO, s)?;
+    physics.materials.insert(id, material.to_owned());
+    physics.ai_bodies.insert(id);
+    Some(Body { id, offset, sync_rotation: false })
+}
+
 /// Height of the capsule's centre above the feet.
 pub fn capsule_lift(_radius: f32) -> f32 {
     4.9 + 0.3
@@ -1273,6 +1290,7 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         attention: !mode.starts_with("ready"),
         spline: None,
         looping: p.i("marker_looping", 0) != 0,
+        patrol: p.i("marker_patrol", 0) != 0,
         charge: false,
         trigger_charge: mode == "trigger_charge",
         pursue: false,
@@ -1693,15 +1711,16 @@ fn search(
     }
 }
 
-/// Line of sight from a grunt's eye to the target's ref_hit_00 (+5 z, 0x00426fd0): nothing static in between.
 /// Line of sight as 0x00426fd0: from the source raised by 5 (0x005bcbdc) to the target point (its ref_hit_00), true
-/// when nothing is hit on the way; bodies in `skip` (the looker's own) are passed through.
+/// when nothing is hit on the way; bodies in `skip` (the looker's own) are passed through, and so are the AI
+/// characters (the query excludes the looker's list +0x608 = World+0xe7c: oracle lev_2_m2, grunt 32 sees Roman past
+/// grunt 16 at the load).
 pub fn sight_ray(physics: &Physics, from_hit: Vec3, target: Vec3, skip: &[BodyId]) -> bool {
     let mut from = from_hit + Vec3::Y * 5.0;
     let dir = (target - from).normalize_or(Vec3::Y);
     let mut left = (target - from).length();
     while let Some((b, at, _)) = physics.raycast(from, dir, left) {
-        if !skip.contains(&b) {
+        if !skip.contains(&b) && !physics.ai_bodies.contains(&b) {
             return false;
         }
         let step = at.distance(from) + 0.05;
@@ -2239,6 +2258,10 @@ fn wander(g: &mut Grunt, pos: Vec3, (min, max): (f32, f32), speed: f32, rng: &mu
 /// lev_bonus_m3's squad set off ~18 frames after the unpause in the original; the grid route request 0x00470aa0 /
 /// 0x00470c30 of state 0x96 is the guess at why).
 pub const ROUTE_PLAN: f32 = 0.3;
+
+/// A route node counts as reached within this distance in the plane (AIRoute_CheckReached 0x0046f900: squared
+/// distance under K(0x005bce5c) = 6.25).
+const MARKER_REACHED: f32 = 2.5;
 
 fn follow_spline(g: &mut Grunt, markers: &crate::alarm::Markers, tags: (i64, i64), r: f32) {
     match markers.pick_spline(tags, r) {
@@ -2861,7 +2884,8 @@ fn think(
                 g.mind = Mind::Roam;
             } else if let Some(mk) = markers.spline_marker(run.tag, run.index) {
                 g.mind = Mind::ToMarker;
-                if flat(mk.pos - pos).length() < 8.0 {
+                // the route's last node reached (AIRoute_CheckReached 0x0046f900: within 2.5 units in the plane)
+                if flat(mk.pos - pos).length() < MARKER_REACHED {
                     // Marker_ProcessArrival 0x0044ba30 (0x96's arrival does it for the head, then state 0x97)
                     g.spline = Some(SplineRun { started: true, ..run });
                     let idx = markers.spline_index(run.tag, run.index).unwrap_or(0);
@@ -3128,7 +3152,16 @@ fn think(
             Mind::ToMarker => {
                 let mk = g.spline.and_then(|r| markers.spline_marker(r.tag, r.index)).map(|m| m.pos);
                 goal = g.exit.or(mk).unwrap_or(pos);
-                speed = run_speed;
+                // the speeds on a spline (vt+0x80 0x004297a0 in states 0x96 / 0x97): the leg's marker speed
+                // (0x0044b4f0), else patrol_speed with marker_patrol, else the walk (move_speed, limp_speed limping)
+                let leg = g.spline.filter(|_| g.exit.is_none()).map_or(0.0, |r| markers.leg_speed(r.tag, r.index));
+                speed = if leg != 0.0 {
+                    leg
+                } else if g.patrol && g.exit.is_none() {
+                    g.patrol_speed
+                } else {
+                    run_speed
+                };
                 if g.route_wait > 0.0 && g.exit.is_none() {
                     g.route_wait -= dt;
                     speed = 0.0;
