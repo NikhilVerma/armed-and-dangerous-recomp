@@ -341,10 +341,15 @@ fn trace(
     objects: Query<(&crate::level::InstanceId, &crate::fx::Destructible)>,
     vehicles: Vehicles,
     panes: Query<(Entity, &crate::fx::Destructible), With<crate::level::Window>>,
+    (twiglets, swarm, mut bombs_seen): (Query<(&crate::twiglet::Twiglet, &GlobalTransform, Option<&crate::fx::Destructible>)>, Res<crate::twiglet::Swarm>, Local<u32>),
 ) {
     if o.out.is_none() {
         return;
     }
+    // a twiglet's bomb gone off: an FxExplosion death without an instance id (the hook lists it as 0)
+    let gone = swarm.bombs_gone.saturating_sub(*bombs_seen);
+    *bombs_seen = swarm.bombs_gone;
+    o.deaths.extend(std::iter::repeat_n(0, gone as usize));
     // events every frame: triggers from the mission log, sounds started, placed destructibles gone (despawned, replaced
     // by the husk, or out of health with no fuse burning: the original's DefaultGameObject_OnDeath 0x00450ee0 /
     // FxExplosion_Die 0x0041c570, the hook's "deaths")
@@ -426,6 +431,16 @@ fn trace(
     let vs: Vec<serde_json::Value> =
         vehicles.list().into_iter().map(|(k, id, p, h)| serde_json::json!({"id": id, "kind": k.name(), "pos": g(p), "health": r2(h)})).collect();
     line.insert("vehicles".into(), vs.into());
+    // the twiglets (the hook's World+0xeec: alive ones, the original removes a dead one) and the swarm's counters
+    let ts: Vec<serde_json::Value> = twiglets
+        .iter()
+        .filter_map(|(t, gt, d)| {
+            let d = d?;
+            Some(serde_json::json!({"pos": g(gt.translation()), "health": r2(d.health.max(0.0)), "state": t.state.code(), "bomb": t.bomb.is_some() as i32}))
+        })
+        .collect();
+    line.insert("twiglets".into(), ts.into());
+    line.insert("swarm".into(), serde_json::json!({"made": swarm.made, "killed": swarm.killed}));
     if let Some(m) = &mission {
         line.insert("mission".into(), serde_json::json!({"state": format!("{:?}", m.outcome), "objective": m.compass_tag}));
     }

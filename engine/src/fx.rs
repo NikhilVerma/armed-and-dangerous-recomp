@@ -150,6 +150,11 @@ impl Destructible {
 #[derive(Component)]
 pub struct Fuse(pub f32);
 
+/// An object area damage passes by (its damage handler drops records with the blast flag 0x40): a twiglet carrying a
+/// bomb (Twiglet_TakeDamage 0x0049f530); the blast still reaches what it carries.
+#[derive(Component)]
+pub struct BlastProof;
+
 /// Armour in front of a character that takes its hits first: whole hits while its health lasts (the base turret's
 /// glass window over Roman, base_turret_l5_m5_window 40: BaseDefendTurret damage 0x0049aeb0 gives the window the hit
 /// while it exists, the player only after; defence.rs puts it on him while mounted).
@@ -236,7 +241,7 @@ fn fuses(mut commands: Commands, time: Res<Time>, mut q: Query<(Entity, &mut Fus
 fn damage(
     mut blasts: MessageReader<Explode>,
     mut physics: NonSendMut<Physics>,
-    mut objects: Query<(Entity, &GlobalTransform, &mut Destructible, Option<&Bounds>)>,
+    mut objects: Query<(Entity, &GlobalTransform, &mut Destructible, Option<&Bounds>), Without<BlastProof>>,
     mut chars: Query<(Entity, &GlobalTransform, &mut Health, Option<&Bounds>, Option<&mut crate::ai::Grunt>, Option<&mut DamageShield>)>,
     roman: Query<(), With<crate::player::Roman>>,
     topsy: Option<Res<crate::topsy::Topsy>>,

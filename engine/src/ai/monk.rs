@@ -5,8 +5,9 @@
 //! - `bamf_point`: the teleport's destination (five headings 72 degrees apart round the target, 30..200 out, on the
 //!   ground).
 //! - `baskets`: the rain's five monk_basket projectiles (MonkBasketProjectile, game_07.cpp:2140-2185).
-//! Not ported: the twiglet summon (state 0xf2 / 0xf3: the engine has no twiglets; that roll fires instead), the
-//! knock-over hang (0xf4), the smoke fx.
+//! - `summon_point` / `twiglet_spots`: the twiglet summon (states 0xf2 / 0xf3, ai_06.cpp:2906-2972): he turns to a point
+//!   30..40 ahead, casts cast_spell_2 and, at its end, five idle twiglets stand round him (twiglet.rs `SpawnTwiglet`).
+//! Not ported: the knock-over hang (0xf4), the smoke fx.
 
 use crate::fx::FxStats;
 use crate::physics::Physics;
@@ -18,7 +19,15 @@ pub enum MonkAct {
     Fire,
     /// n < 200 of 500: cast_spell_1 (anim 0x26), the baskets round the target (state 0xf1)
     Baskets,
-    /// n < 50 of 500 (+0x484 0x4000 clear): the twiglets (0xf2): not ported, fires instead
+    /// n < 50 of 500 (+0x484 0x4000 clear): the twiglet summon (0xf2 / 0xf3: cast_spell_2, anim 0x25)
+    Twiglets,
+}
+
+/// What a cast (`Mind::Cast`) brings: the basket rain (state 0xf1) or the twiglet summon (0xf2 / 0xf3).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Spell {
+    #[default]
+    Baskets,
     Twiglets,
 }
 
@@ -29,17 +38,25 @@ pub struct Monk {
     pub special: u32,
     /// the teleport flight's time (+0x490 ramps 1 s, +0x494 5 s at most)
     pub flight_t: f32,
-    /// the cast's baskets sent
+    /// the cast's baskets sent (or twiglets made)
     pub cast: bool,
+    /// the cast under way and, for the summon, the point he turns to (+0x934, engine space)
+    pub spell: Spell,
+    pub summon_at: Vec3,
+    /// debug (playtest `monk_spell`): the next roll's outcome, whatever the counter
+    pub forced: Option<MonkAct>,
 }
 
 impl Monk {
     pub fn new(rng: &mut crate::fxvm::CrtRand) -> Monk {
-        Monk { special: 1 + (rng.rand() * 3 >> 15) as u32, flight_t: 0.0, cast: false }
+        Monk { special: 1 + (rng.rand() * 3 >> 15) as u32, flight_t: 0.0, cast: false, spell: Spell::Baskets, summon_at: Vec3::ZERO, forced: None }
     }
 
     /// vt+0x220 0x00437130: count down, at 0 re-roll 1..3 and n = rand 500: < 50 twiglets, < 200 baskets, else fire.
     pub fn roll(&mut self, rng: &mut FxStats) -> MonkAct {
+        if let Some(act) = self.forced.take() {
+            return act;
+        }
         if self.special > 0 {
             self.special -= 1;
             return MonkAct::Fire;
@@ -66,6 +83,31 @@ pub fn bamf_point(around: Vec3, physics: &Physics, rng: &mut FxStats) -> Option<
         let p = around + Vec3::new(a.sin(), 0.0, a.cos()) * d;
         physics.raycast(p + Vec3::Y * 300.0, -Vec3::Y, 1000.0).map(|(_, hit, _)| hit)
     })
+}
+
+/// State 0xf2: the point the summoner turns to, his facing turned by -90..90 degrees (0x0046e2c0(-pi/2, pi/2)), 30..40
+/// out (each axis its own roll, as the original scales the direction's x, y, z apart). `forward`: his facing, engine
+/// space, level.
+pub fn summon_point(at: Vec3, forward: Vec3, rng: &mut FxStats) -> Vec3 {
+    let dir = Quat::from_rotation_y(rng.range(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2)) * forward.normalize_or(Vec3::Z);
+    at + Vec3::new(dir.x * rng.range(30.0, 40.0), dir.y * rng.range(30.0, 40.0), dir.z * rng.range(30.0, 40.0))
+}
+
+/// State 0xf3's end: where the five twiglets stand (engine space, on the landscape). The game's +y turned by i x 72 degrees
+/// about z, scaled by two radii of 7..20 (one for x, one for y, K 0x005bcd2c x 2 pi), from the summoner's feet; a point
+/// with no ground (the map test 0x0046f280: here no landscape under it) is skipped; the rest are dropped onto the
+/// landscape (Object_ForceGround 0x00455860 with 1000, 10000).
+pub fn twiglet_spots(at: Vec3, physics: &Physics, rng: &mut FxStats) -> Vec<Vec3> {
+    let (a, b) = (rng.range(7.0, 20.0), rng.range(7.0, 20.0));
+    (0..5)
+        .filter_map(|i| {
+            let t = i as f32 * 0.2 * std::f32::consts::TAU;
+            // game (-sin t, cos t, 0): engine x = game x, engine z = -game y
+            let (gx, gy) = (-t.sin(), t.cos());
+            let p = at + Vec3::new(gx * a, 0.0, -gy * b);
+            physics.raycast_landscape(p + Vec3::Y * 1000.0, Vec3::NEG_Y, 10000.0)
+        })
+        .collect()
 }
 
 /// The teleport flight's velocity toward `goal` (state 0xf0, ai_06.cpp:2980-3049): the speed ramps over the first second,
@@ -100,13 +142,23 @@ mod tests {
 
     #[test]
     fn the_counter_runs_down_before_a_special() {
-        let mut m = Monk { special: 2, flight_t: 0.0, cast: false };
+        let mut m = Monk { special: 2, flight_t: 0.0, cast: false, spell: Spell::Baskets, summon_at: Vec3::ZERO, forced: None };
         let mut rng = FxStats::default();
         assert_eq!(m.roll(&mut rng), MonkAct::Fire);
         assert_eq!(m.roll(&mut rng), MonkAct::Fire);
         assert_eq!(m.special, 0);
         let _ = m.roll(&mut rng);
         assert!((1..=3).contains(&m.special), "re-rolled 1..3: {}", m.special);
+    }
+
+    /// State 0xf2's point: within 90 degrees of his facing, 30..40 out on each axis.
+    #[test]
+    fn the_summon_point_is_ahead() {
+        let mut rng = FxStats::default();
+        for _ in 0..50 {
+            let p = summon_point(Vec3::ZERO, Vec3::Z, &mut rng);
+            assert!(p.z >= -1e-3 && p.length() <= 40.0 * 1.5 && p.y == 0.0, "{p:?}");
+        }
     }
 
     #[test]

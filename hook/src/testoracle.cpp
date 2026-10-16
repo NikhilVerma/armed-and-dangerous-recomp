@@ -20,6 +20,8 @@
 //               null, "class": vtable, "kf": 1 while the body is keyframed (0x00457790)}],
 //    "vehicles": [{"id", "kind": goliath / saucer / mini_zeppelin / colossus / rocket_tower / rocket_tower_turret /
 //                 rocket_bud (by vtable), "pos", "health", "state"}],
+//    "twiglets": [{"pos", "health", "state": Twiglet_Update's +0x464, "bomb": 0/1}] (World+0xeec; not in "grunts"),
+//    "swarm": {"generators": active twiglet generators, "timer": spawn timer, "made": Game+0x2710, "killed": +0x270c},
 //    "companions": [[x, y, z, health] | null, ...] (Jonesy, Q),
 //    "mission": {"state": level state (1 playing, 2/10 won, 3..9 failed), "objective": compass tag Game+0x2658},
 //    "triggers": [ids sent since the last line], "trigger_senders": [their senders' instance ids], "deaths": [instance ids of placed objects that died],
@@ -121,6 +123,8 @@ int Id(const void* obj)
     return At<uint16_t>(obj, 0x396);  // the 1-based level object table entry (CreateObject a6, game_04.cpp:576)
 }
 
+const uint32_t kTwigletVtable = 0x005af020;  // Twiglet (Twiglet_Slot6 0x0049d7a0)
+
 // The trace's vehicle kinds by class vtable (the remaster's names: engine/src/oracle.rs VehicleKind); null otherwise.
 const char* VehicleKind(uint32_t vtable)
 {
@@ -199,6 +203,9 @@ std::string Body()
              a; a = orig::fn_004e73c0(reinterpret_cast<uint32_t>(iter)))
         {
             void* g = reinterpret_cast<void*>(a);
+            // twiglets (Twiglet 0x005af020) are on the AI list too: traced as "twiglets" below (their state is +0x464)
+            if (At<uint32_t>(g, 0) == kTwigletVtable)
+                continue;
             float gp[4] = {};
             GetPos(g, gp);
             o += first ? "{" : ",{";
@@ -275,6 +282,43 @@ std::string Body()
         }
     }
     o += ']';
+    // the twiglets (World+0xeec, Twiglet_Slot6 0x0049d7a0): position, health +0x454, state +0x464 (Twiglet_Update
+    // 0x0049dcf0), carrying a bomb (+0x55c); the swarm (TwigletController_Slot47 0x0049d080): active generators
+    // 0x0063a140, the spawn timer 0x0063a14c, twiglets made Game+0x2710, killed Game+0x270c
+    o += ",\"twiglets\":[";
+    if (world)
+    {
+        uint32_t iter[2] = {0, 0};
+        bool first = true;
+        for (uint32_t a = orig::fn_004e7340(At<uint32_t>(reinterpret_cast<void*>(world), 0xeec),
+                                            reinterpret_cast<uint32_t>(iter));
+             a; a = orig::fn_004e73c0(reinterpret_cast<uint32_t>(iter)))
+        {
+            void* t = reinterpret_cast<void*>(a);
+            float tp[4] = {};
+            GetPos(t, tp);
+            o += first ? "{\"pos\":" : ",{\"pos\":";
+            first = false;
+            Vec(o, tp);
+            o += ",\"health\":";
+            Num(o, At<float>(t, 0x454));
+            o += ",\"state\":" + std::to_string(At<int>(t, 0x464));
+            o += ",\"bomb\":" + std::to_string(At<uint32_t>(t, 0x55c) ? 1 : 0) + '}';
+        }
+    }
+    o += ']';
+    {
+        const uint32_t active = *reinterpret_cast<const uint32_t*>(0x0063a140);
+        int n = 0;
+        uint32_t iter[2] = {0, 0};
+        if (active)
+            for (uint32_t a = orig::fn_004e7340(active, reinterpret_cast<uint32_t>(iter)); a;
+                 a = orig::fn_004e73c0(reinterpret_cast<uint32_t>(iter)))
+                ++n;
+        o += ",\"swarm\":{\"generators\":" + std::to_string(n) + ",\"timer\":";
+        Num(o, *reinterpret_cast<const float*>(0x0063a14c));
+        o += ",\"made\":" + std::to_string(At<int>(g_game, 0x2710)) + ",\"killed\":" + std::to_string(At<int>(g_game, 0x270c)) + "}";
+    }
     // the alarm controller's gates (fn_00404e50, ai_01.cpp:468-660): sirens World+0xef0, forced Game+0xdcc, Game+0xc80 /
     // +0xcbc / +0xadc / +0xae0 (all must be clear), the spawn timer 0x0063a1f4, the generators listed 0x0063a1f0 and
     // its live troops 0x0063a1ec

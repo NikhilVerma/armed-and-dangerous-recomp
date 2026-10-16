@@ -63,6 +63,7 @@ mod savegame;
 mod saveslots;
 mod topsy;
 mod turret;
+mod twiglet;
 mod vehicles;
 mod weapontable;
 mod player;
@@ -297,7 +298,7 @@ fn main() {
     .add_plugins(topsy::TopsyPlugin)
     .add_plugins(turret::TurretPlugin)
     // the base-defence levels: movers (scripted paths), the army, the base turret (army.rs, defence.rs)
-    .add_plugins((mover::MoverPlugin, army::ArmyPlugin, defence::DefencePlugin, icobject::IcObjectPlugin, shell::ShellPlugin, goliath::GoliathPlugin, shrubpatrol::ShrubPatrolPlugin, surface::SurfacePlugin))
+    .add_plugins((mover::MoverPlugin, army::ArmyPlugin, defence::DefencePlugin, icobject::IcObjectPlugin, shell::ShellPlugin, goliath::GoliathPlugin, shrubpatrol::ShrubPatrolPlugin, surface::SurfacePlugin, twiglet::TwigletPlugin))
     .add_plugins(vehicles::VehiclesPlugin)
     .init_state::<AppState>()
     .insert_non_send(physics::Physics::new(level::METERS_PER_UNIT))

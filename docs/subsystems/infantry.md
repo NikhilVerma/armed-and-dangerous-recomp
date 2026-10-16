@@ -143,7 +143,8 @@ Init 0x004369a0 (ai_05.cpp:168-205): weapons monk_gun (0x19, projectile lightnin
 ref_shoot_00, smoke fx, special counter +0xb58 = rand 1..3. No trenches, guns, taunt, melee, scare, turn helper. Anims
 0x0043cb40 (monk_stand, monk_walk, monk_scan_1..3, monk_fire, monk_cast_spell_1 / 2, monk_die_1..3, monk_turbo,
 monk_hanging, ...). Combat vt+0x220 0x00437130: +0xb58 > 0: decrement, fire; at 0 re-roll and n = rand 500: < 50 (no
-+0x484 0x4000) twiglet summon (state 0xf2 -> 0xf3: walk 30..40 ahead, cast_spell_2, up to 5 twiglets around), < 200
++0x484 0x4000) twiglet summon (state 0xf2 -> 0xf3: turn to a point 30..40 ahead, cast_spell_2, up to 5 idle twiglets
+round him at its end: docs/subsystems/twiglets.md section 5), < 200
 basket rain (0xf1: cast_spell_1, 5 monk_basket at 40 around the target, falling from 450 at 150..200), else fire. The
 hiding-spot search is MonkObject_Bamf 0x00436bb0: a teleport flight (0xf0) to a point 30..200 from the target, anim
 monk_turbo, fol_monk_bamf_1 / 2. Knocked over: monk_hanging (0xf4) then bamf.
@@ -212,7 +213,7 @@ Debt and guesses (each with its plan):
   ticker site yet (mission.rs lock_parent_tag, 0x0044e120). Test: engine/playtests/squad_goliath.json; oracle lev_3_m1
   / lev_4_m1 start: the goliaths' kind, position and health agree.
 - Monk: the teleport's speed (2 x move_speed, ramp 1 s, slow within 20, no gravity) is a guess at the force's result; the
-  twiglet summon (no twiglets in the engine: that roll fires) and the knock-over hang (0xf4) are not ported.
+  knock-over hang (0xf4) is not ported. The twiglet summon is (2026-10-16, ai/monk.rs `Spell::Twiglets`, twiglet.rs).
 - Q112: the melee (q112_gun_hit within 25), the low-health eye loop and the breadcrumb route are not ported;
   bullet_scale applies to every direct projectile hit (the original: bullet records, flag 0x400). Plan: carry the
   damage record's flags on player.rs Projectile.
