@@ -887,7 +887,7 @@ pub fn spawn(
             let lift = Vec3::Y * ai::capsule_lift(p.f("collision_radius", 4.0));
             let s = BodySettings::new_dynamic()
                 .mass(80.0)
-                .friction(0.0)
+                .friction(p.f("friction", 1.0))
                 .allowed_dofs(AllowedDofs::TRANSLATION_X | AllowedDofs::TRANSLATION_Y | AllowedDofs::TRANSLATION_Z);
             if let Some(id) = physics.add_dynamic(e, &shape, pos + lift, Quat::IDENTITY, Vec3::ZERO, s) {
                 let (yaw, _, _) = (rot * game_to_engine().inverse()).to_euler(EulerRot::YXZ);
@@ -1360,7 +1360,7 @@ fn spawn_grunts(
         let lift = Vec3::Y * ai::capsule_lift(p.f("collision_radius", 4.0));
         let s = BodySettings::new_dynamic()
             .mass(80.0)
-            .friction(0.0)
+            .friction(p.f("friction", 1.0))
             .allowed_dofs(AllowedDofs::TRANSLATION_X | AllowedDofs::TRANSLATION_Y | AllowedDofs::TRANSLATION_Z);
         if let Some(id) = physics.add_dynamic(e, &shape, ev.at + lift, Quat::IDENTITY, Vec3::ZERO, s) {
             physics.materials.insert(id, "grunt".into());

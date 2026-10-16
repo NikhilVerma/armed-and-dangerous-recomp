@@ -1132,16 +1132,14 @@ fn log_ai(
     );
 }
 
-/// Capsule of a character with the game's `collision_radius`, as tall as a grunt (9.8 units).
+/// A character's body (Object_BuildRadiusCollision 0x004527d0): a sphere of its `collision_radius`.
 pub fn capsule(physics: &Physics, radius: f32) -> Shape {
-    let k = physics.meters_per_unit;
-    let r = radius.min(4.5) * 0.55;
-    Shape::new_capsule((4.9 - r).max(0.5) * k, r * k).expect("capsule")
+    Shape::new_sphere(radius.max(0.5) * physics.meters_per_unit).expect("sphere")
 }
 
-/// Height of the capsule's centre above the feet.
-pub fn capsule_lift(_radius: f32) -> f32 {
-    4.9 + 0.3
+/// Height of the body's centre above the feet: the sphere sits on them (0x004527d0: centre (0, 0, radius)).
+pub fn capsule_lift(radius: f32) -> f32 {
+    radius.max(0.5)
 }
 
 /// Ai_InitGeneric 0x004247f0 + the class init (GruntObject_Slot6 0x00434fb0, BowGruntObject_Slot6 0x004347b0,

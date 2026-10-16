@@ -78,7 +78,9 @@ impl Physics {
         let k = self.meters_per_unit;
         let v: Vec<j::Vec3> = vertices.iter().map(|p| jv(*p * k)).collect();
         let (shape, _dropped) = Shape::new_mesh(&v, triangles).ok()?;
-        let id = self.world.create_body(&shape, &BodySettings::new_static()).ok()?;
+        // friction 1.0: the original's default material (PhysMaterial_Load 0x00412140: "%s_friction", else
+        // default_friction, 1.0 on every level; wood's 20 is not modelled): a character's sphere holds on a beam's edge (lev_3_m1 sniper 228, B24)
+        let id = self.world.create_body(&shape, &BodySettings::new_static().friction(1.0)).ok()?;
         self.static_bodies += 1;
         self.static_triangles += triangles.len();
         Some(id)

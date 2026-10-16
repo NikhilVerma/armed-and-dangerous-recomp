@@ -42,6 +42,12 @@ port's).
   the IC path flight (state 0x64, ic_loop), the targeting (0x00435b50), the weapon turn and volleys (0x0042ecf0,
   0x00435940), the colossus's marker walk and stand (0x0042a660, states 0x10e..0x110), bullet_scale (0x00436600),
   the path notes (deactivate, anim_loop / anim_intro, captain drops), Roman's zeppelin remark (0x00436260).
+  The path flight is a chase, not a playback (2026-10-16, V1): state 0x64 (ai_06.cpp:1900) hands Object_SetTransform
+  the pose's rotation with the object's current position and sets the gap to the pose as the body's velocity
+  (0x00458510), so a saucer or mini zeppelin starts from rest and runs one second of path behind (lev_2_m1 saucer 285:
+  11 units in its first second; the model reproduces the original's trace within 0.03 units over 9 s, the velocity
+  applied on the next physics step). ic_loop_snap puts the object back at the start each loop; the end stops the body
+  where the chase left it (0x0042c0e0 with 1).
 - **Forge cannon** (`turret.rs`): the stig gun's mount / aim / leave with two pivots (0x00499fd0), its sounds, one
   lobbed forge_cannon_bullet a press (recycle_time 1) to the crosshair's point, the one-shot muzzle fx, the recoil
   anim, the Camera01 view aimed at Camera01.Target. Empty, it takes no damage (0x00498400). Grunts do not look for it
