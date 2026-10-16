@@ -755,7 +755,7 @@ pub fn spawn(
         // physics.rs force_ground
         if p.f("force_ground", 0.0) != 0.0 {
             let character = p.has("mode") && ai::Kind::from_template(&inst.template).is_some();
-            let sphere = character.then(|| p.f("collision_radius", 4.0));
+            let sphere = character.then(|| ai::body::CharacterBody::new(&p).radius);
             if let Some(at) = physics.force_ground(world.w_axis.truncate(), 1000.0, 10000.0, sphere, bounds.radius) {
                 world.w_axis.y = at.y;
             }
@@ -883,7 +883,7 @@ pub fn spawn(
                     }
                 }
             }
-            if let Some(body) = ai::add_body(physics, e, p.f("collision_radius", 4.0), pos, p.s("material").unwrap_or("grunt")) {
+            if let Some((body, character)) = ai::body::add(physics, e, ai::body::CharacterBody::new(&p), pos, p.s("material").unwrap_or("grunt")) {
                 let (yaw, _, _) = (rot * game_to_engine().inverse()).to_euler(EulerRot::YXZ);
                 let mut g = ai::make_grunt(&p, data, ai::Kind::of(&inst.template), pos, window_yaw.unwrap_or(yaw), &mut rng);
                 g.cold = ai::cold_level(&lib_dir);
@@ -920,6 +920,7 @@ pub fn spawn(
                 }
                 commands.entity(e).insert((
                     body,
+                    character,
                     Health(p.f("max_health", 100.0)),
                     bounds,
                     g,
@@ -1349,7 +1350,12 @@ fn spawn_grunts(
                 attach_weapon(&mut commands, h, m, Transform::IDENTITY);
             }
         }
-        if let Some(body) = ai::add_body(&mut physics, e, p.f("collision_radius", 4.0), ev.at, "grunt") {
+        let mut character = ai::body::CharacterBody::new(&p);
+        // a squad member passes through his squad mates: +0x510 = his group, the squad's -squad_tag (0x0042de60)
+        if ev.squad.is_some() {
+            character.group = Some(ev.alert_group as u32);
+        }
+        if let Some((body, character)) = ai::body::add(&mut physics, e, character, ev.at, "grunt") {
             let mut g = ai::make_grunt(&p, &data, ai::Kind::of(&ev.template), ev.at, yaw, rng);
             g.cold = ai::cold_level(&lib.dir);
             if let Some(ic) = &ev.ic {
@@ -1386,7 +1392,7 @@ fn spawn_grunts(
                 g.mind = ai::Mind::Chase;
             }
             let bounds = Bounds { center: (model.min + model.max) * 0.5, radius: (model.max - model.min).length() * 0.5 };
-            commands.entity(e).insert((body, Health(p.f("max_health", 100.0)), bounds, g));
+            commands.entity(e).insert((body, character, Health(p.f("max_health", 100.0)), bounds, g));
         }
     }
 }
