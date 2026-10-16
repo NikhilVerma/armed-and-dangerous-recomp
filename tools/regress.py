@@ -29,11 +29,12 @@ SUITE = ['save_write', 'save_read', 'topsyhit2', 'turn_in_place', 'turret1', 'de
          'launch_newgame', 'launch_options', 'launch_restart', 'restart_parity', 'save_slots',
          'cheats', 'campaign_next', 'campaign_chain', 'campaign_save', 'campaign_movie', 'campaign_end', 'campaign_extras',
          'defence_l1m4', 'defence_l1m4_fail', 'defence_l2m4', 'defence_l3m4', 'defence_l4m5', 'defence_l5m5',
-         'complete_lev_1_m1',
          'vehicles_rocket_tower', 'vehicles_rocket_bud', 'vehicles_zeppelin', 'vehicles_saucer', 'vehicles_colossus', 'vehicles_forge_cannon']
 # 'complete_<level>' (levels 4, 5 and the bonus levels): the level played to mission complete through its real
 # objective chain (land / damage steps skip travel and fights, SHIELDME keeps Roman alive), then Stats -> the next level
 SUITE += ['complete_lev_5_m1', 'complete_lev_5_m3']
+# 'complete_<level>' for levels 1 to 3 (agent-complete-a; status table in docs/journal/2026-10-16-complete-a.md)
+SUITE += ['complete_lev_1_m1']
 # 'launch_*': the real launch path as the player plays (the Remaster preset chosen by the options, the intro, the
 # title menu): New Game shows the world (menu art gone, every camera on one target, the strips beside the 4:3 centre
 # not black), Abandon -> title -> New Game in-process, the Graphics page applies, Restart / Quick Load / Restart from
