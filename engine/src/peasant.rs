@@ -671,14 +671,20 @@ fn deaths(
     }
 }
 
-/// The compass's first list (World+0xefc): the peasants not yet picked up.
-fn compass(q: Query<(&Peasant, &GlobalTransform, Option<&Destructible>)>, mut list: ResMut<crate::mission::CompassList>) {
+/// The compass's first list (World+0xefc): the peasants not yet picked up; and the HUD's counters on a rescue level
+/// (peasant_max_saved > 0): still to find (0x00465be0: the counts on the list less the carried), saved, carried.
+fn compass(q: Query<(&Peasant, &GlobalTransform, Option<&Destructible>)>, mut list: ResMut<crate::mission::CompassList>, tally: Res<PeasantTally>, mut hud: ResMut<crate::hud::HudState>) {
+    let alive = |d: Option<&Destructible>| d.is_none_or(|d| d.health > 0.0 && d.dying.is_none());
     list.0.clear();
-    list.0.extend(q.iter().filter(|(p, _, d)| p.rope.is_none() && d.is_none_or(|d| d.health > 0.0)).map(|(_, t, _)| t.translation()));
+    list.0.extend(q.iter().filter(|(p, _, d)| p.rope.is_none() && alive(*d)).map(|(_, t, _)| t.translation()));
+    hud.peasants = (tally.rules.max_saved > 0).then(|| {
+        let listed: u32 = q.iter().filter(|(_, _, d)| alive(*d)).map(|(p, _, _)| p.count).sum();
+        crate::hud::PeasantCounters { to_find: listed.saturating_sub(tally.carried), saved: tally.saved, carried: tally.carried }
+    });
 }
 
 /// The state log's "peasants" (playtest expect steps): the counters and each peasant's state by instance id.
-fn log(tally: Res<PeasantTally>, q: Query<(&Peasant, Option<&InstanceId>, &GlobalTransform)>, state: Option<ResMut<crate::playtest::PlayState>>) {
+fn log(tally: Res<PeasantTally>, hud: Res<crate::hud::HudState>, q: Query<(&Peasant, Option<&InstanceId>, &GlobalTransform)>, state: Option<ResMut<crate::playtest::PlayState>>) {
     let Some(mut state) = state else { return };
     let mut list = serde_json::Map::new();
     for (p, id, t) in &q {
@@ -688,7 +694,7 @@ fn log(tally: Res<PeasantTally>, q: Query<(&Peasant, Option<&InstanceId>, &Globa
     }
     state.0.insert(
         "peasants".into(),
-        serde_json::json!({"carried": tally.carried, "saved": tally.saved, "casualties": tally.casualties, "alive": q.iter().count(), "list": list}),
+        serde_json::json!({"carried": tally.carried, "saved": tally.saved, "casualties": tally.casualties, "alive": q.iter().count(), "list": list, "hud": hud.peasants.map(|h| serde_json::json!({"to_find": h.to_find, "saved": h.saved, "carried": h.carried}))}),
     );
 }
 

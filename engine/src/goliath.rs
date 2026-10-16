@@ -336,8 +336,10 @@ fn follow_squads(
 /// peasant in it at ref_peasant_1 by its "center", playing peasant_man_stand (Squad_Init 0x00433220). The peasant is a
 /// PeasantObject held by the cage (peasant.rs `Peasant::held_by`: no pick-up while attached); when the goliath dies the
 /// cage goes and he falls free (0x00453750: the cage without flag 4 is removed, the peasant with it is detached).
-fn cages(mut commands: Commands, q: Query<(Entity, &CagePending, &crate::skin::Animator, Option<&crate::level::InstanceId>)>, mut kit: crate::army::ModelKit, data: Res<crate::gamedata::GameData>) {
-    for (e, c, a, id) in &q {
+fn cages(mut commands: Commands, q: Query<(Entity, &CagePending, &crate::skin::Animator, Option<&SquadGoliath>)>, ids: Query<&crate::level::InstanceId>, mut kit: crate::army::ModelKit, data: Res<crate::gamedata::GameData>) {
+    for (e, c, a, sg) in &q {
+        // the squad's entry orders its peasant on the object list
+        let id = sg.and_then(|s| ids.get(s.link.squad).ok()).map_or(0, |i| i.0);
         commands.entity(e).remove::<CagePending>();
         let Some(chest) = a.skeleton.index.get("chest").and_then(|&i| a.joints.get(i).copied()) else { continue };
         let dir = kit.dir();
@@ -351,7 +353,7 @@ fn cages(mut commands: Commands, q: Query<(Entity, &CagePending, &crate::skin::A
         if let Some(peasant) = kit.spawn(&mut commands, &pm, Transform::from_translation(at), true) {
             // made after the placed objects (the squad's load), in the squads' order
             let props = data.template_props(template);
-            let mut p = crate::peasant::Peasant::from_props(&props, template, crate::peasant::CAGED_ORDER + id.map_or(0, |i| i.0));
+            let mut p = crate::peasant::Peasant::from_props(&props, template, crate::peasant::CAGED_ORDER + id);
             p.held_by = Some(e);
             commands.entity(peasant).insert((crate::level::DefaultAnim::new("peasant_man_stand"), p.health(&props), crate::fx::BlastProof, p, Name::new(template)));
             commands.entity(cage).add_child(peasant);

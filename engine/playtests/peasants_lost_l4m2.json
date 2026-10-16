@@ -1,0 +1,14 @@
+{"scene": "lev_4_m2", "steps": [
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 3.5}, {"tap": "Enter"}, {"wait": 1.0},
+ {"cheat": "SHIELDME"}, {"wait": 0.2},
+ {"expect": {"peasants.alive": 10, "peasants.casualties": 0, "mission": "Playing"}},
+ {"warp": [130.0, -187.0, 120, 0]}, {"wait": 0.5},
+ {"expect": {"peasants.carried": 1, "peasants.list.291.tied": true}},
+ {"blast": 100}, {"wait": 0.5},
+ {"expect": {"peasants.alive": 10, "peasants.casualties": 0, "peasants.carried": 1}},
+ {"damage": [291, 1000]}, {"wait": 0.5},
+ {"expect": {"peasants.alive": 10, "peasants.casualties": 0, "peasants.carried": 1}},
+ {"damage": [291, 1500]}, {"wait": 0.5},
+ {"expect": {"peasants.alive": 9, "peasants.casualties": 1, "peasants.carried": 0, "peasants.saved": 0, "mstats.accidents": -100, "mission": "Failed"}},
+ {"quit": true}
+]}
