@@ -1539,6 +1539,49 @@ fn mark_army_targets(mut commands: Commands, mission: Option<Res<crate::mission:
     }
 }
 
+/// A dropped troop's landing orders from its IC anim's notes (GenericAIObject_HandleEvent 0x0043d180, the freefall
+/// events: state 0x82 then the mode +0x4ac): freefall_attack_village LO HI takes the objects of tags LO..HI as its
+/// priority targets (+0x858 / +0x85c, the houses), freefall_attack the player (mode 0x13). False when no note says.
+pub fn drop_orders<'a>(g: &mut Grunt, notes: impl Iterator<Item = &'a str>) -> bool {
+    for line in notes.flat_map(|n| n.split(['\r', '\n'])) {
+        let w: Vec<&str> = line.split_whitespace().collect();
+        let int = |i: usize| w.get(i).and_then(|v| v.parse::<i64>().ok()).unwrap_or(0);
+        match w.first().map(|c| c.to_lowercase()).as_deref() {
+            Some("freefall_attack_village") => {
+                g.priority_tags = (int(1), int(2));
+                g.target = None;
+                g.mind = Mind::Roam;
+                g.search_timer = 0.0;
+                return true;
+            }
+            Some("freefall_attack") => return false,
+            _ => {}
+        }
+    }
+    false
+}
+
+/// AI_FindTarget's first step (0x00426920): the priority tags [+0x858, +0x85c] walked from the low end: the first live
+/// object of a tag is the target at once, at any range; a tag no object carries any more moves the low end up, and
+/// past the high end the walk is over (both 0). A tag whose objects are all dying is passed over this time.
+fn priority_target(tags: &mut (i64, i64), mission: &crate::mission::Mission, live: &std::collections::HashMap<u32, Entity>) -> Option<Entity> {
+    let mut tag = tags.0;
+    while tags.0 != 0 && tag <= tags.1 {
+        let mut ids = mission.tagged(tag).peekable();
+        if ids.peek().is_none() {
+            tags.0 += 1;
+            if tags.0 > tags.1 {
+                *tags = (0, 0);
+                return None;
+            }
+        } else if let Some(e) = ids.find_map(|i| live.get(&i).copied()) {
+            return Some(e);
+        }
+        tag += 1;
+    }
+    None
+}
+
 /// A waiting grunt's trigger (receive_trigger_activate: fn_0042f870 -> 0x0042f5c0), by his mode: trigger_marker (+0x488
 /// 0x10) runs his marker spline (think: `marker_tags`), trigger_ic (0x8000000) plays his IC move (ic.rs), trigger_charge
 /// (0x100) charges the player (0x0042ce70). `ic`: he has an IC move.
@@ -1574,10 +1617,12 @@ fn search(
     mut barks: ResMut<Barks>,
     noise: Res<Interests>,
     squads: Query<&squad::Squad>,
-    (army, mission): (Query<(), With<ArmyTarget>>, Option<Res<crate::mission::Mission>>),
+    (army, mission, objects): (Query<(), With<ArmyTarget>>, Option<Res<crate::mission::Mission>>, Query<(Entity, &crate::level::InstanceId, &GlobalTransform), With<crate::fx::Destructible>>),
 ) {
     let dt = time.delta_secs();
     let Ok((pe, _, _)) = player.single() else { return };
+    // the live placed objects by id (a destroyed one has lost its Destructible): the priority targets' candidates
+    let live: std::collections::HashMap<u32, Entity> = if grunts.iter().any(|g| g.1.priority_tags.0 != 0) { objects.iter().map(|(e, i, _)| (i.0, e)).collect() } else { Default::default() };
     let global_tag = mission.as_ref().map_or(0, |m| m.ai_target_tag);
     stats.targets = [0, 0];
     for (_, g, _, _, _) in &grunts {
@@ -1627,8 +1672,36 @@ fn search(
         if g.guard && g.target.is_some() {
             g.target = None;
         }
+        // a priority target (a house) that is gone (destroyed: its husk keeps the entity but has lost the tag) leaves
+        // him free to search
+        let gone = |t: Entity| objects.get(t).map_or(true, |(_, i, _)| mission.as_deref().is_some_and(|m| m.lost(i.0)));
+        if g.priority_tags.0 != 0 && g.target.is_some_and(|t| t != pe && !cands.iter().any(|c| c.0 == t) && gone(t)) {
+            g.target = None;
+        }
         if g.target.is_some() {
             continue;
+        }
+        if let Some(m) = mission.as_deref().filter(|_| g.priority_tags.0 != 0) {
+            let mut tags = g.priority_tags;
+            let found = priority_target(&mut tags, m, &live);
+            if std::env::var("AIDBG").is_ok() {
+                info!("AIDBG priority {ge:?} tags {:?} -> {:?} found {found:?}", g.priority_tags, tags);
+            }
+            g.priority_tags = tags;
+            if tags.0 == 0 {
+                // the walk over: the scan range back to range x 1.5 (+0x5dc = +0x5d8 x 0x005bce20)
+                g.scan_distance = g.range * 1.5;
+            }
+            if let Some(tgt) = found {
+                // its 2D distance becomes the scan range +0x5dc: the target is kept (2 x scan_distance) however far it
+                // is, the walk to the next village included
+                if let Ok((_, _, tt)) = objects.get(tgt) {
+                    g.scan_distance = (tt.translation() - t.translation()).with_y(0.0).length();
+                }
+                g.target = Some(tgt);
+                g.search_timer = rng.range(0.75, 1.25);
+                continue;
+            }
         }
         // waiting for a trigger: only trigger_los grunts look (state 0x8c)
         if g.mind == Mind::WaitTrigger && !g.trigger_los {
@@ -2622,7 +2695,7 @@ fn think(
         Res<crate::turret::Mounted>,
         Res<crate::gamedata::GameData>,
     ),
-    (mut lib, player_q, mut triggers, grenade_assets, squads, mut jmarks, army): (
+    (mut lib, player_q, mut triggers, grenade_assets, squads, mut jmarks, army, placed): (
         ResMut<crate::skin::AnimLibrary>,
         Query<Entity, With<Player>>,
         MessageWriter<crate::mission::SendTrigger>,
@@ -2630,6 +2703,7 @@ fn think(
         Query<&squad::Squad>,
         Query<(Entity, &mut JumpMarker, &Transform), Without<Grunt>>,
         Query<(), With<ArmyTarget>>,
+        Query<&crate::level::Placed>,
     ),
 ) {
     let t0 = Instant::now();
@@ -2825,7 +2899,7 @@ fn think(
         g.timer -= dt;
         g.ray_timer -= dt;
         // a target farther than 2 x scan_distance is dropped (states 0x3c, 0xa: vt+0x180 0x0043ecf0, which keeps an
-        // army target at any range)
+        // army target at any range; a priority target's scan_distance is its distance when found, AI_FindTarget)
         if let Some(p) = target {
             if flat(p - pos).length() > 2.0 * g.scan_distance && !g.guard && !g.target.is_some_and(|e| army.contains(e)) {
                 g.target = None;
@@ -3307,7 +3381,11 @@ fn think(
                     if g.turn.is_none() {
                         // the weapon in its right hand (ref_rhand, grunt init 0x00434fb0): where the shot leaves
                         let hand = ga.and_then(|a| a.skeleton.index.get("ref_rhand").and_then(|&i| targets.get(a.joints[i]).ok())).map(|j| j.translation());
-                        end = fire_cycle(&mut commands, &mut g, &physics, &mut rng, pos, p, hit, own_hit, hand, body.id, dt, &mut stats, &mut sounds, &mut fx, (&mut barks, time.elapsed_secs(), &voices));
+                        // the sight ray reaching the target's own collision is a sight of it (0x00426fd0: a placed
+                        // object as target, the houses a village attacker shoots)
+                        let target_body = g.target.and_then(|t| placed.get(t).ok()).and_then(|p| p.collider);
+                        let skip: Vec<BodyId> = std::iter::once(body.id).chain(target_body).collect();
+                        end = fire_cycle(&mut commands, &mut g, &physics, &mut rng, pos, p, hit, own_hit, hand, &skip, dt, &mut stats, &mut sounds, &mut fx, (&mut barks, time.elapsed_secs(), &voices));
                     }
                     if stats.shots > before && std::env::var("AIDBG").is_ok() {
                         info!("AIDBG gruntshot t {:.3}", rtime.elapsed_secs());
@@ -3677,7 +3755,7 @@ fn think(
                 if j.flight == Some(jumper::Flight::Glide) {
                     if let (Some(p), Some(thit), true) = (target, target_hit, g.fire_ready) {
                         g.jumper = Some(j);
-                        fire_cycle(&mut commands, &mut g, &physics, &mut rng, pos, p, thit, own_hit, None, body.id, dt, &mut stats, &mut sounds, &mut fx, (&mut barks, time.elapsed_secs(), &voices));
+                        fire_cycle(&mut commands, &mut g, &physics, &mut rng, pos, p, thit, own_hit, None, &[body.id], dt, &mut stats, &mut sounds, &mut fx, (&mut barks, time.elapsed_secs(), &voices));
                         g.mind = Mind::Jump;
                         j = g.jumper.expect("a jumper");
                     }
@@ -3853,7 +3931,7 @@ fn fire_cycle(
     hit: Vec3,
     own_hit: Vec3,
     hand: Option<Vec3>,
-    own: BodyId,
+    skip: &[BodyId],
     dt: f32,
     stats: &mut AiStats,
     sounds: &mut MessageWriter<crate::audio::PlaySound>,
@@ -3881,7 +3959,7 @@ fn fire_cycle(
     if to.normalize_or_zero().dot(fwd) < 0.0 {
         return FireEnd::None;
     }
-    if !sight_ray(physics, own_hit, hit, &[own]) {
+    if !sight_ray(physics, own_hit, hit, skip) {
         // no shot this frame (a guard: state 0x7a and back, the target dropped at the next search tick; in a trench:
         // duck, the caller)
         return FireEnd::Sight;
@@ -4299,8 +4377,9 @@ fn companion_damage(
     mut commands: Commands,
     time: Res<Time>,
     mut physics: NonSendMut<Physics>,
-    mut q: Query<(Entity, &mut Companion, &Health, &Transform, &mut Visibility)>,
+    mut q: Query<(Entity, &mut Companion, &Health, &Transform, &mut Visibility, Option<&crate::mission::DeathTrigger>)>,
     alive: Query<&Health, Without<Companion>>,
+    mut triggers: MessageWriter<crate::mission::SendTrigger>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     mut ms: ResMut<crate::stats::MissionStats>,
     mut rng: ResMut<FxStats>,
@@ -4312,7 +4391,7 @@ fn companion_damage(
         let n = list[((rng.rand() * list.len() as f32) as usize).min(list.len() - 1)];
         sounds.write(crate::audio::PlaySound::at(n, at));
     };
-    for (e, mut c, h, t, mut vis) in &mut q {
+    for (e, mut c, h, t, mut vis, death_trigger) in &mut q {
         let at = t.translation;
         let len = if c.q { 2.533 } else { 2.0 };
         if let Some(d) = c.dead.as_mut() {
@@ -4343,6 +4422,9 @@ fn companion_damage(
             // not a kill (vt+0xe8 false); score_value -500 to Accidents (0x00431720)
             ms.killed(-500.0);
             info!("EVENT {} died", if c.q { "Q" } else { "Jonesy" });
+            if let Some(t) = death_trigger {
+                triggers.write(crate::mission::SendTrigger(t.0));
+            }
             continue;
         }
         if h.0 < c.last_health {

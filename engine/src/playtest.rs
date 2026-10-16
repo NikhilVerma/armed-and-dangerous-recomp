@@ -72,6 +72,10 @@ pub struct Event {
     /// death instead of waiting for the bot's bullets to find him)
     #[serde(default)]
     pub kill_gunner: Option<f32>,
+    /// debug: deal this hit to every live troop a vehicle dropped (vehicles/boss.rs: the zeppelins' rocket captains), as
+    /// a player shoots the paratroopers on landing
+    #[serde(default)]
+    pub kill_dropped: Option<f32>,
     /// debug: destroy the placed object with this instance id (as a lethal hit)
     #[serde(default)]
     pub destroy: Option<u32>,
@@ -133,7 +137,7 @@ pub struct Event {
     #[serde(default)]
     pub probe: Option<[f32; 5]>,
     /// debug: land beside the placed object with this instance id, [id, distance]: of eight points round it at that
-    /// distance, the one whose ground is nearest the object's own height (logged as land), facing it
+    /// distance, the one whose ground is nearest the object's own height (logged as land), facing it; a pub: its doorway; distance 0: onto the object itself
     #[serde(default)]
     pub land_by: Option<[f32; 2]>,
     /// debug: as land_by, of sixteen points only those from which a bullet reaches the object (a sniper on a ledge, a
@@ -164,10 +168,11 @@ pub struct Event {
     /// bot: with goto, arrive within this many units (default 12)
     #[serde(default)]
     pub near: Option<f32>,
-    /// steps only: wait until the game shows a paused message (the briefing): "message", max 60 s; or until no movie
-    /// plays: "movie_done", max 600 s; or until a restarted level has left its loading screen: "loaded", max 30 s; or
-    /// until a mission trigger has been sent: "trigger:456", max the step's "wait" (default 600 s); or until a placed
-    /// AI or object is dead or gone: "dead:286", max the step's "wait" (default 60 s)
+    /// steps only: wait until the game shows a paused message (the briefing): "message", max 60 s (or the step's "wait"
+    /// seconds: {"until": "message", "wait": 400} waits out a long mission); or until no movie plays: "movie_done", max
+    /// 600 s; or until a restarted level has left its loading screen: "loaded", max 30 s; or until a mission trigger
+    /// has been sent: "trigger:456", max the step's "wait" (default 600 s); or until a placed AI or object is dead or
+    /// gone: "dead:286", max the step's "wait" (default 60 s)
     #[serde(default)]
     pub until: Option<String>,
     /// steps only: wait this many seconds
@@ -397,7 +402,7 @@ fn warp(
     mut bot: ResMut<crate::bot::Bot>,
     mut roman: Query<(&mut crate::player::Roman, &mut Transform)>,
     objects: Query<(&crate::level::InstanceId, &GlobalTransform, Option<&crate::level::Placed>)>,
-    peasants: Query<(&crate::peasant::Peasant, &GlobalTransform)>,
+    (peasants, mission): (Query<(&crate::peasant::Peasant, &GlobalTransform)>, Option<Res<crate::mission::Mission>>),
 ) {
     if std::mem::take(&mut pt.land_peasant) {
         let me = roman.single().map(|(_, t)| t.translation).unwrap_or_default();
@@ -417,14 +422,25 @@ fn warp(
         }
     }
     if let Some((id, d, sight)) = pt.land_by.take() {
-        match objects.iter().find(|(i, ..)| i.0 == id) {
-            Some((_, at, placed)) => {
+        // a pub: at its doorway, where Use enters it
+        let door = mission.as_ref().and_then(|m| m.pub_door(id)).map(|at| {
+            let g = crate::level::game_to_engine().inverse() * at;
+            [g.x, g.y, f32::NAN, 0.0]
+        });
+        match (door, objects.iter().find(|(i, ..)| i.0 == id)) {
+            (Some(w), _) => pt.warp = Some(w),
+            // distance 0: onto the object itself (a peasant on a roof: Roman walks up to him)
+            (None, Some((_, at, _))) if d <= 0.0 => {
+                let g = crate::level::game_to_engine().inverse() * at.translation();
+                pt.warp = Some([g.x, g.y, g.z + 2.0, 0.0]);
+            }
+            (None, Some((_, at, placed))) => {
                 pt.warp = land_beside(&physics, at.translation(), placed.and_then(|p| p.collider), d, sight);
                 if pt.warp.is_none() {
-                    warn!("EVENT playtest: land_by: no spot {d} from object {id}{}", if sight { " in sight of it" } else { "" });
+                    warn!("EVENT playtest: land_by: no spot {d} from object {id}{} at {:?}", if sight { " in sight of it" } else { "" }, crate::level::game_to_engine().inverse() * at.translation());
                 }
             }
-            None => warn!("EVENT playtest: land_by: no object {id}"),
+            (None, None) => warn!("EVENT playtest: land_by: no object {id}"),
         }
     }
     if let Some([x0, y0, x1, y1, step]) = pt.probe.take() {
@@ -464,9 +480,9 @@ fn warp(
 fn land_beside(physics: &crate::physics::Physics, at: Vec3, body: Option<oxijolt::prelude::BodyId>, d: f32, sight: bool) -> Option<[f32; 4]> {
     let to_game = crate::level::game_to_engine().inverse();
     // with `sight` (land_sight): of sixteen points, those from whose eye height a bullet reaches the object's chest
-    // (nothing in the way, or what is hit is within 8 of it), else none
-    let n = if sight { 16 } else { 8 };
+    // (nothing in the way, or what is hit is within 8 of it or the object itself), else none
     // (and from where the follow camera sits, about 30 behind and 15 above him: the crosshair's ray starts there)
+    let n = if sight { 16 } else { 8 };
     let clear = |g: Vec3| {
         let to = at + Vec3::Y * 6.0;
         let back = (g - to).with_y(0.0).normalize_or(Vec3::Z);
@@ -474,14 +490,17 @@ fn land_beside(physics: &crate::physics::Physics, at: Vec3, body: Option<oxijolt
             .iter()
             .all(|&eye| physics.raycast_bullet(eye, to - eye, (to - eye).length()).is_none_or(|h| h.1.distance(to) < 8.0 || Some(h.0) == body))
     };
-    let best = (0..n)
-        .filter_map(|k| {
-            let a = k as f32 * std::f32::consts::TAU / n as f32;
-            let p = at + Vec3::new(a.cos(), 0.0, a.sin()) * d;
-            physics.raycast_landscape(p.with_y(4000.0), Vec3::NEG_Y, 8000.0).map(|g| (p, (g.y - at.y).abs(), g))
-        })
-        .filter(|(_, _, g)| !sight || clear(*g))
-        .min_by(|a, b| a.1.total_cmp(&b.1))?;
+    // the ring at d, else the next farther one (a big object over the ground, a goliath, hides it from the landscape ray)
+    let best = [1.0, 2.0, 4.0].into_iter().find_map(|m| {
+        (0..n)
+            .filter_map(|k| {
+                let a = k as f32 * std::f32::consts::TAU / n as f32;
+                let p = at + Vec3::new(a.cos(), 0.0, a.sin()) * d * m;
+                physics.raycast_landscape(p.with_y(4000.0), Vec3::NEG_Y, 8000.0).map(|g| (p, (g.y - at.y).abs(), g))
+            })
+            .filter(|(_, _, g)| !sight || clear(*g))
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+    })?;
     let (g, o) = (to_game * best.0, to_game * at);
     let yaw = (o.x - g.x).atan2(o.y - g.y).to_degrees();
     Some([g.x, g.y, f32::NAN, yaw])
@@ -572,7 +591,7 @@ pub(crate) fn drive(
     mission: Option<Res<crate::mission::Mission>>,
     mut roman: Query<&mut crate::fx::Health, With<crate::player::Roman>>,
     mut spawn: MessageWriter<crate::level::SpawnGrunt>,
-    (mut send, state, mut save_req, mut noise, mut barks, mut defence, mut cheats): (
+    (mut send, state, mut save_req, mut noise, mut barks, mut defence, mut cheats, dropped): (
         MessageWriter<crate::mission::SendTrigger>,
         Res<PlayState>,
         ResMut<crate::savegame::SaveRequest>,
@@ -580,6 +599,7 @@ pub(crate) fn drive(
         ResMut<crate::ai::Barks>,
         MessageWriter<crate::defence::DefenceCommand>,
         ResMut<crate::cheats::Cheats>,
+        Query<Entity, With<crate::level::Dropped>>,
     ),
     mut objects: Query<(Entity, Option<&crate::level::InstanceId>, Option<&crate::level::Placed>, &mut crate::fx::Destructible)>,
     cam: Query<&GlobalTransform, With<Camera3d>>,
@@ -862,6 +882,19 @@ pub(crate) fn drive(
                 g.last_hit = d;
                 h.0 -= d;
             }
+        }
+        if let Some(d) = e.kill_dropped {
+            let mut n = 0;
+            for de in &dropped {
+                if let Ok((mut g, mut h, _, _)) = grunts.get_mut(de) {
+                    if g.mind != crate::ai::Mind::Dead {
+                        g.last_hit = d;
+                        h.0 -= d;
+                        n += 1;
+                    }
+                }
+            }
+            info!("EVENT playtest: hit {n} dropped troops");
         }
         if let Some(d) = e.kill_gunner {
             for (mut g, mut h, _, _) in grunts.iter_mut().filter(|(g, _, _, _)| g.mind != crate::ai::Mind::Dead && g.gun.is_some()) {

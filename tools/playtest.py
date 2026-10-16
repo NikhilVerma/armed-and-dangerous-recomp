@@ -22,7 +22,7 @@ ANSI = re.compile(r'\x1b\[[0-9;]*m')
 ap = argparse.ArgumentParser()
 ap.add_argument('script')
 ap.add_argument('--exe', default='target-agent2', help='cargo target dir under engine/ (never "target": the player\'s copy)')
-ap.add_argument('--timeout', type=float, default=300)
+ap.add_argument('--timeout', type=float, default=None, help="wall seconds (default: the script's own \"timeout\", else 300)")
 ap.add_argument('--grep', default=None)
 ap.add_argument('--size', default='640x372')
 ap.add_argument('--env', action='append', default=[], help='NAME=VALUE, e.g. AIDBG=1')
@@ -30,6 +30,12 @@ ap.add_argument('--arg', action='append', default=[], help='an extra engine argu
 ap.add_argument('--scene', default=None, help='scene folder (default the engine\'s ../work/remaster/lev_1_m1); '
                 'e.g. a test export, or the main checkout\'s from a worktree without work/')
 a = ap.parse_args()
+if a.timeout is None:
+    # a long script (a whole level played to the end) names its own limit
+    try:
+        a.timeout = float(json.load(open(a.script, encoding='utf-8')).get('timeout', 300))
+    except (OSError, ValueError):
+        a.timeout = 300
 
 engine = os.path.join(ROOT, 'engine')
 exe = os.path.join(engine, a.exe, 'release', 'and_remaster.exe')

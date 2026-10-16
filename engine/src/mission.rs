@@ -1191,7 +1191,9 @@ impl Mission {
             start_sent: false,
             queue: Vec::new(),
             showing: None,
-            tickers: 0,
+            // player_has_tickerbomb (MissionObject_Load 0x0044c170, game_02.cpp:1994): Game+0xd90, the flag the pub's
+            // award sets too (pubscreen.rs: the same 4); lev_4_m1 starts with them (its goliaths' ticker sites)
+            tickers: if n(m, "player_has_tickerbomb") != 0.0 { 4 } else { 0 },
             outcome: Outcome::Playing,
             dead_timer: 0.0,
             log,
@@ -1225,6 +1227,22 @@ impl Mission {
     /// whose tag +0x390 equals Game+0x2658).
     pub fn compass_target(&self, from: Vec3) -> Option<Vec3> {
         self.tags.get(&self.compass_tag)?.iter().filter(|(id, _)| !self.untagged.contains(id)).map(|(_, p)| *p).min_by(|a, b| a.distance(from).total_cmp(&b.distance(from)))
+    }
+
+    /// The placed objects that carry `tag` and have not lost it (dead, armed): the object list's tag search
+    /// (0x004592e0) as the AI's priority targets walk it.
+    pub fn tagged(&self, tag: i64) -> impl Iterator<Item = u32> + '_ {
+        self.tags.get(&tag).into_iter().flatten().map(|(i, _)| *i).filter(|i| !self.untagged.contains(i))
+    }
+
+    /// Whether the placed object `id` has died or lost its tag (the lists the compass and the AI's tag searches walk).
+    pub fn lost(&self, id: u32) -> bool {
+        self.untagged.contains(&id)
+    }
+
+    /// A pub's doorway (engine space), by the pub's instance id (the playtest's land_by stands there).
+    pub fn pub_door(&self, id: u32) -> Option<Vec3> {
+        self.pubs.iter().find(|p| p.id == id).map(|p| p.door)
     }
 
     /// Whether the placed object `id` carries `tag` (+0x390, Object_GetTag 0x00453290) and has not lost it.

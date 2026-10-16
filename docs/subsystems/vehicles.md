@@ -84,8 +84,16 @@ engine/playtests/vehicles_*.json (regress.py SUITE), each on its own level ("sce
   camera_start / camera_end, fwd_max_speed: the player in a colossus) are not ported (no level here puts Roman in one).
 - A hit makes Roman the boss's target (0x00435fa0 takes the record's source; the engine's damage path does not carry
   it). Plan: a source on Destructible's damage.
-- The zeppelins' captain drops (create_object_ic / create_rocket_captain_IC) make a captain on the ground under the
-  ref node; the rappel IC anims are the infantry's (plan: IC movers for characters).
+- The zeppelins' captain drops (create_object_ic / create_rocket_captain_IC, the note handler 0x00409140 at 0x00409abf)
+  make a captain on the ground under the ref node; the rappel IC anims are the infantry's (plan: IC movers for
+  characters). Since 2026-10-16 (agent-complete-b): the mini zeppelin's model is rigid, so its anim_intro anims
+  (mini_zeppelin_attack_village) run as a note clock (boss.rs RigidAnimNotes) and their drop notes fire at the anim's
+  ref_repel nodes; create_rocket_captain_IC makes a rocket captain (0x00434ac0) with fire range 50..100 (0x00434a80),
+  at most 12 dropped troops alive unless the level starts in the base turret (0x00409b0e, 0x0044e600); the mover's
+  notes give its landing orders (ai.rs drop_orders: freefall_attack_village LO HI -> the priority targets +0x858 /
+  +0x85c, AI_FindTarget's first step: the houses of tags LO..HI). A placed object as a target is seen when the sight
+  ray reaches its collision (0x00426fd0). lev_5_m2: the original loses its first village's five houses at 73..88 s
+  standing still; the remaster now at 69..83 s (oracle work/oracle-complete-b/l52_long; before: never).
 - The forge cannon's view from Camera01 sits on the barrel's axis behind the breech: the screen is filled by the
   cannon's back (vehicles_forge_cannon.mounted.png). The original's view (Game+0xac8 = 3) needs a capture: is the gun
   hidden, or another camera used (the "ui_forge_crosshair" object class 126, a landing-point marker, is not ported)?
