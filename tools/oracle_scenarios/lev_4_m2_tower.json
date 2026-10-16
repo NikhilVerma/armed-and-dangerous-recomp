@@ -6,7 +6,7 @@
  "trace_every": 10,
  "trace_from": -60,
  "triggers": [[60, 7001]],
- "suite": false,
+ "suite": true,
  "known": {
   "companion.jonesy.pos": "NAV1: on the walk (frames 200..3800) nav.rs's route takes the south corridor of the abbey where the original's nav mesh takes the north one, of the same length (2418 vs 2450 units); both arrive together and agree within 0.4 units on the marker and through the plant anim",
   "companion.jonesy.health": "T1: the original's Jonesy takes no damage during the plant anim (frames 3800..5680 at 500 in both original runs; the bomb loop's hits come after), the remaster's does (dies at ~5650); before that the walk's hits are the troops' rolls (the whole level chases him in both)",

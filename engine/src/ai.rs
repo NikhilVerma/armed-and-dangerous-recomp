@@ -12,6 +12,7 @@
 //!   Object_IsInViewCone 0x00455d90 and the sight ray), the alert groups, retaliation 0x0042c820.
 //! Functions this port does not cite are explained in docs/port/ai.csv (replaced by the engine, or not needed).
 
+pub mod body;
 pub mod bully;
 pub mod ic;
 pub mod jumper;
@@ -1039,7 +1040,10 @@ impl Plugin for AiPlugin {
             .init_level_resource::<ic::IcStats>()
             .add_systems(
                 Update,
-                (squad::update_squads, interests, mark_army_targets, search, ic::activate, scare, think, ic::run, bully::bullies, die, dismay, log_cover, log_ai, squad::log_squads, ic::log, grenades)
+                (
+                    (body::bumps, squad::update_squads, interests, mark_army_targets, search, ic::activate, scare, think, ic::run, bully::bullies, die, dismay).chain(),
+                    (body::apply_rules, log_cover, log_ai, squad::log_squads, ic::log, grenades).chain(),
+                )
                     .chain()
                     .after(crate::fx::FxSet)
                     .after(crate::turret::setup),
@@ -1139,33 +1143,6 @@ fn log_ai(
             "near": near.unwrap_or_default(),
         }),
     );
-}
-
-/// Capsule of a character with the game's `collision_radius`, as tall as a grunt (9.8 units).
-pub fn capsule(physics: &Physics, radius: f32) -> Shape {
-    let k = physics.meters_per_unit;
-    let r = radius.min(4.5) * 0.55;
-    Shape::new_capsule((4.9 - r).max(0.5) * k, r * k).expect("capsule")
-}
-
-/// A grunt's body: the dynamic capsule (translation only, no friction, 80 kg) with its feet at `feet`, its game
-/// material, listed with the AI bodies the AI's sight passes through (`Physics::ai_bodies`).
-pub fn add_body(physics: &mut Physics, e: Entity, radius: f32, feet: Vec3, material: &str) -> Option<Body> {
-    let shape = capsule(physics, radius);
-    let s = oxijolt::prelude::BodySettings::new_dynamic()
-        .mass(80.0)
-        .friction(0.0)
-        .allowed_dofs(oxijolt::prelude::AllowedDofs::TRANSLATION_X | oxijolt::prelude::AllowedDofs::TRANSLATION_Y | oxijolt::prelude::AllowedDofs::TRANSLATION_Z);
-    let offset = Vec3::Y * capsule_lift(radius);
-    let id = physics.add_dynamic(e, &shape, feet + offset, Quat::IDENTITY, Vec3::ZERO, s)?;
-    physics.materials.insert(id, material.to_owned());
-    physics.ai_bodies.insert(id);
-    Some(Body { id, offset, sync_rotation: false })
-}
-
-/// Height of the capsule's centre above the feet.
-pub fn capsule_lift(_radius: f32) -> f32 {
-    4.9 + 0.3
 }
 
 /// Ai_InitGeneric 0x004247f0 + the class init (GruntObject_Slot6 0x00434fb0, BowGruntObject_Slot6 0x004347b0,
@@ -1735,8 +1712,7 @@ pub fn sight_ray(physics: &Physics, from_hit: Vec3, target: Vec3, skip: &[BodyId
     true
 }
 
-/// What is under a character's feet within `depth` (his own body passed through: the feet are 0.3 under his capsule's
-/// bottom, so the ray starts inside it).
+/// What is under a character's feet within `depth` (his own body passed through: the ray starts inside his sphere).
 pub fn ground_below(physics: &Physics, feet: Vec3, depth: f32, own: BodyId) -> Option<BodyId> {
     let mut from = feet + Vec3::Y * 1.0;
     let mut left = depth + 1.0;
@@ -1753,11 +1729,26 @@ pub fn ground_below(physics: &Physics, feet: Vec3, depth: f32, own: BodyId) -> O
     None
 }
 
+/// A clear line between two characters' eyes (the squad's scan, a walk's straight leg): nothing in the way but AI
+/// characters, which the AI's queries pass (0x00426fd0 excludes World+0xe7c; a squad's own members stand round its
+/// anchor).
 pub fn line_of_sight(physics: &Physics, from_feet: Vec3, to_feet: Vec3) -> bool {
     let eye = from_feet + Vec3::Y * 8.0;
     let aim = to_feet + Vec3::Y * 7.0;
     let v = aim - eye;
-    physics.raycast(eye + v.normalize_or(Vec3::Y) * 4.0, v.normalize_or(Vec3::Y), (v.length() - 8.0).max(0.1)).is_none()
+    let dir = v.normalize_or(Vec3::Y);
+    let (mut from, mut left) = (eye + dir * 4.0, (v.length() - 8.0).max(0.1));
+    while let Some((b, at, _)) = physics.raycast(from, dir, left) {
+        if !physics.ai_bodies.contains(&b) {
+            return false;
+        }
+        left -= at.distance(from) + 0.05;
+        if left <= 0.0 {
+            break;
+        }
+        from = at + dir * 0.05;
+    }
+    true
 }
 
 /// Scare 0x0042fb60: a sticky bomb stuck within 25 units makes a grunt flee 100 units from the player for 3-5 s
@@ -3088,6 +3079,9 @@ fn think(
                     } else {
                         j.walk = None;
                         j.glide(pos, to);
+                        // the landing reads only the contacts of the steps after the take-off (Slot44 notes a contact in
+                        // the step it happens)
+                        physics.contacts.forget(body.id);
                         stats.jumps += 1;
                         g.mind = Mind::Jump;
                         info!("EVENT ai: jumper {ge:?} takes off {:.0} from the target", (to - pos).with_y(0.0).length());
@@ -3099,6 +3093,7 @@ fn think(
                             jviews[i].free = false;
                             joccupy.push((m, Some(ge)));
                             j.start(pos, m, at, closer, ms);
+                            physics.contacts.forget(body.id);
                             g.mind = Mind::Jump;
                             stats.jumps += 1;
                             info!("EVENT ai: jumper {ge:?} jumps to a marker {:.0} away", (at - pos).with_y(0.0).length());
@@ -3640,8 +3635,9 @@ fn think(
                 }
             }
             Mind::Jump => {
-                // the flight (0xc4 / 0xc5 / 0xbd): the ground under him with vz <= 0 lands (0x0042e1c0)
-                let grounded = ground_below(&physics, pos, 1.5, body.id).is_some();
+                // the flight (0xc4 / 0xc5 / 0xbd): a contact with vz <= 0 lands (0x0042e1c0)
+                // any contact of the last step: the contact note (0x004320b0) the landing reads
+                let grounded = body::touched(&physics, body.id);
                 let mut j = g.jumper.expect("a jumper in flight");
                 match j.step(pos, dt, grounded) {
                     jumper::FlightStep::WingsOut => info!("EVENT ai: jumper {ge:?} glides"),

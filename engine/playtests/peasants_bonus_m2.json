@@ -1,0 +1,18 @@
+{"scene": "lev_bonus_m2", "steps": [
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 3.5}, {"tap": "Enter"}, {"wait": 1.0},
+ {"cheat": "SHIELDME"}, {"wait": 0.2},
+ {"expect": {"peasants.alive": 75, "peasants.carried": 0}},
+ {"warp": [17.0, 6.0, 23, 0]}, {"wait": 0.5},
+ {"expect": {"peasants.carried": 2, "peasants.list.205.link": 1, "peasants.list.206.link": 2}},
+ {"warp": [161.0, -98.0, 22, 0]}, {"wait": 0.5},
+ {"expect": {"peasants.carried": 3, "peasants.list.227.link": 3}},
+ {"warp": [135.0, -123.0, 22, 0]}, {"wait": 0.5},
+ {"expect": {"peasants.carried": 3, "peasants.list.226.captured": false, "peasants.list.226.link": 0}},
+ {"warp": [110.0, -147.0, 23, 0]}, {"wait": 0.5},
+ {"expect": {"peasants.carried": 0, "peasants.saved": 3, "peasants.alive": 72, "triggers.7000": 1, "triggers.4000": null, "mstats.rescues": 1500, "mission": "Playing"}},
+ {"warp": [135.0, -123.0, 22, 0]}, {"wait": 0.5},
+ {"expect": {"peasants.carried": 1, "peasants.list.226.tied": true}},
+ {"warp": [110.0, -147.0, 23, 0]}, {"wait": 0.5},
+ {"expect": {"peasants.carried": 0, "peasants.saved": 4, "triggers.7000": 2}},
+ {"quit": true}
+]}

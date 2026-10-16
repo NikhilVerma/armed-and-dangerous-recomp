@@ -177,6 +177,14 @@ pub struct HudAssets {
     dir: std::path::PathBuf,
 }
 
+/// The rescue counters the HUD shows (see `HudState::peasants`).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct PeasantCounters {
+    pub to_find: u32,
+    pub saved: u32,
+    pub carried: u32,
+}
+
 /// What the HUD shows this frame (filled by the game systems).
 #[derive(Resource, Default)]
 pub struct HudState {
@@ -201,6 +209,11 @@ pub struct HudState {
     /// the grunts over the wall so far and the count that loses the level (the counter of grunt_wall_counter_tag,
     /// Game+0x26fc: ui_grunt_over_wall_count "%d" 0x00465f70, the ui_flag_base meter 0x00465e30; defence.rs)
     pub over_wall: Option<(i64, i64)>,
+    /// the peasant counters on a rescue level (peasant_max_saved > 0, Game+0x26ec; peasant.rs): still to pick up
+    /// (ui_captured_count 0x00465be0: the counts on the peasant list less the carried), saved (ui_safe_count
+    /// 0x00465c90, Game+0x26e8) and carried (ui_return_count 0x00465ce0, Game+0x26f4), with the ui_peasant icon
+    /// (0x00465d30). The classes by the behaviour table (0x0045df60: ids 105 / 106 / 107 / 129) and their slot 47.
+    pub peasants: Option<PeasantCounters>,
     /// a displayed mission timer's seconds (TimerObject "display": ui_mission_timer, `mission_time_text`; mission.rs)
     pub mission_timer: Option<f32>,
     pub briefing: Option<String>,
@@ -1159,6 +1172,9 @@ fn texts(
             }
             "ui_briefing" => state.briefing.clone().unwrap_or_default(),
             "ui_grunt_over_wall_count" => state.over_wall.map(|(n, _)| n.to_string()).unwrap_or_default(),
+            "ui_captured_count" => state.peasants.map(|p| p.to_find.to_string()).unwrap_or_default(),
+            "ui_safe_count" => state.peasants.map(|p| p.saved.to_string()).unwrap_or_default(),
+            "ui_return_count" => state.peasants.map(|p| p.carried.to_string()).unwrap_or_default(),
             "ui_mission_timer" => state.mission_timer.map(mission_time_text).unwrap_or_default(),
             "ui_team" => state.team.and_then(|(n, _)| hud.layout.elements.iter().find(|e| e.name == n)).and_then(|e| e.string.clone()).unwrap_or_default(),
             "ui_subtitle" => match &state.subtitle {
@@ -1358,6 +1374,8 @@ fn visibility(
                 n if n.starts_with("ui_health") => !state.cinematic,
                 // the base flag meter: only with the grunts-over-the-wall counter, not in a cinematic (0x00465e30)
                 "ui_flag_base" => state.over_wall.is_some() && !state.cinematic,
+                // the peasant icon on a rescue level (0x00465d30)
+                "ui_peasant" => state.peasants.is_some(),
                 _ => true,
             };
         *v = if show { Visibility::Inherited } else { Visibility::Hidden };
@@ -1365,7 +1383,12 @@ fn visibility(
     for (el, mut v) in &mut texts {
         // paused messages (the briefing box) show over cinematics and pauses too
         // the mission timer only while a timer displays (UiText_ShowTime sets / clears the widget's +0x474 bit 2)
-        let show = (state.visible && !(paused && PAUSE_HIDDEN.contains(&el.name.as_str())) && (el.name != "ui_mission_timer" || state.mission_timer.is_some()))
+        // the peasant counters only on a rescue level (0x00465be0 / 0x00465c90 / 0x00465ce0 show while Game+0x26ec > 0)
+        let counter = matches!(el.name.as_str(), "ui_captured_count" | "ui_safe_count" | "ui_return_count");
+        let show = (state.visible
+            && !(paused && PAUSE_HIDDEN.contains(&el.name.as_str()))
+            && (el.name != "ui_mission_timer" || state.mission_timer.is_some())
+            && (!counter || state.peasants.is_some()))
             || (el.name == "ui_briefing" && state.briefing.is_some())
             || (el.name == "ui_subtitle" && state.subtitle.is_some());
         *v = if show { Visibility::Inherited } else { Visibility::Hidden };

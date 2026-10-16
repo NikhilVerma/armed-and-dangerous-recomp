@@ -7,7 +7,6 @@
  "trace_from": -60,
  "suite": false,
  "known": {
-  "events.sounds": "B17 rest (the sound causes fixed by agent-sound): what is left comes from other families or chance: load-time sounds outside one game's traced window (B10 / E1 start message timing: the base levels' loops, the first ambient one-shot at load vs frame 2), random picks (ambient one-shots, thunder, sheep bleats), the grunts' gait (walk vs run footstep notes, charanim.rs), the grunts' _ic anim-event lines and boulder rolls (not in the remaster yet), vehicle loops (B14, vehicles not traced)",
-  "grunt.pos": "B24: captain_sniper 228 (force_ground 0) stands beside a beam of v_rockettower2 272, nothing under him; the original's body (a sphere of collision_radius 5 on the feet, 0x004527d0, friction 0.8) rests on the beam's edge at z 899.7, the remaster's frictionless capsule (radius 2.75) slides off and falls to 865 (docs/journal/2026-10-16-vehicles2.md)"
+  "events.sounds": "B17 rest (the sound causes fixed by agent-sound): what is left comes from other families or chance: load-time sounds outside one game's traced window (B10 / E1 start message timing: the base levels' loops, the first ambient one-shot at load vs frame 2), random picks (ambient one-shots, thunder, sheep bleats), the grunts' gait (walk vs run footstep notes, charanim.rs), the grunts' _ic anim-event lines and boulder rolls (not in the remaster yet), vehicle loops (B14, vehicles not traced)"
  }
 }

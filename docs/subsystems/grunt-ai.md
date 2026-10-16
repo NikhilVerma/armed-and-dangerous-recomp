@@ -352,7 +352,14 @@ effects post noises like his bullets' (sticky.rs -> Interests::follow / end_at).
   whole level: original bug, docs/original-bugs.md; B19, agent-aiparity2).
 - The captain's own voice lines (AIVoice_* 0x00437690 / 0x00437860 / 0x004375c0 ...): captains use the grunt barks.
 - The run anims' playback speed scaled to the move speed (vt+0x1a8, anim_run_* / anim_limp_*): played at speed 1.
-- The falling watchdog 0x0042e910 (state 0x82) and the contact reactions (slots 42 / 44): not ported.
+- The falling watchdog 0x0042e910 (state 0x82): not ported. The contact reactions (slots 40 / 42 / 44) are ported in
+  part (2026-10-16, ai/body.rs and contacts.rs; remaster-engine.md "The character body"): the body (a sphere of
+  collision_radius on the feet, 0x004527d0), the collision veto of Slot40 0x00432590 (never the +0x50c object, never
+  the same +0x510 group: a squad, set by 0x0042de60 to -squad_tag and kept after a charge), friction 0 in a squad
+  (0x0042de30 / 0x0042de60 / ai_06.cpp:2650) and the material's otherwise (0x0042cb80 via 0x0042cc10), Slot44's bump
+  (a walker with a route that touches a mover: +0x510 = 0, +0x50c = it; a marker walker 0x96 / 0x97 re-plans: not
+  ported) and the contact note a flight's landing reads. Slot42's contact veto (0x004548f0: a route refresh on a
+  contact with a non-mover) is not ported.
 - Bullets on captains use the grunt's collision parts (hitparts.rs grunt_coll_9; captain_coll_0 not loaded).
 - Nothing in this round was compared with the original by capture (the rates and ranges come from the code and the
   property sets); first candidates: the alarm troops' arrival times, a captain's damage rate (Roman 400 -> 0 in ~10 s
