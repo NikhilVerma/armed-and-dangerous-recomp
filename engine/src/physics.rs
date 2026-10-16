@@ -193,17 +193,19 @@ impl Physics {
     /// below, past the dynamic bodies (the character's own and others': the original asks the character's own
     /// ground contact, 0x00454b20). None over nothing.
     pub fn surface_below(&self, at: Vec3, depth: f32) -> Option<crate::surface::Surface> {
-        let (mut from, mut left) = (at + Vec3::Y * 2.0, depth + 2.0);
+        let k = self.meters_per_unit;
+        let (mut from, mut left, mut skip) = (at + Vec3::Y * 2.0, depth + 2.0, None);
         for _ in 0..8 {
-            let (body, hit, _) = self.raycast(from, Vec3::NEG_Y, left)?;
-            if !self.bodies.contains_key(&body) {
-                return Some(self.surface(body, hit));
+            // past the last dynamic body met (a ray that starts inside one hits it at once)
+            let filter = skip.map_or(QueryFilter::new(), |b| QueryFilter::new().exclude_body(b));
+            let hit = self.world.cast_ray(&RayCast::new(jr(from * k), jv(Vec3::NEG_Y * left * k)), &filter).ok()??;
+            let point = from + Vec3::NEG_Y * hit.distance / k;
+            if !self.bodies.contains_key(&hit.body) {
+                return Some(self.surface(hit.body, point));
             }
-            left -= from.y - hit.y + 0.05;
-            if left <= 0.0 {
-                return None;
-            }
-            from = hit + Vec3::NEG_Y * 0.05;
+            left -= from.y - point.y;
+            from = point;
+            skip = Some(hit.body);
         }
         None
     }
