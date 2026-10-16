@@ -10,7 +10,7 @@
   "companion.jonesy.pos": "C1: a companion 12-13 units from the original's (follow distance / start spot), just past the tolerance",
   "companion.q.health": "B6: far grunts react in the original, not in the remaster",
   "companion.q.pos": "C1: a companion 12-13 units from the original's (follow distance / start spot), just past the tolerance",
-  "events.sounds": "B1: Roman still slides after the briefing (remaster)",
+  "events.sounds": "B17 rest (the sound causes fixed by agent-sound): what is left comes from other families or chance: load-time sounds outside one game's traced window (B10 / E1 start message timing: the base levels' loops, the first ambient one-shot at load vs frame 2), random picks (ambient one-shots, thunder, sheep bleats), the grunts' gait (walk vs run footstep notes, charanim.rs), the grunts' _ic anim-event lines and boulder rolls (not in the remaster yet), vehicle loops (B14, vehicles not traced)",
   "grunt.target": "B6: far grunts react in the original, not in the remaster",
   "paused": "B1: Roman still slides after the briefing (remaster)",
   "timing": "B1: Roman still slides after the briefing (remaster)"
