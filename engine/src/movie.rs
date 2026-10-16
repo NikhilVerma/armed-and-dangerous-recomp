@@ -331,8 +331,12 @@ struct MovieFrame {
 #[derive(Component)]
 struct MovieBackdrop;
 
+/// The hold after a full-window movie runs out over the frames no full-window movie plays: a page's background movie
+/// (the credits' behind the scrolling text) does not keep it (it did when it started within the hold's two frames of
+/// the end movie's skip: the credits page then took no input and could not be left; regress campaign_end).
 fn release_input_hold(mut p: ResMut<MoviePlayer>) {
-    if p.current.is_none() && p.input_hold > 0 {
+    let full = p.current.as_ref().is_some_and(|c| matches!(c.view, MovieView::FullWindow { .. }));
+    if !full && p.input_hold > 0 {
         p.input_hold -= 1;
     }
 }
