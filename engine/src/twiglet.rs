@@ -118,6 +118,22 @@ pub struct Swarm {
     max_distance: Option<f32>,
 }
 
+/// The twiglets' own random numbers (the game's CRT rand form, crate::fxvm::CrtRand): kept apart from the shared
+/// FxStats stream so that a level without twiglets draws exactly as before and the grunts' rolls do not shift.
+#[derive(Resource, Default)]
+pub struct TwigletRng(crate::fxvm::CrtRand);
+
+impl TwigletRng {
+    /// rand() / 32768: [0, 1)
+    pub fn rand(&mut self) -> f32 {
+        self.0.rand() as f32 / 32768.0
+    }
+    /// Rand_FloatRange 0x0046e2c0: [lo, hi)
+    pub fn range(&mut self, lo: f32, hi: f32) -> f32 {
+        self.0.r(lo, hi)
+    }
+}
+
 /// What a twiglet is doing: Twiglet_Update's states (+0x464), [`State::code`] the original's number.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum State {
@@ -191,6 +207,7 @@ pub struct TwigletPlugin;
 impl Plugin for TwigletPlugin {
     fn build(&self, app: &mut App) {
         app.init_level_resource::<Swarm>()
+            .init_level_resource::<TwigletRng>()
             .add_level_message::<SpawnTwiglet>()
             .add_systems(Update, (activate, controller, spawn, think, notes, log).chain().run_if(crate::playing))
             // a death as fx.rs reports it, before level.rs's husks remove the object (husks run after mission.rs deaths)
@@ -206,7 +223,7 @@ fn activate(
     mut swarm: ResMut<Swarm>,
     data: Res<crate::gamedata::GameData>,
     launch: Res<crate::Launch>,
-    mut rng: ResMut<crate::fx::FxStats>,
+    mut rng: ResMut<TwigletRng>,
 ) {
     if swarm.max_distance.is_none() {
         // the controller is made with the level (0x0049ce00 from the first generator's load), its timer rolled then
@@ -235,7 +252,7 @@ fn activate(
 }
 
 /// The spawn timer 0x0063a14c: rand() * 4.58e-6 + 0.1 (K 0x005bccb4, 0x005bcbfc): 0.1..0.25 s.
-fn spawn_delay(rng: &mut crate::fx::FxStats) -> f32 {
+fn spawn_delay(rng: &mut TwigletRng) -> f32 {
     rng.range(0.1, 0.25)
 }
 
@@ -246,7 +263,7 @@ fn controller(
     mut swarm: ResMut<Swarm>,
     mut gens: Query<(Entity, &mut Generator, &GlobalTransform)>,
     alive: Query<(), With<Twiglet>>,
-    mut rng: ResMut<crate::fx::FxStats>,
+    mut rng: ResMut<TwigletRng>,
     mut spawns: MessageWriter<SpawnTwiglet>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     mut stops: MessageWriter<crate::audio::StopVoice>,
@@ -305,7 +322,7 @@ fn controller(
 
 /// 0x0049d590: one twiglet from a generator: out of its next mover, or (no movers) 30..100 units round the tree at a
 /// random turn of its facing; one less to give.
-fn release(g: &mut Generator, rng: &mut crate::fx::FxStats) -> SpawnTwiglet {
+fn release(g: &mut Generator, rng: &mut TwigletRng) -> SpawnTwiglet {
     let ev = match g.take_mover() {
         Some((mover, origin)) => SpawnTwiglet { at: origin, mover: Some(mover) },
         None => {
@@ -331,7 +348,7 @@ fn spawn(
     data: Res<crate::gamedata::GameData>,
     mut kit: crate::army::ModelKit,
     mut physics: NonSendMut<crate::physics::Physics>,
-    mut rng: ResMut<crate::fx::FxStats>,
+    mut rng: ResMut<TwigletRng>,
     mut swarm: ResMut<Swarm>,
 ) {
     for ev in events.read() {
@@ -436,7 +453,7 @@ fn flat(v: Vec3) -> Vec3 {
 }
 
 /// Twiglet_RunToTarget 0x0049f2b0: the repath timer 1..3 s, a route to the player, the run anim, state 0x0a.
-fn run_to(t: &mut Twiglet, pos: Vec3, target: Vec3, physics: &crate::physics::Physics, rng: &mut crate::fx::FxStats) {
+fn run_to(t: &mut Twiglet, pos: Vec3, target: Vec3, physics: &crate::physics::Physics, rng: &mut TwigletRng) {
     t.repath = rng.range(1.0, 3.0);
     t.route = crate::nav::path(physics, pos, target, &[]).unwrap_or_default();
     t.state = State::Run;
@@ -456,7 +473,7 @@ fn think(
     mut bombs: Query<(&mut crate::fx::Destructible, &GlobalTransform), (With<TwigletBomb>, Without<Twiglet>)>,
     player: Query<&GlobalTransform, With<crate::player::Roman>>,
     mut physics: NonSendMut<crate::physics::Physics>,
-    mut rng: ResMut<crate::fx::FxStats>,
+    mut rng: ResMut<TwigletRng>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
 ) {
     let dt = time.delta_secs();
@@ -754,7 +771,7 @@ mod tests {
     fn a_tree_without_movers_drops_twiglets_round_it() {
         let p = props(serde_json::json!({ "release_max": 2 }));
         let mut g = Generator::from_props(&p, Mat4::from_translation(Vec3::new(0.0, 0.0, 50.0)), |_| None);
-        let mut rng = crate::fx::FxStats::default();
+        let mut rng = TwigletRng::default();
         for _ in 0..2 {
             let ev = release(&mut g, &mut rng);
             let at = ev.at.w_axis.truncate();

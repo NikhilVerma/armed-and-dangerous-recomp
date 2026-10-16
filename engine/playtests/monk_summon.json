@@ -8,7 +8,9 @@
  {"monk_spell": "twiglets"},
  {"wait": 6.0},
  {"expect": {"ai.monks": 6, "twiglets.made": [1, 5], "twiglets.generators": 0}},
- {"wait": 6.0},
- {"expect": {"twiglets.made": [1, 5], "twiglets.live": 0, "twiglets.killed": [1, 5], "health": [0, 4900]}},
+ {"wait": 2.0},
+ {"expect": {"twiglets.running": [1, 5], "twiglets.bombs": [1, 5]}},
+ {"wait": 10.0},
+ {"expect": {"twiglets.made": [1, 5], "twiglets.killed": [1, 5], "health": [0, 4900]}},
  {"quit": true}
 ]}
