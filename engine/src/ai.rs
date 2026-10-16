@@ -3078,6 +3078,9 @@ fn think(
                     } else {
                         j.walk = None;
                         j.glide(pos, to);
+                        // the landing reads only the contacts of the steps after the take-off (Slot44 notes a contact in
+                        // the step it happens)
+                        physics.contacts.forget(body.id);
                         stats.jumps += 1;
                         g.mind = Mind::Jump;
                         info!("EVENT ai: jumper {ge:?} takes off {:.0} from the target", (to - pos).with_y(0.0).length());
@@ -3089,6 +3092,7 @@ fn think(
                             jviews[i].free = false;
                             joccupy.push((m, Some(ge)));
                             j.start(pos, m, at, closer, ms);
+                            physics.contacts.forget(body.id);
                             g.mind = Mind::Jump;
                             stats.jumps += 1;
                             info!("EVENT ai: jumper {ge:?} jumps to a marker {:.0} away", (at - pos).with_y(0.0).length());

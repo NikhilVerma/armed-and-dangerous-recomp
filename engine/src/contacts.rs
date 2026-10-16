@@ -80,6 +80,13 @@ impl Contacts {
         t
     }
 
+    /// Drops the contacts `body` made so far (a flight's take-off: only the steps after it count).
+    pub fn forget(&self, body: BodyId) {
+        if let Ok(mut touches) = self.touches.lock() {
+            touches.remove(&body);
+        }
+    }
+
     pub fn clear(&self) {
         if let Ok(mut touches) = self.touches.lock() {
             touches.values_mut().for_each(Vec::clear);
