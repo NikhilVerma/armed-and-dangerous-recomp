@@ -643,8 +643,9 @@ read work/instances/main/and-frame-N.camera.json. AIDBG=1 logs the engine's comp
 
 ## Grunt AI and companions: what the engine replaces (2026-10-14)
 
-The ai port queue (`python tools/port_queue.py ai`) is empty: each function is cited in engine/src or listed with a
-reason in docs/port/ai.csv (`--explained` prints them). What the engine replaces rather than ports:
+The ai port queue (`python tools/port_queue.py ai`) was reported empty here, but many of its `not needed` rows were
+deferred work (2026-10-16 audit: docs/port/README.md, docs/port/deferred-2026-10-16.md); they are now `deferred`
+and count as open work. What the engine replaces rather than ports:
 - the nav grid Game+0xaa4 (grid marking, A*, path smoothing, the route follower AIRoute_*, the body drive 0x00454d80):
   nav.rs A* over the Jolt world, re-planned every 1 s (grunts) / 0.25 s (companions), velocities set from the
   property sets' speeds;
