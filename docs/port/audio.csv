@@ -1,14 +1,14 @@
 address,name,disposition,reason
-0x004058f0,fn_004058f0,not needed,PickupObject (the peasant pick-up lines) is not in lev_1_m1 (scene.json templates)
-0x0040d250,fn_0040d250,not needed,the dialogue speaker test of the level-end conversation 0x00493b70 (game_01.cpp:1989); the remaster has no dialogue system yet (owned by the mission / cutscene port)
+0x004058f0,fn_004058f0,ported,"peasant.rs"
+0x0040d250,fn_0040d250,deferred,feature: level-end-dialogue; the dialogue speaker test of the level-end conversation 0x00493b70 (game_01.cpp:1989); the remaster has no dialogue system yet (owned by the mission / cutscene port)
 0x0041bd70,fn_0041bd70,replaced,an FxObject's audio position (its matrix translation): a voice on an entity follows its GlobalTransform (audio.rs update_voices)
 0x0041bdd0,FxEarObject_LoadProperties,replaced,FxEarObject properties: the export reads them (tools/remaster_export_mission.py fx_ear edges) and mission.rs Action::Fx starts the fx on its trigger
-0x00434180,fn_00434180,not needed,Goliath is not in lev_1_m1 (scene.json templates); no gol lines in the bank
-0x00435170,fn_00435170,not needed,Q112 is not in lev_1_m1 (scene.json templates); fol_q112_eye_*_lp not in the bank
-0x00436260,AIVoice_PlayZeppelin,not needed,no ROM5020x_Zeppelin lines in the lev_1_m1 bank (audio/sounds.json): the call plays nothing in lev_1_m1 (Twiglet class)
-0x00437510,AIVoice_PlayCapnbase,not needed,no CA*_CapnBase lines in the lev_1_m1 bank (audio/sounds.json): the call plays nothing in lev_1_m1
+0x00434180,fn_00434180,deferred,feature: goliath-extras; Goliath is not in lev_1_m1 (scene.json templates); no gol lines in the bank
+0x00435170,fn_00435170,ported,cited: ai.rs (the Q112 takes damage whole: vt+0xd0)
+0x00436260,AIVoice_PlayZeppelin,ported,cited: vehicles/boss.rs (Roman remarks on the zeppelin's death)
+0x00437510,AIVoice_PlayCapnbase,deferred,feature: ai-voice-lines; no CA*_CapnBase lines in the lev_1_m1 bank (audio/sounds.json): the call plays nothing in lev_1_m1
 0x004375e0,AIVoice_PlayHelp,replaced,"the line pick (one of the category's lines of the speaker's voice set, (rand() x range) >> 15) is SoundBank::resolve (@grunt:<category>:<set>[:last<N>|butlast<N>], audio.rs) and the cue's caller in ai.rs plays it on the character; the per-character handles (+0xb4c scream, +0xb50 line: no second scream while one plays, a death line stops the line) are not ported (open, docs/subsystems/audio.md)"
-0x00437760,AIVoice_PlayOpengate,not needed,no CA*_OpenGate lines in the lev_1_m1 bank (audio/sounds.json): the call plays nothing in lev_1_m1
+0x00437760,AIVoice_PlayOpengate,deferred,feature: ai-voice-lines; no CA*_OpenGate lines in the lev_1_m1 bank (audio/sounds.json): the call plays nothing in lev_1_m1
 0x00437940,AIVoice_PlayFight,replaced,"the line pick (one of the category's lines of the speaker's voice set, (rand() x range) >> 15) is SoundBank::resolve (@grunt:<category>:<set>[:last<N>|butlast<N>], audio.rs) and the cue's caller in ai.rs plays it on the character; the per-character handles (+0xb4c scream, +0xb50 line: no second scream while one plays, a death line stops the line) are not ported (open, docs/subsystems/audio.md)"
 0x00437a20,AIVoice_PlayScream,replaced,"the line pick (one of the category's lines of the speaker's voice set, (rand() x range) >> 15) is SoundBank::resolve (@grunt:<category>:<set>[:last<N>|butlast<N>], audio.rs) and the cue's caller in ai.rs plays it on the character; the per-character handles (+0xb4c scream, +0xb50 line: no second scream while one plays, a death line stops the line) are not ported (open, docs/subsystems/audio.md)"
 0x00437ac0,AIVoice_PlayTopsyScream,replaced,"the line pick (one of the category's lines of the speaker's voice set, (rand() x range) >> 15) is SoundBank::resolve (@grunt:<category>:<set>[:last<N>|butlast<N>], audio.rs) and the cue's caller in ai.rs plays it on the character; the per-character handles (+0xb4c scream, +0xb50 line: no second scream while one plays, a death line stops the line) are not ported (open, docs/subsystems/audio.md)"
@@ -22,11 +22,11 @@ address,name,disposition,reason
 0x004385c0,AIVoice_GruntTopsyScream,replaced,"the line pick (one of the category's lines of the speaker's voice set, (rand() x range) >> 15) is SoundBank::resolve (@grunt:<category>:<set>[:last<N>|butlast<N>], audio.rs) and the cue's caller in ai.rs plays it on the character; the per-character handles (+0xb4c scream, +0xb50 line: no second scream while one plays, a death line stops the line) are not ported (open, docs/subsystems/audio.md)"
 0x004387e0,fn_004387e0,replaced,"the line pick (one of the category's lines of the speaker's voice set, (rand() x range) >> 15) is SoundBank::resolve (@grunt:<category>:<set>[:last<N>|butlast<N>], audio.rs) and the cue's caller in ai.rs plays it on the character; the per-character handles (+0xb4c scream, +0xb50 line: no second scream while one plays, a death line stops the line) are not ported (open, docs/subsystems/audio.md)"
 0x00438810,AIVoice_GruntStickyScream,replaced,"the line pick (one of the category's lines of the speaker's voice set, (rand() x range) >> 15) is SoundBank::resolve (@grunt:<category>:<set>[:last<N>|butlast<N>], audio.rs) and the cue's caller in ai.rs plays it on the character; the per-character handles (+0xb4c scream, +0xb50 line: no second scream while one plays, a death line stops the line) are not ported (open, docs/subsystems/audio.md)"
-0x00438a60,AIVoice_GruntOpengate,not needed,no GR*_OpenGate lines in the lev_1_m1 bank (audio/sounds.json): the call plays nothing in lev_1_m1
-0x00438c10,fn_00438c10,not needed,no GR*_OpenGate lines in the lev_1_m1 bank (audio/sounds.json): the call plays nothing in lev_1_m1
-0x00438c40,AIVoice_PlayLadderplaced,not needed,no GR*_LadderPlaced lines in the lev_1_m1 bank (audio/sounds.json): the call plays nothing in lev_1_m1
-0x00438cb0,AIVoice_PlayClimbtaunt,not needed,no GR*_ClimbTaunt lines in the lev_1_m1 bank (audio/sounds.json): the call plays nothing in lev_1_m1
-0x00438e80,fn_00438e80,not needed,no GR*_ClimbTaunt lines in the lev_1_m1 bank (audio/sounds.json): the call plays nothing in lev_1_m1
+0x00438a60,AIVoice_GruntOpengate,deferred,feature: ai-voice-lines; no GR*_OpenGate lines in the lev_1_m1 bank (audio/sounds.json): the call plays nothing in lev_1_m1
+0x00438c10,fn_00438c10,deferred,feature: ai-voice-lines; no GR*_OpenGate lines in the lev_1_m1 bank (audio/sounds.json): the call plays nothing in lev_1_m1
+0x00438c40,AIVoice_PlayLadderplaced,deferred,feature: ai-voice-lines; no GR*_LadderPlaced lines in the lev_1_m1 bank (audio/sounds.json): the call plays nothing in lev_1_m1
+0x00438cb0,AIVoice_PlayClimbtaunt,deferred,feature: ai-voice-lines; no GR*_ClimbTaunt lines in the lev_1_m1 bank (audio/sounds.json): the call plays nothing in lev_1_m1
+0x00438e80,fn_00438e80,deferred,feature: ai-voice-lines; no GR*_ClimbTaunt lines in the lev_1_m1 bank (audio/sounds.json): the call plays nothing in lev_1_m1
 0x00438eb0,AIVoice_GruntHelp,replaced,"the line pick (one of the category's lines of the speaker's voice set, (rand() x range) >> 15) is SoundBank::resolve (@grunt:<category>:<set>[:last<N>|butlast<N>], audio.rs) and the cue's caller in ai.rs plays it on the character; the per-character handles (+0xb4c scream, +0xb50 line: no second scream while one plays, a death line stops the line) are not ported (open, docs/subsystems/audio.md)"
 0x004390e0,AIVoice_GruntFight,replaced,"the line pick (one of the category's lines of the speaker's voice set, (rand() x range) >> 15) is SoundBank::resolve (@grunt:<category>:<set>[:last<N>|butlast<N>], audio.rs) and the cue's caller in ai.rs plays it on the character; the per-character handles (+0xb4c scream, +0xb50 line: no second scream while one plays, a death line stops the line) are not ported (open, docs/subsystems/audio.md)"
 0x004391d0,fn_004391d0,replaced,"the line pick (one of the category's lines of the speaker's voice set, (rand() x range) >> 15) is SoundBank::resolve (@grunt:<category>:<set>[:last<N>|butlast<N>], audio.rs) and the cue's caller in ai.rs plays it on the character; the per-character handles (+0xb4c scream, +0xb50 line: no second scream while one plays, a death line stops the line) are not ported (open, docs/subsystems/audio.md)"
@@ -35,35 +35,35 @@ address,name,disposition,reason
 0x00439890,AIVoice_GruntDeadAtPosition,replaced,"the line pick (one of the category's lines of the speaker's voice set, (rand() x range) >> 15) is SoundBank::resolve (@grunt:<category>:<set>[:last<N>|butlast<N>], audio.rs) and the cue's caller in ai.rs plays it on the character; the per-character handles (+0xb4c scream, +0xb50 line: no second scream while one plays, a death line stops the line) are not ported (open, docs/subsystems/audio.md)"
 0x00439ae0,AIVoice_GruntTaunt,replaced,"the line pick (one of the category's lines of the speaker's voice set, (rand() x range) >> 15) is SoundBank::resolve (@grunt:<category>:<set>[:last<N>|butlast<N>], audio.rs) and the cue's caller in ai.rs plays it on the character; the per-character handles (+0xb4c scream, +0xb50 line: no second scream while one plays, a death line stops the line) are not ported (open, docs/subsystems/audio.md)"
 0x00439cb0,AIVoice_PlayAmbient,replaced,"the line pick (one of the category's lines of the speaker's voice set, (rand() x range) >> 15) is SoundBank::resolve (@grunt:<category>:<set>[:last<N>|butlast<N>], audio.rs) and the cue's caller in ai.rs plays it on the character; the per-character handles (+0xb4c scream, +0xb50 line: no second scream while one plays, a death line stops the line) are not ported (open, docs/subsystems/audio.md)"
-0x00439dc0,fn_00439dc0,not needed,no GR*_LadderPlaced lines in the lev_1_m1 bank (audio/sounds.json): the call plays nothing in lev_1_m1
+0x00439dc0,fn_00439dc0,deferred,feature: ai-voice-lines; no GR*_LadderPlaced lines in the lev_1_m1 bank (audio/sounds.json): the call plays nothing in lev_1_m1
 0x00439de0,fn_00439de0,replaced,"the line pick (one of the category's lines of the speaker's voice set, (rand() x range) >> 15) is SoundBank::resolve (@grunt:<category>:<set>[:last<N>|butlast<N>], audio.rs) and the cue's caller in ai.rs plays it on the character; the per-character handles (+0xb4c scream, +0xb50 line: no second scream while one plays, a death line stops the line) are not ported (open, docs/subsystems/audio.md)"
 0x00439ed0,fn_00439ed0,replaced,"the line pick (one of the category's lines of the speaker's voice set, (rand() x range) >> 15) is SoundBank::resolve (@grunt:<category>:<set>[:last<N>|butlast<N>], audio.rs) and the cue's caller in ai.rs plays it on the character; the per-character handles (+0xb4c scream, +0xb50 line: no second scream while one plays, a death line stops the line) are not ported (open, docs/subsystems/audio.md)"
 0x00439f00,fn_00439f00,replaced,"the line pick (one of the category's lines of the speaker's voice set, (rand() x range) >> 15) is SoundBank::resolve (@grunt:<category>:<set>[:last<N>|butlast<N>], audio.rs) and the cue's caller in ai.rs plays it on the character; the per-character handles (+0xb4c scream, +0xb50 line: no second scream while one plays, a death line stops the line) are not ported (open, docs/subsystems/audio.md)"
-0x00439f30,AIVoice_PlayDeadAtPosition,not needed,a Twiglet class method (vtable 0x005af3ec); no Twiglet character in lev_1_m1
-0x00439f70,AIVoice_PlayCapturedOrAmbient,not needed,no PE1500xx_PeasantCaptured / GOL lines in the lev_1_m1 bank (audio/sounds.json): the call plays nothing in lev_1_m1 (Twiglet class)
-0x0043a100,AIVoice_Q12Hurt,not needed,Q112 is not in lev_1_m1 (scene.json templates); no q12 lines in the bank
-0x0043a2b0,AIVoice_Q12Dead,not needed,Q112 is not in lev_1_m1 (scene.json templates); no q12 lines in the bank
-0x0043a300,fn_0043a300,not needed,Q112 is not in lev_1_m1 (scene.json templates); no q12 lines in the bank
-0x0043a310,AIVoice_ShrubTaunt,not needed,ShrubPatrol is not in lev_1_m1 (scene.json templates); no sp lines in the bank
-0x0043a480,AIVoice_ShrubFriendlyFire,not needed,ShrubPatrol is not in lev_1_m1 (scene.json templates); no sp lines in the bank
-0x0043a5e0,AIVoice_MoTaunt,not needed,no MO1500xx (Molmer) lines in the lev_1_m1 bank (audio/sounds.json): the call plays nothing in lev_1_m1
-0x0043a680,AIVoice_MoAmbient,not needed,no MO1500xx (Molmer) lines in the lev_1_m1 bank (audio/sounds.json): the call plays nothing in lev_1_m1
-0x0043a6e0,AIVoice_MoHurt,not needed,no MO1500xx (Molmer) lines in the lev_1_m1 bank (audio/sounds.json): the call plays nothing in lev_1_m1
-0x0043a7b0,AIVoice_MoDead,not needed,no MO1500xx (Molmer) lines in the lev_1_m1 bank (audio/sounds.json): the call plays nothing in lev_1_m1
-0x0043c7b0,fn_0043c7b0,not needed,Q112 is not in lev_1_m1 (scene.json templates); no q12 lines in the bank
+0x00439f30,AIVoice_PlayDeadAtPosition,deferred,feature: ai-voice-lines; a Twiglet class method (vtable 0x005af3ec); no Twiglet character in lev_1_m1
+0x00439f70,AIVoice_PlayCapturedOrAmbient,deferred,feature: peasants; no PE1500xx_PeasantCaptured / GOL lines in the lev_1_m1 bank (audio/sounds.json): the call plays nothing in lev_1_m1 (Twiglet class)
+0x0043a100,AIVoice_Q12Hurt,deferred,feature: q112-extras; Q112 is not in lev_1_m1 (scene.json templates); no q12 lines in the bank
+0x0043a2b0,AIVoice_Q12Dead,deferred,feature: q112-extras; Q112 is not in lev_1_m1 (scene.json templates); no q12 lines in the bank
+0x0043a300,fn_0043a300,deferred,feature: q112-extras; Q112 is not in lev_1_m1 (scene.json templates); no q12 lines in the bank
+0x0043a310,AIVoice_ShrubTaunt,deferred,feature: ai-voice-lines; ShrubPatrol is not in lev_1_m1 (scene.json templates); no sp lines in the bank
+0x0043a480,AIVoice_ShrubFriendlyFire,deferred,feature: ai-voice-lines; ShrubPatrol is not in lev_1_m1 (scene.json templates); no sp lines in the bank
+0x0043a5e0,AIVoice_MoTaunt,deferred,feature: ai-voice-lines; no MO1500xx (Molmer) lines in the lev_1_m1 bank (audio/sounds.json): the call plays nothing in lev_1_m1
+0x0043a680,AIVoice_MoAmbient,deferred,feature: ai-voice-lines; no MO1500xx (Molmer) lines in the lev_1_m1 bank (audio/sounds.json): the call plays nothing in lev_1_m1
+0x0043a6e0,AIVoice_MoHurt,deferred,feature: ai-voice-lines; no MO1500xx (Molmer) lines in the lev_1_m1 bank (audio/sounds.json): the call plays nothing in lev_1_m1
+0x0043a7b0,AIVoice_MoDead,deferred,feature: ai-voice-lines; no MO1500xx (Molmer) lines in the lev_1_m1 bank (audio/sounds.json): the call plays nothing in lev_1_m1
+0x0043c7b0,fn_0043c7b0,deferred,feature: q112-extras; Q112 is not in lev_1_m1 (scene.json templates); no q12 lines in the bank
 0x0043e450,fn_0043e450,replaced,"a character's audio position (its head 'ic' bone for its own voice, else its position): the remaster's voices follow the character entity's position (the head offset is not ported)"
-0x0044d1f0,fn_0044d1f0,not needed,PeasantObject (drop-off lines) is not in lev_1_m1 (scene.json templates)
-0x0044ea40,fn_0044ea40,not needed,"returns 127 or 128 (PlayerWeapon +0x520); no audio, no caller in the remaster"
+0x0044d1f0,fn_0044d1f0,ported,"peasant.rs"
+0x0044ea40,fn_0044ea40,deferred,"feature: untraced; returns 127 or 128 (PlayerWeapon +0x520); no audio, no caller in the remaster"
 0x0044ea50,AIVoice_JonFight,replaced,ai.rs companion_damage / companions play the same line lists on Jonesy and Q with the shared vo delay (Barks) and the per-companion short-hurt delay
 0x0044eb80,AIVoice_JonDead,replaced,ai.rs companion_damage / companions play the same line lists on Jonesy and Q with the shared vo delay (Barks) and the per-companion short-hurt delay
 0x0044ebf0,AIVoice_JonHurtShort,replaced,ai.rs companion_damage / companions play the same line lists on Jonesy and Q with the shared vo delay (Barks) and the per-companion short-hurt delay
 0x0044ec60,AIVoice_PlayFriendlyfire,replaced,ai.rs companion_damage / companions play the same line lists on Jonesy and Q with the shared vo delay (Barks) and the per-companion short-hurt delay
 0x0044ed50,AIVoice_JonHurt,replaced,ai.rs companion_damage / companions play the same line lists on Jonesy and Q with the shared vo delay (Barks) and the per-companion short-hurt delay; the ROM50103/04_Sniper remark (damage flag 0x20000) is not in the lev_1_m1 bank
-0x0044f510,fn_0044f510,not needed,"a focused UI screen with flag 0x2000 pauses the music voice and locks Music_Update (g+0xa88 +0x20); which screens carry the flag is in the UI data, not traced (open); the remaster pauses the music with the game pause"
-0x0044f540,fn_0044f540,not needed,"the counterpart of 0x0044f510 (resume, unlock); see there"
-0x004619c0,SoundEar_GetClass,not needed,SoundEar class descriptor (RTTI-style getter); the remaster has no class registry
-0x00461c80,FxEarObject_GetClass,not needed,FxEarObject class descriptor (RTTI-style getter); the remaster has no class registry
-0x0047bb30,Jumper_PlayWingSounds,not needed,the jumper vehicle (wing sounds) is not in lev_1_m1 (scene.json templates)
+0x0044f510,fn_0044f510,deferred,"feature: music-pause-screens; a focused UI screen with flag 0x2000 pauses the music voice and locks Music_Update (g+0xa88 +0x20); which screens carry the flag is in the UI data, not traced (open); the remaster pauses the music with the game pause"
+0x0044f540,fn_0044f540,deferred,"feature: music-pause-screens; the counterpart of 0x0044f510 (resume, unlock); see there"
+0x004619c0,SoundEar_GetClass,not needed,"plumbing: RTTI class descriptor / type id accessor; the engine identifies classes by Bevy components, no class registry"
+0x00461c80,FxEarObject_GetClass,not needed,"plumbing: RTTI class descriptor / type id accessor; the engine identifies classes by Bevy components, no class registry"
+0x0047bb30,Jumper_PlayWingSounds,ported,cited: ai/jumper.rs (the wings-out sounds)
 0x00487050,Q11Voice_PlayDead,replaced,ai.rs companion_damage / companions play the same line lists on Jonesy and Q with the shared vo delay (Barks) and the per-companion short-hurt delay
 0x00487150,Q11Voice_PlayHurt,replaced,ai.rs companion_damage / companions play the same line lists on Jonesy and Q with the shared vo delay (Barks) and the per-companion short-hurt delay
 0x004871e0,Q11Voice_PlayFriendlyFire,replaced,ai.rs companion_damage / companions play the same line lists on Jonesy and Q with the shared vo delay (Barks) and the per-companion short-hurt delay
@@ -74,47 +74,47 @@ address,name,disposition,reason
 0x004f22e0,fn_004f22e0,replaced,"DirectSound plumbing: Bevy audio (rodio) mixes, streams and frees the voices (audio.rs)"
 0x004f23a0,fn_004f23a0,replaced,"sound system init (driver callbacks, definition table): AudioBankPlugin and SoundBank::load"
 0x004f2590,fn_004f2590,replaced,shutdown / level reset of the sound system: Bevy despawns the voices with the level; SoundBank is per level
-0x004f2870,fn_004f2870,not needed,"pushes 3D parameters to driver callbacks +0x4c / +0x60, which are empty on PC (no buffer has DSBCAPS_CTRL3D, docs/subsystems/audio.md section 1)"
-0x004f28d0,fn_004f28d0,not needed,fade-in of definitions with flag 0x800000; no lev_1_m1 definition has it (sounds.json flag counts)
-0x004f2950,fn_004f2950,not needed,fade-out of definitions with flag 0x800000; no lev_1_m1 definition has it
+0x004f2870,fn_004f2870,not needed,"platform plumbing with no effect on PC: pushes 3D parameters to driver callbacks that are empty on PC (no buffer has DSBCAPS_CTRL3D, docs/subsystems/audio.md section 1)"
+0x004f28d0,fn_004f28d0,not needed,unused by the shipped data: no sound definition of the 24 levels has flag 0x800000 (audio/sounds.json survey)
+0x004f2950,fn_004f2950,not needed,unused by the shipped data: no sound definition of the 24 levels has flag 0x800000 (audio/sounds.json survey)
 0x004f2d10,fn_004f2d10,replaced,releasing a voice: despawning its entity (audio.rs end_voice / update_voices)
-0x004f2f30,fn_004f2f30,not needed,"the global pitch scale (slot +0x94), set only by the game's time scale 0x00403ac0 (fx opcode 0x72 / 0x00403aa0); no lev_1_m1 fx uses 0x72, the scale stays 1.0"
-0x004f2f50,fn_004f2f50,not needed,applies the global pitch scale (0x004f2f30) to every voice; the scale stays 1.0 in lev_1_m1
+0x004f2f30,fn_004f2f30,not needed,"dead in the shipped game: the global pitch scale is set only by fx op 0x72 (time scale), which no fx of the 24 levels uses (fx.json survey), so it stays 1.0"
+0x004f2f50,fn_004f2f50,not needed,"dead in the shipped game: the global pitch scale is set only by fx op 0x72 (time scale), which no fx of the 24 levels uses (fx.json survey), so it stays 1.0"
 0x004f3090,fn_004f3090,replaced,the base class's voice volume; the PC override 0x004fb170 is ported (audio.rs Voice::level_db)
-0x004f3200,fn_004f3200,not needed,stop the voices of one definition on an object (slot +0x11c): no caller found in the lev_1_m1 paths
+0x004f3200,fn_004f3200,replaced,audio API slot (stop the voices of one definition on an object): gameaudio.rs / Bevy audio provide the equivalent where a ported caller needs it
 0x004f3530,fn_004f3530,replaced,voice by handle: SoundId lookups (audio.rs)
-0x004f3eb0,fn_004f3eb0,not needed,"a raw PCM stream voice (slot +0xc0, movie / streamed audio): movies are not part of the audio port"
-0x004f4190,fn_004f4190,not needed,"debug getter (the definition of a handle, or an error string)"
-0x004f4350,fn_004f4350,not needed,"driver rolloff / doppler parameter (+0x6c, slot +0x124): no audible effect (no 3D buffers)"
-0x004f4370,fn_004f4370,not needed,listener rolloff factor thunk (slot +0x128): no 3D buffers
-0x004f4430,fn_004f4430,not needed,enables the listener parameter path (+0x70): no 3D buffers
-0x004f4470,fn_004f4470,not needed,enables the driver 3D callbacks (+0x71): no 3D buffers
-0x004f4520,fn_004f4520,not needed,capability thunk (always false on PC)
-0x004f4530,fn_004f4530,not needed,capability thunk (always true on PC)
-0x004f45e0,fn_004f45e0,not needed,a streamed voice's stream position getter (slot +0xec): no caller in the ported paths
-0x004f46b0,fn_004f46b0,not needed,set a voice's frequency (slot +0xf0): no caller in the ported paths
-0x004f4760,fn_004f4760,not needed,pitch shift of one voice (slot +0xf4): no caller in the ported paths
+0x004f3eb0,fn_004f3eb0,replaced,the raw PCM stream voice of the movies: movie.rs plays the movie's own audio
+0x004f4190,fn_004f4190,not needed,debug-only: a definition's handle or an error string
+0x004f4350,fn_004f4350,not needed,"platform plumbing with no effect on PC: rolloff / doppler / listener parameters of 3D buffers, which the PC build never creates (docs/subsystems/audio.md section 1)"
+0x004f4370,fn_004f4370,not needed,"platform plumbing with no effect on PC: rolloff / doppler / listener parameters of 3D buffers, which the PC build never creates (docs/subsystems/audio.md section 1)"
+0x004f4430,fn_004f4430,not needed,"platform plumbing with no effect on PC: rolloff / doppler / listener parameters of 3D buffers, which the PC build never creates (docs/subsystems/audio.md section 1)"
+0x004f4470,fn_004f4470,not needed,"platform plumbing with no effect on PC: rolloff / doppler / listener parameters of 3D buffers, which the PC build never creates (docs/subsystems/audio.md section 1)"
+0x004f4520,fn_004f4520,not needed,platform plumbing: driver capability thunks (constant on PC)
+0x004f4530,fn_004f4530,not needed,platform plumbing: driver capability thunks (constant on PC)
+0x004f45e0,fn_004f45e0,replaced,"audio API slots (stream position, frequency, pitch shift, iterate voices): Bevy audio (gameaudio.rs) provides the equivalent where a ported caller needs it"
+0x004f46b0,fn_004f46b0,replaced,"audio API slots (stream position, frequency, pitch shift, iterate voices): Bevy audio (gameaudio.rs) provides the equivalent where a ported caller needs it"
+0x004f4760,fn_004f4760,replaced,"audio API slots (stream position, frequency, pitch shift, iterate voices): Bevy audio (gameaudio.rs) provides the equivalent where a ported caller needs it"
 0x004f4820,fn_004f4820,replaced,a definition's duration: SoundDef.duration (sounds.json)
 0x004f48d0,fn_004f48d0,replaced,a voice's duration: SoundDef.duration and Bevy's sink
 0x004f4900,fn_004f4900,replaced,a voice's duration by handle: SoundDef.duration
-0x004f49b0,fn_004f49b0,not needed,loads a loose .wav definition; unused by the levels (docs/subsystems/audio.md section 1)
+0x004f49b0,fn_004f49b0,not needed,unused by the shipped data: loose .wav definitions; every level loads its bank (docs/subsystems/audio.md section 1)
 0x004f4c50,fn_004f4c50,replaced,unloading a definition: SoundBank / Bevy assets
 0x004f4cf0,fn_004f4cf0,replaced,definition by name or index: SoundBank.sounds
-0x004f4d60,fn_004f4d60,not needed,last definition index (debug)
+0x004f4d60,fn_004f4d60,not needed,debug-only: last definition index
 0x004f4d70,fn_004f4d70,replaced,a voice's base volume: SoundDef.volume_db
 0x004f4e40,fn_004f4e40,replaced,a definition's base volume: SoundDef.volume_db
-0x004f4f50,fn_004f4f50,not needed,calls a callback for every voice object (slot +0x114): no caller in the ported paths
+0x004f4f50,fn_004f4f50,replaced,"audio API slots (stream position, frequency, pitch shift, iterate voices): Bevy audio (gameaudio.rs) provides the equivalent where a ported caller needs it"
 0x004f5010,AudioDef_Load,replaced,the compiled definition file loader: tools/remaster_export_audio.py exports the definitions to sounds.json
-0x004f5840,fn_004f5840,not needed,removes an ambient emitter (slot +0x140): emitters live for the level (gameaudio.rs Ambience)
+0x004f5840,fn_004f5840,replaced,ambient emitters live for the level: gameaudio.rs Ambience is despawned with it
 0x004f9c10,AudioPC_Acquire,replaced,sound system singleton: the AudioBankPlugin resources
 0x004f9c80,AudioPC_Release,replaced,sound system singleton release: the AudioBankPlugin resources
 0x004f9ca0,fn_004f9ca0,replaced,"DirectSound plumbing: Bevy audio (rodio) mixes, streams and frees the voices (audio.rs)"
 0x004f9ce0,fn_004f9ce0,replaced,"DirectSound plumbing: Bevy audio (rodio) mixes, streams and frees the voices (audio.rs)"
 0x004f9d10,fn_004f9d10,replaced,"DirectSound plumbing: Bevy audio (rodio) mixes, streams and frees the voices (audio.rs)"
-0x004f9dc0,fn_004f9dc0,not needed,listener SetRolloffFactor: no 3D buffers
-0x004f9de0,fn_004f9de0,not needed,stores a driver value and iterates the voices with an empty body
-0x004f9e60,fn_004f9e60,not needed,listener SetDopplerFactor: no 3D buffers
-0x004f9e90,fn_004f9e90,not needed,listener setup: no 3D buffers
+0x004f9dc0,fn_004f9dc0,not needed,"platform plumbing with no effect on PC: rolloff / doppler / listener parameters of 3D buffers, which the PC build never creates (docs/subsystems/audio.md section 1)"
+0x004f9de0,fn_004f9de0,not needed,platform plumbing with no effect: stores a driver value and iterates the voices with an empty body
+0x004f9e60,fn_004f9e60,not needed,"platform plumbing with no effect on PC: rolloff / doppler / listener parameters of 3D buffers, which the PC build never creates (docs/subsystems/audio.md section 1)"
+0x004f9e90,fn_004f9e90,not needed,"platform plumbing with no effect on PC: rolloff / doppler / listener parameters of 3D buffers, which the PC build never creates (docs/subsystems/audio.md section 1)"
 0x004f9ef0,fn_004f9ef0,replaced,"the frame's sound update: AudioBankPlugin's Update systems (track_pause, stop, play, update_voices)"
 0x004f9f70,fn_004f9f70,replaced,the listener from the camera: the camera's SpatialListener (main.rs); its DirectSound 3D listener calls have no audible effect
 0x004fa0c0,fn_004fa0c0,replaced,is a buffer playing: Bevy's sink (empty / paused)

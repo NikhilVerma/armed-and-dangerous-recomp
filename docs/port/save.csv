@@ -1,26 +1,26 @@
 address,name,disposition,reason
 0x00401a30,fn_00401a30,replaced,the resolution-only option load before the window opens: options.rs GameOptions::load
 0x00403520,QuickSave_PushScreen,replaced,pushes the QuickSave screen (asks to save): savegame.rs saves at the checkpoint itself
-0x0044a610,fn_0044a610,not needed,"the level's display name for a save slot: one quick save, no slot list"
-0x0044f3a0,SaveGame_CreateThumbnail,not needed,the save's 128 x 76 thumbnail: no slot list to show it in
+0x0044a610,fn_0044a610,replaced,the level's display name of a save slot: saveslots.rs shows the slot's level
+0x0044f3a0,SaveGame_CreateThumbnail,deferred,feature: save-thumbnails; the save's 128 x 76 thumbnail: no slot list to show it in
 0x004881f0,fn_004881f0,replaced,"the original's object-graph serialisation (save manager, class descriptor tables, per-class write / read / fixup passes, Havok body states): savegame.rs saves a snapshot of the state a player sees instead (module doc)"
 0x00488220,fn_00488220,replaced,"the original's object-graph serialisation (save manager, class descriptor tables, per-class write / read / fixup passes, Havok body states): savegame.rs saves a snapshot of the state a player sees instead (module doc)"
 0x0048b150,fn_0048b150,replaced,"writes a whole (compressed) file under SavedGames: std::fs::write of JSON (savegame.rs, options.rs)"
 0x0048b1a0,fn_0048b1a0,replaced,"reads a whole file: std::fs::read_to_string (savegame.rs read, options.rs load)"
 0x0048b210,fn_0048b210,replaced,does a save file exist: savegame.rs has_save
 0x0048b260,fn_0048b260,replaced,a save file's path under SavedGames: savegame.rs save_path (saves/ next to the exe)
-0x0048b370,fn_0048b370,not needed,"save slots / profiles under SavedGames (six slots, SCRATCH quick save, delete, enumerate): the remaster keeps one quick save (savegame.rs save_path)"
-0x0048b500,fn_0048b500,not needed,"save slots / profiles under SavedGames (six slots, SCRATCH quick save, delete, enumerate): the remaster keeps one quick save (savegame.rs save_path)"
+0x0048b370,fn_0048b370,replaced,save slots / profiles under SavedGames: savegame.rs / saveslots.rs keep six slots and the quick save
+0x0048b500,fn_0048b500,replaced,save slots / profiles under SavedGames: savegame.rs / saveslots.rs keep six slots and the quick save
 0x0048c870,SaveGame_ReadHeader,replaced,"reads a slot's header (format hash, level, thumbnail): serde reads the JSON; missing fields default"
 0x0048c990,SaveGame_CheckSlot,replaced,validates a slot: savegame.rs read (None when the file does not parse)
-0x004a2cb0,fn_004a2cb0,not needed,"save slots / profiles under SavedGames (six slots, SCRATCH quick save, delete, enumerate): the remaster keeps one quick save (savegame.rs save_path)"
-0x004a2d40,fn_004a2d40,not needed,"save slots / profiles under SavedGames (six slots, SCRATCH quick save, delete, enumerate): the remaster keeps one quick save (savegame.rs save_path)"
-0x004a2de0,fn_004a2de0,not needed,"save slots / profiles under SavedGames (six slots, SCRATCH quick save, delete, enumerate): the remaster keeps one quick save (savegame.rs save_path)"
-0x004a2e40,fn_004a2e40,not needed,"save slots / profiles under SavedGames (six slots, SCRATCH quick save, delete, enumerate): the remaster keeps one quick save (savegame.rs save_path)"
-0x004a2e10,SaveSlot_OnDeleteConfirmed,not needed,"save slots / profiles under SavedGames (six slots, SCRATCH quick save, delete, enumerate): the remaster keeps one quick save (savegame.rs save_path)"
+0x004a2cb0,fn_004a2cb0,replaced,save slots / profiles under SavedGames: savegame.rs / saveslots.rs keep six slots and the quick save
+0x004a2d40,fn_004a2d40,replaced,save slots / profiles under SavedGames: savegame.rs / saveslots.rs keep six slots and the quick save
+0x004a2de0,fn_004a2de0,replaced,save slots / profiles under SavedGames: savegame.rs / saveslots.rs keep six slots and the quick save
+0x004a2e40,fn_004a2e40,ported,cited: savegame.rs (deletes a slot's save)
+0x004a2e10,SaveSlot_OnDeleteConfirmed,replaced,save slots / profiles under SavedGames: savegame.rs / saveslots.rs keep six slots and the quick save
 0x004a2ef0,QuickLoad_Start,replaced,QuickLoad_Start: gamemenu.rs relaunch_load (a fresh process with --load)
 0x004a3840,fn_004a3840,replaced,"writes progress.dat (difficulty, unlock counts and tables): options.json keeps tokens / unlocks / cheats; the difficulty is in the save (savegame.rs)"
-0x0048c530,fn_0048c530,not needed,"after a load re-creates fx_siren on every raised siren: the remaster does not save the alarm's raised sirens yet (open, savegame.rs)"
+0x0048c530,fn_0048c530,deferred,"feature: save-sirens; after a load re-creates fx_siren on every raised siren: the remaster does not save the alarm's raised sirens yet (open, savegame.rs)"
 0x0048c5c0,fn_0048c5c0,replaced,after a load calls vt+0x24 on the UI objects (list +0xeb8): the HUD is rebuilt from the state each frame
 0x00461b40,fn_00461b40,replaced,"the original's object-graph serialisation (save manager, class descriptor tables, per-class write / read / fixup passes, Havok body states): savegame.rs saves a snapshot of the state a player sees instead (module doc)"
 0x00461b60,fn_00461b60,replaced,"the original's object-graph serialisation (save manager, class descriptor tables, per-class write / read / fixup passes, Havok body states): savegame.rs saves a snapshot of the state a player sees instead (module doc)"

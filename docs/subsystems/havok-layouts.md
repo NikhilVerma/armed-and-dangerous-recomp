@@ -129,6 +129,11 @@ rejected when both words are non-zero and neither `A & (B >> 16)` nor `B & (A >>
 vs keyframed or fixed; owner virtual +0xa0(other) veto. World filter 0x00411850 additionally rejects dynamic vs
 dynamic unless an owner is ragdolled (+0x421) or has property key 1. Body_Create defaults the word to 0x4000 for
 bodies without a shape. Mesh and hull shapes built by 0x00412450 carry `layer << 16 | part` in shape +8.
+(2026-10-16, agent-charbody) 0x00411850 is not a pair filter for the simulation: the game calls it from the
+swept-body contact listener Type19Listener_OnContact 0x004df8a0 to decide whether to clamp speeds, and as a pair filter
+it would refuse a character against the landscape (no owner, not ragdolled). Characters do collide with each other:
+oracle lev_2_m2, grunt 16 (radius 4) walks round grunt 15 at 7.7..7.97 apart. The AI owner's +0xa0 veto is
+GenericAIObject_Slot40 0x00432590 (+0x50c / +0x510, grunt-ai.md section 14).
 
 Rigid body cinfo (Havok, 0x8c bytes; defaults 0x00459730, filled by Body_Create 0x00457030, consumed by 0x004afd80):
 u16 +0 (-> entity +0x34), u16 +2 (-> +0x4c), +4 shape, +8 filter info, +0x10 position, +0x20 rotation quaternion,

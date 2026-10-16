@@ -1,0 +1,16 @@
+{"scene": "lev_3_m1", "steps": [
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 3.5}, {"tap": "Enter"}, {"wait": 1.0},
+ {"cheat": "SHIELDME"}, {"wait": 0.2},
+ {"expect": {"peasants.alive": 3, "peasants.carried": 0, "peasants.list.c1000170.held": true, "peasants.list.c1000171.held": true, "peasants.list.c1000172.held": true}},
+ {"warp": [-303.7, 1373.7, 845, 0]}, {"wait": 0.5},
+ {"expect": {"peasants.carried": 0, "peasants.list.c1000170.captured": false}},
+ {"warp": [-200, 1373.7, 845, 0]}, {"wait": 0.5},
+ {"send": 2001},
+ {"wait": 3.0},
+ {"expect": {"triggers.3000": 1, "peasants.list.c1000170.held": false, "peasants.list.c1000170.x": [-320, -280], "peasants.list.c1000170.y": [1350, 1390], "peasants.list.c1000171.held": true}},
+ {"warp": [-292, 1368, 845, 0]}, {"wait": 0.5},
+ {"expect": {"peasants.carried": 1, "peasants.list.c1000170.tied": true, "peasants.list.c1000170.link": 1}},
+ {"warp": [-456.8, -110.5, 907, 0]}, {"wait": 0.5},
+ {"expect": {"peasants.carried": 0, "peasants.saved": 1, "peasants.alive": 2, "triggers.13": 1, "triggers.4000": null}},
+ {"quit": true}
+]}

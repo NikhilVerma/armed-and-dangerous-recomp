@@ -41,9 +41,12 @@ Subsystem: [name]. Engine files you own: [files]; do not edit others' files exce
 Original: [recovered source files / classes]. Queue: `python tools/port_queue.py [subsystem]` lists the functions
 the original executes (work/coverage.json) that no engine file cites yet, by source file; `--all` adds the ones
 the coverage scenarios did not reach. Read each source file ONCE, in order, and port everything in it that the
-remaster needs for this subsystem, citing addresses. For each queued function decide: ported (cite it), replaced
-by the engine, or not needed: those two go in docs/port/<subsystem>.csv (address,disposition,reason), which
-tools/port_queue.py reads, so the queue shows only real work left (`--explained` lists them).
+remaster needs for this subsystem, citing addresses. For each queued function decide (docs/port/README.md): ported
+(cite it), replaced (name where), not needed (ONLY when it has no effect: dead in the shipped game over all 24
+levels, debug, platform plumbing), or deferred ("feature: <slug>; ..." with the slug in docs/port/features.csv):
+game behaviour you did not port is deferred, never not needed, even if your level does not use it. Rows go in
+docs/port/<subsystem>.csv (address,disposition,reason); `python tools/port_queue.py --lint` must pass (the
+pre-commit hook runs it); deferred rows stay in the queue (`--deferred` ranks them).
 Isolation tests: headless playtests from saved states with expect steps (or Rust unit tests for pure logic), one
 per behaviour area, never passing by luck (gunner1 once relied on a keg blast and one stray bullet: any code change
 that shifts the random sequence broke it); drive the outcome directly (kill / hurt / warp steps, aim at the real

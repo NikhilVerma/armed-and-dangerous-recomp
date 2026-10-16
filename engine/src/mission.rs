@@ -17,6 +17,7 @@
 use crate::ai::{Grunt, Mind, Player};
 use crate::fx::{Destructible, Explode, StartFx};
 use crate::level::{InstanceId, game_to_engine};
+use crate::levelreset::LevelAppExt;
 use bevy::prelude::*;
 use serde::Deserialize;
 use serde_json::{Map, Value};
@@ -123,7 +124,7 @@ impl Volume {
 
     /// `p` is a point 5 units above the feet (the body's centre, guess for the collision proxy's reach); a box is
     /// reached 2 units outside its faces and 20 above its top (the body's height over a thin floor slab).
-    fn contains(&self, p: Vec3) -> bool {
+    pub(crate) fn contains(&self, p: Vec3) -> bool {
         match *self {
             Volume::Sphere(c, r) => c.distance(p) <= r,
             Volume::Box { to_local, min, max } => {
@@ -620,7 +621,11 @@ pub struct Mission {
     /// army_breach_open / close_trigger (Game+0xc3c / +0xc40: Game+0xcbe), peasant_saved_trigger (Game+0x26f0)
     alarm_triggers: (i64, i64),
     breach_triggers: (i64, i64),
-    peasant_saved: i64,
+    /// the rescue rules (Game+0x26e0..+0x26f8), read by peasant.rs
+    pub peasant_rules: PeasantRules,
+    /// Game+0x2674: the text of failure state 8 (timeout_text, default "ui_timeout": the peasant casualties' failure
+    /// 0x004062a0 shows it; 0x0044a390 takes Game+0x2654 + state x 4)
+    timeout_text: Option<String>,
     /// Game+0xdcc: the alarm forced by the mission (the alarm controller is alarm.rs; no lev_1_m1 trigger sets it)
     pub alarm_forced: bool,
     /// Game+0xcbe: the army breach open (no army on lev_1_m1)
@@ -657,6 +662,34 @@ pub struct Mission {
 
 #[derive(Message, Clone, Copy)]
 pub struct SendTrigger(pub i64);
+
+/// A trigger sent by a volume (Object_SendTrigger 0x00461870 passes the sender to every handler): the handlers that
+/// act on their sender read this beside [`SendTrigger`] (the mission's peasant_saved_trigger banks peasants at the
+/// door mat that sent it, MissionObject_OnTrigger 0x0044d600).
+#[derive(Message, Clone, Copy, Debug)]
+pub struct VolumeSent {
+    /// the volume's instance id
+    pub volume: u32,
+    pub trigger: i64,
+}
+
+/// The mission's peasant rules (MissionObject_Load 0x0044c170, game_02.cpp:2042-2045): peasant_max_casualties
+/// (Game+0x26e0), peasant_max_saved (+0x26ec; non-zero shows the peasant counters, 0x00465be0..0x00465d30),
+/// peasant_saved_trigger (+0x26f0: a door mat banks the carried peasants) and peasant_success_trigger (+0x26f8: sent
+/// once when the saved reach max_saved).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct PeasantRules {
+    pub max_casualties: u32,
+    pub max_saved: u32,
+    pub saved_trigger: i64,
+    pub success_trigger: i64,
+}
+
+/// The compass's first list (World+0xefc, ui_compass_objective 0x00466790): while it holds anything the arrow points
+/// at its nearest member, and a tagged objective (Game+0x2658) only when strictly nearer. The peasants not yet picked
+/// up are on it (PeasantObject_Load 0x004056b0; the pick-up 0x00405d10 takes them off): peasant.rs fills it each frame.
+#[derive(Resource, Default, Debug)]
+pub struct CompassList(pub Vec<Vec3>);
 
 /// A trigger volume's sphere_radius as the original reads it: TriggerObject_Load 0x00497460 reads the property as a
 /// dword (Object_ReadValueProp 0x00453400) and BuildCollision 0x004975d0 converts it as an unsigned integer. An integer
@@ -1107,11 +1140,6 @@ impl Mission {
         // camera_startup_path_anim on a camera path (slot 8 0x0044d150, Camera_StartPath mode 2): the path is not ported, none on lev_1_m1. (Slot 9
         // 0x0044d1b0 resets the mission timer +0x464 and the start flags: `start` below, from the level's start.)
         let mut log = Vec::new();
-        for k in ["peasant_max_casualties", "peasant_max_saved"] {
-            if n(m, k) != 0.0 {
-                log.push(format!("mission: {k} {} not ported", n(m, k)));
-            }
-        }
         if let Some(p) = s(m, "camera_startup_path_anim") {
             log.push(format!("mission: camera_startup_path_anim {p} not ported"));
         }
@@ -1144,7 +1172,13 @@ impl Mission {
             failure_texts: ["failure_text", "failure_text_2", "failure_text_3", "failure_text_4"].map(text),
             alarm_triggers: (n(m, "alarm_trigger_activate") as i64, n(m, "alarm_trigger_deactivate") as i64),
             breach_triggers: (n(m, "army_breach_open_trigger") as i64, n(m, "army_breach_close_trigger") as i64),
-            peasant_saved: n(m, "peasant_saved_trigger") as i64,
+            peasant_rules: PeasantRules {
+                max_casualties: n(m, "peasant_max_casualties").max(0.0) as u32,
+                max_saved: n(m, "peasant_max_saved").max(0.0) as u32,
+                saved_trigger: n(m, "peasant_saved_trigger") as i64,
+                success_trigger: n(m, "peasant_success_trigger") as i64,
+            },
+            timeout_text: f.text.get(&s(m, "timeout_text").unwrap_or_else(|| "ui_timeout".into())).cloned(),
             alarm_forced: false,
             breach_open: false,
             finished: false,
@@ -1214,6 +1248,30 @@ impl Mission {
         !self.untagged.contains(&id) && self.tags.get(&tag).is_some_and(|l| l.iter().any(|(i, _)| *i == id))
     }
 
+    /// The trigger volume of instance `id`, while it lives.
+    pub(crate) fn volume(&self, id: u32) -> Option<&Trigger> {
+        self.triggers.iter().find(|t| t.id == id)
+    }
+
+    /// A volume's object is gone (killed: Object_Kill 0x00455640 removes it, vt+0xdc): it sends nothing more.
+    pub(crate) fn remove_volume(&mut self, id: u32) {
+        self.triggers.retain(|t| t.id != id);
+    }
+
+    /// The level lost through 0x0044a580(Game+0xa64, `state`) from an object's own code (the peasant casualties:
+    /// state 8, 0x004062a0): failed while playing, with the state's text (0x0044a390: Game+0x2654 + state x 4; state 8
+    /// is Game+0x2674, timeout_text).
+    pub fn fail_state(&mut self, state: u32, why: &str) {
+        if self.outcome != Outcome::Playing {
+            return;
+        }
+        self.outcome = Outcome::Failed;
+        if state == 8 {
+            self.failure_text = self.timeout_text.clone();
+        }
+        self.log.push(format!("FAILED ({why}, state {state})"));
+    }
+
     /// The mission object's trigger handler MissionObject_OnTrigger 0x0044d600 for the triggers it reads into the Game
     /// object: pre-success (+0x470: Game+0xdd2 = 1; the teammates' retreat runs only in start_in_turret levels,
     /// 0x0044e600), failures (+0x474..+0x480, level state 4..7 while not finished), the army breach (Game+0xc3c /
@@ -1237,9 +1295,7 @@ impl Mission {
             self.log.push(format!("FAILED (failure trigger {t}, state {})", 4 + k));
             return;
         }
-        if t == self.peasant_saved {
-            self.log.push(format!("peasant_saved_trigger {t}: peasants not ported"));
-        }
+        // (peasant_saved_trigger, Game+0x26f0: peasant.rs banks the peasants at the mat that sent it)
         if t == self.breach_triggers.0 && !self.finished {
             self.breach_open = true;
         } else if t == self.breach_triggers.1 && !self.finished {
@@ -1261,6 +1317,8 @@ impl Plugin for MissionPlugin {
     fn build(&self, app: &mut App) {
         // the mission runs once play begins (not behind the title menu); paused messages keep the state Playing
         app.add_message::<SendTrigger>()
+            .add_message::<VolumeSent>()
+            .init_level_resource::<CompassList>()
             .add_systems(Update, (start, volumes, sites, pub_door, barracks, timers, dispatch, messages, outcome).chain().run_if(in_state(crate::AppState::Playing)))
             .add_systems(Update, (event_log, state_log))
             // after the deaths of the frame (fx.rs), before the husk swap (level.rs husks: the Husk marker)
@@ -1293,6 +1351,8 @@ pub(crate) fn deaths(mut m: Option<ResMut<Mission>>, mut died: MessageReader<cra
         if let Ok(i) = ids.get(d.0) {
             // a dead object leaves the lists the compass walks
             m.untagged.insert(i.0);
+            // a dead volume (a door mat banked its peasant) sends nothing more
+            m.remove_volume(i.0);
             // a destroyed barracks releases no more troops (the building is replaced by its husk)
             let mut stopped = false;
             for b in m.barracks.iter_mut().filter(|b| b.id == i.0 && (b.left() > 0 || b.active)) {
@@ -1400,6 +1460,7 @@ fn volumes(
     grunts: Query<(Entity, &GlobalTransform, &Grunt)>,
     companions: Query<(Entity, &GlobalTransform, &crate::ai::Companion)>,
     mut out: MessageWriter<SendTrigger>,
+    mut from: MessageWriter<VolumeSent>,
 ) {
     let Some(m) = m.as_deref_mut() else { return };
     let mut bodies: Vec<(Entity, Vec3, bool)> = player.iter().map(|(e, t)| (e, t.translation(), false)).collect();
@@ -1441,6 +1502,7 @@ fn volumes(
         for s in sends {
             logs.push(format!("volume {} -> trigger {s}", t.id));
             out.write(SendTrigger(s));
+            from.write(VolumeSent { volume: t.id, trigger: s });
         }
     }
     m.log.extend(logs);
@@ -2094,7 +2156,15 @@ fn messages(
 }
 
 /// Lose: the player dead for 5 s (level state 3, "MissionFailed").
-fn outcome(time: Res<Time>, mut m: Option<ResMut<Mission>>, roman: Query<&crate::player::Roman>, mut hud: ResMut<crate::hud::HudState>, cam: Query<&GlobalTransform, With<Camera3d>>, player: Query<&GlobalTransform, With<Player>>) {
+fn outcome(
+    time: Res<Time>,
+    mut m: Option<ResMut<Mission>>,
+    roman: Query<&crate::player::Roman>,
+    mut hud: ResMut<crate::hud::HudState>,
+    cam: Query<&GlobalTransform, With<Camera3d>>,
+    player: Query<&GlobalTransform, With<Player>>,
+    first: Res<CompassList>,
+) {
     let Some(m) = m.as_deref_mut() else { return };
     if let Ok(r) = roman.single() {
         if r.dead && m.outcome == Outcome::Playing {
@@ -2109,7 +2179,16 @@ fn outcome(time: Res<Time>, mut m: Option<ResMut<Mission>>, roman: Query<&crate:
     // compass objective: bearing of the target relative to the camera, and its distance
     if let (Ok(c), Ok(p)) = (cam.single(), player.single()) {
         // 0x00466790: from the camera (Camera_GetPosition), the distance in 3D (the pointer's anim frame)
-        hud.objective = m.compass_target(p.translation()).map(|t| {
+        // the first list's nearest (World+0xefc: the peasants still to pick up), the tagged objective only when
+        // strictly nearer
+        let from = p.translation();
+        let listed = first.0.iter().copied().min_by(|a, b| a.distance(from).total_cmp(&b.distance(from)));
+        let target = match (listed, m.compass_target(from)) {
+            (Some(l), Some(t)) if t.distance(from) < l.distance(from) => Some(t),
+            (Some(l), _) => Some(l),
+            (None, t) => t,
+        };
+        hud.objective = target.map(|t| {
             let to = (t - c.translation()).with_y(0.0);
             let f = c.forward();
             let rel = to.x.atan2(-to.z) - f.x.atan2(-f.z);
