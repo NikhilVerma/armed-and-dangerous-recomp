@@ -806,6 +806,8 @@ impl Mission {
     pub fn load(dir: &std::path::Path) -> Option<Self> {
         let f: MissionFile = serde_json::from_str(&std::fs::read_to_string(dir.join("mission.json")).ok()?).map_err(|e| warn!("mission.json: {e}")).ok()?;
         let inst: HashMap<u32, &InstanceDef> = f.instances.iter().map(|i| (i.id, i)).collect();
+        let templates: HashMap<String, crate::gamedata::Template> =
+            std::fs::read_to_string(dir.join("templates.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
         let s = |m: &Map<String, Value>, k: &str| m.get(k).and_then(|v| v.as_str()).filter(|v| !v.is_empty() && *v != "none").map(str::to_owned);
         let n = |m: &Map<String, Value>, k: &str| m.get(k).and_then(|v| v.as_f64()).unwrap_or(0.0);
         let mut receivers: HashMap<i64, Vec<Action>> = HashMap::new();
@@ -996,9 +998,12 @@ impl Mission {
                 _ if i.template.starts_with("grunt_barracks") || r.get("num_regular").is_some() => {
                     // 0x0040ad80: the slots from the model's matrices; a barracks with an exit slot ("ref_exit_0%d")
                     // releases troops created at "ref_spawn_0%d" (lev_1_m1's mini barracks have one of each)
-                    let spawn = i.model.as_ref().zip(i.transform.as_ref()).and_then(|(model, t)| {
+                    // the matrices are the template's anim slot's (invisible_barracks: model "nothing", its spawn and
+                    // exit in grunt_generator_base; lev_4_m2 284 releases from there)
+                    let reference = templates.get(&i.template).and_then(|t| t.default_anim.clone()).or_else(|| i.model.clone());
+                    let spawn = reference.as_ref().zip(i.transform.as_ref()).and_then(|(anim, t)| {
                         let m = crate::scene::game_matrix(t);
-                        let w = |b: &str| pub_bone(dir, model, b).map(|l| game_to_engine() * m.transform_point3(l));
+                        let w = |b: &str| pub_bone(dir, anim, b).map(|l| game_to_engine() * m.transform_point3(l));
                         w("ref_spawn_00").zip(w("ref_exit_00"))
                     });
                     let counts = ["num_bow", "num_regular", "num_jumper_captain", "num_captain", "num_rocket_captain", "num_monk"].map(|k| n(r, k) as i64);

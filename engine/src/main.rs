@@ -211,6 +211,9 @@ fn resize_tolerant(e: &bevy::render::error_handler::RenderError, _: &mut World, 
     std::process::exit(1);
 }
 
+/// One frame of a scripted run: the original harness's virtual clock step (166667 ticks of 100 ns, see `main`).
+const ORACLE_FRAME_STEP: std::time::Duration = std::time::Duration::from_nanos(16_666_700);
+
 fn main() {
     let a = args();
     // the level behind the title menu (lev_1_m1 unless --scene), and the level the run starts in: a saved game to
@@ -419,12 +422,15 @@ fn main() {
         if !pt.title {
             app.insert_state(AppState::Playing);
         }
-        // game time advances exactly 1/60 s per frame (real and virtual): a slow frame (a screenshot, loading) no
-        // longer jumps every timer at once, and runs compare frame for frame with the original's captures, which
-        // advance one 60 Hz step per frame (fight2E: grunts fired in lockstep after each screenshot's stall); a
-        // "real_time" script keeps the wall clock, as the player's game does
+        // game time advances one fixed step per frame (real and virtual): a slow frame (a screenshot, loading) no
+        // longer jumps every timer at once, and runs compare frame for frame with the original's captures (fight2E:
+        // grunts fired in lockstep after each screenshot's stall). The step is the original harness's virtual clock
+        // (tools/compare.py clock_step_ms 16.6667 -> hook/src/testclock.cpp: 166667 ticks of 100 ns), not exactly
+        // 1/60 s: a one-second countdown then runs out on the 60th frame as in the original, where f32 steps of 1/60
+        // take 61 (lev_4_m2's invisible barracks released one troop a frame later every second). A "real_time"
+        // script keeps the wall clock, as the player's game does
         if !pt.real_time {
-            app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(std::time::Duration::from_secs_f64(1.0 / 60.0)));
+            app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(ORACLE_FRAME_STEP));
         }
         app.insert_resource(pt);
         // the same system order every run: many unordered systems draw from the shared random stream (FxStats), so
