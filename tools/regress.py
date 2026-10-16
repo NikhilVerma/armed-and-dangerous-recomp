@@ -32,7 +32,7 @@ SUITE = ['save_write', 'save_read', 'topsyhit2', 'turn_in_place', 'turret1', 'de
          'vehicles_rocket_tower', 'vehicles_rocket_bud', 'vehicles_zeppelin', 'vehicles_saucer', 'vehicles_colossus', 'vehicles_forge_cannon']
 # 'complete_<level>' (levels 4, 5 and the bonus levels): the level played to mission complete through its real
 # objective chain (land / damage steps skip travel and fights, SHIELDME keeps Roman alive), then Stats -> the next level
-SUITE += ['complete_lev_5_m1', 'complete_lev_5_m3']
+SUITE += ['complete_lev_4_m3', 'complete_lev_5_m1', 'complete_lev_5_m3']
 # 'launch_*': the real launch path as the player plays (the Remaster preset chosen by the options, the intro, the
 # title menu): New Game shows the world (menu art gone, every camera on one target, the strips beside the 4:3 centre
 # not black), Abandon -> title -> New Game in-process, the Graphics page applies, Restart / Quick Load / Restart from

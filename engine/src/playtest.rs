@@ -128,6 +128,14 @@ pub struct Event {
     /// as Object_ForceGround's), for a script that skips travel without knowing the ground's height
     #[serde(default)]
     pub land: Option<[f32; 3]>,
+    /// debug: map the ground over game-space [x0, y0, x1, y1, step]: one line per row, each cell the landscape's height
+    /// ('-' none) and, where something else is hit first (a roof, a bridge), '/' and that height
+    #[serde(default)]
+    pub probe: Option<[f32; 5]>,
+    /// debug: land beside the placed object with this instance id, [id, distance]: of eight points round it at that
+    /// distance, the one whose ground is nearest the object's own height (logged as land), facing it
+    #[serde(default)]
+    pub land_by: Option<[f32; 2]>,
     /// bot: walk to this point (game space x, y, z: as the scene files give positions)
     #[serde(default)]
     pub goto: Option<[f32; 3]>,
@@ -269,6 +277,10 @@ pub struct Playtest {
     step_started: bool,
     /// a warp step waiting for the warp system
     warp: Option<[f32; 4]>,
+    /// a probe step waiting for the warp system (it has the physics)
+    probe: Option<[f32; 5]>,
+    /// a land_by step waiting for the warp system
+    land_by: Option<(u32, f32)>,
     /// virtual gamepad input for pad_drive
     pad: Vec<String>,
     /// companion damage for hurt_companions
@@ -331,7 +343,7 @@ impl Playtest {
         let mut events = s.events;
         events.sort_by(|a, b| a.t.total_cmp(&b.t));
         let log = std::fs::File::create(path.with_extension("log.jsonl")).ok();
-        Playtest { pickups: vec![], loadouts: vec![], audio: vec![], fx: vec![], movies: vec![], intro: s.intro, passed: 0, failed: 0, hurt_c: vec![], blasts: vec![], pad_e: None, notes: Default::default(), pad: vec![], warp: None, path, title: s.title, real_time: s.real_time, events, turns: s.turns, next: 0, t: 0.0, taps: vec![], clicks: vec![], log, last_log: -1.0, steps: s.steps, step_shot: None, step: 0, step_t: 0.0, step_started: false }
+        Playtest { pickups: vec![], loadouts: vec![], audio: vec![], fx: vec![], movies: vec![], intro: s.intro, passed: 0, failed: 0, hurt_c: vec![], blasts: vec![], pad_e: None, notes: Default::default(), pad: vec![], warp: None, probe: None, land_by: None, path, title: s.title, real_time: s.real_time, events, turns: s.turns, next: 0, t: 0.0, taps: vec![], clicks: vec![], log, last_log: -1.0, steps: s.steps, step_shot: None, step: 0, step_t: 0.0, step_started: false }
     }
 }
 
@@ -364,7 +376,17 @@ fn warp(
     mut physics: NonSendMut<crate::physics::Physics>,
     mut bot: ResMut<crate::bot::Bot>,
     mut roman: Query<(&mut crate::player::Roman, &mut Transform)>,
+    objects: Query<(&crate::level::InstanceId, &GlobalTransform)>,
 ) {
+    if let Some((id, d)) = pt.land_by.take() {
+        match objects.iter().find(|(i, _)| i.0 == id) {
+            Some((_, at)) => pt.warp = land_beside(&physics, at.translation(), d),
+            None => warn!("EVENT playtest: land_by: no object {id}"),
+        }
+    }
+    if let Some([x0, y0, x1, y1, step]) = pt.probe.take() {
+        probe_ground(&physics, (x0, y0), (x1, y1), step.max(1.0));
+    }
     let Some(w) = pt.warp else { return };
     let Ok((mut r, mut t)) = roman.single_mut() else { return };
     pt.warp = None;
@@ -392,6 +414,46 @@ fn warp(
     r.fall_fast_t = 0.0;
     r.peak_vz = 0.0;
     bot.goto = None;
+}
+
+/// The land_by step's spot: of eight points `d` from the object (engine space), the one whose landscape is nearest
+/// the object's height, as a land warp (game space, facing the object).
+fn land_beside(physics: &crate::physics::Physics, at: Vec3, d: f32) -> Option<[f32; 4]> {
+    let to_game = crate::level::game_to_engine().inverse();
+    let best = (0..8)
+        .filter_map(|k| {
+            let a = k as f32 * std::f32::consts::FRAC_PI_4;
+            let p = at + Vec3::new(a.cos(), 0.0, a.sin()) * d;
+            physics.raycast_landscape(p.with_y(4000.0), Vec3::NEG_Y, 8000.0).map(|g| (p, (g.y - at.y).abs()))
+        })
+        .min_by(|a, b| a.1.total_cmp(&b.1))?;
+    let (g, o) = (to_game * best.0, to_game * at);
+    let yaw = (o.x - g.x).atan2(o.y - g.y).to_degrees();
+    Some([g.x, g.y, f32::NAN, yaw])
+}
+
+/// The probe step's ground map (game space): rows from y0 to y1, cells from x0 to x1.
+fn probe_ground(physics: &crate::physics::Physics, (x0, y0): (f32, f32), (x1, y1): (f32, f32), step: f32) {
+    let to_engine = crate::level::game_to_engine();
+    let (nx, ny) = (((x1 - x0) / step).floor() as i32, ((y1 - y0) / step).floor() as i32);
+    info!("EVENT playtest: ground map x {x0}..{x1} y {y0}..{y1} step {step}");
+    for j in 0..=ny {
+        let y = y0 + j as f32 * step;
+        let cells: Vec<String> = (0..=nx)
+            .map(|i| {
+                let top = (to_engine * Vec3::new(x0 + i as f32 * step, y, 0.0)).with_y(4000.0);
+                let land = physics.raycast_landscape(top, Vec3::NEG_Y, 8000.0).map(|h| h.y);
+                let first = physics.raycast(top, Vec3::NEG_Y, 8000.0).map(|h| h.1.y);
+                match (land, first) {
+                    (Some(l), Some(f)) if f > l + 1.0 => format!("{l:.0}/{f:.0}"),
+                    (Some(l), _) => format!("{l:.0}"),
+                    (None, Some(f)) => format!("-/{f:.0}"),
+                    (None, None) => "-".into(),
+                }
+            })
+            .collect();
+        info!("EVENT playtest: ground y {y:.0}: {}", cells.join(" "));
+    }
 }
 
 pub fn key(name: &str) -> Option<KeyCode> {
@@ -731,6 +793,12 @@ pub(crate) fn drive(
         }
         if let Some(w) = e.warp {
             pt.warp = Some(w);
+        }
+        if let Some([id, d]) = e.land_by {
+            pt.land_by = Some((id as u32, d));
+        }
+        if e.probe.is_some() {
+            pt.probe = e.probe;
         }
         if let Some([x, y, yaw]) = e.land {
             // no height: the warp system finds the ground
