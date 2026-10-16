@@ -96,7 +96,9 @@ for name in a.names or (PERF if a.perf else SUITE):
             print('     ', l)
         continue
     script = next((d for d in (TRACKED, PLAY) if os.path.exists(os.path.join(d, name + '.json'))), PLAY)
-    p = subprocess.run([sys.executable, os.path.join(ROOT, 'tools', 'playtest.py'), os.path.join(script, name + '.json'), '--exe', a.exe] + extra,
+    # the wall-clock limit only catches a hung game: game time is stepped per frame, so a loaded machine (several
+    # agents' runs at once) takes several times longer for the same run (defence_l5m5: 66 game seconds took 320 s)
+    p = subprocess.run([sys.executable, os.path.join(ROOT, 'tools', 'playtest.py'), os.path.join(script, name + '.json'), '--exe', a.exe, '--timeout', '1200'] + extra,
                        stdout=subprocess.PIPE, text=True, errors='replace')
     res = re.search(r'PLAYTEST RESULT: (\d+) passed, (\d+) failed', p.stdout)
     fails = [l for l in p.stdout.splitlines() if 'EXPECT FAIL' in l or 'panicked' in l]
