@@ -888,6 +888,12 @@ pub fn spawn(
                     Health(p.f("max_health", 500.0)),
                     bounds,
                 ));
+                // its send_trigger_on_death (0x00450ee0 for any object: lev_4_m2's Jonesy 5001, lev_bonus_m3's Q / Jonesy
+                // 5001 / 5002, the failures), sent by ai.rs companion_damage
+                let on_death = p.i("send_trigger_on_death", 0);
+                if on_death != 0 {
+                    commands.entity(e).insert(crate::mission::DeathTrigger(on_death));
+                }
             }
             continue;
         }
