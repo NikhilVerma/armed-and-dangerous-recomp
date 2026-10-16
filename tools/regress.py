@@ -44,8 +44,8 @@ SUITE += ['mg_muzzle_fx']
 # not black), Abandon -> title -> New Game in-process, the Graphics page applies, Restart / Quick Load / Restart from
 # last save in-process (level_generation)
 # 'restart_parity': wall-clock game time ("real_time", as the player's game): after Restart Level, Abandon -> title ->
-# New Game and Restart from last save, the counts (Romans, companions, grunts, entities), the camera's pitch and the
-# frame / main-world times and game steps match a fresh New Game's (feedback 28)
+# New Game and Restart from last save, the counts (Romans, companions, grunts, entities) and the camera's pitch match a
+# fresh New Game's (feedback 28); its frame / main-world time and game-step limits are its "expect_perf" steps (--perf only)
 # 'campaign_*': the level sequence (campaign.rs): a won level's Stats -> the next level in-process with the money, tokens
 # and difficulty carried and the next mission's loadout (next); three levels by their win triggers, with a success
 # movie (chain); a save in the second level loaded from the main menu (save); a defence level's next level with its
