@@ -156,5 +156,7 @@ fn fragment(in: GameOut) -> @location(0) vec4<f32> {
         col = mix(p.fog_col.rgb, col, in.fog);
     }
     // emissive.w: the camera fade (camfade.rs; 0 = opaque), objects between the camera and Roman
-    return vec4(to_linear(col), alpha * (1.0 - p.emissive.w));
+    // diffuse.w: the record's opacity (a translucent record, kind bit 0x10: the draw state's constant alpha that the
+    // texture's alpha is multiplied by, fn_004897d0; 1 otherwise)
+    return vec4(to_linear(col), alpha * p.diffuse.w * (1.0 - p.emissive.w));
 }

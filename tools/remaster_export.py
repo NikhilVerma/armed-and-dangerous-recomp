@@ -155,6 +155,11 @@ def mesh_submeshes(ch, bone_index=None):
             rgb = lambda v: [(v & 255) / 255, (v >> 8 & 255) / 255, (v >> 16 & 255) / 255]
             mat_raw.append({
                 "kind": b[p + 0x34],
+                # translucency (kind bit 0x10, fn_004897d0 0x004897d0): the blend mode in byte +0x37 (0 SRCALPHA/ONE,
+                # 1 DESTCOLOR/ZERO, 2 SRCALPHA/INVSRCALPHA: blend table 0x0057d9e0 entries 1, 4, 3) and the opacity
+                # +0x48, which the draw state takes as its constant alpha (texture factor) when below 1
+                "blend": b[p + 0x37],
+                "opacity": struct.unpack_from("<f", b, p + 0x48)[0],
                 "normal_map": texids.get(h(0x18)),
                 "texture2": texids.get(h(0x1A)),
                 "mask": texids.get(h(0x1C)),

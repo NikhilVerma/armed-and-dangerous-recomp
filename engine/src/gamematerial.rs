@@ -189,6 +189,24 @@ pub struct MaterialDef {
     pub specular: [f32; 3],
     #[serde(default)]
     pub power: f32,
+    /// translucency (kind bit 0x10; the draw state 0x004897d0): the blend mode (byte +0x37: 2 = SRCALPHA /
+    /// INVSRCALPHA, the only one world models use) and the opacity +0x48, the constant alpha the texture's is
+    /// multiplied by (glass: the forge cannon's sight 0.35, the bomber's canopy 0.54)
+    #[serde(default)]
+    pub blend: u8,
+    #[serde(default = "opaque")]
+    pub opacity: f32,
+}
+
+fn opaque() -> f32 {
+    1.0
+}
+
+impl MaterialDef {
+    /// The opacity the surface is drawn with: below 1 only for a translucent record (kind bit 0x10).
+    pub fn alpha(&self) -> f32 {
+        if self.kind & 0x10 != 0 { self.opacity.clamp(0.0, 1.0) } else { 1.0 }
+    }
 }
 
 /// The level's lighting as the original applies it (scene lights): the first directional light that is not
@@ -269,6 +287,8 @@ pub fn make<C: Coverage>(def: &MaterialDef, texture: Option<&str>, alpha: bool, 
     };
     // debug (render investigations): AND_DEBUG_NOFOG=1 draws without fog and far clip
     let (fog_col, fog_range) = if std::env::var("AND_DEBUG_NOFOG").is_ok() { (Vec4::ZERO, Vec4::ZERO) } else { (fog_col, fog_range) };
+    // a translucent record blends as an alpha texture does (fn_004897d0: kind bit 0x10, blend mode 2)
+    let alpha = alpha || def.alpha() < 1.0;
     // blended surfaces are not in the depth prepass: the occlusion there would be the surface's behind them
     let ao_exempt = alpha || crate::graphics::ao_exempt(&[texture, def.texture2.as_deref(), def.normal_map.as_deref()]);
     let g = crate::graphics::current();
@@ -284,7 +304,8 @@ pub fn make<C: Coverage>(def: &MaterialDef, texture: Option<&str>, alpha: bool, 
             has_mask: def.mask.is_some() as u32,
             emissive: v4(def.emissive, 0.0),
             ambient: v4(def.ambient, 0.0),
-            diffuse: v4(def.diffuse, 0.0),
+            // w: the record's opacity (translucent records; 1 otherwise)
+            diffuse: v4(def.diffuse, def.alpha()),
             specular: v4(def.specular, if def.specular.iter().any(|c| *c > 0.0) { def.power } else { 0.0 }),
             // guess: TFACTOR 0.3 (the environment materials' floats +0x38.. hold 0.3; the render state was not traced)
             env: l3(lights.env, 0.3),
