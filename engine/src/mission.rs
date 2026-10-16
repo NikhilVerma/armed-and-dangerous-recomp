@@ -538,6 +538,8 @@ pub struct Loadout {
     pub ammo: HashMap<&'static str, i64>,
     /// player_set_num_* of each special (-1 unchanged, so none on a new player)
     pub specials: HashMap<&'static str, i64>,
+    /// player_has_jetpack (Game byte +0xd92, game_02.cpp:1999): the reset gives the jumper pack (jetpack.rs)
+    pub jetpack: bool,
 }
 
 impl Loadout {
@@ -547,7 +549,7 @@ impl Loadout {
         let weapons = WEAPONS.iter().copied().filter(|w| n(format!("player_add_{w}"), (*w == "machinegun") as i64) != 0).take(3).collect();
         let ammo = WEAPONS.iter().map(|w| (*w, n(format!("player_set_ammo_{w}"), -2))).collect();
         let specials = SPECIALS.iter().map(|s| (*s, n(format!("player_set_num_{s}"), -1))).collect();
-        Loadout { weapons, ammo, specials }
+        Loadout { weapons, ammo, specials, jetpack: n("player_has_jetpack".into(), 0) != 0 }
     }
 
     pub fn has(&self, weapon: &str) -> bool {

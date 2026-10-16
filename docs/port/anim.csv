@@ -7,7 +7,7 @@ address,name,disposition,reason
 0x004586a0,fn_004586a0,replaced,"the skeleton bone driven by a named track of the first clip: Skeleton::index (bone by name)"
 0x004588f0,fn_004588f0,replaced,"the exporter writes the anims under their names, so the name hash of a path is not needed at run time"
 0x00458950,fn_00458950,replaced,"looks an object's animation set up in the level's anim bank (0x0045bf10 with Game+0xa84): AnimLibrary loads anims/<name>.json"
-0x00475d50,fn_00475d50,deferred,"feature: jetpack; the jet pack's turbo_* cycle anims (pickup_jumper_pack, +0xabc): lev_1_m1 has no jet pack (player_has_jetpack 0); a later level's mechanic"
+0x00475d50,fn_00475d50,ported,jetpack.rs JetPack::wing_anim / models (the pack's turbo_*_cycle by the stick and the turn while gliding in the air)
 0x00493ca0,fn_00493ca0,replaced,"samples the AI route segment's two-key steering curve (0x00493d00) at a time: nav.rs routes replace the route follower (docs/port/ai.csv, AIRoute_*)"
 0x00493d00,fn_00493d00,replaced,"builds the AI route segment's two-key steering curve (AIRoute_SetDir 0x004707a0): nav.rs routes replace the route follower (docs/port/ai.csv)"
 0x00493f70,fn_00493f70,replaced,"allocates the route curve's track header: nav.rs routes replace the route follower"

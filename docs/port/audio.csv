@@ -63,7 +63,7 @@ address,name,disposition,reason
 0x0044f540,fn_0044f540,deferred,"feature: music-pause-screens; the counterpart of 0x0044f510 (resume, unlock); see there"
 0x004619c0,SoundEar_GetClass,not needed,"plumbing: RTTI class descriptor / type id accessor; the engine identifies classes by Bevy components, no class registry"
 0x00461c80,FxEarObject_GetClass,not needed,"plumbing: RTTI class descriptor / type id accessor; the engine identifies classes by Bevy components, no class registry"
-0x0047bb30,Jumper_PlayWingSounds,ported,cited: ai/jumper.rs (the wings-out sounds)
+0x0047bb30,Jumper_PlayWingSounds,ported,cited: ai/jumper.rs (the wings-out sounds); jetpack.rs effects (Roman's wings out / in and the glide loop)
 0x00487050,Q11Voice_PlayDead,replaced,ai.rs companion_damage / companions play the same line lists on Jonesy and Q with the shared vo delay (Barks) and the per-companion short-hurt delay
 0x00487150,Q11Voice_PlayHurt,replaced,ai.rs companion_damage / companions play the same line lists on Jonesy and Q with the shared vo delay (Barks) and the per-companion short-hurt delay
 0x004871e0,Q11Voice_PlayFriendlyFire,replaced,ai.rs companion_damage / companions play the same line lists on Jonesy and Q with the shared vo delay (Barks) and the per-companion short-hurt delay
