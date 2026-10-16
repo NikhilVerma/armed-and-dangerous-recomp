@@ -17,7 +17,7 @@
 //              "max_health", "weapon": id (descriptors Game+0x2770 + id * 0x150: 0 machine gun, 2 rifle), "clip",
 //              "ammo", "stickies"},
 //    "grunts": [{"id": instance id (+0x396), "pos", "health", "state": AI state +0x460, "target": id | "roman" |
-//               null, "class": vtable}],
+//               null, "class": vtable, "kf": 1 while the body is keyframed (0x00457790)}],
 //    "vehicles": [{"id", "kind": goliath / saucer / mini_zeppelin / colossus / rocket_tower / rocket_tower_turret /
 //                 rocket_bud (by vtable), "pos", "health", "state"}],
 //    "companions": [[x, y, z, health] | null, ...] (Jonesy, Q),
@@ -216,6 +216,9 @@ std::string Body()
             else
                 o += "null";
             o += ",\"class\":" + std::to_string(At<uint32_t>(g, 0));
+            // the body keyframed (Body_isKeyframed 0x00457790: held where the AI puts it, no gravity) or dynamic
+            if (At<uint32_t>(g, 0x1c4))
+                o += ",\"kf\":" + std::to_string(orig::fn_00457790(reinterpret_cast<uint32_t>(g)) & 0xff);
             o += '}';
         }
     }
@@ -411,13 +414,26 @@ const char* Arg(char* buf, uint32_t v)
         sprintf(buf, "%08x#%d", v, Id(reinterpret_cast<void*>(v)));
     else
         sprintf(buf, "%08x", v);
+    // a pointer to text: its first characters ("name)
+    if (Mapped(v, 24))
+    {
+        const char* t = reinterpret_cast<const char*>(v);
+        int n = 0;
+        while (n < 23 && t[n] >= 0x20 && t[n] < 0x7f)
+            ++n;
+        if (n >= 3 && (t[n] == 0 || n == 23))
+        {
+            const size_t at = strlen(buf);
+            snprintf(buf + at, 64 - at, "\"%.*s", n, t);
+        }
+    }
     return buf;
 }
 
 // regs: the pushad block (edi, esi, ebp, esp, ebx, edx, ecx, eax), then the return address and the stack arguments
 void __stdcall OnCall(int slot, const uint32_t* regs)
 {
-    char c[24], a[24], d[24], b[24], s0[24], s1[24], s2[24];
+    char c[64], a[64], d[64], b[64], s0[64], s1[64], s2[64];
     Log("call %s since %d play %d from %08x ecx %s eax %s edx %s ebx %s args %s %s %s", g_callNames[slot],
         TestFramesSinceLoad(), TestFramesSincePlay(), regs[8], Arg(c, regs[6]), Arg(a, regs[7]), Arg(d, regs[5]),
         Arg(b, regs[4]), Arg(s0, regs[9]), Arg(s1, regs[10]), Arg(s2, regs[11]));
