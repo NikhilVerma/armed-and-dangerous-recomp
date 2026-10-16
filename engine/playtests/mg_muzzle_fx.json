@@ -1,0 +1,16 @@
+{"scene": "lev_1_m1", "steps": [
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 0.5},
+ {"cheat": "SHIELDME"}, {"cheat": "NDMRBLTS"},
+ {"loadout": {"mg": 900, "use_mg": true}}, {"wait": 1.0},
+ {"note": "before"},
+ {"hold_mouse": "Left"}, {"wait": 2.0},
+ {"expect": {"fx.started.fx_muzzle_flash_flemming": 1}},
+ {"wait": 13.0},
+ {"note": "firing"},
+ {"expect": {"fx.started.fx_muzzle_flash_flemming": 1, "shots": [100, 200], "fx.started.fx_flem_shell": [100, 400]}},
+ {"release_mouse": "Left"}, {"wait": 3.0},
+ {"expect": {"fx.started.fx_flem_shell": {"as": "firing", "margin": 60}}},
+ {"hold_mouse": "Left"}, {"wait": 1.0}, {"release_mouse": "Left"}, {"wait": 1.0},
+ {"expect": {"fx.started.fx_muzzle_flash_flemming": 2}},
+ {"quit": true}
+]}

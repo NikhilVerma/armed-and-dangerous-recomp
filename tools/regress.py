@@ -31,6 +31,8 @@ SUITE = ['save_write', 'save_read', 'topsyhit2', 'turn_in_place', 'turret1', 'de
          'cheats', 'campaign_next', 'campaign_chain', 'campaign_save', 'campaign_movie', 'campaign_end', 'campaign_extras',
          'defence_l1m4', 'defence_l1m4_fail', 'defence_l2m4', 'defence_l3m4', 'defence_l4m5', 'defence_l5m5',
          'vehicles_rocket_tower', 'vehicles_rocket_bud', 'vehicles_zeppelin', 'vehicles_saucer', 'vehicles_colossus', 'vehicles_forge_cannon']
+# the machine gun's held muzzle fx (one per burst, released when firing stops)
+SUITE += ['mg_muzzle_fx']
 # 'launch_*': the real launch path as the player plays (the Remaster preset chosen by the options, the intro, the
 # title menu): New Game shows the world (menu art gone, every camera on one target, the strips beside the 4:3 centre
 # not black), Abandon -> title -> New Game in-process, the Graphics page applies, Restart / Quick Load / Restart from

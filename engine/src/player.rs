@@ -145,6 +145,11 @@ pub struct Roman {
     pub mg_held: f32,
     /// this frame's wanted horizontal velocity (the drive's input; the slide fx needs it below 2 units/s)
     pub wish_h: f32,
+    /// a rapid-fire weapon's held muzzle fx (fx_muzzle_flash_flemming loops its flash and shell casings): the anchor
+    /// it follows, and the frames since the last shot (vt+0x154 0x004a1f20 starts it once; the weapon update 0x004a1dd0
+    /// releases it the frame after the last shot)
+    pub muzzle_fx: Option<Entity>,
+    pub muzzle_idle: u8,
 }
 
 #[derive(Clone)]
@@ -552,6 +557,8 @@ pub fn make_roman(physics: &mut Physics, p: &Props, data: &GameData, feet: Vec3,
         fire_delay: 0.0,
         mg_held: 0.0,
         wish_h: 0.0,
+        muzzle_fx: None,
+        muzzle_idle: 0,
     })
 }
 
@@ -1187,11 +1194,24 @@ fn weapons(
             let wp = data.props(props);
             let bullet = data.props(&format!("p_{}", wp.s("projectile_name").unwrap_or("player_rifle_bullet")));
             // the fire (vt+0x140 0x004a23e0): the projectile, then the muzzle effect (vt+0x154 0x004a1f20: one-shot on
-            // muzzle_bone_name; the rapid-fire machine gun's runs while firing and is released by the weapon update
-            // 0x004a1dd0 on the frame after the last shot: here one per shot, a labelled approximation)
+            // muzzle_bone_name; the rapid-fire machine gun's is started once, runs while firing and is released by the
+            // weapon update 0x004a1dd0 on the frame after the last shot: its loop makes the flashes and the casings)
             spawn_projectile(&mut commands, &mut fx, &bullet, from, dir, true, Some(e));
             if let Some(m) = wp.s("muzzle_fx_name") {
-                fx.write(crate::fx::StartFx { name: m.to_owned(), at: from, rotation: Transform::IDENTITY.looking_to(dir, Vec3::Y).rotation, follow: None, position_only: false });
+                let rotation = Transform::IDENTITY.looking_to(dir, Vec3::Y).rotation;
+                if wp.i("rapid_fire", 0) == 0 {
+                    fx.write(crate::fx::StartFx { name: m.to_owned(), at: from, rotation, follow: None, position_only: false });
+                } else {
+                    r.muzzle_idle = 0;
+                    if r.muzzle_fx.is_none() {
+                        // the anchor rides with Roman (the hand's position at the shot, kept relative to him)
+                        let local = Transform::from_translation(t.rotation.inverse() * (from - t.translation)).with_rotation(t.rotation.inverse() * rotation);
+                        let anchor = commands.spawn((local, Visibility::default())).id();
+                        commands.entity(e).add_child(anchor);
+                        fx.write(crate::fx::StartFx { name: m.to_owned(), at: from, rotation, follow: Some(anchor), position_only: false });
+                        r.muzzle_fx = Some(anchor);
+                    }
+                }
             }
             // (the rifle's fire sound comes from its muzzle fx, fx_muzzle_flash_hawkings op 0x39: the original's sound
             // log has one wpn_rome_rifle_fire per shot)
@@ -1200,6 +1220,15 @@ fn weapons(
         // Fire is up (0x004788a0 at 0x0047a555)
         if !switching {
             r.mg_held = if !fire { 0.0 } else if mg { r.mg_held + dt } else { r.mg_held };
+        }
+        // the held muzzle fx goes the frame after the firing stops (Fire up, a switch, a reload)
+        if let Some(anchor) = r.muzzle_fx {
+            let firing = fire && mg && !switching && r.reload_clock.is_none();
+            r.muzzle_idle = if firing { 0 } else { r.muzzle_idle.saturating_add(1) };
+            if r.muzzle_idle >= 2 {
+                commands.entity(anchor).despawn();
+                r.muzzle_fx = None;
+            }
         }
         // nothing more while switching or reloading (game_06.cpp:2874 / 2884: vt+0x164 -> done)
         if switching {
