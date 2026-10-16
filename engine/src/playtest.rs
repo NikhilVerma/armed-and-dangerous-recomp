@@ -133,7 +133,7 @@ pub struct Event {
     #[serde(default)]
     pub probe: Option<[f32; 5]>,
     /// debug: land beside the placed object with this instance id, [id, distance]: of eight points round it at that
-    /// distance, the one whose ground is nearest the object's own height (logged as land), facing it
+    /// distance, the one whose ground is nearest the object's own height (logged as land), facing it; a pub: its doorway
     #[serde(default)]
     pub land_by: Option<[f32; 2]>,
     /// bot: walk to this point (game space x, y, z: as the scene files give positions)
@@ -377,11 +377,18 @@ fn warp(
     mut bot: ResMut<crate::bot::Bot>,
     mut roman: Query<(&mut crate::player::Roman, &mut Transform)>,
     objects: Query<(&crate::level::InstanceId, &GlobalTransform)>,
+    mission: Option<Res<crate::mission::Mission>>,
 ) {
     if let Some((id, d)) = pt.land_by.take() {
-        match objects.iter().find(|(i, _)| i.0 == id) {
-            Some((_, at)) => pt.warp = land_beside(&physics, at.translation(), d),
-            None => warn!("EVENT playtest: land_by: no object {id}"),
+        // a pub: at its doorway, where Use enters it
+        let door = mission.as_ref().and_then(|m| m.pub_door(id)).map(|at| {
+            let g = crate::level::game_to_engine().inverse() * at;
+            [g.x, g.y, f32::NAN, 0.0]
+        });
+        match (door, objects.iter().find(|(i, _)| i.0 == id)) {
+            (Some(w), _) => pt.warp = Some(w),
+            (None, Some((_, at))) => pt.warp = land_beside(&physics, at.translation(), d),
+            (None, None) => warn!("EVENT playtest: land_by: no object {id}"),
         }
     }
     if let Some([x0, y0, x1, y1, step]) = pt.probe.take() {
