@@ -463,6 +463,9 @@ walk out in engine/src/ai.rs (`Grunt::exit`).
   delay +0x574 = min + rand() * (max - min) / 32768. The mini barracks model (anims/grunt_barracks_mini_0.json) has
   one `ref_spawn_00` (local (0, 0.10, 2.78): inside, at the centre) and one `ref_exit_00` (local (0.24, -46.26,
   0.14): 46 units out of the door). World: barracks 25 exit (-233.1, -403.4), barracks 235 exit (306.1, -605.2).
+  The matrices are the template's anim slot's (templates.json default_anim), not the model's: `invisible_barracks`
+  (model "nothing", on ten levels) has its ref_spawn_00 / ref_exit_00 in grunt_generator_base (lev_4_m2 284 releases
+  12 troops a second apart from load, 2026-10-16).
 - **Triggers** `BarricadeObject_Slot14` 0x0040d1b0: activate sets +0x460 bit 3 (releasing) and clears +0x534 (used
   up: a second send does nothing); deactivate clears bit 3; reset sets bit 3 and refills the counts. Damage while
   +0x534 is still set also sets bit 3 (`BarricadeObject_Slot52` 0x0040ce40). lev_1_m1 has only activate edges
