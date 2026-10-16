@@ -577,6 +577,8 @@ fn in_bullet_list(p: &Props) -> bool {
     let listed = match p.s("behavior").unwrap_or("") {
         "building" => !(flag("invisible") || flag("base_defend")),
         "tree" | "fx_explosion" | "rocket_tower_turret" => true,
+        // PeasantObject_Load links +0xe9c / +0xef8 / +0xefc only: bullets pass the peasants
+        "peasant" => false,
         "" => (flag("takes_damage") || flag("blocks_projectiles")) && !flag("no_collide") && !flag("collide_barrier"),
         _ => true,
     };
@@ -710,7 +712,10 @@ pub fn spawn(
             continue;
         }
         // (the big red arrow over the pub is drawn: the original shows it until trigger 900 removes it)
-        if matches!(behavior, "broadcast" | "fx_ear") || inst.template == "marker" {
+        // a trigger volume is hidden unless its set has "visible" (TriggerObject_Load 0x00497460: vt+0xf4(0) when not
+        // set): the door mats (p_doormat, visible 1) are drawn, the bb_* boxes are not
+        let shown_volume = behavior == "broadcast" && p.f("visible", 0.0) != 0.0;
+        if (matches!(behavior, "broadcast" | "fx_ear") && !shown_volume) || inst.template == "marker" {
             continue;
         }
         // the placement's scale is not applied: the original draws scaled placements (the archways' 0.5, pine trees'
@@ -960,6 +965,16 @@ pub fn spawn(
         let triggers = if behavior.is_empty() { ObjectTriggers::of(&p) } else { ObjectTriggers::default() };
         let husk = pick_husk(&p, &mut husk_rng);
         commands.entity(e).insert((Placed { template: inst.template.clone(), collider, husk, triggers }, bounds, crate::hud::AimClass::of(&p)));
+        // a peasant to rescue (peasant.rs, PeasantObject_Load 0x004056b0), ordered on the object list by his entry
+        if behavior == "peasant" {
+            let peasant = crate::peasant::Peasant::from_props(&p, &inst.template, inst.id);
+            commands.entity(e).insert((peasant.health(&p), crate::fx::BlastProof, peasant));
+        }
+        // a door mat (a drawn trigger volume): its death slot kills it when it banks a peasant (one_shot: 0x00497620 ->
+        // Object_Kill 0x00455640, its fx_death and husk); nothing damages it (TriggerObject has no damage list)
+        if shown_volume {
+            commands.entity(e).insert((crate::peasant::Mat, crate::peasant::mat_health(&p)));
+        }
         // a trench (behavior "barracade", BarricadeObject): its cover slot for the grunts (ai.rs Barricade): ref_exit
         // (0x0040dcb0) and ref_barracade (0x0040dd10) from its reference anim; the direction is -(the node's y axis),
         // the nodes' rotations being identity in trench_0

@@ -1,0 +1,20 @@
+{
+ "about": "lev_4_m2 peasant rescue: Roman warped on the ground 30 units east of peasant 291 (peasant_man at (130, -187, 117.7)), facing +x, walks backwards (S) past him and onto door mat 314 (one_shot, on_enter 7000 = peasant_saved_trigger) at (70, -197). The peasant is captured when Roman's body meets his trigger sphere (0x00406210; the sphere of sphere_radius 20 centred 20 above him, 0x004574e0: original frame 52, 16.7 units off), tied as a ragdoll on the rope (0x00405d10: the rope takes the distance, reels in at 5 units / s to 3; the pelvis is pulled when beyond it), and banked at the mat (MissionObject_OnTrigger 0x0044d600: saved 1 at frame 160, the peasant and the one-shot mat killed, ui_peasant_release). Ends at 200, after the bank (the gunners' fight after that is the grunts' business)",
+ "level": "lev_4_m2",
+ "keys": "0:ENTER*3,30:31*150",
+ "warp": [
+  160,
+  -185,
+  116.5
+ ],
+ "frames": 200,
+ "trace_every": 2,
+ "trace_from": -60,
+ "suite": true,
+ "known": {
+  "companion.jonesy.pos": "C1: a companion 12-13 units from the original's (follow distance / start spot), just past the tolerance",
+  "companion.q.pos": "C1, as companion.jonesy.pos",
+  "roman.health": "G1: the machine gunner 364 on its stig_mgun (state 0x7d) hits the original's Roman once at frame 188 (25); the remaster's gunner has him as target and fires without a hit (turret / gunner spread)",
+  "events.sounds": "B17 rest (load-time sounds outside one game's traced window, random ambient picks, the grunts' and the gunners' fire)"
+ }
+}

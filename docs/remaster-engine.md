@@ -245,7 +245,8 @@ Per level (first divergence frame in brackets; families not listed are the same 
 | lev_bonus_m3 | B9, B4, B3 Jonesy, B10 grunt 201, B17 water footsteps (12), C1 Q (168) | |
 
 Also from the remaster's own logs on these runs (`not ported` lines in remaster.out): mission `peasant_max_saved` /
-`peasant_max_casualties` (lev_2_m3, lev_3_m1, lev_3_m3, lev_4_m1, lev_4_m2, lev_bonus_m2), ticker sites'
+`peasant_max_casualties` (lev_2_m3, lev_3_m1, lev_3_m3, lev_4_m1, lev_4_m2, lev_bonus_m2: ported 2026-10-16, peasant.rs),
+ticker sites'
 `lock_parent_tag` (0x0044e120: lev_3_m1, lev_4_m1), fx vm opcodes 0x4c (lev_3_m3, lev_5_m1, lev_5_m3, lev_bonus_m1,
 lev_bonus_m2) and 0x62 (lev_5_m1..m3).
 
@@ -935,6 +936,25 @@ made, killed, bombs, idle, emerging, running, generators, left); playtest step `
 the next roll of every monk with a target). Tests: playtests twiglets, monk_summon (regress); oracle twiglets_l4m1
 (suite: PASS with B6 known). The run's speed is the original's drive on a wood body with a fitted friction
 (`ground_speed`, documented in the subsystem doc): label it if the fit is ever replaced by a real contact model.
+
+## Peasants (2026-10-16)
+
+engine/src/peasant.rs (PeasantPlugin), docs/subsystems/peasants.md: the rescue levels (lev_2_m3, lev_3_m1, lev_3_m3,
+lev_4_m1, lev_4_m2, lev_bonus_m2). `Peasant` (PeasantObject 0x005a8550: placed by level.rs, or held in a squad
+goliath's cage by goliath.rs and freed when it dies), captured when Roman meets his trigger sphere (a sphere of
+sphere_radius centred that high above him, 0x004574e0; Roman's reach `ROMAN_BODY_*` fitted to the original), tied as a
+ragdoll on a rope chain (0x00405d10: `Rope`, `choose_leader`, a hard key-frame of the pelvis; ragdoll.rs `Build` gives
+him small parts and joints with friction, so he stands until pulled), banked by a door mat (MissionObject_OnTrigger
+0x0044d600: the mat's sender comes with mission.rs `VolumeSent`; a one-shot mat banks one and dies), lost through his
+kill slot (0x004062a0: failure state 8, `Mission::fail_state`). `PeasantTally` holds Game+0x26e0..+0x26f8. Also: door
+mats are drawn (a broadcast with "visible"), bullets and blasts pass peasants (none of the damage lists), the compass
+prefers World+0xefc (`CompassList`: peasants not yet tied), the HUD's rescue counters (hud.rs `PeasantCounters`; the
+ui_peasant icon no longer shows on every level), a tied peasant ends a bully. State log `peasants` (carried, saved,
+casualties, alive, hud, list by id: captured, tied, link, held, x / y / z; a cage peasant is `c<1000000 + squad id>`).
+Tests: playtests peasants_l2m3, peasants_bonus_m2, peasants_lost_l4m2, peasants_cage_l3m1 (regress); oracle
+peasant_l4m2 (suite: every peasant family same, capture frame 52 in both, bank 158 vs 160). Fitted (labelled in the
+code): Roman's reach (two probes) and the joints' friction (the original's strength scaled by the weight). Found: the
+original's Roman stands ~40 frames after landing from a 9-unit drop, the remaster's walks at once (open, player.rs).
 
 ## Running tests without disturbing the desktop
 
