@@ -7,13 +7,8 @@
  "trace_from": -60,
  "suite": false,
  "known": {
-  "companion.jonesy.pos": "B3: placement height (force_ground) differs: a grunt / companion on another surface",
   "companion.q.pos": "C1: a companion 12-13 units from the original's (follow distance / start spot), just past the tolerance",
   "events.sounds": "B17: sounds the remaster does not start (or does not report): the pubs' amb_pub_exterior_lp at load, sheep, zeppelin creaks, shrub bomber loop, water footsteps",
-  "grunt.health": "B10: squad 198 starts on trigger 7000 at load; the remaster's 20 more frames before the start message turn its formation further, so members pair with the wrong slot (a captain with a grunt) at the first line",
-  "grunt.pos": "B10: the start message comes 20 frames after the load in the remaster, at once in the original (grunts walk 20 more frames)",
-  "roman.clip": "B9: the remaster starts on the rifle; the original holds the machine gun (weapon 0, clip 100) the mission gives (player_add_machinegun 1)",
-  "roman.heading": "B4: Roman's model heading ignores the start facing (look yaw is right)",
-  "roman.weapon": "B9: the remaster starts on the rifle; the original holds the machine gun (weapon 0, clip 100) the mission gives (player_add_machinegun 1)"
+  "grunt.pos": "B21: grunts on a marker walk (state 0x96) set off ~18 frames after the unpause in the original, at once in the remaster (AI)"
  }
 }

@@ -9,11 +9,8 @@
  "known": {
   "events.deaths": "B20: lev_5_m1: an id-0 object dies at 74 in the original only (open)",
   "events.sounds": "B17: sounds the remaster does not start (or does not report): the pubs' amb_pub_exterior_lp at load, sheep, zeppelin creaks, shrub bomber loop, water footsteps",
-  "grunt.mind": "E1: the window-dive grunts of houses 33 / 38 start on trigger 1 at load; the original's start movie pause (E1) holds their move until frame ~42, the remaster's ends at once, so the dive ends ~40 frames earlier",
-  "grunt.pos": "B3: placement height (force_ground) differs: a grunt / companion on another surface",
-  "roman.clip": "B9: the remaster starts on the rifle; the original holds the machine gun (weapon 0, clip 100) the mission gives (player_add_machinegun 1)",
-  "roman.heading": "B4: Roman's model heading ignores the start facing (look yaw is right)",
-  "roman.weapon": "B9: the remaster starts on the rifle; the original holds the machine gun (weapon 0, clip 100) the mission gives (player_add_machinegun 1)"
+  "grunt.pos": "B3b: the grunt is placed as the original (force_ground's lift out of the overhang) but falls in the remaster; the original's stays (its body not woken)",
+  "grunts.alive": "B12: building IC grunts present at load in the original (id 0, state 0x64 at the houses) are not created"
  },
  "expected": {
   "paused": "E1: movies off in both, but the original's start movie still pauses and takes the first ENTER (its briefing follows it); the remaster's missing movie ends at once",

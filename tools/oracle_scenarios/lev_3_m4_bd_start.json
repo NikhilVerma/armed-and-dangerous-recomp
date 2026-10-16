@@ -8,10 +8,7 @@
  "suite": true,
  "known": {
   "events.sounds": "B17: sounds the remaster does not start (or does not report): the pubs' amb_pub_exterior_lp at load, sheep, zeppelin creaks, shrub bomber loop, water footsteps",
-  "events.triggers": "B10: base-defence start: the original's start message comes 279-399 frames after the load (after triggers 2, 90-94), the remaster's after 20: its timed triggers and army waves come ~350 play frames later",
-  "grunts.alive": "B10: base-defence start: the original's start message comes 279-399 frames after the load (after triggers 2, 90-94), the remaster's after 20: its timed triggers and army waves come ~350 play frames later",
-  "roman.clip": "B9: the remaster starts on the rifle; the original holds the machine gun (weapon 0, clip 100) the mission gives (player_add_machinegun 1)",
-  "roman.heading": "B4: Roman's model heading ignores the start facing (look yaw is right)",
-  "roman.weapon": "B9: the remaster starts on the rifle; the original holds the machine gun (weapon 0, clip 100) the mission gives (player_add_machinegun 1)"
+  "events.triggers": "B10 residual: the start text comes at remaster frame 4 (original 0): trigger 6 lands on the trace's last frame in the remaster only",
+  "grunts.alive": "B22: the defence army's first release comes in the original only within 10 s (army.rs: its timers list 0 platoons)"
  }
 }

@@ -27,7 +27,9 @@
 //!   fx "FX_platoon_<kind>_die", trigger 0x1b (27).
 //! - The ladder grunts (Marker_ProcessArrival 0x0044ba30 "ic_*" actions -> BowGruntObject vt+0x248 0x0043ab40):
 //!   at ic_plant_ladder (spline flag 0x10 clear) "mover_grunt_ladder_plant", at ic_climb_ladder (flag set)
-//!   "mover_grunt_ladder_climb", whose notes send trigger 5000 and deactivate the grunt.
+//!   "mover_grunt_ladder_climb", whose notes send trigger 5000 and deactivate the grunt; at ic_scale_base_wall (the
+//!   marker sets' splines) one of "mover_grunt_scale" .. "_4" at random (GruntObject's 0x0043bcf0 likewise), the same
+//!   way over the wall.
 //!
 //! Hooks outside this file: level.rs SpawnGrunt::army (the orders inserted on the grunt), main.rs (plugin).
 
@@ -722,6 +724,7 @@ fn army_grunts(
     mut triggers: MessageWriter<crate::mission::SendTrigger>,
     mut fx: MessageWriter<crate::fx::StartFx>,
     mut done: crate::levelreset::PerLevel<HashSet<Entity>>,
+    mut rng: ResMut<crate::fx::FxStats>,
 ) {
     let dt = time.delta_secs();
     let seen = done.get();
@@ -801,20 +804,24 @@ fn army_grunts(
             ag.script = Some(s);
             continue;
         }
-        // arriving at an ic_* marker of its ladder spline (within the AI's arrival distance, 8)
-        let (Some(tag), Some(run), Some(mk)) = (ag.ladder, g.spline, markers.as_deref()) else { continue };
-        if run.tag != tag {
-            continue;
-        }
+        // arriving at an ic_* marker of its spline (within the AI's arrival distance, 8): its ladder spline, or the
+        // marker set's spline with the wall scales
+        let (Some(run), Some(mk)) = (g.spline, markers.as_deref()) else { continue };
+        let tag = run.tag;
         let Some(m) = mk.spline_marker(tag, run.index) else { continue };
         if m.flags & crate::alarm::Marker::IC == 0 || (m.pos - pos).with_y(0.0).length() >= 8.0 {
             continue;
         }
+        let on_ladder = ag.ladder == Some(tag);
         let planted = army.planted.contains(&tag);
         let next = (run.index + 1 < mk.spline_len(tag)).then_some(SplineRun { tag, index: run.index + 1, started: true });
+        // the interaction types of GruntObject / BowGruntObject vt+0x248 (0x0043bcf0 / 0x0043ab40): 0 plant, 1 climb,
+        // 2 one of the four wall scales by (rand() << 2) >> 15 (their last note: trigger 5000 and deactivate)
+        const SCALES: [&str; 4] = ["mover_grunt_scale", "mover_grunt_scale_2", "mover_grunt_scale_3", "mover_grunt_scale_4"];
         let script = match m.action.to_lowercase().as_str() {
-            "ic_plant_ladder" if !planted => Some(("mover_grunt_ladder_plant", true)),
-            "ic_climb_ladder" if planted => Some(("mover_grunt_ladder_climb", false)),
+            "ic_plant_ladder" if on_ladder && !planted => Some(("mover_grunt_ladder_plant", true)),
+            "ic_climb_ladder" if on_ladder && planted => Some(("mover_grunt_ladder_climb", false)),
+            "ic_scale_base_wall" => Some((SCALES[((rng.rand() * 4.0) as usize).min(3)], false)),
             _ => None,
         };
         match script {

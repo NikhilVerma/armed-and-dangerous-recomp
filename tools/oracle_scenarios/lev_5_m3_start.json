@@ -9,10 +9,6 @@
  "known": {
   "companion.q.pos": "C1: a companion 12-13 units from the original's (follow distance / start spot), just past the tolerance",
   "events.sounds": "B17: sounds the remaster does not start (or does not report): the pubs' amb_pub_exterior_lp at load, sheep, zeppelin creaks, shrub bomber loop, water footsteps",
-  "grunt.pos": "B3: placement height (force_ground) differs: a grunt / companion on another surface",
-  "roman.clip": "B9: the remaster starts on the rifle; the original holds the machine gun (weapon 0, clip 100) the mission gives (player_add_machinegun 1)",
-  "roman.heading": "B4: Roman's model heading ignores the start facing (look yaw is right)",
-  "roman.weapon": "B9: the remaster starts on the rifle; the original holds the machine gun (weapon 0, clip 100) the mission gives (player_add_machinegun 1)",
-  "vehicle.pos": "V1: the saucers / mini zeppelins on mover paths started at load run ~78 frames ahead along the same path in the remaster (positions within 1-5 units at that offset): the original's path starts ~30 frames after the start message (vehicles/boss.rs, icobject.rs)"
+  "grunt.pos": "B3b: the grunt is placed as the original (force_ground's lift out of the overhang) but falls in the remaster; the original's stays (its body not woken)"
  }
 }

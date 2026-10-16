@@ -21,3 +21,4 @@ address,name,disposition,reason
 0x0040fab0,fn_0040fab0,replaced,"the camera mode +0x88 (2 free, 3 look-at): camera.rs follow_camera picks follow / death itself; the free camera is flycam.rs"
 0x00475840,fn_00475840,replaced,"the player's zoom flag +0xacc: Roman::zoom (the blend weight) in player.rs, read by camera.rs"
 0x0040e270,fn_0040e270,not needed,"counts down the hint-camera counter +0x168 and resets the game time scale at 0 (0x00403aa0 1.0): +0x168 is only ever cleared (Camera_Reset game_01.cpp:2232, nothing in the recovered code sets it), so the call (Camera_Update when the target is not alive, vt+0xd8 false) returns at once"
+0x0040fa70,fn_0040fa70,not needed,"copies the camera matrix (+0x8c) for the vindaloo's rocket fan (0x004a2550): the rocket launcher is not ported; the camera's GlobalTransform where needed"

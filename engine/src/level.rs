@@ -635,16 +635,6 @@ pub fn spawn(
         let placed = scene::game_matrix(&inst.transform);
         let (_, r, tr) = placed.to_scale_rotation_translation();
         let mut world = axes * Mat4::from_rotation_translation(r, tr);
-        // force_ground (Object_ForceGround 0x00455860 with (1000, 10000)): raised 1000 units, a ray cast down
-        // 10000 that sees only the landscape, placed at the hit + 0.1 (the penetration bisection that follows is not
-        // ported)
-        if p.f("force_ground", 0.0) != 0.0 {
-            let at = world.w_axis.truncate();
-            if let Some(hit) = physics.raycast_landscape(at + Vec3::Y * 1000.0, -Vec3::Y, 10000.0) {
-                world.w_axis.y = hit.y + 0.1;
-            }
-        }
-        let (_, rot, pos) = world.to_scale_rotation_translation();
         // the grunts this object hides (ai/ic.rs: buildings, trees, powder kegs), at the nodes of its reference anim
         // (the template's default anim: Anim_Set 0x81 at load; 0x00453c50 reads its matrices)
         if !ai::ic::sources(behavior).is_empty() {
@@ -671,6 +661,18 @@ pub fn spawn(
         let Some(model) = lib.load_model(&inst.model, background, assets, meshes, materials) else { continue };
         let (scale, _, _) = world.to_scale_rotation_translation();
         let bounds = Bounds { center: (model.min + model.max) * 0.5, radius: (model.max - model.min).length() * 0.5 * scale.max_element() };
+        // force_ground (Object_ForceGround 0x00455860 with (1000, 10000), from the base load 0x004517b0): onto the
+        // landscape under the placement; a character's body (the sphere of collision_radius, 0x004527d0) is lifted out
+        // of the landscape it touches there, by steps of its bounding radius (vt+0x90; the model's bounds here: guess).
+        // physics.rs force_ground
+        if p.f("force_ground", 0.0) != 0.0 {
+            let character = p.has("mode") && ai::Kind::from_template(&inst.template).is_some();
+            let sphere = character.then(|| p.f("collision_radius", 4.0));
+            if let Some(at) = physics.force_ground(world.w_axis.truncate(), 1000.0, 10000.0, sphere, bounds.radius) {
+                world.w_axis.y = at.y;
+            }
+        }
+        let (_, rot, pos) = world.to_scale_rotation_translation();
         let mut e = commands.spawn((Transform::from_matrix(world), Visibility::default(), Name::new(inst.template.clone()), InstanceId(inst.id)));
         if background {
             e.insert(Background);
