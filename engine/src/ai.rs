@@ -1078,14 +1078,18 @@ fn log_cover(grunts: Query<&Grunt>, trenches: Query<(&Barricade, &crate::level::
 /// grunt nearest Roman (its state, class, stance, reaction, whether it targets him).
 /// The state log's "grunt_ids" (playtest expects, e.g. "grunt_ids.286.mind": "Dead"): every placed AI (a level
 /// instance, not a troop made in play) by instance id: game-space position, mind, health.
-fn log_placed(grunts: Query<(&Grunt, &GlobalTransform, &crate::level::InstanceId, Option<&crate::fx::Health>)>, state: Option<ResMut<crate::playtest::PlayState>>) {
+fn log_placed(
+    grunts: Query<(&Grunt, &GlobalTransform, &crate::level::InstanceId, Option<&crate::fx::Health>, Has<crate::skin::Animator>, Has<crate::physics::Body>)>,
+    state: Option<ResMut<crate::playtest::PlayState>>,
+) {
     let Some(mut state) = state else { return };
     let out: serde_json::Map<String, serde_json::Value> = grunts
         .iter()
-        .map(|(g, t, id, h)| {
+        .map(|(g, t, id, h, animated, body)| {
             let p = t.translation();
             let pos = [p.x.round(), (-p.z).round(), p.y.round()];
-            (id.0.to_string(), serde_json::json!({"pos": pos, "mind": format!("{:?}", g.mind), "health": h.map(|h| h.0.round())}))
+            // (rigged: the crosshair and bullets test his parts; a body: his capsule)
+            (id.0.to_string(), serde_json::json!({"pos": pos, "mind": format!("{:?}", g.mind), "health": h.map(|h| h.0.round()), "rigged": animated, "body": body}))
         })
         .collect();
     state.0.insert("grunt_ids".into(), out.into());
