@@ -162,7 +162,8 @@ pub struct Event {
     pub near: Option<f32>,
     /// steps only: wait until the game shows a paused message (the briefing): "message", max 60 s; or until no movie
     /// plays: "movie_done", max 600 s; or until a restarted level has left its loading screen: "loaded", max 30 s; or
-    /// until a mission trigger has been sent: "trigger:456", max the step's "wait" (default 600 s)
+    /// until a mission trigger has been sent: "trigger:456", max the step's "wait" (default 600 s); or until a placed
+    /// AI or object is dead or gone: "dead:286", max the step's "wait" (default 60 s)
     #[serde(default)]
     pub until: Option<String>,
     /// steps only: wait this many seconds
@@ -624,6 +625,14 @@ pub(crate) fn drive(
         } else if st.until.as_deref() == Some("loaded") {
             // a restarted level has left its loading screen (levelreset.rs "loading"); max 30 s
             (pt.step_t > 0.1 && state.0.get("loading").and_then(|v| v.as_bool()) != Some(true)) || pt.step_t > 30.0
+        } else if let Some(id) = st.until.as_deref().and_then(|u| u.strip_prefix("dead:")) {
+            // a placed AI or object is dead or gone (the state log's grunt_ids / objects); max the step's "wait"
+            // (default 60 s): a fixed wait after each try of a shoot order would run on after the kill
+            let ai = state.0.get("grunt_ids").and_then(|m| m.get(id));
+            let obj = state.0.get("objects").and_then(|m| m.get(id));
+            let dead = ai.is_some_and(|g| g.get("mind").and_then(|m| m.as_str()) == Some("Dead"))
+                || obj.is_some_and(|o| o.get("husk").and_then(|h| h.as_bool()) == Some(true) || o.get("removed").is_some());
+            dead || pt.step_t > st.wait.unwrap_or(60.0)
         } else if let Some(t) = st.until.as_deref().and_then(|u| u.strip_prefix("trigger:")) {
             // a mission trigger has been sent (the state log's "triggers"); max the step's "wait" (default 600 s)
             let sent = state.0.get("triggers").and_then(|m| m.get(t)).is_some();
