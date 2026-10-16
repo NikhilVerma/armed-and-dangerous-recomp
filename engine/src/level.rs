@@ -766,6 +766,17 @@ pub fn spawn(
             e.insert(Background);
         }
         let e = e.id();
+        // a twiglet tree (twiglet.rs, TwigletGenerator_Slot6 0x0049d3c0): its initial_ic movers start at the nodes of
+        // its reference anim of the same names (0x0049d590: 0x00453c50)
+        if behavior == "twiglet_generator" {
+            let anim_name = tpl.and_then(|t| t.default_anim.clone()).unwrap_or_else(|| inst.model.clone());
+            let anim = skin.lib.anim(&anim_name);
+            let node = |n: &str| {
+                let a = anim.as_ref()?;
+                Some(Mat4::from_rotation_translation(a.rotation(n, 0.0).unwrap_or(Quat::IDENTITY), a.translation(n, 0.0)?))
+            };
+            commands.entity(e).insert(crate::twiglet::Generator::from_props(&p, to_game * world, node));
+        }
         // a rigid model's own anim moving its root (the big red arrow bobs: Center z 20..46, anim bigredarrow_0)
         let mut animated = false;
         if model.skeleton.is_none() {
