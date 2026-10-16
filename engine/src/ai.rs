@@ -2882,9 +2882,11 @@ fn think(
         g.timer -= dt;
         g.ray_timer -= dt;
         // a target farther than 2 x scan_distance is dropped (states 0x3c, 0xa: vt+0x180 0x0043ecf0, which keeps an
-        // army target at any range)
+        // army target at any range; guess: a priority target (the houses of a village attacker) too: the oracle's lev_5_m2
+        // rocket captains walk the 700 units from the first village to the next in state 0x3c holding their target,
+        // which condition of 0x0043ecf0 keeps it (+0x488 flag 4, +0x958, the radius passed) is not traced)
         if let Some(p) = target {
-            if flat(p - pos).length() > 2.0 * g.scan_distance && !g.guard && !g.target.is_some_and(|e| army.contains(e)) {
+            if flat(p - pos).length() > 2.0 * g.scan_distance && !g.guard && !g.target.is_some_and(|e| army.contains(e)) && g.priority_tags.0 == 0 {
                 g.target = None;
             }
         }
