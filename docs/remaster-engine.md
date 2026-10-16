@@ -411,6 +411,17 @@ cost more; waypoints are kept where the straight walk between them would brush s
 prints the planner's map round Roman at each new goal ('.' open, '|' / '-' blocked from the west / north, 'x' no
 ground, '^' / 'v' above / below).
 
+### Level completion (objective chains, 2026-10-16)
+
+`python tools/mission_chain.py LEVEL [--all] [--json]` prints what wins and what fails a level, traced backwards
+from the mission's `receive_trigger_success` / `_failure*` / `_pre_success` / peasant trigger: each trigger's
+senders (instance, event, game position) and what each sender waits on (a counter's count and activate trigger, a
+ticker site's enable trigger, a volume's enable, a timer's delay, an object's kill trigger), and where the player gets
+ticker bombs. `--all` adds the flat trigger graph. Use it to write a level's completion playtest
+(engine/playtests/complete_<level>.json): warp along the route, do each objective's real action, and expect each
+trigger with the state log's `triggers.<id>` (counts of the triggers sent so far). Completion scripts take
+`{"cheat": "SHIELDME"}` so they test the objectives, not survival. Results: docs/journal/2026-10-16-complete-a.md.
+
 ### Widening the original's coverage to a whole level
 
 The port queues (`python tools/port_queue.py`) list only functions the original was seen to execute

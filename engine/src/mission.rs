@@ -504,20 +504,20 @@ struct PubTriggers {
     was_inside: bool,
 }
 
-/// One pub (PubObject, vtable 0x005a1dc8): every pub of a level is its own object with its own door, triggers, visit
-/// and health pool (lev_5_m4 has two: 154 sells the ticker bombs, 175 does not).
+/// One pub (PubObject 0x0046a200): its doorway, trigger fields, whether Roman has been in, and what it has. A level
+/// may place several (lev_1_m3: 119 with the ticker bombs, opened by 804, and 283 by the second village).
 #[derive(Clone, Debug)]
-struct Pub {
-    id: u32,
-    /// the doorway (Ref_entrance) and its radius (doorway_entry_radius)
+pub struct Pub {
+    pub id: u32,
+    /// the Ref_entrance bone's position (engine space) and doorway_entry_radius
     door: Vec3,
     radius: f32,
-    /// send_trigger_exit
+    /// send_trigger_exit, sent when the pub screen is left (0x0046a720)
     exit: i64,
     triggers: PubTriggers,
-    /// visited (the screen opens once per pub)
+    /// entered once: the doorway takes no more entries (0x0046a6f0)
     done: bool,
-    info: PubInfo,
+    pub info: PubInfo,
 }
 
 /// The level state (Game+0xa64 +0xc, set by 0x0044a580, "over" when > 1: 0x0044a590): playing, won (2), failed (3..8).
@@ -587,10 +587,10 @@ pub struct Mission {
     /// a displayed timer's value (ui_mission_timer, drawn by hud.rs mission_time_text)
     pub timer_display: Option<f32>,
     camfx: Vec<CamFx>,
-    /// the level's pubs
+    /// the level's pubs, in instance order
     pubs: Vec<Pub>,
-    /// the pub entered last (its screen, its exit trigger)
-    visiting: Option<usize>,
+    /// the pub Roman went into last (its screen, its exit trigger)
+    entered_pub: Option<usize>,
     /// the player entered a pub: the pub screen opens (gamemenu.rs)
     pub pub_request: bool,
     /// the pub screen was left: send its exit trigger
@@ -714,6 +714,7 @@ pub struct MissionSave {
     pub sites: Vec<(u32, bool, bool)>,
     /// (id, active, left)
     pub barracks: Vec<(u32, bool, i64)>,
+    /// the first pub's state (saves from before `pubs`)
     pub pub_done: bool,
     pub pub_pool: Option<f32>,
     pub compass_tag: i64,
@@ -735,8 +736,7 @@ pub struct MissionSave {
     pub finished: bool,
     #[serde(default)]
     pub alarm_forced: bool,
-    /// (id, visited, health pool, opened) of each pub; older saves have only pub_done / pub_pool / pub_open, for the
-    /// level's first pub
+    /// every pub: (id, entered, health pool left, opened)
     #[serde(default)]
     pub pubs: Vec<(u32, bool, f32, bool)>,
 }
@@ -746,6 +746,12 @@ impl Mission {
     /// grunt_wall_counter_tag, ui_grunt_over_wall_count)
     pub fn counter(&self, id: u32) -> Option<(i64, i64)> {
         self.counters.iter().find(|c| c.id == id && !c.off).map(|c| (c.current, c.count))
+    }
+
+    /// What the pub Roman last went into has (pubscreen.rs: its offers and health pool).
+    pub fn entered_pub_info(&mut self) -> Option<&mut PubInfo> {
+        let i = self.entered_pub?;
+        self.pubs.get_mut(i).map(|p| &mut p.info)
     }
 
     /// The mission start has been shown (MissionObject_ShowStart 0x0044daf0; savegame.rs's first checkpoint).
@@ -813,17 +819,25 @@ impl Mission {
                 }
             }
         }
-        let first = self.pubs.first().map(|p| p.id);
-        let legacy = first.map(|id| (id, s.pub_done, s.pub_pool, s.pub_open));
-        let saved = s.pubs.iter().map(|&(id, done, pool, open)| (id, done, Some(pool), open)).collect::<Vec<_>>();
-        for (id, done, pool, open) in if s.pubs.is_empty() { legacy.into_iter().collect() } else { saved } {
-            let Some(p) = self.pubs.iter_mut().find(|p| p.id == id) else { continue };
-            p.done = done;
-            if let Some(pool) = pool {
-                p.info.pool = pool;
+        if s.pubs.is_empty() {
+            // a save from before every pub was kept: its fields are the (only) first pub's
+            if let Some(p) = self.pubs.first_mut() {
+                p.done = s.pub_done;
+                if let Some(pool) = s.pub_pool {
+                    p.info.pool = pool;
+                }
+                if s.pub_open {
+                    p.triggers.open = 0;
+                }
             }
-            if open {
-                p.triggers.open = 0;
+        }
+        for &(id, done, pool, open) in &s.pubs {
+            if let Some(p) = self.pubs.iter_mut().find(|p| p.id == id) {
+                p.done = done;
+                p.info.pool = pool;
+                if open {
+                    p.triggers.open = 0;
+                }
             }
         }
         self.untagged.extend(s.untagged.iter().copied());
@@ -1112,7 +1126,7 @@ impl Mission {
             timer_display: None,
             camfx,
             pubs,
-            visiting: None,
+            entered_pub: None,
             pub_request: false,
             pub_exit_pending: false,
             barracks,
@@ -1179,24 +1193,15 @@ impl Mission {
         self.tags.get(&self.compass_tag)?.iter().filter(|(id, _)| !self.untagged.contains(id)).map(|(_, p)| *p).min_by(|a, b| a.distance(from).total_cmp(&b.distance(from)))
     }
 
-    /// A pub's doorway (engine space), by the pub's instance id (the playtest's land_by stands there).
-    pub fn pub_door(&self, id: u32) -> Option<Vec3> {
-        self.pubs.iter().find(|p| p.id == id).map(|p| p.door)
-    }
-
-    /// What the pub being visited has (pubscreen.rs).
-    pub fn visited_pub(&self) -> Option<&PubInfo> {
-        self.visiting.and_then(|i| self.pubs.get(i)).map(|p| &p.info)
-    }
-
-    pub fn visited_pub_mut(&mut self) -> Option<&mut PubInfo> {
-        self.visiting.and_then(|i| self.pubs.get_mut(i)).map(|p| &mut p.info)
-    }
-
     /// The placed objects that carry `tag` and have not lost it (dead, armed): the object list's tag search
     /// (0x004592e0) as the AI's priority targets walk it.
     pub fn tagged(&self, tag: i64) -> impl Iterator<Item = u32> + '_ {
         self.tags.get(&tag).into_iter().flatten().map(|(i, _)| *i).filter(|i| !self.untagged.contains(i))
+    }
+
+    /// A pub's doorway (engine space), by the pub's instance id (the playtest's land_by stands there).
+    pub fn pub_door(&self, id: u32) -> Option<Vec3> {
+        self.pubs.iter().find(|p| p.id == id).map(|p| p.door)
     }
 
     /// Whether the placed object `id` carries `tag` (+0x390, Object_GetTag 0x00453290) and has not lost it.
@@ -1321,14 +1326,16 @@ fn state_log(m: Option<Res<Mission>>, state: Option<ResMut<crate::playtest::Play
         .iter()
         .map(|s| (s.id.to_string(), serde_json::json!({"enabled": s.enabled(), "armed": s.armed.is_some(), "done": s.done, "tagged": !m.untagged.contains(&s.id), "alpha": s.shown})))
         .collect();
-    let pubs: Map<String, Value> = m.pubs.iter().map(|p| (p.id.to_string(), serde_json::json!({"open": p.triggers.open == 0, "done": p.done, "pool": p.info.pool}))).collect();
     let counters: Map<String, Value> = m.counters.iter().map(|c| (c.id.to_string(), serde_json::json!({"current": c.current, "off": c.off}))).collect();
     let camfx: Map<String, Value> = m.camfx.iter().map(|c| (c.id.to_string(), serde_json::json!({"running": c.holder.is_some(), "gone": c.gone}))).collect();
     state.0.insert(
         "mission_obj".into(),
         serde_json::json!({
             "volumes": vols, "sites": sites, "counters": counters, "camfx": camfx,
-            "pub_open": m.pubs.first().is_some_and(|p| p.triggers.open == 0), "pub_done": m.pubs.iter().any(|p| p.done), "pubs": pubs,
+            // the first pub (scripts written for one), then every pub by id: open, entered, doorway (game x, y) and its
+            // entry radius
+            "pub_open": m.pubs.first().is_some_and(|p| p.triggers.open == 0), "pub_done": m.pubs.first().is_some_and(|p| p.done),
+            "pubs": m.pubs.iter().map(|p| (p.id.to_string(), serde_json::json!({"open": p.triggers.open == 0, "done": p.done, "door": [p.door.x.round(), (-p.door.z).round(), p.radius]}))).collect::<Map<String, Value>>(),
             "finished": m.finished, "alarm_forced": m.alarm_forced, "ears_done": m.ears_done.len(), "compass_target": m.tags.get(&m.compass_tag).map(|v| v.iter().filter(|(id, _)| !m.untagged.contains(id)).map(|(id, _)| id.to_string()).collect::<Vec<String>>().join(",")), "objectives_id": m.objectives_id,
             "queued": m.queue.len(), "showing": m.showing.is_some(), "failure_text": m.failure_text.clone().unwrap_or_default().chars().take(40).collect::<String>(),
         }),
@@ -1602,18 +1609,21 @@ fn pub_door(ctl: Res<crate::input::Controls>, bot: Res<crate::bot::Bot>, mut m: 
     let (Some(m), Ok(p)) = (m.as_deref_mut(), player.single()) else { return };
     if m.pub_exit_pending {
         m.pub_exit_pending = false;
-        if let Some(exit) = m.visiting.and_then(|i| m.pubs.get(i)).map(|p| p.exit) {
-            m.log.push(format!("pub screen left -> trigger {exit}"));
+        if let Some(p) = m.entered_pub.and_then(|i| m.pubs.get(i)) {
+            let exit = p.exit;
+            m.log.push(format!("pub {} screen left -> trigger {exit}", p.id));
             if exit != 0 {
                 out.write(SendTrigger(exit));
             }
         }
     }
-    let me = p.translation().with_y(0.0);
+    let at = p.translation().with_y(0.0);
+    // each pub's doorway (0x00467b60 per pub object); Roman stands in at most one
+    let mut log = Vec::new();
     let mut prompt = None;
-    for k in 0..m.pubs.len() {
-        let pb = &mut m.pubs[k];
-        let inside = me.distance(pb.door.with_y(0.0)) <= pb.radius;
+    let mut entered = None;
+    for (i, pb) in m.pubs.iter_mut().enumerate() {
+        let inside = at.distance(pb.door.with_y(0.0)) <= pb.radius;
         let stepped_in = inside && !pb.triggers.was_inside;
         pb.triggers.was_inside = inside;
         if pb.done || !inside {
@@ -1621,9 +1631,8 @@ fn pub_door(ctl: Res<crate::input::Controls>, bot: Res<crate::bot::Bot>, mut m: 
         }
         if pb.triggers.open != 0 {
             if stepped_in && pb.triggers.entry_failure != 0 {
-                let t = pb.triggers.entry_failure;
-                m.log.push(format!("pub {} closed -> trigger {t}", m.pubs[k].id));
-                out.write(SendTrigger(t));
+                log.push(format!("pub {} closed -> trigger {}", pb.id, pb.triggers.entry_failure));
+                out.write(SendTrigger(pb.triggers.entry_failure));
             }
             prompt.get_or_insert("ui_pub_fail");
             continue;
@@ -1631,18 +1640,22 @@ fn pub_door(ctl: Res<crate::input::Controls>, bot: Res<crate::bot::Bot>, mut m: 
         prompt.get_or_insert("ui_pub_entry_hint");
         if ctl.pressed(crate::input::Act::Use) || bot.use_key {
             pb.done = true;
+            entered = Some(i);
+            log.push(format!("pub {} entered", pb.id));
             let entry = std::mem::take(&mut pb.triggers.entry);
-            m.visiting = Some(k);
-            m.pub_request = true;
-            m.log.push(format!("pub {} entered", m.pubs[k].id));
             if entry != 0 {
                 out.write(SendTrigger(entry));
             }
-            return;
+            break;
         }
     }
-    if let (Some(key), None) = (prompt, hud.prompt.as_ref()) {
-        hud.prompt = Some(m.hint(key));
+    m.log.extend(log);
+    if let Some(i) = entered {
+        m.entered_pub = Some(i);
+        m.pub_request = true;
+        hud.prompt = None;
+    } else if let (Some(k), true) = (prompt, hud.prompt.is_none()) {
+        hud.prompt = Some(m.hint(k));
     }
 }
 
@@ -1846,8 +1859,8 @@ fn dispatch(
                 }
             }
         }
-        // a pub's open trigger (PubObject_OnTrigger 0x0046a770 clears listen_trigger_open)
-        for p in m.pubs.iter_mut().filter(|p| p.triggers.open == *t) {
+        // the pub's open trigger (PubObject_OnTrigger 0x0046a770 clears listen_trigger_open)
+        for p in m.pubs.iter_mut().filter(|p| p.triggers.open != 0 && p.triggers.open == *t) {
             p.triggers.open = 0;
             blogs.push(format!("pub {} opened", p.id));
         }

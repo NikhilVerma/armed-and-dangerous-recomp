@@ -1,0 +1,10 @@
+{"scene": "lev_1_m1_b", "steps": [
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 0.5},
+ {"cheat": "SHIELDME"},
+ {"land": [520, -420, 200]}, {"wait": 1.0},
+ {"fight": true}, {"until": "message"}, {"fight": false},
+ {"tap": "Enter"}, {"wait": 0.3},
+ {"expect": {"grunt_ids.286.mind": "Dead", "turrets.42.ai": false}},
+ {"save": "l1b_gunner_dead"},
+ {"quit": true}
+]}

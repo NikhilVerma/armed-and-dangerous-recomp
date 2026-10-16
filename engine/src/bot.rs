@@ -20,6 +20,11 @@ use bevy::prelude::*;
 pub struct Bot {
     pub goto: Option<Vec3>,
     pub fight: bool,
+    /// shoot this placed object (instance id) until it is destroyed: a barracks, a house, a gate (the playtest's
+    /// "shoot" order; it takes the place of the grunt targets while it lasts)
+    pub shoot: Option<u32>,
+    /// with `shoot`: sticky bombs at it instead of the gun (buildings take no bullets: fx.rs Destructible filters)
+    pub shoot_bombs: bool,
     pub arrived: bool,
     pub use_key: bool,
     pub stuck_timer: f32,
@@ -243,6 +248,8 @@ struct Target {
     at: Vec3,
     reach: f32,
     feet: Vec3,
+    /// the target is this object: the crosshair on any part of it counts
+    object: Option<Entity>,
 }
 
 /// Whether a shot from Roman's eye reaches `point` (nothing in the way, or what is hit is within `reach` of it).
@@ -285,15 +292,15 @@ fn choose_target(physics: &Physics, view: &View, skip: &[(Vec3, f32)]) -> Option
     let me = view.me;
     let skipped = |p: Vec3| skip.iter().any(|(s, _)| s.distance(p) < 10.0);
     let nearest = |it: &mut dyn Iterator<Item = Target>| it.min_by(|a, b| a.feet.distance(me).total_cmp(&b.feet.distance(me)));
-    let grunt = nearest(&mut view.grunts.iter().filter(|(f, a)| f.distance(me) < FIGHT_RANGE && !skipped(*a) && crate::ai::line_of_sight(physics, me, *f)).map(|&(feet, at)| Target { kind: "grunt", at, reach: 6.0, feet }));
+    let grunt = nearest(&mut view.grunts.iter().filter(|(f, a)| f.distance(me) < FIGHT_RANGE && !skipped(*a) && crate::ai::line_of_sight(physics, me, *f)).map(|&(feet, at)| Target { kind: "grunt", at, reach: 6.0, feet, object: None }));
     if grunt.is_some_and(|g| g.feet.distance(me) < CLOSE) {
         return grunt;
     }
-    let siren = nearest(&mut view.sirens.iter().filter(|s| s.distance(me) < SIREN_REACH && !skipped(**s) && clear_shot(physics, me, **s, 8.0)).map(|&at| Target { kind: "siren", at, reach: 8.0, feet: at }));
+    let siren = nearest(&mut view.sirens.iter().filter(|s| s.distance(me) < SIREN_REACH && !skipped(**s) && clear_shot(physics, me, **s, 8.0)).map(|&at| Target { kind: "siren", at, reach: 8.0, feet: at, object: None }));
     let keg = nearest(&mut view.kegs.iter().filter(|(k, r)| {
         let d = k.distance(me);
         d > r + 50.0 && d < 400.0 && !skipped(*k) && view.grunts.iter().any(|(g, _)| g.distance(*k) < *r) && !blast_reaches(view, *k, 1.0) && clear_shot(physics, me, *k, 6.0)
-    }).map(|&(at, _)| Target { kind: "keg", at, reach: 6.0, feet: at }));
+    }).map(|&(at, _)| Target { kind: "keg", at, reach: 6.0, feet: at, object: None }));
     siren.or(keg).or(grunt)
 }
 
@@ -304,7 +311,8 @@ pub fn think(
     mut bot: ResMut<Bot>,
     grunts: Query<(&crate::ai::Grunt, &GlobalTransform)>,
     pickups: Query<(&crate::pickup::Pickup, &GlobalTransform)>,
-    explosives: Query<(&crate::fx::Destructible, &GlobalTransform)>,
+    explosives: Query<(Entity, &crate::fx::Destructible, &GlobalTransform, Option<&crate::level::InstanceId>)>,
+    placed_ai: Query<(Entity, &crate::ai::Grunt, &GlobalTransform, &crate::level::InstanceId)>,
     physics: NonSend<Physics>,
     roman: Query<(&crate::player::Roman, &Transform, &crate::fx::Health)>,
     mounted: Res<crate::turret::Mounted>,
@@ -338,7 +346,7 @@ pub fn think(
     }
     // no walk or fight step active: the script drives Roman itself (warp, hold_use, keys); the tactics would walk
     // him away (pub_screen: a hurt step set off "retreat" and Roman never reached the pub door)
-    if !bot.fight && bot.goto.is_none() {
+    if !bot.fight && bot.goto.is_none() && bot.shoot.is_none() {
         return;
     }
     // holding Use (setting a ticker bomb, the pub door): stand still, as a player does (a duel's side-step had walked
@@ -353,8 +361,8 @@ pub fn think(
         grunts: live_grunts(&grunts),
         kegs: explosives
             .iter()
-            .filter(|(d, _)| d.area_damage > 0.0 && d.health > 0.0 && d.dying.is_none())
-            .map(|(d, gt)| (gt.translation() + Vec3::Y * 2.0, d.radius_outer))
+            .filter(|(_, d, _, _)| d.area_damage > 0.0 && d.health > 0.0 && d.dying.is_none())
+            .map(|(_, d, gt, _)| (gt.translation() + Vec3::Y * 2.0, d.radius_outer))
             .collect(),
         sirens: alarm.sirens().iter().filter_map(|&e| objects.get(e).ok()).map(|gt| gt.translation() + Vec3::Y * SIREN_CENTRE).collect(),
     };
@@ -372,12 +380,45 @@ pub fn think(
         s.1 -= dt;
     }
     bot.skip_targets.retain(|s| s.1 > 0.0);
-    let target = if bot.fight { choose_target(&physics, &view, &bot.skip_targets) } else { None };
+    // a "shoot" order: that object while it stands (aimed a little above its origin: its base is often in the ground),
+    // else the fight's own pick
+    let ordered = bot.shoot.and_then(|id| {
+        let object = explosives
+            .iter()
+            .find(|(_, d, _, i)| i.is_some_and(|i| i.0 == id) && d.health > 0.0 && d.dying.is_none())
+            .map(|(e, _, gt, _)| Target { kind: "object", at: gt.translation() + Vec3::Y * SHOOT_LIFT, reach: 6.0, feet: gt.translation(), object: Some(e) });
+        // or a placed AI of that id (a gunner, a captain the objective names)
+        let ai = || {
+            placed_ai
+                .iter()
+                .find(|(_, g, _, i)| i.0 == id && g.mind != crate::ai::Mind::Dead)
+                .map(|(e, _, gt, _)| Target { kind: "object", at: gt.translation() + Vec3::Y * GRUNT_CHEST, reach: 6.0, feet: gt.translation(), object: Some(e) })
+        };
+        let found = object.or_else(ai);
+        if found.is_none() {
+            info!("EVENT bot: object {id} destroyed or gone: shoot order done");
+        }
+        found
+    });
+    if ordered.is_none() {
+        bot.shoot = None;
+    }
+    let target = if ordered.is_some() { ordered } else if bot.fight { choose_target(&physics, &view, &bot.skip_targets) } else { None };
     let grunt_target = target.filter(|t| t.kind == "grunt").map(|t| t.feet);
     aim_and_fire(&mut bot, target, &view, &xhair, &rig, dt);
+    bot.throw_timer -= dt;
+    if let (Some(tg), true) = (ordered, bot.shoot_bombs) {
+        // bombs, not bullets: one each time the crosshair rests on it, kept out of the bomb's own blast
+        let ready = bot.fire_ok && bot.throw_timer <= 0.0 && r.stickies > 0 && tg.feet.distance(me) > STICKY_BLAST;
+        bot.fire_ok = false;
+        if ready {
+            info!("bot: sticky bomb at object {} {:.0} away", bot.shoot.unwrap_or(0), tg.feet.distance(me));
+            bot.throw = true;
+            bot.throw_timer = 2.0;
+        }
+    }
     let low = h.0 < r.max_health * 0.35;
     // a sticky bomb (area 100 within 30: a grunt_regular's whole health) at a group, or at anyone while several shoot
-    bot.throw_timer -= dt;
     if let Some(p) = grunt_target {
         let group = view.grunts.iter().filter(|q| q.0.distance(p) < 30.0).count();
         // (only along a clear line: a bomb that meets a wall close by sticks there and hurts Roman; and with the
@@ -447,7 +488,7 @@ fn aim_and_fire(bot: &mut Bot, target: Option<Target>, view: &View, xhair: &crat
     };
     bot.target_kind = tg.kind;
     bot.aim = Some(rig.look_at(me, tg.at));
-    let on = xhair.point.is_some_and(|p| p.distance(tg.at) < tg.reach);
+    let on = xhair.point.is_some_and(|p| p.distance(tg.at) < tg.reach) || (tg.object.is_some() && xhair.object == tg.object);
     bot.off_target = if on { 0.0 } else { bot.off_target + dt };
     if bot.off_target > 1.5 {
         bot.skip_targets.push((tg.at, 4.0));
@@ -582,6 +623,8 @@ const GRUNT_CHEST: f32 = 6.0;
 const SIREN_REACH: f32 = 400.0;
 /// the siren's middle over its origin (guard_alarm_coll spans 0..12.5 up)
 const SIREN_CENTRE: f32 = 7.0;
+/// A "shoot" order aims this far above the object's origin (buildings stand on theirs; most sit partly in the ground).
+const SHOOT_LIFT: f32 = 10.0;
 /// a sticky bomb's blast (p_player_stickybomb damage_radius_outer), and the margin kept outside any blast
 const STICKY_BLAST: f32 = 45.0;
 const BLAST_MARGIN: f32 = 15.0;
