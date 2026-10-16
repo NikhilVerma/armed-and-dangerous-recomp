@@ -1,0 +1,15 @@
+{"scene": "lev_4_m1", "steps": [
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 3.5}, {"tap": "Enter"}, {"wait": 1.0},
+ {"expect": {"twiglets.generators": 0, "twiglets.made": 0, "twiglets.live": 0}},
+ {"loadout": {"health": 5000}},
+ {"warp": [210, -57, -28, 0]},
+ {"wait": 1.0},
+ {"expect": {"twiglets.generators": 3, "twiglets.made": [3, 11], "twiglets.emerging": [3, 11], "twiglets.bombs": 0}},
+ {"wait": 5.0},
+ {"expect": {"twiglets.made": 30, "twiglets.left": 0, "twiglets.emerging": 30, "twiglets.running": 0}},
+ {"wait": 7.0},
+ {"expect": {"twiglets.live": 30, "twiglets.emerging": [0, 6], "twiglets.running": [18, 30], "twiglets.bombs": [18, 30], "twiglets.killed": 0}},
+ {"wait": 12.0},
+ {"expect": {"twiglets.killed": [10, 30], "twiglets.made": 30, "health": [0, 4900]}},
+ {"quit": true}
+]}

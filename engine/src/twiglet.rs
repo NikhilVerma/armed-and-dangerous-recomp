@@ -173,8 +173,6 @@ pub struct Twiglet {
     /// the anim the state plays (restarted when the state changes)
     anim: &'static str,
     anim_once: bool,
-    /// its death handled (it waits for fx.rs / level.rs to remove it)
-    dead: bool,
 }
 
 /// A carried bomb (twiglet_bomb: behaviour fx_explosion), attached at the twiglet's ref_hand_00.
@@ -192,10 +190,11 @@ pub struct TwigletPlugin;
 
 impl Plugin for TwigletPlugin {
     fn build(&self, app: &mut App) {
-        app.init_level_resource::<Swarm>().add_level_message::<SpawnTwiglet>().add_systems(
-            Update,
-            (activate, controller, spawn, think, notes, deaths, log).chain().run_if(crate::playing),
-        );
+        app.init_level_resource::<Swarm>()
+            .add_level_message::<SpawnTwiglet>()
+            .add_systems(Update, (activate, controller, spawn, think, notes, log).chain().run_if(crate::playing))
+            // a death as fx.rs reports it, before level.rs's husks remove the object (husks run after mission.rs deaths)
+            .add_systems(Update, deaths.after(crate::fx::FxSet).before(crate::mission::deaths).run_if(crate::playing));
     }
 }
 
@@ -374,7 +373,6 @@ fn spawn(
             last_health: d.health,
             anim: if ev.mover.is_some() { "" } else { "twiglet_stand" },
             anim_once: false,
-            dead: false,
         };
         commands.entity(e).insert((
             crate::physics::Body { id: body, offset: lift, sync_rotation: false },
@@ -451,7 +449,7 @@ fn anim_done(a: &crate::skin::Animator, name: &str) -> bool {
 fn think(
     mut commands: Commands,
     time: Res<Time>,
-    mut swarm: ResMut<Swarm>,
+    swarm: Res<Swarm>,
     mut q: Query<(Entity, &mut Twiglet, &mut Transform, &mut crate::fx::Destructible, Option<&crate::mover::Mover>, Option<&mut crate::skin::Animator>)>,
     mut bombs: Query<(&mut crate::fx::Destructible, &GlobalTransform), (With<TwigletBomb>, Without<Twiglet>)>,
     player: Query<&GlobalTransform, With<crate::player::Roman>>,
@@ -468,19 +466,7 @@ fn think(
     let k = physics.meters_per_unit;
     for (e, mut t, mut tr, mut d, mover, animator) in &mut q {
         if d.health <= 0.0 || d.dying.is_some() {
-            // its death (Twiglet_Kill 0x0049f430), once: a carried bomb is let go and set off where it is, the body
-            // leaves the world; the death fx (fx_exp_twiglet), the score and the removal are fx.rs's / level.rs's
-            if !t.dead {
-                t.dead = true;
-                if let Some(b) = t.bomb.take() {
-                    if let Ok((mut bd, gt)) = bombs.get_mut(b) {
-                        crate::vehicles::kill(&mut bd);
-                        commands.entity(b).remove::<ChildOf>().insert(gt.compute_transform());
-                    }
-                }
-                physics.remove(t.body);
-                swarm.killed += 1;
-            }
+            // dying: its death is `deaths`'s
             continue;
         }
         let pos = tr.translation;
@@ -692,10 +678,27 @@ fn notes(
     }
 }
 
-/// A bomb gone off is removed (its explosion and fx are fx.rs's).
-fn deaths(mut commands: Commands, mut died: MessageReader<crate::fx::Died>, bombs: Query<(), With<TwigletBomb>>, mut swarm: ResMut<Swarm>) {
+/// Deaths (fx.rs `Died`): a twiglet's (Twiglet_Kill 0x0049f430): a carried bomb is let go and set off where it is, its
+/// body leaves the world (the death fx fx_exp_twiglet and the score are fx.rs's, the removal level.rs's); a bomb gone
+/// off is removed.
+fn deaths(
+    mut commands: Commands,
+    mut died: MessageReader<crate::fx::Died>,
+    q: Query<&Twiglet>,
+    mut bombs: Query<(Option<&mut crate::fx::Destructible>, &GlobalTransform), With<TwigletBomb>>,
+    mut physics: NonSendMut<crate::physics::Physics>,
+    mut swarm: ResMut<Swarm>,
+) {
     for crate::fx::Died(e) in died.read() {
-        if bombs.contains(*e) {
+        if let Ok(t) = q.get(*e) {
+            if let Some((Some(mut bd), gt)) = t.bomb.and_then(|b| bombs.get_mut(b).ok()) {
+                crate::vehicles::kill(&mut bd);
+                // (out of the dead twiglet's hierarchy, which level.rs despawns)
+                commands.entity(t.bomb.expect("a bomb")).remove::<ChildOf>().insert(gt.compute_transform());
+            }
+            physics.remove(t.body);
+            swarm.killed += 1;
+        } else if bombs.contains(*e) {
             swarm.bombs_gone += 1;
             commands.entity(*e).despawn();
         }
