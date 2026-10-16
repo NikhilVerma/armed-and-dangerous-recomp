@@ -49,7 +49,7 @@ STATE_MIND = {1: "Roam", 0xf: "Roam", 2: "Chase", 0x3c: "Chase", 0x3e: "Chase", 
               0xc8: "Flee", 0x96: "ToMarker", 0x50: "Home", 0x3d: "Wander", 0x6e: "Taunt", 0x10: "Throw",
               **{s: "Cover" for s in range(0xa0, 0xa6)}, **{s: "Gunner" for s in (0x7b, 0x7c, 0x7d)},
               0x97: "ToMarker", 0xdc: "InSquad", 0xde: "InSquad", 0xc4: "Jump", 0xc5: "Jump", 0xbd: "Jump",
-              0xf0: "Teleport", 0xf1: "Cast",  # ai.rs Mind docs (2026-10-16)
+              0xf0: "Teleport", 0xf1: "Cast", 0xf2: "Cast", 0xf3: "Cast",  # ai.rs Mind docs (2026-10-16; 0xf2 / 0xf3 the summon)
               0x64: "Scripted",  # an IC move (ai/ic.rs)
               0x118: "Bully",  # a bully holding his peasant (ai/bully.rs)
               0x82: "*", 0x12f: "*", 0x130: "*", 0x131: "*", 0x132: "*"}

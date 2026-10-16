@@ -108,6 +108,10 @@ pub struct Event {
     /// debug: the grunts' shared bark delays (death / vo / taunt) count as passed (the taunt after a clip at once)
     #[serde(default)]
     pub barks_ready: Option<bool>,
+    /// debug: every live monk with a target engages again and his roll comes out as this ("baskets", "twiglets"), so he
+    /// casts it at once (ai/monk.rs `Monk::forced`)
+    #[serde(default)]
+    pub monk_spell: Option<String>,
     /// debug: the live grunt nearest Roman runs the hiding-spot search now (as at a reload's end; ai.rs
     /// find_hiding_spot), so a trench's use can be checked without waiting for its rolls
     #[serde(default)]
@@ -713,6 +717,16 @@ pub(crate) fn drive(
         }
         if e.barks_ready == Some(true) {
             barks.all_ready();
+        }
+        if let Some(spell) = &e.monk_spell {
+            let act = if spell == "baskets" { crate::ai::monk::MonkAct::Baskets } else { crate::ai::monk::MonkAct::Twiglets };
+            for (mut g, _, _) in grunts.iter_mut().filter(|(g, _, _)| g.mind != crate::ai::Mind::Dead && g.target.is_some()) {
+                if let Some(m) = g.monk.as_mut() {
+                    m.forced = Some(act);
+                    // back to the pursuit: the next frame in range engages and rolls (0x00427910 -> vt+0x220)
+                    g.mind = crate::ai::Mind::Chase;
+                }
+            }
         }
     }
 }

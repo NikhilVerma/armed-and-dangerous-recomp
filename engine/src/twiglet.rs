@@ -293,7 +293,6 @@ fn controller(
     if let Some(chosen) = best.or(fallback) {
         if let Ok((_, mut g, _)) = gens.get_mut(chosen) {
             spawns.write(release(&mut g, &mut rng));
-            swarm.made += 1;
         }
         // (the wake of the closest busy twiglet, 0x0049f380, needs flag bit 0, which no twiglet has: not ported)
         swarm.timer = spawn_delay(&mut rng);
@@ -333,8 +332,11 @@ fn spawn(
     mut kit: crate::army::ModelKit,
     mut physics: NonSendMut<crate::physics::Physics>,
     mut rng: ResMut<crate::fx::FxStats>,
+    mut swarm: ResMut<Swarm>,
 ) {
     for ev in events.read() {
+        // Game+0x2710: every twiglet made (the swarm's, the monks')
+        swarm.made += 1;
         let p = data.template_props("twiglet");
         let Some(model) = data.templates.get("twiglet").and_then(|t| t.model.clone()) else { continue };
         let world = crate::mover::engine_transform(ev.at);

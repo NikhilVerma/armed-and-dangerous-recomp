@@ -727,7 +727,8 @@ fn grunts(
             Mind::Scripted => continue,
             // a monk's teleport (anim 0x6b monk_turbo) and his cast (0x26)
             Mind::Teleport => (name(&g, 0x6b, 0.0).to_owned(), true),
-            Mind::Cast => (name(&g, 0x26, 0.0).to_owned(), false),
+            // (the basket rain's 0x26 cast_spell_1 or the twiglet summon's 0x25 cast_spell_2: ai.rs sets anim_id)
+            Mind::Cast => (name(&g, g.anim_id, 0.0).to_owned(), false),
             // a squad member: the march (0xe) while the squad moves, else attention (0xf)
             Mind::InSquad => (name(&g, if g.walking { 0xe } else { 0xf }, 0.0).to_owned(), true),
             // a jumper's flight (0xc4 / 0xc5: captain_jumper_forward 0x6b; the glide 0xbd: its set by the aim weights)

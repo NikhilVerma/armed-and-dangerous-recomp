@@ -67,7 +67,8 @@ pub enum Mind {
     Jump,
     /// state 0xf0: a monk's teleport flight (MonkObject_Bamf 0x00436bb0) to `Grunt::goal`
     Teleport,
-    /// state 0xf1: a monk casting the basket rain (anim 0x26 cast_spell_1)
+    /// state 0xf1: a monk casting the basket rain (anim 0x26 cast_spell_1); 0xf2 / 0xf3: the twiglet summon (anim 0x25
+    /// cast_spell_2, monk.rs `Spell`)
     Cast,
     /// state 0x64: an IC move (GenericAI_PlayICAnim 0x0042c410) carries him: a hidden grunt coming out (ic.rs)
     Scripted,
@@ -2945,17 +2946,22 @@ fn think(
             (_, Some(_)) if in_range || g.guard => {
                 // engage 0x00427910 on coming into it: in range with flag 4, the close attack when the class has one
                 // (vt+0x1e0: the captain), allow_close_attack, flag 1 and rand * 200 >> 15 < 30; else the fire state 0xa
-                // a monk's roll first (vt+0x220 0x00437130): the basket rain, else the fire state (the twiglets: fire)
+                // a monk's roll first (vt+0x220 0x00437130): the basket rain (0xf1) or the twiglet summon (0xf2 /
+                // 0xf3), else the fire state
                 let engaged = was == Mind::Fire || (was == Mind::Guard && g.guard_firing);
                 let act = match g.monk.as_mut() {
                     Some(m) if !engaged => m.roll(&mut rng),
                     _ => monk::MonkAct::Fire,
                 };
-                if act == monk::MonkAct::Baskets {
-                    g.anim_id = 0x26;
-                    g.anim_left = anim_len(&mut lib, g.anim(0x26, 0.0));
+                if act == monk::MonkAct::Baskets || act == monk::MonkAct::Twiglets {
+                    let (spell, anim) = if act == monk::MonkAct::Baskets { (monk::Spell::Baskets, 0x26) } else { (monk::Spell::Twiglets, 0x25) };
+                    g.anim_id = anim;
+                    g.anim_left = anim_len(&mut lib, g.anim(anim, 0.0));
+                    let forward = Vec3::new(g.yaw.sin(), 0.0, g.yaw.cos());
                     if let Some(m) = g.monk.as_mut() {
                         m.cast = false;
+                        m.spell = spell;
+                        m.summon_at = monk::summon_point(pos, forward, &mut rng);
                     }
                     Mind::Cast
                 } else if !engaged && g.kind.close_attack() && in_range && g.fire_ready && g.throw_armed && rng.rand() * 200.0 < 30.0 {
@@ -3517,10 +3523,22 @@ fn think(
             }
             Mind::Cast => {
                 // state 0xf1: cast_spell_1; its event (here halfway) drops the baskets round the target, the end runs the
-                // bamf (which, the counter re-rolled, re-engages)
-                let total = anim_len(&mut lib, g.anim(0x26, 0.0));
+                // bamf (which, the counter re-rolled, re-engages). States 0xf2 / 0xf3: cast_spell_2 turned to the summon
+                // point; at its end five idle twiglets stand round him (ai_06.cpp:2928-2972), then the same end (vt+0x240)
+                let total = anim_len(&mut lib, g.anim(g.anim_id, 0.0));
                 g.anim_left -= dt;
-                if let Some(mut m) = g.monk {
+                if let Some(mut m) = g.monk.filter(|m| m.spell == monk::Spell::Twiglets) {
+                    if !m.cast && g.anim_left <= 0.0 {
+                        m.cast = true;
+                        for at in monk::twiglet_spots(pos, &physics, &mut rng) {
+                            let game = crate::level::game_to_engine().inverse() * at;
+                            commands.write_message(crate::twiglet::SpawnTwiglet { at: Mat4::from_translation(game), mover: None });
+                        }
+                        stats.throws += 1;
+                        info!("EVENT ai: monk {ge:?} summons twiglets");
+                    }
+                    g.monk = Some(m);
+                } else if let Some(mut m) = g.monk {
                     if !m.cast && g.anim_left <= total * 0.5 {
                         m.cast = true;
                         if let Some(p) = target {
@@ -3628,6 +3646,10 @@ fn think(
         g.walking = speed > 1.0 && flat(goal - pos).length() > 1.0;
         let dir = flat(goal - pos).normalize_or_zero();
         let face = match (g.mind, target, g.cover.map(|c| c.phase)) {
+            // the summon turns him to its point (state 0xf3: 0x00454e60 toward +0x934)
+            (Mind::Cast, _, _) if g.monk.is_some_and(|m| m.spell == monk::Spell::Twiglets) => {
+                g.monk.map(|m| flat(m.summon_at - pos).normalize_or_zero()).unwrap_or(dir)
+            }
             (Mind::Fire | Mind::Chase | Mind::Taunt | Mind::Throw | Mind::Cast, Some(p), _) => flat(p - pos).normalize_or_zero(),
             // a guard firing turns to his target (0x0042df70, 45 degrees)
             (Mind::Guard, Some(p), _) if g.guard_firing => flat(p - pos).normalize_or_zero(),

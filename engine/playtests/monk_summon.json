@@ -1,0 +1,14 @@
+{"scene": "lev_4_m2", "steps": [
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 3.5}, {"tap": "Enter"}, {"wait": 1.0},
+ {"expect": {"twiglets.made": 0, "ai.monks": 5}},
+ {"loadout": {"health": 5000}},
+ {"spawn": [-600, -7, 300], "template": "monk"},
+ {"wait": 4.0},
+ {"expect": {"ai.near.kind": "Monk", "ai.near.targets_player": true}},
+ {"monk_spell": "twiglets"},
+ {"wait": 6.0},
+ {"expect": {"ai.monks": 6, "twiglets.made": [1, 5], "twiglets.generators": 0}},
+ {"wait": 6.0},
+ {"expect": {"twiglets.made": [1, 5], "twiglets.live": 0, "twiglets.killed": [1, 5], "health": [0, 4900]}},
+ {"quit": true}
+]}
