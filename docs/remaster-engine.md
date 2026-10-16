@@ -786,6 +786,13 @@ Traps found on the way:
   the ones the game material clipped, the same test on the prepass depth; gamematerial_shared.wesl). Rejected: a twin
   material with a prepass shader for just the meshes reaching the clip (~+1.8 ms render CPU, +1.2 ms main, and a 2 s
   pipeline-compile stall when the first twins appear).
+  The exception, by type (2026-10-16, player feedback 30): alpha-textured materials are `GameMaterial<AlphaTested>`
+  (gamematerial.rs `Coverage`), a second material type whose prepass fragment shader (gamematerial_prepass.wesl)
+  discards texels below `shadow_alpha_cutoff` (Remaster 0.5, Original 0), so pine branch cards cast their twigs'
+  shadows, not their rectangles. Bevy picks prepass shaders per type, so solid materials keep the shaderless batched
+  depth path; the alpha-tested ones are Blend (never in the depth prepass) and the shadow pass binds their material
+  anyway (MAY_DISCARD). 4K Remaster bench unchanged within noise (~110 fps avg before and after). Systems that touch
+  game materials are generic over `Coverage` and registered for both types (camfade.rs, graphics apply_game_materials).
 - Never assume a material plugin can load another plugin's embedded shader before that plugin's build ran: the load
   fails ("Path not found: and_remaster\gamematerial.wesl") and the failed handle is shared, so the game material
   drew nothing at all.

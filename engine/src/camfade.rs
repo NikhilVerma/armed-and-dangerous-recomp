@@ -2,10 +2,11 @@
 //! object a camera ray hits drops its alpha by camera_fade_out_rate per second down to camera_falloff, and once no
 //! ray hits it, rises by camera_fade_in_rate per second back to 1, where it leaves the list (p_globalsettings: 3, 3,
 //! 0.3 on lev_1_m1; read at 0x00424456..0x00424494). A faded object draws with its own copies of its materials
-//! (the fade in the game material's emissive.w); at 1 the shared ones come back.
+//! (the fade in the game material's emissive.w); at 1 the shared ones come back. Both game material types fade
+//! (gamematerial.rs: solid and alpha-tested), each by its own instance of the generic systems.
 
 use crate::levelreset::LevelAppExt;
-use crate::gamematerial::GameMaterial;
+use crate::gamematerial::{AlphaTested, Coverage, GameMaterial, Solid};
 use bevy::platform::collections::{HashMap, HashSet};
 use bevy::prelude::*;
 
@@ -13,8 +14,10 @@ use bevy::prelude::*;
 pub struct CameraFade {
     /// objects hit this frame
     hits: HashSet<Entity>,
-    /// faded objects: alpha and, per mesh, (mesh entity, shared material, own copy)
-    faded: HashMap<Entity, (f32, Vec<(Entity, Handle<GameMaterial>, Handle<GameMaterial>)>)>,
+    /// faded objects and their alpha (below 1)
+    faded: HashMap<Entity, f32>,
+    /// objects whose fade ended this frame: their meshes get the shared materials back
+    ended: Vec<Entity>,
 }
 
 impl CameraFade {
@@ -23,65 +26,76 @@ impl CameraFade {
     }
 }
 
+/// On a mesh of a faded object: the shared material its own copy replaced (restored when the fade ends).
+#[derive(Component)]
+struct FadedFrom<C: Coverage>(Handle<GameMaterial<C>>);
+
 pub struct CameraFadePlugin;
 
 impl Plugin for CameraFadePlugin {
     fn build(&self, app: &mut App) {
-        app.init_level_resource::<CameraFade>().add_systems(Update, (fade, object_alpha));
+        app.init_level_resource::<CameraFade>().add_systems(
+            Update,
+            (
+                (fade, (fade_materials::<Solid>, fade_materials::<AlphaTested>)).chain(),
+                object_alpha::<Solid>,
+                object_alpha::<AlphaTested>,
+            ),
+        );
     }
 }
 
-fn fade(
-    time: Res<Time>,
-    data: Res<crate::gamedata::GameData>,
-    mut f: ResMut<CameraFade>,
-    children: Query<&Children>,
-    mut meshes: Query<&mut MeshMaterial3d<GameMaterial>>,
-    mut materials: ResMut<Assets<GameMaterial>>,
-) {
+/// The objects' fade alphas from this frame's hits.
+fn fade(time: Res<Time>, data: Res<crate::gamedata::GameData>, mut f: ResMut<CameraFade>) {
     let g = data.props("p_globalsettings");
     let (floor, rate_in, rate_out) = (g.f("camera_falloff", 0.3), g.f("camera_fade_in_rate", 3.0), g.f("camera_fade_out_rate", 3.0));
     let dt = time.delta_secs();
-    let hits: Vec<Entity> = f.hits.drain().collect();
-    // newly hit objects: own copies of their materials
-    for e in &hits {
-        if f.faded.contains_key(e) {
-            continue;
-        }
-        let mut parts = Vec::new();
-        for m in std::iter::once(*e).chain(children.iter_descendants(*e)) {
-            if let Ok(mut mm) = meshes.get_mut(m) {
-                let shared = mm.0.clone();
-                if let Some(copy) = materials.get(&shared).cloned() {
-                    let own = materials.add(copy);
-                    mm.0 = own.clone();
-                    parts.push((m, shared, own));
-                }
-            }
-        }
-        f.faded.insert(*e, (1.0, parts));
+    let f = &mut *f;
+    f.ended.clear();
+    for e in &f.hits {
+        f.faded.entry(*e).or_insert(1.0);
     }
-    let mut done = Vec::new();
-    for (e, (alpha, parts)) in f.faded.iter_mut() {
-        *alpha = if hits.contains(e) { (*alpha - rate_out * dt).max(floor) } else { *alpha + rate_in * dt };
+    for (e, alpha) in f.faded.iter_mut() {
+        *alpha = if f.hits.contains(e) { (*alpha - rate_out * dt).max(floor) } else { *alpha + rate_in * dt };
         if *alpha >= 1.0 {
-            done.push(*e);
-            continue;
+            f.ended.push(*e);
         }
-        for (_, _, own) in parts.iter() {
-            if let Some(mut m) = materials.get_mut(own) {
-                m.params.emissive.w = 1.0 - *alpha;
+    }
+    for e in &f.ended {
+        f.faded.remove(e);
+    }
+    f.hits.clear();
+}
+
+/// The faded objects' meshes of one material type: their own material copies at the fade's alpha, and the shared
+/// materials back once the fade ended.
+fn fade_materials<C: Coverage>(
+    mut commands: Commands,
+    f: Res<CameraFade>,
+    children: Query<&Children>,
+    mut meshes: Query<(&mut MeshMaterial3d<GameMaterial<C>>, Option<&FadedFrom<C>>)>,
+    mut materials: ResMut<Assets<GameMaterial<C>>>,
+) {
+    for (e, alpha) in &f.faded {
+        for m in std::iter::once(*e).chain(children.iter_descendants(*e)) {
+            let Ok((mut mm, from)) = meshes.get_mut(m) else { continue };
+            if from.is_none() {
+                let shared = mm.0.clone();
+                let Some(copy) = materials.get(&shared).cloned() else { continue };
+                mm.0 = materials.add(copy);
+                commands.entity(m).insert(FadedFrom(shared));
+            }
+            if let Some(mut mat) = materials.get_mut(&mm.0) {
+                mat.params.emissive.w = 1.0 - *alpha;
             }
         }
     }
-    for e in done {
-        if let Some((_, parts)) = f.faded.remove(&e) {
-            for (m, shared, own) in parts {
-                if let Ok(mut mm) = meshes.get_mut(m) {
-                    mm.0 = shared;
-                }
-                materials.remove(&own);
-            }
+    for e in &f.ended {
+        for m in std::iter::once(*e).chain(children.iter_descendants(*e)) {
+            let Ok((mut mm, Some(FadedFrom(shared)))) = meshes.get_mut(m) else { continue };
+            let own = std::mem::replace(&mut mm.0, shared.clone());
+            materials.remove(&own);
+            commands.entity(m).remove::<FadedFrom<C>>();
         }
     }
 }
@@ -92,12 +106,12 @@ fn fade(
 #[derive(Component, Clone, Copy, PartialEq, Debug)]
 pub struct ObjectAlpha(pub f32);
 
-fn object_alpha(
+fn object_alpha<C: Coverage>(
     q: Query<(Entity, &ObjectAlpha), Changed<ObjectAlpha>>,
     children: Query<&Children>,
-    mut meshes: Query<&mut MeshMaterial3d<GameMaterial>>,
-    mut materials: ResMut<Assets<GameMaterial>>,
-    mut own: crate::levelreset::PerLevel<HashSet<AssetId<GameMaterial>>>,
+    mut meshes: Query<&mut MeshMaterial3d<GameMaterial<C>>>,
+    mut materials: ResMut<Assets<GameMaterial<C>>>,
+    mut own: crate::levelreset::PerLevel<HashSet<AssetId<GameMaterial<C>>>>,
 ) {
     let own = own.get();
     for (e, a) in &q {

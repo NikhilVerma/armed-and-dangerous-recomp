@@ -21,42 +21,7 @@ import bevy_pbr::render::shadows::fetch_directional_shadow;
 import bevy_pbr::render::mesh_view_bindings as view_bindings;
 import bevy_pbr::render::mesh_view_types;
 import and_remaster::gamematerial_shared::far_clipped;
-
-struct GameMaterialParams {
-    kind: u32,
-    has_normal: u32,
-    has_texture2: u32,
-    has_mask: u32,
-    emissive: vec4<f32>,
-    ambient: vec4<f32>,
-    diffuse: vec4<f32>,
-    // rgb specular colour, w power
-    specular: vec4<f32>,
-    // the environment cube's colour (approximation: the sky; the original renders a cube map) and its factor in w
-    env: vec4<f32>,
-    // toward the sun (engine space), w unused; sun colour * intensity
-    sun_dir: vec4<f32>,
-    sun_col: vec4<f32>,
-    fill_dir: vec4<f32>,
-    fill_col: vec4<f32>,
-    ambient_light: vec4<f32>,
-    // fog colour rgb; near, far in fog_range.xy (0 0: no fog); fog_range.z the far plane (0: none)
-    fog_col: vec4<f32>,
-    fog_range: vec4<f32>,
-    // presentation (graphics.rs; zero in the Original): x the ambient occlusion's weight (0: exempt, as snow),
-    // y 1 = dissolve over the last 15 % before the far clip instead of a hard cut
-    remaster: vec4<f32>,
-}
-
-@group(constants::MATERIAL_BIND_GROUP) @binding(0) var base_tex: texture_2d<f32>;
-@group(constants::MATERIAL_BIND_GROUP) @binding(1) var base_smp: sampler;
-@group(constants::MATERIAL_BIND_GROUP) @binding(2) var normal_tex: texture_2d<f32>;
-@group(constants::MATERIAL_BIND_GROUP) @binding(3) var normal_smp: sampler;
-@group(constants::MATERIAL_BIND_GROUP) @binding(4) var tex2: texture_2d<f32>;
-@group(constants::MATERIAL_BIND_GROUP) @binding(5) var tex2_smp: sampler;
-@group(constants::MATERIAL_BIND_GROUP) @binding(6) var mask_tex: texture_2d<f32>;
-@group(constants::MATERIAL_BIND_GROUP) @binding(7) var mask_smp: sampler;
-@group(constants::MATERIAL_BIND_GROUP) @binding(8) var<uniform> p: GameMaterialParams;
+import and_remaster::gamematerial_bindings::{p, base_tex, base_smp, normal_tex, normal_smp, tex2, tex2_smp, mask_tex, mask_smp};
 
 // What the vertex stage hands on: Bevy's mesh outputs plus the fog, computed per vertex as the original's vertex
 // shaders do (oFog = clamp((end - view depth) * 1 / (end - start), 0, 1), c1 = {start, end, 1 / (end - start), 0.5},

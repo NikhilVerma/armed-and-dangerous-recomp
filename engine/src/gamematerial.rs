@@ -2,6 +2,10 @@
 //! (tools/remaster_export.py, docs/formats/big-skin.md 3.5), the level's lights as the original lights them
 //! (the sun per pixel through the normal map, the ambient-only light and the fill per vertex), the level's linear
 //! fog. Rendering piece 1 (docs/remaster-engine.md): the landscape first, compared with tools/render_compare.py.
+//!
+//! Two material types share the data and the main pass: [`GameMaterial`] (solid: the depth-only passes draw the whole
+//! triangle, with no fragment work) and [`AlphaTestedGameMaterial`] (alpha textures: the sun's shadow maps keep only
+//! the texels whose alpha passes, gamematerial_prepass.wesl). [`Coverage`] says why this is a type, not a field.
 
 use bevy::image::{ImageAddressMode, ImageLoaderSettings, ImageSampler};
 use bevy::prelude::*;
@@ -27,12 +31,43 @@ pub struct GameMaterialParams {
     pub fog_col: Vec4,
     pub fog_range: Vec4,
     /// presentation settings (graphics.rs; zero in the Original): x the ambient occlusion's weight (0: exempt, as
-    /// snow), y 1 = dissolve at the far clip instead of a hard cut
+    /// snow), y 1 = dissolve at the far clip instead of a hard cut, z the alpha below which an alpha-tested surface
+    /// casts no shadow (0: the whole card casts, as the original's silhouettes)
     pub remaster: Vec4,
 }
 
+/// How a game material covers what lies behind it in the depth-only passes (the sun's shadow cascades): the whole
+/// triangle ([`Solid`]) or only where the base texture's alpha passes the test ([`AlphaTested`]: tree branch cards,
+/// leaves). A type parameter rather than a field: Bevy chooses prepass shaders per material type, and a type with a
+/// prepass shader of its own is bound in every depth-only pass, which breaks the solid casters' batching (the sun's
+/// four cascades: 4K 113 -> 64 fps, 2026-10-15). So only the alpha-tested surfaces, which the shadow pass binds
+/// anyway (their alpha mode may discard), run a fragment shader there.
+pub trait Coverage: TypePath + Clone + Default + std::fmt::Debug + Send + Sync + 'static {
+    /// whether the depth-only passes run the alpha test (gamematerial_prepass.wesl)
+    const ALPHA_TESTED: bool;
+}
+
+/// Opaque surfaces: depth only, no fragment shader in the shadow and depth prepasses.
+#[derive(TypePath, Clone, Copy, Default, Debug)]
+pub struct Solid;
+
+/// Alpha-textured surfaces: the shadow pass discards where the base texture's alpha is below the cutoff.
+#[derive(TypePath, Clone, Copy, Default, Debug)]
+pub struct AlphaTested;
+
+impl Coverage for Solid {
+    const ALPHA_TESTED: bool = false;
+}
+
+impl Coverage for AlphaTested {
+    const ALPHA_TESTED: bool = true;
+}
+
+/// A game material with an alpha texture (its record's `alpha`): alpha-tested shadows.
+pub type AlphaTestedGameMaterial = GameMaterial<AlphaTested>;
+
 #[derive(AsBindGroup, Debug, Clone, Asset, TypePath)]
-pub struct GameMaterial {
+pub struct GameMaterial<C: Coverage = Solid> {
     #[texture(0)]
     #[sampler(1)]
     pub base: Handle<Image>,
@@ -50,18 +85,25 @@ pub struct GameMaterial {
     pub alpha: bool,
     /// no ambient occlusion on this surface (graphics.rs `ao_exempt`: snow; blended surfaces)
     pub ao_exempt: bool,
+    pub coverage: std::marker::PhantomData<C>,
 }
 
-impl Material for GameMaterial {
+fn embedded_shader(path: std::path::PathBuf) -> bevy::shader::ShaderRef {
+    bevy::shader::ShaderRef::Path(bevy::asset::AssetPath::from_path_buf(path).with_source("embedded"))
+}
+
+impl<C: Coverage> Material for GameMaterial<C> {
     fn vertex_shader() -> bevy::shader::ShaderRef {
-        bevy::shader::ShaderRef::Path(bevy::asset::AssetPath::from_path_buf(bevy::asset::embedded_path!("gamematerial.wesl")).with_source("embedded"))
+        embedded_shader(bevy::asset::embedded_path!("gamematerial.wesl"))
     }
     fn fragment_shader() -> bevy::shader::ShaderRef {
-        bevy::shader::ShaderRef::Path(bevy::asset::AssetPath::from_path_buf(bevy::asset::embedded_path!("gamematerial.wesl")).with_source("embedded"))
+        embedded_shader(bevy::asset::embedded_path!("gamematerial.wesl"))
     }
-    // No prepass fragment shader of its own: one makes Bevy bind the material in every depth-only pass (the sun's
-    // four shadow cascades lost their batching: 4K 113 -> 64 fps, 2026-10-15). Where the depth prepass holds the
-    // depth of pixels this material clips at the far plane, the sky fills them (graphics/farclip.rs).
+    // Solid: none of its own (see Coverage). Where the depth prepass holds the depth of pixels this material clips at
+    // the far plane, the sky fills them (graphics/farclip.rs).
+    fn prepass_fragment_shader() -> bevy::shader::ShaderRef {
+        if C::ALPHA_TESTED { embedded_shader(bevy::asset::embedded_path!("gamematerial_prepass.wesl")) } else { bevy::shader::ShaderRef::Default }
+    }
     fn alpha_mode(&self) -> AlphaMode {
         // alpha textures blend (the material log: flags bits 8-11 = 3 -> blend table 0x0057d9e0 entry 3 = SRCALPHA,
         // INVSRCALPHA, ADD, with alpha test on), not a hard 0.5 cut: thin soft twigs as in the original
@@ -75,10 +117,21 @@ pub struct GameMaterialPlugin;
 impl Plugin for GameMaterialPlugin {
     fn build(&self, app: &mut App) {
         bevy::asset::embedded_asset!(app, "gamematerial.wesl");
+        bevy::asset::embedded_asset!(app, "gamematerial_prepass.wesl");
         // the far clip, shared with the sky (graphics/farclip.rs)
         bevy::shader::load_shader_library!(app, "gamematerial_shared.wesl");
-        app.add_plugins(MaterialPlugin::<GameMaterial>::default()).add_systems(PostUpdate, swap.run_if(resource_exists::<GameLights>));
+        // the parameters and maps, shared by the main and the depth-only passes
+        bevy::shader::load_shader_library!(app, "gamematerial_bindings.wesl");
+        app.add_plugins((MaterialPlugin::<GameMaterial>::default(), MaterialPlugin::<AlphaTestedGameMaterial>::default()))
+            .add_systems(PostUpdate, swap.run_if(resource_exists::<GameLights>));
     }
+}
+
+/// One original material record's game material, of the type its alpha texture calls for.
+#[derive(Clone)]
+enum MadeMaterial {
+    Solid(Handle<GameMaterial>),
+    AlphaTested(Handle<AlphaTestedGameMaterial>),
 }
 
 /// Every part spawned with a standard material that came from an original material record gets the game material
@@ -90,15 +143,28 @@ fn swap(
     lights: Res<GameLights>,
     assets: Res<AssetServer>,
     mut materials: ResMut<Assets<GameMaterial>>,
+    mut alpha_materials: ResMut<Assets<AlphaTestedGameMaterial>>,
     // per level: the next level's library has standard materials of its own (the old ones' game materials go with it)
-    mut made: crate::levelreset::PerLevel<std::collections::HashMap<AssetId<StandardMaterial>, Handle<GameMaterial>>>,
+    mut made: crate::levelreset::PerLevel<std::collections::HashMap<AssetId<StandardMaterial>, MadeMaterial>>,
 ) {
     let Some(lib) = lib else { return };
     let made = made.get();
     for (e, m) in &q {
         let Some((def, texture, alpha)) = lib.game_defs.get(&m.0.id()) else { continue };
-        let h = made.entry(m.0.id()).or_insert_with(|| materials.add(make(def, texture.as_deref(), *alpha, &lights, &assets, &lights.white))).clone();
-        commands.entity(e).remove::<MeshMaterial3d<StandardMaterial>>().insert(MeshMaterial3d(h));
+        let made = made.entry(m.0.id()).or_insert_with(|| {
+            let (texture, white) = (texture.as_deref(), &lights.white);
+            if *alpha {
+                MadeMaterial::AlphaTested(alpha_materials.add(make(def, texture, true, &lights, &assets, white)))
+            } else {
+                MadeMaterial::Solid(materials.add(make(def, texture, false, &lights, &assets, white)))
+            }
+        });
+        let mut e = commands.entity(e);
+        e.remove::<MeshMaterial3d<StandardMaterial>>();
+        match made {
+            MadeMaterial::Solid(h) => e.insert(MeshMaterial3d(h.clone())),
+            MadeMaterial::AlphaTested(h) => e.insert(MeshMaterial3d(h.clone())),
+        };
     }
 }
 
@@ -191,7 +257,7 @@ pub fn load_tex(assets: &AssetServer, name: &str, srgb: bool) -> Handle<Image> {
 }
 
 /// A game material for one submesh.
-pub fn make(def: &MaterialDef, texture: Option<&str>, alpha: bool, lights: &GameLights, assets: &AssetServer, white: &Handle<Image>) -> GameMaterial {
+pub fn make<C: Coverage>(def: &MaterialDef, texture: Option<&str>, alpha: bool, lights: &GameLights, assets: &AssetServer, white: &Handle<Image>) -> GameMaterial<C> {
     let tex = |n: Option<&str>, srgb: bool| n.map(|n| load_tex(assets, n, srgb)).unwrap_or_else(|| white.clone());
     let v4 = |c: [f32; 3], w: f32| Vec4::new(c[0], c[1], c[2], w);
     let l3 = |v: Vec3, w: f32| v.extend(w);
@@ -229,9 +295,10 @@ pub fn make(def: &MaterialDef, texture: Option<&str>, alpha: bool, lights: &Game
             ambient_light: l3(lights.ambient, 0.0),
             fog_col,
             fog_range,
-            remaster: Vec4::new(if ao_exempt { 0.0 } else { g.ao_strength }, if g.far_fade { 1.0 } else { 0.0 }, 0.0, 0.0),
+            remaster: Vec4::new(if ao_exempt { 0.0 } else { g.ao_strength }, if g.far_fade { 1.0 } else { 0.0 }, g.shadow_alpha_cutoff, 0.0),
         },
         alpha,
         ao_exempt,
+        coverage: std::marker::PhantomData,
     }
 }

@@ -124,6 +124,10 @@ pub struct GraphicsSettings {
     pub soft_shadows: bool,
     /// the light's size for PCSS (texels; larger = softer)
     pub shadow_softness: f32,
+    /// alpha-textured casters (pine branch cards, leaves) cast shadows only where their texture's alpha reaches this
+    /// (gamematerial_prepass.wesl); 0 = the whole card, as the original's silhouettes (shadows.md: drawn with the
+    /// override material 0x005fe498, flags 0x020a3060, blend bits 8-11 = 0: no alpha test; static reading)
+    pub shadow_alpha_cutoff: f32,
     /// particles fade where they meet geometry over this depth (game units; 0 = the original's hard edge)
     pub soft_particles: f32,
     /// the far clip (the original camera's far plane) dissolves over its last part instead of cutting hard
@@ -154,6 +158,7 @@ impl GraphicsSettings {
             shadow_distance: 0.0,
             soft_shadows: false,
             shadow_softness: 6.0,
+            shadow_alpha_cutoff: 0.0,
             soft_particles: 0.0,
             far_fade: false,
             bloom: 0.0,
@@ -171,6 +176,7 @@ impl GraphicsSettings {
             shadow_map_size: 4096,
             shadow_distance: 1.0,
             soft_shadows: true,
+            shadow_alpha_cutoff: 0.5,
             soft_particles: 6.0,
             far_fade: true,
             bloom: 0.08,
@@ -373,7 +379,20 @@ impl Plugin for GraphicsPlugin {
             .insert_resource(self.initial.clone())
             .insert_resource(DirectionalLightShadowMap { size: self.initial.shadow_map_size as usize })
             .add_plugins(farclip::FarClipPlugin)
-            .add_systems(PostUpdate, (sync, apply_cameras, apply_shadows, apply_materials).chain());
+            .add_systems(
+                PostUpdate,
+                (
+                    sync,
+                    apply_cameras,
+                    apply_shadows,
+                    (
+                        apply_game_materials::<crate::gamematerial::Solid>,
+                        apply_game_materials::<crate::gamematerial::AlphaTested>,
+                        apply_particle_materials,
+                    ),
+                )
+                    .chain(),
+            );
     }
 }
 
@@ -520,32 +539,41 @@ fn apply_shadows(
     }
 }
 
-/// Per-material remaster values: the game material's occlusion weight and far dissolve, the particles' softness.
-fn apply_materials(
+/// The assets to update: all of them when the settings changed, else the ones added since the last frame.
+fn ids_to_apply<A: Asset>(changed: bool, assets: &Assets<A>, events: &mut MessageReader<AssetEvent<A>>) -> Vec<AssetId<A>> {
+    let added: Vec<_> = events.read().filter_map(|e| if let AssetEvent::Added { id } = e { Some(*id) } else { None }).collect();
+    if changed { assets.ids().collect() } else { added }
+}
+
+/// Per-material remaster values of the game materials (either coverage): the occlusion weight, the far dissolve
+/// and the shadow's alpha cutoff (remaster.xyz).
+fn apply_game_materials<C: crate::gamematerial::Coverage>(
     s: Res<GraphicsSettings>,
-    mut game: ResMut<Assets<crate::gamematerial::GameMaterial>>,
-    mut particles: ResMut<Assets<crate::fxvm::ParticleMaterial>>,
-    mut game_events: MessageReader<AssetEvent<crate::gamematerial::GameMaterial>>,
-    mut particle_events: MessageReader<AssetEvent<crate::fxvm::ParticleMaterial>>,
+    mut game: ResMut<Assets<crate::gamematerial::GameMaterial<C>>>,
+    mut events: MessageReader<AssetEvent<crate::gamematerial::GameMaterial<C>>>,
 ) {
-    let changed = s.is_changed();
-    let new_game: Vec<_> = game_events.read().filter_map(|e| if let AssetEvent::Added { id } = e { Some(*id) } else { None }).collect();
-    let new_particles: Vec<_> = particle_events.read().filter_map(|e| if let AssetEvent::Added { id } = e { Some(*id) } else { None }).collect();
     let far = if s.far_fade { 1.0 } else { 0.0 };
-    let want = |m: &crate::gamematerial::GameMaterial| Vec2::new(if m.ao_exempt { 0.0 } else { s.ao_strength }, far);
-    let ids: Vec<_> = if changed { game.ids().collect() } else { new_game };
-    for id in ids {
-        if game.get(id).is_some_and(|m| m.params.remaster.xy() != want(m)) {
+    let cutoff = s.shadow_alpha_cutoff.clamp(0.0, 1.0);
+    let want = |m: &crate::gamematerial::GameMaterial<C>| Vec3::new(if m.ao_exempt { 0.0 } else { s.ao_strength }, far, cutoff);
+    for id in ids_to_apply(s.is_changed(), &game, &mut events) {
+        // read first: a mutable access marks the material changed (re-prepared) even when nothing differs
+        if game.get(id).is_some_and(|m| m.params.remaster.xyz() != want(m)) {
             if let Some(mut m) = game.get_mut(id) {
                 let w = want(&m);
-                m.params.remaster.x = w.x;
-                m.params.remaster.y = w.y;
+                m.params.remaster = w.extend(m.params.remaster.w);
             }
         }
     }
+}
+
+/// The particles' softness.
+fn apply_particle_materials(
+    s: Res<GraphicsSettings>,
+    mut particles: ResMut<Assets<crate::fxvm::ParticleMaterial>>,
+    mut particle_events: MessageReader<AssetEvent<crate::fxvm::ParticleMaterial>>,
+) {
     let soft = s.soft_particles.max(0.0);
-    let ids: Vec<_> = if changed { particles.ids().collect() } else { new_particles };
-    for id in ids {
+    for id in ids_to_apply(s.is_changed(), &particles, &mut particle_events) {
         if particles.get(id).is_some_and(|m| m.params.y != soft) {
             if let Some(mut m) = particles.get_mut(id) {
                 m.params.y = soft;
