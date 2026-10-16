@@ -1,6 +1,6 @@
 //! Twiglets (Twiglet, vtable 0x005af020; src/ai/ai_08.cpp, ai_09.cpp; docs/subsystems/twiglets.md): little wooden
-//! creatures of lev_4_m1 / lev_4_m2 / lev_3_m2 that come out of the dense trees, pull a bomb from their back and run at
-//! the player to blow it up at his feet.
+//! creatures that come out of the dense trees (lev_4_m1's, the only ones a trigger activates in the shipped data) or are
+//! summoned by monks (lev_4_m1, lev_4_m2), pull a bomb from their back and run at the player to blow it up at his feet.
 //!
 //! Three parts, as in the original:
 //! - [`Generator`]: a tree with behaviour `twiglet_generator` (TwigletGenerator_Slot6 0x0049d3c0): `release_max`
