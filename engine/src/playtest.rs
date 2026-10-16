@@ -72,6 +72,10 @@ pub struct Event {
     /// death instead of waiting for the bot's bullets to find him)
     #[serde(default)]
     pub kill_gunner: Option<f32>,
+    /// debug: deal this hit to every live troop a vehicle dropped (vehicles/boss.rs: the zeppelins' rocket captains), as
+    /// a player shoots the paratroopers on landing
+    #[serde(default)]
+    pub kill_dropped: Option<f32>,
     /// debug: destroy the placed object with this instance id (as a lethal hit)
     #[serde(default)]
     pub destroy: Option<u32>,
@@ -148,7 +152,8 @@ pub struct Event {
     /// bot: with goto, arrive within this many units (default 12)
     #[serde(default)]
     pub near: Option<f32>,
-    /// steps only: wait until the game shows a paused message (the briefing): "message", max 60 s; or until no movie
+    /// steps only: wait until the game shows a paused message (the briefing): "message", max 60 s (or the step's "wait"
+    /// seconds: {"until": "message", "wait": 400} waits out a long mission); or until no movie
     /// plays: "movie_done", max 600 s; or until a restarted level has left its loading screen: "loaded", max 30 s
     #[serde(default)]
     pub until: Option<String>,
@@ -524,7 +529,7 @@ pub(crate) fn drive(
     mission: Option<Res<crate::mission::Mission>>,
     mut roman: Query<&mut crate::fx::Health, With<crate::player::Roman>>,
     mut spawn: MessageWriter<crate::level::SpawnGrunt>,
-    (mut send, state, mut save_req, mut noise, mut barks, mut defence, mut cheats): (
+    (mut send, state, mut save_req, mut noise, mut barks, mut defence, mut cheats, dropped): (
         MessageWriter<crate::mission::SendTrigger>,
         Res<PlayState>,
         ResMut<crate::savegame::SaveRequest>,
@@ -532,6 +537,7 @@ pub(crate) fn drive(
         ResMut<crate::ai::Barks>,
         MessageWriter<crate::defence::DefenceCommand>,
         ResMut<crate::cheats::Cheats>,
+        Query<Entity, With<crate::level::Dropped>>,
     ),
     mut objects: Query<(Entity, Option<&crate::level::InstanceId>, Option<&crate::level::Placed>, &mut crate::fx::Destructible)>,
     cam: Query<&GlobalTransform, With<Camera3d>>,
@@ -594,7 +600,7 @@ pub(crate) fn drive(
             pt.taps.push(KeyCode::Enter);
         }
         let done = if st.until.as_deref() == Some("message") {
-            mission.as_ref().is_some_and(|m| m.showing.is_some()) || pt.step_t > 60.0
+            mission.as_ref().is_some_and(|m| m.showing.is_some()) || pt.step_t > st.wait.unwrap_or(60.0)
         } else if st.until.as_deref() == Some("movie_done") {
             // no movie in the state log (movie.rs log_state) once the step had a frame to start one; max 600 s
             (pt.step_t > 0.1 && !state.0.contains_key("movie")) || pt.step_t > 600.0
@@ -791,6 +797,19 @@ pub(crate) fn drive(
                 g.last_hit = d;
                 h.0 -= d;
             }
+        }
+        if let Some(d) = e.kill_dropped {
+            let mut n = 0;
+            for de in &dropped {
+                if let Ok((mut g, mut h, _, _)) = grunts.get_mut(de) {
+                    if g.mind != crate::ai::Mind::Dead {
+                        g.last_hit = d;
+                        h.0 -= d;
+                        n += 1;
+                    }
+                }
+            }
+            info!("EVENT playtest: hit {n} dropped troops");
         }
         if let Some(d) = e.kill_gunner {
             for (mut g, mut h, _, _) in grunts.iter_mut().filter(|(g, _, _, _)| g.mind != crate::ai::Mind::Dead && g.gun.is_some()) {

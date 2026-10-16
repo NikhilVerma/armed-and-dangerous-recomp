@@ -48,7 +48,7 @@ pub struct BossPlugin;
 
 impl Plugin for BossPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, (setup, wake, targeting, fire, walk, notes, log).chain().after(crate::fx::FxSet).run_if(crate::playing))
+        app.add_systems(Update, (setup, wake, targeting, fire, walk, rigid_notes, notes, log).chain().after(crate::fx::FxSet).run_if(crate::playing))
             // before the husk swap removes the dead (level.rs husks runs after mission.rs deaths)
             .add_systems(Update, deaths.after(crate::fx::FxSet).before(crate::mission::deaths));
     }
@@ -587,6 +587,31 @@ fn ground(physics: &crate::physics::Physics, at: Vec3, skip: &[BodyId]) -> Optio
     None
 }
 
+/// A body anim played on a unit without a rig (the mini zeppelin's model is rigid): its clock and notes, as the rig's
+/// anim pass runs them (skin.rs animate), so the notes it carries still fire (mini_zeppelin_attack_village: the
+/// rocket captains' drops at ref_repel_00..03); `anim` names it for its nodes' positions.
+#[derive(Component)]
+struct RigidAnimNotes {
+    anim: String,
+    notes: Vec<(f32, String)>,
+    duration: f32,
+    t: f32,
+}
+
+/// Advances the rigid units' anim clocks and sends the notes passed (crate::skin::AnimNote, read by `notes`).
+fn rigid_notes(mut commands: Commands, time: Res<Time>, mut q: Query<(Entity, &mut RigidAnimNotes)>, mut out: MessageWriter<crate::skin::AnimNote>) {
+    for (e, mut r) in &mut q {
+        let from = r.t;
+        r.t += time.delta_secs();
+        for (_, text) in r.notes.iter().filter(|(at, _)| *at >= from && *at < r.t) {
+            out.write(crate::skin::AnimNote { entity: e, text: text.clone() });
+        }
+        if r.t >= r.duration {
+            commands.entity(e).remove::<RigidAnimNotes>();
+        }
+    }
+}
+
 /// The notes of a boss's path and of its body's anims (GenericAIObject_HandleEvent 0x0043d180 and the object's own):
 /// deactivate (removal: no death, fx, trigger or score), the body anims, the zeppelins' captain drops; and the path's
 /// end (state 0x65).
@@ -600,7 +625,12 @@ fn notes(
     data: Res<crate::gamedata::GameData>,
     mut log: ResMut<super::VehicleLog>,
     joints: Query<&GlobalTransform, Without<Boss>>,
+    (dropped, in_turret): (Query<&crate::ai::Grunt, With<crate::level::Dropped>>, Query<(), With<crate::defence::BaseTurret>>),
+    (mut anim_lib, rigid): (ResMut<crate::skin::AnimLibrary>, Query<&RigidAnimNotes>),
 ) {
+    // the drops stop while 12 dropped troops live, except on a level that starts in the base turret (0x00409b0e:
+    // the list +0xf24's count against 0xc, then 0x0044e600)
+    let mut alive = dropped.iter().filter(|g| g.mind != crate::ai::Mind::Dead).count();
     let all: Vec<(Entity, String)> = mover_notes.read().map(|n| (n.entity, n.text.clone())).chain(anim_notes.read().map(|n| (n.entity, n.text.clone()))).collect();
     for (e, text) in all {
         let Ok((b, mut anim, pl, gt, _)) = q.get_mut(e) else { continue };
@@ -625,6 +655,8 @@ fn notes(
                     if let (Some(a), Some(name)) = (anim.as_deref_mut(), words.get(1)) {
                         a.play(0, name, false, crate::skin::Mask::All);
                         a.restart(0);
+                    } else if let Some(a) = words.get(1).and_then(|n| anim_lib.anim(n)) {
+                        commands.entity(e).insert(RigidAnimNotes { anim: words[1].to_lowercase(), notes: a.notes.clone(), duration: a.duration, t: 0.0 });
                     }
                 }
                 // create_object_ic TYPE REF MOVER / create_rocket_captain_IC REF MOVER: a captain at a ref node (debt: on
@@ -632,13 +664,25 @@ fn notes(
                 "create_object_ic" | "create_rocket_captain_ic" => {
                     let (template, node) = if cmd == "create_object_ic" { (words.get(1).copied().unwrap_or("captain"), words.get(2)) } else { ("captain", words.get(1)) };
                     let (Some(node), true) = (node, data.templates.contains_key(template)) else { continue };
+                    if alive >= 12 && in_turret.is_empty() {
+                        continue;
+                    }
+                    alive += 1;
                     let at = anim
                         .as_deref()
                         .and_then(|a| a.skeleton.index.get(&node.to_lowercase()).and_then(|&i| a.joints.get(i)).and_then(|&j| joints.get(j).ok()).map(|j| j.translation()))
+                        .or_else(|| {
+                            // a rigid unit: the node in the playing anim's node table (model space)
+                            let r = rigid.get(e).ok()?;
+                            Nodes::from_anim(&anim_lib.dir, &r.anim)?.point(node).map(|p| gt.transform_point(p))
+                        })
                         .unwrap_or(gt.translation());
                     let skip: Vec<BodyId> = pl.and_then(|p| p.collider).into_iter().collect();
                     let feet = ground(&physics, at - Vec3::Y * 50.0, &skip).map_or(at, |y| at.with_y(y));
-                    spawn.write(crate::level::SpawnGrunt { at: feet, template: template.to_owned(), ..default() });
+                    let mover = if cmd == "create_object_ic" { words.get(3) } else { words.get(2) }.map(|m| m.to_string());
+                    info!("EVENT vehicles: {} drops a {template} at {node} ({})", b.id, mover.as_deref().unwrap_or("no mover"));
+                    let dropped = crate::level::DroppedTroop { rocket: cmd == "create_rocket_captain_ic", mover };
+                    spawn.write(crate::level::SpawnGrunt { at: feet, template: template.to_owned(), dropped: Some(dropped), ..default() });
                 }
                 _ => {}
             }

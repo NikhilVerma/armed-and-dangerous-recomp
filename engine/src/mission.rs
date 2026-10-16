@@ -1193,6 +1193,12 @@ impl Mission {
         self.visiting.and_then(|i| self.pubs.get_mut(i)).map(|p| &mut p.info)
     }
 
+    /// The placed objects that carry `tag` and have not lost it (dead, armed): the object list's tag search
+    /// (0x004592e0) as the AI's priority targets walk it.
+    pub fn tagged(&self, tag: i64) -> impl Iterator<Item = u32> + '_ {
+        self.tags.get(&tag).into_iter().flatten().map(|(i, _)| *i).filter(|i| !self.untagged.contains(i))
+    }
+
     /// Whether the placed object `id` carries `tag` (+0x390, Object_GetTag 0x00453290) and has not lost it.
     pub fn has_tag(&self, id: u32, tag: i64) -> bool {
         !self.untagged.contains(&id) && self.tags.get(&tag).is_some_and(|l| l.iter().any(|(i, _)| *i == id))

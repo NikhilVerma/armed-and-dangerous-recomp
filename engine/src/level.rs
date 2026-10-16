@@ -157,6 +157,25 @@ pub struct SpawnGrunt {
     pub squad: Option<ai::squad::SquadLink>,
     /// a grunt hidden in a host at load (ai/ic.rs): waiting at its node for his move's trigger
     pub ic: Option<ai::ic::IcSpawn>,
+    /// a troop dropped from a vehicle by its anim's note (vehicles/boss.rs)
+    pub dropped: Option<DroppedTroop>,
+}
+
+/// A troop a vehicle drops (the note handler 0x00409140): create_rocket_captain_IC REF MOVER makes a "captain" that is a
+/// rocket captain (RocketCaptain_ReadProperties 0x00434ac0) firing from 50..100 (0x00434a80(50, 100)), counted as an
+/// enemy (Game+0x2710), and gives it the IC anim MOVER (vt+0x238), whose notes set what it does on landing
+/// (GenericAIObject_HandleEvent 0x0043d180: freefall_attack_village LO HI makes houses of tags LO..HI its targets,
+/// freefall_attack the player); create_object_ic TYPE REF MOVER makes TYPE with MOVER likewise.
+/// A troop a vehicle dropped (the list Game+0xa84 +0xf24 it joins, 0x004546d0).
+#[derive(Component)]
+pub struct Dropped;
+
+#[derive(Clone, Debug, Default)]
+pub struct DroppedTroop {
+    pub rocket: bool,
+    /// the IC anim the troop plays from the drop point (its notes are read; the rappel itself is not played: debt, the
+    /// troop starts on the ground under the drop point)
+    pub mover: Option<String>,
 }
 
 /// The `Center` translation track of a rigid (unskinned) model's own anim, played in a loop on its placement.
@@ -1337,7 +1356,10 @@ fn spawn_grunts(
 ) {
     let rng = rng.get();
     for ev in events.read() {
-        let p = data.template_props(&ev.template);
+        let mut p = data.template_props(&ev.template);
+        if ev.dropped.as_ref().is_some_and(|d| d.rocket) {
+            p.0.insert("rocket_captain".into(), 1.into());
+        }
         let Some(model_name) = data.templates.get(&ev.template).and_then(|t| t.model.clone()) else { continue };
         let Some(model) = lib.load_model(&model_name, false, &assets, &mut meshes, &mut materials).cloned_parts() else { continue };
         // a hidden grunt faces as his node (ai/ic.rs)
@@ -1375,6 +1397,18 @@ fn spawn_grunts(
                 g.trigger_los = ic.trigger_los;
                 g.fixed = Some(ev.at);
                 commands.entity(e).insert(ai::ic::IcEntry { spawn: ic.clone(), running: false });
+            } else if let Some(d) = &ev.dropped {
+                commands.entity(e).insert(Dropped);
+                // a dropped troop: a rocket captain's range rolled in 50..100 (0x00434a80), then its IC anim's
+                // landing orders
+                if d.rocket {
+                    g.range = 50.0 + rng.rand() as f32 * 50.0 / 32768.0;
+                }
+                let notes = d.mover.as_deref().and_then(|m| anim_lib.anim(m)).map(|a| a.notes.clone()).unwrap_or_default();
+                if !ai::drop_orders(&mut g, notes.iter().map(|(_, n)| n.as_str())) {
+                    g.target = player.single().ok();
+                    g.mind = ai::Mind::Chase;
+                }
             } else if let Some(link) = ev.squad {
                 // a squad member (0x0042de60): his group, his bone, state 0xde
                 g.squad = Some(link);

@@ -144,14 +144,17 @@ struct DefenceState {
 }
 
 /// A playtest's debug command (playtest.rs `defence`): {"aim": "army"} keeps the turret on the nearest army grunt
-/// (else marching platoon), {"aim": false} stops; {"mortar": "platoon"} fires a shell at the nearest platoon; {"frame":
-/// F} puts the turret at that track frame.
+/// (else marching platoon), {"aim": false} stops; {"mortar": "platoon"} fires a shell at the nearest platoon, {"mortar":
+/// "auto"} one a second until {"mortar": false} (a completion run's alt-fire); {"frame": F} puts the turret at that
+/// track frame.
 #[derive(Message, Clone, Debug)]
 pub struct DefenceCommand(pub serde_json::Value);
 
 #[derive(Resource, Default)]
 struct DefenceDebug {
     aim_army: bool,
+    /// the auto mortar: seconds to the next shell
+    auto_mortar: Option<f32>,
 }
 
 pub struct DefencePlugin;
@@ -342,6 +345,7 @@ fn debug_commands(
     data: Res<crate::gamedata::GameData>,
     mut kit: crate::army::ModelKit,
     mut fx: MessageWriter<crate::fx::StartFx>,
+    time: Res<Time>,
 ) {
     let Some(me) = mounted.0 else {
         cmds.clear();
@@ -360,12 +364,30 @@ fn debug_commands(
         if let Some(f) = v.get("frame").and_then(|f| f.as_f64()) {
             t.frame = f as f32;
         }
-        if v.get("mortar").is_some() {
+        let mut fire = false;
+        match v.get("mortar") {
+            Some(m) if m.as_str() == Some("auto") => dbg.auto_mortar = Some(0.0),
+            Some(m) if m.as_bool() == Some(false) => dbg.auto_mortar = None,
+            Some(_) => fire = true,
+            None => {}
+        }
+        if fire {
             if let (Some(target), Some(em)) = (nearest_platoon(), t.emitters[2]) {
                 let start = (gt.to_matrix() * bone_model(&a.skeleton, em)).w_axis.truncate();
                 let template = t.mortar.0.clone();
                 crate::shell::launch(&mut commands, &data, &mut kit, &mut fx, &template, start, target, crate::shell::Lob { by: crate::fx::Src::Player, flight: None });
                 info!("EVENT defence: debug mortar at the nearest platoon, {:.0} away", (target - start).length());
+            }
+        }
+    }
+    if let Some(left) = dbg.auto_mortar.as_mut() {
+        *left -= time.delta_secs();
+        if *left <= 0.0 {
+            *left = 1.0;
+            if let (Some(target), Some(em)) = (nearest_platoon(), t.emitters[2]) {
+                let start = (gt.to_matrix() * bone_model(&a.skeleton, em)).w_axis.truncate();
+                let template = t.mortar.0.clone();
+                crate::shell::launch(&mut commands, &data, &mut kit, &mut fx, &template, start, target, crate::shell::Lob { by: crate::fx::Src::Player, flight: None });
             }
         }
     }
