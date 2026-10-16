@@ -21,7 +21,7 @@ tests are about objectives, not survival); no `send` of a mission trigger anywhe
 | lev_2_m2 | yes (complete_lev_2_m2) | sticky bombs vs buildings; the machine gun's muzzle fx leak made the Q1-12 fight crawl (16 -> 270 ms frames) | 8685a2a; 260b758 | a bomb at the Q1-12 can take civilian house 100 with it (one allowed, two fail) |
 | lev_2_m3 | yes (complete_lev_2_m3) | peasants (agent-peasants, merged); rocket tower turrets (the bot aims at the turret) | 081462f | |
 | lev_2_m4 | yes (complete_lev_2_m4, 238 s of defence) | none beyond lev_1_m4's | 0f4c942 | 123000 entities by the end: dead army grunts are never removed |
-| lev_3_m1 | no: blocked | the ticker sites on the goliaths: "lock_parent_tag 2003 not ported (0x0044e120)", the goliaths never die, the peasants stay caged | agent-blockers1 owns it | complete_lev_3_m1 written (land_peasant for the freed peasants), not in the suite |
+| lev_3_m1 | yes (complete_lev_3_m1, with agent-blockers1 merged) | the ticker sites on the goliaths: "lock_parent_tag not ported (0x0044e120)", the goliaths never died, the peasants stayed caged | agent-blockers1 f722986 (merged 9fd69bb); b6a3994 | needs agent-blockers1 in wip |
 | lev_3_m2 | yes (complete_lev_3_m2) | sticky bombs vs buildings (above) | d2f8450 | 4 of the 6 civilian deaths allowed happened (enemy fire or blasts beside targets): close to the failure |
 | lev_3_m3 | yes (complete_lev_3_m3, 35 s) | none (peasants merged) | dde4aec | |
 | lev_3_m4_bd | yes (complete_lev_3_m4_bd, 415 s of defence) | none beyond lev_1_m4's | (in the suite) | |
@@ -68,7 +68,7 @@ tests are about objectives, not survival); no `send` of a mission trigger anywhe
 
 ## Open
 
-- lev_3_m1: lock_parent_tag (agent-blockers1); the run then needs only the three peasants (land_peasant) and the mats.
+- lev_3_m1 passes only with agent-blockers1 merged (this branch merges it; wip does not have it yet).
 - lev_2_m1 sniper 28: the crosshair test misses him on the bridge over the canyon (CROSSDBG shows the bridge parts
   w_l2_m1_05 / 06 and the level behind him); bombs reach him. A player with the machine gun cannot shoot him.
 - Dead army grunts are never removed (lev_2_m4: 123000 entities, 55 ms frames at the end).
