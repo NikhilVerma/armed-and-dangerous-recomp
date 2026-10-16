@@ -137,7 +137,7 @@ pub struct Event {
     #[serde(default)]
     pub probe: Option<[f32; 5]>,
     /// debug: land beside the placed object with this instance id, [id, distance]: of eight points round it at that
-    /// distance, the one whose ground is nearest the object's own height (logged as land), facing it; a pub: its doorway
+    /// distance, the one whose ground is nearest the object's own height (logged as land), facing it; a pub: its doorway; distance 0: onto the object itself
     #[serde(default)]
     pub land_by: Option<[f32; 2]>,
     /// bot: walk to this point (game space x, y, z: as the scene files give positions)
@@ -400,6 +400,11 @@ fn warp(
         });
         match (door, objects.iter().find(|(i, _)| i.0 == id)) {
             (Some(w), _) => pt.warp = Some(w),
+            // distance 0: onto the object itself (a peasant on a roof: Roman walks up to him)
+            (None, Some((_, at))) if d <= 0.0 => {
+                let g = crate::level::game_to_engine().inverse() * at.translation();
+                pt.warp = Some([g.x, g.y, g.z + 2.0, 0.0]);
+            }
             (None, Some((_, at))) => pt.warp = land_beside(&physics, at.translation(), d),
             (None, None) => warn!("EVENT playtest: land_by: no object {id}"),
         }
