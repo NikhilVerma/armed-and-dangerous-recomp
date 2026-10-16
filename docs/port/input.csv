@@ -1,6 +1,6 @@
 address,name,disposition,reason
 0x00414460,Controls_Init,replaced,"the controls object (Game+0xa80: device count, active device, consumed bits, bindings): input.rs InputPlugin spawns the bevy_enhanced_input contexts"
-0x00414580,fn_00414580,not needed,clears Controls +0x18 (also cleared by Controls_Poll when a device gives input); nothing in the ported code reads it
+0x00414580,fn_00414580,deferred,feature: untraced; clears Controls +0x18 (also cleared by Controls_Poll when a device gives input); nothing in the ported code reads it
 0x00414b20,Controls_IsCodeHeld,replaced,"one raw input code held on any device: the few raw reads (cheat typing, cursor, trackpad taps) use Bevy's ButtonInput directly"
 0x00414c90,Input_CodeNameId,replaced,an input code's PMS_INPUT_* text id (for the controls page): input.rs key() / keys() give each action's prompt (Kenney icons) per device
 0x00415580,Input_CodeText,replaced,an input code's display text: input.rs key() / keys()
@@ -14,10 +14,10 @@ address,name,disposition,reason
 0x004e4b60,Input_AnyInput,replaced,"any input on a device (vt+0x2c, Controls_Poll's active device choice): input.rs device()"
 0x004e4d40,Input_IsUp,replaced,"an input code not held (vt+0x74, for Controls_IsReleased): bevy_enhanced_input's action events"
 0x004e5020,Rumble_Start,replaced,"the PC build never rumbles (motor output vt+0x88 = 0x00477c10, a bare ret 0xc); the remaster has its own rumble (input.rs)"
-0x004e5460,Rumble_MotorValues,not needed,"the rumble's two motor values from its sample waves: the PC build sends them to vt+0x88 = 0x00477c10, `ret 0xc` (read from the exe: no force feedback on PC); the remaster's own rumble is input.rs rumble()"
-0x004e5610,Rumble_Envelope,not needed,"the rumble envelope (delay / attack / hold / release): the PC build's motor output is a no-op (vt+0x88 = 0x00477c10, ret 0xc)"
-0x004e56c0,Rumble_PauseAll,not needed,pauses every rumble (the pause menu): the PC build's motor output is a no-op; the remaster's rumble requests are short and stop with play
-0x004e5750,Rumble_Update,not needed,"advances the rumbles and sends the motor sums to vt+0x88, which on PC is 0x00477c10 `ret 0xc` (no force feedback on PC)"
+0x004e5460,Rumble_MotorValues,not needed,"no effect on PC: the rumble's motor output goes to vt+0x88 = 0x00477c10, `ret 0xc` (no force feedback in the PC build); the remaster's pad rumble is its own feature"
+0x004e5610,Rumble_Envelope,not needed,"no effect on PC: the rumble's motor output goes to vt+0x88 = 0x00477c10, `ret 0xc` (no force feedback in the PC build); the remaster's pad rumble is its own feature"
+0x004e56c0,Rumble_PauseAll,not needed,"no effect on PC: the rumble's motor output goes to vt+0x88 = 0x00477c10, `ret 0xc` (no force feedback in the PC build); the remaster's pad rumble is its own feature"
+0x004e5750,Rumble_Update,not needed,"no effect on PC: the rumble's motor output goes to vt+0x88 = 0x00477c10, `ret 0xc` (no force feedback in the PC build); the remaster's pad rumble is its own feature"
 0x004f7b30,InputPC_Get,replaced,"the DirectInput singleton: Bevy's input (winit keyboard / mouse, gilrs pads)"
 0x004f7b80,InputPC_Release,replaced,drops the singleton's reference: Bevy's input
 0x004f7bb0,InputPC_Construct,replaced,the DirectInput object: Bevy's input
@@ -37,5 +37,5 @@ address,name,disposition,reason
 0x004f8aa0,InputPC_ControllerButtonDown,replaced,the first controller button held: Bevy's Gamepad
 0x004f8b20,InputPC_IsPressed,replaced,"a code pressed this frame (keys, mouse axes / buttons crossing the threshold, pad buttons, POV, axes): bevy_enhanced_input's action events (Controls::pressed); the original's D-pad pressed test is really the release edge (a bug of a path not taken on PC: the pad has no default bindings)"
 0x004f8f00,InputPC_IsHeld,replaced,a code held: bevy_enhanced_input's trigger state (Controls::down)
-0x004e5130,Rumble_Stop,not needed,"stops one rumble by id (fade-out times from its sample, flag 0x80000000) in the rumble list: bookkeeping for Rumble_Update, whose motor output on PC is 0x00477c10 `ret 0xc` (no force feedback on PC); the remaster's own rumble is input.rs rumble()"
-0x004e51f0,Rumble_SetGain,not needed,"sets one rumble's gain (+0x10) by id (the distance falloff of a looping rumble, render_r1.cpp:1006): only scales the motor values that the PC build drops (vt+0x88 = 0x00477c10, ret 0xc)"
+0x004e5130,Rumble_Stop,not needed,"no effect on PC: the rumble's motor output goes to vt+0x88 = 0x00477c10, `ret 0xc` (no force feedback in the PC build); the remaster's pad rumble is its own feature"
+0x004e51f0,Rumble_SetGain,not needed,"no effect on PC: the rumble's motor output goes to vt+0x88 = 0x00477c10, `ret 0xc` (no force feedback in the PC build); the remaster's pad rumble is its own feature"

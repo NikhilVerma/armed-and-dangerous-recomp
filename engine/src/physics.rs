@@ -6,7 +6,11 @@ use bevy::prelude::*;
 use oxijolt::prelude::math as j;
 use oxijolt::prelude::*;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Instant;
+
+pub use crate::contacts::{ContactRule, Touch};
+
 
 pub struct Physics {
     pub world: PhysicsWorld,
@@ -26,6 +30,10 @@ pub struct Physics {
     /// the AI characters' bodies (the AI list World+0xe7c): the AI's sight rays pass through them (0x00426fd0 excludes
     /// the looker's list +0x608, which is World+0xe7c for a grunt)
     pub ai_bodies: std::collections::HashSet<BodyId>,
+    /// the volumes bullets hit instead of a body (a character's collision model round its physics sphere), by body
+    pub hit_volumes: HashMap<BodyId, HitVolume>,
+    /// the game's contact rules and the contacts of the ruled bodies (contacts.rs), shared with the solver
+    pub contacts: Arc<crate::contacts::Contacts>,
     /// CPU time of the last steps (ms), for the benchmark.
     pub step_ms: f32,
     poses: Vec<BodyPose>,
@@ -52,8 +60,10 @@ pub fn bq(q: j::Quat) -> Quat {
 
 impl Physics {
     pub fn new(meters_per_unit: f32) -> Self {
-        let world = PhysicsWorld::new(WorldSettings::default().gravity(j::Vec3::new(0.0, -9.81, 0.0)))
+        let mut world = PhysicsWorld::new(WorldSettings::default().gravity(j::Vec3::new(0.0, -9.81, 0.0)))
             .expect("Jolt world");
+        let contacts = Arc::new(crate::contacts::Contacts::default());
+        world.set_contact_listener(Some(Arc::new(crate::contacts::ContactListenerImpl(contacts.clone()))));
         Physics {
             world,
             meters_per_unit,
@@ -65,6 +75,8 @@ impl Physics {
             static_triangles: 0,
             landscape: None,
             ai_bodies: Default::default(),
+            hit_volumes: HashMap::new(),
+            contacts,
             step_ms: 0.0,
             poses: Vec::new(),
         }
@@ -77,12 +89,16 @@ impl Physics {
         br(p) / self.meters_per_unit
     }
 
-    /// A static triangle mesh, vertices already in engine space (game units).
+    /// A static triangle mesh, vertices already in engine space (game units). Friction 1.0: the original's default
+    /// material (PhysMaterial_Load 0x00412140: "%s_friction", else default_friction, 1.0 on every level; wood's 20 is
+    /// not modelled). Jolt's solver collides with triangles from the front only, Havok's MOPP meshes from both sides:
+    /// a turned-round copy of the landscape's downward-facing triangles was tried for B3b (docs/journal/2026-10-16-charbody.md)
+    /// and dropped: it did not hold the grunts and made lev_1_m1's frames ~12% slower.
     pub fn add_static_mesh(&mut self, vertices: &[Vec3], triangles: &[[u32; 3]]) -> Option<BodyId> {
         let k = self.meters_per_unit;
         let v: Vec<j::Vec3> = vertices.iter().map(|p| jv(*p * k)).collect();
         let (shape, _dropped) = Shape::new_mesh(&v, triangles).ok()?;
-        let id = self.world.create_body(&shape, &BodySettings::new_static()).ok()?;
+        let id = self.world.create_body(&shape, &BodySettings::new_static().friction(1.0)).ok()?;
         self.static_bodies += 1;
         self.static_triangles += triangles.len();
         Some(id)
@@ -117,6 +133,8 @@ impl Physics {
     pub fn remove(&mut self, id: BodyId) {
         self.bodies.remove(&id);
         self.ai_bodies.remove(&id);
+        self.contacts.remove(id);
+        self.hit_volumes.remove(&id);
         let _ = self.world.remove_body(id);
     }
 
@@ -146,9 +164,25 @@ impl Physics {
         hit
     }
 
-    /// A projectile's ray (Projectile_Update 0x0047e580): as raycast, through the bodies bullets pass.
+    /// A projectile's ray (Projectile_Update 0x0047e580): as raycast, through the bodies bullets pass, and into the
+    /// hit volumes (the nearer of the two).
     pub fn raycast_bullet(&self, from: Vec3, dir: Vec3, length: f32) -> Option<(BodyId, Vec3, Vec3)> {
         let d = dir.normalize_or(Vec3::Y);
+        let world = self.raycast_bullet_bodies(from, d, length);
+        let reach = world.map_or(length, |h| h.1.distance(from));
+        let volume = self
+            .hit_volumes
+            .iter()
+            .filter_map(|(&id, v)| {
+                let centre = self.from_m(self.world.body(id).ok()?.position());
+                let (t, at, normal) = v.ray(centre, from, d, reach)?;
+                Some((t, id, at, normal))
+            })
+            .min_by(|a, b| a.0.total_cmp(&b.0));
+        volume.map(|(_, id, at, n)| (id, at, n)).or(world)
+    }
+
+    fn raycast_bullet_bodies(&self, from: Vec3, d: Vec3, length: f32) -> Option<(BodyId, Vec3, Vec3)> {
         let (mut from, mut left) = (from, length);
         for _ in 0..16 {
             let h = self.raycast(from, d, left)?;
@@ -255,13 +289,30 @@ impl Physics {
         Some(p.with_y(free + 0.1))
     }
 
-    /// The shape at `centre` (unrotated) touches the landscape: overlaps it or comes within the collision tolerance
-    /// (Havok's default 0.1 units), from either side of its triangles.
+    /// The shape at `centre` (unrotated) touches the landscape: overlaps it or comes within the collision tolerance,
+    /// from either side of its triangles. The tolerance is 0.3: the game's world tolerance 0.2 (world cinfo +0x40, Havok's
+    /// default 0.1) and the mesh's own radius 0.1 (mesh shape +0x20): the original lifts lev_5_m3 grunt 44 / lev_5_m1
+    /// captain 66 to 0.31 / 0.32 off the overhang (their traced z 315.99 / 297.89; 0.1 gave 0.11 / 0.12, z 1.4 / 0.9 lower).
     fn touches_landscape(&self, shape: &Shape, centre: Vec3) -> bool {
         let Some(landscape) = self.landscape else { return false };
         let k = self.meters_per_unit;
-        let q = CollideShape::new(shape, self.to_m(centre), j::Quat::IDENTITY).max_separation_distance(0.1 * k).collide_with_back_faces(true);
+        let q = CollideShape::new(shape, self.to_m(centre), j::Quat::IDENTITY).max_separation_distance(0.3 * k).collide_with_back_faces(true);
         self.world.collide_shape(&q, &QueryFilter::new()).is_ok_and(|hits| hits.iter().any(|h| h.body == landscape))
+    }
+
+    /// Sets a body's contact rule (contacts.rs); a changed rule drops the body's cached contacts, so the solver asks
+    /// again.
+    pub fn set_contact_rule(&mut self, id: BodyId, rule: ContactRule) {
+        if self.contacts.set_rule(id, rule) {
+            if let Ok(mut b) = self.world.body_mut(id) {
+                b.invalidate_contact_cache();
+            }
+        }
+    }
+
+    /// The contacts a ruled body made in the last step (contacts.rs).
+    pub fn touches(&self, id: BodyId) -> Vec<Touch> {
+        self.contacts.touches(id)
     }
 
     pub fn raycast(&self, from: Vec3, dir: Vec3, length: f32) -> Option<(BodyId, Vec3, Vec3)> {
@@ -269,6 +320,58 @@ impl Physics {
         let ray = RayCast::new(jr(from * k), jv(dir.normalize() * length * k));
         let hit = self.world.cast_ray(&ray, &QueryFilter::new()).ok()??;
         Some((hit.body, from + dir.normalize() * hit.distance / k, bv(hit.normal)))
+    }
+}
+
+/// What bullets hit instead of a body: a vertical capsule round the body's centre (game units, engine axes): its
+/// radius and its segment's ends above the centre.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct HitVolume {
+    pub radius: f32,
+    pub bottom: f32,
+    pub top: f32,
+}
+
+impl HitVolume {
+    /// Where a ray from `from` along the unit `d` first enters the capsule round `centre`, within `reach`: the distance,
+    /// the point and the outward normal there. None from inside it or past `reach`.
+    pub fn ray(&self, centre: Vec3, from: Vec3, d: Vec3, reach: f32) -> Option<(f32, Vec3, Vec3)> {
+        let (a, b) = (centre + Vec3::Y * self.bottom, centre + Vec3::Y * self.top);
+        let r2 = self.radius * self.radius;
+        let axis_point = |p: Vec3| a.with_y(p.y.clamp(a.y, b.y));
+        if (from - axis_point(from)).length_squared() <= r2 {
+            return None;
+        }
+        // the side (an infinite vertical cylinder), then the two end spheres: the first entry that lies on the capsule
+        let mut best: Option<f32> = None;
+        let mut take = |t: f32| {
+            if t >= 0.0 && t <= reach && best.is_none_or(|b| t < b) {
+                best = Some(t);
+            }
+        };
+        let (o, dd) = ((from - a).with_y(0.0), d.with_y(0.0));
+        let (qa, qb, qc) = (dd.length_squared(), 2.0 * o.dot(dd), o.length_squared() - r2);
+        if qa > 1e-9 {
+            let disc = qb * qb - 4.0 * qa * qc;
+            if disc >= 0.0 {
+                let t = (-qb - disc.sqrt()) / (2.0 * qa);
+                let y = from.y + d.y * t;
+                if (a.y..=b.y).contains(&y) {
+                    take(t);
+                }
+            }
+        }
+        for c in [a, b] {
+            let oc = from - c;
+            let (hb, hc) = (oc.dot(d), oc.length_squared() - r2);
+            let disc = hb * hb - hc;
+            if disc >= 0.0 {
+                take(-hb - disc.sqrt());
+            }
+        }
+        let t = best?;
+        let at = from + d * t;
+        Some((t, at, (at - axis_point(at)).normalize_or(-d)))
     }
 }
 
@@ -300,6 +403,8 @@ impl Plugin for PhysicsPlugin {
 
 fn step(mut physics: NonSendMut<Physics>, time: Res<Time<Fixed>>) {
     let t = Instant::now();
+    // the contact notes are the last step's (contacts.rs)
+    physics.contacts.clear();
     let _ = physics.world.step(time.delta_secs());
     physics.step_ms = t.elapsed().as_secs_f32() * 1000.0;
 }

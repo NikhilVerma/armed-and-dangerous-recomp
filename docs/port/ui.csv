@@ -1,18 +1,18 @@
 address,name,disposition,reason
 0x00401010,fn_00401010,replaced,options apply: options.rs applies each option
-0x004067e0,fn_004067e0,not needed,"auto-aim pass: option off by default, shown disabled; open: port with an auto-aim option"
-0x00408050,fn_00408050,not needed,"auto-aim pass: option off by default, shown disabled; open: port with an auto-aim option"
-0x00408190,fn_00408190,not needed,"auto-aim pass: option off by default, shown disabled; open: port with an auto-aim option"
-0x004082a0,fn_004082a0,not needed,"auto-aim pass: option off by default, shown disabled; open: port with an auto-aim option"
+0x004067e0,fn_004067e0,deferred,"feature: auto-aim; auto-aim pass: option off by default, shown disabled; open: port with an auto-aim option"
+0x00408050,fn_00408050,deferred,"feature: auto-aim; auto-aim pass: option off by default, shown disabled; open: port with an auto-aim option"
+0x00408190,fn_00408190,deferred,"feature: auto-aim; auto-aim pass: option off by default, shown disabled; open: port with an auto-aim option"
+0x004082a0,fn_004082a0,deferred,"feature: auto-aim; auto-aim pass: option off by default, shown disabled; open: port with an auto-aim option"
 0x00410bd0,fn_00410bd0,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
 0x00410ca0,fn_00410ca0,replaced,cheat flags at level start: cheats.rs applies effects on activation (0x2000 object pass 0x00418690 not ported)
 0x00415910,fn_00415910,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
 0x00415d50,fn_00415d50,replaced,poster render target / widget release: statscreen.rs draws the poster as a quad
-0x00447600,UI_GetLoadingText,not needed,loading screen: the remaster loads the level before the title menu
-0x00447d20,fn_00447d20,not needed,key rebinding: controls page shows the device's bindings; open: rebinding not ported
-0x00447e20,fn_00447e20,not needed,key rebinding: controls page shows the device's bindings; open: rebinding not ported
-0x00447f50,UI_ShowAssignKeyPrompt,not needed,key rebinding: controls page shows the device's bindings; open: rebinding not ported
-0x004481b0,fn_004481b0,not needed,key rebinding: controls page shows the device's bindings; open: rebinding not ported
+0x00447600,UI_GetLoadingText,deferred,feature: loading-screen; loading screen: the remaster loads the level before the title menu
+0x00447d20,fn_00447d20,deferred,feature: key-rebinding; key rebinding: controls page shows the device's bindings; open: rebinding not ported
+0x00447e20,fn_00447e20,deferred,feature: key-rebinding; key rebinding: controls page shows the device's bindings; open: rebinding not ported
+0x00447f50,UI_ShowAssignKeyPrompt,deferred,feature: key-rebinding; key rebinding: controls page shows the device's bindings; open: rebinding not ported
+0x004481b0,fn_004481b0,deferred,feature: key-rebinding; key rebinding: controls page shows the device's bindings; open: rebinding not ported
 0x004626e0,fn_004626e0,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
 0x00462770,fn_00462770,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
 0x004629b0,Hud_CreateLevelUi,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
@@ -44,58 +44,58 @@ address,name,disposition,reason
 0x004659b0,UiText_SetScale,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
 0x004659d0,UiText_SetColour,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
 0x004659e0,UiText_SetPosition,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
-0x00465be0,fn_00465be0,not needed,mode counters: Game+0x26ec unset in lev_1_m1 (capture modes)
-0x00465c90,fn_00465c90,not needed,mode counters: Game+0x26ec unset in lev_1_m1 (capture modes)
-0x00465ce0,fn_00465ce0,not needed,mode counters: Game+0x26ec unset in lev_1_m1 (capture modes)
-0x00465d30,fn_00465d30,not needed,mode counters: Game+0x26ec unset in lev_1_m1 (capture modes)
-0x00465d50,fn_00465d50,not needed,flag / handle meters: Game+0x26fc unset in lev_1_m1
-0x00465de0,fn_00465de0,not needed,flag / handle meters: Game+0x26fc unset in lev_1_m1
-0x00465e30,fn_00465e30,not needed,flag / handle meters: Game+0x26fc unset in lev_1_m1
-0x00465f30,fn_00465f30,not needed,flag / handle meters: Game+0x26fc unset in lev_1_m1
-0x00465f70,fn_00465f70,not needed,flag / handle meters: Game+0x26fc unset in lev_1_m1
-0x00466010,fn_00466010,not needed,flag / handle meters: Game+0x26fc unset in lev_1_m1
+0x00465be0,fn_00465be0,deferred,feature: hud-meters; mode counters: Game+0x26ec unset in lev_1_m1 (capture modes)
+0x00465c90,fn_00465c90,deferred,feature: hud-meters; mode counters: Game+0x26ec unset in lev_1_m1 (capture modes)
+0x00465ce0,fn_00465ce0,deferred,feature: hud-meters; mode counters: Game+0x26ec unset in lev_1_m1 (capture modes)
+0x00465d30,fn_00465d30,deferred,feature: hud-meters; mode counters: Game+0x26ec unset in lev_1_m1 (capture modes)
+0x00465d50,fn_00465d50,deferred,feature: hud-meters; flag / handle meters: Game+0x26fc unset in lev_1_m1
+0x00465de0,fn_00465de0,deferred,feature: hud-meters; flag / handle meters: Game+0x26fc unset in lev_1_m1
+0x00465e30,fn_00465e30,ported,"cited: hud.rs (the base flag meter / grunts-over-the-wall count, defence.rs)"
+0x00465f30,fn_00465f30,deferred,feature: hud-meters; flag / handle meters: Game+0x26fc unset in lev_1_m1
+0x00465f70,fn_00465f70,ported,"cited: hud.rs (the base flag meter / grunts-over-the-wall count, defence.rs)"
+0x00466010,fn_00466010,deferred,feature: hud-meters; flag / handle meters: Game+0x26fc unset in lev_1_m1
 0x00466430,fn_00466430,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
 0x00466520,fn_00466520,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
 0x00466530,fn_00466530,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
 0x00466580,fn_00466580,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
 0x00467170,fn_00467170,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
-0x004671b0,fn_004671b0,not needed,"one-time hint keyed to Game+0xcbc, unset in lev_1_m1"
-0x00467220,fn_00467220,not needed,UI element not identified (hud.md open question 7); not in lev_1_m1
+0x004671b0,fn_004671b0,deferred,"feature: hud-meters; one-time hint keyed to Game+0xcbc, unset in lev_1_m1"
+0x00467220,fn_00467220,deferred,feature: hud-meters; UI element not identified (hud.md open question 7); not in lev_1_m1
 0x00467270,fn_00467270,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
 0x004676f0,fn_004676f0,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
-0x00467740,fn_00467740,not needed,UI element not identified (hud.md open question 7); not in lev_1_m1
-0x004677c0,fn_004677c0,not needed,UI element not identified (hud.md open question 7); not in lev_1_m1
+0x00467740,fn_00467740,deferred,feature: hud-meters; UI element not identified (hud.md open question 7); not in lev_1_m1
+0x004677c0,fn_004677c0,deferred,feature: hud-meters; UI element not identified (hud.md open question 7); not in lev_1_m1
 0x004679f0,fn_004679f0,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
 0x00467d90,fn_00467d90,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
 0x00467f00,fn_00467f00,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
 0x00467fd0,fn_00467fd0,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
 0x0046b0a0,Ui_PixelToScreen,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
 0x0046bbe0,Ui_ArrowInit,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
-0x0046bdd0,ListBox_Init,not needed,"not needed for the save screens: the list boxes are the level / movie / director select pages' (layout.json pui_levelselect, pui_movieselect, pui_directorselect, ui_listbox), which the remaster does not have"
-0x0046be90,ListBox_Destroy,not needed,"not needed for the save screens: the list boxes are the level / movie / director select pages' (layout.json pui_levelselect, pui_movieselect, pui_directorselect, ui_listbox), which the remaster does not have"
-0x0046bec0,fn_0046bec0,not needed,"not needed for the save screens: the list boxes are the level / movie / director select pages' (layout.json pui_levelselect, pui_movieselect, pui_directorselect, ui_listbox), which the remaster does not have"
-0x0046bed0,ListBox_Layout,not needed,"not needed for the save screens: the list boxes are the level / movie / director select pages' (layout.json pui_levelselect, pui_movieselect, pui_directorselect, ui_listbox), which the remaster does not have"
-0x0046bf30,ListBox_HitEntry,not needed,"not needed for the save screens: the list boxes are the level / movie / director select pages' (layout.json pui_levelselect, pui_movieselect, pui_directorselect, ui_listbox), which the remaster does not have"
-0x0046bfd0,ListBox_HitArrows,not needed,"not needed for the save screens: the list boxes are the level / movie / director select pages' (layout.json pui_levelselect, pui_movieselect, pui_directorselect, ui_listbox), which the remaster does not have"
-0x0046c020,ListBox_HitTest,not needed,"not needed for the save screens: the list boxes are the level / movie / director select pages' (layout.json pui_levelselect, pui_movieselect, pui_directorselect, ui_listbox), which the remaster does not have"
-0x0046c070,ListBox_Render,not needed,"not needed for the save screens: the list boxes are the level / movie / director select pages' (layout.json pui_levelselect, pui_movieselect, pui_directorselect, ui_listbox), which the remaster does not have"
-0x0046c1d0,ListBox_Clear,not needed,"not needed for the save screens: the list boxes are the level / movie / director select pages' (layout.json pui_levelselect, pui_movieselect, pui_directorselect, ui_listbox), which the remaster does not have"
-0x0046c2b0,ListBox_SortA,not needed,"not needed for the save screens: the list boxes are the level / movie / director select pages' (layout.json pui_levelselect, pui_movieselect, pui_directorselect, ui_listbox), which the remaster does not have"
-0x0046c2c0,ListBox_SortB,not needed,"not needed for the save screens: the list boxes are the level / movie / director select pages' (layout.json pui_levelselect, pui_movieselect, pui_directorselect, ui_listbox), which the remaster does not have"
-0x0046c2d0,ListBox_Sort,not needed,"not needed for the save screens: the list boxes are the level / movie / director select pages' (layout.json pui_levelselect, pui_movieselect, pui_directorselect, ui_listbox), which the remaster does not have"
-0x0046c310,ListBox_AddEntryDefault,not needed,"not needed for the save screens: the list boxes are the level / movie / director select pages' (layout.json pui_levelselect, pui_movieselect, pui_directorselect, ui_listbox), which the remaster does not have"
-0x0046c320,ListBox_AddEntry,not needed,"not needed for the save screens: the list boxes are the level / movie / director select pages' (layout.json pui_levelselect, pui_movieselect, pui_directorselect, ui_listbox), which the remaster does not have"
-0x0046c4d0,ListBox_SetHighlight,not needed,"not needed for the save screens: the list boxes are the level / movie / director select pages' (layout.json pui_levelselect, pui_movieselect, pui_directorselect, ui_listbox), which the remaster does not have"
-0x0046c530,ListBox_SelectEntry,not needed,"not needed for the save screens: the list boxes are the level / movie / director select pages' (layout.json pui_levelselect, pui_movieselect, pui_directorselect, ui_listbox), which the remaster does not have"
-0x0046c560,ListBox_Select,not needed,"not needed for the save screens: the list boxes are the level / movie / director select pages' (layout.json pui_levelselect, pui_movieselect, pui_directorselect, ui_listbox), which the remaster does not have"
-0x0046c5f0,ListBox_SetTop,not needed,"not needed for the save screens: the list boxes are the level / movie / director select pages' (layout.json pui_levelselect, pui_movieselect, pui_directorselect, ui_listbox), which the remaster does not have"
-0x0046c740,ListBox_GetEntry,not needed,"not needed for the save screens: the list boxes are the level / movie / director select pages' (layout.json pui_levelselect, pui_movieselect, pui_directorselect, ui_listbox), which the remaster does not have"
-0x0046c760,ListBox_GetEntryTextA,not needed,"not needed for the save screens: the list boxes are the level / movie / director select pages' (layout.json pui_levelselect, pui_movieselect, pui_directorselect, ui_listbox), which the remaster does not have"
-0x0046c7e0,ListBox_GetEntryTextW,not needed,"not needed for the save screens: the list boxes are the level / movie / director select pages' (layout.json pui_levelselect, pui_movieselect, pui_directorselect, ui_listbox), which the remaster does not have"
-0x0046c840,ListBox_GetSelectedTextA,not needed,"not needed for the save screens: the list boxes are the level / movie / director select pages' (layout.json pui_levelselect, pui_movieselect, pui_directorselect, ui_listbox), which the remaster does not have"
-0x0046c850,ListBox_GetSelectedTextW,not needed,"not needed for the save screens: the list boxes are the level / movie / director select pages' (layout.json pui_levelselect, pui_movieselect, pui_directorselect, ui_listbox), which the remaster does not have"
-0x0046c860,ListBox_HandleInput,not needed,"not needed for the save screens: the list boxes are the level / movie / director select pages' (layout.json pui_levelselect, pui_movieselect, pui_directorselect, ui_listbox), which the remaster does not have"
-0x0046c980,ListBox_SetRows,not needed,"not needed for the save screens: the list boxes are the level / movie / director select pages' (layout.json pui_levelselect, pui_movieselect, pui_directorselect, ui_listbox), which the remaster does not have"
+0x0046bdd0,ListBox_Init,replaced,the scrolling list box widget: gamemenu.rs / extras.rs draw the Replay Mission and Cutscenes lists
+0x0046be90,ListBox_Destroy,replaced,the scrolling list box widget: gamemenu.rs / extras.rs draw the Replay Mission and Cutscenes lists
+0x0046bec0,fn_0046bec0,replaced,the scrolling list box widget: gamemenu.rs / extras.rs draw the Replay Mission and Cutscenes lists
+0x0046bed0,ListBox_Layout,replaced,the scrolling list box widget: gamemenu.rs / extras.rs draw the Replay Mission and Cutscenes lists
+0x0046bf30,ListBox_HitEntry,replaced,the scrolling list box widget: gamemenu.rs / extras.rs draw the Replay Mission and Cutscenes lists
+0x0046bfd0,ListBox_HitArrows,replaced,the scrolling list box widget: gamemenu.rs / extras.rs draw the Replay Mission and Cutscenes lists
+0x0046c020,ListBox_HitTest,replaced,the scrolling list box widget: gamemenu.rs / extras.rs draw the Replay Mission and Cutscenes lists
+0x0046c070,ListBox_Render,replaced,the scrolling list box widget: gamemenu.rs / extras.rs draw the Replay Mission and Cutscenes lists
+0x0046c1d0,ListBox_Clear,replaced,the scrolling list box widget: gamemenu.rs / extras.rs draw the Replay Mission and Cutscenes lists
+0x0046c2b0,ListBox_SortA,replaced,the scrolling list box widget: gamemenu.rs / extras.rs draw the Replay Mission and Cutscenes lists
+0x0046c2c0,ListBox_SortB,replaced,the scrolling list box widget: gamemenu.rs / extras.rs draw the Replay Mission and Cutscenes lists
+0x0046c2d0,ListBox_Sort,replaced,the scrolling list box widget: gamemenu.rs / extras.rs draw the Replay Mission and Cutscenes lists
+0x0046c310,ListBox_AddEntryDefault,replaced,the scrolling list box widget: gamemenu.rs / extras.rs draw the Replay Mission and Cutscenes lists
+0x0046c320,ListBox_AddEntry,replaced,the scrolling list box widget: gamemenu.rs / extras.rs draw the Replay Mission and Cutscenes lists
+0x0046c4d0,ListBox_SetHighlight,replaced,the scrolling list box widget: gamemenu.rs / extras.rs draw the Replay Mission and Cutscenes lists
+0x0046c530,ListBox_SelectEntry,replaced,the scrolling list box widget: gamemenu.rs / extras.rs draw the Replay Mission and Cutscenes lists
+0x0046c560,ListBox_Select,replaced,the scrolling list box widget: gamemenu.rs / extras.rs draw the Replay Mission and Cutscenes lists
+0x0046c5f0,ListBox_SetTop,replaced,the scrolling list box widget: gamemenu.rs / extras.rs draw the Replay Mission and Cutscenes lists
+0x0046c740,ListBox_GetEntry,replaced,the scrolling list box widget: gamemenu.rs / extras.rs draw the Replay Mission and Cutscenes lists
+0x0046c760,ListBox_GetEntryTextA,replaced,the scrolling list box widget: gamemenu.rs / extras.rs draw the Replay Mission and Cutscenes lists
+0x0046c7e0,ListBox_GetEntryTextW,replaced,the scrolling list box widget: gamemenu.rs / extras.rs draw the Replay Mission and Cutscenes lists
+0x0046c840,ListBox_GetSelectedTextA,replaced,the scrolling list box widget: gamemenu.rs / extras.rs draw the Replay Mission and Cutscenes lists
+0x0046c850,ListBox_GetSelectedTextW,replaced,the scrolling list box widget: gamemenu.rs / extras.rs draw the Replay Mission and Cutscenes lists
+0x0046c860,ListBox_HandleInput,replaced,the scrolling list box widget: gamemenu.rs / extras.rs draw the Replay Mission and Cutscenes lists
+0x0046c980,ListBox_SetRows,replaced,the scrolling list box widget: gamemenu.rs / extras.rs draw the Replay Mission and Cutscenes lists
 0x0046cbc0,CheckBox_Init,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
 0x0046ce40,fn_0046ce40,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
 0x0046cf70,Stepper_SetSteps,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
@@ -129,11 +129,11 @@ address,name,disposition,reason
 0x00493270,fn_00493270,replaced,"next name of the play list: ported in movie.rs (PlayMovies::list splits at , and ;)"
 0x004932e0,fn_004932e0,replaced,set the play list: PlayMovies::list
 0x00493320,fn_00493320,replaced,movie screen show / hide: cutscenes.rs pauses the game during a full-window movie; the post-process targets it releases are renderer plumbing
-0x004933b0,fn_004933b0,not needed,pauses the movie when another screen takes the focus: no remaster screen opens over a movie
+0x004933b0,fn_004933b0,not needed,no effect in the remaster: pauses a movie when another screen takes the focus; no remaster screen opens over a movie and the movie clock is real time
 0x004933e0,fn_004933e0,replaced,movie screen update (end / skip -> next movie; none left -> pop): ported in movie.rs advance / skip
-0x00493520,fn_00493520,not needed,"timed splash screens: LegalText (b_legal, 4.0 s) is pushed by Game_StartLevel 0x00403690 (start_level.cpp:121) above the intro movies, so it shows first (capture work/shots/origmovA frame 300); its art is not in the exported UI bank: open"
-0x00493590,fn_00493590,not needed,timed splash screen update (LegalText): see 0x00493520
-0x00493770,fn_00493770,not needed,exit screen
+0x00493520,fn_00493520,deferred,"feature: legal-splash; timed splash screens: LegalText (b_legal, 4.0 s) is pushed by Game_StartLevel 0x00403690 (start_level.cpp:121) above the intro movies, so it shows first (capture work/shots/origmovA frame 300); its art is not in the exported UI bank: open"
+0x00493590,fn_00493590,deferred,feature: legal-splash; timed splash screen update (LegalText): see 0x00493520
+0x00493770,fn_00493770,deferred,feature: exit-screen; exit screen
 0x00494000,fn_00494000,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
 0x00494030,fn_00494030,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
 0x00494820,fn_00494820,replaced,poster render target / widget release: statscreen.rs draws the poster as a quad
@@ -153,4 +153,4 @@ address,name,disposition,reason
 0x004a36f0,fn_004a36f0,ported,ported: gamemenu.rs navigate Act::Slot (save / overwrite prompt / load / delete prompt)
 0x004a37e0,fn_004a37e0,ported,ported: gamemenu.rs save_slot (the panel is the hit box: MenuRow::panel)
 0x004a3b60,fn_004a3b60,ported,"ported: gamemenu.rs slot_page / navigate go (title, default slot: saveslots::default_slot)"
-0x00406740,fn_00406740,not needed,"whether the HUD draws the vindaloo's lock-on markers (hud +0x152, the four sprites at +0x164; four with vindaloo_is_upgraded Game+0xdd0): the rocket launcher is not ported (player.rs: rifle and machine gun)"
+0x00406740,fn_00406740,deferred,"feature: vindaloo; whether the HUD draws the vindaloo's lock-on markers (hud +0x152, the four sprites at +0x164; four with vindaloo_is_upgraded Game+0xdd0): the rocket launcher is not ported (player.rs: rifle and machine gun)"

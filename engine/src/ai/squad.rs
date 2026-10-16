@@ -250,6 +250,7 @@ pub fn update_squads(
                 at: sq.point(offset),
                 yaw: sq.yaw,
                 squad: Some(SquadLink { squad: se, offset }),
+                group: Some(sq.group as u32),
                 cage: sq.goliath_cage,
                 kill_trigger: kill,
                 death_trigger: on_death,

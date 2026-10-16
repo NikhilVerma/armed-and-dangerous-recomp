@@ -20,6 +20,7 @@ SUITE = ['save_write', 'save_read', 'topsyhit2', 'turn_in_place', 'turret1', 'de
          'menus', 'hud', 'flow', 'stats', 'pub', 'pub_screen', 'unit',
          'hits1', 'noise1', 'noise2', 'splines1', 'alarm1', 'captain1', 'taunt1', 'leader1',
          'infantry_l2m1', 'infantry_l3m1', 'infantry_l4m2', 'infantry_l2m2', 'squad_goliath', 'twiglets', 'monk_summon',
+         'peasants_l2m3', 'peasants_bonus_m2', 'peasants_lost_l4m2', 'peasants_cage_l3m1',
          'mission_start', 'volumes', 'ticker', 'pickups', 'pubflow', 'winfail',
          'player_move', 'player_fall', 'player_weapons', 'player_special', 'player_topsy', 'player_banter',
          'audio_distance', 'audio_groups', 'audio_voice', 'audio_ear', 'audio_music', 'audio_stopall', 'audio_ambient',

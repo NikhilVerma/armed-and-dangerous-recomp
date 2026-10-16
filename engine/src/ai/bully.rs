@@ -50,7 +50,7 @@ const PEASANT_LINES: [&str; 7] =
 pub fn bullies(
     time: Res<Time>,
     mut grunts: Query<(Entity, &mut Grunt, &Transform)>,
-    mut peasants: Query<(Entity, &InstanceId, &Transform, Option<&Destructible>, Option<&mut crate::skin::Animator>), Without<Grunt>>,
+    mut peasants: Query<(Entity, &InstanceId, &Transform, Option<&Destructible>, Option<&mut crate::skin::Animator>, Option<&crate::peasant::Peasant>), Without<Grunt>>,
     player: Query<Entity, With<Player>>,
     mut lines: ResMut<BullyLines>,
     mut rng: ResMut<FxStats>,
@@ -72,9 +72,10 @@ pub fn bullies(
             }
         }
         let pe = b.peasant.expect("found above");
-        let dead = peasants.get(pe).map_or(true, |p| p.3.is_some_and(|d| d.health <= 0.0));
-        let set = |peasants: &mut Query<(Entity, &InstanceId, &Transform, Option<&Destructible>, Option<&mut crate::skin::Animator>), Without<Grunt>>, n: &str, looping: bool| {
-            if let Ok((_, _, _, _, Some(mut a))) = peasants.get_mut(pe) {
+        // dead, or ragdolled (+0x421: tied on Roman's rope, peasant.rs)
+        let dead = peasants.get(pe).map_or(true, |p| p.3.is_some_and(|d| d.health <= 0.0) || p.5.is_some_and(|x| x.rope.is_some()));
+        let set = |peasants: &mut Query<(Entity, &InstanceId, &Transform, Option<&Destructible>, Option<&mut crate::skin::Animator>, Option<&crate::peasant::Peasant>), Without<Grunt>>, n: &str, looping: bool| {
+            if let Ok((_, _, _, _, Some(mut a), _)) = peasants.get_mut(pe) {
                 a.play(0, n, looping, crate::skin::Mask::All);
             }
         };

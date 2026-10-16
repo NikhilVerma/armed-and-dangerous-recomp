@@ -59,6 +59,8 @@ pub struct SpawnGoliath {
     pub at: Vec3,
     pub yaw: f32,
     pub squad: Option<crate::ai::squad::SquadLink>,
+    /// the squad's group (+0x510 = its -squad_tag, 0x0042de60): the goliath passes through its squad mates
+    pub group: Option<u32>,
     /// a goliath_cage with a peasant at its chest
     pub cage: bool,
     /// the squad's receive_trigger_kill (+0x530), send_trigger_on_death (+0x528), tag (+0x390)
@@ -127,6 +129,9 @@ fn spawn_for_squads(
         commands.entity(ev.entity).insert((world, GlobalTransform::from(world), Visibility::default(), Name::new("goliath")));
         let Some(bounds) = kit.attach(&mut commands, ev.entity, &model, p.f("shadow_enable", 0.0) != 0.0) else { continue };
         let Some((body, lift)) = hit_body(&mut physics, ev.entity, ev.at, p.s("material")) else { continue };
+        if ev.group.is_some() {
+            physics.set_contact_rule(body, crate::contacts::ContactRule { group: ev.group, ..Default::default() });
+        }
         let husk = crate::level::pick_husk(&p, husk_rng.get());
         let mut d = crate::level::destructible(&p).unwrap_or_else(|| crate::vehicles::unit_health(&p, crate::fx::DClass::Open, None, 1.0));
         // GenericAI damage: every shot counts
@@ -333,10 +338,13 @@ fn follow_squads(
 }
 
 /// The cage on a squad goliath's chest (Object_Attach 0x004539f0: the cage's ref_chest at the goliath's "chest"), the
-/// peasant in it at ref_peasant_1 by its "center", playing peasant_man_stand (Squad_Init 0x00433220). The peasant is
-/// drawn only (the peasant object, its rescue and score, is not ported: mission.rs peasant_saved_trigger).
-fn cages(mut commands: Commands, q: Query<(Entity, &CagePending, &crate::skin::Animator)>, mut kit: crate::army::ModelKit, data: Res<crate::gamedata::GameData>) {
-    for (e, c, a) in &q {
+/// peasant in it at ref_peasant_1 by its "center", playing peasant_man_stand (Squad_Init 0x00433220). The peasant is a
+/// PeasantObject held by the cage (peasant.rs `Peasant::held_by`: no pick-up while attached); when the goliath dies the
+/// cage goes and he falls free (0x00453750: the cage without flag 4 is removed, the peasant with it is detached).
+fn cages(mut commands: Commands, q: Query<(Entity, &CagePending, &crate::skin::Animator, Option<&SquadGoliath>)>, ids: Query<&crate::level::InstanceId>, mut kit: crate::army::ModelKit, data: Res<crate::gamedata::GameData>) {
+    for (e, c, a, sg) in &q {
+        // the squad's entry orders its peasant on the object list
+        let id = sg.and_then(|s| ids.get(s.link.squad).ok()).map_or(0, |i| i.0);
         commands.entity(e).remove::<CagePending>();
         let Some(chest) = a.skeleton.index.get("chest").and_then(|&i| a.joints.get(i).copied()) else { continue };
         let dir = kit.dir();
@@ -348,7 +356,11 @@ fn cages(mut commands: Commands, q: Query<(Entity, &CagePending, &crate::skin::A
         let Some(pm) = data.templates.get(template).and_then(|t| t.model.clone()) else { continue };
         let at = node("goliath_cage_ref", "ref_peasant_1") - node("peasant_ref", "center");
         if let Some(peasant) = kit.spawn(&mut commands, &pm, Transform::from_translation(at), true) {
-            commands.entity(peasant).insert(crate::level::DefaultAnim::new("peasant_man_stand"));
+            // made after the placed objects (the squad's load), in the squads' order
+            let props = data.template_props(template);
+            let mut p = crate::peasant::Peasant::from_props(&props, template, crate::peasant::CAGED_ORDER + id);
+            p.held_by = Some(e);
+            commands.entity(peasant).insert((crate::level::DefaultAnim::new("peasant_man_stand"), p.health(&props), crate::fx::BlastProof, p, Name::new(template)));
             commands.entity(cage).add_child(peasant);
         }
     }
