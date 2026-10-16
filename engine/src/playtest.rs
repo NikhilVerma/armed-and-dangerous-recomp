@@ -124,6 +124,10 @@ pub struct Event {
     /// one spot without walking there
     #[serde(default)]
     pub warp: Option<[f32; 4]>,
+    /// debug: as warp, onto the landscape under game-space [x, y] facing yaw degrees (the ground found by a ray down,
+    /// as Object_ForceGround's), for a script that skips travel without knowing the ground's height
+    #[serde(default)]
+    pub land: Option<[f32; 3]>,
     /// bot: walk to this point (game space x, y, z: as the scene files give positions)
     #[serde(default)]
     pub goto: Option<[f32; 3]>,
@@ -364,7 +368,17 @@ fn warp(
     let Some(w) = pt.warp else { return };
     let Ok((mut r, mut t)) = roman.single_mut() else { return };
     pt.warp = None;
-    let feet = crate::level::game_to_engine() * Vec3::new(w[0], w[1], w[2]);
+    let mut feet = crate::level::game_to_engine() * Vec3::new(w[0], w[1], if w[2].is_nan() { 0.0 } else { w[2] });
+    if w[2].is_nan() {
+        // a land step: onto the landscape under the point (a little above it, the walker settles)
+        let top = feet.with_y(4000.0);
+        let Some(ground) = physics.raycast_landscape(top, Vec3::NEG_Y, 8000.0).or_else(|| physics.raycast(top, Vec3::NEG_Y, 8000.0).map(|h| h.1)) else {
+            warn!("EVENT playtest: no ground under {:?}", [w[0], w[1]]);
+            return;
+        };
+        feet = ground + Vec3::Y * 2.0;
+        info!("EVENT playtest: landed at {:.0} {:.0} {:.0}", w[0], w[1], ground.y);
+    }
     physics.place_walker(&r.walker, feet);
     t.translation = feet;
     r.yaw = w[3].to_radians();
@@ -453,7 +467,7 @@ pub(crate) fn drive(
     mut objects: Query<(Entity, Option<&crate::level::InstanceId>, Option<&crate::level::Placed>, &mut crate::fx::Destructible)>,
     cam: Query<&GlobalTransform, With<Camera3d>>,
     player: Query<&GlobalTransform, With<crate::player::Roman>>,
-    mut grunts: Query<(&mut crate::ai::Grunt, &mut crate::fx::Health, &GlobalTransform), Without<crate::player::Roman>>,
+    mut grunts: Query<(&mut crate::ai::Grunt, &mut crate::fx::Health, &GlobalTransform, Option<&crate::level::InstanceId>), Without<crate::player::Roman>>,
 ) {
     pt.t += time.delta_secs();
     // the mission over (won or failed): play stops, so a pending goto counts as done
@@ -594,6 +608,14 @@ pub(crate) fn drive(
                     d.dying = Some(0.0);
                 }
             }
+            // a placed AI (a grunt, a Q1-12) of that instance id takes the hit as a shot does
+            if let Some(id) = id {
+                for (mut g, mut h, _, _) in grunts.iter_mut().filter(|(g, _, _, i)| g.mind != crate::ai::Mind::Dead && i.is_some_and(|i| i.0 == id)) {
+                    n += 1;
+                    g.last_hit = amount;
+                    h.0 -= amount;
+                }
+            }
             info!("EVENT playtest: damage {amount} to {n} objects ({})", template.unwrap_or_else(|| format!("id {}", id.unwrap_or(0))));
         }
         if let Some(p) = e.pad {
@@ -641,7 +663,7 @@ pub(crate) fn drive(
                 let pos = to_game * c.translation();
                 let roman = player.single().map(|r| to_game * r.translation()).ok();
                 // the grunts (game space; the hook's dump lists the original's in "ai"), for movement comparisons
-                let gs: Vec<[f32; 3]> = grunts.iter().filter(|(g, _, _)| g.mind != crate::ai::Mind::Dead).map(|(_, _, t)| (to_game * t.translation()).to_array()).collect();
+                let gs: Vec<[f32; 3]> = grunts.iter().filter(|(g, _, _, _)| g.mind != crate::ai::Mind::Dead).map(|(_, _, t, _)| (to_game * t.translation()).to_array()).collect();
                 let j = serde_json::json!({"time": pt.t, "position": pos.to_array(), "forward": fwd.to_array(), "up": up.to_array(), "roman": roman.map(|r| r.to_array()), "grunts": gs});
                 let _ = std::fs::write(pt.path.with_extension(format!("{name}.camera.json")), j.to_string());
             }
@@ -696,13 +718,13 @@ pub(crate) fn drive(
         }
         if let (Some(d), Ok(p)) = (e.kill, player.single()) {
             let me = p.translation();
-            if let Some((mut g, mut h, _)) = grunts.iter_mut().filter(|(g, _, _)| g.mind != crate::ai::Mind::Dead).min_by(|a, b| a.2.translation().distance(me).total_cmp(&b.2.translation().distance(me))) {
+            if let Some((mut g, mut h, _, _)) = grunts.iter_mut().filter(|(g, _, _, _)| g.mind != crate::ai::Mind::Dead).min_by(|a, b| a.2.translation().distance(me).total_cmp(&b.2.translation().distance(me))) {
                 g.last_hit = d;
                 h.0 -= d;
             }
         }
         if let Some(d) = e.kill_gunner {
-            for (mut g, mut h, _) in grunts.iter_mut().filter(|(g, _, _)| g.mind != crate::ai::Mind::Dead && g.gun.is_some()) {
+            for (mut g, mut h, _, _) in grunts.iter_mut().filter(|(g, _, _, _)| g.mind != crate::ai::Mind::Dead && g.gun.is_some()) {
                 g.last_hit = d;
                 h.0 -= d;
             }
@@ -710,9 +732,13 @@ pub(crate) fn drive(
         if let Some(w) = e.warp {
             pt.warp = Some(w);
         }
+        if let Some([x, y, yaw]) = e.land {
+            // no height: the warp system finds the ground
+            pt.warp = Some([x, y, f32::NAN, yaw]);
+        }
         if let (Some(true), Ok(p)) = (e.cover, player.single()) {
             let me = p.translation();
-            if let Some((mut g, _, _)) = grunts.iter_mut().filter(|(g, _, _)| g.mind != crate::ai::Mind::Dead).min_by(|a, b| a.2.translation().distance(me).total_cmp(&b.2.translation().distance(me))) {
+            if let Some((mut g, _, _, _)) = grunts.iter_mut().filter(|(g, _, _, _)| g.mind != crate::ai::Mind::Dead).min_by(|a, b| a.2.translation().distance(me).total_cmp(&b.2.translation().distance(me))) {
                 g.force_hide = true;
             }
         }
@@ -728,7 +754,7 @@ pub(crate) fn drive(
         }
         if let Some(spell) = &e.monk_spell {
             let act = if spell == "baskets" { crate::ai::monk::MonkAct::Baskets } else { crate::ai::monk::MonkAct::Twiglets };
-            for (mut g, _, _) in grunts.iter_mut().filter(|(g, _, _)| g.mind != crate::ai::Mind::Dead && g.target.is_some()) {
+            for (mut g, _, _, _) in grunts.iter_mut().filter(|(g, _, _, _)| g.mind != crate::ai::Mind::Dead && g.target.is_some()) {
                 if let Some(m) = g.monk.as_mut() {
                     m.forced = Some(act);
                     // back to the pursuit: the next frame in range engages and rolls (0x00427910 -> vt+0x220)
