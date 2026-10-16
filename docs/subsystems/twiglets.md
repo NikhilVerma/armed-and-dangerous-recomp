@@ -87,11 +87,14 @@ tools/oracle_diff.py families: twiglets.alive / .emerging / .running / .bombs (t
 same value within twiglet_frames, 30) and twiglet.nearest (the nearest twiglet's 2D distance to each game's own Roman
 within twiglet_dist, 20, within twiglet_frames).
 
-Scenario twiglets_l4m1 (suite): Roman warped into volume 76, traced to frame 1240. 2026-10-16: PASS, 22 same, 5 known
+Scenario twiglets_l4m1 (suite): Roman warped into volume 76, traced to frame 1200, twiglet_frames 60 (the releases are
+random 0.1..0.25 s steps from each game's own stream: two runs spread by ~20 frames). 2026-10-16: PASS, 22 same, 5 known
 (B6: grunts 283 / 284 shoot the original's Roman from frame 58, not the remaster's). Counts reach each value within
 14 frames (made: original 1 at 10, 30 at 314; remaster 14, 326; first out of a tree 438 / 450; 30 out 790 / 804);
 nearest twiglet within 7.5 units at worst. First bomb: original 1300 (Roman at (221, -69) after the grunts' knocks),
-remaster 1258 (Roman at (210, -57), on a gentler slope): outside the traced window for that reason.
+remaster 1240..1258 by its rolls (Roman at (210, -57), on a gentler slope): outside the traced window for that reason.
+The numbers above are from the first stream; with twiglet.rs's own stream (`TwigletRng`, so levels without twiglets
+draw exactly as before) the nearest is within 12 units at worst.
 
 ## 5. The monk's summon (states 0xf2 / 0xf3)
 
@@ -107,8 +110,8 @@ Remaster: ai.rs Mind::Cast with monk.rs `Spell::Twiglets`, `summon_point`, `twig
 
 - engine/playtests/twiglets.json (regress): lev_4_m1, the warp into volume 76: 3 generators, 3..11 made after 1 s, 30
   made and emerging after 6 s, 18..30 running with bombs after 13 s, every twiglet dead and Roman hurt after 25 s.
-- engine/playtests/monk_summon.json (regress): lev_4_m2, a monk spawned near Roman, the summon forced: 1..5 made, all
-  dead by their bombs, Roman hurt.
+- engine/playtests/monk_summon.json (regress): lev_4_m2, a monk spawned near Roman, the summon forced: 1..5 made,
+  running with bombs, at least one bomb reaches Roman within 12 s.
 - twiglet.rs unit tests: the generator's movers (second first, wrapping), the release round a tree without movers.
 - Oracle twiglets_l4m1 (oracle_suite).
 

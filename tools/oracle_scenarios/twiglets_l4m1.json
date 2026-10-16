@@ -1,5 +1,5 @@
 {
- "about": "lev_4_m1 twiglets: Roman warped into trigger volume 76 (bb_40x40, on_enter 200), which activates the twiglet generators 64, 75 and 78 (l4_tree_dense_a, release_max 10, initial_ic mover_twiglet_tree_a_01 / 02); the swarm releases their 30 twiglets out of the trees (IC movers) over ~5 s, each pulls a bomb out and runs at Roman, slowing on the hills; Roman stands. Traced to frame 1240, before the first bomb (original 1300, remaster 1258): from there each game's Roman is somewhere else (the original's is knocked about by grunts 283 / 284, known below), so the bombs reach him at different times; the explosion chain is checked by engine/playtests/twiglets.json",
+ "about": "lev_4_m1 twiglets: Roman warped into trigger volume 76 (bb_40x40, on_enter 200), which activates the twiglet generators 64, 75 and 78 (l4_tree_dense_a, release_max 10, initial_ic mover_twiglet_tree_a_01 / 02); the swarm releases their 30 twiglets out of the trees (IC movers) over ~5 s, each pulls a bomb out and runs at Roman, slowing on the hills; Roman stands. Traced to frame 1200, before the first bomb (original 1300, remaster 1240..1258 by its rolls): from there each game's Roman is somewhere else (the original's is knocked about by grunts 283 / 284, known below), so the bombs reach him at different times; the explosion chain is checked by engine/playtests/twiglets.json. twiglet_frames 60: the 30 releases come at random 0.1..0.25 s steps from each game's own rand stream, so two runs' cumulative release times spread by about 20 frames (1 sigma); two remaster streams measured 14 and 31 frames from the original",
  "level": "lev_4_m1",
  "keys": "0:ENTER*3",
  "warp": [
@@ -7,10 +7,11 @@
   -57,
   -28
  ],
- "frames": 1240,
+ "frames": 1200,
  "trace_every": 2,
  "trace_from": -60,
  "suite": true,
+ "tolerance": {"twiglet_frames": 60},
  "known": {
   "grunt.mind": "B6: grunts 284 (64 units off, on the ridge at (242, -2, -11)) and 283 take the warped Roman as their target and fire from frame 58 in the original; the remaster's stay in Roam (grunt sight: agent-aiparity2)",
   "grunt.target": "B6, as grunt.mind",
