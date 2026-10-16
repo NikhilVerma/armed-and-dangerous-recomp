@@ -140,6 +140,10 @@ pub struct Event {
     /// grunt in a window): [id, distance]
     #[serde(default)]
     pub land_sight: Option<[f32; 2]>,
+    /// debug: land beside the nearest peasant free to rope (not roped yet, not in a cage): one freed from a goliath's
+    /// cage falls where the goliath died, which a script cannot know beforehand
+    #[serde(default)]
+    pub land_peasant: bool,
     /// bot: walk to this point (game space x, y, z: as the scene files give positions)
     #[serde(default)]
     pub goto: Option<[f32; 3]>,
@@ -295,6 +299,8 @@ pub struct Playtest {
     probe: Option<[f32; 5]>,
     /// a land_by step waiting for the warp system
     land_by: Option<(u32, f32, bool)>,
+    /// a land_peasant step waiting for the warp system
+    land_peasant: bool,
     /// virtual gamepad input for pad_drive
     pad: Vec<String>,
     /// companion damage for hurt_companions
@@ -357,7 +363,7 @@ impl Playtest {
         let mut events = s.events;
         events.sort_by(|a, b| a.t.total_cmp(&b.t));
         let log = std::fs::File::create(path.with_extension("log.jsonl")).ok();
-        Playtest { pickups: vec![], loadouts: vec![], audio: vec![], fx: vec![], movies: vec![], intro: s.intro, passed: 0, failed: 0, hurt_c: vec![], blasts: vec![], pad_e: None, notes: Default::default(), pad: vec![], warp: None, probe: None, land_by: None, path, title: s.title, real_time: s.real_time, events, turns: s.turns, next: 0, t: 0.0, taps: vec![], clicks: vec![], log, last_log: -1.0, steps: s.steps, step_shot: None, step: 0, step_t: 0.0, step_started: false }
+        Playtest { pickups: vec![], loadouts: vec![], audio: vec![], fx: vec![], movies: vec![], intro: s.intro, passed: 0, failed: 0, hurt_c: vec![], blasts: vec![], pad_e: None, notes: Default::default(), pad: vec![], warp: None, probe: None, land_by: None, land_peasant: false, path, title: s.title, real_time: s.real_time, events, turns: s.turns, next: 0, t: 0.0, taps: vec![], clicks: vec![], log, last_log: -1.0, steps: s.steps, step_shot: None, step: 0, step_t: 0.0, step_started: false }
     }
 }
 
@@ -391,7 +397,25 @@ fn warp(
     mut bot: ResMut<crate::bot::Bot>,
     mut roman: Query<(&mut crate::player::Roman, &mut Transform)>,
     objects: Query<(&crate::level::InstanceId, &GlobalTransform, Option<&crate::level::Placed>)>,
+    peasants: Query<(&crate::peasant::Peasant, &GlobalTransform)>,
 ) {
+    if std::mem::take(&mut pt.land_peasant) {
+        let me = roman.single().map(|(_, t)| t.translation).unwrap_or_default();
+        let to_game = crate::level::game_to_engine().inverse();
+        let free = peasants
+            .iter()
+            .filter(|(p, _)| !p.captured && p.held_by.is_none())
+            .map(|(_, t)| t.translation())
+            .min_by(|a, b| a.distance(me).total_cmp(&b.distance(me)));
+        match free {
+            // 4 units beside him, on the ground, facing him
+            Some(at) => {
+                let g = to_game * at;
+                pt.warp = Some([g.x, g.y - 4.0, f32::NAN, 0.0]);
+            }
+            None => warn!("EVENT playtest: land_peasant: no peasant free to rope"),
+        }
+    }
     if let Some((id, d, sight)) = pt.land_by.take() {
         match objects.iter().find(|(i, ..)| i.0 == id) {
             Some((_, at, placed)) => {
@@ -847,6 +871,9 @@ pub(crate) fn drive(
         }
         if let Some(w) = e.warp {
             pt.warp = Some(w);
+        }
+        if e.land_peasant {
+            pt.land_peasant = true;
         }
         if let Some([id, d]) = e.land_sight {
             pt.land_by = Some((id as u32, d, true));
