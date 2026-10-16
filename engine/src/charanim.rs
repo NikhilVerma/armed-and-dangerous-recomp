@@ -747,15 +747,18 @@ fn grunts(
                 (name(&g, id, 0.0).to_owned(), false)
             }
             Mind::Guard | Mind::WaitTrigger | Mind::Roam if g.attention => {
-                // attention (anim 0xf) and the fidgets (0x0042be80 / 0x00427330): with no target the timer +0x494
-                // (15 + rand * 0.000275 s, also at load) counts down; on expiry, standing at attention, one random fidget
-                // 0x12..0x1a plays once (18 shiver on a cold level, Game+0x2708 == 1; 19..26 the class's idles and stand
-                // scans); when it ends (or the timer runs out again) attention resumes and the timer is redrawn. The
-                // cough and shiver anims carry the fx notes that play the grunts' _ic sounds.
-                let f = fidgets.entry(e).or_insert_with(|| (15.0 + rand() as f32 * 0.000275, None));
+                // attention (anim 0xf) and the fidgets (0x0042be80 / 0x00427330, state 0x8c's end): with no target the
+                // timer +0x494 counts down; when the anim playing reaches its end (the slot's flag 2: the attention
+                // loop wraps) with the timer run out, one random fidget 0x12..0x1a plays once (18 shiver on a cold
+                // level, Game+0x2708 == 1; 19..26 the class's idles and stand scans); its end brings attention back;
+                // each of the two redraws the timer (15 + rand * 0.000275 s). The timer starts at 0 (only trigger_charge
+                // rolls it at load, Ai_InitGeneric 0x004247f0), so the first fidget comes at the end of the first
+                // attention loop (1.97 s: every level's grunts sneeze or cough together, oracle play frames 122 / 146).
+                // The cough, sneeze and shiver anims carry the fx notes that play the grunts' _ic sounds.
+                let f = fidgets.entry(e).or_insert_with(|| (if g.trigger_charge { 15.0 + rand() as f32 * 0.000275 } else { 0.0 }, None));
                 f.0 -= dt;
-                let done = f.1.is_some() && a.finished(0, &lib);
-                if f.0 <= 0.0 || done {
+                let ended = a.layers.first().is_some_and(|l| l.ended);
+                if ended && (f.1.is_some() || f.0 <= 0.0) {
                     f.0 = 15.0 + rand() as f32 * 0.000275;
                     f.1 = if f.1.is_some() {
                         None

@@ -13,13 +13,14 @@
 //!   fallback), the troop type by the six weights, made at the generator's ref_spawn_00; the troop walks to its
 //!   ref_exit_00 and follows the spline of a tag in the generator's marker_tag_min..max (0x0042dd50), or charges with no
 //!   tags; the timer is rolled again (spawn or not).
-//! - "Seen" (0x00404d00): in the player's 180-degree view (vt+0xf0), and then a level ray from the generator toward his
-//!   ref_hit_01 over the collidable objects (World+0xe9c, the AI excluded; not the landscape) either meets nothing or
-//!   meets an object that was drawn (+0x424 bit 11 clear). Oracle (the hook's alarm gates): lev_2_m2 (siren raised)
-//!   and lev_bonus_m1 (alarm forced, 9 generators) run the timer out again and again with no troop in 10-20 s, every
-//!   generator ahead of Roman beyond hills and houses (seen: no ray through hills); lev_bonus_m2's generator 171, ahead
-//!   of him but 1490 away behind objects, sends its troop (unseen: what the ray meets is not drawn there). "Drawn" here:
-//!   visible, and within its farthest lodcutoff of the player (guess at bit 11: the renderer's cull).
+//! - "Seen" (0x00404d00): in the player's 180-degree view (vt+0xf0), and then a level ray at his eye's height from
+//!   above the generator toward his ref_hit_01 over the collidable objects (World+0xe9c, the AI excluded; not the
+//!   landscape) meets nothing or Roman himself; any other collidable object (a building, a wall, an invisible wall)
+//!   hides the generator. (The +0x424 bit 11 the test reads for a teammate it meets is the camera's fade of objects
+//!   between it and the player, Camera_Update 0x0040e350, not a draw flag.) Oracle (the hook's alarm gates): lev_2_m2
+//!   (siren raised) and lev_bonus_m1 (alarm forced, 9 generators) run the timer out again and again with no troop in
+//!   10-20 s; lev_bonus_m2's generators 169 / 171 send theirs (218, 414: the delays are rand rolls, so the frames
+//!   differ). The generators' troop weights fall back to the grunt_generator template's (num_regular 1 there).
 //! - A destroyed siren leaves the list (guess: Object_Remove unlinks it; unverified) and its loop stops.
 
 use crate::levelreset::LevelAppExt;
@@ -50,6 +51,8 @@ pub struct Marker {
     /// trigger_marker on lev_1_m1) set nothing
     pub flags: u32,
     pub scatter: (f32, f32),
+    /// "speed" +0x494 (Marker_GetSpeed 0x0044b490): the walk speed of the leg that ends here, 0 the walker's own
+    pub speed: f32,
 }
 
 impl Marker {
@@ -104,11 +107,14 @@ impl Markers {
         &self.sirens
     }
 
-    pub fn load(dir: &std::path::Path) -> Self {
+    /// From the level's placements, each with its class template's values under its own (as the original's property
+    /// readers fall back to the template: a grunt_generator's num_regular 1 when the placement names only num_bow 0 and
+    /// num_captain 0, lev_bonus_m2 169..171).
+    pub fn load(dir: &std::path::Path, data: &crate::gamedata::GameData) -> Self {
         let mut m = Markers { max_troops: 10, delay: (2.0, 4.0), ..default() };
         let Ok(text) = std::fs::read_to_string(dir.join("instance_props.json")) else { return m };
         let Ok(list) = serde_json::from_str::<Vec<serde_json::Value>>(&text) else { return m };
-        let num = |p: &serde_json::Value, k: &str| p.get(k).and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let num = |p: &crate::gamedata::Props, k: &str| p.0.get(k).and_then(|v| v.as_f64()).unwrap_or(0.0);
         // the placements' matrices (scene.json): a marker's facing, a generator's ref_spawn_00 / ref_exit_00
         let mats: HashMap<u32, Mat4> = std::fs::read_to_string(dir.join("scene.json"))
             .ok()
@@ -131,14 +137,15 @@ impl Markers {
             let gpos = v.get("pos").and_then(|p| p.as_array()).map(|a| Vec3::new(a[0].as_f64().unwrap_or(0.0) as f32, a[1].as_f64().unwrap_or(0.0) as f32, a[2].as_f64().unwrap_or(0.0) as f32)).unwrap_or_default();
             let pos = game_to_engine() * gpos;
             let mat = mats.get(&id).copied().unwrap_or(Mat4::from_translation(gpos));
-            let p = v.get("props").cloned().unwrap_or_default();
+            let own = v.get("props").and_then(|x| x.as_object()).cloned().unwrap_or_default();
+            let p = data.instance_props(tpl, &own);
             let tag = num(&p, "tag") as i64;
             if tag != 0 {
                 m.tagged.entry(tag).or_default().push(id);
             }
             match tpl {
                 "marker" => {
-                    let action = p.get("action").and_then(|x| x.as_str()).unwrap_or("none").to_owned();
+                    let action = p.0.get("action").and_then(|x| x.as_str()).unwrap_or("none").to_owned();
                     // the action name -> flags (0x0044b130: _stricmp, "ic_" by a 3-character compare)
                     let flags = match action.to_ascii_lowercase().as_str() {
                         "hide" => Marker::HIDE,
@@ -164,6 +171,7 @@ impl Markers {
                         action,
                         flags,
                         scatter: (num(&p, "scatter_min") as f32, num(&p, "scatter_max") as f32),
+                        speed: num(&p, "speed") as f32,
                     })
                 }
                 "grunt_generator" => {
@@ -234,6 +242,14 @@ impl Markers {
         self.splines.get(&tag).and_then(|s| s.get(i)).copied()
     }
 
+    /// The speed of the walk to marker `i` of the spline (AIMarker_PrevSpeed 0x0044b4f0): the speed of the marker
+    /// before it, for the head the last marker's; 0 when it names none.
+    pub fn leg_speed(&self, tag: i64, i: usize) -> f32 {
+        let Some(s) = self.splines.get(&tag).filter(|s| !s.is_empty()) else { return 0.0 };
+        let prev = if i > 0 { i - 1 } else { s.len() - 1 };
+        s.get(prev).map_or(0.0, |&k| self.markers[k].speed)
+    }
+
     pub fn spline_len(&self, tag: i64) -> usize {
         self.splines.get(&tag).map_or(0, |s| s.len())
     }
@@ -297,38 +313,37 @@ fn sirens_gone(mut m: ResMut<Markers>, mut died: MessageReader<crate::fx::Died>,
     }
 }
 
-/// How far from the player a collidable object is drawn (its farthest lodcutoff), None when it is never drawn (visible
-/// 0, invisible, invisible_material, a collide barrier): by its collider.
-type DrawRanges = std::collections::HashMap<oxijolt::prelude::BodyId, Option<f32>>;
+/// The placed objects in the collidable list World+0xe9c (DefaultGameObject_Load 0x0044fd20, game_03.cpp:526-567: every
+/// object with a collider but the collide barriers, which get filter 0x40 and no lists), by their colliders. (Husks
+/// made later are not listed here: none stands between a generator and the player at the level starts.)
+type Collidable = std::collections::HashSet<oxijolt::prelude::BodyId>;
 
-fn draw_ranges(placed: &Query<(&InstanceId, &crate::level::Placed)>, dir: &std::path::Path, data: &crate::gamedata::GameData) -> DrawRanges {
+fn collidable(placed: &Query<(&InstanceId, &crate::level::Placed)>, dir: &std::path::Path, data: &crate::gamedata::GameData) -> Collidable {
     let props = crate::vehicles::placements(dir, data);
     placed
         .iter()
-        .filter_map(|(id, pl)| {
-            let p = props.get(&id.0)?;
-            let hidden = p.f("visible", 1.0) == 0.0 || p.f("invisible", 0.0) != 0.0 || p.f("collide_barrier", 0.0) != 0.0 || p.s("material") == Some("invisible_material");
-            let far = (0..10).filter_map(|i| p.0.get(&format!("lodcutoff_{i}")).and_then(|v| v.as_f64())).fold(None, |m: Option<f32>, v| Some(m.unwrap_or(0.0).max(v as f32)));
-            Some((pl.collider?, if hidden { None } else { Some(far.unwrap_or(f32::INFINITY)) }))
-        })
+        .filter(|(id, _)| props.get(&id.0).is_none_or(|p| p.f("collide_barrier", 0.0) == 0.0))
+        .filter_map(|(_, pl)| pl.collider)
         .collect()
 }
 
-/// 0x00404d00: the player sees the generator at `at`: it is in his 180-degree view (vt+0xf0) and a level ray from it
-/// toward his ref_hit_01 (Ray_CastQuery 0x00414110 over the collidable list World+0xe9c, the AI excluded: not the
-/// landscape, not the characters) meets nothing, or meets an object drawn this frame (+0x424 bit 11 clear).
-fn seen_by_player(physics: &crate::physics::Physics, at: Vec3, eye: Vec3, fwd: Vec3, ranges: &DrawRanges) -> bool {
+/// 0x00404d00: the player sees the generator at `at`. It must be in his 180-degree view (vt+0xf0(generator, 180)).
+/// Then a level ray at the height of his eye (his ref_hit_01) from above the generator toward the eye, 5 units past it
+/// (Ray_CastQuery 0x00414110: the collidable list World+0xe9c, the AI list World+0xe7c excluded: not the landscape, not
+/// the characters but Roman) decides: nothing met, or Roman himself (alive, on the player's side: vt+0xe4,
+/// 0x004531e0, and not faded by the camera, +0x424 bit 11: Camera_Update 0x0040e350's fade list) is seen; any other
+/// collidable object met hides the generator (a building, a wall, an invisible wall alike). Roman's own body has no
+/// collider here (a walker): the ray runs to the eye and stops.
+fn seen_by_player(physics: &crate::physics::Physics, at: Vec3, eye: Vec3, fwd: Vec3, collidable: &Collidable) -> bool {
     let to = (eye - at).with_y(0.0);
     if to.normalize_or_zero().dot(fwd) > 0.0 {
         return false;
     }
     let dir = to.normalize_or(Vec3::X);
-    let (mut from, mut left) = (at, to.length() + 5.0);
+    let (mut from, mut left) = (at.with_y(eye.y), to.length());
     for _ in 0..32 {
         let Some((b, hit, _)) = physics.raycast(from, dir, left) else { return true };
-        // only the placed objects' colliders are in the collidable list (not the landscape, not the characters)
-        // a drawn object blocks the view; an undrawn one (invisible walls, barriers) is passed
-        if ranges.get(&b).is_some_and(|r| r.is_some()) {
+        if collidable.contains(&b) {
             return false;
         }
         left -= hit.distance(from) + 0.05;
@@ -349,11 +364,11 @@ fn controller(
     troops: Query<&crate::fx::Health, With<AlarmTroop>>,
     player: Query<(&GlobalTransform, &crate::player::Roman, Option<&crate::skin::Animator>)>,
     (joints, mission, physics): (Query<&GlobalTransform>, Option<Res<crate::mission::Mission>>, NonSend<crate::physics::Physics>),
-    (placed, data, lib, mut ranges): (
+    (placed, data, lib, mut listed): (
         Query<(&InstanceId, &crate::level::Placed)>,
         Res<crate::gamedata::GameData>,
         Res<crate::skin::AnimLibrary>,
-        crate::levelreset::PerLevel<Option<DrawRanges>>,
+        crate::levelreset::PerLevel<Option<Collidable>>,
     ),
     mut spawn: MessageWriter<crate::level::SpawnGrunt>,
 ) {
@@ -383,8 +398,8 @@ fn controller(
     let pp = pt.translation();
     let eye = anim.and_then(|a| a.skeleton.index.get("ref_hit_01").and_then(|&i| joints.get(a.joints[i]).ok())).map_or(pp + Vec3::Y * 7.0, |j| j.translation());
     let fwd = Quat::from_rotation_y(r.yaw) * Vec3::NEG_Z;
-    let ranges = ranges.get().get_or_insert_with(|| draw_ranges(&placed, &lib.dir, &data));
-    let seen = |g: &Generator| seen_by_player(&physics, g.pos, eye, fwd, ranges);
+    let listed = listed.get().get_or_insert_with(|| collidable(&placed, &lib.dir, &data));
+    let seen = |g: &Generator| seen_by_player(&physics, g.pos, eye, fwd, listed);
     // the walk of the generator list 0x0063a1f0 (in load order): a candidate no nearer than the best so far is skipped
     // first; then inside its min_spawn_distance, beyond 0.75 x Game+0xd64 with max_distance (Game+0xd64 not exported:
     // no lev_1_m1 generator sets max_distance), seen: skipped; one of the last three spawn points becomes the fallback

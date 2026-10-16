@@ -12,7 +12,8 @@ SCENARIO: a name in tools/oracle_scenarios/ (or a path to a .json). A scenario:
      "tolerance": {"pos": 6, "grunt_pos": 12, "heading": 12, "health": 1, "frames": 20, "event_frames": 30,
                    "twiglet_frames": 30, "twiglet_dist": 20},
      "expected": {"family": "why this family differs (an accepted difference, with evidence)"},
-     "suite": true (part of tools/oracle_suite.py)}
+     "suite": true (part of tools/oracle_suite.py),
+     "hook_test": {"trace_calls": "GenericAI_SetTarget"} (optional: more [test] keys for the original's hook)}
 Keys are the hook's keys_frames form (hook/src/input_hooks.cpp; the remaster parses the same text, engine/src/oracle.rs):
 `frame:KEY` or `frame:KEY*held_frames`, frame 0 = play_delay frames after the briefing appeared (the scenario's own
 frame-0 ENTER dismisses it). Scan codes: W 17, A 30, S 31, D 32, Space 57, Use X 45, Q 16 next weapon, Tab 15 next
@@ -96,6 +97,8 @@ def run_original(sc, hooks_on=False, timeout=900, inst="oracle"):
             "play_frames": sc["frames"], "reseed_on_load": 1, "d3d_trace": 0, "offscreen": 1, "parallel": 1,
             # no exit by frame count: play_frames ends the run
             "exit_frame": 0}
+    # extra [test] keys for the hook, e.g. {"trace_calls": "GenericAI_SetTarget"} (hook/src/testoracle.cpp)
+    test.update(sc.get("hook_test", {}))
     if sc.get("warp"):
         test["play_warp"] = ",".join(str(v) for v in sc["warp"])
     hooks = {n: hooks_on for n in compare.hook_names()}

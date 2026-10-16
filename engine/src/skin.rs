@@ -201,6 +201,9 @@ pub struct Layer {
     pub pair: Option<(String, f32)>,
     /// the anim's length once sampled (0 before), for `play_synced`
     pub duration: f32,
+    /// the last step reached the anim's end (a loop wrapped, a one-shot ran out): the slot's flag 2 (+0x1c bit 1), which
+    /// GenericAI_Update 0x0043ee90 reads for the fidgets
+    pub ended: bool,
     /// where a new anim starts (resolved when it is first sampled, once the speed is known)
     start: Option<StartAt>,
 }
@@ -218,7 +221,7 @@ enum StartAt {
 
 impl Layer {
     pub fn new(anim: &str, looping: bool) -> Self {
-        Layer { anim: anim.to_lowercase(), time: 0.0, speed: 1.0, looping, mask: Mask::All, weight: 1.0, pair: None, duration: 0.0, start: Some(StartAt::Begin) }
+        Layer { anim: anim.to_lowercase(), time: 0.0, speed: 1.0, looping, mask: Mask::All, weight: 1.0, pair: None, duration: 0.0, ended: false, start: Some(StartAt::Begin) }
     }
     /// The position as a fraction of the length (0x00475fc0: slot time / entry length; 0 unknown).
     pub fn fraction(&self) -> f32 {
@@ -501,6 +504,8 @@ fn play_layers(layers: &mut [Layer], lib: &mut AnimLibrary, skel: &Skeleton, upp
         }
         l.time = l.time.clamp(0.0, anim.duration);
         let (t, spans) = step_time(l.time, l.speed, dt, anim.duration, l.looping);
+        let d = dt * l.speed;
+        l.ended = (d > 0.0 && l.time + d >= anim.duration) || (d < 0.0 && l.time + d <= 0.0);
         l.time = t;
         if let Some(out) = notes.as_mut() {
             for span in spans.into_iter().flatten() {

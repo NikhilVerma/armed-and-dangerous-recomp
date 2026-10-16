@@ -26,6 +26,14 @@ bool HookWrap(const char* name, void* wrapper, void** next)
     {
         if (strcmp(e->name, name) == 0)
         {
+            if (e->wrapper)
+            {
+                // a second wrapper runs in front of the first, which keeps receiving the function
+                *next = e->wrapper;
+                e->wrapper = wrapper;
+                Log("wrap %s with a further enhancement", name);
+                return true;
+            }
             e->wrapper = wrapper;
             e->wrapperNext = next;
             Log("wrap %s with an enhancement", name);

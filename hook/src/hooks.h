@@ -33,7 +33,8 @@ struct HookRegistrar
 
 // Enhancements (hook/enhance/) extend a function without editing src/: the wrapper is installed at the
 // function's address and `*next` is set to the recovered function, or to the original when its [hooks] switch
-// is 0. Call before HooksInstallAll. Returns false if no hook with that name is registered.
+// is 0. Call before HooksInstallAll. Returns false if no hook with that name is registered. Wrapping a function
+// twice stacks the wrappers: the later one runs first and its `*next` is the earlier one.
 bool HookWrap(const char* name, void* wrapper, void** next);
 
 bool HooksInit();

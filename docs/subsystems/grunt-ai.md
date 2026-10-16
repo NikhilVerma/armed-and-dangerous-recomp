@@ -72,6 +72,17 @@ Runs only when timer +0x490 <= 0; re-armed with 0.75..1.25 s (or 2..4 s when 0x0
 Port reading: sight = within scan_distance, inside a 190-degree cone (**guess**: full angle, +-95 deg from facing), and
 visible; hearing = within hear_distance (any direction, no LOS).
 
+Mission target (agent-aiparity2, oracle lev_bonus_m1): with the mission's ai_target_tag (Game+0xae8, read by
+MissionObject 0x0044c170) a bad guy (vt+0xe8) searches at range 1e8, keeps only candidates whose tag (+0x390) is that
+tag (or his own +0x534), skips the cone and the line of sight, and vt+0x180 (0x0043ecf0) keeps such a target at any
+distance: all 50 grunts of lev_bonus_m1 have Roman from the load frame (engine: ai.rs ArmyTarget). The line of sight
+0x00426fd0 excludes the looker's list +0x608 = World+0xe7c: other AIs never block it (engine: Physics::ai_bodies).
+Fidgets: the timer +0x494 is 0 after Ai_InitGeneric except for trigger_charge (15..24 s), and 0x0042be80 / state 0x8c
+call 0x00427330 only when the slot-0 anim reached its end (+0x1c bit 1): the first fidget comes at the end of the
+first attention loop (1.97 s), on every level at once (the `_ic` sneeze / cough lines at play frame 122 / 146).
+Spline speed: vt+0x80 (0x004297a0) in states 0x96 / 0x97 is the leg's marker speed (0x0044b4f0: the previous
+marker's; the head's leg takes the last marker's), else patrol_speed (+0x954) with marker_patrol, else +0x94c / +0x948.
+
 ## 4. Alert groups
 
 Set target 0x0042cc70 (vt+0x23c): with a group id (+0x574 != 0) every other AI in World+0xe7c whose vt+0x10c holds
@@ -337,7 +348,8 @@ effects post noises like his bullets' (sticky.rs -> Interests::follow / end_at).
   0x0040ad80 / 0x0041c180 -> 0x00456180 -> 0x0042d000: state 0x8c holding the mover's first frame); the trigger or a
   wake-up plays the mover (0x0042f5c0 -> GenericAI_PlayICAnim 0x0042c410, state 0x64 = Mind::Scripted), then state
   0x65 (Roam, home there) or "ready_roof" (guard). Oracle: their count, positions and states agree on every level.
-  Open: what makes lev_1_m1_b's spheres 376 / 387 send 700 / 703 at load in the original (B19).
+  lev_1_m1_b's spheres 376 / 387 send 700 / 703 at load because their sphere_radius is a float read as a dword (the
+  whole level: original bug, docs/original-bugs.md; B19, agent-aiparity2).
 - The captain's own voice lines (AIVoice_* 0x00437690 / 0x00437860 / 0x004375c0 ...): captains use the grunt barks.
 - The run anims' playback speed scaled to the move speed (vt+0x1a8, anim_run_* / anim_limp_*): played at speed 1.
 - The falling watchdog 0x0042e910 (state 0x82) and the contact reactions (slots 42 / 44): not ported.

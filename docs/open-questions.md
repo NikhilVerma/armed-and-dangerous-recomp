@@ -181,3 +181,38 @@ original, 24 / 40 engine on a walking Roman. Difficulty: normal, every factor 1 
 are not applied on any difficulty yet, and were named the wrong way round until this commit). Open: the standing
 grunt's cadence (engine 1.63 s, original 1.78 s for grunt 201: the clip-delay vs guard path, above), no capture of
 the camp fight itself (the original was not run: the game was in use by other agents' captures).
+
+## AI parity leftovers (2026-10-16, agent-aiparity2; docs/journal/2026-10-16-aiparity2.md)
+
+- **B14 rest (lev_bonus_m1's stig gunners fire late).** The assault now starts as in the original (ai_target_tag,
+  the charge's pursuit, the jumpers' load-frame take-off), but the 18 turret-mode grunts' first bursts come ~110
+  frames after the original's: the original fires 8 frames after the unpause (`wpn_stig_machgun_fire_lp` x 8 at play
+  frame 8, forge cannons at 6), the remaster after stig_fire_delay (0.5..0.75 s) and the clip pause that the second
+  0x00427600 roll sets (state 0x7d, ai_06.cpp:640-790, read the same way here). Either the original's mount
+  (AI_ResolveStartObjects 0x00425e20 -> state 0x7b at load) runs its timer during load frames the trace does not
+  see, or 0x004292f0's clip pause is not the one the remaster waits for. Evidence: the GUNDBG2 run in the journal
+  (grunt 664v0: timer 0.69 -> fire at 1.98 s); next: hook trace_calls of 0x004292f0 / fn_00427600 on lev_bonus_m1.
+  Roman, hit sooner, dies ~190 frames earlier (the scenario's known entries).
+- **B3b (lifted grunts fall in the remaster).** lev_5_m1 captain 66 / lev_5_m3 grunt 44 (force_ground lifts them out
+  of an overhang's underside to z 297.9 / 315.8) stay there in the original as dynamic bodies (the hook's new `kf`
+  field: 0, not keyframed; a 0.2 settle after the unpause), and fall in the remaster: a downward ray from the lifted
+  point meets no landscape within 60 units, and widening the capsule to collision_radius (the original's sphere,
+  havok-layouts.md: offset sphere + feet ray from 0x004527d0) did not hold them. The force_ground touch test meets
+  the landscape there only from behind (collide_with_back_faces), and Jolt's simulation ignores triangle back faces
+  (PhysicsSystem's CollideShapeSettings: IgnoreBackFaces) where Havok's MOPP mesh collides both sides: the grunts
+  most likely rest on the back of the overhang's faces. Plan: a second, simulation-only static body with the
+  landscape's triangles reversed, excluded from every ray query (physics.rs raycast / surface_below / the camera
+  ray, which skips landscape back faces) and from the characters' filter; check ragdolls and debris that sink below
+  the ground, then rerun lev_5_m1 / 5_m3.
+- **B21 rest (the 0.3 s before a marker walk's first step).** Grunt 16 (lev_2_m2) and lev_bonus_m3's squad set off
+  18 frames after the unpause in both games (ai.rs ROUTE_PLAN = 0.3 s, fitted): the route update (AIRoute_Update
+  0x00470aa0, AIRoute_Plan 0x0046fa80, Grid_FindPath 0x0046fd20) plans at once, so the wait is not the route;
+  candidates: the walk anim's blend-in (0x00427210 -> vt+0x19c) or the steering segment's start (0x00493d00). The
+  "grunt 69 starts 55 frames late" case was not a delay: his first leg's marker speed is 1.0 (fixed). Also open:
+  the remaster's marker walkers run ~5% faster (39.6 vs 37.5 units/s at move_speed 46: the drive, move_power).
+- **Alarm delays (lev_bonus_m2).** Both games send troops from generators 169 / 171, at 218 / 414 in the original
+  and ~232 / ~364 in the remaster: the delays are rand() rolls in each game's own sequence (scenario "expected").
+- **Sight through the landscape.** 0x00426fd0's query includes only World+0xe9c, so in principle the landscape does
+  not block the AI's sight; making the remaster's sight ray pass the landscape broke four start scenarios (lev_3_m2
+  grunt 142, lev_4_m3 grunt 511, lev_5_m1 grunt 142 seeing Roman or Jonesy early), so it is kept blocking. Whether
+  Ray_Cast 0x00413e10 adds the landscape itself when an include list is given is not traced.

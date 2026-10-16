@@ -859,8 +859,15 @@ pub struct Grunt {
     pub spline: Option<SplineRun>,
     /// +0x488 bit 1 marker_looping (wrap at the spline's end), bit 0 marker_patrol: read by Ai_InitGeneric
     pub looping: bool,
+    /// +0x488 bit 0 marker_patrol: a spline walked at patrol_speed (+0x954) where its markers name no speed
+    pub patrol: bool,
     /// +0x488 0x200: a troop of an alarm generator (0x0042dd50) charges the player when it has no marker tags
     pub charge: bool,
+    /// mode trigger_charge (+0x488 0x100): his activation (0x0042f5c0) is a charge (0x0042ce70)
+    pub trigger_charge: bool,
+    /// a charge (0x0042ce70) calls the pursuit (vt+0x184) at once, whatever the range: the next decision is the
+    /// pursuit (a jumper's take-off, 0x004295d0), engaging comes after it
+    pub pursue: bool,
     /// one-shot anim playing (taunt 0x6e, throw 0x10): its id and time left
     pub anim_id: u32,
     pub anim_left: f32,
@@ -1031,7 +1038,7 @@ impl Plugin for AiPlugin {
             .init_level_resource::<ic::IcStats>()
             .add_systems(
                 Update,
-                (squad::update_squads, interests, search, ic::activate, scare, think, ic::run, bully::bullies, die, dismay, log_cover, log_ai, squad::log_squads, ic::log, grenades)
+                (squad::update_squads, interests, mark_army_targets, search, ic::activate, scare, think, ic::run, bully::bullies, die, dismay, log_cover, log_ai, squad::log_squads, ic::log, grenades)
                     .chain()
                     .after(crate::fx::FxSet)
                     .after(crate::turret::setup),
@@ -1138,6 +1145,21 @@ pub fn capsule(physics: &Physics, radius: f32) -> Shape {
     let k = physics.meters_per_unit;
     let r = radius.min(4.5) * 0.55;
     Shape::new_capsule((4.9 - r).max(0.5) * k, r * k).expect("capsule")
+}
+
+/// A grunt's body: the dynamic capsule (translation only, no friction, 80 kg) with its feet at `feet`, its game
+/// material, listed with the AI bodies the AI's sight passes through (`Physics::ai_bodies`).
+pub fn add_body(physics: &mut Physics, e: Entity, radius: f32, feet: Vec3, material: &str) -> Option<Body> {
+    let shape = capsule(physics, radius);
+    let s = oxijolt::prelude::BodySettings::new_dynamic()
+        .mass(80.0)
+        .friction(0.0)
+        .allowed_dofs(oxijolt::prelude::AllowedDofs::TRANSLATION_X | oxijolt::prelude::AllowedDofs::TRANSLATION_Y | oxijolt::prelude::AllowedDofs::TRANSLATION_Z);
+    let offset = Vec3::Y * capsule_lift(radius);
+    let id = physics.add_dynamic(e, &shape, feet + offset, Quat::IDENTITY, Vec3::ZERO, s)?;
+    physics.materials.insert(id, material.to_owned());
+    physics.ai_bodies.insert(id);
+    Some(Body { id, offset, sync_rotation: false })
 }
 
 /// Height of the capsule's centre above the feet.
@@ -1269,7 +1291,10 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         attention: !mode.starts_with("ready"),
         spline: None,
         looping: p.i("marker_looping", 0) != 0,
+        patrol: p.i("marker_patrol", 0) != 0,
         charge: false,
+        trigger_charge: mode == "trigger_charge",
+        pursue: false,
         anim_id: 0,
         anim_left: 0.0,
         thrown: false,
@@ -1505,6 +1530,23 @@ fn interests(
     });
 }
 
+/// An object of the mission's ai_target_tag (Game+0xae8, mission.rs): while the tag is set a grunt's target search
+/// takes only these, at any range and without the view cone or the line of sight (AI_FindTarget 0x00426920), and one
+/// never drops it for distance (vt+0x180, 0x0043ecf0, holds for it). lev_bonus_m1's Roman: the whole army has him as
+/// target from the first frame.
+#[derive(Component)]
+pub struct ArmyTarget;
+
+/// Marks the placed objects of the mission's ai_target_tag as they are made.
+fn mark_army_targets(mut commands: Commands, mission: Option<Res<crate::mission::Mission>>, made: Query<(Entity, &crate::level::InstanceId), Added<crate::level::InstanceId>>) {
+    let Some(m) = mission.filter(|m| m.ai_target_tag != 0) else { return };
+    for (e, id) in &made {
+        if m.has_tag(id.0, m.ai_target_tag) {
+            commands.entity(e).insert(ArmyTarget);
+        }
+    }
+}
+
 /// A waiting grunt's trigger (receive_trigger_activate: fn_0042f870 -> 0x0042f5c0), by his mode: trigger_marker (+0x488
 /// 0x10) runs his marker spline (think: `marker_tags`), trigger_ic (0x8000000) plays his IC move (ic.rs), trigger_charge
 /// (0x100) charges the player (0x0042ce70). `ic`: he has an IC move.
@@ -1515,11 +1557,15 @@ pub fn activate(g: &mut Grunt, ic: bool, player: Option<Entity>) {
     g.mind = Mind::Roam;
     if g.marker_tags.is_none() && !ic {
         g.target = player;
+        g.pursue = g.trigger_charge;
     }
 }
 
 /// AI_FindTarget 0x00426920 and the alert-group hand-over: every 0.75..1.25 s; the player inside hear_distance is
-/// taken at once; otherwise within scan_distance, inside the 190-degree cone, with line of sight.
+/// taken at once; otherwise within scan_distance, inside the 190-degree cone, with line of sight. With the mission's
+/// ai_target_tag (Game+0xae8) a grunt (a bad guy, vt+0xe8) takes only candidates of that tag, at any range (1e8) and
+/// with neither the cone nor the line of sight (ai_02.cpp:662, 721-731, 761).
+#[allow(clippy::too_many_arguments)]
 fn search(
     time: Res<Time>,
     mut rng: ResMut<FxStats>,
@@ -1527,15 +1573,20 @@ fn search(
     player: Query<(Entity, &GlobalTransform, Option<&crate::skin::Animator>), With<Player>>,
     companions: Query<(Entity, &GlobalTransform, Option<&crate::skin::Animator>), (With<Companion>, Without<Player>)>,
     mut grunts: Query<(Entity, &mut Grunt, &GlobalTransform, &Body, Option<&crate::skin::Animator>)>,
-    joints: Query<&GlobalTransform, Without<Grunt>>,
+    // the ref_hit_00 joints' world points from the rig's own transforms: a grunt made this frame (the level's first,
+    // an IC host's hidden grunts) has no propagated GlobalTransform on his joints yet, and his first search would
+    // look from the world origin (lev_1_m1_b's IC grunts saw Roman one search late)
+    joints: bevy::transform::helper::TransformHelper,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     mut stats: ResMut<AiStats>,
     mut barks: ResMut<Barks>,
     noise: Res<Interests>,
     squads: Query<&squad::Squad>,
+    (army, mission): (Query<(), With<ArmyTarget>>, Option<Res<crate::mission::Mission>>),
 ) {
     let dt = time.delta_secs();
     let Ok((pe, _, _)) = player.single() else { return };
+    let global_tag = mission.as_ref().map_or(0, |m| m.ai_target_tag);
     stats.targets = [0, 0];
     for (_, g, _, _, _) in &grunts {
         if let Some(t) = g.target.filter(|_| g.mind != Mind::Dead) {
@@ -1545,7 +1596,7 @@ fn search(
     // the candidates (the AI's list +0x604: the player and his companions; the original's grunts take Jonesy and Q
     // too, hook AI dump fightT): each with its position and its ref_hit_00 (the point the sight ray aims at)
     let hit_point = |t: &GlobalTransform, a: Option<&crate::skin::Animator>| {
-        a.and_then(|a| a.skeleton.index.get("ref_hit_00").and_then(|&i| joints.get(a.joints[i]).ok())).map(|j| j.translation()).unwrap_or(t.translation() + Vec3::Y * 7.0)
+        a.and_then(|a| a.skeleton.index.get("ref_hit_00").and_then(|&i| joints.compute_global_transform(a.joints[i]).ok())).map(|j| j.translation()).unwrap_or(t.translation() + Vec3::Y * 7.0)
     };
     let cands: Vec<(Entity, Vec3, Vec3)> =
         player.iter().chain(companions.iter()).map(|(e, t, a)| (e, t.translation(), hit_point(t, a))).collect();
@@ -1598,7 +1649,7 @@ fn search(
         // sight
         let fwd = Vec3::new(g.yaw.sin(), 0.0, g.yaw.cos());
         // its own ref_hit_00 (0x00428280 with "ref_hit_00"): where the sight ray starts (raised by 5)
-        let own_hit = ga.and_then(|a| a.skeleton.index.get("ref_hit_00").and_then(|&i| joints.get(a.joints[i]).ok())).map(|j| j.translation()).unwrap_or(me + Vec3::Y * 6.0);
+        let own_hit = ga.and_then(|a| a.skeleton.index.get("ref_hit_00").and_then(|&i| joints.compute_global_transform(a.joints[i]).ok())).map(|j| j.translation()).unwrap_or(me + Vec3::Y * 6.0);
         let mut best: Option<(f32, Entity, bool)> = None;
         // step 2: a noise of the player's within its radius of the grunt's ref_hit_00 (3D), the player within 2 x
         // scan_distance (2D): taken first (no cone, no line of sight); the list below only replaces it when nearer
@@ -1613,6 +1664,13 @@ fn search(
         for &(ce, cpos, chit) in &cands {
             let to = (cpos - me).with_y(0.0);
             let d2 = to.length();
+            if global_tag != 0 {
+                // the mission's target tag: only its objects, any range, no cone, no sight test
+                if army.contains(ce) && best.is_none_or(|b| d2 < b.0) {
+                    best = Some((d2, ce, false));
+                }
+                continue;
+            }
             if d2 > g.scan_distance || best.is_some_and(|b| d2 > b.0) {
                 continue;
             }
@@ -1634,7 +1692,10 @@ fn search(
             }
             g.target = Some(tgt);
             if g.mind == Mind::WaitTrigger {
-                g.mind = Mind::Roam; // activate 0x0042f5c0 (charge/marker flags: not ported)
+                // activate 0x0042f5c0 with the target found (state 0x8c, trigger_los): trigger_charge charges it
+                // (0x0042ce70: the pursuit at once); the marker run of trigger_marker is not ported here
+                g.mind = Mind::Roam;
+                g.pursue = g.trigger_charge;
             }
             if std::env::var("AIDBG").is_ok() { info!("AIDBG spotted {:?} by {:?} at {:?} d {:.0} heard {} mode {:?}", tgt, ge, me, d2, heard, g.mind); }
             if g.alert_group != 0 {
@@ -1651,15 +1712,16 @@ fn search(
     }
 }
 
-/// Line of sight from a grunt's eye to the target's ref_hit_00 (+5 z, 0x00426fd0): nothing static in between.
 /// Line of sight as 0x00426fd0: from the source raised by 5 (0x005bcbdc) to the target point (its ref_hit_00), true
-/// when nothing is hit on the way; bodies in `skip` (the looker's own) are passed through.
+/// when nothing is hit on the way; bodies in `skip` (the looker's own) are passed through, and so are the AI
+/// characters (the query excludes the looker's list +0x608 = World+0xe7c: oracle lev_2_m2, grunt 32 sees Roman past
+/// grunt 16 at the load).
 pub fn sight_ray(physics: &Physics, from_hit: Vec3, target: Vec3, skip: &[BodyId]) -> bool {
     let mut from = from_hit + Vec3::Y * 5.0;
     let dir = (target - from).normalize_or(Vec3::Y);
     let mut left = (target - from).length();
     while let Some((b, at, _)) = physics.raycast(from, dir, left) {
-        if !skip.contains(&b) {
+        if !skip.contains(&b) && !physics.ai_bodies.contains(&b) {
             return false;
         }
         let step = at.distance(from) + 0.05;
@@ -2198,6 +2260,10 @@ fn wander(g: &mut Grunt, pos: Vec3, (min, max): (f32, f32), speed: f32, rng: &mu
 /// 0x00470c30 of state 0x96 is the guess at why).
 pub const ROUTE_PLAN: f32 = 0.3;
 
+/// A route node counts as reached within this distance in the plane (AIRoute_CheckReached 0x0046f900: squared
+/// distance under K(0x005bce5c) = 6.25).
+const MARKER_REACHED: f32 = 2.5;
+
 fn follow_spline(g: &mut Grunt, markers: &crate::alarm::Markers, tags: (i64, i64), r: f32) {
     match markers.pick_spline(tags, r) {
         Some(tag) => {
@@ -2550,13 +2616,14 @@ fn think(
         Res<crate::turret::Mounted>,
         Res<crate::gamedata::GameData>,
     ),
-    (mut lib, player_q, mut triggers, grenade_assets, squads, mut jmarks): (
+    (mut lib, player_q, mut triggers, grenade_assets, squads, mut jmarks, army): (
         ResMut<crate::skin::AnimLibrary>,
         Query<Entity, With<Player>>,
         MessageWriter<crate::mission::SendTrigger>,
         Option<Res<GrenadeAssets>>,
         Query<&squad::Squad>,
         Query<(Entity, &mut JumpMarker, &Transform), Without<Grunt>>,
+        Query<(), With<ArmyTarget>>,
     ),
 ) {
     let t0 = Instant::now();
@@ -2751,9 +2818,10 @@ fn think(
         let target = g.target.and_then(|e| targets.get(e).ok()).map(|t| t.translation());
         g.timer -= dt;
         g.ray_timer -= dt;
-        // a target farther than 2 x scan_distance is dropped (states 0x3c, 0xa)
+        // a target farther than 2 x scan_distance is dropped (states 0x3c, 0xa: vt+0x180 0x0043ecf0, which keeps an
+        // army target at any range)
         if let Some(p) = target {
-            if flat(p - pos).length() > 2.0 * g.scan_distance && !g.guard {
+            if flat(p - pos).length() > 2.0 * g.scan_distance && !g.guard && !g.target.is_some_and(|e| army.contains(e)) {
                 g.target = None;
             }
         }
@@ -2817,7 +2885,8 @@ fn think(
                 g.mind = Mind::Roam;
             } else if let Some(mk) = markers.spline_marker(run.tag, run.index) {
                 g.mind = Mind::ToMarker;
-                if flat(mk.pos - pos).length() < 8.0 {
+                // the route's last node reached (AIRoute_CheckReached 0x0046f900: within 2.5 units in the plane)
+                if flat(mk.pos - pos).length() < MARKER_REACHED {
                     // Marker_ProcessArrival 0x0044ba30 (0x96's arrival does it for the head, then state 0x97)
                     g.spline = Some(SplineRun { started: true, ..run });
                     let idx = markers.spline_index(run.tag, run.index).unwrap_or(0);
@@ -2888,6 +2957,8 @@ fn think(
         }
         let was = g.mind;
         g.mind = match (g.mind, target) {
+            // a charge's pursuit (0x0042ce70 -> vt+0x184) comes before any engaging
+            (Mind::Roam, Some(_)) if std::mem::take(&mut g.pursue) => Mind::Chase,
             (Mind::InSquad, _) if !squad_fight => Mind::InSquad,
             (Mind::Jump, _) if g.jumper.is_some_and(|j| j.flight.is_some()) => Mind::Jump,
             (Mind::Teleport, _) => Mind::Teleport,
@@ -3004,7 +3075,7 @@ fn think(
         // search
         if g.mind == Mind::Chase && g.jumper.is_some_and(|j| j.flight.is_none()) {
             if let Some(p) = target {
-                let ground = ground_below(&physics, pos, 3.0, body.id).is_some();
+                let ground = g.jumper.is_some_and(|j| j.stepped) && ground_below(&physics, pos, 3.0, body.id).is_some();
                 let to = p + Vec3::new(rng.range(-20.0, 20.0), 0.0, rng.range(-20.0, 20.0));
                 let (range, ms) = (g.range, g.move_speed);
                 let j = g.jumper.as_mut().expect("a jumper");
@@ -3038,6 +3109,10 @@ fn think(
                     }
                 }
             }
+        }
+        // this update's physics step gives the jumper his contacts from now on
+        if let Some(j) = g.jumper.as_mut().filter(|_| dt > 0.0) {
+            j.stepped = true;
         }
         // (the playtest log and the anims see the stance: at rest after a fight the stand set)
         if matches!(g.mind, Mind::Fire | Mind::Chase | Mind::Reload | Mind::Cover | Mind::Gunner | Mind::Throw) {
@@ -3083,7 +3158,16 @@ fn think(
             Mind::ToMarker => {
                 let mk = g.spline.and_then(|r| markers.spline_marker(r.tag, r.index)).map(|m| m.pos);
                 goal = g.exit.or(mk).unwrap_or(pos);
-                speed = run_speed;
+                // the speeds on a spline (vt+0x80 0x004297a0 in states 0x96 / 0x97): the leg's marker speed
+                // (0x0044b4f0), else patrol_speed with marker_patrol, else the walk (move_speed, limp_speed limping)
+                let leg = g.spline.filter(|_| g.exit.is_none()).map_or(0.0, |r| markers.leg_speed(r.tag, r.index));
+                speed = if leg != 0.0 {
+                    leg
+                } else if g.patrol && g.exit.is_none() {
+                    g.patrol_speed
+                } else {
+                    run_speed
+                };
                 if g.route_wait > 0.0 && g.exit.is_none() {
                     g.route_wait -= dt;
                     speed = 0.0;
