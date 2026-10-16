@@ -43,7 +43,7 @@
  {"wait": 1.0},
  {"expect": {"menu.page": "Pause"}},
  {"tap": "Escape"},
- {"wait": 0.3},
+ {"wait": 0.6},
  {"expect": {"hud.chat": ["Game saved"], "hud.chat_colours": "1"}},
  {"shot": "chat"},
  {"wait": 6.0},

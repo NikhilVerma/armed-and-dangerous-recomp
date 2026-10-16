@@ -157,6 +157,8 @@ pub struct CameraSmooth {
     last: Option<Transform>,
     death: Option<Vec3>,
     held_by_path: bool,
+    /// the last frame's FOV was a zoom blend (not the level camera's own)
+    zoom_blended: bool,
 }
 
 /// The rest pitch of the engine's look pitch (Roman::pitch, rest -0.15 rad: the nodes' own tilt is in the eye and
@@ -297,11 +299,15 @@ pub fn follow_camera(
     // position and FOV blended linearly by the zoom weight (0x0040fbb0: fov = target w + fov (1 - w)); the pitch
     // turns the look about the eye
     if let Projection::Perspective(pp) = &mut *proj {
-        if r.zoom <= 0.0 || base_fov.is_none() {
+        // re-read only while no blend is on screen: on the frame the zoom weight reaches 0 the projection still holds
+        // the last blend, and taking that as the base lowered the FOV a little after every zoom (35.3 instead of
+        // 37.5 when the weight's last step before 0 was large)
+        if base_fov.is_none() || r.zoom <= 0.0 && !smooth.zoom_blended {
             *base_fov = Some(pp.fov);
         }
         let weapon = if r.use_mg { "machinegun" } else { "rifle" };
         let w = r.zoom;
+        smooth.zoom_blended = w > 0.0 && rig.zoom.contains_key(weapon);
         if let (Some(z), true) = (rig.zoom.get(weapon).copied(), w > 0.0) {
             pp.fov = base_fov.unwrap_or(pp.fov) * (1.0 - w) + z.fov * w;
             let zeye = rt.translation + yaw * z.eye;

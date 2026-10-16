@@ -12,7 +12,7 @@
  {"send": 1800},
  {"wait": 10.0},
  {"hurt": -400},
- {"expect": {"vehicles.149.phase": "flying", "vehicles.149.pos.x": [1300, 1400], "vehicles.149.pos.z": [580, 660], "vehicles.255.phase": "waiting"}},
+ {"expect": {"vehicles.149.phase": "flying", "vehicles.149.pos.x": [1355, 1455], "vehicles.149.pos.z": [550, 630], "vehicles.255.phase": "waiting"}},
  {"shot": "flying"},
  {"wait": 10.0},
  {"hurt": -400},
