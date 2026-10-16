@@ -8,10 +8,7 @@
  "suite": false,
  "known": {
   "events.sounds": "B17: sounds the remaster does not start (or does not report): the pubs' amb_pub_exterior_lp at load, sheep, zeppelin creaks, shrub bomber loop, water footsteps",
-  "events.triggers": "B20: lev_5_m5: base turret 166 sends 90 at 180 in the original only (open)",
-  "roman.clip": "B9: the remaster starts on the rifle; the original holds the machine gun (weapon 0, clip 100) the mission gives (player_add_machinegun 1)",
-  "roman.heading": "B4: Roman's model heading ignores the start facing (look yaw is right)",
-  "roman.weapon": "B9: the remaster starts on the rifle; the original holds the machine gun (weapon 0, clip 100) the mission gives (player_add_machinegun 1)"
+  "events.triggers": "B20: lev_5_m5: base turret 166 sends 90 at 180 in the original only (open)"
  },
  "expected": {
   "timing": "E1: movies off in both, but the original's start movie still pauses and takes the first ENTER (its briefing follows it); the remaster's missing movie ends at once",

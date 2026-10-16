@@ -140,7 +140,7 @@ fn info_id(item: &str) -> String {
 
 fn held(r: &Roman, w: &str) -> bool {
     match w {
-        "rifle" => true,
+        "rifle" => r.has_rifle,
         "machinegun" => r.mg.is_some(),
         _ => false,
     }
@@ -150,9 +150,11 @@ fn held(r: &Roman, w: &str) -> bool {
 /// its slot yet).
 fn roman_items(r: &Roman, tickers: u32, awarding: &[Award]) -> Vec<(SlotRef, &'static str)> {
     let pending = |i: &str| awarding.iter().any(|a| a.item == i);
-    let mut out = vec![((PubSlotKind::Weapon, 0), "rifle")];
-    if r.mg.is_some() {
-        out.push(((PubSlotKind::Weapon, 1), "machinegun"));
+    let mut out = Vec::new();
+    for (have, w) in [(r.has_rifle, "rifle"), (r.mg.is_some(), "machinegun")] {
+        if have {
+            out.push(((PubSlotKind::Weapon, out.len()), w));
+        }
     }
     let mut n = 0;
     for (have, s) in [(r.stickies > 0, "stickybomb"), (r.topsy > 0, "topsy")] {

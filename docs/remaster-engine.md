@@ -236,6 +236,41 @@ Also from the remaster's own logs on these runs (`not ported` lines in remaster.
 `lock_parent_tag` (0x0044e120: lev_3_m1, lev_4_m1), fx vm opcodes 0x4c (lev_3_m3, lev_5_m1, lev_5_m3, lev_bonus_m1,
 lev_bonus_m2) and 0x62 (lev_5_m1..m3).
 
+**2026-10-16 (agent-startfix; docs/journal/2026-10-16-startfix.md).** Note first: the oracle-all remaster traces were
+taken with a build from before the oraclefix merge, so several "more cases" were already gone on wip/full-decomp:
+- B9 fixed: the mission's loadout (campaign agent's mission.rs Loadout / player.rs apply_loadout, merged; this branch's
+  equivalent dropped in favour of it): roman.weapon / clip same on all 24 levels.
+- B10 fixed: mission.rs start shows the start text on the load frame unless a cinematic (Game byte +0xdce) plays: a
+  camera path or the base turret's mount intro (defence.rs `BaseTurret::in_intro`); 2 frames of remaster pipeline
+  latency (START_PATH_LATENCY). Start text: remaster frame 4 vs the original's 0; lev_4_m5 403 vs 399; timed triggers
+  of the defence levels agree (lev_4_m5 11, lev_1_m4 3, lev_2_m4 402, lev_3_m4_bd 400). Left under the old B10 label,
+  not a start-text cause: grunts on a marker walk (state 0x96) set off ~18 frames after the unpause in the original, at
+  once in the remaster (lev_2_m2 grunt 16, lev_bonus_m3 grunt 0: AI, **B21**); the defence army's first release (an
+  army grunt at 418 / 450 / 568 in the original only: army.rs, its timers list 0 platoons).
+- B4 (more): gone with oraclefix's trace fix (c22074b): roman.heading same on all levels (also after a Q switch to the
+  rifle, lev_2_m3).
+- B3 (more): lev_3_m3 / lev_bonus_m2 / lev_bonus_m3 were the archway case (raycast_landscape). lev_5_m1 / lev_5_m3:
+  the landscape ray hits an overhang's underside (Havok and Jolt rays hit back faces); the original then lifts the
+  body out by bisection (Object_ForceGround's penetration loop, now physics.rs force_ground with the character's
+  collision sphere, 0x004527d0): 230 -> 297.0 (original 297.9), 289.6 -> 314.6 (316.0). Left: the original's lifted
+  grunts stay up (their bodies do not fall: deactivated until the AI wakes them?), the remaster's fall (**B3b**, open).
+  lev_3_m2 window grunt 72 (z 471 vs 492: the window bone placement, level.rs spawn: spawn owner).
+- B2 (more): lev_1_m3 volume 219 agrees (oraclefix's oriented boxes).
+- R1: the 3-6 units on 20 levels were the pre-B1 drive; left: a one-frame input lead (the remaster moves on the frame
+  W is pressed and stops on the frame it is released, the original a frame later: 0.65 units, the hook's key timing or
+  the game's, open) and lev_2_m2's steep slope (normal z 0.59 < 0.7: the sliding path veers 4 units, open).
+- C1 / B9' (oraclefix): companions route to the formation point of their last pick (ai.rs Companion::goal; the pick
+  every 0.25 s on the move), not the live bone: walk now matches (stop at 36-44, off at ~50, trail ~29 vs ~30). Left
+  on other levels (lev_2_m3 Jonesy, lev_2_m2, lev_5_m3 Q, lev_bonus_m3 Q, lev_4_m2 Jonesy at the start): the regroup
+  start (the original's Q sets off at ~32 units from Roman, Jonesy ~12 frames later at ~39; the remaster's both at the
+  slot distance 15: ai.rs regroup rule; the code reads delay_distance 50 for Defend Me, which the traces do not show:
+  open).
+- B10' (footsteps after the briefing stop): open; the original keeps firing run notes for ~20 frames after the stop
+  (2, 6, 18, 20) with the slide loop, the remaster plays the stop at 4 and the slide's end; Roman stands still in both,
+  so the run anim's mode / phase at the pause differs (charanim.rs mode choice vs 0x00476a10's speed), not the notes.
+- Port queue after all levels: UiText_ShowTime (hud.rs ui_mission_timer), the wall scales of 0x0043bcf0 (army.rs
+  ic_scale_base_wall), the rest explained in docs/port/{ui,anim,camera}.csv.
+
 ### Same-camera render comparison (rendering pieces)
 
 **Caution:** `--camera` (fixed camera from a dump) disagreed with the synced run on 2026-10-13 (rock walls where the
