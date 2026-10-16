@@ -49,6 +49,8 @@ STATE_MIND = {1: "Roam", 0xf: "Roam", 2: "Chase", 0x3c: "Chase", 0x3e: "Chase", 
               **{s: "Cover" for s in range(0xa0, 0xa6)}, **{s: "Gunner" for s in (0x7b, 0x7c, 0x7d)},
               0x97: "ToMarker", 0xdc: "InSquad", 0xde: "InSquad", 0xc4: "Jump", 0xc5: "Jump", 0xbd: "Jump",
               0xf0: "Teleport", 0xf1: "Cast",  # ai.rs Mind docs (2026-10-16)
+              0x64: "Scripted",  # an IC move (ai/ic.rs)
+              0x118: "Bully",  # a bully holding his peasant (ai/bully.rs)
               0x82: "*", 0x12f: "*", 0x130: "*", 0x131: "*", 0x132: "*"}
 # The level state (Game+0xa64 +0xc: 1 playing, 2 / 10 won, 3..9 failed) as the remaster's mission Outcome
 MISSION = {0: "Playing", 1: "Playing", 2: "Won", 10: "Won", **{s: "Failed" for s in range(3, 10)}}
@@ -225,26 +227,53 @@ def pause_spans(rows):
     return spans
 
 
+def key_grunts(rows):
+    """{frame: {key: grunt}}: a grunt with an instance id is keyed by it; one without (id 0: troops, squad members,
+    hidden grunts) gets a key "z<n>" and is followed from line to line by position (the nearest within 100 units; one
+    that appears gets a new key). The ids alone would make every id-0 grunt the same one."""
+    out, last, n = {}, {}, 0
+    for f in sorted(rows):
+        cur, zero = {}, []
+        for g in rows[f].get("grunts", []):
+            if g["id"]:
+                cur[g["id"]] = g
+            else:
+                zero.append(g)
+        near = sorted((dist(g["pos"], p["pos"]), i, k) for i, g in enumerate(zero) for k, p in last.items())
+        used_i, used_k = set(), set()
+        for d, i, k in near:
+            if d > 100:
+                break
+            if i in used_i or k in used_k:
+                continue
+            cur[k] = zero[i]
+            used_i.add(i)
+            used_k.add(k)
+        for i, g in enumerate(zero):
+            if i not in used_i:
+                cur[f"z{n}"] = g
+                n += 1
+        last = {k: g for k, g in cur.items() if isinstance(k, str)}
+        out[f] = cur
+    return out
+
+
 def match_grunts(o0, r0, tol):
-    """id -> id: the same instance id when the frame-0 positions agree (the original's +0x396 entry number and the
-    remaster's InstanceId are both the level's 1-based object entry), else the nearest unclaimed grunt."""
-    ro = {g["id"]: g for g in r0.get("grunts", [])}
+    """original key -> remaster key at the first common line (keyed by `key_grunts`): the same instance id (the
+    original's +0x396 entry number and the remaster's InstanceId are both the level's 1-based object entry; verified on
+    lev_1_m1: 26 of 27 placed grunts within a unit at frame 0), else the nearest unclaimed grunt within tol."""
     pairs, claimed, how = {}, set(), "id"
-    for g in o0.get("grunts", []):
-        r = ro.get(g["id"])
-        # a non-zero id is the level entry in both games (verified on lev_1_m1: 26 of 27 placed grunts within a unit at
-        # frame 0); 0 = spawned without an entry (troops, tree grunts): matched by position below
-        if r and g["id"] and g["id"] not in claimed:
-            pairs[g["id"]] = g["id"]
-            claimed.add(g["id"])
-    for g in o0.get("grunts", []):
-        if g["id"] in pairs:
+    for k in o0:
+        if not isinstance(k, str) and k in r0:
+            pairs[k] = k
+            claimed.add(k)
+    for k, g in o0.items():
+        if k in pairs:
             continue
-        best = min((r for r in r0.get("grunts", []) if r["id"] not in claimed),
-                   key=lambda r: dist(g["pos"], r["pos"]), default=None)
-        if best and dist(g["pos"], best["pos"]) <= tol:
-            pairs[g["id"]] = best["id"]
-            claimed.add(best["id"])
+        best = min((rk for rk in r0 if rk not in claimed), key=lambda rk: dist(g["pos"], r0[rk]["pos"]), default=None)
+        if best is not None and dist(g["pos"], r0[best]["pos"]) <= tol:
+            pairs[k] = best
+            claimed.add(best)
             how = "position"
     return pairs, how
 
@@ -270,25 +299,54 @@ def persistent(rows, frames, f, key, value, window):
     return False
 
 
-def known_absent(g):
-    """Original grunts the remaster does not create yet, a stated gap rather than a divergence: the three lev_1_m1 tree
-    grunts (spawned by pine trees 47 / 61 / 76 at load with no level entry of their own, so instance id 0, waiting for
-    trigger 98 / 99 in state 0x8c; docs/subsystems/grunt-ai.md section 14 "Tree grunts (not created)")."""
-    return g.get("id") == 0 and g.get("state") == 0x8c
+# Vehicles and big units the original's AI list holds among its grunts (GruntObject-derived classes, by vtable): left out
+# of the grunt families. Both traces list them under "vehicles" (hook/src/testoracle.cpp VehicleKind, engine/src/oracle.rs
+# VehicleKind), compared by kind: their count alive, and the position / health of each pair.
+VEHICLE_CLASSES = {0x5aa238: "colossus", 0x5af500: "mini_zeppelin", 0x5a5e98: "saucer", 0x5af298: "goliath"}
 
 
-# Vehicles the original traces as grunts (GruntObject-derived classes, by vtable) while the remaster's trace lists ai::Grunt
-# only (engine/src/oracle.rs; the vehicles live in engine/src/vehicles): left out of the grunt families, counted in a note.
-VEHICLE_CLASSES = {0x5aa238: "colossus", 0x5af500: "mini_zeppelin", 0x5a5e98: "saucer"}
+def match_vehicles(o0, r0, tol):
+    """Pairs (index in the original's list, index in the remaster's) at the first common line: the same kind and
+    instance id, else the same kind and the nearest within tol (a squad's goliath has no id)."""
+    ov, rv = o0.get("vehicles") or [], r0.get("vehicles") or []
+    pairs, claimed = {}, set()
+    for i, a in enumerate(ov):
+        j = next((j for j, b in enumerate(rv) if j not in claimed and b["kind"] == a["kind"] and a["id"] and b["id"] == a["id"]), None)
+        if j is not None:
+            pairs[i] = j
+            claimed.add(j)
+    for i, a in enumerate(ov):
+        if i in pairs:
+            continue
+        cand = [(dist(a["pos"], b["pos"]), j) for j, b in enumerate(rv) if j not in claimed and b["kind"] == a["kind"]]
+        if cand and min(cand)[0] <= tol:
+            j = min(cand)[1]
+            pairs[i] = j
+            claimed.add(j)
+    return pairs
+
+
+def follow_unit(units, last, key):
+    """The unit `last[key]` was on this line: the same kind and instance id, or (id 0) the nearest of its kind to where
+    it was (within 100 units); `last` is updated. None once it is gone (dead units leave the lists)."""
+    prev = last[key]
+    same = [v for v in units if v["kind"] == prev["kind"] and v["id"] == prev["id"]]
+    if prev["id"]:
+        hit = same[0] if same else None
+    else:
+        hit = min(same, key=lambda v: dist(v["pos"], prev["pos"]), default=None)
+        if hit and dist(hit["pos"], prev["pos"]) > 100:
+            hit = None
+    if hit:
+        last[key] = hit
+    return hit
 
 
 def compare_traces(sc, orig, rem):
     tol = dict(TOL, **sc.get("tolerance", {}))
-    absent = 0
     vehicles = 0
     for row in orig.values():
-        keep = [g for g in row.get("grunts", []) if not known_absent(g)]
-        absent = max(absent, len(row.get("grunts", [])) - len(keep))
+        keep = row.get("grunts", [])
         cars = [g for g in keep if g.get("class") in VEHICLE_CLASSES]
         vehicles = max(vehicles, len(cars))
         row["grunts"] = [g for g in keep if g.get("class") not in VEHICLE_CLASSES]
@@ -296,21 +354,34 @@ def compare_traces(sc, orig, rem):
     frames = sorted(set(orig) & set(rem))
     notes = []
     if not frames:
+        # (a run that crashed or wrote nothing must not pass)
+        fam.check("timing", 0, False, "no common frames: a trace is empty (see remaster.out / original.log)")
         return fam, ["no common frames"], {}
     o0, r0 = orig[frames[0]], rem[frames[0]]
-    pairs, how = match_grunts(o0, r0, tol["grunt_pos"] * 2)
+    ko, kr = key_grunts(orig), key_grunts(rem)
+    pairs, how = match_grunts(ko[frames[0]], kr[frames[0]], tol["grunt_pos"] * 2)
     notes.append(f"frames compared: {frames[0]}..{frames[-1]} ({len(frames)} lines); grunts matched by {how}: "
                  f"{len(pairs)} of {len(o0.get('grunts', []))} original / {len(r0.get('grunts', []))} remaster")
-    if absent:
-        notes.append(f"{absent} original grunt(s) left out as a known gap (tree grunts, grunt-ai.md section 14)")
-    if vehicles:
-        notes.append(f"{vehicles} original vehicle(s) (colossus / zeppelin / saucer) left out: the remaster's trace has no vehicles")
-    unmatched = [g["id"] for g in o0.get("grunts", []) if g["id"] not in pairs]
+    has_vehicles = all("vehicles" in orig[f] for f in frames[:1]) and all("vehicles" in rem[f] for f in frames[:1])
+    if vehicles and not has_vehicles:
+        notes.append(f"{vehicles} original vehicle(s) (goliath / colossus / zeppelin / saucer) left out of the grunts; "
+                     "a trace has no \"vehicles\" (an older run): not compared")
+    vpairs = match_vehicles(o0, r0, tol["grunt_pos"] * 2) if has_vehicles else {}
+    # each paired unit's last record, to find it on the next line
+    vlast = {("o", i): (o0.get("vehicles") or [])[i] for i in vpairs}
+    vlast.update({("r", j): (r0.get("vehicles") or [])[j] for j in vpairs.values()})
+    if has_vehicles:
+        ov0, rv0 = o0.get("vehicles", []), r0.get("vehicles", [])
+        notes.append(f"vehicles at frame {frames[0]}: original {len(ov0)}, remaster {len(rv0)}, {len(vpairs)} matched by kind")
+        lone = [f"{v['kind']} {v['id']} at {v['pos']}" for i, v in enumerate(ov0) if i not in vpairs]
+        if lone:
+            notes.append("original vehicles with no remaster counterpart: " + ", ".join(lone))
+    unmatched = [g for k, g in ko[frames[0]].items() if k not in pairs]
     if unmatched:
         notes.append(f"original grunts with no remaster counterpart at frame {frames[0]}: "
-                     + ", ".join(f"{g['id']} at {g['pos']} ({grunt_mind(g)})" for g in o0.get("grunts", []) if g["id"] not in pairs))
+                     + ", ".join(f"{g['id']} at {g['pos']} ({grunt_mind(g)})" for g in unmatched))
     claimed = set(pairs.values())
-    extra = [g for g in r0.get("grunts", []) if g["id"] not in claimed]
+    extra = [g for k, g in kr[frames[0]].items() if k not in claimed]
     if extra:
         notes.append(f"remaster grunts with no original counterpart at frame {frames[0]}: "
                      + ", ".join(f"{g['id']} at {g['pos']} ({g.get('mind')})" for g in extra))
@@ -353,31 +424,49 @@ def compare_traces(sc, orig, rem):
                 d = dist(a[:3], b[:3])
                 fam.check(f"companion.{name}.pos", f, d <= tol["grunt_pos"], f"{name} at {a[:3]} vs {b[:3]} ({d:.1f} apart)")
                 fam.check(f"companion.{name}.health", f, abs(a[3] - b[3]) <= tol["health"], f"{name} health {a[3]} vs {b[3]}")
-        og = {g["id"]: g for g in o.get("grunts", [])}
-        rg = {g["id"]: g for g in r.get("grunts", [])}
+        og, rg = ko[f], kr[f]
         alive_o = sum(1 for g in o.get("grunts", []) if g["health"] > 0)
         alive_r = sum(1 for g in r.get("grunts", []) if g["health"] > 0 and g.get("mind") != "Dead")
         fam.check("grunts.alive", f, persistent(rem, rf, f, lambda x: sum(1 for g in x.get("grunts", []) if g["health"] > 0 and g.get("mind") != "Dead"), alive_o, win),
                   f"grunts alive {alive_o} vs {alive_r}")
-        for oid, rid in pairs.items():
-            a, b = og.get(oid), rg.get(rid)
+        for ok, rk in pairs.items():
+            a, b = og.get(ok), rg.get(rk)
             if not a or not b:
                 continue
+            oid = a["id"]
             if a["health"] > 0 and b["health"] > 0:
                 d = dist(a["pos"], b["pos"])
                 fam.check("grunt.pos", f, d <= tol["grunt_pos"], f"grunt {oid} at {a['pos']} vs {b['pos']} ({d:.1f} apart)")
             fam.check("grunt.health", f, abs(a["health"] - b["health"]) <= tol["health"] or
-                      persistent(rem, rf, f, lambda x, rid=rid: next((round(g["health"]) for g in x.get("grunts", []) if g["id"] == rid), None), round(a["health"]), win),
+                      persistent(kr, rf, f, lambda x, rk=rk: round(x[rk]["health"]) if rk in x else None, round(a["health"]), win),
                       f"grunt {oid} health {a['health']} vs {b['health']}")
             m = grunt_mind(a)
             if m != "*":
-                fam.check("grunt.mind", f, persistent(rem, rf, f, lambda x, rid=rid: next((grunt_mind(g) for g in x.get("grunts", []) if g["id"] == rid), None), m, win),
+                fam.check("grunt.mind", f, persistent(kr, rf, f, lambda x, rk=rk: grunt_mind(x[rk]) if rk in x else None, m, win),
                           f"grunt {oid} mind {m} (state 0x{a.get('state', 0):x}) vs {b.get('mind')}")
             ta = a.get("target")
             tb = b.get("target")
             ta = pairs.get(ta, ta) if isinstance(ta, int) else ta
-            fam.check("grunt.target", f, persistent(rem, rf, f, lambda x, rid=rid: next((g.get("target") for g in x.get("grunts", []) if g["id"] == rid), None), ta, win),
+            fam.check("grunt.target", f, persistent(kr, rf, f, lambda x, rk=rk: x[rk].get("target") if rk in x else None, ta, win),
                       f"grunt {oid} target {a.get('target')} vs {tb}")
+        if has_vehicles:
+            def alive(row):
+                c = {}
+                for v in row.get("vehicles") or []:
+                    if v["health"] > 0:
+                        c[v["kind"]] = c.get(v["kind"], 0) + 1
+                return c
+            ca = alive(o)
+            fam.check("vehicles.alive", f, persistent(rem, rf, f, alive, ca, win), f"vehicles alive {ca} vs {alive(r)}")
+            for i, j in vpairs.items():
+                a = follow_unit(o.get("vehicles") or [], vlast, ("o", i))
+                b = follow_unit(r.get("vehicles") or [], vlast, ("r", j))
+                if not a or not b:
+                    continue
+                d = dist(a["pos"], b["pos"])
+                fam.check("vehicle.pos", f, d <= tol["grunt_pos"], f"{a['kind']} {a['id']} at {a['pos']} vs {b['pos']} ({d:.1f} apart)")
+                fam.check("vehicle.health", f, abs(a["health"] - b["health"]) <= tol["health"],
+                          f"{a['kind']} {a['id']} health {a['health']} vs {b['health']}")
         om, rm = o.get("mission", {}), r.get("mission", {})
         fam.check("mission.state", f, MISSION.get(om.get("state"), str(om.get("state"))) == rm.get("state", "Playing"),
                   f"mission {om.get('state')} ({MISSION.get(om.get('state'))}) vs {rm.get('state')}")
@@ -439,6 +528,9 @@ HINTS = {
     "grunt.target": "ai.rs target acquisition (sight, hearing, offers); original +0x588 (AI_FindTarget)",
     "grunt.health": "damage to grunts: weapons, blasts (fx.rs); original Object_TakeDamage 0x004555e0",
     "grunts.alive": "grunt spawns (barracks, generators: level.rs) or deaths",
+    "vehicles.alive": "vehicles / big units made or killed: engine/src/vehicles, goliath.rs (squad goliaths: ai/squad.rs)",
+    "vehicle.pos": "vehicles/boss.rs paths and walks, goliath.rs; original vt+0x54 position",
+    "vehicle.health": "damage to vehicles (fx.rs Destructible); original +0x454",
     "companion.jonesy.pos": "ai.rs companions (follow / defend); companions.md",
     "companion.q.pos": "ai.rs companions (follow / defend); companions.md",
     "companion.jonesy.health": "ai.rs companion_damage",

@@ -18,6 +18,8 @@
 //              "ammo", "stickies"},
 //    "grunts": [{"id": instance id (+0x396), "pos", "health", "state": AI state +0x460, "target": id | "roman" |
 //               null, "class": vtable}],
+//    "vehicles": [{"id", "kind": goliath / saucer / mini_zeppelin / colossus / rocket_tower / rocket_tower_turret /
+//                 rocket_bud (by vtable), "pos", "health", "state"}],
 //    "companions": [[x, y, z, health] | null, ...] (Jonesy, Q),
 //    "mission": {"state": level state (1 playing, 2/10 won, 3..9 failed), "objective": compass tag Game+0x2658},
 //    "triggers": [ids sent since the last line], "trigger_senders": [their senders' instance ids], "deaths": [instance ids of placed objects that died],
@@ -117,6 +119,22 @@ int Id(const void* obj)
     return At<uint16_t>(obj, 0x396);  // the 1-based level object table entry (CreateObject a6, game_04.cpp:576)
 }
 
+// The trace's vehicle kinds by class vtable (the remaster's names: engine/src/oracle.rs VehicleKind); null otherwise.
+const char* VehicleKind(uint32_t vtable)
+{
+    switch (vtable)
+    {
+    case 0x005af298: return "goliath";
+    case 0x005a5e98: return "saucer";
+    case 0x005af500: return "mini_zeppelin";
+    case 0x005aa238: return "colossus";
+    case 0x005a87c0: return "rocket_tower";
+    case 0x005a8b88: return "rocket_tower_turret";
+    case 0x005adde8: return "rocket_bud";
+    default: return nullptr;
+    }
+}
+
 // One trace line from "paused" on (the frame and the time are put in front by Emit); takes the events gathered so far.
 std::string Body()
 {
@@ -200,6 +218,66 @@ std::string Body()
         }
     }
     o += ']';
+    // the vehicles and big units (docs/subsystems/vehicles.md, defence.md) by class: the bosses and goliaths are on the
+    // AI list too, the rocket towers / buds only on the damageable (+0xe94) and projectile (+0xe90) lists; a goliath
+    // waiting for its script (trigger_ic) is off the AI list (GoliathObject_Slot6 0x00433fe0): the collidable (+0xe9c),
+    // +0xea0 and +0xea4 lists are walked too; each object once
+    o += ",\"vehicles\":[";
+    if (world)
+    {
+        std::vector<uint32_t> seen;
+        for (const unsigned list : {0xe7cu, 0xe94u, 0xe90u, 0xe9cu, 0xea0u, 0xea4u})
+        {
+            uint32_t iter[2] = {0, 0};
+            for (uint32_t a = orig::fn_004e7340(At<uint32_t>(reinterpret_cast<void*>(world), list),
+                                                reinterpret_cast<uint32_t>(iter));
+                 a; a = orig::fn_004e73c0(reinterpret_cast<uint32_t>(iter)))
+            {
+                const char* kind = VehicleKind(At<uint32_t>(reinterpret_cast<void*>(a), 0));
+                bool dup = false;
+                for (const uint32_t s : seen)
+                    dup = dup || s == a;
+                if (!kind || dup)
+                    continue;
+                seen.push_back(a);
+                void* v = reinterpret_cast<void*>(a);
+                float vp[4] = {};
+                GetPos(v, vp);
+                o += seen.size() > 1 ? ",{" : "{";
+                o += "\"id\":" + std::to_string(Id(v)) + ",\"kind\":\"" + kind + "\",\"pos\":";
+                Vec(o, vp);
+                o += ",\"health\":";
+                Num(o, At<float>(v, 0x454));
+                o += ",\"state\":" + std::to_string(At<int>(v, 0x460)) + '}';
+            }
+        }
+    }
+    o += ']';
+    // the alarm controller's gates (fn_00404e50, ai_01.cpp:468-660): sirens World+0xef0, forced Game+0xdcc, Game+0xc80 /
+    // +0xcbc / +0xadc / +0xae0 (all must be clear), the spawn timer 0x0063a1f4, the generators listed 0x0063a1f0 and
+    // its live troops 0x0063a1ec
+    if (world)
+    {
+        auto count = [](uint32_t list) {
+            int n = 0;
+            uint32_t iter[2] = {0, 0};
+            if (list)
+                for (uint32_t a = orig::fn_004e7340(list, reinterpret_cast<uint32_t>(iter)); a;
+                     a = orig::fn_004e73c0(reinterpret_cast<uint32_t>(iter)))
+                    ++n;
+            return n;
+        };
+        o += ",\"alarm\":{\"sirens\":" + std::to_string(count(At<uint32_t>(reinterpret_cast<void*>(world), 0xef0)));
+        o += ",\"forced\":" + std::to_string(At<uint8_t>(g_game, 0xdcc)) + ",\"c80\":";
+        Num(o, At<float>(g_game, 0xc80));
+        o += ",\"cbc\":" + std::to_string(At<uint8_t>(g_game, 0xcbc)) + ",\"adc\":" + std::to_string(At<uint32_t>(g_game, 0xadc));
+        o += ",\"ae0\":";
+        Num(o, At<float>(g_game, 0xae0));
+        o += ",\"timer\":";
+        Num(o, *reinterpret_cast<const float*>(0x0063a1f4));
+        o += ",\"generators\":" + std::to_string(count(*reinterpret_cast<const uint32_t*>(0x0063a1f0)));
+        o += ",\"troops\":" + std::to_string(count(*reinterpret_cast<const uint32_t*>(0x0063a1ec))) + "}";
+    }
     // the level record Game+0xa64: state +0xc (fn_0044a390, ui_01.cpp:2043; mission.md)
     const uint32_t level = At<uint32_t>(g_game, 0xa64);
     o += ",\"mission\":{\"state\":" + std::to_string(Readable(level, 0x10) ? At<int>(reinterpret_cast<void*>(level), 0xc) : -1);

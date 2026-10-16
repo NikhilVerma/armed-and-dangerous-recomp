@@ -429,6 +429,9 @@ struct Barracks {
     release: (f32, f32),
     /// +0x460 bit 3: releasing
     active: bool,
+    /// +0x460 bit 0x10 (base_defend): the base generators release one troop every delay, no batches (0x0040cb10's
+    /// paced path -> 0x0040c710: spawn, and once empty the counts refilled and the release stops)
+    paced: bool,
     /// receive_trigger_activate (+0x534; cleared once used, 0x0040d1b0), deactivate (+0x538), trigger_reset (+0x5a4)
     activate: i64,
     deactivate: i64,
@@ -1016,6 +1019,7 @@ impl Mission {
                         timer: crt.r(lo, hi),
                         release: (lo, hi),
                         active: false,
+                        paced: n(r, "base_defend") != 0.0,
                         activate: n(r, "receive_trigger_activate") as i64,
                         deactivate: n(r, "receive_trigger_deactivate") as i64,
                         reset: n(r, "trigger_reset") as i64,
@@ -1592,13 +1596,18 @@ fn barracks(
             b.pending = false;
         }
         let alive = troops.iter().filter(|(t, g)| t.0 == b.id && g.mind != Mind::Dead).count() as u32 + b.pending as u32;
-        if b.batch == 0 && alive >= b.count {
-            b.timer = crt.r(b.release.0, b.release.1);
-        } else {
+        if b.paced {
+            // 0x0040cb10 with bits 0x14: the delay counts down, whatever is alive
             b.timer -= dt;
-        }
-        if b.batch == 0 && alive < b.count {
-            b.batch = b.amount;
+        } else {
+            if b.batch == 0 && alive >= b.count {
+                b.timer = crt.r(b.release.0, b.release.1);
+            } else {
+                b.timer -= dt;
+            }
+            if b.batch == 0 && alive < b.count {
+                b.batch = b.amount;
+            }
         }
         if b.timer > 0.0 {
             continue;
@@ -1606,6 +1615,10 @@ fn barracks(
         let ty = b.most();
         if b.counts[ty] <= 0 {
             b.active = false;
+            // a base generator refills for its next activation (0x0040c710)
+            if b.paced {
+                b.counts = b.initial;
+            }
             logs.push(format!("barracks {} empty: stops", b.id));
             continue;
         }
@@ -1655,9 +1668,10 @@ fn timers(time: Res<Time>, mut m: Option<ResMut<Mission>>, mut out: MessageWrite
 fn dispatch(
     mut m: Option<ResMut<Mission>>,
     mut events: MessageReader<SendTrigger>,
-    mut grunts: Query<(&InstanceId, &mut Grunt)>,
+    mut grunts: Query<(&InstanceId, &mut Grunt, Has<crate::ai::ic::IcEntry>)>,
     mut objects: Query<(&InstanceId, &mut Destructible)>,
-    plain: Query<(Entity, &InstanceId, Option<&crate::level::Placed>), (Without<Destructible>, Without<Grunt>)>,
+    // (a squad hands its receive_trigger_kill to its goliath and keeps none: Squad_Init 0x00433220, goliath.rs)
+    plain: Query<(Entity, &InstanceId, Option<&crate::level::Placed>), (Without<Destructible>, Without<Grunt>, Without<crate::ai::squad::Squad>)>,
     mut physics: NonSendMut<crate::physics::Physics>,
     mut commands: Commands,
     player: Query<(Entity, &GlobalTransform), With<Player>>,
@@ -1757,10 +1771,9 @@ fn dispatch(
         for a in actions {
             match a {
                 Action::WakeAi(id) => {
-                    for (i, mut g) in &mut grunts {
-                        if i.0 == id && g.mind == Mind::WaitTrigger {
-                            g.mind = Mind::Roam;
-                            g.target = pe;
+                    for (i, mut g, ic) in &mut grunts {
+                        if i.0 == id {
+                            crate::ai::activate(&mut g, ic, pe);
                         }
                     }
                 }

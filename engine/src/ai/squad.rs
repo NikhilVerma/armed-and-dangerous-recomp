@@ -9,7 +9,8 @@
 //!   halt (state 0x98) for resume_delay, charge_count members leave and charge every charge_delay, the group hears.
 //! - Update (SquadObject_Update 0x00446ba0, ai_07.cpp:384-453): the halt re-armed while a member still fights; the
 //!   goliath dead -> every member charges; nothing left -> the squad is gone.
-//! The goliath member itself (+0xb7c) is another module's (vehicles / defence): `Squad::goliath` is the hook it fills.
+//! - The goliath (+0xb7c, at ref_goliath_00): made through goliath.rs (`SpawnGoliath`), which follows the squad as a
+//!   member; it takes over the squad's receive_trigger_kill / send_trigger_on_death / tag (the squad keeps none).
 
 use super::{Grunt, Mind, Player};
 use crate::fx::{FxStats, Health};
@@ -50,6 +51,11 @@ pub struct Squad {
     pub run: Option<(i64, usize)>,
     /// move_speed, or patrol_speed with marker_patrol (guess at which the speed getter ai_02.cpp:2358 returns)
     pub speed: f32,
+    /// the speed now: the original's anchor is a body pushed toward `speed` (Squad_Init's mass setting 0x00458270), so
+    /// it gathers pace from a halt (`PACE_TIME`)
+    pub pace: f32,
+    /// the spline run's route planning before the first step (state 0x96, ai.rs ROUTE_PLAN)
+    pub route_wait: f32,
     /// scan_distance +0x5dc (default 300): the squad's own target scan
     pub scan: f32,
     scan_timer: f32,
@@ -67,9 +73,14 @@ pub struct Squad {
     /// +0xb78 the members, their health last frame (a hit or a death alerts the squad)
     pub members: Vec<Entity>,
     health: std::collections::HashMap<Entity, f32>,
-    /// +0xb7c the goliath (set by the goliath's module when it spawns one at `goliath_slot`)
+    /// +0xb7c the goliath (made at `goliath_slot` on the first frame by goliath.rs; the slot is then cleared), with a cage and peasant at its
+    /// chest when "goliath_cage" is set
     pub goliath: Option<Entity>,
     pub goliath_slot: Option<Vec3>,
+    pub goliath_cage: bool,
+    /// the squad's receive_trigger_kill (+0x530), send_trigger_on_death (+0x528) and tag (+0x390): the goliath's
+    /// (0x0042de60 a1..a3); Squad_Init clears its own afterwards, with or without a goliath
+    pub handed_over: (i64, i64, i64),
     /// the members still to make: (template, offset), made on the first frame (spawn_grunts links them)
     pub pending: Vec<(&'static str, Vec3)>,
 }
@@ -98,6 +109,8 @@ impl Squad {
             looping: p.i("marker_looping", 0) != 0,
             run: None,
             speed: if p.i("marker_patrol", 0) != 0 { p.f("patrol_speed", 10.0) } else { p.f("move_speed", 40.0) },
+            pace: 0.0,
+            route_wait: 0.0,
             scan: p.f("scan_distance", 300.0),
             scan_timer: 0.0,
             // (0 would be no group: the original logs and uses 0xfffe7e53)
@@ -113,6 +126,8 @@ impl Squad {
             health: default(),
             goliath: None,
             goliath_slot: bone("ref_goliath_00"),
+            goliath_cage: p.i("goliath_cage", 0) != 0,
+            handed_over: (p.i("receive_trigger_kill", 0), p.i("send_trigger_on_death", 0), p.i("tag", 0)),
             pending,
         }
     }
@@ -127,6 +142,11 @@ impl Squad {
         self.phase == SquadPhase::Halted
     }
 }
+
+/// Seconds the anchor takes to gather ~63 % of its speed from a halt: fitted to the original (oracle lev_bonus_m3: the
+/// squad's members' centre at 0.5, 1.4, 3.9, 5.5, 6.9, 7.8 .. 9.3 units / s over its first 3 s at patrol_speed 10; the
+/// force model behind it is not traced).
+pub const PACE_TIME: f32 = 1.3;
 
 /// The member's goal in state 0xdc: its bone, at most twice its own move_speed (0x00471970).
 pub fn member_goal(sq: &Squad, link: SquadLink, pos: Vec3, move_speed: f32) -> (Vec3, f32) {
@@ -192,12 +212,12 @@ pub fn update_squads(
     time: Res<Time>,
     mut squads: Query<(Entity, &mut Squad, &mut Transform)>,
     mut grunts: Query<(Entity, &mut Grunt, &Health)>,
-    healths: Query<&Health, Without<Grunt>>,
+    objects: Query<(Has<crate::level::Placed>, Option<&crate::fx::Destructible>)>,
     player: Query<(Entity, &GlobalTransform), With<Player>>,
     markers: Res<crate::alarm::Markers>,
     mut triggers: MessageReader<crate::mission::SendTrigger>,
     mut spawn: MessageWriter<crate::level::SpawnGrunt>,
-    (mut rng, physics, mut stats): (ResMut<FxStats>, NonSend<Physics>, ResMut<super::AiStats>),
+    (mut rng, physics, mut stats, mut goliaths): (ResMut<FxStats>, NonSend<Physics>, ResMut<super::AiStats>, MessageWriter<crate::goliath::SpawnGoliath>),
 ) {
     let dt = time.delta_secs();
     let got: Vec<i64> = triggers.read().map(|t| t.0).collect();
@@ -206,7 +226,7 @@ pub fn update_squads(
         Err(_) => (None, Vec3::ZERO),
     };
     for (se, mut sq, mut tr) in &mut squads {
-        // the members, made at their bones (fn_0042de60: state 0xde, idle)
+        // the members, made at their bones (fn_0042de60: state 0xde, idle), then the goliath at ref_goliath_00
         for (tpl, offset) in std::mem::take(&mut sq.pending) {
             spawn.write(crate::level::SpawnGrunt {
                 at: sq.point(offset),
@@ -218,6 +238,22 @@ pub fn update_squads(
                 alert_group: sq.group,
                 squad: Some(SquadLink { squad: se, offset }),
                 ..default()
+            });
+        }
+        let made_now = sq.goliath_slot.is_some();
+        if let Some(offset) = sq.goliath_slot.take() {
+            let (kill, on_death, tag) = sq.handed_over;
+            let entity = commands.spawn_empty().id();
+            sq.goliath = Some(entity);
+            goliaths.write(crate::goliath::SpawnGoliath {
+                entity,
+                at: sq.point(offset),
+                yaw: sq.yaw,
+                squad: Some(SquadLink { squad: se, offset }),
+                cage: sq.goliath_cage,
+                kill_trigger: kill,
+                death_trigger: on_death,
+                tag,
             });
         }
         // the members spawn_grunts made for this squad join its list
@@ -240,8 +276,14 @@ pub fn update_squads(
         // dead members leave the list
         sq.members.retain(|&m| grunts.get(m).is_ok_and(|(_, g, h)| live(g, h) && g.squad.is_some()));
         // the goliath dead: every member charges the player (charge_count = the list's length, the timers cleared)
-        if let Some(gl) = sq.goliath {
-            if healths.get(gl).map_or(true, |h| h.0 <= 0.0) {
+        // (its entity is filled the frame after it is reserved: alive until then)
+        if let Some(gl) = sq.goliath.filter(|_| !made_now) {
+            // dead: gone, its Destructible taken by its death, or dying
+            let dead = match objects.get(gl) {
+                Err(_) => true,
+                Ok((made, d)) => made && d.is_none_or(|d| d.health <= 0.0 || d.dying.is_some()),
+            };
+            if dead {
                 sq.goliath = None;
                 let n = sq.members.len() as i64;
                 sq.charge_count = (n, n);
@@ -263,6 +305,7 @@ pub fn update_squads(
                 Some(tag) => {
                     sq.run = Some((tag, 0));
                     sq.phase = SquadPhase::Moving;
+                    sq.route_wait = super::ROUTE_PLAN;
                     info!("EVENT ai: squad moves on spline {tag}");
                 }
                 None => warn!("ai: squad {se:?}: no spline in {:?}", sq.tags),
@@ -307,8 +350,11 @@ pub fn update_squads(
                                     sq.phase = SquadPhase::Done;
                                     info!("EVENT ai: squad at the end of its spline");
                                 }
+                            } else if sq.route_wait > 0.0 {
+                                sq.route_wait -= dt;
                             } else {
-                                let step = to.normalize_or_zero() * (sq.speed * dt).min(to.length());
+                                sq.pace += (sq.speed - sq.pace) * (1.0 - (-dt / PACE_TIME).exp());
+                                let step = to.normalize_or_zero() * (sq.pace * dt).min(to.length());
                                 sq.pos += step;
                                 // on the ground (force_ground): the height follows the terrain under the anchor
                                 if let Some((_, hit, _)) = physics.raycast(sq.pos + Vec3::Y * 200.0, -Vec3::Y, 1000.0) {
@@ -322,6 +368,7 @@ pub fn update_squads(
                 }
             }
             SquadPhase::Halted => {
+                sq.pace = 0.0;
                 // state 0x98: the timers count down; at 0 (no member still fighting) the target is dropped and the
                 // spline resumes
                 sq.halt -= dt;

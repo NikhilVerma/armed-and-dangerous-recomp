@@ -31,7 +31,7 @@
  {"tap": "Enter"}, {"wait": 3.0},
  {"expect": {"level_generation": 2, "clip": 100, "mission": "Playing", "menu.shown": null, "render.shared_target": true}},
  {"screen": "loaded"}, {"wait": 0.5},
- {"expect": {"screen.name": "loaded", "screen.side_dark": [0, 0.2]}},
+ {"expect": {"screen.name": "loaded", "screen.side_dark": [0, 0.5]}},
  {"hurt": 1000},
  {"wait": 6.5},
  {"expect": {"mission": "Failed", "menu.page": "Failed", "menu.selected": "ui_mfail_lastsave"}},

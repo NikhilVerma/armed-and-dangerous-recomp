@@ -9,8 +9,8 @@
  "known": {
   "events.deaths": "B20: lev_5_m1: an id-0 object dies at 74 in the original only (open)",
   "events.sounds": "B17 rest (the sound causes fixed by agent-sound): what is left comes from other families or chance: load-time sounds outside one game's traced window (B10 / E1 start message timing: the base levels' loops, the first ambient one-shot at load vs frame 2), random picks (ambient one-shots, thunder, sheep bleats), the grunts' gait (walk vs run footstep notes, charanim.rs), the grunts' _ic anim-event lines and boulder rolls (not in the remaster yet), vehicle loops (B14, vehicles not traced)",
-  "grunt.pos": "B3b: the grunt is placed as the original (force_ground's lift out of the overhang) but falls in the remaster; the original's stays (its body not woken)",
-  "grunts.alive": "B12: building IC grunts present at load in the original (id 0, state 0x64 at the houses) are not created"
+  "grunt.mind": "E1: the window-dive grunts of houses 33 / 38 start on trigger 1 at load; the original's start movie pause (E1) holds their move until frame ~42, the remaster's ends at once, so the dive ends earlier",
+  "grunt.pos": "B3b: the grunt is placed as the original (force_ground's lift out of the overhang) but falls in the remaster; the original's stays (its body not woken)"
  },
  "expected": {
   "paused": "E1: movies off in both, but the original's start movie still pauses and takes the first ENTER (its briefing follows it); the remaster's missing movie ends at once",

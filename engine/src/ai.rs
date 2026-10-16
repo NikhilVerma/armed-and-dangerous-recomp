@@ -13,6 +13,7 @@
 //! Functions this port does not cite are explained in docs/port/ai.csv (replaced by the engine, or not needed).
 
 pub mod bully;
+pub mod ic;
 pub mod jumper;
 pub mod monk;
 pub mod squad;
@@ -68,6 +69,10 @@ pub enum Mind {
     Teleport,
     /// state 0xf1: a monk casting the basket rain (anim 0x26 cast_spell_1)
     Cast,
+    /// state 0x64: an IC move (GenericAI_PlayICAnim 0x0042c410) carries him: a hidden grunt coming out (ic.rs)
+    Scripted,
+    /// state 0x118: a bully holding his peasant (bully.rs), standing until a target or the peasant's death ends it
+    Bully,
 }
 
 /// The grunt classes a lev_1_m1 template makes (counted in the coverage runs: BowGruntObject_Slot6 0x004347b0 runs 9
@@ -753,6 +758,9 @@ pub struct Grunt {
     /// 0x0046f6d0; here nav.rs A*, re-planned every second)
     route: Vec<Vec3>,
     replan: f32,
+    /// a marker run's start (state 0x96: 0x00470aa0 plans the route on the grid before 0x00470c30 walks it): the time
+    /// left before he sets off (`ROUTE_PLAN`)
+    pub route_wait: f32,
     /// his own entity: his bullets' owner (the damage record's source +0x2c)
     pub me: Option<Entity>,
     /// score_value: to the Kills money when he dies (Game+0x2724)
@@ -1019,7 +1027,14 @@ impl Plugin for AiPlugin {
             .init_resource::<GrenadeAssets>()
             .init_level_resource::<Interests>()
             .init_level_resource::<bully::BullyLines>()
-            .add_systems(Update, (squad::update_squads, interests, search, scare, think, bully::bullies, die, dismay, log_cover, log_ai, squad::log_squads, grenades).chain().after(crate::fx::FxSet).after(crate::turret::setup));
+            .init_level_resource::<ic::IcStats>()
+            .add_systems(
+                Update,
+                (squad::update_squads, interests, search, ic::activate, scare, think, ic::run, bully::bullies, die, dismay, log_cover, log_ai, squad::log_squads, ic::log, grenades)
+                    .chain()
+                    .after(crate::fx::FxSet)
+                    .after(crate::turret::setup),
+            );
     }
 }
 
@@ -1187,6 +1202,7 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         exit: None,
         route: Vec::new(),
         replan: 0.0,
+        route_wait: 0.0,
         attacker: None,
         offer_t: f32::NEG_INFINITY,
         clips: (p.i(&fk("fire_num_clips_min"), 1), p.i(&fk("fire_num_clips_max"), 1)),
@@ -1486,6 +1502,19 @@ fn interests(
         }
         true
     });
+}
+
+/// A waiting grunt's trigger (receive_trigger_activate: fn_0042f870 -> 0x0042f5c0), by his mode: trigger_marker (+0x488
+/// 0x10) runs his marker spline (think: `marker_tags`), trigger_ic (0x8000000) plays his IC move (ic.rs), trigger_charge
+/// (0x100) charges the player (0x0042ce70). `ic`: he has an IC move.
+pub fn activate(g: &mut Grunt, ic: bool, player: Option<Entity>) {
+    if g.mind != Mind::WaitTrigger {
+        return;
+    }
+    g.mind = Mind::Roam;
+    if g.marker_tags.is_none() && !ic {
+        g.target = player;
+    }
 }
 
 /// AI_FindTarget 0x00426920 and the alert-group hand-over: every 0.75..1.25 s; the player inside hear_distance is
@@ -2163,11 +2192,17 @@ fn wander(g: &mut Grunt, pos: Vec3, (min, max): (f32, f32), speed: f32, rng: &mu
 /// (state 0x96, anim 0x00427210). (+0x484 bit 16 marker_startloc, riding the spline from its start, is no lev_1_m1
 /// grunt's.) A tag without a spline: the original removes the grunt ("AI : Can't find marker spline group"); here
 /// he stays (none on lev_1_m1).
+/// Seconds a marker run waits for its route before the first step (oracle, agent-startfix: lev_2_m2 grunt 16 and
+/// lev_bonus_m3's squad set off ~18 frames after the unpause in the original; the grid route request 0x00470aa0 /
+/// 0x00470c30 of state 0x96 is the guess at why).
+pub const ROUTE_PLAN: f32 = 0.3;
+
 fn follow_spline(g: &mut Grunt, markers: &crate::alarm::Markers, tags: (i64, i64), r: f32) {
     match markers.pick_spline(tags, r) {
         Some(tag) => {
             g.spline = Some(SplineRun { tag, index: 0, started: false });
             g.mind = Mind::ToMarker;
+            g.route_wait = ROUTE_PLAN;
         }
         None => {
             g.spline = None;
@@ -2694,6 +2729,10 @@ fn think(
             }
         }
         g.last_health = h.0;
+        // an IC move carries him (state 0x64: ic.rs and the mover)
+        if g.mind == Mind::Scripted {
+            continue;
+        }
         // the all-fours breathing (state 0x12d) lasts its timer (+0x490, 3..7 s)
         if g.reacting == 6 {
             g.anim_left -= dt;
@@ -2898,6 +2937,7 @@ fn think(
                 }
             }
             (Mind::WaitTrigger, None) => Mind::WaitTrigger,
+            (Mind::Bully, None) => Mind::Bully,
             (Mind::Home, None) => Mind::Home,
             // the chase engages on its ray (state 0x3c); the archers (vt+0x1cc false) only within 0.9 x +0x5d8
             // (K 0x005bcc38) first
@@ -3012,7 +3052,7 @@ fn think(
                     }
                 }
             }
-            Mind::Roam => {
+            Mind::Roam | Mind::Bully => {
                 // idle / roaming (state 1, grunt-ai.md): with no target the grunt stands at attention where it is and
                 // fidgets (charanim.rs); it only moves along a patrol spline, which no lev_1_m1 grunt has. (The
                 // engine's earlier stand-in wandered round home, marching with footsteps the original never plays.)
@@ -3038,6 +3078,10 @@ fn think(
                 let mk = g.spline.and_then(|r| markers.spline_marker(r.tag, r.index)).map(|m| m.pos);
                 goal = g.exit.or(mk).unwrap_or(pos);
                 speed = run_speed;
+                if g.route_wait > 0.0 && g.exit.is_none() {
+                    g.route_wait -= dt;
+                    speed = 0.0;
+                }
                 if g.exit.is_none() && mk.is_none() {
                     g.mind = Mind::Roam;
                 }

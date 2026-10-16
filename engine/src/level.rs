@@ -155,6 +155,8 @@ pub struct SpawnGrunt {
     pub army: Option<crate::army::ArmyGrunt>,
     /// a squad member (ai/squad.rs): his squad and bone; idle at it until the squad moves
     pub squad: Option<ai::squad::SquadLink>,
+    /// a grunt hidden in a host at load (ai/ic.rs): waiting at its node for his move's trigger
+    pub ic: Option<ai::ic::IcSpawn>,
 }
 
 /// The `Center` translation track of a rigid (unskinned) model's own anim, played in a loop on its placement.
@@ -208,6 +210,13 @@ fn rigid_anims(time: Res<Time>, mut q: Query<(&mut RigidAnim, &mut Transform)>) 
 pub struct DefaultAnim {
     anim: String,
     seen: bool,
+}
+
+impl DefaultAnim {
+    /// `anim` looped from the frame after the spawn unless something else plays first.
+    pub fn new(anim: &str) -> Self {
+        DefaultAnim { anim: anim.to_owned(), seen: false }
+    }
 }
 
 fn default_anims(mut commands: Commands, mut q: Query<(Entity, &mut DefaultAnim, &mut crate::skin::Animator)>, mut lib: ResMut<crate::skin::AnimLibrary>) {
@@ -714,6 +723,22 @@ pub fn spawn(
         let placed = scene::game_matrix(&inst.transform);
         let (_, r, tr) = placed.to_scale_rotation_translation();
         let mut world = axes * Mat4::from_rotation_translation(r, tr);
+        // the grunts this object hides (ai/ic.rs: buildings, trees, powder kegs), at the nodes of its reference anim
+        // (the template's default anim: Anim_Set 0x81 at load; 0x00453c50 reads its matrices)
+        if !ai::ic::sources(behavior).is_empty() {
+            let anim_name = tpl.and_then(|t| t.default_anim.clone()).or_else(|| p.s("ref_anim_name").map(str::to_owned)).unwrap_or_else(|| inst.model.clone());
+            let anim = skin.lib.anim(&anim_name);
+            let node = |n: &str| {
+                let a = anim.as_ref()?;
+                Some(Mat4::from_rotation_translation(a.rotation(n, 0.0).unwrap_or(Quat::IDENTITY), a.translation(n, 0.0)?))
+            };
+            let landing = |tag: i64| scene.instances.iter().find(|h| h.props.get("tag").and_then(|v| v.as_i64()) == Some(tag)).map(|h| h.id);
+            for ic in ai::ic::hidden_grunts(&p, behavior, inst.id, to_game * world, node, landing) {
+                let at = game_to_engine() * ic.origin.w_axis.truncate();
+                commands.write_message(SpawnGrunt { at, template: "grunt_regular".into(), ic: Some(ic), ..default() });
+                info.grunts += 1;
+            }
+        }
         let background = behavior == "background";
         // visible (default 1; 0 hides it: Object_LoadBaseProps 0x00451360, vt+0xf4(0)): p_invisible_walls and p_ui
         // have 0; buildings read their own "invisible" (BuildingObject 0x0040ad80). Hiding (0x004536b0: +0x424 bit 4,
@@ -845,7 +870,10 @@ pub fn spawn(
                 let tag = p.f("obj_tag", 0.0) as i64;
                 let house = scene.instances.iter().find(|h| h.props.get("tag").and_then(|v| v.as_i64()) == Some(tag) && tag != 0);
                 if let (Some(h), Some(bone)) = (house, p.s("generic_txt")) {
-                    if let Some(b) = crate::mission::pub_bone(&lib.dir, &h.model, bone) {
+                    // the house's reference anim: its template's default anim (ww_house_2f_b carries v_house_2f_b_0),
+                    // else its model's own (0x00453c50 reads the matrices of the anim set at load)
+                    let anim = data.templates.get(&h.template).and_then(|t| t.default_anim.clone()).unwrap_or_else(|| h.model.clone());
+                    if let Some(b) = crate::mission::pub_bone(&lib.dir, &anim, bone).or_else(|| crate::mission::pub_bone(&lib.dir, &h.model, bone)) {
                         let m = crate::scene::game_matrix(&h.transform);
                         let at = game_to_engine() * m.transform_point3(b);
                         let centre = game_to_engine() * m.w_axis.truncate();
@@ -873,7 +901,10 @@ pub fn spawn(
                         tag != 0 && h.props.get("tag").and_then(|v| v.as_i64()) == Some(tag) && data.template_props(&h.template).s("behavior") == Some("peasant")
                     });
                     match peasant {
-                        Some(h) => g.bully = Some(ai::bully::Bully::new(h.id, &mut rng)),
+                        Some(h) => {
+                            g.bully = Some(ai::bully::Bully::new(h.id, &mut rng));
+                            g.mind = ai::Mind::Bully;
+                        }
                         None => warn!("ai: bully {} finds no peasant of tag {tag}: ready roaming", inst.id),
                     }
                     g.attention = false;
@@ -1300,8 +1331,12 @@ fn spawn_grunts(
         let p = data.template_props(&ev.template);
         let Some(model_name) = data.templates.get(&ev.template).and_then(|t| t.model.clone()) else { continue };
         let Some(model) = lib.load_model(&model_name, false, &assets, &mut meshes, &mut materials).cloned_parts() else { continue };
-        let world = Mat4::from_rotation_translation(game_to_engine(), ev.at);
-        let e = commands.spawn((Transform::from_matrix(world), Visibility::default(), Name::new(ev.template.clone()))).id();
+        // a hidden grunt faces as his node (ai/ic.rs)
+        let yaw = ev.ic.as_ref().map_or(0.0, |ic| ai::ic::yaw_of(game_to_engine() * Quat::from_mat4(&ic.origin)));
+        let world = Mat4::from_rotation_translation(Quat::from_rotation_y(yaw) * game_to_engine(), ev.at);
+        // (its GlobalTransform too: the AI's first search runs before the transforms propagate, and would look from
+        // the origin)
+        let e = commands.spawn((Transform::from_matrix(world), GlobalTransform::from(Transform::from_matrix(world)), Visibility::default(), Name::new(ev.template.clone()))).id();
         if ev.alarm {
             commands.entity(e).insert(crate::alarm::AlarmTroop);
         }
@@ -1329,9 +1364,16 @@ fn spawn_grunts(
             .allowed_dofs(AllowedDofs::TRANSLATION_X | AllowedDofs::TRANSLATION_Y | AllowedDofs::TRANSLATION_Z);
         if let Some(id) = physics.add_dynamic(e, &shape, ev.at + lift, Quat::IDENTITY, Vec3::ZERO, s) {
             physics.materials.insert(id, "grunt".into());
-            let mut g = ai::make_grunt(&p, &data, ai::Kind::of(&ev.template), ev.at, 0.0, rng);
+            let mut g = ai::make_grunt(&p, &data, ai::Kind::of(&ev.template), ev.at, yaw, rng);
             g.cold = ai::cold_level(&lib.dir);
-            if let Some(link) = ev.squad {
+            if let Some(ic) = &ev.ic {
+                // hidden (0x0042d000): waiting for his trigger at his node, held there, looking for targets with the
+                // host's trigger_los
+                g.mind = ai::Mind::WaitTrigger;
+                g.trigger_los = ic.trigger_los;
+                g.fixed = Some(ev.at);
+                commands.entity(e).insert(ai::ic::IcEntry { spawn: ic.clone(), running: false });
+            } else if let Some(link) = ev.squad {
                 // a squad member (0x0042de60): his group, his bone, state 0xde
                 g.squad = Some(link);
                 g.alert_group = ev.alert_group;

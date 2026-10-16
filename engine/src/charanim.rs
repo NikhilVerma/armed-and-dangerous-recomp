@@ -563,7 +563,8 @@ fn roman(
 
 #[allow(clippy::type_complexity)]
 fn grunts(
-    mut q: Query<(Entity, &mut Grunt, &mut Animator, &Transform, Option<&crate::topsy::Thrown>), Without<crate::ragdoll::Ragdoll>>,
+    // (a hidden grunt's anims, waiting or coming out, are ai/ic.rs's)
+    mut q: Query<(Entity, &mut Grunt, &mut Animator, &Transform, Option<&crate::topsy::Thrown>), (Without<crate::ragdoll::Ragdoll>, Without<crate::ai::ic::IcEntry>)>,
     targets: Query<&GlobalTransform>,
     time: Res<Time>,
     lib: Res<crate::skin::AnimLibrary>,
@@ -722,6 +723,8 @@ fn grunts(
             Mind::Reload => (name(&g, 0x29, 0.0).to_owned(), false),
             Mind::Flee => (name(&g, 11, 0.0).to_owned(), true),
             Mind::Chase | Mind::ToMarker | Mind::Wander => (mover(&g).to_owned(), true),
+            // an IC move plays its own anim (ai/ic.rs)
+            Mind::Scripted => continue,
             // a monk's teleport (anim 0x6b monk_turbo) and his cast (0x26)
             Mind::Teleport => (name(&g, 0x6b, 0.0).to_owned(), true),
             Mind::Cast => (name(&g, 0x26, 0.0).to_owned(), false),
@@ -767,7 +770,8 @@ fn grunts(
                 }
             }
             // ready: the stand set (2, 3, 0, 1 at 0.5, 0.5); no fidgets (0x00427330 needs anim 0xf playing)
-            Mind::Guard | Mind::WaitTrigger | Mind::Roam => {
+            // (a bully between scares: the stand set, bully.rs)
+            Mind::Guard | Mind::WaitTrigger | Mind::Roam | Mind::Bully => {
                 four(&mut a, &g, [0, 1, 2, 3], true, 0.5, 0.5);
                 continue;
             }

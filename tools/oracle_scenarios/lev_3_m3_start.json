@@ -8,9 +8,7 @@
  "suite": false,
  "known": {
   "events.sounds": "B17 rest (the sound causes fixed by agent-sound): what is left comes from other families or chance: load-time sounds outside one game's traced window (B10 / E1 start message timing: the base levels' loops, the first ambient one-shot at load vs frame 2), random picks (ambient one-shots, thunder, sheep bleats), the grunts' gait (walk vs run footstep notes, charanim.rs), the grunts' _ic anim-event lines and boulder rolls (not in the remaster yet), vehicle loops (B14, vehicles not traced)",
-  "grunt.mind": "B13: grunts in the bully state 0x118 (bully.rs) roam in the remaster",
   "grunt.pos": "B18: grunts take Roman as target at the start in the remaster only (lev_1_m1_b captain 134 patrols in the original, 0x96; lev_3_m3 grunt 51, lev_bonus_m2 grunt 40 chase him)",
-  "grunt.target": "B18: grunts take Roman as target at the start in the remaster only (lev_1_m1_b captain 134 patrols in the original, 0x96)",
   "grunts.alive": "B16: lev_4_m2's tree spawns (9 grunts at the l4 trees in 10 s) are not created (tree grunts, grunt-ai.md section 14)"
  }
 }

@@ -7,6 +7,7 @@
  "trace_from": -60,
  "suite": true,
  "known": {
-  "events.sounds": "B17 rest (the sound causes fixed by agent-sound): what is left comes from other families or chance: load-time sounds outside one game's traced window (B10 / E1 start message timing: the base levels' loops, the first ambient one-shot at load vs frame 2), random picks (ambient one-shots, thunder, sheep bleats), the grunts' gait (walk vs run footstep notes, charanim.rs), the grunts' _ic anim-event lines and boulder rolls (not in the remaster yet), vehicle loops (B14, vehicles not traced)"
+  "events.sounds": "B17 rest (the sound causes fixed by agent-sound): what is left comes from other families or chance: load-time sounds outside one game's traced window (B10 / E1 start message timing: the base levels' loops, the first ambient one-shot at load vs frame 2), random picks (ambient one-shots, thunder, sheep bleats), the grunts' gait (walk vs run footstep notes, charanim.rs), the grunts' _ic anim-event lines and boulder rolls (not in the remaster yet), vehicle loops (B14, vehicles not traced)",
+  "vehicle.pos": "V1: the saucers / mini zeppelins on mover paths started at load run ahead along the same path in the remaster (the original covers 11 units in its first second, the remaster 57; ~60 frames ahead after 3 s, positions within 1-5 units at that offset): the original's mover starts slowly (vehicles/boss.rs, icobject.rs)"
  }
 }
