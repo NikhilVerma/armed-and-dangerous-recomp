@@ -656,8 +656,9 @@ fn sphere_radius(r: &Map<String, Value>) -> f32 {
     }
 }
 
-/// The send_trigger_on_death of a grunt made during play (barracks troops, the army's released grunts, alarm troops):
-/// it has no placed instance, so its template's trigger rides on it (DefaultGameObject_OnDeath 0x00450ee0 sends
+/// The send_trigger_on_death of a grunt: a placed one's from its instance (lev_5_m1's Q1-12s, lev_4_m1's monks), one made
+/// during play (barracks troops, the army's released grunts, alarm troops) from its template
+/// (DefaultGameObject_OnDeath 0x00450ee0 sends
 /// +0x488 for any object). Sent once, when it dies (`troop_deaths`).
 #[derive(Component, Clone, Copy, Debug)]
 pub struct DeathTrigger(pub i64);
@@ -1209,8 +1210,8 @@ impl Plugin for MissionPlugin {
 }
 
 /// An object with send_trigger_on_death died: its trigger goes out.
-/// A grunt made during play died: its DeathTrigger goes out (once: the component is removed).
-fn troop_deaths(mut commands: Commands, q: Query<(Entity, &DeathTrigger, &Grunt)>, mut out: MessageWriter<SendTrigger>) {
+/// A grunt died (placed or made during play): its DeathTrigger goes out (once: the component is removed).
+pub(crate) fn troop_deaths(mut commands: Commands, q: Query<(Entity, &DeathTrigger, &Grunt)>, mut out: MessageWriter<SendTrigger>) {
     for (e, t, g) in &q {
         if g.mind == crate::ai::Mind::Dead {
             out.write(SendTrigger(t.0));

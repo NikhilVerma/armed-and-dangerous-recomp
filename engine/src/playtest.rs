@@ -371,7 +371,8 @@ fn warp(
     let mut feet = crate::level::game_to_engine() * Vec3::new(w[0], w[1], if w[2].is_nan() { 0.0 } else { w[2] });
     if w[2].is_nan() {
         // a land step: onto the landscape under the point (a little above it, the walker settles)
-        let Some(ground) = physics.raycast_landscape(feet.with_y(20000.0), Vec3::NEG_Y, 40000.0) else {
+        let top = feet.with_y(4000.0);
+        let Some(ground) = physics.raycast_landscape(top, Vec3::NEG_Y, 8000.0).or_else(|| physics.raycast(top, Vec3::NEG_Y, 8000.0).map(|h| h.1)) else {
             warn!("EVENT playtest: no ground under {:?}", [w[0], w[1]]);
             return;
         };

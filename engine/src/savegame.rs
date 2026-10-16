@@ -227,7 +227,9 @@ impl Plugin for SaveGamePlugin {
             .init_level_resource::<PlacedIds>()
             .init_level_resource::<Checkpoints>()
             .init_resource::<crate::gamedata::Difficulty>()
-            .add_systems(Update, (record_placed, save, apply))
+            // a dead grunt restored is despawned before the death triggers are read (else its send_trigger_on_death
+            // would go out again on load)
+            .add_systems(Update, (record_placed, save, apply.before(crate::mission::troop_deaths)))
             .add_systems(PostUpdate, (checkpoints, log_state));
     }
 }

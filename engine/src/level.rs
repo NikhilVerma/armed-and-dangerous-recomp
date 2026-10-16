@@ -935,6 +935,11 @@ pub fn spawn(
                     bounds,
                     g,
                 ));
+                // its send_trigger_on_death (the death of any object sends +0x488, 0x00450ee0): mission.rs troop_deaths
+                let on_death = p.i("send_trigger_on_death", 0);
+                if on_death != 0 {
+                    commands.entity(e).insert(crate::mission::DeathTrigger(on_death));
+                }
                 info.grunts += 1;
             }
             continue;
