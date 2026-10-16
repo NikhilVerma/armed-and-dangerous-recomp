@@ -59,6 +59,8 @@ pub struct SpawnGoliath {
     pub at: Vec3,
     pub yaw: f32,
     pub squad: Option<crate::ai::squad::SquadLink>,
+    /// the squad's group (+0x510 = its -squad_tag, 0x0042de60): the goliath passes through its squad mates
+    pub group: Option<u32>,
     /// a goliath_cage with a peasant at its chest
     pub cage: bool,
     /// the squad's receive_trigger_kill (+0x530), send_trigger_on_death (+0x528), tag (+0x390)
@@ -127,6 +129,9 @@ fn spawn_for_squads(
         commands.entity(ev.entity).insert((world, GlobalTransform::from(world), Visibility::default(), Name::new("goliath")));
         let Some(bounds) = kit.attach(&mut commands, ev.entity, &model, p.f("shadow_enable", 0.0) != 0.0) else { continue };
         let Some((body, lift)) = hit_body(&mut physics, ev.entity, ev.at, p.s("material")) else { continue };
+        if ev.group.is_some() {
+            physics.set_contact_rule(body, crate::contacts::ContactRule { group: ev.group, ..Default::default() });
+        }
         let husk = crate::level::pick_husk(&p, husk_rng.get());
         let mut d = crate::level::destructible(&p).unwrap_or_else(|| crate::vehicles::unit_health(&p, crate::fx::DClass::Open, None, 1.0));
         // GenericAI damage: every shot counts

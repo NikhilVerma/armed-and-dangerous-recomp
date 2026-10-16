@@ -31,6 +31,7 @@ mod camdump;
 mod camfade;
 mod campaign;
 mod cheats;
+mod contacts;
 mod cutscenes;
 mod decals;
 mod extras;

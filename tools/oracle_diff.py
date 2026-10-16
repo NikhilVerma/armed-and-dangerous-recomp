@@ -234,9 +234,11 @@ def pause_spans(rows):
 
 def key_grunts(rows):
     """{frame: {key: grunt}}: a grunt with an instance id is keyed by it; one without (id 0: troops, squad members,
-    hidden grunts) gets a key "z<n>" and is followed from line to line by position (the nearest within 100 units; one
-    that appears gets a new key). The ids alone would make every id-0 grunt the same one."""
-    out, last, n = {}, {}, 0
+    hidden grunts) gets a key "z<n>" and is followed from line to line by position (the nearest to where it was heading,
+    its last position plus its last step, within 100 units; one that appears gets a new key). The ids alone would make
+    every id-0 grunt the same one; the step keeps a squad's members apart where they pass within a few units of each
+    other (they do not collide: one contact group, 0x0042de60)."""
+    out, last, step, n = {}, {}, {}, 0
     for f in sorted(rows):
         cur, zero = {}, []
         for g in rows[f].get("grunts", []):
@@ -244,7 +246,8 @@ def key_grunts(rows):
                 cur[g["id"]] = g
             else:
                 zero.append(g)
-        near = sorted((dist(g["pos"], p["pos"]), i, k) for i, g in enumerate(zero) for k, p in last.items())
+        ahead = {k: [a + b for a, b in zip(p["pos"], step.get(k, (0.0, 0.0, 0.0)))] for k, p in last.items()}
+        near = sorted((dist(g["pos"], ahead[k]), i, k) for i, g in enumerate(zero) for k in last)
         used_i, used_k = set(), set()
         for d, i, k in near:
             if d > 100:
@@ -258,6 +261,8 @@ def key_grunts(rows):
             if i not in used_i:
                 cur[f"z{n}"] = g
                 n += 1
+        step = {k: tuple(a - b for a, b in zip(g["pos"], last[k]["pos"])) if k in last else (0.0, 0.0, 0.0)
+                for k, g in cur.items() if isinstance(k, str)}
         last = {k: g for k, g in cur.items() if isinstance(k, str)}
         out[f] = cur
     return out
