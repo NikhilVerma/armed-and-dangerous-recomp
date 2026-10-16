@@ -1,6 +1,12 @@
 """Run the fast remaster playtests (state-based, with expect steps) and print one line each.
 
-    python tools/regress.py [--exe target-agent2] [--scene DIR] [--play DIR] [NAME ...]
+    python tools/regress.py [--exe target-agent2] [--scene DIR] [--play DIR] [--perf] [NAME ...]
+
+--perf runs the wall-clock performance checks instead (PERF: the scripts' "expect_perf" limits, e.g. restart_parity's
+frame / main-world times after a restart). Run it on an idle machine: a frame's wall time depends on what else runs,
+so those limits are skipped (logged "EXPECT SKIP (perf)") in the correctness SUITE, which must pass however loaded
+the machine is (docs/remaster-engine.md "Traps": scripted runs step game time by a fixed 1/60 s; nothing in the game
+may read the wall clock, the audio device's position or how many frames an asset took to load).
 
 From a git worktree without work/: --play the main checkout's work/remaster/play (its untracked scripts and states),
 --scene its work/remaster/lev_1_m1 (passed on to playtest.py).
@@ -56,21 +62,26 @@ SUITE += ['mg_muzzle_fx']
 # object model's damage filters, trigger fields and husk picks, the HUD feed wrapping)
 # scripts kept in git (engine/playtests) win over work/remaster/play
 TRACKED = os.path.join(ROOT, 'engine', 'playtests')
+# the wall-clock checks (--perf; their "expect_perf" steps run only with AND_PERF=1)
+PERF = ['restart_parity']
 
 ap = argparse.ArgumentParser()
 ap.add_argument('names', nargs='*')
 ap.add_argument('--exe', default='target-agent2')
 ap.add_argument('--scene', default=None, help='scene folder for playtest.py (a worktree without work/)')
 ap.add_argument('--play', default=None, help='folder of the untracked scripts and states (default work/remaster/play)')
+ap.add_argument('--perf', action='store_true', help='run the wall-clock performance checks (PERF) on an idle machine')
 a = ap.parse_args()
 if a.play:
     PLAY = a.play
-scene = ['--scene', a.scene] if a.scene else []
+extra = ['--scene', a.scene] if a.scene else []
+if a.perf:
+    extra += ['--env', 'AND_PERF=1']
 
 if not os.path.exists(os.path.join(PLAY, 'states', 'after_pub.json')):
-    subprocess.run([sys.executable, os.path.join(ROOT, 'tools', 'playtest.py'), os.path.join(PLAY, 'state_after_pub.json'), '--exe', a.exe] + scene)
+    subprocess.run([sys.executable, os.path.join(ROOT, 'tools', 'playtest.py'), os.path.join(PLAY, 'state_after_pub.json'), '--exe', a.exe] + extra)
 bad = 0
-for name in a.names or SUITE:
+for name in a.names or (PERF if a.perf else SUITE):
     if name == 'unit':
         env = dict(os.environ, CARGO_TARGET_DIR=os.path.join(ROOT, 'engine', a.exe))
         cargo = os.path.join(os.path.expanduser('~'), '.cargo', 'bin', 'cargo')
@@ -85,7 +96,7 @@ for name in a.names or SUITE:
             print('     ', l)
         continue
     script = next((d for d in (TRACKED, PLAY) if os.path.exists(os.path.join(d, name + '.json'))), PLAY)
-    p = subprocess.run([sys.executable, os.path.join(ROOT, 'tools', 'playtest.py'), os.path.join(script, name + '.json'), '--exe', a.exe] + scene,
+    p = subprocess.run([sys.executable, os.path.join(ROOT, 'tools', 'playtest.py'), os.path.join(script, name + '.json'), '--exe', a.exe] + extra,
                        stdout=subprocess.PIPE, text=True, errors='replace')
     res = re.search(r'PLAYTEST RESULT: (\d+) passed, (\d+) failed', p.stdout)
     fails = [l for l in p.stdout.splitlines() if 'EXPECT FAIL' in l or 'panicked' in l]

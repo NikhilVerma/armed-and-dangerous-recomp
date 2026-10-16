@@ -631,10 +631,19 @@ pub struct Voice {
     pub paused: bool,
     /// seconds without a sink (the file still loading; one that never loads is dropped)
     waiting: f32,
+    /// a one-shot's length in game seconds (the file's duration over its playback rate; 0 when unknown): it ends
+    /// when its age reaches this, not when the output device has drained it (that is wall-clock time, which a
+    /// scripted run's fixed game step does not follow: a slow machine ended voice lines early in game time and a
+    /// follow-on line played that should not have, docs/remaster-engine.md "Traps")
+    length: f32,
+    /// the sink was given its start position (a file that loaded late starts where the voice's age says)
+    synced: bool,
 }
 
 /// A voice whose file has not loaded after this long is dropped (it would hold its channel for ever).
 const LOAD_TIMEOUT: f32 = 5.0;
+/// A one-shot whose file loaded this many seconds after it began is sought to its age (a shorter delay is inaudible).
+const LATE_START: f32 = 0.05;
 
 impl Voice {
     /// The voice's level in dB without the master factor (0x004fb170): group, definition, offset, envelope and, for
@@ -784,6 +793,8 @@ fn play(
         let loops_now = looped && then_body.is_none();
         let group = ev.group.unwrap_or(def.group());
         let id = ev.id;
+        let u = (next() & 0xffff) as f32 / 65536.0;
+        let speed = if group == VolumeGroup::Music { 1.0 } else { rate_factor(fdef.pitch_variation, u) };
         let mut voice = Voice {
             key: file.clone(),
             group,
@@ -808,6 +819,8 @@ fn play(
             gain_db: 0.0,
             paused: false,
             waiting: 0.0,
+            length: if loops_now { 0.0 } else { fdef.duration / speed.max(1.0e-3) },
+            synced: false,
         };
         voice.gain_db = voice.level_db(&mixer);
         if let Some(f) = log.as_mut() {
@@ -822,11 +835,10 @@ fn play(
                 subs.write(Subtitle { speaker: line.speaker.clone(), text, duration: line.duration.max(2.0) });
             }
         }
-        let u = (next() & 0xffff) as f32 / 65536.0;
         let settings = PlaybackSettings {
             mode: if loops_now { PlaybackMode::Loop } else { PlaybackMode::Once },
             volume: Volume::Linear(voice.gain(&mixer)),
-            speed: if group == VolumeGroup::Music { 1.0 } else { rate_factor(fdef.pitch_variation, u) },
+            speed,
             spatial: positional,
             spatial_scale: Some(SpatialScale::new(SPATIAL_SCALE)),
             ..default()
@@ -940,21 +952,8 @@ fn update_voices(
         }
         let game_paused = pause.paused && !v.through_pause && v.started_in_pause != Some(pause.epoch);
         let want_paused = game_paused || far;
-        let s: &mut dyn AudioSinkPlayback = if let Some(s) = sink.as_deref_mut() {
-            s
-        } else if let Some(s) = spatial.as_deref_mut() {
-            s
-        } else {
-            v.waiting += dt;
-            if v.waiting > LOAD_TIMEOUT {
-                warn!("audio: {} did not load, dropped", v.key);
-                commands.entity(e).despawn();
-            }
-            continue;
-        };
-        if s.is_paused() != want_paused {
-            if want_paused { s.pause() } else { s.play() }
-        }
+        // the voice plays from its request in game time, its file loaded or not (the original reads it as it
+        // starts): its age, envelope, fade and end do not wait for the asset server
         v.paused = want_paused;
         if !want_paused {
             v.age += dt;
@@ -969,11 +968,42 @@ fn update_voices(
             }
         }
         v.gain_db = v.level_db(&mixer);
-        s.set_volume(Volume::Linear(v.gain(&mixer)));
+        let s: Option<&mut dyn AudioSinkPlayback> = match (sink.as_deref_mut(), spatial.as_deref_mut()) {
+            (Some(s), _) => Some(s),
+            (None, Some(s)) => Some(s),
+            (None, None) => None,
+        };
+        let drained = match s {
+            Some(s) => {
+                // a file that loaded after the voice began starts at the voice's place in it
+                if !v.synced {
+                    v.synced = true;
+                    if v.length > 0.0 && v.age > LATE_START && v.age < v.length {
+                        let _ = s.try_seek(std::time::Duration::from_secs_f32(v.age * s.speed()));
+                    }
+                }
+                if s.is_paused() != want_paused {
+                    if want_paused { s.pause() } else { s.play() }
+                }
+                s.set_volume(Volume::Linear(v.gain(&mixer)));
+                s.empty()
+            }
+            None => {
+                // a loop (no length) whose file never loads would hold its channel for ever
+                v.waiting += dt;
+                if v.length <= 0.0 && v.waiting > LOAD_TIMEOUT {
+                    warn!("audio: {} did not load, dropped", v.key);
+                    commands.entity(e).despawn();
+                    continue;
+                }
+                false
+            }
+        };
         // the end of a one-shot: the body after an intro, else the follow-on (0x004f2a80, on the same place, taking
-        // over the handle)
+        // over the handle). Its length in game time when known (the output device drains it in wall-clock time)
+        let over = if v.length > 0.0 { v.age >= v.length } else { drained };
         if !v.looped || v.then_body.is_some() {
-            if s.empty() {
+            if over {
                 if let Some(body) = v.then_body.take() {
                     replay.write(PlaySound { at: Some(v.at), ..body });
                 } else if let Some(next) = v.follow_on.take() {

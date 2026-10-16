@@ -814,8 +814,8 @@ fn log_audio(
         .iter()
         .flatten()
         .map(|e| {
-            // active: a sound of its plays now (a one-shot ends in real time, as the voice finishes: a check of it at a
-            // game time depends on the frame rate); in_range: the listener is within its max distance (or world)
+            // active: a sound of its plays now (a one-shot ends when its length has played in game time, audio.rs
+            // Voice::length); in_range: the listener is within its max distance (or world)
             let active = e.looping.is_some() || e.oneshot.is_some();
             (e.def.instance.to_string(), serde_json::json!({"active": active, "in_range": e.in_range, "started": e.started, "offset_db": (e.offset * 10.0).round() / 10.0}))
         })
