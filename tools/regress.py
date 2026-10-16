@@ -27,7 +27,7 @@ SUITE = ['save_write', 'save_read', 'topsyhit2', 'turn_in_place', 'turret1', 'de
          'fx_particles', 'fx_debris', 'fx_emit', 'fx_lights', 'fx_screen', 'fx_hits',
          'movie_intro', 'movie_subs', 'movie_screens', 'movie_credits', 'movie_pub',
          'launch_newgame', 'launch_options', 'launch_restart', 'restart_parity', 'save_slots',
-         'campaign_next', 'campaign_chain', 'campaign_save', 'campaign_movie', 'campaign_end', 'campaign_extras',
+         'cheats', 'campaign_next', 'campaign_chain', 'campaign_save', 'campaign_movie', 'campaign_end', 'campaign_extras',
          'defence_l1m4', 'defence_l1m4_fail', 'defence_l2m4', 'defence_l3m4', 'defence_l4m5', 'defence_l5m5',
          'vehicles_rocket_tower', 'vehicles_rocket_bud', 'vehicles_zeppelin', 'vehicles_saucer', 'vehicles_colossus', 'vehicles_forge_cannon']
 # 'launch_*': the real launch path as the player plays (the Remaster preset chosen by the options, the intro, the

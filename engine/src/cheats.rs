@@ -72,6 +72,13 @@ impl Cheats {
     pub fn on(&self, flag: u32) -> bool {
         self.active & flag != 0
     }
+
+    /// Enter a code as if typed on the Cheats page and confirmed (scripted runs, a console): checked next frame by
+    /// `entry` with the same rules and messages as typing it.
+    pub fn enter(&mut self, code: &str) {
+        self.typed = code.to_owned();
+        self.submit = true;
+    }
 }
 
 pub struct CheatsPlugin;
@@ -96,13 +103,15 @@ fn entry(
     mut roman: Query<(&mut crate::player::Roman, &mut crate::fx::Health)>,
     data: Res<crate::gamedata::GameData>,
 ) {
-    if !c.entering {
+    // a code entered from outside the page (`Cheats::enter`) is checked without reading the keyboard
+    let entered = !c.entering && c.submit;
+    if !c.entering && !entered {
         keys.clear();
         return;
     }
     keys.clear();
     // letters and digits by key (works for typed and scripted input), Backspace, Enter to check
-    for k in buttons.get_just_pressed() {
+    for k in buttons.get_just_pressed().filter(|_| !entered) {
         let ch = format!("{k:?}");
         let ch = ch.strip_prefix("Key").or_else(|| ch.strip_prefix("Digit")).filter(|x| x.len() == 1).map(str::to_owned);
         if let Some(ch) = ch {
@@ -111,7 +120,7 @@ fn entry(
             }
         }
     }
-    if buttons.just_pressed(KeyCode::Backspace) {
+    if !entered && buttons.just_pressed(KeyCode::Backspace) {
         c.typed.pop();
     }
     let enter = buttons.just_pressed(KeyCode::Enter) || std::mem::take(&mut c.submit);
