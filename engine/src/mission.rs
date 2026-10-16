@@ -643,6 +643,19 @@ pub struct Mission {
 #[derive(Message, Clone, Copy)]
 pub struct SendTrigger(pub i64);
 
+/// A trigger volume's sphere_radius as the original reads it: TriggerObject_Load 0x00497460 reads the property as a
+/// dword (Object_ReadValueProp 0x00453400) and BuildCollision 0x004975d0 converts it as an unsigned integer. An integer
+/// in the data is its value; a float (lev_1_m1_b's spheres 376 / 387: 100.0) is its bit pattern, 0x42c80000 =
+/// 1.12e9 units, a sphere over the whole level: both fire at the load when Roman appears inside (original bug,
+/// docs/original-bugs.md; the oracle's trace_calls of 0x004976a0: their enter callback has Roman, 1200 units away).
+fn sphere_radius(r: &Map<String, Value>) -> f32 {
+    match r.get("sphere_radius") {
+        Some(Value::Number(v)) if v.is_f64() => (v.as_f64().unwrap_or(0.0) as f32).to_bits() as f32,
+        Some(v) => v.as_f64().unwrap_or(0.0) as f32,
+        None => 0.0,
+    }
+}
+
 /// The send_trigger_on_death of a grunt made during play (barracks troops, the army's released grunts, alarm troops):
 /// it has no placed instance, so its template's trigger rides on it (DefaultGameObject_OnDeath 0x00450ee0 sends
 /// +0x488 for any object). Sent once, when it dies (`troop_deaths`).
@@ -907,8 +920,7 @@ impl Mission {
                         let placement = i.transform.as_ref().map(crate::scene::game_matrix).unwrap_or(Mat4::from_translation(Vec3::from(i.position.unwrap_or_default())));
                         Volume::oriented_box(placement, corner("local_min"), corner("local_max"))
                     } else {
-                        let rad = vol.and_then(|v| v.get("radius")).and_then(|v| v.as_f64()).unwrap_or(n(r, "sphere_radius")) as f32;
-                        Volume::Sphere(pos, rad)
+                        Volume::Sphere(pos, sphere_radius(r))
                     };
                     triggers.push(Trigger::new(i.id, r, volume));
                 }

@@ -386,7 +386,7 @@ __declspec(naked) void Wrap_FxDie()
 
 // [test] trace_calls=Name1,Name2,...: and.log gets one "call" line per call of each named hook (up to 8; the names of
 // the HOOK entries, e.g. GenericAI_SetTarget): frames since the load and play frame, the caller's return address, ecx,
-// eax, edx and the first three stack arguments, each as an instance id (#N) when it points at a placed object. For
+// eax, edx, ebx and the first three stack arguments, each as an instance id (#N) when it points at a placed object. For
 // finding which code sets a value seen in the trace (the caller is the address after the call instruction).
 constexpr int kCallSlots = 8;
 char g_callNames[kCallSlots][64];
@@ -404,10 +404,10 @@ const char* Arg(char* buf, uint32_t v)
 // regs: the pushad block (edi, esi, ebp, esp, ebx, edx, ecx, eax), then the return address and the stack arguments
 void __stdcall OnCall(int slot, const uint32_t* regs)
 {
-    char c[24], a[24], d[24], s0[24], s1[24], s2[24];
-    Log("call %s since %d play %d from %08x ecx %s eax %s edx %s args %s %s %s", g_callNames[slot],
+    char c[24], a[24], d[24], b[24], s0[24], s1[24], s2[24];
+    Log("call %s since %d play %d from %08x ecx %s eax %s edx %s ebx %s args %s %s %s", g_callNames[slot],
         TestFramesSinceLoad(), TestFramesSincePlay(), regs[8], Arg(c, regs[6]), Arg(a, regs[7]), Arg(d, regs[5]),
-        Arg(s0, regs[9]), Arg(s1, regs[10]), Arg(s2, regs[11]));
+        Arg(b, regs[4]), Arg(s0, regs[9]), Arg(s1, regs[10]), Arg(s2, regs[11]));
 }
 
 #define CALL_SLOT(n)                                 \

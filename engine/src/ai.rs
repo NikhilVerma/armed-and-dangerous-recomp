@@ -1554,7 +1554,10 @@ fn search(
     player: Query<(Entity, &GlobalTransform, Option<&crate::skin::Animator>), With<Player>>,
     companions: Query<(Entity, &GlobalTransform, Option<&crate::skin::Animator>), (With<Companion>, Without<Player>)>,
     mut grunts: Query<(Entity, &mut Grunt, &GlobalTransform, &Body, Option<&crate::skin::Animator>)>,
-    joints: Query<&GlobalTransform, Without<Grunt>>,
+    // the ref_hit_00 joints' world points from the rig's own transforms: a grunt made this frame (the level's first,
+    // an IC host's hidden grunts) has no propagated GlobalTransform on his joints yet, and his first search would
+    // look from the world origin (lev_1_m1_b's IC grunts saw Roman one search late)
+    joints: bevy::transform::helper::TransformHelper,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     mut stats: ResMut<AiStats>,
     mut barks: ResMut<Barks>,
@@ -1574,7 +1577,7 @@ fn search(
     // the candidates (the AI's list +0x604: the player and his companions; the original's grunts take Jonesy and Q
     // too, hook AI dump fightT): each with its position and its ref_hit_00 (the point the sight ray aims at)
     let hit_point = |t: &GlobalTransform, a: Option<&crate::skin::Animator>| {
-        a.and_then(|a| a.skeleton.index.get("ref_hit_00").and_then(|&i| joints.get(a.joints[i]).ok())).map(|j| j.translation()).unwrap_or(t.translation() + Vec3::Y * 7.0)
+        a.and_then(|a| a.skeleton.index.get("ref_hit_00").and_then(|&i| joints.compute_global_transform(a.joints[i]).ok())).map(|j| j.translation()).unwrap_or(t.translation() + Vec3::Y * 7.0)
     };
     let cands: Vec<(Entity, Vec3, Vec3)> =
         player.iter().chain(companions.iter()).map(|(e, t, a)| (e, t.translation(), hit_point(t, a))).collect();
@@ -1627,7 +1630,7 @@ fn search(
         // sight
         let fwd = Vec3::new(g.yaw.sin(), 0.0, g.yaw.cos());
         // its own ref_hit_00 (0x00428280 with "ref_hit_00"): where the sight ray starts (raised by 5)
-        let own_hit = ga.and_then(|a| a.skeleton.index.get("ref_hit_00").and_then(|&i| joints.get(a.joints[i]).ok())).map(|j| j.translation()).unwrap_or(me + Vec3::Y * 6.0);
+        let own_hit = ga.and_then(|a| a.skeleton.index.get("ref_hit_00").and_then(|&i| joints.compute_global_transform(a.joints[i]).ok())).map(|j| j.translation()).unwrap_or(me + Vec3::Y * 6.0);
         let mut best: Option<(f32, Entity, bool)> = None;
         // step 2: a noise of the player's within its radius of the grunt's ref_hit_00 (3D), the player within 2 x
         // scan_distance (2D): taken first (no cone, no line of sight); the list below only replaces it when nearer

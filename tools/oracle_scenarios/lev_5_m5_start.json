@@ -8,11 +8,11 @@
  "suite": false,
  "known": {
   "events.sounds": "B17 rest (the sound causes fixed by agent-sound): what is left comes from other families or chance: load-time sounds outside one game's traced window (B10 / E1 start message timing: the base levels' loops, the first ambient one-shot at load vs frame 2), random picks (ambient one-shots, thunder, sheep bleats), the grunts' gait (walk vs run footstep notes, charanim.rs), the grunts' _ic anim-event lines and boulder rolls (not in the remaster yet), vehicle loops (B14, vehicles not traced)",
-  "events.triggers": "B20: lev_5_m5: base turret 166 sends 90 at 180 in the original only (open)",
   "grunts.alive": "E1: timer 171 sends 400 ten seconds after the load; with the original's start movie pause it comes after this trace, in the remaster at play frame -29, and base generator 17 releases its first troop"
  },
  "expected": {
   "timing": "E1: movies off in both, but the original's start movie still pauses and takes the first ENTER (its briefing follows it); the remaster's missing movie ends at once",
-  "paused": "E1: movies off in both, but the original's start movie still pauses and takes the first ENTER (its briefing follows it); the remaster's missing movie ends at once"
+  "paused": "E1: movies off in both, but the original's start movie still pauses and takes the first ENTER (its briefing follows it); the remaster's missing movie ends at once",
+  "events.triggers": "E1: the original's start movie pauses at the load (play frames -30..16); the base turret's intro then plays and its notes send 90..94 2.73 s in (play 180..200), trigger 3 at 314; the remaster's missing movie ends at once, its intro sends 90..94 at 2.78..3.12 s and 3 at 5.02 s after the load, before its start text (the trace's frame 0): the same sequence on each game's own clock (hook trace_calls: 0x0040972e, the anim note handler)"
  }
 }
