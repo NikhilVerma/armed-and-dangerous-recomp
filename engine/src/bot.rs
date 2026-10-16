@@ -388,8 +388,13 @@ pub fn think(
         let turret = towers.iter().find(|(i, _)| i.0 == id).and_then(|(_, t)| t.turret);
         let alive = |d: &crate::fx::Destructible| d.health > 0.0 && d.dying.is_none();
         let object = match turret {
-            // (aimed at its pivot: a crosshair point on its shell, about 12 across, counts)
-            Some(te) => explosives.get(te).ok().filter(|(_, d, _, _)| alive(d)).map(|(e, _, gt, _)| Target { kind: "object", at: gt.translation(), reach: 14.0, feet: gt.translation(), object: Some(e) }),
+            // (aimed at the middle of its collision, v_rockettower_turret_coll: 47 across, 1..37 above its origin; a
+            // crosshair point on it counts)
+            Some(te) => explosives
+                .get(te)
+                .ok()
+                .filter(|(_, d, _, _)| alive(d))
+                .map(|(e, _, gt, _)| Target { kind: "object", at: gt.translation() + Vec3::Y * 20.0, reach: 26.0, feet: gt.translation(), object: Some(e) }),
             None => explosives
                 .iter()
                 .find(|(_, d, _, i)| i.is_some_and(|i| i.0 == id) && alive(d))
