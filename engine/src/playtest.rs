@@ -136,6 +136,10 @@ pub struct Event {
     /// distance, the one whose ground is nearest the object's own height (logged as land), facing it
     #[serde(default)]
     pub land_by: Option<[f32; 2]>,
+    /// debug: as land_by, of sixteen points only those from which a bullet reaches the object (a sniper on a ledge, a
+    /// grunt in a window): [id, distance]
+    #[serde(default)]
+    pub land_sight: Option<[f32; 2]>,
     /// bot: walk to this point (game space x, y, z: as the scene files give positions)
     #[serde(default)]
     pub goto: Option<[f32; 3]>,
@@ -289,7 +293,7 @@ pub struct Playtest {
     /// a probe step waiting for the warp system (it has the physics)
     probe: Option<[f32; 5]>,
     /// a land_by step waiting for the warp system
-    land_by: Option<(u32, f32)>,
+    land_by: Option<(u32, f32, bool)>,
     /// virtual gamepad input for pad_drive
     pad: Vec<String>,
     /// companion damage for hurt_companions
@@ -387,9 +391,14 @@ fn warp(
     mut roman: Query<(&mut crate::player::Roman, &mut Transform)>,
     objects: Query<(&crate::level::InstanceId, &GlobalTransform)>,
 ) {
-    if let Some((id, d)) = pt.land_by.take() {
+    if let Some((id, d, sight)) = pt.land_by.take() {
         match objects.iter().find(|(i, _)| i.0 == id) {
-            Some((_, at)) => pt.warp = land_beside(&physics, at.translation(), d),
+            Some((_, at)) => {
+                pt.warp = land_beside(&physics, at.translation(), d, sight);
+                if pt.warp.is_none() {
+                    warn!("EVENT playtest: land_by: no spot {d} from object {id}{}", if sight { " in sight of it" } else { "" });
+                }
+            }
             None => warn!("EVENT playtest: land_by: no object {id}"),
         }
     }
@@ -427,14 +436,26 @@ fn warp(
 
 /// The land_by step's spot: of eight points `d` from the object (engine space), the one whose landscape is nearest
 /// the object's height, as a land warp (game space, facing the object).
-fn land_beside(physics: &crate::physics::Physics, at: Vec3, d: f32) -> Option<[f32; 4]> {
+fn land_beside(physics: &crate::physics::Physics, at: Vec3, d: f32, sight: bool) -> Option<[f32; 4]> {
     let to_game = crate::level::game_to_engine().inverse();
-    let best = (0..8)
+    // with `sight` (land_sight): of sixteen points, those from whose eye height a bullet reaches the object's chest
+    // (nothing in the way, or what is hit is within 8 of it), else none
+    let n = if sight { 16 } else { 8 };
+    // (and from where the follow camera sits, about 30 behind and 15 above him: the crosshair's ray starts there)
+    let clear = |g: Vec3| {
+        let to = at + Vec3::Y * 6.0;
+        let back = (g - to).with_y(0.0).normalize_or(Vec3::Z);
+        [g + Vec3::Y * 10.0, g + back * 30.0 + Vec3::Y * 15.0]
+            .iter()
+            .all(|&eye| physics.raycast_bullet(eye, to - eye, (to - eye).length()).is_none_or(|h| h.1.distance(to) < 8.0))
+    };
+    let best = (0..n)
         .filter_map(|k| {
-            let a = k as f32 * std::f32::consts::FRAC_PI_4;
+            let a = k as f32 * std::f32::consts::TAU / n as f32;
             let p = at + Vec3::new(a.cos(), 0.0, a.sin()) * d;
-            physics.raycast_landscape(p.with_y(4000.0), Vec3::NEG_Y, 8000.0).map(|g| (p, (g.y - at.y).abs()))
+            physics.raycast_landscape(p.with_y(4000.0), Vec3::NEG_Y, 8000.0).map(|g| (p, (g.y - at.y).abs(), g))
         })
+        .filter(|(_, _, g)| !sight || clear(*g))
         .min_by(|a, b| a.1.total_cmp(&b.1))?;
     let (g, o) = (to_game * best.0, to_game * at);
     let yaw = (o.x - g.x).atan2(o.y - g.y).to_degrees();
@@ -818,8 +839,11 @@ pub(crate) fn drive(
         if let Some(w) = e.warp {
             pt.warp = Some(w);
         }
+        if let Some([id, d]) = e.land_sight {
+            pt.land_by = Some((id as u32, d, true));
+        }
         if let Some([id, d]) = e.land_by {
-            pt.land_by = Some((id as u32, d));
+            pt.land_by = Some((id as u32, d, false));
         }
         if e.probe.is_some() {
             pt.probe = e.probe;
