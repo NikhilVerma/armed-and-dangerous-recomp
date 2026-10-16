@@ -332,7 +332,10 @@ struct MovieFrame {
 struct MovieBackdrop;
 
 fn release_input_hold(mut p: ResMut<MoviePlayer>) {
-    if p.current.is_none() && p.input_hold > 0 {
+    // (also while a page's background movie plays: the credits start in the frame the end movie's skip closes it, and
+    // a hold that waited for no movie at all stayed on, so the credits page never took Enter: campaign_end)
+    let full = p.current.as_ref().is_some_and(|c| matches!(c.view, MovieView::FullWindow { .. }));
+    if !full && p.input_hold > 0 {
         p.input_hold -= 1;
     }
 }
