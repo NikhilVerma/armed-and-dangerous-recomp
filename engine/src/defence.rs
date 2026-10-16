@@ -144,7 +144,8 @@ struct DefenceState {
 }
 
 /// A playtest's debug command (playtest.rs `defence`): {"aim": "army"} keeps the turret on the nearest army grunt
-/// (else marching platoon), {"aim": false} stops; {"mortar": "platoon"} fires a shell at the nearest platoon; {"frame":
+/// (else marching platoon in sight), {"aim": "platoon"} on the nearest marching platoon in sight only, {"aim": false}
+/// stops; {"fire": true / false} both guns fire as if their buttons were held (the mortar each time it is ready); {"mortar": "platoon"} fires a shell at the nearest platoon; {"frame":
 /// F} puts the turret at that track frame.
 #[derive(Message, Clone, Debug)]
 pub struct DefenceCommand(pub serde_json::Value);
@@ -152,6 +153,10 @@ pub struct DefenceCommand(pub serde_json::Value);
 #[derive(Resource, Default)]
 struct DefenceDebug {
     aim_army: bool,
+    /// only the marching platoons (their members die to the mortar and count towards the win: trigger 27)
+    aim_platoon: bool,
+    /// both guns fire as if their buttons were held: the machine gun, and the mortar each time it is ready
+    fire: bool,
 }
 
 pub struct DefencePlugin;
@@ -342,6 +347,7 @@ fn debug_commands(
     data: Res<crate::gamedata::GameData>,
     mut kit: crate::army::ModelKit,
     mut fx: MessageWriter<crate::fx::StartFx>,
+    physics: NonSend<crate::physics::Physics>,
 ) {
     let Some(me) = mounted.0 else {
         cmds.clear();
@@ -349,13 +355,28 @@ fn debug_commands(
     };
     let Ok((mut t, gt, a)) = turrets.get_mut(me) else { return };
     let from = gt.translation();
+    // the nearest marching member the turret can see (a bullet's ray from the turret reaches its chest: one behind a
+    // ridge is no target)
+    let in_sight = |p: Vec3| {
+        let to = p + Vec3::Y * 6.0;
+        let start = from + (to - from).normalize_or(Vec3::Y) * 15.0;
+        physics.raycast_bullet(start, to - start, (to - start).length()).is_none_or(|h| h.1.distance(to) < 12.0)
+    };
     let nearest_platoon = || {
-        platoons.iter().flat_map(|(p, m)| p.member_points(m)).min_by(|x, y| x.distance(from).total_cmp(&y.distance(from)))
+        platoons
+            .iter()
+            .flat_map(|(p, m)| p.member_points(m))
+            .filter(|p| in_sight(*p))
+            .min_by(|x, y| x.distance(from).total_cmp(&y.distance(from)))
     };
     for c in cmds.read() {
         let v = &c.0;
         if let Some(aim) = v.get("aim") {
             dbg.aim_army = aim.as_str() == Some("army");
+            dbg.aim_platoon = aim.as_str() == Some("platoon");
+        }
+        if let Some(f) = v.get("fire").and_then(|f| f.as_bool()) {
+            dbg.fire = f;
         }
         if let Some(f) = v.get("frame").and_then(|f| f.as_f64()) {
             t.frame = f as f32;
@@ -369,12 +390,12 @@ fn debug_commands(
             }
         }
     }
-    if dbg.aim_army {
-        // the nearest live army grunt, else the nearest marching member; aimed through the turret's centre (the camera
-        // sits on its axis)
+    if dbg.aim_army || dbg.aim_platoon {
+        // the nearest live army grunt (not with "platoon"), else the nearest marching member; aimed through the
+        // turret's centre (the camera sits on its axis)
         let target = grunts
             .iter()
-            .filter(|(g, _)| g.mind != crate::ai::Mind::Dead)
+            .filter(|(g, _)| dbg.aim_army && g.mind != crate::ai::Mind::Dead)
             .map(|(_, g)| g.translation() + Vec3::Y * 6.0)
             .min_by(|x, y| x.distance(from).total_cmp(&y.distance(from)))
             .or_else(nearest_platoon);
@@ -425,6 +446,7 @@ fn ride(
     (mut stats, mut hud, army): (ResMut<crate::player::PlayerStats>, ResMut<crate::hud::HudState>, Res<crate::army::Army>),
     (joints, mut upgrades): (Query<&GlobalTransform>, MessageReader<crate::icobject::TurretUpgrade>),
     mut kit: crate::army::ModelKit,
+    dbg: Res<DefenceDebug>,
 ) {
     let dt = time.delta_secs();
     let now = time.elapsed_secs();
@@ -581,7 +603,7 @@ fn ride(
         }
     }
     // fire: the machine gun (button 8 held), the mortar (button 9)
-    if can && (ctl.down(Act::Fire) || ctl.pressed(Act::Fire)) {
+    if can && (ctl.down(Act::Fire) || ctl.pressed(Act::Fire) || dbg.fire) {
         t.fx_flags = (t.fx_flags | 0x40) & !0x80;
         a.play(0, "base_turret_l5_m5_fire", true, crate::skin::Mask::All);
         if t.last_fire.is_none_or(|l| now - l > t.recycle) {
@@ -610,7 +632,7 @@ fn ride(
     } else if t.intro.is_none() && a.layers.first().is_some_and(|l| l.anim == "base_turret_l5_m5_fire") {
         a.play(0, "base_turret_l5_m5_ref", true, crate::skin::Mask::All);
     }
-    if can && ctl.pressed(Act::Special) {
+    if can && (ctl.pressed(Act::Special) || dbg.fire) {
         // ready (0x0049be70): mortar_special_recycle_time while the upgrade lasts, else mortar_recycle_time
         let wait = if t.upgrade > 0.0 { t.mortar_recycle.1 } else { t.mortar_recycle.0 };
         if t.last_mortar.is_none_or(|l| now - l > wait) {

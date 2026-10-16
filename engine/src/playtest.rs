@@ -157,7 +157,8 @@ pub struct Event {
     #[serde(default)]
     pub near: Option<f32>,
     /// steps only: wait until the game shows a paused message (the briefing): "message", max 60 s; or until no movie
-    /// plays: "movie_done", max 600 s; or until a restarted level has left its loading screen: "loaded", max 30 s
+    /// plays: "movie_done", max 600 s; or until a restarted level has left its loading screen: "loaded", max 30 s; or
+    /// until a mission trigger has been sent: "trigger:456", max the step's "wait" (default 600 s)
     #[serde(default)]
     pub until: Option<String>,
     /// steps only: wait this many seconds
@@ -602,6 +603,13 @@ pub(crate) fn drive(
         } else if st.until.as_deref() == Some("loaded") {
             // a restarted level has left its loading screen (levelreset.rs "loading"); max 30 s
             (pt.step_t > 0.1 && state.0.get("loading").and_then(|v| v.as_bool()) != Some(true)) || pt.step_t > 30.0
+        } else if let Some(t) = st.until.as_deref().and_then(|u| u.strip_prefix("trigger:")) {
+            // a mission trigger has been sent (the state log's "triggers"); max the step's "wait" (default 600 s)
+            let sent = state.0.get("triggers").and_then(|m| m.get(t)).is_some();
+            if sent {
+                info!("EVENT playtest: trigger {t} sent after {:.1} s", pt.step_t);
+            }
+            sent || pt.step_t > st.wait.unwrap_or(600.0)
         } else if let Some(g) = st.goto {
             // a bot that has not arrived after 240 s is stuck (its route-finding is a test aid, not the game): it is
             // warped to the goal and the run goes on, logged so a run that needed it is not mistaken for a clean one
