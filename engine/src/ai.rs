@@ -1038,7 +1038,7 @@ impl Plugin for AiPlugin {
             .init_level_resource::<ic::IcStats>()
             .add_systems(
                 Update,
-                (squad::update_squads, interests, mark_army_targets, search, ic::activate, scare, think, ic::run, bully::bullies, die, dismay, log_cover, log_ai, squad::log_squads, ic::log, grenades)
+                (squad::update_squads, interests, mark_army_targets, search, ic::activate, scare, think, ic::run, bully::bullies, die, dismay, log_cover, log_ai, log_placed, squad::log_squads, ic::log, grenades)
                     .chain()
                     .after(crate::fx::FxSet)
                     .after(crate::turret::setup),
@@ -1072,6 +1072,21 @@ fn log_cover(grunts: Query<&Grunt>, trenches: Query<(&Barricade, &crate::level::
 
 /// The playtest state's `ai`: the live grunts by state, the reactions, spline runs, captains, grenades, noises, and the
 /// grunt nearest Roman (its state, class, stance, reaction, whether it targets him).
+/// The state log's "grunt_ids" (playtest expects, e.g. "grunt_ids.286.mind": "Dead"): every placed AI (a level
+/// instance, not a troop made in play) by instance id: game-space position, mind, health.
+fn log_placed(grunts: Query<(&Grunt, &GlobalTransform, &crate::level::InstanceId, Option<&crate::fx::Health>)>, state: Option<ResMut<crate::playtest::PlayState>>) {
+    let Some(mut state) = state else { return };
+    let out: serde_json::Map<String, serde_json::Value> = grunts
+        .iter()
+        .map(|(g, t, id, h)| {
+            let p = t.translation();
+            let pos = [p.x.round(), (-p.z).round(), p.y.round()];
+            (id.0.to_string(), serde_json::json!({"pos": pos, "mind": format!("{:?}", g.mind), "health": h.map(|h| h.0.round())}))
+        })
+        .collect();
+    state.0.insert("grunt_ids".into(), out.into());
+}
+
 fn log_ai(
     grunts: Query<(Entity, &Grunt, &GlobalTransform)>,
     roman: Query<(Entity, &GlobalTransform), With<Player>>,

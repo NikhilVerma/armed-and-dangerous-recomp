@@ -381,6 +381,8 @@ fn fly(
         let direct = (r.damage + r.area) * scale;
         if r.by == Src::Player {
             stats.player_ended += 1;
+            let target = obj.and_then(|o| objects.get(o).ok()).map(|(_, p, _, _)| p.template.clone()).unwrap_or_default();
+            info!("EVENT vehicles: the player's shell ended at game ({:.0}, {:.0}, {:.0}) on {target:?}", at.x, -at.z, at.y);
         } else {
             stats.ended += 1;
             if obj.is_some() && obj == roman_at.map(|(re, _)| re) {

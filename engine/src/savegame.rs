@@ -377,6 +377,7 @@ fn apply(
     mut grunts: Query<(Entity, &InstanceId, &mut crate::ai::Grunt, &mut Health, Option<&crate::physics::Body>), Without<Roman>>,
     objects: Query<(Entity, &InstanceId), With<crate::level::Placed>>,
     windows: Query<(Entity, &crate::level::Window)>,
+    mut guns: Query<&mut crate::turret::Turret>,
     mut restore: MessageWriter<RestoreStage>,
     mut physics: NonSendMut<crate::physics::Physics>,
     data: Res<crate::gamedata::GameData>,
@@ -423,6 +424,17 @@ fn apply(
             g.mind = crate::ai::Mind::Dead;
             g.dead_said = true;
             gh.0 = 0.0;
+            // a gunner who was dead in the save lets his gun go, as his death did (ai.rs die): the level's start had
+            // put him on it again, and a gun held by a removed grunt could never be entered
+            for mut t in &mut guns {
+                if t.ai == Some(e) {
+                    t.ai = None;
+                    t.ai_aim(0.5, 0.5);
+                }
+                if t.reserved == Some(e) {
+                    t.reserved = None;
+                }
+            }
             commands.entity(e).despawn();
         }
     }
