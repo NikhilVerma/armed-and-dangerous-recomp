@@ -1199,6 +1199,11 @@ impl Mission {
         self.tags.get(&tag).into_iter().flatten().map(|(i, _)| *i).filter(|i| !self.untagged.contains(i))
     }
 
+    /// Whether the placed object `id` has died or lost its tag (the lists the compass and the AI's tag searches walk).
+    pub fn lost(&self, id: u32) -> bool {
+        self.untagged.contains(&id)
+    }
+
     /// A pub's doorway (engine space), by the pub's instance id (the playtest's land_by stands there).
     pub fn pub_door(&self, id: u32) -> Option<Vec3> {
         self.pubs.iter().find(|p| p.id == id).map(|p| p.door)

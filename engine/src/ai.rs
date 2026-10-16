@@ -1695,8 +1695,10 @@ fn search(
         if g.guard && g.target.is_some() {
             g.target = None;
         }
-        // a priority target (a house) that is gone leaves him free to search
-        if g.priority_tags.0 != 0 && g.target.is_some_and(|t| t != pe && objects.get(t).is_err() && !cands.iter().any(|c| c.0 == t)) {
+        // a priority target (a house) that is gone (destroyed: its husk keeps the entity but has lost the tag) leaves
+        // him free to search
+        let gone = |t: Entity| objects.get(t).map_or(true, |(_, i)| mission.as_deref().is_some_and(|m| m.lost(i.0)));
+        if g.priority_tags.0 != 0 && g.target.is_some_and(|t| t != pe && !cands.iter().any(|c| c.0 == t) && gone(t)) {
             g.target = None;
         }
         if g.target.is_some() {

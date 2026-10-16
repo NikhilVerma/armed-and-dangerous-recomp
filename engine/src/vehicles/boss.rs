@@ -695,8 +695,17 @@ fn notes(
     }
 }
 
-/// The state log's entry of each live boss.
-fn log(q: Query<(&Boss, &GlobalTransform, &Destructible)>, mut log: ResMut<super::VehicleLog>) {
+/// The state log's entry of each live boss, and "dropped": the live troops the vehicles dropped (position, mind,
+/// whether they hold a target, their priority tags).
+fn log(q: Query<(&Boss, &GlobalTransform, &Destructible)>, mut log: ResMut<super::VehicleLog>, dropped: Query<(&crate::ai::Grunt, &GlobalTransform), With<crate::level::Dropped>>) {
+    let troops: Vec<serde_json::Value> = dropped
+        .iter()
+        .filter(|(g, _)| g.mind != crate::ai::Mind::Dead)
+        .map(|(g, gt)| serde_json::json!({"pos": super::game_pos(gt.translation()), "mind": format!("{:?}", g.mind), "target": g.target.is_some(), "tags": [g.priority_tags.0, g.priority_tags.1]}))
+        .collect();
+    if !troops.is_empty() || log.0.contains_key("dropped") {
+        log.0.insert("dropped".into(), serde_json::Value::Array(troops));
+    }
     for (b, gt, d) in &q {
         log.0.insert(
             b.id.to_string(),
