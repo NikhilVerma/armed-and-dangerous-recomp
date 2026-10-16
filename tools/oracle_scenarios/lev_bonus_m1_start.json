@@ -11,10 +11,7 @@
   "grunt.mind": "B14: lev_bonus_m1's opening assault (jumper captains flying, state 0xc4; forge cannon and captain rockets; Roman -200 at 66) does not happen",
   "grunt.pos": "B14: lev_bonus_m1's opening assault (jumper captains flying, state 0xc4; forge cannon and captain rockets; Roman -200 at 66) does not happen",
   "grunt.target": "B14: lev_bonus_m1's opening assault (jumper captains flying, state 0xc4; forge cannon and captain rockets; Roman -200 at 66) does not happen",
-  "roman.clip": "B9: the remaster starts on the rifle; the original holds the machine gun (weapon 0, clip 100) the mission gives (player_add_machinegun 1)",
-  "roman.heading": "B4: Roman's model heading ignores the start facing (look yaw is right)",
   "roman.health": "B14: lev_bonus_m1's opening assault (jumper captains flying, state 0xc4; forge cannon and captain rockets; Roman -200 at 66) does not happen",
-  "roman.pos": "B14: lev_bonus_m1's opening assault (jumper captains flying, state 0xc4; forge cannon and captain rockets; Roman -200 at 66) does not happen",
-  "roman.weapon": "B9: the remaster starts on the rifle; the original holds the machine gun (weapon 0, clip 100) the mission gives (player_add_machinegun 1)"
+  "roman.pos": "B14: lev_bonus_m1's opening assault (jumper captains flying, state 0xc4; forge cannon and captain rockets; Roman -200 at 66) does not happen"
  }
 }

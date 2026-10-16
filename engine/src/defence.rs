@@ -126,6 +126,14 @@ pub struct BaseTurret {
     crowd: (i32, f32),
 }
 
+impl BaseTurret {
+    /// The mount's intro (intro_anim_name) is playing: a cinematic (Game byte +0xdce while it plays), which holds the
+    /// mission's start text (MissionObject_ShowStart 0x0044daf0).
+    pub fn in_intro(&self) -> bool {
+        self.intro.is_some()
+    }
+}
+
 #[derive(Resource, Default)]
 struct DefenceState {
     /// start_in_turret_tag (Game+0x26cc) and whether the start mount was done

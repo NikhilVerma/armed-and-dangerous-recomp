@@ -9,11 +9,8 @@
  "known": {
   "events.sounds": "B17: sounds the remaster does not start (or does not report): the pubs' amb_pub_exterior_lp at load, sheep, zeppelin creaks, shrub bomber loop, water footsteps",
   "grunt.mind": "B13: grunts in the bully state 0x118 (bully.rs) roam in the remaster",
-  "grunt.pos": "B3: placement height (force_ground) differs: a grunt / companion on another surface",
+  "grunt.pos": "B18: grunts take Roman as target at the start in the remaster only (lev_1_m1_b captain 134 patrols in the original, 0x96; lev_3_m3 grunt 51, lev_bonus_m2 grunt 40 chase him)",
   "grunt.target": "B18: grunts take Roman as target at the start in the remaster only (lev_1_m1_b captain 134 patrols in the original, 0x96)",
-  "grunts.alive": "B15: grunt generators spawn differently (lev_2_m2: 17 / 25 / 27 spawn in the remaster only; lev_bonus_m2: 171 in the original only)",
-  "roman.clip": "B9: the remaster starts on the rifle; the original holds the machine gun (weapon 0, clip 100) the mission gives (player_add_machinegun 1)",
-  "roman.heading": "B4: Roman's model heading ignores the start facing (look yaw is right)",
-  "roman.weapon": "B9: the remaster starts on the rifle; the original holds the machine gun (weapon 0, clip 100) the mission gives (player_add_machinegun 1)"
+  "grunts.alive": "B15: grunt generators spawn differently (lev_2_m2: 17 / 25 / 27 spawn in the remaster only; lev_bonus_m2: 171 in the original only)"
  }
 }

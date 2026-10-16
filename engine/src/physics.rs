@@ -210,6 +210,55 @@ impl Physics {
         None
     }
 
+    /// Object_ForceGround (0x00455860): drops a placement onto the landscape. A ray from `lift` above `at`, `range`
+    /// long, that sees only the landscape (`raycast_landscape`; like Havok's it hits triangles from behind too, so a
+    /// point under an overhang lands on the overhang's underside first); the point goes 0.1 above the hit. Then, when
+    /// the object's collision sphere (`sphere`: its radius, the centre that far above the point: a character's body,
+    /// 0x004527d0) touches the landscape (0x00455720: the closest distance within the collision tolerance), a
+    /// vertical bisection lifts it out: up by `step` (the object's bounding radius, vt+0x90) while touching, down while
+    /// free, the step halved at each change, until the eleventh change; it ends at the last free height + 0.1
+    /// (lev_5_m1 captain 66: the cliff's underside at 230, out beside its lip at 298). Without a sphere only the ray
+    /// applies.
+    pub fn force_ground(&self, at: Vec3, lift: f32, range: f32, sphere: Option<f32>, step: f32) -> Option<Vec3> {
+        let hit = self.raycast_landscape(at + Vec3::Y * lift, -Vec3::Y, range)?;
+        let mut p = at.with_y(hit.y + 0.1);
+        let Some(radius) = sphere.filter(|r| *r > 0.0) else { return Some(p) };
+        let Ok(shape) = Shape::new_sphere(radius * self.meters_per_unit) else { return Some(p) };
+        let touches = |p: Vec3| self.touches_landscape(&shape, p + Vec3::Y * radius);
+        let mut now = touches(p);
+        if !now {
+            return Some(p);
+        }
+        let (mut step, mut changes, mut previous, mut free) = (step, 0, now, p.y);
+        loop {
+            if now {
+                p.y += step;
+            } else {
+                free = p.y;
+                p.y -= step;
+            }
+            if previous != now {
+                step *= 0.5;
+                changes += 1;
+            }
+            if changes > 10 {
+                break;
+            }
+            previous = now;
+            now = touches(p);
+        }
+        Some(p.with_y(free + 0.1))
+    }
+
+    /// The shape at `centre` (unrotated) touches the landscape: overlaps it or comes within the collision tolerance
+    /// (Havok's default 0.1 units), from either side of its triangles.
+    fn touches_landscape(&self, shape: &Shape, centre: Vec3) -> bool {
+        let Some(landscape) = self.landscape else { return false };
+        let k = self.meters_per_unit;
+        let q = CollideShape::new(shape, self.to_m(centre), j::Quat::IDENTITY).max_separation_distance(0.1 * k).collide_with_back_faces(true);
+        self.world.collide_shape(&q, &QueryFilter::new()).is_ok_and(|hits| hits.iter().any(|h| h.body == landscape))
+    }
+
     pub fn raycast(&self, from: Vec3, dir: Vec3, length: f32) -> Option<(BodyId, Vec3, Vec3)> {
         let k = self.meters_per_unit;
         let ray = RayCast::new(jr(from * k), jv(dir.normalize() * length * k));

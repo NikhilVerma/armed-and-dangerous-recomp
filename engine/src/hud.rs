@@ -201,6 +201,8 @@ pub struct HudState {
     /// the grunts over the wall so far and the count that loses the level (the counter of grunt_wall_counter_tag,
     /// Game+0x26fc: ui_grunt_over_wall_count "%d" 0x00465f70, the ui_flag_base meter 0x00465e30; defence.rs)
     pub over_wall: Option<(i64, i64)>,
+    /// a displayed mission timer's seconds (TimerObject "display": ui_mission_timer, `mission_time_text`; mission.rs)
+    pub mission_timer: Option<f32>,
     pub briefing: Option<String>,
     pub hit_flash: [f32; 4],
     /// the speech subtitle: text, speaker colour, seconds left (in-game subtitles option)
@@ -283,7 +285,7 @@ pub fn spawn(
         "ui_weapon_bkd", "ui_player_rifle", "ui_player_grenades", "ui_player_health", "ui_health_q", "ui_health_jonesy",
         "ui_crosshair", "ui_compass", "ui_compass_objective", "ui_ammo_infinity", "ui_ammo_count", "ui_grenade_count",
         "ui_hit_top", "ui_hit_bottom", "ui_hit_left", "ui_hit_right", "ui_player_mg", "ui_player_topsy", "ui_clock", "ui_tickerbomb",
-        "ui_tickerbomb_set", "ui_mg_crosshair", "ui_crosshair_friendly", "ui_special_crosshair",
+        "ui_tickerbomb_set", "ui_mg_crosshair", "ui_crosshair_friendly", "ui_special_crosshair", "ui_mission_timer",
         // the weapon-cycle arrows (0x00463fa0, the HUD's +0x5c..+0x78 by name, strings 0x005a0dac..0x005a0d20)
         "ui_select_up_on", "ui_select_down_on", "ui_select_left_on", "ui_select_right_on", "ui_select_up_off", "ui_select_down_off",
         "ui_select_left_off", "ui_select_right_off",
@@ -1157,6 +1159,7 @@ fn texts(
             }
             "ui_briefing" => state.briefing.clone().unwrap_or_default(),
             "ui_grunt_over_wall_count" => state.over_wall.map(|(n, _)| n.to_string()).unwrap_or_default(),
+            "ui_mission_timer" => state.mission_timer.map(mission_time_text).unwrap_or_default(),
             "ui_team" => state.team.and_then(|(n, _)| hud.layout.elements.iter().find(|e| e.name == n)).and_then(|e| e.string.clone()).unwrap_or_default(),
             "ui_subtitle" => match &state.subtitle {
                 Some((s, c, _)) => {
@@ -1361,7 +1364,8 @@ fn visibility(
     }
     for (el, mut v) in &mut texts {
         // paused messages (the briefing box) show over cinematics and pauses too
-        let show = (state.visible && !(paused && PAUSE_HIDDEN.contains(&el.name.as_str())))
+        // the mission timer only while a timer displays (UiText_ShowTime sets / clears the widget's +0x474 bit 2)
+        let show = (state.visible && !(paused && PAUSE_HIDDEN.contains(&el.name.as_str())) && (el.name != "ui_mission_timer" || state.mission_timer.is_some()))
             || (el.name == "ui_briefing" && state.briefing.is_some())
             || (el.name == "ui_subtitle" && state.subtitle.is_some());
         *v = if show { Visibility::Inherited } else { Visibility::Hidden };
@@ -1418,6 +1422,15 @@ fn log_hud(
 /// The HUD texts hidden while the game is paused (+0x474 0x20: the prompts, inited by 0x00465230 and the classes
 /// built on it, 0x00467420 / 0x00467790).
 const PAUSE_HIDDEN: &[&str] = &["ui_prompt"];
+
+/// A mission timer as "m:ss" (UiText_ShowTime 0x00465b70: the seconds + 0.9, so a countdown shows 0:01 until its last
+/// tenth; minutes truncated, the seconds left over truncated, "%d:%02d" 0x005a0cf0).
+pub fn mission_time_text(seconds: f32) -> String {
+    let t = seconds + 0.9;
+    let minutes = (t / 60.0) as i32;
+    let secs = (t - (minutes * 60) as f32) as i32;
+    format!("{minutes}:{secs:02}")
+}
 
 /// The crosshair elements whose parts follow their skin's bones through the `_in` / `_out` anims.
 const CROSSHAIRS: &[&str] = &["ui_crosshair", "ui_mg_crosshair", "ui_sniper_crosshair"];
@@ -1718,6 +1731,16 @@ mod tests {
     fn font() -> FontFile {
         let g = Glyph { x: 0.0, y: 0.0, width: 9.0, height: 25.0, xoffset: 0.0, xadvance: 10.0 };
         FontFile { common: FontCommon { line_height: 25.0, scale_w: 256.0, scale_h: 512.0 }, chars: (32u32..127).map(|c| (c.to_string(), g)).collect() }
+    }
+
+    /// UiText_ShowTime 0x00465b70: + 0.9, minutes and the seconds left over truncated, "%d:%02d".
+    #[test]
+    fn mission_timer_text() {
+        assert_eq!(mission_time_text(0.0), "0:00");
+        assert_eq!(mission_time_text(0.15), "0:01");
+        assert_eq!(mission_time_text(59.0), "0:59");
+        assert_eq!(mission_time_text(59.2), "1:00");
+        assert_eq!(mission_time_text(125.0), "2:05");
     }
 
     /// Chat_AddMessage 0x0046aa60: breaks at the last space whose prefix fits 490 units (49 characters here).

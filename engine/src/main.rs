@@ -747,7 +747,9 @@ fn hud_state(
     menu: Res<gamemenu::GameMenu>,
     companions: Query<(&Name, &fx::Health), With<ai::Companion>>,
     cam: Query<&GlobalTransform, With<Camera3d>>,
+    mission: Option<Res<mission::Mission>>,
 ) {
+    hud.mission_timer = mission.and_then(|m| m.timer_display);
     // cinematic (a camera path): the HUD meters are hidden (hud.md 6)
     // the pause menu keeps the HUD on screen (capture orig_ui_play-720.png)
     let shown = *state.get() == AppState::Playing || (*state.get() == AppState::Paused && menu.hud_under());
@@ -764,7 +766,7 @@ fn hud_state(
     // the weapon-cycle arrows (hud.rs, 0x00463fa0): the rifle and the machine gun once carried; the sticky bombs and
     // the Topsy Turvy bomb while any are left (player.rs cycles to it only then)
     if let Ok(r) = roman.single() {
-        hud.weapons = 1 + r.mg.is_some() as u32;
+        hud.weapons = r.has_rifle as u32 + r.mg.is_some() as u32;
         hud.specials = 1 + (r.topsy > 0) as u32;
     }
     for (n, h) in &companions {

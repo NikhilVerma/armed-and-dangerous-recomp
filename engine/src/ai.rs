@@ -3999,6 +3999,11 @@ pub struct Companion {
     roman_dir: Vec3,
     /// mode 2's 0.25 s re-pick timer (+0xb68 while moving)
     swap_timer: f32,
+    /// the formation point the route leads to: taken at the regroup's start and again with each pick on the move
+    /// (0x00483d60 after 0x00483810, every 0.25 s while the partner moves too), not followed live in between, so a
+    /// companion trails Roman by the slot plus up to 0.25 s of his walk (the original's walk: about 30 units behind,
+    /// stopping where the last pick put the slot when Roman starts off)
+    goal: Option<Vec3>,
     /// an order asks for a forced pick (the area order 0x00484ca0: 0x00483810(1))
     force_swap: bool,
     /// +0xbcc flag 0x80: the partner started a regroup (0x004837b0), so this one regroups too at its next idle frame
@@ -4094,6 +4099,7 @@ impl Companion {
         swap_t: 0.0,
         roman_dir: Vec3::ZERO,
         swap_timer: 0.25,
+        goal: None,
         force_swap: false,
         regroup_req: false,
         }
@@ -4447,6 +4453,10 @@ fn companions(
                 let force = roman_dir.dot(c.roman_dir) < 0.0;
                 leader_pick(c, e, me, force, &pair, &mut lead_changes, points, rt.translation, roman_dir, now);
             }
+            // the route to the formation point (0x00483d60(1, 0, 0))
+            if !c.moving {
+                c.goal = Some(if c.lead { points.0 } else { points.1 });
+            }
             c.moving = true;
         }
         // the attack order (flag 4) idle in formation with the partner not fighting: +0xb68 runs down, then the pair
@@ -4463,7 +4473,9 @@ fn companions(
             c.moving = false;
             c.route.clear();
         }
-        let to_slot = (slot - me).with_y(0.0);
+        // on the move: the formation point of the last pick (`goal`)
+        let goal = c.goal.filter(|_| c.moving).unwrap_or(slot);
+        let to_slot = (goal - me).with_y(0.0);
         // the partner's mode 1 (idle: 0x004837d0) holds the picks of a moving companion back
         let partner_idle = pair.iter().any(|p| p.0 != e && !p.2);
         if to_slot.length() < 4.0 {
@@ -4481,6 +4493,8 @@ fn companions(
                 c.swap_timer = 0.25;
                 if !partner_idle {
                     leader_pick(c, e, me, false, &pair, &mut lead_changes, points, rt.translation, roman_dir, now);
+                    // and the route to the new formation point (0x00483d60(1, 0, 1))
+                    c.goal = Some(if c.lead { points.0 } else { points.1 });
                 }
             }
         }
@@ -4488,7 +4502,7 @@ fn companions(
             c.replan -= dt;
             if c.replan <= 0.0 {
                 c.replan = 0.25;
-                c.route = crate::nav::path(&physics, me, slot, &[]).unwrap_or_default();
+                c.route = crate::nav::path(&physics, me, goal, &[]).unwrap_or_default();
             }
             while c.route.first().is_some_and(|w| (*w - me).with_y(0.0).length() < 4.0) {
                 c.route.remove(0);
