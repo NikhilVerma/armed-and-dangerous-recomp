@@ -91,7 +91,8 @@ pub struct Peasant {
     /// where he was tied: the object's own position from then on (the ragdoll's bodies move, the object matrix stays:
     /// the original's trace shows it so), engine space
     tied_at: Option<Vec3>,
-    /// FX_peasant (Fx_Create in the load, +0x498; released at the capture): the anchor its fx follows
+    /// FX_peasant (Fx_Create in the load, +0x498; released at the capture and by PeasantObject_Remove 0x00405850): the
+    /// anchor its fx follows
     fx: Option<Entity>,
 }
 
@@ -672,7 +673,8 @@ fn deaths(
 }
 
 /// The compass's first list (World+0xefc): the peasants not yet picked up; and the HUD's counters on a rescue level
-/// (peasant_max_saved > 0): still to find (0x00465be0: the counts on the list less the carried), saved, carried.
+/// (peasant_max_saved > 0): still to find (0x00465be0: the counts 0x004063f0 on the list less the carried), saved,
+/// carried.
 fn compass(q: Query<(&Peasant, &GlobalTransform, Option<&Destructible>)>, mut list: ResMut<crate::mission::CompassList>, tally: Res<PeasantTally>, mut hud: ResMut<crate::hud::HudState>) {
     let alive = |d: Option<&Destructible>| d.is_none_or(|d| d.health > 0.0 && d.dying.is_none());
     list.0.clear();

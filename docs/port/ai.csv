@@ -231,7 +231,7 @@ address,name,disposition,reason
 0x00461b20,TwigletController_GetClass,replaced by the engine,class descriptors: Bevy components (twiglet.rs Generator / Twiglet)
 0x00461b80,AIInterestObject_GetClass,not needed,"class AIInterestObject_GetClass has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
 0x00461bd0,ShrubPatrol_GetClass,not needed,"class ShrubPatrol has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
-0x00461c30,PeasantObject_GetClass,not needed,"the rescue peasants are a pickup / mission object (rope chain, doormat drop-off): not grunt-class AI, not ported"
+0x00461c30,PeasantObject_GetClass,replaced,"the class descriptor: the Peasant component (peasant.rs)"
 0x00461c60,RocketTowerTurret_GetClass,not needed,"class RocketTower has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
 0x00461c70,SheepObject_GetClass,not needed,"class Sheep has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
 0x00461ce0,GruntObject_GetClass,replaced,"the class descriptor: the engine's component types carry the class (ai.rs Grunt with Kind, Companion, level.rs Penguin, alarm.rs Marker)"

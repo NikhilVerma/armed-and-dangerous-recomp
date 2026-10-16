@@ -44,10 +44,6 @@ address,name,disposition,reason
 0x004659b0,UiText_SetScale,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
 0x004659d0,UiText_SetColour,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
 0x004659e0,UiText_SetPosition,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
-0x00465be0,fn_00465be0,not needed,mode counters: Game+0x26ec unset in lev_1_m1 (capture modes)
-0x00465c90,fn_00465c90,not needed,mode counters: Game+0x26ec unset in lev_1_m1 (capture modes)
-0x00465ce0,fn_00465ce0,not needed,mode counters: Game+0x26ec unset in lev_1_m1 (capture modes)
-0x00465d30,fn_00465d30,not needed,mode counters: Game+0x26ec unset in lev_1_m1 (capture modes)
 0x00465d50,fn_00465d50,not needed,flag / handle meters: Game+0x26fc unset in lev_1_m1
 0x00465de0,fn_00465de0,not needed,flag / handle meters: Game+0x26fc unset in lev_1_m1
 0x00465e30,fn_00465e30,not needed,flag / handle meters: Game+0x26fc unset in lev_1_m1

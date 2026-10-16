@@ -19,15 +19,6 @@ address,name,disposition,reason
 0x00403bb0,fn_00403bb0,replaced,"true while the player object exists, is not removed and the level manager state is 1 (guess: in play), read by the menus: gamemenu.rs tests AppState and Roman"
 0x00404550,AIInterestObject_Load,replaced,AIInterestObject load (an interest point the AI reacts to): ai.rs Interests (noises with a radius and a time)
 0x00404600,AIInterestObject_Remove,replaced,AIInterestObject removal: ai.rs Interests expire
-0x004056b0,PeasantObject_Load,not needed,PeasantObject: class with no instance on lev_1_m1 (scene.json behaviours)
-0x00405850,PeasantObject_Remove,not needed,PeasantObject: class with no instance on lev_1_m1 (scene.json behaviours)
-0x00405880,fn_00405880,not needed,PeasantObject: class with no instance on lev_1_m1 (scene.json behaviours)
-0x00406210,fn_00406210,not needed,PeasantObject: class with no instance on lev_1_m1 (scene.json behaviours)
-0x00406280,fn_00406280,not needed,PeasantObject: class with no instance on lev_1_m1 (scene.json behaviours)
-0x004062a0,fn_004062a0,not needed,PeasantObject: class with no instance on lev_1_m1 (scene.json behaviours)
-0x00406330,fn_00406330,not needed,the peasant with the largest count (0x0044d600): class with no instance on lev_1_m1 (scene.json behaviours)
-0x004063a0,fn_004063a0,not needed,banks a peasant's count: class with no instance on lev_1_m1 (scene.json behaviours)
-0x004063f0,fn_004063f0,not needed,a peasant's count: class with no instance on lev_1_m1 (scene.json behaviours)
 0x00406400,fn_00406400,replaced,clears an object's animation-player block (+0x498 / +0xa18 / +0xb08): skin.rs / charanim.rs animation state
 0x00406430,fn_00406430,replaced,drives an animation range on that block: charanim.rs
 0x004087b0,fn_004087b0,replaced,an animation range of the object's table: charanim.rs

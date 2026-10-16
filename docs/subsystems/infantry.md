@@ -160,8 +160,9 @@ All-fours (knees) reaction yes; chase engages within 0.9 x range (as the archers
 
 PeasantObject (placed peasant_man / peasant_woman, p_peasants): no AI. Picked up (carried total < 3) they follow Roman on
 a rope chain; a doormat (on_enter = peasant_saved_trigger) banks one (score 500); killed: killed_score, casualties, the
-level lost at peasant_max_casualties. PeasantGenAI: civilians thrown from destroyed buildings with toss_peasants
-(blown_up_chair anims, ragdoll), not counted.
+level lost at peasant_max_casualties. Ported 2026-10-16: docs/subsystems/peasants.md, engine/src/peasant.rs.
+PeasantGenAI: civilians thrown from destroyed buildings with toss_peasants (blown_up_chair anims, ragdoll), not
+counted (not ported: buildings).
 
 ## 9. The port (2026-10-15, agent-infantry)
 
@@ -208,7 +209,7 @@ Debt and guesses (each with its plan):
   bone within a few units (the original steers by force). The goliath member (2026-10-16, B11): the squad reserves its
   entity and goliath.rs makes it (`SpawnGoliath`): health 3000, goliath_stand, then goliath_walk to its bone while the
   squad moves (speed: the AI default 46, guess: p_goliath has no move_speed), never fighting; the cage and its peasant
-  at the chest are drawn only (peasants not ported); it takes the squad's receive_trigger_kill, send_trigger_on_death
+  at the chest (the peasant held until the goliath dies, then free to rescue: peasants.md section 8); it takes the squad's receive_trigger_kill, send_trigger_on_death
   and tag (the squad keeps none: mission.rs leaves a squad out of receive_trigger_kill removals). The tag reaches no
   ticker site yet (mission.rs lock_parent_tag, 0x0044e120). Test: engine/playtests/squad_goliath.json; oracle lev_3_m1
   / lev_4_m1 start: the goliaths' kind, position and health agree.
@@ -219,7 +220,7 @@ Debt and guesses (each with its plan):
   damage record's flags on player.rs Projectile.
 - Turret mode on a forge cannon: the gun is not in the engine, the grunt stands guard. Plan: when the forge cannon is
   ported, `Grunt::start_gun` resolves to it (55 degree window, never gets off).
-- Peasants (PeasantObject: rope chain, doormat drop-off, casualties) and PeasantGenAI are a mission / pickup subsystem,
-  not grunt-class AI: not in this port. Bully lines use the peasant line names lower-cased (not checked against the
+- Peasants (PeasantObject: rope chain, doormat drop-off, casualties): ported separately (peasants.md); PeasantGenAI is
+  not. A tied peasant ends his bully's hold (ragdolled, +0x421). Bully lines use the peasant line names lower-cased (not checked against the
   bank).
 - Not compared with the original by capture: every rate above comes from the code and the property sets.
