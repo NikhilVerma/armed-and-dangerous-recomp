@@ -17,6 +17,7 @@ pub mod ic;
 pub mod jumper;
 pub mod monk;
 pub mod squad;
+pub mod tower;
 
 pub use jumper::{JumpMarker, Jumper};
 
@@ -4123,6 +4124,12 @@ pub struct Companion {
     tea_given: bool,
     /// placed on its formation point beside Roman at the start (0x004836b0 from the player's reset 0x00475650)
     spawned: bool,
+    /// whether the start places it there: not when it waits for a trigger (receive_trigger_activate +0x52c, kept only
+    /// with a tower_marker_tag, 0x00483250): it starts where the level placed it (lev_4_m2's Jonesy, ai/tower.rs)
+    starts_in_formation: bool,
+    /// send_trigger_on_death (+0x528, sent by the AI's death 0x00431720): lev_4_m2's Jonesy 5001 (failure 2),
+    /// lev_bonus_m3's pair 5002 / 5001
+    death_trigger: i64,
     /// hits and death (GenericAIObject_Slot52 0x00430340 and Character_Die 0x004319e0, no companion overrides):
     /// health last frame, seconds since the last Hurt bark (+0xb48, 10 s), the reaction anim playing (name, time
     /// left), a player / teammate shot that hit (FriendlyFire bark, no damage), the attacker to offer as a target,
@@ -4236,6 +4243,9 @@ impl Companion {
             tea: 0.0,
             tea_given: false,
             spawned: false,
+            // 0x00483250 drops a trigger without a marker tag ("%s setup to receive trigger, with no marker tag set")
+            starts_in_formation: p.i("receive_trigger_activate", 0) == 0 || p.i("tower_marker_tag", 0) == 0,
+            death_trigger: p.i("send_trigger_on_death", 0),
         last_health: f32::NAN,
         hurt_t: 99.0,
         hit: None,
@@ -4263,6 +4273,46 @@ impl Companion {
             self.target = Some(by);
         }
     }
+
+    /// The update's mode +0xb5c as the original numbers it (MolmerObject_Slot47 0x00485910): 1 idle in formation, 2
+    /// moving to the formation point, 3 engaging (the tower task's 6 / 7 are ai/tower.rs's). For the oracle trace.
+    pub fn mode(&self) -> u8 {
+        if self.target.is_some() {
+            3
+        } else if self.moving {
+            2
+        } else {
+            1
+        }
+    }
+
+    /// Lets go of its target (the held attack target +0xbb0 and the current one).
+    pub fn drop_target(&mut self) {
+        self.target = None;
+        self.engaged = false;
+    }
+
+    /// 0x00484290 on this companion (one half of the return order; also the tower task's failure): the held target
+    /// dropped, Defend Me <-> Return To Me (an area / attack order -> Defend Me), back to the formation point.
+    pub fn order_return(&mut self) {
+        self.order = if self.order == Order::Guard { Order::Loose } else { Order::Guard };
+        self.target = None;
+        self.engaged = false;
+        self.lost = 0.0;
+        self.route.clear();
+    }
+
+    /// One frame of walking along the flat direction `dir` at the run speed (standing when `dir` is zero), with
+    /// gravity: the walker body moves and the transform follows it.
+    pub fn walk(&mut self, physics: &mut Physics, t: &mut Transform, dir: Vec3, dt: f32) {
+        // fitted: the original's companions cover 37.3 units/s at move_speed 40 (its drive, move_power 100, not ported)
+        let speed = if dir != Vec3::ZERO { self.speed * 0.933 } else { 0.0 };
+        let vel = dir * speed + Vec3::Y * self.vy;
+        if let Some((feet, on)) = physics.move_walker(&self.walker, vel, dt) {
+            t.translation = feet;
+            self.vy = if on { -5.0 } else { (self.vy - 160.0 * dt).max(-200.0) };
+        }
+    }
 }
 
 pub struct CompanionPlugin;
@@ -4277,10 +4327,13 @@ impl Plugin for CompanionPlugin {
 /// Character_Die 0x004319e0; barks audio_02.cpp:197-267 (Q), audio_01.cpp:1545-1610 (Jonesy)):
 /// - a player or teammate shot does no damage (same team) but draws the FriendlyFire line (shared delay);
 /// - damage: the Damaged line under the shared delay Game+0xb44, else Hurt at most every 10 s (+0xb48); a reaction
-///   anim by the damage (<= hit_level_1 20 *_hit_mgun, <= hit_level_2 51 *_hit_small, else *_hit_med); the attacker
-///   offered as a target (Slot109 0x00485360: ignored while a live target is held);
-/// - death (permanent): the Dead line, *_die, score_value -500 to Accidents, the body removed after the anim and the
-///   corpse timer (0.5 s + 0.5 s fade: guess on the fade's look).
+///   anim by the damage (<= hit_level_1 20 *_hit_mgun, <= hit_level_2 51 *_hit_small, else *_hit_med) only while idle
+///   or engaging (Q111Object_Slot129 0x00486e90: modes 1 / 3, so not on the move, GenericAIObject_Slot52 0x00430cf8)
+///   and not during the tower task's IC anims (+0xa18 bit 0, 0x00426630); the attacker offered as a target (Slot109
+///   0x00485360: ignored while a live target is held; Slot94 0x00486da0: ignored on the tower task, modes 6 / 7);
+/// - death (permanent): the Dead line, *_die, score_value -500 to Accidents, its send_trigger_on_death (the AI's death
+///   0x00431720 sends +0x528: lev_4_m2's Jonesy fails the mission), the body removed after the anim and the corpse
+///   timer (0.5 s + 0.5 s fade: guess on the fade's look).
 /// The shared delay is vo_delay Game+0xb44 (range Game+0xb48 / +0xb4c = 30..45 s from level load, game_02.cpp:2057),
 /// the one the grunts' Spotted / Fight cues use (Barks, Delay::Vo).
 #[allow(clippy::too_many_arguments)]
@@ -4288,12 +4341,13 @@ fn companion_damage(
     mut commands: Commands,
     time: Res<Time>,
     mut physics: NonSendMut<Physics>,
-    mut q: Query<(Entity, &mut Companion, &Health, &Transform, &mut Visibility)>,
+    mut q: Query<(Entity, &mut Companion, &Health, &Transform, &mut Visibility, Has<tower::OnTask>)>,
     alive: Query<&Health, Without<Companion>>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     mut ms: ResMut<crate::stats::MissionStats>,
     mut rng: ResMut<FxStats>,
     mut barks: ResMut<Barks>,
+    mut triggers: MessageWriter<crate::mission::SendTrigger>,
 ) {
     let dt = time.delta_secs();
     let now = time.elapsed_secs();
@@ -4301,7 +4355,7 @@ fn companion_damage(
         let n = list[((rng.rand() * list.len() as f32) as usize).min(list.len() - 1)];
         sounds.write(crate::audio::PlaySound::at(n, at));
     };
-    for (e, mut c, h, t, mut vis) in &mut q {
+    for (e, mut c, h, t, mut vis, on_task) in &mut q {
         let at = t.translation;
         let len = if c.q { 2.533 } else { 2.0 };
         if let Some(d) = c.dead.as_mut() {
@@ -4329,8 +4383,11 @@ fn companion_damage(
             c.hit = None;
             let l: &[&str] = if c.q { &["q1150051_dead", "q1150052_dead", "q1150055_dead", "q1150056_dead", "q1150057_dead", "q1150058_dead", "q1150059_dead"] } else { &["jon50062_dead", "jon50063_dead", "jon50064_dead", "jon50065_dead", "jon50066_dead"] };
             say(&mut sounds, &mut rng, l, at);
-            // not a kill (vt+0xe8 false); score_value -500 to Accidents (0x00431720)
+            // not a kill (vt+0xe8 false); score_value -500 to Accidents (0x00431720), which also sends +0x528
             ms.killed(-500.0);
+            if c.death_trigger != 0 {
+                triggers.write(crate::mission::SendTrigger(c.death_trigger));
+            }
             info!("EVENT {} died", if c.q { "Q" } else { "Jonesy" });
             continue;
         }
@@ -4351,9 +4408,14 @@ fn companion_damage(
             } else {
                 ("hit_med", if c.q { 2.8 } else { 1.967 })
             };
-            // a small hit does not restart one already playing (states 0x12f / 0x132)
-            if !(n == "hit_mgun" && c.hit.is_some()) {
+            // a small hit does not restart one already playing (states 0x12f / 0x132); none on the move or on the
+            // tower task (Slot129 / 0x00426630 above)
+            let reacts = c.mode() != 2 && !on_task;
+            if reacts && !(n == "hit_mgun" && c.hit.is_some()) {
                 c.hit = Some((n, len));
+            }
+            if on_task {
+                c.attacker = None;
             }
             if let Some(a) = c.attacker.take().filter(|&a| alive.get(a).is_ok_and(|h| h.0 > 0.0)) {
                 if c.target.is_none_or(|t| alive.get(t).is_err()) {
@@ -4381,7 +4443,7 @@ fn companions(
     bot: Res<crate::bot::Bot>,
     roman: Query<(&Transform, &crate::player::Roman, &crate::skin::Animator, &Health), Without<Companion>>,
     cam: Query<&GlobalTransform, With<Camera3d>>,
-    mut q: Query<(Entity, &mut Companion, &mut Transform, Option<&crate::skin::Animator>, Option<&Health>), Without<crate::player::Roman>>,
+    mut q: Query<(Entity, &mut Companion, &mut Transform, Option<&crate::skin::Animator>, Option<&Health>), (Without<crate::player::Roman>, Without<tower::OnTask>)>,
     grunts: Query<(Entity, &Grunt, &GlobalTransform, Option<&crate::skin::Animator>)>,
     joints: Query<&GlobalTransform, Without<Companion>>,
     mut fx: MessageWriter<crate::fx::StartFx>,
@@ -4442,7 +4504,11 @@ fn companions(
             c.range = rng.range(c.fire_range.0, c.fire_range.1);
         }
         let c = &mut *c;
-        // at the start: on the formation point (Roman's ref_q_00 / ref_molmer_00), grounded (0x00455860)
+        // at the start: on the formation point (Roman's ref_q_00 / ref_molmer_00), grounded (0x00455860); one that
+        // waits for a tower trigger stays where the level placed it (0x004836b0: not while +0x52c is set)
+        if !c.spawned && !c.starts_in_formation {
+            c.spawned = true;
+        }
         if !c.spawned {
             if let Some(slot) = bone(ra, if c.q { "ref_q_00" } else { "ref_molmer_00" }) {
                 let feet = physics.raycast_landscape(slot + Vec3::Y * 1000.0, -Vec3::Y, 10000.0).unwrap_or(slot);
@@ -4664,14 +4730,8 @@ fn companions(
         }
         let to = approach.unwrap_or_else(|| c.route.first().map(|w| (*w - me).with_y(0.0)).unwrap_or(to_slot));
         // full move_speed while moving (the original's intro: 38 of 40 units/s at 32 units from Roman)
-        // fitted: the original's companions cover 37.3 units/s at move_speed 40 (its drive, move_power 100, not ported)
-        let speed = if c.moving || approach.is_some() { c.speed * 0.933 } else { 0.0 };
         let dir = to.normalize_or_zero();
-        let vel = dir * speed + Vec3::Y * c.vy;
-        if let Some((feet, on)) = physics.move_walker(&c.walker, vel, dt) {
-            t.translation = feet;
-            c.vy = if on { -5.0 } else { (c.vy - 160.0 * dt).max(-200.0) };
-        }
+        c.walk(&mut physics, &mut t, if c.moving || approach.is_some() { dir } else { Vec3::ZERO }, dt);
         // what to shoot at: the target's ref_hit_00, or (support fire) Roman's aim point
         let target_pos = c.target.and_then(|tg| grunts.get(tg).ok()).map(|(_, _, gt, a)| a.and_then(|a| bone(a, "ref_hit_00")).unwrap_or(gt.translation() + Vec3::Y * 6.0));
         let roman_heading = r.yaw + std::f32::consts::PI;
@@ -4896,7 +4956,7 @@ fn roll(rng: &mut FxStats, range: f32) -> u32 {
 ///   (0x00484ca0), "ui_teammate_defend_loc", the defend lines.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn team_orders(
-    q: &mut Query<(Entity, &mut Companion, &mut Transform, Option<&crate::skin::Animator>, Option<&Health>), Without<crate::player::Roman>>,
+    q: &mut Query<(Entity, &mut Companion, &mut Transform, Option<&crate::skin::Animator>, Option<&Health>), (Without<crate::player::Roman>, Without<tower::OnTask>)>,
     pending: &mut (bool, bool),
     barks: &mut Barks,
     hud: Option<&mut crate::hud::HudState>,
@@ -4943,12 +5003,8 @@ fn team_orders(
         let mut guard = false;
         for &(e, ..) in &live {
             if let Ok((_, mut c, ..)) = q.get_mut(e) {
-                c.order = if c.order == Order::Guard { Order::Loose } else { Order::Guard };
+                c.order_return();
                 guard = c.order == Order::Guard;
-                c.target = None;
-                c.engaged = false;
-                c.lost = 0.0;
-                c.route.clear();
             }
         }
         if barks.take(Delay::Vo, now, rng) {

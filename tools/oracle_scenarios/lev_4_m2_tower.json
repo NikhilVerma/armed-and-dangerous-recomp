@@ -1,0 +1,10 @@
+{
+ "about": "lev_4_m2: Jonesy's tower task (ai/tower.rs). The mission's peasant_success_trigger 7001 (sent here at play frame 60, as if the tenth peasant were safe: [test] play_triggers) sends him off alone to the Glass Tower's marker 356; there 802 (the alarm, the second objective text, the 120 s countdown), the plant anim (eight bombs) and the bomb loop; 4000 blows the doors, 123456 wins 5 s later. Roman stands at the start. ENTER dismisses the briefing, the first objective text (~1 s after 7001) and the second (~1 s after the arrival; pressed every 40 frames round it)",
+ "level": "lev_4_m2",
+ "keys": "0:ENTER*3,150:ENTER*3,3880:ENTER*3,3920:ENTER*3,3960:ENTER*3,4000:ENTER*3,4040:ENTER*3,4080:ENTER*3,4120:ENTER*3",
+ "frames": 11500,
+ "trace_every": 10,
+ "trace_from": -30,
+ "triggers": [[60, 7001]],
+ "suite": false
+}

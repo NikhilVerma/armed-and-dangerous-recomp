@@ -9,6 +9,9 @@
 //                             0x00457870, as [test] warp)
 // [test] trace_from=-N        start the trace N frames before play frame 0 (down to the level load: lines before the
 //                             briefing are kept in memory until it appears and fixes the play frames)
+// [test] play_triggers=F:ID,...  at play frame F send trigger ID to the level (Object_SendTrigger 0x00461870, no
+//                             sender), as the remaster's oracle "triggers": for a sequence that needs a trigger the
+//                             scripted input cannot produce (lev_4_m2's peasant_success_trigger 7001)
 // [test] play_frames=N        terminate the process after play frame N (the trace flushed)
 // [test] trace_every=N        and-trace.jsonl: from play frame trace_from, every N frames one JSON line (every frame
 //                             before play frame 0):
@@ -22,7 +25,8 @@
 //                 rocket_bud (by vtable), "pos", "health", "state"}],
 //    "twiglets": [{"pos", "health", "state": Twiglet_Update's +0x464, "bomb": 0/1}] (World+0xeec; not in "grunts"),
 //    "swarm": {"generators": active twiglet generators, "timer": spawn timer, "made": Game+0x2710, "killed": +0x270c},
-//    "companions": [[x, y, z, health] | null, ...] (Jonesy, Q),
+//    "companions": [[x, y, z, health, mode] | null, ...] (Jonesy, Q; mode: the update's mode +0xb5c, MolmerObject_Slot47
+//                  0x00485910: 1 idle, 2 moving, 3 engaging, 6 walking to the tower marker, 7 planting / bomb loop),
 //    "mission": {"state": level state (1 playing, 2/10 won, 3..9 failed), "objective": compass tag Game+0x2658},
 //    "triggers": [ids sent since the last line], "trigger_senders": [their senders' instance ids], "deaths": [instance ids of placed objects that died],
 //    "sounds": [definition names started]}
@@ -63,6 +67,14 @@ bool g_fromPlay;
 int g_briefFrame = -1;  // frame since load at which the briefing appeared
 float g_warp[3];
 bool g_warpOn, g_warpDone;
+// [test] play_triggers: (play frame, trigger id), sent once each
+struct PlayTrigger
+{
+    int frame;
+    uint32_t id;
+    bool sent;
+};
+std::vector<PlayTrigger> g_playTriggers;
 int g_traceFrom;
 FILE* g_out;
 bool g_traced;      // a line has been written or kept
@@ -187,7 +199,7 @@ std::string Body()
             GetPos(c, cp);
             o += '[';
             Num(o, cp[0]), o += ',', Num(o, cp[1]), o += ',', Num(o, cp[2]), o += ',', Num(o, At<float>(c, 0x454));
-            o += ']';
+            o += ',' + std::to_string(At<int>(c, 0xb5c)) + ']';
         }
         o += ']';
     }
@@ -546,6 +558,15 @@ void TestOracleInit()
     char buf[128];
     ConfigString("test", "play_warp", "", buf, sizeof(buf));
     g_warpOn = sscanf(buf, "%f,%f,%f", &g_warp[0], &g_warp[1], &g_warp[2]) == 3;
+    char trig[512];
+    ConfigString("test", "play_triggers", "", trig, sizeof(trig));
+    for (char* item = strtok(trig, ", "); item; item = strtok(nullptr, ", "))
+    {
+        int frame = 0;
+        unsigned id = 0;
+        if (sscanf(item, "%d:%u", &frame, &id) == 2)
+            g_playTriggers.push_back({frame, id, false});
+    }
     char calls[512];
     ConfigString("test", "trace_calls", "", calls, sizeof(calls));
     int slot = 0;
@@ -592,6 +613,16 @@ void TestOracleOnFrame()
             g_warpDone = true;
             orig::fn_00457870(0, reinterpret_cast<uint32_t>(g_warp), reinterpret_cast<uint32_t>(player), 0, 0, 0);
             Log("test: play warp at %d to %.1f %.1f %.1f", f, g_warp[0], g_warp[1], g_warp[2]);
+        }
+    }
+    for (PlayTrigger& t : g_playTriggers)
+    {
+        const uint32_t world = At<uint32_t>(g_game, 0xa84);
+        if (!t.sent && g_briefFrame >= 0 && f >= t.frame && world)
+        {
+            t.sent = true;
+            orig::fn_00461870(world, t.id, 0);
+            Log("test: play trigger %u at %d", t.id, f);
         }
     }
     if (!g_traceEvery)
