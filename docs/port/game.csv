@@ -328,6 +328,6 @@ address,name,disposition,reason
 0x004a2a40,fn_004a2a40,deferred,feature: auto-aim; auto-aim (PlayerWeapon vt+0x16c: Game+0x4c2 unless zoomed or difficulty > 1): the auto-aim option is not ported (hud.md: shown disabled)
 0x004a2a70,fn_004a2a70,deferred,"feature: sniper-rifle; PlayerWeapon fire along the camera ray (vtable 0x005ac210, the sniper rifle): not on lev_1_m1"
 0x0044d150,fn_0044d150,deferred,"feature: camera-startup-path; camera_startup_path_anim on a camera path (slot 8, Camera_StartPath mode 2): mission.rs cites it as not ported"
-0x0044e120,PlayerTickerBomb_AttachToParent,deferred,"feature: ticker-lock-parent; attaches a ticker bomb site to the object tagged lock_parent_tag (at its lock_parent_bone): mission.rs logs it as not ported. lev_3_m1 sites 173..175 ride the goliath squads 170..172 (tags 2001..2003); lev_4_m1 sites 330 / 367 / 368"
+0x0044e120,PlayerTickerBomb_AttachToParent,ported,"mission.rs lock_sites: a site with lock_parent_tag rides the lock_parent_bone (ref_ticker) of the run-time object of that tag (the squad's goliath, level.rs ObjectTag from goliath.rs); lev_3_m1 sites 173..175, lev_4_m1 330 / 367 / 368. Oracle ticker_l3m1 (Object_Attach's parent: the goliath), playtests ticker_goliath / ticker_goliath_l4m1"
 0x00477c90,fn_00477c90,deferred,"feature: untraced; player.rs cites it as 'meaning not settled, not ported'"
 0x004987a0,fn_004987a0,deferred,"feature: turret-vehicle-paths; a turret's ai_can_use test with the kickout time: ai.rs cites it, the kickout is not ported"

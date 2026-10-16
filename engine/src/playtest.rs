@@ -124,6 +124,9 @@ pub struct Event {
     /// one spot without walking there
     #[serde(default)]
     pub warp: Option<[f32; 4]>,
+    /// debug: put Roman's feet 2 units above where the object with this instance id is now (a moving one: a ticker
+    /// bomb site riding a goliath), facing game yaw 0
+    pub warp_to: Option<u32>,
     /// bot: walk to this point (game space x, y, z: as the scene files give positions)
     #[serde(default)]
     pub goto: Option<[f32; 3]>,
@@ -441,7 +444,7 @@ pub(crate) fn drive(
     mission: Option<Res<crate::mission::Mission>>,
     mut roman: Query<&mut crate::fx::Health, With<crate::player::Roman>>,
     mut spawn: MessageWriter<crate::level::SpawnGrunt>,
-    (mut send, state, mut save_req, mut noise, mut barks, mut defence, mut cheats): (
+    (mut send, state, mut save_req, mut noise, mut barks, mut defence, mut cheats, placed_at): (
         MessageWriter<crate::mission::SendTrigger>,
         Res<PlayState>,
         ResMut<crate::savegame::SaveRequest>,
@@ -449,6 +452,7 @@ pub(crate) fn drive(
         ResMut<crate::ai::Barks>,
         MessageWriter<crate::defence::DefenceCommand>,
         ResMut<crate::cheats::Cheats>,
+        Query<(&crate::level::InstanceId, &GlobalTransform)>,
     ),
     mut objects: Query<(Entity, Option<&crate::level::InstanceId>, Option<&crate::level::Placed>, &mut crate::fx::Destructible)>,
     cam: Query<&GlobalTransform, With<Camera3d>>,
@@ -709,6 +713,15 @@ pub(crate) fn drive(
         }
         if let Some(w) = e.warp {
             pt.warp = Some(w);
+        }
+        if let Some(id) = e.warp_to {
+            match placed_at.iter().find(|(i, _)| i.0 == id) {
+                Some((_, at)) => {
+                    let g = crate::level::game_to_engine().inverse() * at.translation();
+                    pt.warp = Some([g.x, g.y, g.z + 2.0, 0.0]);
+                }
+                None => warn!("EVENT playtest: warp_to {id}: no such object"),
+            }
         }
         if let (Some(true), Ok(p)) = (e.cover, player.single()) {
             let me = p.translation();

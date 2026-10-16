@@ -20,7 +20,7 @@ SUITE = ['save_write', 'save_read', 'topsyhit2', 'turn_in_place', 'turret1', 'de
          'menus', 'hud', 'flow', 'stats', 'pub', 'pub_screen', 'unit',
          'hits1', 'noise1', 'noise2', 'splines1', 'alarm1', 'captain1', 'taunt1', 'leader1',
          'infantry_l2m1', 'infantry_l3m1', 'infantry_l4m2', 'infantry_l2m2', 'squad_goliath', 'twiglets', 'monk_summon',
-         'mission_start', 'volumes', 'ticker', 'pickups', 'pubflow', 'winfail',
+         'mission_start', 'volumes', 'ticker', 'ticker_goliath', 'ticker_goliath_l4m1', 'pickups', 'pubflow', 'winfail',
          'player_move', 'player_fall', 'player_weapons', 'player_special', 'player_topsy', 'player_banter',
          'audio_distance', 'audio_groups', 'audio_voice', 'audio_ear', 'audio_music', 'audio_stopall', 'audio_ambient',
          'anim_blend', 'anim_notes', 'camera_follow', 'camera_death', 'input_pad', 'foot_ik',
@@ -46,6 +46,9 @@ SUITE = ['save_write', 'save_read', 'topsyhit2', 'turn_in_place', 'turret1', 'de
 # the base turret, the army marches and releases, kills and the win / fail chains (each script names its level)
 # 'save_slots': the save / load slot screens (feedback 26): save to slot 2, then slot 1, load slot 2 -> slot 2's
 # state; the main menu's Load Game and the pause menu's Save Game open the slot list
+# 'ticker_goliath*': ticker bomb sites locked to the squads' goliaths (mission.rs lock_sites, 0x0044e120): lev_3_m1's three
+# sites ride their goliaths as they walk, each is armed on its goliath and blows it (2001..2003, counter 7 -> 3998, the
+# objective); lev_4_m1's site 368 the same (2110 -> 3998)
 # 'vehicles_*': the later levels' units (engine/src/vehicles, the forge cannon in turret.rs), each script on its own level
 # ("scene"): rocket towers / buds (lev_3_m1), the zeppelin and the saucer (lev_2_m1), the colossus (lev_1_m3), the forge
 # cannon (lev_2_m1): woken, moving, targeting Roman, firing, hit, destroyed

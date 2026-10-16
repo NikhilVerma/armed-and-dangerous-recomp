@@ -95,6 +95,19 @@ impl Plugin for GoliathPlugin {
     }
 }
 
+/// GenericAI damage: every shot and blast counts but its own side's (0x00430340: the source's and the victim's team,
+/// vt+0xe4, agree: no damage), as the grunts' (player.rs projectiles) and the big units' (vehicles/boss.rs: the
+/// source filter of `DClass::Building`). Oracle ticker_l3m1: the original's squad goliaths keep 3000 health with their
+/// squads firing at Roman beside them.
+fn badguy_filter(d: &mut crate::fx::Destructible) {
+    d.class = crate::fx::DClass::Building;
+    d.takes_damage = true;
+    d.takes_bullet = true;
+    d.player_damage = true;
+    d.teammate_damage = true;
+    d.badguy_damage = false;
+}
+
 /// The capsule bullets hit (round its middle) and its lift above the feet.
 fn hit_body(physics: &mut crate::physics::Physics, e: Entity, feet: Vec3, material: Option<&str>) -> Option<(oxijolt::prelude::BodyId, Vec3)> {
     let k = physics.meters_per_unit;
@@ -105,6 +118,9 @@ fn hit_body(physics: &mut crate::physics::Physics, e: Entity, feet: Vec3, materi
     if let Some(m) = material {
         physics.materials.insert(body, m.to_owned());
     }
+    // a GenericAI (GoliathObject over GenericAIObject): in the AI list World+0xe7c the AI's sight passes through
+    // (ai.rs sight_ray); bullets still hit it
+    physics.ai_bodies.insert(body);
     Some((body, lift))
 }
 
@@ -129,9 +145,7 @@ fn spawn_for_squads(
         let Some((body, lift)) = hit_body(&mut physics, ev.entity, ev.at, p.s("material")) else { continue };
         let husk = crate::level::pick_husk(&p, husk_rng.get());
         let mut d = crate::level::destructible(&p).unwrap_or_else(|| crate::vehicles::unit_health(&p, crate::fx::DClass::Open, None, 1.0));
-        // GenericAI damage: every shot counts
-        d.takes_damage = true;
-        d.takes_bullet = true;
+        badguy_filter(&mut d);
         commands.entity(ev.entity).insert((
             crate::level::Placed { template: "goliath".into(), collider: Some(body), husk, triggers: Default::default() },
             d,
@@ -141,6 +155,9 @@ fn spawn_for_squads(
         ));
         if let Some(link) = ev.squad {
             commands.entity(ev.entity).insert(SquadGoliath { link, kill_trigger: ev.kill_trigger, death_trigger: ev.death_trigger, tag: ev.tag, walking: false });
+        }
+        if ev.tag != 0 {
+            commands.entity(ev.entity).insert(crate::level::ObjectTag(ev.tag));
         }
         if ev.cage {
             // the peasant: (rand() * 100) & ~0x7fff < 0x190000, i.e. rand() < 16384 (half): a man (Squad_Init)
@@ -174,10 +191,9 @@ fn setup(
         }
         let Some((body, lift)) = hit_body(&mut physics, e, gt.translation(), p.s("material")) else { continue };
         placed.collider = Some(body);
-        // GenericAI damage: every shot counts (a placed object's default filter would take none)
+        // (a placed object's default filter would take none)
         if let Some(mut d) = d {
-            d.takes_damage = true;
-            d.takes_bullet = true;
+            badguy_filter(&mut d);
         }
         commands.entity(e).insert(Goliath { body, lift, phase: Phase::Scripted, timer: 0.0, held: None, range: p.f("scan_distance", 350.0), home: gt.translation() });
         info!("EVENT goliath: {e:?} ready");

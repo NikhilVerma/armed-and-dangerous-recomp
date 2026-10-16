@@ -1,0 +1,27 @@
+{
+ "about": "lev_3_m1 ticker bomb locked to a walking goliath (PlayerTickerBomb_AttachToParent 0x0044e120): Roman warped into volume 231 (sends 1600: the three goliath squads set off south at ~9 units/s, patrol_speed 10 by marker_strict_patrol), then at frame 900 onto goliath 170 (squad 170, tag 2001), ~110 units from where its site 173 was placed; the squads see him and halt; Use held from 905: the bomb (riding the goliath's ref_ticker bone) arms after arm_time 2 s, its 6 s fuse blows it, send_trigger_explode 2001 kills the goliath (the squad's receive_trigger_kill) and its death sends 3000 (counter 7). Without the lock the site stays at the placement and nothing arms (the remaster before 2026-10-16: trigger 2001 only in the original). The original's Object_Attach call (hook trace_calls, original.log) has the goliath (no instance id) as the parent, not squad #170",
+ "level": "lev_3_m1",
+ "keys": "0:ENTER*3,905:45*200",
+ "warp": [-140, 2809, 1000],
+ "warp_at": [900, -229, 1272, 850],
+ "frames": 1500,
+ "trace_every": 2,
+ "trace_from": -60,
+ "suite": true,
+ "hook_test": {"trace_calls": "PlayerTickerBomb_AttachToParent,Object_Attach"},
+ "known": {
+  "events.sounds": "B17 rest (level ambience: imp_boulder_roll_lp and the like at other frames), and the fight's sounds of B6 / G1 below",
+  "grunt.pos": "B24: captain_sniper 228 slides off the beam of v_rockettower2 272 (lev_3_m1_start); later the squads' members move on other paths as the fight differs (G1)",
+  "vehicle.pos": "G2: squads 171 / 172 head for their first marker on another line (the original's goliath 172 is ~12 units further south by frame 210, ~2 by 900: which marker of spline 600 a squad starts at, 0x0042d1b0 / state 0x96, is not traced); goliath 170 walks within 8 units of the original's",
+  "roman.pos": "G1: the remaster's goliath hit capsule pushes Roman's walker ~9 units off the warp point; p_goliath has no_collide 1 (the original's Roman stands between its legs, untouched). The walker collides with every body (physics.rs move_walker: QueryFilter::new())",
+  "grunt.mind": "B6: the original's far grunts (captain_sniper 228 among them) take Roman 16 frames after he appears beside the squads",
+  "grunt.target": "B6, as grunt.mind",
+  "roman.health": "G1: standing between the goliath's legs, the original's Roman takes no bullet in 8 s of the squads' fire (their shots stop on the goliath's hulls, same side: no damage); the remaster's, pushed out of the capsule, is shot dead by frame 1200 (AIDBG romandmg: grunt_rifle and captain_mg at 100..190 units). The bomb is armed before then and blows on time either way",
+  "roman.heading": "G1: follows roman.health (the original's Roman turns with the hits it takes later)",
+  "grunt.health": "G1 / B6: the fight differs (who is where when the bomb blows)",
+  "grunts.alive": "G1 / B6: the blast (area_damage 100, radius 40..60) kills 6 squad members in the original, 4 in the remaster (members elsewhere)",
+  "mission.state": "G1: the remaster's Roman died (roman.health), so its mission fails at 1438",
+  "paused": "G1: the failure message (mission.state)",
+  "timing": "G1: the failure pause (mission.state)"
+ }
+}
