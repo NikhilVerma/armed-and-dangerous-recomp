@@ -333,10 +333,11 @@ fn follow_squads(
 }
 
 /// The cage on a squad goliath's chest (Object_Attach 0x004539f0: the cage's ref_chest at the goliath's "chest"), the
-/// peasant in it at ref_peasant_1 by its "center", playing peasant_man_stand (Squad_Init 0x00433220). The peasant is
-/// drawn only (the peasant object, its rescue and score, is not ported: mission.rs peasant_saved_trigger).
-fn cages(mut commands: Commands, q: Query<(Entity, &CagePending, &crate::skin::Animator)>, mut kit: crate::army::ModelKit, data: Res<crate::gamedata::GameData>) {
-    for (e, c, a) in &q {
+/// peasant in it at ref_peasant_1 by its "center", playing peasant_man_stand (Squad_Init 0x00433220). The peasant is a
+/// PeasantObject held by the cage (peasant.rs `Peasant::held_by`: no pick-up while attached); when the goliath dies the
+/// cage goes and he falls free (0x00453750: the cage without flag 4 is removed, the peasant with it is detached).
+fn cages(mut commands: Commands, q: Query<(Entity, &CagePending, &crate::skin::Animator, Option<&crate::level::InstanceId>)>, mut kit: crate::army::ModelKit, data: Res<crate::gamedata::GameData>) {
+    for (e, c, a, id) in &q {
         commands.entity(e).remove::<CagePending>();
         let Some(chest) = a.skeleton.index.get("chest").and_then(|&i| a.joints.get(i).copied()) else { continue };
         let dir = kit.dir();
@@ -348,7 +349,11 @@ fn cages(mut commands: Commands, q: Query<(Entity, &CagePending, &crate::skin::A
         let Some(pm) = data.templates.get(template).and_then(|t| t.model.clone()) else { continue };
         let at = node("goliath_cage_ref", "ref_peasant_1") - node("peasant_ref", "center");
         if let Some(peasant) = kit.spawn(&mut commands, &pm, Transform::from_translation(at), true) {
-            commands.entity(peasant).insert(crate::level::DefaultAnim::new("peasant_man_stand"));
+            // made after the placed objects (the squad's load), in the squads' order
+            let props = data.template_props(template);
+            let mut p = crate::peasant::Peasant::from_props(&props, template, crate::peasant::CAGED_ORDER + id.map_or(0, |i| i.0));
+            p.held_by = Some(e);
+            commands.entity(peasant).insert((crate::level::DefaultAnim::new("peasant_man_stand"), p.health(&props), crate::fx::BlastProof, p, Name::new(template)));
             commands.entity(cage).add_child(peasant);
         }
     }

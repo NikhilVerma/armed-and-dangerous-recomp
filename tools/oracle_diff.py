@@ -10,7 +10,7 @@ SCENARIO: a name in tools/oracle_scenarios/ (or a path to a .json). A scenario:
     {"level": "lev_1_m1", "keys": "0:ENTER*3,40:17*300", "frames": 400, "trace_every": 2,
      "warp": [x, y, z] (optional), "play_delay": 30 (optional), "trace_from": -30 (optional: the briefing on),
      "tolerance": {"pos": 6, "grunt_pos": 12, "heading": 12, "health": 1, "frames": 20, "event_frames": 30,
-                   "twiglet_frames": 30, "twiglet_dist": 20},
+                   "twiglet_frames": 30, "twiglet_dist": 20, "peasant_frames": 10, "peasant_dist": 6, "peasant_rope": 1.5},
      "expected": {"family": "why this family differs (an accepted difference, with evidence)"},
      "suite": true (part of tools/oracle_suite.py),
      "hook_test": {"trace_calls": "GenericAI_SetTarget"} (optional: more [test] keys for the original's hook)}
@@ -58,7 +58,7 @@ STATE_MIND = {1: "Roam", 0xf: "Roam", 2: "Chase", 0x3c: "Chase", 0x3e: "Chase", 
 MISSION = {0: "Playing", 1: "Playing", 2: "Won", 10: "Won", **{s: "Failed" for s in range(3, 10)}}
 SOUND_HOOKS = ("fn_004f32f0", "fn_004f3740", "fn_004f3c60")
 TOL = {"pos": 6.0, "grunt_pos": 12.0, "heading": 12.0, "health": 1.0, "time": 0.1, "frames": 20, "event_frames": 30,
-       "twiglet_frames": 30, "twiglet_dist": 20.0}
+       "twiglet_frames": 30, "twiglet_dist": 20.0, "peasant_frames": 10, "peasant_dist": 6.0, "peasant_rope": 1.5}
 
 
 def load_scenario(name):
@@ -312,6 +312,16 @@ def twiglet_nearest(row):
     return round(min(d), 1) if d else None
 
 
+def peasant_count(flag):
+    """A row's peasants listed (World+0xef8: the banked and the lost leave it), all or those with `flag` set."""
+    return lambda row: sum(1 for p in row.get("peasants") or [] if flag is None or p.get(flag))
+
+
+def peasant_counter(name):
+    """A row's peasant counter (Game+0x26f4 carried, +0x26e8 saved, +0x26e4 casualties)."""
+    return lambda row: (row.get("peasant_count") or {}).get(name, 0)
+
+
 def crosses(rows, frames, f, key, value, window):
     """True when the other game's count reaches `value` within +-window frames of f: some row there at or below it and
     some at or above it (counts that change by two in one frame skip a value)."""
@@ -393,6 +403,8 @@ def compare_traces(sc, orig, rem):
     has_vehicles = all("vehicles" in orig[f] for f in frames[:1]) and all("vehicles" in rem[f] for f in frames[:1])
     # twiglets compared when both traces list them and either has one (older original traces have no "twiglets")
     has_twiglets = all("twiglets" in orig[f] and "twiglets" in rem[f] for f in frames[:1]) and any(orig[f].get("twiglets") or rem[f].get("twiglets") for f in frames)
+    # peasants compared when both traces list them and either has one (older traces have no "peasants")
+    has_peasants = all("peasants" in orig[f] and "peasants" in rem[f] for f in frames[:1]) and any(orig[f].get("peasants") or rem[f].get("peasants") for f in frames)
     if vehicles and not has_vehicles:
         notes.append(f"{vehicles} original vehicle(s) (goliath / colossus / zeppelin / saucer) left out of the grunts; "
                      "a trace has no \"vehicles\" (an older run): not compared")
@@ -510,6 +522,25 @@ def compare_traces(sc, orig, rem):
                 near = [twiglet_nearest(rem[g]) for g in rf if abs(g - f) <= tw]
                 ok = any(n is not None and abs(dn[0] - n) <= tol["twiglet_dist"] for n in near)
                 fam.check("twiglet.nearest", f, ok, f"nearest twiglet {dn[0]} vs {dn[1]} units from Roman")
+        if has_peasants:
+            # the peasants (peasant.rs; hook World+0xef8): the counters and how many are captured reach each value within
+            # peasant_frames; a tied one's pelvis (the rope pulls it, 0x00405d10) within peasant_dist and his rope within
+            # peasant_rope of the same peasant's in the other game, at the nearest line within peasant_frames
+            pw = tol["peasant_frames"]
+            for fam_name, key in (("peasants.alive", peasant_count(None)), ("peasants.captured", peasant_count("captured")),
+                                  ("peasant_count.carried", peasant_counter("carried")), ("peasant_count.saved", peasant_counter("saved")),
+                                  ("peasant_count.casualties", peasant_counter("casualties"))):
+                fam.check(fam_name, f, crosses(rem, rf, f, key, key(o), pw), f"{fam_name.split('.')[1]} {key(o)} vs {key(r)}")
+            for a in o.get("peasants") or []:
+                if a.get("center") is None or not a.get("id"):
+                    continue
+                near = [p for g in rf if abs(g - f) <= pw for p in rem[g].get("peasants") or [] if p.get("id") == a["id"] and p.get("center")]
+                if not near:
+                    continue
+                d = min(dist(a["center"], p["center"]) for p in near)
+                fam.check("peasant.center", f, d <= tol["peasant_dist"], f"peasant {a['id']} pelvis at {a['center']} ({d:.1f} from the nearest in time)")
+                dr = min(abs(a["rope"] - p["rope"]) for p in near)
+                fam.check("peasant.rope", f, dr <= tol["peasant_rope"], f"peasant {a['id']} rope {a['rope']} ({dr:.2f} from the nearest in time)")
         om, rm = o.get("mission", {}), r.get("mission", {})
         fam.check("mission.state", f, MISSION.get(om.get("state"), str(om.get("state"))) == rm.get("state", "Playing"),
                   f"mission {om.get('state')} ({MISSION.get(om.get('state'))}) vs {rm.get('state')}")
@@ -588,6 +619,13 @@ HINTS = {
     "twiglets.running": "twiglet.rs State::Run / GetBomb; original Twiglet_Update state 0x0a / 0x46",
     "twiglets.bombs": "twiglet.rs notes (get_bomb) and the bomb's use; original Twiglet_HandleEvent 0x0049f930",
     "twiglet.nearest": "twiglet.rs the run (ground_speed, routes); original Twiglet_Update 0x0a, the drive 0x00454d80",
+    "peasants.alive": "peasant.rs bank / deaths (banked and lost ones leave the list); original 0x0044d600, 0x004062a0",
+    "peasants.captured": "peasant.rs pick_up (Roman in the trigger sphere: ROMAN_BODY_*); original 0x00406210, phantom 0x004574e0",
+    "peasant_count.carried": "peasant.rs rope (tied: carried += count) / bank; original 0x00405d10, 0x004063a0",
+    "peasant_count.saved": "peasant.rs bank (the door mat's peasant_saved_trigger); original MissionObject_OnTrigger 0x0044d600",
+    "peasant_count.casualties": "peasant.rs deaths; original the kill slot 0x004062a0",
+    "peasant.center": "peasant.rs rope (hard key-frame of the pelvis) and the ragdoll's build (ragdoll.rs Build); original 0x00405d10",
+    "peasant.rope": "peasant.rs Rope::step (length at the tie, 5 / s reel to 3); original 0x00405d10 +0x478",
 }
 
 

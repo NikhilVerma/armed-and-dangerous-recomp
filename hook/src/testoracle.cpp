@@ -22,6 +22,8 @@
 //                 rocket_bud (by vtable), "pos", "health", "state"}],
 //    "twiglets": [{"pos", "health", "state": Twiglet_Update's +0x464, "bomb": 0/1}] (World+0xeec; not in "grunts"),
 //    "swarm": {"generators": active twiglet generators, "timer": spawn timer, "made": Game+0x2710, "killed": +0x270c},
+//    "peasants": [{"id", "pos", "captured": 0/1, "link": rope chain place +0x480, "rope": +0x478, "count", "attached"}]
+//    (World+0xef8), "peasant_count": {"carried": Game+0x26f4, "saved": +0x26e8, "casualties": +0x26e4},
 //    "companions": [[x, y, z, health] | null, ...] (Jonesy, Q),
 //    "mission": {"state": level state (1 playing, 2/10 won, 3..9 failed), "objective": compass tag Game+0x2658},
 //    "triggers": [ids sent since the last line], "trigger_senders": [their senders' instance ids], "deaths": [instance ids of placed objects that died],
@@ -302,6 +304,48 @@ std::string Body()
         Num(o, *reinterpret_cast<const float*>(0x0063a14c));
         o += ",\"made\":" + std::to_string(At<int>(g_game, 0x2710)) + ",\"killed\":" + std::to_string(At<int>(g_game, 0x270c)) + "}";
     }
+    // the peasants (PeasantObject 0x005a8550, list World+0xef8, PeasantObject_Load 0x004056b0): position, captured
+    // +0x48c (the pick-up 0x00406210), the rope chain's link +0x480 and rope length +0x478 (0x00405d10), count +0x484,
+    // attached to a parent (+0x34: the goliath's cage); the counters Game+0x26f4 carried, +0x26e8 saved, +0x26e4
+    // casualties (0x004063a0, 0x004062a0)
+    o += ",\"peasants\":[";
+    if (world)
+    {
+        uint32_t iter[2] = {0, 0};
+        bool first = true;
+        for (uint32_t a = orig::fn_004e7340(At<uint32_t>(reinterpret_cast<void*>(world), 0xef8),
+                                            reinterpret_cast<uint32_t>(iter));
+             a; a = orig::fn_004e73c0(reinterpret_cast<uint32_t>(iter)))
+        {
+            void* p = reinterpret_cast<void*>(a);
+            float pp[4] = {};
+            GetPos(p, pp);
+            o += first ? "{" : ",{";
+            first = false;
+            o += "\"id\":" + std::to_string(Id(p)) + ",\"pos\":";
+            Vec(o, pp);
+            o += ",\"captured\":" + std::to_string(At<uint8_t>(p, 0x48c));
+            o += ",\"link\":" + std::to_string(At<int>(p, 0x480)) + ",\"rope\":";
+            Num(o, At<float>(p, 0x478));
+            o += ",\"count\":" + std::to_string(At<int>(p, 0x484));
+            o += ",\"attached\":" + std::to_string(At<uint32_t>(p, 0x34) ? 1 : 0);
+            // a tied one is a ragdoll whose object position stays put: the pelvis, the centre of mass of the body named
+            // "center" (0x004586a0; motion +8, +0x70), as the rope pulls it (0x00405d10)
+            if (At<float>(p, 0x478) >= 0.0f)
+            {
+                const uint32_t ent = orig::fn_004586a0(0x005a009c /* "center" */, a);
+                const uint32_t motion = Readable(ent, 0x10) ? At<uint32_t>(reinterpret_cast<void*>(ent), 8) : 0;
+                if (Readable(motion, 0x80))
+                {
+                    o += ",\"center\":";
+                    Vec(o, reinterpret_cast<const float*>(motion + 0x70));
+                }
+            }
+            o += '}';
+        }
+    }
+    o += "],\"peasant_count\":{\"carried\":" + std::to_string(At<int>(g_game, 0x26f4)) + ",\"saved\":" +
+         std::to_string(At<int>(g_game, 0x26e8)) + ",\"casualties\":" + std::to_string(At<int>(g_game, 0x26e4)) + "}";
     // the alarm controller's gates (fn_00404e50, ai_01.cpp:468-660): sirens World+0xef0, forced Game+0xdcc, Game+0xc80 /
     // +0xcbc / +0xadc / +0xae0 (all must be clear), the spawn timer 0x0063a1f4, the generators listed 0x0063a1f0 and
     // its live troops 0x0063a1ec

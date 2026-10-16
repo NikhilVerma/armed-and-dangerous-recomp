@@ -89,3 +89,4 @@ engine/target-wt-campaign2/
 # playtest states written by tracked scripts (engine/playtests/save_write.json)
 /engine/playtests/states/
 engine/target-wt-aispawn/
+engine/target-wt-peasants/
