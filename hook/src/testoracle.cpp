@@ -30,6 +30,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -40,6 +41,7 @@
 #include "log.h"
 
 int TestFramesSinceLoad();  // testscenario.cpp
+int TestFramesSincePlay();
 
 namespace
 {
@@ -381,6 +383,54 @@ __declspec(naked) void Wrap_FxDie()
         jmp dword ptr [g_nextFxDie]
     }
 }
+
+// [test] trace_calls=Name1,Name2,...: and.log gets one "call" line per call of each named hook (up to 8; the names of
+// the HOOK entries, e.g. GenericAI_SetTarget): frames since the load and play frame, the caller's return address, ecx,
+// eax, edx and the first three stack arguments, each as an instance id (#N) when it points at a placed object. For
+// finding which code sets a value seen in the trace (the caller is the address after the call instruction).
+constexpr int kCallSlots = 8;
+char g_callNames[kCallSlots][64];
+void* g_callNext[kCallSlots];
+
+const char* Arg(char* buf, uint32_t v)
+{
+    if (Readable(v, 0x398) && Readable(*reinterpret_cast<const uint32_t*>(v), 4) && Id(reinterpret_cast<void*>(v)))
+        sprintf(buf, "%08x#%d", v, Id(reinterpret_cast<void*>(v)));
+    else
+        sprintf(buf, "%08x", v);
+    return buf;
+}
+
+// regs: the pushad block (edi, esi, ebp, esp, ebx, edx, ecx, eax), then the return address and the stack arguments
+void __stdcall OnCall(int slot, const uint32_t* regs)
+{
+    char c[24], a[24], d[24], s0[24], s1[24], s2[24];
+    Log("call %s since %d play %d from %08x ecx %s eax %s edx %s args %s %s %s", g_callNames[slot],
+        TestFramesSinceLoad(), TestFramesSincePlay(), regs[8], Arg(c, regs[6]), Arg(a, regs[7]), Arg(d, regs[5]),
+        Arg(s0, regs[9]), Arg(s1, regs[10]), Arg(s2, regs[11]));
+}
+
+#define CALL_SLOT(n)                                 \
+    __declspec(naked) void Wrap_Call##n()            \
+    {                                                \
+        __asm { pushad }                             \
+        __asm { push esp }                           \
+        __asm { push n }                             \
+        __asm { call OnCall }                        \
+        __asm { popad }                              \
+        __asm { jmp dword ptr [g_callNext + n * 4] } \
+    }
+CALL_SLOT(0)
+CALL_SLOT(1)
+CALL_SLOT(2)
+CALL_SLOT(3)
+CALL_SLOT(4)
+CALL_SLOT(5)
+CALL_SLOT(6)
+CALL_SLOT(7)
+#undef CALL_SLOT
+void (*const g_callWraps[kCallSlots])() = {Wrap_Call0, Wrap_Call1, Wrap_Call2, Wrap_Call3,
+                                            Wrap_Call4, Wrap_Call5, Wrap_Call6, Wrap_Call7};
 }  // namespace
 
 extern void (*g_testSoundStarted)(const char* name, float volume);
@@ -423,6 +473,15 @@ void TestOracleInit()
     char buf[128];
     ConfigString("test", "play_warp", "", buf, sizeof(buf));
     g_warpOn = sscanf(buf, "%f,%f,%f", &g_warp[0], &g_warp[1], &g_warp[2]) == 3;
+    char calls[512];
+    ConfigString("test", "trace_calls", "", calls, sizeof(calls));
+    int slot = 0;
+    for (char* name = strtok(calls, ", "); name && slot < kCallSlots; name = strtok(nullptr, ", "))
+    {
+        strncpy(g_callNames[slot], name, sizeof(g_callNames[slot]) - 1);
+        if (HookWrap(name, reinterpret_cast<void*>(g_callWraps[slot]), &g_callNext[slot]))
+            ++slot;
+    }
     if (!g_traceEvery && !g_fromPlay)
         return;
     if (g_traceEvery)

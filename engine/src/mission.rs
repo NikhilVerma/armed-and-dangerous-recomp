@@ -588,6 +588,10 @@ pub struct Mission {
     tags: HashMap<i64, Vec<(u32, Vec3)>>,
     untagged: HashSet<u32>,
     pub compass_tag: i64,
+    /// ai_target_tag (Game+0xae8): while set, a bad guy's target search takes only objects of this tag, at any range,
+    /// without the view cone or the line of sight (AI_FindTarget 0x00426920, ai.rs `search`): lev_bonus_m1's Roman
+    /// (the whole army has him as target from the first frame); the defence levels' base wall and turret
+    pub ai_target_tag: i64,
     start_trigger: i64,
     start_text: Option<String>,
     success_text: Option<String>,
@@ -1068,6 +1072,7 @@ impl Mission {
             tags,
             untagged: HashSet::new(),
             compass_tag: n(m, "compass_objective_tag") as i64,
+            ai_target_tag: n(m, "ai_target_tag") as i64,
             start_trigger: n(m, "send_trigger_start") as i64,
             start_text: text("start_text"),
             success_text: text("success_text"),
@@ -1124,6 +1129,11 @@ impl Mission {
     /// whose tag +0x390 equals Game+0x2658).
     pub fn compass_target(&self, from: Vec3) -> Option<Vec3> {
         self.tags.get(&self.compass_tag)?.iter().filter(|(id, _)| !self.untagged.contains(id)).map(|(_, p)| *p).min_by(|a, b| a.distance(from).total_cmp(&b.distance(from)))
+    }
+
+    /// Whether the placed object `id` carries `tag` (+0x390, Object_GetTag 0x00453290) and has not lost it.
+    pub fn has_tag(&self, id: u32, tag: i64) -> bool {
+        !self.untagged.contains(&id) && self.tags.get(&tag).is_some_and(|l| l.iter().any(|(i, _)| *i == id))
     }
 
     /// The mission object's trigger handler MissionObject_OnTrigger 0x0044d600 for the triggers it reads into the Game

@@ -860,6 +860,11 @@ pub struct Grunt {
     pub looping: bool,
     /// +0x488 0x200: a troop of an alarm generator (0x0042dd50) charges the player when it has no marker tags
     pub charge: bool,
+    /// mode trigger_charge (+0x488 0x100): his activation (0x0042f5c0) is a charge (0x0042ce70)
+    pub trigger_charge: bool,
+    /// a charge (0x0042ce70) calls the pursuit (vt+0x184) at once, whatever the range: the next decision is the
+    /// pursuit (a jumper's take-off, 0x004295d0), engaging comes after it
+    pub pursue: bool,
     /// one-shot anim playing (taunt 0x6e, throw 0x10): its id and time left
     pub anim_id: u32,
     pub anim_left: f32,
@@ -1030,7 +1035,7 @@ impl Plugin for AiPlugin {
             .init_level_resource::<ic::IcStats>()
             .add_systems(
                 Update,
-                (squad::update_squads, interests, search, ic::activate, scare, think, ic::run, bully::bullies, die, dismay, log_cover, log_ai, squad::log_squads, ic::log, grenades)
+                (squad::update_squads, interests, mark_army_targets, search, ic::activate, scare, think, ic::run, bully::bullies, die, dismay, log_cover, log_ai, squad::log_squads, ic::log, grenades)
                     .chain()
                     .after(crate::fx::FxSet)
                     .after(crate::turret::setup),
@@ -1269,6 +1274,8 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         spline: None,
         looping: p.i("marker_looping", 0) != 0,
         charge: false,
+        trigger_charge: mode == "trigger_charge",
+        pursue: false,
         anim_id: 0,
         anim_left: 0.0,
         thrown: false,
@@ -1504,6 +1511,23 @@ fn interests(
     });
 }
 
+/// An object of the mission's ai_target_tag (Game+0xae8, mission.rs): while the tag is set a grunt's target search
+/// takes only these, at any range and without the view cone or the line of sight (AI_FindTarget 0x00426920), and one
+/// never drops it for distance (vt+0x180, 0x0043ecf0, holds for it). lev_bonus_m1's Roman: the whole army has him as
+/// target from the first frame.
+#[derive(Component)]
+pub struct ArmyTarget;
+
+/// Marks the placed objects of the mission's ai_target_tag as they are made.
+fn mark_army_targets(mut commands: Commands, mission: Option<Res<crate::mission::Mission>>, made: Query<(Entity, &crate::level::InstanceId), Added<crate::level::InstanceId>>) {
+    let Some(m) = mission.filter(|m| m.ai_target_tag != 0) else { return };
+    for (e, id) in &made {
+        if m.has_tag(id.0, m.ai_target_tag) {
+            commands.entity(e).insert(ArmyTarget);
+        }
+    }
+}
+
 /// A waiting grunt's trigger (receive_trigger_activate: fn_0042f870 -> 0x0042f5c0), by his mode: trigger_marker (+0x488
 /// 0x10) runs his marker spline (think: `marker_tags`), trigger_ic (0x8000000) plays his IC move (ic.rs), trigger_charge
 /// (0x100) charges the player (0x0042ce70). `ic`: he has an IC move.
@@ -1514,11 +1538,15 @@ pub fn activate(g: &mut Grunt, ic: bool, player: Option<Entity>) {
     g.mind = Mind::Roam;
     if g.marker_tags.is_none() && !ic {
         g.target = player;
+        g.pursue = g.trigger_charge;
     }
 }
 
 /// AI_FindTarget 0x00426920 and the alert-group hand-over: every 0.75..1.25 s; the player inside hear_distance is
-/// taken at once; otherwise within scan_distance, inside the 190-degree cone, with line of sight.
+/// taken at once; otherwise within scan_distance, inside the 190-degree cone, with line of sight. With the mission's
+/// ai_target_tag (Game+0xae8) a grunt (a bad guy, vt+0xe8) takes only candidates of that tag, at any range (1e8) and
+/// with neither the cone nor the line of sight (ai_02.cpp:662, 721-731, 761).
+#[allow(clippy::too_many_arguments)]
 fn search(
     time: Res<Time>,
     mut rng: ResMut<FxStats>,
@@ -1532,9 +1560,11 @@ fn search(
     mut barks: ResMut<Barks>,
     noise: Res<Interests>,
     squads: Query<&squad::Squad>,
+    (army, mission): (Query<(), With<ArmyTarget>>, Option<Res<crate::mission::Mission>>),
 ) {
     let dt = time.delta_secs();
     let Ok((pe, _, _)) = player.single() else { return };
+    let global_tag = mission.as_ref().map_or(0, |m| m.ai_target_tag);
     stats.targets = [0, 0];
     for (_, g, _, _, _) in &grunts {
         if let Some(t) = g.target.filter(|_| g.mind != Mind::Dead) {
@@ -1612,6 +1642,13 @@ fn search(
         for &(ce, cpos, chit) in &cands {
             let to = (cpos - me).with_y(0.0);
             let d2 = to.length();
+            if global_tag != 0 {
+                // the mission's target tag: only its objects, any range, no cone, no sight test
+                if army.contains(ce) && best.is_none_or(|b| d2 < b.0) {
+                    best = Some((d2, ce, false));
+                }
+                continue;
+            }
             if d2 > g.scan_distance || best.is_some_and(|b| d2 > b.0) {
                 continue;
             }
@@ -1633,7 +1670,10 @@ fn search(
             }
             g.target = Some(tgt);
             if g.mind == Mind::WaitTrigger {
-                g.mind = Mind::Roam; // activate 0x0042f5c0 (charge/marker flags: not ported)
+                // activate 0x0042f5c0 with the target found (state 0x8c, trigger_los): trigger_charge charges it
+                // (0x0042ce70: the pursuit at once); the marker run of trigger_marker is not ported here
+                g.mind = Mind::Roam;
+                g.pursue = g.trigger_charge;
             }
             if std::env::var("AIDBG").is_ok() { info!("AIDBG spotted {:?} by {:?} at {:?} d {:.0} heard {} mode {:?}", tgt, ge, me, d2, heard, g.mind); }
             if g.alert_group != 0 {
@@ -2549,13 +2589,14 @@ fn think(
         Res<crate::turret::Mounted>,
         Res<crate::gamedata::GameData>,
     ),
-    (mut lib, player_q, mut triggers, grenade_assets, squads, mut jmarks): (
+    (mut lib, player_q, mut triggers, grenade_assets, squads, mut jmarks, army): (
         ResMut<crate::skin::AnimLibrary>,
         Query<Entity, With<Player>>,
         MessageWriter<crate::mission::SendTrigger>,
         Option<Res<GrenadeAssets>>,
         Query<&squad::Squad>,
         Query<(Entity, &mut JumpMarker, &Transform), Without<Grunt>>,
+        Query<(), With<ArmyTarget>>,
     ),
 ) {
     let t0 = Instant::now();
@@ -2750,9 +2791,10 @@ fn think(
         let target = g.target.and_then(|e| targets.get(e).ok()).map(|t| t.translation());
         g.timer -= dt;
         g.ray_timer -= dt;
-        // a target farther than 2 x scan_distance is dropped (states 0x3c, 0xa)
+        // a target farther than 2 x scan_distance is dropped (states 0x3c, 0xa: vt+0x180 0x0043ecf0, which keeps an
+        // army target at any range)
         if let Some(p) = target {
-            if flat(p - pos).length() > 2.0 * g.scan_distance && !g.guard {
+            if flat(p - pos).length() > 2.0 * g.scan_distance && !g.guard && !g.target.is_some_and(|e| army.contains(e)) {
                 g.target = None;
             }
         }
@@ -2887,6 +2929,8 @@ fn think(
         }
         let was = g.mind;
         g.mind = match (g.mind, target) {
+            // a charge's pursuit (0x0042ce70 -> vt+0x184) comes before any engaging
+            (Mind::Roam, Some(_)) if std::mem::take(&mut g.pursue) => Mind::Chase,
             (Mind::InSquad, _) if !squad_fight => Mind::InSquad,
             (Mind::Jump, _) if g.jumper.is_some_and(|j| j.flight.is_some()) => Mind::Jump,
             (Mind::Teleport, _) => Mind::Teleport,
@@ -2998,7 +3042,7 @@ fn think(
         // search
         if g.mind == Mind::Chase && g.jumper.is_some_and(|j| j.flight.is_none()) {
             if let Some(p) = target {
-                let ground = ground_below(&physics, pos, 3.0, body.id).is_some();
+                let ground = g.jumper.is_some_and(|j| j.stepped) && ground_below(&physics, pos, 3.0, body.id).is_some();
                 let to = p + Vec3::new(rng.range(-20.0, 20.0), 0.0, rng.range(-20.0, 20.0));
                 let (range, ms) = (g.range, g.move_speed);
                 let j = g.jumper.as_mut().expect("a jumper");
@@ -3032,6 +3076,10 @@ fn think(
                     }
                 }
             }
+        }
+        // this update's physics step gives the jumper his contacts from now on
+        if let Some(j) = g.jumper.as_mut().filter(|_| dt > 0.0) {
+            j.stepped = true;
         }
         // (the playtest log and the anims see the stance: at rest after a fight the stand set)
         if matches!(g.mind, Mind::Fire | Mind::Chase | Mind::Reload | Mind::Cover | Mind::Gunner | Mind::Throw) {
