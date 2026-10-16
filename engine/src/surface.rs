@@ -59,6 +59,8 @@ pub struct SurfaceMap {
 
 /// The map's grid cell size (game units).
 const CELL: f32 = 64.0;
+/// Triangles this much farther than the nearest still count as touching the point (game units).
+const TIE: f32 = 0.05;
 
 fn cell(v: f32) -> i32 {
     (v / CELL).floor() as i32
@@ -97,18 +99,24 @@ impl SurfaceMap {
         Some(map)
     }
 
-    /// The surface name at a point on (or next to) the mesh: the nearest triangle's in the point's grid cell.
+    /// The surface name at a point on (or next to) the mesh: the nearest triangle's in the point's grid cell; of
+    /// triangles as near (within `TIE` units: a rail lying on the planks of lev_5_m3's bridge touches them where
+    /// Roman walks) the most level one, the floor a foot stands on (the meshes' windings vary, so up or down alike).
     pub fn at(&self, p: Vec3) -> Option<&str> {
         if self.tris.is_empty() {
             return self.names.first().map(String::as_str);
         }
         let cands = self.grid.get(&(cell(p.x), cell(p.z)))?;
-        let (_, k) = cands
+        let near: Vec<(f32, f32, u16)> = cands
             .iter()
             .map(|&i| &self.tris[i as usize])
-            .map(|(t, k)| (closest_on_triangle(p, t).distance_squared(p), *k))
-            .min_by(|a, b| a.0.total_cmp(&b.0))?;
-        self.names.get(k as usize).map(String::as_str)
+            .map(|(t, k)| (closest_on_triangle(p, t).distance(p), (t[1] - t[0]).cross(t[2] - t[0]).normalize_or_zero().y.abs(), *k))
+            // (a degenerate triangle, a sliver of the exported strips, gives no distance)
+            .filter(|n| n.0.is_finite())
+            .collect();
+        let best = near.iter().map(|n| n.0).min_by(f32::total_cmp)?;
+        let (_, _, k) = near.iter().filter(|n| n.0 <= best + TIE).max_by(|a, b| a.1.total_cmp(&b.1))?;
+        self.names.get(*k as usize).map(String::as_str)
     }
 }
 
@@ -195,6 +203,10 @@ mod tests {
         let m = SurfaceMap::new(&v, &t, &[(0..1, "snow_nonpath_01".into()), (1..2, "ice".into())]).unwrap();
         assert_eq!(m.at(Vec3::new(2.0, 0.01, 2.0)), Some("snow_nonpath_01"));
         assert_eq!(m.at(Vec3::new(15.0, 0.0, 2.0)), Some("ice"));
+        // a degenerate triangle touching the point (zero area) does not take it
+        let v2 = [v[0], v[1], v[2], v[3], v[4], Vec3::new(2.0, 0.0, 2.0)];
+        let m2 = SurfaceMap::new(&v2, &[[0, 1, 2], [5, 5, 5]], &[(0..1, "Wood_path_planks".into()), (1..2, "Metal_path_rails".into())]).unwrap();
+        assert_eq!(m2.at(Vec3::new(2.0, 0.0, 2.0)), Some("Wood_path_planks"));
         let one = SurfaceMap::new(&v, &t, &[(0..2, "Grass_path".into())]).unwrap();
         assert_eq!(one.at(Vec3::new(500.0, 0.0, 0.0)), Some("Grass_path"));
     }
