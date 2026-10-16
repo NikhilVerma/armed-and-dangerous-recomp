@@ -658,6 +658,34 @@ Behaviour state and tests: docs/subsystems/grunt-ai.md 13-14, companions.md 7. N
 taunts, throws, captains, noise, near.{mind, kind, reaction, targets_player}) and `q_lead` / `jonesy_lead`.
 `tools/regress.py --scene DIR --play DIR` runs the suite from a worktree without work/.
 
+## The character body and the game's contact rules (2026-10-16, agent-charbody)
+
+The AI characters' bodies are the original's (ai/body.rs, Object_BuildRadiusCollision 0x004527d0): a dynamic sphere of
+`collision_radius` sitting on the feet, translation only. Around it, three pieces that belong to it:
+- **contacts.rs** (game-neutral): per-body `ContactRule`s that a Jolt contact listener applies: `group` (bodies of one
+  group never touch: the AI's +0x510, a squad's members and its goliath, 0x0042de60 / GenericAIObject_Slot40
+  0x00432590 through CollisionFilter_IsEnabled 0x00411710), `ignore` (one body passed through: +0x50c, set by a bump
+  while walking somewhere, GenericAIObject_Slot44 0x004320b0), and a run-time `friction` (Body_SetFriction 0x00458250;
+  combined sqrt(fA * fB) as 0x00413240: 0 in a squad, the material's otherwise, 0x0042cb80). The listener also keeps
+  each ruled body's contacts of the last step (`Physics::touches`): a jumper lands on any contact (the contact note
+  0x004320b0 -> 0x0042e1c0), not only on ground under him. `Physics::set_contact_rule` drops a body's cached contacts
+  when its rule changes.
+- **Bullets** do not hit the sphere: the original's projectile ray meets the collision model (0x0047e580,
+  hitparts.rs). The sphere is in `no_bullets`; `Physics::hit_volumes` holds a capsule round the model (0.55 x the
+  radius, 0.3..10.1 above the feet) that `raycast_bullet` tests besides the world (a head above the sphere still
+  takes a shot).
+- **The landscape collides from both sides** in the solver (Havok's MOPP meshes are two-sided):
+  `add_static_mesh(.., two_sided)` builds a compound of the triangles and the triangles turned round;
+  `Physics::query()` (every ray / shape query and Roman's CharacterVirtual) skips the turned-round child, so queries
+  and their normals are unchanged. Placed objects stay one-sided (many are hulls in the original; barracks troops walk
+  out through their building's mesh: every placed mesh two-sided broke alarm1 / splines1 / cover3). Statics have the
+  default material's friction 1.0. force_ground's touch tolerance is 0.3 (world 0.2 + mesh radius 0.1).
+- The AI's line of sight (`line_of_sight`: the squad's scan, a walk's straight leg) passes AI bodies as 0x00426fd0.
+
+The squads and jumpers that broke when only the sphere was tried (c6e6fae): squad members pushed each other apart and
+the squad's scan was blocked by its own members (now: one group, sight through AI bodies); jumpers held on an edge
+by friction never "landed" because the landing asked for ground under the feet (now: any contact).
+
 ## Comparing sounds with the original
 
 The original logs every sound it starts with `[test] log_sounds=1` (hook, and-sounds.txt in the instance: frame

@@ -93,21 +93,27 @@ impl Physics {
         br(p) / self.meters_per_unit
     }
 
-    /// A static triangle mesh, vertices already in engine space (game units). Havok's meshes (MOPP) collide from both
-    /// sides, Jolt's solver only from the front: the body is a compound of the triangles and the triangles turned round
-    /// (`BACK_FACES`), which every query here skips (rays and shape tests already see both sides, and their hits keep the
-    /// triangles' own normals). A body resting on the underside of an overhang stays there, as in the original (lev_5_m3
-    /// grunt 44: its contact with the landscape from behind from the unpause on, GenericAIObject_Slot42 / Slot44 traced,
-    /// docs/journal/2026-10-16-charbody.md). Friction 1.0: the original's default material (PhysMaterial_Load 0x00412140:
-    /// "%s_friction", else default_friction, 1.0 on every level; wood's 20 is not modelled).
-    pub fn add_static_mesh(&mut self, vertices: &[Vec3], triangles: &[[u32; 3]]) -> Option<BodyId> {
+    /// A static triangle mesh, vertices already in engine space (game units). Jolt's solver collides with triangles
+    /// from the front only. `two_sided`: from both sides too, as Havok's MOPP meshes (the landscape): the body is a
+    /// compound of the triangles and the triangles turned round (`BACK_FACES`), which every query here skips (rays and
+    /// shape tests already see both sides, and their hits keep the triangles' own normals): a body under an overhang
+    /// meets its underside (lev_5_m3 grunt 44: in contact with the landscape from behind from the unpause on,
+    /// GenericAIObject_Slot42 / Slot44 traced, docs/journal/2026-10-16-charbody.md). The placed objects stay one-sided:
+    /// many of the original's are convex hulls, and a troop leaving a barracks walks out through its mesh. Friction
+    /// 1.0: the original's default material (PhysMaterial_Load 0x00412140: "%s_friction", else default_friction, 1.0 on
+    /// every level; wood's 20 is not modelled).
+    pub fn add_static_mesh(&mut self, vertices: &[Vec3], triangles: &[[u32; 3]], two_sided: bool) -> Option<BodyId> {
         let k = self.meters_per_unit;
         let v: Vec<j::Vec3> = vertices.iter().map(|p| jv(*p * k)).collect();
         let (front, _dropped) = Shape::new_mesh(&v, triangles).ok()?;
-        let reversed: Vec<[u32; 3]> = triangles.iter().map(|t| [t[0], t[2], t[1]]).collect();
-        let (back, _dropped) = Shape::new_mesh(&v, &reversed).ok()?;
-        let child = |shape, user_data| CompoundChild { shape, position: j::Vec3::new(0.0, 0.0, 0.0), rotation: jq(Quat::IDENTITY), user_data };
-        let shape = Shape::new_compound(&[child(&front, FRONT_FACES), child(&back, BACK_FACES)]).ok()?;
+        let shape = if two_sided {
+            let reversed: Vec<[u32; 3]> = triangles.iter().map(|t| [t[0], t[2], t[1]]).collect();
+            let (back, _dropped) = Shape::new_mesh(&v, &reversed).ok()?;
+            let child = |shape, user_data| CompoundChild { shape, position: j::Vec3::new(0.0, 0.0, 0.0), rotation: jq(Quat::IDENTITY), user_data };
+            Shape::new_compound(&[child(&front, FRONT_FACES), child(&back, BACK_FACES)]).ok()?
+        } else {
+            front
+        };
         let id = self.world.create_body(&shape, &BodySettings::new_static().friction(1.0)).ok()?;
         self.static_bodies += 1;
         self.static_triangles += triangles.len();
@@ -299,12 +305,14 @@ impl Physics {
         Some(p.with_y(free + 0.1))
     }
 
-    /// The shape at `centre` (unrotated) touches the landscape: overlaps it or comes within the collision tolerance
-    /// (Havok's default 0.1 units), from either side of its triangles.
+    /// The shape at `centre` (unrotated) touches the landscape: overlaps it or comes within the collision tolerance,
+    /// from either side of its triangles. The tolerance is 0.3: the game's world tolerance 0.2 (world cinfo +0x40, Havok's
+    /// default 0.1) and the mesh's own radius 0.1 (mesh shape +0x20): the original lifts lev_5_m3 grunt 44 / lev_5_m1
+    /// captain 66 to 0.31 / 0.32 off the overhang (their traced z 315.99 / 297.89; 0.1 gave 0.11 / 0.12, z 1.4 / 0.9 lower).
     fn touches_landscape(&self, shape: &Shape, centre: Vec3) -> bool {
         let Some(landscape) = self.landscape else { return false };
         let k = self.meters_per_unit;
-        let q = CollideShape::new(shape, self.to_m(centre), j::Quat::IDENTITY).max_separation_distance(0.1 * k).collide_with_back_faces(true);
+        let q = CollideShape::new(shape, self.to_m(centre), j::Quat::IDENTITY).max_separation_distance(0.3 * k).collide_with_back_faces(true);
         self.world.collide_shape(&q, &Self::query()).is_ok_and(|hits| hits.iter().any(|h| h.body == landscape))
     }
 

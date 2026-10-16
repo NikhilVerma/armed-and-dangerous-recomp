@@ -210,7 +210,7 @@ fn spawn_turret(
     let nodes = Nodes::from_anim(&anim_lib.dir, &turn).unwrap_or_default();
     let collider = tpl.collision.as_ref().and_then(|c| lib.load_model(c, false, assets, meshes, materials)).map(|m| (m.vertices.clone(), m.tris.clone())).and_then(|(v, t)| {
         let v: Vec<Vec3> = v.iter().map(|x| world.transform_point3(*x)).collect();
-        physics.add_static_mesh(&v, &t)
+        physics.add_static_mesh(&v, &t, false)
     });
     if let Some(c) = collider {
         crate::level::collider_lists(physics, &p, c);

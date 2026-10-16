@@ -218,7 +218,24 @@ std::string Body()
             o += ",\"class\":" + std::to_string(At<uint32_t>(g, 0));
             // the body keyframed (Body_isKeyframed 0x00457790: held where the AI puts it, no gravity) or dynamic
             if (At<uint32_t>(g, 0x1c4))
+            {
                 o += ",\"kf\":" + std::to_string(orig::fn_00457790(reinterpret_cast<uint32_t>(g)) & 0xff);
+                // the body's simulation island active (entity +0x10 -> island +0x29: awake, not deactivated) and its
+                // linear velocity (motion = entity +8, +0x40; docs/subsystems/havok-layouts.md)
+                const uint32_t entity = At<uint32_t>(g, 0x1c4);
+                char ent[16];
+                sprintf(ent, "\"%08x\"", entity);
+                o += std::string(",\"entity\":") + ent;
+                const uint32_t island = Readable(entity, 0x14) ? At<uint32_t>(reinterpret_cast<void*>(entity), 0x10) : 0;
+                if (Readable(island, 0x2a))
+                    o += ",\"awake\":" + std::to_string(At<uint8_t>(reinterpret_cast<void*>(island), 0x29));
+                const uint32_t motion = Readable(entity, 0xc) ? At<uint32_t>(reinterpret_cast<void*>(entity), 8) : 0;
+                if (Readable(motion, 0x4c))
+                {
+                    o += ",\"vel\":";
+                    Vec(o, reinterpret_cast<const float*>(motion + 0x40));
+                }
+            }
             o += '}';
         }
     }
