@@ -34,9 +34,13 @@ pub struct GameOptions {
     pub mouse_sensitivity: f32,
     pub invert_mouse: bool,
     /// Extras tokens found (Game+0x200, saved like the original's options), and the placed tokens already taken
-    /// ("level:instance id"), so each is found once
+    /// ("level:instance id", pickup.rs `token_key`), so each is found once
     pub tokens: u32,
     pub tokens_taken: Vec<String>,
+    /// `tokens_taken` names the level of each token. Files from before (2026-10-17) keyed every level's tokens as
+    /// "lev_1_m1:<id>": `from_json` turns those into "any:<id>" (taken on some level with that id), as they then
+    /// counted, so no token is found twice
+    pub tokens_keyed_by_level: bool,
     /// the profile's unlock records (Unlock_Add 0x004a07a0): category 1, the levels whose mission start was shown, and
     /// category 0, the story movies seen (extras.rs: the Replay Level and Cutscenes pages)
     pub levels_reached: Vec<String>,
@@ -74,6 +78,7 @@ impl Default for GameOptions {
             invert_mouse: false,
             tokens: 0,
             tokens_taken: Vec::new(),
+            tokens_keyed_by_level: true,
             levels_reached: Vec::new(),
             movies_seen: Vec::new(),
             money: 0.0,
@@ -107,6 +112,7 @@ impl GameOptions {
     /// gives the defaults.
     pub fn from_json(text: &str) -> Self {
         let Ok(serde_json::Value::Object(file)) = serde_json::from_str::<serde_json::Value>(text) else { return Self::default() };
+        let legacy_tokens = !file.contains_key("tokens_keyed_by_level");
         let Ok(serde_json::Value::Object(mut merged)) = serde_json::to_value(Self::default()) else { return Self::default() };
         for (k, v) in file {
             if !merged.contains_key(&k) {
@@ -120,7 +126,16 @@ impl GameOptions {
                 warn!("options: {k} is of the wrong type, kept its default");
             }
         }
-        serde_json::from_value(serde_json::Value::Object(merged)).unwrap_or_default()
+        let mut o: Self = serde_json::from_value(serde_json::Value::Object(merged)).unwrap_or_default();
+        if legacy_tokens {
+            for k in &mut o.tokens_taken {
+                if let Some(id) = k.strip_prefix("lev_1_m1:") {
+                    *k = format!("{}:{id}", crate::pickup::ANY_LEVEL);
+                }
+            }
+            o.tokens_keyed_by_level = true;
+        }
+        o
     }
 
     pub fn save(&self) {
@@ -266,6 +281,16 @@ mod tests {
         o.graphics_preset = crate::graphics::Preset::Original;
         o.graphics.insert("bloom".into(), 0.2.into());
         assert_eq!(GameOptions::from_json(&serde_json::to_string(&o).unwrap()), o);
+    }
+
+    /// An options file from before the tokens were keyed by level: its "lev_1_m1:<id>" keys stand for any level.
+    #[test]
+    fn legacy_token_keys() {
+        let o = GameOptions::from_json(r#"{"tokens": 2, "tokens_taken": ["lev_1_m1:12", "lev_1_m1:40"]}"#);
+        assert_eq!(o.tokens_taken, vec!["any:12".to_string(), "any:40".to_string()]);
+        assert!(o.tokens_keyed_by_level);
+        let n = GameOptions::from_json(r#"{"tokens_keyed_by_level": true, "tokens_taken": ["lev_1_m1:12"]}"#);
+        assert_eq!(n.tokens_taken, vec!["lev_1_m1:12".to_string()]);
     }
 
     /// Record by record (0x00462310): a wrong type keeps that option's default only; unknown and missing keys.

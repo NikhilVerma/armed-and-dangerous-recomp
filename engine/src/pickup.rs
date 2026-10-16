@@ -606,6 +606,16 @@ pub fn token_message(texts: &crate::gamemenu::Texts, count: u32, difficulty: cra
     (if line.is_empty() { got } else { format!("{got}<br>{line}") }, unlocked)
 }
 
+/// The level part of a legacy token key (options.rs `tokens_keyed_by_level`): taken on some level, with that id.
+pub const ANY_LEVEL: &str = "any";
+
+/// A placed pickup's persistent key: its level (the export folder's name) and instance id. It used to say "lev_1_m1"
+/// on every level, so a token taken on one level hid the token of the same id on every other.
+fn token_key(level_dir: &std::path::Path, id: u32) -> String {
+    let level = level_dir.file_name().and_then(|n| n.to_str()).unwrap_or("level");
+    format!("{level}:{id}")
+}
+
 /// A pickup placed in the level (PickupObject, behaviour pickup_*, or an ammo pickup's template name): the same
 /// pickup, staying where it is placed. A token already taken removes itself (0x00472a00: 0x004a0720 asks whether the
 /// level's token was found).
@@ -635,8 +645,9 @@ fn placed_pickups(
         if !class.starts_with("pickup") || class == "pickup_generator" {
             continue;
         }
-        let key = format!("lev_1_m1:{}", id.0);
-        if class == "pickup_token" && opts.tokens_taken.contains(&key) {
+        let key = token_key(&lib_dir.dir, id.0);
+        let legacy = format!("{ANY_LEVEL}:{}", id.0);
+        if class == "pickup_token" && (opts.tokens_taken.contains(&key) || opts.tokens_taken.contains(&legacy)) {
             commands.entity(e).despawn();
             continue;
         }
