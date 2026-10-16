@@ -1,4 +1,4 @@
-{"title": true, "steps": [
+{"title": true, "timeout": 1200, "steps": [
  {"wait": 1.0},
  {"expect": {"menu.page": "Main"}},
  {"cheat": "MISSIONS"},

@@ -33,7 +33,7 @@ SUITE = ['save_write', 'save_read', 'topsyhit2', 'turn_in_place', 'turret1', 'de
          'vehicles_rocket_tower', 'vehicles_rocket_bud', 'vehicles_zeppelin', 'vehicles_saucer', 'vehicles_colossus', 'vehicles_forge_cannon']
 # 'complete_<level>' (levels 4, 5 and the bonus levels): the level played to mission complete through its real
 # objective chain (land / damage steps skip travel and fights, SHIELDME keeps Roman alive), then Stats -> the next level
-SUITE += ['complete_lev_4_m3', 'complete_lev_5_m1', 'complete_lev_5_m3', 'complete_lev_5_m4', 'complete_lev_bonus_m1', 'complete_lev_bonus_m3', 'complete_lev_4_m5', 'complete_lev_5_m5', 'complete_lev_bonus_m2', 'companion_death_fail', 'complete_lev_4_m1']
+SUITE += ['complete_lev_4_m3', 'complete_lev_5_m1', 'complete_lev_5_m3', 'complete_lev_5_m4', 'complete_lev_bonus_m1', 'complete_lev_bonus_m3', 'complete_lev_4_m5', 'complete_lev_5_m5', 'complete_lev_bonus_m2', 'companion_death_fail', 'complete_lev_4_m1', 'complete_lev_5_m2']
 # 'complete_<level>' for levels 1 to 3 (agent-complete-a; status table in docs/journal/2026-10-16-complete-a.md)
 SUITE += ['complete_lev_1_m1', 'complete_lev_1_m1_b', 'gun_save_write', 'gun_save_read', 'complete_lev_1_m3']
 # 'launch_*': the real launch path as the player plays (the Remaster preset chosen by the options, the intro, the

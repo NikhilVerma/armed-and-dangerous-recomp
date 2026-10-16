@@ -1,4 +1,4 @@
-{"scene": "lev_5_m5", "steps": [
+{"scene": "lev_5_m5", "timeout": 1200, "steps": [
  {"wait": 1.0},
  {"expect": {"movie.name": "pre_5_5_jerosa"}},
  {"tap": "Enter"},

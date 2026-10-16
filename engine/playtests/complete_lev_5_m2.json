@@ -1,4 +1,4 @@
-{"scene": "lev_5_m2", "steps": [
+{"scene": "lev_5_m2", "timeout": 1200, "steps": [
  {"until": "message"},
  {"wait": 0.5},
  {"tap": "Enter"},
