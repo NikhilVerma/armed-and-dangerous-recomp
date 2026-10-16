@@ -373,8 +373,13 @@ fn fly(
             }
             // p_molmer_dynamite has no fx_end, only fx_end_material: the original's blast (capture tntO, frame 1607,
             // stuck on a grunt) plays fx_imp_sticky's sounds (exp_fireball_med, exp_metal_small) and no surface layer:
-            // the material fx of what it is stuck to (a character: the base fx; the ground: _snow, as the bullets')
-            let end = p.s("fx_end").map(str::to_owned).or_else(|| p.s("fx_end_material").map(|m| if obj.is_some() { m.to_owned() } else { format!("{m}_snow") }));
+            // the material fx of what it is stuck to (a character: the base fx; the ground: its surface's variant,
+            // surface.rs)
+            let end = p.s("fx_end").map(str::to_owned).or_else(|| {
+                let m = p.s("fx_end_material")?;
+                let ground = if obj.is_some() { None } else { physics.surface_below(t.translation, 4.0) };
+                Some(ground.unwrap_or_default().variant(m, |n| data.fx.contains_key(n)))
+            });
             if let Some(n) = end.as_deref() {
                 fx.write(crate::fx::StartFx { name: n.to_owned(), at: t.translation, rotation: crate::level::game_to_engine(), follow: None, position_only: false });
             }

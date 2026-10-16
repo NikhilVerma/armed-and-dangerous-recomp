@@ -7,7 +7,7 @@
  "trace_from": -60,
  "suite": false,
  "known": {
-  "events.sounds": "B17: sounds the remaster does not start (or does not report): the pubs' amb_pub_exterior_lp at load, sheep, zeppelin creaks, shrub bomber loop, water footsteps",
+  "events.sounds": "B17 rest (the sound causes fixed by agent-sound): what is left comes from other families or chance: load-time sounds outside one game's traced window (B10 / E1 start message timing: the base levels' loops, the first ambient one-shot at load vs frame 2), random picks (ambient one-shots, thunder, sheep bleats), the grunts' gait (walk vs run footstep notes, charanim.rs), the grunts' _ic anim-event lines and boulder rolls (not in the remaster yet), vehicle loops (B14, vehicles not traced)",
   "grunt.pos": "B24: captain_sniper 228 (force_ground 0) on v_rockettower2 272 falls through the tower's top in the remaster (original stays at z 899.7)"
  }
 }

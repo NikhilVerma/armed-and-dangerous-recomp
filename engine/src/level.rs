@@ -441,12 +441,95 @@ fn attach_weapon(commands: &mut Commands, hand: Entity, model: &scene::Model, fi
     holder
 }
 
-/// A penguin (PenguinObject, vtable 0x005a1768): any hit kills it (damage 0x0048fa20, no amount threshold, no team
-/// filter), score_value -10 to Accidents; `dead` counts the time since (pngn_blown_up, then pngn_land_dead, the
-/// body lingering 5 s and fading 0.5 s: GoRagdoll 0x00431310's corpse timer).
-#[derive(Component, Default)]
-pub struct Penguin {
+/// A critter: a penguin (PenguinObject, vtable 0x005a1768) or a sheep (SheepObject, 0x005a8d00). The two classes share
+/// every method but the anim names (Slot105 0x0048fc90 / 0x0048fac0), the screams and the death lines (0x0048fe20 /
+/// 0x0048fc60). Any hit kills one (damage 0x0048fa20, no amount threshold, no team filter), score_value -10 to
+/// Accidents; `dead` counts the time since (blown_up, then land_dead, the body lingering 5 s and fading 0.5 s:
+/// GoRagdoll 0x00431310's corpse timer). Its grazing and walking: charanim.rs `critters`.
+#[derive(Component)]
+pub struct Critter {
+    pub species: Species,
+    /// +0xb60 (the property read 0x0048f140): a critter with a generic_txt, loaded after the mission object of a
+    /// level that starts in a turret (0x0044e600, `turret_start_known`), walks between its grazes
+    pub roams: bool,
+    /// the update's state (+0xb58) and timer (+0xb5c); None until the first update
+    pub state: Option<CritterState>,
     pub dead: Option<f32>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Species {
+    Penguin,
+    Sheep,
+}
+
+/// PenguinObject_Update 0x0048f690's states 1 and 2, with their timers.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum CritterState {
+    /// 1: the walk anim (8), physics off, for 5..10 s (GenericAI_Update meanwhile)
+    Walking(f32),
+    /// 2: graze / scan / bleat (anims 0x17 / 0x18 / 0x19), physics on, for 20..35 s
+    Grazing(f32),
+}
+
+impl Species {
+    /// The class of a placed object (its template name: neither class has a behaviour).
+    pub fn of(template: &str) -> Option<Species> {
+        match template {
+            "penguin" => Some(Species::Penguin),
+            "sheep" => Some(Species::Sheep),
+            _ => None,
+        }
+    }
+
+    /// An anim id's name (Slot105: PenguinObject 0x0048fc90, SheepObject 0x0048fac0).
+    pub fn anim(self, id: u32) -> &'static str {
+        match (self, id) {
+            (Species::Penguin, 0..=3) => "pngn_stand",
+            (Species::Penguin, 8..=0xa) => "pngn_walk",
+            (Species::Penguin, 0xb | 0xc) => "pngn_run",
+            (Species::Penguin, 0xd) => "pngn_salute",
+            (Species::Penguin, 0x18) => "pngn_scan_chat1",
+            (Species::Penguin, 0x17 | 0x19) => "pngn_scan_chat",
+            (Species::Penguin, 0x49 | 0x4a | 0x61) => "pngn_blown_up",
+            (Species::Penguin, 0x5d) => "pngn_land_dead",
+            (Species::Penguin, _) => "penguin_error_anim",
+            (Species::Sheep, 0..=3) => "sheep_turn",
+            (Species::Sheep, 8..=0xa) => "sheep_walk",
+            (Species::Sheep, 0xb | 0xc) => "sheep_run_human",
+            (Species::Sheep, 0xd) => "sheep_salute",
+            (Species::Sheep, 0x17) => "sheep_graze",
+            (Species::Sheep, 0x18) => "sheep_scan",
+            (Species::Sheep, 0x19) => "sheep_bleat",
+            (Species::Sheep, 0x49 | 0x4a | 0x61) => "sheep_blown_up",
+            (Species::Sheep, 0x5d) => "sheep_land_dead",
+            (Species::Sheep, _) => "sheep_error_anim",
+        }
+    }
+
+    /// The death lines (DeadAtPosition vt+0x158 through Audio_PlayRandomSound 0x00493b70: the penguin's 6 at
+    /// 0x005cb178, the sheep's 3 at 0x005cb16c).
+    pub fn death_lines(self) -> &'static [&'static str] {
+        match self {
+            Species::Penguin => &["ctr_penguin_scream_1", "ctr_penguin_scream_2", "ctr_penguin_scream_3", "ctr_penguin_scream_4", "ctr_penguin_surprise_1", "ctr_penguin_surprise_2"],
+            Species::Sheep => &["ctr_sheep_scream_1", "ctr_sheep_scream_2", "ctr_sheep_scream_3"],
+        }
+    }
+}
+
+/// What 0x0044e600 answers while instance `id` loads: whether the level starts with Roman in a turret, the
+/// mission's start_in_turret_tag (Game+0x26cc), which is set only once the mission object has loaded: the instances
+/// load in bank (id) order, so only those after it see the tag (lev_3_m4_bd: its sheep 157..191 roam, sheep 6 does
+/// not; lev_2_m4's and lev_5_m5's all come before their mission and graze only, as the original's traces show).
+fn turret_start_known(scene: &SceneFile, id: u32) -> bool {
+    scene
+        .logic
+        .iter()
+        .find(|l| l.template == "mission" && l.id < id)
+        .and_then(|m| m.props.get("start_in_turret_tag"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0)
+        != 0
 }
 
 /// A building's window pane (TwigletGenerator_Slot84 0x0040ad80 "windows": a "village_window" DefaultGameObject at
@@ -463,9 +546,14 @@ pub struct Window {
 #[derive(Component)]
 pub struct HandWeapon(pub &'static str);
 
+/// A model as a static mesh collider placed at `world`, with its triangles' surface names (surface.rs).
 fn static_collider(physics: &mut Physics, model: &scene::Model, world: Mat4) -> Option<BodyId> {
     let v: Vec<Vec3> = model.vertices.iter().map(|p| world.transform_point3(*p)).collect();
-    physics.add_static_mesh(&v, &model.tris)
+    let id = physics.add_static_mesh(&v, &model.tris)?;
+    if let Some(m) = crate::surface::SurfaceMap::new(&v, &model.tris, &model.surfaces) {
+        physics.surfaces.insert(id, m);
+    }
+    Some(id)
 }
 
 /// A placed object's collider joins the world: its material, and whether bullets stop on it. Bullets hit only
@@ -857,12 +945,10 @@ pub fn spawn(
         // DefaultGameObject_Load 0x0044fd20 (no vt+0xf8 filter, no lists): no collider (guess: a body without the
         // filter collides with nothing; the crosshair's list +0xe9c and the bullets' +0xe90 never hold it)
         let coll_name = coll_name.filter(|_| !(behavior.is_empty() && p.f("no_collide", 0.0) != 0.0));
-        let collider = coll_name
-            .and_then(|n| lib.load_model(&n, false, assets, meshes, materials).map(|m| (m.vertices.clone(), m.tris.clone())))
-            .and_then(|(v, t)| {
-                let v: Vec<Vec3> = v.iter().map(|x| world.transform_point3(*x)).collect();
-                physics.add_static_mesh(&v, &t)
-            });
+        let collider = match coll_name {
+            Some(n) => lib.load_model(&n, false, assets, meshes, materials).and_then(|m| static_collider(physics, m, world)),
+            None => None,
+        };
         if let Some(c) = collider {
             collider_lists(physics, &p, c);
         }
@@ -908,14 +994,10 @@ pub fn spawn(
                         decal_world.add_object(we, m, to_game * ww);
                     }
                 }
-                let collider = wt
-                    .collision
-                    .as_ref()
-                    .and_then(|n| lib.load_model(n, false, assets, meshes, materials).map(|m| (m.vertices.clone(), m.tris.clone())))
-                    .and_then(|(v, t)| {
-                        let v: Vec<Vec3> = v.iter().map(|x| ww.transform_point3(*x)).collect();
-                        physics.add_static_mesh(&v, &t)
-                    });
+                let collider = match wt.collision.as_ref() {
+                    Some(n) => lib.load_model(n, false, assets, meshes, materials).and_then(|m| static_collider(physics, m, ww)),
+                    None => None,
+                };
                 if let (Some(c), Some(mt)) = (collider, wp.s("material")) {
                     physics.materials.insert(c, mt.to_owned());
                 }
@@ -929,7 +1011,7 @@ pub fn spawn(
         if let Some(d) = destructible(&p) {
             commands.entity(e).insert(d);
             info.destructibles += 1;
-        } else if inst.template == "penguin" {
+        } else if let Some(species) = Species::of(&inst.template) {
             // in the projectile and area damage lists (+0xe90, +0xe94): 1 health, no filter
             commands.entity(e).insert((
                 Destructible {
@@ -955,7 +1037,7 @@ pub fn spawn(
                     teammate_damage: true,
                     badguy_damage: true,
                 },
-                Penguin::default(),
+                Critter { species, roams: p.s("generic_txt").is_some_and(|g| !g.is_empty() && g != "none") && turret_start_known(scene, inst.id), state: None, dead: None },
             ));
         }
     }
@@ -1113,12 +1195,10 @@ impl StageSwap<'_, '_> {
         }
         // its collision model, or (collide_poly) its render model, as a placed object's
         let coll_name = ht.collision.clone().or_else(|| (hp.i("collide_poly", 0) != 0).then_some(model_name).flatten());
-        let collider = coll_name
-            .and_then(|n| self.lib.load_model(&n, false, &self.assets, &mut self.meshes, &mut self.materials).map(|m| (m.vertices.clone(), m.tris.clone())))
-            .and_then(|(v, tr)| {
-                let v: Vec<Vec3> = v.iter().map(|x| world.transform_point3(*x)).collect();
-                self.physics.add_static_mesh(&v, &tr)
-            });
+        let collider = match coll_name {
+            Some(n) => self.lib.load_model(&n, false, &self.assets, &mut self.meshes, &mut self.materials).and_then(|m| static_collider(&mut self.physics, m, world)),
+            None => None,
+        };
         if let Some(c) = collider {
             collider_lists(&mut self.physics, &hp, c);
         }
@@ -1193,7 +1273,7 @@ fn husks(
     mut died: MessageReader<Died>,
     mut swap: StageSwap,
     placed: Query<(&Placed, &Transform, &Children)>,
-    mut penguins: Query<&mut Penguin>,
+    mut critters: Query<&mut Critter>,
     mut windows: Query<(Entity, &Window, &Placed, Option<&mut Destructible>)>,
 ) {
     for d in died.read() {
@@ -1215,9 +1295,9 @@ fn husks(
         }
         let Ok((p, t, children)) = placed.get(d.0) else { continue };
         swap.unlink(d.0, p);
-        // a penguin keeps its model: its death anims play (charanim.rs)
-        if let Ok(mut pg) = penguins.get_mut(d.0) {
-            pg.dead = Some(0.0);
+        // a critter keeps its model: its death anims play (charanim.rs)
+        if let Ok(mut c) = critters.get_mut(d.0) {
+            c.dead = Some(0.0);
             continue;
         }
         // the husk picked at load (Object_LoadBaseProps 0x00451360), at the dead object's matrix

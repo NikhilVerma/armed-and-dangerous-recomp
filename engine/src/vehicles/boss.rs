@@ -258,11 +258,7 @@ fn setup(
         if let Some(c) = pl.collider {
             ec.insert(super::MovingCollider::new(c, t.to_matrix()));
         }
-        // fx_origin_start_lock: the zeppelin's propeller and hum, the saucer's loop
-        if let Some(fx) = p.s("fx_origin_start_lock").filter(|s| !s.is_empty() && *s != "null" && *s != "none") {
-            let at = p.s("fx_origin_start_lock_parent").filter(|s| *s != "null").and_then(|n| own.point(n)).unwrap_or(Vec3::ZERO);
-            ec.insert(super::StartLockFx { name: fx.to_owned(), at });
-        }
+        // (fx_origin_start_lock, the zeppelin's propeller and hum, the saucer's loop: every placed object's, mod.rs)
     }
 }
 

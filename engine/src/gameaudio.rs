@@ -34,20 +34,30 @@ fn mark_listener_body(mut commands: Commands, q: Query<Entity, (With<crate::play
     }
 }
 
-/// FX <name>: the fx at the character; fx_material <name>: + "_" + the surface (lev_1_m1 ground: snow, guess:
-/// the material lookup under the feet is not ported).
-fn notes(mut ev: MessageReader<AnimNote>, q: Query<&GlobalTransform>, mut fx: MessageWriter<StartFx>) {
+/// FX <name>: the fx at the character; fx_material <name>: with the variant of the surface under the character (its
+/// ground contact, 0x00454b20: surface.rs).
+fn notes(
+    mut ev: MessageReader<AnimNote>,
+    q: Query<&GlobalTransform>,
+    physics: NonSend<crate::physics::Physics>,
+    mut fx: MessageWriter<StartFx>,
+    mut surface_fx: MessageWriter<crate::surface::StartSurfaceFx>,
+) {
     for n in ev.read() {
         let mut it = n.text.split_whitespace();
         let (Some(kind), Some(name)) = (it.next(), it.next()) else { continue };
         let Ok(t) = q.get(n.entity) else { continue };
-        let name = name.to_lowercase();
-        let name = match kind.to_lowercase().as_str() {
-            "fx" | "fxlocked" => name,
-            "fx_material" => format!("{name}_snow"),
-            _ => continue,
-        };
-        fx.write(StartFx { name, at: t.translation(), rotation: Quat::IDENTITY, follow: None, position_only: false });
+        let start = StartFx { name: name.to_lowercase(), at: t.translation(), rotation: Quat::IDENTITY, follow: None, position_only: false };
+        match kind.to_lowercase().as_str() {
+            "fx" | "fxlocked" => {
+                fx.write(start);
+            }
+            "fx_material" => {
+                let surface = physics.surface_below(t.translation(), 12.0).unwrap_or_default();
+                surface_fx.write(crate::surface::StartSurfaceFx { fx: start, surface });
+            }
+            _ => {}
+        }
     }
 }
 
@@ -195,8 +205,24 @@ fn ambient(
     }
 }
 
-/// The level's music table (0x005ce4e0 + 0x1c * (Game+0x2708 - 1), level 1's row): states 0..6, -1 = silence.
-const TRACKS: [&str; 7] = ["l1amb", "stealth", "skirm2", "l1bat", "skirm1", "l1vic", "l1def"];
+/// The music table (0x005ce4e0 + 0x1c * (Game+0x2708 - 1)): a row per world, the mission's env_type 1..5
+/// (MissionObject_Load 0x0044c170 -> Game+0x2708; the bonus levels borrow a world's: lev_bonus_m1 3, _m2 2, _m3 4);
+/// states 0..6, -1 = silence.
+const TRACKS: [[&str; 7]; 5] = [
+    ["l1amb", "stealth", "skirm2", "l1bat", "skirm1", "l1vic", "l1def"],
+    ["l2amb", "stealth", "skirm2", "l2bat", "skirm1", "l2vic", "l2def"],
+    ["l3amb", "stealth", "skirm2", "l3bat", "skirm1", "l3vic", "l3def"],
+    ["l4amb", "stealth", "skirm2", "l4bat", "skirm1", "l4vic", "l4def"],
+    ["l5amb", "stealth", "skirm2", "l5bat", "skirm1", "l5vic", "l5def"],
+];
+
+/// The level's world (env_type, 1..5; out of range taken as world 1) from its mission object.
+fn world_of(scene: &std::path::Path) -> usize {
+    let Ok(text) = std::fs::read_to_string(scene.join("scene.json")) else { return 1 };
+    let Ok(sc) = serde_json::from_str::<crate::scene::SceneFile>(&text) else { return 1 };
+    let env = sc.logic.iter().find(|l| l.template == "mission").and_then(|m| m.props.get("env_type")).and_then(|v| v.as_i64()).unwrap_or(1);
+    if (1..=5).contains(&env) { env as usize } else { 1 }
+}
 /// Battle / stealth re-arm time (0x005bcbb8 = 180.0).
 const REARM: f32 = 180.0;
 /// Music fade-out on stop when a segment has no envelope: the music definitions' envelope `fade_out` (0x004fb360).
@@ -239,6 +265,8 @@ pub struct Music {
     /// edges: the mission won, Roman dead
     won: bool,
     dead: bool,
+    /// the level's world (Game+0x2708): its row of TRACKS
+    world: usize,
 }
 
 impl Default for Music {
@@ -266,6 +294,7 @@ impl Default for Music {
             start: None,
             won: false,
             dead: false,
+            world: 1,
         }
     }
 }
@@ -283,6 +312,10 @@ impl Music {
     pub fn request_defeat(&mut self) {
         self.defeat = true;
         self.hold = 0.0;
+    }
+    /// A state's track in the level's world.
+    fn track(&self, state: i32) -> Option<&'static str> {
+        TRACKS[self.world.clamp(1, 5) - 1].get(usize::try_from(state).ok()?).copied()
     }
     /// Audio +0xdc on the music handle +0x98.
     fn playing(&self) -> bool {
@@ -405,10 +438,14 @@ fn music_state(
     player: Query<&GlobalTransform, With<crate::ai::Player>>,
     roman: Query<&crate::player::Roman>,
     mut rng: ResMut<crate::fx::FxStats>,
+    launch: Option<Res<crate::Launch>>,
 ) {
     let m: &mut Music = &mut music;
     let title = *state.get() == crate::AppState::Title;
     if title || mission.as_ref().is_some_and(|mi| mi.is_added()) {
+        if let Some(l) = launch.as_ref().filter(|_| !title) {
+            m.world = world_of(&l.scene);
+        }
         if m.state != -1 || m.timer != 0.0 || m.played != 0.0 || m.hold != 1.0 || m.won || m.dead || m.start.is_some() || (m.segment.is_some() && m.fade.is_none()) {
             m.reset();
         }
@@ -592,7 +629,7 @@ fn music_state(
     if next == m.state {
         return;
     }
-    info!("music: state {} -> {} ({}) at {:.1} s, near {} far {}", m.state, next, TRACKS.get(next as usize).unwrap_or(&"silence"), time.elapsed_secs(), m.near, m.far);
+    info!("music: state {} -> {} ({}) at {:.1} s, near {} far {}", m.state, next, m.track(next).unwrap_or("silence"), time.elapsed_secs(), m.near, m.far);
     m.state = next;
     if next == -1 {
         // silence for the time played, clamped to music_play_delay_min..max (played is 0 after a jingle ended)
@@ -612,7 +649,9 @@ fn music_state(
         6 => true,
         _ => false,
     };
-    m.play(TRACKS[next as usize], flag);
+    if let Some(t) = m.track(next) {
+        m.play(t, flag);
+    }
 }
 
 /// The music voice (the driver's stream, 0x00500890 / 0x00500a00): plays the segments one after the other,
@@ -690,8 +729,9 @@ fn music_voice(
         return;
     };
     m.left = bank.sounds.get(&seg).map(|d| d.duration).unwrap_or(4.0);
+    // the next segment is the stream's own (0x00500a00), not a play call: a piece
     let (id, p) = segment(&seg, m);
-    sounds.write(p);
+    sounds.write(PlaySound { part: crate::audio::Part::Piece, ..p });
     m.voice = Some(id);
     m.segment = Some(seg);
 }
@@ -783,7 +823,7 @@ fn log_audio(
     v["ambient"] = ambient.into();
     v["music"] = serde_json::json!({
         "state": music.state,
-        "track": TRACKS.get(music.state as usize).copied().unwrap_or("silence"),
+        "track": music.track(music.state).unwrap_or("silence"),
         "segment": music.segment.clone().unwrap_or_default(),
         "queue": music.queue.clone().unwrap_or_default(),
         "fading": music.fade.is_some(),

@@ -9,7 +9,7 @@
  "known": {
   "companion.jonesy.pos": "C1: a companion 12-13 units from the original's (follow distance / start spot), just past the tolerance",
   "companion.q.pos": "C1: a companion 12-13 units from the original's (follow distance / start spot), just past the tolerance",
-  "events.sounds": "B17: sounds the remaster does not start (or does not report): the pubs' amb_pub_exterior_lp at load, sheep, zeppelin creaks, shrub bomber loop, water footsteps",
+  "events.sounds": "B17 rest (the sound causes fixed by agent-sound): what is left comes from other families or chance: load-time sounds outside one game's traced window (B10 / E1 start message timing: the base levels' loops, the first ambient one-shot at load vs frame 2), random picks (ambient one-shots, thunder, sheep bleats), the grunts' gait (walk vs run footstep notes, charanim.rs), the grunts' _ic anim-event lines and boulder rolls (not in the remaster yet), vehicle loops (B14, vehicles not traced)",
   "grunt.mind": "B15: grunt generators spawn differently (lev_2_m2: 17 / 25 / 27 spawn in the remaster only; lev_bonus_m2: 171 in the original only)",
   "grunt.pos": "B21: grunts on a marker walk (state 0x96) set off ~18 frames after the unpause in the original, at once in the remaster (AI)",
   "roman.pos": "R1: Roman walks 3-6 units farther in 2 s in the remaster (speed / acceleration)"

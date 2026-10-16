@@ -272,8 +272,13 @@ fn setup(mut commands: Commands, pt: Res<crate::playtest::Playtest>) {
     commands.insert_resource(Oracle { cfg, keys, frame: 0, brief: None, clock0: None, out, pending: Vec::new(), log_seen: 0, triggers: Vec::new(), sounds: Vec::new(), warped: false, down: Vec::new(), alive: None, panes: None, deaths: Vec::new() });
 }
 
-fn count(mut o: ResMut<Oracle>, mission: Option<Res<crate::mission::Mission>>) {
+fn count(mut o: ResMut<Oracle>, mission: Option<Res<crate::mission::Mission>>, bank: Option<ResMut<crate::audio::SoundBank>>) {
     o.frame += 1;
+    // the sound events: the bank lists every start from the frame it exists (a level's loops start in its first
+    // frame, before the trace runs in Last: switched on there, they were lost, B17)
+    if let Some(mut b) = bank.filter(|b| !b.log_started) {
+        b.log_started = true;
+    }
     // the briefing: the first paused message once the level plays (none after 600 frames: the clock starts anyway)
     if o.brief.is_none() && (mission.is_some_and(|m| m.showing.is_some()) || o.frame >= 600) {
         o.brief = Some(o.frame);
@@ -352,7 +357,6 @@ fn trace(
         o.log_seen = m.log.len();
     }
     if let Some(b) = bank.as_deref_mut() {
-        b.log_started = true;
         let s = std::mem::take(&mut b.started_keys);
         o.sounds.extend(s);
     }

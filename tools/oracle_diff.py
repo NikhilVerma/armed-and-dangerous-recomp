@@ -36,7 +36,8 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCENARIOS = os.path.join(ROOT, "tools", "oracle_scenarios")
-# ORACLE_OUT: another folder for the traces and reports (parallel agents sharing one work/ keep theirs apart)
+# ORACLE_OUT: a parallel agent's own output folder (work/oracle is shared; `--only remaster` reads the original's
+# trace from there, so copy it over first)
 OUT = os.environ.get("ORACLE_OUT") or os.path.join(ROOT, "work", "oracle")
 
 # The original's AI state (+0x460, docs/subsystems/grunt-ai.md) as the remaster's Mind (engine/src/ai.rs: the variants
@@ -205,6 +206,8 @@ def sound_key(name):
     voice = re.match(r"^(rom|jon|q11)\d{5}_(.+)$", n)
     if voice:
         return "voice line " + voice.group(2)
+    # a loop's variant sits before its "_lp" (fire_torch_1_lp .. fire_torch_3_lp: the fire fx's random pick)
+    n = re.sub(r"_\d{1,2}_lp$", "_lp", n)
     head, _, tail = n.rpartition("_")
     return head if head and tail.isdigit() and len(tail) <= 2 else n
 
