@@ -4130,6 +4130,10 @@ pub struct Companion {
     /// send_trigger_on_death (+0x528, sent by the AI's death 0x00431720): lev_4_m2's Jonesy 5001 (failure 2),
     /// lev_bonus_m3's pair 5002 / 5001
     death_trigger: i64,
+    /// stig_damage_multiplier (+0x8fc) and forge_damage_multiplier (+0x900), default 1 (ai_01.cpp:2348): a mounted
+    /// gun's bullets do 0.3 and the forge cannon's mortar 0.1 of their damage to Q and Jonesy (p_q / p_molmer; no other
+    /// AI property set of the 24 levels changes them)
+    damage_mult: (f32, f32),
     /// hits and death (GenericAIObject_Slot52 0x00430340 and Character_Die 0x004319e0, no companion overrides):
     /// health last frame, seconds since the last Hurt bark (+0xb48, 10 s), the reaction anim playing (name, time
     /// left), a player / teammate shot that hit (FriendlyFire bark, no damage), the attacker to offer as a target,
@@ -4246,6 +4250,7 @@ impl Companion {
             // 0x00483250 drops a trigger without a marker tag ("%s setup to receive trigger, with no marker tag set")
             starts_in_formation: p.i("receive_trigger_activate", 0) == 0 || p.i("tower_marker_tag", 0) == 0,
             death_trigger: p.i("send_trigger_on_death", 0),
+            damage_mult: (p.f("stig_damage_multiplier", 1.0), p.f("forge_damage_multiplier", 1.0)),
         last_health: f32::NAN,
         hurt_t: 99.0,
         hit: None,
@@ -4286,6 +4291,16 @@ impl Companion {
         }
     }
 
+    /// The share of a projectile's damage it takes by the damage's class (GenericAIObject_Slot52 0x00430340: record
+    /// flag 0x80000 x +0x8fc, 0x100000 x +0x900).
+    pub fn damage_scale(&self, kind: crate::player::DamageKind) -> f32 {
+        match kind {
+            crate::player::DamageKind::Plain => 1.0,
+            crate::player::DamageKind::Stig => self.damage_mult.0,
+            crate::player::DamageKind::Forge => self.damage_mult.1,
+        }
+    }
+
     /// Lets go of its target (the held attack target +0xbb0 and the current one).
     pub fn drop_target(&mut self) {
         self.target = None;
@@ -4302,11 +4317,22 @@ impl Companion {
         self.route.clear();
     }
 
-    /// One frame of walking along the flat direction `dir` at the run speed (standing when `dir` is zero), with
-    /// gravity: the walker body moves and the transform follows it.
-    pub fn walk(&mut self, physics: &mut Physics, t: &mut Transform, dir: Vec3, dt: f32) {
-        // fitted: the original's companions cover 37.3 units/s at move_speed 40 (its drive, move_power 100, not ported)
-        let speed = if dir != Vec3::ZERO { self.speed * 0.933 } else { 0.0 };
+    /// The run speed to the formation point: fitted, the original's companions cover 37.3 units/s at move_speed 40 in
+    /// formation (mode 2, its drive, move_power 100, not ported).
+    pub fn formation_speed(&self) -> f32 {
+        self.speed * 0.933
+    }
+
+    /// The run speed elsewhere: move_speed (the generic speeds 0x004297a0; the oracle lev_4_m2_tower: Jonesy's walk to
+    /// the tower, mode 6, covers 2450 units in 3700 frames, 39.7 units/s at move_speed 40).
+    pub fn run_speed(&self) -> f32 {
+        self.speed
+    }
+
+    /// One frame of walking along the flat direction `dir` at `speed` (standing when `dir` is zero), with gravity: the
+    /// walker body moves and the transform follows it.
+    pub fn walk(&mut self, physics: &mut Physics, t: &mut Transform, dir: Vec3, speed: f32, dt: f32) {
+        let speed = if dir != Vec3::ZERO { speed } else { 0.0 };
         let vel = dir * speed + Vec3::Y * self.vy;
         if let Some((feet, on)) = physics.move_walker(&self.walker, vel, dt) {
             t.translation = feet;
@@ -4731,7 +4757,8 @@ fn companions(
         let to = approach.unwrap_or_else(|| c.route.first().map(|w| (*w - me).with_y(0.0)).unwrap_or(to_slot));
         // full move_speed while moving (the original's intro: 38 of 40 units/s at 32 units from Roman)
         let dir = to.normalize_or_zero();
-        c.walk(&mut physics, &mut t, if c.moving || approach.is_some() { dir } else { Vec3::ZERO }, dt);
+        let speed = c.formation_speed();
+        c.walk(&mut physics, &mut t, if c.moving || approach.is_some() { dir } else { Vec3::ZERO }, speed, dt);
         // what to shoot at: the target's ref_hit_00, or (support fire) Roman's aim point
         let target_pos = c.target.and_then(|tg| grunts.get(tg).ok()).map(|(_, _, gt, a)| a.and_then(|a| bone(a, "ref_hit_00")).unwrap_or(gt.translation() + Vec3::Y * 6.0));
         let roman_heading = r.yaw + std::f32::consts::PI;

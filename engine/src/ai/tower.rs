@@ -16,10 +16,11 @@
 //!   (0x00486ba0: the other one is a pair of one from then on), the held target dropped: [`OnTask`]. Without:
 //!   "Molmer_Tower_Failure" as a paused message (0x00403410 flag 1), 0x00484290 (the return order's toggle) and flag
 //!   0x10000: the same again 15 s later (+0xbc8, counted by 0x00485910's prologue outside modes 6 / 7).
-//! - Mode 6 (0x00485d48): along the route; once it ends farther than 10 units (100 squared, K 0x005bcb60) from the
-//!   marker a new one (failing that, straight on, 0x0046f5b0), within 10 straight on, within 1 (K 0x005bcb2c)
-//!   arrival: the marker's matrix (0x00457990 with vt+0x5c), physics stopped, health back to its maximum (+0x454 =
-//!   +0x458: the oracle shows Jonesy at 350 healed to 500 on the frame he arrives), Marker_ProcessArrival 0x0044ba30
+//! - Mode 6 (0x00485d48): along the route at move_speed (the generic speeds 0x004297a0; oracle: 39.7 units/s); once
+//!   it ends farther than 10 units (100 squared, K 0x005bcb60) from the marker a new one (failing that, straight on,
+//!   0x0046f5b0), within 10 straight on, within 1 (K 0x005bcb2c) arrival: the marker's matrix (0x00457990 with
+//!   vt+0x5c), physics stopped, health back to its maximum (+0x454 = +0x458: the oracle shows Jonesy at 405 healed to
+//!   500 on the frame he arrives), Marker_ProcessArrival 0x0044ba30
 //!   (the marker's trigger, Jonesy as its sender), the door object (Object_FindByTag 0x004592e0 by obj_tag over
 //!   World+0xe70) taken out of the collidable / projectile / area-damage / query lists (+0xe9c / +0xe90 / +0xe94 /
 //!   +0xea0), "mover_molmer_plant_bomb" as an IC anim (vt+0x238 = 0x0042c410, state 0x64), mode 7.
@@ -35,7 +36,9 @@
 //!   (Q111Object_Slot129 0x00486e90: reactions only in modes 1 / 3). Both in ai.rs companion_damage.
 //!
 //! Not modelled: the door object leaving the AI's sight and the crosshair's ray lists (only the projectile list: its
-//! body lets bullets through); the make_bomb bone (the note names none: the hand that holds the pistol, guess).
+//! body lets bullets through). Guess: the make_bomb bone (the note names none: the free hand). Debt (nav.rs, not the
+//! original's nav mesh): the route's corridor can differ from the original's (lev_4_m2: south of the abbey where the
+//! original goes north, the same length), and a walker stuck at a step the grid allowed routes round it (`STUCK_*`).
 
 use super::Companion;
 use crate::alarm::Markers;
@@ -53,6 +56,11 @@ const ARRIVED: f32 = 1.0;
 const RETRY: f32 = 15.0;
 /// The original asks for a new route every frame past the route's end; here at most this often (an A* search).
 const REPLAN_EVERY: f32 = 0.25;
+/// nav.rs's grid can lead over a step the walker cannot climb (the original's nav mesh has no such places): a walker
+/// that has not moved this far in STUCK_TIME marks the spot and takes a route round it (nav.rs `blocked`, as the
+/// playtest bot does).
+const STUCK_MOVE: f32 = 3.0;
+const STUCK_TIME: f32 = 1.0;
 /// make_bomb's player_tickerbomb is scaled by K 0x005bcbe4.
 const BOMB_SCALE: f32 = 0.25;
 const PLANT_ANIM: &str = "mover_molmer_plant_bomb";
@@ -86,8 +94,9 @@ pub struct TowerTask {
 pub enum Phase {
     /// waiting for the trigger (or a retry): the ordinary companion, modes 1..3
     Standby,
-    /// mode 6: on the route to the marker (engine space)
-    Walking { route: Vec<Vec3>, goal: Vec3, replan: f32 },
+    /// mode 6: on the route to the marker (engine space); the spots it got stuck at, where it stood at the last
+    /// progress check and the time since
+    Walking { route: Vec<Vec3>, goal: Vec3, replan: f32, blocked: Vec<Vec3>, check: (Vec3, f32) },
     /// mode 7: on the marker, the plant anim
     Planting,
     /// mode 7: the bomb loop, until the level ends
@@ -188,7 +197,11 @@ fn receive(
         match (marker, route) {
             (Some(m), Some(route)) => {
                 info!("EVENT tower: {} sets off for marker {} ({} waypoints, {:.0} units)", if c.q { "Q" } else { "Jonesy" }, m.id, route.len(), (m.pos - t.translation).length());
-                task.phase = Phase::Walking { route, goal: m.pos, replan: 0.0 };
+                if std::env::var("AIDBG").is_ok() {
+                    let g: Vec<[i32; 3]> = route.iter().map(|w| { let v = crate::level::game_to_engine().inverse() * *w; [v.x as i32, v.y as i32, v.z as i32] }).collect();
+                    info!("AIDBG tower route {g:?}");
+                }
+                task.phase = Phase::Walking { route, goal: m.pos, replan: 0.0, blocked: Vec::new(), check: (t.translation, 0.0) };
                 c.drop_target();
                 commands.entity(e).insert(OnTask);
             }
@@ -228,9 +241,20 @@ fn walk(
         let me = t.translation;
         let door_tag = task.door_tag;
         let marker_tag = task.marker_tag;
-        let Phase::Walking { route, goal, replan } = &mut task.phase else { continue };
+        let Phase::Walking { route, goal, replan, blocked, check } = &mut task.phase else { continue };
         let goal = *goal;
         *replan -= dt;
+        check.1 += dt;
+        if check.1 >= STUCK_TIME {
+            if (me - check.0).with_y(0.0).length() < STUCK_MOVE && (goal - me).with_y(0.0).length() > REPLAN_BEYOND {
+                blocked.push(me + (route.first().copied().unwrap_or(goal) - me).with_y(0.0).normalize_or_zero() * 6.0);
+                info!("EVENT tower: stuck at {:?}, a route round it", (crate::level::game_to_engine().inverse() * me).round());
+                if let Some(r) = crate::nav::path(&physics, me, goal, blocked).filter(|r| r.len() > 1) {
+                    *route = r;
+                }
+            }
+            *check = (me, 0.0);
+        }
         while route.first().is_some_and(|w| (*w - me).with_y(0.0).length() < WAYPOINT_REACHED) {
             route.remove(0);
         }
@@ -242,7 +266,7 @@ fn walk(
             // the route ended away from the marker: a new one, else straight on
             if *replan <= 0.0 {
                 *replan = REPLAN_EVERY;
-                if let Some(r) = crate::nav::path(&physics, me, goal, &[]).filter(|r| r.len() > 1) {
+                if let Some(r) = crate::nav::path(&physics, me, goal, blocked).filter(|r| r.len() > 1) {
                     *route = r;
                 }
             }
@@ -254,7 +278,8 @@ fn walk(
             c.moving = true;
             c.yaw = dir.x.atan2(dir.z);
             t.rotation = Quat::from_rotation_y(c.yaw) * c.base;
-            c.walk(&mut physics, &mut t, dir, dt);
+            let speed = c.run_speed();
+            c.walk(&mut physics, &mut t, dir, speed, dt);
             continue;
         }
         // arrival: on the marker's matrix, physics stopped, healed
