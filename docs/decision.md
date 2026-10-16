@@ -272,3 +272,13 @@ How this coexists with faithful recovery:
   doc comments. Outcome >= original: faithful first, then better.
 - Phase 2, after the 1:1 rewrite: refactor, then remaster features (rendering, gameplay), e.g. a level selector and
   difficulty settings that scale things like enemy counts. Design now so those are data / settings, not rewrites.
+
+## 2026-10-16: refactors from the Bevy idioms review only where they fix a bug
+
+The human, on docs/review/bevy-idioms-2026-10-16.md: "ordering should only be fixed if it's buggy, remember our goal
+is 1:1 or better."
+
+- System ordering, the shared random stream and the fixed step are changed only where they cause an observable
+  defect: a divergence from the original shown by the oracle or a playtest, or a bug the player sees. Each such fix
+  carries that evidence. No sweeping re-ordering for idiom's sake.
+- The rest of the review (structure, typed data, assets, crates) waits for the phase-2 refactor.
