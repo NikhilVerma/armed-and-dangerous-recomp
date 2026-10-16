@@ -332,10 +332,9 @@ fn effects(
     mut fx: MessageWriter<crate::fx::StartFx>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     mut stop: MessageWriter<crate::audio::StopSound>,
-    mut deck: crate::levelreset::PerLevel<crate::audio::RandomDeck>,
-    mut rng: ResMut<crate::fx::FxStats>,
+    mut deck: crate::levelreset::PerLevel<(crate::audio::RandomDeck, crate::fxvm::CrtRand)>,
 ) {
-    let deck = deck.get();
+    let (deck, rng) = deck.get();
     for (e, mut jp, a) in &mut q {
         for ev in std::mem::take(&mut jp.events) {
             match ev {
@@ -357,7 +356,7 @@ fn effects(
                 }
                 JetEvent::Turn => {
                     const TURN: [&str; 2] = ["veh_jumper_turn_1", "veh_jumper_turn_2"];
-                    let k = deck.deal(TURN.len(), || rng.rand());
+                    let k = deck.deal(TURN.len(), || rng.rand() as f32 / 32768.0);
                     sounds.write(crate::audio::PlaySound::on(TURN[k], e));
                 }
             }

@@ -727,10 +727,11 @@ pub(crate) fn control(
     mut q: Query<(&mut Roman, &mut Transform, &mut Health, Option<&mut crate::jetpack::JetPack>)>,
     (ctl, mounted, rig): (Res<crate::input::Controls>, Res<crate::turret::Mounted>, Res<crate::camera::CameraRig>),
     mut fx: MessageWriter<crate::surface::StartSurfaceFx>,
-    (mut sounds, mut breaths, mut rng): (MessageWriter<crate::audio::PlaySound>, crate::levelreset::PerLevel<[crate::audio::RandomDeck; 2]>, ResMut<crate::fx::FxStats>),
+    // the breaths' decks with their own random stream (drawing on a shared one shifted other systems' rolls)
+    (mut sounds, mut breaths): (MessageWriter<crate::audio::PlaySound>, crate::levelreset::PerLevel<([crate::audio::RandomDeck; 2], crate::fxvm::CrtRand)>),
 ) {
     let dt = time.delta_secs();
-    let breaths = breaths.get();
+    let (breaths, rng) = breaths.get();
     for (mut r, mut t, mut h, mut jet) in &mut q {
         if h.0 <= 0.0 {
             r.dead = true;
@@ -925,7 +926,7 @@ pub(crate) fn control(
             ground_fx(&physics, &mut fx, t.translation, "fx_fs_roman_jump");
             // the jump's breath (0x0047aaf0: 0x00493b70 with table 0x005fb99c, 2 sounds)
             const JUMP_BREATH: [&str; 2] = ["fol_breath_light_short_1", "fol_breath_light_short_2"];
-            sounds.write(crate::audio::PlaySound::at(JUMP_BREATH[breaths[0].deal(2, || rng.rand())], t.translation));
+            sounds.write(crate::audio::PlaySound::at(JUMP_BREATH[breaths[0].deal(2, || rng.rand() as f32 / 32768.0)], t.translation));
         } else if r.on_ground && !r.jumping {
             r.vel.y = r.vel.y.max(-5.0);
         } else {
@@ -977,7 +978,7 @@ pub(crate) fn control(
         if fall_and_land(&mut r, &t, &mut h, vy, was_jump, dt, &physics, &mut fx, t.translation.distance(before), topsy.active(), jet.as_deref_mut()) {
             // the landing's breath (0x00478200: 0x00493b70 with table 0x005fb9cc, 2 sounds)
             const LAND_BREATH: [&str; 2] = ["fol_breath_heavy_short_1", "fol_breath_heavy_short_2"];
-            sounds.write(crate::audio::PlaySound::at(LAND_BREATH[breaths[1].deal(2, || rng.rand())], t.translation));
+            sounds.write(crate::audio::PlaySound::at(LAND_BREATH[breaths[1].deal(2, || rng.rand() as f32 / 32768.0)], t.translation));
         }
         // safety net (remaster): pushing for 1.5 s without moving at all and without ground under him (wedged in a
         // wall's collider: seen in a bot run next to v_wall_tall_a) puts him back where he last moved freely. Standing
