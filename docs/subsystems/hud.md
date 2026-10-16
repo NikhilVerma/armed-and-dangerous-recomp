@@ -147,8 +147,8 @@ rectangle around that point. "Anchor" is the remaster's widescreen rule (hook/en
 | Prompts: `ui_tickerbomb_hint/_patience/_none` (1.0 white), `ui_vehicle_entry/_exit`, `ui_pub_entry_hint`, `ui_pub_fail` (1.0 `#a0ffa0`) | text | ref_tickerbomb_text | 321.6, 329.8 | fit to 576 units | context prompts; `%s` = key name (0x00465280); 0x00467450, 0x004662a0, 0x00466210, 0x00467b60 | centre |
 | `ui_teammate_*` (4) | text 0.9 `#ffff80` | ref_team_text | 320, 47.5 | | order feedback, 3.0 s, each hides the others; 0x00467890 | left (x is 320: check) |
 | `ui_chat_01..05` | text 0.8 | ref_chat_01..05 | 320, 437.3 / 419.9 / 396.9 / 373.9 / 352.1 | | messages (section 5) | left (x is 320: check) |
-| `ui_captured_count`, `ui_return_count`, `ui_safe_count`, `ui_grunt_over_wall_count` | text 0.8 (1.5) `#a0ffa0` | ref_captured / return / safe / count | 72.9, 309.4 / 121.4, 309.4 / 167.6, 309.1 / 93.3, 338.6 | | mode counters (g+0x26e8, g+0x26f4; **guess** which is which); 0x00465be0..0x00465ce0 | left |
-| `ui_peasant`, `ui_flag_base` | mesh | ref_peasant / ref_base_flag | 121.7, 349.9 / 93.3, 393.8 | icons | peasant carried / flag mode (**guess**) | left |
+| `ui_captured_count`, `ui_return_count`, `ui_safe_count`, `ui_grunt_over_wall_count` | text 0.8 (1.5) `#a0ffa0` | ref_captured / return / safe / count | 72.9, 309.4 / 121.4, 309.4 / 167.6, 309.1 / 93.3, 338.6 | | the peasant counters, shown while peasant_max_saved (g+0x26ec) > 0 (behaviour ids 105 / 106 / 107, slot 47 of their vtables): captured = still to pick up (0x00465be0: the counts on the peasant list less g+0x26f4), safe = saved (0x00465c90, g+0x26e8), return = carried (0x00465ce0, g+0x26f4); grunt_over_wall 0x00465f70; peasants.md | left |
+| `ui_peasant`, `ui_flag_base` | mesh | ref_peasant / ref_base_flag | 121.7, 349.9 / 93.3, 393.8 | icons | ui_peasant: the rescue icon while g+0x26ec > 0 (id 129, 0x00465d30); ui_flag_base: the base flag meter (id 130, 0x00465e30) | left |
 | `ui_memory_warning` | text 2.0 `#ff4040` | ref_chat_05 | 320, 352.1 | | debug | |
 | `ui_mouse_cursor` | mesh `ui_multi_lock` | ref_crosshair | | | menu cursor, hidden in play | |
 

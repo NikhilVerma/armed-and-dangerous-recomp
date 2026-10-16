@@ -19,15 +19,15 @@ address,name,disposition,reason
 0x00403bb0,fn_00403bb0,replaced,"true while the player object exists, is not removed and the level manager state is 1 (guess: in play), read by the menus: gamemenu.rs tests AppState and Roman"
 0x00404550,AIInterestObject_Load,replaced,AIInterestObject load (an interest point the AI reacts to): ai.rs Interests (noises with a radius and a time)
 0x00404600,AIInterestObject_Remove,replaced,AIInterestObject removal: ai.rs Interests expire
-0x004056b0,PeasantObject_Load,deferred,feature: peasants; PeasantObject: class with no instance on lev_1_m1 (scene.json behaviours)
-0x00405850,PeasantObject_Remove,deferred,feature: peasants; PeasantObject: class with no instance on lev_1_m1 (scene.json behaviours)
-0x00405880,fn_00405880,deferred,feature: peasants; PeasantObject: class with no instance on lev_1_m1 (scene.json behaviours)
-0x00406210,fn_00406210,deferred,feature: peasants; PeasantObject: class with no instance on lev_1_m1 (scene.json behaviours)
-0x00406280,fn_00406280,deferred,feature: peasants; PeasantObject: class with no instance on lev_1_m1 (scene.json behaviours)
-0x004062a0,fn_004062a0,deferred,feature: peasants; PeasantObject: class with no instance on lev_1_m1 (scene.json behaviours)
-0x00406330,fn_00406330,deferred,feature: peasants; the peasant with the largest count (0x0044d600): class with no instance on lev_1_m1 (scene.json behaviours)
-0x004063a0,fn_004063a0,deferred,feature: peasants; banks a peasant's count: class with no instance on lev_1_m1 (scene.json behaviours)
-0x004063f0,fn_004063f0,deferred,feature: peasants; a peasant's count: class with no instance on lev_1_m1 (scene.json behaviours)
+0x004056b0,PeasantObject_Load,ported,"level.rs, mission.rs, peasant.rs"
+0x00405850,PeasantObject_Remove,ported,"peasant.rs"
+0x00405880,fn_00405880,ported,"peasant.rs"
+0x00406210,fn_00406210,ported,"peasant.rs"
+0x00406280,fn_00406280,ported,"peasant.rs"
+0x004062a0,fn_004062a0,ported,"mission.rs, peasant.rs"
+0x00406330,fn_00406330,ported,"peasant.rs"
+0x004063a0,fn_004063a0,ported,"peasant.rs"
+0x004063f0,fn_004063f0,ported,"peasant.rs"
 0x00406400,fn_00406400,replaced,clears an object's animation-player block (+0x498 / +0xa18 / +0xb08): skin.rs / charanim.rs animation state
 0x00406430,fn_00406430,replaced,drives an animation range on that block: charanim.rs
 0x004087b0,fn_004087b0,replaced,an animation range of the object's table: charanim.rs

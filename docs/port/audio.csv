@@ -1,5 +1,5 @@
 address,name,disposition,reason
-0x004058f0,fn_004058f0,deferred,feature: peasants; PickupObject (the peasant pick-up lines) is not in lev_1_m1 (scene.json templates)
+0x004058f0,fn_004058f0,ported,"peasant.rs"
 0x0040d250,fn_0040d250,deferred,feature: level-end-dialogue; the dialogue speaker test of the level-end conversation 0x00493b70 (game_01.cpp:1989); the remaster has no dialogue system yet (owned by the mission / cutscene port)
 0x0041bd70,fn_0041bd70,replaced,an FxObject's audio position (its matrix translation): a voice on an entity follows its GlobalTransform (audio.rs update_voices)
 0x0041bdd0,FxEarObject_LoadProperties,replaced,FxEarObject properties: the export reads them (tools/remaster_export_mission.py fx_ear edges) and mission.rs Action::Fx starts the fx on its trigger
@@ -52,7 +52,7 @@ address,name,disposition,reason
 0x0043a7b0,AIVoice_MoDead,deferred,feature: ai-voice-lines; no MO1500xx (Molmer) lines in the lev_1_m1 bank (audio/sounds.json): the call plays nothing in lev_1_m1
 0x0043c7b0,fn_0043c7b0,deferred,feature: q112-extras; Q112 is not in lev_1_m1 (scene.json templates); no q12 lines in the bank
 0x0043e450,fn_0043e450,replaced,"a character's audio position (its head 'ic' bone for its own voice, else its position): the remaster's voices follow the character entity's position (the head offset is not ported)"
-0x0044d1f0,fn_0044d1f0,deferred,feature: peasants; PeasantObject (drop-off lines) is not in lev_1_m1 (scene.json templates)
+0x0044d1f0,fn_0044d1f0,ported,"peasant.rs"
 0x0044ea40,fn_0044ea40,deferred,"feature: untraced; returns 127 or 128 (PlayerWeapon +0x520); no audio, no caller in the remaster"
 0x0044ea50,AIVoice_JonFight,replaced,ai.rs companion_damage / companions play the same line lists on Jonesy and Q with the shared vo delay (Barks) and the per-companion short-hurt delay
 0x0044eb80,AIVoice_JonDead,replaced,ai.rs companion_damage / companions play the same line lists on Jonesy and Q with the shared vo delay (Barks) and the per-companion short-hurt delay

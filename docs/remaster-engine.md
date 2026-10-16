@@ -249,7 +249,8 @@ Per level (first divergence frame in brackets; families not listed are the same 
 | lev_bonus_m3 | B9, B4, B3 Jonesy, B10 grunt 201, B17 water footsteps (12), C1 Q (168) | |
 
 Also from the remaster's own logs on these runs (`not ported` lines in remaster.out): mission `peasant_max_saved` /
-`peasant_max_casualties` (lev_2_m3, lev_3_m1, lev_3_m3, lev_4_m1, lev_4_m2, lev_bonus_m2), ticker sites'
+`peasant_max_casualties` (lev_2_m3, lev_3_m1, lev_3_m3, lev_4_m1, lev_4_m2, lev_bonus_m2: ported 2026-10-16, peasant.rs),
+ticker sites'
 `lock_parent_tag` (0x0044e120: lev_3_m1, lev_4_m1), fx vm opcodes 0x4c (lev_3_m3, lev_5_m1, lev_5_m3, lev_bonus_m1,
 lev_bonus_m2) and 0x62 (lev_5_m1..m3).
 
@@ -675,6 +676,32 @@ Behaviour state and tests: docs/subsystems/grunt-ai.md 13-14, companions.md 7. N
 taunts, throws, captains, noise, near.{mind, kind, reaction, targets_player}) and `q_lead` / `jonesy_lead`.
 `tools/regress.py --scene DIR --play DIR` runs the suite from a worktree without work/.
 
+## The character body and the game's contact rules (2026-10-16, agent-charbody)
+
+The AI characters' bodies are the original's (ai/body.rs, Object_BuildRadiusCollision 0x004527d0): a dynamic sphere of
+`collision_radius` sitting on the feet, translation only. Around it, three pieces that belong to it:
+- **contacts.rs** (game-neutral): per-body `ContactRule`s that a Jolt contact listener applies: `group` (bodies of one
+  group never touch: the AI's +0x510, a squad's members and its goliath, 0x0042de60 / GenericAIObject_Slot40
+  0x00432590 through CollisionFilter_IsEnabled 0x00411710), `ignore` (one body passed through: +0x50c, set by a bump
+  while walking somewhere, GenericAIObject_Slot44 0x004320b0), and a run-time `friction` (Body_SetFriction 0x00458250;
+  combined sqrt(fA * fB) as 0x00413240: 0 in a squad, the material's otherwise, 0x0042cb80). The listener also keeps
+  each ruled body's contacts of the last step (`Physics::touches`): a jumper lands on any contact (the contact note
+  0x004320b0 -> 0x0042e1c0), not only on ground under him. `Physics::set_contact_rule` drops a body's cached contacts
+  when its rule changes.
+- **Bullets** do not hit the sphere: the original's projectile ray meets the collision model (0x0047e580,
+  hitparts.rs). The sphere is in `no_bullets`; `Physics::hit_volumes` holds a capsule round the model (0.55 x the
+  radius, 0.3..10.1 above the feet) that `raycast_bullet` tests besides the world (a head above the sphere still
+  takes a shot).
+- Statics have the default material's friction 1.0. force_ground's touch tolerance is 0.3 (world 0.2 + mesh radius
+  0.1: the original's lifted grunts end 0.31 off the overhang). Jolt's solver collides with triangles from the front
+  only, Havok's from both sides; a turned-round copy of the landscape was tried for B3b and dropped (it did not hold
+  the grunts and cost ~12% frame time in lev_1_m1, which also broke audio_voice: its follow-on lines end in real time).
+- The AI's line of sight (`line_of_sight`: the squad's scan, a walk's straight leg) passes AI bodies as 0x00426fd0.
+
+The squads and jumpers that broke when only the sphere was tried (c6e6fae): squad members pushed each other apart and
+the squad's scan was blocked by its own members (now: one group, sight through AI bodies); jumpers held on an edge
+by friction never "landed" because the landing asked for ground under the feet (now: any contact).
+
 ## Comparing sounds with the original
 
 The original logs every sound it starts with `[test] log_sounds=1` (hook, and-sounds.txt in the instance: frame
@@ -940,6 +967,25 @@ made, killed, bombs, idle, emerging, running, generators, left); playtest step `
 the next roll of every monk with a target). Tests: playtests twiglets, monk_summon (regress); oracle twiglets_l4m1
 (suite: PASS with B6 known). The run's speed is the original's drive on a wood body with a fitted friction
 (`ground_speed`, documented in the subsystem doc): label it if the fit is ever replaced by a real contact model.
+
+## Peasants (2026-10-16)
+
+engine/src/peasant.rs (PeasantPlugin), docs/subsystems/peasants.md: the rescue levels (lev_2_m3, lev_3_m1, lev_3_m3,
+lev_4_m1, lev_4_m2, lev_bonus_m2). `Peasant` (PeasantObject 0x005a8550: placed by level.rs, or held in a squad
+goliath's cage by goliath.rs and freed when it dies), captured when Roman meets his trigger sphere (a sphere of
+sphere_radius centred that high above him, 0x004574e0; Roman's reach `ROMAN_BODY_*` fitted to the original), tied as a
+ragdoll on a rope chain (0x00405d10: `Rope`, `choose_leader`, a hard key-frame of the pelvis; ragdoll.rs `Build` gives
+him small parts and joints with friction, so he stands until pulled), banked by a door mat (MissionObject_OnTrigger
+0x0044d600: the mat's sender comes with mission.rs `VolumeSent`; a one-shot mat banks one and dies), lost through his
+kill slot (0x004062a0: failure state 8, `Mission::fail_state`). `PeasantTally` holds Game+0x26e0..+0x26f8. Also: door
+mats are drawn (a broadcast with "visible"), bullets and blasts pass peasants (none of the damage lists), the compass
+prefers World+0xefc (`CompassList`: peasants not yet tied), the HUD's rescue counters (hud.rs `PeasantCounters`; the
+ui_peasant icon no longer shows on every level), a tied peasant ends a bully. State log `peasants` (carried, saved,
+casualties, alive, hud, list by id: captured, tied, link, held, x / y / z; a cage peasant is `c<1000000 + squad id>`).
+Tests: playtests peasants_l2m3, peasants_bonus_m2, peasants_lost_l4m2, peasants_cage_l3m1 (regress); oracle
+peasant_l4m2 (suite: every peasant family same, capture frame 52 in both, bank 158 vs 160). Fitted (labelled in the
+code): Roman's reach (two probes) and the joints' friction (the original's strength scaled by the weight). Found: the
+original's Roman stands ~40 frames after landing from a 9-unit drop, the remaster's walks at once (open, player.rs).
 
 ## Running tests without disturbing the desktop
 

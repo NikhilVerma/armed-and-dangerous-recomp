@@ -44,12 +44,40 @@ impl Plugin for RagdollPlugin {
 /// Builds and starts the ragdoll of a character from its joints' current world transforms. Returns None when the
 /// skeleton lacks a bone of the set (the caller keeps its simpler fallback).
 pub fn start(physics: &mut Physics, a: &Animator, joints: &Query<&GlobalTransform>, push: Vec3) -> Option<Ragdoll> {
+    start_with(physics, a, joints, push, Build::default())
+}
+
+/// How a ragdoll is built beyond the pose: for a character of another build than a grunt's.
+#[derive(Clone, Copy, Debug)]
+pub struct Build {
+    /// the parts' radii (sized for a grunt, ~9.8 units tall) times this (the peasants, 5.3 units tall: ~0.54)
+    pub size: f32,
+    /// each joint's friction torque per kilogram of the two parts it joins (N m / kg; 0: limp). Havok's limited hinge and
+    /// ragdoll constraints take a "strength" (Body_addConstraints 0x00456570: (mass A + mass B) x 20): a ragdoll whose
+    /// joints hold its pose until a strong pull bends them
+    pub joint_friction: f32,
+    /// every part's radius in game units instead of the set's (the tied peasant: 0x00405d10 sets each part's convex
+    /// radius, shape +0xc, to 1.0)
+    pub radius: Option<f32>,
+}
+
+impl Default for Build {
+    fn default() -> Self {
+        Build { size: 1.0, joint_friction: 0.0, radius: None }
+    }
+}
+
+/// As [`start`] with a [`Build`].
+pub fn start_with(physics: &mut Physics, a: &Animator, joints: &Query<&GlobalTransform>, push: Vec3, build: Build) -> Option<Ragdoll> {
+    let size = build.size;
     let k = physics.meters_per_unit;
     let idx = |n: &str| a.skeleton.index.get(n).copied();
     let mut bones = Vec::new();
     let mut shapes = Vec::new();
     let mut poses = Vec::new();
+    let mut masses = Vec::new();
     for (bone, _, to, r, _, _) in PARTS {
+        let r = build.radius.unwrap_or(r * size);
         let bi = idx(bone)?;
         let w = joints.get(a.joints[bi]).ok()?.compute_transform();
         // the end bone; a skeleton without one (Roman's has no "mouth") extends the bone from its parent's joint
@@ -62,10 +90,13 @@ pub fn start(physics: &mut Physics, a: &Animator, joints: &Query<&GlobalTransfor
         };
         // the capsule from the bone to the next one, in the bone's frame
         let local = w.rotation.inverse() * (wt - w.translation);
-        let len = local.length().max(0.2);
+        let len = local.length().max(0.2 * size);
         let dir = local / len;
-        let half = ((len * 0.5 - r).max(0.05)) * k;
+        let half = ((len * 0.5 - r).max(0.05 * size)) * k;
         let cap = Shape::new_capsule(half, r * k).ok()?;
+        // its mass at Jolt's default density (1000 kg / m^3)
+        let rm = r * k;
+        masses.push(1000.0 * std::f32::consts::PI * rm * rm * (2.0 * half + 4.0 / 3.0 * rm));
         let child = CompoundChild { shape: &cap, position: jv(dir * len * 0.5 * k), rotation: jq(Quat::from_rotation_arc(Vec3::Y, dir)), user_data: 0 };
         let shape = Shape::new_compound(&[child]).ok()?;
         bones.push(bi);
@@ -86,7 +117,8 @@ pub fn start(physics: &mut Physics, a: &Animator, joints: &Query<&GlobalTransfor
                 RagdollJoint::SwingTwist(
                     SwingTwistConstraintSettings::new(jr(pos * k), jv(twist), jv(plane))
                         .half_cone_angles(p.4.to_radians(), p.4.to_radians())
-                        .twist_limits(-p.5.to_radians(), p.5.to_radians()),
+                        .twist_limits(-p.5.to_radians(), p.5.to_radians())
+                        .max_friction_torque(p.1.map_or(0.0, |parent| build.joint_friction * (masses[i] + masses[parent as usize]))),
                 )
             });
             RagdollPart { shape: &shapes[i], body, joint }
@@ -98,13 +130,16 @@ pub fn start(physics: &mut Physics, a: &Animator, joints: &Query<&GlobalTransfor
 }
 
 /// The ragdoll's bodies drive their bones: each part's world transform, made local to its parent bone (whose
-/// model-space transform is rebuilt along the skeleton each frame).
-fn drive(physics: NonSend<Physics>, rigs: Query<(&Ragdoll, &Animator, &GlobalTransform)>, mut joints: Query<&mut Transform>) {
+/// model-space transform is rebuilt along the skeleton each frame). A ragdoll's entity is top-level, so its own
+/// Transform is its world placement: this frame's, also when its owner moved it this frame (a dragged peasant's root
+/// follows its pelvis, peasant.rs), where the GlobalTransform would still be last frame's.
+fn drive(physics: NonSend<Physics>, rigs: Query<(Entity, &Ragdoll, &Animator)>, mut joints: Query<&mut Transform>) {
     let k = physics.meters_per_unit;
-    for (rd, a, root) in &rigs {
+    for (e, rd, a) in &rigs {
         let Ok(r) = physics.world.ragdoll(rd.id) else { continue };
         let ids = r.body_ids().to_vec();
-        let root_inv = root.affine().inverse();
+        let Ok(root) = joints.get(e).map(|t| t.to_matrix()) else { continue };
+        let root_inv = root.inverse();
         let n = a.skeleton.names.len();
         let mut model: Vec<Mat4> = Vec::with_capacity(n);
         for i in 0..n {
@@ -115,7 +150,7 @@ fn drive(physics: NonSend<Physics>, rigs: Query<(&Ragdoll, &Animator, &GlobalTra
             if let Some(p) = rd.bones.iter().position(|&b| b == i) {
                 if let Some(b) = ids.get(p).and_then(|id| physics.world.body(*id).ok()) {
                     let w = Mat4::from_rotation_translation(bq(b.rotation()), br(b.position()) / k);
-                    m = Mat4::from(root_inv) * w;
+                    m = root_inv * w;
                     if let Ok(mut t) = joints.get_mut(a.joints[i]) {
                         let l = pm.inverse() * m;
                         let (_, rot, tr) = l.to_scale_rotation_translation();

@@ -54,6 +54,7 @@ CLASSES = {
     "player_tickerbomb": ("PlayerTickerBomb", 52, "vtable 0x005ae380"),
     "pickup_generator": ("PickupGenerator", 51, "vtable 0x005a6258"),
     "pickup_token": ("PickupObject", 42, "vtable 0x005a3c90"),
+    "peasant": ("PeasantObject", 53, "vtable 0x005a8550 (a TriggerObject: PeasantObject_Load 0x004056b0)"),
     "building": ("TwigletGenerator/BarricadeObject (barracks)", 139, "vtable 0x005aeeb8"),
     "alarm_generator": ("AlarmGenerator", 140, "vtable 0x005a2058"),
     "global_settings": ("GlobalSettings", 137, ""),
@@ -89,6 +90,9 @@ SENDS = {
     ("broadcast", "on_exit"): ("leaves the volume", "0x004976a0 sends +0x464 on leave"),
     ("pickup_token", "on_enter"): ("player picks it up (PickupObject derives from TriggerObject)",
                                    "PickupObject_Load 0x00471e40 calls TriggerObject_Load 0x00497460"),
+    ("peasant", "on_enter"): ("Roman captures the peasant (his trigger sphere; fewer than three carried); sent once",
+                              "PeasantObject_Load 0x004056b0 calls TriggerObject_Load 0x00497460 (+0x460); the contact "
+                              "slot 0x00406210 sends and clears it"),
     ("player_tickerbomb", "send_trigger_set"): ("bomb armed (Use held for arm_time within message_radius)",
                                                 "PlayerTickerBomb_Load 0x0044de90 (+0x46c); 0x0044e0c0 from arm "
                                                 "0x0044e4a0"),

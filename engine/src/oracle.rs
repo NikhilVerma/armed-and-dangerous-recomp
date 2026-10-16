@@ -349,10 +349,12 @@ fn trace(
     grunts: Query<(Entity, &crate::ai::Grunt, &crate::fx::Health, &GlobalTransform, Option<&crate::level::InstanceId>)>,
     companions: Query<(&crate::ai::Companion, &crate::fx::Health, &GlobalTransform)>,
     ids: Query<&crate::level::InstanceId>,
-    objects: Query<(&crate::level::InstanceId, &crate::fx::Destructible)>,
+    // (a peasant's or a door mat's death is its own kill slot, not DefaultGameObject_OnDeath: not a "deaths" event)
+    objects: Query<(&crate::level::InstanceId, &crate::fx::Destructible), (Without<crate::peasant::Peasant>, Without<crate::peasant::Mat>)>,
     vehicles: Vehicles,
     panes: Query<(Entity, &crate::fx::Destructible), With<crate::level::Window>>,
     (twiglets, swarm, mut bombs_seen): (Query<(&crate::twiglet::Twiglet, &GlobalTransform, Option<&crate::fx::Destructible>)>, Res<crate::twiglet::Swarm>, Local<u32>),
+    (peasants, tally): (Query<(&crate::peasant::Peasant, Option<&crate::level::InstanceId>, &GlobalTransform, Option<&crate::fx::Destructible>)>, Res<crate::peasant::PeasantTally>),
 ) {
     if o.out.is_none() {
         return;
@@ -452,6 +454,9 @@ fn trace(
         .collect();
     line.insert("twiglets".into(), ts.into());
     line.insert("swarm".into(), serde_json::json!({"made": swarm.made, "killed": swarm.killed}));
+    // the peasants (the hook's World+0xef8) and their counters (Game+0x26f4 / +0x26e8 / +0x26e4)
+    line.insert("peasants".into(), crate::peasant::trace_list(&peasants).into());
+    line.insert("peasant_count".into(), serde_json::json!({"carried": tally.carried, "saved": tally.saved, "casualties": tally.casualties}));
     if let Some(m) = &mission {
         line.insert("mission".into(), serde_json::json!({"state": format!("{:?}", m.outcome), "objective": m.compass_tag}));
     }

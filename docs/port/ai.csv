@@ -231,7 +231,7 @@ address,name,disposition,reason
 0x00461b20,TwigletController_GetClass,replaced,class descriptors: Bevy components (twiglet.rs Generator / Twiglet)
 0x00461b80,AIInterestObject_GetClass,not needed,"plumbing: RTTI class descriptor / type id accessor; the engine identifies classes by Bevy components, no class registry"
 0x00461bd0,ShrubPatrol_GetClass,not needed,"plumbing: RTTI class descriptor / type id accessor; the engine identifies classes by Bevy components, no class registry"
-0x00461c30,PeasantObject_GetClass,not needed,"plumbing: RTTI class descriptor / type id accessor; the engine identifies classes by Bevy components, no class registry"
+0x00461c30,PeasantObject_GetClass,replaced,"the class descriptor: the Peasant component (peasant.rs)"
 0x00461c60,RocketTowerTurret_GetClass,not needed,"plumbing: RTTI class descriptor / type id accessor; the engine identifies classes by Bevy components, no class registry"
 0x00461c70,SheepObject_GetClass,not needed,"plumbing: RTTI class descriptor / type id accessor; the engine identifies classes by Bevy components, no class registry"
 0x00461ce0,GruntObject_GetClass,replaced,"the class descriptor: the engine's component types carry the class (ai.rs Grunt with Kind, Companion, level.rs Penguin, alarm.rs Marker)"
