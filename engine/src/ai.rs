@@ -1640,12 +1640,12 @@ fn search(
     mut barks: ResMut<Barks>,
     noise: Res<Interests>,
     squads: Query<&squad::Squad>,
-    (army, mission, objects): (Query<(), With<ArmyTarget>>, Option<Res<crate::mission::Mission>>, Query<(Entity, &crate::level::InstanceId), With<crate::fx::Destructible>>),
+    (army, mission, objects): (Query<(), With<ArmyTarget>>, Option<Res<crate::mission::Mission>>, Query<(Entity, &crate::level::InstanceId, &GlobalTransform), With<crate::fx::Destructible>>),
 ) {
     let dt = time.delta_secs();
     let Ok((pe, _, _)) = player.single() else { return };
     // the live placed objects by id (a destroyed one has lost its Destructible): the priority targets' candidates
-    let live: std::collections::HashMap<u32, Entity> = if grunts.iter().any(|g| g.1.priority_tags.0 != 0) { objects.iter().map(|(e, i)| (i.0, e)).collect() } else { Default::default() };
+    let live: std::collections::HashMap<u32, Entity> = if grunts.iter().any(|g| g.1.priority_tags.0 != 0) { objects.iter().map(|(e, i, _)| (i.0, e)).collect() } else { Default::default() };
     let global_tag = mission.as_ref().map_or(0, |m| m.ai_target_tag);
     stats.targets = [0, 0];
     for (_, g, _, _, _) in &grunts {
@@ -1697,7 +1697,7 @@ fn search(
         }
         // a priority target (a house) that is gone (destroyed: its husk keeps the entity but has lost the tag) leaves
         // him free to search
-        let gone = |t: Entity| objects.get(t).map_or(true, |(_, i)| mission.as_deref().is_some_and(|m| m.lost(i.0)));
+        let gone = |t: Entity| objects.get(t).map_or(true, |(_, i, _)| mission.as_deref().is_some_and(|m| m.lost(i.0)));
         if g.priority_tags.0 != 0 && g.target.is_some_and(|t| t != pe && !cands.iter().any(|c| c.0 == t) && gone(t)) {
             g.target = None;
         }
@@ -1711,8 +1711,17 @@ fn search(
                 info!("AIDBG priority {ge:?} tags {:?} -> {:?} found {found:?}", g.priority_tags, tags);
             }
             g.priority_tags = tags;
-            if let Some(t) = found {
-                g.target = Some(t);
+            if tags.0 == 0 {
+                // the walk over: the scan range back to range x 1.5 (+0x5dc = +0x5d8 x 0x005bce20)
+                g.scan_distance = g.range * 1.5;
+            }
+            if let Some(tgt) = found {
+                // its 2D distance becomes the scan range +0x5dc: the target is kept (2 x scan_distance) however far it
+                // is, the walk to the next village included
+                if let Ok((_, _, tt)) = objects.get(tgt) {
+                    g.scan_distance = (tt.translation() - t.translation()).with_y(0.0).length();
+                }
+                g.target = Some(tgt);
                 g.search_timer = rng.range(0.75, 1.25);
                 continue;
             }
@@ -2899,11 +2908,9 @@ fn think(
         g.timer -= dt;
         g.ray_timer -= dt;
         // a target farther than 2 x scan_distance is dropped (states 0x3c, 0xa: vt+0x180 0x0043ecf0, which keeps an
-        // army target at any range; guess: a priority target (the houses of a village attacker) too: the oracle's lev_5_m2
-        // rocket captains walk the 700 units from the first village to the next in state 0x3c holding their target,
-        // which condition of 0x0043ecf0 keeps it (+0x488 flag 4, +0x958, the radius passed) is not traced)
+        // army target at any range; a priority target's scan_distance is its distance when found, AI_FindTarget)
         if let Some(p) = target {
-            if flat(p - pos).length() > 2.0 * g.scan_distance && !g.guard && !g.target.is_some_and(|e| army.contains(e)) && g.priority_tags.0 == 0 {
+            if flat(p - pos).length() > 2.0 * g.scan_distance && !g.guard && !g.target.is_some_and(|e| army.contains(e)) {
                 g.target = None;
             }
         }
