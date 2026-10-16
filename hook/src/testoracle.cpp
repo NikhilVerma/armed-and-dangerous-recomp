@@ -17,7 +17,7 @@
 //              "max_health", "weapon": id (descriptors Game+0x2770 + id * 0x150: 0 machine gun, 2 rifle), "clip",
 //              "ammo", "stickies"},
 //    "grunts": [{"id": instance id (+0x396), "pos", "health", "state": AI state +0x460, "target": id | "roman" |
-//               null, "class": vtable}],
+//               null, "class": vtable, "kf": 1 while the body is keyframed (0x00457790)}],
 //    "vehicles": [{"id", "kind": goliath / saucer / mini_zeppelin / colossus / rocket_tower / rocket_tower_turret /
 //                 rocket_bud (by vtable), "pos", "health", "state"}],
 //    "companions": [[x, y, z, health] | null, ...] (Jonesy, Q),
@@ -30,6 +30,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -40,6 +41,7 @@
 #include "log.h"
 
 int TestFramesSinceLoad();  // testscenario.cpp
+int TestFramesSincePlay();
 
 namespace
 {
@@ -214,6 +216,9 @@ std::string Body()
             else
                 o += "null";
             o += ",\"class\":" + std::to_string(At<uint32_t>(g, 0));
+            // the body keyframed (Body_isKeyframed 0x00457790: held where the AI puts it, no gravity) or dynamic
+            if (At<uint32_t>(g, 0x1c4))
+                o += ",\"kf\":" + std::to_string(orig::fn_00457790(reinterpret_cast<uint32_t>(g)) & 0xff);
             o += '}';
         }
     }
@@ -381,6 +386,80 @@ __declspec(naked) void Wrap_FxDie()
         jmp dword ptr [g_nextFxDie]
     }
 }
+
+// [test] trace_calls=Name1,Name2,...: and.log gets one "call" line per call of each named hook (up to 8; the names of
+// the HOOK entries, e.g. GenericAI_SetTarget): frames since the load and play frame, the caller's return address, ecx,
+// eax, edx, ebx and the first three stack arguments, each as an instance id (#N) when it points at a placed object. For
+// finding which code sets a value seen in the trace (the caller is the address after the call instruction).
+constexpr int kCallSlots = 8;
+char g_callNames[kCallSlots][64];
+void* g_callNext[kCallSlots];
+
+// Readable without touching the memory: a call's registers hold any value, and IsBadReadPtr's probe of a bad one
+// raises a first-chance exception the crash logger reports
+bool Mapped(uint32_t p, unsigned n)
+{
+    MEMORY_BASIC_INFORMATION m;
+    if (p < 0x10000 || !VirtualQuery(reinterpret_cast<const void*>(p), &m, sizeof(m)) || m.State != MEM_COMMIT)
+        return false;
+    const DWORD readable = PAGE_READONLY | PAGE_READWRITE | PAGE_WRITECOPY | PAGE_EXECUTE_READ |
+                           PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY;
+    return (m.Protect & readable) && !(m.Protect & (PAGE_GUARD | PAGE_NOACCESS)) &&
+           p + n <= reinterpret_cast<uint32_t>(m.BaseAddress) + m.RegionSize;
+}
+
+const char* Arg(char* buf, uint32_t v)
+{
+    if (Mapped(v, 0x398) && Mapped(*reinterpret_cast<const uint32_t*>(v), 4) && Id(reinterpret_cast<void*>(v)))
+        sprintf(buf, "%08x#%d", v, Id(reinterpret_cast<void*>(v)));
+    else
+        sprintf(buf, "%08x", v);
+    // a pointer to text: its first characters ("name)
+    if (Mapped(v, 24))
+    {
+        const char* t = reinterpret_cast<const char*>(v);
+        int n = 0;
+        while (n < 23 && t[n] >= 0x20 && t[n] < 0x7f)
+            ++n;
+        if (n >= 3 && (t[n] == 0 || n == 23))
+        {
+            const size_t at = strlen(buf);
+            snprintf(buf + at, 64 - at, "\"%.*s", n, t);
+        }
+    }
+    return buf;
+}
+
+// regs: the pushad block (edi, esi, ebp, esp, ebx, edx, ecx, eax), then the return address and the stack arguments
+void __stdcall OnCall(int slot, const uint32_t* regs)
+{
+    char c[64], a[64], d[64], b[64], s0[64], s1[64], s2[64];
+    Log("call %s since %d play %d from %08x ecx %s eax %s edx %s ebx %s args %s %s %s", g_callNames[slot],
+        TestFramesSinceLoad(), TestFramesSincePlay(), regs[8], Arg(c, regs[6]), Arg(a, regs[7]), Arg(d, regs[5]),
+        Arg(b, regs[4]), Arg(s0, regs[9]), Arg(s1, regs[10]), Arg(s2, regs[11]));
+}
+
+#define CALL_SLOT(n)                                 \
+    __declspec(naked) void Wrap_Call##n()            \
+    {                                                \
+        __asm { pushad }                             \
+        __asm { push esp }                           \
+        __asm { push n }                             \
+        __asm { call OnCall }                        \
+        __asm { popad }                              \
+        __asm { jmp dword ptr [g_callNext + n * 4] } \
+    }
+CALL_SLOT(0)
+CALL_SLOT(1)
+CALL_SLOT(2)
+CALL_SLOT(3)
+CALL_SLOT(4)
+CALL_SLOT(5)
+CALL_SLOT(6)
+CALL_SLOT(7)
+#undef CALL_SLOT
+void (*const g_callWraps[kCallSlots])() = {Wrap_Call0, Wrap_Call1, Wrap_Call2, Wrap_Call3,
+                                            Wrap_Call4, Wrap_Call5, Wrap_Call6, Wrap_Call7};
 }  // namespace
 
 extern void (*g_testSoundStarted)(const char* name, float volume);
@@ -423,6 +502,15 @@ void TestOracleInit()
     char buf[128];
     ConfigString("test", "play_warp", "", buf, sizeof(buf));
     g_warpOn = sscanf(buf, "%f,%f,%f", &g_warp[0], &g_warp[1], &g_warp[2]) == 3;
+    char calls[512];
+    ConfigString("test", "trace_calls", "", calls, sizeof(calls));
+    int slot = 0;
+    for (char* name = strtok(calls, ", "); name && slot < kCallSlots; name = strtok(nullptr, ", "))
+    {
+        strncpy(g_callNames[slot], name, sizeof(g_callNames[slot]) - 1);
+        if (HookWrap(name, reinterpret_cast<void*>(g_callWraps[slot]), &g_callNext[slot]))
+            ++slot;
+    }
     if (!g_traceEvery && !g_fromPlay)
         return;
     if (g_traceEvery)

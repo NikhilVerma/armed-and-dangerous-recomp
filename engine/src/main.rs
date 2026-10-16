@@ -603,6 +603,7 @@ fn setup(
     commands.insert_resource(CameraFxPending(info.camera_fx.clone(), cam, start));
     commands.insert_resource(info);
     commands.insert_resource(lib);
+    let markers = alarm::Markers::load(&launch.scene, &data);
     commands.insert_resource(data);
     commands.insert_resource(audio::SoundBank::load(&launch.scene));
     if launch.no_hud {
@@ -615,7 +616,7 @@ fn setup(
             gamemenu::spawn(&mut commands, &assets, &mut meshes, &mut color_materials, &launch.scene);
         }
         menu.stats = false;
-        commands.insert_resource(alarm::Markers::load(&launch.scene));
+        commands.insert_resource(markers);
         match mission::Mission::load(&launch.scene) {
             Some(m) => commands.insert_resource(m),
             None => warn!("mission: mission.json missing (run tools/remaster_export_mission.py)"),

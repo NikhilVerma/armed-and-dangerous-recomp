@@ -3,7 +3,7 @@
  {"warp": [-255, -120, 8, 180]},
  {"wait": 0.5},
  {"spawn": [-235, -195, 8]},
- {"wait": 2.0},
+ {"wait": 0.3},
  {"expect": {"cover.slots.37": false}},
  {"cover": true},
  {"wait": 0.3},

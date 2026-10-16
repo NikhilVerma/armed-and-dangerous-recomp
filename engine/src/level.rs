@@ -5,7 +5,7 @@ use crate::levelreset::LevelAppExt;
 use crate::ai;
 use crate::fx::{Bounds, DClass, Destructible, Died, Health};
 use crate::gamedata::{GameData, Props};
-use crate::physics::{Body, Physics};
+use crate::physics::Physics;
 use crate::player::BombAssets;
 use crate::scene::{self, ClonedParts, Library, PartBind, SceneFile};
 use bevy::light::{CascadeShadowConfigBuilder, NotShadowCaster};
@@ -883,15 +883,8 @@ pub fn spawn(
                     }
                 }
             }
-            let shape = ai::capsule(physics, p.f("collision_radius", 4.0));
-            let lift = Vec3::Y * ai::capsule_lift(p.f("collision_radius", 4.0));
-            let s = BodySettings::new_dynamic()
-                .mass(80.0)
-                .friction(0.0)
-                .allowed_dofs(AllowedDofs::TRANSLATION_X | AllowedDofs::TRANSLATION_Y | AllowedDofs::TRANSLATION_Z);
-            if let Some(id) = physics.add_dynamic(e, &shape, pos + lift, Quat::IDENTITY, Vec3::ZERO, s) {
+            if let Some(body) = ai::add_body(physics, e, p.f("collision_radius", 4.0), pos, p.s("material").unwrap_or("grunt")) {
                 let (yaw, _, _) = (rot * game_to_engine().inverse()).to_euler(EulerRot::YXZ);
-                physics.materials.insert(id, p.s("material").unwrap_or("grunt").to_owned());
                 let mut g = ai::make_grunt(&p, data, ai::Kind::of(&inst.template), pos, window_yaw.unwrap_or(yaw), &mut rng);
                 g.cold = ai::cold_level(&lib_dir);
                 // mode bully: the peasant whose tag is obj_tag (the peasant list +0xef8)
@@ -926,7 +919,7 @@ pub fn spawn(
                     g.fixed = Some(pos);
                 }
                 commands.entity(e).insert((
-                    Body { id, offset: lift, sync_rotation: false },
+                    body,
                     Health(p.f("max_health", 100.0)),
                     bounds,
                     g,
@@ -1356,14 +1349,7 @@ fn spawn_grunts(
                 attach_weapon(&mut commands, h, m, Transform::IDENTITY);
             }
         }
-        let shape = ai::capsule(&physics, p.f("collision_radius", 4.0));
-        let lift = Vec3::Y * ai::capsule_lift(p.f("collision_radius", 4.0));
-        let s = BodySettings::new_dynamic()
-            .mass(80.0)
-            .friction(0.0)
-            .allowed_dofs(AllowedDofs::TRANSLATION_X | AllowedDofs::TRANSLATION_Y | AllowedDofs::TRANSLATION_Z);
-        if let Some(id) = physics.add_dynamic(e, &shape, ev.at + lift, Quat::IDENTITY, Vec3::ZERO, s) {
-            physics.materials.insert(id, "grunt".into());
+        if let Some(body) = ai::add_body(&mut physics, e, p.f("collision_radius", 4.0), ev.at, "grunt") {
             let mut g = ai::make_grunt(&p, &data, ai::Kind::of(&ev.template), ev.at, yaw, rng);
             g.cold = ai::cold_level(&lib.dir);
             if let Some(ic) = &ev.ic {
@@ -1400,7 +1386,7 @@ fn spawn_grunts(
                 g.mind = ai::Mind::Chase;
             }
             let bounds = Bounds { center: (model.min + model.max) * 0.5, radius: (model.max - model.min).length() * 0.5 };
-            commands.entity(e).insert((Body { id, offset: lift, sync_rotation: false }, Health(p.f("max_health", 100.0)), bounds, g));
+            commands.entity(e).insert((body, Health(p.f("max_health", 100.0)), bounds, g));
         }
     }
 }

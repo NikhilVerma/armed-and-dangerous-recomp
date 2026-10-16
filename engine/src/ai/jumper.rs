@@ -57,6 +57,10 @@ pub struct Jumper {
     pub history: [Option<Entity>; 2],
     /// the pursuit's walk before a glide launch (state 0xbc, +0x490): its time left
     pub walk: Option<f32>,
+    /// the body has been through a physics step: the ground contact the pursuit reads (0x00454c20, vt+0xb8: the
+    /// contacts of the last step) exists. Before it (the level's first AI update) a jumper counts as in the air and
+    /// flies to a jump marker (lev_bonus_m1: every jumper captain leaves on the load frame, states 0xc4 / 0xc5)
+    pub stepped: bool,
 }
 
 impl Jumper {
@@ -79,6 +83,7 @@ impl Jumper {
             goal: Vec3::ZERO,
             history: [None; 2],
             walk: None,
+            stepped: false,
         }
     }
 
