@@ -1191,7 +1191,9 @@ impl Mission {
             start_sent: false,
             queue: Vec::new(),
             showing: None,
-            tickers: 0,
+            // player_has_tickerbomb (MissionObject_Load 0x0044c170, game_02.cpp:1994): Game+0xd90, the flag the pub's
+            // award sets too (pubscreen.rs: the same 4); lev_4_m1 starts with them (its goliaths' ticker sites)
+            tickers: if n(m, "player_has_tickerbomb") != 0.0 { 4 } else { 0 },
             outcome: Outcome::Playing,
             dead_timer: 0.0,
             log,

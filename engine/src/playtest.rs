@@ -405,7 +405,12 @@ fn warp(
                 let g = crate::level::game_to_engine().inverse() * at.translation();
                 pt.warp = Some([g.x, g.y, g.z + 2.0, 0.0]);
             }
-            (None, Some((_, at))) => pt.warp = land_beside(&physics, at.translation(), d),
+            (None, Some((_, at))) => {
+                pt.warp = land_beside(&physics, at.translation(), d);
+                if pt.warp.is_none() {
+                    warn!("EVENT playtest: land_by: no ground round object {id} at {:?}", crate::level::game_to_engine().inverse() * at.translation());
+                }
+            }
             (None, None) => warn!("EVENT playtest: land_by: no object {id}"),
         }
     }
@@ -445,13 +450,16 @@ fn warp(
 /// the object's height, as a land warp (game space, facing the object).
 fn land_beside(physics: &crate::physics::Physics, at: Vec3, d: f32) -> Option<[f32; 4]> {
     let to_game = crate::level::game_to_engine().inverse();
-    let best = (0..8)
-        .filter_map(|k| {
-            let a = k as f32 * std::f32::consts::FRAC_PI_4;
-            let p = at + Vec3::new(a.cos(), 0.0, a.sin()) * d;
-            physics.raycast_landscape(p.with_y(4000.0), Vec3::NEG_Y, 8000.0).map(|g| (p, (g.y - at.y).abs()))
-        })
-        .min_by(|a, b| a.1.total_cmp(&b.1))?;
+    // the ring at d, else the next farther one (a big object over the ground, a goliath, hides it from the landscape ray)
+    let best = [1.0, 2.0, 4.0].into_iter().find_map(|m| {
+        (0..8)
+            .filter_map(|k| {
+                let a = k as f32 * std::f32::consts::FRAC_PI_4;
+                let p = at + Vec3::new(a.cos(), 0.0, a.sin()) * d * m;
+                physics.raycast_landscape(p.with_y(4000.0), Vec3::NEG_Y, 8000.0).map(|g| (p, (g.y - at.y).abs()))
+            })
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+    })?;
     let (g, o) = (to_game * best.0, to_game * at);
     let yaw = (o.x - g.x).atan2(o.y - g.y).to_degrees();
     Some([g.x, g.y, f32::NAN, yaw])
