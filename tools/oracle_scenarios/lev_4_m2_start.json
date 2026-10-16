@@ -9,7 +9,6 @@
  "known": {
   "companion.jonesy.pos": "C1: a companion 12-13 units from the original's (follow distance / start spot), just past the tolerance",
   "events.sounds": "B17: sounds the remaster does not start (or does not report): the pubs' amb_pub_exterior_lp at load, sheep, zeppelin creaks, shrub bomber loop, water footsteps",
-  "grunt.mind": "B13: grunts in the bully state 0x118 (bully.rs) roam in the remaster",
   "grunts.alive": "B16: lev_4_m2's tree spawns (9 grunts at the l4 trees in 10 s) are not created (tree grunts, grunt-ai.md section 14)",
   "roman.clip": "B9: the remaster starts on the rifle; the original holds the machine gun (weapon 0, clip 100) the mission gives (player_add_machinegun 1)",
   "roman.heading": "B4: Roman's model heading ignores the start facing (look yaw is right)",

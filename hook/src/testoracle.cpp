@@ -253,6 +253,31 @@ std::string Body()
         }
     }
     o += ']';
+    // the alarm controller's gates (fn_00404e50, ai_01.cpp:468-660): sirens World+0xef0, forced Game+0xdcc, Game+0xc80 /
+    // +0xcbc / +0xadc / +0xae0 (all must be clear), the spawn timer 0x0063a1f4, the generators listed 0x0063a1f0 and
+    // its live troops 0x0063a1ec
+    if (world)
+    {
+        auto count = [](uint32_t list) {
+            int n = 0;
+            uint32_t iter[2] = {0, 0};
+            if (list)
+                for (uint32_t a = orig::fn_004e7340(list, reinterpret_cast<uint32_t>(iter)); a;
+                     a = orig::fn_004e73c0(reinterpret_cast<uint32_t>(iter)))
+                    ++n;
+            return n;
+        };
+        o += ",\"alarm\":{\"sirens\":" + std::to_string(count(At<uint32_t>(reinterpret_cast<void*>(world), 0xef0)));
+        o += ",\"forced\":" + std::to_string(At<uint8_t>(g_game, 0xdcc)) + ",\"c80\":";
+        Num(o, At<float>(g_game, 0xc80));
+        o += ",\"cbc\":" + std::to_string(At<uint8_t>(g_game, 0xcbc)) + ",\"adc\":" + std::to_string(At<uint32_t>(g_game, 0xadc));
+        o += ",\"ae0\":";
+        Num(o, At<float>(g_game, 0xae0));
+        o += ",\"timer\":";
+        Num(o, *reinterpret_cast<const float*>(0x0063a1f4));
+        o += ",\"generators\":" + std::to_string(count(*reinterpret_cast<const uint32_t*>(0x0063a1f0)));
+        o += ",\"troops\":" + std::to_string(count(*reinterpret_cast<const uint32_t*>(0x0063a1ec))) + "}";
+    }
     // the level record Game+0xa64: state +0xc (fn_0044a390, ui_01.cpp:2043; mission.md)
     const uint32_t level = At<uint32_t>(g_game, 0xa64);
     o += ",\"mission\":{\"state\":" + std::to_string(Readable(level, 0x10) ? At<int>(reinterpret_cast<void*>(level), 0xc) : -1);

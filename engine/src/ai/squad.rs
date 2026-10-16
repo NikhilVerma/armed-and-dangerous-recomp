@@ -51,6 +51,9 @@ pub struct Squad {
     pub run: Option<(i64, usize)>,
     /// move_speed, or patrol_speed with marker_patrol (guess at which the speed getter ai_02.cpp:2358 returns)
     pub speed: f32,
+    /// the speed now: the original's anchor is a body pushed toward `speed` (Squad_Init's mass setting 0x00458270), so
+    /// it gathers pace from a halt (`PACE_TIME`)
+    pub pace: f32,
     /// scan_distance +0x5dc (default 300): the squad's own target scan
     pub scan: f32,
     scan_timer: f32,
@@ -104,6 +107,7 @@ impl Squad {
             looping: p.i("marker_looping", 0) != 0,
             run: None,
             speed: if p.i("marker_patrol", 0) != 0 { p.f("patrol_speed", 10.0) } else { p.f("move_speed", 40.0) },
+            pace: 0.0,
             scan: p.f("scan_distance", 300.0),
             scan_timer: 0.0,
             // (0 would be no group: the original logs and uses 0xfffe7e53)
@@ -135,6 +139,11 @@ impl Squad {
         self.phase == SquadPhase::Halted
     }
 }
+
+/// Seconds the anchor takes to gather ~63 % of its speed from a halt: fitted to the original (oracle lev_bonus_m3: the
+/// squad's members' centre at 0.5, 1.4, 3.9, 5.5, 6.9, 7.8 .. 9.3 units / s over its first 3 s at patrol_speed 10; the
+/// force model behind it is not traced).
+pub const PACE_TIME: f32 = 1.3;
 
 /// The member's goal in state 0xdc: its bone, at most twice its own move_speed (0x00471970).
 pub fn member_goal(sq: &Squad, link: SquadLink, pos: Vec3, move_speed: f32) -> (Vec3, f32) {
@@ -338,7 +347,8 @@ pub fn update_squads(
                                     info!("EVENT ai: squad at the end of its spline");
                                 }
                             } else {
-                                let step = to.normalize_or_zero() * (sq.speed * dt).min(to.length());
+                                sq.pace += (sq.speed - sq.pace) * (1.0 - (-dt / PACE_TIME).exp());
+                                let step = to.normalize_or_zero() * (sq.pace * dt).min(to.length());
                                 sq.pos += step;
                                 // on the ground (force_ground): the height follows the terrain under the anchor
                                 if let Some((_, hit, _)) = physics.raycast(sq.pos + Vec3::Y * 200.0, -Vec3::Y, 1000.0) {
@@ -352,6 +362,7 @@ pub fn update_squads(
                 }
             }
             SquadPhase::Halted => {
+                sq.pace = 0.0;
                 // state 0x98: the timers count down; at 0 (no member still fighting) the target is dropped and the
                 // spline resumes
                 sq.halt -= dt;

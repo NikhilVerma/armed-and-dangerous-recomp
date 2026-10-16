@@ -6,11 +6,20 @@
 //!   AIMarker_Advance 0x0044b980). On arrival with an alarm_tag the object of that tag (Object_FindByTag 0x004592e0:
 //!   `tagged`) joins the siren list World+0xef0 once: fx_siren on it and the runner's Help bark (vt+0x264, 0x00438f90).
 //! - The alarm controller (0x00404e50, ai_01.cpp:468-660; its globals 0x0063a1e8.. are this resource) while a siren is
-//!   listed: every alarm_min..max_delay (2..4 s) one troop while fewer than alarm_generator_max_troops (10) of its
-//!   troops live, from the generator (AlarmGenerator_Slot6 0x00405490) nearest the player that he does not see
-//!   (0x00404d00) and is not one of the last 3 spawn points (else the first such: the fallback), the troop type by the
-//!   six weights, made at the generator's ref_spawn_00; the troop walks to its ref_exit_00 and follows the spline of a
-//!   tag in the generator's marker_tag_min..max (0x0042dd50), or charges with no tags.
+//!   listed or the mission forces the alarm (alarm_trigger_activate, Game+0xdcc): its spawn timer (rolled in
+//!   alarm_min..max_delay at load by 0x00404940, counting down only then) runs out -> one troop while fewer than
+//!   alarm_generator_max_troops (10) of its troops live, from the generator (AlarmGenerator_Slot6 0x00405490) nearest
+//!   the player that he does not see (0x00404d00) and is not one of the last 3 spawn points (else the first such: the
+//!   fallback), the troop type by the six weights, made at the generator's ref_spawn_00; the troop walks to its
+//!   ref_exit_00 and follows the spline of a tag in the generator's marker_tag_min..max (0x0042dd50), or charges with no
+//!   tags; the timer is rolled again (spawn or not).
+//! - "Seen" (0x00404d00): in the player's 180-degree view (vt+0xf0), and then a level ray from the generator toward his
+//!   ref_hit_01 over the collidable objects (World+0xe9c, the AI excluded; not the landscape) either meets nothing or
+//!   meets an object that was drawn (+0x424 bit 11 clear). Oracle (the hook's alarm gates): lev_2_m2 (siren raised)
+//!   and lev_bonus_m1 (alarm forced, 9 generators) run the timer out again and again with no troop in 10-20 s, every
+//!   generator ahead of Roman beyond hills and houses (seen: no ray through hills); lev_bonus_m2's generator 171, ahead
+//!   of him but 1490 away behind objects, sends its troop (unseen: what the ray meets is not drawn there). "Drawn" here:
+//!   visible, and within its farthest lodcutoff of the player (guess at bit 11: the renderer's cull).
 //! - A destroyed siren leaves the list (guess: Object_Remove unlinks it; unverified) and its loop stops.
 
 use crate::levelreset::LevelAppExt;
@@ -82,7 +91,8 @@ pub struct Markers {
     /// instance ids by their `tag` property (alarm targets)
     tagged: HashMap<i64, Vec<u32>>,
     sirens: Vec<Entity>,
-    timer: f32,
+    /// the spawn timer 0x0063a1f4 (None: not rolled yet, at the first frame of the level)
+    timer: Option<f32>,
     recent: VecDeque<u32>,
     max_troops: usize,
     delay: (f32, f32),
@@ -287,6 +297,49 @@ fn sirens_gone(mut m: ResMut<Markers>, mut died: MessageReader<crate::fx::Died>,
     }
 }
 
+/// How far from the player a collidable object is drawn (its farthest lodcutoff), None when it is never drawn (visible
+/// 0, invisible, invisible_material, a collide barrier): by its collider.
+type DrawRanges = std::collections::HashMap<oxijolt::prelude::BodyId, Option<f32>>;
+
+fn draw_ranges(placed: &Query<(&InstanceId, &crate::level::Placed)>, dir: &std::path::Path, data: &crate::gamedata::GameData) -> DrawRanges {
+    let props = crate::vehicles::placements(dir, data);
+    placed
+        .iter()
+        .filter_map(|(id, pl)| {
+            let p = props.get(&id.0)?;
+            let hidden = p.f("visible", 1.0) == 0.0 || p.f("invisible", 0.0) != 0.0 || p.f("collide_barrier", 0.0) != 0.0 || p.s("material") == Some("invisible_material");
+            let far = (0..10).filter_map(|i| p.0.get(&format!("lodcutoff_{i}")).and_then(|v| v.as_f64())).fold(None, |m: Option<f32>, v| Some(m.unwrap_or(0.0).max(v as f32)));
+            Some((pl.collider?, if hidden { None } else { Some(far.unwrap_or(f32::INFINITY)) }))
+        })
+        .collect()
+}
+
+/// 0x00404d00: the player sees the generator at `at`: it is in his 180-degree view (vt+0xf0) and a level ray from it
+/// toward his ref_hit_01 (Ray_CastQuery 0x00414110 over the collidable list World+0xe9c, the AI excluded: not the
+/// landscape, not the characters) meets nothing, or meets an object drawn this frame (+0x424 bit 11 clear).
+fn seen_by_player(physics: &crate::physics::Physics, at: Vec3, eye: Vec3, fwd: Vec3, ranges: &DrawRanges) -> bool {
+    let to = (eye - at).with_y(0.0);
+    if to.normalize_or_zero().dot(fwd) > 0.0 {
+        return false;
+    }
+    let dir = to.normalize_or(Vec3::X);
+    let (mut from, mut left) = (at, to.length() + 5.0);
+    for _ in 0..32 {
+        let Some((b, hit, _)) = physics.raycast(from, dir, left) else { return true };
+        // only the placed objects' colliders are in the collidable list (not the landscape, not the characters)
+        // a drawn object blocks the view; an undrawn one (invisible walls, barriers) is passed
+        if ranges.get(&b).is_some_and(|r| r.is_some()) {
+            return false;
+        }
+        left -= hit.distance(from) + 0.05;
+        if left <= 0.0 {
+            return true;
+        }
+        from = hit + dir * 0.05;
+    }
+    true
+}
+
 /// The alarm controller (0x00404e50).
 #[allow(clippy::too_many_arguments)]
 fn controller(
@@ -294,26 +347,44 @@ fn controller(
     mut m: ResMut<Markers>,
     mut rng: ResMut<crate::fx::FxStats>,
     troops: Query<&crate::fx::Health, With<AlarmTroop>>,
-    player: Query<(&GlobalTransform, &crate::player::Roman)>,
-    physics: NonSend<crate::physics::Physics>,
+    player: Query<(&GlobalTransform, &crate::player::Roman, Option<&crate::skin::Animator>)>,
+    (joints, mission, physics): (Query<&GlobalTransform>, Option<Res<crate::mission::Mission>>, NonSend<crate::physics::Physics>),
+    (placed, data, lib, mut ranges): (
+        Query<(&InstanceId, &crate::level::Placed)>,
+        Res<crate::gamedata::GameData>,
+        Res<crate::skin::AnimLibrary>,
+        crate::levelreset::PerLevel<Option<DrawRanges>>,
+    ),
     mut spawn: MessageWriter<crate::level::SpawnGrunt>,
 ) {
-    if m.sirens.is_empty() || m.generators.is_empty() {
+    if m.generators.is_empty() {
         return;
     }
-    m.timer -= time.delta_secs();
-    if m.timer > 0.0 {
+    // rolled when the controller is made at load (0x004049a0 -> 0x00404940)
+    let Some(timer) = m.timer else {
+        m.timer = Some(rng.range(m.delay.0, m.delay.1));
+        return;
+    };
+    // the sirens listed (World+0xef0) or the alarm forced (Game+0xdcc)
+    if m.sirens.is_empty() && !mission.is_some_and(|ms| ms.alarm_forced) {
         return;
     }
-    m.timer = rng.range(m.delay.0, m.delay.1);
+    let left = timer - time.delta_secs();
+    if left > 0.0 {
+        m.timer = Some(left);
+        return;
+    }
+    // (rolled again whatever the outcome: the end of 0x00404e50)
+    m.timer = Some(rng.range(m.delay.0, m.delay.1));
     if troops.iter().filter(|h| h.0 > 0.0).count() >= m.max_troops {
         return;
     }
-    let Ok((pt, r)) = player.single() else { return };
+    let Ok((pt, r, anim)) = player.single() else { return };
     let pp = pt.translation();
-    // seen by the player (0x00404d00): in his 180 degree view and in sight of his chest
+    let eye = anim.and_then(|a| a.skeleton.index.get("ref_hit_01").and_then(|&i| joints.get(a.joints[i]).ok())).map_or(pp + Vec3::Y * 7.0, |j| j.translation());
     let fwd = Quat::from_rotation_y(r.yaw) * Vec3::NEG_Z;
-    let seen = |g: &Generator| (g.pos - pp).with_y(0.0).normalize_or_zero().dot(fwd) > 0.0 && crate::ai::line_of_sight(&physics, g.pos, pp);
+    let ranges = ranges.get().get_or_insert_with(|| draw_ranges(&placed, &lib.dir, &data));
+    let seen = |g: &Generator| seen_by_player(&physics, g.pos, eye, fwd, ranges);
     // the walk of the generator list 0x0063a1f0 (in load order): a candidate no nearer than the best so far is skipped
     // first; then inside its min_spawn_distance, beyond 0.75 x Game+0xd64 with max_distance (Game+0xd64 not exported:
     // no lev_1_m1 generator sets max_distance), seen: skipped; one of the last three spawn points becomes the fallback

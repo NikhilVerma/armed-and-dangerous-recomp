@@ -331,10 +331,13 @@ effects post noises like his bullets' (sticky.rs -> Interests::follow / end_at).
 
 ## 14. Open points
 
-- **Tree grunts** (not created): three lev_1_m1 pine trees (47, 61, 76: ic_tree_slide_2 / 3 / 1 = triggers 99 / 98 /
-  99, trigger_los) hide a grunt_regular each at ref_grunt_tree_N (0x00496e90 -> 0x00456180 -> 0x0042d000: state 0x8c
-  with the IC anim mover_grunt_tree_N, slide down when triggered). level.rs does not create them; the IC anim path
-  (GenericAI_PlayICAnim 0x0042c410 and its helpers) is then needed. Trigger 98 is barracks 235's activation.
+- **Hidden grunts** (ported 2026-10-16, engine/src/ai/ic.rs): trees (lev_1_m1 pine trees 47, 61, 76: ic_tree_slide_N,
+  triggers 99 / 98 / 99), buildings (ic_door_N, ic_window_dive_*, ic_climb_v2f_1, roof and wall jumps: 59 on 10
+  levels) and powder kegs (ic_powder_N) each hide a grunt_regular at the property's ref node (0x00496e90 /
+  0x0040ad80 / 0x0041c180 -> 0x00456180 -> 0x0042d000: state 0x8c holding the mover's first frame); the trigger or a
+  wake-up plays the mover (0x0042f5c0 -> GenericAI_PlayICAnim 0x0042c410, state 0x64 = Mind::Scripted), then state
+  0x65 (Roam, home there) or "ready_roof" (guard). Oracle: their count, positions and states agree on every level.
+  Open: what makes lev_1_m1_b's spheres 376 / 387 send 700 / 703 at load in the original (B19).
 - The captain's own voice lines (AIVoice_* 0x00437690 / 0x00437860 / 0x004375c0 ...): captains use the grunt barks.
 - The run anims' playback speed scaled to the move speed (vt+0x1a8, anim_run_* / anim_limp_*): played at speed 1.
 - The falling watchdog 0x0042e910 (state 0x82) and the contact reactions (slots 42 / 44): not ported.

@@ -10,6 +10,10 @@
 //!   landing building of a roof jump (IC_building_tag) destroyed: he guards where he is (0x0042d0f0); else the mover from
 //!   where he waits (GenericAI_PlayICAnim 0x0042c410: physics off, state 0x64). The move is a [`Mover`]: its root track
 //!   carries him, "anim_full" plays it on his skeleton, its fx / trigger notes are the generic ones (mover.rs).
+//! - On the way his body breaks the village windows it passes (the dives: the original moves him with a velocity,
+//!   0x00458510 in state 0x64, so his body hits the pane, a DefaultGameObject with physics on, which dies of the
+//!   impact: oracle lev_5_m1 / lev_1_m1_b, a window's death and imp_turret_glass_break ~0.5 s into the dive; here a
+//!   pane within reach of his body dies: guess at the impact rule).
 //! - Its end (state 0x64's end -> 0x65, ai_06.cpp:1960-1976): upright, his home where he stands, the stand set, state 1;
 //!   with the note "ready_roof" (GenericAIObject_HandleEvent 0x0043d180) a guard on the roof (0x0042d0f0). "ragdoll"
 //!   (the missed roof jump) ends the move there and lets him fall (guess: vt+0x17c's fall is not ported).
@@ -131,6 +135,9 @@ pub struct IcEntry {
     pub running: bool,
 }
 
+/// How near a pane's origin his body's middle comes to break it (his capsule's radius and half a pane: guess).
+const WINDOW_REACH: f32 = 8.0;
+
 /// What ends a move.
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum End {
@@ -211,6 +218,7 @@ pub fn run(
     mut q: Query<(Entity, &IcEntry, &mut Grunt, &crate::physics::Body, &Transform, Option<&Mover>, Option<&mut crate::skin::Animator>)>,
     mut physics: NonSendMut<crate::physics::Physics>,
     mut stats: ResMut<IcStats>,
+    mut windows: Query<(&GlobalTransform, &mut crate::fx::Destructible), With<crate::level::Window>>,
 ) {
     let mut roof: Vec<Entity> = Vec::new();
     let mut fall: Vec<Entity> = Vec::new();
@@ -240,6 +248,14 @@ pub fn run(
         let pos = tr.translation;
         match end {
             None => {
+                // the panes his body passes through (within his capsule round its middle)
+                let middle = pos + body.offset;
+                for (wt, mut d) in &mut windows {
+                    if d.health > 0.0 && d.dying.is_none() && wt.translation().distance(middle) < WINDOW_REACH {
+                        crate::vehicles::kill(&mut d);
+                        info!("EVENT ic: grunt {e:?} breaks a window");
+                    }
+                }
                 // physics off (0x004577b0(0)): the body is put where the mover has him
                 if let Ok(mut b) = physics.world.body_mut(body.id) {
                     let _ = b.set_position(crate::physics::jr((pos + body.offset) * k), oxijolt::prelude::Activation::Activate);
@@ -280,12 +296,13 @@ pub fn run(
     }
 }
 
-/// The playtest state's `ic`: grunts hidden at load, moves started and ended, grunts still waiting.
+/// The playtest state's `hidden`: grunts hidden at load, moves started and ended, grunts still waiting.
 pub fn log(q: Query<&IcEntry>, stats: Res<IcStats>, state: Option<ResMut<crate::playtest::PlayState>>) {
     let Some(mut state) = state else { return };
     let waiting = q.iter().filter(|i| !i.running).count();
     let running = q.iter().filter(|i| i.running).count();
-    state.0.insert("ic".into(), serde_json::json!({"started": stats.started, "ended": stats.ended, "waiting": waiting, "running": running}));
+    // (not "ic": icobject.rs's)
+    state.0.insert("hidden".into(), serde_json::json!({"started": stats.started, "ended": stats.ended, "waiting": waiting, "running": running}));
 }
 
 #[cfg(test)]

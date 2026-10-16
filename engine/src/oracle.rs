@@ -241,6 +241,8 @@ pub struct Oracle {
     down: Vec<Input>,
     /// placed destructible objects alive last frame, and the ones gone since the last trace line
     alive: Option<std::collections::HashSet<u32>>,
+    /// the village windows alive last frame (no instance id: a death traced as 0, as the hook's)
+    panes: Option<std::collections::HashSet<Entity>>,
     deaths: Vec<u32>,
 }
 
@@ -267,7 +269,7 @@ fn setup(mut commands: Commands, pt: Res<crate::playtest::Playtest>) {
     let keys = parse_keys(&cfg.keys);
     let out = (cfg.trace_every > 0).then(|| std::fs::File::create(pt.path.with_extension("trace.jsonl")).ok()).flatten();
     info!("EVENT oracle: {} scripted inputs, {} frames, trace every {}", keys.len(), cfg.frames, cfg.trace_every);
-    commands.insert_resource(Oracle { cfg, keys, frame: 0, brief: None, clock0: None, out, pending: Vec::new(), log_seen: 0, triggers: Vec::new(), sounds: Vec::new(), warped: false, down: Vec::new(), alive: None, deaths: Vec::new() });
+    commands.insert_resource(Oracle { cfg, keys, frame: 0, brief: None, clock0: None, out, pending: Vec::new(), log_seen: 0, triggers: Vec::new(), sounds: Vec::new(), warped: false, down: Vec::new(), alive: None, panes: None, deaths: Vec::new() });
 }
 
 fn count(mut o: ResMut<Oracle>, mission: Option<Res<crate::mission::Mission>>) {
@@ -333,6 +335,7 @@ fn trace(
     ids: Query<&crate::level::InstanceId>,
     objects: Query<(&crate::level::InstanceId, &crate::fx::Destructible)>,
     vehicles: Vehicles,
+    panes: Query<(Entity, &crate::fx::Destructible), With<crate::level::Window>>,
 ) {
     if o.out.is_none() {
         return;
@@ -359,6 +362,12 @@ fn trace(
         o.deaths.extend(gone);
     }
     o.alive = Some(alive);
+    let standing: std::collections::HashSet<Entity> = panes.iter().filter(|(_, d)| d.health > 0.0 || d.dying.is_some_and(|t| t > 0.0)).map(|(e, _)| e).collect();
+    if let Some(before) = o.panes.take() {
+        let gone = before.difference(&standing).count();
+        o.deaths.extend(std::iter::repeat_n(0, gone));
+    }
+    o.panes = Some(standing);
     let (from, every) = (o.cfg.trace_from, o.cfg.trace_every.max(1));
     let want = match o.play_frame() {
         None => from < 0,
