@@ -1,0 +1,21 @@
+{"scene": "lev_5_m2", "steps": [
+ {"until": "message"},
+ {"wait": 0.5},
+ {"tap": "Enter"},
+ {"wait": 2.0},
+ {"cheat": "SHIELDME"},
+ {"warp": [85, -400, -130, 0]},
+ {"loadout": {"bunchoffives": 1, "special": "bunchoffives"}},
+ {"look_at": [85, -340, -120]},
+ {"wait": 0.6},
+ {"spawn": [85, -340, -126]},
+ {"spawn": [93, -330, -125]},
+ {"spawn": [78, -320, -125]},
+ {"wait": 0.3},
+ {"click": "Right"},
+ {"wait": 0.2},
+ {"expect": {"glove.active": true, "glove.grabbed": 3, "specials.bunchoffives": 0}},
+ {"wait": 3.0},
+ {"expect": {"glove.missed": 1, "glove.punched": 0, "glove.let_go": [1, 2], "glove.active": false}},
+ {"quit": true}
+]}

@@ -57,6 +57,10 @@ SUITE += ['companion_carried', 'companion_close_kill', 'companion_engage_exit', 
 # bites and its end, the black hole's carry-off and swallow, the Guy Fawkes traitors at war with their old side, the
 # Auto-Aim option (a miss without, a hit with), the pub's carry / swap with three guns and its drop
 SUITE += ['weapon_sniper', 'weapon_mortar', 'weapon_vindaloo', 'weapon_shark', 'weapon_blackhole', 'weapon_guyfawkes', 'weapon_autoaim', 'weapon_swap', 'weapon_swap_drop']
+# the knockout bomb (weapons/glove.rs): three grunts held, flung one a second and punched away (the first launched), the
+# special spent only with targets; unpunched, the first goes down and the glove lets go of the rest; the land shark's
+# target test (targeting.rs can_be_bitten_now): a gloved grunt is no prey
+SUITE += ['weapon_glove', 'weapon_glove_miss', 'weapon_shark_prey']
 # the dead's bodies (corpses.rs): lev_1_m4's army killed two a second; the Original's timers (bodies gone, at most four
 # ragdolls, entities and physics bodies not growing) and the Remaster's 48 bodies with settled ragdolls
 SUITE += ['corpses_l1m4', 'corpses_l1m4_remaster']

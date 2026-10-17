@@ -145,7 +145,7 @@ fn throw(
     let eye = rt.translation + Vec3::Y * 4.0;
     let fwd = c.forward().as_vec3();
     let view = crate::weapons::targeting::View::new(c, proj.single().ok(), eye);
-    let cands = crate::weapons::targeting::candidates(&grunts, &joints, false);
+    let cands = crate::weapons::targeting::candidates(&grunts, &joints, |_, _, _| true);
     let target = crate::weapons::targeting::search(&view, cands, factors, range, 1, &physics, |e| e != re && grunts.contains(e)).first().map(|t| (t.entity, t.point, grunts.get(t.entity).ok().and_then(|g| g.3)));
     if std::env::var("AIDBG").is_ok() {
         info!("AIDBG sticky target {:?}", target.map(|t| t.0));

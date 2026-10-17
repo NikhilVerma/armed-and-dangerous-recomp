@@ -366,7 +366,7 @@ fn controller(
     mut rng: ResMut<crate::fx::FxStats>,
     troops: Query<&crate::fx::Health, With<AlarmTroop>>,
     player: Query<(&GlobalTransform, &crate::player::Roman, Option<&crate::skin::Animator>)>,
-    (joints, mission, physics): (Query<&GlobalTransform>, Option<Res<crate::mission::Mission>>, NonSend<crate::physics::Physics>),
+    (joints, mission, physics, glove): (Query<&GlobalTransform>, Option<Res<crate::mission::Mission>>, NonSend<crate::physics::Physics>, Res<crate::weapons::glove::Glove>),
     (placed, data, lib, mut listed): (
         Query<(&InstanceId, &crate::level::Placed)>,
         Res<crate::gamedata::GameData>,
@@ -385,6 +385,12 @@ fn controller(
     };
     // the sirens listed (World+0xef0) or the alarm forced (Game+0xdcc)
     if m.sirens.is_empty() && !mission.is_some_and(|ms| ms.alarm_forced) {
+        return;
+    }
+    // held while the knockout bomb's glove is on (Game+0xcbc). (The original also holds it during the Topsy Turvy bomb's
+    // effect, Game+0xc80 > 0, while a black hole is live, Game+0xadc, and while the Guy Fawkes wait runs, Game+0xae0:
+    // not here yet)
+    if glove.active() {
         return;
     }
     let left = timer - time.delta_secs();

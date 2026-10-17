@@ -10,6 +10,7 @@
 //! | Land Shark gun | [`landshark`] | fire 0x004a2910 / 0x004a2950, SharkGunProjectile 0x0047f6d0..0x0047fc90 |
 //! | black hole | [`blackhole`] | BlackHoleBox 0x00482120..0x004822b0, BlackHoleProjectile 0x00481db0 / 0x00481ef0 |
 //! | Guy Fawkes traitor bomb | [`traitor`] | the bomb (Projectile vtable 0x005a6608), the AI's turn 0x00430140 |
+//! | knockout bomb (punching glove) | [`glove`] | 0x004788a0 case 1, the targets 0x00407c20, GenericAIObject slots 71..74 0x0042f190..0x0042f470, the punch 0x00477c90 |
 //!
 //! Roman's own handling (switching, reloading, the recycle gate, the anims) stays in player.rs, which writes a
 //! [`GunFired`] for each shot of a launcher or the sniper rifle and a [`ThrowSpecial`] when a queued special leaves his
@@ -17,6 +18,7 @@
 
 pub mod arsenal;
 pub mod blackhole;
+pub mod glove;
 pub mod landshark;
 pub mod mortar;
 pub mod sniper;
@@ -91,7 +93,7 @@ impl Plugin for WeaponsPlugin {
             .add_message::<ThrowSpecial>()
             .add_systems(Update, release_throws.in_set(WeaponSet::Throws).after(crate::player::PlayerSet::Weapons).run_if(crate::playing))
             .add_systems(Update, (count_shots.after(crate::player::PlayerSet::Weapons), log_weapons).run_if(crate::playing))
-            .add_plugins((targeting::TargetingPlugin, sniper::SniperPlugin, mortar::MortarPlugin, vindaloo::VindalooPlugin, landshark::LandSharkPlugin, blackhole::BlackHolePlugin, traitor::TraitorPlugin));
+            .add_plugins((targeting::TargetingPlugin, sniper::SniperPlugin, mortar::MortarPlugin, vindaloo::VindalooPlugin, landshark::LandSharkPlugin, blackhole::BlackHolePlugin, traitor::TraitorPlugin, glove::GlovePlugin));
     }
 }
 

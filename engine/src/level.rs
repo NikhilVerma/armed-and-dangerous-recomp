@@ -597,6 +597,8 @@ pub enum HandWeapon {
     Gun(crate::weapons::WeaponId),
     /// the Topsy Turvy bomb while it is used
     Topsy,
+    /// the knockout bomb's punching glove (player_punchingglove) while it is on (weapons/glove.rs)
+    Glove,
 }
 
 impl HandWeapon {
@@ -605,6 +607,7 @@ impl HandWeapon {
         match self {
             HandWeapon::Gun(w) => w.name(),
             HandWeapon::Topsy => "topsyturvy",
+            HandWeapon::Glove => "punchingglove",
         }
     }
 }
@@ -885,6 +888,12 @@ pub fn spawn(
                     if let Some(parts) = data.templates.get("player_topsyturvy").and_then(|t| t.model.clone()).and_then(|n| lib.load_model(&n, false, assets, meshes, materials)).map(|m| m.parts.clone()) {
                         let held = attach_rest_pose(commands, h, &parts, meshes);
                         commands.entity(held).insert((HandWeapon::Topsy, Visibility::Hidden));
+                    }
+                    // the knockout bomb's glove: player_punchingglove attached at bof_glove_player_bone (r_wrist) by its
+                    // bof_glove_child_bone (0x004788a0 case 1: 0x004539f0); here in the hand like the guns (tuning item)
+                    if let Some(parts) = data.templates.get("player_punchingglove").and_then(|t| t.model.clone()).and_then(|n| lib.load_model(&n, false, assets, meshes, materials)).map(|m| m.parts.clone()) {
+                        let held = attach_rest_pose(commands, h, &parts, meshes);
+                        commands.entity(held).insert((HandWeapon::Glove, Visibility::Hidden));
                     }
                 }
             } else if let (Some(h), Some(w)) = (hand, ai::weapon_template(&inst.template).and_then(|w| data.templates.get(w)).and_then(|t| t.model.clone())) {

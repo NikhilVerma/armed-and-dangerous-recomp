@@ -584,16 +584,19 @@ pub fn make_roman(physics: &mut Physics, p: &Props, data: &GameData, feet: Vec3,
 /// "topsy_create" (0.467 s) creates player_topsyturvy in the hand and hides the weapons (PlayerObject_OnTopsyCreate
 /// 0x0047bbe0, 0x004a0e00(0)); it is removed when the effect's timer runs out (Game+0xc80) and the world turns back.
 /// When the weapons come back is not traced (guess: when the effect ends).
-fn hand_weapon(roman: Query<&Roman>, topsy: Res<crate::topsy::Topsy>, mut held: Query<(&crate::level::HandWeapon, &mut Visibility)>) {
+fn hand_weapon(roman: Query<&Roman>, topsy: Res<crate::topsy::Topsy>, glove: Res<crate::weapons::glove::Glove>, mut held: Query<(&crate::level::HandWeapon, &mut Visibility)>) {
     let Ok(r) = roman.single() else { return };
     let gun = r.arsenal.in_hand_id();
     use crate::level::HandWeapon;
     use crate::topsy::Phase;
     let bomb = matches!(topsy.phase, Phase::Turn | Phase::Hang) || (topsy.phase == Phase::Into && topsy.t >= 14.0 / 30.0);
-    let away = bomb || topsy.phase == Phase::Back;
+    // the knockout bomb's glove (player_punchingglove, attached while +0xa34 has 0x8000000) puts the weapons away
+    let gloved = glove.active();
+    let away = bomb || topsy.phase == Phase::Back || gloved;
     for (w, mut v) in &mut held {
         let show = match *w {
             HandWeapon::Topsy => bomb,
+            HandWeapon::Glove => gloved,
             HandWeapon::Gun(id) => !away && Some(id) == gun,
         };
         let want = if show { Visibility::Inherited } else { Visibility::Hidden };
@@ -714,7 +717,7 @@ pub(crate) fn control(
     look: Res<LookDelta>,
     playtest: Option<Res<crate::playtest::Playtest>>,
     opts: Res<crate::options::GameOptions>,
-    topsy: Res<crate::topsy::Topsy>,
+    (topsy, glove): (Res<crate::topsy::Topsy>, Res<crate::weapons::glove::Glove>),
     mut physics: NonSendMut<Physics>,
     mut q: Query<(&mut Roman, &mut Transform, &mut Health, Option<&mut crate::jetpack::JetPack>)>,
     (ctl, mounted, rig): (Res<crate::input::Controls>, Res<crate::turret::Mounted>, Res<crate::camera::CameraRig>),
@@ -801,8 +804,9 @@ pub(crate) fn control(
                 wish += f * fy + s * sx;
             }
         }
-        // the Topsy Turvy states hold Roman in place
-        if topsy.active() {
+        // the Topsy Turvy states hold Roman in place, and so does the knockout bomb's glove (0x00479142: the analog
+        // input zeroed while +0xa34 & 0x78000000)
+        if topsy.active() || glove.active() {
             wish = Vec3::ZERO;
         }
         // the drive (PlayerObject_Update 0x004799d5 through 0x00471810): force = d * mass * power * s^5, d the wanted
@@ -1080,7 +1084,7 @@ fn weapons(
     (mut sounds, mut stop): (MessageWriter<crate::audio::PlaySound>, MessageWriter<crate::audio::StopSound>),
     mut fx: MessageWriter<crate::fx::StartFx>,
     mut rng: ResMut<crate::fx::FxStats>,
-    mut topsy: ResMut<crate::topsy::Topsy>,
+    (mut topsy, mut glove): (ResMut<crate::topsy::Topsy>, ResMut<crate::weapons::glove::Glove>),
     (mut queue, targets, mut fired, cheats, holes): (ResMut<crate::weapons::ThrowQueue>, Res<crate::weapons::targeting::Targets>, MessageWriter<crate::weapons::GunFired>, Res<crate::cheats::Cheats>, Query<(), With<crate::weapons::blackhole::LiveHole>>),
     (cam, joints, xhair, mounted): (Query<&GlobalTransform, With<FollowCam>>, Query<&GlobalTransform, Without<FollowCam>>, Res<crate::hud::Crosshair>, Res<crate::turret::Mounted>),
 ) {
@@ -1168,6 +1172,8 @@ fn weapons(
         // a tap counts as a shot: a trackpad tap over Moonlight arrives as press and release in one frame, never
         // "pressed" at the frame's end (the player's gun did nothing)
         let fire = ctl.down(crate::input::Act::Fire) || ctl.pressed(crate::input::Act::Fire) || (buttons.just_pressed(MouseButton::Left) && ctl.active_play) || ((bot.fight || bot.shoot.is_some()) && bot.fire_ok);
+        // with the knockout bomb's glove on, the weapons are put away (0x004a0e00(0)) and Fire punches (weapons/glove.rs)
+        let fire = fire && !glove.active();
         let reloading = r.reload_clock.is_some();
         let fire_delay = r.fire_delay;
         // the shark gun is ready only with a live target picked (vt+0x138 0x004a2910: the target list's first entry)
@@ -1369,7 +1375,8 @@ fn weapons(
         //   a 0.4 s cooldown (the queue must be free, 0x004a1900); the throw anim is requested (+0xa34 |= 0x220000
         //   standing in state 0 / 6). It leaves the hand on the throw anim's "fire" note (weapons/mod.rs ThrowQueue).
         //   Guy Fawkes waits 10 s between uses (Game+0xae0); the black hole only while none is live (Game+0xadc)
-        // - the knockout bomb (7, the punching glove): not ported (feature: bunch-of-fives)
+        // - the knockout bomb (7, the punching glove; case 1 at 0x0047a2bd): not in a jump (+0xa34 & 0xc0); the glove
+        //   takes its targets, spends one and counts the shot only when it finds some (weapons/glove.rs)
         let special = r.arsenal.special;
         let wants = ctl.pressed(crate::input::Act::Special) || (bot_throw && special == SpecialId::StickyBomb);
         if wants && r.arsenal.count(special) > 0 {
@@ -1394,9 +1401,7 @@ fn weapons(
                     throw(&mut r, &mut queue, &mut stats);
                 }
                 SpecialId::BlackHole if !queue.busy() && holes.is_empty() => throw(&mut r, &mut queue, &mut stats),
-                SpecialId::BunchOfFives => {
-                    info!("EVENT player: the knockout bomb is not ported");
-                }
+                SpecialId::BunchOfFives if !r.jumping && r.jump_wind.is_none() && !glove.active() => glove.request = true,
                 _ => {}
             }
         }

@@ -1,7 +1,7 @@
 address,name,disposition,reason
 0x00401010,fn_00401010,replaced,options apply: options.rs applies each option
 0x004067e0,fn_004067e0,ported,"engine/src/weapons/targeting.rs: the passes' eye, the player's position + 4 (View::eye)"
-0x00407c20,fn_00407c20,deferred,"feature: knockout-bomb; the knockout bomb's (punching glove's) six marker targets in range of weapon 7 (autoaim_bof_factor_*): the special is not ported (player.rs logs its use)"
+0x00407c20,fn_00407c20,ported,"engine/src/weapons/glove.rs use_glove: the six targets through targeting::search (autoaim_bof_factor_*, bof_range, line of sight, the landscape height rule)"
 0x00408050,fn_00408050,ported,engine/src/weapons/targeting.rs View::contains: the bounding-sphere test against the narrowed view
 0x00408190,fn_00408190,ported,"engine/src/weapons/targeting.rs candidates / search: the live characters nearest the eye first, 21 looked at"
 0x004082a0,fn_004082a0,replaced,engine/src/weapons/targeting.rs: the candidate list is built each pass (Rust Vec); no references to release

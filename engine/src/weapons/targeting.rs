@@ -158,11 +158,11 @@ pub fn in_sight(physics: &Physics, from: Vec3, to: Vec3, target: Entity, passabl
     false
 }
 
-/// The candidates: the live grunt-class characters with their ref_hit_00 (`prey`: only those a land shark can bite).
-pub fn candidates(grunts: &Query<(Entity, &crate::ai::Grunt, &GlobalTransform, Option<&crate::skin::Animator>)>, joints: &Query<&GlobalTransform>, prey: bool) -> Vec<Candidate> {
+/// The candidates: the grunt-class characters `keep` takes (by entity, character and feet), with their ref_hit_00.
+pub fn candidates(grunts: &Query<(Entity, &crate::ai::Grunt, &GlobalTransform, Option<&crate::skin::Animator>)>, joints: &Query<&GlobalTransform>, keep: impl Fn(Entity, &crate::ai::Grunt, Vec3) -> bool) -> Vec<Candidate> {
     grunts
         .iter()
-        .filter(|(_, g, _, _)| !prey || can_be_bitten(g))
+        .filter(|(e, g, t, _)| keep(*e, g, t.translation()))
         .map(|(e, g, t, a)| {
             let origin = t.translation();
             let joint = a.and_then(|a| a.skeleton.index.get("ref_hit_00").map(|&i| a.joints[i]));
@@ -172,10 +172,35 @@ pub fn candidates(grunts: &Query<(Entity, &crate::ai::Grunt, &GlobalTransform, O
         .collect()
 }
 
-/// vt+0x24c of the shark gun's pass and its target search (0x0047fa70): characters on the ground the land shark can
-/// reach and has a bite for (grunt_sharkbite / captain_sharkbite): grunts and captains, not in a window or tower,
-/// not on a gun. (Which classes answer true is not traced: guess from the bite anims.)
+/// GruntObject_Slot147 0x00434e10, vt+0x24c of the grunt, the archer, the captain and the sniper captain (the other
+/// classes' slot answers false, 0x00435250): whether the land shark can take this character now. The shark gun's pass
+/// (Hud_UpdateCrosshair 0x00406f50) and the shark's own search (0x0047fa70) ask it. Not when can_be_sharked is clear
+/// (+0x48c 0x100) or he is picked up (+0x48c 2); not held by a companion for a close kill (state 0xf), thrown by the
+/// Topsy Turvy bomb (0xe6..0xeb, its hang timer +0x878), in the knockout bomb's glove (0x19a / 0x19b), held by anything
+/// (+0x870: a black hole's carry-off), in an IC move (0x00426630); and, unless he is on a mounted gun (+0x484 0x8000),
+/// only standing on the landscape (0x00454be0: not on a building, a roof or a window's floor). `held` is the caller's
+/// answer for the components that hold him (black hole, Topsy Turvy, glove).
+pub fn can_be_bitten_now(g: &crate::ai::Grunt, held: bool, physics: &Physics, feet: Vec3) -> bool {
+    can_be_bitten(g) && !held && (g.gun.is_some_and(|gn| gn.phase == crate::ai::GunPhase::On) || on_landscape(physics, feet))
+}
+
+/// The character's own part of [`can_be_bitten_now`]: its class, can_be_sharked, and not dead, held or scripted.
 pub fn can_be_bitten(g: &crate::ai::Grunt) -> bool {
+    use crate::ai::{Kind, Mind};
+    matches!(g.kind, Kind::Grunt | Kind::Bow | Kind::Captain | Kind::Sniper) && g.can_be_sharked && !matches!(g.mind, Mind::Dead | Mind::Held | Mind::Scripted)
+}
+
+/// Standing on the landscape (0x00454be0: vt+0xb8's contact with no object, GenericAIObject_Slot46 0x00431f70): the
+/// first static thing under his feet (past the dynamic bodies, his own among them) is the level's ground, not an
+/// object (a building, a roof, a prop).
+pub fn on_landscape(physics: &Physics, feet: Vec3) -> bool {
+    physics.static_below(feet, 4.0).is_some_and(|(b, _)| physics.landscape.is_none_or(|l| l == b))
+}
+
+/// The characters the black hole's carry-off takes (AreaDamage_Apply 0x0047f020 with flag 0x800 -> vt+0x254: not
+/// traced; guess: the ones on their feet, as the land shark's prey was guessed before 0x00434e10 was read): grunts and
+/// captains, not in a window or tower, not on a gun.
+pub fn on_their_feet(g: &crate::ai::Grunt) -> bool {
     use crate::ai::Kind;
     matches!(g.kind, Kind::Grunt | Kind::Bow | Kind::Captain | Kind::Sniper) && !g.window && g.fixed.is_none() && g.gun.is_none()
 }
@@ -198,7 +223,7 @@ fn update(
     joints: Query<&GlobalTransform>,
     physics: NonSend<Physics>,
     (data, opts, difficulty, upgrade): (Res<crate::gamedata::GameData>, Res<crate::options::GameOptions>, Option<Res<crate::gamedata::Difficulty>>, Res<VindalooUpgrade>),
-    (mounted, carried): (Res<crate::turret::Mounted>, Query<(), With<super::blackhole::Carried>>),
+    (mounted, carried, held): (Res<crate::turret::Mounted>, Query<(), With<super::blackhole::Carried>>, Query<(), Or<(With<crate::topsy::Thrown>, With<super::glove::Gloved>)>>),
 ) {
     targets.list.clear();
     targets.pass = None;
@@ -228,7 +253,7 @@ fn update(
     };
     let view = View::new(c, Some(proj), rt.translation() + Vec3::Y * 4.0);
     let passable = |e: Entity| e != re && grunts.contains(e);
-    let mut cands = candidates(&grunts, &joints, prey);
+    let mut cands = candidates(&grunts, &joints, |e, g, feet| !prey || can_be_bitten_now(g, carried.contains(e) || held.contains(e), &physics, feet));
     // a character a black hole carries off is no one's target
     cands.retain(|c| !carried.contains(c.entity));
     targets.list = search(&view, cands, factors, gun.spec.range, max, &physics, passable);

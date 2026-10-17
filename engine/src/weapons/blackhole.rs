@@ -267,7 +267,7 @@ fn holes(
             // that can be carried (vt+0x254: the ones on their feet; guess: as the land shark's prey)
             let mut n = 0;
             for (ge, mut g, gt) in &mut grunts {
-                if g.mind == crate::ai::Mind::Dead || !super::targeting::can_be_bitten(&g) || gt.translation().distance(h.target) > h.radius {
+                if g.mind == crate::ai::Mind::Dead || !super::targeting::on_their_feet(&g) || gt.translation().distance(h.target) > h.radius {
                     continue;
                 }
                 let away = (gt.translation() - h.target).with_y(0.0).normalize_or(Vec3::X);
