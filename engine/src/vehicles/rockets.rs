@@ -363,7 +363,7 @@ fn fly(
         }
         if victim.is_none() {
             if let Some((body, at, _)) = hit {
-                let owner = physics.bodies.get(&body).copied().or_else(|| objects.iter().find(|(_, p, _, _)| p.collider == Some(body)).map(|(oe, ..)| oe));
+                let owner = physics.bodies.get(&body).copied().or_else(|| objects.iter().find(|(_, p, _, _)| p.collider == Some(physics.main_body(body))).map(|(oe, ..)| oe));
                 victim = Some((owner, at, Some(body)));
             }
         }

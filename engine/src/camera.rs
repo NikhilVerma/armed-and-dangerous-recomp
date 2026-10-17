@@ -281,7 +281,7 @@ pub fn follow_camera(
                 dist = dist.min(at.distance(target));
                 break;
             }
-            let object = physics.bodies.get(&body).copied().or_else(|| placed.iter().find(|(_, p)| p.collider == Some(body)).map(|(e, _)| e));
+            let object = physics.bodies.get(&body).copied().or_else(|| placed.iter().find(|(_, p)| p.collider == Some(physics.main_body(body))).map(|(e, _)| e));
             if let Some(object) = object.filter(|o| *o != roman_entity) {
                 fade.hit(object);
             }

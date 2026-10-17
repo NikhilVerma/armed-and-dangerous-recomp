@@ -457,7 +457,7 @@ fn fly(
                 }
                 continue;
             }
-            let obj = owner.or_else(|| placed.iter().find(|(_, pl)| pl.collider == Some(body)).map(|(pe, _)| pe));
+            let obj = owner.or_else(|| placed.iter().find(|(_, pl)| pl.collider == Some(physics.main_body(body))).map(|(pe, _)| pe));
             hit = Some((obj, at));
             break;
         }

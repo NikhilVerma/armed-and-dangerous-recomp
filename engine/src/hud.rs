@@ -1677,7 +1677,7 @@ fn crosshair_aim(
         Some(AimHit::Grunt(e)) => (true, false, Some(*e)),
         Some(AimHit::Friend(e)) => (true, true, Some(*e)),
         Some(AimHit::Object(e, b)) => {
-            let e = e.or_else(|| placed.iter().find(|(_, p)| p.collider == Some(*b)).map(|(e, _)| e));
+            let e = e.or_else(|| placed.iter().find(|(_, p)| p.collider == Some(physics.main_body(*b))).map(|(e, _)| e));
             let class = e.and_then(|e| classes.get(e).ok().copied());
             (class.is_some_and(|c| c.on(true)), class == Some(AimClass::Peasant), e)
         }

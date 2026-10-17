@@ -1950,7 +1950,7 @@ fn projectiles(
                 if p.from_player && was_alive && h.0 <= 0.0 {
                     stats.kills += 1;
                 }
-            } else if let Some((_, mut d, scale)) = objects.iter_mut().find(|(pl, _, _)| pl.collider == Some(body)) {
+            } else if let Some((_, mut d, scale)) = objects.iter_mut().find(|(pl, _, _)| pl.collider == Some(physics.main_body(body))) {
                 // a direct hit (not a blast): kills exploding props at once (FxExplosion_Die, non-chain record); the
                 // object's damage filter first (the record's source: the shooter, Projectile_ApplyHitDamage 0x0047eec0)
                 let by = if !p.from_player {

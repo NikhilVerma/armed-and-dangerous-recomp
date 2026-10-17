@@ -80,6 +80,15 @@ pub struct SquadGoliath {
     pub walking: bool,
 }
 
+/// The goliath's collision model (its template's collision, goliath_coll: collision_lod_index 3) as bodies: one convex
+/// hull per bone, hit-only (no_collide: bullets and sight rays meet them, nothing collides with them), posed on their
+/// bones every frame, so its legs and hulls stop shots and Roman stands between its legs. The first is its main body
+/// (`Placed::collider`); the rest are its parts (`Physics::main_body`). Each with the joint it rides.
+#[derive(Component)]
+struct Hulls {
+    parts: Vec<(oxijolt::prelude::BodyId, Entity)>,
+}
+
 /// A cage to hang on the goliath's chest once its rig exists: the peasant inside is a woman (else a man).
 #[derive(Component)]
 struct CagePending {
@@ -92,7 +101,7 @@ impl Plugin for GoliathPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<SpawnGoliath>().add_systems(
             Update,
-            (spawn_for_squads, setup, follow_squads, guard, cages, squad_triggers, notes, log).chain().run_if(crate::playing),
+            (spawn_for_squads, setup, hulls, follow_squads, guard, cages, squad_triggers, notes, log).chain().run_if(crate::playing),
         );
     }
 }
@@ -110,13 +119,16 @@ fn badguy_filter(d: &mut crate::fx::Destructible) {
     d.badguy_damage = false;
 }
 
-/// The capsule bullets hit (round its middle) and its lift above the feet.
+/// The capsule bullets hit (round its middle) and its lift above the feet. p_goliath has no_collide 1: the original's
+/// goliath pushes nothing (Roman stands between its legs, under its hulls), so the capsule is hit-only
+/// (physics::HIT_ONLY: rays meet it, no body or walker collides with it), moved by `guard` each frame.
 fn hit_body(physics: &mut crate::physics::Physics, e: Entity, feet: Vec3, material: Option<&str>) -> Option<(oxijolt::prelude::BodyId, Vec3)> {
     let k = physics.meters_per_unit;
     let (radius, half) = (14.0, 18.0);
     let lift = Vec3::Y * (half + radius);
     let shape = Shape::new_capsule(half * k, radius * k).ok()?;
-    let body = physics.add_dynamic(e, &shape, feet + lift, Quat::IDENTITY, Vec3::ZERO, BodySettings::new_dynamic().mass(2000.0))?;
+    let settings = BodySettings::new_dynamic().mass(2000.0).gravity_factor(0.0).object_layer(crate::physics::HIT_ONLY);
+    let body = physics.add_dynamic(e, &shape, feet + lift, Quat::IDENTITY, Vec3::ZERO, settings)?;
     if let Some(m) = material {
         physics.materials.insert(body, m.to_owned());
     }
@@ -205,28 +217,96 @@ fn setup(
     }
 }
 
+/// The bone hulls (`Hulls`) of each goliath, once its rig has been posed: they take the place of the capsule.
+#[allow(clippy::too_many_arguments)]
+fn hulls(
+    mut commands: Commands,
+    data: Res<crate::gamedata::GameData>,
+    lib: Res<crate::skin::AnimLibrary>,
+    mut q: Query<(Entity, &Name, &mut Goliath, &crate::skin::Animator, &mut crate::level::Placed), Without<Hulls>>,
+    joints: Query<&GlobalTransform>,
+    mut physics: NonSendMut<crate::physics::Physics>,
+    mut models: Local<std::collections::HashMap<String, Option<std::sync::Arc<Vec<crate::scene::BonePart>>>>>,
+) {
+    for (e, name, mut g, a, mut placed) in &mut q {
+        let template = data.templates.get(name.as_str());
+        let Some(coll) = template.and_then(|t| t.collision.clone()) else { continue };
+        let Some(parts) = models.entry(coll.clone()).or_insert_with(|| crate::scene::bone_parts(&lib.dir, &coll).map(std::sync::Arc::new)).clone() else { continue };
+        // the rig is posed once its joints have left the origin (a frame after it was made)
+        let joint = |bone: &str| a.skeleton.index.get(bone).and_then(|&i| a.joints.get(i)).and_then(|&j| Some((j, joints.get(j).ok()?)));
+        if a.joints.first().and_then(|&j| joints.get(j).ok()).is_none_or(|t| *t == GlobalTransform::IDENTITY) {
+            continue;
+        }
+        let k = physics.meters_per_unit;
+        let material = data.template_props(name.as_str()).s("material").map(str::to_owned);
+        let mut bodies = Vec::new();
+        let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+        for part in parts.iter() {
+            let Some((je, jt)) = joint(&part.bone) else { continue };
+            let (_, rot, at) = jt.to_scale_rotation_translation();
+            let m = jt.to_matrix();
+            for p in &part.points {
+                let w = m.transform_point3(*p);
+                (lo, hi) = (lo.min(w), hi.max(w));
+            }
+            let points: Vec<_> = part.points.iter().map(|p| crate::physics::jv(rot.inverse() * (m.transform_point3(*p) - at) * k)).collect();
+            let Ok(shape) = Shape::new_convex_hull(&points) else { continue };
+            let settings = BodySettings::new_dynamic().mass(200.0).gravity_factor(0.0).object_layer(crate::physics::HIT_ONLY);
+            let Some(body) = physics.add_dynamic(e, &shape, at, rot, Vec3::ZERO, settings) else { continue };
+            physics.ai_bodies.insert(body);
+            if let Some(m) = &material {
+                physics.materials.insert(body, m.clone());
+            }
+            bodies.push((body, je));
+        }
+        let Some(&(main, _)) = bodies.first() else { continue };
+        for &(b, _) in &bodies[1..] {
+            physics.part_of.insert(b, main);
+        }
+        physics.remove(g.body);
+        if placed.collider == Some(g.body) {
+            placed.collider = Some(main);
+        }
+        g.body = main;
+        let feet = joints.get(e).map(|t| t.translation()).unwrap_or_default();
+        info!("EVENT goliath: {e:?} has {} bone hulls ({coll}), {:.0} wide, {:.0} .. {:.0} above its feet", bodies.len(), (hi - lo).with_y(0.0).length(), lo.y - feet.y, hi.y - feet.y);
+        commands.entity(e).insert(Hulls { parts: bodies });
+    }
+}
+
 /// Its hit body follows it; after its script it guards: the fireball cycle at the player in range.
 #[allow(clippy::too_many_arguments)]
 fn guard(
     mut commands: Commands,
     time: Res<Time>,
-    mut q: Query<(Entity, &mut Goliath, &GlobalTransform, &mut Transform, &mut crate::skin::Animator, Option<&crate::mover::Mover>, Option<&crate::fx::Destructible>)>,
+    mut q: Query<(Entity, &mut Goliath, &GlobalTransform, &mut Transform, &mut crate::skin::Animator, Option<&crate::mover::Mover>, Option<&crate::fx::Destructible>, Option<&Hulls>)>,
     mut physics: NonSendMut<crate::physics::Physics>,
     player: Query<&GlobalTransform, (With<crate::player::Roman>, Without<Goliath>)>,
+    joints: Query<&GlobalTransform, Without<Goliath>>,
     mut rng: ResMut<crate::fx::FxStats>,
 ) {
     let dt = time.delta_secs();
     let roman = player.single().ok().map(|p| p.translation());
-    for (e, mut g, gt, mut tr, mut a, mover, d) in &mut q {
+    for (e, mut g, gt, mut tr, mut a, mover, d, hulls) in &mut q {
         let k = physics.meters_per_unit;
-        if let Ok(mut b) = physics.world.body_mut(g.body) {
-            let _ = b.set_position(crate::physics::jr((gt.translation() + g.lift) * k), Activation::Activate);
-            let _ = b.set_linear_velocity(crate::physics::jv(Vec3::ZERO));
+        // the hulls on their bones (as posed last frame), else the capsule at its feet
+        let poses: Vec<_> = match hulls {
+            Some(h) => h.parts.iter().filter_map(|&(b, j)| joints.get(j).ok().map(|t| (b, t.translation(), t.rotation()))).collect(),
+            None => vec![(g.body, gt.translation() + g.lift, Quat::IDENTITY)],
+        };
+        for (body, at, rot) in poses {
+            if let Ok(mut b) = physics.world.body_mut(body) {
+                let _ = b.set_position_and_rotation(crate::physics::jr(at * k), crate::physics::jq(rot), Activation::Activate);
+                let _ = b.set_linear_velocity(crate::physics::jv(Vec3::ZERO));
+            }
         }
         if d.is_none() {
             // dead (the husk takes its place)
-            physics.remove(g.body);
-            commands.entity(e).remove::<Goliath>();
+            match hulls {
+                Some(h) => h.parts.iter().for_each(|&(b, _)| physics.remove(b)),
+                None => physics.remove(g.body),
+            }
+            commands.entity(e).remove::<(Goliath, Hulls)>();
             continue;
         }
         match g.phase {
@@ -314,14 +394,25 @@ fn notes(
     }
 }
 
-fn log(q: Query<(&Goliath, &GlobalTransform, Option<&crate::fx::Destructible>)>, state: Option<ResMut<crate::playtest::PlayState>>) {
+/// The first goliath in the playtest state log: its phase, health, how far it walked, its feet (game space) and
+/// Roman's horizontal distance from them (G1: he stands between its legs without being pushed out).
+fn log(
+    q: Query<(&Goliath, &GlobalTransform, Option<&crate::fx::Destructible>)>,
+    roman: Query<&GlobalTransform, With<crate::player::Roman>>,
+    state: Option<ResMut<crate::playtest::PlayState>>,
+) {
     let Some(mut state) = state else { return };
     let Some((g, gt, d)) = q.iter().next() else {
         state.0.remove("goliath");
         return;
     };
-    let walked = (gt.translation() - g.home).with_y(0.0).length();
-    state.0.insert("goliath".into(), serde_json::json!({ "phase": format!("{:?}", g.phase), "health": d.map(|d| d.health), "walked": walked }));
+    let p = gt.translation();
+    let walked = (p - g.home).with_y(0.0).length();
+    let roman = roman.single().ok().map(|r| r.translation() - p);
+    state.0.insert("goliath".into(), serde_json::json!({
+        "phase": format!("{:?}", g.phase), "health": d.map(|d| d.health), "walked": walked,
+        "pos": [p.x, -p.z, p.y], "roman_dist": roman.map(|r| r.with_y(0.0).length()), "roman_dz": roman.map(|r| r.y),
+    }));
 }
 
 /// A squad goliath's walk (member states 0xde / 0xdc: GenericAI_Update ai_06.cpp:3062-3089 steering to its bone, at
