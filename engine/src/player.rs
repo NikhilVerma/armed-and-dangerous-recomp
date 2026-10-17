@@ -252,6 +252,24 @@ fn segment_distance(p0: Vec3, p1: Vec3, q0: Vec3, q1: Vec3) -> f32 {
 /// original's push in the second encounter, fight2O: ~13 units back over the fight)
 const ROMAN_MASS: f32 = 80.0;
 
+impl Roman {
+    /// A hit with an impact force (PlayerObject_OnHit 0x0047afa0, the bullets' path below as well): unless one plays,
+    /// the hit anim by the damage (< 65 small) and one knock of 0.1 x min(10 x impact, 4000) x (d.x, 0.4, d.z) with d
+    /// = (the hit's direction flat, 0.7) normalised, then 1 s of a weakened drive. `dir` in engine axes.
+    pub fn knock(&mut self, damage: f32, impact: f32, dir: Vec3) {
+        if self.hit_anim > 0.0 || impact == 0.0 {
+            return;
+        }
+        self.hit_med = damage >= 65.0;
+        self.hit_anim = if self.hit_med { 1.967 } else { 0.633 };
+        let f = dir.normalize_or(Vec3::Z);
+        let n = (f.x * f.x + f.z * f.z + 0.49).sqrt();
+        self.vel += 0.1 * (10.0 * impact).min(4000.0) * Vec3::new(f.x / n, 0.4, f.z / n) / ROMAN_MASS;
+        self.slow = 1.0;
+        self.hit_from = Some(f);
+    }
+}
+
 /// Damage feedback (PlayerObject_OnHit 0x0047afa0 and the update, game_06.cpp:2155): the hit side (the bullet's
 /// travel against Roman's heading: dot >= 0.7 from behind, <= -0.7 from the front, else left / right) lights its
 /// ui_hit_* marker for damage_flash_duration (p_globalsettings, 0.1 s; 0x004670f0); a pain line rom50069..73_Hurt at
@@ -1478,82 +1496,67 @@ fn player_state(state: Option<ResMut<crate::playtest::PlayState>>, q: Query<(&Ro
     m.insert("sticky_fused".into(), bombs.iter().filter(|b| b.fuse.is_some()).count().into());
 }
 
-/// The idle lines' table 0x005ce350 (55 entries, read from the exe): Roman's, Q's and Jonesy's ambient / idle lines.
-const IDLE_LINES: [&str; 55] = [
-    "rom50044_Ambient", "rom50047_Ambient", "rom50048_Ambient", "rom50049_Ambient", "rom50050_Ambient", "rom50171_Ambient",
-    "rom50178_BaseDefendAmb", "rom50187_BaseDefendAmb", "rom50189_BaseDefendAmb", "rom50190_BaseDefendAmb", "rom50191_BaseDefendAmb",
-    "q1150029_Idle", "q1150030_Idle", "q1150027_Ambient", "q1150031_Ambient", "q1150033_Ambient", "q1150034_Ambient",
-    "q1150025_Ambient", "q1150035_Ambient", "q1150036_Ambient", "q1150037_Ambient", "q1150041_Ambient", "q1150048_Ambient",
-    "q1150049_Ambient", "q1154016_Ambient_Spec", "q1150175_Ambient_Spec", "q1150177_Ambient_Spec", "q1154004_Ambient_Spec",
-    "jon50034_Idle", "jon50035_Idle", "jon50036_Idle", "jon50040_Idle", "jon50043_Idle", "jon50027_Ambient", "jon50030_Ambient",
-    "jon50031_Ambient", "jon50032_Ambient", "jon50041_Ambient", "jon50046_Ambient", "jon50050_Ambient", "jon50051_Ambient",
-    "jon50052_Ambient", "jon50053_Ambient", "jon50054_Ambient", "jon50055_Ambient", "jon50164_Ambient", "jon50182_Ambient",
-    "jon50183_Ambient", "jon54001_Ambient_Spec", "jon54012_Ambient_Spec", "jon54014_Ambient_Spec", "jon54017_Ambient_Spec",
-    "jon54019_Ambient_Spec", "jon50162_Ambient_Spec", "jon54005_Ambient_Spec",
-];
-
-/// The idle banter's clocks (Game+0xb0c / +0xafc: when Q / Jonesy last moved, with their positions +0xb10 / +0xb00;
-/// Roman's idle time +0xe5c).
+/// The idle banter's clocks (Game+0xb0c / +0xafc: when Jonesy / Q last moved or fired, with their positions +0xb10 /
+/// +0xb00; Roman's idle time +0xe5c).
 #[derive(Resource, Default)]
 pub struct Banter {
     /// lines played (the playtest log's banter_lines)
     pub lines: u32,
-    t: f32,
     q: Option<(Vec3, f32)>,
     jon: Option<(Vec3, f32)>,
     idle: f32,
 }
 
-/// The idle banter (0x0047b730, every player update): when Q or Jonesy has not moved for more than 30 s (0x005bccbc),
-/// or Roman has been idle for more than 30 s (+0xe5c: dt added in the stance and fidget modes 0..5 of 0x00476a10,
-/// cleared by any other mode and by firing, reloading, switching), one line of table 0x005ce350 plays (0x00493b70 cue
-/// 0x37, filter 0x0047b520) and the clocks restart. A missing companion keeps its clock at now. Guesses: the filter
-/// 0x0047b520 is not recovered: a line plays only when its speaker is there (as the dismay banter, ai.rs) and the
-/// base-defence lines (_BaseDefendAmb) are left out; 0x00493b70's shuffle bag is a uniform pick.
+/// The idle banter (0x0047b730, every player update): each companion's clock restarts when he moves (his position
+/// changed) or fires (his last-shot stamp, ai.rs `Companion::last_shot`); a missing one keeps his at now. When Q or
+/// Jonesy has been still for more than 30 s (0x005bccbc), or Roman has been idle for more than 30 s (+0xe5c: dt added
+/// in the stance and fidget modes 0..5 of 0x00476a10, cleared by any other mode and by firing, reloading, switching),
+/// one line of table 0x005ce350 whose speaker test passes plays (0x00493b70 cue 0x37 with 0x0047b520: ai/dialogue.rs
+/// `idle_speaker`) and the clocks restart.
 #[allow(clippy::type_complexity)]
 fn idle_banter(
     time: Res<Time>,
     mut st: ResMut<Banter>,
-    roman: Query<(&Roman, &Transform)>,
-    companions: Query<(&crate::ai::Companion, &Transform, Option<&Health>)>,
+    roman: Query<&Roman>,
+    mut companions: Query<(&mut crate::ai::Companion, &Transform, Option<&Health>)>,
     mut rng: ResMut<crate::fx::FxStats>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
+    (mut bags, voices, lib, turret): (ResMut<crate::ai::dialogue::Bags>, crate::audio::PlayingVoices, Res<crate::skin::AnimLibrary>, Query<(), With<crate::defence::BaseTurret>>),
 ) {
+    use crate::ai::dialogue;
     let dt = time.delta_secs();
     let st = &mut *st;
-    st.t += dt;
-    let now = st.t;
-    let Ok((r, rt)) = roman.single() else { return };
+    let now = time.elapsed_secs();
+    let Ok(r) = roman.single() else { return };
     if r.dead {
         return;
     }
-    let alive = |q: bool| companions.iter().find(|(c, _, h)| c.q == q && h.is_none_or(|h| h.0 > 0.0)).map(|(_, t, _)| t.translation);
+    let alive = |q: bool| companions.iter().find(|(c, _, h)| c.q == q && c.dead.is_none() && h.is_none_or(|h| h.0 > 0.0)).map(|(c, t, _)| (t.translation, c.last_shot));
     for (q, slot) in [(true, &mut st.q), (false, &mut st.jon)] {
         *slot = match (alive(q), *slot) {
-            (Some(p), Some((last, at))) if p.distance(last) < 1e-3 => Some((p, at)),
-            (Some(p), _) => Some((p, now)),
+            (Some((p, shot)), Some((last, at))) if p.distance(last) < 1e-3 => Some((p, shot.map_or(at, |s| s.max(at)))),
+            (Some((p, _)), _) => Some((p, now)),
             (None, _) => None,
         };
     }
     let idle_mode = r.on_ground && r.move_local.length() < 3.0 && r.landing.is_none() && r.hit_anim <= 0.0 && r.jump_wind.is_none();
     let busy = r.since_fire < dt * 1.5 || r.reload_clock.is_some() || r.wchange.is_some() || r.since_throw < dt * 1.5;
     st.idle = if idle_mode && !busy { st.idle + dt } else { 0.0 };
-    let stale = |s: Option<(Vec3, f32)>| s.is_some_and(|(_, at)| now - at > 30.0);
-    if !(stale(st.q) || stale(st.jon) || st.idle > 30.0) {
+    let still = |s: Option<(Vec3, f32)>| s.map(|(_, at)| now - at);
+    if !(still(st.q).is_some_and(|s| s > dialogue::IDLE_AFTER) || still(st.jon).is_some_and(|s| s > dialogue::IDLE_AFTER) || st.idle > dialogue::IDLE_AFTER) {
         return;
     }
-    let (qp, jp) = (alive(true), alive(false));
-    let pool: Vec<(&str, Vec3)> = IDLE_LINES
-        .iter()
-        .filter(|n| !n.ends_with("_BaseDefendAmb"))
-        .filter_map(|n| match &n[..3] {
-            "rom" => Some((*n, rt.translation)),
-            "jon" => jp.map(|p| (*n, p)),
-            _ => qp.map(|p| (*n, p)),
-        })
-        .collect();
-    if let Some(&(name, at)) = pool.get(((rng.rand() * pool.len() as f32) as usize).min(pool.len().saturating_sub(1))) {
-        sounds.write(crate::audio::PlaySound::at(name, at));
+    let speaking = |q: bool| companions.iter().find(|(c, ..)| c.q == q).is_some_and(|(c, ..)| c.speech.saying(&voices));
+    let cast = dialogue::Cast {
+        roman_alive: !r.dead,
+        roman_idle: st.idle,
+        jonesy: still(st.jon).map(|s| dialogue::Present { speaking: speaking(false), still: s }),
+        q: still(st.q).map(|s| dialogue::Present { speaking: speaking(true), still: s }),
+        base_defence: !turret.is_empty(),
+        world: dialogue::world_of(&lib.dir),
+    };
+    if let Some((_, said)) = bags.idle.pick(|| rng.rand(), |l| dialogue::idle_speaker(l, &cast)) {
+        crate::ai::say(said, &mut companions, &voices, &mut sounds);
     }
     for s in [&mut st.q, &mut st.jon] {
         if let Some((_, at)) = s.as_mut() {
@@ -1915,7 +1918,9 @@ fn projectiles(
             if let Some(h) = hulls.as_ref() {
                 let to = from + step;
                 for (ce, c, ct, ca, _) in companions.iter() {
-                    if p.owner == Some(ce) {
+                    // (nor one in an IC anim: physics off, 0x0042c410 -> 0x004577b0(0): the tower task's plant, a close
+                    // kill; ai.rs Companion::ic)
+                    if p.owner == Some(ce) || c.ic {
                         continue;
                     }
                     let Some(a) = ca else { continue };

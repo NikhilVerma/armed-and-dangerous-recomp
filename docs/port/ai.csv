@@ -33,15 +33,15 @@ address,name,disposition,reason
 0x0040de00,JumpMarker_Slot55,replaced,the jump marker's removal: ai/jumper.rs JumpMarker is a component that goes with its entity
 0x0040de30,JumpMarker_Slot79,replaced,JumpMarker occupied test: ai/jumper.rs JumpMarker::occupant
 0x0040de40,JumpMarker_Slot82,replaced,JumpMarker free test: ai/jumper.rs MarkerView::free
-0x00424610,fn_00424610,deferred,"feature: q112-extras; the breadcrumb point list +0x958: only the Q112 creates it (state 0x3c lost route): not ported, the Q112 re-plans with nav.rs"
-0x00424630,fn_00424630,deferred,feature: q112-extras; the breadcrumb point list +0x958 (see 0x00424610)
-0x004246a0,fn_004246a0,deferred,feature: q112-extras; the breadcrumb point list +0x958 (see 0x00424610)
-0x004246c0,fn_004246c0,deferred,feature: q112-extras; the breadcrumb point list +0x958 (see 0x00424610)
-0x004247a0,fn_004247a0,deferred,feature: q112-extras; the breadcrumb point list +0x958 (see 0x00424610)
+0x00424610,fn_00424610,ported,"engine/src/ai/q112.rs Q112::next_point: no route to the target, the oldest trail point taken off and routed to (ai.rs think, the chase)"
+0x00424630,fn_00424630,ported,"engine/src/ai/q112.rs Q112::keep: the target kept every 120 units of its way in the chase, the list cleared past 100"
+0x004246a0,fn_004246a0,ported,engine/src/ai/q112.rs Q112::forget: the trail cleared when another target is taken
+0x004246c0,fn_004246c0,replaced,"engine/src/ai/q112.rs: the trail is a VecDeque in the Q112 state made with it (ai.rs make_grunt, Kind::Q112); list and pool allocation are Rust's"
+0x004247a0,fn_004247a0,replaced,engine/src/ai/q112.rs: the pool's destructor; Rust drops the VecDeque with the grunt
 0x00425be0,fn_00425be0,ported,engine/src/ai/ic.rs launch_velocity / knocks: the knock-away of a hidden grunt whose host or landing is destroyed
 0x00425df0,fn_00425df0,replaced,the physics description slot 7 / the shared physics parameters (Object_BuildRadiusCollision): level.rs capsule bodies (ai.rs capsule)
-0x004265c0,fn_004265c0,deferred,"feature: companion-engage-exit; mode 3's 'fight over' test (state 1, or 0x79 / 0x7a without a target): the partner's target taken over, else the +0xb68 linger (rolled 3..7 s at the engagement's start) runs out into mode 2; ai.rs uses its own 3..7 s after the target is lost"
-0x004265f0,fn_004265f0,deferred,"feature: companion-engage-exit; mode 3's 'going home' test (state 0x50 after 0x0042bc60): straight back to formation (mode 2)"
+0x004265c0,fn_004265c0,ported,"engine/src/ai.rs companions, FightEnd::Linger: once idle the partner's live target taken over, else +0xb68 (rolled 3..7 s at the fight's start) counted down, then back to formation"
+0x004265f0,fn_004265f0,ported,"engine/src/ai.rs companions, FightEnd::Home: a lost target with the fire counters left ends the fight at once, back to formation"
 0x00426600,fn_00426600,replaced,"state tests (0x8c, 0x8c with +0x488 0x8000000, the IC flag +0xa18 bit 0): the engine asks Mind / the fields directly"
 0x00426610,fn_00426610,replaced,"state tests (0x8c, 0x8c with +0x488 0x8000000, the IC flag +0xa18 bit 0): the engine asks Mind / the fields directly"
 0x00426630,fn_00426630,replaced,"state tests (0x8c, 0x8c with +0x488 0x8000000, the IC flag +0xa18 bit 0): the engine asks Mind / the fields directly"
@@ -52,8 +52,8 @@ address,name,disposition,reason
 0x004270f0,fn_004270f0,replaced,a constant -1 class slot (GenericAIObject +0x138: the trench type query on non-covers): Barricade components
 0x004271c0,fn_004271c0,ported,engine/src/ai/max_fire.rs next_wait_anim: the idle bases 0x74..0x76 in turn
 0x00427c80,fn_00427c80,ported,engine/src/ai/max_fire.rs: the limit asked on every entry to the fire state (ShooterLimit::may_fire)
-0x00427e80,fn_00427e80,ported,"engine/src/ai/melee.rs start: the hand-to-hand try (50 %, within 50, facing within 45, ref_fight_00, the grunt's consent)"
-0x00428160,fn_00428160,deferred,"feature: q112-extras; the close-range attack (anim 0x5f / 0x60, state 0xb) within +0x5fc: only the Q112 sets it (25, damage 35): its q112_gun_hit melee is not ported (docs/subsystems/infantry.md section 7)"
+0x00427e80,fn_00427e80,ported,"engine/src/ai/close_kill.rs attempt / grab: the companions' close kill try (vt+0x1e4 / vt+0x104, the coin, within 50, facing within 45, ref_fight_00 and its route, the grunt's answer)"
+0x00428160,fn_00428160,ported,engine/src/ai/melee.rs close_attack (with ai.rs think: Mind::CloseAttack at a burst's or the clip's end)
 0x00428220,fn_00428220,replaced,"engine/src/ai/ladder.rs: the only ""invincible"" note in the data is the planted ladder's (mover_ladder_plant), an object no damage reaches in the engine"
 0x00429790,fn_00429790,replaced,"the drive parameters move_power +0x944 / the speeds (vt+0x80 / +0x84 / +0x88, Q's constant 0.5) fed to the body drive 0x00454d80: the engine sets the velocity from move_speed / patrol / limp speeds (ai.rs, the companions' fitted 0.933 x move_speed)"
 0x004297a0,fn_004297a0,replaced,"the drive parameters move_power +0x944 / the speeds (vt+0x80 / +0x84 / +0x88, Q's constant 0.5) fed to the body drive 0x00454d80: the engine sets the velocity from move_speed / patrol / limp speeds (ai.rs, the companions' fitted 0.933 x move_speed)"
@@ -66,8 +66,8 @@ address,name,disposition,reason
 0x0042ba30,fn_0042ba30,replaced,engine/src/ai/assault.rs recruit: a dead or removed climber leaves the list (World+0xf14) and frees his spline; the place is taken by the next idle army grunt's own search instead of 0x0042b9e0's hand-over
 0x0042bb10,fn_0042bb10,ported,engine/src/ai/max_fire.rs upkeep / handover_pick: the hand-over with its original roll
 0x0042bf70,fn_0042bf70,replaced,engine/src/army.rs: the plant script's end marks the spline planted and the climb follows at ic_climb_ladder (LadderPlaced voice not played)
-0x0042c080,fn_0042c080,replaced,engine/src/ai/tower.rs (the bomb loop's held root) and ai/ic.rs / ai/melee.rs: an IC anim ends on its last frame and the AI's own anims take over from where the root left him
-0x0042c670,fn_0042c670,ported,"engine/src/ai/melee.rs: the paired IC anims of the takedown (each the other's target, physics off, the mover's root)"
+0x0042c080,fn_0042c080,replaced,engine/src/ai/tower.rs (the bomb loop's held root) and ai/ic.rs / ai/close_kill.rs: an IC anim ends on its last frame and the AI's own anims take over from where the root left him
+0x0042c670,fn_0042c670,ported,"engine/src/ai/close_kill.rs `approach` / `kill`: the paired IC anims (each the other's target, physics off, the mover's root)"
 0x0042c790,fn_0042c790,replaced,"ai.rs: a guard beyond +0x5d8 gets infinite accuracy (g.infinite), which is what the 99999 ranges do"
 0x0042d650,fn_0042d650,ported,"engine/src/ai/ladder.rs: the carried ladder attached to the grunt (CarriedLadder), anim 0x31 grunt_ladder_run (charanim.rs)"
 0x0042d690,fn_0042d690,deferred,"feature: barracks-windows; the smoking (wounded) troop of a barracks exit slot and the cover window slot of the generators (0x0042d690, 0x0042dc20): the lev_1_m1 barracks have no window slots and no smoking troops (mission.rs)"
@@ -78,11 +78,11 @@ address,name,disposition,reason
 0x0042dc20,fn_0042dc20,deferred,"feature: barracks-windows; the smoking (wounded) troop of a barracks exit slot and the cover window slot of the generators (0x0042d690, 0x0042dc20): the lev_1_m1 barracks have no window slots and no smoking troops (mission.rs)"
 0x0042de30,fn_0042de30,ported,"engine/src/ai/squad.rs: a member following the squad (state 0xdc, friction 0)"
 0x0042e910,fn_0042e910,ported,"engine/src/ai/fall.rs: the falling watchdog (vz < -20 for 0.2 s without a contact) into state 0x82, 5 s to live"
-0x0042f190,fn_0042f190,deferred,"feature: player-grab; knocked down / thrown / launch states (0x19a, 0x0042f190, 0x0042f1d0, 0x0042f2f0, 0x0042fe50): the Topsy Turvy bomb's throw is topsy.rs (another owner); the player-held grunt (grab) does not exist on lev_1_m1"
-0x0042f1d0,fn_0042f1d0,deferred,"feature: player-grab; knocked down / thrown / launch states (0x19a, 0x0042f190, 0x0042f1d0, 0x0042f2f0, 0x0042fe50): the Topsy Turvy bomb's throw is topsy.rs (another owner); the player-held grunt (grab) does not exist on lev_1_m1"
-0x0042f2f0,fn_0042f2f0,deferred,"feature: player-grab; knocked down / thrown / launch states (0x19a, 0x0042f190, 0x0042f1d0, 0x0042f2f0, 0x0042fe50): the Topsy Turvy bomb's throw is topsy.rs (another owner); the player-held grunt (grab) does not exist on lev_1_m1"
+0x0042f190,fn_0042f190,deferred,"feature: knockout-bomb; a grunt grabbed by the player's punching glove, knocked down (state 0x19a): physics off, the player targeted, the pursuit"
+0x0042f1d0,fn_0042f1d0,deferred,"feature: knockout-bomb; the glove's grab of a grunt (slot +0x120 from the player update, game_06.cpp:2924): idle set, state 0x19a"
+0x0042f2f0,fn_0042f2f0,deferred,"feature: knockout-bomb; the glove's launch of a held grunt toward the player's aim (slot +0x124, game_06.cpp:2432): ballistic velocity, state 0x19b"
 0x0042f470,fn_0042f470,deferred,"feature: punch-launch; slot 74 (+0x128): an AI punched by Roman (the contact callback 0x00477c90 in the punch states +0xa34 & 0x70000000) passes through him and is launched (the 0x83 message, 100), wpn_puncher_hit_*"
-0x0042fe50,fn_0042fe50,deferred,"feature: player-grab; knocked down / thrown / launch states (0x19a, 0x0042f190, 0x0042f1d0, 0x0042f2f0, 0x0042fe50): the Topsy Turvy bomb's throw is topsy.rs (another owner); the player-held grunt (grab) does not exist on lev_1_m1"
+0x0042fe50,fn_0042fe50,ported,"engine/src/ai/carried.rs (a teammate: anim 0x71, state 0xeb, the hang), engine/src/topsy.rs (an enemy's hang or fall), engine/src/ai/close_kill.rs `orphans` (a held grunt let go)"
 0x00430140,fn_00430140,ported,"engine/src/weapons/traitor.rs turn: the Guy Fawkes traitor (fx_guy_fawkes on ref_fawkes, the sides swapped: ai.rs search, player.rs team test; the run to the inner circle)"
 0x00431f70,GenericAIObject_Slot46,deferred,feature: untraced; slot 46: the AI's own +0x468 / +0x46c pair (an interest-like target) returns 0 for every lev_1_m1 grunt (nothing they run sets them: guess from the writers)
 0x00431fd0,GenericAIObject_Slot42,replaced,"contact callbacks (slots 42 / 44: bumped by a body, the contact record +0x538 and list +0x518) and the list release 0x0043edb0: Jolt bodies collide; the per-state contact reactions are not ported (open: a grunt bumped by the player's car / props; none on lev_1_m1)"
@@ -115,11 +115,11 @@ address,name,disposition,reason
 0x00434570,fn_00434570,replaced,goliath fireball helpers: goliath.rs notes
 0x00434580,GruntLadderObject_Slot6,replaced,"engine/src/ai/ladder.rs: the ladder is a drawn object outside every AI, target, projectile and blast list (Slot6 unlinks it from all of them after Ai_InitGeneric)"
 0x00434670,GruntLadderObject_Slot7,replaced,engine/src/ai/ladder.rs: the ladder takes no collision (Slot7: description 0x4000; nothing in the engine meets it)
-0x004346a0,BowGruntObject_Slot66,deferred,"feature: player-grab; the player grabbing a grunt / bow grunt (slots 66, 147): Roman cannot grab grunts on lev_1_m1 (no grab weapon)"
+0x004346a0,BowGruntObject_Slot66,ported,"engine/src/ai/close_kill.rs `grab`: the grunt's answer to a companion's close kill (refusals, held standing, Mind::Held)"
 0x00434a80,fn_00434a80,not needed,dead code: no callers and no vtable references in the executable
-0x00434e10,GruntObject_Slot147,deferred,"feature: player-grab; the player grabbing a grunt / bow grunt (slots 66, 147): Roman cannot grab grunts on lev_1_m1 (no grab weapon)"
-0x00434ea0,GruntObject_Slot66,deferred,"feature: player-grab; the player grabbing a grunt / bow grunt (slots 66, 147): Roman cannot grab grunts on lev_1_m1 (no grab weapon)"
-0x00435220,Q112Object_Slot53,deferred,"feature: q112-extras; Q112 death: stops the eye loop (fol_q112_eye_*_lp below 25 % health), which is not ported (docs/subsystems/infantry.md section 7)"
+0x00434e10,GruntObject_Slot147,deferred,feature: armed-jaws; whether a grunt can be the jaws' target now (0x0047fa70 asks vt+0x10c and this slot): not in a grab / IC / stun / hold
+0x00434ea0,GruntObject_Slot66,ported,engine/src/ai/close_kill.rs `grab` (as BowGruntObject_Slot66)
+0x00435220,Q112Object_Slot53,ported,engine/src/ai.rs die (Kind::Q112): its eye loop stopped and its Dead line (ai/q112.rs)
 0x00435260,PeasantGenAI_Slot6,deferred,"feature: peasants; civilians thrown out of a destroyed building (toss_peasants): buildings subsystem, not ported"
 0x00435330,PeasantGenAI_Slot55,deferred,"feature: peasants; civilians thrown out of a destroyed building (toss_peasants): buildings subsystem, not ported"
 0x00435380,PeasantGenAI_Slot64,deferred,"feature: peasants; civilians thrown out of a destroyed building (toss_peasants): buildings subsystem, not ported"
@@ -128,7 +128,7 @@ address,name,disposition,reason
 0x00435860,Q112Boss_Slot55,ported,cited: vehicles/boss.rs (the boss target tags / its destroy)
 0x00436090,SaucerObject_Slot6,ported,cited: vehicles/boss.rs (TurretBossInit of the saucer / zeppelin)
 0x00436180,ZeppelinObject_Slot6,ported,cited: vehicles/boss.rs (TurretBossInit of the saucer / zeppelin)
-0x004364b0,Q112Boss_Slot6,deferred,"feature: q112-boss; the Q112 boss (spawned by Q's q112_marker note): a turret-style boss, not grunt-class infantry: not in this port"
+0x004364b0,Q112Boss_Slot6,not needed,"dead in the shipped game: a q112_boss is made only by the anim note q112_marker (GenericAIObject_HandleEvent 0x0043d180), which only mini_zeppelin_q112_marker carries; that anim is started only by mover_zeppelin_test_tim_2 (anim_intro at 6.07 s) and mover_lev_4_test, which no level plays (the 24 levels' instance_props generic_txt values, missions and scenes never name them), and no level's templates.json has q112_boss (survey 2026-10-17)"
 0x004367a0,ShrubPatrol_Slot18,replaced,ShrubPatrol slot: shrubpatrol.rs
 0x00436b30,fn_00436b30,replaced,the monk's stance-set call collapses to one anim: anim_name_with (Kind::Monk) gives monk_stand for every stand id
 0x00436b50,fn_00436b50,replaced,monk vt+0x188 (+0x484 0x10 then the object history): leave_cover's history (ai.rs)
@@ -155,7 +155,7 @@ address,name,disposition,reason
 0x0043c640,fn_0043c640,deferred,feature: vehicle-bosses; fake grunt / zeppelin / colossus / Q112 boss anim tables
 0x0043c650,fn_0043c650,deferred,feature: vehicle-bosses; fake grunt / zeppelin / colossus / Q112 boss anim tables
 0x0043c7d0,fn_0043c7d0,deferred,feature: vehicle-bosses; fake grunt / zeppelin / colossus / Q112 boss anim tables
-0x0043c860,Q112Boss_HandleEvent,deferred,"feature: q112-boss; the Q112 boss (spawned by Q's q112_marker note): a turret-style boss, not grunt-class infantry: not in this port"
+0x0043c860,Q112Boss_HandleEvent,not needed,"dead in the shipped game: a q112_boss is made only by the anim note q112_marker (GenericAIObject_HandleEvent 0x0043d180), which only mini_zeppelin_q112_marker carries; that anim is started only by mover_zeppelin_test_tim_2 (anim_intro at 6.07 s) and mover_lev_4_test, which no level plays (the 24 levels' instance_props generic_txt values, missions and scenes never name them), and no level's templates.json has q112_boss (survey 2026-10-17)"
 0x0043ccb0,fn_0043ccb0,not needed,dead in the shipped game: no level of the 24 has a hide_tag / unhide_tag script (mission.json / scene.json survey)
 0x0043cd70,fn_0043cd70,not needed,dead in the shipped game: no level of the 24 has a hide_tag / unhide_tag script (mission.json / scene.json survey)
 0x0043e520,fn_0043e520,deferred,feature: barracks-windows; the knock-back toward the player root of a barricade breach (0x0040cf40's caller)
@@ -171,7 +171,7 @@ address,name,disposition,reason
 0x0043ea70,fn_0043ea70,replaced,the AI position / matrix accessors (slots +0x54..+0x7c: the IC anim matrices +0xa6c / +0xa28 or the body): Transform / GlobalTransform
 0x0043eaa0,GenericAIObject_InFrustum,replaced,the in-frustum test (render culling): Bevy visibility
 0x0043eac0,fn_0043eac0,replaced,the weapon attachment's visibility (+0x61c list): level.rs attaches the weapon model to the hand
-0x0043eae0,fn_0043eae0,ported,"engine/src/ai/melee.rs CloseHit: the close attack's ""hit"" note (50 / Q112 100 within m_h2hMax)"
+0x0043eae0,fn_0043eae0,ported,"engine/src/ai/melee.rs CloseHit / close_hits: the close attack's ""hit"" (50 / 6500, the Q112 100 / 13000, within m_h2hMax, the knock lifted 0.7..0.9)"
 0x0043ec40,GenericAIObject_GetClass,replaced,"the class descriptor: the engine's component types carry the class (ai.rs Grunt with Kind, Companion, level.rs Penguin, alarm.rs Marker)"
 0x0043ec50,fn_0043ec50,replaced,dead test slot +0xe0: Mind::Dead / Health
 0x0043ec60,fn_0043ec60,deferred,feature: vehicle-bosses; the turret target test (+0x898 of kind 2: Colossus turrets)
@@ -206,7 +206,7 @@ address,name,disposition,reason
 0x0044c120,fn_0044c120,not needed,dead in the shipped game: no level of the 24 places this class (work/remaster/*/scene.json and mission.json templates) and no coverage run of any level reaches it (TeammateMarker)
 0x0044c140,fn_0044c140,not needed,dead in the shipped game: no level of the 24 places this class (work/remaster/*/scene.json and mission.json templates) and no coverage run of any level reaches it (TeammateMarker)
 0x0044e6c0,MolmerObject_Remove,replaced,Jonesy's removal (dynamite / partner references): Bevy despawn (companion_damage removes the component)
-0x0044f160,fn_0044f160,deferred,"feature: companion-idle-cue; the companions' last-shot time stamps (Game+0xb0c by Jonesy 0x0044f160, Game+0xafc by Q 0x004878f0) before the aim error 0x004284e0: read by Roman's 30 s idle cue 0x0047b730 (game_06.cpp:538: the player / audio subsystem's; the engine posts no stamp yet); the aim error itself is ported (ai.rs companions)"
+0x0044f160,fn_0044f160,ported,engine/src/ai.rs companions: Companion::last_shot stamped at each shot; player.rs idle_banter counts Jonesy's 30 s from it
 0x0044f180,MolmerObject_SetState,replaced,"Jonesy's state change drops a held dynamite stick (+0xbd4): ai.rs Companion.throwing ends with the throw anim (the stick is the thrown StickyBomb, sticky.rs)"
 0x004509a0,DefaultGameObject_MarkGrid,replaced,"the nav grid (Game+0xaa4): grid marking (Object_MarkGrid, DefaultGameObject_MarkGrid, Grid_RasterTriangle, Poly_ClipToPlane), cells, A* (AStar_*), path smoothing and the route follower (AIRoute_*, 0x004548f0, 0x00454d80 the push toward the route point, 0x00454cc0 the spin damping): nav.rs A* over the Jolt world, re-planned every 1 s (grunts) / 0.25 s (companions), and Jolt / walker movement"
 0x004548f0,fn_004548f0,replaced,"the nav grid (Game+0xaa4): grid marking (Object_MarkGrid, DefaultGameObject_MarkGrid, Grid_RasterTriangle, Poly_ClipToPlane), cells, A* (AStar_*), path smoothing and the route follower (AIRoute_*, 0x004548f0, 0x00454d80 the push toward the route point, 0x00454cc0 the spin damping): nav.rs A* over the Jolt world, re-planned every 1 s (grunts) / 0.25 s (companions), and Jolt / walker movement"
@@ -298,17 +298,17 @@ address,name,disposition,reason
 0x00486b90,fn_00486b90,replaced,"the pairing of Q and Jonesy (+0xb64, can-be-paired flag 0x400): the engine pairs the live Companion components"
 0x00486ba0,fn_00486ba0,replaced,"the pairing of Q and Jonesy (+0xb64, can-be-paired flag 0x400): the engine pairs the live Companion components"
 0x00486bf0,fn_00486bf0,replaced,Jonesy's removal (dynamite / partner references): Bevy despawn (companion_damage removes the component)
-0x00486c70,Q111Object_Slot112,deferred,"feature: companion-carried; gate of the damage flag 0x20 (stun / knock-away: +0x878, mode 5) in GenericAIObject_Slot52 0x00430340: refused on the tower task (flag 0x40000). Nothing in the remaster stuns or carries a companion yet (twiglet.rs: the stun / pull are not ported)"
-0x00486c80,Q111Object_Slot149,deferred,"feature: companion-carried; gate of the damage flag 0x800 (pull / carried, +0x870 holder) in GenericAIObject_Slot52 0x00430340, the same answer as Slot112 (tail call): refused on the tower task"
-0x00486c90,Q111Object_Slot122,deferred,"feature: companion-engage-exit; vt+0x1e8 of 0x0042bc60 (a lost target with +0x484 bit 2): 0 in an area / attack formation -> the home route, state 0x50, which mode 3 ends at once (0x004265f0); not the tower task"
+0x00486c70,Q111Object_Slot112,ported,engine/src/ai/carried.rs `knock`: the stun refused on the tower task
+0x00486c80,Q111Object_Slot149,ported,engine/src/ai/carried.rs `knock`: the pull refused on the tower task
+0x00486c90,Q111Object_Slot122,ported,"engine/src/ai.rs companions, FightEnd::Home: a live target let go of goes home (in an area / attack formation by this slot's 0; in Defend Me / Return To Me the pursuit it allows ends in the same anchor refusal 0x004853a0)"
 0x00486d90,Q111Object_Slot34,replaced,"the drive parameters move_power +0x944 / the speeds (vt+0x80 / +0x84 / +0x88, Q's constant 0.5) fed to the body drive 0x00454d80: the engine sets the velocity from move_speed / patrol / limp speeds (ai.rs, the companions' fitted 0.933 x move_speed)"
 0x00486da0,Q111Object_Slot94,ported,"engine/src/ai.rs companion_damage: an attacker is not taken as a target while on the tower task (modes 6 / 7); otherwise the retaliation of Slot109 0x00485360 as before"
 0x00486e90,Q111Object_Slot129,ported,"engine/src/ai.rs companion_damage: hit reactions only in modes 1 / 3 (Companion::mode != 2: not on the move), none on the tower task"
 0x00486f40,fn_00486f40,deferred,"feature: cloth-cape; Q's cape (q111_cape, a ClothObject attached to Q: 0x00486f40, its anchors 0x004879c0 / 0x00487a40, the getter 0x004876b0): cloth simulation of a model part; not drawn by the engine yet (rendering / physics owner; open)"
 0x00486fd0,Q111Object_Slot55,replaced,Jonesy's removal (dynamite / partner references): Bevy despawn (companion_damage removes the component)
-0x00487040,Q111Object_Slot78,ported,engine/src/ai/melee.rs selector: Q's takedown 0x81 / 0x82
+0x00487040,Q111Object_Slot78,ported,engine/src/ai/close_kill.rs pair: Q's close kill 0x81 / 0x82
 0x004876b0,fn_004876b0,deferred,"feature: cloth-cape; Q's cape (q111_cape, a ClothObject attached to Q: 0x00486f40, its anchors 0x004879c0 / 0x00487a40, the getter 0x004876b0): cloth simulation of a model part; not drawn by the engine yet (rendering / physics owner; open)"
-0x004878f0,Q111Object_Slot101,deferred,"feature: companion-idle-cue; the companions' last-shot time stamps (Game+0xb0c by Jonesy 0x0044f160, Game+0xafc by Q 0x004878f0) before the aim error 0x004284e0: read by Roman's 30 s idle cue 0x0047b730 (game_06.cpp:538: the player / audio subsystem's; the engine posts no stamp yet); the aim error itself is ported (ai.rs companions)"
+0x004878f0,Q111Object_Slot101,ported,engine/src/ai.rs companions: Companion::last_shot stamped at each shot; player.rs idle_banter counts Q's 30 s from it
 0x00487910,ClothObject_Slot6,deferred,"feature: cloth-cape; class Cloth has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
 0x00487960,ClothObject_Slot55,deferred,"feature: cloth-cape; class Cloth has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
 0x00487990,ClothObject_Slot7,deferred,"feature: cloth-cape; class Cloth has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
@@ -351,4 +351,4 @@ address,name,disposition,reason
 0x004a0480,Twiglet_Vt124,deferred,feature: twiglet-extras; the topsy turvy throw at the player (state 0x65): not ported
 0x004a05a0,Twiglet_Vt128,deferred,feature: twiglet-extras; the bof glove punch back (state 0x66): not ported
 0x0042a500,fn_0042a500,not needed,"dead in the shipped game: it runs only when (rand x 100) >> 15 < +0x86c, read from the property pickup_grab_pct (string 0x005b6e54, default 0 at 0x0042533f); no property set of the 24 levels has that key (they set pickup_grab_percent, a name the exe never reads), so the roll never passes"
-0x00483810,fn_00483810,deferred,"feature: companion-leader-swap; the leader swap of the two companion slots: ai.rs cites it as not ported"
+0x00483810,fn_00483810,ported,engine/src/ai.rs leader_pick

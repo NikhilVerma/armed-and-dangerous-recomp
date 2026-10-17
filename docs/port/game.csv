@@ -93,7 +93,7 @@ address,name,disposition,reason
 0x00461550,CaptainObject_Construct,replaced,constructor: captains are spawned by level.rs / ai.rs
 0x00461570,SniperCaptain_Construct,replaced,constructor: sniper captains are spawned by level.rs / ai.rs
 0x00461590,Q112Object_Construct,replaced,constructor: the Q112 is spawned by level.rs / ai.rs
-0x004615b0,Q112Boss_Construct,deferred,feature: q112-boss; constructor of a class with no instance on lev_1_m1 (scene.json behaviours)
+0x004615b0,Q112Boss_Construct,not needed,"dead in the shipped game: a q112_boss is made only by the anim note q112_marker (GenericAIObject_HandleEvent 0x0043d180), which only mini_zeppelin_q112_marker carries; that anim is started only by mover_zeppelin_test_tim_2 (anim_intro at 6.07 s) and mover_lev_4_test, which no level plays (the 24 levels' instance_props generic_txt values, missions and scenes never name them), and no level's templates.json has q112_boss (survey 2026-10-17)"
 0x004615d0,PeasantGenAI_Construct,deferred,feature: peasants; constructor of a class with no instance on lev_1_m1 (scene.json behaviours)
 0x004615f0,FakeGruntObject_Construct,ported,"engine/src/army.rs: the platoons of fake grunts (Platoon, FakeGrunt_Update, release_platoon)"
 0x00461610,GruntLadderObject_Construct,replaced,engine/src/ai/ladder.rs: CarriedLadder / PlantedLadder entities stand for the GruntLadderObject instances 0x004298a0 makes
