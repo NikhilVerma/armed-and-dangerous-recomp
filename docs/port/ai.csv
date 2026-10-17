@@ -71,7 +71,7 @@ address,name,disposition,reason
 0x0042c790,fn_0042c790,replaced,"ai.rs: a guard beyond +0x5d8 gets infinite accuracy (g.infinite), which is what the 99999 ranges do"
 0x0042d650,fn_0042d650,deferred,"feature: army-ladders; the carried ladder object (grunt_ladder attached while running, AI_ClimbLadder): not drawn by army.rs, debt in docs/subsystems/defence.md"
 0x0042d690,fn_0042d690,deferred,"feature: barracks-windows; the smoking (wounded) troop of a barracks exit slot and the cover window slot of the generators (0x0042d690, 0x0042dc20): the lev_1_m1 barracks have no window slots and no smoking troops (mission.rs)"
-0x0042d780,fn_0042d780,deferred,"feature: base-turret; the failure mob on the base turret (0x0049ad60): not ported, defence.md debt (a failure in the turret fails at once)"
+0x0042d780,fn_0042d780,ported,"engine/src/defence.rs board / boarders (grunt_turret_attack by the running count, state 0x67: removed at the anim end)"
 0x0042da00,fn_0042da00,deferred,"feature: paratroopers; the paratroop drop (0x0042da00 / 0x0042daa0: state 0x82 with the parachute), the squad / goliath joins (0x0042de30, 0x0042de60), slot 141 (0x0042db00): no paratroops, squads or goliaths on lev_1_m1"
 0x0042daa0,fn_0042daa0,deferred,"feature: paratroopers; the paratroop drop (0x0042da00 / 0x0042daa0: state 0x82 with the parachute), the squad / goliath joins (0x0042de30, 0x0042de60), slot 141 (0x0042db00): no paratroops, squads or goliaths on lev_1_m1"
 0x0042db00,fn_0042db00,deferred,"feature: paratroopers; the paratroop drop (0x0042da00 / 0x0042daa0: state 0x82 with the parachute), the squad / goliath joins (0x0042de30, 0x0042de60), slot 141 (0x0042db00): no paratroops, squads or goliaths on lev_1_m1"

@@ -1,7 +1,7 @@
 {"scene": "lev_1_m4", "steps": [
  {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 3.5}, {"tap": "Enter"},
  {"wait": 8.0},
- {"expect": {"base_turret.mounted": true, "base_turret.over_wall": 0, "base_turret.overrun": false}},
+ {"expect": {"base_turret.mounted": true, "base_turret.over_wall": 0, "base_turret.overrun": false, "base_turret.boarders": 0}},
  {"defence": {"frame": 60}}, {"wait": 0.5},
  {"expect": {"base_turret.frame": [59, 61]}},
  {"note": "before_blast"}, {"blast": 30}, {"wait": 0.5},
@@ -11,8 +11,14 @@
  {"send": 5000}, {"send": 5000}, {"send": 5000}, {"wait": 0.5},
  {"expect": {"base_turret.over_wall": 3}},
  {"send": 665}, {"wait": 1.0},
- {"expect": {"base_turret.overrun": true}},
- {"send": 666}, {"wait": 1.0},
- {"expect": {"mission": "Failed"}},
+ {"expect": {"base_turret.overrun": true, "base_turret.boarders": 1}},
+ {"wait": 2.0},
+ {"expect": {"base_turret.boarders": 0}},
+ {"send": 666}, {"wait": 1.0}, {"shot": "failure_mob"}, {"wait": 0.2},
+ {"expect": {"mission": "Playing", "base_turret.failure_mob": true, "base_turret.boarders": 6, "base_turret.failure_left": [3.5, 4.2]}},
+ {"send": 123}, {"wait": 0.5},
+ {"expect": {"mission": "Playing"}},
+ {"wait": 4.0},
+ {"expect": {"mission": "Failed", "base_turret.failure_mob": false}},
  {"quit": true}
 ]}

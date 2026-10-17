@@ -17,8 +17,12 @@
 //!   crosshair point, Projectile_Launch 0x00480ec0).
 //! - Damage 0x0049aeb0: the glass window (base_turret_l5_m5_window, 40 health) takes the hits while it lasts; then
 //!   the player does (0x00498400), halved while mounted (player.rs).
-//! - Overrun (the turret's "overrun" trigger, 0x0049bc90): every 45..75 s a grunt_regular comes for the turret
-//!   (0x0049b030 -> 0x0042d8f0).
+//! - Overrun (the turret's "overrun" trigger, 0x0049bc90): every 45..75 s a grunt_regular jumps onto the turret
+//!   (0x0049b030 -> 0x0042d8f0: grunt_turret_jump_on / _1 alternately) and is gone when the anim ends (state 0x67).
+//! - The failure mob (0x0049ad60, from MissionObject_OnTrigger 0x0044d600): a failure trigger while Roman is in the
+//!   base turret (Game+0xac8 = 1) does not fail at once: six grunt_regulars board the turret (0x0042d780:
+//!   grunt_turret_attack, _1 .. _5 by a running count), Game+0xdcd is set (the success trigger is ignored meanwhile),
+//!   and failure_mode_duration (+0x830, 5 s) later the turret is removed (vt+0xdc 0x0049ac60): level state 3.
 //!
 //! Hooks outside this file: turret.rs (`Mounted` kept for a mount that is not a StigTurret), main.rs (plugin), and the
 //! player / camera / hud / bot modules already follow `turret::Mounted`.
@@ -118,6 +122,8 @@ pub struct BaseTurret {
     overrun_trigger: i64,
     pub overrun: bool,
     overrun_next: f32,
+    /// failure_mode_duration (+0x830): the failure mob's time left before the turret is removed
+    failure_left: f32,
     /// the held machine-gun fx (rapid fire: 0x00497fd0 / 0x00497ed0) and its flags 0x40 / 0x80
     fx_anchor: Option<Entity>,
     fx_flags: u8,
@@ -141,6 +147,21 @@ struct DefenceState {
     started: bool,
     /// the counter of the mission's grunt_wall_counter_tag (Game+0x26fc): the HUD's grunts over the wall
     wall_counter: Option<u32>,
+    /// the boarders' anim counts: 0x0064a75c (grunt_turret_attack, _1 .. _5) and the byte 0x0064a758 (jump_on / _1)
+    attack_count: u32,
+    jump_toggle: bool,
+}
+
+/// A grunt boarding the base turret (AI state 0x67, set by 0x0042d780 / 0x0042d8f0): attached to the turret
+/// (Object_Attach 0x004539f0) and taken off every AI list, he plays his anim, authored in the turret's frame (its root
+/// "center" carries him over the turret), and is removed when it ends (state 0x67: vt+0xdc). The anim's notes run as
+/// a mover's script ("fx NAME", "trigger N").
+#[derive(Component)]
+pub struct TurretBoarder {
+    pub anim: String,
+    t: f32,
+    len: f32,
+    started: bool,
 }
 
 /// A playtest's debug command (playtest.rs `defence`): {"aim": "army"} keeps the turret on the nearest army grunt
@@ -169,7 +190,7 @@ impl Plugin for DefencePlugin {
         app.init_level_resource::<DefenceState>()
             .init_level_resource::<DefenceDebug>()
             .add_message::<DefenceCommand>()
-            .add_systems(Update, (setup, start, debug_commands, (ride, overrun, log).chain().after(crate::turret::ride).after(crate::hud_state)).chain().run_if(crate::playing))
+            .add_systems(Update, (setup, start, debug_commands, (ride, overrun, failure_mob, boarders, log).chain().after(crate::turret::ride).after(crate::hud_state)).chain().run_if(crate::playing))
             .add_systems(PostUpdate, pose.after(crate::skin::AnimateSet).before(TransformSystems::Propagate));
     }
 }
@@ -294,6 +315,7 @@ fn setup(
             overrun_trigger: p.i("overrun", 0),
             overrun: false,
             overrun_next: 0.0,
+            failure_left: p.f("failure_mode_duration", 5.0),
             fx_anchor: None,
             fx_flags: 0,
             sounds: (false, false),
@@ -675,30 +697,134 @@ fn ride(
     }
 }
 
-/// The turret's overrun (its "overrun" trigger, 0x0049bc90): every 45..75 s a grunt_regular comes for it (0x0042d8f0
-/// mounts him on the turret with grunt_turret_jump_on; here he is spawned behind the turret and charges: guess).
+/// The turret's overrun (its "overrun" trigger, 0x0049bc90 sets +0x62f): while Roman rides it and no failure mob is on
+/// (Game+0xdcd), every rand(45, 75) s (+0x838, 0x0046e2c0) a grunt_regular jumps onto it (0x0042d8f0).
+#[allow(clippy::too_many_arguments)]
 fn overrun(
+    mut commands: Commands,
     time: Res<Time>,
     mut events: MessageReader<crate::mission::SendTrigger>,
-    mut q: Query<(&mut BaseTurret, &GlobalTransform)>,
+    mut q: Query<(Entity, &mut BaseTurret)>,
     mounted: Res<crate::turret::Mounted>,
-    mut spawn: MessageWriter<crate::level::SpawnGrunt>,
+    mut state: ResMut<DefenceState>,
     mut rng: ResMut<crate::fx::FxStats>,
+    mission: Option<Res<crate::mission::Mission>>,
+    data: Res<crate::gamedata::GameData>,
+    mut kit: crate::army::ModelKit,
 ) {
     let ids: Vec<i64> = events.read().map(|e| e.0).collect();
     let now = time.elapsed_secs();
-    for (mut t, gt) in &mut q {
+    let mob = mission.as_ref().is_some_and(|m| m.failure_mob);
+    for (e, mut t) in &mut q {
         if ids.iter().any(|&i| i != 0 && i == t.overrun_trigger) && !t.overrun {
             t.overrun = true;
             t.overrun_next = now;
             info!("EVENT defence: the base is overrun");
         }
-        if !t.overrun || mounted.0.is_none() || now < t.overrun_next {
+        if !t.overrun || mob || mounted.0 != Some(e) || now < t.overrun_next {
             continue;
         }
         t.overrun_next = now + rng.range(45.0, 75.0);
-        let back = gt.rotation().mul_vec3(Vec3::Z).normalize_or(Vec3::Z) * 25.0;
-        spawn.write(crate::level::SpawnGrunt { at: gt.translation() + back, template: "grunt_regular".into(), ..default() });
+        // 0x0042d8f0: "grunt_turret_jump_on" while the byte is set, else "grunt_turret_jump_on_1"; then it flips
+        let anim = if state.jump_toggle { "grunt_turret_jump_on" } else { "grunt_turret_jump_on_1" };
+        state.jump_toggle = !state.jump_toggle;
+        board(&mut commands, &mut kit, &data, e, anim);
+        info!("EVENT defence: an overrun grunt jumps onto the turret ({anim})");
+    }
+}
+
+/// A grunt_regular made (ObjectSystem_CreateObject 0x0045f020) and put on `turret` with `anim` (state 0x67).
+fn board(commands: &mut Commands, kit: &mut crate::army::ModelKit, data: &crate::gamedata::GameData, turret: Entity, anim: &str) {
+    let Some(model) = data.templates.get("grunt_regular").and_then(|t| t.model.clone()) else { return };
+    let len = kit.anim(anim).map(|a| a.duration).unwrap_or(0.0);
+    if let Some(g) = kit.spawn(commands, &model, Transform::IDENTITY, true) {
+        commands.entity(g).insert(TurretBoarder { anim: anim.to_owned(), t: 0.0, len, started: false });
+        commands.entity(turret).add_child(g);
+    }
+}
+
+/// The failure mob (0x0049ad60) and its countdown (0x0049b030: while Game+0xdcd is set +0x830 counts down, then the
+/// turret's removal 0x0049ac60 sets level state 3). The mission learns whether Roman rides a base turret (Game+0xac8 =
+/// 1), which turns its failure triggers into the mob (MissionObject_OnTrigger 0x0044d600).
+#[allow(clippy::too_many_arguments)]
+fn failure_mob(
+    mut commands: Commands,
+    time: Res<Time>,
+    mounted: Res<crate::turret::Mounted>,
+    mut q: Query<(Entity, &mut BaseTurret)>,
+    mut state: ResMut<DefenceState>,
+    mission: Option<ResMut<crate::mission::Mission>>,
+    data: Res<crate::gamedata::GameData>,
+    mut kit: crate::army::ModelKit,
+) {
+    let Some(mut mission) = mission else { return };
+    let Some((e, mut t)) = mounted.0.and_then(|m| q.get_mut(m).ok()) else {
+        mission.base_turret_mounted = false;
+        return;
+    };
+    mission.base_turret_mounted = true;
+    while mission.failure_mob_calls > 0 {
+        mission.failure_mob_calls -= 1;
+        for _ in 0..6 {
+            // 0x0042d780: "grunt_turret_attack" at the count 0, "_1" .. "_4" at 1 .. 4, "_5" after
+            let anim = match state.attack_count {
+                0 => "grunt_turret_attack".to_owned(),
+                n @ 1..=4 => format!("grunt_turret_attack_{n}"),
+                _ => "grunt_turret_attack_5".to_owned(),
+            };
+            state.attack_count += 1;
+            board(&mut commands, &mut kit, &data, e, &anim);
+        }
+        info!("EVENT defence: the failure mob boards the turret ({:.1} s to the loss)", t.failure_left);
+    }
+    if mission.failure_mob {
+        t.failure_left -= time.delta_secs();
+        if t.failure_left <= 0.0 {
+            mission.failure_mob = false;
+            mission.fail_state(3, "the failure mob took the base turret");
+            info!("EVENT defence: the turret is lost to the failure mob");
+        }
+    }
+}
+
+/// The boarders' anims (state 0x67): played once in the turret's frame, their notes run, removed at the end.
+fn boarders(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut q: Query<(Entity, &mut TurretBoarder, &GlobalTransform, Option<&mut crate::skin::Animator>)>,
+    mut kit: crate::army::ModelKit,
+    mut fx: MessageWriter<crate::fx::StartFx>,
+    mut triggers: MessageWriter<crate::mission::SendTrigger>,
+) {
+    for (e, mut b, gt, animator) in &mut q {
+        let Some(mut a) = animator else { continue };
+        if !b.started {
+            b.started = true;
+            a.play(0, &b.anim, false, crate::skin::Mask::All);
+        }
+        let t0 = b.t;
+        b.t += time.delta_secs();
+        if let Some(anim) = kit.anim(&b.anim) {
+            // a note before the start (fx_zeppelin_reload at -1 / 30 s) runs on the first frame
+            for line in crate::mover::notes_between(&anim, t0, b.t) {
+                let mut w = line.split_whitespace();
+                match (w.next().map(str::to_lowercase).as_deref(), w.next()) {
+                    (Some("fx"), Some(name)) => {
+                        let (_, rot, at) = gt.to_scale_rotation_translation();
+                        fx.write(crate::fx::StartFx { name: name.to_lowercase(), at, rotation: rot, follow: None, position_only: false });
+                    }
+                    (Some("trigger"), Some(n)) => {
+                        if let Ok(n) = n.parse() {
+                            triggers.write(crate::mission::SendTrigger(n));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        if b.t >= b.len {
+            commands.entity(e).despawn();
+        }
     }
 }
 
@@ -732,6 +858,7 @@ fn log(
     defence: Res<DefenceState>,
     mission: Option<Res<crate::mission::Mission>>,
     mut hud: ResMut<crate::hud::HudState>,
+    boarders: Query<&TurretBoarder>,
 ) {
     hud.over_wall = defence.wall_counter.and_then(|id| mission.as_ref()?.counter(id));
     let Some(mut state) = state else { return };
@@ -739,6 +866,9 @@ fn log(
     let p = gt.translation();
     state.0.insert("base_turret".into(), serde_json::json!({
         "mounted": mounted.0 == Some(e),
+        "boarders": boarders.iter().count(),
+        "failure_mob": mission.as_ref().is_some_and(|m| m.failure_mob),
+        "failure_left": t.failure_left,
         "intro": t.intro.is_some(),
         "frame": t.frame,
         "yaw": t.yaw.to_degrees(),

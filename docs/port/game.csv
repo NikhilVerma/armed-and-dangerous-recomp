@@ -303,7 +303,7 @@ address,name,disposition,reason
 0x0049a530,fn_0049a530,deferred,"feature: turret-vehicle-paths; not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
 0x0049abf0,fn_0049abf0,deferred,"feature: defence-visuals; the fake mortar / homing launcher helpers (visual): not drawn, defence.md debt"
 0x0049ac60,fn_0049ac60,replaced,base turret removal: level restart despawns (defence.rs owns nothing else)
-0x0049ad60,fn_0049ad60,deferred,"feature: base-turret; the failure mob on the base turret (six grunt_regulars, 5 s, then failed): not ported, defence.md debt"
+0x0049ad60,fn_0049ad60,ported,"engine/src/defence.rs failure_mob (six boarders, Game+0xdcd = Mission::failure_mob; mission.rs mission_trigger calls it in the base turret)"
 0x0049afe0,fn_0049afe0,not needed,"dead in the shipped game: the base turret dies only with an AI gunner (0x00498400 gives the player the hits) and no defence level (1_m4, 2_m4, 3_m4_bd, 4_m5, 5_m5) puts one in it"
 0x0049bcb0,fn_0049bcb0,not needed,"dead in the shipped game: the base turret dies only with an AI gunner (0x00498400 gives the player the hits) and no defence level (1_m4, 2_m4, 3_m4_bd, 4_m5, 5_m5) puts one in it"
 0x0049bd80,fn_0049bd80,not needed,"dead in the shipped game: every base turret starts with start_in_turret, where Use does not leave (game_06.cpp:2224)"
