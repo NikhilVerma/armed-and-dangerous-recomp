@@ -47,6 +47,11 @@ SUITE = ['save_write', 'save_read', 'topsyhit2', 'turn_in_place', 'turret1', 'de
 SUITE += ['complete_lev_4_m3', 'complete_lev_5_m1', 'complete_lev_5_m3', 'complete_lev_5_m4', 'complete_lev_bonus_m1', 'complete_lev_bonus_m3', 'complete_lev_4_m5', 'complete_lev_5_m5', 'complete_lev_bonus_m2', 'companion_death_fail', 'complete_lev_4_m1', 'complete_lev_5_m2', 'complete_lev_4_m2']
 # 'complete_<level>' for levels 1 to 3 (agent-complete-a; status table in docs/journal/2026-10-16-complete-a.md)
 SUITE += ['complete_lev_1_m1', 'complete_lev_1_m1_b', 'gun_save_write', 'gun_save_read', 'complete_lev_1_m3', 'complete_lev_1_m4', 'complete_lev_3_m3', 'mg_muzzle_fx', 'complete_lev_2_m3', 'complete_lev_2_m2', 'complete_lev_2_m4', 'complete_lev_3_m2', 'complete_lev_3_m4_bd', 'complete_lev_2_m1', 'complete_lev_3_m1']
+# the player's weapon roster (engine/src/weapons): the sniper rifle's bullet through three grunts and its health pickup, the
+# Gurner's lobbed mortar, the vindaloo's lock-ons and homing fan (four rockets upgraded), the land shark's arc, dive, two
+# bites and its end, the black hole's carry-off and swallow, the Guy Fawkes traitors at war with their old side, the
+# Auto-Aim option (a miss without, a hit with), the pub's carry / swap with three guns and its drop
+SUITE += ['weapon_sniper', 'weapon_mortar', 'weapon_vindaloo', 'weapon_shark', 'weapon_blackhole', 'weapon_guyfawkes', 'weapon_autoaim', 'weapon_swap', 'weapon_swap_drop']
 # the dead's bodies (corpses.rs): lev_1_m4's army killed two a second; the Original's timers (bodies gone, at most four
 # ragdolls, entities and physics bodies not growing) and the Remaster's 48 bodies with settled ragdolls
 SUITE += ['corpses_l1m4', 'corpses_l1m4_remaster']

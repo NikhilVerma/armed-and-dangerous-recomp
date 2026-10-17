@@ -494,6 +494,8 @@ pub struct PubInfo {
     /// the pub screen's bars move by this fraction of their full scale per second (+0x474: health_bar_rate x 0.01,
     /// default 50)
     pub bar_rate: f32,
+    /// should_refill_ammo (+0x467, default 1, 0x0046a5e0): the guns Roman holds are topped up when he enters
+    pub refill: bool,
 }
 
 /// The pub's trigger fields (PubObject_Load 0x0046a200): listen_trigger_open +0x4c8 (closed until it arrives,
@@ -557,6 +559,8 @@ pub struct Loadout {
     pub specials: HashMap<&'static str, i64>,
     /// player_has_jetpack (Game byte +0xd92, game_02.cpp:1999): the reset gives the jumper pack (jetpack.rs)
     pub jetpack: bool,
+    /// vindaloo_is_upgraded (Game byte +0xdd0, game_02.cpp:2006, default 0): the vindaloo fires four rockets
+    pub vindaloo_upgraded: bool,
 }
 
 impl Loadout {
@@ -566,7 +570,7 @@ impl Loadout {
         let weapons = WEAPONS.iter().copied().filter(|w| n(format!("player_add_{w}"), (*w == "machinegun") as i64) != 0).take(3).collect();
         let ammo = WEAPONS.iter().map(|w| (*w, n(format!("player_set_ammo_{w}"), -2))).collect();
         let specials = SPECIALS.iter().map(|s| (*s, n(format!("player_set_num_{s}"), -1))).collect();
-        Loadout { weapons, ammo, specials, jetpack: n("player_has_jetpack".into(), 0) != 0 }
+        Loadout { weapons, ammo, specials, jetpack: n("player_has_jetpack".into(), 0) != 0, vindaloo_upgraded: n("vindaloo_is_upgraded".into(), 0) != 0 }
     }
 
     pub fn has(&self, weapon: &str) -> bool {
@@ -1086,6 +1090,7 @@ impl Mission {
                         pool: n(r, "health_pool") as f32,
                         pool_full: n(r, "health_pool") as f32,
                         bar_rate: if n(r, "health_bar_rate") > 0.0 { n(r, "health_bar_rate") as f32 * 0.01 } else { 0.5 },
+                        refill: r.get("should_refill_ammo").and_then(|v| v.as_f64()).is_none_or(|v| v != 0.0),
                     };
                     pubs.push(Pub {
                         id: i.id,

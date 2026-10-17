@@ -646,6 +646,32 @@ despawn, Jolt's broad phase). Changed play: the reload refills at clip_reload_ti
 takes off after trotter_jump_into (0.133 s), the machine gun's scatter grows over the first second of fire, sticky
 bombs set each other off, grunts' arrows fly an arc (spawn_projectile_to), Roman says an idle line after 30 s.
 
+## Weapons (2026-10-17, agent-weapons)
+
+`engine/src/weapons/` (docs/subsystems/weapons.md): Roman's `Arsenal` (three gun slots, the specials' counts) replaces
+the rifle / machine gun / stickies / topsy fields; the sniper rifle, the Gurner, the vindaloo, the land shark, the black
+hole, the Guy Fawkes bomb, auto-aim and the pub's swap are ported, each with a playtest (weapon_*). Tuning items for
+the comparison with the original (guesses and differences seen, not checked frame by frame):
+
+- the force actions (0x00455a30 / 0x00471750) are modelled as a pull of the velocity toward the wanted one at the
+  factor per second (the vindaloo's (1 - d/d0) x 100 + 0.5, the shark's, the carried AIs' 5, the projectiles' 1 toward a
+  black hole); the original's Havok response to the force is not decoded;
+- the black hole rises 5 % of the way a frame in the original (frame-rate dependent): taken at 60 frames a second;
+- Roman's pull toward a black hole is added to his velocity, which the drive (player.rs control) pulls back toward
+  the stick's: how strongly it moves him is to compare; the carried AIs' "+0x948" speed is taken as their move speed;
+  which AIs can be carried (vt+0x254) and bitten (vt+0x24c) is guessed (grunts and captains on their feet);
+- the shark's arc is flown here (no physics body), its height is the ground under it + its depth (Object_ForceGround's
+  arguments read as a ray start and reach), the fin and the missile face along the heading (`rockets::facing`); a hunted
+  AI stands still (the original's guard state 0x79 with its aim set); the bite ends when sharkbite_* has played;
+- the vindaloo's lock-on candidates and the sniper's pierced list are the grunt-class characters (World +0xea4 / +0xe8c
+  not traced: vehicles and companions may belong); the fan's yaw / pitch signs (which rocket goes left / up);
+- auto-aim aims at the target's point without the lead of 0x004580a0 (the target's speed); the narrowed view's
+  horizontal half-angle uses the 1.7204 aspect factor sticky.rs measured;
+- the Guy Fawkes bomb flies straight at 300 (no gravity); a turned guard holds his post without 0x0042ec20's guard run;
+  the receivers within 200 by their bounding sphere (4.66);
+- the launchers' hand models are drawn in their rest pose on the hand (as the Topsy Turvy bomb's): their grip is to
+  compare; the pub's carried gun rides the cursor (remaster: the original's carry marker is not traced).
+
 ## Cheats
 
 Options > Cheats: the 12 codes of the table 0x00589090 (read from the exe: SHOOTMOR full ammo, AMBULNCE full

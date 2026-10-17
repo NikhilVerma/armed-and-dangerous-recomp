@@ -33,6 +33,9 @@ pub struct GameOptions {
     pub fullscreen: bool,
     pub mouse_sensitivity: f32,
     pub invert_mouse: bool,
+    /// Auto-Aim (Game+0x4c2 m_autoAim, default off; the Controls page): the rifle's and the machine gun's shots go to
+    /// the character nearest the crosshair inside a narrow view (weapons/targeting.rs)
+    pub auto_aim: bool,
     /// Extras tokens found (Game+0x200, saved like the original's options), and the placed tokens already taken
     /// ("level:instance id", pickup.rs `token_key`), so each is found once
     pub tokens: u32,
@@ -76,6 +79,7 @@ impl Default for GameOptions {
             fullscreen: true,
             mouse_sensitivity: 0.5,
             invert_mouse: false,
+            auto_aim: false,
             tokens: 0,
             tokens_taken: Vec::new(),
             tokens_keyed_by_level: true,

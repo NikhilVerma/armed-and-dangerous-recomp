@@ -128,6 +128,8 @@ pub enum Flag {
     /// the movie subtitle option (Game+0x176: movie.rs shows the lines that are not always shown)
     SubsMovie,
     InvertMouse,
+    /// Auto-Aim (Game+0x4c2)
+    AutoAim,
     Fullscreen,
     /// remaster: a boolean presentation setting by its name in graphics.rs (options.json `graphics`)
     Graphics(&'static str),
@@ -761,8 +763,7 @@ pub fn spawn(commands: &mut Commands, assets: &AssetServer, meshes: &mut Assets<
         }
         // scale 0.8 (layout.json: the controls page's ui_progressbar)
         s.slider(Page::Controls, "ui_controls_mousescale", it(150.691), 0.8, Opt::MouseSens, true);
-        // no auto-aim in the remaster yet
-        s.check(Page::Controls, "ui_controls_autoaim", 200.0, 320.0, 108.44, None, false);
+        s.check(Page::Controls, "ui_controls_autoaim", 200.0, 320.0, 108.44, Some(Flag::AutoAim), false);
         s.check(Page::Controls, "ui_controls_flipmousey", 200.0, 320.0, 84.44, Some(Flag::InvertMouse), false);
         s.row(Page::Controls, "ui_controls_reset", Vec2::new(320.0, 60.44), 1.0, GREEN, Act::Ask(Ask::ResetControls), 0.0);
         s.row(Page::Controls, "ui_shellmenu_back", Vec2::new(320.0, 36.44), 1.4, GREEN, Act::Back, 0.0);
@@ -1188,6 +1189,7 @@ fn navigate(
                     let d = GameOptions::default();
                     opts.mouse_sensitivity = d.mouse_sensitivity;
                     opts.invert_mouse = d.invert_mouse;
+                    opts.auto_aim = d.auto_aim;
                     opts.save();
                 }
                 Some(Ask::Overwrite(slot)) => {
@@ -1269,6 +1271,7 @@ fn navigate(
                 Flag::SubsGame => target.subtitles_game = !target.subtitles_game,
                 Flag::SubsMovie => target.subtitles_movie = !target.subtitles_movie,
                 Flag::InvertMouse => target.invert_mouse = !target.invert_mouse,
+                Flag::AutoAim => target.auto_aim = !target.auto_aim,
                 Flag::Fullscreen => target.fullscreen = !target.fullscreen,
                 Flag::Graphics(key) => crate::graphics::menu::toggle(target, key),
             }
@@ -1602,6 +1605,7 @@ fn values(
             Flag::SubsGame => opts.subtitles_game,
             Flag::SubsMovie => opts.subtitles_movie,
             Flag::InvertMouse => opts.invert_mouse,
+            Flag::AutoAim => opts.auto_aim,
             Flag::Fullscreen => gfx.fullscreen,
             Flag::Graphics(key) => crate::graphics::menu::flag(gfx, key),
         };
