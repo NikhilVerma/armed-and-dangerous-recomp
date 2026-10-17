@@ -12,6 +12,7 @@
 //!   Object_IsInViewCone 0x00455d90 and the sight ray), the alert groups, retaliation 0x0042c820.
 //! Functions this port does not cite are explained in docs/port/ai.csv (replaced by the engine, or not needed).
 
+pub mod aim;
 pub mod body;
 pub mod bully;
 pub mod grenade;
@@ -981,6 +982,8 @@ pub struct AiStats {
     /// squads halted by a target, members sent to charge (squad.rs)
     pub squad_halts: usize,
     pub squad_charged: usize,
+    /// a gunner's shots at the led point (flag 1, ai/aim.rs)
+    pub led_shots: usize,
 }
 
 /// Debug (playtest `ai_force`): forced outcomes of the AI's next rolls, each consumed by the behaviour it names ("throw":
@@ -1066,6 +1069,7 @@ impl Plugin for AiPlugin {
             .init_level_resource::<grenade::GrenadeStats>()
             .init_level_resource::<rocket::RocketHullStats>()
             .init_level_resource::<AiForce>()
+            .init_level_resource::<aim::TargetMotion>()
             .init_level_resource::<Interests>()
             .init_level_resource::<bully::BullyLines>()
             .init_level_resource::<ic::IcStats>()
@@ -1073,7 +1077,7 @@ impl Plugin for AiPlugin {
             .add_systems(
                 Update,
                 (
-                    (body::bumps, squad::update_squads, interests, mark_army_targets, search, ic::activate, scare, max_fire::sync_limit, think, max_fire::upkeep, ic::run, bully::bullies, die, dismay).chain(),
+                    (body::bumps, squad::update_squads, interests, mark_army_targets, search, ic::activate, scare, max_fire::sync_limit, aim::track, think, max_fire::upkeep, ic::run, bully::bullies, die, dismay).chain(),
                     (body::apply_rules, log_cover, log_ai, log_placed, squad::log_squads, ic::log, max_fire::log, grenade::fly, grenade::log, rocket::shoot_down, rocket::log).chain(),
                 )
                     .chain()
@@ -1191,6 +1195,7 @@ fn log_ai(
             "markers": stats.markers,
             "taunts": stats.taunts,
             "throws": stats.throws,
+            "led_shots": stats.led_shots,
             "near": near.unwrap_or_default(),
         }),
     );
@@ -2114,7 +2119,7 @@ fn gun_cycle(g: &mut Grunt, gn: &mut Gun, rng: &mut FxStats, dt: f32) -> bool {
 /// heading and the target (inside +-window: 1 - (angle + window) / (2 window), on target; beyond: 1 right or 0 left),
 /// the vertical from the elevation acos(dz / len) - 90 (inside +-26.5: 1 - (e + 26.5) / 53; above: 1, below: 0, off
 /// target); with flag 1 and on target set at once, else stepped by dt / (2 window * 0.0037037); no target: (0.5, 0.5),
-/// flag 1 cleared, on target. (The flagged case's predicted target point, 0x004580a0, is not ported.)
+/// flag 1 cleared, on target. The flagged case's predicted target point (0x004580a0) is the caller's `target` (ai/aim.rs).
 fn gun_aim(gn: &mut Gun, from: Vec3, target: Option<Vec3>, window: f32, dt: f32) -> bool {
     let (th, tv, ok) = match target {
         None => {
@@ -2614,7 +2619,7 @@ fn think(
         Res<crate::turret::Mounted>,
         Res<crate::gamedata::GameData>,
     ),
-    (mut lib, player_q, mut triggers, grenade_assets, squads, mut jmarks, army, placed, mut limit, mut force): (
+    (mut lib, player_q, mut triggers, grenade_assets, squads, mut jmarks, army, placed, mut limit, mut force, motion): (
         ResMut<crate::skin::AnimLibrary>,
         Query<Entity, With<Player>>,
         MessageWriter<crate::mission::SendTrigger>,
@@ -2625,6 +2630,7 @@ fn think(
         Query<&crate::level::Placed>,
         ResMut<max_fire::ShooterLimit>,
         ResMut<AiForce>,
+        Res<aim::TargetMotion>,
     ),
 ) {
     let t0 = Instant::now();
@@ -3526,9 +3532,20 @@ fn think(
                     }
                     (GunPhase::On, Some(i)) => {
                         g.yaw = gn.yaw;
+                        // with flag 1 (the counters ran out together) the aim and the shots go at the target led for a
+                        // bullet at 360 from the gun (0x004580a0, ai/aim.rs), without the aim error
+                        let led = if gn.snap {
+                            target.zip(g.target).map(|(p, te)| {
+                                let l = aim::lead_point(p, motion.velocity(te), pos, aim::GUN_LEAD_SPEED);
+                                l.with_y(aim::aim_height(p.y, target_hit.map_or(p.y, |h| h.y)))
+                            })
+                        } else {
+                            None
+                        };
+                        let aim_at = if gn.snap { led } else { target };
                         // the aim (vt+0x190 0x00428fc0 with 65 degrees: state 0x7d calls it twice a frame)
-                        gun_aim(&mut gn, pos, target, 65.0, dt);
-                        let mut cl = gun_aim(&mut gn, pos, target, 65.0, dt);
+                        gun_aim(&mut gn, pos, aim_at, 65.0, dt);
+                        let mut cl = gun_aim(&mut gn, pos, aim_at, 65.0, dt);
                         if gn.snap && (gn.clips != 0 || gn.rounds != 0 || gn.burst != 0) {
                             cl = true;
                         }
@@ -3588,7 +3605,14 @@ fn think(
                                         let (lo, hi) = g.accuracy;
                                         let s = if d <= lo { 0.1 } else if d >= hi { 1.0 } else { ((d * d - lo * lo) / (hi * hi - lo * lo)).max(0.1) };
                                         let side = Vec3::new(-to.z, 0.0, to.x).normalize_or_zero();
-                                        let aim = hit + side * rng.range(-g.inaccuracy_angle, g.inaccuracy_angle) * s + Vec3::Y * rng.range(0.0, g.inaccuracy_height) * s;
+                                        let aim = match led {
+                                            // flag 1: straight at the led point (0x004284e0's turret branch)
+                                            Some(l) => l,
+                                            None => hit + side * rng.range(-g.inaccuracy_angle, g.inaccuracy_angle) * s + Vec3::Y * rng.range(0.0, g.inaccuracy_height) * s,
+                                        };
+                                        if led.is_some() {
+                                            stats.led_shots += 1;
+                                        }
                                         let from = tu.bone_world(gt, ta, tu.emitter()).w_axis.truncate();
                                         // (a forge cannon's shell flies as vehicles/rockets.rs lobs it; a bullet as before)
                                         let to = from + (aim - from).normalize_or(gn.fwd) * from.distance(aim).max(1.0);
