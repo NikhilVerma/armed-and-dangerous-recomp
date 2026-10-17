@@ -2773,7 +2773,12 @@ fn think(
             }
         })
         .collect();
-    let slot_views: Vec<coverslot::SlotView> = covers.iter().map(|(e, c, gt, pl)| coverslot::SlotView::of(e, c, gt, pl.and_then(|p| p.collider))).collect();
+    // (a playtest's ai_force "no_cover", kept: no generic cover slots, for a test that needs its grunts where they are)
+    let slot_views: Vec<coverslot::SlotView> = if force.0.iter().any(|w| w == "no_cover") {
+        Vec::new()
+    } else {
+        covers.iter().map(|(e, c, gt, pl)| coverslot::SlotView::of(e, c, gt, pl.and_then(|p| p.collider))).collect()
+    };
     let mut spots = Spots { trenches: views, guns: gun_views, slots: slot_views };
     // the jump markers (World+0xf10) as the jumpers' choice sees them; their occupants written back at the end
     let mut jviews: Vec<jumper::MarkerView> =

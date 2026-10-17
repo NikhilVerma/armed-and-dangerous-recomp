@@ -147,7 +147,8 @@ pub struct Event {
     #[serde(default)]
     pub monk_spell: Option<String>,
     /// debug: force an AI behaviour's next roll (ai.rs `AiForce`): "throw" (the next captain in range throws his
-    /// grenade), "fight" (the next companion's fight roll passes), ...
+    /// grenade), "fight" (the next companion's fight roll passes), "no_cover" (kept: no grunt takes a tree's or a
+    /// building's cover slot, ai/coverslot.rs), ...
     #[serde(default)]
     pub ai_force: Option<String>,
     /// debug: the live grunt nearest Roman runs the hiding-spot search now (as at a reload's end; ai.rs

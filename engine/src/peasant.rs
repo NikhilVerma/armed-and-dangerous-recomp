@@ -20,7 +20,7 @@
 //! - A lost peasant (the kill slot 0x004062a0): killed_score_value, the casualties, the level lost (state 8) at
 //!   peasant_max_casualties.
 //!
-//! Not here: PeasantGenAI (the civilians a destroyed building throws out with toss_peasants, 0x0040d390): buildings.
+//! Not here: PeasantGenAI (the civilians a destroyed building throws out with toss_peasants, 0x0040d390): tossed.rs.
 
 use crate::ai::{Companion, Player};
 use crate::fx::{DClass, Destructible};
