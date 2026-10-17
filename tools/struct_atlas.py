@@ -222,8 +222,10 @@ def class_model():
         if _classes is None:
             _classes = build_classes()
         # The Game singleton (0x005fe490) and the object system have no descriptor: pseudo-classes
-        _classes["classes"].setdefault("Game", {"name": "Game", "descriptor": None, "size": 0x2800, "base": None,
+        _classes["classes"].setdefault("Game", {"name": "Game", "descriptor": None, "size": 0x4c40, "base": None,
                                                 "members": [], "vtables": [], "pseudo": True})
+        _classes["classes"].setdefault("World", {"name": "World", "descriptor": None, "size": 0x1000, "base": None,
+                                                 "members": [], "vtables": ["0x005a826c"], "pseudo": True})
     return _classes
 
 
@@ -466,7 +468,7 @@ def comment_word_class(w):
 
 
 class Func:
-    __slots__ = ("name", "file", "line", "comment", "params", "body", "body_line", "addr", "hook_name", "abi_map",
+    __slots__ = ("wrappers", "name", "file", "line", "comment", "params", "body", "body_line", "addr", "hook_name", "abi_map",
                  "abi_names", "pclass", "pwhy", "acc", "getters", "tname", "vt_classes", "this")
 
 
@@ -555,6 +557,13 @@ class StaticIndex:
             if name in byname and name not in core_info:
                 n = len(parse_params(byname[name][0]["params"]))
                 core_info[name] = (addr, hn, None, None)
+        # file-local property readers: Rd(dest, "name", default) called with a property-like name at least 3 times
+        wc = collections.Counter()
+        for m in re.finditer(r"\b(\w+)\(\s*(?:u\(\s*&\s*\w+\s*\)|\w+\s*\+\s*0x[0-9a-fA-F]+u?)\s*,\s*(0x00[45][0-9a-fA-F]{5})u?\s*[,)]", text):
+            s = cstr(int(m.group(2), 16))
+            if s and re.match(r"^[a-z][a-z0-9_]{2,40}$", s) and not m.group(1).startswith("fn_"):
+                wc[m.group(1)] += 1
+        wrappers = {k for k, v in wc.items() if v >= 3 and k not in acc}
         getters = {}
         for f in raw:
             if parse_params(f["params"]):
@@ -578,6 +587,7 @@ class StaticIndex:
             fn.body_line = f["open"] + 2
             fn.acc = acc
             fn.getters = getters
+            fn.wrappers = wrappers
             info = core_info.get(f["name"])
             fn.addr, fn.hook_name, fn.abi_names, fn.abi_map = (info if info else (None, None, None, None))
             if fn.addr is None:
@@ -702,6 +712,11 @@ class StaticIndex:
                     bases[v] = bases[src]
                 elif re.match(r"^(?:GameGlobal<[^>]+>|D|\*reinterpret_cast<[^>]+>)\(\s*0x005fe490u?\s*\)$", src):
                     bases[v] = "Game"
+            # getter lambdas: auto game = []() { return u(G()); };
+            for m in re.finditer(r"\bauto\s+(\w+)\s*=\s*\[[^\]]*\]\s*\(\s*\)\s*\{\s*return\s+([^;]{1,60});\s*\}\s*;", body):
+                src = strip_wrappers(m.group(2))
+                if src in bases and m.group(1) + "()" not in bases:
+                    bases[m.group(1) + "()"] = bases[src]
         return bases
 
     # -- phase D: the accesses
@@ -825,12 +840,14 @@ class StaticIndex:
                     rec["beyond"] = cls
                     rec["cls"] = None
                 self.accesses.append(rec)
-        for m in re.finditer(r"\b(?:orig::fn_([0-9a-f]{8})|(Object_\w+?))\s*\(", body):
+        for m in re.finditer(r"\b(?:orig::fn_([0-9a-f]{8})|(\w+))\s*\(", body):
             kind = None
             if m.group(1):
                 kind = PROP_READERS.get(int(m.group(1), 16))
             elif m.group(2) in PROP_READER_NAMES:
                 kind = PROP_READER_NAMES[m.group(2)]
+            elif m.group(2) in fn.wrappers:
+                kind = "wrapper"
             if not kind:
                 continue
             j = match_paren(body, m.end() - 1)
@@ -859,14 +876,30 @@ class StaticIndex:
                     if w and (not nxt or nxt.start() > w.start()) and w.group(2) in bases:
                         dest = (w.group(2), int(w.group(3), 16))
                         mask = int(w.group(6), 16)
-                    elif w2 and (not nxt or nxt.start() > w2.start()) and w2.group(1) in bases:
+                    elif w2 and w2.group(1) in bases:
                         dest = (w2.group(1), int(w2.group(2), 16))
             if name:
                 if mask is not None:
                     kind = "flag"
-                self.props.append({"prop": name, "cls": bases.get(dest[0]) if dest else None, "mask": mask,
-                                   "off": dest[1] if dest else None, "kind": kind, "func": fkey, "where": where(m.start()),
-                                   "how": "reader"})
+                rec = {"prop": name, "cls": bases.get(dest[0]) if dest else None, "mask": mask,
+                       "off": dest[1] if dest else None, "kind": kind, "func": fkey, "where": where(m.start()),
+                       "how": "reader"}
+                if kind == "wrapper":
+                    # a file-local reader Rd(dest, name, default bits): the default after the name
+                    k = None
+                    for i, a in enumerate(args):
+                        if re.match(r"^\s*0x[0-9a-fA-F]{8}u?\s*$", a) and cstr(int(a.strip().rstrip("u"), 16)) == name:
+                            k = i
+                    if k is not None and k + 1 < len(args):
+                        dv = re.match(r"^\s*(0x[0-9a-fA-F]+|\d+)u?\s*$", args[k + 1])
+                        if dv:
+                            bits = int(dv.group(1), 16) if dv.group(1).startswith("0x") else int(dv.group(1))
+                            if 0x30000000 <= bits < 0x50000000 or 0xb0000000 <= bits < 0xd0000000:
+                                rec["default"] = round(struct.unpack("<f", struct.pack("<I", bits))[0], 6)
+                                rec["kind"] = "float"
+                            else:
+                                rec["default"] = bits
+                self.props.append(rec)
         # parameter tables {'F', 0x8fc, 0x005b75a4 "name", default bits, ...} read for this object (RunParamSteps)
         this_cls = next((c for i, c in fn.pclass.items() if fn.pwhy[i][1] <= 2), None)
         for m in re.finditer(r"\{\s*'([A-Z])'\s*,\s*(0x[0-9a-fA-F]+)u?\s*,\s*(0x[0-9a-fA-F]{8})u?\s*,\s*(0x[0-9a-fA-F]+|-?\d+)u?", body):
@@ -980,6 +1013,7 @@ def read_snap(path):
     if raw[:4] != b"SNP1":
         raise SystemExit(f"{path}: not a struct snapshot")
     vt_class = {int(k, 16): v["class"] for k, v in class_model()["vtables"].items()}
+    vt_class.update({1: "Game", 2: "World"})  # the hook's pseudo objects
     frames, objects, ptrs = [], {}, collections.defaultdict(lambda: collections.defaultdict(list))
     i = 4
     n = len(raw)
@@ -1083,8 +1117,11 @@ def vt_label(vt):
             break
         nm = vt_label.funcs.get(s, "")
         subs[vt_label.subsys.get(s, "")] += 1
+        m2 = re.match(r"^([A-Z][A-Za-z0-9]+_[A-Z][A-Za-z0-9]+)_[A-Za-z0-9]", nm)
+        if m2:
+            names[m2.group(1)] += 1.5
         m = re.match(r"^([A-Z][A-Za-z0-9]+)_", nm)
-        if m and m.group(1) not in ("Debug", "EmptyMethod", "Object", "ObjectDesc", "Return", "ReturnZero", "Havok"):
+        if m and m.group(1) not in ("Debug", "EmptyMethod", "Object", "ObjectDesc", "Return", "ReturnZero", "Havok", "FUN"):
             names[m.group(1)] += 1
     hint = names.most_common(1)[0][0] if names else (subs.most_common(1)[0][0] if subs else "")
     _vt_labels[vt] = f"vtable 0x{vt:08x}" + (f" ({hint}?)" if hint else "")
@@ -1095,7 +1132,7 @@ def heapish(v):
     return 0x00010000 <= v < 0x7fff0000 and not (0x00400000 <= v < 0x0064d000) and not (v & 3)
 
 
-def analyse_dynamic(dirs, classes=None):
+def analyse_dynamic(dirs, classes=None, byte_offsets=None):
     """-> {(cls, off): facts} over every scenario folder in dirs."""
     import numpy as np
     vt_class = {int(k, 16): v["class"] for k, v in class_model()["vtables"].items()}
@@ -1120,6 +1157,8 @@ def analyse_dynamic(dirs, classes=None):
         # byte-wide fields: bytes that differ from their dword's low byte pattern are judged in infer() from static
         # widths; here only the per-byte change summary
         for off in range(0, size):
+            if byte_offsets is not None and off not in byte_offsets:
+                continue
             vals = np.concatenate([s["bytes"][:, off] for s in ss])
             facts.setdefault((cls, off), {})["byte"] = {"distinct": int(len(np.unique(vals))),
                                                        "values": sorted(int(x) for x in np.unique(vals)[:8])}
@@ -1175,7 +1214,17 @@ def _dword_facts(cls, off, ss, addr_cls, vt_class):
                 targets[vt_label(tgt)] += 1
     if targets:
         fact["targets"] = dict(targets.most_common(4))
-    if fact["heap_frac"] > 0.8 and fact["float_frac"] < 0.95:
+    # mapped: of the distinct non-zero values of the objects that have pointer records, the share the hook found mapped
+    seen_v, mapped_v = set(), set()
+    for s in ss:
+        if not s["ptrs"]:
+            continue
+        seen_v.update(int(v) for v in np.unique(s["bytes"][:, off:off + 4].copy().view("<u4").ravel()) if v)
+        mapped_v.update(val for val, _ in s["ptrs"].get(off, []))
+    fact["mapped_frac"] = round(len(seen_v & mapped_v) / len(seen_v), 3) if seen_v else None
+    is_obj = any(t in class_model()["classes"] for t in targets)
+    if fact["heap_frac"] > 0.8 and (is_obj or (fact["mapped_frac"] or 0) >= 0.5 or
+                                    (fact["mapped_frac"] is None and fact["float_frac"] < 0.95)):
         fact["guess"] = "ptr"
     elif fact["float_frac"] > 0.97 and fact["smallint_frac"] < 0.5:
         fact["guess"] = "f32"
@@ -1207,6 +1256,15 @@ def _dword_facts(cls, off, ss, addr_cls, vt_class):
         if tot:
             tests["countdown"] = [down, tot]
             tests["stopwatch"] = [up, tot]
+    # timestamps: the value is the game clock (set to "now" when something happens)
+    if fact["guess"] == "f32":
+        eq = tot = 0
+        for s, x in zip(ss, f):
+            ok_ = np.isfinite(x)
+            tot += int(ok_.sum())
+            eq += int((np.abs(x[ok_].astype(np.float64) - s["clock"][ok_]) < 0.05).sum())
+        if eq:
+            tests["equals_clock"] = [eq, tot]
     # int counters by frames: dv == frames elapsed (+ or -)
     if fact["guess"] == "int" and changes:
         cup = cdown = tot = 0
@@ -1232,9 +1290,10 @@ def _dword_facts(cls, off, ss, addr_cls, vt_class):
                 v = np.stack([b[:, off + k * step:off + k * step + 4].copy().view("<f4").ravel() for k in range(3)], 1)
                 p = s["pos"]
                 moving = np.ptp(p, 0).max() > 0.01 or True
-                good = np.all(np.abs(v - p) < 0.05 + 0.002 * np.abs(p), 1)
+                fin = np.all(np.isfinite(p), 1)
+                good = np.all(np.abs(v - p) < 0.05 + 0.002 * np.abs(p), 1) & fin
                 ok += int(good.sum())
-                tot += len(p)
+                tot += int(fin.sum())
             if tot and ok:
                 tests[name] = [ok, tot]
         # velocity: matches the position's derivative between samples
@@ -1250,7 +1309,7 @@ def _dword_facts(cls, off, ss, addr_cls, vt_class):
             vel = dp[okdt] / dt[okdt]
             mid = (v[1:][okdt] + v[:-1][okdt]) / 2
             speed = np.linalg.norm(vel, axis=1)
-            moving = speed > 0.5
+            moving = (speed > 0.5) & np.isfinite(speed)
             if not moving.any():
                 continue
             err = np.linalg.norm(mid[moving] - vel[moving], axis=1)
@@ -1283,6 +1342,18 @@ def _dword_facts(cls, off, ss, addr_cls, vt_class):
             flips += int(ch.sum())
             single += int(sum(1 for d in dv[ch] if bin(int(d)).count("1") <= 2))
         tests["bitflips"] = [single, flips]
+    # integers that change together with the AI state (GenericAIObject +0x460, the trace's "state")
+    if fact["guess"] == "int" and changes and off != 0x460 and "GenericAIObject" in ancestors(cls):
+        co = tot = 0
+        for s, x in zip(ss, u):
+            if s["bytes"].shape[1] < 0x464:
+                continue
+            st = s["bytes"][:, 0x460:0x464].copy().view("<u4").ravel()
+            ch = np.diff(x.astype(np.int64)) != 0
+            tot += int(ch.sum())
+            co += int((ch & (np.diff(st.astype(np.int64)) != 0)).sum())
+        if tot:
+            tests["with_ai_state"] = [co, tot]
         fact["bits_seen"] = f"0x{int(np.bitwise_or.reduce(allu)):x}"
     if tests:
         fact["tests"] = tests
@@ -1321,8 +1392,9 @@ def cmd_run(a):
 
 
 def snap_dirs():
-    out = os.environ.get("ORACLE_OUT") or os.path.join(WORK, "oracle-structatlas")
-    return sorted(os.path.dirname(p) for p in glob.glob(os.path.join(out, "*", "and-structsnap.bin")))
+    """Scenario folders with snapshots: ORACLE_OUT if set, else every work/oracle-structatlas*/ (several runs)."""
+    roots = [os.environ["ORACLE_OUT"]] if os.environ.get("ORACLE_OUT") else glob.glob(os.path.join(WORK, "oracle-structatlas*"))
+    return sorted(os.path.dirname(p) for r in roots for p in glob.glob(os.path.join(r, "*", "and-structsnap.bin")))
 
 
 def cmd_dynamic(a):
@@ -1355,11 +1427,22 @@ TRACED = [("Object", 0x396, "id", "level object id (trace 'id')"), ("GenericAIOb
           ("PeasantObject", 0x48c, "bool", "captured (trace)"), ("PeasantObject", 0x478, "float", "rope length (trace)"),
           ("PeasantObject", 0x480, "int", "rope link (trace)"), ("PeasantObject", 0x484, "int", "count (trace)"),
           ("Object", 0x34, "pointer", "parent (trace 'attached')"), ("Object", 0x414, "pointer", "class template (objects.md)"),
-          ("Object", 0x28, "int", "reference count (objects.md)")]
+          ("Object", 0x28, "int", "reference count (objects.md)"),
+          # the Game singleton and the World as hook/src/testoracle.cpp reads them
+          ("Game", 0x748, "pointer", "the player (testoracle Player())"), ("Game", 0xa84, "pointer", "the World (object system)"),
+          ("Game", 0x2684, "int", "pause count"), ("Game", 0x2688, "float", "game clock at the pause"),
+          ("Game", 0x26f4, "int", "peasants carried"), ("Game", 0x26e8, "int", "peasants saved"),
+          ("Game", 0x26e4, "int", "peasant casualties"), ("Game", 0x270c, "int", "twiglets killed"),
+          ("Game", 0x2710, "int", "twiglets made"), ("Game", 0x2658, "int", "compass objective tag"),
+          ("Game", 0xa64, "pointer", "level record (+0xc state)"), ("Game", 0xdcc, "bool", "alarm forced"),
+          ("World", 0xe7c, "pointer", "AI list"), ("World", 0xe70, "pointer", "every object (trigger listeners)"),
+          ("World", 0xe94, "pointer", "area-damage list"), ("World", 0xe90, "pointer", "bullet list"),
+          ("World", 0xe9c, "pointer", "collidable list"), ("World", 0xeec, "pointer", "twiglet list"),
+          ("World", 0xef8, "pointer", "peasant list"), ("World", 0xef0, "pointer", "siren list")]
 CATEGORY_RE = [
     ("bool", r"^m_b[A-Z]|^m_is[A-Z]|^m_has[A-Z]|^m_do[A-Z]|captured"),
     ("timer", r"timer|Timer|time\b|Time\b|delay|Delay|cooldown|countdown|Countdown|duration"),
-    ("position", r"(^|_|[a-z])[Pp]os(ition)?\b|[Pp]osition|location|Location"),
+    ("position", r"(^|_|[a-z])[Pp]os(ition)?\b|[Pp]osition|location|Location|Loc$"),
     ("velocity", r"[Vv]el(ocity)?\b|Velocity"),
     ("health", r"[Hh]ealth|hitpoints|\bhp\b"),
     ("state", r"(^|_|m_)state\b|State$|^m_state|mode\b|Mode$"),
@@ -1403,6 +1486,11 @@ def names_agree(prop, member):
     return shared >= 1 and shared * 2 >= min(len(a), len(b)) and mm(prop) == mm(member)
 
 
+DOC_CATEGORY_RE = [("timer", r"\btimer\b|count(s)? down|countdown|\bdelay\b"), ("position", r"\bposition\b"),
+                   ("velocity", r"\bvelocity\b"), ("health", r"\bhealth\b"), ("flags", r"\bflags\b"),
+                   ("state", r"\bstate\b"), ("pointer", r"\bpointer\b|\bthe (?:parent|owner|target)\b")]
+
+
 def name_category(name):
     for cat, rx in CATEGORY_RE:
         if re.search(rx, name):
@@ -1412,8 +1500,9 @@ def name_category(name):
 
 def meaning_category(m):
     k = m["kind"]
-    return {"countdown": "timer", "stopwatch": "timer", "frame_counter": None, "position": "position",
+    return {"countdown": "timer", "stopwatch": "timer", "timestamp": "timer", "frame_counter": None, "position": "position",
             "matrix_translation": "position", "velocity": "velocity", "health": "health", "state": "state",
+            "state_linked": "state",
             "flags": "flags", "pointer": "pointer", "bool": "bool"}.get(k)
 
 
@@ -1438,7 +1527,7 @@ def docs_mentions():
             if prefix and re.match(r"^(Game|World|g|G|vt|list|entity|motion|island|record|rec|desc|fx|hud|slot|block|"
                                    r"s|e|t|m|p|r|Player|P|weapon|turret|camera|cam|ui|matrix)$", prefix):
                 continue
-            ctx = re.sub(r"\s+", " ", m.group(3)).strip(" ,;:)(")
+            ctx = re.sub(r"\s+", " ", m.group(3)).split("+0x")[0].strip(" ,;:)(/")
             out[(cls, int(m.group(2), 16))].append(f"{os.path.basename(path)}: {ctx[:70]}")
     return out
 
@@ -1471,7 +1560,9 @@ def infer_fields(static, facts):
     for r in static["accesses"]:
         if not r["cls"]:
             continue
-        d = F(r["cls"], r["off"])
+        d = F(owner(r["cls"], r["off"]), r["off"])
+        if owner(r["cls"], r["off"]) != r["cls"]:
+            d.setdefault("via_class", collections.Counter())[r["cls"]] += 1
         d["n"] += 1
         if r["type"]:
             d["types"][r["type"]] += 1
@@ -1493,12 +1584,12 @@ def infer_fields(static, facts):
         v = r.get("via")
         if v and "+" in v and ">" not in v:
             c, o = v.split("+")
-            d = F(c, int(o, 16))
+            d = F(owner(c, int(o, 16)), int(o, 16))
             d["via_uses"][f"+0x{r['off']:x} {r['type'] or 'addr'}"] += 1
             d["as_ptr"]["base"] += 1
     for p in static["props"]:
         if p["cls"] and p["off"] is not None:
-            d = F(p["cls"], p["off"])
+            d = F(owner(p["cls"], p["off"]), p["off"])
             e = {"prop": p["prop"], "kind": p["kind"], "how": p["how"], "where": p["where"]}
             for k in ("default", "mask"):
                 if p.get(k) is not None:
@@ -1511,36 +1602,91 @@ def infer_fields(static, facts):
         d["names"].extend(lst)
     docs = docs_mentions()
     for (c, o), lst in docs.items():
-        F(c, o)["docs"] = lst[:4]
+        F(owner(c, o), o).setdefault("docs", []).extend(lst[:4])
     for c, o, cat, text in TRACED:
-        F(c, o)["traced"] = {"category": cat, "what": text}
-    # dynamic facts: attach to the class itself (the dynamic class is the vtable's: concrete)
+        F(owner(c, o), o)["traced"] = {"category": cat, "what": text}
+    # dynamic facts are per concrete class (the vtable's): merged onto the class that owns the offset
+    dyn_lists = collections.defaultdict(list)
     for (c, o), fct in facts.items():
-        if o in fields.get(c, {}) and "byte" in fct:
-            F(c, o)["dynbyte"] = fct["byte"]
+        oc = owner(c, o)
+        if o in fields.get(oc, {}) and "byte" in fct:
+            F(oc, o).setdefault("dynbyte", []).append(fct["byte"])
         if "guess" not in fct:
             continue
-        if o in fields.get(c, {}) or (fct.get("guess") != "zero" and (fct.get("change_frac", 0) > 0 or fct.get("tests"))):
-            F(c, o)["dyn"] = fct
-    # base-class fields seen dynamically through subclasses: the dynamic facts of the concrete classes
-    dyn_by_base = collections.defaultdict(list)
-    for (c, o), fct in facts.items():
-        if "guess" not in fct:
-            continue
-        for a in ancestors(c)[1:]:
-            if o < cm.get(a, {}).get("size", 0):
-                dyn_by_base[(a, o)].append((c, fct))
+        dyn_lists[(oc, o)].append((c, fct))
+    for (oc, o), lst in dyn_lists.items():
+        merged = merge_facts(lst)
+        if o in fields.get(oc, {}) or (merged.get("guess") != "zero" and (merged.get("change_frac", 0) > 0 or merged.get("tests"))):
+            F(oc, o)["dyn"] = merged
     out = {}
     for cls, offs in fields.items():
         for off, d in offs.items():
             dyn = d.get("dyn")
-            if dyn is None and (cls, off) in dyn_by_base:
-                # the merged view: the subclass with the most samples
-                c2, f2 = max(dyn_by_base[(cls, off)], key=lambda x: x[1]["n"])
-                dyn = dict(f2)
-                dyn["from_class"] = c2
             rec = finish_field(cls, off, d, dyn, fr)
             out.setdefault(cls, {})[off] = rec
+    return out
+
+
+def owner(cls, off):
+    """The class that defines cls+off: the most basic ancestor whose size still covers the offset."""
+    cm = class_model()["classes"]
+    best = cls
+    for a in ancestors(cls)[1:]:
+        if off < cm.get(a, {}).get("size", 0):
+            best = a
+        else:
+            break
+    return best
+
+
+def merge_facts(lst):
+    """One view of an offset from the facts of several concrete classes (tests and targets summed)."""
+    if len(lst) == 1:
+        c, f = lst[0]
+        out = dict(f)
+        out["classes"] = [c]
+        return out
+    n = sum(f["n"] for _, f in lst) or 1
+    guesses = collections.Counter()
+    for _, f in lst:
+        guesses[f.get("guess")] += f["n"] if f.get("guess") != "zero" else f["n"] * 0.01
+    out = {"n": n, "objects": sum(f["objects"] for _, f in lst), "guess": guesses.most_common(1)[0][0],
+           "classes": [c for c, _ in sorted(lst, key=lambda x: -x[1]["n"])]}
+    for k in ("zero_frac", "change_frac", "float_frac", "smallint_frac", "heap_frac"):
+        vals = [(f[k], f["n"]) for _, f in lst if f.get(k) is not None]
+        if vals:
+            out[k] = round(sum(v * w for v, w in vals) / sum(w for _, w in vals), 3)
+    out["distinct"] = max(f.get("distinct", 0) for _, f in lst)
+    out["per_object_constant"] = all(f.get("per_object_constant") for _, f in lst)
+    mins = [f["min"] for _, f in lst if "min" in f and f.get("guess") == out["guess"]]
+    maxs = [f["max"] for _, f in lst if "max" in f and f.get("guess") == out["guess"]]
+    if mins:
+        out["min"], out["max"] = min(mins), max(maxs)
+    if all("values" in f or f.get("guess") == "zero" for _, f in lst):
+        vs = sorted({v for _, f in lst for v in f.get("values", [0])})
+        if len(vs) <= 24:
+            out["values"] = vs
+    tg = collections.Counter()
+    tests = {}
+    for _, f in lst:
+        tg.update(f.get("targets", {}))
+        for k, (a, b) in f.get("tests", {}).items():
+            x = tests.setdefault(k, [0, 0])
+            x[0] += a
+            x[1] += b
+    if tg:
+        out["targets"] = dict(tg.most_common(4))
+    if tests:
+        out["tests"] = tests
+    bits = [int(f["bits_seen"], 16) for _, f in lst if f.get("bits_seen")]
+    if bits:
+        b = 0
+        for x in bits:
+            b |= x
+        out["bits_seen"] = f"0x{b:x}"
+    mf = [(f["mapped_frac"], f["n"]) for _, f in lst if f.get("mapped_frac") is not None]
+    if mf:
+        out["mapped_frac"] = round(sum(v * w for v, w in mf) / sum(w for _, w in mf), 3)
     return out
 
 
@@ -1581,6 +1727,11 @@ def finish_field(cls, off, d, dyn, fr):
         rec["traced"] = d["traced"]
     if d["indexed"]:
         rec["indexed"] = d["indexed"]
+    if d.get("via_class"):
+        rec["used_from"] = [f"{k} {v}" for k, v in d["via_class"].most_common(4)]
+    if d.get("dynbyte"):
+        bv = sorted({v for b in d["dynbyte"] for v in b["values"]})
+        rec["byte_values"] = bv[:8]
     if dyn:
         rec["dyn"] = {k: v for k, v in dyn.items() if k not in ("n",)}
         rec["dyn"]["samples"] = dyn["n"]
@@ -1609,8 +1760,12 @@ def finish_field(cls, off, d, dyn, fr):
     if ok >= 3 and r >= 0.6:
         add("countdown", "countdown timer (seconds): falls by the frame time", min(0.95, r),
             f"dynamic: {ok}/{tot} changes equal -dt")
+    r, ok, tot = ratio("equals_clock")
+    if ok >= 3 and r >= 0.5:
+        add("timestamp", f"timestamp: holds the game clock ({ok}/{tot} samples equal it)", min(0.9, 0.4 + r / 2),
+            "dynamic: equals the game clock (0x00604a98) at the sample")
     r, ok, tot = ratio("stopwatch")
-    if ok >= 3 and r >= 0.6:
+    if ok >= 3 and r >= 0.6 and not any(m["kind"] == "timestamp" and m["confidence"] >= 0.8 for m in meanings):
         add("stopwatch", "stopwatch / accumulator (seconds): grows by the frame time", min(0.95, r),
             f"dynamic: {ok}/{tot} changes equal +dt")
     r, ok, tot = ratio("frame_counter")
@@ -1632,19 +1787,24 @@ def finish_field(cls, off, d, dyn, fr):
         add("velocity", "velocity x (+4 y, +8 z): the position's derivative", min(0.9, r), f"dynamic: {ok}/{tot} moving samples")
     r, ok, tot = ratio("decreasing")
     zr, zok, ztot = ratio("zero_at_death")
-    if tot >= 1 and r >= 0.9 and (dyn or {}).get("guess") == "f32":
-        conf = 0.5 + (0.4 if ztot and zok == ztot else 0) + (0.05 if any(c.startswith(("<= 0", "< 0", "> 0")) for c in rec.get("cmp", [])) else 0)
+    dead_cmp = any(c.startswith(("<= 0", "< 0", "> 0")) for c in rec.get("cmp", []))
+    if tot >= 2 and r >= 0.9 and (dyn or {}).get("guess") == "f32" and (ztot or dead_cmp) and \
+            (dyn or {}).get("min", 0) > -1000 and not any(m["kind"] in ("countdown", "stopwatch") for m in meanings):
+        conf = 0.45 + (0.4 if ztot and zok == ztot else 0) + (0.1 if dead_cmp else 0)
         if ztot and zok < ztot:
             conf = 0.3
-        add("health", "health-like: only falls" + (f", <= 0 at the traced death ({zok}/{ztot})" if ztot else ""),
-            conf, f"dynamic: {ok}/{tot} changes downwards")
+        add("health", "health-like: only falls" + (f", <= 0 at the traced death ({zok}/{ztot})" if ztot else "")
+            + (", tested against 0" if dead_cmp else ""), conf, f"dynamic: {ok}/{tot} changes downwards")
     # pointers
     tg = (dyn or {}).get("targets")
     if (dyn or {}).get("guess") == "ptr" or d["as_ptr"] or stype == "ptr":
         if tg:
             best, cnt = max(tg.items(), key=lambda x: x[1])
-            add("pointer", f"pointer to {best}", 0.85 if (dyn or {}).get("guess") == "ptr" else 0.6,
-                "dynamic targets " + ", ".join(f"{k} x{v}" for k, v in tg.items()))
+            total = sum(tg.values())
+            conf = (0.85 if total >= 5 else 0.6) if (dyn or {}).get("guess") == "ptr" else 0.5
+            if cnt < total * 0.6:
+                conf -= 0.2
+            add("pointer", f"pointer to {best}", conf, "dynamic targets " + ", ".join(f"{k} x{v}" for k, v in tg.items()))
         elif d["as_ptr"]:
             add("pointer", "pointer (" + ", ".join(f"{k}" for k in d["as_ptr"]) + ")", 0.7,
                 "static: " + ", ".join(f"{k} x{v}" for k, v in d["as_ptr"].items()))
@@ -1657,7 +1817,12 @@ def finish_field(cls, off, d, dyn, fr):
         add("flags", "flags bitfield (bits " + ", ".join(sorted(f"0x{m:x}" for m in masks)[:8]) + ")", 0.8 if len(masks) >= 2 else 0.6,
             "static: masked / set / cleared with constants" + (f"; dynamic {bok}/{btot} changes flip 1-2 bits" if btot else ""))
     elif btot >= 3 and br >= 0.9 and (dyn or {}).get("distinct", 0) > 2 and not d["cmp"]:
-        add("flags", f"flags bitfield (bits seen {dyn.get('bits_seen')})", 0.5, f"dynamic: {bok}/{btot} changes flip 1-2 bits")
+        add("flags", "flags bitfield" + (f" (bits seen {dyn['bits_seen']})" if dyn.get("bits_seen") else ""), 0.5,
+            f"dynamic: {bok}/{btot} changes flip 1-2 bits")
+    sr, sok, stot = ratio("with_ai_state")
+    if stot >= 8 and sr >= 0.5 and "GenericAIObject" in ancestors(cls):
+        add("state_linked", f"changes with the AI state +0x460 ({sok}/{stot} changes)", min(0.8, sr),
+            "dynamic: changes in the same sample interval as the traced AI state")
     cmpvals = {c.split(" ", 1)[1] for c in d["cmp"] if c.startswith(("==", "!="))}
     vals = (dyn or {}).get("values")
     if stype in ("u32", "i32", "u16", "i16") and len(cmpvals) >= 3 and not masks:
@@ -1666,6 +1831,8 @@ def finish_field(cls, off, d, dyn, fr):
     elif vals and 2 < len(vals) <= 24 and (dyn or {}).get("guess") == "int" and (dyn or {}).get("change_frac", 0) > 0 and \
             max(vals) < 0x1000 and min(vals) >= -1 and not masks and not tests.get("frame_counter"):
         add("state", f"state / enum (values {vals[:10]})", 0.5, "dynamic: a small set of values that changes")
+    if stype in ("u8", "bool") and d.get("dynbyte"):
+        vals = sorted({v for b in d["dynbyte"] for v in b["values"]})
     if stype in ("u8", "bool") and (not vals or set(vals) <= {0, 1}):
         stores = set(d["store"])
         if stores and stores <= {"0", "1"}:
@@ -1719,7 +1886,8 @@ def cmd_infer(a):
     dirs = snap_dirs()
     facts, nseries = ({}, {})
     if dirs:
-        facts, nseries = analyse_dynamic(dirs)
+        bytes_used = {r["off"] for r in static["accesses"] if r["cls"] and (r["type"] in ("u8", "i8", "bool") or r["off"] % 4)}
+        facts, nseries = analyse_dynamic(dirs, byte_offsets=bytes_used)
     fields = infer_fields(static, facts)
     cm = class_model()["classes"]
     atlas = {"classes": {}, "props": static["props"], "dynamic_objects": nseries, "scenarios": [os.path.basename(d) for d in dirs]}
@@ -1736,6 +1904,10 @@ def cmd_infer(a):
         print(line)
 
 
+TESTED_KINDS = ("countdown", "stopwatch", "timestamp", "frame_counter", "position", "matrix_translation", "velocity",
+                "health", "state_linked")
+
+
 def coverage_report(static, atlas):
     acc = static["accesses"]
     attributed = [r for r in acc if r["cls"]]
@@ -1750,8 +1922,7 @@ def coverage_report(static, atlas):
             p += 1
             t += 1 if f.get("type") else 0
             n += 1 if (f.get("names") or f.get("props") or f.get("traced")) else 0
-            te += 1 if any(m["kind"] in ("countdown", "stopwatch", "frame_counter", "position", "matrix_translation",
-                                         "velocity", "health") or (m["kind"] == "pointer" and "dynamic" in m["evidence"])
+            te += 1 if any(m["kind"] in TESTED_KINDS or (m["kind"] == "pointer" and "dynamic" in m["evidence"])
                            for m in f.get("meanings", [])) else 0
             me += 1 if any(m["kind"] != "constant" for m in f.get("meanings", [])) or f.get("names") else 0
         per[cls] = (p, t, n, te, me)
@@ -1763,6 +1934,24 @@ def coverage_report(static, atlas):
     lines.append(f"COVERAGE accesses {len(acc)} (all `base + 0x..` member uses in src/), attributed to a class "
                  f"{len(attributed)} ({100 * len(attributed) // max(1, len(acc))}%); object classes only (not Game / "
                  f"World) {sum(1 for r in attributed if r['cls'] not in ('Game', 'World'))}")
+    # access-weighted: the share of the object-class accesses whose field has a name / a meaning / a tested meaning
+    fidx = {(c, int(o, 16)): f for c, cc in atlas["classes"].items() for o, f in cc["fields"].items()}
+    w_named = w_meant = w_tested = w_typed = w_all = 0
+    for r in attributed:
+        if r["cls"] in ("Game", "World"):
+            continue
+        f = fidx.get((owner(r["cls"], r["off"]), r["off"]))
+        if not f:
+            continue
+        w_all += 1
+        w_typed += bool(f.get("type"))
+        w_named += bool(f.get("names") or f.get("props") or f.get("traced"))
+        w_meant += bool(f.get("names") or any(m["kind"] != "constant" for m in f.get("meanings", [])))
+        w_tested += any(m["kind"] in TESTED_KINDS or (m["kind"] == "pointer" and "dynamic" in m["evidence"])
+                        for m in f.get("meanings", []))
+    lines.append(f"COVERAGE object-class accesses {w_all}: on a typed field {w_typed} ({100 * w_typed // max(1, w_all)}%), "
+                 f"named {w_named} ({100 * w_named // max(1, w_all)}%), named or with a meaning {w_meant} "
+                 f"({100 * w_meant // max(1, w_all)}%), dynamically tested {w_tested} ({100 * w_tested // max(1, w_all)}%)")
     lines.append(f"COVERAGE (class, offset) pairs used by the C++ {total_pairs}: typed {typed}, named {named} "
                  f"(game tables / properties / trace), with an inferred meaning or name {meant}, with a dynamically "
                  f"tested meaning {tested}")
@@ -1787,24 +1976,29 @@ def precision_report(atlas):
                     truth.append((cat, f"table {nm['name']}"))
             if f.get("traced"):
                 truth.append((f["traced"]["category"], "trace " + f["traced"]["what"]))
+            # the subsystem docs' words right after the offset (weaker: a separate tally)
+            for dm in f.get("docs", []):
+                ctx = dm.split(": ", 1)[-1][:40].lower()
+                for cat, rx in DOC_CATEGORY_RE:
+                    if re.search(rx, ctx):
+                        truth.append((cat, "docs " + dm[:60]))
+                        break
             inferred = [(meaning_category(m), m) for m in f.get("meanings", []) if meaning_category(m)]
-            # the type alone is a checked inference too: float vs pointer vs int against the traced kind
+            # the type is a checked inference too (traced kinds float / int / bool / pointer); meanings by category
+            tmap = {"f32": "float", "ptr": "pointer", "u32": "int", "i32": "int", "u8": "bool", "u16": "int", "i16": "int",
+                    "bool": "bool"}
             for cat, why in truth:
-                if not inferred:
-                    if cat in ("float", "int", "pointer", "bool") and f.get("type"):
-                        tmap = {"f32": "float", "ptr": "pointer", "u32": "int", "i32": "int", "u8": "bool", "u16": "int",
-                                "i16": "int", "bool": "bool"}
-                        got = tmap.get(f["type"])
-                        if cat == "pointer" and f.get("dyn", {}).get("guess") == "ptr":
-                            got = "pointer"
-                        if got:
-                            ok = got == cat or (cat == "int" and got == "int") or (cat == "bool" and f["type"] in ("u8", "bool"))
-                            checks.append((cls, off, f"type {f['type']}", why, ok))
+                if cat in ("float", "int", "pointer", "bool") and f.get("type") and why.startswith("trace"):
+                    got = tmap.get(f["type"])
+                    if f.get("dyn", {}).get("guess") == "ptr" or (not f.get("dyn") and any(m["kind"] == "pointer" for _, m in inferred)):
+                        got = "pointer"
+                    if got:
+                        ok = got == cat or (cat == "bool" and f["type"] in ("u8", "bool"))
+                        checks.append((cls, off, f"type {f['type']}" + (" (pointer use)" if got == "pointer" else ""), why, ok))
+                if cat in ("float", "int") or not inferred:
                     continue
                 cats = {x for x, _ in inferred}
-                if cat in ("float", "int"):
-                    continue
-                ok = cat in cats or (cat == "health" and "timer" not in cats and any(m["kind"] == "health" for _, m in inferred))
+                ok = cat in cats
                 best = next((m for x, m in inferred if x == cat), inferred[0][1])
                 checks.append((cls, off, best["meaning"], why, ok))
             # width against the game's tables
@@ -1821,7 +2015,8 @@ def precision_report(atlas):
                     checks.append((cls, off, f"property {p['prop']}", f"table {nm['name']}", ok))
     by = collections.defaultdict(lambda: [0, 0])
     for cls, off, inf, why, ok in checks:
-        k = inf.split(" ")[0] if inf.startswith(("width", "property", "type")) else "meaning"
+        k = inf.split(" ")[0] if inf.startswith(("width", "property", "type")) else \
+            ("meaning vs docs" if why.startswith("docs") else "meaning")
         by[k][0] += bool(ok)
         by[k][1] += 1
     agree = sum(1 for x in checks if x[4])
@@ -1879,14 +2074,16 @@ def cmd_field(a):
     cls = find_class(a.cls)
     off = int(a.off, 16) if a.off.lower().startswith(("0x", "+0x")) else int(a.off.lstrip("+"), 16)
     shown = False
-    for c in effective(cls, off) + [x for x in atlas()["classes"] if cls in ancestors(x)[1:]]:
+    own = effective(cls, off)
+    subs = [x for x in atlas()["classes"] if cls in ancestors(x)[1:] and f"0x{off:x}" in atlas()["classes"][x]["fields"]]
+    for c in own + subs:
         f = atlas()["classes"].get(c, {}).get("fields", {}).get(f"0x{off:x}")
         if not f:
             continue
-        if shown and c not in effective(cls, off):
-            if len([1 for _ in []]) == 0 and not a.all:
-                print(f"  (also used by subclass {c}: n={f['n']}; --all for details)")
-                continue
+        if c not in own and not a.all:
+            print(f"  (also recorded on subclass {c}: n={f['n']}" + (f", {best_label(f)[:50]}" if best_label(f) else "")
+                  + "; --all for details)")
+            continue
         shown = True
         print(f"FIELD {c}+0x{off:x}" + (f" (from {cls})" if c != cls else "") + f": type {f.get('type')}, {f['n']} accesses "
               f"(r {f['rw'].get('r', 0)}, w {f['rw'].get('w', 0)}, rw {f['rw'].get('rw', 0)}, addr {f['rw'].get('addr', 0)})")
@@ -1901,7 +2098,7 @@ def cmd_field(a):
             rng = f" range {dyn.get('min')}..{dyn.get('max')}" if "min" in dyn else ""
             vals = f" values {dyn['values'][:8]}" if dyn.get("values") else ""
             print(f"  dynamic: {dyn.get('guess')}{rng}{vals}, changes {dyn.get('change_frac')}, {dyn.get('objects')} objects"
-                  + (f" (via {dyn['from_class']})" if dyn.get("from_class") else "")
+                  + (f" (seen on {', '.join(dyn['classes'][:4])})" if dyn.get("classes") and dyn["classes"] != [c] else "")
                   + (f", targets {dyn['targets']}" if dyn.get("targets") else ""))
         extra = []
         if f.get("cmp"):
@@ -1998,7 +2195,7 @@ def cmd_docs(a):
             if not ev and f.get("where"):
                 ev = f["where"][0]
             dyn = f.get("dyn")
-            if dyn and dyn.get("guess") not in (None, "zero"):
+            if dyn and dyn.get("guess") not in (None, "zero") and "values" not in ev and "seen" not in ev:
                 rng = f" {dyn.get('min')}..{dyn.get('max')}" if "min" in dyn else ""
                 ev += (f"; seen {dyn['guess']}{rng}" if not dyn.get("values") else f"; values {dyn['values'][:6]}")
             if f.get("contradictions"):
@@ -2029,7 +2226,7 @@ def cmd_docs(a):
                           "velocity": "vel", "health": "health_like"}[m["kind"]] + f"_{off[2:]}"
                 prov = f"struct_atlas:dynamic {m['kind']} {m['evidence']}"
                 conf = m["confidence"]
-            elif ptr:
+            elif ptr and not ptr["meaning"].startswith("pointer to vtable") and ptr["confidence"] >= 0.6:
                 tgt = ptr["meaning"].replace("pointer to ", "")
                 member = "p" + re.sub(r"\W", "", tgt) + f"_{off[2:]}"
                 prov = f"struct_atlas:dynamic pointer ({ptr['evidence']})"

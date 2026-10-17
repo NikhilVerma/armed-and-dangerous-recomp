@@ -14,12 +14,14 @@
 //   object: "OBJ1", uint32 address, uint32 vtable, uint16 level id (+0x396), uint16 0, float pos[3] (vt+0x54),
 //           uint32 bytes, bytes
 //   ptrs:   "PTR1", uint32 object address, uint32 n, n x {uint32 offset, uint32 value, uint32 target's first dword}
-// The objects are World (Game+0xa84) list +0xe70 (every object: the trigger listeners, mission.md) plus the player.
+// The objects are World (Game+0xa84) list +0xe70 (every object: the trigger listeners, mission.md) plus the player;
+// the Game singleton (0x4c40 bytes, "vtable" 1) and the World (0x1000 bytes, "vtable" 2) come first in each frame.
 #include <windows.h>
 
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 
 #include "config.h"
 #include "game/game_object.h"
@@ -166,9 +168,16 @@ bool SnapOne(uint32_t obj, uint32_t vtable, uint32_t size, bool ptrs)
     g_len = 0;
     __try
     {
-        float pos[4] = {};
-        using Fn = void(__thiscall*)(void*, float*);
-        reinterpret_cast<Fn>((*reinterpret_cast<void***>(obj))[0x54 / 4])(reinterpret_cast<void*>(obj), pos);
+        // the position (vt+0x54); Body_getPosition 0x00457930 reads the Havok entity +0x1c4 without a null test: an
+        // object without a body (dying projectiles) gets NaN instead of a fault (the crash logger dumps each one)
+        const float nan = std::numeric_limits<float>::quiet_NaN();
+        float pos[4] = {nan, nan, nan, 0};
+        void** vt = *reinterpret_cast<void***>(obj);
+        if (vt[0x54 / 4] != reinterpret_cast<void*>(0x00457930) || *reinterpret_cast<const uint32_t*>(obj + 0x1c4))
+        {
+            using Fn = void(__thiscall*)(void*, float*);
+            reinterpret_cast<Fn>(vt[0x54 / 4])(reinterpret_cast<void*>(obj), pos);
+        }
         const uint32_t tag = 0x314a424f;  // "OBJ1"
         const uint16_t id = *reinterpret_cast<const uint16_t*>(obj + 0x396), zero = 0;
         Add(&tag, 4), Add(&obj, 4), Add(&vtable, 4), Add(&id, 2), Add(&zero, 2), Add(pos, 12), Add(&size, 4);
@@ -255,9 +264,23 @@ void TestStructSnapFrame(int f, float clock)
             continue;
         picked[n] = obj, sizes[n] = size, vts[n] = vt, ++n;
     }
+    // the Game singleton (0x005fe490) and the World (Game+0xa84) as pseudo objects: "vtable" 1 / 2, no position
+    const uint32_t singles[2][3] = {{game, 1, 0x4c40}, {world, 2, 0x1000}};
+    uint32_t nSingles = 0;
+    for (const auto& s : singles)
+        nSingles += Mapped(s[0], s[2]) ? 1 : 0;
+    const uint32_t total = n + nSingles;
     const uint32_t tag = 0x314d5246;  // "FRM1"
     const float dt = *reinterpret_cast<const float*>(0x00604a90);
-    Put(&tag, 4), Put(&f, 4), Put(&clock, 4), Put(&dt, 4), Put(&n, 4);
+    Put(&tag, 4), Put(&f, 4), Put(&clock, 4), Put(&dt, 4), Put(&total, 4);
+    for (const auto& s : singles)
+        if (Mapped(s[0], s[2]))
+        {
+            const uint32_t otag = 0x314a424f, z = 0;
+            const float zp[3] = {};
+            Put(&otag, 4), Put(&s[0], 4), Put(&s[1], 4), Put(&z, 4), Put(zp, 12), Put(&s[2], 4);
+            Put(reinterpret_cast<const void*>(s[0]), s[2]);
+        }
     const bool ptrs = g_ptrEvery > 0 && (g_snaps % g_ptrEvery) == 0;
     for (uint32_t i = 0; i < n; ++i)
         if (SnapOne(picked[i], vts[i], sizes[i], ptrs))

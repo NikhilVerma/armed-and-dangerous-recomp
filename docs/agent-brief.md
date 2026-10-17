@@ -14,6 +14,10 @@ Setup:
   in a tuple, e.g. `(a, b): (Res<A>, Res<B>)`; `python tools/engine_map.py params` lists the full ones.
 - Edit CRLF files with tools/crlf_edit.py (or the Edit tool), never with tools that rewrite line endings.
 - Find code with `python tools/engine_map.py writes|reads|sends|receives|addr|fn ...` before grepping.
+- Look object fields up instead of re-deriving them: `python tools/struct_atlas.py field CLASS 0xOFF` (names from the
+  game's member tables, property names, type, a tested meaning such as countdown timer / position / velocity /
+  pointer to X, each with its evidence), `class CLASS --min-n 3`, `prop NAME` (docs/structs/README.md; summaries in
+  docs/structs/<Class>.md). Meanings are inferred with a confidence: check a low one against the code before use.
 
 Testing:
 - While the human's game runs (`tasklist | findstr and_remaster` showing engine\target\release), do NOT build
@@ -38,7 +42,8 @@ Scope: one mechanic per agent. If it grows past that, stop at a checkpoint commi
 
 ```
 Subsystem: [name]. Engine files you own: [files]; do not edit others' files except small, stated hooks.
-Original: [recovered source files / classes]. Queue: `python tools/port_queue.py [subsystem]` lists the functions
+Original: [recovered source files / classes]; their fields: `python tools/struct_atlas.py class CLASS` / `field CLASS
+0xOFF` (docs/structs/). Queue: `python tools/port_queue.py [subsystem]` lists the functions
 the original executes (work/coverage.json) that no engine file cites yet, by source file; `--all` adds the ones
 the coverage scenarios did not reach. Read each source file ONCE, in order, and port everything in it that the
 remaster needs for this subsystem, citing addresses. For each queued function decide (docs/port/README.md): ported
