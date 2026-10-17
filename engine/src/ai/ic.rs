@@ -151,6 +151,8 @@ enum End {
 pub struct IcStats {
     pub started: u32,
     pub ended: u32,
+    /// knocked away by a host or landing destroyed
+    pub knocked: u32,
 }
 
 /// Waiting grunts hold their mover's first frame; the trigger or a wake-up starts the move.
@@ -186,12 +188,9 @@ pub fn activate(
         }
         g.fixed = None;
         if !standing(ic.spawn.host) {
-            // the host destroyed (vt+0x17c, guess): he just wakes where he is
-            commands.entity(e).remove::<IcEntry>();
-            if g.mind == Mind::WaitTrigger {
-                g.mind = Mind::Roam;
-            }
-            info!("EVENT ic: grunt {e:?} wakes without his move ({}: host {} gone)", ic.spawn.mover, ic.spawn.host);
+            // the host destroyed: GoRagdoll (vt+0x17c(0, 1), 0x0042f5c0's IC branch): knocked away from it (`knocks`)
+            commands.entity(e).remove::<IcEntry>().insert(KnockAway { from: Some(ic.spawn.host) });
+            info!("EVENT ic: grunt {e:?} knocked away without his move ({}: host {} gone)", ic.spawn.mover, ic.spawn.host);
             continue;
         }
         if ic.spawn.landing.is_some_and(|l| !standing(l)) {
@@ -283,6 +282,10 @@ pub fn run(
                 if how == End::Roof {
                     g.guard = true;
                     g.mind = Mind::Guard;
+                    // his landing building stays his (+0xae0): its fall knocks him away (`knocks`)
+                    if let Some(l) = ic.spawn.landing {
+                        commands.entity(e).insert(IcAnchor { landing: l });
+                    }
                 } else {
                     g.mind = Mind::Roam;
                 }
@@ -296,13 +299,84 @@ pub fn run(
     }
 }
 
+/// A grunt to be knocked away (GoRagdoll with the 0x83 launch message of 0x00425be0), from the object of this
+/// instance id (none: straight up).
+#[derive(Component, Clone, Copy, Debug)]
+pub struct KnockAway {
+    pub from: Option<u32>,
+}
+
+/// A grunt that came out onto a building's roof (the landing +0xae0 held after his move).
+#[derive(Component, Clone, Copy, Debug)]
+pub struct IcAnchor {
+    pub landing: u32,
+}
+
+/// The launch of a knock-away (0x00425be0, ai_01.cpp:2602-2640): the direction from the other object to him across,
+/// 0.7..0.9 up (rand() x 6.1e-6 + 0.7, K 0x005bcdf4 / 0x005bcd48), normalised; the amount 21666.67 + rand() x 0.661
+/// (K 0x005bcdec / 0x005bcdf0); GoRagdoll's impulse is direction x amount x 0.15 on his 80 kg: the speed returned
+/// (units / s).
+pub fn launch_velocity(me: Vec3, other: Vec3, r1: f32, r2: f32) -> Vec3 {
+    let across = (me - other).with_y(0.0).normalize_or_zero();
+    let up = 0.7 + r1 * 32768.0 * 6.1e-6;
+    let dir = (across + Vec3::Y * up).normalize_or(Vec3::Y);
+    let amount = 21666.67 + r2 * 32768.0 * 0.661;
+    dir * amount * 0.15 / 80.0
+}
+
+/// The per-frame checks of GenericAI_Update's prologue (ai_06.cpp:278-300, 354-372): a hidden grunt whose host is
+/// destroyed during his move, or any grunt whose landing building (+0xae0) is destroyed, is woken (vt+0x1ac) and knocked
+/// away from it (0x00425be0: physics off, the 0x83 launch message with his health: he dies and flies as a ragdoll);
+/// and the knock-aways asked for (`KnockAway`).
+#[allow(clippy::type_complexity)]
+pub fn knocks(
+    mut commands: Commands,
+    mut q: Query<(Entity, &mut Grunt, &crate::physics::Body, &GlobalTransform, &mut crate::fx::Health, Option<&IcEntry>, Option<&IcAnchor>, Option<&KnockAway>)>,
+    hosts: Query<(&crate::level::InstanceId, &GlobalTransform, Has<crate::level::Husk>, Option<&crate::fx::Destructible>)>,
+    mut physics: NonSendMut<crate::physics::Physics>,
+    mut rng: ResMut<crate::fx::FxStats>,
+    mut stats: ResMut<IcStats>,
+) {
+    let standing = |id: u32| hosts.iter().any(|(i, _, husk, d)| i.0 == id && !husk && d.is_none_or(|d| d.dying.is_none() && d.health > 0.0));
+    let at = |id: u32| hosts.iter().find(|(i, ..)| i.0 == id).map(|(_, t, ..)| t.translation());
+    let k = physics.meters_per_unit;
+    for (e, mut g, body, gt, mut health, entry, anchor, asked) in &mut q {
+        if g.mind == Mind::Dead {
+            continue;
+        }
+        let landing = entry.and_then(|i| i.spawn.landing).or(anchor.map(|a| a.landing));
+        let from = if let Some(a) = asked {
+            Some(a.from)
+        } else if let Some(l) = landing.filter(|&l| !standing(l)) {
+            Some(Some(l))
+        } else if let Some(i) = entry.filter(|i| i.running && !standing(i.spawn.host)) {
+            Some(Some(i.spawn.host))
+        } else {
+            None
+        };
+        let Some(from) = from else { continue };
+        commands.entity(e).remove::<(IcEntry, IcAnchor, KnockAway, Mover)>();
+        let me = gt.translation();
+        let other = from.and_then(at).unwrap_or(me);
+        let v = launch_velocity(me, other, rng.rand(), rng.rand());
+        if let Ok(mut b) = physics.world.body_mut(body.id) {
+            let _ = b.set_linear_velocity(crate::physics::jv(v * k));
+        }
+        g.fixed = None;
+        g.last_hit = f32::MAX;
+        health.0 = 0.0;
+        stats.knocked += 1;
+        info!("EVENT ic: grunt {e:?} knocked away ({:.0} / s)", v.length());
+    }
+}
+
 /// The playtest state's `hidden`: grunts hidden at load, moves started and ended, grunts still waiting.
 pub fn log(q: Query<&IcEntry>, stats: Res<IcStats>, state: Option<ResMut<crate::playtest::PlayState>>) {
     let Some(mut state) = state else { return };
     let waiting = q.iter().filter(|i| !i.running).count();
     let running = q.iter().filter(|i| i.running).count();
     // (not "ic": icobject.rs's)
-    state.0.insert("hidden".into(), serde_json::json!({"started": stats.started, "ended": stats.ended, "waiting": waiting, "running": running}));
+    state.0.insert("hidden".into(), serde_json::json!({"started": stats.started, "ended": stats.ended, "waiting": waiting, "running": running, "knocked": stats.knocked}));
 }
 
 #[cfg(test)]
