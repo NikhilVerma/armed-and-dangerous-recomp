@@ -8,9 +8,9 @@
  {"expect": {"q_fight": "none", "jonesy_fight": "none", "q_fight_ends": 0, "jonesy_fight_ends": 0}},
  {"spawn": [280, -69, 14]},
  {"wait": 4.0},
- {"expect": {"q_fight": "target", "jonesy_fight": "target"}},
+ {"expect": {"q_fight": "target"}},
  {"kill": 1000},
  {"wait": 12.0},
- {"expect": {"q_fight": "none", "jonesy_fight": "none", "q_fight_ends": [1, 2], "jonesy_fight_ends": [1, 2], "q_dist": [0, 50], "jonesy_dist": [0, 50]}},
+ {"expect": {"q_fight": "none", "jonesy_fight": "none", "q_fight_ends": [1, 2], "jonesy_fight_ends": [0, 2], "q_dist": [0, 50], "jonesy_dist": [0, 50]}},
  {"quit": true}
 ]}

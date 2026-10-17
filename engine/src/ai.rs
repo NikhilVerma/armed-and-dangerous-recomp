@@ -2890,6 +2890,9 @@ fn think(
             } else {
                 Some((0x45 + (rng.rand() * 2.0) as u32 % 2, 3))
             };
+            // (an id the class's table has no anim for, e.g. the Q112's 0x3f..0x42 -> q112_anim_error: the reaction is over
+            // at once; it used to hold him for good, its anim never finishing)
+            let react = react.filter(|&(id, _)| lib.anim(g.anim(id, 0.0)).is_some());
             if let Some((id, kind)) = react {
                 g.hit = Some((g.anim(id, rng.rand()).to_owned(), kind));
                 g.hit_id = id;
