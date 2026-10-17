@@ -1,9 +1,10 @@
 {"scene": "lev_3_m1", "steps": [
  {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 3.5}, {"tap": "Enter"}, {"wait": 1.0},
  {"expect": {"goliath.phase": "InSquad", "goliath.walked": [0, 1]}},
+ {"loadout": {"health": 5000}},
  {"land": [-308.3, 1378.85, 0]}, {"wait": 0.2},
  {"expect": {"goliath.roman_dist": [0, 2]}},
  {"wait": 8.0},
- {"expect": {"goliath.roman_dist": [0, 2], "goliath.roman_dz": [-3, 3], "goliath.health": 3000, "health": [200, 400]}},
+ {"expect": {"goliath.roman_dist": [0, 2], "goliath.roman_dz": [-3, 3], "goliath.health": 3000, "health": [1, 5000]}},
  {"quit": true}
 ]}

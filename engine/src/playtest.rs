@@ -54,7 +54,8 @@ pub struct Event {
     /// code 1
     /// An expect value may also compare with a noted state: {"as": "fresh", "margin": 2, "pct": 10} passes when the
     /// field is within margin + pct % of what it was at the `note` step "fresh" (both default 0: equal); with
-    /// "at_most": true it passes anywhere below that too (a count that must not grow)
+    /// "at_most": true it passes anywhere below that too (a count that must not grow); with "rise": [lo, hi] it passes
+    /// when the field grew by lo..hi since then (a count of events in a window)
     #[serde(default)]
     pub expect: Option<serde_json::Map<String, serde_json::Value>>,
     /// a wall-clock performance limit, as `expect` (e.g. {"main_ms": [0, 50]}): checked only in a perf run
@@ -374,6 +375,10 @@ fn expect_holds(key: &str, want: &serde_json::Value, got: Option<&serde_json::Va
             (Some(g), Some(n)) => {
                 let margin = want.get("margin").and_then(|v| v.as_f64()).unwrap_or(0.0);
                 let pct = want.get("pct").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                if let Some(r) = want.get("rise").and_then(|v| v.as_array()).filter(|r| r.len() == 2) {
+                    let (lo, hi) = (r[0].as_f64().unwrap_or(f64::MIN), r[1].as_f64().unwrap_or(f64::MAX));
+                    return g - n >= lo && g - n <= hi;
+                }
                 let slack = margin + pct / 100.0 * n.abs();
                 // "at_most": only a rise beyond the slack fails (a count that must not grow)
                 if want.get("at_most").and_then(|v| v.as_bool()).unwrap_or(false) { g - n <= slack } else { (g - n).abs() <= slack }
@@ -1300,6 +1305,8 @@ mod tests {
         assert!(holds("cam_mode", json!({"as": "fresh"}), Some(json!("follow"))));
         assert!(holds("render.cameras", json!({"as": "fresh"}), Some(json!(3))));
         assert!(!holds("grunts_alive", json!({"as": "nothing"}), Some(json!(20))), "no such note");
+        assert!(holds("grunts_alive", json!({"as": "fresh", "rise": [1, 3]}), Some(json!(22))));
+        assert!(!holds("grunts_alive", json!({"as": "fresh", "rise": [1, 3]}), Some(json!(20))), "no rise");
         assert!(!holds("grunts_alive", json!({"as": "fresh"}), None), "missing now");
     }
 }

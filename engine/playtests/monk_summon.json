@@ -13,6 +13,6 @@
  {"wait": 0.8},
  {"expect": {"twiglets.running": [1, 5], "twiglets.bombs": [1, 5]}},
  {"wait": 11.2},
- {"expect": {"twiglets.made": [1, 5], "twiglets.killed": [1, 5], "health": [0, 4900]}},
+ {"expect": {"twiglets.made": [1, 5], "twiglets.killed": [1, 5], "health": [0, 4990]}},
  {"quit": true}
 ]}

@@ -1015,6 +1015,8 @@ pub struct AiStats {
     /// jumps to a marker started, landings
     pub jumps: usize,
     pub landings: usize,
+    /// monks' teleports begun (MonkObject_Bamf 0x00436bb0)
+    pub teleports: usize,
     /// squads halted by a target, members sent to charge (squad.rs)
     pub squad_halts: usize,
     pub squad_charged: usize,
@@ -1242,6 +1244,7 @@ fn log_ai(
             "monks": count(&|g| g.kind == Kind::Monk),
             "teleporting": count(&|g| g.mind == Mind::Teleport),
             "landings": stats.landings,
+            "teleports": stats.teleports,
             "archers": count(&|g| g.kind == Kind::Bow),
             "attention": count(&|g| g.attention),
             "targets_player": live.iter().filter(|(_, g, _)| g.target.is_some() && g.target == re).count(),
@@ -3208,6 +3211,7 @@ fn think(
             let h = find_hiding_spot(&mut g, ge, (true, false), pos, tgt, &mut spots, &physics, body.id, &mut rng);
             g.mind = hide_to_mind(&mut g, h);
             if g.mind == Mind::Teleport {
+                stats.teleports += 1;
                 info!("EVENT ai: monk {ge:?} teleports");
             }
         }

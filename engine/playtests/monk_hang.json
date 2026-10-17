@@ -9,9 +9,10 @@
  {"click": "Right"},
  {"wait": 4.0},
  {"expect": {"topsy.phase": "Hang", "topsy.monks_hanging": [1, 6], "topsy.falling": 0}},
+ {"note": "hung"},
  {"wait": 3.0},
  {"expect": {"topsy.monks_hanging": 0}},
  {"wait": 1.0},
- {"expect": {"ai.teleporting": [1, 6]}},
+ {"expect": {"ai.teleports": {"as": "hung", "rise": [1, 12]}}},
  {"quit": true}
 ]}
