@@ -27,6 +27,11 @@ pub const CHEATS: [(&str, &str, u32); 12] = [
     ("ui_cheat_showall", "DAJIGSUP", 0x80),
 ];
 
+/// NDMRBLTS (Game+0x175 set by the flag): clips and specials are not used up (0x004a2450, 0x004a1970, 0x004a1aa0).
+pub const INFINITE_AMMO: u32 = 0x10;
+/// SHOOTMOR: every weapon filled on activation.
+pub const FULL_AMMO: u32 = 0x100;
+
 /// Cheat_FlagByName 0x00410e00: a cheat's flag by its text id (_stricmp over the table), 0 when none matches.
 pub fn flag_by_name(id: &str) -> u32 {
     CHEATS.iter().find(|c| c.0.eq_ignore_ascii_case(id)).map(|c| c.2).unwrap_or(0)
@@ -146,14 +151,17 @@ fn entry(
                                 if flag == 0x200 {
                                     h.0 = r.max_health;
                                 }
-                                if flag == 0x100 {
-                                    let g = data.props("p_globalsettings");
-                                    r.stickies = g.i("stickybomb_max_ammo", 5) as u32;
-                                    r.rifle.clip = r.rifle.clip_size;
-                                    if let Some(w) = r.mg.as_mut() {
-                                        let full = crate::player::machinegun(&data);
-                                        w.clip = full.clip;
-                                        w.ammo = full.ammo;
+                                if flag == FULL_AMMO {
+                                    // every carried gun full, every special held to its maximum
+                                    for id in crate::weapons::WeaponId::ALL {
+                                        if let Some(w) = r.arsenal.gun_mut(id) {
+                                            w.set_ammo(-2);
+                                        }
+                                    }
+                                    for s in crate::weapons::SpecialId::ALL {
+                                        if r.arsenal.count(s) > 0 || s == crate::weapons::SpecialId::StickyBomb {
+                                            r.arsenal.set_count(s, crate::weapons::spec::special_max(&data, s));
+                                        }
                                     }
                                 }
                             }
@@ -188,10 +196,11 @@ fn effects(
         }
     }
     *last = Some(h.0);
-    if c.on(0x10) {
-        r.rifle.clip = r.rifle.clip.max(1);
-        if let Some(w) = r.mg.as_mut() {
-            w.clip = w.clip.max(1);
+    if c.on(INFINITE_AMMO) {
+        for id in crate::weapons::WeaponId::ALL {
+            if let Some(w) = r.arsenal.gun_mut(id) {
+                w.clip = w.clip.max(1);
+            }
         }
     }
     let _ = &mut cam;

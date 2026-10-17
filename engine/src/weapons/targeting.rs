@@ -1,0 +1,258 @@
+//! The HUD's target passes (Hud_UpdateCrosshair 0x00406f50, ui_01.cpp:297-510, with the narrowed view volumes of
+//! HudFrustum_Build 0x00408390): which characters a weapon picks by itself.
+//!
+//! Each pass walks the candidates nearest the eye first (the list 0x00408190, sorted from the player's position + 4
+//! (0x004067e0); at most 21 looked at), keeps those inside the view volume narrowed by the pass's factors (clip-space
+//! scales of the side planes: |x_ndc| <= horz, |y_ndc| <= vert, with the object's bounding-sphere slack: 0x00408050),
+//! in front of the eye, within the weapon's range (0x00408330: the first one out of range ends the walk) and in line
+//! of sight (0x00414110 from the eye, other characters passed): the first `max` of them.
+//!
+//! | pass | when | factors (p_globalsettings) | max | range |
+//! |---|---|---|---|---|
+//! | auto-aim | rifle / machine gun with the Auto-Aim option, not zoomed, difficulty <= normal (0x004a2a40) | autoaim_factor_horz / _vert | 1 | the gun's |
+//! | shark gun | always with the shark gun (vt+0x16c 0x00433fa0; hud +0x150): AIs that can be bitten only | autoaim_sharkgun_factor_* (0.4 / 0.6) | 1 | sharkgun_range |
+//! | multi-lock | always with the vindaloo (hud +0x152): up to four lock-ons | autoaim_multitarget_factor_* (x 1.2 upgraded) | 4 | vindaloo_range |
+//! | sticky | the sticky bomb selected (hud +0x151; sticky.rs at the throw) | autoaim_sticky_factor_* | 1 | sticky_bomb_range |
+//!
+//! [`Targets`] holds this frame's result for the gun in hand (hud +0 / +0x154); the HUD draws the lock-on markers from
+//! it, the shark gun fires only with a target, the vindaloo's rockets home on the lock-ons and the auto-aimed bullets
+//! fly to the target's point.
+
+use super::{VindalooUpgrade, WeaponId};
+use crate::physics::Physics;
+use bevy::prelude::*;
+
+/// A picked target: the character and the point a shot aims at (its ref_hit_00, else above its origin), with the joint
+/// when it has one (homing follows the joint).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Target {
+    pub entity: Entity,
+    pub point: Vec3,
+    pub joint: Option<Entity>,
+}
+
+/// This frame's targets of the gun in hand (hud +0: one; +0x154: up to four).
+#[derive(Resource, Default, Debug)]
+pub struct Targets {
+    pub list: Vec<Target>,
+    /// the pass that made them (for the HUD and the log)
+    pub pass: Option<Pass>,
+}
+
+impl Targets {
+    pub fn first(&self) -> Option<Target> {
+        self.list.first().copied()
+    }
+}
+
+/// Which pass ran.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Pass {
+    AutoAim,
+    Shark,
+    MultiLock,
+}
+
+/// The view a pass looks through: the camera and the eye the rays start from.
+#[derive(Clone, Copy, Debug)]
+pub struct View {
+    pub cam: Vec3,
+    pub fwd: Vec3,
+    pub right: Vec3,
+    pub up: Vec3,
+    /// tan of the half field of view, vertical and horizontal
+    pub half_v: f32,
+    pub half_h: f32,
+    /// the player's position + 4 (0x004067e0): the sort origin and the line of sight's start
+    pub eye: Vec3,
+}
+
+impl View {
+    /// From the camera's transform and projection (the horizontal half-angle from the original's 4:3 view at its
+    /// 1.7204 aspect factor, as sticky.rs measured).
+    pub fn new(cam: &GlobalTransform, proj: Option<&Projection>, eye: Vec3) -> Self {
+        let half_v = match proj {
+            Some(Projection::Perspective(pp)) => (pp.fov * 0.5).tan(),
+            _ => (0.654f32 * 0.5).tan(),
+        };
+        View { cam: cam.translation(), fwd: cam.forward().as_vec3(), right: cam.right().as_vec3(), up: cam.up().as_vec3(), half_v, half_h: half_v * 1.7204, eye }
+    }
+
+    /// Inside the narrowed view volume (0x00408050 against the planes of 0x00408390): the centre within the side
+    /// planes scaled by (horz, vert), with `r` of slack.
+    pub fn contains(&self, centre: Vec3, r: f32, (fh, fv): (f32, f32)) -> bool {
+        let v = centre - self.cam;
+        let z = v.dot(self.fwd);
+        let (x, y) = (v.dot(self.right), v.dot(self.up));
+        let (th, tv) = (self.half_h * fh, self.half_v * fv);
+        x.abs() - th * z <= r * (1.0 + th * th).sqrt() && y.abs() - tv * z <= r * (1.0 + tv * tv).sqrt()
+    }
+}
+
+/// One candidate: a live character, its bounds' centre (origin + 4.9 for a grunt) and its hit point.
+#[derive(Clone, Copy, Debug)]
+pub struct Candidate {
+    pub entity: Entity,
+    pub dead: bool,
+    /// its origin (the list's sort key, 0x00408100)
+    pub origin: Vec3,
+    pub centre: Vec3,
+    pub hit: Vec3,
+    pub joint: Option<Entity>,
+}
+
+/// The bounding-sphere slack of a grunt (grunt_1's model: (half diagonal + smallest half extent) / 2, sticky.rs).
+pub const SLACK: f32 = 4.66;
+
+/// A pass over the candidates (nearest the eye first): see the module docs. `passable` says which bodies the line
+/// of sight passes (other characters).
+pub fn search(view: &View, mut cands: Vec<Candidate>, factors: (f32, f32), range: f32, max: usize, physics: &Physics, passable: impl Fn(Entity) -> bool) -> Vec<Target> {
+    cands.sort_by(|a, b| a.origin.distance(view.eye).total_cmp(&b.origin.distance(view.eye)));
+    let mut out = Vec::new();
+    for c in cands.into_iter().take(21) {
+        if c.dead || !view.contains(c.centre, SLACK, factors) {
+            continue;
+        }
+        let to = c.hit - view.eye;
+        let dist = to.length();
+        if to.dot(view.fwd) < 0.0 {
+            continue;
+        }
+        // the range test 0x00408330: the first out of range ends the walk (a range of 0 fails every one)
+        if dist > range || range <= 0.0 {
+            break;
+        }
+        if !in_sight(physics, view.eye, c.hit, c.entity, &passable) {
+            continue;
+        }
+        out.push(Target { entity: c.entity, point: c.hit, joint: c.joint });
+        if out.len() >= max {
+            break;
+        }
+    }
+    out
+}
+
+/// The line of sight 0x00414110 from `from` to the target (distance + 10): it must reach the target's body first;
+/// the bodies `passable` names are passed through, anything else blocks.
+pub fn in_sight(physics: &Physics, from: Vec3, to: Vec3, target: Entity, passable: &impl Fn(Entity) -> bool) -> bool {
+    let d = to - from;
+    let dist = d.length();
+    let dir = d / dist.max(1e-3);
+    let (mut at, mut left) = (from, dist + 10.0);
+    while let Some((b, hit, _)) = physics.raycast(at, dir, left) {
+        let owner = physics.bodies.get(&b).copied();
+        if owner == Some(target) {
+            return true;
+        }
+        if owner.is_some_and(&passable) {
+            left -= hit.distance(at) + 0.05;
+            at = hit + dir * 0.05;
+            if left <= 0.0 {
+                return false;
+            }
+            continue;
+        }
+        return false;
+    }
+    false
+}
+
+/// The candidates: the live grunt-class characters with their ref_hit_00 (`prey`: only those a land shark can bite).
+pub fn candidates(grunts: &Query<(Entity, &crate::ai::Grunt, &GlobalTransform, Option<&crate::skin::Animator>)>, joints: &Query<&GlobalTransform>, prey: bool) -> Vec<Candidate> {
+    grunts
+        .iter()
+        .filter(|(_, g, _, _)| !prey || can_be_bitten(g))
+        .map(|(e, g, t, a)| {
+            let origin = t.translation();
+            let joint = a.and_then(|a| a.skeleton.index.get("ref_hit_00").map(|&i| a.joints[i]));
+            let hit = joint.and_then(|j| joints.get(j).ok()).map_or(origin + Vec3::Y * 6.0, |j| j.translation());
+            Candidate { entity: e, dead: g.mind == crate::ai::Mind::Dead, origin, centre: origin + Vec3::Y * 4.9, hit, joint }
+        })
+        .collect()
+}
+
+/// vt+0x24c of the shark gun's pass and its target search (0x0047fa70): characters on the ground the land shark can
+/// reach and has a bite for (grunt_sharkbite / captain_sharkbite): grunts and captains, not in a window or tower,
+/// not on a gun. (Which classes answer true is not traced: guess from the bite anims.)
+pub fn can_be_bitten(g: &crate::ai::Grunt) -> bool {
+    use crate::ai::Kind;
+    matches!(g.kind, Kind::Grunt | Kind::Bow | Kind::Captain | Kind::Sniper) && !g.window && g.fixed.is_none() && g.gun.is_none()
+}
+
+pub struct TargetingPlugin;
+
+impl Plugin for TargetingPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(Update, update.before(crate::player::PlayerSet::Weapons).run_if(crate::playing));
+    }
+}
+
+/// The pass of the gun in hand, every frame (Hud_UpdateCrosshair's target part).
+#[allow(clippy::too_many_arguments)]
+fn update(
+    mut targets: ResMut<Targets>,
+    roman: Query<(Entity, &crate::player::Roman, &GlobalTransform)>,
+    cam: Query<(&GlobalTransform, &Projection), With<crate::camera::FollowCam>>,
+    grunts: Query<(Entity, &crate::ai::Grunt, &GlobalTransform, Option<&crate::skin::Animator>)>,
+    joints: Query<&GlobalTransform>,
+    physics: NonSend<Physics>,
+    (data, opts, difficulty, upgrade): (Res<crate::gamedata::GameData>, Res<crate::options::GameOptions>, Option<Res<crate::gamedata::Difficulty>>, Res<VindalooUpgrade>),
+    (mounted, carried): (Res<crate::turret::Mounted>, Query<(), With<super::blackhole::Carried>>),
+) {
+    targets.list.clear();
+    targets.pass = None;
+    let (Ok((re, r, rt)), Ok((c, proj))) = (roman.single(), cam.single()) else { return };
+    let Some(gun) = r.arsenal.in_hand() else { return };
+    if r.dead || mounted.0.is_some() {
+        return;
+    }
+    let g = data.props("p_globalsettings");
+    let pair = |k: &str, h: f32, v: f32| (g.f(&format!("autoaim_{k}factor_horz"), h), g.f(&format!("autoaim_{k}factor_vert"), v));
+    let (pass, factors, max, prey) = match gun.id {
+        // 0x004a2a40: the option (Game+0x4c2), not while zooming (0x0040fba0), not above normal difficulty (Game+0x550)
+        WeaponId::Machinegun | WeaponId::Rifle => {
+            if !opts.auto_aim || r.zoom > 0.0 || difficulty.is_some_and(|d| d.0 > 1) {
+                return;
+            }
+            (Pass::AutoAim, pair("", 0.18, 0.4), 1, false)
+        }
+        WeaponId::Sharkgun => (Pass::Shark, pair("sharkgun_", 0.4, 0.6), 1, true),
+        WeaponId::Vindaloo => {
+            let (h, v) = pair("multitarget_", 0.4, 0.6);
+            // HudFrustum_Build 0x00408390: x 1.2 (0x005bcd70) with the upgrade
+            let k = if upgrade.0 { 1.2 } else { 1.0 };
+            (Pass::MultiLock, (h * k, v * k), 4, false)
+        }
+        _ => return,
+    };
+    let view = View::new(c, Some(proj), rt.translation() + Vec3::Y * 4.0);
+    let passable = |e: Entity| e != re && grunts.contains(e);
+    let mut cands = candidates(&grunts, &joints, prey);
+    // a character a black hole carries off is no one's target
+    cands.retain(|c| !carried.contains(c.entity));
+    targets.list = search(&view, cands, factors, gun.spec.range, max, &physics, passable);
+    targets.pass = Some(pass);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn view() -> View {
+        View { cam: Vec3::ZERO, fwd: Vec3::NEG_Z, right: Vec3::X, up: Vec3::Y, half_v: 0.3, half_h: 0.52, eye: Vec3::ZERO }
+    }
+
+    /// The narrowed volume: a point straight ahead is in, one off to the side beyond the factor (and the slack) is
+    /// out; the slack grows the volume by the sphere.
+    #[test]
+    fn narrowed_view() {
+        let v = view();
+        assert!(v.contains(Vec3::new(0.0, 0.0, -100.0), 0.0, (0.04, 0.12)));
+        // half width at 100: 0.52 x 0.04 x 100 = 2.08
+        assert!(v.contains(Vec3::new(2.0, 0.0, -100.0), 0.0, (0.04, 0.12)));
+        assert!(!v.contains(Vec3::new(3.0, 0.0, -100.0), 0.0, (0.04, 0.12)));
+        assert!(v.contains(Vec3::new(3.0, 0.0, -100.0), SLACK, (0.04, 0.12)));
+        assert!(!v.contains(Vec3::new(0.0, 0.0, 100.0), 0.0, (0.4, 0.6)), "behind");
+    }
+}

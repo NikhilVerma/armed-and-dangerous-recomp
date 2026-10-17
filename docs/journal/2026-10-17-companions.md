@@ -19,7 +19,7 @@ and, where no source was recovered (0x0044da10, 0x0047b520), from the disassembl
 | T1 (Jonesy hurt while planting) | IC anims switch physics off (0x0042c410 -> 0x004577b0(0)): bullets pass | `Companion::ic`, player.rs | tower_l4m2 (health 500 in the bomb loop) |
 
 Re-tagged: GruntObject_Slot147 is the armed jaws' target test (feature armed-jaws); 0x0042f190 / 0x0042f1d0 /
-0x0042f2f0 (states 0x19a / 0x19b) are the player's punching glove's (new feature punching-glove).
+0x0042f2f0 (states 0x19a / 0x19b) are the player's punching glove's (feature knockout-bomb, special 7).
 
 ## Learned
 

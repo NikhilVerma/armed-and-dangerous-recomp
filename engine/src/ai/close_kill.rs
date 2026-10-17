@@ -295,7 +295,8 @@ fn approach(
         let mut mine = Mover::new(kl.anims.0, origin(&t));
         mine.generic = true;
         commands.entity(e).insert(mine);
-        commands.entity(grunt).insert(Mover::new(kl.anims.1, origin(gt)));
+        // (his death from here on holds the anim's pose: ai.rs DeathAnim)
+        commands.entity(grunt).insert((Mover::new(kl.anims.1, origin(gt)), super::DeathAnim(kl.anims.1)));
         g.mind = Mind::Scripted;
         g.target = Some(e);
         c.ic = true;
@@ -312,7 +313,7 @@ fn approach(
 /// Lets a held grunt go back to his fight (state 0xf's end: 0x0042bc60) and frees the companion.
 fn release(commands: &mut Commands, companion: Entity, grunt: Entity, g: &mut Option<Mut<Grunt>>) {
     commands.entity(companion).remove::<(Killing, Mover)>();
-    commands.entity(grunt).remove::<(Victim, Mover)>();
+    commands.entity(grunt).remove::<(Victim, Mover, super::DeathAnim)>();
     if let Some(g) = g.as_mut() {
         if matches!(g.mind, Mind::Held | Mind::Scripted) {
             g.mind = Mind::Roam;
@@ -362,12 +363,12 @@ fn kill(
                 }
             }
             if killed.contains(&grunt) && h.0 > 0.0 {
-                // the "kill" note: dead where the anim leaves him (no ragdoll, no other death anim: ai.rs die)
+                // the "kill" note: dead where the anim leaves him (ai.rs DeathAnim: no ragdoll, no other death anim)
                 h.0 = 0.0;
                 g.last_health = 0.0;
                 g.last_hit = 0.0;
                 g.attacker = Some(e);
-                g.death_name = Some(kl.anims.1);
+                commands.entity(grunt).insert(super::DeathAnim(kl.anims.1));
                 stats.kills += 1;
                 info!("EVENT companions: grunt {grunt:?} killed by {}", if c.q { "Q" } else { "Jonesy" });
             }
@@ -384,7 +385,7 @@ fn kill(
                 if g.mind == Mind::Scripted {
                     // (the anim over without its kill: he stands where it left him)
                     g.mind = Mind::Roam;
-                    commands.entity(grunt).remove::<Mover>();
+                    commands.entity(grunt).remove::<(Mover, super::DeathAnim)>();
                 }
             }
         }
@@ -397,7 +398,11 @@ fn orphans(mut commands: Commands, mut grunts: Query<(Entity, &Victim, &mut Grun
         if holders.contains(v.by) {
             continue;
         }
-        commands.entity(e).remove::<(Victim, Mover)>();
+        if g.mind != Mind::Dead {
+            commands.entity(e).remove::<(Victim, Mover, super::DeathAnim)>();
+        } else {
+            commands.entity(e).remove::<(Victim, Mover)>();
+        }
         if matches!(g.mind, Mind::Held | Mind::Scripted) {
             g.mind = Mind::Roam;
         }

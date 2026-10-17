@@ -27,10 +27,13 @@
 //! Remaster additions, labelled: a pointer button on the exit prompt (a click leaves), a click away from the slots
 //! takes nothing, and a click with nothing left to take leaves (player feedback 17: a trackpad player was stuck; the
 //! keys' Select does not leave: the original leaves only on Back, oracle scenario pub); a
-//! taken weapon goes into Roman's hands (the original's capture topsyO shows the machine gun after the pub). Guesses:
-//! the dark backdrop behind the pub art (hud.rs). Not ported: weapons other than the rifle and the machine gun, and
-//! the carry / swap when Roman's three weapon slots are full (0x004695d0's +0x74; lev_1_m1's Roman holds two at
-//! most), the Topsy Turvy bomb's throw.
+//! taken weapon goes into Roman's hands (the original's capture topsyO shows the machine gun after the pub); a carried
+//! weapon's icon rides the cursor. Guesses: the dark backdrop behind the pub art (hud.rs).
+//!
+//! The swap (0x004695d0's +0x74, 0x004a0f70 / 0x004a10c0; feature weapon-swap): Roman carries three guns. Select on a
+//! pub weapon with all three slots full picks it up (carried) and puts the cursor on his third slot; Select on one of
+//! his slots then swaps the two (ui_pub_putdown): the new gun takes the slot and is equipped, the old one goes back
+//! into the pub's slot. Back on his slots while carrying puts the carried weapon back.
 
 use crate::levelreset::LevelAppExt;
 use crate::AppState;
@@ -38,6 +41,7 @@ use crate::fx::Health;
 use crate::gamemenu::{GameMenu, Page, Texts};
 use crate::hud::{HudElement, PubSlot, PubSlotKind, PubView};
 use crate::player::Roman;
+use crate::weapons::{Gun, GunSpec, SpecialId, WeaponId};
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 
@@ -88,8 +92,11 @@ pub struct PubScreen {
     cursor: Option<SlotRef>,
     glide: Option<(Vec2, f32)>,
     on_exit: bool,
-    /// a taken weapon's icon gliding from its pub slot (from, seconds)
+    /// a taken weapon's icon gliding from its pub slot (from, seconds), and the slot it went to
     taken: Option<(Vec2, f32)>,
+    taken_slot: usize,
+    /// the pub slot whose weapon is carried while Roman's slots are full (+0x74)
+    carried: Option<usize>,
     /// the bars: shown and target values, full scales, rate (fraction of the full scale per second)
     pool: (f32, f32, f32),
     health: (f32, f32, f32),
@@ -126,7 +133,24 @@ fn icon(item: &str) -> &'static str {
         "topsy" => "k_player_topsyturvybomb",
         "stickybomb" => "k_player_stickybomb",
         "tickerbomb" => "k_player_tickerbomb",
+        "guyfawkes" => "k_player_guyfawkes",
+        "blackhole" => "k_player_blackhole",
+        "bof" => "k_player_knockoutbomb",
         _ => "k_player_stickybomb",
+    }
+}
+
+/// A gun's name on the pub's slots and texts (its template without "player_": rlvindaloo, sharkgun, ...).
+fn gun_item(id: WeaponId) -> &'static str {
+    id.template().trim_start_matches("player_")
+}
+
+/// A special's name on the pub's awards and texts (pub_award_<item>, ui_pub_award_<item>).
+fn special_item(s: SpecialId) -> &'static str {
+    match s {
+        SpecialId::TopsyTurvy => "topsy",
+        SpecialId::BunchOfFives => "bof",
+        s => s.name(),
     }
 }
 
@@ -139,11 +163,7 @@ fn info_id(item: &str) -> String {
 }
 
 fn held(r: &Roman, w: &str) -> bool {
-    match w {
-        "rifle" => r.has_rifle,
-        "machinegun" => r.mg.is_some(),
-        _ => false,
-    }
+    WeaponId::from_name(w).is_some_and(|id| r.arsenal.has(id))
 }
 
 /// The items in Roman's slots: his weapons, his specials, the ticker bombs (an item still being awarded is not in
@@ -151,15 +171,17 @@ fn held(r: &Roman, w: &str) -> bool {
 fn roman_items(r: &Roman, tickers: u32, awarding: &[Award]) -> Vec<(SlotRef, &'static str)> {
     let pending = |i: &str| awarding.iter().any(|a| a.item == i);
     let mut out = Vec::new();
-    for (have, w) in [(r.has_rifle, "rifle"), (r.mg.is_some(), "machinegun")] {
-        if have {
-            out.push(((PubSlotKind::Weapon, out.len()), w));
+    // his three gun slots as they are (0x004a1600)
+    for (i, id) in r.arsenal.slot_ids().into_iter().enumerate() {
+        if let Some(id) = id {
+            out.push(((PubSlotKind::Weapon, i), gun_item(id)));
         }
     }
     let mut n = 0;
-    for (have, s) in [(r.stickies > 0, "stickybomb"), (r.topsy > 0, "topsy")] {
-        if have && !pending(s) {
-            out.push(((PubSlotKind::Special, n), s));
+    for (s, _) in r.arsenal.specials() {
+        let item = special_item(s);
+        if !pending(item) {
+            out.push(((PubSlotKind::Special, n), item));
             n += 1;
         }
     }
@@ -216,16 +238,23 @@ fn open(
             m.tickers = 4;
             awards.push(Award { item: "tickerbomb", stage: Stage::Grow, t: 0.0 });
         }
-        if p.special == Some("topsy") && r.topsy == 0 {
-            r.topsy = data.props("p_globalsettings").i("topsyturvy_max_ammo", 1) as u32;
-            awards.push(Award { item: "topsy", stage: Stage::Grow, t: 0.0 });
+        // the pub's special (+0x468) Roman lacks: awarded, set to its maximum (0x004a14e0 with 10000)
+        if let Some(s) = p.special.and_then(SpecialId::from_name) {
+            if r.arsenal.count(s) == 0 {
+                r.arsenal.set_count(s, crate::weapons::spec::special_max(&data, s));
+                awards.push(Award { item: special_item(s), stage: Stage::Grow, t: 0.0 });
+            } else if p.refill {
+                r.arsenal.set_count(s, crate::weapons::spec::special_max(&data, s));
+            }
         }
     }
-    // the machine gun Roman holds is filled (should_refill_ammo)
-    if let Some(w) = r.mg.as_mut() {
-        let full = crate::player::machinegun(&data);
-        w.ammo = full.ammo;
-        w.clip = full.clip;
+    // every gun Roman holds is topped up (0x004a13a0 with 100000) unless the pub's should_refill_ammo is clear
+    if info.as_ref().is_none_or(|p| p.refill) {
+        for id in WeaponId::ALL {
+            if let Some(w) = r.arsenal.gun_mut(id) {
+                w.add_ammo(100_000);
+            }
+        }
     }
     // the weapons sold that Roman does not hold go into the pub slots in order (0x00469350)
     let shop: Vec<Option<&'static str>> = info.map(|p| p.sells.into_iter().filter(|w| !held(&r, w)).map(Some).collect()).unwrap_or_default();
@@ -241,6 +270,8 @@ fn open(
         glide: None,
         on_exit: false,
         taken: None,
+        taken_slot: 0,
+        carried: None,
         pool,
         health: (health_before, h.0, r.max_health.max(1.0)),
         rate,
@@ -269,6 +300,14 @@ fn open(
         LINES[((rng.rand() * 15.0) as usize).min(14)]
     };
     sounds.write(crate::audio::PlaySound::ui(line));
+}
+
+/// A gun bought at the pub: its record as the mission set it (player_set_ammo_*: every weapon's record is filled at
+/// the level's start, 0x00475650 with the default -2, whether carried or not).
+fn bought(data: &crate::gamedata::GameData, mission: Option<&crate::mission::Mission>, id: WeaponId) -> Gun {
+    let mut g = Gun::full(id, GunSpec::load(data, id));
+    g.set_ammo(mission.and_then(|m| m.loadout.ammo.get(id.name()).copied()).unwrap_or(-2));
+    g
 }
 
 /// The slots of the page: position and nav links by slot.
@@ -326,7 +365,7 @@ fn input(
     }
     let click = mouse.just_pressed(MouseButton::Left);
     let select = ctl.pressed(crate::input::Act::Select) || click;
-    let back = ctl.pressed(crate::input::Act::Back);
+    let mut back = ctl.pressed(crate::input::Act::Back);
     let mut leave = false;
 
     if let Some(a) = s.awards.first_mut() {
@@ -407,23 +446,57 @@ fn input(
         // Select on a pub slot holding a weapon Roman lacks: into his first free weapon slot (ui_pub_pickup); a click
         // must be on a slot (remaster: a click elsewhere takes nothing)
         let take = select && !s.on_exit && (!click || pointed.is_some());
+        if std::env::var("PUBDBG").is_ok() && (select || back || link.is_some()) {
+            info!("PUBDBG select {select} back {back} link {link:?} click {click} cursor {:?} carried {:?}", s.cursor, s.carried);
+        }
         if take {
-            if let Some((PubSlotKind::Shop, i)) = s.cursor {
-                if let (Some(Some(w)), Ok(mut r)) = (s.shop.get(i).copied(), roman.single_mut()) {
-                    if w == "machinegun" && r.mg.is_none() {
-                        r.mg = Some(crate::player::machinegun(&data));
-                        // remaster: a taken weapon goes into his hands (the original's capture topsyO: after the pub
-                        // the HUD shows the machine gun, 100/1000)
-                        r.use_mg = true;
-                        s.shop[i] = None;
-                        s.taken = map.get(&(PubSlotKind::Shop, i)).map(|(p, _)| (*p, 0.0));
-                        sounds.write(crate::audio::PlaySound::ui("ui_pub_pickup"));
-                        if let Some(m) = mission.as_deref_mut() {
-                            m.log.push("pub: took the machinegun".into());
+            if let Ok(mut r) = roman.single_mut() {
+                match (s.cursor, s.carried) {
+                    // a pub weapon Roman lacks: into his first free slot; all three full: carried (+0x74), the cursor on
+                    // his third slot (+0x40)
+                    (Some((PubSlotKind::Shop, i)), _) => {
+                        if let Some(id) = s.shop.get(i).copied().flatten().and_then(WeaponId::from_name).filter(|id| !r.arsenal.has(*id)) {
+                            sounds.write(crate::audio::PlaySound::ui("ui_pub_pickup"));
+                            if r.arsenal.slot_ids().iter().any(Option::is_none) {
+                                r.arsenal.add(bought(&data, mission.as_deref(), id));
+                                // remaster: a taken weapon goes into his hands (the original's capture topsyO: after the
+                                // pub the HUD shows the machine gun, 100/1000)
+                                r.arsenal.equip(id);
+                                s.shop[i] = None;
+                                s.taken = map.get(&(PubSlotKind::Shop, i)).map(|(p, _)| (*p, 0.0));
+                                s.taken_slot = r.arsenal.slot_ids().iter().position(|w| *w == Some(id)).unwrap_or(0);
+                                if let Some(m) = mission.as_deref_mut() {
+                                    m.log.push(format!("pub: took the {}", id.name()));
+                                }
+                            } else {
+                                s.carried = Some(i);
+                                s.glide = s.cursor.and_then(|c| map.get(&c)).map(|(p, _)| (*p, 0.0));
+                                s.cursor = Some((PubSlotKind::Weapon, 2));
+                            }
                         }
                     }
+                    // the carried weapon onto one of his slots: the two swap (0x004a0f70, equipped: 0x004a10c0)
+                    (Some((PubSlotKind::Weapon, k)), Some(i)) => {
+                        if let (Some(new), Some(old)) = (s.shop.get(i).copied().flatten().and_then(WeaponId::from_name), r.arsenal.slot_ids().get(k).copied().flatten()) {
+                            r.arsenal.replace(Some(old), bought(&data, mission.as_deref(), new));
+                            r.arsenal.equip(new);
+                            s.shop[i] = Some(gun_item(old));
+                            s.carried = None;
+                            sounds.write(crate::audio::PlaySound::ui("ui_pub_putdown"));
+                            if let Some(m) = mission.as_deref_mut() {
+                                m.log.push(format!("pub: swapped the {} for the {}", old.name(), new.name()));
+                            }
+                        }
+                    }
+                    _ => {}
                 }
             }
+        }
+        // Back on his slots while carrying puts the carried weapon back (the original drops it there: bit 0x20 on a
+        // kind-0 slot)
+        if back && s.carried.is_some() && s.cursor.is_some_and(|c| c.0 == PubSlotKind::Weapon) {
+            s.carried = None;
+            back = false;
         }
         // Back leaves except on the ticker bombs' slot; the exit prompt and a click with nothing left (remaster, for
         // the pointer: the keys' Select stays on the screen as in the original, which leaves only on Back)
@@ -475,7 +548,7 @@ fn view(
             "pub".into(),
             serde_json::json!({ "open": s.open, "step": s.steps, "cursor": s.cursor.map(|c| format!("{:?} {}", c.0, c.1)), "on_exit": s.on_exit,
                 "offer": s.shop.iter().flatten().count(), "exit_text": v.exit_text.clone(), "award": award, "notify": s.notify_new,
-                "pool": s.pool.0, "health": s.health.0, "info": v.info.clone() }),
+                "pool": s.pool.0, "health": s.health.0, "info": v.info.clone(), "carried": s.carried.is_some() }),
         );
     }
     if !s.open {
@@ -508,8 +581,14 @@ fn view(
         .iter()
         .map(|(slot, item)| {
             let mut p = at(*slot);
-            if let (Some((from, t)), PubSlotKind::Weapon, "machinegun") = (s.taken, slot.0, *item) {
-                p = lerp(from, p, t);
+            if let (Some((from, t)), PubSlotKind::Weapon) = (s.taken, slot.0) {
+                if slot.1 == s.taken_slot {
+                    p = lerp(from, p, t);
+                }
+            }
+            // the carried weapon rides the cursor (remaster)
+            if s.carried.is_some_and(|i| *slot == (PubSlotKind::Shop, i)) {
+                p = s.glide.map_or(s.cursor.map_or(p, at), |(from, t)| lerp(from, s.cursor.map_or(p, at), t)) + Vec2::new(0.0, 12.0);
             }
             (p, icon(item))
         })
