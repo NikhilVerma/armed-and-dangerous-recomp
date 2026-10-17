@@ -37,6 +37,9 @@ pub struct Goliath {
     range: f32,
     /// where it was placed (the state log's distance walked)
     home: Vec3,
+    /// its health last frame (a hit's size: the damage slot 0x00434180) and hit_level_2 (+0x9ec, default 25)
+    last_health: Option<f32>,
+    hit_level: f32,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -49,6 +52,9 @@ enum Phase {
     Stand,
     Pickup,
     Throw,
+    /// 0x66: a hit on its scripted walk in a base defence (goliath_hit_med, its walk held; GoliathObject_Update
+    /// 0x00447040 walks on at the anim's end)
+    Hurt,
 }
 
 /// A goliath for a squad (ai/squad.rs): made on `entity` (reserved by the squad, which keeps it as its +0xb7c).
@@ -101,7 +107,7 @@ impl Plugin for GoliathPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<SpawnGoliath>().add_systems(
             Update,
-            (spawn_for_squads, setup, hulls, follow_squads, guard, cages, squad_triggers, notes, log).chain().run_if(crate::playing),
+            (spawn_for_squads, setup, hulls, follow_squads, guard, hurt, cages, squad_triggers, notes, log).chain().run_if(crate::playing),
         );
     }
 }
@@ -163,12 +169,18 @@ fn spawn_for_squads(
         let husk = crate::level::pick_husk(&p, husk_rng.get());
         let mut d = crate::level::destructible(&p).unwrap_or_else(|| crate::vehicles::unit_health(&p, crate::fx::DClass::Open, None, 1.0));
         badguy_filter(&mut d);
+        // a squad's goliath ignores every damage message (0x00434180: +0x9bc set, not a base defence): only its squad's
+        // kill trigger ends it (`squad_triggers`)
+        if ev.squad.is_some() {
+            d.takes_damage = false;
+            d.takes_bullet = false;
+        }
         commands.entity(ev.entity).insert((
             crate::level::Placed { template: "goliath".into(), collider: Some(body), husk, triggers: Default::default() },
             d,
             bounds,
             crate::hud::AimClass::of(&p),
-            Goliath { body, lift, phase: Phase::InSquad, timer: 0.0, held: None, range: p.f("scan_distance", 350.0), home: ev.at },
+            Goliath { body, lift, phase: Phase::InSquad, timer: 0.0, held: None, range: p.f("scan_distance", 350.0), home: ev.at, last_health: None, hit_level: p.f("hit_level_2", 25.0) },
         ));
         if let Some(link) = ev.squad {
             commands.entity(ev.entity).insert(SquadGoliath { link, kill_trigger: ev.kill_trigger, death_trigger: ev.death_trigger, tag: ev.tag, walking: false });
@@ -212,7 +224,7 @@ fn setup(
         if let Some(mut d) = d {
             badguy_filter(&mut d);
         }
-        commands.entity(e).insert(Goliath { body, lift, phase: Phase::Scripted, timer: 0.0, held: None, range: p.f("scan_distance", 350.0), home: gt.translation() });
+        commands.entity(e).insert(Goliath { body, lift, phase: Phase::Scripted, timer: 0.0, held: None, range: p.f("scan_distance", 350.0), home: gt.translation(), last_health: None, hit_level: p.f("hit_level_2", 25.0) });
         info!("EVENT goliath: {e:?} ready");
     }
 }
@@ -274,6 +286,50 @@ fn hulls(
     }
 }
 
+/// The goliath's damage slot 0x00434180. Outside a base defence (0x0044e600: the level starts Roman in a turret) a squad's
+/// goliath takes no damage at all (+0x9bc set: `badguy_filter` with `in_squad`) and the others take the AI's
+/// (GenericAIObject_Slot52). In a base defence it takes the damage, and a hit above hit_level_2 on its scripted walk
+/// (state 100), while the breach is shut (Game+0xcbe) and no full anim plays (+0xa18 bit 2: the gate push), makes it
+/// say GOL50005_Hurt and play goliath_hit_med (0.25 blend), its walk held (state 0x66) until the anim ends; then
+/// goliath_walk and the walk go on (GoliathObject_Update 0x00447040).
+#[allow(clippy::type_complexity)]
+fn hurt(
+    mut q: Query<(Entity, &mut Goliath, &mut crate::skin::Animator, Option<&mut crate::mover::Mover>, &crate::fx::Destructible), Without<SquadGoliath>>,
+    mission: Option<Res<crate::mission::Mission>>,
+    lib: Res<crate::skin::AnimLibrary>,
+    mut sounds: MessageWriter<crate::audio::PlaySound>,
+) {
+    let Some(mission) = mission else { return };
+    for (e, mut g, mut a, mover, d) in &mut q {
+        let lost = g.last_health.map_or(0.0, |h| h - d.health);
+        g.last_health = Some(d.health);
+        let Some(mut mover) = mover else { continue };
+        match g.phase {
+            Phase::Scripted => {
+                let full = a.layers.first().is_some_and(|l| l.anim == mover.anim);
+                if mission.base_turret_mounted && !mission.breach_open && !full && !mover.ended && d.health > 0.0 && lost > g.hit_level {
+                    sounds.write(crate::audio::PlaySound::on("GOL50005_Hurt", e));
+                    let blend = std::mem::replace(&mut a.blend, 0.25);
+                    a.play(0, "goliath_hit_med", false, crate::skin::Mask::All);
+                    a.blend = blend;
+                    mover.paused = true;
+                    g.phase = Phase::Hurt;
+                    info!("EVENT goliath: {e:?} hurt on its walk ({lost:.0})");
+                }
+            }
+            Phase::Hurt => {
+                if a.finished(0, &lib) {
+                    a.play(0, "goliath_walk", true, crate::skin::Mask::All);
+                    mover.paused = false;
+                    g.phase = Phase::Scripted;
+                    info!("EVENT goliath: {e:?} walks on");
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 /// Its hit body follows it; after its script it guards: the fireball cycle at the player in range.
 #[allow(clippy::too_many_arguments)]
 fn guard(
@@ -310,7 +366,8 @@ fn guard(
             continue;
         }
         match g.phase {
-            Phase::InSquad => {}
+            // (the hit reaction is `hurt`'s)
+            Phase::InSquad | Phase::Hurt => {}
             Phase::Scripted => {
                 if mover.is_some_and(|m| m.ended) {
                     commands.entity(e).remove::<crate::mover::Mover>();

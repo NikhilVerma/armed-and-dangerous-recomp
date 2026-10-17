@@ -144,10 +144,10 @@ address,name,disposition,reason
 0x004392c0,fn_004392c0,replaced,"the grunts' Spotted / Fight cue wrappers (0x004390b0 -> 0x00438fc0, 0x004392c0 -> 0x004391f0): ai.rs barks ""Spotted"" / ""Fight"" under vo_delay"
 0x00439d50,fn_00439d50,replaced,"the speech-still-playing test of state 0x6e (0x00439d90 / 0x00439d50): the engine keeps no per-grunt speech handle; the taunt is taken as silent (ai.rs fire_cycle, guess)"
 0x00439d90,fn_00439d90,replaced,"the speech-still-playing test of state 0x6e (0x00439d90 / 0x00439d50): the engine keeps no per-grunt speech handle; the taunt is taken as silent (ai.rs fire_cycle, guess)"
-0x0043a0f0,fn_0043a0f0,deferred,feature: goliath-extras; goliath slots
+0x0043a0f0,fn_0043a0f0,not needed,"GoliathObject vt+0x25c (alive): its only caller, MissionObject_Update's nearest-AI scan (game_02.cpp:2448-2468), discards the result ((void)nearest): no effect"
 0x0043a200,fn_0043a200,replaced,the vo_delay test (0x0043a200): ai.rs Barks::take(Delay::Vo)
 0x0043a980,fn_0043a980,replaced,"grab / carry state tests (slots +0x1c0, +0x118): no grabs on lev_1_m1"
-0x0043a9a0,fn_0043a9a0,deferred,feature: goliath-extras; goliath slots
+0x0043a9a0,fn_0043a9a0,deferred,"feature: vindaloo; GoliathObject vt+0x250 (not in a squad, +0x9bc): Hud_UpdateCrosshair's multi-lock (ui_01.cpp:378, hud +0x152: weapon type 3 or the base turret) skips a squad's goliath; the multi-lock itself is the vindaloo's (and the base mgun's, defence.md debt)"
 0x0043a9b0,fn_0043a9b0,replaced,"grab / carry state tests (slots +0x1c0, +0x118): no grabs on lev_1_m1"
 0x0043a9f0,fn_0043a9f0,deferred,feature: vehicle-bosses; fake grunt / zeppelin / colossus / Q112 boss anim tables
 0x0043bc50,fn_0043bc50,deferred,"feature: run-anim-speed; the anim speed vector (vt+0x1a8: run ids 8..0xc / 0x2f -> +0x96c, limp 0x59 -> +0x994, the anim_run_* / anim_limp_* scaling of the run anims' playback to the move speed): not ported, the engine plays the run anims at speed 1 (open: foot sliding at limp speed)"
