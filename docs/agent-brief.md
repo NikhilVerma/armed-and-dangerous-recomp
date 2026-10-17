@@ -58,7 +58,9 @@ no hacks: a workaround is replaced by the real mechanism or logged as debt with 
 Since 2026-10-17 (decision.md): features first. Build a feature the way you would in a from-scratch Bevy game:
 typed components, systems in a plugin, typed stage / level data (serde structs deserialised once, not string
 property lookups in systems). It lands when it works, has a playtest, and every level using it can be finished;
-the oracle comparison is the later tuning pass (log visible differences as tuning items, don't block on them).
+the oracle comparison is the later tuning pass (log visible differences as tuning items, don't block on them). The mechanics
+still come from the original code: read the recovered C++ (src/) for each feature's numbers, timings, rules and
+states and replicate them as faithfully as you can (best-shot faithful); only the structure is yours.
 Code quality (docs/decision.md 2026-10-14: the human will build their own games from these mechanics): keep
 each mechanic a self-contained module / Bevy plugin with a clear public API, game specifics in data (properties,
 templates, tuning) rather than code, names that say what things do (addresses as provenance in doc comments),

@@ -302,3 +302,8 @@ game. Then we try to make it similar to the original game ... and hammer those f
   differences found then are tuning work, logged per feature.
 - Unchanged: no hacks, tests that do not pass by luck, levels finishable, the 4K 100 fps floor, outcome >= original
   as the end state.
+- Clarified the same day: "We can use the original code as reference. Vindaloo and shark gun had specific mechanics
+  and should at least have a best-shot faithful replication." Features-first does not mean invented behaviour: each
+  feature's mechanics (numbers, timings, rules, states) come from the recovered C++ as a best-shot faithful
+  replication; only the structure is free (idiomatic Bevy). What gets deferred to the tuning pass is frame-exact
+  verification against the running original, not reading the original code.
