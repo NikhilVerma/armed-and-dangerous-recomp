@@ -224,3 +224,17 @@ Debt and guesses (each with its plan):
   not. A tied peasant ends his bully's hold (ragdolled, +0x421). Bully lines use the peasant line names lower-cased (not checked against the
   bank).
 - Not compared with the original by capture: every rate above comes from the code and the property sets.
+
+## 10. Paratroopers, captains' projectiles, markers (2026-10-17, agent-enemyai)
+
+- Paratroopers (ai/paratroop.rs, ai/fall.rs): vehicles/boss.rs's create_object_ic / create_rocket_captain_IC now make
+  the captain at the ref_repel_0N node; the rope IC anim (mover_captain_rappel_attack / mover_captain_attack_village)
+  carries him (physics off) until its freefall_* note (0.933 s): the drop orders as the state to resume, 5000 s to
+  live, state 0x82 with the parachute allowed: once he sinks faster than 25 / s the parachute (fxo_captain_parachute,
+  drawn in its rest pose) opens at ref_parachute and holds the descent; the landing closes it and resumes. lev_2_m1's
+  mini zeppelin 255 drops 8 (paratroopers_l2m1); lev_5_m2's village zeppelins the same.
+- The rocket captain (ai/rocket.rs) fires the CaptainRocket of vehicles/rockets.rs (dumb_fire, max_speed 80 x 3) instead
+  of a bullet; it can be shot down. The captain's grenade is ai/grenade.rs (Ballistic_LaunchVelocity's later root).
+- Jump markers (ai/jumper.rs): a landed jumper keeps his marker until his next launch or his death.
+- Squads (ai/squad.rs): squad_tag / squad_sequence share a halt (0x00433bc0). 0x0042f470 is not a squad join but the
+  punch launch (feature punch-launch).
