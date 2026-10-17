@@ -19,6 +19,7 @@ Scripts live in work/remaster/play (not in git; each starts from states/after_pu
 state_after_pub.json writes). Exit code 1 when any script fails. Add a script here when it guards a ported mechanic.
 """
 import argparse
+import json
 import os
 import re
 import subprocess
@@ -54,6 +55,9 @@ SUITE += ['weapon_sniper', 'weapon_mortar', 'weapon_vindaloo', 'weapon_shark', '
 # the dead's bodies (corpses.rs): lev_1_m4's army killed two a second; the Original's timers (bodies gone, at most four
 # ragdolls, entities and physics bodies not growing) and the Remaster's 48 bodies with settled ragdolls
 SUITE += ['corpses_l1m4', 'corpses_l1m4_remaster']
+# 'army_l2m4_long' (LONG): lev_2_m4's piled-up army (~1,600 marching members at 150 s) stays under 25k entities: the
+# members are crowd meshes (crowd.rs), not rigged grunts (110k entities before)
+SUITE += ['army_l2m4_long']
 # 'launch_*': the real launch path as the player plays (the Remaster preset chosen by the options, the intro, the
 # title menu): New Game shows the world (menu art gone, every camera on one target, the strips beside the 4:3 centre
 # not black), Abandon -> title -> New Game in-process, the Graphics page applies, Restart / Quick Load / Restart from
@@ -100,7 +104,7 @@ ap.add_argument('--long', action='store_true', help='run LONG: every level playe
 ap.add_argument('--all', action='store_true', help='run SUITE and LONG')
 a = ap.parse_args()
 # LONG: the level completions and other runs of minutes each, kept out of the fast SUITE
-LONG = [n for n in SUITE if n.startswith('complete_')]
+LONG = [n for n in SUITE if n.startswith('complete_') or n.endswith('_long')]
 SUITE = [n for n in SUITE if n not in LONG]
 if a.play:
     PLAY = a.play
@@ -128,7 +132,13 @@ for name in a.names or (PERF if a.perf else LONG if a.long else SUITE + LONG if 
     script = next((d for d in (TRACKED, PLAY) if os.path.exists(os.path.join(d, name + '.json'))), PLAY)
     # the wall-clock limit only catches a hung game: game time is stepped per frame, so a loaded machine (several
     # agents' runs at once) takes several times longer for the same run (defence_l5m5: 66 game seconds took 320 s)
-    p = subprocess.run([sys.executable, os.path.join(ROOT, 'tools', 'playtest.py'), os.path.join(script, name + '.json'), '--exe', a.exe, '--timeout', '1200'] + extra,
+    # (a script's own "timeout" counts when it is longer: the level completions run up to 25 minutes under load, x3)
+    path = os.path.join(script, name + '.json')
+    try:
+        own = float(json.load(open(path, encoding='utf-8')).get('timeout', 0)) * 3
+    except (OSError, ValueError):
+        own = 0
+    p = subprocess.run([sys.executable, os.path.join(ROOT, 'tools', 'playtest.py'), path, '--exe', a.exe, '--timeout', str(max(1200, own))] + extra,
                        stdout=subprocess.PIPE, text=True, errors='replace')
     res = re.search(r'PLAYTEST RESULT: (\d+) passed, (\d+) failed', p.stdout)
     fails = [l for l in p.stdout.splitlines() if 'EXPECT FAIL' in l or 'panicked' in l]

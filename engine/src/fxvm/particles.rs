@@ -11,6 +11,7 @@ use crate::level::game_to_engine;
 use bevy::asset::RenderAssetUsages;
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
+use bevy::render::storage::ShaderBuffer;
 
 /// Particle pools (Fx_LoadChunk 0x0041c7e0): capacity, bank texture and blend (pool 0 additive, state 0x100;
 /// pools 1 and 2 alpha-blended, 0x310: Fx_DrawParticles 0x00423820). The remaster multiplies the capacities (the
@@ -99,10 +100,13 @@ pub struct Particle {
     pub ramp_rate: f32,
 }
 
-/// The three pools: live particles (the original's live lists), their draw meshes, the refusal count.
+/// The three pools: live particles (the original's live lists), their draw meshes and corner buffers, the refusal
+/// count.
 pub struct Pools {
     pub live: Vec<Vec<Particle>>,
     pub meshes: Vec<Handle<Mesh>>,
+    /// per pool: the quad corners the material's vertex shader reads (particle.wesl)
+    pub corners: Vec<Handle<ShaderBuffer>>,
     pub dropped: usize,
 }
 
@@ -116,20 +120,17 @@ impl Pools {
 }
 
 /// Spawns the pool meshes (one per pool, drawn with its bank texture and blend).
-pub fn setup_pools(commands: &mut Commands, assets: &AssetServer, meshes: &mut Assets<Mesh>, materials: &mut Assets<ParticleMaterial>) -> Pools {
-    let mut handles = Vec::new();
+pub fn setup_pools(commands: &mut Commands, assets: &AssetServer, meshes: &mut Assets<Mesh>, materials: &mut Assets<ParticleMaterial>, buffers: &mut Assets<ShaderBuffer>) -> Pools {
+    let (mut handles, mut corners) = (Vec::new(), Vec::new());
     for (_, tex, additive) in POOLS {
-        let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
-        mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, Vec::<[f32; 3]>::new());
-        mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, Vec::<[f32; 2]>::new());
-        mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, Vec::<[f32; 4]>::new());
-        mesh.insert_indices(Indices::U32(Vec::new()));
-        let h = meshes.add(mesh);
-        let mat = materials.add(ParticleMaterial { bank: assets.load(crate::graphics::texture_path(tex)), additive, params: Vec4::new(if additive { 1.0 } else { 2.2 }, 0.0, 0.0, 0.0) });
+        let h = meshes.add(corner_mesh(MIN_QUADS));
+        let c = buffers.add(ShaderBuffer::new(vec![[0.0f32; 4]; MIN_QUADS * 4 * CORNER_VEC4S], RenderAssetUsages::default()));
+        let mat = materials.add(ParticleMaterial { bank: assets.load(crate::graphics::texture_path(tex)), additive, params: Vec4::new(if additive { 1.0 } else { 2.2 }, 0.0, 0.0, 0.0), corners: c.clone() });
         commands.spawn((Mesh3d(h.clone()), MeshMaterial3d(mat), Transform::IDENTITY, bevy::camera::visibility::NoFrustumCulling, bevy::light::NotShadowCaster, Name::new("fx_pool")));
         handles.push(h);
+        corners.push(c);
     }
-    Pools { live: POOLS.iter().map(|(n, _, _)| Vec::with_capacity(n * POOL_SCALE / 4)).collect(), meshes: handles, dropped: 0 }
+    Pools { live: POOLS.iter().map(|(n, _, _)| Vec::with_capacity(n * POOL_SCALE / 4)).collect(), meshes: handles, corners, dropped: 0 }
 }
 
 /// One emitter step of an object (0x0041a050, mode 0x20: the emitter follows the object): the cone axis is the
@@ -328,25 +329,82 @@ pub struct QuadBuffers {
     pub idx: Vec<u32>,
 }
 
-/// Rebuilds the pool meshes from the live particles, facing the 3D camera.
-pub fn draw_particles(vm: Res<super::FxVm>, mut meshes: ResMut<Assets<Mesh>>, cam: Query<&GlobalTransform, With<Camera3d>>) {
+/// The smallest number of quads a pool mesh holds.
+const MIN_QUADS: usize = 256;
+
+/// vec4s per corner in the corner buffer: (x, y, z, u), (v, r, g, b), (a, -, -, -)
+const CORNER_VEC4S: usize = 3;
+
+/// The quads a pool is sized for when `live` particles are drawn: a power of two that only grows, so the mesh and
+/// the corner buffer keep their size from frame to frame.
+fn quad_capacity(live: usize, had: usize) -> usize {
+    had.max(live.next_power_of_two()).max(MIN_QUADS)
+}
+
+/// A pool's mesh: `quads` quads whose corners carry only their own index (position.x); the vertex shader takes the
+/// rest from the corner buffer. Built once per size: Bevy re-uploads a changed mesh by packing its attributes into
+/// mapped GPU memory one strided element at a time (the particle pools rebuilt every frame cost ~1.4 ms of render CPU
+/// a frame at 4K; docs/remaster-engine.md, the 4K floor), while a same-size storage buffer is one contiguous write.
+fn corner_mesh(quads: usize) -> Mesh {
+    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, (0..quads * 4).map(|i| [i as f32, 0.0, 0.0]).collect::<Vec<_>>());
+    // counter-clockwise as seen from the camera (the material culls back faces)
+    let idx = (0..quads as u32).flat_map(|k| {
+        let b = k * 4;
+        [b, b + 2, b + 1, b, b + 3, b + 2]
+    });
+    mesh.insert_indices(Indices::U32(idx.collect()));
+    mesh
+}
+
+/// Writes the quads into a pool's corner buffer (`out`: CORNER_VEC4S per corner); corners past the quads built are
+/// zero (a quad collapsed to a point has no area: the rasteriser drops it).
+fn pack_corners(q: &QuadBuffers, out: &mut [[f32; 4]]) {
+    for (i, slot) in out.chunks_exact_mut(CORNER_VEC4S).enumerate() {
+        match (q.pos.get(i), q.uv.get(i), q.col.get(i)) {
+            (Some(p), Some(uv), Some(c)) => {
+                slot[0] = [p[0], p[1], p[2], uv[0]];
+                slot[1] = [uv[1], c[0], c[1], c[2]];
+                slot[2] = [c[3], 0.0, 0.0, 0.0];
+            }
+            _ => slot.fill([0.0; 4]),
+        }
+    }
+}
+
+/// Rebuilds the pools' quads from the live particles, facing the 3D camera, into their corner buffers (one
+/// contiguous write each); a pool's mesh changes only when its size grows.
+pub fn draw_particles(
+    vm: Res<super::FxVm>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut buffers: ResMut<Assets<ShaderBuffer>>,
+    cam: Query<&GlobalTransform, With<Camera3d>>,
+    mut sizes: Local<Vec<usize>>,
+    mut q: Local<QuadBuffers>,
+) {
     let Ok(c) = cam.single() else { return };
     let (right, up) = (*c.right(), *c.up());
-    for (pool, handle) in vm.pools.live.iter().zip(&vm.pools.meshes) {
-        let Some(mut mesh) = meshes.get_mut(handle) else { continue };
-        let mut q = QuadBuffers { pos: Vec::with_capacity(pool.len() * 4), uv: Vec::with_capacity(pool.len() * 4), col: Vec::with_capacity(pool.len() * 4), idx: Vec::with_capacity(pool.len() * 6) };
-        build_quads(pool, right, up, &mut q);
-        if q.pos.is_empty() {
-            // an empty mesh is refused by the renderer: one zero-area triangle
-            q.pos.extend([[0.0f32; 3]; 3]);
-            q.uv.extend([[0.0f32; 2]; 3]);
-            q.col.extend([[0.0f32; 4]; 3]);
-            q.idx.extend([0, 1, 2]);
+    sizes.resize(vm.pools.meshes.len(), MIN_QUADS);
+    for (((pool, mesh), corners), size) in vm.pools.live.iter().zip(&vm.pools.meshes).zip(&vm.pools.corners).zip(sizes.iter_mut()) {
+        let quads = quad_capacity(pool.len(), *size);
+        if quads != *size {
+            *size = quads;
+            if let Some(mut m) = meshes.get_mut(mesh) {
+                *m = corner_mesh(quads);
+            }
+            if let Some(mut b) = buffers.get_mut(corners) {
+                b.resize((quads * 4 * CORNER_VEC4S * 16) as u64);
+            }
         }
-        mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, q.pos);
-        mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, q.uv);
-        mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, q.col);
-        mesh.insert_indices(Indices::U32(q.idx));
+        q.pos.clear();
+        q.uv.clear();
+        q.col.clear();
+        q.idx.clear();
+        build_quads(pool, right, up, &mut q);
+        let Some(mut b) = buffers.get_mut(corners) else { continue };
+        if let Some(out) = b.cast_slice_mut::<[f32; 4]>() {
+            pack_corners(&q, out);
+        }
     }
 }
 
@@ -355,7 +413,30 @@ mod tests {
     use super::*;
 
     fn pools() -> Pools {
-        Pools { live: vec![Vec::new(), Vec::new(), Vec::new()], meshes: Vec::new(), dropped: 0 }
+        Pools { live: vec![Vec::new(), Vec::new(), Vec::new()], meshes: Vec::new(), corners: Vec::new(), dropped: 0 }
+    }
+
+    #[test]
+    fn pool_meshes_keep_a_steady_size() {
+        assert_eq!(quad_capacity(0, 0), MIN_QUADS);
+        assert_eq!(quad_capacity(300, 0), 512);
+        // shrinking keeps the size, growing doubles it
+        assert_eq!(quad_capacity(10, 512), 512);
+        assert_eq!(quad_capacity(513, 512), 1024);
+    }
+
+    #[test]
+    fn corners_pack_position_uv_colour_and_zero_the_rest() {
+        let q = QuadBuffers { pos: vec![[1.0, 2.0, 3.0]], uv: vec![[0.25, 0.75]], col: vec![[0.1, 0.2, 0.3, 0.4]], idx: vec![] };
+        let mut out = vec![[9.0f32; 4]; 2 * CORNER_VEC4S];
+        pack_corners(&q, &mut out);
+        assert_eq!(out[0], [1.0, 2.0, 3.0, 0.25]);
+        assert_eq!(out[1], [0.75, 0.1, 0.2, 0.3]);
+        assert_eq!(out[2][0], 0.4);
+        assert!(out[CORNER_VEC4S..].iter().all(|v| *v == [0.0; 4]));
+        // the mesh numbers its corners
+        let m = corner_mesh(MIN_QUADS);
+        assert_eq!(m.count_vertices(), MIN_QUADS * 4);
     }
 
     #[test]

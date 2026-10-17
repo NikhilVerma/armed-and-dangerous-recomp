@@ -140,6 +140,42 @@ impl Anim {
     pub fn rotation(&self, bone: &str, t: f32) -> Option<Quat> {
         sample_q(&self.tracks.get(&bone.to_lowercase())?.r, t)
     }
+
+    /// The skeleton's local joint transforms with only this anim playing, `t` seconds in (what one full-weight layer
+    /// over the rest pose gives in `play_layers`: bones without a track keep their rest transform, a track without
+    /// scale keys sets scale 1).
+    pub fn pose(&self, skel: &Skeleton, t: f32) -> Vec<Transform> {
+        skel.names
+            .iter()
+            .zip(&skel.rest)
+            .map(|(name, rest)| {
+                let Some(track) = self.tracks.get(name) else { return *rest };
+                Transform {
+                    translation: sample3(&track.t, t).unwrap_or(rest.translation),
+                    rotation: sample_q(&track.r, t).unwrap_or(rest.rotation),
+                    scale: sample3(&track.s, t).unwrap_or(Vec3::ONE),
+                }
+            })
+            .collect()
+    }
+}
+
+impl Skeleton {
+    /// Each joint's matrix in model space (its parents' local transforms composed) for a pose of local transforms.
+    pub fn model_matrices(&self, pose: &[Transform]) -> Vec<Mat4> {
+        fn resolve(i: usize, skel: &Skeleton, pose: &[Transform], out: &mut [Option<Mat4>]) -> Mat4 {
+            if let Some(m) = out[i] {
+                return m;
+            }
+            let local = pose.get(i).copied().unwrap_or(skel.rest[i]).to_matrix();
+            let p = skel.parents[i];
+            let m = if p >= 0 && (p as usize) < out.len() { resolve(p as usize, skel, pose, out) * local } else { local };
+            out[i] = Some(m);
+            m
+        }
+        let mut out = vec![None; self.names.len()];
+        (0..self.names.len()).map(|i| resolve(i, self, pose, &mut out)).collect()
+    }
 }
 
 fn sample3(keys: &[[f32; 4]], t: f32) -> Option<Vec3> {

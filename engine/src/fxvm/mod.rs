@@ -133,10 +133,11 @@ impl Plugin for FxVmPlugin {
     }
 }
 
-fn setup(mut commands: Commands, assets: Res<AssetServer>, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<ParticleMaterial>>, mut std_mats: ResMut<Assets<StandardMaterial>>, launch: Option<Res<crate::Launch>>) {
+#[allow(clippy::too_many_arguments)]
+fn setup(mut commands: Commands, assets: Res<AssetServer>, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<ParticleMaterial>>, mut buffers: ResMut<Assets<bevy::render::storage::ShaderBuffer>>, mut std_mats: ResMut<Assets<StandardMaterial>>, launch: Option<Res<crate::Launch>>) {
     // the untextured streamers' two meshes (alpha-blended, additive)
     let streamer_meshes = streamers::StreamerMeshes([false, true].into_iter().map(|additive| ((None, additive), streamers::streamer_mesh(&mut commands, &mut meshes, &mut std_mats, &assets, None, additive))).collect());
-    let pools = particles::setup_pools(&mut commands, &assets, &mut meshes, &mut materials);
+    let pools = particles::setup_pools(&mut commands, &assets, &mut meshes, &mut materials, &mut buffers);
     let dir = launch.map(|l| l.scene.clone()).unwrap_or_default();
     commands.insert_resource(FxVm {
         instances: Vec::new(),

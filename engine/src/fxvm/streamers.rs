@@ -157,6 +157,7 @@ pub fn streamers(
     mut meshes: ResMut<Assets<Mesh>>,
     mut std_mats: ResMut<Assets<StandardMaterial>>,
     assets: Res<AssetServer>,
+    mut empty: Local<std::collections::HashSet<AssetId<Mesh>>>,
 ) {
     let dt = time.delta_secs();
     let vm = &mut *vm;
@@ -234,10 +235,16 @@ pub fn streamers(
             }
         }
         if idx.is_empty() {
+            // already empty: leave the mesh alone (a rewritten mesh is re-uploaded, a cost per frame and mesh)
+            if !empty.insert(handle.id()) {
+                continue;
+            }
             pos = vec![[0.0; 3]; 3];
             col = vec![[0.0; 4]; 3];
             uvs = vec![[0.0; 2]; 3];
             idx = vec![0, 1, 2];
+        } else {
+            empty.remove(&handle.id());
         }
         if let Some(mut m) = meshes.get_mut(handle) {
             let n = pos.len();
