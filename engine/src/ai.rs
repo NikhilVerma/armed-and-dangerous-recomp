@@ -14,6 +14,7 @@
 
 pub mod body;
 pub mod bully;
+pub mod coverslot;
 pub mod ic;
 pub mod jumper;
 pub mod monk;
@@ -76,6 +77,8 @@ pub enum Mind {
     Scripted,
     /// state 0x118: a bully holding his peasant (bully.rs), standing until a target or the peasant's death ends it
     Bully,
+    /// states 0x1e / 0x1f: running to a generic cover slot, a tree's or a building's (coverslot.rs, `Grunt::slot`)
+    ToSlot,
 }
 
 /// The grunt classes a lev_1_m1 template makes (counted in the coverage runs: BowGruntObject_Slot6 0x004347b0 runs 9
@@ -842,6 +845,8 @@ pub struct Grunt {
     pub at_barricade: bool,
     /// +0x918 / +0x91c / +0x920: the covers left last (0x004273a0); the search skips the first two
     pub cover_history: [Option<Entity>; 3],
+    /// the generic cover slot held (+0x904 / +0x914 of a tree or a building: coverslot.rs)
+    pub slot: Option<coverslot::SlotHold>,
     /// debug (playtest `cover` step): run the hiding-spot search now, as at a reload's end (flag 4 set)
     pub force_hide: bool,
     /// +0x484 flag 4: the fire counters are rolled (0x00427600: at init, a reload's end, the trench's duck); cleared at a
@@ -1110,7 +1115,7 @@ fn log_placed(
             let p = t.translation();
             let pos = [p.x.round(), (-p.z).round(), p.y.round()];
             // (rigged: the crosshair and bullets test his parts; a body: his capsule)
-            (id.0.to_string(), serde_json::json!({"pos": pos, "mind": format!("{:?}", g.mind), "health": h.map(|h| h.0.round()), "rigged": animated, "body": body, "gun_shots": g.gun.map(|gn| gn.shots), "gun_held": g.gun.map(|gn| gn.held)}))
+            (id.0.to_string(), serde_json::json!({"pos": pos, "mind": format!("{:?}", g.mind), "health": h.map(|h| h.0.round()), "rigged": animated, "body": body, "gun_shots": g.gun.map(|gn| gn.shots), "gun_held": g.gun.map(|gn| gn.held), "slot": g.slot.map(|s| s.arrived)}))
         }))
         .collect();
     state.0.insert("grunt_ids".into(), out.into());
@@ -1290,6 +1295,7 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         cover: None,
         at_barricade: false,
         cover_history: [None; 3],
+        slot: None,
         force_hide: false,
         fire_ready: true,
         hold: false,
@@ -1992,6 +1998,7 @@ impl Hide {
             Hide::Teleport => Some(Mind::Teleport),
             Hide::Engage => Some(Mind::Fire),
             Hide::Rest => Some(Mind::Roam),
+            Hide::Slot => Some(Mind::ToSlot),
             _ => None,
         }
     }
@@ -2017,6 +2024,8 @@ struct GunView {
 struct Spots {
     trenches: Vec<TrenchView>,
     guns: Vec<GunView>,
+    /// the generic cover list World+0xed4: trees and valid buildings (coverslot.rs)
+    slots: Vec<coverslot::SlotView>,
 }
 
 /// The mounted-gun candidate of the hiding-spot search, 0x0042a100 (needs vt+0x1f0: true for grunts): the free gun
@@ -2193,6 +2202,8 @@ enum Hide {
     Engage,
     /// ... else state 1
     Rest,
+    /// a generic cover slot taken (states 0x1e / 0x1f next: coverslot.rs)
+    Slot,
 }
 
 /// Leaves a held trench: vt+0x188 0x004273a0 (history: +0x918 = the trench, the older two cleared, as without flag
@@ -2250,6 +2261,11 @@ fn find_hiding_spot(g: &mut Grunt, me: Entity, (need_target, hold): (bool, bool)
         return Hide::Reload;
     }
     leave_cover(g, me, &mut spots.trenches, true);
+    if let Some(h) = g.slot {
+        // vt+0x188: a slot left counts in the history (+0x918) as a trench does
+        coverslot::release(&mut g.slot, me, &mut spots.slots);
+        g.cover_history = [Some(h.obj), None, None];
+    }
     g.hold = false;
     let fail = if flag4 { Hide::Pursue } else { Hide::Reload };
     // the two candidates by 2D squared distance from the grunt: a trench nearer than the gun wins, else the gun
@@ -2260,6 +2276,33 @@ fn find_hiding_spot(g: &mut Grunt, me: Entity, (need_target, hold): (bool, bool)
         (Some(gi), Some(ti)) => (d2(spots.trenches[ti].origin) < d2(spots.guns[gi].origin)).then_some(ti),
         (_, t) => t,
     };
+    // the generic cover slots (the list World+0xed4: trees, valid buildings; coverslot.rs `pick`), for those whose
+    // vt+0x1cc holds (not the archers): nearer (3D, squared) than a quarter of the chosen gun's or trench's 2D squared
+    // distance, else than twice scan_distance squared; then within scan_distance; the slot taken (vt+0x158), its
+    // point's path needed (0x0046f6b0), +0x494 = 5 s and state 0x1e / 0x1f
+    if g.kind != Kind::Bow && (!need_target || target.is_some()) {
+        let won = ti.map(|i| d2(spots.trenches[i].origin)).or(gi.map(|i| d2(spots.guns[i].origin)));
+        let limit2 = won.map_or((2.0 * g.scan_distance).powi(2), |d| d * 0.25);
+        let seeker = coverslot::Seeker {
+            me,
+            pos,
+            target,
+            history: [g.cover_history[0], g.cover_history[1]],
+            skip_last_both: false,
+            physics,
+        };
+        let skip_last = rng.rand() < 0.25;
+        if let Some((i, slot, point, dir)) = coverslot::pick(&seeker, &spots.slots, limit2, skip_last) {
+            let reachable = point.distance(pos) < g.scan_distance && (line_of_sight(physics, pos, point) || crate::nav::path(physics, pos, point, &[]).is_some());
+            if reachable {
+                spots.slots[i].occupants[slot] = Some(me);
+                g.slot = Some(coverslot::SlotHold { obj: spots.slots[i].e, slot, point, dir, look: 0.0, give_up: 5.0, arrived: false });
+                g.route.clear();
+                g.hold = hold;
+                return Hide::Slot;
+            }
+        }
+    }
     if let (Some(i), None) = (gi, ti) {
         // the gun: the path to it (0x0046f6b0 with the gun's collision off; here to ref_grunt_exit: guess), reserved
         // (vt+0x15c(1)), state 0x7b
@@ -2321,6 +2364,7 @@ fn hide_to_mind(g: &mut Grunt, h: Hide) -> Mind {
         Hide::Teleport => Mind::Teleport,
         Hide::Engage => Mind::Fire,
         Hide::Rest => Mind::Roam,
+        Hide::Slot => Mind::ToSlot,
     }
 }
 
@@ -2735,7 +2779,7 @@ fn think(
         Res<crate::turret::Mounted>,
         Res<crate::gamedata::GameData>,
     ),
-    (mut lib, player_q, mut triggers, grenade_assets, squads, mut jmarks, army, placed): (
+    (mut lib, player_q, mut triggers, grenade_assets, squads, mut jmarks, army, placed, mut covers): (
         ResMut<crate::skin::AnimLibrary>,
         Query<Entity, With<Player>>,
         MessageWriter<crate::mission::SendTrigger>,
@@ -2744,6 +2788,7 @@ fn think(
         Query<(Entity, &mut JumpMarker, &Transform), Without<Grunt>>,
         Query<(), With<ArmyTarget>>,
         Query<&crate::level::Placed>,
+        Query<(Entity, &mut coverslot::CoverObject, &GlobalTransform, Option<&crate::level::Placed>), Without<Grunt>>,
     ),
 ) {
     let t0 = Instant::now();
@@ -2775,13 +2820,19 @@ fn think(
             }
         })
         .collect();
-    let mut spots = Spots { trenches: views, guns: gun_views };
+    let slot_views: Vec<coverslot::SlotView> = covers.iter().map(|(e, c, gt, pl)| coverslot::SlotView::of(e, c, gt, pl.and_then(|p| p.collider))).collect();
+    let mut spots = Spots { trenches: views, guns: gun_views, slots: slot_views };
     // the jump markers (World+0xf10) as the jumpers' choice sees them; their occupants written back at the end
     let mut jviews: Vec<jumper::MarkerView> =
         jmarks.iter().map(|(e, m, t)| jumper::MarkerView { e, pos: t.translation, tag: m.tag, free: m.occupant.is_none() }).collect();
     let mut joccupy: Vec<(Entity, Option<Entity>)> = Vec::new();
     for (ge, mut g, mut body, mut tr, h, ga, thrown) in &mut grunts {
         g.me = Some(ge);
+        // a slot is held only on the run to it and in the fight there (states 0x1e.. / 0x34 / 0x33); anything else lets
+        // it go (vt+0x18c), as the death does (0x0040cd40 / 0x00497430 free it from the object's side)
+        if g.slot.is_some() && !matches!(g.mind, Mind::ToSlot | Mind::Fire | Mind::Reload) {
+            coverslot::release(&mut g.slot, ge, &mut spots.slots);
+        }
         if g.mind == Mind::Dead {
             dead += 1;
             continue;
@@ -3096,6 +3147,7 @@ fn think(
             }
             // the wander (0x3d / 0x5b) and the one-shot states run their own course (below)
             (Mind::Wander, _) => Mind::Wander,
+            (Mind::ToSlot, _) if g.slot.is_some() => Mind::ToSlot,
             (Mind::Taunt, _) => Mind::Taunt,
             (Mind::Throw, _) => Mind::Throw,
             // the trench's states run their own course (below)
@@ -3313,6 +3365,52 @@ fn think(
                 if flat(g.home - pos).length() < 4.0 || g.timer <= 0.0 {
                     leave_cover(&mut g, ge, &mut spots.trenches, false);
                     g.mind = Mind::Roam;
+                }
+            }
+            Mind::ToSlot => {
+                // states 0x1e / 0x1f (ai_06.cpp:1070-1180): the run to the slot's point; every 0.75..1.25 s (+0x490) a
+                // look: the target within the engagement range (3D) and in sight -> with rounds (flag 4) the slot let
+                // go (vt+0x18c) and the engage (vt+0x230); without, once its 5 s (+0x494) are up within 50 of the
+                // point, the slot let go and the reload where he stands (anims 0x2a.., state 0x32). At the point: with
+                // rounds the fight there (state 0x34), else the reload facing the slot's way (0x33), the slot kept
+                let Some(mut hs) = g.slot else {
+                    g.mind = Mind::Roam;
+                    continue;
+                };
+                goal = hs.point;
+                speed = run_speed;
+                hs.look -= dt;
+                hs.give_up -= dt;
+                let mut next: Option<Mind> = None;
+                if hs.look <= 0.0 {
+                    hs.look = rng.range(0.75, 1.25);
+                    if let (Some(p), Some(thit)) = (target, target_hit) {
+                        if (p - pos).length() < g.range && sight_ray(&physics, own_hit, thit, &[body.id]) {
+                            if g.fire_ready {
+                                next = Some(Mind::Fire);
+                            } else if hs.give_up < 0.0 && (hs.point - pos).length_squared() < 2500.0 {
+                                g.pause = g.reload_len;
+                                next = Some(Mind::Reload);
+                            }
+                        }
+                    }
+                }
+                if let Some(m) = next {
+                    g.slot = Some(hs);
+                    coverslot::release(&mut g.slot, ge, &mut spots.slots);
+                    g.mind = m;
+                } else if flat(hs.point - pos).length() < 4.0 {
+                    hs.arrived = true;
+                    g.slot = Some(hs);
+                    g.yaw = hs.dir.x.atan2(hs.dir.z);
+                    g.mind = if g.fire_ready && target.is_some() {
+                        Mind::Fire
+                    } else {
+                        g.pause = g.reload_len;
+                        Mind::Reload
+                    };
+                } else {
+                    g.slot = Some(hs);
                 }
             }
             Mind::Wander => {
@@ -3939,6 +4037,7 @@ fn think(
             t.ai = v.ai;
         }
     }
+    coverslot::write_back(&spots.slots, &mut covers);
     stats.alive = alive;
     stats.dead = dead;
     stats.states = states;

@@ -761,7 +761,7 @@ fn grunts(
             // the reload set (0x2a, 0x2b, 0x28, 0x29 by PlayAnim4): the engine plays one of them (0x29, tr)
             Mind::Reload => (name(&g, 0x29, 0.0).to_owned(), false),
             Mind::Flee => (name(&g, 11, 0.0).to_owned(), true),
-            Mind::Chase | Mind::ToMarker | Mind::Wander => (mover(&g).to_owned(), true),
+            Mind::Chase | Mind::ToMarker | Mind::Wander | Mind::ToSlot => (mover(&g).to_owned(), true),
             // an IC move plays its own anim (ai/ic.rs)
             Mind::Scripted => continue,
             // a monk's teleport (anim 0x6b monk_turbo) and his cast (0x26)
