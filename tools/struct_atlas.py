@@ -1502,7 +1502,7 @@ def meaning_category(m):
     k = m["kind"]
     return {"countdown": "timer", "stopwatch": "timer", "timestamp": "timer", "frame_counter": None, "position": "position",
             "matrix_translation": "position", "velocity": "velocity", "health": "health", "state": "state",
-            "state_linked": "state",
+            "state_linked": None,
             "flags": "flags", "pointer": "pointer", "bool": "bool"}.get(k)
 
 
@@ -1602,7 +1602,9 @@ def infer_fields(static, facts):
         d["names"].extend(lst)
     docs = docs_mentions()
     for (c, o), lst in docs.items():
-        F(owner(c, o), o).setdefault("docs", []).extend(lst[:4])
+        lst = [x for x in lst if x.split(": ", 1)[-1].strip()]
+        if lst:
+            F(owner(c, o), o).setdefault("docs", []).extend(lst[:4])
     for c, o, cat, text in TRACED:
         F(owner(c, o), o)["traced"] = {"category": cat, "what": text}
     # dynamic facts are per concrete class (the vtable's): merged onto the class that owns the offset
@@ -2000,7 +2002,7 @@ def precision_report(atlas):
                 cats = {x for x, _ in inferred}
                 ok = cat in cats
                 best = next((m for x, m in inferred if x == cat), inferred[0][1])
-                checks.append((cls, off, best["meaning"], why, ok))
+                checks.append((cls, off, best["meaning"], f"[{cat}] {why}", ok))
             # width against the game's tables
             for nm in f.get("names", []):
                 if f.get("width") and nm["count"] == 1 and nm["size"] in (1, 2, 4):
@@ -2016,12 +2018,20 @@ def precision_report(atlas):
     by = collections.defaultdict(lambda: [0, 0])
     for cls, off, inf, why, ok in checks:
         k = inf.split(" ")[0] if inf.startswith(("width", "property", "type")) else \
-            ("meaning vs docs" if why.startswith("docs") else "meaning")
+            ("meaning vs docs" if "] docs" in why else "meaning")
         by[k][0] += bool(ok)
         by[k][1] += 1
     agree = sum(1 for x in checks if x[4])
     lines = [f"PRECISION {len(checks)} inferences checked against known names / traced fields: {agree} agree "
              f"({100 * agree // max(1, len(checks))}%); " + ", ".join(f"{k} {v[0]}/{v[1]}" for k, v in by.items())]
+    cat_tally = collections.defaultdict(lambda: [0, 0])
+    for cls, off, inf, why, ok in checks:
+        m = re.match(r"^\[(\w+)\] (table|trace)", why)
+        if m:
+            cat_tally[m.group(1)][0] += bool(ok)
+            cat_tally[m.group(1)][1] += 1
+    lines.append("PRECISION meanings by known category (tables + trace): " +
+                 ", ".join(f"{k} {v[0]}/{v[1]}" for k, v in sorted(cat_tally.items())))
     for cls, off, inf, why, ok in checks:
         if not ok:
             lines.append(f"PRECISION disagree {cls}+{off}: inferred {inf}; known {why}")
@@ -2045,7 +2055,8 @@ def atlas():
 
 
 def find_class(name):
-    cs = atlas()["classes"]
+    cs = dict(class_model()["classes"])
+    cs.update(atlas()["classes"])
     if name in cs:
         return name
     low = {c.lower(): c for c in cs}
@@ -2122,12 +2133,13 @@ def cmd_field(a):
 
 def cmd_class(a):
     cls = find_class(a.cls)
-    c = atlas()["classes"][cls]
+    cm = class_model()["classes"].get(cls, {})
+    c = atlas()["classes"].get(cls) or {"size": cm.get("size"), "vtables": cm.get("vtables", []), "fields": {}}
     chain = ancestors(cls)
     print(f"CLASS {cls}: size {hex(c['size']) if c.get('size') else '?'}, base {' > '.join(chain[1:]) or '-'}, "
           f"vtables {', '.join(c.get('vtables', [])[:3])}; {len(c['fields'])} fields in the atlas")
     rows = [(int(o, 16), f, cls) for o, f in c["fields"].items()]
-    if a.all:
+    if a.all or not rows:
         for anc in chain[1:]:
             for o, f in atlas()["classes"].get(anc, {}).get("fields", {}).items():
                 rows.append((int(o, 16), f, anc))

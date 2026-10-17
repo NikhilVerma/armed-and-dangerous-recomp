@@ -1,0 +1,219 @@
+class,member,offset,size,type,confidence,provenance,status
+AlarmGenerator,num_regular,0x468,4,u32,0.9,struct_atlas:property reader src/ai/ai_01.cpp:686,inferred
+AlarmGenerator,num_jumper_captain,0x46c,4,u32,0.9,struct_atlas:property reader src/ai/ai_01.cpp:689,inferred
+AlarmGenerator,num_captain,0x470,4,u32,0.9,struct_atlas:property reader src/ai/ai_01.cpp:687,inferred
+AlarmGenerator,num_rocket_captain,0x474,4,u32,0.9,struct_atlas:property reader src/ai/ai_01.cpp:688,inferred
+AlarmGenerator,num_monk,0x478,4,u32,0.9,struct_atlas:property reader src/ai/ai_01.cpp:690,inferred
+ArrowProjectile,pFxData_5d8,0x5d8,4,ptr,0.85,struct_atlas:dynamic pointer (dynamic targets FxData x18),inferred
+BaseDefendTurret,pDefaultGameObject_7ec,0x7ec,4,ptr,0.85,struct_atlas:dynamic pointer (dynamic targets DefaultGameObject x60),inferred
+BaseDefendTurret,pDefaultGameObject_7f0,0x7f0,4,ptr,0.85,struct_atlas:dynamic pointer (dynamic targets DefaultGameObject x60),inferred
+BaseDefendTurret,pDefaultGameObject_804,0x804,4,ptr,0.85,struct_atlas:dynamic pointer (dynamic targets DefaultGameObject x60),inferred
+BaseDefendTurret,pDefaultGameObject_808,0x808,4,ptr,0.85,struct_atlas:dynamic pointer (dynamic targets DefaultGameObject x60),inferred
+BaseDefendTurret,pDefaultGameObject_80c,0x80c,4,ptr,0.85,struct_atlas:dynamic pointer (dynamic targets DefaultGameObject x60),inferred
+BuildingObject,pGruntObject_4b0,0x4b0,4,ptr,0.85,struct_atlas:dynamic pointer (dynamic targets GruntObject x6),inferred
+ClothObject,pQ111Object_594,0x594,4,ptr,0.85,struct_atlas:dynamic pointer (dynamic targets Q111Object x9),inferred
+DefaultGameObject,damage_radius_inner,0x4d8,,f32,0.9,struct_atlas:property reader src/game/game_03.cpp:587,inferred
+DefaultGameObject,damage_radius_outer,0x4dc,,f32,0.9,struct_atlas:property reader src/game/game_03.cpp:588,inferred
+ForgeTurret,pForgeTurret_708,0x708,4,ptr,0.85,struct_atlas:dynamic pointer (dynamic targets ForgeTurret x11),inferred
+ForgeTurret,pForgeTurret_710,0x710,4,ptr,0.85,struct_atlas:dynamic pointer (dynamic targets ForgeTurret x11),inferred
+FxExplosion,damage_radius_inner,0x468,,f32,0.9,struct_atlas:property reader src/game/game_02.cpp:702,inferred
+FxExplosion,damage_radius_outer,0x46c,,f32,0.9,struct_atlas:property reader src/game/game_02.cpp:703,inferred
+FxObject,pProjectile_514,0x514,4,ptr,0.6,struct_atlas:dynamic pointer (dynamic targets Projectile x1),inferred
+Game,pPlayerObject_748,0x748,4,ptr,0.85,struct_atlas:dynamic pointer (dynamic targets PlayerObject x8),inferred
+Game,pWorld_a84,0xa84,4,ptr,0.85,struct_atlas:dynamic pointer (dynamic targets World x8),inferred
+Game,army_ladder_delay_max,0xaf0,4,f32,0.9,struct_atlas:property reader src/game/game_02.cpp:2032,inferred
+Game,guy_fawkes_duration,0xb30,4,f32,0.9,struct_atlas:property reader src/game/game_02.cpp:2041,inferred
+Game,alarm_min_delay,0xb3c,4,f32,0.9,struct_atlas:property reader src/game/game_02.cpp:1956,inferred
+Game,alarm_max_delay,0xb40,4,f32,0.9,struct_atlas:property reader src/game/game_02.cpp:1957,inferred
+Game,vo_delay_min,0xb48,4,f32,0.9,struct_atlas:property reader src/game/game_02.cpp:2057,inferred
+Game,vo_delay_max,0xb4c,4,f32,0.9,struct_atlas:property reader src/game/game_02.cpp:2058,inferred
+Game,ambient_delay_min,0xb58,,f32,0.9,struct_atlas:property reader src/game/game_02.cpp:2064,inferred
+Game,ambient_delay_max,0xb5c,,f32,0.9,struct_atlas:property reader src/game/game_02.cpp:2065,inferred
+Game,death_delay_min,0xb68,,f32,0.9,struct_atlas:property reader src/game/game_02.cpp:2092,inferred
+Game,death_delay_max,0xb6c,,f32,0.9,struct_atlas:property reader src/game/game_02.cpp:2093,inferred
+Game,bully_delay_min,0xb78,,f32,0.9,struct_atlas:property reader src/game/game_02.cpp:2099,inferred
+Game,bully_delay_max,0xb7c,,f32,0.9,struct_atlas:property reader src/game/game_02.cpp:2100,inferred
+Game,taunt_delay_min,0xb88,4,f32,0.9,struct_atlas:property reader src/game/game_02.cpp:2106,inferred
+Game,taunt_delay_max,0xb8c,4,f32,0.9,struct_atlas:property reader src/game/game_02.cpp:2107,inferred
+Game,sniper_delay_min,0xb98,4,f32,0.9,struct_atlas:property reader src/game/game_02.cpp:2071,inferred
+Game,sniper_delay_max,0xb9c,4,f32,0.9,struct_atlas:property reader src/game/game_02.cpp:2072,inferred
+Game,peasant_delay_min,0xba8,,f32,0.9,struct_atlas:property reader src/game/game_02.cpp:2078,inferred
+Game,peasant_delay_max,0xbac,,f32,0.9,struct_atlas:property reader src/game/game_02.cpp:2079,inferred
+Game,group_kill_decay_rate,0xbb4,,f32,0.9,struct_atlas:property reader src/game/game_02.cpp:2085,inferred
+Game,group_kill_needed,0xbbc,,f32,0.9,struct_atlas:property reader src/game/game_02.cpp:2086,inferred
+Game,group_kill_delay_min,0xbc0,,f32,0.9,struct_atlas:property reader src/game/game_02.cpp:2087,inferred
+Game,group_kill_delay_max,0xbc4,,f32,0.9,struct_atlas:property reader src/game/game_02.cpp:2088,inferred
+Game,timer_bc8,0xbc8,,f32,0.95,struct_atlas:dynamic countdown dynamic: 2340/2340 changes equal -dt,inferred
+Game,base_x_min_1,0xbd0,4,f32,0.9,struct_atlas:property reader src/game/game_02.cpp:2033,inferred
+Game,base_y_min_1,0xbd4,4,f32,0.9,struct_atlas:property reader src/game/game_02.cpp:2035,inferred
+Game,base_x_max_1,0xbd8,4,f32,0.9,struct_atlas:property reader src/game/game_02.cpp:2034,inferred
+Game,base_y_max_1,0xbdc,4,f32,0.9,struct_atlas:property reader src/game/game_02.cpp:2036,inferred
+Game,base_x_min_2,0xbe0,4,f32,0.9,struct_atlas:property reader src/game/game_02.cpp:2037,inferred
+Game,base_y_min_2,0xbe4,4,f32,0.9,struct_atlas:property reader src/game/game_02.cpp:2039,inferred
+Game,base_x_max_2,0xbe8,4,f32,0.9,struct_atlas:property reader src/game/game_02.cpp:2038,inferred
+Game,base_y_max_2,0xbec,4,f32,0.9,struct_atlas:property reader src/game/game_02.cpp:2040,inferred
+GenericAIObject,timer_464,0x464,4,f32,0.87,struct_atlas:dynamic countdown dynamic: 5022/5759 changes equal -dt,inferred
+GenericAIObject,pBuildingObject_46c,0x46c,4,ptr,0.65,"struct_atlas:dynamic pointer (dynamic targets BuildingObject x60, DefaultGameObject x54, GruntObject x4, MolmerObject x3)",inferred
+GenericAIObject,score_value,0x47c,4,f32,0.9,struct_atlas:property reader src/ai/ai_01.cpp:2591,inferred
+GenericAIObject,pStigTurret_50c,0x50c,4,ptr,0.65,"struct_atlas:dynamic pointer (dynamic targets StigTurret x553, TreeObject x380, ForgeTurret x326, BuildingObject x166)",inferred
+GenericAIObject,pMarkerObject_570,0x570,4,ptr,0.85,struct_atlas:dynamic pointer (dynamic targets MarkerObject x59),inferred
+GenericAIObject,pPlayerObject_57c,0x57c,4,ptr,0.65,"struct_atlas:dynamic pointer (dynamic targets PlayerObject x7, Q111Object x5)",inferred
+GenericAIObject,pPlayerObject_588,0x588,4,ptr,0.85,"struct_atlas:dynamic pointer (dynamic targets PlayerObject x43, Q111Object x3, MolmerObject x1)",inferred
+GenericAIObject,pBuildingObject_880,0x880,4,ptr,0.85,struct_atlas:dynamic pointer (dynamic targets BuildingObject x340),inferred
+GenericAIObject,pPeasantObject_88c,0x88c,4,ptr,0.85,struct_atlas:dynamic pointer (dynamic targets PeasantObject x12),inferred
+GenericAIObject,pStigTurret_898,0x898,4,ptr,0.85,"struct_atlas:dynamic pointer (dynamic targets StigTurret x553, ForgeTurret x326)",inferred
+GenericAIObject,pJumpMarker_904,0x904,4,ptr,0.85,"struct_atlas:dynamic pointer (dynamic targets JumpMarker x40, BuildingObject x7)",inferred
+GenericAIObject,anim_run_min_speed,0x97c,,f32,0.9,struct_atlas:property table src/ai/ai_01.cpp:2403,inferred
+GenericAIObject,anim_run_max_speed,0x980,,f32,0.9,struct_atlas:property table src/ai/ai_01.cpp:2403,inferred
+GenericAIObject,anim_run_low_factor,0x984,,,0.9,struct_atlas:property table src/ai/ai_01.cpp:2404,inferred
+GenericAIObject,anim_run_low_speed,0x988,,,0.9,struct_atlas:property table src/ai/ai_01.cpp:2404,inferred
+GenericAIObject,anim_run_high_factor,0x98c,,f32,0.9,struct_atlas:property table src/ai/ai_01.cpp:2405,inferred
+GenericAIObject,anim_run_high_speed,0x990,,f32,0.9,struct_atlas:property table src/ai/ai_01.cpp:2405,inferred
+GenericAIObject,anim_limp_min_speed,0x9a4,,,0.9,struct_atlas:property table src/ai/ai_01.cpp:2406,inferred
+GenericAIObject,anim_limp_max_speed,0x9a8,,f32,0.9,struct_atlas:property table src/ai/ai_01.cpp:2406,inferred
+GenericAIObject,anim_limp_low_factor,0x9ac,,,0.9,struct_atlas:property table src/ai/ai_01.cpp:2407,inferred
+GenericAIObject,anim_limp_low_speed,0x9b0,,,0.9,struct_atlas:property table src/ai/ai_01.cpp:2407,inferred
+GenericAIObject,anim_limp_high_factor,0x9b4,,f32,0.9,struct_atlas:property table src/ai/ai_01.cpp:2408,inferred
+GenericAIObject,anim_limp_high_speed,0x9b8,,f32,0.9,struct_atlas:property table src/ai/ai_01.cpp:2408,inferred
+GenericAIObject,pSquadObject_9bc,0x9bc,4,ptr,0.85,struct_atlas:dynamic pointer (dynamic targets SquadObject x29),inferred
+GenericAIObject,elapsed_a20,0xa20,4,f32,0.95,struct_atlas:dynamic stopwatch dynamic: 1200/1200 changes equal +dt,inferred
+GenericAIObject,elapsed_a24,0xa24,4,f32,0.95,struct_atlas:dynamic stopwatch dynamic: 1200/1200 changes equal +dt,inferred
+GenericAIObject,matrix_t_a78,0xa78,4,u32,0.97,struct_atlas:dynamic matrix_translation dynamic: 7426/7426 samples,inferred
+GenericAIObject,pTreeObject_adc,0xadc,4,ptr,0.85,"struct_atlas:dynamic pointer (dynamic targets TreeObject x383, BuildingObject x166, FxExplosion x82)",inferred
+GenericAIObject,pStigTurret_ae0,0xae0,4,ptr,0.85,"struct_atlas:dynamic pointer (dynamic targets StigTurret x553, ForgeTurret x326)",inferred
+GenericAIObject,pDefaultGameObject_b08,0xb08,4,ptr,0.85,struct_atlas:dynamic pointer (dynamic targets DefaultGameObject x300),inferred
+GoliathFireball,damage_radius_inner,0xb60,,,0.9,struct_atlas:property reader src/game/game_02.cpp:1440,inferred
+GoliathFireball,damage_radius_outer,0xb64,,,0.9,struct_atlas:property reader src/game/game_02.cpp:1441,inferred
+JumpMarker,pCaptainObject_468,0x468,4,ptr,0.85,struct_atlas:dynamic pointer (dynamic targets CaptainObject x25),inferred
+LightObject,pos_494,0x494,,f32,0.97,struct_atlas:dynamic position dynamic: 5617/5617 samples,inferred
+LightObject,Attenuation1,0x4b8,4,f32,0.9,struct_atlas:property reader src/renderer/render_r5.cpp:341,inferred
+Object,pDefaultGameObject_34,0x34,4,ptr,0.65,"struct_atlas:dynamic pointer (dynamic targets DefaultGameObject x648, StigTurret x553, ForgeTurret x326, TriggerObject x177)",inferred
+Object,pWeaponObject_1bc,0x1bc,4,ptr,0.6,struct_atlas:dynamic pointer (dynamic targets WeaponObject x1),inferred
+Object,pobjui_crosshair_1dc,0x1dc,4,ptr,0.85,"struct_atlas:dynamic pointer (dynamic targets obj:ui_crosshair x15, CameraFXObject x1)",inferred
+Object,elapsed_24c,0x24c,4,ptr,0.95,struct_atlas:dynamic stopwatch dynamic: 183848/192027 changes equal +dt,inferred
+Object,elapsed_250,0x250,,f32,0.95,struct_atlas:dynamic stopwatch dynamic: 196357/206459 changes equal +dt,inferred
+Object,pos_254,0x254,,,0.97,struct_atlas:dynamic position dynamic: 575/575 samples,inferred
+Object,elapsed_26c,0x26c,,,0.95,struct_atlas:dynamic stopwatch dynamic: 15556/15913 changes equal +dt,inferred
+Object,elapsed_270,0x270,,,0.94,struct_atlas:dynamic stopwatch dynamic: 22723/24092 changes equal +dt,inferred
+Object,elapsed_28c,0x28c,,f32,0.95,struct_atlas:dynamic stopwatch dynamic: 50532/53204 changes equal +dt,inferred
+Object,elapsed_290,0x290,,f32,0.95,struct_atlas:dynamic stopwatch dynamic: 55097/58205 changes equal +dt,inferred
+Object,elapsed_2ac,0x2ac,,,0.91,struct_atlas:dynamic stopwatch dynamic: 18415/20170 changes equal +dt,inferred
+Object,elapsed_2b0,0x2b0,,,0.92,struct_atlas:dynamic stopwatch dynamic: 23087/25076 changes equal +dt,inferred
+Object,matrix_t_2f4,0x2f4,,f32,0.97,struct_atlas:dynamic matrix_translation dynamic: 457295/464339 samples,inferred
+Object,matrix_t_338,0x338,,f32,0.97,struct_atlas:dynamic matrix_translation dynamic: 458011/463232 samples,inferred
+Object,tag,0x390,4,u32,0.9,struct_atlas:property reader src/game/game_03.cpp:1240,inferred
+Object,pWeaponObject_414,0x414,4,ptr,0.65,"struct_atlas:dynamic pointer (dynamic targets WeaponObject x4, DefaultGameObject x4)",inferred
+Object,projectile_name,0x460,,,0.9,struct_atlas:property reader src/game/game_08.cpp:901,inferred
+Object,EnvMapNearClip,0x464,,,0.9,struct_atlas:property reader src/renderer/render_r6.cpp:666,inferred
+Object,EnvMapFreq,0x468,,,0.9,struct_atlas:property reader src/renderer/render_r6.cpp:665,inferred
+Object,ai_projectile_name,0x480,,,0.9,struct_atlas:property reader src/game/game_08.cpp:902,inferred
+Object,emitter_bone_name,0x4a0,,,0.9,struct_atlas:property reader src/game/game_08.cpp:903,inferred
+Object,muzzle_fx_name,0x4c0,,,0.9,struct_atlas:property reader src/game/game_08.cpp:904,inferred
+Object,muzzle_bone_name,0x500,,,0.9,struct_atlas:property reader src/game/game_08.cpp:905,inferred
+Object,recycle_time,0x520,,,0.9,struct_atlas:property reader src/game/game_08.cpp:900,inferred
+Object,text_display_time,0x528,,,0.9,struct_atlas:property reader src/game/game_04.cpp:1744,inferred
+Object,auto_aim,0x538,,,0.9,struct_atlas:property reader src/game/game_08.cpp:1098,inferred
+Object,camera_bone_name,0x53c,,,0.9,struct_atlas:property reader src/game/game_08.cpp:1100,inferred
+Object,zoom_camera_bone_name,0x55c,,,0.9,struct_atlas:property reader src/game/game_08.cpp:1101,inferred
+Object,player_bone_name,0x57c,,,0.9,struct_atlas:property reader src/game/game_08.cpp:1102,inferred
+Object,player_exit_bone_name,0x59c,,,0.9,struct_atlas:property reader src/game/game_08.cpp:1103,inferred
+Object,turn_max_speed,0x5bc,,,0.9,struct_atlas:property reader src/game/game_08.cpp:1104,inferred
+Object,pitch_max_speed,0x5c0,,,0.9,struct_atlas:property reader src/game/game_08.cpp:1105,inferred
+Object,zoom_turn_max_speed,0x5c4,,,0.9,struct_atlas:property reader src/game/game_08.cpp:1106,inferred
+Object,zoom_pitch_max_speed,0x5c8,,,0.9,struct_atlas:property reader src/game/game_08.cpp:1107,inferred
+Object,ai_kickout_fx_name,0x5cc,,,0.9,struct_atlas:property reader src/game/game_08.cpp:1117,inferred
+Object,ai_kickout_fx_bone,0x5ec,,,0.9,struct_atlas:property reader src/game/game_08.cpp:1118,inferred
+Object,ai_kickout_health_pct,0x60c,,,0.9,struct_atlas:property reader src/game/game_08.cpp:1112,inferred
+Object,ai_kickout_stayout_secs,0x610,,,0.9,struct_atlas:property reader src/game/game_08.cpp:1114,inferred
+Object,ai_kickout_impact_force,0x618,,,0.9,struct_atlas:property reader src/game/game_08.cpp:1116,inferred
+Object,message_radius,0x624,,,0.9,struct_atlas:property reader src/game/game_08.cpp:1108,inferred
+PeasantObject,saved_score_value,0x490,4,f32,0.9,struct_atlas:property reader src/game/game_01.cpp:1175,inferred
+PeasantObject,killed_score_value,0x494,4,f32,0.9,struct_atlas:property reader src/game/game_01.cpp:1176,inferred
+PeasantObject,pFxData_498,0x498,4,ptr,0.85,struct_atlas:dynamic pointer (dynamic targets FxData x821),inferred
+PlayerObject,pFxData_568,0x568,4,ptr,0.85,struct_atlas:dynamic pointer (dynamic targets FxData x25),inferred
+PlayerObject,pDefaultGameObject_580,0x580,4,ptr,0.85,"struct_atlas:dynamic pointer (dynamic targets DefaultGameObject x4, BuildingObject x1)",inferred
+PlayerObject,control_bias,0x9a0,4,u32,0.9,struct_atlas:property reader src/game/game_05.cpp:597,inferred
+PlayerObject,zoom_control_control_bias,0x9a8,4,u32,0.9,struct_atlas:property reader src/game/game_05.cpp:601,inferred
+PlayerObject,targeting_bias,0x9e0,4,u32,0.9,struct_atlas:property reader src/game/game_05.cpp:589,inferred
+PlayerObject,zoom_targeting_bias,0x9e8,4,u32,0.9,struct_atlas:property reader src/game/game_05.cpp:593,inferred
+PlayerObject,sniper_turn_max_speed,0xa00,,f32,0.9,struct_atlas:property reader src/game/game_05.cpp:613,inferred
+PlayerObject,rifle_turn_max_speed,0xa04,,f32,0.9,struct_atlas:property reader src/game/game_05.cpp:615,inferred
+PlayerObject,vindaloo_turn_max_speed,0xa08,,f32,0.9,struct_atlas:property reader src/game/game_05.cpp:621,inferred
+PlayerObject,gurner_turn_max_speed,0xa0c,,f32,0.9,struct_atlas:property reader src/game/game_05.cpp:619,inferred
+PlayerObject,sharkgun_turn_max_speed,0xa10,,f32,0.9,struct_atlas:property reader src/game/game_05.cpp:617,inferred
+PlayerObject,sniper_pitch_max_speed,0xa18,,f32,0.9,struct_atlas:property reader src/game/game_05.cpp:614,inferred
+PlayerObject,rifle_pitch_max_speed,0xa1c,,f32,0.9,struct_atlas:property reader src/game/game_05.cpp:616,inferred
+PlayerObject,vindaloo_pitch_max_speed,0xa20,,f32,0.9,struct_atlas:property reader src/game/game_05.cpp:622,inferred
+PlayerObject,gurner_pitch_max_speed,0xa24,,f32,0.9,struct_atlas:property reader src/game/game_05.cpp:620,inferred
+PlayerObject,sharkgun_pitch_max_speed,0xa28,,f32,0.9,struct_atlas:property reader src/game/game_05.cpp:618,inferred
+PlayerObject,pDefaultGameObject_abc,0xabc,4,ptr,0.85,struct_atlas:dynamic pointer (dynamic targets DefaultGameObject x60),inferred
+PlayerObject,pMolmerObject_ad0,0xad0,4,ptr,0.85,struct_atlas:dynamic pointer (dynamic targets MolmerObject x14),inferred
+PlayerObject,pQ111Object_ad4,0xad4,4,ptr,0.85,struct_atlas:dynamic pointer (dynamic targets Q111Object x14),inferred
+PlayerObject,landing_damage_min_hurt,0xbd0,4,f32,0.9,struct_atlas:property reader src/game/game_05.cpp:713,inferred
+PlayerObject,landing_damage_min_hurt_turbo,0xbd4,,f32,0.9,struct_atlas:property reader src/game/game_05.cpp:717,inferred
+PlayerObject,landing_damage_max_hurt,0xbd8,4,f32,0.9,struct_atlas:property reader src/game/game_05.cpp:714,inferred
+PlayerObject,landing_damage_max_hurt_turbo,0xbdc,,f32,0.9,struct_atlas:property reader src/game/game_05.cpp:718,inferred
+PlayerObject,landing_damage_min_speed,0xbe0,4,f32,0.9,struct_atlas:property reader src/game/game_05.cpp:715,inferred
+PlayerObject,landing_damage_min_speed_turbo,0xbe4,,f32,0.9,struct_atlas:property reader src/game/game_05.cpp:719,inferred
+PlayerObject,landing_damage_max_speed,0xbe8,4,f32,0.9,struct_atlas:property reader src/game/game_05.cpp:716,inferred
+PlayerObject,landing_damage_max_speed_turbo,0xbec,,f32,0.9,struct_atlas:property reader src/game/game_05.cpp:720,inferred
+PlayerObject,death_falling_time,0xbf0,4,f32,0.9,struct_atlas:property reader src/game/game_05.cpp:721,inferred
+PlayerObject,death_falling_distance,0xbf4,4,f32,0.9,struct_atlas:property reader src/game/game_05.cpp:722,inferred
+PlayerObject,turbo_death_falling_time,0xbf8,4,f32,0.9,struct_atlas:property reader src/game/game_05.cpp:723,inferred
+PlayerObject,turbo_death_falling_distance,0xbfc,4,f32,0.9,struct_atlas:property reader src/game/game_05.cpp:724,inferred
+PlayerTickerBomb,damage_radius_inner,0x48c,,f32,0.9,struct_atlas:property reader src/game/game_02.cpp:2530,inferred
+PlayerTickerBomb,damage_radius_outer,0x490,,f32,0.9,struct_atlas:property reader src/game/game_02.cpp:2531,inferred
+PlayerTurret,pGruntObject_628,0x628,4,ptr,0.85,"struct_atlas:dynamic pointer (dynamic targets GruntObject x364, BowGruntObject x24, PlayerObject x3)",inferred
+Projectile,damage_radius_inner,0x478,4,f32,0.9,struct_atlas:property reader src/game/game_06.cpp:994,inferred
+Projectile,damage_radius_outer,0x47c,4,f32,0.9,struct_atlas:property reader src/game/game_06.cpp:995,inferred
+Projectile,pCaptainObject_504,0x504,4,ptr,0.65,"struct_atlas:dynamic pointer (dynamic targets CaptainObject x155, GruntObject x121, BowGruntObject x117, PlayerObject x7)",inferred
+Projectile,pPlayerObject_544,0x544,4,ptr,0.85,"struct_atlas:dynamic pointer (dynamic targets PlayerObject x70, GruntObject x22, Q111Object x4, MolmerObject x2)",inferred
+Projectile,pGruntObject_574,0x574,4,ptr,0.65,"struct_atlas:dynamic pointer (dynamic targets GruntObject x119, BowGruntObject x117, CaptainObject x88, Q111Object x4)",inferred
+PubObject,health_bar_rate,0x474,,f32,0.9,struct_atlas:property reader src/game/game_04.cpp:1705,inferred
+PubObject,doorway_bone_name,0x478,,,0.9,struct_atlas:property reader src/game/game_04.cpp:1707,inferred
+PubObject,doorway_entry_radius,0x498,,f32,0.9,struct_atlas:property reader src/game/game_04.cpp:1708,inferred
+PubObject,player_exit_bone_name,0x49c,,,0.9,struct_atlas:property reader src/game/game_04.cpp:1709,inferred
+Q111Object,pClothObject_bd0,0xbd0,,ptr,0.85,struct_atlas:dynamic pointer (dynamic targets ClothObject x169),inferred
+RocketTowerBuilding,pRocketTowerTurret_524,0x524,4,ptr,0.6,struct_atlas:dynamic pointer (dynamic targets RocketTowerTurret x4),inferred
+RocketTowerTurret,emitter_bone_name_2,0x558,,,0.9,struct_atlas:property reader src/game/game_09.cpp:310,inferred
+RocketTowerTurret,emitter_bone_name_3,0x578,,,0.9,struct_atlas:property reader src/game/game_09.cpp:311,inferred
+RocketTowerTurret,emitter_bone_name_4,0x598,,,0.9,struct_atlas:property reader src/game/game_09.cpp:312,inferred
+RocketTowerTurret,pRocketTowerBuilding_5ec,0x5ec,4,ptr,0.6,struct_atlas:dynamic pointer (dynamic targets RocketTowerBuilding x4),inferred
+SquadObject,pGoliathObject_b7c,0xb7c,4,ptr,0.85,struct_atlas:dynamic pointer (dynamic targets GoliathObject x15),inferred
+StickyBombProjectile,pGruntObject_5d4,0x5d4,4,ptr,0.85,struct_atlas:dynamic pointer (dynamic targets GruntObject x15),inferred
+TeamateObject,pMolmerObject_b64,0xb64,4,ptr,0.65,"struct_atlas:dynamic pointer (dynamic targets MolmerObject x14, Q111Object x14)",inferred
+TimerObject,pobjui_mission_briefing_508,0x508,4,ptr,0.6,struct_atlas:dynamic pointer (dynamic targets obj:ui_mission_briefing x1),inferred
+TurretGun,pPlayerObject_b94,0xb94,4,ptr,0.85,struct_atlas:dynamic pointer (dynamic targets PlayerObject x8),inferred
+TurretObject,pFxData_534,0x534,4,ptr,0.85,struct_atlas:dynamic pointer (dynamic targets FxData x5),inferred
+Twiglet,pPlayerObject_478,0x478,4,ptr,0.85,struct_atlas:dynamic pointer (dynamic targets PlayerObject x16),inferred
+Twiglet,elapsed_4a0,0x4a0,4,f32,0.95,struct_atlas:dynamic stopwatch dynamic: 3076/3083 changes equal +dt,inferred
+Twiglet,elapsed_4a4,0x4a4,4,f32,0.95,struct_atlas:dynamic stopwatch dynamic: 3067/3079 changes equal +dt,inferred
+Twiglet,pFxExplosion_55c,0x55c,4,ptr,0.85,"struct_atlas:dynamic pointer (dynamic targets FxExplosion x475, WeaponObject x1, ArrowProjectile x1)",inferred
+TwigletController,pTwigletGenerator_460,0x460,4,ptr,0.85,struct_atlas:dynamic pointer (dynamic targets TwigletGenerator x37),inferred
+WeaponObject,pGruntObject_54c,0x54c,4,ptr,0.65,"struct_atlas:dynamic pointer (dynamic targets GruntObject x31, PlayerObject x16, BowGruntObject x12, CaptainObject x4)",inferred
+WeaponObject,pFxData_550,0x550,4,ptr,0.85,struct_atlas:dynamic pointer (dynamic targets FxData x9),inferred
+World,pos_204,0x204,,f32,0.97,struct_atlas:dynamic position dynamic: 2508/2508 samples,inferred
+World,pos_2c4,0x2c4,,f32,0.97,struct_atlas:dynamic position dynamic: 2508/2508 samples,inferred
+World,pos_384,0x384,,f32,0.97,struct_atlas:dynamic position dynamic: 2508/2508 samples,inferred
+World,pos_484,0x484,,f32,0.97,struct_atlas:dynamic position dynamic: 2508/2508 samples,inferred
+World,pos_504,0x504,,f32,0.97,struct_atlas:dynamic position dynamic: 2508/2508 samples,inferred
+World,pos_694,0x694,,f32,0.97,struct_atlas:dynamic position dynamic: 2508/2508 samples,inferred
+World,pos_6d4,0x6d4,,f32,0.97,struct_atlas:dynamic position dynamic: 2508/2508 samples,inferred
+World,pos_794,0x794,,f32,0.97,struct_atlas:dynamic position dynamic: 2508/2508 samples,inferred
+World,pos_934,0x934,,f32,0.97,struct_atlas:dynamic position dynamic: 2508/2508 samples,inferred
+World,pGruntObject_f4c,0xf4c,,ptr,0.65,"struct_atlas:dynamic pointer (dynamic targets GruntObject x39, CaptainObject x18, BowGruntObject x16, MonkObject x14)",inferred
+World,matrix_t_f68,0xf68,,f32,0.97,struct_atlas:dynamic matrix_translation dynamic: 2467/2508 samples,inferred
+World,pos_f6c,0xf6c,,f32,0.92,struct_atlas:dynamic position dynamic: 2308/2508 samples,inferred
+World,pos_f70,0xf70,,f32,0.97,struct_atlas:dynamic position dynamic: 2508/2508 samples,inferred
+World,pGruntObject_f7c,0xf7c,,ptr,0.65,"struct_atlas:dynamic pointer (dynamic targets GruntObject x26, CaptainObject x14, BowGruntObject x11, SniperCaptain x8)",inferred
+World,pFxEarObject_f80,0xf80,,ptr,0.6,struct_atlas:dynamic pointer (dynamic targets FxEarObject x1),inferred
+World,matrix_t_f98,0xf98,,f32,0.97,struct_atlas:dynamic matrix_translation dynamic: 2439/2508 samples,inferred
+World,pos_f9c,0xf9c,,f32,0.95,struct_atlas:dynamic position dynamic: 2377/2508 samples,inferred
+World,pos_fa0,0xfa0,,f32,0.97,struct_atlas:dynamic position dynamic: 2508/2508 samples,inferred
+World,pGruntObject_fac,0xfac,,ptr,0.65,"struct_atlas:dynamic pointer (dynamic targets GruntObject x15, BowGruntObject x11, CaptainObject x5, SniperCaptain x4)",inferred
+World,matrix_t_fc8,0xfc8,,f32,0.97,struct_atlas:dynamic matrix_translation dynamic: 2450/2508 samples,inferred
+World,pos_fcc,0xfcc,,f32,0.96,struct_atlas:dynamic position dynamic: 2399/2508 samples,inferred
+World,pos_fd0,0xfd0,,f32,0.97,struct_atlas:dynamic position dynamic: 2508/2508 samples,inferred
+World,pGruntObject_fdc,0xfdc,,ptr,0.65,"struct_atlas:dynamic pointer (dynamic targets GruntObject x15, CaptainObject x6, BowGruntObject x5, SniperCaptain x5)",inferred
+vt_005a68b8,matrix_t_2f4,0x2f4,,f32,0.97,struct_atlas:dynamic matrix_translation dynamic: 8820/8820 samples,inferred
+vt_005a68b8,matrix_t_338,0x338,,f32,0.97,struct_atlas:dynamic matrix_translation dynamic: 8820/8820 samples,inferred
