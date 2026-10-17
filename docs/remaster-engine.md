@@ -976,7 +976,9 @@ original's Roman stands ~40 frames after landing from a 9-unit drop, the remaste
     (audio_voice), music segments vanished (audio_stopall), and the AI's "still saying / screaming" checks (taunts,
     death lines) changed which random numbers were drawn (gunner1, infantry_l4m2). A one-shot now ends when its
     length (the bank's duration over its playback rate) has played in game time (audio.rs `Voice::length`); a file
-    that loads late starts sought to the voice's age. Never read `AudioSink::empty` / `position` for game logic.
+    that loads late starts at the voice's age (its PlaybackSettings `start_position`). Never read
+    `AudioSink::empty` / `position` for game logic, and never `try_seek` a voice's sink: it blocks until the audio
+    thread answers and froze audio_music for good (the movie player's seek is the one existing use).
   - **asset load timing**: a voice used to start ageing only once its file had loaded (a load-dependent number of
     frames). Any gameplay gate on an asset's load state has the same problem.
   - **`std::collections::HashMap` order**: randomly seeded per process. FxVm's objects were updated in hash order,
