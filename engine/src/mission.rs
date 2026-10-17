@@ -1886,6 +1886,21 @@ fn barracks(
 }
 
 /// Running timers advance (TimerObject_Update 0x00496750) and send their triggers.
+impl Mission {
+    /// The running timers jump `dt` ahead (the playtest's skip_timers step): the triggers of the entries passed, in
+    /// order, as each timer's own advance (Timer_Advance 0x00496690) gives them.
+    pub fn skip_timers(&mut self, dt: f32) -> Vec<i64> {
+        let mut out = Vec::new();
+        for tm in &mut self.timers {
+            for t in tm.advance(dt) {
+                self.log.push(format!("timer {} -> trigger {t} (skipped ahead)", tm.id));
+                out.push(t);
+            }
+        }
+        out
+    }
+}
+
 fn timers(time: Res<Time>, mut m: Option<ResMut<Mission>>, mut out: MessageWriter<SendTrigger>) {
     let Some(m) = m.as_deref_mut() else { return };
     let dt = time.delta_secs();
@@ -2109,6 +2124,7 @@ fn dispatch(
                     }
                 }
                 Action::Fx(name, at) => {
+                    m.log.push(format!("fx ear: {name}"));
                     fx.write(StartFx { name, at, rotation: Quat::IDENTITY, follow: None, position_only: false });
                 }
                 // handled above by the barracks' own trigger ids

@@ -900,6 +900,10 @@ pub fn spawn(
                 if on_death != 0 {
                     commands.entity(e).insert(crate::mission::DeathTrigger(on_death));
                 }
+                // a trigger and a tower marker: the tower task (lev_4_m2's Jonesy, ai/tower.rs)
+                if let Some(task) = crate::ai::tower::TowerTask::from_props(&p) {
+                    commands.entity(e).insert(task);
+                }
             }
             continue;
         }

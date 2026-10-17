@@ -200,6 +200,32 @@ pub struct Projectile {
     /// fly-by sound once within 70 of Roman (0x00482620)
     pub arrow: bool,
     pub flyby: bool,
+    /// the damage record's class flag (projectile vt+0x13c): a mounted gun's bullet 0x80000, the forge cannon's mortar
+    /// 0x100000, which an AI victim scales by its stig_ / forge_damage_multiplier (GenericAIObject_Slot52 0x00430340)
+    pub kind: DamageKind,
+}
+
+/// A projectile's damage class as its record flags carry it (projectile vt+0x13c, the base 0x0047eba0 plus the class's
+/// bit): the AI victims scale the damage by their own multiplier for it (GenericAIObject_Slot52 0x00430340).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum DamageKind {
+    #[default]
+    Plain,
+    /// proj_stig_bullet (class 3, vtable 0x005aec10: 0x00481010 adds 0x80000): the mounted guns' bullets
+    Stig,
+    /// proj_forge_mortar (class 0xb, ForgeCannonProjectile 0x005a33b8: 0x00481000 adds 0x100000)
+    Forge,
+}
+
+impl DamageKind {
+    /// By the projectile's behaviour (the class table of 0x0045df60 / ObjectSystem_CreateObject 0x0045f020).
+    pub fn of_behavior(b: &str) -> Self {
+        match b {
+            "proj_stig_bullet" => DamageKind::Stig,
+            "proj_forge_mortar" => DamageKind::Forge,
+            _ => DamageKind::Plain,
+        }
+    }
 }
 
 /// Bones that stand for collision parts in the hit test (the main body bones, as the ragdoll parts).
@@ -354,6 +380,7 @@ fn launch_projectile(commands: &mut Commands, fx: &mut MessageWriter<crate::fx::
                 vel,
                 arrow: p.s("behavior") == Some("proj_arrow"),
                 flyby: p.s("behavior") == Some("proj_arrow"),
+                kind: DamageKind::of_behavior(p.s("behavior").unwrap_or("")),
                 // "lifetime" (Projectile_Load 0x0047e0c0, default 4): removed when it runs out (0x0047e4a0)
                 life: p.f("lifetime", 4.0),
                 damage: p.f("damage", 10.0),
@@ -1806,7 +1833,7 @@ fn projectiles(
                 if p.from_player {
                     c.friendly = true;
                 } else {
-                    ch.0 -= p.damage;
+                    ch.0 -= p.damage * c.damage_scale(p.kind);
                     c.attacker = p.owner;
                 }
             }

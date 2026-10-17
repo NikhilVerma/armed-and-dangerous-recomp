@@ -34,6 +34,8 @@ pub struct Marker {
     pub pos: Vec3,
     /// its facing (0x00453150: the placement's forward), used with face_dir
     pub dir: Vec3,
+    /// the placement's game-space matrix (vt+0x5c: a tower companion takes it on arrival, ai/tower.rs)
+    pub matrix: Mat4,
     pub tag: i64,
     /// "sequence" +0x46c: the order on its tag's spline (0 = the head)
     pub sequence: i64,
@@ -161,6 +163,7 @@ impl Markers {
                         pos,
                         // guess: the placement's -y axis as for the trenches' ref_barracade (0x00453150 not traced)
                         dir: (game_to_engine() * -mat.y_axis.truncate()).with_y(0.0).normalize_or(Vec3::Z),
+                        matrix: mat,
                         tag: num(&p, "marker_tag") as i64,
                         sequence: num(&p, "sequence") as i64,
                         next: (num(&p, "marker_next_min") as i64, num(&p, "marker_next_max") as i64),

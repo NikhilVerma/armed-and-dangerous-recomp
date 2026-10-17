@@ -1,0 +1,42 @@
+{
+ "about": "lev_4_m2: Jonesy's tower task (ai/tower.rs). The mission's peasant_success_trigger 7001 (sent here at play frame 60, as if the tenth peasant were safe: [test] play_triggers, a hook built from 2026-10-16's testoracle.cpp) sends him off alone to the Glass Tower's marker 356; there 802 (the alarm, the second objective text, the 120 s countdown), the plant anim (eight bombs, 31.3 s) and the bomb loop. Roman stands at the start with his health held at its maximum (hold_health: the start's troops killed him in one original run, a roll), so nobody guards Jonesy: the original's dies at frame 7440 (5001), so the run stops at 6200 with the bomb loop running (the win path is the playtest tower_l4m2's). ENTER dismisses the briefing, the first objective text (~1 s after 7001) and the second (~1 s after the arrival; pressed every 40 frames round it). Compared (discrete fields and events within 60 frames: NAV1): companion.jonesy.mode (6 from frame 60, 7 from the arrival at ~3800), the triggers 7001 / 802 / 823 / 2, mission.objective, and Jonesy's position on the marker and through the plant anim (within 0.4 units)",
+ "level": "lev_4_m2",
+ "keys": "0:ENTER*3,150:ENTER*3,3880:ENTER*3,3920:ENTER*3,3960:ENTER*3,4000:ENTER*3,4040:ENTER*3,4080:ENTER*3,4120:ENTER*3",
+ "frames": 6200,
+ "trace_every": 10,
+ "trace_from": -60,
+ "triggers": [
+  [
+   60,
+   7001
+  ]
+ ],
+ "hold_health": true,
+ "suite": true,
+ "known": {
+  "companion.jonesy.pos": "NAV1: on the walk (frames 200..3800) nav.rs's route takes the south corridor of the abbey where the original's nav mesh takes the north one, of the same length (2418 vs 2450 units); both arrive together and agree within 0.4 units on the marker and through the plant anim; the arrival (mode 6 -> 7, 802, the second text's pause) comes 0..40 frames after the original's run to run (the stuck re-route at nav.rs's step), hence the 60-frame tolerance for discrete fields and events",
+  "companion.jonesy.health": "T1: the original's Jonesy takes no damage during the plant anim (frames 3800..5680 at 500 in both original runs; the bomb loop's hits come after), the remaster's does (it killed him at ~5650 before the 2026-10-17 merge); before that the walk's hits are the troops' rolls (the whole level chases him in both)"
+ },
+ "expected": {
+  "events.sounds": "an unattended fight: the troops' and monks' sounds follow their rolls; B17 (sounds the remaster does not start)",
+  "grunt.mind": "an unattended fight over the level (the troops chase Jonesy in both): the AI's rolls",
+  "grunt.target": "as grunt.mind",
+  "grunt.pos": "as grunt.mind",
+  "grunt.health": "as grunt.mind",
+  "grunts.alive": "as grunt.mind",
+  "events.deaths": "as grunt.mind",
+  "roman.health": "the start's troops fight Roman and Q: the AI's rolls",
+  "roman.pos": "Roman is knocked about by the start's fight (grenades)",
+  "companion.q.pos": "Q fights the start's troops: the AI's rolls",
+  "companion.q.health": "as companion.q.pos",
+  "timing": "the second objective text comes up a few frames apart (the arrival)",
+  "twiglet.nearest": "the monks' summoned twiglets: their casting rolls",
+  "twiglets.alive": "as twiglet.nearest",
+  "twiglets.bombs": "as twiglet.nearest",
+  "twiglets.running": "as twiglet.nearest"
+ },
+ "tolerance": {
+  "frames": 60,
+  "event_frames": 60
+ }
+}

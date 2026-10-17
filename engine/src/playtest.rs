@@ -93,6 +93,14 @@ pub struct Event {
     /// debug: damage a companion: [0 Jonesy / 1 Q, amount]
     #[serde(default)]
     pub hurt_companion: Option<[f32; 2]>,
+    /// debug: put a companion's feet at a game-space point: [0 Jonesy / 1 Q, x, y, z] (a long walk skipped: the
+    /// tower task's test, ai/tower.rs)
+    #[serde(default)]
+    pub warp_companion: Option<[f32; 4]>,
+    /// debug: the running mission timers jump this many seconds ahead, their entries in between sent (mission.rs
+    /// `Mission::skip_timers`): a long countdown (lev_4_m2's 120 s at the tower) checked without waiting it out
+    #[serde(default)]
+    pub skip_timers: Option<f32>,
     /// debug: a badguy blast of this area damage at Roman's feet (through the blast damage path, fx.rs)
     #[serde(default)]
     pub blast: Option<f32>,
@@ -313,6 +321,10 @@ pub struct Playtest {
     pad: Vec<String>,
     /// companion damage for hurt_companions
     hurt_c: Vec<[f32; 2]>,
+    /// companion warps for hurt_companions
+    warp_c: Vec<[f32; 4]>,
+    /// timer skips for skip_timers
+    skip_t: Vec<f32>,
     /// blast steps for hurt_companions
     blasts: Vec<f32>,
     /// the virtual gamepad, once connected: scripted runs read only it (input.rs), never a pad on the desk
@@ -371,7 +383,7 @@ impl Playtest {
         let mut events = s.events;
         events.sort_by(|a, b| a.t.total_cmp(&b.t));
         let log = std::fs::File::create(path.with_extension("log.jsonl")).ok();
-        Playtest { pickups: vec![], loadouts: vec![], audio: vec![], fx: vec![], movies: vec![], intro: s.intro, passed: 0, failed: 0, hurt_c: vec![], blasts: vec![], pad_e: None, notes: Default::default(), pad: vec![], warp: None, probe: None, land_by: None, land_peasant: false, path, title: s.title, real_time: s.real_time, events, turns: s.turns, next: 0, t: 0.0, taps: vec![], clicks: vec![], log, last_log: -1.0, steps: s.steps, step_shot: None, step: 0, step_t: 0.0, step_started: false }
+        Playtest { pickups: vec![], loadouts: vec![], audio: vec![], fx: vec![], movies: vec![], intro: s.intro, passed: 0, failed: 0, hurt_c: vec![], warp_c: vec![], skip_t: vec![], blasts: vec![], pad_e: None, notes: Default::default(), pad: vec![], warp: None, probe: None, land_by: None, land_peasant: false, path, title: s.title, real_time: s.real_time, events, turns: s.turns, next: 0, t: 0.0, taps: vec![], clicks: vec![], log, last_log: -1.0, steps: s.steps, step_shot: None, step: 0, step_t: 0.0, step_started: false }
     }
 }
 
@@ -392,7 +404,7 @@ impl Plugin for PlaytestPlugin {
             .add_systems(Last, log_frames.before(log_render).run_if(resource_exists::<Playtest>))
             .add_systems(PreUpdate, drive.after(bevy::input::InputSystems).before(crate::input::InputDevices).run_if(resource_exists::<Playtest>))
             .add_systems(PreUpdate, pad_drive.after(drive).before(crate::input::InputDevices).run_if(resource_exists::<Playtest>))
-            .add_systems(Update, hurt_companions.run_if(resource_exists::<Playtest>))
+            .add_systems(Update, (hurt_companions, skip_timers).run_if(resource_exists::<Playtest>))
             .add_systems(Last, (log_render, log_state).chain().run_if(resource_exists::<Playtest>))
             .add_systems(Update, warp.run_if(resource_exists::<Playtest>));
     }
@@ -795,6 +807,12 @@ pub(crate) fn drive(
         if let Some(h) = e.hurt_companion {
             pt.hurt_c.push(h);
         }
+        if let Some(w) = e.warp_companion {
+            pt.warp_c.push(w);
+        }
+        if let Some(t) = e.skip_timers {
+            pt.skip_t.push(t);
+        }
         if let Some(d) = e.blast {
             pt.blasts.push(d);
         }
@@ -1125,10 +1143,23 @@ fn pad_drive(
     }
 }
 
-/// The hurt_companion step: damage straight to Jonesy (0) or Q (1). The blast step: an explosion at Roman.
+/// The skip_timers step: the running mission timers jump ahead, what they pass is sent.
+fn skip_timers(mut pt: ResMut<Playtest>, mut m: Option<ResMut<crate::mission::Mission>>, mut out: MessageWriter<crate::mission::SendTrigger>) {
+    for dt in std::mem::take(&mut pt.skip_t) {
+        let Some(m) = m.as_deref_mut() else { continue };
+        info!("EVENT playtest: mission timers skip {dt} s");
+        for t in m.skip_timers(dt) {
+            out.write(crate::mission::SendTrigger(t));
+        }
+    }
+}
+
+/// The hurt_companion step: damage straight to Jonesy (0) or Q (1); warp_companion: one of them put at a point. The
+/// blast step: an explosion at Roman.
 fn hurt_companions(
     mut pt: ResMut<Playtest>,
-    mut q: Query<(&crate::ai::Companion, &mut crate::fx::Health)>,
+    mut q: Query<(&crate::ai::Companion, &mut crate::fx::Health, &mut Transform)>,
+    mut physics: NonSendMut<crate::physics::Physics>,
     roman: Query<(&GlobalTransform, &crate::fx::Health), (With<crate::player::Roman>, Without<crate::ai::Companion>)>,
     mut boom: MessageWriter<crate::fx::Explode>,
 ) {
@@ -1139,9 +1170,19 @@ fn hurt_companions(
         }
     }
     for [who, amount] in std::mem::take(&mut pt.hurt_c) {
-        for (c, mut h) in &mut q {
+        for (c, mut h, _) in &mut q {
             if c.q == (who >= 0.5) {
                 h.0 -= amount;
+            }
+        }
+    }
+    for [who, x, y, z] in std::mem::take(&mut pt.warp_c) {
+        let at = crate::level::game_to_engine() * Vec3::new(x, y, z);
+        for (c, _, mut t) in &mut q {
+            if c.q == (who >= 0.5) {
+                physics.place_walker(&c.walker, at);
+                t.translation = at;
+                info!("EVENT playtest: companion {} warped to {x} {y} {z}", if c.q { "Q" } else { "Jonesy" });
             }
         }
     }

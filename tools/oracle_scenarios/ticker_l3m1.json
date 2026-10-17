@@ -34,6 +34,8 @@
   "mission.state": "G1: the remaster's Roman died (roman.health), so its mission fails at 1438",
   "paused": "G1: the failure message (mission.state)",
   "timing": "G1: the failure pause (mission.state)",
-  "vehicle.health": "G4: the ticker blast (area_damage 100, radius 40..60) takes ~14 off squad 171's goliath in the remaster (when G2 / G1 leave it near), the original's keeps 3000 at ~44 units: which filter or distance the original's blast uses against a GenericAI is not traced (the remaster measures to its bounds' surface)"
+  "vehicle.health": "G4: the ticker blast (area_damage 100, radius 40..60) takes ~14 off squad 171's goliath in the remaster (when G2 / G1 leave it near), the original's keeps 3000 at ~44 units: which filter or distance the original's blast uses against a GenericAI is not traced (the remaster measures to its bounds' surface)",
+  "peasant_count.carried": "G1: when goliath 170 dies (1386) its caged peasant is freed; the original's Roman, alive beside it, takes it on his rope at 1404 (link 1, rope 9.7 -> 3); the remaster's Roman was shot dead by then (roman.health), so nobody takes it",
+  "peasants.captured": "G1: when goliath 170 dies (1386) its caged peasant is freed; the original's Roman, alive beside it, takes it on his rope at 1404 (link 1, rope 9.7 -> 3); the remaster's Roman was shot dead by then (roman.health), so nobody takes it"
  }
 }

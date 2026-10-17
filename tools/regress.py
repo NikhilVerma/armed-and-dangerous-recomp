@@ -19,7 +19,7 @@ PLAY = os.path.join(ROOT, 'work', 'remaster', 'play')
 SUITE = ['save_write', 'save_read', 'topsyhit2', 'turn_in_place', 'turret1', 'decals_obj', 'oilpump', 'gfxopts', 'cover1', 'cover2', 'cover3', 'gunner1', 'gunner2', 'objects1',
          'menus', 'hud', 'flow', 'stats', 'pub', 'pub_screen', 'unit',
          'hits1', 'noise1', 'noise2', 'splines1', 'alarm1', 'captain1', 'taunt1', 'leader1',
-         'infantry_l2m1', 'infantry_l3m1', 'infantry_l4m2', 'infantry_l2m2', 'squad_goliath', 'twiglets', 'monk_summon',
+         'infantry_l2m1', 'infantry_l3m1', 'infantry_l4m2', 'infantry_l2m2', 'squad_goliath', 'twiglets', 'monk_summon', 'tower_l4m2', 'tower_l4m2_fail',
          'peasants_l2m3', 'peasants_bonus_m2', 'peasants_lost_l4m2', 'peasants_cage_l3m1',
          'mission_start', 'volumes', 'ticker', 'ticker_goliath', 'ticker_goliath_l4m1', 'pickups', 'pubflow', 'winfail',
          'player_move', 'player_fall', 'player_weapons', 'player_special', 'player_topsy', 'player_banter', 'jetpack_l3m1', 'jetpack_l4m3',
@@ -52,6 +52,10 @@ SUITE += ['complete_lev_1_m1', 'complete_lev_1_m1_b', 'gun_save_write', 'gun_sav
 # the base turret, the army marches and releases, kills and the win / fail chains (each script names its level)
 # 'save_slots': the save / load slot screens (feedback 26): save to slot 2, then slot 1, load slot 2 -> slot 2's
 # state; the main menu's Load Game and the pause menu's Save Game open the slot list
+# 'tower_l4m2*': Jonesy's tower task on lev_4_m2 (ai/tower.rs): he starts where the level placed him, 7001 sends him
+# off (warped near the tower first), he arrives healed, the marker's 802 forces the alarm and starts the countdown,
+# the plant anim puts 8 bombs on the doors, the bomb loop, the countdown (skipped ahead) blows the doors (4000) and
+# wins; _fail: his death sends 5001, the mission fails with "Jonesy just died!"
 # 'ticker_goliath*': ticker bomb sites locked to the squads' goliaths (mission.rs lock_sites, 0x0044e120): lev_3_m1's three
 # sites ride their goliaths as they walk, each is armed on its goliath and blows it (2001..2003, counter 7 -> 3998, the
 # objective); lev_4_m1's site 368 the same (2110 -> 3998)
