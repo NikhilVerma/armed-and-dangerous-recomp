@@ -1,0 +1,9 @@
+{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+ {"wait": 0.5},
+ {"warp": [-255, -120, 8, 180]},
+ {"wait": 0.5},
+ {"spawn": [-255, -127, 8]},
+ {"wait": 12.0},
+ {"expect": {"melee.swings": [1, 100], "melee.close_hits": [1, 1000]}},
+ {"quit": true}
+]}

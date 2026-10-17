@@ -92,6 +92,8 @@ pub enum Mind {
     MaxFireWait,
     /// state 0x82: falling (ai/fall.rs), anim 0x61 (0x62 under a parachute); a landing resumes `Grunt::fall`'s state
     Falling,
+    /// state 0xb: a close attack (ai/melee.rs `close_attack`), anim 0x5f / 0x60 looped (`anim_id`)
+    CloseAttack,
 }
 
 /// The grunt classes a lev_1_m1 template makes (counted in the coverage runs: BowGruntObject_Slot6 0x004347b0 runs 9
@@ -1102,7 +1104,7 @@ impl Plugin for AiPlugin {
                         (body::apply_rules, log_cover, log_ai, log_placed, squad::log_squads, ic::log).chain(),
                         // the later levels' infantry (projectiles, falls, drops, the wall assault) and their playtest logs
                         (grenade::fly, rocket::shoot_down, fall::drop_parachutes, jumper::free_markers, assault::sync, assault::recruit, ladder::ladders, retreat::run).chain(),
-                        (melee::count_kills, melee::log, max_fire::log, grenade::log, rocket::log, fall::log, paratroop::log, jumper::log, notes::log, assault::log, ladder::log, retreat::log).chain(),
+                        (melee::count_kills, melee::close_hits, melee::log, max_fire::log, grenade::log, rocket::log, fall::log, paratroop::log, jumper::log, notes::log, assault::log, ladder::log, retreat::log).chain(),
                     )
                         .chain(),
                 )
@@ -2647,7 +2649,7 @@ fn think(
         Res<crate::turret::Mounted>,
         Res<crate::gamedata::GameData>,
     ),
-    (mut lib, player_q, mut triggers, grenade_assets, squads, mut jmarks, army, placed, mut limit, mut force, motion): (
+    (mut lib, player_q, mut triggers, grenade_assets, squads, mut jmarks, army, placed, mut limit, mut force, motion, mut close): (
         ResMut<crate::skin::AnimLibrary>,
         Query<Entity, With<Player>>,
         MessageWriter<crate::mission::SendTrigger>,
@@ -2659,6 +2661,7 @@ fn think(
         ResMut<max_fire::ShooterLimit>,
         ResMut<AiForce>,
         Res<aim::TargetMotion>,
+        (MessageWriter<melee::CloseHit>, ResMut<melee::CloseStats>),
     ),
 ) {
     let t0 = Instant::now();
@@ -3008,6 +3011,7 @@ fn think(
             // the wander (0x3d / 0x5b) and the one-shot states run their own course (below)
             (Mind::Wander, _) => Mind::Wander,
             (Mind::Taunt, _) => Mind::Taunt,
+            (Mind::CloseAttack, Some(_)) => Mind::CloseAttack,
             (Mind::Throw, _) => Mind::Throw,
             // waiting for a turn under the shooter limit (state 0x11): only a hand-over engages again (max_fire.rs)
             (Mind::MaxFireWait, Some(_)) if !g.retry_engage => Mind::MaxFireWait,
@@ -3093,7 +3097,7 @@ fn think(
             (_, Some(_)) => Mind::Chase,
             (Mind::Guard, None) => Mind::Guard,
             // the target gone from the states that need one (0x0042bc60)
-            (Mind::Fire | Mind::Chase | Mind::Reload | Mind::MaxFireWait, None) => lost_target(&mut g, ge, &mut spots.trenches),
+            (Mind::Fire | Mind::Chase | Mind::Reload | Mind::MaxFireWait | Mind::CloseAttack, None) => lost_target(&mut g, ge, &mut spots.trenches),
             _ => Mind::Roam,
         };
         // a monk's pursuit is a teleport (vt+0x184 0x00436b90: +0xb58 = 0, then the bamf)
@@ -3272,6 +3276,28 @@ fn think(
                     };
                 }
             }
+            Mind::CloseAttack => {
+                // state 0xb (ai_06.cpp:889-925): facing the target (below), the swing looped; each "hit" note hurts it
+                // within m_h2hMax across (0x0043eae0); a loop's end with the target m_h2hMax away or more ends it
+                let (_, reach) = melee::h2h(g.kind).unwrap_or((20.0, 10.0));
+                let len = anim_len(&mut lib, g.anim(g.anim_id, 0.0)).max(0.1);
+                let t0 = g.anim_left;
+                g.anim_left += dt;
+                if let (Some(te), Some(p)) = (g.target, target) {
+                    for &n in melee::hit_notes(g.anim_id) {
+                        if t0 < n && g.anim_left >= n && flat(p - pos).length() < reach {
+                            let damage = if g.kind == Kind::Q112 { 100.0 } else { 50.0 };
+                            close.0.write(melee::CloseHit { by: ge, target: te, damage });
+                        }
+                    }
+                    if g.anim_left >= len {
+                        g.anim_left -= len;
+                        if p.distance(pos) >= reach {
+                            g.mind = Mind::Fire;
+                        }
+                    }
+                }
+            }
             Mind::MaxFireWait => {
                 // state 0x11 (ai_06.cpp:849-867): facing the target (below), the next idle base as each one ends
                 g.anim_left -= dt;
@@ -3375,6 +3401,19 @@ fn think(
                     }
                     if stats.shots > before && std::env::var("AIDBG").is_ok() {
                         info!("AIDBG gruntshot t {:.3}", rtime.elapsed_secs());
+                    }
+                    // the close attack at a clip's end (0x00428980 -> 0x00428160: the target within m_h2hMin), before
+                    // the reload or the search (ai/melee.rs)
+                    if end == FireEnd::Clip && !g.at_barricade {
+                        if let Some(id) = melee::close_attack(g.kind, pos, p, rng.rand()) {
+                            g.mind = Mind::CloseAttack;
+                            g.anim_id = id;
+                            g.anim_left = 0.0;
+                            g.pause = 0.0;
+                            end = FireEnd::None;
+                            close.1.swings += 1;
+                            info!("EVENT ai: grunt {ge:?} swings at his target");
+                        }
                     }
                     // a counted shooter stops at its clip's end (0x00428980 -> 0x0042bb10): its place is handed over
                     // (a lost line of sight keeps the engine's fire state, which keeps the place: max_fire.rs)
@@ -3832,7 +3871,7 @@ fn think(
             (Mind::Cast, _, _) if g.monk.is_some_and(|m| m.spell == monk::Spell::Twiglets) => {
                 g.monk.map(|m| flat(m.summon_at - pos).normalize_or_zero()).unwrap_or(dir)
             }
-            (Mind::Fire | Mind::Chase | Mind::Taunt | Mind::Throw | Mind::Cast | Mind::MaxFireWait, Some(p), _) => flat(p - pos).normalize_or_zero(),
+            (Mind::Fire | Mind::Chase | Mind::Taunt | Mind::Throw | Mind::Cast | Mind::MaxFireWait | Mind::CloseAttack, Some(p), _) => flat(p - pos).normalize_or_zero(),
             // a guard firing turns to his target (0x0042df70, 45 degrees)
             (Mind::Guard, Some(p), _) if g.guard_firing => flat(p - pos).normalize_or_zero(),
             // in the slot: its direction +0x908 (0x00454e60), standing up: the target (0x0042df70)
@@ -4463,6 +4502,8 @@ pub struct CompanionPlugin;
 impl Plugin for CompanionPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<melee::MeleeStats>()
+            .init_resource::<melee::CloseStats>()
+            .add_message::<melee::CloseHit>()
             .add_systems(Update, (companion_damage, companions, melee::start, melee::run).chain().run_if(crate::playing));
     }
 }
