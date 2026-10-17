@@ -133,8 +133,8 @@ address,name,disposition,reason
 0x00436b30,fn_00436b30,replaced,the monk's stance-set call collapses to one anim: anim_name_with (Kind::Monk) gives monk_stand for every stand id
 0x00436b50,fn_00436b50,replaced,monk vt+0x188 (+0x484 0x10 then the object history): leave_cover's history (ai.rs)
 0x00436b60,fn_00436b60,replaced,monk vt+0x18c: leave_cover (ai.rs)
-0x004371e0,fn_004371e0,deferred,"feature: monk; monk damage message: flag 0x20 starts the knock-over timer to the hang state 0xf4 (monk_hanging, then a bamf): not ported (docs/subsystems/infantry.md section 6)"
-0x00437240,fn_00437240,deferred,feature: monk; monk knocked over (vt+0x1b0): state 0xf4 with monk_hanging: not ported (docs/subsystems/infantry.md section 6)
+0x004371e0,fn_004371e0,ported,engine/src/topsy.rs run / monk_hang (the topsy turvy's flag 0x20 on a monk: no fall roll; hangs on the ground)
+0x00437240,fn_00437240,ported,"engine/src/topsy.rs monk_hang (monk_hanging, anim 0x72, state 0xf4) and charanim.rs (Thrown without the into)"
 0x004375c0,fn_004375c0,deferred,"feature: ai-voice-lines; the captain's voice slots (AIVoice_* 0x00437690 / 0x00437860 / 0x004375c0) are reached only when a captain speaks; the engine's barks use the grunt sets for captains too (open: captain voice table, grunt-ai.md 14)"
 0x00437690,fn_00437690,deferred,"feature: ai-voice-lines; the captain's voice slots (AIVoice_* 0x00437690 / 0x00437860 / 0x004375c0) are reached only when a captain speaks; the engine's barks use the grunt sets for captains too (open: captain voice table, grunt-ai.md 14)"
 0x00437860,fn_00437860,deferred,"feature: ai-voice-lines; the captain's voice slots (AIVoice_* 0x00437690 / 0x00437860 / 0x004375c0) are reached only when a captain speaks; the engine's barks use the grunt sets for captains too (open: captain voice table, grunt-ai.md 14)"
@@ -180,7 +180,7 @@ address,name,disposition,reason
 0x00446de0,fn_00446de0,replaced,goliath update helpers: goliath.rs guard
 0x00446f30,Polewart_Update,not needed,"dead in the shipped game: no level of the 24 places this class (work/remaster/*/scene.json and mission.json templates) and no coverage run of any level reaches it (Polewart: only a cutscene name, post_1_1b_polewart)"
 0x00447020,fn_00447020,replaced,goliath update helpers: goliath.rs guard
-0x00447500,MonkObject_Update,deferred,feature: monk; MonkObject_Update: the hang state 0xf4 timers (see 0x004371e0); the rest is GenericAI_Update (docs/subsystems/infantry.md section 6)
+0x00447500,MonkObject_Update,ported,"engine/src/topsy.rs thrown (the hang's +0x87c, counted twice: (duration + 1) / 2, then the bamf: ai/monk.rs Monk::bamf, ai.rs); the rest is GenericAI_Update"
 0x0044b490,Marker_GetSpeed,ported,cited: alarm.rs / ai.rs (marker speed of the walk legs)
 0x0044b4a0,Marker_IsStrict,replaced,"the marker getters and per-AI accessors: alarm.rs Marker fields (strict, flags, trigger, alarm_tag, action, scatter, next range) read by ai.rs marker_arrival"
 0x0044b4b0,AIMarker_PrevIsStrict,replaced,"the marker getters and per-AI accessors: alarm.rs Marker fields (strict, flags, trigger, alarm_tag, action, scatter, next range) read by ai.rs marker_arrival"
@@ -341,14 +341,14 @@ address,name,disposition,reason
 0x0049fdd0,Twiglet_Vt70,replaced,the matrix getters while an IC anim plays: the engine reads the entity Transform (twiglet.rs Emerging moves it by the mover)
 0x0049fe00,Twiglet_Vt78,replaced,the matrix getters while an IC anim plays: the engine reads the entity Transform (twiglet.rs Emerging moves it by the mover)
 0x0049fe30,Twiglet_Vt6C,replaced,the matrix getters while an IC anim plays: the engine reads the entity Transform (twiglet.rs Emerging moves it by the mover)
-0x0049fe60,Twiglet_VtA8,deferred,"feature: twiglet-extras; the contact handler: the leap / attach (0x3c..0x3f), the topsy throw (0x65 / 0x66) and the blown-up landing (0x52) are not entered by the ported states"
-0x004a0130,fn_004a0130,deferred,feature: twiglet-extras; the attach reference (+0x560) of the leap: the leap (0x3c..0x3f) is not entered by the ported states
-0x004a01b0,Twiglet_VtA0,deferred,feature: twiglet-extras; the held-object test of the attach (+0x560): the leap is not ported
-0x004a01c0,fn_004a01c0,deferred,"feature: twiglet-extras; the stun's end, blown away / hanging (0x50, 0x51): the stun (damage flag 0x20) and the bof glove are not ported"
-0x004a0380,Twiglet_Vt8C,deferred,feature: twiglet-extras; the anti-gravity factor for the bof glove / blown-up flight (not ported)
-0x004a03c0,Twiglet_Vt11C,deferred,feature: twiglet-extras; the topsy turvy release (state 0x64): topsy on twiglets not ported
-0x004a0420,Twiglet_Vt120,deferred,feature: twiglet-extras; the topsy turvy grab (state 0x64): topsy on twiglets not ported
-0x004a0480,Twiglet_Vt124,deferred,feature: twiglet-extras; the topsy turvy throw at the player (state 0x65): not ported
-0x004a05a0,Twiglet_Vt128,deferred,feature: twiglet-extras; the bof glove punch back (state 0x66): not ported
+0x0049fe60,Twiglet_VtA8,deferred,"feature: bof-glove; Twiglet_VtA8, the contact handler: state 0x52's death on contact is ported (twiglet.rs Falling); the leap 0x3c / 0x3e is dead (nothing enters 0x3c); left: the glove's throws 0x65 / 0x66"
+0x004a0130,fn_004a0130,not needed,"dead in the shipped game: sets / drops the leap's attach reference +0x560 only on the leap chain 0x3d -> 0x3e (ai_09.cpp:603) and its release (Twiglet_VtA8 state 0x3e); state 0x3c, the only way into 0x3d, is entered by no code (no write of 0x3c to +0x464 in src/)"
+0x004a01b0,Twiglet_VtA0,not needed,"Twiglet_VtA0: object != +0x560; +0x560 is set only on the dead leap chain (0x004a0130), so it is always 0 and the test passes for every object: the default (collide with everything)"
+0x004a01c0,fn_004a01c0,ported,engine/src/twiglet.rs blow (the topsy turvy stun's end: hang 0x50 or blown away 0x51) and topsy_hit (topsy.rs)
+0x004a0380,Twiglet_Vt8C,deferred,"feature: bof-glove; Twiglet_Vt8C, the gravity getter: -1 in state 0x51 is ported (twiglet.rs topsy_vertical); left: +0x580 bof_anti_gravity while flag bit 4 (the glove's punch) is set"
+0x004a03c0,Twiglet_Vt11C,deferred,"feature: bof-glove; Twiglet_Vt11C: let go from the glove's hold (state 0x64 back to running 0x0a); the holder is the player's punching glove (Game+0xa6c slots, game_06.cpp:2900), not in the engine"
+0x004a0420,Twiglet_Vt120,deferred,"feature: bof-glove; Twiglet_Vt120: held by the glove (twiglet_stand, keyframed, state 0x64; out = Game+0xd1c x +0x480)"
+0x004a0480,Twiglet_Vt124,deferred,"feature: bof-glove; Twiglet_Vt124: thrown by the glove ballistically at the player's ref_hit_00 (twiglet_blown_up, state 0x65)"
+0x004a05a0,Twiglet_Vt128,deferred,"feature: bof-glove; Twiglet_Vt128: punched by the glove (camera direction, mass x Game+0xd24; bof flag bit 4, the custom-gravity list, reversed velocity, state 0x66; flag 0 dies)"
 0x0042a500,fn_0042a500,deferred,"feature: ai-seek-pickups; a grab of a pickup by an AI (pickup_grab_pct +0x86c): ai.rs cites it as not ported"
 0x00483810,fn_00483810,deferred,"feature: companion-leader-swap; the leader swap of the two companion slots: ai.rs cites it as not ported"

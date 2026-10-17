@@ -1,0 +1,18 @@
+{"scene": "lev_4_m1", "steps": [
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 3.5}, {"tap": "Enter"}, {"wait": 1.0},
+ {"loadout": {"health": 5000, "topsy": 1}},
+ {"warp": [210, -57, -28, 0]},
+ {"wait": 13.0},
+ {"tap": "Tab"}, {"wait": 0.3},
+ {"expect": {"special": 1, "twiglets.made": 30}},
+ {"click": "Right"},
+ {"wait": 3.3},
+ {"note": "fired"},
+ {"wait": 1.5},
+ {"expect": {"topsy.phase": "Hang", "twiglets.hanging": [1, 30], "twiglets.blown_up": [1, 30]}},
+ {"wait": 6.0},
+ {"expect": {"topsy.phase": "Off", "twiglets.hanging": 0}},
+ {"wait": 10.0},
+ {"expect": {"twiglets.blown_up": 0, "twiglets.landed": [1, 30]}},
+ {"quit": true}
+]}

@@ -233,9 +233,9 @@ address,name,disposition,reason
 0x00482ab0,CaptainRocket_SetOwner,deferred,feature: captain-rocket; the captain's rocket: no captain on lev_1_m1
 0x00482d10,CaptainRocket_InitCollision,deferred,feature: captain-rocket; the captain's rocket: no captain on lev_1_m1
 0x00482d60,CaptainRocket_Damage,deferred,feature: captain-rocket; the captain's rocket: no captain on lev_1_m1
-0x00482e80,fn_00482e80,deferred,"feature: monk; the hit of monk_gun2's projectile monk_twiglet_cluster (proj_monk_twiglet_cluster): five idle twiglets round the impact, as the summon's; which monk state fires monk_gun2 (weapon 0x1a, set up by 0x004369a0) is not found, so nothing fires it yet (docs/subsystems/twiglets.md, open)"
-0x004830e0,MonkBasketProjectile_ReadProps,deferred,feature: monk; the monk's basket: not on lev_1_m1
-0x00483180,MonkBasketProjectile_Launch,deferred,feature: monk; the monk's basket: not on lev_1_m1
+0x00482e80,fn_00482e80,not needed,"dead in the shipped game: monk_gun2 (weapon 0x1a) fires only on an anim note fire_alt (GenericAIObject_HandleEvent ai_05.cpp:1260 with anim 0x23 / 0x85 / 0x68); no monk anim of the 24 levels has that note (grep of work/remaster/*/anims: only molmer_* anims carry fire_alt), so monk_twiglet_cluster is never fired"
+0x004830e0,MonkBasketProjectile_ReadProps,ported,"engine/src/ai/monk.rs baskets (the speed range, start_height)"
+0x00483180,MonkBasketProjectile_Launch,ported,"engine/src/ai/monk.rs baskets (dropped from start_height, straight down)"
 0x00487da0,Object_Release,replaced,"Object_Release and its helper (reference counting, delete): Bevy despawn"
 0x00487df0,fn_00487df0,replaced,"Object_Release and its helper (reference counting, delete): Bevy despawn"
 0x0048ece0,Grid_UpdateCell,replaced,"the spatial grid of objects (cells, nodes, update, removal): Jolt's broad phase and Bevy queries"

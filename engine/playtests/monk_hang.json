@@ -1,0 +1,17 @@
+{"scene": "lev_4_m2", "steps": [
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 3.5}, {"tap": "Enter"}, {"wait": 1.0},
+ {"loadout": {"health": 5000, "topsy": 1}},
+ {"spawn": [-600, -7, 300], "template": "monk"},
+ {"wait": 3.0},
+ {"expect": {"ai.near.kind": "Monk", "topsy.phase": "Off"}},
+ {"tap": "Tab"}, {"wait": 0.3},
+ {"expect": {"special": 1}},
+ {"click": "Right"},
+ {"wait": 4.0},
+ {"expect": {"topsy.phase": "Hang", "topsy.monks_hanging": [1, 6], "topsy.falling": 0}},
+ {"wait": 3.0},
+ {"expect": {"topsy.monks_hanging": 0}},
+ {"wait": 1.0},
+ {"expect": {"ai.teleporting": [1, 6]}},
+ {"quit": true}
+]}

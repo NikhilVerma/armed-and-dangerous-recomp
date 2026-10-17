@@ -66,3 +66,4 @@ ticker-lock-parent,blocks objective,agent-blockers1,player_tickerbomb,lev_3_m1 l
 companion-leader-swap,visible gameplay,,q111 molmer,,"the leader swap of the two companion slots (0x00483810)"
 camera-startup-path,cosmetic,,camera_path,,"camera_startup_path_anim on a camera path (Camera_StartPath mode 2)"
 ai-predicted-aim,visible gameplay,,,,"the predicted target point of an AI's aim in the flagged case (0x004580a0)"
+bof-glove,visible gameplay,,,,"the punching glove (the pub award ui_pub_award_bof; player mode 1, game_06.cpp:2900; contact callback 0x00477c90; bof_* global settings): punch, hold, throw; and the reactions of what it holds or punches (the twiglets: Twiglet_Vt8C / Vt11C / Vt120 / Vt124 / Vt128 / VtA8 states 0x64..0x66)"

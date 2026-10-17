@@ -116,6 +116,10 @@ pub struct Swarm {
     joined: u64,
     /// twiglet_max_distance (Game+0xd60, the level's global_settings: p_globalsettings 1000, lev_4_m1 500), read once
     max_distance: Option<f32>,
+    /// topsy_turvy_fall_pct (Game+0xca8, 50): a stunned twiglet hangs on at or above a roll of it
+    fall_pct: f32,
+    /// twiglets the topsy turvy blew into the sky that died coming down (state 0x52's contact)
+    pub landed: u32,
 }
 
 /// The twiglets' own random numbers (the game's CRT rand form, crate::fxvm::CrtRand): kept apart from the shared
@@ -148,6 +152,13 @@ pub enum State {
     /// 0x1e: a light hit (twiglet_hit_mgun*), 0x1f: a heavier one (twiglet_hit_med*)
     HitLight,
     HitHeavy,
+    /// 0x50: hanging on while the world is upside down (twiglet_hang_into, then twiglet_hanging)
+    Hang,
+    /// 0x51: let go, falling into the sky (twiglet_blown_up_into / twiglet_blown_up; the custom-gravity list World+0xf1c
+    /// with the getter Twiglet_Vt8C 0x004a0380's -1), for what is left of the topsy turvy
+    BlownUp,
+    /// 0x52: off the gravity list, falling back; dies at its first contact (Twiglet_VtA8 0x0049fe60)
+    Falling,
 }
 
 impl State {
@@ -159,6 +170,9 @@ impl State {
             State::GetBomb => 0x46,
             State::HitLight => 0x1e,
             State::HitHeavy => 0x1f,
+            State::Hang => 0x50,
+            State::BlownUp => 0x51,
+            State::Falling => 0x52,
         }
     }
 }
@@ -186,6 +200,10 @@ pub struct Twiglet {
     route: Vec<Vec3>,
     yaw: f32,
     last_health: f32,
+    /// +0x470: the topsy turvy's stun (rand 0..1 s from its hit, then the hang's time), +0x474: the topsy turvy's time
+    /// left (Twiglet_TakeDamage 0x0049f530, damage flag 0x20)
+    stun: f32,
+    topsy_left: f32,
     /// the anim the state plays (restarted when the state changes)
     anim: &'static str,
     anim_once: bool,
@@ -235,6 +253,7 @@ fn activate(
             gs.0.insert(k.clone(), v.clone());
         }
         swarm.max_distance = Some(gs.f("twiglet_max_distance", 1000.0));
+        swarm.fall_pct = gs.f("topsy_turvy_fall_pct", 50.0);
     }
     let got: Vec<i64> = triggers.read().map(|t| t.0).filter(|t| *t != 0).collect();
     for t in got {
@@ -390,6 +409,8 @@ fn spawn(
             route: Vec::new(),
             yaw: crate::ai::ic::yaw_of(world.rotation),
             last_health: d.health,
+            stun: 0.0,
+            topsy_left: 0.0,
             anim: if ev.mover.is_some() { "" } else { "twiglet_stand" },
             anim_once: false,
         };
@@ -459,6 +480,43 @@ fn run_to(t: &mut Twiglet, pos: Vec3, target: Vec3, physics: &crate::physics::Ph
     t.state = State::Run;
 }
 
+/// The topsy turvy's hit on a twiglet (Twiglet_TakeDamage 0x0049f530 with damage flag 0x20): stunned rand 0..1 s, then
+/// it hangs on or is blown away (`blow`), with `duration` (Game+0xc7c, topsy_turvy_duration) of the effect to come.
+pub fn topsy_hit(t: &mut Twiglet, duration: f32, rng: &mut TwigletRng) {
+    t.stun = rng.rand();
+    t.topsy_left = duration;
+}
+
+/// 0x004a01c0: the stun's end. Coming out of its tree (an IC move) it shrugs it off. With `may_hang`, more than 3 s of
+/// the effect left and rand 100 >= topsy_turvy_fall_pct it hangs on for rand(0.25, left - 1) s (state 0x50); otherwise
+/// it is blown away (state 0x51): still, into the sky.
+fn blow(t: &mut Twiglet, may_hang: bool, fall_pct: f32, rng: &mut TwigletRng) {
+    if t.state == State::Emerging {
+        t.stun = 0.0;
+        return;
+    }
+    if may_hang && t.topsy_left > 3.0 && rng.rand() * 100.0 >= fall_pct {
+        t.stun = rng.range(0.25, t.topsy_left - 1.0);
+        t.state = State::Hang;
+        t.anim = "twiglet_hang_into";
+        t.anim_once = true;
+        return;
+    }
+    t.anim = if t.state == State::Hang { "twiglet_blown_up_into" } else { "twiglet_blown_up" };
+    t.anim_once = true;
+    t.state = State::BlownUp;
+}
+
+/// The vertical speed of states 0x51 / 0x52 (Twiglet_Update): rising at the world's gravity (its factor -1), at most
+/// 120 up (K 0x005bcf84); then falling, at most 120 down (K 0x005bcf80). `vy` is the body's now; the step's gravity
+/// is added back for the rise.
+fn topsy_vertical(state: State, vy: f32, dt: f32) -> f32 {
+    match state {
+        State::BlownUp => (vy.max(0.0) + 2.0 * GRAVITY * dt).min(120.0 + GRAVITY * dt),
+        _ => vy.clamp(-120.0, 0.0),
+    }
+}
+
 fn anim_done(a: &crate::skin::Animator, name: &str) -> bool {
     a.layers.first().is_some_and(|l| l.anim == name && l.duration > 0.0 && l.time >= l.duration - 1e-3)
 }
@@ -468,18 +526,21 @@ fn anim_done(a: &crate::skin::Animator, name: &str) -> bool {
 fn think(
     mut commands: Commands,
     time: Res<Time>,
-    swarm: Res<Swarm>,
+    mut swarm: ResMut<Swarm>,
     mut q: Query<(Entity, &mut Twiglet, &mut Transform, &mut crate::fx::Destructible, Option<&crate::mover::Mover>, Option<&mut crate::skin::Animator>)>,
     mut bombs: Query<(&mut crate::fx::Destructible, &GlobalTransform), (With<TwigletBomb>, Without<Twiglet>)>,
     player: Query<&GlobalTransform, With<crate::player::Roman>>,
     mut physics: NonSendMut<crate::physics::Physics>,
     mut rng: ResMut<TwigletRng>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
+    topsy: Res<crate::topsy::Topsy>,
 ) {
     let dt = time.delta_secs();
     if dt <= 0.0 {
         return;
     }
+    // state 0x0a stands (twiglet_stand, no drive) while the topsy turvy's timer Game+0xc80 runs
+    let held = topsy.phase == crate::topsy::Phase::Hang;
     let roman = player.single().ok().map(|p| p.translation());
     let max_distance = swarm.max_distance.unwrap_or(1000.0);
     let k = physics.meters_per_unit;
@@ -526,9 +587,52 @@ fn think(
                 continue;
             }
         }
+        // the topsy turvy's stun (+0x470): at its end it hangs on or is blown away (0x004a01c0 with 1); meanwhile the
+        // effect's time left runs down
+        if t.stun > 0.0 {
+            t.stun -= dt;
+            if t.stun <= 0.0 {
+                blow(&mut t, true, swarm.fall_pct, &mut rng);
+                info!("EVENT twiglet: {e:?} {}", if t.state == State::Hang { "hangs on" } else { "is blown away" });
+            } else {
+                t.topsy_left -= dt;
+            }
+        }
         let mut velocity = Vec3::ZERO;
         let mut face: Option<Vec3> = None;
+        let mut vertical: Option<f32> = None;
         match t.state {
+            State::Hang => {
+                // hanging on (twiglet_hanging after the into): the hang's own count (twice with the stun's above)
+                if animator.as_deref().is_some_and(|a| anim_done(a, "twiglet_hang_into")) {
+                    t.anim = "twiglet_hanging";
+                }
+                t.stun -= dt;
+                if t.stun <= 0.0 {
+                    blow(&mut t, false, swarm.fall_pct, &mut rng);
+                    info!("EVENT twiglet: {e:?} lets go");
+                }
+            }
+            State::BlownUp | State::Falling => {
+                if animator.as_deref().is_some_and(|a| anim_done(a, "twiglet_blown_up_into")) {
+                    t.anim = "twiglet_blown_up";
+                }
+                if t.state == State::BlownUp {
+                    t.topsy_left -= dt;
+                    if t.topsy_left <= 0.0 {
+                        // off the gravity list (0x00454750): it falls back, and dies at its first contact
+                        t.state = State::Falling;
+                        physics.set_contact_rule(t.body, crate::contacts::ContactRule::default());
+                    }
+                } else if !physics.touches(t.body).is_empty() {
+                    crate::vehicles::kill(&mut d);
+                    swarm.landed += 1;
+                    info!("EVENT twiglet: {e:?} lands from the sky");
+                    continue;
+                }
+                let vy = physics.world.body(t.body).map(|b| crate::physics::bv(b.linear_velocity()).y / k).unwrap_or(0.0);
+                vertical = Some(topsy_vertical(t.state, vy, dt));
+            }
             State::Idle => {
                 if roman.is_some_and(|r| flat(r - pos).length() < t.activation_range) {
                     run_to(&mut t, pos, roman.unwrap_or(pos), &physics, &mut rng);
@@ -578,6 +682,7 @@ fn think(
                     }
                 }
             }
+            State::Run if held => {}
             State::Run => {
                 let Some(target) = roman else { continue };
                 let d2 = flat(target - pos).length();
@@ -636,8 +741,10 @@ fn think(
         // the state's anim
         let want: (&'static str, bool) = match t.state {
             State::Idle => ("twiglet_stand", true),
+            State::Run if held => ("twiglet_stand", true),
             State::Run => (if t.bomb.is_some() { "twiglet_run_with_bomb" } else { "twiglet_run" }, true),
             State::GetBomb | State::HitLight | State::HitHeavy => (t.anim, false),
+            State::Hang | State::BlownUp | State::Falling => (t.anim, matches!(t.anim, "twiglet_hanging" | "twiglet_blown_up")),
             State::Emerging => ("", false),
         };
         if let Some(mut a) = animator {
@@ -656,7 +763,8 @@ fn think(
         if let Ok(mut b) = physics.world.body_mut(t.body) {
             // the drive sets the level velocity (`ground_speed`); the vertical is the body's own (gravity, the ground)
             let v = crate::physics::bv(b.linear_velocity());
-            let _ = b.set_linear_velocity(crate::physics::jv(Vec3::new(velocity.x * k, v.y, velocity.z * k)));
+            let vy = vertical.map_or(v.y, |y| y * k);
+            let _ = b.set_linear_velocity(crate::physics::jv(Vec3::new(velocity.x * k, vy, velocity.z * k)));
             b.activate();
         }
     }
@@ -738,6 +846,9 @@ fn log(q: Query<&Twiglet>, swarm: Res<Swarm>, gens: Query<&Generator>, state: Op
             "idle": count(State::Idle),
             "emerging": count(State::Emerging),
             "running": count(State::Run),
+            "hanging": count(State::Hang),
+            "blown_up": count(State::BlownUp) + count(State::Falling),
+            "landed": swarm.landed,
             "generators": gens.iter().filter(|g| g.active.is_some()).count(),
             "left": gens.iter().filter(|g| g.active.is_some()).map(|g| g.left).sum::<u32>(),
         }),

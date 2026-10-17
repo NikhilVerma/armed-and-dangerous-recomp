@@ -2687,7 +2687,7 @@ fn think(
     mut physics: NonSendMut<Physics>,
     targets: Query<&GlobalTransform>,
     anims: Query<&crate::skin::Animator, Without<Grunt>>,
-    mut grunts: Query<(Entity, &mut Grunt, &mut Body, &mut Transform, &Health, Option<&crate::skin::Animator>)>,
+    mut grunts: Query<(Entity, &mut Grunt, &mut Body, &mut Transform, &Health, Option<&crate::skin::Animator>, Has<crate::topsy::Thrown>)>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     mut fx: MessageWriter<crate::fx::StartFx>,
     rtime: Res<Time<Real>>,
@@ -2745,7 +2745,7 @@ fn think(
     let mut jviews: Vec<jumper::MarkerView> =
         jmarks.iter().map(|(e, m, t)| jumper::MarkerView { e, pos: t.translation, tag: m.tag, free: m.occupant.is_none() }).collect();
     let mut joccupy: Vec<(Entity, Option<Entity>)> = Vec::new();
-    for (ge, mut g, mut body, mut tr, h, ga) in &mut grunts {
+    for (ge, mut g, mut body, mut tr, h, ga, thrown) in &mut grunts {
         g.me = Some(ge);
         if g.mind == Mind::Dead {
             dead += 1;
@@ -2753,6 +2753,10 @@ fn think(
         }
         alive += 1;
         states[g.mind as usize] += 1;
+        // held by the Topsy Turvy (hanging on, or falling into the sky: topsy.rs): his states wait until it lets go
+        if thrown {
+            continue;
+        }
         // a trench held by a grunt another system took elsewhere (a scare, a throw): let it go (guess: as vt+0x18c)
         if g.cover.is_some() && !matches!(g.mind, Mind::Cover | Mind::Fire | Mind::Reload) {
             leave_cover(&mut g, ge, &mut spots.trenches, false);
@@ -3143,7 +3147,9 @@ fn think(
             _ => Mind::Roam,
         };
         // a monk's pursuit is a teleport (vt+0x184 0x00436b90: +0xb58 = 0, then the bamf)
-        if g.mind == Mind::Chase && g.monk.is_some() {
+        // (and the bamf a knock-over hang ends with: topsy.rs, MonkObject_Bamf via vt+0x240)
+        let bamf = g.monk.as_mut().is_some_and(|m| std::mem::take(&mut m.bamf));
+        if (g.mind == Mind::Chase || bamf) && g.monk.is_some() {
             if let Some(m) = g.monk.as_mut() {
                 m.special = 0;
             }

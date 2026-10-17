@@ -636,7 +636,7 @@ fn grunts(
         }
         // thrown by the Topsy Turvy bomb: hanging on, or falling into the sky (ids 113 / 114, 115 / 73)
         if let Some(th) = thrown {
-            let (id, looping) = match (th.hangs, th.t < 1.0, th.t < 0.3) {
+            let (id, looping) = match (th.hangs, th.into && th.t < 1.0, th.t < 0.3) {
                 (true, true, _) => (113, false),
                 (true, false, _) => (114, true),
                 (false, _, true) => (115, false),
