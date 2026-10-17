@@ -15,6 +15,7 @@
 pub mod aim;
 pub mod body;
 pub mod bully;
+pub mod fall;
 pub mod grenade;
 pub mod ic;
 pub mod jumper;
@@ -83,6 +84,8 @@ pub enum Mind {
     /// state 0x11: waiting for a turn to fire under the mission's shooter limit (max_fire.rs), facing the target with
     /// the idle bases 0x74..0x76
     MaxFireWait,
+    /// state 0x82: falling (ai/fall.rs), anim 0x61 (0x62 under a parachute); a landing resumes `Grunt::fall`'s state
+    Falling,
 }
 
 /// The grunt classes a lev_1_m1 template makes (counted in the coverage runs: BowGruntObject_Slot6 0x004347b0 runs 9
@@ -932,6 +935,9 @@ pub struct Grunt {
     pub shooter: max_fire::Shooter,
     /// handed the turn by a shooter that stopped (0x0042bb10 -> vt+0x230(0)): engage again this frame
     pub retry_engage: bool,
+    /// a fall in progress (state 0x82) and the falling watchdog's timer (+0x890, ai/fall.rs)
+    pub fall: Option<fall::Fall>,
+    pub fall_watch: Option<f32>,
 }
 
 impl Grunt {
@@ -1069,6 +1075,8 @@ impl Plugin for AiPlugin {
             .init_level_resource::<grenade::GrenadeStats>()
             .init_level_resource::<rocket::RocketHullStats>()
             .init_level_resource::<AiForce>()
+            .init_level_resource::<fall::FallStats>()
+            .init_resource::<fall::ParachuteAssets>()
             .init_level_resource::<aim::TargetMotion>()
             .init_level_resource::<Interests>()
             .init_level_resource::<bully::BullyLines>()
@@ -1077,8 +1085,8 @@ impl Plugin for AiPlugin {
             .add_systems(
                 Update,
                 (
-                    (body::bumps, squad::update_squads, interests, mark_army_targets, search, ic::activate, scare, max_fire::sync_limit, aim::track, think, max_fire::upkeep, ic::run, bully::bullies, die, dismay).chain(),
-                    (body::apply_rules, log_cover, log_ai, log_placed, squad::log_squads, ic::log, max_fire::log, grenade::fly, grenade::log, rocket::shoot_down, rocket::log).chain(),
+                    (body::bumps, squad::update_squads, interests, mark_army_targets, search, ic::activate, scare, max_fire::sync_limit, aim::track, think, max_fire::upkeep, fall::run, ic::run, bully::bullies, die, dismay).chain(),
+                    (body::apply_rules, log_cover, log_ai, log_placed, squad::log_squads, ic::log, max_fire::log, grenade::fly, grenade::log, rocket::shoot_down, rocket::log, fall::log, fall::drop_parachutes).chain(),
                 )
                     .chain()
                     .after(crate::fx::FxSet)
@@ -1371,6 +1379,8 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         shot_age: f32::INFINITY,
         shooter: max_fire::Shooter::None,
         retry_engage: false,
+        fall: None,
+        fall_watch: None,
     }
 }
 
@@ -2804,8 +2814,8 @@ fn think(
             }
         }
         g.last_health = h.0;
-        // an IC move carries him (state 0x64: ic.rs and the mover)
-        if g.mind == Mind::Scripted {
+        // an IC move carries him (state 0x64: ic.rs and the mover); a fall is fall.rs's (state 0x82)
+        if g.mind == Mind::Scripted || g.mind == Mind::Falling {
             continue;
         }
         // the all-fours breathing (state 0x12d) lasts its timer (+0x490, 3..7 s)

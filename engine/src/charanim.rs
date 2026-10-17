@@ -767,6 +767,8 @@ fn grunts(
             // the taunt (ids 0x32..0x34) and the throw (0x27): once
             // waiting for a turn under the shooter limit (state 0x11): the idle base ai.rs picked, once each
             Mind::MaxFireWait => (name(&g, g.anim_id, 0.0).to_owned(), false),
+            // falling (state 0x82): anim 0x61 (grunt_bow_fall / captain_fall), 0x62 (captain_parachute) under a parachute
+            Mind::Falling => (name(&g, if g.fall.is_some_and(|f| f.chute_open) { 0x62 } else { 0x61 }, 0.0).to_owned(), true),
             Mind::Taunt | Mind::Throw => {
                 let id = if g.mind == Mind::Throw { 0x27 } else { g.anim_id };
                 (name(&g, id, 0.0).to_owned(), false)

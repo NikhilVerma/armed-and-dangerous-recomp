@@ -1138,6 +1138,8 @@ pub fn spawn(
     commands.insert_resource(crate::sticky::StickyAssets { parts, dynamite, base: game_to_engine() });
     // the captains' grenade (template captain_grenade: grunt_grenade_1; ai/grenade.rs)
     commands.insert_resource(crate::ai::grenade::GrenadeAssets(lib.load_model("grunt_grenade_1", false, assets, meshes, materials).map(|m| m.parts.clone()).unwrap_or_default()));
+    // the paratroopers' parachute (template captain_parachute: fxo_captain_parachute; ai/fall.rs), drawn in its bind pose
+    commands.insert_resource(crate::ai::fall::ParachuteAssets(lib.load_model("fxo_captain_parachute", false, assets, meshes, materials).map(|m| m.parts.clone()).unwrap_or_default()));
 
     // The level's directional lights (lighttype "dir"): each shines down its local -Z axis.
     let (lo, hi) = (Vec3::from(scene.bounds[0]), Vec3::from(scene.bounds[1]));
