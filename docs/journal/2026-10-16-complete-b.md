@@ -11,9 +11,9 @@ to the next level (the credits after lev_5_m5, the title after a bonus level pla
 
 | Level | Finishable | Blockers found | Fixed (commit) | Open |
 | --- | --- | --- | --- | --- |
-| lev_4_m1 | yes (complete_lev_4_m1) | player_has_tickerbomb ignored: the goliaths' ticker sites said "You need Ticker Bombs!" (no pub on the level) | 790ba7d | the sites do not ride the goliaths (lock_parent_tag, 0x0044e120: another agent's); the test arms them before the goliaths set off |
-| lev_4_m2 | no (complete_lev_4_m2 written, not in the suite) | the peasants part passes (10 mats -> 7001); Jonesy's death did not fail the level | b72ee74 (death trigger) | Jonesy's run to the glass tower (tower_marker_tag 30, marker 356 -> 802) does not happen: he stays in defend_me and dies; the tower mode is another agent's |
-| lev_4_m3 | yes (complete_lev_4_m3) | none in the chain | - | the jumper pack is not ported ("Find Jumper Pack"; can every house be reached on foot? not checked); holes / off-map areas east of x 3250 (with SHIELDME a fall there never ends, "fell to his death" every frame) |
+| lev_4_m1 | yes (complete_lev_4_m1) | player_has_tickerbomb ignored: the goliaths' ticker sites said "You need Ticker Bombs!" (no pub on the level) | 790ba7d (wip has the same fix) | the sites now ride the goliaths (wip ticker lock); the test arms them before the goliaths set off |
+| lev_4_m2 | yes (complete_lev_4_m2) | Jonesy's tower run (tower_marker_tag 30) was not ported: he stayed in defend_me and died | the tower task (wip 6fbda00, ai/tower.rs, agent-tower); the test guards him by the tower with the bot's fight | - |
+| lev_4_m3 | yes (complete_lev_4_m3) | none in the chain | - | the jumper pack is ported on wip (agent-blockers1) but the test does not use it; holes / off-map areas east of x 3250 (with SHIELDME a fall there never ends, "fell to his death" every frame) |
 | lev_4_m5 | yes (complete_lev_4_m5) | none: 500 platoon kills (27 -> counter 203 -> 456 -> timer 234 -> 123) | test aid: auto mortar (229db12) | 15 min wall per run |
 | lev_5_m1 | yes (complete_lev_5_m1) | placed grunts never sent send_trigger_on_death: the Q1-12s' 2999 never reached counter 58 | e0dc1ec | - |
 | lev_5_m2 | yes (complete_lev_5_m2) | the zeppelins never dropped their rocket captains (the rigid mini zeppelin had no Animator, so anim_intro's drop notes never fired): nothing attacked the villages, the level could not be lost | 229db12, 7348741, 896db8d | the dropped captains reach village 3 as in the original but stop ~120 units from house 60 and never fire (the original destroys village 3 at 113..141 s, village 2 from 148 s); the rappel IC anim is not played |
@@ -30,7 +30,8 @@ and success_movie "none" / "0" asks for a movie that does not exist (logged, ski
 
 ## What was learned
 
-- **Placed AIs' and teammates' death triggers** (e0dc1ec, b72ee74): mission.rs built death_senders from the export's
+- **Placed AIs' and teammates' death triggers** (e0dc1ec; b72ee74, replaced at the wip merge c44eab9 by wip's own
+  Companion::death_trigger): mission.rs built death_senders from the export's
   edges but only read them on fx::Died (destructibles). Placed grunts and Q / Jonesy now carry DeathTrigger like
   spawned troops; a dead grunt restored from a save is despawned before troop_deaths reads (savegame apply `.before`).
   companion_death_fail checks it (Q killed on lev_bonus_m3 -> 5001 -> Failed).
@@ -57,9 +58,13 @@ and success_movie "none" / "0" asks for a movie that does not exist (logged, ski
 - Noise: mission.rs logs "ticker site N: lock_parent_tag ... not ported" every frame until the site nags (6800 lines a
   run on lev_4_m1); the ticker-lock port will remove it.
 
+The priority target's range (896db8d) is the recovered code's mechanism, not a guess: AI_FindTarget's tag step
+(0x00426920, src/ai/ai_02.cpp:641) stores the found object's 2D distance in the scan range +0x5dc, the keep test drops a
+target only beyond 2 x +0x5dc (ai_03.cpp:801), and the walk's end sets +0x5dc = +0x5d8 x 1.5 (0x005bce20 = 1.5 read from
+the exe, ai_02.cpp:654). The earlier guess (f135597) was replaced by it.
+
 ## Next
 
-- lev_4_m2 once the tower mode lands (complete_lev_4_m2 is ready; add it to the suite when it passes).
 - lev_5_m2: why the captains stop short of house 60 and never fire (range 50..100 vs the original's hits from ~120:
   their nav, or the house's aim point).
-- The jumper pack (lev_4_m3), the ticker sites riding the goliaths (lev_4_m1).
+- Use the jumper pack in complete_lev_4_m3 and arm lev_4_m1's sites on the moving goliaths (both ported on wip).
