@@ -523,6 +523,13 @@ impl Spawner<'_, '_, '_> {
         let (w, h) = (x1 - x0, y1 - y0);
         let mat = self.materials.add(ColorMaterial { color: crate::saveslots::panel_colour(false), alpha_mode: bevy::sprite_render::AlphaMode2d::Blend, ..default() });
         let quad = self.commands.spawn((Mesh2d(self.meshes.add(Rectangle::new(w, h))), MeshMaterial2d(mat), SlotPanel { mode, slot }, Transform::from_xyz(0.0, 0.0, 3.0), RenderLayers::layer(HUD_LAYER))).id();
+        // the thumbnail (0x004a33d0: 128 wide, 70 below the slot's top; saveslots.rs fills it)
+        let tmat = self.materials.add(ColorMaterial { color: Color::WHITE, ..default() });
+        let (tw, th) = (crate::thumbnail::THUMB_W as f32, crate::thumbnail::THUMB_H as f32);
+        let thumb = self
+            .commands
+            .spawn((Mesh2d(self.meshes.add(Rectangle::new(tw, th))), MeshMaterial2d(tmat), crate::saveslots::SlotThumb { mode, slot }, Transform::from_xyz(0.0, crate::saveslots::THUMB_Y - (y0 + y1) / 2.0, 3.5), Visibility::Hidden, RenderLayers::layer(HUD_LAYER)))
+            .id();
         self.commands
             .spawn((
                 HudElement { name: format!("menu_{page:?}_panel"), pos: Vec2::new(x + (x0 + x1) / 2.0, y + (y0 + y1) / 2.0), anchor: Anchor::Centre, full: true },
@@ -532,7 +539,7 @@ impl Spawner<'_, '_, '_> {
                 Visibility::Hidden,
                 RenderLayers::layer(HUD_LAYER),
             ))
-            .add_child(quad);
+            .add_children(&[quad, thumb]);
         self.panel = Some((Vec2::new(x + x0, y + y0), Vec2::new(x + x1, y + y1)));
         self.row(page, &format!("ui_savegame_slot{}", slot + 1), Vec2::new(x, y + NAME_Y), 1.0, Color::WHITE, Act::Slot(slot), 0.0);
         // the prompt fitted to the panel's width (0x004a3300: 192)

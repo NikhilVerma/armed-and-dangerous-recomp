@@ -39,6 +39,7 @@ mod cutscenes;
 mod decals;
 mod extras;
 mod sticky;
+mod thumbnail;
 mod surface;
 mod gamemenu;
 mod goliath;
@@ -374,7 +375,7 @@ fn main() {
     app.add_plugins(camdump::CamDumpPlugin);
     app.add_plugins(camera::CameraPlugin);
     app.add_plugins(footik::FootIkPlugin);
-    app.add_plugins(savegame::SaveGamePlugin);
+    app.add_plugins((savegame::SaveGamePlugin, thumbnail::ThumbnailPlugin));
     app.add_plugins(cheats::CheatsPlugin);
     app.add_plugins(decals::DecalPlugin);
     app.add_plugins(sticky::StickyPlugin);
