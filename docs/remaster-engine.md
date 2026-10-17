@@ -646,6 +646,32 @@ despawn, Jolt's broad phase). Changed play: the reload refills at clip_reload_ti
 takes off after trotter_jump_into (0.133 s), the machine gun's scatter grows over the first second of fire, sticky
 bombs set each other off, grunts' arrows fly an arc (spawn_projectile_to), Roman says an idle line after 30 s.
 
+## Weapons (2026-10-17, agent-weapons)
+
+`engine/src/weapons/` (docs/subsystems/weapons.md): Roman's `Arsenal` (three gun slots, the specials' counts) replaces
+the rifle / machine gun / stickies / topsy fields; the sniper rifle, the Gurner, the vindaloo, the land shark, the black
+hole, the Guy Fawkes bomb, auto-aim and the pub's swap are ported, each with a playtest (weapon_*). Tuning items for
+the comparison with the original (guesses and differences seen, not checked frame by frame):
+
+- the force actions (0x00455a30 / 0x00471750) are modelled as a pull of the velocity toward the wanted one at the
+  factor per second (the vindaloo's (1 - d/d0) x 100 + 0.5, the shark's, the carried AIs' 5, the projectiles' 1 toward a
+  black hole); the original's Havok response to the force is not decoded;
+- the black hole rises 5 % of the way a frame in the original (frame-rate dependent): taken at 60 frames a second;
+- Roman's pull toward a black hole is added to his velocity, which the drive (player.rs control) pulls back toward
+  the stick's: how strongly it moves him is to compare; the carried AIs' "+0x948" speed is taken as their move speed;
+  which AIs can be carried (vt+0x254) and bitten (vt+0x24c) is guessed (grunts and captains on their feet);
+- the shark's arc is flown here (no physics body), its height is the ground under it + its depth (Object_ForceGround's
+  arguments read as a ray start and reach), the fin and the missile face along the heading (`rockets::facing`); a hunted
+  AI stands still (the original's guard state 0x79 with its aim set); the bite ends when sharkbite_* has played;
+- the vindaloo's lock-on candidates and the sniper's pierced list are the grunt-class characters (World +0xea4 / +0xe8c
+  not traced: vehicles and companions may belong); the fan's yaw / pitch signs (which rocket goes left / up);
+- auto-aim aims at the target's point without the lead of 0x004580a0 (the target's speed); the narrowed view's
+  horizontal half-angle uses the 1.7204 aspect factor sticky.rs measured;
+- the Guy Fawkes bomb flies straight at 300 (no gravity); a turned guard holds his post without 0x0042ec20's guard run;
+  the receivers within 200 by their bounding sphere (4.66);
+- the launchers' hand models are drawn in their rest pose on the hand (as the Topsy Turvy bomb's): their grip is to
+  compare; the pub's carried gun rides the cursor (remaster: the original's carry marker is not traced).
+
 ## Cheats
 
 Options > Cheats: the 12 codes of the table 0x00589090 (read from the exe: SHOOTMOR full ammo, AMBULNCE full
@@ -687,8 +713,36 @@ flat. Tests: playtests corpses_l1m4 / corpses_l1m4_remaster (regress; `kill_army
 Not corpses, found on the way: lev_2_m4's 123k entities are mostly the army's live marching members: its five army
 timers' anims create 357 platoons (1,785 members) in 133 s and each member is a skinned low-detail grunt of ~70
 entities (the original draws them as particles, pool 2 of Game+0xa90); with the releases waiting on the live-grunt
-limit they pile up (1,745 members, 122k entities, 70-120 ms frames headless at 150 s). Open: a cheap member
-representation (instanced, one shared rig per platoon, or particles as the original).
+limit they pile up (1,745 members, 122k entities, 70-120 ms frames headless at 150 s). Done since (agent-armyperf,
+below): each member is one crowd mesh.
+
+## Army crowds (2026-10-17, agent-armyperf)
+
+The original's marching platoon members are not characters: FakeGrunt_Update 0x00446460 gives each ref point of the
+platoon model one particle of pool 2 (Particle_Alloc 0x0046d950: a 16-unit sprite, half-extent 8, uv rect u 0..0.25,
+v 0.625..0.875 of n_fx_bank_2 for grunts / regulars / torches, u 0.25..0.375, v 0.51..0.624 for captains: the grunt and
+captain pictures in the bank), placed on its point every update; only at a release (the "release_platoon" note, then
+one member every 0.1..0.2 s while the live army grunts are under Game+0xbf0) does a member become a real
+"grunt" / "grunt_regular" / "captain". So the rules are: every marching member is cheap, a full grunt exists only
+after its release, and the grunt limit (army_max_grunts 16 / army_unpause_count 14, the timers' grunt_limits) caps
+the full ones; the pool's 2000 particles (shared with the effects) capped the members (docs/engine-limits.md).
+army.rs keeps those rules; the representation is engine/src/crowd.rs (CrowdPlugin, game-neutral): a (model, anim)
+pair is baked once per level into a flipbook (the run cycle skinned on the CPU at 30 frames a second of anim time,
+8..48 frames, parts sharing a material merged: the grunt is 2 meshes), and a `CrowdMember` is one entity showing the
+frame of its own phase (spread by the golden ratio; the pace 0.85..1.15 drawn from the shared random stream as
+before). A frame change swaps the member's meshes, which the renderer re-extracts, so the pose rate falls with
+distance (`crowd::frame_step`: every baked frame nearer than 150 units, every second to 400, every third beyond:
+30 / 15 / 10 a second) and a member out of view keeps its pose. Members share meshes and materials, so the renderer instances them; no shadows (as before). The look is
+the running low-detail grunt the port already showed (shots compared at lev_1_m4 30 s: no visible difference), at a
+sprite's cost: one entity with one child instead of ~70.
+Measured (headless 640x372, turret on the army, 190 s; the machine loaded by other agents' runs both times):
+lev_2_m4 entities 110k -> 14.9k at ~1,580 members (frames 74 -> 56 ms mean; the rest is the main world's AI and the
+machine), lev_1_m4 30.1k -> 9.4k max (frame 18.3 -> 16.7 ms, main 12.3 -> 8.4 ms). At 4K Remaster (headless,
+the playtest clock's 60 Hz cap = 16.7 ms; lev_2_m4 after 60 s, ~1,400 members, ~29 live grunts): frame 38.6 ->
+22.5 ms with the crowd, 17.4 ms with the distance rates and the platoon hit test's sphere reject (fake_hits: shots
+gathered once, one inverse per platoon), main world 25.2 -> 12.0 -> 9.2 ms (of which the AI 4 ms); same kills.
+Test `army_l2m4_long` (regress LONG: members >= 1000 and entities <= 25k at 150 s); complete_lev_1_m4 /
+complete_lev_2_m4 pass.
 
 ## Sticky bomb (piece 3, 2026-10-13)
 
@@ -869,8 +923,8 @@ scripted objects and AIs (icobject.rs: bombers, flak, drops, gates; goliath.rs; 
 lobbed shells (shell.rs). Spec and debt: docs/subsystems/defence.md. Tests: engine/playtests/defence_*.json (a
 script's "scene" names its level; a `defence` step drives the turret: {"aim": "army"}, {"mortar": "platoon"},
 {"frame": F}). Debt: the ic_* marker arrival is detected by army.rs from the grunt's position (plan: an ai.rs message);
-the failure mob, the carried ladder and the turret's launcher models are not ported; ~450 platoon member models at once
-(measure the 4K floor).
+the failure mob, the carried ladder and the turret's launcher models are not ported. Platoon members are crowd meshes
+(see Army crowds).
 
 ## Effects (subsystem port, 2026-10-15)
 
@@ -996,6 +1050,28 @@ Any prepass costs ~3 ms of it: a chrome trace (bevy/trace_chrome) diff Remaster 
 submit_pending_command_buffers +1.1, write_binned_instance_buffers<Opaque3dPrepass> +1.0, GPU-preprocessing bind
 groups / allocate_uniforms / unpack_bins for the extra phase +1.4, bloom encoding +0.5. Open: cut the per-phase GPU
 preprocessing overhead (the scene has only 760 draws), bloom's mip chain, then re-measure.
+
+4K floor (2026-10-17, agent-armyperf). Tools: `--profile` now also records `meshes_changed` / `mesh_vertices_changed`
+(mesh assets added or modified per frame: each is re-uploaded); a chrome trace of a bench (`cargo build --release
+--features bevy/trace_chrome` into its own target dir, `--bench 8`: ~2 GB per 10 s, summed per span name by a
+streaming script) gives the render world's systems. Found: `allocate_and_free_meshes` 1.4 ms median every frame,
+from the three particle pool meshes rebuilt each frame. Bevy re-uploads a changed mesh by writing each attribute of
+each vertex separately into mapped GPU memory (Mesh::write_packed_vertex_buffer_data: strided 8..16-byte writes,
+slow on write-combined memory): the same meshes with only a position attribute took 0.10 ms. Fixed (fxvm/particles.rs,
+particle.wesl): a pool's mesh only numbers its corners and keeps a power-of-two size; its material reads the corners
+from a `ShaderBuffer` (storage buffer) written whole each frame, which Bevy updates in place while its size holds.
+Streamer meshes left empty are no longer rewritten each frame. Trace (bench, 4K Remaster): allocate_and_free_meshes
+1.43 -> 0.006 ms, Render schedule median 12.6 -> 9.2 ms in the experiment (the trace's own overhead included).
+Measured (`--bench 20 --size 3840x2160 --background --preset remaster --profile`, before / after alternated, 2-3
+other agents' games running, no builds): before 116.9 / 115.8 / 116.7 fps (1 % low 81 / 92 / 99), render CPU 5.9 /
+6.4 / 5.8 ms; after 116.4 / 117.7 / 117.3 fps (1 % low 91 / 98 / 98), render CPU 5.7 / 5.1 / 5.1 ms. Both builds sit
+at the driver's ~119 fps cap on this machine when it is not saturated (ms median 8.41 = 118.9 Hz); the uncapped
+estimate (the slowest of main CPU, render CPU, GPU) is ~5.3 ms after, ~6.2 before. The 96.9-98.9 fps of the corpses
+journal were taken with the CPU saturated by other agents' runs and builds (here, with 5 other games and builds
+running: 62-84 fps for both builds). Still open: prepare_preprocess_bind_groups (~1.2 ms: bind groups per view and
+phase, rebuilt each frame by Bevy), write_binned_instance_buffers for the opaque and prepass phases (~0.8 ms each),
+queue submit (~1.5 ms); the main world's playtest state systems (`level::log_objects` and the other `log_*` systems)
+build their JSON every frame in normal play too, because `PlayState` always exists (~0.3 ms; main is not the bottleneck).
 
 ## Jumper pack (2026-10-16, agent-blockers1)
 

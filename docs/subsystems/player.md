@@ -281,6 +281,9 @@ just fired, 2 turbo, 4 jetpack flight.
 
 ## 10. The remaster port (subsystem port, 2026-10-14)
 
+(2026-10-17: Roman's weapons are a `weapons::Arsenal` now, with every gun and special of the game: docs/subsystems/
+weapons.md. The rifle / machine gun / sticky / topsy rows below still hold.)
+
 Engine files: engine/src/player.rs (movement, jump, falls, camera, weapons, projectiles, death, idle banter),
 sticky.rs, topsy.rs, charanim.rs (Roman), turret.rs (the player's side, unchanged). Every ported function is cited by
 address in the source; `python tools/port_queue.py game` lists what is left, docs/port/game.csv the functions replaced

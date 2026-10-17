@@ -8,6 +8,8 @@
 //! | proj_rocket_tower | RocketTowerProjectile 0x005aba18 | start_speed x 3 along the nozzle; after homing_delay_duration it steers at the target, up to max_speed over full_speed_distance, and lets go inside stop_homing_proximity when heading at it |
 //! | proj_rocket_bud | RocketBudProjectile 0x005a7958 | lobbed: speed x 3 across, the vertical speed that lands it on the target under gravity (0x00471a00) |
 //! | proj_forge_mortar | ForgeCannonProjectile 0x005a33b8 | lobbed as the bud's, its horizontal speed the distance + 5 (0x00480ec0): about a second's flight |
+//! | proj_gurner_rocket | GurnerProjectile 0x005a4c38 | the player's Gurner mortar: lobbed as the forge cannon's (the same launch 0x00480ec0; update 0x00483210) |
+//! | proj_vindaloo_missile | VindalooProjectile 0x005afc80 | the player's vindaloo: start_speed x 3 along its fan direction; after homing_delay_duration it steers at its target (0x004805f0, `Flight::Vindaloo`) and goes off when it starts to move away from it |
 //!
 //! A hit (0x0047eae0): the rocket stops at the point, area_damage (radius inner / outer) to everything near but the
 //! object hit, the direct damage (damage + area_damage, 0x0047eec0) to the object hit, fx_end at the point and
@@ -68,6 +70,11 @@ pub enum Flight {
     Tower { start: f32, max: f32, delay: f32, full: f32, stop: f32, initial: f32, factor: f32 },
     /// a lobbed shell under GRAVITY
     Ballistic,
+    /// VindalooProjectile_Update 0x004805f0: straight at `start` until `delay` has run out, then steered at the target
+    /// (its ref_hit_00, or the aim point `to`) with a pull of (1 - min(d, initial) / initial) x 100 + 0.5 a second and
+    /// a speed from `start` up to `max` over the first `full` units closed; `last` is the distance a frame before
+    /// (+0x56c): growing by more than 1 sets it off (it has passed its target)
+    Vindaloo { start: f32, max: f32, delay: f32, full: f32, initial: f32, last: f32, to: Vec3 },
 }
 
 /// A rocket or shell in flight.
@@ -99,7 +106,7 @@ pub struct Rocket {
 
 /// The behaviours this module flies.
 pub fn is_rocket(p: &Props) -> bool {
-    matches!(p.s("behavior"), Some("proj_captain_rocket" | "proj_rocket_tower" | "proj_rocket_bud" | "proj_forge_mortar"))
+    matches!(p.s("behavior"), Some("proj_captain_rocket" | "proj_rocket_tower" | "proj_rocket_bud" | "proj_forge_mortar" | "proj_gurner_rocket" | "proj_vindaloo_missile"))
 }
 
 /// What to launch: the projectile's template, from where, toward what.
@@ -149,8 +156,17 @@ pub fn launch(commands: &mut Commands, fx: &mut MessageWriter<crate::fx::StartFx
             (l.along.unwrap_or(aim) * start, flight, Some((name, 2500.0)))
         }
         "proj_rocket_bud" => (lob(l.from, l.to, k3(p.f("speed", 10.0))), Flight::Ballistic, Some(("wpn_rocket_passby_med_3", 4900.0))),
-        // Projectile_Launch_00480ec0: the speed is the horizontal distance to the target + 5
-        "proj_forge_mortar" => {
+        // VindalooProjectile_ReadProps 0x00480510: start_speed 7, max_speed 70 (both x 3), homing_delay_duration 0.7,
+        // full_speed_distance 50 (at least 1); launched along its fan direction at the start speed (0x0047e050 ->
+        // 0x0047e400); the distance to the target taken at its first update (0x0047e580 -> 0x0047e4d0)
+        "proj_vindaloo_missile" => {
+            let start = k3(p.f("start_speed", 7.0));
+            let flight = Flight::Vindaloo { start, max: k3(p.f("max_speed", 70.0)), delay: p.f("homing_delay_duration", 0.7), full: p.f("full_speed_distance", 50.0).max(1.0), initial: 0.0, last: f32::MAX, to: l.to };
+            (l.along.unwrap_or(aim) * start, flight, None)
+        }
+        // Projectile_Launch_00480ec0: the speed is the horizontal distance to the target + 5 (the forge cannon's
+        // shell and the Gurner's mortar)
+        "proj_forge_mortar" | "proj_gurner_rocket" => {
             let h = (l.to - l.from).with_y(0.0).length();
             (lob(l.from, l.to, h + 5.0), Flight::Ballistic, Some(("wpn_rocket_passby_med_2", 4900.0)))
         }
@@ -263,8 +279,8 @@ fn fly(
     chars: Query<(Entity, &crate::physics::Body, Has<crate::ai::Grunt>), Without<Rocket>>,
     mut grunt_health: Query<&mut crate::fx::Health, (With<crate::ai::Grunt>, Without<crate::player::Roman>, Without<crate::ai::Companion>, Without<Rocket>)>,
     mut objects: Query<(Entity, &crate::level::Placed, &mut Destructible, Option<&crate::vehicles::boss::BulletScale>)>,
-    (data, mounted, topsy, mut stats, tuning): (Res<crate::gamedata::GameData>, Res<crate::turret::Mounted>, Res<crate::topsy::Topsy>, ResMut<RocketStats>, Res<super::VehicleTuning>),
-    (mut fx, mut blasts, mut sounds): (MessageWriter<crate::fx::StartFx>, MessageWriter<Explode>, MessageWriter<crate::audio::PlaySound>),
+    (data, mounted, topsy, mut stats, tuning, suction): (Res<crate::gamedata::GameData>, Res<crate::turret::Mounted>, Res<crate::topsy::Topsy>, ResMut<RocketStats>, Res<super::VehicleTuning>, Res<crate::weapons::blackhole::Suction>),
+    (mut fx, mut blasts, mut sounds, mut player_stats): (MessageWriter<crate::fx::StartFx>, MessageWriter<Explode>, MessageWriter<crate::audio::PlaySound>, ResMut<crate::player::PlayerStats>),
 ) {
     let dt = time.delta_secs();
     if dt <= 0.0 {
@@ -286,6 +302,8 @@ fn fly(
             });
             Some(joint.unwrap_or(gt.translation()))
         });
+        // the vindaloo's: it has passed its target (0x004805f0)
+        let mut proximity = false;
         match r.flight {
             Flight::Straight => {}
             Flight::Ballistic => r.vel.y -= GRAVITY * dt,
@@ -319,6 +337,29 @@ fn fly(
                 }
                 r.flight = Flight::Tower { start, max, delay, full, stop, initial, factor };
             }
+            Flight::Vindaloo { start, max, mut delay, full, mut initial, mut last, to } => {
+                let tp = target_point.unwrap_or(to);
+                let dist = tp.distance(from);
+                if initial <= 0.0 {
+                    initial = dist.max(1e-3);
+                }
+                delay -= dt;
+                // (while a black hole sucks, list +0xf00 not empty, the homing does nothing: weapons/blackhole.rs)
+                if delay <= 0.0 && !suction.active {
+                    if dist > last + 1.0 {
+                        proximity = true;
+                    } else {
+                        last = dist;
+                        let d = dist.min(initial);
+                        let pull = (1.0 - d / initial) * 100.0 + 0.5;
+                        let speed = start + (max - start) * (initial - d).min(full) / full;
+                        let want = (tp - from).normalize_or_zero() * speed;
+                        let dv = (want - r.vel) * (pull * dt).min(1.0);
+                        r.vel += dv;
+                    }
+                }
+                r.flight = Flight::Vindaloo { start, max, delay, full, initial, last, to };
+            }
         }
         let step = r.vel * dt;
         if step.length_squared() > 1e-8 {
@@ -344,7 +385,12 @@ fn fly(
             ((from + step * u).distance(c) < 4.5 && (c - from).length() <= reach + 4.5).then_some(from + step * u)
         };
         let mut victim: Option<(Option<Entity>, Vec3, Option<BodyId>)> = None;
-        if r.by != Src::Player {
+        // gone off past its target: at its place, the target (if any) takes the direct damage and the blast reaches
+        // everything, the target too (0x004805f0: 0x0047eec0 on the target, then 0x0047f020 with no object left out)
+        if proximity {
+            victim = Some((r.target.as_ref().map(|t| t.0), from, None));
+        }
+        if victim.is_none() && r.by != Src::Player {
             if let Some((re, rp)) = roman_at.filter(|(re, _)| Some(*re) != r.owner) {
                 if let Some(at) = near(rp) {
                     victim = Some((Some(re), at, None));
@@ -393,7 +439,8 @@ fn fly(
             }
         }
         if r.area != 0.0 {
-            blasts.write(Explode { at, area_damage: r.area * scale, radius_inner: r.inner, radius_outer: r.outer, impact_force: r.impact, source: obj, delay: 0.0, by: r.by, cartoon: false });
+            let source = if proximity { None } else { obj };
+            blasts.write(Explode { at, area_damage: r.area * scale, radius_inner: r.inner, radius_outer: r.outer, impact_force: r.impact, source, delay: 0.0, by: r.by, cartoon: false });
         }
         if let Some(o) = obj {
             if let Ok((_, mut rm, _, mut h)) = roman.get_mut(o) {
@@ -409,7 +456,12 @@ fn fly(
                 // a bad guy's rocket does nothing to a grunt (same team; player.rs); the player's hurts
                 if !(grunt && r.by != Src::Player) {
                     if let Ok(mut h) = grunt_health.get_mut(o) {
+                        let alive = h.0 > 0.0;
                         h.0 -= direct;
+                        // the player's rocket killed him (his kills, as the bullets count them: player.rs)
+                        if r.by == Src::Player && alive && h.0 <= 0.0 {
+                            player_stats.kills += 1;
+                        }
                     }
                 }
             } else if let Ok((_, _, mut d, scale)) = objects.get_mut(o) {

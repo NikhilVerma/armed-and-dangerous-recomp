@@ -111,13 +111,16 @@ pub mod mode {
     pub const TOPSY_TURN: u32 = 33;
     pub const TOPSY_HANG: u32 = 34;
     pub const TOPSY_BACK: u32 = 35;
+    /// trotter_blackhole_pull: standing while a black hole sucks (0x00476a10, game_05.cpp:1930)
+    pub const BLACKHOLE_PULL: u32 = 40;
 }
 
-/// The action states (+0x558) of 0x00475ff0: 1 firing (rifle / machine gun / ...: weapons 0..2), 3 reloading, 4
-/// changing weapon, 5 throwing.
+/// The action states (+0x558) of 0x00475ff0: 1 firing the guns (weapons 0..2: trotter_fire_sg), 2 firing the launchers
+/// (3..5: trotter_fire_rr, the recoil), 3 reloading, 4 changing weapon, 5 throwing.
 pub mod state {
     pub const NONE: u32 = 0;
     pub const FIRE: u32 = 1;
+    pub const FIRE_LAUNCHER: u32 = 2;
     pub const RELOAD: u32 = 3;
     pub const WCHANGE: u32 = 4;
     pub const THROW: u32 = 5;
@@ -414,6 +417,7 @@ fn roman(
     mut rng: ResMut<crate::fx::FxStats>,
     mut tw: ResMut<Twist>,
     (mut table, lib, mut st, ps): (ResMut<PlayerAnimTable>, Res<crate::skin::AnimLibrary>, crate::levelreset::PerLevel<RomanAnim>, Option<ResMut<crate::playtest::PlayState>>),
+    suction: Res<crate::weapons::blackhole::Suction>,
 ) {
     if !table.loaded {
         table.load(&lib.dir);
@@ -523,7 +527,7 @@ fn roman(
         } else if r.reloading > 0.0 {
             state::RELOAD
         } else if r.since_fire < 0.3 {
-            state::FIRE
+            if r.arsenal.in_hand_id().is_some_and(crate::weapons::WeaponId::launcher) { state::FIRE_LAUNCHER } else { state::FIRE }
         } else {
             state::NONE
         };
@@ -557,6 +561,12 @@ fn roman(
             }
             continue;
         }
+        // a black hole sucking (its list World+0xf00 not empty): standing, he leans against the pull (mode 0x28)
+        if stance && s == state::NONE && suction.active {
+            *idle = Idle::default();
+            play(a, mode::BLACKHOLE_PULL, state::NONE);
+            continue;
+        }
         // the idle fidgets (modes 1..5)
         if stance && s == state::NONE {
             let dt = time.delta_secs();
@@ -587,7 +597,7 @@ fn roman(
 #[allow(clippy::type_complexity)]
 fn grunts(
     // (a hidden grunt's anims, waiting or coming out, are ai/ic.rs's)
-    mut q: Query<(Entity, &mut Grunt, &mut Animator, &Transform, Option<&crate::topsy::Thrown>, Has<crate::ai::ladder::CarriedLadder>), (Without<crate::ragdoll::Ragdoll>, Without<crate::corpses::Settled>, Without<crate::ai::ic::IcEntry>)>,
+    mut q: Query<(Entity, &mut Grunt, &mut Animator, &Transform, (Option<&crate::topsy::Thrown>, Option<&crate::ai::AnimOverride>, Has<crate::ai::ladder::CarriedLadder>)), (Without<crate::ragdoll::Ragdoll>, Without<crate::corpses::Settled>, Without<crate::ai::ic::IcEntry>)>,
     targets: Query<&GlobalTransform>,
     time: Res<Time>,
     lib: Res<crate::skin::AnimLibrary>,
@@ -613,7 +623,7 @@ fn grunts(
         a.set_weight(1, v);
         a.sync(1, 0);
     };
-    for (e, mut g, mut a, t, thrown, ladder) in &mut q {
+    for (e, mut g, mut a, t, (thrown, forced, ladder)) in &mut q {
         a.blend = AI_BLEND;
         // a hit reaction: its anim once (the all-fours breathing 0x36 looped until its timer ends, ai.rs), then the
         // state's anims again
@@ -643,6 +653,12 @@ fn grunts(
                 (false, _, false) => (73, true),
             };
             a.play(0, name(&g, id, 0.0), looping, Mask::All);
+            a.stop(1);
+            continue;
+        }
+        // an anim a weapon's effect holds him in (the black hole's pull: 0x49 / 0x4a looped)
+        if let (Some(f), true) = (forced, g.mind != Mind::Dead) {
+            a.play(0, name(&g, f.id, 0.0), f.looping, Mask::All);
             a.stop(1);
             continue;
         }

@@ -12,6 +12,7 @@
 mod ai;
 mod alarm;
 mod army;
+mod crowd;
 mod defence;
 mod icobject;
 mod mover;
@@ -68,6 +69,7 @@ mod topsy;
 mod turret;
 mod twiglet;
 mod vehicles;
+mod weapons;
 mod weapontable;
 mod player;
 mod playtest;
@@ -301,7 +303,7 @@ fn main() {
     .add_plugins(topsy::TopsyPlugin)
     .add_plugins(turret::TurretPlugin)
     // the base-defence levels: movers (scripted paths), the army, the base turret (army.rs, defence.rs)
-    .add_plugins((mover::MoverPlugin, army::ArmyPlugin, defence::DefencePlugin, icobject::IcObjectPlugin, shell::ShellPlugin, goliath::GoliathPlugin, shrubpatrol::ShrubPatrolPlugin, surface::SurfacePlugin, twiglet::TwigletPlugin, jetpack::JetPackPlugin, peasant::PeasantPlugin, ai::tower::TowerPlugin))
+    .add_plugins((mover::MoverPlugin, army::ArmyPlugin, crowd::CrowdPlugin, defence::DefencePlugin, icobject::IcObjectPlugin, shell::ShellPlugin, goliath::GoliathPlugin, shrubpatrol::ShrubPatrolPlugin, surface::SurfacePlugin, twiglet::TwigletPlugin, jetpack::JetPackPlugin, peasant::PeasantPlugin, ai::tower::TowerPlugin))
     .add_plugins(vehicles::VehiclesPlugin)
     .init_state::<AppState>()
     .insert_non_send(physics::Physics::new(level::METERS_PER_UNIT))
@@ -374,6 +376,8 @@ fn main() {
     app.add_plugins(cheats::CheatsPlugin);
     app.add_plugins(decals::DecalPlugin);
     app.add_plugins(sticky::StickyPlugin);
+    // the player's weapon roster: sniper rifle, mortar, vindaloo, land shark, black hole, Guy Fawkes, auto-aim
+    app.add_plugins(weapons::WeaponsPlugin);
     app.add_plugins(camfade::CameraFadePlugin);
     app.add_plugins(ragdoll::RagdollPlugin);
     app.add_plugins(corpses::CorpsePlugin);
@@ -772,16 +776,15 @@ fn hud_state(
     hud.clip = p.clip;
     hud.ammo = p.ammo;
     hud.weapon = p.weapon;
+    hud.weapon_id = p.weapon_id;
     hud.unlimited = p.unlimited;
     hud.stickies = p.stickies;
     hud.special = p.special;
-    hud.topsy = p.topsy;
-    // the weapon-cycle arrows (hud.rs, 0x00463fa0): the rifle and the machine gun once carried; the sticky bombs and
-    // the Topsy Turvy bomb while any are left (player.rs cycles to it only then)
-    if let Ok(r) = roman.single() {
-        hud.weapons = r.has_rifle as u32 + r.mg.is_some() as u32;
-        hud.specials = 1 + (r.topsy > 0) as u32;
-    }
+    hud.special_count = p.special_count;
+    // the weapon-cycle arrows (hud.rs, 0x00463fa0): the guns carried and the specials with some left (player.rs cycles
+    // through those)
+    hud.weapons = p.guns;
+    hud.specials = p.specials;
     for (n, h) in &companions {
         if n.as_str() == "molmer" {
             hud.jonesy_health = h.0 / 500.0;

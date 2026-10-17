@@ -1,8 +1,10 @@
 // Fx particles: texture x vertex colour, nothing else (the original draws a textured, coloured quad with
 // additive or alpha blending). Much cheaper per pixel than the PBR material at 4K.
+// The quads' corners come from a storage buffer written whole each frame (particles.rs draw_particles: three vec4s
+// per corner: position and u, v and rgb, alpha); the pool mesh only numbers the corners (position.x) and keeps its
+// size, so no mesh is re-uploaded per frame.
 // Remaster (graphics.rs soft_particles): with the depth prepass, a particle fades out over params.y game units
 // where it meets geometry, instead of the original's hard line where a quad cuts into the ground.
-import bevy_pbr::render::forward_io::VertexOutput;
 import bevy_pbr::render::mesh_view_bindings::view;
 @if(DEPTH_PREPASS)
 import bevy_pbr::prepass::utils as prepass_utils;
@@ -11,13 +13,36 @@ import bevy_pbr::prepass::utils as prepass_utils;
 @group(constants::MATERIAL_BIND_GROUP) @binding(1) var bank_sampler: sampler;
 // x: the alpha exponent; y: the soft-particle depth (0: hard, the original)
 @group(constants::MATERIAL_BIND_GROUP) @binding(2) var<uniform> params: vec4<f32>;
+// three per corner: (x, y, z, u), (v, r, g, b), (a, -, -, -); engine (world) space
+@group(constants::MATERIAL_BIND_GROUP) @binding(3) var<storage, read> corners: array<vec4<f32>>;
+
+struct CornerIn {
+    // x: the corner's index
+    @location(0) position: vec3<f32>,
+}
+
+struct ParticleOut {
+    @builtin(position) position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+    @location(1) color: vec4<f32>,
+}
+
+@vertex
+fn vertex(v: CornerIn) -> ParticleOut {
+    let i = u32(v.position.x) * 3u;
+    let a = corners[i];
+    let b = corners[i + 1u];
+    let c = corners[i + 2u];
+    var out: ParticleOut;
+    out.position = view.clip_from_world * vec4(a.xyz, 1.0);
+    out.uv = vec2(a.w, b.x);
+    out.color = vec4(b.yzw, c.x);
+    return out;
+}
 
 @fragment
-fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
-    var c = textureSample(bank, bank_sampler, in.uv);
-    @if(VERTEX_COLORS) {
-        c = c * in.color;
-    }
+fn fragment(in: ParticleOut) -> @location(0) vec4<f32> {
+    var c = textureSample(bank, bank_sampler, in.uv) * in.color;
     // alpha-blended pools: alpha ^ 2.2 (the original blends in gamma space, the target here is linear)
     c.a = pow(max(c.a, 0.0), params.x);
 @if(DEPTH_PREPASS)

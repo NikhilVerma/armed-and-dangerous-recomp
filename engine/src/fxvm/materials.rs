@@ -48,9 +48,15 @@ pub struct ParticleMaterial {
     /// x: the alpha exponent (alpha-blended pools: 2.2, the original blends in gamma space; additive: 1)
     #[uniform(2)]
     pub params: Vec4,
+    /// the pool's quad corners, written each frame (particles.rs draw_particles)
+    #[storage(3, read_only, visibility(vertex))]
+    pub corners: Handle<bevy::render::storage::ShaderBuffer>,
 }
 
 impl Material for ParticleMaterial {
+    fn vertex_shader() -> bevy::shader::ShaderRef {
+        Self::fragment_shader()
+    }
     fn fragment_shader() -> bevy::shader::ShaderRef {
         bevy::shader::ShaderRef::Path(bevy::asset::AssetPath::from_path_buf(bevy::asset::embedded_path!("particle.wesl")).with_source("embedded"))
     }

@@ -188,25 +188,25 @@ address,name,disposition,reason
 0x0047b9f0,PlayerObject_SetTurboPack,ported,jetpack.rs models (the turbo model by its chest at Roman's chest; turbo_idle)
 0x0047bba0,PlayerObject_PlayChestFx,ported,jetpack.rs effects (fx_turbo_launch at the chest)
 0x0047df70,fn_0047df70,deferred,"feature: turret-vehicle-paths; projectile spawn helpers used by the turrets, the vindaloo and the armed jaws: none on lev_1_m1"
-0x0047e050,fn_0047e050,deferred,"feature: vindaloo; projectile spawn helpers used by the turrets, the vindaloo and the armed jaws: none on lev_1_m1"
-0x0047e3b0,Projectile_SetTarget,deferred,"feature: homing-projectiles; Projectile_SetTarget (homing target of the rocket classes): no homing projectile on lev_1_m1 but the sticky bomb, whose own 0x004811e0 is ported (sticky.rs)"
+0x0047e050,fn_0047e050,ported,engine/src/vehicles/rockets.rs launch with `along` (weapons/vindaloo.rs): a projectile launched along a direction
+0x0047e3b0,Projectile_SetTarget,ported,"engine/src/vehicles/rockets.rs Rocket.target (the vindaloo's ref_hit_00, the rocket towers' chest), weapons/landshark.rs LandShark.target, sticky.rs: the homing target"
 0x0047e9f0,fn_0047e9f0,deferred,feature: arrow-models; sticks a projectile to a target's part (the arrows' hit): the engine's arrows have no model to leave stuck (the trail ends at the hit); sticky.rs sticks by 0x004817b0 / 0x0047e9b0
-0x0047f210,fn_0047f210,deferred,feature: sniper-rifle; a piercing projectile class that drops health pickups by kill count (vtable 0x005a94e0): not on lev_1_m1
-0x0047f2a0,fn_0047f2a0,deferred,feature: sniper-rifle; a piercing projectile class that drops health pickups by kill count (vtable 0x005a94e0): not on lev_1_m1
+0x0047f210,fn_0047f210,ported,engine/src/weapons/sniper.rs Pierce: the bullet's hit list (each character once; the shooter skipped by its owner)
+0x0047f2a0,fn_0047f2a0,ported,"engine/src/player.rs projectiles with weapons/sniper.rs Pierce: through the characters, the count, the health pickup in front of the player when it stops"
 0x0047f4d0,fn_0047f4d0,deferred,"feature: untraced; Projectile vt+0x13c: damage flags | 0x20000 (meaning not traced); the engine's records carry only the bits it uses (0x400 buildings, 0x80 cartoon)"
-0x0047f5d0,fn_0047f5d0,deferred,feature: shark-gun; the shark gun's projectile (sharkbite): not on lev_1_m1
-0x0047f600,fn_0047f600,deferred,feature: shark-gun; the shark gun's projectile (sharkbite): not on lev_1_m1
-0x0047f6b0,fn_0047f6b0,deferred,feature: shark-gun; the shark gun's projectile (sharkbite): not on lev_1_m1
-0x0047f6d0,fn_0047f6d0,deferred,feature: armed-jaws; the armed jaws weapon (wpn_armed_jaws_loop): not on lev_1_m1
-0x0047f7b0,fn_0047f7b0,deferred,feature: armed-jaws; the armed jaws weapon (wpn_armed_jaws_loop): not on lev_1_m1
-0x0047f7e0,fn_0047f7e0,deferred,feature: armed-jaws; the armed jaws weapon (wpn_armed_jaws_loop): not on lev_1_m1
-0x0047f920,fn_0047f920,deferred,feature: armed-jaws; the armed jaws weapon (wpn_armed_jaws_loop): not on lev_1_m1
-0x0047f980,fn_0047f980,deferred,feature: armed-jaws; the armed jaws weapon (wpn_armed_jaws_loop): not on lev_1_m1
-0x0047fa70,fn_0047fa70,deferred,feature: armed-jaws; the armed jaws weapon (wpn_armed_jaws_loop): not on lev_1_m1
-0x0047fc90,SharkGunProjectile_Update,deferred,feature: shark-gun; SharkGunProjectile: not on lev_1_m1
-0x00480510,VindalooProjectile_ReadProps,deferred,feature: vindaloo; VindalooProjectile: not on lev_1_m1 (no vindaloo)
-0x004805e0,VindalooProjectile_Flags,deferred,feature: vindaloo; VindalooProjectile: not on lev_1_m1 (no vindaloo)
-0x004805f0,VindalooProjectile_Update,deferred,feature: vindaloo; VindalooProjectile: not on lev_1_m1 (no vindaloo)
+0x0047f5d0,fn_0047f5d0,ported,engine/src/weapons/landshark.rs bite: the landshark bite object (its load: a projectile with physics on)
+0x0047f600,fn_0047f600,ported,"engine/src/weapons/landshark.rs bite: the landshark at the victim, sharkbite_grunt / _captain, the 0x1000 kill (ai.rs DeathAnim)"
+0x0047f6b0,fn_0047f6b0,ported,engine/src/weapons/landshark.rs: the bite object removed when its anim is over (Phase::Bite)
+0x0047f6d0,fn_0047f6d0,ported,"engine/src/weapons/landshark.rs fire: the shark's load (submerge_attack_distance, initial_arc_distance, max_kills, depth -3, the circle radius 15..30)"
+0x0047f7b0,fn_0047f7b0,ported,"engine/src/weapons/landshark.rs fire: the shot's point (the target list's, GunFired.aim)"
+0x0047f7e0,fn_0047f7e0,ported,"engine/src/weapons/landshark.rs fire: the lobbed launch 20 ahead (jittered), the target told, wpn_armed_jaws_loop"
+0x0047f920,fn_0047f920,ported,engine/src/weapons/landshark.rs hunt / Hunted: the 0x2000 message (the target frozen on guard)
+0x0047f980,fn_0047f980,ported,"engine/src/weapons/landshark.rs remove: the fin, the bite, the loop stopped"
+0x0047fa70,fn_0047fa70,ported,"engine/src/weapons/landshark.rs swim: the next target, the nearest biteable AI in range of the player and in his sight"
+0x0047fc90,SharkGunProjectile_Update,ported,"engine/src/weapons/landshark.rs swim: arc, dive, fin, swim, bite, circling, depth, sink"
+0x00480510,VindalooProjectile_ReadProps,ported,"engine/src/vehicles/rockets.rs launch (proj_vindaloo_missile): start / max speed x 3, homing delay, full speed distance"
+0x004805e0,VindalooProjectile_Flags,ported,"engine/src/vehicles/rockets.rs: the vindaloo's damage record (its class bit 0x200000 has no reader among the AI's damage scales, GenericAIObject_Slot52 0x00430340)"
+0x004805f0,VindalooProjectile_Update,ported,"engine/src/vehicles/rockets.rs Flight::Vindaloo: the homing, the speed ramp, the proximity fuse with the direct damage on the target; paused while a black hole sucks"
 0x00480d60,RocketBudProjectile_ReadProps,deferred,feature: rocket-bud; RocketBudProjectile: not on lev_1_m1
 0x00480e20,RocketBudProjectile_Update,deferred,feature: rocket-bud; RocketBudProjectile: not on lev_1_m1
 0x00480f60,ForgeCannonProjectile_Update,deferred,feature: forge-cannon-projectile; ForgeCannonProjectile: not on lev_1_m1
@@ -220,12 +220,12 @@ address,name,disposition,reason
 0x00481ce0,fn_00481ce0,ported,"engine/src/ai/grenade.rs fly: the flight under gravity, its path ray-cast past the thrower"
 0x00481d00,fn_00481d00,ported,engine/src/ai/grenade.rs: the hit's area damage record (fx::Explode)
 0x00481d10,fn_00481d10,ported,"engine/src/ai/grenade.rs fly: the hit: area damage, the direct damage, fx_end, removed"
-0x00481db0,BlackHoleProjectile_ReadProps,deferred,feature: black-hole; the black hole special and its box: not on lev_1_m1
-0x00481ef0,BlackHoleProjectile_Update,deferred,feature: black-hole; the black hole special and its box: not on lev_1_m1
-0x00482120,BlackHoleBox_ReadProps,deferred,feature: black-hole; the black hole special and its box: not on lev_1_m1
-0x004821a0,BlackHole_Remove,deferred,feature: black-hole; the black hole special and its box: not on lev_1_m1
-0x004821b0,BlackHoleBox_Launch,deferred,feature: black-hole; the black hole special and its box: not on lev_1_m1
-0x004822b0,BlackHoleBox_Update,deferred,feature: black-hole; the black hole special and its box: not on lev_1_m1
+0x00481db0,BlackHoleProjectile_ReadProps,ported,"engine/src/weapons/blackhole.rs spawn_hole: final_height, suction_lifetime, start_delay, the live count"
+0x00481ef0,BlackHoleProjectile_Update,ported,"engine/src/weapons/blackhole.rs holes: the rise, the carry-off (record 0x800), the suction list (Suction), the end"
+0x00482120,BlackHoleBox_ReadProps,ported,"engine/src/weapons/blackhole.rs throw: the box (initial_arc_distance, the live count)"
+0x004821a0,BlackHole_Remove,ported,engine/src/weapons/blackhole.rs: LiveHole (the live count Game+0xadc is the boxes and holes with it)
+0x004821b0,BlackHoleBox_Launch,ported,"engine/src/weapons/blackhole.rs throw: lobbed at 50 toward the camera's facing x 20, player_blackhole_box_open"
+0x004822b0,BlackHoleBox_Update,ported,"engine/src/weapons/blackhole.rs boxes: the landing on the ground, the opening, the hole out"
 0x00482460,ArrowProjectile_ReadProps,deferred,"feature: arrow-models; ArrowProjectile load / remove / hit: the arrow lingers stuck to what it hit with its model (linger 2.5 s); the engine's projectiles have no model, so the trail ends at the hit (the launch, the fall and the fly-by sound are ported: player.rs spawn_projectile_to, 0x00482510 / 0x00482620)"
 0x004824e0,ArrowProjectile_Remove,deferred,"feature: arrow-models; ArrowProjectile load / remove / hit: the arrow lingers stuck to what it hit with its model (linger 2.5 s); the engine's projectiles have no model, so the trail ends at the hit (the launch, the fall and the fly-by sound are ported: player.rs spawn_projectile_to, 0x00482510 / 0x00482620)"
 0x00482780,ArrowProjectile_Hit,deferred,"feature: arrow-models; ArrowProjectile load / remove / hit: the arrow lingers stuck to what it hit with its model (linger 2.5 s); the engine's projectiles have no model, so the trail ends at the hit (the launch, the fall and the fly-by sound are ported: player.rs spawn_projectile_to, 0x00482510 / 0x00482620)"
@@ -312,21 +312,21 @@ address,name,disposition,reason
 0x0049ca90,fn_0049ca90,deferred,feature: rocket-turrets; BaseDefendTurret / RocketTowerTurret / RocketBudTurret virtuals: none placed on lev_1_m1
 0x004a0690,fn_004a0690,ported,cited: extras.rs (the level-name filters of the Replay Level / Cutscenes lists)
 0x004a0da0,fn_004a0da0,replaced,the AI's scale of its weapon objects: the engine's weapon models follow the hand bone
-0x004a0f70,fn_004a0f70,deferred,"feature: weapon-swap; replace / equip a weapon by id (called by 0x00493130, a later levels' weapon swap): not on lev_1_m1"
-0x004a10c0,fn_004a10c0,deferred,"feature: weapon-swap; replace / equip a weapon by id (called by 0x00493130, a later levels' weapon swap): not on lev_1_m1"
+0x004a0f70,fn_004a0f70,ported,"engine/src/weapons/arsenal.rs Arsenal::replace, pubscreen.rs: the pub's swap of a carried gun into a full slot"
+0x004a10c0,fn_004a10c0,ported,"engine/src/weapons/arsenal.rs Arsenal::equip, pubscreen.rs: the bought or swapped gun put in hand"
 0x004a12a0,fn_004a12a0,ported,cited: pickup.rs (selects the special of an ammo pickup)
 0x004a1bb0,fn_004a1bb0,replaced,the pub screen's 3D weapon markers: pubscreen.rs / gamemenu.rs draw the pub screen in 2D
 0x004a1e20,fn_004a1e20,deferred,"feature: untraced; ""two_handed"" flag getter: every lev_1_m1 player weapon is two-handed; the engine's hand pose does not ask"
 0x004a1e90,fn_004a1e90,replaced,the emitter matrix: the shot's start is measured from ref_rhand (player.rs weapons)
 0x004a2100,fn_004a2100,replaced,WeaponObject fire at the target list / ready: ai.rs shoot ports the grunts' weapons (0x004284e0)
 0x004a2140,fn_004a2140,replaced,WeaponObject fire at the target list / ready: ai.rs shoot ports the grunts' weapons (0x004284e0)
-0x004a2480,fn_004a2480,deferred,"feature: sniper-rifle; PlayerWeapon fire along the camera ray (vtable 0x005ac210, the sniper rifle): not on lev_1_m1"
-0x004a24d0,fn_004a24d0,deferred,feature: vindaloo; PlayerVindaloo load / fan of rockets: not on lev_1_m1
-0x004a2550,fn_004a2550,deferred,feature: vindaloo; PlayerVindaloo load / fan of rockets: not on lev_1_m1
-0x004a2910,fn_004a2910,deferred,feature: shark-gun; the shark gun (PlayerWeapon vtable 0x005a4858): not on lev_1_m1
-0x004a2950,fn_004a2950,deferred,feature: shark-gun; the shark gun (PlayerWeapon vtable 0x005a4858): not on lev_1_m1
-0x004a2a40,fn_004a2a40,deferred,feature: auto-aim; auto-aim (PlayerWeapon vt+0x16c: Game+0x4c2 unless zoomed or difficulty > 1): the auto-aim option is not ported (hud.md: shown disabled)
-0x004a2a70,fn_004a2a70,deferred,"feature: sniper-rifle; PlayerWeapon fire along the camera ray (vtable 0x005ac210, the sniper rifle): not on lev_1_m1"
+0x004a2480,fn_004a2480,ported,engine/src/weapons/sniper.rs fire: the sniper rifle's fire along the camera ray
+0x004a24d0,fn_004a24d0,ported,engine/src/weapons/spec.rs GunProps: start_angle_yaw / start_angle_pitch (degrees; radians where used)
+0x004a2550,fn_004a2550,ported,"engine/src/weapons/vindaloo.rs fire: the fan of two (four upgraded) rockets on the lock-ons, the sounds and counts"
+0x004a2910,fn_004a2910,ported,engine/src/player.rs weapons: the shark gun fires only with a target picked (weapons/targeting.rs Pass::Shark)
+0x004a2950,fn_004a2950,ported,"engine/src/weapons/landshark.rs fire: wpn_shark_fire, the shark launched at the target"
+0x004a2a40,fn_004a2a40,ported,"engine/src/weapons/targeting.rs update: the auto-aim pass for the rifle and the machine gun (options.rs auto_aim, the Controls page; not zoomed, difficulty <= normal); player.rs aims the shot at the target"
+0x004a2a70,fn_004a2a70,ported,"engine/src/weapons/sniper.rs camera_ray_shot: the start at the muzzle's depth on the camera ray, the target at snipergun_range"
 0x0044d150,fn_0044d150,deferred,"feature: camera-startup-path; camera_startup_path_anim on a camera path (slot 8, Camera_StartPath mode 2): mission.rs cites it as not ported"
 0x0044e120,PlayerTickerBomb_AttachToParent,ported,"mission.rs lock_sites: a site with lock_parent_tag rides the lock_parent_bone (ref_ticker) of the run-time object of that tag (the squad's goliath, level.rs ObjectTag from goliath.rs); lev_3_m1 sites 173..175, lev_4_m1 330 / 367 / 368. Oracle ticker_l3m1 (Object_Attach's parent: the goliath), playtests ticker_goliath / ticker_goliath_l4m1"
 0x00477c90,fn_00477c90,deferred,"feature: untraced; player.rs cites it as 'meaning not settled, not ported'"

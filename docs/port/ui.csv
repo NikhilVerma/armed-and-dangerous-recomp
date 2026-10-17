@@ -1,9 +1,10 @@
 address,name,disposition,reason
 0x00401010,fn_00401010,replaced,options apply: options.rs applies each option
-0x004067e0,fn_004067e0,deferred,"feature: auto-aim; auto-aim pass: option off by default, shown disabled; open: port with an auto-aim option"
-0x00408050,fn_00408050,deferred,"feature: auto-aim; auto-aim pass: option off by default, shown disabled; open: port with an auto-aim option"
-0x00408190,fn_00408190,deferred,"feature: auto-aim; auto-aim pass: option off by default, shown disabled; open: port with an auto-aim option"
-0x004082a0,fn_004082a0,deferred,"feature: auto-aim; auto-aim pass: option off by default, shown disabled; open: port with an auto-aim option"
+0x004067e0,fn_004067e0,ported,"engine/src/weapons/targeting.rs: the passes' eye, the player's position + 4 (View::eye)"
+0x00407c20,fn_00407c20,deferred,"feature: knockout-bomb; the knockout bomb's (punching glove's) six marker targets in range of weapon 7 (autoaim_bof_factor_*): the special is not ported (player.rs logs its use)"
+0x00408050,fn_00408050,ported,engine/src/weapons/targeting.rs View::contains: the bounding-sphere test against the narrowed view
+0x00408190,fn_00408190,ported,"engine/src/weapons/targeting.rs candidates / search: the live characters nearest the eye first, 21 looked at"
+0x004082a0,fn_004082a0,replaced,engine/src/weapons/targeting.rs: the candidate list is built each pass (Rust Vec); no references to release
 0x00410bd0,fn_00410bd0,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
 0x00410ca0,fn_00410ca0,replaced,cheat flags at level start: cheats.rs applies effects on activation (0x2000 object pass 0x00418690 not ported)
 0x00415910,fn_00415910,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
@@ -153,4 +154,4 @@ address,name,disposition,reason
 0x004a36f0,fn_004a36f0,ported,ported: gamemenu.rs navigate Act::Slot (save / overwrite prompt / load / delete prompt)
 0x004a37e0,fn_004a37e0,ported,ported: gamemenu.rs save_slot (the panel is the hit box: MenuRow::panel)
 0x004a3b60,fn_004a3b60,ported,"ported: gamemenu.rs slot_page / navigate go (title, default slot: saveslots::default_slot)"
-0x00406740,fn_00406740,deferred,"feature: vindaloo; whether the HUD draws the vindaloo's lock-on markers (hud +0x152, the four sprites at +0x164; four with vindaloo_is_upgraded Game+0xdd0): the rocket launcher is not ported (player.rs: rifle and machine gun)"
+0x00406740,fn_00406740,ported,"engine/src/weapons/targeting.rs, hud.rs lock_markers: the multi-lock pass with the vindaloo (hud +0x152) and the four ui_multi_lock markers on its lock-ons"

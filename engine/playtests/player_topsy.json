@@ -2,10 +2,10 @@
  {"wait": 1.0},
  {"warp": [190.68, -69.44, 13.76, 90]},
  {"wait": 0.5},
- {"expect": {"hand": "machinegun", "special": 0, "topsy_left": 1}},
+ {"expect": {"hand": "machinegun", "special": "stickybomb", "topsy_left": 1}},
  {"tap": "Tab"},
  {"wait": 0.3},
- {"expect": {"special": 1}},
+ {"expect": {"special": "topsyturvy"}},
  {"tap": "Space"},
  {"wait": 0.25},
  {"expect": {"jumping": true}},
@@ -21,6 +21,6 @@
  {"expect": {"hand": "topsyturvy"}},
  {"shot": "bomb_in_hand"},
  {"wait": 9.0},
- {"expect": {"hand": "machinegun", "special": 0}},
+ {"expect": {"hand": "machinegun", "special": "stickybomb"}},
  {"quit": true}
 ]}

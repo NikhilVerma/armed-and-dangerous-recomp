@@ -133,7 +133,19 @@ fn record(
     main: Res<MainClock>,
     mut last_seen: Local<Option<bevy::platform::time::Instant>>,
     mut cost: Local<FrameCost>,
+    (mut mesh_events, meshes): (MessageReader<AssetEvent<Mesh>>, Res<Assets<Mesh>>),
 ) {
+    // mesh churn: every added or modified mesh is re-uploaded (the render world's mesh allocator frees and allocates
+    // it again), so these counts explain allocate_and_free_meshes
+    let (mut changed, mut vertices) = (0usize, 0usize);
+    for e in mesh_events.read() {
+        if let AssetEvent::Added { id } | AssetEvent::Modified { id } = e {
+            changed += 1;
+            vertices += meshes.get(*id).map_or(0, |m| m.count_vertices());
+        }
+    }
+    bench.record("meshes_changed", changed as f32);
+    bench.record("mesh_vertices_changed", vertices as f32);
     cost.cpu_main = since(main.0);
     bench.record("cpu_main", cost.cpu_main);
     if let Some(r) = shared.0.lock().ok().and_then(|mut s| s.take()) {

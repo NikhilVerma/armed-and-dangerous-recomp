@@ -408,6 +408,11 @@ impl ModelKit<'_> {
     pub fn dir(&self) -> std::path::PathBuf {
         self.anims.dir.clone()
     }
+
+    /// The model and anim libraries for baking a crowd clip (crowd.rs).
+    pub fn bake_input(&mut self) -> crate::crowd::BakeInput<'_> {
+        crate::crowd::BakeInput { models: &mut self.lib, anims: &mut self.anims, binds: &mut self.binds, assets: &self.assets, meshes: &mut self.meshes, materials: &mut self.materials }
+    }
 }
 
 /// The member ref points of a platoon template (FakeGrunt_Update's first call: ref_captain_0N, ref_grunt_0N,
@@ -421,6 +426,13 @@ fn model_box(kit: &ModelKit, data: &crate::gamedata::GameData, template: &str) -
         Some(Vec3::new(a.first()?.as_f64()? as f32, a.get(1)?.as_f64()? as f32, a.get(2)?.as_f64()? as f32))
     };
     Some((p("min")?, p("max")?))
+}
+
+/// The distance from point c to the segment a..b.
+fn segment_distance(a: Vec3, b: Vec3, c: Vec3) -> f32 {
+    let ab = b - a;
+    let u = ((c - a).dot(ab) / ab.length_squared().max(1e-6)).clamp(0.0, 1.0);
+    (a + ab * u).distance(c)
 }
 
 /// Where the segment a..b first enters the box (slab test), if it does.
@@ -467,6 +479,7 @@ fn timers(
     tuning: Res<ArmyTuning>,
     data: Res<crate::gamedata::GameData>,
     mut kit: ModelKit,
+    mut crowds: ResMut<crate::crowd::CrowdLibrary>,
 ) {
     let dt = time.delta_secs();
     let army = &mut *army;
@@ -538,11 +551,15 @@ fn timers(
         let mut members = Vec::new();
         for (kind, local) in points {
             let member = Member { kind, local, visual: None, alive: true };
-            // the member drawn as a grunt of its kind, running (the original's particle: pool 2 of Game+0xa90)
+            // the member drawn as a grunt of its kind running, one instanced mesh each (crowd.rs; the original's
+            // sprite: a particle of pool 2 of Game+0xa90, FakeGrunt_Update 0x00446460); its pace is set by
+            // `platoons` once it exists
             let model = data.templates.get(member.template()).and_then(|t| t.model.clone());
-            let visual = model.and_then(|m| kit.spawn(&mut commands, &m, Transform::from_translation(local), false));
+            let clip = model.and_then(|m| crowds.clip(kit.bake_input(), &m, MEMBER_ANIM));
+            let visual = clip.map(|c| crate::crowd::CrowdLibrary::spawn(&mut commands, &c, Transform::from_translation(local), member_phase(members.len(), c.duration), 1.0, false));
             if let Some(v) = visual {
                 commands.entity(pe).add_child(v);
+                commands.entity(v).insert(MemberPace);
             }
             members.push(Member { visual, ..member });
         }
@@ -564,9 +581,18 @@ fn timers(
     }
 }
 
-/// The member grunts' run anim (the regular's template default, grunt_run_no_sound), started once their rig exists.
+/// The members' run anim (the regular's template default).
+const MEMBER_ANIM: &str = "grunt_run_no_sound";
+
+/// A member whose pace (its rate through the run cycle) is still to be drawn.
 #[derive(Component)]
-struct MemberRun;
+struct MemberPace;
+
+/// Where in the run cycle member `i` of a platoon starts (spread by the golden ratio, so neighbours are out of step
+/// without drawing random numbers).
+fn member_phase(i: usize, duration: f32) -> f32 {
+    (i as f32 * 0.618_034).fract() * duration
+}
 
 /// FakeGrunt_Update 0x00446460 and the "release_platoon" event 0x0043ce30.
 #[allow(clippy::too_many_arguments)]
@@ -581,21 +607,15 @@ fn platoons(
     mut spawn: MessageWriter<crate::level::SpawnGrunt>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     mut rng: ResMut<crate::fx::FxStats>,
-    mut runners: Query<(Entity, &mut crate::skin::Animator), (Without<MemberRun>, Without<Grunt>)>,
-    parents: Query<&ChildOf>,
+    mut runners: Query<(Entity, &mut crate::crowd::CrowdMember), With<MemberPace>>,
 ) {
     let now = time.elapsed_secs();
     let dt = time.delta_secs();
     let army = &mut *army;
     // the members' run cycle (each a little out of step)
-    for (e, mut a) in &mut runners {
-        if parents.get(e).ok().is_some_and(|p| q.contains(p.parent())) {
-            a.play(0, "grunt_run_no_sound", true, crate::skin::Mask::All);
-            if let Some(l) = a.layers.get_mut(0) {
-                l.speed = rng.range(0.85, 1.15);
-            }
-            commands.entity(e).insert(MemberRun);
-        }
+    for (e, mut m) in &mut runners {
+        m.speed = rng.range(0.85, 1.15);
+        commands.entity(e).remove::<MemberPace>();
     }
     for n in notes.read() {
         if n.text.eq_ignore_ascii_case("release_platoon") {
@@ -705,6 +725,8 @@ fn fake_hits(
     let dt = time.delta_secs();
     let to_engine = Mat4::from_quat(crate::level::game_to_engine());
     let mut points: Vec<Vec3> = blasts.read().map(|b| b.at).collect();
+    // the player's shots this frame: the segment each crossed
+    let segments: Vec<(Entity, Vec3, Vec3)> = shots.iter().filter(|(_, _, sp)| sp.from_player).map(|(se, st, sp)| (se, st.translation - sp.vel * dt, st.translation)).collect();
     let mut used = HashSet::new();
     for (pe, mut p, m) in &mut q {
         let world = to_engine * m.world;
@@ -713,15 +735,19 @@ fn fake_hits(
             continue;
         }
         let mut hits = points.clone();
-        for (se, st, sp) in &shots {
-            if !sp.from_player || used.contains(&se) {
+        // a sphere round everything a shot can hit here (the box's corners, the members' chests and their 5-unit
+        // reach): a segment that misses it misses both tests below
+        let inv = world.inverse();
+        let corners = p.hit_box.map(|(lo, hi)| (0..8).map(move |k| world.transform_point3(Vec3::new([lo.x, hi.x][k & 1], [lo.y, hi.y][(k >> 1) & 1], [lo.z, hi.z][k >> 2]))));
+        let reach: Vec<Vec3> = alive.iter().map(|(_, c)| *c + Vec3::Y * 6.0).chain(corners.into_iter().flatten()).collect();
+        let centre = reach.iter().copied().sum::<Vec3>() / reach.len() as f32;
+        let radius = reach.iter().map(|r| r.distance(centre)).fold(0.0, f32::max) + 5.1;
+        for &(se, a, b) in &segments {
+            if used.contains(&se) || segment_distance(a, b, centre) > radius {
                 continue;
             }
-            let b = st.translation;
-            let a = b - sp.vel * dt;
             // the platoon's box (its collision), in the platoon's frame
             if let Some(bx) = p.hit_box {
-                let inv = world.inverse();
                 if let Some(at) = segment_enters_box(inv.transform_point3(a), inv.transform_point3(b), bx) {
                     hits.push(world.transform_point3(at));
                     used.insert(se);

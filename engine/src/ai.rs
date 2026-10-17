@@ -972,6 +972,20 @@ pub struct SplineRun {
 #[derive(Component)]
 pub struct Player;
 
+/// A death decided by what killed him (a weapon's own death record): the anim his death plays on slot 0 instead of
+/// the usual pick, never a ragdoll (the land shark's bite: 0x1000 -> anim 0x58 grunt_sharkbite, state 0x191;
+/// weapons/landshark.rs).
+#[derive(Component, Clone, Copy, Debug)]
+pub struct DeathAnim(pub &'static str);
+
+/// An anim a weapon's effect holds a live character in, by the class's anim id (the black hole's pull: 0x49 / 0x4a
+/// grunt_blown_up / _2 looped; ai_06.cpp:3159): charanim.rs plays it over the state's own.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct AnimOverride {
+    pub id: u32,
+    pub looping: bool,
+}
+
 #[derive(Resource, Default)]
 pub struct AiStats {
     pub ms: f32,
@@ -1142,20 +1156,23 @@ fn log_cover(grunts: Query<&Grunt>, trenches: Query<(&Barricade, &crate::level::
 /// The playtest state's `ai`: the live grunts by state, the reactions, spline runs, captains, grenades, noises, and the
 /// grunt nearest Roman (its state, class, stance, reaction, whether it targets him).
 /// The state log's "grunt_ids" (playtest expects, e.g. "grunt_ids.286.mind": "Dead"): every placed AI (a level
-/// instance, not a troop made in play) by instance id: game-space position, mind, health.
+/// instance, not a troop made in play) by instance id: game-space position, mind, health. A placed AI whose body
+/// was removed (corpses.rs) stays listed as dead: {"mind": "Dead", "removed": true}.
 fn log_placed(
     grunts: Query<(&Grunt, &GlobalTransform, &crate::level::InstanceId, Option<&crate::fx::Health>, Has<crate::skin::Animator>, Has<crate::physics::Body>)>,
+    corpses: Option<Res<crate::corpses::Corpses>>,
     state: Option<ResMut<crate::playtest::PlayState>>,
 ) {
     let Some(mut state) = state else { return };
-    let out: serde_json::Map<String, serde_json::Value> = grunts
+    let removed = corpses.iter().flat_map(|c| c.removed_instances.iter()).map(|id| (id.to_string(), serde_json::json!({"mind": "Dead", "removed": true})));
+    let out: serde_json::Map<String, serde_json::Value> = removed.chain(grunts
         .iter()
         .map(|(g, t, id, h, animated, body)| {
             let p = t.translation();
             let pos = [p.x.round(), (-p.z).round(), p.y.round()];
             // (rigged: the crosshair and bullets test his parts; a body: his capsule)
             (id.0.to_string(), serde_json::json!({"pos": pos, "mind": format!("{:?}", g.mind), "health": h.map(|h| h.0.round()), "rigged": animated, "body": body}))
-        })
+        }))
         .collect();
     state.0.insert("grunt_ids".into(), out.into());
 }
@@ -1692,6 +1709,7 @@ fn search(
     noise: Res<Interests>,
     squads: Query<&squad::Squad>,
     (army, mission, objects): (Query<(), With<ArmyTarget>>, Option<Res<crate::mission::Mission>>, Query<(Entity, &crate::level::InstanceId, &GlobalTransform), With<crate::fx::Destructible>>),
+    traitors: Query<(), With<crate::weapons::traitor::Traitor>>,
 ) {
     let dt = time.delta_secs();
     let Ok((pe, _, _)) = player.single() else { return };
@@ -1711,6 +1729,13 @@ fn search(
     };
     let cands: Vec<(Entity, Vec3, Vec3)> =
         player.iter().chain(companions.iter()).map(|(e, t, a)| (e, t.translation(), hit_point(t, a))).collect();
+    // the Guy Fawkes traitors (weapons/traitor.rs; 0x00430140 swaps the AI's lists +0x604 / +0x608 and joins the other
+    // side's): a traitor hunts the live grunts still loyal; the loyal hunt the traitors as well as the player's side
+    let sides: Vec<(Entity, Vec3, Vec3, bool)> = if traitors.is_empty() {
+        Vec::new()
+    } else {
+        grunts.iter().filter(|g| g.1.mind != Mind::Dead).map(|(e, _, t, _, a)| (e, t.translation(), hit_point(t, a), traitors.contains(e))).collect()
+    };
     if std::env::var("AIDBG").is_ok() && time.elapsed_secs() < 0.5 {
         info!("AIDBG candidates player {:?} companions {:?}", pe, companions.iter().map(|c| c.0).collect::<Vec<_>>());
     }
@@ -1792,7 +1817,8 @@ fn search(
         let mut best: Option<(f32, Entity, bool)> = None;
         // step 2: a noise of the player's within its radius of the grunt's ref_hit_00 (3D), the player within 2 x
         // scan_distance (2D): taken first (no cone, no line of sight); the list below only replaces it when nearer
-        if noise.list.iter().any(|i| i.pos.distance(own_hit) <= i.radius) {
+        let traitor = traitors.contains(ge);
+        if !traitor && noise.list.iter().any(|i| i.pos.distance(own_hit) <= i.radius) {
             if let Some(&(ce, cpos, _)) = cands.iter().find(|c| c.0 == pe) {
                 let d2 = (cpos - me).with_y(0.0).length();
                 if d2 <= 2.0 * g.scan_distance {
@@ -1800,7 +1826,12 @@ fn search(
                 }
             }
         }
-        for &(ce, cpos, chit) in &cands {
+        let own: Vec<(Entity, Vec3, Vec3)> = if traitor {
+            sides.iter().filter(|s| !s.3 && s.0 != ge).map(|s| (s.0, s.1, s.2)).collect()
+        } else {
+            cands.iter().copied().chain(sides.iter().filter(|s| s.3).map(|s| (s.0, s.1, s.2))).collect()
+        };
+        for &(ce, cpos, chit) in &own {
             let to = (cpos - me).with_y(0.0);
             let d2 = to.length();
             if global_tag != 0 {
@@ -2389,7 +2420,7 @@ fn lost_target(g: &mut Grunt, me: Entity, trenches: &mut [TrenchView]) -> Mind {
 
 /// AI_Wander 0x0042d430 / state 0x5b's point: walk there (state 0x3d), the spline dropped (+0x570) and +0x488 bit 15
 /// cleared; the walk's time limit is the engine's (twice the straight run plus 2 s).
-fn wander_to(g: &mut Grunt, from: Vec3, to: Vec3, speed: f32) {
+pub(crate) fn wander_to(g: &mut Grunt, from: Vec3, to: Vec3, speed: f32) {
     g.spline = None;
     g.goal = to;
     g.timer = to.distance(from) / speed.max(1.0) * 2.0 + 2.0;
@@ -3965,7 +3996,9 @@ fn shoot(commands: &mut Commands, fx: &mut MessageWriter<crate::fx::StartFx>, g:
     // the rocket captain's launcher fires the captain_rocket (CaptainRocket: ai/rocket.rs), the others a bullet
     match (g.me, crate::vehicles::rockets::is_rocket(&g.bullet)) {
         (Some(me), true) => rocket::fire(commands, fx, data, rng, muzzle + dir * 4.0, aim, me),
-        _ => crate::player::spawn_projectile_to(commands, fx, &g.bullet, muzzle + dir * 4.0, aim, false, g.me),
+        _ => {
+            crate::player::spawn_projectile_to(commands, fx, &g.bullet, muzzle + dir * 4.0, aim, false, g.me);
+        }
     }
     if let Some(m) = g.weapon.s("muzzle_fx_name") {
         fx.write(crate::fx::StartFx { name: m.to_owned(), at: muzzle + dir * 4.0, rotation: Transform::IDENTITY.looking_to(dir, Vec3::Y).rotation, follow: None, position_only: false });
@@ -4087,7 +4120,7 @@ fn fire_cycle(
 fn die(
     mut commands: Commands,
     mut physics: NonSendMut<Physics>,
-    mut grunts: Query<(Entity, &mut Grunt, &Body, &mut Transform, &Health, Option<&mut crate::skin::Animator>)>,
+    mut grunts: Query<(Entity, &mut Grunt, &Body, &mut Transform, &Health, Option<&mut crate::skin::Animator>, Option<&DeathAnim>)>,
     joints: Query<&GlobalTransform>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     mut km: ResMut<KillMeter>,
@@ -4102,7 +4135,7 @@ fn die(
     // the ragdolls already down (GoRagdoll 0x00431310 counts them over the AI list: 0x00431000)
     let rules = crate::corpses::CorpseRules::of(&settings);
     let mut down = crate::corpses::Corpses::ragdolls(&corpses);
-    for (e, mut g, body, mut tr, h, animator) in &mut grunts {
+    for (e, mut g, body, mut tr, h, animator, forced) in &mut grunts {
         if g.mind == Mind::Dead || h.0 > 0.0 {
             continue;
         }
@@ -4153,11 +4186,13 @@ fn die(
         // grunt_hit_window (0x3d); else 0x00427100: grunt_barricade_death (0x56) in a trench's slot, else grunt_die_1..6.
         // Not reached here: the 0x57 flag variant (in back: no lev_1_m1 grunt sets it) and record flag 2's launch.
         let blown_out = g.window && g.cartoon;
-        let wants_ragdoll = !blown_out && (g.last_hit >= g.hit_ragdoll || push.length() > 30.0);
+        let wants_ragdoll = forced.is_none() && !blown_out && (g.last_hit >= g.hit_ragdoll || push.length() > 30.0);
         // GoRagdoll with more ragdolls down than the limit allows: the animated death of 0x00427100 instead
         g.ragdoll = wants_ragdoll && crate::corpses::Corpses::may_ragdoll(down, &rules);
         down += g.ragdoll as u32;
-        g.death_name = if blown_out {
+        g.death_name = if let Some(d) = forced {
+            Some(d.0)
+        } else if blown_out {
             Some("grunt_window_blown_out")
         } else if g.ragdoll {
             None
@@ -4202,7 +4237,7 @@ fn die(
         }
     }
     for (group, killer, who) in alerts {
-        for (ge, mut g, _, _, _, _) in &mut grunts {
+        for (ge, mut g, _, _, _, _, _) in &mut grunts {
             if ge != who && g.alert_group == group && g.mind != Mind::Dead && g.pending.is_none() {
                 if std::env::var("AIDBG").is_ok() {
                     info!("AIDBG group {group} alerted by a death: {ge:?} -> {killer:?}");
