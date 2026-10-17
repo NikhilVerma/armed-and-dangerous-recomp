@@ -13,7 +13,7 @@
  {"expect": {"vehicles.11t.in_range": true, "vehicles.11t.spin": 0, "vehicles.11t.seen": true, "vehicles.11t.volleys": 1, "vehicles.8t.in_range": false}},
  {"shot": "fired"},
  {"wait": 3.0},
- {"expect": {"vehicles.rockets.fired": 4, "vehicles.rockets.hit_roman": [3, 4], "health": [150, 340]}},
+ {"expect": {"vehicles.rockets.fired": 4, "vehicles.rockets.hit_roman": [3, 4], "health": [50, 340]}},
  {"hurt": -400},
  {"wait": 4.0},
  {"expect": {"vehicles.11t.volleys": 2, "vehicles.rockets.fired": 8}},

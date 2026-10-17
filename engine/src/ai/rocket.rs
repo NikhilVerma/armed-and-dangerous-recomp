@@ -146,9 +146,11 @@ pub fn shoot_down(
 }
 
 /// The playtest state's `captain_rocket`.
-pub fn log(stats: Res<RocketHullStats>, state: Option<ResMut<crate::playtest::PlayState>>) {
+pub fn log(stats: Res<RocketHullStats>, live: Query<(), With<RocketHull>>, state: Option<ResMut<crate::playtest::PlayState>>) {
     let Some(mut state) = state else { return };
-    state.0.insert("captain_rocket".into(), serde_json::json!({"fired": stats.fired, "shot_down": stats.shot_down}));
+    // (ended: hit something, shot down or out of lifetime)
+    let ended = stats.fired.saturating_sub(live.iter().count() as u32);
+    state.0.insert("captain_rocket".into(), serde_json::json!({"fired": stats.fired, "ended": ended, "shot_down": stats.shot_down}));
 }
 
 #[cfg(test)]
