@@ -11,8 +11,8 @@ Sources: two read-only code audits (2026-10-12) and the playground captures. Gue
 | Limit | Evidence | Original | Remaster |
 |---|---|---|---|
 | Positional voices | 0x004fa210 (a 3D start fails when +0x120 > 0x3f) | 64 | no limit (Bevy mixes every voice; engine/src/audio.rs) |
-| Simultaneous ragdolls | Character_GoRagdoll, src/physics/physics_01.cpp (`downCount <= g_ragdollLimit`) | 4 | `[persistence] ragdoll_limit` 64; held bodies don't count |
-| Corpse fade | Corpse_CountDown 0x0042eba0 (src/game/corpses.cpp) | fade after 1-5.5 s | `bodies_keep` 1, `bodies_max` 64 |
+| Simultaneous ragdolls | Character_GoRagdoll, src/physics/physics_01.cpp (`downCount <= g_ragdollLimit`) | 4 | hook: `[persistence] ragdoll_limit` 64; held bodies don't count. Remaster engine: graphics `ragdoll_limit` (Original 4, Remaster 16); a ragdoll at rest after 5 s settles (its Jolt bodies freed) and no longer counts (engine/src/corpses.rs) |
+| Corpse fade | Corpse_CountDown 0x0042eba0 (src/game/corpses.cpp) | ragdoll 5 s (fading the last 0.5 s), animated death 0.5 s after its anim (oracle `corpses`: 5.00 / 0.50 s in both games) | hook: `bodies_keep` 1, `bodies_max` 64. Remaster engine: graphics `corpse_keep` 48 (bodies lying at once, the oldest fades first), `corpse_time` 60 s, `corpse_fade` 1.5 s; the Original preset keeps the original's timers (0 / 0 / 0). 4K bench with every lev_1_m1 grunt dead: 108.8 fps (engine/src/corpses.rs, 2026-10-17) |
 | Explosion debris lifespan | FxObject update 0x0041a350 | 1-12 s | `debris_keep` 1, `debris_max` 1000 |
 | Debris collision = one bounding sphere | Object_BuildRadiusCollision 0x004527d0 | sphere | `debris_mesh_collision` 1 |
 | Decal pool | 0x00416150 (`mov ebx,0xa0`) | 160 | `decal_pool` 1024 (cap 4096) |
