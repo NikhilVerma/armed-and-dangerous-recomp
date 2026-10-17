@@ -1138,8 +1138,19 @@ pub fn spawn(
     commands.insert_resource(crate::sticky::StickyAssets { parts, dynamite, base: game_to_engine() });
     // the captains' grenade (template captain_grenade: grunt_grenade_1; ai/grenade.rs)
     commands.insert_resource(crate::ai::grenade::GrenadeAssets(lib.load_model("grunt_grenade_1", false, assets, meshes, materials).map(|m| m.parts.clone()).unwrap_or_default()));
-    // the paratroopers' parachute (template captain_parachute: fxo_captain_parachute; ai/fall.rs), drawn in its bind pose
-    commands.insert_resource(crate::ai::fall::ParachuteAssets(lib.load_model("fxo_captain_parachute", false, assets, meshes, materials).map(|m| m.parts.clone()).unwrap_or_default()));
+    // the paratroopers' parachute (template captain_parachute: fxo_captain_parachute; ai/fall.rs): skinned, drawn in
+    // its rest pose, the joint attributes dropped
+    let chute: Vec<(Handle<Mesh>, Handle<StandardMaterial>)> = lib
+        .load_model("fxo_captain_parachute", false, assets, meshes, materials)
+        .map(|m| m.parts.clone())
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|(mh, mt)| {
+            let x = meshes.get(&mh).cloned()?;
+            Some((meshes.add(x.with_removed_attribute(Mesh::ATTRIBUTE_JOINT_INDEX).with_removed_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT)), mt))
+        })
+        .collect();
+    commands.insert_resource(crate::ai::fall::ParachuteAssets(chute));
 
     // The level's directional lights (lighttype "dir"): each shines down its local -Z axis.
     let (lo, hi) = (Vec3::from(scene.bounds[0]), Vec3::from(scene.bounds[1]));
@@ -1466,6 +1477,10 @@ fn spawn_grunts(
                 if !ai::drop_orders(&mut g, notes.iter().map(|(_, n)| n.as_str())) {
                     g.target = player.single().ok();
                     g.mind = ai::Mind::Chase;
+                }
+                // down his rope by the IC anim, then the free fall into those orders (ai/paratroop.rs)
+                if let Some(m) = d.mover.as_deref().filter(|m| anim_lib.anim(m).is_some()) {
+                    ai::paratroop::start(&mut commands, e, &mut g, ev.at, m);
                 }
             } else if let Some(link) = ev.squad {
                 // a squad member (0x0042de60): his group, his bone, state 0xde

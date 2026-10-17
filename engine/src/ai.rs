@@ -21,6 +21,7 @@ pub mod ic;
 pub mod jumper;
 pub mod max_fire;
 pub mod monk;
+pub mod paratroop;
 pub mod rocket;
 pub mod squad;
 pub mod tower;
@@ -1076,6 +1077,7 @@ impl Plugin for AiPlugin {
             .init_level_resource::<rocket::RocketHullStats>()
             .init_level_resource::<AiForce>()
             .init_level_resource::<fall::FallStats>()
+            .init_level_resource::<paratroop::ParatroopStats>()
             .init_resource::<fall::ParachuteAssets>()
             .init_level_resource::<aim::TargetMotion>()
             .init_level_resource::<Interests>()
@@ -1085,8 +1087,8 @@ impl Plugin for AiPlugin {
             .add_systems(
                 Update,
                 (
-                    (body::bumps, squad::update_squads, interests, mark_army_targets, search, ic::activate, scare, max_fire::sync_limit, aim::track, think, max_fire::upkeep, fall::run, ic::run, bully::bullies, die, dismay).chain(),
-                    (body::apply_rules, log_cover, log_ai, log_placed, squad::log_squads, ic::log, max_fire::log, grenade::fly, grenade::log, rocket::shoot_down, rocket::log, fall::log, fall::drop_parachutes).chain(),
+                    (body::bumps, squad::update_squads, interests, mark_army_targets, search, ic::activate, scare, max_fire::sync_limit, aim::track, think, max_fire::upkeep, fall::run, ic::run, paratroop::rappel, bully::bullies, die, dismay).chain(),
+                    (body::apply_rules, log_cover, log_ai, log_placed, squad::log_squads, ic::log, max_fire::log, grenade::fly, grenade::log, rocket::shoot_down, rocket::log, fall::log, fall::drop_parachutes, paratroop::log).chain(),
                 )
                     .chain()
                     .after(crate::fx::FxSet)
