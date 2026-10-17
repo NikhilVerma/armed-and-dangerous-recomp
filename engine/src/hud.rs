@@ -221,16 +221,18 @@ pub struct HudState {
     /// the speech subtitle: text, speaker colour, seconds left (in-game subtitles option)
     pub subtitle: Option<(String, Color, f32)>,
     pub subtitles_off: bool,
-    /// the weapon in hand ("rifle", "machinegun"), its reserve, and whether the reserve is unlimited
+    /// the weapon in hand ("rifle", "machinegun", ...: its mission name; its id), its reserve, and whether the reserve is
+    /// unlimited
     pub weapon: &'static str,
+    pub weapon_id: Option<crate::weapons::WeaponId>,
     pub ammo: u32,
     pub unlimited: bool,
     /// the ticker bomb: arming progress 0..1 while Use is held; seconds since armed while it ticks
     pub ticker_arming: Option<f32>,
     pub ticker_clock: Option<f32>,
-    /// the special in hand (0 sticky bombs, 1 Topsy Turvy) and the Topsy Turvy count
-    pub special: u8,
-    pub topsy: u32,
+    /// the special in hand and its count
+    pub special: crate::weapons::SpecialId,
+    pub special_count: u32,
     /// the team order's text (ui_teammate_*: its layout string) and seconds left (3.0, 0x00467890)
     pub team: Option<(&'static str, f32)>,
 }
@@ -250,7 +252,7 @@ impl Plugin for HudPlugin {
             // transforms propagate
             .add_systems(
                 PostUpdate,
-                (subtitles, chat, crosshair_aim.run_if(crate::playing), crosshair_pose, place, texts, meters, compass, compass_arms, ticker, pub_view, visibility, log_hud)
+                (subtitles, chat, crosshair_aim.run_if(crate::playing), crosshair_pose, lock_markers, place, texts, meters, compass, compass_arms, ticker, pub_view, visibility, log_hud)
                     .chain()
                     .before(bevy::transform::TransformSystems::Propagate),
             );
@@ -299,16 +301,24 @@ pub fn spawn(
         "ui_crosshair", "ui_compass", "ui_compass_objective", "ui_ammo_infinity", "ui_ammo_count", "ui_grenade_count",
         "ui_hit_top", "ui_hit_bottom", "ui_hit_left", "ui_hit_right", "ui_player_mg", "ui_player_topsy", "ui_clock", "ui_tickerbomb",
         "ui_tickerbomb_set", "ui_mg_crosshair", "ui_crosshair_friendly", "ui_special_crosshair", "ui_mission_timer",
+        // the other guns' and specials' icons and crosshairs (the weapon table's +0xa0 / +0xc0), the lock-on markers
+        // (four ui_multi_lock: Hud_ProjectMarkers 0x00406840)
+        "ui_player_sniper", "ui_player_rlvindaloo", "ui_player_rlgurner", "ui_player_sharkgun", "ui_player_guyfawkes",
+        "ui_player_bunchoffives", "ui_player_blackhole", "ui_sniper_crosshair", "ui_vindaloo_crosshair", "ui_gurner_crosshair",
+        "ui_sharkgun_crosshair", "ui_multi_lock",
         // the weapon-cycle arrows (0x00463fa0, the HUD's +0x5c..+0x78 by name, strings 0x005a0dac..0x005a0d20)
         "ui_select_up_on", "ui_select_down_on", "ui_select_left_on", "ui_select_right_on", "ui_select_up_off", "ui_select_down_off",
         "ui_select_left_off", "ui_select_right_off",
         // the message feed's three lines (Chat_Update 0x0046a820 finds ui_chat_01..03 by name)
         "ui_chat_01", "ui_chat_02", "ui_chat_03",
     ];
+    let mut locks = 0u8;
     for e in hud.layout.elements.iter().filter(|e| SHOWN.contains(&e.name.as_str()) && e.pos.is_some() && e.page_name.as_deref().is_none_or(|p| p == "pui_main")) {
         let anchor = match e.anchor.as_deref() {
             // the chat lines are centred on x 320 (hud.md 4, open question 6: ui_aspect.cpp lists them left)
             _ if e.name.starts_with("ui_chat_") => Anchor::Centre,
+            // the lock-on markers sit on their targets' screen points
+            _ if e.name == "ui_multi_lock" => Anchor::Centre,
             Some("left") => Anchor::Left,
             Some("right") => Anchor::Right,
             _ => Anchor::Centre,
@@ -326,6 +336,10 @@ pub fn spawn(
         }
         let Some(quads) = e.model.as_ref().and_then(|m| hud.layout.models.get(m)) else { continue };
         let root = commands.spawn((el, Transform::default(), Visibility::default(), RenderLayers::layer(HUD_LAYER))).id();
+        if e.name == "ui_multi_lock" {
+            commands.entity(root).insert((LockMarker(locks), Visibility::Hidden));
+            locks += 1;
+        }
         let _ = quads;
         let parts = build_model(commands, meshes, materials, &hud, &e.name, e.model.as_deref().unwrap_or_default());
         commands.entity(root).add_children(&parts);
@@ -1143,7 +1157,7 @@ fn texts(
             // whose reserve is unlimited (the rifle in lev_1_m1)
             "ui_ammo_count" => if state.unlimited { format!("{}/", state.clip) } else { format!("{}/{}", state.clip, state.ammo) },
             // 0x00465ad0: "%d", the current special's count
-            "ui_grenade_count" => format!("{}", if state.special == 1 { state.topsy } else { state.stickies }),
+            "ui_grenade_count" => format!("{}", state.special_count),
             // Chat_Update 0x0046a820: line i in ui_chat_0i, coloured by its index into the chat colour table
             n if n.starts_with("ui_chat_0") => {
                 let i = n.trim_start_matches("ui_chat_0").parse::<usize>().unwrap_or(1).saturating_sub(1);
@@ -1351,10 +1365,11 @@ fn visibility(
                 "ui_hit_left" => state.hit_flash[2] > 0.0,
                 "ui_hit_right" => state.hit_flash[3] > 0.0,
                 "ui_compass_objective" => state.objective.is_some(),
-                "ui_player_rifle" => state.weapon != "machinegun",
-                "ui_player_mg" => state.weapon == "machinegun",
-                "ui_player_grenades" => state.special == 0,
-                "ui_player_topsy" => state.special == 1,
+                // the icons of the gun and the special in hand (the weapon table's +0xa0: ui_player_rifle ...)
+                n if GUN_ICONS.contains(&n) => state.weapon_id.and_then(|w| w.table().hud_icon) == Some(n),
+                n if SPECIAL_ICONS.contains(&n) => state.special.table().hud_icon == Some(n),
+                // the lock-on markers: placed and shown by `lock_markers`
+                "ui_multi_lock" => continue,
                 "ui_ammo_infinity" => state.unlimited,
                 "ui_clock" | "ui_tickerbomb" => state.ticker_clock.is_some(),
                 "ui_tickerbomb_set" => state.ticker_arming.is_some(),
@@ -1362,8 +1377,10 @@ fn visibility(
                 // Hud_ProjectMarkers 0x00406840: the current weapon's crosshair (list +0x30c by weapon index; the
                 // rifle's hidden over a friendly), ui_crosshair_friendly (+0x37c) over a friendly, ui_special_crosshair
                 // (+0x38c) while a special is selected; all only while 0x00406790 allows (no cinematic, no pause)
-                "ui_crosshair" => !state.cinematic && !paused && state.weapon != "machinegun" && !xhair.friendly,
-                "ui_mg_crosshair" => !state.cinematic && !paused && state.weapon == "machinegun",
+                // the gun's crosshair (the weapon table's +0xc0); the rifle's hidden over a friendly
+                n if CROSSHAIRS.contains(&n) => {
+                    !state.cinematic && !paused && state.weapon_id.and_then(|w| w.table().crosshair) == Some(n) && !(n == "ui_crosshair" && xhair.friendly)
+                }
                 "ui_crosshair_friendly" => !state.cinematic && !paused && xhair.friendly,
                 "ui_special_crosshair" => !state.cinematic && !paused,
                 "ui_select_up_off" | "ui_select_down_off" => multi_special,
@@ -1426,7 +1443,11 @@ fn log_hud(
             "chat_lines": chat.lines.len(),
             "prompt": state.prompt.clone().unwrap_or_default(),
             "prompt_shown": els.iter().any(|(e, v, _)| e.name == "ui_prompt" && *v != Visibility::Hidden),
-            "crosshair_shown": els.iter().any(|(e, v, _)| (e.name == "ui_crosshair" || e.name == "ui_mg_crosshair") && *v != Visibility::Hidden),
+            "crosshair_shown": els.iter().any(|(e, v, _)| CROSSHAIRS.contains(&e.name.as_str()) && *v != Visibility::Hidden),
+            "crosshair": els.iter().find(|(e, v, _)| CROSSHAIRS.contains(&e.name.as_str()) && *v != Visibility::Hidden).map_or("", |(e, _, _)| e.name.as_str()),
+            "weapon_icon": els.iter().find(|(e, v, _)| GUN_ICONS.contains(&e.name.as_str()) && *v != Visibility::Hidden).map_or("", |(e, _, _)| e.name.as_str()),
+            "special_icon": els.iter().find(|(e, v, _)| SPECIAL_ICONS.contains(&e.name.as_str()) && *v != Visibility::Hidden).map_or("", |(e, _, _)| e.name.as_str()),
+            "locks_shown": els.iter().filter(|(e, v, _)| e.name == "ui_multi_lock" && *v != Visibility::Hidden).count(),
             "prompt_colour": prompt_colour,
             "prompt_scale": (prompt_scale * 1000.0).round() / 1000.0,
             "arrows": arrows,
@@ -1456,7 +1477,11 @@ pub fn mission_time_text(seconds: f32) -> String {
 }
 
 /// The crosshair elements whose parts follow their skin's bones through the `_in` / `_out` anims.
-const CROSSHAIRS: &[&str] = &["ui_crosshair", "ui_mg_crosshair", "ui_sniper_crosshair"];
+/// The guns' crosshairs (the weapon table's +0xc0; Hud_UpdateCrosshair's +0x30c list).
+const CROSSHAIRS: &[&str] = &["ui_crosshair", "ui_mg_crosshair", "ui_sniper_crosshair", "ui_vindaloo_crosshair", "ui_gurner_crosshair", "ui_sharkgun_crosshair"];
+/// The guns' and the specials' icons (the weapon table's +0xa0).
+const GUN_ICONS: &[&str] = &["ui_player_mg", "ui_player_sniper", "ui_player_rifle", "ui_player_rlvindaloo", "ui_player_rlgurner", "ui_player_sharkgun"];
+const SPECIAL_ICONS: &[&str] = &["ui_player_guyfawkes", "ui_player_bunchoffives", "ui_player_topsy", "ui_player_blackhole", "ui_player_grenades"];
 
 /// What the crosshair's aim ray found this frame (the HUD object Game+0xa6c).
 #[derive(Resource)]
@@ -1625,9 +1650,9 @@ fn crosshair_aim(
     let (eye, dir) = (c.translation(), c.forward().as_vec3());
     let (roman_e, zoomed) = roman.single().map(|(e, r)| (Some(e), r.zoom > 0.0)).unwrap_or((None, false));
     let start = if zoomed { eye } else { eye + dir * 20.0 };
-    let gun_mg = state.weapon == "machinegun";
+    // the gun in hand's range (Game+0x28b8 + index x 0x150: <name>_range)
     let g = data.props("p_globalsettings");
-    let range = g.f(if gun_mg { "machinegun_range" } else { "rifle_range" }, 10.0);
+    let range = g.f(&format!("{}_range", state.weapon_id.unwrap_or(crate::weapons::WeaponId::Rifle).name()), 10.0);
     // on the mounted gun (Game+0xac8 = 4) the ray is 2000 long (0x00406f50)
     let range = if mounted.0.is_some() { 2000.0 } else { range };
     let end = start + dir * range;
@@ -1710,9 +1735,51 @@ fn crosshair_aim(
         }
         let s = on as u8;
         if s != xhair.shown {
-            let cur = if gun_mg { "ui_mg_crosshair" } else { "ui_crosshair" };
-            xhair.anims.insert(cur.to_owned(), (on, 0.0));
+            if let Some(cur) = state.weapon_id.and_then(|w| w.table().crosshair) {
+                xhair.anims.insert(cur.to_owned(), (on, 0.0));
+            }
             xhair.shown = s;
+        }
+    }
+}
+
+/// One of the four lock-on markers (ui_multi_lock, the sprites Game+0xa70 copies: 0x004643b0).
+#[derive(Component)]
+pub struct LockMarker(pub u8);
+
+/// Hud_ProjectMarkers 0x00406840's target slots: the four multi-lock targets with the vindaloo (hud +0x152), else the
+/// single target (+0: the shark gun's, auto-aim's), each projected to the screen and its marker shown there while the
+/// point lies inside (0.08, 0.92) x (0.1625, 0.8375) of the original's screen (the 3D view's rows 0.1125..0.8875:
+/// 0.065..0.935 of the remaster's full-window view); not in a cinematic or while paused (0x00406790).
+#[allow(clippy::type_complexity)]
+fn lock_markers(
+    state: Res<HudState>,
+    targets: Res<crate::weapons::targeting::Targets>,
+    cam: Query<(&Camera, &GlobalTransform), With<crate::player::FollowCam>>,
+    windows: Query<&Window>,
+    mut markers: Query<(&LockMarker, &mut HudElement, &mut Visibility)>,
+    (app, vtime): (Res<State<crate::AppState>>, Res<Time<Virtual>>),
+) {
+    let paused = *app.get() != crate::AppState::Playing || vtime.is_paused();
+    let size = window_size(&windows);
+    let s = (size.y / 372.0).min(size.x / 640.0);
+    let cam = cam.single().ok();
+    for (m, mut el, mut v) in &mut markers {
+        let screen = targets
+            .list
+            .get(m.0 as usize)
+            .filter(|_| state.visible && !state.cinematic && !paused)
+            .and_then(|t| cam.and_then(|(c, ct)| c.world_to_ndc(ct, t.point)))
+            .filter(|n| n.z > 0.0 && n.z < 1.0)
+            .map(|n| Vec2::new((n.x + 1.0) * 0.5, (1.0 - n.y) * 0.5))
+            .filter(|p| p.x > 0.08 && p.x < 0.92 && p.y > 0.065 && p.y < 0.935);
+        let want = if screen.is_some() { Visibility::Inherited } else { Visibility::Hidden };
+        if let Some(p) = screen {
+            // to the in-game HUD's 640 x 480 units (`place`: the 372-row band over the window, centred)
+            el.pos = Vec2::new(320.0 + (p.x - 0.5) * size.x / s, 240.0 + (0.5 - p.y) * size.y / s);
+        }
+        if *v != want {
+            *v = want;
         }
     }
 }

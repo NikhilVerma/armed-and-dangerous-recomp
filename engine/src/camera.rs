@@ -120,9 +120,12 @@ impl CameraRig {
         if let (Some(end), Some(start)) = (nodes.get("Camera_end"), nodes.get("Camera_start")) {
             self.follow = CamNode { target: v(&start["target"]), ..node(end) };
         }
-        for (weapon, name) in [("rifle", "Camera_rifle"), ("machinegun", "Camera_machinegun"), ("sniper", "Camera_sniper"), ("gurner", "Camera_gurner"), ("vindaloo", "Camera_vindaloo")] {
-            if let Some(n) = nodes.get(name) {
-                self.zoom.insert(weapon.into(), node(n));
+        // each gun's zoom camera node by the weapon table's name (+0x100: Camera_rifle, Camera_sniper, camera_gurner for
+        // the gurner and the shark gun, camera_vindaloo); the nodes' names in player.json differ in case
+        for id in crate::weapons::WeaponId::ALL {
+            let Some(want) = id.table().camera else { continue };
+            if let Some(n) = nodes.as_object().and_then(|o| o.iter().find(|(k, _)| k.eq_ignore_ascii_case(want)).map(|(_, n)| n)) {
+                self.zoom.insert(id.name().into(), node(n));
             }
         }
         if let Some(p) = cam["pitch_clamp"].as_array() {
@@ -305,7 +308,7 @@ pub fn follow_camera(
         if base_fov.is_none() || r.zoom <= 0.0 && !smooth.zoom_blended {
             *base_fov = Some(pp.fov);
         }
-        let weapon = if r.use_mg { "machinegun" } else { "rifle" };
+        let weapon = r.arsenal.in_hand_id().map_or("", crate::weapons::WeaponId::name);
         let w = r.zoom;
         smooth.zoom_blended = w > 0.0 && rig.zoom.contains_key(weapon);
         if let (Some(z), true) = (rig.zoom.get(weapon).copied(), w > 0.0) {

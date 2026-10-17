@@ -70,6 +70,7 @@ mod topsy;
 mod turret;
 mod twiglet;
 mod vehicles;
+mod weapons;
 mod weapontable;
 mod player;
 mod playtest;
@@ -377,6 +378,8 @@ fn main() {
     app.add_plugins(cheats::CheatsPlugin);
     app.add_plugins(decals::DecalPlugin);
     app.add_plugins(sticky::StickyPlugin);
+    // the player's weapon roster: sniper rifle, mortar, vindaloo, land shark, black hole, Guy Fawkes, auto-aim
+    app.add_plugins(weapons::WeaponsPlugin);
     app.add_plugins(camfade::CameraFadePlugin);
     app.add_plugins(ragdoll::RagdollPlugin);
     app.add_plugins(corpses::CorpsePlugin);
@@ -775,16 +778,15 @@ fn hud_state(
     hud.clip = p.clip;
     hud.ammo = p.ammo;
     hud.weapon = p.weapon;
+    hud.weapon_id = p.weapon_id;
     hud.unlimited = p.unlimited;
     hud.stickies = p.stickies;
     hud.special = p.special;
-    hud.topsy = p.topsy;
-    // the weapon-cycle arrows (hud.rs, 0x00463fa0): the rifle and the machine gun once carried; the sticky bombs and
-    // the Topsy Turvy bomb while any are left (player.rs cycles to it only then)
-    if let Ok(r) = roman.single() {
-        hud.weapons = r.has_rifle as u32 + r.mg.is_some() as u32;
-        hud.specials = 1 + (r.topsy > 0) as u32;
-    }
+    hud.special_count = p.special_count;
+    // the weapon-cycle arrows (hud.rs, 0x00463fa0): the guns carried and the specials with some left (player.rs cycles
+    // through those)
+    hud.weapons = p.guns;
+    hud.specials = p.specials;
     for (n, h) in &companions {
         if n.as_str() == "molmer" {
             hud.jonesy_health = h.0 / 500.0;

@@ -83,7 +83,7 @@ address,name,disposition,reason
 0x0042f2f0,fn_0042f2f0,deferred,"feature: player-grab; knocked down / thrown / launch states (0x19a, 0x0042f190, 0x0042f1d0, 0x0042f2f0, 0x0042fe50): the Topsy Turvy bomb's throw is topsy.rs (another owner); the player-held grunt (grab) does not exist on lev_1_m1"
 0x0042f470,fn_0042f470,deferred,"feature: squads; the squad join of the player (0x0042f470, slot 74): army levels"
 0x0042fe50,fn_0042fe50,deferred,"feature: player-grab; knocked down / thrown / launch states (0x19a, 0x0042f190, 0x0042f1d0, 0x0042f2f0, 0x0042fe50): the Topsy Turvy bomb's throw is topsy.rs (another owner); the player-held grunt (grab) does not exist on lev_1_m1"
-0x00430140,fn_00430140,deferred,feature: guy-fawkes-fire; set alight (fx_guy_fawkes): no fire weapons on lev_1_m1
+0x00430140,fn_00430140,ported,"engine/src/weapons/traitor.rs turn: the Guy Fawkes traitor (fx_guy_fawkes on ref_fawkes, the sides swapped: ai.rs search, player.rs team test; the run to the inner circle)"
 0x00431f70,GenericAIObject_Slot46,deferred,feature: untraced; slot 46: the AI's own +0x468 / +0x46c pair (an interest-like target) returns 0 for every lev_1_m1 grunt (nothing they run sets them: guess from the writers)
 0x00431fd0,GenericAIObject_Slot42,replaced,"contact callbacks (slots 42 / 44: bumped by a body, the contact record +0x538 and list +0x518) and the list release 0x0043edb0: Jolt bodies collide; the per-state contact reactions are not ported (open: a grunt bumped by the player's car / props; none on lev_1_m1)"
 0x004320b0,GenericAIObject_Slot44,replaced,"contact callbacks (slots 42 / 44: bumped by a body, the contact record +0x538 and list +0x518) and the list release 0x0043edb0: Jolt bodies collide; the per-state contact reactions are not ported (open: a grunt bumped by the player's car / props; none on lev_1_m1)"
@@ -341,14 +341,14 @@ address,name,disposition,reason
 0x0049fdd0,Twiglet_Vt70,replaced,the matrix getters while an IC anim plays: the engine reads the entity Transform (twiglet.rs Emerging moves it by the mover)
 0x0049fe00,Twiglet_Vt78,replaced,the matrix getters while an IC anim plays: the engine reads the entity Transform (twiglet.rs Emerging moves it by the mover)
 0x0049fe30,Twiglet_Vt6C,replaced,the matrix getters while an IC anim plays: the engine reads the entity Transform (twiglet.rs Emerging moves it by the mover)
-0x0049fe60,Twiglet_VtA8,deferred,"feature: bof-glove; Twiglet_VtA8, the contact handler: state 0x52's death on contact is ported (twiglet.rs Falling); the leap 0x3c / 0x3e is dead (nothing enters 0x3c); left: the glove's throws 0x65 / 0x66"
+0x0049fe60,Twiglet_VtA8,deferred,"feature: knockout-bomb; Twiglet_VtA8, the contact handler: state 0x52's death on contact is ported (twiglet.rs Falling); the leap 0x3c / 0x3e is dead (nothing enters 0x3c); left: the glove's throws 0x65 / 0x66"
 0x004a0130,fn_004a0130,not needed,"dead in the shipped game: sets / drops the leap's attach reference +0x560 only on the leap chain 0x3d -> 0x3e (ai_09.cpp:603) and its release (Twiglet_VtA8 state 0x3e); state 0x3c, the only way into 0x3d, is entered by no code (no write of 0x3c to +0x464 in src/)"
 0x004a01b0,Twiglet_VtA0,not needed,"Twiglet_VtA0: object != +0x560; +0x560 is set only on the dead leap chain (0x004a0130), so it is always 0 and the test passes for every object: the default (collide with everything)"
 0x004a01c0,fn_004a01c0,ported,engine/src/twiglet.rs blow (the topsy turvy stun's end: hang 0x50 or blown away 0x51) and topsy_hit (topsy.rs)
-0x004a0380,Twiglet_Vt8C,deferred,"feature: bof-glove; Twiglet_Vt8C, the gravity getter: -1 in state 0x51 is ported (twiglet.rs topsy_vertical); left: +0x580 bof_anti_gravity while flag bit 4 (the glove's punch) is set"
-0x004a03c0,Twiglet_Vt11C,deferred,"feature: bof-glove; Twiglet_Vt11C: let go from the glove's hold (state 0x64 back to running 0x0a); the holder is the player's punching glove (Game+0xa6c slots, game_06.cpp:2900), not in the engine"
-0x004a0420,Twiglet_Vt120,deferred,"feature: bof-glove; Twiglet_Vt120: held by the glove (twiglet_stand, keyframed, state 0x64; out = Game+0xd1c x +0x480)"
-0x004a0480,Twiglet_Vt124,deferred,"feature: bof-glove; Twiglet_Vt124: thrown by the glove ballistically at the player's ref_hit_00 (twiglet_blown_up, state 0x65)"
-0x004a05a0,Twiglet_Vt128,deferred,"feature: bof-glove; Twiglet_Vt128: punched by the glove (camera direction, mass x Game+0xd24; bof flag bit 4, the custom-gravity list, reversed velocity, state 0x66; flag 0 dies)"
+0x004a0380,Twiglet_Vt8C,deferred,"feature: knockout-bomb; Twiglet_Vt8C, the gravity getter: -1 in state 0x51 is ported (twiglet.rs topsy_vertical); left: +0x580 bof_anti_gravity while flag bit 4 (the glove's punch) is set"
+0x004a03c0,Twiglet_Vt11C,deferred,"feature: knockout-bomb; Twiglet_Vt11C: let go from the glove's hold (state 0x64 back to running 0x0a); the holder is the player's punching glove (Game+0xa6c slots, game_06.cpp:2900), not in the engine"
+0x004a0420,Twiglet_Vt120,deferred,"feature: knockout-bomb; Twiglet_Vt120: held by the glove (twiglet_stand, keyframed, state 0x64; out = Game+0xd1c x +0x480)"
+0x004a0480,Twiglet_Vt124,deferred,"feature: knockout-bomb; Twiglet_Vt124: thrown by the glove ballistically at the player's ref_hit_00 (twiglet_blown_up, state 0x65)"
+0x004a05a0,Twiglet_Vt128,deferred,"feature: knockout-bomb; Twiglet_Vt128: punched by the glove (camera direction, mass x Game+0xd24; bof flag bit 4, the custom-gravity list, reversed velocity, state 0x66; flag 0 dies)"
 0x0042a500,fn_0042a500,deferred,"feature: ai-seek-pickups; a grab of a pickup by an AI (pickup_grab_pct +0x86c): ai.rs cites it as not ported"
 0x00483810,fn_00483810,deferred,"feature: companion-leader-swap; the leader swap of the two companion slots: ai.rs cites it as not ported"

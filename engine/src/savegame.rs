@@ -47,6 +47,17 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
+/// Roman's weapons in a save.
+#[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq)]
+pub struct SavedArsenal {
+    /// (gun, clip, spare) per slot
+    pub guns: Vec<Option<(crate::weapons::WeaponId, u32, u32)>>,
+    pub in_hand: usize,
+    pub specials: Vec<(crate::weapons::SpecialId, u32)>,
+    pub special: crate::weapons::SpecialId,
+    pub vindaloo_upgraded: bool,
+}
+
 /// The money a new game starts with (0x00401e80 with flag2: Game+0x570 = 5000, banked at +0x57c).
 pub const NEW_GAME_MONEY: f32 = 5000.0;
 
@@ -56,11 +67,17 @@ pub struct SaveData {
     pub roman_feet: [f32; 3],
     pub yaw: f32,
     pub health: f32,
+    /// (saves before the arsenal, 2026-10-17: the rifle's clip, the machine gun's record, which was in hand, the
+    /// sticky and topsy counts; still written for them)
     pub rifle_clip: u32,
     pub mg: Option<(u32, u32)>,
     pub use_mg: bool,
     pub stickies: u32,
     pub topsy: u32,
+    /// Roman's guns in slot order (weapons/arsenal.rs), the slot in hand, each special's count by id (6..10), the
+    /// special in hand and Game+0xdd0
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arsenal: Option<SavedArsenal>,
     pub mission: crate::mission::MissionSave,
     pub dead_grunts: Vec<u32>,
     /// placed objects no longer as placed: (instance id, the template it is now; None = gone)
@@ -306,8 +323,9 @@ fn save(
     buildings: Query<&InstanceId>,
     scene_ids: Res<PlacedIds>,
     (opts, difficulty, levels, pub_lines): (Res<crate::options::GameOptions>, Res<crate::gamedata::Difficulty>, Res<crate::campaign::Levels>, Res<crate::pubscreen::PubLines>),
-    (corpses, markers): (Res<crate::corpses::Corpses>, Res<crate::alarm::Markers>),
+    (corpses, markers, upgrade): (Res<crate::corpses::Corpses>, Res<crate::alarm::Markers>, Res<crate::weapons::VindalooUpgrade>),
 ) {
+    use crate::weapons::{SpecialId, WeaponId};
     if !std::mem::take(&mut req.save) {
         return;
     }
@@ -327,11 +345,18 @@ fn save(
         roman_feet: (crate::level::game_to_engine().inverse() * t.translation).to_array(),
         yaw: r.yaw,
         health: h.0,
-        rifle_clip: r.rifle.clip,
-        mg: r.mg.as_ref().map(|w| (w.clip, w.ammo)),
-        use_mg: r.use_mg,
-        stickies: r.stickies,
-        topsy: r.topsy,
+        rifle_clip: r.arsenal.gun(WeaponId::Rifle).map_or(0, |w| w.clip),
+        mg: r.arsenal.gun(WeaponId::Machinegun).map(|w| (w.clip, w.ammo)),
+        use_mg: r.arsenal.in_hand_id() == Some(WeaponId::Machinegun),
+        stickies: r.arsenal.count(SpecialId::StickyBomb),
+        topsy: r.arsenal.count(SpecialId::TopsyTurvy),
+        arsenal: Some(SavedArsenal {
+            guns: (0..crate::weapons::arsenal::GUN_SLOTS).map(|i| r.arsenal.at(i).map(|g| (g.id, g.clip, g.ammo))).collect(),
+            in_hand: (0..crate::weapons::arsenal::GUN_SLOTS).find(|&i| r.arsenal.at(i).map(|g| g.id) == r.arsenal.in_hand_id() && r.arsenal.in_hand_id().is_some()).unwrap_or(0),
+            specials: SpecialId::ALL.iter().map(|s| (*s, r.arsenal.count(*s))).collect(),
+            special: r.arsenal.special,
+            vindaloo_upgraded: upgrade.0,
+        }),
         mission: m.snapshot(),
         // the dead still lying and the bodies already removed (corpses.rs)
         dead_grunts: grunts.iter().filter(|(_, g)| g.mind == crate::ai::Mind::Dead).map(|(i, _)| i.0).chain(corpses.removed_instances.iter().copied()).collect(),
@@ -377,6 +402,49 @@ fn checkpoints(mission: Option<Res<crate::mission::Mission>>, mut seen: ResMut<C
 }
 
 #[allow(clippy::too_many_arguments)]
+/// Roman's weapons from a save: the arsenal as saved, or (an older save) the level's loadout with the rifle's clip,
+/// the machine gun's record, the sticky and topsy counts.
+fn restore_arsenal(a: &mut crate::weapons::Arsenal, s: &SaveData, data: &crate::gamedata::GameData, upgrade: &mut crate::weapons::VindalooUpgrade) {
+    use crate::weapons::{Arsenal, Gun, GunSpec, SpecialId, WeaponId};
+    match &s.arsenal {
+        Some(sa) => {
+            *a = Arsenal::default();
+            for (id, clip, ammo) in sa.guns.iter().flatten() {
+                a.add(Gun { id: *id, spec: GunSpec::load(data, *id), clip: *clip, ammo: *ammo, timer: 0.0 });
+            }
+            if let Some(id) = sa.guns.get(sa.in_hand).copied().flatten().map(|g| g.0) {
+                a.equip(id);
+            }
+            for (sp, n) in &sa.specials {
+                a.set_count(*sp, *n);
+            }
+            a.special = sa.special;
+            upgrade.0 = sa.vindaloo_upgraded;
+        }
+        None => {
+            if let Some(w) = a.gun_mut(WeaponId::Rifle) {
+                w.clip = s.rifle_clip;
+            }
+            match s.mg {
+                Some((clip, ammo)) => {
+                    let g = Gun { id: WeaponId::Machinegun, spec: GunSpec::load(data, WeaponId::Machinegun), clip, ammo, timer: 0.0 };
+                    if let Some(w) = a.gun_mut(WeaponId::Machinegun) {
+                        *w = g;
+                    } else {
+                        a.add(g);
+                    }
+                }
+                None => {
+                    a.remove(WeaponId::Machinegun);
+                }
+            }
+            a.equip(if s.use_mg { WeaponId::Machinegun } else { WeaponId::Rifle });
+            a.set_count(SpecialId::StickyBomb, s.stickies);
+            a.set_count(SpecialId::TopsyTurvy, s.topsy);
+        }
+    }
+}
+
 fn apply(
     mut commands: Commands,
     pending: Option<ResMut<PendingLoad>>,
@@ -389,7 +457,7 @@ fn apply(
     mut restore: MessageWriter<RestoreStage>,
     mut physics: NonSendMut<crate::physics::Physics>,
     data: Res<crate::gamedata::GameData>,
-    (mut opts, mut difficulty, mut seen): (ResMut<crate::options::GameOptions>, ResMut<crate::gamedata::Difficulty>, ResMut<Checkpoints>),
+    (mut opts, mut difficulty, mut seen, mut upgrade): (ResMut<crate::options::GameOptions>, ResMut<crate::gamedata::Difficulty>, ResMut<Checkpoints>, ResMut<crate::weapons::VindalooUpgrade>),
     (mut markers, mut fx): (ResMut<crate::alarm::Markers>, MessageWriter<crate::fx::StartFx>),
 ) {
     let Some(mut p) = pending else { return };
@@ -415,16 +483,7 @@ fn apply(
     r.yaw = s.yaw;
     r.twist_reset = true;
     h.0 = s.health;
-    r.rifle.clip = s.rifle_clip;
-    r.mg = s.mg.map(|(clip, ammo)| {
-        let mut w = crate::player::machinegun(&data);
-        w.clip = clip;
-        w.ammo = ammo;
-        w
-    });
-    r.use_mg = s.use_mg && r.mg.is_some();
-    r.stickies = s.stickies;
-    r.topsy = s.topsy;
+    restore_arsenal(&mut r.arsenal, &s, &data, &mut upgrade);
     for (e, i, mut g, mut gh, body) in &mut grunts {
         if s.dead_grunts.contains(&i.0) {
             if let Some(b) = body {

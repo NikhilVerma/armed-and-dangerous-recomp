@@ -5,7 +5,7 @@
  {"wait": 3.0},
  {"expect": {"ai.near.kind": "Monk", "topsy.phase": "Off"}},
  {"tap": "Tab"}, {"wait": 0.3},
- {"expect": {"special": 1}},
+ {"expect": {"special": "topsyturvy"}},
  {"click": "Right"},
  {"wait": 4.0},
  {"expect": {"topsy.phase": "Hang", "topsy.monks_hanging": [1, 6], "topsy.falling": 0}},

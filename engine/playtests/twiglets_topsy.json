@@ -4,7 +4,7 @@
  {"warp": [210, -57, -28, 0]},
  {"wait": 13.0},
  {"tap": "Tab"}, {"wait": 0.3},
- {"expect": {"special": 1, "twiglets.made": 30}},
+ {"expect": {"special": "topsyturvy", "twiglets.made": 30}},
  {"click": "Right"},
  {"wait": 3.3},
  {"note": "fired"},

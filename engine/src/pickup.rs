@@ -29,8 +29,12 @@ pub enum Kind {
     /// pickup_health / pickup_healthytea, class 37: 0x00472800 (the player: num_health x Game+0x55c, 0x00475a30) and
     /// 0x00472850 (anyone else: num_health)
     Health,
-    /// pickup_upgrade_weapon (36, 0x00472770: Game+0xdd0, vindaloo upgraded), pickup_vindaloo_weapon (39, 0x00472930):
-    /// not ported
+    /// pickup_upgrade_weapon (36, 0x00472770): Game+0xdd0, the vindaloo upgraded (weapons/vindaloo.rs); always taken
+    VindalooUpgrade,
+    /// pickup_vindaloo_weapon (39, 0x00472930): the vindaloo into a free slot (0x004a0ef0) with num_ammo rounds
+    /// (0x004a14e0); refused when held or the slots are full. (No level places one.)
+    VindalooWeapon,
+    /// a class without a collect slot of its own
     Unported,
     /// pickup_jumper_pack (40, 0x00472980; loads through 0x004728e0): the jumper pack (jetpack.rs), refused when he
     /// has one
@@ -57,6 +61,8 @@ impl Kind {
             "pickup_sticky_bombs" => Kind::Special(10),
             "pickup_health" | "pickup_healthytea" => Kind::Health,
             "pickup_token" => Kind::Token,
+            "pickup_upgrade_weapon" => Kind::VindalooUpgrade,
+            "pickup_vindaloo_weapon" => Kind::VindalooWeapon,
             "pickup_jumper_pack" => Kind::JumperPack,
             "pickup_turbo_boost" => Kind::TurboBoost,
             _ => Kind::Unported,
@@ -194,9 +200,16 @@ fn drop_on_death(
     // the first other weapon (not the rifle) pickup_noncur_weapon_weight 0.25; sticky bombs pickup_sticky_bomb_weight
     // 0.25. x = rand x (sticky + cur + noncur + health): health below its weight, then the current weapon, the other
     // one, else sticky bombs
-    let (ratio, mg_owned, mg_in_hand) = match (player.single(), roman.single()) {
-        (Ok(h), Ok(r)) => (h.0 / r.max_health.max(1.0), r.mg.is_some(), r.use_mg && r.mg.is_some()),
-        _ => (1.0, false, false),
+    // 0x00475a90: the gun in hand (not the rifle: weapon 2 has no ammo to find) and the first other carried gun that is
+    // not the rifle
+    use crate::weapons::WeaponId;
+    let (ratio, cur_gun, other_gun) = match (player.single(), roman.single()) {
+        (Ok(h), Ok(r)) => {
+            let cur = r.arsenal.in_hand_id();
+            let other = r.arsenal.guns().map(|g| g.id).find(|&id| Some(id) != cur && id != WeaponId::Rifle);
+            (h.0 / r.max_health.max(1.0), cur.filter(|&id| id != WeaponId::Rifle), other)
+        }
+        _ => (1.0, None, None),
     };
     let seen = seen.get();
     for (e, g, t) in &grunts {
@@ -209,27 +222,32 @@ fn drop_on_death(
         }
         let hw = if ratio < 0.25 { 0.5 } else { 0.25 };
         let (cur, sticky) = (0.5, 0.25);
-        let other = if mg_owned && !mg_in_hand { 0.25 } else { 0.0 };
+        let other = if other_gun.is_some() { 0.25 } else { 0.0 };
         let x = rng.rand() * (sticky + cur + other + hw);
-        let name = if x < hw {
-            "pickup_health_1"
-        } else if x < hw + cur && mg_in_hand {
-            "pickup_mgun_bullets"
-        } else if other > 0.0 && x < hw + cur + other {
-            "pickup_mgun_bullets"
-        } else {
-            "pickup_sticky_bombs"
+        let ammo = |id: WeaponId| id.table().pickup.unwrap_or("pickup_sticky_bombs");
+        let name = match (cur_gun, other_gun) {
+            _ if x < hw => "pickup_health_1",
+            (Some(c), _) if x < hw + cur => ammo(c),
+            (_, Some(o)) if x < hw + cur + other => ammo(o),
+            _ => "pickup_sticky_bombs",
         };
         // the pop: upward_force (PickupObject_Load's push)
         out.write(SpawnPickup { name: name.into(), at: t.translation() + Vec3::Y * 4.0, vel: Vec3::ZERO, hover: false });
     }
 }
 
-/// The player's weapon names in the weapon table (Game+0x2890 + id x 0x150: the ammo pickup of each weapon).
-fn ammo_pickup(r: &crate::player::Roman) -> &'static str {
-    use crate::weapontable::{MACHINEGUN, RIFLE, WEAPON_TABLE};
-    let slot = if r.use_mg && r.mg.is_some() { MACHINEGUN } else { RIFLE };
-    WEAPON_TABLE[slot].pickup.unwrap_or_default()
+/// The ammo pickup of the gun in hand (the weapon table's Game+0x2890 + id x 0x150).
+fn ammo_pickup(r: &crate::player::Roman) -> Option<&'static str> {
+    r.arsenal.in_hand_id().and_then(|id| id.table().pickup)
+}
+
+/// 0x00475c70: the named weapon's or special's record is the player's and empty (a gun carried with no spare; a
+/// special in the special list with none left).
+fn out_of(r: &crate::player::Roman, name: &str) -> bool {
+    if let Some(g) = r.arsenal.guns().find(|g| g.id.table().pickup == Some(name)) {
+        return g.ammo == 0;
+    }
+    crate::weapons::SpecialId::ALL.into_iter().find(|s| s.table().pickup == Some(name)).is_some_and(|s| r.arsenal.lists(s) && r.arsenal.count(s) == 0)
 }
 
 /// Pickup generators (PickupGenerator_Update 0x00471cb0): nothing while listen_activate_trigger is pending
@@ -307,16 +325,10 @@ fn generators(
             (!jet.is_some_and(|j| j.pack && j.boost)).then(|| "pickup_turbo_boost".to_owned())
         } else if let Some(n) = &g.name {
             // 0x00475c70: the named weapon is the player's and its ammo is out
-            let out = |n: &str| match (n, r) {
-                ("pickup_mgun_bullets", Some(r)) => r.mg.as_ref().is_some_and(|w| w.ammo == 0),
-                ("pickup_sticky_bombs", Some(r)) => r.stickies == 0,
-                ("pickup_topsy_weapon", Some(r)) => r.topsy == 0,
-                _ => false,
-            };
-            (!g.made || out(n)).then(|| n.clone())
+            (!g.made || r.is_some_and(|r| out_of(r, n))).then(|| n.clone())
         } else {
             // 0x00475c30: the current weapon's spare ammo (0x004a1360(0x1c)) is 0; the rifle's never runs out
-            r.filter(|r| r.use_mg && r.mg.as_ref().is_some_and(|w| w.ammo == 0)).map(|r| ammo_pickup(r).to_owned())
+            r.filter(|r| r.arsenal.in_hand().is_some_and(|w| w.ammo == 0 && !w.spec.unlimited)).and_then(ammo_pickup).map(str::to_owned)
         };
         let Some(name) = name else {
             g.timer = 1.0;
@@ -347,60 +359,43 @@ fn spawn_pickups(
     }
 }
 
-/// The ammo pickup's add (0x004a13a0): the spare count fills up to the weapon's max_ammo and the rest goes to the clip,
-/// capped at max_clip; refused when both are full. An unlimited reserve (the rifle) counts as full (guess: its spare is
-/// never used up).
-fn add_ammo(w: &mut crate::player::Weapon, amount: u32, max_ammo: u32, max_clip: u32) -> bool {
-    let spare_full = w.unlimited || w.ammo >= max_ammo;
-    if spare_full && w.clip >= max_clip {
-        return false;
-    }
-    let take = if w.unlimited { 0 } else { max_ammo.saturating_sub(w.ammo).min(amount) };
-    if !w.unlimited {
-        w.ammo += take;
-    }
-    w.clip = (w.clip + (amount - take)).min(max_clip);
-    true
-}
-
 /// The player collects (vt+0x138 of the class): true when he took it.
-fn give(p: &Pickup, r: &mut crate::player::Roman, h: &mut Health, jet: Option<&mut crate::jetpack::JetPack>, data: &GameData, health_scale: f32) -> bool {
-    let g = data.props("p_globalsettings");
+fn give(p: &Pickup, r: &mut crate::player::Roman, h: &mut Health, jet: Option<&mut crate::jetpack::JetPack>, data: &GameData, health_scale: f32, upgrade: &mut crate::weapons::VindalooUpgrade) -> bool {
+    use crate::weapons::{Gun, GunSpec, SpecialId, WeaponId};
     let amount = p.amount.max(0.0) as u32;
     if amount == 0 && matches!(p.kind, Kind::Ammo(_) | Kind::Special(_)) {
         // 0x004a13a0 refuses an amount of 0 or -1
         return false;
     }
     match p.kind {
-        Kind::Ammo(0) => match r.mg.as_mut() {
-            Some(w) => add_ammo(w, amount, g.i("machinegun_max_ammo", 1000) as u32, g.i("machinegun_max_clip", 100) as u32),
-            // the weapon's record exists for every weapon (the ammo waits for the gun): the remaster keeps no record
-            // for a gun not carried (the drop pick only offers it once owned)
+        // the gun's record (0x004a13a0): its spare fills to max ammo, the rest to the clip; the record exists for every
+        // weapon (the ammo waits for the gun): the remaster keeps none for a gun not carried, so it is just taken
+        Kind::Ammo(slot) => match WeaponId::from_slot(slot as usize).and_then(|id| r.arsenal.gun_mut(id)) {
+            Some(w) => w.add_ammo(amount),
             None => true,
         },
-        Kind::Ammo(2) => add_ammo(&mut r.rifle, amount, g.i("rifle_max_ammo", 62) as u32, g.i("rifle_max_clip", 8) as u32),
-        Kind::Ammo(_) => true,
         // specials: refused at the maximum (the descriptor's max ammo, +0x144), else up to it; 0x004a12a0 makes it
         // the special in hand
-        Kind::Special(10) => {
-            let max = g.i("stickybomb_max_ammo", 5) as u32;
-            if r.stickies >= max {
-                return false;
+        Kind::Special(slot) => match SpecialId::from_slot(slot as usize) {
+            Some(s) => {
+                if !r.arsenal.add_special(s, amount, crate::weapons::spec::special_max(data, s)) {
+                    return false;
+                }
+                r.arsenal.special = s;
+                true
             }
-            r.stickies = (r.stickies + amount).min(max);
-            r.special = 0;
+            None => true,
+        },
+        Kind::VindalooUpgrade => {
+            upgrade.0 = true;
             true
         }
-        Kind::Special(8) => {
-            let max = g.i("topsyturvy_max_ammo", 1) as u32;
-            if r.topsy >= max {
-                return false;
-            }
-            r.topsy = (r.topsy + amount).min(max);
-            r.special = 1;
-            true
+        Kind::VindalooWeapon => {
+            let mut g = Gun { id: WeaponId::Vindaloo, spec: GunSpec::load(data, WeaponId::Vindaloo), clip: 0, ammo: 0, timer: 0.0 };
+            g.set_ammo(amount as i64);
+            r.arsenal.add(g)
         }
-        Kind::Special(_) | Kind::Unported => true,
+        Kind::Unported => true,
         Kind::JumperPack => jet.is_some_and(crate::jetpack::give_pack),
         Kind::TurboBoost => jet.is_some_and(crate::jetpack::give_boost),
         // 0x00472800 -> 0x00475a30: refused at full health, else up to the maximum
@@ -431,7 +426,7 @@ fn collect(
     mut out: MessageWriter<crate::mission::SendTrigger>,
     mut mats: Query<&mut MeshMaterial3d<StandardMaterial>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut cheats: ResMut<crate::cheats::Cheats>,
+    (mut cheats, mut upgrade): (ResMut<crate::cheats::Cheats>, ResMut<crate::weapons::VindalooUpgrade>),
 ) {
     let dt = time.delta_secs();
     let Ok((pt, mut h, mut r, mut jet)) = player.single_mut() else { return };
@@ -485,7 +480,7 @@ fn collect(
         let at = t.translation;
         if at.distance(me) <= p.radius {
             // the player (vt+0x138): refused, it stays
-            if !give(&p, &mut r, &mut h, jet.as_deref_mut(), &data, difficulty.factors().health_pickups) {
+            if !give(&p, &mut r, &mut h, jet.as_deref_mut(), &data, difficulty.factors().health_pickups, &mut upgrade) {
                 continue;
             }
             if let (Some(m), Some(text)) = (mission.as_deref_mut(), p.text.as_ref()) {
@@ -680,39 +675,81 @@ fn state_log(q: Query<&Pickup>, gens: Res<Generators>, state: Option<ResMut<crat
     state.0.insert("generators".into(), g.into());
 }
 
-/// Playtest steps: `pickup` (a pickup of that template at Roman's feet), `loadout` ({"stickies", "topsy", "mg" (its
-/// spare ammo, giving the gun), "mg_clip", "use_mg", "health"}).
+/// Playtest steps: `pickup` (a pickup of that template at Roman's feet), `loadout`: {"guns": ["sharkgun", "rifle"] (the
+/// slots in order, each full; the first in hand), "in_hand": "rifle", "<gun>": its spare ammo (giving the gun), "<gun>_clip",
+/// "<special>": its count (stickybomb / topsyturvy / blackhole / guyfawkes / bunchoffives), "special": the special in
+/// hand, "upgrade": the vindaloo upgrade, "health"}; the older keys "stickies", "topsy", "mg", "mg_clip", "use_mg",
+/// "rifle_clip" still work.
 fn playtest_steps(
     mut pt: ResMut<crate::playtest::Playtest>,
     mut roman: Query<(&GlobalTransform, &mut crate::player::Roman, &mut Health)>,
     mut out: MessageWriter<SpawnPickup>,
     data: Res<GameData>,
+    mut upgrade: ResMut<crate::weapons::VindalooUpgrade>,
 ) {
+    use crate::weapons::{Gun, GunSpec, SpecialId, WeaponId};
     let Ok((t, mut r, mut h)) = roman.single_mut() else { return };
     for name in std::mem::take(&mut pt.pickups) {
         out.write(SpawnPickup { name, at: t.translation() + Vec3::Y * 4.0, vel: Vec3::ZERO, hover: true });
     }
     for l in std::mem::take(&mut pt.loadouts) {
         let n = |k: &str| l.get(k).and_then(|v| v.as_f64());
-        if let Some(v) = n("stickies") {
-            r.stickies = v as u32;
+        let full = |id: WeaponId| Gun::full(id, GunSpec::load(&data, id));
+        if let Some(list) = l.get("guns").and_then(|v| v.as_array()) {
+            let specials = r.arsenal.clone();
+            r.arsenal.clear();
+            for id in list.iter().filter_map(|v| v.as_str()).filter_map(WeaponId::from_name) {
+                r.arsenal.add(full(id));
+            }
+            r.arsenal.equip_slot(0);
+            for s in SpecialId::ALL {
+                r.arsenal.set_count(s, specials.count(s));
+            }
+            r.arsenal.special = specials.special;
         }
-        if let Some(v) = n("topsy") {
-            r.topsy = v as u32;
+        // the older keys
+        for (key, id) in [("mg", WeaponId::Machinegun)] {
+            if let Some(v) = n(key) {
+                if !r.arsenal.has(id) && !r.arsenal.add(full(id)) {
+                    let old = r.arsenal.at(2).map(|g| g.id);
+                    r.arsenal.replace(old, full(id));
+                }
+                if let Some(w) = r.arsenal.gun_mut(id) {
+                    w.ammo = v as u32;
+                }
+            }
         }
-        if let Some(v) = n("mg") {
-            let mut w = r.mg.take().unwrap_or_else(|| crate::player::machinegun(&data));
-            w.ammo = v as u32;
-            r.mg = Some(w);
-        }
-        if let (Some(v), Some(w)) = (n("mg_clip"), r.mg.as_mut()) {
-            w.clip = v as u32;
+        for id in WeaponId::ALL {
+            if let Some(v) = n(id.name()) {
+                if !r.arsenal.has(id) && !r.arsenal.add(full(id)) {
+                    let old = r.arsenal.at(2).map(|g| g.id);
+                    r.arsenal.replace(old, full(id));
+                }
+                if let Some(w) = r.arsenal.gun_mut(id) {
+                    w.ammo = v as u32;
+                }
+            }
+            let clip_key = if id == WeaponId::Machinegun { "mg_clip".to_string() } else { format!("{}_clip", id.name()) };
+            if let (Some(v), Some(w)) = (n(&clip_key), r.arsenal.gun_mut(id)) {
+                w.clip = v as u32;
+            }
         }
         if let Some(v) = l.get("use_mg").and_then(|v| v.as_bool()) {
-            r.use_mg = v && r.mg.is_some();
+            r.arsenal.equip(if v { WeaponId::Machinegun } else { WeaponId::Rifle });
         }
-        if let Some(v) = n("rifle_clip") {
-            r.rifle.clip = v as u32;
+        if let Some(id) = l.get("in_hand").and_then(|v| v.as_str()).and_then(WeaponId::from_name) {
+            r.arsenal.equip(id);
+        }
+        for (key, s) in [("stickies", SpecialId::StickyBomb), ("topsy", SpecialId::TopsyTurvy)].into_iter().chain(SpecialId::ALL.map(|s| (s.name(), s))) {
+            if let Some(v) = n(key) {
+                r.arsenal.set_count(s, v as u32);
+            }
+        }
+        if let Some(s) = l.get("special").and_then(|v| v.as_str()).and_then(SpecialId::from_name) {
+            r.arsenal.special = s;
+        }
+        if let Some(v) = l.get("upgrade").and_then(|v| v.as_bool()) {
+            upgrade.0 = v;
         }
         if let Some(v) = n("health") {
             h.0 = v as f32;
@@ -724,21 +761,22 @@ fn playtest_steps(
 mod tests {
     use super::*;
 
-    fn gun(clip: u32, ammo: u32, unlimited: bool) -> crate::player::Weapon {
-        crate::player::Weapon { name: "t", props: "", spread: 0.0, unlimited, recycle: 0.0, reload_time: 0.0, clip_size: 8, clip, ammo, speed: 0.0, damage: 0.0, range: 0.0, impact_force: 0.0, timer: 0.0 }
+    fn gun(clip: u32, ammo: u32, unlimited: bool) -> crate::weapons::Gun {
+        let spec = crate::weapons::GunSpec { max_clip: if unlimited { 8 } else { 100 }, max_ammo: if unlimited { 62 } else { 1000 }, unlimited, ..Default::default() };
+        crate::weapons::Gun { id: crate::weapons::WeaponId::Machinegun, spec, clip, ammo, timer: 0.0 }
     }
 
     #[test]
     fn ammo_fills_spare_then_clip() {
         let mut w = gun(10, 990, false);
-        assert!(add_ammo(&mut w, 42, 1000, 100));
+        assert!(w.add_ammo(42));
         assert_eq!((w.ammo, w.clip), (1000, 42));
         let mut full = gun(100, 1000, false);
-        assert!(!add_ammo(&mut full, 42, 1000, 100), "refused when both are full");
-        let mut rifle = gun(3, u32::MAX, true);
-        assert!(add_ammo(&mut rifle, 16, 62, 8));
+        assert!(!full.add_ammo(42), "refused when both are full");
+        let mut rifle = gun(3, 62, true);
+        assert!(rifle.add_ammo(16));
         assert_eq!(rifle.clip, 8);
-        assert!(!add_ammo(&mut rifle, 16, 62, 8));
+        assert!(!rifle.add_ammo(16));
     }
 
     #[test]

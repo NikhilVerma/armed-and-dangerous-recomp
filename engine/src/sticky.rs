@@ -11,7 +11,6 @@
 //! explodes (0x00481ab0): area damage (excluding the stuck object), area_damage + damage to the stuck object,
 //! fx_end. lifetime runs out in flight: removed without exploding.
 
-use crate::levelreset::LevelAppExt;
 use crate::physics::Physics;
 use bevy::prelude::*;
 
@@ -31,12 +30,6 @@ pub struct ThrowDynamite {
     pub target: Entity,
     pub joint: Option<Entity>,
     pub point: Vec3,
-}
-
-/// A throw waiting for the weapon queue's delay.
-#[derive(Resource, Default)]
-pub struct StickyThrow {
-    pub pending: Option<f32>,
 }
 
 #[derive(Component)]
@@ -99,21 +92,18 @@ pub struct StickyPlugin;
 
 impl Plugin for StickyPlugin {
     fn build(&self, app: &mut App) {
-        app.init_level_resource::<StickyThrow>()
-            .add_message::<ThrowDynamite>()
-            .add_systems(Update, (throw, throw_dynamite, chain, fly).chain().run_if(crate::playing));
+        app.add_message::<ThrowDynamite>().add_systems(Update, (throw, throw_dynamite, chain, fly).chain().run_if(crate::playing));
     }
 }
 
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn throw(
     mut commands: Commands,
-    time: Res<Time>,
-    mut pending: ResMut<StickyThrow>,
+    mut thrown: MessageReader<crate::weapons::ThrowSpecial>,
     assets: Option<Res<StickyAssets>>,
     data: Res<crate::gamedata::GameData>,
     physics: NonSend<Physics>,
-    mut roman: Query<(&Transform, &crate::skin::Animator, &mut crate::player::Roman)>,
+    mut roman: Query<(Entity, &Transform, &crate::skin::Animator, &mut crate::player::Roman)>,
     cam: Query<&GlobalTransform, With<Camera3d>>,
     proj: Query<&Projection, With<Camera3d>>,
     grunts: Query<(Entity, &crate::ai::Grunt, &GlobalTransform, Option<&crate::skin::Animator>)>,
@@ -121,19 +111,20 @@ fn throw(
     mut fx: MessageWriter<crate::fx::StartFx>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     mut seed: Local<u32>,
-    mut stats: ResMut<crate::player::PlayerStats>,
+    (mut stats, cheats): (ResMut<crate::player::PlayerStats>, Res<crate::cheats::Cheats>),
 ) {
-    let Some(left) = pending.pending.as_mut() else { return };
-    *left -= time.delta_secs();
-    if *left > 0.0 {
+    use crate::weapons::SpecialId;
+    if !thrown.read().fold(false, |any, t| any || t.0 == SpecialId::StickyBomb) {
         return;
     }
-    pending.pending = None;
-    let (Some(assets), Ok((rt, ra, mut rm)), Ok(c)) = (assets, roman.single_mut(), cam.single()) else { return };
-    if rm.stickies == 0 {
+    let (Some(assets), Ok((re, rt, ra, mut rm)), Ok(c)) = (assets, roman.single_mut(), cam.single()) else { return };
+    if rm.arsenal.count(SpecialId::StickyBomb) == 0 {
         return;
     }
-    rm.stickies -= 1;
+    // 0x004a1970: one less unless the infinite ammo cheat (Game+0x175)
+    if !cheats.on(crate::cheats::INFINITE_AMMO) {
+        rm.arsenal.spend(SpecialId::StickyBomb);
+    }
     // the throw anim's note fires the queued bomb (0x00475ff0 state 5 -> 0x004a1970) and counts one more shot
     // (Game+0x2718, game_05.cpp:1592: the use already counted one, so a sticky bomb counts two)
     stats.shots += 1;
@@ -142,82 +133,20 @@ fn throw(
     // over Projectile_Load)
     let p = data.props("p_player_stickybomb");
     let range = g.f("sticky_bomb_range", 10.0);
-    let (fh, fv) = (g.f("autoaim_sticky_factor_horz", 0.4), g.f("autoaim_sticky_factor_vert", 0.6));
+    let factors = (g.f("autoaim_sticky_factor_horz", 0.4), g.f("autoaim_sticky_factor_vert", 0.6));
     let bone = |a: &crate::skin::Animator, n: &str| a.skeleton.index.get(n).and_then(|&i| joints.get(a.joints[i]).ok()).map(|t| t.translation());
-    // auto-aim (0x00406f50 / 0x00408390): nearest candidates first (guess at the sort), the first inside the view
-    // narrowed by the factors (guess: the factor scales the half-angle tangents; plus the bounds' radius), in front,
-    // within range, and the line of sight hitting it first
+    // the sticky target (Hud_UpdateCrosshair 0x00406f50's sticky pass, ui_01.cpp:455-505; weapons/targeting.rs): the
+    // view volume narrowed by autoaim_sticky_factor_horz / vert in clip space from the CAMERA (0x00408390: |x_ndc| <=
+    // 0.04, |y_ndc| <= 0.12 at the current FOV; aspect 1.7204), each candidate's model bounds centre with a slack R =
+    // (half diagonal + smallest half extent) / 2 (grunt_1: centre ~4.9 up, R ~4.66); candidates the 21 nearest to the
+    // eye (Roman + 4) by their origin, dead ones counted (fn_00408190); the first out of sticky_bomb_range ends the
+    // search; the line of sight from the eye to the target's ref_hit_00 (d + 10) is blocked only by the level and
+    // props, not by other characters
     let eye = rt.translation + Vec3::Y * 4.0;
-    let (fwd, right, up) = (c.forward().as_vec3(), c.right().as_vec3(), c.up().as_vec3());
-    // the sticky target (Hud_UpdateCrosshair 0x00406f50's sticky pass, ui_01.cpp:455-505): the view volume narrowed
-    // by autoaim_sticky_factor_horz / vert in clip space from the CAMERA (0x00408390: |x_ndc| <= 0.04, |y_ndc| <= 0.12 at
-    // the current FOV; aspect 1.7204), each candidate's model bounds centre with a slack R = (half diagonal + smallest
-    // half extent) / 2 (grunt_1: centre ~4.9 up, R ~4.66); candidates the 21 nearest to the eye (Roman + 4) by their
-    // origin, dead ones counted (fn_00408190); the first out of sticky_bomb_range ends the search; the line of sight
-    // from the eye to the target's ref_hit_00 (d + 10) is blocked only by the level and props, not by other characters
-    let half_v = match proj.single() {
-        Ok(Projection::Perspective(pp)) => (pp.fov * 0.5).tan(),
-        _ => (0.654f32 * 0.5).tan(),
-    };
-    let half_h = half_v * 1.7204;
-    let cam_pos = c.translation();
-    let mut cands: Vec<(f32, Entity, bool, Vec3, Vec3, Option<&crate::skin::Animator>)> = grunts
-        .iter()
-        .map(|(e, g, t, a)| {
-            let origin = t.translation();
-            let hit = a.and_then(|a| bone(a, "ref_hit_00")).unwrap_or(origin + Vec3::Y * 6.0);
-            (origin.distance(eye), e, g.mind == crate::ai::Mind::Dead, origin + Vec3::Y * 4.9, hit, a)
-        })
-        .collect();
-    cands.sort_by(|a, b| a.0.total_cmp(&b.0));
-    let mut target = None;
-    for (_, e, dead, centre, hit, a) in cands.into_iter().take(21) {
-        if dead {
-            continue;
-        }
-        // the view volume's side planes from the camera, the slack in world units (normalised planes)
-        let v = centre - cam_pos;
-        let z = v.dot(fwd);
-        let r = 4.66;
-        let (x, y) = (v.dot(right), v.dot(up));
-        if x.abs() - half_h * fh * z > r * (1.0 + (half_h * fh).powi(2)).sqrt() || y.abs() - half_v * fv * z > r * (1.0 + (half_v * fv).powi(2)).sqrt() {
-            continue;
-        }
-        let to = hit - eye;
-        let dist = to.length();
-        if to.dot(fwd) < 0.0 {
-            continue;
-        }
-        // the range test 0x00408330 (weapon 10: the weapon table's range, sticky_bomb_range; a range of 0 fails)
-        if dist > range {
-            break;
-        }
-        // the ray: passes other characters, stops at the level / props; it must reach the candidate
-        let dir = to / dist.max(1e-3);
-        let (mut from, mut left, mut seen) = (eye, dist + 10.0, false);
-        while let Some((b, at, _)) = physics.raycast(from, dir, left) {
-            let owner = physics.bodies.get(&b).copied();
-            if owner == Some(e) {
-                seen = true;
-                break;
-            }
-            if owner.is_some_and(|o| grunts.get(o).is_ok()) {
-                let step = at.distance(from) + 0.05;
-                from = at + dir * 0.05;
-                left -= step;
-                if left <= 0.0 {
-                    break;
-                }
-                continue;
-            }
-            break;
-        }
-        if !seen {
-            continue;
-        }
-        target = Some((e, hit, a));
-        break;
-    }
+    let fwd = c.forward().as_vec3();
+    let view = crate::weapons::targeting::View::new(c, proj.single().ok(), eye);
+    let cands = crate::weapons::targeting::candidates(&grunts, &joints, false);
+    let target = crate::weapons::targeting::search(&view, cands, factors, range, 1, &physics, |e| e != re && grunts.contains(e)).first().map(|t| (t.entity, t.point, grunts.get(t.entity).ok().and_then(|g| g.3)));
     if std::env::var("AIDBG").is_ok() {
         info!("AIDBG sticky target {:?}", target.map(|t| t.0));
     }

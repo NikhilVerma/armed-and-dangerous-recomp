@@ -183,6 +183,9 @@ pub struct Event {
     /// bot: aim at the nearest live grunt within range and fire (true) / stop (false)
     #[serde(default)]
     pub fight: Option<bool>,
+    /// bot: keep the crosshair on this game-space point [x, y, z] (until another look_at; [0, 0, -99999] lets go)
+    #[serde(default)]
+    pub look_at: Option<[f32; 3]>,
     /// bot: aim at the placed object with this instance id and fire while the crosshair is on it, until it is destroyed
     /// ("EVENT bot: object N destroyed"; 0 cancels); it takes the place of the fight's targets meanwhile
     #[serde(default)]
@@ -916,6 +919,9 @@ pub(crate) fn drive(
         }
         if let Some(f) = e.fight {
             bot.fight = f;
+        }
+        if let Some(p) = e.look_at {
+            bot.look_at = (p[2] > -99_000.0).then(|| crate::level::game_to_engine() * Vec3::from(p));
         }
         if let Some(id) = e.shoot {
             bot.shoot = (id > 0).then_some(id as u32);

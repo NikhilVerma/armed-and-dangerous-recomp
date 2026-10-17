@@ -20,6 +20,8 @@ use bevy::prelude::*;
 pub struct Bot {
     pub goto: Option<Vec3>,
     pub fight: bool,
+    /// keep the crosshair on this point (engine space; the playtest's "look_at"), whatever else the bot does
+    pub look_at: Option<Vec3>,
     /// shoot this placed object (instance id) until it is destroyed: a barracks, a house, a gate (the playtest's
     /// "shoot" order; it takes the place of the grunt targets while it lasts)
     pub shoot: Option<u32>,
@@ -333,6 +335,9 @@ pub fn think(
         return;
     }
     let me = t.translation;
+    if let Some(p) = bot.look_at {
+        bot.aim = Some(rig.look_at(me, p));
+    }
     // debug: NAVMAP=<cells> prints the planner's map round Roman once per goal (nav.rs ascii_map)
     if bot.goto.is_some() && bot.planned_for != bot.goto {
         if let Some(n) = std::env::var("NAVMAP").ok().and_then(|v| v.parse().ok()) {
@@ -427,7 +432,7 @@ pub fn think(
         // (or, aimed at it a second without the crosshair closing on it, lobbed anyway: a bomb that lands beside a
         // grunt still catches him in its blast, as a player throws at one the crosshair will not take)
         let aimed = bot.fire_ok || bot.off_target > 1.0;
-        let ready = aimed && bot.throw_timer <= 0.0 && r.stickies > 0 && tg.feet.distance(me) > STICKY_BLAST;
+        let ready = aimed && bot.throw_timer <= 0.0 && r.arsenal.count(crate::weapons::SpecialId::StickyBomb) > 0 && tg.feet.distance(me) > STICKY_BLAST;
         bot.fire_ok = false;
         if ready {
             info!("bot: sticky bomb at object {} {:.0} away", bot.shoot.unwrap_or(0), tg.feet.distance(me));
@@ -444,7 +449,7 @@ pub fn think(
         // camera ray and may land at Roman's feet)
         let on_him = xhair.on && !xhair.friendly && xhair.object.is_some_and(|o| grunts.get(o).is_ok_and(|(g, _)| g.mind != crate::ai::Mind::Dead));
         let d = p.distance(me);
-        if d < STICKY_REACH && !blast_reaches(&view, p, STICKY_BLAST) && clear_shot(&physics, me, p + Vec3::Y * 5.0, 8.0) && on_him && (group >= 2 || bot.threats.len() >= 3) && r.stickies > 0 && bot.throw_timer <= 0.0 {
+        if d < STICKY_REACH && !blast_reaches(&view, p, STICKY_BLAST) && clear_shot(&physics, me, p + Vec3::Y * 5.0, 8.0) && on_him && (group >= 2 || bot.threats.len() >= 3) && r.arsenal.count(crate::weapons::SpecialId::StickyBomb) > 0 && bot.throw_timer <= 0.0 {
             info!("bot: sticky bomb at a group of {group} {d:.0} away ({} see Roman)", bot.threats.len());
             bot.throw = true;
             bot.throw_timer = 4.0;
