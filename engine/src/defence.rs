@@ -130,6 +130,17 @@ pub struct BaseTurret {
     sounds: (bool, bool),
     /// the crowd ambience (+0x840 level, +0x844 countdown)
     crowd: (i32, f32),
+    /// the turret's helpers (0x0049a6a0): the fake mortar launcher +0x808 (fake_base_mortar, shown) and the fake homing
+    /// launcher +0x80c (fake_base_homing, hidden), attached at its origin, and the trolley +0x804
+    /// (base_turret_trolley) that rides the track without the aim; `launchers` draws them
+    launchers: Option<(Entity, Entity)>,
+    trolley: Option<Entity>,
+    /// the homing launcher shown instead of the mortar (the ammo upgrade's swap, 0x0049b030 / 0x0049bf20)
+    pub homing_shown: bool,
+    /// a reload anim to play on a launcher (true: the homing launcher) after a shell (0x0049bf20)
+    reload: Option<bool>,
+    /// the trolley's matrix (game space): wall * T(track node), no aim (0x0049b030: base * +0x7a8)
+    trolley_world: Mat4,
 }
 
 impl BaseTurret {
@@ -190,7 +201,7 @@ impl Plugin for DefencePlugin {
         app.init_level_resource::<DefenceState>()
             .init_level_resource::<DefenceDebug>()
             .add_message::<DefenceCommand>()
-            .add_systems(Update, (setup, start, debug_commands, (ride, overrun, failure_mob, boarders, log).chain().after(crate::turret::ride).after(crate::hud_state)).chain().run_if(crate::playing))
+            .add_systems(Update, (setup, start, debug_commands, (ride, launchers, overrun, failure_mob, boarders, log).chain().after(crate::turret::ride).after(crate::hud_state)).chain().run_if(crate::playing))
             .add_systems(PostUpdate, pose.after(crate::skin::AnimateSet).before(TransformSystems::Propagate));
     }
 }
@@ -278,6 +289,22 @@ fn setup(
         if let Some(w) = window {
             commands.entity(e).add_child(w);
         }
+        // the fake launchers at the turret's origin (attached, 0x0049a6a0: the homing one hidden) and the trolley
+        // (0x0049abf0 multiplies the launchers' LOD cutoffs by 5 so the far wall's turret keeps them: the engine draws
+        // its models at every distance)
+        let helper = |kit: &mut crate::army::ModelKit, commands: &mut Commands, template: &str| {
+            let m = data.templates.get(template).and_then(|t| t.model.clone())?;
+            kit.spawn(commands, &m, Transform::IDENTITY, false)
+        };
+        let launchers = match (helper(&mut kit, &mut commands, "fake_base_mortar"), helper(&mut kit, &mut commands, "fake_base_homing")) {
+            (Some(m), Some(h)) => {
+                commands.entity(e).add_children(&[m, h]);
+                commands.entity(h).insert(Visibility::Hidden);
+                Some((m, h))
+            }
+            _ => None,
+        };
+        let trolley = helper(&mut kit, &mut commands, "base_turret_trolley");
         commands.entity(e).insert(BaseTurret {
             tag,
             yaw: 0.0,
@@ -320,6 +347,11 @@ fn setup(
             fx_flags: 0,
             sounds: (false, false),
             crowd: (-1, 0.0),
+            launchers,
+            trolley,
+            homing_shown: false,
+            reload: None,
+            trolley_world: Mat4::IDENTITY,
         });
         info!("EVENT defence: base turret {} (tag {tag}) on wall {} track {}", id.0, wall.id, data.templates.get(&wall.template).and_then(|t| t.default_anim.clone()).unwrap_or_default());
     }
@@ -405,6 +437,11 @@ fn debug_commands(
         }
         if let Some(f) = v.get("frame").and_then(|f| f.as_f64()) {
             t.frame = f as f32;
+        }
+        // {"upgrade": true}: the ammo upgrade as a shot turret_upgrade starts it (Game+0xdd1)
+        if v.get("upgrade").and_then(|u| u.as_bool()) == Some(true) {
+            t.upgrade = t.upgrade_duration;
+            info!("EVENT defence: debug ammo upgrade for {} s", t.upgrade_duration);
         }
         let mut fire = false;
         match v.get("mortar") {
@@ -608,6 +645,7 @@ fn ride(
     }
     // the turret's matrix
     let world = turret_world(&t, track.as_deref());
+    t.trolley_world = t.wall * Mat4::from_translation(track.as_deref().and_then(|a| a.translation("ref_base_turret", t.frame / 30.0)).unwrap_or(Vec3::ZERO));
     *tt = crate::mover::engine_transform(world);
     let engine = to_engine * world;
     let bone_world = |i: usize| engine * bone_model(&skeleton, i);
@@ -628,6 +666,11 @@ fn ride(
         info!("EVENT defence: ammo upgrade for {} s", t.upgrade_duration);
     }
     t.upgrade = (t.upgrade - dt).max(0.0);
+    // while the upgrade lasts the homing launcher takes the mortar's place (0x0049b030: base_homing_reload)
+    if t.upgrade > 0.0 && !t.homing_shown {
+        t.homing_shown = true;
+        t.reload = Some(true);
+    }
     // the crowd ambience every 10 s by the army's live grunts (<15, <30, <60, more)
     t.crowd.1 -= dt;
     if t.crowd.1 <= 0.0 {
@@ -676,14 +719,20 @@ fn ride(
         a.play(0, "base_turret_l5_m5_ref", true, crate::skin::Mask::All);
     }
     if can && (ctl.pressed(Act::Special) || dbg.fire) {
-        // ready (0x0049be70): mortar_special_recycle_time while the upgrade lasts, else mortar_recycle_time
-        let wait = if t.upgrade > 0.0 { t.mortar_recycle.1 } else { t.mortar_recycle.0 };
+        // ready (0x0049be70): mortar_special_recycle_time while the homing launcher shows, else mortar_recycle_time
+        let wait = if t.homing_shown { t.mortar_recycle.1 } else { t.mortar_recycle.0 };
         if t.last_mortar.is_none_or(|l| now - l > wait) {
             if let Some(em) = t.emitters[2] {
                 let from = bone_world(em).w_axis.truncate();
                 let fwd = engine.transform_vector3(Vec3::NEG_Y);
                 let target = xhair.point.unwrap_or(from + fwd * 500.0);
-                let template = if t.upgrade > 0.0 { t.mortar.1.clone() } else { t.mortar.0.clone() };
+                // 0x0049bf20: the special shell during the upgrade (the homing launcher reloads); after it, the first shell
+                // while the homing launcher still shows is a special one too, and the mortar launcher comes back
+                let template = if t.upgrade > 0.0 || t.homing_shown { t.mortar.1.clone() } else { t.mortar.0.clone() };
+                if t.upgrade <= 0.0 {
+                    t.homing_shown = false;
+                }
+                t.reload = Some(t.upgrade > 0.0);
                 crate::shell::launch(&mut commands, &data, &mut kit, &mut fx, &template, from, target, crate::shell::Lob { by: crate::fx::Src::Player, flight: None });
                 if let Some(name) = t.mortar_fx.clone() {
                     let (_, rot, at) = bone_world(t.muzzles[2].unwrap_or(em)).to_scale_rotation_translation();
@@ -692,6 +741,35 @@ fn ride(
                 stats.shots += 1;
                 t.last_mortar = Some(now);
                 info!("EVENT defence: mortar {template} at {:.0}", (target - from).length());
+            }
+        }
+    }
+}
+
+/// The fake launchers and the trolley as the turret's state has them: the shown launcher, its reload anim after a
+/// shell, the trolley on the track.
+fn launchers(
+    mut q: Query<&mut BaseTurret>,
+    mut parts: Query<(&mut Visibility, &mut Transform, Option<&mut crate::skin::Animator>), Without<BaseTurret>>,
+) {
+    for mut t in &mut q {
+        if let Some(tr) = t.trolley {
+            if let Ok((_, mut tt, _)) = parts.get_mut(tr) {
+                *tt = crate::mover::engine_transform(t.trolley_world);
+            }
+        }
+        let Some((mortar, homing)) = t.launchers else { continue };
+        let shown = t.homing_shown;
+        for (e, on) in [(mortar, !shown), (homing, shown)] {
+            if let Ok((mut v, ..)) = parts.get_mut(e) {
+                *v = if on { Visibility::Inherited } else { Visibility::Hidden };
+            }
+        }
+        if let Some(h) = t.reload.take() {
+            let (e, anim) = if h { (homing, "base_homing_reload") } else { (mortar, "base_mortar_reload") };
+            if let Ok((_, _, Some(mut a))) = parts.get_mut(e) {
+                a.play(0, anim, false, crate::skin::Mask::All);
+                a.restart(0);
             }
         }
     }
@@ -877,6 +955,9 @@ fn log(
         "window": t.window.is_some(),
         "overrun": t.overrun,
         "upgrade": t.upgrade,
+        "homing_shown": t.homing_shown,
+        "launchers": t.launchers.is_some(),
+        "trolley": t.trolley.is_some(),
         "pos": [p.x, -p.z, p.y],
         "over_wall": hud.over_wall.map(|c| c.0),
     }));

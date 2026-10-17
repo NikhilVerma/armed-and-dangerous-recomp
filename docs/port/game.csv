@@ -301,7 +301,7 @@ address,name,disposition,reason
 0x0049a150,fn_0049a150,ported,"engine/src/turret.rs Turret::ai_aim (sets the yaw / pitch, +0x620 / +0x61c)"
 0x0049a4c0,fn_0049a4c0,ported,engine/src/turret.rs ride (the forge's fire ready: recycle_time); the mortar branch (weapon 1) is never asked: the forge update 0x0049a170 passes weapon 0 only
 0x0049a530,fn_0049a530,ported,"engine/src/turret.rs ride (the player's shell) and ai.rs gunner fire (the AI's, vehicles/rockets.rs shoot); the mortar branch (weapon 1) is never asked"
-0x0049abf0,fn_0049abf0,deferred,"feature: defence-visuals; the fake mortar / homing launcher helpers (visual): not drawn, defence.md debt"
+0x0049abf0,fn_0049abf0,replaced,"the fake launchers' LOD cutoffs x 5 (template +0x20 / +0x24) so the far wall's turret keeps them: the engine reads no lodcutoff and draws them at every distance; the launchers and the trolley themselves are engine/src/defence.rs launchers (0x0049a6a0, the upgrade's swap and reloads 0x0049b030 / 0x0049bf20)"
 0x0049ac60,fn_0049ac60,replaced,base turret removal: level restart despawns (defence.rs owns nothing else)
 0x0049ad60,fn_0049ad60,ported,"engine/src/defence.rs failure_mob (six boarders, Game+0xdcd = Mission::failure_mob; mission.rs mission_trigger calls it in the base turret)"
 0x0049afe0,fn_0049afe0,not needed,"dead in the shipped game: the base turret dies only with an AI gunner (0x00498400 gives the player the hits) and no defence level (1_m4, 2_m4, 3_m4_bd, 4_m5, 5_m5) puts one in it"
