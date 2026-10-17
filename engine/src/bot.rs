@@ -424,7 +424,10 @@ pub fn think(
         // bombs, not bullets: one each time the crosshair rests on it, kept out of the bomb's own blast; the next only
         // after the last one has gone off (linger_lifetime 4 s): a bomb stuck on a building takes 300 at once, so a
         // second one thrown meanwhile is wasted or lands on whatever stands by (lev_2_m2: a civilian house)
-        let ready = bot.fire_ok && bot.throw_timer <= 0.0 && r.stickies > 0 && tg.feet.distance(me) > STICKY_BLAST;
+        // (or, aimed at it a second without the crosshair closing on it, lobbed anyway: a bomb that lands beside a
+        // grunt still catches him in its blast, as a player throws at one the crosshair will not take)
+        let aimed = bot.fire_ok || bot.off_target > 1.0;
+        let ready = aimed && bot.throw_timer <= 0.0 && r.stickies > 0 && tg.feet.distance(me) > STICKY_BLAST;
         bot.fire_ok = false;
         if ready {
             info!("bot: sticky bomb at object {} {:.0} away", bot.shoot.unwrap_or(0), tg.feet.distance(me));

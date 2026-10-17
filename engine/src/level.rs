@@ -894,6 +894,7 @@ pub fn spawn(
                     Health(p.f("max_health", 500.0)),
                     bounds,
                 ));
+                // (its send_trigger_on_death: Companion::death_trigger, sent by ai.rs companion_damage)
                 // a trigger and a tower marker: the tower task (lev_4_m2's Jonesy, ai/tower.rs)
                 if let Some(task) = crate::ai::tower::TowerTask::from_props(&p) {
                     commands.entity(e).insert(task);

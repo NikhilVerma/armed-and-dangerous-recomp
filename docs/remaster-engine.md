@@ -428,6 +428,20 @@ ticker bombs. `--all` adds the flat trigger graph. Use it to write a level's com
 trigger with the state log's `triggers.<id>` (counts of the triggers sent so far). Completion scripts take
 `{"cheat": "SHIELDME"}` so they test the objectives, not survival. Results: docs/journal/2026-10-16-complete-a.md.
 
+Steps and state for these runs (engine/src/playtest.rs, bot.rs; agent-complete-a / -b):
+
+- Travel: `land` [x, y, yaw] (onto the ground), `land_by` [id, distance] (beside a placed object, a pub at its door),
+  `land_sight` [id, distance] (a spot from which a bullet reaches the object, from Roman's eye and his camera),
+  `land_peasant` true (beside the nearest peasant free to rope), `probe` [x0, y0, x1, y1, step] (a ground-height
+  map in the log).
+- Actions: bot orders `shoot` / `bomb` INSTANCE_ID (a placed object, a placed AI, a rocket tower's turret; bombs for
+  buildings, which take no bullets; 0 cancels), `damage` [id, amount] (debug), the defence aim help
+  `{"defence": {"aim": "army" | "platoon", "fire": true}}`.
+- Waiting: `until` "trigger:N" / "dead:ID" / "message" with `wait` as the limit, so a run does not sit out fixed
+  waits after the thing happened.
+- State: `triggers.<id>`, `grunt_ids.<id>` (pos, mind, health, rigged, body), `turrets.<id>`, `objects.<id>`,
+  `mission_obj.pubs.<id>`, `peasants`; an EVENT where the player's shell lands.
+
 ### Widening the original's coverage to a whole level
 
 The port queues (`python tools/port_queue.py`) list only functions the original was seen to execute

@@ -14,17 +14,17 @@ tests are about objectives, not survival); no `send` of a mission trigger anywhe
 | level | finishable | blockers found | fixed (commit) | open |
 | --- | --- | --- | --- | --- |
 | lev_1_m1 | yes (complete_lev_1_m1) | none | | |
-| lev_1_m1_b | yes (complete_lev_1_m1_b) | placed grunts never sent send_trigger_on_death (forge gunners -> counter 416); a gunner dead in a loaded save kept his gun held (could never be entered) | e0dc1ec (complete-b); 943b4ae | forge cannon view: its glass sight drawn opaque (below) |
+| lev_1_m1_b | yes (complete_lev_1_m1_b) | placed grunts never sent send_trigger_on_death (forge gunners -> counter 416); a gunner dead in a loaded save kept his gun held (could never be entered); the forge cannon's glass sight was opaque (the mounted view a dark plate) | e0dc1ec (complete-b); 943b4ae; 7558893 | |
 | lev_1_m3 | yes (complete_lev_1_m3) | two pubs: the second (283) replaced 119 and its ticker bombs; sticky bombs did no damage to the building they stuck to | 63d393d; 8685a2a | window grunts stand inside the wall middle (ref_front_2f_m), only a blast reaches them (the original's trace: same spot, they shoot Roman) |
 | lev_1_m4 | yes (complete_lev_1_m4, 207 s of defence) | platoon members only died to a bullet within 5 units of a member (10 kills a minute, 300 needed) | 96c9ec2 | |
-| lev_2_m1 | in progress | snipers on ledges: the bot needs spots in sight (land_sight) | | |
-| lev_2_m2 | in progress | sticky bombs vs buildings (above); the machine gun's muzzle fx leak made the Q1-12 fight crawl | 8685a2a; 260b758 | |
-| lev_2_m3 | in progress | peasants (agent-peasants, merged); rocket tower turrets | | |
-| lev_2_m4 | not run yet | | | |
-| lev_3_m1 | waits on agent-blockers1 (ticker sites on the goliaths, jet pack) | | | |
-| lev_3_m2 | not run yet | | | |
-| lev_3_m3 | yes (complete_lev_3_m3, 35 s) | none (peasants merged) | | |
-| lev_3_m4_bd | not run yet | | | |
+| lev_2_m1 | yes (complete_lev_2_m1) | snipers on ledges (the bot needs spots in sight: land_sight); sniper 28 on the bridge over the canyon: the crosshair never closes on him, only lobbed bombs kill him | c9433c7 (bot) | why the crosshair misses sniper 28 (rigged, has a body, in view) |
+| lev_2_m2 | yes (complete_lev_2_m2) | sticky bombs vs buildings; the machine gun's muzzle fx leak made the Q1-12 fight crawl (16 -> 270 ms frames) | 8685a2a; 260b758 | a bomb at the Q1-12 can take civilian house 100 with it (one allowed, two fail) |
+| lev_2_m3 | yes (complete_lev_2_m3) | peasants (agent-peasants, merged); rocket tower turrets (the bot aims at the turret) | 081462f | |
+| lev_2_m4 | yes (complete_lev_2_m4, 238 s of defence) | none beyond lev_1_m4's | 0f4c942 | 123000 entities by the end: dead army grunts are never removed |
+| lev_3_m1 | yes (complete_lev_3_m1, with agent-blockers1 merged) | the ticker sites on the goliaths: "lock_parent_tag not ported (0x0044e120)", the goliaths never died, the peasants stayed caged | agent-blockers1 f722986 (in wip 6fbda00); b6a3994 | |
+| lev_3_m2 | yes (complete_lev_3_m2) | sticky bombs vs buildings (above) | d2f8450 | 4 of the 6 civilian deaths allowed happened (enemy fire or blasts beside targets): close to the failure |
+| lev_3_m3 | yes (complete_lev_3_m3, 35 s) | none (peasants merged) | dde4aec | |
+| lev_3_m4_bd | yes (complete_lev_3_m4_bd, 415 s of defence) | none beyond lev_1_m4's | (in the suite) | |
 
 ## Fixes (cause -> fix -> test)
 
@@ -57,11 +57,22 @@ tests are about objectives, not survival); no `send` of a mission trigger anywhe
   `land_sight` [id, distance] (a spot from which a bullet reaches the object, from Roman's eye and his camera);
   `until` "trigger:N" with "wait" as its limit, `until` "message" with "wait"; defence aim help "platoon", `fire`.
 
+- **Translucent materials** (7558893): the forge cannon's glass sight was drawn opaque, so the mounted view was a
+  dark or orange plate. Material kind bit 0x10 is translucency (fn_004897d0: blend mode from byte +0x37, 2 =
+  SRCALPHA / INVSRCALPHA; the opacity +0x48 is the draw state's constant alpha): k_glass_warm 0x02000111 with 0.35
+  and 0.1, the bomber's canopy 0.54, the saucer 0.31. Export: material "blend" and "opacity";
+  tools/remaster_patch_materials.py added them to every level in work/remaster (atomic replaces). Engine: alpha x
+  the opacity. Checked in a mounted screenshot (the gate through the glass).
+- **vehicles_forge_cannon** (a4937ff): it passed by luck (the gunner on cannon 23 left within 1.6 s on wip's random
+  sequence, 1 s later on ours); now the test kills him first.
+
 ## Open
 
-- Forge cannon view (lev_1_m1_b, lev_2_m1): the glass sight k_glass_warm is drawn opaque, so the mounted view
-  is a dark or orange plate. Cause found: material kind bit 0x10 is translucency (byte +0x34 bit 4: blend mode from
-  byte +0x37, 2 = SRCALPHA / INVSRCALPHA; alpha = material +0x48 times the frame's alpha, the texture factor:
-  fn_004897d0); the forge cannon's glass records are 0x02000111 with +0x48 = 0.35 and 0.1. Not done: the export
-  (opacity +0x48 and blend +0x37 per material) and the GameMaterial blend. Aiming still works (the shell flies to the
-  crosshair's point).
+- After merging wip 6fbda00 / dbccede: Q's and Jonesy's death trigger went out twice (wip's Companion::death_trigger
+  and agent-complete-b's DeathTrigger): one path kept. decals_obj assumed a sticky bomb leaves the house it sticks to
+  standing; with the direct hit (8685a2a) it takes it down, as 0x0047eec0 does: the test expects the husk now.
+- lev_2_m1 sniper 28: the crosshair test misses him on the bridge over the canyon (CROSSDBG shows the bridge parts
+  w_l2_m1_05 / 06 and the level behind him); bombs reach him. A player with the machine gun cannot shoot him.
+- Dead army grunts are never removed (lev_2_m4: 123000 entities, 55 ms frames at the end).
+- Long runs: the defence completions take 200 to 415 s of game time (20+ minutes of wall time on the loaded
+  machine); they are in the SUITE as asked, which makes regress.py much longer than "about 3 minutes".
