@@ -636,13 +636,11 @@ pub struct Voice {
     /// scripted run's fixed game step does not follow: a slow machine ended voice lines early in game time and a
     /// follow-on line played that should not have, docs/remaster-engine.md "Traps")
     length: f32,
-    /// the sink was given its start position (a file that loaded late starts where the voice's age says)
-    synced: bool,
 }
 
 /// A voice whose file has not loaded after this long is dropped (it would hold its channel for ever).
 const LOAD_TIMEOUT: f32 = 5.0;
-/// A one-shot whose file loaded this many seconds after it began is sought to its age (a shorter delay is inaudible).
+/// A one-shot whose file loads this many seconds after it began starts that far in (a shorter delay is inaudible).
 const LATE_START: f32 = 0.05;
 
 impl Voice {
@@ -820,7 +818,6 @@ fn play(
             paused: false,
             waiting: 0.0,
             length: if loops_now { 0.0 } else { fdef.duration / speed.max(1.0e-3) },
-            synced: false,
         };
         voice.gain_db = voice.level_db(&mixer);
         if let Some(f) = log.as_mut() {
@@ -915,14 +912,14 @@ fn update_voices(
     (mixer, pause): (Res<Mixer>, Res<GamePause>),
     listener: Query<&GlobalTransform, With<SpatialListener>>,
     followed: Query<&GlobalTransform, Without<Voice>>,
-    mut voices: Query<(Entity, &mut Voice, &mut Transform, Option<&SoundId>, Option<&mut AudioSink>, Option<&mut SpatialAudioSink>)>,
+    mut voices: Query<(Entity, &mut Voice, &mut Transform, Option<&SoundId>, Option<&mut AudioSink>, Option<&mut SpatialAudioSink>, Option<&mut PlaybackSettings>)>,
     mut offsets: MessageReader<SetVoiceOffset>,
     mut replay: MessageWriter<PlaySound>,
 ) {
     let offsets: HashMap<SoundId, f32> = offsets.read().map(|o| (o.id, o.db)).collect();
     let ear = listener.single().ok().map(|l| l.translation());
     let dt = time.delta_secs();
-    for (e, mut v, mut t, id, mut sink, mut spatial) in &mut voices {
+    for (e, mut v, mut t, id, mut sink, mut spatial, settings) in &mut voices {
         if let Some(db) = id.and_then(|id| offsets.get(id)) {
             v.offset_db = *db;
         }
@@ -975,13 +972,6 @@ fn update_voices(
         };
         let drained = match s {
             Some(s) => {
-                // a file that loaded after the voice began starts at the voice's place in it
-                if !v.synced {
-                    v.synced = true;
-                    if v.length > 0.0 && v.age > LATE_START && v.age < v.length {
-                        let _ = s.try_seek(std::time::Duration::from_secs_f32(v.age * s.speed()));
-                    }
-                }
                 if s.is_paused() != want_paused {
                     if want_paused { s.pause() } else { s.play() }
                 }
@@ -989,6 +979,14 @@ fn update_voices(
                 s.empty()
             }
             None => {
+                // a file that loads after the voice began starts at the voice's place in it: the sink is made from
+                // these settings once the file has loaded (never `try_seek` a sink: it blocks until the audio thread
+                // answers, and froze a run for good)
+                if let Some(mut ps) = settings {
+                    if v.length > 0.0 && v.age > LATE_START && v.age < v.length {
+                        ps.start_position = Some(std::time::Duration::from_secs_f32(v.age * ps.speed));
+                    }
+                }
                 // a loop (no length) whose file never loads would hold its channel for ever
                 v.waiting += dt;
                 if v.length <= 0.0 && v.waiting > LOAD_TIMEOUT {
