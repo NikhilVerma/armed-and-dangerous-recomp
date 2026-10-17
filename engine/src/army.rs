@@ -772,6 +772,7 @@ fn army_grunts(
     mut fx: MessageWriter<crate::fx::StartFx>,
     mut done: crate::levelreset::PerLevel<HashSet<Entity>>,
     mut rng: ResMut<crate::fx::FxStats>,
+    mut ends: MessageWriter<crate::ai::notes::ScriptEnd>,
 ) {
     let dt = time.delta_secs();
     let seen = done.get();
@@ -804,7 +805,7 @@ fn army_grunts(
             }
             let t0 = s.t;
             s.t += dt;
-            let mut gone = false;
+            let mut gone: Option<bool> = None;
             for line in crate::mover::notes_between(&anim, t0, s.t) {
                 let mut w = line.split_whitespace();
                 match w.next().unwrap_or("").to_lowercase().as_str() {
@@ -821,14 +822,16 @@ fn army_grunts(
                             fx.write(crate::fx::StartFx { name: n.to_lowercase(), at: pos, rotation: gt.compute_transform().rotation, follow: None, position_only: false });
                         }
                     }
-                    // vt+0xd4: the grunt leaves the game (over the wall), no death
-                    "deactivate" | "kill" => gone = true,
+                    // over the wall: "deactivate" (0x00409110: the death bookkeeping, his death trigger, removed
+                    // without a body) or "kill" (vt+0xd4: a death; mover_grunt_scale_2..4's notes past their end)
+                    "deactivate" => gone = gone.or(Some(false)),
+                    "kill" => gone = gone.or(Some(true)),
                     _ => {}
                 }
             }
-            if gone {
+            if let Some(kill) = gone {
                 info!("EVENT army: grunt {e:?} over the wall ({})", s.anim);
-                commands.entity(e).despawn();
+                ends.write(crate::ai::notes::ScriptEnd { entity: e, kill });
                 continue;
             }
             if s.t >= anim.duration {
