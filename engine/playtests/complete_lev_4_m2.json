@@ -1,4 +1,4 @@
-{"scene": "lev_4_m2", "steps": [
+{"scene": "lev_4_m2", "timeout": 1200, "steps": [
  {"until": "message"},
  {"wait": 0.5},
  {"tap": "Enter"},
@@ -59,7 +59,11 @@
  {"wait": 0.5},
  {"expect": {"mission_obj.objectives_id": "l4m2_sub2", "mission": "Playing"}},
  {"tap": "Enter"},
+ {"note": "guard Jonesy while he plants the bombs: Roman beside the tower, fighting the attackers"},
+ {"land": [1560, -31, 90]},
+ {"fight": true},
  {"until": "message", "wait": 200},
+ {"fight": false},
  {"wait": 0.5},
  {"expect": {"mission": "Won", "dead": false}},
  {"tap": "Enter"},
