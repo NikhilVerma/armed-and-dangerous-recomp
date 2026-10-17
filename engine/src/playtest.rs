@@ -122,6 +122,10 @@ pub struct Event {
     /// debug: a badguy blast of this area damage at Roman's feet (through the blast damage path, fx.rs)
     #[serde(default)]
     pub blast: Option<f32>,
+    /// debug: a player's blast [area damage, impact force] 3 units beside the live grunt nearest Roman (a grenade landing
+    /// by him: the launch and the body fall, bodyfall.rs)
+    #[serde(default)]
+    pub blast_grunt: Option<[f32; 2]>,
     /// debug: send this mission trigger (e.g. 123, lev_1_m1's win)
     #[serde(default)]
     pub send: Option<i64>,
@@ -355,6 +359,8 @@ pub struct Playtest {
     skip_t: Vec<f32>,
     /// blast steps for hurt_companions
     blasts: Vec<f32>,
+    /// blast_grunt steps for hurt_companions
+    blast_g: Vec<[f32; 2]>,
     /// the virtual gamepad, once connected: scripted runs read only it (input.rs), never a pad on the desk
     pad_e: Option<Entity>,
     /// the states kept by `note` steps
@@ -424,7 +430,7 @@ impl Playtest {
         let mut events = s.events;
         events.sort_by(|a, b| a.t.total_cmp(&b.t));
         let log = std::fs::File::create(path.with_extension("log.jsonl")).ok();
-        Playtest { pickups: vec![], loadouts: vec![], audio: vec![], fx: vec![], movies: vec![], intro: s.intro, passed: 0, failed: 0, hurt_c: vec![], warp_c: vec![], knock_c: vec![], grab_c: vec![], skip_t: vec![], blasts: vec![], pad_e: None, notes: Default::default(), pad: vec![], warp: None, probe: None, land_by: None, land_peasant: false, path, title: s.title, real_time: s.real_time, events, turns: s.turns, next: 0, t: 0.0, taps: vec![], clicks: vec![], log, last_log: -1.0, steps: s.steps, step_shot: None, step: 0, step_t: 0.0, step_started: false, reported: false }
+        Playtest { pickups: vec![], loadouts: vec![], audio: vec![], fx: vec![], movies: vec![], intro: s.intro, passed: 0, failed: 0, hurt_c: vec![], warp_c: vec![], knock_c: vec![], grab_c: vec![], skip_t: vec![], blasts: vec![], blast_g: vec![], pad_e: None, notes: Default::default(), pad: vec![], warp: None, probe: None, land_by: None, land_peasant: false, path, title: s.title, real_time: s.real_time, events, turns: s.turns, next: 0, t: 0.0, taps: vec![], clicks: vec![], log, last_log: -1.0, steps: s.steps, step_shot: None, step: 0, step_t: 0.0, step_started: false, reported: false }
     }
 }
 
@@ -894,6 +900,9 @@ pub(crate) fn drive(
         if let Some(d) = e.blast {
             pt.blasts.push(d);
         }
+        if let Some(b) = e.blast_grunt {
+            pt.blast_g.push(b);
+        }
         if let Some(b) = e.click.as_deref().map(button) {
             buttons.press(b);
             pt.clicks.push(b);
@@ -1291,6 +1300,16 @@ fn hurt_companions(
         if let Ok((t, h)) = roman.single() {
             info!("EVENT playtest: blast {d} at Roman (health {:.0})", h.0);
             boom.write(crate::fx::Explode { at: t.translation(), area_damage: d, radius_inner: 10.0, radius_outer: 20.0, impact_force: 0.0, source: None, delay: 0.0, by: crate::fx::Src::Badguy, cartoon: false });
+        }
+    }
+    for [d, force] in std::mem::take(&mut pt.blast_g) {
+        let Ok((rt, _)) = roman.single() else { continue };
+        let near = grunts.iter().filter(|(_, g, _)| g.mind != crate::ai::Mind::Dead).min_by(|a, b| a.2.translation().distance(rt.translation()).total_cmp(&b.2.translation().distance(rt.translation())));
+        if let Some((ge, _, gt)) = near {
+            let side = (gt.translation() - rt.translation()).with_y(0.0).normalize_or(Vec3::X);
+            let at = gt.translation() - side * 3.0;
+            info!("EVENT playtest: blast {d} (force {force}) by grunt {ge:?}");
+            boom.write(crate::fx::Explode { at, area_damage: d, radius_inner: 10.0, radius_outer: 30.0, impact_force: force, source: None, delay: 0.0, by: crate::fx::Src::Player, cartoon: false });
         }
     }
     for [who, amount] in std::mem::take(&mut pt.hurt_c) {

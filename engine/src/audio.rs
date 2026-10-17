@@ -501,6 +501,11 @@ impl Speech {
         voices.plays(self.scream)
     }
 
+    /// The last scream's voice (+0xb4c), to stop it (FxBodyfall_Spawn 0x0043a8d0: bodyfall.rs).
+    pub fn scream_voice(&self) -> Option<SoundId> {
+        self.scream.map(|s| s.0)
+    }
+
     /// Whether the last line still plays.
     pub fn saying(&self, voices: &PlayingVoices) -> bool {
         voices.plays(self.line)

@@ -853,6 +853,8 @@ pub struct Grunt {
     pub window: bool,
     /// the last damage record had flag 0x80 (allow_cartoon_death: the sticky bomb's)
     pub cartoon: bool,
+    /// the launch of the blast that killed him (fx.rs: its direction and impact force; bodyfall.rs)
+    pub blast_push: Option<Vec3>,
     /// chance in % of a pickup on death (pickup_drop_percent, default 100)
     pub drop_percent: f32,
     /// the trench held (+0x904) and its phase (states 0xa0..0xa5)
@@ -1379,6 +1381,7 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         ledge_death: p.i("ledge_death", 0) != 0,
         window: mode.contains("window") || mode.contains("tower"),
         cartoon: false,
+        blast_push: None,
         drop_percent: p.f("pickup_drop_percent", 100.0),
         cover: None,
         at_barricade: false,
@@ -4278,7 +4281,9 @@ fn die(
             let req = g.speech.death_line(&voices, &mut stop, bark_request(cat, set, tr.translation));
             sounds.write(req);
         }
-        let push = physics.world.body(body.id).map(|b| bv(b.linear_velocity())).unwrap_or(Vec3::ZERO) / physics.meters_per_unit;
+        // a blast's launch (fx.rs blast_push), else the body's own motion
+        let launch = g.blast_push.take();
+        let push = launch.unwrap_or_else(|| physics.world.body(body.id).map(|b| bv(b.linear_velocity())).unwrap_or(Vec3::ZERO) / physics.meters_per_unit);
         physics.remove(body.id);
         // the death (Character_Die 0x004319e0, in its order): a window / tower grunt killed by a record with flag
         // 0x80 (the sticky bomb) is blown out of the window (anim 0x3e); a hit of at least hit_ragdoll ragdolls; a
@@ -4286,7 +4291,7 @@ fn die(
         // grunt_hit_window (0x3d); else 0x00427100: grunt_barricade_death (0x56) in a trench's slot, else grunt_die_1..6.
         // Not reached here: the 0x57 flag variant (in back: no lev_1_m1 grunt sets it) and record flag 2's launch.
         let blown_out = g.window && g.cartoon;
-        let wants_ragdoll = forced.is_none() && !blown_out && (g.last_hit >= g.hit_ragdoll || push.length() > 30.0);
+        let wants_ragdoll = forced.is_none() && !blown_out && (g.last_hit >= g.hit_ragdoll || launch.is_some() || push.length() > 30.0);
         // GoRagdoll with more ragdolls down than the limit allows: the animated death of 0x00427100 instead
         g.ragdoll = wants_ragdoll && crate::corpses::Corpses::may_ragdoll(down, &rules);
         down += g.ragdoll as u32;
@@ -4318,6 +4323,10 @@ fn die(
             continue;
         }
         commands.entity(e).insert(crate::corpses::Corpse::ragdoll());
+        // thrown through the air (a launch: the body fall on landing, bodyfall.rs)
+        if push.length() > crate::bodyfall::LAUNCH_SPEED {
+            commands.entity(e).insert(crate::bodyfall::Launched::default());
+        }
         // an articulated ragdoll from the pose at death (ragdoll.rs); the single box below when that fails
         if let Some(mut a) = animator {
             if let Some(rd) = crate::ragdoll::start(&mut physics, &a, &joints, push) {

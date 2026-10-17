@@ -20,6 +20,7 @@ mod mover;
 mod audio;
 mod bot;
 mod bench;
+mod bodyfall;
 mod bindings;
 mod profile;
 mod camera;
@@ -376,7 +377,7 @@ fn main() {
     app.add_plugins(camdump::CamDumpPlugin);
     app.add_plugins(camera::CameraPlugin);
     app.add_plugins(footik::FootIkPlugin);
-    app.add_plugins((savegame::SaveGamePlugin, thumbnail::ThumbnailPlugin, arrows::ArrowsPlugin));
+    app.add_plugins((savegame::SaveGamePlugin, thumbnail::ThumbnailPlugin, arrows::ArrowsPlugin, bodyfall::BodyfallPlugin));
     app.add_plugins(cheats::CheatsPlugin);
     app.add_plugins(decals::DecalPlugin);
     app.add_plugins(sticky::StickyPlugin);

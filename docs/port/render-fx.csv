@@ -49,12 +49,12 @@ address,name,disposition,reason
 0x00418190,GameShadow_Update,replaced,Bevy shadow maps
 0x004181e0,GameShadow_RebuildReceivers,replaced,Bevy shadow maps (receivers are every lit material)
 0x00418380,GameShadow_Draw,replaced,Bevy shadow maps
-0x0042eb60,Character_SetFade,deferred,feature: character-fade; character alpha setter with no executed caller (calls 0); the corpse fade is the object model's (decals-bodies.md)
+0x0042eb60,Character_SetFade,ported,"engine/src/camfade.rs ObjectAlpha (the alpha over the character's whole hierarchy: body, the weapon in his hand, a pack), set by corpses.rs's fade (Corpse_CountDown 0x0042eba0 -> vt+0x100)"
 0x0046d810,ParticlePool_ResetIndexBuffer,replaced,fxvm particles: one Bevy mesh per pool rebuilt each frame (indices included)
 0x0046d8c0,ParticlePool_Destroy,replaced,Rust ownership (the pool Vecs and meshes live with the FxVm resource)
 0x0046d900,ParticlePool_SetTexture,replaced,fxvm particles::setup_pools gives each pool mesh its bank texture material
 0x0046d950,Particle_AllocZeroed,replaced,"a zeroed particle allocation (caller 0x00446460, not an fx path): Rust allocation"
-0x0043a8d0,FxBodyfall_Spawn,deferred,"feature: bodyfall-fx; reached only from fn_0042e1c0's ragdoll death of character types 0x195 / 0x197 / 0x19b, which lev_1_m1's recorded runs never take (calls 0); a caller would send StartFx fx_bodyfall_<surface> (the material variant falls back to fx_bodyfall)"
+0x0043a8d0,FxBodyfall_Spawn,ported,"engine/src/bodyfall.rs (a launched character's landing: fx_bodyfall with the ground's variant, its scream stopped); fx.rs / ai.rs launch the grunt a blast kills"
 0x00410170,CameraPathObject_Load,replaced,campath.rs (camera port): the camera_path object's anim is read from the export
 0x004102a0,fn_004102a0,replaced,CameraFXObject slot: level.rs starts camera_fx objects' fx attached to the camera
 0x00410340,fn_00410340,replaced,CameraFXObject sort-depth slot (+10000: drawn last): fxvm draws camera-locked fx with a depth bias over the scene (script.rs create_object)

@@ -292,6 +292,13 @@ fn damage(
                 }
                 if let Some(mut g) = grunt {
                     g.cartoon = b.cartoon;
+                    // a killing blast launches him (Character_Die 0x004319e0, an area record: the velocity along the
+                    // record's direction (n.x, n.y, 0.7) by its impact force x 0.15 (0x005bcedc), state 0x195; the
+                    // landing is bodyfall.rs's)
+                    if h.0 <= 0.0 {
+                        let (_, n) = surface(t, bounds, b.at);
+                        g.blast_push = Some(Vec3::new(n.x, 0.7, n.z).normalize() * b.impact_force * 0.15 / crate::bodyfall::LAUNCH_MASS);
+                    }
                     if std::env::var("AIDBG").is_ok() {
                         info!("AIDBG blast on {ce:?}: {:.0} by {:?} {:?} health {:.0}", amount, b.by, b.source, h.0);
                     }
