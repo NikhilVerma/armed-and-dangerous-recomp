@@ -135,9 +135,9 @@ address,name,disposition,reason
 0x00436b60,fn_00436b60,replaced,monk vt+0x18c: leave_cover (ai.rs)
 0x004371e0,fn_004371e0,deferred,"feature: monk; monk damage message: flag 0x20 starts the knock-over timer to the hang state 0xf4 (monk_hanging, then a bamf): not ported (docs/subsystems/infantry.md section 6)"
 0x00437240,fn_00437240,deferred,feature: monk; monk knocked over (vt+0x1b0): state 0xf4 with monk_hanging: not ported (docs/subsystems/infantry.md section 6)
-0x004375c0,fn_004375c0,deferred,"feature: ai-voice-lines; the captain's voice slots (AIVoice_* 0x00437690 / 0x00437860 / 0x004375c0) are reached only when a captain speaks; the engine's barks use the grunt sets for captains too (open: captain voice table, grunt-ai.md 14)"
-0x00437690,fn_00437690,deferred,"feature: ai-voice-lines; the captain's voice slots (AIVoice_* 0x00437690 / 0x00437860 / 0x004375c0) are reached only when a captain speaks; the engine's barks use the grunt sets for captains too (open: captain voice table, grunt-ai.md 14)"
-0x00437860,fn_00437860,deferred,"feature: ai-voice-lines; the captain's voice slots (AIVoice_* 0x00437690 / 0x00437860 / 0x004375c0) are reached only when a captain speaks; the engine's barks use the grunt sets for captains too (open: captain voice table, grunt-ai.md 14)"
+0x004375c0,fn_004375c0,not needed,"no effect: its only caller, MissionObject_Update 0x0044db80's scan of the AI list for a live captain near the player (game_02.cpp:2394, 2452), drops the result; nothing calls the captain's base line (slot +0x260, AIVoice_PlayCapnbase): the recovered code has no virtual call through +0x260"
+0x00437690,fn_00437690,ported,"engine/src/ai.rs class_voice (the captains' and sniper captains' Spotted / Fight cues from their CA1 / CA2 lists; audio.rs resolve @captain)"
+0x00437860,fn_00437860,ported,"engine/src/ai.rs class_voice (the captains' and sniper captains' Spotted / Fight cues from their CA1 / CA2 lists; audio.rs resolve @captain)"
 0x00438fc0,fn_00438fc0,replaced,"the grunts' Spotted / Fight cue wrappers (0x004390b0 -> 0x00438fc0, 0x004392c0 -> 0x004391f0): ai.rs barks ""Spotted"" / ""Fight"" under vo_delay"
 0x004390b0,fn_004390b0,replaced,"the grunts' Spotted / Fight cue wrappers (0x004390b0 -> 0x00438fc0, 0x004392c0 -> 0x004391f0): ai.rs barks ""Spotted"" / ""Fight"" under vo_delay"
 0x004391f0,fn_004391f0,replaced,"the grunts' Spotted / Fight cue wrappers (0x004390b0 -> 0x00438fc0, 0x004392c0 -> 0x004391f0): ai.rs barks ""Spotted"" / ""Fight"" under vo_delay"

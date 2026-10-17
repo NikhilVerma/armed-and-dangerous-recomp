@@ -81,6 +81,9 @@ fn setup(
             gun,
             shots: 0,
         });
+        // its voice: SP1 or SP2 (the original's "second voice" test on the object's flags; which patrol has which is
+        // not traced: guess, alternating by load order)
+        commands.entity(e).insert(crate::voices::ShrubVoice((seen.len() % 2) as u8));
     }
 }
 
@@ -105,12 +108,13 @@ fn roll(rng: &mut crate::fx::FxStats, (lo, hi): (i64, i64)) -> i64 {
 /// The guard: a target, the facing, the burst counters and the fire anims.
 fn guard(
     time: Res<Time>,
-    mut q: Query<(&mut ShrubPatrol, &GlobalTransform, &mut Transform, &mut crate::skin::Animator)>,
+    mut q: Query<(Entity, &mut ShrubPatrol, &GlobalTransform, &mut Transform, &mut crate::skin::Animator)>,
     grunts: Query<(Entity, &crate::ai::Grunt, &GlobalTransform), Without<ShrubPatrol>>,
     mut rng: ResMut<crate::fx::FxStats>,
+    mut cues: MessageWriter<crate::voices::VoiceCue>,
 ) {
     let dt = time.delta_secs();
-    for (mut s, gt, mut tr, mut a) in &mut q {
+    for (e, mut s, gt, mut tr, mut a) in &mut q {
         if !s.guarding {
             continue;
         }
@@ -147,6 +151,8 @@ fn guard(
         if s.burst_left <= 0 {
             let bursts = roll(&mut rng, s.bursts).max(1);
             s.burst_left = (s.left + bursts - 1) / bursts;
+            // the fire anim starts with a target: the Fight cue (ShrubPatrol +0x13c: its taunt 0x0043a310, voices.rs)
+            cues.write(crate::voices::VoiceCue { who: e, cue: crate::voices::Cue::ShrubTaunt });
         }
         // the corner by the target's height (low: the bottom corners)
         let corner = if tp.y < me.y { "shrubpatrol_fire_bl" } else { "shrubpatrol_fire_tl" };

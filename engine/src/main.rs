@@ -72,6 +72,7 @@ mod saveslots;
 mod topsy;
 mod turret;
 mod twiglet;
+mod voices;
 mod vehicles;
 mod weapons;
 mod weapontable;
@@ -377,7 +378,7 @@ fn main() {
     app.add_plugins(camdump::CamDumpPlugin);
     app.add_plugins(camera::CameraPlugin);
     app.add_plugins(footik::FootIkPlugin);
-    app.add_plugins((savegame::SaveGamePlugin, thumbnail::ThumbnailPlugin, arrows::ArrowsPlugin, bodyfall::BodyfallPlugin));
+    app.add_plugins((savegame::SaveGamePlugin, thumbnail::ThumbnailPlugin, arrows::ArrowsPlugin, bodyfall::BodyfallPlugin, voices::VoicesPlugin));
     app.add_plugins(cheats::CheatsPlugin);
     app.add_plugins(decals::DecalPlugin);
     app.add_plugins(sticky::StickyPlugin);

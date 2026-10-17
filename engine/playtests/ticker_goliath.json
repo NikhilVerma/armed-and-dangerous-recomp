@@ -19,6 +19,6 @@
  {"hold_use": 2.3},
  {"expect": {"mission_obj.sites.175.armed": true}},
  {"wait": 6.5},
- {"expect": {"triggers.2003": 1, "triggers.3000": 3, "triggers.3998": 1}},
+ {"expect": {"triggers.2003": 1, "triggers.3000": 3, "triggers.3998": 1, "audio.started.gol50001_dead": 3}},
  {"quit": true}
 ]}

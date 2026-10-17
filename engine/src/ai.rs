@@ -1533,6 +1533,16 @@ fn bark(sounds: &mut MessageWriter<crate::audio::PlaySound>, category: &str, set
     sounds.write(bark_request(category, set, at));
 }
 
+/// A cue's line by the speaker's class: captains and sniper captains their own lists (CaptainObject / SniperCaptain
+/// slots +0x144 0x00437690 Spotted, +0x13c 0x00437860 Fight: the CA1 lists with +0x484 bit 21, the grunts' GR1 bit,
+/// else CA2, dealt by Audio_PlayRandomSound 0x00493b70), the others the grunt sets.
+pub fn class_voice(kind: Kind, category: &str, set: u8) -> String {
+    match kind {
+        Kind::Captain | Kind::Sniper => format!("@captain:{category}:{}", if set == 0 { 0 } else { 1 }),
+        _ => voice(category, set),
+    }
+}
+
 /// A bark's request, for the barks kept as a voice handle (audio.rs Speech).
 pub fn bark_request(category: &str, set: u8, at: Vec3) -> crate::audio::PlaySound {
     crate::audio::PlaySound::at(voice(category, set), at).looping(false)
@@ -1893,7 +1903,7 @@ fn search(
             // the Spotted cue: a new target when there was none (SetTarget 0x0042cc70 -> vt+0x144), under vo_delay
             // (30..45 s, from level load: the first fight has no line)
             if g.target.is_none() && barks.take(Delay::Vo, time.elapsed_secs(), &mut rng) {
-                bark(&mut sounds, "Spotted", g.voice_set, me);
+                sounds.write(crate::audio::PlaySound::at(class_voice(g.kind, "Spotted", g.voice_set), me).looping(false));
             }
             g.target = Some(tgt);
             if g.mind == Mind::WaitTrigger {
@@ -4165,7 +4175,7 @@ fn fire_cycle(
             let req = g.speech.line(voices, crate::audio::PlaySound::at(q112::FIGHT_LINE, pos));
             sounds.write(req);
         } else {
-            bark(sounds, "Fight", g.voice_set, pos);
+            sounds.write(crate::audio::PlaySound::at(class_voice(g.kind, "Fight", g.voice_set), pos).looping(false));
         }
     }
     stats.shots += 1;

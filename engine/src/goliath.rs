@@ -214,6 +214,7 @@ fn guard(
     mut physics: NonSendMut<crate::physics::Physics>,
     player: Query<&GlobalTransform, (With<crate::player::Roman>, Without<Goliath>)>,
     mut rng: ResMut<crate::fx::FxStats>,
+    mut sounds: MessageWriter<crate::audio::PlaySound>,
 ) {
     let dt = time.delta_secs();
     let roman = player.single().ok().map(|p| p.translation());
@@ -224,7 +225,10 @@ fn guard(
             let _ = b.set_linear_velocity(crate::physics::jv(Vec3::ZERO));
         }
         if d.is_none() {
-            // dead (the husk takes its place)
+            // dead (the husk takes its place); its death line where it fell (Character_Die's DeadAtPosition, the goliath's
+            // slot 0x00439f30: "GOL50001_Dead" at its position, not kept)
+            sounds.write(crate::audio::PlaySound::at("GOL50001_Dead", gt.translation()));
+            info!("EVENT voice: goliath {e:?} says GOL50001_Dead");
             physics.remove(g.body);
             commands.entity(e).remove::<Goliath>();
             continue;
