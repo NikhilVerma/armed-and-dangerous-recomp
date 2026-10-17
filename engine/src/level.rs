@@ -165,6 +165,8 @@ pub struct SpawnGrunt {
     pub ic: Option<ai::ic::IcSpawn>,
     /// a troop dropped from a vehicle by its anim's note (vehicles/boss.rs)
     pub dropped: Option<DroppedTroop>,
+    /// a grunt a destroyed building throws out dead (tossed.rs, 0x0040d390): his body's velocity
+    pub thrown: Option<Vec3>,
 }
 
 /// A troop a vehicle drops (the note handler 0x00409140): create_rocket_captain_IC REF MOVER makes a "captain" that is a
@@ -1035,6 +1037,12 @@ pub fn spawn(
         // DefaultGameObject_Load 0x0044fd20 (no vt+0xf8 filter, no lists): no collider (guess: a body without the
         // filter collides with nothing; the crosshair's list +0xe9c and the bullets' +0xe90 never hold it)
         let coll_name = coll_name.filter(|_| !(behavior.is_empty() && p.f("no_collide", 0.0) != 0.0));
+        // a house that throws its people out when destroyed (toss_peasants / toss_grunts: tossed.rs); its husks inherit it
+        if behavior == "building" {
+            if let Some(t) = crate::tossed::TossOnDeath::of(&p) {
+                commands.entity(e).insert(t);
+            }
+        }
         // a movable default object (boulders): its body once unpinned (movable.rs)
         if behavior.is_empty() {
             if let Some(m) = crate::movable::Movable::new(&p, coll_name.clone()) {
@@ -1487,6 +1495,9 @@ fn spawn_grunts(
         let e = commands.spawn((Transform::from_matrix(world), GlobalTransform::from(Transform::from_matrix(world)), Visibility::default(), Name::new(ev.template.clone()))).id();
         if ev.alarm {
             commands.entity(e).insert(crate::alarm::AlarmTroop);
+        }
+        if let Some(v) = ev.thrown {
+            commands.entity(e).insert(crate::tossed::Tossed(v));
         }
         if let Some(a) = &ev.army {
             commands.entity(e).insert(a.clone());

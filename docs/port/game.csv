@@ -33,7 +33,7 @@ address,name,disposition,reason
 0x004087b0,fn_004087b0,replaced,an animation range of the object's table: charanim.rs
 0x004087d0,fn_004087d0,replaced,clears the object's four animation slots (+0x248): charanim.rs layers
 0x00408800,fn_00408800,replaced,the object's animation slot entry (+0x248 + slot * 0x20): charanim.rs layers
-0x0040d390,fn_0040d390,deferred,"feature: barracks-windows; characters spawned by a barricade / generator breach (0x0040cf40, ai.csv): not on lev_1_m1"
+0x0040d390,fn_0040d390,ported,"engine/src/tossed.rs toss / fly / chairs (the civilians thrown out with their chairs, screams and whoosh, gone after 8 s; the grunts thrown out dead: kill_tossed)"
 0x0040df90,fn_0040df90,deferred,feature: jump-markers; JumpMarker / BuildingObject slot 0x54 (a jump to slot 0x53): JumpMarker class with no instance on lev_1_m1 (scene.json behaviours)
 0x0040dfa0,fn_0040dfa0,deferred,feature: jump-markers; JumpMarker: class with no instance on lev_1_m1 (scene.json behaviours)
 0x0040dfb0,fn_0040dfb0,deferred,feature: jump-markers; JumpMarker: class with no instance on lev_1_m1 (scene.json behaviours)

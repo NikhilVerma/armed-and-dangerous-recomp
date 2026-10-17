@@ -42,6 +42,7 @@ mod surface;
 mod gamemenu;
 mod goliath;
 mod movable;
+mod tossed;
 mod jetpack;
 mod hitparts;
 mod gamematerial;
@@ -305,7 +306,7 @@ fn main() {
     .add_plugins(turret::TurretPlugin)
     // the base-defence levels: movers (scripted paths), the army, the base turret (army.rs, defence.rs)
     .add_plugins((mover::MoverPlugin, army::ArmyPlugin, crowd::CrowdPlugin, defence::DefencePlugin, icobject::IcObjectPlugin, shell::ShellPlugin, goliath::GoliathPlugin, shrubpatrol::ShrubPatrolPlugin, surface::SurfacePlugin, twiglet::TwigletPlugin, jetpack::JetPackPlugin, peasant::PeasantPlugin, ai::tower::TowerPlugin))
-    .add_plugins(movable::MovablePlugin)
+    .add_plugins((movable::MovablePlugin, tossed::TossedPlugin))
     .add_plugins(vehicles::VehiclesPlugin)
     .init_state::<AppState>()
     .insert_non_send(physics::Physics::new(level::METERS_PER_UNIT))

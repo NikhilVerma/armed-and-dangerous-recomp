@@ -1,0 +1,11 @@
+{"scene": "lev_1_m4", "steps": [
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 3.5}, {"tap": "Enter"},
+ {"wait": 8.0},
+ {"expect": {"toss.peasants": 0, "toss.flying": 0}},
+ {"destroy": 150}, {"wait": 0.5},
+ {"expect": {"toss.peasants": [1, 3], "toss.flying": [1, 3], "objects.150.husk": true}},
+ {"shot": "flying"},
+ {"wait": 8.0},
+ {"expect": {"toss.flying": 0}},
+ {"quit": true}
+]}
