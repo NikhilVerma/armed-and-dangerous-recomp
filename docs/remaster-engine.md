@@ -687,8 +687,30 @@ flat. Tests: playtests corpses_l1m4 / corpses_l1m4_remaster (regress; `kill_army
 Not corpses, found on the way: lev_2_m4's 123k entities are mostly the army's live marching members: its five army
 timers' anims create 357 platoons (1,785 members) in 133 s and each member is a skinned low-detail grunt of ~70
 entities (the original draws them as particles, pool 2 of Game+0xa90); with the releases waiting on the live-grunt
-limit they pile up (1,745 members, 122k entities, 70-120 ms frames headless at 150 s). Open: a cheap member
-representation (instanced, one shared rig per platoon, or particles as the original).
+limit they pile up (1,745 members, 122k entities, 70-120 ms frames headless at 150 s). Done since (agent-armyperf,
+below): each member is one crowd mesh.
+
+## Army crowds (2026-10-17, agent-armyperf)
+
+The original's marching platoon members are not characters: FakeGrunt_Update 0x00446460 gives each ref point of the
+platoon model one particle of pool 2 (Particle_Alloc 0x0046d950: a 16-unit sprite, half-extent 8, uv rect u 0..0.25,
+v 0.625..0.875 of n_fx_bank_2 for grunts / regulars / torches, u 0.25..0.375, v 0.51..0.624 for captains: the grunt and
+captain pictures in the bank), placed on its point every update; only at a release (the "release_platoon" note, then
+one member every 0.1..0.2 s while the live army grunts are under Game+0xbf0) does a member become a real
+"grunt" / "grunt_regular" / "captain". So the rules are: every marching member is cheap, a full grunt exists only
+after its release, and the grunt limit (army_max_grunts 16 / army_unpause_count 14, the timers' grunt_limits) caps
+the full ones; the pool's 2000 particles (shared with the effects) capped the members (docs/engine-limits.md).
+army.rs keeps those rules; the representation is engine/src/crowd.rs (CrowdPlugin, game-neutral): a (model, anim)
+pair is baked once per level into a flipbook (the run cycle skinned on the CPU at 20 frames a second of anim time,
+8..48 frames, parts sharing a material merged: the grunt is 2 meshes), and a `CrowdMember` is one entity showing the
+frame of its own phase (spread by the golden ratio; the pace 0.85..1.15 drawn from the shared random stream as
+before). Members share meshes and materials, so the renderer instances them; no shadows (as before). The look is
+the running low-detail grunt the port already showed (shots compared at lev_1_m4 30 s: no visible difference), at a
+sprite's cost: one entity with one child instead of ~70.
+Measured (headless 640x372, turret on the army, 190 s; the machine loaded by other agents' runs both times):
+lev_2_m4 entities 110k -> 14.9k at ~1,580 members (frames 74 -> 56 ms mean; the rest is the main world's AI and the
+machine), lev_1_m4 30.1k -> 9.4k max (frame 18.3 -> 16.7 ms, main 12.3 -> 8.4 ms). Test `army_l2m4_long` (regress
+LONG: members >= 1000 and entities <= 25k at 150 s); complete_lev_1_m4 / complete_lev_2_m4 pass.
 
 ## Sticky bomb (piece 3, 2026-10-13)
 
@@ -869,8 +891,8 @@ scripted objects and AIs (icobject.rs: bombers, flak, drops, gates; goliath.rs; 
 lobbed shells (shell.rs). Spec and debt: docs/subsystems/defence.md. Tests: engine/playtests/defence_*.json (a
 script's "scene" names its level; a `defence` step drives the turret: {"aim": "army"}, {"mortar": "platoon"},
 {"frame": F}). Debt: the ic_* marker arrival is detected by army.rs from the grunt's position (plan: an ai.rs message);
-the failure mob, the carried ladder and the turret's launcher models are not ported; ~450 platoon member models at once
-(measure the 4K floor).
+the failure mob, the carried ladder and the turret's launcher models are not ported. Platoon members are crowd meshes
+(see Army crowds).
 
 ## Effects (subsystem port, 2026-10-15)
 
