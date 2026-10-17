@@ -16,6 +16,7 @@ pub mod body;
 pub mod bully;
 pub mod ic;
 pub mod jumper;
+pub mod max_fire;
 pub mod monk;
 pub mod squad;
 pub mod tower;
@@ -76,6 +77,9 @@ pub enum Mind {
     Scripted,
     /// state 0x118: a bully holding his peasant (bully.rs), standing until a target or the peasant's death ends it
     Bully,
+    /// state 0x11: waiting for a turn to fire under the mission's shooter limit (max_fire.rs), facing the target with
+    /// the idle bases 0x74..0x76
+    MaxFireWait,
 }
 
 /// The grunt classes a lev_1_m1 template makes (counted in the coverage runs: BowGruntObject_Slot6 0x004347b0 runs 9
@@ -921,6 +925,10 @@ pub struct Grunt {
     pub reloading: bool,
     /// mode bully: his peasant and the scares (bully.rs)
     pub bully: Option<bully::Bully>,
+    /// his place under the mission's shooter limit (+0x488 0x20000 / 0x100000, max_fire.rs)
+    pub shooter: max_fire::Shooter,
+    /// handed the turn by a shooter that stopped (0x0042bb10 -> vt+0x230(0)): engage again this frame
+    pub retry_engage: bool,
 }
 
 impl Grunt {
@@ -1038,11 +1046,12 @@ impl Plugin for AiPlugin {
             .init_level_resource::<Interests>()
             .init_level_resource::<bully::BullyLines>()
             .init_level_resource::<ic::IcStats>()
+            .init_level_resource::<max_fire::ShooterLimit>()
             .add_systems(
                 Update,
                 (
-                    (body::bumps, squad::update_squads, interests, mark_army_targets, search, ic::activate, scare, think, ic::run, bully::bullies, die, dismay).chain(),
-                    (body::apply_rules, log_cover, log_ai, log_placed, squad::log_squads, ic::log, grenades).chain(),
+                    (body::bumps, squad::update_squads, interests, mark_army_targets, search, ic::activate, scare, max_fire::sync_limit, think, max_fire::upkeep, ic::run, bully::bullies, die, dismay).chain(),
+                    (body::apply_rules, log_cover, log_ai, log_placed, squad::log_squads, ic::log, max_fire::log, grenades).chain(),
                 )
                     .chain()
                     .after(crate::fx::FxSet)
@@ -1332,6 +1341,8 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         reloading: false,
         bully: None,
         shot_age: f32::INFINITY,
+        shooter: max_fire::Shooter::None,
+        retry_engage: false,
     }
 }
 
@@ -2700,7 +2711,7 @@ fn think(
         Res<crate::turret::Mounted>,
         Res<crate::gamedata::GameData>,
     ),
-    (mut lib, player_q, mut triggers, grenade_assets, squads, mut jmarks, army, placed): (
+    (mut lib, player_q, mut triggers, grenade_assets, squads, mut jmarks, army, placed, mut limit): (
         ResMut<crate::skin::AnimLibrary>,
         Query<Entity, With<Player>>,
         MessageWriter<crate::mission::SendTrigger>,
@@ -2709,6 +2720,7 @@ fn think(
         Query<(Entity, &mut JumpMarker, &Transform), Without<Grunt>>,
         Query<(), With<ArmyTarget>>,
         Query<&crate::level::Placed>,
+        ResMut<max_fire::ShooterLimit>,
     ),
 ) {
     let t0 = Instant::now();
@@ -3059,6 +3071,8 @@ fn think(
             (Mind::Wander, _) => Mind::Wander,
             (Mind::Taunt, _) => Mind::Taunt,
             (Mind::Throw, _) => Mind::Throw,
+            // waiting for a turn under the shooter limit (state 0x11): only a hand-over engages again (max_fire.rs)
+            (Mind::MaxFireWait, Some(_)) if !g.retry_engage => Mind::MaxFireWait,
             // the trench's states run their own course (below)
             (Mind::Cover, _) if g.cover.is_some() => Mind::Cover,
             (Mind::Gunner, _) if g.gun.is_some() => Mind::Gunner,
@@ -3104,7 +3118,9 @@ fn think(
                 // (vt+0x1e0: the captain), allow_close_attack, flag 1 and rand * 200 >> 15 < 30; else the fire state 0xa
                 // a monk's roll first (vt+0x220 0x00437130): the basket rain (0xf1) or the twiglet summon (0xf2 /
                 // 0xf3), else the fire state
-                let engaged = was == Mind::Fire || (was == Mind::Guard && g.guard_firing);
+                // (a hand-over engages afresh, vt+0x230(0): no close attack; the limit is asked again by max_fire::upkeep)
+                let retry = std::mem::take(&mut g.retry_engage);
+                let engaged = !retry && (was == Mind::Fire || (was == Mind::Guard && g.guard_firing));
                 let act = match g.monk.as_mut() {
                     Some(m) if !engaged => m.roll(&mut rng),
                     _ => monk::MonkAct::Fire,
@@ -3120,7 +3136,7 @@ fn think(
                         m.summon_at = monk::summon_point(pos, forward, &mut rng);
                     }
                     Mind::Cast
-                } else if !engaged && g.kind.close_attack() && in_range && g.fire_ready && g.throw_armed && rng.rand() * 200.0 < 30.0 {
+                } else if !engaged && !retry && g.kind.close_attack() && in_range && g.fire_ready && g.throw_armed && rng.rand() * 200.0 < 30.0 {
                     g.anim_id = 0x27;
                     g.anim_left = anim_len(&mut lib, g.anim(0x27, 0.0));
                     g.thrown = false;
@@ -3139,7 +3155,7 @@ fn think(
             (_, Some(_)) => Mind::Chase,
             (Mind::Guard, None) => Mind::Guard,
             // the target gone from the states that need one (0x0042bc60)
-            (Mind::Fire | Mind::Chase | Mind::Reload, None) => lost_target(&mut g, ge, &mut spots.trenches),
+            (Mind::Fire | Mind::Chase | Mind::Reload | Mind::MaxFireWait, None) => lost_target(&mut g, ge, &mut spots.trenches),
             _ => Mind::Roam,
         };
         // a monk's pursuit is a teleport (vt+0x184 0x00436b90: +0xb58 = 0, then the bamf)
@@ -3308,6 +3324,14 @@ fn think(
                     };
                 }
             }
+            Mind::MaxFireWait => {
+                // state 0x11 (ai_06.cpp:849-867): facing the target (below), the next idle base as each one ends
+                g.anim_left -= dt;
+                if g.anim_left <= 0.0 {
+                    g.anim_id = max_fire::next_wait_anim(g.anim_id, &mut rng);
+                    g.anim_left = anim_len(&mut lib, g.anim(g.anim_id, 0.0));
+                }
+            }
             Mind::Throw => {
                 // state 0x10: the throw anim facing the target; its "throw" note (captain_grenade_throw 1.333 s) sends
                 // the grenade (0x0043d180 "throw" -> 0x00428340: the captain_grenade from the hand at the target's
@@ -3344,6 +3368,15 @@ fn think(
                 }
             }
             Mind::Fire | Mind::Guard => {
+                // every way into the fire state passes the engage (0x00427910 / 0x00427c80: a reload's end, a hit's
+                // end, a guard's engage), which asks the mission's shooter limit first: wait there (max_fire.rs)
+                if target.is_some() && (g.mind == Mind::Fire || g.guard_firing) && !limit.may_fire(ge, &mut g.shooter, &mut rng) {
+                    g.mind = Mind::MaxFireWait;
+                    g.guard_firing = false;
+                    // (0x004271c0 with no idle base playing draws the first; the wait state below plays it)
+                    g.anim_id = max_fire::next_wait_anim(0, &mut rng);
+                    g.anim_left = anim_len(&mut lib, g.anim(g.anim_id, 0.0));
+                }
                 if let Some(p) = target.filter(|_| g.mind == Mind::Fire || g.guard_firing) {
                     // the target's ref_hit_00 (0x00428280): the aim point of 0x004284e0 and the sight ray's end
                     let hit = g
@@ -3394,6 +3427,13 @@ fn think(
                     }
                     if stats.shots > before && std::env::var("AIDBG").is_ok() {
                         info!("AIDBG gruntshot t {:.3}", rtime.elapsed_secs());
+                    }
+                    // a counted shooter stops at its clip's end (0x00428980 -> 0x0042bb10): its place is handed over
+                    // (a lost line of sight keeps the engine's fire state, which keeps the place: max_fire.rs)
+                    if matches!(end, FireEnd::Clip | FireEnd::Taunt) && g.shooter != max_fire::Shooter::None {
+                        let mut s = g.shooter;
+                        limit.release(ge, &mut s);
+                        g.shooter = s;
                     }
                     match end {
                         // in the slot a lost line of sight ducks (0x00428980: anim 0x66, state 0xa2)
@@ -3828,7 +3868,7 @@ fn think(
             (Mind::Cast, _, _) if g.monk.is_some_and(|m| m.spell == monk::Spell::Twiglets) => {
                 g.monk.map(|m| flat(m.summon_at - pos).normalize_or_zero()).unwrap_or(dir)
             }
-            (Mind::Fire | Mind::Chase | Mind::Taunt | Mind::Throw | Mind::Cast, Some(p), _) => flat(p - pos).normalize_or_zero(),
+            (Mind::Fire | Mind::Chase | Mind::Taunt | Mind::Throw | Mind::Cast | Mind::MaxFireWait, Some(p), _) => flat(p - pos).normalize_or_zero(),
             // a guard firing turns to his target (0x0042df70, 45 degrees)
             (Mind::Guard, Some(p), _) if g.guard_firing => flat(p - pos).normalize_or_zero(),
             // in the slot: its direction +0x908 (0x00454e60), standing up: the target (0x0042df70)

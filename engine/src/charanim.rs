@@ -765,6 +765,8 @@ fn grunts(
             // state 0x50 walks home with anim 0xa (run_scan)
             Mind::Home => (if limping { name(&g, 0x59, 0.0) } else { name(&g, 0xa, 0.0) }.to_owned(), true),
             // the taunt (ids 0x32..0x34) and the throw (0x27): once
+            // waiting for a turn under the shooter limit (state 0x11): the idle base ai.rs picked, once each
+            Mind::MaxFireWait => (name(&g, g.anim_id, 0.0).to_owned(), false),
             Mind::Taunt | Mind::Throw => {
                 let id = if g.mind == Mind::Throw { 0x27 } else { g.anim_id };
                 (name(&g, id, 0.0).to_owned(), false)
