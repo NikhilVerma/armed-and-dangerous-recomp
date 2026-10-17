@@ -24,6 +24,9 @@ pub struct Explode {
     /// record flag 0x80 (allow_cartoon_death): the sticky bomb's records (0x00481ab0 flags 0x80 | 1); a window /
     /// tower grunt it kills is blown out of the window (Character_Die 0x004319e0)
     pub cartoon: bool,
+    /// the record's class flag (the forge cannon's shell: 0x100000, ForgeCannonProjectile_Flags 0x00481000), which an
+    /// AI victim scales by its forge_damage_multiplier (GenericAIObject_Slot52 0x00430340)
+    pub kind: crate::player::DamageKind,
 }
 
 /// The kind of a damage record's source (+0x2c), as the damage filters ask it: an object (its vt+0xe0 true: kegs,
@@ -242,7 +245,7 @@ fn damage(
     mut blasts: MessageReader<Explode>,
     mut physics: NonSendMut<Physics>,
     mut objects: Query<(Entity, &GlobalTransform, &mut Destructible, Option<&Bounds>), Without<BlastProof>>,
-    mut chars: Query<(Entity, &GlobalTransform, &mut Health, Option<&Bounds>, Option<&mut crate::ai::Grunt>, Option<&mut DamageShield>)>,
+    mut chars: Query<(Entity, &GlobalTransform, &mut Health, Option<&Bounds>, Option<&mut crate::ai::Grunt>, Option<&mut DamageShield>, Option<&crate::ai::Companion>)>,
     roman: Query<(), With<crate::player::Roman>>,
     topsy: Option<Res<crate::topsy::Topsy>>,
 ) {
@@ -276,14 +279,14 @@ fn damage(
                 }
             }
         }
-        for (ce, t, mut h, bounds, grunt, shield) in &mut chars {
+        for (ce, t, mut h, bounds, grunt, shield, companion) in &mut chars {
             // the excluded object (a sticky bomb's stuck character takes its direct damage instead)
             if Some(ce) == b.source || (no_hits && roman.contains(ce)) {
                 continue;
             }
             let (dist, _) = surface(t, bounds, b.at);
             if dist <= b.radius_outer {
-                let amount = b.area_damage * falloff(dist, b.radius_inner, b.radius_outer);
+                let amount = b.area_damage * falloff(dist, b.radius_inner, b.radius_outer) * companion.map_or(1.0, |c| c.damage_scale(b.kind));
                 if !shield.is_some_and(|mut s| s.absorb(amount)) {
                     h.0 -= amount;
                 }
@@ -365,6 +368,7 @@ fn dying(
                 // the keg / object itself is the record's source (FxExplosion_Die 0x0041c570, 0x00450ee0)
                 by: Src::Object,
                 cartoon: false,
+                kind: crate::player::DamageKind::Plain,
             });
         }
         if let Some(name) = &d.fx_death {

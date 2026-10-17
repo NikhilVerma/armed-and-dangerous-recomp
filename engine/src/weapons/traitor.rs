@@ -106,7 +106,7 @@ fn fly(
             fx.write(crate::fx::StartFx { name: n.to_owned(), at, rotation: crate::level::game_to_engine(), follow: None, position_only: false });
         }
         let (inner, outer) = (p.f("damage_radius_inner", 0.0), p.f("damage_radius_outer", 0.0));
-        blasts.write(crate::fx::Explode { at, area_damage: p.f("area_damage", 0.0), radius_inner: inner, radius_outer: outer, impact_force: p.f("impact_force", 2010.0), source: None, delay: 0.0, by: crate::fx::Src::Player, cartoon: false });
+        blasts.write(crate::fx::Explode { at, area_damage: p.f("area_damage", 0.0), radius_inner: inner, radius_outer: outer, impact_force: p.f("impact_force", 2010.0), source: None, delay: 0.0, by: crate::fx::Src::Player, cartoon: false, kind: crate::player::DamageKind::Plain });
         let turned = turn(&mut commands, &mut grunts, &mut fx, at, inner, outer);
         if let Some(m) = log.as_deref_mut() {
             m.log.push(format!("guy fawkes: {turned} turned traitor"));

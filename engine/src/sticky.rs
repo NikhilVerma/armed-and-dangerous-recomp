@@ -294,6 +294,7 @@ fn fly(
                 by: if b.props.contains("molmer") { crate::fx::Src::Teammate } else { crate::fx::Src::Player },
                 // flags 0x80 | 1 (0x00481ab0)
                 cartoon: true,
+                kind: crate::player::DamageKind::Plain,
             });
             // the object it is stuck to takes the direct hit, damage + area_damage (0x0047eec0); the area damage above
             // spares it (0x0047f020 skips the object hit): a grunt, or a placed object through its damage filters (a

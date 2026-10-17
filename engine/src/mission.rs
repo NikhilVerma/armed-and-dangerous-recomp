@@ -1670,6 +1670,7 @@ pub(crate) fn sites(
                     // record's flags are not traced)
                     by: crate::fx::Src::Player,
                     cartoon: false,
+                    kind: crate::player::DamageKind::Plain,
                 });
                 fx.write(StartFx { name: "fx_ticker_bomb".into(), at: s.pos, rotation: Quat::IDENTITY, follow: None, position_only: false });
                 if s.explode != 0 {

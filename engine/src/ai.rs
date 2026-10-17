@@ -633,6 +633,8 @@ pub struct Gun {
     /// +0x48c flag 1: the counters ran out together (the aim snaps, firing continues out of the arc)
     pub snap: bool,
     pub shots: u32,
+    /// "fire" notes a forge cannon held back (0x0043ec60: the target behind or within 100)
+    pub held: u32,
 }
 
 impl Gun {
@@ -658,6 +660,7 @@ impl Gun {
             anim_t: 0.0,
             snap: false,
             shots: 0,
+            held: 0,
         }
     }
 }
@@ -1107,7 +1110,7 @@ fn log_placed(
             let p = t.translation();
             let pos = [p.x.round(), (-p.z).round(), p.y.round()];
             // (rigged: the crosshair and bullets test his parts; a body: his capsule)
-            (id.0.to_string(), serde_json::json!({"pos": pos, "mind": format!("{:?}", g.mind), "health": h.map(|h| h.0.round()), "rigged": animated, "body": body}))
+            (id.0.to_string(), serde_json::json!({"pos": pos, "mind": format!("{:?}", g.mind), "health": h.map(|h| h.0.round()), "rigged": animated, "body": body, "gun_shots": g.gun.map(|gn| gn.shots), "gun_held": g.gun.map(|gn| gn.held)}))
         }))
         .collect();
     state.0.insert("grunt_ids".into(), out.into());
@@ -2686,6 +2689,7 @@ fn grenades(
             delay: 0.0,
             by: crate::fx::Src::Badguy,
             cartoon: false,
+            kind: crate::player::DamageKind::Plain,
         });
         if let Some(mut h) = obj.and_then(|o| health.get_mut(o).ok()) {
             h.0 -= p.f("damage", 50.0);
@@ -3672,6 +3676,16 @@ fn think(
                                         let crossed = ((t0 - note) / 0.3).floor() != ((gn.anim_t - note) / 0.3).floor();
                                         if !(crossed && gn.rounds > 0 && gn.burst > 0) {
                                             continue;
+                                        }
+                                        // a forge cannon's note fires only at a target in the gunner's 180-degree view
+                                        // and at least 100 away in the plane (0x0043ec60, the gun's kind 2: vt+0xf0 with
+                                        // 180, K 0x005bcc10 = 100^2)
+                                        if tu.two_pivot() {
+                                            let to = target.map_or(Vec3::ZERO, |p| (p - pos).with_y(0.0));
+                                            if to.length() < 100.0 || to.dot(gn.fwd.with_y(0.0)) < 0.0 {
+                                                gn.held += 1;
+                                                continue;
+                                            }
                                         }
                                         gn.rounds -= 1;
                                         gn.burst -= 1;

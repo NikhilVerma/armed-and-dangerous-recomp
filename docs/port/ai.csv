@@ -149,12 +149,12 @@ address,name,disposition,reason
 0x0043a980,fn_0043a980,replaced,"grab / carry state tests (slots +0x1c0, +0x118): no grabs on lev_1_m1"
 0x0043a9a0,fn_0043a9a0,deferred,"feature: vindaloo; GoliathObject vt+0x250 (not in a squad, +0x9bc): Hud_UpdateCrosshair's multi-lock (ui_01.cpp:378, hud +0x152: weapon type 3 or the base turret) skips a squad's goliath; the multi-lock itself is the vindaloo's (and the base mgun's, defence.md debt)"
 0x0043a9b0,fn_0043a9b0,replaced,"grab / carry state tests (slots +0x1c0, +0x118): no grabs on lev_1_m1"
-0x0043a9f0,fn_0043a9f0,deferred,feature: vehicle-bosses; fake grunt / zeppelin / colossus / Q112 boss anim tables
+0x0043a9f0,fn_0043a9f0,replaced,"FakeGruntObject vt+0x1a4 (every anim id -> ""4_fake_grunts""): the platoon's members are crowd meshes running their kind's grunt clip (army.rs / crowd.rs), the platoon itself a mover (mover.rs)"
 0x0043bc50,fn_0043bc50,deferred,"feature: run-anim-speed; the anim speed vector (vt+0x1a8: run ids 8..0xc / 0x2f -> +0x96c, limp 0x59 -> +0x994, the anim_run_* / anim_limp_* scaling of the run anims' playback to the move speed): not ported, the engine plays the run anims at speed 1 (open: foot sliding at limp speed)"
 0x0043c560,fn_0043c560,deferred,"feature: run-anim-speed; the anim speed vector (vt+0x1a8: run ids 8..0xc / 0x2f -> +0x96c, limp 0x59 -> +0x994, the anim_run_* / anim_limp_* scaling of the run anims' playback to the move speed): not ported, the engine plays the run anims at speed 1 (open: foot sliding at limp speed)"
-0x0043c640,fn_0043c640,deferred,feature: vehicle-bosses; fake grunt / zeppelin / colossus / Q112 boss anim tables
-0x0043c650,fn_0043c650,deferred,feature: vehicle-bosses; fake grunt / zeppelin / colossus / Q112 boss anim tables
-0x0043c7d0,fn_0043c7d0,deferred,feature: vehicle-bosses; fake grunt / zeppelin / colossus / Q112 boss anim tables
+0x0043c640,fn_0043c640,replaced,"ZeppelinObject vt+0x1a4 (every anim id -> ""mini_zeppelin_ref""): the mini zeppelin's model is rigid; its anims run as a note clock and nodes (vehicles/boss.rs RigidAnimNotes, nodes.rs)"
+0x0043c650,fn_0043c650,deferred,"feature: run-anim-speed; ColossusObject vt+0x1a8: the move-speed info +0x96c of its walk anims (ids 4, 8..0xc, 0x2f, 0x59) for the walk's playback rate by speed; the colossus's hit and walk anims are vehicles/boss.rs walk"
+0x0043c7d0,fn_0043c7d0,deferred,"feature: q112-boss; Q112Boss vt+0x1a8: the move-speed info of its walk anims (ids 8..0xc, 0x2f, 0x59)"
 0x0043c860,Q112Boss_HandleEvent,deferred,"feature: q112-boss; the Q112 boss (spawned by Q's q112_marker note): a turret-style boss, not grunt-class infantry: not in this port"
 0x0043ccb0,fn_0043ccb0,not needed,dead in the shipped game: no level of the 24 has a hide_tag / unhide_tag script (mission.json / scene.json survey)
 0x0043cd70,fn_0043cd70,not needed,dead in the shipped game: no level of the 24 has a hide_tag / unhide_tag script (mission.json / scene.json survey)
@@ -174,7 +174,7 @@ address,name,disposition,reason
 0x0043eae0,fn_0043eae0,deferred,"feature: melee-fight; the ""hit"" event (anim note hit: melee damage of the hand-to-hand fight): no fights on lev_1_m1"
 0x0043ec40,GenericAIObject_GetClass,replaced,"the class descriptor: the engine's component types carry the class (ai.rs Grunt with Kind, Companion, level.rs Penguin, alarm.rs Marker)"
 0x0043ec50,fn_0043ec50,replaced,dead test slot +0xe0: Mind::Dead / Health
-0x0043ec60,fn_0043ec60,deferred,feature: vehicle-bosses; the turret target test (+0x898 of kind 2: Colossus turrets)
+0x0043ec60,fn_0043ec60,ported,"engine/src/ai.rs gunner fire notes (a forge cannon, Turret::two_pivot: the target in the 180-degree view and at least 100 away)"
 0x0043edb0,fn_0043edb0,replaced,"contact callbacks (slots 42 / 44: bumped by a body, the contact record +0x538 and list +0x518) and the list release 0x0043edb0: Jolt bodies collide; the per-state contact reactions are not ported (open: a grunt bumped by the player's car / props; none on lev_1_m1)"
 0x00446440,ShrubPatrol_Update,replaced,ShrubPatrol update: shrubpatrol.rs (guard)
 0x00446de0,fn_00446de0,replaced,goliath update helpers: goliath.rs guard

@@ -207,10 +207,10 @@ address,name,disposition,reason
 0x00480510,VindalooProjectile_ReadProps,ported,"engine/src/vehicles/rockets.rs launch (proj_vindaloo_missile): start / max speed x 3, homing delay, full speed distance"
 0x004805e0,VindalooProjectile_Flags,ported,"engine/src/vehicles/rockets.rs: the vindaloo's damage record (its class bit 0x200000 has no reader among the AI's damage scales, GenericAIObject_Slot52 0x00430340)"
 0x004805f0,VindalooProjectile_Update,ported,"engine/src/vehicles/rockets.rs Flight::Vindaloo: the homing, the speed ramp, the proximity fuse with the direct damage on the target; paused while a black hole sucks"
-0x00480d60,RocketBudProjectile_ReadProps,deferred,feature: rocket-bud; RocketBudProjectile: not on lev_1_m1
-0x00480e20,RocketBudProjectile_Update,deferred,feature: rocket-bud; RocketBudProjectile: not on lev_1_m1
-0x00480f60,ForgeCannonProjectile_Update,deferred,feature: forge-cannon-projectile; ForgeCannonProjectile: not on lev_1_m1
-0x00481000,ForgeCannonProjectile_Flags,deferred,feature: forge-cannon-projectile; ForgeCannonProjectile: not on lev_1_m1
+0x00480d60,RocketBudProjectile_ReadProps,ported,"engine/src/vehicles/rockets.rs launch (proj_rocket_bud: Ballistic at the world's gravity, the pass-by once)"
+0x00480e20,RocketBudProjectile_Update,ported,engine/src/vehicles/rockets.rs fly (faces its velocity; wpn_rocket_passby_med_3 once within 70 of Roman)
+0x00480f60,ForgeCannonProjectile_Update,ported,"engine/src/vehicles/rockets.rs (proj_forge_mortar: lobbed at the horizontal distance + 5, faces its velocity, pass-by wpn_rocket_passby_med_2 within 70)"
+0x00481000,ForgeCannonProjectile_Flags,ported,engine/src/vehicles/rockets.rs Rocket::kind and fx.rs Explode::kind (the 0x100000 record: companions x forge_damage_multiplier)
 0x00481010,fn_00481010,deferred,feature: untraced; flag / target slots of the Projectile vtables 0x005aec10 / 0x005ab120 (classes 3 / 13): no lev_1_m1 property set was traced to them (guess: later levels' projectiles)
 0x00481020,fn_00481020,deferred,feature: untraced; flag / target slots of the Projectile vtables 0x005aec10 / 0x005ab120 (classes 3 / 13): no lev_1_m1 property set was traced to them (guess: later levels' projectiles)
 0x00481030,fn_00481030,deferred,feature: untraced; flag / target slots of the Projectile vtables 0x005aec10 / 0x005ab120 (classes 3 / 13): no lev_1_m1 property set was traced to them (guess: later levels' projectiles)
@@ -297,8 +297,8 @@ address,name,disposition,reason
 0x00499bd0,fn_00499bd0,deferred,"feature: turret-vehicle-paths; not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
 0x0049a0b0,MountedTurret_BoneCallback,deferred,"feature: turret-vehicle-paths; MountedTurret bone callback: not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
 0x0049a0f0,fn_0049a0f0,deferred,"feature: turret-vehicle-paths; not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
-0x0049a110,fn_0049a110,deferred,"feature: turret-vehicle-paths; not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
-0x0049a150,fn_0049a150,deferred,"feature: turret-vehicle-paths; not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x0049a110,fn_0049a110,ported,engine/src/turret.rs Turret::ai_aim (a two-pivot gun aims by its yaw_range_max / pitch_range_max)
+0x0049a150,fn_0049a150,ported,"engine/src/turret.rs Turret::ai_aim (sets the yaw / pitch, +0x620 / +0x61c)"
 0x0049a4c0,fn_0049a4c0,deferred,"feature: turret-vehicle-paths; not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
 0x0049a530,fn_0049a530,deferred,"feature: turret-vehicle-paths; not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
 0x0049abf0,fn_0049abf0,deferred,"feature: defence-visuals; the fake mortar / homing launcher helpers (visual): not drawn, defence.md debt"
@@ -307,9 +307,9 @@ address,name,disposition,reason
 0x0049afe0,fn_0049afe0,not needed,"dead in the shipped game: the base turret dies only with an AI gunner (0x00498400 gives the player the hits) and no defence level (1_m4, 2_m4, 3_m4_bd, 4_m5, 5_m5) puts one in it"
 0x0049bcb0,fn_0049bcb0,not needed,"dead in the shipped game: the base turret dies only with an AI gunner (0x00498400 gives the player the hits) and no defence level (1_m4, 2_m4, 3_m4_bd, 4_m5, 5_m5) puts one in it"
 0x0049bd80,fn_0049bd80,not needed,"dead in the shipped game: every base turret starts with start_in_turret, where Use does not leave (game_06.cpp:2224)"
-0x0049c2a0,fn_0049c2a0,deferred,feature: base-turret; BaseDefendTurret / RocketTowerTurret / RocketBudTurret virtuals: none placed on lev_1_m1
+0x0049c2a0,fn_0049c2a0,ported,engine/src/defence.rs ride (the machine gun's held flash 0x00497fd0; the mortar's mortar_muzzle_fx_name at mortar_muzzle_bone_name)
 0x0049c4c0,fn_0049c4c0,ported,cited: vehicles/rocket_turrets.rs (the removal stops the turn loop)
-0x0049ca90,fn_0049ca90,deferred,feature: rocket-turrets; BaseDefendTurret / RocketTowerTurret / RocketBudTurret virtuals: none placed on lev_1_m1
+0x0049ca90,fn_0049ca90,replaced,"RocketTower / RocketBud turret slot 7 (the radius collision descriptor, as the base slot 0x00497f40): vehicles/rocket_turrets.rs builds the turret's collision mesh"
 0x004a0690,fn_004a0690,ported,cited: extras.rs (the level-name filters of the Replay Level / Cutscenes lists)
 0x004a0da0,fn_004a0da0,replaced,the AI's scale of its weapon objects: the engine's weapon models follow the hand bone
 0x004a0f70,fn_004a0f70,ported,"engine/src/weapons/arsenal.rs Arsenal::replace, pubscreen.rs: the pub's swap of a carried gun into a full slot"

@@ -164,6 +164,13 @@ pub struct MarkerWalk {
     recent: (i64, i64),
     pub goal: Option<Vec3>,
     pub speed: f32,
+    /// hit_level_1 / hit_level_2 (+0x9e8 / +0x9ec) and the health last frame (a hit's size)
+    hit_levels: (f32, f32),
+    last_health: Option<f32>,
+    /// the hit reaction playing (GenericAIObject_Slot52 0x00430340 states 0x130 / 0x131; the colossus's table
+    /// 0x0043c6e0: ids 0x43 / 0x44 colossus_hit_med, 0x45..0x48 colossus_hit_large): its anim and time left; it stops
+    /// meanwhile
+    pub hit: Option<&'static str>,
 }
 
 /// A turret boss (see the module doc).
@@ -226,6 +233,9 @@ fn setup(
                 recent: (last + 1, last + 1),
                 goal: None,
                 speed: p.f("move_speed", 46.0),
+                hit_levels: (p.f("hit_level_1", 10.0), p.f("hit_level_2", 25.0)),
+                last_health: None,
+                hit: None,
             }
         });
         let boss = Boss {
@@ -516,15 +526,38 @@ fn walk(
     time: Res<Time>,
     tuning: Res<VehicleTuning>,
     physics: NonSend<crate::physics::Physics>,
-    mut q: Query<(&mut Boss, &mut Transform, Option<&mut crate::skin::Animator>, Option<&Placed>), Without<Mover>>,
+    mut q: Query<(&mut Boss, &mut Transform, Option<&mut crate::skin::Animator>, Option<&Placed>, Option<&Destructible>), Without<Mover>>,
     globals: Query<&GlobalTransform>,
     markers: Option<Res<crate::alarm::Markers>>,
     mut rng: ResMut<VehicleRng>,
+    lib: Res<crate::skin::AnimLibrary>,
 ) {
     let dt = time.delta_secs();
-    for (mut b, mut t, anim, pl) in &mut q {
+    for (mut b, mut t, mut anim, pl, d) in &mut q {
         let b = &mut *b;
         let Some(w) = b.walk.as_mut() else { continue };
+        // a hit's reaction (0x00430340 with the colossus's anim table): <= hit_level_1 the small reaction (its table
+        // gives colossus_stand: no anim of its own), <= hit_level_2 colossus_hit_med, more colossus_hit_large; it
+        // stands while it plays
+        if let Some(d) = d {
+            let lost = w.last_health.map_or(0.0, |h| h - d.health);
+            w.last_health = Some(d.health);
+            if lost > w.hit_levels.0 && d.health > 0.0 {
+                let name = if lost <= w.hit_levels.1 { "colossus_hit_med" } else { "colossus_hit_large" };
+                w.hit = Some(name);
+                if let Some(a) = anim.as_mut() {
+                    a.play(0, name, false, crate::skin::Mask::All);
+                    a.restart(0);
+                }
+            }
+        }
+        if let Some(name) = w.hit {
+            let playing = anim.as_ref().and_then(|a| a.layers.first()).is_some_and(|l| l.anim == name);
+            if playing && !anim.as_ref().is_some_and(|a| a.finished(0, &lib)) {
+                continue;
+            }
+            w.hit = None;
+        }
         let target = b.targeting.current;
         if b.phase == Phase::Waiting && target.is_some() {
             b.phase = Phase::Walking;
@@ -716,6 +749,7 @@ fn log(q: Query<(&Boss, &GlobalTransform, &Destructible)>, mut log: ResMut<super
                 "target": b.targeting.current.is_some(),
                 "shots": b.shots,
                 "volleys": b.cycle.volleys,
+                "hit": b.walk.as_ref().and_then(|w| w.hit),
                 "pos": super::game_pos(gt.translation()),
             }),
         );

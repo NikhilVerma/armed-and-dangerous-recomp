@@ -117,14 +117,26 @@ impl Turret {
     /// weights +0x580 horizontal (0 left .. 1 right) and +0x584 vertical (0 bottom .. 1 top)). The corners turn the
     /// pivot by about +-65 degrees about z and +-25 about x (stig_mgun_idle_tl center = qz(65) * qx(-25)); the blend is
     /// taken as the angles' blend (guess at the quaternion blend's difference, under 1 degree inside the corners).
+    /// A two-pivot gun (the forge cannon) is aimed by angle instead (ai_06.cpp:766-775, the gun kind != 1 branch): its
+    /// ranges' maxima (ForgeTurret +0x16c 0x0049a110: yaw_range_max, pitch_range_max) times (1 - 2 x weight), set
+    /// through +0x170 (0x0049a150).
     pub fn ai_aim(&mut self, h: f32, v: f32) {
-        self.yaw = 65f32.to_radians() * (1.0 - 2.0 * h);
-        self.pitch = 25f32.to_radians() * (1.0 - 2.0 * v);
+        let (yaw, pitch) = match self.pitch_pivot {
+            Some(_) => (self.yaw_range.1, self.pitch_range.1),
+            None => (65f32.to_radians(), 25f32.to_radians()),
+        };
+        self.yaw = yaw * (1.0 - 2.0 * h);
+        self.pitch = pitch * (1.0 - 2.0 * v);
     }
 
     /// The muzzle bone's world matrix and others for the AI side.
     pub fn bone_world(&self, gt: &GlobalTransform, a: &crate::skin::Animator, i: usize) -> Mat4 {
         gt.to_matrix() * bone_model(&a.skeleton, i, &turns(self))
+    }
+
+    /// A gun of kind 2 (vt+0x168): two pivots, the forge cannon.
+    pub fn two_pivot(&self) -> bool {
+        self.pitch_pivot.is_some()
     }
 
     pub fn emitter(&self) -> usize {
