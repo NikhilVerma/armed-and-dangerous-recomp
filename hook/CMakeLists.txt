@@ -266,6 +266,7 @@ add_library(and_hook SHARED
   src/testscenario.cpp
   src/testoffscreen.cpp
   src/testoracle.cpp
+  src/teststructsnap.cpp
   enhance/display.cpp
   enhance/startup.cpp
   enhance/render.cpp
