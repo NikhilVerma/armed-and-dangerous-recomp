@@ -1,0 +1,12 @@
+{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+ {"wait": 0.5},
+ {"loadout": {"health": 5000}},
+ {"expect": {"toss.smoking": 0}},
+ {"land_by": [25, 120]}, {"wait": 0.5},
+ {"destroy": 25}, {"wait": 1.0},
+ {"expect": {"toss.smoking": 1, "toss.smoking_health": [20, 30], "toss.smoking_burnt": 1}},
+ {"shot": "smoking"},
+ {"wait": 6.0},
+ {"expect": {"toss.smoking_charging": 1}},
+ {"quit": true}
+]}

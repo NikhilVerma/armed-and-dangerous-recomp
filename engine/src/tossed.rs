@@ -40,6 +40,17 @@ impl TossOnDeath {
     }
 }
 
+/// The smoking wounded troop (0x0040c850 -> 0x0042dc20): made at the first free exit slot of a destroyed building's
+/// ruin (its ref_spawn_00, walking out to ref_exit_00: the barracks' ruin grunt_barracks_mini_d keeps the barracks'
+/// reference anim grunt_barracks_mini_0), a quarter of his health, fx_smoking_grunt on his chest, the burnt skin
+/// b_grunt_burnt (+0x488 bit 31, 0x00426290), and at the door the charge at the player (bit 0x100: 0x0042ce70).
+#[derive(Component, Default)]
+pub struct SmokingTroop {
+    wounded: bool,
+    skin: bool,
+    charged: bool,
+}
+
 /// A grunt made to be thrown out dead (0x0040d390's 0x8003 record of his whole health), with his body's velocity.
 #[derive(Component)]
 pub struct Tossed(pub Vec3);
@@ -79,7 +90,7 @@ impl Plugin for TossedPlugin {
         use crate::levelreset::LevelAppExt;
         app.init_level_resource::<Screams>()
             .init_level_resource::<TossStats>()
-            .add_systems(Update, (toss.after(crate::fx::FxSet), fly, chairs, kill_tossed, log).chain().run_if(crate::playing));
+            .add_systems(Update, (toss.after(crate::fx::FxSet), ruins, fly, chairs, kill_tossed, smoking, burnt_skin, log).chain().run_if(crate::playing));
     }
 }
 
@@ -229,6 +240,89 @@ fn chairs(
     }
 }
 
+/// A destroyed object whose ruin (its husk, a "building") has an exit slot sends the smoking troop out of it (0x0040cf40
+/// when the building throws no civilians: 0x0040c850, the first free kind-5 slot: ref_exit_00, made at ref_spawn_00).
+fn ruins(
+    mut died: MessageReader<crate::fx::Died>,
+    q: Query<(&crate::level::Placed, &GlobalTransform, Option<&TossOnDeath>)>,
+    data: Res<crate::gamedata::GameData>,
+    kit: crate::army::ModelKit,
+    mut spawn: MessageWriter<crate::level::SpawnGrunt>,
+) {
+    for d in died.read() {
+        let Ok((pl, gt, toss)) = q.get(d.0) else { continue };
+        if toss.is_some_and(|t| t.peasants) {
+            continue;
+        }
+        let Some(husk) = pl.husk.as_deref() else { continue };
+        let hp = data.template_props(husk);
+        // the ruin's slots: a valid building with more than one part (0x0040ad80), its reference anim's nodes
+        if hp.s("behavior") != Some("building") || hp.f("valid", 0.0) == 0.0 {
+            continue;
+        }
+        let Some(anim) = hp.s("ref_anim_name").map(str::to_owned).or_else(|| data.templates.get(husk).and_then(|t| t.default_anim.clone())) else { continue };
+        let dir = kit.dir();
+        let (Some(spawn_at), Some(exit)) = (crate::level::ref_node(&dir, &anim, "ref_spawn_00"), crate::level::ref_node(&dir, &anim, "ref_exit_00")) else { continue };
+        let world = gt.to_matrix();
+        let at = world.transform_point3(spawn_at.w_axis.truncate());
+        let exit = world.transform_point3(exit.w_axis.truncate());
+        spawn.write(crate::level::SpawnGrunt { at, template: "grunt_regular".into(), exit: Some(exit), smoking: true, ..default() });
+        info!("EVENT toss: a smoking troop comes out of the ruin {husk}");
+    }
+}
+
+/// The smoking troop's wounds (a quarter of his health, fx_smoking_grunt on his chest) and, out of the door, his charge.
+fn smoking(
+    mut q: Query<(&mut SmokingTroop, &mut crate::ai::Grunt, &mut crate::fx::Health, Option<&crate::skin::Animator>)>,
+    roman: Query<Entity, With<crate::player::Roman>>,
+    mut fx: MessageWriter<crate::fx::StartFx>,
+) {
+    for (mut s, mut g, mut h, a) in &mut q {
+        if !s.wounded {
+            let Some(chest) = a.and_then(|a| a.skeleton.index.get("chest").and_then(|&i| a.joints.get(i)).copied()) else { continue };
+            s.wounded = true;
+            h.0 *= 0.25;
+            fx.write(crate::fx::StartFx { name: "fx_smoking_grunt".into(), at: Vec3::ZERO, rotation: Quat::IDENTITY, follow: Some(chest), position_only: false });
+        }
+        if !s.charged && g.exit.is_none() && g.mind != crate::ai::Mind::Dead {
+            s.charged = true;
+            if let Ok(r) = roman.single() {
+                g.target = Some(r);
+                g.mind = crate::ai::Mind::Chase;
+            }
+        }
+    }
+}
+
+/// The burnt skin (0x00426290 with +0x488 bit 31): his skin's texture (the b_grunt* maps) becomes b_grunt_burnt.
+fn burnt_skin(
+    mut q: Query<(Entity, &mut SmokingTroop)>,
+    children: Query<&Children>,
+    mut parts: Query<&mut MeshMaterial3d<crate::gamematerial::GameMaterial>>,
+    mut materials: ResMut<Assets<crate::gamematerial::GameMaterial>>,
+    assets: Res<AssetServer>,
+) {
+    for (e, mut s) in &mut q {
+        if s.skin {
+            continue;
+        }
+        let mut any = false;
+        for c in children.iter_descendants(e) {
+            let Ok(mut m) = parts.get_mut(c) else { continue };
+            any = true;
+            let Some(mat) = materials.get(&m.0) else { continue };
+            let skin = assets.get_path(&mat.base).is_some_and(|p| p.path().file_stem().is_some_and(|f| f.to_string_lossy().to_lowercase().starts_with("b_grunt")));
+            if !skin {
+                continue;
+            }
+            let mut burnt = mat.clone();
+            burnt.base = assets.load(crate::graphics::texture_path("b_grunt_burnt"));
+            m.0 = materials.add(burnt);
+        }
+        s.skin = any;
+    }
+}
+
 /// The thrown grunts take their record once their body exists: dead, their body moving (ai.rs die ragdolls a body
 /// faster than 30).
 fn kill_tossed(
@@ -247,7 +341,22 @@ fn kill_tossed(
     }
 }
 
-fn log(stats: Res<TossStats>, flying: Query<(), With<ThrownPeasant>>, state: Option<ResMut<crate::playtest::PlayState>>) {
+fn log(
+    stats: Res<TossStats>,
+    flying: Query<(), With<ThrownPeasant>>,
+    smoking: Query<(&SmokingTroop, &crate::ai::Grunt, &crate::fx::Health)>,
+    state: Option<ResMut<crate::playtest::PlayState>>,
+) {
     let Some(mut state) = state else { return };
-    state.0.insert("toss".into(), serde_json::json!({ "peasants": stats.peasants, "grunts": stats.grunts, "flying": flying.iter().count() }));
+    let live: Vec<_> = smoking.iter().filter(|(_, g, _)| g.mind != crate::ai::Mind::Dead).collect();
+    state.0.insert(
+        "toss".into(),
+        serde_json::json!({
+            "peasants": stats.peasants, "grunts": stats.grunts, "flying": flying.iter().count(),
+            "smoking": live.len(),
+            "smoking_charging": live.iter().filter(|(s, ..)| s.charged).count(),
+            "smoking_health": live.first().map(|(_, _, h)| h.0),
+            "smoking_burnt": live.iter().filter(|(s, ..)| s.skin).count(),
+        }),
+    );
 }

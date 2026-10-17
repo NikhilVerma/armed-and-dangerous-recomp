@@ -167,6 +167,8 @@ pub struct SpawnGrunt {
     pub dropped: Option<DroppedTroop>,
     /// a grunt a destroyed building throws out dead (tossed.rs, 0x0040d390): his body's velocity
     pub thrown: Option<Vec3>,
+    /// the smoking wounded troop a destroyed barracks' ruin sends out of its exit slot (tossed.rs, 0x0042dc20)
+    pub smoking: bool,
 }
 
 /// A troop a vehicle drops (the note handler 0x00409140): create_rocket_captain_IC REF MOVER makes a "captain" that is a
@@ -1498,6 +1500,9 @@ fn spawn_grunts(
         }
         if let Some(v) = ev.thrown {
             commands.entity(e).insert(crate::tossed::Tossed(v));
+        }
+        if ev.smoking {
+            commands.entity(e).insert(crate::tossed::SmokingTroop::default());
         }
         if let Some(a) = &ev.army {
             commands.entity(e).insert(a.clone());
