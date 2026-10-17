@@ -44,4 +44,19 @@ Re-tagged: GruntObject_Slot147 is the armed jaws' target test (feature armed-jaw
 
 ## Tests
 
-See the end of this file (fast regress, level completions, level_smoke).
+- Unit: dialogue (the bag, the three speaker tests), q112 (trail, swing, eye), close_kill (facing, pairs), carried
+  (hang anims), ai.rs (FightEnd::on_loss): 156 passed in the suite.
+- New playtests (SUITE): companion_carried 24/24, companion_close_kill 13/13, companion_engage_exit 11/11,
+  companion_leader_swap 10/10, companion_idle_cue 8/8, dialogue_dismay 4/4, q112_extras 7/7; tower_l4m2 now checks
+  Jonesy at 500 through the plant (T1).
+- Fast regress (after merging wip 6858c52): exit 0, no FAIL. level_smoke 24 / 24.
+- Completions: complete_lev_2_m2, 3_m2, 4_m2, 5_m1, bonus_m3, 1_m3 pass.
+- Made independent of the random sequence (the companions' new rolls moved it): captain1 (checked while the captain is
+  the nearest AI), monk_summon (the companions warped to the tower; every monk with a target casts: 1..30).
+- Found on the way: a hit reaction whose id the class's table has no anim for (the Q112's 0x3f..0x42) held the AI for
+  good; now it ends at once (ai.rs think).
+
+## Next
+
+The Q112's fire rate (the swing waits for a burst's end); a sender for the pull (twiglet-extras); the tossed peasant's
+line (feature peasants, dialogue::tossed_speaker ready); the knockout bomb's grab / launch states.
