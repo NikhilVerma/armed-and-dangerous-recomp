@@ -1,6 +1,10 @@
 """Run the fast remaster playtests (state-based, with expect steps) and print one line each.
 
-    python tools/regress.py [--exe target-agent2] [--scene DIR] [--play DIR] [--perf] [NAME ...]
+    python tools/regress.py [--exe target-agent2] [--scene DIR] [--play DIR] [--perf | --long | --all] [NAME ...]
+
+By default the fast SUITE (the mechanics, minutes). --long runs LONG instead: every level played to mission complete
+(complete_*, 5 to 25 minutes each) and the long defence runs; run it before handing a build over and after merges that
+touch missions, AI or levels. --all runs both.
 
 --perf runs the wall-clock performance checks instead (PERF: the scripts' "expect_perf" limits, e.g. restart_parity's
 frame / main-world times after a restart). Run it on an idle machine: a frame's wall time depends on what else runs,
@@ -84,7 +88,12 @@ ap.add_argument('--exe', default='target-agent2')
 ap.add_argument('--scene', default=None, help='scene folder for playtest.py (a worktree without work/)')
 ap.add_argument('--play', default=None, help='folder of the untracked scripts and states (default work/remaster/play)')
 ap.add_argument('--perf', action='store_true', help='run the wall-clock performance checks (PERF) on an idle machine')
+ap.add_argument('--long', action='store_true', help='run LONG: every level played to completion (slow)')
+ap.add_argument('--all', action='store_true', help='run SUITE and LONG')
 a = ap.parse_args()
+# LONG: the level completions and other runs of minutes each, kept out of the fast SUITE
+LONG = [n for n in SUITE if n.startswith('complete_')]
+SUITE = [n for n in SUITE if n not in LONG]
 if a.play:
     PLAY = a.play
 extra = ['--scene', a.scene] if a.scene else []
@@ -94,7 +103,7 @@ if a.perf:
 if not os.path.exists(os.path.join(PLAY, 'states', 'after_pub.json')):
     subprocess.run([sys.executable, os.path.join(ROOT, 'tools', 'playtest.py'), os.path.join(PLAY, 'state_after_pub.json'), '--exe', a.exe] + extra)
 bad = 0
-for name in a.names or (PERF if a.perf else SUITE):
+for name in a.names or (PERF if a.perf else LONG if a.long else SUITE + LONG if a.all else SUITE):
     if name == 'unit':
         env = dict(os.environ, CARGO_TARGET_DIR=os.path.join(ROOT, 'engine', a.exe))
         cargo = os.path.join(os.path.expanduser('~'), '.cargo', 'bin', 'cargo')
