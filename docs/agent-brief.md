@@ -66,6 +66,9 @@ property lookups in systems). It lands when it works, has a playtest, and every 
 the oracle comparison is the later tuning pass (log visible differences as tuning items, don't block on them). The mechanics
 still come from the original code: read the recovered C++ (src/) for each feature's numbers, timings, rules and
 states and replicate them as faithfully as you can (best-shot faithful); only the structure is yours.
+Before porting a function, check nothing already implements it: `grep -rn 0x00XXXXXX engine/src` (and again after
+merging wip before your final tests). Parallel agents built the same function twice (the companions' close kill and
+the Q112's swing, 2026-10-18); each original function gets one implementation, extended rather than duplicated.
 Code quality (docs/decision.md 2026-10-14: the human will build their own games from these mechanics): keep
 each mechanic a self-contained module / Bevy plugin with a clear public API, game specifics in data (properties,
 templates, tuning) rather than code, names that say what things do (addresses as provenance in doc comments),
