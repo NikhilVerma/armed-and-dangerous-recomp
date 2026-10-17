@@ -1,4 +1,4 @@
-{"scene": "lev_2_m2", "steps": [
+{"scene": "lev_2_m2", "timeout": 2400, "steps": [
  {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 0.5},
  {"expect": {"mission": "Playing", "compass_tag": 50}},
  {"cheat": "SHIELDME"}, {"cheat": "NDMRBLTS"},

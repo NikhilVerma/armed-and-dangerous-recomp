@@ -4460,7 +4460,7 @@ fn companion_damage(
     mut commands: Commands,
     time: Res<Time>,
     mut physics: NonSendMut<Physics>,
-    mut q: Query<(Entity, &mut Companion, &Health, &Transform, &mut Visibility, Option<&crate::mission::DeathTrigger>, Has<tower::OnTask>)>,
+    mut q: Query<(Entity, &mut Companion, &Health, &Transform, &mut Visibility, Has<tower::OnTask>)>,
     alive: Query<&Health, Without<Companion>>,
     mut triggers: MessageWriter<crate::mission::SendTrigger>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
@@ -4474,7 +4474,7 @@ fn companion_damage(
         let n = list[((rng.rand() * list.len() as f32) as usize).min(list.len() - 1)];
         sounds.write(crate::audio::PlaySound::at(n, at));
     };
-    for (e, mut c, h, t, mut vis, death_trigger, on_task) in &mut q {
+    for (e, mut c, h, t, mut vis, on_task) in &mut q {
         let at = t.translation;
         let len = if c.q { 2.533 } else { 2.0 };
         if let Some(d) = c.dead.as_mut() {
@@ -4508,9 +4508,6 @@ fn companion_damage(
                 triggers.write(crate::mission::SendTrigger(c.death_trigger));
             }
             info!("EVENT {} died", if c.q { "Q" } else { "Jonesy" });
-            if let Some(t) = death_trigger {
-                triggers.write(crate::mission::SendTrigger(t.0));
-            }
             continue;
         }
         if h.0 < c.last_health {
