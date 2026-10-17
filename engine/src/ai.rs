@@ -1023,7 +1023,9 @@ pub struct AiStats {
 }
 
 /// Debug (playtest `ai_force`): forced outcomes of the AI's next rolls, each consumed by the behaviour it names ("throw":
-/// the next captain's engage roll throws, ai.rs; "fight": the next companion's fight roll passes, ai/melee.rs).
+/// the next captain's engage roll throws, ai.rs; "fight": the next companion's fight roll passes, ai/melee.rs). Kept,
+/// not consumed: "no_cover" (no generic cover slots) and "companions_hold" (the companions take no target: a test of an
+/// enemy's own behaviour that their fire would disturb).
 #[derive(Resource, Default)]
 pub struct AiForce(pub Vec<String>);
 
@@ -4790,12 +4792,13 @@ fn companions(
     mut fx: MessageWriter<crate::fx::StartFx>,
     mut log: ResMut<crate::playtest::PlayState>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
-    (mut pickups, mut dynamite, mut barks, mut hud, mut pending): (
+    (mut pickups, mut dynamite, mut barks, mut hud, mut pending, force): (
         MessageWriter<crate::pickup::SpawnPickup>,
         MessageWriter<crate::sticky::ThrowDynamite>,
         ResMut<Barks>,
         Option<ResMut<crate::hud::HudState>>,
         crate::levelreset::PerLevel<(bool, bool)>,
+        Res<AiForce>,
     ),
 ) {
     let dt = time.delta_secs();
@@ -4913,7 +4916,10 @@ fn companions(
                 c.search = rng.range(0.75, 1.25);
             }
         }
-        if c.target.is_none() && c.search <= 0.0 {
+        // (a playtest's ai_force "companions_hold": no target)
+        if force.0.iter().any(|w| w == "companions_hold") {
+            c.target = None;
+        } else if c.target.is_none() && c.search <= 0.0 {
             c.search = rng.range(0.75, 1.25);
             let face = Quat::from_rotation_y(c.yaw) * Vec3::Z;
             c.target = grunts

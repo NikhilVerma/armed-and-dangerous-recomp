@@ -2,6 +2,7 @@
  {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 3.5}, {"tap": "Enter"}, {"wait": 1.0},
  {"expect": {"twiglets.made": 0, "ai.monks": 5}},
  {"loadout": {"health": 5000}},
+ {"ai_force": "companions_hold"},
  {"spawn": [-600, -7, 300], "template": "monk"},
  {"warp_companion": [0, -1000, 0, 125]}, {"warp_companion": [1, -1000, -40, 125]},
  {"wait": 4.0},

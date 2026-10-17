@@ -1875,13 +1875,15 @@ fn projectiles(
                 }
             }
         }
+        // the step's part before the first body it hits (a goliath's legs, a wall): the bullet stops there, so Roman and
+        // the companions are tested only up to it (Projectile_Update 0x0047e580 takes the nearest of its hits)
+        let to = hit.map_or(from + step, |(_, at, _)| at);
         // enemy bullets hit Roman on his collision model's parts (trotter_coll_0 posed by his skeleton, hitparts.rs;
         // the walker is not a body); without it, by distance to his capsule
         let mut hit_roman = false;
         if !p.from_player {
             if let Ok((_, r, rt, ra)) = roman.single() {
                 let c = rt.translation + Vec3::Y * r.walker.lift;
-                let to = from + step;
                 let seg = to - from;
                 let u = ((c - from).dot(seg) / seg.length_squared().max(1e-6)).clamp(0.0, 1.0);
                 let near = (from + seg * u).distance(c);
@@ -1913,7 +1915,6 @@ fn projectiles(
         // (every shot: characters are in the projectile list +0xe90; the shooter's own chain is skipped)
         if !hit_roman {
             if let Some(h) = hulls.as_ref() {
-                let to = from + step;
                 for (ce, c, ct, ca, _) in companions.iter() {
                     if p.owner == Some(ce) {
                         continue;
