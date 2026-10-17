@@ -289,6 +289,9 @@ fn walk(
         t.rotation = at.rotation;
         c.yaw = super::ic::yaw_of(at.rotation);
         c.moving = false;
+        // the IC anims from here on (0x0042c410): physics off, so bullets pass him (player.rs; tuning item T1: the
+        // original's Jonesy takes no damage while he plants)
+        c.ic = true;
         physics.place_walker(&c.walker, at.translation);
         health.0 = task.max_health;
         // the plant anim, an IC anim from here

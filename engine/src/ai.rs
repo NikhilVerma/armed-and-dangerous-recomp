@@ -14,9 +14,13 @@
 
 pub mod body;
 pub mod bully;
+pub mod carried;
+pub mod close_kill;
+pub mod dialogue;
 pub mod ic;
 pub mod jumper;
 pub mod monk;
+pub mod q112;
 pub mod squad;
 pub mod tower;
 
@@ -76,6 +80,10 @@ pub enum Mind {
     Scripted,
     /// state 0x118: a bully holding his peasant (bully.rs), standing until a target or the peasant's death ends it
     Bully,
+    /// state 0xb: the Q112's close-range swing at its target (0x00428160: q112_gun_hit looped, its "hit" note; q112.rs)
+    Melee,
+    /// state 0xf: held by a companion who comes to kill him (GruntObject_Slot66 0x00434ea0; close_kill.rs), standing
+    Held,
 }
 
 /// The grunt classes a lev_1_m1 template makes (counted in the coverage runs: BowGruntObject_Slot6 0x004347b0 runs 9
@@ -921,6 +929,8 @@ pub struct Grunt {
     pub reloading: bool,
     /// mode bully: his peasant and the scares (bully.rs)
     pub bully: Option<bully::Bully>,
+    /// the Q112's own parts: its swing, the trail it keeps of its target, its eye loop (q112.rs)
+    pub q112: Option<q112::Q112>,
 }
 
 impl Grunt {
@@ -989,43 +999,49 @@ pub struct KillMeter {
     pub cooldown: f32,
 }
 
-const DISMAY: [&str; 16] = [
-    "rom50039_dismay", "rom50040_dismay", "rom50062_dismay", "rom50174_dismay", "rom50202_dismay", "rom50210_dismay",
-    "rom50045_ambient", "jon50023_dismay", "jon50048_dismay", "jon50049_dismay", "jon50117_dismay", "jon50118_dismay",
-    "jon50119_dismay", "jon50174_dismay", "q1150168_dismay", "q1150115_dismay",
-];
-
 fn dismay(
     time: Res<Time>,
     mut km: ResMut<KillMeter>,
     mut rng: ResMut<FxStats>,
-    companions: Query<(&Companion, &Transform, Option<&Health>)>,
+    mut companions: Query<(&mut Companion, &Transform, Option<&Health>)>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
+    (mut bags, voices): (ResMut<dialogue::Bags>, crate::audio::PlayingVoices),
 ) {
     let dt = time.delta_secs();
     km.cooldown -= dt;
     if km.cooldown < 0.0 && km.meter >= 3.0 {
         km.cooldown = rng.range(30.0, 45.0);
         km.meter = 0.0;
-        // a line whose speaker is there (Roman always; Jonesy / Q while alive): guess at 0x00493b70's choice
-        let alive = |q: bool| companions.iter().find(|(c, _, h)| c.q == q && h.is_none_or(|h| h.0 > 0.0)).map(|(_, t, _)| t.translation);
-        let pool: Vec<(&str, Option<Vec3>, bool)> = DISMAY
-            .iter()
-            .filter_map(|n| match &n[..3] {
-                "rom" => Some((*n, None, true)),
-                "jon" => alive(false).map(|p| (*n, Some(p), true)),
-                _ => alive(true).map(|p| (*n, Some(p), true)),
-            })
-            .collect();
-        if !pool.is_empty() {
-            let (name, at, _) = pool[((rng.rand() * pool.len() as f32) as usize).min(pool.len() - 1)];
-            sounds.write(match at {
-                Some(p) => crate::audio::PlaySound::at(name, p),
-                None => crate::audio::PlaySound::ui(name),
-            });
+        // one line of table 0x005ce570 whose speaker can say it now (0x00493b70 with the test 0x0044da10: Roman
+        // always, Jonesy / Q while there and not talking; dialogue.rs)
+        let present = |q: bool| {
+            companions.iter().find(|(c, _, h)| c.q == q && c.dead.is_none() && h.is_none_or(|h| h.0 > 0.0)).map(|(c, _, _)| dialogue::Present { speaking: c.speech.saying(&voices), still: 0.0 })
+        };
+        let cast = dialogue::Cast { roman_alive: true, jonesy: present(false), q: present(true), ..default() };
+        if let Some((_, said)) = bags.dismay.pick(|| rng.rand(), |l| dialogue::dismay_speaker(l, &cast)) {
+            say(said, &mut companions, &voices, &mut sounds);
         }
     }
     km.meter = (km.meter - dt * 0.5).max(0.0);
+}
+
+/// Plays a banter line a speaker test accepted: Roman's without a position, a companion's at him, kept as his line
+/// (+0xb50).
+pub fn say(said: dialogue::Said, companions: &mut Query<(&mut Companion, &Transform, Option<&Health>)>, voices: &crate::audio::PlayingVoices, sounds: &mut MessageWriter<crate::audio::PlaySound>) {
+    let who = match said.speaker {
+        dialogue::Speaker::Roman => None,
+        dialogue::Speaker::Jonesy => Some(false),
+        dialogue::Speaker::Q => Some(true),
+    };
+    match who.and_then(|q| companions.iter_mut().find(|(c, ..)| c.q == q)) {
+        Some((mut c, t, _)) => {
+            let req = c.speech.line(voices, dialogue::request(said, Some(t.translation)));
+            sounds.write(req);
+        }
+        None => {
+            sounds.write(dialogue::request(said, None));
+        }
+    }
 }
 
 impl Plugin for AiPlugin {
@@ -1038,6 +1054,8 @@ impl Plugin for AiPlugin {
             .init_level_resource::<Interests>()
             .init_level_resource::<bully::BullyLines>()
             .init_level_resource::<ic::IcStats>()
+            .init_level_resource::<dialogue::Bags>()
+            .add_plugins(q112::Q112Plugin)
             .add_systems(
                 Update,
                 (
@@ -1332,6 +1350,7 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         reloading: false,
         bully: None,
         shot_age: f32::INFINITY,
+        q112: (kind == Kind::Q112).then(q112::Q112::default),
     }
 }
 
@@ -2700,7 +2719,7 @@ fn think(
         Res<crate::turret::Mounted>,
         Res<crate::gamedata::GameData>,
     ),
-    (mut lib, player_q, mut triggers, grenade_assets, squads, mut jmarks, army, placed): (
+    (mut lib, player_q, mut triggers, grenade_assets, squads, mut jmarks, army, placed, mut swings): (
         ResMut<crate::skin::AnimLibrary>,
         Query<Entity, With<Player>>,
         MessageWriter<crate::mission::SendTrigger>,
@@ -2709,6 +2728,7 @@ fn think(
         Query<(Entity, &mut JumpMarker, &Transform), Without<Grunt>>,
         Query<(), With<ArmyTarget>>,
         Query<&crate::level::Placed>,
+        MessageWriter<q112::SwingHit>,
     ),
 ) {
     let t0 = Instant::now();
@@ -2844,9 +2864,27 @@ fn think(
                     leave_cover(&mut g, ge, &mut spots.trenches, false);
                 }
             }
-            // Hurt (0x00439e00, shared pool, death_delay) first; when refused HurtShort (0x00439e30) at most every 4 s
-            // per grunt; the shared one restarts the 4 s too (+0xb48)
-            if barks.take(Delay::Death, time.elapsed_secs(), &mut rng) {
+            // the Q112: its Hurt (0x0043a100: vo_delay, kept as its line; no HurtShort) and, below a quarter of its
+            // health, its eye loop (0x00435170)
+            if g.kind == Kind::Q112 {
+                let max = g.max_health;
+                let r = rng.rand();
+                if let Some(q) = g.q112.as_mut() {
+                    if let Some(name) = q.eye_after_hit(h.0, max, r) {
+                        let id = crate::audio::SoundId::new();
+                        q.eye = Some(id);
+                        sounds.write(crate::audio::PlaySound::on(name, ge).looping(true).with_id(id));
+                        info!("EVENT ai: q112 {ge:?} eye loop {name}");
+                    }
+                }
+                if barks.take(Delay::Vo, time.elapsed_secs(), &mut rng) {
+                    let line = q112::pick(&q112::HURT_LINES, rng.rand());
+                    let req = g.speech.line(&voices, crate::audio::PlaySound::at(line, tr.translation));
+                    sounds.write(req);
+                }
+            } else if barks.take(Delay::Death, time.elapsed_secs(), &mut rng) {
+                // Hurt (0x00439e00, shared pool, death_delay) first; when refused HurtShort (0x00439e30) at most every
+                // 4 s per grunt; the shared one restarts the 4 s too (+0xb48)
                 g.hurt_voice_timer = 4.0;
                 // (kept as his line, 0x00439e00 -> +0xb50)
                 let set = g.voice_set;
@@ -2882,9 +2920,15 @@ fn think(
             }
         }
         g.last_health = h.0;
-        // an IC move carries him (state 0x64: ic.rs and the mover)
-        if g.mind == Mind::Scripted {
+        // an IC move carries him (state 0x64: ic.rs and the mover); held by a companion who comes to kill him (state
+        // 0xf: close_kill.rs)
+        if matches!(g.mind, Mind::Scripted | Mind::Held) {
             continue;
+        }
+        // the Q112's trail is of one target (0x004246a0 when another is taken)
+        let current = g.target;
+        if let Some(q) = g.q112.as_mut() {
+            q.follow_target(current);
         }
         // the all-fours breathing (state 0x12d) lasts its timer (+0x490, 3..7 s)
         if g.reacting == 6 {
@@ -3048,6 +3092,8 @@ fn think(
             (Mind::Jump, _) if g.jumper.is_some_and(|j| j.flight.is_some()) => Mind::Jump,
             (Mind::Teleport, _) => Mind::Teleport,
             (Mind::Cast, _) => Mind::Cast,
+            // the Q112's swing runs its own course (below)
+            (Mind::Melee, _) => Mind::Melee,
             (Mind::ToMarker, _) => Mind::ToMarker,
             (Mind::Flee, _) if g.timer > 0.0 => Mind::Flee,
             // the scare's end charges the player (0x0042ce70)
@@ -3099,6 +3145,14 @@ fn think(
             // the chase engages on its ray (state 0x3c); the archers (vt+0x1cc false) only within 0.9 x +0x5d8
             // (K 0x005bcc38) first
             (Mind::Chase, Some(p)) if !g.guard && !g.kind.chase_ray_only() && flat(p - pos).length() > 0.9 * g.range => Mind::Chase,
+            // the Q112's swing from its fire cycle or its guard's fire (0x00428160: nearer than +0x5fc, 3D)
+            (Mind::Fire | Mind::Guard, Some(p)) if q112::reaches(g.kind, pos, p) => {
+                if let Some(q) = g.q112.as_mut() {
+                    q.start_swing();
+                }
+                g.anim_id = 0x5f;
+                Mind::Melee
+            }
             (_, Some(_)) if in_range || g.guard => {
                 // engage 0x00427910 on coming into it: in range with flag 4, the close attack when the class has one
                 // (vt+0x1e0: the captain), allow_close_attack, flag 1 and rand * 200 >> 15 < 30; else the fire state 0xa
@@ -3204,7 +3258,7 @@ fn think(
             j.stepped = true;
         }
         // (the playtest log and the anims see the stance: at rest after a fight the stand set)
-        if matches!(g.mind, Mind::Fire | Mind::Chase | Mind::Reload | Mind::Cover | Mind::Gunner | Mind::Throw) {
+        if matches!(g.mind, Mind::Fire | Mind::Chase | Mind::Reload | Mind::Cover | Mind::Gunner | Mind::Throw | Mind::Melee) {
             g.attention = false;
         }
         let mut goal = pos;
@@ -3238,6 +3292,10 @@ fn think(
                     }
                     goal = g.goal;
                     speed = run_speed;
+                    // the Q112 keeps a trail of its target's way (0x00424630)
+                    if let Some(q) = g.q112.as_mut() {
+                        q.keep(p);
+                    }
                 }
             }
             Mind::Flee => {
@@ -3306,6 +3364,32 @@ fn think(
                     } else {
                         lost_target(&mut g, ge, &mut spots.trenches)
                     };
+                }
+            }
+            Mind::Melee => {
+                // state 0xb (q112.rs): standing, facing the target; the "hit" note swings at it, each loop's end swings
+                // again while it is nearer than +0x5fc, else the fire cycle's end (0x0042b8e0) or, a guard, its state
+                let (hit_at, len) = q112::swing_times(&mut lib);
+                let (hit, ended) = g.q112.as_mut().map_or((false, true), |q| q.swing(dt, hit_at, len));
+                match (g.target, target) {
+                    (Some(te), Some(p)) => {
+                        if hit && flat(p - pos).length() < q112::SWING_REACH {
+                            if let Some(q) = g.q112.as_mut() {
+                                q.hits += 1;
+                            }
+                            swings.write(q112::SwingHit { target: te, by: ge, dir: q112::knock_dir(pos, p, rng.rand()) });
+                            info!("EVENT ai: q112 {ge:?} swings at {te:?}");
+                        }
+                        if ended && !q112::reaches(g.kind, pos, p) {
+                            g.mind = if g.guard {
+                                Mind::Guard
+                            } else {
+                                let h = find_hiding_spot(&mut g, ge, (true, false), pos, tgt, &mut spots, &physics, body.id, &mut rng);
+                                hide_to_mind(&mut g, h)
+                            };
+                        }
+                    }
+                    _ => g.mind = lost_target(&mut g, ge, &mut spots.trenches),
                 }
             }
             Mind::Throw => {
@@ -3786,10 +3870,24 @@ fn think(
         }
         let mut goal = goal;
         g.replan -= dt;
-        if speed > 0.0 && flat(goal - pos).length() > 15.0 && !line_of_sight(&physics, pos, goal) {
-            if g.replan <= 0.0 || g.route.is_empty() {
+        // the Q112 on its way to a trail point: no new plan until that route is walked (q112.rs)
+        let crumb_walk = g.mind == Mind::Chase && g.q112.as_ref().is_some_and(|q| q.on_crumb) && !g.route.is_empty();
+        if speed > 0.0 && (crumb_walk || flat(goal - pos).length() > 15.0 && !line_of_sight(&physics, pos, goal)) {
+            if !crumb_walk && (g.replan <= 0.0 || g.route.is_empty()) {
                 g.replan = 1.0;
-                g.route = crate::nav::path(&physics, pos, goal, &[]).unwrap_or_default();
+                let mut route = crate::nav::path(&physics, pos, goal, &[]);
+                // the Q112 with no way to its target: a route to the oldest point of its trail (ai_06.cpp:1501-1520)
+                let chasing = g.mind == Mind::Chase;
+                if let Some(q) = g.q112.as_mut().filter(|_| chasing) {
+                    q.on_crumb = false;
+                    if !q112::route_reaches(route.as_deref(), goal) {
+                        if let Some(r) = q.next_point().and_then(|c| crate::nav::path(&physics, pos, c, &[])) {
+                            route = Some(r);
+                            q.on_crumb = true;
+                        }
+                    }
+                }
+                g.route = route.unwrap_or_default();
             }
             while g.route.first().is_some_and(|w| flat(*w - pos).length() < 4.0) {
                 g.route.remove(0);
@@ -3828,7 +3926,7 @@ fn think(
             (Mind::Cast, _, _) if g.monk.is_some_and(|m| m.spell == monk::Spell::Twiglets) => {
                 g.monk.map(|m| flat(m.summon_at - pos).normalize_or_zero()).unwrap_or(dir)
             }
-            (Mind::Fire | Mind::Chase | Mind::Taunt | Mind::Throw | Mind::Cast, Some(p), _) => flat(p - pos).normalize_or_zero(),
+            (Mind::Fire | Mind::Chase | Mind::Taunt | Mind::Throw | Mind::Cast | Mind::Melee, Some(p), _) => flat(p - pos).normalize_or_zero(),
             // a guard firing turns to his target (0x0042df70, 45 degrees)
             (Mind::Guard, Some(p), _) if g.guard_firing => flat(p - pos).normalize_or_zero(),
             // in the slot: its direction +0x908 (0x00454e60), standing up: the target (0x0042df70)
@@ -3992,7 +4090,13 @@ fn fire_cycle(
     // (the shot sound comes from the weapon's muzzle fx: the original's sound log has one per shot)
     // the Fight cue as the fire anim starts with a target (0x00428980 -> vt+0x13c), under vo_delay
     if barks.take(Delay::Vo, now, rng) {
-        bark(sounds, "Fight", g.voice_set, pos);
+        if g.kind == Kind::Q112 {
+            // its own cue (0x0043a200: Q1250006_Fight, kept as its line)
+            let req = g.speech.line(voices, crate::audio::PlaySound::at(q112::FIGHT_LINE, pos));
+            sounds.write(req);
+        } else {
+            bark(sounds, "Fight", g.voice_set, pos);
+        }
     }
     stats.shots += 1;
     // the fire cycle (0x00428980, counters 0x00427600, as the companions'): a shot on the fire anim's note (0.033 s
@@ -4087,6 +4191,15 @@ fn die(
         // an enemy killed, any cause (0x00431720), and his score_value
         ms.enemies_killed += 1;
         ms.killed(g.score);
+        if g.kind == Kind::Q112 {
+            // the Q112's death (Q112Object_Slot53 0x00435220): its eye loop stopped; its Dead line (0x0043a2b0) always,
+            // not kept
+            if let Some(id) = g.q112.as_mut().and_then(|q| q.eye.take()) {
+                stop.write(crate::audio::StopVoice { id, immediate: false });
+            }
+            g.dead_said = true;
+            sounds.write(crate::audio::PlaySound::at(q112::pick(&q112::DEAD_LINES, rng.rand()), tr.translation));
+        }
         if !g.dead_said {
             g.dead_said = true;
             // Dead (0x00439e60, pool 26..28) under death_delay and with no scream playing, else DeadAtPosition
@@ -4099,6 +4212,13 @@ fn die(
         }
         let push = physics.world.body(body.id).map(|b| bv(b.linear_velocity())).unwrap_or(Vec3::ZERO) / physics.meters_per_unit;
         physics.remove(body.id);
+        // killed by a scripted move's note (a companion's close kill, close_kill.rs): he stays in its last pose
+        if let Some(n) = g.death_name.take() {
+            g.ragdoll = false;
+            g.death_name = Some(n);
+            commands.entity(e).remove::<Body>().insert(crate::corpses::Corpse::animated(0));
+            continue;
+        }
         // the death (Character_Die 0x004319e0, in its order): a window / tower grunt killed by a record with flag
         // 0x80 (the sticky bomb) is blown out of the window (anim 0x3e); a hit of at least hit_ragdoll ragdolls; a
         // ledge_death grunt falls (0x39 + rand*4: grunt_hit_fall_1 / _2 / _1 / _2); a window / tower grunt
@@ -4213,7 +4333,8 @@ pub struct Companion {
     /// aim elevation weight 0 (down) .. 1 (up), for the anim blend
     pub aim_v: f32,
     target: Option<Entity>,
-    lost: f32,
+    /// how the fight ended (mode 3's tests 0x004265f0 / 0x004265c0): None while fighting or not in one
+    fight_end: Option<FightEnd>,
     /// AI_FindTarget's timer +0x490: a search every 0.75..1.25 s
     search: f32,
     rounds: u32,
@@ -4275,6 +4396,27 @@ pub struct Companion {
     force_swap: bool,
     /// +0xbcc flag 0x80: the partner started a regroup (0x004837b0), so this one regroups too at its next idle frame
     regroup_req: bool,
+    /// his current line (+0xb50: the hurt lines, the banter's; dialogue.rs asks whether it still plays)
+    pub speech: crate::audio::Speech,
+    /// when he last fired (game time): Game+0xafc (Q, Q111Object_Slot101 0x004878f0) / +0xb0c (Jonesy, 0x0044f160),
+    /// stamped before each shot's aim error; with his moves it is what the idle banter's 30 s are counted from
+    pub last_shot: Option<f32>,
+    /// an IC anim carries him (state 0x64: the tower task's, a close kill's): physics off (0x004577b0(0): bullets pass
+    /// him), no hit reactions (0x00430340 while 0x00426630), and his anims are the owner's
+    pub ic: bool,
+    /// a full-body anim his state asks for instead of the formation's (the stun's hang: carried.rs), looped or not
+    pub pose: Option<(&'static str, bool)>,
+}
+
+/// How a companion's fight ended (MolmerObject_Slot47 0x00485910 mode 3).
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum FightEnd {
+    /// the generic reaction to a lost target with its fire counters left (0x0042bc60 with +0x484 flag 4: the home route,
+    /// state 0x50): mode 3 ends at once (0x004265f0) and he runs back to formation (mode 2)
+    Home,
+    /// with the clip spent (flag 4 clear: the reload in place, state 0x32, then idle): once idle (0x004265c0) he takes
+    /// over the partner's live target, else counts down +0xb68 (rolled 3..7 s when the fight began) and then goes back
+    Linger,
 }
 
 /// The pair's standing order (+0xbcc flags; 0x004844c0, 0x00484290, 0x00485120).
@@ -4340,7 +4482,7 @@ impl Companion {
             fire_range: (p.f("fire_range_min", 200.0), p.f("fire_range_max", 350.0)),
             aim_v: 0.5,
             target: None,
-            lost: 0.0,
+            fight_end: None,
             search: 0.0,
             rounds: fire.rounds.0,
             burst: fire.bursts.0,
@@ -4373,6 +4515,10 @@ impl Companion {
         goal: None,
         force_swap: false,
         regroup_req: false,
+        speech: default(),
+        last_shot: None,
+        ic: false,
+        pose: None,
         }
     }
 }
@@ -4419,8 +4565,34 @@ impl Companion {
         self.order = if self.order == Order::Guard { Order::Loose } else { Order::Guard };
         self.target = None;
         self.engaged = false;
-        self.lost = 0.0;
+        self.fight_end = None;
         self.route.clear();
+    }
+
+    /// The target this companion fights (+0x588), if any.
+    pub fn target(&self) -> Option<Entity> {
+        self.target
+    }
+
+    /// Takes `t` as his target (vt+0x23c: a close kill's victim); the fight's +0xb68 rolled as at an engagement's start.
+    pub fn engage(&mut self, t: Entity, rng: &mut FxStats) {
+        if self.target.is_none() {
+            self.linger = rng.range(3.0, 7.0);
+        }
+        self.target = Some(t);
+        self.fight_end = None;
+    }
+
+    /// A stun or a carry is over (mode 5 / 10's end, 0x00485910 at 0x00486025): back to the mode it left, its target
+    /// lost (0x0042bc60), standing.
+    pub fn recover(&mut self) {
+        self.target = None;
+        self.engaged = false;
+        self.firing = false;
+        self.moving = false;
+        self.route.clear();
+        self.fight_end = None;
+        self.pose = None;
     }
 
     /// The run speed to the formation point: fitted, the original's companions cover 37.3 units/s at move_speed 40 in
@@ -4451,7 +4623,8 @@ pub struct CompanionPlugin;
 
 impl Plugin for CompanionPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, (companion_damage, companions).chain().run_if(crate::playing));
+        app.add_plugins((close_kill::CloseKillPlugin, carried::CarriedPlugin))
+            .add_systems(Update, (companion_damage, companions).chain().run_if(crate::playing));
     }
 }
 
@@ -4539,7 +4712,7 @@ fn companion_damage(
             };
             // a small hit does not restart one already playing (states 0x12f / 0x132); none on the move or on the
             // tower task (Slot129 / 0x00426630 above)
-            let reacts = c.mode() != 2 && !on_task;
+            let reacts = c.mode() != 2 && !on_task && !c.ic;
             if reacts && !(n == "hit_mgun" && c.hit.is_some()) {
                 c.hit = Some((n, len));
             }
@@ -4572,18 +4745,20 @@ fn companions(
     bot: Res<crate::bot::Bot>,
     roman: Query<(&Transform, &crate::player::Roman, &crate::skin::Animator, &Health), Without<Companion>>,
     cam: Query<&GlobalTransform, With<Camera3d>>,
-    mut q: Query<(Entity, &mut Companion, &mut Transform, Option<&crate::skin::Animator>, Option<&Health>), (Without<crate::player::Roman>, Without<tower::OnTask>)>,
+    mut q: Query<(Entity, &mut Companion, &mut Transform, Option<&crate::skin::Animator>, Option<&Health>), FreeCompanion>,
     grunts: Query<(Entity, &Grunt, &GlobalTransform, Option<&crate::skin::Animator>)>,
     joints: Query<&GlobalTransform, Without<Companion>>,
     mut fx: MessageWriter<crate::fx::StartFx>,
     mut log: ResMut<crate::playtest::PlayState>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
-    (mut pickups, mut dynamite, mut barks, mut hud, mut pending): (
+    (mut pickups, mut dynamite, mut barks, mut hud, mut pending, mut grabs, taken): (
         MessageWriter<crate::pickup::SpawnPickup>,
         MessageWriter<crate::sticky::ThrowDynamite>,
         ResMut<Barks>,
         Option<ResMut<crate::hud::HudState>>,
         crate::levelreset::PerLevel<(bool, bool)>,
+        MessageWriter<close_kill::Grab>,
+        Query<(), (With<Companion>, Or<(With<carried::Knocked>, With<close_kill::Killing>)>)>,
     ),
 ) {
     let dt = time.delta_secs();
@@ -4601,6 +4776,7 @@ fn companions(
     let may_act = !r.dead && !hud.as_ref().is_some_and(|h| h.cinematic);
     team_orders(
         &mut q,
+        !taken.is_empty(),
         pending.get(),
         &mut barks,
         hud.as_deref_mut(),
@@ -4617,6 +4793,8 @@ fn companions(
     );
     // who is fighting (the attack order's linger waits for the partner: 0x0042c6f0, guess "has a target")
     let fighting: Vec<(bool, bool)> = q.iter().filter(|(_, c, ..)| c.dead.is_none()).map(|(_, c, ..)| (c.q, c.target.is_some())).collect();
+    // each one's target, for the partner's take-over at a fight's end (0x00485910 mode 3)
+    let pair_targets: Vec<(Entity, Option<Entity>)> = q.iter().filter(|(_, c, ..)| c.dead.is_none()).map(|(e, c, ..)| (e, c.target)).collect();
     // the pair as the leader pick sees it (entity, position, moving = mode 2, its pick time)
     let pair: Vec<(Entity, Vec3, bool, f32)> = q.iter().filter(|(_, c, ..)| c.dead.is_none()).map(|(e, c, t, ..)| (e, t.translation, c.moving, c.swap_t)).collect();
     let mut lead_changes: Vec<(Entity, bool)> = Vec::new();
@@ -4673,11 +4851,15 @@ fn companions(
             }
             continue;
         }
-        // targets
+        // targets. In a fight (mode 3) while he has a target or its end is pending. A dead target is lost (the generic
+        // update's 0x0042bc60: a new search at once, +0x490 = 0); nothing found, its fire counters decide how the fight
+        // ends (`FightEnd`)
+        let in_fight = c.target.is_some() || c.fight_end.is_some();
         if let Some(tg) = c.target {
             if grunts.get(tg).map_or(true, |(_, g, _, _)| g.mind == Mind::Dead) {
                 c.target = None;
-                c.lost = rng.range(3.0, 7.0);
+                c.search = 0.0;
+                c.fight_end = Some(if c.reloading > 0.0 || c.rounds == 0 { FightEnd::Linger } else { FightEnd::Home });
             }
         }
         c.search -= dt;
@@ -4694,7 +4876,9 @@ fn companions(
         if c.search <= 0.0 {
             if let (Some((_, _, gt, _)), Some(a)) = (c.target.and_then(|t| grunts.get(t).ok()), anchor.filter(|_| !matches!(c.order, Order::Attack { .. }))) {
                 if (gt.translation() - a).with_y(0.0).length() > c.scan {
+                    // (a live target he lets go of: the home route, back to formation as the original's do)
                     c.target = None;
+                    c.fight_end = Some(FightEnd::Home);
                 }
             }
             if c.target.is_some() {
@@ -4723,6 +4907,36 @@ fn companions(
                 }
             }
         }
+        if c.target.is_some() {
+            // a fight begins (mode 1 / 2 -> 3, 0x00486200 / 0x004866da): +0xb68 = 3..7 s; a new target in the same
+            // fight keeps what is left of it
+            if !in_fight {
+                c.linger = rng.range(3.0, 7.0);
+            }
+            c.fight_end = None;
+        }
+        // the fight's end (mode 3, 0x00486908): Home at once; Linger once idle (the reload over): the partner's live
+        // target taken over (0x004265c0 true, vt+0x23c), else +0xb68 counted down; then back to formation (mode 2,
+        // 0x00483d60(1, 0, 0))
+        let mut back_to_formation = false;
+        match c.fight_end {
+            Some(FightEnd::Home) => back_to_formation = true,
+            Some(FightEnd::Linger) if c.reloading <= 0.0 && c.throwing.is_none() => {
+                let partners = pair_targets.iter().find(|(pe, _)| *pe != e).and_then(|(_, t)| *t);
+                if let Some(t) = partners.filter(|t| grunts.get(*t).is_ok_and(|(_, g, _, _)| g.mind != Mind::Dead)) {
+                    c.target = Some(t);
+                    c.fight_end = None;
+                    info!("EVENT companions: {} takes over the partner's target", if c.q { "Q" } else { "Jonesy" });
+                } else {
+                    c.linger -= dt;
+                    back_to_formation = c.linger <= 0.0;
+                }
+            }
+            _ => {}
+        }
+        if back_to_formation {
+            c.fight_end = None;
+        }
         // engage 0x00427910: a target beyond the rolled range +0x5d8 is approached (state 0x3c: every 0.2..0.4 s, in
         // range when within 0.9 x +0x5d8 with a clear ray); in range, the engage roll with allow 1: a class that can
         // throw (Molmer's vt+0x1e0; not Q) with flag 1 set throws TNT when rand 0..89 < 30, else fires (state 0xa).
@@ -4733,16 +4947,16 @@ fn companions(
             None => c.engaged = false,
             Some(d) if !c.engaged && d <= 0.9 * c.range => {
                 c.engaged = true;
-                if !c.q && c.throw_armed && c.throwing.is_none() && rng.rand() * 90.0 < 30.0 {
+                // the engage (0x00427910) first tries the close kill (0x00427e80, close_kill.rs)
+                if let Some(grab) = close_kill::attempt(c, e, me, &grunts, &joints, &mut rng) {
+                    grabs.write(grab);
+                } else if !c.q && c.throw_armed && c.throwing.is_none() && rng.rand() * 90.0 < 30.0 {
                     c.throwing = Some(0.0);
                 }
             }
             _ => {}
         }
         let approach = c.target.filter(|_| !c.engaged).and_then(|tg| grunts.get(tg).ok()).map(|(_, _, gt, _)| (gt.translation() - me).with_y(0.0));
-        if c.lost > 0.0 {
-            c.lost -= dt;
-        }
         // formation: Roman's bone for this companion; under an area / attack order the point beside the anchor
         // (0x00483c30: the reversed direction turned by +-formation_angle, x formation_distance; the side is the one
         // of the companion's bone, guess for the leader flag 0x10 of 0x00483810)
@@ -4785,7 +4999,8 @@ fn companions(
             Order::Loose => from_roman > c.delay,
             Order::Area { at, .. } | Order::Attack { at, .. } => (at - me).with_y(0.0).length() > c.distance + 2.5,
         };
-        if c.target.is_none() && c.lost <= 0.0 && (regroup || (std::mem::take(&mut c.regroup_req) && !c.moving)) {
+        // (mode 3 holds him while the fight's end is pending; its end sends him back to formation)
+        if c.target.is_none() && c.fight_end.is_none() && (regroup || back_to_formation || (std::mem::take(&mut c.regroup_req) && !c.moving)) {
             // the regroup's start (mode 1, ai_08.cpp:1948-1961): the partner is asked to follow (0x004837b0: flag 0x80
             // unless it holds an area / attack anchor), then the pick, forced when Roman faces more than 90 degrees
             // away from his direction at the last one (dot < 0); not under an area / attack order (flag 1 without 8)
@@ -4827,6 +5042,10 @@ fn companions(
             // arrival (mode 2 -> 1, ai_08.cpp:2060-2064): a pick unless the partner idles
             if c.moving && !partner_idle {
                 leader_pick(c, e, me, false, &pair, &mut lead_changes, points, rt.translation, roman_dir, now);
+            }
+            // (and +0xb68 = 3..7 s: an attack order's idle time, ai_08.cpp:2078)
+            if c.moving {
+                c.linger = rng.range(3.0, 7.0);
             }
             c.moving = false;
             c.route.clear();
@@ -4943,6 +5162,9 @@ fn companions(
                         // (0x0043d180, ai_05.cpp:1264): a clip of 24 rounds is 3 bursts of 4 shots, as the original's
                         // sound log and hook AI dump show (fightT)
                         c.rounds = c.rounds.saturating_sub(if c.q { 1 } else { 2 });
+                        // his last-shot stamp (Game+0xafc / +0xb0c, before the aim error: Q111Object_Slot101 0x004878f0,
+                        // 0x0044f160), read by the idle banter (player.rs)
+                        c.last_shot = Some(now);
                         // aim error 0x004284e0 (as the grunts'): sideways in [-angle, angle], up in [0, height], scaled
                         // by the distance between fire_accuracy_min and max
                         let to = (at - muzzle).with_y(0.0);
@@ -4973,6 +5195,12 @@ fn companions(
                         c.delay_t = rng.range(c.p.burst_delay.0, c.p.burst_delay.1);
                         if let Some(m) = c.muzzle.take() {
                             commands.entity(m).despawn();
+                        }
+                        // a burst's end with rounds left tries the close kill (0x00428980 -> 0x00427e80)
+                        if c.rounds > 0 {
+                            if let Some(grab) = close_kill::attempt(c, e, me, &grunts, &joints, &mut rng) {
+                                grabs.write(grab);
+                            }
                         }
                     }
                     if c.rounds == 0 {
@@ -5051,27 +5279,34 @@ fn leader_pick(
         }
     }
     if force || (anchor - ebp).length_squared() > c.delay * c.delay {
-        let less = if c.moving {
+        // an area / attack order's two points (0x00483c30, flag 1 without 8) are always compared by distance; Roman's
+        // bones on the move (mode 2) by how far each is off his direction, idle by distance
+        let anchored = matches!(c.order, Order::Area { .. } | Order::Attack { .. });
+        let less = if c.moving && !anchored {
             let ca = (a - ebp).normalize_or_zero().dot(roman_dir).abs();
             let cb = (b - ebp).normalize_or_zero().dot(roman_dir).abs();
             cb < ca
         } else {
             (a - ebp).length_squared() < (b - ebp).length_squared()
         };
-        let set = if less { ebp_e == e } else { ebp_e != e };
-        c.lead = set;
-        if let Some(p) = partner {
-            changes.retain(|x| x.0 != p.0);
-            changes.push((p.0, !set));
-        }
+        c.lead = if less { ebp_e == e } else { ebp_e != e };
     }
     c.swap_t = now;
+    // the partner always takes the opposite flag, picked or not (0x00483be0 -> 0x004837e0)
+    if let Some(p) = partner {
+        changes.retain(|x| x.0 != p.0);
+        changes.push((p.0, !c.lead));
+    }
 }
 
 /// Picks one of `n` entries the way the voice code does: (rand() * range) >> 15, here range x a uniform [0, 1).
 fn roll(rng: &mut FxStats, range: f32) -> u32 {
     (rng.rand() * range) as u32
 }
+
+/// The companions the formation update drives: not on the tower task (ai/tower.rs), not stunned or carried
+/// (carried.rs, modes 5 / 10), not in a close kill (close_kill.rs).
+type FreeCompanion = (Without<crate::player::Roman>, Without<tower::OnTask>, Without<carried::Knocked>, Without<close_kill::Killing>);
 
 /// Team orders (0x0047a9a0 -> 0x004852b0 -> 0x00485120; docs/subsystems/companions.md). Key 1 / D-pad up
 /// (TeammatesSend 0x12) and key 3 / D-pad down (TeammatesReturn 0x13) set the pending flags 0x2000 / 0x4000 of both
@@ -5086,7 +5321,8 @@ fn roll(rng: &mut FxStats, range: f32) -> u32 {
 ///   (0x00484ca0), "ui_teammate_defend_loc", the defend lines.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn team_orders(
-    q: &mut Query<(Entity, &mut Companion, &mut Transform, Option<&crate::skin::Animator>, Option<&Health>), (Without<crate::player::Roman>, Without<tower::OnTask>)>,
+    q: &mut Query<(Entity, &mut Companion, &mut Transform, Option<&crate::skin::Animator>, Option<&Health>), FreeCompanion>,
+    busy: bool,
     pending: &mut (bool, bool),
     barks: &mut Barks,
     hud: Option<&mut crate::hud::HudState>,
@@ -5114,7 +5350,8 @@ fn team_orders(
         *pending = (false, false);
         return;
     }
-    if q.iter().any(|(_, c, ..)| c.dead.is_none() && c.tea > 0.0) {
+    // (either busy with an animation: modes 5 / 10, Q's tea, a close kill: the orders wait)
+    if busy || q.iter().any(|(_, c, ..)| c.dead.is_none() && c.tea > 0.0) {
         return;
     }
     let (send, ret) = std::mem::take(pending);
@@ -5181,7 +5418,7 @@ fn team_orders(
             if let Ok((_, mut c, ..)) = q.get_mut(e) {
                 c.order = order;
                 c.route.clear();
-                c.lost = 0.0;
+                c.fight_end = None;
                 // Defend Area re-picks the leader, forced, for the first of the pair (0x00484ca0 -> 0x00483810(1))
                 c.force_swap = !attack && k == 0;
                 if let Some((ge, _)) = target {

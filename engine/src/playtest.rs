@@ -107,6 +107,14 @@ pub struct Event {
     /// tower task's test, ai/tower.rs)
     #[serde(default)]
     pub warp_companion: Option<[f32; 4]>,
+    /// debug: knock a companion (ai/carried.rs): [0 Jonesy / 1 Q, 0 stun (topsy_turvy_duration) / 1 pull, held by the
+    /// live grunt nearest him]
+    #[serde(default)]
+    pub knock_companion: Option<[f32; 2]>,
+    /// debug: a companion (0 Jonesy / 1 Q) grabs the live grunt or archer nearest him for a close kill, the try's coin,
+    /// reach and facing skipped (ai/close_kill.rs `DebugGrab`; the grunt's answer and the route still decide)
+    #[serde(default)]
+    pub close_kill: Option<f32>,
     /// debug: the running mission timers jump this many seconds ahead, their entries in between sent (mission.rs
     /// `Mission::skip_timers`): a long countdown (lev_4_m2's 120 s at the tower) checked without waiting it out
     #[serde(default)]
@@ -333,6 +341,9 @@ pub struct Playtest {
     hurt_c: Vec<[f32; 2]>,
     /// companion warps for hurt_companions
     warp_c: Vec<[f32; 4]>,
+    /// companion knocks and close-kill grabs for hurt_companions
+    knock_c: Vec<[f32; 2]>,
+    grab_c: Vec<f32>,
     /// timer skips for skip_timers
     skip_t: Vec<f32>,
     /// blast steps for hurt_companions
@@ -395,7 +406,7 @@ impl Playtest {
         let mut events = s.events;
         events.sort_by(|a, b| a.t.total_cmp(&b.t));
         let log = std::fs::File::create(path.with_extension("log.jsonl")).ok();
-        Playtest { pickups: vec![], loadouts: vec![], audio: vec![], fx: vec![], movies: vec![], intro: s.intro, passed: 0, failed: 0, hurt_c: vec![], warp_c: vec![], skip_t: vec![], blasts: vec![], pad_e: None, notes: Default::default(), pad: vec![], warp: None, probe: None, land_by: None, land_peasant: false, path, title: s.title, real_time: s.real_time, events, turns: s.turns, next: 0, t: 0.0, taps: vec![], clicks: vec![], log, last_log: -1.0, steps: s.steps, step_shot: None, step: 0, step_t: 0.0, step_started: false }
+        Playtest { pickups: vec![], loadouts: vec![], audio: vec![], fx: vec![], movies: vec![], intro: s.intro, passed: 0, failed: 0, hurt_c: vec![], warp_c: vec![], knock_c: vec![], grab_c: vec![], skip_t: vec![], blasts: vec![], pad_e: None, notes: Default::default(), pad: vec![], warp: None, probe: None, land_by: None, land_peasant: false, path, title: s.title, real_time: s.real_time, events, turns: s.turns, next: 0, t: 0.0, taps: vec![], clicks: vec![], log, last_log: -1.0, steps: s.steps, step_shot: None, step: 0, step_t: 0.0, step_started: false }
     }
 }
 
@@ -851,6 +862,12 @@ pub(crate) fn drive(
         if let Some(w) = e.warp_companion {
             pt.warp_c.push(w);
         }
+        if let Some(k) = e.knock_companion {
+            pt.knock_c.push(k);
+        }
+        if let Some(c) = e.close_kill {
+            pt.grab_c.push(c);
+        }
         if let Some(t) = e.skip_timers {
             pt.skip_t.push(t);
         }
@@ -1211,13 +1228,38 @@ fn skip_timers(mut pt: ResMut<Playtest>, mut m: Option<ResMut<crate::mission::Mi
 
 /// The hurt_companion step: damage straight to Jonesy (0) or Q (1); warp_companion: one of them put at a point. The
 /// blast step: an explosion at Roman.
+#[allow(clippy::type_complexity)]
 fn hurt_companions(
     mut pt: ResMut<Playtest>,
-    mut q: Query<(&crate::ai::Companion, &mut crate::fx::Health, &mut Transform)>,
+    mut q: Query<(Entity, &crate::ai::Companion, &mut crate::fx::Health, &mut Transform)>,
     mut physics: NonSendMut<crate::physics::Physics>,
     roman: Query<(&GlobalTransform, &crate::fx::Health), (With<crate::player::Roman>, Without<crate::ai::Companion>)>,
     mut boom: MessageWriter<crate::fx::Explode>,
+    (grunts, mut knocks, mut grabs): (
+        Query<(Entity, &crate::ai::Grunt, &GlobalTransform)>,
+        MessageWriter<crate::ai::carried::Knock>,
+        MessageWriter<crate::ai::close_kill::DebugGrab>,
+    ),
 ) {
+    for [who, kind] in std::mem::take(&mut pt.knock_c) {
+        for (e, c, _, t) in &q {
+            if c.q != (who >= 0.5) {
+                continue;
+            }
+            let kind = if kind >= 0.5 {
+                let near = grunts.iter().filter(|(_, g, _)| g.mind != crate::ai::Mind::Dead).min_by(|a, b| a.2.translation().distance(t.translation).total_cmp(&b.2.translation().distance(t.translation)));
+                let Some((holder, ..)) = near else { continue };
+                crate::ai::carried::KnockKind::Pull { holder }
+            } else {
+                crate::ai::carried::KnockKind::Stun { duration: 5.0 }
+            };
+            info!("EVENT playtest: knock {} {kind:?}", if c.q { "Q" } else { "Jonesy" });
+            knocks.write(crate::ai::carried::Knock { companion: e, kind });
+        }
+    }
+    for who in std::mem::take(&mut pt.grab_c) {
+        grabs.write(crate::ai::close_kill::DebugGrab { q: who >= 0.5 });
+    }
     for d in std::mem::take(&mut pt.blasts) {
         if let Ok((t, h)) = roman.single() {
             info!("EVENT playtest: blast {d} at Roman (health {:.0})", h.0);
@@ -1225,7 +1267,7 @@ fn hurt_companions(
         }
     }
     for [who, amount] in std::mem::take(&mut pt.hurt_c) {
-        for (c, mut h, _) in &mut q {
+        for (_, c, mut h, _) in &mut q {
             if c.q == (who >= 0.5) {
                 h.0 -= amount;
             }
@@ -1233,7 +1275,7 @@ fn hurt_companions(
     }
     for [who, x, y, z] in std::mem::take(&mut pt.warp_c) {
         let at = crate::level::game_to_engine() * Vec3::new(x, y, z);
-        for (c, _, mut t) in &mut q {
+        for (_, c, _, mut t) in &mut q {
             if c.q == (who >= 0.5) {
                 physics.place_walker(&c.walker, at);
                 t.translation = at;

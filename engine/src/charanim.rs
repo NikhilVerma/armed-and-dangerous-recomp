@@ -748,6 +748,8 @@ fn grunts(
             Mind::Chase | Mind::ToMarker | Mind::Wander => (mover(&g).to_owned(), true),
             // an IC move plays its own anim (ai/ic.rs)
             Mind::Scripted => continue,
+            // the Q112's swing (0x5f: q112_gun_hit, looped while it lasts; ai/q112.rs)
+            Mind::Melee => (name(&g, 0x5f, 0.0).to_owned(), true),
             // a monk's teleport (anim 0x6b monk_turbo) and his cast (0x26)
             Mind::Teleport => (name(&g, 0x6b, 0.0).to_owned(), true),
             // (the basket rain's 0x26 cast_spell_1 or the twiglet summon's 0x25 cast_spell_2: ai.rs sets anim_id)
@@ -797,8 +799,8 @@ fn grunts(
                 }
             }
             // ready: the stand set (2, 3, 0, 1 at 0.5, 0.5); no fidgets (0x00427330 needs anim 0xf playing)
-            // (a bully between scares: the stand set, bully.rs)
-            Mind::Guard | Mind::WaitTrigger | Mind::Roam | Mind::Bully => {
+            // (a bully between scares: the stand set, bully.rs; one held by a companion: GruntObject_Slot66's set)
+            Mind::Guard | Mind::WaitTrigger | Mind::Roam | Mind::Bully | Mind::Held => {
                 four(&mut a, &g, [0, 1, 2, 3], true, 0.5, 0.5);
                 continue;
             }
@@ -937,8 +939,12 @@ fn companions(mut q: Query<(&Companion, &mut Animator, &Name, Option<&crate::ai:
         if c.dead.is_some() {
             a.play(0, &format!("{who}_die"), false, Mask::All);
             a.stop(1);
-        } else if task.is_some_and(|t| t.at_marker()) {
-            // the tower task's IC anims (ai/tower.rs plays them)
+        } else if c.ic || task.is_some_and(|t| t.at_marker()) {
+            // an IC anim: the tower task's, a close kill's (ai/tower.rs, ai/close_kill.rs play them)
+        } else if let Some((n, looping)) = c.pose {
+            // a full-body anim his state asks for (the stun's hang, ai/carried.rs)
+            a.play(0, n, looping, Mask::All);
+            a.stop(1);
         } else if let Some((n, _)) = c.hit {
             a.play(0, &format!("{who}_{n}"), false, Mask::All);
             a.stop(1);
