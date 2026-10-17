@@ -956,6 +956,26 @@ peasant_l4m2 (suite: every peasant family same, capture frame 52 in both, bank 1
 code): Roman's reach (two probes) and the joints' friction (the original's strength scaled by the weight). Found: the
 original's Roman stands ~40 frames after landing from a 9-unit drop, the remaster's walks at once (open, player.rs).
 
+## Companion tower task (2026-10-16)
+
+engine/src/ai/tower.rs (TowerPlugin), docs/subsystems/companions.md 8: lev_4_m2's Jonesy on 7001 walks to marker 356,
+is placed on it healed, sends 802, plants eight bombs on the Glass Tower through the plant IC anim (mover.rs `Mover`,
+its root track) and loops the bomb anim; the mission's countdown then blows the doors and wins. With it: companions
+waiting for a trigger start where placed, their send_trigger_on_death, hit reactions only in modes 1 / 3, stig / forge
+damage multipliers (player.rs `DamageKind`). Tests: playtests tower_l4m2 / tower_l4m2_fail (regress); oracle
+lev_4_m2_tower PASS (NAV1 and T1 known, below; suite), which needs a hook with [test] play_triggers
+(hook/src/testoracle.cpp, 2026-10-16); to try a hook change without replacing the shared build: `pwsh tools/build.ps1
+-BuildDir build/hook-NAME` and `AND_HOOK_BUILD=build/hook-NAME` (tools/instances.py).
+
+| Id | Remaster difference | Evidence (work/oracle-tower/lev_4_m2_tower) |
+| --- | --- | --- |
+| NAV1 | nav.rs's A* takes the south corridor of lev_4_m2's abbey to the tower, the original's nav mesh the north one (same length, both arrive at ~3800); nav.rs allowed a step at (905, -143) the walker cannot climb (tower.rs routes round a stuck spot) | companion.jonesy.pos frames 200..3800 |
+| T1 | the original's Jonesy takes no damage during the plant anim (3800..5680 at 500 in both original runs), the remaster's does and dies at ~5650 unguarded: cause not found (not the force-action release of the arrival, +0x398 / +0x39c) | companion.jonesy.health |
+
+Found on the way: the movie input hold (movie.rs `release_input_hold`) only ran out with no movie playing, so a page's
+background movie started within its two frames (the credits after lev_5_m5's end movie, when the schedule shifted)
+kept the credits page from taking input; it now runs out while no full-window movie plays.
+
 ## Running tests without disturbing the desktop
 
 - `--background`: the window opens off-screen, unfocused, behind everything, not in the taskbar; screenshots still

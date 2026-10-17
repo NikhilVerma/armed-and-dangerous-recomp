@@ -144,5 +144,36 @@ aligned with Roman's direction (`|cos b| < |cos a|`); the partner takes the oppo
 partner to regroup too (flag 0x80, 0x004837b0). Moving far behind Roman the two run nearly parallel and the flag can
 change several times a second (leader1's log), as the compare implies. The playtest log has `q_lead` / `jonesy_lead`.
 
-Not ported (docs/port/ai.csv): the tower mode (trigger marker paths, Molmer_Tower), the carried modes, Q's cape cloth,
-the companions' last-shot stamps (Roman's 30 s idle cue 0x0047b730 reads them), defend_min_distance's engage test.
+Not ported (docs/port/ai.csv): the carried modes (feature companion-carried), the end of a fight as mode 3 decides it
+(companion-engage-exit), Q's cape cloth, the companions' last-shot stamps (Roman's 30 s idle cue 0x0047b730 reads
+them), defend_min_distance's engage test.
+
+## 8. The tower task (ported 2026-10-16, engine/src/ai/tower.rs)
+
+Used once in the shipped data: lev_4_m2's Jonesy (molmer 147: receive_trigger_activate 7001, tower_marker_tag 30,
+obj_tag -600, send_trigger_on_death 5001; no other Q / Jonesy of the 24 levels has a trigger or a marker tag). The
+mission's peasant_success_trigger (7001, the tenth peasant safe) sends him to the Glass Tower; "Get Jonesy (ALIVE) to the
+Glass Tower / Guard Jonesy while he blows Tower doors".
+
+| Step | Original | Remaster |
+|---|---|---|
+| Set-up | 0x00483250: the trigger kept only with a marker tag; 0x004836b0 does not put him on his formation point while +0x52c is set: he starts where the level placed him, then follows Roman as usual | ai.rs `starts_in_formation`; ai/tower.rs `TowerTask::from_props` |
+| Trigger | Q111Object_Slot14 0x00483680: +0x52c used up -> 0x004834f0: the head of marker spline 30 (Marker_FindSpline 0x0044c030: marker 356 at (1601, -31, 14)), a route (0x0046f6d0); mode 6, flags 0x8000 / 0x40000, unpaired (0x00486ba0), held target dropped | `receive`: nav.rs route that reaches within 10 of the marker, `OnTask` (ai.rs companions / team orders skip him, so Q is a pair of one) |
+| No way | "Molmer_Tower_Failure" (ui text molmer_tower_failure "Jonesy: Get me back to the tower so I can blow it up") as a paused message, 0x00484290 (the return toggle), flag 0x10000: again after +0xbc8 = 15 s | the same (`Mission::message`, `Companion::order_return`, `retry`) |
+| Mode 6 | along the route; past its end beyond 10 (100 squared, K 0x005bcb60) a new one, else straight on (0x0046f5b0); within 1 the arrival; speeds the generic 0x004297a0 (move_speed: 39.7 units/s measured) | `walk`: move_speed (`Companion::run_speed`); a stuck walker (under 3 units in 1 s) marks the spot and routes round it (nav.rs can lead over a step the walker cannot take: lev_4_m2 (905, -143)) |
+| Arrival | the marker's matrix (0x00457990), physics stopped, health = max (+0x454 = +0x458: oracle, 405 -> 500 on the arrival frame), Marker_ProcessArrival 0x0044ba30 (802, sender 147), the door object (obj_tag -600: ww_glass_tower 110) out of World+0xe9c / +0xe90 / +0xe94 / +0xea0, "mover_molmer_plant_bomb" via 0x0042c410 (state 0x64), mode 7 | the same, the door's collider in physics.no_bullets (the ray / sight lists not modelled) |
+| Mode 7 | the IC anim carries him by its own root track (29 units to the doors, then between the bombs), notes: make_bomb (a player_tickerbomb x 0.25, K 0x005bcbe4, taken off the ticker lists +0xeb0 / +0xeb4), plant_bomb Ref_bomb_0N (onto the tower at that bone), fx jones_bomb_plant; at its end (31.3 s) "mover_molmer_bomb_loop" looping (ic_loop), its skeleton root held (0x0042c080), fx fx_jones_bomb_adjust | mover.rs `Mover` (as ai/ic.rs) and its notes; the bomb in "ref_lhand" (guess: the note names no bone; ref_rhand holds the pistol) |
+| Hits | none react during the IC anims (0x00430340 skips them while 0x00426630) or on the move (Slot129 0x00486e90: modes 1 / 3 only); attackers not taken as targets (Slot94 0x00486da0); mounted-gun bullets do 0.3 of their damage, forge mortars 0.1 (stig_ / forge_damage_multiplier, record flags 0x80000 / 0x100000) | ai.rs companion_damage, `Companion::damage_scale`, player.rs `DamageKind` |
+| Death | the AI death 0x00431720 sends +0x528: 5001, failure 2, "Jonesy just died! Without him you'll never get the book!" (the oracle's level state 9) | companion_damage sends `death_trigger` |
+
+After the arrival the mission does the rest (mission.rs): 802 forces the alarm (15 troops), kills the tower guards
+placed for it, shows l4m2_sub2 and starts timer 350 (displayed 120 s countdown; Jonesy's / Roman's lines 823..826 at
+3 / 40 / 80 / 110 s); 4000 at 120 s: pre-success, bb_ear 404's fx_exp_glass_tower (the doors), timer 405: 123456 (win)
+5 s later. Voice: the tower task itself says nothing (no voice call in 0x004834f0 or modes 6 / 7); the lines are the
+sound ears' and the plant fx's (wpn_jones_bomb_attach / _tweak).
+
+Evidence: oracle lev_4_m2_tower (tools/oracle_scenarios; the hook's [test] play_triggers sends 7001 at play frame 60:
+the hook trace carries each companion's mode +0xb5c since 2026-10-16). Original, Roman standing at the start: Jonesy
+sets off on frame 60, walks 2450 units in 3700 frames (hit by the chasing troops: 500 -> 405), arrives at frame 3800
+(mode 7, 802 from 147, health 500), plants, and with nobody guarding him dies at frame 7440 (5001: failure); Q and
+Roman fight off the start's troops (Roman 400 -> 157). Playtests tower_l4m2 / tower_l4m2_fail (regress).

@@ -21,6 +21,10 @@ PRIVATE = {"and.ini", "and.log", "and-d3d.txt", "and-coverage.txt", "and-profile
 PRIVATE_DIRS = {"SavedGames", "shaders"}
 RELINK = {"dinput8.dll", "dinput8.pdb"}  # the hook build: copied from build/hook-release (not the game folder,
 BUILD = os.path.join(ROOT, "build", "hook-release")  # which the player's running game may hold locked)
+# AND_HOOK_BUILD: an agent's own hook build (e.g. build/hook-tower, tools/build.ps1 -BuildDir from its worktree) for
+# its own instance, so a hook change is tried without replacing the shared build/hook-release
+if os.environ.get("AND_HOOK_BUILD"):
+    BUILD = os.path.join(ROOT, os.environ["AND_HOOK_BUILD"])
 
 
 def _link(src, dst):

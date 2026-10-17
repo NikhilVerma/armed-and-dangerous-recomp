@@ -19,7 +19,7 @@ PLAY = os.path.join(ROOT, 'work', 'remaster', 'play')
 SUITE = ['save_write', 'save_read', 'topsyhit2', 'turn_in_place', 'turret1', 'decals_obj', 'oilpump', 'gfxopts', 'cover1', 'cover2', 'cover3', 'gunner1', 'gunner2', 'objects1',
          'menus', 'hud', 'flow', 'stats', 'pub', 'pub_screen', 'unit',
          'hits1', 'noise1', 'noise2', 'splines1', 'alarm1', 'captain1', 'taunt1', 'leader1',
-         'infantry_l2m1', 'infantry_l3m1', 'infantry_l4m2', 'infantry_l2m2', 'squad_goliath', 'twiglets', 'monk_summon',
+         'infantry_l2m1', 'infantry_l3m1', 'infantry_l4m2', 'infantry_l2m2', 'squad_goliath', 'twiglets', 'monk_summon', 'tower_l4m2', 'tower_l4m2_fail',
          'peasants_l2m3', 'peasants_bonus_m2', 'peasants_lost_l4m2', 'peasants_cage_l3m1',
          'mission_start', 'volumes', 'ticker', 'pickups', 'pubflow', 'winfail',
          'player_move', 'player_fall', 'player_weapons', 'player_special', 'player_topsy', 'player_banter',
@@ -49,6 +49,10 @@ SUITE += ['mg_muzzle_fx']
 # the base turret, the army marches and releases, kills and the win / fail chains (each script names its level)
 # 'save_slots': the save / load slot screens (feedback 26): save to slot 2, then slot 1, load slot 2 -> slot 2's
 # state; the main menu's Load Game and the pause menu's Save Game open the slot list
+# 'tower_l4m2*': Jonesy's tower task on lev_4_m2 (ai/tower.rs): he starts where the level placed him, 7001 sends him
+# off (warped near the tower first), he arrives healed, the marker's 802 forces the alarm and starts the countdown,
+# the plant anim puts 8 bombs on the doors, the bomb loop, the countdown (skipped ahead) blows the doors (4000) and
+# wins; _fail: his death sends 5001, the mission fails with "Jonesy just died!"
 # 'vehicles_*': the later levels' units (engine/src/vehicles, the forge cannon in turret.rs), each script on its own level
 # ("scene"): rocket towers / buds (lev_3_m1), the zeppelin and the saucer (lev_2_m1), the colossus (lev_1_m3), the forge
 # cannon (lev_2_m1): woken, moving, targeting Roman, firing, hit, destroyed
