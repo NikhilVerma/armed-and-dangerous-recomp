@@ -297,6 +297,8 @@ struct Playing {
     /// the soundtrack's source: a jump in the soundtrack restarts it at the new point (`restart_sound`), never
     /// `try_seek`, which blocks until the audio thread answers (a stalled audio thread froze the game at a movie)
     sound: Option<Handle<AudioSource>>,
+    /// where the playing soundtrack started (a sink's position counts from its start: Bevy skips `start_position`)
+    sound_offset: f64,
     /// the audio playback-rate factor +0x220 (its getter 0x0050e3a0)
     rate: f32,
     /// last audio time read (the playtest log)
@@ -331,6 +333,7 @@ impl Playing {
             ..default()
         };
         self.audio = Some(commands.spawn((AudioPlayer(handle), s, MovieSound)).id());
+        self.sound_offset = at.max(0.0);
     }
 }
 
@@ -526,6 +529,7 @@ fn spawn(
         fresh: true,
         audio,
         sound,
+        sound_offset: 0.0,
         rate: 1.0,
         audio_time: None,
         pending_skip: false,
@@ -653,7 +657,7 @@ fn sync_audio(mut p: ResMut<MoviePlayer>, mut sinks: Query<&mut AudioSink, With<
         return;
     }
     // the audio time (0x0050e3b0: bytes played / bytes per second; here the sink's position)
-    let audio = sink.position().as_secs_f64();
+    let audio = cur.sound_offset + sink.position().as_secs_f64();
     cur.audio_time = Some(audio);
     let video = cur.video_time();
     let d = (audio - video) as f32;
