@@ -59,8 +59,8 @@ address,name,disposition,reason
 0x0044ebf0,AIVoice_JonHurtShort,replaced,ai.rs companion_damage / companions play the same line lists on Jonesy and Q with the shared vo delay (Barks) and the per-companion short-hurt delay
 0x0044ec60,AIVoice_PlayFriendlyfire,replaced,ai.rs companion_damage / companions play the same line lists on Jonesy and Q with the shared vo delay (Barks) and the per-companion short-hurt delay
 0x0044ed50,AIVoice_JonHurt,replaced,ai.rs companion_damage / companions play the same line lists on Jonesy and Q with the shared vo delay (Barks) and the per-companion short-hurt delay; the ROM50103/04_Sniper remark (damage flag 0x20000) is not in the lev_1_m1 bank
-0x0044f510,fn_0044f510,deferred,"feature: music-pause-screens; a focused UI screen with flag 0x2000 pauses the music voice and locks Music_Update (g+0xa88 +0x20); which screens carry the flag is in the UI data, not traced (open); the remaster pauses the music with the game pause"
-0x0044f540,fn_0044f540,deferred,"feature: music-pause-screens; the counterpart of 0x0044f510 (resume, unlock); see there"
+0x0044f510,fn_0044f510,ported,"engine/src/gameaudio.rs Music::hold / release (the lock +0x20, the music voice held); taken by splash.rs's legal splash and exit screen (flag 0x2000)"
+0x0044f540,fn_0044f540,ported,"engine/src/gameaudio.rs Music::hold / release (the lock +0x20, the music voice held); taken by splash.rs's legal splash and exit screen (flag 0x2000)"
 0x004619c0,SoundEar_GetClass,not needed,"plumbing: RTTI class descriptor / type id accessor; the engine identifies classes by Bevy components, no class registry"
 0x00461c80,FxEarObject_GetClass,not needed,"plumbing: RTTI class descriptor / type id accessor; the engine identifies classes by Bevy components, no class registry"
 0x0047bb30,Jumper_PlayWingSounds,ported,cited: ai/jumper.rs (the wings-out sounds); jetpack.rs effects (Roman's wings out / in and the glide loop)

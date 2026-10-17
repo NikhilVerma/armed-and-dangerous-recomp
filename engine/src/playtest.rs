@@ -359,6 +359,17 @@ pub struct Playtest {
     pad_e: Option<Entity>,
     /// the states kept by `note` steps
     notes: std::collections::HashMap<String, serde_json::Map<String, serde_json::Value>>,
+    /// the result line is out (a quit step, or the game quitting by itself: the exit screen, splash.rs)
+    reported: bool,
+}
+
+/// The game quit by itself (the exit screen): the result so far is the run's.
+fn report_on_exit(mut exits: MessageReader<AppExit>, mut pt: ResMut<Playtest>) {
+    if exits.read().next().is_some() && !pt.reported {
+        pt.reported = true;
+        info!("EVENT playtest: the game quit by itself");
+        info!("PLAYTEST RESULT: {} passed, {} failed", pt.passed, pt.failed);
+    }
 }
 
 /// A state-log field (a dotted key reads into an object field: "window.width").
@@ -413,7 +424,7 @@ impl Playtest {
         let mut events = s.events;
         events.sort_by(|a, b| a.t.total_cmp(&b.t));
         let log = std::fs::File::create(path.with_extension("log.jsonl")).ok();
-        Playtest { pickups: vec![], loadouts: vec![], audio: vec![], fx: vec![], movies: vec![], intro: s.intro, passed: 0, failed: 0, hurt_c: vec![], warp_c: vec![], knock_c: vec![], grab_c: vec![], skip_t: vec![], blasts: vec![], pad_e: None, notes: Default::default(), pad: vec![], warp: None, probe: None, land_by: None, land_peasant: false, path, title: s.title, real_time: s.real_time, events, turns: s.turns, next: 0, t: 0.0, taps: vec![], clicks: vec![], log, last_log: -1.0, steps: s.steps, step_shot: None, step: 0, step_t: 0.0, step_started: false }
+        Playtest { pickups: vec![], loadouts: vec![], audio: vec![], fx: vec![], movies: vec![], intro: s.intro, passed: 0, failed: 0, hurt_c: vec![], warp_c: vec![], knock_c: vec![], grab_c: vec![], skip_t: vec![], blasts: vec![], pad_e: None, notes: Default::default(), pad: vec![], warp: None, probe: None, land_by: None, land_peasant: false, path, title: s.title, real_time: s.real_time, events, turns: s.turns, next: 0, t: 0.0, taps: vec![], clicks: vec![], log, last_log: -1.0, steps: s.steps, step_shot: None, step: 0, step_t: 0.0, step_started: false, reported: false }
     }
 }
 
@@ -436,7 +447,8 @@ impl Plugin for PlaytestPlugin {
             .add_systems(PreUpdate, pad_drive.after(drive).before(crate::input::InputDevices).run_if(resource_exists::<Playtest>))
             .add_systems(Update, (hurt_companions, skip_timers).run_if(resource_exists::<Playtest>))
             .add_systems(Last, (log_render, log_state).chain().run_if(resource_exists::<Playtest>))
-            .add_systems(Update, warp.run_if(resource_exists::<Playtest>));
+            .add_systems(Update, warp.run_if(resource_exists::<Playtest>))
+            .add_systems(Last, report_on_exit.run_if(resource_exists::<Playtest>));
         if std::env::var("ENTDBG").is_ok() {
             app.add_systems(Last, log_entity_shapes);
         }
@@ -968,6 +980,7 @@ pub(crate) fn drive(
             }
         }
         if e.quit {
+            pt.reported = true;
             info!("PLAYTEST RESULT: {} passed, {} failed", pt.passed, pt.failed);
             exit.write(if pt.failed > 0 { AppExit::error() } else { AppExit::Success });
         }

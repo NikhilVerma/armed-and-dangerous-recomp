@@ -79,6 +79,7 @@ mod shell;
 mod shrubpatrol;
 mod sdffont;
 mod skin;
+mod splash;
 
 use bevy::diagnostic::FrameTimeDiagnosticsPlugin;
 use bevy::prelude::*;
@@ -384,7 +385,7 @@ fn main() {
     app.add_plugins(corpses::CorpsePlugin);
     // movies (movie.rs) and when the game plays them (cutscenes.rs): the boot intro before the title menu, unless a
     // tool run or a relaunch; a title script asks for it with "intro"
-    app.add_plugins((movie::MoviePlugin, cutscenes::CutscenesPlugin));
+    app.add_plugins((movie::MoviePlugin, cutscenes::CutscenesPlugin, splash::SplashPlugin));
     let movies_dir = a.movies.clone().unwrap_or_else(|| scene_dir.parent().map(|p| p.join("movies")).unwrap_or_else(|| PathBuf::from("movies")));
     app.insert_resource(movie::MovieSettings { dir: movies_dir, ..default() });
     let script_intro = a.play.as_deref().is_some_and(|p| playtest::Playtest::load_intro(p));

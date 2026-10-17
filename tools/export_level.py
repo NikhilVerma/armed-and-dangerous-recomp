@@ -70,6 +70,7 @@ ENGINE_FILES = [
     "ui/icons.json", "ui/icons.png", "ui/credits.txt",
     "ui/textures/and_title.png", "ui/textures/b_background_01.png",          # gamemenu.rs, statscreen.rs
     "ui/textures/b_text_bkd.png",                                           # hud.rs (subtitle band)
+    "ui/textures/b_legal.png", "ui/textures/b_ad_image.png",                # splash.rs
     "textures/b_wanted_reward.dds",                                         # statscreen.rs
     "textures_remaster",                                                    # graphics/textures.rs (optional)
 ]

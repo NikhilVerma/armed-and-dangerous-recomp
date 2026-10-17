@@ -54,6 +54,8 @@ pub enum Page {
     /// lists of what is unlocked (extras.rs), built each time the page opens
     Replay,
     Movies,
+    /// the exit screen ("ExitMenu", 0x00493770): the game quits once the menu has faded to it (splash.rs)
+    Exit,
 }
 
 /// The art behind a page.
@@ -70,7 +72,7 @@ enum Back {
 impl Page {
     fn back(self) -> Back {
         match self {
-            Page::Main | Page::Options | Page::Extras => Back::Title,
+            Page::Main | Page::Options | Page::Extras | Page::Exit => Back::Title,
             // the save page draws ui_background (layout.json pui_savegame: model ui_background_01)
             Page::Gfx | Page::Sfx | Page::Controls | Page::Cheats | Page::Credits | Page::SaveSlots | Page::LoadSlots | Page::Replay | Page::Movies => Back::Shell,
             Page::YesNo | Page::Pause | Page::Failed | Page::Pub | Page::Stats => Back::Game,
@@ -371,7 +373,7 @@ impl Plugin for GameMenuPlugin {
     fn build(&self, app: &mut App) {
         app.init_level_resource::<GameMenu>()
             .init_resource::<Texts>()
-            .add_systems(Update, (failed, crate::bindings::capture, navigate.run_if(crate::movie::no_movie_input), extras_pages, animate, values, pause_band, credits, log_menu).chain().in_set(MenuSystems))
+            .add_systems(Update, (failed, crate::bindings::capture, navigate.run_if(crate::movie::no_movie_input).run_if(crate::splash::no_splash), extras_pages, animate, values, pause_band, credits, log_menu).chain().in_set(MenuSystems))
             .add_plugins(crate::saveslots::SaveSlotsPlugin);
     }
 }
@@ -956,7 +958,6 @@ fn navigate(
     mut next: ResMut<NextState<AppState>>,
     mut menu: ResMut<GameMenu>,
     rows: Query<(&MenuRow, &mut HudText, &mut Visibility), Without<Part>>,
-    mut exit: MessageWriter<AppExit>,
     mut vtime: ResMut<Time<Virtual>>,
     mission: Option<Res<crate::mission::Mission>>,
     mut opts: ResMut<GameOptions>,
@@ -1220,8 +1221,11 @@ fn navigate(
             let a = menu.ask.take();
             back(&mut menu);
             match a {
+                // "ExitMenu" (0x004714c0 code 27's yes): the exit screen quits (splash.rs exit_screen)
                 Some(Ask::ExitGame) => {
-                    exit.write(AppExit::Success);
+                    menu.stack.clear();
+                    menu.page = Page::Exit;
+                    menu.selected = 0;
                 }
                 Some(Ask::Restart) => restart.to = Some(RestartTo::Play),
                 Some(Ask::QuitMission) => restart.to = Some(RestartTo::Title),
@@ -1512,7 +1516,8 @@ fn animate(
     let page = menu.shown;
     let back = page.map(|p| p.back()).or(match *state.get() {
         AppState::Title => Some(Back::Title),
-        AppState::Loading => Some(Back::Shell),
+        // the loading screen draws itself (splash.rs)
+        AppState::Loading => None,
         _ => None,
     });
     // the yes/no box shows over the page that asked

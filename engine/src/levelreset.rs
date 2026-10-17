@@ -59,10 +59,27 @@ pub enum RestartTo {
     Level(String),
 }
 
-/// Ask for a restart: `to` is taken at the end of the frame.
+/// Ask for a restart: `to` is taken at the end of the next frame (the loading screen, splash.rs, is drawn in the frame
+/// before the rebuild, so it is on show while the rebuild takes its time, as the original's is).
 #[derive(Resource, Default)]
 pub struct RestartLevel {
     pub to: Option<RestartTo>,
+    /// the frame that put the loading screen up has run
+    shown: bool,
+}
+
+/// How far the loading has got, 0..1 (the loading screen's bar: splash.rs): the settling's frames against its
+/// minimum; 0 before the rebuild.
+#[derive(bevy::ecs::system::SystemParam)]
+pub struct SettleProgress<'w> {
+    settling: Option<Res<'w, Settling>>,
+    limits: Res<'w, LevelSettle>,
+}
+
+impl SettleProgress<'_> {
+    pub fn progress(&self) -> f32 {
+        self.settling.as_ref().map_or(0.0, |s| (s.frames as f32 / self.limits.min_frames.max(1) as f32).min(1.0))
+    }
 }
 
 /// How many times the level was started again (0 for the first level of the process).
@@ -263,6 +280,14 @@ fn engine_owned(world: &World, e: Entity) -> bool {
 }
 
 fn restart(world: &mut World) {
+    {
+        let mut r = world.resource_mut::<RestartLevel>();
+        if !r.shown {
+            r.shown = true;
+            return;
+        }
+        r.shown = false;
+    }
     let Some(to) = world.resource_mut::<RestartLevel>().to.take() else { return };
     let t = Instant::now();
     // 0. the level to build: the title stands on the campaign's home level, a saved game is in its own level

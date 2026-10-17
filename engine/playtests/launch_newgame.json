@@ -1,5 +1,5 @@
 {"title": true, "intro": true, "preset": "remaster", "steps": [
- {"wait": 1.0}, {"tap": "Escape"}, {"wait": 1.5}, {"tap": "Escape"}, {"wait": 1.5}, {"tap": "Escape"},
+ {"wait": 1.0}, {"tap": "Escape"}, {"wait": 1.5}, {"tap": "Escape"}, {"wait": 1.5}, {"tap": "Escape"}, {"wait": 1.5}, {"tap": "Escape"},
  {"until": "movie_done"}, {"wait": 2.0},
  {"expect": {"menu.page": "Main", "menu.selected": "ui_mainmenu_startgame", "menu.art": "Title", "render.camera3d": true, "render.shared_target": true}},
  {"shot": "title"},

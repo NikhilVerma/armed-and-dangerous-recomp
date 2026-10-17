@@ -295,14 +295,34 @@ def caption_table():
 
 # ---------------------------------------------------------------- main
 
+# The front end's own textures a level's UI needs too: the LegalText splash's b_legal (UI_Init 0x0048ff90 names it as
+# the screen's layer; only lev_shell's txtr bank holds it). engine/src/splash.rs draws it.
+SHELL_TEXTURES = ["b_legal"]
+
+
+def export_shell_textures(out):
+    """lev_shell's SHELL_TEXTURES -> <out>/textures/<name>.png."""
+    _, texlist, _ = txtr.parse(rx.payload("lev_shell", "big02_txtr"))
+    textures = {t["name"].decode("latin-1").lower(): t for t in texlist}
+    for name in SHELL_TEXTURES:
+        if name in textures:
+            texture_png(textures[name], out / "textures" / f"{name}.png")
+        else:
+            print(f"missing in lev_shell: {name}")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("level")
     ap.add_argument("--out")
+    ap.add_argument("--shell-only", action="store_true", help="only the front end's textures (SHELL_TEXTURES)")
     a = ap.parse_args()
     level = a.level
     out = pathlib.Path(a.out) if a.out else ROOT / "work" / "remaster" / level / "ui"
     (out / "textures").mkdir(parents=True, exist_ok=True)
+    export_shell_textures(out)
+    if a.shell_only:
+        return
 
     # UI bank
     with tempfile.TemporaryDirectory() as d:

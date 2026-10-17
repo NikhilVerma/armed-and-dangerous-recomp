@@ -639,6 +639,8 @@ pub struct Voice {
     pub looped: bool,
     pub streamed: bool,
     pub through_pause: bool,
+    /// paused by its owner apart from the game's pause (the music under a screen with flag 0x2000: gameaudio.rs)
+    pub held: bool,
     /// the pause it started in (a voice started during a pause is not paused by it)
     started_in_pause: Option<u32>,
     /// the loop body still to come after this intro
@@ -830,6 +832,7 @@ fn play(
             looped,
             streamed: def.streamed(),
             through_pause: ev.through_pause,
+            held: false,
             started_in_pause: pause.paused.then_some(pause.epoch),
             then_body,
             outro,
@@ -970,7 +973,7 @@ fn update_voices(
             continue;
         }
         let game_paused = pause.paused && !v.through_pause && v.started_in_pause != Some(pause.epoch);
-        let want_paused = game_paused || far;
+        let want_paused = game_paused || far || v.held;
         // the voice plays from its request in game time, its file loaded or not (the original reads it as it
         // starts): its age, envelope, fade and end do not wait for the asset server
         v.paused = want_paused;

@@ -9,7 +9,7 @@ address,name,disposition,reason
 0x00410ca0,fn_00410ca0,replaced,cheat flags at level start: cheats.rs applies effects on activation (0x2000 object pass 0x00418690 not ported)
 0x00415910,fn_00415910,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
 0x00415d50,fn_00415d50,replaced,poster render target / widget release: statscreen.rs draws the poster as a quad
-0x00447600,UI_GetLoadingText,deferred,feature: loading-screen; loading screen: the remaster loads the level before the title menu
+0x00447600,UI_GetLoadingText,ported,"engine/src/splash.rs loading_text (the loading screen's text when the ad image is missing; LoadingScreen_Draw 0x00449ac0)"
 0x00447d20,fn_00447d20,ported,"engine/src/bindings.rs (KeyBindings::assign, capture) and gamemenu.rs (the Controls page's binding entries, Act::Rebind)"
 0x00447e20,fn_00447e20,ported,"engine/src/bindings.rs (KeyBindings::assign, capture) and gamemenu.rs (the Controls page's binding entries, Act::Rebind)"
 0x00447f50,UI_ShowAssignKeyPrompt,ported,"engine/src/bindings.rs (KeyBindings::assign, capture) and gamemenu.rs (the Controls page's binding entries, Act::Rebind)"
@@ -132,9 +132,9 @@ address,name,disposition,reason
 0x00493320,fn_00493320,replaced,movie screen show / hide: cutscenes.rs pauses the game during a full-window movie; the post-process targets it releases are renderer plumbing
 0x004933b0,fn_004933b0,not needed,no effect in the remaster: pauses a movie when another screen takes the focus; no remaster screen opens over a movie and the movie clock is real time
 0x004933e0,fn_004933e0,replaced,movie screen update (end / skip -> next movie; none left -> pop): ported in movie.rs advance / skip
-0x00493520,fn_00493520,deferred,"feature: legal-splash; timed splash screens: LegalText (b_legal, 4.0 s) is pushed by Game_StartLevel 0x00403690 (start_level.cpp:121) above the intro movies, so it shows first (capture work/shots/origmovA frame 300); its art is not in the exported UI bank: open"
-0x00493590,fn_00493590,deferred,feature: legal-splash; timed splash screen update (LegalText): see 0x00493520
-0x00493770,fn_00493770,deferred,feature: exit-screen; exit screen
+0x00493520,fn_00493520,ported,"engine/src/splash.rs (TimedScreen: the LegalText splash, b_legal 4.0 s, then the intro movies; cutscenes.rs boot)"
+0x00493590,fn_00493590,ported,"engine/src/splash.rs (TimedScreen: the LegalText splash, b_legal 4.0 s, then the intro movies; cutscenes.rs boot)"
+0x00493770,fn_00493770,ported,"engine/src/splash.rs exit_screen (gamemenu.rs Page::Exit: the menu fades to it and the game quits)"
 0x00494000,fn_00494000,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
 0x00494030,fn_00494030,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
 0x00494820,fn_00494820,replaced,poster render target / widget release: statscreen.rs draws the poster as a quad
