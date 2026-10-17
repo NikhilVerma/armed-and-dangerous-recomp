@@ -70,7 +70,7 @@ address,name,disposition,reason
 0x004185f0,fn_004185f0,replaced,shadow vtable slot (needs-render byte): Bevy shadow maps
 0x00418600,ReturnZero,not needed,no behaviour: shared return-0 / constant virtual slots; the ported callers use the constant
 0x00418d40,fn_00418d40,replaced,environment map refresh timer (EnvMapFreq): the engine uses the fog colour for cube maps (remaster-engine.md Rendering); owned by the rendering port
-0x00419250,fn_00419250,deferred,feature: untraced; FxObject +0x638 getter with no caller
+0x00419250,fn_00419250,deferred,"feature: fx-opcodes; the draw-order key +0x638 of an fx object made a background by opcode 0x62 (Fx_SetBackground 0x0041fe00: +0x638 = its argument, the object listed in the scene pass's list +0x1c0): the list is kept sorted by it (its compare callback 0x00487ee0 calls this twice: rel calls at 0x00487ee4 / 0x00487eef); the sky pass draws it in that order"
 0x00419260,FxObject_InFrustum,replaced,Bevy frustum culling (background fx are never culled: none on lev_1_m1)
 0x00419280,fn_00419280,not needed,no behaviour: shared return-0 / constant virtual slots; the ported callers use the constant
 0x00495970,Streamer_GetClass,not needed,"plumbing: RTTI class descriptor / type id accessor; the engine identifies classes by Bevy components, no class registry"
