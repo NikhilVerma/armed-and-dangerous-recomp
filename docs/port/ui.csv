@@ -45,27 +45,27 @@ address,name,disposition,reason
 0x004659b0,UiText_SetScale,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
 0x004659d0,UiText_SetColour,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
 0x004659e0,UiText_SetPosition,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
-0x00465be0,fn_00465be0,deferred,feature: hud-meters; mode counters: Game+0x26ec unset in lev_1_m1 (capture modes)
-0x00465c90,fn_00465c90,deferred,feature: hud-meters; mode counters: Game+0x26ec unset in lev_1_m1 (capture modes)
-0x00465ce0,fn_00465ce0,deferred,feature: hud-meters; mode counters: Game+0x26ec unset in lev_1_m1 (capture modes)
-0x00465d30,fn_00465d30,deferred,feature: hud-meters; mode counters: Game+0x26ec unset in lev_1_m1 (capture modes)
-0x00465d50,fn_00465d50,deferred,feature: hud-meters; flag / handle meters: Game+0x26fc unset in lev_1_m1
-0x00465de0,fn_00465de0,deferred,feature: hud-meters; flag / handle meters: Game+0x26fc unset in lev_1_m1
+0x00465be0,fn_00465be0,ported,"engine/src/hud.rs (the peasant counters ui_captured_count / ui_safe_count / ui_return_count and the ui_peasant icon, spawned and shown while peasant_max_saved > 0: peasant.rs fills HudState::peasants)"
+0x00465c90,fn_00465c90,ported,"engine/src/hud.rs (the peasant counters ui_captured_count / ui_safe_count / ui_return_count and the ui_peasant icon, spawned and shown while peasant_max_saved > 0: peasant.rs fills HudState::peasants)"
+0x00465ce0,fn_00465ce0,ported,"engine/src/hud.rs (the peasant counters ui_captured_count / ui_safe_count / ui_return_count and the ui_peasant icon, spawned and shown while peasant_max_saved > 0: peasant.rs fills HudState::peasants)"
+0x00465d30,fn_00465d30,ported,"engine/src/hud.rs (the peasant counters ui_captured_count / ui_safe_count / ui_return_count and the ui_peasant icon, spawned and shown while peasant_max_saved > 0: peasant.rs fills HudState::peasants)"
+0x00465d50,fn_00465d50,deferred,"feature: hud-meters; the flag base's init: its counter handle is replaced (hud.rs reads defence.rs's counter), but the fx_red_flag it starts on the UI object's ref_flag bone (fxo_red_flag, a 2 x 1 quad of fxa_red_flag, climbing the pole with the meter's anim 4 = count / max, 0x00465e30) is not drawn: how an fx object attached to a UI object is placed and drawn is not traced and there is no capture of a defence level's HUD (open)"
+0x00465de0,fn_00465de0,replaced,"engine/src/hud.rs reads the counter of grunt_wall_counter_tag each frame (defence.rs HudState::over_wall): no handle on the counter list Game+0x26fc to take or release (ui_grunt_over_wall_count / ui_flag_base spawned and shown by it)"
 0x00465e30,fn_00465e30,ported,"cited: hud.rs (the base flag meter / grunts-over-the-wall count, defence.rs)"
-0x00465f30,fn_00465f30,deferred,feature: hud-meters; flag / handle meters: Game+0x26fc unset in lev_1_m1
+0x00465f30,fn_00465f30,replaced,"engine/src/hud.rs reads the counter of grunt_wall_counter_tag each frame (defence.rs HudState::over_wall): no handle on the counter list Game+0x26fc to take or release (ui_grunt_over_wall_count / ui_flag_base spawned and shown by it)"
 0x00465f70,fn_00465f70,ported,"cited: hud.rs (the base flag meter / grunts-over-the-wall count, defence.rs)"
-0x00466010,fn_00466010,deferred,feature: hud-meters; flag / handle meters: Game+0x26fc unset in lev_1_m1
+0x00466010,fn_00466010,replaced,"engine/src/hud.rs reads the counter of grunt_wall_counter_tag each frame (defence.rs HudState::over_wall): no handle on the counter list Game+0x26fc to take or release (ui_grunt_over_wall_count / ui_flag_base spawned and shown by it)"
 0x00466430,fn_00466430,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
 0x00466520,fn_00466520,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
 0x00466530,fn_00466530,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
 0x00466580,fn_00466580,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
 0x00467170,fn_00467170,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
-0x004671b0,fn_004671b0,deferred,"feature: hud-meters; one-time hint keyed to Game+0xcbc, unset in lev_1_m1"
-0x00467220,fn_00467220,deferred,feature: hud-meters; UI element not identified (hud.md open question 7); not in lev_1_m1
+0x004671b0,fn_004671b0,deferred,"feature: knockout-bomb; ui_bof_hint's update: the first time the bunch-of-fives glove is out (Game+0xcbc, set by the player update game_06.cpp:2942) it pauses on the message ui_bof_hint (Press %s to punch!, Fire's key) once per game (Game+0x578); the glove is not ported"
+0x00467220,fn_00467220,ported,"engine/src/hud.rs (ui_tickerbomb shown while HudState::tickers_left: ticker bombs held, Game+0xd90, and ticker sites left, World+0xeb4; mission.rs fills it)"
 0x00467270,fn_00467270,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
 0x004676f0,fn_004676f0,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
-0x00467740,fn_00467740,deferred,feature: hud-meters; UI element not identified (hud.md open question 7); not in lev_1_m1
-0x004677c0,fn_004677c0,deferred,feature: hud-meters; UI element not identified (hud.md open question 7); not in lev_1_m1
+0x00467740,fn_00467740,deferred,"feature: untraced; a HUD element's update that hides it once its anim has played out (anim 4's +0x1c bit 2); it runs every play frame on every level (coverage: 183311 calls, one element) but which element of pui_main it drives is not identified (hud.md open question 7)"
+0x004677c0,fn_004677c0,ported,"engine/src/mission.rs (the timed text: ui_tickerbomb_patience shown 2.0 s from the Use that raises it, Mission::patience; the other timed prompts, ui_tickerbomb_none and ui_pub_fail, are raised every frame their condition holds, so only their 2 s tail after the player leaves is not modelled: a tuning item)"
 0x004679f0,fn_004679f0,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
 0x00467d90,fn_00467d90,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
 0x00467f00,fn_00467f00,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"

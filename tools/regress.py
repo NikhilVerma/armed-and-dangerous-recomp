@@ -63,7 +63,7 @@ SUITE += ['corpses_l1m4', 'corpses_l1m4_remaster']
 # presentation (agent-presentation, docs/journal/2026-10-18-presentation.md): the Controls page rebinds keys, mouse and pad
 # buttons by the original's rule and the prompts follow (bindings.rs); the legal splash before the intro movies, the
 # loading screen of a restart and the exit screen, each holding the music where the original does (splash.rs)
-SUITE += ['controls_rebind', 'legal_splash', 'loading_screen', 'exit_screen', 'save_thumbnail', 'run_anim_speed', 'arrow_models', 'bodyfall_fx', 'character_fade']
+SUITE += ['controls_rebind', 'legal_splash', 'loading_screen', 'exit_screen', 'save_thumbnail', 'run_anim_speed', 'arrow_models', 'bodyfall_fx', 'character_fade', 'hud_meters', 'hud_meters_l2m3', 'hud_meters_l1m4']
 # 'army_l2m4_long' (LONG): lev_2_m4's piled-up army (~1,600 marching members at 150 s) stays under 25k entities: the
 # members are crowd meshes (crowd.rs), not rigged grunts (110k entities before)
 SUITE += ['army_l2m4_long']

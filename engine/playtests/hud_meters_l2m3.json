@@ -1,0 +1,10 @@
+{"scene": "lev_2_m3", "steps": [
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 3.5}, {"tap": "Enter"}, {"wait": 1.0},
+ {"cheat": "SHIELDME"}, {"wait": 0.2},
+ {"expect": {"hud.meters.captured_count": "5", "hud.meters.safe_count": "0", "hud.meters.return_count": "0", "hud.meters.peasant": true, "hud.meters.flag_base": ""}},
+ {"warp": [-13.7, -473.9, -14, 0]}, {"wait": 0.5},
+ {"expect": {"hud.meters.captured_count": "4", "hud.meters.return_count": "1", "hud.meters.safe_count": "0"}},
+ {"warp": [-4.2, -813.1, 99, 0]}, {"wait": 0.5},
+ {"expect": {"hud.meters.captured_count": "4", "hud.meters.return_count": "0", "hud.meters.safe_count": "1"}},
+ {"quit": true}
+]}
