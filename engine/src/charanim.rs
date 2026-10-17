@@ -935,15 +935,15 @@ fn random(rand: &mut impl FnMut() -> u32, lo: f32, hi: f32) -> f32 {
 
 /// The companions' anims (their tables 0x004876c0 / 0x0044ef20): run (run_reload while reloading on the move),
 /// reload_br, the four fire poses blended by the aim elevation (as the grunts'), else the idle poses.
-fn companions(mut q: Query<(&Companion, &mut Animator, &Name, Option<&crate::ai::tower::TowerTask>)>) {
-    for (c, mut a, name, task) in &mut q {
+fn companions(mut q: Query<(&Companion, &mut Animator, &Name, Option<&crate::ai::tower::TowerTask>, Has<crate::ai::melee::Fighting>)>) {
+    for (c, mut a, name, task, fighting) in &mut q {
         a.blend = AI_BLEND;
         let who = if name.as_str() == "molmer" { "molmer" } else { "q111" };
         if c.dead.is_some() {
             a.play(0, &format!("{who}_die"), false, Mask::All);
             a.stop(1);
-        } else if task.is_some_and(|t| t.at_marker()) {
-            // the tower task's IC anims (ai/tower.rs plays them)
+        } else if task.is_some_and(|t| t.at_marker()) || fighting {
+            // the tower task's IC anims (ai/tower.rs plays them), the hand-to-hand fight's (ai/melee.rs)
         } else if let Some((n, _)) = c.hit {
             a.play(0, &format!("{who}_{n}"), false, Mask::All);
             a.stop(1);

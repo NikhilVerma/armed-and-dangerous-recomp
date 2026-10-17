@@ -22,6 +22,7 @@ pub mod ic;
 pub mod jumper;
 pub mod ladder;
 pub mod max_fire;
+pub mod melee;
 pub mod monk;
 pub mod notes;
 pub mod paratroop;
@@ -1101,7 +1102,7 @@ impl Plugin for AiPlugin {
                         (body::apply_rules, log_cover, log_ai, log_placed, squad::log_squads, ic::log).chain(),
                         // the later levels' infantry (projectiles, falls, drops, the wall assault) and their playtest logs
                         (grenade::fly, rocket::shoot_down, fall::drop_parachutes, jumper::free_markers, assault::sync, assault::recruit, ladder::ladders, retreat::run).chain(),
-                        (max_fire::log, grenade::log, rocket::log, fall::log, paratroop::log, jumper::log, notes::log, assault::log, ladder::log, retreat::log).chain(),
+                        (melee::count_kills, melee::log, max_fire::log, grenade::log, rocket::log, fall::log, paratroop::log, jumper::log, notes::log, assault::log, ladder::log, retreat::log).chain(),
                     )
                         .chain(),
                 )
@@ -4280,6 +4281,8 @@ pub struct Companion {
     goal: Option<Vec3>,
     /// an order asks for a forced pick (the area order 0x00484ca0: 0x00483810(1))
     force_swap: bool,
+    /// a burst or clip ended this frame: the fire cycle's hand-to-hand try (0x00428980 -> 0x00427e80, ai/melee.rs)
+    pub fight_try: bool,
     /// +0xbcc flag 0x80: the partner started a regroup (0x004837b0), so this one regroups too at its next idle frame
     regroup_req: bool,
 }
@@ -4380,6 +4383,7 @@ impl Companion {
         goal: None,
         force_swap: false,
         regroup_req: false,
+        fight_try: false,
         }
     }
 }
@@ -4458,7 +4462,8 @@ pub struct CompanionPlugin;
 
 impl Plugin for CompanionPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, (companion_damage, companions).chain().run_if(crate::playing));
+        app.init_resource::<melee::MeleeStats>()
+            .add_systems(Update, (companion_damage, companions, melee::start, melee::run).chain().run_if(crate::playing));
     }
 }
 
@@ -4579,7 +4584,7 @@ fn companions(
     bot: Res<crate::bot::Bot>,
     roman: Query<(&Transform, &crate::player::Roman, &crate::skin::Animator, &Health), Without<Companion>>,
     cam: Query<&GlobalTransform, With<Camera3d>>,
-    mut q: Query<(Entity, &mut Companion, &mut Transform, Option<&crate::skin::Animator>, Option<&Health>), (Without<crate::player::Roman>, Without<tower::OnTask>)>,
+    mut q: Query<(Entity, &mut Companion, &mut Transform, Option<&crate::skin::Animator>, Option<&Health>), (Without<crate::player::Roman>, Without<tower::OnTask>, Without<melee::Fighting>)>,
     grunts: Query<(Entity, &Grunt, &GlobalTransform, Option<&crate::skin::Animator>)>,
     joints: Query<&GlobalTransform, Without<Companion>>,
     mut fx: MessageWriter<crate::fx::StartFx>,
@@ -4976,6 +4981,7 @@ fn companions(
                 if c.loop_t >= loop_len {
                     c.loop_t = 0.0;
                     if c.burst == 0 || c.rounds == 0 {
+                        c.fight_try = true;
                         c.burst = rng.range(c.p.bursts.0 as f32, c.p.bursts.1 as f32 + 0.999) as u32;
                         c.delay_t = rng.range(c.p.burst_delay.0, c.p.burst_delay.1);
                         if let Some(m) = c.muzzle.take() {
@@ -5093,7 +5099,7 @@ fn roll(rng: &mut FxStats, range: f32) -> u32 {
 ///   (0x00484ca0), "ui_teammate_defend_loc", the defend lines.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn team_orders(
-    q: &mut Query<(Entity, &mut Companion, &mut Transform, Option<&crate::skin::Animator>, Option<&Health>), (Without<crate::player::Roman>, Without<tower::OnTask>)>,
+    q: &mut Query<(Entity, &mut Companion, &mut Transform, Option<&crate::skin::Animator>, Option<&Health>), (Without<crate::player::Roman>, Without<tower::OnTask>, Without<melee::Fighting>)>,
     pending: &mut (bool, bool),
     barks: &mut Barks,
     hud: Option<&mut crate::hud::HudState>,
