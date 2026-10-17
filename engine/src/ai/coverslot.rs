@@ -247,7 +247,7 @@ fn gone(
             }
         }
     }
-    let q = q.transmute_lens::<Entity>();
+    let mut q = q.transmute_lens::<Entity>();
     let q = q.query();
     for d in died.read() {
         if q.get(d.0).is_ok() {

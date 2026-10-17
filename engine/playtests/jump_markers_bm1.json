@@ -1,0 +1,7 @@
+{"scene": "lev_bonus_m1", "steps": [
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 3.5}, {"tap": "Enter"}, {"wait": 0.5},
+ {"cheat": "SHIELDME"},
+ {"wait": 12.0},
+ {"expect": {"ai.jumps": [1, 1000], "ai.landings": [1, 1000], "jump_markers.count": [10, 1000], "jump_markers.held": [1, 1000], "jump_markers.landed": [1, 1000]}},
+ {"quit": true}
+]}

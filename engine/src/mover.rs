@@ -158,6 +158,7 @@ fn generic_notes(
     mut q: Query<(&Mover, &GlobalTransform, &mut Visibility, Option<&mut crate::skin::Animator>)>,
     mut fx: MessageWriter<crate::fx::StartFx>,
     mut triggers: MessageWriter<crate::mission::SendTrigger>,
+    grunts: Query<(), With<crate::ai::Grunt>>,
 ) {
     for n in notes.read() {
         let Ok((m, gt, mut vis, animator)) = q.get_mut(n.entity) else { continue };
@@ -199,7 +200,8 @@ fn generic_notes(
                     triggers.write(crate::mission::SendTrigger(t));
                 }
             }
-            "deactivate" => {
+            // (an AI's deactivate is its death bookkeeping and removal: ai/notes.rs)
+            "deactivate" if !grunts.contains(n.entity) => {
                 commands.entity(n.entity).despawn();
             }
             _ => {}

@@ -158,7 +158,7 @@ not parsed (only hide, trigger_charge, attention_guard, ready_guard, trigger_cha
 | 0x7a re-guard | to 0x79 when grounded, else falling (0x82) | ai_06.cpp:566 |
 | 0x8c wait for trigger | trigger_los: AI_FindTarget -> SetTarget + activate 0x0042f5c0; hurt also activates | ai_06.cpp:1625; ai_04.cpp:420 |
 | 0x3c chase | drop target beyond 2 x scan; every 0.2-0.4 s ray: clear and 3D distance < fire range -> engage; route end: wait 5-15 s (state 2), then run home (0x50), then state 1 | ai_06.cpp:1420-1546, 799 |
-| engage 0x00427910 | out of range (2D vs +0x5d8): guard -> 0x79, else pursue (point within +-20 of target, state 0x3c); in range: state 0xa (16 % with a shooter limit, else wait 0x11) | ai_02.cpp:1151-1256 |
+| engage 0x00427910 | out of range (2D vs +0x5d8): guard -> 0x79, else pursue (point within +-20 of target, state 0x3c); in range: state 0xa (with a shooter limit: counted, or 50 % an extra, else wait 0x11: section 15) | ai_02.cpp:1151-1256 |
 | 0xa firing | while target within 2 x scan: fire cycle; else drop target | ai_06.cpp:869 |
 | fire cycle 0x00428980 | turn within 45 deg; clip pause +0x5c8, burst delay +0x5cc; fires only inside the 180 deg cone with LOS; LOS lost: guard -> 0x7a, else re-pursue; after a clip: taunt (shared timer) or reload | ai_02.cpp:1784-2001 |
 | 0x32 / 0xc1 reload | grunt_reload_*; then re-engage when in range with LOS, else 50 % pursue / 50 % hide | ai_06.cpp:1223, 2241 |
@@ -225,7 +225,7 @@ lev_1_m1 the five trenches face game +y (north, 0..10 degrees).
 
 **The search** (0x0042a7b0): dead -> 1; flag 4 of +0x484 (fire counters rolled, 0x00427600) clear, a target, and
 0x004531e0(target) false (**guess**: true for an airborne target): rand*100>>15 < 90 -> reload in place (anims 0x2a..0x29,
-state 0x32), return 0; rand < pickup_grab_pct (+0x86c, default 1) -> 0x0042a500 (grab a pickup: not ported); a held
+state 0x32), return 0; rand < pickup_grab_pct (+0x86c, default 0, 0x0042533f; no property set has the key: dead) -> 0x0042a500; a held
 cover is left (vt+0x188, history); need_target without a target -> nothing; the candidates turret = 0x0042a100 and
 trench = 0x00429f00, compared by 2D squared distance from the grunt (the trench wins when nearer; the winner's distance
 x 0.25 bounds the next stage); the generic slot walk of World+0xed4 (kinds 1 / 6 of objects other than type 3: the
@@ -366,3 +366,31 @@ effects post noises like his bullets' (sticky.rs -> Interests::follow / end_at).
 - Nothing in this round was compared with the original by capture (the rates and ranges come from the code and the
   property sets); first candidates: the alarm troops' arrival times, a captain's damage rate (Roman 400 -> 0 in ~10 s
   at 50 units in captain1), the long-hit frequency.
+
+## 15. The later levels' behaviours (2026-10-17, agent-enemyai)
+
+Each its own module under engine/src/ai/ (typed state, systems in the AI plugin), the mechanics from the recovered code,
+static reading; not compared with the original by capture (tuning items: docs/remaster-engine.md "Later levels'
+infantry"). Corrections found on the way: the "16 %" rolls of 0x00427910 / 0x00427e80 are 50 % ((rand() x 100) &
+~0x7fff < 0x190000 is rand x 100 >> 15 < 50); 0x00427c80's close-attack roll is 20 %; pickup_grab_pct's default is 0.
+
+| Behaviour | Module | Original | Test |
+| --- | --- | --- | --- |
+| The shooter limit (ai_max_fire 1 on the defence levels, 5 on lev_5_m5): counted shooters, 50 % extras, the rest wait (state 0x11, idle bases 0x74..0x76) until a counted one stops and hands over (n = rand x count >> 15, n = 0 nobody: original bug, kept) | max_fire.rs | 0x00427910 / 0x00427c80, 0x0042bb10, 0x0042b9e0, 0x004271c0 | max_fire_l1m4 |
+| The captain's grenade: launch at the target pulled back 20, Ballistic_LaunchVelocity's arc, spin, the hit's area and direct damage | grenade.rs | 0x00482870, 0x00471a00, 0x00481c90 / ce0 / d00 / d10 | captain_grenade |
+| The rocket captain fires the CaptainRocket (rockets.rs's flight); it can be shot down (max_health 1; a bad guy's shots and blasts do not count, its owner's do) and explodes where it is | rocket.rs | 0x00482ab0 / d10 / d60 | captain_rocket (+ unit tests) |
+| A gunner whose counters ran out together aims and fires at the target led for 360 / s, without the aim error | aim.rs | 0x004580a0 in 0x00428fc0 / 0x004284e0 | gunner_lead |
+| The falling watchdog (vz < -20 for 0.2 s, no contact) and state 0x82 (anim 0x61, landing back to the saved state, 5 s to live); the parachute's 25 / s descent | fall.rs | 0x0042e910, ai_06.cpp:1567-1623 | ai_fall |
+| Paratroopers: the rope IC anim from the vehicle's ref_repel node, the freefall_* note into 0x82 with the parachute, the landing into the drop orders | paratroop.rs | ai_05.cpp:1513-1550 | paratroopers_l2m1 |
+| The pre-success retreat (0.01..1 s, marker -1's direction, 2000, 20 % scared) | retreat.rs | 0x0042db00, ai_06.cpp:373-399 | defence_l1m4 |
+| Jump markers held from the launch until the jumper leaves or dies (not freed on landing) | jumper.rs | 0x0040dfa0 / 0x0040dfb0, 0x004273a0 | jump_markers_bm1 |
+| Script ends: "kill" a death, "deactivate" the death bookkeeping (the death trigger) and a silent removal | notes.rs | 0x00409140, 0x004090f0, 0x00409110 | ladders_l1m4 |
+| The wall assault and the ladders | assault.rs, ladder.rs | 0x00429ce0, 0x00429ac0, 0x004298a0 / 0x0042d650 | ladders_l1m4 |
+| The companions' takedown (50 % at a burst / clip end, within 50, facing within 45, ref_fight_00; the paired IC anims) | melee.rs | 0x00427e80, 0x00434ea0, 0x0042c670, 0x00487040 / 0x0044ea40 | melee1 |
+| The grunts' close attack (within m_h2hMin 20 at a clip's end, anim 0x5f / 0x60, "hit" within m_h2hMax 10: 50; Q112 25 / 35, 100) | melee.rs | 0x00428160, 0x0043eae0 | close_attack |
+| A hidden grunt knocked away when his host (during the move or at the trigger) or his landing building is destroyed | ic.rs | 0x0042f5c0, 0x00425be0, ai_06.cpp:278-300 | ic_knock_l1m3 |
+| Same-tag squads share a halt down squad_sequence (no shipped pair shares a tag) | squad.rs | 0x00433bc0 | unit test |
+
+Left: punch-launch (0x0042f470, an AI punched by Roman: the player's side is the weapons'), the turbo captain's airborne
+end into 0x82 (0x0042e1c0), 0x7a's own entry to 0x82, the knocked-off ladder planter, the voices ClimbTaunt /
+LadderPlaced.

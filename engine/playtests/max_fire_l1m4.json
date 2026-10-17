@@ -1,0 +1,12 @@
+{"scene": "lev_1_m4", "steps": [
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 3.5}, {"tap": "Enter"},
+ {"wait": 0.5},
+ {"expect": {"max_fire.max": 1, "max_fire.counted": 0}},
+ {"spawn": [860, -2620, 140]}, {"spawn": [880, -2620, 140]}, {"spawn": [900, -2620, 140]}, {"spawn": [920, -2620, 140]},
+ {"spawn": [860, -2640, 140]}, {"spawn": [880, -2640, 140]}, {"spawn": [900, -2640, 140]}, {"spawn": [920, -2640, 140]},
+ {"wait": 15.0},
+ {"expect": {"max_fire.max": 1, "max_fire.counted": [0, 1], "max_fire.waits": [1, 10000]}},
+ {"wait": 20.0},
+ {"expect": {"max_fire.counted": [0, 1], "max_fire.releases": [1, 10000], "ai.minds.MaxFireWait": [1, 8]}},
+ {"quit": true}
+]}

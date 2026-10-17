@@ -51,4 +51,4 @@ address,name,disposition,reason
 0x0043c600,fn_0043c600,deferred,"feature: peasants; PeasantGenAI vt+0x1a4 (Peasant_blown_up_chair / _2): civilians thrown out of a destroyed building (toss_peasants), not ported (ai.csv PeasantGenAI_Slot6)"
 0x0043c630,fn_0043c630,replaced,"SaucerObject vt+0x1a4 (saucer_hover_low): vehicles/mover.rs plays the saucer's IC path and the body anims its notes name"
 0x0043c6e0,fn_0043c6e0,replaced,"ColossusObject vt+0x1a4, the anim for an interaction type (colossus_stand / _walk / colussus_scan / colussus_run_fire ...): vehicles/boss.rs picks colossus_walk / colossus_stand by its own state"
-0x004580a0,fn_004580a0,deferred,"feature: ai-predicted-aim; the flagged case's predicted target point of the aim: ai.rs cites it as not ported"
+0x004580a0,fn_004580a0,ported,engine/src/ai/aim.rs lead_point: the gunner's flag-1 aim and shots at the target led for 360 / s

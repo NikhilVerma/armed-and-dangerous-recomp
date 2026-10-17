@@ -597,7 +597,7 @@ fn roman(
 #[allow(clippy::type_complexity)]
 fn grunts(
     // (a hidden grunt's anims, waiting or coming out, are ai/ic.rs's)
-    mut q: Query<(Entity, &mut Grunt, &mut Animator, &Transform, (Option<&crate::topsy::Thrown>, Option<&crate::ai::AnimOverride>)), (Without<crate::ragdoll::Ragdoll>, Without<crate::corpses::Settled>, Without<crate::ai::ic::IcEntry>)>,
+    mut q: Query<(Entity, &mut Grunt, &mut Animator, &Transform, (Option<&crate::topsy::Thrown>, Option<&crate::ai::AnimOverride>, Has<crate::ai::ladder::CarriedLadder>)), (Without<crate::ragdoll::Ragdoll>, Without<crate::corpses::Settled>, Without<crate::ai::ic::IcEntry>)>,
     targets: Query<&GlobalTransform>,
     time: Res<Time>,
     lib: Res<crate::skin::AnimLibrary>,
@@ -623,7 +623,7 @@ fn grunts(
         a.set_weight(1, v);
         a.sync(1, 0);
     };
-    for (e, mut g, mut a, t, (thrown, forced)) in &mut q {
+    for (e, mut g, mut a, t, (thrown, forced, ladder)) in &mut q {
         a.blend = AI_BLEND;
         // a hit reaction: its anim once (the all-fours breathing 0x36 looped until its timer ends, ai.rs), then the
         // state's anims again
@@ -688,7 +688,8 @@ fn grunts(
         // the move anim (0x00427210): limping 0x59; else 8 + (rand * 2 >> 15), drawn once per grunt here (the original
         // keeps a run 8..0xa already playing)
         let run = *runs.entry(e).or_insert_with(|| 8 + (rand() * 2 >> 15));
-        let mover = |g: &Grunt| if limping { name(g, 0x59, 0.0) } else { name(g, run, if run == 9 { 0.75 } else { 0.25 }) };
+        // (carrying a ladder, +0xab4: 0x31 grunt_ladder_run, ai/ladder.rs)
+        let mover = |g: &Grunt| if ladder { name(g, 0x31, 0.0) } else if limping { name(g, 0x59, 0.0) } else { name(g, run, if run == 9 { 0.75 } else { 0.25 }) };
         // a guard firing from his guard state: the reload set at a clip's end (0x29 here, as Reload), else the fire set
         let guard_fire = g.mind == Mind::Guard && g.guard_firing;
         if guard_fire && g.reloading && g.shot_age > g.fire_len {
@@ -781,6 +782,12 @@ fn grunts(
             // state 0x50 walks home with anim 0xa (run_scan)
             Mind::Home => (if limping { name(&g, 0x59, 0.0) } else { name(&g, 0xa, 0.0) }.to_owned(), true),
             // the taunt (ids 0x32..0x34) and the throw (0x27): once
+            // waiting for a turn under the shooter limit (state 0x11): the idle base ai.rs picked, once each
+            Mind::MaxFireWait => (name(&g, g.anim_id, 0.0).to_owned(), false),
+            // the close attack (state 0xb): the swing 0x5f / 0x60 looped (ai/melee.rs)
+            Mind::CloseAttack => (name(&g, g.anim_id, 0.0).to_owned(), true),
+            // falling (state 0x82): anim 0x61 (grunt_bow_fall / captain_fall), 0x62 (captain_parachute) under a parachute
+            Mind::Falling => (name(&g, if g.fall.is_some_and(|f| f.chute_open) { 0x62 } else { 0x61 }, 0.0).to_owned(), true),
             Mind::Taunt | Mind::Throw => {
                 let id = if g.mind == Mind::Throw { 0x27 } else { g.anim_id };
                 (name(&g, id, 0.0).to_owned(), false)
@@ -946,15 +953,15 @@ fn random(rand: &mut impl FnMut() -> u32, lo: f32, hi: f32) -> f32 {
 
 /// The companions' anims (their tables 0x004876c0 / 0x0044ef20): run (run_reload while reloading on the move),
 /// reload_br, the four fire poses blended by the aim elevation (as the grunts'), else the idle poses.
-fn companions(mut q: Query<(&Companion, &mut Animator, &Name, Option<&crate::ai::tower::TowerTask>)>) {
-    for (c, mut a, name, task) in &mut q {
+fn companions(mut q: Query<(&Companion, &mut Animator, &Name, Option<&crate::ai::tower::TowerTask>, Has<crate::ai::melee::Fighting>)>) {
+    for (c, mut a, name, task, fighting) in &mut q {
         a.blend = AI_BLEND;
         let who = if name.as_str() == "molmer" { "molmer" } else { "q111" };
         if c.dead.is_some() {
             a.play(0, &format!("{who}_die"), false, Mask::All);
             a.stop(1);
-        } else if task.is_some_and(|t| t.at_marker()) {
-            // the tower task's IC anims (ai/tower.rs plays them)
+        } else if task.is_some_and(|t| t.at_marker()) || fighting {
+            // the tower task's IC anims (ai/tower.rs plays them), the hand-to-hand fight's (ai/melee.rs)
         } else if let Some((n, _)) = c.hit {
             a.play(0, &format!("{who}_{n}"), false, Mask::All);
             a.stop(1);

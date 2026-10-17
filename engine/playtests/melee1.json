@@ -1,0 +1,14 @@
+{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+ {"wait": 0.5},
+ {"cheat": "SHIELDME"},
+ {"warp": [82, 50, 14, 0]},
+ {"ai_force": "fight"}, {"ai_force": "fight"}, {"ai_force": "fight"}, {"ai_force": "fight"},
+ {"warp_companion": [1, 82, 100, 14]}, {"wait": 0.5},
+ {"warp_companion": [1, 82, 100, 14]}, {"wait": 0.5},
+ {"warp_companion": [1, 82, 100, 14]}, {"wait": 0.5},
+ {"warp_companion": [1, 82, 100, 14]}, {"wait": 2.5},
+ {"shot": "takedown"},
+ {"wait": 18.0},
+ {"expect": {"melee.started": [1, 10], "melee.paired": [1, 10], "melee.kills": [1, 10]}},
+ {"quit": true}
+]}

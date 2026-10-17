@@ -60,6 +60,12 @@ SUITE += ['corpses_l1m4', 'corpses_l1m4_remaster']
 SUITE += ['army_l2m4_long']
 # agent-world (2026-10-17): the world features (docs/journal/2026-10-17-world.md): G1 the goliath's bone hulls
 SUITE += ['goliath_legs', 'boulders_l2m1', 'monk_hang', 'twiglets_topsy', 'save_sirens_write', 'save_sirens_read', 'goliath_hurt', 'vehicles_colossus_hits', 'turret_kickout', 'defence_launchers', 'posters_l1m3', 'toss_l1m4', 'smoking_troop', 'tree_cover']
+# the later levels' infantry (agent-enemyai, docs/journal/2026-10-17-enemyai.md): the shooter limit (lev_1_m4), the
+# captain's grenade and rocket, the gunner's led aim, falls and parachute drops (lev_2_m1), jump markers held after a
+# landing (lev_bonus_m1), the wall assault with ladders and scales and the script ends over the wall (lev_1_m4), the
+# companions' takedown and the grunts' close attack, a hidden grunt knocked away with his host (lev_1_m3)
+SUITE += ['max_fire_l1m4', 'captain_grenade', 'captain_rocket', 'gunner_lead', 'ai_fall', 'paratroopers_l2m1', 'jump_markers_bm1',
+          'ladders_l1m4', 'melee1', 'close_attack', 'ic_knock_l1m3']
 # 'launch_*': the real launch path as the player plays (the Remaster preset chosen by the options, the intro, the
 # title menu): New Game shows the world (menu art gone, every camera on one target, the strips beside the 4:3 centre
 # not black), Abandon -> title -> New Game in-process, the Graphics page applies, Restart / Quick Load / Restart from
