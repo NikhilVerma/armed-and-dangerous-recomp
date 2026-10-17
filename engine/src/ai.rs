@@ -25,6 +25,7 @@ pub mod max_fire;
 pub mod monk;
 pub mod notes;
 pub mod paratroop;
+pub mod retreat;
 pub mod rocket;
 pub mod squad;
 pub mod tower;
@@ -1081,6 +1082,7 @@ impl Plugin for AiPlugin {
             .init_level_resource::<AiForce>()
             .init_level_resource::<fall::FallStats>()
             .init_level_resource::<assault::Assault>()
+            .init_level_resource::<retreat::RetreatStats>()
             .init_level_resource::<ladder::LadderStats>()
             .init_level_resource::<notes::ScriptEndStats>()
             .add_message::<notes::ScriptEnd>()
@@ -1098,8 +1100,8 @@ impl Plugin for AiPlugin {
                     (
                         (body::apply_rules, log_cover, log_ai, log_placed, squad::log_squads, ic::log).chain(),
                         // the later levels' infantry (projectiles, falls, drops, the wall assault) and their playtest logs
-                        (grenade::fly, rocket::shoot_down, fall::drop_parachutes, jumper::free_markers, assault::sync, assault::recruit, ladder::ladders).chain(),
-                        (max_fire::log, grenade::log, rocket::log, fall::log, paratroop::log, jumper::log, notes::log, assault::log, ladder::log).chain(),
+                        (grenade::fly, rocket::shoot_down, fall::drop_parachutes, jumper::free_markers, assault::sync, assault::recruit, ladder::ladders, retreat::run).chain(),
+                        (max_fire::log, grenade::log, rocket::log, fall::log, paratroop::log, jumper::log, notes::log, assault::log, ladder::log, retreat::log).chain(),
                     )
                         .chain(),
                 )

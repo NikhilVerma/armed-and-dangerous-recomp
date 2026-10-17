@@ -341,10 +341,13 @@ fn load(mut army: ResMut<Army>, tuning: Res<ArmyTuning>, launch: Res<crate::Laun
 /// Army timers' activation (TimerObject_OnTrigger 0x004965d0) and the mission's pre-success (the army stops:
 /// Game+0xbf0 = +0xbf8 = 0, every army grunt retreats, MissionObject_OnTrigger 0x0044d600).
 fn triggers(
+    mut commands: Commands,
     mut army: ResMut<Army>,
     mut events: MessageReader<crate::mission::SendTrigger>,
-    mut grunts: Query<(&mut Grunt, &GlobalTransform), With<ArmyGrunt>>,
-    player: Query<&GlobalTransform, (With<crate::ai::Player>, Without<ArmyGrunt>)>,
+    grunts: Query<(Entity, &Grunt)>,
+    markers: Option<Res<crate::alarm::Markers>>,
+    mut rng: ResMut<crate::fx::FxStats>,
+    mut retreat: ResMut<crate::ai::retreat::RetreatStats>,
 ) {
     let ids: Vec<i64> = events.read().map(|e| e.0).collect();
     for t in ids {
@@ -357,20 +360,9 @@ fn triggers(
             army.stopped = true;
             army.limit = 0;
             army.unpause = 0;
-            // the retreat (vt+0x234(&dir) on each AI, the direction of the marker tagged -1): guess: each runs away
-            // from Roman for good (Flee with a goal far off)
-            let from = player.single().map(|p| p.translation()).unwrap_or_default();
-            for (mut g, gt) in &mut grunts {
-                if g.mind != Mind::Dead {
-                    let away = (gt.translation() - from).with_y(0.0).normalize_or(Vec3::X);
-                    g.spline = None;
-                    g.fixed = None;
-                    g.target = None;
-                    g.goal = gt.translation() + away * 3000.0;
-                    g.timer = 1.0e6;
-                    g.mind = Mind::Flee;
-                }
-            }
+            // the retreat (vt+0x234(&dir) on each AI, the direction of the marker tagged -1: ai/retreat.rs)
+            let dir = crate::ai::retreat::direction(markers.as_deref());
+            crate::ai::retreat::hand_out(&mut commands, grunts.iter().map(|(e, g)| (e, g.mind)), dir, &mut rng, &mut retreat);
             info!("EVENT army: pre-success: the army retreats");
         }
     }
@@ -776,7 +768,6 @@ fn fake_hits(
 /// before the AI's update sees it.
 #[allow(clippy::too_many_arguments)]
 fn army_grunts(
-    mut commands: Commands,
     time: Res<Time>,
     mut army: ResMut<Army>,
     markers: Option<Res<crate::alarm::Markers>>,

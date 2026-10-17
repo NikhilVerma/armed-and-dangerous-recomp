@@ -13,8 +13,10 @@
  {"shot": "fight"},
  {"expect": {"kills": [1, 1000], "dead": false}},
  {"send": 456}, {"wait": 1.0},
- {"expect": {"army.stopped": true, "army.limit": 0}},
- {"wait": 11.0},
+ {"expect": {"army.stopped": true, "army.limit": 0, "retreat.handed": [1, 1000]}},
+ {"wait": 1.0},
+ {"expect": {"retreat.running": [1, 1000]}},
+ {"wait": 10.0},
  {"expect": {"mission": "Won"}},
  {"quit": true}
 ]}
