@@ -327,7 +327,7 @@ address,name,disposition,reason
 0x004a2950,fn_004a2950,ported,"engine/src/weapons/landshark.rs fire: wpn_shark_fire, the shark launched at the target"
 0x004a2a40,fn_004a2a40,ported,"engine/src/weapons/targeting.rs update: the auto-aim pass for the rifle and the machine gun (options.rs auto_aim, the Controls page; not zoomed, difficulty <= normal); player.rs aims the shot at the target"
 0x004a2a70,fn_004a2a70,ported,"engine/src/weapons/sniper.rs camera_ray_shot: the start at the muzzle's depth on the camera ray, the target at snipergun_range"
-0x0044d150,fn_0044d150,deferred,"feature: camera-startup-path; camera_startup_path_anim on a camera path (slot 8, Camera_StartPath mode 2): mission.rs cites it as not ported"
+0x0044d150,fn_0044d150,ported,"engine/src/campath.rs startup (Mission::startup_path from camera_startup_path_anim, started once play begins; no shipped level sets one: all 24 mission.json have it empty) and defence.rs (the turret start)"
 0x0044e120,PlayerTickerBomb_AttachToParent,ported,"mission.rs lock_sites: a site with lock_parent_tag rides the lock_parent_bone (ref_ticker) of the run-time object of that tag (the squad's goliath, level.rs ObjectTag from goliath.rs); lev_3_m1 sites 173..175, lev_4_m1 330 / 367 / 368. Oracle ticker_l3m1 (Object_Attach's parent: the goliath), playtests ticker_goliath / ticker_goliath_l4m1"
 0x00477c90,fn_00477c90,deferred,"feature: untraced; player.rs cites it as 'meaning not settled, not ported'"
 0x004987a0,fn_004987a0,deferred,"feature: turret-vehicle-paths; a turret's ai_can_use test with the kickout time: ai.rs cites it, the kickout is not ported"

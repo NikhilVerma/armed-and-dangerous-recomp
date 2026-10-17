@@ -68,7 +68,10 @@ pub struct CameraPathPlugin;
 
 impl Plugin for CameraPathPlugin {
     fn build(&self, app: &mut App) {
-        app.add_message::<StartCameraPath>().init_level_resource::<CameraPath>().add_systems(PostUpdate, play.in_set(crate::camera::CameraPlace).before(TransformSystems::Propagate));
+        app.add_message::<StartCameraPath>()
+            .init_level_resource::<CameraPath>()
+            .add_systems(Update, startup)
+            .add_systems(PostUpdate, play.in_set(crate::camera::CameraPlace).before(TransformSystems::Propagate));
     }
 }
 
@@ -86,6 +89,21 @@ pub(crate) fn lerp_key<const N: usize>(keys: &[[f32; N]], t: f32) -> Option<([f3
     }
     let (a, b) = (keys[i - 1], keys[i]);
     Some((a, b, ((t - a[0]) / (b[0] - a[0]).max(1e-6)).clamp(0.0, 1.0)))
+}
+
+/// The level's start path (MissionObject slot 8 0x0044d150: with camera_startup_path_anim set, Camera_StartPath(name,
+/// mode 2) once play begins; the start in a turret of the same slot is defence.rs's).
+fn startup(mission: Option<Res<crate::mission::Mission>>, state: Res<State<crate::AppState>>, mut done: crate::levelreset::PerLevel<bool>, mut start: MessageWriter<StartCameraPath>) {
+    let done = done.get();
+    if *done || *state.get() != crate::AppState::Playing {
+        return;
+    }
+    let Some(m) = mission else { return };
+    *done = true;
+    if let Some(p) = m.startup_path.clone() {
+        info!("EVENT camera path: the level starts on {p}");
+        start.write(StartCameraPath(p));
+    }
 }
 
 fn play(

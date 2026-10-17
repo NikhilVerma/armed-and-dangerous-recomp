@@ -662,6 +662,9 @@ pub struct Mission {
     pub outcome: Outcome,
     dead_timer: f32,
     pub log: Vec<String>,
+    /// camera_startup_path_anim: the camera path the level starts on (MissionObject slot 8 0x0044d150 ->
+    /// Camera_StartPath mode 2; campath.rs `startup`); no shipped level sets one (all 24 mission.json: empty)
+    pub startup_path: Option<String>,
     pub objectives: String,
     /// the objectives text with both forms (the pause menu shows the short one), and its text id
     pub objectives_raw: String,
@@ -1154,13 +1157,12 @@ impl Mission {
         let m = &f.mission.resolved;
         let text = |k: &str| s(m, k).and_then(|t| f.text.get(&t).cloned());
         // MissionObject_Load 0x0044c170: start_in_turret_tag starts the level in a turret (defence.rs) and
-        // camera_startup_path_anim on a camera path (slot 8 0x0044d150, Camera_StartPath mode 2): the path is not ported, none on lev_1_m1. (Slot 9
-        // 0x0044d1b0 resets the mission timer +0x464 and the start flags: `start` below, from the level's start.)
-        let mut log = Vec::new();
-        if let Some(p) = s(m, "camera_startup_path_anim") {
-            log.push(format!("mission: camera_startup_path_anim {p} not ported"));
-        }
+        // camera_startup_path_anim on a camera path (slot 8 0x0044d150, Camera_StartPath mode 2: campath.rs startup).
+        // (Slot 9 0x0044d1b0 resets the mission timer +0x464 and the start flags: `start` below, from the level's start.)
+        let log = Vec::new();
+        let startup_path = s(m, "camera_startup_path_anim");
         Some(Mission {
+            startup_path,
             level: f.level.clone(),
             receivers,
             death_senders,
