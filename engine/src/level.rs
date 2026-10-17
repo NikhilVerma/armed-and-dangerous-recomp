@@ -465,6 +465,20 @@ pub(crate) fn attach_model(commands: &mut Commands, e: Entity, model: &scene::Mo
 /// straight off the hand joint. The original's attachment (Object_Attach 0x004539f0: parent +0x34 referenced, the
 /// parent and child bone names, flags +0x424 bits 1 / 2; Object_Detach 0x00453b20; Object_GetParent 0x004539d0) is
 /// the Bevy hierarchy here (a child entity under the bone's joint; 0x004539e0 "has a parent" is ChildOf).
+/// A held model in its rest pose under the hand: a skinned one (the Topsy Turvy bomb, the launchers) is drawn as
+/// authored, its joint attributes dropped.
+fn attach_rest_pose(commands: &mut Commands, hand: Entity, parts: &[(Handle<Mesh>, Handle<StandardMaterial>)], meshes: &mut Assets<Mesh>) -> Entity {
+    let held = commands.spawn((Transform::IDENTITY, Visibility::default())).id();
+    commands.entity(hand).add_child(held);
+    for (mh, mt) in parts {
+        let Some(x) = meshes.get(mh).cloned() else { continue };
+        let mesh = if x.attribute(Mesh::ATTRIBUTE_JOINT_INDEX).is_some() { meshes.add(x.with_removed_attribute(Mesh::ATTRIBUTE_JOINT_INDEX).with_removed_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT)) } else { mh.clone() };
+        let c = commands.spawn((Mesh3d(mesh), MeshMaterial3d(mt.clone()))).id();
+        commands.entity(held).add_child(c);
+    }
+    held
+}
+
 fn attach_weapon(commands: &mut Commands, hand: Entity, model: &scene::Model, fix: Transform) -> Entity {
     let holder = commands.spawn((Transform::IDENTITY, Visibility::default())).id();
     commands.entity(hand).add_child(holder);
@@ -577,8 +591,23 @@ pub struct Window {
 }
 
 /// One of Roman's weapon models in his hand (player.rs shows the one in use).
-#[derive(Component)]
-pub struct HandWeapon(pub &'static str);
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HandWeapon {
+    /// a gun's object (player_rifle, player_rlvindaloo, ...)
+    Gun(crate::weapons::WeaponId),
+    /// the Topsy Turvy bomb while it is used
+    Topsy,
+}
+
+impl HandWeapon {
+    /// The state log's name (the gun's mission name, "topsyturvy").
+    pub fn name(self) -> &'static str {
+        match self {
+            HandWeapon::Gun(w) => w.name(),
+            HandWeapon::Topsy => "topsyturvy",
+        }
+    }
+}
 
 /// A model as a static mesh collider placed at `world`, with its triangles' surface names (surface.rs).
 fn static_collider(physics: &mut Physics, model: &scene::Model, world: Mat4) -> Option<BodyId> {
@@ -839,39 +868,28 @@ pub fn spawn(
             let casts = !background && p.f("shadow_enable", 0.0) != 0.0;
             let hand_bone = ai::Kind::from_template(&inst.template).map_or("ref_rhand", ai::Kind::weapon_bone);
             let (d, t, hand) = attach_model(commands, e, model, casts, Some(&mut *skin), hand_bone);
-            // weapons: Roman's rifle (the level's loadout: player_add_rifle), grunts' rifle or bow
-            let weapon = match inst.template.as_str() {
-                "trotter" => Some("player_rifle"),
-                t => ai::weapon_template(t),
-            };
-            if let (Some(h), Some(w)) = (hand, weapon.and_then(|w| data.templates.get(w)).and_then(|t| t.model.clone())) {
-                if let Some(m) = lib.load_model(&w, false, assets, meshes, materials) {
-                    // the weapon's ref_hand_00 = the hand joint (identity; checked by CPU skinning: the rifle points
-                    // ahead in trotter_idle_1 and about 45 degrees up in the aim / run_aim poses, as authored)
-                    let held = attach_weapon(commands, h, m, Transform::IDENTITY);
-                    if inst.template == "trotter" {
-                        commands.entity(held).insert(HandWeapon("rifle"));
-                    }
-                }
-                // Roman's machine gun (taken in the pub) hangs in the same hand, hidden until it is in use
-                if inst.template == "trotter" {
-                    if let Some(m) = data.templates.get("player_machinegun").and_then(|t| t.model.clone()).and_then(|n| lib.load_model(&n, false, assets, meshes, materials)) {
-                        let held = attach_weapon(commands, h, m, Transform::IDENTITY);
-                        commands.entity(held).insert((HandWeapon("machinegun"), Visibility::Hidden));
-                    }
-                    // the Topsy Turvy bomb in the hand during its use (0x0047bbe0; shown by player.rs hand_weapon)
-                    // (its model is skinned: drawn in its rest pose, the joint attributes dropped)
-                    if let Some(parts) = data.templates.get("player_topsyturvy").and_then(|t| t.model.clone()).and_then(|n| lib.load_model(&n, false, assets, meshes, materials)).map(|m| m.parts.clone()) {
-                        let held = commands.spawn((Transform::IDENTITY, Visibility::Hidden, HandWeapon("topsyturvy"))).id();
-                        commands.entity(h).add_child(held);
-                        for (mh, mt) in parts {
-                            if let Some(x) = meshes.get(&mh).cloned() {
-                                let x = meshes.add(x.with_removed_attribute(Mesh::ATTRIBUTE_JOINT_INDEX).with_removed_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT));
-                                let c = commands.spawn((Mesh3d(x), MeshMaterial3d(mt))).id();
-                                commands.entity(held).add_child(c);
-                            }
+            // weapons: grunts' rifle or bow; Roman's guns (weapons/arsenal.rs: every player gun this level has a
+            // template for hangs in his hand, the one in use shown by player.rs hand_weapon)
+            if inst.template == "trotter" {
+                if let Some(h) = hand {
+                    for id in crate::weapons::WeaponId::ALL {
+                        if let Some(m) = data.templates.get(id.template()).and_then(|t| t.model.clone()).and_then(|n| lib.load_model(&n, false, assets, meshes, materials)) {
+                            // the weapon's ref_hand_00 = the hand joint (identity; checked by CPU skinning: the rifle
+                            // points ahead in trotter_idle_1 and about 45 degrees up in the aim / run_aim poses)
+                            let parts = m.parts.clone();
+                            let held = attach_rest_pose(commands, h, &parts, meshes);
+                            commands.entity(held).insert((HandWeapon::Gun(id), Visibility::Hidden));
                         }
                     }
+                    // the Topsy Turvy bomb in the hand during its use (0x0047bbe0; shown by player.rs hand_weapon)
+                    if let Some(parts) = data.templates.get("player_topsyturvy").and_then(|t| t.model.clone()).and_then(|n| lib.load_model(&n, false, assets, meshes, materials)).map(|m| m.parts.clone()) {
+                        let held = attach_rest_pose(commands, h, &parts, meshes);
+                        commands.entity(held).insert((HandWeapon::Topsy, Visibility::Hidden));
+                    }
+                }
+            } else if let (Some(h), Some(w)) = (hand, ai::weapon_template(&inst.template).and_then(|w| data.templates.get(w)).and_then(|t| t.model.clone())) {
+                if let Some(m) = lib.load_model(&w, false, assets, meshes, materials) {
+                    attach_weapon(commands, h, m, Transform::IDENTITY);
                 }
             }
             info.instances += 1;

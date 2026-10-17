@@ -47,6 +47,20 @@ impl Props {
     pub fn has(&self, k: &str) -> bool {
         self.0.contains_key(k)
     }
+    /// The set as a typed struct (serde, once at load): the struct's `#[serde(default)]`s are the original readers'
+    /// code defaults; keys it does not name are ignored, a value of the wrong type falls back to the whole default.
+    pub fn typed<T: serde::de::DeserializeOwned + Default>(&self) -> T {
+        serde_json::from_value(Value::Object(self.0.clone())).unwrap_or_else(|e| {
+            warn!("property set as {}: {e}", std::any::type_name::<T>());
+            T::default()
+        })
+    }
+}
+
+/// A property flag stored as a number (0 / 1) or a bool: `#[serde(deserialize_with = "flag")]`.
+pub fn flag<'de, D: serde::Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
+    let v = Value::deserialize(d)?;
+    Ok(v.as_bool().unwrap_or_else(|| v.as_f64().is_some_and(|f| f != 0.0)))
 }
 
 /// One difficulty's factors: an entry of the table 0x00589188 (4 entries x 5 floats, read from the exe), which

@@ -2,7 +2,7 @@
  {"wait": 1.0},
  {"mouse": [0, 250]},
  {"wait": 0.3},
- {"expect": {"special": 0, "stickies": 5, "sticky_live": 0, "shots": 0}},
+ {"expect": {"special": "stickybomb", "stickies": 5, "sticky_live": 0, "shots": 0}},
  {"click": "Right"},
  {"wait": 0.1},
  {"expect": {"sticky_live": 0, "stickies": 5, "shots": 1}},

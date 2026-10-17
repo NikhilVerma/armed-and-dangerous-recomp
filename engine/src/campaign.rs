@@ -284,7 +284,9 @@ fn log_state(
 ) {
     let Some(mut state) = state else { return };
     let loadout = roman.iter().next().map(|r| {
-        serde_json::json!({ "rifle": r.has_rifle, "mg": r.mg.as_ref().map(|w| w.clip + w.ammo), "in_hand": if r.use_mg && r.mg.is_some() { "machinegun" } else { "rifle" }, "stickies": r.stickies, "topsy": r.topsy })
+        use crate::weapons::{SpecialId, WeaponId};
+        let a = &r.arsenal;
+        serde_json::json!({ "rifle": a.has(WeaponId::Rifle), "mg": a.gun(WeaponId::Machinegun).map(|w| w.clip + w.ammo), "in_hand": a.in_hand_id().map_or("", WeaponId::name), "guns": a.guns().map(|g| g.id.name()).collect::<Vec<_>>(), "stickies": a.count(SpecialId::StickyBomb), "topsy": a.count(SpecialId::TopsyTurvy) })
     });
     state.0.insert("loadout".into(), loadout.unwrap_or(serde_json::Value::Null));
     let end = match *end {

@@ -113,11 +113,12 @@ pub mod mode {
     pub const TOPSY_BACK: u32 = 35;
 }
 
-/// The action states (+0x558) of 0x00475ff0: 1 firing (rifle / machine gun / ...: weapons 0..2), 3 reloading, 4
-/// changing weapon, 5 throwing.
+/// The action states (+0x558) of 0x00475ff0: 1 firing the guns (weapons 0..2: trotter_fire_sg), 2 firing the launchers
+/// (3..5: trotter_fire_rr, the recoil), 3 reloading, 4 changing weapon, 5 throwing.
 pub mod state {
     pub const NONE: u32 = 0;
     pub const FIRE: u32 = 1;
+    pub const FIRE_LAUNCHER: u32 = 2;
     pub const RELOAD: u32 = 3;
     pub const WCHANGE: u32 = 4;
     pub const THROW: u32 = 5;
@@ -523,7 +524,7 @@ fn roman(
         } else if r.reloading > 0.0 {
             state::RELOAD
         } else if r.since_fire < 0.3 {
-            state::FIRE
+            if r.arsenal.in_hand_id().is_some_and(crate::weapons::WeaponId::launcher) { state::FIRE_LAUNCHER } else { state::FIRE }
         } else {
             state::NONE
         };
