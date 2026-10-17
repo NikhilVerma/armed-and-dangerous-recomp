@@ -364,9 +364,11 @@ fn log_objects(
     mut seen: crate::levelreset::PerLevel<std::collections::HashSet<u32>>,
     sent: Res<TriggerLog>,
     fx: Res<crate::fx::FxStats>,
+    posters: Query<(), With<RewardPoster>>,
 ) {
     let Some(mut state) = state else { return };
     let seen = seen.get();
+    state.0.insert("posters".into(), posters.iter().count().into());
     // every object death so far (fx.rs `dying`: placed objects, windows, kegs, thrown bombs)
     state.0.insert("object_deaths".into(), fx.deaths.into());
     let triggers: serde_json::Map<String, serde_json::Value> = sent.0.iter().map(|(t, n)| (t.to_string(), (*n).into())).collect();
@@ -578,6 +580,22 @@ fn turret_start_known(scene: &SceneFile, id: u32) -> bool {
         .and_then(|v| v.as_i64())
         .unwrap_or(0)
         != 0
+}
+
+/// A building's reward poster (prop_rewardposter, 0x0040bf40), attached at its ref_wantedposter.
+#[derive(Component)]
+pub struct RewardPoster;
+
+/// A node's matrix in its model (game axes) from the model's reference anim (its first key: translation, rotation),
+/// as 0x00453c50 finds an attachment matrix by name.
+pub(crate) fn ref_node(dir: &std::path::Path, anim: &str, node: &str) -> Option<Mat4> {
+    let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join("anims").join(format!("{anim}.json"))).ok()?).ok()?;
+    let (_, track) = v.get("tracks")?.as_object()?.iter().find(|(k, _)| k.eq_ignore_ascii_case(node))?;
+    let f = |x: &serde_json::Value| x.as_f64().unwrap_or(0.0) as f32;
+    let t = track.get("t")?.as_array()?.first()?.as_array()?;
+    let r = track.get("r").and_then(|r| r.as_array()?.first()?.as_array().cloned());
+    let rot = r.filter(|r| r.len() >= 5).map_or(Quat::IDENTITY, |r| Quat::from_xyzw(f(&r[1]), f(&r[2]), f(&r[3]), f(&r[4])).normalize());
+    Some(Mat4::from_rotation_translation(rot, Vec3::new(f(&t[1]), f(&t[2]), f(&t[3]))))
 }
 
 /// A building's window pane (TwigletGenerator_Slot84 0x0040ad80 "windows": a "village_window" DefaultGameObject at
@@ -1099,6 +1117,18 @@ pub fn spawn(
                 if let Some(d) = destructible(&wp) {
                     commands.entity(we).insert(d);
                 }
+            }
+        }
+        // the reward poster (0x0040ad80 "rewardposter" -> 0x0040bf40): a prop_rewardposter at that node of the building
+        // (always ref_wantedposter), attached: it goes with the building's stage and fades with it (the fade list
+        // World+0xed8 the camera's fade walks with its building: camfade.rs fades the descendants)
+        if let Some(node) = p.s("rewardposter").filter(|_| behavior == "building") {
+            let anim = p.s("ref_anim_name").unwrap_or(inst.model.as_str()).to_owned();
+            let model = data.templates.get("prop_rewardposter").and_then(|t| t.model.clone());
+            if let (Some(at), Some(m)) = (ref_node(&lib_dir, &anim, node), model.as_ref().and_then(|m| lib.load_model(m, false, assets, meshes, materials))) {
+                let poster = commands.spawn((Transform::from_matrix(at), Visibility::default(), Name::new("prop_rewardposter"), RewardPoster)).id();
+                let _ = attach_model(commands, poster, m, false, None, "ref_rhand");
+                commands.entity(e).add_child(poster);
             }
         }
         if let Some(d) = destructible(&p) {
