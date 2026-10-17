@@ -90,8 +90,12 @@ it there).
 **Jump.** TurboJump sets flag 0x40. Flag 0x80 is set at once when |v.xy| > 20, otherwise when `trotter_jump_into`
 ends. With both set the impulse is applied and "Fx_fs_roman_jump" plays.
 
-**Jet pack (turbo).** It needs the pack object +0xabc (pickup_jumper_pack). There is none in lev_1_m1
-(player_has_jetpack 0). Numbers are in player.json for later levels.
+**Jet pack (turbo).** It needs the pack object +0xabc (pickup_jumper_pack, or the mission's player_has_jetpack:
+lev_3_m1 / lev_3_m2). None in lev_1_m1. Ported 2026-10-16: engine/src/jetpack.rs (its module doc has the mechanics);
+the flags: 2 turbo (launched), 4 gliding, 8 glided, 0x10 the wings may open (a launch, or falling with the pack). In
+0x0047aaf0 the three polls are: 0x00414730 pressed (the launch, with the grace +0x570 > 0), 0x004148f0 up (spreads the
+wings while falling: a tap launch glides from the top of its arc by itself), 0x00414810 held (folds them). Oracle
+measurements: work/oracle-blockers1/jet_probe, jet_probe2, tools/oracle_scenarios/jetpack_l3m1.json.
 
 **Ground and landing** (0x00478200, physics_03.cpp:1450-1470): grounded when a contact normal has z > 0.7.
 Landing damage 0x00478100 (game_05.cpp:2167): t = (-vz_min - min_speed) / max_speed. It divides by max_speed,

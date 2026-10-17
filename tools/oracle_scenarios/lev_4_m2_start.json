@@ -7,7 +7,7 @@
  "trace_from": -60,
  "suite": false,
  "known": {
-  "companion.jonesy.pos": "C1: a companion 12-13 units from the original's (follow distance / start spot), just past the tolerance",
+  "companion.jonesy.pos": "C1: the start spot agrees since 2026-10-16 (a companion waiting for a tower trigger starts where placed, 0x004836b0); from ~frame 150 the remaster's Jonesy sets off after Roman a little earlier than the original's (12 units, just past the tolerance)",
   "events.sounds": "B17 rest (the sound causes fixed by agent-sound): what is left comes from other families or chance: load-time sounds outside one game's traced window (B10 / E1 start message timing: the base levels' loops, the first ambient one-shot at load vs frame 2), random picks (ambient one-shots, thunder, sheep bleats), the grunts' gait (walk vs run footstep notes, charanim.rs), the grunts' _ic anim-event lines and boulder rolls (not in the remaster yet), vehicle loops (B14, vehicles not traced)"
  }
 }

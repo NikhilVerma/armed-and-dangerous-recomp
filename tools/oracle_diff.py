@@ -9,6 +9,9 @@ traces and reports the first divergence per field family (docs/remaster-engine.m
 SCENARIO: a name in tools/oracle_scenarios/ (or a path to a .json). A scenario:
     {"level": "lev_1_m1", "keys": "0:ENTER*3,40:17*300", "frames": 400, "trace_every": 2,
      "warp": [x, y, z] (optional), "play_delay": 30 (optional), "trace_from": -30 (optional: the briefing on),
+     "warp_at": [frame, x, y, z] (optional: a second warp at that play frame; the original's [test] warp counts frames
+                since the load (hash_from_load), so the briefing must appear on the load frame, as on lev_3_m1: the
+                hook's call lines show "since N play N - play_delay"),
      "tolerance": {"pos": 6, "grunt_pos": 12, "heading": 12, "health": 1, "frames": 20, "event_frames": 30,
                    "twiglet_frames": 30, "twiglet_dist": 20, "peasant_frames": 10, "peasant_dist": 6, "peasant_rope": 1.5},
      "expected": {"family": "why this family differs (an accepted difference, with evidence)"},
@@ -101,6 +104,17 @@ def run_original(sc, hooks_on=False, timeout=900, inst="oracle"):
     test.update(sc.get("hook_test", {}))
     if sc.get("warp"):
         test["play_warp"] = ",".join(str(v) for v in sc["warp"])
+    if sc.get("triggers"):
+        # [[play frame, trigger id], ...]: sent to the level as Object_SendTrigger would (testoracle.cpp play_triggers;
+        # needs a hook built with it: AND_HOOK_BUILD, tools/instances.py)
+        test["play_triggers"] = ",".join(f"{f}:{t}" for f, t in sc["triggers"])
+    if sc.get("hold_health"):
+        # Roman's health held at its maximum from play frame -10 (testoracle.cpp play_hold_health)
+        test["play_hold_health"] = 1
+    if sc.get("warp_at"):
+        f, x, y, z = sc["warp_at"]
+        test["hash_from_load"] = 1
+        test["warp"] = f"{int(f) + sc['play_delay']}:{x},{y},{z}"
     hooks = {n: hooks_on for n in compare.hook_names()}
     # The sound log is a callback in the recovered play functions (StartVoice, src/audio/audio_02.cpp:1495): these
     # three run recovered code (S2, verified by tools/compare.py) so the original's sounds are traced too.
@@ -141,6 +155,12 @@ def run_remaster(sc, exe, timeout=900):
               "play_delay": sc["play_delay"], "trace_from": sc["trace_from"]}
     if sc.get("warp"):
         oracle["warp"] = sc["warp"]
+    if sc.get("triggers"):
+        oracle["triggers"] = sc["triggers"]
+    if sc.get("hold_health"):
+        oracle["hold_health"] = True
+    if sc.get("warp_at"):
+        oracle["warp_at"] = sc["warp_at"]
     body = {"oracle": oracle}
     if sc.get("level", "lev_1_m1") != "lev_1_m1":
         body["scene"] = sc["level"]  # tools/playtest.py: work/remaster/<level>
@@ -471,6 +491,13 @@ def compare_traces(sc, orig, rem):
                 d = dist(a[:3], b[:3])
                 fam.check(f"companion.{name}.pos", f, d <= tol["grunt_pos"], f"{name} at {a[:3]} vs {b[:3]} ({d:.1f} apart)")
                 fam.check(f"companion.{name}.health", f, abs(a[3] - b[3]) <= tol["health"], f"{name} health {a[3]} vs {b[3]}")
+                # the update's mode (+0xb5c; a 5th element in traces from 2026-10-16 on): only the tower task's
+                # modes compare (6 walking to the tower marker, 7 planting / the bomb loop); 1..3 (idle, moving,
+                # engaging) flicker with the AI's rolls and count as one
+                if len(a) > 4 and len(b) > 4:
+                    tower = lambda m: m if m in (6, 7) else "formation"
+                    fam.check(f"companion.{name}.mode", f, persistent(rem, rf, f, lambda x, i=i: tower(((x.get("companions") or [None, None])[i] or [0] * 5)[4]), tower(a[4]), win),
+                              f"{name} mode {a[4]} vs {b[4]}")
         og, rg = ko[f], kr[f]
         alive_o = sum(1 for g in o.get("grunts", []) if g["health"] > 0)
         alive_r = sum(1 for g in r.get("grunts", []) if g["health"] > 0 and g.get("mind") != "Dead")
@@ -614,6 +641,8 @@ HINTS = {
     "companion.q.pos": "ai.rs companions (follow / defend); companions.md",
     "companion.jonesy.health": "ai.rs companion_damage",
     "companion.q.health": "ai.rs companion_damage",
+    "companion.jonesy.mode": "ai/tower.rs (the tower task: modes 6 / 7, MolmerObject_Slot47 0x00485910)",
+    "companion.q.mode": "ai/tower.rs",
     "mission.state": "mission.rs outcome; original level state Game+0xa64 +0xc",
     "mission.objective": "mission.rs compass (ui_ear objective_tag); original Game+0x2658",
     "events.triggers": "mission.rs volumes / dispatch (the sender's instance id names the object); original Object_SendTrigger 0x00461870",

@@ -1,0 +1,17 @@
+{"scene": "lev_3_m1", "steps": [
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 3.5}, {"tap": "Enter"}, {"wait": 1.0},
+ {"expect": {"jetpack.pack": true, "jetpack.model": 1, "jetpack.wings": "turbo_idle", "jetpack.flight": "None"}},
+ {"tap": "Space"}, {"wait": 0.5},
+ {"expect": {"jetpack.flight": "Turbo", "anim_mode": 21}},
+ {"wait": 1.5},
+ {"expect": {"jetpack.flight": "Glide", "jetpack.wings": "turbo_up_cycle"}},
+ {"down": "KeyW"}, {"wait": 0.5},
+ {"expect": {"jetpack.wings": "turbo_forward_cycle", "anim_mode": 24}},
+ {"down": "Space"}, {"wait": 0.3},
+ {"expect": {"jetpack.flight": "Turbo"}},
+ {"up": "Space"}, {"wait": 0.3},
+ {"expect": {"jetpack.flight": "Glide"}},
+ {"up": "KeyW"}, {"wait": 5.0},
+ {"expect": {"jetpack.flight": "None", "jetpack.wings": "turbo_idle", "health": 400}},
+ {"quit": true}
+]}

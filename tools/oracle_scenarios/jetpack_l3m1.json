@@ -1,0 +1,16 @@
+{
+ "about": "lev_3_m1 (player_has_jetpack 1) jumper pack from the start point: a 1-frame Jump tap launches (fx_turbo_launch: veh_jumper_blastoff; +196.8 units/s in the first frame, turbo gravity -160.9), the wings spread by themselves past the top (veh_jumper_wings_out, the glide loop); Jump held 2 frames folds and reopens them; W held glides at 40 + 50 forward, -31.8 down; the landing folds them (wings_in) and Roman runs on (W); a running launch with W then D held (turbo air control: the stick's wish from zero velocity at turbo_movement_power), wings past the top, a fold and reopen, S held glides back at 15 (40 - 55)",
+ "level": "lev_3_m1",
+ "keys": "0:ENTER*3,40:57*1,140:57*2,150:17*150,400:17*200,450:57*1,460:32*60,560:57*2,570:31*100",
+ "frames": 760,
+ "trace_every": 2,
+ "trace_from": -60,
+ "suite": true,
+ "known": {
+  "events.sounds": "B17 rest (level ambience at load and random picks, as lev_3_m1_start), and the turbo anims' footstep notes in the air at other frames (charanim.rs notes)",
+  "grunt.pos": "B24: captain_sniper 228 slides off the beam of v_rockettower2 272 (lev_3_m1_start)",
+  "vehicle.pos": "G3: squad 172's goliath (squad_goliath_4, force_ground 0) drifts ~10 units in the original before its squad is activated (its anchor is not forced to the ground), the remaster's stands",
+  "grunt.mind": "B6: the far captains react to Roman's flight at other times (grunt 230: the original's reloads at 582, the remaster's jumper captain takes off)",
+  "grunt.target": "B6, as grunt.mind"
+ }
+}

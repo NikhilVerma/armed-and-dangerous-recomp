@@ -254,8 +254,12 @@ struct Site {
     area_damage: f32,
     radius_inner: f32,
     radius_outer: f32,
-    /// lock_parent_tag (+0x49c; 0x0044e120 attaches the bomb to the tagged object's lock_parent_bone)
+    /// lock_parent_tag (+0x49c) and lock_parent_bone (+0x4a0, p_player_tickerbomb "ref_ticker"): the bomb rides that
+    /// bone of the tagged object (PlayerTickerBomb_AttachToParent 0x0044e120; `lock_sites`)
     lock_parent_tag: i64,
+    lock_parent_bone: String,
+    /// the parent it is attached to (Object_Attach 0x004539f0: the parent referenced at +0x34)
+    locked_to: Option<Entity>,
     /// armed (+0x460, PlayerTickerBomb_IsArmed 0x0044e390) with the fuse left (Game+0x25e4)
     armed: Option<f32>,
     hold: f32,
@@ -551,6 +555,8 @@ pub struct Loadout {
     pub ammo: HashMap<&'static str, i64>,
     /// player_set_num_* of each special (-1 unchanged, so none on a new player)
     pub specials: HashMap<&'static str, i64>,
+    /// player_has_jetpack (Game byte +0xd92, game_02.cpp:1999): the reset gives the jumper pack (jetpack.rs)
+    pub jetpack: bool,
 }
 
 impl Loadout {
@@ -560,7 +566,7 @@ impl Loadout {
         let weapons = WEAPONS.iter().copied().filter(|w| n(format!("player_add_{w}"), (*w == "machinegun") as i64) != 0).take(3).collect();
         let ammo = WEAPONS.iter().map(|w| (*w, n(format!("player_set_ammo_{w}"), -2))).collect();
         let specials = SPECIALS.iter().map(|s| (*s, n(format!("player_set_num_{s}"), -1))).collect();
-        Loadout { weapons, ammo, specials }
+        Loadout { weapons, ammo, specials, jetpack: n("player_has_jetpack".into(), 0) != 0 }
     }
 
     pub fn has(&self, weapon: &str) -> bool {
@@ -1013,6 +1019,8 @@ impl Mission {
                     radius_inner: n(r, "damage_radius_inner") as f32,
                     radius_outer: n(r, "damage_radius_outer") as f32,
                     lock_parent_tag: n(r, "lock_parent_tag") as i64,
+                    lock_parent_bone: s(r, "lock_parent_bone").unwrap_or_default(),
+                    locked_to: None,
                     armed: None,
                     hold: 0.0,
                     done: false,
@@ -1191,8 +1199,9 @@ impl Mission {
             start_sent: false,
             queue: Vec::new(),
             showing: None,
-            // player_has_tickerbomb (MissionObject_Load 0x0044c170, game_02.cpp:1994): Game+0xd90, the flag the pub's
-            // award sets too (pubscreen.rs: the same 4); lev_4_m1 starts with them (its goliaths' ticker sites)
+            // player_has_tickerbomb (MissionObject_Load 0x0044c170, game_02.cpp:1994: Game byte +0xd90, the flag the
+            // ticker prompt 0x00467450 and the sites test; the pub's award sets the same byte): lev_3_m1 / lev_4_m1
+            // start with ticker bombs. The remaster counts them as the pub's award does (pubscreen.rs: 4)
             tickers: if n(m, "player_has_tickerbomb") != 0.0 { 4 } else { 0 },
             outcome: Outcome::Playing,
             dead_timer: 0.0,
@@ -1321,7 +1330,7 @@ impl Plugin for MissionPlugin {
         app.add_message::<SendTrigger>()
             .add_message::<VolumeSent>()
             .init_level_resource::<CompassList>()
-            .add_systems(Update, (start, volumes, sites, pub_door, barracks, timers, dispatch, messages, outcome).chain().run_if(in_state(crate::AppState::Playing)))
+            .add_systems(Update, (start, volumes, lock_sites, sites, pub_door, barracks, timers, dispatch, messages, outcome).chain().run_if(in_state(crate::AppState::Playing)))
             .add_systems(Update, (event_log, state_log))
             // after the deaths of the frame (fx.rs), before the husk swap (level.rs husks: the Husk marker)
             .add_systems(Update, deaths.after(crate::fx::FxSet).run_if(in_state(crate::AppState::Playing)))
@@ -1391,7 +1400,12 @@ fn state_log(m: Option<Res<Mission>>, state: Option<ResMut<crate::playtest::Play
     let sites: Map<String, Value> = m
         .sites
         .iter()
-        .map(|s| (s.id.to_string(), serde_json::json!({"enabled": s.enabled(), "armed": s.armed.is_some(), "done": s.done, "tagged": !m.untagged.contains(&s.id), "alpha": s.shown})))
+        .map(|s| {
+            // the bomb's position in game space (it moves with a lock parent) and whether it rides one
+            let g = crate::level::game_to_engine().inverse() * s.pos;
+            let pos = [g.x, g.y, g.z].map(|v| (v * 10.0).round() / 10.0);
+            (s.id.to_string(), serde_json::json!({"enabled": s.enabled(), "armed": s.armed.is_some(), "done": s.done, "tagged": !m.untagged.contains(&s.id), "alpha": s.shown, "pos": pos, "locked": s.locked_to.is_some()}))
+        })
         .collect();
     let counters: Map<String, Value> = m.counters.iter().map(|c| (c.id.to_string(), serde_json::json!({"current": c.current, "off": c.off}))).collect();
     let camfx: Map<String, Value> = m.camfx.iter().map(|c| (c.id.to_string(), serde_json::json!({"running": c.holder.is_some(), "gone": c.gone}))).collect();
@@ -1510,6 +1524,56 @@ fn volumes(
     m.log.extend(logs);
 }
 
+/// Ticker bomb sites locked to a moving object (PlayerTickerBomb_AttachToParent 0x0044e120, run for every object
+/// after the level's load: 0x0045d9ef): a site with a lock_parent_tag rides the lock_parent_bone of the object of that
+/// tag (Object_FindByTag 0x004592e0, then Object_Attach 0x004539f0 with the bomb's own origin on the bone: no offset,
+/// no child bone). lev_3_m1's sites 173..175 and lev_4_m1's 330 / 367 / 368 ride the "ref_ticker" bone of their
+/// squads' goliaths (tags 2001..2003, 2110..2112): the oracle's trace of Object_Attach on lev_3_m1 shows a parent
+/// without an instance id, the goliath the squad made, not squad #170 of the same tag (ticker_l3m1 scenario). The
+/// goliath is made after the load (goliath.rs), so a site looks for it until it is there. Once attached, the site's
+/// position is the bomb's (the prompt's range, the blast). A parent that dies leaves the bomb where it was (guess: the
+/// parent object stops updating; not traced).
+pub(crate) fn lock_sites(
+    mut commands: Commands,
+    mut m: Option<ResMut<Mission>>,
+    bombs: Query<(Entity, &InstanceId, &GlobalTransform)>,
+    parents: Query<(Entity, &crate::level::ObjectTag, &crate::skin::Animator, Option<&crate::fx::Destructible>)>,
+    globals: Query<&GlobalTransform>,
+) {
+    let Some(m) = m.as_deref_mut() else { return };
+    // alive: not dying (a goliath's death starts its husk swap, which takes its bones and what hangs on them)
+    let alive = |d: Option<&crate::fx::Destructible>| d.is_some_and(|d| d.dying.is_none() && d.health > 0.0);
+    let mut logs = Vec::new();
+    for s in m.sites.iter_mut().filter(|s| s.lock_parent_tag != 0 && !s.done) {
+        let Some((bomb, _, at)) = bombs.iter().find(|(_, i, _)| i.0 == s.id) else { continue };
+        match s.locked_to {
+            None => {
+                let bone = parents.iter().filter(|(_, t, _, d)| t.0 == s.lock_parent_tag && alive(*d)).find_map(|(e, _, a, _)| {
+                    let joint = a.skeleton.index.get(s.lock_parent_bone.as_str()).and_then(|&i| a.joints.get(i).copied())?;
+                    Some((e, joint))
+                });
+                let Some((parent, joint)) = bone else { continue };
+                commands.entity(bomb).insert(Transform::IDENTITY);
+                commands.entity(joint).add_child(bomb);
+                s.locked_to = Some(parent);
+                logs.push(format!("ticker site {} locked to tag {} at {}", s.id, s.lock_parent_tag, s.lock_parent_bone));
+            }
+            Some(parent) => {
+                if parents.get(parent).is_ok_and(|(_, _, _, d)| alive(d)) {
+                    s.pos = at.translation();
+                } else {
+                    // the parent died: the bomb stays where it was
+                    let here = globals.get(bomb).map(|g| g.compute_transform()).unwrap_or(Transform::from_translation(s.pos));
+                    commands.entity(bomb).remove_parent_in_place().insert(here);
+                    s.lock_parent_tag = 0;
+                    logs.push(format!("ticker site {}: its parent died, the bomb stays", s.id));
+                }
+            }
+        }
+    }
+    m.log.extend(logs);
+}
+
 /// Ticker bomb sites (PlayerTickerBomb_Update 0x0044e150 and the prompt 0x00467450): in range with ticker bombs,
 /// "Hold down %s to set the ticker bomb!"; Use held for arm_time arms it (0x0044e4a0: send_trigger_set, its tag
 /// cleared, alpha 1, a 6 s fuse Game+0x25e4), then it explodes (area damage at the bomb), sends send_trigger_explode
@@ -1538,6 +1602,10 @@ pub(crate) fn sites(
     let tickers = m.tickers;
     // Game+0xdcf: a ticker bomb is armed and ticking (one at a time)
     let any_armed = m.sites.iter().any(|s| s.armed.is_some() && !s.done);
+    // Use acts on one site: the nearest enabled, unarmed one in range (the Use handler 0x004788a0, game_06.cpp:2259-2300,
+    // keeps the closest bomb of the list Game+0xa84 +0xeb0 and starts only its wind-up, 0x0044e3a0). Two goliaths
+    // walking side by side (lev_3_m1 squads 171 / 172) put two sites in range at once
+    let chosen = m.sites.iter().filter(|s| !s.done && s.armed.is_none() && s.enabled() && p.distance(s.pos) <= s.radius).min_by(|a, b| p.distance(a.pos).total_cmp(&p.distance(b.pos))).map(|s| s.id);
     let mut sends = Vec::new();
     let mut logs = Vec::new();
     let mut untag = Vec::new();
@@ -1559,9 +1627,6 @@ pub(crate) fn sites(
                 commands.entity(e).insert(crate::camfade::ObjectAlpha(alpha));
                 s.shown = Some(alpha);
             }
-        }
-        if s.lock_parent_tag != 0 && s.nag == 0 {
-            logs.push(format!("ticker site {}: lock_parent_tag {} not ported (0x0044e120)", s.id, s.lock_parent_tag));
         }
         if let Some(fuse) = s.armed.as_mut() {
             *fuse -= dt;
@@ -1617,6 +1682,13 @@ pub(crate) fn sites(
                 }
                 s.nag += 1;
             }
+            continue;
+        }
+        if Some(s.id) != chosen {
+            if s.hold > 0.0 {
+                wind_down(&mut stop, &mut sounds, s.pos);
+            }
+            s.hold = 0.0;
             continue;
         }
         if tickers == 0 {
@@ -1814,6 +1886,21 @@ fn barracks(
 }
 
 /// Running timers advance (TimerObject_Update 0x00496750) and send their triggers.
+impl Mission {
+    /// The running timers jump `dt` ahead (the playtest's skip_timers step): the triggers of the entries passed, in
+    /// order, as each timer's own advance (Timer_Advance 0x00496690) gives them.
+    pub fn skip_timers(&mut self, dt: f32) -> Vec<i64> {
+        let mut out = Vec::new();
+        for tm in &mut self.timers {
+            for t in tm.advance(dt) {
+                self.log.push(format!("timer {} -> trigger {t} (skipped ahead)", tm.id));
+                out.push(t);
+            }
+        }
+        out
+    }
+}
+
 fn timers(time: Res<Time>, mut m: Option<ResMut<Mission>>, mut out: MessageWriter<SendTrigger>) {
     let Some(m) = m.as_deref_mut() else { return };
     let dt = time.delta_secs();
@@ -2037,6 +2124,7 @@ fn dispatch(
                     }
                 }
                 Action::Fx(name, at) => {
+                    m.log.push(format!("fx ear: {name}"));
                     fx.write(StartFx { name, at, rotation: Quat::IDENTITY, follow: None, position_only: false });
                 }
                 // handled above by the barracks' own trigger ids

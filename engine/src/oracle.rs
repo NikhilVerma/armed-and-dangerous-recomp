@@ -13,6 +13,12 @@
 //!   DirectInput scan code (17 W, 30 A, 31 S, 32 D, 57 Space ...), ENTER / ESC / SPACE / UP / DOWN / LEFT / RIGHT,
 //!   MOUSE1..3, or MOUSEX<n> / MOUSEY<n> (mouse counts per frame while held).
 //! - `warp`: Roman is put there (game space) at play frame -10, keeping his heading, as [test] play_warp.
+//! - `hold_health`: Roman's health put back to his maximum every frame from play frame -10, as [test]
+//!   play_hold_health (a scenario about something else is not ended by his death).
+//! - `triggers`: `[[play frame, trigger id], ...]` sent to the level at those frames, as [test] play_triggers
+//!   (Object_SendTrigger with no sender): a sequence the scripted input cannot reach (lev_4_m2's 7001).
+//! - `warp_at`: [frame, x, y, z]: a second warp after that play frame (the hook's [test] warp with hash_from_load
+//!   moves him at the frame's present, so the original's trace has him there from the next frame on).
 //! - The trace (`<script>.trace.jsonl`): one line every `trace_every` frames from play frame `trace_from` (every frame
 //!   before frame 0; lines before the briefing are kept until it fixes the play frames), the schema of
 //!   hook/src/testoracle.cpp in game space (Z up), "t" counted from the first line; the run quits after `frames`.
@@ -113,7 +119,13 @@ pub struct OracleConfig {
     #[serde(default)]
     pub warp: Option<[f32; 3]>,
     #[serde(default)]
+    pub warp_at: Option<[f32; 4]>,
+    #[serde(default)]
     pub trace_from: i64,
+    #[serde(default)]
+    pub triggers: Vec<(i64, i64)>,
+    #[serde(default)]
+    pub hold_health: bool,
 }
 
 fn default_delay() -> i64 {
@@ -237,6 +249,7 @@ pub struct Oracle {
     triggers: Vec<i64>,
     sounds: Vec<String>,
     warped: bool,
+    warped_at: bool,
     /// inputs down last frame (released when their span ends)
     down: Vec<Input>,
     /// placed destructible objects alive last frame, and the ones gone since the last trace line
@@ -269,7 +282,7 @@ fn setup(mut commands: Commands, pt: Res<crate::playtest::Playtest>) {
     let keys = parse_keys(&cfg.keys);
     let out = (cfg.trace_every > 0).then(|| std::fs::File::create(pt.path.with_extension("trace.jsonl")).ok()).flatten();
     info!("EVENT oracle: {} scripted inputs, {} frames, trace every {}", keys.len(), cfg.frames, cfg.trace_every);
-    commands.insert_resource(Oracle { cfg, keys, frame: 0, brief: None, clock0: None, out, pending: Vec::new(), log_seen: 0, triggers: Vec::new(), sounds: Vec::new(), warped: false, down: Vec::new(), alive: None, panes: None, deaths: Vec::new() });
+    commands.insert_resource(Oracle { cfg, keys, frame: 0, brief: None, clock0: None, out, pending: Vec::new(), log_seen: 0, triggers: Vec::new(), sounds: Vec::new(), warped: false, warped_at: false, down: Vec::new(), alive: None, panes: None, deaths: Vec::new() });
 }
 
 fn count(mut o: ResMut<Oracle>, mission: Option<Res<crate::mission::Mission>>, bank: Option<ResMut<crate::audio::SoundBank>>) {
@@ -295,12 +308,31 @@ fn drive(
     mut pt: ResMut<crate::playtest::Playtest>,
     roman: Query<&crate::player::Roman>,
     mut exit: MessageWriter<AppExit>,
+    mut send: MessageWriter<crate::mission::SendTrigger>,
+    mut roman_health: Query<(&crate::player::Roman, &mut crate::fx::Health)>,
 ) {
     let Some(f) = o.play_frame() else { return };
+    if o.cfg.hold_health && f >= -10 {
+        if let Ok((r, mut h)) = roman_health.single_mut() {
+            h.0 = r.max_health;
+        }
+    }
+    // the scenario's triggers, each once at its frame
+    let due: Vec<i64> = o.cfg.triggers.iter().filter(|(at, _)| *at == f).map(|(_, t)| *t).collect();
+    for t in due {
+        info!("EVENT oracle: trigger {t} at play frame {f}");
+        send.write(crate::mission::SendTrigger(t));
+    }
     if let (Some(w), false, Ok(r)) = (o.cfg.warp, o.warped, roman.single()) {
         if f >= -10 {
             o.warped = true;
             pt.request_warp([w[0], w[1], w[2], r.yaw.to_degrees()]);
+        }
+    }
+    if let (Some([at, x, y, z]), false, Ok(r)) = (o.cfg.warp_at, o.warped_at, roman.single()) {
+        if f > at as i64 {
+            o.warped_at = true;
+            pt.request_warp([x, y, z, r.yaw.to_degrees()]);
         }
     }
     let now: Vec<Input> = o.keys.iter().filter(|k| f >= k.at && f < k.at + k.hold).map(|k| k.input.clone()).collect();
@@ -336,7 +368,7 @@ fn trace(
     mut bank: Option<ResMut<crate::audio::SoundBank>>,
     roman: Query<(Entity, &GlobalTransform, &crate::player::Roman)>,
     grunts: Query<(Entity, &crate::ai::Grunt, &crate::fx::Health, &GlobalTransform, Option<&crate::level::InstanceId>)>,
-    companions: Query<(&crate::ai::Companion, &crate::fx::Health, &GlobalTransform)>,
+    companions: Query<(&crate::ai::Companion, &crate::fx::Health, &GlobalTransform, Option<&crate::ai::tower::TowerTask>)>,
     ids: Query<&crate::level::InstanceId>,
     // (a peasant's or a door mat's death is its own kill slot, not DefaultGameObject_OnDeath: not a "deaths" event)
     objects: Query<(&crate::level::InstanceId, &crate::fx::Destructible), (Without<crate::peasant::Peasant>, Without<crate::peasant::Mat>)>,
@@ -412,9 +444,12 @@ fn trace(
                 "max_health": r2(p.max_health), "weapon": p.weapon, "clip": p.clip, "ammo": p.ammo, "stickies": p.stickies}),
         );
     }
-    let mut comps: Vec<(bool, serde_json::Value)> = companions.iter().map(|(c, h, t)| {
+    // the 5th element: the update's mode as the original's +0xb5c (MolmerObject_Slot47 0x00485910), the tower task's
+    // 6 / 7 over the companion's own 1..3
+    let mut comps: Vec<(bool, serde_json::Value)> = companions.iter().map(|(c, h, t, task)| {
         let v = g(t.translation());
-        (c.q, serde_json::json!([v[0], v[1], v[2], r2(h.0)]))
+        let mode = task.and_then(|k| k.mode()).unwrap_or_else(|| c.mode());
+        (c.q, serde_json::json!([v[0], v[1], v[2], r2(h.0), mode]))
     }).collect();
     comps.sort_by_key(|c| c.0); // Jonesy, then Q (the hook's order: player +0xad0, +0xad4)
     line.insert("companions".into(), comps.into_iter().map(|c| c.1).collect::<Vec<_>>().into());

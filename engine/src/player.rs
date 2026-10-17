@@ -61,6 +61,10 @@ pub struct Roman {
     pub jump_impulse: f32,
     pub fall_speed: f32,
     pub anti_gravity: f32,
+    /// landing_damage_* (+0xbd0 .. +0xbe8) and death_falling_distance / time (+0xbf4 / +0xbf0) without a jumper
+    /// pack (with one, jetpack.rs Tuning's turbo numbers)
+    pub landing_damage: LandingDamage,
+    pub death_fall: (f32, f32),
     pub max_health: f32,
     /// Roman's weapon state (+0xc24, game_09.cpp 723-1990), replaced by these fields: the slot lists and their
     /// plumbing (list init 0x004a0b10, find / has / add 0x004a0b60 / 0x004a0b50 / 0x004a0b80, state init 0x004a0d00,
@@ -196,6 +200,32 @@ pub struct Projectile {
     /// fly-by sound once within 70 of Roman (0x00482620)
     pub arrow: bool,
     pub flyby: bool,
+    /// the damage record's class flag (projectile vt+0x13c): a mounted gun's bullet 0x80000, the forge cannon's mortar
+    /// 0x100000, which an AI victim scales by its stig_ / forge_damage_multiplier (GenericAIObject_Slot52 0x00430340)
+    pub kind: DamageKind,
+}
+
+/// A projectile's damage class as its record flags carry it (projectile vt+0x13c, the base 0x0047eba0 plus the class's
+/// bit): the AI victims scale the damage by their own multiplier for it (GenericAIObject_Slot52 0x00430340).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum DamageKind {
+    #[default]
+    Plain,
+    /// proj_stig_bullet (class 3, vtable 0x005aec10: 0x00481010 adds 0x80000): the mounted guns' bullets
+    Stig,
+    /// proj_forge_mortar (class 0xb, ForgeCannonProjectile 0x005a33b8: 0x00481000 adds 0x100000)
+    Forge,
+}
+
+impl DamageKind {
+    /// By the projectile's behaviour (the class table of 0x0045df60 / ObjectSystem_CreateObject 0x0045f020).
+    pub fn of_behavior(b: &str) -> Self {
+        match b {
+            "proj_stig_bullet" => DamageKind::Stig,
+            "proj_forge_mortar" => DamageKind::Forge,
+            _ => DamageKind::Plain,
+        }
+    }
 }
 
 /// Bones that stand for collision parts in the hit test (the main body bones, as the ragdoll parts).
@@ -350,6 +380,7 @@ fn launch_projectile(commands: &mut Commands, fx: &mut MessageWriter<crate::fx::
                 vel,
                 arrow: p.s("behavior") == Some("proj_arrow"),
                 flyby: p.s("behavior") == Some("proj_arrow"),
+                kind: DamageKind::of_behavior(p.s("behavior").unwrap_or("")),
                 // "lifetime" (Projectile_Load 0x0047e0c0, default 4): removed when it runs out (0x0047e4a0)
                 life: p.f("lifetime", 4.0),
                 damage: p.f("damage", 10.0),
@@ -503,6 +534,14 @@ pub fn make_roman(physics: &mut Physics, p: &Props, data: &GameData, feet: Vec3,
         jump_impulse: p.f("jump_impulse", 70.0),
         fall_speed: p.f("fall_speed", -50.0),
         anti_gravity: p.f("jump_anti_gravity", 5.0),
+        // (PlayerObject_Load's defaults, game_05.cpp:713-722)
+        landing_damage: LandingDamage {
+            min_hurt: p.f("landing_damage_min_hurt", 70.0),
+            max_hurt: p.f("landing_damage_max_hurt", 200.0),
+            min_speed: p.f("landing_damage_min_speed", 40.0),
+            max_speed: p.f("landing_damage_max_speed", 100.0),
+        },
+        death_fall: (p.f("death_falling_distance", 200.0), p.f("death_falling_time", 3.0)),
         max_health: p.f("max_health", 400.0),
         rifle: Weapon {
             name: "rifle",
@@ -719,15 +758,19 @@ pub(crate) fn control(
     opts: Res<crate::options::GameOptions>,
     topsy: Res<crate::topsy::Topsy>,
     mut physics: NonSendMut<Physics>,
-    mut q: Query<(&mut Roman, &mut Transform, &mut Health)>,
+    mut q: Query<(&mut Roman, &mut Transform, &mut Health, Option<&mut crate::jetpack::JetPack>)>,
     (ctl, mounted, rig): (Res<crate::input::Controls>, Res<crate::turret::Mounted>, Res<crate::camera::CameraRig>),
     mut fx: MessageWriter<crate::surface::StartSurfaceFx>,
+    // the breaths' decks with their own random stream (drawing on a shared one shifted other systems' rolls)
+    (mut sounds, mut breaths): (MessageWriter<crate::audio::PlaySound>, crate::levelreset::PerLevel<([crate::audio::RandomDeck; 2], crate::fxvm::CrtRand)>),
 ) {
     let dt = time.delta_secs();
-    for (mut r, mut t, mut h) in &mut q {
+    let (breaths, rng) = breaths.get();
+    for (mut r, mut t, mut h, mut jet) in &mut q {
         if h.0 <= 0.0 {
             r.dead = true;
         }
+        let yaw_before = r.yaw;
         // on a mounted gun the player update takes no input (PlayerCanAct: Game+0xac8 set); turret.rs holds him
         if mounted.0.is_some() {
             continue;
@@ -765,6 +808,8 @@ pub(crate) fn control(
             r.pitch = (r.pitch + stick.y * 2.0 * PITCH_MAX_SPEED * dt * inv * kp).clamp(lo, hi);
         }
         let mut wish = Vec3::ZERO;
+        // the stick as the update takes it (x right, y forward, after the move curve): the jumper pack's air control
+        let mut move_input = Vec2::ZERO;
         // the playtest bot's decisions (bot.rs `think`, before this system): its walk, and its facing / aim over the look
         let bot_walk = bot.walk;
         if let Some(yaw) = bot.face {
@@ -781,14 +826,16 @@ pub(crate) fn control(
             wish += Quat::from_rotation_y(r.yaw) * Vec3::NEG_Z * r.fwd_speed;
         }
         if !r.dead {
-            if let Some(dir) = bot_walk {
-                wish += dir * r.fwd_speed;
-            }
             let f = Quat::from_rotation_y(r.yaw) * Vec3::NEG_Z;
             let s = Quat::from_rotation_y(r.yaw) * Vec3::X;
+            if let Some(dir) = bot_walk {
+                wish += dir * r.fwd_speed;
+                move_input += Vec2::new(dir.dot(s), dir.dot(f));
+            }
             // the Move action (WASD: full deflection; the left stick: analog): target speed max x a + (1 - a) x min for
             // any deflection a (fwd / side_max_speed_min 4, game_06.cpp:2586); backward at the same speed (measured: backO, the original walks back at 39 units/s)
             let m = move_curve(ctl.axis(crate::input::Act::Move));
+            move_input += m;
             if m != Vec2::ZERO {
                 let sp = |max: f32, a: f32| max * a + (1.0 - a) * 4.0f32.min(max);
                 let fy = if m.y > 0.0 { sp(r.fwd_speed, m.y) } else if m.y < 0.0 { -sp(r.fwd_speed, -m.y) } else { 0.0 };
@@ -821,7 +868,17 @@ pub(crate) fn control(
             r.hit_anim = if stick > 0.0 || r.jumping || r.since_fire < 0.1 { 0.0 } else { (r.hit_anim - dt).max(0.0) };
         }
         let (max_speed, power) = (r.fwd_speed.max(r.side_speed), pmin + (pmax - pmin) * stick);
-        if r.jumping {
+        // the jumper pack (jetpack.rs): this frame's stick and turn (its wing anims, the turn sound)
+        if let Some(j) = jet.as_deref_mut() {
+            j.stick = if topsy.active() || r.dead { Vec2::ZERO } else { move_input.clamp_length_max(1.0) };
+            j.turn = yaw_before - r.yaw;
+            j.turn_sound(dt);
+        }
+        let flying = jet.as_deref().and_then(|j| j.air_velocity(r.vel, Quat::from_rotation_y(r.yaw) * Vec3::NEG_Z, Quat::from_rotation_y(r.yaw) * Vec3::X, dt));
+        if let (Some(v), true) = (flying, r.jumping) {
+            // the pack's turbo / glide air control (0x004799d5 in the states 2 / 4)
+            r.vel = v;
+        } else if r.jumping {
             // air control: the stick adds jump_fwd / side_max_speed x jump_movement_power (6.5 x 4 = 26 units/s^2) to
             // the take-off velocity. Fitted to the original's measured jump (hook camera dump "player", jumpA: +2.17
             // units/s every 5 frames from 39.5 to 62.6 in the air, peak 14.6 at 0.42 s); the drive's wanted velocity
@@ -866,24 +923,44 @@ pub(crate) fn control(
         // horizontal speed +0x4bc is above 20 (0x005bcbe8); standing, 0x80 comes when trotter_jump_into (0.133 s) ends.
         // With both: the impulse mass x jump_impulse and "Fx_fs_roman_jump" at the feet (0x00478800)
         let mut take_off = false;
+        // with a jumper pack Jump launches instead (0x0047aaf0 with +0xabc), and folds / spreads the wings in the air
+        let has_pack = jet.as_ref().is_some_and(|j| j.pack);
+        // (a launch's kick lands the frame after the press: the force action pool's next step)
+        let launch = jet.as_deref_mut().and_then(|j| j.take_kick()).filter(|_| !r.dead);
+        if let (Some(j), false) = (jet.as_deref_mut(), r.dead) {
+            j.jump_input(ctl.pressed(crate::input::Act::Jump) || bot.jump, ctl.down(crate::input::Act::Jump) || bot.jump, r.grace > 0.0, r.falling, r.landing.is_some(), r.vel.y);
+        }
         if let Some(w) = r.jump_wind {
             let w = w - dt;
             r.jump_wind = if w <= 0.0 || r.dead { None } else { Some(w) };
             take_off = w <= 0.0 && !r.dead;
         }
-        if r.on_ground && r.jump_wind.is_none() && !take_off && !r.jumping && (ctl.pressed(crate::input::Act::Jump) || bot.jump) && !r.dead {
+        if !has_pack && r.on_ground && r.jump_wind.is_none() && !take_off && !r.jumping && (ctl.pressed(crate::input::Act::Jump) || bot.jump) && !r.dead {
             if Vec2::new(r.vel.x, r.vel.z).length() > 20.0 {
                 take_off = true;
             } else {
                 r.jump_wind = Some(JUMP_INTO);
             }
         }
-        if take_off {
+        if let Some(kick) = launch {
+            // the launch: the kick, then this step's turbo gravity (as a jump's: velocity before position); the landing
+            // anim and the fall state end (flags & 0xfffff83c)
+            let g = jet.as_deref().and_then(|j| j.gravity_scale()).unwrap_or(r.anti_gravity * 0.5);
+            r.vel.y = r.vel.y.max(0.0) + kick - 64.348 * g * dt;
+            r.jumping = true;
+            r.landing = None;
+            r.falling = false;
+            r.jump_wind = None;
+            ground_fx(&physics, &mut fx, t.translation, "fx_fs_roman_jump");
+        } else if take_off {
             // the impulse, then this step's gravity as in the airborne steps (velocity before position): the
             // original's arc (jumpA, peak 14.6) fits 70 and gravity 160.9 that way
             r.vel.y = r.jump_impulse - 64.348 * r.anti_gravity * 0.5 * dt;
             r.jumping = true;
             ground_fx(&physics, &mut fx, t.translation, "fx_fs_roman_jump");
+            // the jump's breath (0x0047aaf0: 0x00493b70 with table 0x005fb99c, 2 sounds)
+            const JUMP_BREATH: [&str; 2] = ["fol_breath_light_short_1", "fol_breath_light_short_2"];
+            sounds.write(crate::audio::PlaySound::at(JUMP_BREATH[breaths[0].deal(2, || rng.rand() as f32 / 32768.0)], t.translation));
         } else if r.on_ground && !r.jumping {
             r.vel.y = r.vel.y.max(-5.0);
         } else {
@@ -892,7 +969,12 @@ pub(crate) fn control(
             // horizontal speed: a bot run at (-102, -5) reached 394 units/s and was flung 640 units when it came free)
             // world gravity -64.348 x anti_gravity x 0.5 (0x005bcb4c): -160.9 with jump_anti_gravity 5 in lev_1_m1
             // (docs/subsystems/player.md); jump impulse 70 -> about 15 units high
-            r.vel.y = (r.vel.y - 64.348 * r.anti_gravity * 0.5 * dt).max(r.fall_speed.min(-50.0) * 4.0);
+            // (the jumper pack's flight has its own: turbo_anti_gravity / turbo_glide_anti_gravity x 0.5). No terminal
+            // speed: the original has none (an early engine cap at 4 x fall_speed, -200, kept a pack's fall from ever
+            // passing fall_speed_turbo -200, so it never armed the wings; without a pack the fall rules kill him
+            // first: 110 units of drop are ~188 units/s)
+            let g = jet.as_deref().and_then(|j| j.gravity_scale()).unwrap_or(r.anti_gravity * 0.5);
+            r.vel.y -= 64.348 * g * dt;
         }
         let vel = r.vel;
         let fwd = Quat::from_rotation_y(r.yaw) * Vec3::NEG_Z;
@@ -927,7 +1009,11 @@ pub(crate) fn control(
             }
             t.translation = feet;
         }
-        fall_and_land(&mut r, &t, &mut h, vy, was_jump, dt, &physics, &mut fx, t.translation.distance(before), topsy.active());
+        if fall_and_land(&mut r, &t, &mut h, vy, was_jump, dt, &physics, &mut fx, t.translation.distance(before), topsy.active(), jet.as_deref_mut()) {
+            // the landing's breath (0x00478200: 0x00493b70 with table 0x005fb9cc, 2 sounds)
+            const LAND_BREATH: [&str; 2] = ["fol_breath_heavy_short_1", "fol_breath_heavy_short_2"];
+            sounds.write(crate::audio::PlaySound::at(LAND_BREATH[breaths[1].deal(2, || rng.rand() as f32 / 32768.0)], t.translation));
+        }
         // safety net (remaster): pushing for 1.5 s without moving at all and without ground under him (wedged in a
         // wall's collider: seen in a bot run next to v_wall_tall_a) puts him back where he last moved freely. Standing
         // against a wall or the foot of a steep slope is the original's behaviour and is left alone
@@ -1317,16 +1403,26 @@ fn death(
     }
 }
 
+/// The landing damage numbers (landing_damage_min / max_hurt, min / max_speed; the turbo set after a jumper pack's
+/// flight, flag 2: 0x00478100 game_05.cpp:2177).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LandingDamage {
+    pub min_hurt: f32,
+    pub max_hurt: f32,
+    pub min_speed: f32,
+    pub max_speed: f32,
+}
+
 /// Landing damage (0x00478100 without the flag): t = (-vz - landing_damage_min_speed) / landing_damage_max_speed
 /// (p_trotter 150 / 200; it divides by max_speed, not max - min: an original quirk kept), none when t <= 0, else
 /// lerp(landing_damage_min_hurt 150, max_hurt 300, min(t, 1)).
-pub fn landing_damage(peak_vz: f32) -> Option<f32> {
-    let k = (-peak_vz - 150.0) / 200.0;
+pub fn landing_damage(peak_vz: f32, d: &LandingDamage) -> Option<f32> {
+    let k = (-peak_vz - d.min_speed) / d.max_speed;
     if !(k > 0.0) {
         return None;
     }
     let k = k.min(1.0);
-    Some((1.0 - k) * 150.0 + k * 300.0)
+    Some((1.0 - k) * d.min_hurt + k * d.max_hurt)
 }
 
 /// The playtest state log's player fields (weapons, reload, switch, jump, specials, live sticky bombs).
@@ -1503,47 +1599,87 @@ fn ground_effects(mut commands: Commands, time: Res<Time>, physics: NonSend<Phys
 /// `no_hits`: the hit handler ignores every message during the topsy states (0x0047afa0, +0xa34 & 0x7800000), the
 /// fall's and the landing's damage included (both go through it, 0x00478100)
 #[allow(clippy::too_many_arguments)]
-fn fall_and_land(r: &mut Roman, t: &Transform, h: &mut Health, vy: f32, jumped: bool, dt: f32, physics: &Physics, fx: &mut MessageWriter<crate::surface::StartSurfaceFx>, moved: f32, no_hits: bool) {
+/// True on the frame he lands.
+fn fall_and_land(r: &mut Roman, t: &Transform, h: &mut Health, vy: f32, jumped: bool, dt: f32, physics: &Physics, fx: &mut MessageWriter<crate::surface::StartSurfaceFx>, moved: f32, no_hits: bool, mut jet: Option<&mut crate::jetpack::JetPack>) -> bool {
+    let mut landed = false;
     let y = t.translation.y;
     r.grace = if r.on_ground { 0.5 } else { (r.grace - dt).max(0.0) };
     if r.grace > 0.0 {
         r.ground_ref = y;
     }
+    // a jumper pack: its fall rules (0x00478200: fall_speed_turbo, turbo_death_falling_distance / time)
+    let pack = jet.as_deref().filter(|j| j.pack).map(|j| (j.tuning.fall_speed, j.tuning.death_distance, j.tuning.death_time));
+    let gliding = jet.as_deref().is_some_and(|j| j.flight == crate::jetpack::Flight::Glide);
     if !r.on_ground {
         r.peak_vz = r.peak_vz.min(vy);
-        // falling: slower than fall_speed (-50; after a jump fall_speed_jump -70)
-        let threshold = if jumped { -70.0 } else { -50.0 };
-        if vy <= 0.0 && vy < threshold {
+        // falling: slower than fall_speed (-50; after a jump fall_speed_jump -70; with a pack fall_speed_turbo);
+        // gliding never falls
+        let threshold = match pack {
+            Some((turbo, _, _)) => turbo,
+            None if jumped => -70.0,
+            None => r.fall_speed,
+        };
+        if vy <= 0.0 && vy < threshold && !gliding {
             r.falling = true;
             r.fall_fast_t += dt;
+            // with the pack and nothing under him the wings may open (flag 0x10)
+            if let Some(j) = jet.as_deref_mut() {
+                j.fell();
+            }
         }
     } else if r.grace > 0.0 && r.landing.is_none() {
         r.fall_fast_t = 0.0;
     }
     // death by falling: below z -1000, more than death_falling_distance (110) under the ground reference, or falling
     // fast for longer than death_falling_time (1 s): the whole health as damage (0x00478100 flag 1)
+    let (drop, time) = pack.map_or(r.death_fall, |(_, d, t)| (d, t));
     let game_z = (crate::level::game_to_engine().inverse() * t.translation).z;
-    if !r.dead && !no_hits && h.0 > 0.0 && (game_z < -1000.0 || y < r.ground_ref - 110.0 || r.fall_fast_t > 1.0) {
+    if !r.dead && !no_hits && h.0 > 0.0 && (game_z < -1000.0 || y < r.ground_ref - drop || r.fall_fast_t > time) {
         info!("EVENT player: fell to his death (dropped {:.0}, {:.2} s falling)", r.ground_ref - y, r.fall_fast_t);
         h.0 = 0.0;
     }
     // landing: grounded after falling (or a jump), once: the land fx, the landing damage from the peak downward speed,
-    // the landing anim (land_hard after more than fall_land_hard_time 0.6 s falling, else jump_land)
+    // the landing anim (land_hard after more than fall_land_hard_time 0.6 s falling, else jump_land; after a jumper
+    // pack's flight not falling, trotter_turbo_land or, faster than land_speed_turbo, trotter_turbo_skid: game_05.cpp
+    // 1855-1876, lengths 0.467 / 0.633 s), the wings folded (0x00478200)
     if r.on_ground && vy <= 0.0 && (r.falling || jumped) && r.landing.is_none() && !r.dead {
-        if let (Some(d), false) = (landing_damage(r.peak_vz), no_hits) {
+        let turbo = jet.as_deref_mut().is_some_and(|j| j.landed());
+        let damage = match jet.as_deref() {
+            Some(j) if turbo => j.tuning.landing_damage,
+            _ => r.landing_damage,
+        };
+        if let (Some(d), false) = (landing_damage(r.peak_vz, &damage), no_hits) {
             info!("EVENT player: landing damage {d:.0} (vz {:.0})", r.peak_vz);
             h.0 -= d;
         }
         ground_fx(physics, fx, t.translation, "fx_fs_roman_land");
-        r.landing = Some(if r.fall_fast_t > 0.6 { ("trotter_land_hard", 0.0, 2.633) } else { ("trotter_jump_land", 0.0, 0.633) });
+        let hspeed = Vec2::new(r.vel.x, r.vel.z).length();
+        r.landing = Some(match jet.as_deref() {
+            Some(j) if turbo && !r.falling => {
+                if hspeed > j.tuning.land_speed {
+                    ("trotter_turbo_skid", 0.0, 0.633)
+                } else {
+                    ("trotter_turbo_land", 0.0, 0.467)
+                }
+            }
+            _ if r.fall_fast_t > 0.6 => ("trotter_land_hard", 0.0, 2.633),
+            _ => ("trotter_jump_land", 0.0, 0.633),
+        });
         r.falling = false;
         r.peak_vz = 0.0;
+        landed = true;
+    } else if r.on_ground && vy <= 0.0 {
+        // down without a landing (a short hop): the flight ends all the same
+        if let Some(j) = jet.as_deref_mut() {
+            j.landed();
+        }
     }
     if let Some((n, el, len)) = r.landing {
         // moving ends it (game_05.cpp:1721-1726)
         let el = el + dt;
         r.landing = if el >= len || (moved > 0.01 && Vec2::new(r.vel.x, r.vel.z).length() > 3.0) { None } else { Some((n, el, len)) };
     }
+    landed
 }
 
 /// Projectiles: one ray per frame along the path; damage on the first body hit (characters' Health, objects'
@@ -1697,7 +1833,7 @@ fn projectiles(
                 if p.from_player {
                     c.friendly = true;
                 } else {
-                    ch.0 -= p.damage;
+                    ch.0 -= p.damage * c.damage_scale(p.kind);
                     c.attacker = p.owner;
                 }
             }
@@ -1942,13 +2078,14 @@ mod tests {
 
     #[test]
     fn landing_damage_from_the_peak_fall_speed() {
-        assert_eq!(landing_damage(-150.0), None);
-        assert_eq!(landing_damage(-100.0), None);
+        let d = LandingDamage { min_hurt: 150.0, max_hurt: 300.0, min_speed: 150.0, max_speed: 200.0 };
+        assert_eq!(landing_damage(-150.0, &d), None);
+        assert_eq!(landing_damage(-100.0, &d), None);
         // t = (250 - 150) / 200 = 0.5: 225
-        assert!((landing_damage(-250.0).unwrap() - 225.0).abs() < 1e-3);
+        assert!((landing_damage(-250.0, &d).unwrap() - 225.0).abs() < 1e-3);
         // clamped at t = 1: 300 (from 350 units/s on)
-        assert!((landing_damage(-350.0).unwrap() - 300.0).abs() < 1e-3);
-        assert!((landing_damage(-900.0).unwrap() - 300.0).abs() < 1e-3);
+        assert!((landing_damage(-350.0, &d).unwrap() - 300.0).abs() < 1e-3);
+        assert!((landing_damage(-900.0, &d).unwrap() - 300.0).abs() < 1e-3);
     }
 
     #[test]
