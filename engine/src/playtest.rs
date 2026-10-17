@@ -56,6 +56,11 @@ pub struct Event {
     /// field is within margin + pct % of what it was at the `note` step "fresh" (both default 0: equal)
     #[serde(default)]
     pub expect: Option<serde_json::Map<String, serde_json::Value>>,
+    /// a wall-clock performance limit, as `expect` (e.g. {"main_ms": [0, 50]}): checked only in a perf run
+    /// (AND_PERF=1, `tools/regress.py --perf` on an idle machine); otherwise logged as skipped. A frame's wall time
+    /// depends on what else the machine runs, so it never decides a correctness run (docs/remaster-engine.md "Traps")
+    #[serde(default)]
+    pub expect_perf: Option<serde_json::Map<String, serde_json::Value>>,
     /// keep the state log as it is now under this name, for later expects' {"as": name}
     #[serde(default)]
     pub note: Option<String>,
@@ -699,7 +704,14 @@ pub(crate) fn drive(
             pt.notes.insert(name.clone(), state.0.clone());
             info!("EVENT playtest: state noted as {name}");
         }
-        if let Some(want) = &e.expect {
+        let perf_run = std::env::var("AND_PERF").is_ok_and(|v| v == "1");
+        if let (Some(want), false) = (&e.expect_perf, perf_run) {
+            for (k, w) in want {
+                let got = field(&state.0, k).map(|g| g.to_string()).unwrap_or_else(|| "(missing)".into());
+                info!("EXPECT SKIP (perf) {k} = {got} (want {w}) at {:.2} s", pt.t);
+            }
+        }
+        for want in e.expect.iter().chain(e.expect_perf.iter().filter(|_| perf_run)) {
             for (k, w) in want {
                 let got = field(&state.0, k);
                 let ok = expect_holds(k, w, got, &pt.notes);

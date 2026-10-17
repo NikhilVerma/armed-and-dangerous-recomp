@@ -361,6 +361,7 @@ fn settle(
     mut next: ResMut<NextState<AppState>>,
     mut vtime: ResMut<Time<Virtual>>,
     play: Option<ResMut<crate::playtest::PlayState>>,
+    strategy: Option<Res<bevy::time::TimeUpdateStrategy>>,
 ) {
     let now = Instant::now();
     if *state.get() != AppState::Loading {
@@ -370,8 +371,13 @@ fn settle(
     let frame = now - s.last;
     s.last = now;
     s.frames += 1;
-    s.calm = if frame < limits.calm_frame { s.calm + 1 } else { 0 };
-    if !limits.settled(s.frames, s.calm, now - s.since) {
+    // a scripted run steps game time by a fixed amount a frame (main.rs): a slow frame is no long game step there, and
+    // waiting for quick wall-clock frames made the loading take a machine-load-dependent number of frames (game time
+    // runs while loading), so every frame counts as calm and the wait is min_frames frames
+    let stepped = matches!(strategy.as_deref(), Some(bevy::time::TimeUpdateStrategy::ManualDuration(_)));
+    s.calm = if stepped || frame < limits.calm_frame { s.calm + 1 } else { 0 };
+    let waited = if stepped { Duration::ZERO } else { now - s.since };
+    if !limits.settled(s.frames, s.calm, waited) {
         return;
     }
     next.set(s.to);

@@ -38,7 +38,7 @@ use crate::levelreset::LevelAppExt;
 use crate::gamedata::GameData;
 use crate::level::game_to_engine;
 use bevy::prelude::*;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// Marks the entity of an fx object (its state lives in `FxVm::objects`, so a script can set it up in the same
 /// frame it creates it).
@@ -63,7 +63,9 @@ pub struct FxLight {
 #[derive(Resource)]
 pub struct FxVm {
     instances: Vec<script::Instance>,
-    objects: HashMap<Entity, object::FxObject>,
+    /// by entity (ordered: the per-frame update draws from the shared random stream and plays sounds object by
+    /// object, so a hash map's per-process order made runs differ, docs/remaster-engine.md "Traps")
+    objects: BTreeMap<Entity, object::FxObject>,
     pools: particles::Pools,
     streamers: Vec<streamers::Streamer>,
     streamer_meshes: streamers::StreamerMeshes,
@@ -138,7 +140,7 @@ fn setup(mut commands: Commands, assets: Res<AssetServer>, mut meshes: ResMut<As
     let dir = launch.map(|l| l.scene.clone()).unwrap_or_default();
     commands.insert_resource(FxVm {
         instances: Vec::new(),
-        objects: HashMap::new(),
+        objects: BTreeMap::new(),
         pools,
         streamers: Vec::new(),
         streamer_meshes,
