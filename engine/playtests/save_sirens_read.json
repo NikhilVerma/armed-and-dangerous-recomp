@@ -1,0 +1,7 @@
+{"load": "states/sirens_raised.json", "steps": [
+ {"wait": 1.0},
+ {"expect": {"alarm.sirens": 1, "alarm.troops": 0}},
+ {"wait": 12.0},
+ {"expect": {"alarm.sirens": 1, "alarm.troops": [1, 10]}},
+ {"quit": true}
+]}

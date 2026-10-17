@@ -89,6 +89,10 @@ pub struct Event {
     /// debug: destroy the placed object with this instance id (as a lethal hit)
     #[serde(default)]
     pub destroy: Option<u32>,
+    /// debug: a grunt's arrival at the marker with this instance id (alarm.rs MarkerArrival): an alarm marker raises its
+    /// sirens, as a runner reaching it does
+    #[serde(default)]
+    pub marker_arrival: Option<u32>,
     /// debug: set the velocity of the movable object (a boulder) with this instance id: [id, game-space vx, vy, vz]
     /// (movable.rs Push; a pinned one is unpinned first), as a shove sends it rolling
     #[serde(default)]
@@ -651,7 +655,7 @@ pub(crate) fn drive(
     mission: Option<Res<crate::mission::Mission>>,
     mut roman: Query<&mut crate::fx::Health, With<crate::player::Roman>>,
     mut spawn: MessageWriter<crate::level::SpawnGrunt>,
-    (mut send, state, mut save_req, mut noise, mut barks, mut defence, mut cheats, dropped, placed_at, mut push): (
+    (mut send, state, mut save_req, mut noise, mut barks, mut defence, mut cheats, dropped, placed_at, mut push, (mut arrive, markers)): (
         MessageWriter<crate::mission::SendTrigger>,
         Res<PlayState>,
         ResMut<crate::savegame::SaveRequest>,
@@ -662,6 +666,7 @@ pub(crate) fn drive(
         Query<Entity, With<crate::level::Dropped>>,
         Query<(&crate::level::InstanceId, &GlobalTransform)>,
         MessageWriter<crate::movable::Push>,
+        (MessageWriter<crate::alarm::MarkerArrival>, Option<Res<crate::alarm::Markers>>),
     ),
     mut objects: Query<(Entity, Option<&crate::level::InstanceId>, Option<&crate::level::Placed>, &mut crate::fx::Destructible)>,
     cam: Query<&GlobalTransform, With<Camera3d>>,
@@ -797,6 +802,14 @@ pub(crate) fn drive(
         }
         if let Some(v) = &e.defence {
             defence.write(crate::defence::DefenceCommand(v.clone()));
+        }
+        if let (Some(id), Some(m)) = (e.marker_arrival, markers.as_deref()) {
+            match m.index_of(id).and_then(|i| Some((i, m.marker(i)?.pos))) {
+                Some((marker, at)) => {
+                    arrive.write(crate::alarm::MarkerArrival { marker, at, voice_set: 0 });
+                }
+                None => warn!("playtest: no marker {id}"),
+            }
         }
         if let Some([id, x, y, z]) = e.push {
             push.write(crate::movable::Push { id: id as u32, velocity: Vec3::new(x, y, z) });

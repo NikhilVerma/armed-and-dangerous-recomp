@@ -1,0 +1,10 @@
+{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+ {"wait": 0.5},
+ {"expect": {"alarm.sirens": 0, "alarm.troops": 0}},
+ {"marker_arrival": 151},
+ {"wait": 0.5},
+ {"expect": {"alarm.sirens": 1}},
+ {"save": "sirens_raised"},
+ {"wait": 0.3},
+ {"quit": true}
+]}

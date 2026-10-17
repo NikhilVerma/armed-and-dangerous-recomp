@@ -109,6 +109,25 @@ impl Markers {
         &self.sirens
     }
 
+    /// The index of the marker with instance id `id` (a MarkerArrival's `marker`).
+    pub fn index_of(&self, id: u32) -> Option<usize> {
+        self.markers.iter().position(|m| m.id == id)
+    }
+
+    /// The marker at `index`.
+    pub fn marker(&self, index: usize) -> Option<&Marker> {
+        self.markers.get(index)
+    }
+
+    /// A siren raised in a saved game, back on the list (savegame.rs, 0x0048c530); false when it already is.
+    pub fn raise_restored(&mut self, e: Entity) -> bool {
+        if self.sirens.contains(&e) {
+            return false;
+        }
+        self.sirens.push(e);
+        true
+    }
+
     /// From the level's placements, each with its class template's values under its own (as the original's property
     /// readers fall back to the template: a grunt_generator's num_regular 1 when the placement names only num_bow 0 and
     /// num_captain 0, lev_bonus_m2 169..171).
@@ -274,7 +293,7 @@ pub struct AlarmPlugin;
 
 impl Plugin for AlarmPlugin {
     fn build(&self, app: &mut App) {
-        app.init_level_resource::<Markers>().add_message::<MarkerArrival>().add_systems(Update, (arrivals, sirens_gone, controller).chain().run_if(crate::playing));
+        app.init_level_resource::<Markers>().add_message::<MarkerArrival>().add_systems(Update, (arrivals, sirens_gone, controller, log).chain().run_if(crate::playing));
     }
 }
 
@@ -457,4 +476,11 @@ fn controller(
         m.recent.pop_front();
     }
     info!("EVENT alarm: generator {id} sent a {tpl}");
+}
+
+/// The raised sirens in the playtest state log.
+fn log(m: Res<Markers>, ids: Query<&InstanceId>, troops: Query<(), With<AlarmTroop>>, state: Option<ResMut<crate::playtest::PlayState>>) {
+    let Some(mut state) = state else { return };
+    let raised: Vec<u32> = m.sirens.iter().filter_map(|&e| ids.get(e).ok().map(|i| i.0)).collect();
+    state.0.insert("alarm".into(), serde_json::json!({ "sirens": raised.len(), "raised": raised, "troops": troops.iter().count() }));
 }
