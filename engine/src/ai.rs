@@ -1088,7 +1088,7 @@ impl Plugin for AiPlugin {
                 Update,
                 (
                     (body::bumps, squad::update_squads, interests, mark_army_targets, search, ic::activate, scare, max_fire::sync_limit, aim::track, think, max_fire::upkeep, fall::run, ic::run, paratroop::rappel, bully::bullies, die, dismay).chain(),
-                    (body::apply_rules, log_cover, log_ai, log_placed, squad::log_squads, ic::log, max_fire::log, grenade::fly, grenade::log, rocket::shoot_down, rocket::log, fall::log, fall::drop_parachutes, paratroop::log).chain(),
+                    (body::apply_rules, log_cover, log_ai, log_placed, squad::log_squads, ic::log, max_fire::log, grenade::fly, grenade::log, rocket::shoot_down, rocket::log, fall::log, fall::drop_parachutes, paratroop::log, jumper::free_markers, jumper::log).chain(),
                 )
                     .chain()
                     .after(crate::fx::FxSet)
@@ -3109,6 +3109,9 @@ fn think(
                         j.walk = Some(left);
                     } else {
                         j.walk = None;
+                        if let Some(old) = j.leave() {
+                            joccupy.push((old, None));
+                        }
                         j.glide(pos, to);
                         // the landing reads only the contacts of the steps after the take-off (Slot44 notes a contact in
                         // the step it happens)
@@ -3118,6 +3121,13 @@ fn think(
                         info!("EVENT ai: jumper {ge:?} takes off {:.0} from the target", (to - pos).with_y(0.0).length());
                     }
                 } else {
+                    // the marker he stands on is left first (vt+0x188): his history skips it
+                    if let Some(old) = j.leave() {
+                        joccupy.push((old, None));
+                        if let Some(v) = jviews.iter_mut().find(|v| v.e == old) {
+                            v.free = true;
+                        }
+                    }
                     match jumper::pick_marker(j, pos, target, range, &jviews) {
                         Some((i, closer)) => {
                             let (m, at) = (jviews[i].e, jviews[i].pos);
@@ -3719,9 +3729,7 @@ fn think(
                 match j.step(pos, dt, grounded) {
                     jumper::FlightStep::WingsOut => info!("EVENT ai: jumper {ge:?} glides"),
                     jumper::FlightStep::Landed => {
-                        if let Some(m) = j.history[0] {
-                            joccupy.push((m, None));
-                        }
+                        // (the marker stays occupied by him: freed when he leaves it or dies, jumper.rs)
                         stats.landings += 1;
                         info!("EVENT ai: jumper {ge:?} lands");
                         // anim 0x6c (state 0xbf), then +0x4ac = 0xc3: with flag 4 and a target engage, else reload

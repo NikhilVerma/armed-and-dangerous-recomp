@@ -3,6 +3,10 @@
 //! - `Jumper::read`: the turbo parameters (Ai_InitGeneric ai_01.cpp:2354-2390).
 //! - `pick_marker`: the marker choice 0x0042b480 (ai_03.cpp:589-720).
 //! - `launch`: the ballistic solver 0x00471a00 (horizontal speed and gravity given).
+//! - A marker is held from the launch to it until its jumper leaves it (the next launch, `Jumper::leave`) or dies
+//!   (`free_markers`): the landing keeps it (0x0042e1c0 frees nothing; JumpMarker slots 0x56 / 0x57 0x0040dfa0 /
+//!   0x0040dfb0 take and free it). Its slot point (slot 0x53 0x0040de50; 0x54 0x0040df90 jumps to it) is the marker's
+//!   position.
 //! - `Flight`: states 0xc4 (to a marker nearer the target: re-aimed into a glide once falling), 0xc5 (a plain jump),
 //!   0xbd (the glide, firing), and the landing (0x0042e1c0 -> anim captain_jumper_land, state 0xbf).
 
@@ -96,6 +100,15 @@ impl Jumper {
         }
     }
 
+    /// Leaving the marker he holds (vt+0x188 0x004273a0 with +0x484 0x10, set by a launch: the history shifted, +0x918
+    /// -> +0x91c, then the marker freed, JumpMarker slot 0x57 0x0040dfb0): before every launch (0x0042b480 ai_03.cpp:691,
+    /// the glide 0x0042a2c0). Returns the marker to free.
+    pub fn leave(&mut self) -> Option<Entity> {
+        let m = self.marker.take()?;
+        self.history = [Some(m), self.history[0]];
+        Some(m)
+    }
+
     /// The launch to a marker (0x0042b480's success): the ballistic velocity at twice the move speed under the jet's
     /// gravity, +0x484 |= 0x10000010, state 0xc4 (`closer`) or 0xc5.
     pub fn start(&mut self, from: Vec3, marker: Entity, to: Vec3, closer: bool, move_speed: f32) {
@@ -132,14 +145,32 @@ impl Jumper {
             return FlightStep::WingsOut;
         }
         if self.vel.y <= 0.0 && grounded {
-            // 0x0042e1c0: the turbo stopped; the marker becomes the last one left (+0x918 / +0x91c)
+            // 0x0042e1c0: the turbo stopped; the marker stays his (JumpMarker slot 0x56's occupant) until he leaves it
             self.flight = None;
             self.vel = Vec3::ZERO;
-            self.history = [self.marker.take(), self.history[0]];
             return FlightStep::Landed;
         }
         FlightStep::Flying
     }
+}
+
+/// A marker whose jumper died or is gone is free again (the teardown 0x00432730 -> vt+0x18c 0x004274e0 frees the cover
+/// held, +0x904; a removed marker, JumpMarker_Slot55, takes its occupant with it).
+pub fn free_markers(mut markers: Query<&mut JumpMarker>, grunts: Query<&super::Grunt>) {
+    for mut m in &mut markers {
+        if m.occupant.is_some_and(|o| grunts.get(o).map_or(true, |g| g.mind == super::Mind::Dead)) {
+            m.occupant = None;
+        }
+    }
+}
+
+/// The playtest state's `jump_markers`: markers held now.
+pub fn log(markers: Query<&JumpMarker>, grunts: Query<&super::Grunt>, state: Option<ResMut<crate::playtest::PlayState>>) {
+    let Some(mut state) = state else { return };
+    let held = markers.iter().filter(|m| m.occupant.is_some()).count();
+    // held by a jumper standing on it (landed, not flying)
+    let landed = markers.iter().filter_map(|m| m.occupant).filter(|&o| grunts.get(o).is_ok_and(|g| g.jumper.is_some_and(|j| j.flight.is_none()))).count();
+    state.0.insert("jump_markers".into(), serde_json::json!({"count": markers.iter().count(), "held": held, "landed": landed}));
 }
 
 /// What a flight's frame did.
