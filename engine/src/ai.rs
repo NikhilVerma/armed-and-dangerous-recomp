@@ -20,6 +20,7 @@ pub mod fall;
 pub mod grenade;
 pub mod ic;
 pub mod jumper;
+pub mod ladder;
 pub mod max_fire;
 pub mod monk;
 pub mod notes;
@@ -1080,6 +1081,7 @@ impl Plugin for AiPlugin {
             .init_level_resource::<AiForce>()
             .init_level_resource::<fall::FallStats>()
             .init_level_resource::<assault::Assault>()
+            .init_level_resource::<ladder::LadderStats>()
             .init_level_resource::<notes::ScriptEndStats>()
             .add_message::<notes::ScriptEnd>()
             .init_level_resource::<paratroop::ParatroopStats>()
@@ -1093,7 +1095,13 @@ impl Plugin for AiPlugin {
                 Update,
                 (
                     (body::bumps, squad::update_squads, interests, mark_army_targets, search, ic::activate, scare, max_fire::sync_limit, aim::track, think, max_fire::upkeep, fall::run, ic::run, paratroop::rappel, notes::from_movers, notes::apply, bully::bullies, die, dismay).chain(),
-                    (body::apply_rules, log_cover, log_ai, log_placed, squad::log_squads, ic::log, max_fire::log, grenade::fly, grenade::log, rocket::shoot_down, rocket::log, fall::log, fall::drop_parachutes, paratroop::log, jumper::free_markers, jumper::log, notes::log, assault::sync, assault::recruit, assault::log).chain(),
+                    (
+                        (body::apply_rules, log_cover, log_ai, log_placed, squad::log_squads, ic::log).chain(),
+                        // the later levels' infantry (projectiles, falls, drops, the wall assault) and their playtest logs
+                        (grenade::fly, rocket::shoot_down, fall::drop_parachutes, jumper::free_markers, assault::sync, assault::recruit, ladder::ladders).chain(),
+                        (max_fire::log, grenade::log, rocket::log, fall::log, paratroop::log, jumper::log, notes::log, assault::log, ladder::log).chain(),
+                    )
+                        .chain(),
                 )
                     .chain()
                     .after(crate::fx::FxSet)

@@ -587,7 +587,7 @@ fn roman(
 #[allow(clippy::type_complexity)]
 fn grunts(
     // (a hidden grunt's anims, waiting or coming out, are ai/ic.rs's)
-    mut q: Query<(Entity, &mut Grunt, &mut Animator, &Transform, Option<&crate::topsy::Thrown>), (Without<crate::ragdoll::Ragdoll>, Without<crate::corpses::Settled>, Without<crate::ai::ic::IcEntry>)>,
+    mut q: Query<(Entity, &mut Grunt, &mut Animator, &Transform, Option<&crate::topsy::Thrown>, Has<crate::ai::ladder::CarriedLadder>), (Without<crate::ragdoll::Ragdoll>, Without<crate::corpses::Settled>, Without<crate::ai::ic::IcEntry>)>,
     targets: Query<&GlobalTransform>,
     time: Res<Time>,
     lib: Res<crate::skin::AnimLibrary>,
@@ -613,7 +613,7 @@ fn grunts(
         a.set_weight(1, v);
         a.sync(1, 0);
     };
-    for (e, mut g, mut a, t, thrown) in &mut q {
+    for (e, mut g, mut a, t, thrown, ladder) in &mut q {
         a.blend = AI_BLEND;
         // a hit reaction: its anim once (the all-fours breathing 0x36 looped until its timer ends, ai.rs), then the
         // state's anims again
@@ -672,7 +672,8 @@ fn grunts(
         // the move anim (0x00427210): limping 0x59; else 8 + (rand * 2 >> 15), drawn once per grunt here (the original
         // keeps a run 8..0xa already playing)
         let run = *runs.entry(e).or_insert_with(|| 8 + (rand() * 2 >> 15));
-        let mover = |g: &Grunt| if limping { name(g, 0x59, 0.0) } else { name(g, run, if run == 9 { 0.75 } else { 0.25 }) };
+        // (carrying a ladder, +0xab4: 0x31 grunt_ladder_run, ai/ladder.rs)
+        let mover = |g: &Grunt| if ladder { name(g, 0x31, 0.0) } else if limping { name(g, 0x59, 0.0) } else { name(g, run, if run == 9 { 0.75 } else { 0.25 }) };
         // a guard firing from his guard state: the reload set at a clip's end (0x29 here, as Reload), else the fire set
         let guard_fire = g.mind == Mind::Guard && g.guard_firing;
         if guard_fire && g.reloading && g.shot_age > g.fire_len {

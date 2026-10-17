@@ -1151,6 +1151,18 @@ pub fn spawn(
         })
         .collect();
     commands.insert_resource(crate::ai::fall::ParachuteAssets(chute));
+    // the army's ladder (template grunt_ladder: grunt_ladder_0; ai/ladder.rs), the same way
+    let ladder: Vec<(Handle<Mesh>, Handle<StandardMaterial>)> = lib
+        .load_model("grunt_ladder_0", false, assets, meshes, materials)
+        .map(|m| m.parts.clone())
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|(mh, mt)| {
+            let x = meshes.get(&mh).cloned()?;
+            Some((meshes.add(x.with_removed_attribute(Mesh::ATTRIBUTE_JOINT_INDEX).with_removed_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT)), mt))
+        })
+        .collect();
+    commands.insert_resource(crate::ai::ladder::LadderAssets(ladder));
 
     // The level's directional lights (lighttype "dir"): each shines down its local -Z axis.
     let (lo, hi) = (Vec3::from(scene.bounds[0]), Vec3::from(scene.bounds[1]));
