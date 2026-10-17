@@ -8,7 +8,7 @@ address,name,disposition,reason
 0x00405660,AlarmGenerator_Slot9,replaced,"the alarm controller object and its global lists / timer / spawn-point slots (0x0063a1e8..): alarm.rs Markers (generators, sirens, recent, timer)"
 0x00405670,AlarmGenerator_Slot8,replaced,"the alarm controller object and its global lists / timer / spawn-point slots (0x0063a1e8..): alarm.rs Markers (generators, sirens, recent, timer)"
 0x00405680,AlarmGenerator_Slot47,replaced,"the alarm controller object and its global lists / timer / spawn-point slots (0x0063a1e8..): alarm.rs Markers (generators, sirens, recent, timer)"
-0x00409110,fn_00409110,deferred,feature: script-ai-commands; a script-command callback (0x00409140 table: kill an object by script); lev_1_m1 runs no script commands on AIs
+0x00409110,fn_00409110,ported,"engine/src/ai/notes.rs: ""deactivate"" on an AI: the death bookkeeping (its death trigger) and the silent removal"
 0x0040aa00,PickupObject_Slot318,replaced,"pickup drawing (Object_DrawGroups): pickup.rs / the renderer, not AI"
 0x0040aa20,BridgeObject_Slot6,not needed,dead in the shipped game: no level of the 24 places this class (work/remaster/*/scene.json and mission.json templates) and no coverage run of any level reaches it (BridgeObject; the bridges are g_lev geometry)
 0x0040ab70,BridgeObject_Slot8,not needed,dead in the shipped game: no level of the 24 places this class (work/remaster/*/scene.json and mission.json templates) and no coverage run of any level reaches it (BridgeObject; the bridges are g_lev geometry)
@@ -38,7 +38,7 @@ address,name,disposition,reason
 0x004246a0,fn_004246a0,deferred,feature: q112-extras; the breadcrumb point list +0x958 (see 0x00424610)
 0x004246c0,fn_004246c0,deferred,feature: q112-extras; the breadcrumb point list +0x958 (see 0x00424610)
 0x004247a0,fn_004247a0,deferred,feature: q112-extras; the breadcrumb point list +0x958 (see 0x00424610)
-0x00425be0,fn_00425be0,deferred,feature: melee-fight; the knock-away of state 0xc..0xe (the hand-to-hand fight 0x00427e80): needs a target with vt+0x104 (the fight-able: none of Roman / Q / Jonesy) and an AI with vt+0x1e4 (false for the three grunt classes)
+0x00425be0,fn_00425be0,ported,engine/src/ai/ic.rs launch_velocity / knocks: the knock-away of a hidden grunt whose host or landing is destroyed
 0x00425df0,fn_00425df0,replaced,the physics description slot 7 / the shared physics parameters (Object_BuildRadiusCollision): level.rs capsule bodies (ai.rs capsule)
 0x004265c0,fn_004265c0,deferred,"feature: companion-engage-exit; mode 3's 'fight over' test (state 1, or 0x79 / 0x7a without a target): the partner's target taken over, else the +0xb68 linger (rolled 3..7 s at the engagement's start) runs out into mode 2; ai.rs uses its own 3..7 s after the target is lost"
 0x004265f0,fn_004265f0,deferred,"feature: companion-engage-exit; mode 3's 'going home' test (state 0x50 after 0x0042bc60): straight back to formation (mode 2)"
@@ -50,45 +50,45 @@ address,name,disposition,reason
 0x004268e0,fn_004268e0,replaced,"target alive check (vt+0xd8, health above the floor): Health > 0 tests"
 0x00426ee0,fn_00426ee0,replaced,the line-of-sight test from a point to a target's ref_hit_00: ai.rs sight_ray (as 0x00426fd0)
 0x004270f0,fn_004270f0,replaced,a constant -1 class slot (GenericAIObject +0x138: the trench type query on non-covers): Barricade components
-0x004271c0,fn_004271c0,deferred,feature: ai-max-fire; the wait state 0x11 and its anims 0x74..0x76 / the engage variant: reached only with Game+0xc50 (mission ai_max_fire) set; lev_1_m1 sets 0
-0x00427c80,fn_00427c80,deferred,feature: ai-max-fire; the wait state 0x11 and its anims 0x74..0x76 / the engage variant: reached only with Game+0xc50 (mission ai_max_fire) set; lev_1_m1 sets 0
-0x00427e80,fn_00427e80,deferred,feature: melee-fight; the knock-away of state 0xc..0xe (the hand-to-hand fight 0x00427e80): needs a target with vt+0x104 (the fight-able: none of Roman / Q / Jonesy) and an AI with vt+0x1e4 (false for the three grunt classes)
+0x004271c0,fn_004271c0,ported,engine/src/ai/max_fire.rs next_wait_anim: the idle bases 0x74..0x76 in turn
+0x00427c80,fn_00427c80,ported,engine/src/ai/max_fire.rs: the limit asked on every entry to the fire state (ShooterLimit::may_fire)
+0x00427e80,fn_00427e80,ported,"engine/src/ai/melee.rs start: the hand-to-hand try (50 %, within 50, facing within 45, ref_fight_00, the grunt's consent)"
 0x00428160,fn_00428160,deferred,"feature: q112-extras; the close-range attack (anim 0x5f / 0x60, state 0xb) within +0x5fc: only the Q112 sets it (25, damage 35): its q112_gun_hit melee is not ported (docs/subsystems/infantry.md section 7)"
-0x00428220,fn_00428220,deferred,"feature: squads; flag 0x100000 of +0x484 (set by the ""release"" event of fake grunts / squads)"
+0x00428220,fn_00428220,replaced,"engine/src/ai/ladder.rs: the only ""invincible"" note in the data is the planted ladder's (mover_ladder_plant), an object no damage reaches in the engine"
 0x00429790,fn_00429790,replaced,"the drive parameters move_power +0x944 / the speeds (vt+0x80 / +0x84 / +0x88, Q's constant 0.5) fed to the body drive 0x00454d80: the engine sets the velocity from move_speed / patrol / limp speeds (ai.rs, the companions' fitted 0.933 x move_speed)"
 0x004297a0,fn_004297a0,replaced,"the drive parameters move_power +0x944 / the speeds (vt+0x80 / +0x84 / +0x88, Q's constant 0.5) fed to the body drive 0x00454d80: the engine sets the velocity from move_speed / patrol / limp speeds (ai.rs, the companions' fitted 0.933 x move_speed)"
-0x00429870,fn_00429870,deferred,"feature: army-ladders; the carried ladder object (grunt_ladder attached while running, AI_ClimbLadder): not drawn by army.rs, debt in docs/subsystems/defence.md"
-0x004298a0,fn_004298a0,deferred,"feature: army-ladders; the carried ladder object (grunt_ladder attached while running, AI_ClimbLadder): not drawn by army.rs, debt in docs/subsystems/defence.md"
+0x00429870,fn_00429870,ported,engine/src/ai/ladder.rs: the carried ladder detached when it is planted (or the grunt drops it)
+0x004298a0,fn_004298a0,ported,engine/src/ai/ladder.rs: the carried ladder (grunt_ladder) made on the grunt while he runs his ladder spline
 0x00429a40,fn_00429a40,replaced,the weapon attachment's visibility (+0x61c list): level.rs attaches the weapon model to the hand
-0x00429ac0,fn_00429ac0,deferred,"feature: army-ladders; the scale-wall assault needs Game+0xc54 > 0 (the IC event base_defend): no defence level sends it (army.rs, defence.md)"
-0x00429ce0,fn_00429ce0,deferred,"feature: army-ladders; the ladder / scale-wall assault and jet-pack launches (army levels: Game+0xcbe, ladders list +0xee4 with ic_* markers, turbo captains): none on lev_1_m1"
-0x0042b9e0,fn_0042b9e0,deferred,"feature: army-ladders; the ladder / scale-wall assault and jet-pack launches (army levels: Game+0xcbe, ladders list +0xee4 with ic_* markers, turbo captains): none on lev_1_m1"
-0x0042ba30,fn_0042ba30,deferred,"feature: army-ladders; the ladder / scale-wall assault and jet-pack launches (army levels: Game+0xcbe, ladders list +0xee4 with ic_* markers, turbo captains): none on lev_1_m1"
-0x0042bb10,fn_0042bb10,deferred,feature: ai-max-fire; the counted shooter list World+0xf18 (0x0042bb10 hands over to another shooter): only with Game+0xc50 (ai_max_fire 0 on lev_1_m1)
-0x0042bf70,fn_0042bf70,deferred,"feature: ic-anims; the IC (in-character) anims: GenericAI_PlayICAnim and its wake / callbacks (0x0042c410, 0x0042c0e0, 0x0042bf70, 0x0042c380, 0x0042c080, 0x0042c670) and the scripted mode 0x0042d000: on lev_1_m1 only the three tree grunts use them (pine trees 47 / 61 / 76, IC_tree_slide_1..3 with mover_grunt_tree_1..3, created by 0x00496e90 -> 0x00456180); level.rs does not create those grunts yet (open item: grunt-ai.md 14)"
-0x0042c080,fn_0042c080,deferred,"feature: ic-anims; the IC (in-character) anims: GenericAI_PlayICAnim and its wake / callbacks (0x0042c410, 0x0042c0e0, 0x0042bf70, 0x0042c380, 0x0042c080, 0x0042c670) and the scripted mode 0x0042d000: on lev_1_m1 only the three tree grunts use them (pine trees 47 / 61 / 76, IC_tree_slide_1..3 with mover_grunt_tree_1..3, created by 0x00496e90 -> 0x00456180); level.rs does not create those grunts yet (open item: grunt-ai.md 14)"
-0x0042c670,fn_0042c670,deferred,"feature: ic-anims; the IC (in-character) anims: GenericAI_PlayICAnim and its wake / callbacks (0x0042c410, 0x0042c0e0, 0x0042bf70, 0x0042c380, 0x0042c080, 0x0042c670) and the scripted mode 0x0042d000: on lev_1_m1 only the three tree grunts use them (pine trees 47 / 61 / 76, IC_tree_slide_1..3 with mover_grunt_tree_1..3, created by 0x00496e90 -> 0x00456180); level.rs does not create those grunts yet (open item: grunt-ai.md 14)"
+0x00429ac0,fn_00429ac0,ported,"engine/src/ai/assault.rs: the wall-scale branch of the defence search (army_max_scale Game+0xc54, splines ending at ic_scale_base_wall, nearest within scan_distance)"
+0x00429ce0,fn_00429ce0,ported,"engine/src/ai/assault.rs: the planted-ladder branch of the defence search (spline bit 4, nearest end within scan_distance, under army_max_scale)"
+0x0042b9e0,fn_0042b9e0,ported,engine/src/ai/max_fire.rs takes_turn: the waiting (state 0x11) or extra shooters with their counters rolled
+0x0042ba30,fn_0042ba30,replaced,engine/src/ai/assault.rs recruit: a dead or removed climber leaves the list (World+0xf14) and frees his spline; the place is taken by the next idle army grunt's own search instead of 0x0042b9e0's hand-over
+0x0042bb10,fn_0042bb10,ported,engine/src/ai/max_fire.rs upkeep / handover_pick: the hand-over with its original roll
+0x0042bf70,fn_0042bf70,replaced,engine/src/army.rs: the plant script's end marks the spline planted and the climb follows at ic_climb_ladder (LadderPlaced voice not played)
+0x0042c080,fn_0042c080,replaced,engine/src/ai/tower.rs (the bomb loop's held root) and ai/ic.rs / ai/melee.rs: an IC anim ends on its last frame and the AI's own anims take over from where the root left him
+0x0042c670,fn_0042c670,ported,"engine/src/ai/melee.rs: the paired IC anims of the takedown (each the other's target, physics off, the mover's root)"
 0x0042c790,fn_0042c790,replaced,"ai.rs: a guard beyond +0x5d8 gets infinite accuracy (g.infinite), which is what the 99999 ranges do"
-0x0042d650,fn_0042d650,deferred,"feature: army-ladders; the carried ladder object (grunt_ladder attached while running, AI_ClimbLadder): not drawn by army.rs, debt in docs/subsystems/defence.md"
+0x0042d650,fn_0042d650,ported,"engine/src/ai/ladder.rs: the carried ladder attached to the grunt (CarriedLadder), anim 0x31 grunt_ladder_run (charanim.rs)"
 0x0042d690,fn_0042d690,deferred,"feature: barracks-windows; the smoking (wounded) troop of a barracks exit slot and the cover window slot of the generators (0x0042d690, 0x0042dc20): the lev_1_m1 barracks have no window slots and no smoking troops (mission.rs)"
 0x0042d780,fn_0042d780,deferred,"feature: base-turret; the failure mob on the base turret (0x0049ad60): not ported, defence.md debt (a failure in the turret fails at once)"
-0x0042da00,fn_0042da00,deferred,"feature: paratroopers; the paratroop drop (0x0042da00 / 0x0042daa0: state 0x82 with the parachute), the squad / goliath joins (0x0042de30, 0x0042de60), slot 141 (0x0042db00): no paratroops, squads or goliaths on lev_1_m1"
-0x0042daa0,fn_0042daa0,deferred,"feature: paratroopers; the paratroop drop (0x0042da00 / 0x0042daa0: state 0x82 with the parachute), the squad / goliath joins (0x0042de30, 0x0042de60), slot 141 (0x0042db00): no paratroops, squads or goliaths on lev_1_m1"
-0x0042db00,fn_0042db00,deferred,"feature: paratroopers; the paratroop drop (0x0042da00 / 0x0042daa0: state 0x82 with the parachute), the squad / goliath joins (0x0042de30, 0x0042de60), slot 141 (0x0042db00): no paratroops, squads or goliaths on lev_1_m1"
+0x0042da00,fn_0042da00,not needed,"dead in the shipped game: the ""q112"" / ""q112_marker"" freefall drops are only in the unused test movers mover_zep_small, mover_lev_4_test and mover_zeppelin_test_tim_2, which no object of the 24 levels plays"
+0x0042daa0,fn_0042daa0,not needed,dead in the shipped game: as 0x0042da00 (the q112 drop events only in unused test movers)
+0x0042db00,fn_0042db00,ported,"engine/src/ai/retreat.rs: the pre-success retreat (delay, marker -1's direction, 2000 units, 20 % scared run)"
 0x0042dc20,fn_0042dc20,deferred,"feature: barracks-windows; the smoking (wounded) troop of a barracks exit slot and the cover window slot of the generators (0x0042d690, 0x0042dc20): the lev_1_m1 barracks have no window slots and no smoking troops (mission.rs)"
-0x0042de30,fn_0042de30,deferred,"feature: paratroopers; the paratroop drop (0x0042da00 / 0x0042daa0: state 0x82 with the parachute), the squad / goliath joins (0x0042de30, 0x0042de60), slot 141 (0x0042db00): no paratroops, squads or goliaths on lev_1_m1"
-0x0042e910,fn_0042e910,deferred,"feature: ai-ledge-fall; the falling watchdog (0x0042e910: downward speed 0.2 s -> state 0x82 with anim 0x61 for up to 5 s, then death or the old state on landing): the engine's grunts are upright capsules that do not leave the ground except through ragdolls (death) and the topsy bomb (topsy.rs); a ledge death is ported in die. Open: grunts knocked off a ledge alive"
+0x0042de30,fn_0042de30,ported,"engine/src/ai/squad.rs: a member following the squad (state 0xdc, friction 0)"
+0x0042e910,fn_0042e910,ported,"engine/src/ai/fall.rs: the falling watchdog (vz < -20 for 0.2 s without a contact) into state 0x82, 5 s to live"
 0x0042f190,fn_0042f190,deferred,"feature: player-grab; knocked down / thrown / launch states (0x19a, 0x0042f190, 0x0042f1d0, 0x0042f2f0, 0x0042fe50): the Topsy Turvy bomb's throw is topsy.rs (another owner); the player-held grunt (grab) does not exist on lev_1_m1"
 0x0042f1d0,fn_0042f1d0,deferred,"feature: player-grab; knocked down / thrown / launch states (0x19a, 0x0042f190, 0x0042f1d0, 0x0042f2f0, 0x0042fe50): the Topsy Turvy bomb's throw is topsy.rs (another owner); the player-held grunt (grab) does not exist on lev_1_m1"
 0x0042f2f0,fn_0042f2f0,deferred,"feature: player-grab; knocked down / thrown / launch states (0x19a, 0x0042f190, 0x0042f1d0, 0x0042f2f0, 0x0042fe50): the Topsy Turvy bomb's throw is topsy.rs (another owner); the player-held grunt (grab) does not exist on lev_1_m1"
-0x0042f470,fn_0042f470,deferred,"feature: squads; the squad join of the player (0x0042f470, slot 74): army levels"
+0x0042f470,fn_0042f470,deferred,"feature: punch-launch; slot 74 (+0x128): an AI punched by Roman (the contact callback 0x00477c90 in the punch states +0xa34 & 0x70000000) passes through him and is launched (the 0x83 message, 100), wpn_puncher_hit_*"
 0x0042fe50,fn_0042fe50,deferred,"feature: player-grab; knocked down / thrown / launch states (0x19a, 0x0042f190, 0x0042f1d0, 0x0042f2f0, 0x0042fe50): the Topsy Turvy bomb's throw is topsy.rs (another owner); the player-held grunt (grab) does not exist on lev_1_m1"
 0x00430140,fn_00430140,deferred,feature: guy-fawkes-fire; set alight (fx_guy_fawkes): no fire weapons on lev_1_m1
 0x00431f70,GenericAIObject_Slot46,deferred,feature: untraced; slot 46: the AI's own +0x468 / +0x46c pair (an interest-like target) returns 0 for every lev_1_m1 grunt (nothing they run sets them: guess from the writers)
 0x00431fd0,GenericAIObject_Slot42,replaced,"contact callbacks (slots 42 / 44: bumped by a body, the contact record +0x538 and list +0x518) and the list release 0x0043edb0: Jolt bodies collide; the per-state contact reactions are not ported (open: a grunt bumped by the player's car / props; none on lev_1_m1)"
 0x004320b0,GenericAIObject_Slot44,replaced,"contact callbacks (slots 42 / 44: bumped by a body, the contact record +0x538 and list +0x518) and the list release 0x0043edb0: Jolt bodies collide; the per-state contact reactions are not ported (open: a grunt bumped by the player's car / props; none on lev_1_m1)"
-0x00432590,GenericAIObject_Slot40,deferred,"feature: squads; the squad target +0x50c / +0x510 (0x004324d0, slots 40 / 41): squads only"
-0x00432620,GenericAIObject_Slot41,deferred,"feature: squads; the squad target +0x50c / +0x510 (0x004324d0, slots 40 / 41): squads only"
+0x00432590,GenericAIObject_Slot40,ported,engine/src/ai/body.rs: the collision veto (+0x50c / +0x510 groups) as contact rules
+0x00432620,GenericAIObject_Slot41,ported,engine/src/ai/body.rs: the group +0x510 (CharacterBody::group)
 0x00432630,GenericAIObject_Slot62,replaced,the body's collision filter by state (slot 62): physics.rs layers
 0x00432730,GenericAIObject_Slot55,replaced,"the AI teardown (slot 55: lists, references): Bevy despawn"
 0x00432de0,FakeGruntObject_Slot55,replaced,FakeGrunt removal: army.rs despawns the platoon and its member models
@@ -96,11 +96,11 @@ address,name,disposition,reason
 0x00432ee0,fn_00432ee0,replaced,the member ref name digits: army.rs member_points probes ref_<kind>_0N
 0x00433a90,SquadObject_Slot55,replaced,squad destroy: ai/squad.rs despawns the squad entity when it has no members and no goliath; members keep living as free grunts
 0x00433b60,SquadObject_Slot7,replaced,squad message slot: ai/squad.rs reads the mission triggers itself (SendTrigger) and alerts members through Grunt::pending
-0x00433b80,fn_00433b80,deferred,feature: fake-grunts; fake grunt / squad helpers
-0x00433b90,fn_00433b90,deferred,feature: fake-grunts; fake grunt / squad helpers
-0x00433ba0,fn_00433ba0,deferred,feature: fake-grunts; fake grunt / squad helpers
+0x00433b80,fn_00433b80,ported,engine/src/ai/squad.rs: squad_sequence (Squad::sequence) for the shared halt
+0x00433b90,fn_00433b90,ported,engine/src/ai/squad.rs: squad_tag (Squad::squad_tag) for the shared halt
+0x00433ba0,fn_00433ba0,ported,engine/src/ai/squad.rs: the halt timer passed on to the tag's squads
 0x00433bb0,fn_00433bb0,replaced,"a shared ""remove"" slot (vt+0xdc wrapper)"
-0x00433bc0,fn_00433bc0,deferred,feature: fake-grunts; fake grunt / squad helpers
+0x00433bc0,fn_00433bc0,ported,engine/src/ai/squad.rs shares_halt: the halt passed on to same-tag squads down the sequence
 0x00433e80,Polewart_Slot6,not needed,"dead in the shipped game: no level of the 24 places this class (work/remaster/*/scene.json and mission.json templates) and no coverage run of any level reaches it (Polewart: only a cutscene name, post_1_1b_polewart)"
 0x00433f30,Polewart_Slot42,not needed,"dead in the shipped game: no level of the 24 places this class (work/remaster/*/scene.json and mission.json templates) and no coverage run of any level reaches it (Polewart: only a cutscene name, post_1_1b_polewart)"
 0x00433fb0,Polewart_Slot32,not needed,"dead in the shipped game: no level of the 24 places this class (work/remaster/*/scene.json and mission.json templates) and no coverage run of any level reaches it (Polewart: only a cutscene name, post_1_1b_polewart)"
@@ -113,8 +113,8 @@ address,name,disposition,reason
 0x004344b0,GoliathFireball_Slot55,replaced,GoliathFireball removal: shell.rs
 0x00434560,fn_00434560,replaced,goliath fireball helpers: shell.rs launch
 0x00434570,fn_00434570,replaced,goliath fireball helpers: goliath.rs notes
-0x00434580,GruntLadderObject_Slot6,deferred,"feature: army-ladders; class GruntLadder has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
-0x00434670,GruntLadderObject_Slot7,deferred,"feature: army-ladders; class GruntLadder has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
+0x00434580,GruntLadderObject_Slot6,replaced,"engine/src/ai/ladder.rs: the ladder is a drawn object outside every AI, target, projectile and blast list (Slot6 unlinks it from all of them after Ai_InitGeneric)"
+0x00434670,GruntLadderObject_Slot7,replaced,engine/src/ai/ladder.rs: the ladder takes no collision (Slot7: description 0x4000; nothing in the engine meets it)
 0x004346a0,BowGruntObject_Slot66,deferred,"feature: player-grab; the player grabbing a grunt / bow grunt (slots 66, 147): Roman cannot grab grunts on lev_1_m1 (no grab weapon)"
 0x00434a80,fn_00434a80,not needed,dead code: no callers and no vtable references in the executable
 0x00434e10,GruntObject_Slot147,deferred,"feature: player-grab; the player grabbing a grunt / bow grunt (slots 66, 147): Roman cannot grab grunts on lev_1_m1 (no grab weapon)"
@@ -171,7 +171,7 @@ address,name,disposition,reason
 0x0043ea70,fn_0043ea70,replaced,the AI position / matrix accessors (slots +0x54..+0x7c: the IC anim matrices +0xa6c / +0xa28 or the body): Transform / GlobalTransform
 0x0043eaa0,GenericAIObject_InFrustum,replaced,the in-frustum test (render culling): Bevy visibility
 0x0043eac0,fn_0043eac0,replaced,the weapon attachment's visibility (+0x61c list): level.rs attaches the weapon model to the hand
-0x0043eae0,fn_0043eae0,deferred,"feature: melee-fight; the ""hit"" event (anim note hit: melee damage of the hand-to-hand fight): no fights on lev_1_m1"
+0x0043eae0,fn_0043eae0,ported,"engine/src/ai/melee.rs CloseHit: the close attack's ""hit"" note (50 / Q112 100 within m_h2hMax)"
 0x0043ec40,GenericAIObject_GetClass,replaced,"the class descriptor: the engine's component types carry the class (ai.rs Grunt with Kind, Companion, level.rs Penguin, alarm.rs Marker)"
 0x0043ec50,fn_0043ec50,replaced,dead test slot +0xe0: Mind::Dead / Health
 0x0043ec60,fn_0043ec60,deferred,feature: vehicle-bosses; the turret target test (+0x898 of kind 2: Colossus turrets)
@@ -186,10 +186,10 @@ address,name,disposition,reason
 0x0044b4b0,AIMarker_PrevIsStrict,replaced,"the marker getters and per-AI accessors: alarm.rs Marker fields (strict, flags, trigger, alarm_tag, action, scatter, next range) read by ai.rs marker_arrival"
 0x0044b4f0,AIMarker_PrevSpeed,ported,cited: alarm.rs / ai.rs (marker speed of the walk legs)
 0x0044b680,MarkerObject_Remove,replaced,marker removal (spline array references): Markers resource lives with the level
-0x0044b710,Spline_GetEndPoint,deferred,feature: army-ladders; the scale-wall spline end (0x00429ac0): no defence level enables the scale-wall assault
-0x0044b760,Spline_EndsAtScaleWall,deferred,feature: army-ladders; the scale-wall spline test (0x00429ac0): no defence level enables the scale-wall assault
+0x0044b710,Spline_GetEndPoint,ported,engine/src/ai/assault.rs: a spline's end point (its last marker) for the defence search
+0x0044b760,Spline_EndsAtScaleWall,ported,engine/src/ai/assault.rs: a spline whose last marker's action is ic_scale_base_wall
 0x0044b7b0,fn_0044b7b0,replaced,ladder spline in use / planted (spline bits): army.rs Army::planted and the ladders taken by live army grunts
-0x0044b7c0,fn_0044b7c0,deferred,feature: army-ladders; the ladder / scale-wall spline ends and the marker bits 4 / 6 used by the ladder code: no ladders on lev_1_m1
+0x0044b7c0,fn_0044b7c0,ported,engine/src/army.rs planted (spline bit 4) and engine/src/ai/assault.rs in_use (bit 6)
 0x0044b7e0,fn_0044b7e0,replaced,ladder spline in use / planted (spline bits): army.rs Army::planted and the ladders taken by live army grunts
 0x0044b7f0,fn_0044b7f0,replaced,ladder spline in use / planted (spline bits): army.rs Army::planted and the ladders taken by live army grunts
 0x0044b810,Marker_GetNextRange,replaced,"the marker getters and per-AI accessors: alarm.rs Marker fields (strict, flags, trigger, alarm_tag, action, scatter, next range) read by ai.rs marker_arrival"
@@ -306,7 +306,7 @@ address,name,disposition,reason
 0x00486e90,Q111Object_Slot129,ported,"engine/src/ai.rs companion_damage: hit reactions only in modes 1 / 3 (Companion::mode != 2: not on the move), none on the tower task"
 0x00486f40,fn_00486f40,deferred,"feature: cloth-cape; Q's cape (q111_cape, a ClothObject attached to Q: 0x00486f40, its anchors 0x004879c0 / 0x00487a40, the getter 0x004876b0): cloth simulation of a model part; not drawn by the engine yet (rendering / physics owner; open)"
 0x00486fd0,Q111Object_Slot55,replaced,Jonesy's removal (dynamite / partner references): Bevy despawn (companion_damage removes the component)
-0x00487040,Q111Object_Slot78,deferred,"feature: melee-fight; Q's hand-to-hand anim id (vt+0x138: 0x81 or 0x82) for the melee states 0xd / 0x65 (ai_06.cpp:991-993), reached on 1_m3; not the tower task"
+0x00487040,Q111Object_Slot78,ported,engine/src/ai/melee.rs selector: Q's takedown 0x81 / 0x82
 0x004876b0,fn_004876b0,deferred,"feature: cloth-cape; Q's cape (q111_cape, a ClothObject attached to Q: 0x00486f40, its anchors 0x004879c0 / 0x00487a40, the getter 0x004876b0): cloth simulation of a model part; not drawn by the engine yet (rendering / physics owner; open)"
 0x004878f0,Q111Object_Slot101,deferred,"feature: companion-idle-cue; the companions' last-shot time stamps (Game+0xb0c by Jonesy 0x0044f160, Game+0xafc by Q 0x004878f0) before the aim error 0x004284e0: read by Roman's 30 s idle cue 0x0047b730 (game_06.cpp:538: the player / audio subsystem's; the engine posts no stamp yet); the aim error itself is ported (ai.rs companions)"
 0x00487910,ClothObject_Slot6,deferred,"feature: cloth-cape; class Cloth has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
@@ -350,5 +350,5 @@ address,name,disposition,reason
 0x004a0420,Twiglet_Vt120,deferred,feature: twiglet-extras; the topsy turvy grab (state 0x64): topsy on twiglets not ported
 0x004a0480,Twiglet_Vt124,deferred,feature: twiglet-extras; the topsy turvy throw at the player (state 0x65): not ported
 0x004a05a0,Twiglet_Vt128,deferred,feature: twiglet-extras; the bof glove punch back (state 0x66): not ported
-0x0042a500,fn_0042a500,deferred,"feature: ai-seek-pickups; a grab of a pickup by an AI (pickup_grab_pct +0x86c): ai.rs cites it as not ported"
+0x0042a500,fn_0042a500,not needed,"dead in the shipped game: it runs only when (rand x 100) >> 15 < +0x86c, read from the property pickup_grab_pct (string 0x005b6e54, default 0 at 0x0042533f); no property set of the 24 levels has that key (they set pickup_grab_percent, a name the exe never reads), so the roll never passes"
 0x00483810,fn_00483810,deferred,"feature: companion-leader-swap; the leader swap of the two companion slots: ai.rs cites it as not ported"

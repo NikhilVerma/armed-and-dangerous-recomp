@@ -2250,7 +2250,8 @@ fn leave_cover(g: &mut Grunt, me: Entity, trenches: &mut [TrenchView], history: 
 /// arriving at a marker whose action is hide (Marker_ProcessArrival 0x0044ba30; nothing found: AI_Wander 60..100):
 /// - a clip's end (+0x484 flag 4 clear) with a target: 90 % (0x2d0000) the reload in place, the search skipped
 ///   (0x004531e0(target), true for an airborne target, taken false: guess);
-/// - pickup_grab_pct (+0x86c, default 1) % 0x0042a500, a grab of a pickup: not ported;
+/// - pickup_grab_pct (+0x86c, default 0 at 0x0042533f; no property set of the 24 levels has the key) % 0x0042a500, a
+///   grab of a pickup: dead in the shipped game (docs/port/ai.csv);
 /// - a held cover is left (vt+0x188); need_target without a target: nothing found;
 /// - the candidates: the nearest free mounted gun (0x0042a100, `pick_gun`; docs/subsystems/turret.md) and the
 ///   nearest trench (0x00429f00, `pick_trench`); a trench nearer than the gun wins; then the generic cover slots of the

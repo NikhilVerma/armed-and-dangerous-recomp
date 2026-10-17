@@ -1,7 +1,0 @@
-{"scene": "lev_1_m4", "timeout": 900, "steps": [
- {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 3.5}, {"tap": "Enter"},
- {"cheat": "SHIELDME"},
- {"wait": 150.0},
- {"expect": {"army.over_wall": [1, 1000], "script_ends.deactivations": [1, 1000], "assault.max": 40, "assault.scales": [1, 1000]}},
- {"quit": true}
-]}

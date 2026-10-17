@@ -34,9 +34,9 @@ address,name,disposition,reason
 0x004087d0,fn_004087d0,replaced,clears the object's four animation slots (+0x248): charanim.rs layers
 0x00408800,fn_00408800,replaced,the object's animation slot entry (+0x248 + slot * 0x20): charanim.rs layers
 0x0040d390,fn_0040d390,deferred,"feature: barracks-windows; characters spawned by a barricade / generator breach (0x0040cf40, ai.csv): not on lev_1_m1"
-0x0040df90,fn_0040df90,deferred,feature: jump-markers; JumpMarker / BuildingObject slot 0x54 (a jump to slot 0x53): JumpMarker class with no instance on lev_1_m1 (scene.json behaviours)
-0x0040dfa0,fn_0040dfa0,deferred,feature: jump-markers; JumpMarker: class with no instance on lev_1_m1 (scene.json behaviours)
-0x0040dfb0,fn_0040dfb0,deferred,feature: jump-markers; JumpMarker: class with no instance on lev_1_m1 (scene.json behaviours)
+0x0040df90,fn_0040df90,not needed,"JumpMarker slot 0x54 is the cover-slot interface's (states 0x1f / 0x28 / 0xa0, 0x00429f00 read +0x904 objects of the cover list World+0xed4); jump markers are in World+0xf10, never in +0xed4: no caller reaches it for a marker"
+0x0040dfa0,fn_0040dfa0,ported,engine/src/ai/jumper.rs / ai.rs: the marker taken at the launch (JumpMarker::occupant)
+0x0040dfb0,fn_0040dfb0,ported,"engine/src/ai/jumper.rs Jumper::leave / free_markers: freed at the next launch or the death, not at the landing"
 0x00416150,Decals_AllocatePool,replaced,decal pools are Rust-owned Vecs in decals.rs (the effects port: pool / class plumbing replaced by ownership)
 0x004162b0,Shadows_Draw,replaced,"Shadows_Draw: the per-object projected shadows; the remaster casts shadows with Bevy's cascaded shadow maps (level.rs sun, options.rs ShadowLight)"
 0x004163c0,Shadows_Update,replaced,Shadows_Update: see Shadows_Draw (Bevy shadow maps)
@@ -51,7 +51,7 @@ address,name,disposition,reason
 0x00436960,fn_00436960,replaced,ICObject collision description: icobject.rs objects have no collider (no_collide)
 0x00437290,GenericAIObject_Construct,replaced,GenericAIObject constructor defaults: the Grunt component built by ai.rs / level.rs spawn
 0x0043a8c0,fn_0043a8c0,not needed,no behaviour: constant-return virtual slots (true / false / 0); the ported callers use the constant
-0x0043aa00,fn_0043aa00,deferred,feature: squads; SquadObject: not on lev_1_m1
+0x0043aa00,fn_0043aa00,replaced,"engine/src/ai/squad.rs Squad::from_props: the formation anim is the template's <template>_ref, the name this slot returns"
 0x0043ab30,fn_0043ab30,not needed,no behaviour: constant-return virtual slots (true / false / 0); the ported callers use the constant
 0x004473a0,GoliathFireball_Update,replaced,GoliathFireball: shell.rs fly
 0x0044a4b0,fn_0044a4b0,replaced,"level start pass (object system load pass, level UI, every object's vt+0x24): level.rs scene load and main.rs setup"
@@ -86,7 +86,7 @@ address,name,disposition,reason
 0x00454fe0,fn_00454fe0,replaced,"container callbacks (float threshold, 8-byte compare): Rust collections"
 0x004559c0,fn_004559c0,deferred,feature: untraced; +0x424 bits 0x20 / 0x200: meaning not traced (docs/subsystems/objects.md open questions)
 0x004559f0,fn_004559f0,deferred,feature: untraced; +0x424 bits 0x20 / 0x200: meaning not traced (docs/subsystems/objects.md open questions)
-0x00456180,fn_00456180,deferred,"feature: ic-anims; spawns an attached grunt at a reference bone (IC_* interaction tags): no lev_1_m1 property set has an IC_ key, yet the coverage counts 9 calls (open question, objects.md)"
+0x00456180,fn_00456180,ported,"engine/src/ai/ic.rs / level.rs: the hidden grunt made at the host's reference node (hidden_grunts, SpawnGrunt::ic)"
 0x00456240,Object_GetClassDesc,not needed,"plumbing: RTTI class descriptor / type id accessor; the engine identifies classes by Bevy components, no class registry"
 0x004585f0,fn_004585f0,deferred,feature: object-collision; gravity getter: no lev_1_m1 object sets gravity
 0x004614f0,Twiglet_Construct,replaced,constructor: the twiglets are spawned by twiglet.rs
@@ -95,8 +95,8 @@ address,name,disposition,reason
 0x00461590,Q112Object_Construct,replaced,constructor: the Q112 is spawned by level.rs / ai.rs
 0x004615b0,Q112Boss_Construct,deferred,feature: q112-boss; constructor of a class with no instance on lev_1_m1 (scene.json behaviours)
 0x004615d0,PeasantGenAI_Construct,deferred,feature: peasants; constructor of a class with no instance on lev_1_m1 (scene.json behaviours)
-0x004615f0,FakeGruntObject_Construct,deferred,feature: fake-grunts; constructor of a class with no instance on lev_1_m1 (scene.json behaviours)
-0x00461610,GruntLadderObject_Construct,deferred,feature: army-ladders; constructor of a class with no instance on lev_1_m1 (scene.json behaviours)
+0x004615f0,FakeGruntObject_Construct,ported,"engine/src/army.rs: the platoons of fake grunts (Platoon, FakeGrunt_Update, release_platoon)"
+0x00461610,GruntLadderObject_Construct,replaced,engine/src/ai/ladder.rs: CarriedLadder / PlantedLadder entities stand for the GruntLadderObject instances 0x004298a0 makes
 0x00461630,ColossusObject_Construct,replaced,constructor: the colossus is spawned by vehicles/boss.rs
 0x00461650,GoliathObject_Construct,replaced,constructor: goliaths are spawned by goliath.rs
 0x00461670,Polewart_Construct,not needed,dead in the shipped game: no level of the 24 places this class (work/remaster/*/scene.json and mission.json templates) and no coverage run of any level reaches it (Polewart)
@@ -175,8 +175,8 @@ address,name,disposition,reason
 0x00471c50,PickupGenerator_Remove,replaced,the generator's removal: entity despawn with the level (level.rs)
 0x00471fd0,fn_00471fd0,replaced,"collision descriptors (slot 7: group / radius): Jolt bodies, the engine's volume and pickup radius tests"
 0x004722e0,fn_004722e0,replaced,"pickup placement (force-ground 5 / 20, physics on): pickup.rs ground ray and pop"
-0x004723c0,fn_004723c0,deferred,"feature: ai-seek-pickups; an AI's claim on a pickup (callers 0x0042a500 / 0x00432730 / 0x0043ee90, AI side): grunt AI subsystem; no ported grunt seeks pickups (open)"
-0x004723f0,fn_004723f0,deferred,"feature: ai-seek-pickups; an AI's claim on a pickup (callers 0x0042a500 / 0x00432730 / 0x0043ee90, AI side): grunt AI subsystem; no ported grunt seeks pickups (open)"
+0x004723c0,fn_004723c0,not needed,"dead in the shipped game: only 0x0042a500 asks it for an AI, and 0x0042a500 never runs (pickup_grab_pct is in no property set of the 24 levels; see its row)"
+0x004723f0,fn_004723f0,not needed,"dead in the shipped game: the claim / release of a pickup by an AI from 0x0042a500 / state 0xd2 / the teardown, none reached (pickup_grab_pct is in no property set of the 24 levels; see 0x0042a500)"
 0x00472ab0,PlayerObject_Remove,replaced,"PlayerObject_Remove (level teardown: sound handles, attachments, turbo pack, weapon state): Roman is despawned with the level"
 0x00475630,fn_00475630,not needed,"no behaviour: PlayerObject constant query slots (vt+0x48 answers 1.0, vt+0x8c answers 0.5); a ported caller uses the constant"
 0x00477c10,fn_00477c10,not needed,no behaviour: an empty virtual
@@ -216,10 +216,10 @@ address,name,disposition,reason
 0x00481030,fn_00481030,deferred,feature: untraced; flag / target slots of the Projectile vtables 0x005aec10 / 0x005ab120 (classes 3 / 13): no lev_1_m1 property set was traced to them (guess: later levels' projectiles)
 0x00481790,fn_00481790,deferred,feature: untraced; +0x58c setter / getter for the penguin and AI callers (0x0048f690 / 0x0048f9c0 / 0x0043ee90): not the sticky bomb's own path; not executed
 0x004817a0,fn_004817a0,deferred,feature: untraced; +0x58c setter / getter for the penguin and AI callers (0x0048f690 / 0x0048f9c0 / 0x0043ee90): not the sticky bomb's own path; not executed
-0x00481c90,fn_00481c90,deferred,feature: captain-grenade; Gurner / Grenade / Projectile vtables 0x005a6608 / 0x005adc78 load / update / hit: the captain's grenade (p_captain_grenade) is in the bank but no captain is placed on lev_1_m1
-0x00481ce0,fn_00481ce0,deferred,feature: captain-grenade; Gurner / Grenade / Projectile vtables 0x005a6608 / 0x005adc78 load / update / hit: the captain's grenade (p_captain_grenade) is in the bank but no captain is placed on lev_1_m1
-0x00481d00,fn_00481d00,deferred,feature: captain-grenade; Gurner / Grenade / Projectile vtables 0x005a6608 / 0x005adc78 load / update / hit: the captain's grenade (p_captain_grenade) is in the bank but no captain is placed on lev_1_m1
-0x00481d10,fn_00481d10,deferred,feature: captain-grenade; Gurner / Grenade / Projectile vtables 0x005a6608 / 0x005adc78 load / update / hit: the captain's grenade (p_captain_grenade) is in the bank but no captain is placed on lev_1_m1
+0x00481c90,fn_00481c90,ported,"engine/src/ai/grenade.rs: the captain grenade's property set (GrenadeProps), speed x 3"
+0x00481ce0,fn_00481ce0,ported,"engine/src/ai/grenade.rs fly: the flight under gravity, its path ray-cast past the thrower"
+0x00481d00,fn_00481d00,ported,engine/src/ai/grenade.rs: the hit's area damage record (fx::Explode)
+0x00481d10,fn_00481d10,ported,"engine/src/ai/grenade.rs fly: the hit: area damage, the direct damage, fx_end, removed"
 0x00481db0,BlackHoleProjectile_ReadProps,deferred,feature: black-hole; the black hole special and its box: not on lev_1_m1
 0x00481ef0,BlackHoleProjectile_Update,deferred,feature: black-hole; the black hole special and its box: not on lev_1_m1
 0x00482120,BlackHoleBox_ReadProps,deferred,feature: black-hole; the black hole special and its box: not on lev_1_m1
@@ -230,9 +230,9 @@ address,name,disposition,reason
 0x004824e0,ArrowProjectile_Remove,deferred,"feature: arrow-models; ArrowProjectile load / remove / hit: the arrow lingers stuck to what it hit with its model (linger 2.5 s); the engine's projectiles have no model, so the trail ends at the hit (the launch, the fall and the fly-by sound are ported: player.rs spawn_projectile_to, 0x00482510 / 0x00482620)"
 0x00482780,ArrowProjectile_Hit,deferred,"feature: arrow-models; ArrowProjectile load / remove / hit: the arrow lingers stuck to what it hit with its model (linger 2.5 s); the engine's projectiles have no model, so the trail ends at the hit (the launch, the fall and the fly-by sound are ported: player.rs spawn_projectile_to, 0x00482510 / 0x00482620)"
 0x00482870,GrenadeProjectile_Launch,ported,cited: ai.rs (the thrown captain_grenade: launch and target point)
-0x00482ab0,CaptainRocket_SetOwner,deferred,feature: captain-rocket; the captain's rocket: no captain on lev_1_m1
-0x00482d10,CaptainRocket_InitCollision,deferred,feature: captain-rocket; the captain's rocket: no captain on lev_1_m1
-0x00482d60,CaptainRocket_Damage,deferred,feature: captain-rocket; the captain's rocket: no captain on lev_1_m1
+0x00482ab0,CaptainRocket_SetOwner,ported,engine/src/ai/rocket.rs fire: the captain owns his rocket (its path passes him; vehicles/rockets.rs skips the owner)
+0x00482d10,CaptainRocket_InitCollision,ported,engine/src/ai/rocket.rs shoot_down: the rocket in the bullets' and blasts' reach (RocketHull)
+0x00482d60,CaptainRocket_Damage,ported,"engine/src/ai/rocket.rs shoot_down: its health (max_health 1), the side test, its explosion when shot down"
 0x00482e80,fn_00482e80,deferred,"feature: monk; the hit of monk_gun2's projectile monk_twiglet_cluster (proj_monk_twiglet_cluster): five idle twiglets round the impact, as the summon's; which monk state fires monk_gun2 (weapon 0x1a, set up by 0x004369a0) is not found, so nothing fires it yet (docs/subsystems/twiglets.md, open)"
 0x004830e0,MonkBasketProjectile_ReadProps,deferred,feature: monk; the monk's basket: not on lev_1_m1
 0x00483180,MonkBasketProjectile_Launch,deferred,feature: monk; the monk's basket: not on lev_1_m1
@@ -243,9 +243,9 @@ address,name,disposition,reason
 0x0048f040,Grid_RemoveObject,replaced,"the spatial grid of objects (cells, nodes, update, removal): Jolt's broad phase and Bevy queries"
 0x0048f0d0,GridNode_Alloc,replaced,"the spatial grid of objects (cells, nodes, update, removal): Jolt's broad phase and Bevy queries"
 0x0048f8e0,PenguinObject_Restart,replaced,a penguin restart is levelreset.rs (the level's entities respawn)
-0x00496e10,fn_00496e10,deferred,feature: army-ladders; GruntLadderObject: no ladders on lev_1_m1
-0x00496e70,fn_00496e70,deferred,feature: army-ladders; GruntLadderObject: no ladders on lev_1_m1
-0x00496e80,fn_00496e80,deferred,feature: army-ladders; GruntLadderObject: no ladders on lev_1_m1
+0x00496e10,fn_00496e10,replaced,engine/src/ai/ladder.rs / level.rs: the ladder model (grunt_ladder_0) loaded with the level
+0x00496e70,fn_00496e70,not needed,an empty virtual slot of GruntLadderObject (ret only): no effect
+0x00496e80,fn_00496e80,not needed,an empty virtual slot of GruntLadderObject (ret only): no effect
 0x00496e90,fn_00496e90,ported,cited: ai/ic.rs (the trees' slides)
 0x00497080,fn_00497080,replaced,"collision descriptors (slot 7: group / radius): Jolt bodies, the engine's volume and pickup radius tests"
 0x004970a0,fn_004970a0,deferred,"feature: tree-objects; tree objects (behaviour tree, vtable 0x005a2ab0; lev_1_m1's 63 pine trees run the load 0x00496e90): radius x scale, IC_tree_slide grunts (none on lev_1_m1), the AI's tree-cover slot (occupant +0x470, list +0xed4 after a 4x4 nav-grid test) and its positions; guess: no lev_1_m1 grunt uses tree cover (the ported cover is the trenches, grunt-ai.md); trees are level.rs destructibles"

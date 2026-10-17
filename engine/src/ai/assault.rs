@@ -16,8 +16,8 @@
 //!   (state 0xad, one of mover_grunt_scale / _2 / _3 / _4): army.rs's ic_* scripts, whose last notes send 5000 and
 //!   deactivate him (ai/notes.rs).
 //! - Leaving (the teardown 0x00432730 with +0x488 0x40000 -> 0x0042ba30, ai_03.cpp:849-877): out of the list, the
-//!   spline free again (0x0044b7f0 cl = 0). Not ported: 0x0042ba30's hand-over of the place to the first waiting AI
-//!   (0x0042b9e0): the next idle grunt's own search takes it.
+//!   spline free again (0x0044b7f0 with cl = 0). Replaced: 0x0042ba30's hand-over of the place to the first waiting AI
+//!   (0x0042b9e0) is the next idle grunt's own search here.
 //! - The voices (ai_06.cpp:2014-2024: "ClimbTaunt" on arrival, vt+0x16c) are not played (the army's grunts have no bark
 //!   set here yet).
 

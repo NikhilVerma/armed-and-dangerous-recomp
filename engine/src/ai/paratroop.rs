@@ -9,8 +9,9 @@
 //!   LO HI" 1, the objects of tags LO..HI as priority targets +0x858 / +0x85c; ai.rs `drop_orders`), 5000 s to live
 //!   (+0x890), anim 0x61, the parachute allowed (+0x48c 0x8000), state 0x82: ai/fall.rs opens the parachute once he sinks
 //!   faster than 25 / s, holds the descent there and lands him into his orders.
-//! - Not ported: "freefall_defend_radius" / "freefall_marker_range" (0x14 / 0x12) and the Q112 boss drops (0x0042da00 /
-//!   0x0042daa0, modes 0x11a / 0x119): only the unused test movers (mover_zep_small, mover_lev_4_test) carry them.
+//! - "freefall_defend_radius" / "freefall_marker_range" (modes 0x14 / 0x12) and the Q112 boss drops (0x0042da00 /
+//!   0x0042daa0, modes 0x11a / 0x119) are dead in the shipped data: only the unused test movers (mover_zep_small,
+//!   mover_lev_4_test, mover_zeppelin_test_tim_2) carry them; here such a note is a plain free fall.
 
 use super::{Grunt, Mind};
 use crate::mover::{Mover, MoverNote};
