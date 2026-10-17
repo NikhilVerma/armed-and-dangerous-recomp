@@ -1,0 +1,14 @@
+{"scene": "lev_4_m1", "steps": [
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 3.5}, {"tap": "Enter"}, {"wait": 1.0},
+ {"cheat": "SHIELDME"},
+ {"expect": {"tickers": 4, "mission_obj.sites.330.locked": true, "mission_obj.sites.367.locked": true, "mission_obj.sites.368.locked": true}},
+ {"send": 1500},
+ {"wait": 8.0},
+ {"expect": {"goliath.walked": [25, 400]}},
+ {"warp_to": 368}, {"wait": 0.3},
+ {"hold_use": 2.3},
+ {"expect": {"mission_obj.sites.368.armed": true}},
+ {"wait": 6.5},
+ {"expect": {"mission_obj.sites.368.done": true, "triggers.2110": 1, "triggers.3998": 1}},
+ {"quit": true}
+]}

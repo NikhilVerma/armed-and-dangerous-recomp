@@ -49,7 +49,10 @@ pub struct Squad {
     pub looping: bool,
     /// the spline run: its tag and the marker index
     pub run: Option<(i64, usize)>,
-    /// move_speed, or patrol_speed with marker_patrol (guess at which the speed getter ai_02.cpp:2358 returns)
+    /// the speed on a spline of markers without their own speed (fn_004297a0 in states 0x96 / 0x97: the marker's speed
+    /// 0x0044b4f0, else patrol_speed +0x954 with the patrol flag 1 of +0x488, else move_speed +0x948); the flag is set
+    /// by marker_patrol and by marker_strict_patrol (Ai_InitGeneric ai_01.cpp:2517-2528). Oracle (ticker_l3m1): the
+    /// strict-patrol goliath squads of lev_3_m1 walk at about 9 units / s, their patrol_speed 10 (move_speed 40)
     pub speed: f32,
     /// the speed now: the original's anchor is a body pushed toward `speed` (Squad_Init's mass setting 0x00458270), so
     /// it gathers pace from a halt (`PACE_TIME`)
@@ -108,7 +111,7 @@ impl Squad {
             tags: (p.i("marker_tag_min", 0), p.i("marker_tag_max", 0)),
             looping: p.i("marker_looping", 0) != 0,
             run: None,
-            speed: if p.i("marker_patrol", 0) != 0 { p.f("patrol_speed", 10.0) } else { p.f("move_speed", 40.0) },
+            speed: if p.i("marker_patrol", 0) != 0 || p.i("marker_strict_patrol", 0) != 0 { p.f("patrol_speed", 10.0) } else { p.f("move_speed", 40.0) },
             pace: 0.0,
             route_wait: 0.0,
             scan: p.f("scan_distance", 300.0),
@@ -324,7 +327,11 @@ pub fn update_squads(
                 if sq.scan_timer <= 0.0 {
                     sq.scan_timer = rng.range(0.75, 1.25);
                     if let Some(p) = pe {
-                        if (pp - sq.pos).with_y(0.0).length() <= sq.scan && super::line_of_sight(&physics, sq.pos, pp) {
+                        // (its sight passes through the AI characters, its own goliath among them: sight_ray as
+                        // 0x00426fd0, which excludes the AI list World+0xe7c; a plain ray from the anchor started inside
+                        // the goliath's hit capsule and never saw Roman beside it: oracle ticker_l3m1, the original's
+                        // squad halts 16 frames after Roman appears there)
+                        if (pp - sq.pos).with_y(0.0).length() <= sq.scan && super::sight_ray(&physics, sq.pos, pp + Vec3::Y * 7.0, &[]) {
                             alert(&mut sq, p, &mut grunts, &mut rng, &mut stats);
                         }
                     }
@@ -357,8 +364,12 @@ pub fn update_squads(
                                 sq.pace += (sq.speed - sq.pace) * (1.0 - (-dt / PACE_TIME).exp());
                                 let step = to.normalize_or_zero() * (sq.pace * dt).min(to.length());
                                 sq.pos += step;
-                                // on the ground (force_ground): the height follows the terrain under the anchor
-                                if let Some((_, hit, _)) = physics.raycast(sq.pos + Vec3::Y * 200.0, -Vec3::Y, 1000.0) {
+                                // on the ground (force_ground): the height follows the landscape under the anchor
+                                // (Object_ForceGround 0x00455860 keeps only ownerless bodies: physics.rs
+                                // raycast_landscape). A ray that stops at any body met its own goliath's hit capsule
+                                // and the anchor climbed on it frame after frame (oracle ticker_l3m1: the goliaths
+                                // reached z 24000 while the original's walk at z 838..846)
+                                if let Some(hit) = physics.raycast_landscape(sq.pos + Vec3::Y * 200.0, -Vec3::Y, 1000.0) {
                                     sq.pos.y = hit.y;
                                 }
                                 sq.yaw = to.x.atan2(to.z);

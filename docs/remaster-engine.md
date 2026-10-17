@@ -213,6 +213,10 @@ lev_2_m3, lev_2_m4, lev_3_m2, lev_3_m4_bd, lev_4_m3, lev_4_m5, lev_5_m2, lev_5_m
 | B24 | lev_3_m1 captain_sniper 228 (force_ground 0) on v_rockettower2 272 falls through the tower's top in the remaster (original stays at z 899.7) **CAUSE FOUND, OPEN (agent-vehicles2): he is not over the deck but beside a beam (its ridge 1.6 units west at z 897.5, its top edge 3.6 west at 900.9, nothing under him). The original's body is a sphere of collision_radius (5) on the feet (Object_BuildRadiusCollision 0x004527d0) with friction 0.8 against statics at default_friction 1.0: it rests on the beam's edge. The remaster's frictionless capsule (radius 0.55 x 5) slides off. Tried: that sphere + frictions holds him at 899.56, but breaks infantry_l2m1 squad charges and defence_l2m4 (the wider sphere) and infantry_l3m1 jumper landings (the friction); backed out. Next: the original's character-character collision filter (0x00411710 / 0x00411850) and its walking / flight under friction, then the body.** | grunt.pos from 58 |
 | V1 | The saucers / mini zeppelins on mover paths started at load run ahead along the same path in the remaster (the original covers 11 units in its first second, the remaster 57; ~60 frames ahead after 3 s): the original's mover starts slowly (lev_2_m1, 2_m3, 5_m2, 5_m3; vehicles now traced: hook "vehicles", oracle.rs VehicleKind) **FIXED (agent-vehicles2): state 0x64 is a chase: the gap to the path's pose is set as the body's velocity (0x00458510), so the object starts from rest and runs a second of path behind (vehicles/mover.rs; the model matches the original within 0.03 units over 9 s). vehicle.pos same on 2_m3, 5_m2, 5_m3; lev_2_m1 differs only by E1 (within 0.2 units at equal game time).** | vehicle.pos |
 | T1 | Twiglets were not in the remaster (lev_4_m1's trees activated by trigger 200 give 30 in the original: twiglets_l4m1) **PORTED (agent-twiglets): twiglet.rs, the hook and the remaster trace "twiglets" / "swarm"; twiglets_l4m1 PASS (counts within 14 frames, the nearest within 7.5 units to frame 1240); the first bomb 1300 vs 1258 (each game's Roman elsewhere by B6's hits: past the traced window).** | twiglets.*, twiglet.nearest |
+| G1 | The squad goliaths' hit capsule (goliath.rs `hit_body`, a dynamic body) pushes Roman's walker: warped beside goliath 170 he is shoved ~9 units; p_goliath has no_collide 1 and the original's Roman stands between its legs, where the squads' fire stops on the goliath's hulls (same side: no damage), so he takes no bullet in 8 s while the remaster's is shot dead (AIDBG romandmg: grunt_rifle / captain_mg at 100..190 units). Fix: the walker must not collide with no_collide bodies (physics.rs move_walker queries every body). 2026-10-17: contacts.rs's rules (charbody) do not reach it: they veto rigid-body pairs in the contact listener, and the walker is a CharacterVirtual that collides through its QueryFilter, which takes one excluded body or object layers; the world has only the default static / moving layers. Fix: a third, hit-only object layer for no_collide bodies (in no collision pair; rays still meet it) and the walker's filter on static + moving and the goliath's hulls should cover its legs (collision_lod_index 3, goliath_coll) | ticker_l3m1 roman.pos 906, roman.health 960 (known there) |
+| G2 | Squads 171 / 172 of lev_3_m1 head for their first marker on another line than the original's (goliath 172 ~12 units further south by frame 210, ~2 by 900): which marker of spline 600 a squad starts at (0x0042d1b0, state 0x96) is not traced; squad 170 matches within 8 units | ticker_l3m1 vehicle.pos 210 (known) |
+| G3 | lev_3_m1 squad 172's goliath (squad_goliath_4, force_ground 0) drifts ~10 units in the original before its squad is activated; the remaster's stands | jetpack_l3m1 vehicle.pos 366 (known) |
+| G4 | The ticker blast (area_damage 100, radius 40..60) takes ~14 off a neighbouring squad goliath in the remaster; the original's keeps 3000 at ~44 units (which filter or distance its blast uses against a GenericAI is not traced; the remaster measures to the bounds' surface) | ticker_l3m1 vehicle.health 1384 (known) |
 | E1 | Expected: with movies off in both, the original's start movie still pauses and takes the first ENTER (its start message follows), the remaster's missing movie ends at once (lev_2_m1, lev_5_m1: paused -30..42 vs -31..0; lev_5_m5 timing) | paused, timing |
 
 Per level (first divergence frame in brackets; families not listed are the same within tolerance):
@@ -523,6 +527,17 @@ the pub, generators, the mission object) compares the broadcast trigger with its
 Replaced or not needed: docs/port/game.csv. Tests: mission_start, volumes, ticker, pickups, pubflow, winfail.
 Trap: a playtest expect value that is a two-number array is a range, so list-like state fields are strings
 (`mission_obj.compass_target` "234,252").
+
+**Ticker sites on moving objects (2026-10-16, agent-blockers1).** mission.rs `lock_sites` ports
+PlayerTickerBomb_AttachToParent 0x0044e120: a site with lock_parent_tag rides the lock_parent_bone (p_player_tickerbomb
+"ref_ticker") of the run-time object of that tag (level.rs `ObjectTag`, on the squads' goliaths); its position is the
+bomb's; Use arms only the nearest enabled site in range (0x004788a0); player_has_tickerbomb gives ticker bombs at the
+start. lev_3_m1's three goliaths and lev_4_m1's are blown by their bombs as they walk (playtests ticker_goliath,
+ticker_goliath_l4m1; oracle ticker_l3m1: the parent is the goliath, 2001 / 3000 at the same frame). Fixed on the way:
+the squads' anchor followed any body under it and climbed its own goliath (z 24000), the strict-patrol squads walked at
+move_speed (40) instead of patrol_speed (10), the squad scan's ray started inside its goliath and never saw Roman, the
+goliath took its own side's bullets. Open: G1-G3 above; lev_3_m1's win also needs the peasants (agent-peasants: the
+caged peasants walk to the doormats, peasant_success_trigger 4000).
 
 ## Save / load (subsystem port, 2026-10-15)
 
@@ -909,6 +924,22 @@ Any prepass costs ~3 ms of it: a chrome trace (bevy/trace_chrome) diff Remaster 
 submit_pending_command_buffers +1.1, write_binned_instance_buffers<Opaque3dPrepass> +1.0, GPU-preprocessing bind
 groups / allocate_uniforms / unpack_bins for the extra phase +1.4, bloom encoding +0.5. Open: cut the per-phase GPU
 preprocessing overhead (the scene has only 760 draws), bloom's mip chain, then re-measure.
+
+## Jumper pack (2026-10-16, agent-blockers1)
+
+engine/src/jetpack.rs (`JetPackPlugin`, component `JetPack` on Roman): the turbo pack of 0x0047aaf0 / 0x00478200 /
+0x00475d50 / 0x0047b8b0..0x0047bba0, described in the module doc. Measured on the original (oracle jetpack_l3m1 and the
+probes in work/oracle-blockers1/jet_probe*): a launch is a whole kick of turbo_force x turbo_time (200 on lev_3_m1)
+whether Jump is tapped or held, landing in the step after the press; the wings open by themselves when a tap launch
+passes its top (Jump up and falling) and fold while Jump is held; the glide's drive is (wanted - current) x power per
+second, scaled by max speed / |d| beyond it (0x00471810 without the cone, exponent 0 in the air), settling at 40
+forward and -31.8 down with no stick, 90 forward with W, 15 back with S, as the original. The air drive needs no
+DRIVE_GAIN (the ground's fitted stiffness): the force is applied over the frame. Remaster engine changes that came with
+it: no terminal fall speed (it kept a pack's fall from arming the wings), fall / landing numbers from p_trotter, the
+jump and landing breaths, placed pickups with their instance properties (on_enter). Tests: jetpack_l3m1, jetpack_l4m3
+(regress), cargo test jetpack; oracle jetpack_l3m1 (suite). Open: R1's input lead (the launch is in step, the walk
+still a frame early); the pack's landing drive power (landing_turbo_power: the landing power blend is not modelled for
+any landing); the turbo anims' footstep notes in the air come at other frames.
 
 ## Vehicles and big units (subsystem port, 2026-10-15)
 

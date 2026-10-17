@@ -21,8 +21,8 @@ SUITE = ['save_write', 'save_read', 'topsyhit2', 'turn_in_place', 'turret1', 'de
          'hits1', 'noise1', 'noise2', 'splines1', 'alarm1', 'captain1', 'taunt1', 'leader1',
          'infantry_l2m1', 'infantry_l3m1', 'infantry_l4m2', 'infantry_l2m2', 'squad_goliath', 'twiglets', 'monk_summon', 'tower_l4m2', 'tower_l4m2_fail',
          'peasants_l2m3', 'peasants_bonus_m2', 'peasants_lost_l4m2', 'peasants_cage_l3m1',
-         'mission_start', 'volumes', 'ticker', 'pickups', 'pubflow', 'winfail',
-         'player_move', 'player_fall', 'player_weapons', 'player_special', 'player_topsy', 'player_banter',
+         'mission_start', 'volumes', 'ticker', 'ticker_goliath', 'ticker_goliath_l4m1', 'pickups', 'pubflow', 'winfail',
+         'player_move', 'player_fall', 'player_weapons', 'player_special', 'player_topsy', 'player_banter', 'jetpack_l3m1', 'jetpack_l4m3',
          'audio_distance', 'audio_groups', 'audio_voice', 'audio_ear', 'audio_music', 'audio_stopall', 'audio_ambient',
          'anim_blend', 'anim_notes', 'camera_follow', 'camera_death', 'input_pad', 'foot_ik',
          'fx_particles', 'fx_debris', 'fx_emit', 'fx_lights', 'fx_screen', 'fx_hits',
@@ -53,6 +53,12 @@ SUITE += ['mg_muzzle_fx']
 # off (warped near the tower first), he arrives healed, the marker's 802 forces the alarm and starts the countdown,
 # the plant anim puts 8 bombs on the doors, the bomb loop, the countdown (skipped ahead) blows the doors (4000) and
 # wins; _fail: his death sends 5001, the mission fails with "Jonesy just died!"
+# 'ticker_goliath*': ticker bomb sites locked to the squads' goliaths (mission.rs lock_sites, 0x0044e120): lev_3_m1's three
+# sites ride their goliaths as they walk, each is armed on its goliath and blows it (2001..2003, counter 7 -> 3998, the
+# objective); lev_4_m1's site 368 the same (2110 -> 3998)
+# 'jetpack_*': the jumper pack (jetpack.rs): lev_3_m1 starts with it (the model on his chest, a tap launch, the wings by
+# themselves past the top, folded with Jump held and spread again, the landing); lev_4_m3: found at pack 702 (3997),
+# launched and gliding, the 15 bullseye houses down (7001: the objective), a launch over the exit slab 415 -> 4000, Won
 # 'vehicles_*': the later levels' units (engine/src/vehicles, the forge cannon in turret.rs), each script on its own level
 # ("scene"): rocket towers / buds (lev_3_m1), the zeppelin and the saucer (lev_2_m1), the colossus (lev_1_m3), the forge
 # cannon (lev_2_m1): woken, moving, targeting Roman, firing, hit, destroyed
