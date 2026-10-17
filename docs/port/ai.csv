@@ -29,7 +29,7 @@ address,name,disposition,reason
 0x0040ce20,BarricadeObject_Slot56,deferred,"feature: barracks-windows; the window / exit troop dispatch and removal of the barracks-like generators (TwigletGenerator slots): lev_1_m1 barracks are run by mission.rs (0x0040ad80 / 0x0040c910 path, cited there); these window / roof variants have no instance"
 0x0040ce30,BarricadeObject_Slot57,deferred,"feature: barracks-windows; the window / exit troop dispatch and removal of the barracks-like generators (TwigletGenerator slots): lev_1_m1 barracks are run by mission.rs (0x0040ad80 / 0x0040c910 path, cited there); these window / roof variants have no instance"
 0x0040cef0,fn_0040cef0,deferred,"feature: barracks-windows; the window / exit troop dispatch and removal of the barracks-like generators (TwigletGenerator slots): lev_1_m1 barracks are run by mission.rs (0x0040ad80 / 0x0040c910 path, cited there); these window / roof variants have no instance"
-0x0040cf40,BarricadeObject_Slot53,deferred,"feature: barracks-windows; the window / exit troop dispatch and removal of the barracks-like generators (TwigletGenerator slots): lev_1_m1 barracks are run by mission.rs (0x0040ad80 / 0x0040c910 path, cited there); these window / roof variants have no instance"
+0x0040cf40,BarricadeObject_Slot53,deferred,"feature: barracks-windows; the window / exit troop dispatch and removal of the barracks-like generators (TwigletGenerator slots): lev_1_m1 barracks are run by mission.rs (0x0040ad80 / 0x0040c910 path, cited there); these window / roof variants have no instance. Its toss_peasants part (score_value_peasant_building, 0x0040d390 with villagers) is ported: engine/src/peasant/toss.rs"
 0x0040de00,JumpMarker_Slot55,replaced,the jump marker's removal: ai/jumper.rs JumpMarker is a component that goes with its entity
 0x0040de30,JumpMarker_Slot79,replaced,JumpMarker occupied test: ai/jumper.rs JumpMarker::occupant
 0x0040de40,JumpMarker_Slot82,replaced,JumpMarker free test: ai/jumper.rs MarkerView::free
@@ -120,10 +120,10 @@ address,name,disposition,reason
 0x00434e10,GruntObject_Slot147,ported,"engine/src/weapons/targeting.rs can_be_bitten_now (the shark gun's pass and the shark's search, landshark.rs)"
 0x00434ea0,GruntObject_Slot66,ported,engine/src/ai/close_kill.rs `grab` (as BowGruntObject_Slot66)
 0x00435220,Q112Object_Slot53,ported,engine/src/ai.rs die (Kind::Q112): its eye loop stopped and its Dead line (ai/q112.rs)
-0x00435260,PeasantGenAI_Slot6,deferred,"feature: peasants; civilians thrown out of a destroyed building (toss_peasants): buildings subsystem, not ported"
-0x00435330,PeasantGenAI_Slot55,deferred,"feature: peasants; civilians thrown out of a destroyed building (toss_peasants): buildings subsystem, not ported"
-0x00435380,PeasantGenAI_Slot64,deferred,"feature: peasants; civilians thrown out of a destroyed building (toss_peasants): buildings subsystem, not ported"
-0x004353b0,PeasantGenAI_Slot95,deferred,"feature: peasants; civilians thrown out of a destroyed building (toss_peasants): buildings subsystem, not ported"
+0x00435260,PeasantGenAI_Slot6,ported,engine/src/peasant/toss.rs: a thrown villager made with PeasantGenAI's move_speed 40 (MOVE_SPEED)
+0x00435330,PeasantGenAI_Slot55,ported,engine/src/peasant/toss.rs chairs_go: the chair goes with the villager's body
+0x00435380,PeasantGenAI_Slot64,deferred,feature: character-fade; the villager's fade passed on to his chair (+0xb58 vt+0x100) and Character_SetFade 0x0042eb60: the chair does not fade with the body (peasant/toss.rs)
+0x004353b0,PeasantGenAI_Slot95,ported,"engine/src/peasant/toss.rs fly / drop_chair: the landing: the chair let go with the villager's velocity and 5..8 up, the villager a ragdoll (GoRagdoll quiet)"
 0x00435770,Q112Boss_Slot8,ported,cited: vehicles/boss.rs (the boss target tags / its destroy)
 0x00435860,Q112Boss_Slot55,ported,cited: vehicles/boss.rs (the boss target tags / its destroy)
 0x00436090,SaucerObject_Slot6,ported,cited: vehicles/boss.rs (TurretBossInit of the saucer / zeppelin)

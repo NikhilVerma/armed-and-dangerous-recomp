@@ -1,0 +1,21 @@
+{"scene": "lev_3_m3", "steps": [
+ {"until": "message"},
+ {"wait": 0.5},
+ {"tap": "Enter"},
+ {"wait": 2.0},
+ {"cheat": "SHIELDME"},
+ {"warp": [1150, -286, 22, 0]},
+ {"wait": 0.5},
+ {"expect": {"tossed.houses": 0, "tossed.thrown": 0}},
+ {"destroy": 7},
+ {"wait": 0.2},
+ {"expect": {"tossed.houses": 1, "tossed.thrown": [1, 3], "tossed.flying": [1, 3], "tossed.screams": [1, 3], "tossed.landed": 0}},
+ {"wait": 8.0},
+ {"expect": {"tossed.flying": 0, "tossed.landed": [1, 3], "tossed.houses": 1}},
+ {"destroy": 15},
+ {"wait": 0.2},
+ {"expect": {"tossed.houses": 2, "tossed.thrown": [2, 6]}},
+ {"wait": 8.0},
+ {"expect": {"tossed.flying": 0, "tossed.landed": [2, 6]}},
+ {"quit": true}
+]}

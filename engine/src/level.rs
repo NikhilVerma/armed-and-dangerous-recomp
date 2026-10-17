@@ -479,7 +479,7 @@ fn attach_rest_pose(commands: &mut Commands, hand: Entity, parts: &[(Handle<Mesh
 /// straight off the hand joint. The original's attachment (Object_Attach 0x004539f0: parent +0x34 referenced, the
 /// parent and child bone names, flags +0x424 bits 1 / 2; Object_Detach 0x00453b20; Object_GetParent 0x004539d0) is
 /// the Bevy hierarchy here (a child entity under the bone's joint; 0x004539e0 "has a parent" is ChildOf).
-fn attach_weapon(commands: &mut Commands, hand: Entity, model: &scene::Model, fix: Transform) -> Entity {
+pub(crate) fn attach_weapon(commands: &mut Commands, hand: Entity, model: &scene::Model, fix: Transform) -> Entity {
     let holder = commands.spawn((Transform::IDENTITY, Visibility::default())).id();
     commands.entity(hand).add_child(holder);
     for (mesh, mat) in &model.parts {
@@ -1102,6 +1102,10 @@ pub fn spawn(
         if let Some(d) = destructible(&p) {
             commands.entity(e).insert(d);
             info.destructibles += 1;
+            // a house that throws out villagers when destroyed (toss_peasants: peasant/toss.rs)
+            if let Some(t) = crate::peasant::toss::TossPeasants::of(&p) {
+                commands.entity(e).insert(t);
+            }
         } else if let Some(species) = Species::of(&inst.template) {
             // in the projectile and area damage lists (+0xe90, +0xe94): 1 health, no filter
             commands.entity(e).insert((

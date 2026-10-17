@@ -61,6 +61,9 @@ SUITE += ['weapon_sniper', 'weapon_mortar', 'weapon_vindaloo', 'weapon_shark', '
 # special spent only with targets; unpunched, the first goes down and the glove lets go of the rest; the land shark's
 # target test (targeting.rs can_be_bitten_now): a gloved grunt is no prey
 SUITE += ['weapon_glove', 'weapon_glove_miss', 'weapon_shark_prey']
+# the villagers a destroyed house throws out (peasant/toss.rs, lev_3_m3): one to three per house, flying, landing as
+# ragdolls with their chairs let go
+SUITE += ['peasants_tossed']
 # the dead's bodies (corpses.rs): lev_1_m4's army killed two a second; the Original's timers (bodies gone, at most four
 # ragdolls, entities and physics bodies not growing) and the Remaster's 48 bodies with settled ragdolls
 SUITE += ['corpses_l1m4', 'corpses_l1m4_remaster']
