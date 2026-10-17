@@ -151,10 +151,17 @@ monk_turbo, fol_monk_bamf_1 / 2. Knocked over: monk_hanging (0xf4) then bamf.
 
 ## 7. Q112 (Q112Object, vtable 0x005a2440)
 
-A heavy chaingun grunt through the ordinary states (the boss is Q112Boss, spawned by Q's notes). Init 0x00435090: melee
-range 25 / damage 35, bullet_scale (0.05 in data: bullets do 5 %), q112_chaingun at ref_chaingun, looping fire anim.
-All-fours (knees) reaction yes; chase engages within 0.9 x range (as the archers); melee q112_gun_hit within 25. Anims
-0x0043c330: q112_aim_*, q112_fire_*, q112_reload_*, q112_run, q112_walk, q112_hit_*, q112_die*, ...
+A heavy chaingun grunt through the ordinary states. Init 0x00435090: +0x5fc = 25 (the swing starts nearer than this,
+3D), +0x600 = 35 (its "hit" reaches this far, 2D), bullet_scale (0.05 in data: bullets do 5 %), q112_chaingun at
+ref_chaingun, looping fire anim. All-fours (knees) reaction yes; chase engages within 0.9 x range (as the archers).
+Anims 0x0043c330: q112_aim_*, q112_fire_*, q112_reload_*, q112_run, q112_walk, q112_hit_*, q112_die*, q112_gun_hit.
+
+Its own parts (ported 2026-10-17, engine/src/ai/q112.rs; docs/subsystems/companions.md has the companions' side):
+the swing at a burst's end within 25 (0x00428160, state 0xb `Mind::Melee`: q112_gun_hit looped, its "hit" note does
+100 within 35 with an impact of 13000, 0x0043eae0), the trail of its target's way kept in the chase and routed to when
+the target cannot be reached (+0x958), the eye loop below a quarter of its health (0x00435170, stopped at its death
+0x00435220), its lines (Q1250006_Fight, q1250012..21_Hurt, q1250015 / 16_Dead; no other voice slots). The Q112Boss
+(q112_boss) is dead in the shipped game: only the test movers' q112_marker note makes one (docs/port/ai.csv).
 
 ## 8. Peasants (PeasantObject 0x005a8550; PeasantGenAI 0x005aa9c0)
 

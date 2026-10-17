@@ -4306,10 +4306,11 @@ fn die(
 /// - Formation: the slot is Roman's bone ref_q_00 / ref_molmer_00 (0x00483d60); idle (mode 1) until the 2D distance
 ///   to Roman exceeds formation_distance + 2.5 (0x004860e2), then run to the slot (mode 2) at speed (d / delay) x
 ///   move_speed below 2 x delay_distance, else move_speed (0x00486cb0), d the distance to Roman; idle again there.
-///   (The leader swap of the two slots, 0x00483810, is not ported.)
+///   Which of the pair takes which slot: the leader pick (fn leader_pick).
 /// - Targets (0x00485490 -> AI_FindTarget 0x00426920): the nearest live grunt within scan_distance, in the 190 degree
-///   facing cone and in line of sight; refused when farther than scan_distance from Roman (0x004853a0). Lost or dead:
-///   back to formation after 3..7 s.
+///   facing cone and in line of sight; refused when farther than scan_distance from Roman (0x004853a0). The fight's end
+///   (mode 3, `FightEnd`): home at once, or the partner's target, or a 3..7 s linger; the close kill (ai/close_kill.rs);
+///   stunned or carried (modes 5 / 10, ai/carried.rs).
 /// - Support fire (0x00485580): following, no target, Roman's Fire held and his heading within 45 degrees of the
 ///   companion's: the fire cycle at Roman's aim point (Game+0xa6c), turning toward Roman's heading.
 /// - Fire cycle (0x00428980, counters 0x00427600): bursts of fire_num_bursts shots on the fire anims' notes (Jonesy:
@@ -4319,8 +4320,7 @@ fn die(
 ///   machine-gun loop).
 /// - Team orders (fn team_orders): Defend Me / Return To Me / Defend Area / Attack, their lines and HUD texts; the
 ///   Fight cue at the fire anim's start (docs/subsystems/companions.md).
-/// Not ported: the slot swap (leader flag 0x10, 0x00483810), the order marker fx (Game+0xd34), object types 0x51 /
-/// 0x53 as attack targets.
+/// Not ported: the order marker fx (Game+0xd34), object types 0x51 / 0x53 as attack targets.
 #[derive(Component)]
 pub struct Companion {
     pub walker: crate::physics::Walker,

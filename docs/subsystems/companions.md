@@ -144,9 +144,13 @@ aligned with Roman's direction (`|cos b| < |cos a|`); the partner takes the oppo
 partner to regroup too (flag 0x80, 0x004837b0). Moving far behind Roman the two run nearly parallel and the flag can
 change several times a second (leader1's log), as the compare implies. The playtest log has `q_lead` / `jonesy_lead`.
 
-Not ported (docs/port/ai.csv): the carried modes (feature companion-carried), the end of a fight as mode 3 decides it
-(companion-engage-exit), Q's cape cloth, the companions' last-shot stamps (Roman's 30 s idle cue 0x0047b730 reads
-them), defend_min_distance's engage test.
+Corrected 2026-10-17 against the recovered 0x00483810: under an area / attack order (flag 1 without 8) the two points
+(0x00483c30, sides 1 and 0) are compared by squared distance whether moving or not (the cosine test is only for
+Roman's bones in mode 2); and the partner always takes the opposite flag at the end (0x00483be0 -> 0x004837e0), picked
+or not. Playtest companion_leader_swap: Roman turned 180 degrees in place swaps the leader, and back (the pick is
+geometry, no random).
+
+Not ported (docs/port/ai.csv): Q's cape cloth, defend_min_distance's engage test.
 
 ## 8. The tower task (ported 2026-10-16, engine/src/ai/tower.rs)
 
@@ -177,3 +181,84 @@ the hook trace carries each companion's mode +0xb5c since 2026-10-16). Original,
 sets off on frame 60, walks 2450 units in 3700 frames (hit by the chasing troops: 500 -> 405), arrives at frame 3800
 (mode 7, 802 from 147, health 500), plants, and with nobody guarding him dies at frame 7440 (5001: failure); Q and
 Roman fight off the start's troops (Roman 400 -> 157). Playtests tower_l4m2 / tower_l4m2_fail (regress).
+
+## 9. The end of a fight (mode 3; ported 2026-10-17, engine/src/ai.rs `FightEnd`)
+
+Mode 3 runs the generic update (0x0043ee90) and watches its state (MolmerObject_Slot47 0x00486908):
+
+- +0xb68 = 3..7 s (rand * 1/8192 + 3) is rolled when a fight begins (mode 1 -> 3 at 0x00486200, mode 2 -> 3 at
+  0x004866da), by an attack order (0x00484100) and on arriving in formation (mode 2 -> 1, 0x00486884): one timer for
+  the fight's linger and the attack order's idle time.
+- A target lost with nothing new in sight goes through 0x0042bc60. With the fire counters left (+0x484 flag 4) the
+  home route (state 0x50): 0x004265f0 is true and mode 3 ends at once, back to the formation point (mode 2). With the
+  clip spent the reload in place (state 0x32), then idle: 0x004265c0 (state 1, or 0x79 / 0x7a without a target) is
+  true and, when the partner holds a live target other than himself, he takes it (vt+0x23c); else +0xb68 counts down
+  and at 0 he goes back (mode 2, 0x00483d60(1, 0, 0)).
+- A live target let go of: home (in an area / attack formation by Q111Object_Slot122 0x00486c90 = 0; in Defend Me /
+  Return To Me the pursuit Slot122 allows ends in the same anchor refusal 0x004853a0).
+- Engine: `Companion::fight_end` (Home / Linger) decided by `FightEnd::on_loss` (reloading or no rounds = the spent
+  clip); mode 2 is the regroup (`moving`, the goal the formation point). Log: `q_fight` / `jonesy_fight` ("target",
+  "linger", "none"), `*_fight_end` and `*_fight_ends` (how the last ended, how many). Playtest companion_engage_exit.
+
+## 10. The close kill (ported 2026-10-17, engine/src/ai/close_kill.rs)
+
+Reached in the original on lev_1_m3 (coverage: Q111Object_Slot78, GruntObject_Slot66, 0x0042c670 ran). Q or Jonesy
+grabs the grunt he fights and kills him by hand:
+
+- The try 0x00427e80 (from the engage 0x00427910, a burst's end of the fire cycle 0x00428980 and the attack order
+  0x00484100): the companion's vt+0x1e4 (only Q111Object / MolmerObject), the target's vt+0x104 (GruntObject /
+  BowGruntObject only), not already in one, a coin ((rand * 100) >> 15 >= 50), nearer than 50 (3D), the two headings
+  135 degrees or more apart (K 0x005bcea8 / 0x005bceac), the grunt's ref_fight_00 within 0.5 of his feet's height and
+  a route to it.
+- The grunt's answer (GruntObject_Slot66 0x00434ea0 / BowGruntObject_Slot66 0x004346a0): refused dead, held, on a
+  gun or a trench's slot, flying, in an IC move; else state 0xf (`Mind::Held`): standing, his aim set.
+- States 0xc..0xe: the companion runs to ref_fight_00 (route, then straight within 1, turning to the grunt).
+- 0x0042c670 on both: the IC anims by the companion's vt+0x138 (Q 0x81 / 0x82: mover_q_kill_grunt_1 / _2; Jonesy
+  0x7f / 0x80: mover_molmer_kill_grunt_1 / _2) and the same ids of the grunt's table (mover_grunt_qdie_1 / _2,
+  mover_grunt_mdie_1 / _2); physics off for both; the grunt's "kill" note kills him (he stays in the anim's last pose).
+- Engine: a `Grab` message from ai.rs (`close_kill::attempt`), `Killing` on the companion (the formation update skips
+  him), `Victim` on the grunt; a stun or the companion's death lets the grunt go (`orphans`). Guesses: the facing at
+  the point (toward the grunt; the original turns to ref_fight_00's negated y axis); the last 12 units are driven
+  straight through the held grunt's sphere; an approach that has not arrived in 10 s gives up. Playtest
+  companion_close_kill (the debug step `close_kill` skips the coin, reach and facing; the answer and the route decide).
+
+## 11. Stunned and carried (modes 5 / 10; ported 2026-10-17, engine/src/ai/carried.rs)
+
+- Flag 0x20 of the damage message: the Topsy Turvy bomb's area damage (0x004a1aa0 -> 0x0047f020, flag 0x20, radius
+  topsy_turvy_radius). Gate vt+0x1c0 = Q111Object_Slot112 0x00486c70 (refused on the tower task). A teammate:
+  +0x878 = 0.001..0.5 s, +0x87c = topsy_turvy_duration (Game+0xc7c, 5 s). In an IC anim or a close kill (state 0xc)
+  0x0042fe50 at once.
+- Flag 0x800: a pull by the holder +0x30 (Slot149 0x00486c80, the same gate). A new holder replaces an old one and
+  nothing else; a teammate gets +0x878 = 0.5..1.5 s and is not moved. No sender in the remaster yet (the twiglets'
+  attach is unreached in the shipped game; feature twiglet-extras): `Knock::Pull` is the API.
+- Mode 5: +0x87c counts down (twice a frame while +0x878 does); +0x878's end plays anim 0x71 (state 0xeb), then 0x72
+  looped: Q q111_hanging, Jonesy molmer_hang_into / molmer_hanging. +0x87c at -1 or below with no live holder: Jonesy
+  plays 0x71 once more (mode 10), Q (the player's 0x00475d40) is up at once; then the stand set and the mode he left,
+  his target lost. Orders wait meanwhile.
+- Playtest companion_carried: Roman's Topsy bomb hangs both companions and they are up ~6 s later; a pull holds Jonesy
+  until his holder dies.
+
+## 12. The banter's speaker tests and the last-shot stamps (ported 2026-10-17, engine/src/ai/dialogue.rs)
+
+- Audio_PlayRandomSound 0x00493b70: a shuffle bag over the table (the entry drawn last swapped back, up to three
+  random swaps among the unused, the front drawn; a `used` count per table) and a speaker test per draw, repeated
+  until one passes (`LineBag`). The test says who speaks: Roman without a position; a companion at himself, the line
+  kept as his (+0xb50, `Companion::speech`); an idle "_Spec" line without a position.
+- 0x0044da10 (the kill meter's dismay, table 0x005ce570): 'R' Roman; 'J' Jonesy there and not talking; else Q the
+  same. 0x0040d250 (a peasant tossed out of a building, table 0x005fb6d0; its caller is feature peasants): the same,
+  and JON50172_Dismay / Q1150162_Dismay only while the level's list +0xf04 is not empty.
+- 0x0047b520 (the idle banter, table 0x005ce350; disassembled, no recovered source): a base-defence level takes only
+  the _BaseDefend lines; 'r' needs Roman idle 30 s (rom50171_ also Q and Jonesy there); 'q' Q still 30 s (_Spec lines
+  also Roman alive and Jonesy there, without a position; world 5 drops q1150025 / q1150035_Ambient); 'j' Jonesy still
+  30 s (_Spec and jon50182_Ambient also Roman alive and Q there).
+- The idle banter's companion clocks (Game+0xafc Q / +0xb0c Jonesy) restart when he moves (0x0047b730) or fires
+  (Q111Object_Slot101 0x004878f0 / 0x0044f160 before each shot's aim error): `Companion::last_shot`.
+- Playtests dialogue_dismay (both companions dead: Roman says the dismay), companion_idle_cue (the companions' support
+  fire holds the banter back past Roman's 30 s idle).
+
+## 13. Physics off in IC anims (tuning item T1, 2026-10-17)
+
+The IC anims (GenericAI_PlayICAnim 0x0042c410, 0x0042c670) switch the character's physics off (0x004577b0(0)), so
+projectiles pass him: the original's Jonesy takes no damage during the 31 s plant on lev_4_m2. `Companion::ic` (set by
+ai/tower.rs at the marker and by the close kill) makes player.rs's bullets skip him; hits react not. Playtest
+tower_l4m2 checks his health at 500 in the bomb loop.

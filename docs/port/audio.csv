@@ -1,6 +1,6 @@
 address,name,disposition,reason
 0x004058f0,fn_004058f0,ported,"peasant.rs"
-0x0040d250,fn_0040d250,deferred,feature: level-end-dialogue; the dialogue speaker test of the level-end conversation 0x00493b70 (game_01.cpp:1989); the remaster has no dialogue system yet (owned by the mission / cutscene port)
+0x0040d250,fn_0040d250,ported,"engine/src/ai/dialogue.rs tossed_speaker (its table TOSSED; the caller, a building's toss_peasants 0x0040d390, is feature peasants)"
 0x0041bd70,fn_0041bd70,replaced,an FxObject's audio position (its matrix translation): a voice on an entity follows its GlobalTransform (audio.rs update_voices)
 0x0041bdd0,FxEarObject_LoadProperties,replaced,FxEarObject properties: the export reads them (tools/remaster_export_mission.py fx_ear edges) and mission.rs Action::Fx starts the fx on its trigger
 0x00434180,fn_00434180,deferred,feature: goliath-extras; Goliath is not in lev_1_m1 (scene.json templates); no gol lines in the bank
@@ -41,16 +41,16 @@ address,name,disposition,reason
 0x00439f00,fn_00439f00,replaced,"the line pick (one of the category's lines of the speaker's voice set, (rand() x range) >> 15) is SoundBank::resolve (@grunt:<category>:<set>[:last<N>|butlast<N>], audio.rs) and the cue's caller in ai.rs plays it on the character; the per-character handles (+0xb4c scream, +0xb50 line: no second scream while one plays, a death line stops the line) are not ported (open, docs/subsystems/audio.md)"
 0x00439f30,AIVoice_PlayDeadAtPosition,deferred,feature: ai-voice-lines; a Twiglet class method (vtable 0x005af3ec); no Twiglet character in lev_1_m1
 0x00439f70,AIVoice_PlayCapturedOrAmbient,deferred,feature: peasants; no PE1500xx_PeasantCaptured / GOL lines in the lev_1_m1 bank (audio/sounds.json): the call plays nothing in lev_1_m1 (Twiglet class)
-0x0043a100,AIVoice_Q12Hurt,deferred,feature: q112-extras; Q112 is not in lev_1_m1 (scene.json templates); no q12 lines in the bank
-0x0043a2b0,AIVoice_Q12Dead,deferred,feature: q112-extras; Q112 is not in lev_1_m1 (scene.json templates); no q12 lines in the bank
-0x0043a300,fn_0043a300,deferred,feature: q112-extras; Q112 is not in lev_1_m1 (scene.json templates); no q12 lines in the bank
+0x0043a100,AIVoice_Q12Hurt,ported,"engine/src/ai.rs think (Kind::Q112: vo_delay, kept as its line) with ai/q112.rs HURT_LINES"
+0x0043a2b0,AIVoice_Q12Dead,ported,engine/src/ai.rs die (Kind::Q112) with ai/q112.rs DEAD_LINES
+0x0043a300,fn_0043a300,ported,engine/src/ai.rs die (Kind::Q112): the Dead slot
 0x0043a310,AIVoice_ShrubTaunt,deferred,feature: ai-voice-lines; ShrubPatrol is not in lev_1_m1 (scene.json templates); no sp lines in the bank
 0x0043a480,AIVoice_ShrubFriendlyFire,deferred,feature: ai-voice-lines; ShrubPatrol is not in lev_1_m1 (scene.json templates); no sp lines in the bank
 0x0043a5e0,AIVoice_MoTaunt,deferred,feature: ai-voice-lines; no MO1500xx (Molmer) lines in the lev_1_m1 bank (audio/sounds.json): the call plays nothing in lev_1_m1
 0x0043a680,AIVoice_MoAmbient,deferred,feature: ai-voice-lines; no MO1500xx (Molmer) lines in the lev_1_m1 bank (audio/sounds.json): the call plays nothing in lev_1_m1
 0x0043a6e0,AIVoice_MoHurt,deferred,feature: ai-voice-lines; no MO1500xx (Molmer) lines in the lev_1_m1 bank (audio/sounds.json): the call plays nothing in lev_1_m1
 0x0043a7b0,AIVoice_MoDead,deferred,feature: ai-voice-lines; no MO1500xx (Molmer) lines in the lev_1_m1 bank (audio/sounds.json): the call plays nothing in lev_1_m1
-0x0043c7b0,fn_0043c7b0,deferred,feature: q112-extras; Q112 is not in lev_1_m1 (scene.json templates); no q12 lines in the bank
+0x0043c7b0,fn_0043c7b0,ported,engine/src/ai.rs think (Kind::Q112): the Hurt slot
 0x0043e450,fn_0043e450,replaced,"a character's audio position (its head 'ic' bone for its own voice, else its position): the remaster's voices follow the character entity's position (the head offset is not ported)"
 0x0044d1f0,fn_0044d1f0,ported,"peasant.rs"
 0x0044ea40,fn_0044ea40,deferred,"feature: untraced; returns 127 or 128 (PlayerWeapon +0x520); no audio, no caller in the remaster"
