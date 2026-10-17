@@ -394,6 +394,11 @@ impl ModelKit<'_> {
         Some(crate::fx::Bounds { center: (m.min + m.max) * 0.5, radius: (m.max - m.min).length() * 0.5 })
     }
 
+    /// A model's vertices (model space, game axes): a collision model's points for a convex hull (movable.rs).
+    pub fn model_points(&mut self, model: &str) -> Option<Vec<Vec3>> {
+        self.lib.load_model(model, false, &self.assets, &mut self.meshes, &mut self.materials).map(|m| m.vertices.clone())
+    }
+
     pub fn anim(&mut self, name: &str) -> Option<std::sync::Arc<crate::skin::Anim>> {
         self.anims.anim(name)
     }

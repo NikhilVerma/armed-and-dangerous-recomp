@@ -53,7 +53,7 @@ SUITE += ['corpses_l1m4', 'corpses_l1m4_remaster']
 # members are crowd meshes (crowd.rs), not rigged grunts (110k entities before)
 SUITE += ['army_l2m4_long']
 # agent-world (2026-10-17): the world features (docs/journal/2026-10-17-world.md): G1 the goliath's bone hulls
-SUITE += ['goliath_legs']
+SUITE += ['goliath_legs', 'boulders_l2m1']
 # 'launch_*': the real launch path as the player plays (the Remaster preset chosen by the options, the intro, the
 # title menu): New Game shows the world (menu art gone, every camera on one target, the strips beside the 4:3 centre
 # not black), Abandon -> title -> New Game in-process, the Graphics page applies, Restart / Quick Load / Restart from

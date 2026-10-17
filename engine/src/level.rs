@@ -999,6 +999,12 @@ pub fn spawn(
         // DefaultGameObject_Load 0x0044fd20 (no vt+0xf8 filter, no lists): no collider (guess: a body without the
         // filter collides with nothing; the crosshair's list +0xe9c and the bullets' +0xe90 never hold it)
         let coll_name = coll_name.filter(|_| !(behavior.is_empty() && p.f("no_collide", 0.0) != 0.0));
+        // a movable default object (boulders): its body once unpinned (movable.rs)
+        if behavior.is_empty() {
+            if let Some(m) = crate::movable::Movable::new(&p, coll_name.clone()) {
+                commands.entity(e).insert(m);
+            }
+        }
         let collider = match coll_name {
             Some(n) => lib.load_model(&n, false, assets, meshes, materials).and_then(|m| static_collider(physics, m, world)),
             None => None,
@@ -1064,6 +1070,11 @@ pub fn spawn(
                 };
                 if let (Some(c), Some(mt)) = (collider, wp.s("material")) {
                     physics.materials.insert(c, mt.to_owned());
+                }
+                // on_hit_death (p_village_window): the first body to touch the pane breaks it (movable.rs)
+                if let (Some(c), true) = (collider, wp.f("on_hit_death", 0.0) != 0.0) {
+                    physics.set_contact_rule(c, crate::contacts::ContactRule::default());
+                    commands.entity(we).insert(crate::movable::HitDeath);
                 }
                 let (husk, triggers) = (pick_husk(&wp, &mut husk_rng), ObjectTriggers::of(&wp));
                 commands.entity(we).insert((Placed { template: "village_window".into(), collider, husk, triggers }, Bounds { center: Vec3::ZERO, radius: 4.0 }));
@@ -1218,8 +1229,14 @@ pub struct StageSwap<'w, 's> {
 impl StageSwap<'_, '_> {
     /// The object's collider and decals go (0x00455640: its decals fade, decals.rs, and it takes no more).
     fn unlink(&mut self, e: Entity, p: &Placed) {
+        // (a movable object's collider is its dynamic body: movable.rs)
         if let Some(c) = p.collider {
-            self.physics.remove_static(c);
+            if self.physics.bodies.contains_key(&c) {
+                self.physics.remove(c);
+                self.commands.entity(e).remove::<(crate::physics::Body, crate::movable::Movable)>();
+            } else {
+                self.physics.remove_static(c);
+            }
         }
         if let Some(w) = self.decal_world.as_mut() {
             w.remove_object(e);
@@ -1259,6 +1276,12 @@ impl StageSwap<'_, '_> {
         }
         // its collision model, or (collide_poly) its render model, as a placed object's
         let coll_name = ht.collision.clone().or_else(|| (hp.i("collide_poly", 0) != 0).then_some(model_name).flatten());
+        // a movable husk (boulder_large -> boulder_medium ...): a new object, unpinned unless its template pins it
+        if hp.s("behavior").is_none() {
+            if let Some(m) = crate::movable::Movable::new(&hp, coll_name.clone()) {
+                self.commands.entity(e).insert(m);
+            }
+        }
         let collider = match coll_name {
             Some(n) => self.lib.load_model(&n, false, &self.assets, &mut self.meshes, &mut self.materials).and_then(|m| static_collider(&mut self.physics, m, world)),
             None => None,

@@ -63,11 +63,11 @@ address,name,disposition,reason
 0x0044e630,MolmerObject_Load,replaced,Jonesy's hand set-up at load: ai.rs Companion set-up (companion subsystem)
 0x0044e740,MolmerObject_OnAnimEvent,replaced,Jonesy's anim events: make_tnt / Fire_tnt ported in ai.rs (the TNT throw) and sticky.rs (molmer_dynamite); make_bomb / plant_bomb (Jonesy planting a ticker bomb) are not reached on lev_1_m1
 0x0044f4a0,fn_0044f4a0,replaced,music request record reset at Game_Init (0x0044f4c0; the objective jingle 0x0044f560): gameaudio.rs Music
-0x00450af0,DefaultGameObject_Collide,deferred,"feature: object-collision; collision reactions (on_hit_damage, crush, on_hit_fx, boulder sound, on_hit_death): only the village windows have one (on_hit_death) and the recorded runs never reach it; needs contact events on static colliders (physics.rs)"
-0x00450fa0,DefaultGameObject_GetGravity,deferred,feature: object-collision; gravity getter: no lev_1_m1 object sets gravity
+0x00450af0,DefaultGameObject_Collide,ported,"engine/src/movable.rs collide (crush, on_hit_damage, on_hit_fx, the boulder impact, on_hit_death) and hit_death (the village windows)"
+0x00450fa0,DefaultGameObject_GetGravity,ported,engine/src/movable.rs (gravity: the body's gravity factor) and icobject.rs (the shootables' 0.5)
 0x00451040,fn_00451040,deferred,feature: untraced; DefaultGameObject vtable 0x005ab650 (class 38) damage + Game+0xdd1: not used on lev_1_m1
 0x00451070,RocketTowerBuilding_Remove,ported,cited: vehicles/rocket_turrets.rs (the removal stops the turn loop)
-0x00452790,fn_00452790,deferred,feature: speed-trap; speed_trap: not set on lev_1_m1
+0x00452790,fn_00452790,ported,engine/src/movable.rs / icobject.rs: speed_trap is Jolt's linear-cast motion quality
 0x00453230,fn_00453230,replaced,"base-class answers (0.0, zeros, 1.0) and the vt+0xb8 contact query: physics queries are Jolt's; nothing on lev_1_m1 depends on the default values"
 0x00453240,fn_00453240,replaced,"base-class answers (0.0, zeros, 1.0) and the vt+0xb8 contact query: physics queries are Jolt's; nothing on lev_1_m1 depends on the default values"
 0x004532b0,fn_004532b0,replaced,velocity query (Body_getLinearVelocity) outside cut scenes: Jolt bodies
@@ -88,7 +88,7 @@ address,name,disposition,reason
 0x004559f0,fn_004559f0,deferred,feature: untraced; +0x424 bits 0x20 / 0x200: meaning not traced (docs/subsystems/objects.md open questions)
 0x00456180,fn_00456180,deferred,"feature: ic-anims; spawns an attached grunt at a reference bone (IC_* interaction tags): no lev_1_m1 property set has an IC_ key, yet the coverage counts 9 calls (open question, objects.md)"
 0x00456240,Object_GetClassDesc,not needed,"plumbing: RTTI class descriptor / type id accessor; the engine identifies classes by Bevy components, no class registry"
-0x004585f0,fn_004585f0,deferred,feature: object-collision; gravity getter: no lev_1_m1 object sets gravity
+0x004585f0,fn_004585f0,ported,engine/src/movable.rs: an object off the custom-gravity list has the world's gravity (gravity factor 1)
 0x004614f0,Twiglet_Construct,replaced,constructor: the twiglets are spawned by twiglet.rs
 0x00461550,CaptainObject_Construct,replaced,constructor: captains are spawned by level.rs / ai.rs
 0x00461570,SniperCaptain_Construct,replaced,constructor: sniper captains are spawned by level.rs / ai.rs

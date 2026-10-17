@@ -89,6 +89,10 @@ pub struct Event {
     /// debug: destroy the placed object with this instance id (as a lethal hit)
     #[serde(default)]
     pub destroy: Option<u32>,
+    /// debug: set the velocity of the movable object (a boulder) with this instance id: [id, game-space vx, vy, vz]
+    /// (movable.rs Push; a pinned one is unpinned first), as a shove sends it rolling
+    #[serde(default)]
+    pub push: Option<[f32; 4]>,
     /// debug: deal [instance id, amount] to that placed object's health as a hit (Object_TakeDamage 0x004555e0: a
     /// killing blow takes the death path), to test a unit's damage and death without waiting for shots to land
     #[serde(default)]
@@ -647,7 +651,7 @@ pub(crate) fn drive(
     mission: Option<Res<crate::mission::Mission>>,
     mut roman: Query<&mut crate::fx::Health, With<crate::player::Roman>>,
     mut spawn: MessageWriter<crate::level::SpawnGrunt>,
-    (mut send, state, mut save_req, mut noise, mut barks, mut defence, mut cheats, dropped, placed_at): (
+    (mut send, state, mut save_req, mut noise, mut barks, mut defence, mut cheats, dropped, placed_at, mut push): (
         MessageWriter<crate::mission::SendTrigger>,
         Res<PlayState>,
         ResMut<crate::savegame::SaveRequest>,
@@ -657,6 +661,7 @@ pub(crate) fn drive(
         ResMut<crate::cheats::Cheats>,
         Query<Entity, With<crate::level::Dropped>>,
         Query<(&crate::level::InstanceId, &GlobalTransform)>,
+        MessageWriter<crate::movable::Push>,
     ),
     mut objects: Query<(Entity, Option<&crate::level::InstanceId>, Option<&crate::level::Placed>, &mut crate::fx::Destructible)>,
     cam: Query<&GlobalTransform, With<Camera3d>>,
@@ -792,6 +797,9 @@ pub(crate) fn drive(
         }
         if let Some(v) = &e.defence {
             defence.write(crate::defence::DefenceCommand(v.clone()));
+        }
+        if let Some([id, x, y, z]) = e.push {
+            push.write(crate::movable::Push { id: id as u32, velocity: Vec3::new(x, y, z) });
         }
         if let Some(id) = e.destroy {
             for (_, i, _, mut d) in &mut objects {
