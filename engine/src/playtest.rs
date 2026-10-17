@@ -138,6 +138,10 @@ pub struct Event {
     /// casts it at once (ai/monk.rs `Monk::forced`)
     #[serde(default)]
     pub monk_spell: Option<String>,
+    /// debug: force an AI behaviour's next roll (ai.rs `AiForce`): "throw" (the next captain in range throws his
+    /// grenade), "fight" (the next companion's fight roll passes), ...
+    #[serde(default)]
+    pub ai_force: Option<String>,
     /// debug: the live grunt nearest Roman runs the hiding-spot search now (as at a reload's end; ai.rs
     /// find_hiding_spot), so a trench's use can be checked without waiting for its rolls
     #[serde(default)]
@@ -647,7 +651,7 @@ pub(crate) fn drive(
     mission: Option<Res<crate::mission::Mission>>,
     mut roman: Query<&mut crate::fx::Health, With<crate::player::Roman>>,
     mut spawn: MessageWriter<crate::level::SpawnGrunt>,
-    (mut send, state, mut save_req, mut noise, mut barks, mut defence, mut cheats, dropped, placed_at): (
+    (mut send, state, mut save_req, mut noise, mut barks, mut defence, mut cheats, dropped, placed_at, mut ai_force): (
         MessageWriter<crate::mission::SendTrigger>,
         Res<PlayState>,
         ResMut<crate::savegame::SaveRequest>,
@@ -657,6 +661,7 @@ pub(crate) fn drive(
         ResMut<crate::cheats::Cheats>,
         Query<Entity, With<crate::level::Dropped>>,
         Query<(&crate::level::InstanceId, &GlobalTransform)>,
+        ResMut<crate::ai::AiForce>,
     ),
     mut objects: Query<(Entity, Option<&crate::level::InstanceId>, Option<&crate::level::Placed>, &mut crate::fx::Destructible)>,
     cam: Query<&GlobalTransform, With<Camera3d>>,
@@ -1014,6 +1019,9 @@ pub(crate) fn drive(
         }
         if let Some(g) = e.noise {
             noise.post(Vec3::new(g[0], g[2], -g[1]), 200.0, 2.0);
+        }
+        if let Some(f) = &e.ai_force {
+            ai_force.0.push(f.clone());
         }
         if e.barks_ready == Some(true) {
             barks.all_ready();

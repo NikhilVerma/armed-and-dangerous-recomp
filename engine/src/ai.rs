@@ -14,10 +14,12 @@
 
 pub mod body;
 pub mod bully;
+pub mod grenade;
 pub mod ic;
 pub mod jumper;
 pub mod max_fire;
 pub mod monk;
+pub mod rocket;
 pub mod squad;
 pub mod tower;
 
@@ -981,6 +983,24 @@ pub struct AiStats {
     pub squad_charged: usize,
 }
 
+/// Debug (playtest `ai_force`): forced outcomes of the AI's next rolls, each consumed by the behaviour it names ("throw":
+/// the next captain's engage roll throws, ai.rs; "fight": the next companion's fight roll passes, ai/melee.rs).
+#[derive(Resource, Default)]
+pub struct AiForce(pub Vec<String>);
+
+impl AiForce {
+    /// Takes one forced `what`, if queued.
+    pub fn take(&mut self, what: &str) -> bool {
+        match self.0.iter().position(|w| w == what) {
+            Some(i) => {
+                self.0.remove(i);
+                true
+            }
+            None => false,
+        }
+    }
+}
+
 /// Sticky bomb stuck at a point (game_07.cpp:1240: AI within 25 units are scared).
 #[derive(Message, Clone, Copy)]
 pub struct StickyStuck(pub Vec3, pub Option<Entity>);
@@ -1042,7 +1062,10 @@ impl Plugin for AiPlugin {
             .init_level_resource::<KillMeter>()
             .init_level_resource::<Barks>()
             .add_message::<StickyStuck>()
-            .init_resource::<GrenadeAssets>()
+            .init_resource::<grenade::GrenadeAssets>()
+            .init_level_resource::<grenade::GrenadeStats>()
+            .init_level_resource::<rocket::RocketHullStats>()
+            .init_level_resource::<AiForce>()
             .init_level_resource::<Interests>()
             .init_level_resource::<bully::BullyLines>()
             .init_level_resource::<ic::IcStats>()
@@ -1051,7 +1074,7 @@ impl Plugin for AiPlugin {
                 Update,
                 (
                     (body::bumps, squad::update_squads, interests, mark_army_targets, search, ic::activate, scare, max_fire::sync_limit, think, max_fire::upkeep, ic::run, bully::bullies, die, dismay).chain(),
-                    (body::apply_rules, log_cover, log_ai, log_placed, squad::log_squads, ic::log, max_fire::log, grenades).chain(),
+                    (body::apply_rules, log_cover, log_ai, log_placed, squad::log_squads, ic::log, max_fire::log, grenade::fly, grenade::log, rocket::shoot_down, rocket::log).chain(),
                 )
                     .chain()
                     .after(crate::fx::FxSet)
@@ -1108,7 +1131,7 @@ fn log_placed(
 fn log_ai(
     grunts: Query<(Entity, &Grunt, &GlobalTransform)>,
     roman: Query<(Entity, &GlobalTransform), With<Player>>,
-    grenades: Query<(), With<Grenade>>,
+    grenades: Query<(), With<grenade::Grenade>>,
     noise: Res<Interests>,
     state: Option<ResMut<crate::playtest::PlayState>>,
     stats: Res<AiStats>,
@@ -2557,126 +2580,6 @@ fn reaction_end(
     }
 }
 
-/// The captain's grenade model (template captain_grenade: grunt_grenade_1), loaded with the level (level.rs).
-#[derive(Resource, Default)]
-pub struct GrenadeAssets(pub Vec<(Handle<Mesh>, Handle<StandardMaterial>)>);
-
-/// A thrown captain_grenade (GrenadeProjectile, vtable 0x005a5010): launched by 0x00482870 at the target point pulled
-/// back 20 units toward the thrower, with the projectile's speed (p_captain_grenade speed x 3, Projectile_Load) under
-/// g = 64.348 (0x00471a00: the lower of the two arcs, guess); the generic projectile update (0x0047e580) ray-casts its
-/// path and the first hit (0x0047eae0) ends it: area damage (AreaDamage_Apply 0x0047f020: area_damage 30, radius
-/// 10..30, impact_force 15000), the direct damage to the object hit (50), the end fx (fx_end fx_imp_sticky), gone.
-/// Its lifetime (15 s) ends it unexploded (guess: 0x004820b0 then still applies the area damage).
-#[derive(Component)]
-pub struct Grenade {
-    vel: Vec3,
-    life: f32,
-    owner: Entity,
-}
-
-fn throw_grenade(commands: &mut Commands, assets: Option<&GrenadeAssets>, data: &crate::gamedata::GameData, from: Vec3, target: Vec3, owner: Entity) {
-    let p = data.props("p_captain_grenade");
-    let speed = p.f("speed", 35.0) * 3.0;
-    // the target point pulled back toward the thrower by 20 when farther than 20 (0x00482870)
-    let d = target - from;
-    let to = if d.length() > 20.0 { from + d.normalize() * (d.length() - 20.0) } else { target };
-    let d = to - from;
-    let h = Vec2::new(d.x, d.z).length();
-    let g = 64.348f32;
-    let (v2, y) = (speed * speed, d.y);
-    let disc = v2 * v2 - g * (g * h * h + 2.0 * y * v2);
-    let flat_dir = Vec3::new(d.x, 0.0, d.z).normalize_or(Vec3::Z);
-    let vel = if h > 1e-3 && disc >= 0.0 {
-        let a = ((v2 - disc.sqrt()) / (g * h)).atan();
-        flat_dir * speed * a.cos() + Vec3::Y * speed * a.sin()
-    } else {
-        // out of reach: thrown at 45 degrees
-        (flat_dir + Vec3::Y).normalize() * speed
-    };
-    let e = commands
-        .spawn((Transform::from_translation(from).with_rotation(crate::level::game_to_engine()), Visibility::default(), Grenade { vel, life: p.f("lifetime", 15.0), owner }))
-        .id();
-    if let Some(a) = assets {
-        for (mesh, mat) in &a.0 {
-            let c = commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(mat.clone()))).id();
-            commands.entity(e).add_child(c);
-        }
-    }
-    info!("EVENT ai: captain threw a grenade");
-}
-
-/// The grenades' flight and end (see Grenade).
-#[allow(clippy::too_many_arguments)]
-fn grenades(
-    mut commands: Commands,
-    time: Res<Time>,
-    physics: NonSend<Physics>,
-    data: Res<crate::gamedata::GameData>,
-    mut q: Query<(Entity, &mut Grenade, &mut Transform)>,
-    mut health: Query<&mut Health>,
-    mut blasts: MessageWriter<crate::fx::Explode>,
-    mut fx: MessageWriter<crate::fx::StartFx>,
-    roman: Query<(Entity, &Transform, &crate::player::Roman), Without<Grenade>>,
-) {
-    let dt = time.delta_secs();
-    let p = data.props("p_captain_grenade");
-    // Roman is no physics body (a walker): the path passing within 4.5 of his centre hits him (as the bullets'
-    // fallback without his collision parts, player.rs)
-    let roman = roman.single().ok().map(|(e, t, r)| (e, t.translation + Vec3::Y * r.walker.lift));
-    for (e, mut gr, mut t) in &mut q {
-        gr.life -= dt;
-        gr.vel.y -= 64.348 * dt;
-        let step = gr.vel * dt;
-        let from = t.translation;
-        let mut hit = None;
-        let mut start = from;
-        let mut rest = step.length();
-        let dir = step.normalize_or(Vec3::NEG_Y);
-        while rest > 0.0 {
-            let Some((b, at, _)) = physics.raycast(start, dir, rest) else { break };
-            let obj = physics.bodies.get(&b).copied();
-            // the thrower's own body is in the projectile's ignore chain (+0x574)
-            if obj == Some(gr.owner) {
-                rest -= at.distance(start) + 0.05;
-                start = at + dir * 0.05;
-                continue;
-            }
-            hit = Some((at, obj));
-            break;
-        }
-        if let Some((re, c)) = roman {
-            let u = ((c - from).dot(step) / step.length_squared().max(1e-6)).clamp(0.0, 1.0);
-            let at = from + step * u;
-            if at.distance(c) < 4.5 && hit.is_none_or(|(h, _)| h.distance(from) > at.distance(from)) {
-                hit = Some((at, Some(re)));
-            }
-        }
-        if hit.is_none() && gr.life > 0.0 {
-            t.translation = from + step;
-            continue;
-        }
-        let (at, obj) = hit.unwrap_or((from, None));
-        blasts.write(crate::fx::Explode {
-            at,
-            area_damage: p.f("area_damage", 30.0),
-            radius_inner: p.f("damage_radius_inner", 10.0),
-            radius_outer: p.f("damage_radius_outer", 30.0),
-            impact_force: p.f("impact_force", 15000.0),
-            source: obj,
-            delay: 0.0,
-            by: crate::fx::Src::Badguy,
-            cartoon: false,
-        });
-        if let Some(mut h) = obj.and_then(|o| health.get_mut(o).ok()) {
-            h.0 -= p.f("damage", 50.0);
-        }
-        if let Some(n) = p.s("fx_end") {
-            fx.write(crate::fx::StartFx { name: n.to_owned(), at, rotation: crate::level::game_to_engine(), follow: None, position_only: false });
-        }
-        commands.entity(e).despawn();
-    }
-}
-
 /// What ended the fire cycle's frame.
 #[derive(PartialEq)]
 enum FireEnd {
@@ -2711,16 +2614,17 @@ fn think(
         Res<crate::turret::Mounted>,
         Res<crate::gamedata::GameData>,
     ),
-    (mut lib, player_q, mut triggers, grenade_assets, squads, mut jmarks, army, placed, mut limit): (
+    (mut lib, player_q, mut triggers, grenade_assets, squads, mut jmarks, army, placed, mut limit, mut force): (
         ResMut<crate::skin::AnimLibrary>,
         Query<Entity, With<Player>>,
         MessageWriter<crate::mission::SendTrigger>,
-        Option<Res<GrenadeAssets>>,
+        Option<Res<grenade::GrenadeAssets>>,
         Query<&squad::Squad>,
         Query<(Entity, &mut JumpMarker, &Transform), Without<Grunt>>,
         Query<(), With<ArmyTarget>>,
         Query<&crate::level::Placed>,
         ResMut<max_fire::ShooterLimit>,
+        ResMut<AiForce>,
     ),
 ) {
     let t0 = Instant::now();
@@ -3136,7 +3040,7 @@ fn think(
                         m.summon_at = monk::summon_point(pos, forward, &mut rng);
                     }
                     Mind::Cast
-                } else if !engaged && !retry && g.kind.close_attack() && in_range && g.fire_ready && g.throw_armed && rng.rand() * 200.0 < 30.0 {
+                } else if !engaged && !retry && g.kind.close_attack() && in_range && g.fire_ready && g.throw_armed && (force.take("throw") || rng.rand() * 200.0 < 30.0) {
                     g.anim_id = 0x27;
                     g.anim_left = anim_len(&mut lib, g.anim(0x27, 0.0));
                     g.thrown = false;
@@ -3349,7 +3253,7 @@ fn think(
                             .and_then(|a| a.skeleton.index.get("ref_lhand").and_then(|&i| targets.get(a.joints[i]).ok()))
                             .map(|j| j.translation())
                             .unwrap_or(pos + Vec3::Y * 9.0);
-                        throw_grenade(&mut commands, grenade_assets.as_deref(), &data, hand, thit, ge);
+                        grenade::throw(&mut commands, grenade_assets.as_deref(), &data, &mut rng, hand, thit, ge);
                     }
                 }
                 if g.anim_left <= 0.0 {
@@ -3423,7 +3327,7 @@ fn think(
                         // object as target, the houses a village attacker shoots)
                         let target_body = g.target.and_then(|t| placed.get(t).ok()).and_then(|p| p.collider);
                         let skip: Vec<BodyId> = std::iter::once(body.id).chain(target_body).collect();
-                        end = fire_cycle(&mut commands, &mut g, &physics, &mut rng, pos, p, hit, own_hit, hand, &skip, dt, &mut stats, &mut sounds, &mut fx, (&mut barks, time.elapsed_secs(), &voices));
+                        end = fire_cycle(&mut commands, &mut g, &physics, &mut rng, pos, p, hit, own_hit, hand, &skip, dt, &mut stats, &mut sounds, &mut fx, (&mut barks, time.elapsed_secs(), &voices, &data));
                     }
                     if stats.shots > before && std::env::var("AIDBG").is_ok() {
                         info!("AIDBG gruntshot t {:.3}", rtime.elapsed_secs());
@@ -3547,7 +3451,7 @@ fn think(
                             if n > t0 && n <= t1 && g.left_rounds > 0 {
                                 if let Some((_, thit)) = tgt {
                                     g.left_rounds -= 1;
-                                    shoot(&mut commands, &mut fx, &g, &mut rng, pos, thit);
+                                    shoot(&mut commands, &mut fx, &g, &mut rng, pos, thit, &data);
                                     stats.shots += 1;
                                 }
                             }
@@ -3800,7 +3704,7 @@ fn think(
                 if j.flight == Some(jumper::Flight::Glide) {
                     if let (Some(p), Some(thit), true) = (target, target_hit, g.fire_ready) {
                         g.jumper = Some(j);
-                        fire_cycle(&mut commands, &mut g, &physics, &mut rng, pos, p, thit, own_hit, None, &[body.id], dt, &mut stats, &mut sounds, &mut fx, (&mut barks, time.elapsed_secs(), &voices));
+                        fire_cycle(&mut commands, &mut g, &physics, &mut rng, pos, p, thit, own_hit, None, &[body.id], dt, &mut stats, &mut sounds, &mut fx, (&mut barks, time.elapsed_secs(), &voices, &data));
                         g.mind = Mind::Jump;
                         j = g.jumper.expect("a jumper");
                     }
@@ -3941,7 +3845,7 @@ fn think(
 /// target: the muzzle minus the grunt's position ~6.9 ahead, 1.3..1.5 to its right (the rifle at the right shoulder)
 /// and 8.4 up; the bullets then pass where the original's do: a grunt standing in front of a shooter is hit), the
 /// projectile and the muzzle fx (which carries the shot's sound).
-fn shoot(commands: &mut Commands, fx: &mut MessageWriter<crate::fx::StartFx>, g: &Grunt, rng: &mut FxStats, pos: Vec3, hit: Vec3) {
+fn shoot(commands: &mut Commands, fx: &mut MessageWriter<crate::fx::StartFx>, g: &Grunt, rng: &mut FxStats, pos: Vec3, hit: Vec3, data: &crate::gamedata::GameData) {
     let fwd = Vec3::new(g.yaw.sin(), 0.0, g.yaw.cos());
     let to = (hit - pos).with_y(0.0);
     let d = to.length();
@@ -3958,7 +3862,11 @@ fn shoot(commands: &mut Commands, fx: &mut MessageWriter<crate::fx::StartFx>, g:
         let gp = crate::level::game_to_engine().inverse() * pos;
         info!("AIDBG muzzle {:.1} {:.1} off {:.2} {:.2} {:.2}", gp.x, gp.y, o.x, o.y, o.z);
     }
-    crate::player::spawn_projectile_to(commands, fx, &g.bullet, muzzle + dir * 4.0, aim, false, g.me);
+    // the rocket captain's launcher fires the captain_rocket (CaptainRocket: ai/rocket.rs), the others a bullet
+    match (g.me, crate::vehicles::rockets::is_rocket(&g.bullet)) {
+        (Some(me), true) => rocket::fire(commands, fx, data, rng, muzzle + dir * 4.0, aim, me),
+        _ => crate::player::spawn_projectile_to(commands, fx, &g.bullet, muzzle + dir * 4.0, aim, false, g.me),
+    }
     if let Some(m) = g.weapon.s("muzzle_fx_name") {
         fx.write(crate::fx::StartFx { name: m.to_owned(), at: muzzle + dir * 4.0, rotation: Transform::IDENTITY.looking_to(dir, Vec3::Y).rotation, follow: None, position_only: false });
     }
@@ -3981,7 +3889,7 @@ fn fire_cycle(
     stats: &mut AiStats,
     sounds: &mut MessageWriter<crate::audio::PlaySound>,
     fx: &mut MessageWriter<crate::fx::StartFx>,
-    (barks, now, voices): (&mut Barks, f32, &crate::audio::PlayingVoices),
+    (barks, now, voices, data): (&mut Barks, f32, &crate::audio::PlayingVoices, &crate::gamedata::GameData),
 ) -> FireEnd {
     g.pause -= dt;
     if g.pause > 0.0 {
@@ -4018,7 +3926,7 @@ fn fire_cycle(
         g.pause = 0.467 + g.reload_len + 2.0 / 60.0;
         return FireEnd::None;
     }
-    shoot(commands, fx, g, rng, pos, hit);
+    shoot(commands, fx, g, rng, pos, hit, data);
     g.shot_age = 0.0;
     if g.kind == Kind::Sniper {
         stats.sniper_shots += 1;

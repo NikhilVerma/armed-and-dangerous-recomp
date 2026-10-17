@@ -1136,8 +1136,8 @@ pub fn spawn(
         q111: crate::hitparts::load(&lib.dir, "q111_coll_0"),
     });
     commands.insert_resource(crate::sticky::StickyAssets { parts, dynamite, base: game_to_engine() });
-    // the captains' grenade (template captain_grenade: grunt_grenade_1; ai.rs Grenade)
-    commands.insert_resource(crate::ai::GrenadeAssets(lib.load_model("grunt_grenade_1", false, assets, meshes, materials).map(|m| m.parts.clone()).unwrap_or_default()));
+    // the captains' grenade (template captain_grenade: grunt_grenade_1; ai/grenade.rs)
+    commands.insert_resource(crate::ai::grenade::GrenadeAssets(lib.load_model("grunt_grenade_1", false, assets, meshes, materials).map(|m| m.parts.clone()).unwrap_or_default()));
 
     // The level's directional lights (lighttype "dir"): each shines down its local -Z axis.
     let (lo, hi) = (Vec3::from(scene.bounds[0]), Vec3::from(scene.bounds[1]));

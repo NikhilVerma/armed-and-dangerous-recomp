@@ -1,0 +1,9 @@
+{"scene": "lev_3_m1", "steps": [
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 3.5}, {"tap": "Enter"}, {"wait": 1.0},
+ {"expect": {"ai.rockets": 6, "captain_rocket.fired": 0}},
+ {"cheat": "SHIELDME"},
+ {"land_sight": [30, 150]},
+ {"wait": 15.0},
+ {"expect": {"ai.rocket_shots": [1, 100], "captain_rocket.fired": [1, 100], "vehicles.rockets.fired": [1, 100], "vehicles.rockets.ended": [1, 100]}},
+ {"quit": true}
+]}
