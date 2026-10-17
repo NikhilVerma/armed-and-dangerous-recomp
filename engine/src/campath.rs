@@ -119,7 +119,8 @@ fn play(
         }
         let file = std::fs::read_to_string(lib.dir.join("anims").join(format!("{}.json", name.to_lowercase()))).ok();
         if let Some(f) = file.and_then(|t| serde_json::from_str::<PathFile>(&t).ok()) {
-            path.track = f.cameras.into_values().next();
+            // the first camera by name (a hash map's first entry differs from run to run)
+            path.track = f.cameras.into_iter().min_by(|a, b| a.0.cmp(&b.0)).map(|(_, t)| t);
             path.duration = f.duration;
             path.time = 0.0;
             path.name = Some(name.clone());

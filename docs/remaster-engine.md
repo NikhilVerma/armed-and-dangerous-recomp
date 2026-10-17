@@ -353,7 +353,8 @@ script headless and prints only EVENT / EXPECT / PLAYTEST lines, the time and th
 `SCRIPT.out`). A `{"save": "NAME"}` step writes `states/NAME.json` next to the script (savegame.rs: Roman,
 mission, dead grunts, destroyed objects); a script with top-level `"load": "states/NAME.json"` starts there with
 the intro skipped. `{"expect": {"health": [200, 290], "stickies": 5}}` checks state-log fields (two numbers: an
-inclusive range; else equality) and prints EXPECT PASS / FAIL; any failure exits 1. `{"blast": D}` sets off a
+inclusive range; else equality) and prints EXPECT PASS / FAIL; any failure exits 1. `{"expect_perf": {...}}` holds wall-clock
+limits (frame_ms, main_ms): checked only by `tools/regress.py --perf` on an idle machine, skipped otherwise. `{"blast": D}` sets off a
 badguy explosion of area damage D at Roman. States: `after_pub` (state_after_pub.json, 23 s to make). Example:
 topsyhit2.json (24 s; the same check replayed from the start took about 4 minutes).
 
@@ -779,6 +780,9 @@ the original), gameaudio.rs the level's use of it. What changed for everything t
 - Playtests: `{"audio": {...}}` steps and the `audio` state-log field (see audio.md section 8); `"x": null` in an
   expect means the field is absent.
 
+A one-shot ends when its length has played in game time (`Voice::length`), not when the output device drains it
+(see "Tips and traps": scripted runs must not depend on the machine's speed).
+
 Debt: `ListenerBody.radius` stands in for the original's ownership test (0x0045a480); the characters' own voice
 handles (+0xb4c / +0xb50) are not ported (ai.rs's cue sites pass no speaker); music segments chain on a frame timer
 (the segment's duration), not on the stream's end.
@@ -1056,6 +1060,33 @@ kept the credits page from taking input; it now runs out while no full-window mo
   made runs differ).
 - Anchor scripts to the game, not the clock: `{"until": "message"}` waits for the briefing (loading time varies;
   fixed waits drifted into the intro). With both, repeated runs agree within ~0.3 mae.
+- **A scripted run must not depend on how fast the machine is** (2026-10-17, agent-flaky). Scripted runs step game
+  time by a fixed 1/60 s a frame (main.rs ORACLE_FRAME_STEP; `Time<Real>` is stepped too), so the same script gives
+  the same game on an idle or a loaded machine, and two runs give identical sound logs (`--env AND_SOUND_LOG=FILE`;
+  check with two runs and a diff). What broke that, and must not come back:
+  - the **audio device's clock**: a voice ended when its sink drained (wall-clock time). On a loaded machine (game
+    slower than real time) voice lines ended early in game time and a follow-on line started that should not have
+    (audio_voice), music segments vanished (audio_stopall), and the AI's "still saying / screaming" checks (taunts,
+    death lines) changed which random numbers were drawn (gunner1, infantry_l4m2). A one-shot now ends when its
+    length (the bank's duration over its playback rate) has played in game time (audio.rs `Voice::length`); a file
+    that loads late starts at the voice's age (its PlaybackSettings `start_position`). Never read
+    `AudioSink::empty` / `position` for game logic, and never `try_seek` a voice's sink: it blocks until the audio
+    thread answers and froze audio_music for good (the movie player's seek is the one existing use).
+  - **asset load timing**: a voice used to start ageing only once its file had loaded (a load-dependent number of
+    frames). Any gameplay gate on an asset's load state has the same problem.
+  - **`std::collections::HashMap` order**: randomly seeded per process. FxVm's objects were updated in hash order,
+    each drawing from the shared random stream and playing sounds, so debris differed from run to run (gunner1's
+    first divergence: 14.7 s). Iterate ordered collections (BTreeMap, sorted keys, `bevy::platform` maps) wherever
+    the order reaches game state, random draws or messages.
+  - **wall-clock waits**: the level settle after a restart waited for quick wall-clock frames; stepped runs now
+    count frames only (levelreset.rs `settle`).
+  - **wall-clock limits in correctness tests**: frame / main-world times are machine load, not game behaviour. They
+    go in `"expect_perf"` steps, checked only by `python tools/regress.py --perf` (AND_PERF=1) on an idle machine
+    and logged `EXPECT SKIP (perf)` otherwise. regress.py gives each script 1200 s of wall time (a hang guard:
+    defence_l5m5's 66 game seconds take ~300 s under load).
+  Known, bounded: a movie's clock waits up to 0.5 s game time for its soundtrack's sink, and the logged
+  `movie.audio_time` / `drift` / `rate` follow the device; movie scripts check them with ranges that cover that.
+  Do not dismiss a failure as "load": a run that differs on a loaded machine has a wall-clock dependency to find.
 
 ## Audio check
 

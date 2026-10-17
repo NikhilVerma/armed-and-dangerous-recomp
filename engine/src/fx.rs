@@ -301,8 +301,11 @@ fn damage(
         // non-character objects turn it into an impulse is not traced: impulse = impact_force (game units)
         // scaled like the fx impulses (guess).
         let k = physics.meters_per_unit;
-        let ids: Vec<_> = physics.bodies.keys().copied().collect();
-        for id in ids {
+        // in the bodies' creation order (the map's order is per process: Jolt's activation order, and so its solver
+        // order, made runs differ)
+        let mut ids: Vec<_> = physics.bodies.iter().map(|(id, e)| (*e, *id)).collect();
+        ids.sort_by_key(|(e, id)| (*e, *id));
+        for (_, id) in ids {
             let Ok(body) = physics.world.body(id) else { continue };
             let p = crate::physics::br(body.position()) / k;
             drop(body);
