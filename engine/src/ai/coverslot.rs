@@ -167,7 +167,6 @@ impl Plugin for CoverSlotPlugin {
 fn setup(
     mut commands: Commands,
     q: Query<(Entity, &crate::level::InstanceId, &crate::level::Placed, Option<&crate::fx::Destructible>), Without<CoverObject>>,
-    gtq: Query<&GlobalTransform>,
     physics: NonSend<crate::physics::Physics>,
     data: Res<crate::gamedata::GameData>,
     lib: Res<crate::skin::AnimLibrary>,
@@ -232,9 +231,26 @@ fn ring_free(physics: &crate::physics::Physics, at: Vec3, own: Option<oxijolt::p
 }
 
 /// A destroyed cover object leaves the list with its occupants freed (0x0040cd40 / 0x00497430); its ruin is a new object.
-fn gone(mut commands: Commands, mut died: MessageReader<crate::fx::Died>, q: Query<(), With<CoverObject>>, mut grunts: Query<&mut super::Grunt>) {
+/// An occupant dead or gone frees his slot too (the object's release, vt+0x15c, from his death 0x00431720 / removal).
+fn gone(
+    mut commands: Commands,
+    mut died: MessageReader<crate::fx::Died>,
+    mut q: Query<(Entity, &mut CoverObject)>,
+    mut grunts: Query<&mut super::Grunt>,
+) {
+    for (_, mut c) in &mut q {
+        if c.occupants.iter().any(|o| o.is_some_and(|o| grunts.get(o).map_or(true, |g| g.mind == super::Mind::Dead))) {
+            for o in c.occupants.iter_mut() {
+                if o.is_some_and(|e| grunts.get(e).map_or(true, |g| g.mind == super::Mind::Dead)) {
+                    *o = None;
+                }
+            }
+        }
+    }
+    let q = q.transmute_lens::<Entity>();
+    let q = q.query();
     for d in died.read() {
-        if q.contains(d.0) {
+        if q.get(d.0).is_ok() {
             commands.entity(d.0).remove::<CoverObject>();
             for mut g in &mut grunts {
                 if g.slot.is_some_and(|s| s.obj == d.0) {
