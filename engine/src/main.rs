@@ -12,6 +12,7 @@
 mod ai;
 mod alarm;
 mod army;
+mod crowd;
 mod defence;
 mod icobject;
 mod mover;
@@ -301,7 +302,7 @@ fn main() {
     .add_plugins(topsy::TopsyPlugin)
     .add_plugins(turret::TurretPlugin)
     // the base-defence levels: movers (scripted paths), the army, the base turret (army.rs, defence.rs)
-    .add_plugins((mover::MoverPlugin, army::ArmyPlugin, defence::DefencePlugin, icobject::IcObjectPlugin, shell::ShellPlugin, goliath::GoliathPlugin, shrubpatrol::ShrubPatrolPlugin, surface::SurfacePlugin, twiglet::TwigletPlugin, jetpack::JetPackPlugin, peasant::PeasantPlugin, ai::tower::TowerPlugin))
+    .add_plugins((mover::MoverPlugin, army::ArmyPlugin, crowd::CrowdPlugin, defence::DefencePlugin, icobject::IcObjectPlugin, shell::ShellPlugin, goliath::GoliathPlugin, shrubpatrol::ShrubPatrolPlugin, surface::SurfacePlugin, twiglet::TwigletPlugin, jetpack::JetPackPlugin, peasant::PeasantPlugin, ai::tower::TowerPlugin))
     .add_plugins(vehicles::VehiclesPlugin)
     .init_state::<AppState>()
     .insert_non_send(physics::Physics::new(level::METERS_PER_UNIT))
