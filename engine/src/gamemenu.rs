@@ -171,6 +171,9 @@ pub enum Act {
     Movie(&'static str),
     Slide(Opt),
     Toggle(Flag),
+    /// a key binding entry of the Controls page: choosing it waits for the input to bind (bindings.rs `Capture`;
+    /// UI_ShowAssignKeyPrompt 0x00447f50, codes 44 / 45 of 0x004714c0)
+    Rebind(crate::bindings::Bind, crate::bindings::Device),
 }
 
 impl Act {
@@ -219,8 +222,34 @@ enum PartKind {
     /// a cheat of the table 0x00589090 in the cheat page's grid (0x00410be0)
     CheatName(usize),
     Credits,
-    /// an action's binding on the device in use (input::key)
-    Binding(crate::input::Act),
+    /// a key binding entry's inputs (0x00447e70), shown while that device is in use
+    Bound(crate::bindings::Bind, crate::bindings::Device),
+    /// a fixed text shown only while that device is in use (the pad page's stick rows)
+    OnDevice(crate::bindings::Device),
+    /// the pad's left / right stick icon (Move, Look on the pad page)
+    Stick(bool),
+}
+
+impl PartKind {
+    /// The device a part is shown for (None: always).
+    fn device(self) -> Option<crate::bindings::Device> {
+        match self {
+            PartKind::Bound(_, d) | PartKind::OnDevice(d) => Some(d),
+            PartKind::Stick(_) => Some(crate::bindings::Device::Pad),
+            _ => None,
+        }
+    }
+}
+
+impl MenuRow {
+    /// Shown and selectable now: a key binding entry only while its device is in use (the Controls page shows the
+    /// bindings of the device in use).
+    fn on_device(&self) -> bool {
+        match self.act {
+            Act::Rebind(_, d) => d == crate::bindings::Device::active(),
+            _ => true,
+        }
+    }
 }
 
 /// A row's highlight size fade (UiText +0x4e0: 0..1).
@@ -263,6 +292,8 @@ pub struct GameMenu {
     /// on another row or page)
     pub slots: Vec<crate::savegame::Slot>,
     pub slot_sel: Option<u8>,
+    /// a key binding entry waiting for its input (bindings.rs)
+    pub capture: Option<crate::bindings::Capture>,
 }
 
 impl Default for GameMenu {
@@ -283,6 +314,7 @@ impl Default for GameMenu {
             has_save: false,
             slots: Vec::new(),
             slot_sel: None,
+            capture: None,
         }
     }
 }
@@ -339,7 +371,7 @@ impl Plugin for GameMenuPlugin {
     fn build(&self, app: &mut App) {
         app.init_level_resource::<GameMenu>()
             .init_resource::<Texts>()
-            .add_systems(Update, (failed, navigate.run_if(crate::movie::no_movie_input), extras_pages, animate, values, pause_band, credits, log_menu).chain().in_set(MenuSystems))
+            .add_systems(Update, (failed, crate::bindings::capture, navigate.run_if(crate::movie::no_movie_input), extras_pages, animate, values, pause_band, credits, log_menu).chain().in_set(MenuSystems))
             .add_plugins(crate::saveslots::SaveSlotsPlugin);
     }
 }
@@ -371,8 +403,9 @@ fn log_menu(
     });
     state.0.insert(
         "menu".into(),
-        serde_json::json!({ "page": format!("{:?}", menu.page), "selected": sel, "fading": menu.fade > 0.0, "shown": menu.shown.map(|p| format!("{p:?}")), "value": value, "cheats_shown": cheats_shown, "art": art, "slot": menu.slot_sel.map(|s| s + 1) }),
+        serde_json::json!({ "page": format!("{:?}", menu.page), "selected": sel, "fading": menu.fade > 0.0, "shown": menu.shown.map(|p| format!("{p:?}")), "value": value, "cheats_shown": cheats_shown, "art": art, "slot": menu.slot_sel.map(|s| s + 1), "capture": menu.capture.map(|c| format!("{:?}", c.bind)) }),
     );
+    state.0.insert("bindings".into(), opts.bindings.log());
 }
 
 const ORANGE: Color = Color::srgb(0xd0 as f32 / 255.0, 0x50 as f32 / 255.0, 0x30 as f32 / 255.0);
@@ -736,30 +769,35 @@ pub fn spawn(commands: &mut Commands, assets: &AssetServer, meshes: &mut Assets<
         s.check(Page::Sfx, "ui_sfxmenu_subtitles_ingame", 200.0, 320.0, 108.996, Some(Flag::SubsGame), true);
         s.row(Page::Sfx, "ui_shellmenu_back", Vec2::new(320.0, 60.44), 1.4, YELLOW, Act::Back, 0.0);
 
-        // controls (pui_showcontrols; orig_ui_controls-1100.png): the remaster's bindings, two columns of
-        // "action: key" (labels right-aligned at x 172 / 466, keys from x 187 / 482), rows 24 apart
+        // controls (pui_showcontrols; orig_ui_controls-1100.png): the key binding entries of the device in use
+        // (bindings.rs), two columns of "action: inputs" (labels right-aligned at x 172 / 466, inputs from x 187 / 482).
+        // Keyboard and mouse: the original's two pages of entries (table 0x00588dd8) on one, rows 26 apart; the pad:
+        // its button actions, with the sticks' Move and Look fixed, rows 30 apart. Choosing an entry rebinds it.
         s.row(Page::Controls, "ui_mainmenu_controls", Vec2::new(320.0, 420.996), 1.4, GREEN, Act::None, 0.0);
-        // the bindings of the device in use (keyboard and mouse, or the pad last pressed: input.rs), as icons
-        use crate::input::Act as I;
-        let left = [
-            ("Move", I::Move),
-            ("Look", I::Look),
-            ("Fire Weapon", I::Fire),
-            ("Aim / Zoom", I::Aim),
-            ("Fire Special", I::Special),
-            ("Next Special", I::NextSpecial),
-            ("Next Weapon", I::SwitchWeapon),
-        ];
-        let right = [("Jump", I::Jump), ("Reload", I::Reload), ("Activate", I::Use), ("Send Team", I::TeamSend), ("Recall Team", I::TeamRecall), ("Continue", I::Continue), ("Pause", I::Pause)];
-        for (i, (a, k)) in left.iter().enumerate() {
-            let y = 390.691 - 30.0 * i as f32;
-            s.text(Page::Controls, a, Vec2::new(172.0, y), 0.8, GREEN, 1.0, PartKind::Fixed);
-            s.text(Page::Controls, "", Vec2::new(187.0, y), 0.8, GREEN, -1.0, PartKind::Binding(*k));
-        }
-        for (i, (a, k)) in right.iter().enumerate() {
-            let y = 390.691 - 30.0 * i as f32;
-            s.text(Page::Controls, a, Vec2::new(466.0, y), 0.8, GREEN, 1.0, PartKind::Fixed);
-            s.text(Page::Controls, "", Vec2::new(482.0, y), 0.8, GREEN, -1.0, PartKind::Binding(*k));
+        {
+            use crate::bindings::{Bind as B, Device};
+            let entry = |s: &mut Spawner, b: B, d: Device, x: f32, y: f32| {
+                // the hit box takes in the inputs' text too (fitted to 128 units: 0x00447da0)
+                s.next = (0.0, Some((x + 10.0, x + 150.0)));
+                s.row(Page::Controls, b.text_id(), Vec2::new(x, y), 0.8, GREEN, Act::Rebind(b, d), 1.0);
+                s.text(Page::Controls, "", Vec2::new(x + 15.0, y), 0.8, GREEN, -1.0, PartKind::Bound(b, d));
+            };
+            for (i, b) in B::ALL.into_iter().enumerate() {
+                let (x, row) = if i < 9 { (172.0, i) } else { (466.0, i - 9) };
+                entry(&mut s, b, Device::Keys, x, 390.691 - 26.0 * row as f32);
+            }
+            // the pad: the sticks first, then its buttons
+            for (i, (id, left)) in [("controlactionmove", true), ("controlactionlook", false)].into_iter().enumerate() {
+                let y = 390.691 - 30.0 * i as f32;
+                let label = s.texts.get(id);
+                s.text(Page::Controls, &label, Vec2::new(172.0, y), 0.8, GREEN, 1.0, PartKind::OnDevice(Device::Pad));
+                s.text(Page::Controls, "", Vec2::new(187.0, y), 0.8, GREEN, -1.0, PartKind::Stick(left));
+            }
+            let pad: Vec<B> = B::ALL.into_iter().filter(|b| b.on(Device::Pad)).collect();
+            for (i, b) in pad.into_iter().enumerate() {
+                let (x, row) = if i < 3 { (172.0, i + 2) } else { (466.0, i - 3) };
+                entry(&mut s, b, Device::Pad, x, 390.691 - 30.0 * row as f32);
+            }
         }
         // scale 0.8 (layout.json: the controls page's ui_progressbar)
         s.slider(Page::Controls, "ui_controls_mousescale", it(150.691), 0.8, Opt::MouseSens, true);
@@ -862,7 +900,7 @@ fn extras_pages(
 /// (+0x474 0x40, skipped by the selection: 0x00491b20) while there is none: Load Game (code 2, 0x004a2c10 slot -1),
 /// Quick Load and Restart from last save (code 34, 0x004a2e90).
 fn rows_of<'a>(rows: impl Iterator<Item = &'a MenuRow>, page: Page, has_save: bool) -> Vec<(usize, Act)> {
-    let mut v: Vec<(usize, Act)> = rows.filter(|r| r.page == page && (has_save || !r.act.needs_save())).filter_map(|r| r.order.map(|o| (o, r.act))).collect();
+    let mut v: Vec<(usize, Act)> = rows.filter(|r| r.page == page && r.on_device() && (has_save || !r.act.needs_save())).filter_map(|r| r.order.map(|o| (o, r.act))).collect();
     v.sort_by_key(|x| x.0);
     v
 }
@@ -944,6 +982,10 @@ fn navigate(
     if menu.fade > 0.0 || *state.get() == AppState::Loading {
         return;
     }
+    // a binding entry waiting for its input takes it all (0x00447f50 locks the menu's input, bindings::capture)
+    if menu.capture.is_some() {
+        return;
+    }
     // the mouse in the menus (the original: Mouse 1 selects, Mouse 2 cancels): the row under the cursor is selected
     // when the cursor moves, a click activates it. Cursor (window pixels, y down) -> the menus' 640x480 space (y up),
     // scaled by height / 480 about the centre (hud.rs place)
@@ -964,7 +1006,7 @@ fn navigate(
                 // or a checkbox's box (`extra`); of several, the nearest row (hook/enhance's nearest-hit rule)
                 hovered = placed
                     .iter()
-                    .filter(|(r, ..)| r.page == menu.page && r.order.is_some())
+                    .filter(|(r, ..)| r.page == menu.page && r.order.is_some() && r.on_device())
                     .filter(|(r, e, size, align)| hit_box(r, e, *size, *align).is_some_and(|(lo, hi)| p.cmpge(lo).all() && p.cmple(hi).all()))
                     .min_by(|a, b| (p.y - a.1.pos.y).abs().total_cmp(&(p.y - b.1.pos.y).abs()))
                     .and_then(|(r, ..)| r.order);
@@ -1186,10 +1228,12 @@ fn navigate(
                 // nothing is unlocked in the remaster yet: nothing to reset
                 Some(Ask::ResetExtras) | None => {}
                 Some(Ask::ResetControls) => {
+                    // the callback 0x00470c40: the default bindings (0x004144a0) and the control options
                     let d = GameOptions::default();
                     opts.mouse_sensitivity = d.mouse_sensitivity;
                     opts.invert_mouse = d.invert_mouse;
                     opts.auto_aim = d.auto_aim;
+                    opts.bindings = d.bindings;
                     opts.save();
                 }
                 Some(Ask::Overwrite(slot)) => {
@@ -1275,6 +1319,10 @@ fn navigate(
                 Flag::Fullscreen => target.fullscreen = !target.fullscreen,
                 Flag::Graphics(key) => crate::graphics::menu::toggle(target, key),
             }
+        }
+        Act::Rebind(bind, device) => {
+            // "Press Key To Assign" until the next input after a release (bindings::capture)
+            menu.capture = Some(crate::bindings::Capture { bind, device, armed: false });
         }
     }
     play(&mut sounds, if matches!(act, Act::Back | Act::No | Act::Cancel) { "ui_cancel" } else { "ui_select" });
@@ -1472,7 +1520,7 @@ fn animate(
     for (p, mut v) in &mut parts {
         let show = match p.kind {
             PartKind::Art(b) => art == Some(b),
-            _ => p.page.is_some() && p.page == page,
+            k => p.page.is_some() && p.page == page && k.device().is_none_or(|d| d == crate::bindings::Device::active()),
         };
         *v = if show { Visibility::Inherited } else { Visibility::Hidden };
     }
@@ -1492,7 +1540,7 @@ fn animate(
     let order = rows_of(rows.iter().map(|x| x.0), page.unwrap_or(menu.page), menu.has_save);
     let sel_order = order.get(if page == Some(menu.page) { menu.selected } else { menu.shown_sel }).map(|x| x.0);
     for (r, mut t, mut v, mut glow) in &mut rows {
-        let shown = Some(r.page) == page;
+        let shown = Some(r.page) == page && r.on_device();
         *v = if shown { Visibility::Inherited } else { Visibility::Hidden };
         if !shown {
             continue;
@@ -1567,17 +1615,24 @@ fn values(
             // the box shows the result until the next letter (Cheats_Check 0x004107c0 sets the box's text)
             PartKind::CheatTyped => Some(if cheats.typed.is_empty() && !cheats.result.is_empty() { cheats.result.clone() } else { format!("{}_", cheats.typed) }),
             // a key binding entry's label (0x00447e70, refreshed each frame as 0x00448260 does when the bindings
-            // change): both bindings as "%s or %s" (pms_input_aorb), one alone, or "Unassigned"
-            PartKind::Binding(a) => Some(match crate::input::keys(a).as_slice() {
-                [] => bank.get("pms_input_unassigned"),
-                [k] => k.clone(),
-                [k1, k2, ..] => bank.get("pms_input_aorb").replacen("%s", k1, 1).replacen("%s", k2, 1),
+            // change): both inputs as "%s or %s" (pms_input_aorb), one alone, or "Unassigned"; "Press Key To Assign"
+            // (pms_input_assignkey, 0x00447f50) while it waits for its input
+            PartKind::Bound(b, d) => Some(if menu.capture.is_some_and(|c| c.bind == b && c.device == d) {
+                bank.get("pms_input_assignkey")
+            } else {
+                crate::bindings::entry_text(opts.bindings.get(b, d), crate::input::playstation(), &bank)
             }),
+            PartKind::Stick(left) => Some(format!("<icon={}>", match (crate::input::playstation(), left) {
+                (true, true) => "playstation_stick_l",
+                (true, false) => "playstation_stick_r",
+                (false, true) => "xbox_stick_l",
+                (false, false) => "xbox_stick_r",
+            })),
             _ => None,
         };
         if let Some(l) = line {
             // the key label fitted to 128 units (0x00447da0: FitText_SetWidth 0x0046d5a0)
-            if matches!(p.kind, PartKind::Binding(_)) {
+            if matches!(p.kind, PartKind::Bound(..)) {
                 t.fit = 128.0;
             }
             if t.text != l {

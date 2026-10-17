@@ -60,6 +60,9 @@ SUITE += ['weapon_sniper', 'weapon_mortar', 'weapon_vindaloo', 'weapon_shark', '
 # the dead's bodies (corpses.rs): lev_1_m4's army killed two a second; the Original's timers (bodies gone, at most four
 # ragdolls, entities and physics bodies not growing) and the Remaster's 48 bodies with settled ragdolls
 SUITE += ['corpses_l1m4', 'corpses_l1m4_remaster']
+# presentation (agent-presentation, docs/journal/2026-10-18-presentation.md): the Controls page rebinds keys, mouse and pad
+# buttons by the original's rule and the prompts follow (bindings.rs)
+SUITE += ['controls_rebind']
 # 'army_l2m4_long' (LONG): lev_2_m4's piled-up army (~1,600 marching members at 150 s) stays under 25k entities: the
 # members are crowd meshes (crowd.rs), not rigged grunts (110k entities before)
 SUITE += ['army_l2m4_long']

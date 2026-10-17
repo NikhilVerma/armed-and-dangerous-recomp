@@ -21,17 +21,30 @@ ICONS = {
         "playstation_button_color_triangle", "playstation_trigger_l1", "playstation_trigger_l2",
         "playstation_trigger_r1", "playstation_trigger_r2", "playstation5_button_options",
         "playstation5_button_create", "playstation_dpad_up", "playstation_dpad_down", "playstation_dpad_left",
-        "playstation_dpad_right", "playstation_stick_l", "playstation_stick_r",
+        "playstation_dpad_right", "playstation_stick_l", "playstation_stick_r", "playstation_button_l3",
+        "playstation_button_r3",
     ],
     "Xbox Series": [
         "xbox_button_color_a", "xbox_button_color_b", "xbox_button_color_x", "xbox_button_color_y", "xbox_lb",
         "xbox_lt", "xbox_rb", "xbox_rt", "xbox_button_menu", "xbox_button_view", "xbox_dpad_up", "xbox_dpad_down",
-        "xbox_dpad_left", "xbox_dpad_right", "xbox_stick_l", "xbox_stick_r",
+        "xbox_dpad_left", "xbox_dpad_right", "xbox_stick_l", "xbox_stick_r", "xbox_ls", "xbox_rs",
     ],
     "Keyboard & Mouse": [
         "keyboard_x", "keyboard_f", "keyboard_space", "keyboard_enter", "keyboard_escape", "keyboard_r",
         "keyboard_q", "keyboard_tab", "keyboard_z", "keyboard_e", "keyboard_1", "keyboard_3", "keyboard_w",
         "keyboard_a", "keyboard_s", "keyboard_d", "mouse_left", "mouse_right", "mouse_move", "keyboard_delete",
+        # every key the Controls page can bind (engine/src/bindings.rs KEYS)
+        "keyboard_0", "keyboard_2", "keyboard_4", "keyboard_5", "keyboard_6", "keyboard_7", "keyboard_8",
+        "keyboard_9", "keyboard_alt", "keyboard_apostrophe", "keyboard_arrow_down", "keyboard_arrow_left",
+        "keyboard_arrow_right", "keyboard_arrow_up", "keyboard_b", "keyboard_backspace", "keyboard_bracket_close",
+        "keyboard_bracket_open", "keyboard_c", "keyboard_capslock", "keyboard_comma", "keyboard_ctrl",
+        "keyboard_end", "keyboard_equals", "keyboard_f1", "keyboard_f10", "keyboard_f11", "keyboard_f12",
+        "keyboard_f2", "keyboard_f3", "keyboard_f4", "keyboard_f5", "keyboard_f6", "keyboard_f7", "keyboard_f8",
+        "keyboard_f9", "keyboard_g", "keyboard_h", "keyboard_home", "keyboard_i", "keyboard_insert", "keyboard_j",
+        "keyboard_k", "keyboard_l", "keyboard_m", "keyboard_minus", "keyboard_n", "keyboard_numpad_enter",
+        "keyboard_numpad_plus", "keyboard_o", "keyboard_p", "keyboard_page_down", "keyboard_page_up",
+        "keyboard_period", "keyboard_semicolon", "keyboard_shift", "keyboard_slash_back", "keyboard_slash_forward",
+        "keyboard_t", "keyboard_tilde", "keyboard_u", "keyboard_v", "keyboard_y",
     ],
 }
 

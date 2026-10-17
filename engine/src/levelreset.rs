@@ -243,12 +243,18 @@ fn take_persistent(world: &mut World, mut done: Local<bool>) {
     world.resource_mut::<Persistent>().0 = keep;
 }
 
+/// On an entity spawned while running that is not the level's and outlives it (the Gameplay input context, rebuilt when
+/// the Controls page changes a binding: input.rs).
+#[derive(Component, Clone, Copy)]
+pub struct KeepOnRestart;
+
 /// Entities the engine spawns while running that are not the level's.
 fn engine_owned(world: &World, e: Entity) -> bool {
     let Ok(r) = world.get_entity(e) else { return true };
     // resources are entities in Bevy 0.20: one inserted after start-up is in neither list (a despawn of it warns
     // "Resource entities are not supposed to be despawned" and breaks the queued commands that use it)
     r.contains::<bevy::ecs::resource::IsResource>()
+        || r.contains::<KeepOnRestart>()
         || r.contains::<Window>()
         || r.contains::<bevy::window::Monitor>()
         || r.contains::<bevy::ecs::observer::Observer>()

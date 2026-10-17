@@ -6,8 +6,8 @@
 //! writes it when changed (0x00401e60 -> 0x00462610 / 0x004625d0 / 0x00462450). Here serde is the registry: the
 //! fields and their defaults, loaded key by key the same way (`from_json`), saved whenever a menu changes one.
 //! Not kept (the remaster's renderer decides them): enablePostFx, enableBumpMapping, enableDecals,
-//! enablePixelShaders, modelLod, textureLod, textureQuality, skinHQ, maxTextures; the input bindings
-//! (m_control->m_inputActions) are input.rs's. Defaults are the original's (0x00401a80): volumes 0.8, brightness 1.5, draw
+//! enablePixelShaders, modelLod, textureLod, textureQuality, skinHQ, maxTextures. The input bindings
+//! (m_control->m_inputActions) are `bindings` (bindings.rs). Defaults are the original's (0x00401a80): volumes 0.8, brightness 1.5, draw
 //! distance 1.0, shadows on, mouse sensitivity 0.5; both subtitle options on (guess: 0x00447630 picks the default
 //! by language). Applied to the engine whenever they change: the mixer, the subtitle line, the shadow-casting sun,
 //! camera exposure (brightness), the far plane (draw distance), the window size, mouse look (player.rs).
@@ -62,6 +62,8 @@ pub struct GameOptions {
     /// settings changed by name ({"ambient_occlusion": false, ...}); tool runs ignore both (Original)
     pub graphics_preset: crate::graphics::Preset,
     pub graphics: serde_json::Map<String, serde_json::Value>,
+    /// the key, mouse and pad bindings the Controls page edits (bindings.rs; the original's m_control->m_inputActions)
+    pub bindings: crate::bindings::KeyBindings,
 }
 
 impl Default for GameOptions {
@@ -91,6 +93,7 @@ impl Default for GameOptions {
             checkpoint_saves: false,
             graphics_preset: crate::graphics::Preset::Remaster,
             graphics: serde_json::Map::new(),
+            bindings: crate::bindings::KeyBindings::default(),
         }
     }
 }
@@ -139,6 +142,7 @@ impl GameOptions {
             }
             o.tokens_keyed_by_level = true;
         }
+        o.bindings = o.bindings.normalized();
         o
     }
 

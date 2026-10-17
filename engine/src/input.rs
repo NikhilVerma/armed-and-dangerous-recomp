@@ -33,19 +33,23 @@
 //! (the original shows the first binding, 0x00465280: Use "X", MenuSelect "Mouse 1", formatted into the prompt by
 //! 0x004652b0 when the keys change), or the pad's button.
 
-use bevy::input::gamepad::{Gamepad, GamepadButton};
+use bevy::input::gamepad::{Gamepad, GamepadAxis, GamepadButton};
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use bevy_enhanced_input::prelude::*;
+use crate::bindings::{Bind, Device, Input, KeyBindings};
 use std::sync::atomic::{AtomicU8, Ordering};
 
 /// 0 keyboard and mouse, 1 Xbox-style pad, 2 PlayStation pad
 static DEVICE: AtomicU8 = AtomicU8::new(0);
-/// the Use key last pressed: 0 X (the original's first binding), 1 F
-static USE_KEY: AtomicU8 = AtomicU8::new(0);
+/// per bindable action (bindings.rs `Bind::ALL` order), the keyboard / mouse binding last pressed for it (0 the
+/// primary: the original's first binding)
+static LAST_KEY: [AtomicU8; 18] = [const { AtomicU8::new(0) }; 18];
 /// the MenuSelect binding last pressed: 0 Mouse 1 (first binding), 1 Enter, 2 Space
 static SELECT_KEY: AtomicU8 = AtomicU8::new(0);
+/// the bindings in force (the options' `bindings` as the Gameplay context was last built from them), for prompts
+static BINDINGS: std::sync::RwLock<Option<KeyBindings>> = std::sync::RwLock::new(None);
 
 /// The pad last used (rumble goes to it).
 #[derive(Resource, Default)]
@@ -105,6 +109,18 @@ pub struct Controls {
 }
 
 impl Controls {
+    /// Every button this frame is used up, and stays so until released (the original's Controls_Consume 0x00414680
+    /// on all actions, 0x23, as the Controls page does after taking a key: 0x00448260).
+    pub fn consume(&mut self) {
+        for (i, st) in self.acts.iter_mut().enumerate() {
+            if !matches!(i, x if x == Act::Move as usize || x == Act::Look as usize || x == Act::Nav as usize) {
+                *st = ActState::default();
+            }
+        }
+        self.step = IVec2::ZERO;
+        self.blocked = [true; ACTS];
+    }
+
     pub fn get(&self, a: Act) -> ActState {
         self.acts[a as usize]
     }
@@ -159,7 +175,7 @@ impl Plugin for InputPlugin {
             .init_resource::<ActivePad>()
             .add_systems(Update, rumble.run_if(in_state(crate::AppState::Playing)))
             .add_systems(Startup, spawn_contexts)
-            .add_systems(PreUpdate, (device, contexts).chain().in_set(InputDevices).after(bevy::input::InputSystems).before(EnhancedInputSystems::Prepare))
+            .add_systems(PreUpdate, (apply_bindings, device, contexts).chain().in_set(InputDevices).after(bevy::input::InputSystems).before(EnhancedInputSystems::Prepare))
             .add_systems(PreUpdate, collect.after(EnhancedInputSystems::Apply));
     }
 }
@@ -172,33 +188,75 @@ fn btn(a: Act, binds: impl Bundle) -> impl Bundle {
     (Action::<Btn>::new(), a, binds)
 }
 
-/// The actions and their bindings (keyboard and mouse: the original's defaults, Controls_LoadDefaultBindings
-/// 0x004144a0 from table 0x00588ed8; pads: the remaster's layout, module comment).
+/// The play actions and their bindings (bindings.rs: keyboard and mouse the original's defaults,
+/// Controls_LoadDefaultBindings 0x004144a0 from table 0x00588ed8, then as rebound on the Controls page; pads the
+/// remaster's layout, module comment), built again whenever the options' bindings change. The context lives across
+/// level restarts (levelreset.rs `KeepOnRestart`).
+fn apply_bindings(mut commands: Commands, opts: Res<crate::options::GameOptions>, controls: Res<Controls>, ctx: Query<Entity, With<Gameplay>>) {
+    let current = BINDINGS.read().ok().and_then(|b| b.clone());
+    if current.as_ref() == Some(&opts.bindings) && !ctx.is_empty() {
+        return;
+    }
+    for e in &ctx {
+        commands.entity(e).despawn();
+    }
+    let b = &opts.bindings;
+    let keep = crate::levelreset::KeepOnRestart;
+    let ctx = commands.spawn((Gameplay, ContextActivity::<Gameplay>::new(controls.active_play), keep)).id();
+    // each axis past the original's dead zone 0.21, rescaled linearly (InputPC_AxisValue 0x004f9560 with the callers'
+    // 0.21, 0x3e570a3d); the vector's response is player.rs move_curve
+    let mv = commands.spawn((Action::<MoveA>::new(), Act::Move, AXIS_DEAD_ZONE, ActionOf::<Gameplay>::new(ctx), keep)).id();
+    commands.spawn((BindingOf(mv), Binding::from(GamepadAxis::LeftStickX), keep));
+    commands.spawn((BindingOf(mv), Binding::from(GamepadAxis::LeftStickY), SwizzleAxis::YXZ, keep));
+    // look: the right stick, and the Turn / Look keys (the arrow keys by default: the original's secondary TurnLeft /
+    // TurnRight / LookUp / LookDown bindings, table 0x00588ed8; digital, full deflection)
+    let look = commands.spawn((Action::<LookA>::new(), Act::Look, AXIS_DEAD_ZONE, ActionOf::<Gameplay>::new(ctx), keep)).id();
+    commands.spawn((BindingOf(look), Binding::from(GamepadAxis::RightStickX), keep));
+    commands.spawn((BindingOf(look), Binding::from(GamepadAxis::RightStickY), SwizzleAxis::YXZ, keep));
+    // a direction key: +x right, -x left, +y forward / up, -y back / down (Cardinal's swizzle and negation)
+    let directions = [
+        (mv, Bind::MoveForward, true, false),
+        (mv, Bind::MoveBack, true, true),
+        (mv, Bind::MoveRight, false, false),
+        (mv, Bind::MoveLeft, false, true),
+        (look, Bind::LookUp, true, false),
+        (look, Bind::LookDown, true, true),
+        (look, Bind::TurnRight, false, false),
+        (look, Bind::TurnLeft, false, true),
+    ];
+    for (action, bind, y, negative) in directions {
+        for i in b.get(bind, Device::Keys) {
+            let mut c = commands.spawn((BindingOf(action), i.binding(), keep));
+            if negative {
+                c.insert(Negate::all());
+            }
+            if y {
+                c.insert(SwizzleAxis::YXZ);
+            }
+        }
+    }
+    for bind in Bind::ALL.into_iter().filter(|b| b.on(Device::Pad)) {
+        let action = commands.spawn((Action::<Btn>::new(), bind.act(), ActionOf::<Gameplay>::new(ctx), keep)).id();
+        for i in b.get(bind, Device::Keys).iter().chain(b.get(bind, Device::Pad)) {
+            commands.spawn((BindingOf(action), i.binding(), keep));
+        }
+    }
+    // Pause is not rebound: Escape and the pad's Options always open the menu
+    let pause = commands.spawn((Action::<Btn>::new(), Act::Pause, ActionOf::<Gameplay>::new(ctx), keep)).id();
+    for i in [Binding::from(KeyCode::Escape), Binding::from(GamepadButton::Start)] {
+        commands.spawn((BindingOf(pause), i, keep));
+    }
+    if let Ok(mut m) = BINDINGS.write() {
+        *m = Some(opts.bindings.clone());
+    }
+    if current.is_some() {
+        info!("EVENT controls: bindings applied");
+    }
+}
+
+/// The menus' and messages' actions: fixed (module comment).
 fn spawn_contexts(mut commands: Commands) {
     use GamepadButton as B;
-    commands.spawn((
-        Gameplay,
-        ContextActivity::<Gameplay>::INACTIVE,
-        actions!(Gameplay[
-            // each axis past the original's dead zone 0.21, rescaled linearly (InputPC_AxisValue 0x004f9560 with the
-            // callers' 0.21, 0x3e570a3d); the vector's response is player.rs move_curve
-            (Action::<MoveA>::new(), Act::Move, AXIS_DEAD_ZONE, Bindings::spawn((Cardinal::wasd_keys(), Axial::left_stick()))),
-            // look: the right stick, and the arrow keys as the original's secondary TurnLeft / TurnRight / LookUp /
-            // LookDown bindings (table 0x00588ed8: digital, full deflection)
-            (Action::<LookA>::new(), Act::Look, AXIS_DEAD_ZONE, Bindings::spawn((Axial::right_stick(), Cardinal::arrows()))),
-            btn(Act::Fire, bindings![MouseButton::Left, B::RightTrigger2]),
-            btn(Act::Aim, bindings![KeyCode::KeyZ, KeyCode::KeyE, B::LeftTrigger2]),
-            btn(Act::Special, bindings![MouseButton::Right, B::RightTrigger]),
-            btn(Act::NextSpecial, bindings![KeyCode::Tab, B::LeftTrigger, B::DPadRight, B::DPadLeft]),
-            btn(Act::SwitchWeapon, bindings![KeyCode::KeyQ, B::North]),
-            btn(Act::Jump, bindings![KeyCode::Space, MouseButton::Middle, B::South]),
-            btn(Act::Use, bindings![KeyCode::KeyX, KeyCode::KeyF, B::West]),
-            btn(Act::Reload, bindings![KeyCode::KeyR, B::East]),
-            btn(Act::TeamSend, bindings![KeyCode::Digit1, B::DPadUp]),
-            btn(Act::TeamRecall, bindings![KeyCode::Digit3, B::DPadDown]),
-            btn(Act::Pause, bindings![KeyCode::Escape, B::Start]),
-        ]),
-    ));
     commands.spawn((
         Menus,
         ContextActivity::<Menus>::ACTIVE,
@@ -351,11 +409,18 @@ fn device(
     window: Query<&Window, With<PrimaryWindow>>,
     mut active: ResMut<ActivePad>,
 ) {
-    if keys.just_pressed(KeyCode::KeyX) {
-        USE_KEY.store(0, Ordering::Relaxed);
-    }
-    if keys.just_pressed(KeyCode::KeyF) {
-        USE_KEY.store(1, Ordering::Relaxed);
+    // the keyboard / mouse binding last pressed per action: a prompt names that one (the original names the first)
+    if let Some(b) = bindings() {
+        for (n, bind) in Bind::ALL.into_iter().enumerate() {
+            let pressed = b.get(bind, Device::Keys).iter().position(|i| match i {
+                Input::Key(k) => keys.just_pressed(*k),
+                Input::Mouse(m) => mouse.just_pressed(*m),
+                Input::Pad(_) => false,
+            });
+            if let Some(p) = pressed {
+                LAST_KEY[n].store(p as u8, Ordering::Relaxed);
+            }
+        }
     }
     if mouse.just_pressed(MouseButton::Left) {
         SELECT_KEY.store(0, Ordering::Relaxed);
@@ -384,90 +449,55 @@ fn device(
     }
 }
 
-/// A pad button's prompt: an icon from the Kenney Input Prompts pack (hud.rs draws `<icon=name>`), falling back to
-/// its name when the icons are missing.
-fn pad_button(ps: bool, b: GamepadButton) -> String {
-    use GamepadButton as B;
-    let (ps_icon, xb_icon) = match b {
-        B::South => ("playstation_button_color_cross", "xbox_button_color_a"),
-        B::East => ("playstation_button_color_circle", "xbox_button_color_b"),
-        B::West => ("playstation_button_color_square", "xbox_button_color_x"),
-        B::North => ("playstation_button_color_triangle", "xbox_button_color_y"),
-        B::RightTrigger2 => ("playstation_trigger_r2", "xbox_rt"),
-        B::LeftTrigger2 => ("playstation_trigger_l2", "xbox_lt"),
-        B::RightTrigger => ("playstation_trigger_r1", "xbox_rb"),
-        B::LeftTrigger => ("playstation_trigger_l1", "xbox_lb"),
-        B::Start => ("playstation5_button_options", "xbox_button_menu"),
-        B::DPadUp => ("playstation_dpad_up", "xbox_dpad_up"),
-        B::DPadDown => ("playstation_dpad_down", "xbox_dpad_down"),
-        _ => ("playstation_button_cross", "xbox_button_a"),
-    };
-    format!("<icon={}>", if ps { ps_icon } else { xb_icon })
+/// The bindings in force (None before the first frame).
+fn bindings() -> Option<KeyBindings> {
+    BINDINGS.read().ok().and_then(|b| b.clone())
 }
 
-/// The text for a prompt's %s: the binding of `a` on the device in use.
+/// The text for a prompt's %s: the binding of `a` on the device in use, as an input prompt icon (hud.rs draws
+/// `<icon=...>`; the Kenney Input Prompts) or its name. Keyboard and mouse: the binding the player last pressed for
+/// the action (the original shows the first, 0x00465280: Use "X", MenuSelect "Mouse 1", formatted into the prompt by
+/// 0x004652b0 when the keys change); a pad: its first button. The prompts follow the Controls page's bindings.
 pub fn key(a: Act) -> String {
     use GamepadButton as B;
     let dev = DEVICE.load(Ordering::Relaxed);
+    let ps = dev == 2;
+    let b = bindings().unwrap_or_default();
+    let device = if dev == 0 { Device::Keys } else { Device::Pad };
+    let first = |bind: Bind| -> String {
+        let inputs = b.get(bind, device);
+        let n = if device == Device::Keys { LAST_KEY[Bind::ALL.iter().position(|x| *x == bind).unwrap_or(0)].load(Ordering::Relaxed) as usize } else { 0 };
+        inputs.get(n).or(inputs.first()).map(|i| i.label(ps)).unwrap_or_default()
+    };
+    if let Some(bind) = Bind::of_act(a) {
+        return first(bind);
+    }
     if dev == 0 {
-        // key and mouse button icons
         let k = match a {
-            Act::Use => ["keyboard_x", "keyboard_f"][USE_KEY.load(Ordering::Relaxed) as usize % 2],
             Act::Select | Act::Continue => ["mouse_left", "keyboard_enter", "keyboard_space"][SELECT_KEY.load(Ordering::Relaxed) as usize % 3],
             Act::Back | Act::Pause => "keyboard_escape",
             Act::Delete => "keyboard_delete",
-            Act::Fire => "mouse_left",
-            Act::Special => "mouse_right",
-            Act::Jump => "keyboard_space",
-            Act::Reload => "keyboard_r",
-            Act::SwitchWeapon => "keyboard_q",
-            Act::NextSpecial => "keyboard_tab",
-            Act::Aim => "keyboard_z",
-            Act::TeamSend => "keyboard_1",
-            Act::TeamRecall => "keyboard_3",
-            Act::Move => return "<icon=keyboard_w><icon=keyboard_a><icon=keyboard_s><icon=keyboard_d>".into(),
+            Act::Move => return [Bind::MoveForward, Bind::MoveLeft, Bind::MoveBack, Bind::MoveRight].into_iter().map(first).collect(),
             Act::Look => "mouse_move",
-            Act::Nav => return String::new(),
+            _ => return String::new(),
         };
         return format!("<icon={k}>");
     }
-    let b = match a {
-        Act::Select | Act::Continue | Act::Jump => B::South,
-        Act::Back | Act::Reload => B::East,
-        Act::Use | Act::Delete => B::West,
-        Act::SwitchWeapon => B::North,
-        Act::Fire => B::RightTrigger2,
-        Act::Aim => B::LeftTrigger2,
-        Act::Special => B::RightTrigger,
-        Act::NextSpecial => B::LeftTrigger,
+    let button = match a {
+        Act::Select | Act::Continue => B::South,
+        Act::Back => B::East,
+        Act::Delete => B::West,
         Act::Pause => B::Start,
-        Act::TeamSend => B::DPadUp,
-        Act::TeamRecall => B::DPadDown,
-        Act::Move => return format!("<icon={}>", if dev == 2 { "playstation_stick_l" } else { "xbox_stick_l" }),
-        Act::Look => return format!("<icon={}>", if dev == 2 { "playstation_stick_r" } else { "xbox_stick_r" }),
-        Act::Nav => return String::new(),
+        Act::Move => return format!("<icon={}>", if ps { "playstation_stick_l" } else { "xbox_stick_l" }),
+        Act::Look => return format!("<icon={}>", if ps { "playstation_stick_r" } else { "xbox_stick_r" }),
+        _ => return String::new(),
     };
-    pad_button(dev == 2, b)
+    Input::Pad(button).label(ps)
 }
 
-/// Every binding of `a` on the device in use, for the controls page (gamemenu.rs shows two as "%s or %s", as the
-/// original's key binding entries 0x00447e70 show both keys of an action). Keyboard and mouse: the bindings of
-/// `spawn_contexts` (keep in step); a pad: its one button (`key`).
-pub fn keys(a: Act) -> Vec<String> {
-    if DEVICE.load(Ordering::Relaxed) != 0 {
-        return vec![key(a)];
-    }
-    let icon = |n: &str| format!("<icon={n}>");
-    match a {
-        Act::Use => vec![icon("keyboard_x"), icon("keyboard_f")],
-        Act::Aim => vec![icon("keyboard_z"), icon("keyboard_e")],
-        // no icon for the middle button in the exported set
-        Act::Jump => vec![icon("keyboard_space"), "Mouse 3".into()],
-        Act::Select => vec![icon("keyboard_enter"), icon("keyboard_space")],
-        Act::Continue => vec![icon("keyboard_enter"), icon("mouse_left")],
-        Act::Back => vec![icon("keyboard_escape"), icon("mouse_right")],
-        _ => vec![key(a)],
-    }
+/// Whether the pad in use is a PlayStation one (its prompts' icons).
+pub fn playstation() -> bool {
+    DEVICE.load(Ordering::Relaxed) == 2
 }
 
 /// Rumble on the pad in use (remaster improvement; the original drives DirectInput force feedback from

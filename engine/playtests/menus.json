@@ -37,7 +37,7 @@
   {"tap": "ArrowDown"}, {"wait": 0.3},
   {"expect": {"menu.page": "Options", "menu.selected": "ui_mainmenu_controls"}},
   {"tap": "Enter"}, {"wait": 1.0},
-  {"expect": {"menu.page": "Controls", "menu.selected": "ui_controls_mousescale"}},
+  {"expect": {"menu.page": "Controls", "menu.selected": "controlactionmoveforward"}},
   {"shot": "controls"},
   {"tap": "Escape"}, {"wait": 1.0},
   {"tap": "ArrowDown"}, {"wait": 0.3},

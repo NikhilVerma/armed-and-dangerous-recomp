@@ -10,10 +10,10 @@ address,name,disposition,reason
 0x00415910,fn_00415910,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
 0x00415d50,fn_00415d50,replaced,poster render target / widget release: statscreen.rs draws the poster as a quad
 0x00447600,UI_GetLoadingText,deferred,feature: loading-screen; loading screen: the remaster loads the level before the title menu
-0x00447d20,fn_00447d20,deferred,feature: key-rebinding; key rebinding: controls page shows the device's bindings; open: rebinding not ported
-0x00447e20,fn_00447e20,deferred,feature: key-rebinding; key rebinding: controls page shows the device's bindings; open: rebinding not ported
-0x00447f50,UI_ShowAssignKeyPrompt,deferred,feature: key-rebinding; key rebinding: controls page shows the device's bindings; open: rebinding not ported
-0x004481b0,fn_004481b0,deferred,feature: key-rebinding; key rebinding: controls page shows the device's bindings; open: rebinding not ported
+0x00447d20,fn_00447d20,ported,"engine/src/bindings.rs (KeyBindings::assign, capture) and gamemenu.rs (the Controls page's binding entries, Act::Rebind)"
+0x00447e20,fn_00447e20,ported,"engine/src/bindings.rs (KeyBindings::assign, capture) and gamemenu.rs (the Controls page's binding entries, Act::Rebind)"
+0x00447f50,UI_ShowAssignKeyPrompt,ported,"engine/src/bindings.rs (KeyBindings::assign, capture) and gamemenu.rs (the Controls page's binding entries, Act::Rebind)"
+0x004481b0,fn_004481b0,ported,"engine/src/bindings.rs (KeyBindings::assign, capture) and gamemenu.rs (the Controls page's binding entries, Act::Rebind)"
 0x004626e0,fn_004626e0,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
 0x00462770,fn_00462770,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
 0x004629b0,Hud_CreateLevelUi,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"

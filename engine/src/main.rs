@@ -19,6 +19,7 @@ mod mover;
 mod audio;
 mod bot;
 mod bench;
+mod bindings;
 mod profile;
 mod camera;
 mod campath;
