@@ -227,7 +227,9 @@ impl Plugin for SaveGamePlugin {
             .init_level_resource::<PlacedIds>()
             .init_level_resource::<Checkpoints>()
             .init_resource::<crate::gamedata::Difficulty>()
-            .add_systems(Update, (record_placed, save, apply))
+            // a dead grunt restored is despawned before the death triggers are read (else its send_trigger_on_death
+            // would go out again on load)
+            .add_systems(Update, (record_placed, save, apply.before(crate::mission::troop_deaths)))
             .add_systems(PostUpdate, (checkpoints, log_state));
     }
 }
@@ -375,6 +377,7 @@ fn apply(
     mut grunts: Query<(Entity, &InstanceId, &mut crate::ai::Grunt, &mut Health, Option<&crate::physics::Body>), Without<Roman>>,
     objects: Query<(Entity, &InstanceId), With<crate::level::Placed>>,
     windows: Query<(Entity, &crate::level::Window)>,
+    mut guns: Query<&mut crate::turret::Turret>,
     mut restore: MessageWriter<RestoreStage>,
     mut physics: NonSendMut<crate::physics::Physics>,
     data: Res<crate::gamedata::GameData>,
@@ -421,6 +424,17 @@ fn apply(
             g.mind = crate::ai::Mind::Dead;
             g.dead_said = true;
             gh.0 = 0.0;
+            // a gunner who was dead in the save lets his gun go, as his death did (ai.rs die): the level's start had
+            // put him on it again, and a gun held by a removed grunt could never be entered
+            for mut t in &mut guns {
+                if t.ai == Some(e) {
+                    t.ai = None;
+                    t.ai_aim(0.5, 0.5);
+                }
+                if t.reserved == Some(e) {
+                    t.reserved = None;
+                }
+            }
             commands.entity(e).despawn();
         }
     }

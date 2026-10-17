@@ -318,6 +318,7 @@ fn fly(
     mut blasts: MessageWriter<crate::fx::Explode>,
     mut scare: MessageWriter<crate::ai::StickyStuck>,
     mut interests: ResMut<crate::ai::Interests>,
+    mut objects: Query<&mut crate::fx::Destructible>,
 ) {
     let dt = time.delta_secs();
     for (e, mut b, mut t) in &mut bombs {
@@ -365,11 +366,20 @@ fn fly(
                 // flags 0x80 | 1 (0x00481ab0)
                 cartoon: true,
             });
+            // the object it is stuck to takes the direct hit, damage + area_damage (0x0047eec0); the area damage above
+            // spares it (0x0047f020 skips the object hit): a grunt, or a placed object through its damage filters (a
+            // building stuck with a bomb: lev_2_m2's bullseye houses, the barracks)
+            let by = if b.props.contains("molmer") { crate::fx::Src::Teammate } else { crate::fx::Src::Player };
+            let direct = area + p.f("damage", 10.0);
             if let Some((mut g, mut h)) = obj.and_then(|o| grunts.get_mut(o).ok()) {
-                let d = area + p.f("damage", 10.0);
-                g.last_hit = d;
+                g.last_hit = direct;
                 g.cartoon = true;
-                h.0 -= d;
+                h.0 -= direct;
+            } else if let Some(mut d) = obj.and_then(|o| objects.get_mut(o).ok()) {
+                if d.accepts(by, false) && d.take_damage(direct) && d.dying.is_none() {
+                    d.chain_delay = 0.0;
+                    d.dying = Some(0.0);
+                }
             }
             // p_molmer_dynamite has no fx_end, only fx_end_material: the original's blast (capture tntO, frame 1607,
             // stuck on a grunt) plays fx_imp_sticky's sounds (exp_fireball_med, exp_metal_small) and no surface layer:

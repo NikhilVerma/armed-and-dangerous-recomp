@@ -171,8 +171,28 @@ impl Plugin for TurretPlugin {
         app.init_level_resource::<Mounted>()
             .add_systems(Update, (setup, turret_anims))
             .add_systems(Update, ride.after(crate::mission::sites).after(crate::player::grab_cursor).run_if(crate::playing))
+            .add_systems(Update, log_turrets.after(ride).run_if(crate::playing))
             .add_systems(PostUpdate, pose.after(crate::skin::AnimateSet).before(TransformSystems::Propagate));
     }
+}
+
+/// The state log's "turrets" (playtest expects): per gun's instance id, its distance to Roman, its entry radius,
+/// whether an AI holds it and whether Roman is on it.
+fn log_turrets(
+    turrets: Query<(Entity, &Turret, &GlobalTransform, &crate::level::InstanceId)>,
+    roman: Query<&Transform, With<crate::player::Roman>>,
+    mounted: Res<Mounted>,
+    state: Option<ResMut<crate::playtest::PlayState>>,
+) {
+    let (Some(mut state), Ok(rt)) = (state, roman.single()) else { return };
+    let out: serde_json::Map<String, serde_json::Value> = turrets
+        .iter()
+        .map(|(e, t, gt, id)| {
+            let dist = (gt.translation().distance(rt.translation) * 10.0).round() / 10.0;
+            (id.0.to_string(), serde_json::json!({"dist": dist, "radius": t.radius, "ai": t.ai.is_some(), "mounted": mounted.0 == Some(e)}))
+        })
+        .collect();
+    state.0.insert("turrets".into(), out.into());
 }
 
 /// A bone's model-space matrix (game frame) from the skeleton's rest pose, with the pivots turned.

@@ -198,7 +198,7 @@ fn open(
     }
     m.pub_request = false;
     let Ok((mut r, mut h)) = roman.single_mut() else { return };
-    let info = m.pub_info.clone();
+    let info = m.entered_pub_info().cloned();
     let mut awards = Vec::new();
     let (mut pool, mut rate) = ((0.0, 0.0, 1.0), 0.5);
     let health_before = h.0;
@@ -207,7 +207,7 @@ fn open(
         let want = (r.max_health - h.0).max(0.0);
         let used = want.min(p.pool);
         h.0 += used;
-        if let Some(pi) = m.pub_info.as_mut() {
+        if let Some(pi) = m.entered_pub_info() {
             pi.pool -= used;
         }
         pool = (p.pool, p.pool - used, p.pool_full.max(1.0));

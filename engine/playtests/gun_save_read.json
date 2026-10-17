@@ -1,0 +1,8 @@
+{"scene": "lev_1_m1_b", "load": "states/l1b_gunner_dead.json", "steps": [
+ {"wait": 1.0},
+ {"expect": {"turrets.42.ai": false}},
+ {"land": [505, -445, 200]}, {"wait": 1.0},
+ {"tap": "KeyF"}, {"wait": 0.5},
+ {"expect": {"turrets.42.mounted": true}},
+ {"quit": true}
+]}

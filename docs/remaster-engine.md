@@ -358,6 +358,23 @@ limits (frame_ms, main_ms): checked only by `tools/regress.py --perf` on an idle
 badguy explosion of area damage D at Roman. States: `after_pub` (state_after_pub.json, 23 s to make). Example:
 topsyhit2.json (24 s; the same check replayed from the start took about 4 minutes).
 
+Completion tooling (2026-10-16, agent-complete-b; engine/playtests/complete_<level>.json play a level to mission
+complete through its real objective chain, then Stats and the next level):
+- `{"land": [x, y, yaw]}`: Roman onto the ground under game x, y (the landscape's ray, else the first hit), logged as
+  "EVENT playtest: landed at x y z" or "no ground under": skip travel without knowing heights.
+- `{"land_by": [id, distance]}`: beside a placed object, the best of eight points round it (the landscape nearest its
+  height), facing it; a pub's id stands Roman at its doorway (Use enters).
+- `{"probe": [x0, y0, x1, y1, step]}`: a ground-height map in the log ('-' no landscape, 'a/b' something else hit first
+  at b): find the walkable ground near a volume, holes, off-map areas (lev_4_m3 has both: a land there falls forever).
+- `{"damage": [id, amount]}` also hits a placed AI (grunt, Q1-12, monk) by instance id; `{"kill_dropped": amount}`
+  hits every live troop a vehicle dropped (lev_5_m2's paratroopers, as a player shoots them on landing).
+- `{"until": "message", "wait": S}`: a paused message with S seconds as the limit (a timed mission's win);
+  `{"defence": {"mortar": "auto"}}` fires the base turret's mortar at the nearest platoon every second until
+  `{"mortar": false}` (the defence levels' 500 / 600 platoon kills).
+- Static: `tools/mission_chain.py LEVEL` (agent-complete-a) prints the win / fail chains and what each sender waits on.
+- Paused messages during a `goto` are dismissed by the harness (a walk would never end): check them afterwards with
+  `mission_obj.objectives_id`, not `until: message`.
+
 The bot is debug tooling, not game logic: it lives in engine/src/bot.rs (`BotPlugin`; `think` runs before
 player::control and leaves its walk / facing / aim in the `Bot` resource, which control and weapons read as they read
 the keys) and must never change how the game plays for a human. Tactics (2026-10-15, after the AI port made the
@@ -399,6 +416,17 @@ put Roman on a wall top and into a pocket between walls he never left). nav.rs: 
 cost more; waypoints are kept where the straight walk between them would brush something. `NAVMAP=<cells>` (env)
 prints the planner's map round Roman at each new goal ('.' open, '|' / '-' blocked from the west / north, 'x' no
 ground, '^' / 'v' above / below).
+
+### Level completion (objective chains, 2026-10-16)
+
+`python tools/mission_chain.py LEVEL [--all] [--json]` prints what wins and what fails a level, traced backwards
+from the mission's `receive_trigger_success` / `_failure*` / `_pre_success` / peasant trigger: each trigger's
+senders (instance, event, game position) and what each sender waits on (a counter's count and activate trigger, a
+ticker site's enable trigger, a volume's enable, a timer's delay, an object's kill trigger), and where the player gets
+ticker bombs. `--all` adds the flat trigger graph. Use it to write a level's completion playtest
+(engine/playtests/complete_<level>.json): warp along the route, do each objective's real action, and expect each
+trigger with the state log's `triggers.<id>` (counts of the triggers sent so far). Completion scripts take
+`{"cheat": "SHIELDME"}` so they test the objectives, not survival. Results: docs/journal/2026-10-16-complete-a.md.
 
 ### Widening the original's coverage to a whole level
 

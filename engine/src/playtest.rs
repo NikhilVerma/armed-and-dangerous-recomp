@@ -77,6 +77,10 @@ pub struct Event {
     /// death instead of waiting for the bot's bullets to find him)
     #[serde(default)]
     pub kill_gunner: Option<f32>,
+    /// debug: deal this hit to every live troop a vehicle dropped (vehicles/boss.rs: the zeppelins' rocket captains), as
+    /// a player shoots the paratroopers on landing
+    #[serde(default)]
+    pub kill_dropped: Option<f32>,
     /// debug: destroy the placed object with this instance id (as a lethal hit)
     #[serde(default)]
     pub destroy: Option<u32>,
@@ -137,6 +141,26 @@ pub struct Event {
     /// one spot without walking there
     #[serde(default)]
     pub warp: Option<[f32; 4]>,
+    /// debug: as warp, onto the landscape under game-space [x, y] facing yaw degrees (the ground found by a ray down,
+    /// as Object_ForceGround's), for a script that skips travel without knowing the ground's height
+    #[serde(default)]
+    pub land: Option<[f32; 3]>,
+    /// debug: map the ground over game-space [x0, y0, x1, y1, step]: one line per row, each cell the landscape's height
+    /// ('-' none) and, where something else is hit first (a roof, a bridge), '/' and that height
+    #[serde(default)]
+    pub probe: Option<[f32; 5]>,
+    /// debug: land beside the placed object with this instance id, [id, distance]: of eight points round it at that
+    /// distance, the one whose ground is nearest the object's own height (logged as land), facing it; a pub: its doorway; distance 0: onto the object itself
+    #[serde(default)]
+    pub land_by: Option<[f32; 2]>,
+    /// debug: as land_by, of sixteen points only those from which a bullet reaches the object (a sniper on a ledge, a
+    /// grunt in a window): [id, distance]
+    #[serde(default)]
+    pub land_sight: Option<[f32; 2]>,
+    /// debug: land beside the nearest peasant free to rope (not roped yet, not in a cage): one freed from a goliath's
+    /// cage falls where the goliath died, which a script cannot know beforehand
+    #[serde(default)]
+    pub land_peasant: bool,
     /// debug: put Roman's feet 2 units above where the object with this instance id is now (a moving one: a ticker
     /// bomb site riding a goliath), facing game yaw 0
     pub warp_to: Option<u32>,
@@ -146,14 +170,25 @@ pub struct Event {
     /// bot: aim at the nearest live grunt within range and fire (true) / stop (false)
     #[serde(default)]
     pub fight: Option<bool>,
+    /// bot: aim at the placed object with this instance id and fire while the crosshair is on it, until it is destroyed
+    /// ("EVENT bot: object N destroyed"; 0 cancels); it takes the place of the fight's targets meanwhile
+    #[serde(default)]
+    pub shoot: Option<i64>,
+    /// bot: as shoot, with sticky bombs (thrown while the crosshair rests on it, 2 s apart, from beyond their blast):
+    /// for buildings, which take no bullets
+    #[serde(default)]
+    pub bomb: Option<i64>,
     /// bot: hold the Use key (true) / release (false)
     #[serde(default)]
     pub r#use: Option<bool>,
     /// bot: with goto, arrive within this many units (default 12)
     #[serde(default)]
     pub near: Option<f32>,
-    /// steps only: wait until the game shows a paused message (the briefing): "message", max 60 s; or until no movie
-    /// plays: "movie_done", max 600 s; or until a restarted level has left its loading screen: "loaded", max 30 s
+    /// steps only: wait until the game shows a paused message (the briefing): "message", max 60 s (or the step's "wait"
+    /// seconds: {"until": "message", "wait": 400} waits out a long mission); or until no movie plays: "movie_done", max
+    /// 600 s; or until a restarted level has left its loading screen: "loaded", max 30 s; or until a mission trigger
+    /// has been sent: "trigger:456", max the step's "wait" (default 600 s); or until a placed AI or object is dead or
+    /// gone: "dead:286", max the step's "wait" (default 60 s)
     #[serde(default)]
     pub until: Option<String>,
     /// steps only: wait this many seconds
@@ -281,6 +316,12 @@ pub struct Playtest {
     step_started: bool,
     /// a warp step waiting for the warp system
     warp: Option<[f32; 4]>,
+    /// a probe step waiting for the warp system (it has the physics)
+    probe: Option<[f32; 5]>,
+    /// a land_by step waiting for the warp system
+    land_by: Option<(u32, f32, bool)>,
+    /// a land_peasant step waiting for the warp system
+    land_peasant: bool,
     /// virtual gamepad input for pad_drive
     pad: Vec<String>,
     /// companion damage for hurt_companions
@@ -347,7 +388,7 @@ impl Playtest {
         let mut events = s.events;
         events.sort_by(|a, b| a.t.total_cmp(&b.t));
         let log = std::fs::File::create(path.with_extension("log.jsonl")).ok();
-        Playtest { pickups: vec![], loadouts: vec![], audio: vec![], fx: vec![], movies: vec![], intro: s.intro, passed: 0, failed: 0, hurt_c: vec![], warp_c: vec![], skip_t: vec![], blasts: vec![], pad_e: None, notes: Default::default(), pad: vec![], warp: None, path, title: s.title, real_time: s.real_time, events, turns: s.turns, next: 0, t: 0.0, taps: vec![], clicks: vec![], log, last_log: -1.0, steps: s.steps, step_shot: None, step: 0, step_t: 0.0, step_started: false }
+        Playtest { pickups: vec![], loadouts: vec![], audio: vec![], fx: vec![], movies: vec![], intro: s.intro, passed: 0, failed: 0, hurt_c: vec![], warp_c: vec![], skip_t: vec![], blasts: vec![], pad_e: None, notes: Default::default(), pad: vec![], warp: None, probe: None, land_by: None, land_peasant: false, path, title: s.title, real_time: s.real_time, events, turns: s.turns, next: 0, t: 0.0, taps: vec![], clicks: vec![], log, last_log: -1.0, steps: s.steps, step_shot: None, step: 0, step_t: 0.0, step_started: false }
     }
 }
 
@@ -380,11 +421,65 @@ fn warp(
     mut physics: NonSendMut<crate::physics::Physics>,
     mut bot: ResMut<crate::bot::Bot>,
     mut roman: Query<(&mut crate::player::Roman, &mut Transform)>,
+    objects: Query<(&crate::level::InstanceId, &GlobalTransform, Option<&crate::level::Placed>)>,
+    (peasants, mission): (Query<(&crate::peasant::Peasant, &GlobalTransform)>, Option<Res<crate::mission::Mission>>),
 ) {
+    if std::mem::take(&mut pt.land_peasant) {
+        let me = roman.single().map(|(_, t)| t.translation).unwrap_or_default();
+        let to_game = crate::level::game_to_engine().inverse();
+        let free = peasants
+            .iter()
+            .filter(|(p, _)| !p.captured && p.held_by.is_none())
+            .map(|(_, t)| t.translation())
+            .min_by(|a, b| a.distance(me).total_cmp(&b.distance(me)));
+        match free {
+            // 4 units beside him, on the ground, facing him
+            Some(at) => {
+                let g = to_game * at;
+                pt.warp = Some([g.x, g.y - 4.0, f32::NAN, 0.0]);
+            }
+            None => warn!("EVENT playtest: land_peasant: no peasant free to rope"),
+        }
+    }
+    if let Some((id, d, sight)) = pt.land_by.take() {
+        // a pub: at its doorway, where Use enters it
+        let door = mission.as_ref().and_then(|m| m.pub_door(id)).map(|at| {
+            let g = crate::level::game_to_engine().inverse() * at;
+            [g.x, g.y, f32::NAN, 0.0]
+        });
+        match (door, objects.iter().find(|(i, ..)| i.0 == id)) {
+            (Some(w), _) => pt.warp = Some(w),
+            // distance 0: onto the object itself (a peasant on a roof: Roman walks up to him)
+            (None, Some((_, at, _))) if d <= 0.0 => {
+                let g = crate::level::game_to_engine().inverse() * at.translation();
+                pt.warp = Some([g.x, g.y, g.z + 2.0, 0.0]);
+            }
+            (None, Some((_, at, placed))) => {
+                pt.warp = land_beside(&physics, at.translation(), placed.and_then(|p| p.collider), d, sight);
+                if pt.warp.is_none() {
+                    warn!("EVENT playtest: land_by: no spot {d} from object {id}{} at {:?}", if sight { " in sight of it" } else { "" }, crate::level::game_to_engine().inverse() * at.translation());
+                }
+            }
+            (None, None) => warn!("EVENT playtest: land_by: no object {id}"),
+        }
+    }
+    if let Some([x0, y0, x1, y1, step]) = pt.probe.take() {
+        probe_ground(&physics, (x0, y0), (x1, y1), step.max(1.0));
+    }
     let Some(w) = pt.warp else { return };
     let Ok((mut r, mut t)) = roman.single_mut() else { return };
     pt.warp = None;
-    let feet = crate::level::game_to_engine() * Vec3::new(w[0], w[1], w[2]);
+    let mut feet = crate::level::game_to_engine() * Vec3::new(w[0], w[1], if w[2].is_nan() { 0.0 } else { w[2] });
+    if w[2].is_nan() {
+        // a land step: onto the landscape under the point (a little above it, the walker settles)
+        let top = feet.with_y(4000.0);
+        let Some(ground) = physics.raycast_landscape(top, Vec3::NEG_Y, 8000.0).or_else(|| physics.raycast(top, Vec3::NEG_Y, 8000.0).map(|h| h.1)) else {
+            warn!("EVENT playtest: no ground under {:?}", [w[0], w[1]]);
+            return;
+        };
+        feet = ground + Vec3::Y * 2.0;
+        info!("EVENT playtest: landed at {:.0} {:.0} {:.0}", w[0], w[1], ground.y);
+    }
     physics.place_walker(&r.walker, feet);
     t.translation = feet;
     r.yaw = w[3].to_radians();
@@ -398,6 +493,61 @@ fn warp(
     r.fall_fast_t = 0.0;
     r.peak_vz = 0.0;
     bot.goto = None;
+}
+
+/// The land_by step's spot: of eight points `d` from the object (engine space), the one whose landscape is nearest
+/// the object's height, as a land warp (game space, facing the object).
+fn land_beside(physics: &crate::physics::Physics, at: Vec3, body: Option<oxijolt::prelude::BodyId>, d: f32, sight: bool) -> Option<[f32; 4]> {
+    let to_game = crate::level::game_to_engine().inverse();
+    // with `sight` (land_sight): of sixteen points, those from whose eye height a bullet reaches the object's chest
+    // (nothing in the way, or what is hit is within 8 of it or the object itself), else none
+    // (and from where the follow camera sits, about 30 behind and 15 above him: the crosshair's ray starts there)
+    let n = if sight { 16 } else { 8 };
+    let clear = |g: Vec3| {
+        let to = at + Vec3::Y * 6.0;
+        let back = (g - to).with_y(0.0).normalize_or(Vec3::Z);
+        [g + Vec3::Y * 10.0, g + back * 30.0 + Vec3::Y * 15.0]
+            .iter()
+            .all(|&eye| physics.raycast_bullet(eye, to - eye, (to - eye).length()).is_none_or(|h| h.1.distance(to) < 8.0 || Some(h.0) == body))
+    };
+    // the ring at d, else the next farther one (a big object over the ground, a goliath, hides it from the landscape ray)
+    let best = [1.0, 2.0, 4.0].into_iter().find_map(|m| {
+        (0..n)
+            .filter_map(|k| {
+                let a = k as f32 * std::f32::consts::TAU / n as f32;
+                let p = at + Vec3::new(a.cos(), 0.0, a.sin()) * d * m;
+                physics.raycast_landscape(p.with_y(4000.0), Vec3::NEG_Y, 8000.0).map(|g| (p, (g.y - at.y).abs(), g))
+            })
+            .filter(|(_, _, g)| !sight || clear(*g))
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+    })?;
+    let (g, o) = (to_game * best.0, to_game * at);
+    let yaw = (o.x - g.x).atan2(o.y - g.y).to_degrees();
+    Some([g.x, g.y, f32::NAN, yaw])
+}
+
+/// The probe step's ground map (game space): rows from y0 to y1, cells from x0 to x1.
+fn probe_ground(physics: &crate::physics::Physics, (x0, y0): (f32, f32), (x1, y1): (f32, f32), step: f32) {
+    let to_engine = crate::level::game_to_engine();
+    let (nx, ny) = (((x1 - x0) / step).floor() as i32, ((y1 - y0) / step).floor() as i32);
+    info!("EVENT playtest: ground map x {x0}..{x1} y {y0}..{y1} step {step}");
+    for j in 0..=ny {
+        let y = y0 + j as f32 * step;
+        let cells: Vec<String> = (0..=nx)
+            .map(|i| {
+                let top = (to_engine * Vec3::new(x0 + i as f32 * step, y, 0.0)).with_y(4000.0);
+                let land = physics.raycast_landscape(top, Vec3::NEG_Y, 8000.0).map(|h| h.y);
+                let first = physics.raycast(top, Vec3::NEG_Y, 8000.0).map(|h| h.1.y);
+                match (land, first) {
+                    (Some(l), Some(f)) if f > l + 1.0 => format!("{l:.0}/{f:.0}"),
+                    (Some(l), _) => format!("{l:.0}"),
+                    (None, Some(f)) => format!("-/{f:.0}"),
+                    (None, None) => "-".into(),
+                }
+            })
+            .collect();
+        info!("EVENT playtest: ground y {y:.0}: {}", cells.join(" "));
+    }
 }
 
 pub fn key(name: &str) -> Option<KeyCode> {
@@ -461,7 +611,7 @@ pub(crate) fn drive(
     mission: Option<Res<crate::mission::Mission>>,
     mut roman: Query<&mut crate::fx::Health, With<crate::player::Roman>>,
     mut spawn: MessageWriter<crate::level::SpawnGrunt>,
-    (mut send, state, mut save_req, mut noise, mut barks, mut defence, mut cheats, placed_at): (
+    (mut send, state, mut save_req, mut noise, mut barks, mut defence, mut cheats, dropped, placed_at): (
         MessageWriter<crate::mission::SendTrigger>,
         Res<PlayState>,
         ResMut<crate::savegame::SaveRequest>,
@@ -469,12 +619,13 @@ pub(crate) fn drive(
         ResMut<crate::ai::Barks>,
         MessageWriter<crate::defence::DefenceCommand>,
         ResMut<crate::cheats::Cheats>,
+        Query<Entity, With<crate::level::Dropped>>,
         Query<(&crate::level::InstanceId, &GlobalTransform)>,
     ),
     mut objects: Query<(Entity, Option<&crate::level::InstanceId>, Option<&crate::level::Placed>, &mut crate::fx::Destructible)>,
     cam: Query<&GlobalTransform, With<Camera3d>>,
     player: Query<&GlobalTransform, With<crate::player::Roman>>,
-    mut grunts: Query<(&mut crate::ai::Grunt, &mut crate::fx::Health, &GlobalTransform), Without<crate::player::Roman>>,
+    mut grunts: Query<(&mut crate::ai::Grunt, &mut crate::fx::Health, &GlobalTransform, Option<&crate::level::InstanceId>), Without<crate::player::Roman>>,
 ) {
     pt.t += time.delta_secs();
     // the mission over (won or failed): play stops, so a pending goto counts as done
@@ -532,13 +683,28 @@ pub(crate) fn drive(
             pt.taps.push(KeyCode::Enter);
         }
         let done = if st.until.as_deref() == Some("message") {
-            mission.as_ref().is_some_and(|m| m.showing.is_some()) || pt.step_t > 60.0
+            mission.as_ref().is_some_and(|m| m.showing.is_some()) || pt.step_t > st.wait.unwrap_or(60.0)
         } else if st.until.as_deref() == Some("movie_done") {
             // no movie in the state log (movie.rs log_state) once the step had a frame to start one; max 600 s
             (pt.step_t > 0.1 && !state.0.contains_key("movie")) || pt.step_t > 600.0
         } else if st.until.as_deref() == Some("loaded") {
             // a restarted level has left its loading screen (levelreset.rs "loading"); max 30 s
             (pt.step_t > 0.1 && state.0.get("loading").and_then(|v| v.as_bool()) != Some(true)) || pt.step_t > 30.0
+        } else if let Some(id) = st.until.as_deref().and_then(|u| u.strip_prefix("dead:")) {
+            // a placed AI or object is dead or gone (the state log's grunt_ids / objects); max the step's "wait"
+            // (default 60 s): a fixed wait after each try of a shoot order would run on after the kill
+            let ai = state.0.get("grunt_ids").and_then(|m| m.get(id));
+            let obj = state.0.get("objects").and_then(|m| m.get(id));
+            let dead = ai.is_some_and(|g| g.get("mind").and_then(|m| m.as_str()) == Some("Dead"))
+                || obj.is_some_and(|o| o.get("husk").and_then(|h| h.as_bool()) == Some(true) || o.get("removed").is_some());
+            dead || pt.step_t > st.wait.unwrap_or(60.0)
+        } else if let Some(t) = st.until.as_deref().and_then(|u| u.strip_prefix("trigger:")) {
+            // a mission trigger has been sent (the state log's "triggers"); max the step's "wait" (default 600 s)
+            let sent = state.0.get("triggers").and_then(|m| m.get(t)).is_some();
+            if sent {
+                info!("EVENT playtest: trigger {t} sent after {:.1} s", pt.step_t);
+            }
+            sent || pt.step_t > st.wait.unwrap_or(600.0)
         } else if let Some(g) = st.goto {
             // a bot that has not arrived after 240 s is stuck (its route-finding is a test aid, not the game): it is
             // warped to the goal and the run goes on, logged so a run that needed it is not mistaken for a clean one
@@ -615,6 +781,14 @@ pub(crate) fn drive(
                     d.dying = Some(0.0);
                 }
             }
+            // a placed AI (a grunt, a Q1-12) of that instance id takes the hit as a shot does
+            if let Some(id) = id {
+                for (mut g, mut h, _, _) in grunts.iter_mut().filter(|(g, _, _, i)| g.mind != crate::ai::Mind::Dead && i.is_some_and(|i| i.0 == id)) {
+                    n += 1;
+                    g.last_hit = amount;
+                    h.0 -= amount;
+                }
+            }
             info!("EVENT playtest: damage {amount} to {n} objects ({})", template.unwrap_or_else(|| format!("id {}", id.unwrap_or(0))));
         }
         if let Some(p) = e.pad {
@@ -668,7 +842,7 @@ pub(crate) fn drive(
                 let pos = to_game * c.translation();
                 let roman = player.single().map(|r| to_game * r.translation()).ok();
                 // the grunts (game space; the hook's dump lists the original's in "ai"), for movement comparisons
-                let gs: Vec<[f32; 3]> = grunts.iter().filter(|(g, _, _)| g.mind != crate::ai::Mind::Dead).map(|(_, _, t)| (to_game * t.translation()).to_array()).collect();
+                let gs: Vec<[f32; 3]> = grunts.iter().filter(|(g, _, _, _)| g.mind != crate::ai::Mind::Dead).map(|(_, _, t, _)| (to_game * t.translation()).to_array()).collect();
                 let j = serde_json::json!({"time": pt.t, "position": pos.to_array(), "forward": fwd.to_array(), "up": up.to_array(), "roman": roman.map(|r| r.to_array()), "grunts": gs});
                 let _ = std::fs::write(pt.path.with_extension(format!("{name}.camera.json")), j.to_string());
             }
@@ -685,6 +859,14 @@ pub(crate) fn drive(
         }
         if let Some(f) = e.fight {
             bot.fight = f;
+        }
+        if let Some(id) = e.shoot {
+            bot.shoot = (id > 0).then_some(id as u32);
+            bot.shoot_bombs = false;
+        }
+        if let Some(id) = e.bomb {
+            bot.shoot = (id > 0).then_some(id as u32);
+            bot.shoot_bombs = true;
         }
         if let Some(u) = e.r#use {
             bot.use_key = u;
@@ -730,19 +912,48 @@ pub(crate) fn drive(
         }
         if let (Some(d), Ok(p)) = (e.kill, player.single()) {
             let me = p.translation();
-            if let Some((mut g, mut h, _)) = grunts.iter_mut().filter(|(g, _, _)| g.mind != crate::ai::Mind::Dead).min_by(|a, b| a.2.translation().distance(me).total_cmp(&b.2.translation().distance(me))) {
+            if let Some((mut g, mut h, _, _)) = grunts.iter_mut().filter(|(g, _, _, _)| g.mind != crate::ai::Mind::Dead).min_by(|a, b| a.2.translation().distance(me).total_cmp(&b.2.translation().distance(me))) {
                 g.last_hit = d;
                 h.0 -= d;
             }
         }
+        if let Some(d) = e.kill_dropped {
+            let mut n = 0;
+            for de in &dropped {
+                if let Ok((mut g, mut h, _, _)) = grunts.get_mut(de) {
+                    if g.mind != crate::ai::Mind::Dead {
+                        g.last_hit = d;
+                        h.0 -= d;
+                        n += 1;
+                    }
+                }
+            }
+            info!("EVENT playtest: hit {n} dropped troops");
+        }
         if let Some(d) = e.kill_gunner {
-            for (mut g, mut h, _) in grunts.iter_mut().filter(|(g, _, _)| g.mind != crate::ai::Mind::Dead && g.gun.is_some()) {
+            for (mut g, mut h, _, _) in grunts.iter_mut().filter(|(g, _, _, _)| g.mind != crate::ai::Mind::Dead && g.gun.is_some()) {
                 g.last_hit = d;
                 h.0 -= d;
             }
         }
         if let Some(w) = e.warp {
             pt.warp = Some(w);
+        }
+        if e.land_peasant {
+            pt.land_peasant = true;
+        }
+        if let Some([id, d]) = e.land_sight {
+            pt.land_by = Some((id as u32, d, true));
+        }
+        if let Some([id, d]) = e.land_by {
+            pt.land_by = Some((id as u32, d, false));
+        }
+        if e.probe.is_some() {
+            pt.probe = e.probe;
+        }
+        if let Some([x, y, yaw]) = e.land {
+            // no height: the warp system finds the ground
+            pt.warp = Some([x, y, f32::NAN, yaw]);
         }
         if let Some(id) = e.warp_to {
             match placed_at.iter().find(|(i, _)| i.0 == id) {
@@ -755,7 +966,7 @@ pub(crate) fn drive(
         }
         if let (Some(true), Ok(p)) = (e.cover, player.single()) {
             let me = p.translation();
-            if let Some((mut g, _, _)) = grunts.iter_mut().filter(|(g, _, _)| g.mind != crate::ai::Mind::Dead).min_by(|a, b| a.2.translation().distance(me).total_cmp(&b.2.translation().distance(me))) {
+            if let Some((mut g, _, _, _)) = grunts.iter_mut().filter(|(g, _, _, _)| g.mind != crate::ai::Mind::Dead).min_by(|a, b| a.2.translation().distance(me).total_cmp(&b.2.translation().distance(me))) {
                 g.force_hide = true;
             }
         }
@@ -771,7 +982,7 @@ pub(crate) fn drive(
         }
         if let Some(spell) = &e.monk_spell {
             let act = if spell == "baskets" { crate::ai::monk::MonkAct::Baskets } else { crate::ai::monk::MonkAct::Twiglets };
-            for (mut g, _, _) in grunts.iter_mut().filter(|(g, _, _)| g.mind != crate::ai::Mind::Dead && g.target.is_some()) {
+            for (mut g, _, _, _) in grunts.iter_mut().filter(|(g, _, _, _)| g.mind != crate::ai::Mind::Dead && g.target.is_some()) {
                 if let Some(m) = g.monk.as_mut() {
                     m.forced = Some(act);
                     // back to the pursuit: the next frame in range engages and rolls (0x00427910 -> vt+0x220)

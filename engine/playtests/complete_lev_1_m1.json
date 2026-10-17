@@ -1,0 +1,40 @@
+{"scene": "lev_1_m1", "steps": [
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 0.5},
+ {"expect": {"mission": "Playing", "compass_tag": 50}},
+ {"cheat": "SHIELDME"},
+
+ {"warp": [205, -60, 14, 180]}, {"wait": 0.5},
+ {"goto": [194, -80, 13], "near": 4},
+ {"hold_use": 0.3}, {"wait": 1.0},
+ {"tap": "Enter"}, {"wait": 0.7}, {"tap": "Enter"}, {"wait": 0.7}, {"tap": "Enter"}, {"wait": 0.7}, {"tap": "Enter"}, {"wait": 0.7},
+ {"tap": "Escape"}, {"wait": 2.2},
+ {"expect": {"triggers.900": 1, "compass_tag": 55}},
+ {"tap": "Enter"}, {"wait": 0.3},
+
+ {"warp": [-60, 60, 20, 250]}, {"wait": 0.5},
+ {"goto": [-75, 45, 20], "near": 6},
+ {"hold_use": 2.6},
+ {"goto": [0, 150, 20], "near": 10},
+ {"wait": 6.0},
+ {"expect": {"triggers.556": 1, "objects.248.husk": true}},
+
+ {"warp": [265, -925, 16, 180]}, {"wait": 0.5},
+ {"goto": [270, -940, 16], "near": 6},
+ {"hold_use": 2.6},
+ {"goto": [250, -840, 16], "near": 8},
+ {"wait": 6.0},
+ {"expect": {"triggers.901": 1}},
+ {"until": "message"}, {"wait": 0.3}, {"tap": "Enter"}, {"wait": 0.3},
+ {"goto": [322, -974, 12], "near": 6},
+ {"wait": 1.0},
+ {"expect": {"triggers.123": 1, "mission": "Won", "dead": false}},
+
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 1.0},
+ {"expect": {"menu.page": "Stats"}},
+ {"tap": "Enter"}, {"wait": 0.3}, {"tap": "Enter"}, {"wait": 0.7}, {"tap": "Enter"}, {"wait": 0.3},
+ {"tap": "Enter"}, {"wait": 0.5}, {"until": "loaded"},
+ {"expect": {"campaign.level": "lev_1_m1_b"}},
+ {"until": "message"},
+ {"expect": {"mission": "Playing"}},
+ {"quit": true}
+]}

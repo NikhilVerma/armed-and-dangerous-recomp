@@ -165,6 +165,10 @@ pub struct ArmyStats {
 pub struct Platoon {
     members: Vec<Member>,
     kill_range: f32,
+    /// the platoon model's box (platoon_1: 50 x 4 x 14 round its row of members; game axes, the platoon's frame): a
+    /// player's bullet that enters it is a damage record at the entry point (the object's collision; the record then
+    /// kills every member within kill_range, 0x00433000)
+    hit_box: Option<(Vec3, Vec3)>,
     markers: (i64, i64),
     ladders: (i64, i64),
     /// state 0x66: halted at the grunt limit
@@ -402,6 +406,38 @@ impl ModelKit<'_> {
 
 /// The member ref points of a platoon template (FakeGrunt_Update's first call: ref_captain_0N, ref_grunt_0N,
 /// ref_regular_0N, ref_torch_0N probed from 0 until one is missing), read from its reference anim; game axes.
+/// A template's model bounds (models/<name>.json "min" / "max": game axes, model space).
+fn model_box(kit: &ModelKit, data: &crate::gamedata::GameData, template: &str) -> Option<(Vec3, Vec3)> {
+    let model = data.templates.get(template)?.model.clone()?;
+    let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(kit.lib.dir.join("models").join(format!("{model}.json"))).ok()?).ok()?;
+    let p = |k: &str| -> Option<Vec3> {
+        let a = v.get(k)?.as_array()?;
+        Some(Vec3::new(a.first()?.as_f64()? as f32, a.get(1)?.as_f64()? as f32, a.get(2)?.as_f64()? as f32))
+    };
+    Some((p("min")?, p("max")?))
+}
+
+/// Where the segment a..b first enters the box (slab test), if it does.
+fn segment_enters_box(a: Vec3, b: Vec3, (lo, hi): (Vec3, Vec3)) -> Option<Vec3> {
+    let d = b - a;
+    let (mut t0, mut t1) = (0.0f32, 1.0f32);
+    for i in 0..3 {
+        if d[i].abs() < 1e-6 {
+            if a[i] < lo[i] || a[i] > hi[i] {
+                return None;
+            }
+            continue;
+        }
+        let (u, v) = ((lo[i] - a[i]) / d[i], (hi[i] - a[i]) / d[i]);
+        t0 = t0.max(u.min(v));
+        t1 = t1.min(u.max(v));
+        if t0 > t1 {
+            return None;
+        }
+    }
+    Some(a + d * t0)
+}
+
 fn member_points(kit: &mut ModelKit, data: &crate::gamedata::GameData, template: &str) -> Vec<(u8, Vec3)> {
     let Some(reference) = data.templates.get(template).and_then(|t| t.default_anim.clone()) else { return Vec::new() };
     let Some(anim) = kit.anim(&reference) else { return Vec::new() };
@@ -511,6 +547,7 @@ fn timers(
             Platoon {
                 members,
                 kill_range: p.f("kill_range", 60.0),
+                hit_box: model_box(&kit, &data, &template),
                 markers: set(&army.marker_sets, e.a),
                 ladders: set(&army.ladder_sets, e.b),
                 halted: false,
@@ -676,6 +713,16 @@ fn fake_hits(
             }
             let b = st.translation;
             let a = b - sp.vel * dt;
+            // the platoon's box (its collision), in the platoon's frame
+            if let Some(bx) = p.hit_box {
+                let inv = world.inverse();
+                if let Some(at) = segment_enters_box(inv.transform_point3(a), inv.transform_point3(b), bx) {
+                    hits.push(world.transform_point3(at));
+                    used.insert(se);
+                    commands.entity(se).despawn();
+                    continue;
+                }
+            }
             for (_, c) in &alive {
                 let c = *c + Vec3::Y * 6.0;
                 let ab = b - a;

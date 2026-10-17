@@ -1,0 +1,9 @@
+{"scene": "lev_bonus_m3", "steps": [
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 1.0},
+ {"expect": {"mission": "Playing"}},
+ {"cheat": "SHIELDME"},
+ {"note": "Q (q111 175, send_trigger_on_death 5001 = the mission's receive_trigger_failure_2) killed: the mission fails with failure_text_2"},
+ {"hurt_companion": [1, 100000]}, {"wait": 2.0},
+ {"expect": {"mission": "Failed", "triggers.5001": 1}},
+ {"quit": true}
+]}

@@ -1,0 +1,41 @@
+{"scene": "lev_1_m1_b", "steps": [
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 0.5},
+ {"expect": {"mission": "Playing", "compass_tag": 77}},
+ {"cheat": "SHIELDME"},
+
+ {"note": "objective 1: take over the forge cannons: shoot gunner 286 on cannon 42 (counter 416 -> 3998, l1m1b_sub1)"},
+ {"land": [520, -420, 200]}, {"wait": 1.0},
+ {"fight": true}, {"until": "message"}, {"fight": false},
+ {"expect": {"grunt_ids.286.mind": "Dead", "turrets.42.ai": false, "triggers.3997": [1, 2], "triggers.3998": 1}},
+ {"tap": "Enter"}, {"wait": 0.3},
+
+ {"note": "objective 2: blow open the prison gate 160 with the cannon (1550 health, 200 a shell) -> 3000 (l1m1b_sub2)"},
+ {"land": [505, -445, 200]}, {"wait": 1.0},
+ {"tap": "KeyF"}, {"wait": 0.5},
+ {"expect": {"turrets.42.mounted": true}},
+ {"mouse": [-360, 0]}, {"wait": 0.5},
+ {"click": "Left"}, {"wait": 1.2}, {"click": "Left"}, {"wait": 1.2}, {"click": "Left"}, {"wait": 1.2}, {"click": "Left"}, {"wait": 1.2},
+ {"click": "Left"}, {"wait": 1.2}, {"click": "Left"}, {"wait": 1.2}, {"click": "Left"}, {"wait": 1.2}, {"click": "Left"}, {"wait": 1.2},
+ {"click": "Left"}, {"wait": 1.5},
+ {"expect": {"objects.160.husk": true, "triggers.3000": 1}},
+ {"until": "message"}, {"wait": 0.3}, {"tap": "Enter"}, {"wait": 0.3},
+ {"tap": "KeyF"}, {"wait": 0.5},
+ {"expect": {"turrets.42.mounted": false}},
+
+ {"note": "objective 3: through the blown gate to box 287 -> 4000: mission success"},
+ {"land": [384, -640, 0]}, {"wait": 0.5},
+ {"goto": [384, -699, 0], "near": 6},
+ {"wait": 1.0},
+ {"expect": {"triggers.4000": 1, "mission": "Won", "dead": false}},
+
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 1.0},
+ {"expect": {"menu.page": "Stats"}},
+ {"tap": "Enter"}, {"wait": 0.3}, {"tap": "Enter"}, {"wait": 0.7}, {"tap": "Enter"}, {"wait": 0.3},
+ {"tap": "Enter"}, {"wait": 1.0},
+ {"expect": {"campaign.end": "movie"}},
+ {"tap": "Enter"}, {"wait": 0.5}, {"until": "loaded"},
+ {"expect": {"campaign.level": "lev_1_m3"}},
+ {"until": "message"},
+ {"expect": {"mission": "Playing"}},
+ {"quit": true}
+]}
