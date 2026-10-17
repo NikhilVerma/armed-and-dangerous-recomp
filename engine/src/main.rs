@@ -12,6 +12,7 @@
 mod ai;
 mod alarm;
 mod army;
+mod arrows;
 mod crowd;
 mod defence;
 mod icobject;
@@ -375,7 +376,7 @@ fn main() {
     app.add_plugins(camdump::CamDumpPlugin);
     app.add_plugins(camera::CameraPlugin);
     app.add_plugins(footik::FootIkPlugin);
-    app.add_plugins((savegame::SaveGamePlugin, thumbnail::ThumbnailPlugin));
+    app.add_plugins((savegame::SaveGamePlugin, thumbnail::ThumbnailPlugin, arrows::ArrowsPlugin));
     app.add_plugins(cheats::CheatsPlugin);
     app.add_plugins(decals::DecalPlugin);
     app.add_plugins(sticky::StickyPlugin);

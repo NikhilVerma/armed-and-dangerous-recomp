@@ -190,7 +190,7 @@ address,name,disposition,reason
 0x0047df70,fn_0047df70,deferred,"feature: turret-vehicle-paths; projectile spawn helpers used by the turrets, the vindaloo and the armed jaws: none on lev_1_m1"
 0x0047e050,fn_0047e050,ported,engine/src/vehicles/rockets.rs launch with `along` (weapons/vindaloo.rs): a projectile launched along a direction
 0x0047e3b0,Projectile_SetTarget,ported,"engine/src/vehicles/rockets.rs Rocket.target (the vindaloo's ref_hit_00, the rocket towers' chest), weapons/landshark.rs LandShark.target, sticky.rs: the homing target"
-0x0047e9f0,fn_0047e9f0,deferred,feature: arrow-models; sticks a projectile to a target's part (the arrows' hit): the engine's arrows have no model to leave stuck (the trail ends at the hit); sticky.rs sticks by 0x004817b0 / 0x0047e9b0
+0x0047e9f0,fn_0047e9f0,ported,"engine/src/arrows.rs (the archer's arrow flies with its model; ArrowStuck from player.rs leaves it at the hit point, attached to the character it hit, for linger_lifetime; player.rs Projectile::linger)"
 0x0047f210,fn_0047f210,ported,engine/src/weapons/sniper.rs Pierce: the bullet's hit list (each character once; the shooter skipped by its owner)
 0x0047f2a0,fn_0047f2a0,ported,"engine/src/player.rs projectiles with weapons/sniper.rs Pierce: through the characters, the count, the health pickup in front of the player when it stops"
 0x0047f4d0,fn_0047f4d0,deferred,"feature: untraced; Projectile vt+0x13c: damage flags | 0x20000 (meaning not traced); the engine's records carry only the bits it uses (0x400 buildings, 0x80 cartoon)"
@@ -226,9 +226,9 @@ address,name,disposition,reason
 0x004821a0,BlackHole_Remove,ported,engine/src/weapons/blackhole.rs: LiveHole (the live count Game+0xadc is the boxes and holes with it)
 0x004821b0,BlackHoleBox_Launch,ported,"engine/src/weapons/blackhole.rs throw: lobbed at 50 toward the camera's facing x 20, player_blackhole_box_open"
 0x004822b0,BlackHoleBox_Update,ported,"engine/src/weapons/blackhole.rs boxes: the landing on the ground, the opening, the hole out"
-0x00482460,ArrowProjectile_ReadProps,deferred,"feature: arrow-models; ArrowProjectile load / remove / hit: the arrow lingers stuck to what it hit with its model (linger 2.5 s); the engine's projectiles have no model, so the trail ends at the hit (the launch, the fall and the fly-by sound are ported: player.rs spawn_projectile_to, 0x00482510 / 0x00482620)"
-0x004824e0,ArrowProjectile_Remove,deferred,"feature: arrow-models; ArrowProjectile load / remove / hit: the arrow lingers stuck to what it hit with its model (linger 2.5 s); the engine's projectiles have no model, so the trail ends at the hit (the launch, the fall and the fly-by sound are ported: player.rs spawn_projectile_to, 0x00482510 / 0x00482620)"
-0x00482780,ArrowProjectile_Hit,deferred,"feature: arrow-models; ArrowProjectile load / remove / hit: the arrow lingers stuck to what it hit with its model (linger 2.5 s); the engine's projectiles have no model, so the trail ends at the hit (the launch, the fall and the fly-by sound are ported: player.rs spawn_projectile_to, 0x00482510 / 0x00482620)"
+0x00482460,ArrowProjectile_ReadProps,ported,"engine/src/arrows.rs (the archer's arrow flies with its model; ArrowStuck from player.rs leaves it at the hit point, attached to the character it hit, for linger_lifetime; player.rs Projectile::linger)"
+0x004824e0,ArrowProjectile_Remove,ported,"engine/src/arrows.rs (the archer's arrow flies with its model; ArrowStuck from player.rs leaves it at the hit point, attached to the character it hit, for linger_lifetime; player.rs Projectile::linger)"
+0x00482780,ArrowProjectile_Hit,ported,"engine/src/arrows.rs (the archer's arrow flies with its model; ArrowStuck from player.rs leaves it at the hit point, attached to the character it hit, for linger_lifetime; player.rs Projectile::linger)"
 0x00482870,GrenadeProjectile_Launch,ported,cited: ai.rs (the thrown captain_grenade: launch and target point)
 0x00482ab0,CaptainRocket_SetOwner,ported,engine/src/ai/rocket.rs fire: the captain owns his rocket (its path passes him; vehicles/rockets.rs skips the owner)
 0x00482d10,CaptainRocket_InitCollision,ported,engine/src/ai/rocket.rs shoot_down: the rocket in the bullets' and blasts' reach (RocketHull)

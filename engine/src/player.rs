@@ -170,6 +170,9 @@ pub struct Projectile {
     /// fly-by sound once within 70 of Roman (0x00482620)
     pub arrow: bool,
     pub flyby: bool,
+    /// an arrow's stay where it hit (ArrowProjectile_ReadProps 0x00482460: linger_lifetime, default 10; arrows.rs keeps
+    /// its model there), 0 for the others
+    pub linger: f32,
     /// the damage record's class flag (projectile vt+0x13c): a mounted gun's bullet 0x80000, the forge cannon's mortar
     /// 0x100000, which an AI victim scales by its stig_ / forge_damage_multiplier (GenericAIObject_Slot52 0x00430340)
     pub kind: DamageKind,
@@ -368,6 +371,7 @@ fn launch_projectile(commands: &mut Commands, fx: &mut MessageWriter<crate::fx::
                 vel,
                 arrow: p.s("behavior") == Some("proj_arrow"),
                 flyby: p.s("behavior") == Some("proj_arrow"),
+                linger: if p.s("behavior") == Some("proj_arrow") { p.f("linger_lifetime", 10.0) } else { 0.0 },
                 kind: DamageKind::of_behavior(p.s("behavior").unwrap_or("")),
                 // "lifetime" (Projectile_Load 0x0047e0c0, default 4): removed when it runs out (0x0047e4a0)
                 life: p.f("lifetime", 4.0),
@@ -1778,7 +1782,7 @@ fn projectiles(
     hulls: Option<Res<crate::hitparts::HitHulls>>,
     (rtime, topsy, mounted, mut noise, mut bombs, mut rng, mut sounds): (Res<Time<Real>>, Res<crate::topsy::Topsy>, Res<crate::turret::Mounted>, ResMut<crate::ai::Interests>, Query<(&Transform, &mut crate::sticky::StickyBomb), Without<Projectile>>, ResMut<crate::fx::FxStats>, MessageWriter<crate::audio::PlaySound>),
     mut victims: Query<&mut crate::ai::Grunt>,
-    (mut pickups, traitors, binds, mut wstats): (MessageWriter<crate::pickup::SpawnPickup>, Query<(), With<crate::weapons::traitor::Traitor>>, Res<Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>, ResMut<crate::weapons::WeaponStats>),
+    (mut pickups, traitors, binds, mut wstats, mut stuck): (MessageWriter<crate::pickup::SpawnPickup>, Query<(), With<crate::weapons::traitor::Traitor>>, Res<Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>, ResMut<crate::weapons::WeaponStats>, MessageWriter<crate::arrows::ArrowStuck>),
 ) {
     let dt = time.delta_secs();
     for (e, mut p, mut t, mut pierce) in &mut q {
@@ -1945,7 +1949,11 @@ fn projectiles(
             }
             // the companions are teammates of the player (vt+0xe4 true): a grunt's shot hurts them, the player's and the
             // other companion's stop on them and do nothing (0x00430340: source and victim on the same team)
-            if let Some((_, mut c, _, _, mut ch)) = companions.iter_mut().find(|(_, c, _, _, _)| c.q == q) {
+            if let Some((ce, mut c, _, _, mut ch)) = companions.iter_mut().find(|(_, c, _, _, _)| c.q == q) {
+                // an arrow stays stuck in him (ArrowProjectile_Hit 0x00482780 -> 0x0047e9f0)
+                if p.linger > 0.0 {
+                    stuck.write(crate::arrows::ArrowStuck { arrow: e, at: from + step, on: Some(ce), linger: p.linger });
+                }
                 if p.from_player {
                     c.friendly = true;
                 } else {
@@ -1961,6 +1969,9 @@ fn projectiles(
         if hit_roman {
             if let Some(f) = impact(None, from + step, Quat::IDENTITY) {
                 surface_fx.write(f);
+            }
+            if let (true, Ok((re, ..))) = (p.linger > 0.0, roman.single()) {
+                stuck.write(crate::arrows::ArrowStuck { arrow: e, at: from + step, on: Some(re), linger: p.linger });
             }
             // ignored during the topsy states (0x0047afa0: +0xa34 & 0x7800000); the bullet still lands
             if let Some((mut h, shield)) = roman_health.single_mut().ok().filter(|_| !topsy.active()) {
@@ -2016,6 +2027,11 @@ fn projectiles(
             let rot = Quat::from_rotation_arc(Vec3::Y, normal.normalize_or(Vec3::Y)) * crate::level::game_to_engine();
             if let Some(f) = impact(Some((body, at)), at, rot) {
                 surface_fx.write(f);
+            }
+            // an arrow stays stuck where it hit, in the character it hit (ArrowProjectile_Hit 0x00482780 -> 0x0047e9f0)
+            if p.linger > 0.0 {
+                let on = chars.iter().find(|(ce, b, _, _, _)| b.id == body && Some(*ce) != p.owner).map(|c| c.0);
+                stuck.write(crate::arrows::ArrowStuck { arrow: e, at, on, linger: p.linger });
             }
             if let Some((ce, _, mut h, anim, grunt)) = chars.iter_mut().find(|(ce, b, _, _, _)| b.id == body && Some(*ce) != p.owner) {
                 // same team (0x00430340: the source's and the victim's vt+0xe4 agree): a grunt's shot does no damage
