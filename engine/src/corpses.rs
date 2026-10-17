@@ -1,7 +1,7 @@
 //! Dead characters' bodies: how long they lie, how they fade and how they go.
 //!
 //! The original (docs/subsystems/decals-bodies.md section 2): every dead character carries a corpse timer, time left
-//! (+0x9f0) and fade length (+0x9f4), counted down by Corpse_CountDown 0x0042eba0 from the generic AI update
+//! (+0x9f0, the game's member table names it m_deathTimer: tools/struct_atlas.py) and fade length (+0x9f4), counted down by Corpse_CountDown 0x0042eba0 from the generic AI update
 //! 0x0043ee90. Within the last fade-length seconds the alpha is 1 - (fade - left) / fade (the set-alpha slot vt+0x100);
 //! at 0 the character is removed (Object_Kill 0x00455640: vt+0xdc, then Object_SpawnHusk 0x00455660 plays its
 //! fx_death and makes its husk).
@@ -10,7 +10,9 @@
 //! - An animated death (0x00427100 and the other death paths, state 0x191): 0.5 s / 0.5 s, counted only once the
 //!   death anim has played out (the update's anim-done flag), so the body fades as soon as it has landed.
 //! - At most four ragdolls at once: GoRagdoll counts the characters already down (state 400, 0x00431000) and makes the
-//!   death animated when more than three are (`ragdoll_limit`).
+//!   death animated when more than three are (`ragdoll_limit`): down = state 400 or +0x421 set (m_hkSimulateEnable:
+//!   Havok simulating the body), among the characters whose vt+0x10c holds (meaning open). Only corpses count here:
+//!   a tied peasant's ragdoll (peasant.rs) does not (guess).
 //!
 //! Measured on the original (work/oracle/courtyard, lev_1_m1): a ragdolled grunt leaves the AI list 4.96 s after its
 //! death (state 400 at 3.72 s, last listed at 8.68 s); animated deaths 1.06..1.43 s after state 0x191 (the death anim
@@ -39,7 +41,7 @@ const ANIMATED_TIMER: (f32, f32) = (0.5, 0.5);
 #[derive(Component, Clone, Debug)]
 pub struct Corpse {
     stage: Stage,
-    /// +0x9f0: seconds until removal once counting
+    /// +0x9f0 m_deathTimer: seconds until removal once counting
     left: f32,
     /// +0x9f4: the fade over the last seconds
     fade: f32,
