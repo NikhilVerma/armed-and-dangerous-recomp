@@ -294,6 +294,9 @@ struct Playing {
     /// the first update after opening adds no time (opening read the files); the clock waits for the audio
     fresh: bool,
     audio: Option<Entity>,
+    /// the soundtrack's source: a jump in the soundtrack restarts it at the new point (`restart_sound`), never
+    /// `try_seek`, which blocks until the audio thread answers (a stalled audio thread froze the game at a movie)
+    sound: Option<Handle<AudioSource>>,
     /// the audio playback-rate factor +0x220 (its getter 0x0050e3a0)
     rate: f32,
     /// last audio time read (the playtest log)
@@ -313,6 +316,21 @@ struct Playing {
 impl Playing {
     fn video_time(&self) -> f64 {
         self.decoded as f64 * self.spf
+    }
+
+    /// Play the soundtrack from `at` seconds: a new player starting there replaces the old one (no blocking seek).
+    fn restart_sound(&mut self, commands: &mut Commands, at: f64, volume: f32) {
+        let Some(handle) = self.sound.clone() else { return };
+        if let Some(old) = self.audio.take() {
+            commands.entity(old).try_despawn();
+        }
+        let s = PlaybackSettings {
+            mode: PlaybackMode::Once,
+            volume: Volume::Linear(volume),
+            start_position: Some(std::time::Duration::from_secs_f64(at.max(0.0))),
+            ..default()
+        };
+        self.audio = Some(commands.spawn((AudioPlayer(handle), s, MovieSound)).id());
     }
 }
 
@@ -476,13 +494,13 @@ fn spawn(
     let prompt = commands.spawn((text("movie_skip", Vec2::new(628.0, 16.0), Anchor::Right, 0.8, 0.0), TextAlign(1.0))).id();
     entities.push(subtitle);
     entities.push(prompt);
-    let audio = meta.audio.and_then(|_| {
+    let sound = meta.audio.and_then(|_| {
         let path = settings.dir.join(meta.name.to_lowercase()).join("audio.wav");
         match std::fs::read(&path) {
             Ok(bytes) => {
                 let handle = sounds.add(AudioSource { bytes: bytes.into() });
                 let s = PlaybackSettings { mode: PlaybackMode::Once, volume: Volume::Linear(settings.volume), paused: true, ..default() };
-                Some(commands.spawn((AudioPlayer(handle), s, MovieSound)).id())
+                Some((commands.spawn((AudioPlayer(handle.clone()), s, MovieSound)).id(), handle))
             }
             Err(e) => {
                 warn!("movie: {}: {e} (plays silent)", path.display());
@@ -490,6 +508,7 @@ fn spawn(
             }
         }
     });
+    let (audio, sound) = sound.map_or((None, None), |(e, h)| (Some(e), Some(h)));
     let spf = 1.0 / video.fps.max(1.0);
     let rgba = vec![0u8; (w * h * 4) as usize];
     let decoded = (start_at / spf).floor() as i64;
@@ -506,6 +525,7 @@ fn spawn(
         age: 0.0,
         fresh: true,
         audio,
+        sound,
         rate: 1.0,
         audio_time: None,
         pending_skip: false,
@@ -541,9 +561,11 @@ fn advance(
         }
         if let Some(s) = sink {
             if cur.video_time() > 0.0 {
-                let _ = s.try_seek(std::time::Duration::from_secs_f64(cur.video_time()));
+                let (at, volume) = (cur.video_time(), s.volume().to_linear());
+                cur.restart_sound(&mut commands, at, volume);
+            } else {
+                s.play();
             }
-            s.play();
         }
         cur.fresh = false;
     } else {
@@ -559,8 +581,8 @@ fn advance(
             if cur.looped {
                 // DivxGotoFrame(h, 0), flags |= 8: this pass decodes nothing
                 cur.decoded = 0;
-                if let Some(s) = cur.audio.and_then(|a| sinks.get(a).ok()) {
-                    let _ = s.try_seek(std::time::Duration::ZERO);
+                if let Some(volume) = cur.audio.and_then(|a| sinks.get(a).ok()).map(|s| s.volume().to_linear()) {
+                    cur.restart_sound(&mut commands, 0.0, volume);
                 }
             } else {
                 ended = true;
@@ -623,7 +645,7 @@ fn skip(
 }
 
 /// The soundtrack follows the picture (Movie_StreamAudio 0x0050e1a0).
-fn sync_audio(mut p: ResMut<MoviePlayer>, mut sinks: Query<&mut AudioSink, With<MovieSound>>, settings: Res<MovieSettings>) {
+fn sync_audio(mut p: ResMut<MoviePlayer>, mut sinks: Query<&mut AudioSink, With<MovieSound>>, settings: Res<MovieSettings>, mut commands: Commands) {
     let Some(cur) = p.current.as_mut() else { return };
     let Some(mut sink) = cur.audio.and_then(|a| sinks.get_mut(a).ok()) else { return };
     sink.set_volume(Volume::Linear(settings.volume));
@@ -637,9 +659,8 @@ fn sync_audio(mut p: ResMut<MoviePlayer>, mut sinks: Query<&mut AudioSink, With<
     let d = (audio - video) as f32;
     if d.abs() > 0.5 && !sink.empty() {
         // remaster addition: a large gap (a stall, a fixed-step test run) is closed at once
-        let _ = sink.try_seek(std::time::Duration::from_secs_f64(video));
         cur.rate = 1.0;
-        sink.set_speed(1.0);
+        cur.restart_sound(&mut commands, video, settings.volume);
         return;
     }
     let target = if d > 0.05 {
