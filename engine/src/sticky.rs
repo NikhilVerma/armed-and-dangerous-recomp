@@ -92,7 +92,7 @@ pub struct StickyPlugin;
 
 impl Plugin for StickyPlugin {
     fn build(&self, app: &mut App) {
-        app.add_message::<ThrowDynamite>().add_systems(Update, (throw, throw_dynamite, chain, fly).chain().after(crate::weapons::WeaponSet::Throws).run_if(crate::playing));
+        app.add_message::<ThrowDynamite>().add_systems(Update, (throw, throw_dynamite, chain, fly).chain().run_if(crate::playing));
     }
 }
 
