@@ -21,6 +21,9 @@ PRIVATE = {"and.ini", "and.log", "and-d3d.txt", "and-coverage.txt", "and-profile
 PRIVATE_DIRS = {"SavedGames", "shaders"}
 RELINK = {"dinput8.dll", "dinput8.pdb"}  # the hook build: copied from build/hook-release (not the game folder,
 BUILD = os.path.join(ROOT, "build", "hook-release")  # which the player's running game may hold locked)
+# AND_HOOK_BUILD: a parallel agent's own hook build dir (e.g. build/hook-structatlas), relative to the checkout
+if os.environ.get("AND_HOOK_BUILD"):
+    BUILD = os.path.join(ROOT, os.environ["AND_HOOK_BUILD"])
 
 
 def _link(src, dst):

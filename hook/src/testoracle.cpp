@@ -46,6 +46,8 @@
 
 int TestFramesSinceLoad();  // testscenario.cpp
 int TestFramesSincePlay();
+void TestStructSnapInit();  // teststructsnap.cpp: [test] struct_snap (tools/struct_atlas.py)
+void TestStructSnapFrame(int f, float clock);
 
 namespace
 {
@@ -670,6 +672,7 @@ void TestOracleInit()
         if (HookWrap(name, reinterpret_cast<void*>(g_callWraps[slot]), &g_callNext[slot]))
             ++slot;
     }
+    TestStructSnapInit();
     g_traceContacts = ConfigInt("test", "trace_contacts", 0);
     if (g_traceContacts)
         HookWrap("CollisionListener_OnContactAdded", reinterpret_cast<void*>(Wrap_ContactAdded), &g_nextContactAdded);
@@ -747,6 +750,8 @@ void TestOracleOnFrame()
         ClearEvents();
     else if (f < 0 || f % g_traceEvery == 0)
         Emit(f, GameClock(), Body());
+    if (g_out)
+        TestStructSnapFrame(f, GameClock());
     if (g_playFrames && f >= g_playFrames)
     {
         Log("test: play frames done (%d)", f);
