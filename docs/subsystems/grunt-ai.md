@@ -228,8 +228,10 @@ lev_1_m1 the five trenches face game +y (north, 0..10 degrees).
 state 0x32), return 0; rand < pickup_grab_pct (+0x86c, default 1) -> 0x0042a500 (grab a pickup: not ported); a held
 cover is left (vt+0x188, history); need_target without a target -> nothing; the candidates turret = 0x0042a100 and
 trench = 0x00429f00, compared by 2D squared distance from the grunt (the trench wins when nearer; the winner's distance
-x 0.25 bounds the next stage); the generic slot walk of World+0xed4 (kinds 1 / 6 of objects other than type 3: none on
-lev_1_m1, barracks have only ref_exit / ref_spawn); then the turret (path to it, state 0x7b) or the trench (path to
+x 0.25 bounds the next stage); the generic slot walk of World+0xed4 (kinds 1 / 6 of objects other than type 3: the
+trees, 63 on lev_1_m1, and the valid buildings' ref_ground_0N slots; ported 2026-10-17: ai/coverslot.rs `pick`, ai.rs
+Mind::ToSlot for states 0x1e / 0x1f, playtest tree_cover; the enter kind 6, needing vt+0x1f8, is not taken: labelled);
+then the turret (path to it, state 0x7b) or the trench (path to
 ref_exit via 0x0046f6d0 == 1, occupy slot 0, +0x908 = ref_exit's direction, state 0xa0), +0x484 0x200 = hold (a2).
 Nothing: flag 4 set -> pursue (vt+0x184), else reload (state 0x32); returns 0 (a hide marker then wanders).
 

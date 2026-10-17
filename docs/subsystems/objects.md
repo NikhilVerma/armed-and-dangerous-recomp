@@ -83,6 +83,19 @@ health, fx_explosion_village_house_2) -> _db -> _dc (no damage), the same for 2f
 own Destructible, collider lists, bounds and husk (level.rs `husks`); a husk carries the `Husk` marker so the
 placed object's send_trigger_on_death is not sent again (mission.rs `deaths` runs after fx.rs and before `husks`).
 
+### Movable objects (movable.rs, 2026-10-17)
+
+Boulders (boulder_large / _medium / _small / _tiny on lev_1_m1_b, 2_m1, 2_m2, 2_m3, 3_m1) and the l5 rocks: `movable`
+with `pinned` (default 1) held still; a gravity other than 1 unpins, unpin_health_pct > 0 pins until the health falls
+below that share (0x00450da0); a husk stage is a new object (large -> medium -> small -> tiny: unpinned). Unpinned: a
+convex hull of the collision model (scaled) with the property set's friction, restitution and gravity factor
+(0x00450fa0), the speed trap's linear cast (0x00452790). Contacts (0x00450af0, with the velocities before the step):
+crush when |v - v_other| and |v| reach crush_speed and the other is slower than it or the relative direction against
+its own is below -0.65; on_hit_damage hits everything it touches; the records (0x004505a0): a crush takes the
+victim's whole health (characters; a movable only with takes_crushing_damage), else direct_damage. The landscape:
+on_hit_fx "name/count/interval", fx_boulder_impact below -50; imp_boulder_roll_lp while it rolls. on_hit_death breaks
+a window pane at any body's touch. Playtest boulders_l2m1 (a push step sends a boulder rolling).
+
 ## The factory (ObjectSystem_CreateObject 0x0045f020)
 
 The behaviour name (or the template name) is hashed into the behaviour table (0x0045df60, 197 names) to a class id;
