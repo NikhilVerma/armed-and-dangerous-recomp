@@ -39,6 +39,9 @@ SUITE = ['save_write', 'save_read', 'topsyhit2', 'turn_in_place', 'turret1', 'de
          'vehicles_rocket_tower', 'vehicles_rocket_bud', 'vehicles_zeppelin', 'vehicles_saucer', 'vehicles_colossus', 'vehicles_forge_cannon']
 # the machine gun's held muzzle fx (one per burst, released when firing stops)
 SUITE += ['mg_muzzle_fx']
+# the dead's bodies (corpses.rs): lev_1_m4's army killed two a second; the Original's timers (bodies gone, at most four
+# ragdolls, entities and physics bodies not growing) and the Remaster's 48 bodies with settled ragdolls
+SUITE += ['corpses_l1m4', 'corpses_l1m4_remaster']
 # 'launch_*': the real launch path as the player plays (the Remaster preset chosen by the options, the intro, the
 # title menu): New Game shows the world (menu art gone, every camera on one target, the strips beside the 4:3 centre
 # not black), Abandon -> title -> New Game in-process, the Graphics page applies, Restart / Quick Load / Restart from

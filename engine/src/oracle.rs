@@ -367,7 +367,8 @@ fn trace(
     mission: Option<Res<crate::mission::Mission>>,
     mut bank: Option<ResMut<crate::audio::SoundBank>>,
     roman: Query<(Entity, &GlobalTransform, &crate::player::Roman)>,
-    grunts: Query<(Entity, &crate::ai::Grunt, &crate::fx::Health, &GlobalTransform, Option<&crate::level::InstanceId>)>,
+    grunts: Query<(Entity, &crate::ai::Grunt, &crate::fx::Health, &GlobalTransform, Option<&crate::level::InstanceId>, Option<&crate::corpses::Corpse>, Option<&crate::skin::Animator>)>,
+    anims: Res<crate::skin::AnimLibrary>,
     companions: Query<(&crate::ai::Companion, &crate::fx::Health, &GlobalTransform, Option<&crate::ai::tower::TowerTask>)>,
     ids: Query<&crate::level::InstanceId>,
     // (a peasant's or a door mat's death is its own kill slot, not DefaultGameObject_OnDeath: not a "deaths" event)
@@ -455,13 +456,20 @@ fn trace(
     line.insert("companions".into(), comps.into_iter().map(|c| c.1).collect::<Vec<_>>().into());
     let gs: Vec<serde_json::Value> = grunts
         .iter()
-        .map(|(_, gr, h, t, id)| {
+        .map(|(_, gr, h, t, id, corpse, animator)| {
             let target = match gr.target {
                 Some(e) if roman_e.is_some_and(|r| r.0 == e) => serde_json::json!("roman"),
                 Some(e) => ids.get(e).map(|i| serde_json::json!(i.0)).unwrap_or(serde_json::Value::Null),
                 None => serde_json::Value::Null,
             };
-            serde_json::json!({"id": id.map_or(0, |i| i.0), "pos": g(t.translation()), "health": r2(h.0), "mind": format!("{:?}", gr.mind), "target": target})
+            let mut line = serde_json::json!({"id": id.map_or(0, |i| i.0), "pos": g(t.translation()), "health": r2(h.0), "mind": format!("{:?}", gr.mind), "target": target});
+            // a body (corpses.rs): ragdoll or death anim (its name and length), and whether its timer runs
+            if let Some(c) = corpse {
+                let anim = animator.and_then(|a| a.layers.first()).map(|l| l.anim.clone()).filter(|_| !gr.ragdoll);
+                let len = anim.as_ref().and_then(|n| anims.duration(n)).map(r2);
+                line["corpse"] = serde_json::json!({"ragdoll": gr.ragdoll, "lying": c.is_lying(), "anim": anim, "anim_len": len});
+            }
+            line
         })
         .collect();
     line.insert("grunts".into(), gs.into());

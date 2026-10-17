@@ -60,7 +60,7 @@ STATE_MIND = {1: "Roam", 0xf: "Roam", 2: "Chase", 0x3c: "Chase", 0x3e: "Chase", 
 # The level state (Game+0xa64 +0xc: 1 playing, 2 / 10 won, 3..9 failed) as the remaster's mission Outcome
 MISSION = {0: "Playing", 1: "Playing", 2: "Won", 10: "Won", **{s: "Failed" for s in range(3, 10)}}
 SOUND_HOOKS = ("fn_004f32f0", "fn_004f3740", "fn_004f3c60")
-TOL = {"pos": 6.0, "grunt_pos": 12.0, "heading": 12.0, "health": 1.0, "time": 0.1, "frames": 20, "event_frames": 30,
+TOL = {"pos": 6.0, "grunt_pos": 12.0, "heading": 12.0, "health": 1.0, "time": 0.1, "frames": 20, "event_frames": 30, "corpse": 0.1,
        "twiglet_frames": 30, "twiglet_dist": 20.0, "peasant_frames": 10, "peasant_dist": 6.0, "peasant_rope": 1.5}
 
 
@@ -367,6 +367,73 @@ def persistent(rows, frames, f, key, value, window):
 # VehicleKind), compared by kind: their count alive, and the position / health of each pair.
 VEHICLE_CLASSES = {0x5aa238: "colossus", 0x5af500: "mini_zeppelin", 0x5a5e98: "saucer", 0x5af298: "goliath"}
 
+# The bodies (engine/src/corpses.rs; original Corpse_CountDown 0x0042eba0 -> Object_Kill 0x00455640): how long a dead
+# grunt stays in the list. A ragdoll (the original's state 400 at death, the remaster's corpse.ragdoll) is removed 5 s
+# after its death; an animated death (state 0x191, corpse.lying once its anim ended) 0.5 s after its death anim. The
+# original's anim is not traced: its rest is its time in 0x191 less the length of the class's death anim that fits the
+# remaster's rest best (a weaker check than the ragdoll's, which compares whole lying times).
+RAGDOLL_STATE, ANIM_DEATH_STATE = 400, 0x191
+CORPSE_ANIMS = {0x5a9cf0: ("grunt_die_", "grunt_barricade_death", "grunt_blown_up_die", "grunt_hit_fall_", "grunt_hit_window",
+                           "grunt_window_blown_out"),
+                0x5abb88: ("grunt_bow_die_", "grunt_blown_up_die", "grunt_hit_fall_", "grunt_hit_window", "grunt_window_blown_out"),
+                0x5acb78: ("captain_death_", "captain_barricade_death", "captain_allfours_death", "captain_blown_up_die")}
+
+
+def death_anim_lengths(level, cls):
+    """The death anim lengths of a grunt class (vtable), from the level's export (work/remaster/<level>/anims)."""
+    d = os.path.join(ROOT, "work", "remaster", level, "anims")
+    out = []
+    for name in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+        if name.endswith(".json") and name.startswith(CORPSE_ANIMS.get(cls, ("grunt_die_",))):
+            try:
+                out.append(json.load(open(os.path.join(d, name), encoding="utf-8"))["duration"])
+            except (OSError, ValueError, KeyError):
+                pass
+    return out
+
+
+def bodies(keyed, rows, original):
+    """{key: body} for every grunt that died in a trace: "dead" (game time of the first line at health 0), "kind"
+    ("ragdoll" / "anim"), "lying" (when the countdown began: a ragdoll at death; the original's animated death when
+    state 0x191 began, before its anim; the remaster's when corpse.lying), "gone" (the first line without it; None while
+    listed), "frame" (that line's frame), "class" and "anim_len" (the remaster's death anim)."""
+    out = {}
+    for f in sorted(rows):
+        t = rows[f]["t"]
+        cur = keyed[f]
+        for k, g in cur.items():
+            b = out.get(k)
+            if b is None and g["health"] <= 0:
+                if original:
+                    kind = "ragdoll" if g.get("state") == RAGDOLL_STATE else "anim"
+                else:
+                    kind = "ragdoll" if (g.get("corpse") or {}).get("ragdoll") else "anim"
+                b = out[k] = {"dead": t, "kind": kind, "lying": t if kind == "ragdoll" else None, "gone": None, "frame": f,
+                              "class": g.get("class"), "anim_len": None}
+            if b is None or b["gone"] is not None:
+                continue
+            if b["lying"] is None:
+                if original and g.get("state") == ANIM_DEATH_STATE:
+                    b["lying"] = t
+                elif not original and (g.get("corpse") or {}).get("lying"):
+                    b["lying"] = t
+        for k, b in out.items():
+            if b["gone"] is None and k not in cur:
+                b["gone"], b["frame"] = t, f
+    return out
+
+
+def body_rest(b, lengths=None, near=0.5):
+    """Seconds from the countdown's start to the removal: a ragdoll's whole lying time, a remaster animated death's time
+    after its anim; the original's animated death: its time in 0x191 less the death anim length of its class that
+    brings the rest nearest `near`."""
+    if b["gone"] is None or b["lying"] is None:
+        return None
+    span = b["gone"] - b["lying"]
+    if b["kind"] == "ragdoll" or lengths is None:
+        return span
+    return min((span - n for n in lengths), key=lambda r: abs(r - near), default=None)
+
 
 def match_vehicles(o0, r0, tol):
     """Pairs (index in the original's list, index in the remaster's) at the first common line: the same kind and
@@ -578,6 +645,30 @@ def compare_traces(sc, orig, rem):
                   f"mission {om.get('state')} ({MISSION.get(om.get('state'))}) vs {rm.get('state')}")
         fam.check("mission.objective", f, persistent(rem, rf, f, lambda x: (x.get("mission") or {}).get("objective"), om.get("objective"), win),
                   f"objective tag {om.get('objective')} vs {rm.get('objective')}")
+    # the bodies: each pair that died in both games the same way is removed after the same rest (corpse.ragdoll /
+    # corpse.anim; a pair that died differently is only noted); a body one game removed is gone in the other by then
+    bo, br = bodies(ko, orig, True), bodies(kr, rem, False)
+    level = sc.get("level", "lev_1_m1")
+    for ok, rk in pairs.items():
+        a, b = bo.get(ok), br.get(rk)
+        if not a or not b:
+            continue
+        rb = body_rest(b)
+        ra = body_rest(a, None if a["kind"] == "ragdoll" else death_anim_lengths(level, a["class"]), 0.5 if rb is None else rb)
+        if a["kind"] != b["kind"]:
+            notes.append(f"body of grunt {ok}: {a['kind']} in the original, {b['kind']} in the remaster (the death differs)")
+        elif ra is not None and rb is not None:
+            fam.check(f"corpse.{b['kind']}", b["frame"], abs(ra - rb) <= tol["corpse"],
+                      f"grunt {ok}'s body removed {ra:.2f} s vs {rb:.2f} s after its countdown began")
+            notes.append(f"body of grunt {ok} ({a['kind']}): removed {ra:.2f} s (original) / {rb:.2f} s (remaster) after its countdown")
+        elif ra is not None and b["lying"] is not None:
+            left = rem[rf[-1]]["t"] - b["lying"]
+            fam.check("corpse.removed", b["frame"], left <= ra + tol["corpse"],
+                      f"grunt {ok}'s body still lies {left:.2f} s after its countdown (the original's went after {ra:.2f} s)")
+        elif rb is not None and a["lying"] is not None:
+            left = orig[of[-1]]["t"] - a["lying"]
+            fam.check("corpse.removed", a["frame"], left <= rb + tol["corpse"],
+                      f"grunt {ok}'s body lies on {left:.2f} s in the original (the remaster's went after {rb:.2f} s)")
     # pauses (briefings, the token message, menus): each span of at least 4 frames starts within `frames` of one in the
     # other game (a 1 or 2 frame difference is input latency: the original dismisses a message a frame after the key)
     last = frames[-1]
@@ -634,6 +725,9 @@ HINTS = {
     "grunt.target": "ai.rs target acquisition (sight, hearing, offers); original +0x588 (AI_FindTarget)",
     "grunt.health": "damage to grunts: weapons, blasts (fx.rs); original Object_TakeDamage 0x004555e0",
     "grunts.alive": "grunt spawns (barracks, generators: level.rs) or deaths",
+    "corpse.ragdoll": "corpses.rs timer (Corpse::ragdoll 5.0 / 0.5); original GoRagdoll 0x00431310, Corpse_CountDown 0x0042eba0",
+    "corpse.anim": "corpses.rs timer after the death anim (Corpse::animated, charanim.rs); original 0x00427100, state 0x191 in 0x0043ee90",
+    "corpse.removed": "corpses.rs removal (Object_Kill 0x00455640) or the corpse settings (graphics.rs corpse_*)",
     "vehicles.alive": "vehicles / big units made or killed: engine/src/vehicles, goliath.rs (squad goliaths: ai/squad.rs)",
     "vehicle.pos": "vehicles/boss.rs paths and walks, goliath.rs; original vt+0x54 position",
     "vehicle.health": "damage to vehicles (fx.rs Destructible); original +0x454",

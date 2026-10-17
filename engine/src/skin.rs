@@ -107,6 +107,11 @@ impl AnimLibrary {
         Some(s)
     }
 
+    /// A loaded anim's length in seconds (None when it was never loaded or is missing).
+    pub fn duration(&self, name: &str) -> Option<f32> {
+        self.anims.get(&name.to_lowercase()).and_then(|a| a.as_ref()).map(|a| a.duration)
+    }
+
     pub fn anim(&mut self, name: &str) -> Option<Arc<Anim>> {
         let key = name.to_lowercase();
         if let Some(a) = self.anims.get(&key) {

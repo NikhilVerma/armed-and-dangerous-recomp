@@ -250,8 +250,9 @@ fn thrown(
             g.mind = Mind::Dead;
             g.dead_said = true;
             stats.kills += 1;
+            // gone into the sky: removed with everything it holds (corpses.rs)
             commands.entity(e).remove::<Thrown>();
-            commands.entity(e).insert(Visibility::Hidden);
+            commands.entity(e).insert((Visibility::Hidden, crate::corpses::Corpse::gone()));
         }
     }
 }

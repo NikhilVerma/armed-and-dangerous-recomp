@@ -299,6 +299,7 @@ fn save(
     buildings: Query<&InstanceId>,
     scene_ids: Res<PlacedIds>,
     (opts, difficulty, levels, pub_lines): (Res<crate::options::GameOptions>, Res<crate::gamedata::Difficulty>, Res<crate::campaign::Levels>, Res<crate::pubscreen::PubLines>),
+    corpses: Res<crate::corpses::Corpses>,
 ) {
     if !std::mem::take(&mut req.save) {
         return;
@@ -325,7 +326,8 @@ fn save(
         stickies: r.stickies,
         topsy: r.topsy,
         mission: m.snapshot(),
-        dead_grunts: grunts.iter().filter(|(_, g)| g.mind == crate::ai::Mind::Dead).map(|(i, _)| i.0).collect(),
+        // the dead still lying and the bodies already removed (corpses.rs)
+        dead_grunts: grunts.iter().filter(|(_, g)| g.mind == crate::ai::Mind::Dead).map(|(i, _)| i.0).chain(corpses.removed_instances.iter().copied()).collect(),
         objects: object_stages(&scene_ids.objects, &now),
         windows: broken,
         difficulty: difficulty.0,

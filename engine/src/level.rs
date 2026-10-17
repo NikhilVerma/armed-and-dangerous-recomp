@@ -165,6 +165,14 @@ pub struct SpawnGrunt {
     pub ic: Option<ai::ic::IcSpawn>,
 }
 
+/// A husk object to make where a body was removed (Object_SpawnHusk 0x00455660 for a character: corpses.rs): the
+/// template's model, collision and properties as a placed object's husk stage, at `world` (engine space).
+#[derive(Message, Clone)]
+pub struct SpawnHusk {
+    pub template: String,
+    pub world: Mat4,
+}
+
 /// The `Center` translation track of a rigid (unskinned) model's own anim, played in a loop on its placement.
 #[derive(Component)]
 pub struct RigidAnim {
@@ -273,8 +281,9 @@ impl Plugin for LevelPlugin {
         // inserts, so the death trigger must be read first
         app.add_message::<SpawnGrunt>()
             .add_message::<RestoreStage>()
+            .add_level_message::<SpawnHusk>()
             .init_level_resource::<TriggerLog>()
-            .add_systems(Update, (husks.after(crate::fx::FxSet).after(crate::mission::deaths), restore_stages, spawn_grunts, rigid_anims, audio_loops, object_triggers))
+            .add_systems(Update, (husks.after(crate::fx::FxSet).after(crate::mission::deaths), restore_stages, spawn_grunts, spawn_husks, rigid_anims, audio_loops, object_triggers))
             .add_systems(PostUpdate, follow_camera.before(TransformSystems::Propagate))
             .add_systems(PostUpdate, sky_never_culled)
             .add_systems(PostUpdate, default_anims.before(crate::skin::AnimateSet))
@@ -1201,8 +1210,8 @@ impl StageSwap<'_, '_> {
     /// The object becomes `template` at `world` (its own matrix), keeping its entity and InstanceId: the husk made
     /// by Object_SpawnHusk 0x00455660 through the factory (ObjectSystem_CreateObject 0x0045f020) from its template
     /// alone. Without such a template the object is despawned. The caller has unlinked it.
-    fn become_template(&mut self, e: Entity, template: &str, world: Mat4, children: &Children) {
-        for c in children.iter() {
+    fn become_template(&mut self, e: Entity, template: &str, world: Mat4, children: &[Entity]) {
+        for &c in children {
             self.commands.entity(c).despawn();
         }
         let Some(ht) = self.data.templates.get(template).cloned() else {
@@ -1325,9 +1334,11 @@ fn husks(
         }
         let Ok((p, t, children)) = placed.get(d.0) else { continue };
         swap.unlink(d.0, p);
-        // a critter keeps its model: its death anims play (charanim.rs)
+        // a critter keeps its model: its death anims play (charanim.rs) while its corpse timer runs (GoRagdoll
+        // 0x00431310 counts it as a ragdoll down)
         if let Ok(mut c) = critters.get_mut(d.0) {
             c.dead = Some(0.0);
+            swap.commands.entity(d.0).insert(crate::corpses::Corpse::lying(crate::charanim::CRITTER_CORPSE, 0.5, true));
             continue;
         }
         // the husk picked at load (Object_LoadBaseProps 0x00451360), at the dead object's matrix
@@ -1337,6 +1348,14 @@ fn husks(
                 swap.commands.entity(d.0).despawn();
             }
         }
+    }
+}
+
+/// SpawnHusk: a new object becomes the husk template where the body lay.
+fn spawn_husks(mut events: MessageReader<SpawnHusk>, mut swap: StageSwap) {
+    for ev in events.read() {
+        let e = swap.commands.spawn((Transform::from_matrix(ev.world), Visibility::default(), Name::new(ev.template.clone()))).id();
+        swap.become_template(e, &ev.template, ev.world, &[]);
     }
 }
 
@@ -1377,6 +1396,11 @@ fn spawn_grunts(
         let on_death = p.i("send_trigger_on_death", 0);
         if on_death != 0 {
             commands.entity(e).insert(crate::mission::DeathTrigger(on_death));
+        }
+        // what its body leaves when removed (Object_LoadBaseProps 0x00451360: fx_death, the husk picked at load)
+        let remains = crate::corpses::Remains { fx_death: p.s("fx_death").filter(|s| !s.eq_ignore_ascii_case("null")).map(str::to_owned), husk: pick_husk(&p, rng) };
+        if remains.fx_death.is_some() || remains.husk.is_some() {
+            commands.entity(e).insert(remains);
         }
         let mut ctx = SkinCtx { lib: &mut anim_lib, binds: &mut binds };
         let hand_bone = ai::Kind::from_template(&ev.template).map_or("ref_rhand", ai::Kind::weapon_bone);
