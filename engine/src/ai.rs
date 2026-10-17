@@ -3115,6 +3115,16 @@ fn think(
                 duck(&mut g);
                 Mind::Cover
             }
+            // the Q112's swing at a burst's end of its fire cycle or its guard's fire (0x00428160: nearer than +0x5fc,
+            // 3D)
+            (Mind::Fire | Mind::Guard | Mind::Reload, Some(p)) if g.q112.as_ref().is_some_and(|q| q.burst_over) && q112::reaches(g.kind, pos, p) => {
+                if let Some(q) = g.q112.as_mut() {
+                    q.start_swing();
+                }
+                g.pause = 0.0;
+                g.anim_id = 0x5f;
+                Mind::Melee
+            }
             (Mind::Reload, _) if g.pause > 0.0 => Mind::Reload,
             // the reload's end (state 0x32, ai_06.cpp:1223): in the slot engage (0x00427910: in range fire, else duck);
             // otherwise in range (2D, +0x5d8) with a line of sight fire again (vt+0x230), else leave any cover and 50 %
@@ -3145,14 +3155,6 @@ fn think(
             // the chase engages on its ray (state 0x3c); the archers (vt+0x1cc false) only within 0.9 x +0x5d8
             // (K 0x005bcc38) first
             (Mind::Chase, Some(p)) if !g.guard && !g.kind.chase_ray_only() && flat(p - pos).length() > 0.9 * g.range => Mind::Chase,
-            // the Q112's swing from its fire cycle or its guard's fire (0x00428160: nearer than +0x5fc, 3D)
-            (Mind::Fire | Mind::Guard, Some(p)) if q112::reaches(g.kind, pos, p) => {
-                if let Some(q) = g.q112.as_mut() {
-                    q.start_swing();
-                }
-                g.anim_id = 0x5f;
-                Mind::Melee
-            }
             (_, Some(_)) if in_range || g.guard => {
                 // engage 0x00427910 on coming into it: in range with flag 4, the close attack when the class has one
                 // (vt+0x1e0: the captain), allow_close_attack, flag 1 and rand * 200 >> 15 < 30; else the fire state 0xa
@@ -3196,6 +3198,10 @@ fn think(
             (Mind::Fire | Mind::Chase | Mind::Reload, None) => lost_target(&mut g, ge, &mut spots.trenches),
             _ => Mind::Roam,
         };
+        // (the Q112's swing is tried only at the burst's end that set this)
+        if let Some(q) = g.q112.as_mut() {
+            q.burst_over = false;
+        }
         // a monk's pursuit is a teleport (vt+0x184 0x00436b90: +0xb58 = 0, then the bamf)
         if g.mind == Mind::Chase && g.monk.is_some() {
             if let Some(m) = g.monk.as_mut() {
@@ -4110,6 +4116,10 @@ fn fire_cycle(
     g.left_rounds -= 1;
     g.pause = fire_len;
     if g.left_rounds <= 0 {
+        // a burst's end: where the Q112's swing is tried (0x00428980 -> 0x00428160, q112.rs)
+        if let Some(q) = g.q112.as_mut() {
+            q.burst_over = true;
+        }
         g.left_bursts -= 1;
         g.pause = fire_len + rng.range(g.burst_delay.0, g.burst_delay.1);
         if g.left_bursts <= 0 {
@@ -4406,6 +4416,8 @@ pub struct Companion {
     pub ic: bool,
     /// a full-body anim his state asks for instead of the formation's (the stun's hang: carried.rs), looped or not
     pub pose: Option<(&'static str, bool)>,
+    /// how his last fight ended (the playtest log): "home", "linger" (then back), "takeover"
+    last_end: (&'static str, u32),
 }
 
 /// How a companion's fight ended (MolmerObject_Slot47 0x00485910 mode 3).
@@ -4417,6 +4429,18 @@ enum FightEnd {
     /// with the clip spent (flag 4 clear: the reload in place, state 0x32, then idle): once idle (0x004265c0) he takes
     /// over the partner's live target, else counts down +0xb68 (rolled 3..7 s when the fight began) and then goes back
     Linger,
+}
+
+impl FightEnd {
+    /// The target lost with nothing new in sight (0x0042bc60): with the clip spent (reloading, or no rounds left: +0x484
+    /// flag 4 clear) the reload in place and the linger, else the home route.
+    fn on_loss(clip_spent: bool) -> Self {
+        if clip_spent {
+            FightEnd::Linger
+        } else {
+            FightEnd::Home
+        }
+    }
 }
 
 /// The pair's standing order (+0xbcc flags; 0x004844c0, 0x00484290, 0x00485120).
@@ -4519,6 +4543,7 @@ impl Companion {
         last_shot: None,
         ic: false,
         pose: None,
+        last_end: ("none", 0),
         }
     }
 }
@@ -4859,7 +4884,7 @@ fn companions(
             if grunts.get(tg).map_or(true, |(_, g, _, _)| g.mind == Mind::Dead) {
                 c.target = None;
                 c.search = 0.0;
-                c.fight_end = Some(if c.reloading > 0.0 || c.rounds == 0 { FightEnd::Linger } else { FightEnd::Home });
+                c.fight_end = Some(FightEnd::on_loss(c.reloading > 0.0 || c.rounds == 0));
             }
         }
         c.search -= dt;
@@ -4920,16 +4945,23 @@ fn companions(
         // 0x00483d60(1, 0, 0))
         let mut back_to_formation = false;
         match c.fight_end {
-            Some(FightEnd::Home) => back_to_formation = true,
+            Some(FightEnd::Home) => {
+                back_to_formation = true;
+                c.last_end = ("home", c.last_end.1 + 1);
+            }
             Some(FightEnd::Linger) if c.reloading <= 0.0 && c.throwing.is_none() => {
                 let partners = pair_targets.iter().find(|(pe, _)| *pe != e).and_then(|(_, t)| *t);
                 if let Some(t) = partners.filter(|t| grunts.get(*t).is_ok_and(|(_, g, _, _)| g.mind != Mind::Dead)) {
                     c.target = Some(t);
                     c.fight_end = None;
+                    c.last_end = ("takeover", c.last_end.1 + 1);
                     info!("EVENT companions: {} takes over the partner's target", if c.q { "Q" } else { "Jonesy" });
                 } else {
                     c.linger -= dt;
                     back_to_formation = c.linger <= 0.0;
+                    if back_to_formation {
+                        c.last_end = ("linger", c.last_end.1 + 1);
+                    }
                 }
             }
             _ => {}
@@ -4990,6 +5022,14 @@ fn companions(
         };
         log.0.insert(if c.q { "q_order".into() } else { "jonesy_order".into() }, order.into());
         log.0.insert(if c.q { "q_lead".into() } else { "jonesy_lead".into() }, c.lead.into());
+        // the fight (mode 3): "target" while he has one, "linger" while its end is pending, else "none"; and the way the
+        // last one ended
+        let fight = if c.target.is_some() { "target" } else if c.fight_end.is_some() { "linger" } else { "none" };
+        log.0.insert(if c.q { "q_fight".into() } else { "jonesy_fight".into() }, fight.into());
+        // seconds since his last shot (the banter's clock, Game+0xafc / +0xb0c), -1 before any
+        log.0.insert(if c.q { "q_since_shot".into() } else { "jonesy_since_shot".into() }, c.last_shot.map_or(-1.0, |s| ((now - s) * 10.0).round() / 10.0).into());
+        log.0.insert(if c.q { "q_fight_end".into() } else { "jonesy_fight_end".into() }, c.last_end.0.into());
+        log.0.insert(if c.q { "q_fight_ends".into() } else { "jonesy_fight_ends".into() }, c.last_end.1.into());
         // measured in the original's intro (hook dumps of World+0xe94): both set off within 0.5 s of Roman and run at
         // ~38 units/s about 32 units behind him; so they regroup on the distance to their slot, not to Roman
         // regroup (mode 1, 0x0048631c): Defend Me on the distance to the slot (as measured); Return To Me only when
@@ -5472,4 +5512,17 @@ fn team_orders(
         h.team = Some((text, 3.0));
     }
     info!("EVENT team order {text}");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 0x0042bc60 for a companion whose target died: the fire counters left (+0x484 flag 4) send him home at once,
+    /// a spent clip (the reload in place, then idle) lets the partner's target or the +0xb68 linger decide.
+    #[test]
+    fn a_lost_target_ends_the_fight_by_the_clip() {
+        assert_eq!(FightEnd::on_loss(false), FightEnd::Home);
+        assert_eq!(FightEnd::on_loss(true), FightEnd::Linger);
+    }
 }

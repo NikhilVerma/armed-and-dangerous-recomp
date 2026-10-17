@@ -1,0 +1,18 @@
+{"scene": "lev_2_m2", "steps": [
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 3.5}, {"tap": "Enter"}, {"wait": 1.0},
+ {"loadout": {"health": 5000}},
+ {"warp": [-248, 192, -25, 180]},
+ {"barks_ready": true},
+ {"spawn": [-248, 169, -25], "template": "q112"},
+ {"wait": 3.0},
+ {"expect": {"audio.started.q1250006_fight": [1, 99], "q112s.hits": 0}},
+ {"wait": 55.0},
+ {"expect": {"q112s.hits": [1, 40], "q112s.eye": false}},
+ {"kill": 1700},
+ {"wait": 0.5},
+ {"expect": {"q112s.eye": true}},
+ {"kill": 1000},
+ {"wait": 0.5},
+ {"expect": {"q112s.eye": false, "ai.q112": 1}},
+ {"quit": true}
+]}

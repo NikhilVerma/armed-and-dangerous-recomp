@@ -2,7 +2,8 @@
 //! `Kind::Q112`), with its own parts here (src/ai/ai_02.cpp, ai_04.cpp, ai_05.cpp, ai_06.cpp, audio/audio_01.cpp):
 //!
 //! - **The swing** (0x00428160, state 0xb; init Q112Object_Slot6 0x00435090: +0x5fc = 25, +0x600 = 35). From the fire
-//!   cycle (0x00428980's fallback) and the guard's fire (state 0x79), a target nearer than 25 (3D) gets the gun's butt:
+//!   cycle at a burst's or the clip's end (0x00428980, ai_02.cpp:1919 / 1986) and the guard's fire (state 0x79), a
+//!   target nearer than 25 (3D) gets the gun's butt:
 //!   q112_gun_hit (anim 0x5f / 0x60) looped, facing the target. Its "hit" note (GenericAIObject_HandleEvent 0x0043d180
 //!   -> 0x0043eae0 with radius +0x600) hurts a target within 35 (2D) by 100 (the damage of an AI named "q112"; others
 //!   50) with an impact of 13000 along the line to it, lifted 0.7..0.9. At each loop's end a target still nearer than 25
@@ -127,6 +128,8 @@ pub struct Q112 {
     /// on a route to a trail point: no new plan until it is walked (the chase plans only without a route,
     /// 0x00470c30)
     pub on_crumb: bool,
+    /// a burst (or the clip) of its fire cycle just ended: the moment the swing is tried (0x00428980)
+    pub burst_over: bool,
 }
 
 impl Q112 {

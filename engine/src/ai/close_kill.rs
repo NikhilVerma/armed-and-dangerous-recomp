@@ -37,6 +37,11 @@ const FACING: f32 = 135.0;
 const HEIGHT: f32 = 0.5;
 /// The approach ends within this of the point (K 0x005bcb2c, squared).
 const ARRIVED: f32 = 1.0;
+/// The last stretch to the point is driven straight, through the held grunt's body (his sphere and the companion's
+/// capsule would keep them farther apart than the anims' pairing).
+const CLOSE_IN: f32 = 12.0;
+/// A route to the point must end this near it (nav.rs stops within 1.5 of its 6-unit cells).
+const ROUTE_END: f32 = 12.0;
 /// Waypoints count as passed within this (the companions' route following, ai.rs).
 const WAYPOINT: f32 = 4.0;
 /// Turning toward the grunt at the point (0x00454e60's rate argument 16: degrees per frame at 30 fps, guess).
@@ -190,10 +195,19 @@ fn grab(
         let Ok((mut c, t)) = companions.get_mut(gr.companion) else { continue };
         let Ok(mut g) = grunts.get_mut(gr.grunt) else { continue };
         if c.dead.is_some() || !grabbable(&g) {
+            info!("EVENT companions: grunt {:?} refuses the grab ({:?})", gr.grunt, g.mind);
             continue;
         }
         // the route to the point (0x0046f6b0 must accept it)
-        let Some(route) = crate::nav::path(&physics, t.translation, gr.point, &[]).filter(|r| r.last().is_none_or(|w| (*w - gr.point).with_y(0.0).length() <= WAYPOINT)) else { continue };
+        // (a clear walk needs no route: nav.rs gives none for a goal within its own cell's reach)
+        let near = super::line_of_sight(&physics, t.translation, gr.point);
+        let route = if near { Some(Vec::new()) } else { crate::nav::path(&physics, t.translation, gr.point, &[]).filter(|r| r.last().is_none_or(|w| (*w - gr.point).with_y(0.0).length() <= ROUTE_END)) };
+        let Some(route) = route else {
+            let ends = crate::nav::path(&physics, t.translation, gr.point, &[]).and_then(|r| r.last().copied());
+            let g = |v: Vec3| crate::level::game_to_engine().inverse() * v;
+            info!("EVENT companions: no route to grunt {:?}'s fight point {:?} from {:?} (ends {:?})", gr.grunt, g(gr.point).round(), g(t.translation).round(), ends.map(|e| g(e).round()));
+            continue;
+        };
         g.mind = Mind::Held;
         g.walking = false;
         let anims = pair(c.q, rng.rand());
@@ -254,7 +268,15 @@ fn approach(
             t.rotation = Quat::from_rotation_y(c.yaw) * c.base;
             c.moving = true;
             let speed = c.run_speed();
-            c.walk(&mut physics, &mut t, dir, speed, dt);
+            if route.is_empty() && (point - me).with_y(0.0).length() < CLOSE_IN {
+                // the last few units through the grunt's own body (state 0xe's straight drive, 0x00454d80: the held
+                // grunt's sphere would stop the walker short of the point)
+                let step = (speed * dt).min(to.with_y(0.0).length());
+                t.translation += dir * step;
+                physics.place_walker(&c.walker, t.translation);
+            } else {
+                c.walk(&mut physics, &mut t, dir, speed, dt);
+            }
             continue;
         }
         // at the point: turn to the grunt, then the pair's IC anims from where each stands
