@@ -5,9 +5,9 @@
  {"spawn": [-255, -170, 8], "template": "captain"},
  {"wait": 0.5},
  {"expect": {"ai.captains": 1, "ai.near.kind": "Captain"}},
- {"wait": 6.0},
+ {"wait": 2.0},
  {"shot": "captain"},
- {"expect": {"ai.near.targets_player": true}},
+ {"expect": {"ai.near.kind": "Captain", "ai.near.targets_player": true}},
  {"wait": 4.0},
  {"quit": true}
 ]}
