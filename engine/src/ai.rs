@@ -876,6 +876,8 @@ pub struct Grunt {
     pub stig: StigTable,
     /// the class (vtable): anim table, weapon, the yes / no slots
     pub kind: Kind,
+    /// the run / limp anims' playback rates by his speed (anim_run_* / anim_limp_*: skin.rs RunRates, charanim.rs)
+    pub run_rates: crate::skin::RunRates,
     /// the rest stance: attention (anim 0xf, with the fidgets 0x00427330: attention_* modes at start) or ready (the
     /// stand set 2, 3, 0, 1 by PlayAnim4: ready_* modes, and every return to rest after a fight, which plays the set:
     /// 0x0042bc60, 0x7a, the reload's end, L_442860)
@@ -1299,6 +1301,7 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
     let max_health = p.f("max_health", 100.0);
     let pick = rng.rand() * 300 >> 15;
     Grunt {
+        run_rates: crate::skin::RunRates::from_props(p),
         mind,
         home,
         goal: home,
@@ -4359,6 +4362,8 @@ fn die(
 pub struct Companion {
     pub walker: crate::physics::Walker,
     pub q: bool,
+    /// the run anim's playback rate by his speed (p_q / p_molmer anim_run_*: skin.rs RunRates, charanim.rs)
+    pub run_rates: crate::skin::RunRates,
     pub distance: f32,
     pub delay: f32,
     pub scan: f32,
@@ -4529,6 +4534,7 @@ impl Companion {
         Companion {
             walker,
             q,
+            run_rates: crate::skin::RunRates::from_props(p),
             distance: p.f("formation_distance", 30.0),
             delay: p.f("delay_distance", 50.0),
             scan: p.f("scan_distance", 300.0),

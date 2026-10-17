@@ -150,8 +150,8 @@ address,name,disposition,reason
 0x0043a9a0,fn_0043a9a0,deferred,feature: goliath-extras; goliath slots
 0x0043a9b0,fn_0043a9b0,replaced,"grab / carry state tests (slots +0x1c0, +0x118): no grabs on lev_1_m1"
 0x0043a9f0,fn_0043a9f0,deferred,feature: vehicle-bosses; fake grunt / zeppelin / colossus / Q112 boss anim tables
-0x0043bc50,fn_0043bc50,deferred,"feature: run-anim-speed; the anim speed vector (vt+0x1a8: run ids 8..0xc / 0x2f -> +0x96c, limp 0x59 -> +0x994, the anim_run_* / anim_limp_* scaling of the run anims' playback to the move speed): not ported, the engine plays the run anims at speed 1 (open: foot sliding at limp speed)"
-0x0043c560,fn_0043c560,deferred,"feature: run-anim-speed; the anim speed vector (vt+0x1a8: run ids 8..0xc / 0x2f -> +0x96c, limp 0x59 -> +0x994, the anim_run_* / anim_limp_* scaling of the run anims' playback to the move speed): not ported, the engine plays the run anims at speed 1 (open: foot sliding at limp speed)"
+0x0043bc50,fn_0043bc50,ported,"engine/src/skin.rs RunRates (anim_run_* / anim_limp_* blocks, the anim ids each class rates) and charanim.rs grunts / companions (the run and limp anims played at the rate of the body's speed)"
+0x0043c560,fn_0043c560,ported,"engine/src/skin.rs RunRates (anim_run_* / anim_limp_* blocks, the anim ids each class rates) and charanim.rs grunts / companions (the run and limp anims played at the rate of the body's speed)"
 0x0043c640,fn_0043c640,deferred,feature: vehicle-bosses; fake grunt / zeppelin / colossus / Q112 boss anim tables
 0x0043c650,fn_0043c650,deferred,feature: vehicle-bosses; fake grunt / zeppelin / colossus / Q112 boss anim tables
 0x0043c7d0,fn_0043c7d0,deferred,feature: vehicle-bosses; fake grunt / zeppelin / colossus / Q112 boss anim tables

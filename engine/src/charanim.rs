@@ -601,10 +601,16 @@ fn grunts(
     targets: Query<&GlobalTransform>,
     time: Res<Time>,
     lib: Res<crate::skin::AnimLibrary>,
-    // per grunt: the fidget timer and anim, the run anim; the anim random stream (a level starts them over)
-    mut per_level: crate::levelreset::PerLevel<(std::collections::HashMap<Entity, (f32, Option<String>)>, std::collections::HashMap<Entity, u32>, u32)>,
+    // per grunt: the fidget timer and anim, the run anim; the anim random stream; where he was last frame (his
+    // speed for the run anims' rate) (a level starts them over)
+    mut per_level: crate::levelreset::PerLevel<(std::collections::HashMap<Entity, (f32, Option<String>)>, std::collections::HashMap<Entity, u32>, u32, std::collections::HashMap<Entity, Vec3>)>,
+    play: Option<ResMut<crate::playtest::PlayState>>,
 ) {
-    let (fidgets, runs, seed) = per_level.get();
+    // the state log's "anim_rate": the grunts playing a rated move anim, and the rates of those at their block's top
+    // speed (anim_*_max_speed), where the rate is high_factor x max / high_speed (1 with no rate)
+    let mut rated = 0u32;
+    let mut top: Vec<f32> = Vec::new();
+    let (fidgets, runs, seed, last_at) = per_level.get();
     let dt = time.delta_secs();
     let mut rand = || {
         // MSVC rand(): 0..32767
@@ -625,6 +631,10 @@ fn grunts(
     };
     for (e, mut g, mut a, t, (thrown, forced, ladder)) in &mut q {
         a.blend = AI_BLEND;
+        // his ground speed this frame (the run anims' rate: the velocity along the model's forward, here its
+        // horizontal length)
+        let was = last_at.insert(e, t.translation).unwrap_or(t.translation);
+        let speed = if dt > 0.0 { (t.translation - was).with_y(0.0).length() / dt } else { 0.0 };
         // a hit reaction: its anim once (the all-fours breathing 0x36 looped until its timer ends, ai.rs), then the
         // state's anims again
         if g.mind != Mind::Dead {
@@ -827,7 +837,30 @@ fn grunts(
             }
         };
         a.play(0, &n, looping, Mask::All);
+        // the anim's speed vector (vt+0x1a8, GruntObject 0x0043bc50): the run ids 8..0xc / 0x2f by anim_run_*, the limp
+        // 0x59 by anim_limp_*, played at the rate of his speed (skin.rs RunRates)
+        let move_id = if ladder { None } else if limping { Some(0x59) } else { Some(run) };
+        let rate_id = match mind {
+            Mind::Flee => Some(11),
+            Mind::Home => Some(if limping { 0x59 } else { 0xa }),
+            Mind::Chase | Mind::ToMarker | Mind::Wander | Mind::Cover | Mind::Gunner => move_id,
+            _ => None,
+        };
+        if let Some(b) = rate_id.and_then(|id| g.run_rates.for_anim(id, false)) {
+            a.layers[0].speed = b.rate_forward(speed);
+            rated += 1;
+            if speed >= b.max {
+                top.push(a.layers[0].speed);
+            }
+        }
         a.stop(1);
+    }
+    if let Some(mut p) = play {
+        let r = |v: f32| (v * 1000.0).round() / 1000.0;
+        p.0.insert(
+            "anim_rate".into(),
+            serde_json::json!({"rated": rated, "top_count": top.len(), "top_min": top.iter().copied().reduce(f32::min).map(r), "top_max": top.iter().copied().reduce(f32::max).map(r)}),
+        );
     }
 }
 
@@ -953,8 +986,16 @@ fn random(rand: &mut impl FnMut() -> u32, lo: f32, hi: f32) -> f32 {
 
 /// The companions' anims (their tables 0x004876c0 / 0x0044ef20): run (run_reload while reloading on the move),
 /// reload_br, the four fire poses blended by the aim elevation (as the grunts'), else the idle poses.
-fn companions(mut q: Query<(&Companion, &mut Animator, &Name, Option<&crate::ai::tower::TowerTask>)>) {
-    for (c, mut a, name, task) in &mut q {
+fn companions(
+    mut q: Query<(Entity, &Companion, &mut Animator, &Name, Option<&crate::ai::tower::TowerTask>, &Transform)>,
+    time: Res<Time>,
+    mut last_at: crate::levelreset::PerLevel<std::collections::HashMap<Entity, Vec3>>,
+) {
+    let dt = time.delta_secs();
+    let last_at = last_at.get();
+    for (e, c, mut a, name, task, t) in &mut q {
+        let was = last_at.insert(e, t.translation).unwrap_or(t.translation);
+        let speed = if dt > 0.0 { (t.translation - was).with_y(0.0).length() / dt } else { 0.0 };
         a.blend = AI_BLEND;
         let who = if name.as_str() == "molmer" { "molmer" } else { "q111" };
         if c.dead.is_some() {
@@ -977,6 +1018,10 @@ fn companions(mut q: Query<(&Companion, &mut Animator, &Name, Option<&crate::ai:
             a.stop(1);
         } else if c.moving {
             a.play(0, &format!("{who}_{}", if c.reloading > 0.0 { "run_reload" } else { "run" }), true, Mask::All);
+            // the run (ids 8..0xa) at the rate of his speed (Q111Object / MolmerObject 0x0043c560: anim_run_*)
+            if let Some(b) = c.run_rates.for_anim(8, true) {
+                a.layers[0].speed = b.rate_forward(speed);
+            }
             a.stop(1);
         } else if c.reloading > 0.0 {
             a.play(0, &format!("{who}_reload_br"), false, Mask::All);
