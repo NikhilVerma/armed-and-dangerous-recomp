@@ -12,15 +12,26 @@
 //!   Object_IsInViewCone 0x00455d90 and the sight ray), the alert groups, retaliation 0x0042c820.
 //! Functions this port does not cite are explained in docs/port/ai.csv (replaced by the engine, or not needed).
 
+pub mod aim;
+pub mod assault;
 pub mod body;
 pub mod bully;
 pub mod carried;
 pub mod close_kill;
 pub mod dialogue;
+pub mod fall;
+pub mod grenade;
 pub mod ic;
 pub mod jumper;
+pub mod ladder;
+pub mod max_fire;
+pub mod melee;
 pub mod monk;
 pub mod q112;
+pub mod notes;
+pub mod paratroop;
+pub mod retreat;
+pub mod rocket;
 pub mod squad;
 pub mod tower;
 
@@ -80,10 +91,15 @@ pub enum Mind {
     Scripted,
     /// state 0x118: a bully holding his peasant (bully.rs), standing until a target or the peasant's death ends it
     Bully,
-    /// state 0xb: the Q112's close-range swing at its target (0x00428160: q112_gun_hit looped, its "hit" note; q112.rs)
-    Melee,
     /// state 0xf: held by a companion who comes to kill him (GruntObject_Slot66 0x00434ea0; close_kill.rs), standing
     Held,
+    /// state 0x11: waiting for a turn to fire under the mission's shooter limit (max_fire.rs), facing the target with
+    /// the idle bases 0x74..0x76
+    MaxFireWait,
+    /// state 0x82: falling (ai/fall.rs), anim 0x61 (0x62 under a parachute); a landing resumes `Grunt::fall`'s state
+    Falling,
+    /// state 0xb: a close attack (ai/melee.rs `close_attack`), anim 0x5f / 0x60 looped (`anim_id`)
+    CloseAttack,
 }
 
 /// The grunt classes a lev_1_m1 template makes (counted in the coverage runs: BowGruntObject_Slot6 0x004347b0 runs 9
@@ -929,8 +945,15 @@ pub struct Grunt {
     pub reloading: bool,
     /// mode bully: his peasant and the scares (bully.rs)
     pub bully: Option<bully::Bully>,
-    /// the Q112's own parts: its swing, the trail it keeps of its target, its eye loop (q112.rs)
+    /// the Q112's own parts: the trail it keeps of its target, its eye loop (q112.rs; its swing is ai/melee.rs)
     pub q112: Option<q112::Q112>,
+    /// his place under the mission's shooter limit (+0x488 0x20000 / 0x100000, max_fire.rs)
+    pub shooter: max_fire::Shooter,
+    /// handed the turn by a shooter that stopped (0x0042bb10 -> vt+0x230(0)): engage again this frame
+    pub retry_engage: bool,
+    /// a fall in progress (state 0x82) and the falling watchdog's timer (+0x890, ai/fall.rs)
+    pub fall: Option<fall::Fall>,
+    pub fall_watch: Option<f32>,
 }
 
 impl Grunt {
@@ -978,7 +1001,7 @@ pub struct AiStats {
     pub dead: usize,
     pub shots: usize,
     pub enabled: bool,
-    pub states: [usize; 24],
+    pub states: [usize; 32],
     /// grunts holding a target: the player, a companion (playtest log, for comparisons with the hook's AI dump)
     pub targets: [usize; 2],
     /// marker arrivals so far, taunts, grenades thrown (playtest log)
@@ -995,6 +1018,26 @@ pub struct AiStats {
     /// squads halted by a target, members sent to charge (squad.rs)
     pub squad_halts: usize,
     pub squad_charged: usize,
+    /// a gunner's shots at the led point (flag 1, ai/aim.rs)
+    pub led_shots: usize,
+}
+
+/// Debug (playtest `ai_force`): forced outcomes of the AI's next rolls, each consumed by the behaviour it names ("throw":
+/// the next captain's engage roll throws, ai.rs; "fight": the next companion's close kill coin passes, ai/close_kill.rs).
+#[derive(Resource, Default)]
+pub struct AiForce(pub Vec<String>);
+
+impl AiForce {
+    /// Takes one forced `what`, if queued.
+    pub fn take(&mut self, what: &str) -> bool {
+        match self.0.iter().position(|w| w == what) {
+            Some(i) => {
+                self.0.remove(i);
+                true
+            }
+            None => false,
+        }
+    }
 }
 
 /// Sticky bomb stuck at a point (game_07.cpp:1240: AI within 25 units are scared).
@@ -1070,17 +1113,36 @@ impl Plugin for AiPlugin {
             .init_level_resource::<KillMeter>()
             .init_level_resource::<Barks>()
             .add_message::<StickyStuck>()
-            .init_resource::<GrenadeAssets>()
+            .init_resource::<grenade::GrenadeAssets>()
+            .init_level_resource::<grenade::GrenadeStats>()
+            .init_level_resource::<rocket::RocketHullStats>()
+            .init_level_resource::<AiForce>()
+            .init_level_resource::<fall::FallStats>()
+            .init_level_resource::<assault::Assault>()
+            .init_level_resource::<retreat::RetreatStats>()
+            .init_level_resource::<ladder::LadderStats>()
+            .init_level_resource::<notes::ScriptEndStats>()
+            .add_message::<notes::ScriptEnd>()
+            .init_level_resource::<paratroop::ParatroopStats>()
+            .init_resource::<fall::ParachuteAssets>()
+            .init_level_resource::<aim::TargetMotion>()
             .init_level_resource::<Interests>()
             .init_level_resource::<bully::BullyLines>()
             .init_level_resource::<ic::IcStats>()
             .init_level_resource::<dialogue::Bags>()
             .add_plugins(q112::Q112Plugin)
+            .init_level_resource::<max_fire::ShooterLimit>()
             .add_systems(
                 Update,
                 (
-                    (body::bumps, squad::update_squads, interests, mark_army_targets, search, ic::activate, scare, think, ic::run, bully::bullies, die, dismay).chain(),
-                    (body::apply_rules, log_cover, log_ai, log_placed, squad::log_squads, ic::log, grenades).chain(),
+                    (body::bumps, squad::update_squads, interests, mark_army_targets, search, ic::activate, ic::knocks, scare, max_fire::sync_limit, aim::track, think, max_fire::upkeep, fall::run, ic::run, paratroop::rappel, notes::from_movers, notes::apply, bully::bullies, die, dismay).chain(),
+                    (
+                        (body::apply_rules, log_cover, log_ai, log_placed, squad::log_squads, ic::log).chain(),
+                        // the later levels' infantry (projectiles, falls, drops, the wall assault) and their playtest logs
+                        (grenade::fly, rocket::shoot_down, fall::drop_parachutes, jumper::free_markers, assault::sync, assault::recruit, ladder::ladders, retreat::run).chain(),
+                        (melee::close_hits, melee::log, max_fire::log, grenade::log, rocket::log, fall::log, paratroop::log, jumper::log, notes::log, assault::log, ladder::log, retreat::log).chain(),
+                    )
+                        .chain(),
                 )
                     .chain()
                     .after(crate::fx::FxSet)
@@ -1140,7 +1202,7 @@ fn log_placed(
 fn log_ai(
     grunts: Query<(Entity, &Grunt, &GlobalTransform)>,
     roman: Query<(Entity, &GlobalTransform), With<Player>>,
-    grenades: Query<(), With<Grenade>>,
+    grenades: Query<(), With<grenade::Grenade>>,
     noise: Res<Interests>,
     state: Option<ResMut<crate::playtest::PlayState>>,
     stats: Res<AiStats>,
@@ -1200,6 +1262,7 @@ fn log_ai(
             "markers": stats.markers,
             "taunts": stats.taunts,
             "throws": stats.throws,
+            "led_shots": stats.led_shots,
             "near": near.unwrap_or_default(),
         }),
     );
@@ -1374,6 +1437,10 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         bully: None,
         shot_age: f32::INFINITY,
         q112: (kind == Kind::Q112).then(q112::Q112::default),
+        shooter: max_fire::Shooter::None,
+        retry_engage: false,
+        fall: None,
+        fall_watch: None,
     }
 }
 
@@ -2136,7 +2203,7 @@ fn gun_cycle(g: &mut Grunt, gn: &mut Gun, rng: &mut FxStats, dt: f32) -> bool {
 /// heading and the target (inside +-window: 1 - (angle + window) / (2 window), on target; beyond: 1 right or 0 left),
 /// the vertical from the elevation acos(dz / len) - 90 (inside +-26.5: 1 - (e + 26.5) / 53; above: 1, below: 0, off
 /// target); with flag 1 and on target set at once, else stepped by dt / (2 window * 0.0037037); no target: (0.5, 0.5),
-/// flag 1 cleared, on target. (The flagged case's predicted target point, 0x004580a0, is not ported.)
+/// flag 1 cleared, on target. The flagged case's predicted target point (0x004580a0) is the caller's `target` (ai/aim.rs).
 fn gun_aim(gn: &mut Gun, from: Vec3, target: Option<Vec3>, window: f32, dt: f32) -> bool {
     let (th, tv, ok) = match target {
         None => {
@@ -2237,7 +2304,8 @@ fn leave_cover(g: &mut Grunt, me: Entity, trenches: &mut [TrenchView], history: 
 /// arriving at a marker whose action is hide (Marker_ProcessArrival 0x0044ba30; nothing found: AI_Wander 60..100):
 /// - a clip's end (+0x484 flag 4 clear) with a target: 90 % (0x2d0000) the reload in place, the search skipped
 ///   (0x004531e0(target), true for an airborne target, taken false: guess);
-/// - pickup_grab_pct (+0x86c, default 1) % 0x0042a500, a grab of a pickup: not ported;
+/// - pickup_grab_pct (+0x86c, default 0 at 0x0042533f; no property set of the 24 levels has the key) % 0x0042a500, a
+///   grab of a pickup: dead in the shipped game (docs/port/ai.csv);
 /// - a held cover is left (vt+0x188); need_target without a target: nothing found;
 /// - the candidates: the nearest free mounted gun (0x0042a100, `pick_gun`; docs/subsystems/turret.md) and the
 ///   nearest trench (0x00429f00, `pick_trench`); a trench nearer than the gun wins; then the generic cover slots of the
@@ -2602,130 +2670,12 @@ fn reaction_end(
     }
 }
 
-/// The captain's grenade model (template captain_grenade: grunt_grenade_1), loaded with the level (level.rs).
-#[derive(Resource, Default)]
-pub struct GrenadeAssets(pub Vec<(Handle<Mesh>, Handle<StandardMaterial>)>);
-
-/// A thrown captain_grenade (GrenadeProjectile, vtable 0x005a5010): launched by 0x00482870 at the target point pulled
-/// back 20 units toward the thrower, with the projectile's speed (p_captain_grenade speed x 3, Projectile_Load) under
-/// g = 64.348 (0x00471a00: the lower of the two arcs, guess); the generic projectile update (0x0047e580) ray-casts its
-/// path and the first hit (0x0047eae0) ends it: area damage (AreaDamage_Apply 0x0047f020: area_damage 30, radius
-/// 10..30, impact_force 15000), the direct damage to the object hit (50), the end fx (fx_end fx_imp_sticky), gone.
-/// Its lifetime (15 s) ends it unexploded (guess: 0x004820b0 then still applies the area damage).
-#[derive(Component)]
-pub struct Grenade {
-    vel: Vec3,
-    life: f32,
-    owner: Entity,
-}
-
-fn throw_grenade(commands: &mut Commands, assets: Option<&GrenadeAssets>, data: &crate::gamedata::GameData, from: Vec3, target: Vec3, owner: Entity) {
-    let p = data.props("p_captain_grenade");
-    let speed = p.f("speed", 35.0) * 3.0;
-    // the target point pulled back toward the thrower by 20 when farther than 20 (0x00482870)
-    let d = target - from;
-    let to = if d.length() > 20.0 { from + d.normalize() * (d.length() - 20.0) } else { target };
-    let d = to - from;
-    let h = Vec2::new(d.x, d.z).length();
-    let g = 64.348f32;
-    let (v2, y) = (speed * speed, d.y);
-    let disc = v2 * v2 - g * (g * h * h + 2.0 * y * v2);
-    let flat_dir = Vec3::new(d.x, 0.0, d.z).normalize_or(Vec3::Z);
-    let vel = if h > 1e-3 && disc >= 0.0 {
-        let a = ((v2 - disc.sqrt()) / (g * h)).atan();
-        flat_dir * speed * a.cos() + Vec3::Y * speed * a.sin()
-    } else {
-        // out of reach: thrown at 45 degrees
-        (flat_dir + Vec3::Y).normalize() * speed
-    };
-    let e = commands
-        .spawn((Transform::from_translation(from).with_rotation(crate::level::game_to_engine()), Visibility::default(), Grenade { vel, life: p.f("lifetime", 15.0), owner }))
-        .id();
-    if let Some(a) = assets {
-        for (mesh, mat) in &a.0 {
-            let c = commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(mat.clone()))).id();
-            commands.entity(e).add_child(c);
-        }
-    }
-    info!("EVENT ai: captain threw a grenade");
-}
-
-/// The grenades' flight and end (see Grenade).
-#[allow(clippy::too_many_arguments)]
-fn grenades(
-    mut commands: Commands,
-    time: Res<Time>,
-    physics: NonSend<Physics>,
-    data: Res<crate::gamedata::GameData>,
-    mut q: Query<(Entity, &mut Grenade, &mut Transform)>,
-    mut health: Query<&mut Health>,
-    mut blasts: MessageWriter<crate::fx::Explode>,
-    mut fx: MessageWriter<crate::fx::StartFx>,
-    roman: Query<(Entity, &Transform, &crate::player::Roman), Without<Grenade>>,
-) {
-    let dt = time.delta_secs();
-    let p = data.props("p_captain_grenade");
-    // Roman is no physics body (a walker): the path passing within 4.5 of his centre hits him (as the bullets'
-    // fallback without his collision parts, player.rs)
-    let roman = roman.single().ok().map(|(e, t, r)| (e, t.translation + Vec3::Y * r.walker.lift));
-    for (e, mut gr, mut t) in &mut q {
-        gr.life -= dt;
-        gr.vel.y -= 64.348 * dt;
-        let step = gr.vel * dt;
-        let from = t.translation;
-        let mut hit = None;
-        let mut start = from;
-        let mut rest = step.length();
-        let dir = step.normalize_or(Vec3::NEG_Y);
-        while rest > 0.0 {
-            let Some((b, at, _)) = physics.raycast(start, dir, rest) else { break };
-            let obj = physics.bodies.get(&b).copied();
-            // the thrower's own body is in the projectile's ignore chain (+0x574)
-            if obj == Some(gr.owner) {
-                rest -= at.distance(start) + 0.05;
-                start = at + dir * 0.05;
-                continue;
-            }
-            hit = Some((at, obj));
-            break;
-        }
-        if let Some((re, c)) = roman {
-            let u = ((c - from).dot(step) / step.length_squared().max(1e-6)).clamp(0.0, 1.0);
-            let at = from + step * u;
-            if at.distance(c) < 4.5 && hit.is_none_or(|(h, _)| h.distance(from) > at.distance(from)) {
-                hit = Some((at, Some(re)));
-            }
-        }
-        if hit.is_none() && gr.life > 0.0 {
-            t.translation = from + step;
-            continue;
-        }
-        let (at, obj) = hit.unwrap_or((from, None));
-        blasts.write(crate::fx::Explode {
-            at,
-            area_damage: p.f("area_damage", 30.0),
-            radius_inner: p.f("damage_radius_inner", 10.0),
-            radius_outer: p.f("damage_radius_outer", 30.0),
-            impact_force: p.f("impact_force", 15000.0),
-            source: obj,
-            delay: 0.0,
-            by: crate::fx::Src::Badguy,
-            cartoon: false,
-        });
-        if let Some(mut h) = obj.and_then(|o| health.get_mut(o).ok()) {
-            h.0 -= p.f("damage", 50.0);
-        }
-        if let Some(n) = p.s("fx_end") {
-            fx.write(crate::fx::StartFx { name: n.to_owned(), at, rotation: crate::level::game_to_engine(), follow: None, position_only: false });
-        }
-        commands.entity(e).despawn();
-    }
-}
-
 /// What ended the fire cycle's frame.
 #[derive(PartialEq)]
 enum FireEnd {
     None,
+    /// a burst over with more of the clip left (0x00428980, ai_02.cpp:1915-1929: the close attack's other moment)
+    Burst,
     /// the last burst of the clip (0x00428980 -> 0x0042b8e0)
     Clip,
     /// no line of sight to the target (los_lost)
@@ -2756,16 +2706,19 @@ fn think(
         Res<crate::turret::Mounted>,
         Res<crate::gamedata::GameData>,
     ),
-    (mut lib, player_q, mut triggers, grenade_assets, squads, mut jmarks, army, placed, mut swings): (
+    (mut lib, player_q, mut triggers, grenade_assets, squads, mut jmarks, army, placed, mut limit, mut force, motion, mut close): (
         ResMut<crate::skin::AnimLibrary>,
         Query<Entity, With<Player>>,
         MessageWriter<crate::mission::SendTrigger>,
-        Option<Res<GrenadeAssets>>,
+        Option<Res<grenade::GrenadeAssets>>,
         Query<&squad::Squad>,
         Query<(Entity, &mut JumpMarker, &Transform), Without<Grunt>>,
         Query<(), With<ArmyTarget>>,
         Query<&crate::level::Placed>,
-        MessageWriter<q112::SwingHit>,
+        ResMut<max_fire::ShooterLimit>,
+        ResMut<AiForce>,
+        Res<aim::TargetMotion>,
+        (MessageWriter<melee::CloseHit>, ResMut<melee::CloseStats>),
     ),
 ) {
     let t0 = Instant::now();
@@ -2773,7 +2726,7 @@ fn think(
     let dt = time.delta_secs();
     let k = physics.meters_per_unit;
     let (mut alive, mut dead) = (0, 0);
-    let mut states = [0usize; 24];
+    let mut states = [0usize; 32];
     let views: Vec<TrenchView> = trenches
         .iter()
         .map(|(e, b)| TrenchView { e, origin: b.origin, exit: b.exit, spot: b.spot, dir: b.dir, occupant: b.occupant, collider: b.collider })
@@ -2961,8 +2914,8 @@ fn think(
         }
         g.last_health = h.0;
         // an IC move carries him (state 0x64: ic.rs and the mover); held by a companion who comes to kill him (state
-        // 0xf: close_kill.rs)
-        if matches!(g.mind, Mind::Scripted | Mind::Held) {
+        // 0xf: close_kill.rs); a fall is fall.rs's (state 0x82)
+        if matches!(g.mind, Mind::Scripted | Mind::Held | Mind::Falling) {
             continue;
         }
         // the Q112's trail is of one target (0x004246a0 when another is taken)
@@ -3132,8 +3085,6 @@ fn think(
             (Mind::Jump, _) if g.jumper.is_some_and(|j| j.flight.is_some()) => Mind::Jump,
             (Mind::Teleport, _) => Mind::Teleport,
             (Mind::Cast, _) => Mind::Cast,
-            // the Q112's swing runs its own course (below)
-            (Mind::Melee, _) => Mind::Melee,
             (Mind::ToMarker, _) => Mind::ToMarker,
             (Mind::Flee, _) if g.timer > 0.0 => Mind::Flee,
             // the scare's end charges the player (0x0042ce70)
@@ -3144,7 +3095,10 @@ fn think(
             // the wander (0x3d / 0x5b) and the one-shot states run their own course (below)
             (Mind::Wander, _) => Mind::Wander,
             (Mind::Taunt, _) => Mind::Taunt,
+            (Mind::CloseAttack, Some(_)) => Mind::CloseAttack,
             (Mind::Throw, _) => Mind::Throw,
+            // waiting for a turn under the shooter limit (state 0x11): only a hand-over engages again (max_fire.rs)
+            (Mind::MaxFireWait, Some(_)) if !g.retry_engage => Mind::MaxFireWait,
             // the trench's states run their own course (below)
             (Mind::Cover, _) if g.cover.is_some() => Mind::Cover,
             (Mind::Gunner, _) if g.gun.is_some() => Mind::Gunner,
@@ -3154,16 +3108,6 @@ fn think(
             (Mind::Fire, None) if g.at_barricade => {
                 duck(&mut g);
                 Mind::Cover
-            }
-            // the Q112's swing at a burst's end of its fire cycle or its guard's fire (0x00428160: nearer than +0x5fc,
-            // 3D)
-            (Mind::Fire | Mind::Guard | Mind::Reload, Some(p)) if g.q112.as_ref().is_some_and(|q| q.burst_over) && q112::reaches(g.kind, pos, p) => {
-                if let Some(q) = g.q112.as_mut() {
-                    q.start_swing();
-                }
-                g.pause = 0.0;
-                g.anim_id = 0x5f;
-                Mind::Melee
             }
             (Mind::Reload, _) if g.pause > 0.0 => Mind::Reload,
             // the reload's end (state 0x32, ai_06.cpp:1223): in the slot engage (0x00427910: in range fire, else duck);
@@ -3200,7 +3144,9 @@ fn think(
                 // (vt+0x1e0: the captain), allow_close_attack, flag 1 and rand * 200 >> 15 < 30; else the fire state 0xa
                 // a monk's roll first (vt+0x220 0x00437130): the basket rain (0xf1) or the twiglet summon (0xf2 /
                 // 0xf3), else the fire state
-                let engaged = was == Mind::Fire || (was == Mind::Guard && g.guard_firing);
+                // (a hand-over engages afresh, vt+0x230(0): no close attack; the limit is asked again by max_fire::upkeep)
+                let retry = std::mem::take(&mut g.retry_engage);
+                let engaged = !retry && (was == Mind::Fire || (was == Mind::Guard && g.guard_firing));
                 let act = match g.monk.as_mut() {
                     Some(m) if !engaged => m.roll(&mut rng),
                     _ => monk::MonkAct::Fire,
@@ -3216,7 +3162,7 @@ fn think(
                         m.summon_at = monk::summon_point(pos, forward, &mut rng);
                     }
                     Mind::Cast
-                } else if !engaged && g.kind.close_attack() && in_range && g.fire_ready && g.throw_armed && rng.rand() * 200.0 < 30.0 {
+                } else if !engaged && !retry && g.kind.close_attack() && in_range && g.fire_ready && g.throw_armed && (force.take("throw") || rng.rand() * 200.0 < 30.0) {
                     g.anim_id = 0x27;
                     g.anim_left = anim_len(&mut lib, g.anim(0x27, 0.0));
                     g.thrown = false;
@@ -3235,13 +3181,9 @@ fn think(
             (_, Some(_)) => Mind::Chase,
             (Mind::Guard, None) => Mind::Guard,
             // the target gone from the states that need one (0x0042bc60)
-            (Mind::Fire | Mind::Chase | Mind::Reload, None) => lost_target(&mut g, ge, &mut spots.trenches),
+            (Mind::Fire | Mind::Chase | Mind::Reload | Mind::MaxFireWait | Mind::CloseAttack, None) => lost_target(&mut g, ge, &mut spots.trenches),
             _ => Mind::Roam,
         };
-        // (the Q112's swing is tried only at the burst's end that set this)
-        if let Some(q) = g.q112.as_mut() {
-            q.burst_over = false;
-        }
         // a monk's pursuit is a teleport (vt+0x184 0x00436b90: +0xb58 = 0, then the bamf)
         if g.mind == Mind::Chase && g.monk.is_some() {
             if let Some(m) = g.monk.as_mut() {
@@ -3271,6 +3213,9 @@ fn think(
                         j.walk = Some(left);
                     } else {
                         j.walk = None;
+                        if let Some(old) = j.leave() {
+                            joccupy.push((old, None));
+                        }
                         j.glide(pos, to);
                         // the landing reads only the contacts of the steps after the take-off (Slot44 notes a contact in
                         // the step it happens)
@@ -3280,6 +3225,13 @@ fn think(
                         info!("EVENT ai: jumper {ge:?} takes off {:.0} from the target", (to - pos).with_y(0.0).length());
                     }
                 } else {
+                    // the marker he stands on is left first (vt+0x188): his history skips it
+                    if let Some(old) = j.leave() {
+                        joccupy.push((old, None));
+                        if let Some(v) = jviews.iter_mut().find(|v| v.e == old) {
+                            v.free = true;
+                        }
+                    }
                     match jumper::pick_marker(j, pos, target, range, &jviews) {
                         Some((i, closer)) => {
                             let (m, at) = (jviews[i].e, jviews[i].pos);
@@ -3304,7 +3256,7 @@ fn think(
             j.stepped = true;
         }
         // (the playtest log and the anims see the stance: at rest after a fight the stand set)
-        if matches!(g.mind, Mind::Fire | Mind::Chase | Mind::Reload | Mind::Cover | Mind::Gunner | Mind::Throw | Mind::Melee) {
+        if matches!(g.mind, Mind::Fire | Mind::Chase | Mind::Reload | Mind::Cover | Mind::Gunner | Mind::Throw | Mind::CloseAttack) {
             g.attention = false;
         }
         let mut goal = pos;
@@ -3412,30 +3364,35 @@ fn think(
                     };
                 }
             }
-            Mind::Melee => {
-                // state 0xb (q112.rs): standing, facing the target; the "hit" note swings at it, each loop's end swings
-                // again while it is nearer than +0x5fc, else the fire cycle's end (0x0042b8e0) or, a guard, its state
-                let (hit_at, len) = q112::swing_times(&mut lib);
-                let (hit, ended) = g.q112.as_mut().map_or((false, true), |q| q.swing(dt, hit_at, len));
-                match (g.target, target) {
-                    (Some(te), Some(p)) => {
-                        if hit && flat(p - pos).length() < q112::SWING_REACH {
-                            if let Some(q) = g.q112.as_mut() {
-                                q.hits += 1;
-                            }
-                            swings.write(q112::SwingHit { target: te, by: ge, dir: q112::knock_dir(pos, p, rng.rand()) });
-                            info!("EVENT ai: q112 {ge:?} swings at {te:?}");
-                        }
-                        if ended && !q112::reaches(g.kind, pos, p) {
-                            g.mind = if g.guard {
-                                Mind::Guard
-                            } else {
-                                let h = find_hiding_spot(&mut g, ge, (true, false), pos, tgt, &mut spots, &physics, body.id, &mut rng);
-                                hide_to_mind(&mut g, h)
-                            };
+            Mind::CloseAttack => {
+                // state 0xb (ai_06.cpp:889-925): facing the target (below), the swing looped; each "hit" note hurts it
+                // within m_h2hMax across (0x0043eae0); a loop's end with the target m_h2hMax away or more ends it
+                let (_, reach) = melee::h2h(g.kind).unwrap_or((20.0, 10.0));
+                let len = anim_len(&mut lib, g.anim(g.anim_id, 0.0)).max(0.1);
+                let t0 = g.anim_left;
+                g.anim_left += dt;
+                if let (Some(te), Some(p)) = (g.target, target) {
+                    for n in melee::hit_times(&mut lib, g.anim(g.anim_id, 0.0), g.anim_id) {
+                        if t0 < n && g.anim_left >= n && flat(p - pos).length() < reach {
+                            let (damage, impact) = melee::hit_of(g.kind);
+                            let dir = melee::knock_dir(pos, p, rng.rand());
+                            close.0.write(melee::CloseHit { by: ge, target: te, damage, impact, dir });
                         }
                     }
-                    _ => g.mind = lost_target(&mut g, ge, &mut spots.trenches),
+                    if g.anim_left >= len {
+                        g.anim_left -= len;
+                        if p.distance(pos) >= reach {
+                            g.mind = Mind::Fire;
+                        }
+                    }
+                }
+            }
+            Mind::MaxFireWait => {
+                // state 0x11 (ai_06.cpp:849-867): facing the target (below), the next idle base as each one ends
+                g.anim_left -= dt;
+                if g.anim_left <= 0.0 {
+                    g.anim_id = max_fire::next_wait_anim(g.anim_id, &mut rng);
+                    g.anim_left = anim_len(&mut lib, g.anim(g.anim_id, 0.0));
                 }
             }
             Mind::Throw => {
@@ -3455,7 +3412,7 @@ fn think(
                             .and_then(|a| a.skeleton.index.get("ref_lhand").and_then(|&i| targets.get(a.joints[i]).ok()))
                             .map(|j| j.translation())
                             .unwrap_or(pos + Vec3::Y * 9.0);
-                        throw_grenade(&mut commands, grenade_assets.as_deref(), &data, hand, thit, ge);
+                        grenade::throw(&mut commands, grenade_assets.as_deref(), &data, &mut rng, hand, thit, ge);
                     }
                 }
                 if g.anim_left <= 0.0 {
@@ -3474,6 +3431,15 @@ fn think(
                 }
             }
             Mind::Fire | Mind::Guard => {
+                // every way into the fire state passes the engage (0x00427910 / 0x00427c80: a reload's end, a hit's
+                // end, a guard's engage), which asks the mission's shooter limit first: wait there (max_fire.rs)
+                if target.is_some() && (g.mind == Mind::Fire || g.guard_firing) && !limit.may_fire(ge, &mut g.shooter, &mut rng) {
+                    g.mind = Mind::MaxFireWait;
+                    g.guard_firing = false;
+                    // (0x004271c0 with no idle base playing draws the first; the wait state below plays it)
+                    g.anim_id = max_fire::next_wait_anim(0, &mut rng);
+                    g.anim_left = anim_len(&mut lib, g.anim(g.anim_id, 0.0));
+                }
                 if let Some(p) = target.filter(|_| g.mind == Mind::Fire || g.guard_firing) {
                     // the target's ref_hit_00 (0x00428280): the aim point of 0x004284e0 and the sight ray's end
                     let hit = g
@@ -3520,10 +3486,30 @@ fn think(
                         // object as target, the houses a village attacker shoots)
                         let target_body = g.target.and_then(|t| placed.get(t).ok()).and_then(|p| p.collider);
                         let skip: Vec<BodyId> = std::iter::once(body.id).chain(target_body).collect();
-                        end = fire_cycle(&mut commands, &mut g, &physics, &mut rng, pos, p, hit, own_hit, hand, &skip, dt, &mut stats, &mut sounds, &mut fx, (&mut barks, time.elapsed_secs(), &voices));
+                        end = fire_cycle(&mut commands, &mut g, &physics, &mut rng, pos, p, hit, own_hit, hand, &skip, dt, &mut stats, &mut sounds, &mut fx, (&mut barks, time.elapsed_secs(), &voices, &data));
                     }
                     if stats.shots > before && std::env::var("AIDBG").is_ok() {
                         info!("AIDBG gruntshot t {:.3}", rtime.elapsed_secs());
+                    }
+                    // the close attack at a burst's or the clip's end (0x00428980 -> 0x00428160: the target within
+                    // m_h2hMin), before the next burst, the reload or the search (ai/melee.rs)
+                    if matches!(end, FireEnd::Burst | FireEnd::Clip) && !g.at_barricade {
+                        if let Some(id) = melee::close_attack(g.kind, pos, p, || rng.rand()) {
+                            g.mind = Mind::CloseAttack;
+                            g.anim_id = id;
+                            g.anim_left = 0.0;
+                            g.pause = 0.0;
+                            end = FireEnd::None;
+                            close.1.swings += 1;
+                            info!("EVENT ai: grunt {ge:?} swings at his target");
+                        }
+                    }
+                    // a counted shooter stops at its clip's end (0x00428980 -> 0x0042bb10): its place is handed over
+                    // (a lost line of sight keeps the engine's fire state, which keeps the place: max_fire.rs)
+                    if matches!(end, FireEnd::Clip | FireEnd::Taunt) && g.shooter != max_fire::Shooter::None {
+                        let mut s = g.shooter;
+                        limit.release(ge, &mut s);
+                        g.shooter = s;
                     }
                     match end {
                         // in the slot a lost line of sight ducks (0x00428980: anim 0x66, state 0xa2)
@@ -3637,7 +3623,7 @@ fn think(
                             if n > t0 && n <= t1 && g.left_rounds > 0 {
                                 if let Some((_, thit)) = tgt {
                                     g.left_rounds -= 1;
-                                    shoot(&mut commands, &mut fx, &g, &mut rng, pos, thit);
+                                    shoot(&mut commands, &mut fx, &g, &mut rng, pos, thit, &data);
                                     stats.shots += 1;
                                 }
                             }
@@ -3712,9 +3698,20 @@ fn think(
                     }
                     (GunPhase::On, Some(i)) => {
                         g.yaw = gn.yaw;
+                        // with flag 1 (the counters ran out together) the aim and the shots go at the target led for a
+                        // bullet at 360 from the gun (0x004580a0, ai/aim.rs), without the aim error
+                        let led = if gn.snap {
+                            target.zip(g.target).map(|(p, te)| {
+                                let l = aim::lead_point(p, motion.velocity(te), pos, aim::GUN_LEAD_SPEED);
+                                l.with_y(aim::aim_height(p.y, target_hit.map_or(p.y, |h| h.y)))
+                            })
+                        } else {
+                            None
+                        };
+                        let aim_at = if gn.snap { led } else { target };
                         // the aim (vt+0x190 0x00428fc0 with 65 degrees: state 0x7d calls it twice a frame)
-                        gun_aim(&mut gn, pos, target, 65.0, dt);
-                        let mut cl = gun_aim(&mut gn, pos, target, 65.0, dt);
+                        gun_aim(&mut gn, pos, aim_at, 65.0, dt);
+                        let mut cl = gun_aim(&mut gn, pos, aim_at, 65.0, dt);
                         if gn.snap && (gn.clips != 0 || gn.rounds != 0 || gn.burst != 0) {
                             cl = true;
                         }
@@ -3774,7 +3771,14 @@ fn think(
                                         let (lo, hi) = g.accuracy;
                                         let s = if d <= lo { 0.1 } else if d >= hi { 1.0 } else { ((d * d - lo * lo) / (hi * hi - lo * lo)).max(0.1) };
                                         let side = Vec3::new(-to.z, 0.0, to.x).normalize_or_zero();
-                                        let aim = hit + side * rng.range(-g.inaccuracy_angle, g.inaccuracy_angle) * s + Vec3::Y * rng.range(0.0, g.inaccuracy_height) * s;
+                                        let aim = match led {
+                                            // flag 1: straight at the led point (0x004284e0's turret branch)
+                                            Some(l) => l,
+                                            None => hit + side * rng.range(-g.inaccuracy_angle, g.inaccuracy_angle) * s + Vec3::Y * rng.range(0.0, g.inaccuracy_height) * s,
+                                        };
+                                        if led.is_some() {
+                                            stats.led_shots += 1;
+                                        }
                                         let from = tu.bone_world(gt, ta, tu.emitter()).w_axis.truncate();
                                         // (a forge cannon's shell flies as vehicles/rockets.rs lobs it; a bullet as before)
                                         let to = from + (aim - from).normalize_or(gn.fwd) * from.distance(aim).max(1.0);
@@ -3869,9 +3873,7 @@ fn think(
                 match j.step(pos, dt, grounded) {
                     jumper::FlightStep::WingsOut => info!("EVENT ai: jumper {ge:?} glides"),
                     jumper::FlightStep::Landed => {
-                        if let Some(m) = j.history[0] {
-                            joccupy.push((m, None));
-                        }
+                        // (the marker stays occupied by him: freed when he leaves it or dies, jumper.rs)
                         stats.landings += 1;
                         info!("EVENT ai: jumper {ge:?} lands");
                         // anim 0x6c (state 0xbf), then +0x4ac = 0xc3: with flag 4 and a target engage, else reload
@@ -3890,7 +3892,7 @@ fn think(
                 if j.flight == Some(jumper::Flight::Glide) {
                     if let (Some(p), Some(thit), true) = (target, target_hit, g.fire_ready) {
                         g.jumper = Some(j);
-                        fire_cycle(&mut commands, &mut g, &physics, &mut rng, pos, p, thit, own_hit, None, &[body.id], dt, &mut stats, &mut sounds, &mut fx, (&mut barks, time.elapsed_secs(), &voices));
+                        fire_cycle(&mut commands, &mut g, &physics, &mut rng, pos, p, thit, own_hit, None, &[body.id], dt, &mut stats, &mut sounds, &mut fx, (&mut barks, time.elapsed_secs(), &voices, &data));
                         g.mind = Mind::Jump;
                         j = g.jumper.expect("a jumper");
                     }
@@ -3972,7 +3974,7 @@ fn think(
             (Mind::Cast, _, _) if g.monk.is_some_and(|m| m.spell == monk::Spell::Twiglets) => {
                 g.monk.map(|m| flat(m.summon_at - pos).normalize_or_zero()).unwrap_or(dir)
             }
-            (Mind::Fire | Mind::Chase | Mind::Taunt | Mind::Throw | Mind::Cast | Mind::Melee, Some(p), _) => flat(p - pos).normalize_or_zero(),
+            (Mind::Fire | Mind::Chase | Mind::Taunt | Mind::Throw | Mind::Cast | Mind::MaxFireWait | Mind::CloseAttack, Some(p), _) => flat(p - pos).normalize_or_zero(),
             // a guard firing turns to his target (0x0042df70, 45 degrees)
             (Mind::Guard, Some(p), _) if g.guard_firing => flat(p - pos).normalize_or_zero(),
             // in the slot: its direction +0x908 (0x00454e60), standing up: the target (0x0042df70)
@@ -4045,7 +4047,7 @@ fn think(
 /// target: the muzzle minus the grunt's position ~6.9 ahead, 1.3..1.5 to its right (the rifle at the right shoulder)
 /// and 8.4 up; the bullets then pass where the original's do: a grunt standing in front of a shooter is hit), the
 /// projectile and the muzzle fx (which carries the shot's sound).
-fn shoot(commands: &mut Commands, fx: &mut MessageWriter<crate::fx::StartFx>, g: &Grunt, rng: &mut FxStats, pos: Vec3, hit: Vec3) {
+fn shoot(commands: &mut Commands, fx: &mut MessageWriter<crate::fx::StartFx>, g: &Grunt, rng: &mut FxStats, pos: Vec3, hit: Vec3, data: &crate::gamedata::GameData) {
     let fwd = Vec3::new(g.yaw.sin(), 0.0, g.yaw.cos());
     let to = (hit - pos).with_y(0.0);
     let d = to.length();
@@ -4062,7 +4064,13 @@ fn shoot(commands: &mut Commands, fx: &mut MessageWriter<crate::fx::StartFx>, g:
         let gp = crate::level::game_to_engine().inverse() * pos;
         info!("AIDBG muzzle {:.1} {:.1} off {:.2} {:.2} {:.2}", gp.x, gp.y, o.x, o.y, o.z);
     }
-    crate::player::spawn_projectile_to(commands, fx, &g.bullet, muzzle + dir * 4.0, aim, false, g.me);
+    // the rocket captain's launcher fires the captain_rocket (CaptainRocket: ai/rocket.rs), the others a bullet
+    match (g.me, crate::vehicles::rockets::is_rocket(&g.bullet)) {
+        (Some(me), true) => rocket::fire(commands, fx, data, rng, muzzle + dir * 4.0, aim, me),
+        _ => {
+            crate::player::spawn_projectile_to(commands, fx, &g.bullet, muzzle + dir * 4.0, aim, false, g.me);
+        }
+    }
     if let Some(m) = g.weapon.s("muzzle_fx_name") {
         fx.write(crate::fx::StartFx { name: m.to_owned(), at: muzzle + dir * 4.0, rotation: Transform::IDENTITY.looking_to(dir, Vec3::Y).rotation, follow: None, position_only: false });
     }
@@ -4085,7 +4093,7 @@ fn fire_cycle(
     stats: &mut AiStats,
     sounds: &mut MessageWriter<crate::audio::PlaySound>,
     fx: &mut MessageWriter<crate::fx::StartFx>,
-    (barks, now, voices): (&mut Barks, f32, &crate::audio::PlayingVoices),
+    (barks, now, voices, data): (&mut Barks, f32, &crate::audio::PlayingVoices, &crate::gamedata::GameData),
 ) -> FireEnd {
     g.pause -= dt;
     if g.pause > 0.0 {
@@ -4122,7 +4130,7 @@ fn fire_cycle(
         g.pause = 0.467 + g.reload_len + 2.0 / 60.0;
         return FireEnd::None;
     }
-    shoot(commands, fx, g, rng, pos, hit);
+    shoot(commands, fx, g, rng, pos, hit, data);
     g.shot_age = 0.0;
     if g.kind == Kind::Sniper {
         stats.sniper_shots += 1;
@@ -4156,10 +4164,6 @@ fn fire_cycle(
     g.left_rounds -= 1;
     g.pause = fire_len;
     if g.left_rounds <= 0 {
-        // a burst's end: where the Q112's swing is tried (0x00428980 -> 0x00428160, q112.rs)
-        if let Some(q) = g.q112.as_mut() {
-            q.burst_over = true;
-        }
         g.left_bursts -= 1;
         g.pause = fire_len + rng.range(g.burst_delay.0, g.burst_delay.1);
         if g.left_bursts <= 0 {
@@ -4183,6 +4187,7 @@ fn fire_cycle(
             g.pause = fire_len + g.reload_len + if g.guard { 2.0 / 60.0 } else { rng.range(g.clip_delay.0, g.clip_delay.1) };
             return FireEnd::Clip;
         }
+        return FireEnd::Burst;
     }
     FireEnd::None
 }
@@ -4684,6 +4689,8 @@ pub struct CompanionPlugin;
 impl Plugin for CompanionPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((close_kill::CloseKillPlugin, carried::CarriedPlugin))
+            .init_resource::<melee::CloseStats>()
+            .add_message::<melee::CloseHit>()
             .add_systems(Update, (companion_damage, companions).chain().run_if(crate::playing));
     }
 }
@@ -4811,7 +4818,7 @@ fn companions(
     mut fx: MessageWriter<crate::fx::StartFx>,
     mut log: ResMut<crate::playtest::PlayState>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
-    (mut pickups, mut dynamite, mut barks, mut hud, mut pending, mut grabs, taken): (
+    (mut pickups, mut dynamite, mut barks, mut hud, mut pending, mut grabs, taken, mut force): (
         MessageWriter<crate::pickup::SpawnPickup>,
         MessageWriter<crate::sticky::ThrowDynamite>,
         ResMut<Barks>,
@@ -4819,6 +4826,7 @@ fn companions(
         crate::levelreset::PerLevel<(bool, bool)>,
         MessageWriter<close_kill::Grab>,
         Query<(), (With<Companion>, Or<(With<carried::Knocked>, With<close_kill::Killing>)>)>,
+        ResMut<AiForce>,
     ),
 ) {
     let dt = time.delta_secs();
@@ -5015,7 +5023,7 @@ fn companions(
             Some(d) if !c.engaged && d <= 0.9 * c.range => {
                 c.engaged = true;
                 // the engage (0x00427910) first tries the close kill (0x00427e80, close_kill.rs)
-                if let Some(grab) = close_kill::attempt(c, e, me, &grunts, &joints, &mut rng) {
+                if let Some(grab) = close_kill::attempt(c, e, me, &grunts, &joints, &mut rng, &mut force) {
                     grabs.write(grab);
                 } else if !c.q && c.throw_armed && c.throwing.is_none() && rng.rand() * 90.0 < 30.0 {
                     c.throwing = Some(0.0);
@@ -5271,11 +5279,9 @@ fn companions(
                         if let Some(m) = c.muzzle.take() {
                             commands.entity(m).despawn();
                         }
-                        // a burst's end with rounds left tries the close kill (0x00428980 -> 0x00427e80)
-                        if c.rounds > 0 {
-                            if let Some(grab) = close_kill::attempt(c, e, me, &grunts, &joints, &mut rng) {
-                                grabs.write(grab);
-                            }
+                        // a burst's or the clip's end tries the close kill (0x00428980 -> 0x00427e80: ai_02.cpp:1942 / 1986)
+                        if let Some(grab) = close_kill::attempt(c, e, me, &grunts, &joints, &mut rng, &mut force) {
+                            grabs.write(grab);
                         }
                     }
                     if c.rounds == 0 {

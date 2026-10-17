@@ -42,6 +42,13 @@ use crate::ai::{Grunt, Mind, SplineRun};
 use crate::mover::{Mover, MoverNote};
 use crate::levelreset::LevelAppExt;
 
+impl ArmyGrunt {
+    /// Running an ic_* script or the breach: not free for the assault's search (ai/assault.rs)
+    pub fn busy(&self) -> bool {
+        self.script.is_some() || self.breach
+    }
+}
+
 /// A real grunt released by a platoon: its orders (+0x558 / +0x55c marker tags, the ladder spline) and the ladder
 /// script it runs.
 #[derive(Component, Clone, Debug, Default)]
@@ -147,6 +154,13 @@ pub struct Army {
     breach_max: u32,
     breach_runners: u32,
     pub stats: ArmyStats,
+}
+
+impl Army {
+    /// A ladder stands on this ladder spline (spline bit 4, 0x0044b7b0)
+    pub fn is_planted(&self, tag: i64) -> bool {
+        self.planted.contains(&tag)
+    }
 }
 
 #[derive(Default, Clone, Copy, Debug, serde::Serialize)]
@@ -327,10 +341,13 @@ fn load(mut army: ResMut<Army>, tuning: Res<ArmyTuning>, launch: Res<crate::Laun
 /// Army timers' activation (TimerObject_OnTrigger 0x004965d0) and the mission's pre-success (the army stops:
 /// Game+0xbf0 = +0xbf8 = 0, every army grunt retreats, MissionObject_OnTrigger 0x0044d600).
 fn triggers(
+    mut commands: Commands,
     mut army: ResMut<Army>,
     mut events: MessageReader<crate::mission::SendTrigger>,
-    mut grunts: Query<(&mut Grunt, &GlobalTransform), With<ArmyGrunt>>,
-    player: Query<&GlobalTransform, (With<crate::ai::Player>, Without<ArmyGrunt>)>,
+    grunts: Query<(Entity, &Grunt)>,
+    markers: Option<Res<crate::alarm::Markers>>,
+    mut rng: ResMut<crate::fx::FxStats>,
+    mut retreat: ResMut<crate::ai::retreat::RetreatStats>,
 ) {
     let ids: Vec<i64> = events.read().map(|e| e.0).collect();
     for t in ids {
@@ -343,20 +360,9 @@ fn triggers(
             army.stopped = true;
             army.limit = 0;
             army.unpause = 0;
-            // the retreat (vt+0x234(&dir) on each AI, the direction of the marker tagged -1): guess: each runs away
-            // from Roman for good (Flee with a goal far off)
-            let from = player.single().map(|p| p.translation()).unwrap_or_default();
-            for (mut g, gt) in &mut grunts {
-                if g.mind != Mind::Dead {
-                    let away = (gt.translation() - from).with_y(0.0).normalize_or(Vec3::X);
-                    g.spline = None;
-                    g.fixed = None;
-                    g.target = None;
-                    g.goal = gt.translation() + away * 3000.0;
-                    g.timer = 1.0e6;
-                    g.mind = Mind::Flee;
-                }
-            }
+            // the retreat (vt+0x234(&dir) on each AI, the direction of the marker tagged -1: ai/retreat.rs)
+            let dir = crate::ai::retreat::direction(markers.as_deref());
+            crate::ai::retreat::hand_out(&mut commands, grunts.iter().map(|(e, g)| (e, g.mind)), dir, &mut rng, &mut retreat);
             info!("EVENT army: pre-success: the army retreats");
         }
     }
@@ -788,7 +794,6 @@ fn fake_hits(
 /// before the AI's update sees it.
 #[allow(clippy::too_many_arguments)]
 fn army_grunts(
-    mut commands: Commands,
     time: Res<Time>,
     mut army: ResMut<Army>,
     markers: Option<Res<crate::alarm::Markers>>,
@@ -798,6 +803,7 @@ fn army_grunts(
     mut fx: MessageWriter<crate::fx::StartFx>,
     mut done: crate::levelreset::PerLevel<HashSet<Entity>>,
     mut rng: ResMut<crate::fx::FxStats>,
+    mut ends: MessageWriter<crate::ai::notes::ScriptEnd>,
 ) {
     let dt = time.delta_secs();
     let seen = done.get();
@@ -830,7 +836,7 @@ fn army_grunts(
             }
             let t0 = s.t;
             s.t += dt;
-            let mut gone = false;
+            let mut gone: Option<bool> = None;
             for line in crate::mover::notes_between(&anim, t0, s.t) {
                 let mut w = line.split_whitespace();
                 match w.next().unwrap_or("").to_lowercase().as_str() {
@@ -847,14 +853,16 @@ fn army_grunts(
                             fx.write(crate::fx::StartFx { name: n.to_lowercase(), at: pos, rotation: gt.compute_transform().rotation, follow: None, position_only: false });
                         }
                     }
-                    // vt+0xd4: the grunt leaves the game (over the wall), no death
-                    "deactivate" | "kill" => gone = true,
+                    // over the wall: "deactivate" (0x00409110: the death bookkeeping, his death trigger, removed
+                    // without a body) or "kill" (vt+0xd4: a death; mover_grunt_scale_2..4's notes past their end)
+                    "deactivate" => gone = gone.or(Some(false)),
+                    "kill" => gone = gone.or(Some(true)),
                     _ => {}
                 }
             }
-            if gone {
+            if let Some(kill) = gone {
                 info!("EVENT army: grunt {e:?} over the wall ({})", s.anim);
-                commands.entity(e).despawn();
+                ends.write(crate::ai::notes::ScriptEnd { entity: e, kill });
                 continue;
             }
             if s.t >= anim.duration {

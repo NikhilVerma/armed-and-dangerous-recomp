@@ -618,6 +618,10 @@ pub struct Mission {
     /// without the view cone or the line of sight (AI_FindTarget 0x00426920, ai.rs `search`): lev_bonus_m1's Roman
     /// (the whole army has him as target from the first frame); the defence levels' base wall and turret
     pub ai_target_tag: i64,
+    /// ai_max_fire (Game+0xc50, MissionObject_Load game_02.cpp:2024): bad guys firing at once, 0 no limit (ai/max_fire.rs)
+    pub ai_max_fire: u32,
+    /// army_max_scale (Game+0xc54, game_02.cpp:2025): grunts at once in the ladder / scale-wall assault (World+0xf14)
+    pub army_max_scale: u32,
     start_trigger: i64,
     start_text: Option<String>,
     success_text: Option<String>,
@@ -1176,6 +1180,8 @@ impl Mission {
             untagged: HashSet::new(),
             compass_tag: n(m, "compass_objective_tag") as i64,
             ai_target_tag: n(m, "ai_target_tag") as i64,
+            ai_max_fire: n(m, "ai_max_fire").max(0.0) as u32,
+            army_max_scale: n(m, "army_max_scale").max(0.0) as u32,
             start_trigger: n(m, "send_trigger_start") as i64,
             start_text: text("start_text"),
             success_text: text("success_text"),

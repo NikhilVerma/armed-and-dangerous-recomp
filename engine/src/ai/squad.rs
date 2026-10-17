@@ -86,6 +86,10 @@ pub struct Squad {
     pub handed_over: (i64, i64, i64),
     /// the members still to make: (template, offset), made on the first frame (spawn_grunts links them)
     pub pending: Vec<(&'static str, Vec3)>,
+    /// squad_tag +0xb58 and squad_sequence +0xb5c (0x00433b90 / 0x00433b80): squads of one tag share a halt down the
+    /// sequence (0x00433bc0)
+    pub squad_tag: i64,
+    pub sequence: i64,
 }
 
 impl Squad {
@@ -132,6 +136,8 @@ impl Squad {
             goliath_cage: p.i("goliath_cage", 0) != 0,
             handed_over: (p.i("receive_trigger_kill", 0), p.i("send_trigger_on_death", 0), p.i("tag", 0)),
             pending,
+            squad_tag: tag,
+            sequence: p.i("squad_sequence", 0),
         }
     }
 
@@ -159,7 +165,24 @@ pub fn member_goal(sq: &Squad, link: SquadLink, pos: Vec3, move_speed: f32) -> (
     (at, (d * 4.0).min(2.0 * move_speed))
 }
 
-/// SquadObject_Slot143 0x00433c70: halt, charge, tell the group.
+/// A halt passed on to the other squads of the tag (0x00433bc0): from which squad, its tag and sequence, the target and
+/// its halt timer.
+#[derive(Clone, Copy, Debug)]
+struct Share {
+    from: Entity,
+    tag: i64,
+    sequence: i64,
+    target: Entity,
+    halt: f32,
+}
+
+/// 0x00433bc0's choice: another squad of the same squad_tag whose squad_sequence is not below the sender's (signed).
+pub fn shares_halt(from: (i64, i64), other: (i64, i64)) -> bool {
+    other.0 == from.0 && other.1 >= from.1
+}
+
+/// SquadObject_Slot143 0x00433c70: halt, charge, tell the group; the halt passed on down the tag's sequence
+/// (0x00433bc0, after the frame: `shares`).
 fn alert(sq: &mut Squad, target: Entity, grunts: &mut Query<(Entity, &mut Grunt, &Health)>, rng: &mut FxStats, stats: &mut super::AiStats) {
     let t = rng.range(sq.resume.0, sq.resume.1);
     if t > sq.halt {
@@ -228,7 +251,10 @@ pub fn update_squads(
         Ok((e, t)) => (Some(e), t.translation()),
         Err(_) => (None, Vec3::ZERO),
     };
+    let mut shares: Vec<Share> = Vec::new();
     for (se, mut sq, mut tr) in &mut squads {
+        let halts_before = stats.squad_halts;
+        let target_before = sq.target;
         // the members, made at their bones (fn_0042de60: state 0xde, idle), then the goliath at ref_goliath_00
         for (tpl, offset) in std::mem::take(&mut sq.pending) {
             spawn.write(crate::level::SpawnGrunt {
@@ -404,6 +430,37 @@ pub fn update_squads(
         }
         tr.translation = sq.pos;
         tr.rotation = Quat::from_rotation_y(sq.yaw) * crate::level::game_to_engine();
+        // alerted this frame (a new halt or a new target): passed on to the tag's squads (0x00433bc0)
+        if let (Some(t), true) = (sq.target, stats.squad_halts != halts_before || sq.target != target_before) {
+            if sq.squad_tag != 0 {
+                shares.push(Share { from: se, tag: sq.squad_tag, sequence: sq.sequence, target: t, halt: sq.halt });
+            }
+        }
+    }
+    // 0x00433bc0: vt+0x23c(target, 0) on each (the halt), the base SetTarget, and the sender's halt timer
+    for s in shares {
+        for (se, mut sq, _) in &mut squads {
+            if se == s.from || !shares_halt((s.tag, s.sequence), (sq.squad_tag, sq.sequence)) {
+                continue;
+            }
+            alert(&mut sq, s.target, &mut grunts, &mut rng, &mut stats);
+            sq.halt = s.halt;
+            info!("EVENT ai: squad {se:?} halts with squad {:?} (tag {})", s.from, s.tag);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn halt_passes_down_the_sequence() {
+        // lev_3_m1's 601 sequence 1 tells a same-tag sequence 2, not sequence 0 nor another tag
+        assert!(shares_halt((601, 1), (601, 2)));
+        assert!(shares_halt((601, 1), (601, 1)));
+        assert!(!shares_halt((601, 1), (601, 0)));
+        assert!(!shares_halt((601, 1), (602, 5)));
     }
 }
 

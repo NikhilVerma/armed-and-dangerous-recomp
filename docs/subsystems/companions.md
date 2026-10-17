@@ -217,9 +217,11 @@ grabs the grunt he fights and kills him by hand:
   0x7f / 0x80: mover_molmer_kill_grunt_1 / _2) and the same ids of the grunt's table (mover_grunt_qdie_1 / _2,
   mover_grunt_mdie_1 / _2); physics off for both; the grunt's "kill" note kills him (he stays in the anim's last pose).
 - Engine: a `Grab` message from ai.rs (`close_kill::attempt`), `Killing` on the companion (the formation update skips
-  him), `Victim` on the grunt; a stun or the companion's death lets the grunt go (`orphans`). Guesses: the facing at
-  the point (toward the grunt; the original turns to ref_fight_00's negated y axis); the last 12 units are driven
-  straight through the held grunt's sphere; an approach that has not arrived in 10 s gives up. Playtest
+  him), `Victim` on the grunt; a stun or the companion's death lets the grunt go (`orphans`). At the point he turns to
+  ref_fight_00's negated y axis; after the anim his reload (state 0x32); the grunt's `kill` note is ai/notes.rs's and his
+  pose is kept by ai.rs `DeathAnim`. (Merged 2026-10-18 with agent-enemyai's ai/melee.rs takedown, which built the same
+  0x00427e80: one implementation, here.) Engine guards: the last 12 units are driven straight through the held grunt's
+  sphere; an approach that has not arrived in 10 s gives up. Playtest
   companion_close_kill (the debug step `close_kill` skips the coin, reach and facing; the answer and the route decide).
 
 ## 11. Stunned and carried (modes 5 / 10; ported 2026-10-17, engine/src/ai/carried.rs)

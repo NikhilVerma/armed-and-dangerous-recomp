@@ -241,7 +241,8 @@ pub(crate) fn facing(vel: Vec3) -> Quat {
 #[allow(clippy::too_many_arguments)]
 fn dress_rockets(
     mut commands: Commands,
-    q: Query<(Entity, &Rocket), Added<Rocket>>,
+    // (a rocket captain's rockets, ai/rocket.rs, are the infantry's: not counted here)
+    q: Query<(Entity, &Rocket, Has<crate::ai::rocket::RocketHull>), Added<Rocket>>,
     mut stats: ResMut<RocketStats>,
     data: Res<crate::gamedata::GameData>,
     mut lib: ResMut<crate::scene::Library>,
@@ -249,10 +250,10 @@ fn dress_rockets(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    for (e, r) in &q {
+    for (e, r, captains) in &q {
         if r.by == Src::Player {
             stats.player_fired += 1;
-        } else {
+        } else if !captains {
             stats.fired += 1;
         }
         let Some(model) = data.templates.get(&r.template).and_then(|t| t.model.clone()) else { continue };
@@ -270,7 +271,7 @@ fn fly(
     mut commands: Commands,
     time: Res<Time>,
     physics: NonSend<Physics>,
-    mut q: Query<(Entity, &mut Rocket, &mut Transform)>,
+    mut q: Query<(Entity, &mut Rocket, &mut Transform, Has<crate::ai::rocket::RocketHull>)>,
     globals: Query<&GlobalTransform>,
     anims: Query<&crate::skin::Animator>,
     mut roman: Query<(Entity, &mut crate::player::Roman, &Transform, &mut crate::fx::Health), Without<Rocket>>,
@@ -286,7 +287,7 @@ fn fly(
         return;
     }
     let roman_at = roman.single().ok().map(|(e, r, t, _)| (e, t.translation + Vec3::Y * r.walker.lift));
-    for (e, mut r, mut t) in &mut q {
+    for (e, mut r, mut t, captains) in &mut q {
         let from = t.translation;
         // the target dropped once it is gone (Projectile_Update 0x0047e580: vt+0xd8)
         if r.target.as_ref().is_some_and(|(te, _)| globals.get(*te).is_err()) {
@@ -429,7 +430,7 @@ fn fly(
             stats.player_ended += 1;
             let target = obj.and_then(|o| objects.get(o).ok()).map(|(_, p, _, _)| p.template.clone()).unwrap_or_default();
             info!("EVENT vehicles: the player's shell ended at game ({:.0}, {:.0}, {:.0}) on {target:?}", at.x, -at.z, at.y);
-        } else {
+        } else if !captains {
             stats.ended += 1;
             if obj.is_some() && obj == roman_at.map(|(re, _)| re) {
                 stats.hit_roman += 1;

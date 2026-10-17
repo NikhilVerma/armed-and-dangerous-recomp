@@ -1155,6 +1155,30 @@ Found on the way: the movie input hold (movie.rs `release_input_hold`) only ran 
 background movie started within its two frames (the credits after lev_5_m5's end movie, when the schedule shifted)
 kept the credits page from taking input; it now runs out while no full-window movie plays.
 
+## Later levels' infantry (2026-10-17, agent-enemyai)
+
+engine/src/ai/: max_fire.rs, grenade.rs, rocket.rs, aim.rs, fall.rs, paratroop.rs, retreat.rs, notes.rs, assault.rs,
+ladder.rs, melee.rs, plus additions to jumper.rs, squad.rs, ic.rs (docs/subsystems/grunt-ai.md section 15,
+infantry.md section 10, defence.md). New behaviours sit in their own modules with their own playtest logs (max_fire,
+grenade, captain_rocket, fall, paratroop, retreat, jump_markers, script_ends, assault, ladders, melee); ai.rs's think
+only hands over (the fire state asks the shooter limit, a clip's end the close attack, the gunner's flag 1 the lead).
+A playtest step `ai_force` ("throw", "fight") forces the next roll of a behaviour so a test does not wait on luck.
+
+Tuning items (visible or likely differences from the original, not compared by capture yet):
+
+| Id | Difference | Plan |
+| --- | --- | --- |
+| EA1 | A counted shooter whose sight is lost keeps his place (the engine's fire state stays; the original re-pursues and frees it) | port the fire state's lost-sight exit, then release there |
+| EA2 | The wall assault is asked by idle army grunts once a second (the original asks at each hiding-spot search); 41 scales and 17 ladder climbs in lev_1_m4's first 240 s with Roman idle: compare the rate with the original | oracle a defence level's first minutes: over-the-wall count by time |
+| EA3 | The planted ladder plays mover_ladder_plant from the grunt's matrix plus the traced offset, its model in its rest pose; the carried ladder hangs at the grunt's origin (Object_Attach's offset not traced) | capture a ladder carrier and a planted ladder |
+| EA4 | The parachute model is drawn in its rest pose (parachute_open / _close are not played on it) and removed on landing | play its anims on a rigged copy |
+| EA5 | The close attack's "hit" damages Roman 50 each without his knock-back from the 6500 impulse, so a grunt in reach hits on every loop (8 hits in 12 s at 7 units) | the knock-back on Roman (player.rs: the weapons' side) |
+| EA6 | The takedown's approach is a straight walk (the original routes, 0x0046f6b0) and gives up after 8 s (the original never does) | nav.rs route |
+| EA7 | A knocked-away IC grunt flies at the traced impulse x 0.15 / 80 kg (40..80 / s): the ragdoll's mass model is the engine's | compare a destroyed tree's grunt |
+| EA8 | The captain's rocket is shot down inside a 2-unit sphere round it (its collision shape is not traced) | trace the description 0x100's shape |
+| EA10 | A climber still walking to his wall marker after twice the straight run plus 10 s gives it up (never offered it again); the original has no limit, but the engine's walk could not reach lev_3_m4_bd's scale 301 and held the grunt (and the army limit) for good | the walk by nav.rs routes to the marker |
+| EA9 | Paratroopers' rope anims start at the node with no rotation (the vehicle's heading not applied to the mover's origin) | the node's matrix as the origin |
+
 ## Running tests without disturbing the desktop
 
 - `--background`: the window opens off-screen, unfocused, behind everything, not in the taskbar; screenshots still

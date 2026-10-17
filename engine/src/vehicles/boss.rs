@@ -30,8 +30,8 @@
 //!
 //! Debt (docs/remaster-engine.md "Vehicles"): the colossus walks straight to its markers (the original follows a route
 //! on its grid, 0x00470aa0: plan, nav.rs routes); a hit's attacker is taken to be Roman (the engine's damage path does
-//! not carry the source yet: plan, a source on the damage record); the dropped captains appear on the ground under
-//! the zeppelin (the rappel IC anims are the infantry's: plan, IC movers for characters).
+//! not carry the source yet: plan, a source on the damage record). The dropped captains slide down their ropes and
+//! parachute to the ground (ai/paratroop.rs, ai/fall.rs).
 
 use super::gunnery::{AimError, FireCycle, Span};
 use super::mover::{Mover, MoverNote};
@@ -659,8 +659,8 @@ fn notes(
                         commands.entity(e).insert(RigidAnimNotes { anim: words[1].to_lowercase(), notes: a.notes.clone(), duration: a.duration, t: 0.0 });
                     }
                 }
-                // create_object_ic TYPE REF MOVER / create_rocket_captain_IC REF MOVER: a captain at a ref node (debt: on
-                // the ground under it, see the module doc)
+                // create_object_ic TYPE REF MOVER / create_rocket_captain_IC REF MOVER: a captain at a ref node, down his
+                // rope and his parachute (ai/paratroop.rs)
                 "create_object_ic" | "create_rocket_captain_ic" => {
                     let (template, node) = if cmd == "create_object_ic" { (words.get(1).copied().unwrap_or("captain"), words.get(2)) } else { ("captain", words.get(1)) };
                     let (Some(node), true) = (node, data.templates.contains_key(template)) else { continue };
@@ -677,9 +677,11 @@ fn notes(
                             Nodes::from_anim(&anim_lib.dir, &r.anim)?.point(node).map(|p| gt.transform_point(p))
                         })
                         .unwrap_or(gt.translation());
-                    let skip: Vec<BodyId> = pl.and_then(|p| p.collider).into_iter().collect();
-                    let feet = ground(&physics, at - Vec3::Y * 50.0, &skip).map_or(at, |y| at.with_y(y));
                     let mover = if cmd == "create_object_ic" { words.get(3) } else { words.get(2) }.map(|m| m.to_string());
+                    // at the node with a rope anim (ai/paratroop.rs: the rope, the free fall, the parachute); without
+                    // one, on the ground under it
+                    let skip: Vec<BodyId> = pl.and_then(|p| p.collider).into_iter().collect();
+                    let feet = if mover.as_deref().is_some_and(|m| anim_lib.anim(m).is_some()) { at } else { ground(&physics, at - Vec3::Y * 50.0, &skip).map_or(at, |y| at.with_y(y)) };
                     info!("EVENT vehicles: {} drops a {template} at {node} ({})", b.id, mover.as_deref().unwrap_or("no mover"));
                     let dropped = crate::level::DroppedTroop { rocket: cmd == "create_rocket_captain_ic", mover };
                     spawn.write(crate::level::SpawnGrunt { at: feet, template: template.to_owned(), dropped: Some(dropped), ..default() });

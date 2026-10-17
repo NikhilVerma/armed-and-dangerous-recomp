@@ -67,8 +67,15 @@ then Roman takes them, halved while mounted. Overrun: a grunt_regular every 45..
   device at its first draw, unexplained); about 450 at once on lev_1_m4: measure against the 4K 100 fps floor.
 - ai.rs stands at ic_* markers; army.rs takes the arrival over before the AI update by position (within 8 of the
   marker). Plan: an ai.rs message for ic_* arrivals (Marker_ProcessArrival's vt+0x248), then army.rs reacts to it.
-- Not ported: the carried ladder model (grunt_ladder, 0x004298a0), the scale-wall assault (0x00429ac0: needs
-  Game+0xc54, which no defence level sets), the failure mob on the turret (0x0049ad60: six grunts, 5 s, then failed;
+- The wall assault (2026-10-17, agent-enemyai; engine/src/ai/assault.rs, ai/ladder.rs): Game+0xc54 is the mission's
+  army_max_scale (string 0x005b1de8, MissionObject_Load game_02.cpp:2025), 40 on all five defence levels (the note
+  here that no level sets it was wrong). An idle army grunt takes a planted ladder (0x00429ce0) or a wall-scale spline
+  (0x00429ac0: tags 300..317, single markers with ic_scale_base_wall) within scan_distance while fewer than 40 are on
+  their way (World+0xf14), and goes over (army.rs's ic_* scripts, their "deactivate": ai/notes.rs, the death trigger
+  sent, no body). The carried ladder (0x004298a0 / 0x0042d650, anim 0x31 grunt_ladder_run) and the planted one
+  (mover_ladder_plant from the grunt's matrix + (0.458, 24.015, 12.894)) are drawn. Test: ladders_l1m4 (in 110 s: 8
+  ladders carried, 7 planted, 41 scales, over the wall by both). The pre-success retreat is ai/retreat.rs (0x0042db00).
+- Not ported: the failure mob on the turret (0x0049ad60: six grunts, 5 s, then failed;
   here 666 fails at once), the turret's fake mortar launchers and trolley models (0x0049abf0), the turret running
   over grunts on the wall (every third frame, 0x0049b030), the bullseye decal, the base mgun's lock-on to target-list
   candidates (min / max_non_locking): it fires at the crosshair point.

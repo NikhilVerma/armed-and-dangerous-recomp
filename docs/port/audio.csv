@@ -53,7 +53,7 @@ address,name,disposition,reason
 0x0043c7b0,fn_0043c7b0,ported,engine/src/ai.rs think (Kind::Q112): the Hurt slot
 0x0043e450,fn_0043e450,replaced,"a character's audio position (its head 'ic' bone for its own voice, else its position): the remaster's voices follow the character entity's position (the head offset is not ported)"
 0x0044d1f0,fn_0044d1f0,ported,"peasant.rs"
-0x0044ea40,fn_0044ea40,deferred,"feature: untraced; returns 127 or 128 (PlayerWeapon +0x520); no audio, no caller in the remaster"
+0x0044ea40,fn_0044ea40,ported,"engine/src/ai/close_kill.rs pair: MolmerObject vt+0x138, Jonesy's close kill 0x7f / 0x80 (not a voice slot)"
 0x0044ea50,AIVoice_JonFight,replaced,ai.rs companion_damage / companions play the same line lists on Jonesy and Q with the shared vo delay (Barks) and the per-companion short-hurt delay
 0x0044eb80,AIVoice_JonDead,replaced,ai.rs companion_damage / companions play the same line lists on Jonesy and Q with the shared vo delay (Barks) and the per-companion short-hurt delay
 0x0044ebf0,AIVoice_JonHurtShort,replaced,ai.rs companion_damage / companions play the same line lists on Jonesy and Q with the shared vo delay (Barks) and the per-companion short-hurt delay

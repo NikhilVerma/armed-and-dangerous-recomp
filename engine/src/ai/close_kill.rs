@@ -2,30 +2,31 @@
 //! (src/ai/ai_02.cpp 0x00427e80, ai_04.cpp GruntObject_Slot66 0x00434ea0 / BowGruntObject_Slot66 0x004346a0, ai_06.cpp
 //! states 0xc..0xf, ai_03.cpp 0x0042c670; reached in the original on lev_1_m3: Q's vt+0x138 and the grunt's Slot66 ran).
 //!
-//! - **The try** (0x00427e80, from the engage 0x00427910, the fire cycle's burst end 0x00428980 and the attack order
-//!   0x00484100): only a class with vt+0x1e4 (Q111Object, MolmerObject) at a target with vt+0x104 (GruntObject,
+//! - **The try** (0x00427e80, from the engage 0x00427910, a burst's or the clip's end of the fire cycle 0x00428980,
+//!   ai_02.cpp:1942 / 1986, and the attack order 0x00484100): only a class with vt+0x1e4 (Q111Object, MolmerObject) at a target with vt+0x104 (GruntObject,
 //!   BowGruntObject: not the captains, the Q112 or the monk), alive, not already in one (states 0xc..0xe), passing a
 //!   coin (rand * 100 >> 15 >= 50), nearer than 50 (2500 squared, 3D), facing each other (the headings 135 degrees or
 //!   more apart, K 0x005bcea8 / 0x005bceac), the grunt's "ref_fight_00" within 0.5 of his feet's height and a route to it
-//!   (0x0046f6b0). Then the grunt is asked (Slot66): he refuses when dead, already held, on a gun or in a trench's slot,
-//!   flying, in an IC move; else he stands still holding his aim set, state 0xf (`Mind::Held`), the companion takes him
+//!   (0x0046f6b0). Then the grunt is asked (Slot66): he refuses when dead, already held, on a gun, in a trench or a
+//!   window, flying, falling, fleeing, in an IC move or a squad; else he stands still holding his aim set, state 0xf (`Mind::Held`), the companion takes him
 //!   as his target (+0xab0) and runs to the point (state 0xc).
 //! - **The approach** (states 0xc / 0xd / 0xe): along a route to "ref_fight_00" at his run speed, then straight to
-//!   within 1 (K 0x005bcb2c), turning to face him (0x00454e60). A grunt killed meanwhile, or a companion stunned or
+//!   within 1 (K 0x005bcb2c), turning to ref_fight_00's facing, its negated y axis (0x00454e60). A grunt killed meanwhile, or a companion stunned or
 //!   killed, ends it (the grunt's state 0xf lets go when its holder leaves 0xc..0xe: back to its fight, 0x0042bc60).
 //! - **The kill** (0x0042c670 on both): each plays an IC anim from where he stands, physics off: the companion his
 //!   vt+0x1a4(vt+0x138()) (Q: ids 0x81 / 0x82, even odds, mover_q_kill_grunt_1 / _2; Jonesy: 0x7f / 0x80,
 //!   mover_molmer_kill_grunt_1 / _2), the grunt the same id of his own table (mover_grunt_qdie_1 / _2,
-//!   mover_grunt_mdie_1 / _2), the companion into state 0x32 after it, the grunt 0x65. The grunt's anim's "kill" note
-//!   kills him (an enemy killed, the score), his body left as the anim ends.
+//!   mover_grunt_mdie_1 / _2), the companion into state 0x32 after it (his reload), the grunt 0x65. The grunt's anim's
+//!   "kill" note kills him (ai/notes.rs: an enemy killed, the score), his body left in the anim's pose (ai.rs DeathAnim).
+//!   The grunts' own close attack (0x00428160) is ai/melee.rs.
 //!
-//! Guesses: the facing at the point (the original turns to the negated y axis of "ref_fight_00"; here toward the grunt,
-//! which the bone's axis points at in the pairs' anims); a route that cannot be walked ends the try after 10 s (engine
-//! guard: the original's route step fails it at once).
+//! Engine guards: the last 12 units are driven straight through the held grunt's sphere; an approach that has not
+//! arrived in 10 s gives up (the original's route step fails at once). A playtest's ai_force "fight" passes the coin;
+//! the playtest step close_kill grabs the nearest grunt without the coin, reach and facing tests.
 
 use super::{Companion, Grunt, Kind, Mind};
-use crate::fx::{FxStats, Health};
-use crate::mover::{Mover, MoverNote};
+use crate::fx::FxStats;
+use crate::mover::Mover;
 use crate::levelreset::LevelAppExt;
 use bevy::prelude::*;
 
@@ -55,6 +56,17 @@ pub struct Grab {
     pub companion: Entity,
     pub grunt: Entity,
     pub point: Vec3,
+    /// the way to face there: ref_fight_00's negated y axis (0x00427e80, flat)
+    pub facing: Vec3,
+}
+
+/// ref_fight_00 of a grunt: its point and the facing there (the negated y axis of its matrix, flat; toward the grunt
+/// when that is level).
+fn fight_point(a: &crate::skin::Animator, joints: &Query<&GlobalTransform, Without<Companion>>, grunt_at: Vec3) -> Option<(Vec3, Vec3)> {
+    let j = a.skeleton.index.get("ref_fight_00").and_then(|&i| joints.get(a.joints[i]).ok())?;
+    let point = j.translation();
+    let facing = (-Vec3::from(j.affine().matrix3.y_axis)).with_y(0.0).normalize_or((grunt_at - point).with_y(0.0).normalize_or(Vec3::Z));
+    Some((point, facing))
 }
 
 /// Debug (playtest `close_kill`): this companion grabs the live grunt or archer nearest him, without the try's coin,
@@ -62,6 +74,11 @@ pub struct Grab {
 #[derive(Message, Clone, Copy, Debug)]
 pub struct DebugGrab {
     pub q: bool,
+}
+
+#[allow(clippy::type_complexity)]
+fn ga_pos(grunts: &Query<(Entity, &Grunt, &GlobalTransform, Option<&crate::skin::Animator>)>, e: Entity) -> Vec3 {
+    grunts.get(e).map(|(_, _, gt, _)| gt.translation()).unwrap_or(Vec3::ZERO)
 }
 
 fn debug_grabs(
@@ -76,9 +93,9 @@ fn debug_grabs(
         let me = ct.translation();
         let near = grunts.iter().filter(|(_, g, ..)| grabbable(g)).min_by(|x, y| x.2.translation().distance(me).total_cmp(&y.2.translation().distance(me)));
         let Some((ge, _, _, Some(ga))) = near else { continue };
-        let Some(point) = ga.skeleton.index.get("ref_fight_00").and_then(|&i| joints.get(ga.joints[i]).ok()).map(|j| j.translation()) else { continue };
+        let Some((point, facing)) = fight_point(ga, &joints, ga_pos(&grunts, ge)) else { continue };
         info!("EVENT playtest: {} grabs the nearest grunt {ge:?}", if a.q { "Q" } else { "Jonesy" });
-        out.write(Grab { companion: ce, grunt: ge, point });
+        out.write(Grab { companion: ce, grunt: ge, point, facing });
     }
 }
 
@@ -94,8 +111,8 @@ pub struct Killing {
 
 #[derive(Debug, PartialEq)]
 enum Phase {
-    /// states 0xc..0xe: to the fight point
-    Approach { point: Vec3, route: Vec<Vec3> },
+    /// states 0xc..0xe: to the fight point, then turned to its facing
+    Approach { point: Vec3, facing: Vec3, route: Vec<Vec3> },
     /// both IC anims playing
     Kill,
 }
@@ -109,6 +126,8 @@ pub struct Victim {
 /// The playtest log's counts.
 #[derive(Resource, Default)]
 pub struct CloseKills {
+    /// grabs asked of a grunt (the tries that passed the companion's own tests)
+    pub tries: u32,
     pub grabbed: u32,
     pub started: u32,
     pub kills: u32,
@@ -122,7 +141,7 @@ impl Plugin for CloseKillPlugin {
         app.add_message::<Grab>()
             .add_message::<DebugGrab>()
             .init_level_resource::<CloseKills>()
-            .add_systems(Update, (debug_grabs, grab, approach, kill, orphans, log).chain().run_if(crate::playing));
+            .add_systems(Update, (debug_grabs, grab, approach, kill, count_kills, orphans, log).chain().run_if(crate::playing));
     }
 }
 
@@ -139,9 +158,10 @@ pub fn pair(q: bool, r: f32) -> (&'static str, &'static str) {
 /// Whether a grunt can be grabbed now (GruntObject_Slot66's refusals, as the engine models the states).
 fn grabbable(g: &Grunt) -> bool {
     matches!(g.kind, Kind::Grunt | Kind::Bow)
-        && !matches!(g.mind, Mind::Dead | Mind::Scripted | Mind::Held | Mind::Jump | Mind::Gunner | Mind::InSquad)
+        && !matches!(g.mind, Mind::Dead | Mind::Scripted | Mind::Held | Mind::Falling | Mind::Jump | Mind::Cover | Mind::Gunner | Mind::Flee | Mind::InSquad)
         && g.gun.is_none()
         && g.cover.is_none()
+        && !g.window
         && g.fixed.is_none()
 }
 
@@ -152,7 +172,7 @@ pub fn facing_each_other(yaw_a: f32, yaw_b: f32) -> bool {
 }
 
 /// 0x00427e80's tests for a companion `c` (entity `me_e` at `me`) at his target, up to the grunt's answer; None when
-/// any fails. Uses one rand (the coin) once the target qualifies.
+/// any fails. Uses one rand (the coin) once the target qualifies; a playtest's `ai_force: "fight"` passes the coin.
 #[allow(clippy::type_complexity)]
 pub fn attempt(
     c: &Companion,
@@ -161,23 +181,32 @@ pub fn attempt(
     grunts: &Query<(Entity, &Grunt, &GlobalTransform, Option<&crate::skin::Animator>)>,
     joints: &Query<&GlobalTransform, Without<Companion>>,
     rng: &mut FxStats,
+    force: &mut super::AiForce,
 ) -> Option<Grab> {
     let t = c.target()?;
     let (_, g, gt, ga) = grunts.get(t).ok()?;
+    if std::env::var("AIDBG").is_ok() {
+        info!("AIDBG close kill try: {me_e:?} at {t:?} ({:?}, {:?})", g.kind, g.mind);
+    }
     if !grabbable(g) {
         return None;
     }
     // (rand * 100) >> 15 < 50: no
-    if rng.rand() < 0.5 {
+    if !(force.take("fight") || rng.rand() >= 0.5) {
         return None;
     }
     let gp = gt.translation();
     if me.distance_squared(gp) >= REACH * REACH || !facing_each_other(c.yaw, g.yaw) {
+        if std::env::var("AIDBG").is_ok() {
+            info!("AIDBG close kill: {me_e:?} out of reach of {t:?}: {:.0} apart, yaws {:.0} / {:.0}", me.distance(gp), c.yaw.to_degrees(), g.yaw.to_degrees());
+        }
         return None;
     }
-    let a = ga?;
-    let point = a.skeleton.index.get("ref_fight_00").and_then(|&i| joints.get(a.joints[i]).ok()).map(|j| j.translation())?;
-    ((point.y - gp.y).abs() <= HEIGHT).then_some(Grab { companion: me_e, grunt: t, point })
+    let (point, facing) = fight_point(ga?, joints, gp)?;
+    if std::env::var("AIDBG").is_ok() {
+        info!("AIDBG close kill: {me_e:?} at {t:?}: ref_fight_00 {:.1} off his height", point.y - gp.y);
+    }
+    ((point.y - gp.y).abs() <= HEIGHT).then_some(Grab { companion: me_e, grunt: t, point, facing })
 }
 
 /// The grunt's answer (Slot66) and the start of the approach; also the debug grab of a playtest (`force`).
@@ -191,9 +220,15 @@ fn grab(
     mut rng: ResMut<FxStats>,
     mut stats: ResMut<CloseKills>,
 ) {
+    // (one grab per companion and per grunt: the components below land after this system)
+    let mut taken: Vec<Entity> = Vec::new();
     for gr in grabs.read() {
+        if taken.contains(&gr.companion) || taken.contains(&gr.grunt) {
+            continue;
+        }
         let Ok((mut c, t)) = companions.get_mut(gr.companion) else { continue };
         let Ok(mut g) = grunts.get_mut(gr.grunt) else { continue };
+        stats.tries += 1;
         if c.dead.is_some() || !grabbable(&g) {
             info!("EVENT companions: grunt {:?} refuses the grab ({:?})", gr.grunt, g.mind);
             continue;
@@ -215,7 +250,8 @@ fn grab(
         c.moving = true;
         c.firing = false;
         commands.entity(gr.grunt).insert(Victim { by: gr.companion });
-        commands.entity(gr.companion).insert(Killing { grunt: gr.grunt, phase: Phase::Approach { point: gr.point, route }, anims, t: 0.0 });
+        commands.entity(gr.companion).insert(Killing { grunt: gr.grunt, phase: Phase::Approach { point: gr.point, facing: gr.facing, route }, anims, t: 0.0 });
+        taken.extend([gr.companion, gr.grunt]);
         stats.grabbed += 1;
         info!("EVENT companions: {} grabs grunt {:?} ({})", if c.q { "Q" } else { "Jonesy" }, gr.grunt, anims.0);
     }
@@ -256,8 +292,8 @@ fn approach(
         g.walking = false;
         let gp = gt.translation;
         let me = t.translation;
-        let Phase::Approach { point, route } = &mut kl.phase else { continue };
-        let point = *point;
+        let Phase::Approach { point, facing, route } = &mut kl.phase else { continue };
+        let (point, facing) = (*point, *facing);
         while route.first().is_some_and(|w| (*w - me).with_y(0.0).length() < WAYPOINT) {
             route.remove(0);
         }
@@ -279,10 +315,9 @@ fn approach(
             }
             continue;
         }
-        // at the point: turn to the grunt, then the pair's IC anims from where each stands
+        // at the point: turned to ref_fight_00's facing (0x00454e60), then the pair's IC anims from where each stands
         c.moving = false;
-        let face = (gp - me).with_y(0.0).normalize_or_zero();
-        let want = face.x.atan2(face.z);
+        let want = facing.x.atan2(facing.z);
         let d = (want - c.yaw + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
         let step = TURN_RATE.to_radians() * dt;
         c.yaw += d.clamp(-step, step);
@@ -326,14 +361,11 @@ fn release(commands: &mut Commands, companion: Entity, grunt: Entity, g: &mut Op
 #[allow(clippy::type_complexity)]
 fn kill(
     mut commands: Commands,
-    mut notes: MessageReader<MoverNote>,
     mut physics: NonSendMut<crate::physics::Physics>,
     mut q: Query<(Entity, &Killing, &mut Companion, &Transform, Option<&Mover>, Option<&mut crate::skin::Animator>), Without<Grunt>>,
-    mut grunts: Query<(&mut Grunt, &Transform, Option<&crate::physics::Body>, &mut Health, Option<&Mover>, Option<&mut crate::skin::Animator>), (Without<Companion>, With<Victim>)>,
-    mut stats: ResMut<CloseKills>,
+    mut grunts: Query<(&mut Grunt, &Transform, Option<&crate::physics::Body>, Option<&Mover>, Option<&mut crate::skin::Animator>), (Without<Companion>, With<Victim>)>,
 ) {
     let k = physics.meters_per_unit;
-    let killed: Vec<Entity> = notes.read().filter(|n| n.text.split_whitespace().next().is_some_and(|w| w.eq_ignore_ascii_case("kill"))).map(|n| n.entity).collect();
     for (e, kl, mut c, t, mover, animator) in &mut q {
         if kl.phase != Phase::Kill {
             continue;
@@ -350,7 +382,7 @@ fn kill(
         if let (Some(m), Some(mut a)) = (mover, animator) {
             play_at(&mut a, m);
         }
-        if let Ok((mut g, gt, body, mut h, gm, ga)) = grunts.get_mut(grunt) {
+        if let Ok((g, gt, body, gm, ga)) = grunts.get_mut(grunt) {
             if let (Some(b), true) = (body, g.mind != Mind::Dead) {
                 if let Ok(mut rb) = physics.world.body_mut(b.id) {
                     let _ = rb.set_position(crate::physics::jr((gt.translation + b.offset) * k), oxijolt::prelude::Activation::Activate);
@@ -362,21 +394,12 @@ fn kill(
                     play_at(&mut a, m);
                 }
             }
-            if killed.contains(&grunt) && h.0 > 0.0 {
-                // the "kill" note: dead where the anim leaves him (ai.rs DeathAnim: no ragdoll, no other death anim)
-                h.0 = 0.0;
-                g.last_health = 0.0;
-                g.last_hit = 0.0;
-                g.attacker = Some(e);
-                commands.entity(grunt).insert(super::DeathAnim(kl.anims.1));
-                stats.kills += 1;
-                info!("EVENT companions: grunt {grunt:?} killed by {}", if c.q { "Q" } else { "Jonesy" });
-            }
         }
         if mover.is_none_or(|m| m.ended) {
-            // state 0x32 after the IC anim: he stands where it left him, back to his update (his target dead: the
-            // fight's end, ai.rs)
+            // state 0x32 after the IC anim (its end 0x0042c0e0): his reload where it left him, then back to his update
+            // (his target dead: the fight's end, ai.rs)
             c.ic = false;
+            c.reloading = if c.q { 1.967 } else { 3.467 };
             c.yaw = super::ic::yaw_of(t.rotation);
             physics.place_walker(&c.walker, t.translation);
             commands.entity(e).remove::<(Killing, Mover)>();
@@ -388,6 +411,17 @@ fn kill(
                     commands.entity(grunt).remove::<(Mover, super::DeathAnim)>();
                 }
             }
+        }
+    }
+}
+
+/// The grunt's anim's "kill" note (ai/notes.rs `ScriptEnd`: his death, the anim's last pose kept by ai.rs `DeathAnim`):
+/// counted here.
+fn count_kills(mut ends: MessageReader<super::notes::ScriptEnd>, victims: Query<&Victim>, mut stats: ResMut<CloseKills>) {
+    for e in ends.read() {
+        if e.kill && victims.contains(e.entity) {
+            stats.kills += 1;
+            info!("EVENT companions: grunt {:?} killed by {:?} hand to hand", e.entity, victims.get(e.entity).map(|v| v.by).ok());
         }
     }
 }

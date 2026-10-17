@@ -1,0 +1,16 @@
+{"scene": "lev_2_m1", "steps": [
+ {"wait": 1.0},
+ {"tap": "Escape"},
+ {"until": "message"},
+ {"wait": 0.5},
+ {"tap": "Enter"},
+ {"wait": 3.5},
+ {"tap": "Enter"},
+ {"wait": 1.0},
+ {"cheat": "SHIELDME"},
+ {"expect": {"vehicles.255.phase": "waiting", "paratroop.dropped": 0}},
+ {"send": 1900},
+ {"wait": 60.0},
+ {"expect": {"paratroop.dropped": [4, 12], "paratroop.freefalls": [4, 12], "fall.chutes": [4, 12], "fall.landings": [4, 12]}},
+ {"quit": true}
+]}

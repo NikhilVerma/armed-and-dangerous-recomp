@@ -98,6 +98,7 @@ pub fn dismay_speaker(line: &'static str, cast: &Cast) -> Option<Said> {
 
 /// The tossed peasant's speaker test 0x0040d250: as the dismay's, and JON50172_Dismay / Q1150162_Dismay only while the
 /// level's list +0xf04 is not empty (`listed`: which list that is was not traced).
+#[allow(dead_code)] // its caller, a building's toss_peasants, is feature peasants
 pub fn tossed_speaker(line: &'static str, cast: &Cast, listed: bool) -> Option<Said> {
     let said = companion_or_roman(line, cast)?;
     let exclusive = match said.speaker {
@@ -212,6 +213,7 @@ impl LineBag {
 #[derive(Resource)]
 pub struct Bags {
     pub dismay: LineBag,
+    #[allow(dead_code)] // (feature peasants)
     pub tossed: LineBag,
     pub idle: LineBag,
 }
