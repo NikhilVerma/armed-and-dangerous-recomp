@@ -461,10 +461,6 @@ pub(crate) fn attach_model(commands: &mut Commands, e: Entity, model: &scene::Mo
     (model.parts.len(), model.triangles, hand)
 }
 
-/// A weapon model in a character's hand: its ref_hand_00 bone is at the weapon's origin, so the model hangs
-/// straight off the hand joint. The original's attachment (Object_Attach 0x004539f0: parent +0x34 referenced, the
-/// parent and child bone names, flags +0x424 bits 1 / 2; Object_Detach 0x00453b20; Object_GetParent 0x004539d0) is
-/// the Bevy hierarchy here (a child entity under the bone's joint; 0x004539e0 "has a parent" is ChildOf).
 /// A held model in its rest pose under the hand: a skinned one (the Topsy Turvy bomb, the launchers) is drawn as
 /// authored, its joint attributes dropped.
 fn attach_rest_pose(commands: &mut Commands, hand: Entity, parts: &[(Handle<Mesh>, Handle<StandardMaterial>)], meshes: &mut Assets<Mesh>) -> Entity {
@@ -479,6 +475,10 @@ fn attach_rest_pose(commands: &mut Commands, hand: Entity, parts: &[(Handle<Mesh
     held
 }
 
+/// A weapon model in a character's hand: its ref_hand_00 bone is at the weapon's origin, so the model hangs
+/// straight off the hand joint. The original's attachment (Object_Attach 0x004539f0: parent +0x34 referenced, the
+/// parent and child bone names, flags +0x424 bits 1 / 2; Object_Detach 0x00453b20; Object_GetParent 0x004539d0) is
+/// the Bevy hierarchy here (a child entity under the bone's joint; 0x004539e0 "has a parent" is ChildOf).
 fn attach_weapon(commands: &mut Commands, hand: Entity, model: &scene::Model, fix: Transform) -> Entity {
     let holder = commands.spawn((Transform::IDENTITY, Visibility::default())).id();
     commands.entity(hand).add_child(holder);

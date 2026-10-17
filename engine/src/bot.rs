@@ -20,6 +20,8 @@ use bevy::prelude::*;
 pub struct Bot {
     pub goto: Option<Vec3>,
     pub fight: bool,
+    /// keep the crosshair on this point (engine space; the playtest's "look_at"), whatever else the bot does
+    pub look_at: Option<Vec3>,
     /// shoot this placed object (instance id) until it is destroyed: a barracks, a house, a gate (the playtest's
     /// "shoot" order; it takes the place of the grunt targets while it lasts)
     pub shoot: Option<u32>,
@@ -333,6 +335,9 @@ pub fn think(
         return;
     }
     let me = t.translation;
+    if let Some(p) = bot.look_at {
+        bot.aim = Some(rig.look_at(me, p));
+    }
     // debug: NAVMAP=<cells> prints the planner's map round Roman once per goal (nav.rs ascii_map)
     if bot.goto.is_some() && bot.planned_for != bot.goto {
         if let Some(n) = std::env::var("NAVMAP").ok().and_then(|v| v.parse().ok()) {

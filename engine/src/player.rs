@@ -315,18 +315,18 @@ const BODY_PARTS: [&str; 16] = ["head", "neck", "chest", "belly", "center", "l_s
 /// velocity "speed" x 3 along the direction: Projectile_Load 0x0047e0c0, GetSpeed 0x0047e360), the start effect
 /// 0x0047ee30 (fx_start following it). No physics body: the collision description 0x0047e320 is replaced by the
 /// per-frame ray (projectiles).
-pub fn spawn_projectile(commands: &mut Commands, fx: &mut MessageWriter<crate::fx::StartFx>, p: &Props, from: Vec3, dir: Vec3, from_player: bool, owner: Option<Entity>) {
+pub fn spawn_projectile(commands: &mut Commands, fx: &mut MessageWriter<crate::fx::StartFx>, p: &Props, from: Vec3, dir: Vec3, from_player: bool, owner: Option<Entity>) -> Entity {
     let speed = p.f("speed", 300.0) * 3.0;
-    launch_projectile(commands, fx, p, from, dir * speed, from_player, owner);
+    launch_projectile(commands, fx, p, from, dir * speed, from_player, owner)
 }
 
 /// A projectile toward a target point (0x0047de40 with its target). The arrows' launch differs (ArrowProjectile
 /// 0x00482510): the flight time T = 3 sqrt(|d|) / speed (speed x 3 from Projectile_Load), the velocity d / T with the
 /// vertical part raised by T x 64.348 / 2, so it lands on the point under gravity; the others fly straight.
-pub fn spawn_projectile_to(commands: &mut Commands, fx: &mut MessageWriter<crate::fx::StartFx>, p: &Props, from: Vec3, target: Vec3, from_player: bool, owner: Option<Entity>) {
+pub fn spawn_projectile_to(commands: &mut Commands, fx: &mut MessageWriter<crate::fx::StartFx>, p: &Props, from: Vec3, target: Vec3, from_player: bool, owner: Option<Entity>) -> Entity {
     let speed = p.f("speed", 300.0) * 3.0;
     let vel = if p.s("behavior") == Some("proj_arrow") { arrow_velocity(from, target, speed) } else { (target - from).normalize_or(Vec3::Z) * speed };
-    launch_projectile(commands, fx, p, from, vel, from_player, owner);
+    launch_projectile(commands, fx, p, from, vel, from_player, owner)
 }
 
 /// The arrow's launch velocity (0x00482510), engine axes (Y up).
@@ -339,7 +339,7 @@ pub fn arrow_velocity(from: Vec3, target: Vec3, speed: f32) -> Vec3 {
     d / t + Vec3::Y * (t * 64.348 * 0.5)
 }
 
-fn launch_projectile(commands: &mut Commands, fx: &mut MessageWriter<crate::fx::StartFx>, p: &Props, from: Vec3, vel: Vec3, from_player: bool, owner: Option<Entity>) {
+fn launch_projectile(commands: &mut Commands, fx: &mut MessageWriter<crate::fx::StartFx>, p: &Props, from: Vec3, vel: Vec3, from_player: bool, owner: Option<Entity>) -> Entity {
     let dir = vel.normalize_or(Vec3::Z);
     let e = commands
         .spawn((
@@ -367,6 +367,7 @@ fn launch_projectile(commands: &mut Commands, fx: &mut MessageWriter<crate::fx::
     if let Some(name) = p.s("fx_start") {
         fx.write(crate::fx::StartFx { name: name.to_owned(), at: from, rotation: Quat::IDENTITY, follow: Some(e), position_only: false });
     }
+    e
 }
 
 /// The third-person camera (camera.rs).
@@ -1708,11 +1709,61 @@ fn fall_and_land(r: &mut Roman, t: &Transform, h: &mut Health, vy: f32, jumped: 
 /// Projectiles: one ray per frame along the path; damage on the first body hit (characters' Health, objects'
 /// Destructible), a tracer line for the path.
 #[allow(clippy::too_many_arguments)]
+/// A projectile's direct hit on a character (Projectile_ApplyHitDamage 0x0047eec0): the part hit (the hit part's bone
+/// "head" / "neck" -> head_shot_multiplier, "chest" / "belly" -> torso_shot_multiplier; without collision parts, the
+/// skeleton bone nearest the hit point), the damage (a class's bullet share: the Q112's bullet_scale), the counts (hits,
+/// head shots, kills), the damage message's source offered as a target (+0x2c). Returns whether it killed.
+#[allow(clippy::too_many_arguments)]
+fn strike(p: &Projectile, ce: Entity, h: &mut Health, anim: Option<&crate::skin::Animator>, grunt: bool, at: Vec3, hull_part: Option<String>, joints: &Query<&GlobalTransform>, stats: &mut PlayerStats, victims: &mut Query<&mut crate::ai::Grunt>, by_roman: bool) -> bool {
+    let was_alive = h.0 > 0.0;
+    let part = hull_part.or_else(|| {
+        anim.and_then(|a| {
+            a.skeleton
+                .names
+                .iter()
+                .enumerate()
+                // the body's main bones (helpers such as ref_*, camera targets and fingers are not parts)
+                .filter(|(_, n)| BODY_PARTS.contains(&n.trim().to_lowercase().as_str()))
+                .filter_map(|(i, n)| joints.get(a.joints[i]).ok().map(|j| (n.trim().to_lowercase(), j.translation().distance(at))))
+                .min_by(|x, y| x.1.total_cmp(&y.1))
+                .map(|(n, _)| n)
+        })
+    });
+    let mult = match part.as_deref() {
+        Some("head" | "neck") => p.head_mult,
+        Some("chest" | "belly") => p.torso_mult,
+        _ => 1.0,
+    };
+    if p.from_player && mult > 1.0 && matches!(part.as_deref(), Some("head" | "neck")) {
+        stats.head_shots += 1;
+    }
+    h.0 -= p.damage * mult * victims.get(ce).map_or(1.0, |g| g.bullet_scale);
+    if p.from_player && grunt && by_roman {
+        stats.hits += 1;
+    }
+    if let Ok(mut g) = victims.get_mut(ce) {
+        // the damage message's source (+0x2c): the shooter, offered to the grunt as a target (ai.rs think)
+        if let Some(o) = p.owner {
+            g.attacker = Some(o);
+        }
+        // a bullet's record has no 0x80 (allow_cartoon_death 0, p_player_rifle_bullet)
+        g.cartoon = false;
+    }
+    if std::env::var("AIDBG").is_ok() {
+        info!("AIDBG hit {ce:?} for {} -> {} part {:?}", p.damage * mult, h.0, part);
+    }
+    let killed = was_alive && h.0 <= 0.0;
+    if p.from_player && killed {
+        stats.kills += 1;
+    }
+    killed
+}
+
 fn projectiles(
     mut commands: Commands,
     time: Res<Time>,
     physics: NonSend<Physics>,
-    mut q: Query<(Entity, &mut Projectile, &mut Transform)>,
+    mut q: Query<(Entity, &mut Projectile, &mut Transform, Option<&mut crate::weapons::sniper::Pierce>)>,
     mut chars: Query<(Entity, &crate::physics::Body, &mut Health, Option<&crate::skin::Animator>, Has<crate::ai::Grunt>), Without<Projectile>>,
     joints: Query<&GlobalTransform>,
     mut objects: Query<(&crate::level::Placed, &mut Destructible, Option<&crate::vehicles::boss::BulletScale>)>,
@@ -1723,11 +1774,11 @@ fn projectiles(
     mut surface_fx: MessageWriter<crate::surface::StartSurfaceFx>,
     hulls: Option<Res<crate::hitparts::HitHulls>>,
     (rtime, topsy, mounted, mut noise, mut bombs, mut rng, mut sounds): (Res<Time<Real>>, Res<crate::topsy::Topsy>, Res<crate::turret::Mounted>, ResMut<crate::ai::Interests>, Query<(&Transform, &mut crate::sticky::StickyBomb), Without<Projectile>>, ResMut<crate::fx::FxStats>, MessageWriter<crate::audio::PlaySound>),
-    binds: Res<Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>,
     mut victims: Query<&mut crate::ai::Grunt>,
+    (mut pickups, traitors, binds, mut wstats): (MessageWriter<crate::pickup::SpawnPickup>, Query<(), With<crate::weapons::traitor::Traitor>>, Res<Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>, ResMut<crate::weapons::WeaponStats>),
 ) {
     let dt = time.delta_secs();
-    for (e, mut p, mut t) in &mut q {
+    for (e, mut p, mut t, mut pierce) in &mut q {
         // an arrow falls (its physics body under the world's gravity) and passes Roman with a sound once
         if p.arrow {
             p.vel.y -= 64.348 * dt;
@@ -1747,6 +1798,43 @@ fn projectiles(
         // the noise of a player's shot (0x00404810; ai.rs Interests): its path and its end point
         noise.track(e, from + step, p.owner);
         let mut hit = physics.raycast_bullet(from, step.normalize_or(Vec3::Y), step.length().max(0.01));
+        // the sniper's bullet pierces the grunts (SniperGunBullet's hit 0x0047f2a0, weapons/sniper.rs): the ones on this
+        // step's path before whatever else stops it, each once, nearest first; the step's hit is then the first thing
+        // past their capsules
+        if let Some(pc) = pierce.as_deref_mut() {
+            let dir = step.normalize_or(Vec3::Y);
+            let len = step.length().max(0.01);
+            let grunt_bodies: std::collections::HashSet<BodyId> = chars.iter().filter(|c| c.4).map(|c| c.1.id).collect();
+            hit = crate::weapons::sniper::ray_past(&physics, from, dir, len, |b| grunt_bodies.contains(&b));
+            let reach = hit.map_or(len, |(_, at, _)| at.distance(from));
+            let to = from + dir * reach;
+            let mut struck: Vec<(f32, Entity, Option<String>)> = Vec::new();
+            for (ce, _, _, a, grunt) in chars.iter() {
+                if !grunt || Some(ce) == p.owner || pc.hit.contains(&ce) {
+                    continue;
+                }
+                let Some(a) = a else { continue };
+                let found = match hulls.as_ref().filter(|h| !h.grunt.is_empty()) {
+                    Some(h) => crate::hitparts::hit(&h.grunt, a, &joints, &binds, from, to).map(|(f, part)| (f, Some(part))),
+                    None => ray_hits_parts(a, &joints, from, to - from).then_some((0.5, None)),
+                };
+                if let Some((f, part)) = found {
+                    struck.push((f, ce, part));
+                }
+            }
+            struck.sort_by(|a, b| a.0.total_cmp(&b.0));
+            for (f, ce, part) in struck {
+                if let Ok((_, _, mut h, anim, _)) = chars.get_mut(ce) {
+                    let at = from + (to - from) * f;
+                    if let Some(fx) = p.fx_end.clone() {
+                        surface_fx.write(crate::surface::StartSurfaceFx { fx: crate::fx::StartFx { name: fx, at, rotation: Quat::IDENTITY, follow: None, position_only: false }, surface: crate::surface::Surface::of_property("grunt") });
+                    }
+                    strike(&p, ce, &mut h, anim, true, at, part, &joints, &mut stats, &mut victims, p.owner.is_some_and(|o| roman.contains(o)));
+                    pc.hit.push(ce);
+                    pc.count += 1;
+                }
+            }
+        }
         // sticky bombs are in the bullets' list (+0xe90, 0x00481320): one on the path before the first other hit takes
         // the damage and goes off at once (0x00481b90: a direct hit's record has no area flag); the bullet ends there
         let reach = hit.map_or(step.length(), |(_, at, _)| at.distance(from));
@@ -1926,53 +2014,13 @@ fn projectiles(
             }
             if let Some((ce, _, mut h, anim, grunt)) = chars.iter_mut().find(|(ce, b, _, _, _)| b.id == body && Some(*ce) != p.owner) {
                 // same team (0x00430340: the source's and the victim's vt+0xe4 agree): a grunt's shot does no damage
-                // to a grunt (the engine's earlier grunts killed each other with stray arrows)
-                if grunt && !p.from_player {
+                // to a grunt (the engine's earlier grunts killed each other with stray arrows) of his side (a Guy
+                // Fawkes traitor is on the other: weapons/traitor.rs)
+                if grunt && !p.from_player && traitors.contains(ce) == p.owner.is_some_and(|o| traitors.contains(o)) {
                     commands.entity(e).despawn();
                     continue;
                 }
-                let was_alive = h.0 > 0.0;
-                // the part hit (0x0047eec0: the hit part's bone "head" / "neck" -> head_shot_multiplier, "chest" /
-                // "belly" -> torso_shot_multiplier). The engine's characters collide as one capsule: the part is
-                // taken as the skeleton bone nearest the hit point (approximation of the original's per-part hulls)
-                let part = hull_part.clone().or_else(|| anim.and_then(|a| {
-                    a.skeleton
-                        .names
-                        .iter()
-                        .enumerate()
-                        // the body's main bones (helpers such as ref_*, camera targets and fingers are not parts)
-                        .filter(|(_, n)| BODY_PARTS.contains(&n.trim().to_lowercase().as_str()))
-                        .filter_map(|(i, n)| joints.get(a.joints[i]).ok().map(|j| (n.trim().to_lowercase(), j.translation().distance(at))))
-                        .min_by(|x, y| x.1.total_cmp(&y.1))
-                        .map(|(n, _)| n)
-                }));
-                let mult = match part.as_deref() {
-                    Some("head" | "neck") => p.head_mult,
-                    Some("chest" | "belly") => p.torso_mult,
-                    _ => 1.0,
-                };
-                if p.from_player && mult > 1.0 && matches!(part.as_deref(), Some("head" | "neck")) {
-                    stats.head_shots += 1;
-                }
-                // (a class's bullet share: the Q112's bullet_scale, ai.rs)
-                h.0 -= p.damage * mult * victims.get(ce).map_or(1.0, |g| g.bullet_scale);
-                if p.from_player && grunt && p.owner.is_some_and(|o| roman.contains(o)) {
-                    stats.hits += 1;
-                }
-                // the damage message's source (+0x2c): the shooter, offered to the grunt as a target (ai.rs think)
-                if let (Some(o), Ok(mut g)) = (p.owner, victims.get_mut(ce)) {
-                    g.attacker = Some(o);
-                }
-                // a bullet's record has no 0x80 (allow_cartoon_death 0, p_player_rifle_bullet)
-                if let Ok(mut g) = victims.get_mut(ce) {
-                    g.cartoon = false;
-                }
-                if std::env::var("AIDBG").is_ok() {
-                    info!("AIDBG hit {:?} for {} -> {} part {:?}", body, p.damage * mult, h.0, part);
-                }
-                if p.from_player && was_alive && h.0 <= 0.0 {
-                    stats.kills += 1;
-                }
+                strike(&p, ce, &mut h, anim, grunt, at, hull_part.clone(), &joints, &mut stats, &mut victims, p.owner.is_some_and(|o| roman.contains(o)));
             } else if let Some((_, mut d, scale)) = objects.iter_mut().find(|(pl, _, _)| pl.collider == Some(body)) {
                 // a direct hit (not a blast): kills exploding props at once (FxExplosion_Die, non-chain record); the
                 // object's damage filter first (the record's source: the shooter, Projectile_ApplyHitDamage 0x0047eec0)
@@ -1993,6 +2041,16 @@ fn projectiles(
                 if d.take_damage(amount) && d.dying.is_none() {
                     d.chain_delay = 0.0;
                     d.dying = Some(0.0);
+                }
+            }
+            // a piercing bullet stopped: its reward for the characters it went through (weapons/sniper.rs)
+            if let (Some(pc), Ok((_, r, rt, _))) = (pierce.as_deref(), roman.single()) {
+                wstats.pierced = wstats.pierced.max(pc.count);
+                if let Some(name) = crate::weapons::sniper::reward(pc.count) {
+                    wstats.health_drops += 1;
+                    let facing = Quat::from_rotation_y(r.yaw) * Vec3::NEG_Z;
+                    pickups.write(crate::pickup::SpawnPickup { name: name.into(), at: rt.translation + facing * 15.0 + Vec3::Y * 4.0, vel: Vec3::ZERO, hover: false });
+                    info!("EVENT sniper: the bullet went through {} characters: {name}", pc.count);
                 }
             }
             commands.entity(e).despawn();

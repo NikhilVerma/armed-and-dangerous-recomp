@@ -446,6 +446,9 @@ fn input(
         // Select on a pub slot holding a weapon Roman lacks: into his first free weapon slot (ui_pub_pickup); a click
         // must be on a slot (remaster: a click elsewhere takes nothing)
         let take = select && !s.on_exit && (!click || pointed.is_some());
+        if std::env::var("PUBDBG").is_ok() && (select || back || link.is_some()) {
+            info!("PUBDBG select {select} back {back} link {link:?} click {click} cursor {:?} carried {:?}", s.cursor, s.carried);
+        }
         if take {
             if let Ok(mut r) = roman.single_mut() {
                 match (s.cursor, s.carried) {
