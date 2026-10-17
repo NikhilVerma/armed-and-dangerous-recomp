@@ -997,6 +997,8 @@ pub struct AiPlugin;
 pub struct KillMeter {
     pub meter: f32,
     pub cooldown: f32,
+    /// lines said (the playtest log's dismay.lines)
+    pub lines: u32,
 }
 
 fn dismay(
@@ -1005,7 +1007,7 @@ fn dismay(
     mut rng: ResMut<FxStats>,
     mut companions: Query<(&mut Companion, &Transform, Option<&Health>)>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
-    (mut bags, voices): (ResMut<dialogue::Bags>, crate::audio::PlayingVoices),
+    (mut bags, voices, log): (ResMut<dialogue::Bags>, crate::audio::PlayingVoices, Option<ResMut<crate::playtest::PlayState>>),
 ) {
     let dt = time.delta_secs();
     km.cooldown -= dt;
@@ -1020,6 +1022,10 @@ fn dismay(
         let cast = dialogue::Cast { roman_alive: true, jonesy: present(false), q: present(true), ..default() };
         if let Some((_, said)) = bags.dismay.pick(|| rng.rand(), |l| dialogue::dismay_speaker(l, &cast)) {
             say(said, &mut companions, &voices, &mut sounds);
+            km.lines += 1;
+            if let Some(mut log) = log {
+                log.0.insert("dismay".into(), serde_json::json!({"lines": km.lines, "speaker": format!("{:?}", said.speaker).to_lowercase(), "line": said.line}));
+            }
         }
     }
     km.meter = (km.meter - dt * 0.5).max(0.0);

@@ -46,6 +46,11 @@ SUITE = ['save_write', 'save_read', 'topsyhit2', 'turn_in_place', 'turret1', 'de
 SUITE += ['complete_lev_4_m3', 'complete_lev_5_m1', 'complete_lev_5_m3', 'complete_lev_5_m4', 'complete_lev_bonus_m1', 'complete_lev_bonus_m3', 'complete_lev_4_m5', 'complete_lev_5_m5', 'complete_lev_bonus_m2', 'companion_death_fail', 'complete_lev_4_m1', 'complete_lev_5_m2', 'complete_lev_4_m2']
 # 'complete_<level>' for levels 1 to 3 (agent-complete-a; status table in docs/journal/2026-10-16-complete-a.md)
 SUITE += ['complete_lev_1_m1', 'complete_lev_1_m1_b', 'gun_save_write', 'gun_save_read', 'complete_lev_1_m3', 'complete_lev_1_m4', 'complete_lev_3_m3', 'mg_muzzle_fx', 'complete_lev_2_m3', 'complete_lev_2_m2', 'complete_lev_2_m4', 'complete_lev_3_m2', 'complete_lev_3_m4_bd', 'complete_lev_2_m1', 'complete_lev_3_m1']
+# the companions (ai.rs, ai/carried.rs, ai/close_kill.rs, ai/dialogue.rs; docs/subsystems/companions.md): the Topsy
+# bomb's stun and a pull (modes 5 / 10), a close kill (paired IC anims, the grunt dead by its "kill" note), the end of a
+# fight (mode 3), the leader swap on Roman's turns, the last-shot stamps holding the idle banter back, the kill meter's
+# dismay by the speaker test; the Q112's swing, eye loop and Fight line (ai/q112.rs, lev_2_m2)
+SUITE += ['companion_carried', 'companion_close_kill', 'companion_engage_exit', 'companion_leader_swap', 'companion_idle_cue', 'dialogue_dismay', 'q112_extras']
 # the dead's bodies (corpses.rs): lev_1_m4's army killed two a second; the Original's timers (bodies gone, at most four
 # ragdolls, entities and physics bodies not growing) and the Remaster's 48 bodies with settled ragdolls
 SUITE += ['corpses_l1m4', 'corpses_l1m4_remaster']
