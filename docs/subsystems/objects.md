@@ -23,6 +23,7 @@ fx-vm.md (death fx, area damage). Remaster: `engine/src/level.rs` (spawn, husks,
 | +0x414 | class template | 0x0045f020 | Placed.template |
 | +0x424 bit 4 | hidden (visible 0) | 0x004536b0 | model not spawned (level.rs `invisible`) |
 | +0x424 bit 8 | removed | Object_Remove 0x004547b0 | despawn |
+| +0x424 bit 0x200 | a ray hit stops here: Ray_Cast walks a hit on an attached object up its parents (0x004539d0) until one with the bit (set by the AIs' init 0x004247f0, cleared by ICObject_Load, the ladder grunt, the critters' load 0x0048f140) | 0x004559c0 / 0x004559f0 | not modelled: a hit names the body's own entity (feature object-collision) |
 | +0x454 / +0x458 | health / max_health (default: the current +0x458) | 0x00451360 | Destructible.health / max_health |
 
 Health and death (game_03.cpp:2059-2155): Object_TakeDamage 0x004555e0 (base damage slot vt+0xd0): a living object
@@ -143,5 +144,6 @@ of a destroyed building go with it, a shot-out window is saved as (building id, 
   no collider (guess: such a body collides with nothing).
 - **collide_barrier filter 0x40** (the invisible walls): which groups it stops (player only? AI?) is not traced;
   the engine's walls are solid to everything but bullets.
-- **0x00456180's 9 calls** in the coverage runs and **class 98**'s 40 constructions: which lev_1_m1 objects.
+- **0x00456180's 9 calls** in the coverage runs: which lev_1_m1 objects. (**Class 98** is settled, 2026-10-18: the
+  behaviour table 0x0045df60 maps id 98 to "ui_listbox" (string 0x005b03cc): the menus' list boxes.)
 - **Saves and multi-stage husks:** settled 2026-10-15 (see "Queue disposition": RestoreStage).

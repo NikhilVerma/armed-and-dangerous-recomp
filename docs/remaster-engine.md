@@ -671,6 +671,11 @@ the comparison with the original (guesses and differences seen, not checked fram
   the receivers within 200 by their bounding sphere (4.66);
 - the launchers' hand models are drawn in their rest pose on the hand (as the Topsy Turvy bomb's): their grip is to
   compare; the pub's carried gun rides the cursor (remaster: the original's carry marker is not traced).
+- the knockout bomb (2026-10-18, weapons/glove.rs, agent-leftovers): the glove model sits in the hand (the original's at
+  r_wrist), its six targets get no HUD markers, a flung grunt flies without a body and lands on whatever its step meets,
+  a punched one is a ragdoll from the punch on (the original flails through Character_Launch's arc, ragdoll on
+  landing); the land shark's prey is now GruntObject_Slot147 0x00434e10 (targeting.rs `can_be_bitten_now`: a gunner on
+  his gun can be bitten, a grunt on a roof or in a window cannot); the black hole's carry-off keeps the old guess.
 
 ## Cheats
 
@@ -1134,6 +1139,10 @@ Tests: playtests peasants_l2m3, peasants_bonus_m2, peasants_lost_l4m2, peasants_
 peasant_l4m2 (suite: every peasant family same, capture frame 52 in both, bank 158 vs 160). Fitted (labelled in the
 code): Roman's reach (two probes) and the joints' friction (the original's strength scaled by the weight). Found: the
 original's Roman stands ~40 frames after landing from a 9-unit drop, the remaster's walks at once (open, player.rs).
+Thrown villagers (2026-10-18, peasant/toss.rs): a destroyed house with toss_peasants throws out 1..3 PeasantGenAI
+villagers in chairs, launched from Roman (ai/launch.rs, Character_Launch 0x00431020), screaming; on landing the chair
+is let go and the villager is a ragdoll (playtest peasants_tossed). Guesses: the chair's box, the dialogue test's list
++0xf04 taken as empty.
 
 ## Companion tower task (2026-10-16)
 
