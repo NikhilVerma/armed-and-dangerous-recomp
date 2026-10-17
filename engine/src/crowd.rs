@@ -18,10 +18,22 @@ use bevy::prelude::*;
 use crate::levelreset::LevelAppExt;
 use crate::scene::PartBind;
 
-/// The baked frames per second of anim time (a run cycle of 0.7 s gets 14 frames).
-const FRAMES_PER_SECOND: f32 = 20.0;
+/// The baked frames per second of anim time (a run cycle of 0.7 s gets 21 frames).
+const FRAMES_PER_SECOND: f32 = 30.0;
 const MIN_FRAMES: usize = 8;
 const MAX_FRAMES: usize = 48;
+
+/// Distance bands of the flipbook's rate: members nearer than the first show every baked frame, then every second
+/// frame, then every third (a run cycle at 30 / 15 / 10 frames a second). Each frame change swaps the member's
+/// meshes, which the renderer re-extracts and re-specialises (lev_2_m4's ~1,400 members at 4K: ~4 ms of frame time
+/// at one rate for all); far members are a few dozen pixels tall. The original's members do not animate at all
+/// (one still sprite each).
+const RATE_BANDS: [f32; 2] = [150.0, 400.0];
+
+/// Every how many baked frames a member `distance` units from the camera changes its pose.
+pub fn frame_step(distance: f32) -> usize {
+    1 + RATE_BANDS.iter().filter(|b| distance >= **b).count()
+}
 
 /// One baked anim: `frames[i]` are the parts (mesh, material) at time i / frames.len() of the anim.
 pub struct CrowdClip {
@@ -116,13 +128,24 @@ impl CrowdLibrary {
     }
 }
 
-/// Members advance through their clip; a member whose frame changed shows the new frame's meshes.
-fn animate(time: Res<Time>, mut q: Query<&mut CrowdMember>, mut meshes: Query<&mut Mesh3d>) {
+/// Members advance through their clip; a member whose shown frame changed (at its distance's rate, `frame_step`)
+/// shows the new frame's meshes. One out of view (last frame) keeps its meshes until it is seen.
+fn animate(
+    time: Res<Time>,
+    mut q: Query<(&mut CrowdMember, &GlobalTransform, &ViewVisibility)>,
+    mut meshes: Query<&mut Mesh3d>,
+    cam: Query<&GlobalTransform, With<Camera3d>>,
+) {
     let dt = time.delta_secs();
-    for mut m in &mut q {
+    let eye = cam.single().ok().map(|c| c.translation());
+    for (mut m, gt, seen) in &mut q {
         let m = &mut *m;
         m.time = (m.time + dt * m.speed).rem_euclid(m.clip.duration);
-        let f = m.clip.frame_at(m.time);
+        if !seen.get() {
+            continue;
+        }
+        let step = eye.map_or(1, |e| frame_step(e.distance(gt.translation())));
+        let f = m.clip.frame_at(m.time) / step * step;
         if f == m.frame {
             continue;
         }
@@ -256,6 +279,14 @@ mod tests {
         assert_eq!(clip.frame_at(0.999), 9);
         assert_eq!(clip.frame_at(1.25), 2);
         assert_eq!(clip.frame_at(-0.05), 9);
+    }
+
+    #[test]
+    fn far_members_change_pose_less_often() {
+        assert_eq!(frame_step(50.0), 1);
+        assert_eq!(frame_step(150.0), 2);
+        assert_eq!(frame_step(399.0), 2);
+        assert_eq!(frame_step(1000.0), 3);
     }
 
     #[test]

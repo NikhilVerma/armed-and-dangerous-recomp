@@ -422,6 +422,13 @@ fn model_box(kit: &ModelKit, data: &crate::gamedata::GameData, template: &str) -
     Some((p("min")?, p("max")?))
 }
 
+/// The distance from point c to the segment a..b.
+fn segment_distance(a: Vec3, b: Vec3, c: Vec3) -> f32 {
+    let ab = b - a;
+    let u = ((c - a).dot(ab) / ab.length_squared().max(1e-6)).clamp(0.0, 1.0);
+    (a + ab * u).distance(c)
+}
+
 /// Where the segment a..b first enters the box (slab test), if it does.
 fn segment_enters_box(a: Vec3, b: Vec3, (lo, hi): (Vec3, Vec3)) -> Option<Vec3> {
     let d = b - a;
@@ -712,6 +719,8 @@ fn fake_hits(
     let dt = time.delta_secs();
     let to_engine = Mat4::from_quat(crate::level::game_to_engine());
     let mut points: Vec<Vec3> = blasts.read().map(|b| b.at).collect();
+    // the player's shots this frame: the segment each crossed
+    let segments: Vec<(Entity, Vec3, Vec3)> = shots.iter().filter(|(_, _, sp)| sp.from_player).map(|(se, st, sp)| (se, st.translation - sp.vel * dt, st.translation)).collect();
     let mut used = HashSet::new();
     for (pe, mut p, m) in &mut q {
         let world = to_engine * m.world;
@@ -720,15 +729,19 @@ fn fake_hits(
             continue;
         }
         let mut hits = points.clone();
-        for (se, st, sp) in &shots {
-            if !sp.from_player || used.contains(&se) {
+        // a sphere round everything a shot can hit here (the box's corners, the members' chests and their 5-unit
+        // reach): a segment that misses it misses both tests below
+        let inv = world.inverse();
+        let corners = p.hit_box.map(|(lo, hi)| (0..8).map(move |k| world.transform_point3(Vec3::new([lo.x, hi.x][k & 1], [lo.y, hi.y][(k >> 1) & 1], [lo.z, hi.z][k >> 2]))));
+        let reach: Vec<Vec3> = alive.iter().map(|(_, c)| *c + Vec3::Y * 6.0).chain(corners.into_iter().flatten()).collect();
+        let centre = reach.iter().copied().sum::<Vec3>() / reach.len() as f32;
+        let radius = reach.iter().map(|r| r.distance(centre)).fold(0.0, f32::max) + 5.1;
+        for &(se, a, b) in &segments {
+            if used.contains(&se) || segment_distance(a, b, centre) > radius {
                 continue;
             }
-            let b = st.translation;
-            let a = b - sp.vel * dt;
             // the platoon's box (its collision), in the platoon's frame
             if let Some(bx) = p.hit_box {
-                let inv = world.inverse();
                 if let Some(at) = segment_enters_box(inv.transform_point3(a), inv.transform_point3(b), bx) {
                     hits.push(world.transform_point3(at));
                     used.insert(se);
