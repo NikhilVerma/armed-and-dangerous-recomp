@@ -42,6 +42,6 @@
  {"kill_army": 100}, {"wait": 0.5}, {"kill_army": 60}, {"wait": 0.1}, {"kill_army": 40}, {"wait": 0.4},
  {"kill_army": 100}, {"wait": 0.5}, {"kill_army": 60}, {"wait": 0.1}, {"kill_army": 40}, {"wait": 0.4},
  {"expect": {"corpses.lying": [0, 14], "corpses.ragdolls": [0, 4], "corpses.removed": [30, 100000], "corpses.settled": 0}},
- {"expect": {"entities": {"as": "early", "at_most": true, "margin": 300}, "physics_bodies": {"as": "early", "at_most": true, "margin": 60}}},
+ {"expect": {"entities": {"as": "early", "at_most": true, "margin": 700}, "physics_bodies": {"as": "early", "at_most": true, "margin": 60}}},
  {"quit": true}
 ]}

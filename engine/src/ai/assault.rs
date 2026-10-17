@@ -29,13 +29,20 @@ use std::collections::{HashMap, HashSet};
 /// How often an idle army grunt looks for a way over (guess).
 const RETRY: f32 = 1.0;
 
+/// The engine's limit on the walk to a way over: twice the straight run at his move speed plus this (the original's
+/// path follow 0x00470aa0 has none; a wall marker the engine's walk cannot reach held the grunt for good: lev_3_m4_bd's
+/// scale 301, docs/remaster-engine.md EA10).
+const GIVE_UP: f32 = 10.0;
+
 /// The assault list (World+0xf14) and the splines in use (bit 6).
 #[derive(Resource, Default, Debug)]
 pub struct Assault {
     /// army_max_scale (Game+0xc54): 0 no assault
     pub max: u32,
-    /// the grunts on their way over and their spline
-    pub climbers: Vec<(Entity, i64)>,
+    /// the grunts on their way over: their spline and when the engine gives the walk up (`GIVE_UP`)
+    pub climbers: Vec<(Entity, i64, f32)>,
+    /// splines a grunt could not reach (not offered to him again)
+    unreachable: HashMap<Entity, HashSet<i64>>,
     pub in_use: HashSet<i64>,
     /// started: by ladder, by scale
     pub ladders: u32,
@@ -86,20 +93,42 @@ pub fn recruit(
     mut a: ResMut<Assault>,
     mut q: Query<(Entity, &mut Grunt, &mut ArmyGrunt, &GlobalTransform)>,
 ) {
-    // the dead and the gone leave the list (0x0042ba30) and free their spline
+    let now = time.elapsed_secs();
+    // the dead and the gone leave the list (0x0042ba30) and free their spline; one still walking after his time gives
+    // the way up (the engine's limit, GIVE_UP)
     let mut freed = Vec::new();
-    a.climbers.retain(|(e, t)| {
-        let keep = q.get(*e).is_ok_and(|(_, g, ..)| g.mind != Mind::Dead);
-        if !keep {
-            freed.push(*t);
+    let mut gave_up = Vec::new();
+    a.climbers.retain(|&(e, t, deadline)| {
+        let Ok((_, g, ag, _)) = q.get(e) else {
+            freed.push(t);
+            return false;
+        };
+        if g.mind == Mind::Dead {
+            freed.push(t);
+            return false;
         }
-        keep
+        if now > deadline && !ag.busy() && g.mind == Mind::ToMarker && g.spline.is_some_and(|s| s.tag == t) {
+            freed.push(t);
+            gave_up.push((e, t));
+            return false;
+        }
+        true
     });
     for t in freed {
         a.in_use.remove(&t);
     }
+    for (e, t) in gave_up {
+        if let Ok((_, mut g, mut ag, _)) = q.get_mut(e) {
+            g.spline = None;
+            g.mind = Mind::Roam;
+            if ag.ladder == Some(t) {
+                ag.ladder = None;
+            }
+        }
+        a.unreachable.entry(e).or_default().insert(t);
+        info!("EVENT ai: army grunt {e:?} gives up the way over {t}");
+    }
     let (Some(mk), true) = (markers, a.max > 0) else { return };
-    let now = time.elapsed_secs();
     // the ways over: planted ladders and wall-scale splines, with their end points
     let mut ends: Vec<(i64, Way, Vec3)> = Vec::new();
     for (&tag, s) in &mk.splines {
@@ -121,7 +150,7 @@ pub fn recruit(
         if (a.climbers.len() as u32) >= a.max {
             break;
         }
-        if !matches!(g.mind, Mind::Roam | Mind::Guard) || g.spline.is_some() || ag.busy() || a.climbers.iter().any(|(c, _)| *c == e) {
+        if !matches!(g.mind, Mind::Roam | Mind::Guard) || g.spline.is_some() || ag.busy() || a.climbers.iter().any(|(c, ..)| *c == e) {
             continue;
         }
         let t = a.next_try.entry(e).or_insert(now);
@@ -129,9 +158,15 @@ pub fn recruit(
             continue;
         }
         *t = now + RETRY;
-        let Some((tag, way)) = choose(&ends, gt.translation(), g.scan_distance, &a.in_use) else { continue };
+        let mut skip = a.in_use.clone();
+        if let Some(u) = a.unreachable.get(&e) {
+            skip.extend(u.iter().copied());
+        }
+        let Some((tag, way)) = choose(&ends, gt.translation(), g.scan_distance, &skip) else { continue };
+        let end = ends.iter().find(|(t, ..)| *t == tag).map_or(gt.translation(), |(_, _, p)| *p);
+        let deadline = now + 2.0 * (end - gt.translation()).with_y(0.0).length() / g.move_speed.max(1.0) + GIVE_UP;
         a.in_use.insert(tag);
-        a.climbers.push((e, tag));
+        a.climbers.push((e, tag, deadline));
         let last = mk.spline_len(tag).saturating_sub(1);
         g.spline = Some(SplineRun { tag, index: last, started: true });
         g.target = None;
@@ -147,6 +182,7 @@ pub fn recruit(
     }
     let live: HashSet<Entity> = q.iter().map(|(e, ..)| e).collect();
     a.next_try.retain(|e, _| live.contains(e));
+    a.unreachable.retain(|e, _| live.contains(e));
 }
 
 /// The playtest state's `assault`.

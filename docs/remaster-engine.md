@@ -1176,6 +1176,7 @@ Tuning items (visible or likely differences from the original, not compared by c
 | EA6 | The takedown's approach is a straight walk (the original routes, 0x0046f6b0) and gives up after 8 s (the original never does) | nav.rs route |
 | EA7 | A knocked-away IC grunt flies at the traced impulse x 0.15 / 80 kg (40..80 / s): the ragdoll's mass model is the engine's | compare a destroyed tree's grunt |
 | EA8 | The captain's rocket is shot down inside a 2-unit sphere round it (its collision shape is not traced) | trace the description 0x100's shape |
+| EA10 | A climber still walking to his wall marker after twice the straight run plus 10 s gives it up (never offered it again); the original has no limit, but the engine's walk could not reach lev_3_m4_bd's scale 301 and held the grunt (and the army limit) for good | the walk by nav.rs routes to the marker |
 | EA9 | Paratroopers' rope anims start at the node with no rotation (the vehicle's heading not applied to the mover's origin) | the node's matrix as the origin |
 
 ## Running tests without disturbing the desktop
