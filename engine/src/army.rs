@@ -42,6 +42,13 @@ use crate::ai::{Grunt, Mind, SplineRun};
 use crate::mover::{Mover, MoverNote};
 use crate::levelreset::LevelAppExt;
 
+impl ArmyGrunt {
+    /// Running an ic_* script or the breach: not free for the assault's search (ai/assault.rs)
+    pub fn busy(&self) -> bool {
+        self.script.is_some() || self.breach
+    }
+}
+
 /// A real grunt released by a platoon: its orders (+0x558 / +0x55c marker tags, the ladder spline) and the ladder
 /// script it runs.
 #[derive(Component, Clone, Debug, Default)]
@@ -147,6 +154,13 @@ pub struct Army {
     breach_max: u32,
     breach_runners: u32,
     pub stats: ArmyStats,
+}
+
+impl Army {
+    /// A ladder stands on this ladder spline (spline bit 4, 0x0044b7b0)
+    pub fn is_planted(&self, tag: i64) -> bool {
+        self.planted.contains(&tag)
+    }
 }
 
 #[derive(Default, Clone, Copy, Debug, serde::Serialize)]

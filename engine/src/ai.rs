@@ -13,6 +13,7 @@
 //! Functions this port does not cite are explained in docs/port/ai.csv (replaced by the engine, or not needed).
 
 pub mod aim;
+pub mod assault;
 pub mod body;
 pub mod bully;
 pub mod fall;
@@ -1078,6 +1079,7 @@ impl Plugin for AiPlugin {
             .init_level_resource::<rocket::RocketHullStats>()
             .init_level_resource::<AiForce>()
             .init_level_resource::<fall::FallStats>()
+            .init_level_resource::<assault::Assault>()
             .init_level_resource::<notes::ScriptEndStats>()
             .add_message::<notes::ScriptEnd>()
             .init_level_resource::<paratroop::ParatroopStats>()
@@ -1091,7 +1093,7 @@ impl Plugin for AiPlugin {
                 Update,
                 (
                     (body::bumps, squad::update_squads, interests, mark_army_targets, search, ic::activate, scare, max_fire::sync_limit, aim::track, think, max_fire::upkeep, fall::run, ic::run, paratroop::rappel, notes::from_movers, notes::apply, bully::bullies, die, dismay).chain(),
-                    (body::apply_rules, log_cover, log_ai, log_placed, squad::log_squads, ic::log, max_fire::log, grenade::fly, grenade::log, rocket::shoot_down, rocket::log, fall::log, fall::drop_parachutes, paratroop::log, jumper::free_markers, jumper::log, notes::log).chain(),
+                    (body::apply_rules, log_cover, log_ai, log_placed, squad::log_squads, ic::log, max_fire::log, grenade::fly, grenade::log, rocket::shoot_down, rocket::log, fall::log, fall::drop_parachutes, paratroop::log, jumper::free_markers, jumper::log, notes::log, assault::sync, assault::recruit, assault::log).chain(),
                 )
                     .chain()
                     .after(crate::fx::FxSet)
