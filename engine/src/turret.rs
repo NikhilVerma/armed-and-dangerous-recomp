@@ -93,6 +93,24 @@ pub struct Turret {
     pub never_leave: bool,
     pub ai_projectile: String,
     pub grunt_exit: Option<usize>,
+    /// the kickout (StigTurret load, game_08.cpp:1090: ai_kickout_health_pct 50 %, ai_kickout_stayout_secs 10,
+    /// ai_kickout_impact_force 6000, ai_kickout_fx_name / _bone) and its time left (+0x614: 0x004987a0 keeps the AI off
+    /// while it runs)
+    kickout: Kickout,
+    pub stayout: f32,
+    /// the health last frame (the damage handler 0x00498400 judges each hit)
+    last_health: Option<f32>,
+}
+
+/// The kickout's property values.
+#[derive(Clone, Debug)]
+struct Kickout {
+    pct: f32,
+    stayout: f32,
+    #[allow(dead_code)]
+    impact: f32,
+    fx: Option<String>,
+    fx_bone: Option<usize>,
 }
 
 /// A gun class's sounds (StigTurret: 0x00498f60 / 0x004990a0; ForgeTurret: 0x00499f30 / 0x00499f80 / 0x0049a170).
@@ -183,7 +201,7 @@ impl Plugin for TurretPlugin {
         app.init_level_resource::<Mounted>()
             .add_systems(Update, (setup, turret_anims))
             .add_systems(Update, ride.after(crate::mission::sites).after(crate::player::grab_cursor).run_if(crate::playing))
-            .add_systems(Update, log_turrets.after(ride).run_if(crate::playing))
+            .add_systems(Update, (damage, log_turrets).chain().after(ride).run_if(crate::playing))
             .add_systems(PostUpdate, pose.after(crate::skin::AnimateSet).before(TransformSystems::Propagate));
     }
 }
@@ -191,7 +209,7 @@ impl Plugin for TurretPlugin {
 /// The state log's "turrets" (playtest expects): per gun's instance id, its distance to Roman, its entry radius,
 /// whether an AI holds it and whether Roman is on it.
 fn log_turrets(
-    turrets: Query<(Entity, &Turret, &GlobalTransform, &crate::level::InstanceId)>,
+    turrets: Query<(Entity, &Turret, &GlobalTransform, &crate::level::InstanceId, Option<&crate::fx::Destructible>)>,
     roman: Query<&Transform, With<crate::player::Roman>>,
     mounted: Res<Mounted>,
     state: Option<ResMut<crate::playtest::PlayState>>,
@@ -199,12 +217,57 @@ fn log_turrets(
     let (Some(mut state), Ok(rt)) = (state, roman.single()) else { return };
     let out: serde_json::Map<String, serde_json::Value> = turrets
         .iter()
-        .map(|(e, t, gt, id)| {
+        .map(|(e, t, gt, id, d)| {
             let dist = (gt.translation().distance(rt.translation) * 10.0).round() / 10.0;
-            (id.0.to_string(), serde_json::json!({"dist": dist, "radius": t.radius, "ai": t.ai.is_some(), "mounted": mounted.0 == Some(e)}))
+            let health = d.map(|d| d.health);
+            (id.0.to_string(), serde_json::json!({"dist": dist, "radius": t.radius, "ai": t.ai.is_some(), "mounted": mounted.0 == Some(e), "health": health, "stayout": t.stayout}))
         })
         .collect();
     state.0.insert("turrets".into(), out.into());
+}
+
+/// The turret's damage handler (0x00498400): a hit counts only while an AI holds it (Roman on it takes the hits
+/// himself; an empty gun ignores them); at 0 health it dies (vt+0xd4: the death path, no husk). When its health crosses
+/// ai_kickout_health_pct downwards the AI occupant is kicked out: a record of his whole max health along (occupant -
+/// turret) tilted up to z 0.7, ai_kickout_impact_force, from the player; the gun then keeps the AI off for
+/// ai_kickout_stayout_secs (+0x614, 0x004987a0) and ai_kickout_fx_name plays at its bone.
+#[allow(clippy::type_complexity)]
+fn damage(
+    time: Res<Time>,
+    mut turrets: Query<(&mut Turret, &mut crate::fx::Destructible, &GlobalTransform, &crate::skin::Animator)>,
+    mut grunts: Query<(&mut crate::ai::Grunt, &mut crate::fx::Health), Without<Turret>>,
+    mut fx: MessageWriter<crate::fx::StartFx>,
+) {
+    let dt = time.delta_secs();
+    for (mut t, mut d, gt, a) in &mut turrets {
+        t.stayout = (t.stayout - dt).max(0.0);
+        let before = t.last_health.unwrap_or(d.health);
+        let lost = before - d.health;
+        if lost > 0.0 && d.health > 0.0 {
+            let Some(occupant) = t.ai else {
+                // not an AI's: the hit is not the gun's
+                d.health = before;
+                t.last_health = Some(before);
+                continue;
+            };
+            let k = &t.kickout;
+            if before / d.max_health > k.pct && d.health / d.max_health <= k.pct {
+                // (the record's push, ai_kickout_impact_force along the tilted direction, is not applied: the
+                // grunt's death takes no impulse in the engine yet)
+                if let Ok((mut g, mut h)) = grunts.get_mut(occupant) {
+                    g.last_hit = g.max_health;
+                    h.0 -= g.max_health;
+                }
+                if let Some(name) = k.fx.clone() {
+                    let at = k.fx_bone.map_or(gt.translation(), |b| t.bone_world(gt, a, b).w_axis.truncate());
+                    fx.write(crate::fx::StartFx { name, at, rotation: Quat::IDENTITY, follow: None, position_only: false });
+                }
+                t.stayout = k.stayout;
+                info!("EVENT turret: the AI gunner {occupant:?} kicked out");
+            }
+        }
+        t.last_health = Some(d.health);
+    }
 }
 
 /// A bone's model-space matrix (game frame) from the skeleton's rest pose, with the pivots turned.
@@ -310,6 +373,41 @@ pub(crate) fn setup(
             never_leave: p.i("ai_never_leave", 0) != 0,
             ai_projectile: format!("p_{}", p.s("ai_projectile_name").or(p.s("projectile_name")).unwrap_or("")),
             grunt_exit: a.skeleton.index.get("ref_grunt_exit").copied(),
+            kickout: Kickout {
+                pct: p.f("ai_kickout_health_pct", 50.0) * 0.01,
+                stayout: p.f("ai_kickout_stayout_secs", 10.0),
+                impact: p.f("ai_kickout_impact_force", 6000.0),
+                fx: p.s("ai_kickout_fx_name").map(str::to_lowercase),
+                fx_bone: bone("ai_kickout_fx_bone"),
+            },
+            stayout: 0.0,
+            last_health: None,
+        });
+        // its health (max_health, the turret's damage handler 0x00498400: `damage`); the player's and his companions'
+        // shots count (the occupant's side: an AI on it makes it a bad guy's)
+        let health = p.f("max_health", 10000.0);
+        commands.entity(e).insert(crate::fx::Destructible {
+            health,
+            max_health: health,
+            fx_death: None,
+            husk: None,
+            area_damage: 0.0,
+            radius_inner: 0.0,
+            radius_outer: 0.0,
+            impact_force: 0.0,
+            chain: false,
+            start_delay: 0.0,
+            min_delay: 0.0,
+            acceleration: 1.0,
+            dying: None,
+            chain_delay: 0.0,
+            class: crate::fx::DClass::Building,
+            score: 0.0,
+            takes_damage: true,
+            takes_bullet: true,
+            player_damage: true,
+            teammate_damage: true,
+            badguy_damage: false,
         });
         info!("turret {name}: pivot {pivot} camera {:?}", camera.w_axis.truncate());
     }

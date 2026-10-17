@@ -187,7 +187,7 @@ address,name,disposition,reason
 0x0047b900,PlayerObject_SetTurboBoost,ported,jetpack.rs give_boost / jump_input (boost used up) / models (pickup_turbo_boost at the pack's ref_turbo)
 0x0047b9f0,PlayerObject_SetTurboPack,ported,jetpack.rs models (the turbo model by its chest at Roman's chest; turbo_idle)
 0x0047bba0,PlayerObject_PlayChestFx,ported,jetpack.rs effects (fx_turbo_launch at the chest)
-0x0047df70,fn_0047df70,deferred,"feature: turret-vehicle-paths; projectile spawn helpers used by the turrets, the vindaloo and the armed jaws: none on lev_1_m1"
+0x0047df70,fn_0047df70,ported,"engine/src/ai/monk.rs baskets (the basket rain's projectile spawn, state 0xf1)"
 0x0047e050,fn_0047e050,ported,engine/src/vehicles/rockets.rs launch with `along` (weapons/vindaloo.rs): a projectile launched along a direction
 0x0047e3b0,Projectile_SetTarget,ported,"engine/src/vehicles/rockets.rs Rocket.target (the vindaloo's ref_hit_00, the rocket towers' chest), weapons/landshark.rs LandShark.target, sticky.rs: the homing target"
 0x0047e9f0,fn_0047e9f0,deferred,feature: arrow-models; sticks a projectile to a target's part (the arrows' hit): the engine's arrows have no model to leave stuck (the trail ends at the hit); sticky.rs sticks by 0x004817b0 / 0x0047e9b0
@@ -263,44 +263,44 @@ address,name,disposition,reason
 0x00497430,fn_00497430,deferred,"feature: tree-objects; tree objects (behaviour tree, vtable 0x005a2ab0; lev_1_m1's 63 pine trees run the load 0x00496e90): radius x scale, IC_tree_slide grunts (none on lev_1_m1), the AI's tree-cover slot (occupant +0x470, list +0xed4 after a 4x4 nav-grid test) and its positions; guess: no lev_1_m1 grunt uses tree cover (the ported cover is the trenches, grunt-ai.md); trees are level.rs destructibles"
 0x00497620,fn_00497620,not needed,dead in the shipped game: a trigger volume's death slot; nothing damages trigger volumes (no hit shape)
 0x00497d00,fn_00497d00,replaced,"the turret's property load (recycle_time, projectile / emitter / muzzle names, send_trigger_on_death, the World lists): turret.rs Turret (0x004980c0 / 0x00498d60)"
-0x00497e60,fn_00497e60,deferred,"feature: turret-vehicle-paths; not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
-0x00497e90,fn_00497e90,deferred,"feature: turret-vehicle-paths; not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
-0x00497f10,fn_00497f10,deferred,"feature: turret-vehicle-paths; not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x00497e60,fn_00497e60,ported,"engine/src/vehicles/rocket_turrets.rs (the turret's death kills its tower, whose send_trigger_on_death mission.rs sends; open question in docs/subsystems/vehicles.md: whether the original's pair sends the tower's trigger twice, 0x004510b0 / 0x0049c530 copying it to the turret)"
+0x00497e90,fn_00497e90,replaced,"the turret's removal (Object_Remove, the held muzzle fx +0x534, vt+0xfc(0, 2)): the entity's despawn with the level (levelreset.rs) and turret.rs fx_anchor"
+0x00497f10,fn_00497f10,not needed,"StigTurret / BaseDefendTurret +0x16c (all three outputs 0): called only for a gun of kind != 1 (ai_06.cpp:766), the forge cannon, whose own +0x16c is 0x0049a110; a stig gun never takes that branch"
 0x00497f40,fn_00497f40,replaced,the turret's radius collision description: Jolt collider from its collision model (level.rs)
-0x00497f60,fn_00497f60,deferred,"feature: turret-vehicle-paths; not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
-0x00498310,fn_00498310,deferred,"feature: turret-vehicle-paths; not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
-0x00498320,fn_00498320,deferred,"feature: turret-vehicle-paths; not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
-0x00498350,fn_00498350,deferred,"feature: turret-vehicle-paths; not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
-0x00498390,fn_00498390,deferred,"feature: turret-vehicle-paths; not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x00497f60,fn_00497f60,ported,engine/src/turret.rs Turret::bone_world / emitter / forward and defence.rs bone_world (the muzzle bone's position and -y)
+0x00498310,fn_00498310,ported,engine/src/defence.rs ride (the zoom flag +0x539 and the zoom camera node)
+0x00498320,fn_00498320,ported,"engine/src/defence.rs ride (the zoom toggle: button 10, or 11 held)"
+0x00498350,fn_00498350,ported,engine/src/defence.rs ride (zoom in through zoom_camera_bone_name)
+0x00498390,fn_00498390,ported,engine/src/defence.rs ride / turret.rs (zoom out on the toggle and on leaving)
 0x004983e0,fn_004983e0,replaced,message_radius getter: turret.rs Turret radius
-0x004983f0,fn_004983f0,deferred,"feature: turret-vehicle-paths; not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
-0x004986b0,fn_004986b0,deferred,"feature: turret-vehicle-paths; not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x004983f0,fn_004983f0,ported,"engine/src/turret.rs Turret's Destructible (the side filter: an AI on it makes it a bad guy's; the player's and companions' shots count, damage)"
+0x004986b0,fn_004986b0,replaced,"StigTurret / ForgeTurret removal (dismount, the occupant released): the level reset clears turret::Mounted and the AI's gun (levelreset.rs, ai.rs leave_gun)"
 0x00498740,fn_00498740,replaced,flag 1 of +0x530 (the prompt hidden): turret.rs Turret flags
-0x00498780,fn_00498780,deferred,"feature: turret-vehicle-paths; not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x00498780,fn_00498780,ported,engine/src/ai.rs gun phase 0x7b (Roman on the gun: turret::Mounted)
 0x00498790,fn_00498790,replaced,bit 2 of +0x530 (occupied by an AI): turret.rs Turret flags
-0x004987f0,fn_004987f0,deferred,"feature: turret-vehicle-paths; not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
-0x00498820,fn_00498820,deferred,"feature: turret-vehicle-paths; not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
-0x00498890,fn_00498890,deferred,"feature: turret-vehicle-paths; not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
-0x00498a60,fn_00498a60,deferred,"feature: turret-vehicle-paths; not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
-0x00498d30,fn_00498d30,deferred,"feature: turret-vehicle-paths; not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
-0x004993b0,fn_004993b0,deferred,"feature: turret-vehicle-paths; not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
-0x004993c0,fn_004993c0,deferred,"feature: turret-vehicle-paths; not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
-0x004993e0,fn_004993e0,deferred,"feature: turret-vehicle-paths; not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
-0x00499630,fn_00499630,deferred,"feature: turret-vehicle-paths; not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x004987f0,fn_004987f0,ported,"engine/src/turret.rs Turret::reserved (flag 0x10, ai.rs)"
+0x00498820,fn_00498820,ported,"engine/src/turret.rs Turret::ai (the AI enters: flag 4, the occupant +0x628; ai.rs)"
+0x00498890,fn_00498890,ported,engine/src/ai.rs leave_gun (the AI leaves: flag 4 and the occupant cleared)
+0x00498a60,fn_00498a60,not needed,+0x140 auto_aim (byte +0x538): auto-aim finds nothing in mount mode 4 (docs/subsystems/turret.md) and the option is off by default; no reached caller (deferred-2026-10-16: no level)
+0x00498d30,fn_00498d30,not needed,"+0x180 mount toggle: no reached caller; the Use path calls the mount / dismount slots (vt+0x178 / +0x17c) directly (0x004788a0, turret.rs ride)"
+0x004993b0,fn_004993b0,ported,"engine/src/turret.rs Turret::never_leave (ai_never_leave, bit 9)"
+0x004993c0,fn_004993c0,ported,"engine/src/turret.rs Turret::ai_can_use (ai_can_use, flag 0x100)"
+0x004993e0,fn_004993e0,not needed,"ZeppelinTurret (class 80, zeppelin_turret): placed on no level of the 24 (scene.json), so its load never runs"
+0x00499630,fn_00499630,not needed,ZeppelinTurret (zeppelin_turret): placed on no level of the 24 (scene.json)
 0x00499670,Turret_BoneCallback,replaced,the turret bone callback (calls 0x00498ff0): turret.rs pivot rotation
-0x004996a0,fn_004996a0,deferred,"feature: turret-vehicle-paths; not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
-0x00499710,fn_00499710,deferred,"feature: turret-vehicle-paths; not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
-0x004999c0,fn_004999c0,deferred,"feature: turret-vehicle-paths; not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
-0x00499a30,fn_00499a30,deferred,"feature: turret-vehicle-paths; not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
-0x00499b30,fn_00499b30,deferred,"feature: turret-vehicle-paths; not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
-0x00499bb0,fn_00499bb0,deferred,"feature: turret-vehicle-paths; not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
-0x00499bd0,fn_00499bd0,deferred,"feature: turret-vehicle-paths; not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
-0x0049a0b0,MountedTurret_BoneCallback,deferred,"feature: turret-vehicle-paths; MountedTurret bone callback: not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
-0x0049a0f0,fn_0049a0f0,deferred,"feature: turret-vehicle-paths; not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x004996a0,fn_004996a0,not needed,ZeppelinTurret (zeppelin_turret): placed on no level of the 24 (scene.json)
+0x00499710,fn_00499710,not needed,ZeppelinTurret (zeppelin_turret): placed on no level of the 24 (scene.json)
+0x004999c0,fn_004999c0,not needed,ZeppelinTurret (zeppelin_turret): placed on no level of the 24 (scene.json)
+0x00499a30,fn_00499a30,not needed,ZeppelinTurret (zeppelin_turret): placed on no level of the 24 (scene.json)
+0x00499b30,fn_00499b30,not needed,ZeppelinTurret (zeppelin_turret): placed on no level of the 24 (scene.json)
+0x00499bb0,fn_00499bb0,not needed,ZeppelinTurret +0x140 thunk to the auto_aim byte: the class is placed on no level (scene.json)
+0x00499bd0,fn_00499bd0,not needed,ZeppelinTurret (zeppelin_turret): placed on no level of the 24 (scene.json)
+0x0049a0b0,MountedTurret_BoneCallback,ported,"engine/src/turret.rs turns / pose (the forge's pivots: ""gun"" by the pitch about x, ""center"" by the yaw about z: 0x00499fd0)"
+0x0049a0f0,fn_0049a0f0,ported,"engine/src/turret.rs (ai_can_use off for the forge cannon: only the load's turret-mode grunts take it, ai.rs start_gun)"
 0x0049a110,fn_0049a110,ported,engine/src/turret.rs Turret::ai_aim (a two-pivot gun aims by its yaw_range_max / pitch_range_max)
 0x0049a150,fn_0049a150,ported,"engine/src/turret.rs Turret::ai_aim (sets the yaw / pitch, +0x620 / +0x61c)"
-0x0049a4c0,fn_0049a4c0,deferred,"feature: turret-vehicle-paths; not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
-0x0049a530,fn_0049a530,deferred,"feature: turret-vehicle-paths; not reached by the coverage runs of lev_1_m1, which mount and fire stig_mgun 32: other turret / vehicle / camera-path paths of these classes; turret.rs covers the one turret (docs/subsystems/turret.md)"
+0x0049a4c0,fn_0049a4c0,ported,engine/src/turret.rs ride (the forge's fire ready: recycle_time); the mortar branch (weapon 1) is never asked: the forge update 0x0049a170 passes weapon 0 only
+0x0049a530,fn_0049a530,ported,"engine/src/turret.rs ride (the player's shell) and ai.rs gunner fire (the AI's, vehicles/rockets.rs shoot); the mortar branch (weapon 1) is never asked"
 0x0049abf0,fn_0049abf0,deferred,"feature: defence-visuals; the fake mortar / homing launcher helpers (visual): not drawn, defence.md debt"
 0x0049ac60,fn_0049ac60,replaced,base turret removal: level restart despawns (defence.rs owns nothing else)
 0x0049ad60,fn_0049ad60,ported,"engine/src/defence.rs failure_mob (six boarders, Game+0xdcd = Mission::failure_mob; mission.rs mission_trigger calls it in the base turret)"
@@ -330,4 +330,4 @@ address,name,disposition,reason
 0x0044d150,fn_0044d150,deferred,"feature: camera-startup-path; camera_startup_path_anim on a camera path (slot 8, Camera_StartPath mode 2): mission.rs cites it as not ported"
 0x0044e120,PlayerTickerBomb_AttachToParent,ported,"mission.rs lock_sites: a site with lock_parent_tag rides the lock_parent_bone (ref_ticker) of the run-time object of that tag (the squad's goliath, level.rs ObjectTag from goliath.rs); lev_3_m1 sites 173..175, lev_4_m1 330 / 367 / 368. Oracle ticker_l3m1 (Object_Attach's parent: the goliath), playtests ticker_goliath / ticker_goliath_l4m1"
 0x00477c90,fn_00477c90,deferred,"feature: untraced; player.rs cites it as 'meaning not settled, not ported'"
-0x004987a0,fn_004987a0,deferred,"feature: turret-vehicle-paths; a turret's ai_can_use test with the kickout time: ai.rs cites it, the kickout is not ported"
+0x004987a0,fn_004987a0,ported,"engine/src/ai.rs GunView::usable (ai_can_use, no player on it) with turret.rs Turret::stayout (+0x614, set by the kickout: turret.rs damage)"

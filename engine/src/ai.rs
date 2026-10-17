@@ -2004,7 +2004,7 @@ struct GunView {
     exit: Vec3,
     yaw: f32,
     fwd: Vec3,
-    /// 0x004987a0: ai_can_use, no kickout time left (kickout not ported), no player on it (flag 8)
+    /// 0x004987a0: ai_can_use, no kickout time left (+0x614, turret.rs `damage`), no player on it (flag 8)
     usable: bool,
     reserved: Option<Entity>,
     ai: Option<Entity>,
@@ -2767,7 +2767,7 @@ fn think(
                 exit: t.grunt_exit.map(|i| t.bone_world(gt, a, i).w_axis.truncate()).unwrap_or(origin),
                 yaw,
                 fwd: t.forward(gt, a).with_y(0.0).normalize_or_zero(),
-                usable: t.ai_can_use && mounted.0 != Some(e),
+                usable: t.ai_can_use && t.stayout <= 0.0 && mounted.0 != Some(e),
                 reserved: t.reserved,
                 ai: t.ai,
                 collider: placed.and_then(|p| p.collider),
