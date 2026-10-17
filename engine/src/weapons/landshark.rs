@@ -218,7 +218,7 @@ fn swim(
     data: Res<crate::gamedata::GameData>,
     (mut sounds, mut stop): (MessageWriter<crate::audio::PlaySound>, MessageWriter<crate::audio::StopVoice>),
     (mut rng, mut stats, mut log): (ResMut<crate::fx::FxStats>, ResMut<crate::player::PlayerStats>, ResMut<super::WeaponStats>),
-    gone: Query<(), With<Bite>>,
+    (gone, carried): (Query<(), With<Bite>>, Query<(), With<super::blackhole::Carried>>),
 ) {
     let dt = time.delta_secs();
     if dt <= 0.0 {
@@ -248,7 +248,8 @@ fn swim(
             }
         }
         // the target dropped when it is dead (Object_IsDead 0x00454780)
-        if s.target.is_some_and(|g| !grunts.get(g).is_ok_and(|x| x.1.mind != crate::ai::Mind::Dead)) {
+        // (or carried off by a black hole meanwhile)
+        if s.target.is_some_and(|g| carried.contains(g) || !grunts.get(g).is_ok_and(|x| x.1.mind != crate::ai::Mind::Dead)) {
             s.target = None;
         }
         let pos = t.translation;
@@ -270,7 +271,8 @@ fn swim(
             s.vel = Vec3::ZERO;
             s.depth = k::DEEP;
             t.translation = at - Vec3::Y * k::DIVE;
-            t.rotation = Quat::IDENTITY;
+            // (its frame as the projectile's: the model's -Y along its heading, game Z up; the fin rides on it)
+            t.rotation = crate::vehicles::rockets::facing(s.vel.with_y(0.0).normalize_or(Vec3::NEG_Z));
             if let Some(m) = s.model.take() {
                 commands.entity(m).despawn();
             }
@@ -292,7 +294,7 @@ fn swim(
                 let eye = p + Vec3::Y * 6.0;
                 let best = grunts
                     .iter()
-                    .filter(|(_, g, _, _, _)| g.mind != crate::ai::Mind::Dead && can_be_bitten(g))
+                    .filter(|(ge, g, _, _, _)| g.mind != crate::ai::Mind::Dead && can_be_bitten(g) && !carried.contains(*ge))
                     .map(|(ge, _, gt, _, _)| (ge, gt.translation() + Vec3::Y * 5.0))
                     .filter(|(_, c)| c.distance(eye) <= s.range)
                     .filter(|(ge, c)| super::targeting::in_sight(&physics, eye, *c, *ge, &|_| false))
@@ -361,7 +363,7 @@ fn swim(
             next.y = g + s.depth;
         }
         if s.vel.length_squared() > 1e-4 {
-            t.rotation = Quat::from_rotation_arc(Vec3::NEG_Z, s.vel.normalize_or(Vec3::NEG_Z));
+            t.rotation = crate::vehicles::rockets::facing(s.vel.with_y(0.0));
         }
         t.translation = next;
     }

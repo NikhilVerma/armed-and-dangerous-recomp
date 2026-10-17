@@ -198,7 +198,7 @@ fn update(
     joints: Query<&GlobalTransform>,
     physics: NonSend<Physics>,
     (data, opts, difficulty, upgrade): (Res<crate::gamedata::GameData>, Res<crate::options::GameOptions>, Option<Res<crate::gamedata::Difficulty>>, Res<VindalooUpgrade>),
-    mounted: Res<crate::turret::Mounted>,
+    (mounted, carried): (Res<crate::turret::Mounted>, Query<(), With<super::blackhole::Carried>>),
 ) {
     targets.list.clear();
     targets.pass = None;
@@ -228,7 +228,10 @@ fn update(
     };
     let view = View::new(c, Some(proj), rt.translation() + Vec3::Y * 4.0);
     let passable = |e: Entity| e != re && grunts.contains(e);
-    targets.list = search(&view, candidates(&grunts, &joints, prey), factors, gun.spec.range, max, &physics, passable);
+    let mut cands = candidates(&grunts, &joints, prey);
+    // a character a black hole carries off is no one's target
+    cands.retain(|c| !carried.contains(c.entity));
+    targets.list = search(&view, cands, factors, gun.spec.range, max, &physics, passable);
     targets.pass = Some(pass);
 }
 

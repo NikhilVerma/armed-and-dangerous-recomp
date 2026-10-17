@@ -306,6 +306,11 @@ fn carried(
 ) {
     let dt = time.delta_secs();
     for (e, mut c, mut g, mut t, mut h, body) in &mut q {
+        // died meanwhile (a shark's bite, a bullet): no longer the hole's
+        if g.mind == crate::ai::Mind::Dead {
+            commands.entity(e).remove::<(Carried, crate::ai::AnimOverride)>();
+            continue;
+        }
         let Ok(hole) = holes.get(c.hole).map(|h| h.translation) else {
             // the hole is gone: so is he
             swallow(&mut commands, e, &mut g, &mut h, &mut stats);

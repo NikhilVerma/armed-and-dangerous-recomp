@@ -125,14 +125,14 @@ fn log_weapons(
     stats: Res<WeaponStats>,
     state: Option<ResMut<crate::playtest::PlayState>>,
     (targets, upgrade, queue): (Res<targeting::Targets>, Res<VindalooUpgrade>, Res<ThrowQueue>),
-    sharks: Query<&landshark::LandShark>,
+    sharks: Query<(&landshark::LandShark, &GlobalTransform)>,
     (boxes, holes, suction): (Query<(), With<blackhole::HoleBox>>, Query<&blackhole::BlackHole>, Res<blackhole::Suction>),
     (traitors, grunts): (Query<&crate::ai::Grunt, With<traitor::Traitor>>, Query<(Entity, &crate::ai::Grunt), Without<traitor::Traitor>>),
     hunted: Query<(), With<landshark::Hunted>>,
 ) {
     let Some(mut state) = state else { return };
     let s = &*stats;
-    let shark = sharks.iter().next();
+    let (shark, shark_at) = sharks.iter().next().map_or((None, None), |(s, t)| (Some(s), Some(crate::level::game_to_engine().inverse() * t.translation())));
     state.0.insert(
         "weapons".into(),
         serde_json::json!({
@@ -141,6 +141,7 @@ fn log_weapons(
             "throw_pending": queue.pending.map(|p| p.0.name()).unwrap_or_default(), "fawkes_wait": (queue.fawkes_wait * 10.0).round() / 10.0,
             "sharks": sharks.iter().count(), "shark_phase": shark.map(|s| match s.phase { landshark::Phase::Arc => "arc", landshark::Phase::Swim => "swim", landshark::Phase::Bite { .. } => "bite" }).unwrap_or_default(),
             "shark_depth": shark.map(|s| (s.depth * 10.0).round() / 10.0), "shark_target": shark.is_some_and(|s| s.target.is_some()),
+            "shark_pos": shark_at.map(|p| [p.x.round(), p.y.round(), p.z.round()]),
             "shark_dives": s.shark_dives, "shark_bites": s.shark_bites, "sharks_gone": s.sharks_gone, "hunted": hunted.iter().count(),
             "boxes": boxes.iter().count(), "holes": holes.iter().count(), "sucking": suction.active, "holes_opened": s.holes,
             "carried": s.carried, "swallowed": s.swallowed,
