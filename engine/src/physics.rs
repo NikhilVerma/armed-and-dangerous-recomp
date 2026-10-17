@@ -130,9 +130,13 @@ impl Physics {
         }
     }
 
+    /// Takes a dynamic body out of the world with everything kept about it (a body's maps would otherwise grow with
+    /// every death: a long base defence kills hundreds).
     pub fn remove(&mut self, id: BodyId) {
         self.bodies.remove(&id);
         self.ai_bodies.remove(&id);
+        self.no_bullets.remove(&id);
+        self.materials.remove(&id);
         self.contacts.remove(id);
         self.hit_volumes.remove(&id);
         let _ = self.world.remove_body(id);

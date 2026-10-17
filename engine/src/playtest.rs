@@ -53,7 +53,8 @@ pub struct Event {
     /// range, null means absent, anything else must be equal). Prints EXPECT PASS / FAIL; any failure makes the exit
     /// code 1
     /// An expect value may also compare with a noted state: {"as": "fresh", "margin": 2, "pct": 10} passes when the
-    /// field is within margin + pct % of what it was at the `note` step "fresh" (both default 0: equal)
+    /// field is within margin + pct % of what it was at the `note` step "fresh" (both default 0: equal); with
+    /// "at_most": true it passes anywhere below that too (a count that must not grow)
     #[serde(default)]
     pub expect: Option<serde_json::Map<String, serde_json::Value>>,
     /// a wall-clock performance limit, as `expect` (e.g. {"main_ms": [0, 50]}): checked only in a perf run
@@ -73,6 +74,10 @@ pub struct Event {
     /// debug: deal this hit to the nearest live grunt (tests the death paths)
     #[serde(default)]
     pub kill: Option<f32>,
+    /// debug: the same hit on the nearest live grunt the army released (army.rs ArmyGrunt): a base defence's killing
+    /// goes on at the army's pace (its releases wait for the live ones to die)
+    #[serde(default)]
+    pub kill_army: Option<f32>,
     /// debug: deal this hit to every live grunt that holds, is going to or just left a mounted gun (a gunner test drives his
     /// death instead of waiting for the bot's bullets to find him)
     #[serde(default)]
@@ -353,7 +358,9 @@ fn expect_holds(key: &str, want: &serde_json::Value, got: Option<&serde_json::Va
             (Some(g), Some(n)) => {
                 let margin = want.get("margin").and_then(|v| v.as_f64()).unwrap_or(0.0);
                 let pct = want.get("pct").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                (g - n).abs() <= margin + pct / 100.0 * n.abs()
+                let slack = margin + pct / 100.0 * n.abs();
+                // "at_most": only a rise beyond the slack fails (a count that must not grow)
+                if want.get("at_most").and_then(|v| v.as_bool()).unwrap_or(false) { g - n <= slack } else { (g - n).abs() <= slack }
             }
             _ => got == noted,
         };
@@ -412,6 +419,35 @@ impl Plugin for PlaytestPlugin {
             .add_systems(Update, (hurt_companions, skip_timers).run_if(resource_exists::<Playtest>))
             .add_systems(Last, (log_render, log_state).chain().run_if(resource_exists::<Playtest>))
             .add_systems(Update, warp.run_if(resource_exists::<Playtest>));
+        if std::env::var("ENTDBG").is_ok() {
+            app.add_systems(Last, log_entity_shapes);
+        }
+    }
+}
+
+/// Debug (ENTDBG set): every 30 s of game time, the most common entity shapes (their component sets) and how many of
+/// each, to find what a long run leaks.
+fn log_entity_shapes(world: &mut World, mut next: Local<f32>) {
+    let now = world.resource::<Time>().elapsed_secs();
+    if now < *next {
+        return;
+    }
+    *next = now + 30.0;
+    let mut shapes: Vec<(usize, String)> = world
+        .archetypes()
+        .iter()
+        .filter(|a| !a.is_empty())
+        .map(|a| {
+            let mut names: Vec<String> = a.iter_components().filter_map(|c| world.components().get_name(c)).map(|n| n.shortname().to_string()).collect();
+            names.sort();
+            (a.len() as usize, names.join(" "))
+        })
+        .collect();
+    shapes.sort_by(|a, b| b.0.cmp(&a.0));
+    let total: usize = shapes.iter().map(|s| s.0).sum();
+    info!("ENTDBG t {now:.0} s: {total} entities");
+    for (n, names) in shapes.iter().take(12) {
+        info!("ENTDBG   {n:6} {names}");
     }
 }
 
@@ -625,7 +661,7 @@ pub(crate) fn drive(
     mut objects: Query<(Entity, Option<&crate::level::InstanceId>, Option<&crate::level::Placed>, &mut crate::fx::Destructible)>,
     cam: Query<&GlobalTransform, With<Camera3d>>,
     player: Query<&GlobalTransform, With<crate::player::Roman>>,
-    mut grunts: Query<(&mut crate::ai::Grunt, &mut crate::fx::Health, &GlobalTransform, Option<&crate::level::InstanceId>), Without<crate::player::Roman>>,
+    mut grunts: Query<(&mut crate::ai::Grunt, &mut crate::fx::Health, &GlobalTransform, Option<&crate::level::InstanceId>, Has<crate::army::ArmyGrunt>), Without<crate::player::Roman>>,
 ) {
     pt.t += time.delta_secs();
     // the mission over (won or failed): play stops, so a pending goto counts as done
@@ -783,7 +819,7 @@ pub(crate) fn drive(
             }
             // a placed AI (a grunt, a Q1-12) of that instance id takes the hit as a shot does
             if let Some(id) = id {
-                for (mut g, mut h, _, _) in grunts.iter_mut().filter(|(g, _, _, i)| g.mind != crate::ai::Mind::Dead && i.is_some_and(|i| i.0 == id)) {
+                for (mut g, mut h, ..) in grunts.iter_mut().filter(|(g, _, _, i, _)| g.mind != crate::ai::Mind::Dead && i.is_some_and(|i| i.0 == id)) {
                     n += 1;
                     g.last_hit = amount;
                     h.0 -= amount;
@@ -842,7 +878,7 @@ pub(crate) fn drive(
                 let pos = to_game * c.translation();
                 let roman = player.single().map(|r| to_game * r.translation()).ok();
                 // the grunts (game space; the hook's dump lists the original's in "ai"), for movement comparisons
-                let gs: Vec<[f32; 3]> = grunts.iter().filter(|(g, _, _, _)| g.mind != crate::ai::Mind::Dead).map(|(_, _, t, _)| (to_game * t.translation()).to_array()).collect();
+                let gs: Vec<[f32; 3]> = grunts.iter().filter(|(g, ..)| g.mind != crate::ai::Mind::Dead).map(|(_, _, t, ..)| (to_game * t.translation()).to_array()).collect();
                 let j = serde_json::json!({"time": pt.t, "position": pos.to_array(), "forward": fwd.to_array(), "up": up.to_array(), "roman": roman.map(|r| r.to_array()), "grunts": gs});
                 let _ = std::fs::write(pt.path.with_extension(format!("{name}.camera.json")), j.to_string());
             }
@@ -910,9 +946,11 @@ pub(crate) fn drive(
         if let (Some(d), Ok(mut h)) = (e.hurt, roman.single_mut()) {
             h.0 -= d;
         }
-        if let (Some(d), Ok(p)) = (e.kill, player.single()) {
+        for (d, army_only) in [(e.kill, false), (e.kill_army, true)] {
+            let (Some(d), Ok(p)) = (d, player.single()) else { continue };
             let me = p.translation();
-            if let Some((mut g, mut h, _, _)) = grunts.iter_mut().filter(|(g, _, _, _)| g.mind != crate::ai::Mind::Dead).min_by(|a, b| a.2.translation().distance(me).total_cmp(&b.2.translation().distance(me))) {
+            let live = grunts.iter_mut().filter(|(g, .., army)| g.mind != crate::ai::Mind::Dead && (*army || !army_only));
+            if let Some((mut g, mut h, ..)) = live.min_by(|a, b| a.2.translation().distance(me).total_cmp(&b.2.translation().distance(me))) {
                 g.last_hit = d;
                 h.0 -= d;
             }
@@ -920,7 +958,7 @@ pub(crate) fn drive(
         if let Some(d) = e.kill_dropped {
             let mut n = 0;
             for de in &dropped {
-                if let Ok((mut g, mut h, _, _)) = grunts.get_mut(de) {
+                if let Ok((mut g, mut h, ..)) = grunts.get_mut(de) {
                     if g.mind != crate::ai::Mind::Dead {
                         g.last_hit = d;
                         h.0 -= d;
@@ -931,7 +969,7 @@ pub(crate) fn drive(
             info!("EVENT playtest: hit {n} dropped troops");
         }
         if let Some(d) = e.kill_gunner {
-            for (mut g, mut h, _, _) in grunts.iter_mut().filter(|(g, _, _, _)| g.mind != crate::ai::Mind::Dead && g.gun.is_some()) {
+            for (mut g, mut h, ..) in grunts.iter_mut().filter(|(g, ..)| g.mind != crate::ai::Mind::Dead && g.gun.is_some()) {
                 g.last_hit = d;
                 h.0 -= d;
             }
@@ -966,7 +1004,7 @@ pub(crate) fn drive(
         }
         if let (Some(true), Ok(p)) = (e.cover, player.single()) {
             let me = p.translation();
-            if let Some((mut g, _, _, _)) = grunts.iter_mut().filter(|(g, _, _, _)| g.mind != crate::ai::Mind::Dead).min_by(|a, b| a.2.translation().distance(me).total_cmp(&b.2.translation().distance(me))) {
+            if let Some((mut g, ..)) = grunts.iter_mut().filter(|(g, ..)| g.mind != crate::ai::Mind::Dead).min_by(|a, b| a.2.translation().distance(me).total_cmp(&b.2.translation().distance(me))) {
                 g.force_hide = true;
             }
         }
@@ -982,7 +1020,7 @@ pub(crate) fn drive(
         }
         if let Some(spell) = &e.monk_spell {
             let act = if spell == "baskets" { crate::ai::monk::MonkAct::Baskets } else { crate::ai::monk::MonkAct::Twiglets };
-            for (mut g, _, _, _) in grunts.iter_mut().filter(|(g, _, _, _)| g.mind != crate::ai::Mind::Dead && g.target.is_some()) {
+            for (mut g, ..) in grunts.iter_mut().filter(|(g, ..)| g.mind != crate::ai::Mind::Dead && g.target.is_some()) {
                 if let Some(m) = g.monk.as_mut() {
                     m.forced = Some(act);
                     // back to the pursuit: the next frame in range engages and rolls (0x00427910 -> vt+0x220)
@@ -1052,7 +1090,8 @@ fn frame_begin(mut clock: ResMut<FrameClock>) {
 
 /// The state log's frame measures, over the last 60 frames: "frame_ms" (mean wall time from one frame's start to the
 /// next), "frame_ms_max", "main_ms" (mean main-world time, First to Last: the CPU the game's systems take),
-/// "dt_max_ms" (the longest game time step), and the level's size: "entities", "romans", "companions" (alive)
+/// "dt_max_ms" (the longest game time step), and the level's size: "entities", "romans", "companions" (alive),
+/// "physics_bodies" (every body in the physics world: a ragdoll is one per part)
 /// (restart_parity compares them after a restart with a fresh level's).
 #[allow(clippy::type_complexity)]
 fn log_frames(
@@ -1063,6 +1102,7 @@ fn log_frames(
     romans: Query<(), With<crate::player::Roman>>,
     companions: Query<&crate::ai::Companion>,
     mut last_begin: Local<Option<std::time::Instant>>,
+    physics: Option<NonSend<crate::physics::Physics>>,
 ) {
     let now = std::time::Instant::now();
     let Some(began) = clock.began else { return };
@@ -1083,6 +1123,9 @@ fn log_frames(
     state.0.insert("entities".into(), entities.iter().count().into());
     state.0.insert("romans".into(), romans.iter().count().into());
     state.0.insert("companions".into(), companions.iter().filter(|c| c.dead.is_none()).count().into());
+    if let Some(p) = physics {
+        state.0.insert("physics_bodies".into(), p.world.body_count().into());
+    }
 }
 
 fn log_state(mut pt: ResMut<Playtest>, mut state: ResMut<PlayState>) {

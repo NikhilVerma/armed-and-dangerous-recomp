@@ -106,22 +106,24 @@ fn fade_materials<C: Coverage>(
 #[derive(Component, Clone, Copy, PartialEq, Debug)]
 pub struct ObjectAlpha(pub f32);
 
+/// On a mesh drawing with its own copy of its material for its object's alpha (freed with the mesh).
+#[derive(Component)]
+struct OwnAlphaMaterial;
+
 fn object_alpha<C: Coverage>(
+    mut commands: Commands,
     q: Query<(Entity, &ObjectAlpha), Changed<ObjectAlpha>>,
     children: Query<&Children>,
-    mut meshes: Query<&mut MeshMaterial3d<GameMaterial<C>>>,
+    mut meshes: Query<(&mut MeshMaterial3d<GameMaterial<C>>, Has<OwnAlphaMaterial>)>,
     mut materials: ResMut<Assets<GameMaterial<C>>>,
-    mut own: crate::levelreset::PerLevel<HashSet<AssetId<GameMaterial<C>>>>,
 ) {
-    let own = own.get();
     for (e, a) in &q {
         for m in std::iter::once(e).chain(children.iter_descendants(e)) {
-            let Ok(mut mm) = meshes.get_mut(m) else { continue };
-            if !own.contains(&mm.0.id()) {
+            let Ok((mut mm, own)) = meshes.get_mut(m) else { continue };
+            if !own {
                 let Some(copy) = materials.get(&mm.0).cloned() else { continue };
-                let h = materials.add(copy);
-                own.insert(h.id());
-                mm.0 = h;
+                mm.0 = materials.add(copy);
+                commands.entity(m).try_insert(OwnAlphaMaterial);
             }
             if let Some(mut mat) = materials.get_mut(&mm.0) {
                 mat.params.emissive.w = 1.0 - a.0.clamp(0.0, 1.0);

@@ -32,6 +32,7 @@ mod camfade;
 mod campaign;
 mod cheats;
 mod contacts;
+mod corpses;
 mod cutscenes;
 mod decals;
 mod extras;
@@ -375,6 +376,7 @@ fn main() {
     app.add_plugins(sticky::StickyPlugin);
     app.add_plugins(camfade::CameraFadePlugin);
     app.add_plugins(ragdoll::RagdollPlugin);
+    app.add_plugins(corpses::CorpsePlugin);
     // movies (movie.rs) and when the game plays them (cutscenes.rs): the boot intro before the title menu, unless a
     // tool run or a relaunch; a title script asks for it with "intro"
     app.add_plugins((movie::MoviePlugin, cutscenes::CutscenesPlugin));

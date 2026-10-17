@@ -664,6 +664,32 @@ bones keep the single-box fallback in `ai.rs` die(). The original's GoRagdoll pa
 so the sizes and limits are guesses judged by eye. Test: `work/remaster/play/death2.json` (`{"kill":1000}` gives a
 heavy hit); the b1..b4 shots show the grunt down, splayed and settled, with no jitter.
 
+## Corpses (2026-10-17, agent-corpses)
+
+`engine/src/corpses.rs` (CorpsePlugin): the dead's bodies, for every AI character (grunts of every kind including the
+army's, companions, critters; a grunt the Topsy bomb throws into the sky is removed at once). A death inserts a
+`Corpse`: `Corpse::ragdoll()` (GoRagdoll 0x00431310: 5.0 s, the last 0.5 s fading), `Corpse::animated(slot)` (0x00427100,
+state 0x191: 0.5 s, all fading, counted only once the death anim on that slot has ended), `Corpse::lying(..)`. The
+countdown is Corpse_CountDown 0x0042eba0 (+0x9f0 m_deathTimer / +0x9f4), the fade `camfade::ObjectAlpha` (the meshes'
+own material copies, marked `OwnAlphaMaterial` and freed with them), the removal Object_Kill 0x00455640 in `Last`: the
+Jolt ragdoll or body leaves the world, fx_death plays and the husk appears (`Remains`, `level::SpawnHusk`; no shipped
+character sets either), the entity tree goes, and a placed grunt's id is kept for saves (`Corpses::removed_instances`).
+GoRagdoll's limit (at most 4 down, 0x00431000) makes a later death animated (ai.rs die).
+Settings (graphics.rs, Remaster / Original): `corpse_keep` 48 / 0 (no cap), `corpse_time` 60 / 0 (the original's),
+`corpse_fade` 1.5 / 0, `ragdoll_limit` 16 / 4. With bodies outliving 5 s a ragdoll at rest (oxijolt is_calm, at most
+15 s more) settles: Jolt ragdoll removed, pose kept (`corpses::Settled`, charanim skips it).
+Before: no body was ever removed (each death left its ~70 entities and an 11-body Jolt ragdoll). Measured after
+(lev_1_m4, two army deaths a second, `corpses_l1m4`): Original 3-8 bodies lying, at most 4 ragdolls, entities 31.5k ->
+24.7k over 65 s of killing, physics bodies 160-230; Remaster 50-53 lying (48 + fading / dying), ~30 settled, entities
+flat. Tests: playtests corpses_l1m4 / corpses_l1m4_remaster (regress; `kill_army` steps, `at_most` expects,
+`physics_bodies`), oracle scenario `corpses` (corpse.ragdoll 5.00 / 5.02 s, corpse.anim 0.50 / 0.50 s; tools/oracle_diff.py
+`bodies`). Debug: `ENTDBG=1` logs the entity shapes every 30 s (playtest.rs).
+Not corpses, found on the way: lev_2_m4's 123k entities are mostly the army's live marching members: its five army
+timers' anims create 357 platoons (1,785 members) in 133 s and each member is a skinned low-detail grunt of ~70
+entities (the original draws them as particles, pool 2 of Game+0xa90); with the releases waiting on the live-grunt
+limit they pile up (1,745 members, 122k entities, 70-120 ms frames headless at 150 s). Open: a cheap member
+representation (instanced, one shared rig per platoon, or particles as the original).
+
 ## Sticky bomb (piece 3, 2026-10-13)
 
 `engine/src/sticky.rs`, from StickyBombProjectile (game_07.cpp 892-1300) and Hud_UpdateCrosshair's auto-aim

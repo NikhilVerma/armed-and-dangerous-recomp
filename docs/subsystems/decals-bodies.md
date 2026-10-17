@@ -141,6 +141,17 @@ Character classes share vtable slots +0xd4 = **0x004319e0** (die), +0x17c = **0x
 - No global corpse count was found. The only global cap is the 4-ragdoll limit. Whether troop generators
   (`alarm_generator_max_troops`, 0x0044c170) count dead objects is **not checked**.
 
+### Measured and ported (2026-10-17, agent-corpses)
+
+- Oracle (work/oracle/courtyard and the `corpses` scenario, lev_1_m1): a ragdolled grunt (state 400 at death) leaves
+  the AI list 5.00 s later; an animated death (state 0x191, entered directly or after the launch state 0x195) 0.5 s after
+  its death anim's length (rests 0.47..0.53 s for grunt_die_1 0.9, grunt_bow_die_3 0.97 / grunt_blown_up_die 0.97,
+  grunt_barricade_death 0.63). So the body lies 5 s in all (the fade is inside the 5 s, not after it), and the 0x191
+  countdown waits for the anim (slot flag 2, GenericAI_Update's SP+0x10).
+- Struct atlas (tools/struct_atlas.py): +0x9f0 is m_deathTimer, +0x421 m_hkSimulateEnable (Havok simulating); +0x1bc
+  reads as a WeaponObject pointer (confidence 0.6), which puts the "has a physics skeleton" guess above in doubt (open).
+- Ported: engine/src/corpses.rs (docs/remaster-engine.md "Corpses").
+
 ## 3. Hook points and risks
 
 | Want | Change | Size / state |

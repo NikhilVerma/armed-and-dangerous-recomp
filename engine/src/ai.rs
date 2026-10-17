@@ -4034,7 +4034,8 @@ fn fire_cycle(
 }
 
 /// Character_Die: Dead bark once; ragdoll (a tumbling rigid body here) when the killing hit was at least
-/// hit_ragdoll, GoRagdoll impulse = direction x amount x 0.15. Death anims (grunt_die_*) come with skinning.
+/// hit_ragdoll and fewer ragdolls than the limit are down (GoRagdoll 0x00431310), impulse = direction x amount x 0.15;
+/// else a death anim. Either way the body gets its corpse timer (corpses.rs).
 fn die(
     mut commands: Commands,
     mut physics: NonSendMut<Physics>,
@@ -4047,8 +4048,12 @@ fn die(
     alive: Query<&Health>,
     (mut barks, time, mut guns): (ResMut<Barks>, Res<Time>, Query<&mut crate::turret::Turret>),
     (voices, mut stop): (crate::audio::PlayingVoices, MessageWriter<crate::audio::StopVoice>),
+    (corpses, settings): (Query<&crate::corpses::Corpse>, Res<crate::graphics::GraphicsSettings>),
 ) {
     let mut alerts: Vec<(i64, Entity, Entity)> = Vec::new();
+    // the ragdolls already down (GoRagdoll 0x00431310 counts them over the AI list: 0x00431000)
+    let rules = crate::corpses::CorpseRules::of(&settings);
+    let mut down = crate::corpses::Corpses::ragdolls(&corpses);
     for (e, mut g, body, mut tr, h, animator) in &mut grunts {
         if g.mind == Mind::Dead || h.0 > 0.0 {
             continue;
@@ -4100,11 +4105,17 @@ fn die(
         // grunt_hit_window (0x3d); else 0x00427100: grunt_barricade_death (0x56) in a trench's slot, else grunt_die_1..6.
         // Not reached here: the 0x57 flag variant (in back: no lev_1_m1 grunt sets it) and record flag 2's launch.
         let blown_out = g.window && g.cartoon;
-        g.ragdoll = !blown_out && (g.last_hit >= g.hit_ragdoll || push.length() > 30.0);
+        let wants_ragdoll = !blown_out && (g.last_hit >= g.hit_ragdoll || push.length() > 30.0);
+        // GoRagdoll with more ragdolls down than the limit allows: the animated death of 0x00427100 instead
+        g.ragdoll = wants_ragdoll && crate::corpses::Corpses::may_ragdoll(down, &rules);
+        down += g.ragdoll as u32;
         g.death_name = if blown_out {
             Some("grunt_window_blown_out")
         } else if g.ragdoll {
             None
+        } else if wants_ragdoll {
+            // 0x00427100: the trench death (0x56) in a trench's slot, else grunt_die_1..6 (death_anim)
+            g.at_barricade.then_some("grunt_barricade_death")
         } else if g.ledge_death {
             Some(if rng.rand() < 0.5 { "grunt_hit_fall_1" } else { "grunt_hit_fall_2" })
         } else if g.window {
@@ -4119,9 +4130,11 @@ fn die(
             info!("AIDBG death {e:?}: {:?} ragdoll {} (hit {:.0}, cartoon {})", g.death_name, g.ragdoll, g.last_hit, g.cartoon);
         }
         if !g.ragdoll {
-            commands.entity(e).remove::<Body>();
+            // the death anim on slot 0 (charanim.rs), then the corpse timer
+            commands.entity(e).remove::<Body>().insert(crate::corpses::Corpse::animated(0));
             continue;
         }
+        commands.entity(e).insert(crate::corpses::Corpse::ragdoll());
         // an articulated ragdoll from the pose at death (ragdoll.rs); the single box below when that fails
         if let Some(mut a) = animator {
             if let Some(rd) = crate::ragdoll::start(&mut physics, &a, &joints, push) {
@@ -4452,7 +4465,7 @@ impl Plugin for CompanionPlugin {
 ///   0x00485360: ignored while a live target is held; Slot94 0x00486da0: ignored on the tower task, modes 6 / 7);
 /// - death (permanent): the Dead line, *_die, score_value -500 to Accidents, its send_trigger_on_death (the AI's death
 ///   0x00431720 sends +0x528: lev_4_m2's Jonesy fails the mission), the body removed after the anim and the corpse
-///   timer (0.5 s + 0.5 s fade: guess on the fade's look).
+///   timer (0.5 s, all of it fading: corpses.rs).
 /// The shared delay is vo_delay Game+0xb44 (range Game+0xb48 / +0xb4c = 30..45 s from level load, game_02.cpp:2057),
 /// the one the grunts' Spotted / Fight cues use (Barks, Delay::Vo).
 #[allow(clippy::too_many_arguments)]
@@ -4460,7 +4473,7 @@ fn companion_damage(
     mut commands: Commands,
     time: Res<Time>,
     mut physics: NonSendMut<Physics>,
-    mut q: Query<(Entity, &mut Companion, &Health, &Transform, &mut Visibility, Has<tower::OnTask>)>,
+    mut q: Query<(Entity, &mut Companion, &Health, &Transform, Has<tower::OnTask>)>,
     alive: Query<&Health, Without<Companion>>,
     mut triggers: MessageWriter<crate::mission::SendTrigger>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
@@ -4474,16 +4487,10 @@ fn companion_damage(
         let n = list[((rng.rand() * list.len() as f32) as usize).min(list.len() - 1)];
         sounds.write(crate::audio::PlaySound::at(n, at));
     };
-    for (e, mut c, h, t, mut vis, on_task) in &mut q {
+    for (e, mut c, h, t, on_task) in &mut q {
         let at = t.translation;
-        let len = if c.q { 2.533 } else { 2.0 };
         if let Some(d) = c.dead.as_mut() {
             *d += dt;
-            if *d >= len + 1.0 && *vis != Visibility::Hidden {
-                *vis = Visibility::Hidden;
-                physics.remove_walker(&c.walker);
-                commands.entity(e).remove::<Companion>();
-            }
             continue;
         }
         c.hurt_t += dt;
@@ -4500,6 +4507,9 @@ fn companion_damage(
         if h.0 <= 0.0 {
             c.dead = Some(0.0);
             c.hit = None;
+            // the body: no more walking; its die anim (slot 0, charanim.rs), then the corpse timer removes it
+            physics.remove_walker(&c.walker);
+            commands.entity(e).insert(crate::corpses::Corpse::animated(0));
             let l: &[&str] = if c.q { &["q1150051_dead", "q1150052_dead", "q1150055_dead", "q1150056_dead", "q1150057_dead", "q1150058_dead", "q1150059_dead"] } else { &["jon50062_dead", "jon50063_dead", "jon50064_dead", "jon50065_dead", "jon50066_dead"] };
             say(&mut sounds, &mut rng, l, at);
             // not a kill (vt+0xe8 false); score_value -500 to Accidents (0x00431720), which also sends +0x528

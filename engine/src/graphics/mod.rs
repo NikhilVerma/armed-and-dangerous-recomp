@@ -8,7 +8,8 @@
 //!   occlusion with snow exempt, temporal anti-aliasing with sharpening, larger soft shadows covering the whole view,
 //!   soft particles, a dissolve instead of a hard cut at the far clip, bloom on over-bright effects only.
 //!
-//! The game rules never depend on these (no setting reaches physics, AI or timing).
+//! The game rules never depend on these (no setting reaches the living: AI, Roman, timing). The bodies' settings
+//! (`corpse_*`, `ragdoll_limit`: how long the dead lie and how many ragdoll, corpses.rs) touch only the dead.
 //!
 //! Data: options.json `graphics_preset` ("remaster" / "original") and `graphics` (any field of [`GraphicsSettings`]
 //! by name, applied over the preset's values: a mod or a player can change one setting without code); `--preset
@@ -134,6 +135,16 @@ pub struct GraphicsSettings {
     pub far_fade: bool,
     /// bloom intensity on what is brighter than white (stacked additive effects; 0 = off, no HDR target)
     pub bloom: f32,
+    /// dead bodies lying at once: one more makes the oldest fade (0 = no cap, the original's: bodies go by their
+    /// timers alone; corpses.rs)
+    pub corpse_keep: u32,
+    /// seconds a body lies before it is removed (0 = the original's: a ragdoll 5 s, an animated death 0.5 s after its
+    /// anim; Corpse_CountDown 0x0042eba0)
+    pub corpse_time: f32,
+    /// the body's fade at the end, in seconds (0 = the original's 0.5)
+    pub corpse_fade: f32,
+    /// ragdolls down at once; a death beyond it is animated (the original's 4: Character_GoRagdoll 0x00431310)
+    pub ragdoll_limit: u32,
 }
 
 impl GraphicsSettings {
@@ -162,6 +173,10 @@ impl GraphicsSettings {
             soft_particles: 0.0,
             far_fade: false,
             bloom: 0.0,
+            corpse_keep: 0,
+            corpse_time: 0.0,
+            corpse_fade: 0.0,
+            ragdoll_limit: 4,
         }
     }
 
@@ -180,6 +195,10 @@ impl GraphicsSettings {
             soft_particles: 6.0,
             far_fade: true,
             bloom: 0.08,
+            corpse_keep: 48,
+            corpse_time: 60.0,
+            corpse_fade: 1.5,
+            ragdoll_limit: 16,
             ..Self::original()
         }
     }

@@ -587,7 +587,7 @@ fn roman(
 #[allow(clippy::type_complexity)]
 fn grunts(
     // (a hidden grunt's anims, waiting or coming out, are ai/ic.rs's)
-    mut q: Query<(Entity, &mut Grunt, &mut Animator, &Transform, Option<&crate::topsy::Thrown>), (Without<crate::ragdoll::Ragdoll>, Without<crate::ai::ic::IcEntry>)>,
+    mut q: Query<(Entity, &mut Grunt, &mut Animator, &Transform, Option<&crate::topsy::Thrown>), (Without<crate::ragdoll::Ragdoll>, Without<crate::corpses::Settled>, Without<crate::ai::ic::IcEntry>)>,
     targets: Query<&GlobalTransform>,
     time: Res<Time>,
     lib: Res<crate::skin::AnimLibrary>,
@@ -829,7 +829,7 @@ fn grunts(
 /// / 0x268 (Slot88 0x0048fd80 / 0x0048fbc0: scare, sticky, topsy, which reach critters only through the carrier: the
 /// scare walks list World+0xe7c, which critters are not in).
 fn critters(
-    mut q: Query<(&mut Animator, &mut crate::level::Critter, &mut Visibility)>,
+    mut q: Query<(&mut Animator, &mut crate::level::Critter)>,
     lib: Res<crate::skin::AnimLibrary>,
     // the random stream and the death lines used per species (a level starts them over)
     mut per_level: crate::levelreset::PerLevel<(u32, [Vec<usize>; 2])>,
@@ -843,7 +843,7 @@ fn critters(
         *seed = seed.wrapping_mul(214013).wrapping_add(2531011);
         (*seed >> 16) & 0x7fff
     };
-    for (mut a, mut c, mut vis) in &mut q {
+    for (mut a, mut c) in &mut q {
         a.blend = AI_BLEND;
         let species = c.species;
         let play = |a: &mut Animator, id: u32, looping: bool| {
@@ -851,8 +851,8 @@ fn critters(
             a.layers[0].time = 0.0;
         };
         // dead (0x0048fa20 -> GoRagdoll 0x00431310): blown_up (0.97 s, both species; its note screams for the
-        // penguin, fx_penguin_blow_up), then land_dead; the body lingers 5 s, then goes (the 0.5 s fade not drawn:
-        // guess)
+        // penguin, fx_penguin_blow_up), then land_dead; the body's corpse timer (CRITTER_CORPSE, corpses.rs) fades and
+        // removes it
         if let Some(t) = c.dead.as_mut() {
             let first = *t == 0.0;
             *t += dt;
@@ -874,9 +874,6 @@ fn critters(
                 sounds.write(crate::audio::PlaySound::at(lines[k], at));
             } else if t > BLOWN_UP && a.layers.first().is_some_and(|l| l.anim == species.anim(0x49)) {
                 play(&mut a, 0x5d, false);
-            }
-            if t > BLOWN_UP + 5.5 {
-                *vis = Visibility::Hidden;
             }
             continue;
         }
@@ -921,6 +918,10 @@ fn critters(
 
 /// The critters' blown-up anim length (pngn_blown_up, sheep_blown_up: 29 frames at 30 per second).
 const BLOWN_UP: f32 = 29.0 / 30.0;
+
+/// How long a dead critter's body stays, its last 0.5 s fading (corpses.rs): the blown-up anim, then GoRagdoll
+/// 0x00431310's 5.0 s / 0.5 s corpse timer (guess: counted from the landing, as before the corpse port).
+pub const CRITTER_CORPSE: f32 = BLOWN_UP + 5.5;
 
 /// random(lo, hi) of 0x0046e2c0 (one rand(), guess at the scaling).
 fn random(rand: &mut impl FnMut() -> u32, lo: f32, hi: f32) -> f32 {
