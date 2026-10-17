@@ -282,3 +282,23 @@ is 1:1 or better."
   defect: a divergence from the original shown by the oracle or a playtest, or a bug the player sees. Each such fix
   carries that evidence. No sweeping re-ordering for idiom's sake.
 - The rest of the review (structure, typed data, assets, crates) waits for the phase-2 refactor.
+
+## 2026-10-17: features first, idiomatic from scratch, then tune toward the original
+
+The human: "If it's turning out to be too hard ... make sure that our code is idiomatic, written the way you would
+write a game from scratch, and then at least get all the features done even if they are not exactly like the original
+game. Then we try to make it similar to the original game ... and hammer those features to feel similar." Then:
+"typed components, systems, and stage data".
+
+- Order changes: feature-complete first. Every deferred feature (docs/port/features.csv) gets built so it works and
+  plays right in every level that uses it, then a tuning pass brings it toward the original.
+- Build each feature as a from-scratch Bevy design: typed components, systems in a plugin, and typed stage (level)
+  data. The recovered C++ and the running original tell what the feature does; they do not dictate the structure.
+- Typed data: properties and level data are deserialised once into typed structs (serde, defaults, Reflect),
+  not looked up by string key in systems. New code does this; existing string lookups are converted as their
+  modules are touched.
+- The oracle comparison moves from a gate to the tuning pass: a feature lands when it works, is tested by a playtest,
+  and every level that uses it can still be finished; frame-exact comparison with the original follows. Visible
+  differences found then are tuning work, logged per feature.
+- Unchanged: no hacks, tests that do not pass by luck, levels finishable, the 4K 100 fps floor, outcome >= original
+  as the end state.
