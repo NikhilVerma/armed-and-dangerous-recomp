@@ -606,25 +606,25 @@ fn hand_weapon(roman: Query<&Roman>, topsy: Res<crate::topsy::Topsy>, glove: Res
     }
 }
 
-/// Mouse look input for this frame (window pixels): the cursor's movement from the window centre, where it is put
-/// back every frame. Raw device motion is not used: some trackpads report absolute positions there (the view then
-/// runs away in one direction).
+/// Mouse look input for this frame (window pixels, +x right, +y down): mouselook.rs turns the pointer's reports into it.
 #[derive(Resource, Default)]
 pub struct LookDelta(pub Vec2);
 
-/// The cursor: confined, hidden and re-centred in play (its movement is the look input, LookDelta), free and shown in
-/// the menus (title, pause, pub screen).
+/// The cursor: confined, hidden and re-centred in play (the pointer's movement is the look input, LookDelta), free and
+/// shown in the menus (title, pause, pub screen). Focus changes and the pointer's kind go to the session's events.
+#[allow(clippy::too_many_arguments)]
 pub fn grab_cursor(
     mut windows: Query<(&mut Window, &mut CursorOptions), With<PrimaryWindow>>,
     playtest: Option<Res<crate::playtest::Playtest>>,
     state: Res<State<crate::AppState>>,
     menu: Res<crate::gamemenu::GameMenu>,
     mut look: ResMut<LookDelta>,
-    mut settle: Local<CursorSettle>,
-    motion: Res<AccumulatedMouseMotion>,
-    mut last_abs: Local<Option<Vec2>>,
+    mut mouse: Local<crate::mouselook::MouseLook>,
+    mut motion: MessageReader<bevy::input::mouse::MouseMotion>,
+    mut was_absolute: Local<bool>,
 ) {
     look.0 = Vec2::ZERO;
+    let reports: Vec<Vec2> = motion.read().map(|m| m.delta).collect();
     // scripted runs leave the mouse to the person at the desk
     if playtest.is_some() {
         return;
@@ -636,74 +636,20 @@ pub fn grab_cursor(
         c.grab_mode = mode;
         c.visible = visible;
         // the first frames after entering play only centre the cursor
-        settle.start();
-        *last_abs = None;
+        mouse.reset();
+        info!("EVENT input: cursor {}", if play { "confined and hidden (play)" } else { "free (menus)" });
     }
-    if !play || !w.focused {
-        settle.start();
-        *last_abs = None;
-        return;
+    if let Some(f) = mouse.focus_change(w.focused) {
+        info!("EVENT input: window {}", if f { "focused" } else { "lost the focus" });
     }
-    let centre = Vec2::new(w.width() / 2.0, w.height() / 2.0);
-    let offset = w.cursor_position().map(|p| p - centre);
-    let take = settle.look(offset);
-    if let Some(o) = offset.filter(|_| take) {
-        look.0 = o;
+    let size = Vec2::new(w.width(), w.height());
+    look.0 = mouse.frame(&crate::mouselook::PointerFrame { play, focused: w.focused, window: size, cursor: w.cursor_position(), reports: &reports });
+    if mouse.absolute() != *was_absolute {
+        *was_absolute = mouse.absolute();
+        info!("EVENT input: pointer reports {}", if *was_absolute { "absolute positions (a remote desktop stream's mouse mode?)" } else { "relative motion" });
     }
-    // when the cursor did not move, the raw device motion: streamed input (Moonlight from a Mac trackpad) can leave
-    // the cursor still while raw input arrives, and some devices report absolute positions there (0..65535 over the
-    // desktop, which winit passes on as motion: the view ran away "only down"): those are turned into the change
-    // since the last report, scaled to window pixels
-    let raw = motion.delta;
-    if look.0 == Vec2::ZERO && raw != Vec2::ZERO && take {
-        if raw.x.abs() > 2000.0 || raw.y.abs() > 2000.0 {
-            if let Some(prev) = *last_abs {
-                let d = (raw - prev) * Vec2::new(w.width() / 65535.0, w.height() / 65535.0) * 4.0;
-                if d.length() < 400.0 {
-                    look.0 = d;
-                }
-            }
-            *last_abs = Some(raw);
-        } else {
-            look.0 = raw;
-        }
-    }
-    w.set_cursor_position(Some(centre));
-}
-
-/// Entering play (or the window regaining focus) puts the cursor at the window centre; its offset from the centre is
-/// look input only once the cursor has been seen there. The warp lands a frame or more later, later still at a low
-/// frame rate or through a streamed desktop: a fixed two frames read the way from the clicked menu row (the yes / no
-/// box's Yes, below the centre) to the centre as one big look down (feedback 28, "Roman looking down" after Restart).
-#[derive(Default)]
-pub struct CursorSettle {
-    settling: bool,
-    frames: u32,
-}
-
-impl CursorSettle {
-    /// frames always skipped, as before
-    const MIN_FRAMES: u32 = 2;
-    /// a cursor that never shows at the centre is taken as it is after this many frames
-    const MAX_FRAMES: u32 = 30;
-    /// how near the centre (window pixels) counts as there
-    const CENTRED: f32 = 1.5;
-
-    pub fn start(&mut self) {
-        *self = CursorSettle { settling: true, frames: 0 };
-    }
-
-    /// Whether this frame's cursor offset from the centre (None: no cursor in the window) is look input.
-    pub fn look(&mut self, offset: Option<Vec2>) -> bool {
-        if !self.settling {
-            return true;
-        }
-        self.frames += 1;
-        let centred = offset.is_some_and(|o| o.length() <= Self::CENTRED);
-        if (self.frames > Self::MIN_FRAMES && centred) || self.frames >= Self::MAX_FRAMES {
-            self.settling = false;
-        }
-        false
+    if play && w.focused {
+        w.set_cursor_position(Some(size / 2.0));
     }
 }
 
@@ -2123,32 +2069,6 @@ fn on_free_ground(physics: &Physics, at: Vec3) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// Feedback 28: the way from the clicked Yes (below the centre) to the centre is never a look, however many frames
-    /// the warp takes; once the cursor shows at the centre, its moves are; a cursor that never gets there is taken after
-    /// MAX_FRAMES.
-    #[test]
-    fn cursor_settles_at_the_centre() {
-        let mut s = CursorSettle::default();
-        assert!(s.look(Some(Vec2::new(3.0, 4.0))), "not settling: every offset is look input");
-        s.start();
-        let yes = Some(Vec2::new(0.0, 180.0));
-        for f in 0..10 {
-            assert!(!s.look(yes), "frame {f}: the warp has not landed");
-        }
-        assert!(!s.look(Some(Vec2::new(0.5, 0.0))), "the frame the cursor shows at the centre");
-        assert!(s.look(Some(Vec2::new(0.0, 6.0))), "then its moves are look input");
-        s.start();
-        assert!(!s.look(Some(Vec2::ZERO)) && !s.look(Some(Vec2::ZERO)), "the first two frames are always skipped");
-        assert!(!s.look(Some(Vec2::ZERO)));
-        assert!(s.look(Some(Vec2::ZERO)));
-        s.start();
-        let mut n = 0;
-        while !s.look(yes) {
-            n += 1;
-            assert!(n <= CursorSettle::MAX_FRAMES, "a cursor that never centres is taken eventually");
-        }
-    }
 
     #[test]
     fn reload_refills_at_the_timer() {

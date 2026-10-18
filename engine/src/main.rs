@@ -61,6 +61,7 @@ mod levelreset;
 mod menu;
 mod movie;
 mod mission;
+mod mouselook;
 mod nav;
 mod physics;
 mod peasant;
@@ -231,6 +232,44 @@ fn resize_tolerant(e: &bevy::render::error_handler::RenderError, _: &mut World, 
     std::process::exit(1);
 }
 
+/// The game window. A test run's (`--background`: playtests, captures, benches) opens off-screen, never focused or
+/// activated, below every other window and out of the taskbar, so it cannot take the keyboard, the mouse or the cursor
+/// from the player's game (player.rs grab_cursor also leaves the cursor alone in scripted runs and in any unfocused
+/// window).
+fn primary_window(size: (u32, u32), vsync: bool, background: bool) -> Window {
+    use bevy::window::{WindowLevel, WindowPosition};
+    Window {
+        title: "Armed and Dangerous - remaster engine".into(),
+        resolution: WindowResolution::new(size.0, size.1).with_scale_factor_override(1.0),
+        present_mode: if vsync { PresentMode::AutoVsync } else { PresentMode::AutoNoVsync },
+        position: if background { WindowPosition::At(IVec2::new(-20000, -20000)) } else { WindowPosition::Automatic },
+        focused: !background,
+        window_level: if background { WindowLevel::AlwaysOnBottom } else { WindowLevel::Normal },
+        skip_taskbar: background,
+        ..default()
+    }
+}
+
+#[cfg(test)]
+mod window_tests {
+    use super::*;
+
+    /// A test run's window cannot take the focus or the cursor (session 2026-10-18_17-00-51: the player suspected the
+    /// agents' test games); the player's window opens focused and normal.
+    #[test]
+    fn a_test_window_never_takes_the_focus() {
+        let w = primary_window((1280, 720), false, true);
+        assert!(!w.focused);
+        assert_eq!(w.window_level, bevy::window::WindowLevel::AlwaysOnBottom);
+        assert!(w.skip_taskbar);
+        assert!(matches!(w.position, bevy::window::WindowPosition::At(p) if p.x <= -10000 && p.y <= -10000));
+        let c = bevy::window::CursorOptions::default();
+        assert_eq!(c.grab_mode, bevy::window::CursorGrabMode::None, "no grab until play in a focused window");
+        let player = primary_window((1920, 1080), false, false);
+        assert!(player.focused && player.window_level == bevy::window::WindowLevel::Normal && !player.skip_taskbar);
+    }
+}
+
 /// One frame of a scripted run: the original harness's virtual clock step (166667 ticks of 100 ns, see `main`).
 const ORACLE_FRAME_STEP: std::time::Duration = std::time::Duration::from_nanos(16_666_700);
 
@@ -281,16 +320,7 @@ fn main() {
             .set(gfx.image_plugin())
             .set(bevy::log::LogPlugin { custom_layer: devtools::session::log_layer, ..default() })
             .set(WindowPlugin {
-                primary_window: Some(Window {
-                    title: "Armed and Dangerous - remaster engine".into(),
-                    resolution: WindowResolution::new(a.size.0, a.size.1).with_scale_factor_override(1.0),
-                    present_mode: if a.vsync { PresentMode::AutoVsync } else { PresentMode::AutoNoVsync },
-                    position: if a.background { bevy::window::WindowPosition::At(IVec2::new(-20000, -20000)) } else { bevy::window::WindowPosition::Automatic },
-                    focused: !a.background,
-                    window_level: if a.background { bevy::window::WindowLevel::AlwaysOnBottom } else { bevy::window::WindowLevel::Normal },
-                    skip_taskbar: a.background,
-                    ..default()
-                }),
+                primary_window: Some(primary_window(a.size, a.vsync, a.background)),
                 ..default()
             })
             .set(AssetPlugin { file_path: scene_dir.to_string_lossy().into_owned(), ..default() })
