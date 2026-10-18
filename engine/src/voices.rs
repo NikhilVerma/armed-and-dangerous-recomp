@@ -10,7 +10,8 @@
 //! - OpenGate (+0x174): a grunt sent through the opened gate (the army breach 0x00429a50), under vo_delay; grunts
 //!   0x00438c10 -> 0x00438a60 "GR..._OpenGate", captains 0x00437760 "CA150053_OpenGate" / "CA250037/38_OpenGate".
 //! - The shrub patrol's Fight cue (+0x13c, ShrubPatrol 0x0043a310): "SP1500xx_Taunt" / "SP2500xx_Taunt", under
-//!   vo_delay, as its fire anim starts with a target.
+//!   vo_delay, as its fire anim starts with a target; its friendly-fire line (+0x150, 0x0043a480: "SP1500xx_FriendlyFire" /
+//!   "SP2500xx_FriendlyFire", vo_delay) when the player's shots hit it (shrubpatrol.rs friendly_fire).
 //!
 //! A level's bank holds the lines its characters use; a cue whose lines the bank lacks plays nothing (audio.rs
 //! resolve). API: [`VoiceCue`] (send it), [`VoicesPlugin`].
@@ -26,6 +27,8 @@ pub enum Cue {
     OpenGate,
     /// the shrub patrol's fight taunt
     ShrubTaunt,
+    /// the shrub patrol shot by the player (ShrubPatrol +0x150, 0x0043a480: SP1 / SP2 FriendlyFire, vo_delay)
+    ShrubFriendlyFire,
 }
 
 impl Cue {
@@ -36,6 +39,7 @@ impl Cue {
             Cue::LadderPlaced => "LadderPlaced",
             Cue::OpenGate => "OpenGate",
             Cue::ShrubTaunt => "Taunt",
+            Cue::ShrubFriendlyFire => "FriendlyFire",
         }
     }
 
@@ -79,7 +83,7 @@ fn line_for(cue: Cue, kind: Option<Kind>, set: u8) -> String {
     match (cue, kind) {
         // the captains' own open-gate lines (0x00437760); their sets: CA1 with +0x484 bit 21 (the grunts' GR1 bit)
         (Cue::OpenGate, Some(Kind::Captain)) => format!("@captain:{cat}:{}", if set == 0 { 0 } else { 1 }),
-        (Cue::ShrubTaunt, _) => format!("@shrub:{cat}:{set}"),
+        (Cue::ShrubTaunt | Cue::ShrubFriendlyFire, _) => format!("@shrub:{cat}:{set}"),
         _ => crate::ai::voice(cat, set),
     }
 }

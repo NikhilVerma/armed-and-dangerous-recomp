@@ -45,7 +45,7 @@ address,name,disposition,reason
 0x0043a2b0,AIVoice_Q12Dead,ported,engine/src/ai.rs die (Kind::Q112) with ai/q112.rs DEAD_LINES
 0x0043a300,fn_0043a300,ported,engine/src/ai.rs die (Kind::Q112): the Dead slot
 0x0043a310,AIVoice_ShrubTaunt,ported,"engine/src/voices.rs (the shrub patrol's Fight cue: SP1 / SP2 Taunt as a burst starts, shrubpatrol.rs, under vo_delay)"
-0x0043a480,AIVoice_ShrubFriendlyFire,deferred,"feature: ai-voice-lines; the shrub patrol's friendly-fire line (ShrubPatrol +0x150, raised when the player's shots hit it): the remaster's shrub patrol has no body, so Roman's bullets pass through it and nothing raises the line (open: its hit volume)"
+0x0043a480,AIVoice_ShrubFriendlyFire,ported,"engine/src/voices.rs (Cue::ShrubFriendlyFire: SP1 / SP2 FriendlyFire under vo_delay) with shrubpatrol.rs friendly_fire (the player's shots stop on the patrol's body, a sphere round its chest: guess; unit test of the hit)"
 0x0043a5e0,AIVoice_MoTaunt,deferred,"feature: monk; the Wildwood Monk's voice (MonkObject: MO150001 Taunt under vo_delay, MO150002..4 Ambient, MO150011..15 Hurt every 4 s at most, MO1500xx Dead under death_delay stopping his line); the monk is agent-world's"
 0x0043a680,AIVoice_MoAmbient,deferred,"feature: monk; the Wildwood Monk's voice (MonkObject: MO150001 Taunt under vo_delay, MO150002..4 Ambient, MO150011..15 Hurt every 4 s at most, MO1500xx Dead under death_delay stopping his line); the monk is agent-world's"
 0x0043a6e0,AIVoice_MoHurt,deferred,"feature: monk; the Wildwood Monk's voice (MonkObject: MO150001 Taunt under vo_delay, MO150002..4 Ambient, MO150011..15 Hurt every 4 s at most, MO1500xx Dead under death_delay stopping his line); the monk is agent-world's"

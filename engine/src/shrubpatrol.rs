@@ -37,7 +37,8 @@ pub struct ShrubPatrolPlugin;
 
 impl Plugin for ShrubPatrolPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, (setup, ready, guard, fire, log).chain().run_if(crate::playing));
+        app.add_systems(Update, (setup, ready, guard, fire, log).chain().run_if(crate::playing))
+            .add_systems(PostUpdate, friendly_fire.run_if(crate::playing));
     }
 }
 
@@ -191,6 +192,65 @@ fn fire(
         } else if s.burst_left <= 0 {
             s.pause = rng.range(s.burst_delay.0, s.burst_delay.1);
         }
+    }
+}
+
+/// The shrub patrol's body (guess: a sphere of this radius round its chest, 6 above its feet; its collision model is not
+/// read).
+const BODY_RADIUS: f32 = 4.0;
+
+/// The player's shots that reach a shrub patrol stop on its body, which takes no damage from him (the damage filter,
+/// 0x00430340: the same side), and it calls out (its friendly-fire slot +0x150, 0x0043a480: voices.rs, vo_delay).
+fn friendly_fire(
+    mut commands: Commands,
+    time: Res<Time>,
+    shots: Query<(Entity, &crate::player::Projectile, &Transform)>,
+    roman: Query<Entity, With<crate::player::Roman>>,
+    shrubs: Query<(Entity, &GlobalTransform), With<ShrubPatrol>>,
+    mut cues: MessageWriter<crate::voices::VoiceCue>,
+    mut hits: Local<u32>,
+    state: Option<ResMut<crate::playtest::PlayState>>,
+) {
+    let Ok(player) = roman.single() else { return };
+    let dt = time.delta_secs();
+    for (e, p, t) in &shots {
+        if p.owner != Some(player) {
+            continue;
+        }
+        let (to, from) = (t.translation, t.translation - p.vel * dt);
+        for (s, gt) in &shrubs {
+            if hits_body(from, to, gt.translation()) {
+                commands.entity(e).despawn();
+                cues.write(crate::voices::VoiceCue { who: s, cue: crate::voices::Cue::ShrubFriendlyFire });
+                *hits += 1;
+                break;
+            }
+        }
+    }
+    if let Some(mut st) = state {
+        st.0.insert("shrub_hits".into(), (*hits).into());
+    }
+}
+
+/// Whether a shot's step from `from` to `to` passes through the body of a shrub patrol standing at `feet`.
+fn hits_body(from: Vec3, to: Vec3, feet: Vec3) -> bool {
+    let c = feet + Vec3::Y * 6.0;
+    let seg = to - from;
+    let u = ((c - from).dot(seg) / seg.length_squared().max(1e-6)).clamp(0.0, 1.0);
+    (from + seg * u).distance(c) < BODY_RADIUS
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_shot_through_the_chest_hits_one_past_the_shoulder_misses() {
+        let feet = Vec3::new(0.0, 0.0, 0.0);
+        assert!(hits_body(Vec3::new(-10.0, 6.0, 0.0), Vec3::new(10.0, 6.0, 0.0), feet));
+        assert!(!hits_body(Vec3::new(-10.0, 6.0, 5.0), Vec3::new(10.0, 6.0, 5.0), feet));
+        // the step ends short of it: no hit yet
+        assert!(!hits_body(Vec3::new(-30.0, 6.0, 0.0), Vec3::new(-10.0, 6.0, 0.0), feet));
     }
 }
 
