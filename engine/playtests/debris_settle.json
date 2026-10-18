@@ -1,5 +1,5 @@
 {"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
- {"note": "a house's debris (fx_explosion_village_house_2: fxo_debri_village_1 / _2, density x hull volume 2571 / 6333, gravity x2 / x1 of 64.35) flies, lands and rests on what is below it, its visible box on the ground (no piece resting in the air)"},
+ {"note": "a house's debris (fx_explosion_village_house_2: fxo_debri_village_1 / _2, density x hull volume 2753 / 6333, gravity x2 / x1 of 64.35) flies, lands and rests on what is below it, its visible box on the ground (no piece resting in the air)"},
  {"wait": 0.5},
  {"loadout": {"health": 5000}},
  {"warp": [-146, -300, 8, 0]},
@@ -12,7 +12,7 @@
  {"destroy": 174},
  {"wait": 2.0},
  {"expect": {"fx.max_floating": 0}},
- {"note": "the barracks' roof (fxo_debri_barracks_mini_top: impulse 8000000 on its hull mass 36968: 216 units/s) goes up like a lid, falls back and bursts (0x34 -> fx_top_death)"},
+ {"note": "the barracks' roof (fxo_debri_barracks_mini_top: impulse 8000000 on its hull mass 39504: 203 units/s) goes up like a lid, falls back and bursts (0x34 -> fx_top_death)"},
  {"warp": [300, -480, 15, 0]},
  {"wait": 0.5},
  {"destroy": 235},

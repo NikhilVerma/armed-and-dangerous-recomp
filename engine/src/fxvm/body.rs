@@ -61,7 +61,7 @@ fn sphere_mass(radius: f32, density: f32) -> f32 {
 
 /// The volume of the convex hull of `points` (an incremental hull; 0 for flat or fewer than four points). Body_BuildShape
 /// 0x00413450 builds the collision model's shape with its hull flag, and Havok takes a convex shape's mass from its
-/// volume: the barracks' roof (hull 36968) then leaves at 216 units/s, rises ~360 units and falls back within its 12 s
+/// volume: the barracks' roof (hull 39504) then leaves at 203 units/s, rises ~320 units and falls back within its 12 s
 /// to burst on landing (its 0x34), where its mesh's enclosed volume (9277) would send it out of sight for good.
 pub fn hull_volume(points: &[Vec3]) -> f32 {
     let p: Vec<bevy::math::DVec3> = points.iter().map(|v| v.as_dvec3()).collect();
