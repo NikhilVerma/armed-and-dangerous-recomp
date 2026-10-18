@@ -45,11 +45,13 @@ pub struct Instance {
     /// 0x14 "set logobject" (Fx_SetLogObject 0x0041df20: fx+0x14 |= 0x20, object list fx+0x124): objects ended when the
     /// instance is released (Fx_Release 0x0041d030 -> FxInstance_DestroyEmitters 0x0041cfb0 -> 0x00419290)
     pub logged: Vec<Entity>,
+    /// started as a saved game restores it (crate::fx::RestoreFx): its objects with an end are already gone
+    pub restored: bool,
 }
 
 impl Instance {
     pub fn new(name: String, script: Vec<Value>, place: Mat4) -> Self {
-        Instance { name, script, ip: 0, paused: 0.0, waiting: false, place, parent: None, follow: false, follow_pos_only: false, parent_point: None, child_point: None, logged: Vec::new() }
+        Instance { name, script, ip: 0, paused: 0.0, waiting: false, place, parent: None, follow: false, follow_pos_only: false, parent_point: None, child_point: None, logged: Vec::new(), restored: false }
     }
 }
 
@@ -247,6 +249,7 @@ fn create_object(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_>, idx: usize, template:
     o.follow = follows;
     o.half = half;
     o.follow_pos_only = inst.follow_pos_only;
+    o.restored = inst.restored;
     vm.objects.insert(id, o);
     Some(id)
 }

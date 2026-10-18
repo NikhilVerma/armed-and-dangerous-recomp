@@ -240,6 +240,10 @@ impl MeshEmitter {
     }
 }
 
+/// A restored fx object with a lifespan under this many seconds has ended by the time of any save (crate::fx::RestoreFx);
+/// the lasting ones (the camera's snow: 1e5 s, or none) run on.
+const RESTORED_KEPT: f32 = 3600.0;
+
 /// A live fx object: a template's mesh with the script's timers, fades, scaling and emitters.
 pub struct FxObject {
     pub template: String,
@@ -285,6 +289,8 @@ pub struct FxObject {
     pub light: Option<LightDef>,
     /// it carries a post-process effect (obj+0x634): its position goes to the effect each update (0x0041bd30)
     pub screen: bool,
+    /// made by a restored fx (crate::fx::RestoreFx): ended on its first update if it has a lifespan under an hour
+    pub restored: bool,
 }
 
 impl FxObject {
@@ -319,6 +325,7 @@ impl FxObject {
             on_death: None,
             light: None,
             screen: false,
+            restored: false,
         }
     }
 
@@ -482,6 +489,12 @@ pub fn objects(
         let step = if o.age == 0.0 { dt.max(1.0 / 60.0) } else { dt };
         o.age += step;
         if let Some(life) = o.lifespan {
+            // a saved game holds only what was still alive: an object with an end is long over (no on-death fx)
+            if o.restored && life < RESTORED_KEPT {
+                spawned.extend(end_object(o, &data, &mut physics, &mut commands, e, false));
+                gone.push(e);
+                continue;
+            }
             if o.age >= life {
                 spawned.extend(end_object(o, &data, &mut physics, &mut commands, e, true));
                 gone.push(e);

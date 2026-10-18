@@ -167,8 +167,10 @@ fn engine_to_game() -> Quat {
 /// as every caller giving no rotation means it; any other rotation is the engine-space rotation of the placement.
 /// Placed fx entities (fn_004102e0 0x004102e0: an fx entity's init starts its effect) and the fx ears' toggles
 /// (FxOwner_Toggle 0x0041bf60) come here through level.rs and mission.rs.
-fn start(mut vm: ResMut<FxVm>, data: Res<GameData>, mut events: MessageReader<StartFx>) {
-    for ev in events.read() {
+fn start(mut vm: ResMut<FxVm>, data: Res<GameData>, mut events: MessageReader<StartFx>, mut restores: MessageReader<crate::fx::RestoreFx>) {
+    let started = events.read().map(|e| (e, false));
+    let restored = restores.read().map(|r| (&r.0, true));
+    for (ev, restored) in started.chain(restored).collect::<Vec<_>>() {
         let name = ev.name.to_lowercase();
         // debug: FXSKIP=name1,name2 does not start those scripts
         if std::env::var("FXSKIP").is_ok_and(|v| v.split(',').any(|n| n == name)) {
@@ -187,6 +189,7 @@ fn start(mut vm: ResMut<FxVm>, data: Res<GameData>, mut events: MessageReader<St
         inst.parent = ev.follow;
         inst.follow = ev.follow.is_some();
         inst.follow_pos_only = ev.position_only;
+        inst.restored = restored;
         vm.instances.push(inst);
     }
 }
@@ -288,8 +291,12 @@ fn send_outbox(
 
 /// The playtest state "fx": live instances / objects / particles per pool / streamers / lights and the dropped count,
 /// so playtests can check what an effect makes.
-fn playtest_state(vm: Res<FxVm>, mut state: Option<ResMut<crate::playtest::PlayState>>, screen: Res<screen::ScreenEffects>) {
+fn playtest_state(vm: Res<FxVm>, mut state: Option<ResMut<crate::playtest::PlayState>>, screen: Res<screen::ScreenEffects>, cam: Query<&GlobalTransform, With<Camera3d>>) {
     let Some(state) = state.as_mut() else { return };
+    // the particles within 30 units of the camera and their mean speed (game units / s): the camera's snow flakes
+    let eye = cam.iter().next().map(|c| engine_to_game() * c.translation());
+    let near: Vec<f32> = eye.map_or(Vec::new(), |eye| vm.pools.live.iter().flatten().filter(|p| p.pos.distance(eye) < 30.0).map(|p| p.vel.length()).collect());
+    let near_speed = if near.is_empty() { 0.0 } else { near.iter().sum::<f32>() / near.len() as f32 };
     let pools: Vec<usize> = vm.pools.live.iter().map(Vec::len).collect();
     let bodies = vm.objects.values().filter(|o| o.has_body()).count();
     let top = vm.objects.values().map(|o| o.place.w_axis.z).fold(f32::MIN, f32::max);
@@ -334,6 +341,8 @@ fn playtest_state(vm: Res<FxVm>, mut state: Option<ResMut<crate::playtest::PlayS
             "screen_glow": acc.colour[2],
             "max_screen_fade": prev.get("max_screen_fade").and_then(|x| x.as_f64()).map_or(acc.fade.1, |m| (m as f32).max(acc.fade.1)),
             "dropped": vm.pools.dropped,
+            "near_camera": near.len(),
+            "near_camera_speed": near_speed,
             "top_z": if vm.objects.is_empty() { serde_json::Value::Null } else { serde_json::json!(top) },
             "hits": vm.stats.hits,
             "screen": screen.live(),

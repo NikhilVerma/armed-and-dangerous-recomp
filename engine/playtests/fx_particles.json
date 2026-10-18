@@ -65,7 +65,7 @@
   },
   {
    "expect": {
-    "fx.particles": [
+    "fx.pool0": [
      0,
      100
     ],

@@ -11,7 +11,7 @@ import bevy_pbr::prepass::utils as prepass_utils;
 
 @group(constants::MATERIAL_BIND_GROUP) @binding(0) var bank: texture_2d<f32>;
 @group(constants::MATERIAL_BIND_GROUP) @binding(1) var bank_sampler: sampler;
-// x: the alpha exponent; y: the soft-particle depth (0: hard, the original)
+// x: 1 for the additive pool, 0 for the alpha-blended ones; y: the soft-particle depth (0: hard, the original)
 @group(constants::MATERIAL_BIND_GROUP) @binding(2) var<uniform> params: vec4<f32>;
 // three per corner: (x, y, z, u), (v, r, g, b), (a, -, -, -); engine (world) space
 @group(constants::MATERIAL_BIND_GROUP) @binding(3) var<storage, read> corners: array<vec4<f32>>;
@@ -43,8 +43,9 @@ fn vertex(v: CornerIn) -> ParticleOut {
 @fragment
 fn fragment(in: ParticleOut) -> @location(0) vec4<f32> {
     var c = textureSample(bank, bank_sampler, in.uv) * in.color;
-    // alpha-blended pools: alpha ^ 2.2 (the original blends in gamma space, the target here is linear)
-    c.a = pow(max(c.a, 0.0), params.x);
+    // the texture's alpha as it is: the original blends in gamma space, this target is linear, which no alpha
+    // curve reproduces for every background; an alpha ^ 2.2 here (2026-10-14 to 10-18) took the faint sprites (the
+    // camera's snow flakes, alpha <= 0.73; the sticky bomb's smoke, <= 0.18) down to near nothing
 @if(DEPTH_PREPASS)
     {
         if (params.y > 0.0) {
@@ -54,7 +55,7 @@ fn fragment(in: ParticleOut) -> @location(0) vec4<f32> {
             let near = view.clip_from_view[3][2];
             let gap = near / max(scene, 1e-7) - near / max(in.position.z, 1e-7);
             let fade = clamp(gap / params.y, 0.0, 1.0);
-            // additive pools add colour (alpha exponent 1), blended pools blend by alpha: fade both
+            // additive pools add colour, blended pools blend by alpha: fade both
             c = vec4(c.rgb * select(1.0, fade, params.x == 1.0), c.a * fade);
         }
     }

@@ -775,14 +775,17 @@ fn play_state(audio_chk: Res<audio::AudioCheck>, skin: Res<skin::SkinCheck>, mut
 #[derive(Resource)]
 struct CameraFxPending(Vec<(String, bool)>, Entity, Vec3);
 
-fn start_camera_fx(mut commands: Commands, pending: Option<Res<CameraFxPending>>, mut fx: MessageWriter<fx::StartFx>, load: Option<Res<savegame::PendingLoad>>) {
+fn start_camera_fx(mut commands: Commands, pending: Option<Res<CameraFxPending>>, mut fx: MessageWriter<fx::StartFx>, mut restore: MessageWriter<fx::RestoreFx>, load: Option<Res<savegame::PendingLoad>>) {
     let Some(p) = pending else { return };
     for (name, pos_only) in &p.0 {
-        // a loaded game skips the intro overlay (the camera fx locked to the full camera transform: weather.md)
+        let start = fx::StartFx { name: name.clone(), at: p.2, rotation: Quat::IDENTITY, follow: Some(p.1), position_only: *pos_only };
+        // a loaded game restores the intro overlay's lasting part only (the camera fx locked to the full camera
+        // transform: its snow flake emitter stays, the white fade and the caption are over; weather.md)
         if load.is_some() && !*pos_only {
-            continue;
+            restore.write(fx::RestoreFx(start));
+        } else {
+            fx.write(start);
         }
-        fx.write(fx::StartFx { name: name.clone(), at: p.2, rotation: Quat::IDENTITY, follow: Some(p.1), position_only: *pos_only });
     }
     commands.remove_resource::<CameraFxPending>();
 }

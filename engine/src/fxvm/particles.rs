@@ -107,6 +107,9 @@ pub struct Pools {
     pub meshes: Vec<Handle<Mesh>>,
     /// per pool: the quad corners the material's vertex shader reads (particle.wesl)
     pub corners: Vec<Handle<ShaderBuffer>>,
+    /// per pool: its material (a grown corner buffer is a new buffer, handed to the material: Bevy keeps a material's
+    /// bind group until the material itself changes, so a resized buffer in place left the pool drawing the old one)
+    pub materials: Vec<Handle<ParticleMaterial>>,
     pub dropped: usize,
 }
 
@@ -121,16 +124,17 @@ impl Pools {
 
 /// Spawns the pool meshes (one per pool, drawn with its bank texture and blend).
 pub fn setup_pools(commands: &mut Commands, assets: &AssetServer, meshes: &mut Assets<Mesh>, materials: &mut Assets<ParticleMaterial>, buffers: &mut Assets<ShaderBuffer>) -> Pools {
-    let (mut handles, mut corners) = (Vec::new(), Vec::new());
+    let (mut handles, mut corners, mut mats) = (Vec::new(), Vec::new(), Vec::new());
     for (_, tex, additive) in POOLS {
         let h = meshes.add(corner_mesh(MIN_QUADS));
         let c = buffers.add(ShaderBuffer::new(vec![[0.0f32; 4]; MIN_QUADS * 4 * CORNER_VEC4S], RenderAssetUsages::default()));
-        let mat = materials.add(ParticleMaterial { bank: assets.load(crate::graphics::texture_path(tex)), additive, params: Vec4::new(if additive { 1.0 } else { 2.2 }, 0.0, 0.0, 0.0), corners: c.clone() });
+        let mat = materials.add(ParticleMaterial { bank: assets.load(crate::graphics::texture_path(tex)), additive, params: Vec4::new(if additive { 1.0 } else { 0.0 }, 0.0, 0.0, 0.0), corners: c.clone() });
+        mats.push(mat.clone());
         commands.spawn((Mesh3d(h.clone()), MeshMaterial3d(mat), Transform::IDENTITY, bevy::camera::visibility::NoFrustumCulling, bevy::light::NotShadowCaster, Name::new("fx_pool")));
         handles.push(h);
         corners.push(c);
     }
-    Pools { live: POOLS.iter().map(|(n, _, _)| Vec::with_capacity(n * POOL_SCALE / 4)).collect(), meshes: handles, corners, dropped: 0 }
+    Pools { live: POOLS.iter().map(|(n, _, _)| Vec::with_capacity(n * POOL_SCALE / 4)).collect(), meshes: handles, corners, materials: mats, dropped: 0 }
 }
 
 /// One emitter step of an object (0x0041a050, mode 0x20: the emitter follows the object): the cone axis is the
@@ -375,33 +379,39 @@ fn pack_corners(q: &QuadBuffers, out: &mut [[f32; 4]]) {
 /// Rebuilds the pools' quads from the live particles, facing the 3D camera, into their corner buffers (one
 /// contiguous write each); a pool's mesh changes only when its size grows.
 pub fn draw_particles(
-    vm: Res<super::FxVm>,
+    mut vm: ResMut<super::FxVm>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut buffers: ResMut<Assets<ShaderBuffer>>,
+    mut materials: ResMut<Assets<ParticleMaterial>>,
     cam: Query<&GlobalTransform, With<Camera3d>>,
     mut sizes: Local<Vec<usize>>,
     mut q: Local<QuadBuffers>,
 ) {
     let Ok(c) = cam.single() else { return };
     let (right, up) = (*c.right(), *c.up());
-    sizes.resize(vm.pools.meshes.len(), MIN_QUADS);
-    for (((pool, mesh), corners), size) in vm.pools.live.iter().zip(&vm.pools.meshes).zip(&vm.pools.corners).zip(sizes.iter_mut()) {
-        let quads = quad_capacity(pool.len(), *size);
-        if quads != *size {
-            *size = quads;
-            if let Some(mut m) = meshes.get_mut(mesh) {
+    let pools = &mut vm.pools;
+    sizes.resize(pools.meshes.len(), MIN_QUADS);
+    for i in 0..pools.meshes.len() {
+        let quads = quad_capacity(pools.live[i].len(), sizes[i]);
+        if quads != sizes[i] {
+            sizes[i] = quads;
+            if let Some(mut m) = meshes.get_mut(&pools.meshes[i]) {
                 *m = corner_mesh(quads);
             }
-            if let Some(mut b) = buffers.get_mut(corners) {
-                b.resize((quads * 4 * CORNER_VEC4S * 16) as u64);
+            // a new buffer of the new size, given to the material (which re-binds it); the old one is dropped
+            let grown = buffers.add(ShaderBuffer::new(vec![[0.0f32; 4]; quads * 4 * CORNER_VEC4S], RenderAssetUsages::default()));
+            if let Some(mut m) = pools.materials.get(i).and_then(|h| materials.get_mut(h)) {
+                m.corners = grown.clone();
             }
+            buffers.remove(&pools.corners[i]);
+            pools.corners[i] = grown;
         }
         q.pos.clear();
         q.uv.clear();
         q.col.clear();
         q.idx.clear();
-        build_quads(pool, right, up, &mut q);
-        let Some(mut b) = buffers.get_mut(corners) else { continue };
+        build_quads(&pools.live[i], right, up, &mut q);
+        let Some(mut b) = buffers.get_mut(&pools.corners[i]) else { continue };
         if let Some(out) = b.cast_slice_mut::<[f32; 4]>() {
             pack_corners(&q, out);
         }
@@ -413,7 +423,7 @@ mod tests {
     use super::*;
 
     fn pools() -> Pools {
-        Pools { live: vec![Vec::new(), Vec::new(), Vec::new()], meshes: Vec::new(), corners: Vec::new(), dropped: 0 }
+        Pools { live: vec![Vec::new(), Vec::new(), Vec::new()], meshes: Vec::new(), corners: Vec::new(), materials: Vec::new(), dropped: 0 }
     }
 
     #[test]

@@ -74,6 +74,13 @@ pub struct StartFx {
     pub position_only: bool,
 }
 
+/// Start an fx as a saved game restores it (fxvm.rs): the objects it makes that would have ended by now (any with a
+/// lifespan under an hour) are gone, the lasting ones run. The original saves its live fx objects and recreates them
+/// through the object factory (docs/subsystems/weather.md: the camera-locked snow emitter of fx_camera_l1_m1_locked has
+/// no lifespan, so a loaded game keeps it; the intro's white fade and caption are long gone by any save).
+#[derive(Message, Clone)]
+pub struct RestoreFx(pub StartFx);
+
 /// An object that takes damage and dies with its property set's death fx (kegs, pipes, buildings, trees).
 /// The original's Object base (game_03.cpp): health +0x454 / max_health +0x458 (Object_GetHealth 0x004555b0,
 /// Object_GetMaxHealth 0x004555c0), fx_death +0x3a0 and husk +0x3c0 (Object_LoadBaseProps 0x00451360); dead when
@@ -209,6 +216,7 @@ impl Plugin for FxPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<Explode>()
             .add_message::<StartFx>()
+            .add_message::<RestoreFx>()
             .add_message::<Died>()
             .insert_level_resource(|| FxStats { rng: 0x5eed, ..default() })
             .add_systems(Update, (fuses, damage, dying, tracers).chain().in_set(FxSet));

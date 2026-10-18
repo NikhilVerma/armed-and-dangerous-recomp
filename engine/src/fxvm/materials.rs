@@ -45,7 +45,7 @@ pub struct ParticleMaterial {
     #[sampler(1)]
     pub bank: Handle<Image>,
     pub additive: bool,
-    /// x: the alpha exponent (alpha-blended pools: 2.2, the original blends in gamma space; additive: 1)
+    /// x: 1 for the additive pool, 0 for the alpha-blended ones; y: the soft-particle depth (graphics.rs)
     #[uniform(2)]
     pub params: Vec4,
     /// the pool's quad corners, written each frame (particles.rs draw_particles)
