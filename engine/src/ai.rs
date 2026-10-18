@@ -4450,7 +4450,8 @@ fn die(
         // grunt_hit_window (0x3d); else 0x00427100: grunt_barricade_death (0x56) in a trench's slot, else grunt_die_1..6.
         // Not reached here: the 0x57 flag variant (in back: no lev_1_m1 grunt sets it) and record flag 2's launch.
         let blown_out = g.window && g.cartoon;
-        let wants_ragdoll = forced.is_none() && !blown_out && (g.last_hit >= g.hit_ragdoll || push.length() > 30.0);
+        // a blast's fling is a launch (Character_Die 0x004319e0 on an area record: state 0x195) whatever its speed
+        let wants_ragdoll = forced.is_none() && !blown_out && (g.last_hit >= g.hit_ragdoll || fling.is_some() || push.length() > 30.0);
         // GoRagdoll 0x00431310's launch: a killing record with flag 0x80 (the sticky bomb's, from the bomb) at least 10 s
         // after the last launch (Game+0xb34) throws him through the air (Character_Launch 0x00431020: toward a point
         // 40..60 from the bomb along its line to him, forward or back past it, at rand 2.5..3 x his move_speed), before
@@ -4496,8 +4497,9 @@ fn die(
             continue;
         }
         commands.entity(e).insert(crate::corpses::Corpse::ragdoll());
-        // thrown through the air (a launch: the body fall on landing, bodyfall.rs)
-        if push.length() > crate::bodyfall::LAUNCH_SPEED {
+        // thrown through the air (a launch or a blast's fling, state 0x195, or a body moving at launch speed: the body
+        // fall on landing, bodyfall.rs)
+        if launched || fling.is_some() || push.length() > crate::bodyfall::LAUNCH_SPEED {
             commands.entity(e).insert(crate::bodyfall::Launched::default());
         }
         // an articulated ragdoll from the pose at death (ragdoll.rs); the single box below when that fails
