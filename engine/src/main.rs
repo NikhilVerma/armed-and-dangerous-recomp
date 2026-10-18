@@ -35,6 +35,7 @@ mod camdump;
 mod camfade;
 mod campaign;
 mod cheats;
+mod cloth;
 mod contacts;
 mod corpses;
 mod cutscenes;
@@ -378,7 +379,7 @@ fn main() {
     app.add_plugins(camdump::CamDumpPlugin);
     app.add_plugins(camera::CameraPlugin);
     app.add_plugins(footik::FootIkPlugin);
-    app.add_plugins((savegame::SaveGamePlugin, thumbnail::ThumbnailPlugin, arrows::ArrowsPlugin, bodyfall::BodyfallPlugin, voices::VoicesPlugin));
+    app.add_plugins((savegame::SaveGamePlugin, thumbnail::ThumbnailPlugin, arrows::ArrowsPlugin, bodyfall::BodyfallPlugin, voices::VoicesPlugin, cloth::ClothPlugin));
     app.add_plugins(cheats::CheatsPlugin);
     app.add_plugins(decals::DecalPlugin);
     app.add_plugins(sticky::StickyPlugin);
