@@ -324,6 +324,22 @@ mesh (crosshair_07, bones Box04 / Box03 / Box02 / Box01 = bottom / right / top /
 corners (meshes Circle01..04) ride bone `target`, the blue ring (m_center) bone `center` (big05_skin mesh bone lists);
 `_out` puts `target` at y -680.7 (off screen), `_in` at 0: the red corners show only on a target. A new anim starts
 from its first frame (no blend), so `_out` during an unfinished `_in` snaps the arms in before opening them.
+The vindaloo's, shark gun's and gurner's anims are static (only the `test` bone moves): those crosshairs never
+change. No crosshair grows with the guns' spread or recoil.
+
+**Opacity** (2026-10-18, player feedback: the machine gun's crosshair looked wrong). The flat crosshair parts are
+translucent materials (kind bit 0x10, blend mode 2): the draw state 0x004897d0 (render_r4.cpp:548) gives them a
+constant alpha of opacity +0x48 x 255 over SRCALPHA / INVSRCALPHA. `ui_mg_crosshair`: the four red corners 0.6, the
+blue ring with its centre dot (part 5: an annulus r 25.1 .. 26.5 plus a 1.3-unit dot) 0.3; vindaloo / shark gun:
+corners 0.3, centre dot 0.6; gurner: blue ticks 0.6, red brackets 0.45; `ui_multi_lock` 0.75;
+`ui_special_crosshair` opacity 0, so it is never seen. Original capture (lev_1_m3 start, machine gun in hand, a
+special selected, 640x480): only a thin pale-blue ring of radius 26 px and the dot, the scene showing through.
+The remaster drew these parts opaque (a solid blue ring, solid red corners on a target, and the special crosshair's
+cross on top of every gun's crosshair); `build_model` now takes each part's alpha from its material (`part_opacity`,
+models/<model>.json) for the crosshairs, `ui_crosshair_friendly`, `ui_special_crosshair` and `ui_multi_lock`.
+Other HUD models have translucent materials too (health 0.65, compass 0.8, arrows 0.4 / 0.5 with blend mode 0,
+ticker bar 0.5): not applied yet, to be checked against captures. Playtest `hud_crosshair` (state
+`hud.crosshair_alpha`).
 
 **Remaster** (`engine/src/hud.rs`): `crosshair_aim` casts the same ray (physics ray through Roman and the grunts'
 capsules, then grunt / Q / Jonesy collision parts, hitparts.rs), sets `Crosshair { on, friendly, point, object }`
@@ -337,8 +353,8 @@ Checked headless (640x372, `CROSSDBG=1` logs each state change): `work/remaster/
 [-171, -170, 12, 0], mouse [-10, -35] onto the grunt): "on true ... grunt at 87.2", the arms close over 1 s
 (shots in0 / in05 / in15), turning away snaps them in and opens them over 0.2 s (out0 / out04), the landscape
 leaves it open. `crossF.json` (jumps right from the start): "on true friendly true companion q=true", shot s001
-shows the green `ui_crosshair_friendly` with the special crosshair round it and the rifle's hidden. Not checked:
-the machine gun's crosshair (needs the pub), a peasant / building / default object that takes damage.
+shows the green `ui_crosshair_friendly` and the rifle's hidden (the special crosshair round it was the opacity bug
+above). Not checked: a peasant / building / default object that takes damage.
 Unconfirmed: whether an AI killed the normal way leaves World+0xe9c (no unlink found; the port keeps corpses
 targetable); `ui_special_crosshair` while the special count is 0 (0x004a1670 reads the slot, not the count; the
 port always shows it).

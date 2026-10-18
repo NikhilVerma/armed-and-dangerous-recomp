@@ -373,6 +373,7 @@ fn build_model(commands: &mut Commands, meshes: &mut Assets<Mesh>, materials: &m
     let mut out = Vec::new();
     let Some(quads) = hud.layout.models.get(model) else { return out };
     let bones = if CROSSHAIRS.contains(&el_name) { cross_bones(&hud.dir, model) } else { Vec::new() };
+    let opacity = if CROSSHAIRS.contains(&el_name) || CROSSHAIR_MARKERS.contains(&el_name) { part_opacity(&hud.dir, model) } else { Vec::new() };
     for (qi, q) in quads.iter().enumerate() {
         if q.vertices.is_empty() {
             continue;
@@ -391,6 +392,10 @@ fn build_model(commands: &mut Commands, meshes: &mut Assets<Mesh>, materials: &m
             let c = parse_colour(q.colour.as_deref().or(Some("#ffffff"))).to_srgba();
             let a = if el_name == "ui_compass_objective" { 0.55 } else { 1.0 };
             Color::srgba(c.blue, c.green, c.red, a)
+        };
+        let color = match opacity.get(qi) {
+            Some(&o) => color.with_alpha(color.alpha() * o),
+            None => color,
         };
         let mat = materials.add(ColorMaterial { color, texture: tex, alpha_mode: bevy::sprite_render::AlphaMode2d::Blend, ..default() });
         let mesh = meshes.add(mesh);
@@ -1421,8 +1426,23 @@ fn log_hud(
     hud: Option<Res<HudAssets>>,
     els: Query<(&HudElement, &Visibility, Option<&HudText>), Without<crate::gamemenu::MenuOwned>>,
     play: Option<ResMut<crate::playtest::PlayState>>,
+    (shown, parts, materials): (Query<(&HudElement, &Visibility, &Children)>, Query<&MeshMaterial2d<ColorMaterial>>, Res<Assets<ColorMaterial>>),
 ) {
     let Some(mut play) = play else { return };
+    // the shown crosshair's parts' opacity, in the model's part order (as a string: a list of two would read as a range)
+    let crosshair_alpha = shown
+        .iter()
+        .find(|(e, v, _)| CROSSHAIRS.contains(&e.name.as_str()) && **v != Visibility::Hidden)
+        .map(|(_, _, children)| {
+            children
+                .iter()
+                .filter_map(|c| parts.get(c).ok())
+                .filter_map(|m| materials.get(&m.0))
+                .map(|m| format!("{:.2}", m.color.alpha()))
+                .collect::<Vec<_>>()
+                .join(",")
+        })
+        .unwrap_or_default();
     let mut arrows: Vec<&str> = els.iter().filter(|(e, v, _)| e.name.starts_with("ui_select_") && **v != Visibility::Hidden).map(|(e, _, _)| e.name.as_str()).collect();
     arrows.sort();
     let prompt_colour = els.iter().find(|(e, _, _)| e.name == "ui_prompt").and_then(|(_, _, t)| t).map(|t| {
@@ -1445,6 +1465,7 @@ fn log_hud(
             "prompt_shown": els.iter().any(|(e, v, _)| e.name == "ui_prompt" && *v != Visibility::Hidden),
             "crosshair_shown": els.iter().any(|(e, v, _)| CROSSHAIRS.contains(&e.name.as_str()) && *v != Visibility::Hidden),
             "crosshair": els.iter().find(|(e, v, _)| CROSSHAIRS.contains(&e.name.as_str()) && *v != Visibility::Hidden).map_or("", |(e, _, _)| e.name.as_str()),
+            "crosshair_alpha": crosshair_alpha,
             "weapon_icon": els.iter().find(|(e, v, _)| GUN_ICONS.contains(&e.name.as_str()) && *v != Visibility::Hidden).map_or("", |(e, _, _)| e.name.as_str()),
             "special_icon": els.iter().find(|(e, v, _)| SPECIAL_ICONS.contains(&e.name.as_str()) && *v != Visibility::Hidden).map_or("", |(e, _, _)| e.name.as_str()),
             "locks_shown": els.iter().filter(|(e, v, _)| e.name == "ui_multi_lock" && *v != Visibility::Hidden).count(),
@@ -1479,6 +1500,9 @@ pub fn mission_time_text(seconds: f32) -> String {
 /// The crosshair elements whose parts follow their skin's bones through the `_in` / `_out` anims.
 /// The guns' crosshairs (the weapon table's +0xc0; Hud_UpdateCrosshair's +0x30c list).
 const CROSSHAIRS: &[&str] = &["ui_crosshair", "ui_mg_crosshair", "ui_sniper_crosshair", "ui_vindaloo_crosshair", "ui_gurner_crosshair", "ui_sharkgun_crosshair"];
+/// The other aim markers drawn with their material's opacity (`part_opacity`): the friendly and special crosshairs and
+/// the lock-on markers.
+const CROSSHAIR_MARKERS: &[&str] = &["ui_crosshair_friendly", "ui_special_crosshair", "ui_multi_lock"];
 /// The guns' and the specials' icons (the weapon table's +0xa0).
 const GUN_ICONS: &[&str] = &["ui_player_mg", "ui_player_sniper", "ui_player_rifle", "ui_player_rlvindaloo", "ui_player_rlgurner", "ui_player_sharkgun"];
 const SPECIAL_ICONS: &[&str] = &["ui_player_guyfawkes", "ui_player_bunchoffives", "ui_player_topsy", "ui_player_blackhole", "ui_player_grenades"];
@@ -1565,7 +1589,7 @@ pub struct CrossPart {
 /// Per layout part of a crosshair model, per vertex: its bone (lower case) and that bone's bind position (x, y), from
 /// models/<model>.json / .bin (joints: u16 x 4 per vertex, all weight on the first) and skeletons/<model>.json
 /// (bind = inverse of the inverse bind matrix). ui_crosshair: Box01..04 = the left, top, right, bottom arm (bind
-/// +-1). Parts exported without blend data are rigid on their skin mesh's one bone (the big05_skin mesh bone lists):
+/// +-1). Parts exported without blend data are rigid on their skin mesh's one bone (the export's `bone`, from the big05_skin mesh bone lists):
 /// ui_mg_crosshair's red corners Circle01..04 on "target", the blue ring m_center on "center".
 fn cross_bones(dir: &Path, model: &str) -> Vec<Vec<(Option<String>, Vec2)>> {
     #[derive(Deserialize)]
@@ -1582,12 +1606,15 @@ fn cross_bones(dir: &Path, model: &str) -> Vec<Vec<(Option<String>, Vec2)>> {
         vertices: usize,
         #[serde(default)]
         joints: Option<usize>,
+        /// the skin mesh's one bone, for a part exported without blend data
+        #[serde(default)]
+        bone: Option<String>,
     }
     #[derive(Deserialize)]
     struct Md {
         submeshes: Vec<Sub>,
     }
-    let json = |sub: &str, ext: &str| std::fs::read_to_string(dir.join(sub).join(format!("{model}.{ext}"))).ok();
+    let json =|sub: &str, ext: &str| std::fs::read_to_string(dir.join(sub).join(format!("{model}.{ext}"))).ok();
     let (Some(sk), Some(md)) = (
         json("skeletons", "json").and_then(|t| serde_json::from_str::<Sk>(&t).ok()),
         json("models", "json").and_then(|t| serde_json::from_str::<Md>(&t).ok()),
@@ -1601,22 +1628,40 @@ fn cross_bones(dir: &Path, model: &str) -> Vec<Vec<(Option<String>, Vec2)>> {
     };
     md.submeshes
         .iter()
-        .enumerate()
-        .map(|(si, sm)| match sm.joints {
+        .map(|sm| match sm.joints {
             Some(off) => (0..sm.vertices)
                 .map(|v| bin.get(off + v * 8..off + v * 8 + 2).map(|b| bone(u16::from_le_bytes([b[0], b[1]]) as usize)).unwrap_or((None, Vec2::ZERO)))
                 .collect(),
             None => {
-                let name = match (model, si) {
-                    ("ui_mg_crosshair", 0..=3) => "target",
-                    ("ui_mg_crosshair", _) => "center",
-                    _ => "",
-                };
+                let name = sm.bone.as_deref().unwrap_or("");
                 let b = sk.bones.iter().position(|b| b.name.eq_ignore_ascii_case(name)).map(bone).unwrap_or((None, Vec2::ZERO));
                 vec![b; sm.vertices]
             }
         })
         .collect()
+}
+
+/// Per layout part of a UI model, the opacity its material draws it with (models/<model>.json, the submeshes in the
+/// layout's part order). A translucent material (kind bit 0x10) is blended at its opacity +0x48: the draw state
+/// 0x004897d0 (render_r4.cpp:548) sets a constant alpha of opacity x 255 for blend mode 2 (SRCALPHA / INVSRCALPHA).
+/// So the machine gun's crosshair is a faint ring: blue ring and centre dot at 0.3, the red target corners at 0.6;
+/// the vindaloo's and shark gun's the other way round; ui_special_crosshair has opacity 0 and is never seen (the
+/// original's lev_1_m3 capture with a special selected shows only the machine gun's ring).
+fn part_opacity(dir: &Path, model: &str) -> Vec<f32> {
+    #[derive(Deserialize)]
+    struct Sub {
+        #[serde(default)]
+        material: Option<crate::gamematerial::MaterialDef>,
+    }
+    #[derive(Deserialize)]
+    struct Md {
+        submeshes: Vec<Sub>,
+    }
+    std::fs::read_to_string(dir.join("models").join(format!("{model}.json")))
+        .ok()
+        .and_then(|t| serde_json::from_str::<Md>(&t).ok())
+        .map(|m| m.submeshes.iter().map(|s| s.material.as_ref().map_or(1.0, |m| m.alpha())).collect())
+        .unwrap_or_default()
 }
 
 enum AimHit {
