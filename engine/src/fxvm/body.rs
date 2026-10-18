@@ -294,8 +294,15 @@ pub fn rest(physics: &Physics, id: BodyId, o: &FxObject) -> Option<(Vec3, Option
     let k = physics.meters_per_unit;
     let (_, half) = o.body_def.scaled(o.scale_now);
     let below = support(rot, half, Vec3::NEG_Y);
-    let ray = RayCast::new(crate::physics::jr(centre * k), jv(Vec3::NEG_Y * 200.0 * k));
-    let gap = physics.world.cast_ray(&ray, &QueryFilter::new().exclude_body(id)).ok().flatten().map(|h| h.distance / k - below);
+    // straight down from the centre and from the box's corners (a pane leaning on a sill's edge rests on a corner, its
+    // centre over the drop): the smallest gap, each ray measured from the height of the box's bottom
+    let filter = QueryFilter::new().exclude_body(id);
+    let down = |from: Vec3| {
+        let ray = RayCast::new(crate::physics::jr(from * k), jv(Vec3::NEG_Y * 200.0 * k));
+        physics.world.cast_ray(&ray, &filter).ok().flatten().map(|h| h.distance / k - (from.y - (centre.y - below)))
+    };
+    let corners = (0..8).map(|i| centre + rot * Vec3::new(if i & 1 == 0 { -half.x } else { half.x }, if i & 2 == 0 { -half.y } else { half.y }, if i & 4 == 0 { -half.z } else { half.z }));
+    let gap = std::iter::once(centre).chain(corners.map(|c| c + Vec3::Y)).filter_map(down).reduce(f32::min);
     Some((vg, gap))
 }
 
