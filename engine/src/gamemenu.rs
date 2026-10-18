@@ -241,6 +241,9 @@ struct CheckFill(Flag);
 
 #[derive(Resource)]
 pub struct GameMenu {
+    /// no page drawn while a developer screen that paused play is up (devtools): the game is paused under it, but
+    /// the pause menu is not opened
+    pub suppressed: bool,
     pub page: Page,
     pub selected: usize,
     stack: Vec<(Page, usize)>,
@@ -268,6 +271,7 @@ pub struct GameMenu {
 impl Default for GameMenu {
     fn default() -> Self {
         GameMenu {
+            suppressed: false,
             page: Page::Main,
             selected: 0,
             stack: Vec::new(),
@@ -1435,7 +1439,7 @@ fn animate(
         menu.phase -= std::f32::consts::TAU;
     }
     // no page in play, nor on the loading screen (levelreset.rs: the shell art alone)
-    let want = if matches!(*state.get(), AppState::Playing | AppState::Loading) { None } else { Some(menu.page) };
+    let want = if menu.suppressed || matches!(*state.get(), AppState::Playing | AppState::Loading) { None } else { Some(menu.page) };
     if menu.fade == 0.0 && want != menu.shown {
         if instant(menu.shown, want) {
             menu.shown = want;

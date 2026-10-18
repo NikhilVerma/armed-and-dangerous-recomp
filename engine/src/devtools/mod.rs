@@ -277,6 +277,7 @@ impl Plugin for DevToolsPlugin {
             .add_message::<DevCommand>()
             .add_systems(PreStartup, apply_launch)
             .add_systems(Update, (hotkeys, run_commands, apply_toggles, log_state).chain().after(crate::gamemenu::MenuSystems))
+            .add_systems(Update, hide_game_menu.before(crate::gamemenu::MenuSystems))
             .add_plugins((menu::DevMenuPlugin, overlay::OverlayPlugin, session::SessionPlugin));
     }
 }
@@ -296,8 +297,18 @@ pub fn pause_for_overlay(state: &State<AppState>, next: &mut NextState<AppState>
     }
     next.set(AppState::Paused);
     vtime.pause();
-    menu.open_pause();
+    // paused like the pause menu, but without showing it under the developer screen
+    menu.suppressed = true;
     true
+}
+
+/// The game's own menu is not drawn while a developer screen is up (the human saw the pause menu and the developer
+/// menu together); it comes back when the screen closes over a paused game or the title.
+fn hide_game_menu(overlay: Res<DevOverlay>, mut menu: ResMut<crate::gamemenu::GameMenu>) {
+    let hide = overlay.open();
+    if menu.suppressed != hide {
+        menu.suppressed = hide;
+    }
 }
 
 /// Leaves a developer screen: back to play when it opened in play.

@@ -2,7 +2,7 @@
  {"wait": 1.0},
  {"expect": {"health": [399, 401], "dev.open": false, "dev.on": []}},
  {"tap": "F1"}, {"wait": 0.5},
- {"expect": {"dev.open": true, "dev.page": "Main", "dev.selected": "Level select", "menu.page": "Pause"}},
+ {"expect": {"dev.open": true, "dev.page": "Main", "dev.selected": "Level select"}},
  {"tap": "ArrowDown"}, {"wait": 0.3},
  {"expect": {"dev.selected": "God mode"}},
  {"tap": "Enter"}, {"wait": 0.3},
