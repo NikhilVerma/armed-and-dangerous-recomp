@@ -76,3 +76,7 @@ no copy-paste, split sprawling systems; label any hack as debt in docs/remaster-
 Done when: the queue for your subsystem is empty or every remaining entry has a stated reason; tests pass;
 docs/subsystems/<name>.md updated. Report: branch, commits, queue before / after, tests, open questions.
 ```
+
+Test budget (human, 2026-10-18): the slow checks (full `tools/regress.py`, `level_smoke.py`, `oracle_suite.py`,
+`--long`) run at most once a day or after a massive change, never per fix. Per fix: a release build, the playtests
+for what you changed, `launch_newgame`. The human's play feedback is the main check.
