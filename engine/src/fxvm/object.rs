@@ -435,7 +435,7 @@ pub fn objects(
         }
         // ground hits (the contact callback 0x00419330 sets +0x464 bit 0x2000; acted on here)
         if let (true, Some(b)) = (o.hit.ground, body) {
-            let contact = touching(&physics, b, o, dt);
+            let contact = touching(&physics, b, o);
             let new_hit = contact.is_some() && !o.hit.touching;
             o.hit.touching = contact.is_some();
             if let (true, Some((at, other))) = (new_hit, contact) {

@@ -82,6 +82,8 @@ pub struct FxVm {
     /// game time (seconds since start): the on-hit spawn spacing (0x0041fc70, [0x00604a98])
     time: f32,
     out: Outbox,
+    /// each template's body, worked out the first time one is made (body.rs)
+    body_defs: HashMap<String, body::BodyDef>,
 }
 
 /// What a script run or an object update asks of other systems this frame (sent by `run` / `objects`).
@@ -154,6 +156,7 @@ fn setup(mut commands: Commands, assets: Res<AssetServer>, mut meshes: ResMut<As
         started: HashMap::new(),
         time: 0.0,
         out: Outbox::default(),
+        body_defs: HashMap::new(),
     });
 }
 
@@ -319,7 +322,24 @@ fn playtest_state(vm: Res<FxVm>, mut state: Option<ResMut<crate::playtest::PlayS
         let get = |e: &serde_json::Value, k: &str| e.get(k).and_then(|x| x.as_f64()).unwrap_or(0.0) as f32;
         let (up, speed) = (get(entry, "up").max(v.z), get(entry, "speed").max(v.length()));
         let lean = if v.length() > 30.0 { get(entry, "lean").max(v.truncate().length() / v.z.abs().max(1e-3)) } else { get(entry, "lean") };
-        *entry = serde_json::json!({ "up": up, "lean": lean, "speed": speed });
+        // what the body last touched: a character's body, another dynamic body, or the world (a static collider)
+        let touch = o.body.and_then(|id| physics.touches(id).first().copied());
+        let touched = touch.map(|t| {
+            let kind = if physics.ai_bodies.contains(&t.other) {
+                "character"
+            } else if physics.bodies.contains_key(&t.other) {
+                "dynamic"
+            } else if Some(t.other) == physics.landscape {
+                "landscape"
+            } else {
+                "static"
+            };
+            let n = game_to_engine().inverse() * t.normal;
+            let p = o.place.w_axis;
+            format!("{kind} n ({:.2} {:.2} {:.2}) at ({:.0} {:.0} {:.0})", n.x, n.y, n.z, p.x, p.y, p.z)
+        });
+        let touched = touched.or_else(|| entry.get("touched").and_then(|t| t.as_str()).map(str::to_owned));
+        *entry = serde_json::json!({ "up": up, "lean": lean, "speed": speed, "touched": touched });
         if v.length() < 3.0 {
             resting += 1;
             floating += gap.is_some_and(|g| g > 2.0) as usize;
@@ -355,6 +375,7 @@ fn playtest_state(vm: Res<FxVm>, mut state: Option<ResMut<crate::playtest::PlayS
             "hits": vm.stats.hits,
             "kin": kin,
             "resting": resting,
+            "max_resting": max("max_resting", resting),
             "floating": floating,
             "max_floating": max("max_floating", floating),
             "screen": screen.live(),

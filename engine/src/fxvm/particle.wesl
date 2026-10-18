@@ -43,8 +43,18 @@ fn vertex(v: CornerIn) -> ParticleOut {
 @fragment
 fn fragment(in: ParticleOut) -> @location(0) vec4<f32> {
     var c = textureSample(bank, bank_sampler, in.uv) * in.color;
-    // alpha-blended pools: alpha ^ 2.2 (the original blends in gamma space, the target here is linear)
-    c.a = pow(max(c.a, 0.0), params.x);
+    // alpha-blended pools (params.x > 1): the original blends in gamma space, the target here is linear. A gamma-space
+    // blend of a black source leaves (1 - a)^2.2 of the scene's linear light whatever the scene, so a dark source takes
+    // 1 - (1 - a)^2.2; a white source over black shows a^2.2 (the intro's white fade, measured); between the two by the
+    // source's gamma-space brightness. (alpha ^ 2.2 alone drew dark smoke, the keg's trail, at a fraction of its
+    // opacity: a = 0.5 hid 22% of the scene where the original hid 78%.)
+    let a = clamp(c.a, 0.0, 1.0);
+    if (params.x > 1.0) {
+        let lum = pow(clamp(dot(c.rgb, vec3(0.2126, 0.7152, 0.0722)), 0.0, 1.0), 1.0 / params.x);
+        c.a = mix(1.0 - pow(1.0 - a, params.x), pow(a, params.x), lum);
+    } else {
+        c.a = a;
+    }
 @if(DEPTH_PREPASS)
     {
         if (params.y > 0.0) {
