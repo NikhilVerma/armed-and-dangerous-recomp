@@ -81,8 +81,6 @@ pub struct Roman {
     pub arsenal: crate::weapons::Arsenal,
     /// a weapon switch's target slot (the pending switch +0x28, 0x004a0bb0): equipped at the change anim's frame 13
     pub switch_to: Option<usize>,
-    /// the gun-specific fire loop is playing (the machine gun's wpn_rome_machgun_fire_lp)
-    pub mg_firing: bool,
     pub dead: bool,
     /// the death presentation started (fx_trotter_death, the ragdoll), and whether the ragdoll took
     pub death_shown: bool,
@@ -544,7 +542,6 @@ pub fn make_roman(physics: &mut Physics, p: &Props, data: &GameData, feet: Vec3,
             a
         },
         switch_to: None,
-        mg_firing: false,
         dead: false,
         death_shown: false,
         ragdolled: false,
@@ -1027,7 +1024,7 @@ fn weapons(
     mut bot: ResMut<crate::bot::Bot>,
     mut q: Query<(Entity, &mut Roman, &Transform, Option<&crate::skin::Animator>)>,
     mut stats: ResMut<PlayerStats>,
-    (mut sounds, mut stop): (MessageWriter<crate::audio::PlaySound>, MessageWriter<crate::audio::StopSound>),
+    mut sounds: MessageWriter<crate::audio::PlaySound>,
     mut fx: MessageWriter<crate::fx::StartFx>,
     mut rng: ResMut<crate::fx::FxStats>,
     (mut topsy, mut glove): (ResMut<crate::topsy::Topsy>, ResMut<crate::weapons::glove::Glove>),
@@ -1070,11 +1067,11 @@ fn weapons(
         if r.dead {
             continue;
         }
-        // on a mounted gun Roman's weapons are put away (0x00498a80: 0x004a0e00(0)); a machine gun loop stops
+        // on a mounted gun Roman's weapons are put away (0x00498a80: 0x004a0e00(0)); a held muzzle fx (and the fire
+        // loop it plays) goes
         if mounted.0.is_some() {
-            if r.mg_firing {
-                r.mg_firing = false;
-                stop.write(crate::audio::StopSound("wpn_rome_machgun_fire_lp".into()));
+            if let Some(anchor) = r.muzzle_fx.take() {
+                commands.entity(anchor).despawn();
             }
             continue;
         }
@@ -1180,16 +1177,9 @@ fn weapons(
                 r.reload_clock = Some((clock, said));
             }
         }
-        // the machine gun's fire sound, looping while the trigger is held: the bank's sequence plays its start
-        // before the loop and its end on the stop (wpn_rome_machgun_fire_lp intro / outro, audio.rs)
-        if mg && shoot && !r.mg_firing {
-            r.mg_firing = true;
-            sounds.write(crate::audio::PlaySound::at("wpn_rome_machgun_fire_lp", t.translation).looping(true));
-        }
-        if r.mg_firing && (!fire || !mg || switching || r.arsenal.in_hand().is_some_and(|w| w.clip == 0)) {
-            r.mg_firing = false;
-            stop.write(crate::audio::StopSound("wpn_rome_machgun_fire_lp".into()));
-        }
+        // (the machine gun's fire loop wpn_rome_machgun_fire_lp comes from its held muzzle fx, fx_muzzle_flash_flemming
+        // op 0x3a, and ends with it: the game code never names it. Playing it here as well layered a second loop on
+        // every burst, player feedback A2)
         if let (true, Some(id)) = (shoot, id) {
             r.since_fire = 0.0;
             // a shot ends the reload anim (the fire request 0x8000 takes the state, 0x0047a555)

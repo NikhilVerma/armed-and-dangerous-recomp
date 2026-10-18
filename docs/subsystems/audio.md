@@ -378,7 +378,8 @@ no follow-on after a stop), `audio_ear` (a Roman-only ear, removal without `reap
 in range, a streamed line beyond max distance refused), `audio_music` (l1amb, the victory request queued for the
 boundary, l1vic through a pause, silence after), `audio_stopall` (intro / body / outro, stop-all-but-music, the game
 pause), `audio_ambient` (an emitter's first one-shot at once, the next after the one-shot plus the 5 s delay, stopped
-out of range); unit tests in audio.rs (curve, group levels, envelope, pitch range, the grunt pools last / butlast).
+out of range), `audio_mg_bursts` (Roman's machine gun loop in bursts of every length: a stop always ends it, never two loops; a
+sequence's intro stays until its body starts, so a stop between them is not lost); unit tests in audio.rs (curve, group levels, envelope, pitch range, the grunt pools last / butlast).
 The playtest state log has an `audio` field (started / refused / playing / level_db / paused by name, channels,
 group levels, music, ambient emitters) and an `audio` step (play / stop / stop_all_but_music / mixer / music /
 pause); an expect value of null means "absent".

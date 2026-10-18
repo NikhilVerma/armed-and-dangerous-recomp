@@ -387,11 +387,16 @@ pub struct PlaySound {
     /// start this far into the envelope's stop fade (a music segment after one that was fading)
     pub fade_elapsed: Option<f32>,
     pub part: Part,
+    /// the sound system's own: the voice this one takes over from (a sequence's intro handing over to its body). The
+    /// intro stays until the body starts, so a stop in between finds it (and the body is not played): before, a stop
+    /// that came while the body's request was in flight missed both, and the body looped for ever (player feedback
+    /// A2, the machine gun's fire loop layering on)
+    pub replaces: Option<Entity>,
 }
 
 impl Default for PlaySound {
     fn default() -> Self {
-        PlaySound { name: String::new(), at: None, follow: None, looped: None, volume: 1.0, offset_db: 0.0, group: None, id: None, through_pause: false, fade_elapsed: None, part: Part::Whole }
+        PlaySound { name: String::new(), at: None, follow: None, looped: None, volume: 1.0, offset_db: 0.0, group: None, id: None, through_pause: false, fade_elapsed: None, part: Part::Whole, replaces: None }
     }
 }
 
@@ -744,6 +749,13 @@ fn play(
             *rng >> 8
         };
         let Some(key) = bank.resolve(&ev.name, next()) else { continue };
+        // a body taking over from its intro: only while the intro still plays (a stop since ended the sequence)
+        if let Some(intro) = ev.replaces {
+            if !voices.contains(intro) {
+                continue;
+            }
+            commands.entity(intro).despawn();
+        }
         let Some(def) = bank.sounds.get(&key).cloned() else {
             if bank.missing.insert(key.clone()) {
                 info!("audio: no sound {key} in the bank");
@@ -834,7 +846,7 @@ fn play(
             then_body,
             outro,
             follow_on: piece(&fdef.follow_on).map(str::to_lowercase).filter(|_| fdef.has("follow_on")),
-            request: ev.clone(),
+            request: PlaySound { replaces: None, ..ev.clone() },
             distance,
             gain_db: 0.0,
             paused: false,
@@ -1025,7 +1037,9 @@ fn update_voices(
         if !v.looped || v.then_body.is_some() {
             if over {
                 if let Some(body) = v.then_body.take() {
-                    replay.write(PlaySound { at: Some(v.at), ..body });
+                    // the intro stays until the body starts (`replaces`): a stop meanwhile still finds it
+                    replay.write(PlaySound { at: Some(v.at), replaces: Some(e), ..body });
+                    continue;
                 } else if let Some(next) = v.follow_on.take() {
                     replay.write(PlaySound { name: next, at: Some(v.at), follow: v.follow, looped: Some(false), part: Part::Whole, fade_elapsed: None, through_pause: false, ..v.request.clone() });
                 }
@@ -1043,6 +1057,8 @@ pub fn summary(stats: &AudioStats, mixer: &Mixer, voices: &Query<&Voice>, channe
     let mut level: BTreeMap<&str, f32> = BTreeMap::new();
     let mut paused = 0;
     let mut paused_by_name: BTreeMap<&str, u32> = BTreeMap::new();
+    // 2D voices (the listener's own sounds: Roman's machine gun loop, apart from Q's positional one)
+    let mut playing_2d: BTreeMap<&str, u32> = BTreeMap::new();
     for v in voices.iter() {
         *playing.entry(&v.key).or_default() += 1;
         *by_group.entry(v.group.name()).or_default() += 1;
@@ -1051,6 +1067,9 @@ pub fn summary(stats: &AudioStats, mixer: &Mixer, voices: &Query<&Voice>, channe
         paused += usize::from(v.paused);
         if v.paused {
             *paused_by_name.entry(&v.key).or_default() += 1;
+        }
+        if v.range.is_none() {
+            *playing_2d.entry(&v.key).or_default() += 1;
         }
     }
     let r = |v: f32| (v.max(-100.0) * 10.0).round() / 10.0;
@@ -1066,6 +1085,7 @@ pub fn summary(stats: &AudioStats, mixer: &Mixer, voices: &Query<&Voice>, channe
         "level_db": level,
         "paused": paused,
         "paused_by_name": paused_by_name,
+        "playing_2d": playing_2d,
         "channels": ch,
         "groups_db": {"sfx": r(mixer.group_db(VolumeGroup::Sfx)), "speech": r(mixer.group_db(VolumeGroup::Speech)), "music": r(mixer.group_db(VolumeGroup::Music))},
     })
