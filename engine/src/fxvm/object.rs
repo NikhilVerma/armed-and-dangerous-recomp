@@ -272,8 +272,8 @@ pub struct FxObject {
     pub layer_mats: Vec<Handle<FxLayerMaterial>>,
     pub alpha: f32,
     pub body: Option<oxijolt::prelude::BodyId>,
-    /// half size of its body (game units): the mesh's bounding box
-    pub half: Vec3,
+    /// its body when it gets one: the template's mass and surface, the mesh's bounding box
+    pub body_def: super::body::BodyDef,
     /// opcode 0x79 "set inert" (Fx_SetInert 0x0041e230: +0x424 |= 0x20000): no collision shape
     pub inert: bool,
     /// 0x10 / 0x1e impulses and 0x1a spins given before the object has a body: applied when it gets one
@@ -311,7 +311,7 @@ impl FxObject {
             layer_mats,
             alpha: 1.0,
             body: None,
-            half: Vec3::splat(0.25),
+            body_def: super::body::BodyDef::default(),
             inert: false,
             impulse: Vec3::ZERO,
             spin: Vec3::ZERO,
@@ -324,6 +324,11 @@ impl FxObject {
 
     pub fn has_body(&self) -> bool {
         self.body.is_some()
+    }
+
+    /// The scale it has now, a 0x0b..0x0e set this frame included (scale_now follows at the next update).
+    pub fn scale_at_now(&self) -> f32 {
+        self.scale.map(|s| s.at(self.age, self.lifespan)).unwrap_or(self.scale_now)
     }
 
     /// Texture layer 1..2 (layers 3 and 4 have no stage on these meshes).
@@ -430,7 +435,7 @@ pub fn objects(
         }
         // ground hits (the contact callback 0x00419330 sets +0x464 bit 0x2000; acted on here)
         if let (true, Some(b)) = (o.hit.ground, body) {
-            let contact = touching(&physics, b, o.half, dt);
+            let contact = touching(&physics, b, o);
             let new_hit = contact.is_some() && !o.hit.touching;
             o.hit.touching = contact.is_some();
             if let (true, Some((at, other))) = (new_hit, contact) {

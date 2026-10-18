@@ -828,6 +828,9 @@ pub struct Grunt {
     /// behind (dot < -0.7), grunt_turn_left / right_90 0.5 s, the archers' grunt_bow_turn 0.633 s): the anim, time left
     pub turn: Option<(&'static str, f32)>,
     pub last_hit: f32,
+    /// the fling of a blast that killed him (Character_GoRagdoll 0x00431310: a record with an owner and an impact
+    /// over 10050 throws the body along its direction at impact x 0.15 on his 80 kg), units/s, engine axes
+    pub blast_fling: Option<Vec3>,
     /// hit_level_1 / hit_level_2 (+0x9e8 / +0x9ec): the damage limits of the small and medium hit reactions
     pub hit_level_1: f32,
     pub hit_level_2: f32,
@@ -1018,6 +1021,9 @@ pub struct AiStats {
     /// jumps to a marker started, landings
     pub jumps: usize,
     pub landings: usize,
+    /// deaths flung by a blast (`Grunt::blast_fling`) and the fastest fling (units/s)
+    pub blast_flings: usize,
+    pub max_fling: f32,
     /// squads halted by a target, members sent to charge (squad.rs)
     pub squad_halts: usize,
     pub squad_charged: usize,
@@ -1259,6 +1265,8 @@ fn log_ai(
             "monks": count(&|g| g.kind == Kind::Monk),
             "teleporting": count(&|g| g.mind == Mind::Teleport),
             "landings": stats.landings,
+            "blast_flings": stats.blast_flings,
+            "max_fling": stats.max_fling,
             "archers": count(&|g| g.kind == Kind::Bow),
             "attention": count(&|g| g.attention),
             "targets_player": live.iter().filter(|(_, g, _)| g.target.is_some() && g.target == re).count(),
@@ -1359,6 +1367,7 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         dry_first: false,
         turn: None,
         last_hit: 0.0,
+        blast_fling: None,
         hit_level_1: p.f("hit_level_1", 10.0),
         hit_level_2: p.f("hit_level_2", 25.0),
         hit: None,
@@ -4213,7 +4222,7 @@ fn die(
     alive: Query<&Health>,
     (mut barks, time, mut guns): (ResMut<Barks>, Res<Time>, Query<&mut crate::turret::Turret>),
     (voices, mut stop): (crate::audio::PlayingVoices, MessageWriter<crate::audio::StopVoice>),
-    (corpses, settings): (Query<&crate::corpses::Corpse>, Res<crate::graphics::GraphicsSettings>),
+    (corpses, settings, mut ai_stats): (Query<&crate::corpses::Corpse>, Res<crate::graphics::GraphicsSettings>, ResMut<AiStats>),
 ) {
     let mut alerts: Vec<(i64, Entity, Entity)> = Vec::new();
     // the ragdolls already down (GoRagdoll 0x00431310 counts them over the AI list: 0x00431000)
@@ -4271,7 +4280,13 @@ fn die(
             let req = g.speech.death_line(&voices, &mut stop, bark_request(cat, set, tr.translation));
             sounds.write(req);
         }
-        let push = physics.world.body(body.id).map(|b| bv(b.linear_velocity())).unwrap_or(Vec3::ZERO) / physics.meters_per_unit;
+        // a killing blast's fling (GoRagdoll 0x00431310's impact branch), else the body's own motion
+        let fling = g.blast_fling.take();
+        let push = fling.unwrap_or_else(|| physics.world.body(body.id).map(|b| bv(b.linear_velocity())).unwrap_or(Vec3::ZERO) / physics.meters_per_unit);
+        if let Some(f) = fling {
+            ai_stats.blast_flings += 1;
+            ai_stats.max_fling = ai_stats.max_fling.max(f.length());
+        }
         physics.remove(body.id);
         // the death (Character_Die 0x004319e0, in its order): a window / tower grunt killed by a record with flag
         // 0x80 (the sticky bomb) is blown out of the window (anim 0x3e); a hit of at least hit_ragdoll ragdolls; a
@@ -4281,7 +4296,9 @@ fn die(
         let blown_out = g.window && g.cartoon;
         let wants_ragdoll = forced.is_none() && !blown_out && (g.last_hit >= g.hit_ragdoll || push.length() > 30.0);
         // GoRagdoll with more ragdolls down than the limit allows: the animated death of 0x00427100 instead
-        g.ragdoll = wants_ragdoll && crate::corpses::Corpses::may_ragdoll(down, &rules);
+        // a blast's fling comes before GoRagdoll's count of the bodies down (the original throws the whole body, state
+        // 0x195, whatever the count): flung bodies always fly
+        g.ragdoll = wants_ragdoll && (fling.is_some() || crate::corpses::Corpses::may_ragdoll(down, &rules));
         down += g.ragdoll as u32;
         g.death_name = if let Some(d) = forced {
             Some(d.0)
