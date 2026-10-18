@@ -335,11 +335,20 @@ corners 0.3, centre dot 0.6; gurner: blue ticks 0.6, red brackets 0.45; `ui_mult
 `ui_special_crosshair` opacity 0, so it is never seen. Original capture (lev_1_m3 start, machine gun in hand, a
 special selected, 640x480): only a thin pale-blue ring of radius 26 px and the dot, the scene showing through.
 The remaster drew these parts opaque (a solid blue ring, solid red corners on a target, and the special crosshair's
-cross on top of every gun's crosshair); `build_model` now takes each part's alpha from its material (`part_opacity`,
-models/<model>.json) for the crosshairs, `ui_crosshair_friendly`, `ui_special_crosshair` and `ui_multi_lock`.
-Other HUD models have translucent materials too (health 0.65, compass 0.8, arrows 0.4 / 0.5 with blend mode 0,
-ticker bar 0.5): not applied yet, to be checked against captures. Playtest `hud_crosshair` (state
-`hud.crosshair_alpha`).
+cross on top of every gun's crosshair). Every HUD and pub model now takes each part's blend from its material
+(`part_blends`, models/<model>.json; the layout's parts match the submeshes one to one for 60 of 61 models,
+ui_autoaim's two identical parts are merged): health bars 0.65 (the low-health pulse multiplies it) and their
+outline 0.5, the companions' faces 0.8, compass face 0.8, objective sector 0.4 (it was a hand-tuned 0.55), ticker
+bar 0.5, pub meters 0.3, pub cursor 0.25 / highlight 0.8. Blend mode 0 is additive: the draw state's bits 0x100
+pick the blend table 0x0057d9e0 (read from the exe: {src, dest, op, enable} per entry; 1 = SRCALPHA / ONE, 3 =
+SRCALPHA / INVSRCALPHA, 4 = DESTCOLOR / ZERO for mode 1, unused by the UI); the weapon-cycle arrows' "off" state
+(0.4 / 0.5), the hit markers (0.5) and ui_autoaim use it, drawn with `hudblend::AddMaterial`. Playtest
+`hud_crosshair` (state `hud.crosshair_alpha`, `hud.blend.<element>`: "+" marks additive).
+
+Remaining difference (tuning item): the original blends in gamma (sRGB) space, Bevy in linear space, so a dark
+translucent part over a bright scene looks lighter in the remaster: the health silhouette (texture #63be00 at 0.65)
+over snow measures blue 52 in the original's lev_1_m3 capture, about 90 in the remaster (fully opaque before this
+change: 0). Matching it needs the HUD blended in gamma space (its own non-sRGB target composited over the view).
 
 **Remaster** (`engine/src/hud.rs`): `crosshair_aim` casts the same ray (physics ray through Roman and the grunts'
 capsules, then grunt / Q / Jonesy collision parts, hitparts.rs), sets `Crosshair { on, friendly, point, object }`

@@ -82,6 +82,7 @@ mod playtest;
 mod scene;
 mod shell;
 mod shrubpatrol;
+mod hudblend;
 mod sdffont;
 mod skin;
 
@@ -358,6 +359,7 @@ fn main() {
     .add_plugins((campaign::CampaignPlugin, extras::ExtrasPlugin))
     .add_plugins(gamematerial::GameMaterialPlugin)
     .add_plugins(sdffont::SdfFontPlugin)
+    .add_plugins(hudblend::HudBlendPlugin)
     .add_plugins(pubscreen::PubScreenPlugin)
     .add_plugins(topsy::TopsyPlugin)
     .add_plugins(turret::TurretPlugin)

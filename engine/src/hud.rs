@@ -160,6 +160,8 @@ pub struct TextSize(pub Vec2);
 #[derive(Component)]
 pub struct Meter {
     pub material: Handle<ColorMaterial>,
+    /// the bar's material opacity (0.65): the low-health pulse multiplies it
+    pub opacity: f32,
 }
 
 #[derive(Resource)]
@@ -373,7 +375,7 @@ fn build_model(commands: &mut Commands, meshes: &mut Assets<Mesh>, materials: &m
     let mut out = Vec::new();
     let Some(quads) = hud.layout.models.get(model) else { return out };
     let bones = if CROSSHAIRS.contains(&el_name) { cross_bones(&hud.dir, model) } else { Vec::new() };
-    let opacity = if CROSSHAIRS.contains(&el_name) || CROSSHAIR_MARKERS.contains(&el_name) { part_opacity(&hud.dir, model) } else { Vec::new() };
+    let blends = part_blends(&hud.dir, model, quads.len());
     for (qi, q) in quads.iter().enumerate() {
         if q.vertices.is_empty() {
             continue;
@@ -390,25 +392,36 @@ fn build_model(commands: &mut Commands, meshes: &mut Assets<Mesh>, materials: &m
             Color::WHITE
         } else {
             let c = parse_colour(q.colour.as_deref().or(Some("#ffffff"))).to_srgba();
-            let a = if el_name == "ui_compass_objective" { 0.55 } else { 1.0 };
-            Color::srgba(c.blue, c.green, c.red, a)
+            Color::srgb(c.blue, c.green, c.red)
         };
-        let color = match opacity.get(qi) {
-            Some(&o) => color.with_alpha(color.alpha() * o),
-            None => color,
-        };
-        let mat = materials.add(ColorMaterial { color, texture: tex, alpha_mode: bevy::sprite_render::AlphaMode2d::Blend, ..default() });
+        let blend = blends.get(qi).copied().unwrap_or_default();
+        let color = color.with_alpha(blend.opacity);
         let mesh = meshes.add(mesh);
         let mut part = commands.spawn((
             Mesh2d(mesh.clone()),
-            MeshMaterial2d(mat.clone()),
             // the original's z order: more negative z draws further back
             Transform::from_xyz(0.0, 0.0, 10.0 + q.z),
             RenderLayers::layer(HUD_LAYER),
         ));
+        // blend mode 0 (SRCALPHA / ONE): the additive material, made when the commands apply (no part driven below
+        // uses it: the arrows and hit markers are only shown and hidden)
+        if let (true, Some(texture)) = (blend.additive, tex.clone()) {
+            let id = part.id();
+            let color = LinearRgba::from(color);
+            part.commands().queue(move |world: &mut World| {
+                let h = world.resource_mut::<Assets<crate::hudblend::AddMaterial>>().add(crate::hudblend::AddMaterial { color, texture });
+                if let Ok(mut e) = world.get_entity_mut(id) {
+                    e.insert(MeshMaterial2d(h));
+                }
+            });
+            out.push(id);
+            continue;
+        }
+        let mat = materials.add(ColorMaterial { color, texture: tex, alpha_mode: bevy::sprite_render::AlphaMode2d::Blend, ..default() });
+        part.insert(MeshMaterial2d(mat.clone()));
         match (q.texture.as_deref(), el_name) {
             (Some("b_health"), _) => {
-                part.insert(Meter { material: mat });
+                part.insert(Meter { material: mat, opacity: blend.opacity });
             }
             (None, "ui_compass") => {
                 part.insert(CompassNeedle);
@@ -1314,7 +1327,7 @@ fn meters(state: Res<HudState>, mut materials: ResMut<Assets<ColorMaterial>>, q:
             // texture v runs downward in Bevy: scrolling "up" in the original's uv is -t here
             mat.uv_transform = Affine2::from_translation(Vec2::new(band, -t));
             if el.name == "ui_player_health" {
-                mat.color.set_alpha(pulse.0);
+                mat.color.set_alpha(pulse.0 * m.opacity);
             }
         }
     }
@@ -1427,22 +1440,32 @@ fn log_hud(
     els: Query<(&HudElement, &Visibility, Option<&HudText>), Without<crate::gamemenu::MenuOwned>>,
     play: Option<ResMut<crate::playtest::PlayState>>,
     (shown, parts, materials): (Query<(&HudElement, &Visibility, &Children)>, Query<&MeshMaterial2d<ColorMaterial>>, Res<Assets<ColorMaterial>>),
+    (add_parts, add_materials): (Query<&MeshMaterial2d<crate::hudblend::AddMaterial>>, Res<Assets<crate::hudblend::AddMaterial>>),
 ) {
     let Some(mut play) = play else { return };
-    // the shown crosshair's parts' opacity, in the model's part order (as a string: a list of two would read as a range)
-    let crosshair_alpha = shown
+    // an element's parts' blend, in the model's part order: the opacity, "+" before it when additive (as a string: a
+    // list of two would read as a range)
+    let blend = |children: &Children| {
+        children
+            .iter()
+            .filter_map(|c| {
+                parts
+                    .get(c)
+                    .ok()
+                    .and_then(|m| materials.get(&m.0))
+                    .map(|m| format!("{:.2}", m.color.alpha()))
+                    .or_else(|| add_parts.get(c).ok().and_then(|m| add_materials.get(&m.0)).map(|m| format!("+{:.2}", m.color.alpha)))
+            })
+            .collect::<Vec<_>>()
+            .join(",")
+    };
+    let crosshair_alpha = shown.iter().find(|(e, v, _)| CROSSHAIRS.contains(&e.name.as_str()) && **v != Visibility::Hidden).map(|(_, _, c)| blend(c)).unwrap_or_default();
+    // the other translucent HUD parts (docs/subsystems/hud.md "Opacity")
+    let part_blend: serde_json::Map<String, serde_json::Value> = shown
         .iter()
-        .find(|(e, v, _)| CROSSHAIRS.contains(&e.name.as_str()) && **v != Visibility::Hidden)
-        .map(|(_, _, children)| {
-            children
-                .iter()
-                .filter_map(|c| parts.get(c).ok())
-                .filter_map(|m| materials.get(&m.0))
-                .map(|m| format!("{:.2}", m.color.alpha()))
-                .collect::<Vec<_>>()
-                .join(",")
-        })
-        .unwrap_or_default();
+        .filter(|(e, _, _)| ["ui_player_health", "ui_health_q", "ui_compass", "ui_compass_objective", "ui_select_right_off", "ui_select_up_off", "ui_hit_top", "ui_tickerbomb_set"].contains(&e.name.as_str()))
+        .map(|(e, _, c)| (e.name.clone(), blend(c).into()))
+        .collect();
     let mut arrows: Vec<&str> = els.iter().filter(|(e, v, _)| e.name.starts_with("ui_select_") && **v != Visibility::Hidden).map(|(e, _, _)| e.name.as_str()).collect();
     arrows.sort();
     let prompt_colour = els.iter().find(|(e, _, _)| e.name == "ui_prompt").and_then(|(_, _, t)| t).map(|t| {
@@ -1466,6 +1489,7 @@ fn log_hud(
             "crosshair_shown": els.iter().any(|(e, v, _)| CROSSHAIRS.contains(&e.name.as_str()) && *v != Visibility::Hidden),
             "crosshair": els.iter().find(|(e, v, _)| CROSSHAIRS.contains(&e.name.as_str()) && *v != Visibility::Hidden).map_or("", |(e, _, _)| e.name.as_str()),
             "crosshair_alpha": crosshair_alpha,
+            "blend": part_blend,
             "weapon_icon": els.iter().find(|(e, v, _)| GUN_ICONS.contains(&e.name.as_str()) && *v != Visibility::Hidden).map_or("", |(e, _, _)| e.name.as_str()),
             "special_icon": els.iter().find(|(e, v, _)| SPECIAL_ICONS.contains(&e.name.as_str()) && *v != Visibility::Hidden).map_or("", |(e, _, _)| e.name.as_str()),
             "locks_shown": els.iter().filter(|(e, v, _)| e.name == "ui_multi_lock" && *v != Visibility::Hidden).count(),
@@ -1500,9 +1524,6 @@ pub fn mission_time_text(seconds: f32) -> String {
 /// The crosshair elements whose parts follow their skin's bones through the `_in` / `_out` anims.
 /// The guns' crosshairs (the weapon table's +0xc0; Hud_UpdateCrosshair's +0x30c list).
 const CROSSHAIRS: &[&str] = &["ui_crosshair", "ui_mg_crosshair", "ui_sniper_crosshair", "ui_vindaloo_crosshair", "ui_gurner_crosshair", "ui_sharkgun_crosshair"];
-/// The other aim markers drawn with their material's opacity (`part_opacity`): the friendly and special crosshairs and
-/// the lock-on markers.
-const CROSSHAIR_MARKERS: &[&str] = &["ui_crosshair_friendly", "ui_special_crosshair", "ui_multi_lock"];
 /// The guns' and the specials' icons (the weapon table's +0xa0).
 const GUN_ICONS: &[&str] = &["ui_player_mg", "ui_player_sniper", "ui_player_rifle", "ui_player_rlvindaloo", "ui_player_rlgurner", "ui_player_sharkgun"];
 const SPECIAL_ICONS: &[&str] = &["ui_player_guyfawkes", "ui_player_bunchoffives", "ui_player_topsy", "ui_player_blackhole", "ui_player_grenades"];
@@ -1641,13 +1662,29 @@ fn cross_bones(dir: &Path, model: &str) -> Vec<Vec<(Option<String>, Vec2)>> {
         .collect()
 }
 
-/// Per layout part of a UI model, the opacity its material draws it with (models/<model>.json, the submeshes in the
-/// layout's part order). A translucent material (kind bit 0x10) is blended at its opacity +0x48: the draw state
-/// 0x004897d0 (render_r4.cpp:548) sets a constant alpha of opacity x 255 for blend mode 2 (SRCALPHA / INVSRCALPHA).
-/// So the machine gun's crosshair is a faint ring: blue ring and centre dot at 0.3, the red target corners at 0.6;
-/// the vindaloo's and shark gun's the other way round; ui_special_crosshair has opacity 0 and is never seen (the
-/// original's lev_1_m3 capture with a special selected shows only the machine gun's ring).
-fn part_opacity(dir: &Path, model: &str) -> Vec<f32> {
+/// How a UI model part is blended (its material's translucency, docs/subsystems/hud.md "Opacity").
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct PartBlend {
+    /// the material's opacity +0x48 (1 unless translucent): the constant alpha the part is drawn with
+    opacity: f32,
+    /// blend mode 0: SRCALPHA / ONE (hudblend.rs), else SRCALPHA / INVSRCALPHA
+    additive: bool,
+}
+
+impl Default for PartBlend {
+    fn default() -> Self {
+        PartBlend { opacity: 1.0, additive: false }
+    }
+}
+
+/// Per layout part of a UI model, how its material draws it (models/<model>.json, the submeshes in the layout's part
+/// order; a model whose layout merged its parts, ui_autoaim, takes its parts' common blend). A translucent material
+/// (kind bit 0x10) is blended at its opacity +0x48: the draw state 0x004897d0 (render_r4.cpp:548) sets a constant
+/// alpha of opacity x 255, blend mode 2 SRCALPHA / INVSRCALPHA, mode 0 SRCALPHA / ONE (blend table 0x0057d9e0). So
+/// the machine gun's crosshair is a faint ring (0.3) with red target corners (0.6), the health bars are 0.65, the
+/// compass 0.8, the weapon-cycle arrows' "off" state an additive glow at 0.4 / 0.5; ui_special_crosshair has opacity
+/// 0 and is never seen (the original's lev_1_m3 capture with a special selected shows only the machine gun's ring).
+fn part_blends(dir: &Path, model: &str, parts: usize) -> Vec<PartBlend> {
     #[derive(Deserialize)]
     struct Sub {
         #[serde(default)]
@@ -1660,7 +1697,18 @@ fn part_opacity(dir: &Path, model: &str) -> Vec<f32> {
     std::fs::read_to_string(dir.join("models").join(format!("{model}.json")))
         .ok()
         .and_then(|t| serde_json::from_str::<Md>(&t).ok())
-        .map(|m| m.submeshes.iter().map(|s| s.material.as_ref().map_or(1.0, |m| m.alpha())).collect())
+        .map(|m| {
+            let blends: Vec<PartBlend> = m
+                .submeshes
+                .iter()
+                .map(|s| s.material.as_ref().map_or_else(PartBlend::default, |m| PartBlend { opacity: m.alpha(), additive: m.kind & 0x10 != 0 && m.blend == 0 }))
+                .collect();
+            match blends.first() {
+                _ if blends.len() == parts => blends,
+                Some(&b) if blends.iter().all(|x| *x == b) => vec![b; parts],
+                _ => Vec::new(),
+            }
+        })
         .unwrap_or_default()
 }
 

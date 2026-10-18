@@ -5,6 +5,7 @@
  {"wait": 1.0},
  {"expect": {"hud.crosshair": "ui_mg_crosshair", "hud.crosshair_alpha": "0.60,0.60,0.60,0.60,0.30"}},
  {"shot": "mg"},
+ {"expect": {"hud.blend.ui_player_health": "0.65,0.50", "hud.blend.ui_health_q": "0.65,0.80", "hud.blend.ui_compass": "0.80,1.00,1.00,1.00", "hud.blend.ui_compass_objective": "0.40", "hud.blend.ui_select_right_off": "+0.50", "hud.blend.ui_select_up_off": "+0.50", "hud.blend.ui_hit_top": "+0.50", "hud.blend.ui_tickerbomb_set": "0.50"}},
  {"tap": "KeyQ"},
  {"wait": 1.0},
  {"expect": {"hud.crosshair": "ui_crosshair", "hud.crosshair_alpha": "1.00"}},
