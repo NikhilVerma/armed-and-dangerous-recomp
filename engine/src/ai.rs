@@ -856,6 +856,9 @@ pub struct Grunt {
     pub window: bool,
     /// the last damage record had flag 0x80 (allow_cartoon_death: the sticky bomb's)
     pub cartoon: bool,
+    /// where that flagged record came from (its attacker +0x2c: the bomb), engine space: GoRagdoll's launch flies him
+    /// away from it (ai/launch.rs)
+    pub cartoon_from: Option<Vec3>,
     /// chance in % of a pickup on death (pickup_drop_percent, default 100)
     pub drop_percent: f32,
     /// the trench held (+0x904) and its phase (states 0xa0..0xa5)
@@ -1133,7 +1136,7 @@ impl Plugin for AiPlugin {
             .init_level_resource::<bully::BullyLines>()
             .init_level_resource::<ic::IcStats>()
             .init_level_resource::<launch::LaunchClock>()
-            .add_systems(Update, launch::tick.run_if(crate::playing))
+            .add_systems(Update, (launch::tick, launch::log_state).run_if(crate::playing))
             .init_level_resource::<dialogue::Bags>()
             .add_plugins(q112::Q112Plugin)
             .init_level_resource::<max_fire::ShooterLimit>()
@@ -1376,6 +1379,7 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         can_be_sharked: p.i("can_be_sharked", 1) != 0,
         window: mode.contains("window") || mode.contains("tower"),
         cartoon: false,
+        cartoon_from: None,
         drop_percent: p.f("pickup_drop_percent", 100.0),
         cover: None,
         at_barricade: false,
@@ -4213,7 +4217,7 @@ fn die(
     alive: Query<&Health>,
     (mut barks, time, mut guns): (ResMut<Barks>, Res<Time>, Query<&mut crate::turret::Turret>),
     (voices, mut stop): (crate::audio::PlayingVoices, MessageWriter<crate::audio::StopVoice>),
-    (corpses, settings): (Query<&crate::corpses::Corpse>, Res<crate::graphics::GraphicsSettings>),
+    (corpses, settings, mut clock): (Query<&crate::corpses::Corpse>, Res<crate::graphics::GraphicsSettings>, ResMut<launch::LaunchClock>),
 ) {
     let mut alerts: Vec<(i64, Entity, Entity)> = Vec::new();
     // the ragdolls already down (GoRagdoll 0x00431310 counts them over the AI list: 0x00431000)
@@ -4271,7 +4275,7 @@ fn die(
             let req = g.speech.death_line(&voices, &mut stop, bark_request(cat, set, tr.translation));
             sounds.write(req);
         }
-        let push = physics.world.body(body.id).map(|b| bv(b.linear_velocity())).unwrap_or(Vec3::ZERO) / physics.meters_per_unit;
+        let mut push = physics.world.body(body.id).map(|b| bv(b.linear_velocity())).unwrap_or(Vec3::ZERO) / physics.meters_per_unit;
         physics.remove(body.id);
         // the death (Character_Die 0x004319e0, in its order): a window / tower grunt killed by a record with flag
         // 0x80 (the sticky bomb) is blown out of the window (anim 0x3e); a hit of at least hit_ragdoll ragdolls; a
@@ -4280,8 +4284,20 @@ fn die(
         // Not reached here: the 0x57 flag variant (in back: no lev_1_m1 grunt sets it) and record flag 2's launch.
         let blown_out = g.window && g.cartoon;
         let wants_ragdoll = forced.is_none() && !blown_out && (g.last_hit >= g.hit_ragdoll || push.length() > 30.0);
+        // GoRagdoll 0x00431310's launch: a killing record with flag 0x80 (the sticky bomb's, from the bomb) at least 10 s
+        // after the last launch (Game+0xb34) throws him through the air (Character_Launch 0x00431020: toward a point
+        // 40..60 from the bomb along its line to him, forward or back past it, at rand 2.5..3 x his move_speed), before
+        // the ragdoll count is looked at. The original flails him through that arc (anims 0x49 / 0x4a) and he goes
+        // limp on landing; here the ragdoll is launched with the arc's velocity (as the glove's punch, glove.rs)
+        let launched = wants_ragdoll && g.cartoon && g.cartoon_from.is_some() && clock.allows();
+        if let Some(from) = g.cartoon_from.filter(|_| launched) {
+            clock.stamp();
+            let rolls = launch::LaunchRolls { angle: rng.rand(), side: rng.rand(), forward: rng.rand(), anim: rng.rand() };
+            push = launch::launch(from, tr.translation, rng.range(2.5, 3.0), g.move_speed, 0.0, false, rolls).velocity;
+            info!("EVENT ai: {e:?} launched by a blast ({:.0} / s)", push.length());
+        }
         // GoRagdoll with more ragdolls down than the limit allows: the animated death of 0x00427100 instead
-        g.ragdoll = wants_ragdoll && crate::corpses::Corpses::may_ragdoll(down, &rules);
+        g.ragdoll = launched || (wants_ragdoll && crate::corpses::Corpses::may_ragdoll(down, &rules));
         down += g.ragdoll as u32;
         g.death_name = if let Some(d) = forced {
             Some(d.0)

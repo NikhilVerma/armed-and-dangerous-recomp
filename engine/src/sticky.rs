@@ -307,6 +307,7 @@ fn fly(
             if let Some((mut g, mut h)) = obj.and_then(|o| grunts.get_mut(o).ok()) {
                 g.last_hit = direct;
                 g.cartoon = true;
+                g.cartoon_from = Some(t.translation);
                 h.0 -= direct;
             } else if let Some(mut d) = obj.and_then(|o| objects.get_mut(o).ok()) {
                 if d.accepts(by, false) && d.take_damage(direct) && d.dying.is_none() {

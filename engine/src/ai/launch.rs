@@ -1,6 +1,7 @@
 //! Character_Launch 0x00431020 (physics_01.cpp:3443): a character thrown through the air by someone (the "attacker"):
-//! the civilians a destroyed building throws out (0x0040d390, peasant/toss.rs) and a grunt Roman punches with the
-//! knockout bomb's glove (GoRagdoll 0x00431310's launch, weapons/glove.rs).
+//! the civilians a destroyed building throws out (0x0040d390, peasant/toss.rs), a grunt Roman punches with the
+//! knockout bomb's glove (GoRagdoll 0x00431310's launch, weapons/glove.rs) and a grunt killed by a record with flag
+//! 0x80 (the sticky bomb's: GoRagdoll's launch from the bomb, ai.rs `die`).
 //!
 //! The direction is the attacker's to the character across, turned by a random angle within `spread` degrees; the
 //! attacker's point is moved 40..60 along it (forward on an even roll unless `keep_side`, else back); the character
@@ -27,6 +28,8 @@ pub struct LaunchClock {
     pub now: f32,
     /// the last launch (0: the level's start)
     pub last: f32,
+    /// launches this level (the playtest state's "launches")
+    pub count: u32,
 }
 
 impl LaunchClock {
@@ -38,12 +41,20 @@ impl LaunchClock {
     /// A launch happened now (Character_Launch: Game+0xb34 = the time).
     pub fn stamp(&mut self) {
         self.last = self.now;
+        self.count += 1;
     }
 }
 
 /// The level's clock of [`LaunchClock`].
 pub fn tick(time: Res<Time>, mut clock: ResMut<LaunchClock>) {
     clock.now += time.delta_secs();
+}
+
+/// The playtest state's "launches": the launches this level.
+pub fn log_state(clock: Res<LaunchClock>, state: Option<ResMut<crate::playtest::PlayState>>) {
+    if let Some(mut s) = state {
+        s.0.insert("launches".into(), clock.count.into());
+    }
 }
 
 /// Four uniform draws in [0, 1) (the original's four rand() calls, in their order).
@@ -118,7 +129,7 @@ mod tests {
         let angle = across.angle_between(Vec3::NEG_X).to_degrees();
         // the arc's own direction is from the target to the moved point: within 75 degrees of the line, either way
         assert!(angle <= 180.0 && l.velocity.y > 0.0, "{angle}");
-        let mut clock = LaunchClock { now: 12.9, last: 3.0 };
+        let mut clock = LaunchClock { now: 12.9, last: 3.0, count: 0 };
         assert!(!clock.allows());
         clock.now = 13.0;
         assert!(clock.allows());

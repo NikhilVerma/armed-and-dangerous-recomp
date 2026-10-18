@@ -300,6 +300,7 @@ fn damage(
                 }
                 if let Some(mut g) = grunt {
                     g.cartoon = b.cartoon;
+                    g.cartoon_from = b.cartoon.then_some(b.at);
                     if std::env::var("AIDBG").is_ok() {
                         info!("AIDBG blast on {ce:?}: {:.0} by {:?} {:?} health {:.0}", amount, b.by, b.source, h.0);
                     }
