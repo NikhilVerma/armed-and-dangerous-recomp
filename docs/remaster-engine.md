@@ -887,6 +887,16 @@ the original), gameaudio.rs the level's use of it. What changed for everything t
 A one-shot ends when its length has played in game time (`Voice::length`), not when the output device drains it
 (see "Tips and traps": scripted runs must not depend on the machine's speed).
 
+The output device (engine/src/audiooutput.rs, 2026-10-18, player feedback A1): bevy_audio's `AudioPlugin` is
+disabled (its output opens the default device once and cannot be reopened); `AudioOutputPlugin` plays the same
+components (`AudioPlayer`, `PlaybackSettings`, `AudioSink` / `SpatialAudioSink`, `SpatialListener`) and follows the
+Windows default output device: a watcher thread polls it once a second and catches the stream's "device lost" error,
+opens the new default off the game thread, and the game re-creates every playing sound on it at its `PlayHead`
+(its place in the file in game time, volume / speed / pause / mute carried over; never `try_seek`). With no device,
+sounds play into a silent mixer and move to the next device that appears. A movie's soundtrack re-syncs itself
+(movie.rs closes the gap > 0.5 s). Unit tests: `cargo test --release audiooutput` (fake devices). A file that fails
+to decode is logged and skipped (bevy_audio panicked).
+
 Debt: `ListenerBody.radius` stands in for the original's ownership test (0x0045a480); the characters' own voice
 handles (+0xb4c / +0xb50) are not ported (ai.rs's cue sites pass no speaker); music segments chain on a frame timer
 (the segment's duration), not on the stream's end.

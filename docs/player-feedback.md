@@ -3,6 +3,12 @@
 One line per item, with its status. Newest session first. Each fix needs evidence: a capture, a log or a test.
 Agents re-read this file after every context compaction (AGENTS.md).
 
+## 2026-10-18 playthrough
+
+| # | Feedback (the player's words, short) | Status / plan |
+|---|---|---|
+| A1 | "when I switch the sound output in Windows, the game should also switch" | FIXED (agent-fb-audio): built; 4 unit tests, audio_* (7) and launch_newgame playtests pass; switching a real device NOT YET VERIFIED by the player. Cause: bevy_audio opened the default output device once at startup and cannot reopen it; an unplugged device left the game silent ("audio stream error: The requested device is no longer available"). Fix: engine/src/audiooutput.rs replaces bevy_audio's playback: a watcher thread polls the Windows default output device every second (and catches the stream's device-lost error), opens the new default off the game thread, and every playing sound is re-created on it at its place (music, loops and speech carry on; volume, pause and mute kept); no device = silent until one appears, never a hang. Tests: `cargo test --release audiooutput` (fake devices: switch, loss, no device, failed open; positions, volume and pause carried over) |
+
 ## 2026-10-15 (desktop shortcut, Remaster preset)
 
 | # | Feedback (the player's words, short) | Status / plan |
