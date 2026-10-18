@@ -21,6 +21,7 @@ mod defence;
 mod icobject;
 mod mover;
 mod audio;
+mod audiooutput;
 mod bot;
 mod bench;
 mod profile;
@@ -324,10 +325,17 @@ fn main() {
                 ..default()
             })
             .set(AssetPlugin { file_path: scene_dir.to_string_lossy().into_owned(), ..default() })
-            // Bevy's spatial audio only pans: game units are scaled down so its own distance fall-off is negligible;
-            // audio.rs attenuates by the game's min/max distances
-            .set(bevy::audio::AudioPlugin { default_spatial_scale: bevy::audio::SpatialScale::new(0.002), ..default() }),
+            // bevy_audio's output opens the default device once: audiooutput.rs plays the same components and
+            // follows the system's default device
+            .disable::<bevy::audio::AudioPlugin>(),
     )
+    .add_plugins(audiooutput::AudioOutputPlugin {
+        global_volume: default(),
+        // Bevy's spatial audio only pans: game units are scaled down so its own distance fall-off is negligible;
+        // audio.rs attenuates by the game's min/max distances
+        default_spatial_scale: bevy::audio::SpatialScale::new(0.002),
+        devices: audiooutput::DeviceSource::System,
+    })
     .add_plugins(EguiPlugin::default())
     // a window resize (the Resolution / Fullscreen options) leaves the HUD camera's depth one frame behind its
     // colour target: wgpu reports "Attachments have differing sizes" for that frame. Bevy's default handler quits
