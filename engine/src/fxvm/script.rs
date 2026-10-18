@@ -170,10 +170,13 @@ fn create_object(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_>, idx: usize, template:
     let mut e = ctx.commands.spawn((Transform::from_matrix(world), Visibility::default(), Name::new(template.to_owned()), FxEntity));
     let mut mats = Vec::new();
     let mut layers = Vec::new();
-    let mut half = Vec3::splat(0.25);
+    let mut body_def = super::body::BodyDef::default();
     if let Some(model) = t.model.as_ref().and_then(|m| ctx.lib.load_model(m, false, ctx.assets, ctx.meshes, ctx.materials)) {
         if model.max.cmpge(model.min).all() && !model.vertices.is_empty() {
-            half = ((model.max - model.min) * 0.5).max(Vec3::splat(0.1));
+            let p = ctx.data.template_props(&template.to_lowercase());
+            // the enclosed volume only matters to collide_poly templates (debris): skip the sum for the rest
+            let volume = if p.f("collide_poly", 0.0) != 0.0 { super::body::enclosed_volume(&model.vertices, &model.tris) } else { 0.0 };
+            body_def = super::body::BodyDef::new(model.min, model.max, volume, &p);
         }
         let parts = model.parts.clone();
         let locked = follows.is_some() && !inst.follow_pos_only && inst.parent.is_some() && inst.parent == ctx.camera;
@@ -245,7 +248,7 @@ fn create_object(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_>, idx: usize, template:
     *vm.made.entry(template.to_lowercase()).or_default() += 1;
     let mut o = FxObject::new(template, anim, place, mats, layers);
     o.follow = follows;
-    o.half = half;
+    o.body_def = body_def;
     o.follow_pos_only = inst.follow_pos_only;
     vm.objects.insert(id, o);
     Some(id)

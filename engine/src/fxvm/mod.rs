@@ -288,7 +288,7 @@ fn send_outbox(
 
 /// The playtest state "fx": live instances / objects / particles per pool / streamers / lights and the dropped count,
 /// so playtests can check what an effect makes.
-fn playtest_state(vm: Res<FxVm>, mut state: Option<ResMut<crate::playtest::PlayState>>, screen: Res<screen::ScreenEffects>) {
+fn playtest_state(vm: Res<FxVm>, mut state: Option<ResMut<crate::playtest::PlayState>>, screen: Res<screen::ScreenEffects>, physics: NonSend<crate::physics::Physics>) {
     let Some(state) = state.as_mut() else { return };
     let pools: Vec<usize> = vm.pools.live.iter().map(Vec::len).collect();
     let bodies = vm.objects.values().filter(|o| o.has_body()).count();
@@ -308,6 +308,23 @@ fn playtest_state(vm: Res<FxVm>, mut state: Option<ResMut<crate::playtest::PlayS
     let streamer_points: usize = vm.streamers.iter().map(|s| s.points()).sum();
     let prev = state.0.get("fx").cloned().unwrap_or_default();
     let max = |k: &str, v: usize| prev.get(k).and_then(|x| x.as_u64()).map_or(v, |m| (m as usize).max(v));
+    // the bodies' flight per template (maxima since the last clear): "up" the highest upward speed, "lean" the most
+    // horizontal / vertical speed while flying fast (over 30 units/s), "speed"; and the bodies at rest now, "floating"
+    // those whose visible box rests more than 2 units above what is below it
+    let mut kin = prev.get("kin").and_then(|k| k.as_object()).cloned().unwrap_or_default();
+    let (mut resting, mut floating) = (0usize, 0usize);
+    for o in vm.objects.values() {
+        let Some((v, gap)) = o.body.and_then(|id| body::rest(&physics, id, o)) else { continue };
+        let entry = kin.entry(o.template.clone()).or_insert_with(|| serde_json::json!({ "up": 0.0, "lean": 0.0, "speed": 0.0 }));
+        let get = |e: &serde_json::Value, k: &str| e.get(k).and_then(|x| x.as_f64()).unwrap_or(0.0) as f32;
+        let (up, speed) = (get(entry, "up").max(v.z), get(entry, "speed").max(v.length()));
+        let lean = if v.length() > 30.0 { get(entry, "lean").max(v.truncate().length() / v.z.abs().max(1e-3)) } else { get(entry, "lean") };
+        *entry = serde_json::json!({ "up": up, "lean": lean, "speed": speed });
+        if v.length() < 3.0 {
+            resting += 1;
+            floating += gap.is_some_and(|g| g > 2.0) as usize;
+        }
+    }
     state.0.insert(
         "fx".into(),
         serde_json::json!({
@@ -336,6 +353,10 @@ fn playtest_state(vm: Res<FxVm>, mut state: Option<ResMut<crate::playtest::PlayS
             "dropped": vm.pools.dropped,
             "top_z": if vm.objects.is_empty() { serde_json::Value::Null } else { serde_json::json!(top) },
             "hits": vm.stats.hits,
+            "kin": kin,
+            "resting": resting,
+            "floating": floating,
+            "max_floating": max("max_floating", floating),
             "screen": screen.live(),
             "max_screen": max("max_screen", screen.live()),
         }),

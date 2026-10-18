@@ -11,6 +11,11 @@ use std::time::Instant;
 
 pub use crate::contacts::{ContactRule, Touch};
 
+/// The Jolt world's gravity (m/s^2, down). With 0.2 m per unit it is 49.05 units/s^2, lighter than the game's Havok
+/// world (64.348 units/s^2, havok-layouts.md); bodies that need the game's weight scale their gravity factor by
+/// [`Physics::game_gravity_factor`].
+pub const GRAVITY_M: f32 = 9.81;
+
 
 pub struct Physics {
     pub world: PhysicsWorld,
@@ -60,7 +65,7 @@ pub fn bq(q: j::Quat) -> Quat {
 
 impl Physics {
     pub fn new(meters_per_unit: f32) -> Self {
-        let mut world = PhysicsWorld::new(WorldSettings::default().gravity(j::Vec3::new(0.0, -9.81, 0.0)))
+        let mut world = PhysicsWorld::new(WorldSettings::default().gravity(j::Vec3::new(0.0, -GRAVITY_M, 0.0)))
             .expect("Jolt world");
         let contacts = Arc::new(crate::contacts::Contacts::default());
         world.set_contact_listener(Some(Arc::new(crate::contacts::ContactListenerImpl(contacts.clone()))));
@@ -80,6 +85,12 @@ impl Physics {
             step_ms: 0.0,
             poses: Vec::new(),
         }
+    }
+
+    /// The gravity factor that gives a body the game's gravity (64.348 units/s^2, Character_Launch's 0xc280b23a)
+    /// times `scale`.
+    pub fn game_gravity_factor(&self, scale: f32) -> f32 {
+        scale * crate::ai::launch::GRAVITY * self.meters_per_unit / GRAVITY_M
     }
 
     pub fn to_m(&self, p: Vec3) -> j::RVec3 {
