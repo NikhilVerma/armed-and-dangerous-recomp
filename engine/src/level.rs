@@ -637,6 +637,15 @@ pub(crate) fn collider_lists(physics: &mut Physics, p: &Props, c: BodyId) {
     }
 }
 
+/// Objects whose class hides them at load, whatever their property set says: their models are editor markers. The
+/// alarm generator (behaviour alarm_generator, template grunt_generator: a purple pyramid, "what's this purple shit",
+/// session 2026-10-18_17-00-51 bookmark 7 at lev_1_m1's generator 215) ends its load, AlarmGenerator_Slot6
+/// 0x00405490 (ai_01.cpp), with vt+0xf4(0), the hide (0x004536b0) that Object_LoadBaseProps 0x00451360 applies for
+/// "visible" 0. Its p_grunt_generator set has invisible 0, so the set alone left it drawn.
+pub(crate) fn hidden_by_class(behavior: &str) -> bool {
+    matches!(behavior, "alarm_generator")
+}
+
 /// Whether an object's collider stops bullets (see `collider_lists`).
 fn in_bullet_list(p: &Props) -> bool {
     let flag = |k: &str| p.f(k, 0.0) != 0.0;
@@ -815,7 +824,8 @@ pub fn spawn(
         // have 0; buildings read their own "invisible" (BuildingObject 0x0040ad80). Hiding (0x004536b0: +0x424 bit 4,
         // out of the shadow list +0xe78 and the render list, 0x00453640 / 0x00453670; 0x00453740 asks) is not
         // spawning the model here, or Bevy's Visibility
-        let invisible = p.f("visible", 1.0) == 0.0 || p.f("invisible", 0.0) != 0.0;
+        // and some classes hide themselves at load whatever their set says (`hidden_by_class`)
+        let invisible = p.f("visible", 1.0) == 0.0 || p.f("invisible", 0.0) != 0.0 || hidden_by_class(behavior);
         let lib_dir = lib.dir.clone();
         let Some(model) = lib.load_model(&inst.model, background, assets, meshes, materials) else { continue };
         let (scale, _, _) = world.to_scale_rotation_translation();
@@ -1563,6 +1573,19 @@ mod tests {
 
     fn props(v: serde_json::Value) -> Props {
         Props(v.as_object().cloned().unwrap_or_default())
+    }
+
+    /// Bookmark 7 of session 2026-10-18_17-00-51 (the purple pyramid at lev_1_m1's generator 215): an alarm generator
+    /// is never drawn although its set (p_grunt_generator) says invisible 0; other objects still follow their set.
+    #[test]
+    fn alarm_generators_are_hidden() {
+        let set = props(serde_json::json!({"behavior": "alarm_generator", "invisible": 0, "force_ground": 1}));
+        let behavior = set.s("behavior").unwrap_or("");
+        assert!(set.f("visible", 1.0) != 0.0 && set.f("invisible", 0.0) == 0.0, "the set alone says drawn");
+        assert!(hidden_by_class(behavior));
+        for shown in ["", "building", "tree", "fx_explosion", "twiglet_generator"] {
+            assert!(!hidden_by_class(shown), "{shown}");
+        }
     }
 
     /// DefaultGameObject_OnTrigger 0x00450fb0: kill, deactivate, start_blocking in that order; a field fires once.
