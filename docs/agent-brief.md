@@ -80,3 +80,5 @@ docs/subsystems/<name>.md updated. Report: branch, commits, queue before / after
 Test budget (human, 2026-10-18): the slow checks (full `tools/regress.py`, `level_smoke.py`, `oracle_suite.py`,
 `--long`) run at most once a day or after a massive change, never per fix. Per fix: a release build, the playtests
 for what you changed, `launch_newgame`. The human's play feedback is the main check.
+Never pipe a cargo build into `head` / `Select-Object -First`: closing the pipe can kill the build (the camera
+agent's builds died this way and it waited an hour). Write the build output to a log file and grep that.
