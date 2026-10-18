@@ -61,7 +61,8 @@ with open(out, 'w', encoding='utf-8', errors='replace') as f:
                 level = os.path.join(ROOT, 'work', 'remaster', level)
         scene = ['--scene', os.path.abspath(level)] if level else []
         p = subprocess.run([exe, '--background', '--size', a.size, '--play', script] + scene + a.arg, cwd=engine, env=env,
-                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=a.timeout)
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=a.timeout,
+                           creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
         text = p.stdout.decode('utf-8', 'replace')
         code = p.returncode
     except subprocess.TimeoutExpired as e:

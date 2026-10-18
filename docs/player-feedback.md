@@ -3,6 +3,15 @@
 One line per item, with its status. Newest session first. Each fix needs evidence: a capture, a log or a test.
 Agents re-read this file after every context compaction (AGENTS.md).
 
+## 2026-10-18 playthrough
+
+Session 2026-10-18_17-00-51 (lev_1_m1, WASD + Mac trackpad streamed over Moonlight). B = bookmark number.
+
+| # | Feedback (the player's words, short) | Status / plan |
+|---|---|---|
+| B4-B6 | "can't look down" (B4), "can only look down, can't look up" (B5), "can't look left or right" (B6) | FIXED - BUILT, UNIT-TESTED (branch agent-fb-input). Not the test games: every one of the session's 5152 mouse reports is an absolute desktop position (0..65535; Moonlight's remote-desktop mouse mode, which winit passes on as motion), arriving all along. At B4 the pointer was held at the bottom edge (y 65535 for seconds, x moving), at B6 at the left edge (x 0): an absolute pointer cannot move past the edge of the Mac's screen, so its change, the look, was zero that way. B5's jump to the pitch limit (-1.71) came on a report that moved 34 units: the host cursor followed the injected position and its offset from the centre was taken as look. Fix (mouselook.rs): each raw report on its own (two in a frame no longer add up to a jump), absolute reports' change only (the cursor offset ignored then), a report held at an edge with little movement along the free axis counts as movement into the edge at the pointer's usual speed; focus loss / regain forgets the pointer and re-centres; focus, cursor-grab and pointer-kind changes are session events now. Test runs were already isolated (off-screen, unfocused, bottom-most window; no grab in scripted runs; the original's offscreen hook no-ops ClipCursor / SetForegroundWindow, DirectInput non-exclusive); playtest.py / level_smoke.py now also start the game without a console window. Best fix on the player's side: Moonlight's game mouse mode (relative; setting "Optimize mouse for remote desktop instead of games" off, or, unverified, Moonlight-qt's mouse-mode shortcut Ctrl+Alt+Shift+M while streaming), which has no edges. Tests: mouselook.rs unit tests (focus loss and regain, absolute change, held at each of the 4 edges, relative after absolute), main.rs a_test_window_never_takes_the_focus |
+| B7 | "what's this purple shit" (a purple pyramid at about (-65, -350)) | FIXED - BUILT, UNIT-TESTED (branch agent-fb-input). It is lev_1_m1's alarm generator 215 (template grunt_generator, at (-34, -364)): an untextured editor marker (one submesh, no texture, diffuse 0.28 / 0.19 / 0.91). The original hides it: AlarmGenerator_Slot6 0x00405490 ends with vt+0xf4(0), the hide; its set p_grunt_generator says invisible 0, so the engine drew it. Fix: level.rs hidden_by_class (alarm_generator); the generator still spawns troops. Test: level.rs alarm_generators_are_hidden |
+
 ## 2026-10-15 (desktop shortcut, Remaster preset)
 
 | # | Feedback (the player's words, short) | Status / plan |
