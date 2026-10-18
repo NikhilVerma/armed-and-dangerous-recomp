@@ -297,12 +297,19 @@ pub struct LevelPlugin;
 impl Plugin for LevelPlugin {
     fn build(&self, app: &mut App) {
         // husks after mission.rs `deaths`: a dead placed object is told from a dying husk by the Husk marker the swap
-        // inserts, so the death trigger must be read first
+        // inserts, so the death trigger must be read first. And before the fx vm: the death fx's debris is made with the
+        // husk's collider already in place, so a piece made inside the husk passes through it (fxvm/body.rs
+        // make_dynamic's `inside`). The arch's keystone (fx_explosion_arch -> fx_debri_arch_1) is made in the gap of
+        // the broken arch v_archway_a_da, whose broken faces meet its own: with the husk made after it, the keystone
+        // touched it at once, set off its on-hit blast (0x76: 300 damage, radius 30 / 60) up there and stuck; now it
+        // drops through and the blast kills the grunts under the arch, as in the original (player report 2026-10-18).
+        // The original makes the fx first (Object_SpawnHusk 0x00455660: Fx_Create, then the husk); the order of its
+        // Havok contacts at creation is not traced
         app.add_message::<SpawnGrunt>()
             .add_message::<RestoreStage>()
             .add_level_message::<SpawnHusk>()
             .init_level_resource::<TriggerLog>()
-            .add_systems(Update, (husks.after(crate::fx::FxSet).after(crate::mission::deaths), restore_stages, spawn_grunts, spawn_husks, rigid_anims, audio_loops, object_triggers))
+            .add_systems(Update, (husks.after(crate::fx::FxSet).after(crate::mission::deaths).before(crate::fxvm::FxVmSet), restore_stages, spawn_grunts, spawn_husks, rigid_anims, audio_loops, object_triggers))
             .add_systems(PostUpdate, follow_camera.before(TransformSystems::Propagate))
             .add_systems(PostUpdate, sky_never_culled)
             .add_systems(PostUpdate, default_anims.before(crate::skin::AnimateSet))

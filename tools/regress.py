@@ -36,7 +36,7 @@ SUITE = ['save_write', 'save_read', 'topsyhit2', 'turn_in_place', 'turret1', 'de
          'player_move', 'player_fall', 'player_weapons', 'player_special', 'player_topsy', 'player_banter', 'jetpack_l3m1', 'jetpack_l4m3',
          'audio_distance', 'audio_groups', 'audio_voice', 'audio_ear', 'audio_music', 'audio_stopall', 'audio_ambient',
          'anim_blend', 'anim_notes', 'camera_follow', 'camera_death', 'camera_lookup', 'input_pad', 'foot_ik',
-         'fx_particles', 'fx_debris', 'fx_emit', 'fx_lights', 'fx_screen', 'fx_hits', 'keg_launch', 'keg_blast', 'debris_settle',
+         'fx_particles', 'fx_debris', 'fx_emit', 'fx_lights', 'fx_screen', 'fx_hits', 'keg_launch', 'keg_blast', 'debris_settle', 'overpass_l1m1',
          'movie_intro', 'movie_subs', 'movie_screens', 'movie_credits', 'movie_pub',
          'launch_newgame', 'launch_options', 'launch_restart', 'restart_parity', 'save_slots',
          'cheats', 'campaign_next', 'campaign_chain', 'campaign_save', 'campaign_movie', 'campaign_end', 'campaign_extras',
