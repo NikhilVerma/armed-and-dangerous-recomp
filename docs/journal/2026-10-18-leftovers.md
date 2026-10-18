@@ -62,7 +62,9 @@ from the exe), and a "no callers" function is often reached by a vtable or a lis
 
 ## Tests
 
-Fast regress (tools/regress.py --exe target-wt-leftovers): see the end of this entry. level_smoke: see the end.
+Fast regress (tools/regress.py --exe target-wt-leftovers, at 18c0e58): 143 scripts ok, no FAIL line, exit 0 (the new
+weapon_glove, weapon_glove_miss, weapon_shark_prey, peasants_tossed among them; unit 174 passed). level_smoke: 24 of
+24 levels load and play. port_queue --lint: 0 errors.
 
 ## Next / open
 
