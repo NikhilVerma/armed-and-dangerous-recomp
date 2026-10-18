@@ -44,7 +44,8 @@ for lv in levels:
     json.dump({"steps": steps}, open(script, 'w'))
     try:
         p = subprocess.run([exe, '--background', '--size', '1280x720', '--scene', os.path.join(WORK, lv), '--play', script],
-                           cwd=os.path.join(ROOT, 'engine'), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=a.timeout)
+                           cwd=os.path.join(ROOT, 'engine'), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=a.timeout,
+                           creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
         out = ANSI.sub('', p.stdout.decode('utf-8', 'replace'))
         code = p.returncode
     except subprocess.TimeoutExpired as e:

@@ -21,6 +21,9 @@ zune-core = "0.5"
 # Jolt Physics 5.6 through joltc, built from the vendored sources with CMake (no prebuilt download).
 oxijolt = { version = "1.1.0", default-features = false }
 bevy_egui = "0.43.1"
+# the audio output (audiooutput.rs): the device and mixer bevy_audio plays through, reopened when the system's
+# default output device changes; the same version and features as bevy_audio's
+rodio = { version = "0.22", default-features = false, features = ["playback", "tracing"] }
 # the typeface's outlines for the text's distance field (sdffont.rs); already in the tree through bevy_text
 swash = "0.2.10"
 # Input actions, contexts and gamepad bindings (Bevy 0.20 support is on master; pinned until a release).

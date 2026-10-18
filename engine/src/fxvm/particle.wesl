@@ -11,7 +11,8 @@ import bevy_pbr::prepass::utils as prepass_utils;
 
 @group(constants::MATERIAL_BIND_GROUP) @binding(0) var bank: texture_2d<f32>;
 @group(constants::MATERIAL_BIND_GROUP) @binding(1) var bank_sampler: sampler;
-// x: 1 for the additive pool, 0 for the alpha-blended ones; y: the soft-particle depth (0: hard, the original)
+// x: the gamma of the original's blend (alpha-blended pools: 2.2; additive: 1); y: the soft-particle depth (0: hard,
+// the original); z: the scene brightness (gamma) a white alpha-blended source is matched over
 @group(constants::MATERIAL_BIND_GROUP) @binding(2) var<uniform> params: vec4<f32>;
 // three per corner: (x, y, z, u), (v, r, g, b), (a, -, -, -); engine (world) space
 @group(constants::MATERIAL_BIND_GROUP) @binding(3) var<storage, read> corners: array<vec4<f32>>;
@@ -43,9 +44,24 @@ fn vertex(v: CornerIn) -> ParticleOut {
 @fragment
 fn fragment(in: ParticleOut) -> @location(0) vec4<f32> {
     var c = textureSample(bank, bank_sampler, in.uv) * in.color;
-    // the texture's alpha as it is: the original blends in gamma space, this target is linear, which no alpha
-    // curve reproduces for every background; an alpha ^ 2.2 here (2026-10-14 to 10-18) took the faint sprites (the
-    // camera's snow flakes, alpha <= 0.73; the sticky bomb's smoke, <= 0.18) down to near nothing
+    // alpha-blended pools (params.x > 1): the original blends in gamma space, the target here is linear; the alpha that
+    // gives the original's result depends on the source and the scene behind it. A dark source: a gamma-space blend of
+    // black leaves (1 - a)^2.2 of the scene's linear light whatever the scene, so it takes 1 - (1 - a)^2.2 (alpha ^ 2.2
+    // alone drew dark smoke, the keg's trail, at a fraction of its opacity: a = 0.5 hid 22% of the scene where the
+    // original hid 78%). A white source over a scene of gamma brightness g: ((g + a (1 - g))^2.2 - g^2.2) / (1 - g^2.2),
+    // taken at g = params.z, the snow levels' ground and sky (0.6: about 0.8 a; over black it would be a^2.2, which hid
+    // the camera's snow flakes, alpha <= 0.73, and the sticky bomb's white smoke, <= 0.18, feedback 2026-10-18).
+    // Between the two by the source's gamma-space brightness.
+    let a = clamp(c.a, 0.0, 1.0);
+    if (params.x > 1.0) {
+        let lum = pow(clamp(dot(c.rgb, vec3(0.2126, 0.7152, 0.0722)), 0.0, 1.0), 1.0 / params.x);
+        let g = params.z;
+        let gl = pow(g, params.x);
+        let white = (pow(g + a * (1.0 - g), params.x) - gl) / max(1.0 - gl, 1e-4);
+        c.a = mix(1.0 - pow(1.0 - a, params.x), white, lum);
+    } else {
+        c.a = a;
+    }
 @if(DEPTH_PREPASS)
     {
         if (params.y > 0.0) {

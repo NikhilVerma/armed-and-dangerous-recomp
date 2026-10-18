@@ -1,0 +1,15 @@
+{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+ {"note": "p_powderkeg blast: 150 within 20 of a body's surface, linear to 0 at 50 (AreaDamage_Apply 0x0047f020); impact 30000 > 10050 throws a body it kills at 30000 x 0.15 / 80 = 56 units/s (Character_GoRagdoll 0x00431310)"},
+ {"wait": 0.5},
+ {"loadout": {"health": 5000}},
+ {"warp": [-245, -470, 9, 0]},
+ {"wait": 0.5},
+ {"spawn": [-270, -400, 9]},
+ {"spawn": [-245, -330, 9]},
+ {"wait": 0.3},
+ {"expect": {"ai.blast_flings": 0}},
+ {"destroy": 229},
+ {"wait": 1.0},
+ {"expect": {"ai.blast_flings": [1, 5], "ai.max_fling": [50, 60]}},
+ {"quit": true}
+]}

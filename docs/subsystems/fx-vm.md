@@ -196,6 +196,18 @@ Supersedes the "Engine:" notes in the table above (0x10 now uses the reference p
 Opcodes not ported (not in lev_1_m1's fx bank; logged once as "fx vm: not ported" when met): 0x1f, 0x28, 0x29, 0x2d
 (other particle emitter shapes), 0x3e, 0x4b, 0x4c, 0x62, 0x66, 0x67..0x69, 0x6b..0x6f, 0x72, 0x75.
 
+## 8. Fx bodies, the keg's launch and debris (2026-10-18, player feedback)
+
+| Item | Original | Engine (fxvm/body.rs) | Evidence |
+| --- | --- | --- | --- |
+| Mass | the fx body set-up fn_00419020 0x00419020 -> Object_BuildRadiusCollision 0x004527d0 (cinfo +0xc): a sphere of the bounding radius, mass r^3 x density x 4/3 pi (min 0.05); `collide_poly` templates: the collision model's compound (0x00456c40 -> Body_BuildShape 0x00413450, hull flag) with the object's density. Havok runs in game units (gravity 64.348) | `BodyDef`: the game mass (hull volume x density for collide_poly, `hull_volume`), Jolt mass = game mass, impulse x metres per unit only. The engine had mass 30 and impulse / 66 for every body | physics_02.cpp:645; physics_01.cpp:2448 |
+| Resulting speeds | impulse / mass: keg 200000 / 1118 = 179 units/s up; house debris 91..145 (village_1) / 39..63 (village_2); barracks roof 8000000 / 39504 = 203 units/s, back down within its 12 s and bursts on landing (0x34 -> fx_top_death) | as the original (guess for the hull: the roof's enclosed volume would give 862 units/s and no landing, which the script's 0x34 contradicts) | data: fx.json, models |
+| Shape | built at creation (factory 0x0045f020), before the script's 0x0b scale, never rescaled | the model's bounding box round its centre, at the object's scale (deliberate: a full-size shape held small pieces in the air; the flying keg's box was centred on its base, half underground, and was pushed out sideways) | object.rs scale |
+| Gravity | g x the 0x11 scale, g = 64.348 | gravity factor x 64.348 / 49.05 (Jolt's 9.81 m/s^2 at 0.2 m per unit) | Physics::game_gravity_factor |
+| Surface | the template's friction / restitution (p_fx 0.2 / 0.2, p_fx_collide 0.85 / 0, p_fx_collide_friction 0.001 / 0.001) | the template's | properties.json |
+| Blast fling | Character_GoRagdoll 0x00431310: a killing record with an owner and impact > 10050 throws the body along normalise(n.x, n.y, 0.7) x impact x 0.15 (keg: 56 units/s) | fx.rs `fling`, ai.rs die (before the ragdoll count). Not modelled: the x 2..5 / 25% launch when a launch happened the same frame | physics_01.cpp:3582-3600 |
+| Smoke blending | D3D alpha blend in gamma space | particle.wesl: 1 - (1 - a)^2.2 for a black source (exact), a^2.2 for white over black, mixed by the source's brightness; alpha^2.2 alone drew the keg's dark trail smoke at a fraction of its opacity | the intro fade measurement (bright end) |
+
 ## Open questions
 
 - The per-frame caller of Fx_Step (fx system update over list +4) and the order of fx update vs object update vs the

@@ -128,7 +128,7 @@ pub fn setup_pools(commands: &mut Commands, assets: &AssetServer, meshes: &mut A
     for (_, tex, additive) in POOLS {
         let h = meshes.add(corner_mesh(MIN_QUADS));
         let c = buffers.add(ShaderBuffer::new(vec![[0.0f32; 4]; MIN_QUADS * 4 * CORNER_VEC4S], RenderAssetUsages::default()));
-        let mat = materials.add(ParticleMaterial { bank: assets.load(crate::graphics::texture_path(tex)), additive, params: Vec4::new(if additive { 1.0 } else { 0.0 }, 0.0, 0.0, 0.0), corners: c.clone() });
+        let mat = materials.add(ParticleMaterial { bank: assets.load(crate::graphics::texture_path(tex)), additive, params: Vec4::new(if additive { 1.0 } else { 2.2 }, 0.0, WHITE_OVER, 0.0), corners: c.clone() });
         mats.push(mat.clone());
         commands.spawn((Mesh3d(h.clone()), MeshMaterial3d(mat), Transform::IDENTITY, bevy::camera::visibility::NoFrustumCulling, bevy::light::NotShadowCaster, Name::new("fx_pool")));
         handles.push(h);
@@ -332,6 +332,11 @@ pub struct QuadBuffers {
     pub col: Vec<[f32; 4]>,
     pub idx: Vec<u32>,
 }
+
+/// The scene's gamma-space brightness a white alpha-blended particle's opacity is matched over (particle.wesl): the
+/// original blends in gamma space, so the same sprite hides more of a dark scene than of a bright one; 0.6 is the
+/// snow levels' ground and sky, where most of the white sprites (snow flakes, white smoke) are seen.
+const WHITE_OVER: f32 = 0.6;
 
 /// The smallest number of quads a pool mesh holds.
 const MIN_QUADS: usize = 256;

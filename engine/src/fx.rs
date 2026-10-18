@@ -223,6 +223,17 @@ impl Plugin for FxPlugin {
     }
 }
 
+/// Character_GoRagdoll 0x00431310: a killing record's impact must exceed this (K 0x005bcf34) to throw the body.
+pub const FLING_MIN_IMPACT: f32 = 10050.0;
+
+/// The throw of a body a blast killed (Character_GoRagdoll 0x00431310 with the area damage's record): direction
+/// normalise(n.x, n.y, 0.7) in game axes (AreaDamage_Apply 0x0047f020; n the unit direction from the blast, engine
+/// axes here, y up) x impact x 0.15 (K 0x005bcedc) on the character's 80 kg (the engine's convention, ai/ic.rs
+/// `launch_velocity`): units/s, engine axes.
+pub fn fling(n: Vec3, impact: f32) -> Vec3 {
+    Vec3::new(n.x, 0.7, n.z).normalize() * impact * 0.15 / 80.0
+}
+
 /// Damage falloff (guess until the fx-vm doc): full inside the inner radius, linear to 0 at the outer one.
 pub fn falloff(dist: f32, inner: f32, outer: f32) -> f32 {
     if dist <= inner {
@@ -284,16 +295,26 @@ fn damage(
                 }
             }
         }
-        for (ce, t, mut h, bounds, grunt, shield) in &mut chars {
+        for (ce, t, mut h, bounds, mut grunt, shield) in &mut chars {
             // the excluded object (a sticky bomb's stuck character takes its direct damage instead)
             if Some(ce) == b.source || (no_hits && roman.contains(ce)) {
                 continue;
             }
-            let (dist, _) = surface(t, bounds, b.at);
+            let (dist, n) = surface(t, bounds, b.at);
             if dist <= b.radius_outer {
                 let amount = b.area_damage * falloff(dist, b.radius_inner, b.radius_outer);
+                let alive = h.0 > 0.0;
                 if !shield.is_some_and(|mut s| s.absorb(amount)) {
                     h.0 -= amount;
+                }
+                // the killing record's fling (Character_GoRagdoll 0x00431310: an owner, +0x2c, and an impact over
+                // 10050, K 0x005bcf34): the record's direction normalise(n.x, n.y, 0.7) (AreaDamage_Apply 0x0047f020,
+                // game z up) x impact x 0.15 (K 0x005bcedc) on his 80 kg. Not modelled: the x 2..5 (or a 25% launch)
+                // when a launch stamped Game+0xb34 this very frame.
+                if alive && h.0 <= 0.0 && b.impact_force > FLING_MIN_IMPACT && (b.source.is_some() || b.by != Src::Object) {
+                    if let Some(g) = grunt.as_mut() {
+                        g.blast_fling = Some(fling(n, b.impact_force));
+                    }
                 }
                 if roman.contains(ce) && std::env::var("AIDBG").is_ok() {
                     info!("AIDBG romandmg blast {:.0} of {:.0} by {:?} {:?} d {:.0} r {:.0}..{:.0} health {:.0}", b.area_damage * falloff(dist, b.radius_inner, b.radius_outer), b.area_damage, b.by, b.source, dist, b.radius_inner, b.radius_outer, h.0);
