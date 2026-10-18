@@ -3,6 +3,12 @@
 One line per item, with its status. Newest session first. Each fix needs evidence: a capture, a log or a test.
 Agents re-read this file after every context compaction (AGENTS.md).
 
+## 2026-10-18 playthrough
+
+| # | Feedback (the player's words, short) | Status / plan |
+| --- | --- | --- |
+| 31 | "when looking up the camera doesn't move back much causing Roman to block the screen, the older game handled it better" (session 2026-10-18_17-00-51 bookmark 2, lev_1_m1) | FIXED - BUILT AND TESTED off-screen (branch agent-camlook), awaiting the player. Cause: camera.rs turned the eye about Camera_start's target (7.2 ahead of Roman) with a 30-unit arm, so looking up drove the eye into the ground almost under Roman, and the view tilted only by the pitch. The original (Camera_Update orbit branch 0x0040e56c, matrix chain traced) turns the eye about Camera_start's position (Roman's head, 24-unit arm), casts the collision rays from there, and tilts the view by 1.2 x the pitch looking up / 0.9 x looking down (0x005bcd2c = 0.2, 0x005bcbfc = 0.1), so Roman drops low in the frame. Fix: `CameraRig::pivot` / `orbit`, the bot's `look_at` inverted for it. Test engine/playtests/camera_lookup.json (at full look-up: view 1.24 rad up, body 3.9-4.0 from the eye and 36-39 deg off the view centre, on the test spot and at the bookmark's spot); camera_follow's look-down height is now 31.5 (orbit about the head). Not compared with the original game (no capture this round) |
+
 ## 2026-10-15 (desktop shortcut, Remaster preset)
 
 | # | Feedback (the player's words, short) | Status / plan |
