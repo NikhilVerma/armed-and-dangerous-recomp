@@ -153,6 +153,8 @@ pub struct IcStats {
     pub ended: u32,
     /// knocked away by a host or landing destroyed
     pub knocked: u32,
+    /// grunts a dying building took down with it (`building_deaths`)
+    pub downed: u32,
 }
 
 /// Waiting grunts hold their mover's first frame; the trigger or a wake-up starts the move.
@@ -370,13 +372,62 @@ pub fn knocks(
     }
 }
 
+/// How high above the landscape a character's feet must be, within a dying building's bounds, to count as on it.
+const ON_BUILDING: f32 = 3.0;
+
+/// A destroyed building takes the characters up on it with it: each live grunt within its bounding sphere whose feet
+/// are more than [`ON_BUILDING`] above the landscape (on its roof or floors, in a window, a tower grunt held at its
+/// bone) is knocked away from it as GenericAI_Update knocks a grunt whose landing (+0xae0) or scripted host (+0xadc)
+/// died (0x00425be0: he dies and flies). The original does this for those links only; a grunt who walked or climbed
+/// up there without one stood on the ruin's old roof height until something moved him (the player, 2026-10-18: "any
+/// grunt standing on an exploded house must die with it"; a grunt left standing on air). The bodies round it (corpses,
+/// debris, sleeping on what it was) are woken, so they fall onto the ruin.
+#[allow(clippy::type_complexity)]
+pub fn building_deaths(
+    mut commands: Commands,
+    mut died: MessageReader<crate::fx::Died>,
+    buildings: Query<(&crate::level::InstanceId, &GlobalTransform, &crate::fx::Bounds), With<crate::level::Placed>>,
+    grunts: Query<(Entity, &Grunt, &GlobalTransform), Without<KnockAway>>,
+    mut physics: NonSendMut<crate::physics::Physics>,
+    mut stats: ResMut<IcStats>,
+) {
+    for d in died.read() {
+        let Ok((id, t, b)) = buildings.get(d.0) else { continue };
+        let centre = t.transform_point(b.center);
+        let reach = b.radius * t.scale().max_element();
+        for (e, g, gt) in &grunts {
+            let feet = gt.translation();
+            if g.mind == Mind::Dead || feet.distance(centre) > reach {
+                continue;
+            }
+            let ground = physics.raycast_landscape(feet + Vec3::Y, Vec3::NEG_Y, 1000.0);
+            if ground.is_some_and(|gr| feet.y - gr.y > ON_BUILDING) {
+                commands.entity(e).insert(KnockAway { from: Some(id.0) });
+                stats.downed += 1;
+                info!("EVENT ic: grunt {e:?} on building {} goes down with it", id.0);
+            }
+        }
+        // wake what rests round it (Jolt does not wake a sleeping body when the static under it goes)
+        let k = physics.meters_per_unit;
+        let near: Vec<_> = physics.bodies.keys().copied().collect();
+        for body in near {
+            let close = physics.world.body(body).is_ok_and(|bd| (crate::physics::br(bd.position()) / k).distance(centre) <= reach + 10.0);
+            if close {
+                if let Ok(mut bd) = physics.world.body_mut(body) {
+                    bd.activate();
+                }
+            }
+        }
+    }
+}
+
 /// The playtest state's `hidden`: grunts hidden at load, moves started and ended, grunts still waiting.
 pub fn log(q: Query<&IcEntry>, stats: Res<IcStats>, state: Option<ResMut<crate::playtest::PlayState>>) {
     let Some(mut state) = state else { return };
     let waiting = q.iter().filter(|i| !i.running).count();
     let running = q.iter().filter(|i| i.running).count();
     // (not "ic": icobject.rs's)
-    state.0.insert("hidden".into(), serde_json::json!({"started": stats.started, "ended": stats.ended, "waiting": waiting, "running": running, "knocked": stats.knocked}));
+    state.0.insert("hidden".into(), serde_json::json!({"started": stats.started, "ended": stats.ended, "waiting": waiting, "running": running, "knocked": stats.knocked, "downed": stats.downed}));
 }
 
 #[cfg(test)]

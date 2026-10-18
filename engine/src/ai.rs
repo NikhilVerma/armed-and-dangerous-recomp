@@ -1153,7 +1153,7 @@ impl Plugin for AiPlugin {
                     (
                         (body::apply_rules, log_cover, log_ai, log_placed, squad::log_squads, ic::log).chain(),
                         // the later levels' infantry (projectiles, falls, drops, the wall assault) and their playtest logs
-                        (grenade::fly, rocket::shoot_down, fall::drop_parachutes, jumper::free_markers, assault::sync, assault::recruit, ladder::ladders, retreat::run).chain(),
+                        (grenade::fly, rocket::shoot_down, fall::drop_parachutes, jumper::free_markers, assault::sync, assault::recruit, ladder::ladders, retreat::run, ic::building_deaths).chain(),
                         (melee::close_hits, melee::log, max_fire::log, grenade::log, rocket::log, fall::log, paratroop::log, jumper::log, notes::log, assault::log, ladder::log, retreat::log).chain(),
                     )
                         .chain(),

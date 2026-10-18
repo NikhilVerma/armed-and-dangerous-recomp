@@ -221,20 +221,26 @@ fn create_object(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_>, idx: usize, template:
                 // textured fx draw texture x the material's diffuse (stage MODULATE(texture, diffuse), the fx objects'
                 // material colour 0.588 on fxo_flash): measured on the sticky blast's flash, the original adds ~0.6 of
                 // what texture x white added (work/shots/stickY vs work/remaster/play/stickX)
-                let def = ctx.lib.game_defs.get(&mat.id()).map(|(d, _, _)| d.clone());
+                let (def, alpha_tex) = ctx.lib.game_defs.get(&mat.id()).map_or((None, false), |(d, _, a)| (Some(d.clone()), *a));
+                // the blend (0x004897d0): a translucent material (kind bit 0x10) takes its blend byte +0x37: 0 -> state
+                // 0x120, additive (SRCALPHA / ONE: fx_glow_red, the flashes, the snow), 2 -> 0x320, alpha-blended (the
+                // glass shards fxo_debri_glass_*, fx_smoke_snow, fx_impact_snow_small: they drew as additive white
+                // squares); without the bit an alpha texture blends (SRCALPHA / INVSRCALPHA: fx_white, fx_true_story),
+                // except that one whose blend byte is 0 adds too (guess: which path gives these kind-1 records the
+                // additive state is not traced): the flames, muzzle flashes and the flying keg's fire trail
+                // (fx_fire_trail), which the original's capture of a keg (work/shots/orig_keg, 2026-10-18) shows as a
+                // pale streak over the snow where an alpha-blended trail drew an opaque orange-red column
+                let additive = def.as_ref().map_or(textured, |d| d.blend == 0 && (d.kind & 0x10 != 0 || alpha_tex));
                 // alpha-blended fx (lighting on, kind bit 1): the lit vertex colour, emissive + diffuse clamped (fx_white:
-                // white; the original's white fade peaks at 252 / 255: intro capture); additive fx keep the diffuse
+                // white; the original's white fade peaks at 252 / 255: intro capture); additive fx keep the diffuse (the keg's trail
+                // then shows as the original's pale streak)
                 let tint = def.as_ref().map(|d| {
-                    if d.kind & 0x10 == 0 {
+                    if !additive {
                         Color::srgb((d.emissive[0] + d.diffuse[0]).min(1.0), (d.emissive[1] + d.diffuse[1]).min(1.0), (d.emissive[2] + d.diffuse[2]).min(1.0))
                     } else {
                         Color::srgb(d.diffuse[0], d.diffuse[1], d.diffuse[2])
                     }
                 });
-                // the blend from the material kind (the original's material log: kind bit 0x10 -> blend 1, SRCALPHA /
-                // ONE, additive: fx_glow_red, fx_trail_bullet, the snow; without it blend 3, SRCALPHA / INVSRCALPHA:
-                // fx_white (the intro's white fade), fx_true_story (its caption))
-                let additive = def.as_ref().map_or(textured, |d| d.kind & 0x10 != 0);
                 // an fx locked to the camera (the intro's white fade fxo_white: a quad 1.26 in front of the eye, near plane
                 // 1) is drawn over the scene: the camera path passes within 1.26 of the glacier walls, which showed in
                 // front of the white (the player's report, 2026-10-14; the original's capture is all white there)
