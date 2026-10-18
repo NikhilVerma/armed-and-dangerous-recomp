@@ -122,14 +122,18 @@ lev_1_m1 values are 150..300 hurt with speeds 150 and 200.
 | Camera_machinegun | (0, 0.13, 7.92) | same | 0.524 (30 deg) |
 | Camera_sniper / _2 | (0, -2.05, 7.61) / (0, -2.52, 5.81) | | 0.122 (7 deg) / 0.735 |
 
-- **Guess:** Camera_start (at head height, 7.75) is the pivot and Camera_end (22.7 behind, 11.1 up) is the eye at
-  full distance. The update casts rays between them and shortens the distance on a hit. This reading follows the
-  ray description below; it was not traced instruction by instruction.
+- Camera_start (at head height, 7.75) is the pivot and Camera_end (22.7 behind, 11.1 up) is the eye at full
+  distance (traced 2026-10-18 through the matrix chain of 0x0040e56c, game_01.cpp:2913-2935): with P the
+  Camera_start node matrix and M = Camera_end relative to P, the eye matrix is M RotX(+0x74) P and the camera
+  matrix M RotX(p') P, where p' = +0x74 x 1.2 at or above 0 (0x005bcd2c = 0.2) and +0x74 x 0.9 below
+  (0x005bcbfc = 0.1). So the eye orbits the head by the pitch, but the view tilts 1.2x as far looking up (0.9x
+  looking down): looking up, Roman drops low in the frame instead of filling it. The rays run from P's position
+  to the eye (length + Game+0x26f4 x 10) and the camera matrix takes the eye at the nearest hit.
 - Node FOVs are horizontal: node word +0x98 = 0 for all of them. They are converted to vertical with
   2 * atan(tan(h/2) / 1.702128) (camera.md).
 - Pitch: +0x74 += look axis * pitch rate (pitch_max_speed 0.95) * dt, clamped to [-1.5608, 1.15] rad. The pitch
   rotates the desired matrix around the player (0x0040e350).
-- Collision: five rays from the eye, towards the look point and +-5 units along the look matrix axes, shorten the
+- Collision: five rays from the pivot, towards the eye and +-5 units along the look matrix axes, shorten the
   distance to the nearest hit. Objects in the way that are not part of the player fade out (rate Game+0xcb4, down
   to Game+0xcac) and fade back in (Game+0xcb0).
 - Smoothing: 0x0040fd50 (slerp blend +0x160/+0x164).

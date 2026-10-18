@@ -10,10 +10,11 @@
 //!
 //! What the original does (docs/subsystems/player.md 4, camera.md):
 //! - Follow (Camera_Update's orbit branch 0x0040e56c, with the node names and the pitch speed the player gives it,
-//!   0x004757b0): the eye at Camera_end and the look point at Camera_start's
-//!   target, both in the player's frame turned by the look pitch about the look point; five rays from the look point
-//!   (to the eye and to the eye +-5 along the view's right and up axes) shorten the arm on the landscape and fade the
-//!   objects they pass (camfade.rs).
+//!   0x004757b0): the eye at Camera_end, turned by the look pitch about Camera_start (the pivot at Roman's head) in
+//!   the player's frame; the view keeps Camera_end's own direction (at its target, Camera_start's), turned by a
+//!   stronger pitch looking up (x 1.2) and a weaker one looking down (x 0.9), so looking up tilts the view past the
+//!   orbit and Roman drops out of the way. Five rays from the pivot (to the eye and to the eye +-5 along the eye's
+//!   right and up axes) shorten the arm on the landscape and fade the objects they pass (camfade.rs).
 //! - Zoom (0x00475880 / 0x00475910 / 0x0040fbb0): while Zoom is held the camera blends linearly, over camera_zoom_secs,
 //!   toward the weapon's node (Camera_rifle / Camera_machinegun: eye at the head, the same look point) and its FOV.
 //!   The original flips the zoom mode whenever the held state and the mode differ (0x00475850): entering (0x00475880)
@@ -71,6 +72,8 @@ pub struct CameraRig {
     loaded: bool,
     /// the eye at rest (Camera_end) and the look point (Camera_start's target)
     pub follow: CamNode,
+    /// the point the look pitch turns the eye about (Camera_start's position, at Roman's head: 0x0040e56c)
+    pub pivot: Vec3,
     /// the zoomed eye per weapon (the weapon table's camera node names, 0x00402110: Camera_rifle, Camera_machinegun)
     pub zoom: std::collections::HashMap<String, CamNode>,
     /// the look pitch limits (+0x74 clamped to [-1.5608, 1.15], 0x005bcebc / 0x005bceb8)
@@ -88,6 +91,7 @@ impl Default for CameraRig {
         CameraRig {
             loaded: false,
             follow: node(Vec3::new(0.0, 11.128, 22.703), 1.0471976),
+            pivot: Vec3::new(0.0, 7.749, -1.058),
             zoom: [("rifle".to_string(), node(Vec3::new(0.0, 7.918, 0.13), 0.4363323)), ("machinegun".to_string(), node(Vec3::new(0.0, 7.918, 0.13), 0.5235988))].into(),
             pitch: (-1.5608, 1.15),
             ray_offset: 5.0,
@@ -119,6 +123,7 @@ impl CameraRig {
         let nodes = &cam["nodes"];
         if let (Some(end), Some(start)) = (nodes.get("Camera_end"), nodes.get("Camera_start")) {
             self.follow = CamNode { target: v(&start["target"]), ..node(end) };
+            self.pivot = v(&start["pos"]);
         }
         // each gun's zoom camera node by the weapon table's name (+0x100: Camera_rifle, Camera_sniper, camera_gurner for
         // the gurner and the shark gun, camera_vindaloo); the nodes' names in player.json differ in case
@@ -168,6 +173,29 @@ pub struct CameraSmooth {
 /// target positions).
 const REST_PITCH: f32 = -0.15;
 
+/// The view's pitch for the orbit's pitch (0x0040e56c: the camera matrix is turned by +0x74 adjusted, +0x74 x 1.2 at
+/// or above 0 (0x005bcd2c = 0.2) and x 0.9 below (0x005bcbfc = 0.1), while the eye orbits by +0x74 itself).
+fn view_pitch(orbit: f32) -> f32 {
+    if orbit < 0.0 { orbit - orbit * 0.1 } else { orbit + orbit * 0.2 }
+}
+
+/// The inverse of `view_pitch`.
+fn orbit_pitch(view: f32) -> f32 {
+    if view < 0.0 { view / 0.9 } else { view / 1.2 }
+}
+
+impl CameraRig {
+    /// The unzoomed follow camera's eye before collision and its view rotation, in Roman's frame (yaw not applied),
+    /// for the orbit pitch (+0x74 = Roman::pitch - REST_PITCH): Camera_end turned about the pivot by the pitch, the
+    /// view (Camera_end looking at its target) turned by `view_pitch` (0x0040e56c).
+    pub fn orbit(&self, pitch: f32) -> (Vec3, Quat) {
+        let node = self.follow;
+        let eye = self.pivot + Quat::from_rotation_x(pitch) * (node.eye - self.pivot);
+        let rest = Transform::from_translation(node.eye).looking_at(node.target, Vec3::Y).rotation;
+        (eye, Quat::from_rotation_x(view_pitch(pitch)) * rest)
+    }
+}
+
 impl CameraRig {
     /// The look pitch limits in Roman::pitch's terms.
     pub fn pitch_limits(&self) -> (f32, f32) {
@@ -183,15 +211,15 @@ impl CameraRig {
         let rest = (node.target - node.eye).normalize_or(Vec3::NEG_Z);
         let rest_yaw = (-rest.x).atan2(-rest.z);
         let rest_elev = rest.y.atan2(rest.with_y(0.0).length());
-        // the look point moves with the yaw: a few fixed-point steps (one when the nodes are centred)
+        // the eye moves with the yaw and the pitch (CameraRig::orbit): a few fixed-point steps from the eye
         let mut yaw = { let d = point - feet; (-d.x).atan2(-d.z) };
-        let mut to = point - feet;
-        for _ in 0..3 {
-            to = point - (feet + Quat::from_rotation_y(yaw) * node.target);
+        let mut pitch = 0.0;
+        for _ in 0..6 {
+            let to = point - (feet + Quat::from_rotation_y(yaw) * self.orbit(pitch).0);
             yaw = (-to.x).atan2(-to.z) - rest_yaw;
+            pitch = orbit_pitch(to.y.atan2(to.with_y(0.0).length()) - rest_elev).clamp(self.pitch.0, self.pitch.1);
         }
-        let elev = to.y.atan2(to.with_y(0.0).length());
-        (yaw, elev - rest_elev + REST_PITCH)
+        (yaw, pitch + REST_PITCH)
     }
 }
 
@@ -256,19 +284,22 @@ pub fn follow_camera(
     smooth.death = None;
     // Camera_Update 0x0040e350 with the player's camera nodes: the eye at Camera_end (22.703 behind Roman, 11.128
     // up, centred), looking at Camera_start's target (7.194 ahead, 6.877 up): at rest the view tilts down 0.141 rad,
-    // as in the original's camera dumps. The look pitch (r.pitch, rest -0.15) turns the eye about that target. Five
-    // rays from the target (to the eye and to the eye +-5 along the view's right and up axes) pass through objects,
-    // which fade (camfade.rs), and the nearest landscape hit shortens the arm (0x0040e56c: objects hit are excluded
-    // and the ray cast again; only what remains stops it).
+    // as in the original's camera dumps. The look pitch (r.pitch, rest -0.15) turns the eye about the pivot,
+    // Camera_start (1.058 ahead, 7.749 up: Roman's head), and the view by the stronger view pitch (CameraRig::orbit).
+    // Five rays from the pivot (to the eye and to the eye +-5 along the eye's right and up axes) pass through
+    // objects, which fade (camfade.rs), and the nearest landscape hit shortens the arm (0x0040e56c: objects hit are
+    // excluded and the ray cast again; only what remains stops it).
     let yaw = Quat::from_rotation_y(r.yaw);
-    let pitch = Quat::from_rotation_x(r.pitch - REST_PITCH);
-    let node = rig.follow;
-    let target = rt.translation + yaw * node.target;
-    let arm = yaw * (pitch * (node.eye - node.target));
+    let orbit = r.pitch - REST_PITCH;
+    let pitch = Quat::from_rotation_x(orbit);
+    let (orbit_eye, orbit_view) = rig.orbit(orbit);
+    let target = rt.translation + yaw * rig.pivot;
+    let arm = yaw * (orbit_eye - rig.pivot);
     let len = arm.length();
     let eye = target + arm;
-    let look = Transform::from_translation(eye).looking_at(target, Vec3::Y);
-    let (right, up) = (look.right().as_vec3() * rig.ray_offset, look.up().as_vec3() * rig.ray_offset);
+    // the eye's own axes (the view node turned rigidly with the orbit: 0x58 in 0x0040e56c)
+    let eye_rot = yaw * pitch * Transform::from_translation(rig.follow.eye).looking_at(rig.follow.target, Vec3::Y).rotation;
+    let (right, up) = (eye_rot * Vec3::X * rig.ray_offset, eye_rot * Vec3::Y * rig.ray_offset);
     let mut dist = len;
     for end in [eye, eye + right, eye - right, eye + up, eye - up] {
         let dir = (end - target).normalize_or(Vec3::Y);
@@ -297,7 +328,7 @@ pub fn follow_camera(
         }
     }
     let mut eye = target + arm / len * dist;
-    let mut look_at = target;
+    let mut rot = yaw * orbit_view;
     // zoom: the weapon's camera node (Camera_rifle / Camera_machinegun: the eye at the head, the same look point),
     // position and FOV blended linearly by the zoom weight (0x0040fbb0: fov = target w + fov (1 - w)); the pitch
     // turns the look about the eye
@@ -314,14 +345,13 @@ pub fn follow_camera(
         if let (Some(z), true) = (rig.zoom.get(weapon).copied(), w > 0.0) {
             pp.fov = base_fov.unwrap_or(pp.fov) * (1.0 - w) + z.fov * w;
             let zeye = rt.translation + yaw * z.eye;
-            let zlook = zeye + yaw * (pitch * (z.target - z.eye));
+            let zrot = yaw * pitch * Transform::from_translation(z.eye).looking_at(z.target, Vec3::Y).rotation;
             eye = eye.lerp(zeye, w);
-            look_at = look_at.lerp(zlook, w);
+            rot = rot.slerp(zrot, w);
         } else if let Some(b) = *base_fov {
             pp.fov = b;
         }
     }
-    let rot = Transform::from_translation(eye).looking_at(look_at, Vec3::Y).rotation;
     // the Topsy Turvy bomb turns the view over (topsy.rs); so does the upside-down cheat (WAAAAAAH, cheats.rs)
     let flip = if cheats.on(0x4000) { std::f32::consts::PI } else { 0.0 };
     let view = Transform { translation: eye, rotation: rot * Quat::from_rotation_z(topsy.roll + flip), scale: c.scale };
@@ -420,6 +450,8 @@ fn log_camera(
         .and_then(|j| joints.get(*j).ok())
         .map_or(rt.translation, |g| g.translation());
     let to = (body - c.translation()).normalize_or_zero();
+    // how far the camera is from Roman's body: close behind him, he fills the screen (player feedback 2026-10-18)
+    ps.0.insert("cam_body_dist".into(), r2(body.distance(c.translation())).into());
     ps.0.insert("cam_aim_err".into(), r2(c.forward().as_vec3().dot(to).clamp(-1.0, 1.0).acos().to_degrees()).into());
 }
 
@@ -433,6 +465,23 @@ mod tests {
         assert!((vertical_fov(1.0471976) - 0.654).abs() < 2e-3);
         // Camera_rifle 25 degrees
         assert!((vertical_fov(0.4363323).to_degrees() - 14.8).abs() < 0.1);
+    }
+
+    #[test]
+    fn looking_up_orbits_the_head_and_tilts_the_view_further() {
+        let rig = CameraRig::default();
+        // at rest: Camera_end, looking at Camera_start's target
+        let (eye, view) = rig.orbit(0.0);
+        assert!(eye.distance(rig.follow.eye) < 1e-4);
+        let fwd = view * Vec3::NEG_Z;
+        assert!((fwd - (rig.follow.target - rig.follow.eye).normalize()).length() < 1e-4);
+        // looking up 1.0: the eye stays 24 from the head (not 30 from the far look point) and the view turns 1.2
+        let (eye, view) = rig.orbit(1.0);
+        assert!((eye.distance(rig.pivot) - rig.follow.eye.distance(rig.pivot)).abs() < 1e-3);
+        let elev = |q: Quat| (q * Vec3::NEG_Z).y.asin();
+        assert!((elev(view) - elev(rig.orbit(0.0).1) - 1.2).abs() < 1e-3);
+        // looking down: 0.9
+        assert!((elev(rig.orbit(-1.0).1) - elev(rig.orbit(0.0).1) + 0.9).abs() < 1e-3);
     }
 
     #[test]

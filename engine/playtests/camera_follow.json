@@ -16,6 +16,6 @@
  {"expect": {"look_pitch": [0.99, 1.01], "cam_dist": [0, 16], "cam_up": [-0.5, 8]}},
  {"mouse": [0, 6000]},
  {"wait": 0.3},
- {"expect": {"look_pitch": [-1.72, -1.70], "cam_up": [35.5, 38.0]}},
+ {"expect": {"look_pitch": [-1.72, -1.70], "cam_up": [30.5, 32.5]}},
  {"quit": true}
 ]}
