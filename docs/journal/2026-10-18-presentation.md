@@ -18,7 +18,7 @@ engine/target-wt-presentation. Fourteen deferred features (docs/port/features.cs
 | arrow-models | 0x0047e9f0, 0x00482460, 0x004824e0, 0x00482780 | arrows.rs (new), player.rs, ai.rs | arrow_models |
 | bodyfall-fx | 0x0043a8d0 | bodyfall.rs (new), fx.rs, ai.rs | bodyfall_fx |
 | character-fade | 0x0042eb60 | camfade.rs (log), corpses.rs | character_fade |
-| ai-voice-lines | 0x00437690, 0x00437860, 0x00437760, 0x00438a60, 0x00438c10, 0x00438c40, 0x00439dc0, 0x00438cb0, 0x00438e80, 0x0043a310, 0x00439f30 | voices.rs (new), audio.rs, ai.rs, army.rs, shrubpatrol.rs, goliath.rs | ai_voice_lines, ticker_goliath, unit class_voice_lists |
+| ai-voice-lines | 0x00437690, 0x00437860, 0x00437760, 0x00438a60, 0x00438c10, 0x00438c40, 0x00439dc0, 0x00438cb0, 0x00438e80, 0x0043a310, 0x0043a480, 0x00439f30 | voices.rs (new), audio.rs, ai.rs, army.rs, shrubpatrol.rs, goliath.rs | ai_voice_lines, ticker_goliath, unit class_voice_lists |
 | cloth-cape | 0x00486f40, 0x004876b0, 0x00487910, 0x00487960, 0x00487990 (replaced), 0x004879c0, 0x00487a40 | cloth.rs (new) | cloth_cape |
 | camera-startup-path | 0x0044d150 | campath.rs `startup`, mission.rs | none possible: no shipped level sets the property (all 24 empty) |
 
@@ -37,5 +37,5 @@ engine/target-wt-presentation. Fourteen deferred features (docs/port/features.cs
 ## Next / open
 
 - The red flag fx on the defence HUD's flag base (0x00465d50, deferred hud-meters); 0x00467740's element (untraced).
-- The shrub patrol's friendly-fire line (0x0043a480): the shrub patrol has no body to hit.
+- The shrub patrol's friendly fire (0x0043a480) has only a unit test (no playtest reaches a shrub patrol with Roman's own gun).
 - Debt PR1..PR5 (docs/remaster-engine.md "Presentation and polish").
