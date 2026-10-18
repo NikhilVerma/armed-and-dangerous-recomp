@@ -1,0 +1,12 @@
+{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+ {"note": "the guns' crosshairs drawn with their material's opacity (0x004897d0): the machine gun's a faint ring"},
+ {"wait": 1.0},
+ {"loadout": {"mg": 900, "use_mg": true}},
+ {"wait": 1.0},
+ {"expect": {"hud.crosshair": "ui_mg_crosshair", "hud.crosshair_alpha": "0.60,0.60,0.60,0.60,0.30"}},
+ {"shot": "mg"},
+ {"tap": "KeyQ"},
+ {"wait": 1.0},
+ {"expect": {"hud.crosshair": "ui_crosshair", "hud.crosshair_alpha": "1.00"}},
+ {"quit": true}
+]}

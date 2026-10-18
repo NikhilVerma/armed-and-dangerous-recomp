@@ -3,6 +3,12 @@
 One line per item, with its status. Newest session first. Each fix needs evidence: a capture, a log or a test.
 Agents re-read this file after every context compaction (AGENTS.md).
 
+## 2026-10-18 playthrough
+
+| # | Feedback (the player's words, short) | Status / plan |
+|---|---|---|
+| HUD-1 | "the cursor (crosshair) for the machine gun is wrong, the original game was different" | FIXED (branch agent-fb-hud). Cause: the HUD drew the crosshair parts opaque, but their materials are translucent (draw state 0x004897d0: constant alpha = opacity): the original's machine-gun crosshair is a faint pale-blue ring of radius 26 px with a centre dot (alpha 0.3), red target corners at 0.6; and `ui_special_crosshair` has opacity 0 (never seen), whereas the remaster drew its cross over every gun's crosshair. Fix: hud.rs takes each crosshair part's alpha from its material (vindaloo, shark gun, gurner, lock-on markers too). Evidence: original capture lev_1_m3 start (MG in hand); playtest hud_crosshair (hud.crosshair_alpha). WAITING FOR CONFIRMATION |
+
 ## 2026-10-15 (desktop shortcut, Remaster preset)
 
 | # | Feedback (the player's words, short) | Status / plan |
