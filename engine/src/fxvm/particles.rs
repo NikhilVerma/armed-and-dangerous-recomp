@@ -336,7 +336,7 @@ pub struct QuadBuffers {
 /// The scene's gamma-space brightness a white alpha-blended particle's opacity is matched over (particle.wesl): the
 /// original blends in gamma space, so the same sprite hides more of a dark scene than of a bright one; 0.6 is the
 /// snow levels' ground and sky, where most of the white sprites (snow flakes, white smoke) are seen.
-const WHITE_OVER: f32 = 0.6;
+pub const WHITE_OVER: f32 = 0.6;
 
 /// The smallest number of quads a pool mesh holds.
 const MIN_QUADS: usize = 256;

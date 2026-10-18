@@ -1,5 +1,5 @@
 {"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
- {"note": "fx_explosion_powder_keg's fxo_powderkeg: impulse (0, 0, 200000) on its 1118 game mass (p_fx sphere), straight up at ~179 units/s, every keg of a chain"},
+ {"note": "fx_explosion_powder_keg's fxo_powderkeg: impulse (0, 0, 200000) on its 472 game mass (p_fx bounding sphere r 4.8), straight up at ~424 units/s, every keg of a chain"},
  {"wait": 0.5},
  {"loadout": {"health": 5000}},
  {"warp": [-200, 330, 20, 0]},
@@ -8,7 +8,7 @@
  {"wait": 0.6},
  {"shot": "keg_trail"},
  {"wait": 0.9},
- {"expect": {"object_deaths": [3, 10], "fx.made.fxo_powderkeg": [3, 10], "fx.kin.fxo_powderkeg.lean": [0, 0.05], "fx.kin.fxo_powderkeg.up": [160, 200]}},
+ {"expect": {"object_deaths": [3, 10], "fx.made.fxo_powderkeg": [3, 10], "fx.kin.fxo_powderkeg.lean": [0, 0.05], "fx.kin.fxo_powderkeg.up": [380, 460]}},
  {"warp": [-200, -60, 15, 0]},
  {"wait": 0.5},
  {"destroy": 226},
@@ -17,6 +17,6 @@
  {"wait": 0.5},
  {"destroy": 189},
  {"wait": 1.5},
- {"expect": {"fx.made.fxo_powderkeg": [9, 25], "fx.kin.fxo_powderkeg.lean": [0, 0.05], "fx.kin.fxo_powderkeg.up": [160, 200]}},
+ {"expect": {"fx.made.fxo_powderkeg": [9, 25], "fx.kin.fxo_powderkeg.lean": [0, 0.05], "fx.kin.fxo_powderkeg.up": [380, 460]}},
  {"quit": true}
 ]}

@@ -1,7 +1,7 @@
 {"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
  {"note": "frames of keg 94's explosion from 40 units north (the original's capture: work/shots/orig_keg, the sticky's blast at (-176, 415))"},
  {"wait": 0.5}, {"loadout": {"health": 5000}},
- {"warp": [-176, 425, 16, 180]}, {"wait": 1.0},
+ {"warp": [-176, 415, 16, 180]}, {"wait": 1.0},
  {"shot": "before"},
  {"destroy": 94},
  {"wait": 0.033}, {"shot": "f02"},

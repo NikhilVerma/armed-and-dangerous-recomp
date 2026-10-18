@@ -43,7 +43,13 @@ fn vertex(v: CornerIn) -> ParticleOut {
 
 @fragment
 fn fragment(in: ParticleOut) -> @location(0) vec4<f32> {
-    var c = textureSample(bank, bank_sampler, in.uv) * in.color;
+    // the bank's mip level, at most the one at the original's 256-texel bank: a small sprite (the keg's dark specks,
+    // 0.1..0.4 units) sampled at the mip its size asks for blended its tile with its neighbours' into a brown haze,
+    // where the original (its sprites' tiles read at full resolution: capture 2026-10-18) draws crisp black specks
+    let dims = vec2<f32>(textureDimensions(bank));
+    let texels = max(length(dpdx(in.uv * dims)), length(dpdy(in.uv * dims)));
+    let lod = clamp(log2(max(texels, 1e-6)), 0.0, max(log2(dims.x / 256.0), 0.0));
+    var c = textureSampleLevel(bank, bank_sampler, in.uv, lod) * in.color;
     // alpha-blended pools (params.x > 1): the original blends in gamma space, the target here is linear; the alpha that
     // gives the original's result depends on the source and the scene behind it. A dark source: a gamma-space blend of
     // black leaves (1 - a)^2.2 of the scene's linear light whatever the scene, so it takes 1 - (1 - a)^2.2 (alpha ^ 2.2
@@ -74,6 +80,17 @@ fn fragment(in: ParticleOut) -> @location(0) vec4<f32> {
             // additive pools add colour, blended pools blend by alpha: fade both
             c = vec4(c.rgb * select(1.0, fade, params.x == 1.0), c.a * fade);
         }
+    }
+    // additive pools: SRCALPHA / ONE. Bevy's AlphaMode::Add is a premultiplied blend (ONE / ONE_MINUS_SRC_ALPHA) that
+    // expects the shader to premultiply and zero the alpha (its PBR shader does): written as they were, a sprite's
+    // white colour around its soft alpha (n_fx_bank_1's spark tile is all white, its shape in the alpha) drew whole
+    // white squares (the keg's and the grenades' sparks)
+    // The addition is the original's, in gamma space, over a scene of brightness params.z (as fxadd.wesl): the linear
+    // light added is (g + c a)^2.2 - g^2.2, c the sprite's gamma colour
+    if (params.x == 1.0) {
+        let g = params.z;
+        let added = pow(max(c.rgb, vec3(0.0)), vec3(1.0 / 2.2)) * clamp(c.a, 0.0, 1.0);
+        c = vec4(max(pow(min(vec3(g) + added, vec3(1.0)), vec3(2.2)) - vec3(pow(g, 2.2)), vec3(0.0)), 0.0);
     }
     return c;
 }

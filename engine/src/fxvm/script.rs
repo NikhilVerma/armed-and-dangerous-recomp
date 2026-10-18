@@ -9,7 +9,7 @@
 
 use super::attach::point_world;
 use super::body::{add_impulse, add_spin, make_dynamic, set_rotation, wake};
-use super::materials::{FxLayerMaterial, FxLayerParams, premultiplied};
+use super::materials::{FxAddMaterial, FxAddParams, FxLayerMaterial, FxLayerParams, premultiplied};
 use super::object::{EmitMode, FxObject, HitCreate, LightDef, MeshEmitter, ScaleCurve, UvRotate, UvScale, UvScroll};
 use super::particles::{Emitter, build_ramp};
 use super::screen::{ScreenKind, ScreenRequest};
@@ -120,6 +120,7 @@ pub struct Ctx<'a, 'cw, 'cs> {
     pub meshes: &'a mut Assets<Mesh>,
     pub materials: &'a mut Assets<StandardMaterial>,
     pub layer_materials: &'a mut Assets<FxLayerMaterial>,
+    pub add_materials: &'a mut Assets<FxAddMaterial>,
     pub physics: &'a mut Physics,
     /// the 3D camera: fx locked to it (the intro overlays) draw over the scene
     pub camera: Option<Entity>,
@@ -171,6 +172,9 @@ fn create_object(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_>, idx: usize, template:
     let world = Mat4::from_quat(game_to_engine()) * place;
     let mut e = ctx.commands.spawn((Transform::from_matrix(world), Visibility::default(), Name::new(template.to_owned()), FxEntity));
     let mut mats = Vec::new();
+    let mut opacities = Vec::new();
+    let mut adds = Vec::new();
+    let mut texture_name = None;
     let mut layers = Vec::new();
     let mut body_def = super::body::BodyDef::default();
     if let Some(model) = t.model.as_ref().and_then(|m| ctx.lib.load_model(m, false, ctx.assets, ctx.meshes, ctx.materials)) {
@@ -184,7 +188,9 @@ fn create_object(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_>, idx: usize, template:
                     let p = ctx.data.template_props(&template.to_lowercase());
                     // the hull's volume only matters to collide_poly templates (debris)
                     let volume = if p.f("collide_poly", 0.0) != 0.0 { super::body::hull_volume(&model.vertices) } else { 0.0 };
-                    super::body::BodyDef::new(model.min, model.max, volume, &p).with_hull(&model.vertices, k)
+                    let centre = (model.min + model.max) * 0.5;
+                    let radius = model.vertices.iter().map(|v| v.distance(centre)).fold(0.0, f32::max);
+                    super::body::BodyDef::new(model.min, model.max, volume, radius, &p).with_hull(&model.vertices, k)
                 })
                 .clone();
         }
@@ -232,10 +238,12 @@ fn create_object(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_>, idx: usize, template:
                 // pale streak over the snow where an alpha-blended trail drew an opaque orange-red column
                 let additive = def.as_ref().map_or(textured, |d| d.blend == 0 && (d.kind & 0x10 != 0 || alpha_tex));
                 // alpha-blended fx (lighting on, kind bit 1): the lit vertex colour, emissive + diffuse clamped (fx_white:
-                // white; the original's white fade peaks at 252 / 255: intro capture); additive fx keep the diffuse (the keg's trail
-                // then shows as the original's pale streak)
+                // white; the original's white fade peaks at 252 / 255: intro capture); translucent records (kind bit 0x10) keep the
+                // diffuse; the kind-1 additive ones (the keg's fire trail) add the lit colour, so the orange trail over the
+                // snow saturates to the original's pale yellow streak (capture 2026-10-18, frame 676; with the diffuse it
+                // drew a dull red column)
                 let tint = def.as_ref().map(|d| {
-                    if !additive {
+                    if d.kind & 0x10 == 0 {
                         Color::srgb((d.emissive[0] + d.diffuse[0]).min(1.0), (d.emissive[1] + d.diffuse[1]).min(1.0), (d.emissive[2] + d.diffuse[2]).min(1.0))
                     } else {
                         Color::srgb(d.diffuse[0], d.diffuse[1], d.diffuse[2])
@@ -244,11 +252,27 @@ fn create_object(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_>, idx: usize, template:
                 // an fx locked to the camera (the intro's white fade fxo_white: a quad 1.26 in front of the eye, near plane
                 // 1) is drawn over the scene: the camera path passes within 1.26 of the glacier walls, which showed in
                 // front of the white (the player's report, 2026-10-14; the original's capture is all white there)
+                // the record's opacity (+0x48): 0x004897d0 draws a translucent record (kind bit 0x10) with the constant alpha
+                // object alpha x opacity (the window glass shards: 0.6, 0.25; they drew opaque)
+                let opacity = def.as_ref().filter(|d| d.kind & 0x10 != 0 && !additive).map_or(1.0, |d| d.opacity.clamp(0.0, 1.0));
+                // additive parts add as the original does, in gamma space (fxadd.wesl)
+                if let (true, false, Some(tex)) = (additive, locked, base.base_color_texture.clone()) {
+                    let name = tex.path().and_then(|p| p.path().file_stem()).map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+                    let colour = tint.map_or(Vec3::ONE, |t| {
+                        let s = t.to_srgba();
+                        Vec3::new(s.red, s.green, s.blue)
+                    });
+                    let am = ctx.add_materials.add(FxAddMaterial { base: tex, params: FxAddParams::new(colour, super::particles::WHITE_OVER, premultiplied(&ctx.lib.dir, &name)) });
+                    texture_name.get_or_insert(name);
+                    adds.push(am.clone());
+                    c.spawn((Mesh3d(mesh), MeshMaterial3d(am), bevy::light::NotShadowCaster));
+                    continue;
+                }
                 let m = ctx.materials.add(StandardMaterial {
                     depth_bias: if locked { 1.0e9 } else { base.depth_bias },
                     unlit: true,
                     alpha_mode: if additive { AlphaMode::Add } else if textured { AlphaMode::Blend } else { base.alpha_mode },
-                    base_color: if textured { tint.unwrap_or(base.base_color) } else { base.base_color },
+                    base_color: if textured { tint.unwrap_or(base.base_color).with_alpha(opacity) } else { base.base_color },
                     // back faces culled as the original's renderer does (D3D default): fx_true_story's quad is two
                     // faces, the back one mirrored; drawn double-sided the caption showed both
                     double_sided: false,
@@ -256,6 +280,7 @@ fn create_object(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_>, idx: usize, template:
                     ..base
                 });
                 mats.push(m.clone());
+                opacities.push(opacity);
                 c.spawn((Mesh3d(mesh), MeshMaterial3d(m), bevy::light::NotShadowCaster));
             }
         });
@@ -263,6 +288,9 @@ fn create_object(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_>, idx: usize, template:
     let id = e.id();
     *vm.made.entry(template.to_lowercase()).or_default() += 1;
     let mut o = FxObject::new(template, anim, place, mats, layers);
+    o.opacities = opacities;
+    o.add_mats = adds;
+    o.texture_name = texture_name;
     o.follow = follows;
     o.body_def = body_def;
     o.follow_pos_only = inst.follow_pos_only;
@@ -363,7 +391,7 @@ pub fn run_script(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_>, idx: usize, spawned:
                 let e = vm.rng.r(w(3), w(4));
                 if let Some(o) = obj!() {
                     o.fade_in = Some((s, 1.0 / (e - s).max(1e-4), true));
-                    o.set_alpha(ctx.materials, 0.0);
+                    o.set_alpha(ctx.materials, ctx.add_materials, 0.0);
                 }
             }
             // Fx_SetFadeOut 0x0041dc30: the fade-out start age
@@ -772,7 +800,7 @@ pub fn run_script(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_>, idx: usize, spawned:
             "0x63" => {
                 let (frames, rate, looping) = (arg(2).as_i64().unwrap_or(1) as u32, w(3), arg(4).as_i64().unwrap_or(0) != 0);
                 if let Some(o) = obj!() {
-                    let base = o.materials.first().and_then(|m| ctx.materials.get(m)).and_then(|m| m.base_color_texture.as_ref()).and_then(|h| h.path()).map(|p| p.path().file_stem().unwrap().to_string_lossy().into_owned()).unwrap_or_default();
+                    let base = o.materials.first().and_then(|m| ctx.materials.get(m)).and_then(|m| m.base_color_texture.as_ref()).and_then(|h| h.path()).map(|p| p.path().file_stem().unwrap().to_string_lossy().into_owned()).or_else(|| o.texture_name.clone()).unwrap_or_default();
                     o.texanim = Some(super::object::TexAnim { rate, frames: frames.max(1), looping, acc: 0.0, frame: 0, base });
                 }
             }
@@ -879,7 +907,7 @@ pub fn run(
     assets: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut layer_materials: ResMut<Assets<FxLayerMaterial>>,
+    (mut layer_materials, mut add_materials): (ResMut<Assets<FxLayerMaterial>>, ResMut<Assets<FxAddMaterial>>),
     mut physics: NonSendMut<Physics>,
     cams: Query<Entity, With<Camera3d>>,
     alive: Query<()>,
@@ -888,7 +916,7 @@ pub fn run(
     let dt = time.delta_secs();
     let vm = &mut *vm;
     vm.time += dt;
-    let mut ctx = Ctx { commands: &mut commands, data: &data, lib: &mut lib, assets: &assets, meshes: &mut meshes, materials: &mut materials, layer_materials: &mut layer_materials, physics: &mut physics, camera: cams.iter().next() };
+    let mut ctx = Ctx { commands: &mut commands, data: &data, lib: &mut lib, assets: &assets, meshes: &mut meshes, materials: &mut materials, layer_materials: &mut layer_materials, add_materials: &mut add_materials, physics: &mut physics, camera: cams.iter().next() };
     let mut i = 0;
     while i < vm.instances.len() {
         let inst = &mut vm.instances[i];

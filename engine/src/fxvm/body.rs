@@ -109,23 +109,26 @@ pub fn hull_volume(points: &[Vec3]) -> f32 {
 }
 
 impl BodyDef {
-    /// The body of a template with this model's bounds (`min`, `max`) and convex hull volume, and its property set.
+    /// The body of a template with this model's bounds (`min`, `max`), convex hull volume and bounding radius (the
+    /// farthest vertex from the bounds' centre), and its property set.
     /// Mass (Object_BuildRadiusCollision 0x004527d0; fx objects build with cinfo +0xc set):
     /// - a `collide_poly` template (scale-table flag 1): the compound of its collision model's parts (0x00456c40 ->
     ///   Body_BuildShape 0x00413450 with its hull flag), whose Havok mass properties come from the shape with the
     ///   object's density: density x the model's hull volume (`hull_volume`), at most the sphere's;
-    /// - otherwise a sphere of the bounding radius (vt+0x90; the bounding box's half diagonal here) round the bounding
-    ///   centre: r^3 x density x 4/3 pi;
+    /// - otherwise a sphere of the bounding radius (vt+0x90, the model's bounding sphere: the farthest vertex from the
+    ///   centre; the bounds' half diagonal, a looser sphere, gave the flying keg 1118 and 179 units/s, where the
+    ///   original's keg and its trail are gone above the view within a few frames: capture 2026-10-18) round the
+    ///   bounding centre: r^3 x density x 4/3 pi (the keg: r 4.8, 472, 424 units/s);
     /// - an explicit `mass` (p_fx_zero_mass 0.01) wins (guess: the property's name).
     ///
     /// The original builds the body when the object is made (the factory 0x0045f020, before any 0x0b scale) and
     /// never rescales it, so the mass is the scale-1 one; the collision box is scaled with the object instead
     /// (`make_dynamic`), so a small piece rests on its own faces rather than hovering on a full-size shape.
-    pub fn new(min: Vec3, max: Vec3, volume: f32, p: &Props) -> Self {
+    pub fn new(min: Vec3, max: Vec3, volume: f32, radius: f32, p: &Props) -> Self {
         let half = ((max - min) * 0.5).max(Vec3::splat(0.1));
         let centre = (max + min) * 0.5;
         let density = p.f("density", 1.0);
-        let sphere = sphere_mass(half.length(), density);
+        let sphere = sphere_mass(if radius > 0.0 { radius } else { half.length() }, density);
         let mass = if p.has("mass") {
             p.f("mass", 1.0).max(1e-3)
         } else if p.f("collide_poly", 0.0) != 0.0 && volume > 1e-3 {
@@ -310,17 +313,17 @@ mod tests {
     fn masses() {
         // the flying keg (fxo_powderkeg, p_fx): bounds 8.2 x 8.6 x 5.0 round (-0.17, 0.04, 3.07)
         let p_fx = props(serde_json::json!({ "density": 1.0, "friction": 0.2, "restitution": 0.2 }));
-        let keg = BodyDef::new(Vec3::new(-4.27, -4.26, 0.58), Vec3::new(3.93, 4.33, 5.57), 45.0, &p_fx);
-        assert!((keg.mass - 1118.0).abs() < 20.0, "{}", keg.mass);
+        let keg = BodyDef::new(Vec3::new(-4.27, -4.26, 0.58), Vec3::new(3.93, 4.33, 5.57), 45.0, 4.83, &p_fx);
+        assert!((keg.mass - 472.0).abs() < 10.0, "{}", keg.mass);
         assert!((keg.centre.z - 3.07).abs() < 0.01);
-        // its launch: impulse 200000 -> about 180 units/s
-        assert!((200000.0 / keg.mass - 179.0).abs() < 4.0);
+        // its launch: impulse 200000 -> about 424 units/s
+        assert!((200000.0 / keg.mass - 424.0).abs() < 10.0);
         let poly = props(serde_json::json!({ "density": 1.0, "collide_poly": 1, "friction": 0.001, "restitution": 0.001 }));
-        let piece = BodyDef::new(Vec3::splat(-10.0), Vec3::splat(10.0), 2165.0, &poly);
+        let piece = BodyDef::new(Vec3::splat(-10.0), Vec3::splat(10.0), 2165.0, 0.0, &poly);
         assert_eq!(piece.mass, 2165.0);
         assert_eq!((piece.friction, piece.restitution), (0.001, 0.001));
         let zero = props(serde_json::json!({ "mass": 0.01 }));
-        assert_eq!(BodyDef::new(Vec3::splat(-1.0), Vec3::ONE, 0.0, &zero).mass, 0.01);
+        assert_eq!(BodyDef::new(Vec3::splat(-1.0), Vec3::ONE, 0.0, 0.0, &zero).mass, 0.01);
     }
 
     #[test]

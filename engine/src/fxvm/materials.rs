@@ -38,6 +38,49 @@ impl Material for FxLayerMaterial {
     }
 }
 
+/// Additive fx meshes with one stage (fxadd.wesl): the texture times the material colour, added as the original adds
+/// in gamma space (matched over a scene of brightness `scene.x`).
+#[derive(bevy::render::render_resource::AsBindGroup, Debug, Clone, Asset, bevy::reflect::TypePath)]
+pub struct FxAddMaterial {
+    #[texture(0)]
+    #[sampler(1)]
+    pub base: Handle<Image>,
+    #[uniform(2)]
+    pub params: FxAddParams,
+}
+
+#[derive(bevy::render::render_resource::ShaderType, Debug, Clone, Default)]
+pub struct FxAddParams {
+    /// rgb: the material colour (gamma space), a: the object's alpha
+    pub colour: Vec4,
+    /// the uv transform's rows (u' = x.x u + x.y v + x.z; v' likewise with y)
+    pub uv_x: Vec4,
+    pub uv_y: Vec4,
+    /// x: the scene brightness the addition is matched over; y: the texture stored premultiplied (1)
+    pub scene: Vec4,
+}
+
+impl FxAddParams {
+    pub fn new(colour: Vec3, scene: f32, premultiplied: bool) -> Self {
+        let mut p = FxAddParams { colour: colour.extend(1.0), scene: Vec4::new(scene, premultiplied as u8 as f32, 0.0, 0.0), ..default() };
+        p.set_uv(bevy::math::Affine2::IDENTITY);
+        p
+    }
+    pub fn set_uv(&mut self, m: bevy::math::Affine2) {
+        self.uv_x = Vec4::new(m.matrix2.x_axis.x, m.matrix2.y_axis.x, m.translation.x, 0.0);
+        self.uv_y = Vec4::new(m.matrix2.x_axis.y, m.matrix2.y_axis.y, m.translation.y, 0.0);
+    }
+}
+
+impl Material for FxAddMaterial {
+    fn fragment_shader() -> bevy::shader::ShaderRef {
+        bevy::shader::ShaderRef::Path(bevy::asset::AssetPath::from_path_buf(bevy::asset::embedded_path!("fxadd.wesl")).with_source("embedded"))
+    }
+    fn alpha_mode(&self) -> AlphaMode {
+        AlphaMode::Add
+    }
+}
+
 /// The particle material: bank texture x vertex colour, additive or alpha-blended (particle.wesl).
 #[derive(bevy::render::render_resource::AsBindGroup, Debug, Clone, Asset, bevy::reflect::TypePath)]
 pub struct ParticleMaterial {

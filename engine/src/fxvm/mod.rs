@@ -30,7 +30,7 @@ mod script;
 mod streamers;
 
 pub use body::IMPULSE_SCALE;
-pub use materials::{FxLayerMaterial, ParticleMaterial};
+pub use materials::{FxAddMaterial, FxLayerMaterial, ParticleMaterial};
 pub use rng::CrtRand;
 
 use crate::fx::StartFx;
@@ -121,7 +121,9 @@ impl Plugin for FxVmPlugin {
     fn build(&self, app: &mut App) {
         bevy::asset::embedded_asset!(app, "particle.wesl");
         bevy::asset::embedded_asset!(app, "fxlayer.wesl");
+        bevy::asset::embedded_asset!(app, "fxadd.wesl");
         app.add_plugins(MaterialPlugin::<FxLayerMaterial>::default());
+        app.add_plugins(MaterialPlugin::<FxAddMaterial>::default());
         app.add_plugins(MaterialPlugin::<ParticleMaterial>::default());
         app.add_plugins(screen::ScreenFxPlugin);
         app.add_level_spawner(setup)

@@ -6,7 +6,7 @@ use super::attach::point_world;
 use super::body::{make_dynamic, touching};
 use super::particles::{Emitter, step_emitter};
 use super::script::{Instance, child_instance, find, pick_name};
-use super::{FxEntity, FxLight, FxLayerMaterial, FxVm};
+use super::{FxAddMaterial, FxEntity, FxLight, FxLayerMaterial, FxVm};
 use crate::gamedata::GameData;
 use crate::level::game_to_engine;
 use crate::physics::Physics;
@@ -275,6 +275,13 @@ pub struct FxObject {
     pub materials: Vec<Handle<StandardMaterial>>,
     pub layer_mats: Vec<Handle<FxLayerMaterial>>,
     pub alpha: f32,
+    /// per material: its record's opacity (+0x48), the constant alpha 0x004897d0 multiplies the object's alpha by
+    /// (the window glass shards: 0.6 / 0.25)
+    pub opacities: Vec<f32>,
+    /// the additive parts' materials (fxadd.wesl)
+    pub add_mats: Vec<Handle<FxAddMaterial>>,
+    /// the first additive part's texture (the base name of a texture animation, 0x63)
+    pub texture_name: Option<String>,
     pub body: Option<oxijolt::prelude::BodyId>,
     /// its body when it gets one: the template's mass and surface, the mesh's bounding box
     pub body_def: super::body::BodyDef,
@@ -316,6 +323,9 @@ impl FxObject {
             materials,
             layer_mats,
             alpha: 1.0,
+            opacities: Vec::new(),
+            add_mats: Vec::new(),
+            texture_name: None,
             body: None,
             body_def: super::body::BodyDef::default(),
             inert: false,
@@ -349,13 +359,19 @@ impl FxObject {
 
     /// vt+0x100: the object's alpha on every part (the original blends in gamma space, Bevy in linear: alpha^2.2 gives
     /// the same look for an alpha-blended fade: the intro's white, a straight line from 252 to the scene over 0.5..3 s).
-    pub fn set_alpha(&mut self, materials: &mut Assets<StandardMaterial>, alpha: f32) {
+    pub fn set_alpha(&mut self, materials: &mut Assets<StandardMaterial>, adds: &mut Assets<FxAddMaterial>, alpha: f32) {
         self.alpha = alpha;
-        for m in &self.materials {
+        for m in &self.add_mats {
+            if let Some(mut m) = adds.get_mut(m) {
+                m.params.colour.w = alpha;
+            }
+        }
+        for (i, m) in self.materials.iter().enumerate() {
             if let Some(mut m) = materials.get_mut(m) {
                 if m.alpha_mode == AlphaMode::Opaque {
                     m.alpha_mode = AlphaMode::Blend;
                 }
+                let alpha = alpha * self.opacities.get(i).copied().unwrap_or(1.0);
                 let a = if m.alpha_mode == AlphaMode::Blend { alpha.powf(2.2) } else { alpha };
                 m.base_color.set_alpha(a);
             }
@@ -415,6 +431,7 @@ pub fn objects(
     assets: Res<AssetServer>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut layer_materials: ResMut<Assets<FxLayerMaterial>>,
+    mut add_materials: ResMut<Assets<FxAddMaterial>>,
     mut physics: NonSendMut<Physics>,
     cam: Query<&GlobalTransform, With<Camera3d>>,
     mut q: Query<&mut Transform, With<FxEntity>>,
@@ -509,7 +526,7 @@ pub fn objects(
         // fades (vt+0x100: object alpha)
         if let Some(alpha) = o.fade(dt) {
             if (alpha - o.alpha).abs() > 1e-3 {
-                o.set_alpha(&mut materials, alpha);
+                o.set_alpha(&mut materials, &mut add_materials, alpha);
             }
         }
         // size over life (Object_SetScale 0x004535d0)
@@ -527,6 +544,11 @@ pub fn objects(
             for h in &o.materials {
                 if let Some(mut mat) = materials.get_mut(h) {
                     mat.uv_transform = m;
+                }
+            }
+            for h in &o.add_mats {
+                if let Some(mut mat) = add_materials.get_mut(h) {
+                    mat.params.set_uv(m);
                 }
             }
         }
@@ -554,6 +576,11 @@ pub fn objects(
                 for m in &o.materials {
                     if let Some(mut m) = materials.get_mut(m) {
                         m.base_color_texture = Some(h.clone());
+                    }
+                }
+                for m in &o.add_mats {
+                    if let Some(mut m) = add_materials.get_mut(m) {
+                        m.base = h.clone();
                     }
                 }
             }
