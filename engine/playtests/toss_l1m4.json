@@ -7,5 +7,7 @@
  {"shot": "flying"},
  {"wait": 8.0},
  {"expect": {"toss.flying": 0}},
+ {"destroy": 151}, {"destroy": 152}, {"destroy": 153}, {"destroy": 154}, {"destroy": 155}, {"wait": 0.5},
+ {"expect": {"toss.peasants": [6, 18], "toss.men": [1, 18], "toss.comments": [1, 18]}},
  {"quit": true}
 ]}

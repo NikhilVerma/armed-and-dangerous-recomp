@@ -1,0 +1,21 @@
+{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+ {"wait": 1.0},
+ {"cheat": "SHIELDME"},
+ {"warp": [190.68, -69.44, 13.76, 90]},
+ {"warp_companion": [0, 175, -60, 14]},
+ {"warp_companion": [1, 175, -78, 14]},
+ {"wait": 2.0},
+ {"spawn": [195, -95, 14]},
+ {"wait": 0.3},
+ {"expect": {"close_kill.grabbed": 0, "close_kill.phase": "none"}},
+ {"close_kill": 1},
+ {"wait": 0.3},
+ {"expect": {"close_kill.grabbed": 1, "close_kill.aborted": 0}},
+ {"wait": 3.0},
+ {"expect": {"close_kill.started": 1, "close_kill.phase": "kill", "close_kill.aborted": 0}},
+ {"wait": 8.0},
+ {"expect": {"close_kill.kills": 1, "close_kill.phase": "none", "close_kill.aborted": 0, "q_health": [1, 1000]}},
+ {"wait": 8.0},
+ {"expect": {"q_dist": [0, 60], "q_order": "defend_me"}},
+ {"quit": true}
+]}

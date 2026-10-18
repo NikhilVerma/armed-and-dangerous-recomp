@@ -6,7 +6,7 @@
 //! every object of a tag, 0x00459390) appear in no level's data.
 //!
 //! Who uses them on AIs: the army's ladder climb and wall scales (mover_grunt_ladder_climb 6.83 s, mover_grunt_scale_2..4
-//! "deactivate"; army.rs), the companions' takedowns (mover_grunt_qdie_* / mover_grunt_mdie_* "kill"; ai/melee.rs) and
+//! "deactivate"; army.rs), the companions' takedowns (mover_grunt_qdie_* / mover_grunt_mdie_* "kill"; ai/close_kill.rs) and
 //! any IC mover of a grunt (mover.rs notes).
 
 use super::{Grunt, Mind};

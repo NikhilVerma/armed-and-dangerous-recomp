@@ -12,8 +12,11 @@
 //! Roman, then 8 s later he is gone (vt+0xd4). His scream: a cue of the PeasantBlownUp set (a new one once the
 //! peasant_delay interval has passed since the last, else one of the "soon" set; the women's on vo_delay).
 //!
-//! Debt, labelled: the man's scream queues Roman's comment (0x00493b70 with the table 0x005fb6d0): not played; the fade
-//! in (vt+0x100 over 1 s) is not drawn; the thrown grunts' 21666 push becomes a 40 units/s velocity for their ragdoll
+//! Each man's scream queues a comment (game_01.cpp:1989: 0x00493b70 with the table 0x005fb6d0 and the speaker test
+//! 0x0040d250, ai/dialogue.rs `tossed_speaker`): Roman's, or Jonesy's / Q's while there and not talking.
+//!
+//! Debt, labelled: the speaker test's list +0xf04 (JON50172 / Q1150162 only while it is not empty) is not traced and
+//! taken as empty (guess); the fade in (vt+0x100 over 1 s) is not drawn; the thrown grunts' 21666 push becomes a 40 units/s velocity for their ragdoll
 //! (guess: impulse x 0.15 / mass 80, as ai.rs's death push). toss_grunts is set only on the rocket turrets, whose death
 //! is 0x00497e60 (no toss): no level throws grunts.
 
@@ -78,6 +81,9 @@ struct Screams {
 pub struct TossStats {
     pub peasants: u32,
     pub grunts: u32,
+    /// the men thrown, and the comments said for them (table 0x005fb6d0: Roman's lines always pass the test)
+    pub men: u32,
+    pub comments: u32,
 }
 
 /// The world's gravity of the throw solver (0x00471a00: -64.35).
@@ -120,6 +126,7 @@ fn toss(
     mut kit: crate::army::ModelKit,
     (mut rng, mut ms, mut stats, mut screams): (ResMut<crate::fx::FxStats>, ResMut<crate::stats::MissionStats>, ResMut<TossStats>, ResMut<Screams>),
     (mut spawn, mut sounds, time): (MessageWriter<crate::level::SpawnGrunt>, MessageWriter<crate::audio::PlaySound>, Res<Time>),
+    (mut companions, mut bags, voices): (Query<(&mut crate::ai::Companion, &Transform, Option<&crate::fx::Health>)>, ResMut<crate::ai::dialogue::Bags>, crate::audio::PlayingVoices),
 ) {
     let now = time.elapsed_secs();
     let player = roman.single().ok().map(|t| t.translation());
@@ -130,6 +137,7 @@ fn toss(
         if t.peasants {
             ms.killed(t.peasant_score);
         }
+        let mut men = 0;
         let mut throw = |peasants: bool, rng: &mut crate::fx::FxStats| {
             let n = 1 + (rng.rand() * 3.0) as u32 % 3;
             for _ in 0..n {
@@ -170,6 +178,10 @@ fn toss(
                     let cue = set[((rng.rand() * set.len() as f32) as usize).min(set.len() - 1)];
                     sounds.write(crate::audio::PlaySound::on(format!("{cue}_peasantblownup"), e));
                     stats.peasants += 1;
+                    if man {
+                        men += 1;
+                        stats.men += 1;
+                    }
                 } else {
                     let captain = rng.rand() * 100.0 < 50.0 && captains.iter().any(|g| g.kind == crate::ai::Kind::Captain);
                     let template = if captain { "captain" } else { "grunt_regular" };
@@ -184,6 +196,20 @@ fn toss(
         };
         if t.peasants {
             throw(true, &mut rng);
+            // each man's comment: a line of table 0x005fb6d0 whose speaker can say it now (0x0040d250)
+            for _ in 0..men {
+                let present = |q: bool| {
+                    companions
+                        .iter()
+                        .find(|(c, _, h)| c.q == q && c.dead.is_none() && h.is_none_or(|h| h.0 > 0.0))
+                        .map(|(c, _, _)| crate::ai::dialogue::Present { speaking: c.speech.saying(&voices), still: 0.0 })
+                };
+                let cast = crate::ai::dialogue::Cast { roman_alive: true, jonesy: present(false), q: present(true), ..default() };
+                if let Some((_, said)) = bags.tossed.pick(|| rng.rand(), |l| crate::ai::dialogue::tossed_speaker(l, &cast, false)) {
+                    crate::ai::say(said, &mut companions, &voices, &mut sounds);
+                    stats.comments += 1;
+                }
+            }
         } else if t.grunts {
             throw(false, &mut rng);
             ms.killed(t.score);
@@ -352,7 +378,7 @@ fn log(
     state.0.insert(
         "toss".into(),
         serde_json::json!({
-            "peasants": stats.peasants, "grunts": stats.grunts, "flying": flying.iter().count(),
+            "peasants": stats.peasants, "grunts": stats.grunts, "men": stats.men, "comments": stats.comments, "flying": flying.iter().count(),
             "smoking": live.len(),
             "smoking_charging": live.iter().filter(|(s, ..)| s.charged).count(),
             "smoking_health": live.first().map(|(_, _, h)| h.0),

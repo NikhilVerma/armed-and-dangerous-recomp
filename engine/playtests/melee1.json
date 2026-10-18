@@ -7,6 +7,7 @@
  {"warp_companion": [1, 82, 100, 14]}, {"wait": 0.5},
  {"warp_companion": [1, 82, 100, 14]}, {"wait": 0.5},
  {"warp_companion": [1, 82, 100, 14]}, {"wait": 2.5},
+ {"close_kill": 1},
  {"shot": "takedown"},
  {"wait": 18.0},
  {"expect": {"melee.started": [1, 10], "melee.paired": [1, 10], "melee.kills": [1, 10]}},

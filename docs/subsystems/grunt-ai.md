@@ -386,8 +386,8 @@ infantry"). Corrections found on the way: the "16 %" rolls of 0x00427910 / 0x004
 | Jump markers held from the launch until the jumper leaves or dies (not freed on landing) | jumper.rs | 0x0040dfa0 / 0x0040dfb0, 0x004273a0 | jump_markers_bm1 |
 | Script ends: "kill" a death, "deactivate" the death bookkeeping (the death trigger) and a silent removal | notes.rs | 0x00409140, 0x004090f0, 0x00409110 | ladders_l1m4 |
 | The wall assault and the ladders | assault.rs, ladder.rs | 0x00429ce0, 0x00429ac0, 0x004298a0 / 0x0042d650 | ladders_l1m4 |
-| The companions' takedown (50 % at a burst / clip end, within 50, facing within 45, ref_fight_00; the paired IC anims) | melee.rs | 0x00427e80, 0x00434ea0, 0x0042c670, 0x00487040 / 0x0044ea40 | melee1 |
-| The grunts' close attack (within m_h2hMin 20 at a clip's end, anim 0x5f / 0x60, "hit" within m_h2hMax 10: 50; Q112 25 / 35, 100) | melee.rs | 0x00428160, 0x0043eae0 | close_attack |
+| The companions' takedown (50 % at a burst / clip end, within 50, facing within 45, ref_fight_00; the paired IC anims) | close_kill.rs (docs/subsystems/companions.md 10) | 0x00427e80, 0x00434ea0, 0x0042c670, 0x00487040 / 0x0044ea40 | melee1 |
+| The grunts' close attack (within m_h2hMin 20 at a burst's or the clip's end, anim 0x5f / 0x60, "hit" within m_h2hMax 10: 50; Q112 25 / 35, 100) | melee.rs | 0x00428160, 0x0043eae0 | close_attack |
 | A hidden grunt knocked away when his host (during the move or at the trigger) or his landing building is destroyed | ic.rs | 0x0042f5c0, 0x00425be0, ai_06.cpp:278-300 | ic_knock_l1m3 |
 | Same-tag squads share a halt down squad_sequence (no shipped pair shares a tag) | squad.rs | 0x00433bc0 | unit test |
 

@@ -12,7 +12,7 @@
  {"expect": {"tower.phase": "planting", "tower.health": 500, "mission_obj.alarm_forced": true, "tower.timer": [110, 120]}},
  {"until": "message"}, {"wait": 0.2}, {"tap": "Enter"},
  {"wait": 33.0},
- {"expect": {"tower.phase": "bomb_loop", "tower.planted": 8, "tower.pos.x": [1605, 1640], "tower.pos.y": [-40, -10]}},
+ {"expect": {"tower.phase": "bomb_loop", "tower.planted": 8, "tower.health": 500, "tower.pos.x": [1605, 1640], "tower.pos.y": [-40, -10]}},
  {"skip_timers": 80.0},
  {"wait": 0.5},
  {"expect": {"mission_obj.finished": false, "tower.timer": [1, 6]}},

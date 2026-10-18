@@ -820,8 +820,8 @@ fn grunts(
                 }
             }
             // ready: the stand set (2, 3, 0, 1 at 0.5, 0.5); no fidgets (0x00427330 needs anim 0xf playing)
-            // (a bully between scares: the stand set, bully.rs)
-            Mind::Guard | Mind::WaitTrigger | Mind::Roam | Mind::Bully => {
+            // (a bully between scares: the stand set, bully.rs; one held by a companion: GruntObject_Slot66's set)
+            Mind::Guard | Mind::WaitTrigger | Mind::Roam | Mind::Bully | Mind::Held => {
                 four(&mut a, &g, [0, 1, 2, 3], true, 0.5, 0.5);
                 continue;
             }
@@ -953,15 +953,19 @@ fn random(rand: &mut impl FnMut() -> u32, lo: f32, hi: f32) -> f32 {
 
 /// The companions' anims (their tables 0x004876c0 / 0x0044ef20): run (run_reload while reloading on the move),
 /// reload_br, the four fire poses blended by the aim elevation (as the grunts'), else the idle poses.
-fn companions(mut q: Query<(&Companion, &mut Animator, &Name, Option<&crate::ai::tower::TowerTask>, Has<crate::ai::melee::Fighting>)>) {
-    for (c, mut a, name, task, fighting) in &mut q {
+fn companions(mut q: Query<(&Companion, &mut Animator, &Name, Option<&crate::ai::tower::TowerTask>)>) {
+    for (c, mut a, name, task) in &mut q {
         a.blend = AI_BLEND;
         let who = if name.as_str() == "molmer" { "molmer" } else { "q111" };
         if c.dead.is_some() {
             a.play(0, &format!("{who}_die"), false, Mask::All);
             a.stop(1);
-        } else if task.is_some_and(|t| t.at_marker()) || fighting {
-            // the tower task's IC anims (ai/tower.rs plays them), the hand-to-hand fight's (ai/melee.rs)
+        } else if c.ic || task.is_some_and(|t| t.at_marker()) {
+            // an IC anim: the tower task's, a close kill's (ai/tower.rs, ai/close_kill.rs play them)
+        } else if let Some((n, looping)) = c.pose {
+            // a full-body anim his state asks for (the stun's hang, ai/carried.rs)
+            a.play(0, n, looping, Mask::All);
+            a.stop(1);
         } else if let Some((n, _)) = c.hit {
             a.play(0, &format!("{who}_{n}"), false, Mask::All);
             a.stop(1);
