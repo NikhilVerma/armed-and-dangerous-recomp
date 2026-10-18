@@ -6,7 +6,7 @@
 //!   level load and whenever it changes; switched off, it clears the flag (a code typed on the Cheats page still works
 //!   as before).
 //! - [`DevCommand`]: everything the menu, the hotkeys and the command line can do (toggles, actions, a level by name).
-//! - Hotkeys: F1 the developer menu (pad: View / Create), F5 quick save, F9 quick load, F8 a bookmark (session.rs).
+//! - Hotkeys: F1 the developer menu (pad: View / Create held + Y / Triangle), F5 quick save, F9 quick load, F8 a bookmark (session.rs).
 //! - The command line: `--level lev_3_m1` starts in that level (the New Game setup, no title menu), `--dev
 //!   god,infammo,...` switches toggles on for the run ([`DevToggle::from_cli`]).
 //! - [`menu`]: the menu (egui; mouse / trackpad, keyboard and pad), [`overlay`]: FPS and state overlays,

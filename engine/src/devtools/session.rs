@@ -2,7 +2,7 @@
 //! reports and reproduction. Local files only; nothing leaves the machine. It is the game's own input as its window
 //! received it, never system-wide keyboard capture.
 //!
-//! A session is a folder `<root>/<YYYY-MM-DD_HH-MM-SS>` (UTC), root `%LOCALAPPDATA%/AndRemaster/sessions` (else
+//! A session is a folder `<root>/<YYYY-MM-DD_HH-MM-SS>` (local time on Windows, else UTC), root `%LOCALAPPDATA%/AndRemaster/sessions` (else
 //! `sessions/` next to the executable), holding:
 //! - `session.json`: when, the command line, the version;
 //! - `game.log`: every log line the game writes (info and up: warnings, errors) and panics with their backtrace
@@ -10,7 +10,7 @@
 //! - `events.jsonl`: the log's EVENT lines (levels loaded and restarted, mission events and triggers, saves and loads,
 //!   the campaign, developer toggles and actions, bookmarks) plus deaths and mission won / failed, with the time;
 //! - `state.jsonl`: the playtest state log (playtest.rs `PlayState`: Roman, health, the mission, the menus, ...) twice
-//!   a second;
+//!   a second, without its bulky debug lists (every placed object, grunt ids, sounds, fx) except every 10 s;
 //! - `inputs.jsonl`: per frame with input, the keys, mouse buttons, mouse motion and wheel, pad buttons, sticks and
 //!   triggers the game received, and the app state's changes;
 //! - `frames.jsonl`: frame-time statistics every 5 s (mean, p50, p95, p99, max, frames over 33 / 100 ms);
@@ -46,6 +46,10 @@ pub const KEEP_BYTES: u64 = 2 << 30;
 /// Frame-time statistics period (s), state log period (s).
 const FRAMES_PERIOD: f32 = 5.0;
 const STATE_PERIOD: f32 = 0.5;
+/// The full state (with the [`BULKY`] lists) every this many seconds.
+const FULL_STATE_PERIOD: f32 = 10.0;
+/// The state log's large debug lists (25 KB of a 30 KB line on lev_1_m1), kept out of the twice-a-second lines.
+const BULKY: [&str; 5] = ["objects", "grunt_ids", "audio", "fx", "sounds_missing"];
 
 /// The files the log layer and the panic hook write (they run outside the ECS).
 struct Shared {
@@ -92,6 +96,37 @@ pub fn stamp(unix_secs: u64) -> String {
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = yoe + era * 400 + i64::from(m <= 2);
     format!("{y:04}-{m:02}-{d:02}_{:02}-{:02}-{:02}", s / 3600, s / 60 % 60, s % 60)
+}
+
+/// The local date and time now as "YYYY-MM-DD_HH-MM-SS" (Windows: GetLocalTime, so the folder names match the
+/// player's clock), else the UTC [`stamp`].
+fn local_stamp(unix_secs: u64) -> String {
+    #[cfg(windows)]
+    {
+        #[repr(C)]
+        #[derive(Default)]
+        struct SystemTime16 {
+            year: u16,
+            month: u16,
+            day_of_week: u16,
+            day: u16,
+            hour: u16,
+            minute: u16,
+            second: u16,
+            millis: u16,
+        }
+        #[link(name = "kernel32")]
+        unsafe extern "system" {
+            fn GetLocalTime(st: *mut SystemTime16);
+        }
+        let mut t = SystemTime16::default();
+        // SAFETY: GetLocalTime fills the SYSTEMTIME it is given (eight u16 fields, the layout above)
+        unsafe { GetLocalTime(&mut t) };
+        if t.year > 1900 {
+            return format!("{:04}-{:02}-{:02}_{:02}-{:02}-{:02}", t.year, t.month, t.day, t.hour, t.minute, t.second);
+        }
+    }
+    stamp(unix_secs)
 }
 
 /// A session folder's name ("YYYY-MM-DD_HH-MM-SS", maybe "_N" after it): only these are ever deleted.
@@ -165,7 +200,7 @@ pub fn prune(root: &Path, current: &str, max_n: usize, max_bytes: u64) -> usize 
 /// (the log layer reads it). None when the folder cannot be made.
 pub fn start(root: &Path) -> Option<Session> {
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-    let base = stamp(now);
+    let base = local_stamp(now);
     let mut name = base.clone();
     let mut k = 2;
     while root.join(&name).exists() {
@@ -194,6 +229,7 @@ pub fn start(root: &Path) -> Option<Session> {
         window: Vec::new(),
         window_t: 0.0,
         next_state: 0.0,
+        next_full: 0.0,
         next_flush: 1.0,
     })
 }
@@ -303,6 +339,7 @@ pub struct Session {
     window: Vec<f32>,
     window_t: f32,
     next_state: f32,
+    next_full: f32,
     next_flush: f32,
 }
 
@@ -480,8 +517,13 @@ fn state_log(mut s: ResMut<Session>, time: Res<Time<Real>>, state: Option<ResMut
         serde_json::json!({ "n": m.n, "note": m.note, "screenshot": m.dir.join("screenshot.png").is_file(), "save": m.dir.join("save.json").is_file() })
     });
     st.0.insert("session".into(), serde_json::json!({ "dir": s.dir.to_string_lossy(), "bookmarks": s.marks.len(), "last": last }));
-    let mut line = st.0.clone();
+    let full = now >= s.next_full;
+    if full {
+        s.next_full = now + FULL_STATE_PERIOD;
+    }
+    let mut line: serde_json::Map<String, serde_json::Value> = st.0.iter().filter(|(k, _)| full || !BULKY.contains(&k.as_str())).map(|(k, v)| (k.clone(), v.clone())).collect();
     line.insert("t".into(), ((elapsed() * 100.0).round() / 100.0).into());
+    line.insert("full".into(), full.into());
     line.insert("app_state".into(), format!("{:?}", app_state.get()).into());
     let _ = writeln!(s.state, "{}", serde_json::Value::Object(line));
     // in normal play nothing else takes the mission events the state gathers (playtest.rs log_state does in scripts)

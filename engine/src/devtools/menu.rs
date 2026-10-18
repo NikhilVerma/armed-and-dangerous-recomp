@@ -1,4 +1,4 @@
-//! The developer menu: F1 anywhere (the title, play, the pause menu), the pad's View / Create button, or the
+//! The developer menu: F1 anywhere (the title, play, the pause menu), the pad's View / Create + Y / Triangle, or the
 //! "Developer menu" button shown under the title and pause menus (a click or a trackpad tap). Drawn with egui over the
 //! game; the game pauses under it when it opened in play.
 //!
@@ -117,9 +117,9 @@ fn items(page: DevPage, c: &Context) -> Vec<Item> {
     }
 }
 
-/// The View (Xbox) / Create (PlayStation) button of the pad in use.
+/// The pad's chord: View / Create held and Y / Triangle pressed (a chord, so a stray View press never opens it).
 fn pad_view(pads: &Query<&Gamepad>, active: &crate::input::ActivePad) -> bool {
-    pads.iter().any(|p| p.just_pressed(GamepadButton::Select)) && (active.0.is_some() || crate::input::pad_active())
+    pads.iter().any(|p| p.pressed(GamepadButton::Select) && p.just_pressed(GamepadButton::North)) && (active.0.is_some() || crate::input::pad_active())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -231,7 +231,7 @@ fn input(
 /// The prompt line for the device in use (keyboard and mouse, or the pad).
 fn hints() -> &'static str {
     if crate::input::pad_active() {
-        "D-pad / stick: choose    A / Cross: select    B / Circle: back    View / Create: close"
+        "D-pad / stick: choose    A / Cross: select    B / Circle: back    View + Y: close"
     } else {
         "Click or Up / Down + Enter    Left / Right: toggle    Esc: back    F1: close"
     }
@@ -247,7 +247,7 @@ fn draw(
     let ctx = contexts.ctx_mut()?;
     if !overlay.open() && matches!(state.get(), AppState::Title | AppState::Paused) && matches!(game_menu.on_screen(), Some(crate::gamemenu::Page::Main | crate::gamemenu::Page::Pause)) {
         // the way in for the mouse / trackpad, under the game's own menus
-        let key = if crate::input::pad_active() { "View" } else { "F1" };
+        let key = if crate::input::pad_active() { "View + Y" } else { "F1" };
         egui::Area::new(egui::Id::new("dev_menu_button")).anchor(egui::Align2::LEFT_BOTTOM, [12.0, -12.0]).show(ctx, |ui| {
             if ui.button(format!("Developer menu ({key})")).clicked() {
                 menu.open_request = true;

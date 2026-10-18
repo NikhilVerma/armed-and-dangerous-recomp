@@ -685,6 +685,25 @@ PRAYTOME god mode, MISSIONS / AMATINEE unlock levels / movies, WAAAAAAH upside-d
 as Cheats_Check 0x004107c0 does, messages from the text bank (cheats.rs). The big-part scale (x2) is a guess.
 Trap: systems that change joints must run after skin::AnimateSet (PostUpdate), or the animation overwrites them.
 
+## Developer tools and session recording (2026-10-18, agent-devtools)
+
+engine/src/devtools (remaster only): `DevToolsPlugin`. mod.rs: `DevSettings` (options.json "dev"), `DevToggle` (the
+cheat toggles drive `Cheats.active` through cheats.rs's flag constants: set at every level load and on change, cleared
+when switched off), `DevAction`, the `DevCommand` message (menu, hotkeys F5 / F9 / F8, command line `--level`,
+`--dev`), `DevOverlay` (a developer screen is open: the game's menus take no input, `overlay_closed` on
+gamemenu::navigate; opened in play, it pauses under the pause menu and resumes on close). menu.rs: the egui menu
+(pages Main / Levels / Weapons; keyboard and pad through input::Controls, mouse through egui; the state log's "dev":
+open, page, selected label, toggles on, cheat flags). overlay.rs: FPS and state overlays, egui zoom by window height.
+session.rs: per-launch session folder (`%LOCALAPPDATA%/AndRemaster/sessions/<local time>`; a tracing layer in the
+LogPlugin writes game.log and the EVENT lines to events.jsonl; a panic hook writes panic.txt with a backtrace;
+state.jsonl 2 Hz with the bulky lists every 10 s; inputs.jsonl; frames.jsonl; F8 bookmarks with screenshot, save and
+note; retention 20 sessions / 2 GiB). Tool runs record only with a script's "session": true or AND_SESSION_DIR.
+tools/session.py lists / summarises sessions and turns a bookmark into a playtest. Tests: devmenu_toggles,
+devmenu_level, devmenu_title, devtools_quicksave, devtools_bookmark, unit tests (retention, stamps, menu items, toggles)
+and pyunit (tools/test_session.py). Cost: 4K Remaster bench 117.1-117.3 fps with and without recording (driver cap).
+Note: `PlayState` is filled every frame in normal play too (it always existed), so the session's state log adds only
+its 2 Hz serialisation; in normal play the session drains the state's "events" list, which grew without bound before.
+
 ## Ragdolls
 
 `engine/src/ragdoll.rs`: a dying character with a skeleton becomes a Jolt ragdoll (oxijolt `RagdollSettings`), with

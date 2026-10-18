@@ -107,6 +107,12 @@ SUITE += ['max_fire_l1m4', 'captain_grenade', 'captain_rocket', 'gunner_lead', '
 # cannon (lev_2_m1): woken, moving, targeting Roman, firing, hit, destroyed
 # 'unit': the engine's Rust unit tests (cargo test --release into the same target dir: pure logic such as the
 # object model's damage filters, trigger fields and husk picks, the HUD feed wrapping)
+# the developer tools (engine/src/devtools; docs/play-guide.md): the menu from play (F1) toggles god mode (two blasts
+# do nothing, then one hurts with it off), infinite ammo and big heads through the cheat flags, Full health; level select
+# from play and from the title loads the chosen level with the New Game setup; F5 / F9 quick save and load round trip;
+# F8 writes a bookmark with its screenshot and save into the script's session folder; 'pyunit': tools/test_*.py
+# (tools/session.py's summary and bookmark-to-playtest conversion)
+SUITE += ['devmenu_toggles', 'devmenu_level', 'devmenu_title', 'devtools_quicksave', 'devtools_bookmark', 'pyunit']
 # scripts kept in git (engine/playtests) win over work/remaster/play
 TRACKED = os.path.join(ROOT, 'engine', 'playtests')
 # the wall-clock checks (--perf; their "expect_perf" steps run only with AND_PERF=1)
@@ -134,6 +140,16 @@ if not os.path.exists(os.path.join(PLAY, 'states', 'after_pub.json')):
     subprocess.run([sys.executable, os.path.join(ROOT, 'tools', 'playtest.py'), os.path.join(PLAY, 'state_after_pub.json'), '--exe', a.exe] + extra)
 bad = 0
 for name in a.names or (PERF if a.perf else LONG if a.long else SUITE + LONG if a.all else SUITE):
+    if name == 'pyunit':
+        p = subprocess.run([sys.executable, '-m', 'unittest', 'discover', '-s', os.path.join(ROOT, 'tools'), '-p', 'test_*.py'],
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors='replace')
+        res = re.search(r'Ran (\d+) tests?', p.stdout)
+        ok = p.returncode == 0 and res is not None
+        bad += not ok
+        print(f"{'ok  ' if ok else 'FAIL'} pyunit: {res.group(1) + ' tests' if res else 'no result'}")
+        for l in [l for l in p.stdout.splitlines() if l.startswith(('FAIL:', 'ERROR:'))][:5]:
+            print('     ', l)
+        continue
     if name == 'unit':
         env = dict(os.environ, CARGO_TARGET_DIR=os.path.join(ROOT, 'engine', a.exe))
         cargo = os.path.join(os.path.expanduser('~'), '.cargo', 'bin', 'cargo')
