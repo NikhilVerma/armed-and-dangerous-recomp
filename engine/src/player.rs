@@ -1471,7 +1471,7 @@ pub fn landing_damage(peak_vz: f32, d: &LandingDamage) -> Option<f32> {
 }
 
 /// The playtest state log's player fields (weapons, reload, switch, jump, specials, live sticky bombs).
-fn player_state(state: Option<ResMut<crate::playtest::PlayState>>, q: Query<(&Roman, &Transform)>, bombs: Query<&crate::sticky::StickyBomb>, banter: Res<Banter>, held: Query<(&crate::level::HandWeapon, &Visibility)>) {
+fn player_state(state: Option<ResMut<crate::playtest::PlayState>>, q: Query<(&Roman, &Transform)>, bombs: Query<&crate::sticky::StickyBomb>, banter: Res<Banter>, held: Query<(&crate::level::HandWeapon, &Visibility)>, grunts: Query<(), With<crate::ai::Grunt>>) {
     let (Some(mut s), Ok((r, t))) = (state, q.single()) else { return };
     let m = &mut s.0;
     let r1 = |v: f32| ((v * 100.0).round() / 100.0) as f64;
@@ -1494,6 +1494,8 @@ fn player_state(state: Option<ResMut<crate::playtest::PlayState>>, q: Query<(&Ro
     m.insert("landing".into(), r.landing.map_or("", |l| l.0).into());
     m.insert("sticky_live".into(), bombs.iter().count().into());
     m.insert("sticky_stuck".into(), bombs.iter().filter(|b| b.is_stuck()).count().into());
+    m.insert("sticky_homing".into(), bombs.iter().filter(|b| b.is_homing()).count().into());
+    m.insert("sticky_on_character".into(), bombs.iter().filter(|b| b.stuck_to().is_some_and(|o| grunts.contains(o))).count().into());
     m.insert("banter_lines".into(), banter.lines.into());
     let mut hand: Vec<&str> = held.iter().filter(|(_, v)| **v != Visibility::Hidden).map(|(w, _)| w.name()).collect();
     hand.sort();

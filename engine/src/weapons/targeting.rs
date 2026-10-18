@@ -107,10 +107,15 @@ pub const SLACK: f32 = 4.66;
 /// A pass over the candidates (nearest the eye first): see the module docs. `passable` says which bodies the line
 /// of sight passes (other characters).
 pub fn search(view: &View, mut cands: Vec<Candidate>, factors: (f32, f32), range: f32, max: usize, physics: &Physics, passable: impl Fn(Entity) -> bool) -> Vec<Target> {
+    // the dead are left out before the 21 are counted: the original's list (+0xe8c) loses a character when he goes
+    // down (GoRagdoll 0x00431310 unlinks him) and its bodies are gone in 5 s, while the remaster keeps up to 48 bodies
+    // (corpses.rs): after a fight the nearest 21 were all bodies and the sticky bomb found no one to home on (the
+    // player's report, 2026-10-18; playtest sticky_homing_bodies)
+    cands.retain(|c| !c.dead);
     cands.sort_by(|a, b| a.origin.distance(view.eye).total_cmp(&b.origin.distance(view.eye)));
     let mut out = Vec::new();
     for c in cands.into_iter().take(21) {
-        if c.dead || !view.contains(c.centre, SLACK, factors) {
+        if !view.contains(c.centre, SLACK, factors) {
             continue;
         }
         let to = c.hit - view.eye;

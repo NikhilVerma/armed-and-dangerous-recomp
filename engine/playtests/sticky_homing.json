@@ -1,0 +1,13 @@
+{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+ {"wait": 1.0},
+ {"warp": [-271, 680, 80, 180]},
+ {"spawn": [-275, 620, 80]},
+ {"wait": 1.0},
+ {"expect": {"special": "stickybomb", "sticky_live": 0}},
+ {"click": "Right"},
+ {"wait": 0.5},
+ {"expect": {"sticky_live": 1, "sticky_homing": 1}},
+ {"wait": 1.5},
+ {"expect": {"sticky_stuck": 1, "sticky_on_character": 1}},
+ {"quit": true}
+]}

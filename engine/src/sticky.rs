@@ -59,6 +59,10 @@ impl StickyBomb {
     pub fn is_stuck(&self) -> bool {
         self.stuck.is_some()
     }
+    /// homing on a character's hit bone (the target the throw picked, still alive)
+    pub fn is_homing(&self) -> bool {
+        self.target.is_some()
+    }
 }
 
 /// The bomb's collision radius (Object_BuildRadiusCollision 0x004527d0 from its model's bounds: not read; guess 1.5
@@ -139,7 +143,7 @@ fn throw(
     // view volume narrowed by autoaim_sticky_factor_horz / vert in clip space from the CAMERA (0x00408390: |x_ndc| <=
     // 0.04, |y_ndc| <= 0.12 at the current FOV; aspect 1.7204), each candidate's model bounds centre with a slack R =
     // (half diagonal + smallest half extent) / 2 (grunt_1: centre ~4.9 up, R ~4.66); candidates the 21 nearest to the
-    // eye (Roman + 4) by their origin, dead ones counted (fn_00408190); the first out of sticky_bomb_range ends the
+    // eye (Roman + 4) by their origin, the living only (fn_00408190; targeting.rs search); the first out of sticky_bomb_range ends the
     // search; the line of sight from the eye to the target's ref_hit_00 (d + 10) is blocked only by the level and
     // props, not by other characters
     let eye = rt.translation + Vec3::Y * 4.0;
