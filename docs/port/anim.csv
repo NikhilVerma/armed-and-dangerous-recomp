@@ -48,7 +48,7 @@ address,name,disposition,reason
 0x004ebc30,fn_004ebc30,replaced,"linear scalar key sampler: the exporter samples with the game's own samplers at every frame, skin.rs / campath.rs lerp between frames"
 0x004ebe60,fn_004ebe60,replaced,"packed quaternion squad sampler (the four neighbouring keys, 0x004f1920 / 0x004f16b0): the exporter samples with the game's own samplers at every frame, skin.rs slerps between frames"
 0x0043aaa0,fn_0043aaa0,replaced,"GoliathObject vt+0x1a4, the anim for an interaction type (goliath_walk / goliath_stand): goliath.rs plays those two from its mover script"
-0x0043c600,fn_0043c600,deferred,"feature: peasants; PeasantGenAI vt+0x1a4 (Peasant_blown_up_chair / _2): civilians thrown out of a destroyed building (toss_peasants), not ported (ai.csv PeasantGenAI_Slot6)"
+0x0043c600,fn_0043c600,ported,engine/src/peasant/toss.rs chair_anim
 0x0043c630,fn_0043c630,replaced,"SaucerObject vt+0x1a4 (saucer_hover_low): vehicles/mover.rs plays the saucer's IC path and the body anims its notes name"
 0x0043c6e0,fn_0043c6e0,replaced,"ColossusObject vt+0x1a4, the anim for an interaction type (colossus_stand / _walk / colussus_scan / colussus_run_fire ...): vehicles/boss.rs picks colossus_walk / colossus_stand by its own state"
 0x004580a0,fn_004580a0,ported,engine/src/ai/aim.rs lead_point: the gunner's flag-1 aim and shots at the target led for 360 / s

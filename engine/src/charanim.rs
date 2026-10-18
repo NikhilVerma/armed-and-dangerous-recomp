@@ -111,6 +111,10 @@ pub mod mode {
     pub const TOPSY_TURN: u32 = 33;
     pub const TOPSY_HANG: u32 = 34;
     pub const TOPSY_BACK: u32 = 35;
+    /// the knockout bomb (weapons/glove.rs, game_05.cpp:1825-1850): trotter_windup while the glove waits (+0xa34
+    /// 0x8000000), then trotter_punch_1 / _2 / _3 (0x10000000 / 0x20000000 / 0x40000000), once each
+    pub const WINDUP: u32 = 36;
+    pub const PUNCH_1: u32 = 37;
     /// trotter_blackhole_pull: standing while a black hole sucks (0x00476a10, game_05.cpp:1930)
     pub const BLACKHOLE_PULL: u32 = 40;
 }
@@ -417,7 +421,7 @@ fn roman(
     mut rng: ResMut<crate::fx::FxStats>,
     mut tw: ResMut<Twist>,
     (mut table, lib, mut st, ps): (ResMut<PlayerAnimTable>, Res<crate::skin::AnimLibrary>, crate::levelreset::PerLevel<RomanAnim>, Option<ResMut<crate::playtest::PlayState>>),
-    suction: Res<crate::weapons::blackhole::Suction>,
+    (suction, glove): (Res<crate::weapons::blackhole::Suction>, Res<crate::weapons::glove::Glove>),
 ) {
     if !table.loaded {
         table.load(&lib.dir);
@@ -457,6 +461,11 @@ fn roman(
             crate::topsy::Phase::Off => None,
         };
         if let (Some(m), false) = (t, r.dead) {
+            play(a, m, state::NONE);
+            continue;
+        }
+        // the knockout bomb's glove (modes 0x24..0x27): the windup while it waits, a punch while Fire is held
+        if let (Some(m), false) = (glove.anim_mode(), r.dead) {
             play(a, m, state::NONE);
             continue;
         }

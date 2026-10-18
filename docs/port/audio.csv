@@ -1,6 +1,6 @@
 address,name,disposition,reason
 0x004058f0,fn_004058f0,ported,"peasant.rs"
-0x0040d250,fn_0040d250,ported,"engine/src/ai/dialogue.rs tossed_speaker (its table TOSSED; the caller, a building's toss_peasants 0x0040d390, is feature peasants)"
+0x0040d250,fn_0040d250,ported,"engine/src/ai/dialogue.rs tossed_speaker (its table TOSSED), asked by engine/src/peasant/toss.rs after a thrown man's scream"
 0x0041bd70,fn_0041bd70,replaced,an FxObject's audio position (its matrix translation): a voice on an entity follows its GlobalTransform (audio.rs update_voices)
 0x0041bdd0,FxEarObject_LoadProperties,replaced,FxEarObject properties: the export reads them (tools/remaster_export_mission.py fx_ear edges) and mission.rs Action::Fx starts the fx on its trigger
 0x00434180,fn_00434180,deferred,feature: goliath-extras; Goliath is not in lev_1_m1 (scene.json templates); no gol lines in the bank
@@ -39,8 +39,8 @@ address,name,disposition,reason
 0x00439de0,fn_00439de0,replaced,"the line pick (one of the category's lines of the speaker's voice set, (rand() x range) >> 15) is SoundBank::resolve (@grunt:<category>:<set>[:last<N>|butlast<N>], audio.rs) and the cue's caller in ai.rs plays it on the character; the per-character handles (+0xb4c scream, +0xb50 line: no second scream while one plays, a death line stops the line) are not ported (open, docs/subsystems/audio.md)"
 0x00439ed0,fn_00439ed0,replaced,"the line pick (one of the category's lines of the speaker's voice set, (rand() x range) >> 15) is SoundBank::resolve (@grunt:<category>:<set>[:last<N>|butlast<N>], audio.rs) and the cue's caller in ai.rs plays it on the character; the per-character handles (+0xb4c scream, +0xb50 line: no second scream while one plays, a death line stops the line) are not ported (open, docs/subsystems/audio.md)"
 0x00439f00,fn_00439f00,replaced,"the line pick (one of the category's lines of the speaker's voice set, (rand() x range) >> 15) is SoundBank::resolve (@grunt:<category>:<set>[:last<N>|butlast<N>], audio.rs) and the cue's caller in ai.rs plays it on the character; the per-character handles (+0xb4c scream, +0xb50 line: no second scream while one plays, a death line stops the line) are not ported (open, docs/subsystems/audio.md)"
-0x00439f30,AIVoice_PlayDeadAtPosition,ported,"engine/src/goliath.rs guard (a dead goliath's GOL50001_Dead at its position, not kept; it is the goliath's DeadAtPosition slot, vtable data 0x005af3ec)"
-0x00439f70,AIVoice_PlayCapturedOrAmbient,deferred,feature: peasants; no PE1500xx_PeasantCaptured / GOL lines in the lev_1_m1 bank (audio/sounds.json): the call plays nothing in lev_1_m1 (Twiglet class)
+0x00439f30,AIVoice_PlayDeadAtPosition,ported,"engine/src/goliath.rs guard (a dead goliath's GOL50001_Dead at its position, not kept; GoliathObject 0x005af298's Dead slot, vtable data 0x005af3ec)"
+0x00439f70,AIVoice_PlayCapturedOrAmbient,not needed,"dead in the shipped game: GoliathObject vtable 0x005af298 slot 152 (+0x260, the only reference: .rdata 0x005af4f8); no code calls vt+0x260 (no call [reg+0x260] in .text: scan 2026-10-18) and coverage.json counts 0 calls over the 24 levels"
 0x0043a100,AIVoice_Q12Hurt,ported,"engine/src/ai.rs think (Kind::Q112: vo_delay, kept as its line) with ai/q112.rs HURT_LINES"
 0x0043a2b0,AIVoice_Q12Dead,ported,engine/src/ai.rs die (Kind::Q112) with ai/q112.rs DEAD_LINES
 0x0043a300,fn_0043a300,ported,engine/src/ai.rs die (Kind::Q112): the Dead slot

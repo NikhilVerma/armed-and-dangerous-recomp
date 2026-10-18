@@ -1,6 +1,6 @@
 address,name,disposition,reason
 0x00414460,Controls_Init,replaced,"the controls object (Game+0xa80: device count, active device, consumed bits, bindings): input.rs InputPlugin spawns the bevy_enhanced_input contexts"
-0x00414580,fn_00414580,deferred,feature: untraced; clears Controls +0x18 (also cleared by Controls_Poll when a device gives input); nothing in the ported code reads it
+0x00414580,fn_00414580,not needed,"clears Controls +0x18, a field nothing reads: written by Controls_Init 0x00414460, Controls_Poll 0x004145c0 (twice) and this, read by no recovered function (grep of src/, 2026-10-18)"
 0x00414b20,Controls_IsCodeHeld,replaced,"one raw input code held on any device: the few raw reads (cheat typing, cursor, trackpad taps) use Bevy's ButtonInput directly"
 0x00414c90,Input_CodeNameId,replaced,an input code's PMS_INPUT_* text id (for the controls page): input.rs key() / keys() give each action's prompt (Kenney icons) per device
 0x00415580,Input_CodeText,replaced,an input code's display text: input.rs key() / keys()

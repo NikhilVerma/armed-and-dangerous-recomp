@@ -29,7 +29,7 @@ address,name,disposition,reason
 0x0040ce20,BarricadeObject_Slot56,deferred,"feature: barracks-windows; the window / exit troop dispatch and removal of the barracks-like generators (TwigletGenerator slots): lev_1_m1 barracks are run by mission.rs (0x0040ad80 / 0x0040c910 path, cited there); these window / roof variants have no instance"
 0x0040ce30,BarricadeObject_Slot57,deferred,"feature: barracks-windows; the window / exit troop dispatch and removal of the barracks-like generators (TwigletGenerator slots): lev_1_m1 barracks are run by mission.rs (0x0040ad80 / 0x0040c910 path, cited there); these window / roof variants have no instance"
 0x0040cef0,fn_0040cef0,deferred,"feature: barracks-windows; the window / exit troop dispatch and removal of the barracks-like generators (TwigletGenerator slots): lev_1_m1 barracks are run by mission.rs (0x0040ad80 / 0x0040c910 path, cited there); these window / roof variants have no instance"
-0x0040cf40,BarricadeObject_Slot53,deferred,"feature: barracks-windows; the window / exit troop dispatch and removal of the barracks-like generators (TwigletGenerator slots): lev_1_m1 barracks are run by mission.rs (0x0040ad80 / 0x0040c910 path, cited there); these window / roof variants have no instance"
+0x0040cf40,BarricadeObject_Slot53,deferred,"feature: barracks-windows; the window / exit troop dispatch and removal of the barracks-like generators (TwigletGenerator slots): lev_1_m1 barracks are run by mission.rs (0x0040ad80 / 0x0040c910 path, cited there); these window / roof variants have no instance. Its toss_peasants part (score_value_peasant_building, 0x0040d390 with villagers) is ported: engine/src/peasant/toss.rs"
 0x0040de00,JumpMarker_Slot55,replaced,the jump marker's removal: ai/jumper.rs JumpMarker is a component that goes with its entity
 0x0040de30,JumpMarker_Slot79,replaced,JumpMarker occupied test: ai/jumper.rs JumpMarker::occupant
 0x0040de40,JumpMarker_Slot82,replaced,JumpMarker free test: ai/jumper.rs MarkerView::free
@@ -78,13 +78,13 @@ address,name,disposition,reason
 0x0042dc20,fn_0042dc20,deferred,"feature: barracks-windows; the smoking (wounded) troop of a barracks exit slot and the cover window slot of the generators (0x0042d690, 0x0042dc20): the lev_1_m1 barracks have no window slots and no smoking troops (mission.rs)"
 0x0042de30,fn_0042de30,ported,"engine/src/ai/squad.rs: a member following the squad (state 0xdc, friction 0)"
 0x0042e910,fn_0042e910,ported,"engine/src/ai/fall.rs: the falling watchdog (vz < -20 for 0.2 s without a contact) into state 0x82, 5 s to live"
-0x0042f190,fn_0042f190,deferred,"feature: knockout-bomb; a grunt grabbed by the player's punching glove, knocked down (state 0x19a): physics off, the player targeted, the pursuit"
-0x0042f1d0,fn_0042f1d0,deferred,"feature: knockout-bomb; the glove's grab of a grunt (slot +0x120 from the player update, game_06.cpp:2924): idle set, state 0x19a"
-0x0042f2f0,fn_0042f2f0,deferred,"feature: knockout-bomb; the glove's launch of a held grunt toward the player's aim (slot +0x124, game_06.cpp:2432): ballistic velocity, state 0x19b"
-0x0042f470,fn_0042f470,deferred,"feature: punch-launch; slot 74 (+0x128): an AI punched by Roman (the contact callback 0x00477c90 in the punch states +0xa34 & 0x70000000) passes through him and is launched (the 0x83 message, 100), wpn_puncher_hit_*"
+0x0042f190,fn_0042f190,ported,engine/src/weapons/glove.rs: the glove lets go of the ones it holds (state 0x19a) when a flung one reaches Roman unpunched: back to the pursuit of Roman
+0x0042f1d0,fn_0042f1d0,ported,"engine/src/weapons/glove.rs use_glove / hold: the grab (state 0x19a, Mind::Held), flung at once in an IC move or on a turbo; the fling delay from Game+0xd1c x move_speed"
+0x0042f2f0,fn_0042f2f0,ported,"engine/src/weapons/glove.rs fling / flights: physics off, flail anim 0x49 / 0x4a, the ballistic homing on Roman's ref_hit_00 (state 0x19b and its update ai_06.cpp:3172), the landing as a ragdoll death"
+0x0042f470,fn_0042f470,ported,"engine/src/weapons/glove.rs flights: the punch: the 0x83 record's GoRagdoll from Roman (Character_Launch when 10 s passed, ai/launch.rs), wpn_puncher_hit_1..3 and wpn_puncher_cheer"
 0x0042fe50,fn_0042fe50,ported,"engine/src/ai/carried.rs (a teammate: anim 0x71, state 0xeb, the hang), engine/src/topsy.rs (an enemy's hang or fall), engine/src/ai/close_kill.rs `orphans` (a held grunt let go)"
 0x00430140,fn_00430140,ported,"engine/src/weapons/traitor.rs turn: the Guy Fawkes traitor (fx_guy_fawkes on ref_fawkes, the sides swapped: ai.rs search, player.rs team test; the run to the inner circle)"
-0x00431f70,GenericAIObject_Slot46,deferred,feature: untraced; slot 46: the AI's own +0x468 / +0x46c pair (an interest-like target) returns 0 for every lev_1_m1 grunt (nothing they run sets them: guess from the writers)
+0x00431f70,GenericAIObject_Slot46,replaced,"GenericAIObject vt+0xb8, the AI's ground contact query (the object it stands on +0x46c: struct atlas, BuildingObject / DefaultGameObject; the contact's normal +0x470..; the contact +0x468), asked 15M times through 0x00454bc0 / 0x00454be0 / 0x00454c20 / 0x00454c60 (game.csv: replaced): the AI bodies' contacts (ai/body.rs touched) and weapons/targeting.rs on_landscape (Physics::static_below against the landscape)"
 0x00431fd0,GenericAIObject_Slot42,replaced,"contact callbacks (slots 42 / 44: bumped by a body, the contact record +0x538 and list +0x518) and the list release 0x0043edb0: Jolt bodies collide; the per-state contact reactions are not ported (open: a grunt bumped by the player's car / props; none on lev_1_m1)"
 0x004320b0,GenericAIObject_Slot44,replaced,"contact callbacks (slots 42 / 44: bumped by a body, the contact record +0x538 and list +0x518) and the list release 0x0043edb0: Jolt bodies collide; the per-state contact reactions are not ported (open: a grunt bumped by the player's car / props; none on lev_1_m1)"
 0x00432590,GenericAIObject_Slot40,ported,engine/src/ai/body.rs: the collision veto (+0x50c / +0x510 groups) as contact rules
@@ -117,13 +117,13 @@ address,name,disposition,reason
 0x00434670,GruntLadderObject_Slot7,replaced,engine/src/ai/ladder.rs: the ladder takes no collision (Slot7: description 0x4000; nothing in the engine meets it)
 0x004346a0,BowGruntObject_Slot66,ported,"engine/src/ai/close_kill.rs `grab`: the grunt's answer to a companion's close kill (refusals, held standing, Mind::Held)"
 0x00434a80,fn_00434a80,not needed,dead code: no callers and no vtable references in the executable
-0x00434e10,GruntObject_Slot147,deferred,feature: armed-jaws; whether a grunt can be the jaws' target now (0x0047fa70 asks vt+0x10c and this slot): not in a grab / IC / stun / hold
+0x00434e10,GruntObject_Slot147,ported,"engine/src/weapons/targeting.rs can_be_bitten_now (the shark gun's pass and the shark's search, landshark.rs)"
 0x00434ea0,GruntObject_Slot66,ported,engine/src/ai/close_kill.rs `grab` (as BowGruntObject_Slot66)
 0x00435220,Q112Object_Slot53,ported,engine/src/ai.rs die (Kind::Q112): its eye loop stopped and its Dead line (ai/q112.rs)
-0x00435260,PeasantGenAI_Slot6,deferred,"feature: peasants; civilians thrown out of a destroyed building (toss_peasants): buildings subsystem, not ported"
-0x00435330,PeasantGenAI_Slot55,deferred,"feature: peasants; civilians thrown out of a destroyed building (toss_peasants): buildings subsystem, not ported"
-0x00435380,PeasantGenAI_Slot64,deferred,"feature: peasants; civilians thrown out of a destroyed building (toss_peasants): buildings subsystem, not ported"
-0x004353b0,PeasantGenAI_Slot95,deferred,"feature: peasants; civilians thrown out of a destroyed building (toss_peasants): buildings subsystem, not ported"
+0x00435260,PeasantGenAI_Slot6,ported,engine/src/peasant/toss.rs: a thrown villager made with PeasantGenAI's move_speed 40 (MOVE_SPEED)
+0x00435330,PeasantGenAI_Slot55,ported,engine/src/peasant/toss.rs chairs_go: the chair goes with the villager's body
+0x00435380,PeasantGenAI_Slot64,deferred,feature: character-fade; the villager's fade passed on to his chair (+0xb58 vt+0x100) and Character_SetFade 0x0042eb60: the chair does not fade with the body (peasant/toss.rs)
+0x004353b0,PeasantGenAI_Slot95,ported,"engine/src/peasant/toss.rs fly / drop_chair: the landing: the chair let go with the villager's velocity and 5..8 up, the villager a ragdoll (GoRagdoll quiet)"
 0x00435770,Q112Boss_Slot8,ported,cited: vehicles/boss.rs (the boss target tags / its destroy)
 0x00435860,Q112Boss_Slot55,ported,cited: vehicles/boss.rs (the boss target tags / its destroy)
 0x00436090,SaucerObject_Slot6,ported,cited: vehicles/boss.rs (TurretBossInit of the saucer / zeppelin)

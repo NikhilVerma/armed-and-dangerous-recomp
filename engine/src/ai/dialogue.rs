@@ -4,7 +4,7 @@
 //!
 //! - the kill meter's dismay (MissionObject_Update 0x0044d150, table 0x005ce570, test 0x0044da10, ai.rs `dismay`);
 //! - the line after a peasant is thrown out of a building (game_01.cpp:1989, table 0x005fb6d0, test 0x0040d250: the
-//!   buildings' toss_peasants, not ported yet: feature `peasants`);
+//!   buildings' toss_peasants, peasant/toss.rs);
 //! - the idle banter (0x0047b730, table 0x005ce350, test 0x0047b520, player.rs `idle_banter`).
 //!
 //! A test says who speaks: Roman's lines play without a position (audio +0xd0), a companion's on him (+0xcc) and
@@ -98,7 +98,6 @@ pub fn dismay_speaker(line: &'static str, cast: &Cast) -> Option<Said> {
 
 /// The tossed peasant's speaker test 0x0040d250: as the dismay's, and JON50172_Dismay / Q1150162_Dismay only while the
 /// level's list +0xf04 is not empty (`listed`: which list that is was not traced).
-#[allow(dead_code)] // its caller, a building's toss_peasants, is feature peasants
 pub fn tossed_speaker(line: &'static str, cast: &Cast, listed: bool) -> Option<Said> {
     let said = companion_or_roman(line, cast)?;
     let exclusive = match said.speaker {
@@ -213,7 +212,6 @@ impl LineBag {
 #[derive(Resource)]
 pub struct Bags {
     pub dismay: LineBag,
-    #[allow(dead_code)] // (feature peasants)
     pub tossed: LineBag,
     pub idle: LineBag,
 }

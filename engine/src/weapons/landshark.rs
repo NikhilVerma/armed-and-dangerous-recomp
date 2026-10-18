@@ -24,7 +24,7 @@
 //!   swims to that circle from farther than 30. Its time up and no target: it sinks (7 a second) and is gone below -10.
 //!   The fin shows above the ground only near the surface depth.
 
-use super::targeting::can_be_bitten;
+use super::targeting::can_be_bitten_now;
 use super::{GunFired, WeaponId};
 use crate::physics::Physics;
 use bevy::prelude::*;
@@ -218,7 +218,7 @@ fn swim(
     data: Res<crate::gamedata::GameData>,
     (mut sounds, mut stop): (MessageWriter<crate::audio::PlaySound>, MessageWriter<crate::audio::StopVoice>),
     (mut rng, mut stats, mut log): (ResMut<crate::fx::FxStats>, ResMut<crate::player::PlayerStats>, ResMut<super::WeaponStats>),
-    (gone, carried): (Query<(), With<Bite>>, Query<(), With<super::blackhole::Carried>>),
+    (gone, carried): (Query<(), With<Bite>>, Query<(), Or<(With<super::blackhole::Carried>, With<crate::topsy::Thrown>, With<super::glove::Gloved>)>>),
 ) {
     let dt = time.delta_secs();
     if dt <= 0.0 {
@@ -294,7 +294,7 @@ fn swim(
                 let eye = p + Vec3::Y * 6.0;
                 let best = grunts
                     .iter()
-                    .filter(|(ge, g, _, _, _)| g.mind != crate::ai::Mind::Dead && can_be_bitten(g) && !carried.contains(*ge))
+                    .filter(|(ge, g, gt, _, _)| can_be_bitten_now(g, carried.contains(*ge), &physics, gt.translation()))
                     .map(|(ge, _, gt, _, _)| (ge, gt.translation() + Vec3::Y * 5.0))
                     .filter(|(_, c)| c.distance(eye) <= s.range)
                     .filter(|(ge, c)| super::targeting::in_sight(&physics, eye, *c, *ge, &|_| false))

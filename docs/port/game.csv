@@ -33,7 +33,7 @@ address,name,disposition,reason
 0x004087b0,fn_004087b0,replaced,an animation range of the object's table: charanim.rs
 0x004087d0,fn_004087d0,replaced,clears the object's four animation slots (+0x248): charanim.rs layers
 0x00408800,fn_00408800,replaced,the object's animation slot entry (+0x248 + slot * 0x20): charanim.rs layers
-0x0040d390,fn_0040d390,deferred,"feature: barracks-windows; characters spawned by a barricade / generator breach (0x0040cf40, ai.csv): not on lev_1_m1"
+0x0040d390,fn_0040d390,deferred,feature: barracks-windows; the soldiers' part (toss_grunts: a grunt_regular or captain blown out of a breached barricade / generator with the 0x8003 record); the villagers' part (toss_peasants) is ported: engine/src/peasant/toss.rs
 0x0040df90,fn_0040df90,not needed,"JumpMarker slot 0x54 is the cover-slot interface's (states 0x1f / 0x28 / 0xa0, 0x00429f00 read +0x904 objects of the cover list World+0xed4); jump markers are in World+0xf10, never in +0xed4: no caller reaches it for a marker"
 0x0040dfa0,fn_0040dfa0,ported,engine/src/ai/jumper.rs / ai.rs: the marker taken at the launch (JumpMarker::occupant)
 0x0040dfb0,fn_0040dfb0,ported,"engine/src/ai/jumper.rs Jumper::leave / free_markers: freed at the next launch or the death, not at the landing"
@@ -65,7 +65,7 @@ address,name,disposition,reason
 0x0044f4a0,fn_0044f4a0,replaced,music request record reset at Game_Init (0x0044f4c0; the objective jingle 0x0044f560): gameaudio.rs Music
 0x00450af0,DefaultGameObject_Collide,deferred,"feature: object-collision; collision reactions (on_hit_damage, crush, on_hit_fx, boulder sound, on_hit_death): only the village windows have one (on_hit_death) and the recorded runs never reach it; needs contact events on static colliders (physics.rs)"
 0x00450fa0,DefaultGameObject_GetGravity,deferred,feature: object-collision; gravity getter: no lev_1_m1 object sets gravity
-0x00451040,fn_00451040,deferred,feature: untraced; DefaultGameObject vtable 0x005ab650 (class 38) damage + Game+0xdd1: not used on lev_1_m1
+0x00451040,fn_00451040,ported,"the turret_upgrade object's damage slot (class 38, behaviour turret_upgrade = p_shootable_turret_upgrade, defence levels): its death sets Game+0xdd1, the base turret's ammo upgrade: engine/src/icobject.rs DropKind::TurretUpgrade -> TurretUpgrade -> defence.rs"
 0x00451070,RocketTowerBuilding_Remove,ported,cited: vehicles/rocket_turrets.rs (the removal stops the turn loop)
 0x00452790,fn_00452790,deferred,feature: speed-trap; speed_trap: not set on lev_1_m1
 0x00453230,fn_00453230,replaced,"base-class answers (0.0, zeros, 1.0) and the vt+0xb8 contact query: physics queries are Jolt's; nothing on lev_1_m1 depends on the default values"
@@ -84,8 +84,8 @@ address,name,disposition,reason
 0x00454c60,fn_00454c60,replaced,"base-class answers (0.0, zeros, 1.0) and the vt+0xb8 contact query: physics queries are Jolt's; nothing on lev_1_m1 depends on the default values"
 0x00454c90,fn_00454c90,ported,cited: ai/ic.rs (upright at the end of an IC move)
 0x00454fe0,fn_00454fe0,replaced,"container callbacks (float threshold, 8-byte compare): Rust collections"
-0x004559c0,fn_004559c0,deferred,feature: untraced; +0x424 bits 0x20 / 0x200: meaning not traced (docs/subsystems/objects.md open questions)
-0x004559f0,fn_004559f0,deferred,feature: untraced; +0x424 bits 0x20 / 0x200: meaning not traced (docs/subsystems/objects.md open questions)
+0x004559c0,fn_004559c0,deferred,"feature: object-collision; +0x424 bit 0x200 setter: a ray hit stops at this object (Ray_Cast physics_01.cpp:3125 walks a hit on an attached object up to its parent, 0x004539d0, until one with the bit): set by the AI init 0x004247f0, cleared by ICObject_Load, the ladder grunt and the critters' load 0x0048f140; the engine names the hit body's own entity (Physics::bodies)"
+0x004559f0,fn_004559f0,deferred,feature: object-collision; +0x424 bit 0x200 getter: Ray_Cast's walk of a hit on an attached object up to its parent (see 0x004559c0)
 0x00456180,fn_00456180,ported,"engine/src/ai/ic.rs / level.rs: the hidden grunt made at the host's reference node (hidden_grunts, SpawnGrunt::ic)"
 0x00456240,Object_GetClassDesc,not needed,"plumbing: RTTI class descriptor / type id accessor; the engine identifies classes by Bevy components, no class registry"
 0x004585f0,fn_004585f0,deferred,feature: object-collision; gravity getter: no lev_1_m1 object sets gravity
@@ -94,7 +94,7 @@ address,name,disposition,reason
 0x00461570,SniperCaptain_Construct,replaced,constructor: sniper captains are spawned by level.rs / ai.rs
 0x00461590,Q112Object_Construct,replaced,constructor: the Q112 is spawned by level.rs / ai.rs
 0x004615b0,Q112Boss_Construct,not needed,"dead in the shipped game: a q112_boss is made only by the anim note q112_marker (GenericAIObject_HandleEvent 0x0043d180), which only mini_zeppelin_q112_marker carries; that anim is started only by mover_zeppelin_test_tim_2 (anim_intro at 6.07 s) and mover_lev_4_test, which no level plays (the 24 levels' instance_props generic_txt values, missions and scenes never name them), and no level's templates.json has q112_boss (survey 2026-10-17)"
-0x004615d0,PeasantGenAI_Construct,deferred,feature: peasants; constructor of a class with no instance on lev_1_m1 (scene.json behaviours)
+0x004615d0,PeasantGenAI_Construct,ported,"engine/src/peasant/toss.rs spawn: the class peasantgenai's villager (peasant_man / peasant_woman model, its chair at center)"
 0x004615f0,FakeGruntObject_Construct,ported,"engine/src/army.rs: the platoons of fake grunts (Platoon, FakeGrunt_Update, release_platoon)"
 0x00461610,GruntLadderObject_Construct,replaced,engine/src/ai/ladder.rs: CarriedLadder / PlantedLadder entities stand for the GruntLadderObject instances 0x004298a0 makes
 0x00461630,ColossusObject_Construct,replaced,constructor: the colossus is spawned by vehicles/boss.rs
@@ -107,7 +107,7 @@ address,name,disposition,reason
 0x00461710,SaucerObject_Construct,replaced,constructor: the saucer is spawned by vehicles/boss.rs
 0x00461730,SheepObject_Construct,replaced,constructor: sheep are spawned by level.rs (critters)
 0x00461770,SquadObject_Construct,replaced,constructor: squads are ai/squad.rs
-0x00461790,fn_00461790,deferred,"feature: untraced; class 98 (vtable 0x005a68b8, no class name), 40 constructions in the coverage runs: behaviour not identified (open question, objects.md)"
+0x00461790,fn_00461790,replaced,"the ui_listbox object's constructor (class 98: behaviour ui_listbox, kBehaviours 0x005b03cc; 2165 constructions in the menus): engine/src/gamemenu.rs draws the menus' list boxes (Replay Mission's ui_listbox_missionlist / _bonusmissions, Play Cutscene's ui_listbox_movielist) and saveslots.rs the save slots"
 0x004617e0,ShrubPatrol_Construct,replaced,constructor: shrub patrols are shrubpatrol.rs
 0x00461930,CaptainRocket_GetClass,not needed,"plumbing: RTTI class descriptor / type id accessor; the engine identifies classes by Bevy components, no class registry"
 0x00461960,ICObject_GetClass,not needed,"plumbing: RTTI class descriptor / type id accessor; the engine identifies classes by Bevy components, no class registry"
@@ -193,7 +193,7 @@ address,name,disposition,reason
 0x0047e9f0,fn_0047e9f0,ported,"engine/src/arrows.rs (the archer's arrow flies with its model; ArrowStuck from player.rs leaves it at the hit point, attached to the character it hit, for linger_lifetime; player.rs Projectile::linger)"
 0x0047f210,fn_0047f210,ported,engine/src/weapons/sniper.rs Pierce: the bullet's hit list (each character once; the shooter skipped by its owner)
 0x0047f2a0,fn_0047f2a0,ported,"engine/src/player.rs projectiles with weapons/sniper.rs Pierce: through the characters, the count, the health pickup in front of the player when it stops"
-0x0047f4d0,fn_0047f4d0,deferred,"feature: untraced; Projectile vt+0x13c: damage flags | 0x20000 (meaning not traced); the engine's records carry only the bits it uses (0x400 buildings, 0x80 cartoon)"
+0x0047f4d0,fn_0047f4d0,deferred,"feature: ai-voice-lines; proj_ai_sniper_bullet's damage class (class 5, vtable 0x005ac790): its records carry 0x20000, which makes Roman say ROM50103 / ROM50104_Sniper (audio_01.cpp:1597) and Q Q1150092 / 93_Sniper (audio_02.cpp:247) under the sniper delay Game+0xb94; the engine's DamageKind (player.rs) has no sniper class yet"
 0x0047f5d0,fn_0047f5d0,ported,engine/src/weapons/landshark.rs bite: the landshark bite object (its load: a projectile with physics on)
 0x0047f600,fn_0047f600,ported,"engine/src/weapons/landshark.rs bite: the landshark at the victim, sharkbite_grunt / _captain, the 0x1000 kill (ai.rs DeathAnim)"
 0x0047f6b0,fn_0047f6b0,ported,engine/src/weapons/landshark.rs: the bite object removed when its anim is over (Phase::Bite)
@@ -211,11 +211,11 @@ address,name,disposition,reason
 0x00480e20,RocketBudProjectile_Update,deferred,feature: rocket-bud; RocketBudProjectile: not on lev_1_m1
 0x00480f60,ForgeCannonProjectile_Update,deferred,feature: forge-cannon-projectile; ForgeCannonProjectile: not on lev_1_m1
 0x00481000,ForgeCannonProjectile_Flags,deferred,feature: forge-cannon-projectile; ForgeCannonProjectile: not on lev_1_m1
-0x00481010,fn_00481010,deferred,feature: untraced; flag / target slots of the Projectile vtables 0x005aec10 / 0x005ab120 (classes 3 / 13): no lev_1_m1 property set was traced to them (guess: later levels' projectiles)
-0x00481020,fn_00481020,deferred,feature: untraced; flag / target slots of the Projectile vtables 0x005aec10 / 0x005ab120 (classes 3 / 13): no lev_1_m1 property set was traced to them (guess: later levels' projectiles)
-0x00481030,fn_00481030,deferred,feature: untraced; flag / target slots of the Projectile vtables 0x005aec10 / 0x005ab120 (classes 3 / 13): no lev_1_m1 property set was traced to them (guess: later levels' projectiles)
-0x00481790,fn_00481790,deferred,feature: untraced; +0x58c setter / getter for the penguin and AI callers (0x0048f690 / 0x0048f9c0 / 0x0043ee90): not the sticky bomb's own path; not executed
-0x004817a0,fn_004817a0,deferred,feature: untraced; +0x58c setter / getter for the penguin and AI callers (0x0048f690 / 0x0048f9c0 / 0x0043ee90): not the sticky bomb's own path; not executed
+0x00481010,fn_00481010,ported,"proj_stig_bullet's damage class 0x80000 (class 3, vtable 0x005aec10): engine/src/player.rs DamageKind::Stig (the AI's stig_damage_multiplier, ai.rs)"
+0x00481020,fn_00481020,deferred,"feature: base-turret; proj_base_turret_bullet's damage class 0x100 (class 13, vtable 0x005ab120: the base turret's machine-gun bullet, p_base_turret_mgun_bullet): an AI it hits plays one of the anims 0x77..0x7c (GenericAIObject_Slot52 ai_04.cpp:450) instead of the graded hit reaction"
+0x00481030,fn_00481030,deferred,feature: base-turret; proj_base_turret_bullet's target (vt+0x150): without a target object each axis of the aim point is scattered by base_defend_spread_pct x its +0x568 x 0.01 (rand); defence.rs fires straight at the aim
+0x00481790,fn_00481790,deferred,"feature: sticky-carriers; the sticky bomb's linger +0x58c setter: a penguin holding a stuck bomb sets it to 300 s (PenguinObject_Grab 0x0048f9c0), then 3..6 s near a bad guy (0x0048f690 state 5)"
+0x004817a0,fn_004817a0,deferred,feature: sticky-carriers; the sticky bomb's linger getter: a fleeing jumper captain (state 0xc8) with a bomb on him (+0xb54) takes off on his turbo pack (FX_turbo_Launch_captain) once its linger is under 2.5 s (GenericAI_Update ai_06.cpp:2507)
 0x00481c90,fn_00481c90,ported,"engine/src/ai/grenade.rs: the captain grenade's property set (GrenadeProps), speed x 3"
 0x00481ce0,fn_00481ce0,ported,"engine/src/ai/grenade.rs fly: the flight under gravity, its path ray-cast past the thrower"
 0x00481d00,fn_00481d00,ported,engine/src/ai/grenade.rs: the hit's area damage record (fx::Explode)
@@ -316,7 +316,7 @@ address,name,disposition,reason
 0x004a10c0,fn_004a10c0,ported,"engine/src/weapons/arsenal.rs Arsenal::equip, pubscreen.rs: the bought or swapped gun put in hand"
 0x004a12a0,fn_004a12a0,ported,cited: pickup.rs (selects the special of an ammo pickup)
 0x004a1bb0,fn_004a1bb0,replaced,the pub screen's 3D weapon markers: pubscreen.rs / gamemenu.rs draw the pub screen in 2D
-0x004a1e20,fn_004a1e20,deferred,"feature: untraced; ""two_handed"" flag getter: every lev_1_m1 player weapon is two-handed; the engine's hand pose does not ask"
+0x004a1e20,fn_004a1e20,not needed,"the weapons' two_handed getter (vt+0x148, flag +0x548 bit 0): constant data: every property set of the 24 levels that has two_handed sets 1 (p_player_machinegun, _rifle, _rlgurner, _rlvindaloo, _sharkgun, _snipergun, _topsyturvy), and coverage.json counts 0 calls over the 24 levels"
 0x004a1e90,fn_004a1e90,replaced,the emitter matrix: the shot's start is measured from ref_rhand (player.rs weapons)
 0x004a2100,fn_004a2100,replaced,WeaponObject fire at the target list / ready: ai.rs shoot ports the grunts' weapons (0x004284e0)
 0x004a2140,fn_004a2140,replaced,WeaponObject fire at the target list / ready: ai.rs shoot ports the grunts' weapons (0x004284e0)
@@ -329,5 +329,5 @@ address,name,disposition,reason
 0x004a2a70,fn_004a2a70,ported,"engine/src/weapons/sniper.rs camera_ray_shot: the start at the muzzle's depth on the camera ray, the target at snipergun_range"
 0x0044d150,fn_0044d150,ported,"engine/src/campath.rs startup (Mission::startup_path from camera_startup_path_anim, started once play begins; no shipped level sets one: all 24 mission.json have it empty) and defence.rs (the turret start)"
 0x0044e120,PlayerTickerBomb_AttachToParent,ported,"mission.rs lock_sites: a site with lock_parent_tag rides the lock_parent_bone (ref_ticker) of the run-time object of that tag (the squad's goliath, level.rs ObjectTag from goliath.rs); lev_3_m1 sites 173..175, lev_4_m1 330 / 367 / 368. Oracle ticker_l3m1 (Object_Attach's parent: the goliath), playtests ticker_goliath / ticker_goliath_l4m1"
-0x00477c90,fn_00477c90,deferred,"feature: untraced; player.rs cites it as 'meaning not settled, not ported'"
+0x00477c90,fn_00477c90,deferred,"feature: player-ground-object; the player's contact callback: the punch part (+0xa34 & 0x78000000) is ported (weapons/glove.rs), the steep contacts' zero friction is player.rs's, the ground normal / count (+0x574 / +0x584) are the Jolt character's ground state; left: +0x580, the object he stands on"
 0x004987a0,fn_004987a0,deferred,"feature: turret-vehicle-paths; a turret's ai_can_use test with the kickout time: ai.rs cites it, the kickout is not ported"

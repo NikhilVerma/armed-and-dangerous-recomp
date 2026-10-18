@@ -249,6 +249,8 @@ impl Plugin for HudPlugin {
             .init_level_resource::<PubView>()
             .init_level_resource::<Crosshair>()
             .init_level_resource::<Chat>()
+            .init_resource::<BofHintShown>()
+            .add_systems(Update, bof_hint.run_if(crate::playing))
             // in PostUpdate, after every game system of the frame has set HudState (the prompt is written by several
             // unordered Update systems: reading it in Update could see it half-set and flicker), before the
             // transforms propagate
@@ -438,6 +440,23 @@ fn build_model(commands: &mut Commands, meshes: &mut Assets<Mesh>, materials: &m
         out.push(part.id());
     }
     out
+}
+
+/// The bunch-of-fives hint was shown (Game+0x578: once a game; the remaster's game is the session).
+#[derive(Resource, Default)]
+pub struct BofHintShown(pub bool);
+
+/// ui_bof_hint's update (0x004671b0): the first time the punching glove is out (Game+0xcbc: weapons/glove.rs), the
+/// message "Press %s to punch!" with Fire's key pauses the game (0x00403410 with the text and pause 1), once.
+fn bof_hint(glove: Res<crate::weapons::glove::Glove>, mut shown: ResMut<BofHintShown>, mission: Option<ResMut<crate::mission::Mission>>, texts: Option<Res<crate::gamemenu::Texts>>) {
+    if shown.0 || !glove.active() {
+        return;
+    }
+    let (Some(mut m), Some(t)) = (mission, texts) else { return };
+    shown.0 = true;
+    let text = t.get("ui_bof_hint").replace("%s", &crate::input::key(crate::input::Act::Fire));
+    info!("EVENT hud: the bunch-of-fives hint ({text})");
+    m.message(&text, 0.0);
 }
 
 /// The ticker-bomb clock's hand (the flat part of ui_clock, bone Bone01 of the ui_clock anim).

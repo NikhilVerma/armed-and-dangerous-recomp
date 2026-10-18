@@ -121,6 +121,22 @@ detached; flag 0x10 makes him dynamic (Object_Detach 0x00453b20 -> 0x004577b0(0)
   0x00465c90 saved, ui_return_count 0x00465ce0 carried, ui_peasant 0x00465d30 the icon; all only while
   peasant_max_saved > 0. (hud.md had the first three swapped as guesses; the icon used to show on every level.)
 
+- Thrown villagers (engine/src/peasant/toss.rs, 2026-10-18): a house (behaviour building) with toss_peasants
+  (generator flag 0x800, 0x0040ad80) that is destroyed (0x0040cf40) pays score_value_peasant_building and throws out
+  1..3 villagers (0x0040d390 with peasants): peasant_man / peasant_woman (50/50) made as class peasantgenai
+  (PeasantGenAI 0x004615d0, move_speed 40: Slot6 0x00435260) at the house + 5 up, a prop_peasant_chair at their
+  "center" bone, launched from Roman by Character_Launch 0x00431020 (ai/launch.rs: speed 2.5..3 x 40, spread 75,
+  the arc toward a point 40..60 from Roman: they fly at him or past him), flailing in Peasant_blown_up_chair / _2
+  (0x0043c600, every anim request). A man screams one of twelve new cues when the peasant delay (Game+0xba4, shared
+  with the drop-off lines; interval peasant_delay_min..max) has passed, else one of ten; a woman nine / nine under the
+  grunts' voice delay (Game+0xb44, ai.rs Barks Vo); after a man's scream a line of the tossed table (0x005fb6d0)
+  by whoever can say it (0x0040d250: ai/dialogue.rs). On landing (0x0042e1c0's fall block -> Slot95 0x004353b0) the
+  chair is let go with the villager's velocity and 5..8 up, the villager goes down as a ragdoll (GoRagdoll quiet, its
+  body 5 s); the chair goes with the body (Slot55 0x00435330). Houses with it: lev_1_m4, 2_m2, 2_m3, 2_m4, 3_m1, 3_m2,
+  3_m3, 3_m4_bd, 4_m5, 5_m2, 5_m5 (instances' own toss_peasants over their sets).
+- The "captured / ambient" voice pick 0x00439f70 is GoliathObject's vt+0x260 (PeasantCaptured lines when it has a
+  squad, else GOL5000x_Ambient): nothing in the game calls that slot (no call [reg+0x260] in .text), so it never plays.
+
 ## 10. Oracle
 
 Hook (hook/src/testoracle.cpp): "peasants" (World+0xef8: id, position, captured, link, rope, count, attached, and a
@@ -151,6 +167,8 @@ instead; the landing hold is a player-movement difference for player.rs (open).
   non-one-shot mat banking all three at once (trigger 7000 once), then a fourth.
 - engine/playtests/peasants_lost_l4m2.json (regress): a tied peasant survives a blast (not on the blast list) and a
   1000 hit; 1500 more kill him: casualties 1, carried 0, Accidents -100, the level lost (max_casualties 1).
+- engine/playtests/peasants_tossed.json (regress, lev_3_m3): two destroyed houses throw out 1..3 villagers each, in
+  the air at once, all landed within 8 s.
 - engine/playtests/peasants_cage_l3m1.json (regress): the three cage peasants held (no capture while attached), the
   squad's kill trigger 2001 kills the goliath, its peasant falls free, is captured and banked at mat 66.
 - peasant.rs unit tests: the rope (takes the distance, pulls the excess, reels to 3), the chain's leaders.
@@ -162,8 +180,9 @@ instead; the landing hold is a player-movement difference for player.rs (open).
 - The dragged pelvis rides 1.1..1.7 units lower than the original's (the joints' friction is the original's strength
   scaled by the weight, the masses are Jolt's).
 - ui_peasant_release plays unplaced (the original plays it on the mission object).
-- PeasantGenAI (the civilians a destroyed building throws out with toss_peasants, 0x0040d390) is the buildings'
-  business: not ported (docs/port/ai.csv).
+- Thrown villagers: the chair's box (2.4 x 2.4 x 4) is a guess from the model; the chair does not fade with the body
+  (Slot64 0x00435380: feature character-fade); the dialogue's speaker test takes the level's list +0xf04 as empty
+  (JON50172 / Q1150162 never chosen: which list it is was not traced); the flight lands on anything its step meets.
 - Peasants are not saved (savegame.rs): a game saved mid-rescue restores them at their placements, and the counters
   at 0.
 - No oracle scenario for the cage yet (the original's goliaths need killing by hand in a scripted run); the playtest

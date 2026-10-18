@@ -479,7 +479,7 @@ fn attach_rest_pose(commands: &mut Commands, hand: Entity, parts: &[(Handle<Mesh
 /// straight off the hand joint. The original's attachment (Object_Attach 0x004539f0: parent +0x34 referenced, the
 /// parent and child bone names, flags +0x424 bits 1 / 2; Object_Detach 0x00453b20; Object_GetParent 0x004539d0) is
 /// the Bevy hierarchy here (a child entity under the bone's joint; 0x004539e0 "has a parent" is ChildOf).
-fn attach_weapon(commands: &mut Commands, hand: Entity, model: &scene::Model, fix: Transform) -> Entity {
+pub(crate) fn attach_weapon(commands: &mut Commands, hand: Entity, model: &scene::Model, fix: Transform) -> Entity {
     let holder = commands.spawn((Transform::IDENTITY, Visibility::default())).id();
     commands.entity(hand).add_child(holder);
     for (mesh, mat) in &model.parts {
@@ -597,6 +597,8 @@ pub enum HandWeapon {
     Gun(crate::weapons::WeaponId),
     /// the Topsy Turvy bomb while it is used
     Topsy,
+    /// the knockout bomb's punching glove (player_punchingglove) while it is on (weapons/glove.rs)
+    Glove,
 }
 
 impl HandWeapon {
@@ -605,6 +607,7 @@ impl HandWeapon {
         match self {
             HandWeapon::Gun(w) => w.name(),
             HandWeapon::Topsy => "topsyturvy",
+            HandWeapon::Glove => "punchingglove",
         }
     }
 }
@@ -886,6 +889,12 @@ pub fn spawn(
                         let held = attach_rest_pose(commands, h, &parts, meshes);
                         commands.entity(held).insert((HandWeapon::Topsy, Visibility::Hidden));
                     }
+                    // the knockout bomb's glove: player_punchingglove attached at bof_glove_player_bone (r_wrist) by its
+                    // bof_glove_child_bone (0x004788a0 case 1: 0x004539f0); here in the hand like the guns (tuning item)
+                    if let Some(parts) = data.templates.get("player_punchingglove").and_then(|t| t.model.clone()).and_then(|n| lib.load_model(&n, false, assets, meshes, materials)).map(|m| m.parts.clone()) {
+                        let held = attach_rest_pose(commands, h, &parts, meshes);
+                        commands.entity(held).insert((HandWeapon::Glove, Visibility::Hidden));
+                    }
                 }
             } else if let (Some(h), Some(w)) = (hand, ai::weapon_template(&inst.template).and_then(|w| data.templates.get(w)).and_then(|t| t.model.clone())) {
                 if let Some(m) = lib.load_model(&w, false, assets, meshes, materials) {
@@ -1093,6 +1102,10 @@ pub fn spawn(
         if let Some(d) = destructible(&p) {
             commands.entity(e).insert(d);
             info.destructibles += 1;
+            // a house that throws out villagers when destroyed (toss_peasants: peasant/toss.rs)
+            if let Some(t) = crate::peasant::toss::TossPeasants::of(&p) {
+                commands.entity(e).insert(t);
+            }
         } else if let Some(species) = Species::of(&inst.template) {
             // in the projectile and area damage lists (+0xe90, +0xe94): 1 health, no filter
             commands.entity(e).insert((

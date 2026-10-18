@@ -23,6 +23,7 @@ pub mod fall;
 pub mod grenade;
 pub mod ic;
 pub mod jumper;
+pub mod launch;
 pub mod ladder;
 pub mod max_fire;
 pub mod melee;
@@ -849,6 +850,8 @@ pub struct Grunt {
     pub death_name: Option<&'static str>,
     /// ledge_death (+0x484 bit 31): falls off his ledge when he dies
     pub ledge_death: bool,
+    /// can_be_sharked (default 1; clear: +0x48c 0x100, Ai_InitGeneric 0x004247f0): the land shark may bite him
+    pub can_be_sharked: bool,
     /// a window or tower grunt (+0x488 & 0x200080: modes *_window / *_tower)
     pub window: bool,
     /// the last damage record had flag 0x80 (allow_cartoon_death: the sticky bomb's)
@@ -1135,6 +1138,8 @@ impl Plugin for AiPlugin {
             .init_level_resource::<Interests>()
             .init_level_resource::<bully::BullyLines>()
             .init_level_resource::<ic::IcStats>()
+            .init_level_resource::<launch::LaunchClock>()
+            .add_systems(Update, launch::tick.run_if(crate::playing))
             .init_level_resource::<dialogue::Bags>()
             .add_plugins(q112::Q112Plugin)
             .init_level_resource::<max_fire::ShooterLimit>()
@@ -1379,6 +1384,7 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         death_anim: (rng.rand() % 6) as u8 + 1,
         death_name: None,
         ledge_death: p.i("ledge_death", 0) != 0,
+        can_be_sharked: p.i("can_be_sharked", 1) != 0,
         window: mode.contains("window") || mode.contains("tower"),
         cartoon: false,
         blast_push: None,
