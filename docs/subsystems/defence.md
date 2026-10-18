@@ -43,7 +43,22 @@ Fire is the machine gun (base_turret_mgun_bullet from ref_shoot_00 / ref_shoot_0
 mortar (base_mortar; base_homing during the 10 s ammo upgrade; 4 s / 1 s recycle; lobbed at the crosshair point:
 shell.rs), Aim toggles the zoom camera. The intro anim (intro_anim_name) flies the camera in (Camera_normal track),
 its notes send triggers 90..94 (the flak on lev_5_m5). The glass window (40) takes hits first (fx::DamageShield);
-then Roman takes them, halved while mounted. Overrun: a grunt_regular every 45..75 s (guess at 0x0042d8f0).
+then Roman takes them, halved while mounted. Overrun (the turret's "overrun" trigger, 0x0049bc90): every 45..75 s a
+grunt_regular jumps onto the turret (0x0042d8f0: grunt_turret_jump_on / _1 alternately, AI state 0x67: attached,
+off every AI list, removed when the anim ends; `TurretBoarder`).
+
+The failure mob (0x0049ad60, from MissionObject_OnTrigger 0x0044d600): a failure trigger while Roman rides the base
+turret (Game+0xac8 = 1, `Mission::base_turret_mounted`) does not fail at once: six grunt_regulars board the turret
+(0x0042d780: grunt_turret_attack, _1 .. _4, then _5 by a running count; their note "trigger 150" starts the fade
+fx_l5_fadout), Game+0xdcd is set (`Mission::failure_mob`: the success trigger is ignored meanwhile) and
+failure_mode_duration (5 s, +0x830) later the turret is removed (vt+0xdc 0x0049ac60): level state 3. Playtest
+defence_l1m4_fail.
+
+The fake launchers (0x0049a6a0): fake_base_mortar (shown) and fake_base_homing (hidden) at the turret's origin, and the
+trolley base_turret_trolley on the track without the aim (`launchers`). The ammo upgrade swaps them (0x0049b030:
+base_homing_reload); each shell replays the shown launcher's reload anim (0x0049bf20); after the upgrade the first
+shell with the homing launcher still shown is a homing one, and the mortar comes back. The special recycle time
+follows the shown launcher. Playtest defence_launchers.
 
 ## Scripted objects (icobject.rs, mover.rs, goliath.rs, shrubpatrol.rs)
 
@@ -75,15 +90,18 @@ then Roman takes them, halved while mounted. Overrun: a grunt_regular every 45..
   sent, no body). The carried ladder (0x004298a0 / 0x0042d650, anim 0x31 grunt_ladder_run) and the planted one
   (mover_ladder_plant from the grunt's matrix + (0.458, 24.015, 12.894)) are drawn. Test: ladders_l1m4 (in 110 s: 8
   ladders carried, 7 planted, 41 scales, over the wall by both). The pre-success retreat is ai/retreat.rs (0x0042db00).
-- Not ported: the failure mob on the turret (0x0049ad60: six grunts, 5 s, then failed;
-  here 666 fails at once), the turret's fake mortar launchers and trolley models (0x0049abf0), the turret running
-  over grunts on the wall (every third frame, 0x0049b030), the bullseye decal, the base mgun's lock-on to target-list
-  candidates (min / max_non_locking): it fires at the crosshair point.
+- Not ported: the turret running over grunts on the wall (every third frame, 0x0049b030), the bullseye decal, the base
+  mgun's lock-on to target-list candidates (min / max_non_locking): it fires at the crosshair point. The turret's
+  removal at the failure mob's end does not despawn the turret (the failure page follows at once).
+- The goliath in a base defence (goliath.rs `hurt`, 0x00434180): a hit above hit_level_2 (25) on its scripted walk while
+  the breach is shut plays goliath_hit_med (blend 0.25) and GOL50005_Hurt and holds its walk until the anim ends; the
+  turret's machine gun keeps stalling it. Playtest goliath_hurt.
 - grunt_generator_base (lev_2_m4 .. lev_5_m5): loaded as troop generators (mission.rs), but with release_count 0
   (the reader's default) the recovered release rule (0x0040cb10: batch 0 and live >= release_count -> wait) never
   releases. Open: confirm on the original whether these generators release troops.
 - The goliath's fireball flight time (1.5 s) and its range (scan_distance 350) are guesses; the stand time is 1..3 s
   (0x0046e2c0(1, 3)).
-- The drops fall at full gravity (their property "gravity" 0.5 is not applied); token_or_health always drops health.
+- The drops fall at their "gravity" 0.5 (the body's gravity factor) with the speed trap's linear cast (movable.rs);
+  token_or_health always drops health.
 - Needs captures of the original (the human's OK for screen time): the intro camera, the army's look and pace, the
   turret's aim rates, a full lev_1_m4 to win and to failure.

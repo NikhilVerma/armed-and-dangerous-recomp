@@ -646,6 +646,13 @@ pub struct Mission {
     pub breach_open: bool,
     /// Game+0xdd2: finished (pre-success; read by 0x0044e620): failure triggers are ignored from then on
     pub finished: bool,
+    /// Game+0xac8 = 1: Roman rides a base turret (defence.rs keeps it): a failure trigger then calls the failure mob
+    /// (0x0049ad60) instead of failing; `failure_mob_calls` counts the calls defence.rs has still to make
+    pub base_turret_mounted: bool,
+    pub failure_mob_calls: u32,
+    /// Game+0xdcd: the failure mob is on the turret (the success trigger is ignored; defence.rs fails the level when
+    /// failure_mode_duration has passed)
+    pub failure_mob: bool,
     /// score_value (Loot at the win, game_02.cpp:2262) and next_level_name (Game+0x268c)
     pub score_value: f32,
     pub next_level: Option<String>,
@@ -1201,6 +1208,9 @@ impl Mission {
             alarm_forced: false,
             breach_open: false,
             finished: false,
+            base_turret_mounted: false,
+            failure_mob_calls: 0,
+            failure_mob: false,
             score_value: n(m, "score_value") as f32,
             next_level: s(m, "next_level_name"),
             loadout: Loadout::from_props(m),
@@ -1309,6 +1319,14 @@ impl Mission {
         }
         if let Some(k) = self.failures.iter().position(|&f| f == t) {
             if self.finished || self.outcome != Outcome::Playing {
+                return;
+            }
+            // in the base turret (Game+0xac8 = 1) the failure mob comes instead (0x0049ad60: defence.rs), which sets
+            // Game+0xdcd; the turret's loss then fails the level
+            if self.base_turret_mounted {
+                self.failure_mob_calls += 1;
+                self.failure_mob = true;
+                self.log.push(format!("failure trigger {t}: the failure mob boards the base turret"));
                 return;
             }
             // 0x0044a580(Game+0xa64, 4 + k); 0x0044a390 then pushes "MissionFailed" with failure_text(_N)
@@ -1658,6 +1676,7 @@ pub(crate) fn sites(
                     // record's flags are not traced)
                     by: crate::fx::Src::Player,
                     cartoon: false,
+                    kind: crate::player::DamageKind::Plain,
                 });
                 fx.write(StartFx { name: "fx_ticker_bomb".into(), at: s.pos, rotation: Quat::IDENTITY, follow: None, position_only: false });
                 if s.explode != 0 {
@@ -2171,7 +2190,8 @@ fn dispatch(
                     }
                 }
                 Action::Win => {
-                    if m.outcome == Outcome::Playing && *t == m.success {
+                    // a start-in-turret level ignores the success while the failure mob is on (Game+0xdcd, 0x0044d600)
+                    if m.outcome == Outcome::Playing && *t == m.success && !m.failure_mob {
                         m.outcome = Outcome::Won;
                         // MissionObject_OnTrigger 0x0044d600 +0x46c: on lev_1_m1_b and lev_2_m1 Rescues (Game+0x272c)
                         // += 1000; score_value to Loot (+0x2730, game_02.cpp:2262); level state 2

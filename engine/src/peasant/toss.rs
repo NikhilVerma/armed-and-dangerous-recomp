@@ -1,7 +1,8 @@
 //! The civilians a destroyed house throws out (toss_peasants; game_01.cpp:1900-2060, ai_04.cpp:2408-2480): a house
 //! with toss_peasants (flag 0x800 of the generator's +0x460, read by 0x0040ad80) that is destroyed (the destruction slot
-//! 0x0040cf40, ai_01.cpp:1861) pays its score_value_peasant_building and throws out one to three villagers
-//! (0x0040d390 with peasants), each in a chair, screaming, flung through the air until they land.
+//! 0x0040cf40, ai_01.cpp:1861; the building's side, its score and the soldiers' toss, is crate::tossed, which sends
+//! [`ThrowVillagers`]) throws out one to three villagers (0x0040d390 with peasants), each in a chair, screaming, flung
+//! through the air until they land.
 //!
 //! Per villager (0x0040d390, in the original's order of rand() draws):
 //! - "peasant_man" (rand * 100 >> 15 < 50) or "peasant_woman", made as class "peasantgenai" (PeasantGenAI, vtable
@@ -17,7 +18,9 @@
 //!   one the grunts' Spotted / Fight barks use, ai.rs Barks); a man's scream is followed by a line of the tossed table
 //!   (0x00493b70 on table 0x005fb6d0 with the speaker test 0x0040d250, ai/dialogue.rs).
 //!
-//! The flight (state 0x195): it falls under the world's gravity until it meets something; then (0x0042e1c0's fall
+//! The flight (state 0x195, GenericAI_Update ai_06.cpp:3336): the body whoosh (fol_body_whoosh_1..3, rand * 300 by
+//! hundreds) once within 50 of Roman; the countdown +0x490 (8 s) ends it (vt+0xd4: gone) if it has not landed by then.
+//! It falls under the world's gravity until it meets something; then (0x0042e1c0's fall
 //! block -> vt+0x17c, PeasantGenAI_Slot95 0x004353b0) the chair is let go with the villager's velocity and 5..8 up,
 //! and the villager goes down as a ragdoll (GoRagdoll 0x00431310, quiet) whose body lies 5 s (corpses.rs). The chair
 //! is still his (+0xb58): it goes with his body (PeasantGenAI_Slot55 0x00435330: stopped and released with him). His
@@ -28,24 +31,20 @@ use crate::physics::{Body, Physics, jv};
 use crate::scene::ClonedParts;
 use bevy::prelude::*;
 
-/// A house that throws out villagers when destroyed (toss_peasants; generator flag 0x800), and what it pays
-/// (score_value_peasant_building +0x5b4, default 0: to the Kills, or below 0 the Accidents).
-#[derive(Component, Clone, Copy, Debug)]
-pub struct TossPeasants {
-    pub score: f32,
-}
-
-impl TossPeasants {
-    /// A placed building's own (toss_peasants: BuildingObject / TwigletGenerator load 0x0040ad80).
-    pub fn of(p: &crate::gamedata::Props) -> Option<Self> {
-        (p.s("behavior") == Some("building") && p.f("toss_peasants", 0.0) != 0.0).then(|| TossPeasants { score: p.f("score_value_peasant_building", 0.0) })
-    }
+/// A destroyed house's villagers to throw out (0x0040d390 with peasants), from its position (sent by crate::tossed).
+#[derive(Message, Clone, Copy, Debug)]
+pub struct ThrowVillagers {
+    pub house: Vec3,
 }
 
 /// A thrown villager in flight (state 0x195), his chair and the anim he flails in.
 #[derive(Component, Debug)]
 pub struct Tossed {
     pub vel: Vec3,
+    /// the countdown +0x490: gone (vt+0xd4) when it runs out in the air
+    pub left: f32,
+    /// the body whoosh played (once within 50 of Roman)
+    pub whoosh: bool,
     pub chair: Option<Entity>,
     pub anim: &'static str,
     pub woman: bool,
@@ -55,6 +54,10 @@ pub struct Tossed {
 pub const MOVE_SPEED: f32 = 40.0;
 /// The house's point the villagers start at: its position + 5 up (0x0040d390: K 0x005bcbdc).
 pub const RISE: f32 = 5.0;
+/// The flight's countdown (+0x490 in state 0x195): 8 s.
+pub const FLIGHT: f32 = 8.0;
+/// The body whoosh's range from Roman (K 0x005bccb8, squared in the original).
+pub const WHOOSH_RANGE: f32 = 50.0;
 
 /// The man's scream cues (0x005bb180.., twelve "new" ones; read from the exe).
 pub const MAN_NEW: [&str; 12] = [
@@ -105,6 +108,7 @@ pub struct TossVoice {
 pub struct TossStats {
     pub houses: u32,
     pub thrown: u32,
+    pub men: u32,
     pub landed: u32,
     pub screams: u32,
     pub lines: u32,
@@ -115,18 +119,18 @@ pub struct TossPlugin;
 impl Plugin for TossPlugin {
     fn build(&self, app: &mut App) {
         use crate::levelreset::LevelAppExt;
-        app.init_level_resource::<TossVoice>()
+        app.add_message::<ThrowVillagers>()
+            .init_level_resource::<TossVoice>()
             .init_level_resource::<TossStats>()
-            .add_systems(Update, (toss.after(crate::fx::FxSet), fly, chairs_go, log).chain().run_if(crate::playing));
+            .add_systems(Update, (toss.after(crate::tossed::BuildingToss), fly, chairs_go, log).chain().run_if(crate::playing));
     }
 }
 
-/// A destroyed house with toss_peasants (0x0040cf40 -> 0x0040d390 (house, husk, 1)): its score, then the villagers.
+/// A destroyed house's villagers (0x0040cf40 -> 0x0040d390 (house, husk, 1)); its score is banked by crate::tossed.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn toss(
     mut commands: Commands,
-    mut died: MessageReader<crate::fx::Died>,
-    houses: Query<(&TossPeasants, &GlobalTransform)>,
+    mut throws: MessageReader<ThrowVillagers>,
     roman: Query<&GlobalTransform, With<crate::player::Roman>>,
     (data, mut lib, mut anim_lib, mut binds, assets, mut meshes, mut materials): (
         Res<crate::gamedata::GameData>,
@@ -137,19 +141,16 @@ fn toss(
         ResMut<Assets<Mesh>>,
         ResMut<Assets<StandardMaterial>>,
     ),
-    (mut rng, mut clock, mut ms, time): (ResMut<crate::fx::FxStats>, ResMut<LaunchClock>, ResMut<crate::stats::MissionStats>, Res<Time>),
+    (mut rng, mut clock, time): (ResMut<crate::fx::FxStats>, ResMut<LaunchClock>, Res<Time>),
     (mut tally, mut voice, mut barks, mut bags, mut stats): (ResMut<super::PeasantTally>, ResMut<TossVoice>, ResMut<crate::ai::Barks>, ResMut<crate::ai::dialogue::Bags>, ResMut<TossStats>),
     (mut companions, voices, mut sounds): (Query<(&mut crate::ai::Companion, &Transform, Option<&crate::fx::Health>)>, crate::audio::PlayingVoices, MessageWriter<crate::audio::PlaySound>),
 ) {
     let roman_at = roman.single().map(|t| t.translation()).ok();
     let g = data.props("p_globalsettings");
     let delay = (g.f("peasant_delay_min", 10.0), g.f("peasant_delay_max", 10.0));
-    for d in died.read() {
-        let Ok((house, ht)) = houses.get(d.0) else { continue };
+    for throw in throws.read() {
         stats.houses += 1;
-        // score_value_peasant_building to the Kills (>= 0) or the Accidents
-        ms.killed(house.score);
-        let base = ht.translation() + Vec3::Y * RISE;
+        let base = throw.house + Vec3::Y * RISE;
         let n = count_of(rng.rand());
         for _ in 0..n {
             let yaw = rng.rand() * std::f32::consts::TAU - std::f32::consts::PI;
@@ -162,7 +163,7 @@ fn toss(
             let launch = crate::ai::launch::launch(roman_at.unwrap_or(base), base, speed, MOVE_SPEED, 75.0, false, rolls);
             clock.stamp();
             let anim = chair_anim(rolls.anim);
-            commands.entity(villager.0).insert(Tossed { vel: launch.velocity, chair: villager.1, anim, woman });
+            commands.entity(villager.0).insert(Tossed { vel: launch.velocity, left: FLIGHT, whoosh: false, chair: villager.1, anim, woman });
             // the scream on him (vt+0xc4): a man's under the peasant delay (Game+0xba4 / +0xbb0), a woman's under the
             // voice delay (Game+0xb44 / +0xb50)
             let now = time.elapsed_secs();
@@ -181,6 +182,7 @@ fn toss(
             // a man's scream: a line of the tossed table by whoever can say it (0x00493b70 with 0x0040d250); which
             // list +0xf04 is (JON50172 / Q1150162 need it) is not traced: taken as empty
             if !woman {
+                stats.men += 1;
                 let present = |q: bool| {
                     companions.iter().find(|(c, _, h)| c.q == q && c.dead.is_none() && h.is_none_or(|h| h.0 > 0.0)).map(|(c, _, _)| crate::ai::dialogue::Present { speaking: c.speech.saying(&voices), still: 0.0 })
                 };
@@ -234,9 +236,24 @@ fn fly(
     joints: Query<&GlobalTransform>,
     mut physics: NonSendMut<Physics>,
     (mut rng, mut stats): (ResMut<crate::fx::FxStats>, ResMut<TossStats>),
+    (roman, mut sounds): (Query<&GlobalTransform, With<crate::player::Roman>>, MessageWriter<crate::audio::PlaySound>),
 ) {
     let dt = time.delta_secs();
+    let roman_at = roman.single().ok().map(|t| t.translation());
     for (e, mut tossed, mut t, mut a) in &mut q {
+        // the body whoosh once near Roman (state 0x195: one of three by rand * 300)
+        if !tossed.whoosh && roman_at.is_some_and(|r| r.distance(t.translation) <= WHOOSH_RANGE) {
+            tossed.whoosh = true;
+            let r = rng.rand() * 300.0;
+            let name = if r < 100.0 { "fol_body_whoosh_1" } else if r < 200.0 { "fol_body_whoosh_2" } else { "fol_body_whoosh_3" };
+            sounds.write(crate::audio::PlaySound::on(name, e));
+        }
+        // the countdown +0x490: still in the air when it runs out, gone (vt+0xd4) with his chair (chairs_go)
+        tossed.left -= dt;
+        if tossed.left <= 0.0 {
+            commands.entity(e).despawn();
+            continue;
+        }
         // every anim request of PeasantGenAI is the chair anim (0x0043c600)
         if let Some(a) = a.as_deref_mut() {
             if a.layers.first().is_none_or(|l| l.anim != tossed.anim) {
@@ -307,7 +324,7 @@ fn log(stats: Res<TossStats>, flying: Query<(), With<Tossed>>, state: Option<Res
     let Some(mut state) = state else { return };
     state.0.insert(
         "tossed".into(),
-        serde_json::json!({"houses": stats.houses, "thrown": stats.thrown, "flying": flying.iter().count(), "landed": stats.landed, "screams": stats.screams, "lines": stats.lines}),
+        serde_json::json!({"houses": stats.houses, "thrown": stats.thrown, "men": stats.men, "flying": flying.iter().count(), "landed": stats.landed, "screams": stats.screams, "lines": stats.lines}),
     );
 }
 
@@ -322,9 +339,5 @@ mod tests {
         assert_eq!(pick_cue(&MAN_NEW, 0.9999), "PE250029_PeasantBlownUp");
         assert_eq!(pick_cue(&WOMAN_SOON, 0.5), "PW250013_PeasantBlownUp");
         assert_eq!((chair_anim(0.49), chair_anim(0.5)), ("Peasant_blown_up_chair", "Peasant_blown_up_chair_2"));
-        let p = crate::gamedata::Props(serde_json::json!({"behavior": "building", "toss_peasants": 1}).as_object().cloned().unwrap_or_default());
-        assert!(TossPeasants::of(&p).is_some());
-        let p = crate::gamedata::Props(serde_json::json!({"behavior": "building", "toss_peasants": 0}).as_object().cloned().unwrap_or_default());
-        assert!(TossPeasants::of(&p).is_none());
     }
 }

@@ -3,7 +3,7 @@ address,name,disposition,reason
 0x0040d250,fn_0040d250,ported,"engine/src/ai/dialogue.rs tossed_speaker (its table TOSSED), asked by engine/src/peasant/toss.rs after a thrown man's scream"
 0x0041bd70,fn_0041bd70,replaced,an FxObject's audio position (its matrix translation): a voice on an entity follows its GlobalTransform (audio.rs update_voices)
 0x0041bdd0,FxEarObject_LoadProperties,replaced,FxEarObject properties: the export reads them (tools/remaster_export_mission.py fx_ear edges) and mission.rs Action::Fx starts the fx on its trigger
-0x00434180,fn_00434180,deferred,feature: goliath-extras; Goliath is not in lev_1_m1 (scene.json templates); no gol lines in the bank
+0x00434180,fn_00434180,ported,engine/src/goliath.rs hurt (base defence: goliath_hit_med and GOL50005_Hurt on a hit above hit_level_2 on its walk) and spawn_for_squads (a squad's goliath ignores damage)
 0x00435170,fn_00435170,ported,cited: ai.rs (the Q112 takes damage whole: vt+0xd0)
 0x00436260,AIVoice_PlayZeppelin,ported,cited: vehicles/boss.rs (Roman remarks on the zeppelin's death)
 0x00437510,AIVoice_PlayCapnbase,deferred,feature: ai-voice-lines; no CA*_CapnBase lines in the lev_1_m1 bank (audio/sounds.json): the call plays nothing in lev_1_m1

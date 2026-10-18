@@ -52,6 +52,18 @@ pub struct Thrown {
     pub hangs: bool,
     pub t: f32,
     pub rise: f32,
+    /// the hang starts with the hang_into anim (a grunt's 113; a monk goes straight to monk_hanging, 114)
+    pub into: bool,
+    /// a monk's hang ends on its own after this long (state 0xf4's +0x87c), then he teleports away
+    pub until: Option<f32>,
+}
+
+/// A monk's knock-over (MonkObject damage 0x004371e0 with the topsy's flag 0x20, MonkObject_Update 0x00447500,
+/// vt+0x1b0 0x00437240): he never lets go; on the ground he hangs at once (monk_hanging, anim 0x72, state 0xf4) for
+/// +0x87c = topsy_turvy_duration + 1, counted down twice a frame (by state 0xf4 and by the update while +0x878 holds),
+/// so half of it; then +0x878 = 0 and MonkObject_Bamf 0x00436bb0 (vt+0x240) teleports him round his target.
+pub fn monk_hang(duration: f32) -> Thrown {
+    Thrown { hangs: true, t: 0.0, rise: 0.0, into: false, until: Some((duration + 1.0) * 0.5) }
 }
 
 const INTO: f32 = 2.47;
@@ -63,7 +75,7 @@ impl Plugin for TopsyPlugin {
     fn build(&self, app: &mut App) {
         app.init_level_resource::<Topsy>()
             .init_level_resource::<TopsyCams>()
-            .add_systems(Update, (run, thrown).chain().run_if(crate::playing))
+            .add_systems(Update, (run, thrown, log).chain().run_if(crate::playing))
             .add_systems(PostUpdate, camera.after(crate::camera::follow_camera).in_set(crate::camera::CameraPlace).before(bevy::transform::TransformSystems::Propagate).run_if(crate::playing));
     }
 }
@@ -140,6 +152,7 @@ fn run(
     mut fx: MessageWriter<crate::fx::StartFx>,
     mut log: Option<ResMut<crate::mission::Mission>>,
     voices: crate::audio::PlayingVoices,
+    (mut twiglets, mut twiglet_rng): (Query<(&mut crate::twiglet::Twiglet, &GlobalTransform, &crate::fx::Destructible)>, ResMut<crate::twiglet::TwigletRng>),
 ) {
     let dt = time.delta_secs();
     let g = data.props("p_globalsettings");
@@ -180,6 +193,14 @@ fn run(
                     if gr.mind == Mind::Dead || gt.translation().distance(me) - 4.66 > radius {
                         continue;
                     }
+                    // a monk's damage slot (0x004371e0) never takes the base path: no roll, no fall
+                    if gr.monk.is_some() {
+                        hang += 1;
+                        gr.mind = Mind::WaitTrigger;
+                        commands.entity(e).insert(monk_hang(topsy.duration));
+                        info!("EVENT topsy: monk {e:?} hangs");
+                        continue;
+                    }
                     let roll = rng.rand() * 100.0;
                     let hangs = roll >= fall_pct && topsy.duration > 3.0;
                     if !hangs {
@@ -197,10 +218,19 @@ fn run(
                         hang += 1;
                     }
                     gr.mind = Mind::WaitTrigger;
-                    commands.entity(e).insert(Thrown { hangs, t: 0.0, rise: 0.0 });
+                    commands.entity(e).insert(Thrown { hangs, t: 0.0, rise: 0.0, into: true, until: None });
+                }
+                // the twiglets in reach take it too (Twiglet_TakeDamage 0x0049f530: flag 0x20 stuns them; bounds radius
+                // about 3: guess)
+                let mut stunned = 0;
+                for (mut t, gt, d) in &mut twiglets {
+                    if d.health > 0.0 && gt.translation().distance(me) - 3.0 <= radius {
+                        crate::twiglet::topsy_hit(&mut t, topsy.duration, &mut twiglet_rng);
+                        stunned += 1;
+                    }
                 }
                 if let Some(m) = log.as_deref_mut() {
-                    m.log.push(format!("topsy turvy: {fall} fell, {hang} hung on"));
+                    m.log.push(format!("topsy turvy: {fall} fell, {hang} hung on, {stunned} twiglets stunned"));
                 }
                 topsy.phase = Phase::Hang;
                 topsy.t = 0.0;
@@ -236,6 +266,17 @@ fn thrown(
         th.t += dt;
         if th.hangs {
             g.pause = 1.0;
+            // a monk's hang runs out: +0x878 = 0 and the bamf (vt+0x240): his pursuit with no specials left teleports
+            if th.until.is_some_and(|u| th.t >= u) {
+                commands.entity(e).remove::<Thrown>();
+                if let Some(m) = g.monk.as_mut() {
+                    m.special = 0;
+                    m.bamf = true;
+                }
+                g.mind = Mind::Roam;
+                info!("EVENT topsy: monk {e:?} lets go");
+                continue;
+            }
             if !topsy.active() {
                 commands.entity(e).remove::<Thrown>();
                 g.mind = Mind::Chase;
@@ -255,4 +296,20 @@ fn thrown(
             commands.entity(e).insert((Visibility::Hidden, crate::corpses::Corpse::gone()));
         }
     }
+}
+
+/// The effect in the playtest state log: its phase and the AIs it holds (hanging on, falling into the sky; the monks
+/// hanging).
+fn log(topsy: Res<Topsy>, q: Query<(&Thrown, &Grunt)>, state: Option<ResMut<crate::playtest::PlayState>>) {
+    let Some(mut state) = state else { return };
+    let count = |f: &dyn Fn(&Thrown, &Grunt) -> bool| q.iter().filter(|(t, g)| f(t, g)).count();
+    state.0.insert(
+        "topsy".into(),
+        serde_json::json!({
+            "phase": format!("{:?}", topsy.phase),
+            "hanging": count(&|t, _| t.hangs),
+            "falling": count(&|t, _| !t.hangs),
+            "monks_hanging": count(&|t, g| t.hangs && g.monk.is_some()),
+        }),
+    );
 }

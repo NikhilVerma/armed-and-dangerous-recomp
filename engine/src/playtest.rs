@@ -54,7 +54,8 @@ pub struct Event {
     /// code 1
     /// An expect value may also compare with a noted state: {"as": "fresh", "margin": 2, "pct": 10} passes when the
     /// field is within margin + pct % of what it was at the `note` step "fresh" (both default 0: equal); with
-    /// "at_most": true it passes anywhere below that too (a count that must not grow)
+    /// "at_most": true it passes anywhere below that too (a count that must not grow); with "rise": [lo, hi] it passes
+    /// when the field grew by lo..hi since then (a count of events in a window)
     #[serde(default)]
     pub expect: Option<serde_json::Map<String, serde_json::Value>>,
     /// a wall-clock performance limit, as `expect` (e.g. {"main_ms": [0, 50]}): checked only in a perf run
@@ -89,6 +90,14 @@ pub struct Event {
     /// debug: destroy the placed object with this instance id (as a lethal hit)
     #[serde(default)]
     pub destroy: Option<u32>,
+    /// debug: a grunt's arrival at the marker with this instance id (alarm.rs MarkerArrival): an alarm marker raises its
+    /// sirens, as a runner reaching it does
+    #[serde(default)]
+    pub marker_arrival: Option<u32>,
+    /// debug: set the velocity of the movable object (a boulder) with this instance id: [id, game-space vx, vy, vz]
+    /// (movable.rs Push; a pinned one is unpinned first), as a shove sends it rolling
+    #[serde(default)]
+    pub push: Option<[f32; 4]>,
     /// debug: deal [instance id, amount] to that placed object's health as a hit (Object_TakeDamage 0x004555e0: a
     /// killing blow takes the death path), to test a unit's damage and death without waiting for shots to land
     #[serde(default)]
@@ -147,7 +156,9 @@ pub struct Event {
     #[serde(default)]
     pub monk_spell: Option<String>,
     /// debug: force an AI behaviour's next roll (ai.rs `AiForce`): "throw" (the next captain in range throws his
-    /// grenade), "fight" (the next companion's close kill coin passes, ai/close_kill.rs), ...
+    /// grenade), "fight" (the next companion's close kill coin passes, ai/close_kill.rs), "no_cover" (kept: no grunt
+    /// takes a tree's or a building's cover slot, ai/coverslot.rs), "companions_hold" (kept: the companions take no
+    /// target), ...
     #[serde(default)]
     pub ai_force: Option<String>,
     /// debug: the live grunt nearest Roman runs the hiding-spot search now (as at a reload's end; ai.rs
@@ -385,6 +396,10 @@ fn expect_holds(key: &str, want: &serde_json::Value, got: Option<&serde_json::Va
             (Some(g), Some(n)) => {
                 let margin = want.get("margin").and_then(|v| v.as_f64()).unwrap_or(0.0);
                 let pct = want.get("pct").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                if let Some(r) = want.get("rise").and_then(|v| v.as_array()).filter(|r| r.len() == 2) {
+                    let (lo, hi) = (r[0].as_f64().unwrap_or(f64::MIN), r[1].as_f64().unwrap_or(f64::MAX));
+                    return g - n >= lo && g - n <= hi;
+                }
                 let slack = margin + pct / 100.0 * n.abs();
                 // "at_most": only a rise beyond the slack fails (a count that must not grow)
                 if want.get("at_most").and_then(|v| v.as_bool()).unwrap_or(false) { g - n <= slack } else { (g - n).abs() <= slack }
@@ -678,7 +693,7 @@ pub(crate) fn drive(
     mission: Option<Res<crate::mission::Mission>>,
     mut roman: Query<&mut crate::fx::Health, With<crate::player::Roman>>,
     mut spawn: MessageWriter<crate::level::SpawnGrunt>,
-    (mut send, state, mut save_req, mut noise, mut barks, mut defence, mut cheats, dropped, placed_at, mut ai_force): (
+    (mut send, state, mut save_req, mut noise, mut barks, mut defence, mut cheats, dropped, placed_at, mut ai_force, (mut push, mut arrive, markers)): (
         MessageWriter<crate::mission::SendTrigger>,
         Res<PlayState>,
         ResMut<crate::savegame::SaveRequest>,
@@ -689,6 +704,7 @@ pub(crate) fn drive(
         Query<Entity, With<crate::level::Dropped>>,
         Query<(&crate::level::InstanceId, &GlobalTransform)>,
         ResMut<crate::ai::AiForce>,
+        (MessageWriter<crate::movable::Push>, MessageWriter<crate::alarm::MarkerArrival>, Option<Res<crate::alarm::Markers>>),
     ),
     mut objects: Query<(Entity, Option<&crate::level::InstanceId>, Option<&crate::level::Placed>, &mut crate::fx::Destructible)>,
     cam: Query<&GlobalTransform, With<Camera3d>>,
@@ -824,6 +840,17 @@ pub(crate) fn drive(
         }
         if let Some(v) = &e.defence {
             defence.write(crate::defence::DefenceCommand(v.clone()));
+        }
+        if let (Some(id), Some(m)) = (e.marker_arrival, markers.as_deref()) {
+            match m.index_of(id).and_then(|i| Some((i, m.marker(i)?.pos))) {
+                Some((marker, at)) => {
+                    arrive.write(crate::alarm::MarkerArrival { marker, at, voice_set: 0 });
+                }
+                None => warn!("playtest: no marker {id}"),
+            }
+        }
+        if let Some([id, x, y, z]) = e.push {
+            push.write(crate::movable::Push { id: id as u32, velocity: Vec3::new(x, y, z) });
         }
         if let Some(id) = e.destroy {
             for (_, i, _, mut d) in &mut objects {
@@ -1290,7 +1317,7 @@ fn hurt_companions(
     for d in std::mem::take(&mut pt.blasts) {
         if let Ok((t, h)) = roman.single() {
             info!("EVENT playtest: blast {d} at Roman (health {:.0})", h.0);
-            boom.write(crate::fx::Explode { at: t.translation(), area_damage: d, radius_inner: 10.0, radius_outer: 20.0, impact_force: 0.0, source: None, delay: 0.0, by: crate::fx::Src::Badguy, cartoon: false });
+            boom.write(crate::fx::Explode { at: t.translation(), area_damage: d, radius_inner: 10.0, radius_outer: 20.0, impact_force: 0.0, source: None, delay: 0.0, by: crate::fx::Src::Badguy, cartoon: false, kind: crate::player::DamageKind::Plain });
         }
     }
     for [who, amount] in std::mem::take(&mut pt.hurt_c) {
@@ -1334,6 +1361,8 @@ mod tests {
         assert!(holds("cam_mode", json!({"as": "fresh"}), Some(json!("follow"))));
         assert!(holds("render.cameras", json!({"as": "fresh"}), Some(json!(3))));
         assert!(!holds("grunts_alive", json!({"as": "nothing"}), Some(json!(20))), "no such note");
+        assert!(holds("grunts_alive", json!({"as": "fresh", "rise": [1, 3]}), Some(json!(22))));
+        assert!(!holds("grunts_alive", json!({"as": "fresh", "rise": [1, 3]}), Some(json!(20))), "no rise");
         assert!(!holds("grunts_alive", json!({"as": "fresh"}), None), "missing now");
     }
 }

@@ -7,8 +7,8 @@
 //!   shootable_token, shootable_turret_upgrade; 0x004324d0), "deactivate".
 //! - The drops: kegs to shoot (fx_explosion: area damage among the army) and pickups to shoot (max_health 1,
 //!   takes_bullet_damage; death_timeout 20 s): on_death_player_health (shootable_health: +50), the turret's ammo upgrade
-//!   (turret_upgrade: Game+0xdd1, defence.rs). They fall under the world's gravity (their "gravity" 0.5: guess that it
-//!   scales the fall: not ported, full gravity).
+//!   (turret_upgrade: Game+0xdd1, defence.rs). They fall at their "gravity" 0.5 (the custom-gravity list World+0xf1c,
+//!   the getter 0x00450fa0: the body's gravity factor) with the speed trap's linear cast (movable.rs).
 //! - AnimPlayer (behaviour anim_player, vtable 0x005ab788; load 0x0040a700, trigger 0x0040a7d0): its "anim" set and held
 //!   at the start (flags 0x90); receive_trigger_activate plays it forward, receive_trigger_bkwd backward (0x20040), each
 //!   from where it is. The bases' gates (base_gate_l5_m5).
@@ -244,7 +244,13 @@ fn notes(
         let Some(e) = kit.spawn(&mut commands, &model, tr, true) else { continue };
         let k = physics.meters_per_unit;
         let Ok(shape) = oxijolt::prelude::Shape::new_sphere(3.0 * k) else { continue };
-        let s = oxijolt::prelude::BodySettings::new_dynamic().mass(20.0);
+        // its property set's gravity (0.5: the getter 0x00450fa0) and speed trap (anti-tunnelling, 0x00452790: a linear
+        // cast), as a movable object's (movable.rs)
+        let mp = crate::movable::MovableProps::of(&p);
+        let mut s = oxijolt::prelude::BodySettings::new_dynamic().mass(20.0).gravity_factor(mp.gravity);
+        if mp.speed_trap != 0 {
+            s = s.motion_quality(oxijolt::prelude::MotionQuality::LinearCast);
+        }
         let Some(body) = physics.add_dynamic(e, &shape, tr.translation, tr.rotation, Vec3::ZERO, s) else { continue };
         if let Some(m) = p.s("material") {
             physics.materials.insert(body, m.to_owned());

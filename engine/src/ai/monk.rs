@@ -7,7 +7,8 @@
 //! - `baskets`: the rain's five monk_basket projectiles (MonkBasketProjectile, game_07.cpp:2140-2185).
 //! - `summon_point` / `twiglet_spots`: the twiglet summon (states 0xf2 / 0xf3, ai_06.cpp:2906-2972): he turns to a point
 //!   30..40 ahead, casts cast_spell_2 and, at its end, five idle twiglets stand round him (twiglet.rs `SpawnTwiglet`).
-//! Not ported: the knock-over hang (0xf4), the smoke fx.
+//! - the knock-over hang (0xf4: topsy.rs `monk_hang`), then `bamf`: the teleport away.
+//! Not ported: the smoke fx.
 
 use crate::fx::FxStats;
 use crate::physics::Physics;
@@ -45,11 +46,13 @@ pub struct Monk {
     pub summon_at: Vec3,
     /// debug (playtest `monk_spell`): the next roll's outcome, whatever the counter
     pub forced: Option<MonkAct>,
+    /// MonkObject_Bamf 0x00436bb0 asked for (vt+0x240: the knock-over hang's end, topsy.rs): he teleports away now
+    pub bamf: bool,
 }
 
 impl Monk {
     pub fn new(rng: &mut crate::fxvm::CrtRand) -> Monk {
-        Monk { special: 1 + (rng.rand() * 3 >> 15) as u32, flight_t: 0.0, cast: false, spell: Spell::Baskets, summon_at: Vec3::ZERO, forced: None }
+        Monk { special: 1 + (rng.rand() * 3 >> 15) as u32, flight_t: 0.0, cast: false, spell: Spell::Baskets, summon_at: Vec3::ZERO, forced: None, bamf: false }
     }
 
     /// vt+0x220 0x00437130: count down, at 0 re-roll 1..3 and n = rand 500: < 50 twiglets, < 200 baskets, else fire.
@@ -121,7 +124,9 @@ pub fn bamf_velocity(pos: Vec3, goal: Vec3, t: f32, speed: f32) -> Vec3 {
 }
 
 /// The basket rain (state 0xf1's event, fn_0047df70): five monk_baskets 72 degrees apart on a circle of 40 round the
-/// target point, each from start_height above it, falling at velocity_min..max.
+/// target point, each from start_height above it, falling at velocity_min..max (MonkBasketProjectile_ReadProps
+/// 0x004830e0: +0x460 = rand(velocity_min, velocity_max), start_height +0x588; MonkBasketProjectile_Launch 0x00483180:
+/// raised by start_height, velocity (0, 0, -speed)); the hit is the base projectile's (1 damage, impact_force 4690).
 pub fn baskets(commands: &mut Commands, fx: &mut MessageWriter<crate::fx::StartFx>, data: &crate::gamedata::GameData, at: Vec3, owner: Entity, rng: &mut FxStats) {
     let p = data.template_props("monk_basket");
     let h = p.f("start_height", 450.0);
@@ -142,7 +147,7 @@ mod tests {
 
     #[test]
     fn the_counter_runs_down_before_a_special() {
-        let mut m = Monk { special: 2, flight_t: 0.0, cast: false, spell: Spell::Baskets, summon_at: Vec3::ZERO, forced: None };
+        let mut m = Monk { special: 2, flight_t: 0.0, cast: false, spell: Spell::Baskets, summon_at: Vec3::ZERO, forced: None, bamf: false };
         let mut rng = FxStats::default();
         assert_eq!(m.roll(&mut rng), MonkAct::Fire);
         assert_eq!(m.roll(&mut rng), MonkAct::Fire);

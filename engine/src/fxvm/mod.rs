@@ -20,7 +20,7 @@
 //! push stack FxStack_Push / Pop 0x00423430 / 0x00423470 by a Vec in `script::run_script`.
 
 mod attach;
-mod body;
+pub mod body;
 mod materials;
 mod object;
 mod particles;

@@ -165,6 +165,10 @@ pub struct SpawnGrunt {
     pub ic: Option<ai::ic::IcSpawn>,
     /// a troop dropped from a vehicle by its anim's note (vehicles/boss.rs)
     pub dropped: Option<DroppedTroop>,
+    /// a grunt a destroyed building throws out dead (tossed.rs, 0x0040d390): his body's velocity
+    pub thrown: Option<Vec3>,
+    /// the smoking wounded troop a destroyed barracks' ruin sends out of its exit slot (tossed.rs, 0x0042dc20)
+    pub smoking: bool,
 }
 
 /// A troop a vehicle drops (the note handler 0x00409140): create_rocket_captain_IC REF MOVER makes a "captain" that is a
@@ -371,9 +375,11 @@ fn log_objects(
     mut seen: crate::levelreset::PerLevel<std::collections::HashSet<u32>>,
     sent: Res<TriggerLog>,
     fx: Res<crate::fx::FxStats>,
+    posters: Query<(), With<RewardPoster>>,
 ) {
     let Some(mut state) = state else { return };
     let seen = seen.get();
+    state.0.insert("posters".into(), posters.iter().count().into());
     // every object death so far (fx.rs `dying`: placed objects, windows, kegs, thrown bombs)
     state.0.insert("object_deaths".into(), fx.deaths.into());
     let triggers: serde_json::Map<String, serde_json::Value> = sent.0.iter().map(|(t, n)| (t.to_string(), (*n).into())).collect();
@@ -585,6 +591,22 @@ fn turret_start_known(scene: &SceneFile, id: u32) -> bool {
         .and_then(|v| v.as_i64())
         .unwrap_or(0)
         != 0
+}
+
+/// A building's reward poster (prop_rewardposter, 0x0040bf40), attached at its ref_wantedposter.
+#[derive(Component)]
+pub struct RewardPoster;
+
+/// A node's matrix in its model (game axes) from the model's reference anim (its first key: translation, rotation),
+/// as 0x00453c50 finds an attachment matrix by name.
+pub(crate) fn ref_node(dir: &std::path::Path, anim: &str, node: &str) -> Option<Mat4> {
+    let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join("anims").join(format!("{anim}.json"))).ok()?).ok()?;
+    let (_, track) = v.get("tracks")?.as_object()?.iter().find(|(k, _)| k.eq_ignore_ascii_case(node))?;
+    let f = |x: &serde_json::Value| x.as_f64().unwrap_or(0.0) as f32;
+    let t = track.get("t")?.as_array()?.first()?.as_array()?;
+    let r = track.get("r").and_then(|r| r.as_array()?.first()?.as_array().cloned());
+    let rot = r.filter(|r| r.len() >= 5).map_or(Quat::IDENTITY, |r| Quat::from_xyzw(f(&r[1]), f(&r[2]), f(&r[3]), f(&r[4])).normalize());
+    Some(Mat4::from_rotation_translation(rot, Vec3::new(f(&t[1]), f(&t[2]), f(&t[3]))))
 }
 
 /// A building's window pane (TwigletGenerator_Slot84 0x0040ad80 "windows": a "village_window" DefaultGameObject at
@@ -1043,6 +1065,18 @@ pub fn spawn(
         // DefaultGameObject_Load 0x0044fd20 (no vt+0xf8 filter, no lists): no collider (guess: a body without the
         // filter collides with nothing; the crosshair's list +0xe9c and the bullets' +0xe90 never hold it)
         let coll_name = coll_name.filter(|_| !(behavior.is_empty() && p.f("no_collide", 0.0) != 0.0));
+        // a house that throws its people out when destroyed (toss_peasants / toss_grunts: tossed.rs); its husks inherit it
+        if behavior == "building" {
+            if let Some(t) = crate::tossed::TossOnDeath::of(&p) {
+                commands.entity(e).insert(t);
+            }
+        }
+        // a movable default object (boulders): its body once unpinned (movable.rs)
+        if behavior.is_empty() {
+            if let Some(m) = crate::movable::Movable::new(&p, coll_name.clone()) {
+                commands.entity(e).insert(m);
+            }
+        }
         let collider = match coll_name {
             Some(n) => lib.load_model(&n, false, assets, meshes, materials).and_then(|m| static_collider(physics, m, world)),
             None => None,
@@ -1109,6 +1143,11 @@ pub fn spawn(
                 if let (Some(c), Some(mt)) = (collider, wp.s("material")) {
                     physics.materials.insert(c, mt.to_owned());
                 }
+                // on_hit_death (p_village_window): the first body to touch the pane breaks it (movable.rs)
+                if let (Some(c), true) = (collider, wp.f("on_hit_death", 0.0) != 0.0) {
+                    physics.set_contact_rule(c, crate::contacts::ContactRule::default());
+                    commands.entity(we).insert(crate::movable::HitDeath);
+                }
                 let (husk, triggers) = (pick_husk(&wp, &mut husk_rng), ObjectTriggers::of(&wp));
                 commands.entity(we).insert((Placed { template: "village_window".into(), collider, husk, triggers }, Bounds { center: Vec3::ZERO, radius: 4.0 }));
                 if let Some(d) = destructible(&wp) {
@@ -1116,13 +1155,21 @@ pub fn spawn(
                 }
             }
         }
+        // the reward poster (0x0040ad80 "rewardposter" -> 0x0040bf40): a prop_rewardposter at that node of the building
+        // (always ref_wantedposter), attached: it goes with the building's stage and fades with it (the fade list
+        // World+0xed8 the camera's fade walks with its building: camfade.rs fades the descendants)
+        if let Some(node) = p.s("rewardposter").filter(|_| behavior == "building") {
+            let anim = p.s("ref_anim_name").unwrap_or(inst.model.as_str()).to_owned();
+            let model = data.templates.get("prop_rewardposter").and_then(|t| t.model.clone());
+            if let (Some(at), Some(m)) = (ref_node(&lib_dir, &anim, node), model.as_ref().and_then(|m| lib.load_model(m, false, assets, meshes, materials))) {
+                let poster = commands.spawn((Transform::from_matrix(at), Visibility::default(), Name::new("prop_rewardposter"), RewardPoster)).id();
+                let _ = attach_model(commands, poster, m, false, None, "ref_rhand");
+                commands.entity(e).add_child(poster);
+            }
+        }
         if let Some(d) = destructible(&p) {
             commands.entity(e).insert(d);
             info.destructibles += 1;
-            // a house that throws out villagers when destroyed (toss_peasants: peasant/toss.rs)
-            if let Some(t) = crate::peasant::toss::TossPeasants::of(&p) {
-                commands.entity(e).insert(t);
-            }
         } else if let Some(species) = Species::of(&inst.template) {
             // in the projectile and area damage lists (+0xe90, +0xe94): 1 health, no filter
             commands.entity(e).insert((
@@ -1291,8 +1338,14 @@ pub struct StageSwap<'w, 's> {
 impl StageSwap<'_, '_> {
     /// The object's collider and decals go (0x00455640: its decals fade, decals.rs, and it takes no more).
     fn unlink(&mut self, e: Entity, p: &Placed) {
+        // (a movable object's collider is its dynamic body: movable.rs)
         if let Some(c) = p.collider {
-            self.physics.remove_static(c);
+            if self.physics.bodies.contains_key(&c) {
+                self.physics.remove(c);
+                self.commands.entity(e).remove::<(crate::physics::Body, crate::movable::Movable)>();
+            } else {
+                self.physics.remove_static(c);
+            }
         }
         if let Some(w) = self.decal_world.as_mut() {
             w.remove_object(e);
@@ -1332,6 +1385,12 @@ impl StageSwap<'_, '_> {
         }
         // its collision model, or (collide_poly) its render model, as a placed object's
         let coll_name = ht.collision.clone().or_else(|| (hp.i("collide_poly", 0) != 0).then_some(model_name).flatten());
+        // a movable husk (boulder_large -> boulder_medium ...): a new object, unpinned unless its template pins it
+        if hp.s("behavior").is_none() {
+            if let Some(m) = crate::movable::Movable::new(&hp, coll_name.clone()) {
+                self.commands.entity(e).insert(m);
+            }
+        }
         let collider = match coll_name {
             Some(n) => self.lib.load_model(&n, false, &self.assets, &mut self.meshes, &mut self.materials).and_then(|m| static_collider(&mut self.physics, m, world)),
             None => None,
@@ -1489,6 +1548,12 @@ fn spawn_grunts(
         let e = commands.spawn((Transform::from_matrix(world), GlobalTransform::from(Transform::from_matrix(world)), Visibility::default(), Name::new(ev.template.clone()))).id();
         if ev.alarm {
             commands.entity(e).insert(crate::alarm::AlarmTroop);
+        }
+        if let Some(v) = ev.thrown {
+            commands.entity(e).insert(crate::tossed::Tossed(v));
+        }
+        if ev.smoking {
+            commands.entity(e).insert(crate::tossed::SmokingTroop::default());
         }
         if let Some(a) = &ev.army {
             commands.entity(e).insert(a.clone());

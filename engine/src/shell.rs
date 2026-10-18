@@ -97,6 +97,7 @@ fn fly(
             delay: 0.0,
             by: s.by,
             cartoon: false,
+            kind: crate::player::DamageKind::Plain,
         });
         if let Some(name) = p.s("fx_end") {
             fx.write(crate::fx::StartFx { name: name.to_lowercase(), at, rotation: Quat::IDENTITY, follow: None, position_only: false });

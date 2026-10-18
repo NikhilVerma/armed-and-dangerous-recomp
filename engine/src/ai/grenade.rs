@@ -204,6 +204,7 @@ pub fn fly(
             delay: 0.0,
             by: crate::fx::Src::Badguy,
             cartoon: false,
+            kind: crate::player::DamageKind::Plain,
         });
         if let Some(mut h) = obj.and_then(|o| health.get_mut(o).ok()) {
             h.0 -= p.damage;

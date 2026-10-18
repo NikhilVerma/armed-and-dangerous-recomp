@@ -147,7 +147,11 @@ monk_hanging, ...). Combat vt+0x220 0x00437130: +0xb58 > 0: decrement, fire; at 
 round him at its end: docs/subsystems/twiglets.md section 5), < 200
 basket rain (0xf1: cast_spell_1, 5 monk_basket at 40 around the target, falling from 450 at 150..200), else fire. The
 hiding-spot search is MonkObject_Bamf 0x00436bb0: a teleport flight (0xf0) to a point 30..200 from the target, anim
-monk_turbo, fol_monk_bamf_1 / 2. Knocked over: monk_hanging (0xf4) then bamf.
+monk_turbo, fol_monk_bamf_1 / 2. Knocked over (the Topsy Turvy's damage flag 0x20, MonkObject damage 0x004371e0,
+update 0x00447500, vt+0x1b0 0x00437240): he never falls into the sky; on the ground he hangs at once (monk_hanging,
+anim 0x72, state 0xf4) for (topsy_turvy_duration + 1) / 2 s (+0x87c counted down twice a frame), then bamfs away.
+Ported 2026-10-17: topsy.rs `monk_hang`, monk.rs `Monk::bamf`; playtest monk_hang. monk_gun2 (weapon 0x1a, its
+monk_twiglet_cluster 0x00482e80) fires only on a "fire_alt" note, which no monk anim has: dead in the shipped game.
 
 ## 7. Q112 (Q112Object, vtable 0x005a2440)
 
@@ -168,8 +172,13 @@ the target cannot be reached (+0x958), the eye loop below a quarter of its healt
 PeasantObject (placed peasant_man / peasant_woman, p_peasants): no AI. Picked up (carried total < 3) they follow Roman on
 a rope chain; a doormat (on_enter = peasant_saved_trigger) banks one (score 500); killed: killed_score, casualties, the
 level lost at peasant_max_casualties. Ported 2026-10-16: docs/subsystems/peasants.md, engine/src/peasant.rs.
-PeasantGenAI: civilians thrown from destroyed buildings with toss_peasants (blown_up_chair anims, ragdoll), not
-counted (not ported: buildings).
+PeasantGenAI: civilians thrown from destroyed buildings with toss_peasants (0x0040d390: one to three, peasant_man /
+peasant_woman on a prop_peasant_chair, launched from beside the player by 0x00431020, peasant_blown_up_chair anims,
+the PeasantBlownUp screams, state 0x195: the whoosh near Roman, down as a ragdoll where they land, gone after 8 s in
+the air). One implementation since the 2026-10-18 merge: the house's side (score, toss_grunts) in tossed.rs, the
+civilians in peasant/toss.rs; playtests toss_l1m4, peasants_tossed. A destroyed
+barracks' ruin sends its smoking troop out of the exit slot (0x0040c850 / 0x0042dc20: a quarter of his health,
+fx_smoking_grunt, the b_grunt_burnt skin, the charge at the player): tossed.rs `ruins`; playtest smoking_troop.
 
 ## 9. The port (2026-10-15, agent-infantry)
 

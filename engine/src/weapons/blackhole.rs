@@ -243,7 +243,7 @@ fn holes(
         h.life -= dt;
         if h.life <= 0.0 {
             // 0x004820b0: the area damage (1) as it goes
-            blasts.write(crate::fx::Explode { at: t.translation, area_damage: 1.0, radius_inner: h.radius, radius_outer: h.radius, impact_force: 0.0, source: Some(e), delay: 0.0, by: crate::fx::Src::Player, cartoon: false });
+            blasts.write(crate::fx::Explode { at: t.translation, area_damage: 1.0, radius_inner: h.radius, radius_outer: h.radius, impact_force: 0.0, source: Some(e), delay: 0.0, by: crate::fx::Src::Player, cartoon: false, kind: crate::player::DamageKind::Plain });
             commands.entity(e).despawn();
             info!("EVENT blackhole: closed");
             continue;

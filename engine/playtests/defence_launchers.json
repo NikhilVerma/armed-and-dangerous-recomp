@@ -1,0 +1,14 @@
+{"scene": "lev_1_m4", "steps": [
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 3.5}, {"tap": "Enter"},
+ {"wait": 8.0},
+ {"expect": {"base_turret.mounted": true, "base_turret.launchers": true, "base_turret.trolley": true, "base_turret.homing_shown": false}},
+ {"shot": "launchers"},
+ {"defence": {"upgrade": true}}, {"wait": 0.5},
+ {"expect": {"base_turret.homing_shown": true, "base_turret.upgrade": [9, 10]}},
+ {"defence": {"fire": true}}, {"wait": 10.0},
+ {"expect": {"base_turret.upgrade": 0}},
+ {"wait": 3.0},
+ {"expect": {"base_turret.homing_shown": false}},
+ {"defence": {"fire": false}},
+ {"quit": true}
+]}

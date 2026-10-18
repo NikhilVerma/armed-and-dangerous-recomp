@@ -37,6 +37,8 @@ pub struct Physics {
     pub ai_bodies: std::collections::HashSet<BodyId>,
     /// the volumes bullets hit instead of a body (a character's collision model round its physics sphere), by body
     pub hit_volumes: HashMap<BodyId, HitVolume>,
+    /// the further bodies of an object built of several (part -> its main body: `main_body`)
+    pub part_of: HashMap<BodyId, BodyId>,
     /// the game's contact rules and the contacts of the ruled bodies (contacts.rs), shared with the solver
     pub contacts: Arc<crate::contacts::Contacts>,
     /// CPU time of the last steps (ms), for the benchmark.
@@ -63,9 +65,27 @@ pub fn bq(q: j::Quat) -> Quat {
     Quat::from_xyzw(q.x, q.y, q.z, q.w)
 }
 
+/// The object layer of a body that nothing collides with but that queries (bullets, sight rays) still meet: a
+/// `no_collide` object (DefaultGameObject_Load's flag 8: the goliath, whose original stands its walker-free body over
+/// Roman, who walks between its legs). In no collision pair; walkers query [`SOLID_LAYERS`] only.
+pub const HIT_ONLY: ObjectLayer = ObjectLayer::new(2);
+/// The layers a character's walker collides with: the level and the moving bodies, not [`HIT_ONLY`].
+pub const SOLID_LAYERS: [ObjectLayer; 2] = [ObjectLayer::NON_MOVING, ObjectLayer::MOVING];
+
+/// The world's layers: static (0) and moving (1) as Jolt's default (moving meets both), and [`HIT_ONLY`] (2) in no pair.
+fn collision_layers() -> CollisionLayers {
+    let mut layers = CollisionLayers::new(2);
+    let non_moving = layers.add_object_layer(BroadPhaseLayer::NON_MOVING);
+    let moving = layers.add_object_layer(BroadPhaseLayer::MOVING);
+    let hit_only = layers.add_object_layer(BroadPhaseLayer::MOVING);
+    debug_assert_eq!(hit_only, HIT_ONLY);
+    layers.enable_collision(moving, non_moving).enable_collision(moving, moving);
+    layers
+}
+
 impl Physics {
     pub fn new(meters_per_unit: f32) -> Self {
-        let mut world = PhysicsWorld::new(WorldSettings::default().gravity(j::Vec3::new(0.0, -GRAVITY_M, 0.0)))
+        let mut world = PhysicsWorld::new(WorldSettings::default().layers(collision_layers()).gravity(j::Vec3::new(0.0, -GRAVITY_M, 0.0)))
             .expect("Jolt world");
         let contacts = Arc::new(crate::contacts::Contacts::default());
         world.set_contact_listener(Some(Arc::new(crate::contacts::ContactListenerImpl(contacts.clone()))));
@@ -81,6 +101,7 @@ impl Physics {
             landscape: None,
             ai_bodies: Default::default(),
             hit_volumes: HashMap::new(),
+            part_of: HashMap::new(),
             contacts,
             step_ms: 0.0,
             poses: Vec::new(),
@@ -144,6 +165,7 @@ impl Physics {
     /// Takes a dynamic body out of the world with everything kept about it (a body's maps would otherwise grow with
     /// every death: a long base defence kills hundreds).
     pub fn remove(&mut self, id: BodyId) {
+        self.part_of.remove(&id);
         self.bodies.remove(&id);
         self.ai_bodies.remove(&id);
         self.no_bullets.remove(&id);
@@ -151,6 +173,12 @@ impl Physics {
         self.contacts.remove(id);
         self.hit_volumes.remove(&id);
         let _ = self.world.remove_body(id);
+    }
+
+    /// The body that stands for `id`'s object: an object built of several bodies (the goliath's bone hulls) is known by
+    /// its main body (its `Placed::collider`); any other body stands for itself.
+    pub fn main_body(&self, id: BodyId) -> BodyId {
+        self.part_of.get(&id).copied().unwrap_or(id)
     }
 
     /// Radial impulse from `center` (game units): bodies within `radius` get `strength` (N s at the centre,
@@ -470,7 +498,7 @@ impl Physics {
             .max_slope_angle(max_slope)
             .mass(80.0);
         let id = self.world.create_character(&settings, self.to_m(feet), j::Quat { x: 0.0, y: 0.0, z: 0.0, w: 1.0 }).ok()?;
-        let _ = self.world.refresh_character_contacts(id, &QueryFilter::new());
+        let _ = self.world.refresh_character_contacts(id, &QueryFilter::new().object_layers(&SOLID_LAYERS));
         Some(Walker { id, lift })
     }
 
@@ -483,7 +511,7 @@ impl Physics {
         if dt > 0.0 {
             self.world.character_mut(w.id).ok()?.set_linear_velocity(jv(velocity * k)).ok()?;
             let g = j::Vec3::new(0.0, -9.81, 0.0);
-            self.world.update_character(w.id, dt.min(0.1), g, &ExtendedUpdateSettings::default(), &QueryFilter::new()).ok()?;
+            self.world.update_character(w.id, dt.min(0.1), g, &ExtendedUpdateSettings::default(), &QueryFilter::new().object_layers(&SOLID_LAYERS)).ok()?;
         }
         let c = self.world.character(w.id).ok()?;
         let on = matches!(c.ground_state(), oxijolt::GroundState::OnGround);

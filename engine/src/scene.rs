@@ -189,6 +189,47 @@ fn floats(bin: &[u8], at: usize, n: usize) -> Vec<f32> {
     bin[at..at + n * 4].chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect()
 }
 
+/// One rigid part of a bone-split model (a collision model's hull per bone: goliath_coll).
+pub struct BonePart {
+    /// the bone it rides (lower case)
+    pub bone: String,
+    /// its points in the bone's space (the inverse bind matrix applied): a joint's world matrix times these gives
+    /// them in the world, as the skinning does
+    pub points: Vec<Vec3>,
+}
+
+/// The rigid parts of model `name` (export folder `dir`) with their bones, in bone space; parts without a bone, or
+/// whose bone the model's skeleton lacks, are left out.
+pub fn bone_parts(dir: &Path, name: &str) -> Option<Vec<BonePart>> {
+    #[derive(Deserialize)]
+    struct Bone {
+        name: String,
+    }
+    #[derive(Deserialize)]
+    struct Skel {
+        bones: Vec<Bone>,
+        inverse_bind: Vec<[f32; 16]>,
+    }
+    let file: ModelFile = serde_json::from_str(&std::fs::read_to_string(dir.join("models").join(format!("{name}.json"))).ok()?).ok()?;
+    let bin = std::fs::read(dir.join("models").join(format!("{name}.bin"))).ok()?;
+    let skel: Skel = serde_json::from_str(&std::fs::read_to_string(dir.join("skeletons").join(format!("{}.json", file.skeleton.as_deref()?))).ok()?).ok()?;
+    let inverse = |bone: &str| {
+        let i = skel.bones.iter().position(|b| b.name.eq_ignore_ascii_case(bone))?;
+        skel.inverse_bind.get(i).map(Mat4::from_cols_array)
+    };
+    Some(
+        file.submeshes
+            .iter()
+            .filter_map(|s| {
+                let bone = s.bone.as_deref()?;
+                let inv = inverse(bone)?;
+                let points = floats(&bin, s.positions, s.vertices * 3).chunks_exact(3).map(|v| inv.transform_point3(Vec3::new(v[0], v[1], v[2]))).collect();
+                Some(BonePart { bone: bone.to_lowercase(), points })
+            })
+            .collect(),
+    )
+}
+
 impl Library {
     /// A model's parts with the original's materials (gamematerial.rs): uv set 1 and tangents for the normal maps.
     #[allow(clippy::too_many_arguments)]

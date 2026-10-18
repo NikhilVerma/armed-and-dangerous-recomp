@@ -132,7 +132,7 @@ pub fn shoot_down(
         stats.shot_down += 1;
         info!("EVENT ai: a captain's rocket was shot down");
         if r.area != 0.0 {
-            out.push(Explode { at: c, area_damage: r.area, radius_inner: r.inner, radius_outer: r.outer, impact_force: r.impact, source: Some(e), delay: 0.0, by: r.by, cartoon: false });
+            out.push(Explode { at: c, area_damage: r.area, radius_inner: r.inner, radius_outer: r.outer, impact_force: r.impact, source: Some(e), delay: 0.0, by: r.by, cartoon: false, kind: crate::player::DamageKind::Plain });
         }
         for n in [&r.fx_end, &r.fx_end_material].into_iter().flatten() {
             fx.write(crate::fx::StartFx { name: n.clone(), at: c, rotation: Quat::IDENTITY, follow: None, position_only: false });

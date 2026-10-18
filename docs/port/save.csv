@@ -20,7 +20,7 @@ address,name,disposition,reason
 0x004a2e10,SaveSlot_OnDeleteConfirmed,replaced,save slots / profiles under SavedGames: savegame.rs / saveslots.rs keep six slots and the quick save
 0x004a2ef0,QuickLoad_Start,replaced,QuickLoad_Start: gamemenu.rs relaunch_load (a fresh process with --load)
 0x004a3840,fn_004a3840,replaced,"writes progress.dat (difficulty, unlock counts and tables): options.json keeps tokens / unlocks / cheats; the difficulty is in the save (savegame.rs)"
-0x0048c530,fn_0048c530,deferred,"feature: save-sirens; after a load re-creates fx_siren on every raised siren: the remaster does not save the alarm's raised sirens yet (open, savegame.rs)"
+0x0048c530,fn_0048c530,ported,"engine/src/savegame.rs (SaveData::sirens; apply: back on the siren list with fx_siren, no bark) and alarm.rs Markers::raise_restored"
 0x0048c5c0,fn_0048c5c0,replaced,after a load calls vt+0x24 on the UI objects (list +0xeb8): the HUD is rebuilt from the state each frame
 0x00461b40,fn_00461b40,replaced,"the original's object-graph serialisation (save manager, class descriptor tables, per-class write / read / fixup passes, Havok body states): savegame.rs saves a snapshot of the state a player sees instead (module doc)"
 0x00461b60,fn_00461b60,replaced,"the original's object-graph serialisation (save manager, class descriptor tables, per-class write / read / fixup passes, Havok body states): savegame.rs saves a snapshot of the state a player sees instead (module doc)"

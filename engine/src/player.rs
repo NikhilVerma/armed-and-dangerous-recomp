@@ -1821,13 +1821,15 @@ fn projectiles(
                 }
             }
         }
+        // the step's part before the first body it hits (a goliath's legs, a wall): the bullet stops there, so Roman and
+        // the companions are tested only up to it (Projectile_Update 0x0047e580 takes the nearest of its hits)
+        let to = hit.map_or(from + step, |(_, at, _)| at);
         // enemy bullets hit Roman on his collision model's parts (trotter_coll_0 posed by his skeleton, hitparts.rs;
         // the walker is not a body); without it, by distance to his capsule
         let mut hit_roman = false;
         if !p.from_player {
             if let Ok((_, r, rt, ra)) = roman.single() {
                 let c = rt.translation + Vec3::Y * r.walker.lift;
-                let to = from + step;
                 let seg = to - from;
                 let u = ((c - from).dot(seg) / seg.length_squared().max(1e-6)).clamp(0.0, 1.0);
                 let near = (from + seg * u).distance(c);
@@ -1859,7 +1861,6 @@ fn projectiles(
         // (every shot: characters are in the projectile list +0xe90; the shooter's own chain is skipped)
         if !hit_roman {
             if let Some(h) = hulls.as_ref() {
-                let to = from + step;
                 for (ce, c, ct, ca, _) in companions.iter() {
                     // (nor one in an IC anim: physics off, 0x0042c410 -> 0x004577b0(0): the tower task's plant, a close
                     // kill; ai.rs Companion::ic)
@@ -1969,7 +1970,7 @@ fn projectiles(
                     continue;
                 }
                 strike(&p, ce, &mut h, anim, grunt, at, hull_part.clone(), &joints, &mut stats, &mut victims, p.owner.is_some_and(|o| roman.contains(o)));
-            } else if let Some((_, mut d, scale)) = objects.iter_mut().find(|(pl, _, _)| pl.collider == Some(body)) {
+            } else if let Some((_, mut d, scale)) = objects.iter_mut().find(|(pl, _, _)| pl.collider == Some(physics.main_body(body))) {
                 // a direct hit (not a blast): kills exploding props at once (FxExplosion_Die, non-chain record); the
                 // object's damage filter first (the record's source: the shooter, Projectile_ApplyHitDamage 0x0047eec0)
                 let by = if !p.from_player {

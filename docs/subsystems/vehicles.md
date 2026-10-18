@@ -55,6 +55,20 @@ port's).
   merged from agent-infantry); their shells fly through `vehicles::rockets::shoot` (a one-line hook in ai.rs's gunner
   shot), lobbed as the player's.
 
+- **Colossus hit reactions** (`boss.rs` walk, 2026-10-17): a hit above hit_level_1 (101) plays colossus_hit_med, above
+  hit_level_2 (301) colossus_hit_large (GenericAIObject_Slot52 0x00430340 with the colossus's anim table 0x0043c6e0:
+  ids 0x43 / 0x44 and 0x45..0x48); it stands while it plays. The table's scan and run_fire names are misspelt in the
+  original (colussus_*) and have no anims: nothing plays for them. Playtest vehicles_colossus_hits.
+- **The forge shell's damage class** (`rockets.rs` Rocket::kind, fx.rs Explode::kind): ForgeCannonProjectile_Flags
+  0x00481000 adds 0x100000 to its records, which an AI victim scales by its forge_damage_multiplier (Q and Jonesy:
+  0.1): the direct hit and the blast on a companion.
+- **The forge gunner** (ai.rs, turret.rs): a two-pivot gun is aimed by angle, its yaw_range_max / pitch_range_max
+  times (1 - 2 x the aim weights) (0x0049a110 / 0x0049a150); its "fire" notes fire only at a target in the gunner's
+  180-degree view and at least 100 away in the plane (0x0043ec60).
+- **The kickout** (turret.rs `damage`, 0x00498400 / 0x004987a0): a mounted gun has its max_health (10000); a hit counts
+  only while an AI holds it; crossing ai_kickout_health_pct (50 %) kills the gunner out of it (his whole health),
+  plays ai_kickout_fx_name and keeps the AI off for ai_kickout_stayout_secs (10). Playtest turret_kickout.
+
 ## Data and tuning
 
 Every unit number is its property set's (fire ranges, delays, counts, speeds, health, score, triggers, tags). The
@@ -100,6 +114,12 @@ engine/playtests/vehicles_*.json (regress.py SUITE), each on its own level ("sce
 - The rocket buds hurt themselves when a shell lands within 50 of them (area damage reaches every object but the one
   hit: faithful to 0x0047f020 as read; check in the original).
 - Captain rockets in flight can be shot down (CaptainRocket max_health 1, 0x00482d60): not ported.
+- The rocket tower pair's trigger (0x004510b0 / 0x0049c530 copy the tower's send_trigger_on_death to its turret; the
+  turret's death 0x00497e60 sends it, then kills the tower, whose death 0x00450ee0 sends its own): the original may
+  send it twice per destroyed pair; the engine sends it once. lev_2_m3's counter 67 counts 7 with 7 towers, lev_5_m4's
+  170 counts 6 (3 towers, 3 colossi, the Q112): check on the original before changing.
+- The kicked-out gunner's push (ai_kickout_impact_force 6000 along the tilted direction) is not applied (his death
+  takes no impulse yet).
 - Grunts take the vehicles' blast damage (the engine's fx.rs blast has no same-team filter; the original's character
   filter is not traced).
 - Gravity of the lobbed shells: 64.348 (the launch's own constant); the straight rockets fly without gravity (guess).

@@ -489,6 +489,7 @@ pub fn objects(
                         delay: 0.0,
                         by: crate::fx::Src::Object,
                         cartoon: false,
+                        kind: crate::player::DamageKind::Plain,
                     });
                 }
                 if o.hit.delete || o.hit.death {

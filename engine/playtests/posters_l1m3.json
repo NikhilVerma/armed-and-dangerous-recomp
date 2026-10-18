@@ -1,0 +1,10 @@
+{"scene": "lev_1_m3", "steps": [
+ {"wait": 1.0},
+ {"tap": "Escape"},
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 3.5}, {"tap": "Enter"}, {"wait": 1.0},
+ {"expect": {"posters": 3}},
+ {"land_by": [123, 45]}, {"wait": 1.0}, {"shot": "poster"},
+ {"destroy": 123}, {"wait": 1.0},
+ {"expect": {"posters": 2, "objects.123.husk": true}},
+ {"quit": true}
+]}

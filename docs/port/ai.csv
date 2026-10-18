@@ -14,7 +14,7 @@ address,name,disposition,reason
 0x0040ab70,BridgeObject_Slot8,not needed,dead in the shipped game: no level of the 24 places this class (work/remaster/*/scene.json and mission.json templates) and no coverage run of any level reaches it (BridgeObject; the bridges are g_lev geometry)
 0x0040aba0,BridgeObject_Slot7,not needed,dead in the shipped game: no level of the 24 places this class (work/remaster/*/scene.json and mission.json templates) and no coverage run of any level reaches it (BridgeObject; the bridges are g_lev geometry)
 0x0040ad30,fn_0040ad30,replaced,the cover-slot object set-up and its list World+0xed4: the Barricade components (ai.rs) and the barracks (mission.rs)
-0x0040bf40,fn_0040bf40,deferred,feature: twiglet-generator-extras; the reward poster of a twiglet generator (prop_rewardposter): no twiglet generator on lev_1_m1
+0x0040bf40,fn_0040bf40,ported,"engine/src/level.rs spawn (rewardposter: prop_rewardposter at the building's ref_wantedposter node, ref_node; attached, it goes with the stage and fades with it, camfade.rs)"
 0x0040bfd0,BarricadeObject_Slot88,replaced,"the trench slot bookkeeping (slot kinds, count, occupant count, usable bits, the slot matrices ref_barracade / ref_exit): ai.rs Barricade (one ground slot, occupant) from the trench model's bones; the walkable-cell test 0x0040bff0 marks no lev_1_m1 trench slot unusable (guess: the slots lie on the open ground the grunts reach)"
 0x0040bff0,BarricadeObject_Slot8,replaced,"the trench slot bookkeeping (slot kinds, count, occupant count, usable bits, the slot matrices ref_barracade / ref_exit): ai.rs Barricade (one ground slot, occupant) from the trench model's bones; the walkable-cell test 0x0040bff0 marks no lev_1_m1 trench slot unusable (guess: the slots lie on the open ground the grunts reach)"
 0x0040c0a0,BarricadeObject_Slot7,replaced,the physics description of the trench / generator (slot 7): level.rs builds the colliders
@@ -22,14 +22,14 @@ address,name,disposition,reason
 0x0040c0e0,BarricadeObject_Slot79,replaced,"the trench slot bookkeeping (slot kinds, count, occupant count, usable bits, the slot matrices ref_barracade / ref_exit): ai.rs Barricade (one ground slot, occupant) from the trench model's bones; the walkable-cell test 0x0040bff0 marks no lev_1_m1 trench slot unusable (guess: the slots lie on the open ground the grunts reach)"
 0x0040c0f0,BarricadeObject_Slot81,replaced,"the trench slot bookkeeping (slot kinds, count, occupant count, usable bits, the slot matrices ref_barracade / ref_exit): ai.rs Barricade (one ground slot, occupant) from the trench model's bones; the walkable-cell test 0x0040bff0 marks no lev_1_m1 trench slot unusable (guess: the slots lie on the open ground the grunts reach)"
 0x0040c1f0,BarricadeObject_Slot85,replaced,"the trench slot bookkeeping (slot kinds, count, occupant count, usable bits, the slot matrices ref_barracade / ref_exit): ai.rs Barricade (one ground slot, occupant) from the trench model's bones; the walkable-cell test 0x0040bff0 marks no lev_1_m1 trench slot unusable (guess: the slots lie on the open ground the grunts reach)"
-0x0040c280,TwigletGenerator_Slot161,deferred,"feature: twiglet-generator-extras; class Twiglet has no instance on lev_1_m1 (its AI classes: GruntObject, BowGruntObject, CaptainObject, PenguinObject, Q111Object, MolmerObject, BarricadeObject (trench), MarkerObject, AlarmGenerator, AIInterestObject, the barracks)"
-0x0040c740,fn_0040c740,deferred,"feature: barracks-windows; the window / exit troop dispatch and removal of the barracks-like generators (TwigletGenerator slots): lev_1_m1 barracks are run by mission.rs (0x0040ad80 / 0x0040c910 path, cited there); these window / roof variants have no instance"
-0x0040c850,fn_0040c850,deferred,"feature: barracks-windows; the window / exit troop dispatch and removal of the barracks-like generators (TwigletGenerator slots): lev_1_m1 barracks are run by mission.rs (0x0040ad80 / 0x0040c910 path, cited there); these window / roof variants have no instance"
-0x0040cd40,BarricadeObject_Slot55,deferred,"feature: barracks-windows; the window / exit troop dispatch and removal of the barracks-like generators (TwigletGenerator slots): lev_1_m1 barracks are run by mission.rs (0x0040ad80 / 0x0040c910 path, cited there); these window / roof variants have no instance"
-0x0040ce20,BarricadeObject_Slot56,deferred,"feature: barracks-windows; the window / exit troop dispatch and removal of the barracks-like generators (TwigletGenerator slots): lev_1_m1 barracks are run by mission.rs (0x0040ad80 / 0x0040c910 path, cited there); these window / roof variants have no instance"
-0x0040ce30,BarricadeObject_Slot57,deferred,"feature: barracks-windows; the window / exit troop dispatch and removal of the barracks-like generators (TwigletGenerator slots): lev_1_m1 barracks are run by mission.rs (0x0040ad80 / 0x0040c910 path, cited there); these window / roof variants have no instance"
-0x0040cef0,fn_0040cef0,deferred,"feature: barracks-windows; the window / exit troop dispatch and removal of the barracks-like generators (TwigletGenerator slots): lev_1_m1 barracks are run by mission.rs (0x0040ad80 / 0x0040c910 path, cited there); these window / roof variants have no instance"
-0x0040cf40,BarricadeObject_Slot53,deferred,"feature: barracks-windows; the window / exit troop dispatch and removal of the barracks-like generators (TwigletGenerator slots): lev_1_m1 barracks are run by mission.rs (0x0040ad80 / 0x0040c910 path, cited there); these window / roof variants have no instance. Its toss_peasants part (score_value_peasant_building, 0x0040d390 with villagers) is ported: engine/src/peasant/toss.rs"
+0x0040c280,TwigletGenerator_Slot161,ported,"engine/src/ai/coverslot.rs SlotView::of / point (a building's ground slot: the node's position, -(its y axis))"
+0x0040c740,fn_0040c740,not needed,"dead in the shipped game: the window troop dispatch runs only with window_generator (+0x460 bit 4), which is 0 in every level's properties and instance props (survey of the 24 levels)"
+0x0040c850,fn_0040c850,ported,engine/src/tossed.rs ruins (a destroyed object's ruin with an exit slot: the barracks' ruin grunt_barracks_mini_d keeps grunt_barracks_mini_0's ref_spawn_00 / ref_exit_00: a grunt_regular out of it)
+0x0040cd40,BarricadeObject_Slot55,ported,engine/src/ai/coverslot.rs gone (a destroyed building's slots freed); its troop list is mission.rs's barracks
+0x0040ce20,BarricadeObject_Slot56,ported,"engine/src/alarm.rs collidable (a house with toss_peasants is on the player's side: vt+0xe0 false; its role as a damage source has no effect: no toss_peasants house deals area damage, survey)"
+0x0040ce30,BarricadeObject_Slot57,ported,"engine/src/alarm.rs collidable / seen_by_player (vt+0xe4 = toss_peasants: the alarm's ""seen"" ray takes such a house as seen, 0x00404d00)"
+0x0040cef0,fn_0040cef0,ported,"engine/src/tossed.rs TossOnDeath: a component of the building's entity, which keeps it through its husk stages (the bits 0x20 / 0x800 copied to the husk)"
+0x0040cf40,BarricadeObject_Slot53,ported,"the destruction: fx_death and the husk (fx.rs dying, level.rs husks), the toss and its scores and the ruin's exit troop (tossed.rs toss / ruins; the civilians: peasant/toss.rs), send_trigger_on_death (mission.rs deaths); its zeppelin_death grunt (bit 0) is dead data (zeppelin_death 0 on every level: 0x0043e520)"
 0x0040de00,JumpMarker_Slot55,replaced,the jump marker's removal: ai/jumper.rs JumpMarker is a component that goes with its entity
 0x0040de30,JumpMarker_Slot79,replaced,JumpMarker occupied test: ai/jumper.rs JumpMarker::occupant
 0x0040de40,JumpMarker_Slot82,replaced,JumpMarker free test: ai/jumper.rs MarkerView::free
@@ -70,12 +70,12 @@ address,name,disposition,reason
 0x0042c670,fn_0042c670,ported,"engine/src/ai/close_kill.rs `approach` / `kill`: the paired IC anims (each the other's target, physics off, the mover's root)"
 0x0042c790,fn_0042c790,replaced,"ai.rs: a guard beyond +0x5d8 gets infinite accuracy (g.infinite), which is what the 99999 ranges do"
 0x0042d650,fn_0042d650,ported,"engine/src/ai/ladder.rs: the carried ladder attached to the grunt (CarriedLadder), anim 0x31 grunt_ladder_run (charanim.rs)"
-0x0042d690,fn_0042d690,deferred,"feature: barracks-windows; the smoking (wounded) troop of a barracks exit slot and the cover window slot of the generators (0x0042d690, 0x0042dc20): the lev_1_m1 barracks have no window slots and no smoking troops (mission.rs)"
-0x0042d780,fn_0042d780,deferred,"feature: base-turret; the failure mob on the base turret (0x0049ad60): not ported, defence.md debt (a failure in the turret fails at once)"
+0x0042d690,fn_0042d690,not needed,"dead in the shipped game: seats a window troop, called only by the window dispatch 0x0040c740 (window_generator 0 on every level)"
+0x0042d780,fn_0042d780,ported,"engine/src/defence.rs board / boarders (grunt_turret_attack by the running count, state 0x67: removed at the anim end)"
 0x0042da00,fn_0042da00,not needed,"dead in the shipped game: the ""q112"" / ""q112_marker"" freefall drops are only in the unused test movers mover_zep_small, mover_lev_4_test and mover_zeppelin_test_tim_2, which no object of the 24 levels plays"
 0x0042daa0,fn_0042daa0,not needed,dead in the shipped game: as 0x0042da00 (the q112 drop events only in unused test movers)
 0x0042db00,fn_0042db00,ported,"engine/src/ai/retreat.rs: the pre-success retreat (delay, marker -1's direction, 2000 units, 20 % scared run)"
-0x0042dc20,fn_0042dc20,deferred,"feature: barracks-windows; the smoking (wounded) troop of a barracks exit slot and the cover window slot of the generators (0x0042d690, 0x0042dc20): the lev_1_m1 barracks have no window slots and no smoking troops (mission.rs)"
+0x0042dc20,fn_0042dc20,ported,"engine/src/tossed.rs SmokingTroop / smoking (a quarter of his health, fx_smoking_grunt on his chest, out of the door the charge at the player: state 0x5a with +0x488 bit 0x100)"
 0x0042de30,fn_0042de30,ported,"engine/src/ai/squad.rs: a member following the squad (state 0xdc, friction 0)"
 0x0042e910,fn_0042e910,ported,"engine/src/ai/fall.rs: the falling watchdog (vz < -20 for 0.2 s without a contact) into state 0x82, 5 s to live"
 0x0042f190,fn_0042f190,ported,engine/src/weapons/glove.rs: the glove lets go of the ones it holds (state 0x19a) when a flung one reaches Roman unpunched: back to the pursuit of Roman
@@ -133,8 +133,8 @@ address,name,disposition,reason
 0x00436b30,fn_00436b30,replaced,the monk's stance-set call collapses to one anim: anim_name_with (Kind::Monk) gives monk_stand for every stand id
 0x00436b50,fn_00436b50,replaced,monk vt+0x188 (+0x484 0x10 then the object history): leave_cover's history (ai.rs)
 0x00436b60,fn_00436b60,replaced,monk vt+0x18c: leave_cover (ai.rs)
-0x004371e0,fn_004371e0,deferred,"feature: monk; monk damage message: flag 0x20 starts the knock-over timer to the hang state 0xf4 (monk_hanging, then a bamf): not ported (docs/subsystems/infantry.md section 6)"
-0x00437240,fn_00437240,deferred,feature: monk; monk knocked over (vt+0x1b0): state 0xf4 with monk_hanging: not ported (docs/subsystems/infantry.md section 6)
+0x004371e0,fn_004371e0,ported,engine/src/topsy.rs run / monk_hang (the topsy turvy's flag 0x20 on a monk: no fall roll; hangs on the ground)
+0x00437240,fn_00437240,ported,"engine/src/topsy.rs monk_hang (monk_hanging, anim 0x72, state 0xf4) and charanim.rs (Thrown without the into)"
 0x004375c0,fn_004375c0,deferred,"feature: ai-voice-lines; the captain's voice slots (AIVoice_* 0x00437690 / 0x00437860 / 0x004375c0) are reached only when a captain speaks; the engine's barks use the grunt sets for captains too (open: captain voice table, grunt-ai.md 14)"
 0x00437690,fn_00437690,deferred,"feature: ai-voice-lines; the captain's voice slots (AIVoice_* 0x00437690 / 0x00437860 / 0x004375c0) are reached only when a captain speaks; the engine's barks use the grunt sets for captains too (open: captain voice table, grunt-ai.md 14)"
 0x00437860,fn_00437860,deferred,"feature: ai-voice-lines; the captain's voice slots (AIVoice_* 0x00437690 / 0x00437860 / 0x004375c0) are reached only when a captain speaks; the engine's barks use the grunt sets for captains too (open: captain voice table, grunt-ai.md 14)"
@@ -144,21 +144,21 @@ address,name,disposition,reason
 0x004392c0,fn_004392c0,replaced,"the grunts' Spotted / Fight cue wrappers (0x004390b0 -> 0x00438fc0, 0x004392c0 -> 0x004391f0): ai.rs barks ""Spotted"" / ""Fight"" under vo_delay"
 0x00439d50,fn_00439d50,replaced,"the speech-still-playing test of state 0x6e (0x00439d90 / 0x00439d50): the engine keeps no per-grunt speech handle; the taunt is taken as silent (ai.rs fire_cycle, guess)"
 0x00439d90,fn_00439d90,replaced,"the speech-still-playing test of state 0x6e (0x00439d90 / 0x00439d50): the engine keeps no per-grunt speech handle; the taunt is taken as silent (ai.rs fire_cycle, guess)"
-0x0043a0f0,fn_0043a0f0,deferred,feature: goliath-extras; goliath slots
+0x0043a0f0,fn_0043a0f0,not needed,"GoliathObject vt+0x25c (alive): its only caller, MissionObject_Update's nearest-AI scan (game_02.cpp:2448-2468), discards the result ((void)nearest): no effect"
 0x0043a200,fn_0043a200,replaced,the vo_delay test (0x0043a200): ai.rs Barks::take(Delay::Vo)
 0x0043a980,fn_0043a980,replaced,"grab / carry state tests (slots +0x1c0, +0x118): no grabs on lev_1_m1"
-0x0043a9a0,fn_0043a9a0,deferred,feature: goliath-extras; goliath slots
+0x0043a9a0,fn_0043a9a0,deferred,"feature: vindaloo; GoliathObject vt+0x250 (not in a squad, +0x9bc): Hud_UpdateCrosshair's multi-lock (ui_01.cpp:378, hud +0x152: weapon type 3 or the base turret) skips a squad's goliath; the multi-lock itself is the vindaloo's (and the base mgun's, defence.md debt)"
 0x0043a9b0,fn_0043a9b0,replaced,"grab / carry state tests (slots +0x1c0, +0x118): no grabs on lev_1_m1"
-0x0043a9f0,fn_0043a9f0,deferred,feature: vehicle-bosses; fake grunt / zeppelin / colossus / Q112 boss anim tables
+0x0043a9f0,fn_0043a9f0,replaced,"FakeGruntObject vt+0x1a4 (every anim id -> ""4_fake_grunts""): the platoon's members are crowd meshes running their kind's grunt clip (army.rs / crowd.rs), the platoon itself a mover (mover.rs)"
 0x0043bc50,fn_0043bc50,deferred,"feature: run-anim-speed; the anim speed vector (vt+0x1a8: run ids 8..0xc / 0x2f -> +0x96c, limp 0x59 -> +0x994, the anim_run_* / anim_limp_* scaling of the run anims' playback to the move speed): not ported, the engine plays the run anims at speed 1 (open: foot sliding at limp speed)"
 0x0043c560,fn_0043c560,deferred,"feature: run-anim-speed; the anim speed vector (vt+0x1a8: run ids 8..0xc / 0x2f -> +0x96c, limp 0x59 -> +0x994, the anim_run_* / anim_limp_* scaling of the run anims' playback to the move speed): not ported, the engine plays the run anims at speed 1 (open: foot sliding at limp speed)"
-0x0043c640,fn_0043c640,deferred,feature: vehicle-bosses; fake grunt / zeppelin / colossus / Q112 boss anim tables
-0x0043c650,fn_0043c650,deferred,feature: vehicle-bosses; fake grunt / zeppelin / colossus / Q112 boss anim tables
-0x0043c7d0,fn_0043c7d0,deferred,feature: vehicle-bosses; fake grunt / zeppelin / colossus / Q112 boss anim tables
+0x0043c640,fn_0043c640,replaced,"ZeppelinObject vt+0x1a4 (every anim id -> ""mini_zeppelin_ref""): the mini zeppelin's model is rigid; its anims run as a note clock and nodes (vehicles/boss.rs RigidAnimNotes, nodes.rs)"
+0x0043c650,fn_0043c650,deferred,"feature: run-anim-speed; ColossusObject vt+0x1a8: the move-speed info +0x96c of its walk anims (ids 4, 8..0xc, 0x2f, 0x59) for the walk's playback rate by speed; the colossus's hit and walk anims are vehicles/boss.rs walk"
+0x0043c7d0,fn_0043c7d0,not needed,"Q112Boss vt+0x1a8 (the move-speed info of its walk anims, ids 8..0xc, 0x2f, 0x59): the q112_boss is dead in the shipped game (see 0x0043c860)"
 0x0043c860,Q112Boss_HandleEvent,not needed,"dead in the shipped game: a q112_boss is made only by the anim note q112_marker (GenericAIObject_HandleEvent 0x0043d180), which only mini_zeppelin_q112_marker carries; that anim is started only by mover_zeppelin_test_tim_2 (anim_intro at 6.07 s) and mover_lev_4_test, which no level plays (the 24 levels' instance_props generic_txt values, missions and scenes never name them), and no level's templates.json has q112_boss (survey 2026-10-17)"
 0x0043ccb0,fn_0043ccb0,not needed,dead in the shipped game: no level of the 24 has a hide_tag / unhide_tag script (mission.json / scene.json survey)
 0x0043cd70,fn_0043cd70,not needed,dead in the shipped game: no level of the 24 has a hide_tag / unhide_tag script (mission.json / scene.json survey)
-0x0043e520,fn_0043e520,deferred,feature: barracks-windows; the knock-back toward the player root of a barricade breach (0x0040cf40's caller)
+0x0043e520,fn_0043e520,not needed,dead in the shipped game: the knock-back of the grunt a zeppelin_death building makes (0x0040cf40 bit 0); zeppelin_death is 0 in every level's properties and instance props (survey of the 24 levels)
 0x0043e900,fn_0043e900,replaced,the AI position / matrix accessors (slots +0x54..+0x7c: the IC anim matrices +0xa6c / +0xa28 or the body): Transform / GlobalTransform
 0x0043e930,fn_0043e930,replaced,the AI position / matrix accessors (slots +0x54..+0x7c: the IC anim matrices +0xa6c / +0xa28 or the body): Transform / GlobalTransform
 0x0043e960,fn_0043e960,replaced,the AI position / matrix accessors (slots +0x54..+0x7c: the IC anim matrices +0xa6c / +0xa28 or the body): Transform / GlobalTransform
@@ -174,13 +174,13 @@ address,name,disposition,reason
 0x0043eae0,fn_0043eae0,ported,"engine/src/ai/melee.rs CloseHit / close_hits: the close attack's ""hit"" (50 / 6500, the Q112 100 / 13000, within m_h2hMax, the knock lifted 0.7..0.9)"
 0x0043ec40,GenericAIObject_GetClass,replaced,"the class descriptor: the engine's component types carry the class (ai.rs Grunt with Kind, Companion, level.rs Penguin, alarm.rs Marker)"
 0x0043ec50,fn_0043ec50,replaced,dead test slot +0xe0: Mind::Dead / Health
-0x0043ec60,fn_0043ec60,deferred,feature: vehicle-bosses; the turret target test (+0x898 of kind 2: Colossus turrets)
+0x0043ec60,fn_0043ec60,ported,"engine/src/ai.rs gunner fire notes (a forge cannon, Turret::two_pivot: the target in the 180-degree view and at least 100 away)"
 0x0043edb0,fn_0043edb0,replaced,"contact callbacks (slots 42 / 44: bumped by a body, the contact record +0x538 and list +0x518) and the list release 0x0043edb0: Jolt bodies collide; the per-state contact reactions are not ported (open: a grunt bumped by the player's car / props; none on lev_1_m1)"
 0x00446440,ShrubPatrol_Update,replaced,ShrubPatrol update: shrubpatrol.rs (guard)
 0x00446de0,fn_00446de0,replaced,goliath update helpers: goliath.rs guard
 0x00446f30,Polewart_Update,not needed,"dead in the shipped game: no level of the 24 places this class (work/remaster/*/scene.json and mission.json templates) and no coverage run of any level reaches it (Polewart: only a cutscene name, post_1_1b_polewart)"
 0x00447020,fn_00447020,replaced,goliath update helpers: goliath.rs guard
-0x00447500,MonkObject_Update,deferred,feature: monk; MonkObject_Update: the hang state 0xf4 timers (see 0x004371e0); the rest is GenericAI_Update (docs/subsystems/infantry.md section 6)
+0x00447500,MonkObject_Update,ported,"engine/src/topsy.rs thrown (the hang's +0x87c, counted twice: (duration + 1) / 2, then the bamf: ai/monk.rs Monk::bamf, ai.rs); the rest is GenericAI_Update"
 0x0044b490,Marker_GetSpeed,ported,cited: alarm.rs / ai.rs (marker speed of the walk legs)
 0x0044b4a0,Marker_IsStrict,replaced,"the marker getters and per-AI accessors: alarm.rs Marker fields (strict, flags, trigger, alarm_tag, action, scatter, next range) read by ai.rs marker_arrival"
 0x0044b4b0,AIMarker_PrevIsStrict,replaced,"the marker getters and per-AI accessors: alarm.rs Marker fields (strict, flags, trigger, alarm_tag, action, scatter, next range) read by ai.rs marker_arrival"
@@ -342,9 +342,9 @@ address,name,disposition,reason
 0x0049fe00,Twiglet_Vt78,replaced,the matrix getters while an IC anim plays: the engine reads the entity Transform (twiglet.rs Emerging moves it by the mover)
 0x0049fe30,Twiglet_Vt6C,replaced,the matrix getters while an IC anim plays: the engine reads the entity Transform (twiglet.rs Emerging moves it by the mover)
 0x0049fe60,Twiglet_VtA8,deferred,"feature: twiglet-extras; the contact handler: the leap / attach (0x3c..0x3f), the topsy throw (0x65 / 0x66) and the blown-up landing (0x52) are not entered by the ported states"
-0x004a0130,fn_004a0130,deferred,feature: twiglet-extras; the attach reference (+0x560) of the leap: the leap (0x3c..0x3f) is not entered by the ported states
-0x004a01b0,Twiglet_VtA0,deferred,feature: twiglet-extras; the held-object test of the attach (+0x560): the leap is not ported
-0x004a01c0,fn_004a01c0,deferred,"feature: twiglet-extras; the stun's end, blown away / hanging (0x50, 0x51): the stun (damage flag 0x20) and the bof glove are not ported"
+0x004a0130,fn_004a0130,not needed,"dead in the shipped game: sets / drops the leap's attach reference +0x560 only on the leap chain 0x3d -> 0x3e (ai_09.cpp:603) and its release (Twiglet_VtA8 state 0x3e); state 0x3c, the only way into 0x3d, is entered by no code (no write of 0x3c to +0x464 in src/)"
+0x004a01b0,Twiglet_VtA0,not needed,"Twiglet_VtA0: object != +0x560; +0x560 is set only on the dead leap chain (0x004a0130), so it is always 0 and the test passes for every object: the default (collide with everything)"
+0x004a01c0,fn_004a01c0,ported,engine/src/twiglet.rs blow (the topsy turvy stun's end: hang 0x50 or blown away 0x51) and topsy_hit (topsy.rs)
 0x004a0380,Twiglet_Vt8C,deferred,feature: twiglet-extras; the anti-gravity factor for the bof glove / blown-up flight (not ported)
 0x004a03c0,Twiglet_Vt11C,deferred,feature: twiglet-extras; the topsy turvy release (state 0x64): topsy on twiglets not ported
 0x004a0420,Twiglet_Vt120,deferred,feature: twiglet-extras; the topsy turvy grab (state 0x64): topsy on twiglets not ported

@@ -24,8 +24,10 @@
 //!   Here the money lives in options.json (GameOptions.money) and only the Stats screen changes it, so the bank is
 //!   that value; a new game sets 5000 (gamemenu.rs).
 //!
-//! Not restored (open): the alarm's raised sirens (the original re-creates their fx_siren after a load, 0x0048c530),
-//! the camera pitch.
+//! - the alarm's raised sirens (the siren list World+0xef0, part of the original's object graph), by instance id; a
+//!   load puts them back on the list with their fx_siren and no bark (0x0048c530 after SaveGame_Load 0x0048c9b0).
+//!
+//! Not restored (open): the camera pitch.
 //!
 //! Where a save may be made: anywhere from the pause menu (the remaster's default), or, with the option
 //! "checkpoint_saves" (options.rs), only where the original offers one: its QuickSave screen is pushed through
@@ -93,6 +95,9 @@ pub struct SaveData {
     /// Game+0x574: the pub's intro heard in this campaign (pubscreen.rs)
     #[serde(default)]
     pub pub_intro_heard: Option<bool>,
+    /// the raised sirens (alarm.rs Markers), by instance id
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sirens: Vec<u32>,
     /// saves written before `objects`: destroyed instance ids, restored at their first husk
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub destroyed: Vec<u32>,
@@ -318,7 +323,7 @@ fn save(
     buildings: Query<&InstanceId>,
     scene_ids: Res<PlacedIds>,
     (opts, difficulty, levels, pub_lines): (Res<crate::options::GameOptions>, Res<crate::gamedata::Difficulty>, Res<crate::campaign::Levels>, Res<crate::pubscreen::PubLines>),
-    (corpses, upgrade): (Res<crate::corpses::Corpses>, Res<crate::weapons::VindalooUpgrade>),
+    (corpses, markers, upgrade): (Res<crate::corpses::Corpses>, Res<crate::alarm::Markers>, Res<crate::weapons::VindalooUpgrade>),
 ) {
     use crate::weapons::{SpecialId, WeaponId};
     if !std::mem::take(&mut req.save) {
@@ -360,6 +365,7 @@ fn save(
         difficulty: difficulty.0,
         money: Some(opts.money),
         pub_intro_heard: Some(opts.pub_intro_heard || pub_lines.intro_said),
+        sirens: markers.sirens().iter().filter_map(|&e| buildings.get(e).ok().map(|i| i.0)).collect(),
         destroyed: Vec::new(),
     };
     let path = req.path.take().unwrap_or_else(save_path);
@@ -452,6 +458,7 @@ fn apply(
     mut physics: NonSendMut<crate::physics::Physics>,
     data: Res<crate::gamedata::GameData>,
     (mut opts, mut difficulty, mut seen, mut upgrade): (ResMut<crate::options::GameOptions>, ResMut<crate::gamedata::Difficulty>, ResMut<Checkpoints>, ResMut<crate::weapons::VindalooUpgrade>),
+    (mut markers, mut fx): (ResMut<crate::alarm::Markers>, MessageWriter<crate::fx::StartFx>),
 ) {
     let Some(mut p) = pending else { return };
     // wait two frames after the level exists (placed objects and the rig are spawned by then)
@@ -511,6 +518,12 @@ fn apply(
     for (we, w) in &windows {
         if building_ids.get(&w.building).is_some_and(|b| s.windows.contains(&(*b, w.index))) {
             restore.write(RestoreStage { entity: we, stage: Stage::Gone });
+        }
+    }
+    // the raised sirens back on the list with their fx (0x0048c530: fx_siren on each, no bark)
+    for (e, i) in &objects {
+        if s.sirens.contains(&i.0) && markers.raise_restored(e) {
+            fx.write(crate::fx::StartFx { name: "fx_siren".into(), at: Vec3::ZERO, rotation: Quat::IDENTITY, follow: Some(e), position_only: false });
         }
     }
     m.log.push("loaded the saved game".into());

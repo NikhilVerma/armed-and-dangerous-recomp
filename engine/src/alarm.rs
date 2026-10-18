@@ -109,6 +109,25 @@ impl Markers {
         &self.sirens
     }
 
+    /// The index of the marker with instance id `id` (a MarkerArrival's `marker`).
+    pub fn index_of(&self, id: u32) -> Option<usize> {
+        self.markers.iter().position(|m| m.id == id)
+    }
+
+    /// The marker at `index`.
+    pub fn marker(&self, index: usize) -> Option<&Marker> {
+        self.markers.get(index)
+    }
+
+    /// A siren raised in a saved game, back on the list (savegame.rs, 0x0048c530); false when it already is.
+    pub fn raise_restored(&mut self, e: Entity) -> bool {
+        if self.sirens.contains(&e) {
+            return false;
+        }
+        self.sirens.push(e);
+        true
+    }
+
     /// From the level's placements, each with its class template's values under its own (as the original's property
     /// readers fall back to the template: a grunt_generator's num_regular 1 when the placement names only num_bow 0 and
     /// num_captain 0, lev_bonus_m2 169..171).
@@ -274,7 +293,7 @@ pub struct AlarmPlugin;
 
 impl Plugin for AlarmPlugin {
     fn build(&self, app: &mut App) {
-        app.init_level_resource::<Markers>().add_message::<MarkerArrival>().add_systems(Update, (arrivals, sirens_gone, controller).chain().run_if(crate::playing));
+        app.init_level_resource::<Markers>().add_message::<MarkerArrival>().add_systems(Update, (arrivals, sirens_gone, controller, log).chain().run_if(crate::playing));
     }
 }
 
@@ -319,14 +338,19 @@ fn sirens_gone(mut m: ResMut<Markers>, mut died: MessageReader<crate::fx::Died>,
 /// The placed objects in the collidable list World+0xe9c (DefaultGameObject_Load 0x0044fd20, game_03.cpp:526-567: every
 /// object with a collider but the collide barriers, which get filter 0x40 and no lists), by their colliders. (Husks
 /// made later are not listed here: none stands between a generator and the player at the level starts.)
-type Collidable = std::collections::HashSet<oxijolt::prelude::BodyId>;
+/// The collidable objects' bodies, each with its side: true for an object on the player's side (vt+0xe4: a house
+/// with toss_peasants, BarricadeObject slot 57 0x0040ce30 = +0x460 bit 11), which the "seen" ray takes as seen.
+type Collidable = std::collections::HashMap<oxijolt::prelude::BodyId, bool>;
 
 fn collidable(placed: &Query<(&InstanceId, &crate::level::Placed)>, dir: &std::path::Path, data: &crate::gamedata::GameData) -> Collidable {
     let props = crate::vehicles::placements(dir, data);
     placed
         .iter()
         .filter(|(id, _)| props.get(&id.0).is_none_or(|p| p.f("collide_barrier", 0.0) == 0.0))
-        .filter_map(|(_, pl)| pl.collider)
+        .filter_map(|(id, pl)| {
+            let teammate = props.get(&id.0).is_some_and(|p| p.s("behavior") == Some("building") && p.f("toss_peasants", 0.0) != 0.0);
+            Some((pl.collider?, teammate))
+        })
         .collect()
 }
 
@@ -346,8 +370,10 @@ fn seen_by_player(physics: &crate::physics::Physics, at: Vec3, eye: Vec3, fwd: V
     let (mut from, mut left) = (at.with_y(eye.y), to.length());
     for _ in 0..32 {
         let Some((b, hit, _)) = physics.raycast(from, dir, left) else { return true };
-        if collidable.contains(&b) {
-            return false;
+        // the first object met decides: on the player's side (a peasants' house, vt+0xe4 true, alive: 0x004531e0)
+        // it counts as seen; any other hides (the camera's fade of a faded teammate, +0x424 bit 11, not read: debt)
+        if let Some(&teammate) = collidable.get(&b) {
+            return teammate;
         }
         left -= hit.distance(from) + 0.05;
         if left <= 0.0 {
@@ -463,4 +489,11 @@ fn controller(
         m.recent.pop_front();
     }
     info!("EVENT alarm: generator {id} sent a {tpl}");
+}
+
+/// The raised sirens in the playtest state log.
+fn log(m: Res<Markers>, ids: Query<&InstanceId>, troops: Query<(), With<AlarmTroop>>, state: Option<ResMut<crate::playtest::PlayState>>) {
+    let Some(mut state) = state else { return };
+    let raised: Vec<u32> = m.sirens.iter().filter_map(|&e| ids.get(e).ok().map(|i| i.0)).collect();
+    state.0.insert("alarm".into(), serde_json::json!({ "sirens": raised.len(), "raised": raised, "troops": troops.iter().count() }));
 }

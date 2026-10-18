@@ -1,0 +1,13 @@
+{"scene": "lev_2_m1", "steps": [
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 3.5}, {"tap": "Enter"}, {"wait": 2.0},
+ {"expect": {"movable.count": 14, "movable.moving": 6, "movable.crushed": 0}},
+ {"damage": [287, 40]}, {"wait": 0.5},
+ {"expect": {"movable.moving": 6}},
+ {"damage": [287, 60]}, {"wait": 0.5},
+ {"expect": {"movable.moving": 7}},
+ {"land": [-781, -1320, 180]}, {"wait": 1.0},
+ {"expect": {"health": 400}},
+ {"push": [286, 0, 90, 0]}, {"wait": 2.0},
+ {"expect": {"movable.crushed": [1, 3], "health": [-1000, 0]}},
+ {"quit": true}
+]}

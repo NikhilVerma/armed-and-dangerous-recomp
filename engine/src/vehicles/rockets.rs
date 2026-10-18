@@ -102,6 +102,8 @@ pub struct Rocket {
     pub passby: Option<(&'static str, f32)>,
     /// the rocket's template (its model is attached by `dress_rockets`)
     pub template: String,
+    /// its damage records' class (the forge cannon's shell: ForgeCannonProjectile_Flags 0x00481000 adds 0x100000)
+    pub kind: crate::player::DamageKind,
 }
 
 /// The behaviours this module flies.
@@ -193,6 +195,7 @@ pub fn launch(commands: &mut Commands, fx: &mut MessageWriter<crate::fx::StartFx
                 fx_end_material: p.s("fx_end_material").filter(|s| !s.is_empty() && *s != "none").map(str::to_owned),
                 passby,
                 template: l.template.to_owned(),
+                kind: crate::player::DamageKind::of_behavior(p.s("behavior").unwrap_or("")),
             },
         ))
         .id();
@@ -410,7 +413,7 @@ fn fly(
         }
         if victim.is_none() {
             if let Some((body, at, _)) = hit {
-                let owner = physics.bodies.get(&body).copied().or_else(|| objects.iter().find(|(_, p, _, _)| p.collider == Some(body)).map(|(oe, ..)| oe));
+                let owner = physics.bodies.get(&body).copied().or_else(|| objects.iter().find(|(_, p, _, _)| p.collider == Some(physics.main_body(body))).map(|(oe, ..)| oe));
                 victim = Some((owner, at, Some(body)));
             }
         }
@@ -440,7 +443,7 @@ fn fly(
         }
         if r.area != 0.0 {
             let source = if proximity { None } else { obj };
-            blasts.write(Explode { at, area_damage: r.area * scale, radius_inner: r.inner, radius_outer: r.outer, impact_force: r.impact, source, delay: 0.0, by: r.by, cartoon: false });
+            blasts.write(Explode { at, area_damage: r.area * scale, radius_inner: r.inner, radius_outer: r.outer, impact_force: r.impact, source, delay: 0.0, by: r.by, cartoon: false, kind: r.kind });
         }
         if let Some(o) = obj {
             if let Ok((_, mut rm, _, mut h)) = roman.get_mut(o) {
@@ -450,7 +453,8 @@ fn fly(
                     rm.hit_from = Some(r.vel.normalize_or(Vec3::Z));
                 }
             } else if let Ok((_, mut c, _, mut h)) = companions.get_mut(o) {
-                h.0 -= direct;
+                // (a forge shell's record: x forge_damage_multiplier, 0.1 for Q and Jonesy)
+                h.0 -= direct * c.damage_scale(r.kind);
                 c.attacker = r.owner;
             } else if let Ok((_, _, grunt)) = chars.get(o) {
                 // a bad guy's rocket does nothing to a grunt (same team; player.rs); the player's hurts

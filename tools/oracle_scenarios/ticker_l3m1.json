@@ -25,15 +25,15 @@
   "events.sounds": "B17 rest (level ambience: imp_boulder_roll_lp and the like at other frames), and the fight's sounds of B6 / G1 below",
   "grunt.pos": "B24: captain_sniper 228 slides off the beam of v_rockettower2 272 (lev_3_m1_start); later the squads' members move on other paths as the fight differs (G1)",
   "vehicle.pos": "G2: squads 171 / 172 head for their first marker on another line (the original's goliath 172 is ~12 units further south by frame 210, ~2 by 900: which marker of spline 600 a squad starts at, 0x0042d1b0 / state 0x96, is not traced); goliath 170 walks within 8 units of the original's",
-  "roman.pos": "G1: the remaster's goliath hit capsule pushes Roman's walker ~9 units off the warp point; p_goliath has no_collide 1 (the original's Roman stands between its legs, untouched). The walker collides with every body (physics.rs move_walker: QueryFilter::new())",
+  "roman.pos": "the warp's landing: the original's Roman drifts ~3 units (1.5, 2.9) while it falls the last ~7 units onto the ground between goliath 170's legs and lands ~0.4 s later; the remaster's lands straight under the warp point. Since G1 (2026-10-18, goliath.rs hulls in physics.rs HIT_ONLY) neither is pushed: both stand still there until the blast (remaster within 0.1 units from 924 to 1380)",
   "grunt.mind": "B6: the original's far grunts (captain_sniper 228 among them) take Roman 16 frames after he appears beside the squads",
   "grunt.target": "B6, as grunt.mind",
-  "roman.health": "G1: standing between the goliath's legs, the original's Roman takes no bullet in 8 s of the squads' fire (their shots stop on the goliath's hulls, same side: no damage); the remaster's, pushed out of the capsule, takes grunt_rifle and captain_mg hits at 100..190 units (AIDBG romandmg) and would be shot dead by about frame 1100: health held (hold_health), so only the heading and the fight show it",
-  "roman.heading": "G1: follows roman.health (the original's Roman turns with the hits it takes later)",
+  "roman.health": "held (hold_health); G1 fixed 2026-10-18: the goliath's hulls are hit-only bodies and an enemy bullet stops at the first body it meets (player.rs projectiles), so the legs shield him as in the original",
+  "roman.heading": "follows roman.health (the original's Roman turns with the hits it takes later)",
   "grunt.health": "G1 / B6: the fight differs (who is where when the bomb blows)",
   "grunts.alive": "G1 / B6: the blast (area_damage 100, radius 40..60) kills 6 squad members in the original, 4 in the remaster (members elsewhere)",
   "vehicle.health": "G4: the ticker blast (area_damage 100, radius 40..60) takes ~14 off squad 171's goliath in the remaster (when G2 / G1 leave it near), the original's keeps 3000 at ~44 units: which filter or distance the original's blast uses against a GenericAI is not traced (the remaster measures to its bounds' surface)",
-  "peasant_count.carried": "G1: when goliath 170 dies (1386) its caged peasant is freed; the original's Roman, alive beside it, takes it on his rope at 1404 (link 1, rope 9.7 -> 3); the remaster's (health held, ~9 units off by G1) does not take it: why is not traced",
-  "peasants.captured": "G1: when goliath 170 dies (1386) its caged peasant is freed; the original's Roman, alive beside it, takes it on his rope at 1404 (link 1, rope 9.7 -> 3); the remaster's (health held, ~9 units off by G1) does not take it: why is not traced"
+  "peasant_count.carried": "the freed caged peasant (goliath 170 dies at 1386): both Romans take it on the rope; the original's counts it carried at 1404 (link 1, rope 9.7 -> 3), the remaster's at 1428 (captured from 1404 in its peasants list, rope starting at 0, not the distance: peasant.rs's capture, not traced)",
+  "peasants.captured": "the freed caged peasant (goliath 170 dies at 1386): both Romans take it on the rope; the original's counts it carried at 1404 (link 1, rope 9.7 -> 3), the remaster's at 1428 (captured from 1404 in its peasants list, rope starting at 0, not the distance: peasant.rs's capture, not traced)"
  }
 }
