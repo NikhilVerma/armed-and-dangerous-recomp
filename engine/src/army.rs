@@ -809,6 +809,7 @@ fn army_grunts(
     mut done: crate::levelreset::PerLevel<HashSet<Entity>>,
     mut rng: ResMut<crate::fx::FxStats>,
     mut ends: MessageWriter<crate::ai::notes::ScriptEnd>,
+    mut cues: MessageWriter<crate::voices::VoiceCue>,
 ) {
     let dt = time.delta_secs();
     let seen = done.get();
@@ -879,6 +880,8 @@ fn army_grunts(
                     if let Some(tag) = ag.ladder {
                         army.planted.insert(tag);
                         info!("EVENT army: ladder {tag} planted");
+                        // the planter's LadderPlaced (state 0xab, vt+0x170: voices.rs)
+                        cues.write(crate::voices::VoiceCue { who: e, cue: crate::voices::Cue::LadderPlaced });
                     }
                 }
                 if let Some(run) = s.resume {
@@ -925,6 +928,10 @@ fn army_grunts(
                 if let Some(mut a) = animator {
                     a.play(SCRIPT_SLOT, anim, false, crate::skin::Mask::All);
                 }
+                // arrived at his ladder or wall scale (states 0xaa / 0xac): the ClimbTaunt (vt+0x16c: voices.rs)
+                if !plant {
+                    cues.write(crate::voices::VoiceCue { who: e, cue: crate::voices::Cue::ClimbTaunt });
+                }
                 ag.script = Some(IcScript { anim: anim.into(), t: 0.0, resume: next, plant });
                 info!("EVENT army: grunt {e:?} at {} on ladder {tag}: {anim}", m.action);
             }
@@ -948,6 +955,7 @@ fn breach(
     mission: Option<Res<crate::mission::Mission>>,
     markers: Option<Res<crate::alarm::Markers>>,
     mut q: Query<(Entity, &mut ArmyGrunt, &mut Grunt, &GlobalTransform)>,
+    mut cues: MessageWriter<crate::voices::VoiceCue>,
 ) {
     let (Some(mission), Some(mk)) = (mission, markers) else { return };
     let tag = army.breach_tag;
@@ -979,6 +987,8 @@ fn breach(
         g.mind = Mind::ToMarker;
         army.breach_runners += 1;
         sent = true;
+        // the runner's OpenGate (0x00429a50 -> vt+0x174: voices.rs)
+        cues.write(crate::voices::VoiceCue { who: e, cue: crate::voices::Cue::OpenGate });
         info!("EVENT army: grunt {e:?} runs the breach ({} of {})", army.breach_runners, army.breach_max);
     }
 }

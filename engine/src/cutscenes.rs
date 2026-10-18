@@ -96,14 +96,15 @@ fn settings(opts: Res<crate::options::GameOptions>, mixer: Res<crate::audio::Mix
     }
 }
 
-/// The intro list at boot, before the title menu.
-fn boot(mut done: Local<bool>, cut: Res<Cutscenes>, state: Res<State<AppState>>, mut play: MessageWriter<PlayMovies>) {
+/// The intro list at boot, before the title menu, after the legal splash (Game_StartLevel 0x00403690 pushes
+/// LegalText last, so it shows first: splash.rs).
+fn boot(mut done: Local<bool>, cut: Res<Cutscenes>, state: Res<State<AppState>>, mut legal: MessageWriter<crate::splash::ShowLegal>) {
     if *done {
         return;
     }
     *done = true;
     if cut.intro && *state.get() == AppState::Title {
-        play.write(PlayMovies::list(INTRO_MOVIES));
+        legal.write(crate::splash::ShowLegal { then: PlayMovies::list(INTRO_MOVIES) });
     }
 }
 

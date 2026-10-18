@@ -229,10 +229,17 @@ and the highlight fade (+0x4e0, 0.2 per frame: 12 / s) of UiText_Draw 0x00464750
   three columns 160 units apart, rows 40 apart from ref_info - 24, shown when known, active or with List Cheats on,
   greyed unless active; a click on a name enters its code (Cheats_Check state 1). The remaster's earlier "List
   Cheats" text of codes is gone (the grid is the original's list).
-- **Controls page:** the remaster's own layout (two columns of the actions of input.rs, the bindings of the device in
-  use as icons); a keyboard action with two bindings shows "%s or %s" (pms_input_aorb, as the key binding entries
-  0x00447e70), labels fitted to 128 units. Rebinding (UI_ShowAssignKeyPrompt 0x00447f50, 0x004481b0, 0x00448260's
-  key capture) is not ported. "Invert mouse" has a checkbox (the original's code 13 is a plain toggle text).
+- **Controls page** (2026-10-18, bindings.rs): the key binding entries of the device in use (keyboard and mouse:
+  Move Forward .. Look Down, Fire, Fire Special, Zoom, Reload, Jump, Next Weapon / Special, Send / Recall Mates,
+  Activate, rows 26 apart in two columns; the pad: its button actions, with the sticks' Move / Look fixed), each
+  showing "%s or %s" (pms_input_aorb), one input or "Unassigned" (0x00447e70). Choosing one (Enter, a click or tap, the
+  pad's A) shows "Press Key To Assign" (UI_ShowAssignKeyPrompt 0x00447f50); once every input is up the next press of
+  that device is bound by the original's rule (0x004481b0 / 0x00447fc0: taken off every other action; an action's own
+  key unbinds it; an empty slot takes it, else the oldest goes), Escape (the pad's Options) cancels, and the press is
+  consumed (0x00414680). Keys keep two slots, pad buttons three. Saved in options.json `bindings`; Reset Controls
+  restores the defaults (0x004144a0). The menus keep their fixed keys and Pause stays on Escape / Options, so no
+  binding can lock the player out. Prompts name the binding last pressed for the action (input.rs `key`).
+  "Invert mouse" has a checkbox (the original's code 13 is a plain toggle text). Test engine/playtests/controls_rebind.json.
 - **Pause / yes-no / failed / stats:** as before (statscreen.rs: 0x00494440 / 0x00494050 / 0x004948d0). The rows that
   load the saved game (main menu Resume Game, pause Quick Load, failed Restart from last save) are greyed and skipped
   without one (0x004a2c10 / 0x004a2e90, as orig_ui_menu-800.png and orig_ui_play-720.png show). Save Game stays
@@ -244,7 +251,9 @@ and the highlight fade (+0x4e0, 0.2 per frame: 12 / s) of UiText_Draw 0x00464750
   nav links of layout.json in four directions; the panel is the mouse's hit box). Saving returns to the pause menu
   (0x004a3a80). Files saves/game1..6.json; Quick Load and Restart from last save load the newest save (quick save or
   slot). Remaster additions: Delete (Delete / Backspace / pad West) on any saved slot, the load screen's Continue
-  (newest save). Not ported: the thumbnail; where the screen title is drawn (guess: above the slots). Test
+  (newest save). The thumbnail (thumbnail.rs, 0x0044f3a0): the game camera's view at 128 x 76 kept as gameN.png
+  beside the save, drawn 70 below the slot's top (0x004a33d0). Not ported: where the screen title is drawn (guess:
+  above the slots). Tests engine/playtests/save_thumbnail.json and Test
   engine/playtests/save_slots.json.
 - **Main menu:** the version text "v1.00" bottom right (0x004927f0, screen flag 0x800).
 - **Extras** (2026-10-16; gamemenu.rs `extras_pages`, extras.rs; campaign.md "Front end"): Play Cutscene and Replay
@@ -270,11 +279,14 @@ Replaced by the engine (no port needed): the screen objects and their manager (U
 FitText_*, Stepper_SetSteps, 0x0046ce40, ...) are `Spawner`'s rows and parts; the list boxes (0x0046bdd0..0x0046c980)
 belong to the level / movie / director select pages (the remaster's Replay Mission and Play Cutscene pages are rows
 built from the unlocks, unscrolled: extras.rs; no director page); the save-slot widgets' init and thumbnail
-release (0x004a2f70..0x004a2fe0) have no counterpart (no thumbnails); DisplayMode_Pack / Unpack (0x00470c90 / 0x00470cc0) by the window size in
+release (0x004a2f70..0x004a2fe0) are the PNG files' (saveslots.rs draw_thumbs); DisplayMode_Pack / Unpack (0x00470c90 / 0x00470cc0) by the window size in
 options.json; Text_Lookup (0x00495f00, 0x00495e50) by `Texts`. The movie screens (0x00493150..0x004933e0) are movie.rs /
-cutscenes.rs (docs/subsystems/movie.md). Not needed: the timed splash screens (0x00493520 / 0x00493590: LegalText,
-pushed by Game_StartLevel 0x00403690 over the intro movies; its art is not exported), the exit screen 0x00493770, the loading screen (UI_GetLoadingText
-0x00447600: the remaster loads the level before the title menu).
+cutscenes.rs (docs/subsystems/movie.md). The front end's plain screens are splash.rs's (2026-10-18): the timed splash screen 0x00493520 / 0x00493590
+(LegalText: b_legal at its 512 x 256 over black for 4.0 s before the intro movies, Back / Select / a click skip it),
+the loading screen (LoadingScreen_Draw 0x00449ac0: the ad image, the bar, the text of UI_GetLoadingText 0x00447600
+without an image; from the frame a level change is asked for to the end of the settling) and the exit screen
+0x00493770 (the menu fades to it and the game quits); the legal and exit screens hold the music (flag 0x2000,
+0x004928f0 -> 0x0044f510). Tests legal_splash, loading_screen, exit_screen.
 
 ## Open questions
 

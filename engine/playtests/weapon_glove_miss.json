@@ -15,6 +15,8 @@
  {"click": "Right"},
  {"wait": 0.2},
  {"expect": {"glove.active": true, "glove.grabbed": 3, "specials.bunchoffives": 0}},
+ {"expect": {"message": "Press <icon=mouse_left> to punch!"}},
+ {"tap": "Enter"}, {"wait": 0.3},
  {"wait": 3.0},
  {"expect": {"glove.missed": 1, "glove.punched": 0, "glove.let_go": [1, 2], "glove.active": false}},
  {"quit": true}

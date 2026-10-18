@@ -1217,6 +1217,38 @@ Tuning items (visible or likely differences from the original, not compared by c
 | EA10 | A climber still walking to his wall marker after twice the straight run plus 10 s gives it up (never offered it again); the original has no limit, but the engine's walk could not reach lev_3_m4_bd's scale 301 and held the grunt (and the army limit) for good | the walk by nav.rs routes to the marker |
 | EA9 | Paratroopers' rope anims start at the node with no rotation (the vehicle's heading not applied to the mover's origin) | the node's matrix as the origin |
 
+## Presentation and polish (2026-10-18, agent-presentation)
+
+Fourteen deferred features, each a module or a small hook, each with a playtest (journal 2026-10-18-presentation.md):
+
+| Feature | Where | Playtest |
+| --- | --- | --- |
+| Key rebinding: keys, mouse and pad buttons on the Controls page (the original's assign rule and capture), saved in the options; the Gameplay context is rebuilt from them and every prompt follows them | bindings.rs, input.rs, gamemenu.rs | controls_rebind |
+| Legal splash (b_legal 4 s, exported from lev_shell), loading screen (ad image, bar, text fallback), exit screen; the legal and exit screens hold the music | splash.rs, gameaudio.rs `Music::hold` | legal_splash, loading_screen, exit_screen |
+| Save thumbnails (the game camera's view at 128 x 76 beside each save) | thumbnail.rs, saveslots.rs | save_thumbnail |
+| HUD meters (peasant counters, wall counter and flag base now spawned; the ticker bombs icon; the timed patience text; the bunch-of-fives hint) | hud.rs, mission.rs | hud_meters, hud_meters_l2m3, hud_meters_l1m4 |
+| Run / limp anims at the rate of the speed (anim_run_* / anim_limp_*) | skin.rs `RunRates`, charanim.rs | run_anim_speed |
+| Arrows fly with their model and stay stuck 2.5 s in what they hit | arrows.rs, player.rs | arrow_models |
+| A blast's kill launches the grunt; his landing starts fx_bodyfall (ground variant); the corpse fade covers the whole hierarchy | bodyfall.rs, fx.rs, ai.rs, camfade.rs | bodyfall_fx, character_fade |
+| The wall assault's lines, captains' own lists, the shrub patrol's taunt, the goliath's death line | voices.rs, audio.rs, ai.rs, goliath.rs | ai_voice_lines, ticker_goliath |
+| Q's cape (verlet chains on his shoulders) | cloth.rs | cloth_cape |
+| camera_startup_path_anim (no shipped level sets it) | campath.rs | - |
+
+Traps found on the way:
+- A level restart now waits one frame after it is asked for (levelreset.rs `RestartLevel`), so the loading screen is drawn before the rebuild's long frame. Entities spawned at run time that must outlive a restart carry `levelreset::KeepOnRestart` (the rebuilt Gameplay input context).
+- A playtest whose game quits by itself (the exit screen) still prints its PLAYTEST RESULT line (playtest.rs `report_on_exit`).
+- The icon atlas (ui/icons.png) holds every key the Controls page can bind: re-run tools/remaster_export_icons.py after adding keys to bindings.rs `KEYS`.
+
+Debt / tuning items (guesses labelled in the code):
+
+| Id | Item | Plan |
+| --- | --- | --- |
+| PR1 | The save thumbnail's camera is a second Camera3d for four frames: systems that take `Query<.., With<Camera3d>>::single()` skip those frames (saves are made from the pause menu, where that does not show) | a marker on the game camera and `With<GameCamera>` in those queries |
+| PR2 | The loading screen's y (bar 0.175..0.225, text 0.139) is taken from the bottom as the texts' (no capture) | capture the original's loading screen |
+| PR3 | The cape's damping / shape pull / gravity, and the launch's mass (impact force x 0.15 / 50) are guesses by eye | compare with the original's Q and a sticky-bomb kill |
+| PR4 | The shrub patrols' voice sets alternate by load order (the original's test is not traced) | trace ShrubPatrol's setup flags |
+| PR5 | The red flag fx on the defence HUD's flag base (fx_red_flag on the UI object's ref_flag, 0x00465d50) is not drawn | trace how an fx on a UI object is placed |
+
 ## Running tests without disturbing the desktop
 
 - `--background`: the window opens off-screen, unfocused, behind everything, not in the taskbar; screenshots still

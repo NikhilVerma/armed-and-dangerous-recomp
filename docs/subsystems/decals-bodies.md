@@ -141,6 +141,17 @@ Character classes share vtable slots +0xd4 = **0x004319e0** (die), +0x17c = **0x
 - No global corpse count was found. The only global cap is the 4-ragdoll limit. Whether troop generators
   (`alarm_generator_max_troops`, 0x0044c170) count dead objects is **not checked**.
 
+### Body fall and the character fade (2026-10-18, agent-presentation)
+
+- A grunt a blast kills is launched (Character_Die 0x004319e0 on an area record: the record's direction (n.x, n.y,
+  0.7) by its impact force x 0.15, state 0x195; fx.rs sets `Grunt::blast_push`, ai.rs die ragdolls him with it). His
+  landing (0x0042e1c0 for 0x195 / 0x197 / 0x19b) starts FxBodyfall_Spawn 0x0043a8d0's fx_bodyfall with the ground's
+  variant and stops his scream: bodyfall.rs `Launched` (the ragdoll's pelvis descending within 3 units of the
+  landscape). The speed is impact force x 0.15 / 50 (the mass is a guess). Test bodyfall_fx.
+- Character_SetFade 0x0042eb60 (the set-alpha slot +0x100 Corpse_CountDown calls) sets the character's, its
+  attachments' and its held object's alpha: camfade.rs `ObjectAlpha` covers the whole hierarchy. Test character_fade
+  (every mesh of a fading corpse, his gun included, draws with the alpha).
+
 ### Measured and ported (2026-10-17, agent-corpses)
 
 - Oracle (work/oracle/courtyard and the `corpses` scenario, lev_1_m1): a ragdolled grunt (state 400 at death) leaves

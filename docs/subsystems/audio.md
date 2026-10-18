@@ -384,6 +384,19 @@ The playtest state log has an `audio` field (started / refused / playing / level
 group levels, music, ambient emitters) and an `audio` step (play / stop / stop_all_but_music / mixer / music /
 pause); an expect value of null means "absent".
 
+## 9. Music hold and the situation lines (2026-10-18, agent-presentation)
+
+- A focused screen with flag 0x2000 (the LegalText splash, the exit screen: UI_Init 0x0048ff90's 0x23a0) holds the
+  music (0x004928f0 -> 0x0044f510: the first hold pauses the music voice, audio +0xe0, and Music_Update returns while
+  the record's lock +0x20 is set; 0x0044f540 lets go): gameaudio.rs `Music::hold / release / held`, the music voice
+  held through `Voice::held` (audio.rs). State log `music_held`.
+- The situation lines (voices.rs `VoiceCue`): ClimbTaunt (+0x16c, vo_delay) as an army grunt reaches his ladder or
+  wall scale, LadderPlaced (+0x170, no delay) when his ladder stands, OpenGate (+0x174, vo_delay; captains CA150053 /
+  CA250037..38) for the breach runner, the shrub patrol's taunt (its Fight cue, SP1 / SP2) as a burst starts; the
+  captains' Spotted / Fight from their CA1 / CA2 lists (0x00437690 / 0x00437860, ai.rs `class_voice`); the goliath's
+  GOL50001_Dead where it falls. audio.rs resolves "@grunt:", "@captain:" and "@shrub:" requests. CapnBase
+  (0x00437510) is dead in the shipped game (nothing calls slot +0x260). Test ai_voice_lines.
+
 ## Open questions
 
 - Def flag 0x20 (set on all) and 0x4000000 (music and long ambience): no reader found.

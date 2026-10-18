@@ -1,0 +1,8 @@
+{"scene": "lev_1_m4", "steps": [
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 3.5}, {"tap": "Enter"},
+ {"wait": 0.5},
+ {"cheat": "SHIELDME"}, {"wait": 0.5},
+ {"expect": {"hud.meters.grunt_over_wall_count": "0", "hud.meters.flag_base": true, "hud.meters.captured_count": "", "hud.meters.peasant": ""}},
+ {"shot": "meters"}, {"wait": 0.5},
+ {"quit": true}
+]}

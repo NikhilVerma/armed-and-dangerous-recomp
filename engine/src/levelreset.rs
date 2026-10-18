@@ -59,10 +59,27 @@ pub enum RestartTo {
     Level(String),
 }
 
-/// Ask for a restart: `to` is taken at the end of the frame.
+/// Ask for a restart: `to` is taken at the end of the next frame (the loading screen, splash.rs, is drawn in the frame
+/// before the rebuild, so it is on show while the rebuild takes its time, as the original's is).
 #[derive(Resource, Default)]
 pub struct RestartLevel {
     pub to: Option<RestartTo>,
+    /// the frame that put the loading screen up has run
+    shown: bool,
+}
+
+/// How far the loading has got, 0..1 (the loading screen's bar: splash.rs): the settling's frames against its
+/// minimum; 0 before the rebuild.
+#[derive(bevy::ecs::system::SystemParam)]
+pub struct SettleProgress<'w> {
+    settling: Option<Res<'w, Settling>>,
+    limits: Res<'w, LevelSettle>,
+}
+
+impl SettleProgress<'_> {
+    pub fn progress(&self) -> f32 {
+        self.settling.as_ref().map_or(0.0, |s| (s.frames as f32 / self.limits.min_frames.max(1) as f32).min(1.0))
+    }
 }
 
 /// How many times the level was started again (0 for the first level of the process).
@@ -243,12 +260,18 @@ fn take_persistent(world: &mut World, mut done: Local<bool>) {
     world.resource_mut::<Persistent>().0 = keep;
 }
 
+/// On an entity spawned while running that is not the level's and outlives it (the Gameplay input context, rebuilt when
+/// the Controls page changes a binding: input.rs).
+#[derive(Component, Clone, Copy)]
+pub struct KeepOnRestart;
+
 /// Entities the engine spawns while running that are not the level's.
 fn engine_owned(world: &World, e: Entity) -> bool {
     let Ok(r) = world.get_entity(e) else { return true };
     // resources are entities in Bevy 0.20: one inserted after start-up is in neither list (a despawn of it warns
     // "Resource entities are not supposed to be despawned" and breaks the queued commands that use it)
     r.contains::<bevy::ecs::resource::IsResource>()
+        || r.contains::<KeepOnRestart>()
         || r.contains::<Window>()
         || r.contains::<bevy::window::Monitor>()
         || r.contains::<bevy::ecs::observer::Observer>()
@@ -257,6 +280,14 @@ fn engine_owned(world: &World, e: Entity) -> bool {
 }
 
 fn restart(world: &mut World) {
+    {
+        let mut r = world.resource_mut::<RestartLevel>();
+        if !r.shown {
+            r.shown = true;
+            return;
+        }
+        r.shown = false;
+    }
     let Some(to) = world.resource_mut::<RestartLevel>().to.take() else { return };
     let t = Instant::now();
     // 0. the level to build: the title stands on the campaign's home level, a saved game is in its own level

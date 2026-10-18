@@ -53,6 +53,8 @@ Control object: primary key per action at control+0x1c+4*a, secondary at control
 both and takes the max), 0x118 bytes in total, saved in options.opt as "&m_control->m_inputActions".
 **Remapping exists in the original UI**: controls pages (menu ids 0x2c/0x2d, 0x00447d60, 12 rows per page from
 table 0x00588dd8), "PMS_INPUT_ASSIGNKEY" prompt (0x00447f50), "ui_yesno_resetcontrols" (0x004714c0 case 0x2e).
+The remaster (2026-10-18, engine/src/bindings.rs; menus.md "Controls page"): the same rule and capture for keys,
+mouse buttons and pad buttons, saved in options.json `bindings`.
 
 **Invert Y**: no option and no "invert" string in the executable. In the original, inversion = binding
 LookUp to MOUSE_DOWN and LookDown to MOUSE_UP in the controls menu (guess: works, follows from the code-per-

@@ -162,6 +162,7 @@ pub fn saves_dir() -> PathBuf {
 pub fn clear_saves() {
     let dir = saves_dir();
     for p in std::iter::once(dir.join("quicksave.json")).chain((1..=SLOTS).map(|n| slot_file(&dir, n))) {
+        let _ = std::fs::remove_file(crate::thumbnail::thumb_path(&p));
         let _ = std::fs::remove_file(p);
     }
 }
@@ -235,6 +236,8 @@ pub fn delete_slot(slot: u8) {
     if let Err(e) = std::fs::remove_file(&p) {
         warn!("save: could not delete {}: {e}", p.display());
     }
+    // its thumbnail (thumbnail.rs)
+    let _ = std::fs::remove_file(crate::thumbnail::thumb_path(&p));
 }
 
 pub fn read(path: &std::path::Path) -> Option<SaveData> {
@@ -323,7 +326,7 @@ fn save(
     buildings: Query<&InstanceId>,
     scene_ids: Res<PlacedIds>,
     (opts, difficulty, levels, pub_lines): (Res<crate::options::GameOptions>, Res<crate::gamedata::Difficulty>, Res<crate::campaign::Levels>, Res<crate::pubscreen::PubLines>),
-    (corpses, markers, upgrade): (Res<crate::corpses::Corpses>, Res<crate::alarm::Markers>, Res<crate::weapons::VindalooUpgrade>),
+    (corpses, markers, upgrade, mut thumb): (Res<crate::corpses::Corpses>, Res<crate::alarm::Markers>, Res<crate::weapons::VindalooUpgrade>, MessageWriter<crate::thumbnail::SaveThumbnail>),
 ) {
     use crate::weapons::{SpecialId, WeaponId};
     if !std::mem::take(&mut req.save) {
@@ -376,6 +379,8 @@ fn save(
         Ok(Ok(())) => {
             m.feed("Game saved");
             m.log.push(format!("saved to {} ({source:?})", path.display()));
+            // the scene's picture for the slot (SaveGame_CreateThumbnail 0x0044f3a0; thumbnail.rs)
+            thumb.write(crate::thumbnail::SaveThumbnail { save: path.clone() });
         }
         _ => warn!("save: could not write {}", path.display()),
     }

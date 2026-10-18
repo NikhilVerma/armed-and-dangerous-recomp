@@ -1,0 +1,124 @@
+//! Arrows: the archers' projectiles fly with their model and stay stuck where they hit for a while.
+//!
+//! The original's ArrowProjectile (vtable 0x005a9a40, src/game/game_07.cpp): its property read (0x00482460) adds
+//! linger_lifetime (+0x588, default 10; p_grunt_normal_arrow 2.5) to the projectile's; the launch (0x00482510) and
+//! the fly-by sound (0x00482620) are player.rs's. The hit (0x00482780): the arrow is moved to the hit point, its trail
+//! (fx_start, +0x5d8) released, its damage done, and it sticks to what it hit (0x0047e9f0: to the part of a character
+//! it hit, attached at its matrix relative to the target's, else left in the world), marked stuck (+0x58c) and kept
+//! for its linger time; removal (0x004824e0) releases the trail and runs the base remove.
+//!
+//! Here the projectile (player.rs `Projectile`) carries an [`ArrowShaft`] naming the model (ai.rs: the archer's
+//! projectile template, grunt_normal_arrow -> grunt_arrow_1); its model is an entity of its own that follows the
+//! projectile, and when the projectile hits (player.rs sends [`ArrowStuck`]) it stays at the hit point, attached to
+//! the character hit, for the linger time. A projectile that ends otherwise (its lifetime) takes its model with it.
+
+use bevy::prelude::*;
+
+/// Counts for the state log: models made, arrows stuck.
+#[derive(Resource, Default)]
+struct ArrowStats {
+    made: u32,
+    stuck: u32,
+}
+
+/// On an arrow projectile: the model it flies with.
+#[derive(Component, Clone)]
+pub struct ArrowShaft {
+    pub model: String,
+}
+
+/// An arrow's projectile hit at `at`, in `on` when it hit a character: its model stays there `linger` seconds.
+#[derive(Message, Clone, Copy)]
+pub struct ArrowStuck {
+    pub arrow: Entity,
+    pub at: Vec3,
+    pub on: Option<Entity>,
+    pub linger: f32,
+}
+
+/// An arrow's model: following its projectile in flight, then stuck with time left.
+#[derive(Component)]
+pub struct ArrowModel {
+    projectile: Entity,
+    /// stuck: seconds left
+    left: Option<f32>,
+}
+
+pub struct ArrowsPlugin;
+
+impl Plugin for ArrowsPlugin {
+    fn build(&self, app: &mut App) {
+        use crate::levelreset::LevelAppExt;
+        app.add_level_message::<ArrowStuck>()
+            .init_level_resource::<ArrowStats>()
+            .add_systems(Update, dress)
+            .add_systems(PostUpdate, (stick, follow, linger, log_state).chain().before(bevy::transform::TransformSystems::Propagate));
+    }
+}
+
+/// A new arrow gets its model (the projectile's template's).
+fn dress(mut commands: Commands, mut kit: crate::army::ModelKit, arrows: Query<(Entity, &ArrowShaft, &Transform), Added<ArrowShaft>>, mut stats: ResMut<ArrowStats>) {
+    for (e, a, t) in &arrows {
+        if let Some(m) = kit.spawn(&mut commands, &a.model, *t, false) {
+            commands.entity(m).insert(ArrowModel { projectile: e, left: None });
+            stats.made += 1;
+        }
+    }
+}
+
+/// The hit (0x00482780 -> 0x0047e9f0): the model at the hit point, attached to the character it hit at its place
+/// relative to him, kept for the linger time.
+fn stick(mut commands: Commands, mut ev: MessageReader<ArrowStuck>, mut models: Query<(Entity, &mut ArrowModel, &mut Transform)>, targets: Query<&GlobalTransform>, mut stats: ResMut<ArrowStats>) {
+    for s in ev.read() {
+        let Some((m, mut a, mut t)) = models.iter_mut().find(|(_, a, _)| a.projectile == s.arrow && a.left.is_none()) else { continue };
+        a.left = Some(s.linger);
+        stats.stuck += 1;
+        t.translation = s.at;
+        if let Some(on) = s.on {
+            if let Ok(g) = targets.get(on) {
+                let local = g.affine().inverse() * Transform::from_translation(s.at).with_rotation(t.rotation).with_scale(t.scale).to_matrix();
+                *t = Transform::from_matrix(local);
+                commands.entity(on).add_child(m);
+            }
+        }
+    }
+}
+
+/// In flight the model is where its projectile is; a projectile gone without a hit takes its model.
+fn follow(mut commands: Commands, mut models: Query<(Entity, &ArrowModel, &mut Transform)>, projectiles: Query<&Transform, (With<ArrowShaft>, Without<ArrowModel>)>) {
+    for (m, a, mut t) in &mut models {
+        if a.left.is_some() {
+            continue;
+        }
+        match projectiles.get(a.projectile) {
+            Ok(p) => *t = *p,
+            Err(_) => commands.entity(m).despawn(),
+        }
+    }
+}
+
+/// A stuck arrow is removed once its linger time has run out (0x004824e0).
+fn linger(mut commands: Commands, time: Res<Time>, mut models: Query<(Entity, &mut ArrowModel)>) {
+    for (m, mut a) in &mut models {
+        if let Some(l) = a.left.as_mut() {
+            *l -= time.delta_secs();
+            if *l <= 0.0 {
+                commands.entity(m).despawn();
+            }
+        }
+    }
+}
+
+/// The state log's "arrows": models in flight (and arrow projectiles in flight: one model each), stuck, stuck in a
+/// character, the most linger time left, the models made and the arrows stuck so far.
+fn log_state(models: Query<(&ArrowModel, Has<ChildOf>)>, shafts: Query<(), With<ArrowShaft>>, stats: Res<ArrowStats>, play: Option<ResMut<crate::playtest::PlayState>>) {
+    let Some(mut p) = play else { return };
+    let flying = models.iter().filter(|(a, _)| a.left.is_none()).count();
+    let stuck = models.iter().filter(|(a, _)| a.left.is_some()).count();
+    let in_body = models.iter().filter(|(a, c)| a.left.is_some() && *c).count();
+    let linger_max = models.iter().filter_map(|(a, _)| a.left).fold(0.0f32, f32::max);
+    p.0.insert(
+        "arrows".into(),
+        serde_json::json!({"flying": flying, "projectiles": shafts.iter().count(), "stuck": stuck, "in_body": in_body, "linger_max": linger_max, "made": stats.made, "stuck_total": stats.stuck}),
+    );
+}

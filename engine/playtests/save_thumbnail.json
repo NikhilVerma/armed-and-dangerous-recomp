@@ -1,0 +1,22 @@
+{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+ {"clear_saves": true}, {"wait": 1.0},
+ {"tap": "Escape"}, {"wait": 0.5},
+ {"tap": "ArrowDown"}, {"wait": 0.3},
+ {"expect": {"menu.page": "Pause", "menu.selected": "ui_pausemenu_savegame"}},
+ {"tap": "Enter"}, {"wait": 1.0},
+ {"expect": {"menu.page": "SaveSlots", "menu.slot": 1, "save_thumbnails": [false, false, false, false, false, false]}},
+ {"tap": "ArrowRight"}, {"wait": 0.3},
+ {"tap": "Enter"}, {"wait": 1.5},
+ {"expect": {"menu.page": "Pause", "saves.slots": ["empty", "saved", "empty", "empty", "empty", "empty"]}},
+ {"tap": "Enter"}, {"wait": 1.0},
+ {"expect": {"menu.page": "SaveSlots", "save_thumbnails": [false, true, false, false, false, false], "save_thumbnail_luma.2": [0.08, 1.0]}},
+ {"shot": "slots"},
+ {"tap": "ArrowRight"}, {"wait": 0.3},
+ {"expect": {"menu.slot": 2}},
+ {"tap": "Delete"}, {"wait": 1.0},
+ {"expect": {"menu.page": "YesNo"}},
+ {"tap": "ArrowUp"}, {"wait": 0.3},
+ {"tap": "Enter"}, {"wait": 1.5},
+ {"expect": {"menu.page": "SaveSlots", "saves.slots": ["empty", "empty", "empty", "empty", "empty", "empty"], "save_thumbnails": [false, false, false, false, false, false]}},
+ {"quit": true}
+]}

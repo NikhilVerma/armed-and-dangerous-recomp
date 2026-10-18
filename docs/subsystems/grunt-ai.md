@@ -195,7 +195,7 @@ Game+0xb64 30..45 s, vo_delay Game+0xb44 30..45 s, taunt_delay Game+0xb84/+0xb90
 | General_Scream | +0x160, 0x00438590 | Scare 0x0042fb60 without an attacker (near a stuck bomb, 25 units), Sticky's fallback, launches, state 0x19d | scream not playing | ai_03.cpp:2943 |
 | Sticky | +0x164, 0x00439de0 | Scare with an attacker: only the grunt the bomb is stuck to | death_delay, else General_Scream | ai_03.cpp:2930 |
 | Topsy | +0x168, 0x004387e0 (range 500) | knocked / thrown without recovering, state 0x19c | scream not playing | ai_03.cpp:3025 |
-| ClimbTaunt / LadderPlaced / OpenGate | +0x16c / +0x170 / +0x174 | ladder states, gate opening | vo_delay / none / vo_delay | ai_06.cpp:2020, ai_02.cpp:2563 |
+| ClimbTaunt / LadderPlaced / OpenGate | +0x16c / +0x170 / +0x174 | arrival at the ladder / scale (states 0xaa / 0xac), the planter climbing (0xab), the breach (0x00429a50) | vo_delay / none / vo_delay | ai_06.cpp:2020, ai_02.cpp:2563; ported 2026-10-18: voices.rs |
 
 Spotted and Fight cannot play in the first 30..45 s of a level (vo_delay starts at level load): the recorded first
 fight has no line.
@@ -394,3 +394,11 @@ infantry"). Corrections found on the way: the "16 %" rolls of 0x00427910 / 0x004
 Left: punch-launch (0x0042f470, an AI punched by Roman: the player's side is the weapons'), the turbo captain's airborne
 end into 0x82 (0x0042e1c0), 0x7a's own entry to 0x82, the knocked-off ladder planter, the voices ClimbTaunt /
 LadderPlaced.
+
+## Run anim speed (2026-10-18, agent-presentation)
+
+The move anims play at the rate of the body's speed (the class's slot +0x1a8: GruntObject 0x0043bc50 the run ids
+8..0xc and 0x2f, Q / Jonesy 0x0043c560 8..0xa and 0x2f, both the limp 0x59; GenericAI_PlayAnim 0x004262d0 hands the
+block to Anim_Set): the block anim_run_* (+0x96c) or anim_limp_* (+0x994), defaults min 0, max 100, factors 0 / 1 at
+speeds 0 / 17 (Ai_InitGeneric 0x004247f0), along the model's forward (0, -1, 0). skin.rs `RunRates`, charanim.rs; test
+run_anim_speed (grunt_regular at its top speed 35: 35 / 39 = 0.897).

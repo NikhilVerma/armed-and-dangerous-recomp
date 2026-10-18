@@ -1,0 +1,11 @@
+{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+ {"cheat": "SHIELDME"},
+ {"wait": 1.0},
+ {"expect": {"bodyfall.launched": 0, "bodyfall.landed": 0}},
+ {"blast_grunt": [300, 15000]},
+ {"wait": 0.3},
+ {"expect": {"bodyfall.launched": [1, 4]}},
+ {"wait": 3.0},
+ {"expect": {"bodyfall.landed": [1, 4], "bodyfall.last": "fx_bodyfall_snow"}},
+ {"quit": true}
+]}

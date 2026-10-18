@@ -336,3 +336,12 @@ Open questions:
 - Left in the queue: the pickups of game_05 (0x004725e0..0x00472aa0, 0x00475a30, 0x00475c70: the pickup agent's,
   pickup.rs), the ticker bombs (PlayerTickerBomb 0x0044de90..0x0044e5e0: mission.rs sites, the mission agent's), the
   penguin restart and the timer objects of game_07 (0x0048f8e0, 0x00496160..0x00496c60: not player code).
+
+## Arrows (2026-10-18, agent-presentation, engine/src/arrows.rs)
+
+The archers' arrows (ArrowProjectile, vtable 0x005a9a40, game_07.cpp:1698-1846) fly with their model (the archer's
+projectile template grunt_normal_arrow: grunt_arrow_1, a separate entity following the projectile) and, on a hit
+(0x00482780: moved to the hit point, the trail released, stuck to the character hit by 0x0047e9f0, marked stuck), stay
+where they hit for linger_lifetime (0x00482460: default 10, p_grunt_normal_arrow 2.5), attached to the character they
+hit; an arrow that ends otherwise takes its model with it (0x004824e0). player.rs `Projectile::linger` and the
+`ArrowStuck` message; test arrow_models.

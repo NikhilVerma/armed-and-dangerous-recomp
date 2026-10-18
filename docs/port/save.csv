@@ -2,7 +2,7 @@ address,name,disposition,reason
 0x00401a30,fn_00401a30,replaced,the resolution-only option load before the window opens: options.rs GameOptions::load
 0x00403520,QuickSave_PushScreen,replaced,pushes the QuickSave screen (asks to save): savegame.rs saves at the checkpoint itself
 0x0044a610,fn_0044a610,replaced,the level's display name of a save slot: saveslots.rs shows the slot's level
-0x0044f3a0,SaveGame_CreateThumbnail,deferred,feature: save-thumbnails; the save's 128 x 76 thumbnail: no slot list to show it in
+0x0044f3a0,SaveGame_CreateThumbnail,ported,"engine/src/thumbnail.rs (the game camera's view rendered to 128 x 76 when a save is written, kept as a PNG beside it) and saveslots.rs draw_thumbs (the slot's picture, 0x004a33d0)"
 0x004881f0,fn_004881f0,replaced,"the original's object-graph serialisation (save manager, class descriptor tables, per-class write / read / fixup passes, Havok body states): savegame.rs saves a snapshot of the state a player sees instead (module doc)"
 0x00488220,fn_00488220,replaced,"the original's object-graph serialisation (save manager, class descriptor tables, per-class write / read / fixup passes, Havok body states): savegame.rs saves a snapshot of the state a player sees instead (module doc)"
 0x0048b150,fn_0048b150,replaced,"writes a whole (compressed) file under SavedGames: std::fs::write of JSON (savegame.rs, options.rs)"

@@ -276,7 +276,8 @@ fn fly(
                     commands.entity(e).insert(rd);
                 }
             }
-            commands.entity(e).remove::<Tossed>().insert(crate::corpses::Corpse::ragdoll());
+            // and the body fall where he lands (0x0042e1c0's ragdoll death for 0x195: FxBodyfall_Spawn 0x0043a8d0, bodyfall.rs)
+            commands.entity(e).remove::<Tossed>().insert((crate::corpses::Corpse::ragdoll(), crate::bodyfall::Launched::default()));
             stats.landed += 1;
             info!("EVENT peasants: a thrown villager landed");
             continue;

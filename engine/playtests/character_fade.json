@@ -1,0 +1,14 @@
+{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+ {"cheat": "SHIELDME"},
+ {"wait": 1.0},
+ {"expect": {"character_alpha.objects": 0}},
+ {"kill": 500},
+ {"wait": 3.0},
+ {"expect": {"corpses.lying": [1, 5], "character_alpha.objects": 0}},
+ {"wait": 1.75},
+ {"expect": {"character_alpha.objects": [1, 5], "character_alpha.meshes": [2, 200], "character_alpha.faded": [2, 200], "character_alpha.unfaded": 0}},
+ {"shot": "fading"},
+ {"wait": 1.0},
+ {"expect": {"character_alpha.objects": 0, "corpses.removed": [1, 5]}},
+ {"quit": true}
+]}

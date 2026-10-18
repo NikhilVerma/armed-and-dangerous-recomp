@@ -2,6 +2,8 @@
  "title": true,
  "intro": true,
  "steps": [
+  {"wait": 0.5}, {"tap": "Escape"}, {"wait": 0.5},
+  {"expect": {"splash": null}},
   {"wait": 2.0},
   {"expect": {"movie.name": "lucasanim", "movie.time": [1.6, 2.1], "movie.frame": [46, 63], "movie.drift": [-0.6, 0.6], "movie.left": 2, "movie.prompt": true, "game_paused": true}},
   {"shot": "lucasanim"},

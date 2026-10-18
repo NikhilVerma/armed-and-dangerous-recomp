@@ -24,7 +24,7 @@
 //!   sound, a damaged one asks "ui_yesno_delete", a saved one is loaded. After a save the Saving screen returns to the
 //!   pause menu (0x004a3a80).
 //!
-//! The remaster: no thumbnail (the saves keep no picture; open); a Delete binding (Delete / Backspace, the pad's
+//! The remaster: the thumbnail is a PNG beside the save (thumbnail.rs); a Delete binding (Delete / Backspace, the pad's
 //! West button) deletes any saved slot after "ui_yesno_delete", shown as a hint with the device's own button
 //! (the original deletes only damaged slots); the load screen's "Continue" row (the bank's ui_savegame_continue)
 //! loads the newest save, the quick save included, in the place of "Continue without saving".
@@ -40,7 +40,7 @@ pub struct SaveSlotsPlugin;
 
 impl Plugin for SaveSlotsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, draw_slots.after(crate::gamemenu::MenuSystems));
+        app.add_systems(Update, (draw_slots, draw_thumbs).after(crate::gamemenu::MenuSystems));
     }
 }
 
@@ -58,6 +58,17 @@ pub struct SlotLine {
     pub slot: u8,
     pub line: u8,
 }
+
+/// A slot's thumbnail quad (thumbnail.rs makes the pictures).
+#[derive(Component)]
+pub struct SlotThumb {
+    pub mode: Mode,
+    pub slot: u8,
+}
+
+/// The thumbnails as loaded: per slot, the picture file's time and its image.
+#[derive(Default)]
+struct Thumbs([Option<(SystemTime, Handle<Image>, f32)>; crate::savegame::SLOTS as usize]);
 
 /// The screen's delete hint (remaster): shown while a saved slot is selected.
 #[derive(Component)]
@@ -126,6 +137,78 @@ fn draw_slots(
     }
 }
 
+/// The slots' thumbnails (0x004a33d0 draws the slot's texture +0x5a8, loaded from the save by 0x0044f1f0): each saved
+/// slot's picture when its file is there, read again when the file changes.
+#[allow(clippy::too_many_arguments)]
+fn draw_thumbs(
+    menu: Res<crate::gamemenu::GameMenu>,
+    time: Res<Time<Real>>,
+    mut thumbs: Local<Thumbs>,
+    mut next_check: Local<f32>,
+    mut quads: Query<(&SlotThumb, &MeshMaterial2d<ColorMaterial>, &mut Visibility)>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut images: ResMut<Assets<Image>>,
+    play: Option<ResMut<crate::playtest::PlayState>>,
+) {
+    let Some(mode) = menu.slot_mode() else {
+        *next_check = 0.0;
+        return;
+    };
+    *next_check -= time.delta_secs();
+    if *next_check <= 0.0 {
+        *next_check = 0.25;
+        for (i, cached) in thumbs.0.iter_mut().enumerate() {
+            let path = crate::thumbnail::thumb_path(&crate::savegame::slot_path(i as u8 + 1));
+            let saved = !matches!(menu.slots.get(i), Some(Slot::Empty) | None);
+            let t = std::fs::metadata(&path).and_then(|m| m.modified()).ok().filter(|_| saved);
+            if t == cached.as_ref().map(|c| c.0) {
+                continue;
+            }
+            *cached = t.and_then(|t| {
+                let bytes = std::fs::read(&path).ok()?;
+                let img = Image::from_buffer(
+                    &bytes,
+                    bevy::image::ImageType::Extension("png"),
+                    bevy::image::CompressedImageFormats::NONE,
+                    true,
+                    bevy::image::ImageSampler::Default,
+                    bevy::asset::RenderAssetUsages::RENDER_WORLD,
+                )
+                .ok()?;
+                // its mean luminance, for the state log (a picture of the scene, not a blank)
+                let px = img.data.as_deref().unwrap_or(&[]);
+                let n = (px.len() / 4).max(1) as f32;
+                let luma = px.chunks_exact(4).map(|p| 0.2126 * p[0] as f32 + 0.7152 * p[1] as f32 + 0.0722 * p[2] as f32).sum::<f32>() / n / 255.0;
+                Some((t, images.add(img), luma))
+            });
+        }
+    }
+    let mut shown = [false; crate::savegame::SLOTS as usize];
+    for (q, m, mut v) in &mut quads {
+        if q.mode != mode {
+            continue;
+        }
+        let tex = thumbs.0.get(q.slot as usize).and_then(|c| c.as_ref()).map(|c| c.1.clone());
+        let want = if tex.is_some() { Visibility::Inherited } else { Visibility::Hidden };
+        if *v != want {
+            *v = want;
+        }
+        shown[q.slot as usize] = tex.is_some();
+        if materials.get(&m.0).is_some_and(|mat| mat.texture != tex) {
+            if let Some(mut mat) = materials.get_mut(&m.0) {
+                mat.texture = tex;
+            }
+        }
+    }
+    if let Some(mut p) = play {
+        p.0.insert("save_thumbnails".into(), shown.to_vec().into());
+        // by slot number ("save_thumbnail_luma.2")
+        let luma: serde_json::Map<String, serde_json::Value> =
+            thumbs.0.iter().enumerate().map(|(i, c)| ((i + 1).to_string(), c.as_ref().map_or(0.0, |c| (c.2 * 100.0).round() / 100.0).into())).collect();
+        p.0.insert("save_thumbnail_luma".into(), luma.into());
+    }
+}
+
 /// Which screen: SaveGame or LoadGame.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Mode {
@@ -143,6 +226,8 @@ pub fn slot_point(i: usize) -> (f32, f32) {
 
 /// The panel's corners around the slot point (0x004a33d0 / 0x004a37e0: -96, 0 .. 96, -184).
 pub const PANEL: ((f32, f32), (f32, f32)) = ((-96.0, -184.0), (96.0, 0.0));
+/// The thumbnail's centre below the slot point (0x004a33d0: from q - 70 to -70 - q).
+pub const THUMB_Y: f32 = -70.0;
 /// The y offsets below the slot point: name, prompt, then the four info lines (0x004a33d0 / 0x004a3300).
 pub const NAME_Y: f32 = -8.0;
 pub const PROMPT_Y: f32 = -48.0;

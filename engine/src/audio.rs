@@ -280,7 +280,10 @@ impl SoundBank {
     /// gr1/gr2/gr3 (any set when the set has none), as the grunt voice methods pick them (audio_01.cpp: one of a fixed
     /// list, (rand() x range) >> 15); `pick` chooses among them.
     pub fn resolve(&self, name: &str, pick: u32) -> Option<String> {
-        let Some(rest) = name.strip_prefix("@grunt:") else { return Some(name.to_lowercase()) };
+        // the class's voice lists: grunts gr1..3, captains ca1 / ca2 (voices.rs), the shrub patrol sp1 / sp2
+        let Some((letters, rest)) = [("@grunt:", "gr"), ("@captain:", "ca"), ("@shrub:", "sp")].iter().find_map(|(p, l)| name.strip_prefix(p).map(|r| (*l, r))) else {
+            return Some(name.to_lowercase());
+        };
         let mut it = rest.split(':');
         let cat = it.next()?.to_lowercase();
         let set: u8 = it.next().and_then(|s| s.parse().ok()).unwrap_or(0);
@@ -290,9 +293,9 @@ impl SoundBank {
             v.sort();
             v
         };
-        let mut v = of(&format!("gr{}", set + 1));
+        let mut v = of(&format!("{letters}{}", set + 1));
         if v.is_empty() {
-            v = of("gr");
+            v = of(letters);
         }
         let v = pool(v, it.next());
         if v.is_empty() {
@@ -506,6 +509,11 @@ impl Speech {
         voices.plays(self.scream)
     }
 
+    /// The last scream's voice (+0xb4c), to stop it (FxBodyfall_Spawn 0x0043a8d0: bodyfall.rs).
+    pub fn scream_voice(&self) -> Option<SoundId> {
+        self.scream.map(|s| s.0)
+    }
+
     /// Whether the last line still plays.
     pub fn saying(&self, voices: &PlayingVoices) -> bool {
         voices.plays(self.line)
@@ -644,6 +652,8 @@ pub struct Voice {
     pub looped: bool,
     pub streamed: bool,
     pub through_pause: bool,
+    /// paused by its owner apart from the game's pause (the music under a screen with flag 0x2000: gameaudio.rs)
+    pub held: bool,
     /// the pause it started in (a voice started during a pause is not paused by it)
     started_in_pause: Option<u32>,
     /// the loop body still to come after this intro
@@ -842,6 +852,7 @@ fn play(
             looped,
             streamed: def.streamed(),
             through_pause: ev.through_pause,
+            held: false,
             started_in_pause: pause.paused.then_some(pause.epoch),
             then_body,
             outro,
@@ -982,7 +993,7 @@ fn update_voices(
             continue;
         }
         let game_paused = pause.paused && !v.through_pause && v.started_in_pause != Some(pause.epoch);
-        let want_paused = game_paused || far;
+        let want_paused = game_paused || far || v.held;
         // the voice plays from its request in game time, its file loaded or not (the original reads it as it
         // starts): its age, envelope, fade and end do not wait for the asset server
         v.paused = want_paused;
@@ -1207,6 +1218,16 @@ mod tests {
             b.sounds.insert(n.to_string(), SoundDef::default());
         }
         b
+    }
+
+    #[test]
+    fn class_voice_lists() {
+        // captains (CA1 / CA2: voices.rs, ai.rs class_voice) and the shrub patrol (SP1 / SP2) have their own lists
+        let b = bank(&["ca150014_spotted", "ca250014_spotted", "gr150014_spotted", "sp150001_taunt", "sp250001_taunt"]);
+        assert_eq!(b.resolve(&crate::ai::class_voice(crate::ai::Kind::Captain, "Spotted", 0), 0).as_deref(), Some("ca150014_spotted"));
+        assert_eq!(b.resolve(&crate::ai::class_voice(crate::ai::Kind::Sniper, "Spotted", 2), 0).as_deref(), Some("ca250014_spotted"));
+        assert_eq!(b.resolve(&crate::ai::class_voice(crate::ai::Kind::Grunt, "Spotted", 0), 0).as_deref(), Some("gr150014_spotted"));
+        assert_eq!(b.resolve("@shrub:Taunt:1", 0).as_deref(), Some("sp250001_taunt"));
     }
 
     #[test]

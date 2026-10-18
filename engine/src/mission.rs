@@ -669,6 +669,12 @@ pub struct Mission {
     pub outcome: Outcome,
     dead_timer: f32,
     pub log: Vec<String>,
+    /// camera_startup_path_anim: the camera path the level starts on (MissionObject slot 8 0x0044d150 ->
+    /// Camera_StartPath mode 2; campath.rs `startup`); no shipped level sets one (all 24 mission.json: empty)
+    pub startup_path: Option<String>,
+    /// the "patience" text's time left (ui_tickerbomb_patience: raised by Use at a site while another bomb ticks,
+    /// 0x0044e3a0; shown 2.0 s by its timed text 0x004677c0)
+    patience: f32,
     pub objectives: String,
     /// the objectives text with both forms (the pause menu shows the short one), and its text id
     pub objectives_raw: String,
@@ -1161,13 +1167,13 @@ impl Mission {
         let m = &f.mission.resolved;
         let text = |k: &str| s(m, k).and_then(|t| f.text.get(&t).cloned());
         // MissionObject_Load 0x0044c170: start_in_turret_tag starts the level in a turret (defence.rs) and
-        // camera_startup_path_anim on a camera path (slot 8 0x0044d150, Camera_StartPath mode 2): the path is not ported, none on lev_1_m1. (Slot 9
-        // 0x0044d1b0 resets the mission timer +0x464 and the start flags: `start` below, from the level's start.)
-        let mut log = Vec::new();
-        if let Some(p) = s(m, "camera_startup_path_anim") {
-            log.push(format!("mission: camera_startup_path_anim {p} not ported"));
-        }
+        // camera_startup_path_anim on a camera path (slot 8 0x0044d150, Camera_StartPath mode 2: campath.rs startup).
+        // (Slot 9 0x0044d1b0 resets the mission timer +0x464 and the start flags: `start` below, from the level's start.)
+        let log = Vec::new();
+        let startup_path = s(m, "camera_startup_path_anim");
         Some(Mission {
+            startup_path,
+            patience: 0.0,
             level: f.level.clone(),
             receivers,
             death_senders,
@@ -1640,6 +1646,7 @@ pub(crate) fn sites(
     let mut untag = Vec::new();
     let mut arming = None;
     let mut clock = None;
+    let mut patience = false;
     // the wind-up (0x0044e3a0 starts wpn_ticker_windup_lp, 0x0044e430 stops it when Use is let go)
     // (the bank's sequence plays wpn_ticker_windup_start before the loop and wpn_ticker_windup_end on its stop)
     let wind_down = |stop: &mut MessageWriter<crate::audio::StopSound>, _sounds: &mut MessageWriter<crate::audio::PlaySound>, _at: Vec3| {
@@ -1725,9 +1732,11 @@ pub(crate) fn sites(
             prompt = Some("ui_tickerbomb_none".to_string());
             continue;
         }
-        // another bomb ticking: "Wait for the other Ticker Bomb to explode!" (0x0044e3a0)
+        // another bomb ticking: the hint as at any site, and Use raises "Wait for the other Ticker Bomb to explode!"
+        // (0x0044e3a0 from the Use handler 0x004788a0)
         if any_armed {
-            prompt = Some("ui_tickerbomb_patience".to_string());
+            prompt = Some("ui_tickerbomb_hint".to_string());
+            patience |= ctl.pressed(crate::input::Act::Use);
             continue;
         }
         if holding {
@@ -1767,8 +1776,20 @@ pub(crate) fn sites(
     }
     m.untagged.extend(untag);
     m.log.extend(logs);
+    // the patience text (its timed update 0x004677c0: shown 2.0 s from the first visible frame, then hidden; while it
+    // shows it holds the other prompts back, Game+0xdd3)
+    if patience {
+        m.patience = 2.0;
+    }
+    if m.patience > 0.0 {
+        m.patience -= dt;
+        prompt = Some("ui_tickerbomb_patience".to_string());
+    }
     hud.ticker_arming = arming;
     hud.ticker_clock = clock;
+    // the ticker bombs icon (ui_tickerbomb, 0x00467220): while the player holds ticker bombs (Game+0xd90) and sites are
+    // left (the list World+0xeb4)
+    hud.tickers_left = tickers > 0 && m.sites.iter().any(|s| !s.done);
     hud.prompt = prompt.map(|k| if k.starts_with("ui_") { m.hint(&k) } else { k });
 }
 

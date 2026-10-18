@@ -402,6 +402,17 @@ game system of the frame (several unordered Update systems write the prompt; rea
   shown, arrows shown, weapon and special counts, the pointer's frame. Tests: engine/playtests/hud.json, flow.json,
   hud.rs unit tests (wrap, fit).
 
+Ported 2026-10-18 (agent-presentation, hud.rs / mission.rs): the mode counters and meters are spawned (they were
+never spawned before): ui_captured_count / ui_safe_count / ui_return_count and ui_peasant on a rescue level
+(0x00465be0 / 0x00465c90 / 0x00465ce0 / 0x00465d30), ui_grunt_over_wall_count and ui_flag_base with the defence wall
+counter (0x00465f70 / 0x00465e30; their handles 0x00465de0 / 0x00465f30 / 0x00466010 replaced by reading the counter);
+ui_tickerbomb shows while ticker bombs are held and sites are left (0x00467220: the icon of the captures cov-gate1-*,
+shown before and after arming; it used to show only with the clock); the timed text class 0x004677c0 is the patience
+text, 2.0 s from the Use that raises it; the bunch-of-fives hint 0x004671b0 pauses on "Press %s to punch!" the first
+time the glove is out. State log `hud.ticker_icon`, `hud.clock_shown`, `hud.meters.*`; tests hud_meters,
+hud_meters_l2m3, hud_meters_l1m4, weapon_glove. Still open: the red flag fx on the flag base (0x00465d50: fx_red_flag on
+the UI object's ref_flag), and one element hidden when its anim ends (0x00467740, its element unidentified: untraced).
+
 Not ported (not in lev_1_m1 or not reached): the auto-aim target pass (0x004067e0, 0x00408050, 0x00408190,
 0x004082a0: the option m_autoAim is off by default and the remaster has no auto-aim; its checkbox is shown disabled),
 the mode counters (0x00465be0, 0x00465c90, 0x00465ce0, 0x00465d30: Game+0x26ec is 0 outside the capture modes), the

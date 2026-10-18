@@ -267,6 +267,9 @@ pub struct Music {
     dead: bool,
     /// the level's world (Game+0x2708): its row of TRACKS
     world: usize,
+    /// +0x20: the lock a focused screen with flag 0x2000 takes (0x0044f510 / 0x0044f540, counted: the legal splash,
+    /// the exit screen; splash.rs): Music_Update returns and the music voice pauses while it is held
+    lock: u32,
 }
 
 impl Default for Music {
@@ -295,11 +298,24 @@ impl Default for Music {
             won: false,
             dead: false,
             world: 1,
+            lock: 0,
         }
     }
 }
 
 impl Music {
+    /// 0x0044f510: a screen with flag 0x2000 took the focus (0x004928f0): the first hold pauses the music voice
+    /// (audio +0xe0 on its handle +0xc) and Music_Update stays locked while any is held.
+    pub fn hold(&mut self) {
+        self.lock += 1;
+    }
+    /// 0x0044f540: the counterpart (audio +0xe4 when the last hold lets go).
+    pub fn release(&mut self) {
+        self.lock = self.lock.saturating_sub(1);
+    }
+    pub fn held(&self) -> bool {
+        self.lock > 0
+    }
     /// 0x0044f560 (eax = Game+0xa88, cl): victory request, hold cleared. cl = 1 from an objective marked with its
     /// text (ui_ear 0x0046afa0: the "objective jingle"), cl = 0 from the mission's success (0x0044a390 state 2).
     pub fn request_victory(&mut self, no_flag: bool) {
@@ -440,6 +456,10 @@ fn music_state(
     mut rng: ResMut<crate::fx::FxStats>,
     launch: Option<Res<crate::Launch>>,
 ) {
+    // the lock of a focused screen with flag 0x2000 (record +0x20, splash.rs)
+    if music.held() {
+        return;
+    }
     let m: &mut Music = &mut music;
     let title = *state.get() == crate::AppState::Title;
     if title || mission.as_ref().is_some_and(|mi| mi.is_added()) {
@@ -668,13 +688,21 @@ fn music_voice(
     let Some(bank) = bank else { return };
     let m: &mut Music = &mut music;
     let dt = if m.through_pause { real.delta_secs() } else { virt.delta_secs() };
-    // 0x004f3b10 sets or clears the flag on the current voice at every play request
+    // 0x004f3b10 sets or clears the flag on the current voice at every play request; a held music (0x0044f510)
+    // pauses the voice
+    let held = m.held();
     if let Some(id) = m.voice {
         for (i, mut v) in &mut voices {
             if *i == id && v.through_pause != m.through_pause {
                 v.through_pause = m.through_pause;
             }
+            if *i == id && v.held != held {
+                v.held = held;
+            }
         }
+    }
+    if held {
+        return;
     }
     let segment = |name: &str, m: &Music| {
         let id = SoundId::new();

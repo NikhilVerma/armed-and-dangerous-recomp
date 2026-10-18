@@ -1,0 +1,20 @@
+{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+ {"wait": 0.5},
+ {"expect": {"tickers": 4, "hud.ticker_icon": true, "hud.clock_shown": false, "hud.meters.captured_count": "", "hud.meters.grunt_over_wall_count": "", "hud.meters.flag_base": ""}},
+ {"warp": [-84, 30, 13, 0]},
+ {"wait": 0.5},
+ {"hold_use": 2.3},
+ {"expect": {"mission_obj.sites.252.armed": true, "hud.clock_shown": true, "hud.ticker_icon": true}},
+ {"warp": [270, -940, 16, 0]},
+ {"wait": 0.5},
+ {"expect": {"mission_obj.sites.234.enabled": true, "hud.prompt": "Hold down <icon=keyboard_x> to set the ticker bomb!"}},
+ {"tap": "KeyX"}, {"wait": 0.3},
+ {"expect": {"hud.prompt": "Wait for the other Ticker Bomb to explode!", "mission_obj.sites.234.armed": false}},
+ {"wait": 1.5},
+ {"expect": {"hud.prompt": "Wait for the other Ticker Bomb to explode!"}},
+ {"wait": 0.5},
+ {"expect": {"hud.prompt": "Hold down <icon=keyboard_x> to set the ticker bomb!"}},
+ {"wait": 4.0},
+ {"expect": {"mission_obj.sites.252.done": true, "hud.clock_shown": false, "hud.ticker_icon": true}},
+ {"quit": true}
+]}

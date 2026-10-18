@@ -1,0 +1,12 @@
+{"title": true, "intro": true, "steps": [
+ {"wait": 1.0},
+ {"expect": {"splash.name": "LegalText", "splash.leaving": false, "music_held": true, "movie": null}},
+ {"shot": "legal"},
+ {"wait": 2.5},
+ {"expect": {"splash.name": "LegalText", "splash.time": [3.4, 3.6], "movie": null, "menu.page": "Main"}},
+ {"tap": "Enter"}, {"wait": 0.1},
+ {"expect": {"splash.name": "LegalText", "splash.leaving": true, "menu.page": "Main"}},
+ {"wait": 1.3},
+ {"expect": {"splash": null, "music_held": false, "movie.name": "lucasanim", "menu.page": "Main", "menu.selected": "ui_mainmenu_startgame"}},
+ {"quit": true}
+]}

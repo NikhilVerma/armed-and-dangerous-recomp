@@ -444,6 +444,53 @@ impl RateBlock {
         let t = if range > 0.001 { (s - self.low_speed) / range } else { 1.0 };
         (1.0 - t) * self.low_factor + t * self.high_factor
     }
+
+    /// An AI's block from its properties `<prefix>_min_speed` .. `<prefix>_high_speed` (Ai_InitGeneric 0x004247f0:
+    /// defaults min 0, max 100, low factor 0 at speed 0, high factor 1 at speed 17; the direction (0, -1, 0) set at
+    /// creation, 0x00437290: +0x970 = -1, the model's forward).
+    pub fn from_props(p: &crate::gamedata::Props, prefix: &str) -> Self {
+        let f = |k: &str, d: f32| p.f(&format!("{prefix}_{k}"), d);
+        RateBlock {
+            dir: Vec3::new(0.0, -1.0, 0.0),
+            min: f("min_speed", 0.0),
+            max: f("max_speed", 100.0),
+            low_factor: f("low_factor", 0.0),
+            low_speed: f("low_speed", 0.0),
+            high_factor: f("high_factor", 1.0),
+            high_speed: f("high_speed", 17.0),
+        }
+    }
+
+    /// The rate of a body moving forward at `speed` (game units a second).
+    pub fn rate_forward(&self, speed: f32) -> f32 {
+        self.rate(Vec3::new(0.0, -speed, 0.0))
+    }
+}
+
+/// An AI character's movement anim rates: its run block (anim_run_*, +0x96c) and its limp block (anim_limp_*,
+/// +0x994), which the class's anim speed slot vt+0x1a8 hands to the anim it plays (GenericAI_PlayAnim 0x004262d0
+/// passes it to Anim_Set): grunts, archers, captains (0x0043bc50) the run ids 8..0xc and 0x2f, Q and Jonesy
+/// (0x0043c560) 8..0xa and 0x2f; both the limp 0x59; every other anim plays at rate 1.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RunRates {
+    pub run: RateBlock,
+    pub limp: RateBlock,
+}
+
+impl RunRates {
+    pub fn from_props(p: &crate::gamedata::Props) -> Self {
+        RunRates { run: RateBlock::from_props(p, "anim_run"), limp: RateBlock::from_props(p, "anim_limp") }
+    }
+
+    /// The block of anim `id` (0x0043bc50 / 0x0043c560), if it has one.
+    pub fn for_anim(&self, id: u32, companion: bool) -> Option<&RateBlock> {
+        match id {
+            8..=0xa | 0x2f => Some(&self.run),
+            0xb | 0xc if !companion => Some(&self.run),
+            0x59 => Some(&self.limp),
+            _ => None,
+        }
+    }
 }
 
 /// One layer's step: the new time and the note-time spans it played over (the original's events fire for times in

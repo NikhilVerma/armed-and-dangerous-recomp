@@ -232,6 +232,8 @@ pub struct HudState {
     /// the ticker bomb: arming progress 0..1 while Use is held; seconds since armed while it ticks
     pub ticker_arming: Option<f32>,
     pub ticker_clock: Option<f32>,
+    /// the ticker bombs icon's condition (0x00467220: ticker bombs held, Game+0xd90, and ticker sites left, World+0xeb4)
+    pub tickers_left: bool,
     /// the special in hand and its count
     pub special: crate::weapons::SpecialId,
     pub special_count: u32,
@@ -249,6 +251,8 @@ impl Plugin for HudPlugin {
             .init_level_resource::<PubView>()
             .init_level_resource::<Crosshair>()
             .init_level_resource::<Chat>()
+            .init_resource::<BofHintShown>()
+            .add_systems(Update, bof_hint.run_if(crate::playing))
             // in PostUpdate, after every game system of the frame has set HudState (the prompt is written by several
             // unordered Update systems: reading it in Update could see it half-set and flicker), before the
             // transforms propagate
@@ -313,6 +317,9 @@ pub fn spawn(
         "ui_select_left_off", "ui_select_right_off",
         // the message feed's three lines (Chat_Update 0x0046a820 finds ui_chat_01..03 by name)
         "ui_chat_01", "ui_chat_02", "ui_chat_03",
+        // the mode counters and meters (shown by their modes only, `visibility`): the peasants' (0x00465be0 / 0x00465c90 /
+        // 0x00465ce0 / 0x00465d30), the grunts over the wall and the base flag (0x00465f70 / 0x00465e30)
+        "ui_captured_count", "ui_safe_count", "ui_return_count", "ui_peasant", "ui_grunt_over_wall_count", "ui_flag_base",
     ];
     let mut locks = 0u8;
     for e in hud.layout.elements.iter().filter(|e| SHOWN.contains(&e.name.as_str()) && e.pos.is_some() && e.page_name.as_deref().is_none_or(|p| p == "pui_main")) {
@@ -451,6 +458,23 @@ fn build_model(commands: &mut Commands, meshes: &mut Assets<Mesh>, materials: &m
         out.push(part.id());
     }
     out
+}
+
+/// The bunch-of-fives hint was shown (Game+0x578: once a game; the remaster's game is the session).
+#[derive(Resource, Default)]
+pub struct BofHintShown(pub bool);
+
+/// ui_bof_hint's update (0x004671b0): the first time the punching glove is out (Game+0xcbc: weapons/glove.rs), the
+/// message "Press %s to punch!" with Fire's key pauses the game (0x00403410 with the text and pause 1), once.
+fn bof_hint(glove: Res<crate::weapons::glove::Glove>, mut shown: ResMut<BofHintShown>, mission: Option<ResMut<crate::mission::Mission>>, texts: Option<Res<crate::gamemenu::Texts>>) {
+    if shown.0 || !glove.active() {
+        return;
+    }
+    let (Some(mut m), Some(t)) = (mission, texts) else { return };
+    shown.0 = true;
+    let text = t.get("ui_bof_hint").replace("%s", &crate::input::key(crate::input::Act::Fire));
+    info!("EVENT hud: the bunch-of-fives hint ({text})");
+    m.message(&text, 0.0);
 }
 
 /// The ticker-bomb clock's hand (the flat part of ui_clock, bone Bone01 of the ui_clock anim).
@@ -1389,7 +1413,8 @@ fn visibility(
                 // the lock-on markers: placed and shown by `lock_markers`
                 "ui_multi_lock" => continue,
                 "ui_ammo_infinity" => state.unlimited,
-                "ui_clock" | "ui_tickerbomb" => state.ticker_clock.is_some(),
+                "ui_clock" => state.ticker_clock.is_some(),
+                "ui_tickerbomb" => state.tickers_left,
                 "ui_tickerbomb_set" => state.ticker_arming.is_some(),
                 "ui_player_health" | "ui_health_q" | "ui_health_jonesy" => !state.cinematic,
                 // Hud_ProjectMarkers 0x00406840: the current weapon's crosshair (list +0x30c by weapon index; the
@@ -1423,7 +1448,8 @@ fn visibility(
         let show = (state.visible
             && !(paused && PAUSE_HIDDEN.contains(&el.name.as_str()))
             && (el.name != "ui_mission_timer" || state.mission_timer.is_some())
-            && (!counter || state.peasants.is_some()))
+            && (!counter || state.peasants.is_some())
+            && (el.name != "ui_grunt_over_wall_count" || (state.over_wall.is_some() && !state.cinematic)))
             || (el.name == "ui_briefing" && state.briefing.is_some())
             || (el.name == "ui_subtitle" && state.subtitle.is_some());
         *v = if show { Visibility::Inherited } else { Visibility::Hidden };
@@ -1493,6 +1519,24 @@ fn log_hud(
             "weapon_icon": els.iter().find(|(e, v, _)| GUN_ICONS.contains(&e.name.as_str()) && *v != Visibility::Hidden).map_or("", |(e, _, _)| e.name.as_str()),
             "special_icon": els.iter().find(|(e, v, _)| SPECIAL_ICONS.contains(&e.name.as_str()) && *v != Visibility::Hidden).map_or("", |(e, _, _)| e.name.as_str()),
             "locks_shown": els.iter().filter(|(e, v, _)| e.name == "ui_multi_lock" && *v != Visibility::Hidden).count(),
+            "ticker_icon": els.iter().any(|(e, v, _)| e.name == "ui_tickerbomb" && *v != Visibility::Hidden),
+            // the mode counters and meters on screen (their text, "" when hidden): the peasants' (0x00465be0 /
+            // 0x00465c90 / 0x00465ce0), the grunts over the wall (0x00465f70) and the flag base (0x00465e30)
+            "meters": serde_json::Value::Object(
+                ["ui_captured_count", "ui_safe_count", "ui_return_count", "ui_grunt_over_wall_count", "ui_peasant", "ui_flag_base"]
+                    .iter()
+                    .map(|n| {
+                        let shown = els.iter().find(|(e, v, _)| e.name == *n && **v != Visibility::Hidden);
+                        let v = match shown {
+                            Some((_, _, Some(t))) => serde_json::Value::from(t.text.clone()),
+                            Some(_) => true.into(),
+                            None => serde_json::Value::from(""),
+                        };
+                        (n.trim_start_matches("ui_").to_string(), v)
+                    })
+                    .collect(),
+            ),
+            "clock_shown": els.iter().any(|(e, v, _)| e.name == "ui_clock" && *v != Visibility::Hidden),
             "prompt_colour": prompt_colour,
             "prompt_scale": (prompt_scale * 1000.0).round() / 1000.0,
             "arrows": arrows,

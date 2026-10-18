@@ -16,6 +16,7 @@ mod ai;
 mod devtools;
 mod alarm;
 mod army;
+mod arrows;
 mod crowd;
 mod defence;
 mod icobject;
@@ -24,6 +25,8 @@ mod audio;
 mod audiooutput;
 mod bot;
 mod bench;
+mod bodyfall;
+mod bindings;
 mod profile;
 mod camera;
 mod campath;
@@ -37,12 +40,14 @@ mod camdump;
 mod camfade;
 mod campaign;
 mod cheats;
+mod cloth;
 mod contacts;
 mod corpses;
 mod cutscenes;
 mod decals;
 mod extras;
 mod sticky;
+mod thumbnail;
 mod surface;
 mod gamemenu;
 mod goliath;
@@ -76,6 +81,7 @@ mod saveslots;
 mod topsy;
 mod turret;
 mod twiglet;
+mod voices;
 mod vehicles;
 mod weapons;
 mod weapontable;
@@ -87,6 +93,7 @@ mod shrubpatrol;
 mod hudblend;
 mod sdffont;
 mod skin;
+mod splash;
 
 use bevy::diagnostic::FrameTimeDiagnosticsPlugin;
 use bevy::prelude::*;
@@ -436,7 +443,7 @@ fn main() {
     app.add_plugins(camdump::CamDumpPlugin);
     app.add_plugins(camera::CameraPlugin);
     app.add_plugins(footik::FootIkPlugin);
-    app.add_plugins(savegame::SaveGamePlugin);
+    app.add_plugins((savegame::SaveGamePlugin, thumbnail::ThumbnailPlugin, arrows::ArrowsPlugin, bodyfall::BodyfallPlugin, voices::VoicesPlugin, cloth::ClothPlugin));
     app.add_plugins(cheats::CheatsPlugin);
     app.add_plugins(devtools::DevToolsPlugin);
     if let Some(s) = session {
@@ -459,7 +466,7 @@ fn main() {
     app.add_plugins(corpses::CorpsePlugin);
     // movies (movie.rs) and when the game plays them (cutscenes.rs): the boot intro before the title menu, unless a
     // tool run or a relaunch; a title script asks for it with "intro"
-    app.add_plugins((movie::MoviePlugin, cutscenes::CutscenesPlugin));
+    app.add_plugins((movie::MoviePlugin, cutscenes::CutscenesPlugin, splash::SplashPlugin));
     let movies_dir = a.movies.clone().unwrap_or_else(|| scene_dir.parent().map(|p| p.join("movies")).unwrap_or_else(|| PathBuf::from("movies")));
     app.insert_resource(movie::MovieSettings { dir: movies_dir, ..default() });
     let script_intro = a.play.as_deref().is_some_and(|p| playtest::Playtest::load_intro(p));

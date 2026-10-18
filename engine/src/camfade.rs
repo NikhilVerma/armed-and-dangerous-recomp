@@ -41,7 +41,8 @@ impl Plugin for CameraFadePlugin {
                 object_alpha::<Solid>,
                 object_alpha::<AlphaTested>,
             ),
-        );
+        )
+        .add_systems(PostUpdate, log_object_alpha);
     }
 }
 
@@ -105,6 +106,27 @@ fn fade_materials<C: Coverage>(
 /// own copies of their materials, the alpha in emissive.w as the camera fade's (1 - alpha).
 #[derive(Component, Clone, Copy, PartialEq, Debug)]
 pub struct ObjectAlpha(pub f32);
+
+/// The state log's "character_alpha": the characters fading (alpha below 1) and their meshes, the whole hierarchy (a
+/// character's body, the weapon in his hand, a pack on his back: Character_SetFade 0x0042eb60 sets the character's,
+/// its attachments' (+0x61c) and its held object's (+0xb08) alpha), and how many of those draw with the alpha.
+fn log_object_alpha(q: Query<(Entity, &ObjectAlpha), With<crate::skin::Animator>>, children: Query<&Children>, meshes: Query<Has<OwnAlphaMaterial>, With<Mesh3d>>, play: Option<ResMut<crate::playtest::PlayState>>) {
+    let Some(mut p) = play else { return };
+    let (mut objects, mut total, mut faded) = (0, 0, 0);
+    for (e, a) in &q {
+        if a.0 >= 1.0 {
+            continue;
+        }
+        objects += 1;
+        for m in std::iter::once(e).chain(children.iter_descendants(e)) {
+            if let Ok(own) = meshes.get(m) {
+                total += 1;
+                faded += own as u32;
+            }
+        }
+    }
+    p.0.insert("character_alpha".into(), serde_json::json!({"objects": objects, "meshes": total, "faded": faded, "unfaded": total - faded}));
+}
 
 /// On a mesh drawing with its own copy of its material for its object's alpha (freed with the mesh).
 #[derive(Component)]

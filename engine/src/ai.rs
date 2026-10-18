@@ -893,6 +893,10 @@ pub struct Grunt {
     pub stig: StigTable,
     /// the class (vtable): anim table, weapon, the yes / no slots
     pub kind: Kind,
+    /// the run / limp anims' playback rates by his speed (anim_run_* / anim_limp_*: skin.rs RunRates, charanim.rs)
+    pub run_rates: crate::skin::RunRates,
+    /// his arrows' model (an archer's projectile template, grunt_normal_arrow: grunt_arrow_1; arrows.rs), none for bullets
+    pub arrow_model: Option<String>,
     /// the rest stance: attention (anim 0xf, with the fidgets 0x00427330: attention_* modes at start) or ready (the
     /// stand set 2, 3, 0, 1 by PlayAnim4: ready_* modes, and every return to rest after a fight, which plays the set:
     /// 0x0042bc60, 0x7a, the reload's end, L_442860)
@@ -1327,7 +1331,12 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
     let mind = if mode.starts_with("trigger") { Mind::WaitTrigger } else if guard { Mind::Guard } else { Mind::Roam };
     let max_health = p.f("max_health", 100.0);
     let pick = rng.rand() * 300 >> 15;
+    let arrow_model = (proj.s("behavior") == Some("proj_arrow"))
+        .then(|| data.templates.get(weapon.s("projectile_name").unwrap_or("")).and_then(|t| t.model.clone()))
+        .flatten();
     Grunt {
+        run_rates: crate::skin::RunRates::from_props(p),
+        arrow_model,
         mind,
         home,
         goal: home,
@@ -1552,6 +1561,16 @@ impl Barks {
 
 fn bark(sounds: &mut MessageWriter<crate::audio::PlaySound>, category: &str, set: u8, at: Vec3) {
     sounds.write(bark_request(category, set, at));
+}
+
+/// A cue's line by the speaker's class: captains and sniper captains their own lists (CaptainObject / SniperCaptain
+/// slots +0x144 0x00437690 Spotted, +0x13c 0x00437860 Fight: the CA1 lists with +0x484 bit 21, the grunts' GR1 bit,
+/// else CA2, dealt by Audio_PlayRandomSound 0x00493b70), the others the grunt sets.
+pub fn class_voice(kind: Kind, category: &str, set: u8) -> String {
+    match kind {
+        Kind::Captain | Kind::Sniper => format!("@captain:{category}:{}", if set == 0 { 0 } else { 1 }),
+        _ => voice(category, set),
+    }
 }
 
 /// A bark's request, for the barks kept as a voice handle (audio.rs Speech).
@@ -1914,7 +1933,7 @@ fn search(
             // the Spotted cue: a new target when there was none (SetTarget 0x0042cc70 -> vt+0x144), under vo_delay
             // (30..45 s, from level load: the first fight has no line)
             if g.target.is_none() && barks.take(Delay::Vo, time.elapsed_secs(), &mut rng) {
-                bark(&mut sounds, "Spotted", g.voice_set, me);
+                sounds.write(crate::audio::PlaySound::at(class_voice(g.kind, "Spotted", g.voice_set), me).looping(false));
             }
             g.target = Some(tgt);
             if g.mind == Mind::WaitTrigger {
@@ -4216,7 +4235,11 @@ fn shoot(commands: &mut Commands, fx: &mut MessageWriter<crate::fx::StartFx>, g:
     match (g.me, crate::vehicles::rockets::is_rocket(&g.bullet)) {
         (Some(me), true) => rocket::fire(commands, fx, data, rng, muzzle + dir * 4.0, aim, me),
         _ => {
-            crate::player::spawn_projectile_to(commands, fx, &g.bullet, muzzle + dir * 4.0, aim, false, g.me);
+            let shot = crate::player::spawn_projectile_to(commands, fx, &g.bullet, muzzle + dir * 4.0, aim, false, g.me);
+            // an arrow flies with its model (arrows.rs)
+            if let Some(m) = &g.arrow_model {
+                commands.entity(shot).insert(crate::arrows::ArrowShaft { model: m.clone() });
+            }
         }
     }
     if let Some(m) = g.weapon.s("muzzle_fx_name") {
@@ -4297,7 +4320,7 @@ fn fire_cycle(
             let req = g.speech.line(voices, crate::audio::PlaySound::at(q112::FIGHT_LINE, pos));
             sounds.write(req);
         } else {
-            bark(sounds, "Fight", g.voice_set, pos);
+            sounds.write(crate::audio::PlaySound::at(class_voice(g.kind, "Fight", g.voice_set), pos).looping(false));
         }
     }
     stats.shots += 1;
@@ -4473,6 +4496,10 @@ fn die(
             continue;
         }
         commands.entity(e).insert(crate::corpses::Corpse::ragdoll());
+        // thrown through the air (a launch: the body fall on landing, bodyfall.rs)
+        if push.length() > crate::bodyfall::LAUNCH_SPEED {
+            commands.entity(e).insert(crate::bodyfall::Launched::default());
+        }
         // an articulated ragdoll from the pose at death (ragdoll.rs); the single box below when that fails
         if let Some(mut a) = animator {
             if let Some(rd) = crate::ragdoll::start(&mut physics, &a, &joints, push) {
@@ -4527,6 +4554,8 @@ fn die(
 pub struct Companion {
     pub walker: crate::physics::Walker,
     pub q: bool,
+    /// the run anim's playback rate by his speed (p_q / p_molmer anim_run_*: skin.rs RunRates, charanim.rs)
+    pub run_rates: crate::skin::RunRates,
     pub distance: f32,
     pub delay: f32,
     pub scan: f32,
@@ -4697,6 +4726,7 @@ impl Companion {
         Companion {
             walker,
             q,
+            run_rates: crate::skin::RunRates::from_props(p),
             distance: p.f("formation_distance", 30.0),
             delay: p.f("delay_distance", 50.0),
             scan: p.f("scan_distance", 300.0),

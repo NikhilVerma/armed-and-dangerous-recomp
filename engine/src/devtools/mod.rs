@@ -319,6 +319,10 @@ pub fn resume_after_overlay(overlay: &mut DevOverlay, next: &mut NextState<AppSt
     }
 }
 
+/// The developer keys: F1 the menu, F5 quick save, F9 quick load, F8 a bookmark. Reserved: the Controls page cannot
+/// bind them (bindings.rs `capture`).
+pub const RESERVED_KEYS: [KeyCode; 4] = [KeyCode::F1, KeyCode::F5, KeyCode::F8, KeyCode::F9];
+
 /// F5 quick save, F9 quick load, F8 a bookmark (F1, the menu: menu.rs).
 fn hotkeys(keys: Res<ButtonInput<KeyCode>>, overlay: Res<DevOverlay>, state: Res<State<AppState>>, mut out: MessageWriter<DevCommand>) {
     if overlay.note || *state.get() == AppState::Loading {

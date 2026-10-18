@@ -200,6 +200,15 @@ Mode 3 runs the generic update (0x0043ee90) and watches its state (MolmerObject_
   clip); mode 2 is the regroup (`moving`, the goal the formation point). Log: `q_fight` / `jonesy_fight` ("target",
   "linger", "none"), `*_fight_end` and `*_fight_ends` (how the last ended, how many). Playtest companion_engage_exit.
 
+## 9b. Q's cape (2026-10-18, agent-presentation, engine/src/cloth.rs)
+
+Q111Object's setup 0x00486f40 hangs the template q111_cape (a ClothObject, vtable 0x005aca40: Slot6 0x00487910, Slot7
+0x00487990, Slot55 0x00487960) on him (0x00487a40, kept at +0xbd0: 0x004876b0) with the anchor table 0x005fb94c
+(0x004879c0): the cape's chest, l_shoulder and r_shoulder held to his bones. The remaster poses the cape model's skeleton
+each frame: the anchors on Q's bones, the chains cape_l_2..3, cape_m_1..3, cape_r_2..3 as verlet particles (damping
+0.9, gravity 32, pulled 0.12 a frame to the rest shape on the anchors, kept at their bone lengths), each bone turned to
+its child. The Havok cloth's parameters are not recovered; the constants are guesses by eye. Test cloth_cape.
+
 ## 10. The close kill (ported 2026-10-17, engine/src/ai/close_kill.rs)
 
 Reached in the original on lev_1_m3 (coverage: Q111Object_Slot78, GruntObject_Slot66, 0x0042c670 ran). Q or Jonesy
