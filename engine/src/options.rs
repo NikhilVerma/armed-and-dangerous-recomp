@@ -62,6 +62,8 @@ pub struct GameOptions {
     /// settings changed by name ({"ambient_occlusion": false, ...}); tool runs ignore both (Original)
     pub graphics_preset: crate::graphics::Preset,
     pub graphics: serde_json::Map<String, serde_json::Value>,
+    /// remaster: the developer menu's toggles (devtools: god mode, infinite ammo, the overlays, ...)
+    pub dev: crate::devtools::DevSettings,
 }
 
 impl Default for GameOptions {
@@ -91,6 +93,7 @@ impl Default for GameOptions {
             checkpoint_saves: false,
             graphics_preset: crate::graphics::Preset::Remaster,
             graphics: serde_json::Map::new(),
+            dev: crate::devtools::DevSettings::default(),
         }
     }
 }

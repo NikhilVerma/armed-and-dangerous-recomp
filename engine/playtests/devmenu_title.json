@@ -1,0 +1,16 @@
+{"title": true, "steps": [
+ {"wait": 2.0},
+ {"expect": {"menu.page": "Main", "dev.open": false}},
+ {"tap": "F1"}, {"wait": 0.5},
+ {"expect": {"dev.open": true, "dev.selected": "Level select", "menu.page": "Main"}},
+ {"tap": "Escape"}, {"wait": 0.5},
+ {"expect": {"dev.open": false, "menu.page": "Main"}},
+ {"tap": "F1"}, {"wait": 0.5},
+ {"tap": "Enter"}, {"wait": 0.3},
+ {"tap": "ArrowUp"}, {"wait": 0.3},
+ {"expect": {"dev.page": "Levels", "dev.selected": "Shenanigans  (lev_bonus_m3)"}},
+ {"tap": "Enter"},
+ {"until": "loaded"}, {"wait": 1.0},
+ {"expect": {"campaign.level": "lev_bonus_m3", "level_generation": 1, "dev.open": false, "mission": "Playing"}},
+ {"quit": true}
+]}

@@ -2,7 +2,10 @@
 //! Bevy 0.20 rendering, Jolt Physics 5.6, grunt AI, explosions, bevy_egui menus and a benchmark mode.
 //!
 //!   and_remaster [--scene DIR] [--size WxH] [--vsync] [--no-ai] [--bench SECONDS --out FILE] [--preset remaster|original]
-//!                [--profile]
+//!                [--profile] [--level LEV] [--dev god,infammo,...] [--no-session]
+//!
+//! --level starts in that level with the New Game setup (no title menu); --dev switches developer toggles on for the
+//! run (devtools/mod.rs); --no-session records no session (devtools/session.rs).
 //!
 //! Presentation: graphics.rs (the Remaster preset for play; tool runs use the Original unless --preset says).
 //!
@@ -10,6 +13,7 @@
 //! Game-specific: level (A&D templates, axes, units, lights), ai (grunts), player.
 
 mod ai;
+mod devtools;
 mod alarm;
 mod army;
 mod crowd;
@@ -138,10 +142,16 @@ struct Args {
     graphics: Option<String>,
     /// --profile (with --bench): per-pass GPU and CPU frame costs into the bench JSON (profile.rs)
     profile: bool,
+    /// --level LEV: start in this level (the New Game setup, no title menu)
+    level: Option<String>,
+    /// --dev god,infammo,...: developer toggles on for this run
+    dev: Option<String>,
+    /// --no-session: no session recording
+    no_session: bool,
 }
 
 fn args() -> Args {
-    let mut a = Args { scene: PathBuf::from("../work/remaster").join(campaign::FIRST_LEVEL), scene_given: false, size: (1920, 1080), bench: None, vsync: false, no_ai: false, fx_test: None, snap: None, play: None, skip_title: false, camera: None, no_hud: false, background: false, size_given: false, load: None, std_materials: false, debug_hide: None, no_intro: false, movies: None, preset: None, graphics: None, profile: false };
+    let mut a = Args { scene: PathBuf::from("../work/remaster").join(campaign::FIRST_LEVEL), scene_given: false, size: (1920, 1080), bench: None, vsync: false, no_ai: false, fx_test: None, snap: None, play: None, skip_title: false, camera: None, no_hud: false, background: false, size_given: false, load: None, std_materials: false, debug_hide: None, no_intro: false, movies: None, preset: None, graphics: None, profile: false, level: None, dev: None, no_session: false };
     let v: Vec<String> = std::env::args().collect();
     let mut bench_secs = None;
     let mut out = PathBuf::from("../work/remaster/bench/latest.json");
@@ -178,6 +188,9 @@ fn args() -> Args {
             "--preset" => a.preset = Some(graphics::Preset::parse(&next).expect("--preset remaster|original")),
             "--graphics" => a.graphics = Some(next),
             "--profile" => (a.profile, used) = (true, 1),
+            "--level" => a.level = Some(next),
+            "--dev" => a.dev = Some(next),
+            "--no-session" => (a.no_session, used) = (true, 1),
             other => panic!("unknown argument {other}"),
         }
         i += used;
@@ -234,6 +247,11 @@ fn main() {
         .and_then(|s| campaign::Levels::new(&home_dir, &home_dir).dir(&s.level))
         .and_then(|d| std::fs::canonicalize(d).ok())
         .unwrap_or_else(|| home_dir.clone());
+    // --level: that level's folder beside the home level's
+    let scene_dir = match &a.level {
+        Some(l) => campaign::Levels::new(&home_dir, &home_dir).dir(l).and_then(|d| std::fs::canonicalize(d).ok()).unwrap_or_else(|| panic!("--level {l}: no exported level of that name next to {}", home_dir.display())),
+        None => scene_dir,
+    };
     let levels = campaign::Levels::new(&home_dir, &scene_dir);
     let bench = a.bench.is_some();
     let tool_run = a.background || a.size_given || a.snap.is_some() || bench || a.camera.is_some() || a.play.is_some();
@@ -247,6 +265,8 @@ fn main() {
         start_options.graphics.clear();
     }
     let gfx = graphics::GraphicsPlugin::new(graphics::GraphicsLaunch::new(a.preset, tool_run && script_preset.is_none(), a.graphics.as_deref()), &start_options, &scene_dir);
+    // the session recording starts before the app (its log layer is part of the LogPlugin)
+    let session = devtools::session::root(tool_run, a.no_session, a.play.as_deref()).and_then(|r| devtools::session::start(&r));
     let mut app = App::new();
     // the player's game logs a failed ECS command (e.g. one queued for an entity a level restart despawned) instead of
     // crashing; tool and test runs keep Bevy's panicking handler, so such bugs still fail the tests
@@ -259,6 +279,7 @@ fn main() {
     app.add_plugins(
         DefaultPlugins
             .set(gfx.image_plugin())
+            .set(bevy::log::LogPlugin { custom_layer: devtools::session::log_layer, ..default() })
             .set(WindowPlugin {
                 primary_window: Some(Window {
                     title: "Armed and Dangerous - remaster engine".into(),
@@ -374,6 +395,18 @@ fn main() {
     app.add_plugins(footik::FootIkPlugin);
     app.add_plugins(savegame::SaveGamePlugin);
     app.add_plugins(cheats::CheatsPlugin);
+    app.add_plugins(devtools::DevToolsPlugin);
+    if let Some(s) = session {
+        app.insert_resource(s);
+    }
+    if let Some(list) = &a.dev {
+        app.insert_resource(devtools::DevLaunch::parse(list));
+    }
+    if a.level.is_some() {
+        // New Game's setup (gamemenu.rs Act::NewGame): the campaign's money, the pub's intro, play at once
+        app.add_systems(PreStartup, |mut o: ResMut<options::GameOptions>| campaign::new_game(&mut o));
+        app.insert_state(AppState::Playing);
+    }
     app.add_plugins(decals::DecalPlugin);
     app.add_plugins(sticky::StickyPlugin);
     // the player's weapon roster: sniper rifle, mortar, vindaloo, land shark, black hole, Guy Fawkes, auto-aim

@@ -35,8 +35,8 @@ pub const MOVIES: [&str; 22] = [
     "post_5_5_the_end",
 ];
 /// The cheats that unlock every level / movie (Game+0x4c8 bits 11 and 12; cheats.rs).
-const ALL_LEVELS_CHEAT: u32 = 0x800;
-const ALL_MOVIES_CHEAT: u32 = 0x1000;
+const ALL_LEVELS_CHEAT: u32 = crate::cheats::ALL_LEVELS;
+const ALL_MOVIES_CHEAT: u32 = crate::cheats::ALL_MOVIES;
 
 /// Category 1's name filter (0x004a0690 kind 1): "lev_" and a digit (the bonus levels are category 3).
 fn is_campaign_level(name: &str) -> bool {

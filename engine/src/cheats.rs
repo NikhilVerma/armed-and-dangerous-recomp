@@ -31,6 +31,39 @@ pub const CHEATS: [(&str, &str, u32); 12] = [
 pub const INFINITE_AMMO: u32 = 0x10;
 /// SHOOTMOR: every weapon filled on activation.
 pub const FULL_AMMO: u32 = 0x100;
+/// AMBULNCE: health back to the maximum on activation.
+pub const FULL_HEALTH: u32 = 0x200;
+/// PRAYTOME / SHIELDME: Roman takes no damage.
+pub const GOD_MODE: u32 = 0x1;
+pub const INVINCIBLE: u32 = 0x20;
+/// VERYHIIQ / EATGRENZ / SHOESIZE: big heads, hands, boots.
+pub const BIG_HEADS: u32 = 0x2;
+pub const BIG_HANDS: u32 = 0x4;
+pub const BIG_BOOTS: u32 = 0x8;
+/// MISSIONS / AMATINEE: every level / movie listed in Extras.
+pub const ALL_LEVELS: u32 = 0x800;
+pub const ALL_MOVIES: u32 = 0x1000;
+/// WAAAAAAH: the view upside down (camera.rs).
+pub const FLIP_SCREEN: u32 = 0x4000;
+
+/// SHOOTMOR's fill: every carried gun full, every special held (and the sticky bombs) to its maximum.
+pub fn full_ammo(arsenal: &mut crate::weapons::Arsenal, data: &crate::gamedata::GameData) {
+    for id in crate::weapons::WeaponId::ALL {
+        if let Some(w) = arsenal.gun_mut(id) {
+            w.set_ammo(-2);
+        }
+    }
+    for s in crate::weapons::SpecialId::ALL {
+        if arsenal.count(s) > 0 || s == crate::weapons::SpecialId::StickyBomb {
+            arsenal.set_count(s, crate::weapons::spec::special_max(data, s));
+        }
+    }
+}
+
+/// AMBULNCE's fill: health to Roman's maximum.
+pub fn full_health(r: &crate::player::Roman, h: &mut crate::fx::Health) {
+    h.0 = r.max_health;
+}
 
 /// Cheat_FlagByName 0x00410e00: a cheat's flag by its text id (_stricmp over the table), 0 when none matches.
 pub fn flag_by_name(id: &str) -> u32 {
@@ -148,21 +181,11 @@ fn entry(
                         // one-shot effects on activation
                         if on {
                             if let Ok((mut r, mut h)) = roman.single_mut() {
-                                if flag == 0x200 {
-                                    h.0 = r.max_health;
+                                if flag == FULL_HEALTH {
+                                    full_health(&r, &mut h);
                                 }
                                 if flag == FULL_AMMO {
-                                    // every carried gun full, every special held to its maximum
-                                    for id in crate::weapons::WeaponId::ALL {
-                                        if let Some(w) = r.arsenal.gun_mut(id) {
-                                            w.set_ammo(-2);
-                                        }
-                                    }
-                                    for s in crate::weapons::SpecialId::ALL {
-                                        if r.arsenal.count(s) > 0 || s == crate::weapons::SpecialId::StickyBomb {
-                                            r.arsenal.set_count(s, crate::weapons::spec::special_max(&data, s));
-                                        }
-                                    }
+                                    full_ammo(&mut r.arsenal, &data);
                                 }
                             }
                         }
@@ -188,7 +211,7 @@ fn effects(
     mut cam: Query<&mut Transform, With<Camera3d>>,
 ) {
     let Ok((mut r, mut h)) = roman.single_mut() else { return };
-    if c.on(0x20) || c.on(0x1) {
+    if c.on(INVINCIBLE) || c.on(GOD_MODE) {
         if let Some(prev) = *last {
             if h.0 < prev {
                 h.0 = prev;
@@ -209,13 +232,13 @@ fn effects(
 /// Big heads / hands / boots: those bones of every character drawn twice the size (guess at the factor).
 fn body_scale(c: Res<Cheats>, rigs: Query<&crate::skin::Animator>, mut joints: Query<&mut Transform>) {
 
-    if !(c.on(0x2) || c.on(0x4) || c.on(0x8)) {
+    if !(c.on(BIG_HEADS) || c.on(BIG_HANDS) || c.on(BIG_BOOTS)) {
         return;
     }
     for a in &rigs {
         for (i, name) in a.skeleton.names.iter().enumerate() {
             let n = name.trim().to_lowercase();
-            let big = (c.on(0x2) && n == "head") || (c.on(0x4) && (n == "l_hand" || n == "r_hand")) || (c.on(0x8) && (n == "l_foot" || n == "r_foot"));
+            let big = (c.on(BIG_HEADS) && n == "head") || (c.on(BIG_HANDS) && (n == "l_hand" || n == "r_hand")) || (c.on(BIG_BOOTS) && (n == "l_foot" || n == "r_foot"));
             if big {
                 if let Ok(mut t) = joints.get_mut(a.joints[i]) {
                     t.scale = Vec3::splat(2.0);

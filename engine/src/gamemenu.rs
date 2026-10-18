@@ -302,6 +302,13 @@ impl GameMenu {
         self.shown
     }
 
+    /// The pause menu over the game (Esc in play; the developer screens open over it: devtools).
+    pub fn open_pause(&mut self) {
+        self.page = Page::Pause;
+        self.stack.clear();
+        self.selected = 0;
+    }
+
     /// Opens `page` as a screen pushed by the game (the end sequence's Credits, campaign.rs); leaving it shows `under`.
     pub fn open_over(&mut self, page: Page, under: Page) {
         self.stack.clear();
@@ -339,7 +346,7 @@ impl Plugin for GameMenuPlugin {
     fn build(&self, app: &mut App) {
         app.init_level_resource::<GameMenu>()
             .init_resource::<Texts>()
-            .add_systems(Update, (failed, navigate.run_if(crate::movie::no_movie_input), extras_pages, animate, values, pause_band, credits, log_menu).chain().in_set(MenuSystems))
+            .add_systems(Update, (failed, navigate.run_if(crate::movie::no_movie_input).run_if(crate::devtools::overlay_closed), extras_pages, animate, values, pause_band, credits, log_menu).chain().in_set(MenuSystems))
             .add_plugins(crate::saveslots::SaveSlotsPlugin);
     }
 }

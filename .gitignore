@@ -94,3 +94,5 @@ engine/target-wt-peasants-base/
 /engine_base/
 # every agent / tool build directory (engine/target-wt-<agent>, target-agent2, ...)
 /engine/target-*/
+# session recordings of playtest scripts with "session": true (devtools/session.rs)
+/engine/playtests/*.sessions/

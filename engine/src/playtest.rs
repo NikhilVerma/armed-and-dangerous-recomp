@@ -270,6 +270,15 @@ struct Script {
     /// frame is then a long game step, as the player gets it (restart_parity: the rebuild's frame)
     #[serde(default)]
     real_time: bool,
+    /// record a session as normal play does (devtools/session.rs), into <script>.sessions/ next to the script
+    #[serde(default)]
+    session: bool,
+}
+
+/// Where a script with "session": true records its sessions (devtools/session.rs).
+pub fn script_session_root(script: &std::path::Path) -> Option<PathBuf> {
+    let s: Script = serde_json::from_str(&std::fs::read_to_string(script).ok()?).ok()?;
+    s.session.then(|| script.with_extension("sessions"))
 }
 
 /// The graphics preset a script plays with as a normal launch (its "preset").
@@ -608,7 +617,11 @@ pub fn key(name: &str) -> Option<KeyCode> {
     let k = match name {
         "Space" => KeyCode::Space,
         "Escape" => KeyCode::Escape,
+        "F1" => KeyCode::F1,
         "F3" => KeyCode::F3,
+        "F5" => KeyCode::F5,
+        "F8" => KeyCode::F8,
+        "F9" => KeyCode::F9,
         "Enter" => KeyCode::Enter,
         "Delete" => KeyCode::Delete,
         "Backspace" => KeyCode::Backspace,

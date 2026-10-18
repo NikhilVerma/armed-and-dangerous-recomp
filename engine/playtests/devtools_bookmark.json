@@ -1,0 +1,9 @@
+{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "session": true, "steps": [
+ {"wait": 1.0},
+ {"expect": {"session.bookmarks": 0}},
+ {"tap": "F8"}, {"wait": 0.5},
+ {"expect": {"dev.note": true, "menu.page": "Pause"}},
+ {"tap": "Enter"}, {"wait": 1.5},
+ {"expect": {"dev.note": false, "menu.shown": null, "session.bookmarks": 1, "session.last.n": 1, "session.last.screenshot": true, "session.last.save": true}},
+ {"quit": true}
+]}
