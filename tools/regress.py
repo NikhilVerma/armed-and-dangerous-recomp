@@ -64,6 +64,9 @@ SUITE += ['weapon_glove', 'weapon_glove_miss', 'weapon_shark_prey']
 # the villagers a destroyed house throws out (peasant/toss.rs, lev_3_m3): one to three per house, flying, landing as
 # ragdolls with their chairs let go
 SUITE += ['peasants_tossed']
+# effects and the thrown bomb (player feedback 2026-10-18, agent-fb-fx): the camera's snow (domes and flake emitter, also
+# after a load), the sticky bomb's blast effects, its homing (also with 22 bodies around Roman) and GoRagdoll's launch
+SUITE += ['fx_snow', 'sticky_blast_fx', 'sticky_homing', 'sticky_homing_bodies', 'sticky_launch']
 # the dead's bodies (corpses.rs): lev_1_m4's army killed two a second; the Original's timers (bodies gone, at most four
 # ragdolls, entities and physics bodies not growing) and the Remaster's 48 bodies with settled ragdolls
 SUITE += ['corpses_l1m4', 'corpses_l1m4_remaster']
