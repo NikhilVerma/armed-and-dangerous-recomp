@@ -310,17 +310,20 @@ fn fly(
                     d.dying = Some(0.0);
                 }
             }
-            // p_molmer_dynamite has no fx_end, only fx_end_material: the original's blast (capture tntO, frame 1607,
-            // stuck on a grunt) plays fx_imp_sticky's sounds (exp_fireball_med, exp_metal_small) and no surface layer:
-            // the material fx of what it is stuck to (a character: the base fx; the ground: its surface's variant,
-            // surface.rs)
-            let end = p.s("fx_end").map(str::to_owned).or_else(|| {
-                let m = p.s("fx_end_material")?;
-                let ground = if obj.is_some() { None } else { physics.surface_below(t.translation, 4.0) };
-                Some(ground.unwrap_or_default().variant(m, |n| data.fx.contains_key(n)))
-            });
-            if let Some(n) = end.as_deref() {
-                fx.write(crate::fx::StartFx { name: n.to_owned(), at: t.translation, rotation: crate::level::game_to_engine(), follow: None, position_only: false });
+            // the end effects (Projectile vt+0x158 0x0047ed40): fx_end at the blast, and fx_end_material too when it is
+            // stuck to an object (Roman's bomb on a grunt: both, fx_imp_sticky twice, as the original). p_molmer_dynamite
+            // has only fx_end_material: the original's blast (capture tntO, frame 1607, stuck on a grunt) plays
+            // fx_imp_sticky's sounds (exp_fireball_med, exp_metal_small); on the ground the remaster keeps its surface's
+            // variant (surface.rs). The material fx of a character is the base fx (no _grunt variant in the bank)
+            let mut ends: Vec<String> = p.s("fx_end").map(str::to_owned).into_iter().collect();
+            if obj.is_some() || ends.is_empty() {
+                if let Some(m) = p.s("fx_end_material") {
+                    let ground = if obj.is_some() { None } else { physics.surface_below(t.translation, 4.0) };
+                    ends.push(ground.unwrap_or_default().variant(m, |n| data.fx.contains_key(n)));
+                }
+            }
+            for n in ends {
+                fx.write(crate::fx::StartFx { name: n, at: t.translation, rotation: crate::level::game_to_engine(), follow: None, position_only: false });
             }
             if roman_bomb {
                 interests.end_at(e, t.translation);
