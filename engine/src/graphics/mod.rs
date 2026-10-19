@@ -6,7 +6,8 @@
 //!   playtest suite never see a remaster feature.
 //! - **Remaster** (the default for a normal launch, what the player plays): the AI retextures, screen-space ambient
 //!   occlusion with snow exempt, temporal anti-aliasing with sharpening, larger soft shadows covering the whole view,
-//!   soft particles, a dissolve instead of a hard cut at the far clip, bloom on over-bright effects only.
+//!   soft particles, a dissolve instead of a hard cut at the far clip, bloom on over-bright effects only, GPU
+//!   snowfall in place of the camera's snow cylinders (snow.rs).
 //!
 //! The game rules never depend on these (no setting reaches the living: AI, Roman, timing). The bodies' settings
 //! (`corpse_*`, `ragdoll_limit`: how long the dead lie and how many ragdoll, corpses.rs) touch only the dead.
@@ -24,6 +25,7 @@
 //! material clips, whose depth the prepass holds, so the sky shows beyond the clip as in the Original.
 
 mod farclip;
+pub mod snow;
 mod textures;
 
 pub use textures::{set_level as set_level_textures, texture_path, world_sampler};
@@ -145,6 +147,12 @@ pub struct GraphicsSettings {
     pub corpse_fade: f32,
     /// ragdolls down at once; a death beyond it is animated (the original's 4: Character_GoRagdoll 0x00431310)
     pub ragdoll_limit: u32,
+    /// GPU snowfall in place of the camera's snow cylinders, in levels whose camera fx attach them (snow.rs)
+    pub snow: bool,
+    /// flakes in the volume around the camera
+    pub snow_amount: u32,
+    /// the snowfall's look and motion
+    pub snow_tuning: snow::SnowTuning,
 }
 
 impl GraphicsSettings {
@@ -177,6 +185,9 @@ impl GraphicsSettings {
             corpse_time: 0.0,
             corpse_fade: 0.0,
             ragdoll_limit: 4,
+            snow: false,
+            snow_amount: 1_500_000,
+            snow_tuning: snow::SnowTuning::default(),
         }
     }
 
@@ -199,6 +210,7 @@ impl GraphicsSettings {
             corpse_time: 60.0,
             corpse_fade: 1.5,
             ragdoll_limit: 16,
+            snow: true,
             ..Self::original()
         }
     }
@@ -397,7 +409,7 @@ impl Plugin for GraphicsPlugin {
         app.insert_resource(self.launch.clone())
             .insert_resource(self.initial.clone())
             .insert_resource(DirectionalLightShadowMap { size: self.initial.shadow_map_size as usize })
-            .add_plugins(farclip::FarClipPlugin)
+            .add_plugins((farclip::FarClipPlugin, snow::SnowPlugin))
             .add_systems(
                 PostUpdate,
                 (
@@ -477,8 +489,8 @@ fn apply_cameras(
             };
             c.insert(ScreenSpaceAmbientOcclusion { quality_level, radius: s.ao_radius.max(0.01), constant_object_thickness: s.ao_radius * 0.3 });
         }
-        // soft particles read the depth prepass
-        if s.soft_particles > 0.0 {
+        // soft particles and the snowfall read the depth prepass
+        if s.soft_particles > 0.0 || s.snow {
             c.insert(DepthPrepass);
         }
         if hdr {
