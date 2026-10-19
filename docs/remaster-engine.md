@@ -1018,7 +1018,7 @@ writes only differences, a preset choice clears them). Settings and what they us
 | Setting | Original | Remaster | How |
 |---|---|---|---|
 | remaster_textures (+ remaster_textures_exclude) | off | on | the AI retextures, prepared by `tools/remaster_textures.py LEVEL` into work/remaster/LEVEL/textures_remaster (never committed); chosen when the level loads |
-| ambient_occlusion, ao_quality / radius / strength, ao_exempt | off | on, High, 4 units, 1, ["ground", "snow"] | Bevy's SSAO (an XeGTAO implementation) read in gamematerial.wesl on the ambient + fill light only (not the sun, not emissive); surfaces whose base / second / normal map name contains an exempt part (the snow landscape) and blended surfaces get none |
+| ambient_occlusion, ao_quality / radius / strength, ao_exempt | off | on, High, 24 units, 1, ["ground", "snow"] | XeGTAO in Bevy's SSAO pass (since 2026-10-19, "Atmosphere, AO, ..." below) read in gamematerial.wesl on the ambient + fill light only (not the sun, not emissive, except the contact term); surfaces whose base / second / normal map name contains an exempt part (the snow landscape) keep only ao_snow of it, blended surfaces get none |
 | anti_aliasing, sharpening | MSAA 4x, 0 | TAA, 0.35 | Bevy's TAA (with the temporal shadow filter) or SMAA High, then contrast-adaptive sharpening; Off / MSAA / SMAA / TAA on the Graphics page |
 | anisotropy, anisotropic_fx | 16, off | 16, on | world samplers 16x in both (the engine's look since 2026-10-13); the Remaster adds it to decals and effects (the default sampler) |
 | shadow_map_size, shadow_cascades, shadow_distance | 2048, 4, 0 (the level's: half its extent) | 4096, 4, 1.0 x the world's far clip | cascades fitted to what is drawn (options.rs world_far), 30 % overlap: every shadow in view is in a cascade |
@@ -1184,6 +1184,40 @@ mip_bias, alpha_to_coverage, terrain_detail, shadow_strength). Screenshots: work
 state, 1920x1080, Remaster with each setting off vs all on, Original vs Original + lod_max; cmp_*.png side by side).
 4K Remaster bench (`--bench 20 --size 3840x2160 --background`, alternated, other agents' builds and games running):
 all on 86.5 / 76.6 fps, the four rendering settings off 94.1 / 76.7: within this machine's noise, to re-measure idle.
+
+## Atmosphere, AO, motion blur and output pass, ported from the old remaster (2026-10-19, agent-port-atmos)
+
+The old remaster's (hook/enhance + src/rhi/vulkan) fog, AO, motion blur and present-pass options, ported as close to
+its shaders and defaults as Bevy allows. Each is a module in engine/src/graphics/ with a typed settings struct
+flattened into `GraphicsSettings` under the old and.ini name (options.json `graphics`, `--graphics key=value`),
+Remaster = the old remaster's defaults, Original = off (pixel-identical to before: 0.00 mae). Graphics page:
+"Effects ..." (right of "Detail and Shadows") opens Page::GfxEffects, checkboxes on the Graphics page's copy (a
+number turns on to the Remaster value).
+
+| Setting (old [render] key) | Original | Remaster | Module, where it came from |
+|---|---|---|---|
+| fog_modern, fog_density, fog_height, fog_sun | off, 1, 0.002, 0.6 | on, 1, 0.002, 0.6 | height_fog.rs/.wesl (vk_fog.cpp ModernFogGlsl, vk_device.cpp ModernFogUniforms): exponential height fog per pixel in the game material in place of the level's linear fog, its colour and range; half the light through half way through the range level with the camera; reference height = the camera's on the level's first frame (`GameLights::fog_reference`); Henyey-Greenstein glow towards the sun, clamped at 1 (no bloom) |
+| ao_radius (existing), ao_power, ao_falloff, ao_thickness | AO off | 24, 3, 0.5, 3 | ao_extras.rs + xegtao.wesl: XeGTAO's main pass (third_party/XeGTAO, the old remaster's AO) in place of Bevy's VBAO estimator, inside Bevy's SSAO pass (same shader asset: Bevy's depth prefilter and denoiser stay); constants substituted at runtime; thin-occluder compensation 0.7 and the thickness limit as the old |
+| ao_contact, ao_snow (+ multi-bounce) | 0, 0.25 | 0.6, 0.25 | ao_extras.wesl (vk_gtao.cpp GtaoApplyFragmentGlsl): albedo multi-bounce, snow keeps ao_snow of the occlusion (`ao_exempt` names and snow-white albedo; was 0), contact AO darkens the sunlit colour under feet |
+| shutter_speed | 0 | 120 | motion_blur.rs + motion_blur_*.wesl (vk_motionblur.cpp): per-object blur, exposure (1/N s)/frame time capped at 4, camera motion subtracted from Bevy's motion vectors, the shorter of world / screen motion (tracked characters stay sharp), 48 px tiles, McGuire reconstruction; after TAA, before bloom; needs the motion-vector prepass and no MSAA |
+| tonemap_aces, dither | off, off | off, on | present.rs/.wesl (vk_present.cpp): last post pass (Bevy FullscreenMaterial): Narkowicz ACES on the game's (gamma) values, triangular +-1/255 noise in the sRGB encoding; either puts the 3D view in an HDR target |
+
+Why XeGTAO: with Bevy's estimator flat ground reads ~0.83 visibility (its bitmask counts the thickness strip above
+every sample), so the old power of 3 darkened all the snow (mae 31 on the snow); XeGTAO gives flat ground 1 as the old
+renderer did (raw term: work/shots/port-atmos/xegtao_raw_term.png). When Bevy is upgraded, xegtao.wesl takes Bevy's
+new ssao.wesl bindings and helpers (its header says how). Not ported: half-resolution AO, the separate smoothed-normal
+pass, Afterlight (AO + GI, off in both old presets: it needs the scene colour before the AO and a bounce gather, a
+pass of its own; deferred), streaks on particles (they write no motion vectors; the GPU snow's port streaks its own).
+
+Tests: engine/playtests/gfx_effects_remaster.json (state key `render_fx`: hdr, dither, aces, motion_blur,
+blur_exposure, prepass, fog_*, fog_reference, xegtao, ao_power / falloff / contact / snow), gfx_effects_original.json
+(all off), gfx_effects_menu.json (the page reaches options.json), gfxopts / geom_menu updated; unit tests
+`graphics::height_fog`, `graphics::ao_extras`, `graphics::motion_blur`. Screenshots (same saved state, 1280x720):
+work/shots/port-atmos/ (remaster_before_vs_after, heightfog / ao / aces / dither off vs on, motionblur off / 1/120 /
+1/30 on Roman's legs, the menu pages).
+GPU (4K Remaster bench `--profile`): SSAO 0.58 -> 0.40 ms (XeGTAO is cheaper than VBAO), motion blur +0.38 ms,
+output pass +0.04 ms, main opaque +0.02 ms (fog): gpu_total 2.41 -> 2.64 ms. fps was CPU-bound and swung 43..115 with
+other agents' builds running: re-measure idle.
 
 ## Jumper pack (2026-10-16, agent-blockers1)
 
