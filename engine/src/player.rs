@@ -11,7 +11,7 @@ use crate::level::game_to_engine;
 use crate::physics::{Body, Physics, Walker};
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
-use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
+use bevy::window::{CursorOptions, PrimaryWindow};
 use oxijolt::prelude::*;
 
 #[derive(Resource)]
@@ -623,6 +623,7 @@ pub fn grab_cursor(
     mut mouse: Local<crate::mouselook::MouseLook>,
     mut motion: MessageReader<bevy::input::mouse::MouseMotion>,
     mut was_absolute: Local<bool>,
+    gfx: Option<Res<crate::graphics::GraphicsSettings>>,
 ) {
     look.0 = Vec2::ZERO;
     let reports: Vec<Vec2> = motion.read().map(|m| m.delta).collect();
@@ -630,15 +631,16 @@ pub fn grab_cursor(
     if playtest.is_some() {
         return;
     }
-    let play = *state.get() == crate::AppState::Playing && menu.page != crate::gamemenu::Page::Pub;
+    let play = crate::cursor::in_play(*state.get(), menu.page);
     let Ok((mut w, mut c)) = windows.single_mut() else { return };
-    let (mode, visible) = if play { (CursorGrabMode::Confined, false) } else { (CursorGrabMode::None, true) };
+    // hidden in play; in the menus the Windows pointer or the game's sprite; confined with clip_cursor (cursor.rs)
+    let (mode, visible) = crate::cursor::grab(&crate::cursor::settings(gfx.as_deref()), play, w.focused);
     if c.grab_mode != mode || c.visible != visible {
         c.grab_mode = mode;
         c.visible = visible;
         // the first frames after entering play only centre the cursor
         mouse.reset();
-        info!("EVENT input: cursor {}", if play { "confined and hidden (play)" } else { "free (menus)" });
+        info!("EVENT input: cursor {:?}, {} ({})", mode, if visible { "shown" } else { "hidden" }, if play { "play" } else { "menus" });
     }
     if let Some(f) = mouse.focus_change(w.focused) {
         info!("EVENT input: window {}", if f { "focused" } else { "lost the focus" });

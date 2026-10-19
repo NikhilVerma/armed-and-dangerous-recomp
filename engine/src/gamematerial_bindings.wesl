@@ -26,6 +26,10 @@ struct GameMaterialParams {
     // y 1 = dissolve over the last 15 % before the far clip instead of a hard cut, z the alpha below which an
     // alpha-tested surface casts no shadow (0: the whole card casts)
     remaster: vec4<f32>,
+    // the old remaster's ported settings (graphics/geometry/mod.rs material_values): x terrain detail scale (0 off),
+    // y its strength, z alpha cover (0 blend, 1 MSAA alpha-to-coverage), w shadow strength (0: the
+    // level's shadow colour)
+    geometry: vec4<f32>,
 }
 
 @group(constants::MATERIAL_BIND_GROUP) @binding(0) var base_tex: texture_2d<f32>;

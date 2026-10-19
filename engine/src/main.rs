@@ -18,6 +18,7 @@ mod alarm;
 mod army;
 mod arrows;
 mod crowd;
+mod cursor;
 mod defence;
 mod icobject;
 mod mover;
@@ -45,6 +46,8 @@ mod contacts;
 mod corpses;
 mod cutscenes;
 mod decals;
+mod debris;
+mod enginepage;
 mod extras;
 mod sticky;
 mod thumbnail;
@@ -72,8 +75,10 @@ mod mission;
 mod mouselook;
 mod nav;
 mod physics;
+mod physicsstep;
 mod peasant;
 mod pickup;
+mod pools;
 mod pubscreen;
 mod ragdoll;
 mod savegame;
@@ -315,6 +320,7 @@ fn main() {
         start_options.graphics.clear();
     }
     let gfx = graphics::GraphicsPlugin::new(graphics::GraphicsLaunch::new(a.preset, tool_run && script_preset.is_none(), a.graphics.as_deref()), &start_options, &scene_dir);
+    let physics_world = gfx.initial.physics.world();
     // the session recording starts before the app (its log layer is part of the LogPlugin)
     let session = devtools::session::root(tool_run, a.no_session, a.play.as_deref()).and_then(|r| devtools::session::start(&r));
     let mut app = App::new();
@@ -377,7 +383,7 @@ fn main() {
     .add_plugins((movable::MovablePlugin, tossed::TossedPlugin, ai::coverslot::CoverSlotPlugin))
     .add_plugins(vehicles::VehiclesPlugin)
     .init_state::<AppState>()
-    .insert_non_send(physics::Physics::new(level::METERS_PER_UNIT))
+    .insert_non_send(physics::Physics::new(level::METERS_PER_UNIT, physics_world))
     .insert_resource(ClearColor(Color::srgb(0.62, 0.70, 0.80)))
     .insert_resource(Launch { fx_test: a.fx_test.is_some(), scene: scene_dir.clone(), bench: a.bench, size: a.size, no_ai: a.no_ai, no_hud: a.no_hud, std_materials: a.std_materials })
     .add_systems(Update, fx_test.run_if(resource_exists::<FxTest>))
@@ -458,6 +464,8 @@ fn main() {
         app.insert_state(AppState::Playing);
     }
     app.add_plugins(decals::DecalPlugin);
+    // the old remaster's engine-limit and input options (graphics.rs presets): pool sizes, kept debris, the pointer
+    app.add_plugins((pools::PoolsPlugin, debris::DebrisPlugin, cursor::CursorPlugin));
     app.add_plugins(sticky::StickyPlugin);
     // the player's weapon roster: sniper rifle, mortar, vindaloo, land shark, black hole, Guy Fawkes, auto-aim
     app.add_plugins(weapons::WeaponsPlugin);

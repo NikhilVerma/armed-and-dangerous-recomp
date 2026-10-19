@@ -22,7 +22,7 @@
 mod attach;
 pub mod body;
 mod materials;
-mod object;
+pub(crate) mod object;
 mod particles;
 mod rng;
 pub mod screen;
@@ -84,6 +84,17 @@ pub struct FxVm {
     out: Outbox,
     /// each template's body, worked out the first time one is made (body.rs)
     body_defs: HashMap<String, body::BodyDef>,
+}
+
+impl FxVm {
+    /// The particle pools' capacity multiple (pools.rs `particle_pool_scale`).
+    pub fn particle_pool_scale(&self) -> usize {
+        self.pools.scale
+    }
+
+    pub fn set_particle_pool_scale(&mut self, scale: usize) {
+        self.pools.scale = scale.max(1);
+    }
 }
 
 /// What a script run or an object update asks of other systems this frame (sent by `run` / `objects`).

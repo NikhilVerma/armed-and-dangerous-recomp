@@ -14,8 +14,9 @@
 //!   the camera's motion), hidden behind the scene and fading where it meets it, lit by the level's lights and fogged
 //!   by its fog as the game material is, after the anti-aliasing (TAA has no motion vectors for it) and before bloom.
 //!
-//! Data: [`GraphicsSettings`] `snow` (on / off), `snow_amount` (flakes) and `snow_tuning` ([`SnowTuning`], the old
-//! remaster's defaults). Remaster preset on, Original off (the cylinders as in the original).
+//! Data: [`SnowSettings`], flattened into [`GraphicsSettings`]: `snow` (on / off), `snow_amount` (flakes) and
+//! `snow_tuning` ([`SnowTuning`], the old remaster's defaults). Remaster preset on, Original off (the cylinders as in
+//! the original).
 //!
 //! API: [`SnowPlugin`] (added by the graphics plugin); [`SnowCamera`] on the game's camera (the view that snows; the
 //! save thumbnail's camera does not); [`Snowfall`] (resource: whether it snows, the flake count, the cylinders).
@@ -43,6 +44,39 @@ use bevy::render::{Extract, ExtractSchedule, Render, RenderApp, RenderStartup, R
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+
+/// The snowfall's settings (a flattened block of [`GraphicsSettings`]): the Remaster preset snows, the Original keeps
+/// the game's cylinders.
+#[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
+#[serde(default)]
+pub struct SnowSettings {
+    /// GPU snowfall in place of the camera's snow cylinders, in levels whose camera fx attach them
+    pub snow: bool,
+    /// flakes in the volume around the camera (the old remaster's 1,500,000; at most 4,000,000)
+    pub snow_amount: u32,
+    /// the snowfall's look and motion
+    pub snow_tuning: SnowTuning,
+}
+
+impl SnowSettings {
+    pub fn original() -> Self {
+        SnowSettings { snow: false, snow_amount: 1_500_000, snow_tuning: SnowTuning::default() }
+    }
+
+    pub fn remaster() -> Self {
+        SnowSettings { snow: true, ..Self::original() }
+    }
+}
+
+impl Default for SnowSettings {
+    fn default() -> Self {
+        Self::remaster()
+    }
+}
+
+/// The Graphics menu's stepper for the amount (name, min, max, positions): 0 to 3,000,000 flakes in steps of 100,000
+/// (the old remaster's slider), 0 shown as Off.
+pub const STEPPERS: [(&str, f32, f32, usize); 1] = [("snow_amount", 0.0, 3_000_000.0, 31)];
 
 /// The snowfall's look and motion (the old remaster's defaults: src/rhi/rhi.h snow hints, vk_device.cpp Snow()).
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
@@ -169,6 +203,7 @@ fn track(
     mut snow: ResMut<Snowfall>,
     fx: Query<(Entity, &Name, &Visibility, Option<&HiddenBySnow>), With<FxEntity>>,
 ) {
+    let settings = &settings.snowfall;
     let t = &settings.snow_tuning;
     let replaced = |n: &Name| t.replaces.iter().any(|r| r.eq_ignore_ascii_case(n.as_str()));
     let level_snows = fx.iter().any(|(_, n, ..)| replaced(n));

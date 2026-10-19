@@ -7,6 +7,7 @@ use crate::physics::Physics;
 use bevy::prelude::*;
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap};
+use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 
 const STEP: f32 = 6.0;
 /// the highest drop a route may take (Roman's landing hurts from much higher: fallO, 100 units cost 168.7)
@@ -15,6 +16,21 @@ const DROP: f32 = 30.0;
 const CLEARANCE: f32 = 3.0;
 /// the extra cost of a step with less room than that
 const TIGHT_COST: f32 = 12.0;
+
+/// Nodes a search expands before it gives up with the nearest cell reached (the engine's budget; the original's A*
+/// holds 2000 nodes of its own grid: AStar_Add 0x00470600, pools.rs).
+pub const DEFAULT_NODE_BUDGET: usize = 150_000;
+static NODE_BUDGET: AtomicUsize = AtomicUsize::new(DEFAULT_NODE_BUDGET);
+
+/// The search budget (pools.rs `path_nodes`); shared by every search (they run from many systems with only the
+/// physics world at hand).
+pub fn set_node_budget(nodes: usize) {
+    NODE_BUDGET.store(nodes.max(1), AtomicOrdering::Relaxed);
+}
+
+pub fn node_budget() -> usize {
+    NODE_BUDGET.load(AtomicOrdering::Relaxed)
+}
 
 #[derive(Copy, Clone, PartialEq)]
 struct Node {
@@ -64,6 +80,7 @@ pub fn path(physics: &Physics, from: Vec3, to: Vec3, blocked: &[Vec3]) -> Option
     open.push(Node { f: h(s), i: s });
     let mut best = s;
     let mut expanded = 0;
+    let budget = node_budget();
     while let Some(Node { i: c, .. }) = open.pop() {
         if h(c) < h(best) {
             best = c;
@@ -73,7 +90,7 @@ pub fn path(physics: &Physics, from: Vec3, to: Vec3, blocked: &[Vec3]) -> Option
             break;
         }
         expanded += 1;
-        if expanded > 150000 {
+        if expanded > budget {
             break;
         }
         let Some(hc) = heights.get(&c).copied().flatten() else { continue };
@@ -181,4 +198,25 @@ fn walkable(physics: &Physics, a: Vec3, b: Vec3) -> bool {
     let dir = v.normalize_or(Vec3::X);
     let side = Vec3::new(-dir.z, 0.0, dir.x).normalize_or_zero() * CLEARANCE;
     [Vec3::ZERO, side, -side].iter().all(|o| physics.raycast(a + *o, dir, v.length()).is_none())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The node budget (pools.rs `path_nodes`) bounds a search: across open ground 300 units off, a budget of 20
+    /// nodes ends near the start, the default reaches the goal.
+    #[test]
+    fn node_budget_bounds_the_search() {
+        let mut physics = Physics::new(0.2, crate::physicsstep::PhysicsStepSettings::original().world());
+        let v = [Vec3::new(-400.0, 0.0, -400.0), Vec3::new(-400.0, 0.0, 400.0), Vec3::new(400.0, 0.0, 400.0), Vec3::new(400.0, 0.0, -400.0)];
+        physics.add_static_mesh(&v, &[[0, 1, 2], [0, 2, 3]]).expect("ground");
+        let (from, to) = (Vec3::new(0.0, 0.0, 0.0), Vec3::new(300.0, 0.0, 0.0));
+        set_node_budget(20);
+        let short = path(&physics, from, to, &[]).map_or(0.0, |r| r.last().map_or(0.0, |w| w.x));
+        set_node_budget(DEFAULT_NODE_BUDGET);
+        let full = path(&physics, from, to, &[]).expect("a route").last().copied().expect("a waypoint");
+        assert!(short < 150.0, "{short}");
+        assert!(full.distance(to) < STEP * 2.0, "{full}");
+    }
 }

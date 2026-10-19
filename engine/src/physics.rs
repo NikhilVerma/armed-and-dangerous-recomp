@@ -1,4 +1,5 @@
-//! Jolt Physics (5.6, through oxijolt) for the engine: a world stepped at a fixed 60 Hz, static triangle-mesh
+//! Jolt Physics (5.6, through oxijolt) for the engine: a world stepped as physicsstep.rs says (fixed 1/60 s steps, or
+//! the original's frame-tied ones), static triangle-mesh
 //! colliders for the level, dynamic bodies whose poses drive their entities' transforms.
 //! Game-neutral: positions in the engine are game units; Jolt works in metres (`Physics::meters_per_unit`).
 
@@ -83,10 +84,26 @@ fn collision_layers() -> CollisionLayers {
     layers
 }
 
+/// The Jolt world's fixed sizes and solver iterations (physicsstep.rs `PhysicsStepSettings::world`).
+#[derive(Clone, Copy, Debug)]
+pub struct WorldConfig {
+    pub velocity_steps: u32,
+    pub max_bodies: u32,
+    pub max_body_pairs: u32,
+    pub temp_allocator_size: u32,
+}
+
 impl Physics {
-    pub fn new(meters_per_unit: f32) -> Self {
-        let mut world = PhysicsWorld::new(WorldSettings::default().layers(collision_layers()).gravity(j::Vec3::new(0.0, -GRAVITY_M, 0.0)))
-            .expect("Jolt world");
+    /// A world of `config`'s sizes; `meters_per_unit`: Jolt works in metres, the engine in game units.
+    pub fn new(meters_per_unit: f32, config: WorldConfig) -> Self {
+        let settings = WorldSettings::default()
+            .layers(collision_layers())
+            .gravity(j::Vec3::new(0.0, -GRAVITY_M, 0.0))
+            .velocity_steps(config.velocity_steps)
+            .max_bodies(config.max_bodies)
+            .max_body_pairs(config.max_body_pairs)
+            .temp_allocator_size(config.temp_allocator_size);
+        let mut world = PhysicsWorld::new(settings).expect("Jolt world");
         let contacts = Arc::new(crate::contacts::Contacts::default());
         world.set_contact_listener(Some(Arc::new(crate::contacts::ContactListenerImpl(contacts.clone()))));
         Physics {
@@ -442,20 +459,27 @@ impl Body {
 
 pub struct PhysicsPlugin;
 
+/// Where the bodies' poses reach their entities' transforms (PostUpdate, before transform propagation).
+#[derive(SystemSet, Clone, PartialEq, Eq, Hash, Debug)]
+pub struct PhysicsSync;
+
 impl Plugin for PhysicsPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(Time::<Fixed>::from_hz(60.0))
-            .add_systems(FixedUpdate, step)
-            .add_systems(PostUpdate, sync.before(TransformSystems::Propagate));
+        // when and how often the world steps, and the drawing between steps: physicsstep.rs
+        app.add_plugins(crate::physicsstep::PhysicsStepPlugin)
+            .add_systems(PostUpdate, sync.in_set(PhysicsSync).before(TransformSystems::Propagate));
     }
 }
 
-fn step(mut physics: NonSendMut<Physics>, time: Res<Time<Fixed>>) {
-    let t = Instant::now();
-    // the contact notes are the last step's (contacts.rs)
-    physics.contacts.clear();
-    let _ = physics.world.step(time.delta_secs());
-    physics.step_ms = t.elapsed().as_secs_f32() * 1000.0;
+impl Physics {
+    /// One world step of `dt` seconds.
+    pub fn step(&mut self, dt: f32) {
+        let t = Instant::now();
+        // the contact notes are the last step's (contacts.rs)
+        self.contacts.clear();
+        let _ = self.world.step(dt);
+        self.step_ms = t.elapsed().as_secs_f32() * 1000.0;
+    }
 }
 
 fn sync(mut physics: NonSendMut<Physics>, mut q: Query<(&Body, &mut Transform)>) {
