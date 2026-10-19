@@ -37,6 +37,7 @@ use bevy::render::render_resource::{
     ComputePipelineDescriptor, FragmentState, PipelineCache, RenderPassDescriptor, RenderPipelineDescriptor, ShaderStages, ShaderType,
     TextureFormat, VertexState,
 };
+use bevy::render::diagnostic::RecordDiagnostics;
 use bevy::render::renderer::{RenderContext, RenderDevice, RenderQueue, ViewQuery};
 use bevy::render::sync_world::RenderEntity;
 use bevy::render::view::{ExtractedView, Msaa, ViewTarget};
@@ -519,13 +520,20 @@ fn draw(
     let (Some(simulate), Some(draw)) = (cache.get_compute_pipeline(sv.simulate), cache.get_render_pipeline(sv.draw)) else { return };
     let ms = sv.multisampled as usize;
     let depth_view = &depth.texture.default_view;
+    // GPU timings for --profile (render/snow_simulate, render/snow_draw)
+    let diagnostics = ctx.diagnostic_recorder();
+    let diagnostics = diagnostics.as_deref();
     if sv.step {
         let layout = cache.get_bind_group_layout(&pipelines.layouts[0][ms]);
         let group = ctx.render_device().create_bind_group("snow_simulate", &layout, &BindGroupEntries::sequential((uniform.as_entire_binding(), flakes.as_entire_binding(), depth_view)));
-        let mut pass = ctx.command_encoder().begin_compute_pass(&ComputePassDescriptor { label: Some("snow_simulate"), timestamp_writes: None });
-        pass.set_pipeline(simulate);
-        pass.set_bind_group(0, &group, &[]);
-        pass.dispatch_workgroups(sv.flakes.div_ceil(WORKGROUP), 1, 1);
+        let span = diagnostics.time_span(ctx.command_encoder(), "snow_simulate");
+        {
+            let mut pass = ctx.command_encoder().begin_compute_pass(&ComputePassDescriptor { label: Some("snow_simulate"), timestamp_writes: None });
+            pass.set_pipeline(simulate);
+            pass.set_bind_group(0, &group, &[]);
+            pass.dispatch_workgroups(sv.flakes.div_ceil(WORKGROUP), 1, 1);
+        }
+        span.end(ctx.command_encoder());
     }
     let layout = cache.get_bind_group_layout(&pipelines.layouts[1][ms]);
     let group = ctx.render_device().create_bind_group("snow_draw", &layout, &BindGroupEntries::sequential((uniform.as_entire_binding(), flakes.as_entire_binding(), depth_view)));
@@ -537,12 +545,14 @@ fn draw(
         occlusion_query_set: None,
         multiview_mask: None,
     });
+    let span = diagnostics.pass_span(&mut pass, "snow_draw");
     pass.set_render_pipeline(draw);
     pass.set_bind_group(0, &group, &[]);
     if let Some(viewport) = camera.viewport.as_ref() {
         pass.set_camera_viewport(viewport);
     }
     pass.draw(0..6, 0..sv.flakes);
+    span.end(&mut pass);
     stats.0.fetch_add(1, Ordering::Relaxed);
 }
 

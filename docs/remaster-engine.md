@@ -1327,6 +1327,15 @@ Debt / tuning items (guesses labelled in the code):
 | PR4 | The shrub patrols' voice sets alternate by load order (the original's test is not traced) | trace ShrubPatrol's setup flags |
 | PR5 | The red flag fx on the defence HUD's flag base (fx_red_flag on the UI object's ref_flag, 0x00465d50) is not drawn | trace how an fx on a UI object is placed |
 
+## GPU snowfall (2026-10-19, agent-gpusnow)
+
+graphics/snow.rs + snow.wesl: the old remaster's Vulkan snowfall, ported (docs/subsystems/weather.md, last section).
+A compute pass and an instanced draw as render-world systems in `Core3d` (EarlyPostProcess, after TAA), a template for
+other custom GPU passes in Bevy 0.20: pipelines queued once per variant in a resource, a per-view component made in
+`Render`'s Prepare set, the pass skipped until `PipelineCache` has both pipelines. Tests gpu_snow, gpu_snow_original.
+Trap: a shader embedded with `embedded_asset!` is not always rebuilt by cargo when only the .wesl changes (several
+"fixes" were tested against the old shader): touch the .rs module before building, and grep the exe for a new line.
+
 ## Running tests without disturbing the desktop
 
 - `--background`: the window opens off-screen, unfocused, behind everything, not in the taskbar; screenshots still
