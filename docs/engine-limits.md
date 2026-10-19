@@ -25,7 +25,7 @@ Sources: two read-only code audits (2026-10-12) and the playground captures. Gue
 
 | # | Limit | Evidence | Original | Plan | Effort |
 |---|---|---|---|---|---|
-| S1 | Simulation tied to the frame rate | PhysicsManager_Step 0x00411d40 raises steps under 1/60 s to 1/60 s | measured x2.41 at 144 Hz | LIFTED for physics: `[limits] physics_fixed_step` (accumulator, 1/60 s steps); x1.00 at 30/60/144/240 Hz (playground physics_rate). Still to do: interpolation (objects move at 60 Hz above 60 fps) | done / L |
+| S1 | Simulation tied to the frame rate | PhysicsManager_Step 0x00411d40 raises steps under 1/60 s to 1/60 s | measured x2.41 at 144 Hz | LIFTED for physics: `[limits] physics_fixed_step` (accumulator, 1/60 s steps); x1.00 at 30/60/144/240 Hz (playground physics_rate). Interpolation: done in the remaster engine (`physics_interpolation`, physicsstep.rs; table below) | done / L |
 | S2 | Havok world settings | WorldCinfo_Init 0x00414370, overridden in 0x00411960 | Broadphase ±5000 x ±5000, -1100..2000; +0x30 = 512 and +0x3c = 4 (guess: capacity and solver iterations) | Raise them after confirming the field meanings, or let Jolt own them later | M |
 | S3 | Force-action pool | ForceActionPool_Init 0x00403ef0 | 512 | LIFTED: `[limits] force_pool` 8192 (not reached in the 4-barracks stress scene even at 512) | done |
 | S4 | AI pathfinding | AStar_Add 0x00470600, Grid_FindPath 0x0046fd20 | 2000 nodes | LIFTED: `[limits] path_nodes` 16000 (arrays enlarged in play, AI pathing scene ran clean) | done |
@@ -42,6 +42,26 @@ Sources: two read-only code audits (2026-10-12) and the playground captures. Gue
 - Maximum characters and objects: world lists are linked lists. Guess: no hard cap.
 - Havok internal pools (hkPoolMemory, islands, constraints).
 - Behaviour of AI, decal fade and particles at 144 fps and above (`[test] fixed_dt_ms`).
+
+### Remaster engine (Bevy / Jolt): the old remaster's limit options (2026-10-19, branch agent-port-limits)
+
+Typed settings in the graphics presets (options.json `graphics` by name; Original = the original's behaviour, every
+tool run's; Remaster = the old remaster's defaults); the Engine page (Options > Engine, engine/src/enginepage.rs)
+shows them, the Audio page the master volume. Size settings marked "next level" apply when a level's world is made.
+
+| Old option | New setting (module) | Original | Remaster | How it maps |
+|---|---|---|---|---|
+| `limits physics_fixed_step` | `physics_fixed_step` (physicsstep.rs) | off: one step per frame of at least 1/60 s (PhysicsManager_Step 0x00411d40; frames within 0.1 % of 1/60 s step it exactly) | on: whole 1/60 s steps (Bevy's fixed timestep) | S1 lifted in the engine |
+| `limits physics_interpolation` | `physics_interpolation` (physicsstep.rs) | off | on | the old DrawMatrix rule (blend the last two step poses by the frame's alpha, only above ~72 fps, not after an off-step move); also turns rotation-driven bodies; drawing only (true poses back in `First`) |
+| `limits physics_solver_iterations` | `physics_solver_iterations` (physicsstep.rs; next level) | 10 (Jolt's default, the engine's tuning) | 20 | Havok's 4 (+0x3c, the old remaster 8) do not transfer to Jolt's solver; the Remaster doubles as the old one did |
+| `limits force_pool` | `physics_body_capacity` (physicsstep.rs; next level) | 10240 (Jolt's default) | 32768 | no force pool in the engine (impulses go straight to Jolt bodies: lifted by design); the knob is the Jolt world's one fixed table, its bodies (pair buffer and step scratch memory grow with it) |
+| `limits particle_pool_scale` | `particle_pool_scale` (pools.rs, fxvm/particles.rs) | x1 (2000 / 4000 / 2000) | x16 | as the old one; a full pool refuses without drawing random numbers |
+| `limits path_nodes` | `path_nodes` (pools.rs, nav.rs) | 150000 | 150000 | the engine's search is its own 6-unit grid, not the original's (AStar_Add 0x00470600, 2000 nodes of its grid); 2000 here would cut routes the original found, so both presets keep the engine's budget, the knob offered 2000..300000 |
+| `persistence decal_pool_choice` | `decal_pool` (pools.rs, decals.rs) | 160 | 1024 | the old list 160 / 512 / 1024 / 2048 (cap 4096); resized live |
+| `persistence debris_keep` | `debris_keep`, `debris_max`, `debris_time` (debris.rs) | off | on, 1000, 0 (whole level) | KeepDebris's rule (fxo_debri*, gravity >= 0.99, ground test); `debris_time` > 0 is a remaster addition (stays that long, then a 1.5 s fade) |
+| `input hardware_cursor` | `hardware_cursor` (cursor.rs) | off: the game's ui_mouse_cursor sprite | on: the Windows pointer | |
+| `input clip_cursor` | `clip_cursor` (cursor.rs) | off (no clip; play still re-centres the pointer) | on: confined while focused, in play and menus | an absolute pointer (Moonlight) held at the edges is read by mouselook.rs as movement into the edge |
+| `audio master` | GameOptions `master_volume` (audio.rs Mixer) | 1.0 | 1.0 | a linear factor on every voice and the movies' sound (2000 log10(v) hundredths of a dB in the old one) |
 
 ## Rendering
 
