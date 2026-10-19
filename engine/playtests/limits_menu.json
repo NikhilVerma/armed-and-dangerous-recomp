@@ -4,7 +4,7 @@
  {"tap": "ArrowUp"}, {"wait": 0.4}, {"tap": "ArrowUp"}, {"wait": 0.4}, {"tap": "ArrowUp"}, {"wait": 0.4},
  {"expect": {"menu.selected": "ui_mainmenu_options"}},
  {"tap": "Enter"}, {"wait": 1.2},
- {"tap": "ArrowUp"}, {"wait": 0.4},
+ {"tap": "ArrowUp"}, {"wait": 0.4}, {"tap": "ArrowUp"}, {"wait": 0.4},
  {"expect": {"menu.page": "Options", "menu.selected": "Engine"}},
  {"tap": "Enter"}, {"wait": 1.2},
  {"expect": {"menu.page": "Engine", "menu.selected": "Windows Pointer"}},
