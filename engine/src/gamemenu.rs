@@ -33,6 +33,9 @@ pub enum Page {
     Options,
     Extras,
     Gfx,
+    /// remaster: the Graphics page's "Detail and Shadows" (graphics/geometry: tessellation, terrain detail, LOD,
+    /// foliage coverage, texture sharpness, shadow darkness), edited on the Graphics page's copy
+    GfxDetail,
     Sfx,
     Controls,
     YesNo,
@@ -74,7 +77,7 @@ impl Page {
         match self {
             Page::Main | Page::Options | Page::Extras | Page::Exit => Back::Title,
             // the save page draws ui_background (layout.json pui_savegame: model ui_background_01)
-            Page::Gfx | Page::Sfx | Page::Controls | Page::Cheats | Page::Credits | Page::SaveSlots | Page::LoadSlots | Page::Replay | Page::Movies => Back::Shell,
+            Page::Gfx | Page::GfxDetail | Page::Sfx | Page::Controls | Page::Cheats | Page::Credits | Page::SaveSlots | Page::LoadSlots | Page::Replay | Page::Movies => Back::Shell,
             Page::YesNo | Page::Pause | Page::Failed | Page::Pub | Page::Stats => Back::Game,
         }
     }
@@ -116,6 +119,8 @@ pub enum Opt {
     /// remaster: the presentation preset (graphics.rs) and the anti-aliasing, steppers over named values
     Preset,
     AntiAliasing,
+    /// remaster: a numeric presentation setting by its name in graphics (graphics::menu::stepper gives its range)
+    Number(&'static str),
     Effects,
     Music,
     Voice,
@@ -139,7 +144,7 @@ pub enum Flag {
 
 /// The options the graphics page edits on its copy (Apply keeps them, Cancel drops them).
 fn on_gfx_copy(o: Opt) -> bool {
-    matches!(o, Opt::Brightness | Opt::Resolution | Opt::DrawDistance | Opt::Preset | Opt::AntiAliasing)
+    matches!(o, Opt::Brightness | Opt::Resolution | Opt::DrawDistance | Opt::Preset | Opt::AntiAliasing | Opt::Number(_))
 }
 
 fn flag_on_gfx_copy(f: Flag) -> bool {
@@ -777,6 +782,19 @@ pub fn spawn(commands: &mut Commands, assets: &AssetServer, meshes: &mut Assets<
         s.check(Page::Gfx, "Ambient Occlusion", 346.0, 465.773, 100.0, Some(Flag::Graphics("ambient_occlusion")), false);
         s.check(Page::Gfx, "Soft Particles", 51.0, 171.215, 80.691, Some(Flag::Graphics("soft_particles")), false);
         s.check(Page::Gfx, "Soft Shadows", 346.0, 465.773, 80.0, Some(Flag::Graphics("soft_shadows")), false);
+        s.row(Page::Gfx, "Detail and Shadows", Vec2::new(320.0, 198.0), 1.0, GREEN, Act::Go(Page::GfxDetail), 0.0);
+
+        // remaster: Detail and Shadows (graphics/geometry), on the Graphics page's copy (Apply / Cancel there)
+        s.row(Page::GfxDetail, "Detail and Shadows", Vec2::new(320.0, 420.996), 1.4, GREEN, Act::None, 0.0);
+        s.check(Page::GfxDetail, "Tessellated Characters", 51.0, 171.215, 366.691, Some(Flag::Graphics("tessellation")), false);
+        s.check(Page::GfxDetail, "Always Highest Detail", 346.0, 465.773, 366.691, Some(Flag::Graphics("lod_max")), false);
+        s.check(Page::GfxDetail, "Smooth Foliage Edges", 51.0, 171.215, 342.691, Some(Flag::Graphics("alpha_coverage")), false);
+        s.slider(Page::GfxDetail, "Tessellation Detail", it(318.691), 1.0, Opt::Number("tessellation_level"), true);
+        s.slider(Page::GfxDetail, "Terrain Detail", it(294.691), 1.0, Opt::Number("terrain_detail"), true);
+        s.slider(Page::GfxDetail, "Detail Distance", it(270.691), 1.0, Opt::Number("lod_scale"), true);
+        s.slider(Page::GfxDetail, "Texture Sharpness", it(246.691), 1.0, Opt::Number("aa_mip_bias"), true);
+        s.slider(Page::GfxDetail, "Shadow Darkness", it(222.691), 1.0, Opt::Number("shadow_strength"), true);
+        s.row(Page::GfxDetail, "ui_shellmenu_back", Vec2::new(320.0, 60.44), 1.4, YELLOW, Act::Back, 0.0);
         s.row(Page::Gfx, "ui_gfxmenu_apply", Vec2::new(320.0, 60.44), 1.2, GREEN, Act::Apply, 0.0);
         s.row(Page::Gfx, "ui_shellmenu_cancel", Vec2::new(320.0, 36.44), 1.1, GREEN, Act::Cancel, 0.0);
 
@@ -1363,6 +1381,7 @@ fn range(opt: Opt) -> (f32, f32, usize) {
         Opt::Resolution => (0.0, 1.0, SIZES.len()),
         Opt::Preset => (0.0, 1.0, crate::graphics::menu::PRESETS.len()),
         Opt::AntiAliasing => (0.0, 1.0, crate::graphics::AntiAliasing::ALL.len()),
+        Opt::Number(key) => crate::graphics::menu::stepper(key).unwrap_or((0.0, 1.0, 2)),
     }
 }
 
@@ -1395,6 +1414,7 @@ fn slide(o: &mut GameOptions, opt: Opt, step: f32, win: (u32, u32)) {
         Opt::Music => o.music_volume = bump(o.music_volume),
         Opt::Voice => o.voice_volume = bump(o.voice_volume),
         Opt::MouseSens => o.mouse_sensitivity = bump(o.mouse_sensitivity),
+        Opt::Number(key) => crate::graphics::menu::set_number(o, key, bump(crate::graphics::menu::number(o, key))),
         Opt::Preset => {
             let i = crate::graphics::menu::preset_index(o) as i32 + step as i32;
             crate::graphics::menu::set_preset(o, i.clamp(0, positions(opt) as i32 - 1) as usize);
@@ -1430,6 +1450,7 @@ fn set_position(o: &mut GameOptions, opt: Opt, frac: f32, win: (u32, u32)) {
         Opt::Music => o.music_volume = v,
         Opt::Voice => o.voice_volume = v,
         Opt::MouseSens => o.mouse_sensitivity = v,
+        Opt::Number(key) => crate::graphics::menu::set_number(o, key, v),
         Opt::Preset => crate::graphics::menu::set_preset(o, i),
         Opt::AntiAliasing => crate::graphics::menu::set_aa(o, i),
         Opt::Resolution => {
@@ -1451,6 +1472,12 @@ fn value(o: &GameOptions, opt: Opt, win: (u32, u32)) -> (f32, String) {
         Opt::Music => (frac(o.music_volume), format!("{:.0}", o.music_volume * 100.0)),
         Opt::Voice => (frac(o.voice_volume), format!("{:.0}", o.voice_volume * 100.0)),
         Opt::MouseSens => (frac(o.mouse_sensitivity), format!("{:.0}", o.mouse_sensitivity * 100.0)),
+        Opt::Number(key) => {
+            let v = crate::graphics::menu::number(o, key);
+            // 0 is "off" for the settings whose 0 means the original's
+            let text = if v == 0.0 && !matches!(key, "aa_mip_bias") { "Off".to_owned() } else { format!("{}", (v * 100.0).round() / 100.0) };
+            (frac(v), text)
+        }
         Opt::Preset => (crate::graphics::menu::preset_index(o) as f32 / (positions(opt) - 1) as f32, crate::graphics::menu::preset_text(o)),
         Opt::AntiAliasing => (crate::graphics::menu::aa_index(o) as f32 / (positions(opt) - 1) as f32, crate::graphics::menu::aa_text(o)),
         Opt::Resolution => {

@@ -254,6 +254,18 @@
   {
    "expect": {
     "menu.page": "Gfx",
+    "menu.selected": "Detail and Shadows"
+   }
+  },
+  {
+   "tap": "ArrowDown"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "expect": {
+    "menu.page": "Gfx",
     "menu.selected": "ui_gfxmenu_apply"
    }
   },

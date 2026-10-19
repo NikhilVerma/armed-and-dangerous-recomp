@@ -1,0 +1,314 @@
+{
+ "title": true,
+ "preset": "remaster",
+ "steps": [
+  {
+   "wait": 3.0
+  },
+  {
+   "expect": {
+    "menu.page": "Main"
+   }
+  },
+  {
+   "tap": "ArrowUp"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "tap": "ArrowUp"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "tap": "ArrowUp"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "expect": {
+    "menu.page": "Main",
+    "menu.selected": "ui_mainmenu_options"
+   }
+  },
+  {
+   "tap": "Enter"
+  },
+  {
+   "wait": 1.0
+  },
+  {
+   "tap": "ArrowDown"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "expect": {
+    "menu.page": "Options",
+    "menu.selected": "ui_optionsmenu_gfx"
+   }
+  },
+  {
+   "tap": "Enter"
+  },
+  {
+   "wait": 1.0
+  },
+  {
+   "expect": {
+    "menu.page": "Gfx",
+    "menu.selected": "ui_gfxmenu_brightness"
+   }
+  },
+  {
+   "tap": "ArrowDown"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "tap": "ArrowDown"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "tap": "ArrowDown"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "tap": "ArrowDown"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "tap": "ArrowDown"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "tap": "ArrowDown"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "tap": "ArrowDown"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "tap": "ArrowDown"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "tap": "ArrowDown"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "tap": "ArrowDown"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "tap": "ArrowDown"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "expect": {
+    "menu.page": "Gfx",
+    "menu.selected": "Detail and Shadows"
+   }
+  },
+  {
+   "tap": "Enter"
+  },
+  {
+   "wait": 1.0
+  },
+  {
+   "expect": {
+    "menu.page": "GfxDetail",
+    "menu.selected": "Tessellated Characters"
+   }
+  },
+  {
+   "shot": "detail_page"
+  },
+  {
+   "tap": "Enter"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "tap": "ArrowDown"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "tap": "ArrowDown"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "tap": "ArrowDown"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "expect": {
+    "menu.page": "GfxDetail",
+    "menu.selected": "Tessellation Detail"
+   }
+  },
+  {
+   "tap": "ArrowRight"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "expect": {
+    "menu.value": "4"
+   }
+  },
+  {
+   "tap": "ArrowDown"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "expect": {
+    "menu.page": "GfxDetail",
+    "menu.selected": "Terrain Detail"
+   }
+  },
+  {
+   "tap": "ArrowLeft"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "expect": {
+    "menu.value": "6"
+   }
+  },
+  {
+   "tap": "ArrowDown"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "tap": "ArrowDown"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "tap": "ArrowDown"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "expect": {
+    "menu.page": "GfxDetail",
+    "menu.selected": "Shadow Darkness"
+   }
+  },
+  {
+   "tap": "ArrowLeft"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "expect": {
+    "menu.value": "0.5"
+   }
+  },
+  {
+   "tap": "ArrowDown"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "expect": {
+    "menu.page": "GfxDetail",
+    "menu.selected": "ui_shellmenu_back"
+   }
+  },
+  {
+   "tap": "Enter"
+  },
+  {
+   "wait": 1.0
+  },
+  {
+   "expect": {
+    "menu.page": "Gfx",
+    "menu.selected": "Detail and Shadows"
+   }
+  },
+  {
+   "tap": "ArrowDown"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "expect": {
+    "menu.page": "Gfx",
+    "menu.selected": "ui_gfxmenu_apply"
+   }
+  },
+  {
+   "tap": "Enter"
+  },
+  {
+   "wait": 1.0
+  },
+  {
+   "expect": {
+    "window.graphics_preset": "remaster",
+    "window.graphics.tessellation": false,
+    "window.graphics.tessellation_level": 4,
+    "window.graphics.terrain_detail": [
+     5.99,
+     6.01
+    ],
+    "window.graphics.shadow_strength": [
+     0.49,
+     0.51
+    ]
+   }
+  },
+  {
+   "quit": true
+  }
+ ]
+}
