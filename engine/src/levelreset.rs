@@ -327,7 +327,9 @@ fn restart(world: &mut World) {
     for r in resets {
         r(world);
     }
-    world.insert_non_send(crate::physics::Physics::new(crate::level::METERS_PER_UNIT));
+    // the solver iterations and body capacity in effect now (physicsstep.rs: they apply from the next level)
+    let config = world.get_resource::<crate::graphics::GraphicsSettings>().map_or_else(|| crate::physicsstep::PhysicsStepSettings::original().world(), |s| s.physics.world());
+    world.insert_non_send(crate::physics::Physics::new(crate::level::METERS_PER_UNIT, config));
     world.remove_resource::<crate::savegame::PendingLoad>();
     // 3. the systems' per-level locals
     world.resource_mut::<LevelGeneration>().0 += 1;

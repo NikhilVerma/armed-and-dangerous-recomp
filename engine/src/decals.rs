@@ -4,8 +4,8 @@
 //! normal test) and drawn with the texture: uv from the two box coordinates with the largest range over the clipped
 //! vertices, u_k = a_k . (x - p) / (2 size) + 0.5 (the stretch by the third coordinate, 0x004175c0, taken on the
 //! normalised coordinate: guess). Texture x (1, 1, 1, fade), alpha-blended, no depth write, clamped, fogged; the
-//! texture sampled as stored (premultiplied textures blended straight, as the original). 160 decals, the oldest
-//! recycled at once; no expiry.
+//! texture sampled as stored (premultiplied textures blended straight, as the original). 160 decals (the remaster's
+//! `decal_pool` setting, pools.rs), the oldest recycled at once; no expiry.
 //!
 //! Placed objects receive them too (Decals_ProjectOnEntity 0x00416f50, the object callback of the world walk
 //! 0x0048eb60 that Decal_Build passes unless `single`; the fx op passes 0): objects with decal_receive (default 1,
@@ -31,6 +31,7 @@ use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 
 const CELL: f32 = 32.0;
+/// The original's pool (0x00416150 `mov ebx,0xa0`), until pools.rs sets the setting's.
 const POOL: usize = 160;
 
 fn bucket(cells: &mut HashMap<(i32, i32), Vec<u32>>, lo: Vec3, hi: Vec3, i: u32) {
@@ -131,14 +132,22 @@ pub struct SpawnDecal {
     pub texture: String,
 }
 
-#[derive(Resource, Default)]
-struct Decals {
+#[derive(Resource)]
+pub struct Decals {
     live: std::collections::VecDeque<Entity>,
+    /// decals at once: one more recycles the oldest (the original's 160; pools.rs sets it from `decal_pool`)
+    pub capacity: usize,
     /// made so far, and how many of them lie on placed objects (playtest state "decals")
     made: u32,
     on_objects: u32,
     /// faded out after their receiver died
     faded: u32,
+}
+
+impl Default for Decals {
+    fn default() -> Self {
+        Decals { live: Default::default(), capacity: POOL, made: 0, on_objects: 0, faded: 0 }
+    }
 }
 
 /// A live decal: the objects it lies on (up to 4), and its fade (left, total) once one of them died.
@@ -329,17 +338,18 @@ fn spawn(
             .id();
         decals.made += 1;
         decals.on_objects += u32::from(!receivers_copy.is_empty());
-        if let Some(st) = state.as_mut() {
-            st.0.insert(
-                "decals".into(),
-                serde_json::json!({ "made": decals.made, "on_objects": decals.on_objects, "last_receivers": receivers_copy.len(), "last_vertices": nverts, "faded": decals.faded }),
-            );
-        }
         decals.live.push_back(e);
-        if decals.live.len() > POOL {
+        // the pool recycles its oldest (Decal_Recycle 0x00417110); a pool made smaller drops the oldest down to it
+        while decals.live.len() > decals.capacity.max(1) {
             if let Some(old) = decals.live.pop_front() {
                 commands.entity(old).despawn();
             }
+        }
+        if let Some(st) = state.as_mut() {
+            st.0.insert(
+                "decals".into(),
+                serde_json::json!({ "made": decals.made, "on_objects": decals.on_objects, "last_receivers": receivers_copy.len(), "last_vertices": nverts, "faded": decals.faded, "live": decals.live.len(), "pool": decals.capacity }),
+            );
         }
     }
 }

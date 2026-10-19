@@ -298,6 +298,10 @@ pub struct FxObject {
     pub screen: bool,
     /// made by a restored fx (crate::fx::RestoreFx): ended on its first update if it has a lifespan under an hour
     pub restored: bool,
+    /// the gravity scale opcode 0x11 gave it (Fx_SetGravity 0x0041de10, +0x48c; 0 = weightless, the default)
+    pub gravity: f32,
+    /// explosion debris kept past its lifespan (debris.rs)
+    pub kept: bool,
 }
 
 impl FxObject {
@@ -336,6 +340,8 @@ impl FxObject {
             light: None,
             screen: false,
             restored: false,
+            gravity: 0.0,
+            kept: false,
         }
     }
 
@@ -435,6 +441,7 @@ pub fn objects(
     mut physics: NonSendMut<Physics>,
     cam: Query<&GlobalTransform, With<Camera3d>>,
     mut q: Query<&mut Transform, With<FxEntity>>,
+    (settings, mut debris): (Option<Res<crate::graphics::GraphicsSettings>>, ResMut<crate::debris::DebrisKeeper>),
 ) {
     let dt = time.delta_secs();
     let cam_t = cam.single().ok().map(|c| c.compute_transform());
@@ -511,6 +518,11 @@ pub fn objects(
         // under a frame (Roman's snow footsteps: 0.01) end before their emitters run, as there (render_r1.cpp:1071)
         let step = if o.age == 0.0 { dt.max(1.0 / 60.0) } else { dt };
         o.age += step;
+        // the remaster's kept debris loses its end here, before the life check (render_r1.cpp:1065, debris.rs); a
+        // restored object goes by its saved state
+        if let Some(s) = settings.as_ref().filter(|_| !o.restored) {
+            debris.consider(&s.debris, o);
+        }
         if let Some(life) = o.lifespan {
             // a saved game holds only what was still alive: an object with an end is long over (no on-death fx)
             if o.restored && life < RESTORED_KEPT {
