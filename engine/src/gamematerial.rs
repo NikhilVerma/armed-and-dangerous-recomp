@@ -30,10 +30,15 @@ pub struct GameMaterialParams {
     pub ambient_light: Vec4,
     pub fog_col: Vec4,
     pub fog_range: Vec4,
-    /// presentation settings (graphics.rs; zero in the Original): x the ambient occlusion's weight (0: exempt, as
-    /// snow), y 1 = dissolve at the far clip instead of a hard cut, z the alpha below which an alpha-tested surface
-    /// casts no shadow (0: the whole card casts, as the original's silhouettes)
+    /// presentation settings (graphics.rs; zero in the Original): x the ambient occlusion's strength (0 on blended
+    /// surfaces), y 1 = dissolve at the far clip instead of a hard cut, z the alpha below which an alpha-tested
+    /// surface casts no shadow (0: the whole card casts, as the original's silhouettes)
     pub remaster: Vec4,
+    /// the old remaster's height fog (graphics/height_fog.rs `HeightFogSettings::material_params`; x 0 = the level's
+    /// linear fog)
+    pub height_fog: Vec4,
+    /// the old remaster's AO shaping (graphics/ao_extras.rs `AoExtras::material_params`)
+    pub ao_extras: Vec4,
     /// the old remaster's ported settings (graphics/geometry/mod.rs `material_values`; zero in the Original but
     /// y): x terrain detail scale, y its strength, z the alpha cover (0 blend, 1 MSAA alpha-to-coverage), w shadow strength (0: the level's shadow colour)
     pub geometry: Vec4,
@@ -86,8 +91,8 @@ pub struct GameMaterial<C: Coverage = Solid> {
     #[uniform(8)]
     pub params: GameMaterialParams,
     pub alpha: bool,
-    /// no ambient occlusion on this surface (graphics.rs `ao_exempt`: snow; blended surfaces)
-    pub ao_exempt: bool,
+    /// a snow surface by name (graphics.rs `ao_exempt`): keeps only `ao_snow` of the ambient occlusion
+    pub ao_snow_surface: bool,
     pub coverage: std::marker::PhantomData<C>,
 }
 
@@ -233,6 +238,9 @@ pub struct GameLights {
     pub fog: Option<(f32, f32, Vec3)>,
     /// the environment cube's colour (approximation: the fog colour, the sky at the horizon)
     pub env: Vec3,
+    /// the height the old remaster's height fog is calibrated at: the camera's when the level started
+    /// (graphics/height_fog.rs; None until the level's first frame)
+    pub fog_reference: Option<f32>,
     /// a white texture for the unused maps
     pub white: Handle<Image>,
 }
@@ -300,8 +308,7 @@ pub fn make<C: Coverage>(def: &MaterialDef, texture: Option<&str>, alpha: bool, 
     let (fog_col, fog_range) = if std::env::var("AND_DEBUG_NOFOG").is_ok() { (Vec4::ZERO, Vec4::ZERO) } else { (fog_col, fog_range) };
     // a translucent record blends as an alpha texture does (fn_004897d0: kind bit 0x10, blend mode 2)
     let alpha = alpha || def.alpha() < 1.0;
-    // blended surfaces are not in the depth prepass: the occlusion there would be the surface's behind them
-    let ao_exempt = alpha || crate::graphics::ao_exempt(&[texture, def.texture2.as_deref(), def.normal_map.as_deref()]);
+    let ao_snow_surface = crate::graphics::ao_exempt(&[texture, def.texture2.as_deref(), def.normal_map.as_deref()]);
     let g = crate::graphics::current();
     GameMaterial {
         base: tex(texture, true),
@@ -327,11 +334,13 @@ pub fn make<C: Coverage>(def: &MaterialDef, texture: Option<&str>, alpha: bool, 
             ambient_light: l3(lights.ambient, 0.0),
             fog_col,
             fog_range,
-            remaster: Vec4::new(if ao_exempt { 0.0 } else { g.ao_strength }, if g.far_fade { 1.0 } else { 0.0 }, g.shadow_alpha_cutoff, 0.0),
+            remaster: Vec4::new(crate::graphics::ao_weight(&g, alpha), if g.far_fade { 1.0 } else { 0.0 }, g.shadow_alpha_cutoff, 0.0),
+            height_fog: g.height_fog.material_params(lights.fog_reference),
+            ao_extras: g.ao_extras.material_params(ao_snow_surface),
             geometry: crate::graphics::geometry::for_material(crate::graphics::geometry::material_values(&g), alpha, def.alpha()),
         },
         alpha,
-        ao_exempt,
+        ao_snow_surface,
         coverage: std::marker::PhantomData,
     }
 }

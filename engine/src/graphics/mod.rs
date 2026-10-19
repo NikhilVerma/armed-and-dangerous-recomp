@@ -26,6 +26,12 @@
 mod farclip;
 pub mod geometry;
 mod textures;
+// the old remaster's atmosphere, AO shaping and output passes (agent-port-atmos, 2026-10-19)
+pub mod ao_extras;
+mod effects_log;
+pub mod height_fog;
+pub mod motion_blur;
+pub mod present;
 
 pub use textures::{set_level as set_level_textures, texture_path, world_sampler};
 
@@ -99,14 +105,16 @@ pub struct GraphicsSettings {
     pub remaster_textures_exclude: Vec<String>,
     /// screen-space ambient occlusion on the ambient and fill light (not the sun, not emissive)
     pub ambient_occlusion: bool,
-    /// 0 low .. 3 ultra (Bevy's quality levels)
+    /// 0 low .. 3 ultra (Bevy's quality levels: XeGTAO's slices x steps, High = 3 x 3 as the old remaster)
     pub ao_quality: u8,
-    /// sample radius in game units (1 unit = 0.2 m)
+    /// XeGTAO's radius in game units (1 unit = 0.2 m; the effect reaches 1.457 times it): the old remaster's 24
+    /// ("below ~20 the term is nearly white at the game's scale", hook/enhance/shadows.cpp)
     pub ao_radius: f32,
     /// 0..1: how much of the occlusion applies
     pub ao_strength: f32,
-    /// texture name parts whose surfaces get no occlusion: snow has its own illumination (the hook's XeGTAO
-    /// darkened the snow; docs/player-feedback.md). Matched against a material's base, second and normal maps.
+    /// texture name parts of the snow surfaces, which keep only `ao_snow` of the occlusion (0: none): snow has its
+    /// own illumination (the hook's XeGTAO darkened the snow; docs/player-feedback.md). Matched against a material's
+    /// base, second and normal maps.
     pub ao_exempt: Vec<String>,
     pub anti_aliasing: AntiAliasing,
     /// contrast-adaptive sharpening after TAA / SMAA (0 = off)
@@ -167,6 +175,16 @@ pub struct GraphicsSettings {
     /// ...), flattened: one key each in the options' `graphics` changes
     #[serde(flatten)]
     pub display: crate::display::DisplaySettings,
+    // ---- the old remaster's atmosphere, AO shaping and output passes (agent-port-atmos; each module's doc says
+    // where it came from). Flattened: the options keep the old and.ini names (fog_modern, shutter_speed, ...).
+    #[serde(flatten)]
+    pub height_fog: height_fog::HeightFogSettings,
+    #[serde(flatten)]
+    pub ao_extras: ao_extras::AoExtras,
+    #[serde(flatten)]
+    pub motion_blur: motion_blur::MotionBlurSettings,
+    #[serde(flatten)]
+    pub present: present::PresentSettings,
 }
 
 impl GraphicsSettings {
@@ -179,7 +197,7 @@ impl GraphicsSettings {
             remaster_textures_exclude: Vec::new(),
             ambient_occlusion: false,
             ao_quality: 2,
-            ao_radius: 4.0,
+            ao_radius: 24.0,
             ao_strength: 1.0,
             ao_exempt: vec!["ground".into(), "snow".into()],
             anti_aliasing: AntiAliasing::Msaa,
@@ -205,6 +223,10 @@ impl GraphicsSettings {
             debris: crate::debris::DebrisSettings::original(),
             cursor: crate::cursor::CursorSettings::original(),
             display: crate::display::DisplaySettings::original(),
+            height_fog: height_fog::HeightFogSettings::original(),
+            ao_extras: ao_extras::AoExtras::original(),
+            motion_blur: motion_blur::MotionBlurSettings::original(),
+            present: present::PresentSettings::original(),
         }
     }
 
@@ -233,6 +255,10 @@ impl GraphicsSettings {
             debris: crate::debris::DebrisSettings::remaster(),
             cursor: crate::cursor::CursorSettings::remaster(),
             display: crate::display::DisplaySettings::remaster(),
+            height_fog: height_fog::HeightFogSettings::remaster(),
+            ao_extras: ao_extras::AoExtras::remaster(),
+            motion_blur: motion_blur::MotionBlurSettings::remaster(),
+            present: present::PresentSettings::remaster(),
             ..Self::original()
         }
     }
@@ -408,7 +434,13 @@ fn publish(s: &GraphicsSettings) {
     }
 }
 
-/// Whether a material with these textures is exempt from ambient occlusion (`ao_exempt`).
+/// The ambient occlusion's strength on a game material: none on blended surfaces (not in the depth prepass: the
+/// occlusion there would be the surface's behind them).
+pub fn ao_weight(s: &GraphicsSettings, blended: bool) -> f32 {
+    if blended { 0.0 } else { s.ao_strength }
+}
+
+/// Whether a material with these textures is a snow surface for the ambient occlusion (`ao_exempt`).
 pub fn ao_exempt(textures: &[Option<&str>]) -> bool {
     let s = current();
     textures.iter().flatten().any(|t| {
@@ -453,6 +485,7 @@ impl Plugin for GraphicsPlugin {
             .insert_resource(self.initial.clone())
             .insert_resource(DirectionalLightShadowMap { size: self.initial.shadow_map_size as usize })
             .add_plugins((farclip::FarClipPlugin, geometry::GeometryPlugin))
+            .add_plugins((height_fog::HeightFogPlugin, ao_extras::AoExtrasPlugin, motion_blur::MotionBlurPlugin, present::PresentPlugin, effects_log::EffectsLogPlugin))
             .add_systems(
                 PostUpdate,
                 (
@@ -500,7 +533,8 @@ pub(crate) fn apply_cameras(
     if s.ambient_occlusion && !ao {
         warn!("graphics: ambient occlusion needs an anti-aliasing other than MSAA (Bevy's SSAO); off");
     }
-    let hdr = s.bloom > 0.0;
+    // the old remaster's output pass needs the scene in floating point (present.rs: dithering before the 8-bit store)
+    let hdr = s.bloom > 0.0 || s.present.needs_hdr();
     let msaa = match s.anti_aliasing {
         AntiAliasing::Msaa => Msaa::Sample4,
         _ => Msaa::Off,
@@ -530,11 +564,15 @@ pub(crate) fn apply_cameras(
                 2 => ScreenSpaceAmbientOcclusionQualityLevel::High,
                 _ => ScreenSpaceAmbientOcclusionQualityLevel::Ultra,
             };
-            c.insert(ScreenSpaceAmbientOcclusion { quality_level, radius: s.ao_radius.max(0.01), constant_object_thickness: s.ao_radius * 0.3 });
+            c.insert(ScreenSpaceAmbientOcclusion { quality_level, radius: s.ao_radius.max(0.01), constant_object_thickness: s.ao_extras.ao_thickness.max(0.0) });
         }
         // soft particles read the depth prepass
         if s.soft_particles > 0.0 {
             c.insert(DepthPrepass);
+        }
+        // the motion blur reads the depth and motion vectors (motion_blur.rs; not under MSAA)
+        if s.motion_blur.enabled() && msaa == Msaa::Off {
+            c.insert((DepthPrepass, MotionVectorPrepass));
         }
         if hdr {
             // only what is brighter than white blooms (the game's surfaces are clamped to white: gamematerial.wesl),
@@ -619,6 +657,30 @@ fn ids_to_apply<A: Asset>(changed: bool, assets: &Assets<A>, events: &mut Messag
     if changed { assets.ids().collect() } else { added }
 }
 
+/// Sets one parameter of the game materials (either coverage) to what `want` gives for each: all of them when
+/// `changed`, else the ones added since the last frame. A material whose value is already right is not touched (a
+/// mutable access marks it changed and Bevy re-prepares it).
+pub(crate) fn set_game_material_param<C: crate::gamematerial::Coverage, T: PartialEq>(
+    changed: bool,
+    game: &mut Assets<crate::gamematerial::GameMaterial<C>>,
+    events: &mut MessageReader<AssetEvent<crate::gamematerial::GameMaterial<C>>>,
+    param: fn(&mut crate::gamematerial::GameMaterialParams) -> &mut T,
+    want: impl Fn(&crate::gamematerial::GameMaterial<C>) -> T,
+) {
+    for id in ids_to_apply(changed, game, events) {
+        let differs = game.get(id).is_some_and(|m| {
+            let mut params = m.params.clone();
+            *param(&mut params) != want(m)
+        });
+        if differs {
+            if let Some(mut m) = game.get_mut(id) {
+                let w = want(&m);
+                *param(&mut m.params) = w;
+            }
+        }
+    }
+}
+
 /// Per-material remaster values of the game materials (either coverage): the occlusion weight, the far dissolve
 /// and the shadow's alpha cutoff (remaster.xyz), and the geometry settings' values (geometry/mod.rs `material_values`).
 fn apply_game_materials<C: crate::gamematerial::Coverage>(
@@ -628,7 +690,7 @@ fn apply_game_materials<C: crate::gamematerial::Coverage>(
 ) {
     let far = if s.far_fade { 1.0 } else { 0.0 };
     let cutoff = s.shadow_alpha_cutoff.clamp(0.0, 1.0);
-    let want = |m: &crate::gamematerial::GameMaterial<C>| Vec3::new(if m.ao_exempt { 0.0 } else { s.ao_strength }, far, cutoff);
+    let want = |m: &crate::gamematerial::GameMaterial<C>| Vec3::new(ao_weight(&s, m.alpha), far, cutoff);
     let geometry = geometry::material_values(&s);
     for id in ids_to_apply(s.is_changed(), &game, &mut events) {
         // read first: a mutable access marks the material changed (re-prepared) even when nothing differs

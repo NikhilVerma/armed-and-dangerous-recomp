@@ -131,6 +131,12 @@
    "wait": 0.4
   },
   {
+   "tap": "ArrowDown"
+  },
+  {
+   "wait": 0.4
+  },
+  {
    "expect": {
     "menu.page": "Gfx",
     "menu.selected": "Detail and Shadows"

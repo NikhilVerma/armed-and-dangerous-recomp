@@ -59,6 +59,9 @@ pub enum Page {
     Movies,
     /// the exit screen ("ExitMenu", 0x00493770): the game quits once the menu has faded to it (splash.rs)
     Exit,
+    /// remaster: the Graphics page's effects (the old remaster's fog, motion blur, AO shaping, output pass), edited
+    /// on the Graphics page's copy (Apply / Cancel there)
+    GfxEffects,
     /// remaster: Options > Engine, the engine-limit and input settings (enginepage.rs)
     Engine,
     /// remaster: the display, view and UI-layout settings (display/: the old remaster's [camera] / [display] / [ui]
@@ -78,11 +81,17 @@ enum Back {
 }
 
 impl Page {
+    /// The Graphics page and its sub-pages edit the Graphics page's copy of the options (Apply / Cancel there); a
+    /// change made on a sub-page straight into the options would be undone by the copy on Apply.
+    fn edits_gfx_copy(self) -> bool {
+        matches!(self, Page::Gfx | Page::GfxDetail | Page::GfxEffects)
+    }
+
     fn back(self) -> Back {
         match self {
             Page::Main | Page::Options | Page::Extras | Page::Exit => Back::Title,
             // the save page draws ui_background (layout.json pui_savegame: model ui_background_01)
-            Page::Gfx | Page::GfxDetail | Page::Sfx | Page::Controls | Page::Cheats | Page::Credits | Page::SaveSlots | Page::LoadSlots | Page::Replay | Page::Movies | Page::Engine | Page::Display => Back::Shell,
+            Page::Gfx | Page::GfxDetail | Page::GfxEffects | Page::Sfx | Page::Controls | Page::Cheats | Page::Credits | Page::SaveSlots | Page::LoadSlots | Page::Replay | Page::Movies | Page::Engine | Page::Display => Back::Shell,
             Page::YesNo | Page::Pause | Page::Failed | Page::Pub | Page::Stats => Back::Game,
         }
     }
@@ -162,12 +171,6 @@ fn on_gfx_copy(o: Opt) -> bool {
 
 fn flag_on_gfx_copy(f: Flag) -> bool {
     matches!(f, Flag::Shadows | Flag::Fullscreen | Flag::Graphics(_))
-}
-
-/// The pages whose checkboxes edit the Graphics page's copy: the Graphics page and its Detail and Shadows sub-page
-/// (Apply / Cancel on the Graphics page); elsewhere (the Engine page) they save directly.
-fn page_edits_gfx_copy(p: Page) -> bool {
-    matches!(p, Page::Gfx | Page::GfxDetail)
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -830,6 +833,8 @@ pub fn spawn(commands: &mut Commands, assets: &AssetServer, meshes: &mut Assets<
         s.check(Page::Gfx, "Fullscreen", 250.0, 190.0, 270.691, Some(Flag::Fullscreen), true);
         s.slider(Page::Gfx, "Anti-aliasing", it(246.691), 1.0, Opt::AntiAliasing, true);
         s.slider(Page::Gfx, "ui_gfxmenu_drawdistance", it(222.691), 1.0, Opt::DrawDistance, true);
+        // remaster: the effects page, in the gap above the original's checkboxes
+        s.row(Page::Gfx, "Effects ...", Vec2::new(480.0, 198.691), 1.0, ORANGE, Act::Go(Page::GfxEffects), 0.0);
         s.check(Page::Gfx, "ui_gfxmenu_bumpmap", 51.0, 171.215, 174.691, None, true);
         s.check(Page::Gfx, "ui_gfxmenu_pixelshaders", 51.0, 171.215, 150.691, None, true);
         s.check(Page::Gfx, "ui_gfxmenu_blur", 51.0, 171.215, 126.691, None, false);
@@ -858,6 +863,14 @@ pub fn spawn(commands: &mut Commands, assets: &AssetServer, meshes: &mut Assets<
         s.row(Page::Gfx, "ui_shellmenu_cancel", Vec2::new(320.0, 36.44), 1.1, GREEN, Act::Cancel, 0.0);
 
         s.display_page();
+        // remaster effects (graphics/height_fog.rs, motion_blur.rs, ao_extras.rs, present.rs): the old remaster's
+        // switches; a number turns on to the Remaster preset's value (finer values in options.json `graphics`)
+        s.row(Page::GfxEffects, "Effects", Vec2::new(320.0, 420.996), 1.4, GREEN, Act::None, 0.0);
+        let effects = [("Height Fog", "fog_modern"), ("Motion Blur", "shutter_speed"), ("Contact Shadows (AO)", "ao_contact"), ("Filmic Tone Mapping", "tonemap_aces"), ("Dithering", "dither")];
+        for (i, (label, key)) in effects.into_iter().enumerate() {
+            s.check(Page::GfxEffects, label, 200.0, 330.0, 350.691 - 30.0 * i as f32, Some(Flag::Graphics(key)), false);
+        }
+        s.row(Page::GfxEffects, "ui_shellmenu_back", Vec2::new(320.0, 60.44), 1.4, YELLOW, Act::Back, 0.0);
 
         // audio (pui_sfxopt; orig_ui_sfx-1120.png)
         s.row(Page::Sfx, "ui_sfxmenu_title", Vec2::new(320.0, 420.996), 1.4, Color::WHITE, Act::None, 0.0);
@@ -1428,7 +1441,7 @@ fn navigate(
         Act::Slide(_) => return,
         Act::Toggle(f) => {
             // the graphics page edits its copy (Apply / Cancel); other pages (the Engine page's settings) the options
-            let target = if flag_on_gfx_copy(f) && page_edits_gfx_copy(menu.page) { menu.edit.get_or_insert_with(|| opts.clone()) } else { &mut *opts };
+            let target = if flag_on_gfx_copy(f) && menu.page.edits_gfx_copy() { menu.edit.get_or_insert_with(|| opts.clone()) } else { &mut *opts };
             match f {
                 Flag::Shadows => target.shadows = !target.shadows,
                 Flag::SubsGame => target.subtitles_game = !target.subtitles_game,
