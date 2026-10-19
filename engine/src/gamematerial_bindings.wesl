@@ -29,8 +29,12 @@ struct GameMaterialParams {
     // the old remaster's height fog (graphics/height_fog.rs; x 0 = the level's linear fog): x density scale, y height
     // falloff per unit, z sun glow, w the level's reference height
     height_fog: vec4<f32>,
-    // the old remaster's AO shaping (graphics/ao_extras.rs): x ao_power, y ao_contact, z ao_snow, w 1 = snow surface
+    // the old remaster's AO shaping (graphics/ao_extras.rs): x ao_contact, y ao_snow, z 1 = snow surface
     ao_extras: vec4<f32>,
+    // the old remaster's ported settings (graphics/geometry/mod.rs material_values): x terrain detail scale (0 off),
+    // y its strength, z alpha cover (0 blend, 1 MSAA alpha-to-coverage), w shadow strength (0: the
+    // level's shadow colour)
+    geometry: vec4<f32>,
 }
 
 @group(constants::MATERIAL_BIND_GROUP) @binding(0) var base_tex: texture_2d<f32>;

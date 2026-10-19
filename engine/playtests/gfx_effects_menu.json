@@ -33,6 +33,8 @@
   {"expect": {"menu.page": "Gfx", "menu.selected": "Effects ..."}},
   {"tap": "ArrowDown"}, {"wait": 0.4}, {"tap": "ArrowDown"}, {"wait": 0.4}, {"tap": "ArrowDown"}, {"wait": 0.4},
   {"tap": "ArrowDown"}, {"wait": 0.4}, {"tap": "ArrowDown"}, {"wait": 0.4}, {"tap": "ArrowDown"}, {"wait": 0.4},
+  {"expect": {"menu.selected": "Detail and Shadows"}},
+  {"tap": "ArrowDown"}, {"wait": 0.4},
   {"expect": {"menu.selected": "ui_gfxmenu_apply"}},
   {"tap": "Enter"}, {"wait": 1.0},
   {"expect": {"window.graphics_preset": "remaster", "window.graphics.fog_modern": false, "window.graphics.tonemap_aces": true,

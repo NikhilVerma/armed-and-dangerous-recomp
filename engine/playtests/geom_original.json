@@ -1,0 +1,7 @@
+{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+ {"wait": 4.0},
+ {"expect": {"geometry.tessellated": 0, "geometry.mip_bias": null, "geometry.alpha_to_coverage": 0, "geometry.terrain_detail": 0.0, "geometry.shadow_strength": 0.0, "geometry.lod_objects": [1, 100000], "geometry.lod_coarser": [1, 100000]}},
+ {"shot": "view"},
+ {"wait": 0.5},
+ {"quit": true}
+]}

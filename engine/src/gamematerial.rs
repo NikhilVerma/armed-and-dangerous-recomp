@@ -39,6 +39,9 @@ pub struct GameMaterialParams {
     pub height_fog: Vec4,
     /// the old remaster's AO shaping (graphics/ao_extras.rs `AoExtras::material_params`)
     pub ao_extras: Vec4,
+    /// the old remaster's ported settings (graphics/geometry/mod.rs `material_values`; zero in the Original but
+    /// y): x terrain detail scale, y its strength, z the alpha cover (0 blend, 1 MSAA alpha-to-coverage), w shadow strength (0: the level's shadow colour)
+    pub geometry: Vec4,
 }
 
 /// How a game material covers what lies behind it in the depth-only passes (the sun's shadow cascades): the whole
@@ -113,7 +116,15 @@ impl<C: Coverage> Material for GameMaterial<C> {
         // alpha textures blend (the material log: flags bits 8-11 = 3 -> blend table 0x0057d9e0 entry 3 = SRCALPHA,
         // INVSRCALPHA, ADD, with alpha test on), not a hard 0.5 cut: thin soft twigs as in the original
         // objects the camera fades (camfade.rs: emissive.w > 0) blend too
-        if self.alpha || self.params.emissive.w > 0.0 { AlphaMode::Blend } else { AlphaMode::Opaque }
+        // remaster alpha_coverage (graphics/geometry): an alpha texture (not a translucent record, not fading) covers
+        // by its alpha with MSAA's alpha-to-coverage instead
+        if self.params.emissive.w > 0.0 || (self.alpha && self.params.diffuse.w < 1.0) {
+            return AlphaMode::Blend;
+        }
+        if !self.alpha {
+            return AlphaMode::Opaque;
+        }
+        if self.params.geometry.z > 0.5 { AlphaMode::AlphaToCoverage } else { AlphaMode::Blend }
     }
 }
 
@@ -326,6 +337,7 @@ pub fn make<C: Coverage>(def: &MaterialDef, texture: Option<&str>, alpha: bool, 
             remaster: Vec4::new(crate::graphics::ao_weight(&g, alpha), if g.far_fade { 1.0 } else { 0.0 }, g.shadow_alpha_cutoff, 0.0),
             height_fog: g.height_fog.material_params(lights.fog_reference),
             ao_extras: g.ao_extras.material_params(ao_snow_surface),
+            geometry: crate::graphics::geometry::for_material(crate::graphics::geometry::material_values(&g), alpha, def.alpha()),
         },
         alpha,
         ao_snow_surface,

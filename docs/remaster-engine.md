@@ -1026,6 +1026,24 @@ writes only differences, a preset choice clears them). Settings and what they us
 | soft_particles | 0 | 6 units | particle.wesl fades a particle over that depth where it meets the depth prepass: no hard line where a quad cuts the ground |
 | far_fade | off | on | the far clip (the original's far plane) dissolves over its last 15 % (moving dither, smoothed by TAA) instead of a hard cut; draw distance stays the original's maximum, LOD always the finest |
 | bloom | 0 | 0.08 | HDR target; only what is brighter than white blooms (threshold 1: stacked additive fire and flashes; the game's surfaces are clamped to white), added on top. Tonemapping stays off (the game's colours) |
+| tessellation (+ _level / _shape / _smooth_angle / _sharp_angle) | off | on, 3, 0.75, 25, 50 | the old remaster's Phong tessellation of skinned meshes, refined once at load, crack-free across UV seams (graphics/geometry/tessellation.rs; "Ported from the old remaster" below) |
+| terrain_detail (+ _strength) | 0 | 8, 0.6 | the terrain's normal map sampled again at 8x its tiling, its slope added (gamematerial.wesl) |
+| lod_max, lod_scale | off, 1 | on, 2 | the original's LOD switching (Object_SelectLod 0x00452f50) in the Original; the finest everywhere in the Remaster (graphics/geometry/lod.rs) |
+| alpha_coverage | off | on | alpha textures use MSAA's alpha-to-coverage (with MSAA only; TAA keeps the blend) |
+| aa_mip_bias | 0 | -1 | the camera's MipBias under TAA, now read by the game material's samples |
+| shadow_strength | 0 (the level's shadow colour) | 0.55 | a full shadow multiplies by (1 - strength) tinted sky blue (the old remaster's shadow apply pass) |
+
+Engine limits and input (2026-10-19, agent-port-limits): the old remaster's `[limits]` / `[persistence]` / `[input]`
+options are settings of the same presets, each group in its own module with its presets (physicsstep.rs: fixed step,
+interpolation, solver iterations, body capacity; pools.rs: decal pool, particle pool scale, path search nodes;
+debris.rs: kept debris; cursor.rs: the menu pointer and the window clip), flattened into `GraphicsSettings` so
+options.json names them directly; the Engine page (enginepage.rs) shows them and the Audio page the master volume.
+Table and mapping: docs/engine-limits.md "Remaster engine (Bevy / Jolt)". These do reach physics: the Original steps
+the world once per frame of at least 1/60 s (the original's frame-tied physics), the Remaster in whole 1/60 s steps;
+at the scripted runs' 60 fps both step exactly 1/60 s, so the playtests see no difference. The solver iterations and
+body capacity apply when a level's world is made. Playtests: limits_decal_pool, limits_debris_keep,
+limits_master_volume (engine/playtests); unit tests in each module (interpolation, frame-tied step, pools, debris,
+cursor grab modes, the page's rows, the path budget).
 
 Traps found on the way:
 - Never give the game material a prepass shader of its own: Bevy then binds the material in every depth-only pass
@@ -1106,6 +1124,66 @@ running: 62-84 fps for both builds). Still open: prepare_preprocess_bind_groups 
 phase, rebuilt each frame by Bevy), write_binned_instance_buffers for the opaque and prepass phases (~0.8 ms each),
 queue submit (~1.5 ms); the main world's playtest state systems (`level::log_objects` and the other `log_*` systems)
 build their JSON every frame in normal play too, because `PlayState` always exists (~0.3 ms; main is not the bottleneck).
+
+### Ported from the old remaster: geometry, surface detail, shadow tone (2026-10-19, agent-port-geom)
+
+Module `engine/src/graphics/geometry/` (GeometryPlugin; `GeometrySettings`, flattened into GraphicsSettings so
+options.json names each setting directly; `material_values` feeds `GameMaterialParams::geometry`). Sources: the old
+D3D9 hook's registrations (hook/enhance/render.cpp, shadows.cpp: RemasterRegister's original / remaster defaults) and
+its Vulkan renderer (src/rhi/vulkan). The Graphics page has a "Detail and Shadows" row opening a page of its own
+(Page::GfxDetail: three checkboxes, five steppers `Opt::Number(key)` whose ranges are geometry::STEPPERS, the old
+sliders' ranges), edited on the Graphics page's copy (Apply / Cancel there).
+
+- **Tessellation** (vk_tessellation.cpp, vk_device.cpp Tess / TessModules): Phong tessellation (Boubekeur and Alexa
+  2008), shape 0.75, the crease rule of 2026-10-12 (an edge curves fully within 25 degrees between its corner
+  normals, stays straight beyond 50). wgpu has no tessellation stage, so the same maths runs on the CPU once per mesh
+  when a skinned part appears (the old's set: skinned draws only), at a fixed level (3 segments per edge, 9x the
+  triangles) instead of the old's screen-space level, in the bind pose; skin weights are blended over the corners
+  (four strongest, renormalised). The player's feedback 1-3 (cracks at split vertices, UV seams) is answered by the
+  journal's Phong-AEN design (docs/journal/2026-10-12.md): corners are welded by position and skin, the curving normal
+  is the welded average, each edge's crease is decided from welded data both triangles share (and is 0 where the two
+  sides' own normals differ: a hard edge, or a boundary / non-manifold edge), edge points are evaluated in one
+  canonical order, so both sides of a seam get the same bits (unit test `crack_free_across_uv_seams`: a mesh split at
+  every edge gives exactly the welded mesh's points; `hard_edges_stay_sharp`: a 24-corner cube stays a cube).
+  Displacement capped at a quarter of the edge. The Remaster turns it on (the old shipped it off because of those
+  cracks). On lev_1_m1's low-poly characters the 25 / 50 rule curves little (most neighbouring normals are over 50
+  degrees apart): heads and shoulders round slightly (work/shots/port-geom/cmp_tessellation.png); both angles are
+  settings (0 / 0 = every edge curves).
+- **Terrain detail** (vk_shader_translate.cpp, terrain pixel shader 98a72838035bad82): the terrain's tangent-space
+  normal map sampled again at terrain_detail x its tiling, its xy slope added at terrain_detail_strength (0.6) and
+  renormalised; mip filtering fades it with distance (cmp_terrain_detail.png: fine relief on the snow).
+- **LOD** (graphics/geometry/lod.rs): Object_SelectLod 0x00452f50 as the original: the depth along the camera's view,
+  m = tan(fov_h / 2) * d at model quality 4 ((A, B) = (1, 0) from the table 0x005b0c78), LODs walked skipping
+  collision_lod_index / shadow_lod_index, cutoffs `lodcutoff_<i>` (defaults 0, -1 for the last and the skipped ones:
+  never). lod_max sets d = 0, lod_scale divides d (the old's two switches). The Remaster keeps lod_max on (the human's
+  2026-10-13 decision; the old's default was off for its CPU cost); with it on, nothing extra is loaded or spawned. In
+  the Original, `LodSource` (level.rs: placed instances and spawned grunts) makes the plugin spawn the coarser LODs'
+  parts hidden (skinned ones on the object's rig) and switch Visibility; objects with parts on single bones keep their
+  finest. after_pub: 188 objects switch, 81 draw a coarser LOD (cmp_lod.png: the distant pine's sparser branches).
+  Guesses: the camera's fov +0xf4 is horizontal; a LOD the export lacks falls back to the next finer one.
+- **Alpha coverage** (vk_fixed_function.cpp FinalBody): with MSAA, alpha textures draw with alpha-to-coverage
+  instead of blending. Under TAA the old's per-frame noise coverage was ported and dropped: on the engine's blended
+  semi-transparent foliage (icicles, twigs) Bevy's TAA clamps the noise instead of averaging it, a visible screen door
+  (cmp_alpha_coverage_zoom.png), and the old measured no gain under its own TAA (docs/subsystems/remaster-aa.md). So
+  in the Remaster (TAA) the setting is on but inert; it acts when the player picks MSAA.
+- **Texture sharpness with AA** (vk_pipeline.cpp): Bevy's TAA already adds MipBias(-1) to the camera, but the game
+  material sampled without it; it now samples every map with `view.mip_bias`, and the camera gets aa_mip_bias.
+- **Shadow darkness** (vk_shadows.cpp apply pass): full shadow multiplies by clamp((1 - s) * (0.82, 0.92, 1.18)), the
+  penumbra blends toward it, under the fog; 0 keeps the level's shadow colour blend (0, 0.125, 0.25) at 0.3.
+- **cull_radius not ported** (shadows.cpp "Shadow caster range"): the old shadow maps replayed the main scene's draws,
+  so casters its frustum culled lost their shadows; Bevy culls the sun's casters per cascade (no near plane), never
+  by the camera, so off-screen casters always cast (the original's projected shadows also cover every shadow-list
+  object, shadows.md). A setting would do nothing.
+
+Tests: `engine/playtests/geom_remaster.json` (Remaster: 228 tessellated parts, mip bias -1, terrain detail 8, shadow
+0.55, no LOD switching), `geom_original.json` (Original: nothing tessellated, no mip bias, LOD switching),
+`geom_msaa.json` (run with `--arg=--preset --arg=remaster --arg=--graphics --arg=anti_aliasing=msaa`: alpha-to-
+coverage on 9 materials), `geom_menu.json` (the page: toggles and steppers reach options.json), gfxopts (the new
+row), unit tests `graphics::geometry`. Playtest state key `geometry` (tessellated, lod_objects, lod_coarser,
+mip_bias, alpha_to_coverage, terrain_detail, shadow_strength). Screenshots: work/shots/port-geom/ (the same saved
+state, 1920x1080, Remaster with each setting off vs all on, Original vs Original + lod_max; cmp_*.png side by side).
+4K Remaster bench (`--bench 20 --size 3840x2160 --background`, alternated, other agents' builds and games running):
+all on 86.5 / 76.6 fps, the four rendering settings off 94.1 / 76.7: within this machine's noise, to re-measure idle.
 
 ## Jumper pack (2026-10-16, agent-blockers1)
 

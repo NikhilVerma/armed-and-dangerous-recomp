@@ -33,6 +33,9 @@ pub enum Page {
     Options,
     Extras,
     Gfx,
+    /// remaster: the Graphics page's "Detail and Shadows" (graphics/geometry: tessellation, terrain detail, LOD,
+    /// foliage coverage, texture sharpness, shadow darkness), edited on the Graphics page's copy
+    GfxDetail,
     Sfx,
     Controls,
     YesNo,
@@ -59,6 +62,8 @@ pub enum Page {
     /// remaster: the Graphics page's effects (the old remaster's fog, motion blur, AO shaping, output pass), edited
     /// on the Graphics page's copy (Apply / Cancel there)
     GfxEffects,
+    /// remaster: Options > Engine, the engine-limit and input settings (enginepage.rs)
+    Engine,
 }
 
 /// The art behind a page.
@@ -73,11 +78,17 @@ enum Back {
 }
 
 impl Page {
+    /// The Graphics page and its sub-pages edit the Graphics page's copy of the options (Apply / Cancel there); a
+    /// change made on a sub-page straight into the options would be undone by the copy on Apply.
+    fn edits_gfx_copy(self) -> bool {
+        matches!(self, Page::Gfx | Page::GfxDetail | Page::GfxEffects)
+    }
+
     fn back(self) -> Back {
         match self {
             Page::Main | Page::Options | Page::Extras | Page::Exit => Back::Title,
             // the save page draws ui_background (layout.json pui_savegame: model ui_background_01)
-            Page::Gfx | Page::GfxEffects | Page::Sfx | Page::Controls | Page::Cheats | Page::Credits | Page::SaveSlots | Page::LoadSlots | Page::Replay | Page::Movies => Back::Shell,
+            Page::Gfx | Page::GfxDetail | Page::GfxEffects | Page::Sfx | Page::Controls | Page::Cheats | Page::Credits | Page::SaveSlots | Page::LoadSlots | Page::Replay | Page::Movies | Page::Engine => Back::Shell,
             Page::YesNo | Page::Pause | Page::Failed | Page::Pub | Page::Stats => Back::Game,
         }
     }
@@ -119,10 +130,16 @@ pub enum Opt {
     /// remaster: the presentation preset (graphics.rs) and the anti-aliasing, steppers over named values
     Preset,
     AntiAliasing,
+    /// remaster: a numeric presentation setting by its name in graphics (graphics::menu::stepper gives its range)
+    Number(&'static str),
     Effects,
     Music,
     Voice,
     MouseSens,
+    /// remaster: the master volume over the three (options.rs `master_volume`)
+    MasterVolume,
+    /// remaster: a numeric setting of the Engine page by name, stepped through its list (enginepage.rs)
+    Choice(&'static str),
 }
 
 /// A checkbox.
@@ -142,7 +159,7 @@ pub enum Flag {
 
 /// The options the graphics page edits on its copy (Apply keeps them, Cancel drops them).
 fn on_gfx_copy(o: Opt) -> bool {
-    matches!(o, Opt::Brightness | Opt::Resolution | Opt::DrawDistance | Opt::Preset | Opt::AntiAliasing)
+    matches!(o, Opt::Brightness | Opt::Resolution | Opt::DrawDistance | Opt::Preset | Opt::AntiAliasing | Opt::Number(_))
 }
 
 fn flag_on_gfx_copy(f: Flag) -> bool {
@@ -748,6 +765,8 @@ pub fn spawn(commands: &mut Commands, assets: &AssetServer, meshes: &mut Assets<
             ("ui_mainmenu_controls", 278.659, Act::Go(Page::Controls)),
             ("ui_optionsmenu_reset", 230.659, Act::Ask(Ask::ResetExtras)),
             ("ui_optionsmenu_cheats", 182.659, Act::Go(Page::Cheats)),
+            // remaster: the engine-limit and input settings
+            ("Engine", 134.659, Act::Go(Page::Engine)),
         ];
         for (id, y, act) in opts {
             s.row(Page::Options, id, Vec2::new(320.0, y), 1.3, if act == Act::None { DISABLED } else { ORANGE }, act, 0.0);
@@ -770,7 +789,7 @@ pub fn spawn(commands: &mut Commands, assets: &AssetServer, meshes: &mut Assets<
         s.slider(Page::Gfx, "Anti-aliasing", it(246.691), 1.0, Opt::AntiAliasing, true);
         s.slider(Page::Gfx, "ui_gfxmenu_drawdistance", it(222.691), 1.0, Opt::DrawDistance, true);
         // remaster: the effects page, in the gap above the original's checkboxes
-        s.row(Page::Gfx, "Effects ...", Vec2::new(320.0, 198.691), 1.0, ORANGE, Act::Go(Page::GfxEffects), 0.0);
+        s.row(Page::Gfx, "Effects ...", Vec2::new(480.0, 198.691), 1.0, ORANGE, Act::Go(Page::GfxEffects), 0.0);
         s.check(Page::Gfx, "ui_gfxmenu_bumpmap", 51.0, 171.215, 174.691, None, true);
         s.check(Page::Gfx, "ui_gfxmenu_pixelshaders", 51.0, 171.215, 150.691, None, true);
         s.check(Page::Gfx, "ui_gfxmenu_blur", 51.0, 171.215, 126.691, None, false);
@@ -782,6 +801,19 @@ pub fn spawn(commands: &mut Commands, assets: &AssetServer, meshes: &mut Assets<
         s.check(Page::Gfx, "Ambient Occlusion", 346.0, 465.773, 100.0, Some(Flag::Graphics("ambient_occlusion")), false);
         s.check(Page::Gfx, "Soft Particles", 51.0, 171.215, 80.691, Some(Flag::Graphics("soft_particles")), false);
         s.check(Page::Gfx, "Soft Shadows", 346.0, 465.773, 80.0, Some(Flag::Graphics("soft_shadows")), false);
+        s.row(Page::Gfx, "Detail and Shadows", Vec2::new(320.0, 198.0), 1.0, GREEN, Act::Go(Page::GfxDetail), 0.0);
+
+        // remaster: Detail and Shadows (graphics/geometry), on the Graphics page's copy (Apply / Cancel there)
+        s.row(Page::GfxDetail, "Detail and Shadows", Vec2::new(320.0, 420.996), 1.4, GREEN, Act::None, 0.0);
+        s.check(Page::GfxDetail, "Tessellated Characters", 51.0, 171.215, 366.691, Some(Flag::Graphics("tessellation")), false);
+        s.check(Page::GfxDetail, "Always Highest Detail", 346.0, 465.773, 366.691, Some(Flag::Graphics("lod_max")), false);
+        s.check(Page::GfxDetail, "Smooth Foliage Edges", 51.0, 171.215, 342.691, Some(Flag::Graphics("alpha_coverage")), false);
+        s.slider(Page::GfxDetail, "Tessellation Detail", it(318.691), 1.0, Opt::Number("tessellation_level"), true);
+        s.slider(Page::GfxDetail, "Terrain Detail", it(294.691), 1.0, Opt::Number("terrain_detail"), true);
+        s.slider(Page::GfxDetail, "Detail Distance", it(270.691), 1.0, Opt::Number("lod_scale"), true);
+        s.slider(Page::GfxDetail, "Texture Sharpness", it(246.691), 1.0, Opt::Number("aa_mip_bias"), true);
+        s.slider(Page::GfxDetail, "Shadow Darkness", it(222.691), 1.0, Opt::Number("shadow_strength"), true);
+        s.row(Page::GfxDetail, "ui_shellmenu_back", Vec2::new(320.0, 60.44), 1.4, YELLOW, Act::Back, 0.0);
         s.row(Page::Gfx, "ui_gfxmenu_apply", Vec2::new(320.0, 60.44), 1.2, GREEN, Act::Apply, 0.0);
         s.row(Page::Gfx, "ui_shellmenu_cancel", Vec2::new(320.0, 36.44), 1.1, GREEN, Act::Cancel, 0.0);
 
@@ -799,9 +831,23 @@ pub fn spawn(commands: &mut Commands, assets: &AssetServer, meshes: &mut Assets<
         s.slider(Page::Sfx, "ui_sfxmenu_soundvolume", it(342.691), 1.0, Opt::Effects, true);
         s.slider(Page::Sfx, "ui_sfxmenu_musicvolume", it(294.691), 1.0, Opt::Music, true);
         s.slider(Page::Sfx, "ui_sfxmenu_voicevolume", it(246.691), 1.0, Opt::Voice, true);
+        // remaster: the master volume over the original's three (after them: the page still opens on Sound Volume)
+        s.slider(Page::Sfx, "Master Volume", it(198.691), 1.0, Opt::MasterVolume, true);
         s.check(Page::Sfx, "ui_sfxmenu_subtitles_movie", 200.0, 320.0, 132.996, Some(Flag::SubsMovie), true);
         s.check(Page::Sfx, "ui_sfxmenu_subtitles_ingame", 200.0, 320.0, 108.996, Some(Flag::SubsGame), true);
         s.row(Page::Sfx, "ui_shellmenu_back", Vec2::new(320.0, 60.44), 1.4, YELLOW, Act::Back, 0.0);
+
+        // remaster: the Engine page (enginepage.rs): checkboxes in the graphics page's two columns, then steppers
+        s.row(Page::Engine, "Engine", Vec2::new(320.0, 420.996), 1.4, GREEN, Act::None, 0.0);
+        for (i, (label, key)) in crate::enginepage::CHECKS.into_iter().enumerate() {
+            let y = 384.0 - 24.0 * (i / 2) as f32;
+            let (box_x, label_x) = if i % 2 == 0 { (51.0, 171.215) } else { (346.0, 465.773) };
+            s.check(Page::Engine, label, box_x, label_x, y, Some(Flag::Graphics(key)), false);
+        }
+        for (i, st) in crate::enginepage::STEPPERS.iter().enumerate() {
+            s.slider(Page::Engine, st.label, it(300.0 - 24.0 * i as f32), 1.0, Opt::Choice(st.key), true);
+        }
+        s.row(Page::Engine, "ui_shellmenu_back", Vec2::new(320.0, 60.44), 1.4, YELLOW, Act::Back, 0.0);
 
         // controls (pui_showcontrols; orig_ui_controls-1100.png): the key binding entries of the device in use
         // (bindings.rs), two columns of "action: inputs" (labels right-aligned at x 172 / 466, inputs from x 187 / 482).
@@ -1345,7 +1391,8 @@ fn navigate(
         }
         Act::Slide(_) => return,
         Act::Toggle(f) => {
-            let target = if flag_on_gfx_copy(f) { menu.edit.get_or_insert_with(|| opts.clone()) } else { &mut *opts };
+            // the graphics page edits its copy (Apply / Cancel); other pages (the Engine page's settings) the options
+            let target = if flag_on_gfx_copy(f) && menu.page.edits_gfx_copy() { menu.edit.get_or_insert_with(|| opts.clone()) } else { &mut *opts };
             match f {
                 Flag::Shadows => target.shadows = !target.shadows,
                 Flag::SubsGame => target.subtitles_game = !target.subtitles_game,
@@ -1373,10 +1420,12 @@ fn range(opt: Opt) -> (f32, f32, usize) {
     match opt {
         Opt::Brightness => (1.0, 2.0, 11),
         Opt::DrawDistance => (0.25, 1.0, 16),
-        Opt::MouseSens | Opt::Effects | Opt::Music | Opt::Voice => (0.0, 1.0, 21),
+        Opt::MouseSens | Opt::Effects | Opt::Music | Opt::Voice | Opt::MasterVolume => (0.0, 1.0, 21),
+        Opt::Choice(key) => (0.0, 1.0, crate::enginepage::count(key).max(2)),
         Opt::Resolution => (0.0, 1.0, SIZES.len()),
         Opt::Preset => (0.0, 1.0, crate::graphics::menu::PRESETS.len()),
         Opt::AntiAliasing => (0.0, 1.0, crate::graphics::AntiAliasing::ALL.len()),
+        Opt::Number(key) => crate::graphics::menu::stepper(key).unwrap_or((0.0, 1.0, 2)),
     }
 }
 
@@ -1409,6 +1458,12 @@ fn slide(o: &mut GameOptions, opt: Opt, step: f32, win: (u32, u32)) {
         Opt::Music => o.music_volume = bump(o.music_volume),
         Opt::Voice => o.voice_volume = bump(o.voice_volume),
         Opt::MouseSens => o.mouse_sensitivity = bump(o.mouse_sensitivity),
+        Opt::Number(key) => crate::graphics::menu::set_number(o, key, bump(crate::graphics::menu::number(o, key))),
+        Opt::MasterVolume => o.master_volume = bump(o.master_volume),
+        Opt::Choice(key) => {
+            let i = crate::enginepage::index(o, key) as i32 + step as i32;
+            crate::enginepage::set(o, key, i.clamp(0, crate::enginepage::count(key) as i32 - 1) as usize);
+        }
         Opt::Preset => {
             let i = crate::graphics::menu::preset_index(o) as i32 + step as i32;
             crate::graphics::menu::set_preset(o, i.clamp(0, positions(opt) as i32 - 1) as usize);
@@ -1444,6 +1499,9 @@ fn set_position(o: &mut GameOptions, opt: Opt, frac: f32, win: (u32, u32)) {
         Opt::Music => o.music_volume = v,
         Opt::Voice => o.voice_volume = v,
         Opt::MouseSens => o.mouse_sensitivity = v,
+        Opt::Number(key) => crate::graphics::menu::set_number(o, key, v),
+        Opt::MasterVolume => o.master_volume = v,
+        Opt::Choice(key) => crate::enginepage::set(o, key, i),
         Opt::Preset => crate::graphics::menu::set_preset(o, i),
         Opt::AntiAliasing => crate::graphics::menu::set_aa(o, i),
         Opt::Resolution => {
@@ -1465,6 +1523,14 @@ fn value(o: &GameOptions, opt: Opt, win: (u32, u32)) -> (f32, String) {
         Opt::Music => (frac(o.music_volume), format!("{:.0}", o.music_volume * 100.0)),
         Opt::Voice => (frac(o.voice_volume), format!("{:.0}", o.voice_volume * 100.0)),
         Opt::MouseSens => (frac(o.mouse_sensitivity), format!("{:.0}", o.mouse_sensitivity * 100.0)),
+        Opt::Number(key) => {
+            let v = crate::graphics::menu::number(o, key);
+            // 0 is "off" for the settings whose 0 means the original's
+            let text = if v == 0.0 && !matches!(key, "aa_mip_bias") { "Off".to_owned() } else { format!("{}", (v * 100.0).round() / 100.0) };
+            (frac(v), text)
+        }
+        Opt::MasterVolume => (frac(o.master_volume), format!("{:.0}", o.master_volume * 100.0)),
+        Opt::Choice(key) => (crate::enginepage::index(o, key) as f32 / (positions(opt) - 1) as f32, crate::enginepage::text(o, key)),
         Opt::Preset => (crate::graphics::menu::preset_index(o) as f32 / (positions(opt) - 1) as f32, crate::graphics::menu::preset_text(o)),
         Opt::AntiAliasing => (crate::graphics::menu::aa_index(o) as f32 / (positions(opt) - 1) as f32, crate::graphics::menu::aa_text(o)),
         Opt::Resolution => {

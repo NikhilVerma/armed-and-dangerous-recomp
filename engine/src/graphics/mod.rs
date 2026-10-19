@@ -24,6 +24,7 @@
 //! material clips, whose depth the prepass holds, so the sky shows beyond the clip as in the Original.
 
 mod farclip;
+pub mod geometry;
 mod textures;
 // the old remaster's atmosphere, AO shaping and output passes (agent-port-atmos, 2026-10-19)
 pub mod ao_extras;
@@ -154,6 +155,22 @@ pub struct GraphicsSettings {
     /// ragdolls down at once; a death beyond it is animated (the original's 4: Character_GoRagdoll 0x00431310)
     pub ragdoll_limit: u32,
 
+    // ---- geometry, surface detail and shadow tone, ported from the old remaster (geometry/mod.rs) ----
+    /// tessellation*, terrain_detail*, lod_max, lod_scale, alpha_coverage, aa_mip_bias, shadow_strength
+    #[serde(flatten)]
+    pub geometry: geometry::GeometrySettings,
+    // --- engine limits and input (the old remaster's [limits] / [persistence] / [input] options; each group's
+    // settings and presets live with the module that applies them). Flattened: options.json names each setting
+    // directly ("physics_fixed_step": false, "decal_pool": 512, ...).
+    #[serde(flatten)]
+    pub physics: crate::physicsstep::PhysicsStepSettings,
+    #[serde(flatten)]
+    pub pools: crate::pools::PoolSettings,
+    #[serde(flatten)]
+    pub debris: crate::debris::DebrisSettings,
+    #[serde(flatten)]
+    pub cursor: crate::cursor::CursorSettings,
+    // --- end of engine limits and input
     // ---- the old remaster's atmosphere, AO shaping and output passes (agent-port-atmos; each module's doc says
     // where it came from). Flattened: the options keep the old and.ini names (fog_modern, shutter_speed, ...).
     #[serde(flatten)]
@@ -196,6 +213,11 @@ impl GraphicsSettings {
             corpse_time: 0.0,
             corpse_fade: 0.0,
             ragdoll_limit: 4,
+            geometry: geometry::GeometrySettings::original(),
+            physics: crate::physicsstep::PhysicsStepSettings::original(),
+            pools: crate::pools::PoolSettings::original(),
+            debris: crate::debris::DebrisSettings::original(),
+            cursor: crate::cursor::CursorSettings::original(),
             height_fog: height_fog::HeightFogSettings::original(),
             ao_extras: ao_extras::AoExtras::original(),
             motion_blur: motion_blur::MotionBlurSettings::original(),
@@ -222,6 +244,11 @@ impl GraphicsSettings {
             corpse_time: 60.0,
             corpse_fade: 1.5,
             ragdoll_limit: 16,
+            geometry: geometry::GeometrySettings::remaster(),
+            physics: crate::physicsstep::PhysicsStepSettings::remaster(),
+            pools: crate::pools::PoolSettings::remaster(),
+            debris: crate::debris::DebrisSettings::remaster(),
+            cursor: crate::cursor::CursorSettings::remaster(),
             height_fog: height_fog::HeightFogSettings::remaster(),
             ao_extras: ao_extras::AoExtras::remaster(),
             motion_blur: motion_blur::MotionBlurSettings::remaster(),
@@ -321,6 +348,27 @@ pub mod menu {
             Some(serde_json::Value::Number(n)) => n.as_f64().unwrap_or(0.0) > 0.0,
             _ => false,
         }
+    }
+
+    /// A numeric setting's stepper range (first, last, positions), for the settings that have one
+    /// (geometry::STEPPERS).
+    pub fn stepper(key: &str) -> Option<(f32, f32, usize)> {
+        geometry::STEPPERS.iter().find(|s| s.0 == key).map(|s| (s.1, s.2, s.3))
+    }
+
+    /// A numeric setting's value (0 for unknown names).
+    pub fn number(o: &GameOptions, key: &str) -> f32 {
+        value(&resolve(o.graphics_preset, &o.graphics), key).and_then(|v| v.as_f64()).unwrap_or(0.0) as f32
+    }
+
+    /// Sets a numeric setting, as an integer when the setting is one.
+    pub fn set_number(o: &mut GameOptions, key: &str, v: f32) {
+        let v = match value(&resolve(o.graphics_preset, &o.graphics), key) {
+            Some(serde_json::Value::Number(n)) if n.is_u64() || n.is_i64() => serde_json::Value::from(v.round() as i64),
+            Some(serde_json::Value::Number(_)) => serde_json::Value::from(v as f64),
+            _ => return,
+        };
+        set_change(o.graphics_preset, &mut o.graphics, key, v);
     }
 
     /// Flips a checkbox setting; a number turns off to 0 and on to the Remaster preset's value.
@@ -430,7 +478,8 @@ impl Plugin for GraphicsPlugin {
         app.insert_resource(self.launch.clone())
             .insert_resource(self.initial.clone())
             .insert_resource(DirectionalLightShadowMap { size: self.initial.shadow_map_size as usize })
-            .add_plugins((farclip::FarClipPlugin, height_fog::HeightFogPlugin, ao_extras::AoExtrasPlugin, motion_blur::MotionBlurPlugin, present::PresentPlugin, effects_log::EffectsLogPlugin))
+            .add_plugins((farclip::FarClipPlugin, geometry::GeometryPlugin))
+            .add_plugins((height_fog::HeightFogPlugin, ao_extras::AoExtrasPlugin, motion_blur::MotionBlurPlugin, present::PresentPlugin, effects_log::EffectsLogPlugin))
             .add_systems(
                 PostUpdate,
                 (
@@ -449,7 +498,7 @@ impl Plugin for GraphicsPlugin {
 }
 
 /// A normal launch follows the options (the Graphics page applies at once); a pinned run keeps its preset.
-fn sync(launch: Res<GraphicsLaunch>, options: Res<crate::options::GameOptions>, mut settings: ResMut<GraphicsSettings>) {
+pub(crate) fn sync(launch: Res<GraphicsLaunch>, options: Res<crate::options::GameOptions>, mut settings: ResMut<GraphicsSettings>) {
     if launch.pinned.is_some() || !options.is_changed() {
         return;
     }
@@ -463,7 +512,7 @@ fn sync(launch: Res<GraphicsLaunch>, options: Res<crate::options::GameOptions>, 
 /// The camera's components for the anti-aliasing, AO, HDR and bloom settings. The Original adds nothing to what the
 /// camera had before the presets (Msaa 4x, no prepass); switching back removes everything a remaster setting added.
 #[allow(clippy::type_complexity)]
-fn apply_cameras(
+pub(crate) fn apply_cameras(
     mut commands: Commands,
     s: Res<GraphicsSettings>,
     cams: Query<Entity, With<Camera3d>>,
@@ -627,7 +676,7 @@ pub(crate) fn set_game_material_param<C: crate::gamematerial::Coverage, T: Parti
 }
 
 /// Per-material remaster values of the game materials (either coverage): the occlusion weight, the far dissolve
-/// and the shadow's alpha cutoff (remaster.xyz).
+/// and the shadow's alpha cutoff (remaster.xyz), and the geometry settings' values (geometry/mod.rs `material_values`).
 fn apply_game_materials<C: crate::gamematerial::Coverage>(
     s: Res<GraphicsSettings>,
     mut game: ResMut<Assets<crate::gamematerial::GameMaterial<C>>>,
@@ -635,9 +684,19 @@ fn apply_game_materials<C: crate::gamematerial::Coverage>(
 ) {
     let far = if s.far_fade { 1.0 } else { 0.0 };
     let cutoff = s.shadow_alpha_cutoff.clamp(0.0, 1.0);
-    set_game_material_param(s.is_changed(), &mut game, &mut events, |p| &mut p.remaster, |m| {
-        Vec4::new(ao_weight(&s, m.alpha), far, cutoff, m.params.remaster.w)
-    });
+    let want = |m: &crate::gamematerial::GameMaterial<C>| Vec3::new(ao_weight(&s, m.alpha), far, cutoff);
+    let geometry = geometry::material_values(&s);
+    for id in ids_to_apply(s.is_changed(), &game, &mut events) {
+        // read first: a mutable access marks the material changed (re-prepared) even when nothing differs
+        let geometry_of = |m: &crate::gamematerial::GameMaterial<C>| geometry::for_material(geometry, m.alpha, m.params.diffuse.w);
+        if game.get(id).is_some_and(|m| m.params.remaster.xyz() != want(m) || m.params.geometry != geometry_of(m)) {
+            if let Some(mut m) = game.get_mut(id) {
+                let w = want(&m);
+                m.params.remaster = w.extend(m.params.remaster.w);
+                m.params.geometry = geometry_of(&m);
+            }
+        }
+    }
 }
 
 /// The particles' softness.

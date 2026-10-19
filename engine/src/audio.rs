@@ -565,23 +565,32 @@ pub struct ListenerBody {
     pub radius: f32,
 }
 
-/// The options' volumes per group (menu values 0..1, Game+0x490 / +0x494 / +0x498) and a master factor (the
-/// remaster's mute for background test runs).
+/// The options' volumes per group (menu values 0..1, Game+0x490 / +0x494 / +0x498), a master factor (the
+/// remaster's mute for background test runs) and the player's master volume over them all.
 #[derive(Resource, Clone)]
 pub struct Mixer {
     pub master: f32,
     pub sfx: f32,
     pub voice: f32,
     pub music: f32,
+    /// the Audio page's Master Volume (options.json `master_volume`, 0..1, linear): the old remaster's `[audio]
+    /// master` (hook/enhance/audio.cpp: an attenuation of 2000 log10(v) hundredths of a dB on every DirectSound
+    /// buffer, so a linear factor v on every voice of every group, the movies' sound included)
+    pub master_volume: f32,
 }
 
 impl Default for Mixer {
     fn default() -> Self {
-        Mixer { master: 1.0, sfx: OPTION_DEFAULT, voice: OPTION_DEFAULT, music: OPTION_DEFAULT }
+        Mixer { master: 1.0, sfx: OPTION_DEFAULT, voice: OPTION_DEFAULT, music: OPTION_DEFAULT, master_volume: 1.0 }
     }
 }
 
 impl Mixer {
+    /// The linear factor on every voice: the master volume times the test runs' mute.
+    pub fn master_gain(&self) -> f32 {
+        self.master * self.master_volume.clamp(0.0, 1.0)
+    }
+
     /// A group's level in dB (the getters 0x004f4340 / 0x004f4320 / 0x004f4330). The setters 0x004f42e0 (sfx +0x18), 0x004f4260 (speech +0x20) and 0x004f42a0 (music
     /// +0x1c) store level_curve(1 - value, 0, 1); the remaster's 0 dB is the default value's level.
     pub fn group_db(&self, group: VolumeGroup) -> f32 {
@@ -694,7 +703,7 @@ impl Voice {
     }
 
     fn gain(&self, mixer: &Mixer) -> f32 {
-        db_to_gain(self.level_db(mixer)) * self.factor * mixer.master
+        db_to_gain(self.level_db(mixer)) * self.factor * mixer.master_gain()
     }
 }
 
@@ -1099,6 +1108,8 @@ pub fn summary(stats: &AudioStats, mixer: &Mixer, voices: &Query<&Voice>, channe
         "playing_2d": playing_2d,
         "channels": ch,
         "groups_db": {"sfx": r(mixer.group_db(VolumeGroup::Sfx)), "speech": r(mixer.group_db(VolumeGroup::Speech)), "music": r(mixer.group_db(VolumeGroup::Music))},
+        // the master volume's linear factor on every voice (level_db is before it)
+        "master_volume": mixer.master_volume,
     })
 }
 
@@ -1188,6 +1199,23 @@ mod tests {
         assert_eq!(m.group_db(VolumeGroup::Fixed), 0.0);
         m.voice = 1.0;
         assert!((m.group_db(VolumeGroup::Speech) - 3.2).abs() < 1e-4);
+    }
+
+    /// The master volume scales every group by the same linear factor (the old remaster's attenuation 2000 log10(v)
+    /// on every buffer) and leaves the groups' own levels alone; the test runs' mute stays on top.
+    #[test]
+    fn master_volume_scales_every_group() {
+        let mut m = Mixer::default();
+        let groups = [VolumeGroup::Sfx, VolumeGroup::Speech, VolumeGroup::Music, VolumeGroup::Fixed];
+        let before: Vec<f32> = groups.iter().map(|g| m.group_db(*g)).collect();
+        assert_eq!(m.master_gain(), 1.0);
+        m.master_volume = 0.5;
+        assert_eq!(groups.iter().map(|g| m.group_db(*g)).collect::<Vec<_>>(), before);
+        assert_eq!(m.master_gain(), 0.5);
+        // 2000 log10(0.5) hundredths of a dB = -6.02 dB: the same as the linear factor
+        assert!((db_to_gain(20.0 * 0.5f32.log10()) - m.master_gain()).abs() < 1e-5);
+        m.master = 0.0;
+        assert_eq!(m.master_gain(), 0.0);
     }
 
     #[test]
