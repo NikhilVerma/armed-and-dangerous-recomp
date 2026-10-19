@@ -21,6 +21,8 @@ import bevy_pbr::render::shadows::fetch_directional_shadow;
 import bevy_pbr::render::mesh_view_bindings as view_bindings;
 import bevy_pbr::render::mesh_view_types;
 import and_remaster::gamematerial_shared::far_clipped;
+import and_remaster::graphics::height_fog::height_fog;
+import and_remaster::graphics::ao_extras::remaster_occlusion;
 import and_remaster::gamematerial_bindings::{p, base_tex, base_smp, normal_tex, normal_smp, tex2, tex2_smp, mask_tex, mask_smp};
 
 // What the vertex stage hands on: Bevy's mesh outputs plus the fog, computed per vertex as the original's vertex
@@ -96,18 +98,6 @@ fn fragment(in: GameOut) -> @location(0) vec4<f32> {
         }
     }
     let to_sun = normalize(p.sun_dir.xyz);
-    // remaster: screen-space ambient occlusion (Bevy's SSAO, graphics.rs) on the ambient and fill light, the
-    // light that comes from all around; the sun and emissive stay as they are, exempt surfaces (snow) keep all
-    var ao = 1.0;
-@if(SCREEN_SPACE_AMBIENT_OCCLUSION)
-    {
-        let ssao = textureLoad(view_bindings::screen_space_ambient_occlusion_texture, vec2<i32>(in.position.xy - view.viewport.xy), 0i).r;
-        ao = mix(1.0, ssao, p.remaster.x);
-    }
-    let v0 = p.emissive.rgb + (p.ambient_light.rgb * p.ambient.rgb
-        + p.fill_col.rgb * p.diffuse.rgb * clamp(dot(n_geo, normalize(p.fill_dir.xyz)), 0.0, 1.0)) * ao;
-    let c1 = p.sun_col.rgb * p.diffuse.rgb;
-    let light = clamp(clamp(dot(n, to_sun), 0.0, 1.0) * c1 + v0, vec3(0.0), vec3(1.0));
     var albedo = base.rgb;
     var alpha = base.a;
     let blend = p.has_texture2 != 0u && p.has_mask != 0u;
@@ -119,6 +109,24 @@ fn fragment(in: GameOut) -> @location(0) vec4<f32> {
         albedo = clamp(base.rgb * (vec3(1.0) - m) + t2 * m, vec3(0.0), vec3(1.0));
         alpha = 1.0;
     }
+    // remaster: screen-space ambient occlusion (Bevy's SSAO, graphics.rs) on the ambient and fill light, the
+    // light that comes from all around, shaped as the old remaster did (graphics/ao_extras.wesl): the sun and
+    // emissive stay as they are except under the contact occlusion; snow keeps only ao_snow of it
+    var ao = 1.0;
+    var ao_whole = 1.0;
+@if(SCREEN_SPACE_AMBIENT_OCCLUSION)
+    {
+        let ssao = textureLoad(view_bindings::screen_space_ambient_occlusion_texture, vec2<i32>(in.position.xy - view.viewport.xy), 0i).r;
+        let occ = remaster_occlusion(ssao, dot(albedo, vec3(0.2126, 0.7152, 0.0722)), p.remaster.x, p.ao_extras);
+        ao = occ.ambient;
+        ao_whole = occ.whole;
+    }
+    let v0_open = p.emissive.rgb + p.ambient_light.rgb * p.ambient.rgb
+        + p.fill_col.rgb * p.diffuse.rgb * clamp(dot(n_geo, normalize(p.fill_dir.xyz)), 0.0, 1.0);
+    let v0 = mix(p.emissive.rgb, v0_open, ao);
+    let c1 = p.sun_col.rgb * p.diffuse.rgb;
+    let sun = clamp(dot(n, to_sun), 0.0, 1.0) * c1;
+    let light = min(clamp(sun + v0, vec3(0.0), vec3(1.0)), clamp(sun + v0_open, vec3(0.0), vec3(1.0)) * ao_whole);
     var col = albedo * light;
     if (env) {
         col = p.env.rgb * p.env.w + albedo * light;
@@ -153,7 +161,13 @@ fn fragment(in: GameOut) -> @location(0) vec4<f32> {
         col = mix(col, vec3(0.0, 0.125, 0.25), 0.3 * (1.0 - lit));
     }
     if (p.fog_range.y > p.fog_range.x) {
-        col = mix(p.fog_col.rgb, col, in.fog);
+        if (p.height_fog.x > 0.0) {
+            // remaster: the old remaster's height fog per pixel (graphics/height_fog.wesl) in place of the linear fog
+            let fog = height_fog(in.world_position.xyz - view.world_position.xyz, view.world_position.y, p.fog_col.rgb, p.fog_range.xy, p.height_fog, to_sun);
+            col = mix(fog.rgb, col, fog.a);
+        } else {
+            col = mix(p.fog_col.rgb, col, in.fog);
+        }
     }
     // emissive.w: the camera fade (camfade.rs; 0 = opaque), objects between the camera and Roman
     // diffuse.w: the record's opacity (a translucent record, kind bit 0x10: the draw state's constant alpha that the

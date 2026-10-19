@@ -26,6 +26,11 @@ struct GameMaterialParams {
     // y 1 = dissolve over the last 15 % before the far clip instead of a hard cut, z the alpha below which an
     // alpha-tested surface casts no shadow (0: the whole card casts)
     remaster: vec4<f32>,
+    // the old remaster's height fog (graphics/height_fog.rs; x 0 = the level's linear fog): x density scale, y height
+    // falloff per unit, z sun glow, w the level's reference height
+    height_fog: vec4<f32>,
+    // the old remaster's AO shaping (graphics/ao_extras.rs): x ao_power, y ao_contact, z ao_snow, w 1 = snow surface
+    ao_extras: vec4<f32>,
 }
 
 @group(constants::MATERIAL_BIND_GROUP) @binding(0) var base_tex: texture_2d<f32>;

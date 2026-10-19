@@ -56,6 +56,9 @@ pub enum Page {
     Movies,
     /// the exit screen ("ExitMenu", 0x00493770): the game quits once the menu has faded to it (splash.rs)
     Exit,
+    /// remaster: the Graphics page's effects (the old remaster's fog, motion blur, AO shaping, output pass), edited
+    /// on the Graphics page's copy (Apply / Cancel there)
+    GfxEffects,
 }
 
 /// The art behind a page.
@@ -74,7 +77,7 @@ impl Page {
         match self {
             Page::Main | Page::Options | Page::Extras | Page::Exit => Back::Title,
             // the save page draws ui_background (layout.json pui_savegame: model ui_background_01)
-            Page::Gfx | Page::Sfx | Page::Controls | Page::Cheats | Page::Credits | Page::SaveSlots | Page::LoadSlots | Page::Replay | Page::Movies => Back::Shell,
+            Page::Gfx | Page::GfxEffects | Page::Sfx | Page::Controls | Page::Cheats | Page::Credits | Page::SaveSlots | Page::LoadSlots | Page::Replay | Page::Movies => Back::Shell,
             Page::YesNo | Page::Pause | Page::Failed | Page::Pub | Page::Stats => Back::Game,
         }
     }
@@ -766,6 +769,8 @@ pub fn spawn(commands: &mut Commands, assets: &AssetServer, meshes: &mut Assets<
         s.check(Page::Gfx, "Fullscreen", 250.0, 190.0, 270.691, Some(Flag::Fullscreen), true);
         s.slider(Page::Gfx, "Anti-aliasing", it(246.691), 1.0, Opt::AntiAliasing, true);
         s.slider(Page::Gfx, "ui_gfxmenu_drawdistance", it(222.691), 1.0, Opt::DrawDistance, true);
+        // remaster: the effects page, in the gap above the original's checkboxes
+        s.row(Page::Gfx, "Effects ...", Vec2::new(320.0, 198.691), 1.0, ORANGE, Act::Go(Page::GfxEffects), 0.0);
         s.check(Page::Gfx, "ui_gfxmenu_bumpmap", 51.0, 171.215, 174.691, None, true);
         s.check(Page::Gfx, "ui_gfxmenu_pixelshaders", 51.0, 171.215, 150.691, None, true);
         s.check(Page::Gfx, "ui_gfxmenu_blur", 51.0, 171.215, 126.691, None, false);
@@ -779,6 +784,15 @@ pub fn spawn(commands: &mut Commands, assets: &AssetServer, meshes: &mut Assets<
         s.check(Page::Gfx, "Soft Shadows", 346.0, 465.773, 80.0, Some(Flag::Graphics("soft_shadows")), false);
         s.row(Page::Gfx, "ui_gfxmenu_apply", Vec2::new(320.0, 60.44), 1.2, GREEN, Act::Apply, 0.0);
         s.row(Page::Gfx, "ui_shellmenu_cancel", Vec2::new(320.0, 36.44), 1.1, GREEN, Act::Cancel, 0.0);
+
+        // remaster effects (graphics/height_fog.rs, motion_blur.rs, ao_extras.rs, present.rs): the old remaster's
+        // switches; a number turns on to the Remaster preset's value (finer values in options.json `graphics`)
+        s.row(Page::GfxEffects, "Effects", Vec2::new(320.0, 420.996), 1.4, GREEN, Act::None, 0.0);
+        let effects = [("Height Fog", "fog_modern"), ("Motion Blur", "shutter_speed"), ("Contact Shadows (AO)", "ao_contact"), ("Filmic Tone Mapping", "tonemap_aces"), ("Dithering", "dither")];
+        for (i, (label, key)) in effects.into_iter().enumerate() {
+            s.check(Page::GfxEffects, label, 200.0, 330.0, 350.691 - 30.0 * i as f32, Some(Flag::Graphics(key)), false);
+        }
+        s.row(Page::GfxEffects, "ui_shellmenu_back", Vec2::new(320.0, 60.44), 1.4, YELLOW, Act::Back, 0.0);
 
         // audio (pui_sfxopt; orig_ui_sfx-1120.png)
         s.row(Page::Sfx, "ui_sfxmenu_title", Vec2::new(320.0, 420.996), 1.4, Color::WHITE, Act::None, 0.0);
