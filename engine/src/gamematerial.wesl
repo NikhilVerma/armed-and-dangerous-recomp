@@ -82,14 +82,24 @@ fn fragment(in: GameOut) -> @location(0) vec4<f32> {
     if (far_clipped(depth, p.fog_range.z, p.remaster.y > 0.0, in.position.xy, view_bindings::globals.frame_count)) {
         discard;
     }
-    let base_s = textureSample(base_tex, base_smp, in.uv);
+    // every map sampled with the view's mip bias (remaster aa_mip_bias under TAA, graphics/geometry; 0 otherwise),
+    // as the old remaster biased every mipmapped sampler (vk_pipeline.cpp)
+    let bias = view.mip_bias;
+    let base_s = textureSampleBias(base_tex, base_smp, in.uv, bias);
     let base = vec4(to_gamma(base_s.rgb), base_s.a);
     let n_geo = normalize(in.world_normal);
     var n = n_geo;
     {
         if (p.has_normal != 0u && dot(in.world_tangent.xyz, in.world_tangent.xyz) > 0.0) {
             // the normal map in tangent space (_bx2: 2 * t - 1)
-            let tn = textureSample(normal_tex, normal_smp, in.uv).xyz * 2.0 - 1.0;
+            var tn = textureSampleBias(normal_tex, normal_smp, in.uv, bias).xyz * 2.0 - 1.0;
+            // remaster terrain_detail (graphics/geometry; the old remaster's vk_shader_translate.cpp, terrain pixel
+            // shader 98a72838035bad82 only): the terrain's normal map sampled again at geometry.x times its tiling,
+            // its slope added at geometry.y; mip filtering fades it with distance
+            if (p.geometry.x > 1.0 && p.has_texture2 != 0u && p.has_mask != 0u) {
+                let tdd = textureSampleBias(normal_tex, normal_smp, in.uv * p.geometry.x, bias).xyz * 2.0 - 1.0;
+                tn = normalize(vec3(tn.xy + tdd.xy * p.geometry.y, tn.z));
+            }
             let t = normalize(in.world_tangent.xyz - n_geo * dot(n_geo, in.world_tangent.xyz));
             let b = cross(n_geo, t) * in.world_tangent.w;
             n = normalize(t * tn.x + b * tn.y + n_geo * tn.z);
@@ -114,8 +124,8 @@ fn fragment(in: GameOut) -> @location(0) vec4<f32> {
     let env = p.has_texture2 != 0u && p.has_mask == 0u;
     if (blend) {
         let uv1 = in.uv_b;
-        let m = to_gamma(textureSample(mask_tex, mask_smp, uv1).rgb);
-        let t2 = to_gamma(textureSample(tex2, tex2_smp, in.uv).rgb);
+        let m = to_gamma(textureSampleBias(mask_tex, mask_smp, uv1, bias).rgb);
+        let t2 = to_gamma(textureSampleBias(tex2, tex2_smp, in.uv, bias).rgb);
         albedo = clamp(base.rgb * (vec3(1.0) - m) + t2 * m, vec3(0.0), vec3(1.0));
         alpha = 1.0;
     }
@@ -150,7 +160,15 @@ fn fragment(in: GameOut) -> @location(0) vec4<f32> {
                 lit = min(lit, fetch_directional_shadow(i, in.world_position, normalize(in.world_normal), vz, in.position.xy));
             }
         }
-        col = mix(col, vec3(0.0, 0.125, 0.25), 0.3 * (1.0 - lit));
+        if (p.geometry.w > 0.0) {
+            // remaster shadow_strength (graphics/geometry; the old remaster's vk_shadows.cpp apply pass): a shadow is
+            // not black, what reaches it is the sky's light; a full shadow multiplies by (1 - strength) tinted blue,
+            // the penumbra blends toward it (under the fog, as the old applied it)
+            let sky = clamp((1.0 - p.geometry.w) * vec3(0.82, 0.92, 1.18), vec3(0.0), vec3(1.0));
+            col = col * mix(vec3(1.0), sky, 1.0 - lit);
+        } else {
+            col = mix(col, vec3(0.0, 0.125, 0.25), 0.3 * (1.0 - lit));
+        }
     }
     if (p.fog_range.y > p.fog_range.x) {
         col = mix(p.fog_col.rgb, col, in.fog);
@@ -158,5 +176,6 @@ fn fragment(in: GameOut) -> @location(0) vec4<f32> {
     // emissive.w: the camera fade (camfade.rs; 0 = opaque), objects between the camera and Roman
     // diffuse.w: the record's opacity (a translucent record, kind bit 0x10: the draw state's constant alpha that the
     // texture's alpha is multiplied by, fn_004897d0; 1 otherwise)
+    // (remaster alpha_coverage, graphics/geometry: with MSAA the pipeline turns this alpha into the samples' coverage)
     return vec4(to_linear(col), alpha * p.diffuse.w * (1.0 - p.emissive.w));
 }
