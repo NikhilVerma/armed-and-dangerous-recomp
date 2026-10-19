@@ -66,6 +66,11 @@ pub struct Event {
     /// keep the state log as it is now under this name, for later expects' {"as": name}
     #[serde(default)]
     pub note: Option<String>,
+    /// change options as a menu would (options.rs keys; an object value such as "graphics" is merged key by key):
+    /// {"options": {"resolution": [1280, 720], "graphics": {"fov": 1.25}}}. They apply in a pinned tool run only for
+    /// what the options decide there (the window); the presentation settings follow them with the script's "preset"
+    #[serde(default)]
+    pub options: Option<serde_json::Map<String, serde_json::Value>>,
     /// delete every save in the build's saves/ (savegame.rs): the save / load screens start empty
     #[serde(default)]
     pub clear_saves: bool,
@@ -711,7 +716,7 @@ pub(crate) fn drive(
     mission: Option<Res<crate::mission::Mission>>,
     mut roman: Query<&mut crate::fx::Health, With<crate::player::Roman>>,
     mut spawn: MessageWriter<crate::level::SpawnGrunt>,
-    (mut send, state, mut save_req, mut noise, mut barks, mut defence, mut cheats, dropped, placed_at, mut ai_force, (mut push, mut arrive, markers)): (
+    (mut send, state, mut save_req, mut noise, mut barks, mut defence, mut cheats, dropped, placed_at, mut ai_force, (mut push, mut arrive, markers, mut game_options)): (
         MessageWriter<crate::mission::SendTrigger>,
         Res<PlayState>,
         ResMut<crate::savegame::SaveRequest>,
@@ -722,7 +727,7 @@ pub(crate) fn drive(
         Query<Entity, With<crate::level::Dropped>>,
         Query<(&crate::level::InstanceId, &GlobalTransform)>,
         ResMut<crate::ai::AiForce>,
-        (MessageWriter<crate::movable::Push>, MessageWriter<crate::alarm::MarkerArrival>, Option<Res<crate::alarm::Markers>>),
+        (MessageWriter<crate::movable::Push>, MessageWriter<crate::alarm::MarkerArrival>, Option<Res<crate::alarm::Markers>>, ResMut<crate::options::GameOptions>),
     ),
     mut objects: Query<(Entity, Option<&crate::level::InstanceId>, Option<&crate::level::Placed>, &mut crate::fx::Destructible)>,
     cam: Query<&GlobalTransform, With<Camera3d>>,
@@ -1010,6 +1015,10 @@ pub(crate) fn drive(
         if let Some(name) = &e.note {
             pt.notes.insert(name.clone(), state.0.clone());
             info!("EVENT playtest: state noted as {name}");
+        }
+        if let Some(changes) = &e.options {
+            *game_options = game_options.with_changes(changes);
+            info!("EVENT playtest: options changed: {}", serde_json::Value::Object(changes.clone()));
         }
         let perf_run = std::env::var("AND_PERF").is_ok_and(|v| v == "1");
         if let (Some(want), false) = (&e.expect_perf, perf_run) {

@@ -10,7 +10,8 @@
 //! (m_control->m_inputActions) are `bindings` (bindings.rs). Defaults are the original's (0x00401a80): volumes 0.8, brightness 1.5, draw
 //! distance 1.0, shadows on, mouse sensitivity 0.5; both subtitle options on (guess: 0x00447630 picks the default
 //! by language). Applied to the engine whenever they change: the mixer, the subtitle line, the shadow-casting sun,
-//! camera exposure (brightness), the far plane (draw distance), the window size, mouse look (player.rs).
+//! the far plane (draw distance), mouse look (player.rs); the brightness and the window by display/brightness.rs and
+//! display/window.rs.
 
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -160,6 +161,21 @@ impl GameOptions {
         }
     }
 
+    /// These options with some changed by name, as `from_json` reads a file (a value of the wrong type keeps the
+    /// option); an object value (`graphics`) is merged key by key into the option's own. Playtests' "options" steps.
+    pub fn with_changes(&self, changes: &serde_json::Map<String, serde_json::Value>) -> Self {
+        let Ok(serde_json::Value::Object(mut v)) = serde_json::to_value(self) else { return self.clone() };
+        for (k, c) in changes {
+            match (v.get_mut(k), c) {
+                (Some(serde_json::Value::Object(cur)), serde_json::Value::Object(add)) => cur.extend(add.clone()),
+                _ => {
+                    v.insert(k.clone(), c.clone());
+                }
+            }
+        }
+        Self::from_json(&serde_json::Value::Object(v).to_string())
+    }
+
     /// Mouse look factor relative to the default (sensitivity 0.5 = 1.0).
     pub fn mouse_factor(&self) -> f32 {
         (self.mouse_sensitivity / 0.5).max(0.05)
@@ -205,10 +221,8 @@ fn apply(
     mut hud: ResMut<crate::hud::HudState>,
     mut lights: Query<&mut DirectionalLight, With<ShadowLight>>,
     cams: Query<(Entity, &Projection), With<Camera3d>>,
-    mut windows: Query<&mut Window>,
     mut seen_cams: crate::levelreset::PerLevel<usize>,
     game_lights: Option<Res<crate::gamematerial::GameLights>>,
-    (windowed, mut state): (Option<Res<Windowed>>, Option<ResMut<crate::playtest::PlayState>>),
 ) {
     // a camera spawned after the last change (level start) gets the options too
     let n = cams.iter().count();
@@ -228,12 +242,8 @@ fn apply(
     for mut l in &mut lights {
         l.shadow_maps_enabled = o.shadows;
     }
+    // brightness: display/brightness.rs (the exposure step, or the original's gamma ramp); the window: display/window.rs
     for (e, p) in &cams {
-        // brightness: the original's gamma 1.5 is exposure 0; one step of 1.0 is one stop
-        commands.entity(e).insert(bevy::render::view::ColorGrading {
-            global: bevy::render::view::ColorGradingGlobal { exposure: o.brightness - 1.5, ..default() },
-            ..default()
-        });
         if let Projection::Perspective(pp) = p {
             let mut pp = pp.clone();
             let fog_far = game_lights.as_ref().and_then(|l| l.fog.map(|f| f.1)).unwrap_or(1500.0);
@@ -242,21 +252,6 @@ fn apply(
             // objects also stay out of the remaster's depth prepass, where their clipped depth would hide the sky
             pp.far = world_far(fog_far, o.draw_distance);
             commands.entity(e).insert(Projection::Perspective(pp));
-        }
-    }
-    // tool runs stay windowed (main.rs inserts Windowed); the option is still logged so a script can check it
-    let full = o.fullscreen && windowed.is_none();
-    for mut w in &mut windows {
-        let mode = if full { bevy::window::WindowMode::BorderlessFullscreen(bevy::window::MonitorSelection::Current) } else { bevy::window::WindowMode::Windowed };
-        if w.mode != mode {
-            w.mode = mode;
-        }
-        if !full && o.resolution != (0, 0) && (w.resolution.width() as u32, w.resolution.height() as u32) != o.resolution {
-            w.resolution.set(o.resolution.0 as f32, o.resolution.1 as f32);
-        }
-        if let Some(s) = state.as_mut() {
-            let size = if !full && o.resolution != (0, 0) { o.resolution } else { (w.resolution.width() as u32, w.resolution.height() as u32) };
-            s.0.insert("window".into(), serde_json::json!({ "fullscreen": o.fullscreen, "width": size.0, "height": size.1, "brightness": o.brightness, "shadows": o.shadows, "draw_distance": o.draw_distance, "graphics_preset": o.graphics_preset, "graphics": o.graphics }));
         }
     }
 }

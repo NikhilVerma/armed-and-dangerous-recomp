@@ -145,6 +145,10 @@ pub struct GraphicsSettings {
     pub corpse_fade: f32,
     /// ragdolls down at once; a death beyond it is animated (the original's 4: Character_GoRagdoll 0x00431310)
     pub ragdoll_limit: u32,
+    /// the display, view and UI-layout settings (display/mod.rs: fov, hor_plus, letterbox, fps_limit, render_scale,
+    /// ...), flattened: one key each in the options' `graphics` changes
+    #[serde(flatten)]
+    pub display: crate::display::DisplaySettings,
 }
 
 impl GraphicsSettings {
@@ -177,6 +181,7 @@ impl GraphicsSettings {
             corpse_time: 0.0,
             corpse_fade: 0.0,
             ragdoll_limit: 4,
+            display: crate::display::DisplaySettings::original(),
         }
     }
 
@@ -199,6 +204,7 @@ impl GraphicsSettings {
             corpse_time: 60.0,
             corpse_fade: 1.5,
             ragdoll_limit: 16,
+            display: crate::display::DisplaySettings::remaster(),
             ..Self::original()
         }
     }

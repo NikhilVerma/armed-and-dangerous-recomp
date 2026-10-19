@@ -1249,6 +1249,42 @@ Debt / tuning items (guesses labelled in the code):
 | PR4 | The shrub patrols' voice sets alternate by load order (the original's test is not traced) | trace ShrubPatrol's setup flags |
 | PR5 | The red flag fx on the defence HUD's flag base (fx_red_flag on the UI object's ref_flag, 0x00465d50) is not drawn | trace how an fx on a UI object is placed |
 
+## Display, view and UI settings (2026-10-19, agent-port-display)
+
+The old remaster's [camera] / [display] / [ui] options (hook/enhance/camera.cpp, display.cpp, ui_aspect.cpp) ported to
+engine/src/display/, one plugin per mechanism. Each is a field of `DisplaySettings`, flattened into
+`GraphicsSettings` (one key each in options.json `graphics`, `--graphics key=value`, the presets); the Original preset
+has the original game's behaviour, the Remaster preset the old remaster's defaults. The Display page (Options ->
+Display, gamemenu.rs `display_page`) shows them all; changes apply at once (the old Remaster page's live callbacks).
+
+| Setting | Original | Remaster | Module: how |
+| --- | --- | --- | --- |
+| fov (0.75..1.75), fov_zoom | 1.0, off | 1.0, off | view.rs `shown_lens` (Camera_Adjust): tan(fov / 2) x scale; a lens under 95 % of the camera's base (zoom) keeps its own unless fov_zoom |
+| hor_plus | off | on | view.rs: the viewport's aspect (vertical kept); off, the original's 1.72 (4:3 / 0.775) projection stretched over the band (4:3 without the letterbox); without the letterbox a view narrower than 1.72 widens vertically |
+| letterbox | on | off | view.rs: the game view's viewport is the band y 11.25 %, h 77.5 % (0x005bcf24 / 0x005bcf28), black quads above and below (Bevy clears the whole target with the fog colour); in play and cutscenes alike: the original's letterbox is unconditional, not a cinematic effect |
+| fps_limit (0..240) | 0 | 0 | frame_limit.rs (DisplayBeforePresent): wait in `Last` until 1 / limit since the last frame, Sleep(1) while > 2 ms left, then spin |
+| render_scale (0.5..2.0), dpi_aware | 1.0, off | 1.0, on | render_scale.rs: at an effective scale != 1 the game view draws into an image of window x scale (x 1 / the desktop's scale factor when not DPI aware, as Windows shows a DPI-unaware program); the HUD camera shows it bilinearly under the HUD. Tool runs count as DPI aware |
+| fullscreen_mode (Display mode) | borderless | borderless | window.rs: with the options' Fullscreen: exclusive fullscreen at the chosen resolution, or a borderless window over the monitor (the old Vulkan "Fullscreen"); Windowed = Fullscreen off |
+| all_modes | off | on | window.rs: the Resolution stepper offers the monitor's modes 640..1600 wide in 16:9 / 4:3 / 5:4 (display_modes.cpp), or every mode from 640 wide |
+| brightness_shader | off | on | brightness.rs: the brightness option as the original's gamma ramp, Bevy's colour-grading gamma (pow(c, 1 / brightness), vk_present.cpp's curve) on the game view; off, the engine's exposure step (1.5 = unchanged) |
+| ui_anchor | off | on | ui.rs `UiLayout` (BeginDraw): HUD pinned to the edges and menus centred, or the whole 640 x 480 layout stretched; hud.rs `place`, the menu and pub cursors, the lock markers use it |
+| text_scale (1.0..2.5), text_relative | 1.0, off | 1.0, on | ui.rs: text at the layout's height scale or in screen pixels, times text_scale (at most 1 on the menus' grid); menu hit boxes follow the drawn text |
+
+Deviations, labelled: `dpi_aware` defaults on in the Remaster (the old remaster's single default was 0, which would
+blur the remaster at 150 % desktop scaling; the engine was always sharp). `fullscreen_mode` defaults to borderless in
+both presets (the old default 0 was a window covering the monitor on the Vulkan backend). The gamma curve does not
+reach the HUD (its own camera after the grading; the device ramp did). A `--camera` run renders the original's strip
+itself, so main.rs adds `letterbox=false,hor_plus=true` to it (its framing unchanged).
+
+Tests (engine/playtests): display_view (after_pub, Remaster, 1280x720: Hor+ 62.2 degrees horizontal at 16:9, stretched
+4:3 with hor_plus off, fov 1.25 -> 46.0 degrees vertical with the game's lens unchanged, the letterbox band 81 / 558
+with bars, text_scale 2 doubles the HUD text, text_relative off gives pixel-sized text, render_scale 0.5 -> 640x360
+picture, fps_limit 20 -> frame >= 46 ms); display_letterbox (Original, the level's opening camera path: band 42 / 288
+at 640x372 and 81 / 558 at 1280x720, 1.72 projection, pixel text); display_page (the page with the keys: every stepper
+and checkbox writes its setting). Playtest step `{"options": {...}}` (playtest.rs) changes options as a menu would
+(object values such as `graphics` merged key by key). State log `display`: vfov / hfov / aspect from the view's
+matrix, game_fov, viewport_y / viewport_h, bars, render_w / render_h, frame_ms, hud_text_scale.
+
 ## Running tests without disturbing the desktop
 
 - `--background`: the window opens off-screen, unfocused, behind everything, not in the taskbar; screenshots still

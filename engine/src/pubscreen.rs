@@ -329,7 +329,7 @@ fn input(
     data: Res<crate::gamedata::GameData>,
     mouse: Res<ButtonInput<MouseButton>>,
     mut stop: MessageWriter<crate::audio::StopSound>,
-    (windows, slots, mut last): (Query<&Window>, Query<(&PubSlot, &HudElement)>, Local<Option<Vec2>>),
+    (windows, slots, mut last, settings): (Query<&Window>, Query<(&PubSlot, &HudElement)>, Local<Option<Vec2>>, Res<crate::graphics::GraphicsSettings>),
 ) {
     if !screen.open || menu.page != Page::Pub {
         return;
@@ -351,13 +351,12 @@ fn input(
     }
     let map = slot_map(&slots);
     // the pointer (the pub screen shows the mouse cursor: 0x004930c0 sets the HUD's +0x50), mapped to the layout (the
-    // menus' height / 480 about the centre): the slot under it, or the exit prompt (remaster)
+    // menus' mapping, display/ui.rs): the slot under it, or the exit prompt (remaster)
     let mut pointed: Option<SlotRef> = None;
     let mut pointer_exit = false;
     let mut moved = false;
     if let Some((w, c)) = windows.single().ok().and_then(|w| w.cursor_position().map(|c| (w, c))) {
-        let k = w.height() / 480.0;
-        let p = Vec2::new(320.0 + (c.x - w.width() / 2.0) / k, 240.0 - (c.y - w.height() / 2.0) / k);
+        let p = crate::display::ui::UiLayout::new(&settings.display, Vec2::new(w.width(), w.height())).to_layout(c, true);
         moved = last.is_some_and(|l| l.distance(c) > 0.5);
         *last = Some(c);
         pointed = map.iter().find(|(r, (pos, _))| r.0 != PubSlotKind::Bombs && (p - *pos).abs().cmple(SLOT_HIT).all()).map(|(r, _)| *r);

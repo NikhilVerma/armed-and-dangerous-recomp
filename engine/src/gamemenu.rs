@@ -56,6 +56,9 @@ pub enum Page {
     Movies,
     /// the exit screen ("ExitMenu", 0x00493770): the game quits once the menu has faded to it (splash.rs)
     Exit,
+    /// remaster: the display, view and UI-layout settings (display/: the old remaster's [camera] / [display] / [ui]
+    /// pages), applied as they change
+    Display,
 }
 
 /// The art behind a page.
@@ -74,7 +77,7 @@ impl Page {
         match self {
             Page::Main | Page::Options | Page::Extras | Page::Exit => Back::Title,
             // the save page draws ui_background (layout.json pui_savegame: model ui_background_01)
-            Page::Gfx | Page::Sfx | Page::Controls | Page::Cheats | Page::Credits | Page::SaveSlots | Page::LoadSlots | Page::Replay | Page::Movies => Back::Shell,
+            Page::Gfx | Page::Sfx | Page::Controls | Page::Cheats | Page::Credits | Page::SaveSlots | Page::LoadSlots | Page::Replay | Page::Movies | Page::Display => Back::Shell,
             Page::YesNo | Page::Pause | Page::Failed | Page::Pub | Page::Stats => Back::Game,
         }
     }
@@ -120,6 +123,8 @@ pub enum Opt {
     Music,
     Voice,
     MouseSens,
+    /// remaster: a stepper of the Display page (display/menu.rs)
+    Display(crate::display::menu::Stepper),
 }
 
 /// A checkbox.
@@ -135,6 +140,8 @@ pub enum Flag {
     Fullscreen,
     /// remaster: a boolean presentation setting by its name in graphics.rs (options.json `graphics`)
     Graphics(&'static str),
+    /// remaster: a boolean display setting by its name (display/mod.rs), on the Display page: applied at once
+    Display(&'static str),
 }
 
 /// The options the graphics page edits on its copy (Apply keeps them, Cancel drops them).
@@ -395,7 +402,7 @@ fn log_menu(
     menu: Res<GameMenu>,
     rows: Query<(&MenuRow, &crate::hud::HudElement)>,
     state: Option<ResMut<crate::playtest::PlayState>>,
-    (opts, windows, parts): (Res<GameOptions>, Query<&Window>, Query<(&Part, &Visibility)>),
+    (opts, windows, parts, modes): (Res<GameOptions>, Query<&Window>, Query<(&Part, &Visibility)>, Res<crate::display::window::DisplayModes>),
 ) {
     let Some(mut state) = state else { return };
     let prefix = format!("menu_{:?}_", menu.page);
@@ -403,9 +410,9 @@ fn log_menu(
     let row = rows.iter().find(|(r, _)| r.page == menu.page && r.order.is_some() && r.order == sel_order);
     let sel = row.map(|(_, h)| h.name.trim_start_matches(&prefix).to_owned());
     // the selected stepper's value text (the graphics page's edit copy while it is open)
-    let win = windows.single().map(|w| (w.resolution.width() as u32, w.resolution.height() as u32)).unwrap_or((1920, 1080));
+    let screen = Screen::new(&windows, &modes);
     let value = row.and_then(|(r, _)| match r.act {
-        Act::Slide(o) => Some(value(if on_gfx_copy(o) { menu.edit.as_ref().unwrap_or(&opts) } else { &opts }, o, win).1),
+        Act::Slide(o) => Some(value(if on_gfx_copy(o) { menu.edit.as_ref().unwrap_or(&opts) } else { &opts }, o, &screen).1),
         _ => None,
     });
     let cheats_shown = parts.iter().filter(|(p, v)| matches!(p.kind, PartKind::CheatName(_)) && **v != Visibility::Hidden).count();
@@ -678,6 +685,42 @@ impl Spawner<'_, '_, '_> {
         self.commands.entity(b).add_children(&[outline, inside, fill]);
     }
 
+    /// The Display page (remaster; the old remaster's [camera] / [display] / [ui] settings, display/): the graphics
+    /// page's look (title, steppers from y 366.691 24 apart, two columns of checkboxes), changes applied at once.
+    fn display_page(&mut self) {
+        use crate::display::menu::Stepper;
+        let p = Page::Display;
+        let it = |y: f32| Vec2::new(171.215, y);
+        self.row(p, "Display", Vec2::new(320.0, 420.996), 1.4, GREEN, Act::None, 0.0);
+        let steppers = [
+            ("Display mode", Stepper::DisplayMode),
+            ("Render scale", Stepper::RenderScale),
+            ("Frame rate limit", Stepper::FpsLimit),
+            ("Field of view", Stepper::Fov),
+            ("Text size", Stepper::TextScale),
+        ];
+        for (i, (label, st)) in steppers.into_iter().enumerate() {
+            self.slider(p, label, it(366.691 - 24.0 * i as f32), 1.0, Opt::Display(st), true);
+        }
+        // checkboxes: the box before the label, two columns (as the graphics page's)
+        let checks = [
+            ("Widescreen (Hor+)", "hor_plus"),
+            ("FOV when zoomed", "fov_zoom"),
+            ("Cinematic letterbox", "letterbox"),
+            ("4:3 HUD and menus", "ui_anchor"),
+            ("Text follows res.", "text_relative"),
+            ("Gamma brightness", "brightness_shader"),
+            ("All resolutions", "all_modes"),
+            ("Sharp on high-DPI", "dpi_aware"),
+        ];
+        for (i, (label, key)) in checks.into_iter().enumerate() {
+            let y = 230.0 - 24.0 * (i / 2) as f32;
+            let (box_x, label_x) = if i % 2 == 0 { (51.0, 171.215) } else { (346.0, 465.773) };
+            self.check(p, label, box_x, label_x, y, Some(Flag::Display(key)), false);
+        }
+        self.row(p, "ui_shellmenu_back", Vec2::new(320.0, 60.44), 1.4, YELLOW, Act::Back, 0.0);
+    }
+
     /// A page's art: the texture over the 640x480 screen and a black backdrop to the window's edges.
     fn art(&mut self, back: Back, tex: Handle<Image>) {
         let backdrop = self.rect(Vec2::new(4000.0, 480.0), Color::BLACK, 1.0);
@@ -749,6 +792,8 @@ pub fn spawn(commands: &mut Commands, assets: &AssetServer, meshes: &mut Assets<
         for (id, y, act) in opts {
             s.row(Page::Options, id, Vec2::new(320.0, y), 1.3, if act == Act::None { DISABLED } else { ORANGE }, act, 0.0);
         }
+        // remaster: the Display page, in the next row of the original's spacing (48)
+        s.row(Page::Options, "Display", Vec2::new(320.0, 134.659), 1.3, ORANGE, Act::Go(Page::Display), 0.0);
         s.row(Page::Options, "ui_shellmenu_back", Vec2::new(320.0, 60.44), 1.4, YELLOW, Act::Back, 0.0);
 
         // extras, replay level, cutscenes: built each time they open, from what is unlocked (`extras_pages`)
@@ -779,6 +824,8 @@ pub fn spawn(commands: &mut Commands, assets: &AssetServer, meshes: &mut Assets<
         s.check(Page::Gfx, "Soft Shadows", 346.0, 465.773, 80.0, Some(Flag::Graphics("soft_shadows")), false);
         s.row(Page::Gfx, "ui_gfxmenu_apply", Vec2::new(320.0, 60.44), 1.2, GREEN, Act::Apply, 0.0);
         s.row(Page::Gfx, "ui_shellmenu_cancel", Vec2::new(320.0, 36.44), 1.1, GREEN, Act::Cancel, 0.0);
+
+        s.display_page();
 
         // audio (pui_sfxopt; orig_ui_sfx-1120.png)
         s.row(Page::Sfx, "ui_sfxmenu_title", Vec2::new(320.0, 420.996), 1.4, Color::WHITE, Act::None, 0.0);
@@ -935,12 +982,14 @@ fn save_to_slot(req: &mut crate::savegame::SaveRequest, slot: u8) {
 
 /// A row's hit box in 640 x 480 units (corners): its text's bounds (TextSize, placed by its TextAlign) grown by 32 in
 /// x and 4 in y (UiText_SetBounds 0x004655b0: 32 and 4 pixels at the original's 640 x 480), joined with its `extra`
-/// x range. None before the text is built.
-fn hit_box(r: &MenuRow, e: &HudElement, size: Option<&TextSize>, align: Option<&TextAlign>) -> Option<(Vec2, Vec2)> {
+/// x range. None before the text is built. `drawn`: how much larger the text is drawn than its layout size (the text
+/// size settings, display/ui.rs `text_box_scale`: the boxes follow the drawn text, as the old remaster's
+/// g_uiHitScale).
+fn hit_box(r: &MenuRow, e: &HudElement, size: Option<&TextSize>, align: Option<&TextAlign>, drawn: Vec2) -> Option<(Vec2, Vec2)> {
     if r.panel.is_some() {
         return r.panel;
     }
-    let size = size?.0;
+    let size = size?.0 * drawn;
     let cx = e.pos.x - align.map(|a| a.0).unwrap_or(0.0) * size.x / 2.0;
     let mut lo = Vec2::new(cx - size.x / 2.0 - 32.0, e.pos.y - size.y / 2.0 - 4.0);
     let mut hi = Vec2::new(cx + size.x / 2.0 + 32.0, e.pos.y + size.y / 2.0 + 4.0);
@@ -985,7 +1034,7 @@ fn navigate(
     mut cheats: ResMut<crate::cheats::Cheats>,
     mouse: Res<ButtonInput<MouseButton>>,
     mut restart: ResMut<crate::levelreset::RestartLevel>,
-    (placed, names, mut last_cursor, time_real, mut save_t, mut replay, mut movies): (
+    (placed, names, mut last_cursor, time_real, mut save_t, mut replay, mut movies, modes, settings): (
         Query<(&MenuRow, &HudElement, Option<&TextSize>, Option<&TextAlign>)>,
         Query<(&Part, &HudElement, Option<&TextSize>, &Visibility)>,
         Local<Option<Vec2>>,
@@ -993,6 +1042,8 @@ fn navigate(
         Local<f32>,
         ResMut<crate::campaign::ReplayMode>,
         MessageWriter<crate::movie::PlayMovies>,
+        Res<crate::display::window::DisplayModes>,
+        Res<crate::graphics::GraphicsSettings>,
     ),
 ) {
     cheats.entering = menu.page == Page::Cheats && *state.get() != AppState::Playing;
@@ -1007,16 +1058,15 @@ fn navigate(
     }
     // the mouse in the menus (the original: Mouse 1 selects, Mouse 2 cancels): the row under the cursor is selected
     // when the cursor moves, a click activates it. Cursor (window pixels, y down) -> the menus' 640x480 space (y up),
-    // scaled by height / 480 about the centre (hud.rs place)
+    // as hud.rs place maps it (display/ui.rs: ui_aspect.cpp CursorToLayout)
     let mut hovered: Option<usize> = None;
     let mut cursor_moved = false;
     let mut cursor: Option<Vec2> = None;
     if *state.get() != AppState::Playing {
         if let Ok(w) = windows.single() {
             if let Some(c) = w.cursor_position() {
-                let (ww, wh) = (w.width(), w.height());
-                let s = wh / 480.0;
-                let p = Vec2::new(320.0 + (c.x - ww / 2.0) / s, 240.0 - (c.y - wh / 2.0) / s);
+                let layout = crate::display::ui::UiLayout::new(&settings.display, Vec2::new(w.width(), w.height()));
+                let p = layout.to_layout(c, true);
                 cursor = Some(p);
                 cursor_moved = last_cursor.is_some_and(|l| l.distance(c) > 0.5);
                 *last_cursor = Some(c);
@@ -1026,13 +1076,13 @@ fn navigate(
                 hovered = placed
                     .iter()
                     .filter(|(r, ..)| r.page == menu.page && r.order.is_some() && r.on_device())
-                    .filter(|(r, e, size, align)| hit_box(r, e, *size, *align).is_some_and(|(lo, hi)| p.cmpge(lo).all() && p.cmple(hi).all()))
+                    .filter(|(r, e, size, align)| hit_box(r, e, *size, *align, layout.text_box_scale(true)).is_some_and(|(lo, hi)| p.cmpge(lo).all() && p.cmple(hi).all()))
                     .min_by(|a, b| (p.y - a.1.pos.y).abs().total_cmp(&(p.y - b.1.pos.y).abs()))
                     .and_then(|(r, ..)| r.order);
             }
         }
     }
-    let win = windows.single().map(|w| (w.resolution.width() as u32, w.resolution.height() as u32)).unwrap_or((1920, 1080));
+    let screen = Screen::new(&windows, &modes);
     // the cheat page: a click on a cheat's name types its code and checks it (Cheats_Check 0x004107c0, state 1)
     if menu.page == Page::Cheats && mouse.just_pressed(MouseButton::Left) {
         if let Some(p) = cursor {
@@ -1058,9 +1108,9 @@ fn navigate(
                 }
                 let frac = (p.x - (e.pos.x + 80.0)) / 192.0;
                 let target = if on_gfx_copy(o) { menu.edit.get_or_insert_with(|| opts.clone()) } else { &mut *opts };
-                let before = value(target, o, win).1;
-                set_position(target, o, frac, win);
-                if value(target, o, win).1 != before {
+                let before = value(target, o, &screen).1;
+                set_position(target, o, frac, &screen);
+                if value(target, o, &screen).1 != before {
                     sounds.write(crate::audio::PlaySound::menu("ui_move"));
                 }
             }
@@ -1170,7 +1220,7 @@ fn navigate(
     if step != 0.0 {
         if let Act::Slide(o) = cur {
             let target = if on_gfx_copy(o) { menu.edit.get_or_insert_with(|| opts.clone()) } else { &mut *opts };
-            slide(target, o, step, win);
+            slide(target, o, step, &screen);
             play(&mut sounds, "ui_move");
         }
     }
@@ -1339,7 +1389,7 @@ fn navigate(
                 Flag::InvertMouse => target.invert_mouse = !target.invert_mouse,
                 Flag::AutoAim => target.auto_aim = !target.auto_aim,
                 Flag::Fullscreen => target.fullscreen = !target.fullscreen,
-                Flag::Graphics(key) => crate::graphics::menu::toggle(target, key),
+                Flag::Graphics(key) | Flag::Display(key) => crate::graphics::menu::toggle(target, key),
             }
         }
         Act::Rebind(bind, device) => {
@@ -1350,8 +1400,29 @@ fn navigate(
     play(&mut sounds, if matches!(act, Act::Back | Act::No | Act::Cancel) { "ui_cancel" } else { "ui_select" });
 }
 
-/// The window sizes offered by "Resolution" (the launch size is added when not listed).
-const SIZES: [(u32, u32); 6] = [(1280, 720), (1600, 900), (1920, 1080), (2560, 1440), (3440, 1440), (3840, 2160)];
+/// What the steppers need to know of the screen: the window's size (the Resolution stepper's value until one is
+/// chosen) and the monitor's modes (display/window.rs: the resolutions offered).
+pub struct Screen<'a> {
+    pub win: (u32, u32),
+    pub modes: &'a crate::display::window::DisplayModes,
+}
+
+impl Screen<'_> {
+    fn new<'a>(windows: &Query<&Window>, modes: &'a crate::display::window::DisplayModes) -> Screen<'a> {
+        let win = windows.single().map(|w| (w.resolution.width() as u32, w.resolution.height() as u32)).unwrap_or((1920, 1080));
+        Screen { win, modes }
+    }
+
+    /// The resolutions the Resolution stepper offers for these options (`all_modes`) and the size in effect.
+    fn resolutions(&self, o: &GameOptions) -> (Vec<(u32, u32)>, (u32, u32)) {
+        let cur = if o.resolution == (0, 0) { self.win } else { o.resolution };
+        let all = crate::graphics::resolve(o.graphics_preset, &o.graphics).display.all_modes;
+        (self.modes.offered(all, cur), cur)
+    }
+}
+
+/// The Resolution gauge's ticks (its list follows the monitor and `all_modes`: display/window.rs).
+const RESOLUTION_TICKS: usize = 6;
 
 /// The steppers' ranges (GfxMenu_SetupWidget 0x004710d0, UiScreen_InitItem 0x00491b70): (min, max, positions).
 /// Brightness 1.0..2.0 in 11, draw distance 0.25..1.0 in 16, mouse scale 0..1 in 21, the three volumes 0..1 in 21.
@@ -1360,9 +1431,10 @@ fn range(opt: Opt) -> (f32, f32, usize) {
         Opt::Brightness => (1.0, 2.0, 11),
         Opt::DrawDistance => (0.25, 1.0, 16),
         Opt::MouseSens | Opt::Effects | Opt::Music | Opt::Voice => (0.0, 1.0, 21),
-        Opt::Resolution => (0.0, 1.0, SIZES.len()),
+        Opt::Resolution => (0.0, 1.0, RESOLUTION_TICKS),
         Opt::Preset => (0.0, 1.0, crate::graphics::menu::PRESETS.len()),
         Opt::AntiAliasing => (0.0, 1.0, crate::graphics::AntiAliasing::ALL.len()),
+        Opt::Display(s) => (0.0, 1.0, s.positions()),
     }
 }
 
@@ -1386,7 +1458,7 @@ fn value_at(opt: Opt, i: usize) -> f32 {
 }
 
 /// Left / right steps the index by one (Stepper_HandleInput 0x0046d290: bits 4 / 8), not past the ends.
-fn slide(o: &mut GameOptions, opt: Opt, step: f32, win: (u32, u32)) {
+fn slide(o: &mut GameOptions, opt: Opt, step: f32, screen: &Screen) {
     let bump = |v: f32| value_at(opt, (index_of(opt, v) as i32 + step as i32).max(0) as usize);
     match opt {
         Opt::Brightness => o.brightness = bump(o.brightness),
@@ -1403,13 +1475,12 @@ fn slide(o: &mut GameOptions, opt: Opt, step: f32, win: (u32, u32)) {
             let i = crate::graphics::menu::aa_index(o) as i32 + step as i32;
             crate::graphics::menu::set_aa(o, i.clamp(0, positions(opt) as i32 - 1) as usize);
         }
+        Opt::Display(s) => {
+            let i = s.index(o) as i32 + step as i32;
+            s.set_index(o, i.clamp(0, s.positions() as i32 - 1) as usize);
+        }
         Opt::Resolution => {
-            let cur = if o.resolution == (0, 0) { win } else { o.resolution };
-            let mut list: Vec<(u32, u32)> = SIZES.to_vec();
-            if !list.contains(&cur) {
-                list.push(cur);
-                list.sort();
-            }
+            let (list, cur) = screen.resolutions(o);
             let i = list.iter().position(|s| *s == cur).unwrap_or(0) as i32;
             let j = (i + step as i32).clamp(0, list.len() as i32 - 1) as usize;
             o.resolution = list[j];
@@ -1419,8 +1490,11 @@ fn slide(o: &mut GameOptions, opt: Opt, step: f32, win: (u32, u32)) {
 
 /// A click on a stepper's track (Stepper_HandleInput 0x0046d290: x 80..272, y -6..6 around the item) sets its
 /// position: index = ftol((0.5 / steps + position) * steps) (Stepper_SetPosition 0x0046ce70).
-fn set_position(o: &mut GameOptions, opt: Opt, frac: f32, win: (u32, u32)) {
-    let n = positions(opt);
+fn set_position(o: &mut GameOptions, opt: Opt, frac: f32, screen: &Screen) {
+    let n = match opt {
+        Opt::Resolution => screen.resolutions(o).0.len().max(2),
+        _ => positions(opt),
+    };
     let i = ((0.5 / (n - 1) as f32 + frac.clamp(0.0, 1.0)) * (n - 1) as f32).floor().min((n - 1) as f32) as usize;
     let v = value_at(opt, i);
     match opt {
@@ -1432,16 +1506,16 @@ fn set_position(o: &mut GameOptions, opt: Opt, frac: f32, win: (u32, u32)) {
         Opt::MouseSens => o.mouse_sensitivity = v,
         Opt::Preset => crate::graphics::menu::set_preset(o, i),
         Opt::AntiAliasing => crate::graphics::menu::set_aa(o, i),
+        Opt::Display(s) => s.set_index(o, i),
         Opt::Resolution => {
-            let cur = if o.resolution == (0, 0) { win } else { o.resolution };
-            let _ = cur;
-            o.resolution = SIZES[i.min(SIZES.len() - 1)];
+            let (list, _) = screen.resolutions(o);
+            o.resolution = list[i.min(list.len() - 1)];
         }
     }
 }
 
 /// A value's bar fraction (the stepper's position, index / steps) and text.
-fn value(o: &GameOptions, opt: Opt, win: (u32, u32)) -> (f32, String) {
+fn value(o: &GameOptions, opt: Opt, screen: &Screen) -> (f32, String) {
     let frac = |v: f32| index_of(opt, v) as f32 / (positions(opt) - 1) as f32;
     match opt {
         // 0x00470eb0 / 0x00470f20 / 0x00471050 / 0x0048fef0 set the value texts: "1.5", "100%", "50"
@@ -1453,9 +1527,10 @@ fn value(o: &GameOptions, opt: Opt, win: (u32, u32)) -> (f32, String) {
         Opt::MouseSens => (frac(o.mouse_sensitivity), format!("{:.0}", o.mouse_sensitivity * 100.0)),
         Opt::Preset => (crate::graphics::menu::preset_index(o) as f32 / (positions(opt) - 1) as f32, crate::graphics::menu::preset_text(o)),
         Opt::AntiAliasing => (crate::graphics::menu::aa_index(o) as f32 / (positions(opt) - 1) as f32, crate::graphics::menu::aa_text(o)),
+        Opt::Display(s) => (s.index(o) as f32 / (s.positions() - 1) as f32, s.text(o)),
         Opt::Resolution => {
-            let r = if o.resolution == (0, 0) { win } else { o.resolution };
-            let i = SIZES.iter().position(|s| *s == r).map(|i| i as f32 / (SIZES.len() - 1) as f32).unwrap_or(0.5);
+            let (list, r) = screen.resolutions(o);
+            let i = list.iter().position(|s| *s == r).map(|i| i as f32 / (list.len().max(2) - 1) as f32).unwrap_or(0.5);
             (i, format!("{}x{}", r.0, r.1))
         }
     }
@@ -1615,8 +1690,9 @@ fn values(
     checks: Query<(&CheckFill, &MeshMaterial2d<ColorMaterial>)>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     bank: Res<Texts>,
+    modes: Res<crate::display::window::DisplayModes>,
 ) {
-    let win = windows.single().map(|w| (w.resolution.width() as u32, w.resolution.height() as u32)).unwrap_or((1920, 1080));
+    let screen = Screen::new(&windows, &modes);
     let gfx = menu.edit.as_ref().unwrap_or(&opts);
     let pick = |o: Opt| -> &GameOptions { if on_gfx_copy(o) { gfx } else { &opts } };
     for (p, mut t, mut vis) in &mut texts {
@@ -1664,7 +1740,7 @@ fn values(
             continue;
         }
         if let PartKind::Value(o) = p.kind {
-            let s = value(pick(o), o, win).1;
+            let s = value(pick(o), o, &screen).1;
             if t.text != s {
                 t.text = s;
             }
@@ -1673,7 +1749,7 @@ fn values(
     // the fill: from +80 to 80 + position x 192 (0x0046d130; the gauge entity sits at +176)
     let w = 192.0;
     for (f, mut tr) in &mut fills {
-        let frac = value(pick(f.0), f.0, win).0.clamp(0.0, 1.0);
+        let frac = value(pick(f.0), f.0, &screen).0.clamp(0.0, 1.0);
         tr.scale.x = (w * frac).max(0.01);
         tr.translation.x = 80.0 - 176.0 + w * frac / 2.0;
     }
@@ -1686,6 +1762,7 @@ fn values(
             Flag::AutoAim => opts.auto_aim,
             Flag::Fullscreen => gfx.fullscreen,
             Flag::Graphics(key) => crate::graphics::menu::flag(gfx, key),
+            Flag::Display(key) => crate::graphics::menu::flag(&opts, key),
         };
         if let Some(mut mat) = materials.get_mut(&m.0) {
             mat.color = if on { Color::srgb(0.55, 0.05, 0.05) } else { Color::srgb(0.05, 0.08, 0.1) };
