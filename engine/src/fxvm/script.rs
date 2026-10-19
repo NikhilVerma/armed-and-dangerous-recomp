@@ -473,6 +473,7 @@ pub fn run_script(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_>, idx: usize, spawned:
                 let g = vm.rng.r(w(1), w(2));
                 if let Some(t) = target {
                     if let Some(o) = vm.objects.get_mut(&t) {
+                        o.gravity = g;
                         make_dynamic(ctx.physics, ctx.commands, o, t, g);
                     }
                 }

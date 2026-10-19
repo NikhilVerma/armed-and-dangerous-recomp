@@ -59,6 +59,8 @@ pub enum Page {
     Movies,
     /// the exit screen ("ExitMenu", 0x00493770): the game quits once the menu has faded to it (splash.rs)
     Exit,
+    /// remaster: Options > Engine, the engine-limit and input settings (enginepage.rs)
+    Engine,
 }
 
 /// The art behind a page.
@@ -77,7 +79,7 @@ impl Page {
         match self {
             Page::Main | Page::Options | Page::Extras | Page::Exit => Back::Title,
             // the save page draws ui_background (layout.json pui_savegame: model ui_background_01)
-            Page::Gfx | Page::GfxDetail | Page::Sfx | Page::Controls | Page::Cheats | Page::Credits | Page::SaveSlots | Page::LoadSlots | Page::Replay | Page::Movies => Back::Shell,
+            Page::Gfx | Page::GfxDetail | Page::Sfx | Page::Controls | Page::Cheats | Page::Credits | Page::SaveSlots | Page::LoadSlots | Page::Replay | Page::Movies | Page::Engine => Back::Shell,
             Page::YesNo | Page::Pause | Page::Failed | Page::Pub | Page::Stats => Back::Game,
         }
     }
@@ -125,6 +127,10 @@ pub enum Opt {
     Music,
     Voice,
     MouseSens,
+    /// remaster: the master volume over the three (options.rs `master_volume`)
+    MasterVolume,
+    /// remaster: a numeric setting of the Engine page by name, stepped through its list (enginepage.rs)
+    Choice(&'static str),
 }
 
 /// A checkbox.
@@ -750,6 +756,8 @@ pub fn spawn(commands: &mut Commands, assets: &AssetServer, meshes: &mut Assets<
             ("ui_mainmenu_controls", 278.659, Act::Go(Page::Controls)),
             ("ui_optionsmenu_reset", 230.659, Act::Ask(Ask::ResetExtras)),
             ("ui_optionsmenu_cheats", 182.659, Act::Go(Page::Cheats)),
+            // remaster: the engine-limit and input settings
+            ("Engine", 134.659, Act::Go(Page::Engine)),
         ];
         for (id, y, act) in opts {
             s.row(Page::Options, id, Vec2::new(320.0, y), 1.3, if act == Act::None { DISABLED } else { ORANGE }, act, 0.0);
@@ -803,9 +811,23 @@ pub fn spawn(commands: &mut Commands, assets: &AssetServer, meshes: &mut Assets<
         s.slider(Page::Sfx, "ui_sfxmenu_soundvolume", it(342.691), 1.0, Opt::Effects, true);
         s.slider(Page::Sfx, "ui_sfxmenu_musicvolume", it(294.691), 1.0, Opt::Music, true);
         s.slider(Page::Sfx, "ui_sfxmenu_voicevolume", it(246.691), 1.0, Opt::Voice, true);
+        // remaster: the master volume over the original's three (after them: the page still opens on Sound Volume)
+        s.slider(Page::Sfx, "Master Volume", it(198.691), 1.0, Opt::MasterVolume, true);
         s.check(Page::Sfx, "ui_sfxmenu_subtitles_movie", 200.0, 320.0, 132.996, Some(Flag::SubsMovie), true);
         s.check(Page::Sfx, "ui_sfxmenu_subtitles_ingame", 200.0, 320.0, 108.996, Some(Flag::SubsGame), true);
         s.row(Page::Sfx, "ui_shellmenu_back", Vec2::new(320.0, 60.44), 1.4, YELLOW, Act::Back, 0.0);
+
+        // remaster: the Engine page (enginepage.rs): checkboxes in the graphics page's two columns, then steppers
+        s.row(Page::Engine, "Engine", Vec2::new(320.0, 420.996), 1.4, GREEN, Act::None, 0.0);
+        for (i, (label, key)) in crate::enginepage::CHECKS.into_iter().enumerate() {
+            let y = 384.0 - 24.0 * (i / 2) as f32;
+            let (box_x, label_x) = if i % 2 == 0 { (51.0, 171.215) } else { (346.0, 465.773) };
+            s.check(Page::Engine, label, box_x, label_x, y, Some(Flag::Graphics(key)), false);
+        }
+        for (i, st) in crate::enginepage::STEPPERS.iter().enumerate() {
+            s.slider(Page::Engine, st.label, it(300.0 - 24.0 * i as f32), 1.0, Opt::Choice(st.key), true);
+        }
+        s.row(Page::Engine, "ui_shellmenu_back", Vec2::new(320.0, 60.44), 1.4, YELLOW, Act::Back, 0.0);
 
         // controls (pui_showcontrols; orig_ui_controls-1100.png): the key binding entries of the device in use
         // (bindings.rs), two columns of "action: inputs" (labels right-aligned at x 172 / 466, inputs from x 187 / 482).
@@ -1349,7 +1371,8 @@ fn navigate(
         }
         Act::Slide(_) => return,
         Act::Toggle(f) => {
-            let target = if flag_on_gfx_copy(f) { menu.edit.get_or_insert_with(|| opts.clone()) } else { &mut *opts };
+            // the graphics page edits its copy (Apply / Cancel); other pages (the Engine page's settings) the options
+            let target = if flag_on_gfx_copy(f) && menu.page == Page::Gfx { menu.edit.get_or_insert_with(|| opts.clone()) } else { &mut *opts };
             match f {
                 Flag::Shadows => target.shadows = !target.shadows,
                 Flag::SubsGame => target.subtitles_game = !target.subtitles_game,
@@ -1377,7 +1400,8 @@ fn range(opt: Opt) -> (f32, f32, usize) {
     match opt {
         Opt::Brightness => (1.0, 2.0, 11),
         Opt::DrawDistance => (0.25, 1.0, 16),
-        Opt::MouseSens | Opt::Effects | Opt::Music | Opt::Voice => (0.0, 1.0, 21),
+        Opt::MouseSens | Opt::Effects | Opt::Music | Opt::Voice | Opt::MasterVolume => (0.0, 1.0, 21),
+        Opt::Choice(key) => (0.0, 1.0, crate::enginepage::count(key).max(2)),
         Opt::Resolution => (0.0, 1.0, SIZES.len()),
         Opt::Preset => (0.0, 1.0, crate::graphics::menu::PRESETS.len()),
         Opt::AntiAliasing => (0.0, 1.0, crate::graphics::AntiAliasing::ALL.len()),
@@ -1415,6 +1439,11 @@ fn slide(o: &mut GameOptions, opt: Opt, step: f32, win: (u32, u32)) {
         Opt::Voice => o.voice_volume = bump(o.voice_volume),
         Opt::MouseSens => o.mouse_sensitivity = bump(o.mouse_sensitivity),
         Opt::Number(key) => crate::graphics::menu::set_number(o, key, bump(crate::graphics::menu::number(o, key))),
+        Opt::MasterVolume => o.master_volume = bump(o.master_volume),
+        Opt::Choice(key) => {
+            let i = crate::enginepage::index(o, key) as i32 + step as i32;
+            crate::enginepage::set(o, key, i.clamp(0, crate::enginepage::count(key) as i32 - 1) as usize);
+        }
         Opt::Preset => {
             let i = crate::graphics::menu::preset_index(o) as i32 + step as i32;
             crate::graphics::menu::set_preset(o, i.clamp(0, positions(opt) as i32 - 1) as usize);
@@ -1451,6 +1480,8 @@ fn set_position(o: &mut GameOptions, opt: Opt, frac: f32, win: (u32, u32)) {
         Opt::Voice => o.voice_volume = v,
         Opt::MouseSens => o.mouse_sensitivity = v,
         Opt::Number(key) => crate::graphics::menu::set_number(o, key, v),
+        Opt::MasterVolume => o.master_volume = v,
+        Opt::Choice(key) => crate::enginepage::set(o, key, i),
         Opt::Preset => crate::graphics::menu::set_preset(o, i),
         Opt::AntiAliasing => crate::graphics::menu::set_aa(o, i),
         Opt::Resolution => {
@@ -1478,6 +1509,8 @@ fn value(o: &GameOptions, opt: Opt, win: (u32, u32)) -> (f32, String) {
             let text = if v == 0.0 && !matches!(key, "aa_mip_bias") { "Off".to_owned() } else { format!("{}", (v * 100.0).round() / 100.0) };
             (frac(v), text)
         }
+        Opt::MasterVolume => (frac(o.master_volume), format!("{:.0}", o.master_volume * 100.0)),
+        Opt::Choice(key) => (crate::enginepage::index(o, key) as f32 / (positions(opt) - 1) as f32, crate::enginepage::text(o, key)),
         Opt::Preset => (crate::graphics::menu::preset_index(o) as f32 / (positions(opt) - 1) as f32, crate::graphics::menu::preset_text(o)),
         Opt::AntiAliasing => (crate::graphics::menu::aa_index(o) as f32 / (positions(opt) - 1) as f32, crate::graphics::menu::aa_text(o)),
         Opt::Resolution => {

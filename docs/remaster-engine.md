@@ -1033,6 +1033,18 @@ writes only differences, a preset choice clears them). Settings and what they us
 | aa_mip_bias | 0 | -1 | the camera's MipBias under TAA, now read by the game material's samples |
 | shadow_strength | 0 (the level's shadow colour) | 0.55 | a full shadow multiplies by (1 - strength) tinted sky blue (the old remaster's shadow apply pass) |
 
+Engine limits and input (2026-10-19, agent-port-limits): the old remaster's `[limits]` / `[persistence]` / `[input]`
+options are settings of the same presets, each group in its own module with its presets (physicsstep.rs: fixed step,
+interpolation, solver iterations, body capacity; pools.rs: decal pool, particle pool scale, path search nodes;
+debris.rs: kept debris; cursor.rs: the menu pointer and the window clip), flattened into `GraphicsSettings` so
+options.json names them directly; the Engine page (enginepage.rs) shows them and the Audio page the master volume.
+Table and mapping: docs/engine-limits.md "Remaster engine (Bevy / Jolt)". These do reach physics: the Original steps
+the world once per frame of at least 1/60 s (the original's frame-tied physics), the Remaster in whole 1/60 s steps;
+at the scripted runs' 60 fps both step exactly 1/60 s, so the playtests see no difference. The solver iterations and
+body capacity apply when a level's world is made. Playtests: limits_decal_pool, limits_debris_keep,
+limits_master_volume (engine/playtests); unit tests in each module (interpolation, frame-tied step, pools, debris,
+cursor grab modes, the page's rows, the path budget).
+
 Traps found on the way:
 - Never give the game material a prepass shader of its own: Bevy then binds the material in every depth-only pass
   and the sun's four shadow cascades lose their batching (4K bench 113 -> 64 fps, in both presets). The depth

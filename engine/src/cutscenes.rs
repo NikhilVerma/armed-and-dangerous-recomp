@@ -87,7 +87,7 @@ impl Plugin for CutscenesPlugin {
 
 /// The options that act on movies: the movie subtitle option (Game+0x176), the master volume.
 fn settings(opts: Res<crate::options::GameOptions>, mixer: Res<crate::audio::Mixer>, mut s: ResMut<MovieSettings>) {
-    let volume = mixer.master;
+    let volume = mixer.master_gain();
     if s.subtitles != opts.subtitles_movie || s.volume != volume {
         s.subtitles = opts.subtitles_movie;
         // guess: the movie stream's level is the master's alone (the stream 0x0050e1a0 creates is in no volume group

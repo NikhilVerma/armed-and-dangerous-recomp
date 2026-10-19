@@ -1,0 +1,120 @@
+{
+ "load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json",
+ "preset": "remaster",
+ "steps": [
+  {
+   "note": "kept explosion debris (debris.rs, the old remaster's KeepDebris): a house's landing debris (fxo_debri_*) outlives its 1-12 s lifespan (the Original's: fx_debris, no fx bodies left at 17 s)"
+  },
+  {
+   "wait": 1.0
+  },
+  {
+   "loadout": {
+    "health": 5000
+   }
+  },
+  {
+   "warp": [
+    -210,
+    380,
+    25,
+    0
+   ]
+  },
+  {
+   "wait": 0.5
+  },
+  {
+   "fx": {
+    "name": "fx_explosion_village_house_1",
+    "at": [
+     -210,
+     480,
+     25
+    ],
+    "clear": true
+   }
+  },
+  {
+   "wait": 2.0
+  },
+  {
+   "expect": {
+    "debris.kept": [
+     3,
+     200
+    ],
+    "fx.bodies": [
+     3,
+     200
+    ]
+   }
+  },
+  {
+   "wait": 20.0
+  },
+  {
+   "expect": {
+    "fx.bodies": [
+     3,
+     200
+    ]
+   }
+  },
+  {
+   "note": "debris_time 10: pieces kept from now stay 10 s from their start (never less than their own lifespan), then fade over 1.5 s"
+  },
+  {
+   "graphics": {
+    "debris_time": 10.0
+   }
+  },
+  {
+   "wait": 0.1
+  },
+  {
+   "fx": {
+    "name": "fx_explosion_village_house_1",
+    "at": [
+     -210,
+     480,
+     25
+    ],
+    "clear": true
+   }
+  },
+  {
+   "wait": 0.2
+  },
+  {
+   "expect": {
+    "fx.bodies": [
+     3,
+     200
+    ]
+   }
+  },
+  {
+   "wait": 8.0
+  },
+  {
+   "expect": {
+    "fx.bodies": [
+     3,
+     200
+    ]
+   }
+  },
+  {
+   "wait": 6.0
+  },
+  {
+   "expect": {
+    "fx.bodies": 0
+   }
+  },
+  {
+   "quit": true
+  }
+ ]
+}

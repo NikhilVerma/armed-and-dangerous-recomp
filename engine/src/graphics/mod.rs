@@ -151,6 +151,18 @@ pub struct GraphicsSettings {
     /// tessellation*, terrain_detail*, lod_max, lod_scale, alpha_coverage, aa_mip_bias, shadow_strength
     #[serde(flatten)]
     pub geometry: geometry::GeometrySettings,
+    // --- engine limits and input (the old remaster's [limits] / [persistence] / [input] options; each group's
+    // settings and presets live with the module that applies them). Flattened: options.json names each setting
+    // directly ("physics_fixed_step": false, "decal_pool": 512, ...).
+    #[serde(flatten)]
+    pub physics: crate::physicsstep::PhysicsStepSettings,
+    #[serde(flatten)]
+    pub pools: crate::pools::PoolSettings,
+    #[serde(flatten)]
+    pub debris: crate::debris::DebrisSettings,
+    #[serde(flatten)]
+    pub cursor: crate::cursor::CursorSettings,
+    // --- end of engine limits and input
 }
 
 impl GraphicsSettings {
@@ -184,6 +196,10 @@ impl GraphicsSettings {
             corpse_fade: 0.0,
             ragdoll_limit: 4,
             geometry: geometry::GeometrySettings::original(),
+            physics: crate::physicsstep::PhysicsStepSettings::original(),
+            pools: crate::pools::PoolSettings::original(),
+            debris: crate::debris::DebrisSettings::original(),
+            cursor: crate::cursor::CursorSettings::original(),
         }
     }
 
@@ -207,6 +223,10 @@ impl GraphicsSettings {
             corpse_fade: 1.5,
             ragdoll_limit: 16,
             geometry: geometry::GeometrySettings::remaster(),
+            physics: crate::physicsstep::PhysicsStepSettings::remaster(),
+            pools: crate::pools::PoolSettings::remaster(),
+            debris: crate::debris::DebrisSettings::remaster(),
+            cursor: crate::cursor::CursorSettings::remaster(),
             ..Self::original()
         }
     }

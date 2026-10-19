@@ -22,6 +22,8 @@ pub struct GameOptions {
     pub sound_volume: f32,
     pub voice_volume: f32,
     pub music_volume: f32,
+    /// remaster: a master volume over the three (the old remaster's `[audio] master`, default 1.0; audio.rs Mixer)
+    pub master_volume: f32,
     pub subtitles_movie: bool,
     pub subtitles_game: bool,
     pub brightness: f32,
@@ -74,6 +76,7 @@ impl Default for GameOptions {
             sound_volume: 0.8,
             voice_volume: 0.8,
             music_volume: 0.8,
+            master_volume: 1.0,
             subtitles_movie: true,
             subtitles_game: true,
             brightness: 1.5,
@@ -221,6 +224,7 @@ fn apply(
     mixer.sfx = o.sound_volume;
     mixer.voice = o.voice_volume;
     mixer.music = o.music_volume;
+    mixer.master_volume = o.master_volume;
     hud.subtitles_off = !o.subtitles_game;
     if !o.subtitles_game {
         hud.subtitle = None;

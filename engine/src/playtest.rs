@@ -255,6 +255,13 @@ pub struct Event {
     /// degrees, "clear": true ends every live fx first}
     #[serde(default)]
     pub fx: Option<serde_json::Map<String, serde_json::Value>>,
+    /// change graphics settings by name as the options' pages do ({"decal_pool": 4, "physics_interpolation": false}:
+    /// options.json `graphics`, over the script's "preset"; a pinned tool run ignores them)
+    #[serde(default)]
+    pub graphics: Option<serde_json::Map<String, serde_json::Value>>,
+    /// set options by name ({"master_volume": 0.5}), as the menus do
+    #[serde(default)]
+    pub options: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
 #[derive(Deserialize)]
@@ -333,6 +340,9 @@ pub struct Playtest {
     pub audio: Vec<serde_json::Map<String, serde_json::Value>>,
     /// fx steps for fxvm.rs
     pub fx: Vec<serde_json::Map<String, serde_json::Value>>,
+    /// graphics changes and option changes, applied by `apply_options`
+    pub graphics: Vec<serde_json::Map<String, serde_json::Value>>,
+    pub options: Vec<serde_json::Map<String, serde_json::Value>>,
     /// movie steps for cutscenes.rs
     pub movies: Vec<serde_json::Value>,
     /// play the boot intro movies before the title menu (a title script skips them unless it sets "intro")
@@ -454,7 +464,7 @@ impl Playtest {
         let mut events = s.events;
         events.sort_by(|a, b| a.t.total_cmp(&b.t));
         let log = std::fs::File::create(path.with_extension("log.jsonl")).ok();
-        Playtest { pickups: vec![], loadouts: vec![], audio: vec![], fx: vec![], movies: vec![], intro: s.intro, passed: 0, failed: 0, hurt_c: vec![], warp_c: vec![], knock_c: vec![], grab_c: vec![], skip_t: vec![], blasts: vec![], blast_g: vec![], pad_e: None, notes: Default::default(), pad: vec![], warp: None, probe: None, land_by: None, land_peasant: false, path, title: s.title, real_time: s.real_time, events, turns: s.turns, next: 0, t: 0.0, taps: vec![], clicks: vec![], log, last_log: -1.0, steps: s.steps, step_shot: None, step: 0, step_t: 0.0, step_started: false, reported: false }
+        Playtest { pickups: vec![], loadouts: vec![], audio: vec![], fx: vec![], graphics: vec![], options: vec![], movies: vec![], intro: s.intro, passed: 0, failed: 0, hurt_c: vec![], warp_c: vec![], knock_c: vec![], grab_c: vec![], skip_t: vec![], blasts: vec![], blast_g: vec![], pad_e: None, notes: Default::default(), pad: vec![], warp: None, probe: None, land_by: None, land_peasant: false, path, title: s.title, real_time: s.real_time, events, turns: s.turns, next: 0, t: 0.0, taps: vec![], clicks: vec![], log, last_log: -1.0, steps: s.steps, step_shot: None, step: 0, step_t: 0.0, step_started: false, reported: false }
     }
 }
 
@@ -478,6 +488,7 @@ impl Plugin for PlaytestPlugin {
             .add_systems(Update, (hurt_companions, skip_timers).run_if(resource_exists::<Playtest>))
             .add_systems(Last, (log_render, log_state).chain().run_if(resource_exists::<Playtest>))
             .add_systems(Update, warp.run_if(resource_exists::<Playtest>))
+            .add_systems(PreUpdate, apply_options.after(drive).run_if(resource_exists::<Playtest>))
             .add_systems(Last, report_on_exit.run_if(resource_exists::<Playtest>));
         if std::env::var("ENTDBG").is_ok() {
             app.add_systems(Last, log_entity_shapes);
@@ -918,6 +929,12 @@ pub(crate) fn drive(
         }
         if let Some(f) = e.fx {
             pt.fx.push(f);
+        }
+        if let Some(g) = e.graphics {
+            pt.graphics.push(g);
+        }
+        if let Some(o) = e.options {
+            pt.options.push(o);
         }
         if let Some(m) = e.movie {
             pt.movies.push(m);
@@ -1368,6 +1385,30 @@ fn hurt_companions(
                 info!("EVENT playtest: companion {} warped to {x} {y} {z}", if c.q { "Q" } else { "Jonesy" });
             }
         }
+    }
+}
+
+
+/// The "graphics" and "options" steps: settings changed by name, as the menus change them (options.json's keys; a
+/// key of the wrong type or unknown is skipped, as when the options file is read).
+fn apply_options(mut pt: ResMut<Playtest>, mut opts: ResMut<crate::options::GameOptions>) {
+    if pt.graphics.is_empty() && pt.options.is_empty() {
+        return;
+    }
+    for g in std::mem::take(&mut pt.graphics) {
+        let preset = opts.graphics_preset;
+        for (k, v) in g {
+            info!("EVENT playtest: graphics {k} = {v}");
+            crate::graphics::set_change(preset, &mut opts.graphics, &k, v);
+        }
+    }
+    for o in std::mem::take(&mut pt.options) {
+        let Ok(serde_json::Value::Object(mut all)) = serde_json::to_value(&*opts) else { continue };
+        for (k, v) in o {
+            info!("EVENT playtest: option {k} = {v}");
+            all.insert(k, v);
+        }
+        *opts = crate::options::GameOptions::from_json(&serde_json::Value::Object(all).to_string());
     }
 }
 
