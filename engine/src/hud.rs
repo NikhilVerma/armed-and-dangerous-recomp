@@ -378,6 +378,18 @@ pub fn spawn(
 
 /// The quads of a UI bank model as children (mesh, texture or flat colour, the original's z order); the parts
 /// that are driven get their markers (health meter, compass needle, clock hand, arming bar, pub meters).
+/// A layout element's model (its quads under one root with a hidden [`HudElement`] at the element's position), for
+/// modules outside the HUD (cursor.rs: the menu pointer ui_mouse_cursor). `full`: laid out on the whole 640 x 480.
+pub fn spawn_element(commands: &mut Commands, meshes: &mut Assets<Mesh>, materials: &mut Assets<ColorMaterial>, hud: &HudAssets, name: &str, full: bool) -> Option<Entity> {
+    let e = hud.layout.elements.iter().find(|e| e.name == name)?;
+    let model = e.model.as_deref()?;
+    let el = HudElement { name: name.to_owned(), pos: Vec2::from(e.pos.unwrap_or([320.0, 240.0])), anchor: Anchor::Centre, full };
+    let parts = build_model(commands, meshes, materials, hud, name, model);
+    let root = commands.spawn((el, Transform::default(), Visibility::Hidden, RenderLayers::layer(HUD_LAYER))).id();
+    commands.entity(root).add_children(&parts);
+    Some(root)
+}
+
 fn build_model(commands: &mut Commands, meshes: &mut Assets<Mesh>, materials: &mut Assets<ColorMaterial>, hud: &HudAssets, el_name: &str, model: &str) -> Vec<Entity> {
     let mut out = Vec::new();
     let Some(quads) = hud.layout.models.get(model) else { return out };

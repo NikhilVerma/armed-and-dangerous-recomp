@@ -910,6 +910,10 @@ pub fn spawn(
             let casts = !background && p.f("shadow_enable", 0.0) != 0.0;
             let hand_bone = ai::Kind::from_template(&inst.template).map_or("ref_rhand", ai::Kind::weapon_bone);
             let (d, t, hand) = attach_model(commands, e, model, casts, Some(&mut *skin), hand_bone);
+            // its template's other LODs, switched by distance unless lod_max (graphics/geometry/lod.rs)
+            if let Some(lods) = tpl.and_then(|t| crate::graphics::geometry::lod::LodSource::new(t, &p, casts)) {
+                commands.entity(e).insert(lods);
+            }
             // weapons: grunts' rifle or bow; Roman's guns (weapons/arsenal.rs: every player gun this level has a
             // template for hangs in his hand, the one in use shown by player.rs hand_weapon)
             if inst.template == "trotter" {
@@ -1571,6 +1575,9 @@ fn spawn_grunts(
         let mut ctx = SkinCtx { lib: &mut anim_lib, binds: &mut binds };
         let hand_bone = ai::Kind::from_template(&ev.template).map_or("ref_rhand", ai::Kind::weapon_bone);
         let (_, _, hand) = attach_model(&mut commands, e, &model, true, Some(&mut ctx), hand_bone);
+        if let Some(lods) = data.templates.get(&ev.template).and_then(|t| crate::graphics::geometry::lod::LodSource::new(t, &p, true)) {
+            commands.entity(e).insert(lods);
+        }
         if let (Some(h), Some(w)) = (hand, ai::weapon_template(&ev.template).and_then(|w| data.templates.get(w)).and_then(|t| t.model.clone())) {
             if let Some(m) = lib.load_model(&w, false, &assets, &mut meshes, &mut materials) {
                 attach_weapon(&mut commands, h, m, Transform::IDENTITY);

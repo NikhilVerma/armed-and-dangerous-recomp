@@ -23,6 +23,8 @@ pub struct GameOptions {
     pub sound_volume: f32,
     pub voice_volume: f32,
     pub music_volume: f32,
+    /// remaster: a master volume over the three (the old remaster's `[audio] master`, default 1.0; audio.rs Mixer)
+    pub master_volume: f32,
     pub subtitles_movie: bool,
     pub subtitles_game: bool,
     pub brightness: f32,
@@ -75,6 +77,7 @@ impl Default for GameOptions {
             sound_volume: 0.8,
             voice_volume: 0.8,
             music_volume: 0.8,
+            master_volume: 1.0,
             subtitles_movie: true,
             subtitles_game: true,
             brightness: 1.5,
@@ -161,21 +164,6 @@ impl GameOptions {
         }
     }
 
-    /// These options with some changed by name, as `from_json` reads a file (a value of the wrong type keeps the
-    /// option); an object value (`graphics`) is merged key by key into the option's own. Playtests' "options" steps.
-    pub fn with_changes(&self, changes: &serde_json::Map<String, serde_json::Value>) -> Self {
-        let Ok(serde_json::Value::Object(mut v)) = serde_json::to_value(self) else { return self.clone() };
-        for (k, c) in changes {
-            match (v.get_mut(k), c) {
-                (Some(serde_json::Value::Object(cur)), serde_json::Value::Object(add)) => cur.extend(add.clone()),
-                _ => {
-                    v.insert(k.clone(), c.clone());
-                }
-            }
-        }
-        Self::from_json(&serde_json::Value::Object(v).to_string())
-    }
-
     /// Mouse look factor relative to the default (sensitivity 0.5 = 1.0).
     pub fn mouse_factor(&self) -> f32 {
         (self.mouse_sensitivity / 0.5).max(0.05)
@@ -235,6 +223,7 @@ fn apply(
     mixer.sfx = o.sound_volume;
     mixer.voice = o.voice_volume;
     mixer.music = o.music_volume;
+    mixer.master_volume = o.master_volume;
     hud.subtitles_off = !o.subtitles_game;
     if !o.subtitles_game {
         hud.subtitle = None;

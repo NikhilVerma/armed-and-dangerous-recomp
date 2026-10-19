@@ -14,10 +14,10 @@ use bevy::prelude::*;
 use bevy::render::storage::ShaderBuffer;
 
 /// Particle pools (Fx_LoadChunk 0x0041c7e0): capacity, bank texture and blend (pool 0 additive, state 0x100;
-/// pools 1 and 2 alpha-blended, 0x310: Fx_DrawParticles 0x00423820). The remaster multiplies the capacities (the
-/// original refuses particles when a pool is full; docs/engine-limits.md R5).
+/// pools 1 and 2 alpha-blended, 0x310: Fx_DrawParticles 0x00423820). The remaster multiplies the capacities by the
+/// `particle_pool_scale` setting (pools.rs; the original refuses particles when a pool is full; docs/engine-limits.md
+/// R5).
 pub const POOLS: [(usize, &str, bool); 3] = [(2000, "n_fx_bank_1", true), (4000, "n_fx_bank_2", false), (2000, "n_fx_bank_2", false)];
-pub const POOL_SCALE: usize = 16;
 /// Particle gravity unit ([0x005bcd64]).
 const PARTICLE_G: f32 = -64.348_1;
 
@@ -111,11 +111,13 @@ pub struct Pools {
     /// bind group until the material itself changes, so a resized buffer in place left the pool drawing the old one)
     pub materials: Vec<Handle<ParticleMaterial>>,
     pub dropped: usize,
+    /// the capacities' multiple (1 = the original's)
+    pub scale: usize,
 }
 
 impl Pools {
-    pub fn capacity(pool: usize) -> usize {
-        POOLS[pool].0 * POOL_SCALE
+    pub fn capacity(&self, pool: usize) -> usize {
+        POOLS[pool].0 * self.scale.max(1)
     }
     pub fn count(&self) -> usize {
         self.live.iter().map(Vec::len).sum()
@@ -134,7 +136,7 @@ pub fn setup_pools(commands: &mut Commands, assets: &AssetServer, meshes: &mut A
         handles.push(h);
         corners.push(c);
     }
-    Pools { live: POOLS.iter().map(|(n, _, _)| Vec::with_capacity(n * POOL_SCALE / 4)).collect(), meshes: handles, corners, materials: mats, dropped: 0 }
+    Pools { live: POOLS.iter().map(|(n, _, _)| Vec::with_capacity(*n)).collect(), meshes: handles, corners, materials: mats, dropped: 0, scale: 1 }
 }
 
 /// One emitter step of an object (0x0041a050, mode 0x20: the emitter follows the object): the cone axis is the
@@ -173,7 +175,7 @@ pub fn emit_along(pools: &mut Pools, rng: &mut CrtRand, em: &mut Emitter, pos0: 
     if em.timer >= 0.0 {
         return;
     }
-    let cap = Pools::capacity(em.pool);
+    let cap = pools.capacity(em.pool);
     loop {
         let w = 1.0 - t;
         if pools.live[em.pool].len() < cap {
@@ -428,7 +430,7 @@ mod tests {
     use super::*;
 
     fn pools() -> Pools {
-        Pools { live: vec![Vec::new(), Vec::new(), Vec::new()], meshes: Vec::new(), corners: Vec::new(), materials: Vec::new(), dropped: 0 }
+        Pools { live: vec![Vec::new(), Vec::new(), Vec::new()], meshes: Vec::new(), corners: Vec::new(), materials: Vec::new(), dropped: 0, scale: 1 }
     }
 
     #[test]
@@ -478,10 +480,28 @@ mod tests {
         assert_eq!(p.live[1].len(), 6);
     }
 
+    /// The pools hold their capacity times the scale (particle_pool_scale): x1 refuses the 2001st particle of pool 0,
+    /// x16 takes it.
+    #[test]
+    fn pool_scale_sets_the_capacity() {
+        let mut p = pools();
+        assert_eq!((p.capacity(0), p.capacity(1)), (2000, 4000));
+        let fill = |p: &mut Pools| p.live[0] = vec![init_particle(&mut CrtRand::seeded(9), &Emitter::new(0, 1.0, Vec3::Z, Vec3::ZERO), Vec3::ZERO, Vec3::Z, 0.0); 2000];
+        fill(&mut p);
+        let mut e = Emitter::new(0, 0.01, Vec3::Z, Vec3::ZERO);
+        emit_along(&mut p, &mut CrtRand::seeded(1), &mut e, Vec3::ZERO, Vec3::ZERO, Vec3::Z, Vec3::Z, 0.03);
+        assert_eq!(p.live[0].len(), 2000);
+        p.scale = 16;
+        assert_eq!(p.capacity(2), 32000);
+        let mut e = Emitter::new(0, 0.01, Vec3::Z, Vec3::ZERO);
+        emit_along(&mut p, &mut CrtRand::seeded(1), &mut e, Vec3::ZERO, Vec3::ZERO, Vec3::Z, Vec3::Z, 0.03);
+        assert!(p.live[0].len() > 2000);
+    }
+
     #[test]
     fn full_pool_drops_without_drawing_random_numbers() {
         let mut p = pools();
-        p.live[0] = vec![init_particle(&mut CrtRand::seeded(9), &Emitter::new(0, 1.0, Vec3::Z, Vec3::ZERO), Vec3::ZERO, Vec3::Z, 0.0); Pools::capacity(0)];
+        p.live[0] = vec![init_particle(&mut CrtRand::seeded(9), &Emitter::new(0, 1.0, Vec3::Z, Vec3::ZERO), Vec3::ZERO, Vec3::Z, 0.0); p.capacity(0)];
         let mut rng = CrtRand::seeded(1);
         let mut e = Emitter::new(0, 0.01, Vec3::Z, Vec3::ZERO);
         emit_along(&mut p, &mut rng, &mut e, Vec3::ZERO, Vec3::ZERO, Vec3::Z, Vec3::Z, 0.03);
