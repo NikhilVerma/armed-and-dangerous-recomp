@@ -1064,25 +1064,20 @@ fn window_size(windows: &Query<&Window>) -> Vec2 {
     windows.single().map(|w| Vec2::new(w.physical_width() as f32, w.physical_height() as f32)).unwrap_or(Vec2::new(1920.0, 1080.0))
 }
 
-/// 640x480 (y up) -> overlay coordinates (origin at the centre), scaled by height / 480, anchored.
-fn place(windows: Query<&Window>, mut q: Query<(&HudElement, &mut Transform, Option<&ElementScale>)>) {
-    let size = window_size(&windows);
-    // the original draws the game between letterbox bars (rows 54..426 of its 480: camera +0x?? letterbox 0.1125 /
-    // 0.775) and its in-game HUD inside that band, near the band's edges; the remaster has no bars, so the band maps
-    // to the whole window (the player: the HUD sat too far in from the borders). Menus and the pub screen fill the
-    // original's whole 640 x 480 and keep that mapping. The scale is capped by the width (tall windows).
-    let s_menu = size.y / 480.0;
-    let s_game = (size.y / 372.0).min(size.x / 640.0);
-    for (e, mut t, k) in &mut q {
-        let s = if e.full { s_menu } else { s_game };
-        let x = match e.anchor {
-            Anchor::Left => -size.x / 2.0 + e.pos.x * s,
-            Anchor::Right => size.x / 2.0 - (640.0 - e.pos.x) * s,
-            Anchor::Centre => (e.pos.x - 320.0) * s,
-        };
-        t.translation = Vec3::new(x, (e.pos.y - 240.0) * s, t.translation.z);
+/// 640x480 (y up) -> overlay coordinates (origin at the centre) by display/ui.rs `UiLayout`: the anchoring (the
+/// remaster's: pinned to the edges, menus centred; the original's: stretched), the band and the text size. The
+/// original draws the game between letterbox bars (rows 54..426 of its 480: 0x005bcf24 / 0x005bcf28) and its in-game
+/// HUD inside that band, near the band's edges; without the bars the band maps to the whole window (the player: the
+/// HUD sat too far in from the borders). Menus and the pub screen fill the original's whole 640 x 480. A text takes
+/// the layout's text scale (its glyphs keep their proportions), anything else the layout's scale.
+fn place(windows: Query<&Window>, settings: Res<crate::graphics::GraphicsSettings>, mut q: Query<(&HudElement, &mut Transform, Option<&ElementScale>, Has<HudText>)>) {
+    let layout = crate::display::ui::UiLayout::new(&settings.display, window_size(&windows));
+    for (e, mut t, k, text) in &mut q {
+        let p = layout.place(e.pos, e.anchor, e.full);
+        t.translation = Vec3::new(p.x, p.y, t.translation.z);
         let k = k.map_or(1.0, |k| k.0);
-        t.scale = Vec3::new(s * k, s * k, 1.0);
+        let s = if text { layout.text_scale(e.full) } else { layout.scales(e.full) } * k;
+        t.scale = Vec3::new(s.x, s.y, 1.0);
     }
 }
 
@@ -1907,11 +1902,10 @@ fn lock_markers(
     cam: Query<(&Camera, &GlobalTransform), With<crate::player::FollowCam>>,
     windows: Query<&Window>,
     mut markers: Query<(&LockMarker, &mut HudElement, &mut Visibility)>,
-    (app, vtime): (Res<State<crate::AppState>>, Res<Time<Virtual>>),
+    (app, vtime, settings): (Res<State<crate::AppState>>, Res<Time<Virtual>>, Res<crate::graphics::GraphicsSettings>),
 ) {
     let paused = *app.get() != crate::AppState::Playing || vtime.is_paused();
-    let size = window_size(&windows);
-    let s = (size.y / 372.0).min(size.x / 640.0);
+    let layout = crate::display::ui::UiLayout::new(&settings.display, window_size(&windows));
     let cam = cam.single().ok();
     for (m, mut el, mut v) in &mut markers {
         let screen = targets
@@ -1924,8 +1918,11 @@ fn lock_markers(
             .filter(|p| p.x > 0.08 && p.x < 0.92 && p.y > 0.065 && p.y < 0.935);
         let want = if screen.is_some() { Visibility::Inherited } else { Visibility::Hidden };
         if let Some(p) = screen {
-            // to the in-game HUD's 640 x 480 units (`place`: the 372-row band over the window, centred)
-            el.pos = Vec2::new(320.0 + (p.x - 0.5) * size.x / s, 240.0 + (0.5 - p.y) * size.y / s);
+            // the view's point in the window (the letterbox band, or the whole window), then the in-game HUD's 640 x
+            // 480 units (`place`, centred)
+            use crate::display::view::{LETTERBOX_HEIGHT, LETTERBOX_TOP};
+            let (top, height) = if layout.letterbox { (LETTERBOX_TOP, LETTERBOX_HEIGHT) } else { (0.0, 1.0) };
+            el.pos = layout.to_layout(Vec2::new(p.x * layout.size.x, (top + p.y * height) * layout.size.y), false);
         }
         if *v != want {
             *v = want;

@@ -163,6 +163,10 @@ pub struct GraphicsSettings {
     #[serde(flatten)]
     pub cursor: crate::cursor::CursorSettings,
     // --- end of engine limits and input
+    /// the display, view and UI-layout settings (display/mod.rs: fov, hor_plus, letterbox, fps_limit, render_scale,
+    /// ...), flattened: one key each in the options' `graphics` changes
+    #[serde(flatten)]
+    pub display: crate::display::DisplaySettings,
 }
 
 impl GraphicsSettings {
@@ -200,6 +204,7 @@ impl GraphicsSettings {
             pools: crate::pools::PoolSettings::original(),
             debris: crate::debris::DebrisSettings::original(),
             cursor: crate::cursor::CursorSettings::original(),
+            display: crate::display::DisplaySettings::original(),
         }
     }
 
@@ -227,6 +232,7 @@ impl GraphicsSettings {
             pools: crate::pools::PoolSettings::remaster(),
             debris: crate::debris::DebrisSettings::remaster(),
             cursor: crate::cursor::CursorSettings::remaster(),
+            display: crate::display::DisplaySettings::remaster(),
             ..Self::original()
         }
     }

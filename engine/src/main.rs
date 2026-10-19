@@ -14,6 +14,7 @@
 
 mod ai;
 mod devtools;
+mod display;
 mod alarm;
 mod army;
 mod arrows;
@@ -319,7 +320,11 @@ fn main() {
         start_options.graphics_preset = p;
         start_options.graphics.clear();
     }
-    let gfx = graphics::GraphicsPlugin::new(graphics::GraphicsLaunch::new(a.preset, tool_run && script_preset.is_none(), a.graphics.as_deref()), &start_options, &scene_dir);
+    // a --camera run renders the original's 3D strip itself (--size 640x372, camdump.rs): no letterbox of its own and
+    // the strip's own aspect for its projection (display/view.rs); --graphics still wins
+    let strip = a.camera.is_some().then_some("letterbox=false,hor_plus=true");
+    let changes: Vec<&str> = [strip, a.graphics.as_deref()].into_iter().flatten().collect();
+    let gfx = graphics::GraphicsPlugin::new(graphics::GraphicsLaunch::new(a.preset, tool_run && script_preset.is_none(), Some(&changes.join(","))), &start_options, &scene_dir);
     let physics_world = gfx.initial.physics.world();
     // the session recording starts before the app (its log layer is part of the LogPlugin)
     let session = devtools::session::root(tool_run, a.no_session, a.play.as_deref()).and_then(|r| devtools::session::start(&r));
@@ -367,6 +372,7 @@ fn main() {
     .add_plugins((physics::PhysicsPlugin, fx::FxPlugin, ai::AiPlugin, player::PlayerPlugin, menu::MenuPlugin, level::LevelPlugin, fxvm::FxVmPlugin, ai::CompanionPlugin, skin::SkinPlugin, charanim::CharAnimPlugin, hud::HudPlugin, mission::MissionPlugin, gameaudio::GameAudioPlugin, campath::CameraPathPlugin, gamemenu::GameMenuPlugin))
     .add_plugins(options::OptionsPlugin)
     .add_plugins(gfx)
+    .add_plugins(display::DisplayPlugin)
     .add_plugins(input::InputPlugin)
     .add_plugins(alarm::AlarmPlugin)
     .add_plugins(stats::StatsPlugin)

@@ -75,7 +75,9 @@ shows them, the Audio page the master volume. Size settings marked "next level" 
 | LOD by distance, no hysteresis | Object_SelectLod 0x00452f50 | | `render lod_max` 1 |
 | Decal pool | 0x00416150 | 160, oldest killed | `persistence decal_pool` 1024 |
 | Anisotropic filtering | | 1 (Vulkan backend default) | `render anisotropy` 16 |
-| 640x480 4:3 UI | 0x004f01c0 | | `ui anchor`, `text_scale`, `camera hor_plus` |
+| 640x480 4:3 UI | 0x004f01c0 | | `ui anchor`, `text_scale`, `camera hor_plus`. Remaster engine (2026-10-19, engine/src/display/): graphics `ui_anchor`, `text_scale`, `text_relative`, `hor_plus`, `letterbox`, `fov` (Original = the original's stretch, fixed letterbox and pixel-sized text) |
+| Fixed letterbox, 4:3 projection stretched | 0x00403050 / 0x005bcf24 / 0x005bcf28, Renderer_GetAspect 0x00508860 | 1.72 projection in a 77.5 % band at every aspect | Remaster engine: `letterbox` off, `hor_plus` on in the Remaster preset (display/view.rs) |
+| Resolutions offered | src/renderer/display_modes.cpp | 640..1600 wide, 16:9 / 4:3 / 5:4 | Remaster engine: `all_modes` (every monitor mode from 640 wide; display/window.rs) |
 | Texture resolution, terrain detail, hard particle edges, no AO | | | override packs, `terrain_detail` 8, `soft_particles` 1, `ao` 1 |
 
 Remaster engine (engine/, Bevy; 2026-10-15, engine/src/graphics/, Remaster preset; the Original preset keeps the engine's faithful look): textures -> the AI retextures (tools/remaster_textures.py); no AO -> Bevy SSAO, snow exempt; aliasing -> TAA + sharpening (SMAA / MSAA selectable); shadows -> 4096 PCSS cascades fitted to the far clip; hard particle edges -> soft particles (depth prepass); far clip -> dissolve; anisotropy 16x on effects and decals too; bloom above white. Draw distance stays the original's maximum (fog unchanged), LOD always the finest.
@@ -92,7 +94,7 @@ Remaster engine (engine/, Bevy; 2026-10-15, engine/src/graphics/, Remaster prese
 | R6 | Texture registry | TextureBuckets_Init 0x0050a200 | 1024 buckets | NOT A PRACTICAL LIMIT: peak use 318 / 306 / 321 in lev_1_m1 / lev_3_m3 / lev_4_m1 | - |
 | R7 | Post-process blur targets | 0x0047c920 | 512x256 and down, whatever the resolution | Scale with the back buffer | S-M |
 | R8 | Environment map | 0x00418880 / 0x00418c80 | one map, faces updated over several frames, size from level data | SSR or probes | M |
-| R9 | Frame rate | see S1 | physics too fast above 60 fps; opening stalls above about 85 fps | S1; meanwhile a 60 fps cap as remaster default | S/L |
+| R9 | Frame rate | see S1 | physics too fast above 60 fps; opening stalls above about 85 fps | S1; meanwhile a 60 fps cap as remaster default. Remaster engine: graphics `fps_limit` (0 = off in both presets, display/frame_limit.rs) | S/L |
 | R10 | Bone palette | Skin_BuildPalette 0x004edbe0 (17 bones, vs_1_1 constants) | meshes split by the data | Only matters for new content | S/M |
 | R11 | Decal geometry | decal constructor 0x00417010 | one draw per decal, no distance cull (about 128 vertices, guess) | Batch | M |
 | R12 | Geometry density | | low poly | Tessellation deferred (docs/journal/2026-10-12.md) | L |

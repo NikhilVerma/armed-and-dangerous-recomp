@@ -278,8 +278,8 @@
   {
    "expect": {
     "window.fullscreen": false,
-    "window.width": 1280,
-    "window.height": 720,
+    "window.width": [640, 1600],
+    "window.height": [480, 1200],
     "window.shadows": false,
     "window.draw_distance": [
      0.94,
