@@ -67,6 +67,8 @@ SUITE += ['peasants_tossed']
 # effects and the thrown bomb (player feedback 2026-10-18, agent-fb-fx): the camera's snow (domes and flake emitter, also
 # after a load), the sticky bomb's blast effects, its homing (also with 22 bodies around Roman) and GoRagdoll's launch
 SUITE += ['fx_snow', 'sticky_blast_fx', 'sticky_homing', 'sticky_homing_bodies', 'sticky_launch']
+# the GPU snowfall (graphics/snow.rs): Remaster snows on the GPU with the cylinders hidden; Original keeps the cylinders
+SUITE += ['gpu_snow', 'gpu_snow_original']
 # the dead's bodies (corpses.rs): lev_1_m4's army killed two a second; the Original's timers (bodies gone, at most four
 # ragdolls, entities and physics bodies not growing) and the Remaster's 48 bodies with settled ragdolls
 SUITE += ['corpses_l1m4', 'corpses_l1m4_remaster']

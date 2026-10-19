@@ -164,3 +164,16 @@ then 0x004102e0 / 0x0040f750. 0x0041a350 (6,616 B) and 0x00420770 (10,512 B) do 
 - **GPU snow** is a simulation (src/rhi/vulkan/vk_snow.cpp): per-flake position and velocity in a storage buffer,
   born in the sky, terminal fall plus gusting, swirling wind with drag, respawned on landing (depth buffer) or below
   the volume; not drawn while the game is paused (the pause menu shows a frozen copy of the scene).
+
+## Remaster engine (Bevy) port, 2026-10-19
+
+engine/src/graphics/snow.rs (`SnowPlugin`, settings block `SnowSettings`: `snow`, `snow_amount`, `snow_tuning`) and
+snow.wesl port the Vulkan snow above (vk_snow.cpp shaders to WGSL, same maths, constants and defaults; world Y up in
+Bevy, so the ground plane is x, z). What Bevy forced: the pass is a render-world system in `Core3d`'s
+EarlyPostProcess set after TAA (no motion vectors for the flakes, so they are drawn on the resolved image, as the
+hook drew them after its AA at SceneEnd), reading the depth prepass (reverse Z: view z = -P32 / (d + P22)). The flake
+volume is filled when the pipelines are first ready (not on the first prepared frame: the pipelines compile in the
+background, and a fill consumed before then left every flake at the origin). Active while a live fx object named in
+`snow_tuning.replaces` (fxo_snow, fxo_snow_2) exists; those are made invisible (marker `HiddenBySnow`, restored when
+the setting goes off). Unlike the hook, the camera's flake emitter fxo_glow_red is not muted (player feedback FX1 wants
+its flakes). Playtest state "snow": active, flakes, cylinders_hidden / cylinders_shown, frames_drawn.

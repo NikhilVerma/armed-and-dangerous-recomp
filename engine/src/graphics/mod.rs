@@ -6,7 +6,8 @@
 //!   playtest suite never see a remaster feature.
 //! - **Remaster** (the default for a normal launch, what the player plays): the AI retextures, screen-space ambient
 //!   occlusion with snow exempt, temporal anti-aliasing with sharpening, larger soft shadows covering the whole view,
-//!   soft particles, a dissolve instead of a hard cut at the far clip, bloom on over-bright effects only.
+//!   soft particles, a dissolve instead of a hard cut at the far clip, bloom on over-bright effects only, GPU
+//!   snowfall in place of the camera's snow cylinders (snow.rs).
 //!
 //! The game rules never depend on these (no setting reaches the living: AI, Roman, timing). The bodies' settings
 //! (`corpse_*`, `ragdoll_limit`: how long the dead lie and how many ragdoll, corpses.rs) touch only the dead.
@@ -25,6 +26,7 @@
 
 mod farclip;
 pub mod geometry;
+pub mod snow;
 mod textures;
 // the old remaster's atmosphere, AO shaping and output passes (agent-port-atmos, 2026-10-19)
 pub mod ao_extras;
@@ -185,6 +187,9 @@ pub struct GraphicsSettings {
     pub motion_blur: motion_blur::MotionBlurSettings,
     #[serde(flatten)]
     pub present: present::PresentSettings,
+    // --- GPU snowfall (snow.rs), flattened: options.json says "snow", "snow_amount", "snow_tuning"
+    #[serde(flatten)]
+    pub snowfall: snow::SnowSettings,
 }
 
 impl GraphicsSettings {
@@ -227,6 +232,7 @@ impl GraphicsSettings {
             ao_extras: ao_extras::AoExtras::original(),
             motion_blur: motion_blur::MotionBlurSettings::original(),
             present: present::PresentSettings::original(),
+            snowfall: snow::SnowSettings::original(),
         }
     }
 
@@ -259,6 +265,7 @@ impl GraphicsSettings {
             ao_extras: ao_extras::AoExtras::remaster(),
             motion_blur: motion_blur::MotionBlurSettings::remaster(),
             present: present::PresentSettings::remaster(),
+            snowfall: snow::SnowSettings::remaster(),
             ..Self::original()
         }
     }
@@ -357,9 +364,9 @@ pub mod menu {
     }
 
     /// A numeric setting's stepper range (first, last, positions), for the settings that have one
-    /// (geometry::STEPPERS).
+    /// (geometry::STEPPERS, snow::STEPPERS).
     pub fn stepper(key: &str) -> Option<(f32, f32, usize)> {
-        geometry::STEPPERS.iter().find(|s| s.0 == key).map(|s| (s.1, s.2, s.3))
+        geometry::STEPPERS.iter().chain(snow::STEPPERS.iter()).find(|s| s.0 == key).map(|s| (s.1, s.2, s.3))
     }
 
     /// A numeric setting's value (0 for unknown names).
@@ -486,6 +493,7 @@ impl Plugin for GraphicsPlugin {
             .insert_resource(DirectionalLightShadowMap { size: self.initial.shadow_map_size as usize })
             .add_plugins((farclip::FarClipPlugin, geometry::GeometryPlugin))
             .add_plugins((height_fog::HeightFogPlugin, ao_extras::AoExtrasPlugin, motion_blur::MotionBlurPlugin, present::PresentPlugin, effects_log::EffectsLogPlugin))
+            .add_plugins((farclip::FarClipPlugin, geometry::GeometryPlugin, snow::SnowPlugin))
             .add_systems(
                 PostUpdate,
                 (
@@ -566,8 +574,8 @@ pub(crate) fn apply_cameras(
             };
             c.insert(ScreenSpaceAmbientOcclusion { quality_level, radius: s.ao_radius.max(0.01), constant_object_thickness: s.ao_extras.ao_thickness.max(0.0) });
         }
-        // soft particles read the depth prepass
-        if s.soft_particles > 0.0 {
+        // soft particles and the snowfall read the depth prepass
+        if s.soft_particles > 0.0 || s.snowfall.snow {
             c.insert(DepthPrepass);
         }
         // the motion blur reads the depth and motion vectors (motion_blur.rs; not under MSAA)

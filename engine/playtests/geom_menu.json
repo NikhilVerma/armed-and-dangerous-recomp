@@ -265,6 +265,31 @@
   {
    "expect": {
     "menu.page": "GfxDetail",
+    "menu.selected": "GPU Snow"
+   }
+  },
+  {
+   "tap": "ArrowDown"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "expect": {
+    "menu.page": "GfxDetail",
+    "menu.selected": "Snow Amount",
+    "menu.value": "1500000"
+   }
+  },
+  {
+   "tap": "ArrowDown"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "expect": {
+    "menu.page": "GfxDetail",
     "menu.selected": "ui_shellmenu_back"
    }
   },

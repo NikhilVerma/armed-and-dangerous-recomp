@@ -674,6 +674,8 @@ fn setup(
         // no tonemapping: the original writes its colours as they are (Bevy's default curve darkened the pale sky
         // near the horizon from 216 to ~175 and the horizon band from 212 to 179; synced walk frame 520)
         bevy::core_pipeline::tonemapping::Tonemapping::None,
+        // the view that snows (graphics/snow.rs)
+        graphics::snow::SnowCamera,
     )).id();
     // playing as Roman: the camera follows him; the free camera stays for the benchmark and fx tests
     if info.player.is_some() && launch.bench.is_none() && !launch.fx_test {
