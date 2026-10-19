@@ -157,6 +157,12 @@ fn flag_on_gfx_copy(f: Flag) -> bool {
     matches!(f, Flag::Shadows | Flag::Fullscreen | Flag::Graphics(_))
 }
 
+/// The pages whose checkboxes edit the Graphics page's copy: the Graphics page and its Detail and Shadows sub-page
+/// (Apply / Cancel on the Graphics page); elsewhere (the Engine page) they save directly.
+fn page_edits_gfx_copy(p: Page) -> bool {
+    matches!(p, Page::Gfx | Page::GfxDetail)
+}
+
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Act {
     /// a heading or a disabled row
@@ -1372,7 +1378,7 @@ fn navigate(
         Act::Slide(_) => return,
         Act::Toggle(f) => {
             // the graphics page edits its copy (Apply / Cancel); other pages (the Engine page's settings) the options
-            let target = if flag_on_gfx_copy(f) && menu.page == Page::Gfx { menu.edit.get_or_insert_with(|| opts.clone()) } else { &mut *opts };
+            let target = if flag_on_gfx_copy(f) && page_edits_gfx_copy(menu.page) { menu.edit.get_or_insert_with(|| opts.clone()) } else { &mut *opts };
             match f {
                 Flag::Shadows => target.shadows = !target.shadows,
                 Flag::SubsGame => target.subtitles_game = !target.subtitles_game,
