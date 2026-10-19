@@ -491,7 +491,6 @@ impl Plugin for GraphicsPlugin {
         app.insert_resource(self.launch.clone())
             .insert_resource(self.initial.clone())
             .insert_resource(DirectionalLightShadowMap { size: self.initial.shadow_map_size as usize })
-            .add_plugins((farclip::FarClipPlugin, geometry::GeometryPlugin))
             .add_plugins((height_fog::HeightFogPlugin, ao_extras::AoExtrasPlugin, motion_blur::MotionBlurPlugin, present::PresentPlugin, effects_log::EffectsLogPlugin))
             .add_plugins((farclip::FarClipPlugin, geometry::GeometryPlugin, snow::SnowPlugin))
             .add_systems(
