@@ -60,9 +60,14 @@ const GRUNT_HEIGHT: f32 = 9.8;
 const PEASANT_HEIGHT: f32 = 5.3;
 /// The tied peasant's ragdoll: his size, and joints that hold his pose (Body_addConstraints 0x00456570: each joint's
 /// strength (mass A + mass B) x 20 in the original's units, where gravity is 64.35 units / s^2; as a friction torque here
-/// with the same ratio to the weight: 20 x 9.81 x 0.2 / 64.35 = 0.61 N m per kg). The original's tied peasants stand
-/// until pulled (oracle peasant_l4m2: the pelvis stays 2.7..3.3 above the ground).
-const RAGDOLL: crate::ragdoll::Build = crate::ragdoll::Build { size: PEASANT_HEIGHT / GRUNT_HEIGHT, joint_friction: 20.0 * 9.81 * crate::level::METERS_PER_UNIT / 64.348, radius: Some(1.0) };
+/// with the same ratio to the weight under the world's gravity, the game's 64.35 units / s^2 = 12.87 m/s^2:
+/// 20 x 12.87 x 0.2 / 64.35 = 0.8 N m per kg). The original's tied peasants stand until pulled (oracle peasant_l4m2:
+/// the pelvis stays 2.7..3.3 above the ground).
+const RAGDOLL: crate::ragdoll::Build = crate::ragdoll::Build {
+    size: PEASANT_HEIGHT / GRUNT_HEIGHT,
+    joint_friction: 20.0 * crate::level::METERS_PER_UNIT * crate::level::METERS_PER_UNIT,
+    radius: Some(1.0),
+};
 
 /// One peasant (PeasantObject +0x460..+0x498).
 #[derive(Component, Debug, Clone)]

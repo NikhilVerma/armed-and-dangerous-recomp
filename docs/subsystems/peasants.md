@@ -66,9 +66,9 @@ Every update while tied (+0x478 >= 0):
   of his body named "center", 0x004586a0).
 
 The tied peasant stands until pulled (the original's pelvis stays 2.7..3.3 above the ground), then is dragged
-upright. ragdoll.rs `Build`: parts of radius 1.0, joints with a friction torque of 0.61 N m per kg of the two parts
+upright. ragdoll.rs `Build`: parts of radius 1.0, joints with a friction torque of 0.8 N m per kg of the two parts
 (the original's 20 per kg in its units, where gravity is 64.35 units / s^2, scaled to keep the ratio to the weight
-under Jolt's 9.81 m/s^2 at 0.2 m / unit). With it the remaster's pelvis is 1.1..1.7 lower than the original's while
+under the world's gravity, the game's 12.87 m/s^2 at 0.2 m / unit; 0.61 under Jolt's 9.81 before 2026-10-22). With it the remaster's pelvis is 1.1..1.7 lower than the original's while
 dragged (oracle peasant_l4m2), within the trace's tolerance; limp joints left it 2.3 lower.
 
 ## 5. The bank (MissionObject_OnTrigger 0x0044d600, Game+0x26f0)

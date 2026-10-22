@@ -12,12 +12,6 @@ use std::time::Instant;
 
 pub use crate::contacts::{ContactRule, Touch};
 
-/// The Jolt world's gravity (m/s^2, down). With 0.2 m per unit it is 49.05 units/s^2, lighter than the game's Havok
-/// world (64.348 units/s^2, havok-layouts.md); bodies that need the game's weight scale their gravity factor by
-/// [`Physics::game_gravity_factor`].
-pub const GRAVITY_M: f32 = 9.81;
-
-
 pub struct Physics {
     pub world: PhysicsWorld,
     pub meters_per_unit: f32,
@@ -45,6 +39,11 @@ pub struct Physics {
     /// CPU time of the last steps (ms), for the benchmark.
     pub step_ms: f32,
     poses: Vec<BodyPose>,
+}
+
+/// The game's gravity (64.348 units/s^2 down) in metres at `meters_per_unit`.
+fn world_gravity(meters_per_unit: f32) -> j::Vec3 {
+    jv(Vec3::NEG_Y * crate::ai::launch::GRAVITY * meters_per_unit)
 }
 
 pub fn jv(v: Vec3) -> j::Vec3 {
@@ -94,11 +93,13 @@ pub struct WorldConfig {
 }
 
 impl Physics {
-    /// A world of `config`'s sizes; `meters_per_unit`: Jolt works in metres, the engine in game units.
+    /// A world of `config`'s sizes; `meters_per_unit`: Jolt works in metres, the engine in game units. Its gravity is
+    /// the game's: the Havok world's cinfo (PhysicsManager_Init 0x00411960: (0, 0, -64.348) units/s^2, 0xc280b23a),
+    /// 12.87 m/s^2 at 0.2 m per unit, so every body falls with the game's weight unless it scales its own.
     pub fn new(meters_per_unit: f32, config: WorldConfig) -> Self {
         let settings = WorldSettings::default()
             .layers(collision_layers())
-            .gravity(j::Vec3::new(0.0, -GRAVITY_M, 0.0))
+            .gravity(world_gravity(meters_per_unit))
             .velocity_steps(config.velocity_steps)
             .max_bodies(config.max_bodies)
             .max_body_pairs(config.max_body_pairs)
@@ -126,9 +127,14 @@ impl Physics {
     }
 
     /// The gravity factor that gives a body the game's gravity (64.348 units/s^2, Character_Launch's 0xc280b23a)
-    /// times `scale`.
+    /// times `scale`: the scale itself, the world having the game's gravity (`new`).
     pub fn game_gravity_factor(&self, scale: f32) -> f32 {
-        scale * crate::ai::launch::GRAVITY * self.meters_per_unit / GRAVITY_M
+        scale
+    }
+
+    /// The world's gravity, m/s^2 (the game's 64.348 units/s^2 down).
+    pub fn gravity_m(&self) -> j::Vec3 {
+        world_gravity(self.meters_per_unit)
     }
 
     pub fn to_m(&self, p: Vec3) -> j::RVec3 {
@@ -534,7 +540,7 @@ impl Physics {
         // briefing at 0.004 units a frame)
         if dt > 0.0 {
             self.world.character_mut(w.id).ok()?.set_linear_velocity(jv(velocity * k)).ok()?;
-            let g = j::Vec3::new(0.0, -9.81, 0.0);
+            let g = self.gravity_m();
             self.world.update_character(w.id, dt.min(0.1), g, &ExtendedUpdateSettings::default(), &QueryFilter::new().object_layers(&SOLID_LAYERS)).ok()?;
         }
         let c = self.world.character(w.id).ok()?;
