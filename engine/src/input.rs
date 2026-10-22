@@ -99,13 +99,23 @@ pub struct Controls {
     acts: [ActState; ACTS],
     /// menu navigation steps this frame (stick / D-pad / keys with key repeat): -1, 0, 1 on each axis
     pub step: IVec2,
-    nav_held: f32,
+    /// the direction held and its key-repeat timer (`collect`)
+    nav_dir: IVec2,
+    nav_timer: f32,
+    /// navigation is used up until every direction is released (a consume or a switch, as the buttons' `blocked`)
+    nav_blocked: bool,
     /// the Gameplay context is active (in play, no paused message)
     pub active_play: bool,
-    /// the active context changed: buttons held across the change count only after a release (the Options press
-    /// that opens the pause menu is not also the menu's Back; the R2 that dismisses a message does not also fire)
+    /// the Message context is active (a paused mission message)
+    active_message: bool,
+    /// the active context or the menu page changed: buttons held across the change count only after a release (the
+    /// Options press that opens the pause menu is not also the menu's Back; the R2 that dismisses a message does not
+    /// also fire; the Select that opens a page does not also act on it)
     switched: bool,
     blocked: [bool; ACTS],
+    /// the pad in use was unplugged this frame, in play: the game pauses (gamemenu.rs; Controls_Poll 0x004145c0)
+    pub pad_lost: bool,
+    pad_lost_pending: bool,
 }
 
 impl Controls {
@@ -119,6 +129,7 @@ impl Controls {
         }
         self.step = IVec2::ZERO;
         self.blocked = [true; ACTS];
+        self.nav_blocked = true;
     }
 
     pub fn get(&self, a: Act) -> ActState {
@@ -188,11 +199,21 @@ fn btn(a: Act, binds: impl Bundle) -> impl Bundle {
     (Action::<Btn>::new(), a, binds)
 }
 
+/// The menus' Select buttons (MenuSelect: Enter, the remaster's Space and the pad's Cross / A; the mouse clicks rows).
+fn menu_select() -> [Binding; 3] {
+    [KeyCode::Enter.into(), KeyCode::Space.into(), GamepadButton::South.into()]
+}
+
+/// The menus' Back buttons (MenuCancel: Escape, Mouse 2; the pad's Circle / B and Options / Menu).
+fn menu_back() -> [Binding; 4] {
+    [KeyCode::Escape.into(), MouseButton::Right.into(), GamepadButton::East.into(), GamepadButton::Start.into()]
+}
+
 /// The play actions and their bindings (bindings.rs: keyboard and mouse the original's defaults,
 /// Controls_LoadDefaultBindings 0x004144a0 from table 0x00588ed8, then as rebound on the Controls page; pads the
-/// remaster's layout, module comment), built again whenever the options' bindings change. The context lives across
-/// level restarts (levelreset.rs `KeepOnRestart`).
-fn apply_bindings(mut commands: Commands, opts: Res<crate::options::GameOptions>, controls: Res<Controls>, ctx: Query<Entity, With<Gameplay>>) {
+/// remaster's layout, module comment), built again whenever the options' bindings change, with the paused message's
+/// Continue (it takes Fire's bindings). The contexts live across level restarts (levelreset.rs `KeepOnRestart`).
+fn apply_bindings(mut commands: Commands, opts: Res<crate::options::GameOptions>, controls: Res<Controls>, ctx: Query<Entity, Or<(With<Gameplay>, With<Message>)>>) {
     let current = BINDINGS.read().ok().and_then(|b| b.clone());
     if current.as_ref() == Some(&opts.bindings) && !ctx.is_empty() {
         return;
@@ -246,6 +267,14 @@ fn apply_bindings(mut commands: Commands, opts: Res<crate::options::GameOptions>
     for i in [Binding::from(KeyCode::Escape), Binding::from(GamepadButton::Start)] {
         commands.spawn((BindingOf(pause), i, keep));
     }
+    // a paused message: MenuSelect, MenuCancel or Fire dismiss it (0x00462790, ui_01.cpp:2279-2297): the menus' Select
+    // and Back buttons, Mouse 1 (MenuSelect's first binding) and Fire as bound (keyboard / mouse and pad)
+    let msg = commands.spawn((Message, ContextActivity::<Message>::new(controls.active_message), keep)).id();
+    let cont = commands.spawn((Action::<Btn>::new(), Act::Continue, ActionOf::<Message>::new(msg), keep)).id();
+    let fire = b.get(Bind::Fire, Device::Keys).iter().chain(b.get(Bind::Fire, Device::Pad)).map(|i| i.binding());
+    for i in menu_select().into_iter().chain(menu_back()).chain([Binding::from(MouseButton::Left)]).chain(fire) {
+        commands.spawn((BindingOf(cont), i, keep));
+    }
     if let Ok(mut m) = BINDINGS.write() {
         *m = Some(opts.bindings.clone());
     }
@@ -254,7 +283,7 @@ fn apply_bindings(mut commands: Commands, opts: Res<crate::options::GameOptions>
     }
 }
 
-/// The menus' and messages' actions: fixed (module comment).
+/// The menus' actions: fixed (module comment).
 fn spawn_contexts(mut commands: Commands) {
     use GamepadButton as B;
     commands.spawn((
@@ -263,17 +292,9 @@ fn spawn_contexts(mut commands: Commands) {
         actions!(Menus[
             (Action::<NavA>::new(), Act::Nav, DeadZone { lower_threshold: 0.5, ..default() },
                 Bindings::spawn((Cardinal::arrows(), Cardinal::wasd_keys(), Cardinal::dpad(), Axial::left_stick()))),
-            btn(Act::Select, bindings![KeyCode::Enter, KeyCode::Space, B::South]),
-            btn(Act::Back, bindings![KeyCode::Escape, MouseButton::Right, B::East, B::Start]),
+            btn(Act::Select, Bindings::spawn(SpawnIter(menu_select().into_iter()))),
+            btn(Act::Back, Bindings::spawn(SpawnIter(menu_back().into_iter()))),
             btn(Act::Delete, bindings![KeyCode::Delete, KeyCode::Backspace, B::West]),
-        ]),
-    ));
-    commands.spawn((
-        Message,
-        ContextActivity::<Message>::INACTIVE,
-        actions!(Message[
-            // MenuSelect, MenuCancel or Fire dismiss it (0x00462790, ui_01.cpp:2250)
-            btn(Act::Continue, bindings![KeyCode::Enter, MouseButton::Left, B::South, B::East, B::RightTrigger2]),
         ]),
     ));
 }
@@ -290,7 +311,7 @@ fn contexts(
     mut sources: ResMut<ActionSources>,
     ctx: Query<(Entity, Has<Gameplay>, Has<Menus>, Has<Message>, Option<&GamepadDevice>)>,
     mut last: Local<Option<(bool, bool, bool)>>,
-    (mut controls, movie): (ResMut<Controls>, Option<Res<crate::movie::MoviePlayer>>),
+    (mut controls, movie, mut last_page): (ResMut<Controls>, Option<Res<crate::movie::MoviePlayer>>, Local<Option<crate::gamemenu::Page>>),
 ) {
     let showing = mission.as_ref().is_some_and(|m| m.showing.is_some());
     // a full-window movie takes the menus' buttons (select / back skip it: movie.rs)
@@ -298,9 +319,14 @@ fn contexts(
     let play = *state.get() == crate::AppState::Playing && menu.page != crate::gamemenu::Page::Pub && !movie;
     let want = (play && !showing, !play, play && showing);
     controls.active_play = want.0;
-    if last.is_some_and(|l| l != want) {
+    controls.active_message = want.2;
+    // a context change (Game_SetPaused 0x004031e0 consumes every action) or, in the menus, another page (a screen
+    // pushed or popped resets the key timers and consumes every action, 0x00491110)
+    let page_changed = !play && last_page.is_some_and(|p| p != menu.page);
+    if last.is_some_and(|l| l != want) || page_changed {
         controls.switched = true;
     }
+    *last_page = Some(menu.page);
     let pad = match playtest.as_ref() {
         Some(p) => p.pad_entity().map_or(GamepadDevice::None, GamepadDevice::Single),
         None => GamepadDevice::Any,
@@ -332,9 +358,11 @@ fn contexts(
 /// (Controls_IsPressed 0x00414730) and released (Controls_IsReleased 0x004148f0) on any binding, axes the larger of
 /// the bindings' (Controls_AxisMax 0x00414a30 / 0x00414aa0). Buttons held across a context change are consumed until
 /// released (the original consumes an action that did its job, Controls_Consume 0x00414680, and frees it once every
-/// binding is up, 0x004146c0, polled each frame by Controls_Poll 0x004145c0). Menu navigation steps with key repeat:
-/// the first repeat after 0.25 s, then every 0.1 s (the menu input 0x00491140 through 0x00491090: first delay 0.25,
-/// repeat 0.1).
+/// binding is up, 0x004146c0, polled each frame by Controls_Poll 0x004145c0). Menu navigation steps with key repeat
+/// (the menu input 0x00491140 through 0x00491090, a timer per key: ui_03.cpp:743-766): a new direction steps at once
+/// and waits the first delay 0.25 s; held, each time its timer runs out it steps and waits the repeat 0.1 s (the
+/// overshoot dropped); a change of direction starts over. Used up (a switch, a consume), navigation waits for every
+/// direction to be released, as the buttons do (the consumed menu keys).
 fn collect(time: Res<Time<Real>>, mut c: ResMut<Controls>, acts: Query<(&Act, &ActionValue, &ActionEvents, &TriggerState)>) {
     let mut out = [ActState::default(); ACTS];
     for (a, v, ev, st) in &acts {
@@ -353,7 +381,11 @@ fn collect(time: Res<Time<Real>>, mut c: ResMut<Controls>, acts: Query<(&Act, &A
     }
     if std::mem::take(&mut c.switched) {
         c.blocked = [true; ACTS];
+        c.nav_blocked = true;
     }
+    // the pad's loss pauses only in play (a menu, which locks the controls to every device, drops it: 0x004915b0)
+    let lost = std::mem::take(&mut c.pad_lost_pending);
+    c.pad_lost = lost && c.active_play;
     for (i, st) in out.iter_mut().enumerate() {
         // axes (move, look, menu navigation) carry on
         if matches!(i, x if x == Act::Move as usize || x == Act::Look as usize || x == Act::Nav as usize) {
@@ -378,17 +410,22 @@ fn collect(time: Res<Time<Real>>, mut c: ResMut<Controls>, acts: Query<(&Act, &A
     } else {
         IVec2::ZERO
     };
-    let prev = c.nav_held;
     c.step = IVec2::ZERO;
     if dir == IVec2::ZERO {
-        c.nav_held = 0.0;
+        c.nav_blocked = false;
+        c.nav_dir = IVec2::ZERO;
+    } else if c.nav_blocked {
+        c.nav_dir = IVec2::ZERO;
+    } else if dir != c.nav_dir {
+        c.step = dir;
+        c.nav_dir = dir;
+        c.nav_timer = 0.25;
     } else {
-        let t = prev + time.delta_secs();
-        let fire = prev == 0.0 || (t >= 0.25 && ((t - 0.25) / 0.1).floor() > ((prev - 0.25).max(-0.1) / 0.1).floor());
-        if fire {
+        c.nav_timer -= time.delta_secs();
+        if c.nav_timer <= 0.0 {
             c.step = dir;
+            c.nav_timer = 0.1;
         }
-        c.nav_held = t.max(1e-6);
     }
     c.acts = out;
 }
@@ -399,7 +436,12 @@ pub fn pad_active() -> bool {
 
 /// The active device: the one that gave input last (pads only while they count, as above). The original makes the
 /// device that pressed something active and reads only it (Controls +4, Controls_Poll 0x004145c0, Controls_Lock
-/// 0x00414590 to listen to all); the remaster reads every device and uses the active one for prompts and rumble.
+/// 0x00414590 to listen to all); the remaster reads every device and uses the active one for prompts and rumble, so
+/// the lock has nothing to do. The active pad unplugged (Controls_Poll: the active device not connected ->
+/// Ui_SetFlag10 0x004907a0, and the UI update 0x004915b0 pushes "TCR:C6-8", the "Controller disconnected" screen,
+/// unless a menu holds the controls) pauses the game in play (`Controls::pad_lost`: the pause menu stands in for that
+/// screen) and makes the keyboard and mouse the device.
+#[allow(clippy::too_many_arguments)]
 fn device(
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
@@ -408,7 +450,16 @@ fn device(
     playtest: Option<Res<crate::playtest::Playtest>>,
     window: Query<&Window, With<PrimaryWindow>>,
     mut active: ResMut<ActivePad>,
+    mut controls: ResMut<Controls>,
 ) {
+    if let Some(e) = active.0.filter(|e| pads.get(*e).is_err()) {
+        active.0 = None;
+        if pad_active() {
+            DEVICE.store(0, Ordering::Relaxed);
+            controls.pad_lost_pending = true;
+            info!("EVENT controls: the pad in use ({e:?}) was disconnected");
+        }
+    }
     // the keyboard / mouse binding last pressed per action: a prompt names that one (the original names the first)
     if let Some(b) = bindings() {
         for (n, bind) in Bind::ALL.into_iter().enumerate() {

@@ -1206,9 +1206,10 @@ fn navigate(
     let play = |s: &mut MessageWriter<crate::audio::PlaySound>, n: &str| {
         s.write(crate::audio::PlaySound::menu(n));
     };
-    // Esc in play opens the pause menu (not over a paused mission message)
+    // Esc in play opens the pause menu (not over a paused mission message), as does unplugging the pad in use (the
+    // original's "Controller disconnected" screen, input.rs `device`)
     if *state.get() == AppState::Playing {
-        if ctl.pressed(crate::input::Act::Pause) && mission.as_ref().is_none_or(|m| m.showing.is_none()) {
+        if (ctl.pressed(crate::input::Act::Pause) || ctl.pad_lost) && mission.as_ref().is_none_or(|m| m.showing.is_none()) {
             next.set(AppState::Paused);
             vtime.pause();
             menu.page = Page::Pause;
