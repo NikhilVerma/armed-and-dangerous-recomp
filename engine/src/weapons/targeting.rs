@@ -114,7 +114,14 @@ pub type Characters<'w, 's> = Query<'w, 's, (), Or<(With<crate::player::Roman>, 
 
 /// A pass over the candidates (nearest the eye first): see the module docs. `passable` says which bodies the line
 /// of sight passes (the characters).
-pub fn search(view: &View, mut cands: Vec<Candidate>, factors: (f32, f32), range: f32, max: usize, physics: &Physics, passable: impl Fn(Entity) -> bool) -> Vec<Target> {
+pub fn search(view: &View, cands: Vec<Candidate>, factors: (f32, f32), range: f32, max: usize, physics: &Physics, passable: impl Fn(Entity) -> bool) -> Vec<Target> {
+    search_with(view, cands, factors, range, max, physics, passable, |_| false)
+}
+
+/// [`search`] with the pass's own test `skip`, made after the range test (a skipped one still counts toward the 21,
+/// as the knockout bomb's height test does in 0x00407c20).
+#[allow(clippy::too_many_arguments)]
+pub fn search_with(view: &View, mut cands: Vec<Candidate>, factors: (f32, f32), range: f32, max: usize, physics: &Physics, passable: impl Fn(Entity) -> bool, skip: impl Fn(&Candidate) -> bool) -> Vec<Target> {
     // the dead are left out before the 21 are counted: the original's list (+0xe8c) loses a character when he goes
     // down (GoRagdoll 0x00431310 unlinks him) and its bodies are gone in 5 s, while the remaster keeps up to 48 bodies
     // (corpses.rs): after a fight the nearest 21 were all bodies and the sticky bomb found no one to home on (the
@@ -135,6 +142,9 @@ pub fn search(view: &View, mut cands: Vec<Candidate>, factors: (f32, f32), range
         if dist > range || range <= 0.0 {
             break;
         }
+        if skip(&c) {
+            continue;
+        }
         if !in_hud_sight(physics, view.eye, c.hit, c.entity, &passable) {
             continue;
         }
@@ -149,7 +159,7 @@ pub fn search(view: &View, mut cands: Vec<Candidate>, factors: (f32, f32), range
 /// The line of sight 0x00414110 from `from` to the target (distance + 10): it must reach the target's body first;
 /// the bodies `passable` names are passed through, anything else blocks.
 pub fn in_sight(physics: &Physics, from: Vec3, to: Vec3, target: Entity, passable: &impl Fn(Entity) -> bool) -> bool {
-    sight(physics, from, to, target, passable, false)
+    sight(physics, from, to, target, passable, false).is_some()
 }
 
 /// The HUD passes' line of sight (Hud_UpdateCrosshair 0x00406f50, ui_01.cpp:406-411): 0x00414110 with the sight list
@@ -159,10 +169,16 @@ pub fn in_sight(physics: &Physics, from: Vec3, to: Vec3, target: Entity, passabl
 /// `collider_lists`) and the target. Characters (`passable`) and the objects outside the list (invisible walls, plain
 /// rocks) let it through.
 pub fn in_hud_sight(physics: &Physics, from: Vec3, to: Vec3, target: Entity, passable: &impl Fn(Entity) -> bool) -> bool {
+    hud_sight_distance(physics, from, to, target, passable).is_some()
+}
+
+/// [`in_hud_sight`]'s ray distance to the target's body (0x00414110's hit distance, kept in the HUD slot's +0x1c), or
+/// None when it is out of sight.
+pub fn hud_sight_distance(physics: &Physics, from: Vec3, to: Vec3, target: Entity, passable: &impl Fn(Entity) -> bool) -> Option<f32> {
     sight(physics, from, to, target, passable, true)
 }
 
-fn sight(physics: &Physics, from: Vec3, to: Vec3, target: Entity, passable: &impl Fn(Entity) -> bool, sight_list: bool) -> bool {
+fn sight(physics: &Physics, from: Vec3, to: Vec3, target: Entity, passable: &impl Fn(Entity) -> bool, sight_list: bool) -> Option<f32> {
     let d = to - from;
     let dist = d.length();
     let dir = d / dist.max(1e-3);
@@ -170,20 +186,20 @@ fn sight(physics: &Physics, from: Vec3, to: Vec3, target: Entity, passable: &imp
     while let Some((b, hit, _)) = physics.raycast(at, dir, left) {
         let owner = physics.bodies.get(&b).copied();
         if owner == Some(target) {
-            return true;
+            return Some(hit.distance(from));
         }
         let unlisted = sight_list && physics.landscape != Some(b) && physics.no_bullets.contains(&physics.main_body(b));
         if owner.is_some_and(&passable) || unlisted {
             left -= hit.distance(at) + 0.05;
             at = hit + dir * 0.05;
             if left <= 0.0 {
-                return false;
+                return None;
             }
             continue;
         }
-        return false;
+        return None;
     }
-    false
+    None
 }
 
 /// The candidates: the grunt-class characters `keep` takes (by entity, character and feet), with their ref_hit_00.
