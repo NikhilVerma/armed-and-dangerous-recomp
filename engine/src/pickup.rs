@@ -128,8 +128,22 @@ pub struct SpawnPickup {
     pub name: String,
     pub at: Vec3,
     pub vel: Vec3,
-    /// stays where it is made (a generator's pickup), no fall to the ground
+    /// stays where it is made, no fall to the ground (a playtest's pickup at Roman's feet)
     pub hover: bool,
+}
+
+/// A death that drops nothing: Character_Die 0x004319e0 skips Character_DropPickup when the damage record has flag
+/// 0x8000 (a trigger kill: receive_trigger_kill, ai.rs `trigger_kills`).
+#[derive(Component)]
+pub struct NoPickupDrop;
+
+/// The speed a dropped pickup is launched at, towards the player (Character_DropPickup 0x0043e710: K 0x005bcb30).
+const DROP_LAUNCH_SPEED: f32 = 40.0;
+/// A thrown pickup's launch: towards `to` along the ground, tilted up by 0.7 before the normalise (0x0043e710 and Q's
+/// tea, mode 9 of 0x00485910: 0x004e7780 on the 2D direction, z = 0.7, normalised), times `speed`.
+pub fn launch_towards(from: Vec3, to: Vec3, speed: f32) -> Vec3 {
+    let flat = (to - from).with_y(0.0).normalize_or_zero();
+    Vec3::new(flat.x, 0.7, flat.z).normalize() * speed
 }
 
 /// A pickup generator (PickupGenerator, vtable 0x005a6258; PickupGenerator_Load 0x00471b70).
@@ -150,12 +164,20 @@ struct Generator {
 #[derive(Resource, Default)]
 struct Generators(Option<Vec<Generator>>);
 
+/// The deaths' drops this level (the playtest state): made, and launched towards the player.
+#[derive(Resource, Default)]
+struct DropLog {
+    made: u32,
+    launched: u32,
+}
+
 pub struct PickupPlugin;
 
 impl Plugin for PickupPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<SpawnPickup>()
             .init_level_resource::<Generators>()
+            .init_level_resource::<DropLog>()
             .add_systems(Update, (drop_on_death, generators, spawn_pickups, placed_pickups, collect, state_log).chain().run_if(crate::playing))
             .add_systems(Update, playtest_steps.run_if(resource_exists::<crate::playtest::Playtest>));
     }
@@ -188,12 +210,12 @@ fn spawn_one(commands: &mut Commands, data: &GameData, lib: &mut Library, assets
 #[allow(clippy::too_many_arguments)]
 fn drop_on_death(
     mut seen: crate::levelreset::PerLevel<std::collections::HashSet<Entity>>,
-    grunts: Query<(Entity, &Grunt, &GlobalTransform, &Health)>,
-    player: Query<&Health, With<Player>>,
+    grunts: Query<(Entity, &Grunt, &GlobalTransform, &Health, Has<NoPickupDrop>)>,
+    player: Query<(&Health, &GlobalTransform), With<Player>>,
     roman: Query<&crate::player::Roman>,
     mut rng: ResMut<crate::fx::FxStats>,
     mut out: MessageWriter<SpawnPickup>,
-    (difficulty, mission): (Res<crate::gamedata::Difficulty>, Option<Res<crate::mission::Mission>>),
+    (difficulty, mission, mut log): (Res<crate::gamedata::Difficulty>, Option<Res<crate::mission::Mission>>, ResMut<DropLog>),
 ) {
     // Character_DropPickup 0x0043e710 drops nothing while 0x0044e600 holds (Roman there, the mission's
     // start_in_turret_tag set: the defence levels)
@@ -203,7 +225,9 @@ fn drop_on_death(
     // the roll's exponent: Game+0xc60 (1.0 in every traced run, docs/structs/Game.md) x Game+0x560, the
     // difficulty's (easy 2, normal 1, hard 0.75, very hard 0.5)
     let exponent = difficulty.factors().unknown_560;
-    // the pick (0x00475a90, weights from the level properties, LevelProperties_Load 0x00423900, defaults x 0.01):
+    // the pick (0x00475a90, weights from the level properties, LevelProperties_Load 0x00423900, defaults x 0.01; every
+    // shipped level sets exactly these defaults, so they stay literals here; its gate vt+0xd8 on the player is
+    // Object_IsDead's "has health" answer, always true for Roman):
     // health pickup_health_weight_low 0.5 below pickup_low_health_thresh_pct 25 % health, else _normal 0.25; the
     // current weapon's ammo pickup_cur_weapon_weight 0.5 (never for the rifle, weapon 2: it has no ammo to find);
     // the first other weapon (not the rifle) pickup_noncur_weapon_weight 0.25; sticky bombs pickup_sticky_bomb_weight
@@ -212,8 +236,9 @@ fn drop_on_death(
     // 0x00475a90: the gun in hand (not the rifle: weapon 2 has no ammo to find) and the first other carried gun that is
     // not the rifle
     use crate::weapons::WeaponId;
+    let target = player.single().ok().map(|(_, t)| t.translation());
     let (ratio, cur_gun, other_gun) = match (player.single(), roman.single()) {
-        (Ok(h), Ok(r)) => {
+        (Ok((h, _)), Ok(r)) => {
             let cur = r.arsenal.in_hand_id();
             let other = r.arsenal.guns().map(|g| g.id).find(|&id| Some(id) != cur && id != WeaponId::Rifle);
             (h.0 / r.max_health.max(1.0), cur.filter(|&id| id != WeaponId::Rifle), other)
@@ -221,10 +246,10 @@ fn drop_on_death(
         _ => (1.0, None, None),
     };
     let seen = seen.get();
-    for (e, g, t, h) in &grunts {
+    for (e, g, t, h, no_drop) in &grunts {
         // a death (Character_Die 0x004319e0), not a script's deactivate (0x00409110: the bookkeeping 0x00431720 and the
-        // removal, no Character_Die: ai/notes.rs, which leaves his health)
-        if g.mind != Mind::Dead || h.0 > 0.0 || !seen.insert(e) {
+        // removal, no Character_Die: ai/notes.rs, which leaves his health), nor a no-drop kill (record flag 0x8000)
+        if g.mind != Mind::Dead || h.0 > 0.0 || !seen.insert(e) || no_drop {
             continue;
         }
         // Character_Die 0x004319e0 -> Character_DropPickup 0x0043e710: pickup_drop_percent p, the chance
@@ -234,23 +259,26 @@ fn drop_on_death(
             continue;
         }
         // a pickup_drop_specific (+0xb2c >= 0, or -2 / -3 for the health pickups) instead of the player's need
-        if let Some(name) = g.drop_specific {
-            out.write(SpawnPickup { name: name.into(), at: t.translation() + Vec3::Y * 4.0, vel: Vec3::ZERO, hover: false });
-            continue;
-        }
-        let hw = if ratio < 0.25 { 0.5 } else { 0.25 };
-        let (cur, sticky) = (0.5, 0.25);
-        let other = if other_gun.is_some() { 0.25 } else { 0.0 };
-        let x = rng.rand() * (sticky + cur + other + hw);
-        let ammo = |id: WeaponId| id.table().pickup.unwrap_or("pickup_sticky_bombs");
-        let name = match (cur_gun, other_gun) {
-            _ if x < hw => "pickup_health_1",
-            (Some(c), _) if x < hw + cur => ammo(c),
-            (_, Some(o)) if x < hw + cur + other => ammo(o),
-            _ => "pickup_sticky_bombs",
-        };
-        // the pop: upward_force (PickupObject_Load's push)
-        out.write(SpawnPickup { name: name.into(), at: t.translation() + Vec3::Y * 4.0, vel: Vec3::ZERO, hover: false });
+        let name = g.drop_specific.unwrap_or_else(|| {
+            let hw = if ratio < 0.25 { 0.5 } else { 0.25 };
+            let (cur, sticky) = (0.5, 0.25);
+            let other = if other_gun.is_some() { 0.25 } else { 0.0 };
+            let x = rng.rand() * (sticky + cur + other + hw);
+            let ammo = |id: WeaponId| id.table().pickup.unwrap_or("pickup_sticky_bombs");
+            match (cur_gun, other_gun) {
+                _ if x < hw => "pickup_health_1",
+                (Some(c), _) if x < hw + cur => ammo(c),
+                (_, Some(o)) if x < hw + cur + other => ammo(o),
+                _ => "pickup_sticky_bombs",
+            }
+        });
+        // made 4 units above him (K 0x005bcbe0) and launched towards the player (Body_setLinearVelocity 0x00458510,
+        // which replaces PickupObject_Load's upward push); no player, no launch
+        let at = t.translation() + Vec3::Y * 4.0;
+        let vel = target.map_or(Vec3::ZERO, |p| launch_towards(at, p, DROP_LAUNCH_SPEED));
+        log.made += 1;
+        log.launched += u32::from(vel != Vec3::ZERO);
+        out.write(SpawnPickup { name: name.into(), at, vel, hover: false });
     }
 }
 
@@ -354,7 +382,10 @@ fn generators(
         };
         g.timer = g.delay;
         g.made = true;
-        g.current = spawn_one(&mut commands, &data, &mut lib, &assets, &mut meshes, &mut materials, &physics, &SpawnPickup { name: name.clone(), at: g.pos + Vec3::Y * 4.0, vel: Vec3::ZERO, hover: true });
+        // made like any pickup (PickupObject_Load's upward_force push) and moved 4 units above the generator by
+        // Object_SetPosition 0x00457870, which takes the body out of the world and puts it back without touching its
+        // velocity (best shot, not captured): it pops and falls to the ground like a drop
+        g.current = spawn_one(&mut commands, &data, &mut lib, &assets, &mut meshes, &mut materials, &physics, &SpawnPickup { name: name.clone(), at: g.pos + Vec3::Y * 4.0, vel: Vec3::ZERO, hover: false });
         logs.push(format!("pickup generator {} made {name}", g.id));
     }
     if let Some(mut m) = mission {
@@ -374,6 +405,15 @@ fn spawn_pickups(
 ) {
     for ev in events.read() {
         spawn_one(&mut commands, &data, &mut lib, &assets, &mut meshes, &mut materials, &physics, ev);
+    }
+}
+
+/// Pickup_PlayAmmoSound 0x00472400: one of three, r = rand x 100 (truncated): below 33 "_1", below 66 "_2", else "_3".
+fn ammo_sound(rand: f32) -> &'static str {
+    match (rand * 100.0) as u32 {
+        0..33 => "ui_pickup_ammo_1",
+        33..66 => "ui_pickup_ammo_2",
+        _ => "ui_pickup_ammo_3",
     }
 }
 
@@ -437,7 +477,7 @@ fn collect(
     time: Res<Time>,
     mut q: Query<(Entity, &mut Pickup, &mut Transform, Option<&Children>)>,
     mut player: Query<(&GlobalTransform, &mut Health, &mut crate::player::Roman, Option<&mut crate::jetpack::JetPack>), With<Player>>,
-    mut ai: Query<(&GlobalTransform, &mut Health, &Grunt), Without<Player>>,
+    mut ai: Query<(Entity, &GlobalTransform, &mut Health, &Grunt), Without<Player>>,
     mut mission: Option<ResMut<crate::mission::Mission>>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     (ui_texts, data, mut opts, mut ms, difficulty): (Res<crate::gamemenu::Texts>, Res<GameData>, ResMut<crate::options::GameOptions>, ResMut<crate::stats::MissionStats>, Res<crate::gamedata::Difficulty>),
@@ -445,6 +485,7 @@ fn collect(
     mut mats: Query<&mut MeshMaterial3d<StandardMaterial>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     (mut cheats, mut upgrade): (ResMut<crate::cheats::Cheats>, ResMut<crate::weapons::VindalooUpgrade>),
+    (mut rng, physics): (ResMut<crate::fx::FxStats>, NonSend<crate::physics::Physics>),
 ) {
     let dt = time.delta_secs();
     let Ok((pt, mut h, mut r, mut jet)) = player.single_mut() else { return };
@@ -452,6 +493,12 @@ fn collect(
     for (e, mut p, mut t, children) in &mut q {
         // the pop: upward_force up, the world's gravity (64.348 units/s^2) back down to the ground
         if p.placed.is_none() {
+            // a thrown one (a drop, Q's tea) lands where it comes down, not under where it was made
+            if p.hvel != Vec3::ZERO {
+                if let Some(h) = physics.raycast(t.translation + Vec3::Y, -Vec3::Y, 400.0) {
+                    p.ground = h.1.y;
+                }
+            }
             p.vel -= 64.348 * dt;
             t.translation.y = (t.translation.y + p.vel * dt).max(p.ground + 1.0);
             t.translation += p.hvel * dt;
@@ -462,16 +509,19 @@ fn collect(
         }
         // the spin about the vertical at rotate_rate (0x00472170 / 0x004720e0: the matrix spun about z by +0x4b4)
         t.rotate_y(dt * p.spin);
-        // linger_time, then the fade over fade_time (vt+0x100(1 - f); under 0.01 s it goes at once)
+        // linger_time, then the fade over fade_time (PickupObject_Update 0x00472200: once the time since the spawn exceeds
+        // linger_time the fade starts, its progress counting from the next frame; vt+0x100(1 - f); under 0.01 s it goes
+        // at once)
         p.life -= dt;
-        if p.life <= 0.0 && p.fading.is_none() {
+        let mut fade_step = dt / p.fade_time.max(0.01);
+        if p.life < 0.0 && p.fading.is_none() {
             if p.fade_time < 0.01 {
                 commands.entity(e).despawn();
                 continue;
             }
             p.fading = Some(0.0);
+            fade_step = 0.0;
         }
-        let fade_step = dt / p.fade_time.max(0.01);
         if let Some(f) = p.fading.as_mut() {
             *f += fade_step;
             let f = *f;
@@ -507,27 +557,28 @@ fn collect(
             if p.on_enter != 0 {
                 out.write(crate::mission::SendTrigger(p.on_enter));
             }
-            // Pickup_PlayHealthSound 0x00472790: Roman's "ROM50193_Ambient" for Q's tea, else the pickup sound;
-            // Pickup_PlayAmmoSound 0x00472400
-            if p.text.as_deref() == Some("pickup_healthytea") {
-                sounds.write(crate::audio::PlaySound::at("ROM50193_Ambient", pt.translation()));
-            } else {
-                sounds.write(crate::audio::PlaySound::ui(if p.kind == Kind::Health { "ui_pickup_health" } else { "ui_pickup_ammo_1" }));
-            }
+            // Pickup_PlayHealthSound 0x00472790 without a collector (0x00472800): "ui_pickup_health" in 2D, Q's tea
+            // too; every other collect slot and the token's update (0x00472a00): Pickup_PlayAmmoSound 0x00472400
+            sounds.write(crate::audio::PlaySound::ui(if p.kind == Kind::Health { "ui_pickup_health" } else { ammo_sound(rng.rand()) }));
             if p.kind == Kind::Token {
                 // 0x00472a00 after 0x00472aa0: the token reward (0x004a07a0 -> 0x004a0850): the count (Game+0x200),
-                // the level's token taken, 2500 Loot, the unlockable paid for (a cheat: Cheat_Unlock 0x00410e40 with
-                // enable 0), the paused message
+                // the level's token taken, 2500 Loot, the unlockables paid for (`token_walk`: a cheat through
+                // Cheat_Unlock 0x00410e40 with enable 0, the rest into the profile's records), the paused message
                 ms.loot_money += 2500.0;
                 opts.tokens += 1;
                 if let Some(k) = &p.placed {
                     opts.tokens_taken.push(k.clone());
                 }
-                opts.save();
-                let (msg, unlocked) = token_message(&ui_texts, opts.tokens, *difficulty);
-                if let Some(u) = unlocked.filter(|u| u.1 == "token_cheat") {
-                    crate::cheats::unlock(u.0, false, &mut opts, Some(&mut cheats));
+                let walk = token_walk(opts.tokens, *difficulty, |u| is_unlocked(u, &opts));
+                for u in &walk.bought {
+                    if u.kind == UnlockKind::Cheat {
+                        crate::cheats::unlock(u.name, false, &mut opts, Some(&mut cheats));
+                    } else {
+                        opts.token_unlocks.push(u.name.to_owned());
+                    }
                 }
+                opts.save();
+                let msg = token_message(&ui_texts, opts.tokens, *difficulty, &walk);
                 if let Some(m) = mission.as_deref_mut() {
                     m.log.push(format!("token {} found ({} of {TOKENS_TOTAL})", p.placed.clone().unwrap_or_default(), opts.tokens));
                     m.message(&msg, 0.0);
@@ -544,13 +595,16 @@ fn collect(
         // take pickups here
         // (0x00472850: the raw num_health, refused when dead or at full health)
         if p.ai && p.kind == Kind::Health {
-            for (gt, mut gh, g) in &mut ai {
+            for (ge, gt, mut gh, g) in &mut ai {
                 if g.mind == Mind::Dead || gh.0 <= 0.0 || gh.0 >= g.max_health {
                     continue;
                 }
                 if at.distance(gt.translation() + Vec3::Y * 4.0) <= p.radius {
                     gh.0 = (gh.0 + p.amount).min(g.max_health);
-                    sounds.write(crate::audio::PlaySound::at("ui_pickup_health", at));
+                    // Pickup_PlayHealthSound 0x00472790 with the collector: on him, "ROM50193_Ambient" for the tea
+                    // (its object name; the tea template is the only one with this text, and has no ai_can_trigger)
+                    let name = if p.text.as_deref() == Some("pickup_healthytea") { "ROM50193_Ambient" } else { "ui_pickup_health" };
+                    sounds.write(crate::audio::PlaySound::on(name, ge));
                     commands.entity(e).despawn();
                     break;
                 }
@@ -559,40 +613,114 @@ fn collect(
     }
 }
 
-/// The unlockables bought with tokens (table 0x0057e878, 20 x 0x1c bytes: type 0 level / 1 cheat / 2 feature, name
-/// id, description id, cost per difficulty; 99 = never), and the total (0x005cadd0).
-const UNLOCKS: [(&str, &str, [u32; 4]); 20] = [
-    ("ui_extrasmenu_replay", "token_feature", [1, 1, 1, 1]),
-    ("ui_extrasmenu_cutscene", "token_feature", [2, 2, 1, 1]),
-    ("ui_cheat_bighead", "token_cheat", [3, 3, 1, 1]),
-    ("lev_bonus_m1", "token_level", [4, 4, 1, 1]),
-    ("ui_diff_3", "token_difflvl", [7, 6, 2, 1]),
-    ("ui_cheat_bighands", "token_cheat", [10, 9, 3, 1]),
-    ("ui_cheat_bigboots", "token_cheat", [14, 10, 4, 2]),
-    ("lev_bonus_m2", "token_level", [18, 12, 5, 3]),
-    ("ui_cheat_unlockmovies", "token_cheat", [21, 14, 6, 4]),
-    ("ui_diff_4", "token_difflvl", [99, 16, 7, 5]),
-    ("lev_bonus_m3", "token_level", [99, 18, 9, 6]),
-    ("ui_cheat_fullammo", "token_cheat", [99, 21, 11, 7]),
-    ("ui_cheat_fullhealth", "token_cheat", [99, 99, 13, 8]),
-    ("ui_cheat_infammo", "token_cheat", [99, 99, 15, 9]),
-    ("ui_cheat_invincible", "token_cheat", [99, 99, 17, 11]),
-    ("ui_cheat_unlocklevels", "token_cheat", [99, 99, 19, 15]),
-    ("ui_cheat_godmode", "token_cheat", [99, 99, 21, 19]),
-    ("ui_cheat_flipscreen", "token_cheat", [99, 99, 99, 21]),
-    ("ui_cheat_showall", "token_cheat", [99, 99, 99, 99]),
-    ("ui_extrasmenu_credits", "token_feature", [99, 99, 99, 99]),
-];
-const TOKENS_TOTAL: u32 = 21;
-
-/// The tokens an unlockable costs at this difficulty (None: not in the table, or never: 99).
-pub fn unlock_cost(name: &str, difficulty: crate::gamedata::Difficulty) -> Option<u32> {
-    UNLOCKS.iter().find(|u| u.0.eq_ignore_ascii_case(name)).map(|u| u.2[difficulty.0.min(3)]).filter(|&c| c != 99)
+/// What an unlockable is (the table's type: 0 level, 1 cheat, 2 feature or difficulty), and so where its record lives:
+/// Unlock_Add 0x004a07a0 category 3 (levels) or 4 (features), or the cheats' known mask (Cheat_IsUnlocked 0x00410ea0).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum UnlockKind {
+    Level,
+    Cheat,
+    Feature,
 }
 
-/// The token message (fn_004a0850): "token_got" with the count, then the unlockable just paid for (the dearest
-/// affordable, compared with the count before) or the next one with what it still needs; and that unlockable.
-pub fn token_message(texts: &crate::gamemenu::Texts, count: u32, difficulty: crate::gamedata::Difficulty) -> (String, Option<&'static (&'static str, &'static str, [u32; 4])>) {
+/// One unlockable bought with tokens: its name id, kind, description id and cost per difficulty (99 = never).
+#[derive(Debug, PartialEq)]
+pub struct Unlockable {
+    pub name: &'static str,
+    pub kind: UnlockKind,
+    pub description: &'static str,
+    pub cost: [u32; 4],
+}
+
+const fn unlockable(name: &'static str, kind: UnlockKind, description: &'static str, cost: [u32; 4]) -> Unlockable {
+    Unlockable { name, kind, description, cost }
+}
+
+/// The unlockables bought with tokens (table 0x0057e878, 20 x 0x1c bytes: type, name id, description id, cost per
+/// difficulty), and the total (0x005cadd0).
+pub const UNLOCKS: [Unlockable; 20] = {
+    use UnlockKind::{Cheat, Feature, Level};
+    [
+        unlockable("ui_extrasmenu_replay", Feature, "token_feature", [1, 1, 1, 1]),
+        unlockable("ui_extrasmenu_cutscene", Feature, "token_feature", [2, 2, 1, 1]),
+        unlockable("ui_cheat_bighead", Cheat, "token_cheat", [3, 3, 1, 1]),
+        unlockable("lev_bonus_m1", Level, "token_level", [4, 4, 1, 1]),
+        unlockable("ui_diff_3", Feature, "token_difflvl", [7, 6, 2, 1]),
+        unlockable("ui_cheat_bighands", Cheat, "token_cheat", [10, 9, 3, 1]),
+        unlockable("ui_cheat_bigboots", Cheat, "token_cheat", [14, 10, 4, 2]),
+        unlockable("lev_bonus_m2", Level, "token_level", [18, 12, 5, 3]),
+        unlockable("ui_cheat_unlockmovies", Cheat, "token_cheat", [21, 14, 6, 4]),
+        unlockable("ui_diff_4", Feature, "token_difflvl", [99, 16, 7, 5]),
+        unlockable("lev_bonus_m3", Level, "token_level", [99, 18, 9, 6]),
+        unlockable("ui_cheat_fullammo", Cheat, "token_cheat", [99, 21, 11, 7]),
+        unlockable("ui_cheat_fullhealth", Cheat, "token_cheat", [99, 99, 13, 8]),
+        unlockable("ui_cheat_infammo", Cheat, "token_cheat", [99, 99, 15, 9]),
+        unlockable("ui_cheat_invincible", Cheat, "token_cheat", [99, 99, 17, 11]),
+        unlockable("ui_cheat_unlocklevels", Cheat, "token_cheat", [99, 99, 19, 15]),
+        unlockable("ui_cheat_godmode", Cheat, "token_cheat", [99, 99, 21, 19]),
+        unlockable("ui_cheat_flipscreen", Cheat, "token_cheat", [99, 99, 99, 21]),
+        unlockable("ui_cheat_showall", Cheat, "token_cheat", [99, 99, 99, 99]),
+        unlockable("ui_extrasmenu_credits", Feature, "token_feature", [99, 99, 99, 99]),
+    ]
+};
+const TOKENS_TOTAL: u32 = 21;
+/// The cost that means never (0x63).
+const NEVER: u32 = 99;
+
+impl Unlockable {
+    /// Its cost at this difficulty (99: never).
+    pub fn cost_at(&self, difficulty: crate::gamedata::Difficulty) -> u32 {
+        self.cost[difficulty.0.min(3)]
+    }
+}
+
+/// Whether the profile holds this unlockable (0x004a0720 on category 3 / 4: `GameOptions::token_unlocks`; a cheat:
+/// Cheat_IsUnlocked 0x00410ea0).
+pub fn is_unlocked(u: &Unlockable, opts: &crate::options::GameOptions) -> bool {
+    match u.kind {
+        UnlockKind::Cheat => crate::cheats::is_unlocked(u.name, opts),
+        _ => opts.token_unlocks.iter().any(|n| n.eq_ignore_ascii_case(u.name)),
+    }
+}
+
+/// What a token pays for (fn_004a0850's walk of the table): `bought` are newly unlocked, `best` is named by the line
+/// "just unlocked", `next` by the line "to unlock" when nothing was bought.
+pub struct TokenWalk {
+    pub bought: Vec<&'static Unlockable>,
+    pub best: Option<&'static Unlockable>,
+    pub next: Option<&'static Unlockable>,
+}
+
+/// fn_004a0850's walk with `count` tokens, in table order over the unlockables still locked (cost never skipped): an
+/// affordable one (count >= cost) becomes the best when it costs strictly more than the best so far, and the best is
+/// unlocked at each affordable step; so one token buys the first of each cost along a rising run and leaves the ties
+/// for later tokens (which catch up on anything still locked). The cheapest unaffordable one (the first of equal
+/// costs) is the next.
+pub fn token_walk(count: u32, difficulty: crate::gamedata::Difficulty, unlocked: impl Fn(&Unlockable) -> bool) -> TokenWalk {
+    let mut walk = TokenWalk { bought: Vec::new(), best: None, next: None };
+    for u in UNLOCKS.iter() {
+        let cost = u.cost_at(difficulty);
+        if cost == NEVER || unlocked(u) {
+            continue;
+        }
+        if count >= cost {
+            let best = match walk.best {
+                Some(b) if cost <= b.cost_at(difficulty) => b,
+                _ => u,
+            };
+            walk.best = Some(best);
+            if !walk.bought.contains(&best) {
+                walk.bought.push(best);
+            }
+        } else if walk.next.is_none_or(|n| cost < n.cost_at(difficulty)) {
+            walk.next = Some(u);
+        }
+    }
+    walk
+}
+
+/// The token message (fn_004a0850): "token_got" with the count, then "<br>" and the walk's best ("token_justunlocked")
+/// or its next with the tokens it still needs ("token_tounlock_single" / "token_tounlock").
+pub fn token_message(texts: &crate::gamemenu::Texts, count: u32, difficulty: crate::gamedata::Difficulty, walk: &TokenWalk) -> String {
     let fill = |s: String, args: &[String]| {
         let mut out = s;
         for a in args {
@@ -601,22 +729,25 @@ pub fn token_message(texts: &crate::gamemenu::Texts, count: u32, difficulty: cra
         out
     };
     let got = texts.get("token_got").replacen("%d", &count.to_string(), 1).replacen("%d", &TOKENS_TOTAL.to_string(), 1);
-    let cost = |u: &(&str, &str, [u32; 4])| u.2[difficulty.0];
-    let unlocked = UNLOCKS.iter().filter(|u| cost(u) == count).max_by_key(|u| cost(u));
-    let next = UNLOCKS.iter().filter(|u| cost(u) > count && cost(u) != 99).min_by_key(|u| cost(u));
-    let line = if let Some(u) = unlocked {
-        fill(texts.get("token_justunlocked"), &[texts.get(u.0), texts.get(u.1)])
-    } else if let Some(u) = next {
-        let need = cost(u) - count;
+    let line = if let Some(u) = walk.best {
+        fill(texts.get("token_justunlocked"), &[texts.get(u.name), texts.get(u.description)])
+    } else if let Some(u) = walk.next {
+        let need = u.cost_at(difficulty) - count;
         if need == 1 {
-            fill(texts.get("token_tounlock_single"), &[texts.get(u.0), texts.get(u.1)])
+            fill(texts.get("token_tounlock_single"), &[texts.get(u.name), texts.get(u.description)])
         } else {
-            fill(texts.get("token_tounlock"), &[need.to_string(), texts.get(u.0), texts.get(u.1)])
+            fill(texts.get("token_tounlock"), &[need.to_string(), texts.get(u.name), texts.get(u.description)])
         }
     } else {
         String::new()
     };
-    (if line.is_empty() { got } else { format!("{got}<br>{line}") }, unlocked)
+    if line.is_empty() { got } else { format!("{got}<br>{line}") }
+}
+
+/// The token unlocks an options file from before the profile kept them (2026-10-22) had: the Extras then derived them
+/// from the count, so every level / feature unlockable the count covers at its cheapest difficulty stays unlocked.
+pub fn legacy_token_unlocks(tokens: u32) -> Vec<String> {
+    UNLOCKS.iter().filter(|u| u.kind != UnlockKind::Cheat && u.cost.iter().any(|&c| c != NEVER && tokens >= c)).map(|u| u.name.to_owned()).collect()
 }
 
 /// The level part of a legacy token key (options.rs `tokens_keyed_by_level`): taken on some level, with that id.
@@ -672,9 +803,11 @@ fn placed_pickups(
 }
 
 /// The playtest state: live pickups by kind and the generators.
-fn state_log(q: Query<&Pickup>, gens: Res<Generators>, state: Option<ResMut<crate::playtest::PlayState>>, opts: Res<crate::options::GameOptions>) {
+fn state_log(q: Query<&Pickup>, (gens, drops): (Res<Generators>, Res<DropLog>), state: Option<ResMut<crate::playtest::PlayState>>, opts: Res<crate::options::GameOptions>) {
     let Some(mut state) = state else { return };
     state.0.insert("tokens".into(), opts.tokens.into());
+    state.0.insert("token_unlocks".into(), opts.token_unlocks.clone().into());
+    state.0.insert("drops".into(), serde_json::json!({"made": drops.made, "launched": drops.launched}));
     state.0.insert("cheats_known".into(), opts.cheats_known.len().into());
     let mut kinds = serde_json::Map::new();
     for p in &q {
@@ -795,6 +928,63 @@ mod tests {
         assert!(rifle.add_ammo(16));
         assert_eq!(rifle.clip, 8);
         assert!(!rifle.add_ammo(16));
+    }
+
+    fn names(v: &[&Unlockable]) -> Vec<&'static str> {
+        v.iter().map(|u| u.name).collect()
+    }
+
+    /// fn_004a0850: one token per cost step, ties left for later tokens, catch-up on what is still locked.
+    #[test]
+    fn token_walk_buys_like_the_original() {
+        use crate::gamedata::Difficulty;
+        // normal: one cost per entry, 1 token buys the replay
+        let w = token_walk(1, Difficulty(1), |_| false);
+        assert_eq!(names(&w.bought), ["ui_extrasmenu_replay"]);
+        assert_eq!(w.next.map(|u| u.name), Some("ui_extrasmenu_cutscene"));
+        // hard: four entries cost 1, the first is bought, the ties wait
+        let w = token_walk(1, Difficulty(2), |_| false);
+        assert_eq!(names(&w.bought), ["ui_extrasmenu_replay"]);
+        assert_eq!(w.best.map(|u| u.name), Some("ui_extrasmenu_replay"));
+        // the second token: the next tie (cost 1), then the dearer ui_diff_3 (cost 2) along the rising run
+        let w = token_walk(2, Difficulty(2), |u| u.name == "ui_extrasmenu_replay");
+        assert_eq!(names(&w.bought), ["ui_extrasmenu_cutscene", "ui_diff_3"]);
+        assert_eq!(w.best.map(|u| u.name), Some("ui_diff_3"));
+        // already unlocked and never-cost entries are skipped; nothing affordable names the cheapest next
+        let w = token_walk(0, Difficulty(0), |_| false);
+        assert!(w.bought.is_empty() && w.best.is_none());
+        assert_eq!(w.next.map(|u| u.name), Some("ui_extrasmenu_replay"));
+        let w = token_walk(21, Difficulty(0), |_| true);
+        assert!(w.bought.is_empty() && w.next.is_none());
+    }
+
+    #[test]
+    fn legacy_unlocks_keep_what_the_count_covered() {
+        assert!(legacy_token_unlocks(0).is_empty());
+        let one = legacy_token_unlocks(1);
+        assert!(one.contains(&"lev_bonus_m1".to_string()) && one.contains(&"ui_diff_3".to_string()));
+        assert!(!one.iter().any(|n| n.starts_with("ui_cheat")));
+    }
+
+    /// Pickup_PlayAmmoSound 0x00472400: r = rand x 100, below 33 / 66.
+    #[test]
+    fn ammo_sound_thirds() {
+        assert_eq!(ammo_sound(0.0), "ui_pickup_ammo_1");
+        assert_eq!(ammo_sound(0.329), "ui_pickup_ammo_1");
+        assert_eq!(ammo_sound(0.33), "ui_pickup_ammo_2");
+        assert_eq!(ammo_sound(0.659), "ui_pickup_ammo_2");
+        assert_eq!(ammo_sound(0.66), "ui_pickup_ammo_3");
+        assert_eq!(ammo_sound(0.999), "ui_pickup_ammo_3");
+    }
+
+    /// 0x0043e710: the flat direction to the player, 0.7 up, normalised, x 40.
+    #[test]
+    fn drop_launch_towards_the_player() {
+        let v = launch_towards(Vec3::new(0.0, 10.0, 0.0), Vec3::new(30.0, -50.0, 40.0), DROP_LAUNCH_SPEED);
+        assert!((v.length() - 40.0).abs() < 1e-3);
+        let n = (1.0f32 + 0.49).sqrt();
+        assert!((v.y - 40.0 * 0.7 / n).abs() < 1e-3);
+        assert!((v.x - 40.0 * 0.6 / n).abs() < 1e-3 && (v.z - 40.0 * 0.8 / n).abs() < 1e-3);
     }
 
     #[test]

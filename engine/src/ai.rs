@@ -2043,9 +2043,9 @@ fn alerted(g: &Grunt, me: Entity, (group, target, alerter): (i64, Entity, Entity
 /// (vt+0xd4, Character_Die with an empty record of kind 0x8000: no hit and no killer, so the death anim). The volumes
 /// of lev_2_m2 (900), lev_4_m2 (802) and lev_4_m3 (2345) clear their placed grunts this way (mission.json lists these
 /// edges as "destroyed"). (Its activate id +0x52c is mission.rs's `WakeAi` -> [`activate`].)
-fn trigger_kills(mut sent: MessageReader<crate::mission::SendTrigger>, mut grunts: Query<(&mut Grunt, &mut Health)>, mut stats: ResMut<AiStats>) {
+fn trigger_kills(mut commands: Commands, mut sent: MessageReader<crate::mission::SendTrigger>, mut grunts: Query<(Entity, &mut Grunt, &mut Health)>, mut stats: ResMut<AiStats>) {
     for crate::mission::SendTrigger(t) in sent.read() {
-        for (mut g, mut h) in &mut grunts {
+        for (e, mut g, mut h) in &mut grunts {
             if *t != 0 && g.kill_trigger == *t && g.mind != Mind::Dead && h.0 > 0.0 {
                 h.0 = 0.0;
                 g.last_hit = 0.0;
@@ -2055,6 +2055,8 @@ fn trigger_kills(mut sent: MessageReader<crate::mission::SendTrigger>, mut grunt
                 // (not damage: a monk's trigger_no_damage does not keep him alive)
                 g.no_damage = false;
                 stats.trigger_kills += 1;
+                // (the record's flag 0x8000: Character_Die drops no pickup)
+                commands.entity(e).insert(crate::pickup::NoPickupDrop);
                 info!("EVENT ai: grunt killed by trigger {t}");
             }
         }
@@ -6080,8 +6082,7 @@ fn companions(
         if c.q && c.tea > 0.0 {
             c.tea -= dt;
             if c.tea <= 0.0 {
-                let to = (rt.translation - me).with_y(0.0).normalize_or_zero();
-                let v = Vec3::new(to.x, 0.7, to.z).normalize() * 40.0;
+                let v = crate::pickup::launch_towards(me, rt.translation, 40.0);
                 pickups.write(crate::pickup::SpawnPickup { name: "pickup_healthytea".into(), at: me + Vec3::Y * 4.0, vel: v, hover: false });
             }
             continue;

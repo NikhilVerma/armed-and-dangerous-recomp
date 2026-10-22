@@ -1,0 +1,15 @@
+{"scene": "lev_2_m2", "steps": [
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 1.0},
+ {"expect": {"mission": "Playing", "ai.trigger_kills": 0, "drops.made": 0}},
+ {"note": "trigger 900 kills seven placed grunts (four p_grunt at 100 % drop): a trigger kill's record has flag 0x8000, so Character_Die 0x004319e0 drops nothing"},
+ {"send": 900},
+ {"wait": 2.0},
+ {"expect": {"ai.trigger_kills": 7, "drops.made": 0}},
+ {"note": "a killing hit drops (Character_DropPickup 0x0043e710), launched towards the player"},
+ {"kill": 10000}, {"wait": 2.0},
+ {"kill": 10000}, {"wait": 2.0},
+ {"kill": 10000}, {"wait": 2.0},
+ {"kill": 10000}, {"wait": 2.0},
+ {"expect": {"drops.made": [1, 4], "drops.launched": [1, 4]}},
+ {"quit": true}
+]}

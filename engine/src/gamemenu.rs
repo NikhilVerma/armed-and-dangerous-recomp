@@ -1001,7 +1001,7 @@ fn extras_pages(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     texts: Res<Texts>,
-    (opts, difficulty, cheats, levels): (Res<GameOptions>, Res<crate::gamedata::Difficulty>, Res<crate::cheats::Cheats>, Res<crate::campaign::Levels>),
+    (opts, cheats, levels): (Res<GameOptions>, Res<crate::cheats::Cheats>, Res<crate::campaign::Levels>),
 ) {
     let last = last.get();
     if *last == Some(menu.page) {
@@ -1016,7 +1016,7 @@ fn extras_pages(
             commands.entity(e).despawn();
         }
     }
-    let u = crate::extras::Unlocks::new(&opts, *difficulty, &cheats, &levels);
+    let u = crate::extras::Unlocks::new(&opts, &cheats, &levels);
     let mut s = Spawner { commands: &mut commands, meshes: &mut meshes, materials: &mut materials, texts: &texts, orders: HashMap::new(), next: (0.0, None), panel: None };
     match menu.page {
         Page::Extras => s.extras_page(&u),

@@ -47,6 +47,9 @@ pub struct GameOptions {
     /// "lev_1_m1:<id>": `from_json` turns those into "any:<id>" (taken on some level with that id), as they then
     /// counted, so no token is found twice
     pub tokens_keyed_by_level: bool,
+    /// the unlockables tokens bought (Unlock_Add 0x004a07a0 categories 3 and 4: bonus levels, the Extras features,
+    /// the difficulty levels; pickup.rs `token_walk`); the cheats bought go to `cheats_known`
+    pub token_unlocks: Vec<String>,
     /// the profile's unlock records (Unlock_Add 0x004a07a0): category 1, the levels whose mission start was shown, and
     /// category 0, the story movies seen (extras.rs: the Replay Level and Cutscenes pages)
     pub levels_reached: Vec<String>,
@@ -91,6 +94,7 @@ impl Default for GameOptions {
             tokens: 0,
             tokens_taken: Vec::new(),
             tokens_keyed_by_level: true,
+            token_unlocks: Vec::new(),
             levels_reached: Vec::new(),
             movies_seen: Vec::new(),
             money: 0.0,
@@ -127,6 +131,7 @@ impl GameOptions {
     pub fn from_json(text: &str) -> Self {
         let Ok(serde_json::Value::Object(file)) = serde_json::from_str::<serde_json::Value>(text) else { return Self::default() };
         let legacy_tokens = !file.contains_key("tokens_keyed_by_level");
+        let legacy_unlocks = !file.contains_key("token_unlocks");
         let Ok(serde_json::Value::Object(mut merged)) = serde_json::to_value(Self::default()) else { return Self::default() };
         for (k, v) in file {
             if !merged.contains_key(&k) {
@@ -148,6 +153,9 @@ impl GameOptions {
                 }
             }
             o.tokens_keyed_by_level = true;
+        }
+        if legacy_unlocks {
+            o.token_unlocks = crate::pickup::legacy_token_unlocks(o.tokens);
         }
         o.bindings = o.bindings.normalized();
         o
