@@ -143,6 +143,13 @@ pub struct BaseTurret {
     trolley_world: Mat4,
 }
 
+impl DefenceState {
+    /// The level starts Roman in a turret (0x0044e600: start_in_turret_tag, Game+0x26cc, set).
+    pub(crate) fn starts_in_turret(&self) -> bool {
+        self.start_tag != 0
+    }
+}
+
 impl BaseTurret {
     /// The mount's intro (intro_anim_name) is playing: a cinematic (Game byte +0xdce while it plays), which holds the
     /// mission's start text (MissionObject_ShowStart 0x0044daf0).
@@ -152,7 +159,7 @@ impl BaseTurret {
 }
 
 #[derive(Resource, Default)]
-struct DefenceState {
+pub(crate) struct DefenceState {
     /// start_in_turret_tag (Game+0x26cc) and whether the start mount was done
     start_tag: i64,
     started: bool,

@@ -180,6 +180,7 @@ fn spawn_for_squads(
             d,
             bounds,
             crate::hud::AimClass::of(&p),
+            crate::level::DamageTaker,
             Goliath { body, lift, phase: Phase::InSquad, timer: 0.0, held: None, range: p.f("scan_distance", 350.0), home: ev.at, last_health: None, hit_level: p.f("hit_level_2", 25.0) },
         ));
         if let Some(link) = ev.squad {

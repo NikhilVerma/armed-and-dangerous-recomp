@@ -864,7 +864,7 @@ fn hud_state(
     p: Res<player::PlayerStats>,
     roman: Query<&player::Roman>,
     menu: Res<gamemenu::GameMenu>,
-    companions: Query<(&Name, &fx::Health), With<ai::Companion>>,
+    companions: Query<(&ai::Companion, &fx::Health)>,
     cam: Query<&GlobalTransform, With<Camera3d>>,
     mission: Option<Res<mission::Mission>>,
 ) {
@@ -887,11 +887,15 @@ fn hud_state(
     // through those)
     hud.weapons = p.guns;
     hud.specials = p.specials;
-    for (n, h) in &companions {
-        if n.as_str() == "molmer" {
-            hud.jonesy_health = h.0 / 500.0;
+    // the companions' meters: health / max_health (0x00466e70: 0x004555b0 / 0x004555c0 of player +0xad4 / +0xad0)
+    hud.q_health = None;
+    hud.jonesy_health = None;
+    for (c, h) in &companions {
+        let ratio = Some(h.0 / c.max_health);
+        if c.q {
+            hud.q_health = ratio;
         } else {
-            hud.q_health = h.0 / 500.0;
+            hud.jonesy_health = ratio;
         }
     }
     if let Ok(c) = cam.single() {

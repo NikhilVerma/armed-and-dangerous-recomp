@@ -4556,6 +4556,8 @@ fn die(
 pub struct Companion {
     pub walker: crate::physics::Walker,
     pub q: bool,
+    /// max_health (+0x458, 0x004555c0; the HUD meter's ratio)
+    pub max_health: f32,
     /// the run anim's playback rate by his speed (p_q / p_molmer anim_run_*: skin.rs RunRates, charanim.rs)
     pub run_rates: crate::skin::RunRates,
     pub distance: f32,
@@ -4728,6 +4730,7 @@ impl Companion {
         Companion {
             walker,
             q,
+            max_health: p.f("max_health", 500.0),
             run_rates: crate::skin::RunRates::from_props(p),
             distance: p.f("formation_distance", 30.0),
             delay: p.f("delay_distance", 50.0),

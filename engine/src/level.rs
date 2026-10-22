@@ -58,6 +58,11 @@ pub struct ObjectTag(pub i64);
 #[derive(Component)]
 pub struct Background;
 
+/// On an object in the damage takers' list World+0xea4 ([`in_damage_list`]; the AIs are in it too): what stops the
+/// crosshair's ray on a gun.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct DamageTaker;
+
 /// The model parts (children) and static collider of a placed object, so its husk can replace them.
 #[derive(Component)]
 pub struct Placed {
@@ -675,6 +680,20 @@ pub(crate) fn hidden_by_class(behavior: &str) -> bool {
     matches!(behavior, "alarm_generator")
 }
 
+/// Whether an object is in the damage takers' list World+0xea4 (the crosshair's ray list on a gun, 0x00406f50 with
+/// Game+0xac8 set): buildings with takes_damage (+0x460 0x1000) unless base_defend or invisible (ai_01.cpp:1063-1068),
+/// default objects with takes_damage and neither no_collide nor collide_barrier (game_03.cpp:526-566), the rocket
+/// tower and bud turrets (0x0049c320 / 0x0049c9b0). Trees, kegs and peasants are not.
+pub(crate) fn in_damage_list(p: &Props) -> bool {
+    let flag = |k: &str, d: f32| p.f(k, d) != 0.0;
+    match p.s("behavior").unwrap_or("") {
+        "building" => flag("takes_damage", 1.0) && !(flag("invisible", 0.0) || flag("base_defend", 0.0)),
+        "" => flag("takes_damage", 0.0) && !flag("no_collide", 0.0) && !flag("collide_barrier", 0.0),
+        "rocket_tower_turret" | "rocket_bud_turret" => true,
+        _ => false,
+    }
+}
+
 /// Whether an object's collider stops bullets (see `collider_lists`).
 fn in_bullet_list(p: &Props) -> bool {
     let flag = |k: &str| p.f(k, 0.0) != 0.0;
@@ -1091,6 +1110,9 @@ pub fn spawn(
         let triggers = if behavior.is_empty() { ObjectTriggers::of(&p) } else { ObjectTriggers::default() };
         let husk = pick_husk(&p, &mut husk_rng);
         commands.entity(e).insert((Placed { template: inst.template.clone(), collider, husk, triggers }, bounds, crate::hud::AimClass::of(&p)));
+        if in_damage_list(&p) {
+            commands.entity(e).insert(DamageTaker);
+        }
         // a peasant to rescue (peasant.rs, PeasantObject_Load 0x004056b0), ordered on the object list by his entry
         if behavior == "peasant" {
             let peasant = crate::peasant::Peasant::from_props(&p, &inst.template, inst.id);
@@ -1407,6 +1429,11 @@ impl StageSwap<'_, '_> {
         let next = pick_husk(&hp, self.rng.get());
         let mut ec = self.commands.entity(e);
         ec.insert((Placed { template: template.to_owned(), collider, husk: next, triggers }, aim, Husk));
+        if in_damage_list(&hp) {
+            ec.insert(DamageTaker);
+        } else {
+            ec.remove::<DamageTaker>();
+        }
         // a husk with health and its own death fx or husk dies again (v_house_2f_a -> _da -> _db -> _dc)
         if let Some(dd) = destructible(&hp) {
             ec.insert(dd);
