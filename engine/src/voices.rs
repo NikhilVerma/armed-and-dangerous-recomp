@@ -56,7 +56,8 @@ pub struct VoiceCue {
     pub cue: Cue,
 }
 
-/// A shrub patrol's voice: the first (SP1, "SecondVoice" of the original's test) or the second set (SP2).
+/// A shrub patrol's voice: the first (SP1, "SecondVoice" of the original's test: +0x484 bit 21, Ai_InitGeneric's even
+/// coin, ai_01.cpp:2438) or the second set (SP2).
 #[derive(Component, Clone, Copy, Debug)]
 pub struct ShrubVoice(pub u8);
 
@@ -81,8 +82,11 @@ impl Plugin for VoicesPlugin {
 fn line_for(cue: Cue, kind: Option<Kind>, set: u8) -> String {
     let cat = cue.category();
     match (cue, kind) {
-        // the captains' own open-gate lines (0x00437760); their sets: CA1 with +0x484 bit 21 (the grunts' GR1 bit)
-        (Cue::OpenGate, Some(Kind::Captain)) => format!("@captain:{cat}:{}", if set == 0 { 0 } else { 1 }),
+        // the captains' own open-gate lines (0x00437760, vt+0x174 of both the captain 0x005acb78 and the sniper captain
+        // 0x005ae868); their sets: CA1 with +0x484 bit 21 (the grunts' GR1 bit)
+        (Cue::OpenGate, Some(Kind::Captain | Kind::Sniper)) => format!("@captain:{cat}:{}", if set == 0 { 0 } else { 1 }),
+        // 0x00438a60's GR3 list is GR350038 / 39 only (strings 0x005b5418 / 0x005b5404), while the banks hold 38..41
+        (Cue::OpenGate, _) if set == 2 => crate::ai::voice("OpenGate:{}:butlast2", set),
         (Cue::ShrubTaunt | Cue::ShrubFriendlyFire, _) => format!("@shrub:{cat}:{set}"),
         _ => crate::ai::voice(cat, set),
     }
@@ -142,7 +146,9 @@ mod tests {
     fn lines_by_class() {
         assert_eq!(line_for(Cue::OpenGate, Some(Kind::Captain), 0), "@captain:OpenGate:0");
         assert_eq!(line_for(Cue::OpenGate, Some(Kind::Captain), 2), "@captain:OpenGate:1");
-        assert_eq!(line_for(Cue::OpenGate, Some(Kind::Grunt), 2), "@grunt:OpenGate:2");
+        assert_eq!(line_for(Cue::OpenGate, Some(Kind::Sniper), 0), "@captain:OpenGate:0");
+        assert_eq!(line_for(Cue::OpenGate, Some(Kind::Grunt), 1), "@grunt:OpenGate:1");
+        assert_eq!(line_for(Cue::OpenGate, Some(Kind::Grunt), 2), "@grunt:OpenGate:2:butlast2");
         assert_eq!(line_for(Cue::ShrubTaunt, None, 1), "@shrub:Taunt:1");
         assert!(!Cue::LadderPlaced.delayed());
     }

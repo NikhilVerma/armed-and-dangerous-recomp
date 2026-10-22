@@ -48,6 +48,7 @@ fn setup(
     q: Query<(Entity, &Name, &crate::skin::Animator), (With<crate::level::InstanceId>, Without<ShrubPatrol>)>,
     mut kit: crate::army::ModelKit,
     mut seen: crate::levelreset::PerLevel<std::collections::HashSet<Entity>>,
+    mut rng: ResMut<crate::fx::FxStats>,
 ) {
     let seen = seen.get();
     for (e, name, a) in &q {
@@ -82,9 +83,9 @@ fn setup(
             gun,
             shots: 0,
         });
-        // its voice: SP1 or SP2 (the original's "second voice" test on the object's flags; which patrol has which is
-        // not traced: guess, alternating by load order)
-        commands.entity(e).insert(crate::voices::ShrubVoice((seen.len() % 2) as u8));
+        // its voice: SP1 or SP2 at even odds (Ai_InitGeneric 0x004247f0's coin, called by ShrubPatrol_Slot6 0x00436630:
+        // rand x 100 >> 15 < 50 sets +0x484 bit 21, the "second voice" test that picks SP1)
+        commands.entity(e).insert(crate::voices::ShrubVoice(if rng.rand() < 0.5 { 0 } else { 1 }));
     }
 }
 
