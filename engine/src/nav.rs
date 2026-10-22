@@ -1,4 +1,6 @@
-//! Path planning for the playtest bot (debug tooling, not game logic): A* over a grid sampled from the physics
+//! Path planning for the grunts' routes (ai.rs: the route of any walk whose goal is out of sight, the reachability
+//! tests of the hiding and gun searches; ai/tower.rs, ai/close_kill.rs: the engine's stand-in for the original's grid
+//! router Grid_FindPath 0x0046fd20, pools.rs) and for the playtest bot: A* over a grid sampled from the physics
 //! world: ground height by a ray down per cell from just above the cell it is reached from (so the floor under an
 //! archway or overhang, not its roof), an edge is walkable when the step is under 50 degrees and nothing static
 //! blocks a knee-high ray between the cells. Built on demand around the start and goal.
