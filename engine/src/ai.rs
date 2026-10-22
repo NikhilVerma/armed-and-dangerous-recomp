@@ -896,6 +896,9 @@ pub struct Grunt {
     /// where that flagged record came from (its attacker +0x2c: the bomb), engine space: GoRagdoll's launch flies him
     /// away from it (ai/launch.rs)
     pub cartoon_from: Option<Vec3>,
+    /// the last damage record had flag 4: a head shot (Projectile_ApplyHitDamage 0x0047eec0, set by player.rs strike);
+    /// the hit reaction answers it with the head-hit anim (0x00430340)
+    pub head_hit: bool,
     /// chance in % of a pickup on death (pickup_drop_percent, default 100)
     pub drop_percent: f32,
     /// pickup_drop_specific (+0xb2c, Ai_InitGeneric 0x004247f0): the pickup he drops (a weapon table pickup name, or
@@ -1533,6 +1536,7 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         window: mode.contains("window") || mode.contains("tower"),
         cartoon: false,
         cartoon_from: None,
+        head_hit: false,
         drop_percent: p.f("pickup_drop_percent", 100.0),
         drop_specific: p.s("pickup_drop_specific").and_then(drop_specific),
         cover: None,
@@ -3434,8 +3438,9 @@ fn think(
             // 0x3f..0x42 by rand * 400 >> 15, state 0x12f; <= hit_level_2 a medium hit, 0x43 / 0x44 alternating on the
             // anim playing (the first by rand * 200 >> 15 < 100), state 0x130; else a big hit 0x45 + (rand * 2 >> 15),
             // state 0x131. Before them a record with flag 0x100 (a base turret round, `long_hit_round`) plays a long hit
-            // 0x77 + (rand * 6 >> 15), state 0x131, unless one plays (state 0x131 already). (Record flag 4, anims
-            // 0x47 / 0x48, comes from no projectile class: none adds it to 0x0047eba0's flags.)
+            // 0x77 + (rand * 6 >> 15), state 0x131, unless one plays (state 0x131 already); after the all-fours fall a
+            // head shot (the record's flag 4: player.rs strike, `head_hit`) plays the head-hit anim 0x47 +
+            // (rand * 2 >> 15) as a big hit (state 0x131).
             // Before any of it (ai_04.cpp:411-425): a busy grunt (vt+0x178 0x0042f8d0, `Grunt::busy` with the source:
             // on or going to a gun, an IC move, held, throwing, a squad member, waiting for his trigger, ...) has no
             // reaction and makes no offer; only one waiting for his trigger (state 0x8c) with trigger_los and a source
@@ -3444,6 +3449,7 @@ fn think(
             // a busy grunt (vt+0x178 0x0042f8d0 with the source: on a gun, waiting for his trigger, carried, held, on the
             // way to a spline's head, in a squad's march ...) takes the damage and barks, and that is all (ai_04.cpp:420)
             let busy = g.attacker.map_or_else(|| g.busy_now(), |a| g.busy(ge, a));
+            let head = std::mem::take(&mut g.head_hit);
             let (before, after) = (g.last_health / g.max_health, h.0 / g.max_health);
             let fours = g.allfours_pct / 100.0;
             let react: Option<(u32, u8)> = if busy {
@@ -3452,6 +3458,8 @@ fn think(
                 (g.reacting != 3 || g.hit.is_none()).then(|| (0x77 + (rng.rand() * 6.0) as u32 % 6, 3))
             } else if g.kind.allfours() && before > fours && after <= fours {
                 Some((0x35, 5))
+            } else if head {
+                Some((0x47 + (rng.rand() * 2.0) as u32 % 2, 3))
             } else if d <= g.hit_level_1 {
                 (!matches!(g.reacting, 1 | 4) || g.hit.is_none()).then(|| (0x3f + ((rng.rand() * 400.0) as u32 / 100).min(3), 1))
             } else if d <= g.hit_level_2 {

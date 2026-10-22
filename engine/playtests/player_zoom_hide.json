@@ -1,0 +1,13 @@
+{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+ {"wait": 1.0},
+ {"expect": {"weapon": "machinegun","zoom": 0, "roman_hidden": false}},
+ {"down": "KeyZ"},
+ {"wait": 0.5},
+ {"expect": {"zoom": 1, "roman_hidden": true}},
+ {"up": "KeyZ"},
+ {"wait": 0.05},
+ {"expect": {"roman_hidden": false}},
+ {"wait": 0.5},
+ {"expect": {"zoom": 0, "roman_hidden": false}},
+ {"quit": true}
+]}
