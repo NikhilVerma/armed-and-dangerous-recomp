@@ -4369,7 +4369,7 @@ fn fire_cycle(
 fn die(
     mut commands: Commands,
     mut physics: NonSendMut<Physics>,
-    mut grunts: Query<(Entity, &mut Grunt, &Body, &mut Transform, &Health, Option<&mut crate::skin::Animator>, Option<&DeathAnim>)>,
+    mut grunts: Query<(Entity, &mut Grunt, &Body, &mut Transform, &Health, Option<&mut crate::skin::Animator>, (Option<&DeathAnim>, Option<&ic::Knocked>))>,
     joints: Query<&GlobalTransform>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     mut km: ResMut<KillMeter>,
@@ -4384,7 +4384,7 @@ fn die(
     // the ragdolls already down (GoRagdoll 0x00431310 counts them over the AI list: 0x00431000)
     let rules = crate::corpses::CorpseRules::of(&settings);
     let mut down = crate::corpses::Corpses::ragdolls(&corpses);
-    for (e, mut g, body, mut tr, h, animator, forced) in &mut grunts {
+    for (e, mut g, body, mut tr, h, animator, (forced, knocked)) in &mut grunts {
         if g.mind == Mind::Dead || h.0 > 0.0 {
             continue;
         }
@@ -4449,25 +4449,48 @@ fn die(
         // ledge_death grunt falls (0x39 + rand*4: grunt_hit_fall_1 / _2 / _1 / _2); a window / tower grunt
         // grunt_hit_window (0x3d); else 0x00427100: grunt_barricade_death (0x56) in a trench's slot, else grunt_die_1..6.
         // Not reached here: the 0x57 flag variant (in back: no lev_1_m1 grunt sets it) and record flag 2's launch.
-        let blown_out = g.window && g.cartoon;
+        // a knock-away's GoRagdoll (ai/ic.rs `knocks`: vt+0x17c straight from GenericAI_Update or the wake-up, not
+        // Character_Die): its own launch / impact / ragdoll choice (ic::go_ragdoll); no window blow-out, no death anim
+        let knock = knocked.map(|k| (k, ic::go_ragdoll(k, clock.allows(), clock.launched_now(), rng.rand(), rng.rand())));
+        let blown_out = knock.is_none() && g.window && g.cartoon;
         // a blast's fling is a launch (Character_Die 0x004319e0 on an area record: state 0x195) whatever its speed
-        let wants_ragdoll = forced.is_none() && !blown_out && (g.last_hit >= g.hit_ragdoll || fling.is_some() || push.length() > 30.0);
+        let wants_ragdoll = knock.is_some() || (forced.is_none() && !blown_out && (g.last_hit >= g.hit_ragdoll || fling.is_some() || push.length() > 30.0));
+        let mut thrown = fling.is_some();
+        let mut limited = true;
+        let mut knock_launch = None;
+        match knock {
+            Some((k, ic::RagdollGo::Launch { spread })) => knock_launch = k.attacker.map(|a| (a, spread)),
+            Some((_, ic::RagdollGo::Thrown(v))) => {
+                push = v;
+                thrown = true;
+            }
+            Some((_, ic::RagdollGo::Ragdoll { impulse, limited: l })) => {
+                push = impulse;
+                limited = l;
+            }
+            None => {}
+        }
         // GoRagdoll 0x00431310's launch: a killing record with flag 0x80 (the sticky bomb's, from the bomb) at least 10 s
         // after the last launch (Game+0xb34) throws him through the air (Character_Launch 0x00431020: toward a point
         // 40..60 from the bomb along its line to him, forward or back past it, at rand 2.5..3 x his move_speed), before
         // the ragdoll count is looked at. The original flails him through that arc (anims 0x49 / 0x4a) and he goes
         // limp on landing; here the ragdoll is launched with the arc's velocity (as the glove's punch, glove.rs)
-        let launched = wants_ragdoll && g.cartoon && g.cartoon_from.is_some() && clock.allows();
-        if let Some(from) = g.cartoon_from.filter(|_| launched) {
+        let launch_from = if knock.is_some() {
+            knock_launch
+        } else {
+            g.cartoon_from.filter(|_| wants_ragdoll && g.cartoon && clock.allows()).map(|f| (f, 0.0))
+        };
+        let launched = launch_from.is_some();
+        if let Some((from, spread)) = launch_from {
             clock.stamp();
             let rolls = launch::LaunchRolls { angle: rng.rand(), side: rng.rand(), forward: rng.rand(), anim: rng.rand() };
-            push = launch::launch(from, tr.translation, rng.range(2.5, 3.0), g.move_speed, 0.0, false, rolls).velocity;
-            info!("EVENT ai: {e:?} launched by a blast ({:.0} / s)", push.length());
+            push = launch::launch(from, tr.translation, rng.range(2.5, 3.0), g.move_speed, spread, false, rolls).velocity;
+            info!("EVENT ai: {e:?} launched ({:.0} / s)", push.length());
         }
         // GoRagdoll with more ragdolls down than the limit allows: the animated death of 0x00427100 instead
         // a launch or a blast's fling comes before GoRagdoll's count of the bodies down (the original throws the whole
-        // body, state 0x195, whatever the count): flung bodies always fly
-        g.ragdoll = launched || (wants_ragdoll && (fling.is_some() || crate::corpses::Corpses::may_ragdoll(down, &rules)));
+        // body, state 0x195, whatever the count): flung bodies always fly; a quiet knock skips the count
+        g.ragdoll = launched || (wants_ragdoll && (thrown || !limited || crate::corpses::Corpses::may_ragdoll(down, &rules)));
         down += g.ragdoll as u32;
         g.death_name = if let Some(d) = forced {
             Some(d.0)
@@ -4499,7 +4522,7 @@ fn die(
         commands.entity(e).insert(crate::corpses::Corpse::ragdoll());
         // thrown through the air (a launch or a blast's fling, state 0x195, or a body moving at launch speed: the body
         // fall on landing, bodyfall.rs)
-        if launched || fling.is_some() || push.length() > crate::bodyfall::LAUNCH_SPEED {
+        if launched || thrown || push.length() > crate::bodyfall::LAUNCH_SPEED {
             commands.entity(e).insert(crate::bodyfall::Launched::default());
         }
         // an articulated ragdoll from the pose at death (ragdoll.rs); the single box below when that fails

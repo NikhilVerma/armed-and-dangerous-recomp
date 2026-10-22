@@ -9,6 +9,6 @@
  {"expect": {"hidden.knocked": 1, "hidden.started": [1, 100]}},
  {"destroy": 83},
  {"wait": 1.0},
- {"expect": {"hidden.knocked": 2}},
+ {"expect": {"hidden.knocked": 2, "launches": 0}},
  {"quit": true}
 ]}
