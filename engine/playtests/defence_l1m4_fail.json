@@ -7,7 +7,7 @@
  {"note": "before_blast"}, {"blast": 30}, {"wait": 0.5},
  {"expect": {"health": {"as": "before_blast"}, "base_turret.window": true}},
  {"blast": 30}, {"wait": 0.5}, {"blast": 30}, {"wait": 0.5},
- {"expect": {"base_turret.window": false}},
+ {"expect": {"base_turret.window": false, "base_turret.glass_hits": [2, 3]}},
  {"send": 5000}, {"send": 5000}, {"send": 5000}, {"wait": 0.5},
  {"expect": {"base_turret.over_wall": 3}},
  {"send": 665}, {"wait": 1.0},
@@ -19,6 +19,6 @@
  {"send": 123}, {"wait": 0.5},
  {"expect": {"mission": "Playing"}},
  {"wait": 4.0},
- {"expect": {"mission": "Failed", "base_turret.failure_mob": false}},
+ {"expect": {"mission": "Failed", "base_turret.failure_mob": false, "base_turret.removed": true, "base_turret.mounted": false, "base_turret.launchers": false, "base_turret.trolley": false}},
  {"quit": true}
 ]}

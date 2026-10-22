@@ -111,7 +111,8 @@ impl AimBlend {
     }
 }
 
-/// The velocities of the objects grunts target, from their positions frame to frame.
+/// The velocities of tracked objects (0x00458000's velocity: here from their positions frame to frame). The resource
+/// holds the grunts' targets; the base turret keeps one of its own for its machine gun's lead (defence.rs).
 #[derive(Resource, Default)]
 pub struct TargetMotion {
     last: HashMap<Entity, Vec3>,
@@ -122,28 +123,22 @@ impl TargetMotion {
     pub fn velocity(&self, e: Entity) -> Vec3 {
         self.vel.get(&e).copied().unwrap_or(Vec3::ZERO)
     }
+
+    /// This frame's positions of the tracked objects (`seen`): each one's velocity against its position last frame
+    /// (none for one not seen then); objects not in `seen` are dropped.
+    pub fn observe(&mut self, seen: HashMap<Entity, Vec3>, dt: f32) {
+        if dt <= 0.0 {
+            return;
+        }
+        self.vel = seen.iter().filter_map(|(&e, &p)| self.last.get(&e).map(|&q| (e, (p - q) / dt))).collect();
+        self.last = seen;
+    }
 }
 
 /// Measures the velocity of every grunt's target.
 pub fn track(time: Res<Time>, grunts: Query<&Grunt>, positions: Query<&GlobalTransform>, mut motion: ResMut<TargetMotion>) {
-    let dt = time.delta_secs();
-    if dt <= 0.0 {
-        return;
-    }
-    let mut seen: HashMap<Entity, Vec3> = HashMap::new();
-    for t in grunts.iter().filter_map(|g| g.target) {
-        if let Ok(p) = positions.get(t) {
-            seen.insert(t, p.translation());
-        }
-    }
-    let mut vel = HashMap::new();
-    for (&e, &p) in &seen {
-        if let Some(&q) = motion.last.get(&e) {
-            vel.insert(e, (p - q) / dt);
-        }
-    }
-    motion.last = seen;
-    motion.vel = vel;
+    let seen: HashMap<Entity, Vec3> = grunts.iter().filter_map(|g| g.target).filter_map(|t| positions.get(t).ok().map(|p| (t, p.translation()))).collect();
+    motion.observe(seen, time.delta_secs());
 }
 
 #[cfg(test)]
