@@ -18,7 +18,8 @@ use bevy::prelude::*;
 
 /// The cape's template (0x00486f40: "q111_cape").
 const CAPE_TEMPLATE: &str = "q111_cape";
-/// The anchor bones (table 0x005fb94c).
+/// The anchor bones (table 0x005fb94c, read from the exe: {"chest", 7}, {"l_shoulder", 11}, {"r_shoulder", 11}, 0; the
+/// second words' meaning is not recovered).
 const ANCHORS: [&str; 3] = ["chest", "l_shoulder", "r_shoulder"];
 /// Per frame (at 60 frames a second): the velocity kept, and the pull back to the rest shape.
 const DAMPING: f32 = 0.9;

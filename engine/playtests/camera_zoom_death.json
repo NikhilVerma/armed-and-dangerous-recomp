@@ -1,0 +1,14 @@
+{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+ {"wait": 1.0},
+ {"warp": [190.68, -69.44, 13.76, 90]},
+ {"wait": 2.0},
+ {"expect": {"cam_mode": "follow", "cam_fov": [37.0, 38.0]}},
+ {"down": "KeyZ"},
+ {"wait": 0.6},
+ {"expect": {"cam_fov": [17.5, 18.2], "cam_dist": [0, 2.0]}},
+ {"hurt": 2000},
+ {"wait": 0.1},
+ {"expect": {"cam_mode": "death", "cam_fov": [37.0, 38.0]}},
+ {"up": "KeyZ"},
+ {"quit": true}
+]}
