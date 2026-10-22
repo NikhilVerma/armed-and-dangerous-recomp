@@ -446,10 +446,10 @@ struct Barracks {
     /// priority_target_tag_min/max (+0x56c / +0x570): every troop's priority targets (0x0040c590 -> 0x0042cc60, troop
     /// +0x858 / +0x85c; lev_4_m2's generators send theirs at the houses of tag 600)
     priority_tags: (i64, i64),
-    /// marker_sequence_min/max (+0x588 / +0x58c) are handed to each troop too (+0x560 / +0x564: the marker index range
-    /// of its spline pick 0x0042a660); not used here: ai.rs walks a spline from its first marker (deferred, see
-    /// docs/journal/2026-10-22-fix2-g10.md). The window-generator mode (window_generator, +0x460 bit 4: 0x0040c740
-    /// fills free window slots) is set by no shipped level and not modelled.
+    // (marker_sequence_min/max, +0x588 / +0x58c, are handed to each troop too: +0x560 / +0x564, the marker index range
+    // of its spline pick 0x0042a660; not used here: ai.rs walks a spline from its first marker (deferred, see
+    // docs/journal/2026-10-22-fix2-g10.md). The window-generator mode (window_generator, +0x460 bit 4: 0x0040c740
+    // fills free window slots) is set by no shipped level and not modelled.)
     /// the exit slot's "ref_spawn_00" and "ref_exit_00" points (engine space); none: no exit slot, no troops
     spawn: Option<(Vec3, Vec3)>,
     /// health when last seen: damage while `activate` is set starts the release (BarricadeObject_Slot52 0x0040ce40)

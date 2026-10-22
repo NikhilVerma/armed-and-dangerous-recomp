@@ -1291,7 +1291,7 @@ impl Plugin for AiPlugin {
             .init_level_resource::<ic::IcStats>()
             .init_level_resource::<launch::LaunchClock>()
             .add_systems(Update, (launch::tick, launch::log_state).run_if(crate::playing))
-            .add_systems(Update, (monk_smoke, base_defence_range.before(think)).run_if(crate::playing))
+            .add_systems(Update, monk_smoke.run_if(crate::playing))
             .init_level_resource::<dialogue::Bags>()
             .add_plugins(q112::Q112Plugin)
             .init_level_resource::<max_fire::ShooterLimit>()
@@ -1315,14 +1315,23 @@ impl Plugin for AiPlugin {
     }
 }
 
-/// What 0x0044e600 answers for the anim tables: the level starts Roman in a turret (the mission's
-/// start_in_turret_tag). Set on each new AI, and on all of them when the mission (re)loads.
-fn mark_base_defence(mission: Option<Res<crate::mission::Mission>>, mut grunts: Query<&mut Grunt>) {
+/// What 0x0044e600 answers (a base-defence level: the level starts Roman in a turret, the mission's
+/// start_in_turret_tag) where a new AI reads it:
+/// - the anim tables (`Grunt::base_defence`): set on each new AI, and on all of them when the mission (re)loads;
+/// - CaptainObject_Slot8 0x00434da0 (also the sniper captain's), with Roman there: a new captain engages at his
+///   greatest range (+0x5d8 = +0x5d4, no roll). Its other write there, +0x5c8 = 2.0 (the clip pause), is cleared by
+///   his first engagement's counter roll (0x00427600 with flag 4 of +0x484 clear zeroes +0x5c8) before anything reads
+///   it, so it has no effect.
+fn mark_base_defence(mission: Option<Res<crate::mission::Mission>>, mut grunts: Query<&mut Grunt>, player: Query<(), With<Player>>) {
     let on = mission.as_ref().is_some_and(|m| m.start_in_turret);
     let all = mission.as_ref().is_some_and(|m| m.is_changed());
     for mut g in &mut grunts {
-        if (all || g.is_added()) && g.base_defence != on {
+        let new = g.is_added();
+        if (all || new) && g.base_defence != on {
             g.base_defence = on;
+        }
+        if new && on && !player.is_empty() && matches!(g.kind, Kind::Captain | Kind::Sniper) {
+            g.range = g.fire_range.1;
         }
     }
 }
@@ -2524,21 +2533,6 @@ fn monk_smoke(mut commands: Commands, monks: Query<(Entity, &Grunt, &crate::skin
             fx.write(crate::fx::StartFx { name: (*name).into(), at, rotation: Quat::IDENTITY, follow: Some(j), position_only: false });
         }
         info!("EVENT ai: monk {e:?} smoke on");
-    }
-}
-
-/// CaptainObject_Slot8 0x00434da0 (also the sniper captain's): in a level that starts Roman in a turret (0x0044e600:
-/// a player and start_in_turret_tag) a captain engages at his greatest range (+0x5d8 = +0x5d4, no roll). Its other
-/// write there, +0x5c8 = 2.0 (the clip pause), is cleared by his first engagement's counter roll (0x00427600 with flag
-/// 4 of +0x484 clear zeroes +0x5c8) before anything reads it, so it has no effect.
-fn base_defence_range(mut grunts: Query<&mut Grunt, Added<Grunt>>, mission: Option<Res<crate::mission::Mission>>, player: Query<(), With<Player>>) {
-    if !mission.is_some_and(|m| m.start_in_turret) || player.is_empty() {
-        return;
-    }
-    for mut g in &mut grunts {
-        if matches!(g.kind, Kind::Captain | Kind::Sniper) {
-            g.range = g.fire_range.1;
-        }
     }
 }
 
