@@ -1,0 +1,10 @@
+{"scene": "lev_2_m3", "steps": [
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 3.5}, {"tap": "Enter"}, {"wait": 1.0},
+ {"cheat": "SHIELDME"}, {"wait": 0.2},
+ {"expect": {"cam_mode": "follow", "peasants.carried": 0, "cam_dist": [22.6, 23.6]}},
+ {"warp": [-13.7, -473.9, -14, 0]}, {"wait": 0.5},
+ {"expect": {"peasants.carried": 1}},
+ {"wait": 2.0},
+ {"expect": {"cam_mode": "follow", "peasants.carried": 1, "cam_dist": [32.6, 33.6]}},
+ {"quit": true}
+]}

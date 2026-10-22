@@ -14,7 +14,11 @@
 //!   the player's frame; the view keeps Camera_end's own direction (at its target, Camera_start's), turned by a
 //!   stronger pitch looking up (x 1.2) and a weaker one looking down (x 0.9), so looking up tilts the view past the
 //!   orbit and Roman drops out of the way. Five rays from the pivot (to the eye and to the eye +-5 along the eye's
-//!   right and up axes) shorten the arm on the landscape and fade the objects they pass (camfade.rs).
+//!   right and up axes), as long as the arm plus 10 per peasant carried (Game+0x26f4), shorten the arm on the
+//!   landscape and fade the objects they pass that are not on Roman (camfade.rs); with nothing in the way the eye
+//!   stands at the rays' full length, so carried peasants pull the camera back.
+//! - The zoom blend (0x0040fbb0) and the 1 s smoothing (0x0040fd50) exclude each other: while the smoothing runs
+//!   (camera byte +0x15c) the zoom is not blended in.
 //! - Zoom (0x00475880 / 0x00475910 / 0x0040fbb0): while Zoom is held the camera blends linearly, over camera_zoom_secs,
 //!   toward the weapon's node (Camera_rifle / Camera_machinegun: eye at the head, the same look point) and its FOV.
 //!   The original flips the zoom mode whenever the held state and the mode differ (0x00475850): entering (0x00475880)
@@ -173,6 +177,9 @@ pub struct CameraSmooth {
 /// target positions).
 const REST_PITCH: f32 = -0.15;
 
+/// How much further back the camera's rays reach per peasant carried (0x0040e56c: Game+0x26f4 x 0x005bcb68 = 10).
+const CARRIED_PULL_BACK: f32 = 10.0;
+
 /// The view's pitch for the orbit's pitch (0x0040e56c: the camera matrix is turned by +0x74 adjusted, +0x74 x 1.2 at
 /// or above 0 (0x005bcd2c = 0.2) and x 0.9 below (0x005bcbfc = 0.1), while the eye orbits by +0x74 itself).
 fn view_pitch(orbit: f32) -> f32 {
@@ -244,6 +251,7 @@ pub fn follow_camera(
     mut fade: ResMut<crate::camfade::CameraFade>,
     (topsy, cheats, mounted, lib): (Res<crate::topsy::Topsy>, Res<crate::cheats::Cheats>, Res<crate::turret::Mounted>, Res<crate::skin::AnimLibrary>),
     (mut rig, mut smooth, mut base_fov): (ResMut<CameraRig>, ResMut<CameraSmooth>, crate::levelreset::PerLevel<Option<f32>>),
+    (peasants, parents): (Option<Res<crate::peasant::PeasantTally>>, Query<&ChildOf>),
 ) {
     // the unzoomed FOV, taken from the level's camera (a restart while zoomed must not keep the zoomed one)
     let base_fov = base_fov.get();
@@ -296,16 +304,20 @@ pub fn follow_camera(
     let target = rt.translation + yaw * rig.pivot;
     let arm = yaw * (orbit_eye - rig.pivot);
     let len = arm.length();
+    // the rays reach past the eye by 10 per peasant carried (Game+0x26f4 x 0x005bcb68 = 10): with peasants on the
+    // chain the camera stands further back, where nothing is in the way
+    let reach = len + peasants.map_or(0, |p| p.carried) as f32 * CARRIED_PULL_BACK;
     let eye = target + arm;
     // the eye's own axes (the view node turned rigidly with the orbit: 0x58 in 0x0040e56c)
     let eye_rot = yaw * pitch * Transform::from_translation(rig.follow.eye).looking_at(rig.follow.target, Vec3::Y).rotation;
     let (right, up) = (eye_rot * Vec3::X * rig.ray_offset, eye_rot * Vec3::Y * rig.ray_offset);
-    let mut dist = len;
+    let mut dist = reach;
+    fade.rays_cast();
     for end in [eye, eye + right, eye - right, eye + up, eye - up] {
         let dir = (end - target).normalize_or(Vec3::Y);
-        // every ray as long as the arm (0x2c: the eye distance)
+        // every ray as long as the arm and the carried peasants' pull-back (0x2c)
         let mut from = target;
-        let mut left = len;
+        let mut left = reach;
         // through objects: the landscape alone stops the ray; placed objects and moving bodies hit fade
         while let Some((body, at, normal)) = physics.raycast(from, dir, left) {
             // a landscape face hit from behind (the look target inside a steep hill at its foot: Jolt's rays hit back
@@ -316,7 +328,8 @@ pub fn follow_camera(
                 break;
             }
             let object = physics.bodies.get(&body).copied().or_else(|| placed.iter().find(|(_, p)| p.collider == Some(physics.main_body(body))).map(|(e, _)| e));
-            if let Some(object) = object.filter(|o| *o != roman_entity) {
+            // not Roman or anything on him (the hit's root parent is the camera's target: his weapon, his pack)
+            if let Some(object) = object.filter(|o| *o != roman_entity && !parents.iter_ancestors(*o).any(|a| a == roman_entity)) {
                 fade.hit(object);
             }
             let step = at.distance(from) + 0.05;
@@ -340,7 +353,9 @@ pub fn follow_camera(
             *base_fov = Some(pp.fov);
         }
         let weapon = r.arsenal.in_hand_id().map_or("", crate::weapons::WeaponId::name);
-        let w = r.zoom;
+        // the 1 s smoothing (camera byte +0x15c) runs instead of the zoom blend, not on top of it (0x0040e56c:
+        // 0x0040fd50 or 0x0040fbb0): while it runs the view is the unzoomed one
+        let w = if smooth.left > 0.0 && smooth.last.is_some() { 0.0 } else { r.zoom };
         smooth.zoom_blended = w > 0.0 && rig.zoom.contains_key(weapon);
         if let (Some(z), true) = (rig.zoom.get(weapon).copied(), w > 0.0) {
             pp.fov = base_fov.unwrap_or(pp.fov) * (1.0 - w) + z.fov * w;
