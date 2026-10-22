@@ -369,7 +369,9 @@ pub fn follow_camera(
     }
     // the Topsy Turvy bomb turns the view over (topsy.rs); so does the upside-down cheat (WAAAAAAH, cheats.rs)
     let flip = if cheats.on(0x4000) { std::f32::consts::PI } else { 0.0 };
-    let view = Transform { translation: eye, rotation: rot * Quat::from_rotation_z(topsy.roll + flip), scale: c.scale };
+    // and the walk roll banks it while he turns on the move (camera +0x84 = -roll, player.rs Roman::roll; its sign
+    // about the view axis: guess)
+    let view = Transform { translation: eye, rotation: rot * Quat::from_rotation_z(topsy.roll + flip - r.roll), scale: c.scale };
     *c = place_smoothed(&mut smooth, view, dt, rig.smooth_secs);
 }
 
