@@ -1525,6 +1525,7 @@ fn start(
     path: Res<crate::campath::CameraPath>,
     turrets: Query<&crate::defence::BaseTurret>,
     mut waited: crate::levelreset::PerLevel<u32>,
+    vtime: Res<Time<Virtual>>,
 ) {
     let Some(m) = m.as_deref_mut() else { return };
     let waited = waited.get();
@@ -1537,6 +1538,12 @@ fn start(
         if m.start_trigger != 0 {
             out.write(SendTrigger(m.start_trigger));
         }
+    }
+    // nothing more while the game is paused (Game+0x2684): the level's start movie (cutscenes.rs) holds the start text
+    // until it ends, as the original's ShowStart deferred through 0x00403370 runs only once the pause count is back at 0
+    // (0x00403390 from Game_SetPaused 0x004031e0)
+    if vtime.is_paused() {
+        return;
     }
     // MissionObject_ShowStart 0x0044daf0, tried every update until it runs: once no cinematic plays (Game byte +0xdce:
     // a camera path, or the base turret's mount intro on the defence levels, 279-399 frames), the start text as a

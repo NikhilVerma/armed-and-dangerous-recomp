@@ -6,7 +6,10 @@
 //!   never an object of its own group, +0x510); here a [`ContactRule`]'s `ignore` and `group`;
 //! - how they rub: CollisionListener_OnContactAdded 0x00413240 combines the two bodies' frictions as sqrt(fA * fB)
 //!   (Jolt's own combination); a body's friction can change at run time (Body_SetFriction 0x00458250), which a Jolt body
-//!   cannot, so a ruled body is created with friction 1 and its rule's `friction` scales the combination.
+//!   cannot, so a ruled body is created with friction 1 and its rule's `friction` scales the combination;
+//! - how they bounce: the same listener combines restitutions as sqrt(rA * rB) where Jolt takes the larger. A rule with
+//!   a `restitution` (fx pieces, movables: their templates' values) gets the game's combination against any body; the
+//!   other side's value is its rule's, else the level material's ([`LEVEL_RESTITUTION`]).
 //!
 //! And it tells each owner of every contact of the step (CollisionListener_OnContact 0x004112d0 -> the owner's contact note,
 //! GenericAIObject_Slot44 0x004320b0, once per step and contact): [`Contacts::touches`] keeps the last step's per ruled
@@ -26,12 +29,26 @@ pub struct ContactRule {
     pub ignore: Option<BodyId>,
     /// The body's friction, combined with the other's as sqrt(fA * fB).
     pub friction: f32,
+    /// The body's restitution, combined with the other's as sqrt(rA * rB) (0x00413240); None leaves the contact's
+    /// restitution to the solver.
+    pub restitution: Option<f32>,
 }
 
 impl Default for ContactRule {
     fn default() -> Self {
-        ContactRule { group: None, ignore: None, friction: 1.0 }
+        ContactRule { group: None, ignore: None, friction: 1.0, restitution: None }
     }
+}
+
+/// The restitution of a body that states none, chiefly the level's static geometry: ContactSide_Fill 0x00413120 takes
+/// it from the triangle's collision material, which PhysMaterial_Load 0x00412140 fills from global_settings'
+/// "default_restitution" (0.5 on every shipped level; wood's 1.0 etc. are not modelled, as for friction in physics.rs).
+pub const LEVEL_RESTITUTION: f32 = 0.5;
+
+/// The game's restitution of a contact (CollisionListener_OnContactAdded 0x00413240: sqrt(rB * rA)), kept within the
+/// solver's 0..1 (the shipped "flesh"/"grunt" materials' 8.0 would give more).
+pub fn combined_restitution(a: f32, b: f32) -> f32 {
+    (a.max(0.0) * b.max(0.0)).sqrt().min(1.0)
 }
 
 impl ContactRule {
@@ -109,6 +126,11 @@ impl Contacts {
         if scale != 1.0 {
             let _ = settings.set_combined_friction(settings.combined_friction() * scale);
         }
+        let (rest_a, rest_b) = (ra.and_then(|r| r.restitution), rb.and_then(|r| r.restitution));
+        if rest_a.is_some() || rest_b.is_some() {
+            let r = combined_restitution(rest_a.unwrap_or(LEVEL_RESTITUTION), rest_b.unwrap_or(LEVEL_RESTITUTION));
+            let _ = settings.set_combined_restitution(r);
+        }
         let n = bevy::math::Vec3::new(manifold.normal.x, manifold.normal.y, manifold.normal.z);
         // the contact point on each side: the mean of the manifold's points
         let mean = |on: fn(&oxijolt::ContactPoint) -> RVec3| {
@@ -169,5 +191,14 @@ mod tests {
         let bumped = ContactRule { ignore: Some(ids[2]), ..Default::default() };
         assert!(bumped.refuses(ids[2], None));
         assert!(!bumped.refuses(ids[1], None));
+    }
+
+    /// An fx piece (0.2) on the level (0.5) bounces with sqrt(0.1), not the solver's max 0.5; a dead piece (0) does
+    /// not bounce at all; two flesh materials (8.0) stay within the solver's range.
+    #[test]
+    fn restitution_is_the_geometric_mean() {
+        assert!((combined_restitution(0.2, LEVEL_RESTITUTION) - 0.1f32.sqrt()).abs() < 1e-6);
+        assert_eq!(combined_restitution(0.0, LEVEL_RESTITUTION), 0.0);
+        assert_eq!(combined_restitution(8.0, 8.0), 1.0);
     }
 }

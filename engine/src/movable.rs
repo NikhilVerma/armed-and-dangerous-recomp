@@ -217,8 +217,9 @@ fn unpin(
         if let Some(c) = placed.collider.replace(body) {
             physics.remove_static(c);
         }
-        // its contacts are noted (contacts.rs): the crush and the landscape hits read them
-        physics.set_contact_rule(body, crate::contacts::ContactRule::default());
+        // its contacts are noted (contacts.rs): the crush and the landscape hits read them; it bounces by the game's
+        // combination (0x00413240)
+        physics.set_contact_rule(body, crate::contacts::ContactRule { restitution: Some(m.props.restitution), ..Default::default() });
         if let Some(mat) = physics.materials.get(&body).cloned().or(Some("stone".into())) {
             physics.materials.insert(body, mat);
         }

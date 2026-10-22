@@ -83,6 +83,18 @@ pub fn layout_point(cursor: Vec2, window: Vec2) -> Vec2 {
     Vec2::new(320.0 + (cursor.x - window.x / 2.0) / s, 240.0 - (cursor.y - window.y / 2.0) / s)
 }
 
+/// Where a pointer that left the window shows: its last point inside, put on the border it was nearest (it crossed
+/// that one between two frames).
+fn clamp_to_border(c: Vec2, size: Vec2) -> Vec2 {
+    let c = c.clamp(Vec2::ZERO, size);
+    let (dx, dy) = (c.x.min(size.x - c.x), c.y.min(size.y - c.y));
+    if dx <= dy {
+        Vec2::new(if c.x < size.x - c.x { 0.0 } else { size.x }, c.y)
+    } else {
+        Vec2::new(c.x, if c.y < size.y - c.y { 0.0 } else { size.y })
+    }
+}
+
 /// Shows the sprite at the pointer in the menus while the Windows pointer is off; made from the HUD's layout once
 /// it is loaded (again after a level change despawns it).
 #[allow(clippy::too_many_arguments)]
@@ -95,6 +107,7 @@ fn pointer_sprite(
     windows: Query<&Window, With<PrimaryWindow>>,
     mut sprite: Query<(&mut crate::hud::HudElement, &mut Transform, &mut Visibility), With<PointerSprite>>,
     (mut meshes, mut materials): (ResMut<Assets<Mesh>>, ResMut<Assets<ColorMaterial>>),
+    mut last: Local<Option<Vec2>>,
 ) {
     let s = settings(gfx.as_deref());
     let Ok((mut el, mut t, mut vis)) = sprite.single_mut() else {
@@ -107,7 +120,19 @@ fn pointer_sprite(
         return;
     };
     let play = in_play(*state.get(), menu.page);
-    let at = windows.single().ok().filter(|w| w.focused).and_then(|w| w.cursor_position().map(|c| layout_point(c, Vec2::new(w.width(), w.height()))));
+    // 0x00491380 clamps the pointer to the client area (+-w/2, +-h/2): a pointer that left the (focused) window keeps
+    // the sprite at the edge it crossed, here its last place inside, pinned to the border
+    let at = windows.single().ok().filter(|w| w.focused).and_then(|w| {
+        let size = Vec2::new(w.width(), w.height());
+        let c = match w.cursor_position() {
+            Some(c) => {
+                *last = Some(c);
+                c
+            }
+            None => clamp_to_border((*last)?, size),
+        };
+        Some(layout_point(c, size))
+    });
     let want = match at {
         Some(p) if !s.hardware_cursor && !play => {
             el.pos = p;
@@ -143,5 +168,12 @@ mod tests {
         let w = Vec2::new(1920.0, 1080.0);
         assert_eq!(layout_point(w / 2.0, w), Vec2::new(320.0, 240.0));
         assert_eq!(layout_point(Vec2::new(960.0, 0.0), w), Vec2::new(320.0, 480.0));
+    }
+
+    #[test]
+    fn a_pointer_that_left_sits_on_the_nearest_border() {
+        let w = Vec2::new(1920.0, 1080.0);
+        assert_eq!(clamp_to_border(Vec2::new(1915.0, 500.0), w), Vec2::new(1920.0, 500.0));
+        assert_eq!(clamp_to_border(Vec2::new(700.0, 3.0), w), Vec2::new(700.0, 0.0));
     }
 }
