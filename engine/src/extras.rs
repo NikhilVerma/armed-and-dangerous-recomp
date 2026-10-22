@@ -4,8 +4,8 @@
 //! The original keeps unlock tables in the profile by category (Unlock_Add 0x004a07a0, the test 0x004a0720 with the
 //! name filter 0x004a0690; progress.dat): 0 the movies seen (the PlayMovie screen adds a pre_ / post_ movie when it
 //! opens it, ui_03.cpp:2206), 1 the levels reached (MissionObject_ShowStart 0x0044daf0 adds "lev_<digit>..." when the
-//! mission start shows), 3 the bonus levels bought with tokens. The Extras rows open with the token unlockables
-//! ui_extrasmenu_replay / ui_extrasmenu_cutscene (UiScreen_InitItem cases 41 / 11) or the cheats that unlock
+//! mission start shows), 3 the bonus levels and 4 the features bought with tokens (pickup.rs `token_walk`). The
+//! Extras rows open with the token unlockables ui_extrasmenu_replay / ui_extrasmenu_cutscene (UiScreen_InitItem cases 41 / 11) or the cheats that unlock
 //! everything (Game+0x4c8 bit 11 MISSIONS, bit 12 AMATINEE). Replay Level lists the levels reached ("ui_listbox_
 //! missionlist", 0x00492c90 mode 1) and the bonus levels ("ui_listbox_bonusmissions", mode 3); a chosen level is played
 //! in replay mode (Game+0x568 bit 2: back to the title after its Stats, campaign.rs). Cutscenes lists the movies seen
@@ -65,8 +65,9 @@ pub struct Unlocks {
 }
 
 impl Unlocks {
-    pub fn new(opts: &crate::options::GameOptions, difficulty: crate::gamedata::Difficulty, cheats: &crate::cheats::Cheats, levels: &crate::campaign::Levels) -> Self {
-        let bought = |name: &str| crate::pickup::unlock_cost(name, difficulty).is_some_and(|c| opts.tokens >= c);
+    pub fn new(opts: &crate::options::GameOptions, cheats: &crate::cheats::Cheats, levels: &crate::campaign::Levels) -> Self {
+        // categories 3 / 4: the unlockables the tokens bought (`GameOptions::token_unlocks`)
+        let bought = |name: &str| opts.token_unlocks.iter().any(|n| n.eq_ignore_ascii_case(name));
         let all_levels = cheats.on(ALL_LEVELS_CHEAT);
         let all_movies = cheats.on(ALL_MOVIES_CHEAT);
         let reached = |l: &&&str| all_levels || opts.levels_reached.iter().any(|r| r.eq_ignore_ascii_case(l));
