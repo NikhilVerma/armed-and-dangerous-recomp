@@ -2306,7 +2306,7 @@ fn search(
             // at a barricade (+0x484 0x20000) the cone test is skipped (ai_02.cpp:771); Object_IsInViewCone 0x00455d90
             // tests 190 * 0.5 > 57.339447 * acos(dot) (its degrees constant 0x005bcdb8 is not 180 / pi)
             // (hear_distance 0 would take a 180-degree cone or 100 units instead: no property set or placement has 0)
-            let cone = to.normalize_or_zero().dot(fwd).clamp(-1.0, 1.0).acos() * VIEW_CONE_DEGREES < 95.0 || d2 < g.hear_distance || g.at_barricade;
+            let cone = in_view_cone(to, fwd) || d2 < g.hear_distance || g.at_barricade;
             // on a mounted gun (+0x484 0x8000) only what lies within 80 degrees of the gun's heading, seen from the
             // gun (0x0042b860 with 0x00453150's heading), before the sight test (ai_02.cpp:786-792)
             let gun_arc = g.gun.filter(|gn| gn.phase == GunPhase::On).is_none_or(|gn| within_arc(cpos, gn.origin, gn.fwd, 80.0));
@@ -3087,6 +3087,12 @@ const MARKER_REACHED: f32 = 2.5;
 
 /// Object_IsInViewCone 0x00455d90's radians-to-degrees factor (K 0x005bcdb8 = 57.339447, slightly above 180 / pi).
 const VIEW_CONE_DEGREES: f32 = 57.339447;
+
+/// Object_IsInViewCone 0x00455d90 with the AI's 190-degree cone: 190 x 0.5 > VIEW_CONE_DEGREES x acos(dot) of the
+/// heading `fwd` and the direction `to` (both in the plane). Shared by the grunts' search and the squads' scan.
+fn in_view_cone(to: Vec3, fwd: Vec3) -> bool {
+    to.normalize_or_zero().dot(fwd).clamp(-1.0, 1.0).acos() * VIEW_CONE_DEGREES < 95.0
+}
 
 /// The facing a node's heading needs before it counts as reached (AIRoute_CheckReached 0x0046f900: K 0x005bcd30).
 const MARKER_FACING_DOT: f32 = 0.98;

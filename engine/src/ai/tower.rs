@@ -26,7 +26,10 @@
 //!   +0xea0), "mover_molmer_plant_bomb" as an IC anim (vt+0x238 = 0x0042c410, state 0x64), mode 7.
 //! - Mode 7 (0x00485cc6): the IC anim carries him by its own root track (state 0x64: about 29 units toward the doors
 //!   and from bomb to bomb; mover.rs `Mover`, as ai/ic.rs), its notes are the script; when it is over (state 0 again)
-//!   "mover_molmer_bomb_loop", looping ("ic_loop" note, +0xad8), its skeleton root held (the bone callback 0x0042c080).
+//!   "mover_molmer_bomb_loop", looping ("ic_loop" note, +0xad8). (Mode 7 hooks the bone callback 0x0042c080 into the
+//!   ending plant anim's root channel before the loop starts, holding that root still while the outgoing anim fades;
+//!   the loop's own root track carries him as the plant's did. Here the loop replaces the plant at once, so there is
+//!   no fade to hold.)
 //!   The plant anim's notes (MolmerObject_OnAnimEvent 0x0044e740): "make_bomb" makes a player_tickerbomb at a quarter
 //!   size (K 0x005bcbe4) in his hand, taken off the ticker bomb lists (+0xeb0 / +0xeb4: a prop, not a bomb site),
 //!   "plant_bomb Ref_bomb_0N" puts it on the door object at that bone: eight over 31.3 s; "fx jones_bomb_plant" / the
@@ -368,12 +371,13 @@ fn plant(
                     }
                     task.held = Some(bomb);
                 }
-                // onto the door object at the named bone
+                // onto the door object at the named bone; with no door object the bomb stays in his hand
+                // (game_02.cpp:2840-2847: the lookup comes first)
                 "plant_bomb" => {
-                    let (Some(bone), Some(held)) = (words.next(), task.held.take()) else { continue };
-                    commands.entity(held).despawn();
                     let door = mission.as_deref().and_then(|ms| doors.iter().find(|(id, ..)| task.door_tag != 0 && ms.has_tag(id.0, task.door_tag)));
-                    let (Some((_, placed, gt)), Some(b)) = (door, bombs.as_deref()) else { continue };
+                    let (Some(bone), Some((_, placed, gt)), Some(b)) = (words.next(), door, bombs.as_deref()) else { continue };
+                    let Some(held) = task.held.take() else { continue };
+                    commands.entity(held).despawn();
                     let anim = data.templates.get(&placed.template).and_then(|t| t.default_anim.clone()).unwrap_or_else(|| placed.template.clone());
                     let Some(local) = crate::mission::pub_bone(&lib.dir, &anim, bone) else { continue };
                     let (_, rot, _) = gt.to_scale_rotation_translation();
