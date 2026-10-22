@@ -211,6 +211,8 @@ struct AlertCx<'a, 'w, 's> {
     rng: &'a mut FxStats,
     stats: &'a mut super::AiStats,
     shares: &'a mut Vec<Share>,
+    /// the Guy Fawkes traitors (+0x488 0x4000), whom a group alert passes over
+    traitors: &'a Query<'a, 'a, (), With<crate::weapons::traitor::Traitor>>,
 }
 
 /// SquadObject_Slot143 0x00433c70 (ai_04.cpp:1640-1706) with the pass-on flag: a resume delay is rolled and only when
@@ -236,7 +238,7 @@ fn alert(sq: &mut Squad, se: Entity, target: Option<Entity>, pass_on: bool, cx: 
             charge(sq, target, cx);
         }
     }
-    set_target(sq, target, pass_on, cx);
+    set_target(sq, se, target, pass_on, cx);
 }
 
 /// The charge (ai_04.cpp:1667-1703): dead members met are unlinked, then live ones leave the squad and attack the
@@ -270,67 +272,39 @@ fn charge(sq: &mut Squad, target: Entity, cx: &mut AlertCx) {
     sq.charge = cx.rng.range(sq.charge_delay.0, sq.charge_delay.1);
 }
 
-/// The base SetTarget 0x0042cc70 (ecx = squad; target, flag): the squad's target; with the flag the group (+0x574)
-/// takes it after 0.25..1 s (0x0042c700).
-fn set_target(sq: &mut Squad, target: Option<Entity>, tell_group: bool, cx: &mut AlertCx) {
+/// The base SetTarget 0x0042cc70 (ecx = squad; target, flag): the squad's target; with the flag every AI of the
+/// squad's group (+0x574, the members' alert group) takes part in the alert as a grunt's search tells its group
+/// (0x0042c700, ai.rs `alerted`: whether he holds a target does not matter) and takes the target after 0.25..1 s.
+fn set_target(sq: &mut Squad, se: Entity, target: Option<Entity>, tell_group: bool, cx: &mut AlertCx) {
     sq.target = target;
     let Some(target) = target.filter(|_| tell_group) else { return };
-    for &m in &sq.members {
-        if let Ok((_, mut g, _)) = cx.grunts.get_mut(m) {
-            if g.target.is_none() && g.pending.is_none() {
-                g.pending = Some((target, cx.rng.range(0.25, 1.0)));
-            }
+    for (ge, mut g, _) in cx.grunts.iter_mut() {
+        if super::alerted(&g, ge, (sq.group, target, se), cx.traitors.contains(ge)) {
+            g.pending = Some((target, cx.rng.range(0.25, 1.0)));
         }
     }
 }
 
-/// A candidate of the squad's scan: the player's side (the list +0x604, Squad_Init: Roman and his companions).
-struct Candidate {
-    entity: Entity,
-    pos: Vec3,
-    player: bool,
-    /// of the mission's ai_target_tag (ai.rs `ArmyTarget`)
-    army: bool,
-}
-
-/// The squad's own target scan (0x0042be80 in states 0x96 / 0x97 -> AI_FindTarget 0x00426920 over scan_distance, the
-/// same rules as a grunt's, ai.rs `search`): with the mission's ai_target_tag only its objects, at any range, with
-/// neither cone nor sight; else a noise of the player's shots within its radius of the anchor takes the player within
-/// 2 x scan_distance (step 2), and the nearest of the player's side within scan_distance (2D) replaces it: the player
-/// inside hear_distance at once, the others inside the 190-degree cone (or within hear_distance) and in sight. (No
-/// squad has the priority tags or the turret flag.)
-fn find_target(sq: &Squad, cands: &[Candidate], heard: bool, global_tag: bool, physics: &Physics) -> Option<Entity> {
-    let fwd = Vec3::new(sq.yaw.sin(), 0.0, sq.yaw.cos());
-    let dist = |c: &Candidate| (c.pos - sq.pos).with_y(0.0).length();
-    let mut best: Option<(f32, Entity)> = None;
-    if heard && !global_tag {
-        if let Some(c) = cands.iter().find(|c| c.player).filter(|c| dist(c) <= 2.0 * sq.scan) {
-            best = Some((dist(c), c.entity));
-        }
-    }
-    for c in cands {
-        let d = dist(c);
-        if global_tag {
-            if c.army && best.is_none_or(|b| d < b.0) {
-                best = Some((d, c.entity));
-            }
-            continue;
-        }
-        if d > sq.scan || best.is_some_and(|b| d > b.0) {
-            continue;
-        }
-        if c.player && d < sq.hear {
-            return Some(c.entity);
-        }
-        let cone = super::in_view_cone((c.pos - sq.pos).with_y(0.0), fwd) || d < sq.hear;
+/// The squad's own target scan (0x0042be80 in states 0x96 / 0x97): AI_FindTarget 0x00426920 (ai.rs `find_target`)
+/// from the anchor over its scan_distance, without a model (its own ref_hit_00 is the anchor), the gun and the
+/// barricade (no squad has either).
+fn find_target(sq: &Squad, cands: &[super::TargetCandidate], heard: bool, tagged: bool, physics: &Physics) -> Option<Entity> {
+    let looker = super::Looker {
+        pos: sq.pos,
+        eye: sq.pos,
+        fwd: Vec3::new(sq.yaw.sin(), 0.0, sq.yaw.cos()),
+        scan: sq.scan,
+        hear: sq.hear,
+        at_barricade: false,
+        gun: None,
         // (its sight passes through the AI characters, its own goliath among them: sight_ray as 0x00426fd0, which
         // excludes the AI list World+0xe7c; a plain ray from the anchor started inside the goliath's hit capsule and
         // never saw Roman beside it: oracle ticker_l3m1, the original's squad halts 16 frames after Roman appears there)
-        if cone && super::sight_ray(physics, sq.pos, c.pos + Vec3::Y * 7.0, &[]) {
-            best = Some((d, c.entity));
-        }
-    }
-    best.map(|b| b.1)
+        skip: &[],
+        heard,
+        tagged,
+    };
+    super::find_target(&looker, cands, physics).map(|b| b.1)
 }
 
 /// The squads' frame: members made, the trigger, the spline, the scan, the halt and the charges.
@@ -346,11 +320,12 @@ pub fn update_squads(
     mut triggers: MessageReader<crate::mission::SendTrigger>,
     mut spawn: MessageWriter<crate::level::SpawnGrunt>,
     (mut rng, physics, mut stats, mut goliaths): (ResMut<FxStats>, NonSend<Physics>, ResMut<super::AiStats>, MessageWriter<crate::goliath::SpawnGoliath>),
-    (companions, noise, mission, army): (
+    (companions, noise, mission, army, traitors): (
         Query<(Entity, &GlobalTransform, &super::Companion), Without<Player>>,
         Res<super::Interests>,
         Option<Res<crate::mission::Mission>>,
         Query<(), With<super::ArmyTarget>>,
+        Query<(), With<crate::weapons::traitor::Traitor>>,
     ),
 ) {
     let dt = time.delta_secs();
@@ -360,10 +335,14 @@ pub fn update_squads(
         Err(_) => (None, Vec3::ZERO),
     };
     let global_tag = mission.as_ref().is_some_and(|m| m.ai_target_tag != 0);
-    let cands: Vec<Candidate> = pe
-        .map(|e| Candidate { entity: e, pos: pp, player: true, army: army.contains(e) })
+    // the list +0x604 (Squad_Init: Roman and his companions), each aimed at 7 above the feet (no rig here)
+    let cands: Vec<super::TargetCandidate> = pe
+        .map(|e| super::TargetCandidate { entity: e, pos: pp, hit: pp + Vec3::Y * 7.0, player: true, army: army.contains(e) })
         .into_iter()
-        .chain(companions.iter().filter(|(_, _, c)| c.dead.is_none()).map(|(e, t, _)| Candidate { entity: e, pos: t.translation(), player: false, army: army.contains(e) }))
+        .chain(companions.iter().filter(|(_, _, c)| c.dead.is_none()).map(|(e, t, _)| {
+            let pos = t.translation();
+            super::TargetCandidate { entity: e, pos, hit: pos + Vec3::Y * 7.0, player: false, army: army.contains(e) }
+        }))
         .collect();
     let mut shares: Vec<Share> = Vec::new();
     for (se, mut sq, mut tr) in &mut squads {
@@ -417,7 +396,7 @@ pub fn update_squads(
         let live = |g: &Grunt, h: &Health| g.mind != Mind::Dead && h.0 > 0.0;
         // dead members leave the list
         sq.members.retain(|&m| grunts.get(m).is_ok_and(|(_, g, h)| live(g, h) && g.squad.is_some()));
-        let mut cx = AlertCx { grunts: &mut grunts, rng: &mut rng, stats: &mut stats, shares: &mut shares };
+        let mut cx = AlertCx { grunts: &mut grunts, rng: &mut rng, stats: &mut stats, shares: &mut shares, traitors: &traitors };
         // the goliath dead: every member charges the player (charge_count = the list's length, the timers cleared)
         // (its entity is filled the frame after it is reserved: alive until then)
         if let Some(gl) = sq.goliath.filter(|_| !made_now) {
@@ -544,14 +523,14 @@ pub fn update_squads(
     // 0x00433bc0 on each squad of the tag down the sequence: vt+0x23c(target, 0) (the halt without pass-on or
     // charge), the base SetTarget(target, 1), and the sender's halt timer (0x00433ba0)
     let mut none = Vec::new();
-    let mut cx = AlertCx { grunts: &mut grunts, rng: &mut rng, stats: &mut stats, shares: &mut none };
+    let mut cx = AlertCx { grunts: &mut grunts, rng: &mut rng, stats: &mut stats, shares: &mut none, traitors: &traitors };
     for s in shares {
         for (se, mut sq, _) in &mut squads {
             if se == s.from || !shares_halt((s.tag, s.sequence), (sq.squad_tag, sq.sequence)) {
                 continue;
             }
             alert(&mut sq, se, s.target, false, &mut cx);
-            set_target(&mut sq, s.target, true, &mut cx);
+            set_target(&mut sq, se, s.target, true, &mut cx);
             sq.halt = s.halt;
             info!("EVENT ai: squad {se:?} halts with squad {:?} (tag {})", s.from, s.tag);
         }

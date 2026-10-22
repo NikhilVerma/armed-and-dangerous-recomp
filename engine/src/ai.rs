@@ -2097,10 +2097,10 @@ fn offer_target(g: &mut Grunt, cand: (Entity, Vec3), current: Option<Vec3>, me: 
 }
 
 /// Whether a member of `group` takes part in its alert (0x0042c700, from SetTarget 0x0042cc70 with a1 and the group id
-/// +0x574, and from a death 0x00431720): alive, not the alerter and not the target himself, not a traitor (+0x488
+/// +0x574, a grunt's or a squad's (squad.rs), and from a death 0x00431720): alive, not the alerter and not the target himself, not a traitor (+0x488
 /// 0x4000, the Guy Fawkes' swap), with no hand-over under way (+0x578 run out). Whether he holds a target does not
 /// matter: the hand-over's end offers it (0x0042c820).
-fn alerted(g: &Grunt, me: Entity, (group, target, alerter): (i64, Entity, Entity), traitor: bool) -> bool {
+pub(crate) fn alerted(g: &Grunt, me: Entity, (group, target, alerter): (i64, Entity, Entity), traitor: bool) -> bool {
     group != 0 && g.alert_group == group && me != alerter && me != target && !traitor && g.pending.is_none() && g.mind != Mind::Dead
 }
 
@@ -2124,6 +2124,89 @@ fn trigger_kills(mut sent: MessageReader<crate::mission::SendTrigger>, mut grunt
             }
         }
     }
+}
+
+/// One entry of the looker's list +0x604 that AI_FindTarget walks: the player's side (Roman and his companions; for a
+/// loyal grunt also the Guy Fawkes traitors, for a traitor the loyal grunts).
+#[derive(Clone, Copy)]
+pub struct TargetCandidate {
+    pub entity: Entity,
+    /// its feet (the distances are 2D)
+    pub pos: Vec3,
+    /// its ref_hit_00, where the sight ray aims
+    pub hit: Vec3,
+    /// the player (Game+0x748): taken at once inside hear_distance
+    pub player: bool,
+    /// of the mission's ai_target_tag (`ArmyTarget`)
+    pub army: bool,
+}
+
+/// The looker as AI_FindTarget sees it (a grunt, or a squad's anchor: SquadObject is a GenericAIObject and its scan
+/// 0x0042be80 calls the same function with its own +0x5dc).
+pub struct Looker<'a> {
+    pub pos: Vec3,
+    /// its ref_hit_00 (0x00428280): where the sight ray starts
+    pub eye: Vec3,
+    /// its flat facing (the view cone's axis)
+    pub fwd: Vec3,
+    /// the range (a0: +0x5dc, scan_distance)
+    pub scan: f32,
+    /// +0x5e0, hear_distance
+    pub hear: f32,
+    /// +0x484 0x20000 (at a barricade): no cone test
+    pub at_barricade: bool,
+    /// on a mounted gun (+0x484 0x8000): its origin and heading, candidates outside 80 degrees of it skipped
+    pub gun: Option<(Vec3, Vec3)>,
+    /// bodies the sight ray passes (its own)
+    pub skip: &'a [BodyId],
+    /// step 2: a noise of the player's within its radius of the looker
+    pub heard: bool,
+    /// the mission's ai_target_tag (Game+0xae8) is set (the looker a bad guy, vt+0xe8)
+    pub tagged: bool,
+}
+
+/// AI_FindTarget 0x00426920 (ai_02.cpp:660-826), the one target search of grunts and squads: (step 2) a noise of the
+/// player's heard takes the player within 2 x scan (no cone, no sight); then the walk of the list: with the mission's
+/// ai_target_tag only its objects, at any range (1e8) with neither cone nor sight; else within scan (2D) and no
+/// farther than the best so far, the player inside hear_distance at once, the others inside the 190-degree cone (or
+/// within hear_distance; no cone at a barricade), within 80 degrees of a mounted gun's heading, and in sight
+/// (0x00426fd0). Returns the 2D distance, the target and whether it was taken by the noise or the hearing range.
+pub fn find_target(l: &Looker, cands: &[TargetCandidate], physics: &Physics) -> Option<(f32, Entity, bool)> {
+    let mut best: Option<(f32, Entity, bool)> = None;
+    if l.heard {
+        if let Some(c) = cands.iter().find(|c| c.player) {
+            let d = (c.pos - l.pos).with_y(0.0).length();
+            if d <= 2.0 * l.scan {
+                best = Some((d, c.entity, true));
+            }
+        }
+    }
+    for c in cands {
+        let to = (c.pos - l.pos).with_y(0.0);
+        let d = to.length();
+        if l.tagged {
+            if c.army && best.is_none_or(|b| d < b.0) {
+                best = Some((d, c.entity, false));
+            }
+            continue;
+        }
+        if d > l.scan || best.is_some_and(|b| d > b.0) {
+            continue;
+        }
+        if c.player && d < l.hear {
+            return Some((d, c.entity, true));
+        }
+        // Object_IsInViewCone 0x00455d90 (hear_distance 0 would take a 180-degree cone or 100 units instead: no
+        // property set or placement has 0)
+        let cone = in_view_cone(to, l.fwd) || d < l.hear || l.at_barricade;
+        // on a mounted gun only what lies within 80 degrees of the gun's heading, seen from the gun (0x0042b860 with
+        // 0x00453150's heading), before the sight test (ai_02.cpp:786-792)
+        let gun_arc = l.gun.is_none_or(|(origin, fwd)| within_arc(c.pos, origin, fwd, 80.0));
+        if cone && gun_arc && sight_ray(physics, l.eye, c.hit, l.skip) {
+            best = Some((d, c.entity, false));
+        }
+    }
+    best
 }
 
 /// AI_FindTarget 0x00426920 and the alert-group hand-over: every 0.75..1.25 s (2..4 s on a start-in-turret level);
@@ -2182,8 +2265,11 @@ fn search(
     let hit_point = |t: &GlobalTransform, a: Option<&crate::skin::Animator>| {
         a.and_then(|a| a.skeleton.index.get("ref_hit_00").and_then(|&i| joints.compute_global_transform(a.joints[i]).ok())).map(|j| j.translation()).unwrap_or(t.translation() + Vec3::Y * 7.0)
     };
-    let cands: Vec<(Entity, Vec3, Vec3)> =
-        player.iter().chain(companions.iter()).map(|(e, t, a)| (e, t.translation(), hit_point(t, a))).collect();
+    let cands: Vec<TargetCandidate> = player
+        .iter()
+        .chain(companions.iter())
+        .map(|(e, t, a)| TargetCandidate { entity: e, pos: t.translation(), hit: hit_point(t, a), player: e == pe, army: army.contains(e) })
+        .collect();
     // the Guy Fawkes traitors (weapons/traitor.rs; 0x00430140 swaps the AI's lists +0x604 / +0x608 and joins the other
     // side's): a traitor hunts the live grunts still loyal; the loyal hunt the traitors as well as the player's side
     let sides: Vec<(Entity, Vec3, Vec3, bool)> = if traitors.is_empty() {
@@ -2232,7 +2318,7 @@ fn search(
         // a priority target (a house) that is gone (destroyed: its husk keeps the entity but has lost the tag) leaves
         // him free to search
         let gone = |t: Entity| objects.get(t).map_or(true, |(_, i, _)| mission.as_deref().is_some_and(|m| m.lost(i.0)));
-        if g.priority_tags.0 != 0 && g.target.is_some_and(|t| t != pe && !cands.iter().any(|c| c.0 == t) && gone(t)) {
+        if g.priority_tags.0 != 0 && g.target.is_some_and(|t| t != pe && !cands.iter().any(|c| c.entity == t) && gone(t)) {
             g.target = None;
         }
         if g.target.is_some() {
@@ -2272,52 +2358,28 @@ fn search(
         let fwd = Vec3::new(g.yaw.sin(), 0.0, g.yaw.cos());
         // its own ref_hit_00 (0x00428280 with "ref_hit_00"): where the sight ray starts (raised by 5)
         let own_hit = ga.and_then(|a| a.skeleton.index.get("ref_hit_00").and_then(|&i| joints.compute_global_transform(a.joints[i]).ok())).map(|j| j.translation()).unwrap_or(me + Vec3::Y * 6.0);
-        let mut best: Option<(f32, Entity, bool)> = None;
-        // step 2: a noise of the player's within its radius of the grunt's ref_hit_00 (3D), the player within 2 x
-        // scan_distance (2D): taken first (no cone, no line of sight); the list below only replaces it when nearer
+        // a traitor walks the loyal grunts (and hears no noise of the player's); the loyal the player's side and the
+        // traitors
         let traitor = traitors.contains(ge);
-        if !traitor && noise.list.iter().any(|i| i.pos.distance(own_hit) <= i.radius) {
-            if let Some(&(ce, cpos, _)) = cands.iter().find(|c| c.0 == pe) {
-                let d2 = (cpos - me).with_y(0.0).length();
-                if d2 <= 2.0 * g.scan_distance {
-                    best = Some((d2, ce, true));
-                }
-            }
-        }
-        let own: Vec<(Entity, Vec3, Vec3)> = if traitor {
-            sides.iter().filter(|s| !s.3 && s.0 != ge).map(|s| (s.0, s.1, s.2)).collect()
+        let own: Vec<TargetCandidate> = if traitor {
+            sides.iter().filter(|s| !s.3 && s.0 != ge).map(|s| TargetCandidate { entity: s.0, pos: s.1, hit: s.2, player: false, army: army.contains(s.0) }).collect()
         } else {
-            cands.iter().copied().chain(sides.iter().filter(|s| s.3).map(|s| (s.0, s.1, s.2))).collect()
+            cands.iter().copied().chain(sides.iter().filter(|s| s.3).map(|s| TargetCandidate { entity: s.0, pos: s.1, hit: s.2, player: false, army: army.contains(s.0) })).collect()
         };
-        for &(ce, cpos, chit) in &own {
-            let to = (cpos - me).with_y(0.0);
-            let d2 = to.length();
-            if global_tag != 0 {
-                // the mission's target tag: only its objects, any range, no cone, no sight test
-                if army.contains(ce) && best.is_none_or(|b| d2 < b.0) {
-                    best = Some((d2, ce, false));
-                }
-                continue;
-            }
-            if d2 > g.scan_distance || best.is_some_and(|b| d2 > b.0) {
-                continue;
-            }
-            if ce == pe && d2 < g.hear_distance {
-                best = Some((d2, ce, true));
-                break;
-            }
-            // at a barricade (+0x484 0x20000) the cone test is skipped (ai_02.cpp:771); Object_IsInViewCone 0x00455d90
-            // tests 190 * 0.5 > 57.339447 * acos(dot) (its degrees constant 0x005bcdb8 is not 180 / pi)
-            // (hear_distance 0 would take a 180-degree cone or 100 units instead: no property set or placement has 0)
-            let cone = in_view_cone(to, fwd) || d2 < g.hear_distance || g.at_barricade;
-            // on a mounted gun (+0x484 0x8000) only what lies within 80 degrees of the gun's heading, seen from the
-            // gun (0x0042b860 with 0x00453150's heading), before the sight test (ai_02.cpp:786-792)
-            let gun_arc = g.gun.filter(|gn| gn.phase == GunPhase::On).is_none_or(|gn| within_arc(cpos, gn.origin, gn.fwd, 80.0));
-            if cone && gun_arc && sight_ray(&physics, own_hit, chit, &[gbody.id]) {
-                best = Some((d2, ce, false));
-            }
-        }
-        if let Some((d2, tgt, heard)) = best {
+        let looker = Looker {
+            pos: me,
+            eye: own_hit,
+            fwd,
+            scan: g.scan_distance,
+            hear: g.hear_distance,
+            at_barricade: g.at_barricade,
+            gun: g.gun.filter(|gn| gn.phase == GunPhase::On).map(|gn| (gn.origin, gn.fwd)),
+            skip: &[gbody.id],
+            // step 2: a noise within its radius of his ref_hit_00 (3D)
+            heard: !traitor && noise.list.iter().any(|i| i.pos.distance(own_hit) <= i.radius),
+            tagged: global_tag != 0,
+        };
+        if let Some((d2, tgt, heard)) = find_target(&looker, &own, &physics) {
             // the Spotted cue: a new target when there was none (SetTarget 0x0042cc70 -> vt+0x144), under vo_delay
             // (30..45 s, from level load: the first fight has no line)
             if g.target.is_none() && barks.take(Delay::Vo, time.elapsed_secs(), &mut rng) {
