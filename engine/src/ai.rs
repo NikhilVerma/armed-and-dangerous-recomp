@@ -1818,7 +1818,7 @@ impl Interests {
         self.list.retain(|i| i.follow != Some(e));
     }
 
-    /// A projectile of Roman's that is not a player.rs `Projectile` (his sticky bomb): its start effect's noise,
+    /// A projectile of Roman's that is not a player.rs `Projectile` (his sticky bomb, his rockets): its start effect's noise,
     /// following it while it lives (0x0047ee30 -> 0x00404810(200, 0, the projectile)); posted once
     pub fn follow(&mut self, e: Entity, pos: Vec3) {
         if !self.muted && !self.list.iter().any(|i| i.follow == Some(e)) {
@@ -1844,6 +1844,7 @@ fn interests(
     roman: Query<(Entity, &crate::player::Roman)>,
     followed: Query<&Transform>,
     mission: Option<Res<crate::mission::Mission>>,
+    (rockets, data): (Query<(Entity, &Transform, &crate::vehicles::rockets::Rocket), Added<crate::vehicles::rockets::Rocket>>, Res<crate::gamedata::GameData>),
 ) {
     let dt = time.delta_secs();
     let it = &mut *it;
@@ -1856,6 +1857,16 @@ fn interests(
         it.flying.clear();
         return;
     };
+    // Roman's rockets and shells (the Gurner, the vindaloo, a forge cannon he mans: vehicles/rockets.rs): the start
+    // effect's noise when it has one (0x0047ee30 needs fx_start and fx_start_bone_name: the vindaloo's); their end
+    // noise is posted by the hit (`end_at`)
+    for (e, t, r) in &rockets {
+        let p = data.template_props(&r.template);
+        let has = |k: &str| p.s(k).is_some_and(|s| !s.is_empty());
+        if r.owner == Some(re) && has("fx_start") && has("fx_start_bone_name") {
+            it.follow(e, t.translation);
+        }
+    }
     // the projectiles that ended since last frame: an interest at their end (2 s)
     // (0x00404810 posts for Roman's own projectiles only)
     it.flying.retain(|_, f| f.1 == Some(re));
@@ -5273,15 +5284,18 @@ fn die(
 /// Roman's companions, Q (q111, Q111Object 0x005a6df8) and Jonesy (molmer, MolmerObject 0x005ae5f8): their shared
 /// update MolmerObject_Slot47 0x00485910 (ai_08.cpp).
 /// - Formation: the slot is Roman's bone ref_q_00 / ref_molmer_00 (0x00483d60); idle (mode 1) until the 2D distance
-///   to Roman exceeds formation_distance + 2.5 (0x004860e2), then run to the slot (mode 2) at speed (d / delay) x
-///   move_speed below 2 x delay_distance, else move_speed (0x00486cb0), d the distance to Roman; idle again there.
-///   Which of the pair takes which slot: the leader pick (fn leader_pick).
+///   to Roman exceeds formation_distance + 2.5 (0x0048631c), then run to the slot (mode 2), idle again there. The
+///   slot must stand on walkable ground and a route must lead there round Roman and the partner, else he stays
+///   (`formation_route`). The run's speed is fitted (`formation_speed`; 0x00486cb0's (d / delay) x move_speed ramp is
+///   not the measured speed). Which of the pair takes which slot: the leader pick (fn leader_pick).
 /// - Targets (0x00485490 -> AI_FindTarget 0x00426920): the nearest live grunt within scan_distance, in the 190 degree
-///   facing cone and in line of sight; refused when farther than scan_distance from Roman (0x004853a0). The fight's end
-///   (mode 3, `FightEnd`): home at once, or the partner's target, or a 3..7 s linger; the close kill (ai/close_kill.rs);
-///   stunned or carried (modes 5 / 10, ai/carried.rs).
-/// - Support fire (0x00485580): following, no target, Roman's Fire held and his heading within 45 degrees of the
-///   companion's: the fire cycle at Roman's aim point (Game+0xa6c), turning toward Roman's heading.
+///   facing cone and in line of sight, then refused when farther than scan_distance from the anchor (0x004853a0);
+///   nothing found, the partner's target within reach (Slot139). The fight's end (mode 3, `FightEnd`): home at once,
+///   or the partner's target, or a 3..7 s linger; the close kill (ai/close_kill.rs); stunned or carried (modes 5 / 10,
+///   ai/carried.rs).
+/// - Roman's Fire held (0x00485580, mode 1 under Defend Me / Return To Me, no target): facing within 45 degrees of
+///   Roman's heading he reloads in place (the reload set 0x28..0x2b: no shots), and he turns toward Roman's heading
+///   (0x00486525, flag 0x800).
 /// - Fire cycle (0x00428980, counters 0x00427600): bursts of fire_num_bursts shots on the fire anims' notes (Jonesy:
 ///   the 4 blended 0.3 s anims each fire at 0: 4 at once; Q: 6 notes per 0.633 s loop), fire_burst_delay between
 ///   bursts, fire_num_rounds per clip, then the reload anim and fire_clip_delay. Shots: the weapon's projectile at the
@@ -5289,7 +5303,8 @@ fn die(
 ///   machine-gun loop).
 /// - Team orders (fn team_orders): Defend Me / Return To Me / Defend Area / Attack, their lines and HUD texts; the
 ///   Fight cue at the fire anim's start (docs/subsystems/companions.md).
-/// Not ported: the order marker fx (Game+0xd34), object types 0x51 / 0x53 as attack targets.
+/// Not ported: object types 0x51 / 0x53 and the rest of the enemy list (World+0xe7c) as attack targets (the companions
+/// fight grunts only).
 #[derive(Component)]
 pub struct Companion {
     pub walker: crate::physics::Walker,
@@ -5399,6 +5414,23 @@ pub struct Companion {
     pub pose: Option<(&'static str, bool)>,
     /// how his last fight ended (the playtest log): "home", "linger" (then back), "takeover"
     last_end: (&'static str, u32),
+    /// the reload under way is the one Roman's Fire asks for (0x00485580: the reload set, flag 0x20 of +0xbcc)
+    support_reload: bool,
+    /// flag 0x800: turning toward Roman's heading since his Fire was held, until facing it (0x00486525)
+    face_heading: bool,
+    /// the return order sends him back to formation (0x00484290 when he does not stay: the pick, the route, mode 2)
+    return_req: bool,
+    /// the attack order named a new target (0x00484100): the close kill is tried at once, else +0xb68 is rolled
+    order_engage: bool,
+    /// +0x514: when he last took an offered target (GenericAI_OfferTarget 0x0042c820); Roman's attacker is taken only
+    /// within 10 s of it (0x00486df0)
+    offer_t: Option<f32>,
+    /// the one who hit Roman this frame (0x0047afa0 -> 0x00486df0), offered by `companion_damage`
+    roman_attacker: Option<Entity>,
+    /// seconds before a failed route to the formation point is tried again (`set_out`)
+    route_retry: f32,
+    /// in a fight (mode 3) at the end of his last update: a fight starting rolls +0xb68 (0x00486200 / 0x004866da)
+    was_fighting: bool,
 }
 
 /// How a companion's fight ended (MolmerObject_Slot47 0x00485910 mode 3).
@@ -5435,8 +5467,9 @@ pub enum Order {
     Loose,
     /// flag 1 without 8: "Defend Area" at the aimed point, facing Roman's direction at the order (0x00484ca0)
     Area { at: Vec3, dir: Vec3 },
-    /// flags 1 | 4: "Attack" the grunt under the crosshair, anchored where it stood (0x00484100)
-    Attack { at: Vec3, dir: Vec3 },
+    /// flags 1 | 4: "Attack" the grunt under the crosshair, anchored where it stood (0x00484100); `target` is the held
+    /// attack target +0xbb0
+    Attack { at: Vec3, dir: Vec3, target: Entity },
 }
 
 #[derive(Clone)]
@@ -5528,28 +5561,86 @@ impl Companion {
         ic: false,
         pose: None,
         last_end: ("none", 0),
+        support_reload: false,
+        face_heading: false,
+        return_req: false,
+        order_engage: false,
+        offer_t: None,
+        roman_attacker: None,
+        route_retry: 0.0,
+        was_fighting: false,
         }
     }
 }
 
 impl Companion {
-    /// Roman was hit (0x0047afa0 -> 0x00486df0): unless engaged, the attacker becomes the target.
+    /// Roman was hit by `by` (0x0047afa0 -> 0x00486df0): offered as his target by `companion_damage` (`retaliate`).
     pub fn roman_attacked(&mut self, by: Entity) {
-        if self.dead.is_none() && !self.engaged {
-            self.target = Some(by);
+        if self.dead.is_none() {
+            self.roman_attacker = Some(by);
         }
     }
 
     /// The update's mode +0xb5c as the original numbers it (MolmerObject_Slot47 0x00485910): 1 idle in formation, 2
-    /// moving to the formation point, 3 engaging (the tower task's 6 / 7 are ai/tower.rs's). For the oracle trace.
+    /// moving to the formation point, 3 engaging (the tower task's 6 / 7 are ai/tower.rs's). Return To Me fights
+    /// through the generic update in mode 1 (flags & 5 clear: 0x0043ee90). For the oracle trace and the partner tests.
     pub fn mode(&self) -> u8 {
-        if self.target.is_some() {
-            3
-        } else if self.moving {
-            2
-        } else {
-            1
+        let fighting = self.target.is_some() || self.fight_end.is_some();
+        match self.order {
+            Order::Loose if self.moving && self.target.is_none() => 2,
+            Order::Loose => 1,
+            _ if fighting => 3,
+            _ if self.moving => 2,
+            _ => 1,
         }
+    }
+
+    /// The anchor +0xb70 of an anchored order (flag 1): Roman's position under Defend Me (flag 8 copies it each frame,
+    /// 0x00485910), the order's point under Defend Area / Attack; none under Return To Me.
+    fn anchor(&self, roman: Vec3) -> Option<Vec3> {
+        match self.order {
+            Order::Guard => Some(roman),
+            Order::Loose => None,
+            Order::Area { at, .. } | Order::Attack { at, .. } => Some(at),
+        }
+    }
+
+    /// Whether he may engage a target at `p` within `range` of himself (Q111Object_Slot96 0x004853a0): refused farther
+    /// (2D) than scan_distance from the anchor, then 0x0043ecf0: farther (2D) than `range` from `me`. (The attack
+    /// order's own target always passes while it lives: callers skip it.)
+    fn accepts(&self, p: Vec3, me: Vec3, roman: Vec3, range: f32) -> bool {
+        self.anchor(roman).is_none_or(|a| (p - a).with_y(0.0).length() < self.scan) && (p - me).with_y(0.0).length() <= range
+    }
+
+    /// The attack order's held target +0xbb0, if the order stands.
+    fn attack_target(&self) -> Option<Entity> {
+        match self.order {
+            Order::Attack { target, .. } => Some(target),
+            _ => None,
+        }
+    }
+
+    /// Q111Object_Slot94 0x00486da0: he declines `p` as a target beyond 2 x scan_distance (vt+0x180, Slot96) and on
+    /// the tower task (modes 6 / 7). (The generic busy test 0x0042f8d0 has nothing to refuse in his states here.)
+    fn declines(&self, p: Vec3, me: Vec3, roman: Vec3, on_task: bool) -> bool {
+        on_task || !self.accepts(p, me, roman, 2.0 * self.scan)
+    }
+
+    /// A target offered at `p` (Q111Object_Slot109 0x00485360 -> GenericAI_OfferTarget 0x0042c820): ignored while the
+    /// attack order's target lives (`attack_alive`); with a live target (at `held`) ignored within 10 s of the last
+    /// offer taken (+0x514) or when that one is nearer (3D); else taken, the time stamped. `now` is the game time.
+    fn offer(&mut self, cand: Entity, p: Vec3, me: Vec3, held: Option<Vec3>, attack_alive: bool, now: f32) {
+        if attack_alive {
+            return;
+        }
+        if let Some(h) = held {
+            if self.offer_t.is_some_and(|t| now - t < 10.0) || (h - me).length_squared() < (p - me).length_squared() {
+                return;
+            }
+        }
+        self.target = Some(cand);
+        self.fight_end = None;
+        self.offer_t = Some(now);
     }
 
     /// The share of a projectile's damage it takes by the damage's class (GenericAIObject_Slot52 0x00430340: record
@@ -5577,14 +5668,32 @@ impl Companion {
         self.engaged = false;
     }
 
-    /// 0x00484290 on this companion (one half of the return order; also the tower task's failure): the held target
-    /// dropped, Defend Me <-> Return To Me (an area / attack order -> Defend Me), back to the formation point.
+    /// 0x00484290 on this companion (one half of the return order; also the tower task's failure): the held attack
+    /// target dropped, Defend Me <-> Return To Me (an area / attack order -> Defend Me). Idle in formation (mode 1)
+    /// the Defend Me / Return To Me toggle just stays; a new Defend Me keeps a target its range test passes (vt+0x180:
+    /// the next search tick's anchor and 2 x scan_distance tests), Return To Me drops it. Otherwise he goes back to
+    /// formation: the target dropped, the leader pick unless the partner idles (0x00483810 / 0x004837d0), the route to
+    /// the formation point (0x00483d60(1, 0, 0)) and mode 2 with +0xb68 = 0.25 (`return_req`, run by `companions`).
     pub fn order_return(&mut self) {
-        self.order = if self.order == Order::Guard { Order::Loose } else { Order::Guard };
-        self.target = None;
-        self.engaged = false;
-        self.fight_end = None;
-        self.route.clear();
+        let idle = self.mode() == 1;
+        let (order, stay) = match self.order {
+            Order::Guard => (Order::Loose, idle),
+            Order::Loose => (Order::Guard, idle),
+            Order::Area { .. } | Order::Attack { .. } => (Order::Guard, false),
+        };
+        self.order = order;
+        if order == Order::Guard && stay {
+            // (the range test of the target kept, at once)
+            self.search = 0.0;
+        }
+        if order == Order::Loose || !stay {
+            self.drop_target();
+            self.fight_end = None;
+        }
+        if !stay {
+            self.route.clear();
+            self.return_req = true;
+        }
     }
 
     /// The target this companion fights (+0x588), if any.
@@ -5619,6 +5728,42 @@ impl Companion {
         self.speed * 0.933
     }
 
+    /// Sets out for the formation point `goal` (0x00483d60 with "move", `formation_route`): on success the route, the
+    /// goal and mode 2 (moving, the 0.25 s re-pick timer +0xb68); false when there is no way (he keeps his mode). A
+    /// failed try waits for the re-plan timer before the next (the engine's A* costs more than the original's grid).
+    fn set_out(&mut self, physics: &Physics, me: Vec3, goal: Vec3, avoid: &[Vec3]) -> bool {
+        if self.route_retry > 0.0 {
+            return false;
+        }
+        match formation_route(physics, me, goal, avoid) {
+            Some(route) => {
+                self.route = route;
+                self.replan = 0.25;
+                self.goal = Some(goal);
+                self.moving = true;
+                self.swap_timer = 0.25;
+                true
+            }
+            None => {
+                self.route_retry = 0.25;
+                if std::env::var("AIDBG").is_ok() {
+                    let g = |v: Vec3| crate::level::game_to_engine().inverse() * v;
+                    info!("AIDBG companion q={}: no way from {:?} to the formation point {:?}", self.q, g(me).round(), g(goal).round());
+                }
+                false
+            }
+        }
+    }
+
+    /// The reload anim's length (molmer_reload_br 3.47 s, q111_reload_br 1.97 s).
+    fn reload_anim(&self) -> f32 {
+        if self.q {
+            1.967
+        } else {
+            3.467
+        }
+    }
+
     /// The run speed elsewhere: move_speed (the generic speeds 0x004297a0; the oracle lev_4_m2_tower: Jonesy's walk to
     /// the tower, mode 6, covers 2450 units in 3700 frames, 39.7 units/s at move_speed 40).
     pub fn run_speed(&self) -> f32 {
@@ -5635,6 +5780,34 @@ impl Companion {
             self.vy = if on { -5.0 } else { (self.vy - 160.0 * dt).max(-200.0) };
         }
     }
+}
+
+/// The route to a formation point (0x00483d60 with "move"): the point must stand on walkable ground (its nav cell
+/// 0x0046f320, a lookup in the plane: here a floor anywhere in its column below his height) and a route must lead there
+/// with Roman's and the partner's places blocked for the search (0x0046ece0(.., 2, 1) / (.., 2, 0) round 0x0046f6d0:
+/// `avoid`); None when either fails. A point within reach needs no route. (Roman's ref bones need not lie on the
+/// ground: only their x / z count.)
+fn formation_route(physics: &Physics, me: Vec3, goal: Vec3, avoid: &[Vec3]) -> Option<Vec<Vec3>> {
+    // down from just above his own height (as nav.rs samples), through the undersides of what overhangs
+    let mut top = me.y + 20.0;
+    let mut floor = false;
+    for _ in 0..4 {
+        match physics.raycast(goal.with_y(top), -Vec3::Y, 600.0) {
+            Some(h) if h.2.y > 0.55 => {
+                floor = true;
+                break;
+            }
+            Some(h) => top = h.1.y - 0.5,
+            None => break,
+        }
+    }
+    if !floor {
+        return None;
+    }
+    if (goal - me).with_y(0.0).length() < 9.0 {
+        return Some(Vec::new());
+    }
+    crate::nav::path(physics, me, goal, avoid)
 }
 
 pub struct CompanionPlugin;
@@ -5654,8 +5827,10 @@ impl Plugin for CompanionPlugin {
 /// - damage: the Damaged line under the shared delay Game+0xb44, else Hurt at most every 10 s (+0xb48); a reaction
 ///   anim by the damage (<= hit_level_1 20 *_hit_mgun, <= hit_level_2 51 *_hit_small, else *_hit_med) only while idle
 ///   or engaging (Q111Object_Slot129 0x00486e90: modes 1 / 3, so not on the move, GenericAIObject_Slot52 0x00430cf8)
-///   and not during the tower task's IC anims (+0xa18 bit 0, 0x00426630); the attacker offered as a target (Slot109
-///   0x00485360: ignored while a live target is held; Slot94 0x00486da0: ignored on the tower task, modes 6 / 7);
+///   and not during the tower task's IC anims (+0xa18 bit 0, 0x00426630); the attacker offered as a target unless
+///   declined (Slot94 0x00486da0: on the tower task, modes 6 / 7, or out of reach, `declines`; then `offer`);
+/// - Roman hit by a grunt (0x00486df0): not under the attack order (flag 4), only within 10 s of his last offered
+///   target (+0x514), unless declined (Slot94): the target dropped and the grunt offered;
 /// - death (permanent): the Dead line, *_die, score_value -500 to Accidents, its send_trigger_on_death (the AI's death
 ///   0x00431720 sends +0x528: lev_4_m2's Jonesy fails the mission), the body removed after the anim and the corpse
 ///   timer (0.5 s, all of it fading: corpses.rs).
@@ -5667,7 +5842,8 @@ fn companion_damage(
     time: Res<Time>,
     mut physics: NonSendMut<Physics>,
     mut q: Query<(Entity, &mut Companion, &Health, &Transform, Has<tower::OnTask>)>,
-    alive: Query<&Health, Without<Companion>>,
+    grunts: Query<(&Grunt, &GlobalTransform)>,
+    roman: Query<&GlobalTransform, With<crate::player::Roman>>,
     mut triggers: MessageWriter<crate::mission::SendTrigger>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     mut ms: ResMut<crate::stats::MissionStats>,
@@ -5676,6 +5852,9 @@ fn companion_damage(
 ) {
     let dt = time.delta_secs();
     let now = time.elapsed_secs();
+    let roman_at = roman.single().map(|t| t.translation()).unwrap_or_default();
+    // a live grunt's position (the enemy list +0x604: the companions fight grunts)
+    let live = |e: Entity| grunts.get(e).ok().filter(|(g, _)| g.mind != Mind::Dead).map(|(_, t)| t.translation());
     let mut say = |sounds: &mut MessageWriter<crate::audio::PlaySound>, rng: &mut FxStats, list: &[&str], at: Vec3| {
         let n = list[((rng.rand() * list.len() as f32) as usize).min(list.len() - 1)];
         sounds.write(crate::audio::PlaySound::at(n, at));
@@ -5737,13 +5916,21 @@ fn companion_damage(
             if reacts && !(n == "hit_mgun" && c.hit.is_some()) {
                 c.hit = Some((n, len));
             }
-            if on_task {
-                c.attacker = None;
-            }
-            if let Some(a) = c.attacker.take().filter(|&a| alive.get(a).is_ok_and(|h| h.0 > 0.0)) {
-                if c.target.is_none_or(|t| alive.get(t).is_err()) {
-                    c.target = Some(a);
+            if let Some((a, p)) = c.attacker.take().and_then(|a| live(a).map(|p| (a, p))) {
+                if !c.declines(p, at, roman_at, on_task) {
+                    let attack_alive = c.attack_target().and_then(live).is_some();
+                    let held = c.target.and_then(live);
+                    c.offer(a, p, at, held, attack_alive, now);
                 }
+            }
+        }
+        c.attacker = None;
+        // Roman's attacker (0x00486df0)
+        if let Some((a, p)) = c.roman_attacker.take().and_then(|a| live(a).map(|p| (a, p))) {
+            let recent = c.offer_t.is_some_and(|t| now - t < 10.0);
+            if c.attack_target().is_none() && recent && !c.declines(p, at, roman_at, on_task) {
+                c.drop_target();
+                c.offer(a, p, at, None, false, now);
             }
         }
         c.last_health = h.0;
@@ -5762,8 +5949,7 @@ fn companions(
     mut physics: NonSendMut<Physics>,
     mut rng: ResMut<FxStats>,
     data: Res<crate::gamedata::GameData>,
-    ctl: Res<crate::input::Controls>,
-    bot: Res<crate::bot::Bot>,
+    (ctl, bot): (Res<crate::input::Controls>, Res<crate::bot::Bot>),
     roman: Query<(&Transform, &crate::player::Roman, &crate::skin::Animator, &Health), Without<Companion>>,
     cam: Query<&GlobalTransform, With<Camera3d>>,
     mut q: Query<(Entity, &mut Companion, &mut Transform, Option<&crate::skin::Animator>, Option<&Health>), FreeCompanion>,
@@ -5782,6 +5968,12 @@ fn companions(
         Query<(), (With<Companion>, Or<(With<carried::Knocked>, With<close_kill::Killing>)>)>,
         ResMut<AiForce>,
     ),
+    (path, topsy, mounted, held_q): (
+        Res<crate::campath::CameraPath>,
+        Res<crate::topsy::Topsy>,
+        Res<crate::turret::Mounted>,
+        Query<&Companion, Or<(With<tower::OnTask>, With<carried::Knocked>, With<close_kill::Killing>)>>,
+    ),
 ) {
     let dt = time.delta_secs();
     let now = time.elapsed_secs();
@@ -5792,37 +5984,59 @@ fn companions(
         let (o, d) = (c.translation(), c.forward().as_vec3());
         physics.raycast(o + d * 20.0, d, 500.0).map(|h| h.1).unwrap_or(o + d * 520.0)
     });
-    let fire_held = (ctl.down(crate::input::Act::Fire) || ctl.pressed(crate::input::Act::Fire) || bot.fire_ok) && !r.dead;
+    // the camera's own gate (0x00410150: a camera path holds it) and Fire held (button 8, 0x00414810 at 0.5)
+    let fire_held = (ctl.down(crate::input::Act::Fire) || ctl.pressed(crate::input::Act::Fire) || bot.fire_ok) && !r.dead && !path.holds_camera();
     // Roman's direction (0x00453150), flat
     let roman_dir = (Quat::from_rotation_y(r.yaw + std::f32::consts::PI) * Vec3::Z).with_y(0.0).normalize_or(Vec3::Z);
-    let may_act = !r.dead && !hud.as_ref().is_some_and(|h| h.cinematic);
+    // the heading the companions turn to under Fire (0x00485580 / 0x00486525): Roman's, or on a mounted gun the gun's
+    // (Game+0xacc while Game+0xac8 is set; here the camera's, which the gun's swivel carries)
+    let roman_heading = match (mounted.0, cam.single()) {
+        (Some(_), Ok(c)) => {
+            let f = c.forward().as_vec3();
+            f.x.atan2(f.z)
+        }
+        _ => r.yaw + std::f32::consts::PI,
+    };
+    // PlayerCanAct 0x0047a950: alive, no camera path (0x00410150), not in the topsy states (+0xa34 & 0x7f800000)
+    // (its camera mode 2 test, 0x0040fab0: no setter of mode 2 found in the recovered code)
+    let may_act = !r.dead && !path.holds_camera() && !topsy.active() && !hud.as_ref().is_some_and(|h| h.cinematic);
+    // Q alive (the player's +0xad4, 0x00475d40, dropped only once dead: on the tower task or carried too)
+    let q_alive = q.iter().any(|(_, c, ..)| c.q && c.dead.is_none()) || held_q.iter().any(|c| c.q && c.dead.is_none());
     team_orders(
         &mut q,
         !taken.is_empty(),
         pending.get(),
         &mut barks,
         hud.as_deref_mut(),
-        &mut sounds,
+        (&mut sounds, &mut fx),
         &mut rng,
-        &physics,
+        (&physics, &data),
         &grunts,
         (ctl.pressed(crate::input::Act::TeamSend), ctl.pressed(crate::input::Act::TeamRecall)),
         may_act,
         cam.single().ok().map(|c| (c.translation(), c.forward().as_vec3())),
         aim_point,
         roman_dir,
-        now,
+        (now, q_alive),
     );
-    // who is fighting (the attack order's linger waits for the partner: 0x0042c6f0, guess "has a target")
-    let fighting: Vec<(bool, bool)> = q.iter().filter(|(_, c, ..)| c.dead.is_none()).map(|(_, c, ..)| (c.q, c.target.is_some())).collect();
-    // each one's target, for the partner's take-over at a fight's end (0x00485910 mode 3)
+    // each one's target, for the partner's take-over (0x00485910 mode 3, Q111Object_Slot139 0x00485490)
     let pair_targets: Vec<(Entity, Option<Entity>)> = q.iter().filter(|(_, c, ..)| c.dead.is_none()).map(|(e, c, ..)| (e, c.target)).collect();
-    // the pair as the leader pick sees it (entity, position, moving = mode 2, its pick time)
-    let pair: Vec<(Entity, Vec3, bool, f32)> = q.iter().filter(|(_, c, ..)| c.dead.is_none()).map(|(e, c, t, ..)| (e, t.translation, c.moving, c.swap_t)).collect();
+    // the pair as the leader pick sees it (entity, position, mode +0xb5c, its pick time); a pick updates its own entry
+    let mut pair: Vec<(Entity, Vec3, u8, f32)> = q.iter().filter(|(_, c, ..)| c.dead.is_none()).map(|(e, c, t, ..)| (e, t.translation, c.mode(), c.swap_t)).collect();
     let mut lead_changes: Vec<(Entity, bool)> = Vec::new();
     let mut regroup_reqs: Vec<Entity> = Vec::new();
     let mut silent_return = false;
     for (e, mut c, mut t, ca, ch) in &mut q {
+        // what the partner set on him earlier this frame (0x004837e0's lead flag, 0x004837b0's flag 0x80: set at once
+        // in the original)
+        if let Some(&(_, lead)) = lead_changes.iter().rev().find(|x| x.0 == e) {
+            c.lead = lead;
+        }
+        lead_changes.retain(|x| x.0 != e);
+        if regroup_reqs.contains(&e) && matches!(c.order, Order::Guard | Order::Loose) {
+            c.regroup_req = true;
+        }
+        regroup_reqs.retain(|&x| x != e);
         // a dead companion does nothing; a hit reaction holds him (states 0x12f..0x131: movement stopped)
         if c.dead.is_some() || c.hit.is_some() {
             c.moving = false;
@@ -5844,14 +6058,17 @@ fn companions(
                 physics.place_walker(&c.walker, feet);
                 t.translation = feet;
                 c.yaw = r.yaw + std::f32::consts::PI;
+                // (and Roman's direction at that moment, +0xb7c: the first regroup's forced-pick test reads it)
+                c.roman_dir = roman_dir;
                 c.spawned = true;
             }
         }
         let me = t.translation;
-        // Q's healthy tea (Q11Voice_PlayAmbient 0x004857e0): once, when Roman's health is at most a quarter of its
-        // maximum and he is within 50 units: a line (50 %: q1150174_Ambient_Spec, else q1150026_Ambient at Q), the
-        // drop_tea anim (id 0x5a, 7.63 s), then (mode 9) "pickup_healthytea" thrown from Q + 4 up toward Roman at
-        // normalise(2D direction, 0.7 up) x 40
+        // Q's healthy tea (Q11Voice_PlayAmbient 0x004857e0, the first step of mode 1: idle in formation, not in a
+        // flag-0x20 anim such as Fire's reload): once, when Roman's health is at most a quarter of its maximum (a dead
+        // Roman's too: no other test) and he is within 50 units: a line (50 %: q1150174_Ambient_Spec, else
+        // q1150026_Ambient at Q), the drop_tea anim (id 0x5a, 7.63 s), then (mode 9) "pickup_healthytea" thrown from
+        // Q + 4 up toward Roman at normalise(2D direction, 0.7 up) x 40
         if c.q && c.tea > 0.0 {
             c.tea -= dt;
             if c.tea <= 0.0 {
@@ -5861,7 +6078,7 @@ fn companions(
             }
             continue;
         }
-        if c.q && !c.tea_given && !r.dead && rh.0 <= r.max_health * 0.25 && rt.translation.distance(me) < 50.0 {
+        if c.q && !c.tea_given && c.mode() == 1 && !c.support_reload && rh.0 <= r.max_health * 0.25 && rt.translation.distance(me) < 50.0 {
             c.tea_given = true;
             c.tea = 7.633;
             c.moving = false;
@@ -5876,7 +6093,7 @@ fn companions(
         // targets. In a fight (mode 3) while he has a target or its end is pending. A dead target is lost (the generic
         // update's 0x0042bc60: a new search at once, +0x490 = 0); nothing found, its fire counters decide how the fight
         // ends (`FightEnd`)
-        let in_fight = c.target.is_some() || c.fight_end.is_some();
+        let in_fight = c.was_fighting;
         if let Some(tg) = c.target {
             if grunts.get(tg).map_or(true, |(_, g, _, _)| g.mind == Mind::Dead) {
                 c.target = None;
@@ -5885,19 +6102,16 @@ fn companions(
             }
         }
         c.search -= dt;
-        // the anchor targets must stay near (0x004853a0 / 0x004852e0, flag 1): Roman (Defend Me: the anchor follows
-        // him, flag 8), the order's point (Defend Area / Attack); none in Return To Me (flag 1 clear)
-        let anchor = match c.order {
-            Order::Guard => Some(rt.translation),
-            Order::Loose => None,
-            Order::Area { at, .. } | Order::Attack { at, .. } => Some(at),
-        };
-        // at each search tick a target farther (2D) than scan_distance from the anchor is refused (0x004853a0 in
-        // formation) and dropped: the original's companions stand and fight until Roman has moved on (fightT: Jonesy
-        // lets go at ~1350, Q at ~1440, then they run after him). The attack order's own target is kept (+0xbb0)
+        c.replan -= dt;
+        c.route_retry -= dt;
+        let live_at = |t: Entity| grunts.get(t).ok().filter(|(_, g, _, _)| g.mind != Mind::Dead).map(|(_, _, gt, _)| gt.translation());
+        // at each search tick a held target is tested as Slot96 0x004853a0 does at 2 x scan_distance (vt+0x180 of the
+        // generic fight): refused farther (2D) than scan_distance from the anchor or than 2 x scan_distance from him,
+        // and dropped: the original's companions stand and fight until Roman has moved on (fightT: Jonesy lets go at
+        // ~1350, Q at ~1440, then they run after him). The attack order's own target is kept while it lives (+0xbb0)
         if c.search <= 0.0 {
-            if let (Some((_, _, gt, _)), Some(a)) = (c.target.and_then(|t| grunts.get(t).ok()), anchor.filter(|_| !matches!(c.order, Order::Attack { .. }))) {
-                if (gt.translation() - a).with_y(0.0).length() > c.scan {
+            if let Some(p) = c.target.filter(|&t| c.attack_target() != Some(t)).and_then(live_at) {
+                if !c.accepts(p, me, rt.translation, 2.0 * c.scan) {
                     // (a live target he lets go of: the home route, back to formation as the original's do)
                     c.target = None;
                     c.fight_end = Some(FightEnd::Home);
@@ -5912,12 +6126,14 @@ fn companions(
             c.target = None;
         } else if c.target.is_none() && c.search <= 0.0 {
             c.search = rng.range(0.75, 1.25);
+            // AI_FindTarget 0x00426920: the nearest live grunt within scan_distance, in the cone, in sight; then
+            // refused by Slot96 when farther than scan_distance from the anchor (nothing taken that tick)
             let face = Quat::from_rotation_y(c.yaw) * Vec3::Z;
             c.target = grunts
                 .iter()
                 .filter(|(_, g, _, _)| g.mind != Mind::Dead)
                 .map(|(ge, _, gt, _)| (ge, gt.translation()))
-                .filter(|(_, p)| (*p - me).with_y(0.0).length() < c.scan && anchor.is_none_or(|a| (*p - a).with_y(0.0).length() < c.scan))
+                .filter(|(_, p)| (*p - me).with_y(0.0).length() < c.scan)
                 .filter(|(_, p)| (*p - me).with_y(0.0).normalize_or_zero().dot(face) > (95.0f32).to_radians().cos())
                 .filter(|(ge, p)| {
                     let eye = me + Vec3::Y * 8.0;
@@ -5925,6 +6141,7 @@ fn companions(
                     physics.raycast(eye, to.normalize_or(Vec3::Y), to.length()).is_none_or(|(b, _, _)| physics.bodies.get(&b) == Some(ge))
                 })
                 .min_by(|a, b| a.1.distance(me).total_cmp(&b.1.distance(me)))
+                .filter(|(_, p)| c.accepts(*p, me, rt.translation, f32::INFINITY))
                 .map(|(ge, _)| ge);
             if std::env::var("AIDBG").is_ok() {
                 if let Some((_, _, gt, _)) = c.target.and_then(|t| grunts.get(t).ok()) {
@@ -5932,13 +6149,30 @@ fn companions(
                 }
             }
         }
+        // nothing found in Defend Me / Defend Area (Q111Object_Slot139 0x00485490, run with the anchored flags out of
+        // a fight): the partner's live target, when Slot96 accepts it at 2 x scan_distance (vt+0x23c)
+        if c.target.is_none() && c.fight_end.is_none() && matches!(c.order, Order::Guard | Order::Area { .. }) && !force.0.iter().any(|w| w == "companions_hold") {
+            let partners = pair_targets.iter().find(|(pe, _)| *pe != e).and_then(|(_, t)| *t);
+            if let Some((t, _)) = partners.and_then(|t| live_at(t).map(|p| (t, p))).filter(|(_, p)| c.accepts(*p, me, rt.translation, 2.0 * c.scan)) {
+                c.target = Some(t);
+                info!("EVENT companions: {} joins the partner's fight", if c.q { "Q" } else { "Jonesy" });
+            }
+        }
         if c.target.is_some() {
-            // a fight begins (mode 1 / 2 -> 3, 0x00486200 / 0x004866da): +0xb68 = 3..7 s; a new target in the same
-            // fight keeps what is left of it
-            if !in_fight {
+            // a fight begins (mode 1 / 2 -> 3, 0x00486200 / 0x004866da): +0xb68 = 3..7 s (the attack order rolls its
+            // own, `order_engage`); a new target in the same fight keeps what is left of it
+            if !in_fight && !c.order_engage {
                 c.linger = rng.range(3.0, 7.0);
             }
             c.fight_end = None;
+        }
+        // the attack order's new target (0x00484100): the close kill tried at once (0x00427e80), else +0xb68 rolled
+        if std::mem::take(&mut c.order_engage) {
+            if let Some(grab) = close_kill::attempt(c, e, me, &grunts, &joints, &mut rng, &mut force) {
+                grabs.write(grab);
+            } else {
+                c.linger = rng.range(3.0, 7.0);
+            }
         }
         // the fight's end (mode 3, 0x00486908): Home at once; Linger once idle (the reload over): the partner's live
         // target taken over (0x004265c0 true, vt+0x23c), else +0xb68 counted down; then back to formation (mode 2,
@@ -5996,7 +6230,7 @@ fn companions(
         let formation = |order: Order, angle: f32, distance: f32, lead: bool| match order {
             // 0x00483c30: the anchor's reversed direction turned by +-formation_angle (the leader's side +: the
             // rotation's sense is a guess), x formation_distance
-            Order::Area { at, dir } | Order::Attack { at, dir } => {
+            Order::Area { at, dir } | Order::Attack { at, dir, .. } => {
                 let a = angle.to_radians() * if lead { 1.0 } else { -1.0 };
                 at + Quat::from_rotation_y(a) * -dir * distance
             }
@@ -6006,7 +6240,7 @@ fn companions(
         // the leader pick 0x00483810: forced by an order (0x00484ca0), at the regroup's start, every 0.25 s on the
         // move and on arrival
         if std::mem::take(&mut c.force_swap) {
-            leader_pick(c, e, me, true, &pair, &mut lead_changes, points, rt.translation, roman_dir, now);
+            leader_pick(c, e, me, true, &mut pair, &mut lead_changes, points, rt.translation, roman_dir, now);
         }
         let slot = if c.lead { points.0 } else { points.1 };
         let from_roman = (rt.translation - me).with_y(0.0).length();
@@ -6030,42 +6264,54 @@ fn companions(
         log.0.insert(if c.q { "q_since_shot".into() } else { "jonesy_since_shot".into() }, c.last_shot.map_or(-1.0, |s| ((now - s) * 10.0).round() / 10.0).into());
         log.0.insert(if c.q { "q_fight_end".into() } else { "jonesy_fight_end".into() }, c.last_end.0.into());
         log.0.insert(if c.q { "q_fight_ends".into() } else { "jonesy_fight_ends".into() }, c.last_end.1.into());
-        // measured in the original's intro (hook dumps of World+0xe94): both set off within 0.5 s of Roman and run at
-        // ~38 units/s about 32 units behind him; so they regroup on the distance to their slot, not to Roman
-        // regroup (mode 1, 0x0048631c): Defend Me on the distance to the slot (as measured); Return To Me only when
-        // Roman is farther than delay_distance; an anchored order beyond formation_distance + 2.5 of the anchor
+        // the regroup test (mode 1, 0x0048631c): the 2D distance from the anchor beyond formation_distance + 2.5
+        // (Defend Me: Roman, whose position the anchor follows, flag 8; Defend Area / Attack: the order's point), from
+        // Roman beyond delay_distance (Return To Me), or the partner's request (flag 0x80). (The original's intro, hook
+        // dumps of World+0xe94: both set off within 0.5 s of Roman, Jonesy on Q's request, and run ~32 units behind him)
         let regroup = match c.order {
-            Order::Guard => (slot - me).with_y(0.0).length() > 15.0,
+            Order::Guard => from_roman > c.distance + 2.5,
             Order::Loose => from_roman > c.delay,
             Order::Area { at, .. } | Order::Attack { at, .. } => (at - me).with_y(0.0).length() > c.distance + 2.5,
         };
-        // (mode 3 holds him while the fight's end is pending; its end sends him back to formation)
-        if c.target.is_none() && c.fight_end.is_none() && (regroup || back_to_formation || (std::mem::take(&mut c.regroup_req) && !c.moving)) {
-            // the regroup's start (mode 1, ai_08.cpp:1948-1961): the partner is asked to follow (0x004837b0: flag 0x80
-            // unless it holds an area / attack anchor), then the pick, forced when Roman faces more than 90 degrees
-            // away from his direction at the last one (dot < 0); not under an area / attack order (flag 1 without 8)
-            if !c.moving {
-                if let Some(p) = pair.iter().find(|p| p.0 != e && !p.2) {
+        let partner = pair.iter().find(|p| p.0 != e).copied();
+        // the partner in mode 1 (0x004837d0) holds this one's picks back on the move, on arrival and at a return
+        let partner_idle = partner.is_some_and(|p| p.2 == 1);
+        // Roman's and the partner's places, kept out of the route search (0x0046ece0 round 0x0046f6d0)
+        let avoid: Vec<Vec3> = std::iter::once(rt.translation).chain(partner.map(|p| p.1)).collect();
+        let point = |c: &Companion| if c.lead { points.0 } else { points.1 };
+        // (mode 3 holds him while the fight's end is pending)
+        let idle = c.target.is_none() && c.fight_end.is_none() && !c.moving;
+        if idle && (regroup || c.regroup_req) {
+            // the regroup's start (ai_08.cpp:1948-1961): the partner is asked to follow unless this regroup answers its
+            // request (0x004837b0: flag 0x80, not taken under an area / attack anchor), then the pick, forced when Roman
+            // faces more than 90 degrees away from his direction at the last one (dot < 0; not under an area / attack
+            // order, flag 1 without 8), then the route to the formation point (0x00483d60(1, 0, 0))
+            if !std::mem::take(&mut c.regroup_req) {
+                if let Some(p) = partner {
                     regroup_reqs.push(p.0);
                 }
             }
-            if !c.moving && matches!(c.order, Order::Guard | Order::Loose) {
+            if matches!(c.order, Order::Guard | Order::Loose) {
                 let force = roman_dir.dot(c.roman_dir) < 0.0;
-                leader_pick(c, e, me, force, &pair, &mut lead_changes, points, rt.translation, roman_dir, now);
+                leader_pick(c, e, me, force, &mut pair, &mut lead_changes, points, rt.translation, roman_dir, now);
             }
-            // the route to the formation point (0x00483d60(1, 0, 0))
-            if !c.moving {
-                c.goal = Some(if c.lead { points.0 } else { points.1 });
+            c.set_out(&physics, me, point(c), &avoid);
+        } else if c.target.is_none() && std::mem::take(&mut c.return_req) {
+            // the return order (0x00484290): the pick unless the partner idles, the route
+            if !partner_idle {
+                leader_pick(c, e, me, false, &mut pair, &mut lead_changes, points, rt.translation, roman_dir, now);
             }
-            c.moving = true;
+            c.set_out(&physics, me, point(c), &avoid);
+        } else if back_to_formation {
+            // the fight's end (mode 3 -> 2: 0x00483d60(1, 0, 0))
+            c.set_out(&physics, me, point(c), &avoid);
         }
-        // the attack order (flag 4) idle in formation with the partner not fighting: +0xb68 runs down, then the pair
-        // returns to Defend Me without a line or a HUD text (0x004845b0(0), mode 1 at 0x004862d2)
-        if matches!(c.order, Order::Attack { .. }) && c.target.is_none() && !c.moving && !fighting.iter().any(|&(q, f)| q != c.q && f) {
-            c.linger -= dt;
-            if c.linger <= 0.0 {
-                silent_return = true;
-            }
+        // the attack order's target gone and the fight over: the first update with the held target +0xbb0 out of the
+        // fight (Q111Object_Slot139 0x00485490, mode 1 / 2) drops it and the pair returns to Defend Me without a line
+        // or a HUD text (0x004845b0(0)). (The countdown of +0xb68 at 0x004862d2 is reached only in a flag-0x20 anim,
+        // which the attack order never plays.)
+        if matches!(c.order, Order::Attack { .. }) && c.target.is_none() && c.fight_end.is_none() {
+            silent_return = true;
         }
         // with a target they stand and fight (the original's dump, fightT: Q fires from (-232, 884) and Jonesy from
         // (-221, 865) without moving until they let go of the target)
@@ -6076,12 +6322,10 @@ fn companions(
         // on the move: the formation point of the last pick (`goal`)
         let goal = c.goal.filter(|_| c.moving).unwrap_or(slot);
         let to_slot = (goal - me).with_y(0.0);
-        // the partner's mode 1 (idle: 0x004837d0) holds the picks of a moving companion back
-        let partner_idle = pair.iter().any(|p| p.0 != e && !p.2);
         if to_slot.length() < 4.0 {
             // arrival (mode 2 -> 1, ai_08.cpp:2060-2064): a pick unless the partner idles
             if c.moving && !partner_idle {
-                leader_pick(c, e, me, false, &pair, &mut lead_changes, points, rt.translation, roman_dir, now);
+                leader_pick(c, e, me, false, &mut pair, &mut lead_changes, points, rt.translation, roman_dir, now);
             }
             // (and +0xb68 = 3..7 s: an attack order's idle time, ai_08.cpp:2078)
             if c.moving {
@@ -6096,17 +6340,24 @@ fn companions(
             if c.swap_timer < 0.0 {
                 c.swap_timer = 0.25;
                 if !partner_idle {
-                    leader_pick(c, e, me, false, &pair, &mut lead_changes, points, rt.translation, roman_dir, now);
+                    leader_pick(c, e, me, false, &mut pair, &mut lead_changes, points, rt.translation, roman_dir, now);
                     // and the route to the new formation point (0x00483d60(1, 0, 1))
-                    c.goal = Some(if c.lead { points.0 } else { points.1 });
+                    c.goal = Some(point(c));
                 }
             }
         }
         if c.moving {
-            c.replan -= dt;
+            // the route followed (0x00470aa0), re-planned every 0.25 s; none to be had: the walk ends where he stands
+            // (0x00470c30 false -> mode 1)
             if c.replan <= 0.0 {
                 c.replan = 0.25;
-                c.route = crate::nav::path(&physics, me, goal, &[]).unwrap_or_default();
+                match formation_route(&physics, me, goal, &avoid) {
+                    Some(route) => c.route = route,
+                    None => {
+                        c.moving = false;
+                        c.route.clear();
+                    }
+                }
             }
             while c.route.first().is_some_and(|w| (*w - me).with_y(0.0).length() < 4.0) {
                 c.route.remove(0);
@@ -6121,24 +6372,31 @@ fn companions(
         let dir = to.normalize_or_zero();
         let speed = c.formation_speed();
         c.walk(&mut physics, &mut t, if c.moving || approach.is_some() { dir } else { Vec3::ZERO }, speed, dt);
-        // what to shoot at: the target's ref_hit_00, or (support fire) Roman's aim point
+        // what to shoot at: the target's ref_hit_00
         let target_pos = c.target.and_then(|tg| grunts.get(tg).ok()).map(|(_, _, gt, a)| a.and_then(|a| bone(a, "ref_hit_00")).unwrap_or(gt.translation() + Vec3::Y * 6.0));
-        let roman_heading = r.yaw + std::f32::consts::PI;
-        let heading_ok = {
-            let d = (roman_heading - c.yaw + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
-            d.abs() <= 45f32.to_radians()
-        };
-        let support = c.target.is_none() && !c.moving && fire_held && heading_ok && matches!(c.order, Order::Guard | Order::Loose);
-        let shoot_at = if approach.is_some() { None } else { target_pos.or(if support { aim_point } else { None }) };
-        // facing: the target, else (support fire / following) Roman's heading, else the way it runs
+        // Roman's Fire held, in mode 1 with no target: 0x00485580 (run under Defend Me / Return To Me: flags 0x27 skip
+        // the anchored orders) with his heading within 45 degrees of Roman's (0x005bcd04 / 0x005bcd00) plays the reload
+        // set in place: no shots (flag 0x20; the fire counters rolled at its end, 0x00427600); and in any order
+        // 0x00486525 turns him toward Roman's heading (flag 0x800, 0x00454e60 at rate 8) until he faces it
+        let heading_off = (roman_heading - c.yaw + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+        let free = c.target.is_none() && c.fight_end.is_none() && !c.moving;
+        if free && fire_held {
+            c.face_heading = true;
+            if heading_off.abs() <= 45f32.to_radians() && matches!(c.order, Order::Guard | Order::Loose) && c.reloading <= 0.0 && c.throwing.is_none() {
+                c.reloading = c.reload_anim();
+                c.support_reload = true;
+            }
+        }
+        let shoot_at = if approach.is_some() { None } else { target_pos };
+        // facing: the target, else the way it runs, else (flag 0x800) Roman's heading
         let face = target_pos.map(|p| (p - me).with_y(0.0)).filter(|v| v.length() > 0.1);
         if let Some(f) = face {
             c.yaw = f.x.atan2(f.z);
         } else if c.moving && dir != Vec3::ZERO {
             c.yaw = dir.x.atan2(dir.z);
-        } else if fire_held {
-            let d = (roman_heading - c.yaw + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
-            c.yaw += d * (8.0 * dt).min(1.0);
+        } else if c.face_heading && free {
+            c.yaw += heading_off * (8.0 * dt).min(1.0);
+            c.face_heading = heading_off.abs() > 1f32.to_radians();
         }
         t.rotation = Quat::from_rotation_y(c.yaw) * c.base;
         // the fire cycle
@@ -6165,6 +6423,7 @@ fn companions(
             c.reloading -= dt;
             c.firing = false;
             if c.reloading <= 0.0 {
+                c.support_reload = false;
                 c.rounds = rng.range(c.p.rounds.0 as f32, c.p.rounds.1 as f32 + 0.999) as u32;
                 c.burst = rng.range(c.p.bursts.0 as f32, c.p.bursts.1 as f32 + 0.999) as u32;
                 // the counters rolled after the clip cycle set flag 1 again; then the engage roll (state 0x32's end)
@@ -6244,7 +6503,7 @@ fn companions(
                     }
                     if c.rounds == 0 {
                         // the reload anim (molmer_reload_br 3.47 s, q111_reload_br 1.97 s) and the clip delay
-                        c.reloading = if c.q { 1.967 } else { 3.467 } + rng.range(c.p.clip_delay.0, c.p.clip_delay.1);
+                        c.reloading = c.reload_anim() + rng.range(c.p.clip_delay.0, c.p.clip_delay.1);
                     }
                 }
             }
@@ -6258,10 +6517,14 @@ fn companions(
                 commands.entity(m).despawn();
             }
         }
+        c.was_fighting = c.target.is_some() || c.fight_end.is_some();
     }
+    // (the requests and lead flags set on one updated earlier this frame)
     for pe in regroup_reqs {
         if let Ok((_, mut c, ..)) = q.get_mut(pe) {
-            c.regroup_req = matches!(c.order, Order::Guard | Order::Loose);
+            if matches!(c.order, Order::Guard | Order::Loose) {
+                c.regroup_req = true;
+            }
         }
     }
     for (pe, lead) in lead_changes {
@@ -6269,13 +6532,14 @@ fn companions(
             c.lead = lead;
         }
     }
+    // 0x004845b0(0): 0x00484290 on both (the order's target dropped, Defend Me, back to formation), no line, no text
     if silent_return {
         for (_, mut c, ..) in &mut q {
             if c.dead.is_none() {
-                c.order = Order::Guard;
-                c.route.clear();
+                c.order_return();
             }
         }
+        info!("EVENT companions: the attack is over, back to Defend Me");
     }
 }
 
@@ -6292,7 +6556,7 @@ fn leader_pick(
     e: Entity,
     me: Vec3,
     force: bool,
-    pair: &[(Entity, Vec3, bool, f32)],
+    pair: &mut [(Entity, Vec3, u8, f32)],
     changes: &mut Vec<(Entity, bool)>,
     (a, b): (Vec3, Vec3),
     roman: Vec3,
@@ -6300,10 +6564,17 @@ fn leader_pick(
     now: f32,
 ) {
     c.roman_dir = roman_dir;
-    let partner = pair.iter().find(|p| p.0 != e);
+    let partner = pair.iter().find(|p| p.0 != e).copied();
+    // (the pick time as the partner, updated later this frame, reads it: live in the original)
+    let stamp = |pair: &mut [(Entity, Vec3, u8, f32)], t: f32| {
+        if let Some(own) = pair.iter_mut().find(|p| p.0 == e) {
+            own.3 = t;
+        }
+    };
     if let Some(p) = partner {
         if c.swap_t < p.3 {
             c.swap_t = p.3;
+            stamp(pair, c.swap_t);
             return;
         }
     }
@@ -6331,6 +6602,7 @@ fn leader_pick(
         c.lead = if less { ebp_e == e } else { ebp_e != e };
     }
     c.swap_t = now;
+    stamp(pair, now);
     // the partner always takes the opposite flag, picked or not (0x00483be0 -> 0x004837e0)
     if let Some(p) = partner {
         changes.retain(|x| x.0 != p.0);
@@ -6365,16 +6637,16 @@ fn team_orders(
     pending: &mut (bool, bool),
     barks: &mut Barks,
     hud: Option<&mut crate::hud::HudState>,
-    sounds: &mut MessageWriter<crate::audio::PlaySound>,
+    (sounds, fx): (&mut MessageWriter<crate::audio::PlaySound>, &mut MessageWriter<crate::fx::StartFx>),
     rng: &mut FxStats,
-    physics: &Physics,
+    (physics, data): (&Physics, &crate::gamedata::GameData),
     grunts: &Query<(Entity, &Grunt, &GlobalTransform, Option<&crate::skin::Animator>)>,
     (send, ret): (bool, bool),
     may_act: bool,
     ray: Option<(Vec3, Vec3)>,
     aim_point: Option<Vec3>,
     roman_dir: Vec3,
-    now: f32,
+    (now, q_alive): (f32, bool),
 ) {
     if may_act {
         pending.0 |= send;
@@ -6449,7 +6721,7 @@ fn team_orders(
             .filter(|(_, g, _, _)| g.mind != Mind::Dead)
             .map(|(ge, _, gt, _)| (ge, gt.translation()));
         let (order, attack) = match (target, aim_point) {
-            (Some((_, at)), _) => (Order::Attack { at, dir: roman_dir }, true),
+            (Some((target, at)), _) => (Order::Attack { at, dir: roman_dir, target }, true),
             (None, Some(at)) => (Order::Area { at, dir: roman_dir }, false),
             (None, None) => return,
         };
@@ -6460,13 +6732,20 @@ fn team_orders(
                 c.fight_end = None;
                 // Defend Area re-picks the leader, forced, for the first of the pair (0x00484ca0 -> 0x00483810(1))
                 c.force_swap = !attack && k == 0;
-                if let Some((ge, _)) = target {
-                    if c.target != Some(ge) {
-                        c.engaged = false;
-                    }
+                // 0x00484100: a target not already his (+0x588) becomes his (vt+0x23c); the close kill is tried at
+                // once, else +0xb68 is rolled (`order_engage`, run by `companions`); the one he fights is left as it is
+                if let Some((ge, _)) = target.filter(|(ge, _)| c.target != Some(*ge)) {
+                    c.engaged = false;
                     c.target = Some(ge);
-                    c.linger = rng.range(3.0, 7.0);
+                    c.order_engage = true;
                 }
+            }
+        }
+        // the order's marker at the defended point (0x00484ca0: Fx_Create of Game+0xd34, p_globalsettings
+        // teammate_command_fx "fx_team_mates", at the position, flags 8)
+        if let (false, Some(at)) = (attack, aim_point) {
+            if let Some(name) = data.props("p_globalsettings").s("teammate_command_fx").filter(|n| !n.is_empty()) {
+                fx.write(crate::fx::StartFx { name: name.to_owned(), at, rotation: Quat::IDENTITY, follow: None, position_only: false });
             }
         }
         if barks.take(Delay::Vo, now, rng) {
@@ -6484,8 +6763,9 @@ fn team_orders(
             };
             match who {
                 None if attack => {
-                    // ROM50117..119 (with Q alive) are not in lev_1_m1's bank: silent there, as in the original
-                    let m = if at_of(true).is_some() { 600.0 } else { 299.0 };
+                    // ROM50117..119 (with Q alive: the player's +0xad4, 0x00475d40, on the tower task or carried too)
+                    // are not in lev_1_m1's bank: silent there, as in the original
+                    let m = if q_alive { 600.0 } else { 299.0 };
                     let l = ["rom50027_Attack", "rom50032_Attack", "rom50034_Attack", "ROM50117_Attack", "ROM50118_Attack", "ROM50119_Attack"];
                     say(sounds, l[(roll(rng, m) / 100).min(5) as usize], None);
                 }

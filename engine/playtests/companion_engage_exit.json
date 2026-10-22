@@ -6,6 +6,8 @@
  {"warp_companion": [1, 175, -78, 14]},
  {"wait": 2.0},
  {"expect": {"q_fight": "none", "jonesy_fight": "none", "q_fight_ends": 0, "jonesy_fight_ends": 0}},
+ {"warp": [220.68, -39.44, 13.76, 90]},
+ {"wait": 3.0},
  {"spawn": [280, -69, 14]},
  {"wait": 4.0},
  {"expect": {"q_fight": "target"}},

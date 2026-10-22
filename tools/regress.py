@@ -29,7 +29,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PLAY = os.path.join(ROOT, 'work', 'remaster', 'play')
 SUITE = ['save_write', 'save_read', 'topsyhit2', 'turn_in_place', 'turret1', 'decals_obj', 'oilpump', 'gfxopts', 'cover1', 'cover2', 'cover3', 'gunner1', 'gunner2', 'objects1',
          'menus', 'hud', 'hud_crosshair', 'flow', 'stats', 'pub', 'pub_screen', 'unit',
-         'hits1', 'noise1', 'noise2', 'splines1', 'alarm1', 'captain1', 'taunt1', 'leader1',
+         'hits1', 'noise1', 'noise2', 'noise_gurner', 'splines1', 'alarm1', 'captain1', 'taunt1', 'leader1',
          'infantry_l2m1', 'infantry_l3m1', 'infantry_l4m2', 'infantry_l2m2', 'squad_goliath', 'twiglets', 'monk_summon', 'tower_l4m2', 'tower_l4m2_fail',
          'peasants_l2m3', 'peasants_bonus_m2', 'peasants_lost_l4m2', 'peasants_cage_l3m1',
          'mission_start', 'volumes', 'ticker', 'ticker_goliath', 'ticker_goliath_l4m1', 'pickups', 'pubflow', 'winfail',
@@ -49,9 +49,11 @@ SUITE += ['complete_lev_4_m3', 'complete_lev_5_m1', 'complete_lev_5_m3', 'comple
 SUITE += ['complete_lev_1_m1', 'complete_lev_1_m1_b', 'gun_save_write', 'gun_save_read', 'complete_lev_1_m3', 'complete_lev_1_m4', 'complete_lev_3_m3', 'mg_muzzle_fx', 'complete_lev_2_m3', 'complete_lev_2_m2', 'complete_lev_2_m4', 'complete_lev_3_m2', 'complete_lev_3_m4_bd', 'complete_lev_2_m1', 'complete_lev_3_m1']
 # the companions (ai.rs, ai/carried.rs, ai/close_kill.rs, ai/dialogue.rs; docs/subsystems/companions.md): the Topsy
 # bomb's stun and a pull (modes 5 / 10), a close kill (paired IC anims, the grunt dead by its "kill" note), the end of a
-# fight (mode 3), the leader swap on Roman's turns, the last-shot stamps holding the idle banter back, the kill meter's
-# dismay by the speaker test; the Q112's swing, eye loop and Fight line (ai/q112.rs, lev_2_m2)
+# fight (mode 3), the lead flags kept on Roman's turn in place, Roman's Fire not making them shoot (the banter after 30 s
+# still), the kill meter's dismay by the speaker test; the Q112's swing, eye loop and Fight line (ai/q112.rs, lev_2_m2);
+# the regroup radius and the return order's stay / go (companion_orders_regroup), the attack order's silent return
 SUITE += ['companion_carried', 'companion_close_kill', 'companion_engage_exit', 'companion_leader_swap', 'companion_idle_cue', 'dialogue_dismay', 'q112_extras']
+SUITE += ['companion_orders_regroup', 'companion_attack_order']
 # the player's weapon roster (engine/src/weapons): the sniper rifle's bullet through three grunts and its health pickup, the
 # Gurner's lobbed mortar, the vindaloo's lock-ons and homing fan (four rockets upgraded), the land shark's arc, dive, two
 # bites and its end, the black hole's carry-off and swallow, the Guy Fawkes traitors at war with their old side, the

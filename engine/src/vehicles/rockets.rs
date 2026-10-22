@@ -283,7 +283,7 @@ fn fly(
     mut grunt_health: Query<&mut crate::fx::Health, (With<crate::ai::Grunt>, Without<crate::player::Roman>, Without<crate::ai::Companion>, Without<Rocket>)>,
     mut objects: Query<(Entity, &crate::level::Placed, &mut Destructible, Option<&crate::vehicles::boss::BulletScale>)>,
     (data, mounted, topsy, mut stats, tuning, suction): (Res<crate::gamedata::GameData>, Res<crate::turret::Mounted>, Res<crate::topsy::Topsy>, ResMut<RocketStats>, Res<super::VehicleTuning>, Res<crate::weapons::blackhole::Suction>),
-    (mut fx, mut blasts, mut sounds, mut player_stats): (MessageWriter<crate::fx::StartFx>, MessageWriter<Explode>, MessageWriter<crate::audio::PlaySound>, ResMut<crate::player::PlayerStats>),
+    (mut fx, mut blasts, mut sounds, mut player_stats, mut noise): (MessageWriter<crate::fx::StartFx>, MessageWriter<Explode>, MessageWriter<crate::audio::PlaySound>, ResMut<crate::player::PlayerStats>, Option<ResMut<crate::ai::Interests>>),
 ) {
     let dt = time.delta_secs();
     if dt <= 0.0 {
@@ -485,6 +485,10 @@ fn fly(
             // the variant of the surface it hit (surface.rs)
             let name = body.map(|b| physics.surface(b, at)).unwrap_or_default().variant(base, |n| data.fx.contains_key(n));
             fx.write(crate::fx::StartFx { name, at, rotation: Quat::IDENTITY, follow: None, position_only: false });
+        }
+        // the end effect's AI noise for Roman's own (0x0047ed40 -> 0x00404810: radius 200, 2 s; ai.rs Interests)
+        if let (true, Some(n)) = (r.owner.is_some() && r.owner == roman_at.map(|(re, _)| re), noise.as_mut()) {
+            n.end_at(e, at);
         }
         commands.entity(e).despawn();
     }

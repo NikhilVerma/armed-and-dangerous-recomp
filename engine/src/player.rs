@@ -2031,8 +2031,9 @@ fn projectiles(
         }
         t.translation = from + step;
         // the lifetime (0x0047e4a0) runs out: removed (Projectile_Remove 0x0047ebd0: the despawn; its hit list
-        // 0x0047ecb0 is not needed, a bullet ends at its first hit)
+        // 0x0047ecb0 is not needed, a bullet ends at its first hit) without the end effect, so without its AI noise
         if p.life <= 0.0 {
+            noise.forget(e);
             commands.entity(e).despawn();
         }
     }

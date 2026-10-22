@@ -51,8 +51,10 @@ the frame time and clears flag 0x40 below zero (meaning of 0x40 unknown, not por
 
 **Return** (0x004845b0(1)): 0x00484290 on self and partner: drops the held target +0xbb0, rewrites the flags
 (1 \| 8 -> none; anything else -> 1 \| 8 \| 2; flag 4 cleared), re-picks the leader (0x00483810) and the formation
-point, drops the current target +0x588 and goes to mode 2 (moving, +0xbac 3..7 s, +0xb68 0.25). The one case that
-keeps its place: 1 \| 8 -> none in mode 1 (idle). Then, when both succeeded, the line and the HUD text (below).
+point, drops the current target +0x588 and goes to mode 2 (moving, +0xbac 3..7 s, +0xb68 0.25). Idle in formation
+(mode 1) the Defend Me <-> Return To Me toggle keeps its place (a new Defend Me keeps a target its vt+0x180 range
+test passes). Then, when both succeeded, the line and the HUD text (below). Ported 2026-10-22 (`order_return`,
+`return_req`); the line and text are not yet held back by a failed route (rare: no way back to formation).
 
 **Send** (0x00485120): the object under the crosshair (0x00408020 of the aim Game+0xa6c). When it is in the
 companion's enemy list +0x604 (a copy of World list +0xe7c, 0x00483250) or of object type 0x51 / 0x53 (+0x418;
@@ -60,8 +62,10 @@ which objects these are is not traced): **Attack** (0x00484830 -> 0x00484100 on 
 position, direction = Roman's (0x00453150), flags 1 \| 4, target held in +0xbb0 (offered targets are ignored while it
 lives, Slot109 0x00485360) and engaged (vt+0x23c; mode 3), +0xb68 = 3..7 s. Else **Defend Area** (0x00484ca0):
 anchor = the aim point (0x00408010 + 4), direction = Roman's, flag 1 (0x004844c0: drops the held target and the
-route), leader re-pick forced; when Game+0xd34 is set a marker effect is created at the point (Fx_Create 0x0041cc60,
-not ported: what sets +0xd34 is not traced).
+route), leader re-pick forced; the marker effect Game+0xd34 at the point (Fx_Create 0x0041cc60, flags 8): the fx
+named by p_globalsettings teammate_command_fx, "fx_team_mates" (Game.md: +0xd34 holds "fx_t..."; ported 2026-10-22).
+The attack order's held target ends it: once the companion is out of the fight with no target, Slot139 0x00485490
+drops it and the pair returns to Defend Me silently (0x004845b0(0)).
 
 ## 4. Order lines and HUD text
 
@@ -123,8 +127,11 @@ a damage with flag 0x20000 (sniper; none in lev_1_m1).
   Object types 0x51 / 0x53 are not ported.
 - Formation side under an area / attack order: the side of the companion's own bone (**guess** for the leader flag
   0x10 that 0x00483810 sets).
-- Support fire (Roman's Fire held) is kept for Defend Me / Return To Me only; 0x00485580's own flag test ("flags
-  0x27, or flag 8 without a target") is not fully decoded.
+- Roman's Fire held (button 8, 0x00414810 at 0.5) does not make them shoot (corrected 2026-10-22): in mode 1 with no
+  target, under Defend Me / Return To Me (0x00485580: flags 0x27 skip the anchored orders), facing within 45 degrees
+  of Roman's heading (Game+0xacc's on a mounted gun) a companion plays the reload set 0x28..0x2b (q111_reload_*, no
+  fire notes), flag 0x20, and 0x00427600 rolls the fire counters at its end; in any order 0x00486525 turns him toward
+  Roman's heading (flag 0x800). Playtest companion_idle_cue: no shots, the banter after 30 s still.
 - Test (headless, --play): key 3 toggles Return To Me / Defend Me with the HUD text; key 1 on a spawned grunt gives
   "Attack", the pair kills it and returns to Defend Me 3..7 s later; key 1 on open ground gives Defend Area with Q
   ~25 and Jonesy ~50 units short of the aimed point; a return at 48.6 s played `rom50031_Return`; with --no-ai
@@ -144,11 +151,23 @@ aligned with Roman's direction (`|cos b| < |cos a|`); the partner takes the oppo
 partner to regroup too (flag 0x80, 0x004837b0). Moving far behind Roman the two run nearly parallel and the flag can
 change several times a second (leader1's log), as the compare implies. The playtest log has `q_lead` / `jonesy_lead`.
 
+Corrected 2026-10-22 (audit g05): the regroup test is the original's (0x0048631c): the 2D distance from the anchor
+(Roman under Defend Me) beyond formation_distance + 2.5 (Q 27.5, Jonesy 52.5 with p_q / p_molmer), from Roman beyond
+delay_distance under Return To Me, or the partner's request (flag 0x80, not echoed back: 0x004837b0 only when the
+requester has none pending). The engine had used the distance to the slot > 15. The formation point must have a floor
+under it (0x0046f320's nav cell) and a route round Roman and the partner (0x0046ece0 around 0x0046f6d0), else he
+stays (`formation_route`, retried every 0.25 s). The partner "idle" of the picks is mode 1 (0x004837d0, `mode()`).
+Not ported: the 2 s / 3 s regroup grace of flag 0x100 (+0xb6c, set by 0x00483d60 when AIRoute_Update's result is 0:
+what that result means for the grid router is not decoded); the idle remark anims of mode 1 (+0xbac, ids 0x1e..0x20,
+then 0x1b..0x1d).
+Playtest companion_orders_regroup.
+
 Corrected 2026-10-17 against the recovered 0x00483810: under an area / attack order (flag 1 without 8) the two points
 (0x00483c30, sides 1 and 0) are compared by squared distance whether moving or not (the cosine test is only for
 Roman's bones in mode 2); and the partner always takes the opposite flag at the end (0x00483be0 -> 0x004837e0), picked
-or not. Playtest companion_leader_swap: Roman turned 180 degrees in place swaps the leader, and back (the pick is
-geometry, no random).
+or not. Playtest companion_leader_swap: since the 2026-10-22 regroup fix, Roman turned 180 degrees in place starts no
+regroup (the test is the distance), so neither the pair nor the lead flags change; the forced pick comes with the next
+regroup.
 
 Not ported (docs/port/ai.csv): Q's cape cloth, defend_min_distance's engage test.
 
