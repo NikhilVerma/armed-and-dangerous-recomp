@@ -189,8 +189,7 @@ fn entry(
                                 }
                             }
                         }
-                        // a match plays the select set (0x00491850), a miss the cancel sound (0x00491870)
-                        sounds.write(crate::gamemenu::MenuSound::Select.sound());
+                        sounds.write(crate::audio::PlaySound::menu("ui_select"));
                     }
                     None => {
                         c.result = get("ui_cheatunknown");

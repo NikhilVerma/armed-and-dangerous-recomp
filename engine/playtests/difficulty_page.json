@@ -1,0 +1,20 @@
+{"title": true, "steps": [
+ {"note": "New Game's Difficulty page (UiScreen_Activate 0x004921a0 case 1 / 71, UiScreen_InitItem 0x00491b70): opens on Normal; Over The Top / Insane are greyed and skipped without tokens; the nav links stop at the ends (0x00464a10); Back pops with the cancel sound"},
+ {"wait": 3.0},
+ {"expect": {"menu.page": "Main", "menu.selected": "ui_mainmenu_startgame"}},
+ {"tap": "ArrowUp"}, {"wait": 0.3},
+ {"expect": {"menu.selected": "ui_mainmenu_startgame"}},
+ {"tap": "Enter"}, {"wait": 1.0},
+ {"expect": {"menu.page": "Difficulty", "menu.selected": "ui_diff_2"}},
+ {"tap": "ArrowDown"}, {"wait": 0.3},
+ {"expect": {"menu.selected": "ui_shellmenu_cancel"}},
+ {"tap": "ArrowDown"}, {"wait": 0.3},
+ {"expect": {"menu.selected": "ui_shellmenu_cancel"}},
+ {"tap": "ArrowUp"}, {"wait": 0.3}, {"tap": "ArrowUp"}, {"wait": 0.3},
+ {"expect": {"menu.selected": "ui_diff_1"}},
+ {"tap": "ArrowUp"}, {"wait": 0.3},
+ {"expect": {"menu.selected": "ui_diff_1"}},
+ {"tap": "Escape"}, {"wait": 1.0},
+ {"expect": {"menu.page": "Main", "menu.selected": "ui_mainmenu_startgame"}},
+ {"quit": true}
+]}

@@ -266,6 +266,8 @@ pub enum MenuSound {
 impl MenuSound {
     /// The sound to play. The select set's pick is rand() % 3 as 0x00491760 makes it, from the menus' own stream (a
     /// cosmetic pick: kept apart from the game's shared streams so the menus never shift gameplay draws).
+    /// Merge note: agent-fix2-g21 adds `audio::PlaySound::menu_any(&audio::SELECT_SET)` (the pick in audio.rs, also
+    /// used by cheats.rs and bindings.rs); once both are merged, `Select` maps to it and the pick here goes.
     pub fn sound(self) -> crate::audio::PlaySound {
         use std::sync::atomic::{AtomicU32, Ordering};
         static STREAM: AtomicU32 = AtomicU32::new(1);
