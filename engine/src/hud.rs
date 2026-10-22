@@ -1847,20 +1847,20 @@ fn crosshair_aim(
     joints: Query<&GlobalTransform>,
     hulls: Option<Res<crate::hitparts::HitHulls>>,
     (binds, mounted): (Res<Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>, Res<crate::turret::Mounted>),
-    (targets, bases, defence, takers): (Res<crate::weapons::targeting::Targets>, Query<(), With<crate::defence::BaseTurret>>, Option<Res<crate::defence::DefenceState>>, Query<(), With<crate::level::DamageTaker>>),
+    (targets, bases, defence, takers, guns): (Res<crate::weapons::targeting::Targets>, Query<(), With<crate::defence::BaseTurret>>, Option<Res<crate::defence::DefenceState>>, Query<(), With<crate::level::DamageTaker>>, Query<&crate::turret::Turret>),
     healths: Query<(Option<&crate::fx::Health>, Option<&crate::ai::Grunt>, Option<&crate::ai::Companion>, Option<&crate::fx::Destructible>)>,
 ) {
     let Ok(c) = cam.single() else { return };
     let (eye, dir) = (c.translation(), c.forward().as_vec3());
     let (roman_e, zoomed) = roman.single().map(|(e, r)| (Some(e), r.zoom > 0.0)).unwrap_or((None, false));
     let start = if zoomed { eye } else { eye + dir * 20.0 };
-    // the ray's length by the mode (Game+0xac8: 1 the base turret, 4 a mounted gun), else the gun in hand's range
-    // (Game+0x28b8 + index x 0x150: <name>_range), 5000 without one
+    // the ray's length by the mode (Game+0xac8: 1 the base turret, 3 the forge cannon, 4 a mounted gun), else the gun
+    // in hand's range (Game+0x28b8 + index x 0x150: <name>_range), 5000 without one
     let g = data.props("p_globalsettings");
     let on_gun = mounted.0.is_some();
     let range = match mounted.0 {
         Some(m) if bases.contains(m) => 1500.0,
-        Some(_) => 2000.0,
+        Some(m) => guns.get(m).map_or(2000.0, |t| t.aim_range),
         None => state.weapon_id.map_or(5000.0, |w| g.f(&format!("{}_range", w.name()), 10.0)),
     };
     let end = start + dir * range;

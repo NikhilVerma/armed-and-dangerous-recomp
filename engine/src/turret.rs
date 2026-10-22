@@ -44,6 +44,9 @@ pub struct Mounted(pub Option<Entity>);
 /// One mounted gun's state and its property values (0x004980c0 / 0x00498d60).
 #[derive(Component)]
 pub struct Turret {
+    /// the crosshair ray's length while Roman is on it (Hud_UpdateCrosshair 0x00406f50 by Game+0xac8: 3 the forge
+    /// cannon, 0x00499f30, 500; 4 a mounted gun, 0x00498a80, 2000)
+    pub aim_range: f32,
     /// +0x620 (about the pivot's z) and +0x61c (about its x), radians
     yaw: f32,
     pitch: f32,
@@ -340,6 +343,7 @@ pub(crate) fn setup(
         let forge = behavior == "forge_cannon";
         let deg = |k: &str, d: f32| p.f(k, d).to_radians();
         commands.entity(e).insert(Turret {
+            aim_range: if forge { 500.0 } else { 2000.0 },
             yaw: 0.0,
             pitch: 0.0,
             turn_speed: p.f("turn_max_speed", 2.0),
