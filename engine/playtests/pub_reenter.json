@@ -1,0 +1,16 @@
+{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+ {"note": "an open pub takes Roman in again (the Use handler 0x004788a0 has no once-only latch); its exit trigger 900 went out the first time only (0x0046a720)"},
+ {"wait": 0.5},
+ {"expect": {"mission_obj.pub_done": true, "mission_obj.pub_open": true}},
+ {"warp": [194, -80, 16, 0]},
+ {"wait": 1.0},
+ {"expect": {"hud.prompt_shown": true}},
+ {"hold_use": 0.3},
+ {"wait": 1.0},
+ {"expect": {"menu.page": "Pub", "pub.open": true}},
+ {"tap": "Escape"}, {"wait": 0.7},
+ {"expect": {"pub.open": false, "triggers.900": null}},
+ {"wait": 1.0},
+ {"expect": {"pub.open": false}},
+ {"quit": true}
+]}
