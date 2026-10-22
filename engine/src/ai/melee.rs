@@ -85,6 +85,10 @@ pub fn close_hits(
     (topsy, mounted): (Res<crate::topsy::Topsy>, Res<crate::turret::Mounted>),
 ) {
     for h in hits.read() {
+        // a dead attacker's note sends nothing (0x0043eae0: 0x00454780 on the attacker, ai_05.cpp:1937-1941)
+        if health.get(h.by).is_ok_and(|(hp, ..)| hp.0 <= 0.0) {
+            continue;
+        }
         let Ok((mut hp, roman, companion, shield, ignored)) = health.get_mut(h.target) else { continue };
         // (Roman's hit handler ignores it after the mission's pre-success: mission.rs HitsIgnored)
         if hp.0 <= 0.0 || ignored {

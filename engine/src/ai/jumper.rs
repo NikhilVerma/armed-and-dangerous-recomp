@@ -8,12 +8,19 @@
 //!   0x0040dfb0 take and free it). Its slot point (slot 0x53 0x0040de50; 0x54 0x0040df90 jumps to it) is the marker's
 //!   position.
 //! - `Flight`: states 0xc4 (to a marker nearer the target: re-aimed into a glide once falling), 0xc5 (a plain jump),
-//!   0xbd (the glide, firing), and the landing (0x0042e1c0 -> anim captain_jumper_land, state 0xbf).
+//!   0xbd (the glide, firing; or the hop, firing without the wings), and the landing (0x0042e1c0 -> anim
+//!   captain_jumper_land, state 0xbf).
+//! - Not modelled: 0x0042a2c0's launch outside state 0xbc (+0x948 under the jet's gravity, state 0xb8). Its only
+//!   caller that reaches it is the hiding-spot search taking a kind-4 cover while in the air (ai_03.cpp:432-440);
+//!   ai.rs's `find_hiding_spot` has no such cover kind yet.
 
 use bevy::prelude::*;
 
 /// K(0x005bcd64): the AI's gravity (game units / s^2).
 pub const GRAVITY: f32 = 64.348;
+
+/// A marker launch rises at least this fast (0x0042b480: 5.0 when the solved upward speed is 0.0 or less).
+const MIN_LAUNCH_RISE: f32 = 5.0;
 
 /// A jump marker's slot (JumpMarker_Slot6 0x0040dd70: marker_tag +0x464, the occupant +0x468). Its point is the
 /// marker's position (0x0040de50 zeroes marker_range first: original quirk).
@@ -32,6 +39,16 @@ pub enum Flight {
     Jump,
     /// 0xbd: gliding with the wings out, firing
     Glide,
+    /// 0xbd entered by the hop (0x0042a2c0 within 50 of the point): firing as in the glide, but the wings stay in
+    /// (+0x484 0x20000000 not set) so the jet's gravity holds (Slot35 0x004326b0 reads the flag, not the state)
+    Hop,
+}
+
+impl Flight {
+    /// State 0xbd, where he fires with flag 4 (vt+0x198) whatever the line of sight.
+    pub fn fires(self) -> bool {
+        matches!(self, Flight::Glide | Flight::Hop)
+    }
 }
 
 /// The turbo pack's parameters and a flight in progress.
@@ -91,7 +108,9 @@ impl Jumper {
         }
     }
 
-    /// The gravity of the flight now (GenericAIObject_Slot35 0x004326b0: gliding +0xb04, jetting +0xaec).
+    /// The gravity of the flight now (GenericAIObject_Slot35 0x004326b0: with the wings out, +0x484 0x20000000, +0xb04,
+    /// else +0xaec). Only a flight reads it: on the ground the character controller (fall.rs) falls under the world's
+    /// gravity (Slot35's 0 outside a flight cancels the extra force of the World+0xf1c list, which only flights join).
     pub fn gravity(&self) -> f32 {
         match self.flight {
             Some(Flight::Glide) => self.glide_anti_gravity * GRAVITY,
@@ -101,8 +120,9 @@ impl Jumper {
     }
 
     /// Leaving the marker he holds (vt+0x188 0x004273a0 with +0x484 0x10, set by a launch: the history shifted, +0x918
-    /// -> +0x91c, then the marker freed, JumpMarker slot 0x57 0x0040dfb0): before every launch (0x0042b480 ai_03.cpp:691,
-    /// the glide 0x0042a2c0). Returns the marker to free.
+    /// -> +0x91c, then the marker freed, JumpMarker slot 0x57 0x0040dfb0): only when 0x0042b480 has found the next marker
+    /// (ai_03.cpp:688-691); the glide launch 0x0042a2c0 keeps it, and so does a search that finds none. Returns the
+    /// marker to free.
     pub fn leave(&mut self) -> Option<Entity> {
         let m = self.marker.take()?;
         self.history = [Some(m), self.history[0]];
@@ -110,22 +130,24 @@ impl Jumper {
     }
 
     /// The launch to a marker (0x0042b480's success): the ballistic velocity at twice the move speed under the jet's
-    /// gravity, +0x484 |= 0x10000010, state 0xc4 (`closer`) or 0xc5.
+    /// gravity, its upward part at least 5 (a marker below him: ai_03.cpp:700-701, 0.0 or less becomes 5.0),
+    /// +0x484 |= 0x10000010, state 0xc4 (`closer`) or 0xc5.
     pub fn start(&mut self, from: Vec3, marker: Entity, to: Vec3, closer: bool, move_speed: f32) {
         self.flight = Some(if closer { Flight::ToGlide } else { Flight::Jump });
-        self.vel = launch(from, to, 2.0 * move_speed, self.anti_gravity * GRAVITY);
+        let v = launch(from, to, 2.0 * move_speed, self.anti_gravity * GRAVITY);
+        self.vel = if v.y <= 0.0 { v.with_y(MIN_LAUNCH_RISE) } else { v };
         self.marker = Some(marker);
         self.goal = to;
     }
 
     /// The glide launch toward a point (0x0042a2c0 from state 0xbc): within 50 (2D) a hop (the velocity cleared and
-    /// an upward kick of turbo_force x 0.25 per unit mass), else the ballistic launch at turbo_glide_xyvel under the
-    /// glide's gravity with the wings out (+0x484 0x30000000, state 0xbd).
+    /// an upward kick of turbo_force x 0.25 per unit mass, state 0xbd without the wings), else the ballistic launch at
+    /// turbo_glide_xyvel under the glide's gravity with the wings out (+0x484 0x30000000, state 0xbd). The marker he
+    /// holds stays his (no vt+0x188 here).
     pub fn glide(&mut self, from: Vec3, to: Vec3) {
-        self.marker = None;
         self.goal = to;
         if (to - from).with_y(0.0).length_squared() < 2500.0 {
-            self.flight = Some(Flight::Jump);
+            self.flight = Some(Flight::Hop);
             self.vel = Vec3::Y * self.force * 0.25;
         } else {
             self.flight = Some(Flight::Glide);
@@ -278,5 +300,22 @@ mod tests {
         let t = 200.0 / 92.0;
         let y = v.y * t - 0.5 * g * t * t;
         assert!((y - 30.0).abs() < 0.01, "{y}");
+    }
+
+    /// A marker below him still launches upward (0x0042b480's floor of 5); the hop fires without the wings' gravity;
+    /// the glide keeps the marker held.
+    #[test]
+    fn launch_floor_hop_and_held_marker() {
+        let w = &mut World::new();
+        let marker = w.spawn_empty().id();
+        let mut j = jumper();
+        j.start(Vec3::new(0.0, 200.0, 0.0), marker, Vec3::new(150.0, 0.0, 0.0), false, 35.0);
+        assert_eq!(j.vel.y, MIN_LAUNCH_RISE);
+        j.flight = None;
+        j.glide(Vec3::ZERO, Vec3::new(30.0, 0.0, 0.0));
+        assert_eq!(j.flight, Some(Flight::Hop));
+        assert!(Flight::Hop.fires() && !Flight::Jump.fires());
+        assert_eq!(j.gravity(), j.anti_gravity * GRAVITY);
+        assert_eq!(j.marker, Some(marker), "the glide launch keeps the marker");
     }
 }

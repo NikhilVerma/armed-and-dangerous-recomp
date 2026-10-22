@@ -11,9 +11,14 @@
 //!   later root of the arc slows the horizontal speed), a random spin (rand() x K 0x005bce50 per axis, 0..0.05).
 //! - Flight (slot 0x2f 0x00481ce0): +0x424 bit 0x20 cleared, then the generic update Projectile_Update 0x0047e580: under
 //!   gravity, its path ray-cast; the thrower is in its ignore chain (+0x574).
-//! - Hit (slot 0x4e 0x00481d10): at the hit point (+0x514), the area damage AreaDamage_Apply 0x0047f020 with the
-//!   record's flags 0x0047eba0 | 0x10 (slot 0x4f 0x00481d00), then the direct damage to what it hit (vt+0x158) and the
-//!   end (vt+0xd4): fx_end. Its lifetime (15 s) ends it unexploded (guess: Projectile_Update's expiry).
+//! - Hit (vt+0x138: the base 0x0047eae0; the vtable's slots read from game.unpacked.exe, 0x00481d10 is the Guy Fawkes
+//!   class's 0x005a6608): at the hit point (+0x514) the area damage AreaDamage_Apply 0x0047f020 (flags 0x0047eba0)
+//!   that leaves out what it hit; that one takes area_damage + damage (Projectile_ApplyHitDamage 0x0047eec0: 30 + 50);
+//!   the end effect (vt+0x158 0x0047ed40: fx_end, fx_end_material on a hit object; its AI noise is posted only for
+//!   Roman's projectiles); then its death (vt+0xd4 0x004820b0): the area damage again, leaving nothing out, and the
+//!   end effect again (fx_end). ORIGINAL BUG (docs/original-bugs.md): every grenade hit blasts twice. Its lifetime
+//!   (15 s) runs out through the same death (Projectile_UpdateLifetime 0x0047e4a0 -> vt+0xd4): one blast where it is.
+//! - Its start effect (vt+0x154 0x0047ee30) needs fx_start and fx_start_bone_name; p_captain_grenade has no fx_start.
 
 use bevy::prelude::*;
 use serde::Deserialize;
@@ -34,11 +39,12 @@ pub struct GrenadeProps {
     pub damage_radius_outer: f32,
     pub impact_force: f32,
     pub fx_end: Option<String>,
+    pub fx_end_material: Option<String>,
 }
 
 impl Default for GrenadeProps {
     fn default() -> Self {
-        GrenadeProps { speed: 35.0, lifetime: 15.0, damage: 50.0, area_damage: 30.0, damage_radius_inner: 10.0, damage_radius_outer: 30.0, impact_force: 15000.0, fx_end: None }
+        GrenadeProps { speed: 35.0, lifetime: 15.0, damage: 50.0, area_damage: 30.0, damage_radius_inner: 10.0, damage_radius_outer: 30.0, impact_force: 15000.0, fx_end: None, fx_end_material: None }
     }
 }
 
@@ -140,7 +146,8 @@ pub fn fly(
     time: Res<Time>,
     physics: NonSend<crate::physics::Physics>,
     mut q: Query<(Entity, &mut Grenade, &mut Transform)>,
-    mut health: Query<&mut crate::fx::Health>,
+    mut chars: Query<(&mut crate::fx::Health, Option<&mut crate::fx::DamageShield>, Option<&super::Companion>)>,
+    mut objects: Query<&mut crate::fx::Destructible>,
     mut blasts: MessageWriter<crate::fx::Explode>,
     mut fx: MessageWriter<crate::fx::StartFx>,
     roman: Query<(Entity, &Transform, &crate::player::Roman), Without<Grenade>>,
@@ -184,6 +191,7 @@ pub fn fly(
             t.translation = from + step;
             continue;
         }
+        let struck = hit.is_some();
         let (at, obj) = hit.unwrap_or((from, None));
         let p = &gr.props;
         stats.ended += 1;
@@ -194,24 +202,47 @@ pub fn fly(
                 stats.near_roman += 1;
             }
         }
-        blasts.write(crate::fx::Explode {
+        let blast = |excluded: Option<Entity>| crate::fx::Explode {
             at,
             area_damage: p.area_damage,
             radius_inner: p.damage_radius_inner,
             radius_outer: p.damage_radius_outer,
             impact_force: p.impact_force,
-            source: obj,
+            source: excluded,
             delay: 0.0,
             by: crate::fx::Src::Badguy,
             cartoon: false,
             kind: crate::player::DamageKind::Plain,
-        });
-        if let Some(mut h) = obj.and_then(|o| health.get_mut(o).ok()) {
-            h.0 -= p.damage;
+        };
+        let end_fx = |fx: &mut MessageWriter<crate::fx::StartFx>, name: &Option<String>| {
+            if let Some(n) = name {
+                fx.write(crate::fx::StartFx { name: n.clone(), at, rotation: crate::level::game_to_engine(), follow: None, position_only: false });
+            }
+        };
+        if struck {
+            // the hit (0x0047eae0): the blast round it, the direct damage of what it hit (0x0047eec0), the end effect
+            // (the material one only on an object)
+            blasts.write(blast(obj));
+            let direct = p.area_damage + p.damage;
+            if let Some((mut h, shield, companion)) = obj.and_then(|o| chars.get_mut(o).ok()) {
+                let amount = direct * companion.map_or(1.0, |c| c.damage_scale(crate::player::DamageKind::Plain));
+                if !shield.is_some_and(|mut s| s.absorb(amount)) {
+                    h.0 -= amount;
+                }
+            } else if let Some(mut d) = obj.and_then(|o| objects.get_mut(o).ok()) {
+                if d.accepts(crate::fx::Src::Badguy, false) && d.take_damage(direct) && d.dying.is_none() {
+                    d.chain_delay = 0.0;
+                    d.dying = Some(0.0);
+                }
+            }
+            end_fx(&mut fx, &p.fx_end);
+            if obj.is_some() {
+                end_fx(&mut fx, &p.fx_end_material);
+            }
         }
-        if let Some(n) = &p.fx_end {
-            fx.write(crate::fx::StartFx { name: n.clone(), at, rotation: crate::level::game_to_engine(), follow: None, position_only: false });
-        }
+        // its death (0x004820b0), after a hit as when its lifetime runs out: the blast again, nothing left out, fx_end
+        blasts.write(blast(None));
+        end_fx(&mut fx, &p.fx_end);
         commands.entity(e).despawn();
     }
 }

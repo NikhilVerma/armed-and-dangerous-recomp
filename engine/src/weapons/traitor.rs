@@ -4,8 +4,10 @@
 //! - Fire Special with it in hand queues the throw, no sooner than 10 s after the last (Game+0xae0, 0x004788a0's case
 //!   6); at the throw note it leaves the hand (0x004a1970: one less) toward the crosshair's point at speed x 3 (300 a
 //!   second, 0x0047dbf0 / Projectile_Launch 0x0047e400), fx_trail_sticky on it, lifetime 10 s.
+//! - In flight it carries the start effect's AI noise (0x0047ee30); its end posts one at the point for 2 s (0x0047ed40).
 //! - Its hit (0x00481d10): at the point, fx_guy_fawkes_bomb (the fireworks and their wpn_guy_fawkes_lp, 10 s) and the
-//!   area damage (1, within 50 / 200) with record flag 0x10 (0x00481d00), the inner radius passed along: every bad guy
+//!   area damage (1, within 50 / 200) with record flag 0x10 (0x00481d00; objects and Roman take the 1, an AI character
+//!   none: `DamageKind::Traitor`), the inner radius passed along: every bad guy
 //!   (vt+0xe8) alive within 200 turns traitor (GenericAIObject_Slot52 0x00430340 -> 0x00430140): the disc fx_guy_fawkes
 //!   over his head (bone ref_fawkes), his two lists swapped (+0x604 / +0x608: he now hunts his old side and is hunted
 //!   by it: ai.rs `search`, player.rs's team test for bullets), his target dropped, and unless he is busy, from
@@ -46,7 +48,7 @@ fn throw(
     cam: Query<&GlobalTransform, With<crate::camera::FollowCam>>,
     data: Res<crate::gamedata::GameData>,
     mut kit: crate::army::ModelKit,
-    (mut fx, mut stats, cheats): (MessageWriter<crate::fx::StartFx>, ResMut<crate::player::PlayerStats>, Res<crate::cheats::Cheats>),
+    (mut fx, mut stats, cheats, mut noise): (MessageWriter<crate::fx::StartFx>, ResMut<crate::player::PlayerStats>, Res<crate::cheats::Cheats>, ResMut<crate::ai::Interests>),
 ) {
     if !thrown.read().fold(false, |any, t| any || t.0 == SpecialId::GuyFawkes) {
         return;
@@ -70,6 +72,11 @@ fn throw(
     commands.entity(e).insert(FawkesBomb { vel, life: p.f("lifetime", 4.0), owner: re });
     if let Some(n) = p.s("fx_start") {
         fx.write(crate::fx::StartFx { name: n.to_owned(), at: from, rotation: Quat::IDENTITY, follow: Some(e), position_only: true });
+        // the start effect's AI noise, following the bomb (0x0047ee30 -> 0x00404810: radius 200; it needs
+        // fx_start_bone_name too)
+        if p.s("fx_start_bone_name").is_some() {
+            noise.follow(e, from);
+        }
     }
     info!("EVENT guyfawkes: thrown");
 }
@@ -85,7 +92,7 @@ fn fly(
     roman: Query<Entity, With<crate::player::Roman>>,
     data: Res<crate::gamedata::GameData>,
     (mut fx, mut blasts): (MessageWriter<crate::fx::StartFx>, MessageWriter<crate::fx::Explode>),
-    (mut log, mut stats): (Option<ResMut<crate::mission::Mission>>, ResMut<super::WeaponStats>),
+    (mut log, mut stats, mut noise): (Option<ResMut<crate::mission::Mission>>, ResMut<super::WeaponStats>, ResMut<crate::ai::Interests>),
 ) {
     let dt = time.delta_secs();
     for (e, mut b, mut t) in &mut bombs {
@@ -97,6 +104,8 @@ fn fly(
         let Some((_, at, _)) = hit else {
             t.translation = from + step;
             if b.life <= 0.0 {
+                // (its lifetime out: vt+0xd4 0x00433bb0, removed without its end effect)
+                noise.forget(e);
                 commands.entity(e).despawn();
             }
             continue;
@@ -105,8 +114,11 @@ fn fly(
         if let Some(n) = p.s("fx_end") {
             fx.write(crate::fx::StartFx { name: n.to_owned(), at, rotation: crate::level::game_to_engine(), follow: None, position_only: false });
         }
+        // the end effect's noise at the point for 2 s (0x0047ed40 -> 0x00404810); the set has no fx_end_material
+        noise.end_at(e, at);
+        // the record carries flag 0x10 (0x00481d00): the AI characters in it turn (below) and take none of its damage
         let (inner, outer) = (p.f("damage_radius_inner", 0.0), p.f("damage_radius_outer", 0.0));
-        blasts.write(crate::fx::Explode { at, area_damage: p.f("area_damage", 0.0), radius_inner: inner, radius_outer: outer, impact_force: p.f("impact_force", 2010.0), source: None, delay: 0.0, by: crate::fx::Src::Player, cartoon: false, kind: crate::player::DamageKind::Plain });
+        blasts.write(crate::fx::Explode { at, area_damage: p.f("area_damage", 0.0), radius_inner: inner, radius_outer: outer, impact_force: p.f("impact_force", 2010.0), source: None, delay: 0.0, by: crate::fx::Src::Player, cartoon: false, kind: crate::player::DamageKind::Traitor });
         let turned = turn(&mut commands, &mut grunts, &mut fx, at, inner, outer);
         if let Some(m) = log.as_deref_mut() {
             m.log.push(format!("guy fawkes: {turned} turned traitor"));

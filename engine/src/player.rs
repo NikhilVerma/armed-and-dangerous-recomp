@@ -255,6 +255,10 @@ pub enum DamageKind {
     /// proj_base_turret_bullet (class 0xd, vtable 0x005ab120: 0x00481020 adds 0x100): the defence levels' base turret;
     /// a grunt it hurts takes a long hit (GenericAIObject_Slot52 0x00430340, ai.rs `Grunt::long_hit_round`)
     BaseTurret,
+    /// proj_guyfawkes (Projectile vtable 0x005a6608: 0x00481d00 adds 0x10): an AI character that receives it turns
+    /// (0x00430140, weapons/traitor.rs) instead of taking the damage (GenericAIObject_Slot52 0x00430340's flag 0x10
+    /// branch); objects and Roman take it as usual
+    Traitor,
 }
 
 impl DamageKind {
@@ -264,8 +268,14 @@ impl DamageKind {
             "proj_stig_bullet" => DamageKind::Stig,
             "proj_forge_mortar" => DamageKind::Forge,
             "proj_base_turret_bullet" => DamageKind::BaseTurret,
+            "proj_guyfawkes" => DamageKind::Traitor,
             _ => DamageKind::Plain,
         }
+    }
+
+    /// Whether an AI character takes this record's damage (not the 0x10 record: that one turns him).
+    pub fn hurts_ai(self) -> bool {
+        self != DamageKind::Traitor
     }
 }
 

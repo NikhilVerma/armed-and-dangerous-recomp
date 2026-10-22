@@ -1303,7 +1303,7 @@ impl Plugin for AiPlugin {
                     (
                         (body::apply_rules, log_cover, log_ai, log_placed, squad::log_squads, ic::log).chain(),
                         // the later levels' infantry (projectiles, falls, drops, the wall assault) and their playtest logs
-                        (grenade::fly, jumper_packs, rocket::shoot_down, fall::drop_parachutes, jumper::free_markers, assault::sync, assault::recruit, ladder::ladders, retreat::run, ic::building_deaths).chain(),
+                        (grenade::fly, jumper_packs, rocket::shoot_down, fall::drop_parachutes, jumper::free_markers, assault::sync, assault::recruit, (ladder::ladders, ladder::carry_anim).chain(), retreat::run, ic::building_deaths).chain(),
                         (melee::close_hits, melee::log, max_fire::log, grenade::log, rocket::log, fall::log, paratroop::log, jumper::log, notes::log, assault::log, ladder::log, retreat::log, base_area::log).chain(),
                     )
                         .chain(),
@@ -3961,9 +3961,7 @@ fn think(
                         j.walk = Some(left);
                     } else {
                         j.walk = None;
-                        if let Some(old) = j.leave() {
-                            joccupy.push((old, None));
-                        }
+                        // (the marker he holds stays his: 0x0042a2c0 has no vt+0x188)
                         j.glide(pos, to);
                         // the landing reads only the contacts of the steps after the take-off (Slot44 notes a contact in
                         // the step it happens)
@@ -3973,15 +3971,16 @@ fn think(
                         info!("EVENT ai: jumper {ge:?} takes off {:.0} from the target", (to - pos).with_y(0.0).length());
                     }
                 } else {
-                    // the marker he stands on is left first (vt+0x188): his history skips it
-                    if let Some(old) = j.leave() {
-                        joccupy.push((old, None));
-                        if let Some(v) = jviews.iter_mut().find(|v| v.e == old) {
-                            v.free = true;
-                        }
-                    }
+                    // the marker he holds is not a candidate (held: not free); it is left (vt+0x188, his history then
+                    // skips it) only once the next one is found (0x0042b480, ai_03.cpp:688-691)
                     match jumper::pick_marker(j, pos, target, range, &jviews) {
                         Some((i, closer)) => {
+                            if let Some(old) = j.leave() {
+                                joccupy.push((old, None));
+                                if let Some(v) = jviews.iter_mut().find(|v| v.e == old) {
+                                    v.free = true;
+                                }
+                            }
                             let (m, at) = (jviews[i].e, jviews[i].pos);
                             jviews[i].free = false;
                             joccupy.push((m, Some(ge)));
@@ -4737,8 +4736,9 @@ fn think(
                     }
                     jumper::FlightStep::Flying => {}
                 }
-                // gliding (0xbd) he fires with flag 4 (vt+0x198); a lost line of sight does not end it (ai_02.cpp:1894)
-                if j.flight == Some(jumper::Flight::Glide) {
+                // gliding or hopping (0xbd) he fires with flag 4 (vt+0x198); a lost line of sight does not end it
+                // (ai_02.cpp:1894)
+                if j.flight.is_some_and(jumper::Flight::fires) {
                     if let (Some(p), Some(thit), true) = (target, target_hit, g.fire_ready) {
                         g.jumper = Some(j);
                         fire_cycle(&mut commands, &mut g, &physics, &mut rng, pos, p, thit, own_hit, None, &[body.id], dt, &mut stats, &mut sounds, &mut fx, (&mut barks, time.elapsed_secs(), &voices, &data));
@@ -4862,7 +4862,7 @@ fn think(
         }
         if let Some(v) = fly {
             // in the air: facing the target while gliding with one, else the velocity (0xc5 / rising 0xc4)
-            let gliding = g.jumper.is_some_and(|j| j.flight == Some(jumper::Flight::Glide));
+            let gliding = g.jumper.is_some_and(|j| j.flight.is_some_and(jumper::Flight::fires));
             let f = match target {
                 Some(p) if gliding => flat(p - pos),
                 _ => flat(v),
@@ -5020,7 +5020,7 @@ fn fire_cycle(
     if g.rocket {
         stats.rocket_shots += 1;
     }
-    if g.jumper.is_some_and(|j| j.flight == Some(jumper::Flight::Glide)) {
+    if g.jumper.is_some_and(|j| j.flight.is_some_and(jumper::Flight::fires)) {
         stats.glide_shots += 1;
     }
     // (the shot sound comes from the weapon's muzzle fx: the original's sound log has one per shot)
@@ -5274,13 +5274,15 @@ fn die(
         ms.enemies_killed += 1;
         ms.killed(g.score);
         if g.kind == Kind::Q112 {
-            // the Q112's death (Q112Object_Slot53 0x00435220): its eye loop stopped; its Dead line (0x0043a2b0) always,
-            // not kept
+            // the Q112's death (Q112Object_Slot53 0x00435220): its eye loop stopped; its kept Hurt / Fight line stopped
+            // as every character's at death (0x00431720 -> renderer vt+0xd8 on +0xb50); its Dead line (0x0043a2b0)
+            // always (no Q112 is trigger-killed in the data, the record kind 0x8000 that would skip it)
             if let Some(id) = g.q112.as_mut().and_then(|q| q.eye.take()) {
                 stop.write(crate::audio::StopVoice { id, immediate: false });
             }
             g.dead_said = true;
-            sounds.write(crate::audio::PlaySound::at(q112::pick(&q112::DEAD_LINES, rng.rand()), tr.translation));
+            let req = g.speech.death_line(&voices, &mut stop, crate::audio::PlaySound::at(q112::pick(&q112::DEAD_LINES, rng.rand()), tr.translation));
+            sounds.write(req);
         }
         if !g.dead_said {
             g.dead_said = true;
@@ -5813,6 +5815,7 @@ impl Companion {
             crate::player::DamageKind::Plain | crate::player::DamageKind::BaseTurret => 1.0,
             crate::player::DamageKind::Stig => self.damage_mult.0,
             crate::player::DamageKind::Forge => self.damage_mult.1,
+            crate::player::DamageKind::Traitor => 0.0,
         }
     }
 
