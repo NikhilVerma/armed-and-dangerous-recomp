@@ -8,7 +8,7 @@
  {"defence": {"mortar": "platoon"}}, {"wait": 2.5},
  {"expect": {"army.fake_killed": [1, 1000]}},
  {"wait": 22.0},
- {"expect": {"army.released": [1, 1000], "grunts_alive": [1, 100]}},
+ {"expect": {"army.released": [1, 1000], "grunts_alive": [1, 100], "base_culled": 0}},
  {"defence": {"aim": "army"}}, {"hold_mouse": "Left"}, {"wait": 10.0}, {"release_mouse": "Left"}, {"defence": {"aim": false}},
  {"shot": "fight"},
  {"expect": {"kills": [1, 1000], "dead": false}},
