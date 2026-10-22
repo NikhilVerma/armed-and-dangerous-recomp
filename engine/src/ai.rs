@@ -872,6 +872,9 @@ pub struct Grunt {
     /// where that flagged record came from (its attacker +0x2c: the bomb), engine space: GoRagdoll's launch flies him
     /// away from it (ai/launch.rs)
     pub cartoon_from: Option<Vec3>,
+    /// the last damage record had flag 4: a head shot (Projectile_ApplyHitDamage 0x0047eec0, set by player.rs strike);
+    /// the hit reaction answers it with the head-hit anim (0x00430340)
+    pub head_hit: bool,
     /// chance in % of a pickup on death (pickup_drop_percent, default 100)
     pub drop_percent: f32,
     /// the trench held (+0x904) and its phase (states 0xa0..0xa5)
@@ -1432,6 +1435,7 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         window: mode.contains("window") || mode.contains("tower"),
         cartoon: false,
         cartoon_from: None,
+        head_hit: false,
         drop_percent: p.f("pickup_drop_percent", 100.0),
         cover: None,
         at_barricade: false,
@@ -2956,8 +2960,11 @@ fn think(
             // <= hit_level_1 a small hit (not while one or a long hit plays, states 0x12f / 0x132): one of ids
             // 0x3f..0x42 by rand * 400 >> 15, state 0x12f; <= hit_level_2 a medium hit, 0x43 / 0x44 alternating on the
             // anim playing (the first by rand * 200 >> 15 < 100), state 0x130; else a big hit 0x45 + (rand * 2 >> 15),
-            // state 0x131. (The record flags 0x100 / 4, anims 0x77.. / 0x47.., are not set by any lev_1_m1 damage.)
+            // state 0x131; before those a head shot (the record's flag 4: player.rs strike) plays the head-hit anim 0x47 +
+            // (rand * 2 >> 15) as a big hit (state 0x131). (The record flag 0x100, anims 0x77.., is not set by any
+            // lev_1_m1 damage.)
             let d = g.last_hit;
+            let head = std::mem::take(&mut g.head_hit);
             let on_gun = g.gun.is_some_and(|x| x.phase == GunPhase::On);
             let (before, after) = (g.last_health / g.max_health, h.0 / g.max_health);
             let fours = g.allfours_pct / 100.0;
@@ -2965,6 +2972,8 @@ fn think(
                 None
             } else if g.kind.allfours() && before > fours && after <= fours {
                 Some((0x35, 5))
+            } else if head {
+                Some((0x47 + (rng.rand() * 2.0) as u32 % 2, 3))
             } else if d <= g.hit_level_1 {
                 (!matches!(g.reacting, 1 | 4) || g.hit.is_none()).then(|| (0x3f + ((rng.rand() * 400.0) as u32 / 100).min(3), 1))
             } else if d <= g.hit_level_2 {

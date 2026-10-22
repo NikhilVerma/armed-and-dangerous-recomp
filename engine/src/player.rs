@@ -81,6 +81,10 @@ pub struct Roman {
     pub arsenal: crate::weapons::Arsenal,
     /// a weapon switch's target slot (the pending switch +0x28, 0x004a0bb0): equipped at the change anim's frame 13
     pub switch_to: Option<usize>,
+    /// a special switch's target (the special list's pending switch +0x58 with its time +0x5c = 0: Next Special
+    /// 0x004a0bb0, the used-up fallback 0x004a0be0): due on the next player update, which completes it (0x004a17b0 ->
+    /// 0x004a17d0) and does nothing else that frame
+    pub special_to: Option<crate::weapons::SpecialId>,
     pub dead: bool,
     /// the death presentation started (fx_trotter_death, the ragdoll), and whether the ragdoll took
     pub death_shown: bool,
@@ -164,6 +168,10 @@ pub struct Projectile {
     /// damages_buildings off (the default): its damage record carries 0x400 (0x0047eba0), which buildings and
     /// objects without takes_bullet_damage ignore
     pub no_buildings: bool,
+    /// allow_cartoon_death (+0x578, code default on): its damage record carries 0x80 (0x0047eba0), with which a
+    /// killed window grunt is blown out and a ragdolled one launched (ai.rs). Off only where the set says 0
+    /// (p_player_rifle_bullet, p_player_snipergun_bullet); the machine gun's and the mounted guns' bullets have it
+    pub cartoon: bool,
     /// an arrow (ArrowProjectile, vtable 0x005a9a40): a ballistic flight under the world's gravity (64.348), and its
     /// fly-by sound once within 70 of Roman (0x00482620)
     pub arrow: bool,
@@ -335,7 +343,7 @@ const BODY_PARTS: [&str; 16] = ["head", "neck", "chest", "belly", "center", "l_s
 /// 0x0047ee30 (fx_start following it). No physics body: the collision description 0x0047e320 is replaced by the
 /// per-frame ray (projectiles).
 pub fn spawn_projectile(commands: &mut Commands, fx: &mut MessageWriter<crate::fx::StartFx>, p: &Props, from: Vec3, dir: Vec3, from_player: bool, owner: Option<Entity>) -> Entity {
-    let speed = p.f("speed", 300.0) * 3.0;
+    let speed = launch_speed(p);
     launch_projectile(commands, fx, p, from, dir * speed, from_player, owner)
 }
 
@@ -343,9 +351,15 @@ pub fn spawn_projectile(commands: &mut Commands, fx: &mut MessageWriter<crate::f
 /// 0x00482510): the flight time T = 3 sqrt(|d|) / speed (speed x 3 from Projectile_Load), the velocity d / T with the
 /// vertical part raised by T x 64.348 / 2, so it lands on the point under gravity; the others fly straight.
 pub fn spawn_projectile_to(commands: &mut Commands, fx: &mut MessageWriter<crate::fx::StartFx>, p: &Props, from: Vec3, target: Vec3, from_player: bool, owner: Option<Entity>) -> Entity {
-    let speed = p.f("speed", 300.0) * 3.0;
+    let speed = launch_speed(p);
     let vel = if p.s("behavior") == Some("proj_arrow") { arrow_velocity(from, target, speed) } else { (target - from).normalize_or(Vec3::Z) * speed };
     launch_projectile(commands, fx, p, from, vel, from_player, owner)
+}
+
+/// A projectile's launch speed (Projectile_Load 0x0047e0c0 +0x460, read by GetSpeed 0x0047e360): "speed" (code
+/// default 10) x 3. Every set the shots use gives its speed.
+pub fn launch_speed(p: &Props) -> f32 {
+    p.f("speed", 10.0) * 3.0
 }
 
 /// The arrow's launch velocity (0x00482510), engine axes (Y up).
@@ -381,6 +395,7 @@ fn launch_projectile(commands: &mut Commands, fx: &mut MessageWriter<crate::fx::
                 torso_mult: p.f("torso_shot_multiplier", 1.0),
                 impact: p.f("impact_force", 2010.0),
                 no_buildings: p.f("damages_buildings", 0.0) == 0.0,
+                cartoon: p.f("allow_cartoon_death", 1.0) != 0.0,
             },
         ))
         .id();
@@ -456,7 +471,7 @@ pub enum PlayerSet {
 
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, (apply_loadout, hand_weapon).chain());
+        app.add_systems(Update, (apply_loadout, hand_weapon, zoom_hide).chain());
         app.init_level_resource::<PlayerStats>()
             .init_level_resource::<Banter>()
             .init_level_resource::<LookDelta>()
@@ -546,6 +561,7 @@ pub fn make_roman(physics: &mut Physics, p: &Props, data: &GameData, feet: Vec3,
             a
         },
         switch_to: None,
+        special_to: None,
         dead: false,
         death_shown: false,
         ragdolled: false,
@@ -604,6 +620,26 @@ fn hand_weapon(roman: Query<&Roman>, topsy: Res<crate::topsy::Topsy>, glove: Res
         if *v != want {
             *v = want;
         }
+    }
+}
+
+/// Fully zoomed in (the zoom blend reaching 1: 0x0040fbb0, fade state 1 -> 3) Roman and his weapons are hidden, the eye
+/// being at his head (player vt+0xf4(0) and 0x004a0e00(0), CameraFade_NotifyPlayer game_02.cpp:75); the zoom out
+/// starting shows them again (0x0040fb00 / 0x0040fb50: vt+0xf4(1), 0x004a0e00(1)). Not on a level that starts in a
+/// turret (0x0044e600: start_in_turret_tag), nor on a mounted gun (turret.rs shows and hides him there).
+fn zoom_hide(mut roman: Query<(&Roman, &mut Visibility)>, mounted: Res<crate::turret::Mounted>, mission: Option<Res<crate::mission::Mission>>, mut hidden: Local<bool>) {
+    let Ok((r, mut v)) = roman.single_mut() else {
+        *hidden = false;
+        return;
+    };
+    if mounted.0.is_some() || mission.is_some_and(|m| m.start_in_turret) {
+        *hidden = false;
+        return;
+    }
+    let want = r.zoom >= 1.0 && !r.dead;
+    if want != *hidden {
+        *hidden = want;
+        *v = if want { Visibility::Hidden } else { Visibility::Inherited };
     }
 }
 
@@ -696,7 +732,8 @@ pub(crate) fn control(
         // zoom: held Zoom (Z, E; 0x00478xxx game_06.cpp:2819-2836) enters the weapon camera; turning and pitching
         // then use the weapon's zoomed speeds (rifle / machine gun 0.05 / 0.25 against 0.3 / 0.95: 0x00475990 /
         // 0x004759e0)
-        // (the toggle form when ToggleZoom is bound, 0x0047bc80(10): unbound by default, so zoom follows the held key)
+        // (the toggle form when ToggleZoom is bound, 0x0047bc80(10): unbound by default, and the Controls page cannot
+        // bind it (its action table 0x00588dd8 lists Zoom, 0xb, not ToggleZoom, 0xa), so zoom follows the held key)
         let zoom_held = ctl.down(crate::input::Act::Aim) && !r.dead;
         let step = dt / r.zoom_secs.max(1e-3);
         r.zoom = if zoom_held { (r.zoom + step).min(1.0) } else { (r.zoom - step).max(0.0) };
@@ -1025,7 +1062,7 @@ fn weapons(
     buttons: Res<ButtonInput<MouseButton>>,
     ctl: Res<crate::input::Controls>,
     physics: NonSend<Physics>,
-    (texts, mut subs): (Res<crate::gamemenu::Texts>, MessageWriter<crate::audio::Subtitle>),
+    (texts, mut subs, mut motion): (Res<crate::gamemenu::Texts>, MessageWriter<crate::audio::Subtitle>, Local<TargetMotion>),
     data: Res<GameData>,
     mut bot: ResMut<crate::bot::Bot>,
     mut q: Query<(Entity, &mut Roman, &Transform, Option<&crate::skin::Animator>)>,
@@ -1040,6 +1077,7 @@ fn weapons(
     use crate::weapons::{SpecialId, THROW_NOTE, WeaponId};
     let dt = time.delta_secs();
     let infinite = cheats.on(crate::cheats::INFINITE_AMMO);
+    motion.track(&targets, |e| joints.get(e).ok().map(|g| g.translation()), dt);
     // the aim point (Game+0xa6c): where the crosshair's ray from the camera meets the world, else far along it; the
     // player's shots fly from the weapon toward it (they flew parallel to the view from above Roman's head and missed
     // what the crosshair was on: the player's gun "did nothing")
@@ -1071,6 +1109,11 @@ fn weapons(
     };
     for (e, mut r, t, ra) in &mut q {
         if r.dead {
+            // the weapon update runs before the player update's death test (0x004a1890, game_06.cpp:2798): a held
+            // muzzle fx (and the machine gun's fire loop it plays) is released the frame after the last shot
+            if let Some(anchor) = r.muzzle_fx.take() {
+                commands.entity(anchor).despawn();
+            }
             continue;
         }
         // on a mounted gun Roman's weapons are put away (0x00498a80: 0x004a0e00(0)); a held muzzle fx (and the fire
@@ -1097,8 +1140,17 @@ fn weapons(
                     r.arsenal.equip_slot(slot);
                     r.reload_clock = None;
                     r.reloading = 0.0;
-                    let name = r.arsenal.in_hand_id().and_then(|w| w.table().name_text);
-                    change_line(&mut subs, &mut sounds, "ui_change_weapon", name);
+                    // the new weapon object has never fired (WeaponObject load 0x004a1bf0: +0x544 = 0): the recycle
+                    // gate 0x004a1e40 lets it fire at once
+                    if let Some(w) = r.arsenal.in_hand_mut() {
+                        w.timer = 0.0;
+                    }
+                    let id = r.arsenal.in_hand_id();
+                    // the land shark gun (id 5) announces itself first (0x004a16b0: wpn_armed_jaws_weapons, 2D)
+                    if id == Some(WeaponId::Sharkgun) {
+                        sounds.write(crate::audio::PlaySound::ui("wpn_armed_jaws_weapons"));
+                    }
+                    change_line(&mut subs, &mut sounds, "ui_change_weapon", id.and_then(|w| w.table().name_text));
                 }
             }
             // the anim's length (trotter_wchange_t 1.13 s; frame 13 is 0.4 s in: its first frame is 1)
@@ -1116,6 +1168,24 @@ fn weapons(
             }
         }
         let switching = r.wchange.is_some_and(|c| c < SWITCH_AT);
+        // a pending special switch (0x004a17a0, its time 0: due at once, 0x004a17b0) completes on this update (0x004a17d0:
+        // the special in hand, the chat line "ui_change_special_weapon" and ui_weapon_put_away); Next Special (Tab, input
+        // 0x10) makes one (0x004a0bb0 on the special list, time 0: none when no other special is usable). Either way the
+        // player update ends there (game_06.cpp:2822-2826 / 2863-2866: done): no reload, no shot, no special
+        let special_turn = !switching
+            && match r.special_to.take() {
+                Some(s) => {
+                    r.arsenal.special = s;
+                    change_line(&mut subs, &mut sounds, "ui_change_special_weapon", s.table().name_text);
+                    true
+                }
+                None if ctl.pressed(crate::input::Act::NextSpecial) => {
+                    r.special_to = r.arsenal.next_special(1);
+                    true
+                }
+                None => false,
+            };
+        let busy = switching || special_turn;
         let id = r.arsenal.in_hand_id();
         let mg = id == Some(WeaponId::Machinegun);
         // a tap counts as a shot: a trackpad tap over Moonlight arrives as press and release in one frame, never
@@ -1137,12 +1207,13 @@ fn weapons(
                 // sound is requested (+0xa34 |= 0x190000); nothing more while reloading (vt+0x164 0x004a2390)
                 let manual = ctl.pressed(crate::input::Act::Reload) && can_reload;
                 // the empty clip (0x0047a6af): +0xc00 run out, no shot this frame and the clip empty (vt+0x158
-                // 0x004a2270): reload when it can, else fall back to the previous usable weapon (0x004a0be0)
-                let empty = fire_delay <= 0.0 && w.clip == 0;
-                let starting = !switching && !reloading && (manual || (empty && can_reload));
+                // 0x004a2270: never with the infinite ammo cheat, Game+0x175): reload when it can, else fall back to
+                // the previous usable weapon (0x004a0be0)
+                let empty = fire_delay <= 0.0 && !infinite && w.clip == 0;
+                let starting = !busy && !reloading && (manual || (empty && can_reload));
                 // ready to fire (vt+0x138 0x004a23b0): not reloading, the clip not empty and the recycle gate
-                let shoot = !switching && !reloading && !starting && fire && w.timer <= 0.0 && w.clip > 0 && target_ready;
-                (shoot, starting, !switching && !reloading && empty && !can_reload)
+                let shoot = !busy && !reloading && !starting && fire && w.timer <= 0.0 && w.clip > 0 && target_ready;
+                (shoot, starting, !busy && !reloading && empty && !can_reload)
             }
             None => (false, false, false),
         };
@@ -1216,8 +1287,15 @@ fn weapons(
                 _ => from,
             };
             // with auto-aim (0x0047dbf0's use_target = vt+0x16c 0x004a2a40) the target's point replaces the
-            // crosshair's (hud +0: the target pass, weapons/targeting.rs)
-            let aim_at = if matches!(id, WeaponId::Machinegun | WeaponId::Rifle) { targets.first().map(|t| t.point).or(aim_point) } else { aim_point };
+            // crosshair's (hud +0: the target pass, weapons/targeting.rs); a target with its hit bone (the record's
+            // flag +0x20) is led for the bullet's speed (0x004580a0 with the bone: its ref_hit_00 plus its velocity x
+            // the intercept time, in the ground plane)
+            let aim_at = if matches!(id, WeaponId::Machinegun | WeaponId::Rifle) {
+                let speed = launch_speed(&data.props(&spec.projectile));
+                targets.first().map(|t| if t.joint.is_some() { crate::ai::aim::lead_point(t.point, motion.velocity(t.entity), from, speed) } else { t.point }).or(aim_point)
+            } else {
+                aim_point
+            };
             let dir = match aim_at {
                 Some(p) if (p - from).length() > 1.0 => (p - from).normalize_or(dir),
                 _ => dir,
@@ -1273,12 +1351,12 @@ fn weapons(
         }
         // Game+0xd68: + dt while Fire is held with weapon 0 (the machine gun) in hand, after this frame's shot; 0 when
         // Fire is up (0x004788a0 at 0x0047a555)
-        if !switching {
+        if !busy {
             r.mg_held = if !fire { 0.0 } else if mg { r.mg_held + dt } else { r.mg_held };
         }
         // the held muzzle fx goes the frame after the firing stops (Fire up, a switch, a reload)
         if let Some(anchor) = r.muzzle_fx {
-            let firing = fire && mg && !switching && r.reload_clock.is_none();
+            let firing = fire && mg && !busy && r.reload_clock.is_none();
             r.muzzle_idle = if firing { 0 } else { r.muzzle_idle.saturating_add(1) };
             if r.muzzle_idle >= 2 {
                 commands.entity(anchor).despawn();
@@ -1286,28 +1364,17 @@ fn weapons(
             }
         }
         // nothing more while switching or reloading (game_06.cpp:2874 / 2884: vt+0x164 -> done)
-        if switching {
+        if busy {
             continue;
         }
         let bot_throw = std::mem::take(&mut bot.throw);
-        // Next Special (Tab, input 0x10): the next usable special as pending with time 0 (0x004a0bb0), completed
-        // on the next frame (0x004a17d0: the chat line "ui_change_special_weapon" and ui_weapon_put_away)
-        if ctl.pressed(crate::input::Act::NextSpecial) {
-            if let Some(s) = r.arsenal.next_special(1) {
-                r.arsenal.special = s;
-                change_line(&mut subs, &mut sounds, "ui_change_special_weapon", s.table().name_text);
-            }
-        }
         if r.reload_clock.is_some() {
             continue;
         }
-        // the special in hand used up (its spare 0x004a1380 = 0): the previous usable special (0x004a0be0), with its
-        // line (the original's capture topsyO); none left: it stays
+        // the special in hand used up (its spare 0x004a1380 = 0): the previous usable special as pending (0x004a0be0,
+        // time 0), completed with its line on the next update (the original's capture topsyO); none left: it stays
         if r.arsenal.count(r.arsenal.special) == 0 && !topsy.active() && !queue.busy() {
-            if let Some(s) = r.arsenal.next_special(-1) {
-                r.arsenal.special = s;
-                change_line(&mut subs, &mut sounds, "ui_change_special_weapon", s.table().name_text);
-            }
+            r.special_to = r.arsenal.next_special(-1);
         }
         // Fire Special (Mouse 2, input 9) with a usable special (0x004a1a50), by its id (jump table 0x0047a910); each
         // use counts a shot (Game+0x2718):
@@ -1347,6 +1414,26 @@ fn weapons(
                 _ => {}
             }
         }
+    }
+}
+
+/// The auto-aim targets' velocities (0x004580a0 reads the target body's, 0x00458000), from their positions frame to
+/// frame while they are targets.
+#[derive(Default)]
+struct TargetMotion {
+    last: std::collections::HashMap<Entity, Vec3>,
+    vel: std::collections::HashMap<Entity, Vec3>,
+}
+
+impl TargetMotion {
+    fn track(&mut self, targets: &crate::weapons::targeting::Targets, position: impl Fn(Entity) -> Option<Vec3>, dt: f32) {
+        let now: std::collections::HashMap<Entity, Vec3> = targets.list.iter().filter_map(|t| Some((t.entity, position(t.entity)?))).collect();
+        self.vel = now.iter().filter(|_| dt > 0.0).filter_map(|(e, p)| Some((*e, (*p - *self.last.get(e)?) / dt))).collect();
+        self.last = now;
+    }
+
+    fn velocity(&self, e: Entity) -> Vec3 {
+        self.vel.get(&e).copied().unwrap_or(Vec3::ZERO)
     }
 }
 
@@ -1413,8 +1500,8 @@ pub fn landing_damage(peak_vz: f32, d: &LandingDamage) -> Option<f32> {
 }
 
 /// The playtest state log's player fields (weapons, reload, switch, jump, specials, live sticky bombs).
-fn player_state(state: Option<ResMut<crate::playtest::PlayState>>, q: Query<(&Roman, &Transform)>, bombs: Query<&crate::sticky::StickyBomb>, banter: Res<Banter>, held: Query<(&crate::level::HandWeapon, &Visibility)>, grunts: Query<(), With<crate::ai::Grunt>>) {
-    let (Some(mut s), Ok((r, t))) = (state, q.single()) else { return };
+fn player_state(state: Option<ResMut<crate::playtest::PlayState>>, q: Query<(&Roman, &Transform, &Visibility)>, bombs: Query<&crate::sticky::StickyBomb>, banter: Res<Banter>, held: Query<(&crate::level::HandWeapon, &Visibility), Without<Roman>>, grunts: Query<(), With<crate::ai::Grunt>>) {
+    let (Some(mut s), Ok((r, t, vis))) = (state, q.single()) else { return };
     let m = &mut s.0;
     let r1 = |v: f32| ((v * 100.0).round() / 100.0) as f64;
     m.insert("weapon".into(), r.arsenal.in_hand_id().map_or("", crate::weapons::WeaponId::name).into());
@@ -1431,6 +1518,9 @@ fn player_state(state: Option<ResMut<crate::playtest::PlayState>>, q: Query<(&Ro
     m.insert("hspeed".into(), r1(Vec2::new(r.vel.x, r.vel.z).length()).into());
     m.insert("mg_held".into(), r1(r.mg_held).into());
     m.insert("special".into(), r.arsenal.special.name().into());
+    m.insert("special_pending".into(), r.special_to.is_some().into());
+    m.insert("zoom".into(), r1(r.zoom).into());
+    m.insert("roman_hidden".into(), (*vis == Visibility::Hidden).into());
     m.insert("topsy_left".into(), r.arsenal.count(crate::weapons::SpecialId::TopsyTurvy).into());
     m.insert("dead".into(), r.dead.into());
     m.insert("landing".into(), r.landing.map_or("", |l| l.0).into());
@@ -1661,6 +1751,38 @@ fn fall_and_land(r: &mut Roman, t: &Transform, h: &mut Health, vy: f32, jumped: 
 /// Projectiles: one ray per frame along the path; damage on the first body hit (characters' Health, objects'
 /// Destructible), a tracer line for the path.
 #[allow(clippy::too_many_arguments)]
+/// Where a direct hit landed, for the damage multipliers (Projectile_ApplyHitDamage 0x0047eec0).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HitZone {
+    /// the "head" or "neck" part: head_shot_multiplier, the record's flag 4, a head shot counted (Game+0x2714)
+    Head,
+    /// the "chest" or "belly" part: torso_shot_multiplier, flag 8
+    Torso,
+}
+
+impl Projectile {
+    /// The zone of a hit on the collision part named `part` (by its bone). None for the other parts, and for every
+    /// part when both multipliers are exactly 1 (0x0047eec0 then skips the part test: no flag, no head shot counted;
+    /// nor does it check the shooter, so an enemy's head shot counts too: docs/original-bugs.md).
+    pub fn zone(&self, part: Option<&str>) -> Option<HitZone> {
+        if self.head_mult == 1.0 && self.torso_mult == 1.0 {
+            return None;
+        }
+        match part? {
+            "head" | "neck" => Some(HitZone::Head),
+            "chest" | "belly" => Some(HitZone::Torso),
+            _ => None,
+        }
+    }
+
+    pub fn multiplier(&self, zone: HitZone) -> f32 {
+        match zone {
+            HitZone::Head => self.head_mult,
+            HitZone::Torso => self.torso_mult,
+        }
+    }
+}
+
 /// A projectile's direct hit on a character (Projectile_ApplyHitDamage 0x0047eec0): the part hit (the hit part's bone
 /// "head" / "neck" -> head_shot_multiplier, "chest" / "belly" -> torso_shot_multiplier; without collision parts, the
 /// skeleton bone nearest the hit point), the damage (a class's bullet share: the Q112's bullet_scale), the counts (hits,
@@ -1681,12 +1803,9 @@ fn strike(p: &Projectile, ce: Entity, h: &mut Health, anim: Option<&crate::skin:
                 .map(|(n, _)| n)
         })
     });
-    let mult = match part.as_deref() {
-        Some("head" | "neck") => p.head_mult,
-        Some("chest" | "belly") => p.torso_mult,
-        _ => 1.0,
-    };
-    if p.from_player && mult > 1.0 && matches!(part.as_deref(), Some("head" | "neck")) {
+    let zone = p.zone(part.as_deref());
+    let mult = zone.map_or(1.0, |z| p.multiplier(z));
+    if zone == Some(HitZone::Head) {
         stats.head_shots += 1;
     }
     h.0 -= p.damage * mult * victims.get(ce).map_or(1.0, |g| g.bullet_scale);
@@ -1698,8 +1817,11 @@ fn strike(p: &Projectile, ce: Entity, h: &mut Health, anim: Option<&crate::skin:
         if let Some(o) = p.owner {
             g.attacker = Some(o);
         }
-        // a bullet's record has no 0x80 (allow_cartoon_death 0, p_player_rifle_bullet)
-        g.cartoon = false;
+        // the record's 0x80 (allow_cartoon_death, 0x0047eba0) and where it came from (its +0x2c: the shooter)
+        g.cartoon = p.cartoon;
+        g.cartoon_from = p.owner.filter(|_| p.cartoon).and_then(|o| joints.get(o).ok()).map(|o| o.translation());
+        // the record's flag 4: a head shot, which the victim answers with its head-hit anim (0x00430340)
+        g.head_hit = zone == Some(HitZone::Head);
     }
     if std::env::var("AIDBG").is_ok() {
         info!("AIDBG hit {ce:?} for {} -> {} part {:?}", p.damage * mult, h.0, part);
@@ -1731,6 +1853,14 @@ fn projectiles(
 ) {
     let dt = time.delta_secs();
     for (e, mut p, mut t, mut pierce) in &mut q {
+        // the lifetime first (0x0047e4a0 at the start of Projectile_Update 0x0047e580): run out, the projectile is
+        // removed (Projectile_Remove 0x0047ebd0: the despawn; its hit list 0x0047ecb0 is not needed, a bullet ends at
+        // its first hit) before it moves or tests a hit
+        p.life -= dt;
+        if p.life <= 0.0 {
+            commands.entity(e).despawn();
+            continue;
+        }
         // an arrow falls (its physics body under the world's gravity) and passes Roman with a sound once
         if p.arrow {
             p.vel.y -= 64.348 * dt;
@@ -1746,7 +1876,6 @@ fn projectiles(
         }
         let step = p.vel * dt;
         let from = t.translation;
-        p.life -= dt;
         // the noise of a player's shot (0x00404810; ai.rs Interests): its path and its end point
         noise.track(e, from + step, p.owner);
         let mut hit = physics.raycast_bullet(from, step.normalize_or(Vec3::Y), step.length().max(0.01));
@@ -1833,6 +1962,7 @@ fn projectiles(
         // enemy bullets hit Roman on his collision model's parts (trotter_coll_0 posed by his skeleton, hitparts.rs;
         // the walker is not a body); without it, by distance to his capsule
         let mut hit_roman = false;
+        let mut roman_part: Option<String> = None;
         if !p.from_player {
             if let Ok((_, r, rt, ra)) = roman.single() {
                 let c = rt.translation + Vec3::Y * r.walker.lift;
@@ -1848,6 +1978,7 @@ fn projectiles(
                             let jp = a.skeleton.index.get(part.as_str()).and_then(|&i| joints.get(a.joints[i]).ok()).map(|j| crate::level::game_to_engine().inverse() * (j.translation() - rt.translation)).unwrap_or(Vec3::ZERO);
                             info!("AIDBG romanhit {} {:.2} {:.2} {:.2} anim {:.2} bone {:.2} {:.2} {:.2} t {:.3}", part, at.x, at.y, at.z, r.hit_anim, jp.x, jp.y, jp.z, rtime.elapsed_secs());
                         }
+                        roman_part = rh.as_ref().map(|(_, part)| part.clone());
                         rh.is_some()
                     }
                     (Some(_), Some(_)) => false,
@@ -1881,15 +2012,20 @@ fn projectiles(
                     if parts.is_empty() || (from + seg * u).distance(cc) > 12.0 {
                         continue;
                     }
-                    if let Some((f, _)) = crate::hitparts::hit(parts, a, &joints, &binds, from, to) {
-                        if hit_companion.is_none_or(|(bf, _)| f < bf) {
-                            hit_companion = Some((f, c.q));
+                    if let Some((f, part)) = crate::hitparts::hit(parts, a, &joints, &binds, from, to) {
+                        if hit_companion.as_ref().is_none_or(|(bf, _, _)| f < *bf) {
+                            hit_companion = Some((f, c.q, part));
                         }
                     }
                 }
             }
         }
-        if let Some((_, q)) = hit_companion {
+        if let Some((_, q, part)) = hit_companion {
+            // the record (0x0047eec0): the part's multiplier and the head-shot count, whoever fired
+            let zone = p.zone(Some(part.as_str()));
+            if zone == Some(HitZone::Head) {
+                stats.head_shots += 1;
+            }
             if let Some(f) = impact(None, from + step, Quat::IDENTITY) {
                 surface_fx.write(f);
             }
@@ -1903,7 +2039,7 @@ fn projectiles(
                 if p.from_player {
                     c.friendly = true;
                 } else {
-                    ch.0 -= p.damage * c.damage_scale(p.kind);
+                    ch.0 -= p.damage * zone.map_or(1.0, |z| p.multiplier(z)) * c.damage_scale(p.kind);
                     c.attacker = p.owner;
                 }
             }
@@ -1919,19 +2055,26 @@ fn projectiles(
             if let (true, Ok((re, ..))) = (p.linger > 0.0, roman.single()) {
                 stuck.write(crate::arrows::ArrowStuck { arrow: e, at: from + step, on: Some(re), linger: p.linger });
             }
+            // the record's damage (0x0047eec0): x head_shot_multiplier on his head or neck (the captain sniper's bullet,
+            // 5), x torso_shot_multiplier on his chest or belly; a head shot is counted whoever fired it
+            let zone = p.zone(roman_part.as_deref());
+            let damage = p.damage * zone.map_or(1.0, |z| p.multiplier(z));
+            if zone == Some(HitZone::Head) {
+                stats.head_shots += 1;
+            }
             // ignored during the topsy states (0x0047afa0: +0xa34 & 0x7800000); the bullet still lands
             if let Some((mut h, shield)) = roman_health.single_mut().ok().filter(|_| !topsy.active()) {
                 // a shield in front of him takes the whole hit first (the base turret's window, fx.rs DamageShield);
                 // else halved while on a mounted gun (0x0047afa0: Game+0xac8 set -> damage * 0.5, 0x005bcb4c)
                 // (the health set 0x0047af50 is the Health component)
-                if !shield.is_some_and(|mut s| s.absorb(p.damage)) {
-                    h.0 -= if mounted.0.is_some() { p.damage * 0.5 } else { p.damage };
+                if !shield.is_some_and(|mut s| s.absorb(damage)) {
+                    h.0 -= if mounted.0.is_some() { damage * 0.5 } else { damage };
                 }
                 if std::env::var("AIDBG").is_ok() {
                     // who hurt Roman: the shooter's kind and weapon, the distance it flew, his health after
                     let (kind, weapon) = p.owner.and_then(|o| victims.get(o).ok()).map_or(("?".to_string(), "?".to_string()), |g| (format!("{:?}", g.kind), g.kind.weapon().to_string()));
                     let d = p.owner.and_then(|o| joints.get(o).ok()).map_or(-1.0, |gt| gt.translation().distance(from));
-                    info!("AIDBG romandmg bullet {:.0} by {kind} {weapon} {:?} d {:.0} health {:.0} t {:.2}", p.damage, p.owner, d, h.0, time.elapsed_secs());
+                    info!("AIDBG romandmg bullet {:.0} by {kind} {weapon} {:?} d {:.0} health {:.0} t {:.2}", damage, p.owner, d, h.0, time.elapsed_secs());
                 }
                 if let Ok((_, mut r, _, _)) = roman.single_mut() {
                     r.hit_from = Some(p.vel.normalize_or(Vec3::Z));
@@ -1947,7 +2090,7 @@ fn projectiles(
                 // with d = (forward.xy, 0.7) normalised (0x0047e580), not scaled by mass; then 1 s of a weakened drive
                 if let (true, Ok((_, mut r, _, _))) = (h.0 > 0.0 && p.impact != 0.0, roman.single_mut()) {
                     if r.hit_anim <= 0.0 {
-                        r.hit_med = p.damage >= 65.0;
+                        r.hit_med = damage >= 65.0;
                         r.hit_anim = if r.hit_med { 1.967 } else { 0.633 };
                         let f = p.vel.normalize_or(Vec3::Z);
                         let n = (f.x * f.x + f.z * f.z + 0.49).sqrt();
@@ -2024,11 +2167,6 @@ fn projectiles(
             continue;
         }
         t.translation = from + step;
-        // the lifetime (0x0047e4a0) runs out: removed (Projectile_Remove 0x0047ebd0: the despawn; its hit list
-        // 0x0047ecb0 is not needed, a bullet ends at its first hit)
-        if p.life <= 0.0 {
-            commands.entity(e).despawn();
-        }
     }
 }
 
@@ -2080,6 +2218,36 @@ fn on_free_ground(physics: &Physics, at: Vec3) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hit_zones_follow_the_multipliers() {
+        let bullet = |head_mult: f32, torso_mult: f32| Projectile {
+            vel: Vec3::ZERO,
+            impact: 0.0,
+            life: 1.0,
+            damage: 50.0,
+            from_player: true,
+            owner: None,
+            fx_end: None,
+            head_mult,
+            torso_mult,
+            no_buildings: true,
+            cartoon: false,
+            arrow: false,
+            flyby: false,
+            linger: 0.0,
+            kind: DamageKind::Plain,
+        };
+        // p_player_rifle_bullet: head x3 -> head / neck a head shot (flag 4), chest / belly the torso (x1)
+        let rifle = bullet(3.0, 1.0);
+        assert_eq!(rifle.zone(Some("head")), Some(HitZone::Head));
+        assert_eq!(rifle.zone(Some("neck")), Some(HitZone::Head));
+        assert_eq!(rifle.zone(Some("belly")), Some(HitZone::Torso));
+        assert_eq!(rifle.zone(Some("l_arm")), None);
+        assert_eq!(rifle.multiplier(HitZone::Head), 3.0);
+        // the machine gun's: both 1, the part is not looked at (no head shot counted)
+        assert_eq!(bullet(1.0, 1.0).zone(Some("head")), None);
+    }
 
     #[test]
     fn reload_refills_at_the_timer() {
