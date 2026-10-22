@@ -130,6 +130,8 @@ SUITE += ['devmenu_toggles', 'devmenu_level', 'devmenu_title', 'devtools_quicksa
 # the AI's triggers and scares (ai.rs, audit wave 2 g02): receive_trigger_kill kills placed grunts (0x0042f870,
 # lev_2_m2), the sticky bomb's scare distances (0x0042fb60), a trigger_no_damage monk unhurt until his trigger (lev_4_m1)
 SUITE += ['ai_trigger_kill_l2m2', 'ai_sticky_scare', 'ai_monk_no_damage_l4m1']
+# a charged grunt keeps its target at any range (0x0043ecf0 with the charge's list +0x958)
+SUITE += ['charge_keeps_target']
 # scripts kept in git (engine/playtests) win over work/remaster/play
 TRACKED = os.path.join(ROOT, 'engine', 'playtests')
 # the wall-clock checks (--perf; their "expect_perf" steps run only with AND_PERF=1)

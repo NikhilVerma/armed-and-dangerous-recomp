@@ -157,6 +157,7 @@ fn smoking(
             if let Ok(r) = roman.single() {
                 g.target = Some(r);
                 g.mind = crate::ai::Mind::Chase;
+                g.charged = true;
             }
         }
     }

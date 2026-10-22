@@ -91,6 +91,7 @@ pub fn bullies(
             if dead && g.target.is_none() && g.mind != Mind::Dead {
                 g.target = player.single().ok();
                 g.mind = Mind::Chase;
+                g.charged = true;
             }
             g.bully = None;
             info!("EVENT ai: bully {ge:?} lets his peasant go");
