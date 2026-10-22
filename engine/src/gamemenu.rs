@@ -1460,7 +1460,12 @@ fn navigate(
             menu.capture = Some(crate::bindings::Capture { bind, device, armed: false });
         }
     }
-    play(&mut sounds, if matches!(act, Act::Back | Act::No | Act::Cancel) { "ui_cancel" } else { "ui_select" });
+    // UiScreen_Activate (ui_03.cpp:1480): the cancel sound (0x00491870), else the select set (0x00491850)
+    if matches!(act, Act::Back | Act::No | Act::Cancel) {
+        play(&mut sounds, "ui_cancel");
+    } else {
+        sounds.write(crate::audio::PlaySound::menu_any(&crate::audio::SELECT_SET));
+    }
 }
 
 /// What the steppers need to know of the screen: the window's size (the Resolution stepper's value until one is

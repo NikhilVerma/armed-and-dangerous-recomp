@@ -23,6 +23,8 @@ pub struct CameraDump {
 pub struct FixedCamera {
     pub transform: Transform,
     pub fov: f32,
+    /// the camera's near plane (+0xf8: node +0xa0 under a camera path, ctor 1.0; Camera_SetupProjection 0x0040f6e0)
+    pub near: f32,
     pub far: f32,
 }
 
@@ -42,7 +44,7 @@ impl CameraDump {
         let (up, back) = (r[1], r[2]);
         let c = game_to_engine();
         let transform = Transform::from_translation(c * pos).looking_to(c * -back, c * up);
-        FixedCamera { transform, fov: self.fov, far: if self.far > 0.0 { self.far } else { 1000.0 } }
+        FixedCamera { transform, fov: self.fov, near: if self.near > 0.0 { self.near } else { 1.0 }, far: if self.far > 0.0 { self.far } else { 1000.0 } }
     }
 }
 
@@ -83,7 +85,7 @@ fn hold(
         if let Projection::Perspective(pp) = &mut *p {
             pp.fov = fixed.fov;
             pp.far = fixed.far;
-            pp.near = 1.0;
+            pp.near = fixed.near;
         }
     }
 }

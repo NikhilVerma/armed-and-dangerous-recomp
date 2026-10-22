@@ -189,7 +189,8 @@ fn entry(
                                 }
                             }
                         }
-                        sounds.write(crate::audio::PlaySound::menu("ui_select"));
+                        // a match: the select set (game_02.cpp:383, 0x00491850)
+                        sounds.write(crate::audio::PlaySound::menu_any(&crate::audio::SELECT_SET));
                     }
                     None => {
                         c.result = get("ui_cheatunknown");
