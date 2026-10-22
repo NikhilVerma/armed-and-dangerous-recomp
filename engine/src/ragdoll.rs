@@ -2,7 +2,13 @@
 //! recovered): one capsule per main bone (pelvis, chest, head, upper and lower arms, thighs, shins) joined by
 //! swing-twist joints, built from the character's pose at the moment of death, launched with the hit's push. The
 //! physics bodies then drive those bones; the other bones follow their parents. Limits and sizes are guesses,
-//! judged by eye against the original's dying grunts.
+//! judged by eye against the original's dying grunts. The joints' hold is the original's (`JOINT_FRICTION`).
+//!
+//! Debt (audit 2026-10-22, deferred): the original builds one body per record of the model's part list (obj+0x1bc,
+//! 0x4c bytes each, pose from record +8: Object_SetRagdoll 0x00459000) and reads each joint from the ragdoll
+//! definition (Body_addConstraints 0x00456570: type 2 limited hinges with optional limits, type 0 ragdoll joints with
+//! the cone cos +0x4c, plane sines +0x50/+0x54 and twist sines +0x40/+0x44). Decoding those records from the model
+//! files would replace `PARTS`.
 
 use crate::physics::{Physics, bq, br, jq, jr, jv};
 use crate::skin::Animator;
@@ -54,16 +60,23 @@ pub struct Build {
     pub size: f32,
     /// each joint's friction torque per kilogram of the two parts it joins (N m / kg; 0: limp). Havok's limited hinge and
     /// ragdoll constraints take a "strength" (Body_addConstraints 0x00456570: (mass A + mass B) x 20): a ragdoll whose
-    /// joints hold its pose until a strong pull bends them
+    /// joints hold its pose until a strong pull bends them ([`JOINT_FRICTION`], the default)
     pub joint_friction: f32,
     /// every part's radius in game units instead of the set's (the tied peasant: 0x00405d10 sets each part's convex
     /// radius, shape +0xc, to 1.0)
     pub radius: Option<f32>,
 }
 
+/// The joints' hold (Body_addConstraints 0x00456570): each joint's strength is (mass A + mass B) x 20 in the original's
+/// units, where gravity is 64.35 units / s^2; as a friction torque here with the same ratio to the weight: 20 x 9.81 x
+/// 0.2 / 64.35 = 0.61 N m per kg. Every ragdoll the original builds goes through it: the tied peasant (0x00405d10),
+/// the AI's (GenericAI_Update 0x0043ee90) and Roman's (PlayerObject 0x004788a0), so corpses keep their pose until
+/// pulled hard.
+pub const JOINT_FRICTION: f32 = 20.0 * 9.81 * crate::level::METERS_PER_UNIT / 64.348;
+
 impl Default for Build {
     fn default() -> Self {
-        Build { size: 1.0, joint_friction: 0.0, radius: None }
+        Build { size: 1.0, joint_friction: JOINT_FRICTION, radius: None }
     }
 }
 

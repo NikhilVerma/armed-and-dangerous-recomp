@@ -621,9 +621,9 @@ fn apply_shadows(
     mut map: ResMut<DirectionalLightShadowMap>,
     mut lights: Query<(Entity, &mut DirectionalLight, &CascadeShadowConfig, Option<&LevelCascades>), With<crate::options::ShadowLight>>,
     new_lights: Query<(), Added<crate::options::ShadowLight>>,
-    (options, game_lights): (Res<crate::options::GameOptions>, Option<Res<crate::gamematerial::GameLights>>),
+    (options, game_lights, mission): (Res<crate::options::GameOptions>, Option<Res<crate::gamematerial::GameLights>>, Option<Res<crate::mission::Mission>>),
 ) {
-    if !s.is_changed() && new_lights.is_empty() && !options.is_changed() {
+    if !s.is_changed() && new_lights.is_empty() && !options.is_changed() && !mission.as_ref().is_some_and(|m| m.is_added()) {
         return;
     }
     let size = s.shadow_map_size.clamp(512, 8192).next_power_of_two() as usize;
@@ -631,7 +631,7 @@ fn apply_shadows(
         map.size = size;
     }
     let fog_far = game_lights.as_ref().and_then(|l| l.fog.map(|f| f.1)).unwrap_or(1500.0);
-    let world_far = crate::options::world_far(fog_far, options.draw_distance);
+    let world_far = crate::options::world_far(fog_far, options.level_draw_distance(mission.as_deref()));
     for (e, mut l, cfg, level) in &mut lights {
         let level = match level {
             Some(l) => l.0.clone(),
