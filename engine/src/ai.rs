@@ -807,6 +807,9 @@ pub struct Grunt {
     pub attacker: Option<Entity>,
     /// game time a target was last adopted by an offer (+0x514)
     pub offer_t: f32,
+    /// the fire counters' ranges (0x00427600 from +0x58c..+0x5b0): `fire_num_clips` clips before he moves on,
+    /// `fire_num_rounds` shots per clip, `fire_num_bursts` shots per burst (at most the rounds left),
+    /// `fire_burst_delay` between bursts, `fire_clip_delay` after a clip's reload
     pub clips: (i64, i64),
     pub rounds: (i64, i64),
     pub bursts: (i64, i64),
@@ -817,8 +820,11 @@ pub struct Grunt {
     pub accuracy: (f32, f32),
     pub infinite_accuracy: (f32, f32),
     pub infinite: bool,
+    /// shots left in the clip (+0x5bc)
     pub left_rounds: i64,
-    pub left_bursts: i64,
+    /// shots left in the burst (+0x5b8)
+    pub left_burst: i64,
+    /// clips left (+0x5b4)
     pub left_clips: i64,
     pub pause: f32,
     pub bullet_speed: f32,
@@ -996,6 +1002,21 @@ impl Grunt {
             || self.gun.is_some()
             || matches!(self.mind, Mind::Dead | Mind::Scripted | Mind::Held | Mind::Throw | Mind::WaitTrigger | Mind::InSquad | Mind::Teleport)
             || (self.mind == Mind::ToMarker && self.spline.is_some_and(|r| !r.started))
+    }
+
+    /// The engage's close attack (0x00427910 with allow_close_attack, ai_02.cpp:1199-1208): a class with one (vt+0x1e0,
+    /// the captain's grenade), in range, the counters rolled (flag 4) and armed (flag 1), and `roll` (rand * 200 >> 15
+    /// < 30) passing; the roll is drawn only when the rest holds.
+    fn engage_throws(&self, in_range: bool, roll: impl FnOnce() -> bool) -> bool {
+        self.kind.close_attack() && in_range && self.fire_ready && self.throw_armed && roll()
+    }
+
+    /// Starts the close attack the engage chose (anim 0x27, state 0x10).
+    fn start_throw(&mut self, lib: &mut crate::skin::AnimLibrary) {
+        self.anim_id = 0x27;
+        self.anim_left = anim_len(lib, self.anim(0x27, 0.0));
+        self.thrown = false;
+        self.mind = Mind::Throw;
     }
 
     /// The anim of an id by the class's table and this grunt's state (vt+0x1a4, `anim_name_with`)
@@ -1400,7 +1421,7 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         infinite_accuracy: (p.f(&fk("fire_infinite_accuracy_min"), 400.0), p.f(&fk("fire_infinite_accuracy_max"), if rocket { 8000.0 } else { 800.0 })),
         infinite: false,
         left_rounds: 0,
-        left_bursts: 0,
+        left_burst: 0,
         left_clips: 0,
         pause: 0.0,
         bullet_speed: proj.f("speed", if bow { 25.0 } else { 150.0 }) * 3.0,
@@ -2505,6 +2526,21 @@ fn duck(g: &mut Grunt) {
     }
 }
 
+/// 0x0042b8e0 for a grunt in a trench's slot (+0x484 0x20000): the target `p` within 80 degrees of the slot's direction
+/// (0x0042b860) -> duck (anim 0x66, state 0xa2); else leave the trench (vt+0x188) and search again (vt+0x240(1, 1, 0)).
+#[allow(clippy::too_many_arguments)]
+fn barricade_clip_end(g: &mut Grunt, me: Entity, p: Vec3, pos: Vec3, tgt: Option<(Vec3, Vec3)>, spots: &mut Spots, physics: &Physics, own: BodyId, rng: &mut FxStats) {
+    let c = g.cover.expect("at a barricade without a cover");
+    if within_arc(p, c.spot, c.dir, 80.0) {
+        duck(g);
+    } else {
+        leave_cover(g, me, &mut spots.trenches, true);
+        if let Some(m) = find_hiding_spot(g, me, (true, false), pos, tgt, spots, physics, own, rng).mind() {
+            g.mind = m;
+        }
+    }
+}
+
 /// The reload set's length (anims 0x2a, 0x2b, 0x28, 0x29 by PlayAnim4: the engine times the one it plays):
 /// grunt_reload_br 1.133 s, grunt_bow_reload_* 1.3 s, captain_reload_* 2.3 s.
 /// The state the hiding-spot search's answer starts (0x0042a7b0): a trench (0xa0), a gun (0x7b), the reload in place
@@ -2793,10 +2829,12 @@ fn reaction_end(
 #[derive(PartialEq)]
 enum FireEnd {
     None,
-    /// a burst over with more of the clip left (0x00428980, ai_02.cpp:1915-1929: the close attack's other moment)
+    /// a burst over with more of the clip left (0x00428980, ai_02.cpp:1928-1937: the close attack's other moment)
     Burst,
-    /// the last burst of the clip (0x00428980 -> 0x0042b8e0)
-    Clip,
+    /// a clip spent with more clips left: the reload in place (ai_02.cpp:1938-1952, state 0x32)
+    Reload,
+    /// the last clip spent (0x00428980 -> 0x0042b8e0); `close_attack` false when a blocked taunt skips the fallbacks
+    Clip { close_attack: bool },
     /// no line of sight to the target (los_lost)
     Sight,
     /// the last clip ended in a taunt (state 0x6e)
@@ -2899,7 +2937,7 @@ fn think(
             continue;
         }
         // a trench held by a grunt another system took elsewhere (a scare, a throw): let it go (guess: as vt+0x18c)
-        if g.cover.is_some() && !matches!(g.mind, Mind::Cover | Mind::Fire | Mind::Reload) {
+        if g.cover.is_some() && !matches!(g.mind, Mind::Cover | Mind::Fire | Mind::Reload) && !(g.mind == Mind::Throw && g.at_barricade) {
             leave_cover(&mut g, ge, &mut spots.trenches, false);
         }
         // likewise a gun (0x004266b0)
@@ -3300,10 +3338,8 @@ fn think(
                         m.summon_at = monk::summon_point(pos, forward, &mut rng);
                     }
                     Mind::Cast
-                } else if !engaged && !retry && g.kind.close_attack() && in_range && g.fire_ready && g.throw_armed && (force.take("throw") || rng.rand() * 200.0 < 30.0) {
-                    g.anim_id = 0x27;
-                    g.anim_left = anim_len(&mut lib, g.anim(0x27, 0.0));
-                    g.thrown = false;
+                } else if !engaged && !retry && g.engage_throws(in_range, || force.take("throw") || rng.rand() * 200.0 < 30.0) {
+                    g.start_throw(&mut lib);
                     Mind::Throw
                 } else if g.guard {
                     // a guard fires from his guard state (0x79, ai_06.cpp:2664-2673: the fire cycle vt+0x198 with
@@ -3610,6 +3646,16 @@ fn think(
                 if g.anim_left <= 0.0 {
                     g.mind = if g.guard {
                         Mind::Guard
+                    } else if g.at_barricade {
+                        // thrown from a trench's slot: 0x0042b8e0's slot rule, or the engage (in range fire, else duck)
+                        let research = !g.fire_ready || rng.rand() < 0.5;
+                        g.mind = Mind::Fire;
+                        match target {
+                            Some(p) if research => barricade_clip_end(&mut g, ge, p, pos, tgt, &mut spots, &physics, body.id, &mut rng),
+                            Some(_) if in_range => {}
+                            _ => duck(&mut g),
+                        }
+                        g.mind
                     } else if !g.fire_ready || rng.rand() < 0.5 {
                         if target.is_some() {
                             let h = find_hiding_spot(&mut g, ge, (true, false), pos, tgt, &mut spots, &physics, body.id, &mut rng);
@@ -3685,7 +3731,7 @@ fn think(
                     }
                     // the close attack at a burst's or the clip's end (0x00428980 -> 0x00428160: the target within
                     // m_h2hMin), before the next burst, the reload or the search (ai/melee.rs)
-                    if matches!(end, FireEnd::Burst | FireEnd::Clip) && !g.at_barricade {
+                    if matches!(end, FireEnd::Burst | FireEnd::Clip { close_attack: true }) && !g.at_barricade {
                         if let Some(id) = melee::close_attack(g.kind, pos, p, || rng.rand()) {
                             g.mind = Mind::CloseAttack;
                             g.anim_id = id;
@@ -3698,7 +3744,7 @@ fn think(
                     }
                     // a counted shooter stops at its clip's end (0x00428980 -> 0x0042bb10): its place is handed over
                     // (a lost line of sight keeps the engine's fire state, which keeps the place: max_fire.rs)
-                    if matches!(end, FireEnd::Clip | FireEnd::Taunt) && g.shooter != max_fire::Shooter::None {
+                    if matches!(end, FireEnd::Clip { .. } | FireEnd::Taunt) && g.shooter != max_fire::Shooter::None {
                         let mut s = g.shooter;
                         limit.release(ge, &mut s);
                         g.shooter = s;
@@ -3709,18 +3755,8 @@ fn think(
                         // the clip's end (0x0042b8e0): in the slot, the target within 80 degrees of its direction ->
                         // duck, else leave it (vt+0x188) and search again (vt+0x240(1, 1, 0)); elsewhere a non-guard
                         // searches (vt+0x240(1, 0, 0)): 90 % the reload in place first
-                        FireEnd::Clip if g.at_barricade => {
-                            let c = g.cover.expect("at a barricade without a cover");
-                            if within_arc(p, c.spot, c.dir, 80.0) {
-                                duck(&mut g);
-                            } else {
-                                leave_cover(&mut g, ge, &mut spots.trenches, true);
-                                if let Some(m) = find_hiding_spot(&mut g, ge, (true, false), pos, tgt, &mut spots, &physics, body.id, &mut rng).mind() {
-                                    g.mind = m;
-                                }
-                            }
-                        }
-                        FireEnd::Clip if !g.guard => {
+                        FireEnd::Clip { .. } if g.at_barricade => barricade_clip_end(&mut g, ge, p, pos, tgt, &mut spots, &physics, body.id, &mut rng),
+                        FireEnd::Clip { .. } if !g.guard => {
                             if let Some(m) = find_hiding_spot(&mut g, ge, (true, false), pos, tgt, &mut spots, &physics, body.id, &mut rng).mind() {
                                 g.mind = m;
                             }
@@ -3833,11 +3869,16 @@ fn think(
                     }
                     CoverPhase::Stand => {
                         if c.timer <= 0.0 {
-                            // engage (0x00427910): in range the fire state 0xa, keeping the trench; else (or no
-                            // target, L_4459e4) duck
+                            // engage (0x00427910 with allow_close_attack, state 0xa4's end): in range the captain's
+                            // grenade at the engage's roll, else the fire state 0xa, keeping the trench either way (in
+                            // the slot, +0x484 0x20000, vt+0x188 is skipped); else (or no target, L_4459e4) duck
                             if target.is_some() && in_range {
-                                g.mind = Mind::Fire;
-                                g.pause = 0.0;
+                                if g.engage_throws(in_range, || force.take("throw") || rng.rand() * 200.0 < 30.0) {
+                                    g.start_throw(&mut lib);
+                                } else {
+                                    g.mind = Mind::Fire;
+                                    g.pause = 0.0;
+                                }
                             } else {
                                 c.phase = CoverPhase::Duck;
                                 c.timer = DUCK_TIME;
@@ -4306,16 +4347,15 @@ fn fire_cycle(
     if g.pause > 0.0 {
         return FireEnd::None;
     }
+    // the counters (0x00427600): the first time (flag 4 clear) the clips too, then per clip the rounds and the first
+    // burst, the burst at most the rounds
     if g.left_clips <= 0 {
-        g.left_clips = rng.range(g.clips.0 as f32, g.clips.1 as f32 + 0.999) as i64;
-        g.left_bursts = 0;
-    }
-    if g.left_bursts <= 0 {
-        g.left_bursts = rng.range(g.bursts.0 as f32, g.bursts.1 as f32 + 0.999) as i64;
+        g.left_clips = roll_count(rng, g.clips);
         g.left_rounds = 0;
     }
     if g.left_rounds <= 0 {
-        g.left_rounds = rng.range(g.rounds.0 as f32, g.rounds.1 as f32 + 0.999) as i64;
+        g.left_rounds = roll_count(rng, g.rounds);
+        g.left_burst = roll_count(rng, g.bursts).min(g.left_rounds);
     }
     // fires only inside the 180-degree cone with line of sight
     let fwd = Vec3::new(g.yaw.sin(), 0.0, g.yaw.cos());
@@ -4367,36 +4407,61 @@ fn fire_cycle(
     // 1 frame = 108 frames for the archer (the original's 837 -> 945); a moving grunt (state 0x32) waits the clip delay
     // the fire anim's length per shot: grunt_fire_* / grunt_bow_fire_* 0.467 s (one "fire" note each), the captain's
     // captain_fire_* 0.633 s looped (+0x484 0x1000: 0x00428250(1) at CaptainObject_Slot6) with one note per loop
+    //
+    // Every shot counts down the clip's rounds and the burst (the "fire" note, ai_05.cpp:1255-1256). A burst spent with
+    // rounds left (ai_02.cpp:1928-1937) waits fire_burst_delay and rolls the next burst (at most the rounds left). A clip
+    // spent counts the clips (+0x5b4); with clips left a moving grunt reloads in place (anims 0x2a.., state 0x32, its end
+    // rolling the next clip after fire_clip_delay); a guard (may_move clear) does not stop there and spends the rest at
+    // once. After the last clip (flag 4 cleared) the taunt, the close attack, then the search (0x0042b8e0).
     let fire_len = g.fire_len;
     g.left_rounds -= 1;
+    g.left_burst -= 1;
     g.pause = fire_len;
-    if g.left_rounds <= 0 {
-        g.left_bursts -= 1;
-        g.pause = fire_len + rng.range(g.burst_delay.0, g.burst_delay.1);
-        if g.left_bursts <= 0 {
-            g.left_clips -= 1;
-            g.fire_ready = false;
-            // the taunt after the last burst (0x00428980, ai_02.cpp:1955-1981): a target, vt+0x1d8 (all three classes),
-            // taunt_delay passed (Game+0xb84 / +0xb90, 300..360 s game-wide), not in a trench's slot (+0x484 0x20000);
-            // the heading test (0x004e81a0 of the two facings < 180) passes but for opposite facings, and the grunt's own
-            // line +0xb50 silent: the Taunt bark (vt+0x15c, kept as his line), a taunt anim 0x32 + (rand * 3 >> 15),
-            // state 0x6e; the timer restarts only then
-            if !g.at_barricade && g.kind.taunts() && barks.ready(Delay::Taunt, now, rng) && !g.speech.saying(voices) {
-                barks.take(Delay::Taunt, now, rng);
-                let set = g.voice_set;
-                let req = g.speech.line(voices, bark_request("Taunt", set, pos));
-                sounds.write(req);
-                g.anim_id = 0x32 + ((rng.rand() * 3.0) as u32).min(2);
-                g.mind = Mind::Taunt;
-                return FireEnd::Taunt;
-            }
-            g.mind = Mind::Reload;
-            g.pause = fire_len + g.reload_len + if g.guard { 2.0 / 60.0 } else { rng.range(g.clip_delay.0, g.clip_delay.1) };
-            return FireEnd::Clip;
+    if g.left_rounds > 0 {
+        if g.left_burst > 0 {
+            return FireEnd::None;
         }
+        g.pause = fire_len + rng.range(g.burst_delay.0, g.burst_delay.1);
+        g.left_burst = roll_count(rng, g.bursts).min(g.left_rounds);
         return FireEnd::Burst;
     }
-    FireEnd::None
+    g.left_clips = if g.guard { 0 } else { g.left_clips - 1 };
+    if g.left_clips > 0 {
+        g.mind = Mind::Reload;
+        g.pause = fire_len + g.reload_len + rng.range(g.clip_delay.0, g.clip_delay.1);
+        return FireEnd::Reload;
+    }
+    g.fire_ready = false;
+    if g.guard {
+        // a guard's last clip (may_move clear: no taunt, ai_02.cpp:1957): the reload set where he stands
+        g.mind = Mind::Reload;
+        g.pause = fire_len + g.reload_len + 2.0 / 60.0;
+        return FireEnd::Clip { close_attack: true };
+    }
+    // the taunt after the last clip (0x00428980, ai_02.cpp:1955-1981): a target, vt+0x1d8 (all three classes),
+    // taunt_delay passed (Game+0xb84 / +0xb90, 300..360 s game-wide), not in a trench's slot (+0x484 0x20000);
+    // the heading test (0x004e81a0 of the two facings < 180) passes but for opposite facings, and the grunt's own
+    // line +0xb50 silent: the Taunt bark (vt+0x15c, kept as his line), a taunt anim 0x32 + (rand * 3 >> 15),
+    // state 0x6e; the timer restarts only then. A taunt due but blocked by his own line skips the close attack
+    // (tryFallback cleared, ai_02.cpp:1962).
+    let taunt_due = !g.at_barricade && g.kind.taunts() && barks.ready(Delay::Taunt, now, rng);
+    if taunt_due && !g.speech.saying(voices) {
+        barks.take(Delay::Taunt, now, rng);
+        let set = g.voice_set;
+        let req = g.speech.line(voices, bark_request("Taunt", set, pos));
+        sounds.write(req);
+        g.anim_id = 0x32 + ((rng.rand() * 3.0) as u32).min(2);
+        g.mind = Mind::Taunt;
+        return FireEnd::Taunt;
+    }
+    g.mind = Mind::Reload;
+    g.pause = fire_len + g.reload_len + rng.range(g.clip_delay.0, g.clip_delay.1);
+    FireEnd::Clip { close_attack: !taunt_due }
+}
+
+/// One of 0x00427600's integer rolls (RandRange: min..=max).
+fn roll_count(rng: &mut FxStats, (lo, hi): (i64, i64)) -> i64 {
+    rng.range(lo as f32, hi as f32 + 0.999) as i64
 }
 
 /// Character_Die: Dead bark once; ragdoll (a tumbling rigid body here) when the killing hit was at least
@@ -5283,6 +5348,9 @@ fn companions(
         // The original's dump (fightT): Jonesy walks from 181 to 130 units and Q to 153 before firing
         let tdist = c.target.and_then(|tg| grunts.get(tg).ok()).map(|(_, _, gt, _)| (gt.translation() - me).with_y(0.0).length());
         let in_range = |c: &Companion| tdist.is_some_and(|d| d < c.range);
+        // a target in an IC move (+0xa18 bit 0, 0x00426630) or held for a close kill (state 0xf) gets no TNT: the
+        // engage's roll is overridden to 1000 (ai_02.cpp:1189-1197)
+        let target_busy = |t: Option<Entity>| t.and_then(|tg| grunts.get(tg).ok()).is_some_and(|(_, g, _, _)| matches!(g.mind, Mind::Scripted | Mind::Held));
         match tdist {
             None => c.engaged = false,
             Some(d) if !c.engaged && d <= 0.9 * c.range => {
@@ -5290,7 +5358,7 @@ fn companions(
                 // the engage (0x00427910) first tries the close kill (0x00427e80, close_kill.rs)
                 if let Some(grab) = close_kill::attempt(c, e, me, &grunts, &joints, &mut rng, &mut force) {
                     grabs.write(grab);
-                } else if !c.q && c.throw_armed && c.throwing.is_none() && rng.rand() * 90.0 < 30.0 {
+                } else if !c.q && c.throw_armed && c.throwing.is_none() && rng.rand() * 90.0 < 30.0 && !target_busy(c.target) {
                     c.throwing = Some(0.0);
                 }
             }

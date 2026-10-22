@@ -141,7 +141,10 @@ pub fn upkeep(mut limit: ResMut<ShooterLimit>, mut grunts: Query<(Entity, &mut G
     }
     for (e, mut g) in &mut grunts {
         let firing = matches!(g.mind, Mind::Fire) || (g.mind == Mind::Guard && g.guard_firing);
-        if g.shooter == Shooter::Counted && (!firing || !g.fire_ready || g.mind == Mind::Dead) {
+        // the reload between two clips (state 0x32, counters still rolled) keeps a counted place: only the last clip's
+        // end frees it (ai_02.cpp:1953); an extra is asked again at the reload's end (its engage)
+        let between_clips = g.mind == Mind::Reload && g.fire_ready;
+        if g.shooter == Shooter::Counted && (!(firing || between_clips) || !g.fire_ready || g.mind == Mind::Dead) {
             let mut s = g.shooter;
             limit.release(e, &mut s);
             g.shooter = s;
