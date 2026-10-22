@@ -57,14 +57,14 @@ fn land(
     mut commands: Commands,
     time: Res<Time>,
     physics: NonSend<Physics>,
-    mut q: Query<(Entity, &mut Launched, &GlobalTransform, Option<&crate::ragdoll::Ragdoll>, Option<&crate::skin::Animator>, Option<&crate::ai::Grunt>)>,
+    mut q: Query<(Entity, &mut Launched, &GlobalTransform, Option<&crate::ragdoll::Ragdoll>, Option<&crate::skin::Animator>, (Option<&crate::ai::Grunt>, Option<&crate::audio::Speech>))>,
     joints: Query<&GlobalTransform>,
     mut fx: MessageWriter<crate::surface::StartSurfaceFx>,
     mut hush: MessageWriter<crate::audio::StopVoice>,
     mut stats: ResMut<BodyfallStats>,
 ) {
     let dt = time.delta_secs();
-    for (e, mut l, gt, rd, anim, grunt) in &mut q {
+    for (e, mut l, gt, rd, anim, (grunt, speech)) in &mut q {
         l.age += dt;
         if l.age > GIVE_UP {
             commands.entity(e).remove::<Launched>();
@@ -85,8 +85,8 @@ fn land(
         let surface = physics.landscape.map(|l| physics.surface(l, ground)).unwrap_or_default();
         let name = surface.variant("fx_bodyfall", |_| true);
         info!("EVENT bodyfall: {e:?} landed ({name})");
-        // his scream stops (+0xb4c: audio vt+0xd8)
-        if let Some(id) = grunt.and_then(|g| g.speech.scream_voice()) {
+        // his scream stops (+0xb4c: audio vt+0xd8), whoever he is: a grunt's, a tossed villager's
+        if let Some(id) = grunt.map(|g| &g.speech).or(speech).and_then(|s| s.scream_voice()) {
             hush.write(crate::audio::StopVoice { id, immediate: false });
         }
         fx.write(crate::surface::StartSurfaceFx { fx: crate::fx::StartFx { name: "fx_bodyfall".into(), at: ground, rotation: Quat::IDENTITY, follow: None, position_only: false }, surface });

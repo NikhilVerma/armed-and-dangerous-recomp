@@ -177,7 +177,10 @@ fn toss(
                 voice.interval = delay.0 + rng.rand() * (delay.1 - delay.0);
                 pick_cue(&MAN_NEW, rng.rand())
             };
-            sounds.write(crate::audio::PlaySound::on(cue, villager.0));
+            // kept as his held scream (+0xb4c), which his landing stops (bodyfall.rs)
+            let mut speech = crate::audio::Speech::default();
+            sounds.write(speech.hold_scream(now, crate::audio::PlaySound::on(cue, villager.0)));
+            commands.entity(villager.0).insert(speech);
             stats.screams += 1;
             // a man's scream: a line of the tossed table by whoever can say it (0x00493b70 with 0x0040d250); which
             // list +0xf04 is (JON50172 / Q1150162 need it) is not traced: taken as empty

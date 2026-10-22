@@ -56,7 +56,7 @@ pub fn hand_out(commands: &mut Commands, grunts: impl Iterator<Item = (Entity, M
 }
 
 /// The delays and the run.
-pub fn run(mut commands: Commands, time: Res<Time>, mut q: Query<(Entity, &mut Retreat, &mut Grunt, &GlobalTransform)>, mut rng: ResMut<crate::fx::FxStats>, mut stats: ResMut<RetreatStats>, mut sounds: MessageWriter<crate::audio::PlaySound>) {
+pub fn run(mut commands: Commands, time: Res<Time>, mut q: Query<(Entity, &mut Retreat, &mut Grunt, &GlobalTransform)>, mut rng: ResMut<crate::fx::FxStats>, mut stats: ResMut<RetreatStats>, mut sounds: MessageWriter<crate::audio::PlaySound>, voices: crate::audio::PlayingVoices) {
     let dt = time.delta_secs();
     for (e, mut r, mut g, gt) in &mut q {
         r.delay -= dt;
@@ -79,7 +79,11 @@ pub fn run(mut commands: Commands, time: Res<Time>, mut q: Query<(Entity, &mut R
         if rng.rand() * 100.0 < 20.0 {
             g.scared_run = true;
             stats.scared += 1;
-            sounds.write(crate::audio::PlaySound::at(&super::voice("General_Scream", g.voice_set), pos));
+            // vt+0x160 (0x00438590 -> 0x004383a0): on him, kept as his scream, none while the last one plays
+            let set = g.voice_set;
+            if let Some(req) = g.speech.scream(&voices, super::bark_request("General_Scream", set, pos).following(e)) {
+                sounds.write(req);
+            }
         }
     }
 }

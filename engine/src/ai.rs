@@ -1634,8 +1634,9 @@ impl Barks {
     }
 }
 
-fn bark(sounds: &mut MessageWriter<crate::audio::PlaySound>, category: &str, set: u8, at: Vec3) {
-    sounds.write(bark_request(category, set, at));
+/// A bark on the speaker, following him (the voice methods' Say: audio +0xc4 with the object).
+fn bark(sounds: &mut MessageWriter<crate::audio::PlaySound>, category: &str, set: u8, at: Vec3, who: Entity) {
+    sounds.write(bark_request(category, set, at).following(who));
 }
 
 /// A cue's line by the speaker's class: captains and sniper captains their own lists (CaptainObject / SniperCaptain
@@ -1648,7 +1649,9 @@ pub fn class_voice(kind: Kind, category: &str, set: u8) -> String {
     }
 }
 
-/// A bark's request, for the barks kept as a voice handle (audio.rs Speech).
+/// A bark's request, for the barks kept as a voice handle (audio.rs Speech), starting at `at`. The character voice
+/// methods play on the speaker (audio_01.cpp Say, audio +0xc4): add `.following(speaker)`; only DeadAtPosition's
+/// first and default sets play at a fixed point (0x00439890, audio +0xcc).
 pub fn bark_request(category: &str, set: u8, at: Vec3) -> crate::audio::PlaySound {
     crate::audio::PlaySound::at(voice(category, set), at).looping(false)
 }
@@ -2274,7 +2277,7 @@ fn scare(
                 Some("General_Scream")
             };
             let set = g.voice_set;
-            if let Some(req) = scream.and_then(|cat| g.speech.scream(&voices, bark_request(cat, set, at))) {
+            if let Some(req) = scream.and_then(|cat| g.speech.scream(&voices, bark_request(cat, set, at).following(ge))) {
                 sounds.write(req);
             }
             if guarding {
@@ -3258,11 +3261,11 @@ fn think(
                 g.hurt_voice_timer = 4.0;
                 // (kept as his line, 0x00439e00 -> +0xb50)
                 let set = g.voice_set;
-                let req = g.speech.line(&voices, bark_request("Hurt:{}:last4", set, tr.translation));
+                let req = g.speech.line(&voices, bark_request("Hurt:{}:last4", set, tr.translation).following(ge));
                 sounds.write(req);
             } else if g.hurt_voice_timer <= 0.0 {
                 g.hurt_voice_timer = 4.0;
-                bark(&mut sounds, "Hurt:{}:butlast4", g.voice_set, tr.translation);
+                bark(&mut sounds, "Hurt:{}:butlast4", g.voice_set, tr.translation, ge);
             }
             let source = g.attacker.take();
             if busy {
@@ -4820,7 +4823,11 @@ fn die(
             let dead = !g.speech.screaming(&voices) && barks.take(Delay::Death, time.elapsed_secs(), &mut rng);
             let cat = if dead { "Dead:{}:last3" } else { "Dead:{}:butlast3" };
             let set = g.voice_set;
-            let req = g.speech.death_line(&voices, &mut stop, bark_request(cat, set, tr.translation));
+            // Dead says it on him (0x004396a0); DeadAtPosition only for the +0x488 bit 29 set (set 2), the others at the
+            // place he died (0x00439890: audio +0xcc with virtual +0x54's position)
+            let req = bark_request(cat, set, tr.translation);
+            let req = if dead || set == 2 { req.following(e) } else { req };
+            let req = g.speech.death_line(&voices, &mut stop, req);
             sounds.write(req);
         }
         // a killing blast's fling (GoRagdoll 0x00431310's impact branch), else the body's own motion
