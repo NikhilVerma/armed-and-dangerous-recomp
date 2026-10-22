@@ -8,8 +8,9 @@
 //! Not kept (the remaster's renderer decides them): enablePostFx, enableBumpMapping, enableDecals,
 //! enablePixelShaders, modelLod, textureLod, textureQuality, skinHQ, maxTextures. The input bindings
 //! (m_control->m_inputActions) are `bindings` (bindings.rs). Defaults are the original's (0x00401a80): volumes 0.8, brightness 1.5, draw
-//! distance 1.0, shadows on, mouse sensitivity 0.5; both subtitle options on (guess: 0x00447630 picks the default
-//! by language). Applied to the engine whenever they change: the mixer, the subtitle line, the shadow-casting sun,
+//! distance 1.0, shadows on, mouse sensitivity 0.5; both subtitle options on (0x00447630: the byte +8 of the
+//! lang.dat language's record in the table 0x00588e78, 1 for English, Spanish and Italian, 0 for German and French;
+//! the remaster ships the English data). Applied to the engine whenever they change: the mixer, the subtitle line, the shadow-casting sun,
 //! the far plane (draw distance), mouse look (player.rs); the brightness and the window by display/brightness.rs and
 //! display/window.rs.
 
@@ -176,10 +177,17 @@ pub struct ShadowLight;
 
 /// The draw distance the camera uses: 0x0040f8c0 (the option Game+0x4b0, applied at level start by Game_StartLevel
 /// 0x00403690 and after a load) keeps a value in (0.25, 1.0), takes 1.0 at or above 1.0 ([0x005bcb2c]) and 0.25 at
-/// or below 0.25 ([0x005bcbe4]), and scales the fog range by it. (It also takes 1.0 when 0x0044e600 answers true:
-/// not traced.)
+/// or below 0.25 ([0x005bcbe4]), and scales the fog range by it.
 pub fn draw_distance_scale(v: f32) -> f32 {
     if v > 0.25 { v.min(1.0) } else { 0.25 }
+}
+
+impl GameOptions {
+    /// The draw distance the level's camera takes: the option, except on a base-defence level (0x0044e600: a player and
+    /// the mission's start_in_turret_tag), where 0x0040f8c0 always uses the full distance 1.0.
+    pub fn level_draw_distance(&self, mission: Option<&crate::mission::Mission>) -> f32 {
+        if mission.is_some_and(|m| m.start_in_turret) { 1.0 } else { self.draw_distance }
+    }
 }
 
 /// The far plane at draw distance 1.0 as a multiple of the level's fog_far: the original's camera dumps on lev_1_m1
@@ -211,11 +219,12 @@ fn apply(
     cams: Query<(Entity, &Projection), With<Camera3d>>,
     mut seen_cams: crate::levelreset::PerLevel<usize>,
     game_lights: Option<Res<crate::gamematerial::GameLights>>,
+    mission: Option<Res<crate::mission::Mission>>,
 ) {
     // a camera spawned after the last change (level start) gets the options too
     let n = cams.iter().count();
     let seen_cams = seen_cams.get();
-    if !o.is_changed() && n == *seen_cams {
+    if !o.is_changed() && n == *seen_cams && !mission.as_ref().is_some_and(|m| m.is_added()) {
         return;
     }
     *seen_cams = n;
@@ -239,7 +248,7 @@ fn apply(
             // the original's far plane: objects wholly beyond it are culled (the game material also clips each pixel
             // there, so nothing visible changes); the sky dome (radius 20000) is never culled (level.rs). Culled
             // objects also stay out of the remaster's depth prepass, where their clipped depth would hide the sky
-            pp.far = world_far(fog_far, o.draw_distance);
+            pp.far = world_far(fog_far, o.level_draw_distance(mission.as_deref()));
             commands.entity(e).insert(Projection::Perspective(pp));
         }
     }
