@@ -4,6 +4,8 @@
  {"expect": {"menu.page": "Main", "audio.music.state": 0, "audio.music.track": "l2amb", "audio.music.through_pause": false}},
  {"wait": 2.0},
  {"expect": {"audio.music.state": 0, "audio.music.track": "l2amb"}},
+ {"tap": "Enter"}, {"wait": 1.0},
+ {"expect": {"menu.page": "Difficulty", "menu.selected": "ui_diff_2", "audio.music.state": 0}},
  {"tap": "Enter"},
  {"wait": 0.5},
  {"expect": {"audio.music.state": -1}},

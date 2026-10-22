@@ -6,7 +6,7 @@
  {"tap": "Escape"}, {"wait": 0.8},
  {"expect": {"menu.page": "Pause", "menu.selected": "ui_pausemenu_resumegame"}},
  {"up": "KeyS"}, {"wait": 0.3},
- {"tap": "ArrowUp"}, {"wait": 0.3},
- {"expect": {"menu.selected": "ui_pausemenu_quitgame"}},
+ {"tap": "ArrowDown"}, {"wait": 0.3},
+ {"expect": {"menu.selected": "ui_pausemenu_savegame"}},
  {"quit": true}
 ]}
