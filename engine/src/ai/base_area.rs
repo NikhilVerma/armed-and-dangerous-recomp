@@ -3,13 +3,14 @@
 //! while he is dead (0x00454780), in an IC move (0x00426630: Mind::Scripted), waiting in state 0x8c with +0x488
 //! 0x8000000 (0x00426610: a hidden IC grunt) or attached to an object (0x004539e0: a turret boarder). At 0 it is rolled
 //! again (rand 3..5 s) and his position (game x / y) is tested against the mission's two rectangles base_x_min_N ..
-//! base_y_max_N (Game+0xbd0..0xbec, `Mission::base_areas`); inside neither, vt+0xd4(0): his death. The timer starts at 0
-//! (the object's zeroed memory), so the first test comes on his first update.
+//! base_y_max_N (Game+0xbd0..0xbec, `Mission::base_areas`); inside neither, vt+0xd4(0): his death. The constructor
+//! (GenericAIObject_Construct 0x00437290, game_02.cpp:1644-1653) seeds the timer with the same 3..5 s roll
+//! (rand x K 0x005bce30 + K 0x005bcb7c), so an AI born outside the base lives 3..5 s before his first test.
 
 use super::{Grunt, Mind};
 use bevy::prelude::*;
 
-/// The timer +0xb34 of one AI (absent: 0, due now).
+/// The timer +0xb34 of one AI (absent until his first update, which seeds it: 0x00437290).
 #[derive(Component, Clone, Copy, Debug, Default)]
 pub struct BaseCheck {
     pub left: f32,
@@ -48,15 +49,14 @@ pub fn cull(
         if matches!(g.mind, Mind::Dead | Mind::Scripted) || hidden {
             continue;
         }
-        let left = check.as_ref().map_or(0.0, |c| c.left) - dt;
+        let Some(mut check) = check else {
+            // the constructor's seed (0x00437290): the first test comes 3..5 s after he appears
+            commands.entity(e).insert(BaseCheck { left: rng.range(3.0, 5.0) - dt });
+            continue;
+        };
+        let left = check.left - dt;
         let due = left <= 0.0;
-        let next = if due { rng.range(3.0, 5.0) } else { left };
-        match check {
-            Some(mut c) => c.left = next,
-            None => {
-                commands.entity(e).insert(BaseCheck { left: next });
-            }
-        }
+        check.left = if due { rng.range(3.0, 5.0) } else { left };
         if !due {
             continue;
         }
