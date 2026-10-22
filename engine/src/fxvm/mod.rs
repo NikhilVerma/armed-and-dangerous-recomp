@@ -101,7 +101,7 @@ impl FxVm {
 #[derive(Default)]
 struct Outbox {
     sounds: Vec<crate::audio::PlaySound>,
-    camera_paths: Vec<String>,
+    camera_paths: Vec<crate::campath::StartCameraPath>,
     decals: Vec<crate::decals::SpawnDecal>,
     explosions: Vec<crate::fx::Explode>,
     forces: Vec<script::FxForce>,
@@ -284,7 +284,7 @@ fn send_outbox(
 ) {
     let out = std::mem::take(&mut vm.out);
     sounds.write_batch(out.sounds);
-    paths.write_batch(out.camera_paths.into_iter().map(crate::campath::StartCameraPath));
+    paths.write_batch(out.camera_paths);
     decals.write_batch(out.decals);
     blasts.write_batch(out.explosions);
     shakes.write_batch(out.shakes);

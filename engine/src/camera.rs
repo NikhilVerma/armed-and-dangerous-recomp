@@ -19,14 +19,18 @@
 //!   stands at the rays' full length, so carried peasants pull the camera back.
 //! - The zoom blend (0x0040fbb0) and the 1 s smoothing (0x0040fd50) exclude each other: while the smoothing runs
 //!   (camera byte +0x15c) the zoom is not blended in.
-//! - Zoom (0x00475880 / 0x00475910 / 0x0040fbb0): while Zoom is held the camera blends linearly, over camera_zoom_secs,
-//!   toward the weapon's node (Camera_rifle / Camera_machinegun: eye at the head, the same look point) and its FOV.
+//! - Zoom (0x00475880 / 0x00475910 / 0x0040fbb0): while Zoom is held the camera's position blends linearly, over
+//!   camera_zoom_secs, toward the weapon's node (Camera_rifle / Camera_machinegun: eye at the head) and its FOV; the
+//!   view keeps the follow camera's rotation (0x0040fbb0 blends only the matrix's translation and the FOV).
 //!   The original flips the zoom mode whenever the held state and the mode differ (0x00475850): entering (0x00475880)
 //!   names the weapon's camera node (0x0040fae0: blend state 1, up), leaving (0x00475910 flag 0) starts the blend back
 //!   (0x0040fb00: state 2), and with flag 1 (mounting a gun, respawn) drops it at once (0x0040fb50: state 0; turret.rs
 //!   zeroes `Roman::zoom`). `Roman::zoom` is that blend weight (0x0040fbb0: +0x68 over camera_zoom_secs).
 //! - Death (PlayerObject_Update 0x004788a0 at game_06.cpp:2201 sets mode 3 with 0x0040fa90): the camera stays where
-//!   it is and turns to look at the player's body, smoothed over 1 s (0x0040fd50 with +0x160 = +0x164 = 1).
+//!   it is and turns to look at the player's body, smoothed over 1 s (0x0040fd50 with +0x160 = +0x164 = 1). The zoom is
+//!   dropped at once (0x0040fa90 -> 0x0040fb50) and mode 3 shows the unzoomed lens (fov +0xf4 = +0xf0).
+//! - A relative camera path (campath.rs, fx 0x74: the black hole's jolts; camera +0x17c == 2) moves the follow view
+//!   by its camera's motion before the zoom blend (0x004100e0).
 //! - After a camera path (Camera_Update's tail: +0x17c == 1 sets the 1 s smoothing again): the follow camera is
 //!   reached from the path's last view over 1 s (0x0040fd50).
 //! - Shake (0x0040fac0 starts it, 0x0040e300 applies it to the final camera matrix): the camera's height moves by the
@@ -287,6 +291,11 @@ pub fn follow_camera(
             .map_or(rt.translation + Vec3::Y * 6.877, |g| g.translation());
         let target = Transform::from_translation(eye).looking_at(body, Vec3::Y);
         *c = place_smoothed(&mut smooth, target, dt, rig.smooth_secs);
+        // the unzoomed lens: a death while zoomed drops the zoom at once (0x0040fb50), mode 3 sets fov +0xf4 = +0xf0
+        if let (Projection::Perspective(pp), Some(b)) = (&mut *proj, *base_fov) {
+            pp.fov = b;
+        }
+        smooth.zoom_blended = false;
         return;
     }
     smooth.death = None;
@@ -342,9 +351,14 @@ pub fn follow_camera(
     }
     let mut eye = target + arm / len * dist;
     let mut rot = yaw * orbit_view;
-    // zoom: the weapon's camera node (Camera_rifle / Camera_machinegun: the eye at the head, the same look point),
-    // position and FOV blended linearly by the zoom weight (0x0040fbb0: fov = target w + fov (1 - w)); the pitch
-    // turns the look about the eye
+    // a relative camera path moves the view by its camera's motion since its start (0x004100e0, before the zoom)
+    if let Some(offset) = path.relative_offset() {
+        let (_, moved_rot, moved_eye) = (Mat4::from_rotation_translation(rot, eye) * offset).to_scale_rotation_translation();
+        (eye, rot) = (moved_eye, moved_rot);
+    }
+    // zoom: the weapon's camera node (Camera_rifle / Camera_machinegun: the eye at the head), its position and FOV
+    // blended linearly by the zoom weight (0x0040fbb0: translation and fov = target w + own (1 - w)); the view keeps
+    // the follow camera's rotation (the look pitch's view pitch included), 0x0040fbb0 leaves the rotation alone
     if let Projection::Perspective(pp) = &mut *proj {
         // re-read only while no blend is on screen: on the frame the zoom weight reaches 0 the projection still holds
         // the last blend, and taking that as the base lowered the FOV a little after every zoom (35.3 instead of
@@ -359,10 +373,7 @@ pub fn follow_camera(
         smooth.zoom_blended = w > 0.0 && rig.zoom.contains_key(weapon);
         if let (Some(z), true) = (rig.zoom.get(weapon).copied(), w > 0.0) {
             pp.fov = base_fov.unwrap_or(pp.fov) * (1.0 - w) + z.fov * w;
-            let zeye = rt.translation + yaw * z.eye;
-            let zrot = yaw * pitch * Transform::from_translation(z.eye).looking_at(z.target, Vec3::Y).rotation;
-            eye = eye.lerp(zeye, w);
-            rot = rot.slerp(zrot, w);
+            eye = eye.lerp(rt.translation + yaw * z.eye, w);
         } else if let Some(b) = *base_fov {
             pp.fov = b;
         }
@@ -462,6 +473,8 @@ fn log_camera(
     ps.0.insert("cam_shake".into(), r2(shake.amplitude.abs() * (shake.left > 0.0) as u8 as f32).into());
     ps.0.insert("cam_shake_left".into(), r2(shake.left.max(0.0)).into());
     ps.0.insert("cam_shakes".into(), shake.started.into());
+    // a relative camera path (the black hole's jolt) moving the follow camera
+    ps.0.insert("cam_path_relative".into(), path.relative_offset().is_some().into());
     let body = anim
         .and_then(|a| a.skeleton.index.get("center").and_then(|&i| a.joints.get(i)))
         .and_then(|j| joints.get(*j).ok())

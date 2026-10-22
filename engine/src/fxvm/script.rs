@@ -875,10 +875,12 @@ pub fn run_script(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_>, idx: usize, spawned:
                     }
                 }
             }
-            // 0x73 / 0x74 Camera_StartPath 0x0040ff50 mode 1 / 2 (not guarded by the object; weather.md)
+            // 0x73 / 0x74 Camera_StartPath 0x0040ff50 mode 1 (cinematic) / 2 (relative: the black hole's jolts); not
+            // guarded by the fx object (weather.md); campath.rs plays it when the level has its camera_path object
             "0x73" | "0x74" => {
                 if let Some(name) = arg(1).as_str() {
-                    vm.out.camera_paths.push(name.to_owned());
+                    let mode = if op == "0x73" { crate::campath::PathMode::Cinematic } else { crate::campath::PathMode::Relative };
+                    vm.out.camera_paths.push(crate::campath::StartCameraPath { name: name.to_owned(), mode });
                 }
             }
             // 0x6a: a decal (Decals_Spawn 0x004165c0) in the box of +-size around the object (decals.rs)
