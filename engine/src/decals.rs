@@ -2,8 +2,8 @@
 //! 0x00416330): a box of +-size along the fx object's three axes (its matrix columns, unnormalised) around its
 //! position; the landscape's triangles inside it are clipped to the box (Sutherland-Hodgman against the six planes, no
 //! normal test) and drawn with the texture: uv from the two box coordinates with the largest range over the clipped
-//! vertices, u_k = a_k . (x - p) / (2 size) + 0.5 (the stretch by the third coordinate, 0x004175c0, taken on the
-//! normalised coordinate: guess). Texture x (1, 1, 1, fade), alpha-blended, no depth write, clamped, fogged; the
+//! vertices (u the largest), u_k = a_k . (x - p) / (2 size), stretched by the third coordinate, + 0.5
+//! (Decal_ComputeTexCoords 0x004175c0: [`tex_coords`]). Texture x (1, 1, 1, fade), alpha-blended, no depth write, clamped, fogged; the
 //! texture sampled as stored (premultiplied textures blended straight, as the original). 160 decals (the remaster's
 //! `decal_pool` setting, pools.rs), the oldest recycled at once; no expiry.
 //!
@@ -204,6 +204,41 @@ fn add_clipped(tri: [Vec3; 3], planes: &[(Vec3, f32)], verts: &mut Vec<Vec3>, id
     Some(true)
 }
 
+/// Decal_ComputeTexCoords 0x004175c0: each vertex's three box coordinates a_k . (x - p) / (2 size); u and v are the
+/// two with the largest ranges over the vertices, ordered as the original's three compare-and-swaps leave them (u the
+/// largest), stretched by |(u, v, w)| / |(u, v)| unless u = v = 0, plus 0.5.
+fn tex_coords(verts: &[Vec3], p: Vec3, axes: [Vec3; 3], s: f32) -> Vec<[f32; 2]> {
+    let coords: Vec<[f32; 3]> = verts.iter().map(|v| axes.map(|a| a.dot(*v - p) / (2.0 * s))).collect();
+    // ranges over the vertices (the original's minima start at 1, maxima at -1)
+    let range = |k: usize| {
+        let (lo, hi) = coords.iter().fold((1.0f32, -1.0f32), |(lo, hi), c| (lo.min(c[k]), hi.max(c[k])));
+        hi - lo
+    };
+    let mut order = [0usize, 1, 2];
+    let (mut ru, mut rv, rw) = (range(0), range(1), range(2));
+    if ru < rv {
+        order.swap(0, 1);
+        std::mem::swap(&mut ru, &mut rv);
+    }
+    if rv < rw {
+        order.swap(1, 2);
+        rv = rw;
+    }
+    if ru < rv {
+        order.swap(0, 1);
+    }
+    let [ku, kv, kw] = order;
+    coords
+        .iter()
+        .map(|c| {
+            let (u, v, w) = (c[ku], c[kv], c[kw]);
+            let s2 = u * u + v * v;
+            let k = if s2 != 0.0 { (w * w + s2).sqrt() / s2.sqrt() } else { 1.0 };
+            [u * k + 0.5, v * k + 0.5]
+        })
+        .collect()
+}
+
 #[allow(clippy::too_many_arguments)]
 fn spawn(
     mut commands: Commands,
@@ -279,26 +314,16 @@ fn spawn(
             }
         }
         if idx.is_empty() {
+            // Decals_Spawn 0x004165c0 takes its decal before building: at a full pool the oldest is recycled even when
+            // the build then finds no geometry
+            if decals.live.len() >= decals.capacity.max(1) {
+                if let Some(old) = decals.live.pop_front() {
+                    commands.entity(old).despawn();
+                }
+            }
             continue;
         }
-        // uv: the two box coordinates with the largest range
-        let coords: Vec<[f32; 3]> = verts.iter().map(|v| axes.map(|a| a.dot(*v - p) / (2.0 * s))).collect();
-        let range = |k: usize| {
-            let (lo, hi) = coords.iter().fold((f32::MAX, f32::MIN), |(lo, hi), c| (lo.min(c[k]), hi.max(c[k])));
-            hi - lo
-        };
-        let mut order = [0usize, 1, 2];
-        order.sort_by(|a, b| range(*b).total_cmp(&range(*a)));
-        let (ku, kv, kw) = (order[0].min(order[1]), order[0].max(order[1]), order[2]);
-        let uv: Vec<[f32; 2]> = coords
-            .iter()
-            .map(|c| {
-                let (u, v, w) = (c[ku], c[kv], c[kw]);
-                let r = (u * u + v * v).sqrt();
-                let k = if r > 1e-6 { (u * u + v * v + w * w).sqrt() / r } else { 1.0 };
-                [u * k + 0.5, v * k + 0.5]
-            })
-            .collect();
+        let uv = tex_coords(&verts, p, axes, s);
         let normals = vec![[0.0f32, 0.0, 1.0]; verts.len()];
         let (receivers_copy, nverts) = (receivers.clone(), verts.len());
         let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
@@ -399,5 +424,20 @@ fn fade(
         if let Some(mut m) = materials.get_mut(&mat.0) {
             m.base_color = Color::srgba(1.0, 1.0, 1.0, left / total);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// u follows the box axis with the largest range, also when that axis comes later (0x004175c0's swaps): a strip
+    /// along y on a floor (z the projection axis) maps y to u and x to v.
+    #[test]
+    fn u_is_the_axis_with_the_largest_range() {
+        let verts = [Vec3::new(-0.5, -1.5, 0.0), Vec3::new(0.5, -1.5, 0.0), Vec3::new(0.5, 1.5, 0.0), Vec3::new(-0.5, 1.5, 0.0)];
+        let uv = tex_coords(&verts, Vec3::ZERO, [Vec3::X, Vec3::Y, Vec3::Z], 2.0);
+        // y = 1.5 -> 1.5 / 4 + 0.5; x = 0.5 -> 0.5 / 4 + 0.5 (no stretch: the third coordinate is 0)
+        assert!((uv[2][0] - 0.875).abs() < 1e-6 && (uv[2][1] - 0.625).abs() < 1e-6, "{uv:?}");
     }
 }
