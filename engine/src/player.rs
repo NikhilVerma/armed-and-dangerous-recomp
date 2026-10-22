@@ -1563,9 +1563,7 @@ fn weapons(
             match special {
                 SpecialId::TopsyTurvy => {
                     if !topsy.active() && !r.jumping && r.jump_wind.is_none() {
-                        if !infinite {
-                            r.arsenal.spend(special);
-                        }
+                        // (spent as it goes off, at the end of the world turn: topsy.rs, 0x004a1aa0)
                         topsy.start = true;
                         stats.shots += 1;
                     }
@@ -2109,7 +2107,7 @@ fn projectiles(
             })
             .min_by(|a, b| a.0.translation.distance(from).total_cmp(&b.0.translation.distance(from)));
         if let Some((_, mut b)) = bomb {
-            b.fuse = Some(0.0);
+            b.shot();
             commands.entity(e).despawn();
             continue;
         }

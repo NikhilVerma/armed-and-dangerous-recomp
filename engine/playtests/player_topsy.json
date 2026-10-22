@@ -16,11 +16,16 @@
  {"expect": {"on_ground": true}},
  {"click": "Right"},
  {"wait": 0.2},
- {"expect": {"topsy_left": 0, "hand": "machinegun", "shots": 1}},
+ {"expect": {"topsy_left": 1, "hand": "machinegun", "shots": 1}},
  {"wait": 0.6},
  {"expect": {"hand": "topsyturvy"}},
  {"shot": "bomb_in_hand"},
- {"wait": 9.0},
+ {"note": "spent as it goes off, at the end of the world turn (0x004a1aa0 after anim 0x21: 2.47 + 0.97 s)"},
+ {"wait": 2.2},
+ {"expect": {"topsy_left": 1}},
+ {"wait": 0.8},
+ {"expect": {"topsy_left": 0}},
+ {"wait": 6.0},
  {"expect": {"hand": "machinegun", "special": "stickybomb"}},
  {"quit": true}
 ]}

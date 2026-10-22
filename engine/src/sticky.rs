@@ -4,8 +4,8 @@
 //! sticky_bomb_range and in line of sight; else the camera ray at that range). Launch 0x004813b0: horizontal speed
 //! = the horizontal distance (speed 0 in lev_1_m1: 1 s flight), the vertical speed solved for g = 64.348 to the
 //! point lowered by 4 (0x00471a00), turned left by launch_angle_degrees. In flight no gravity; it homes
-//! (0x00481520): k = (1 - min(d, R) / R) * 5 + 2, the velocity pulled toward unit(T - pos) * speed (as an impulse
-//! once k >= 5, guess from 0x00404140). Toward a point the homing ends when the distance flown reaches R and
+//! (0x00481520): k = (1 - min(d, R) / R) * 5 + 2, the velocity pulled toward unit(T - pos) * speed by a force action
+//! (0x00404140: a force while k < 5, an impulse setting it once k >= 5; `home`). Toward a point the homing ends when the distance flown reaches R and
 //! gravity applies. A hit sticks it (0x004817b0): on the ground at the hit - flight direction * 5, on an object at
 //! the hit, held there; fx_stuck_*; the object and everything within 25 units are scared. After linger_lifetime it
 //! explodes (0x00481ab0): area damage (excluding the stuck object), area_damage + damage to the stuck object,
@@ -45,13 +45,36 @@ pub struct StickyBomb {
     flown: f32,
     life: f32,
     gravity: bool,
-    /// stuck: the object (or the ground), the offset in the object's frame, linger left
-    stuck: Option<(Option<Entity>, Vec3, f32)>,
+    /// stuck: the object (or the ground), the bomb's transform in the object's frame (+0x590), linger left
+    stuck: Option<(Option<Entity>, Transform, f32)>,
     /// the fuse +0x64c (0x00481b90): a blast lights it, a direct hit sets it to 0; at or below 0 it explodes
     pub fuse: Option<f32>,
+    /// its flight loop (wpn_sticky_grenade_lp, the handle +0x668), stopped at once when it sticks, explodes or is
+    /// removed (sound vt+0xd8(&+0x668, 1))
+    loop_sound: Option<crate::audio::SoundId>,
 }
 
 impl StickyBomb {
+    /// A bomb leaving the hand (0x004813b0). Its homing range is measured at its first update (0x0047e4d0, `fly`).
+    fn new(props: &'static str, vel: Vec3, target: Option<(Entity, Entity)>, point: Vec3, speed: f32, life: f32) -> Self {
+        StickyBomb { props, vel, target, point, speed, range: 0.0, flown: 0.0, life, gravity: false, stuck: None, fuse: None, loop_sound: None }
+    }
+
+    /// Stops its flight loop, once (the handle +0x668 cleared).
+    fn stop_loop(&mut self, stop: &mut MessageWriter<crate::audio::StopVoice>) {
+        if let Some(id) = self.loop_sound.take() {
+            stop.write(crate::audio::StopVoice { id, immediate: true });
+        }
+    }
+
+    /// A bullet's direct hit (StickyBombProjectile_Damage 0x00481b90 without the area flag): health 1 goes to 0 and
+    /// the bomb explodes at once. A bomb whose health is already gone (a blast lit its fuse) ignores it: the fuse runs
+    /// on.
+    pub fn shot(&mut self) {
+        if self.fuse.is_none() {
+            self.fuse = Some(0.0);
+        }
+    }
     /// the object it is stuck to (not the ground)
     pub fn stuck_to(&self) -> Option<Entity> {
         self.stuck.and_then(|s| s.0)
@@ -69,6 +92,9 @@ impl StickyBomb {
 /// for the small sticky_bomb model). Bullets (the list +0xe90) and blasts (+0xe94) reach it (0x00481320).
 pub const BOMB_RADIUS: f32 = 1.5;
 
+/// The bomb's health (+0x454, max_health 1 in p_player_stickybomb / p_molmer_dynamite: 0x00481b90's doc).
+const BOMB_HEALTH: f32 = 1.0;
+
 /// StickyBombProjectile's damage slot (0x00481b90): health 1 (max_health), so any damage takes it to 0; an area
 /// damage record (flags bit 0, 0x0047f020) lights a random fuse rand() x 2.136e-5 (0 .. 0.7 s), anything else (a
 /// bullet's direct hit) sets it off at once. This handles the blasts; the bullets set `fuse` in player.rs.
@@ -80,7 +106,10 @@ fn chain(mut blasts: MessageReader<crate::fx::Explode>, mut bombs: Query<(&Trans
             continue;
         }
         for (t, mut b) in &mut bombs {
-            if b.fuse.is_none() && t.translation.distance(x.at) - BOMB_RADIUS <= x.radius_outer {
+            let d = t.translation.distance(x.at) - BOMB_RADIUS;
+            // the record's damage (full within inner, then linear to 0 at outer) against health 1: a weaker graze
+            // leaves the bomb as it was (its health back at the maximum, 1)
+            if b.fuse.is_none() && d <= x.radius_outer && x.area_damage * crate::fx::falloff(d, x.radius_inner, x.radius_outer) >= BOMB_HEALTH {
                 b.fuse = Some(blast_fuse(rng.rand()));
             }
         }
@@ -114,7 +143,7 @@ fn throw(
     joints: Query<&GlobalTransform>,
     mut fx: MessageWriter<crate::fx::StartFx>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
-    mut seed: Local<u32>,
+    mut rng: ResMut<crate::fx::FxStats>,
     (mut stats, cheats, characters): (ResMut<crate::player::PlayerStats>, Res<crate::cheats::Cheats>, crate::weapons::targeting::Characters),
 ) {
     use crate::weapons::SpecialId;
@@ -157,9 +186,8 @@ fn throw(
     let from = bone(ra, "l_hand").unwrap_or(rt.translation + Vec3::Y * 8.0);
     let (point, homing) = match target {
         Some((e, centre, a)) => {
-            // 0x004811e0: a random hit bone ref_hit_0N, N = rand() * 7 >> 15
-            *seed = seed.wrapping_mul(214013).wrapping_add(2531011);
-            let n = (((*seed >> 16) & 0x7fff) * 7) >> 15;
+            // 0x004811e0: a random hit bone ref_hit_0N, N = rand() * 7 >> 15 (the game's shared rand())
+            let n = ((rng.rand() * 32768.0).floor().min(32767.0) as u32 * 7) >> 15;
             let j = a.and_then(|a| a.skeleton.index.get(&format!("ref_hit_0{n}")).map(|&i| a.joints[i]));
             (centre, j.map(|j| (e, j)))
         }
@@ -168,20 +196,21 @@ fn throw(
         None => (c.translation() + fwd * (if rm.zoom > 0.0 { 0.0 } else { 20.0 } + range), None),
     };
     let (vel, speed) = launch(&p, from, point, fwd);
+    let loop_sound = crate::audio::SoundId::new();
     let e = commands
         .spawn((
             Transform::from_translation(from).with_rotation(assets.base),
             Visibility::default(),
-            // range: the distance to the target (0x0047e4d0 -> +0x568); the point without a target is the crosshair's
-            // (vt+0x164 0x00481380: the target list's point)
-            StickyBomb { props: "p_player_stickybomb", vel, target: homing, point, speed, range: from.distance(point), flown: 0.0, life: p.f("lifetime", 4.0), gravity: false, stuck: None, fuse: None },
+            // the point without a target is the crosshair's (vt+0x164 0x00481380: the target list's point); the range
+            // is measured at the first update (`fly`)
+            StickyBomb { loop_sound: Some(loop_sound), ..StickyBomb::new("p_player_stickybomb", vel, homing, point, speed, p.f("lifetime", 4.0)) },
         ))
         .id();
     for (m, mat) in &assets.parts {
         let c = commands.spawn((Mesh3d(m.clone()), MeshMaterial3d(mat.clone()))).id();
         commands.entity(e).add_child(c);
     }
-    sounds.write(crate::audio::PlaySound::on("wpn_sticky_grenade_lp", e).looping(true));
+    sounds.write(crate::audio::PlaySound::on("wpn_sticky_grenade_lp", e).looping(true).with_id(loop_sound));
     if let Some(n) = p.s("fx_start") {
         fx.write(crate::fx::StartFx { name: n.to_owned(), at: from, rotation: Quat::IDENTITY, follow: Some(e), position_only: true });
     }
@@ -204,6 +233,21 @@ fn launch(p: &crate::gamedata::Props, from: Vec3, point: Vec3, fwd: Vec3) -> (Ve
     (Quat::from_rotation_y(p.f("launch_angle_degrees", 30.0).to_radians()) * vel, speed)
 }
 
+/// The homing steer of one update (0x00481520): the wanted velocity is unit(to goal) x speed (0x00471970 clamped to
+/// +0x460 both ways), k = (1 - min(dist, range) / range) x 5 + 2, and a force action (0x00471750 -> 0x00455a30 with
+/// flag 0x10, ForceActionPool_Update 0x00404140) pushes mass x k x (want - v) for 1 / k seconds, replaced by the next
+/// update's. Over 0.2 s (k < 5) that is a force for the frame: v += k (want - v) dt; at k >= 5 the action ends in its
+/// first substep with the impulse force x 1 / k = mass x (want - v): the velocity becomes `want`.
+fn home(vel: Vec3, to_goal: Vec3, speed: f32, range: f32, dt: f32) -> Vec3 {
+    let k = (1.0 - to_goal.length().min(range) / range) * 5.0 + 2.0;
+    let want = to_goal.normalize_or(vel.normalize_or(Vec3::Y)) * speed;
+    if 1.0 / k <= 0.2 {
+        want
+    } else {
+        vel + (want - vel) * k * dt
+    }
+}
+
 /// Jonesy's dynamite: no flight loop sound (0x004813b0 skips wpn_sticky_grenade_lp for a "dynamite" name), no trail.
 fn throw_dynamite(mut commands: Commands, mut msgs: MessageReader<ThrowDynamite>, assets: Option<Res<StickyAssets>>, data: Res<crate::gamedata::GameData>) {
     let Some(assets) = assets else { return };
@@ -215,19 +259,7 @@ fn throw_dynamite(mut commands: Commands, mut msgs: MessageReader<ThrowDynamite>
             .spawn((
                 Transform::from_translation(m.from).with_rotation(assets.base),
                 Visibility::default(),
-                StickyBomb {
-                    props: "p_molmer_dynamite",
-                    vel,
-                    target: m.joint.map(|j| (m.target, j)),
-                    point: m.point,
-                    speed,
-                    range: m.from.distance(m.point),
-                    flown: 0.0,
-                    life: p.f("lifetime", 10.0),
-                    gravity: false,
-                    stuck: None,
-                    fuse: None,
-                },
+                StickyBomb::new("p_molmer_dynamite", vel, m.joint.map(|j| (m.target, j)), m.point, speed, p.f("lifetime", 10.0)),
             ))
             .id();
         for (mesh, mat) in &assets.dynamite {
@@ -249,7 +281,7 @@ fn fly(
     companions: Query<(), Or<(With<crate::ai::Companion>, With<crate::player::Roman>)>>,
     placed: Query<(Entity, &crate::level::Placed)>,
     mut fx: MessageWriter<crate::fx::StartFx>,
-    mut stop: MessageWriter<crate::audio::StopSound>,
+    mut stop: MessageWriter<crate::audio::StopVoice>,
     mut blasts: MessageWriter<crate::fx::Explode>,
     mut scare: MessageWriter<crate::ai::StickyStuck>,
     mut interests: ResMut<crate::ai::Interests>,
@@ -273,8 +305,9 @@ fn fly(
         }
         // stuck: held on the object, then the explosion (0x0047e9b0, 0x00481ab0)
         if let Some((obj, local, linger)) = b.stuck.as_mut() {
+            // its local matrix times the object's (0x0047e9b0): it turns with the object as well as moving with it
             if let Some(o) = obj.and_then(|o| others.get(o).ok()) {
-                t.translation = o.transform_point(*local);
+                *t = o.mul_transform(*local).compute_transform();
             }
             *linger -= dt;
             if *linger > 0.0 && !boom {
@@ -284,9 +317,7 @@ fn fly(
         }
         if boom {
             let obj = b.stuck.and_then(|s| s.0);
-            if b.stuck.is_none() && b.props == "p_player_stickybomb" {
-                stop.write(crate::audio::StopSound("wpn_sticky_grenade_lp".into()));
-            }
+            b.stop_loop(&mut stop);
             let area = p.f("area_damage", 0.0);
             blasts.write(crate::fx::Explode {
                 at: t.translation,
@@ -342,34 +373,30 @@ fn fly(
         // the lifetime runs out in flight: removed (StickyBombProjectile_Remove 0x00481c20: the loop sound stopped)
         b.life -= dt;
         if b.life <= 0.0 {
-            if b.props == "p_player_stickybomb" {
-                stop.write(crate::audio::StopSound("wpn_sticky_grenade_lp".into()));
-            }
+            b.stop_loop(&mut stop);
             // removed without its end effect: no end noise
             interests.forget(e);
             commands.entity(e).despawn();
             continue;
         }
         let pos = t.translation;
-        // homing toward the hit bone (the target alive) or the point
-        if let Some((ch, _)) = b.target {
-            if grunts.get(ch).map_or(true, |(g, _)| g.mind == crate::ai::Mind::Dead) {
+        // homing toward the hit bone or the point. The target is kept while it is in the world, dead or alive
+        // (Projectile_Update 0x0047e580 drops +0x544 only when its vt+0xd8 says it is gone): a grunt shot dead in the
+        // bomb's flight still draws it to his body
+        if let Some((ch, j)) = b.target {
+            if grunts.get(ch).is_err() || others.get(j).is_err() {
                 b.target = None;
             }
         }
         let goal = b.target.and_then(|(_, j)| others.get(j).ok()).map(|j| j.translation()).unwrap_or(b.point);
+        // the range: the distance to the target's bone (or the point) at the first update (0x0047e4d0 -> +0x568)
+        if b.range == 0.0 && !b.gravity {
+            b.range = goal.distance(pos);
+        }
         if b.target.is_none() && b.flown >= b.range {
             b.gravity = true;
         } else if !b.gravity && b.range > 0.0 {
-            let dist = goal.distance(pos);
-            let k = (1.0 - dist.min(b.range) / b.range) * 5.0 + 2.0;
-            let want = (goal - pos).normalize_or(b.vel.normalize_or(Vec3::Y)) * b.speed;
-            if k >= 5.0 {
-                b.vel = want;
-            } else {
-                let v = b.vel;
-                b.vel = v + (want - v) * (1.0 - (-k * dt).exp());
-            }
+            b.vel = home(b.vel, goal - pos, b.speed, b.range, dt);
         }
         if b.gravity {
             b.vel.y -= 64.348 * dt;
@@ -407,11 +434,9 @@ fn fly(
             continue;
         };
         // stick (0x004817b0)
-        if b.props == "p_player_stickybomb" {
-            stop.write(crate::audio::StopSound("wpn_sticky_grenade_lp".into()));
-        }
+        b.stop_loop(&mut stop);
         t.translation = if obj.is_some() { at } else { at - dir * 5.0 };
-        let local = obj.and_then(|o| others.get(o).ok()).map(|o| o.affine().inverse().transform_point3(t.translation)).unwrap_or(Vec3::ZERO);
+        let local = obj.and_then(|o| others.get(o).ok()).map(|o| GlobalTransform::from(*t).reparented_to(o)).unwrap_or_default();
         b.stuck = Some((obj, local, p.f("linger_lifetime", 5.0)));
         if std::env::var("AIDBG").is_ok() {
             info!("AIDBG sticky stuck to {:?} at {:?} target {:?} flown {:.1}", obj, t.translation, b.target.map(|x| x.0), b.flown);
@@ -421,5 +446,19 @@ fn fly(
             fx.write(crate::fx::StartFx { name: n.to_owned(), at: t.translation, rotation: crate::level::game_to_engine(), follow: Some(e), position_only: true });
         }
         scare.write(crate::ai::StickyStuck(t.translation, obj));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 0x00481520 / 0x00404140: far from the goal (k = 2) a force for the frame; near it (k >= 5) the velocity is set.
+    #[test]
+    fn homing_force_then_impulse() {
+        let v = home(Vec3::X * 10.0, Vec3::Z * 100.0, 10.0, 100.0, 0.1);
+        assert!((v - (Vec3::X * 10.0 + (Vec3::Z * 10.0 - Vec3::X * 10.0) * 2.0 * 0.1)).length() < 1e-4);
+        let v = home(Vec3::X * 10.0, Vec3::Z * 30.0, 10.0, 100.0, 0.1);
+        assert_eq!(v, Vec3::Z * 10.0);
     }
 }
