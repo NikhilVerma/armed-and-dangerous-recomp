@@ -15,7 +15,11 @@
 //!   when its vertical speed is below -50. `on_hit_death` kills it at its first contact.
 //! - Update (0x004505a0): "imp_boulder_roll_lp" while its horizontal speed squared is above 16 and it touches
 //!   something (0.5 s tail); the queued objects take a damage record from it: a crush (type 0x4000) of their whole
-//!   health, else direct_damage, pushed by direct_damage_force along its velocity.
+//!   health, else direct_damage, with direct_damage_force as the impulse along its velocity (only Roman's hit handler
+//!   uses it: his knockback). A dead object (0x80) skips all of it; death_timeout (+0x4c0) is the dropped objects'
+//!   (icobject.rs: no placed object in the shipped levels sets it). The per-frame nav-grid mark of a moving blocking
+//!   object (vt+0xfc(1, 2), DefaultGameObject_MarkGrid 0x004509a0) is replaced by nav.rs, whose A* plans over the Jolt
+//!   world the body moves in (docs/port/ai.csv).
 //! - The speed trap (Object slot 0x12 0x00452790: `speed_trap`, the Havok anti-tunnelling agent 0x004a88a0): Jolt's
 //!   linear-cast motion quality.
 
@@ -234,7 +238,7 @@ fn collide(
     time: Res<Time>,
     mut movers: Query<(Entity, &mut Movable, &GlobalTransform, Option<&mut crate::fx::Destructible>)>,
     mut grunts: Query<(&crate::physics::Body, &mut crate::fx::Health, &mut crate::ai::Grunt)>,
-    mut roman: Query<(&crate::player::Roman, &mut crate::fx::Health, &GlobalTransform), Without<crate::ai::Grunt>>,
+    mut roman: Query<(&mut crate::player::Roman, &mut crate::fx::Health, &GlobalTransform), Without<crate::ai::Grunt>>,
     physics: NonSend<Physics>,
     mut fx: MessageWriter<crate::fx::StartFx>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
@@ -247,12 +251,26 @@ fn collide(
     // the contact callback reads the bodies' velocities before the solver parts them (0x00450af0 runs inside the
     // step): here the velocities of the frame before the step, kept for the movers and the bodies near them
     let pre = |b| before.get(&b).copied().or_else(|| speed_of(b));
-    let mut victims: Vec<(Entity, Victim, f32, f32)> = Vec::new();
-    for (e, mut m, gt, d) in &mut movers {
+    let mut victims: Vec<Record> = Vec::new();
+    for (e, mut m, gt, mut d) in &mut movers {
         let Some(body) = m.body else { continue };
         let Some(v) = pre(body) else { continue };
-        let dead = d.as_ref().is_some_and(|d| d.health <= 0.0);
         let touches = physics.touches(body);
+        // on_hit_death: its first contact kills it (0x00450af0 sets the kill flag 0x80 inside the step)
+        if m.props.on_hit_death != 0 && !touches.is_empty() {
+            if let Some(d) = d.as_mut() {
+                d.health = 0.0;
+            }
+        }
+        // a dead object (0x80) leaves the update before the roll loop, the impact fx and the damage records
+        // (0x004505a0 returns through its death vt+0xd4): the roll loop ends with it (guess: the death removes the
+        // object and the sound attached to it)
+        if d.as_ref().is_some_and(|d| d.health <= 0.0) {
+            if let Some(id) = m.roll.take() {
+                stop.write(crate::audio::StopVoice { id, immediate: false });
+            }
+            continue;
+        }
         let cs = m.props.crush_speed;
         // the crush test of 0x00450af0 against a body moving at `vo`
         let crushes = |vo: Vec3| {
@@ -263,13 +281,13 @@ fn collide(
             vo.length() < cs || rel.normalize().dot(v.normalize()) < -0.2
         };
         let mut hit: Vec<Victim> = Vec::new();
-        let mut ground: Option<Vec3> = None;
+        // the landscape contacts of the step (in order): on_hit_fx takes the first one its interval lets through
+        // (+0x490 is the step's time, so the step's later ones fail `>`), the impact mark the last below -50 (each
+        // contact call overwrites +0x49c)
+        let mut ground: Vec<Vec3> = Vec::new();
         for touch in &touches {
             match physics.bodies.get(&touch.other).copied() {
                 Some(other) => {
-                    if dead {
-                        continue;
-                    }
                     let vo = pre(touch.other).unwrap_or(Vec3::ZERO);
                     if std::env::var("MOVDBG").is_ok() {
                         info!("MOVDBG {e:?} v {:.0} touches {other:?} v {:.0}", v.length(), vo.length());
@@ -278,15 +296,16 @@ fn collide(
                         hit.push(Victim::Object(other));
                     }
                 }
-                // a static body: the landscape or a placed object's mesh
-                None => ground = Some(gt.translation()),
+                // a static body: the landscape or a placed object's mesh, at the contact point (0x00450af0: pos ->
+                // +0x49c, the fx position 0x004505a0 hands Fx_Create)
+                None => ground.push(physics.from_m(touch.point)),
             }
         }
         // Roman's walker is no body: he is touched when the boulder's surface is within his capsule's reach
         if let Ok((r, _, rt)) = roman.single() {
             let chest = rt.translation() + Vec3::Y * r.walker.lift;
             let to = gt.translation() - chest;
-            if to.length() < 60.0 && !dead {
+            if to.length() < 60.0 {
                 let reach = physics.raycast(chest, to.normalize_or(Vec3::Y), to.length()).filter(|h| h.0 == body).map(|h| h.1.distance(chest));
                 if reach.is_some_and(|d| d <= r.walker.lift + 1.0) && (m.props.on_hit_damage != 0 || crushes(r.vel)) {
                     hit.push(Victim::Roman);
@@ -294,22 +313,16 @@ fn collide(
             }
         }
         // the landscape: on_hit_fx (once an interval, count times) and the impact mark below -50
-        if let Some(at) = ground {
-            if let Some((name, left, interval, last)) = m.hit_fx.as_mut() {
-                if *left > 0 && now - *last > *interval {
-                    *last = now;
+        if let (Some(&first), Some(&last)) = (ground.first(), ground.last()) {
+            if let Some((name, left, interval, at_time)) = m.hit_fx.as_mut() {
+                if *left > 0 && now - *at_time > *interval {
+                    *at_time = now;
                     *left -= 1;
-                    fx.write(crate::fx::StartFx { name: name.clone(), at, rotation: Quat::IDENTITY, follow: None, position_only: false });
+                    fx.write(crate::fx::StartFx { name: name.clone(), at: first, rotation: Quat::IDENTITY, follow: None, position_only: false });
                 }
             }
             if m.props.play_boulder_sound != 0 && v.y < -50.0 {
-                fx.write(crate::fx::StartFx { name: "fx_boulder_impact".into(), at, rotation: Quat::IDENTITY, follow: None, position_only: false });
-            }
-        }
-        // on_hit_death: its first contact kills it
-        if m.props.on_hit_death != 0 && !touches.is_empty() {
-            if let Some(mut d) = d {
-                d.health = 0.0;
+                fx.write(crate::fx::StartFx { name: "fx_boulder_impact".into(), at: last, rotation: Quat::IDENTITY, follow: None, position_only: false });
             }
         }
         // the roll loop: horizontal speed squared above 16 while touching, a 0.5 s tail
@@ -330,9 +343,11 @@ fn collide(
                 }
             }
         }
-        // a crush is a record of the victim's whole health (type 0x4000), else direct_damage
+        // a crush is a record of the victim's whole health (type 0x4000), else direct_damage; its direction is the
+        // mover's velocity at the update, normalised (+0x18), its impulse direct_damage_force (+0x24)
         let amount = if m.props.crush != 0 { f32::INFINITY } else { m.props.direct_damage };
-        victims.extend(hit.into_iter().map(|victim| (e, victim, amount, v.length())));
+        let dir = speed_of(body).unwrap_or(v).normalize_or_zero();
+        victims.extend(hit.into_iter().map(|victim| Record { from: e, victim, amount, speed: v.length(), dir, force: m.props.direct_damage_force }));
     }
     // this frame's velocities for the next step's contacts: the moving movers and the characters near them
     let moving: Vec<Vec3> = movers.iter().filter(|(_, m, ..)| m.body.is_some()).map(|(_, _, gt, _)| gt.translation()).collect();
@@ -353,10 +368,21 @@ fn collide(
         }
     }
     // the records reach their victims (vt+0xd0): characters take crushing damage (their default); a movable takes it
-    // only with takes_crushing_damage (0x00450da0 ignores 0x4000 records otherwise)
-    for (from, victim, amount, speed) in victims {
+    // only with takes_crushing_damage (0x00450da0 ignores 0x4000 records otherwise). Only Roman's handler reads the
+    // impulse: alive after the damage, he is knocked back along the record's direction (PlayerObject_OnHit
+    // 0x0047afa0, Roman::knock); the AI's (GenericAIObject_Slot52 0x00430340) and the objects' (0x00450da0) ignore it
+    for Record { from, victim, amount, speed, dir, force } in victims {
         let (dealt, what) = match victim {
-            Victim::Roman => (roman.single_mut().map(|(_, mut h, _)| take(&mut h.0, amount)).unwrap_or(0.0), "Roman"),
+            Victim::Roman => {
+                let dealt = roman.single_mut().map_or(0.0, |(mut r, mut h, _)| {
+                    let dealt = take(&mut h.0, amount);
+                    if h.0 > 0.0 && force != 0.0 {
+                        r.knock(dealt, force, dir);
+                    }
+                    dealt
+                });
+                (dealt, "Roman")
+            }
             Victim::Object(e) => {
                 if let Ok((_, mut h, mut g)) = grunts.get_mut(e) {
                     let d = take(&mut h.0, amount);
@@ -385,6 +411,20 @@ fn take(health: &mut f32, amount: f32) -> f32 {
     let d = amount.min(health.max(0.0));
     *health -= d;
     d
+}
+
+/// The damage record a movable sends a victim it queued (0x004505a0: the 0x34-byte record through vt+0xd0).
+struct Record {
+    from: Entity,
+    victim: Victim,
+    /// +0x14: direct_damage, or the victim's whole health for a crush (infinite here, type 0x4000)
+    amount: f32,
+    /// the mover's speed at the contact (the log)
+    speed: f32,
+    /// +0x18: the mover's normalised velocity (engine axes)
+    dir: Vec3,
+    /// +0x24: direct_damage_force
+    force: f32,
 }
 
 /// Who a movable's contact reaches: Roman (his walker is no body) or an object with a body.

@@ -13,7 +13,7 @@
 //! body (`clear` before each step).
 
 use oxijolt::prelude::*;
-use oxijolt::{ContactCandidate, ContactManifold, ContactSettings, ValidateResult};
+use oxijolt::{ContactCandidate, ContactManifold, ContactSettings, RVec3, ValidateResult};
 use std::collections::HashMap;
 use std::sync::{Mutex, RwLock};
 
@@ -41,12 +41,14 @@ impl ContactRule {
     }
 }
 
-/// One contact a ruled body made in a step: the other body and the contact normal pointing out of the other body
-/// (towards this one), in engine axes.
+/// One contact a ruled body made in a step: the other body, the contact normal pointing out of the other body
+/// (towards this one), in engine axes, and the contact point on the other body's surface (the mean of the manifold's
+/// points; the solver's world space, metres: `Physics::from_m` gives engine units).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Touch {
     pub other: BodyId,
     pub normal: bevy::math::Vec3,
+    pub point: RVec3,
 }
 
 /// The rules and the contact notes, shared with the solver's worker threads.
@@ -108,13 +110,20 @@ impl Contacts {
             let _ = settings.set_combined_friction(settings.combined_friction() * scale);
         }
         let n = bevy::math::Vec3::new(manifold.normal.x, manifold.normal.y, manifold.normal.z);
+        // the contact point on each side: the mean of the manifold's points
+        let mean = |on: fn(&oxijolt::ContactPoint) -> RVec3| {
+            let k = manifold.points.len().max(1) as f64;
+            let s = manifold.points.iter().map(on).fold((0.0, 0.0, 0.0), |s, p| (s.0 + p.x as f64, s.1 + p.y as f64, s.2 + p.z as f64));
+            RVec3::new((s.0 / k) as _, (s.1 / k) as _, (s.2 / k) as _)
+        };
+        let (on1, on2) = (mean(|p| p.point_on1), mean(|p| p.point_on2));
         if let Ok(mut touches) = self.touches.lock() {
             // the manifold's normal is the one body 2 moves out of body 1 along
             if ra.is_some() {
-                touches.entry(a).or_default().push(Touch { other: b, normal: -n });
+                touches.entry(a).or_default().push(Touch { other: b, normal: -n, point: on2 });
             }
             if rb.is_some() {
-                touches.entry(b).or_default().push(Touch { other: a, normal: n });
+                touches.entry(b).or_default().push(Touch { other: a, normal: n, point: on1 });
             }
         }
     }
