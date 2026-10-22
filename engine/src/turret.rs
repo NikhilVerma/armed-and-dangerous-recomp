@@ -47,6 +47,9 @@ pub struct Turret {
     /// the crosshair ray's length while Roman is on it (Hud_UpdateCrosshair 0x00406f50 by Game+0xac8: 3 the forge
     /// cannon, 0x00499f30, 500; 4 a mounted gun, 0x00498a80, 2000)
     pub aim_range: f32,
+    /// a ForgeTurret (behaviour forge_cannon): Game+0xac8 is 3 while Roman is on it, 4 on a StigTurret (0x00499f30 /
+    /// 0x00498f60); the HUD shows ui_forge_crosshair or ui_stig_mg_crosshair by it (Hud_ProjectMarkers 0x00406840)
+    forge: bool,
     /// +0x620 (about the pivot's z) and +0x61c (about its x), radians
     yaw: f32,
     pitch: f32,
@@ -134,6 +137,11 @@ impl GunSounds {
 }
 
 impl Turret {
+    /// The forge cannon (Game+0xac8 = 3 while ridden), not a mounted gun (4).
+    pub fn is_forge_cannon(&self) -> bool {
+        self.forge
+    }
+
     /// An AI gunner's aim (0x00408c70: the gun's four corner poses stig_mgun_*_tl/tr/bl/br blended by the gunner's
     /// weights +0x580 horizontal (0 left .. 1 right) and +0x584 vertical (0 bottom .. 1 top)). The corners turn the
     /// pivot by about +-65 degrees about z and +-25 about x (stig_mgun_idle_tl center = qz(65) * qx(-25)); the blend is
@@ -344,6 +352,7 @@ pub(crate) fn setup(
         let deg = |k: &str, d: f32| p.f(k, d).to_radians();
         commands.entity(e).insert(Turret {
             aim_range: if forge { 500.0 } else { 2000.0 },
+            forge,
             yaw: 0.0,
             pitch: 0.0,
             turn_speed: p.f("turn_max_speed", 2.0),
@@ -543,7 +552,8 @@ pub(crate) fn ride(
                     }
                 }
             }
-            if hud.prompt.is_none() {
+            // 0x00466210: only while the player can act (0x0047a950: not during a camera path)
+            if hud.prompt.is_none() && can_act {
                 hud.prompt = Some(hint(&mission, "ui_vehicle_exit"));
             }
         }
