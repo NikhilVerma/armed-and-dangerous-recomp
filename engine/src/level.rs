@@ -167,6 +167,8 @@ pub struct SpawnGrunt {
     pub exit: Option<Vec3>,
     pub marker_tags: Option<(i64, i64)>,
     pub alert_group: i64,
+    /// the generator's priority_target_tag_min / max, the troop's priority targets (0x0042cc60: +0x858 / +0x85c)
+    pub priority_tags: (i64, i64),
     /// a grunt released by the army (army.rs): the orders it carries, inserted as its component
     pub army: Option<crate::army::ArmyGrunt>,
     /// a squad member (ai/squad.rs): his squad and bone; idle at it until the squad moves
@@ -1632,6 +1634,7 @@ fn spawn_grunts(
         if let Some((body, character)) = ai::body::add(&mut physics, e, character, ev.at, "grunt") {
             let mut g = ai::make_grunt(&p, &data, ai::Kind::of(&ev.template), ev.at, yaw, rng);
             g.cold = ai::cold_level(&lib.dir);
+            g.priority_tags = ev.priority_tags;
             if let Some(ic) = &ev.ic {
                 // hidden (0x0042d000): waiting for his trigger at his node, held there, looking for targets with the
                 // host's trigger_los
