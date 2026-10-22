@@ -274,14 +274,17 @@ fn tower_update(
     let dt = time.delta_secs();
     let now = time.elapsed_secs();
     let Ok((re, r, rt)) = roman.single() else { return };
-    let roman_at = rt.translation + Vec3::Y * r.walker.lift;
+    // his position (player vt+0x6c Body_getPosition 0x00457930: the body plus the origin offset, his feet) for the
+    // range; the sight line goes to his hit point (Turret_SightHit: ref_hit_00, his centre here)
+    let roman_feet = rt.translation;
+    let roman_at = roman_feet + Vec3::Y * r.walker.lift;
     for (e, mut tt, pl, gt, health) in &mut q {
         // dead (its record gone this frame; the husk swap removes it)
         let Some(health) = health else { continue };
         // the "center" node at the angle (the turn anim sampled at the fraction)
         let spin = lib.anim(&tt.turn).and_then(|a| a.rotation("center", tt.angle * a.duration)).unwrap_or(Quat::IDENTITY);
         // 0x00497ed0 (the muzzle fx step: the tower has no muzzle fx)
-        if roman_at.distance_squared(tt.home) <= tt.range * tt.range {
+        if roman_feet.distance_squared(tt.home) <= tt.range * tt.range {
             if !tt.in_range {
                 tt.last_fire = 0.0;
             }
@@ -358,13 +361,15 @@ fn bud_update(
     let now = time.elapsed_secs();
     let dt = time.delta_secs();
     let Ok((r, rt)) = roman.single() else { return };
+    // the range and the aim both from his position (player vt+0x6c Body_getPosition 0x00457930: his feet), the sight
+    // line to his hit point (Turret_SightHit: ref_hit_00, his centre here)
     let roman_feet = rt.translation;
     let roman_at = roman_feet + Vec3::Y * r.walker.lift;
     let cache = nodes_cache.get();
     for (e, mut b, pl, gt, d) in &mut q {
         let Some(health) = d.map(|d| d.health) else { continue };
         log.0.insert(b.id.to_string(), serde_json::json!({"kind": "rocket_bud", "health": health, "shots": b.shots, "seen": b.seen}));
-        if roman_at.distance_squared(b.home) > b.range * b.range {
+        if roman_feet.distance_squared(b.home) > b.range * b.range {
             continue;
         }
         if !(b.last_fire == 0.0 || now - b.last_fire > b.recycle) {
