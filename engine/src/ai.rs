@@ -104,6 +104,9 @@ pub enum Mind {
     Falling,
     /// state 0xb: a close attack (ai/melee.rs `close_attack`), anim 0x5f / 0x60 looped (`anim_id`)
     CloseAttack,
+    /// state 0xae: the pre-success retreat (ai/retreat.rs), running along his route to `Grunt::goal`; it never ends
+    /// (he stands at its end); the run anim, or run_scared (0xb) with `Grunt::scared_run`
+    Retreat,
 }
 
 /// The grunt classes a lev_1_m1 template makes (counted in the coverage runs: BowGruntObject_Slot6 0x004347b0 runs 9
@@ -880,8 +883,11 @@ pub struct Grunt {
     pub cover_history: [Option<Entity>; 3],
     /// the generic cover slot held (+0x904 / +0x914 of a tree or a building: coverslot.rs)
     pub slot: Option<coverslot::SlotHold>,
-    /// debug (playtest `cover` step): run the hiding-spot search now, as at a reload's end (flag 4 set)
+    /// a hiding-spot search asked for from outside the think loop (vt+0x240(1, 0, 0)), run at his next think as at a
+    /// reload's end (flag 4 set): a breach runner the closing gate stops (army.rs), the playtest's `cover` step
     pub force_hide: bool,
+    /// +0x484 0x20: his runs are the scared run (anim 0xb run_scared): the pre-success retreat's 20 % (ai/retreat.rs)
+    pub scared_run: bool,
     /// +0x484 flag 4: the fire counters are rolled (0x00427600: at init, a reload's end, the trench's duck); cleared at a
     /// clip's end (0x00428980)
     pub fire_ready: bool,
@@ -1417,6 +1423,7 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         cover_history: [None; 3],
         slot: None,
         force_hide: false,
+        scared_run: false,
         fire_ready: true,
         hold: false,
         gun: None,
@@ -3192,6 +3199,8 @@ fn think(
             (Mind::Teleport, _) => Mind::Teleport,
             (Mind::Cast, _) => Mind::Cast,
             (Mind::ToMarker, _) => Mind::ToMarker,
+            // state 0xae has no exit
+            (Mind::Retreat, _) => Mind::Retreat,
             (Mind::Flee, _) if g.timer > 0.0 => Mind::Flee,
             // the scare's end charges the player (0x0042ce70)
             (Mind::Flee, _) => {
@@ -3409,6 +3418,11 @@ fn think(
             Mind::Flee => {
                 goal = g.goal;
                 speed = run_speed;
+            }
+            Mind::Retreat => {
+                // state 0xae: along the route to the point 2000 off; at its end he stands
+                goal = g.goal;
+                speed = if flat(g.goal - pos).length() < MARKER_REACHED { 0.0 } else { run_speed };
             }
             Mind::ToMarker => {
                 let mk = g.spline.and_then(|r| markers.spline_marker(r.tag, r.index)).map(|m| m.pos);
