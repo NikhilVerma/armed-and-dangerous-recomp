@@ -1727,7 +1727,7 @@ fn projectiles(
     hulls: Option<Res<crate::hitparts::HitHulls>>,
     (rtime, topsy, mounted, mut noise, mut bombs, mut rng, mut sounds): (Res<Time<Real>>, Res<crate::topsy::Topsy>, Res<crate::turret::Mounted>, ResMut<crate::ai::Interests>, Query<(&Transform, &mut crate::sticky::StickyBomb), Without<Projectile>>, ResMut<crate::fx::FxStats>, MessageWriter<crate::audio::PlaySound>),
     mut victims: Query<&mut crate::ai::Grunt>,
-    (mut pickups, traitors, binds, mut wstats, mut stuck): (MessageWriter<crate::pickup::SpawnPickup>, Query<(), With<crate::weapons::traitor::Traitor>>, Res<Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>, ResMut<crate::weapons::WeaponStats>, MessageWriter<crate::arrows::ArrowStuck>),
+    (mut pickups, traitors, binds, mut wstats, mut stuck, placed): (MessageWriter<crate::pickup::SpawnPickup>, Query<(), With<crate::weapons::traitor::Traitor>>, Res<Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>, ResMut<crate::weapons::WeaponStats>, MessageWriter<crate::arrows::ArrowStuck>, Query<(Entity, &crate::level::Placed)>),
 ) {
     let dt = time.delta_secs();
     for (e, mut p, mut t, mut pierce) in &mut q {
@@ -1833,6 +1833,8 @@ fn projectiles(
         // enemy bullets hit Roman on his collision model's parts (trotter_coll_0 posed by his skeleton, hitparts.rs;
         // the walker is not a body); without it, by distance to his capsule
         let mut hit_roman = false;
+        // where and on which part of his collision model (an arrow sticks there: arrows.rs)
+        let mut roman_part: Option<(Vec3, String)> = None;
         if !p.from_player {
             if let Ok((_, r, rt, ra)) = roman.single() {
                 let c = rt.translation + Vec3::Y * r.walker.lift;
@@ -1848,7 +1850,8 @@ fn projectiles(
                             let jp = a.skeleton.index.get(part.as_str()).and_then(|&i| joints.get(a.joints[i]).ok()).map(|j| crate::level::game_to_engine().inverse() * (j.translation() - rt.translation)).unwrap_or(Vec3::ZERO);
                             info!("AIDBG romanhit {} {:.2} {:.2} {:.2} anim {:.2} bone {:.2} {:.2} {:.2} t {:.3}", part, at.x, at.y, at.z, r.hit_anim, jp.x, jp.y, jp.z, rtime.elapsed_secs());
                         }
-                        rh.is_some()
+                        roman_part = rh.map(|(f, part)| (from + (to - from) * f, part));
+                        roman_part.is_some()
                     }
                     (Some(_), Some(_)) => false,
                     _ => near < 4.5,
@@ -1881,15 +1884,15 @@ fn projectiles(
                     if parts.is_empty() || (from + seg * u).distance(cc) > 12.0 {
                         continue;
                     }
-                    if let Some((f, _)) = crate::hitparts::hit(parts, a, &joints, &binds, from, to) {
-                        if hit_companion.is_none_or(|(bf, _)| f < bf) {
-                            hit_companion = Some((f, c.q));
+                    if let Some((f, part)) = crate::hitparts::hit(parts, a, &joints, &binds, from, to) {
+                        if hit_companion.as_ref().is_none_or(|(bf, _, _)| f < *bf) {
+                            hit_companion = Some((f, c.q, part));
                         }
                     }
                 }
             }
         }
-        if let Some((_, q)) = hit_companion {
+        if let Some((hf, q, part)) = hit_companion {
             if let Some(f) = impact(None, from + step, Quat::IDENTITY) {
                 surface_fx.write(f);
             }
@@ -1898,7 +1901,8 @@ fn projectiles(
             if let Some((ce, mut c, _, _, mut ch)) = companions.iter_mut().find(|(_, c, _, _, _)| c.q == q) {
                 // an arrow stays stuck in him (ArrowProjectile_Hit 0x00482780 -> 0x0047e9f0)
                 if p.linger > 0.0 {
-                    stuck.write(crate::arrows::ArrowStuck { arrow: e, at: from + step, on: Some(ce), linger: p.linger });
+                    // at the hit point on the part hit (record+4, +0x10)
+                    stuck.write(crate::arrows::ArrowStuck { arrow: e, at: from + (to - from) * hf, on: Some(ce), part: Some(part), linger: p.linger });
                 }
                 if p.from_player {
                     c.friendly = true;
@@ -1917,7 +1921,9 @@ fn projectiles(
                 surface_fx.write(f);
             }
             if let (true, Ok((re, ..))) = (p.linger > 0.0, roman.single()) {
-                stuck.write(crate::arrows::ArrowStuck { arrow: e, at: from + step, on: Some(re), linger: p.linger });
+                // at the hit point on the part hit (record+4, +0x10); hit by his capsule (no collision model): the step's end
+                let (at, part) = roman_part.map_or((from + step, None), |(at, part)| (at, Some(part)));
+                stuck.write(crate::arrows::ArrowStuck { arrow: e, at, on: Some(re), part, linger: p.linger });
             }
             // ignored during the topsy states (0x0047afa0: +0xa34 & 0x7800000); the bullet still lands
             if let Some((mut h, shield)) = roman_health.single_mut().ok().filter(|_| !topsy.active()) {
@@ -1974,10 +1980,13 @@ fn projectiles(
             if let Some(f) = impact(Some((body, at)), at, rot) {
                 surface_fx.write(f);
             }
-            // an arrow stays stuck where it hit, in the character it hit (ArrowProjectile_Hit 0x00482780 -> 0x0047e9f0)
+            // an arrow stays stuck where it hit, in what it hit (ArrowProjectile_Hit 0x00482780 -> 0x0047e9f0: any
+            // object): a character on the part hit, else the placed object whose body it is (a prop rides it away)
             if p.linger > 0.0 {
                 let on = chars.iter().find(|(ce, b, _, _, _)| b.id == body && Some(*ce) != p.owner).map(|c| c.0);
-                stuck.write(crate::arrows::ArrowStuck { arrow: e, at, on, linger: p.linger });
+                let part = on.and(hull_part.clone());
+                let on = on.or_else(|| placed.iter().find(|(_, pl)| pl.collider == Some(physics.main_body(body))).map(|(pe, _)| pe));
+                stuck.write(crate::arrows::ArrowStuck { arrow: e, at, on, part, linger: p.linger });
             }
             if let Some((ce, _, mut h, anim, grunt)) = chars.iter_mut().find(|(ce, b, _, _, _)| b.id == body && Some(*ce) != p.owner) {
                 // same team (0x00430340: the source's and the victim's vt+0xe4 agree): a grunt's shot does no damage

@@ -1,0 +1,6 @@
+{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+ {"cheat": "SHIELDME"},
+ {"wait": 50.0},
+ {"expect": {"arrows.stuck_total": [1, 200], "arrows.on_part": [1, 200], "arrows.in_body": [0, 200]}},
+ {"quit": true}
+]}
