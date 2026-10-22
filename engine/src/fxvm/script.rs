@@ -884,7 +884,7 @@ pub fn run_script(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_>, idx: usize, spawned:
             "0x6a" => {
                 if let (Some(_), Some(t)) = (cur, top) {
                     if let (Some(o), Some(tex)) = (vm.objects.get(&t), arg(2).as_str()) {
-                        vm.out.decals.push(crate::decals::SpawnDecal { place: o.place, size: w(1), texture: tex.to_owned() });
+                        vm.out.decals.push(crate::decals::SpawnDecal { place: o.place, size: w(1), texture: tex.to_owned(), onto: None, pinned: false });
                     }
                 }
             }

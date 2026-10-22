@@ -67,6 +67,9 @@ pub struct DecalWorld {
     owner: Vec<u32>,
     ocells: HashMap<(i32, i32), Vec<u32>>,
     receivers: Vec<Receiver>,
+    /// objects removed since the last frame: their decals fade (Object_Remove 0x004547b0 -> 0x00416620, on every
+    /// removal: a death, a deactivate trigger, a husk swap, a save's restore)
+    gone: Vec<Entity>,
 }
 
 impl DecalWorld {
@@ -85,6 +88,7 @@ impl DecalWorld {
             owner: Vec::new(),
             ocells: HashMap::default(),
             receivers: Vec::new(),
+            gone: Vec::new(),
         }
     }
 
@@ -111,11 +115,12 @@ impl DecalWorld {
         self.receivers.push(Receiver { entity, lo, hi, alive: lo.x <= hi.x });
     }
 
-    /// The object is gone (destroyed, or replaced by its husk): it takes no more decals.
+    /// The object is gone (destroyed, removed, or replaced by its husk): it takes no more decals, and those on it fade.
     pub fn remove_object(&mut self, entity: Entity) {
         for r in self.receivers.iter_mut().filter(|r| r.entity == entity) {
             r.alive = false;
         }
+        self.gone.push(entity);
     }
 
     /// (standing receivers, receiver triangles)
@@ -130,6 +135,12 @@ pub struct SpawnDecal {
     pub place: Mat4,
     pub size: f32,
     pub texture: String,
+    /// Decal_Build's object (0x00417260): onto that placed object alone, not the landscape or the others (the
+    /// buildings' bullseye, level.rs)
+    pub onto: Option<Entity>,
+    /// kept for good: its age stays -1.0 (0x0040cb10 sets +0xf5c), so the pool never takes it as the oldest; it is not
+    /// counted against the pool here
+    pub pinned: bool,
 }
 
 #[derive(Resource)]
@@ -142,11 +153,13 @@ pub struct Decals {
     on_objects: u32,
     /// faded out after their receiver died
     faded: u32,
+    /// made pinned (never recycled: the bullseyes)
+    pinned: u32,
 }
 
 impl Default for Decals {
     fn default() -> Self {
-        Decals { live: Default::default(), capacity: POOL, made: 0, on_objects: 0, faded: 0 }
+        Decals { live: Default::default(), capacity: POOL, made: 0, on_objects: 0, faded: 0, pinned: 0 }
     }
 }
 
@@ -231,7 +244,9 @@ fn spawn(
         let mut idx: Vec<u32> = Vec::new();
         let mut full = false;
         let mut seen = std::collections::HashSet::new();
-        'cells: for c in cell_range(p - Vec3::splat(reach), p + Vec3::splat(reach)) {
+        // (with an object, only that object: Decal_Build calls Decals_ProjectOnEntity alone)
+        let landscape = if ev.onto.is_some() { None } else { Some(cell_range(p - Vec3::splat(reach), p + Vec3::splat(reach))) };
+        'cells: for c in landscape.into_iter().flatten() {
             for &ti in world.cells.get(&c).map(|v| v.as_slice()).unwrap_or(&[]) {
                 if !seen.insert(ti) {
                     continue;
@@ -254,6 +269,9 @@ fn spawn(
                 .flat_map(|c| world.ocells.get(&c).map(|v| v.as_slice()).unwrap_or(&[]).iter().copied())
                 .filter(|&ti| {
                     let r = &world.receivers[world.owner[ti as usize] as usize];
+                    if ev.onto.is_some_and(|o| o != r.entity) {
+                        return false;
+                    }
                     r.alive && r.lo.cmple(bhi).all() && r.hi.cmpge(blo).all()
                 })
                 .collect();
@@ -338,7 +356,11 @@ fn spawn(
             .id();
         decals.made += 1;
         decals.on_objects += u32::from(!receivers_copy.is_empty());
-        decals.live.push_back(e);
+        if ev.pinned {
+            decals.pinned += 1;
+        } else {
+            decals.live.push_back(e);
+        }
         // the pool recycles its oldest (Decal_Recycle 0x00417110); a pool made smaller drops the oldest down to it
         while decals.live.len() > decals.capacity.max(1) {
             if let Some(old) = decals.live.pop_front() {
@@ -348,22 +370,27 @@ fn spawn(
         if let Some(st) = state.as_mut() {
             st.0.insert(
                 "decals".into(),
-                serde_json::json!({ "made": decals.made, "on_objects": decals.on_objects, "last_receivers": receivers_copy.len(), "last_vertices": nverts, "faded": decals.faded, "live": decals.live.len(), "pool": decals.capacity }),
+                serde_json::json!({ "made": decals.made, "on_objects": decals.on_objects, "last_receivers": receivers_copy.len(), "last_vertices": nverts, "faded": decals.faded, "live": decals.live.len(), "pool": decals.capacity, "pinned": decals.pinned }),
             );
         }
     }
 }
 
-/// A receiver's death fades the decals on it over 0.1 s (0x00416620 from 0x004547b0 calls the decal's slot +0x1c,
-/// 0x00418580); each gets its own material for the fade.
+/// A receiver's death or removal fades the decals on it over 0.1 s (0x00416620 from 0x004547b0 calls the decal's slot
+/// +0x1c, 0x00418580); each gets its own material for the fade.
 fn receiver_died(
     mut died: MessageReader<crate::fx::Died>,
+    world: Option<ResMut<DecalWorld>>,
     mut q: Query<(&mut Decal, &mut MeshMaterial3d<StandardMaterial>)>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    for d in died.read() {
+    let gone = match world {
+        Some(mut w) if !w.gone.is_empty() => std::mem::take(&mut w.gone),
+        _ => Vec::new(),
+    };
+    for e in died.read().map(|d| d.0).chain(gone) {
         for (mut decal, mut mat) in &mut q {
-            if decal.fade.is_none() && decal.receivers.contains(&d.0) {
+            if decal.fade.is_none() && decal.receivers.contains(&e) {
                 decal.fade = Some((0.1, 0.1));
                 if let Some(m) = materials.get(&mat.0).cloned() {
                     mat.0 = materials.add(m);

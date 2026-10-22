@@ -90,7 +90,7 @@ follows the shown launcher. Playtest defence_launchers.
   sent, no body). The carried ladder (0x004298a0 / 0x0042d650, anim 0x31 grunt_ladder_run) and the planted one
   (mover_ladder_plant from the grunt's matrix + (0.458, 24.015, 12.894)) are drawn. Test: ladders_l1m4 (in 110 s: 8
   ladders carried, 7 planted, 41 scales, over the wall by both). The pre-success retreat is ai/retreat.rs (0x0042db00).
-- Not ported: the turret running over grunts on the wall (every third frame, 0x0049b030), the bullseye decal, the base
+- Not ported: the turret running over grunts on the wall (every third frame, 0x0049b030), the base
   mgun's lock-on to target-list candidates (min / max_non_locking): it fires at the crosshair point. The turret's
   removal at the failure mob's end does not despawn the turret (the failure page follows at once).
 - The goliath in a base defence (goliath.rs `hurt`, 0x00434180): a hit above hit_level_2 (25) on its scripted walk while
