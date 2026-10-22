@@ -11,7 +11,8 @@
 //! - a "prop_peasant_chair" attached at its "center" (0x004539f0; +0xb58);
 //! - launched from Roman (Character_Launch 0x00431020, ai/launch.rs: speed rand * 2^-16 + 2.5, spread 75 degrees);
 //! - every anim it is asked for is Peasant_blown_up_chair or _2 (PeasantGenAI vt+0x1a4 0x0043c600: rand * 100 >> 15
-//!   < 50 or not);
+//!   < 50 or not, rolled on each request); its flight asks once, at the launch (state 0x195's update asks for none), so
+//!   one roll at the throw is the original's;
 //! - a scream on it (vt+0xc4): a man's from twelve "new" cues when the peasant delay has passed since the last one
 //!   (Game+0xba4, the interval Game+0xbb0 rolled from peasant_delay_min / max, 10 / 10; shared with the drop-off lines)
 //!   else from ten "soon" ones; a woman's from nine and nine under the voice delay (Game+0xb44 / +0xb50: vo_delay, the
@@ -23,10 +24,26 @@
 //! It falls under the world's gravity until it meets something; then (0x0042e1c0's fall
 //! block -> vt+0x17c, PeasantGenAI_Slot95 0x004353b0) the chair is let go with the villager's velocity and 5..8 up,
 //! and the villager goes down as a ragdoll (GoRagdoll 0x00431310, quiet) whose body lies 5 s (corpses.rs). The chair
-//! is still his (+0xb58): it goes with his body (PeasantGenAI_Slot55 0x00435330: stopped and released with him). His
-//! fade passed on to it (Slot64 0x00435380) is not here (feature character-fade).
+//! is still his (+0xb58): it fades with him (PeasantGenAI_Slot64 0x00435380 passes his alpha on) and goes with his
+//! body (PeasantGenAI_Slot55 0x00435330: stopped and released with him).
+//!
+//! The landing is the AI death bookkeeping too (GoRagdoll -> 0x00431720 with the fall block's record, whose flags are
+//! 0, so the kill counts): a PeasantGenAI is a bad guy to it (vt+0xe8 0x00419280 = !vt+0xe4, and its vt+0xe4 is
+//! 0x00435250, `xor al, al`) of class 67, not one of the uncounted classes, so each landed villager adds 1 to the kill
+//! meter (Game+0xbb8: the dismay banter, ai.rs `KillMeter`) and to the Stats screen's enemies killed (Game+0x270c), and
+//! his score_value (p_peasants has none: 0) to the Kills (docs/original-bugs.md). He was never counted in the enemy
+//! total (Ai_InitGeneric's +0x2710 count needs the creation's +0x396, 0 for 0x0040d390's villagers).
+//!
+//! Not reproduced: the fall block's record also pushes the ragdoll along the contact normal (+0x548) by
+//! rand(2, 3.5) x his mass x his speed into the ground (-+0x554), applied to one ragdoll part through 0x00456050 (x 0.5,
+//! capped by K 0x005bcdac = 1200 against the part's mass); how Havok starts the ragdoll's parts' velocities and what that
+//! cap amounts to in Jolt's terms are not traced, so the ragdoll starts with the flight's velocity (`Tossed::vel`).
+//! The load's body limit (PeasantGenAI_Slot6 0x00435260: the body's virtual +0x1c = 45.1) has no use for a body this
+//! port moves itself; its unlinking from the World lists (+0xe90 projectiles, +0xe94, +0xe7c AI, +0xea4) is this
+//! villager's absence from every AI and target query (it is no Grunt and has no hit volume).
 
 use crate::ai::launch::{LaunchClock, LaunchRolls};
+use crate::camfade::ObjectAlpha;
 use crate::physics::{Body, Physics, jv};
 use crate::scene::ClonedParts;
 use bevy::prelude::*;
@@ -238,7 +255,7 @@ fn fly(
     mut q: Query<(Entity, &mut Tossed, &mut Transform, Option<&mut crate::skin::Animator>)>,
     joints: Query<&GlobalTransform>,
     mut physics: NonSendMut<Physics>,
-    (mut rng, mut stats): (ResMut<crate::fx::FxStats>, ResMut<TossStats>),
+    (mut rng, mut stats, mut kill_meter, mut mission): (ResMut<crate::fx::FxStats>, ResMut<TossStats>, ResMut<crate::ai::KillMeter>, ResMut<crate::stats::MissionStats>),
     (roman, mut sounds): (Query<&GlobalTransform, With<crate::player::Roman>>, MessageWriter<crate::audio::PlaySound>),
 ) {
     let dt = time.delta_secs();
@@ -279,8 +296,11 @@ fn fly(
                     commands.entity(e).insert(rd);
                 }
             }
-            // and the body fall where he lands (0x0042e1c0's ragdoll death for 0x195: FxBodyfall_Spawn 0x0043a8d0, bodyfall.rs)
+            // and the body fall where he lands (0x0042e1c0's fall block: FxBodyfall_Spawn 0x0043a8d0, bodyfall.rs)
             commands.entity(e).remove::<Tossed>().insert((crate::corpses::Corpse::ragdoll(), crate::bodyfall::Launched::default()));
+            // his death counted as a bad guy's (0x00431720): the kill meter and the enemies killed; score_value 0
+            kill_meter.meter += 1.0;
+            mission.enemies_killed += 1;
             stats.landed += 1;
             info!("EVENT peasants: a thrown villager landed");
             continue;
@@ -309,11 +329,21 @@ fn drop_chair(commands: &mut Commands, physics: &mut Physics, villager: Entity, 
 #[derive(Component, Clone, Copy, Debug)]
 pub struct ChairOf(pub Entity);
 
-/// The chair goes with its villager (PeasantGenAI_Slot55 0x00435330: the carried object stopped and released when he
-/// is destroyed).
-fn chairs_go(mut commands: Commands, chairs: Query<(Entity, &ChairOf, Option<&Body>)>, alive: Query<(), With<Transform>>, mut physics: NonSendMut<Physics>) {
-    for (e, of, body) in &chairs {
-        if alive.contains(of.0) {
+/// The chair fades with its villager (PeasantGenAI_Slot64 0x00435380: his alpha passed on to the carried object, vt+0x100)
+/// and goes with him (PeasantGenAI_Slot55 0x00435330: the carried object stopped and released when he is destroyed).
+#[allow(clippy::type_complexity)]
+fn chairs_go(
+    mut commands: Commands,
+    chairs: Query<(Entity, &ChairOf, Option<&Body>, Option<&ObjectAlpha>)>,
+    villagers: Query<Option<&ObjectAlpha>, With<Transform>>,
+    mut physics: NonSendMut<Physics>,
+) {
+    for (e, of, body, alpha) in &chairs {
+        if let Ok(his) = villagers.get(of.0) {
+            let his = his.map_or(1.0, |a| a.0);
+            if alpha.map_or(1.0, |a| a.0) != his {
+                commands.entity(e).try_insert(ObjectAlpha(his));
+            }
             continue;
         }
         if let Some(b) = body {

@@ -68,11 +68,11 @@ pub struct Build {
 }
 
 /// The joints' hold (Body_addConstraints 0x00456570): each joint's strength is (mass A + mass B) x 20 in the original's
-/// units, where gravity is 64.35 units / s^2; as a friction torque here with the same ratio to the weight: 20 x 9.81 x
-/// 0.2 / 64.35 = 0.61 N m per kg. Every ragdoll the original builds goes through it: the tied peasant (0x00405d10),
-/// the AI's (GenericAI_Update 0x0043ee90) and Roman's (PlayerObject 0x004788a0), so corpses keep their pose until
-/// pulled hard.
-pub const JOINT_FRICTION: f32 = 20.0 * 9.81 * crate::level::METERS_PER_UNIT / 64.348;
+/// units, where gravity is 64.35 units / s^2; as a friction torque here with the same ratio to the weight under the
+/// world's gravity (the game's, physics.rs: 64.35 units / s^2 = 12.87 m/s^2): 20 x 12.87 x 0.2 / 64.35 = 20 x 0.2^2 =
+/// 0.8 N m per kg. Every ragdoll the original builds goes through it: the tied peasant (0x00405d10), the AI's
+/// (GenericAI_Update 0x0043ee90) and Roman's (PlayerObject 0x004788a0), so corpses keep their pose until pulled hard.
+pub const JOINT_FRICTION: f32 = 20.0 * crate::level::METERS_PER_UNIT * crate::level::METERS_PER_UNIT;
 
 impl Default for Build {
     fn default() -> Self {
