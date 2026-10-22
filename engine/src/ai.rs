@@ -4710,12 +4710,14 @@ struct UnscaledHealth(f32);
 /// factors (gamedata.rs DIFFICULTIES: bad guys easy 0.5, hard and very hard 2; friends easy 2, very hard 0.5), into
 /// max_health (+0x458) and health (+0x454) both. Scaled in proportion, so a character made hurt or dead stays so; a
 /// difficulty set while the level runs (a saved game's, applied after the level's objects: savegame.rs) scales them
-/// again from the unscaled value.
+/// again from the unscaled value. Roman's max_health takes the player's side's factor as well (PlayerObject_Load
+/// 0x00473da0, game_05.cpp:561: +0x458 = Game+0x554 x +0x458, health +0x454 the same).
 fn difficulty_health(
     mut commands: Commands,
     difficulty: Res<crate::gamedata::Difficulty>,
     mut grunts: Query<(Entity, &mut Grunt, &mut Health, Option<&UnscaledHealth>)>,
     mut companions: Query<(Entity, &mut Companion, &mut Health, Option<&UnscaledHealth>), Without<Grunt>>,
+    mut roman: Query<(Entity, &mut crate::player::Roman, &mut Health, Option<&UnscaledHealth>), (Without<Grunt>, Without<Companion>)>,
 ) {
     let f = difficulty.factors();
     let changed = difficulty.is_changed();
@@ -4749,6 +4751,21 @@ fn difficulty_health(
         };
         let c = &mut *c;
         scale(&mut c.max_health, &mut h.0, &mut c.last_health, unscaled * f.friendly_health);
+    }
+    // (a saved game sets his health as it was saved, absolute, with its difficulty: then only the maximum changes)
+    for (e, mut r, mut h, base) in &mut roman {
+        match base {
+            Some(b) if changed => {
+                r.max_health = b.0 * f.friendly_health;
+                h.0 = h.0.min(r.max_health);
+            }
+            Some(_) => {}
+            None => {
+                commands.entity(e).insert(UnscaledHealth(r.max_health));
+                let to = r.max_health * f.friendly_health;
+                scale(&mut r.max_health, &mut h.0, &mut 0.0, to);
+            }
+        }
     }
 }
 

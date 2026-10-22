@@ -273,3 +273,13 @@ The IC anims (GenericAI_PlayICAnim 0x0042c410, 0x0042c670) switch the character'
 projectiles pass him: the original's Jonesy takes no damage during the 31 s plant on lev_4_m2. `Companion::ic` (set by
 ai/tower.rs at the marker and by the close kill) makes player.rs's bullets skip him; hits react not. Playtest
 tower_l4m2 checks his health at 500 in the bomb loop.
+
+## 14. Idle fidgets in formation (ported 2026-10-22, engine/src/charanim.rs `CompanionIdle`)
+
+Mode 1 of MolmerObject_Slot47 0x00485910 (ai_08.cpp:1817-1850): the timer +0xbac (random(3, 7) on arriving) counts
+down; at its end, when the playing anim ends (the idle set's loop wraps), one of idle_1..3 (ids 0x1e..0x20) plays
+once and +0xbcc 0x1000 is set; from then every anim end plays one of ids 0x1b..0x1d looped (Q: q111_kneel_scan 8.2 s,
+q111_idle_long_1 21 s, _2 25 s; Jonesy: molmer_idle_long_1 / _2 by a second rand in 0x0044ef20). A move, a fight, a
+hit reaction start it over. scan_run (mode 2, id 0xa) is due only when the run's loop outlasts the timer that each
+wrap redraws, so it does not show; scan_stand (0x00427330) needs the attention anim 0xf, shown only before the first
+formation idle. Playtest companion_fidget.
