@@ -210,7 +210,7 @@ fn run(
                         }
                         // the topsy scream (0x004387e0) keeps his scream handle: none while one plays
                         let set = gr.voice_set;
-                        if let Some(req) = gr.speech.scream(&voices, crate::ai::bark_request("Topsy_Scream", set, gt.translation())) {
+                        if let Some(req) = gr.speech.scream(&voices, crate::ai::bark_request("Topsy_Scream", set, gt.translation()).following(e)) {
                             sounds.write(req);
                         }
                         fall += 1;

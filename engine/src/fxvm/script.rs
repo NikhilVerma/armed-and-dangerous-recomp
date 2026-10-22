@@ -680,14 +680,15 @@ pub fn run_script(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_>, idx: usize, spawned:
             }
             // 0x38 / 0x39 / 0x3a: a random name from the inline list (one rand always), the looping word; Fx_PlaySound
             // 0x00420080: 0x38 in 2D (list1 kept); 0x39 / 0x3a with cur: at a point of list1 (one rand when set) of the
-            // object (0x3a in 2D on the player: audio.rs ListenerBody); list1 cleared
+            // object (0x3a in 2D on the player: audio.rs ListenerBody); list1 cleared. A loop is held by the fx object
+            // (top), one per object, and ends with it (audio.rs PlaySound::held_by)
             "0x38" | "0x39" | "0x3a" => {
                 let l = names(&arg(1));
                 let pick = if l.is_empty() { None } else { l.get(vm.rng.index(l.len())).cloned() };
                 let looping = arg(2).as_i64().unwrap_or(0) != 0;
                 if op == "0x38" {
                     if let Some(name) = pick {
-                        vm.out.sounds.push(crate::audio::PlaySound::ui(name).looping(looping));
+                        vm.out.sounds.push(crate::audio::PlaySound::ui(name).looping(looping).held_by(top));
                     }
                 } else {
                     if cur.is_some() {
@@ -697,7 +698,7 @@ pub fn run_script(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_>, idx: usize, spawned:
                                 let pt = point.as_deref().and_then(|n| vm.attach.point(anim.as_deref(), n));
                                 game_to_engine() * point_world(pl, sc, pt).w_axis.truncate()
                             });
-                            vm.out.sounds.push(crate::audio::PlaySound { at, ..crate::audio::PlaySound::on(name, t).looping(looping) });
+                            vm.out.sounds.push(crate::audio::PlaySound { at, ..crate::audio::PlaySound::on(name, t).looping(looping).held_by(Some(t)) });
                         }
                     }
                     list1 = None;

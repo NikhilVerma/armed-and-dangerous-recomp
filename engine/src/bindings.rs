@@ -525,7 +525,8 @@ pub fn capture(
             opts.save();
             menu.capture = None;
             controls.consume();
-            sounds.write(crate::audio::PlaySound::menu("ui_select"));
+            // the select set (ui_01.cpp:1883: 0x00491850)
+            sounds.write(crate::audio::PlaySound::menu_any(&crate::audio::SELECT_SET));
             info!("EVENT controls: {:?} {} {}", c.bind, if lost { "unbound from" } else { "bound to" }, i.name());
         }
     }

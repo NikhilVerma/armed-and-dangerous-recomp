@@ -765,7 +765,8 @@ fn music_voice(
 }
 
 /// Playtest `audio` steps (playtest.rs): {"play": NAME, "offset": [x, y, z] game-space offset from the listener |
-/// "at": [x, y, z] game space | "on_roman": true, "looped": bool}, {"stop": NAME}, {"stop_all_but_music": true},
+/// "at": [x, y, z] game space | "on_roman": true, "looped": bool, "held_by": "roman" | null}, {"stop": NAME},
+/// {"stop_all_but_music": true},
 /// {"mixer": {"sfx" / "voice" / "music": 0..1}}, {"music": "victory" | "objective" | "defeat"}, {"pause": bool}.
 #[allow(clippy::too_many_arguments)]
 fn playtest_audio(
@@ -795,6 +796,10 @@ fn playtest_audio(
                 p.follow = roman.single().ok();
             }
             p.looped = c.get("looped").and_then(|v| v.as_bool());
+            // as an fx sound held by an object ("roman") or by none (null): the fx loop slot (PlaySound::held_by)
+            if let Some(h) = c.get("held_by") {
+                p = p.held_by(if h.as_str() == Some("roman") { roman.single().ok() } else { None });
+            }
             info!("EVENT playtest: sound {name}");
             sounds.write(p);
         }

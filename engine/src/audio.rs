@@ -280,6 +280,11 @@ impl SoundBank {
     /// gr1/gr2/gr3 (any set when the set has none), as the grunt voice methods pick them (audio_01.cpp: one of a fixed
     /// list, (rand() x range) >> 15); `pick` chooses among them.
     pub fn resolve(&self, name: &str, pick: u32) -> Option<String> {
+        // one of a list of names (UiSound_PlayRandom 0x00491760)
+        if name.contains(ANY_OF) {
+            let v: Vec<&str> = name.split(ANY_OF).collect();
+            return Some(v[pick as usize % v.len()].to_lowercase());
+        }
         // the class's voice lists: grunts gr1..3, captains ca1 / ca2 (voices.rs), the shrub patrol sp1 / sp2
         let Some((letters, rest)) = [("@grunt:", "gr"), ("@captain:", "ca"), ("@shrub:", "sp")].iter().find_map(|(p, l)| name.strip_prefix(p).map(|r| (*l, r))) else {
             return Some(name.to_lowercase());
@@ -395,11 +400,32 @@ pub struct PlaySound {
     /// that came while the body's request was in flight missed both, and the body looped for ever (player feedback
     /// A2, the machine gun's fire loop layering on)
     pub replaces: Option<Entity>,
+    /// the object the voice belongs to without following it (the voice's object +8): `StopSoundsOn` it stops the
+    /// voice (0x004f3170), and its removal ends a loop (FxObject_Remove 0x00418db0). A followed entity is its owner too
+    pub owner: Option<Entity>,
+    /// a looping request takes its owner's single loop slot (fx object +0x55c, Fx_PlaySound 0x00420080): with no
+    /// owner, or the slot already taken, it is stopped as it starts (it is not played)
+    pub loop_slot: bool,
 }
 
 impl Default for PlaySound {
     fn default() -> Self {
-        PlaySound { name: String::new(), at: None, follow: None, looped: None, volume: 1.0, offset_db: 0.0, group: None, id: None, through_pause: false, fade_elapsed: None, part: Part::Whole, replaces: None }
+        PlaySound {
+            name: String::new(),
+            at: None,
+            follow: None,
+            looped: None,
+            volume: 1.0,
+            offset_db: 0.0,
+            group: None,
+            id: None,
+            through_pause: false,
+            fade_elapsed: None,
+            part: Part::Whole,
+            replaces: None,
+            owner: None,
+            loop_slot: false,
+        }
     }
 }
 
@@ -421,6 +447,23 @@ impl PlaySound {
     pub fn menu(name: impl Into<String>) -> Self {
         PlaySound { name: name.into(), group: Some(VolumeGroup::Fixed), ..default() }
     }
+    /// A menu sound picked at random from `names` on each play (UiSound_PlayRandom 0x00491760: names[rand() % count]).
+    pub fn menu_any(names: &[&str]) -> Self {
+        Self::menu(names.join(ANY_OF))
+    }
+    /// Keeps a sound that starts at a point on an entity from then on (the character voice methods' Say, audio +0xc4
+    /// with the object: audio_01.cpp 0x00437a20..0x00439890).
+    pub fn following(mut self, who: Entity) -> Self {
+        self.follow = Some(who);
+        self
+    }
+    /// The fx object holding the sound (Fx_PlaySound 0x00420080): its removal ends a loop, and a looping request takes
+    /// its one loop slot (`loop_slot`); `None`: the fx has no object, so a loop does not play.
+    pub fn held_by(mut self, owner: Option<Entity>) -> Self {
+        self.owner = owner;
+        self.loop_slot = true;
+        self
+    }
     pub fn looping(mut self, looped: bool) -> Self {
         self.looped = Some(looped);
         self
@@ -429,7 +472,19 @@ impl PlaySound {
         self.id = Some(id);
         self
     }
+
+    /// The entity whose removal or `StopSoundsOn` ends this sound.
+    fn holder(&self) -> Option<Entity> {
+        self.owner.or(self.follow)
+    }
 }
+
+/// Separates the names of a request played as one of them at random (`PlaySound::menu_any`).
+const ANY_OF: &str = "|";
+
+/// The menus' select set (UiSound_PlaySelectSet 0x00491850, table 0x005cb158): confirming a menu item, applying the
+/// options, a cheat accepted, a key bound.
+pub const SELECT_SET: [&str; 3] = ["ui_select_1", "ui_select_2", "ui_select_3"];
 
 /// A table of sounds dealt at random without repeats until each has played (Audio_PlayRandomSound 0x00493b70: its
 /// `used` counter and the swaps of the table's entries): the index to play of a table of `n`. `rand` gives 0..1.
@@ -497,7 +552,9 @@ impl PlayingVoices<'_, '_> {
 /// (audio_01.cpp 0x00437a20..0x00439f00; Fight, Spotted and the short Hurt keep none). A scream does not start while
 /// the last one plays (0x004383a0, 0x004385c0, 0x00438810); a death line is not said while a scream plays (Dead
 /// 0x004396a0) and stops the line before it (0x004396a0, DeadAtPosition 0x00439890: audio +0xd8 (handle, 0)).
-#[derive(Clone, Copy, Debug, Default)]
+/// The grunts keep it in their `Grunt`; other characters that hold a scream carry it as a component (the tossed
+/// villager), so the body fall (bodyfall.rs) stops it either way.
+#[derive(Component, Clone, Copy, Debug, Default)]
 pub struct Speech {
     scream: Option<(SoundId, f32)>,
     line: Option<(SoundId, f32)>,
@@ -527,6 +584,14 @@ impl Speech {
         let id = SoundId::new();
         self.scream = Some((id, voices.now()));
         Some(request.with_id(id))
+    }
+
+    /// A scream kept as the scream handle whether or not the last one plays (the tossed villager's, 0x0040d390:
+    /// audio +0xc4 -> +0xb4c with no test).
+    pub fn hold_scream(&mut self, now: f32, request: PlaySound) -> PlaySound {
+        let id = SoundId::new();
+        self.scream = Some((id, now));
+        request.with_id(id)
     }
 
     /// A line, kept as the line handle (a line before it plays on).
@@ -621,6 +686,19 @@ pub struct GamePause {
 #[derive(Resource, Default)]
 pub struct Channels(pub [Option<(Entity, u32)>; CHANNELS]);
 
+/// The owners whose loop slot is taken (fx object +0x55c, Fx_PlaySound 0x00420080). Nothing but the object's removal
+/// frees it (FxObject_Remove 0x00418db0 stops its loop): a loop that ended otherwise still holds it.
+#[derive(Resource, Default)]
+struct LoopSlots(HashSet<Entity>);
+
+/// Definitions whose stop fade-out has run to its end once this level: the original clears the definition's envelope
+/// flag 0x200000 there (0x004f2730) to stop the voice, and never sets it again, so from then on every voice of that
+/// definition plays without its envelope and stops at once (0x004fb360). An original bug, reproduced: the second stop
+/// of a crowd loop (amb_base_crowd_*), the boulder roll or the twiglet swarm cuts instead of fading
+/// (docs/original-bugs.md). Not the music: its stops are the music voice's own (0x004f26a0, flag 0x2000000).
+#[derive(Resource, Default)]
+struct SpentEnvelopes(HashSet<String>);
+
 /// Counters for tests and the playtest log.
 #[derive(Resource, Default)]
 pub struct AudioStats {
@@ -645,6 +723,8 @@ impl AudioStats {
 pub struct Voice {
     /// the bank definition playing (an intro, body or outro piece of a sequence included)
     pub key: String,
+    /// the definition requested (whose envelope the voice has)
+    def_key: String,
     pub group: VolumeGroup,
     /// definition volume_db (+0x10), extra offset (+0x14), the request's linear factor
     pub def_db: f32,
@@ -720,6 +800,8 @@ impl Plugin for AudioBankPlugin {
             .init_resource::<Mixer>()
             .init_level_resource::<GamePause>()
             .init_level_resource::<Channels>()
+            .init_level_resource::<LoopSlots>()
+            .init_level_resource::<SpentEnvelopes>()
             .init_resource::<AudioStats>()
             .init_resource::<AudioCheck>()
             .add_systems(Update, (track_pause, stop, play, update_voices).chain())
@@ -747,6 +829,7 @@ fn play(
     mut subs: MessageWriter<Subtitle>,
     (mut rng, time, mut log): (Local<u32>, Res<Time>, Local<Option<std::fs::File>>),
     (pause, mut channels, mut stats): (Res<GamePause>, ResMut<Channels>, ResMut<AudioStats>),
+    (mut slots, spent): (ResMut<LoopSlots>, Res<SpentEnvelopes>),
     voices: Query<(), With<Voice>>,
     listener: Query<&GlobalTransform, With<SpatialListener>>,
     bodies: Query<(Entity, &GlobalTransform, &ListenerBody)>,
@@ -827,6 +910,15 @@ fn play(
             stats.refuse("out_of_range", &key);
             continue;
         }
+        // an fx loop takes its object's one loop slot; without an object, or with the slot taken, Fx_PlaySound
+        // (0x00420080) stops it as it starts ("Fx : Failed to play looping sound")
+        if looped && ev.loop_slot && ev.part == Part::Whole {
+            slots.0.retain(|o| places.contains(*o));
+            if !ev.owner.is_some_and(|o| slots.0.insert(o)) {
+                stats.refuse("loop_slot", &key);
+                continue;
+            }
+        }
         // an intro / loop / outro sequence (flag 0x1000000, 0x004fa340): the intro first; looping, the body follows
         // it and a stop plays the outro; not looping, the intro (or the body without one) plays once
         let sequence = ev.part != Part::Piece && def.has("intro_outro_loop");
@@ -848,11 +940,12 @@ fn play(
         let speed = if group == VolumeGroup::Music { 1.0 } else { rate_factor(fdef.pitch_variation, u) };
         let mut voice = Voice {
             key: file.clone(),
+            def_key: key.clone(),
             group,
             def_db: fdef.volume_db,
             offset_db: ev.offset_db,
             factor: ev.volume.max(0.0),
-            envelope: def.envelope.filter(|_| def.has("envelope")),
+            envelope: def.envelope.filter(|_| def.has("envelope") && !spent.0.contains(&key)),
             age: 0.0,
             fading: ev.fade_elapsed,
             range: positional.then_some((lo, hi)),
@@ -914,9 +1007,15 @@ fn play(
 }
 
 /// Ends a voice. Not immediate (0x004fb360): a looping sequence plays its outro, an envelope fades out over its
-/// fade_out (the voice is removed when the fade ends).
+/// fade_out (the voice is removed when the fade ends). A stop that comes again while the fade runs leaves it running:
+/// the original cannot stop a voice twice, as the stop slot +0xd8 clears the caller's handle (0x004f30e0).
+///
+/// A paused voice (the game's pause, a streamed loop out of range, the held music aside) ends at once: the stop
+/// (0x004f26a0) clears its pause mark without starting its buffer again, so its outro and fade-out run silent, and the
+/// resume (0x004f2e40) skips stopped voices.
 fn end_voice(commands: &mut Commands, e: Entity, v: &mut Voice, immediate: bool, replay: &mut MessageWriter<PlaySound>) {
-    if !immediate {
+    let silent = v.paused && v.group != VolumeGroup::Music;
+    if !immediate && !silent {
         if let Some(outro) = v.outro.take() {
             replay.write(PlaySound { name: outro, at: Some(v.at), follow: v.follow, looped: Some(false), part: Part::Piece, ..v.request.clone() });
             commands.entity(e).despawn();
@@ -950,7 +1049,8 @@ fn stop(
         let by_id = id.and_then(|id| ids.iter().find(|s| s.id == *id));
         if let Some(s) = by_id {
             end_voice(&mut commands, e, &mut v, s.immediate, &mut replay);
-        } else if names.iter().any(|s| *s == n.0) || v.follow.is_some_and(|f| on.contains(&f)) {
+        } else if names.iter().any(|s| *s == n.0) || v.request.holder().is_some_and(|f| on.contains(&f)) {
+            // by name, or every voice of an object (0x004f3170: the voice's object, followed or not)
             end_voice(&mut commands, e, &mut v, false, &mut replay);
         }
     }
@@ -969,6 +1069,7 @@ fn update_voices(
     mut voices: Query<(Entity, &mut Voice, &mut Transform, Option<&SoundId>, Option<&mut AudioSink>, Option<&mut SpatialAudioSink>, Option<&mut PlaybackSettings>)>,
     mut offsets: MessageReader<SetVoiceOffset>,
     mut replay: MessageWriter<PlaySound>,
+    mut spent: ResMut<SpentEnvelopes>,
 ) {
     let offsets: HashMap<SoundId, f32> = offsets.read().map(|o| (o.id, o.db)).collect();
     let ear = listener.single().ok().map(|l| l.translation());
@@ -977,15 +1078,20 @@ fn update_voices(
         if let Some(db) = id.and_then(|id| offsets.get(id)) {
             v.offset_db = *db;
         }
+        // the definition's envelope spent by another voice's fade (SpentEnvelopes): this one goes on without it
+        if v.fading.is_none() && v.envelope.is_some() && spent.0.contains(&v.def_key) {
+            v.envelope = None;
+        }
         if let Some(f) = v.follow {
-            match followed.get(f) {
-                Ok(ft) => v.at = ft.translation(),
-                // FxObject_Remove (0x00418db0) stops its object's loop
-                Err(_) if v.looped => {
-                    end_voice(&mut commands, e, &mut v, false, &mut replay);
-                    continue;
-                }
-                Err(_) => {}
+            if let Ok(ft) = followed.get(f) {
+                v.at = ft.translation();
+            }
+        }
+        // FxObject_Remove (0x00418db0) stops its object's loop (once: a fade-out it starts then runs below)
+        if v.looped && v.fading.is_none() && v.request.holder().is_some_and(|o| !followed.contains(o)) {
+            end_voice(&mut commands, e, &mut v, false, &mut replay);
+            if v.fading.is_none() {
+                continue;
             }
         }
         if t.translation != v.at {
@@ -1001,7 +1107,8 @@ fn update_voices(
             commands.entity(e).despawn();
             continue;
         }
-        let game_paused = pause.paused && !v.through_pause && v.started_in_pause != Some(pause.epoch);
+        // the game's pause leaves a voice fading out after a stop alone (0x004f2d60 skips stopped voices, flag 0x40)
+        let game_paused = pause.paused && !v.through_pause && v.started_in_pause != Some(pause.epoch) && v.fading.is_none();
         let want_paused = game_paused || far || v.held;
         // the voice plays from its request in game time, its file loaded or not (the original reads it as it
         // starts): its age, envelope, fade and end do not wait for the asset server
@@ -1014,6 +1121,9 @@ fn update_voices(
         }
         if let (Some(f), Some(env)) = (v.fading, v.envelope) {
             if env.fade_level(f).is_none() {
+                if v.group != VolumeGroup::Music {
+                    spent.0.insert(v.def_key.clone());
+                }
                 commands.entity(e).despawn();
                 continue;
             }
@@ -1274,5 +1384,13 @@ mod tests {
         let seen: HashSet<String> = (0..30).map(|p| b.resolve("@grunt:Dead:0:last3", p).unwrap()).collect();
         assert_eq!(seen.len(), 3);
         assert_eq!(b.resolve("Plain_Name", 0).as_deref(), Some("plain_name"));
+    }
+
+    #[test]
+    fn select_set_deals_every_name() {
+        let b = bank(&[]);
+        let name = PlaySound::menu_any(&SELECT_SET).name;
+        let seen: HashSet<String> = (0..9).map(|p| b.resolve(&name, p).unwrap()).collect();
+        assert_eq!(seen, SELECT_SET.iter().map(|s| s.to_string()).collect());
     }
 }
