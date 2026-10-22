@@ -59,6 +59,15 @@ pub struct BlackHole {
     model: Option<Entity>,
 }
 
+/// The carry-off as other objects take it (AreaDamage_Apply 0x0047f020 with record flag 0x800, the hole the holder
+/// +0x30, from the player): every object whose bounding sphere is within `radius` of `at` (the twiglets: twiglet.rs).
+#[derive(Message, Clone, Copy, Debug)]
+pub struct CarryOff {
+    pub hole: Entity,
+    pub at: Vec3,
+    pub radius: f32,
+}
+
 /// A character the hole carried off (0x800 message, its holder +0x870).
 #[derive(Component, Debug)]
 pub struct Carried {
@@ -100,7 +109,7 @@ pub struct BlackHolePlugin;
 impl Plugin for BlackHolePlugin {
     fn build(&self, app: &mut App) {
         use crate::levelreset::LevelAppExt;
-        app.init_level_resource::<Suction>().add_systems(
+        app.init_level_resource::<Suction>().add_message::<CarryOff>().add_systems(
             Update,
             (throw.after(super::WeaponSet::Throws), boxes, holes, carried, pull_roman, pull_projectiles).chain().after(crate::player::PlayerSet::Weapons).run_if(crate::playing),
         );
@@ -234,7 +243,7 @@ fn holes(
     mut grunts: Query<(Entity, &mut crate::ai::Grunt, &GlobalTransform), Without<Carried>>,
     mut suction: ResMut<Suction>,
     mut rng: ResMut<crate::fx::FxStats>,
-    mut blasts: MessageWriter<crate::fx::Explode>,
+    (mut blasts, mut carry): (MessageWriter<crate::fx::Explode>, MessageWriter<CarryOff>),
     (mut log, mut stats): (Option<ResMut<crate::mission::Mission>>, ResMut<super::WeaponStats>),
 ) {
     let dt = time.delta_secs();
@@ -277,6 +286,7 @@ fn holes(
                 commands.entity(ge).insert(Carried { hole: e, phase: Carry::Flee(rng.range(1.0, 1.75)), vel: Vec3::ZERO });
                 n += 1;
             }
+            carry.write(CarryOff { hole: e, at: h.target, radius: h.radius });
             if let Some(m) = log.as_deref_mut() {
                 m.log.push(format!("black hole: {n} carried off"));
             }

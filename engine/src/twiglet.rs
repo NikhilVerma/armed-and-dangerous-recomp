@@ -12,15 +12,20 @@
 //!   left gives one (0x0049d590); its swarm loop plays while any has some left.
 //! - [`Twiglet`]: the creature's update (Twiglet_Update 0x0049dcf0, a switch on +0x464: [`State`]).
 //!
-//! The monk's summon (ai.rs state 0xf2 / 0xf3, ai_06.cpp:2906-2972) makes five idle twiglets round the monk through
+//! The monk's summon (ai.rs state 0xf2 / 0xf3, ai_06.cpp:2906-2972) makes five twiglets round the monk through
 //! [`SpawnTwiglet`].
 //!
-//! Not ported (no caller sets them in the shipped game, or the weapon is not in the engine): the spear thrower (flag
-//! bit 0 of +0x460: states 0x14 / 0x15 / 0x16 / 0x18, the "fire" note's twiglet_spear; nothing sets the bit, so
-//! Twiglet_RunToTarget always picks 0x0a), the leap onto the player (0x3c / 0x3d / 0x3e / 0x3f: nothing enters 0x3c),
-//! the stun (damage flag 0x20) and the hang (0x50), the pull / knock-away (damage flag 0x800: 0x5a / 0x5b), the topsy
-//! throw (vt+0x124, 0x65 / 0x66) and the blown-up flight (0x51 / 0x52), the hold of state 0x0a while Game+0xc80 /
-//! +0xcbc / World+0xf00 hold the AI (the engine has no such hold yet).
+//! A twiglet made by code (the swarm, the monk: ObjectSystem_CreateObject without a property block) starts in state 0
+//! and its maker wakes it (0x0049f380): the swarm's at once, the monk's after as many seconds as twiglets he made
+//! before it. The idle state 0x01 (trigger_los, activation_range, receive_trigger_activate: Twiglet_Slot6 with a
+//! property block) is for twiglets placed in a level, and no level places one: not ported.
+//!
+//! Not ported (no caller reaches them in the shipped game): the spear thrower (flag bit 0 of +0x460: states 0x14 /
+//! 0x15 / 0x16 / 0x18, long_range_dist, the "fire" note's twiglet_spear; nothing sets the bit, so Twiglet_RunToTarget
+//! always picks 0x0a), the leap onto the player (0x3c / 0x3d / 0x3e and the "hit" note's claw: nothing enters 0x3c or
+//! 0x0b), the dying fade 0x28 (nothing enters it), bof_anti_gravity (Twiglet_Vt8C under flag bit 4, which nothing
+//! sets). Deferred: the knockout glove's grab / throw / punch of a twiglet (vt+0x120 0x004a0420.., states 0x64..0x66;
+//! feature knockout-bomb).
 
 use crate::levelreset::LevelAppExt;
 use bevy::prelude::*;
@@ -37,6 +42,12 @@ const BOMB_REACH: f32 = 10.0;
 const CLOSE_REPATH: f32 = 20.0;
 /// state 0x0a's and the summon's sidestep, 5 units (K 0x005bcbdc).
 const SIDESTEP: f32 = 5.0;
+/// A black hole's carry-off (damage flag 0x800): the run away from it (K 0x005bcf00), the pull's speed factor on
+/// move_speed (K 0x005bce20) and its rate (the drive's mass x 5, K 0x005bcbdc), swallowed within 2 (K 0x005bcb80).
+const FLEE: f32 = 250.0;
+const PULL_SPEED: f32 = 1.5;
+const PULL_RATE: f32 = 5.0;
+const SWALLOW: f32 = 2.0;
 /// The body: a capsule round the 4 x 2.5 x 5.2 model (twiglet_coll_0's bounds).
 const RADIUS: f32 = 1.5;
 const HEIGHT: f32 = 5.2;
@@ -120,6 +131,9 @@ pub struct Swarm {
     fall_pct: f32,
     /// twiglets the topsy turvy blew into the sky that died coming down (state 0x52's contact)
     pub landed: u32,
+    /// twiglets a black hole carried off (damage flag 0x800), and the ones it swallowed
+    pub carried: u32,
+    pub swallowed: u32,
 }
 
 /// The twiglets' own random numbers (the game's CRT rand form, crate::fxvm::CrtRand): kept apart from the shared
@@ -141,8 +155,8 @@ impl TwigletRng {
 /// What a twiglet is doing: Twiglet_Update's states (+0x464), [`State::code`] the original's number.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum State {
-    /// 0x01: standing (twiglet_stand) until the player comes within activation_range
-    Idle,
+    /// 0x3f: standing (twiglet_stand) for its wake's time, then running (0x0049f380)
+    Wait,
     /// 0x32: coming out of its tree along an IC mover (0x0049fbe0 / 0x0049fb60), then running (0x0049fab0)
     Emerging,
     /// 0x0a: running at the player (twiglet_run / twiglet_run_with_bomb)
@@ -159,12 +173,17 @@ pub enum State {
     BlownUp,
     /// 0x52: off the gravity list, falling back; dies at its first contact (Twiglet_VtA8 0x0049fe60)
     Falling,
+    /// 0x5b: carried off by a black hole, first running 250 units away from it (twiglet_run) to its route's end
+    Flee,
+    /// 0x5a: then pulled into it, across at 1.5 x its speed and, after 1..2 s, up too (twiglet_blown_up); gone
+    /// within 2 of it, or when the hole is
+    Pull,
 }
 
 impl State {
     pub fn code(self) -> u32 {
         match self {
-            State::Idle => 0x01,
+            State::Wait => 0x3f,
             State::Emerging => 0x32,
             State::Run => 0x0a,
             State::GetBomb => 0x46,
@@ -173,6 +192,8 @@ impl State {
             State::Hang => 0x50,
             State::BlownUp => 0x51,
             State::Falling => 0x52,
+            State::Flee => 0x5b,
+            State::Pull => 0x5a,
         }
     }
 }
@@ -184,16 +205,21 @@ pub struct Twiglet {
     body: oxijolt::prelude::BodyId,
     /// +0x468: the repath timer
     repath: f32,
+    /// +0x468 in states 0x3f / 0x5a: seconds left standing / before the black hole lifts it
+    wait: f32,
     /// +0x46c: seconds to its next call (ctr_twiglet_call_1..3)
     call: f32,
     /// +0x56c / +0x578: where it was made and the leash delay
     home: Vec3,
     leash: f32,
-    /// +0x588 activation_range (trigger_los; p_twiglet: 400)
-    activation_range: f32,
     /// +0x480 move_speed (46; p_twiglet: 40), +0x490 hit_level_1 (10)
     speed: f32,
     hit_level: f32,
+    /// +0x484 move_power (30; p_twiglet: 100): the gain of the vertical drive while blown up or falling (states 0x51 /
+    /// 0x52: a force of mass x move_power on the velocity's error)
+    power: f32,
+    /// +0x568: the black hole that carried it off
+    hole: Option<Entity>,
     /// +0x55c: the bomb it carries
     pub bomb: Option<Entity>,
     /// the way to the player (the remaster's nav replaces the map's route, 0x0046f6d0 / 0x00470aa0)
@@ -213,11 +239,20 @@ pub struct Twiglet {
 #[derive(Component)]
 pub struct TwigletBomb;
 
-/// A twiglet to make: at `at` (game space), coming out along `mover` when given (state 0x32), else idle (state 1).
+/// A twiglet to make: at `at` (game space), coming out along `mover` when given (state 0x32); else woken by its maker
+/// (0x0049f380): it stands `wait` seconds (state 0x3f), then runs at the player (at once when `wait` is 0).
 #[derive(Message, Clone, Debug)]
 pub struct SpawnTwiglet {
     pub at: Mat4,
     pub mover: Option<String>,
+    pub wait: f32,
+}
+
+impl SpawnTwiglet {
+    /// One that stands `wait` seconds where it is made, then runs (the monk's summon: 0, 1, 2.. by the order made).
+    pub fn standing(at: Mat4, wait: f32) -> Self {
+        SpawnTwiglet { at, mover: None, wait }
+    }
 }
 
 pub struct TwigletPlugin;
@@ -227,7 +262,7 @@ impl Plugin for TwigletPlugin {
         app.init_level_resource::<Swarm>()
             .init_level_resource::<TwigletRng>()
             .add_level_message::<SpawnTwiglet>()
-            .add_systems(Update, (activate, controller, spawn, think, notes, log).chain().run_if(crate::playing))
+            .add_systems(Update, (activate, controller, spawn, carry_off, think, notes, log).chain().run_if(crate::playing))
             // a death as fx.rs reports it, before level.rs's husks remove the object (husks run after mission.rs deaths)
             .add_systems(Update, deaths.after(crate::fx::FxSet).before(crate::mission::deaths).run_if(crate::playing));
     }
@@ -255,13 +290,17 @@ fn activate(
         swarm.max_distance = Some(gs.f("twiglet_max_distance", 1000.0));
         swarm.fall_pct = gs.f("topsy_turvy_fall_pct", 50.0);
     }
+    // (trigger 0, every unset tree's, is never sent in the shipped data: dropped so that no stray 0 wakes them all)
     let got: Vec<i64> = triggers.read().map(|t| t.0).filter(|t| *t != 0).collect();
     for t in got {
         for mut g in &mut q {
-            if g.activate == t && g.active.is_none() {
-                swarm.joined += 1;
-                g.active = Some(swarm.joined);
-                info!("EVENT twiglet: generator activated by {t} ({} to give)", g.left);
+            // the activate trigger is tested first: a tree with both the same is only ever put on the list
+            if g.activate == t {
+                if g.active.is_none() {
+                    swarm.joined += 1;
+                    g.active = Some(swarm.joined);
+                    info!("EVENT twiglet: generator activated by {t} ({} to give)", g.left);
+                }
             } else if g.deactivate == t && g.active.is_some() {
                 g.active = None;
                 info!("EVENT twiglet: generator deactivated by {t}");
@@ -340,26 +379,26 @@ fn controller(
 }
 
 /// 0x0049d590: one twiglet from a generator: out of its next mover, or (no movers) 30..100 units round the tree at a
-/// random turn of its facing; one less to give.
+/// random turn of its facing, woken at once by the controller (0x0049f380 with 0: it runs); one less to give.
 fn release(g: &mut Generator, rng: &mut TwigletRng) -> SpawnTwiglet {
     let ev = match g.take_mover() {
-        Some((mover, origin)) => SpawnTwiglet { at: origin, mover: Some(mover) },
+        Some((mover, origin)) => SpawnTwiglet { at: origin, mover: Some(mover), wait: 0.0 },
         None => {
-            // the facing (0x00453150: the model's -y, guess) turned by rand * 1.9e-4 - pi (K 0x005bcdbc, 0x005bcb70)
+            // the facing (0x00453150: the model's -y, guess) turned about z by rand * 1.9e-4 - pi (K 0x005bcdbc,
+            // 0x005bcb70), normalised in 3D (a tilted tree's way out is the shorter across), its x and y used
             let a = rng.range(-std::f32::consts::PI, std::f32::consts::PI);
-            let facing = (g.world.transform_vector3(Vec3::NEG_Y)).with_z(0.0).normalize_or(Vec3::NEG_Y);
-            let dir = Quat::from_rotation_z(a) * facing;
+            let dir = (Quat::from_rotation_z(a) * g.world.transform_vector3(Vec3::NEG_Y)).normalize_or(Vec3::NEG_Y);
             // x and y each their own distance: rand * 2.14e-3 + 30 (K 0x005bcf2c, 0x005bccbc)
             let at = g.world.w_axis.truncate() + Vec3::new(dir.x * rng.range(30.0, 100.0), dir.y * rng.range(30.0, 100.0), 0.0);
-            SpawnTwiglet { at: Mat4::from_translation(at), mover: None }
+            SpawnTwiglet { at: Mat4::from_translation(at), mover: None, wait: 0.0 }
         }
     };
     g.left = g.left.saturating_sub(1);
     ev
 }
 
-/// Twiglet_Slot6 0x0049d7a0 with its template's properties (p_twiglet): health, speed, the activation range; then the
-/// IC start (0x0049fbe0 + 0x0049fb60) when it comes out of a tree.
+/// Twiglet_Slot6 0x0049d7a0 with its template's properties (p_twiglet): health, speed, move_power; then the IC start
+/// (0x0049fbe0 + 0x0049fb60) when it comes out of a tree, else its wake (0x0049f380).
 #[allow(clippy::too_many_arguments)]
 fn spawn(
     mut commands: Commands,
@@ -391,20 +430,24 @@ fn spawn(
             .allowed_dofs(AllowedDofs::TRANSLATION_X | AllowedDofs::TRANSLATION_Y | AllowedDofs::TRANSLATION_Z);
         let Some(body) = physics.add_dynamic(e, &shape, world.translation + lift, Quat::IDENTITY, Vec3::ZERO, s) else { continue };
         physics.materials.insert(body, p.s("material").unwrap_or("wood").to_owned());
-        let mut d = crate::vehicles::unit_health(&p, crate::fx::DClass::Open, None, 1.0);
+        // the damage filter (Twiglet_TakeDamage 0x0049f530): a hit from a living source of its own side (vt+0xe4: the
+        // grunts', the monks') does nothing; the player's, his team's and objects' (bombs, kegs) count
+        let mut d = crate::vehicles::unit_health(&p, crate::fx::DClass::Building, None, 1.0);
         d.score = p.f("score_value", 0.0);
-        let state = if ev.mover.is_some() { State::Emerging } else { State::Idle };
+        let state = if ev.mover.is_some() { State::Emerging } else { State::Wait };
         let tw = Twiglet {
             state,
             body,
             repath: 0.0,
+            wait: ev.wait,
             // +0x46c: rand * 1.83e-4 + 4 (K 0x005bcf88, 0x005bcbe0): 4..10 s
             call: rng.range(4.0, 10.0),
             home: world.translation,
             leash: LEASH_DELAY,
-            activation_range: if p.i("trigger_los", 0) != 0 { p.f("activation_range", 400.0) } else { 0.0 },
             speed: p.f("move_speed", 46.0),
             hit_level: p.f("hit_level_1", 10.0),
+            power: p.f("move_power", 30.0),
+            hole: None,
             bomb: None,
             route: Vec::new(),
             yaw: crate::ai::ic::yaw_of(world.rotation),
@@ -480,6 +523,29 @@ fn run_to(t: &mut Twiglet, pos: Vec3, target: Vec3, physics: &crate::physics::Ph
     t.state = State::Run;
 }
 
+/// State 0x0a's goal close to the player: 5 units (K 0x005bcbdc) to a random side of him (its facing turned by rand
+/// -pi..pi, 0x00453150 / 0x004e36a0).
+fn sidestep(target: Vec3, rng: &mut TwigletRng) -> Vec3 {
+    let a = rng.range(-std::f32::consts::PI, std::f32::consts::PI);
+    target + Quat::from_rotation_y(a) * Vec3::Z * SIDESTEP
+}
+
+/// The route step (0x00470aa0): the waypoints within 4 (2D) are passed; the next one, or None at the route's end
+/// (AIRoute_HasRoute 0x00470c30 false).
+fn next_waypoint(t: &mut Twiglet, pos: Vec3) -> Option<Vec3> {
+    while t.route.first().is_some_and(|w| flat(*w - pos).length() < 4.0) {
+        t.route.remove(0);
+    }
+    t.route.first().copied()
+}
+
+/// The drive toward `way` (0x00454d80): level, at the ground speed up or down the slope; the velocity and the facing.
+fn drive_toward(physics: &crate::physics::Physics, pos: Vec3, way: Vec3, speed: f32) -> (Vec3, Vec3) {
+    let dir = flat(way - pos).normalize_or_zero();
+    let (sin, cos) = slope_along(physics, pos, dir);
+    (dir * ground_speed(speed, sin, cos) * cos, dir)
+}
+
 /// The topsy turvy's hit on a twiglet (Twiglet_TakeDamage 0x0049f530 with damage flag 0x20): stunned rand 0..1 s, then
 /// it hangs on or is blown away (`blow`), with `duration` (Game+0xc7c, topsy_turvy_duration) of the effect to come.
 pub fn topsy_hit(t: &mut Twiglet, duration: f32, rng: &mut TwigletRng) {
@@ -489,8 +555,8 @@ pub fn topsy_hit(t: &mut Twiglet, duration: f32, rng: &mut TwigletRng) {
 
 /// 0x004a01c0: the stun's end. Coming out of its tree (an IC move) it shrugs it off. With `may_hang`, more than 3 s of
 /// the effect left and rand 100 >= topsy_turvy_fall_pct it hangs on for rand(0.25, left - 1) s (state 0x50); otherwise
-/// it is blown away (state 0x51): still, into the sky.
-fn blow(t: &mut Twiglet, may_hang: bool, fall_pct: f32, rng: &mut TwigletRng) {
+/// it is blown away (state 0x51): stopped dead (Body_setLinearVelocity 0x00458510 with 0), into the sky.
+fn blow(t: &mut Twiglet, may_hang: bool, fall_pct: f32, rng: &mut TwigletRng, physics: &mut crate::physics::Physics) {
     if t.state == State::Emerging {
         t.stun = 0.0;
         return;
@@ -505,20 +571,78 @@ fn blow(t: &mut Twiglet, may_hang: bool, fall_pct: f32, rng: &mut TwigletRng) {
     t.anim = if t.state == State::Hang { "twiglet_blown_up_into" } else { "twiglet_blown_up" };
     t.anim_once = true;
     t.state = State::BlownUp;
+    if let Ok(mut b) = physics.world.body_mut(t.body) {
+        let _ = b.set_linear_velocity(crate::physics::jv(Vec3::ZERO));
+    }
 }
 
-/// The vertical speed of states 0x51 / 0x52 (Twiglet_Update): rising at the world's gravity (its factor -1), at most
-/// 120 up (K 0x005bcf84); then falling, at most 120 down (K 0x005bcf80). `vy` is the body's now; the step's gravity
-/// is added back for the rise.
-fn topsy_vertical(state: State, vy: f32, dt: f32) -> f32 {
-    match state {
-        State::BlownUp => (vy.max(0.0) + 2.0 * GRAVITY * dt).min(120.0 + GRAVITY * dt),
-        _ => vy.clamp(-120.0, 0.0),
-    }
+/// The vertical speed to set in states 0x51 / 0x52 (Twiglet_Update), `vy` the body's now. The drive (0x00471750 with
+/// mass x move_power) pulls the vertical speed toward itself held within 0..120 up (K 0x005bcf84) while rising, within
+/// 0..120 down (K 0x005bcf80) while falling back, at `power` a second (p_twiglet's 100: within one step). Rising, the
+/// world's gravity is reversed for it (the custom-gravity list World+0xf1c, Twiglet_Vt8C 0x004a0380's -1): the
+/// physics step's gravity is added back twice.
+fn topsy_vertical(state: State, vy: f32, power: f32, dt: f32) -> f32 {
+    let (want, gravity) = match state {
+        State::BlownUp => (vy.clamp(0.0, 120.0), 2.0 * GRAVITY * dt),
+        _ => (vy.clamp(-120.0, 0.0), 0.0),
+    };
+    vy + (want - vy) * (power * dt).min(1.0) + gravity
+}
+
+/// State 0x5a's pull toward the hole along `dir` (3D): across at 1.5 x move_speed (K 0x005bce20), up too once
+/// `lifted`; the drive (0x00471750 with mass x 5, K 0x005bcbdc) takes the velocity `v` toward it at 5 a second.
+fn pull_velocity(v: Vec3, dir: Vec3, speed: f32, lifted: bool, dt: f32) -> Vec3 {
+    let s = speed * PULL_SPEED;
+    let want = Vec3::new(dir.x * s, if lifted { dir.y * s } else { 0.0 }, dir.z * s);
+    v + (want - v) * (PULL_RATE * dt).min(1.0)
 }
 
 fn anim_done(a: &crate::skin::Animator, name: &str) -> bool {
     a.layers.first().is_some_and(|l| l.anim == name && l.duration > 0.0 && l.time >= l.duration - 1e-3)
+}
+
+/// The black hole's carry-off (Twiglet_TakeDamage 0x0049f530, damage flag 0x800: from the player, so neither the side
+/// nor the bomb filter stops it): a living twiglet within its reach (the bounding sphere's surface, AreaDamage_Apply
+/// 0x0047f020) takes the hole (+0x568). Its first runs 250 units (K 0x005bcf00) away from it (twiglet_run, state
+/// 0x5b); a later one only takes over the hold. One coming out of its tree is taken off its mover.
+#[allow(clippy::type_complexity)]
+fn carry_off(
+    mut commands: Commands,
+    mut holes: MessageReader<crate::weapons::blackhole::CarryOff>,
+    mut q: Query<(Entity, &mut Twiglet, &GlobalTransform, Option<&crate::fx::Bounds>, &crate::fx::Destructible)>,
+    physics: NonSend<crate::physics::Physics>,
+    mut swarm: ResMut<Swarm>,
+) {
+    for h in holes.read() {
+        let mut nearest = f32::INFINITY;
+        for (e, mut t, gt, bounds, d) in &mut q {
+            if d.health <= 0.0 || d.dying.is_some() {
+                continue;
+            }
+            let (c, r) = bounds.map_or((gt.translation(), 0.0), |b| (gt.transform_point(b.center), b.radius));
+            let reach = (c - h.at).length() - r;
+            nearest = nearest.min(reach);
+            if reach > h.radius {
+                continue;
+            }
+            if t.hole.replace(h.hole).is_some() {
+                continue;
+            }
+            if t.state == State::Emerging {
+                commands.entity(e).remove::<crate::mover::Mover>();
+            }
+            let pos = gt.translation();
+            let away = flat(pos - h.at).normalize_or(Vec3::X);
+            // (straight there when nav.rs finds no route, as the run)
+            let goal = pos + away * FLEE;
+            t.route = crate::nav::path(&physics, pos, goal, &[]).unwrap_or_else(|| vec![goal]);
+            t.state = State::Flee;
+            t.anim = "twiglet_run";
+            swarm.carried += 1;
+            info!("EVENT twiglet: {e:?} carried off by the black hole");
+        }
+        info!("EVENT twiglet: a black hole's carry-off, the nearest twiglet {nearest:.0} from it (reach {:.0})", h.radius);
+    }
 }
 
 /// Twiglet_Update 0x0049dcf0: the leash, the states, the run.
@@ -529,18 +653,19 @@ fn think(
     mut swarm: ResMut<Swarm>,
     mut q: Query<(Entity, &mut Twiglet, &mut Transform, &mut crate::fx::Destructible, Option<&crate::mover::Mover>, Option<&mut crate::skin::Animator>)>,
     mut bombs: Query<(&mut crate::fx::Destructible, &GlobalTransform), (With<TwigletBomb>, Without<Twiglet>)>,
-    player: Query<&GlobalTransform, With<crate::player::Roman>>,
+    (player, holes): (Query<&GlobalTransform, With<crate::player::Roman>>, Query<&Transform, (With<crate::weapons::blackhole::BlackHole>, Without<Twiglet>)>),
     mut physics: NonSendMut<crate::physics::Physics>,
     mut rng: ResMut<TwigletRng>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
-    topsy: Res<crate::topsy::Topsy>,
+    (topsy, glove, suction): (Res<crate::topsy::Topsy>, Option<Res<crate::weapons::glove::Glove>>, Option<Res<crate::weapons::blackhole::Suction>>),
 ) {
     let dt = time.delta_secs();
     if dt <= 0.0 {
         return;
     }
-    // state 0x0a stands (twiglet_stand, no drive) while the topsy turvy's timer Game+0xc80 runs
-    let held = topsy.phase == crate::topsy::Phase::Hang;
+    // state 0x0a stands (twiglet_stand, no drive) while the player's specials hold the AI: the topsy turvy's timer
+    // (Game+0xc80 > 0), the knockout glove on (Game+0xcbc), a black hole sucking (World+0xf00 not empty)
+    let held = topsy.phase == crate::topsy::Phase::Hang || glove.is_some_and(|g| g.active()) || suction.is_some_and(|s| s.active);
     let roman = player.single().ok().map(|p| p.translation());
     let max_distance = swarm.max_distance.unwrap_or(1000.0);
     let k = physics.meters_per_unit;
@@ -560,7 +685,9 @@ fn think(
         }
         // a hit it lived through (Twiglet_TakeDamage 0x0049f530): at most hit_level_1 a light reaction (0x1e), more a
         // heavy one (0x1f); none during the IC move (0x0049fcb0); a carried bomb gone (shot) is forgotten (the
-        // prologue's check of +0x55c's vt+0xd8 kills the twiglet with it: below)
+        // prologue's check of +0x55c's vt+0xd8 kills the twiglet with it: below). (The original weighs the record's
+        // amount, +0x14, here the health lost: the same but for two hits in one frame.) At the reaction's end it runs
+        // (0x1e: unless flag bit 1, which nothing sets)
         let lost = t.last_health - d.health;
         t.last_health = d.health;
         if lost > 0.0 && t.state != State::Emerging {
@@ -592,7 +719,7 @@ fn think(
         if t.stun > 0.0 {
             t.stun -= dt;
             if t.stun <= 0.0 {
-                blow(&mut t, true, swarm.fall_pct, &mut rng);
+                blow(&mut t, true, swarm.fall_pct, &mut rng, &mut physics);
                 info!("EVENT twiglet: {e:?} {}", if t.state == State::Hang { "hangs on" } else { "is blown away" });
             } else {
                 t.topsy_left -= dt;
@@ -609,7 +736,7 @@ fn think(
                 }
                 t.stun -= dt;
                 if t.stun <= 0.0 {
-                    blow(&mut t, false, swarm.fall_pct, &mut rng);
+                    blow(&mut t, false, swarm.fall_pct, &mut rng, &mut physics);
                     info!("EVENT twiglet: {e:?} lets go");
                 }
             }
@@ -631,11 +758,15 @@ fn think(
                     continue;
                 }
                 let vy = physics.world.body(t.body).map(|b| crate::physics::bv(b.linear_velocity()).y / k).unwrap_or(0.0);
-                vertical = Some(topsy_vertical(t.state, vy, dt));
+                vertical = Some(topsy_vertical(t.state, vy, t.power, dt));
             }
-            State::Idle => {
-                if roman.is_some_and(|r| flat(r - pos).length() < t.activation_range) {
-                    run_to(&mut t, pos, roman.unwrap_or(pos), &physics, &mut rng);
+            State::Wait => {
+                // 0x3f: standing out its wake's time, then running at the player
+                t.wait -= dt;
+                if t.wait <= 0.0 {
+                    if let Some(r) = roman {
+                        run_to(&mut t, pos, r, &physics, &mut rng);
+                    }
                 }
             }
             State::Emerging => {
@@ -664,7 +795,8 @@ fn think(
                         if let Some(r) = roman {
                             run_to(&mut t, pos, r, &physics, &mut rng);
                         } else {
-                            t.state = State::Idle;
+                            t.state = State::Wait;
+                            t.wait = 0.0;
                         }
                         info!("EVENT twiglet: {e:?} out of its tree");
                     }
@@ -682,6 +814,45 @@ fn think(
                     }
                 }
             }
+            State::Flee | State::Pull => {
+                // the hole gone (its vt+0xd8 false): so is the twiglet (vt+0xd4)
+                let Some(hole) = t.hole.and_then(|h| holes.get(h).ok()).map(|h| h.translation) else {
+                    crate::vehicles::kill(&mut d);
+                    info!("EVENT twiglet: {e:?} gone with the black hole");
+                    continue;
+                };
+                if t.state == State::Flee {
+                    // 0x5b: along its route away from the hole; at the route's end the pull, lifted after rand(1, 2) s
+                    if let Some(way) = next_waypoint(&mut t, pos) {
+                        let (v, dir) = drive_toward(&physics, pos, way, t.speed);
+                        velocity = v;
+                        face = Some(dir);
+                    } else {
+                        t.wait = rng.range(1.0, 2.0);
+                        t.state = State::Pull;
+                    }
+                } else {
+                    // 0x5a: pulled in; within 2 (K 0x005bcb80) of the hole it is gone
+                    let to = hole - pos;
+                    if to.length() <= SWALLOW {
+                        crate::vehicles::kill(&mut d);
+                        swarm.swallowed += 1;
+                        info!("EVENT twiglet: {e:?} swallowed by the black hole");
+                        continue;
+                    }
+                    if t.wait > 0.0 {
+                        t.wait -= dt;
+                        if t.wait <= 0.0 {
+                            t.anim = "twiglet_blown_up";
+                        }
+                    }
+                    let v = physics.world.body(t.body).map(|b| crate::physics::bv(b.linear_velocity()) / k).unwrap_or(Vec3::ZERO);
+                    let pulled = pull_velocity(v, to.normalize_or_zero(), t.speed, t.wait <= 0.0, dt);
+                    velocity = pulled.with_y(0.0);
+                    vertical = Some(pulled.y);
+                    face = Some(flat(to));
+                }
+            }
             State::Run if held => {}
             State::Run => {
                 let Some(target) = roman else { continue };
@@ -697,12 +868,7 @@ fn think(
                 // the repath every 1..3 s; close to the player it aims 5 units to a random side of him
                 t.repath -= dt;
                 if t.repath < 0.0 {
-                    let goal = if d2 < CLOSE_REPATH {
-                        let a = rng.range(-std::f32::consts::PI, std::f32::consts::PI);
-                        target + Quat::from_rotation_y(a) * Vec3::Z * SIDESTEP
-                    } else {
-                        target
-                    };
+                    let goal = if d2 < CLOSE_REPATH { sidestep(target, &mut rng) } else { target };
                     t.route = crate::nav::path(&physics, pos, goal, &[]).unwrap_or_default();
                     t.repath = rng.range(1.0, 3.0);
                 }
@@ -727,24 +893,24 @@ fn think(
                     t.anim = "twiglet_get_bomb_out";
                     t.anim_once = true;
                 } else {
-                    while t.route.first().is_some_and(|w| flat(*w - pos).length() < 4.0) {
-                        t.route.remove(0);
-                    }
-                    let way = t.route.first().copied().unwrap_or(target);
-                    let dir = flat(way - pos).normalize_or_zero();
-                    let (sin, cos) = slope_along(&physics, pos, dir);
-                    velocity = dir * ground_speed(t.speed, sin, cos) * cos;
+                    // (the original's route end replans to 5 to a side of him and, finding none, kills the twiglet:
+                    // 0x00470c30 false twice. Not ported: nav.rs's rays start inside the twiglet's own capsule and find
+                    // no route at all, so the run goes straight at him when the route is out; see docs/subsystems/twiglets.md)
+                    let way = next_waypoint(&mut t, pos).unwrap_or(target);
+                    let (v, dir) = drive_toward(&physics, pos, way, t.speed);
+                    velocity = v;
                     face = Some(dir);
                 }
             }
         }
         // the state's anim
         let want: (&'static str, bool) = match t.state {
-            State::Idle => ("twiglet_stand", true),
+            State::Wait => ("twiglet_stand", true),
             State::Run if held => ("twiglet_stand", true),
             State::Run => (if t.bomb.is_some() { "twiglet_run_with_bomb" } else { "twiglet_run" }, true),
             State::GetBomb | State::HitLight | State::HitHeavy => (t.anim, false),
             State::Hang | State::BlownUp | State::Falling => (t.anim, matches!(t.anim, "twiglet_hanging" | "twiglet_blown_up")),
+            State::Flee | State::Pull => (t.anim, true),
             State::Emerging => ("", false),
         };
         if let Some(mut a) = animator {
@@ -843,12 +1009,16 @@ fn log(q: Query<&Twiglet>, swarm: Res<Swarm>, gens: Query<&Generator>, state: Op
             "made": swarm.made,
             "killed": swarm.killed,
             "bombs": q.iter().filter(|t| t.bomb.is_some()).count(),
-            "idle": count(State::Idle),
+            "waiting": count(State::Wait),
             "emerging": count(State::Emerging),
             "running": count(State::Run),
             "hanging": count(State::Hang),
             "blown_up": count(State::BlownUp) + count(State::Falling),
             "landed": swarm.landed,
+            "fleeing": count(State::Flee),
+            "pulled": count(State::Pull),
+            "carried": swarm.carried,
+            "swallowed": swarm.swallowed,
             "generators": gens.iter().filter(|g| g.active.is_some()).count(),
             "left": gens.iter().filter(|g| g.active.is_some()).map(|g| g.left).sum::<u32>(),
         }),
