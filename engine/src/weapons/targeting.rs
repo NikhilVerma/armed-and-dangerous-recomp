@@ -156,18 +156,12 @@ pub fn search_with(view: &View, mut cands: Vec<Candidate>, factors: (f32, f32), 
     out
 }
 
-/// The line of sight 0x00414110 from `from` to the target (distance + 10): it must reach the target's body first;
-/// the bodies `passable` names are passed through, anything else blocks.
-pub fn in_sight(physics: &Physics, from: Vec3, to: Vec3, target: Entity, passable: &impl Fn(Entity) -> bool) -> bool {
-    sight(physics, from, to, target, passable, false).is_some()
-}
-
 /// The HUD passes' line of sight (Hud_UpdateCrosshair 0x00406f50, ui_01.cpp:406-411): 0x00414110 with the sight list
 /// World+0xea0 as its include list, the tested character added for the cast (vt+0x14 / vt+0x28), no level list and
 /// flag +0x3c set, so the ray collector (0x00413a90) takes only the landscape (no owner), the sight list's objects
 /// (buildings, trees, kegs and the default objects that take damage or block projectiles: the bullets' list, level.rs
 /// `collider_lists`) and the target. Characters (`passable`) and the objects outside the list (invisible walls, plain
-/// rocks) let it through.
+/// rocks) let it through. The ray reaches the distance + 10 (0x005bcb68) and must meet the target's body first.
 pub fn in_hud_sight(physics: &Physics, from: Vec3, to: Vec3, target: Entity, passable: &impl Fn(Entity) -> bool) -> bool {
     hud_sight_distance(physics, from, to, target, passable).is_some()
 }
@@ -175,10 +169,6 @@ pub fn in_hud_sight(physics: &Physics, from: Vec3, to: Vec3, target: Entity, pas
 /// [`in_hud_sight`]'s ray distance to the target's body (0x00414110's hit distance, kept in the HUD slot's +0x1c), or
 /// None when it is out of sight.
 pub fn hud_sight_distance(physics: &Physics, from: Vec3, to: Vec3, target: Entity, passable: &impl Fn(Entity) -> bool) -> Option<f32> {
-    sight(physics, from, to, target, passable, true)
-}
-
-fn sight(physics: &Physics, from: Vec3, to: Vec3, target: Entity, passable: &impl Fn(Entity) -> bool, sight_list: bool) -> Option<f32> {
     let d = to - from;
     let dist = d.length();
     let dir = d / dist.max(1e-3);
@@ -188,7 +178,7 @@ fn sight(physics: &Physics, from: Vec3, to: Vec3, target: Entity, passable: &imp
         if owner == Some(target) {
             return Some(hit.distance(from));
         }
-        let unlisted = sight_list && physics.landscape != Some(b) && physics.no_bullets.contains(&physics.main_body(b));
+        let unlisted = physics.landscape != Some(b) && physics.no_bullets.contains(&physics.main_body(b));
         if owner.is_some_and(&passable) || unlisted {
             left -= hit.distance(at) + 0.05;
             at = hit + dir * 0.05;
