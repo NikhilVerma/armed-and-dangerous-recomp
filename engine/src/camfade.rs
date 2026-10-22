@@ -1,103 +1,115 @@
 //! Objects between the follow camera and Roman fade out (Camera_Update 0x0040e350, orbit mode 0x0040e56c): each
-//! object a camera ray hits drops its alpha by camera_fade_out_rate per second down to camera_falloff, and once no
-//! ray hits it, rises by camera_fade_in_rate per second back to 1, where it leaves the list (p_globalsettings: 3, 3,
-//! 0.3 on lev_1_m1; read at 0x00424456..0x00424494). A faded object draws with its own copies of its materials
-//! (the fade in the game material's emissive.w); at 1 the shared ones come back. Both game material types fade
-//! (gamematerial.rs: solid and alpha-tested), each by its own instance of the generic systems.
+//! object a camera ray hits drops its own alpha (vt+0x100, [`ObjectAlpha`]) by camera_fade_out_rate per second down
+//! to camera_falloff, and joins the camera's list (+0x158); each frame, before the rays, the listed objects not hit
+//! the frame before (flag 0x800 of +0x424) rise by camera_fade_in_rate per second, and at 1 they are set to 1 and
+//! leave the list (p_globalsettings: 3, 3, 0.3 on lev_1_m1; read at 0x00424456..0x00424494). The fade works on the
+//! object's own alpha, so it starts from that alpha (an object already at or below the falloff is not lowered) and
+//! leaves the object at 1 (an unarmed ticker bomb site, at unarmed_falloff, comes back at 1: docs/original-bugs.md).
+//! Only the follow camera runs it: under a camera path or a gun's camera the list waits. An object with an alpha below 1
+//! draws with its own copies of its materials (the alpha in the game material's emissive.w as 1 - alpha), at 1 the
+//! shared ones come back. Both game material types fade (gamematerial.rs: solid and alpha-tested), each by its own
+//! instance of the generic systems.
 
 use crate::levelreset::LevelAppExt;
 use crate::gamematerial::{AlphaTested, Coverage, GameMaterial, Solid};
-use bevy::platform::collections::{HashMap, HashSet};
+use bevy::platform::collections::HashSet;
 use bevy::prelude::*;
 
 #[derive(Resource, Default)]
 pub struct CameraFade {
     /// objects hit this frame
     hits: HashSet<Entity>,
-    /// faded objects and their alpha (below 1)
-    faded: HashMap<Entity, f32>,
-    /// objects whose fade ended this frame: their meshes get the shared materials back
-    ended: Vec<Entity>,
+    /// objects hit the frame before (flag 0x800): they do not fade in this frame
+    hit_before: HashSet<Entity>,
+    /// the camera's list +0x158: objects it faded that have not come back to 1
+    list: HashSet<Entity>,
+    /// the follow camera cast its rays this frame (the list is only walked in the orbit branch)
+    ran: bool,
 }
 
 impl CameraFade {
     pub fn hit(&mut self, object: Entity) {
         self.hits.insert(object);
     }
-}
 
-/// On a mesh of a faded object: the shared material its own copy replaced (restored when the fade ends).
-#[derive(Component)]
-struct FadedFrom<C: Coverage>(Handle<GameMaterial<C>>);
+    /// The follow camera's rays ran this frame.
+    pub fn rays_cast(&mut self) {
+        self.ran = true;
+    }
+}
 
 pub struct CameraFadePlugin;
 
 impl Plugin for CameraFadePlugin {
     fn build(&self, app: &mut App) {
-        app.init_level_resource::<CameraFade>().add_systems(
-            Update,
-            (
-                (fade, (fade_materials::<Solid>, fade_materials::<AlphaTested>)).chain(),
-                object_alpha::<Solid>,
-                object_alpha::<AlphaTested>,
-            ),
-        )
-        .add_systems(PostUpdate, log_object_alpha);
+        app.init_level_resource::<CameraFade>()
+            .add_systems(
+                PostUpdate,
+                (fade, (object_alpha::<Solid>, object_alpha::<AlphaTested>))
+                    .chain()
+                    .after(crate::camera::CameraPlace)
+                    .before(bevy::transform::TransformSystems::Propagate),
+            )
+            .add_systems(PostUpdate, log_object_alpha);
     }
 }
 
-/// The objects' fade alphas from this frame's hits.
-fn fade(time: Res<Time>, data: Res<crate::gamedata::GameData>, mut f: ResMut<CameraFade>) {
+/// The camera's fade of this frame (0x0040e56c, game_01.cpp:2952-2970 and 3040-3100): the listed objects not hit the
+/// frame before fade in (at 1 they leave the list), then this frame's hits fade out.
+fn fade(mut commands: Commands, time: Res<Time>, data: Res<crate::gamedata::GameData>, mut f: ResMut<CameraFade>, mut alphas: Query<Option<&mut ObjectAlpha>>) {
+    let f = &mut *f;
+    if !std::mem::take(&mut f.ran) {
+        f.hits.clear();
+        return;
+    }
     let g = data.props("p_globalsettings");
     let (floor, rate_in, rate_out) = (g.f("camera_falloff", 0.3), g.f("camera_fade_in_rate", 3.0), g.f("camera_fade_out_rate", 3.0));
     let dt = time.delta_secs();
-    let f = &mut *f;
-    f.ended.clear();
-    for e in &f.hits {
-        f.faded.entry(*e).or_insert(1.0);
-    }
-    for (e, alpha) in f.faded.iter_mut() {
-        *alpha = if f.hits.contains(e) { (*alpha - rate_out * dt).max(floor) } else { *alpha + rate_in * dt };
-        if *alpha >= 1.0 {
-            f.ended.push(*e);
+    // fade in: the listed objects not hit the frame before
+    let mut back = Vec::new();
+    for &e in &f.list {
+        if f.hit_before.contains(&e) {
+            continue;
         }
+        let Some(a) = alphas.get(e).ok().map(|a| a.map_or(1.0, |a| a.0)) else {
+            back.push(e);
+            continue;
+        };
+        let mut a = a + rate_in * dt;
+        if a >= 1.0 {
+            a = 1.0;
+            back.push(e);
+        }
+        set_alpha(&mut commands, &mut alphas, e, a);
     }
-    for e in &f.ended {
-        f.faded.remove(e);
+    for e in back {
+        f.list.remove(&e);
+    }
+    f.hit_before.clear();
+    // fade out: this frame's hits, from their own alpha while above the falloff
+    for &e in &f.hits {
+        let Some(a) = alphas.get(e).ok().map(|a| a.map_or(1.0, |a| a.0)) else { continue };
+        if a > floor {
+            set_alpha(&mut commands, &mut alphas, e, (a - rate_out * dt).max(floor));
+        }
+        f.list.insert(e);
+        f.hit_before.insert(e);
     }
     f.hits.clear();
 }
 
-/// The faded objects' meshes of one material type: their own material copies at the fade's alpha, and the shared
-/// materials back once the fade ended.
-fn fade_materials<C: Coverage>(
-    mut commands: Commands,
-    f: Res<CameraFade>,
-    children: Query<&Children>,
-    mut meshes: Query<(&mut MeshMaterial3d<GameMaterial<C>>, Option<&FadedFrom<C>>)>,
-    mut materials: ResMut<Assets<GameMaterial<C>>>,
-) {
-    for (e, alpha) in &f.faded {
-        for m in std::iter::once(*e).chain(children.iter_descendants(*e)) {
-            let Ok((mut mm, from)) = meshes.get_mut(m) else { continue };
-            if from.is_none() {
-                let shared = mm.0.clone();
-                let Some(copy) = materials.get(&shared).cloned() else { continue };
-                mm.0 = materials.add(copy);
-                commands.entity(m).insert(FadedFrom(shared));
-            }
-            if let Some(mut mat) = materials.get_mut(&mm.0) {
-                mat.params.emissive.w = 1.0 - *alpha;
+/// Sets an object's own alpha (vt+0x100), adding it to an object that had none (alpha 1).
+fn set_alpha(commands: &mut Commands, alphas: &mut Query<Option<&mut ObjectAlpha>>, e: Entity, a: f32) {
+    match alphas.get_mut(e) {
+        Ok(Some(mut cur)) => {
+            if cur.0 != a {
+                cur.0 = a;
             }
         }
-    }
-    for e in &f.ended {
-        for m in std::iter::once(*e).chain(children.iter_descendants(*e)) {
-            let Ok((mut mm, Some(FadedFrom(shared)))) = meshes.get_mut(m) else { continue };
-            let own = std::mem::replace(&mut mm.0, shared.clone());
-            materials.remove(&own);
-            commands.entity(m).remove::<FadedFrom<C>>();
+        Ok(None) => {
+            commands.entity(e).try_insert(ObjectAlpha(a));
         }
+        Err(_) => {}
     }
 }
 
@@ -128,24 +140,44 @@ fn log_object_alpha(q: Query<(Entity, &ObjectAlpha), With<crate::skin::Animator>
     p.0.insert("character_alpha".into(), serde_json::json!({"objects": objects, "meshes": total, "faded": faded, "unfaded": total - faded}));
 }
 
-/// On a mesh drawing with its own copy of its material for its object's alpha (freed with the mesh).
+/// On a mesh drawing with its own copy of its material for its object's alpha (freed with the mesh, or when the
+/// alpha is back at 1).
 #[derive(Component)]
 struct OwnAlphaMaterial;
 
+/// On such a mesh: the shared material its own copy replaced.
+#[derive(Component)]
+struct AlphaFrom<C: Coverage>(Handle<GameMaterial<C>>);
+
+/// The objects' alphas onto their meshes (the whole hierarchy: Character_SetFade 0x0042eb60): below 1 each mesh
+/// draws with its own material copy at the alpha, at 1 the shared material comes back.
+#[allow(clippy::type_complexity)]
 fn object_alpha<C: Coverage>(
     mut commands: Commands,
     q: Query<(Entity, &ObjectAlpha), Changed<ObjectAlpha>>,
     children: Query<&Children>,
-    mut meshes: Query<(&mut MeshMaterial3d<GameMaterial<C>>, Has<OwnAlphaMaterial>)>,
+    mut meshes: Query<(&mut MeshMaterial3d<GameMaterial<C>>, Option<&AlphaFrom<C>>)>,
     mut materials: ResMut<Assets<GameMaterial<C>>>,
 ) {
     for (e, a) in &q {
+        let opaque = a.0 >= 1.0;
         for m in std::iter::once(e).chain(children.iter_descendants(e)) {
-            let Ok((mut mm, own)) = meshes.get_mut(m) else { continue };
-            if !own {
-                let Some(copy) = materials.get(&mm.0).cloned() else { continue };
-                mm.0 = materials.add(copy);
-                commands.entity(m).try_insert(OwnAlphaMaterial);
+            let Ok((mut mm, from)) = meshes.get_mut(m) else { continue };
+            match (from, opaque) {
+                (Some(AlphaFrom(shared)), true) => {
+                    let own = std::mem::replace(&mut mm.0, shared.clone());
+                    materials.remove(&own);
+                    commands.entity(m).try_remove::<(AlphaFrom<C>, OwnAlphaMaterial)>();
+                    continue;
+                }
+                (None, true) => continue,
+                (None, false) => {
+                    let shared = mm.0.clone();
+                    let Some(copy) = materials.get(&shared).cloned() else { continue };
+                    mm.0 = materials.add(copy);
+                    commands.entity(m).try_insert((OwnAlphaMaterial, AlphaFrom(shared)));
+                }
+                (Some(_), false) => {}
             }
             if let Some(mut mat) = materials.get_mut(&mm.0) {
                 mat.params.emissive.w = 1.0 - a.0.clamp(0.0, 1.0);

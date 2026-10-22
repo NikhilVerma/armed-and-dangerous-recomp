@@ -173,12 +173,12 @@ fn use_glove(
     (taken, ic): (Query<(), Or<(With<super::blackhole::Carried>, With<Gloved>, With<crate::ai::close_kill::Victim>)>>, Query<&crate::ai::ic::IcEntry>),
     physics: NonSend<Physics>,
     (data, cheats, mut stats, mut sounds): (Res<crate::gamedata::GameData>, Res<crate::cheats::Cheats>, ResMut<crate::player::PlayerStats>, MessageWriter<crate::audio::PlaySound>),
-    mut log: Option<ResMut<crate::mission::Mission>>,
+    (mut log, characters): (Option<ResMut<crate::mission::Mission>>, targeting::Characters),
 ) {
     if !std::mem::take(&mut glove.request) || glove.active() {
         return;
     }
-    let (Ok((re, mut r, rt)), Ok((c, proj))) = (roman.single_mut(), cam.single()) else { return };
+    let (Ok((_, mut r, rt)), Ok((c, proj))) = (roman.single_mut(), cam.single()) else { return };
     let g = data.props("p_globalsettings");
     let factors = (g.f("autoaim_bof_factor_horz", 0.2), g.f("autoaim_bof_factor_vert", 0.3));
     let range = g.f("bof_range", 500.0);
@@ -200,7 +200,7 @@ fn use_glove(
         let hit = joint.and_then(|j| joints.get(j).ok()).map_or(origin + Vec3::Y * 6.0, |j| j.translation());
         cands.push(targeting::Candidate { entity: e, dead: false, origin, centre: origin + Vec3::Y * 4.9, hit, joint });
     }
-    let found = targeting::search(&view, cands, factors, range, MAX_TARGETS, &physics, |e: Entity| e != re && grunts.contains(e));
+    let found = targeting::search(&view, cands, factors, range, MAX_TARGETS, &physics, |e: Entity| characters.contains(e));
     if found.is_empty() {
         info!("EVENT glove: no target");
         return;

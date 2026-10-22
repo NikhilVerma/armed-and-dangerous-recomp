@@ -5,7 +5,7 @@
 //! (0x004067e0); at most 21 looked at), keeps those inside the view volume narrowed by the pass's factors (clip-space
 //! scales of the side planes: |x_ndc| <= horz, |y_ndc| <= vert, with the object's bounding-sphere slack: 0x00408050),
 //! in front of the eye, within the weapon's range (0x00408330: the first one out of range ends the walk) and in line
-//! of sight (0x00414110 from the eye, other characters passed): the first `max` of them.
+//! of sight (0x00414110 from the eye, [`in_hud_sight`]): the first `max` of them.
 //!
 //! | pass | when | factors (p_globalsettings) | max | range |
 //! |---|---|---|---|---|
@@ -13,6 +13,11 @@
 //! | shark gun | always with the shark gun (vt+0x16c 0x00433fa0; hud +0x150): AIs that can be bitten only | autoaim_sharkgun_factor_* (0.4 / 0.6) | 1 | sharkgun_range |
 //! | multi-lock | always with the vindaloo (hud +0x152): up to four lock-ons | autoaim_multitarget_factor_* (x 1.2 upgraded) | 4 | vindaloo_range |
 //! | sticky | the sticky bomb selected (hud +0x151; sticky.rs at the throw) | autoaim_sticky_factor_* | 1 | sticky_bomb_range |
+//!
+//! In the base turret (Game+0xac8 = 1) the gun in hand's pass becomes a multi-lock (+0x152 forced, ui_01.cpp:324-325)
+//! through autoaim_base_factor_* (0.2 / 0.3, x 1.2 with the vindaloo upgrade Game+0xdd0, HudFrustum_Build
+//! 0x00408390) with no range limit (0x00408330 answers true in any turret mode); on a mounted gun (mode 4) there is
+//! no pass.
 //!
 //! [`Targets`] holds this frame's result for the gun in hand (hud +0 / +0x154); the HUD draws the lock-on markers from
 //! it, the shark gun fires only with a target, the vindaloo's rockets home on the lock-ons and the auto-aimed bullets
@@ -104,8 +109,11 @@ pub struct Candidate {
 /// The bounding-sphere slack of a grunt (grunt_1's model: (half diagonal + smallest half extent) / 2, sticky.rs).
 pub const SLACK: f32 = 4.66;
 
+/// The characters: what the HUD passes' line of sight goes through (none is in the sight list, [`in_hud_sight`]).
+pub type Characters<'w, 's> = Query<'w, 's, (), Or<(With<crate::player::Roman>, With<crate::ai::Grunt>, With<crate::ai::Companion>, With<crate::peasant::Peasant>)>>;
+
 /// A pass over the candidates (nearest the eye first): see the module docs. `passable` says which bodies the line
-/// of sight passes (other characters).
+/// of sight passes (the characters).
 pub fn search(view: &View, mut cands: Vec<Candidate>, factors: (f32, f32), range: f32, max: usize, physics: &Physics, passable: impl Fn(Entity) -> bool) -> Vec<Target> {
     // the dead are left out before the 21 are counted: the original's list (+0xe8c) loses a character when he goes
     // down (GoRagdoll 0x00431310 unlinks him) and its bodies are gone in 5 s, while the remaster keeps up to 48 bodies
@@ -127,7 +135,7 @@ pub fn search(view: &View, mut cands: Vec<Candidate>, factors: (f32, f32), range
         if dist > range || range <= 0.0 {
             break;
         }
-        if !in_sight(physics, view.eye, c.hit, c.entity, &passable) {
+        if !in_hud_sight(physics, view.eye, c.hit, c.entity, &passable) {
             continue;
         }
         out.push(Target { entity: c.entity, point: c.hit, joint: c.joint });
@@ -141,6 +149,20 @@ pub fn search(view: &View, mut cands: Vec<Candidate>, factors: (f32, f32), range
 /// The line of sight 0x00414110 from `from` to the target (distance + 10): it must reach the target's body first;
 /// the bodies `passable` names are passed through, anything else blocks.
 pub fn in_sight(physics: &Physics, from: Vec3, to: Vec3, target: Entity, passable: &impl Fn(Entity) -> bool) -> bool {
+    sight(physics, from, to, target, passable, false)
+}
+
+/// The HUD passes' line of sight (Hud_UpdateCrosshair 0x00406f50, ui_01.cpp:406-411): 0x00414110 with the sight list
+/// World+0xea0 as its include list, the tested character added for the cast (vt+0x14 / vt+0x28), no level list and
+/// flag +0x3c set, so the ray collector (0x00413a90) takes only the landscape (no owner), the sight list's objects
+/// (buildings, trees, kegs and the default objects that take damage or block projectiles: the bullets' list, level.rs
+/// `collider_lists`) and the target. Characters (`passable`) and the objects outside the list (invisible walls, plain
+/// rocks) let it through.
+pub fn in_hud_sight(physics: &Physics, from: Vec3, to: Vec3, target: Entity, passable: &impl Fn(Entity) -> bool) -> bool {
+    sight(physics, from, to, target, passable, true)
+}
+
+fn sight(physics: &Physics, from: Vec3, to: Vec3, target: Entity, passable: &impl Fn(Entity) -> bool, sight_list: bool) -> bool {
     let d = to - from;
     let dist = d.length();
     let dir = d / dist.max(1e-3);
@@ -150,7 +172,8 @@ pub fn in_sight(physics: &Physics, from: Vec3, to: Vec3, target: Entity, passabl
         if owner == Some(target) {
             return true;
         }
-        if owner.is_some_and(&passable) {
+        let unlisted = sight_list && physics.landscape != Some(b) && physics.no_bullets.contains(&physics.main_body(b));
+        if owner.is_some_and(&passable) || unlisted {
             left -= hit.distance(at) + 0.05;
             at = hit + dir * 0.05;
             if left <= 0.0 {
@@ -229,12 +252,15 @@ fn update(
     physics: NonSend<Physics>,
     (data, opts, difficulty, upgrade): (Res<crate::gamedata::GameData>, Res<crate::options::GameOptions>, Option<Res<crate::gamedata::Difficulty>>, Res<VindalooUpgrade>),
     (mounted, carried, held): (Res<crate::turret::Mounted>, Query<(), With<super::blackhole::Carried>>, Query<(), Or<(With<crate::topsy::Thrown>, With<super::glove::Gloved>)>>),
+    (bases, characters): (Query<(), With<crate::defence::BaseTurret>>, Characters),
 ) {
     targets.list.clear();
     targets.pass = None;
-    let (Ok((re, r, rt)), Ok((c, proj))) = (roman.single(), cam.single()) else { return };
+    let (Ok((_, r, rt)), Ok((c, proj))) = (roman.single(), cam.single()) else { return };
     let Some(gun) = r.arsenal.in_hand() else { return };
-    if r.dead || mounted.0.is_some() {
+    // Game+0xac8: 1 in the base turret (its passes run), 4 on a mounted gun (none)
+    let base = mounted.0.is_some_and(|m| bases.contains(m));
+    if r.dead || mounted.0.is_some() && !base {
         return;
     }
     let g = data.props("p_globalsettings");
@@ -256,12 +282,19 @@ fn update(
         }
         _ => return,
     };
+    let (pass, factors, max, range) = if base {
+        let (h, v) = pair("base_", 0.2, 0.3);
+        let k = if upgrade.0 { 1.2 } else { 1.0 };
+        (Pass::MultiLock, (h * k, v * k), 4, f32::INFINITY)
+    } else {
+        (pass, factors, max, gun.spec.range)
+    };
     let view = View::new(c, Some(proj), rt.translation() + Vec3::Y * 4.0);
-    let passable = |e: Entity| e != re && grunts.contains(e);
-    let mut cands = candidates(&grunts, &joints, |e, g, feet| !prey || can_be_bitten_now(g, carried.contains(e) || held.contains(e), &physics, feet));
-    // a character a black hole carries off is no one's target
-    cands.retain(|c| !carried.contains(c.entity));
-    targets.list = search(&view, cands, factors, gun.spec.range, max, &physics, passable);
+    let passable = |e: Entity| characters.contains(e);
+    // a character a black hole carries off is left out by the shark gun's test alone (vt+0x24c: held); the other
+    // passes can pick him (ui_01.cpp:371-379)
+    let cands = candidates(&grunts, &joints, |e, g, feet| !prey || can_be_bitten_now(g, carried.contains(e) || held.contains(e), &physics, feet));
+    targets.list = search(&view, cands, factors, range, max, &physics, passable);
     targets.pass = Some(pass);
 }
 

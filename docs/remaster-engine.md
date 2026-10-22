@@ -663,10 +663,13 @@ the comparison with the original (guesses and differences seen, not checked fram
 - the shark's arc is flown here (no physics body), its height is the ground under it + its depth (Object_ForceGround's
   arguments read as a ray start and reach), the fin and the missile face along the heading (`rockets::facing`); a hunted
   AI stands still (the original's guard state 0x79 with its aim set); the bite ends when sharkbite_* has played;
-- the vindaloo's lock-on candidates and the sniper's pierced list are the grunt-class characters (World +0xea4 / +0xe8c
-  not traced: vehicles and companions may belong); the fan's yaw / pitch signs (which rocket goes left / up);
+- the vindaloo's lock-on candidates and the sniper's pierced list are the grunt-class characters (World +0xea4 holds
+  every damage taker too: the original's multi-lock can pick destructible buildings and props, not ported); the fan's
+  yaw / pitch signs (which rocket goes left / up);
 - auto-aim aims at the target's point without the lead of 0x004580a0 (the target's speed); the narrowed view's
-  horizontal half-angle uses the 1.7204 aspect factor sticky.rs measured;
+  horizontal half-angle uses the original's projection aspect 1.7204 (its letterboxed projection whatever the screen,
+  display/view.rs), and every candidate the grunt's sphere slack 4.66 (0x00408050 asks each object's bounds: the
+  captains' and others' differ);
 - the Guy Fawkes bomb flies straight at 300 (no gravity); a turned guard holds his post without 0x0042ec20's guard run;
   the receivers within 200 by their bounding sphere (4.66);
 - the launchers' hand models are drawn in their rest pose on the hand (as the Topsy Turvy bomb's): their grip is to

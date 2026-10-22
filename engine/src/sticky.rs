@@ -115,13 +115,13 @@ fn throw(
     mut fx: MessageWriter<crate::fx::StartFx>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     mut seed: Local<u32>,
-    (mut stats, cheats): (ResMut<crate::player::PlayerStats>, Res<crate::cheats::Cheats>),
+    (mut stats, cheats, characters): (ResMut<crate::player::PlayerStats>, Res<crate::cheats::Cheats>, crate::weapons::targeting::Characters),
 ) {
     use crate::weapons::SpecialId;
     if !thrown.read().fold(false, |any, t| any || t.0 == SpecialId::StickyBomb) {
         return;
     }
-    let (Some(assets), Ok((re, rt, ra, mut rm)), Ok(c)) = (assets, roman.single_mut(), cam.single()) else { return };
+    let (Some(assets), Ok((_, rt, ra, mut rm)), Ok(c)) = (assets, roman.single_mut(), cam.single()) else { return };
     if rm.arsenal.count(SpecialId::StickyBomb) == 0 {
         return;
     }
@@ -144,13 +144,13 @@ fn throw(
     // 0.04, |y_ndc| <= 0.12 at the current FOV; aspect 1.7204), each candidate's model bounds centre with a slack R =
     // (half diagonal + smallest half extent) / 2 (grunt_1: centre ~4.9 up, R ~4.66); candidates the 21 nearest to the
     // eye (Roman + 4) by their origin, the living only (fn_00408190; targeting.rs search); the first out of sticky_bomb_range ends the
-    // search; the line of sight from the eye to the target's ref_hit_00 (d + 10) is blocked only by the level and
-    // props, not by other characters
+    // search; the line of sight from the eye to the target's ref_hit_00 (d + 10) is blocked only by the landscape and
+    // the sight list's objects, not by characters (targeting::in_hud_sight)
     let eye = rt.translation + Vec3::Y * 4.0;
     let fwd = c.forward().as_vec3();
     let view = crate::weapons::targeting::View::new(c, proj.single().ok(), eye);
     let cands = crate::weapons::targeting::candidates(&grunts, &joints, |_, _, _| true);
-    let target = crate::weapons::targeting::search(&view, cands, factors, range, 1, &physics, |e| e != re && grunts.contains(e)).first().map(|t| (t.entity, t.point, grunts.get(t.entity).ok().and_then(|g| g.3)));
+    let target = crate::weapons::targeting::search(&view, cands, factors, range, 1, &physics, |e| characters.contains(e)).first().map(|t| (t.entity, t.point, grunts.get(t.entity).ok().and_then(|g| g.3)));
     if std::env::var("AIDBG").is_ok() {
         info!("AIDBG sticky target {:?}", target.map(|t| t.0));
     }
@@ -163,7 +163,9 @@ fn throw(
             let j = a.and_then(|a| a.skeleton.index.get(&format!("ref_hit_0{n}")).map(|&i| a.joints[i]));
             (centre, j.map(|j| (e, j)))
         }
-        None => (c.translation() + fwd * 20.0 + fwd * range, None),
+        // no target: the aim ray's start (the camera, 20 ahead unless the camera is zooming: 0x0040fba0) plus
+        // sticky_bomb_range (g+0x35d8) along the view (ui_01.cpp:541-546, 637-641)
+        None => (c.translation() + fwd * (if rm.zoom > 0.0 { 0.0 } else { 20.0 } + range), None),
     };
     let (vel, speed) = launch(&p, from, point, fwd);
     let e = commands

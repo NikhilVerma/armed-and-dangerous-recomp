@@ -220,6 +220,7 @@ fn spawn_turret(
     commands.entity(e).insert((
         Placed { template: name.to_owned(), collider, husk: None, triggers: Default::default() },
         crate::hud::AimClass::of(&p),
+        crate::level::DamageTaker,
         health,
         RocketTowerTurret {
             tower,

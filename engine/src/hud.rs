@@ -194,8 +194,11 @@ pub struct HudState {
     /// a cinematic (camera path, Game+0xdce): the health meters are hidden, the rest of the HUD stays (hud.md)
     pub cinematic: bool,
     pub health: f32,
-    pub q_health: f32,
-    pub jonesy_health: f32,
+    /// the companions' health / max_health (ui_health_q / ui_health_jonesy: player +0xad4 / +0xad0), none without them
+    pub q_health: Option<f32>,
+    pub jonesy_health: Option<f32>,
+    /// the aimed damage taker's health / max_health (ui_health_enemy: the HUD's hud+0x2c, 0x00408020; crosshair_aim)
+    pub enemy_health: Option<f32>,
     pub clip: u32,
     pub stickies: u32,
     pub heading: f32,
@@ -1320,46 +1323,79 @@ fn subtitles(time: Res<Time>, mut subs: MessageReader<crate::audio::Subtitle>, h
     }
 }
 
-/// Health meters (the meter init 0x00466c20 names the target: ui_player_health 0, ui_health_enemy 1, ui_health_q 2,
-/// the others 3, Jonesy): the texture scrolls by t = clamp((1 - value) * 0.5, 0, 0.5); colour band x = 0.5 below 25 %,
-/// 0.25 below 50 %, else 0 (0x00466e70).
-fn meters(state: Res<HudState>, mut materials: ResMut<Assets<ColorMaterial>>, q: Query<(&Meter, &ChildOf)>, parents: Query<&HudElement>, time: Res<Time<Real>>, mut pulse: Local<(f32, bool)>) {
-    // the player's meter pulses at or below 20% (0x00466e70: alpha up 8 / s, down 2 / s)
-    if state.health <= 0.2 && state.health > 0.0 {
-        let dt = time.delta_secs();
-        if pulse.1 {
-            pulse.0 += 8.0 * dt;
-            if pulse.0 >= 1.0 {
-                pulse.0 = 1.0;
-                pulse.1 = false;
+/// A health meter's target value (the meter init 0x00466c20 names the target, +0x4a8: ui_player_health 0,
+/// ui_health_enemy 1, ui_health_q 2, the others 3, Jonesy), none without a target.
+pub(crate) fn meter_value(state: &HudState, name: &str) -> Option<f32> {
+    match name {
+        "ui_player_health" => Some(state.health),
+        "ui_health_enemy" => state.enemy_health,
+        "ui_health_q" => state.q_health,
+        "ui_health_jonesy" => state.jonesy_health,
+        _ => None,
+    }
+}
+
+/// A meter's low-health pulse (0x00466e70): its own alpha (+0x378) and direction (+0x4ac, rising).
+#[derive(Clone, Copy)]
+struct Pulse {
+    alpha: f32,
+    rising: bool,
+}
+
+impl Pulse {
+    const STEADY: Pulse = Pulse { alpha: 1.0, rising: false };
+
+    /// One game update (kFrameTime steps: frozen while the game is paused): above 20 % the alpha is 1; at or below
+    /// it (0 included) it falls by 2 / s to 0, then rises by 8 / s to 1, and again.
+    fn step(&mut self, ratio: f32, dt: f32) {
+        if ratio > 0.2 {
+            *self = Pulse::STEADY;
+            return;
+        }
+        if self.rising {
+            self.alpha += 8.0 * dt;
+            if self.alpha >= 1.0 {
+                self.alpha = 1.0;
+                self.rising = false;
             }
         } else {
-            pulse.0 -= 2.0 * dt;
-            if pulse.0 <= 0.0 {
-                pulse.0 = 0.0;
-                pulse.1 = true;
+            self.alpha -= 2.0 * dt;
+            if self.alpha <= 0.0 {
+                self.alpha = 0.0;
+                self.rising = true;
             }
         }
-    } else {
-        *pulse = (1.0, false);
     }
-    for (m, parent) in &q {
+}
+
+/// Health meters (0x00466e70, each meter object for its own target): the texture scrolls by t = clamp((1 - value) *
+/// 0.5, 0, 0.5); colour band x = 0.5 below 25 %, 0.25 below 50 %, else 0; each meter pulses by itself at or below 20 %.
+fn meters(
+    state: Res<HudState>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    q: Query<(Entity, &Meter, &ChildOf)>,
+    parents: Query<&HudElement>,
+    (time, app): (Res<Time<Virtual>>, Res<State<crate::AppState>>),
+    mut pulses: Local<bevy::platform::collections::HashMap<Entity, Pulse>>,
+) {
+    // the game's update steps the pulse: not while paused
+    let dt = if *app.get() == crate::AppState::Playing && !time.is_paused() { time.delta_secs() } else { 0.0 };
+    for (e, m, parent) in &q {
         let Ok(el) = parents.get(parent.parent()) else { continue };
-        let v = match el.name.as_str() {
-            "ui_player_health" => state.health,
-            "ui_health_q" => state.q_health,
-            "ui_health_jonesy" => state.jonesy_health,
-            _ => continue,
-        }
-        .clamp(0.0, 1.0);
+        let Some(v) = meter_value(&state, &el.name) else {
+            pulses.remove(&e);
+            continue;
+        };
+        let pulse = pulses.entry(e).or_insert(Pulse::STEADY);
+        pulse.step(v, dt);
+        let v = v.clamp(0.0, 1.0);
         let band = if v < 0.25 { 0.5 } else if v < 0.5 { 0.25 } else { 0.0 };
         let t = ((1.0 - v) * 0.5).clamp(0.0, 0.5);
         if let Some(mut mat) = materials.get_mut(&m.material) {
             // texture v runs downward in Bevy: scrolling "up" in the original's uv is -t here
             mat.uv_transform = Affine2::from_translation(Vec2::new(band, -t));
-            if el.name == "ui_player_health" {
-                mat.color.set_alpha(pulse.0 * m.opacity);
-            }
+            // the object's alpha (vt+0x100) times the material's opacity +0x48 (the draw state 0x004897d0)
+            mat.color.set_alpha(pulse.alpha * m.opacity);
         }
     }
 }
@@ -1423,7 +1459,8 @@ fn visibility(
                 "ui_clock" => state.ticker_clock.is_some(),
                 "ui_tickerbomb" => state.tickers_left,
                 "ui_tickerbomb_set" => state.ticker_arming.is_some(),
-                "ui_player_health" | "ui_health_q" | "ui_health_jonesy" => !state.cinematic,
+                // a health meter with its target (0x00466e70 clears +0x474 bit 2 without one, or in a cut scene)
+                "ui_player_health" | "ui_health_q" | "ui_health_jonesy" | "ui_health_enemy" => !state.cinematic && meter_value(&state, &el.name).is_some(),
                 // Hud_ProjectMarkers 0x00406840: the current weapon's crosshair (list +0x30c by weapon index; the
                 // rifle's hidden over a friendly), ui_crosshair_friendly (+0x37c) over a friendly, ui_special_crosshair
                 // (+0x38c) while a special is selected; all only while 0x00406790 allows (no cinematic, no pause)
@@ -1544,6 +1581,23 @@ fn log_hud(
                     .collect(),
             ),
             "clock_shown": els.iter().any(|(e, v, _)| e.name == "ui_clock" && *v != Visibility::Hidden),
+            // the health meters (0x00466e70): shown, their target's health / max and their alpha (the low-health pulse
+            // times the material's opacity)
+            "health_meters": serde_json::Value::Object(
+                ["ui_player_health", "ui_health_enemy", "ui_health_q", "ui_health_jonesy"]
+                    .iter()
+                    .map(|n| {
+                        let el = shown.iter().find(|(e, _, _)| e.name == *n);
+                        let alpha = el.and_then(|(_, _, c)| c.iter().find_map(|c| parts.get(c).ok().and_then(|m| materials.get(&m.0)).map(|m| m.color.alpha())));
+                        let v = serde_json::json!({
+                            "shown": el.is_some_and(|(_, v, _)| *v != Visibility::Hidden),
+                            "value": meter_value(&state, n).map(|v| (v * 1000.0).round() / 1000.0),
+                            "alpha": alpha.map(|a| (a * 100.0).round() / 100.0),
+                        });
+                        (n.trim_start_matches("ui_").to_string(), v)
+                    })
+                    .collect(),
+            ),
             "prompt_colour": prompt_colour,
             "prompt_scale": (prompt_scale * 1000.0).round() / 1000.0,
             "arrows": arrows,
@@ -1769,15 +1823,19 @@ enum AimHit {
     Friend(Entity),
 }
 
-/// Hud_UpdateCrosshair 0x00406f50's aim ray and state (ui_01.cpp:519-588): from the camera (20 ahead unless the
-/// camera is zooming, 0x0040fba0 = camera +0x6c), along its direction, as long as the current weapon's range
-/// (Game+0x28b8 + index * 0x150: machinegun_range / rifle_range), against list World+0xe9c (every collidable object
-/// and every AI, ignoring the player: 0x00413d40) at detail level 2 (characters by their collision parts). The hit
-/// object decides word +0x392 (on target) and byte +0x394 (friendly); Hud_ProjectMarkers then plays the anims.
+/// Hud_UpdateCrosshair 0x00406f50's aim ray and state (ui_01.cpp:519-621): from the camera (20 ahead unless the
+/// camera is zooming, 0x0040fba0 = camera +0x6c), along its direction, as long as the mode gives (Game+0xac8: 1500 in
+/// the base turret, 2000 on a mounted gun; else the current weapon's range, Game+0x28b8 + index * 0x150:
+/// machinegun_range / rifle_range, and 5000 without one), against list World+0xe9c (every collidable object and every
+/// AI, ignoring the player: 0x00413d40; on a gun World+0xea4, the damage takers: the landscape and those alone stop
+/// it) at detail level 2 (characters by their collision parts). The hit object decides word +0x392 (on target) and
+/// byte +0x394 (friendly); with the machine gun or the rifle an auto-aim target turns it on too, and in a level that
+/// starts in a turret (0x0044e600) it is on whenever anything is hit or locked on. Hud_ProjectMarkers then plays the
+/// anims.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn crosshair_aim(
     mut xhair: ResMut<Crosshair>,
-    state: Res<HudState>,
+    mut state: ResMut<HudState>,
     physics: NonSend<crate::physics::Physics>,
     data: Res<crate::gamedata::GameData>,
     cam: Query<&GlobalTransform, With<crate::player::FollowCam>>,
@@ -1789,17 +1847,25 @@ fn crosshair_aim(
     joints: Query<&GlobalTransform>,
     hulls: Option<Res<crate::hitparts::HitHulls>>,
     (binds, mounted): (Res<Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>, Res<crate::turret::Mounted>),
+    (targets, bases, defence, takers, guns): (Res<crate::weapons::targeting::Targets>, Query<(), With<crate::defence::BaseTurret>>, Option<Res<crate::defence::DefenceState>>, Query<(), With<crate::level::DamageTaker>>, Query<&crate::turret::Turret>),
+    healths: Query<(Option<&crate::fx::Health>, Option<&crate::ai::Grunt>, Option<&crate::ai::Companion>, Option<&crate::fx::Destructible>)>,
 ) {
     let Ok(c) = cam.single() else { return };
     let (eye, dir) = (c.translation(), c.forward().as_vec3());
     let (roman_e, zoomed) = roman.single().map(|(e, r)| (Some(e), r.zoom > 0.0)).unwrap_or((None, false));
     let start = if zoomed { eye } else { eye + dir * 20.0 };
-    // the gun in hand's range (Game+0x28b8 + index x 0x150: <name>_range)
+    // the ray's length by the mode (Game+0xac8: 1 the base turret, 3 the forge cannon, 4 a mounted gun), else the gun
+    // in hand's range (Game+0x28b8 + index x 0x150: <name>_range), 5000 without one
     let g = data.props("p_globalsettings");
-    let range = g.f(&format!("{}_range", state.weapon_id.unwrap_or(crate::weapons::WeaponId::Rifle).name()), 10.0);
-    // on the mounted gun (Game+0xac8 = 4) the ray is 2000 long (0x00406f50)
-    let range = if mounted.0.is_some() { 2000.0 } else { range };
+    let on_gun = mounted.0.is_some();
+    let range = match mounted.0 {
+        Some(m) if bases.contains(m) => 1500.0,
+        Some(m) => guns.get(m).map_or(2000.0, |t| t.aim_range),
+        None => state.weapon_id.map_or(5000.0, |w| g.f(&format!("{}_range", w.name()), 10.0)),
+    };
     let end = start + dir * range;
+    // on a gun the ray takes list World+0xea4 (the damage takers) instead of +0xe9c: other objects let it through
+    let in_ray_list = |e: Option<Entity>| !on_gun || e.is_some_and(|e| takers.contains(e));
     let mut best: Option<(f32, AimHit)> = None;
     // the level and the objects: the physics ray, through Roman and the grunts' capsules (their parts are below)
     let grunt_bodies: std::collections::HashSet<_> = grunts.iter().map(|g| g.1.id).collect();
@@ -1807,7 +1873,8 @@ fn crosshair_aim(
     while left > 0.0 {
         let Some((b, at, _)) = physics.raycast(from, dir, left) else { break };
         let e = physics.bodies.get(&b).copied();
-        if grunt_bodies.contains(&b) || (e.is_some() && e == roman_e) {
+        let listed = physics.landscape == Some(b) || in_ray_list(e.or_else(|| placed.iter().find(|(_, p)| p.collider == Some(physics.main_body(b))).map(|(e, _)| e)));
+        if grunt_bodies.contains(&b) || (e.is_some() && e == roman_e) || !listed {
             left -= at.distance(from) + 0.05;
             from = at + dir * 0.05;
             continue;
@@ -1841,17 +1908,42 @@ fn crosshair_aim(
         }
     }
     // +0x392: an AI is a target (its class is none of the five excluded); +0x394: an AI teammate (vt+0x10c and
-    // vt+0xe4: Q111Object 0x005a6df8, MolmerObject 0x005ae5f8; grunts 0x005a9cf0 have vt+0xe4 false)
-    let (on, friendly, object) = match best.as_ref().map(|b| &b.1) {
+    // vt+0xe4: Q111Object 0x005a6df8, MolmerObject 0x005ae5f8; grunts 0x005a9cf0 have vt+0xe4 false). `gun`: the
+    // weapon in hand is 0 or 2 (the machine gun or the rifle, fn_004a1660), which a building answers by its
+    // takes_bullet_damage; without the player every weapon counts as not a gun.
+    use crate::weapons::WeaponId;
+    let gun = roman_e.is_some() && matches!(state.weapon_id, Some(WeaponId::Machinegun | WeaponId::Rifle));
+    let (mut on, friendly, object) = match best.as_ref().map(|b| &b.1) {
         Some(AimHit::Grunt(e)) => (true, false, Some(*e)),
         Some(AimHit::Friend(e)) => (true, true, Some(*e)),
         Some(AimHit::Object(e, b)) => {
             let e = e.or_else(|| placed.iter().find(|(_, p)| p.collider == Some(physics.main_body(*b))).map(|(e, _)| e));
             let class = e.and_then(|e| classes.get(e).ok().copied());
-            (class.is_some_and(|c| c.on(true)), class == Some(AimClass::Peasant), e)
+            (class.is_some_and(|c| c.on(gun)), class == Some(AimClass::Peasant), e)
         }
         None => (false, false, None),
     };
+    // the target at hud +0 (the auto-aim's, the shark gun's) with the machine gun or the rifle: on unless it is a
+    // default object or a building (vt+0x110 / vt+0x114; the passes pick characters only)
+    if gun && matches!(targets.pass, Some(crate::weapons::targeting::Pass::AutoAim | crate::weapons::targeting::Pass::Shark)) && !targets.list.is_empty() {
+        on = true;
+    }
+    // a level that starts in a turret (0x0044e600): on whenever the ray hit an object or a lock-on slot holds one
+    let multi = targets.pass == Some(crate::weapons::targeting::Pass::MultiLock) && !targets.list.is_empty();
+    if defence.is_some_and(|d| d.starts_in_turret()) {
+        on = object.is_some() || multi;
+    }
+    // hud+0x2c (0x00408020, the enemy meter's target): the aimed object when it is in the damage takers' list
+    // World+0xea4 (0x00454690: the AIs, DamageTaker), replaced by the auto-aim target with the machine gun or the
+    // rifle; health / max_health (0x004555b0 / 0x004555c0)
+    let damage_taker = |e: Entity| takers.contains(e) || grunts.contains(e) || companions.contains(e);
+    let auto = targets.first().filter(|t| gun && matches!(targets.pass, Some(crate::weapons::targeting::Pass::AutoAim | crate::weapons::targeting::Pass::Shark)) && damage_taker(t.entity)).map(|t| t.entity);
+    state.enemy_health = auto.or(object.filter(|e| damage_taker(*e))).and_then(|e| match healths.get(e).ok()? {
+        (Some(h), Some(g), _, _) => Some(h.0 / g.max_health),
+        (Some(h), _, Some(c), _) => Some(h.0 / c.max_health),
+        (_, _, _, Some(d)) => Some(d.health / d.max_health),
+        _ => None,
+    });
     if std::env::var("CROSSDBG").is_ok() && (on != xhair.on || friendly != xhair.friendly || object != xhair.object) {
         let what = match best.as_ref().map(|b| &b.1) {
             Some(AimHit::Grunt(_)) => "grunt".to_owned(),
