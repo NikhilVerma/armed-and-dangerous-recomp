@@ -979,15 +979,18 @@ position-only fx on their side). What changed for everything that starts fx:
   falling blocks deal 300 within 30..60: an `Explode`), on-hit death / delete; on-death fx (0x1d); spins (0x1a).
 - Particles carry their age within their birth frame the right way round (they used to advance by the wrong part of
   the frame) and are drawn half a move ahead, as the original.
-- Screen effects (`screen::ScreenEffects`): phases and weights as the original; only the fade is drawn (a UI overlay).
+- Screen effects (`screen::ScreenEffects`): phases and weights as the original (first-only phase / fade requests,
+  the object's hold and release, the stop on its removal, the pause blur on the real clock); the blur and the fade
+  are drawn on the game's view under the HUD (`screen_post`, 2026-10-22).
 - Fx lights are published (`FxVm::lights`) but not drawn: the original shows none (engine-limits.md R4).
 
 Playtests: `{"fx": {"name", "at", "yaw", "clear"}}` steps and the `fx` state-log field (counts per pool and template,
 bodies, hits, lights, extent, screen); scripts fx_particles, fx_debris, fx_emit, fx_lights, fx_screen, fx_hits.
 
 Debt (guesses to measure against the original): the impulse / spin scales (body.rs IMPULSE_SCALE, MAX_SPIN), every
-fx body is a 1.5-unit box, the ground-hit test is a ray along the velocity (the original: Havok contacts), the glow /
-blur / screen-texture post effects are not drawn, the mesh emitter's interpolation weight ([0x005bcb5c] taken as -1).
+fx body is a 1.5-unit box, the ground-hit test is a ray along the velocity (the original: Havok contacts), the glow (its
+stage / blend states undecoded), the screen-texture overlays (renderer texture virtual +0xe0 unidentified) and the
+ring blur (its starter 0x00467a20 unported) are not drawn, the mesh emitter's interpolation weight ([0x005bcb5c] taken as -1).
 
 ## Movies (subsystem port, 2026-10-15)
 

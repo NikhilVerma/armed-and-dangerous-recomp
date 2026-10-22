@@ -553,7 +553,7 @@ pub fn remove(o: &FxObject, physics: &mut Physics, commands: &mut Commands, scre
         super::body::remove(physics, b);
     }
     if o.screen {
-        screen.push(ScreenRequest::Stop(e.to_bits()));
+        screen.push(ScreenRequest::Stop { owner: super::screen::EffectOwner::Object(e), now: false });
     }
     commands.entity(e).despawn();
 }
@@ -761,7 +761,7 @@ pub fn objects(
             step_emitter(&mut vm.pools, &mut vm.rng, em, pos, obj_dir, dt);
         }
         if o.screen {
-            vm.out.screen.push(ScreenRequest::Position(e.to_bits(), axes * pos));
+            vm.out.screen.push(super::screen::ScreenRequest::Position(super::screen::EffectOwner::Object(e), axes * pos));
         }
     }
     for e in gone {

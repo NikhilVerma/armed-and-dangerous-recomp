@@ -28,6 +28,7 @@ pub(crate) mod object;
 mod particles;
 mod rng;
 pub mod screen;
+mod screen_post;
 mod script;
 mod streamers;
 
@@ -419,6 +420,7 @@ fn playtest_state(vm: Res<FxVm>, mut state: Option<ResMut<crate::playtest::PlayS
             "max_extent": prev.get("max_extent").and_then(|x| x.as_f64()).map_or(extent, |m| (m as f32).max(extent)),
             "screen_fade": acc.fade.1,
             "screen_glow": acc.colour[2],
+            "screen_blur": acc.blur,
             "max_screen_fade": prev.get("max_screen_fade").and_then(|x| x.as_f64()).map_or(acc.fade.1, |m| (m as f32).max(acc.fade.1)),
             "dropped": vm.pools.dropped,
             "near_camera": near.len(),

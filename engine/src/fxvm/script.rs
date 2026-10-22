@@ -12,7 +12,7 @@ use super::body::{add_impulse, add_spin, make_dynamic, set_gravity, set_rotation
 use super::materials::{FxAddMaterial, FxAddParams, FxLayerMaterial, FxLayerParams, premultiplied};
 use super::object::{Billboard, EmitMode, FxObject, HitCreate, LightDef, MeshEmitter, ScaleCurve, UvRotate, UvScale, UvScroll};
 use super::particles::{Emitter, build_ramp};
-use super::screen::{ScreenKind, ScreenRequest};
+use super::screen::{EffectOwner, ScreenKind, ScreenRequest};
 use super::{CrtRand, FxEntity, FxVm};
 use crate::gamedata::GameData;
 use crate::level::game_to_engine;
@@ -864,37 +864,41 @@ pub fn run_script(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_>, idx: usize, spawned:
                     }
                 }
             }
-            // post-process effects on the object (PostEffects, Game+0xa9c; obj+0x634 = the object as the effect id):
-            // 0x5b colour (0x0047be00), 0x5c blur (0x0047be60), 0x70 screen texture (0x0047bec0), 0x5d / 0x71 rings
-            // (0x0047bf80: 0x71 always), 0x77 fade (0x0047bda0: colour w0..w2, alpha w3), 0x5e phase durations
-            // (0x0047c1a0), 0x5f distance fade (0x0047c0a0), 0x61 edge fade (0x0047c140), 0x60 detach (render_r2b.cpp:1151:
-            // 0x0041bd30's last position push, then obj+0x634 = 0: the effect runs on through its own phases, not
-            // stopped; no shipped fx bank uses 0x60)
+            // post-process effects on the object (PostEffects, Game+0xa9c; render_r2b.cpp:1042..1161). The starts set
+            // obj+0x634 (the object as the effect id; o.screen): 0x5b colour (0x0047be00), 0x5c blur (0x0047be60),
+            // 0x70 screen texture (0x0047bec0), 0x5d / 0x71 rings (0x0047bf80: 0x71 always), 0x77 fade (0x0047bda0:
+            // colour w0..w2, alpha w3). On the object's newest effect: 0x5e phase durations (0x0047c1a0), 0x5f
+            // distance fade (0x0047c0a0), 0x61 edge fade (0x0047c140). 0x60 lets them go: a last position
+            // (0x0041bd30), obj+0x634 = 0, no stop (they run on by their phases)
             "0x5b" | "0x5c" | "0x5d" | "0x5e" | "0x5f" | "0x60" | "0x61" | "0x70" | "0x71" | "0x77" => {
-                if let Some(t) = target.filter(|t| vm.objects.contains_key(t)) {
-                    let id = t.to_bits();
-                    let req = match op.as_str() {
-                        "0x60" => vm.objects.get_mut(&t).filter(|o| o.screen).map(|o| {
-                            o.screen = false;
-                            ScreenRequest::Position(id, game_to_engine() * o.place.w_axis.truncate())
-                        }),
-                        "0x5b" => Some(ScreenRequest::Start(id, ScreenKind::Colour([w(1), w(2), w(3), w(4)]))),
-                        "0x5c" => Some(ScreenRequest::Start(id, ScreenKind::Blur(w(1)))),
-                        "0x70" => Some(ScreenRequest::Start(id, ScreenKind::Overlay(w(1)))),
-                        "0x5d" | "0x71" => Some(ScreenRequest::Start(id, ScreenKind::OverlayRings([0.5, 0.5, w(1), w(2), 0.5, 0.5, w(3), w(4)]))),
-                        "0x77" => Some(ScreenRequest::Start(id, ScreenKind::Fade(Vec3::new(w(1), w(2), w(3)) / 255.0, w(4)))),
-                        "0x5e" => Some(ScreenRequest::Phases(id, w(1), w(2), w(3))),
-                        "0x5f" => Some(ScreenRequest::DistanceFade(id, w(1), w(2))),
-                        _ => Some(ScreenRequest::EdgeFade(id, w(1), w(2))),
+                if let Some((t, o)) = target.and_then(|t| vm.objects.get_mut(&t).map(|o| (t, o))) {
+                    let owner = EffectOwner::Object(t);
+                    let kind = match op.as_str() {
+                        "0x5b" => Some(ScreenKind::Colour([w(1), w(2), w(3), w(4)])),
+                        "0x5c" => Some(ScreenKind::Blur(w(1))),
+                        "0x70" => Some(ScreenKind::Overlay(w(1))),
+                        "0x5d" | "0x71" => Some(ScreenKind::OverlayRings([0.5, 0.5, w(1), w(2), 0.5, 0.5, w(3), w(4)])),
+                        "0x77" => Some(ScreenKind::Fade(Vec3::new(w(1), w(2), w(3)) / 255.0, w(4))),
+                        _ => None,
                     };
-                    if let Some(r) = req {
-                        if matches!(r, ScreenRequest::Start(..)) {
-                            if let Some(o) = vm.objects.get_mut(&t) {
-                                o.screen = true;
-                            }
+                    let reqs = match (kind, o.screen) {
+                        (Some(kind), _) => {
+                            o.screen = true;
+                            vec![ScreenRequest::Start(owner, kind)]
                         }
-                        vm.out.screen.push(r);
-                    }
+                        // the other opcodes only while the object holds its effects (obj+0x634)
+                        (None, false) => Vec::new(),
+                        (None, true) => match op.as_str() {
+                            "0x5e" => vec![ScreenRequest::Phases(owner, [w(1), w(2), w(3)])],
+                            "0x5f" => vec![ScreenRequest::DistanceFade(owner, w(1), w(2))],
+                            "0x61" => vec![ScreenRequest::EdgeFade(owner, w(1), w(2))],
+                            _ => {
+                                o.screen = false;
+                                vec![ScreenRequest::Position(owner, game_to_engine() * o.place.w_axis.truncate())]
+                            }
+                        },
+                    };
+                    vm.out.screen.extend(reqs);
                 }
             }
             // 0x73 / 0x74 Camera_StartPath 0x0040ff50 mode 1 (cinematic) / 2 (relative: the black hole's jolts); not
