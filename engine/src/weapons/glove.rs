@@ -6,9 +6,11 @@
 //! - Use (Fire Special with it in hand, not in a jump: 0x004788a0's case 1 at 0x0047a2bd): the targets are found
 //!   (0x00407c20, `targets`); none: nothing happens (nothing is spent). Otherwise wpn_puncher_glove_on and
 //!   wpn_puncher_ding (2D), each target grabbed (vt+0x120: GenericAIObject slot 72 0x0042f1d0: the idle anim, state
-//!   0x19a, held where it stands; one in an IC move or riding a jump pad's turbo is flung at once, vt+0x124 (1)), its
-//!   fling timer set (Game+0xcc4 + 4i: i + 1 + (d0 - di) / speed, the ray distances d of the first and this target and
-//!   speed = bof_speed_factor x its move_speed, at least 0: they arrive about a second apart), the weapons put away
+//!   0x19a, held where it stands; one in an IC move or riding a jump pad's turbo has its move ended (vt+0x1ac (1)) or
+//!   its ride stopped (+0x484 bits 28-29 cleared, the pack back to turbo_idle) and is flung at once, in the same call,
+//!   vt+0x124 (1)), its fling timer set (Game+0xcc4 + 4i: i + 1 + (d0 - di) / speed, the line-of-sight ray's distances
+//!   d to the bodies of the first and this target (the HUD slot's +0x1c) and speed = bof_speed_factor x its
+//!   move_speed, at least 0: they arrive about a second apart), the weapons put away
 //!   (0x004a0e00 (0)), player_punchingglove attached at bof_glove_player_bone, +0xa34 |= 0x8000000; then the special
 //!   is spent and the shot counted (mode_end 0x0047a4e9 -> 0x004a1aa0, Game+0x2718).
 //! - While the glove is on (0x00479142, +0xa34 & 0x78000000) Roman's move input is zeroed; each held target's timer
@@ -18,9 +20,11 @@
 //!   8)) throws one of the three punches (rand * 100 >> 15 < 33 / < 66 / else: modes 0x25 / 0x26 / 0x27, once each),
 //!   then the windup again.
 //! - A flung target (state 0x19b, ai_06.cpp 3172-3190): physics off, a flail anim (0x49 + rand * 2 >> 15), out of its
-//!   squad, every frame the ballistic velocity (0x00471a00) to Roman's ref_hit_00 at bof_speed_factor x move_speed
-//!   across under bof_gravity_factor x the world's gravity: it homes in on him. Landing on the ground first (0x00454be0)
-//!   is its death as a ragdoll (0x0042e1c0, state 0x19b).
+//!   squad; while it still touches the landscape (0x00454be0) the ballistic velocity (0x00471a00) to Roman's ref_hit_00
+//!   at bof_speed_factor x move_speed across under bof_gravity_factor x the world's gravity is set again each frame;
+//!   the first frame it does not, +0x48c |= 0x80 and the velocity is never set again: it flies on that arc. A contact
+//!   on the way down (the pending reaction 0x0042e1c0 for state 0x19b: any contact, 0x00454bc0) is its death as a
+//!   ragdoll; here a ray along the frame's step, falling (the contact callback is not decoded).
 //! - Reaching Roman (his contact callback 0x00477c90, +0xa34 & 0x78000000, the target found in the glove's slots):
 //!   punching (+0xa34 & 0x70000000), the target is hit (vt+0x128 (1, the camera's direction, ...): GenericAIObject slot
 //!   74 0x0042f470): stopped, the 0x83 record with all its health sent to GoRagdoll 0x00431310 from Roman: launched
@@ -32,7 +36,8 @@
 //! The candidates (0x00407c20): the characters of the AI list whose vt+0x118 (0x0043a9b0: grunts, archers, captains,
 //! sniper captains) answers true, not held by anything (+0x870), nearest the eye first, inside the view narrowed by
 //! autoaim_bof_factor_horz / _vert (0.2 / 0.3), within bof_range (weapon 7's range, 500), in line of sight, and not
-//! more than 20 above Roman while standing on the landscape (0x00454be0); at most six.
+//! more than 20 above Roman while standing on the landscape (0x00454be0: tested after the 21-entry cap and the range
+//! test, so such a one still counts); at most six.
 //!
 //! Remaster notes: a flung target flies as a kinematic body (its physics body taken off, as the original turns its
 //! physics off) and a punched one goes down as a ragdoll launched with Character_Launch's velocity (the original flails
@@ -122,8 +127,9 @@ impl Glove {
 #[derive(Component, Clone, Copy, Debug)]
 pub enum Gloved {
     Held,
-    /// flung at Roman: its speed across and the gravity of its arc
-    Flung { speed: f32, gravity: f32 },
+    /// flung at Roman: its speed across, the gravity of its arc, its velocity and whether it still homes (it has not
+    /// yet left the landscape: +0x48c 0x80 clear)
+    Flung { speed: f32, gravity: f32, vel: Vec3, homing: bool },
 }
 
 /// The fling delay of the i-th target (0x004788a0 case 1): i + 1 + (d0 - di) / speed, at least 0.
@@ -168,11 +174,11 @@ fn use_glove(
     mut glove: ResMut<Glove>,
     mut roman: Query<(Entity, &mut crate::player::Roman, &GlobalTransform)>,
     cam: Query<(&GlobalTransform, &Projection), With<crate::camera::FollowCam>>,
-    mut grunts: Query<(Entity, &mut Grunt, &GlobalTransform, Option<&crate::skin::Animator>)>,
+    mut grunts: Query<(Entity, &mut Grunt, &GlobalTransform, Option<&crate::skin::Animator>, Option<&crate::physics::Body>)>,
     joints: Query<&GlobalTransform, Without<Grunt>>,
     (taken, ic): (Query<(), Or<(With<super::blackhole::Carried>, With<Gloved>, With<crate::ai::close_kill::Victim>)>>, Query<&crate::ai::ic::IcEntry>),
-    physics: NonSend<Physics>,
-    (data, cheats, mut stats, mut sounds): (Res<crate::gamedata::GameData>, Res<crate::cheats::Cheats>, ResMut<crate::player::PlayerStats>, MessageWriter<crate::audio::PlaySound>),
+    mut physics: NonSendMut<Physics>,
+    (data, cheats, mut stats, mut sounds, mut rng): (Res<crate::gamedata::GameData>, Res<crate::cheats::Cheats>, ResMut<crate::player::PlayerStats>, MessageWriter<crate::audio::PlaySound>, ResMut<crate::fx::FxStats>),
     (mut log, characters): (Option<ResMut<crate::mission::Mission>>, targeting::Characters),
 ) {
     if !std::mem::take(&mut glove.request) || glove.active() {
@@ -182,40 +188,55 @@ fn use_glove(
     let g = data.props("p_globalsettings");
     let factors = (g.f("autoaim_bof_factor_horz", 0.2), g.f("autoaim_bof_factor_vert", 0.3));
     let range = g.f("bof_range", 500.0);
-    let speed_factor = g.f("bof_speed_factor", 3.0);
+    let (speed_factor, gravity) = (g.f("bof_speed_factor", 3.0), g.f("bof_gravity_factor", 1.0) * crate::ai::launch::GRAVITY);
     let feet = rt.translation();
     let view = targeting::View::new(c, Some(proj), feet + Vec3::Y * 4.0);
-    // the candidates: vt+0x118 true, not already someone's; one standing on the landscape more than 20 above Roman is
-    // passed over (0x00454be0)
+    // the candidates: vt+0x118 true, not already someone's
     let mut cands = Vec::new();
-    for (e, g, t, a) in grunts.iter() {
+    for (e, g, t, a, _) in grunts.iter() {
         if !can_be_gloved(g) || taken.contains(e) {
             continue;
         }
         let origin = t.translation();
-        if origin.y > feet.y + 20.0 && targeting::on_landscape(&physics, origin) {
-            continue;
-        }
         let joint = a.and_then(|a| a.skeleton.index.get("ref_hit_00").map(|&i| a.joints[i]));
         let hit = joint.and_then(|j| joints.get(j).ok()).map_or(origin + Vec3::Y * 6.0, |j| j.translation());
         cands.push(targeting::Candidate { entity: e, dead: false, origin, centre: origin + Vec3::Y * 4.9, hit, joint });
     }
-    let found = targeting::search(&view, cands, factors, range, MAX_TARGETS, &physics, |e: Entity| characters.contains(e));
+    // one standing on the landscape more than 20 above Roman is passed over (0x00454be0), after the range test
+    let passable = |e: Entity| characters.contains(e);
+    let high = |c: &targeting::Candidate| c.origin.y > feet.y + 20.0 && targeting::on_landscape(&physics, c.origin);
+    let found = targeting::search_with(&view, cands, factors, range, MAX_TARGETS, &physics, passable, high);
     if found.is_empty() {
         info!("EVENT glove: no target");
         return;
     }
     sounds.write(crate::audio::PlaySound::ui("wpn_puncher_glove_on"));
     sounds.write(crate::audio::PlaySound::ui("wpn_puncher_ding"));
-    let d0 = found[0].point.distance(view.eye);
+    // the line of sight's ray distance to each one's body (0x00414110's, the HUD slot's +0x1c)
+    let dists: Vec<f32> = found.iter().map(|t| targeting::hud_sight_distance(&physics, view.eye, t.point, t.entity, &passable).unwrap_or_else(|| t.point.distance(view.eye))).collect();
     glove.slots.clear();
     for (i, t) in found.iter().enumerate() {
-        let Ok((e, mut gr, _, _)) = grunts.get_mut(t.entity) else { continue };
-        let speed = speed_factor * gr.move_speed;
-        // 0x0042f1d0: in an IC move (0x00426630) or riding a turbo (+0xb08 with +0x484 bit 28): flung at once
-        let at_once = ic.get(e).is_ok_and(|i| i.running) || gr.mind == Mind::Jump;
-        let timer = if at_once { 0.0 } else { fling_delay(i, d0, t.point.distance(view.eye), speed) };
-        hold(&mut commands, e, &mut gr);
+        let Ok((e, mut gr, _, _, body)) = grunts.get_mut(t.entity) else { continue };
+        // 0x0042f1d0: in an IC move (0x00426630) or riding a turbo (+0xb08 with +0x484 bit 28): the move ended (vt+0x1ac
+        // (1)) or the ride stopped (bits 28-29 cleared; the pack goes back to turbo_idle, ai.rs jumper_packs), flung
+        // at once (vt+0x124 (1))
+        let in_ic = ic.get(e).is_ok_and(|i| i.running);
+        let riding = gr.jumper.is_some_and(|j| j.flight.is_some());
+        let timer = if in_ic || riding {
+            if in_ic {
+                commands.entity(e).remove::<(crate::mover::Mover, crate::ai::ic::IcEntry)>();
+            }
+            if let Some(j) = gr.jumper.as_mut() {
+                j.flight = None;
+                j.vel = Vec3::ZERO;
+            }
+            fling(&mut commands, e, &mut gr, body, &mut physics, rng.rand(), speed_factor, gravity);
+            glove.stats.flung += 1;
+            FLUNG
+        } else {
+            hold(&mut commands, e, &mut gr);
+            fling_delay(i, dists[0], dists[i], speed_factor * gr.move_speed)
+        };
         glove.slots.push(Some(Slot { target: e, timer }));
         glove.stats.grabbed += 1;
     }
@@ -309,7 +330,8 @@ fn fling(commands: &mut Commands, e: Entity, g: &mut Grunt, body: Option<&crate:
     g.squad = None;
     g.mind = Mind::Held;
     let id = if roll < 0.5 { 0x49 } else { 0x4a };
-    commands.entity(e).insert((Gloved::Flung { speed: speed_factor * g.move_speed, gravity }, crate::ai::AnimOverride { id, looping: true }));
+    // (its velocity, the arc to Roman, is set by `flights` from this frame on: it homes while on the landscape)
+    commands.entity(e).insert((Gloved::Flung { speed: speed_factor * g.move_speed, gravity, vel: Vec3::ZERO, homing: true }, crate::ai::AnimOverride { id, looping: true }));
     info!("EVENT glove: flung {e:?}");
 }
 
@@ -332,14 +354,16 @@ fn flights(
     let aim = ra.and_then(|a| a.skeleton.index.get("ref_hit_00").and_then(|&i| joints.get(a.joints[i]).ok())).map_or(rfeet + Vec3::Y * 6.0, |j| j.translation());
     let look = cam.single().map_or(Vec3::NEG_Z, |c| c.forward().as_vec3());
     let mut let_go = false;
-    for (e, mut g, mut t, gl, cb, mut h) in &mut q {
-        let Gloved::Flung { speed, gravity } = *gl else { continue };
+    for (e, mut g, mut t, mut gl, cb, mut h) in &mut q {
+        let Gloved::Flung { speed, gravity, vel, homing } = *gl else { continue };
         if g.mind == Mind::Dead {
             continue;
         }
         let pos = t.translation;
-        // the velocity again each frame: the arc to Roman's hit point (0x00471a00 at speed across, not kept)
-        let v = crate::ai::grenade::launch_velocity(pos, aim, speed, gravity, false);
+        // while it touches the landscape the velocity again each frame: the arc to Roman's hit point (0x00471a00 at
+        // speed across); once off it (+0x48c 0x80) it flies on that arc
+        let v = if homing { crate::ai::grenade::launch_velocity(pos, aim, speed, gravity, false) } else { vel - Vec3::Y * gravity * dt };
+        *gl = Gloved::Flung { speed, gravity, vel: v, homing: homing && targeting::on_landscape(&physics, pos) };
         let centre = pos + Vec3::Y * cb.radius;
         let near = (centre - rfeet).with_y(0.0).length() < REACH && centre.y > rfeet.y - cb.radius && centre.y < rfeet.y + 11.0 + cb.radius;
         if near {
@@ -379,7 +403,7 @@ fn flights(
             stats.kills += 1;
             continue;
         }
-        // the landing: anything in the way of this frame's step (0x00454be0 then 0x0042e1c0: a ragdoll death)
+        // the landing: anything in the way of this frame's step, falling (0x0042e1c0 for state 0x19b: a ragdoll death)
         let step = v * dt;
         let landed = physics.raycast(pos + Vec3::Y * 0.5, step.normalize_or(Vec3::NEG_Y), step.length().max(0.6)).is_some_and(|(b, _, _)| physics.bodies.get(&b) != Some(&re));
         if landed && v.y <= 0.0 {

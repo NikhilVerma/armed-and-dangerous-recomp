@@ -13,14 +13,18 @@
 //!   -800) it dives there: the missile hidden, 10 below the hit, the fin (landshark_fin) attached, depth -10,
 //!   wpn_shark_dive.
 //! - Swimming: kept on the ground under it (Object_ForceGround) at its depth; with a target it heads for it at 50 a
-//!   second (the pull (1 - d / d0) x 100 + 0.5, d0 the distance at the dive), rising to the fin's depth (-3, 16 a second)
-//!   while farther than submerge_attack_distance (40) and sinking under (-10, 20 a second) for the attack; within 3
+//!   second (the pull (1 - min(d, d0) / d0) x 100 + 0.5, d the distance across, d0 (+0x568) the 3D distance taken when
+//!   the target was: from the muzzle to its ref_hit_00 at the shot (0x0047dbf0), from the shark to its origin when
+//!   the search found it (0x0047e4d0)), rising to the fin's depth (-3, 16 a second) while min(d, d0) is more than
+//!   submerge_attack_distance (40) and sinking under (-10, 20 a second) for the attack; within 3
 //!   (across) it bites: a landshark rises at the victim playing sharkbite_grunt / sharkbite_captain (its notes the
 //!   fx_shark_attack sounds), the victim is killed outright (the 0x1000 message: anim 0x58 grunt_sharkbite /
 //!   captain_sharkbite, its scream notes), the loop stops, the shark waits hidden under the bite until the bite is
 //!   over, then dives again (depth -10, the fin back, the loop again while bites < max_kills (6), else its time is up).
 //!   Without a target (and time left, lifetime 15 s) it looks for the nearest AI that can be bitten within the range of
-//!   the player and in his sight (0x0047fa70), and meanwhile circles him at 15..30 (pi / 2 a second, either way) or
+//!   the player and in his sight (0x0047fa70: the HUD passes' ray, 0x00414110 with the sight list World+0xea0, so
+//!   other characters do not block it; its reach the distance + 5 rather than + 10 makes no difference, as the ray
+//!   meets the target's body before its centre), and meanwhile circles him at 15..30 (pi / 2 a second, either way) or
 //!   swims to that circle from farther than 30. Its time up and no target: it sinks (7 a second) and is gone below -10.
 //!   The fin shows above the ground only near the surface depth.
 
@@ -36,7 +40,7 @@ pub struct LandShark {
     pub vel: Vec3,
     /// +0x544: the character it hunts (frozen while hunted)
     pub target: Option<Entity>,
-    /// +0x568: the distance to the target when it was taken (the pull's scale)
+    /// +0x568: the 3D distance to the target when it was taken (the pull's scale; module docs)
     initial: f32,
     /// +0x58c: how far below the ground it swims (-10 dived, -3 the fin out)
     pub depth: f32,
@@ -167,7 +171,8 @@ fn fire(
                     phase: Phase::Arc,
                     vel,
                     target: target.map(|t| t.entity),
-                    initial: 0.0,
+                    // 0x0047dbf0: |P - Q|, the muzzle to the target's ref_hit_00
+                    initial: target.map_or(0.0, |t| f.muzzle.distance(t.point)),
                     // the load (0x0047f6d0): -3 until the dive sets -10; the circle's radius 15..30
                     depth: k::SURFACE,
                     below_world: false,
@@ -218,7 +223,7 @@ fn swim(
     data: Res<crate::gamedata::GameData>,
     (mut sounds, mut stop): (MessageWriter<crate::audio::PlaySound>, MessageWriter<crate::audio::StopVoice>),
     (mut rng, mut stats, mut log): (ResMut<crate::fx::FxStats>, ResMut<crate::player::PlayerStats>, ResMut<super::WeaponStats>),
-    (gone, carried): (Query<(), With<Bite>>, Query<(), Or<(With<super::blackhole::Carried>, With<crate::topsy::Thrown>, With<super::glove::Gloved>)>>),
+    (gone, carried, characters): (Query<(), With<Bite>>, Query<(), Or<(With<super::blackhole::Carried>, With<crate::topsy::Thrown>, With<super::glove::Gloved>)>>, super::targeting::Characters),
 ) {
     let dt = time.delta_secs();
     if dt <= 0.0 {
@@ -264,8 +269,9 @@ fn swim(
                 t.rotation = crate::vehicles::rockets::facing(s.vel);
                 continue;
             }
-            // the dive: at the hit, the missile hidden, 10 under, the fin on it, depth -10, wpn_shark_dive
-            let at = hit.map_or(pos + step, |h| h.1);
+            // the dive: at the hit, the missile hidden, 10 under, the fin on it, depth -10, wpn_shark_dive (fallen below
+            // the world, the ray is not cast and it stays where it was: the hit's fraction 0)
+            let at = hit.map_or(pos, |h| h.1);
             s.below_world = below;
             s.phase = Phase::Swim;
             s.vel = Vec3::ZERO;
@@ -297,11 +303,12 @@ fn swim(
                     .filter(|(ge, g, gt, _, _)| can_be_bitten_now(g, carried.contains(*ge), &physics, gt.translation()))
                     .map(|(ge, _, gt, _, _)| (ge, gt.translation() + Vec3::Y * 5.0))
                     .filter(|(_, c)| c.distance(eye) <= s.range)
-                    .filter(|(ge, c)| super::targeting::in_sight(&physics, eye, *c, *ge, &|_| false))
+                    .filter(|(ge, c)| super::targeting::in_hud_sight(&physics, eye, *c, *ge, &|x| characters.contains(x)))
                     .min_by(|a, b| a.1.distance(eye).total_cmp(&b.1.distance(eye)));
                 if let Some((ge, _)) = best {
                     s.target = Some(ge);
-                    s.initial = 0.0;
+                    // 0x0047e4d0: the shark to its origin (vt+0x14c (best, 0): no bone)
+                    s.initial = grunts.get(ge).map_or(0.0, |x| x.2.translation().distance(pos));
                     if let Ok((_, mut g, _, _, _)) = grunts.get_mut(ge) {
                         g.target = None;
                         g.mind = crate::ai::Mind::WaitTrigger;
@@ -315,16 +322,14 @@ fn swim(
         let (goal, dist, pull_k, min_speed) = match s.target.and_then(|g| grunts.get(g).ok().map(|x| (g, x.2.translation()))) {
             Some((ge, gp)) => {
                 let across = (gp - pos).with_y(0.0).length();
-                if s.initial <= 0.0 {
-                    s.initial = across.max(1e-3);
-                }
                 if across < k::BITE {
                     bite(&mut commands, &mut s, e, ge, &mut grunts, &mut kit, &data, &mut stop, &mut stats);
                     log.shark_bites += 1;
                     t.translation = gp;
                     continue;
                 }
-                (gp, across, pull(across, s.initial), k::SPEED)
+                // the depth's test takes the distance clamped to d0 as the pull does
+                (gp, across.min(s.initial), pull(across, s.initial), k::SPEED)
             }
             None => {
                 let Some(p) = player else { continue };
@@ -419,10 +424,10 @@ fn bite(
     info!("EVENT shark: bite {} on {victim:?} by {shark:?}", s.bites);
 }
 
-/// Removed (0x0047f980): the fin and any bite gone, the loop stopped.
+/// Removed (0x0047f980): the fin and any bite gone, the loop cut at once (sound vt+0xd8 with 1).
 fn remove(commands: &mut Commands, e: Entity, s: &LandShark, stop: &mut MessageWriter<crate::audio::StopVoice>) {
     if let Some(id) = s.jaws {
-        stop.write(crate::audio::StopVoice { id, immediate: false });
+        stop.write(crate::audio::StopVoice { id, immediate: true });
     }
     if let Phase::Bite { bite, .. } = s.phase {
         commands.entity(bite).try_despawn();

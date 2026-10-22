@@ -4,13 +4,17 @@
 //! - Fire Special with it in hand while no box or hole is live (Game+0xadc, 0x004788a0's case 9) queues the throw; at
 //!   the throw note the box leaves the hand (0x004a1970: one less, "wpn_black_hole_fire").
 //! - The box (0x004821b0 launch, 0x004822b0 update): lobbed at 50 across toward the camera's facing x
-//!   initial_arc_distance (20) ahead; where its path meets the world it lands (put on the ground) and opens
-//!   (player_blackhole_box_open); when the opening is over the hole appears at it. lifetime 14 s.
+//!   initial_arc_distance (20) ahead, showing the first frame of player_blackhole_box_open (Anim_Set flags 0x90: 0x10
+//!   holds the slot's time); where its path meets the world it lands (put on the ground) and opens (the anim restarted,
+//!   0x80); when the opening is over the hole appears at it. lifetime 14 s.
 //! - The hole (0x00481db0 load, 0x00481ef0 update): rises final_height (40) above where it appeared, easing 5 % of the
 //!   way a frame (hidden when it gets there; its fx_explosion_black_hole runs on); start_delay (2 s) later every AI
-//!   within damage_radius_outer (200) of it is carried off (AreaDamage_Apply with record flag 0x800, the hole as the
-//!   holder: GenericAIObject_Slot52 0x00430340) and the hole sucks for suction_lifetime (6 s: it is in the list World
-//!   +0xf00). lifetime 14 s, then gone (a last area damage of 1).
+//!   whose bounding sphere comes within damage_radius_outer (200) of it is carried off (AreaDamage_Apply 0x0047f020
+//!   with record flag 0x800, the hole as the holder: GenericAIObject_Slot52 0x00430340) and the hole joins the
+//!   suction list World+0xf00 (from the next frame on it counts down suction_lifetime, 6 s, and leaves the list at 0).
+//!   lifetime 14 s, then gone (0x004820b0: its own area damage record, area_damage / damage_radius_inner / _outer /
+//!   impact_force, when area_damage is not 0). Only grunt-class characters are carried off here: the 0x800 record
+//!   reaches every object of the list and each one's vt+0xd0 decides (not decoded for the other classes).
 //! - The carried off (ai_04.cpp:179, ai_06.cpp:3108-3170): first they run from the hole (state 0x19c: 250 away along
 //!   the line from it, 1..1.75 s), then they are pulled in (0x19d): across at 1.5 x their speed (pulled at 5 a second),
 //!   after 1..2 s lifted too, flailing (anims 0x49 / 0x4a looped); within 5 of the hole, or when the hole is gone,
@@ -41,6 +45,8 @@ pub struct HoleBox {
     life: f32,
     /// opened: seconds since, and whether the hole is out
     open: Option<(f32, bool)>,
+    /// in flight showing the open anim's first frame (Anim_Set 0x90 at the launch)
+    posed: bool,
     /// the opening's length (player_blackhole_box_open)
     open_len: f32,
 }
@@ -54,8 +60,8 @@ pub struct BlackHole {
     pub suction: f32,
     pub life: f32,
     arrived: bool,
-    /// the carry-off's reach (damage_radius_outer)
-    radius: f32,
+    /// its area damage record (+0x474): the carry-off's reach (damage_radius_outer) and the last blast
+    blast: AreaRecord,
     model: Option<Entity>,
 }
 
@@ -66,6 +72,16 @@ pub struct CarryOff {
     pub hole: Entity,
     pub at: Vec3,
     pub radius: f32,
+}
+
+/// A projectile's area damage record (Projectile_Load 0x0047e0c0: +0x474 area_damage, +0x478 / +0x47c the radii,
+/// +0x470 impact_force).
+#[derive(Clone, Copy, Debug)]
+struct AreaRecord {
+    damage: f32,
+    inner: f32,
+    outer: f32,
+    impact: f32,
 }
 
 /// A character the hole carried off (0x800 message, its holder +0x870).
@@ -152,7 +168,7 @@ fn throw(
         .and_then(|m| kit.spawn(&mut commands, &m, tr, true))
         .unwrap_or_else(|| commands.spawn((tr, Visibility::default())).id());
     let open_len = kit.anim("player_blackhole_box_open").map_or(1.0, |a| a.duration);
-    commands.entity(e).insert((LiveHole, HoleBox { vel, life: p.f("lifetime", 14.0), open: None, open_len }));
+    commands.entity(e).insert((LiveHole, HoleBox { vel, life: p.f("lifetime", 14.0), open: None, posed: false, open_len }));
     info!("EVENT blackhole: box thrown");
 }
 
@@ -167,7 +183,7 @@ fn boxes(
     mut fx: MessageWriter<crate::fx::StartFx>,
 ) {
     let dt = time.delta_secs();
-    for (e, mut b, mut t, anim) in &mut q {
+    for (e, mut b, mut t, mut anim) in &mut q {
         b.life -= dt;
         if b.life <= 0.0 {
             commands.entity(e).despawn();
@@ -175,6 +191,14 @@ fn boxes(
         }
         match b.open {
             None => {
+                // the launch's Anim_Set (0x90): the open anim held at its first frame while it flies
+                if let (false, Some(a)) = (b.posed, anim.as_deref_mut()) {
+                    a.play(0, "player_blackhole_box_open", false, crate::skin::Mask::All);
+                    if let Some(l) = a.layers.get_mut(0) {
+                        l.speed = 0.0;
+                    }
+                    b.posed = true;
+                }
                 b.vel.y -= crate::vehicles::rockets::GRAVITY * dt;
                 let step = b.vel * dt;
                 let from = t.translation;
@@ -186,6 +210,10 @@ fn boxes(
                         b.open = Some((0.0, false));
                         if let Some(mut a) = anim {
                             a.play(0, "player_blackhole_box_open", false, crate::skin::Mask::All);
+                            a.restart(0);
+                            if let Some(l) = a.layers.get_mut(0) {
+                                l.speed = 1.0;
+                            }
                         }
                         info!("EVENT blackhole: box landed");
                     }
@@ -219,7 +247,12 @@ fn spawn_hole(commands: &mut Commands, data: &crate::gamedata::GameData, kit: &m
                 suction: p.f("suction_lifetime", 10.0),
                 life: p.f("lifetime", 4.0),
                 arrived: false,
-                radius: p.f("damage_radius_outer", 0.0),
+                blast: AreaRecord {
+                    damage: p.f("area_damage", 0.0),
+                    inner: p.f("damage_radius_inner", 0.0),
+                    outer: p.f("damage_radius_outer", 0.0),
+                    impact: p.f("impact_force", 0.0),
+                },
                 model,
             },
         ))
@@ -251,8 +284,11 @@ fn holes(
     for (e, mut h, mut t) in &mut q {
         h.life -= dt;
         if h.life <= 0.0 {
-            // 0x004820b0: the area damage (1) as it goes
-            blasts.write(crate::fx::Explode { at: t.translation, area_damage: 1.0, radius_inner: h.radius, radius_outer: h.radius, impact_force: 0.0, source: Some(e), delay: 0.0, by: crate::fx::Src::Player, cartoon: false, kind: crate::player::DamageKind::Plain });
+            // 0x004820b0: its area damage record as it goes, unless area_damage is 0
+            let b = h.blast;
+            if b.damage != 0.0 {
+                blasts.write(crate::fx::Explode { at: t.translation, area_damage: b.damage, radius_inner: b.inner, radius_outer: b.outer, impact_force: b.impact, source: Some(e), delay: 0.0, by: crate::fx::Src::Player, cartoon: false, kind: crate::player::DamageKind::Plain });
+            }
             commands.entity(e).despawn();
             info!("EVENT blackhole: closed");
             continue;
@@ -272,11 +308,13 @@ fn holes(
             if h.delay > 0.0 {
                 continue;
             }
-            // the carry-off (AreaDamage_Apply 0x0047f020 with flag 0x800, the hole the holder): the AIs within reach
-            // that can be carried (vt+0x254: the ones on their feet; guess: as the land shark's prey)
+            // the carry-off (AreaDamage_Apply 0x0047f020 with flag 0x800, the hole the holder): the AIs whose bounding
+            // sphere (vt+0x94: the centre 4.9 up, targeting::SLACK) reaches within the outer radius of +0x598 and that
+            // can be carried (vt+0x254: the ones on their feet; guess: as the land shark's prey)
             let mut n = 0;
             for (ge, mut g, gt) in &mut grunts {
-                if g.mind == crate::ai::Mind::Dead || !super::targeting::on_their_feet(&g) || gt.translation().distance(h.target) > h.radius {
+                let reach = (gt.translation() + Vec3::Y * 4.9).distance(h.target) - super::targeting::SLACK;
+                if g.mind == crate::ai::Mind::Dead || !super::targeting::on_their_feet(&g) || reach > h.blast.outer {
                     continue;
                 }
                 let away = (gt.translation() - h.target).with_y(0.0).normalize_or(Vec3::X);
@@ -286,17 +324,23 @@ fn holes(
                 commands.entity(ge).insert(Carried { hole: e, phase: Carry::Flee(rng.range(1.0, 1.75)), vel: Vec3::ZERO });
                 n += 1;
             }
-            carry.write(CarryOff { hole: e, at: h.target, radius: h.radius });
+            carry.write(CarryOff { hole: e, at: h.target, radius: h.blast.outer });
             if let Some(m) = log.as_deref_mut() {
                 m.log.push(format!("black hole: {n} carried off"));
             }
             stats.holes += 1;
             stats.carried += n;
             info!("EVENT blackhole: sucking, {n} carried off");
+            // it joins the suction list and returns: the countdown starts next frame
+            if !suction.active {
+                *suction = Suction { active: true, at: t.translation };
+            }
+            continue;
         }
+        // in the list while the suction left after this frame's countdown is above 0
         if h.suction > 0.0 {
             h.suction -= dt;
-            if !suction.active {
+            if h.suction > 0.0 && !suction.active {
                 *suction = Suction { active: true, at: t.translation };
             }
         }
