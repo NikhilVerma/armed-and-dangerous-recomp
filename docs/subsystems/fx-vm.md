@@ -191,11 +191,15 @@ Supersedes the "Engine:" notes in the table above (0x10 now uses the reference p
 | Lights 0x4a / 0x58 / 0x59 / 0x5a | D3D point light at its attach point, re-added each update | `FxVm::lights` (engine space), not drawn (engine-limits.md R4) | r2a.cpp:757-812 |
 | Post effects 0x5b..0x61 / 0x70 / 0x71 / 0x77 | PostEffects (Game+0xa9c), id = the object; phases in / hold / out (defaults 1, -1, 1), weights, distance / edge fades, accumulators (PostEffect_Apply 0x0047c200) | `screen.rs`; the fade drawn as a UI overlay; glow / blur / overlay computed, not drawn | render_r3.cpp:1085-2135 |
 | Camera paths 0x73 / 0x74 | Camera_StartPath 0x0040ff50 mode 1 / 2 (2 takes the path's Camera01 matrix once) | both send StartCameraPath (campath.rs plays mode 1) | game_02.cpp:244 |
-| Fx ears (bb_ear) | FxOwner_Toggle / OnMessage / Update 0x0041bf60 / 0x0041c050 / 0x0041c110: random initial delay, cool-down, looping handle toggled off by a second message, lock_fx = on the owner | mission.rs Action::Fx starts the fx on each trigger (lev_1_m1's ears set none of the delays or looping_fx) | r2a.cpp:96-207 |
+| Fx ears (bb_ear) | FxOwner_Toggle / OnMessage / Update 0x0041bf60 / 0x0041c050 / 0x0041c110: random initial delay, cool-down, looping handle toggled off by a second message, lock_fx = on the owner | fxvm/ear.rs (mission.rs sends TriggerFxEar): one_shot, the random initial delay and the delay_repeat cool-down; looping_fx is set by no shipped ear and not ported; lock_fx is not distinguished (see the module doc) | r2a.cpp:96-207 |
 
-Opcodes not ported (not in lev_1_m1's fx bank; logged once as "fx vm: not ported" when met): 0x1f, 0x28, 0x29, 0x2d
-(other particle emitter shapes: in none of the 25 shipped fx banks, lev_shell included, counted 2026-10-22; 0x1f
-would pass a null direction to 0x0041e760's default branch; 0x2c, the emitter colour, is unused too), 0x3e, 0x4b, 0x4c, 0x62, 0x66, 0x67..0x69, 0x6b..0x6f, 0x72, 0x75.
+Opcodes not ported (logged once as "fx vm: not ported" when met): 0x1f, 0x28, 0x29, 0x2d (other particle emitter
+shapes: in none of the 25 shipped fx banks, lev_shell included, counted 2026-10-22; 0x1f would pass a null direction
+to 0x0041e760's default branch; 0x2c, the emitter colour, is unused too), 0x3e, 0x66, 0x67..0x69, 0x6b..0x6f, 0x72:
+no shipped fx bank uses them (all levels' fx.json, 2026-10-22); 0x62 (Fx_SetBackground 0x0041fe00: the lev_5 sea,
+cloud and shoreline objects drawn as background, flags on their materials): deferred, the object-group draw 0x00488130
+and the material flags 0x10 / 0x20 are not decoded. 0x4b / 0x4c (cards turning about x / z, object.rs Billboard) and
+0x75 (face the flight, object.rs) are ported.
 
 ## 8. Fx bodies, the keg's launch and debris (2026-10-18, player feedback)
 

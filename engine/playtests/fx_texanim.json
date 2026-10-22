@@ -1,0 +1,18 @@
+{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+ {"note": "Fx_SetTextureAnimation 0x0041e310 (0x63 name, layer, frames, rate, loop): the frames advance on their stage"},
+ {"wait": 1.0},
+ {"warp": [-210, 380, 25, 0]},
+ {"wait": 0.5},
+ {"fx": {"name": "fx_bud_flash", "at": [-210, 420, 30], "clear": true}},
+ {"wait": 0.4},
+ {"expect": {"fx.texframe.fxo_flash_anim_0": [7, 15]}},
+ {"note": "layer 3: the fireball's mask (fx_smoke_mix_N), 15 frames at 10 per second"},
+ {"fx": {"name": "fx_keg_fireball", "at": [-210, 420, 30], "clear": true}},
+ {"wait": 1.0},
+ {"expect": {"fx.texframe.fxo_fireball_2": [6, 13]}},
+ {"note": "a looping fire: fire_test, 30 frames at 30 per second"},
+ {"fx": {"name": "fx_tree_fire", "at": [-210, 420, 30], "clear": true}},
+ {"wait": 1.5},
+ {"expect": {"fx.texframe.fxo_flame_anim_0": [0, 29]}},
+ {"quit": true}
+]}

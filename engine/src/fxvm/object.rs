@@ -5,6 +5,7 @@
 use super::attach::point_world;
 use super::body::{make_dynamic, touching};
 use super::particles::{Emitter, step_emitter};
+use super::screen::ScreenRequest;
 use super::script::{Instance, child_instance, find, pick_name};
 use super::{FxAddMaterial, FxEntity, FxLight, FxLayerMaterial, FxVm};
 use crate::gamedata::GameData;
@@ -13,7 +14,9 @@ use crate::physics::Physics;
 use bevy::prelude::*;
 
 /// Size over life (Fx_SetScaleLinear / Exp / Log 0x0041d170 / 0x0041d210 / 0x0041d2c0; +0x480 from, +0x484 to,
-/// +0x488 rate; mode flags 0x20 / 0x40 / 0x80 of +0x460, only when from != to).
+/// +0x488 rate; mode flags 0x20 / 0x40 / 0x80 of +0x460, only when from != to). The original ORs the mode flags on
+/// shared from / to fields (linear wins over exp over log); no shipped script gives one object two scale opcodes, so
+/// the latest curve standing in for them gives the same result.
 #[derive(Clone, Copy, Debug)]
 pub struct ScaleCurve {
     pub from: f32,
@@ -28,6 +31,8 @@ impl ScaleCurve {
         ScaleCurve { from, to, mode }
     }
     /// The scale at `age` of a `life` (no lifespan: the age stays 0 in the original's terms, the scale stays `from`).
+    /// An exp curve that shrinks (to < from) is NaN: the original stores sqrtf(to - from) unguarded (an original bug,
+    /// docs/original-bugs.md: the window blast's and Flemming's impact flashes are never drawn).
     pub fn at(&self, age: f32, life: Option<f32>) -> f32 {
         let Some(life) = life.filter(|l| *l > 0.0) else { return self.from };
         if self.from == self.to {
@@ -37,7 +42,7 @@ impl ScaleCurve {
         match self.mode {
             0 => d / life * t + self.from,
             1 => {
-                let q = d.max(0.0).sqrt() / life * t;
+                let q = d.sqrt() / life * t;
                 q * q + self.from
             }
             _ => {
@@ -47,6 +52,12 @@ impl ScaleCurve {
             }
         }
     }
+}
+
+/// The size an object is drawn at: a NaN scale (a shrinking exp curve, `ScaleCurve::at`) rasterises nothing in the
+/// original; zero keeps the NaN out of transforms, attach points and bodies and draws nothing too.
+fn drawn_scale(s: f32) -> f32 {
+    if s.is_nan() { 0.0 } else { s }
 }
 
 /// TexAnim_Fade (TexAnim_Step 0x00419d30): 0 past the end (when there is one), t / in during the ramp in, the ramp out
@@ -130,6 +141,18 @@ pub struct UvLayer {
     pub angle: f32,
 }
 
+impl UvScroll {
+    /// The scroll direction of an angle in degrees, read from the game's sine table as Fx_SetUvScroll 0x00420670 does:
+    /// index = (int)(angle * [0x005bcba4] (16384 / 360) + [0x005bce68] (8192.5)) & 0x3fff, a half turn on (rounded),
+    /// u = sin, v = cos of it (0x00614b08, and the cosine view [0x00614b00] a quarter turn on: Trig_InitTables
+    /// 0x004e8310). So (-sin a, -cos a): 0 degrees scrolls -v, 90 degrees -u.
+    pub fn direction(angle_deg: f32) -> Vec2 {
+        let i = ((angle_deg * (16384.0 / 360.0) + 8192.5) as i32 & 0x3fff) as f32;
+        let a = i * std::f32::consts::TAU / 16384.0;
+        Vec2::new(a.sin(), a.cos())
+    }
+}
+
 impl UvLayer {
     pub fn active(&self) -> bool {
         self.scroll.is_some() || self.scale.is_some() || self.rotate.is_some()
@@ -154,17 +177,64 @@ impl UvLayer {
     }
 }
 
-/// Fx_SetTextureAnimation 0x0041e310 (opcode 0x63; its block FxObject_EnsureTexAnim 0x0041e2c0): the stage texture
-/// replaced by "<name>_<frame>"
-/// (TexAnim_FindFrameTexture 0x004198c0, TexAnim_ResolveTextures 0x00419940), frame 0 = the base texture.
+/// Fx_SetTextureAnimation 0x0041e310 (opcode 0x63; its block FxObject_EnsureTexAnim 0x0041e2c0): texture stage
+/// `stage` (the opcode's layer - 1: 0 the base texture, 1 the second, 2 the mask of a layered part: the fireballs'
+/// fx_smoke_mix) replaced by "<name>_<frame>" (TexAnim_FindFrameTexture 0x004198c0, TexAnim_ResolveTextures
+/// 0x00419940), frame 0 = the stage's own texture.
 #[derive(Clone, Debug)]
 pub struct TexAnim {
+    pub stage: usize,
     pub rate: f32,
     pub frames: u32,
     pub looping: bool,
     pub acc: f32,
     pub frame: u32,
     pub base: String,
+}
+
+impl TexAnim {
+    /// The frame counter of fn_0041a350 (render_r1.cpp:1498): t = dt + the kept fraction, frame += (int)(t * rate),
+    /// the fraction kept; looping wraps at the count, else the last frame holds. Returns whether the frame changed.
+    fn step(&mut self, dt: f32) -> bool {
+        let t = self.acc + dt;
+        let v = t * self.rate;
+        let whole = v as u32;
+        self.acc = (v - whole as f32) / self.rate;
+        let next = if self.looping { (self.frame + whole) % self.frames } else { (self.frame + whole).min(self.frames - 1) };
+        std::mem::replace(&mut self.frame, next) != next
+    }
+
+    fn texture(&self) -> String {
+        if self.frame == 0 { self.base.clone() } else { format!("{}_{}", self.base, self.frame) }
+    }
+}
+
+/// Camera-facing orientation (fn_00419a60 0x00419a60, set by Fx_SetKite 0x0041fd70).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Billboard {
+    /// +0x460 bit 0x400 (opcode 0x2e): the camera's rotation at the object's position
+    Camera,
+    /// bit 0x4000000 (0x4c): turned about the vertical only, its local z towards the camera, local y up (the flame cards)
+    AboutZ,
+    /// bit 0x2000000 (0x4b): turned about the x axis, local y along x (no shipped script uses it)
+    AboutX,
+}
+
+impl Billboard {
+    /// The game-space rotation for a camera looking along `dir` (Camera_GetDirection 0x0040fa10; game space): v = the
+    /// direction reversed with the turning axis' component dropped, normalised; c = v x axis (Vec3_CrossReversed
+    /// 0x004e7830); columns (-c, axis, v). None for `Camera` (it takes the camera's whole rotation) or a camera looking
+    /// along the axis.
+    fn basis(self, dir: Vec3) -> Option<Mat3> {
+        let (v, axis) = match self {
+            Billboard::Camera => return None,
+            Billboard::AboutZ => (Vec3::new(-dir.x, -dir.y, 0.0), Vec3::Z),
+            Billboard::AboutX => (Vec3::new(0.0, -dir.y, -dir.z), Vec3::X),
+        };
+        let v = v.try_normalize()?;
+        let c = v.cross(axis);
+        Some(Mat3::from_cols(-c, axis, v))
+    }
 }
 
 /// The object's point light (opcode 0x4a and 0x58..0x5a).
@@ -260,11 +330,16 @@ pub struct FxObject {
     /// the fade-out start age
     pub fade_out: Option<f32>,
     pub scale: Option<ScaleCurve>,
-    pub kite: bool,
+    pub kite: Option<Billboard>,
+    /// opcode 0x75 Fx_SetFaceDirection 0x0041ddc0 (+0x464 bit 0x800): a body turned along its flight each update
+    /// (the base arrows)
+    pub face_direction: bool,
     pub emitters: Vec<Emitter>,
     pub mesh_emitters: Vec<MeshEmitter>,
-    pub texanim: Option<TexAnim>,
-    /// uv transforms of texture layers 1 and 2 (the meshes' one stage, the snow domes' second)
+    /// texture animations, at most one per stage
+    pub texanims: Vec<TexAnim>,
+    /// uv transforms of texture layers 1 and 2 (the meshes' one stage, the layered parts' second: the snow domes, the
+    /// black hole)
     pub uv: [UvLayer; 2],
     pub shake: Option<(f32, f32, f32)>,
     /// the entity it follows and its offset from that entity's placement (0x2f children, 0x13 objects, fx started on
@@ -316,10 +391,11 @@ impl FxObject {
             fade_in: None,
             fade_out: None,
             scale: None,
-            kite: false,
+            kite: None,
+            face_direction: false,
             emitters: Vec::new(),
             mesh_emitters: Vec::new(),
-            texanim: None,
+            texanims: Vec::new(),
             uv: [UvLayer::default(); 2],
             shake: None,
             follow: None,
@@ -351,15 +427,67 @@ impl FxObject {
 
     /// The scale it has now, a 0x0b..0x0e set this frame included (scale_now follows at the next update).
     pub fn scale_at_now(&self) -> f32 {
-        self.scale.map(|s| s.at(self.age, self.lifespan)).unwrap_or(self.scale_now)
+        self.scale.map(|s| s.at(self.age, self.lifespan)).map_or(self.scale_now, drawn_scale)
     }
 
-    /// Texture layer 1..2 (layers 3 and 4 have no stage on these meshes).
+    /// Texture layer 1..2 (no shipped script transforms layer 3 or 4: all levels' fx.json, 2026-10-22).
     pub fn uv_layer(&mut self, layer: i64) -> Option<&mut UvLayer> {
         match layer {
             1 => Some(&mut self.uv[0]),
             2 => Some(&mut self.uv[1]),
             _ => None,
+        }
+    }
+
+    /// The name of texture stage `stage` (0 base, 1 second, 2 mask) on the object's first part that has one.
+    fn stage_texture(&self, stage: usize, materials: &Assets<StandardMaterial>, layers: &Assets<FxLayerMaterial>) -> Option<String> {
+        let stem = |h: &Handle<Image>| h.path().and_then(|p| p.path().file_stem()).map(|s| s.to_string_lossy().into_owned());
+        let layered = |i: usize| self.layer_mats.iter().filter_map(|m| layers.get(m)).find_map(|m| stem([&m.t0, &m.t1, &m.t2][i]));
+        match stage {
+            0 => self.materials.first().and_then(|m| materials.get(m)).and_then(|m| m.base_color_texture.as_ref()).and_then(stem).or_else(|| self.texture_name.clone()).or_else(|| layered(0)),
+            1 | 2 => layered(stage),
+            _ => None,
+        }
+    }
+
+    /// Fx_SetTextureAnimation 0x0041e310 (opcode 0x63): texture layer `layer` (1..4) shows `frames` frames at `rate`
+    /// per second, looping or holding the last. A stage the object's parts lack is not animated (the original logs
+    /// "Bogus shader in Texture Animation").
+    pub fn set_texture_animation(&mut self, layer: i64, frames: u32, rate: f32, looping: bool, materials: &Assets<StandardMaterial>, layers: &Assets<FxLayerMaterial>) {
+        let Some(stage) = usize::try_from(layer - 1).ok().filter(|s| *s < 4) else { return };
+        let Some(base) = self.stage_texture(stage, materials, layers) else { return };
+        self.texanims.retain(|t| t.stage != stage);
+        self.texanims.push(TexAnim { stage, rate, frames: frames.max(1), looping, acc: 0.0, frame: 0, base });
+    }
+
+    /// Puts texture `name` on stage `stage` of every part (the frame TexAnim_ResolveTextures 0x00419940 draws with).
+    fn show_stage_texture(&self, stage: usize, name: &str, assets: &AssetServer, materials: &mut Assets<StandardMaterial>, layers: &mut Assets<FxLayerMaterial>, adds: &mut Assets<FxAddMaterial>) {
+        if stage == 0 {
+            let h: Handle<Image> = assets.load(crate::graphics::texture_path(name));
+            for m in &self.materials {
+                if let Some(mut m) = materials.get_mut(m) {
+                    m.base_color_texture = Some(h.clone());
+                }
+            }
+            for m in &self.add_mats {
+                if let Some(mut m) = adds.get_mut(m) {
+                    m.base = h.clone();
+                }
+            }
+        }
+        if stage <= 2 && !self.layer_mats.is_empty() {
+            // the layered set-up's sampling (create_object): repeat addressing, the mask as data
+            let h = crate::gamematerial::load_tex(assets, name, stage != 2);
+            for m in &self.layer_mats {
+                if let Some(mut m) = layers.get_mut(m) {
+                    let slot = match stage {
+                        0 => &mut m.t0,
+                        1 => &mut m.t1,
+                        _ => &mut m.t2,
+                    };
+                    *slot = h.clone();
+                }
+            }
         }
     }
 
@@ -386,21 +514,20 @@ impl FxObject {
 
     /// The alpha the fades give at this update (render_r1.cpp:1080-1113): a delayed fade-in counts its delay down,
     /// then alpha = time / duration until 1 (0.999 then, done); otherwise past the fade-out start alpha falls linearly
-    /// to 0 at the lifespan; else 0.999.
+    /// to 0 at the lifespan; else 0.999 (1 here: the same look, and it keeps opaque parts opaque). The update the delay
+    /// runs out in starts the fade at dt + the overshoot and then adds dt again, as the original does.
     fn fade(&mut self, dt: f32) -> Option<f32> {
         if let Some((mut t, rate, mut delayed)) = self.fade_in {
             if delayed {
                 t -= dt;
-                if t <= 0.0 {
-                    delayed = false;
-                    t = -t;
-                } else {
+                if t > 0.0 {
                     self.fade_in = Some((t, rate, true));
                     return None;
                 }
-            } else {
-                t += dt;
+                delayed = false;
+                t = dt - t;
             }
+            t += dt;
             let a = t * rate;
             self.fade_in = if a >= 1.0 { None } else { Some((t, rate, delayed)) };
             return Some(a.min(1.0));
@@ -411,15 +538,24 @@ impl FxObject {
 }
 
 /// The end of an object (fn_00419290 0x00419290): with `death` and an on-death fx, that fx at the object's position
-/// (Fx_Create params 0x38: position only); its body removed and its entity despawned. Returns the new instance.
-pub fn end_object(o: &FxObject, data: &GameData, physics: &mut Physics, commands: &mut Commands, e: Entity, death: bool) -> Option<Instance> {
-    if let Some(b) = o.body {
-        super::body::remove(physics, b);
-    }
-    commands.entity(e).despawn();
+/// (Fx_Create params 0x38: position only); its removal (`remove`). Returns the new instance.
+pub fn end_object(o: &FxObject, data: &GameData, physics: &mut Physics, commands: &mut Commands, screen: &mut Vec<ScreenRequest>, e: Entity, death: bool) -> Option<Instance> {
+    remove(o, physics, commands, screen, e);
     let name = o.on_death.as_ref().filter(|_| death)?;
     let (n, script) = find(data, name)?;
     Some(Instance::new(n, script, Mat4::from_translation(o.place.w_axis.truncate())))
+}
+
+/// FxObject_Remove 0x00418db0: its body removed, its entity despawned, and a post-process effect it still carries
+/// (obj+0x634) sent to its fade-out (PostEffects_Stop 0x0047bfe0 with now = 0, render_r6.cpp:782).
+pub fn remove(o: &FxObject, physics: &mut Physics, commands: &mut Commands, screen: &mut Vec<ScreenRequest>, e: Entity) {
+    if let Some(b) = o.body {
+        super::body::remove(physics, b);
+    }
+    if o.screen {
+        screen.push(ScreenRequest::Stop(e.to_bits()));
+    }
+    commands.entity(e).despawn();
 }
 
 
@@ -499,8 +635,9 @@ pub fn objects(
                         kind: crate::player::DamageKind::Plain,
                     });
                 }
+                // delete (bit 0x1000) is tested first: with both set the object ends without its on-death fx
                 if o.hit.delete || o.hit.death {
-                    spawned.extend(end_object(o, &data, &mut physics, &mut commands, e, o.hit.death));
+                    spawned.extend(end_object(o, &data, &mut physics, &mut commands, &mut vm.out.screen, e, !o.hit.delete));
                     gone.push(e);
                     continue;
                 }
@@ -526,12 +663,12 @@ pub fn objects(
         if let Some(life) = o.lifespan {
             // a saved game holds only what was still alive: an object with an end is long over (no on-death fx)
             if o.restored && life < RESTORED_KEPT {
-                spawned.extend(end_object(o, &data, &mut physics, &mut commands, e, false));
+                spawned.extend(end_object(o, &data, &mut physics, &mut commands, &mut vm.out.screen, e, false));
                 gone.push(e);
                 continue;
             }
             if o.age >= life {
-                spawned.extend(end_object(o, &data, &mut physics, &mut commands, e, true));
+                spawned.extend(end_object(o, &data, &mut physics, &mut commands, &mut vm.out.screen, e, true));
                 gone.push(e);
                 continue;
             }
@@ -543,7 +680,7 @@ pub fn objects(
             }
         }
         // size over life (Object_SetScale 0x004535d0)
-        o.scale_now = o.scale.map(|s| s.at(o.age, o.lifespan)).unwrap_or(1.0);
+        o.scale_now = o.scale.map_or(1.0, |s| drawn_scale(s.at(o.age, o.lifespan)));
         // the light at its attach point (re-added every update: LightSlot_Acquire 0x0048a4b0)
         if let Some(l) = &o.light {
             let pt = l.point.as_deref().and_then(|n| vm.attach.point(o.anim.as_deref(), n));
@@ -569,47 +706,45 @@ pub fn objects(
             o.uv[1].step(o.age, dt);
         }
         if !o.layer_mats.is_empty() {
-            let (o1, o2) = (o.uv[0].offset, o.uv[1].offset);
+            // the layered parts: each layer's whole stage matrix (rotation x scale + scroll: the black hole's swirl)
+            let (m1, m2) = (o.uv[0].matrix(o.age), o.uv[1].matrix(o.age));
             for m in &o.layer_mats {
                 if let Some(mut m) = layer_materials.get_mut(m) {
-                    m.params.offsets = Vec4::new(o1.x.rem_euclid(1.0), o1.y.rem_euclid(1.0), o2.x.rem_euclid(1.0), o2.y.rem_euclid(1.0));
+                    m.params.set_uv(0, m1);
+                    m.params.set_uv(1, m2);
                     m.params.colour.w = o.alpha * m.opacity;
                 }
             }
         }
-        // texture frames: frame += int(acc * rate), the fraction kept; looping wraps, else the last frame holds
-        if let Some(ta) = o.texanim.as_mut() {
-            ta.acc += dt;
-            let whole = (ta.acc * ta.rate) as u32;
-            if whole > 0 {
-                ta.acc -= whole as f32 / ta.rate;
-                ta.frame = if ta.looping { (ta.frame + whole) % ta.frames } else { (ta.frame + whole).min(ta.frames - 1) };
-                let name = if ta.frame == 0 { ta.base.clone() } else { format!("{}_{}", ta.base, ta.frame) };
-                let h: Handle<Image> = assets.load(crate::graphics::texture_path(&name));
-                for m in &o.materials {
-                    if let Some(mut m) = materials.get_mut(m) {
-                        m.base_color_texture = Some(h.clone());
-                    }
-                }
-                for m in &o.add_mats {
-                    if let Some(mut m) = add_materials.get_mut(m) {
-                        m.base = h.clone();
-                    }
-                }
+        // texture frames, per animated stage
+        let mut texanims = std::mem::take(&mut o.texanims);
+        for ta in &mut texanims {
+            if ta.step(dt) {
+                o.show_stage_texture(ta.stage, &ta.texture(), &assets, &mut materials, &mut layer_materials, &mut add_materials);
             }
         }
-        // placement: kite (0x00419a60 with +0x460 bit 0x400: the camera's rotation, the object's position), scale
+        o.texanims = texanims;
+        // placement: a camera card (fn_00419a60), scale
         if body.is_none() {
             let world = Mat4::from_quat(axes) * o.place;
             let (_, mut rot, pos) = world.to_scale_rotation_translation();
-            if o.kite {
-                if let Some(c) = cam_t {
-                    // the card's mesh faces -Y in game space: turn it to the camera
-                    rot = c.rotation * axes;
-                }
+            if let (Some(kite), Some(c)) = (o.kite, cam_t) {
+                rot = match kite.basis(axes.inverse() * c.forward().as_vec3()) {
+                    Some(m) => axes * Quat::from_mat3(&m),
+                    // the card's mesh faces -Y in game space: turn it to the camera (the camera's rotation, bit 0x400)
+                    None if kite == Billboard::Camera => c.rotation * axes,
+                    None => rot,
+                };
             }
             *t = Transform { translation: pos, rotation: rot, scale: Vec3::splat(o.scale_now) };
         } else {
+            if let (true, Some(id)) = (o.face_direction, body) {
+                if let Some(rot) = flight_rotation(&physics, id) {
+                    o.place = Mat4::from_rotation_translation(Quat::from_mat3(&rot), o.place.w_axis.truncate());
+                    super::body::set_rotation(&mut physics, id, o.place);
+                    t.rotation = axes * Quat::from_mat3(&rot);
+                }
+            }
             t.scale = Vec3::splat(o.scale_now);
         }
         // mesh emitters (+0x460 bit 0x100), then particle emitters (bit 0x200)
@@ -626,7 +761,7 @@ pub fn objects(
             step_emitter(&mut vm.pools, &mut vm.rng, em, pos, obj_dir, dt);
         }
         if o.screen {
-            vm.out.screen.push(super::screen::ScreenRequest::Position(e.to_bits(), axes * pos));
+            vm.out.screen.push(ScreenRequest::Position(e.to_bits(), axes * pos));
         }
     }
     for e in gone {
@@ -635,6 +770,21 @@ pub fn objects(
     vm.stats.objects = objs.len();
     vm.objects = objs;
     vm.instances.extend(spawned);
+}
+
+/// Face direction (Object_ClampSpeed 0x00455e70 with limit 0, from fn_0041a350 for +0x464 bit 0x800): the body's
+/// velocity as a look-at matrix (Matrix_LookAtNeg 0x004e3070, up +Z): G = -velocity (normalised), R = G x Z, U = R x G,
+/// columns (R, G, U), so the object's -Y points along its flight and its Z stays up. Game space; None while it does not move horizontally
+/// (the original skips a 2D speed of 0) or flies straight up or down.
+fn flight_rotation(physics: &Physics, id: oxijolt::prelude::BodyId) -> Option<Mat3> {
+    let b = physics.world.body(id).ok()?;
+    let v = game_to_engine().inverse() * crate::physics::bv(b.linear_velocity());
+    if v.truncate().length() <= 0.0 {
+        return None;
+    }
+    let g = -v.try_normalize()?;
+    let r = g.cross(Vec3::Z).try_normalize()?;
+    Some(Mat3::from_cols(r, g, r.cross(g)))
 }
 
 /// One mesh emitter's frame (fn_0041a350's sub-emitter block, render_r1.cpp:1233): the timer counts the frame down
@@ -666,7 +816,8 @@ fn step_mesh_emitter(vm: &mut FxVm, data: &GameData, e: Entity, o: &FxObject, em
             }
         }
         _ => {
-            let mut last_now = em.last;
+            // the interpolated place of the frame's last spawn
+            let mut last_spawn = None;
             while -em.interval >= em.timer {
                 // how far into the frame the spawn was due: the share of the current place (k / timer * interval with
                 // [0x005bcb5c] = -1: guess)
@@ -680,6 +831,7 @@ fn step_mesh_emitter(vm: &mut FxVm, data: &GameData, e: Entity, o: &FxObject, em
                 let (_, r0, t0) = em.last.to_scale_rotation_translation();
                 let (_, r1, t1) = now.to_scale_rotation_translation();
                 let mut m = Mat4::from_rotation_translation(r0.slerp(r1, f), t0.lerp(t1, f));
+                last_spawn = Some(m);
                 if let Some((lo, hi)) = em.random_rot {
                     // the random rotation (object flag 0x4000): three rand() in the box, Matrix_FromEulerDeg, turned in
                     // the world frame, the position kept
@@ -700,13 +852,18 @@ fn step_mesh_emitter(vm: &mut FxVm, data: &GameData, e: Entity, o: &FxObject, em
                     inst.child_point = pick_name(&mut vm.rng, l2);
                 }
                 spawned.push(inst);
-                last_now = now;
                 em.timer += em.interval;
             }
-            em.last = match em.mode {
-                EmitMode::Along => Mat4::from_translation(pos),
-                _ => last_now,
-            };
+            // the emitter's last place (render_r1.cpp:1398): without a point list the object's position; else after a
+            // spawn its interpolated place (the matrix for a path, the position for points), the next frame's start
+            if em.list1.is_empty() {
+                em.last.w_axis = pos.extend(1.0);
+            } else if let Some(m) = last_spawn {
+                match em.mode {
+                    EmitMode::Path => em.last = m,
+                    _ => em.last.w_axis = m.w_axis,
+                }
+            }
         }
     }
 }
@@ -718,12 +875,10 @@ pub fn follow(mut commands: Commands, mut vm: ResMut<FxVm>, parents: Query<&Glob
     let pairs: Vec<(Entity, Entity, Mat4)> = vm.objects.iter().filter_map(|(&e, o)| o.follow.map(|(p, off)| (e, p, off))).collect();
     for (e, p, offset) in pairs {
         let Ok(pt) = parents.get(p).map(|t| t.compute_transform()) else {
-            if let Some(o) = vm.objects.remove(&e) {
-                if let Some(b) = o.body {
-                    super::body::remove(&mut physics, b);
-                }
+            match vm.objects.remove(&e) {
+                Some(o) => remove(&o, &mut physics, &mut commands, &mut vm.out.screen, e),
+                None => commands.entity(e).despawn(),
             }
-            commands.entity(e).despawn();
             continue;
         };
         // the parent's placement in game space: an fx object's own (without its scale animation), else its transform
@@ -741,7 +896,7 @@ pub fn follow(mut commands: Commands, mut vm: ResMut<FxVm>, parents: Query<&Glob
             if let Ok(mut t) = q.get_mut(e) {
                 let (_, rot, pos) = (Mat4::from_quat(game_to_engine()) * o.place).to_scale_rotation_translation();
                 t.translation = pos;
-                if !o.follow_pos_only && !o.kite {
+                if !o.follow_pos_only && o.kite.is_none() {
                     t.rotation = rot;
                 }
             }
@@ -781,6 +936,58 @@ mod tests {
         let s = UvScale { mode: 1, from: Vec2::splat(0.25), to: Vec2::splat(5.0), duration: 8.0, fixed: None };
         assert!((s.at(4.0).x - 2.625).abs() < 1e-5);
         assert_eq!(s.at(9.0), Vec2::splat(5.0));
+    }
+
+    #[test]
+    fn uv_scroll_direction_from_the_sine_table() {
+        // a half turn on: 0 degrees scrolls -v, 90 degrees -u, 210 (the snow domes) mostly +v
+        assert!((UvScroll::direction(0.0) - Vec2::new(0.0, -1.0)).length() < 1e-4);
+        assert!((UvScroll::direction(90.0) - Vec2::new(-1.0, 0.0)).length() < 1e-4);
+        let d = UvScroll::direction(210.0);
+        assert!((d - Vec2::new(0.5, 0.866)).length() < 1e-3, "{d}");
+    }
+
+    #[test]
+    fn cylindrical_card_faces_the_camera() {
+        // a camera looking north (+y) and down: the card's z points back south at it, its y stays up
+        let m = Billboard::AboutZ.basis(Vec3::new(0.0, 1.0, -0.5)).unwrap();
+        assert!((m.z_axis - Vec3::NEG_Y).length() < 1e-5);
+        assert_eq!(m.y_axis, Vec3::Z);
+        assert!((m.determinant() - 1.0).abs() < 1e-5);
+        assert!(Billboard::AboutZ.basis(Vec3::NEG_Z).is_none());
+        assert!(Billboard::Camera.basis(Vec3::Y).is_none());
+    }
+
+    #[test]
+    fn texture_frames_count_and_hold() {
+        let mut ta = TexAnim { stage: 0, rate: 30.0, frames: 16, looping: false, acc: 0.0, frame: 0, base: "anim_test".into() };
+        assert!(ta.step(0.1)); // 3 frames
+        assert_eq!(ta.texture(), "anim_test_3");
+        for _ in 0..20 {
+            ta.step(0.1);
+        }
+        assert_eq!(ta.frame, 15); // holds the last
+        let mut l = TexAnim { looping: true, frame: 0, acc: 0.0, ..ta };
+        l.step(0.6); // 18 frames: wraps to 2
+        assert_eq!(l.frame, 2);
+    }
+
+    #[test]
+    fn shrinking_exp_scale_is_not_drawn() {
+        // the original's sqrtf(to - from) of a negative: NaN, drawn at no size
+        let s = ScaleCurve::new(20.0, 1.0, 1);
+        assert!(s.at(0.1, Some(0.3)).is_nan());
+        assert_eq!(drawn_scale(s.at(0.1, Some(0.3))), 0.0);
+    }
+
+    #[test]
+    fn delayed_fade_in_starts_two_frames_in() {
+        let mut o = FxObject::new("t", None, Mat4::IDENTITY, Vec::new(), Vec::new());
+        o.fade_in = Some((0.05, 1.0 / 0.5, true));
+        assert_eq!(o.fade(0.04), None);
+        // 0.01 left, a 0.04 step: 0.04 + 0.03 overshoot, then + 0.04
+        let a = o.fade(0.04).unwrap();
+        assert!((a - 0.11 / 0.5).abs() < 1e-5, "{a}");
     }
 
     #[test]

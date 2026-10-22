@@ -98,7 +98,8 @@ enum Action {
     /// ai_sound spoken by the object of ai_tag (both needed: lev_3_m3's captains 122 / 18 / 83), max_distance; it
     /// removes itself after playing unless `reapeat` (sic) is set
     Voice { ear: u32, repeat: bool, max_distance: f32, q: Option<String>, jonesy: Option<String>, roman: Option<String>, ai: Option<(String, i64)> },
-    Fx(String, Vec3),
+    /// an fx ear's toggle (FxOwner_OnMessage 0x0041c050: crate::fxvm::FxEar keeps its state)
+    Fx(crate::fxvm::FxEar),
     /// (the barracks match the trigger ids themselves in dispatch, 0x0040d1b0; kept for the receiver count)
     Barracks(#[allow(dead_code)] u32),
     Destroy(u32),
@@ -1004,8 +1005,8 @@ impl Mission {
                     ai: placed("ai_sound").zip(r.map(|r| n(r, "ai_tag") as i64).filter(|t| *t != 0)),
                 }
             } else if action.starts_with("toggle the fx") {
-                match (s(&d, "fx_name"), inst.get(&to).and_then(|i| i.position)) {
-                    (Some(fx), Some(p)) => Action::Fx(fx, game_pos(p)),
+                match (s(&d, "fx_name"), inst.get(&to).and_then(|i| i.position.map(|p| (i, p)))) {
+                    (Some(fx), Some((i, p))) => Action::Fx(crate::fxvm::FxEar::new(to, fx, game_pos(p), &i.resolved)),
                     _ => continue,
                 }
             } else if action.starts_with("barracks") {
@@ -2127,7 +2128,7 @@ fn dispatch(
     (mut stop, mut music): (MessageWriter<crate::audio::StopSound>, ResMut<crate::gameaudio::Music>),
     companions: Query<(Entity, &crate::ai::Companion, &GlobalTransform)>,
     (troops, mut ends): (Query<(Entity, &BarracksTroop, &crate::fx::Health)>, MessageWriter<crate::ai::notes::ScriptEnd>),
-    cam: Query<(Entity, &GlobalTransform), With<Camera3d>>,
+    (cam, mut ears): (Query<(Entity, &GlobalTransform), With<Camera3d>>, MessageWriter<crate::fxvm::TriggerFxEar>),
 ) {
     let Some(m) = m.as_deref_mut() else { return };
     let pe = player.single().ok().map(|p| p.0);
@@ -2342,9 +2343,9 @@ fn dispatch(
                         m.ears_done.insert(ear);
                     }
                 }
-                Action::Fx(name, at) => {
-                    m.log.push(format!("fx ear: {name}"));
-                    fx.write(StartFx { name, at, rotation: Quat::IDENTITY, follow: None, position_only: false });
+                Action::Fx(ear) => {
+                    m.log.push(format!("fx ear: {}", ear.fx));
+                    ears.write(crate::fxvm::TriggerFxEar(ear));
                 }
                 // handled above by the barracks' own trigger ids
                 Action::Barracks(_) => {}

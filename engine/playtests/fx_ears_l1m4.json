@@ -1,0 +1,15 @@
+{"scene": "lev_1_m4", "steps": [
+ {"note": "fx ears (FxOwner 0x0041c050 / 0x0041bf60): a one-shot ear fires once; the arrow volley's arrows face their flight (0x75)"},
+ {"until": "message"},
+ {"wait": 0.5}, {"tap": "Enter"}, {"wait": 3.5}, {"tap": "Enter"}, {"cheat": "SHIELDME"}, {"wait": 1.0},
+ {"fx": {"clear": true}},
+ {"send": 111},
+ {"wait": 0.3},
+ {"send": 111},
+ {"wait": 0.3},
+ {"expect": {"fx.started.fx_horn": 1}},
+ {"send": 51},
+ {"wait": 0.6},
+ {"expect": {"fx.started.fx_launch_arrows": 1, "fx.facing_bodies": [1, 400], "fx.facing": [0, 10]}},
+ {"quit": true}
+]}

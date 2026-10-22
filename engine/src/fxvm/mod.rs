@@ -12,6 +12,7 @@
 //! - `attach`: attach points (named nodes of an object's anim) for the 0x104 name lists
 //! - `body`: the physics glue (dynamic bodies, impulses, spins, ground hits)
 //! - `screen`: the post-process effect manager (fades, colour, blur) started by opcodes 0x5b..0x77
+//! - `ear`: the fx ears (FxOwner: placed objects that start an fx on their trigger)
 //! - `materials`: the particle and layered fx materials; `rng`: the game's rand()
 //!
 //! The fx system's own plumbing is replaced by Rust ownership: FxSystem_Construct / Destruct / ResetPools / Unload
@@ -21,6 +22,7 @@
 
 mod attach;
 pub mod body;
+mod ear;
 mod materials;
 pub(crate) mod object;
 mod particles;
@@ -30,6 +32,7 @@ mod script;
 mod streamers;
 
 pub use body::IMPULSE_SCALE;
+pub use ear::{FxEar, FxEars, TriggerFxEar};
 pub use materials::{FxAddMaterial, FxLayerMaterial, ParticleMaterial};
 pub use rng::CrtRand;
 
@@ -137,10 +140,11 @@ impl Plugin for FxVmPlugin {
         app.add_plugins(MaterialPlugin::<FxAddMaterial>::default());
         app.add_plugins(MaterialPlugin::<ParticleMaterial>::default());
         app.add_plugins(screen::ScreenFxPlugin);
+        app.add_message::<TriggerFxEar>().init_level_resource::<FxEars>();
         app.add_level_spawner(setup)
             .add_systems(
                 Update,
-                (start, script::run, object::objects, particles_step, send_outbox, playtest_state).chain().in_set(FxVmSet).after(crate::fx::FxSet),
+                (ear::update, start, script::run.run_if(game_running), object::objects, particles_step, send_outbox, playtest_state).chain().in_set(FxVmSet).after(crate::fx::FxSet),
             )
             .add_systems(Update, playtest_fx.before(start).run_if(resource_exists::<crate::playtest::Playtest>))
             .add_systems(PostUpdate, (object::follow, particles::draw_particles).before(TransformSystems::Propagate))
@@ -171,6 +175,12 @@ fn setup(mut commands: Commands, assets: Res<AssetServer>, mut meshes: ResMut<As
         out: Outbox::default(),
         body_defs: HashMap::new(),
     });
+}
+
+/// Fx_UpdateAll 0x004237b0 steps no fx while the game is paused (pause count Game+0x2684: the remaster's virtual
+/// time is paused for the pause menu and movies); fx started meanwhile wait (Fx_Create is not gated).
+fn game_running(time: Res<Time<Virtual>>) -> bool {
+    !time.is_paused()
 }
 
 fn engine_to_game() -> Quat {
@@ -216,10 +226,9 @@ pub fn kill_all(vm: &mut FxVm, commands: &mut Commands, physics: &mut crate::phy
     let kept = |p: Option<Entity>| keep.is_some() && p == keep;
     let gone: Vec<Entity> = vm.objects.iter().filter(|(_, o)| !kept(o.follow.map(|f| f.0))).map(|(e, _)| *e).collect();
     for e in gone {
-        if let Some(b) = vm.objects.remove(&e).and_then(|o| o.body) {
-            body::remove(physics, b);
+        if let Some(o) = vm.objects.remove(&e) {
+            object::remove(&o, physics, commands, &mut vm.out.screen, e);
         }
-        commands.entity(e).despawn();
     }
     vm.instances.retain(|i| kept(i.parent));
     vm.streamers.clear();
@@ -327,6 +336,24 @@ fn playtest_state(vm: Res<FxVm>, mut state: Option<ResMut<crate::playtest::PlayS
         hi = hi.max(p);
     }
     let extent = if vm.objects.is_empty() { 0.0 } else { (hi - lo).length() };
+    // texture animation frames: the highest frame per "<template>_<stage>" among the live objects
+    let mut texframe = serde_json::Map::new();
+    for o in vm.objects.values() {
+        for t in &o.texanims {
+            let k = format!("{}_{}", o.template, t.stage);
+            let f = texframe.get(&k).and_then(|v| v.as_u64()).unwrap_or(0).max(t.frame as u64);
+            texframe.insert(k, f.into());
+        }
+    }
+    // face direction (0x75): the largest angle (degrees) between a moving body's -Y and its flight
+    let facing = vm
+        .objects
+        .values()
+        .filter(|o| o.face_direction)
+        .filter_map(|o| Some((o, body::rest(&physics, o.body?, o)?.0)))
+        .filter(|(_, v)| v.length() > 1.0)
+        .map(|(o, v)| (-o.place.y_axis.truncate()).angle_between(v).to_degrees())
+        .fold(0.0f32, f32::max);
     let acc = screen.accum;
     let streamer_points: usize = vm.streamers.iter().map(|s| s.points()).sum();
     let prev = state.0.get("fx").cloned().unwrap_or_default();
@@ -382,6 +409,9 @@ fn playtest_state(vm: Res<FxVm>, mut state: Option<ResMut<crate::playtest::PlayS
             "lights": vm.lights.len(),
             "light": vm.lights.first().map(|l| serde_json::json!({"x": l.position.x, "y": l.position.y, "z": l.position.z, "r": l.diffuse.x, "g": l.diffuse.y, "b": l.diffuse.z, "specular": l.specular.x + l.specular.y + l.specular.z, "ambient": l.ambient.x + l.ambient.y + l.ambient.z, "attenuation1": l.attenuation1})),
             "by_template": by_template,
+            "texframe": texframe,
+            "facing": facing,
+            "facing_bodies": vm.objects.values().filter(|o| o.face_direction && o.body.is_some()).count(),
             "made": vm.made,
             "started": vm.started,
             "blasts": vm.stats.blasts,

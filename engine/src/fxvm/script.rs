@@ -10,7 +10,7 @@
 use super::attach::point_world;
 use super::body::{add_impulse, add_spin, make_dynamic, set_gravity, set_rotation, wake};
 use super::materials::{FxAddMaterial, FxAddParams, FxLayerMaterial, FxLayerParams, premultiplied};
-use super::object::{EmitMode, FxObject, HitCreate, LightDef, MeshEmitter, ScaleCurve, UvRotate, UvScale, UvScroll};
+use super::object::{Billboard, EmitMode, FxObject, HitCreate, LightDef, MeshEmitter, ScaleCurve, UvRotate, UvScale, UvScroll};
 use super::particles::{Emitter, build_ramp};
 use super::screen::{ScreenKind, ScreenRequest};
 use super::{CrtRand, FxEntity, FxVm};
@@ -56,8 +56,10 @@ impl Instance {
 }
 
 /// 0x3f force feedback request (Fx_PlayForce 0x0041ff60): rumble sample name, looping (edi), player only (a3: the
-/// object or an ancestor must be the player, 0x0045a480), gain distances min / max (+0x4e4 / +0x4e8: gain 1 within
-/// min, falling linearly to 0 at max, 1 when max is 0; render_r1.cpp:1467), the object it follows (None: one-shot).
+/// object or an ancestor must be the player, 0x0045a480), gain distances min / max (+0x4e4 / +0x4e8, compared with the
+/// squared camera distance d2 each update, render_r1.cpp:1466: gain 1 when d2 <= min or max is 0, 0 when d2 >= max,
+/// else (sqrt(d2) - min) / (max - min); Rumble_SetGain 0x004e51f0), the object it follows (None: one-shot).
+/// Not consumed: the remaster's rumble is input.rs's own design, the DirectInput force effects are not decoded.
 pub struct FxForce {
     pub name: String,
     pub looping: bool,
@@ -215,11 +217,10 @@ fn create_object(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_>, idx: usize, template:
                         // the mask is data (linear): an uncompressed BGRA DDS fails to load as sRGB (black fallback)
                         t2: crate::gamematerial::load_tex(ctx.assets, &mask, false),
                         // the record's opacity (+0x48), 0x004897d0's constant alpha for a translucent record
-                        params: FxLayerParams {
-                            offsets: Vec4::ZERO,
-                            colour: Vec4::new(def.emissive[0], def.emissive[1], def.emissive[2], def.alpha()),
-                            flags: Vec4::new(premultiplied(&ctx.lib.dir, &tex) as u8 as f32, premultiplied(&ctx.lib.dir, &tex2) as u8 as f32, premultiplied(&ctx.lib.dir, &mask) as u8 as f32, 0.0),
-                        },
+                        params: FxLayerParams::new(
+                            Vec4::new(def.emissive[0], def.emissive[1], def.emissive[2], def.alpha()),
+                            Vec4::new(premultiplied(&ctx.lib.dir, &tex) as u8 as f32, premultiplied(&ctx.lib.dir, &tex2) as u8 as f32, premultiplied(&ctx.lib.dir, &mask) as u8 as f32, 0.0),
+                        ),
                         opacity: def.alpha(),
                     });
                     layers.push(lm.clone());
@@ -526,13 +527,13 @@ pub fn run_script(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_>, idx: usize, spawned:
                         _ => EmitMode::Path,
                     };
                     let random_rot = (op == "0x36").then(|| (Vec3::new(w(4), w(6), w(8)), Vec3::new(w(5), w(7), w(9))));
+                    // the start point is drawn only once the fx is found and a slot is free (Fx_Emit's failures return first)
                     let fx_ok = ctx.data.fx.contains_key(&name);
-                    let at_setup = matches!(mode, EmitMode::Points | EmitMode::Path).then(|| pick_name(&mut vm.rng, l1.as_ref()));
-                    if let Some(o) = vm.objects.get(&t) {
+                    if let Some(o) = vm.objects.get(&t).filter(|o| fx_ok && o.mesh_emitters.len() < 10) {
                         let (pl, sc, anim) = (o.place, o.scale_now, o.anim.clone());
-                        let start = point_world(pl, sc, at_setup.flatten().as_deref().and_then(|n| vm.attach.point(anim.as_deref(), n)));
-                        let o = vm.objects.get_mut(&t).unwrap();
-                        if fx_ok && o.mesh_emitters.len() < 10 {
+                        let at_setup = matches!(mode, EmitMode::Points | EmitMode::Path).then(|| pick_name(&mut vm.rng, l1.as_ref())).flatten();
+                        let start = point_world(pl, sc, at_setup.as_deref().and_then(|n| vm.attach.point(anim.as_deref(), n)));
+                        if let Some(o) = vm.objects.get_mut(&t) {
                             o.mesh_emitters.push(MeshEmitter::new(name, interval, mode, l1.unwrap_or_default(), l2.unwrap_or_default(), start, random_rot));
                         }
                     }
@@ -632,10 +633,21 @@ pub fn run_script(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_>, idx: usize, spawned:
                     e.colour = c;
                 }
             }
-            // Fx_SetKite 0x0041fd70 (0x400): a camera card
-            "0x2e" => {
+            // Fx_SetKite 0x0041fd70: a camera card, 0x2e facing it fully (0x400), 0x4c turning about z (0x4000000), 0x4b
+            // about x (0x2000000) (object.rs Billboard)
+            "0x2e" | "0x4b" | "0x4c" => {
                 if let Some(o) = obj!() {
-                    o.kite = true;
+                    o.kite = Some(match op.as_str() {
+                        "0x2e" => Billboard::Camera,
+                        "0x4c" => Billboard::AboutZ,
+                        _ => Billboard::AboutX,
+                    });
+                }
+            }
+            // 0x75 Fx_SetFaceDirection 0x0041ddc0 (+0x464 |= 0x800): the body turned along its flight (object.rs)
+            "0x75" => {
+                if let Some(o) = obj!() {
+                    o.face_direction = true;
                 }
             }
             // Fx_SetInitialRotation 0x0041f850: a1 = r(w0, w1), a2 = r(w2, w3), a3 = r(w4, w5) always; X = W R
@@ -684,7 +696,8 @@ pub fn run_script(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_>, idx: usize, spawned:
             // (top), one per object, and ends with it (audio.rs PlaySound::held_by)
             "0x38" | "0x39" | "0x3a" => {
                 let l = names(&arg(1));
-                let pick = if l.is_empty() { None } else { l.get(vm.rng.index(l.len())).cloned() };
+                // one rand even for an empty list (the original computes the pick before using it)
+                let pick = l.get(vm.rng.index(l.len())).cloned();
                 let looping = arg(2).as_i64().unwrap_or(0) != 0;
                 if op == "0x38" {
                     if let Some(name) = pick {
@@ -720,15 +733,15 @@ pub fn run_script(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_>, idx: usize, spawned:
                     vm.out.forces.push(FxForce { name, looping, player_only, min, max, owner: if one_shot { None } else { top } });
                 }
             }
-            // Fx_SetUvScroll 0x00420670: layer, angle (deg), speed, duration, ramp in, ramp out (the ramps only with a
-            // duration); direction from the sine table (cos, sin of the angle: guess at the table's phase)
+            // Fx_SetUvScroll 0x00420670: layer, angle (deg), speed, duration, ramp in, ramp out (the ramp out is stored
+            // only with a duration, else the layer's earlier one stays); the direction from the sine table
             "0x40" => {
                 let layer = arg(1).as_i64().unwrap_or(1);
-                let (ang, speed, dur, rin, rout) = (w(2).to_radians(), w(3), w(4), w(5), w(6));
+                let (angle, speed, dur, rin, rout) = (w(2), w(3), w(4), w(5), w(6));
                 if let Some(o) = obj!() {
                     if let Some(l) = o.uv_layer(layer) {
-                        let (rin, rout) = if dur > 0.0 { (rin, rout) } else { (0.0, 0.0) };
-                        l.scroll = Some(UvScroll { dir: Vec2::new(ang.cos(), ang.sin()), speed, end: dur, ramp_in: rin, ramp_out: rout });
+                        let rout = if dur > 0.0 { rout } else { l.scroll.map_or(0.0, |s| s.ramp_out) };
+                        l.scroll = Some(UvScroll { dir: UvScroll::direction(angle), speed, end: dur, ramp_in: rin, ramp_out: rout });
                     }
                 }
             }
@@ -743,9 +756,9 @@ pub fn run_script(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_>, idx: usize, spawned:
                     "0x43" => 3,
                     _ => 2,
                 };
-                // mode 0 draws its scale now (rand per axis)
-                let random = (mode == 0).then(|| Vec2::new(from.x + vm.rng.rand() as f32 * (to.x - from.x) / 32768.0, from.y + vm.rng.rand() as f32 * (to.y - from.y) / 32768.0));
                 if let Some(o) = obj!() {
+                    // mode 0 draws its scale now (rand per axis), only with an object (inside Fx_SetUvScale)
+                    let random = (mode == 0).then(|| Vec2::new(from.x + vm.rng.rand() as f32 * (to.x - from.x) / 32768.0, from.y + vm.rng.rand() as f32 * (to.y - from.y) / 32768.0));
                     if let Some(l) = o.uv_layer(layer) {
                         l.scale = Some(UvScale { mode, from, to, duration: dur, fixed: random });
                     }
@@ -809,12 +822,11 @@ pub fn run_script(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_>, idx: usize, spawned:
                     }
                 }
             }
-            // Fx_SetTextureAnimation 0x0041e310: layer, frames, rate (frames/s), loop; the string operand is not read
+            // Fx_SetTextureAnimation 0x0041e310: name (not read), layer, frames, rate (frames/s), loop
             "0x63" => {
-                let (frames, rate, looping) = (arg(2).as_i64().unwrap_or(1) as u32, w(3), arg(4).as_i64().unwrap_or(0) != 0);
+                let (layer, frames, rate, looping) = (w(2) as i64, w(3) as u32, w(4), w(5) != 0.0);
                 if let Some(o) = obj!() {
-                    let base = o.materials.first().and_then(|m| ctx.materials.get(m)).and_then(|m| m.base_color_texture.as_ref()).and_then(|h| h.path()).map(|p| p.path().file_stem().unwrap().to_string_lossy().into_owned()).or_else(|| o.texture_name.clone()).unwrap_or_default();
-                    o.texanim = Some(super::object::TexAnim { rate, frames: frames.max(1), looping, acc: 0.0, frame: 0, base });
+                    o.set_texture_animation(layer, frames, rate, looping, ctx.materials, ctx.layer_materials);
                 }
             }
             // Fx_SetAbsoluteImpulse 0x0041e1e0: r() x3 always; the body made dynamic and pushed (world frame)
@@ -855,12 +867,17 @@ pub fn run_script(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_>, idx: usize, spawned:
             // post-process effects on the object (PostEffects, Game+0xa9c; obj+0x634 = the object as the effect id):
             // 0x5b colour (0x0047be00), 0x5c blur (0x0047be60), 0x70 screen texture (0x0047bec0), 0x5d / 0x71 rings
             // (0x0047bf80: 0x71 always), 0x77 fade (0x0047bda0: colour w0..w2, alpha w3), 0x5e phase durations
-            // (0x0047c1a0), 0x5f distance fade (0x0047c0a0), 0x61 edge fade (0x0047c140), 0x60 release (0x0041bd30 /
-            // 0x0047bfe0)
+            // (0x0047c1a0), 0x5f distance fade (0x0047c0a0), 0x61 edge fade (0x0047c140), 0x60 detach (render_r2b.cpp:1151:
+            // 0x0041bd30's last position push, then obj+0x634 = 0: the effect runs on through its own phases, not
+            // stopped; no shipped fx bank uses 0x60)
             "0x5b" | "0x5c" | "0x5d" | "0x5e" | "0x5f" | "0x60" | "0x61" | "0x70" | "0x71" | "0x77" => {
                 if let Some(t) = target.filter(|t| vm.objects.contains_key(t)) {
                     let id = t.to_bits();
                     let req = match op.as_str() {
+                        "0x60" => vm.objects.get_mut(&t).filter(|o| o.screen).map(|o| {
+                            o.screen = false;
+                            ScreenRequest::Position(id, game_to_engine() * o.place.w_axis.truncate())
+                        }),
                         "0x5b" => Some(ScreenRequest::Start(id, ScreenKind::Colour([w(1), w(2), w(3), w(4)]))),
                         "0x5c" => Some(ScreenRequest::Start(id, ScreenKind::Blur(w(1)))),
                         "0x70" => Some(ScreenRequest::Start(id, ScreenKind::Overlay(w(1)))),
@@ -868,8 +885,7 @@ pub fn run_script(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_>, idx: usize, spawned:
                         "0x77" => Some(ScreenRequest::Start(id, ScreenKind::Fade(Vec3::new(w(1), w(2), w(3)) / 255.0, w(4)))),
                         "0x5e" => Some(ScreenRequest::Phases(id, w(1), w(2), w(3))),
                         "0x5f" => Some(ScreenRequest::DistanceFade(id, w(1), w(2))),
-                        "0x61" => Some(ScreenRequest::EdgeFade(id, w(1), w(2))),
-                        _ => Some(ScreenRequest::Stop(id)),
+                        _ => Some(ScreenRequest::EdgeFade(id, w(1), w(2))),
                     };
                     if let Some(r) = req {
                         if matches!(r, ScreenRequest::Start(..)) {
@@ -910,7 +926,7 @@ pub fn run_script(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_>, idx: usize, spawned:
     }
 }
 
-/// Runs every live instance (Fx_UpdateAll 0x004237b0 -> Fx_Step 0x00423360 per instance): waiting ones are released
+/// Runs every live instance in list order (Fx_UpdateAll 0x004237b0 -> Fx_Step 0x00423360 per instance): waiting ones are released
 /// when their owner is gone, paused ones count down (resuming in the frame the timer runs out), the rest run.
 #[allow(clippy::too_many_arguments)]
 pub fn run(
@@ -940,7 +956,7 @@ pub fn run(
             // its parent entity is gone)
             if inst.parent.is_some_and(|p| !vm.objects.contains_key(&p) && alive.get(p).is_err()) {
                 release(vm, &mut ctx, i);
-                vm.instances.swap_remove(i);
+                vm.instances.remove(i);
                 continue;
             }
             i += 1;
@@ -965,7 +981,7 @@ pub fn run(
         if done {
             // Fx_Step: an ended instance is released (Fx_Release 0x0041d030), its 0x14 objects with it
             release(vm, &mut ctx, i);
-            vm.instances.swap_remove(i);
+            vm.instances.remove(i);
         } else {
             i += 1;
         }
@@ -979,7 +995,7 @@ pub fn run(
 fn release(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_>, idx: usize) {
     for e in std::mem::take(&mut vm.instances[idx].logged) {
         if let Some(o) = vm.objects.remove(&e) {
-            if let Some(next) = super::object::end_object(&o, ctx.data, ctx.physics, ctx.commands, e, true) {
+            if let Some(next) = super::object::end_object(&o, ctx.data, ctx.physics, ctx.commands, &mut vm.out.screen, e, true) {
                 vm.instances.push(next);
             }
         }
