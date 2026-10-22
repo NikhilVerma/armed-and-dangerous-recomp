@@ -513,23 +513,8 @@ fn collect(
                 sounds.write(crate::audio::PlaySound::ui(if p.kind == Kind::Health { "ui_pickup_health" } else { "ui_pickup_ammo_1" }));
             }
             if p.kind == Kind::Token {
-                // 0x00472a00 after 0x00472aa0: the token reward (0x004a07a0 -> 0x004a0850): the count (Game+0x200),
-                // the level's token taken, 2500 Loot, the unlockable paid for (a cheat: Cheat_Unlock 0x00410e40 with
-                // enable 0), the paused message
-                ms.loot_money += 2500.0;
-                opts.tokens += 1;
-                if let Some(k) = &p.placed {
-                    opts.tokens_taken.push(k.clone());
-                }
-                opts.save();
-                let (msg, unlocked) = token_message(&ui_texts, opts.tokens, *difficulty);
-                if let Some(u) = unlocked.filter(|u| u.1 == "token_cheat") {
-                    crate::cheats::unlock(u.0, false, &mut opts, Some(&mut cheats));
-                }
-                if let Some(m) = mission.as_deref_mut() {
-                    m.log.push(format!("token {} found ({} of {TOKENS_TOTAL})", p.placed.clone().unwrap_or_default(), opts.tokens));
-                    m.message(&msg, 0.0);
-                }
+                // 0x00472a00 after 0x00472aa0: the token reward
+                award_token(p.placed.clone(), TokenReward { opts: &mut opts, stats: &mut ms, texts: &ui_texts, difficulty: *difficulty, cheats: &mut cheats, mission: mission.as_deref_mut() });
             }
             if let Some(m) = mission.as_deref_mut() {
                 m.log.push(format!("pickup collected: {:?} {}", p.kind, p.amount));
@@ -617,14 +602,63 @@ pub fn token_message(texts: &crate::gamemenu::Texts, count: u32, difficulty: cra
     (if line.is_empty() { got } else { format!("{got}<br>{line}") }, unlocked)
 }
 
+/// What the token reward changes: the profile, the level's Loot, the cheats an unlockable pays for, the mission's
+/// message.
+pub struct TokenReward<'a> {
+    pub opts: &'a mut crate::options::GameOptions,
+    pub stats: &'a mut crate::stats::MissionStats,
+    pub texts: &'a crate::gamemenu::Texts,
+    pub difficulty: crate::gamedata::Difficulty,
+    pub cheats: &'a mut crate::cheats::Cheats,
+    pub mission: Option<&'a mut crate::mission::Mission>,
+}
+
+/// The token reward (0x004a07a0 with category 2 -> 0x004a0850): the count (Game+0x200), the level's token taken
+/// (`key`), 2500 Loot, the unlockable paid for (a cheat: Cheat_Unlock 0x00410e40 with enable 0), the paused message.
+/// A placed token's pickup (0x00472a00) and a shot shootable_token (on_death_unlock_level, game_03.cpp:938-948,
+/// icobject.rs) both give it.
+pub fn award_token(key: Option<String>, r: TokenReward) {
+    r.stats.loot_money += 2500.0;
+    r.opts.tokens += 1;
+    if let Some(k) = &key {
+        r.opts.tokens_taken.push(k.clone());
+    }
+    r.opts.save();
+    let (msg, unlocked) = token_message(r.texts, r.opts.tokens, r.difficulty);
+    if let Some(u) = unlocked.filter(|u| u.1 == "token_cheat") {
+        crate::cheats::unlock(u.0, false, r.opts, Some(r.cheats));
+    }
+    if let Some(m) = r.mission {
+        m.log.push(format!("token {} found ({} of {TOKENS_TOTAL})", key.unwrap_or_default(), r.opts.tokens));
+        m.message(&msg, 0.0);
+    }
+}
+
+/// Whether the level's token is found (0x004a0720(level, 2): the level's name in the unlock table 2). The remaster keys
+/// the taken tokens "<level>:<id>" (one placed token per level, none on the defence levels, whose token is the bombers'
+/// shootable_token): any key of the level counts.
+pub fn level_token_found(opts: &crate::options::GameOptions, level_dir: &std::path::Path) -> bool {
+    let prefix = format!("{}:", token_level(level_dir));
+    opts.tokens_taken.iter().any(|k| k.starts_with(&prefix))
+}
+
+/// The key of a level's token that is not a placed pickup (a shot shootable_token): "<level>:shot".
+pub fn shot_token_key(level_dir: &std::path::Path) -> String {
+    format!("{}:shot", token_level(level_dir))
+}
+
 /// The level part of a legacy token key (options.rs `tokens_keyed_by_level`): taken on some level, with that id.
 pub const ANY_LEVEL: &str = "any";
 
 /// A placed pickup's persistent key: its level (the export folder's name) and instance id. It used to say "lev_1_m1"
 /// on every level, so a token taken on one level hid the token of the same id on every other.
 fn token_key(level_dir: &std::path::Path, id: u32) -> String {
-    let level = level_dir.file_name().and_then(|n| n.to_str()).unwrap_or("level");
-    format!("{level}:{id}")
+    format!("{}:{id}", token_level(level_dir))
+}
+
+/// The level part of a token key: the export folder's name.
+fn token_level(level_dir: &std::path::Path) -> &str {
+    level_dir.file_name().and_then(|n| n.to_str()).unwrap_or("level")
 }
 
 /// A pickup placed in the level (PickupObject, behaviour pickup_*, or an ammo pickup's template name): the same

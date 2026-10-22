@@ -65,6 +65,8 @@ enum DropKind {
 struct IcStats {
     started: u32,
     drops: u32,
+    /// the template of the last drop
+    last_drop: &'static str,
     shot: u32,
     gates: u32,
 }
@@ -226,15 +228,19 @@ fn notes(
     mut kit: crate::army::ModelKit,
     mut physics: NonSendMut<crate::physics::Physics>,
     mut stats: ResMut<IcStats>,
+    opts: Res<crate::options::GameOptions>,
 ) {
     for n in notes.read() {
         let Ok(gt) = ics.get(n.entity) else { continue };
         let word = n.text.split_whitespace().next().unwrap_or("").to_lowercase();
+        let health = || ("shootable_health", DropKind::Health(data.template_props("shootable_health").f("on_death_player_health", 50.0)));
         let (template, kind) = match word.as_str() {
             "powderkeg" => ("powderkeg_bomber", DropKind::Keg),
-            // token_or_health: a token when the level's is still to find (0x004a0720(level, 2)): guess, health always
-            "health" | "token_or_health" => ("shootable_health", DropKind::Health(data.template_props("shootable_health").f("on_death_player_health", 50.0))),
-            "token" => ("shootable_token", DropKind::Token),
+            "health" => health(),
+            // token_or_health (ai_05.cpp:1631-1634): health once the level's token is found (0x004a0720(level, 2)),
+            // else the token (the defence levels' token: their health bombers, mover_sb_health)
+            "token_or_health" if crate::pickup::level_token_found(&opts, &kit.dir()) => health(),
+            "token" | "token_or_health" => ("shootable_token", DropKind::Token),
             "turret_upgrade" => ("shootable_turret_upgrade", DropKind::TurretUpgrade),
             _ => continue,
         };
@@ -290,6 +296,7 @@ fn notes(
             Drop { kind, left: p.f("death_timeout", 20.0), body },
         ));
         stats.drops += 1;
+        stats.last_drop = template;
         info!("EVENT ic: {word} dropped");
     }
 }
@@ -305,6 +312,15 @@ fn drops(
     mut roman: Query<(&mut crate::fx::Health, &crate::player::Roman)>,
     mut upgrade: MessageWriter<TurretUpgrade>,
     mut stats: ResMut<IcStats>,
+    (mut opts, mut ms, texts, difficulty, mut cheats, mut mission, lib): (
+        ResMut<crate::options::GameOptions>,
+        ResMut<crate::stats::MissionStats>,
+        Res<crate::gamemenu::Texts>,
+        Res<crate::gamedata::Difficulty>,
+        ResMut<crate::cheats::Cheats>,
+        Option<ResMut<crate::mission::Mission>>,
+        Res<crate::skin::AnimLibrary>,
+    ),
 ) {
     for d in died.read() {
         let Ok((_, drop)) = q.get(d.0) else { continue };
@@ -321,7 +337,19 @@ fn drops(
                 upgrade.write(TurretUpgrade);
                 info!("EVENT ic: turret upgrade shot");
             }
-            DropKind::Token => info!("EVENT ic: token shot"),
+            // on_death_unlock_level (game_03.cpp:938-948): the level's token, unless found already (0x004a0720), as a
+            // token pickup gives it (0x004a07a0 with category 2, Game+0x2720)
+            DropKind::Token => {
+                let found = crate::pickup::level_token_found(&opts, &lib.dir);
+                if !found {
+                    let key = crate::pickup::shot_token_key(&lib.dir);
+                    crate::pickup::award_token(
+                        Some(key),
+                        crate::pickup::TokenReward { opts: &mut opts, stats: &mut ms, texts: &texts, difficulty: *difficulty, cheats: &mut cheats, mission: mission.as_deref_mut() },
+                    );
+                }
+                info!("EVENT ic: token shot (level token {})", if found { "already found" } else { "found" });
+            }
             DropKind::Keg => {}
         }
     }
@@ -340,5 +368,5 @@ fn log(stats: Res<IcStats>, state: Option<ResMut<crate::playtest::PlayState>>) {
     if stats.started == 0 && stats.gates == 0 {
         return;
     }
-    state.0.insert("ic".into(), serde_json::json!({ "started": stats.started, "drops": stats.drops, "shot": stats.shot, "gates": stats.gates }));
+    state.0.insert("ic".into(), serde_json::json!({ "started": stats.started, "drops": stats.drops, "last_drop": stats.last_drop, "shot": stats.shot, "gates": stats.gates }));
 }
