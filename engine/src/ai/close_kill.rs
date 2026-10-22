@@ -419,7 +419,7 @@ fn kill(
 /// counted here.
 fn count_kills(mut ends: MessageReader<super::notes::ScriptEnd>, victims: Query<&Victim>, mut stats: ResMut<CloseKills>) {
     for e in ends.read() {
-        if e.kill && victims.contains(e.entity) {
+        if e.end == super::notes::End::Kill && victims.contains(e.entity) {
             stats.kills += 1;
             info!("EVENT companions: grunt {:?} killed by {:?} hand to hand", e.entity, victims.get(e.entity).map(|v| v.by).ok());
         }

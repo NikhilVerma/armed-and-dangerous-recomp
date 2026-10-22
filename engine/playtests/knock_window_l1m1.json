@@ -1,0 +1,10 @@
+{"scene": "lev_1_m1", "steps": [
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 0.5},
+ {"cheat": "SHIELDME"},
+ {"wait": 10.5},
+ {"expect": {"hidden.knocked": 0, "launches": 0}},
+ {"destroy": 149},
+ {"wait": 1.0},
+ {"expect": {"hidden.knocked": 1, "hidden.downed": 0, "launches": 1}},
+ {"quit": true}
+]}

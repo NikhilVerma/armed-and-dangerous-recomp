@@ -50,7 +50,9 @@ pub struct Marker {
     pub action: String,
     /// the action flags +0x490 the load maps the name to: hide 0x100000, attention_guard 0x200000, ready_guard
     /// 0x400000, trigger_charge 0x800000, trigger_charge_tag 0x2000000, ic_* 0x1000000; other names (ready_roaming,
-    /// trigger_marker on lev_1_m1) set nothing
+    /// trigger_marker on lev_1_m1) set nothing; and the booleans "kill" 4 and "deactivate" 8 (ai_07.cpp:799-804).
+    /// (obj_charge_tag_min / _max / obj_charge_pct, trigger_charge_tag's object pick, are not read: no level's marker
+    /// sets them or that action; trigger_charge_tag is taken as the plain charge)
     pub flags: u32,
     pub scatter: (f32, f32),
     /// "speed" +0x494 (Marker_GetSpeed 0x0044b490): the walk speed of the leg that ends here, 0 the walker's own
@@ -58,12 +60,28 @@ pub struct Marker {
 }
 
 impl Marker {
+    /// "kill": the arriving AI dies (vt+0xd4(0))
+    pub const KILL: u32 = 4;
+    /// "deactivate": the arriving AI is removed (vt+0xdc)
+    pub const DEACTIVATE: u32 = 8;
     pub const HIDE: u32 = 0x100000;
     pub const ATTENTION_GUARD: u32 = 0x200000;
     pub const READY_GUARD: u32 = 0x400000;
     pub const TRIGGER_CHARGE: u32 = 0x800000;
     pub const IC: u32 = 0x1000000;
     pub const TRIGGER_CHARGE_TAG: u32 = 0x2000000;
+
+    /// How this marker ends an AI that reaches it (Marker_ProcessArrival 0x0044ba30, ai_07.cpp:1343-1353, before any
+    /// action): deactivate (8) removes him (vt+0xdc), else kill (4) is his death (vt+0xd4(0)).
+    pub fn ends_ai(&self) -> Option<crate::ai::notes::End> {
+        if self.flags & Self::DEACTIVATE != 0 {
+            Some(crate::ai::notes::End::Remove)
+        } else if self.flags & Self::KILL != 0 {
+            Some(crate::ai::notes::End::Kill)
+        } else {
+            None
+        }
+    }
 }
 
 /// An alarm generator (AlarmGenerator, vtable 0x005a2058; its set-up slot 6 0x00405490).
@@ -176,7 +194,8 @@ impl Markers {
                         "trigger_charge_tag" => Marker::TRIGGER_CHARGE_TAG,
                         a if a.starts_with("ic_") => Marker::IC,
                         _ => 0,
-                    };
+                    } | if num(&p, "kill") != 0.0 { Marker::KILL } else { 0 }
+                        | if num(&p, "deactivate") != 0.0 { Marker::DEACTIVATE } else { 0 };
                     m.markers.push(Marker {
                         id,
                         pos,
@@ -496,4 +515,40 @@ fn log(m: Res<Markers>, ids: Query<&InstanceId>, troops: Query<(), With<AlarmTro
     let Some(mut state) = state else { return };
     let raised: Vec<u32> = m.sirens.iter().filter_map(|&e| ids.get(e).ok().map(|i| i.0)).collect();
     state.0.insert("alarm".into(), serde_json::json!({ "sirens": raised.len(), "raised": raised, "troops": troops.iter().count() }));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ai::notes::End;
+
+    fn marker(flags: u32) -> Marker {
+        Marker {
+            id: 75,
+            pos: Vec3::ZERO,
+            dir: Vec3::Z,
+            matrix: Mat4::IDENTITY,
+            tag: 500,
+            sequence: 1,
+            next: (0, 0),
+            strict: false,
+            face_dir: false,
+            alarm_tag: 0,
+            trigger: 5000,
+            action: String::new(),
+            flags,
+            scatter: (0.0, 0.0),
+            speed: 0.0,
+        }
+    }
+
+    /// 0x0044ba30: deactivate (the breach spline's last marker, lev_3_m4_bd 75) removes the AI before kill is looked
+    /// at; kill alone is a death; neither leaves him to the action.
+    #[test]
+    fn kill_and_deactivate_end_the_ai() {
+        assert_eq!(marker(Marker::DEACTIVATE).ends_ai(), Some(End::Remove));
+        assert_eq!(marker(Marker::DEACTIVATE | Marker::KILL).ends_ai(), Some(End::Remove));
+        assert_eq!(marker(Marker::KILL | Marker::HIDE).ends_ai(), Some(End::Kill));
+        assert_eq!(marker(Marker::HIDE).ends_ai(), None);
+    }
 }

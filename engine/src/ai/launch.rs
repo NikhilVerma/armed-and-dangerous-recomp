@@ -38,6 +38,11 @@ impl LaunchClock {
         self.now - self.last >= LAUNCH_GAP
     }
 
+    /// Whether a launch happened at this very time (GoRagdoll's impact branch: game time == Game+0xb34).
+    pub fn launched_now(&self) -> bool {
+        self.now == self.last
+    }
+
     /// A launch happened now (Character_Launch: Game+0xb34 = the time).
     pub fn stamp(&mut self) {
         self.last = self.now;

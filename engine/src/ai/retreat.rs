@@ -5,9 +5,10 @@
 //! - The direction: the facing of the head of the marker spline tagged -1 (Marker_FindSpline 0x0044c030 with -1,
 //!   0x00453150); none: "Pre-Success Marker not found" and (0, 1, 0).
 //! - 0x0042db00: a delay +0x4a8 = rand() x 3.0212e-5 + 0.01 (0.01 .. 1.0 s), the direction into +0x908, +0x48c 0x2000.
-//! - The delay's end (GenericAI_Update ai_06.cpp:373-399): not when dead, falling (state 0x82) or a teammate (vt+0xe4);
-//!   +0x488 0x100000, a route to his position + direction x 2000 (K 0x005bcc08), 20 % ((rand(100)) < 20) the scared
-//!   run (+0x484 0x20: anim 0xb run_scared) with his scream (vt+0x160), state 0xae (along the route; it does not end).
+//! - The delay's end (GenericAI_Update ai_06.cpp:373-399): not when dead, in an IC move (0x00426630: Mind::Scripted),
+//!   falling (state 0x82) or a teammate (vt+0xe4: companions are not grunts); +0x488 0x100000, a route to his position
+//!   + direction x 2000 (K 0x005bcc08), 20 % ((rand(100)) < 20) the scared run (+0x484 0x20: anim 0xb run_scared) with
+//!   his scream (vt+0x160), state 0xae for all (Mind::Retreat: along the route; it does not end).
 
 use super::{Grunt, Mind};
 use bevy::prelude::*;
@@ -63,7 +64,7 @@ pub fn run(mut commands: Commands, time: Res<Time>, mut q: Query<(Entity, &mut R
             continue;
         }
         commands.entity(e).remove::<Retreat>();
-        if matches!(g.mind, Mind::Dead | Mind::Falling) {
+        if matches!(g.mind, Mind::Dead | Mind::Falling | Mind::Scripted) {
             continue;
         }
         let pos = gt.translation();
@@ -72,15 +73,13 @@ pub fn run(mut commands: Commands, time: Res<Time>, mut q: Query<(Entity, &mut R
         g.target = None;
         g.cover = None;
         g.goal = pos + r.dir * DISTANCE;
-        g.timer = 1.0e6;
+        g.mind = Mind::Retreat;
         stats.running += 1;
         // 20 %: the scared run (anim 0xb) and his scream
         if rng.rand() * 100.0 < 20.0 {
-            g.mind = Mind::Flee;
+            g.scared_run = true;
             stats.scared += 1;
             sounds.write(crate::audio::PlaySound::at(&super::voice("General_Scream", g.voice_set), pos));
-        } else {
-            g.mind = Mind::Wander;
         }
     }
 }

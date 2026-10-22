@@ -6,8 +6,9 @@
 //! climbs, roof jumps, wall jumps), trees (0x00496e90: the tree slides) and powder kegs (0x0041c180).
 //!
 //! - The trigger, or anything that wakes the grunt (a target seen with trigger_los, a hit), starts the move
-//!   (0x0042f5c0's IC branch, mode 0x8000000): the host destroyed: no move (vt+0x17c, guess: he just wakes); the
-//!   landing building of a roof jump (IC_building_tag) destroyed: he guards where he is (0x0042d0f0); else the mover from
+//!   (0x0042f5c0's IC branch, mode 0x8000000): the host destroyed: no move, GoRagdoll with no record, quiet
+//!   (vt+0x17c(0, 1): he goes limp where he is); the landing building of a roof jump (IC_building_tag) destroyed: he
+//!   guards where he is (0x0042d0f0), the host his start object (+0x880); else the mover from
 //!   where he waits (GenericAI_PlayICAnim 0x0042c410: physics off, state 0x64). The move is a [`Mover`]: its root track
 //!   carries him, "anim_full" plays it on his skeleton, its fx / trigger notes are the generic ones (mover.rs).
 //! - On the way his body breaks the village windows it passes (the dives: the original moves him with a velocity,
@@ -190,14 +191,16 @@ pub fn activate(
         }
         g.fixed = None;
         if !standing(ic.spawn.host) {
-            // the host destroyed: GoRagdoll (vt+0x17c(0, 1), 0x0042f5c0's IC branch): knocked away from it (`knocks`)
-            commands.entity(e).remove::<IcEntry>().insert(KnockAway { from: Some(ic.spawn.host) });
-            info!("EVENT ic: grunt {e:?} knocked away without his move ({}: host {} gone)", ic.spawn.mover, ic.spawn.host);
+            // the host destroyed: GoRagdoll with no damage record, quiet (0x0042f5c0's IC branch, game_02.cpp:1192-1196:
+            // vt+0x17c(0, 1)): he dies limp where he waits (`knocks`)
+            commands.entity(e).remove::<IcEntry>().insert(KnockAway { from: KnockFrom::Woken });
+            info!("EVENT ic: grunt {e:?} goes down without his move ({}: host {} gone)", ic.spawn.mover, ic.spawn.host);
             continue;
         }
         if ic.spawn.landing.is_some_and(|l| !standing(l)) {
-            // the landing roof gone: 0x0042d0f0 (0, 1), a guard where he waits
-            commands.entity(e).remove::<IcEntry>();
+            // the landing roof gone: 0x0042d0f0 (0, 1), a guard where he waits; the host becomes his start object
+            // (+0x880 = +0xadc, game_02.cpp:1198-1212): its later death knocks him out (`knocks`)
+            commands.entity(e).remove::<IcEntry>().insert(StartObject { id: ic.spawn.host });
             g.guard = true;
             g.mind = Mind::Guard;
             info!("EVENT ic: grunt {e:?} guards (the roof of {} is gone)", ic.spawn.mover);
@@ -301,11 +304,84 @@ pub fn run(
     }
 }
 
-/// A grunt to be knocked away (GoRagdoll with the 0x83 launch message of 0x00425be0), from the object of this
-/// instance id (none: straight up).
+/// A grunt to be knocked off what held him: GoRagdoll (vt+0x17c) called straight from GenericAI_Update's prologue
+/// (0x0043ee90, ai_06.cpp:279-300, 354-372) or the wake-up (0x0042f5c0), not through Character_Die.
 #[derive(Component, Clone, Copy, Debug)]
 pub struct KnockAway {
-    pub from: Option<u32>,
+    pub from: KnockFrom,
+}
+
+/// Which link knocked him, and so GoRagdoll's record and quiet flag.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum KnockFrom {
+    /// +0xae0, his landing building, destroyed (0x00425be0 with a0 = 0): the 0x83 record away from it, not quiet
+    Landing(u32),
+    /// +0xadc, the host of the IC move he is running, destroyed (0x00425be0 with a0 = 1): the 0x83 record away from
+    /// it, quiet
+    Host(u32),
+    /// +0x880, the window / tower / roof object he holds, gone (ai_06.cpp:279-300): the 0x83 record along his facing,
+    /// not quiet
+    Start,
+    /// an IC grunt woken with his host gone (0x0042f5c0: vt+0x17c(0, 1)): no record, quiet
+    Woken,
+}
+
+/// The object a grunt holds (+0x880): a window / tower grunt's house (AI_ResolveStartObjects 0x00425e20, obj_tag), the
+/// host of an IC grunt whose roof landing is gone (game_02.cpp:1198-1212). Its death knocks him out (`knocks`).
+#[derive(Component, Clone, Copy, Debug)]
+pub struct StartObject {
+    /// its instance id
+    pub id: u32,
+}
+
+/// The damage record of a knock's GoRagdoll (Character_GoRagdoll 0x00431310), for ai.rs `die`.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct Knocked {
+    /// the record's direction x amount x 0.15 on his 80 kg (units / s); zero without a record
+    pub impulse: Vec3,
+    /// the record's amount +0x24 (0 without a record)
+    pub amount: f32,
+    /// a0 = 1: no launch, no count of the bodies down, no impact branch
+    pub quiet: bool,
+    /// the record's attacker +0x2c (Game+0x748: the player), engine space; None without a record or a player
+    pub attacker: Option<Vec3>,
+}
+
+/// What GoRagdoll does with a knock's record.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum RagdollGo {
+    /// Character_Launch from the attacker at rand 2.5..3 x his move_speed, turned within `spread` degrees
+    Launch { spread: f32 },
+    /// the impact branch (amount over 10050): thrown with this velocity, flailing (anim 0x49 + rand, state 0x195)
+    Thrown(Vec3),
+    /// the ragdoll with this impulse; `limited`: only while at most the ragdoll limit of bodies are down (else the
+    /// animated death 0x00427100)
+    Ragdoll { impulse: Vec3, limited: bool },
+}
+
+/// GoRagdoll's impact threshold (K 0x005bcf34).
+const IMPACT: f32 = 10050.0;
+
+/// Character_GoRagdoll 0x00431310 (physics_01.cpp:3541-3630) for a knock: not quiet, with an attacker and at least 10 s
+/// since the last launch (`launch_allowed`, Game+0xb34) the launch; else, not quiet with an attacker and an amount over
+/// 10050, the impact branch: at the very time of a launch (`launched_now`) 25 % (rand x 100 >> 15 < 25: `roll`) a
+/// launch spread 45 degrees, else the impulse x rand 2..5 (`scale`); otherwise the impulse alone. Quiet or without a
+/// record: the ragdoll, whatever the count of bodies down (quiet skips the count).
+pub fn go_ragdoll(k: &Knocked, launch_allowed: bool, launched_now: bool, roll: f32, scale: f32) -> RagdollGo {
+    let loud = !k.quiet && k.attacker.is_some();
+    if loud && launch_allowed {
+        return RagdollGo::Launch { spread: 0.0 };
+    }
+    if loud && k.amount > IMPACT {
+        if launched_now {
+            if roll < 0.25 {
+                return RagdollGo::Launch { spread: 45.0 };
+            }
+            return RagdollGo::Thrown(k.impulse * (2.0 + 3.0 * scale));
+        }
+        return RagdollGo::Thrown(k.impulse);
+    }
+    RagdollGo::Ragdoll { impulse: k.impulse, limited: !k.quiet }
 }
 
 /// A grunt that came out onto a building's roof (the landing +0xae0 held after his move).
@@ -314,61 +390,75 @@ pub struct IcAnchor {
     pub landing: u32,
 }
 
-/// The launch of a knock-away (0x00425be0, ai_01.cpp:2602-2640): the direction from the other object to him across,
-/// 0.7..0.9 up (rand() x 6.1e-6 + 0.7, K 0x005bcdf4 / 0x005bcd48), normalised; the amount 21666.67 + rand() x 0.661
-/// (K 0x005bcdec / 0x005bcdf0); GoRagdoll's impulse is direction x amount x 0.15 on his 80 kg: the speed returned
-/// (units / s).
-pub fn launch_velocity(me: Vec3, other: Vec3, r1: f32, r2: f32) -> Vec3 {
-    let across = (me - other).with_y(0.0).normalize_or_zero();
+/// The 0x83 record of a knock-away (0x00425be0, ai_01.cpp:2602-2640; the same in GenericAI_Update's +0x880 prologue,
+/// ai_06.cpp:279-300): `across` (from the other object to him, or his facing) flat, 0.7..0.9 up (rand() x 6.1e-6 + 0.7,
+/// K 0x005bcdf4 / 0x005bcd48), normalised; the amount 21666.67 + rand() x 0.661 (K 0x005bcdec / 0x005bcdf0).
+/// Returns GoRagdoll's impulse, direction x amount x 0.15 on his 80 kg (units / s), and the amount.
+pub fn knock_record(across: Vec3, r1: f32, r2: f32) -> (Vec3, f32) {
+    let across = across.with_y(0.0).normalize_or_zero();
     let up = 0.7 + r1 * 32768.0 * 6.1e-6;
     let dir = (across + Vec3::Y * up).normalize_or(Vec3::Y);
     let amount = 21666.67 + r2 * 32768.0 * 0.661;
-    dir * amount * 0.15 / 80.0
+    (dir * amount * 0.15 / 80.0, amount)
 }
 
-/// The per-frame checks of GenericAI_Update's prologue (ai_06.cpp:278-300, 354-372): a hidden grunt whose host is
-/// destroyed during his move, or any grunt whose landing building (+0xae0) is destroyed, is woken (vt+0x1ac) and knocked
-/// away from it (0x00425be0: physics off, the 0x83 launch message with his health: he dies and flies as a ragdoll);
-/// and the knock-aways asked for (`KnockAway`).
+/// The per-frame checks of GenericAI_Update's prologue, in its order: a grunt whose start object (+0x880) is gone is
+/// knocked out along his facing (ai_06.cpp:279-300); one whose landing building (+0xae0) is destroyed is knocked away
+/// from it (ai_06.cpp:354-364: 0x00425be0 with a0 = 0); one running an IC move whose host (+0xadc) is destroyed is knocked
+/// away from it quietly (ai_06.cpp:366-371: a0 = 1); and the knock-aways asked for (`KnockAway`). Each is woken
+/// (vt+0x1ac), loses his physics hold (0x004577b0(0)) and dies by GoRagdoll with the record (`Knocked`, ai.rs `die`).
+/// (The original skips the landing's knock while the grunt is in state 0x29, the run along a route to a cover slot's
+/// point after 0x28: no such state here, so it is not reproduced.)
 #[allow(clippy::type_complexity)]
 pub fn knocks(
     mut commands: Commands,
-    mut q: Query<(Entity, &mut Grunt, &crate::physics::Body, &GlobalTransform, &mut crate::fx::Health, Option<&IcEntry>, Option<&IcAnchor>, Option<&KnockAway>)>,
+    mut q: Query<(Entity, &mut Grunt, &GlobalTransform, &mut crate::fx::Health, Option<&IcEntry>, Option<&IcAnchor>, Option<&KnockAway>, Option<&StartObject>)>,
     hosts: Query<(&crate::level::InstanceId, &GlobalTransform, Has<crate::level::Husk>, Option<&crate::fx::Destructible>)>,
-    mut physics: NonSendMut<crate::physics::Physics>,
+    player: Query<&GlobalTransform, With<super::Player>>,
     mut rng: ResMut<crate::fx::FxStats>,
     mut stats: ResMut<IcStats>,
 ) {
     let standing = |id: u32| hosts.iter().any(|(i, _, husk, d)| i.0 == id && !husk && d.is_none_or(|d| d.dying.is_none() && d.health > 0.0));
     let at = |id: u32| hosts.iter().find(|(i, ..)| i.0 == id).map(|(_, t, ..)| t.translation());
-    let k = physics.meters_per_unit;
-    for (e, mut g, body, gt, mut health, entry, anchor, asked) in &mut q {
+    // the record's attacker: Game+0x748, the player
+    let attacker = player.iter().next().map(|t| t.translation());
+    for (e, mut g, gt, mut health, entry, anchor, asked, start) in &mut q {
         if g.mind == Mind::Dead {
             continue;
         }
         let landing = entry.and_then(|i| i.spawn.landing).or(anchor.map(|a| a.landing));
         let from = if let Some(a) = asked {
-            Some(a.from)
+            a.from
+        } else if start.is_some_and(|s| !standing(s.id)) {
+            KnockFrom::Start
         } else if let Some(l) = landing.filter(|&l| !standing(l)) {
-            Some(Some(l))
+            KnockFrom::Landing(l)
         } else if let Some(i) = entry.filter(|i| i.running && !standing(i.spawn.host)) {
-            Some(Some(i.spawn.host))
+            KnockFrom::Host(i.spawn.host)
         } else {
-            None
+            continue;
         };
-        let Some(from) = from else { continue };
-        commands.entity(e).remove::<(IcEntry, IcAnchor, KnockAway, Mover)>();
+        commands.entity(e).remove::<(IcEntry, IcAnchor, KnockAway, Mover, StartObject)>();
         let me = gt.translation();
-        let other = from.and_then(at).unwrap_or(me);
-        let v = launch_velocity(me, other, rng.rand(), rng.rand());
-        if let Ok(mut b) = physics.world.body_mut(body.id) {
-            let _ = b.set_linear_velocity(crate::physics::jv(v * k));
-        }
+        let across = match from {
+            KnockFrom::Landing(id) | KnockFrom::Host(id) => Some(me - at(id).unwrap_or(me)),
+            // 0x00453150: his facing
+            KnockFrom::Start => Some(Vec3::new(g.yaw.sin(), 0.0, g.yaw.cos())),
+            KnockFrom::Woken => None,
+        };
+        let knocked = match across {
+            Some(across) => {
+                let (impulse, amount) = knock_record(across, rng.rand(), rng.rand());
+                Knocked { impulse, amount, quiet: matches!(from, KnockFrom::Host(_)), attacker }
+            }
+            None => Knocked { impulse: Vec3::ZERO, amount: 0.0, quiet: true, attacker: None },
+        };
+        commands.entity(e).insert(knocked);
         g.fixed = None;
         g.last_hit = f32::MAX;
         health.0 = 0.0;
         stats.knocked += 1;
-        info!("EVENT ic: grunt {e:?} knocked away ({:.0} / s)", v.length());
+        info!("EVENT ic: grunt {e:?} knocked ({from:?}, {:.0} / s)", knocked.impulse.length());
     }
 }
 
@@ -380,14 +470,15 @@ const ON_BUILDING: f32 = 3.0;
 /// bone) is knocked away from it as GenericAI_Update knocks a grunt whose landing (+0xae0) or scripted host (+0xadc)
 /// died (0x00425be0: he dies and flies). The original does this for those links only; a grunt who walked or climbed
 /// up there without one stood on the ruin's old roof height until something moved him (the player, 2026-10-18: "any
-/// grunt standing on an exploded house must die with it"; a grunt left standing on air). The bodies round it (corpses,
+/// grunt standing on an exploded house must die with it"; a grunt left standing on air). Grunts linked to an object (+0x880 / +0xae0 / +0xadc) are left to their link
+/// (`knocks`); the others are knocked as by a landing (not quiet). The bodies round it (corpses,
 /// debris, sleeping on what it was) are woken, so they fall onto the ruin.
 #[allow(clippy::type_complexity)]
 pub fn building_deaths(
     mut commands: Commands,
     mut died: MessageReader<crate::fx::Died>,
     buildings: Query<(&crate::level::InstanceId, &GlobalTransform, &crate::fx::Bounds), With<crate::level::Placed>>,
-    grunts: Query<(Entity, &Grunt, &GlobalTransform), Without<KnockAway>>,
+    grunts: Query<(Entity, &Grunt, &GlobalTransform), (Without<KnockAway>, Without<IcEntry>, Without<IcAnchor>, Without<StartObject>)>,
     mut physics: NonSendMut<crate::physics::Physics>,
     mut stats: ResMut<IcStats>,
 ) {
@@ -402,7 +493,7 @@ pub fn building_deaths(
             }
             let ground = physics.raycast_landscape(feet + Vec3::Y, Vec3::NEG_Y, 1000.0);
             if ground.is_some_and(|gr| feet.y - gr.y > ON_BUILDING) {
-                commands.entity(e).insert(KnockAway { from: Some(id.0) });
+                commands.entity(e).insert(KnockAway { from: KnockFrom::Landing(id.0) });
                 stats.downed += 1;
                 info!("EVENT ic: grunt {e:?} on building {} goes down with it", id.0);
             }
@@ -436,6 +527,24 @@ mod tests {
 
     fn props(v: serde_json::Value) -> crate::gamedata::Props {
         crate::gamedata::Props(v.as_object().cloned().unwrap_or_default())
+    }
+
+    /// Character_GoRagdoll 0x00431310 on a knock's record: a landing's (not quiet) launches once 10 s have passed, else
+    /// is thrown (its amount is always over 10050); a host's (quiet) and the wake-up's (no record) ragdoll whatever
+    /// the bodies down.
+    #[test]
+    fn knocks_go_ragdoll() {
+        let (impulse, amount) = knock_record(Vec3::X, 0.5, 0.5);
+        assert!(amount > IMPACT && impulse.x > 0.0 && impulse.y > 0.0);
+        let landing = Knocked { impulse, amount, quiet: false, attacker: Some(Vec3::ZERO) };
+        assert_eq!(go_ragdoll(&landing, true, false, 0.9, 0.0), RagdollGo::Launch { spread: 0.0 });
+        assert_eq!(go_ragdoll(&landing, false, false, 0.9, 0.0), RagdollGo::Thrown(impulse));
+        assert_eq!(go_ragdoll(&landing, false, true, 0.1, 0.0), RagdollGo::Launch { spread: 45.0 });
+        assert_eq!(go_ragdoll(&landing, false, true, 0.9, 1.0), RagdollGo::Thrown(impulse * 5.0));
+        let host = Knocked { quiet: true, ..landing };
+        assert_eq!(go_ragdoll(&host, true, false, 0.0, 0.0), RagdollGo::Ragdoll { impulse, limited: false });
+        let woken = Knocked { impulse: Vec3::ZERO, amount: 0.0, quiet: true, attacker: None };
+        assert_eq!(go_ragdoll(&woken, true, true, 0.0, 0.0), RagdollGo::Ragdoll { impulse: Vec3::ZERO, limited: false });
     }
 
     /// 0x0040ad80: each non-zero IC property with its node makes one grunt at world * node; a roof jump takes the

@@ -781,6 +781,9 @@ fn grunts(
             // the reload set (0x2a, 0x2b, 0x28, 0x29 by PlayAnim4): the engine plays one of them (0x29, tr)
             Mind::Reload => (name(&g, 0x29, 0.0).to_owned(), false),
             Mind::Flee => (name(&g, 11, 0.0).to_owned(), true),
+            // the retreat (state 0xae): the scared run (+0x484 0x20) or the run
+            Mind::Retreat if g.scared_run => (name(&g, 11, 0.0).to_owned(), true),
+            Mind::Retreat => (mover(&g).to_owned(), true),
             Mind::Chase | Mind::ToMarker | Mind::Wander | Mind::ToSlot => (mover(&g).to_owned(), true),
             // an IC move plays its own anim (ai/ic.rs)
             Mind::Scripted => continue,
@@ -851,6 +854,8 @@ fn grunts(
         let move_id = if ladder { None } else if limping { Some(0x59) } else { Some(run) };
         let rate_id = match mind {
             Mind::Flee => Some(11),
+            Mind::Retreat if g.scared_run => Some(11),
+            Mind::Retreat => move_id,
             Mind::Home => Some(if limping { 0x59 } else { 0xa }),
             Mind::Chase | Mind::ToMarker | Mind::Wander | Mind::Cover | Mind::Gunner => move_id,
             _ => None,

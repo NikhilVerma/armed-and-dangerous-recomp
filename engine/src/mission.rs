@@ -644,6 +644,11 @@ pub struct Mission {
     pub alarm_forced: bool,
     /// Game+0xcbe: the army breach open (no army on lev_1_m1)
     pub breach_open: bool,
+    /// start_in_turret_tag (Game+0x26cc): the level starts with Roman in a turret (0x0044e600)
+    pub start_in_turret: bool,
+    /// the base's two rectangles base_x_min_N / base_y_min_N / base_x_max_N / base_y_max_N (Game+0xbd0..0xbec, loaded by
+    /// 0x0045a4e0: game_02.cpp:2033-2040), game x / y: [x_min, y_min, x_max, y_max] (ai/base_area.rs)
+    pub base_areas: [[f32; 4]; 2],
     /// Game+0xdd2: finished (pre-success; read by 0x0044e620): failure triggers are ignored from then on
     pub finished: bool,
     /// Game+0xac8 = 1: Roman rides a base turret (defence.rs keeps it): a failure trigger then calls the failure mob
@@ -1213,6 +1218,8 @@ impl Mission {
             timeout_text: f.text.get(&s(m, "timeout_text").unwrap_or_else(|| "ui_timeout".into())).cloned(),
             alarm_forced: false,
             breach_open: false,
+            start_in_turret: n(m, "start_in_turret_tag") != 0.0,
+            base_areas: ["1", "2"].map(|i| ["base_x_min_", "base_y_min_", "base_x_max_", "base_y_max_"].map(|k| n(m, &format!("{k}{i}")) as f32)),
             finished: false,
             base_turret_mounted: false,
             failure_mob_calls: 0,

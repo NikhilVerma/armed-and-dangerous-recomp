@@ -14,6 +14,7 @@
 
 pub mod aim;
 pub mod assault;
+pub mod base_area;
 pub mod body;
 pub mod bully;
 pub mod coverslot;
@@ -104,6 +105,9 @@ pub enum Mind {
     Falling,
     /// state 0xb: a close attack (ai/melee.rs `close_attack`), anim 0x5f / 0x60 looped (`anim_id`)
     CloseAttack,
+    /// state 0xae: the pre-success retreat (ai/retreat.rs), running along his route to `Grunt::goal`; it never ends
+    /// (he stands at its end); the run anim, or run_scared (0xb) with `Grunt::scared_run`
+    Retreat,
 }
 
 /// The grunt classes a lev_1_m1 template makes (counted in the coverage runs: BowGruntObject_Slot6 0x004347b0 runs 9
@@ -880,8 +884,11 @@ pub struct Grunt {
     pub cover_history: [Option<Entity>; 3],
     /// the generic cover slot held (+0x904 / +0x914 of a tree or a building: coverslot.rs)
     pub slot: Option<coverslot::SlotHold>,
-    /// debug (playtest `cover` step): run the hiding-spot search now, as at a reload's end (flag 4 set)
+    /// a hiding-spot search asked for from outside the think loop (vt+0x240(1, 0, 0)), run at his next think as at a
+    /// reload's end (flag 4 set): a breach runner the closing gate stops (army.rs), the playtest's `cover` step
     pub force_hide: bool,
+    /// +0x484 0x20: his runs are the scared run (anim 0xb run_scared): the pre-success retreat's 20 % (ai/retreat.rs)
+    pub scared_run: bool,
     /// +0x484 flag 4: the fire counters are rolled (0x00427600: at init, a reload's end, the trench's duck); cleared at a
     /// clip's end (0x00428980)
     pub fire_ready: bool,
@@ -978,6 +985,19 @@ pub struct Grunt {
 }
 
 impl Grunt {
+    /// GenericAIObject slot 94 0x0042f8d0 (vt+0x178): he cannot take `other` as a target now ("busy"): in an IC move
+    /// (0x00426630), dead, on a gun (+0x898), `other` himself, or in one of the states 0xc..0x10 (here the hold by a
+    /// companion 0xf and the grenade throw 0x10), 0x7c, 0x8c (waiting for his trigger), 0x96 (to a spline's head),
+    /// 0xdc / 0xde (a squad member), 0xf0 (a monk's teleport). Not modelled: the states with no counterpart here
+    /// (0x5a, 0xaa, 0xac, 0xe7..0xeb, 0x197, 0x19a..0x19d), +0x894, the turn state 0x31, the parent rule, +0x484 bits 19
+    /// and 28, the ride along a spline (0x97 with 0x0044b4b0).
+    pub fn busy(&self, me: Entity, other: Entity) -> bool {
+        me == other
+            || self.gun.is_some()
+            || matches!(self.mind, Mind::Dead | Mind::Scripted | Mind::Held | Mind::Throw | Mind::WaitTrigger | Mind::InSquad | Mind::Teleport)
+            || (self.mind == Mind::ToMarker && self.spline.is_some_and(|r| !r.started))
+    }
+
     /// The anim of an id by the class's table and this grunt's state (vt+0x1a4, `anim_name_with`)
     pub fn anim(&self, id: u32, r: f32) -> &'static str {
         anim_name_with(self.kind, id, r, self.anim_flags())
@@ -1150,6 +1170,7 @@ impl Plugin for AiPlugin {
             .init_level_resource::<retreat::RetreatStats>()
             .init_level_resource::<ladder::LadderStats>()
             .init_level_resource::<notes::ScriptEndStats>()
+            .init_level_resource::<base_area::BaseAreaStats>()
             .add_message::<notes::ScriptEnd>()
             .init_level_resource::<paratroop::ParatroopStats>()
             .init_resource::<fall::ParachuteAssets>()
@@ -1165,12 +1186,12 @@ impl Plugin for AiPlugin {
             .add_systems(
                 Update,
                 (
-                    (body::bumps, squad::update_squads, interests, mark_army_targets, search, ic::activate, ic::knocks, scare, max_fire::sync_limit, aim::track, think, max_fire::upkeep, fall::run, ic::run, paratroop::rappel, notes::from_movers, notes::apply, bully::bullies, die, dismay).chain(),
+                    (body::bumps, squad::update_squads, interests, mark_army_targets, search, ic::activate, (ic::knocks, base_area::cull).chain(), scare, max_fire::sync_limit, aim::track, think, max_fire::upkeep, fall::run, ic::run, paratroop::rappel, notes::from_movers, notes::apply, bully::bullies, die, dismay).chain(),
                     (
                         (body::apply_rules, log_cover, log_ai, log_placed, squad::log_squads, ic::log).chain(),
                         // the later levels' infantry (projectiles, falls, drops, the wall assault) and their playtest logs
                         (grenade::fly, rocket::shoot_down, fall::drop_parachutes, jumper::free_markers, assault::sync, assault::recruit, ladder::ladders, retreat::run, ic::building_deaths).chain(),
-                        (melee::close_hits, melee::log, max_fire::log, grenade::log, rocket::log, fall::log, paratroop::log, jumper::log, notes::log, assault::log, ladder::log, retreat::log).chain(),
+                        (melee::close_hits, melee::log, max_fire::log, grenade::log, rocket::log, fall::log, paratroop::log, jumper::log, notes::log, assault::log, ladder::log, retreat::log, base_area::log).chain(),
                     )
                         .chain(),
                 )
@@ -1417,6 +1438,7 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         cover_history: [None; 3],
         slot: None,
         force_hide: false,
+        scared_run: false,
         fire_ready: true,
         hold: false,
         gun: None,
@@ -1821,12 +1843,12 @@ fn search(
         }
         if let Some((tgt, left)) = g.pending {
             if left - dt <= 0.0 {
+                // the hand-over's end (ai_06.cpp:318-340): a grunt free to engage (vt+0x178 0x0042f8d0 false) takes the
+                // target (vt+0x1b4(target, 0, 1)); a busy one lets it go. (A busy squad member, states 0xdc / 0xde, is
+                // also released to a guard where he stands, 0x0042d0f0 and state 0xdd: not ported, squad.rs keeps him.)
                 g.pending = None;
-                if g.target.is_none() {
+                if !g.busy(ge, tgt) {
                     g.target = Some(tgt);
-                    if g.mind == Mind::WaitTrigger {
-                        g.mind = Mind::Roam;
-                    }
                 }
             } else {
                 g.pending = Some((tgt, left - dt));
@@ -2582,7 +2604,8 @@ fn follow_spline(g: &mut Grunt, markers: &crate::alarm::Markers, tags: (i64, i64
 /// charge), ic_* (none on lev_1_m1: stands), a positive scatter_min (AI_Wander scatter_min..max); else the next marker:
 /// the spline switches when the marker names marker_next_min..max (AIMarker_NextTag 0x0044b830), else index + 1, at the
 /// end wrapping with marker_looping (+0x488 bit 1) or stopping: the stand set and state 1 with home = here
-/// (ai_06.cpp:1797-1817). (The marker flags kill / deactivate: none on lev_1_m1.) Returns the state it starts, or None
+/// (ai_06.cpp:1797-1817). Before the action: the flags deactivate (removed, ai/notes.rs `End::Remove`; the breach
+/// spline's last marker on the defence levels) and kill (his death). Returns the state it starts, or None
 /// to go on along the spline.
 #[allow(clippy::too_many_arguments)]
 fn marker_arrival(
@@ -2593,7 +2616,7 @@ fn marker_arrival(
     (pos, tgt, physics, own): (Vec3, Option<(Vec3, Vec3)>, &Physics, BodyId),
     spots: &mut Spots,
     rng: &mut FxStats,
-    (arrive, triggers): (&mut MessageWriter<crate::alarm::MarkerArrival>, &mut MessageWriter<crate::mission::SendTrigger>),
+    (arrive, triggers, ends): (&mut MessageWriter<crate::alarm::MarkerArrival>, &mut MessageWriter<crate::mission::SendTrigger>, &mut MessageWriter<notes::ScriptEnd>),
     player: Option<Entity>,
 ) -> Option<Mind> {
     let mk = &markers.markers[marker];
@@ -2603,6 +2626,12 @@ fn marker_arrival(
     }
     if mk.alarm_tag != 0 {
         arrive.write(crate::alarm::MarkerArrival { marker, at: pos, voice_set: g.voice_set });
+    }
+    // the kill / deactivate flags come first; the spline is not advanced
+    if let Some(end) = mk.ends_ai() {
+        g.spline = None;
+        ends.write(notes::ScriptEnd { entity: me, end });
+        return Some(Mind::Roam);
     }
     let speed = g.move_speed;
     let stand = |g: &mut Grunt| {
@@ -2808,7 +2837,7 @@ fn think(
         ResMut<max_fire::ShooterLimit>,
         ResMut<AiForce>,
         Res<aim::TargetMotion>,
-        (MessageWriter<melee::CloseHit>, ResMut<melee::CloseStats>),
+        (MessageWriter<melee::CloseHit>, ResMut<melee::CloseStats>, MessageWriter<notes::ScriptEnd>),
         Query<(Entity, &mut coverslot::CoverObject, &GlobalTransform, Option<&crate::level::Placed>), Without<Grunt>>,
     ),
 ) {
@@ -3119,7 +3148,7 @@ fn think(
                     g.spline = Some(SplineRun { started: true, ..run });
                     let idx = markers.spline_index(run.tag, run.index).unwrap_or(0);
                     stats.markers += 1;
-                    if let Some(m) = marker_arrival(&mut g, ge, idx, &markers, (pos, tgt, &physics, body.id), &mut spots, &mut rng, (&mut arrive, &mut triggers), player_e) {
+                    if let Some(m) = marker_arrival(&mut g, ge, idx, &markers, (pos, tgt, &physics, body.id), &mut spots, &mut rng, (&mut arrive, &mut triggers, &mut close.2), player_e) {
                         g.mind = m;
                     }
                 }
@@ -3192,6 +3221,8 @@ fn think(
             (Mind::Teleport, _) => Mind::Teleport,
             (Mind::Cast, _) => Mind::Cast,
             (Mind::ToMarker, _) => Mind::ToMarker,
+            // state 0xae has no exit
+            (Mind::Retreat, _) => Mind::Retreat,
             (Mind::Flee, _) if g.timer > 0.0 => Mind::Flee,
             // the scare's end charges the player (0x0042ce70)
             (Mind::Flee, _) => {
@@ -3409,6 +3440,11 @@ fn think(
             Mind::Flee => {
                 goal = g.goal;
                 speed = run_speed;
+            }
+            Mind::Retreat => {
+                // state 0xae: along the route to the point 2000 off; at its end he stands
+                goal = g.goal;
+                speed = if flat(g.goal - pos).length() < MARKER_REACHED { 0.0 } else { run_speed };
             }
             Mind::ToMarker => {
                 let mk = g.spline.and_then(|r| markers.spline_marker(r.tag, r.index)).map(|m| m.pos);
@@ -4369,7 +4405,7 @@ fn fire_cycle(
 fn die(
     mut commands: Commands,
     mut physics: NonSendMut<Physics>,
-    mut grunts: Query<(Entity, &mut Grunt, &Body, &mut Transform, &Health, Option<&mut crate::skin::Animator>, Option<&DeathAnim>)>,
+    mut grunts: Query<(Entity, &mut Grunt, &Body, &mut Transform, &Health, Option<&mut crate::skin::Animator>, (Option<&DeathAnim>, Option<&ic::Knocked>))>,
     joints: Query<&GlobalTransform>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     mut km: ResMut<KillMeter>,
@@ -4384,7 +4420,7 @@ fn die(
     // the ragdolls already down (GoRagdoll 0x00431310 counts them over the AI list: 0x00431000)
     let rules = crate::corpses::CorpseRules::of(&settings);
     let mut down = crate::corpses::Corpses::ragdolls(&corpses);
-    for (e, mut g, body, mut tr, h, animator, forced) in &mut grunts {
+    for (e, mut g, body, mut tr, h, animator, (forced, knocked)) in &mut grunts {
         if g.mind == Mind::Dead || h.0 > 0.0 {
             continue;
         }
@@ -4449,25 +4485,48 @@ fn die(
         // ledge_death grunt falls (0x39 + rand*4: grunt_hit_fall_1 / _2 / _1 / _2); a window / tower grunt
         // grunt_hit_window (0x3d); else 0x00427100: grunt_barricade_death (0x56) in a trench's slot, else grunt_die_1..6.
         // Not reached here: the 0x57 flag variant (in back: no lev_1_m1 grunt sets it) and record flag 2's launch.
-        let blown_out = g.window && g.cartoon;
+        // a knock-away's GoRagdoll (ai/ic.rs `knocks`: vt+0x17c straight from GenericAI_Update or the wake-up, not
+        // Character_Die): its own launch / impact / ragdoll choice (ic::go_ragdoll); no window blow-out, no death anim
+        let knock = knocked.map(|k| (k, ic::go_ragdoll(k, clock.allows(), clock.launched_now(), rng.rand(), rng.rand())));
+        let blown_out = knock.is_none() && g.window && g.cartoon;
         // a blast's fling is a launch (Character_Die 0x004319e0 on an area record: state 0x195) whatever its speed
-        let wants_ragdoll = forced.is_none() && !blown_out && (g.last_hit >= g.hit_ragdoll || fling.is_some() || push.length() > 30.0);
+        let wants_ragdoll = knock.is_some() || (forced.is_none() && !blown_out && (g.last_hit >= g.hit_ragdoll || fling.is_some() || push.length() > 30.0));
+        let mut thrown = fling.is_some();
+        let mut limited = true;
+        let mut knock_launch = None;
+        match knock {
+            Some((k, ic::RagdollGo::Launch { spread })) => knock_launch = k.attacker.map(|a| (a, spread)),
+            Some((_, ic::RagdollGo::Thrown(v))) => {
+                push = v;
+                thrown = true;
+            }
+            Some((_, ic::RagdollGo::Ragdoll { impulse, limited: l })) => {
+                push = impulse;
+                limited = l;
+            }
+            None => {}
+        }
         // GoRagdoll 0x00431310's launch: a killing record with flag 0x80 (the sticky bomb's, from the bomb) at least 10 s
         // after the last launch (Game+0xb34) throws him through the air (Character_Launch 0x00431020: toward a point
         // 40..60 from the bomb along its line to him, forward or back past it, at rand 2.5..3 x his move_speed), before
         // the ragdoll count is looked at. The original flails him through that arc (anims 0x49 / 0x4a) and he goes
         // limp on landing; here the ragdoll is launched with the arc's velocity (as the glove's punch, glove.rs)
-        let launched = wants_ragdoll && g.cartoon && g.cartoon_from.is_some() && clock.allows();
-        if let Some(from) = g.cartoon_from.filter(|_| launched) {
+        let launch_from = if knock.is_some() {
+            knock_launch
+        } else {
+            g.cartoon_from.filter(|_| wants_ragdoll && g.cartoon && clock.allows()).map(|f| (f, 0.0))
+        };
+        let launched = launch_from.is_some();
+        if let Some((from, spread)) = launch_from {
             clock.stamp();
             let rolls = launch::LaunchRolls { angle: rng.rand(), side: rng.rand(), forward: rng.rand(), anim: rng.rand() };
-            push = launch::launch(from, tr.translation, rng.range(2.5, 3.0), g.move_speed, 0.0, false, rolls).velocity;
-            info!("EVENT ai: {e:?} launched by a blast ({:.0} / s)", push.length());
+            push = launch::launch(from, tr.translation, rng.range(2.5, 3.0), g.move_speed, spread, false, rolls).velocity;
+            info!("EVENT ai: {e:?} launched ({:.0} / s)", push.length());
         }
         // GoRagdoll with more ragdolls down than the limit allows: the animated death of 0x00427100 instead
         // a launch or a blast's fling comes before GoRagdoll's count of the bodies down (the original throws the whole
-        // body, state 0x195, whatever the count): flung bodies always fly
-        g.ragdoll = launched || (wants_ragdoll && (fling.is_some() || crate::corpses::Corpses::may_ragdoll(down, &rules)));
+        // body, state 0x195, whatever the count): flung bodies always fly; a quiet knock skips the count
+        g.ragdoll = launched || (wants_ragdoll && (thrown || !limited || crate::corpses::Corpses::may_ragdoll(down, &rules)));
         down += g.ragdoll as u32;
         g.death_name = if let Some(d) = forced {
             Some(d.0)
@@ -4499,7 +4558,7 @@ fn die(
         commands.entity(e).insert(crate::corpses::Corpse::ragdoll());
         // thrown through the air (a launch or a blast's fling, state 0x195, or a body moving at launch speed: the body
         // fall on landing, bodyfall.rs)
-        if launched || fling.is_some() || push.length() > crate::bodyfall::LAUNCH_SPEED {
+        if launched || thrown || push.length() > crate::bodyfall::LAUNCH_SPEED {
             commands.entity(e).insert(crate::bodyfall::Launched::default());
         }
         // an articulated ragdoll from the pose at death (ragdoll.rs); the single box below when that fails

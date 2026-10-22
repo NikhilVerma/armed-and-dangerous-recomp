@@ -1010,9 +1010,12 @@ pub fn spawn(
             let mode = p.s("mode").unwrap_or("").to_owned();
             let mut pos = pos;
             let mut window_yaw = None;
+            // the house is his start object (+0x880): its death knocks him out (ai/ic.rs `knocks`)
+            let mut start_object = None;
             if mode.contains("window") || mode.contains("tower") {
                 let tag = p.f("obj_tag", 0.0) as i64;
                 let house = scene.instances.iter().find(|h| h.props.get("tag").and_then(|v| v.as_i64()) == Some(tag) && tag != 0);
+                start_object = house.map(|h| ai::ic::StartObject { id: h.id });
                 if let (Some(h), Some(bone)) = (house, p.s("generic_txt")) {
                     // the house's reference anim: its template's default anim (ww_house_2f_b carries v_house_2f_b_0),
                     // else its model's own (0x00453c50 reads the matrices of the anim set at load)
@@ -1069,6 +1072,9 @@ pub fn spawn(
                     bounds,
                     g,
                 ));
+                if let Some(s) = start_object {
+                    commands.entity(e).insert(s);
+                }
                 // its send_trigger_on_death (the death of any object sends +0x488, 0x00450ee0): mission.rs troop_deaths
                 let on_death = p.i("send_trigger_on_death", 0);
                 if on_death != 0 {
