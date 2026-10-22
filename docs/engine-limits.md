@@ -98,6 +98,7 @@ Remaster engine (engine/, Bevy; 2026-10-15, engine/src/graphics/, Remaster prese
 | R10 | Bone palette | Skin_BuildPalette 0x004edbe0 (17 bones, vs_1_1 constants) | meshes split by the data | Only matters for new content | S/M |
 | R11 | Decal geometry | decal constructor 0x00417010 | one draw per decal, no distance cull (about 128 vertices, guess) | Batch | M |
 | R12 | Geometry density | | low poly | Tessellation deferred (docs/journal/2026-10-12.md) | L |
+| R13 | Streamer trail length | Streamer_AddPoint 0x004958a0 (a 64-slot ring, 63 points, one per frame) | 62 frames: about 1.03 s at 60 Hz whatever the life (the data's lives run 0.3 .. 3 s), and shorter at higher frame rates (0.43 s at 144 Hz) | Frame-rate part lifted: the span is a time (fxvm/streamers.rs `RING_SPAN`), the same at any rate. The cut itself is kept because it is the look: trails with lives of 1.5 .. 3 s would draw longer than the original ever showed them. Lifting it is one constant (`RING_SPAN` = the life) | S |
 
 ### Limits in our own Vulkan code
 

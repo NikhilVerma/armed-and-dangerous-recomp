@@ -209,34 +209,6 @@ impl TexAnim {
     }
 }
 
-/// Camera-facing orientation (fn_00419a60 0x00419a60, set by Fx_SetKite 0x0041fd70).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Billboard {
-    /// +0x460 bit 0x400 (opcode 0x2e): the camera's rotation at the object's position
-    Camera,
-    /// bit 0x4000000 (0x4c): turned about the vertical only, its local z towards the camera, local y up (the flame cards)
-    AboutZ,
-    /// bit 0x2000000 (0x4b): turned about the x axis, local y along x (no shipped script uses it)
-    AboutX,
-}
-
-impl Billboard {
-    /// The game-space rotation for a camera looking along `dir` (Camera_GetDirection 0x0040fa10; game space): v = the
-    /// direction reversed with the turning axis' component dropped, normalised; c = v x axis (Vec3_CrossReversed
-    /// 0x004e7830); columns (-c, axis, v). None for `Camera` (it takes the camera's whole rotation) or a camera looking
-    /// along the axis.
-    fn basis(self, dir: Vec3) -> Option<Mat3> {
-        let (v, axis) = match self {
-            Billboard::Camera => return None,
-            Billboard::AboutZ => (Vec3::new(-dir.x, -dir.y, 0.0), Vec3::Z),
-            Billboard::AboutX => (Vec3::new(0.0, -dir.y, -dir.z), Vec3::X),
-        };
-        let v = v.try_normalize()?;
-        let c = v.cross(axis);
-        Some(Mat3::from_cols(-c, axis, v))
-    }
-}
-
 /// The object's point light (opcode 0x4a and 0x58..0x5a).
 #[derive(Clone, Debug)]
 pub struct LightDef {
@@ -310,6 +282,37 @@ impl MeshEmitter {
     }
 }
 
+/// The camera-facing modes of an fx object (Fx_SetKite 0x0041fd70 sets +0x460 bits; 0x00419a60 turns the object each
+/// frame, keeping its position). Ordered by the original's precedence when several bits are set: 0x400 first.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub enum Facing {
+    /// 0x4b, bit 0x2000000: about the game x axis, towards the camera in the y-z plane (no shipped script)
+    AboutX,
+    /// 0x4c, bit 0x4000000: upright (model y = game up), turned about the vertical to face the camera (the level 3 and
+    /// 5 fire animations, fxo_flame_anim)
+    Upright,
+    /// 0x2e, bit 0x400: a card with the camera's own rotation
+    Camera,
+}
+
+impl Facing {
+    /// The engine-space rotation for a camera at `cam`; `axes` = `game_to_engine()`. The axis-bound modes build the
+    /// original's columns in game space: v = the camera direction (Camera_GetDirection 0x0040fa10) negated with one
+    /// component zeroed and normalised, c = v x axis (Vec3_CrossReversed 0x004e7830), columns (-c, axis, v). None when
+    /// the camera looks along the axis (the original normalises a zero vector).
+    pub fn rotation(self, cam: &Transform, axes: Quat) -> Option<Quat> {
+        let dir = axes.inverse() * cam.forward().as_vec3();
+        let (axis, v) = match self {
+            Facing::Camera => return Some(cam.rotation * axes),
+            Facing::Upright => (Vec3::Z, Vec3::new(-dir.x, -dir.y, 0.0)),
+            Facing::AboutX => (Vec3::X, Vec3::new(0.0, -dir.y, -dir.z)),
+        };
+        let v = v.try_normalize()?;
+        let c = v.cross(axis);
+        Some(axes * Quat::from_mat3(&Mat3::from_cols(-c, axis, v)))
+    }
+}
+
 /// A restored fx object with a lifespan under this many seconds has ended by the time of any save (crate::fx::RestoreFx);
 /// the lasting ones (the camera's snow: 1e5 s, or none) run on.
 const RESTORED_KEPT: f32 = 3600.0;
@@ -330,7 +333,8 @@ pub struct FxObject {
     /// the fade-out start age
     pub fade_out: Option<f32>,
     pub scale: Option<ScaleCurve>,
-    pub kite: Option<Billboard>,
+    /// how it turns to the camera every frame (Fx_SetKite 0x0041fd70: 0x2e / 0x4c / 0x4b)
+    pub facing: Option<Facing>,
     /// opcode 0x75 Fx_SetFaceDirection 0x0041ddc0 (+0x464 bit 0x800): a body turned along its flight each update
     /// (the base arrows)
     pub face_direction: bool,
@@ -391,7 +395,7 @@ impl FxObject {
             fade_in: None,
             fade_out: None,
             scale: None,
-            kite: None,
+            facing: None,
             face_direction: false,
             emitters: Vec::new(),
             mesh_emitters: Vec::new(),
@@ -724,17 +728,12 @@ pub fn objects(
             }
         }
         o.texanims = texanims;
-        // placement: a camera card (fn_00419a60), scale
+        // placement: facing the camera (0x00419a60: `Facing`, the object's position), scale
         if body.is_none() {
             let world = Mat4::from_quat(axes) * o.place;
             let (_, mut rot, pos) = world.to_scale_rotation_translation();
-            if let (Some(kite), Some(c)) = (o.kite, cam_t) {
-                rot = match kite.basis(axes.inverse() * c.forward().as_vec3()) {
-                    Some(m) => axes * Quat::from_mat3(&m),
-                    // the card's mesh faces -Y in game space: turn it to the camera (the camera's rotation, bit 0x400)
-                    None if kite == Billboard::Camera => c.rotation * axes,
-                    None => rot,
-                };
+            if let Some(r) = o.facing.zip(cam_t).and_then(|(f, c)| f.rotation(&c, axes)) {
+                rot = r;
             }
             *t = Transform { translation: pos, rotation: rot, scale: Vec3::splat(o.scale_now) };
         } else {
@@ -896,7 +895,7 @@ pub fn follow(mut commands: Commands, mut vm: ResMut<FxVm>, parents: Query<&Glob
             if let Ok(mut t) = q.get_mut(e) {
                 let (_, rot, pos) = (Mat4::from_quat(game_to_engine()) * o.place).to_scale_rotation_translation();
                 t.translation = pos;
-                if !o.follow_pos_only && o.kite.is_none() {
+                if !o.follow_pos_only && o.facing.is_none() {
                     t.rotation = rot;
                 }
             }
@@ -948,17 +947,6 @@ mod tests {
     }
 
     #[test]
-    fn cylindrical_card_faces_the_camera() {
-        // a camera looking north (+y) and down: the card's z points back south at it, its y stays up
-        let m = Billboard::AboutZ.basis(Vec3::new(0.0, 1.0, -0.5)).unwrap();
-        assert!((m.z_axis - Vec3::NEG_Y).length() < 1e-5);
-        assert_eq!(m.y_axis, Vec3::Z);
-        assert!((m.determinant() - 1.0).abs() < 1e-5);
-        assert!(Billboard::AboutZ.basis(Vec3::NEG_Z).is_none());
-        assert!(Billboard::Camera.basis(Vec3::Y).is_none());
-    }
-
-    #[test]
     fn texture_frames_count_and_hold() {
         let mut ta = TexAnim { stage: 0, rate: 30.0, frames: 16, looping: false, acc: 0.0, frame: 0, base: "anim_test".into() };
         assert!(ta.step(0.1)); // 3 frames
@@ -1004,5 +992,19 @@ mod tests {
         }
         // 0.5 s at 0.1: 5 or 6
         assert!((5..=6).contains(&n), "{n}");
+    }
+
+    #[test]
+    fn upright_facing() {
+        let axes = crate::level::game_to_engine();
+        // a camera at game (100, 0, 50) looking at the origin, a little down
+        let eye = axes * Vec3::new(100.0, 0.0, 50.0);
+        let cam = Transform::from_translation(eye).looking_at(Vec3::ZERO, axes * Vec3::Z);
+        let r = Facing::Upright.rotation(&cam, axes).unwrap();
+        let game = axes.inverse() * r;
+        // model y stays game up, model z points level at the camera
+        assert!((game * Vec3::Y - Vec3::Z).length() < 1e-4);
+        assert!((game * Vec3::Z - Vec3::X).length() < 1e-4);
+        assert!(Facing::Camera > Facing::Upright && Facing::Upright > Facing::AboutX);
     }
 }

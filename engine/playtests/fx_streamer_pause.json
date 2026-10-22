@@ -1,0 +1,17 @@
+{
+ "load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json",
+ "steps": [
+  {"wait": 1.0},
+  {"warp": [-210, 380, 25, 0]},
+  {"wait": 0.5},
+  {"fx": {"name": "fx_arrow_flame", "at": [-210, 420, 30], "clear": true}},
+  {"wait": 2.0},
+  {"expect": {"fx.streamers": 1, "fx.streamer_points": [50, 61]}},
+  {"pad": "Start=1"},
+  {"wait": 0.2},
+  {"pad": "Start=0"},
+  {"wait": 2.0},
+  {"expect": {"fx.streamers": 1, "fx.streamer_points": [50, 61]}},
+  {"quit": true}
+ ]
+}

@@ -10,7 +10,7 @@
 use super::attach::point_world;
 use super::body::{add_impulse, add_spin, make_dynamic, set_gravity, set_rotation, wake};
 use super::materials::{FxAddMaterial, FxAddParams, FxLayerMaterial, FxLayerParams, premultiplied};
-use super::object::{Billboard, EmitMode, FxObject, HitCreate, LightDef, MeshEmitter, ScaleCurve, UvRotate, UvScale, UvScroll};
+use super::object::{EmitMode, Facing, FxObject, HitCreate, LightDef, MeshEmitter, ScaleCurve, UvRotate, UvScale, UvScroll};
 use super::particles::{Emitter, build_ramp};
 use super::screen::{EffectOwner, ScreenKind, ScreenRequest};
 use super::{CrtRand, FxEntity, FxVm};
@@ -370,6 +370,10 @@ pub fn run_script(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_>, idx: usize, spawned:
                 });
                 list1 = None;
                 cur = create_object(vm, ctx, idx, arg(1).as_str().unwrap_or(""), attach);
+                // attached objects are inert (+0x424 |= 0x20000, game/fx.cpp:73): no physics body
+                if let Some(o) = cur.and_then(|c| vm.objects.get_mut(&c)) {
+                    o.inert = true;
+                }
             }
             "0x06" => {
                 if let Some(c) = cur {
@@ -612,11 +616,13 @@ pub fn run_script(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_>, idx: usize, spawned:
                     }
                 }
             }
-            // 0x2a Fx_StopEmitter 0x0041e3b0: the last active mesh emitter stops after `value` seconds
+            // 0x2a Fx_StopEmitter 0x0041e3b0: the last active mesh emitter stops after `value` seconds; with all 10 slots
+            // in use nothing is set, and a value <= 0 never counts down (render_r1.cpp: only +0x38 > 0 counts). No
+            // shipped script uses it
             "0x2a" => {
                 let v = vm.rng.r(w(1), w(2));
-                if let Some(e) = obj!().and_then(|o| o.mesh_emitters.last_mut()) {
-                    e.timeout = Some(v);
+                if let Some(e) = obj!().filter(|o| o.mesh_emitters.len() < 10).and_then(|o| o.mesh_emitters.last_mut()) {
+                    e.timeout = (v > 0.0).then_some(v);
                 }
             }
             // Fx_SetParticleUvs 0x0041f3b0
@@ -633,15 +639,16 @@ pub fn run_script(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_>, idx: usize, spawned:
                     e.colour = c;
                 }
             }
-            // Fx_SetKite 0x0041fd70: a camera card, 0x2e facing it fully (0x400), 0x4c turning about z (0x4000000), 0x4b
-            // about x (0x2000000) (object.rs Billboard)
-            "0x2e" | "0x4b" | "0x4c" => {
+            // Fx_SetKite 0x0041fd70: 0x2e bit 0x400 a camera card, 0x4c bit 0x4000000 upright facing the camera, 0x4b bit
+            // 0x2000000 about the x axis; the bits are ORed, the strongest wins (`Facing`'s order)
+            "0x2e" | "0x4c" | "0x4b" => {
+                let mode = match op.as_str() {
+                    "0x2e" => Facing::Camera,
+                    "0x4c" => Facing::Upright,
+                    _ => Facing::AboutX,
+                };
                 if let Some(o) = obj!() {
-                    o.kite = Some(match op.as_str() {
-                        "0x2e" => Billboard::Camera,
-                        "0x4c" => Billboard::AboutZ,
-                        _ => Billboard::AboutX,
-                    });
+                    o.facing = o.facing.max(Some(mode));
                 }
             }
             // 0x75 Fx_SetFaceDirection 0x0041ddc0 (+0x464 |= 0x800): the body turned along its flight (object.rs)
@@ -945,7 +952,7 @@ pub fn run(
     (mut layer_materials, mut add_materials): (ResMut<Assets<FxLayerMaterial>>, ResMut<Assets<FxAddMaterial>>),
     mut physics: NonSendMut<Physics>,
     cams: Query<Entity, With<Camera3d>>,
-    alive: Query<()>,
+    (alive, fx_entities): (Query<()>, Query<(), With<FxEntity>>),
 ) {
     let t0 = std::time::Instant::now();
     let dt = time.delta_secs();
@@ -954,11 +961,17 @@ pub fn run(
     let mut ctx = Ctx { commands: &mut commands, data: &data, lib: &mut lib, assets: &assets, meshes: &mut meshes, materials: &mut materials, layer_materials: &mut layer_materials, add_materials: &mut add_materials, physics: &mut physics, camera: cams.iter().next() };
     let mut i = 0;
     while i < vm.instances.len() {
+        // the object an fx runs on no longer answers (its virtual +0xd8): an ended fx object (out of `objects`, its
+        // entity despawned at the end of the frame) or, once the fx has run (an entity spawned this frame is not in
+        // the world yet), a despawned entity
+        let parent_gone = {
+            let inst = &vm.instances[i];
+            inst.parent.is_some_and(|p| !vm.objects.contains_key(&p) && (fx_entities.get(p).is_ok() || (inst.ip > 0 && alive.get(p).is_err())))
+        };
         let inst = &mut vm.instances[i];
         if inst.waiting {
-            // the owner of a waiting fx releases it when it goes (Fx_Release 0x0041d030 from the owner; the engine:
-            // its parent entity is gone)
-            if inst.parent.is_some_and(|p| !vm.objects.contains_key(&p) && alive.get(p).is_err()) {
+            // the owner of a waiting fx releases it when it goes (Fx_Release 0x0041d030 from the owner)
+            if parent_gone {
                 release(vm, &mut ctx, i);
                 vm.instances.remove(i);
                 continue;
@@ -973,6 +986,13 @@ pub fn run(
                 continue;
             }
             inst.paused = 0.0;
+        }
+        // Fx_RunScript 0x00420770 first: an fx whose attach target (fx+0x6c) or owner (fx+0xb4) is gone ends without
+        // running (returns 1: Fx_Step releases it), so a paused child of an ended object makes nothing more
+        if parent_gone {
+            release(vm, &mut ctx, i);
+            vm.instances.swap_remove(i);
+            continue;
         }
         if inst.ip == 0 {
             let n = inst.name.clone();
