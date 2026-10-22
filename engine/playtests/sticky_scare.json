@@ -1,14 +1,18 @@
 {"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
- {"note": "the scare 0x0042fb60: a sticky bomb stuck on a grunt makes him flee (state 0xc8) from the player, 250 units, no timer"},
+ {"note": "the scare 0x0042fb60: a sticky bomb stuck on a grunt makes him flee (state 0xc8) from the player, 250 units, no timer; a grunt within 25 of it flees from him for 3..5 s"},
  {"wait": 1.0},
+ {"note": "the grunts take no target (ai_force grunts_hold): their bullets would shoot the thrown bomb down in flight (0x00481320)"},
+ {"ai_force": "grunts_hold"},
  {"warp": [-271, 680, 80, 180]},
  {"spawn": [-275, 620, 80]},
+ {"spawn": [-283, 616, 80]},
  {"wait": 1.0},
- {"expect": {"special": "stickybomb", "sticky_live": 0}},
+ {"expect": {"special": "stickybomb", "sticky_live": 0, "ai.flees": 0}},
  {"click": "Right"},
  {"wait": 1.5},
- {"expect": {"sticky_stuck": 1, "sticky_on_character": 1, "ai.minds.Flee": [2, 2]}},
+ {"expect": {"sticky_stuck": 1, "sticky_on_character": 1, "ai.minds.Flee": [2, 4]}},
+ {"note": "3.5 s after the stick, before the bomb's 4 s linger_lifetime sets it off, the carrier still runs (no timer: his 250 units take longer); the other's 3..5 s may be over"},
  {"wait": 2.0},
- {"expect": {"ai.minds.Flee": [2, 2]}},
+ {"expect": {"ai.minds.Flee": [1, 2], "ai.max_flee": 250}},
  {"quit": true}
 ]}

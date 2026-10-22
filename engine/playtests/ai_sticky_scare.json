@@ -1,6 +1,8 @@
 {"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
  {"cheat": "SHIELDME"},
  {"wait": 1.0},
+ {"note": "the grunts take no target (ai_force grunts_hold): their bullets would shoot the thrown bomb down in flight (0x00481320); the scare needs none"},
+ {"ai_force": "grunts_hold"},
  {"warp": [-271, 680, 80, 180]},
  {"spawn": [-275, 620, 80]},
  {"spawn": [-283, 616, 80]},

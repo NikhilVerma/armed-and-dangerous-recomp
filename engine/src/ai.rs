@@ -1181,8 +1181,9 @@ pub struct AiStats {
 
 /// Debug (playtest `ai_force`): forced outcomes of the AI's next rolls, each consumed by the behaviour it names ("throw":
 /// the next captain's engage roll throws, ai.rs; "fight": the next companion's close kill coin passes, ai/close_kill.rs).
-/// Kept, not consumed: "no_cover" (no generic cover slots) and "companions_hold" (the companions take no target: a
-/// test of an enemy's own behaviour that their fire would disturb).
+/// Kept, not consumed: "no_cover" (no generic cover slots), "companions_hold" (the companions take no target: a
+/// test of an enemy's own behaviour that their fire would disturb) and "grunts_hold" (the grunts look for no target:
+/// a test whose thrown bomb their bullets would shoot down, 0x00481320).
 #[derive(Resource, Default)]
 pub struct AiForce(pub Vec<String>);
 
@@ -2247,10 +2248,13 @@ fn search(
     ),
     traitors: Query<(), With<crate::weapons::traitor::Traitor>>,
     positions: Query<&GlobalTransform>,
+    force: Res<AiForce>,
 ) {
     let dt = time.delta_secs();
     let now = time.elapsed_secs();
     let Ok((pe, _, _)) = player.single() else { return };
+    // (a playtest's ai_force "grunts_hold", kept: the grunts look for no target)
+    let hold = force.0.iter().any(|w| w == "grunts_hold");
     // the live placed objects by id (a destroyed one has lost its Destructible) and the living placed characters (Roman,
     // Jonesy, Q: lev_5_m2's barracks troops go for tag 1, Roman; lev_4_m2's alarm troops for 600, Jonesy): the
     // priority targets' candidates (Object_FindByTag takes any object)
@@ -2316,7 +2320,7 @@ fn search(
             continue;
         }
         g.search_timer -= dt;
-        if g.search_timer > 0.0 {
+        if g.search_timer > 0.0 || hold {
             continue;
         }
         // a guard (0x0042ec20, every frame of state 0x79) releases its target each time the search timer runs out and
@@ -5650,6 +5654,8 @@ pub struct Companion {
     pub pose: Option<(&'static str, bool)>,
     /// how his last fight ended (the playtest log): "home", "linger" (then back), "takeover"
     last_end: (&'static str, u32),
+    /// the fights he has begun (mode 1 / 2 -> 3), for the playtest log
+    fights: u32,
     /// the reload under way is the one Roman's Fire asks for (0x00485580: the reload set, flag 0x20 of +0xbcc)
     support_reload: bool,
     /// flag 0x800: turning toward Roman's heading since his Fire was held, until facing it (0x00486525)
@@ -5797,6 +5803,7 @@ impl Companion {
         ic: false,
         pose: None,
         last_end: ("none", 0),
+        fights: 0,
         support_reload: false,
         face_heading: false,
         return_req: false,
@@ -6414,6 +6421,9 @@ fn companions(
             if !in_fight && !c.order_engage {
                 c.linger = rng.range(3.0, 7.0);
             }
+            if !in_fight {
+                c.fights += 1;
+            }
             c.fight_end = None;
         }
         // the attack order's new target (0x00484100): the close kill tried at once (0x00427e80), else +0xb68 rolled
@@ -6517,6 +6527,7 @@ fn companions(
         log.0.insert(if c.q { "q_since_shot".into() } else { "jonesy_since_shot".into() }, c.last_shot.map_or(-1.0, |s| ((now - s) * 10.0).round() / 10.0).into());
         log.0.insert(if c.q { "q_fight_end".into() } else { "jonesy_fight_end".into() }, c.last_end.0.into());
         log.0.insert(if c.q { "q_fight_ends".into() } else { "jonesy_fight_ends".into() }, c.last_end.1.into());
+        log.0.insert(if c.q { "q_fights".into() } else { "jonesy_fights".into() }, c.fights.into());
         // the regroup test (mode 1, 0x0048631c): the 2D distance from the anchor beyond formation_distance + 2.5
         // (Defend Me: Roman, whose position the anchor follows, flag 8; Defend Area / Attack: the order's point), from
         // Roman beyond delay_distance (Return To Me), or the partner's request (flag 0x80). (The original's intro, hook

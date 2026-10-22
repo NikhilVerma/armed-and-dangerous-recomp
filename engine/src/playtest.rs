@@ -162,7 +162,7 @@ pub struct Event {
     /// debug: force an AI behaviour's next roll (ai.rs `AiForce`): "throw" (the next captain in range throws his
     /// grenade), "fight" (the next companion's close kill coin passes, ai/close_kill.rs), "no_cover" (kept: no grunt
     /// takes a tree's or a building's cover slot, ai/coverslot.rs), "companions_hold" (kept: the companions take no
-    /// target), ...
+    /// target), "grunts_hold" (kept: the grunts take no target), ...
     #[serde(default)]
     pub ai_force: Option<String>,
     /// debug: the live grunt nearest Roman runs the hiding-spot search now (as at a reload's end; ai.rs
