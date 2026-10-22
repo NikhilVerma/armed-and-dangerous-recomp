@@ -184,6 +184,9 @@ only while music plays and the state is not 5/6 (and not base defend 0x0044e600)
 false, vt+0xe8 true, alive 0x00454780): **near** = AI (vt+0x10c) with a target (+0x588, 0x0042c6f0) within
 music_agro_range (effectively all), **far** = any within music_nearby_range (100). Grunt vtables 0x5a9cf0 /
 0x5abb88 have vt+0xe4 = 0x00435250 (false), vt+0xe8 = 0x00419280 (!vt+0xe4), vt+0x10c = 0x00433fa0 (true).
+The twiglets join the same list (Twiglet_Slot6 0x0049d7a0); their vtable 0x005af020 has vt+0x10c = 0x00435250
+(false: not AI), so a live twiglet within music_nearby_range counts as both near and far (read from the
+unpacked exe, 2026-10-22). Peasants (0x005aa9c0) and Goliaths unlink themselves from the list.
 
 | State | Rule |
 | --- | --- |

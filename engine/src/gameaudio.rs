@@ -491,6 +491,7 @@ fn music_state(
     mut rng: ResMut<crate::fx::FxStats>,
     launch: Option<Res<crate::Launch>>,
     (bank, mut was_title): (Option<Res<SoundBank>>, Local<bool>),
+    twiglets: Query<&GlobalTransform, With<crate::twiglet::Twiglet>>,
 ) {
     let m: &mut Music = &mut music;
     let title = *state.get() == crate::AppState::Title;
@@ -606,6 +607,15 @@ fn music_state(
                 near += 1;
             }
             if d <= far_range * far_range {
+                far += 1;
+            }
+        }
+        // the twiglets join the list too (Twiglet_Slot6 0x0049d7a0; vtable 0x005af020: vt+0xe4 false, vt+0xe8 true,
+        // vt+0x10c false, not AI): any live one within music_nearby_range counts as both near and far (a dead one has
+        // left the world, twiglet.rs)
+        for t in &twiglets {
+            if t.translation().distance_squared(pp) <= far_range * far_range {
+                near += 1;
                 far += 1;
             }
         }
@@ -916,6 +926,8 @@ fn log_audio(
         "fading": music.fade.is_some(),
         "through_pause": music.through_pause,
         "paused": music_paused,
+        "near": music.near,
+        "far": music.far,
     });
     state.0.insert("audio".into(), v);
 }
