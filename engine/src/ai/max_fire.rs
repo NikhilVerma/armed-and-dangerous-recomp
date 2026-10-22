@@ -13,6 +13,9 @@
 //!   its line of sight lost or its clip's end, the fire cycle ai_02.cpp:1897 / 1950; death, ai_04.cpp:1018) leaves the
 //!   list and picks one of the bad guys that wait (state 0x11) or fire as extras with their counters rolled
 //!   (0x0042b9e0), with a target (0x0042c6f0), at n = (rand() x count) >> 15, which then engages again (vt+0x230(0)).
+//!   An extra keeps its mark (+0x488 0x100000) until it is counted: one that stopped firing is still a candidate while
+//!   its counters are rolled (+0x484 bit 2), unless it is on the wall assault's path (+0x488 0x40000, ai/assault.rs);
+//!   the +0x48c 0x2000 exclusion is not modelled (its setter is not traced).
 //!   Original bug, kept: the pick counts down from n with `--n == 0`, so n = 0 picks nobody (docs/original-bugs.md).
 //!
 //! The engine asks the limit whenever a bad guy enters the fire state (`may_fire`, ai.rs's fire state: any of the
@@ -50,6 +53,8 @@ pub struct ShooterLimit {
     /// 0: no limit (the engage takes the fire state directly)
     pub max: u32,
     pub shooters: Vec<Entity>,
+    /// extras let into the fire state they hold now (the engage asked once per entry; the mark itself stays)
+    firing_extras: Vec<Entity>,
     /// counted shooters released this frame, each a hand-over to make
     pending: u32,
     /// places released, hand-overs made, waits started (playtest log)
@@ -77,23 +82,29 @@ impl ShooterLimit {
         Admission::Wait
     }
 
-    /// Entering the fire state (the engage's question, asked once per entry): may `me` fire now? Already counted or an
-    /// extra: yes; no limit: yes; else `admit`.
+    /// Entering the fire state (the engage's question, asked once per entry): may `me` fire now? Already counted or no
+    /// limit: yes; else `admit`, an extra too (the engage tests only the counted mark +0x488 0x20000, ai_02.cpp:1217:
+    /// an extra is counted when there is room, else rolls again, else waits).
     pub fn may_fire(&mut self, me: Entity, shooter: &mut Shooter, rng: &mut FxStats) -> bool {
-        if self.max == 0 || *shooter != Shooter::None {
+        if self.firing_extras.contains(&me) {
             return true;
         }
-        self.admit(me, shooter, rng) == Admission::Fire
+        let fire = self.admit(me, shooter, rng) == Admission::Fire;
+        if fire && *shooter == Shooter::Extra {
+            self.firing_extras.push(me);
+        }
+        fire
     }
 
-    /// A counted shooter stops (0x0042bb10's first half): out of the list, a hand-over owed.
+    /// A counted shooter stops (0x0042bb10's first half, only with +0x488 0x20000): out of the list, a hand-over owed.
+    /// An extra keeps its mark.
     pub fn release(&mut self, me: Entity, shooter: &mut Shooter) {
         if *shooter == Shooter::Counted {
             self.shooters.retain(|&e| e != me);
             self.pending += 1;
             self.releases += 1;
+            *shooter = Shooter::None;
         }
-        *shooter = Shooter::None;
     }
 
     /// Takes the hand-overs owed.
@@ -127,15 +138,15 @@ pub fn handover_pick(count: usize, r: f32) -> Option<usize> {
     n.checked_sub(1)
 }
 
-/// May this bad guy be handed the turn (0x0042b9e0 with 0x0042c6f0): alive, with a target, waiting or firing as an
-/// extra with its counters rolled.
-fn takes_turn(g: &Grunt) -> bool {
-    g.mind != Mind::Dead && g.target.is_some() && (g.mind == Mind::MaxFireWait || (g.shooter == Shooter::Extra && g.fire_ready))
+/// May this bad guy be handed the turn (0x0042b9e0 with 0x0042c6f0): alive, with a target, waiting (state 0x11) or an
+/// extra with its counters rolled that is not climbing the wall (`climbing`: +0x488 0x40000).
+fn takes_turn(g: &Grunt, climbing: bool) -> bool {
+    g.mind != Mind::Dead && g.target.is_some() && (g.mind == Mind::MaxFireWait || (g.shooter == Shooter::Extra && g.fire_ready && !climbing))
 }
 
 /// After the think: releases the counted shooters that stopped firing (or died), then makes the hand-overs owed
 /// (0x0042bb10): the one picked engages again on its next frame (`Grunt::retry_engage`).
-pub fn upkeep(mut limit: ResMut<ShooterLimit>, mut grunts: Query<(Entity, &mut Grunt)>, mut rng: ResMut<FxStats>) {
+pub fn upkeep(mut limit: ResMut<ShooterLimit>, mut grunts: Query<(Entity, &mut Grunt)>, mut rng: ResMut<FxStats>, assault: Res<super::assault::Assault>) {
     if limit.max == 0 && limit.shooters.is_empty() {
         return;
     }
@@ -145,25 +156,30 @@ pub fn upkeep(mut limit: ResMut<ShooterLimit>, mut grunts: Query<(Entity, &mut G
             let mut s = g.shooter;
             limit.release(e, &mut s);
             g.shooter = s;
-        } else if g.shooter == Shooter::Extra && !firing {
-            g.shooter = Shooter::None;
+        }
+        if g.mind == Mind::Dead || !firing {
+            limit.firing_extras.retain(|&x| x != e);
         }
     }
+    let alive: Vec<Entity> = limit.firing_extras.iter().copied().filter(|&x| grunts.get(x).is_ok()).collect();
+    limit.firing_extras = alive;
     // a shooter despawned without dying (removed from the level) leaves the list too
     let live: Vec<Entity> = limit.shooters.iter().copied().filter(|&e| grunts.get(e).is_ok()).collect();
     let gone = limit.shooters.len() - live.len();
     limit.shooters = live;
     limit.pending += gone as u32;
+    let climbing = |e: Entity| assault.climbers.iter().any(|c| c.0 == e);
     for _ in 0..limit.take_pending() {
-        let count = grunts.iter().filter(|(_, g)| takes_turn(g)).count();
+        let count = grunts.iter().filter(|(e, g)| takes_turn(g, climbing(*e))).count();
         if count == 0 {
             continue;
         }
         let Some(i) = handover_pick(count, rng.rand()) else { continue };
-        if let Some((e, mut g)) = grunts.iter_mut().filter(|(_, g)| takes_turn(g)).nth(i) {
+        if let Some((e, mut g)) = grunts.iter_mut().filter(|(e, g)| takes_turn(g, climbing(*e))).nth(i) {
             g.retry_engage = true;
             // (an extra handed the turn is asked again: counted now that there is room)
             g.shooter = Shooter::None;
+            limit.firing_extras.retain(|&x| x != e);
             limit.handovers += 1;
             info!("EVENT ai: max fire hands the turn to {e:?}");
         }
@@ -236,5 +252,24 @@ mod tests {
         let mut s = Shooter::None;
         assert_eq!(free.admit(a, &mut s, &mut rng), Admission::Fire);
         assert_eq!(s, Shooter::None);
+    }
+
+    /// An extra is let in once per fire state; entering again it is counted when there is room (0x00427910 tests
+    /// only the counted mark), and a release leaves its mark alone.
+    #[test]
+    fn extra_engages_again() {
+        let mut l = ShooterLimit { max: 1, ..default() };
+        let mut rng = FxStats::default();
+        let (a, b) = (Entity::from_raw_u32(1).unwrap(), Entity::from_raw_u32(2).unwrap());
+        l.shooters.push(a);
+        let mut sb = Shooter::Extra;
+        l.firing_extras.push(b);
+        assert!(l.may_fire(b, &mut sb, &mut rng), "in its fire state: no new roll");
+        l.release(b, &mut sb);
+        assert_eq!(sb, Shooter::Extra);
+        l.firing_extras.clear();
+        l.shooters.clear();
+        assert!(l.may_fire(b, &mut sb, &mut rng));
+        assert_eq!(sb, Shooter::Counted, "room now: counted");
     }
 }
