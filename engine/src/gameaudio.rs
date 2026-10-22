@@ -126,6 +126,7 @@ fn ambient(
     mut sounds: MessageWriter<PlaySound>,
     (mut stop, mut offsets): (MessageWriter<StopVoice>, MessageWriter<SetVoiceOffset>),
     mut rng: ResMut<crate::fx::FxStats>,
+    bank: Option<Res<SoundBank>>,
 ) {
     let Some(launch) = launch else { return };
     let ems = ambience.0.get_or_insert_with(|| {
@@ -135,6 +136,17 @@ fn ambient(
             .map(|f| {
                 f.ambients
                     .into_iter()
+                    .map(|mut d| {
+                        // 0x004f5820 / 0x004f5860 add a name only when the sound system knows it (its index below
+                        // audio +0x78): an unknown one (lev_5_m3's wind gusts and gulls, the defence levels'
+                        // music_l4_bat) is never picked, so it neither takes the loop nor resets the one-shot timer
+                        if let Some(bank) = bank.as_ref() {
+                            let known = |n: &String| bank.sounds.contains_key(n);
+                            d.loops.retain(known);
+                            d.oneshots.retain(known);
+                        }
+                        d
+                    })
                     .map(|d| Emitter {
                         pos: crate::level::game_to_engine() * Vec3::from(d.position),
                         timer: 0.0,
@@ -216,7 +228,8 @@ const TRACKS: [[&str; 7]; 5] = [
     ["l5amb", "stealth", "skirm2", "l5bat", "skirm1", "l5vic", "l5def"],
 ];
 
-/// The level's world (env_type, 1..5; out of range taken as world 1) from its mission object.
+/// The level's world (env_type, 1..5; out of range taken as world 1) from its mission object. (Music_Update sets
+/// the state but plays nothing for a world past 5 or 0; every shipped mission has env_type 1..5.)
 fn world_of(scene: &std::path::Path) -> usize {
     let Ok(text) = std::fs::read_to_string(scene.join("scene.json")) else { return 1 };
     let Ok(sc) = serde_json::from_str::<crate::scene::SceneFile>(&text) else { return 1 };
@@ -225,6 +238,12 @@ fn world_of(scene: &std::path::Path) -> usize {
 }
 /// Battle / stealth re-arm time (0x005bcbb8 = 180.0).
 const REARM: f32 = 180.0;
+/// The front end's track (Game+0x748 == 0: the shell level has no player; 0x005b1100) and the base defence levels'
+/// (0x0044e600: Roman starts in a turret; 0x005b107c), each held 600000 s (0x49127c00): once started they play for
+/// the rest of the level, no state change, no victory or defeat jingle.
+const FRONT_END_TRACK: &str = "l2amb";
+const BASE_DEFEND_TRACK: &str = "basedefend";
+const FIXED_TRACK_HOLD: f32 = 600000.0;
 /// Music fade-out on stop when a segment has no envelope: the music definitions' envelope `fade_out` (0x004fb360).
 const FADE_OUT: f32 = 10.0;
 
@@ -267,6 +286,8 @@ pub struct Music {
     dead: bool,
     /// the level's world (Game+0x2708): its row of TRACKS
     world: usize,
+    /// the fixed track state 0 plays instead of the world's ambient one (the front end's, a base defence's)
+    fixed: Option<&'static str>,
     /// +0x20: the lock a focused screen with flag 0x2000 takes (0x0044f510 / 0x0044f540, counted: the legal splash,
     /// the exit screen; splash.rs): Music_Update returns and the music voice pauses while it is held
     lock: u32,
@@ -298,6 +319,7 @@ impl Default for Music {
             won: false,
             dead: false,
             world: 1,
+            fixed: None,
             lock: 0,
         }
     }
@@ -329,8 +351,11 @@ impl Music {
         self.defeat = true;
         self.hold = 0.0;
     }
-    /// A state's track in the level's world.
+    /// A state's track in the level's world (state 0 the fixed track, if any).
     fn track(&self, state: i32) -> Option<&'static str> {
+        if let (Some(t), 0) = (self.fixed, state) {
+            return Some(t);
+        }
         TRACKS[self.world.clamp(1, 5) - 1].get(usize::try_from(state).ok()?).copied()
     }
     /// Audio +0xdc on the music handle +0x98.
@@ -339,7 +364,13 @@ impl Music {
     }
     /// Audio +0xd4 (0x004f4100 -> 0x004f3b10): while the music plays the track is queued (+0x94) for a segment boundary, else it
     /// starts now with its first segment (the definition named like the track). `flag` goes on the music voice.
-    fn play(&mut self, name: &str, flag: bool) {
+    /// 0x004f4100 first looks the name up: a track the level's bank does not define logs "Audio : %s not found" and
+    /// starts nothing (the voice and its flag are left as they are).
+    fn play(&mut self, name: &str, flag: bool, bank: Option<&SoundBank>) {
+        if bank.is_some_and(|b| !b.sounds.contains_key(name)) {
+            warn!("Audio : {name} not found");
+            return;
+        }
         self.through_pause = flag;
         if self.segment.is_some() {
             self.queue = Some(name.to_string());
@@ -361,7 +392,10 @@ impl Music {
         }
     }
     /// 0x0044f4c0 (level start / restart): state -1, timers 0, hold 1 s, requests cleared, Game+0xd78 / +0xd7c = 0,
-    /// and the music stopped.
+    /// and the music stopped. It also zeroes the hold count +0x20; here `lock` starts at 0 with every level built
+    /// (Music is a level resource), and no screen holding the music survives into a level start from the title
+    /// (the legal splash lets go before the main menu, the exit screen quits), so it is left to the screens' own
+    /// hold / release pairs.
     fn reset(&mut self) {
         self.state = -1;
         self.timer = 0.0;
@@ -375,6 +409,7 @@ impl Music {
         self.last_stealth = 0.0;
         self.won = false;
         self.dead = false;
+        self.fixed = None;
         self.stop();
     }
 }
@@ -455,27 +490,42 @@ fn music_state(
     roman: Query<&crate::player::Roman>,
     mut rng: ResMut<crate::fx::FxStats>,
     launch: Option<Res<crate::Launch>>,
+    (bank, mut was_title): (Option<Res<SoundBank>>, Local<bool>),
 ) {
-    // the lock of a focused screen with flag 0x2000 (record +0x20, splash.rs)
-    if music.held() {
-        return;
-    }
     let m: &mut Music = &mut music;
     let title = *state.get() == crate::AppState::Title;
-    if title || mission.as_ref().is_some_and(|mi| mi.is_added()) {
-        if let Some(l) = launch.as_ref().filter(|_| !title) {
+    // the level start (0x0044a110 -> 0x0044f4c0): a level built (its mission added), or play begun from the title
+    // over the level already loaded (New Game / Continue; the original loads the level there)
+    let level_start = mission.as_ref().is_some_and(|mi| mi.is_added()) || (*was_title && !title);
+    *was_title = title;
+    if level_start {
+        if let Some(l) = launch.as_ref() {
             m.world = world_of(&l.scene);
         }
         if m.state != -1 || m.timer != 0.0 || m.played != 0.0 || m.hold != 1.0 || m.won || m.dead || m.start.is_some() || (m.segment.is_some() && m.fade.is_none()) {
             m.reset();
         }
-        if title {
-            return;
-        }
     }
-    if *state.get() != crate::AppState::Playing {
+    // the lock of a focused screen with flag 0x2000 (record +0x20, splash.rs)
+    if m.held() {
         return;
     }
+    // the title menu is the front end (the shell level, Game+0x748 == 0: no player); in play the game's pause
+    // (Game+0x2684 with a player) stops the update
+    match *state.get() {
+        crate::AppState::Title | crate::AppState::Playing => {}
+        _ => return,
+    }
+    // a fixed track instead of the dynamic music: the front end's, or a base defence's (0x0044e600: a player and
+    // the mission's start_in_turret_tag)
+    let base_defend = !title && mission.as_ref().is_some_and(|mi| mi.start_in_turret);
+    let fixed = if title {
+        Some(FRONT_END_TRACK)
+    } else if base_defend {
+        Some(BASE_DEFEND_TRACK)
+    } else {
+        None
+    };
     // the requests from the mission's success (0x0044a390 state 2: 0x0044f560 cl = 0) and the player's death
     // (vt+0xd4 0x0047ae40: 0x0044f570)
     if mission.as_ref().is_some_and(|mi| mi.outcome == crate::mission::Outcome::Won) && !m.won {
@@ -524,9 +574,8 @@ fn music_state(
         next = m.state;
     }
     let mut decided = false;
-    // victory / defeat: only while music plays and not already in them (and not in base defend, 0x0044e600, which
-    // level 1 never sets)
-    if playing && m.state != 5 && m.state != 6 {
+    // victory / defeat: only while music plays and not already in them, and not in base defence (0x0044e600)
+    if playing && m.state != 5 && m.state != 6 && !base_defend {
         if m.defeat {
             next = 6;
             m.timer = 1.0;
@@ -537,7 +586,10 @@ fn music_state(
             decided = true;
         }
     }
-    if !decided && m.timer <= 0.0 {
+    if !decided && m.timer <= 0.0 && fixed.is_some() {
+        // the front end and base defence take state 0 without counting (the timer is not redrawn)
+        next = 0;
+    } else if !decided && m.timer <= 0.0 {
         m.timer = rng.range(0.5, 1.0);
         let Ok(pp) = player.single() else { return };
         let pp = pp.translation();
@@ -649,10 +701,12 @@ fn music_state(
     if next == m.state {
         return;
     }
+    m.fixed = fixed;
     info!("music: state {} -> {} ({}) at {:.1} s, near {} far {}", m.state, next, m.track(next).unwrap_or("silence"), time.elapsed_secs(), m.near, m.far);
     m.state = next;
     if next == -1 {
-        // silence for the time played, clamped to music_play_delay_min..max (played is 0 after a jingle ended)
+        // silence for the time played, clamped to music_play_delay_min..max (played is 0 after a jingle ended). (A
+        // fixed track stops without the fade, but its 600000 s hold keeps it from ever getting here.)
         m.hold = m.played;
         if m.played < delay_min {
             m.hold = delay_min;
@@ -660,6 +714,11 @@ fn music_state(
             m.hold = delay_max;
         }
         m.stop();
+        return;
+    }
+    if let Some(t) = fixed {
+        m.hold = FIXED_TRACK_HOLD;
+        m.play(t, false, bank.as_deref());
         return;
     }
     m.hold = 10.0;
@@ -670,7 +729,7 @@ fn music_state(
         _ => false,
     };
     if let Some(t) = m.track(next) {
-        m.play(t, flag);
+        m.play(t, flag, bank.as_deref());
     }
 }
 
