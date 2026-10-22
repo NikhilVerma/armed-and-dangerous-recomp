@@ -700,9 +700,14 @@ pub struct Mission {
     started: bool,
     /// send_trigger_start sent (the first update)
     start_sent: bool,
-    /// paused messages waiting for "continue", and the one shown
-    queue: Vec<(f32, String)>,
+    /// the paused message box (0x00403410). A queued message (flag 2) waits in the one pending slot (+0xdd8, timer
+    /// +0x15d8); the one on screen (+0x15e0, +0x15dc), and how many shows hold the game paused (each show bumps the
+    /// pause count Game+0x2684, each "continue" takes one off: a message shown over another needs two)
+    pending: Option<(f32, String)>,
     pub showing: Option<String>,
+    holds: u32,
+    /// shown this frame: "continue" is read from the next one
+    fresh: bool,
     pub tickers: u32,
     pub outcome: Outcome,
     dead_timer: f32,
@@ -952,8 +957,9 @@ impl Mission {
         self.started = true;
         self.start_sent = true;
         self.start_text = None;
-        self.queue.clear();
+        self.pending = None;
         self.showing = None;
+        self.holds = 0;
     }
 
     pub fn load(dir: &std::path::Path) -> Option<Self> {
@@ -1270,8 +1276,10 @@ impl Mission {
             texts: f.text,
             started: false,
             start_sent: false,
-            queue: Vec::new(),
+            pending: None,
             showing: None,
+            holds: 0,
+            fresh: false,
             // player_has_tickerbomb (MissionObject_Load 0x0044c170, game_02.cpp:1994: Game byte +0xd90, the flag the
             // ticker prompt 0x00467450 and the sites test; the pub's award sets the same byte): lev_3_m1 / lev_4_m1
             // start with ticker bombs. The remaster counts them as the pub's award does (pubscreen.rs: 4)
@@ -1301,8 +1309,25 @@ impl Mission {
         self.hints.get(key).cloned().unwrap_or_default().replace("%s", &crate::input::key(crate::input::Act::Use))
     }
 
+    /// Shows a message in the paused box (0x00403410). With a delay it is queued (flag 2): a message already pending
+    /// shows at once, and this one takes the slot for `delay` (the original's 1 s). Without one it shows now,
+    /// replacing any message on screen.
     pub fn message(&mut self, text: &str, delay: f32) {
-        self.queue.push((delay, long_form(text)));
+        let text = long_form(text);
+        if delay > 0.0 {
+            if let Some((_, old)) = self.pending.take() {
+                self.show(old);
+            }
+            self.pending = Some((delay, text));
+        } else {
+            self.show(text);
+        }
+    }
+
+    fn show(&mut self, text: String) {
+        self.showing = Some(text);
+        self.holds += 1;
+        self.fresh = true;
     }
 
     /// The nearest object of the compass tag (engine space; ui_compass_objective 0x00466790 walks the live objects
@@ -1510,7 +1535,7 @@ fn state_log(m: Option<Res<Mission>>, state: Option<ResMut<crate::playtest::Play
             "pub_open": m.pubs.first().is_some_and(|p| p.triggers.open == 0), "pub_done": m.pubs.first().is_some_and(|p| p.entered),
             "pubs": m.pubs.iter().map(|p| (p.id.to_string(), serde_json::json!({"open": p.triggers.open == 0, "done": p.entered, "door": [p.door.x.round(), (-p.door.z).round(), p.radius]}))).collect::<Map<String, Value>>(),
             "finished": m.finished, "alarm_forced": m.alarm_forced, "ears_done": m.ears_done.len(), "compass_target": m.tags.get(&m.compass_tag).map(|v| v.iter().filter(|(id, _)| !m.untagged.contains(id)).map(|(id, _)| id.to_string()).collect::<Vec<String>>().join(",")), "objectives_id": m.objectives_id,
-            "queued": m.queue.len(), "showing": m.showing.is_some(), "failure_text": m.failure_text.clone().unwrap_or_default().chars().take(40).collect::<String>(),
+            "queued": m.pending.is_some() as u32, "showing": m.showing.is_some(), "failure_text": m.failure_text.clone().unwrap_or_default().chars().take(40).collect::<String>(),
         }),
     );
 }
@@ -2440,29 +2465,34 @@ fn messages(
         let cont = m.hints.get("ui_stats_ok").cloned().unwrap_or("Press %s to continue".into()).replace("%s", &crate::input::key(crate::input::Act::Continue));
         format!("{text}<br><br>{cont}")
     };
-    if let Some(text) = m.showing.clone() {
-        // (a trackpad tap arrives as press and release in one frame: the raw click counts too)
-        if ctl.pressed(crate::input::Act::Continue) || buttons.just_pressed(MouseButton::Left) {
+    // the pending message's timer counts down only while none shows and the game is not paused (0x00466060:
+    // Game+0x15dc and +0x2684 clear; an in-game cut scene pauses it too), then it shows
+    if m.showing.is_none() && !vtime.is_paused() {
+        if let Some((t, _)) = m.pending.as_mut() {
+            *t -= time.delta_secs();
+        }
+        if m.pending.as_ref().is_some_and(|(t, _)| *t <= 0.0) {
+            let (_, text) = m.pending.take().expect("pending checked above");
+            m.show(text);
+        }
+    }
+    let Some(text) = m.showing.clone() else { return };
+    // each "continue" lifts one pause (0x00462790 -> Game_SetPaused 0x004031e0 off); the box goes with the last
+    // (a trackpad tap arrives as press and release in one frame: the raw click counts too)
+    if !m.fresh && (ctl.pressed(crate::input::Act::Continue) || buttons.just_pressed(MouseButton::Left)) {
+        m.holds = m.holds.saturating_sub(1);
+        if m.holds == 0 {
             m.showing = None;
             hud.briefing = None;
             vtime.unpause();
-        } else {
-            let b = page(m, &text);
-            if hud.briefing.as_ref() != Some(&b) {
-                hud.briefing = Some(b);
-            }
+            return;
         }
-        return;
     }
-    let dt = time.delta_secs();
-    for q in &mut m.queue {
-        q.0 -= dt;
-    }
-    if let Some(i) = m.queue.iter().position(|q| q.0 <= 0.0) {
-        let (_, text) = m.queue.remove(i);
-        hud.briefing = Some(page(m, &text));
-        m.showing = Some(text);
-        vtime.pause();
+    m.fresh = false;
+    vtime.pause();
+    let b = page(m, &text);
+    if hud.briefing.as_ref() != Some(&b) {
+        hud.briefing = Some(b);
     }
 }
 
@@ -2509,11 +2539,11 @@ fn outcome(
         m.log.push("failure: sounds stopped, defeat music requested".into());
     }
     // compass objective: bearing of the target relative to the camera, and its distance
-    if let (Ok(c), Ok(p)) = (cam.single(), player.single()) {
-        // 0x00466790: from the camera (Camera_GetPosition), the distance in 3D (the pointer's anim frame)
-        // the first list's nearest (World+0xefc: the peasants still to pick up), the tagged objective only when
-        // strictly nearer
-        let from = p.translation();
+    if let (Ok(c), Ok(_)) = (cam.single(), player.single()) {
+        // 0x00466790: from the camera (Camera_GetPosition 0x0040f9e0 of Game+0xa68, for the nearest searches as for the
+        // bearing), the distance in 3D (the pointer's anim frame); the first list's nearest (World+0xefc: the
+        // peasants still to pick up), the tagged objective only when strictly nearer
+        let from = c.translation();
         let listed = first.0.iter().copied().min_by(|a, b| a.distance(from).total_cmp(&b.distance(from)));
         let target = match (listed, m.compass_target(from)) {
             (Some(l), Some(t)) if t.distance(from) < l.distance(from) => Some(t),

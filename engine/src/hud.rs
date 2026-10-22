@@ -315,6 +315,8 @@ pub fn spawn(
         "ui_player_sniper", "ui_player_rlvindaloo", "ui_player_rlgurner", "ui_player_sharkgun", "ui_player_guyfawkes",
         "ui_player_bunchoffives", "ui_player_blackhole", "ui_sniper_crosshair", "ui_vindaloo_crosshair", "ui_gurner_crosshair",
         "ui_sharkgun_crosshair", "ui_multi_lock",
+        // the crosshairs of what Roman rides (Hud_ProjectMarkers 0x00406840: +0x380 / +0x384 / +0x388)
+        "ui_stig_mg_crosshair", "ui_forge_crosshair", "ui_bd_crosshair",
         // the weapon-cycle arrows (0x00463fa0, the HUD's +0x5c..+0x78 by name, strings 0x005a0dac..0x005a0d20)
         "ui_select_up_on", "ui_select_down_on", "ui_select_left_on", "ui_select_right_on", "ui_select_up_off", "ui_select_down_off",
         "ui_select_left_off", "ui_select_right_off",
@@ -396,7 +398,7 @@ pub fn spawn_element(commands: &mut Commands, meshes: &mut Assets<Mesh>, materia
 fn build_model(commands: &mut Commands, meshes: &mut Assets<Mesh>, materials: &mut Assets<ColorMaterial>, hud: &HudAssets, el_name: &str, model: &str) -> Vec<Entity> {
     let mut out = Vec::new();
     let Some(quads) = hud.layout.models.get(model) else { return out };
-    let bones = if CROSSHAIRS.contains(&el_name) { cross_bones(&hud.dir, model) } else { Vec::new() };
+    let bones = if CROSSHAIRS.contains(&el_name) || el_name == BASE_TURRET_CROSSHAIR { cross_bones(&hud.dir, model) } else { Vec::new() };
     let blends = part_blends(&hud.dir, model, quads.len());
     for (qi, q) in quads.iter().enumerate() {
         if q.vertices.is_empty() {
@@ -1283,10 +1285,11 @@ fn texts(
         // the message box (ui_mission_briefing, 0x00466060, sizing its band through 0x00464400) sits on the band
         // ui_text_bkd: texture b_text_bkd,
         // 856 units wide, stretched vertically to the text (anim 4 = min(text height / 480, 1), 0x00466470); the
-        // padding is measured from the original's capture (work/shots/orig_ui_play-480.png: ~12 units)
+        // padding is measured from the original's capture (work/shots/orig_ui_play-480.png: ~12 units); the stretch
+        // stops at the full 480 (the frame's cap at 1.0)
         if el.name == "ui_briefing" && !t.text.is_empty() {
             let band = materials.add(ColorMaterial { texture: Some(assets.load("ui/textures/b_text_bkd.png")), ..default() });
-            let f = commands.spawn((Mesh2d(meshes.add(Rectangle::new(856.0, size.y + 24.0))), MeshMaterial2d(band), Transform::from_xyz(0.0, 0.0, 19.0), layer.clone())).id();
+            let f = commands.spawn((Mesh2d(meshes.add(Rectangle::new(856.0, (size.y + 24.0).min(480.0)))),MeshMaterial2d(band), Transform::from_xyz(0.0, 0.0, 19.0), layer.clone())).id();
             commands.entity(e).add_children(&[f]);
         }
         t.built = Some(t.text.clone());
@@ -1429,17 +1432,33 @@ fn visibility(
     mut q: Query<(&HudElement, &mut Visibility), (Without<HudText>, Without<crate::gamemenu::MenuOwned>)>,
     mut texts: Query<(&HudElement, &mut Visibility), (With<HudText>, Without<crate::gamemenu::MenuOwned>)>,
     (ctl, app, vtime): (Res<crate::input::Controls>, Res<State<crate::AppState>>, Res<Time<Virtual>>),
+    ctx: AimContext,
 ) {
-    // 0x00463fa0: the weapon-cycle arrows. "off" with more than one special (up / down: 0x004a1640) or primary weapon
-    // (left / right: 0x004a1610); "on" while that cycle button is held: IncSpecialWeapon 0x10 up, DecSpecialWeapon
-    // 0x11 down, DecWeapon 0xf left, IncWeapon 0xe right (player.md 2; the remaster binds Next Special and Next
-    // Weapon only). All off in a cut scene (g+0x26cc) and while paused (g+0x2684, hud.md 8).
     // paused: the game's pause count Game+0x2684 (Game_SetPaused 0x004031e0: any menu screen, 0x00490a40, or a
     // paused message, 0x00403410); the crosshairs (0x00406790) and the objects with +0x474 0x20 (the prompts:
     // 0x00465230, UiPass_Draw ui_pass.cpp:98) are not drawn then
     let paused = *app.get() != crate::AppState::Playing || vtime.is_paused();
-    let arrows = state.visible && !state.cinematic && !paused;
+    let (ride, turret_start) = (ctx.ride(), ctx.turret_start());
+    // 0x00463fa0: the weapon panel (ui_weapon_bkd, the HUD's +0x30), the gun and special icons and ui_ammo_infinity
+    // show with a player and without start_in_turret_tag (Game+0x26cc: a level that starts Roman in the base turret);
+    // so do the ammo and special counts (0x00465a20 / 0x00465ad0)
+    let panel = !turret_start;
+    // 0x00463fa0: the weapon-cycle arrows. "off" with more than one special (up / down: 0x004a1640) or primary weapon
+    // (left / right: 0x004a1610); "on" while that cycle button is held: IncSpecialWeapon 0x10 up, DecSpecialWeapon
+    // 0x11 down, DecWeapon 0xf left, IncWeapon 0xe right (player.md 2; the remaster binds Next Special and Next
+    // Weapon only). All off while paused (g+0x2684, hud.md 8) and without the panel (g+0x26cc); a cinematic
+    // (g+0xdce) does not hide them.
+    let arrows = state.visible && panel && !paused;
     let (multi_special, multi_weapon) = (arrows && state.specials > 1, arrows && state.weapons > 1);
+    // 0x00406790: the crosshairs only without a cinematic (g+0xdce), not paused, and with the camera in mode 0
+    // (0x0040fab0: the death camera, mode 3, hides them) unless Roman rides something (g+0xac8). Hud_ProjectMarkers
+    // 0x00406840 then shows: in a level that starts in a turret (0x0044e600) only ui_bd_crosshair; else on foot
+    // (g+0xac8 0) the gun's crosshair (the list +0x30c by weapon index; the rifle's hidden over a friendly) and
+    // ui_special_crosshair while a special is selected (0x004a1670 != -1: the special list is not empty),
+    // ui_stig_mg_crosshair on a mounted gun (g+0xac8 4), ui_forge_crosshair on the forge cannon (3); and on both
+    // paths ui_crosshair_friendly over a friendly (+0x394)
+    let aim = !state.cinematic && !paused && (ride != Ride::OnFoot || !ctx.death_camera());
+    let riding = |r: Ride| aim && !turret_start && ride == r;
     for (el, mut v) in &mut q {
         let show = state.visible
             && match el.name.as_str() {
@@ -1450,33 +1469,37 @@ fn visibility(
                 "ui_hit_left" => state.hit_flash[2] > 0.0,
                 "ui_hit_right" => state.hit_flash[3] > 0.0,
                 "ui_compass_objective" => state.objective.is_some(),
-                // the icons of the gun and the special in hand (the weapon table's +0xa0: ui_player_rifle ...)
-                n if GUN_ICONS.contains(&n) => state.weapon_id.and_then(|w| w.table().hud_icon) == Some(n),
-                n if SPECIAL_ICONS.contains(&n) => state.special.table().hud_icon == Some(n),
+                // the icons of the gun and the special in hand (the weapon table's +0xa0: ui_player_rifle ...; the
+                // special's only while the special list has one, 0x004a1670 != -1)
+                n if GUN_ICONS.contains(&n) => panel && state.weapon_id.and_then(|w| w.table().hud_icon) == Some(n),
+                n if SPECIAL_ICONS.contains(&n) => panel && state.specials > 0 && state.special.table().hud_icon == Some(n),
+                "ui_weapon_bkd" => panel,
                 // the lock-on markers: placed and shown by `lock_markers`
                 "ui_multi_lock" => continue,
-                "ui_ammo_infinity" => state.unlimited,
+                "ui_ammo_infinity" => panel && state.unlimited,
                 "ui_clock" => state.ticker_clock.is_some(),
                 "ui_tickerbomb" => state.tickers_left,
                 "ui_tickerbomb_set" => state.ticker_arming.is_some(),
                 // a health meter with its target (0x00466e70 clears +0x474 bit 2 without one, or in a cut scene)
                 "ui_player_health" | "ui_health_q" | "ui_health_jonesy" | "ui_health_enemy" => !state.cinematic && meter_value(&state, &el.name).is_some(),
-                // Hud_ProjectMarkers 0x00406840: the current weapon's crosshair (list +0x30c by weapon index; the
-                // rifle's hidden over a friendly), ui_crosshair_friendly (+0x37c) over a friendly, ui_special_crosshair
-                // (+0x38c) while a special is selected; all only while 0x00406790 allows (no cinematic, no pause)
-                // the gun's crosshair (the weapon table's +0xc0); the rifle's hidden over a friendly
+                // the crosshairs (`aim` above); the gun's is the weapon table's +0xc0
                 n if CROSSHAIRS.contains(&n) => {
-                    !state.cinematic && !paused && state.weapon_id.and_then(|w| w.table().crosshair) == Some(n) && !(n == "ui_crosshair" && xhair.friendly)
+                    riding(Ride::OnFoot) && state.weapon_id.and_then(|w| w.table().crosshair) == Some(n) && !(n == "ui_crosshair" && xhair.friendly)
                 }
-                "ui_crosshair_friendly" => !state.cinematic && !paused && xhair.friendly,
-                "ui_special_crosshair" => !state.cinematic && !paused,
+                "ui_crosshair_friendly" => aim && xhair.friendly,
+                "ui_special_crosshair" => riding(Ride::OnFoot) && state.specials > 0,
+                "ui_stig_mg_crosshair" => riding(Ride::MountedGun),
+                "ui_forge_crosshair" => riding(Ride::ForgeCannon),
+                BASE_TURRET_CROSSHAIR => aim && turret_start,
                 "ui_select_up_off" | "ui_select_down_off" => multi_special,
                 "ui_select_left_off" | "ui_select_right_off" => multi_weapon,
                 "ui_select_up_on" => multi_special && ctl.down(crate::input::Act::NextSpecial),
                 "ui_select_right_on" => multi_weapon && ctl.down(crate::input::Act::SwitchWeapon),
                 "ui_select_down_on" | "ui_select_left_on" => false,
                 n if n.starts_with("ui_health") => !state.cinematic,
-                // the base flag meter: only with the grunts-over-the-wall counter, not in a cinematic (0x00465e30)
+                // the base flag meter: only with the grunts-over-the-wall counter, not in a cinematic (0x00465e30).
+                // The original also sets its anim (ui_base_flag) to count / limit each frame, but that anim moves only
+                // the node ref_flag, which no part or element hangs on: the meter's picture never changes
                 "ui_flag_base" => state.over_wall.is_some() && !state.cinematic,
                 // the peasant icon on a rescue level (0x00465d30)
                 "ui_peasant" => state.peasants.is_some(),
@@ -1489,7 +1512,14 @@ fn visibility(
         // the mission timer only while a timer displays (UiText_ShowTime sets / clears the widget's +0x474 bit 2)
         // the peasant counters only on a rescue level (0x00465be0 / 0x00465c90 / 0x00465ce0 show while Game+0x26ec > 0)
         let counter = matches!(el.name.as_str(), "ui_captured_count" | "ui_safe_count" | "ui_return_count");
+        // the ammo count needs a gun (0x00465a20: 0x004a1320 of item 0x1c), both counts the weapon panel (g+0x26cc clear)
+        let count = match el.name.as_str() {
+            "ui_ammo_count" => panel && state.weapon_id.is_some(),
+            "ui_grenade_count" => panel,
+            _ => true,
+        };
         let show = (state.visible
+            && count
             && !(paused && PAUSE_HIDDEN.contains(&el.name.as_str()))
             && (el.name != "ui_mission_timer" || state.mission_timer.is_some())
             && (!counter || state.peasants.is_some())
@@ -1529,7 +1559,7 @@ fn log_hud(
             .collect::<Vec<_>>()
             .join(",")
     };
-    let crosshair_alpha = shown.iter().find(|(e, v, _)| CROSSHAIRS.contains(&e.name.as_str()) && **v != Visibility::Hidden).map(|(_, _, c)| blend(c)).unwrap_or_default();
+    let crosshair_alpha = shown.iter().find(|(e, v, _)| ALL_CROSSHAIRS.contains(&e.name.as_str()) && **v != Visibility::Hidden).map(|(_, _, c)| blend(c)).unwrap_or_default();
     // the other translucent HUD parts (docs/subsystems/hud.md "Opacity")
     let part_blend: serde_json::Map<String, serde_json::Value> = shown
         .iter()
@@ -1556,8 +1586,8 @@ fn log_hud(
             "chat_lines": chat.lines.len(),
             "prompt": state.prompt.clone().unwrap_or_default(),
             "prompt_shown": els.iter().any(|(e, v, _)| e.name == "ui_prompt" && *v != Visibility::Hidden),
-            "crosshair_shown": els.iter().any(|(e, v, _)| CROSSHAIRS.contains(&e.name.as_str()) && *v != Visibility::Hidden),
-            "crosshair": els.iter().find(|(e, v, _)| CROSSHAIRS.contains(&e.name.as_str()) && *v != Visibility::Hidden).map_or("", |(e, _, _)| e.name.as_str()),
+            "crosshair_shown": els.iter().any(|(e, v, _)| ALL_CROSSHAIRS.contains(&e.name.as_str()) && *v != Visibility::Hidden),
+            "crosshair": els.iter().find(|(e, v, _)| ALL_CROSSHAIRS.contains(&e.name.as_str()) && *v != Visibility::Hidden).map_or("", |(e, _, _)| e.name.as_str()),
             "crosshair_alpha": crosshair_alpha,
             "blend": part_blend,
             "weapon_icon": els.iter().find(|(e, v, _)| GUN_ICONS.contains(&e.name.as_str()) && *v != Visibility::Hidden).map_or("", |(e, _, _)| e.name.as_str()),
@@ -1632,6 +1662,56 @@ const CROSSHAIRS: &[&str] = &["ui_crosshair", "ui_mg_crosshair", "ui_sniper_cros
 /// The guns' and the specials' icons (the weapon table's +0xa0).
 const GUN_ICONS: &[&str] = &["ui_player_mg", "ui_player_sniper", "ui_player_rifle", "ui_player_rlvindaloo", "ui_player_rlgurner", "ui_player_sharkgun"];
 const SPECIAL_ICONS: &[&str] = &["ui_player_guyfawkes", "ui_player_bunchoffives", "ui_player_topsy", "ui_player_blackhole", "ui_player_grenades"];
+/// The base turret's crosshair (+0x388), the one shown in a level that starts in a turret; animated like the guns'.
+const BASE_TURRET_CROSSHAIR: &str = "ui_bd_crosshair";
+/// Every crosshair element, for the state log.
+const ALL_CROSSHAIRS: &[&str] = &[
+    "ui_crosshair", "ui_mg_crosshair", "ui_sniper_crosshair", "ui_vindaloo_crosshair", "ui_gurner_crosshair", "ui_sharkgun_crosshair",
+    "ui_stig_mg_crosshair", "ui_forge_crosshair", BASE_TURRET_CROSSHAIR,
+];
+
+/// What Roman rides (Game+0xac8): 0 nothing, 1 the base turret (mount 0x0049bcc0), 3 the forge cannon (0x00499f30), 4
+/// a mounted gun (0x00498f60). Mode 2, the zeppelin turret (0x00499bd0), has no remaster counterpart.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Ride {
+    OnFoot,
+    BaseTurret,
+    ForgeCannon,
+    MountedGun,
+}
+
+/// The game state the crosshairs, the lock-on markers and the weapon panel answer to besides [`HudState`]: what
+/// Roman rides, a level that starts in a turret, the death camera.
+#[derive(bevy::ecs::system::SystemParam)]
+struct AimContext<'w, 's> {
+    mounted: Res<'w, crate::turret::Mounted>,
+    bases: Query<'w, 's, (), With<crate::defence::BaseTurret>>,
+    guns: Query<'w, 's, &'static crate::turret::Turret>,
+    defence: Option<Res<'w, crate::defence::DefenceState>>,
+    roman: Query<'w, 's, &'static crate::player::Roman>,
+}
+
+impl AimContext<'_, '_> {
+    fn ride(&self) -> Ride {
+        match self.mounted.0 {
+            None => Ride::OnFoot,
+            Some(m) if self.bases.contains(m) => Ride::BaseTurret,
+            Some(m) if self.guns.get(m).is_ok_and(|t| t.is_forge_cannon()) => Ride::ForgeCannon,
+            Some(_) => Ride::MountedGun,
+        }
+    }
+
+    /// start_in_turret_tag (Game+0x26cc, 0x0044e600): the level starts Roman in the base turret.
+    fn turret_start(&self) -> bool {
+        self.defence.as_ref().is_some_and(|d| d.starts_in_turret())
+    }
+
+    /// The camera in mode 3 (0x0040fa90 from the player's update once his death ragdoll takes, game_06.cpp:2201; not in
+    /// a level that starts in a turret, 0x0044e600): the death camera, under which 0x00406790 hides the crosshairs.
+    fn death_camera(&self) -> bool {
+        !self.turret_start() && self.roman.single().is_ok_and(|r| r.dead && r.ragdolled)
+    }
+}
 
 /// What the crosshair's aim ray found this frame (the HUD object Game+0xa6c).
 #[derive(Resource)]
@@ -1847,8 +1927,8 @@ fn crosshair_aim(
     placed: Query<(Entity, &crate::level::Placed)>,
     joints: Query<&GlobalTransform>,
     hulls: Option<Res<crate::hitparts::HitHulls>>,
-    (binds, mounted): (Res<Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>, Res<crate::turret::Mounted>),
-    (targets, bases, defence, takers, guns): (Res<crate::weapons::targeting::Targets>, Query<(), With<crate::defence::BaseTurret>>, Option<Res<crate::defence::DefenceState>>, Query<(), With<crate::level::DamageTaker>>, Query<&crate::turret::Turret>),
+    binds: Res<Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>,
+    (targets, takers, ctx): (Res<crate::weapons::targeting::Targets>, Query<(), With<crate::level::DamageTaker>>, AimContext),
     healths: Query<(Option<&crate::fx::Health>, Option<&crate::ai::Grunt>, Option<&crate::ai::Companion>, Option<&crate::fx::Destructible>)>,
 ) {
     let Ok(c) = cam.single() else { return };
@@ -1858,11 +1938,12 @@ fn crosshair_aim(
     // the ray's length by the mode (Game+0xac8: 1 the base turret, 3 the forge cannon, 4 a mounted gun), else the gun
     // in hand's range (Game+0x28b8 + index x 0x150: <name>_range), 5000 without one
     let g = data.props("p_globalsettings");
-    let on_gun = mounted.0.is_some();
-    let range = match mounted.0 {
-        Some(m) if bases.contains(m) => 1500.0,
-        Some(m) => guns.get(m).map_or(2000.0, |t| t.aim_range),
-        None => state.weapon_id.map_or(5000.0, |w| g.f(&format!("{}_range", w.name()), 10.0)),
+    let ride = ctx.ride();
+    let on_gun = ride != Ride::OnFoot;
+    let range = match (ride, ctx.mounted.0) {
+        (Ride::BaseTurret, _) => 1500.0,
+        (Ride::OnFoot, _) | (_, None) => state.weapon_id.map_or(5000.0, |w| g.f(&format!("{}_range", w.name()), 10.0)),
+        (_, Some(m)) => ctx.guns.get(m).map_or(2000.0, |t| t.aim_range),
     };
     let end = start + dir * range;
     // on a gun the ray takes list World+0xea4 (the damage takers) instead of +0xe9c: other objects let it through
@@ -1931,7 +2012,8 @@ fn crosshair_aim(
     }
     // a level that starts in a turret (0x0044e600): on whenever the ray hit an object or a lock-on slot holds one
     let multi = targets.pass == Some(crate::weapons::targeting::Pass::MultiLock) && !targets.list.is_empty();
-    if defence.is_some_and(|d| d.starts_in_turret()) {
+    let turret_start = ctx.turret_start();
+    if turret_start {
         on = object.is_some() || multi;
     }
     // hud+0x2c (0x00408020, the enemy meter's target): the aimed object when it is in the damage takers' list
@@ -1964,17 +2046,24 @@ fn crosshair_aim(
         xhair.weapon = state.weapon;
         xhair.shown = 2;
     }
+    // the crosshair the state plays on: ui_bd_crosshair in a level that starts in a turret (0x0044e600); else the gun's
+    // on foot, and none while Roman rides (g+0xac8: no list entry is selected, so +0x390 keeps its value)
+    let current = if turret_start {
+        Some(BASE_TURRET_CROSSHAIR)
+    } else if ride == Ride::OnFoot {
+        state.weapon_id.and_then(|w| w.table().crosshair)
+    } else {
+        None
+    };
     if state.visible && !state.cinematic {
-        if xhair.shown == 2 {
+        if xhair.shown == 2 && !turret_start {
             for n in CROSSHAIRS {
                 xhair.anims.insert((*n).to_owned(), (false, 0.0));
             }
         }
         let s = on as u8;
-        if s != xhair.shown {
-            if let Some(cur) = state.weapon_id.and_then(|w| w.table().crosshair) {
-                xhair.anims.insert(cur.to_owned(), (on, 0.0));
-            }
+        if let Some(cur) = current.filter(|_| s != xhair.shown) {
+            xhair.anims.insert(cur.to_owned(), (on, 0.0));
             xhair.shown = s;
         }
     }
@@ -1984,10 +2073,14 @@ fn crosshair_aim(
 #[derive(Component)]
 pub struct LockMarker(pub u8);
 
-/// Hud_ProjectMarkers 0x00406840's target slots: the four multi-lock targets with the vindaloo (hud +0x152), else the
-/// single target (+0: the shark gun's, auto-aim's), each projected to the screen and its marker shown there while the
-/// point lies inside (0.08, 0.92) x (0.1625, 0.8375) of the original's screen (the 3D view's rows 0.1125..0.8875:
-/// 0.065..0.935 of the remaster's full-window view); not in a cinematic or while paused (0x00406790).
+/// Hud_ProjectMarkers 0x00406840's target slots, each projected to the screen with its marker there:
+/// - the multi-lock targets (hud +0x152: the vindaloo; the base turret's pass too): only while 0x00406740 allows (Roman
+///   on foot, Game+0xac8 0, the camera in mode 0, not paused), slots 2 and 3 only with the vindaloo upgrade
+///   (Game+0xdd0), each while its point lies inside (0.08, 0.92) x (0.1625, 0.8375) of the original's screen (the 3D
+///   view's rows 0.1125..0.8875: 0.065..0.935 of the remaster's full-window view);
+/// - else the single target (+0) only with the shark gun (weapon 5), on marker 0 with no on-screen test: the auto-aim
+///   pass's target gets no marker.
+/// Not in a cinematic or while paused (0x00406790).
 #[allow(clippy::type_complexity)]
 fn lock_markers(
     state: Res<HudState>,
@@ -1996,19 +2089,28 @@ fn lock_markers(
     windows: Query<&Window>,
     mut markers: Query<(&LockMarker, &mut HudElement, &mut Visibility)>,
     (app, vtime, settings): (Res<State<crate::AppState>>, Res<Time<Virtual>>, Res<crate::graphics::GraphicsSettings>),
+    (ctx, upgrade): (AimContext, Res<crate::weapons::VindalooUpgrade>),
 ) {
+    use crate::weapons::targeting::Pass;
     let paused = *app.get() != crate::AppState::Playing || vtime.is_paused();
     let layout = crate::display::ui::UiLayout::new(&settings.display, window_size(&windows));
     let cam = cam.single().ok();
+    let multi_lock = ctx.ride() == Ride::OnFoot && !ctx.death_camera();
     for (m, mut el, mut v) in &mut markers {
+        let slot = m.0 as usize;
+        let (marked, on_screen_test) = match targets.pass {
+            Some(Pass::MultiLock) => (multi_lock && (slot < 2 || upgrade.0), true),
+            Some(Pass::Shark) => (slot == 0, false),
+            _ => (false, false),
+        };
         let screen = targets
             .list
-            .get(m.0 as usize)
-            .filter(|_| state.visible && !state.cinematic && !paused)
+            .get(slot)
+            .filter(|_| marked && state.visible && !state.cinematic && !paused)
             .and_then(|t| cam.and_then(|(c, ct)| c.world_to_ndc(ct, t.point)))
             .filter(|n| n.z > 0.0 && n.z < 1.0)
             .map(|n| Vec2::new((n.x + 1.0) * 0.5, (1.0 - n.y) * 0.5))
-            .filter(|p| p.x > 0.08 && p.x < 0.92 && p.y > 0.065 && p.y < 0.935);
+            .filter(|p| !on_screen_test || (p.x > 0.08 && p.x < 0.92 && p.y > 0.065 && p.y < 0.935));
         let want = if screen.is_some() { Visibility::Inherited } else { Visibility::Hidden };
         if let Some(p) = screen {
             // the view's point in the window (the letterbox band, or the whole window), then the in-game HUD's 640 x

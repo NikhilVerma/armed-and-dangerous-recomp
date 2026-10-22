@@ -883,7 +883,7 @@ fn hud_state(
     hud.stickies = p.stickies;
     hud.special = p.special;
     hud.special_count = p.special_count;
-    // the weapon-cycle arrows (hud.rs, 0x00463fa0): the guns carried and the specials with some left (player.rs cycles
+    // the weapon-cycle arrows (hud.rs, 0x00463fa0): the guns carried and the specials listed (player.rs cycles
     // through those)
     hud.weapons = p.guns;
     hud.specials = p.specials;

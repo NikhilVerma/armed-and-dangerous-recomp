@@ -1164,7 +1164,8 @@ fn publish_stats(q: Query<(&Roman, &Transform, &Health)>, mut stats: ResMut<Play
     (stats.special, stats.special_count) = r.arsenal.special_in_hand();
     stats.stickies = r.arsenal.count(crate::weapons::SpecialId::StickyBomb);
     stats.guns = r.arsenal.gun_count() as u32;
-    stats.specials = r.arsenal.specials().count() as u32;
+    // the special list's occupied slots (0x004a1640: a special stays listed when used up, the HUD's up / down arrows)
+    stats.specials = crate::weapons::SpecialId::ALL.into_iter().filter(|s| r.arsenal.lists(*s)).count() as u32;
 }
 
 fn aim(r: &Roman, t: &Transform) -> (Vec3, Vec3) {

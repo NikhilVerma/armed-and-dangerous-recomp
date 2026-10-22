@@ -33,7 +33,7 @@
  {"expect": {"weapons.pass": "AutoAim", "weapons.targets": 0}},
  {"spawn": [-260, -175, 8]},
  {"wait": 0.3},
- {"expect": {"weapons.targets": 1, "hud.locks_shown": 1}},
+ {"expect": {"weapons.targets": 1, "hud.locks_shown": 0}},
  {"click": "Left"},
  {"wait": 0.3},
  {"expect": {"hits": 1, "shots": 2}},

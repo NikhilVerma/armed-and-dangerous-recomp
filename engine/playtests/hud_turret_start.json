@@ -1,0 +1,7 @@
+{"scene": "lev_1_m4", "steps": [
+ {"note": "a level that starts in a turret (start_in_turret_tag, Game+0x26cc): only ui_bd_crosshair (Hud_ProjectMarkers 0x00406840), no weapon panel, icons, counts or arrows (0x00463fa0 / 0x00465a20 / 0x00465ad0), no lock-on markers in the turret (0x00406740)"},
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 3.5}, {"tap": "Enter"},
+ {"wait": 1.0},
+ {"expect": {"base_turret.mounted": true, "base_turret.intro": false, "hud.visible": true, "hud.crosshair": "ui_bd_crosshair", "hud.weapon_icon": "", "hud.special_icon": "", "hud.arrows": [], "hud.locks_shown": 0}},
+ {"quit": true}
+]}

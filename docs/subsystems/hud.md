@@ -316,6 +316,14 @@ paused, camera mode 0x0040fab0 == 0 or Game+0xac8 set) and there is a player:
   selected (0x004a1670 != -1; no anims, arms at the out pose);
 - in a turret: only `ui_bd_crosshair`, animated by the same state.
 
+Camera mode 3 (0x0040fa90) is set only by the player's update once his death ragdoll takes (game_06.cpp:2201), so
+on foot the crosshairs vanish under the death camera. The lock-on markers (same function, before the list): with
+hud+0x152 (the vindaloo, also set in the base turret) only while 0x00406740 allows (Game+0xac8 0, camera mode 0,
+not paused), markers 2 and 3 only with the upgrade Game+0xdd0, each inside the screen box; otherwise only marker 0 on
+the single target with the shark gun (weapon 5), no screen test: the auto-aim target gets none, and the base turret
+shows none. With start_in_turret_tag (Game+0x26cc) 0x00463fa0 also hides the weapon panel, the gun / special icons,
+ui_ammo_infinity and the arrows, 0x00465a20 / 0x00465ad0 the two counts (fix2-g33, 2026-10-22).
+
 **The anims** (anims/ `<name>_in` / `_out`, Anim_Set flags 0x80: played once, held). `ui_crosshair` is one skinned
 mesh (crosshair_07, bones Box04 / Box03 / Box02 / Box01 = bottom / right / top / left arm, bind at +-1 px):
 `_in` moves each arm from 5 to 1 px out over 1.0 s (linear), `_out` from 1 to 5 over 0.2 s. So the crosshair opens
