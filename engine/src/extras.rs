@@ -59,6 +59,9 @@ pub struct Unlocks {
     pub levels: Vec<&'static str>,
     pub bonus: Vec<&'static str>,
     pub movie_list: Vec<&'static str>,
+    /// the Difficulty page's rows that can be chosen (easy .. insane): Over The Top and Insane once bought
+    /// (UiScreen_InitItem 0x00491b70 case 71: a text id whose digit is '3' or more needs 0x004a0720(id, 4))
+    pub difficulty: [bool; 4],
 }
 
 impl Unlocks {
@@ -73,6 +76,7 @@ impl Unlocks {
             levels: LEVELS.iter().filter(reached).filter(|l| levels.dir(l).is_some()).copied().collect(),
             bonus: BONUS_LEVELS.iter().filter(|l| all_levels || bought(l)).filter(|l| levels.dir(l).is_some()).copied().collect(),
             movie_list: MOVIES.iter().filter(|m| all_movies || opts.movies_seen.iter().any(|s| s.eq_ignore_ascii_case(m))).copied().collect(),
+            difficulty: [true, true, bought("ui_diff_3"), bought("ui_diff_4")],
         }
     }
 }

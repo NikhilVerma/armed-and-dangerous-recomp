@@ -3,9 +3,7 @@
  {"tap": "Escape"},
  {"wait": 0.2},
  {"expect": {"menu.page": "Pause", "menu.fading": false, "menu.selected": "ui_pausemenu_resumegame"}},
- {"tap": "ArrowUp"}, {"wait": 0.2},
- {"tap": "ArrowUp"}, {"wait": 0.2},
- {"tap": "ArrowUp"}, {"wait": 0.2},
+ {"tap": "ArrowDown"}, {"wait": 0.2}, {"tap": "ArrowDown"}, {"wait": 0.2}, {"tap": "ArrowDown"}, {"wait": 0.2}, {"tap": "ArrowDown"}, {"wait": 0.2}, {"tap": "ArrowDown"}, {"wait": 0.2}, {"tap": "ArrowUp"}, {"wait": 0.2}, {"tap": "ArrowUp"}, {"wait": 0.2},
  {"expect": {"menu.selected": "ui_mfail_restart"}},
  {"tap": "Enter"},
  {"wait": 0.3},
@@ -38,7 +36,7 @@
  {"wait": 6.5},
  {"expect": {"mission": "Failed", "menu.page": "Failed", "hud.visible": true}},
  {"shot": "failed"},
- {"tap": "ArrowUp"}, {"wait": 0.3},
+ {"tap": "ArrowDown"}, {"wait": 0.3}, {"tap": "ArrowDown"}, {"wait": 0.3},
  {"expect": {"menu.selected": "ui_mfail_menu"}},
  {"quit": true}
 ]}

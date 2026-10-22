@@ -10,24 +10,7 @@
     "menu.page": "Main"
    }
   },
-  {
-   "tap": "ArrowUp"
-  },
-  {
-   "wait": 0.4
-  },
-  {
-   "tap": "ArrowUp"
-  },
-  {
-   "wait": 0.4
-  },
-  {
-   "tap": "ArrowUp"
-  },
-  {
-   "wait": 0.4
-  },
+  {"tap": "ArrowDown"}, {"wait": 0.4}, {"tap": "ArrowDown"}, {"wait": 0.4}, {"tap": "ArrowDown"}, {"wait": 0.4}, {"tap": "ArrowDown"}, {"wait": 0.4}, {"tap": "ArrowUp"}, {"wait": 0.4}, {"tap": "ArrowUp"}, {"wait": 0.4},
   {
    "expect": {
     "menu.page": "Main",
@@ -40,12 +23,7 @@
   {
    "wait": 1.0
   },
-  {
-   "tap": "ArrowDown"
-  },
-  {
-   "wait": 0.4
-  },
+  {"tap": "ArrowUp"}, {"wait": 0.4}, {"tap": "ArrowUp"}, {"wait": 0.4}, {"tap": "ArrowUp"}, {"wait": 0.4}, {"tap": "ArrowUp"}, {"wait": 0.4}, {"tap": "ArrowUp"}, {"wait": 0.4}, {"tap": "ArrowUp"}, {"wait": 0.4}, {"tap": "ArrowUp"}, {"wait": 0.4},
   {
    "expect": {
     "menu.page": "Options",

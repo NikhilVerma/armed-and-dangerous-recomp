@@ -13,11 +13,11 @@
  {"expect": {"menu.page": "Pause", "menu.selected": "ui_pausemenu_savegame"}},
  {"tap": "Enter"}, {"wait": 1.0},
  {"expect": {"menu.page": "SaveSlots", "menu.slot": 1}},
- {"tap": "Enter"}, {"wait": 1.5},
+ {"tap": "Enter"}, {"wait": 5.0},
  {"expect": {"menu.page": "Pause", "saves.slots": ["saved", "empty", "empty", "empty", "empty", "empty"]}},
  {"note": "saved"},
 
- {"tap": "ArrowUp"}, {"wait": 0.3}, {"tap": "ArrowUp"}, {"wait": 0.3},
+ {"tap": "ArrowDown"}, {"wait": 0.3}, {"tap": "ArrowDown"}, {"wait": 0.3}, {"tap": "ArrowDown"}, {"wait": 0.3}, {"tap": "ArrowDown"}, {"wait": 0.3}, {"tap": "ArrowDown"}, {"wait": 0.3},
  {"expect": {"menu.selected": "ui_pausemenu_quitgame"}},
  {"tap": "Enter"}, {"wait": 1.0},
  {"tap": "ArrowUp"}, {"wait": 0.3},

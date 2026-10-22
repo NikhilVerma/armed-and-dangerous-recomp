@@ -8,8 +8,11 @@
 //!   band stay on screen), mission failed (pui_missionfailed).
 //!
 //! The selected row is white and pulses (size = (|sin(phase)| * 0.15 + 1) * scale, phase += dt * 5); disabled rows
-//! are #404040 and skipped. Sounds: ui_move, ui_select, ui_cancel. Keys: Up/Down (W/S), Left/Right (A/D) for
-//! sliders and lists, Enter or Space to choose, Esc to go back.
+//! are #404040 and skipped (`RowGate`). Sounds: `MenuSound`. Keys: the directions follow the items' nav links (no wrap
+//! at the ends, left / right between columns or on a stepper), Enter or Space to choose, Esc to go back; choose and
+//! back repeat while held.
+//!
+//! New Game asks the difficulty first (the Difficulty page); a save from the save screen shows the Saving page.
 //!
 //! Save Game (the save screen) / Resume Game (the load screen): the slot pages here, drawn by saveslots.rs, the files
 //! savegame.rs; Quick Load / Restart from last save load the newest save. Cheats: cheats.rs. Credits: credits.txt
@@ -59,6 +62,12 @@ pub enum Page {
     Movies,
     /// the exit screen ("ExitMenu", 0x00493770): the game quits once the menu has faded to it (splash.rs)
     Exit,
+    /// New Game's difficulty choice ("Difficulty", pui_difficulty: UiScreen_Activate 0x004921a0 case 1 pushes it,
+    /// case 71 chooses), built each time it opens from what the tokens have bought (`unlock_pages`)
+    Difficulty,
+    /// "Saving game. Please wait..." after a save from the save screen ("Saving", pui_saving: 0x004a3a80), then back
+    /// to the pause menu (`saving_screen`)
+    Saving,
     /// remaster: the Graphics page's effects (the old remaster's fog, motion blur, AO shaping, output pass), edited
     /// on the Graphics page's copy (Apply / Cancel there)
     GfxEffects,
@@ -91,8 +100,10 @@ impl Page {
         match self {
             Page::Main | Page::Options | Page::Extras | Page::Exit => Back::Title,
             // the save page draws ui_background (layout.json pui_savegame: model ui_background_01)
-            Page::Gfx | Page::GfxDetail | Page::GfxEffects | Page::Sfx | Page::Controls | Page::Cheats | Page::Credits | Page::SaveSlots | Page::LoadSlots | Page::Replay | Page::Movies | Page::Engine | Page::Display => Back::Shell,
-            Page::YesNo | Page::Pause | Page::Failed | Page::Pub | Page::Stats => Back::Game,
+            // pui_difficulty draws ui_background_01 too (layout.json)
+            Page::Gfx | Page::GfxDetail | Page::GfxEffects | Page::Sfx | Page::Controls | Page::Cheats | Page::Credits | Page::SaveSlots | Page::LoadSlots | Page::Replay | Page::Movies | Page::Engine | Page::Display | Page::Difficulty => Back::Shell,
+            // pui_saving has no background: the game shows under its text
+            Page::YesNo | Page::Pause | Page::Failed | Page::Pub | Page::Stats | Page::Saving => Back::Game,
         }
     }
 }
@@ -203,13 +214,81 @@ pub enum Act {
     /// a key binding entry of the Controls page: choosing it waits for the input to bind (bindings.rs `Capture`;
     /// UI_ShowAssignKeyPrompt 0x00447f50, codes 44 / 45 of 0x004714c0)
     Rebind(crate::bindings::Bind, crate::bindings::Device),
+    /// a row of the Difficulty page (code 71): the difficulty (0 easy .. 3 insane: the text id's last digit - 1, as
+    /// 0x004921a0 passes it to 0x00401f60) and the new game starts
+    Difficulty(usize),
+}
+
+/// What decides now whether a row can be chosen. The original sets a row's disabled bit (+0x474 0x40, through
+/// 0x004927a0) as the page's items are set up (UiScreen_InitItem 0x00491b70, GfxMenu_SetupWidget 0x004710d0); the
+/// selection (0x00491b20) and the nav links (0x00464a10) skip such a row and it is drawn grey.
+#[derive(Clone, Copy, Default, Debug, PartialEq)]
+pub struct RowGate {
+    /// a saved game exists
+    pub has_save: bool,
+    /// the pause menu's Save Game may be used (code 7: the original only while its quick save is offered,
+    /// 0x00403bb0 and Game+0x568 bit 3; the remaster anywhere unless "checkpoint_saves": savegame::may_save)
+    pub menu_save: bool,
+    /// Auto-Aim can be changed: not in a level at a difficulty above normal (code 79: Game+0x748 set and Game+0x550 > 1
+    /// disable it; the aim ignores the option there, weapons/targeting.rs)
+    pub auto_aim: bool,
 }
 
 impl Act {
-    /// A row that needs a saved game: disabled (+0x474 0x40, skipped by the selection: 0x00491b20) while there is none
-    /// (Load Game: code 2, 0x004a2c10 slot -1; Quick Load and Restart from last save: code 34, 0x004a2e90).
-    fn needs_save(self) -> bool {
-        matches!(self, Act::LoadSave | Act::LoadMenu)
+    /// Whether this row can be chosen now: the rows that load the saved game need one (Load Game: code 2, 0x004a2c10
+    /// slot -1; Quick Load and Restart from last save: code 34, 0x004a2e90), Save Game a place to save (code 7),
+    /// Auto-Aim its difficulty (code 79).
+    fn enabled(self, gate: RowGate) -> bool {
+        match self {
+            Act::LoadSave | Act::LoadMenu => gate.has_save,
+            Act::Go(Page::SaveSlots) => gate.menu_save,
+            Act::Toggle(Flag::AutoAim) => gate.auto_aim,
+            _ => true,
+        }
+    }
+}
+
+/// The front end's sounds (UiSound_PlayRandom 0x00491760: 2D at 0 dB, the name picked at random from a list).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum MenuSound {
+    /// ui_move (0x00491890): the selection moved, a stepper stepped
+    Move,
+    /// one of ui_select_1 .. ui_select_3 at random (UiSound_PlaySelectSet 0x00491850, table 0x005cb158): an item
+    /// chosen
+    Select,
+    /// ui_select (UiSound_PlaySelect 0x00491830): a game starts from the front end (a difficulty chosen, a level to
+    /// replay)
+    Start,
+    /// ui_cancel (0x00491870): back, no, a refusal
+    Cancel,
+}
+
+impl MenuSound {
+    /// The sound to play. The select set's pick is audio.rs's (`PlaySound::menu_any`, also used by cheats.rs and
+    /// bindings.rs).
+    pub fn sound(self) -> crate::audio::PlaySound {
+        let name = match self {
+            MenuSound::Move => "ui_move",
+            MenuSound::Select => return crate::audio::PlaySound::menu_any(&crate::audio::SELECT_SET),
+            MenuSound::Start => "ui_select",
+            MenuSound::Cancel => "ui_cancel",
+        };
+        crate::audio::PlaySound::menu(name)
+    }
+
+    /// The sound of an activated row (UiScreen_Activate 0x004921a0, OptionsMenu_OnAction 0x004714c0, UiScreen_Update
+    /// 0x004929e0). `by_back`: the Back input (bit 0x20) rather than a chosen row: the cancel sound and a pop. Chosen,
+    /// the rows of code 5 (Back, Cancel, the pause menu's Resume) and 28 (No) cancel; a started game (codes 71 and 6 /
+    /// 42 in replay mode) plays ui_select itself, so not the set (the sound counter 0x0063a160 moved); the rest select,
+    /// the graphics page's Cancel (code 78) too.
+    fn of(page: Page, act: Act, by_back: bool) -> MenuSound {
+        match act {
+            _ if by_back => MenuSound::Cancel,
+            Act::Back | Act::No => MenuSound::Cancel,
+            Act::Continue if page == Page::Pause => MenuSound::Cancel,
+            Act::Difficulty(_) | Act::Replay(_) => MenuSound::Start,
+            _ => MenuSound::Select,
+        }
     }
 }
 
@@ -318,8 +397,8 @@ pub struct GameMenu {
     shown: Option<Page>,
     shown_sel: usize,
     shown_under: Option<Page>,
-    /// a saved game exists (the rows that load it are disabled without one)
-    pub has_save: bool,
+    /// what the rows' enabling depends on now (`RowGate`: a saved game, where a save may be made, the difficulty)
+    pub gate: RowGate,
     /// the save slots as the save / load screens show them (savegame.rs), and the slot selected there (0..6; None
     /// on another row or page)
     pub slots: Vec<crate::savegame::Slot>,
@@ -344,7 +423,7 @@ impl Default for GameMenu {
             shown: None,
             shown_sel: 0,
             shown_under: None,
-            has_save: false,
+            gate: RowGate::default(),
             slots: Vec::new(),
             slot_sel: None,
             capture: None,
@@ -411,7 +490,7 @@ impl Plugin for GameMenuPlugin {
     fn build(&self, app: &mut App) {
         app.init_level_resource::<GameMenu>()
             .init_resource::<Texts>()
-            .add_systems(Update, (failed, crate::bindings::capture, navigate.run_if(crate::movie::no_movie_input).run_if(crate::devtools::overlay_closed).run_if(crate::splash::no_splash), extras_pages, animate, values, pause_band, credits, log_menu).chain().in_set(MenuSystems))
+            .add_systems(Update, (failed, crate::bindings::capture, navigate.run_if(crate::movie::no_movie_input).run_if(crate::devtools::overlay_closed).run_if(crate::splash::no_splash), unlock_pages, saving_screen, animate, values, pause_band, credits, log_menu).chain().in_set(MenuSystems))
             .add_plugins(crate::saveslots::SaveSlotsPlugin);
     }
 }
@@ -426,7 +505,7 @@ fn log_menu(
 ) {
     let Some(mut state) = state else { return };
     let prefix = format!("menu_{:?}_", menu.page);
-    let sel_order = rows_of(rows.iter().map(|x| x.0), menu.page, menu.has_save).get(menu.selected).map(|x| x.0);
+    let sel_order = rows_of(rows.iter().map(|x| x.0), menu.page, menu.gate).get(menu.selected).map(|x| x.0);
     let row = rows.iter().find(|(r, _)| r.page == menu.page && r.order.is_some() && r.order == sel_order);
     let sel = row.map(|(_, h)| h.name.trim_start_matches(&prefix).to_owned());
     // the selected stepper's value text (the graphics page's edit copy while it is open)
@@ -505,6 +584,18 @@ impl Spawner<'_, '_, '_> {
         // the remaster opens it
         self.row(Page::Extras, "ui_extrasmenu_credits", Vec2::new(320.0, 235.0), 1.3, ORANGE, Act::Go(Page::Credits), 0.0);
         self.row(Page::Extras, "ui_shellmenu_back", Vec2::new(320.0, 84.44), 1.4, YELLOW, Act::Back, 0.0);
+    }
+
+    /// New Game's Difficulty page (pui_difficulty, layout.json): the question, the four difficulties from Easy down,
+    /// 24 apart, and Cancel. A difficulty not yet bought is greyed and skipped (`Unlocks::difficulty`).
+    fn difficulty_page(&mut self, u: &crate::extras::Unlocks) {
+        let p = Page::Difficulty;
+        self.row(p, "ui_diff_title", Vec2::new(320.0, 347.013), 1.4, Color::WHITE, Act::None, 0.0);
+        for (i, open) in u.difficulty.into_iter().enumerate() {
+            let (colour, act) = if open { (GREEN, Act::Difficulty(i)) } else { (DISABLED, Act::None) };
+            self.row(p, &format!("ui_diff_{}", i + 1), Vec2::new(320.0, 275.013 - 24.0 * i as f32), 1.0, colour, act, 0.0);
+        }
+        self.row(p, "ui_shellmenu_cancel", Vec2::new(320.0, 60.44), 1.4, Color::srgb(1.0, 0x20 as f32 / 255.0, 0x20 as f32 / 255.0), Act::Back, 0.0);
     }
 
     /// Replay Mission (pui_levelselect): the levels reached ("ui_listbox_missionlist", 12 rows in the original's
@@ -662,9 +753,10 @@ impl Spawner<'_, '_, '_> {
     /// units (Stepper_Layout 0x0046d050), the gauge (0x0046d130), the value text from +288 (left-aligned).
     fn slider(&mut self, page: Page, label: &str, item: Vec2, scale: f32, opt: Opt, enabled: bool) {
         let colour = if enabled { GREEN } else { DISABLED };
-        // the hit box covers the gauge and the value too (Stepper_Layout adds the value's bounds; a click on the
-        // track sets the value: Stepper_HandleInput 0x0046d290)
-        self.next = (144.0, Some((item.x + 77.0, item.x + 340.0)));
+        // the hit box covers the gauge (the remaster's: the original's has a gap between label and value) and the
+        // value text (Stepper_Layout 0x0046d050 adds its measured bounds: `navigate`); a click on the track sets the
+        // value (Stepper_HandleInput 0x0046d290)
+        self.next = (144.0, Some((item.x + 77.0, item.x + 275.0)));
         self.row(page, label, item, scale, colour, if enabled { Act::Slide(opt) } else { Act::None }, 0.0);
         self.gauge(page, item, positions(opt), 0.0, Some(opt), enabled);
         self.text(page, "", Vec2::new(item.x + 288.0, item.y), scale, colour, -1.0, PartKind::Value(opt));
@@ -818,7 +910,7 @@ pub fn spawn(commands: &mut Commands, assets: &AssetServer, meshes: &mut Assets<
         s.row(Page::Options, "Display", Vec2::new(320.0, 97.0), 1.3, ORANGE, Act::Go(Page::Display), 0.0);
         s.row(Page::Options, "ui_shellmenu_back", Vec2::new(320.0, 60.44), 1.4, YELLOW, Act::Back, 0.0);
 
-        // extras, replay level, cutscenes: built each time they open, from what is unlocked (`extras_pages`)
+        // extras, replay level, cutscenes: built each time they open, from what is unlocked (`unlock_pages`)
 
         // graphics (pui_gfxopt; orig_ui_gfx-1140.png): labels right-aligned at x 240, bar 250..447, value at 460
         s.row(Page::Gfx, "ui_gfxmenu_title", Vec2::new(320.0, 420.996), 1.4, GREEN, Act::None, 0.0);
@@ -985,15 +1077,17 @@ pub fn spawn(commands: &mut Commands, assets: &AssetServer, meshes: &mut Assets<
         // the save / load screens (pui_savegame; saveslots.rs)
         s.slot_page(Page::SaveSlots, crate::saveslots::Mode::Save);
         s.slot_page(Page::LoadSlots, crate::saveslots::Mode::Load);
+        // the Saving screen (pui_saving: its one text, "Saving game.<br>Please wait...")
+        s.row(Page::Saving, "ui_tcrc411_pc", Vec2::new(320.0, 276.44), 1.5, GREEN, Act::None, 0.0);
     }
     commands.insert_resource(texts);
 }
 
-/// Builds the Extras, Replay Mission and Play Cutscene pages when one opens, from what is unlocked now (extras.rs;
-/// the original fills its list boxes as the screen's items are set up, UiScreen_InitItem 0x00491b70 cases 6 / 12 /
-/// 41 / 42).
+/// Builds the Extras, Replay Mission, Play Cutscene and Difficulty pages when one opens, from what is unlocked now
+/// (extras.rs; the original fills its list boxes and enables its rows as the screen's items are set up,
+/// UiScreen_InitItem 0x00491b70 cases 6 / 12 / 41 / 42 / 71).
 #[allow(clippy::too_many_arguments)]
-fn extras_pages(
+fn unlock_pages(
     mut commands: Commands,
     menu: Res<GameMenu>,
     mut last: crate::levelreset::PerLevel<Option<Page>>,
@@ -1008,7 +1102,7 @@ fn extras_pages(
         return;
     }
     *last = Some(menu.page);
-    if !matches!(menu.page, Page::Extras | Page::Replay | Page::Movies) {
+    if !matches!(menu.page, Page::Extras | Page::Replay | Page::Movies | Page::Difficulty) {
         return;
     }
     for (e, r) in &rows {
@@ -1021,6 +1115,7 @@ fn extras_pages(
     match menu.page {
         Page::Extras => s.extras_page(&u),
         Page::Replay => s.replay_page(&u),
+        Page::Difficulty => s.difficulty_page(&u),
         _ => s.movies_page(&u),
     }
 }
@@ -1028,8 +1123,8 @@ fn extras_pages(
 /// The page's selectable rows in up / down order: (order, action). A row that loads the saved game is disabled
 /// (+0x474 0x40, skipped by the selection: 0x00491b20) while there is none: Load Game (code 2, 0x004a2c10 slot -1),
 /// Quick Load and Restart from last save (code 34, 0x004a2e90).
-fn rows_of<'a>(rows: impl Iterator<Item = &'a MenuRow>, page: Page, has_save: bool) -> Vec<(usize, Act)> {
-    let mut v: Vec<(usize, Act)> = rows.filter(|r| r.page == page && r.on_device() && (has_save || !r.act.needs_save())).filter_map(|r| r.order.map(|o| (o, r.act))).collect();
+fn rows_of<'a>(rows: impl Iterator<Item = &'a MenuRow>, page: Page, gate: RowGate) -> Vec<(usize, Act)> {
+    let mut v: Vec<(usize, Act)> = rows.filter(|r| r.page == page && r.on_device() && r.act.enabled(gate)).filter_map(|r| r.order.map(|o| (o, r.act))).collect();
     v.sort_by_key(|x| x.0);
     v
 }
@@ -1075,11 +1170,89 @@ fn failed(mission: Option<Res<crate::mission::Mission>>, state: Res<State<AppSta
     }
 }
 
+/// A held key's repeat in the menus (0x00491090): true when pressed, then while held after the first delay and every
+/// repeat delay after that. A page change re-arms it out of reach (0x00491110 sets the timers to a huge value) so a key
+/// still held from the last page does nothing until pressed again.
+#[derive(Clone, Copy, Debug)]
+struct HeldRepeat {
+    timer: f32,
+}
+
+impl Default for HeldRepeat {
+    fn default() -> Self {
+        HeldRepeat { timer: f32::INFINITY }
+    }
+}
+
+impl HeldRepeat {
+    /// MenuSelect / MenuCancel (keys 0x1b / 0x1c of 0x00491140): first repeat after 0.25 s, then every 0.1 s.
+    const FIRST: f32 = 0.25;
+    const REPEAT: f32 = 0.1;
+
+    fn fire(&mut self, pressed: bool, held: bool, dt: f32) -> bool {
+        if pressed {
+            self.timer = Self::FIRST;
+            return true;
+        }
+        if held {
+            self.timer -= dt;
+            if self.timer <= 0.0 {
+                self.timer = Self::REPEAT;
+                return true;
+            }
+        }
+        false
+    }
+
+    fn rearm(&mut self) {
+        self.timer = f32::INFINITY;
+    }
+}
+
+/// The menu input's state between frames.
+#[derive(Default)]
+struct MenuInput {
+    /// the cursor's last window position (a move selects the row under it)
+    last_cursor: Option<Vec2>,
+    /// the time to the next look for a saved game
+    save_check: f32,
+    /// held Select / Back (0x00491140)
+    select: HeldRepeat,
+    back: HeldRepeat,
+    /// the page the repeats were armed on
+    page: Option<Page>,
+    /// the stepper being set with the mouse: pressed on its track (Stepper_HandleInput 0x0046d290), then followed
+    /// while the button is held (the remaster's drag: a trackpad can slide it)
+    drag: Option<(Page, Opt)>,
+}
+
+/// Where the selection goes from row `from` (an index into `items`) in direction `dir` (y up), by the items' nav
+/// links (+0x47c left / right / up / down, followed by 0x00464a10): up and down the previous / next row, not past the
+/// first or the last (the layout links the ends to nothing); left and right the nearest row beside it on its line in
+/// that direction (the two-column pages link their columns so), none when there is none. `pos`: each item's point.
+fn neighbour(pos: &[Vec2], from: usize, dir: IVec2) -> Option<usize> {
+    if dir.y > 0 {
+        return from.checked_sub(1);
+    }
+    if dir.y < 0 {
+        return (from + 1 < pos.len()).then_some(from + 1);
+    }
+    if dir.x == 0 {
+        return None;
+    }
+    // a row on the same line: the layout's columns sit up to 3 units apart (pui_gfxopt 174.691 / 172), rows 24 apart
+    const SAME_LINE: f32 = 12.0;
+    let here = pos[from];
+    (0..pos.len())
+        .filter(|&i| i != from && (pos[i].y - here.y).abs() <= SAME_LINE && (pos[i].x - here.x) * dir.x as f32 > 1.0)
+        .min_by(|&a, &b| (pos[a].x - here.x).abs().total_cmp(&(pos[b].x - here.x).abs()))
+}
+
 /// A menu screen's input (UiScreen_Update 0x004929e0 through the menu input 0x00491140): the mouse (the cursor,
 /// 0x00491380 / 0x00463ac0, mapped to the 640 x 480 layout) selects the item under it with the move sound when it
-/// moves, a click activates it; up / down move the selection (the items' nav links, 0x00464a10, here the rows'
-/// order), left / right step a stepper, select activates (UiScreen_Activate 0x004921a0 by the item's action),
-/// back cancels (0x00490b60 with the cancel sound).
+/// moves, a click activates it; the directions move the selection by the items' nav links (0x00464a10: `neighbour`),
+/// left / right step a stepper instead, select activates (UiScreen_Activate 0x004921a0 by the item's action), back
+/// cancels (0x00490b60 with the cancel sound); select and back repeat while held.
 #[allow(clippy::too_many_arguments)]
 fn navigate(
     ctl: Res<crate::input::Controls>,
@@ -1096,19 +1269,22 @@ fn navigate(
     mut cheats: ResMut<crate::cheats::Cheats>,
     mouse: Res<ButtonInput<MouseButton>>,
     mut restart: ResMut<crate::levelreset::RestartLevel>,
-    (placed, names, mut last_cursor, time_real, mut save_t, mut replay, mut movies, modes, settings): (
+    (placed, names, mut input, time_real, mut replay, mut movies, modes, settings, mut difficulty): (
         Query<(&MenuRow, &HudElement, Option<&TextSize>, Option<&TextAlign>)>,
         Query<(&Part, &HudElement, Option<&TextSize>, &Visibility)>,
-        Local<Option<Vec2>>,
+        Local<MenuInput>,
         Res<Time<Real>>,
-        Local<f32>,
         ResMut<crate::campaign::ReplayMode>,
         MessageWriter<crate::movie::PlayMovies>,
         Res<crate::display::window::DisplayModes>,
         Res<crate::graphics::GraphicsSettings>,
+        ResMut<crate::gamedata::Difficulty>,
     ),
 ) {
     cheats.entering = menu.page == Page::Cheats && *state.get() != AppState::Playing;
+    // the rows' enabling that follows the game (the saved game is looked for below, twice a second)
+    menu.gate.menu_save = crate::savegame::may_save(opts.checkpoint_saves, crate::savegame::SaveSource::Menu);
+    menu.gate.auto_aim = *state.get() == AppState::Title || difficulty.0 <= 1;
     // a screen transition is under way (0x004915b0: no input while a request is pending); the loading screen
     // (levelreset.rs) takes none either
     if menu.fade > 0.0 || *state.get() == AppState::Loading {
@@ -1118,6 +1294,14 @@ fn navigate(
     if menu.capture.is_some() {
         return;
     }
+    let dt = time_real.delta_secs();
+    if input.page != Some(menu.page) {
+        input.page = Some(menu.page);
+        input.select.rearm();
+        input.back.rearm();
+    }
+    let select_key = input.select.fire(ctl.pressed(crate::input::Act::Select), ctl.down(crate::input::Act::Select), dt);
+    let back_key = input.back.fire(ctl.pressed(crate::input::Act::Back), ctl.down(crate::input::Act::Back), dt);
     // the mouse in the menus (the original: Mouse 1 selects, Mouse 2 cancels): the row under the cursor is selected
     // when the cursor moves, a click activates it. Cursor (window pixels, y down) -> the menus' 640x480 space (y up),
     // as hud.rs place maps it (display/ui.rs: ui_aspect.cpp CursorToLayout)
@@ -1129,23 +1313,37 @@ fn navigate(
             if let Some(c) = w.cursor_position() {
                 let layout = crate::display::ui::UiLayout::new(&settings.display, Vec2::new(w.width(), w.height()));
                 let p = layout.to_layout(c, true);
+                let drawn = layout.text_box_scale(true);
                 cursor = Some(p);
-                cursor_moved = last_cursor.is_some_and(|l| l.distance(c) > 0.5);
-                *last_cursor = Some(c);
+                cursor_moved = input.last_cursor.is_some_and(|l| l.distance(c) > 0.5);
+                input.last_cursor = Some(c);
+                // a stepper's hit box ends past its value text (Stepper_Layout 0x0046d050 adds the value's measured
+                // bounds at +288, left-aligned, with UiText_SetBounds' 32-unit margin)
+                let value_end = |page: Page, o: Opt| {
+                    names.iter().find(|(part, ..)| part.page == Some(page) && part.kind == PartKind::Value(o)).and_then(|(_, e, size, _)| size.map(|s| e.pos.x + s.0.x * drawn.x + 32.0))
+                };
                 // the item under the cursor (0x00463930 tests each item's box +0x490..+0x49c): the text's bounds
                 // grown by 32 units in x and 4 in y (UiText_SetBounds 0x004655b0), with a stepper's gauge and value
                 // or a checkbox's box (`extra`); of several, the nearest row (hook/enhance's nearest-hit rule)
                 hovered = placed
                     .iter()
                     .filter(|(r, ..)| r.page == menu.page && r.order.is_some() && r.on_device())
-                    .filter(|(r, e, size, align)| hit_box(r, e, *size, *align, layout.text_box_scale(true)).is_some_and(|(lo, hi)| p.cmpge(lo).all() && p.cmple(hi).all()))
+                    .filter(|(r, e, size, align)| {
+                        hit_box(r, e, *size, *align, drawn).is_some_and(|(lo, mut hi)| {
+                            if let Act::Slide(o) = r.act {
+                                hi.x = hi.x.max(value_end(r.page, o).unwrap_or(hi.x));
+                            }
+                            p.cmpge(lo).all() && p.cmple(hi).all()
+                        })
+                    })
                     .min_by(|a, b| (p.y - a.1.pos.y).abs().total_cmp(&(p.y - b.1.pos.y).abs()))
                     .and_then(|(r, ..)| r.order);
             }
         }
     }
     let screen = Screen::new(&windows, &modes);
-    // the cheat page: a click on a cheat's name types its code and checks it (Cheats_Check 0x004107c0, state 1)
+    // the cheat page: a click on a cheat's name types its code and checks it (Cheats_Check 0x004107c0, state 1; the
+    // check plays the result's sound, cheats.rs)
     if menu.page == Page::Cheats && mouse.just_pressed(MouseButton::Left) {
         if let Some(p) = cursor {
             for (part, e, size, vis) in &names {
@@ -1154,26 +1352,31 @@ fn navigate(
                 if *vis != Visibility::Hidden && (p - e.pos).abs().cmple(half).all() {
                     cheats.typed = crate::cheats::CHEATS[i].1.to_owned();
                     cheats.submit = true;
-                    sounds.write(crate::audio::PlaySound::menu("ui_select"));
                 }
             }
         }
     }
-    // a stepper's track under the mouse sets its value (Stepper_HandleInput 0x0046d290: x 80..272, y -6..6 around
-    // the item; held, so the remaster's trackpad can drag it)
-    if mouse.pressed(MouseButton::Left) {
-        if let Some(p) = cursor {
-            for (r, e, ..) in &placed {
-                let Act::Slide(o) = r.act else { continue };
-                if r.page != menu.page || (p.y - e.pos.y).abs() > 9.0 || p.x < e.pos.x + 77.0 || p.x > e.pos.x + 275.0 {
-                    continue;
-                }
+    // a stepper's track under the mouse sets its value: a press inside the track (Stepper_HandleInput 0x0046d290:
+    // x 80..272, y -6..6 around the item; a press elsewhere changes nothing), then, held, the remaster's drag follows
+    // the cursor along it to its ends
+    if !mouse.pressed(MouseButton::Left) {
+        input.drag = None;
+    }
+    if let Some(p) = cursor {
+        if mouse.just_pressed(MouseButton::Left) {
+            input.drag = placed.iter().find_map(|(r, e, ..)| match r.act {
+                Act::Slide(o) if r.page == menu.page && (p.y - e.pos.y).abs() <= 6.0 && (e.pos.x + 80.0..=e.pos.x + 272.0).contains(&p.x) => Some((r.page, o)),
+                _ => None,
+            });
+        }
+        if let Some((page, o)) = input.drag.filter(|d| d.0 == menu.page) {
+            if let Some((_, e, ..)) = placed.iter().find(|(r, ..)| r.page == page && r.act == Act::Slide(o)) {
                 let frac = (p.x - (e.pos.x + 80.0)) / 192.0;
                 let target = if on_gfx_copy(o) { menu.edit.get_or_insert_with(|| opts.clone()) } else { &mut *opts };
                 let before = value(target, o, &screen).1;
                 set_position(target, o, frac, &screen);
                 if value(target, o, &screen).1 != before {
-                    sounds.write(crate::audio::PlaySound::menu("ui_move"));
+                    sounds.write(MenuSound::Move.sound());
                 }
             }
         }
@@ -1185,7 +1388,7 @@ fn navigate(
                 menu.page = p;
                 menu.selected = s;
             }
-            sounds.write(crate::audio::PlaySound::menu("ui_cancel"));
+            sounds.write(MenuSound::Cancel.sound());
         }
         return;
     }
@@ -1199,37 +1402,35 @@ fn navigate(
                 menu.page = p;
                 menu.selected = s;
             }
-            sounds.write(crate::audio::PlaySound::menu("ui_cancel"));
+            sounds.write(MenuSound::Cancel.sound());
         }
         return;
     }
-    let play = |s: &mut MessageWriter<crate::audio::PlaySound>, n: &str| {
-        s.write(crate::audio::PlaySound::menu(n));
+    let play = |s: &mut MessageWriter<crate::audio::PlaySound>, sound: MenuSound| {
+        s.write(sound.sound());
     };
     // Esc in play opens the pause menu (not over a paused mission message)
     if *state.get() == AppState::Playing {
         if ctl.pressed(crate::input::Act::Pause) && mission.as_ref().is_none_or(|m| m.showing.is_none()) {
             next.set(AppState::Paused);
             vtime.pause();
-            menu.page = Page::Pause;
-            menu.stack.clear();
-            menu.selected = 0;
-            play(&mut sounds, "ui_select");
+            menu.open_pause();
+            play(&mut sounds, MenuSound::Select);
         }
         return;
     }
     let page = menu.page;
     // whether a saved game exists (checked twice a second: the save rows' enabling)
-    *save_t -= time_real.delta_secs();
-    if *save_t <= 0.0 {
-        *save_t = 0.5;
-        menu.has_save = crate::savegame::has_save();
+    input.save_check -= dt;
+    if input.save_check <= 0.0 {
+        input.save_check = 0.5;
+        menu.gate.has_save = crate::savegame::has_save();
         // the slots as the save / load screens show them (refilled as 0x004a3020 does on each show)
         if menu.slot_mode().is_some() {
             menu.slots = crate::savegame::slots();
         }
     }
-    let items = rows_of(rows.iter().map(|x| x.0), page, menu.has_save);
+    let items = rows_of(rows.iter().map(|x| x.0), page, menu.gate);
     // the row under the mouse as an index into this list
     let hovered = hovered.and_then(|h| items.iter().position(|x| x.0 == h));
     if items.is_empty() {
@@ -1241,56 +1442,54 @@ fn navigate(
     if let Some(h) = hovered.filter(|h| *h < n) {
         if (cursor_moved || mouse.just_pressed(MouseButton::Left)) && menu.selected != h {
             menu.selected = h;
-            play(&mut sounds, "ui_move");
+            play(&mut sounds, MenuSound::Move);
         }
     }
-    if menu.slot_mode().is_some() {
-        // the slot grid moves by the items' nav links in four directions (0x00464a10; saveslots::nav), not past the
-        // edges; a link to a row that is not there (the load screen's Continue without a save) goes on past it
-        let dir = ctl.step;
-        if dir != IVec2::ZERO {
+    let cur = items[menu.selected].1;
+    let dir = ctl.step;
+    if let (Act::Slide(o), true) = (cur, dir.x != 0) {
+        // a stepper takes left / right: one position, not past the ends (Stepper_HandleInput 0x0046d290: the move
+        // sound even at an end, as the input was taken)
+        let target = if on_gfx_copy(o) { menu.edit.get_or_insert_with(|| opts.clone()) } else { &mut *opts };
+        slide(target, o, dir.x as f32, &screen);
+        play(&mut sounds, MenuSound::Move);
+    } else if dir != IVec2::ZERO {
+        let to = if menu.slot_mode().is_some() {
+            // the slot grid's links (saveslots::nav), not past the edges; a link to a row that is not there (the load
+            // screen's Continue without a save) goes on past it
             let from = items[menu.selected].0;
             let mut to = crate::saveslots::nav(from, dir.x, dir.y);
             while let Some(t) = to.filter(|t| !items.iter().any(|x| x.0 == *t)) {
                 to = crate::saveslots::nav(t, dir.x, dir.y);
             }
-            if let Some(i) = to.and_then(|t| items.iter().position(|x| x.0 == t)) {
-                menu.selected = i;
-                play(&mut sounds, "ui_move");
-            }
-        }
-    } else {
-        if ctl.step.y < 0 {
-            menu.selected = (menu.selected + 1) % n;
-            play(&mut sounds, "ui_move");
-        }
-        if ctl.step.y > 0 {
-            menu.selected = (menu.selected + n - 1) % n;
-            play(&mut sounds, "ui_move");
+            to.and_then(|t| items.iter().position(|x| x.0 == t))
+        } else {
+            let pos: Vec<Vec2> = items.iter().map(|(o, _)| placed.iter().find(|(r, ..)| r.page == page && r.order == Some(*o)).map(|(_, e, ..)| e.pos).unwrap_or_default()).collect();
+            neighbour(&pos, menu.selected, dir)
+        };
+        if let Some(i) = to {
+            menu.selected = i;
+            play(&mut sounds, MenuSound::Move);
         }
     }
-    let cur = items[menu.selected].1;
     // the remaster's Delete on a saved slot (saveslots.rs): asks first
     if let (Act::Slot(i), true) = (cur, ctl.pressed(crate::input::Act::Delete)) {
         if menu.slots.get(i as usize).is_some_and(|s| *s != crate::savegame::Slot::Empty) {
             act = Some(Act::Ask(Ask::Delete(i)));
         } else {
-            play(&mut sounds, "ui_cancel");
-        }
-    }
-    let step = ctl.step.x as f32;
-    if step != 0.0 {
-        if let Act::Slide(o) = cur {
-            let target = if on_gfx_copy(o) { menu.edit.get_or_insert_with(|| opts.clone()) } else { &mut *opts };
-            slide(target, o, step, &screen);
-            play(&mut sounds, "ui_move");
+            play(&mut sounds, MenuSound::Cancel);
         }
     }
     let cur = items[menu.selected].1;
-    if ctl.pressed(crate::input::Act::Select) || (mouse.just_pressed(MouseButton::Left) && hovered.is_some()) {
+    if select_key || (mouse.just_pressed(MouseButton::Left) && hovered.is_some()) {
         act = Some(cur);
     }
-    if ctl.pressed(crate::input::Act::Back) {
+    // Back (input bit 0x20) pops with the cancel sound (UiScreen_Update), but not on a screen whose flags ignore it
+    // (+0x4c 0x20: the main menu 0x8a0, mission failed 0x24); the yes/no box answers No, the graphics page drops its
+    // copy as its Cancel does
+    let mut by_back = false;
+    if back_key {
+        by_back = true;
         act = match page {
             Page::Main | Page::Failed => None,
             Page::Pause => Some(Act::Continue),
@@ -1304,8 +1503,14 @@ fn navigate(
         menu.stack.push((menu.page, menu.selected));
         menu.page = p;
         // the options page opens on Back, as in the original; a save / load screen on its default slot (0x004a3b60:
-        // saving the first empty one, loading the newest save)
-        menu.selected = if p == Page::Options { usize::MAX } else { 0 };
+        // saving the first empty one, loading the newest save); the difficulty page on Normal (guess: the first
+        // selectable item in the layout's order gets the focus, 0x004919c0, as Options opens on Back; the layout lists
+        // ui_diff_2 first); Easy is always open, so Normal is the second row
+        menu.selected = match p {
+            Page::Options => usize::MAX,
+            Page::Difficulty => 1,
+            _ => 0,
+        };
         if let Some(mode) = menu.slot_mode() {
             menu.slots = crate::savegame::slots();
             menu.selected = crate::saveslots::default_slot(&menu.slots, mode);
@@ -1320,9 +1525,16 @@ fn navigate(
     match act {
         Act::None => return,
         Act::NewGame => {
-            // a new game's money and pub intro (0x00401e80 at the front end; campaign.rs); not a replay (case 1)
-            crate::campaign::new_game(&mut opts);
+            // case 1: not a replay; the Difficulty screen (the profile choice "SaveGame" before it is not ported)
             replay.0 = false;
+            go(&mut menu, Page::Difficulty);
+        }
+        Act::Difficulty(i) => {
+            // case 71: the difficulty (0x00401f60), then the game starts with a new game's money and pub intro
+            // (0x00401e80 at the front end; campaign.rs). The page is left as it is: play hides it at once (a page
+            // change now would start a fade), and the pause menu or the title's level start set the menus anew
+            *difficulty = crate::gamedata::Difficulty::select(i);
+            crate::campaign::new_game(&mut opts);
             next.set(AppState::Playing);
             vtime.unpause();
         }
@@ -1372,13 +1584,12 @@ fn navigate(
                 }
                 Some(Ask::Overwrite(slot)) => {
                     save_to_slot(&mut save_req, slot);
-                    // the Saving screen returns to the pause menu (0x004a3a80)
-                    back(&mut menu);
+                    go(&mut menu, Page::Saving);
                 }
                 Some(Ask::Delete(slot)) => {
                     crate::savegame::delete_slot(slot + 1);
                     menu.slots = crate::savegame::slots();
-                    menu.has_save = crate::savegame::has_save();
+                    menu.gate.has_save = crate::savegame::has_save();
                 }
             }
         }
@@ -1403,7 +1614,7 @@ fn navigate(
         Act::LoadSave => match crate::savegame::last_save() {
             Some(p) => restart.to = Some(RestartTo::Load(p)),
             None => {
-                play(&mut sounds, "ui_cancel");
+                play(&mut sounds, MenuSound::Cancel);
                 return;
             }
         },
@@ -1419,11 +1630,11 @@ fn navigate(
             match (menu.slot_mode(), state) {
                 (Some(crate::saveslots::Mode::Save), crate::savegame::Slot::Empty) => {
                     save_to_slot(&mut save_req, slot);
-                    back(&mut menu);
+                    go(&mut menu, Page::Saving);
                 }
                 (Some(crate::saveslots::Mode::Save), _) => ask(&mut menu, Ask::Overwrite(slot)),
                 (_, crate::savegame::Slot::Empty) => {
-                    play(&mut sounds, "ui_cancel");
+                    play(&mut sounds, MenuSound::Cancel);
                     return;
                 }
                 (_, crate::savegame::Slot::Damaged) => ask(&mut menu, Ask::Delete(slot)),
@@ -1460,11 +1671,31 @@ fn navigate(
             menu.capture = Some(crate::bindings::Capture { bind, device, armed: false });
         }
     }
-    // UiScreen_Activate (ui_03.cpp:1480): the cancel sound (0x00491870), else the select set (0x00491850)
-    if matches!(act, Act::Back | Act::No | Act::Cancel) {
-        play(&mut sounds, "ui_cancel");
-    } else {
-        sounds.write(crate::audio::PlaySound::menu_any(&crate::audio::SELECT_SET));
+    play(&mut sounds, MenuSound::of(page, act, by_back));
+}
+
+/// The Saving screen (0x004a3a80): up for 3 s of its own time (its flags 0x320 lack bit 2, which would make it 1 s),
+/// then back to the pause menu ("PauseMenu", 0x00490b80: the stack unwound to it). Its time runs once it is on screen
+/// (UiScreen_Update adds the frame time). The original writes the save at 0.5 s; here the save request is made as the
+/// slot is chosen (savegame.rs writes it that frame).
+fn saving_screen(time: Res<Time<Real>>, mut menu: ResMut<GameMenu>, mut shown_for: Local<f32>) {
+    const SHOWN_FOR: f32 = 3.0;
+    if menu.page != Page::Saving {
+        *shown_for = 0.0;
+        return;
+    }
+    if menu.on_screen() != Some(Page::Saving) || menu.fade > 0.0 {
+        return;
+    }
+    *shown_for += time.delta_secs();
+    if *shown_for >= SHOWN_FOR {
+        while let Some((p, s)) = menu.stack.pop() {
+            menu.page = p;
+            menu.selected = s;
+            if p == Page::Pause {
+                break;
+            }
+        }
     }
 }
 
@@ -1710,19 +1941,19 @@ fn animate(
         *v = if show { Visibility::Inherited } else { Visibility::Hidden };
     }
     // a page entered "on its last row" (Options opens on Back: usize::MAX) is clamped here too, as navigate does
-    let n = rows_of(rows.iter().map(|x| x.0), menu.page, menu.has_save).len();
+    let n = rows_of(rows.iter().map(|x| x.0), menu.page, menu.gate).len();
     if n > 0 && menu.selected >= n {
         menu.selected = n - 1;
     }
     // the slot selected on a save / load screen (saveslots::draw_slots: its panel and blinking prompt)
     let slot_sel = match menu.slot_mode() {
-        Some(_) => rows_of(rows.iter().map(|x| x.0), menu.page, menu.has_save).get(menu.selected).and_then(|x| if let Act::Slot(s) = x.1 { Some(s) } else { None }),
+        Some(_) => rows_of(rows.iter().map(|x| x.0), menu.page, menu.gate).get(menu.selected).and_then(|x| if let Act::Slot(s) = x.1 { Some(s) } else { None }),
         None => None,
     };
     if menu.slot_sel != slot_sel {
         menu.slot_sel = slot_sel;
     }
-    let order = rows_of(rows.iter().map(|x| x.0), page.unwrap_or(menu.page), menu.has_save);
+    let order = rows_of(rows.iter().map(|x| x.0), page.unwrap_or(menu.page), menu.gate);
     let sel_order = order.get(if page == Some(menu.page) { menu.selected } else { menu.shown_sel }).map(|x| x.0);
     for (r, mut t, mut v, mut glow) in &mut rows {
         let shown = Some(r.page) == page && r.on_device();
@@ -1752,7 +1983,7 @@ fn animate(
         let scale = ((pulse - 1.0) * glow.0 + 1.0) * r.base_scale;
         let colour = if sel {
             Color::WHITE
-        } else if r.act.needs_save() && !menu.has_save {
+        } else if !r.act.enabled(menu.gate) {
             DISABLED
         } else {
             r.colour
@@ -1894,4 +2125,49 @@ fn credits(time: Res<Time<Real>>, menu: Res<GameMenu>, mut q: Query<(&Part, &mut
         }
     }
     *was_open = open;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The nav links (0x00464a10): up / down stop at the ends; left / right reach the row beside on the same line.
+    #[test]
+    fn nav_links() {
+        // a two-column page: (171, 174.7) (465, 172) / (171, 150.7) (465, 148) / Apply (320, 60)
+        let pos = [Vec2::new(171.0, 174.7), Vec2::new(465.0, 172.0), Vec2::new(171.0, 150.7), Vec2::new(465.0, 148.0), Vec2::new(320.0, 60.0)];
+        assert_eq!(neighbour(&pos, 0, IVec2::new(0, 1)), None);
+        assert_eq!(neighbour(&pos, 4, IVec2::new(0, -1)), None);
+        assert_eq!(neighbour(&pos, 1, IVec2::new(0, -1)), Some(2));
+        assert_eq!(neighbour(&pos, 0, IVec2::new(1, 0)), Some(1));
+        assert_eq!(neighbour(&pos, 3, IVec2::new(-1, 0)), Some(2));
+        assert_eq!(neighbour(&pos, 1, IVec2::new(1, 0)), None);
+        assert_eq!(neighbour(&pos, 4, IVec2::new(-1, 0)), None);
+    }
+
+    /// 0x00491090: fires on the press, after 0.25 s held, then every 0.1 s; nothing until pressed after a re-arm.
+    #[test]
+    fn held_repeat() {
+        let mut r = HeldRepeat::default();
+        assert!(!r.fire(false, true, 1.0));
+        assert!(r.fire(true, true, 0.0));
+        // held for 1 s in steps of 1/32 s: at 0.25 s, then every 4 steps (0.125 s, the first past 0.1)
+        let fired: Vec<usize> = (1..=32).filter(|_| r.fire(false, true, 0.03125)).collect();
+        assert_eq!(fired, vec![8, 12, 16, 20, 24, 28, 32]);
+        r.rearm();
+        assert!(!r.fire(false, true, 10.0));
+    }
+
+    /// The activation sounds: code 5 / 28 and the Back input cancel, the graphics page's Cancel selects, a start plays
+    /// ui_select.
+    #[test]
+    fn activation_sounds() {
+        assert_eq!(MenuSound::of(Page::Pause, Act::Continue, false), MenuSound::Cancel);
+        assert_eq!(MenuSound::of(Page::SaveSlots, Act::Continue, false), MenuSound::Select);
+        assert_eq!(MenuSound::of(Page::Gfx, Act::Cancel, false), MenuSound::Select);
+        assert_eq!(MenuSound::of(Page::Gfx, Act::Cancel, true), MenuSound::Cancel);
+        assert_eq!(MenuSound::of(Page::Difficulty, Act::Difficulty(1), false), MenuSound::Start);
+        assert_eq!(MenuSound::of(Page::YesNo, Act::No, false), MenuSound::Cancel);
+        assert_eq!(MenuSound::of(Page::YesNo, Act::Yes, false), MenuSound::Select);
+    }
 }

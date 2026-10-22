@@ -205,14 +205,21 @@ Functions worth recovering first: `0x00491b70`, `0x004921a0`, `0x004710d0`, `0x0
 
 Pages (enum `Page`): main, options, extras, graphics, audio, controls, cheats, credits, yes/no, pause, mission
 failed, pub (pubscreen.rs), stats (statscreen.rs). Rows are texts at the bank's points (layout.json; the captures
-for the main menu and extras), selectable in up / down order; the selected row white with the pulse (0x00463fa0)
-and the highlight fade (+0x4e0, 0.2 per frame: 12 / s) of UiText_Draw 0x00464750.
+for the main menu and extras); the selected row white with the pulse (0x00463fa0) and the highlight fade (+0x4e0,
+0.2 per frame: 12 / s) of UiText_Draw 0x00464750. The directions follow the items' nav links (+0x47c, 0x00464a10;
+gamemenu.rs `neighbour`): up / down the previous / next row, not past the first or the last (layout.json links the
+ends to nothing: no wrap); left / right the nearest row beside it on its line (the two-column pages' links), a
+stepper taking left / right itself. Disabled rows are skipped (`RowGate`, 2026-10-22).
 
 - **Input** (UiScreen_Update 0x004929e0 through 0x00491140): keyboard, mouse / trackpad and pad; key repeat after
-  0.25 s, then every 0.1 s (0x00491090, input.rs). The mouse selects the row under it when it moves (with the move
+  0.25 s, then every 0.1 s (0x00491090, input.rs); Select and Back repeat the same way while held (MenuSelect /
+  MenuCancel, keys 0x1b / 0x1c; re-armed on a page change: 0x00491110). The mouse selects the row under it when it moves (with the move
   sound) and a click activates it; a row's hit box is its text bounds plus 32 units in x and 4 in y (UiText_SetBounds
   0x004655b0), joined with a stepper's gauge and value or a checkbox's box; of several, the nearest row (the
-  hook/enhance rule). A click (or drag) on a stepper's track sets its value (Stepper_HandleInput 0x0046d290). Pad:
+  hook/enhance rule); a stepper's box ends 32 past its value text (Stepper_Layout 0x0046d050). A press on a stepper's
+  track (x 80..272, y -6..6) sets its value and, held, drags it (Stepper_HandleInput 0x0046d290). Sounds: ui_move,
+  one of ui_select_1..3 at random for a chosen row (0x00491850), ui_cancel for Back / Cancel / No / Resume
+  (code 5) and the Back input, ui_select when a game starts (0x00491830: a difficulty, a replay level). Pad:
   D-pad / left stick navigate, Cross / A selects, Circle / B and Options go back.
 - **Screen fades** (0x00490cb0 / 0x00490e90 / 0x00491670): a page change fades the old page to black over 0.5 s
   (alpha t^3), switches, and fades the new one in over 0.25 s; no input meanwhile. Instant when both the old and the
@@ -242,21 +249,30 @@ and the highlight fade (+0x4e0, 0.2 per frame: 12 / s) of UiText_Draw 0x00464750
   "Invert mouse" has a checkbox (the original's code 13 is a plain toggle text). Test engine/playtests/controls_rebind.json.
 - **Pause / yes-no / failed / stats:** as before (statscreen.rs: 0x00494440 / 0x00494050 / 0x004948d0). The rows that
   load the saved game (main menu Resume Game, pause Quick Load, failed Restart from last save) are greyed and skipped
-  without one (0x004a2c10 / 0x004a2e90, as orig_ui_menu-800.png and orig_ui_play-720.png show). Save Game stays
-  enabled (the remaster saves anywhere; the original only at checkpoints, Game+0x568 bit 8).
+  without one (0x004a2c10 / 0x004a2e90, as orig_ui_menu-800.png and orig_ui_play-720.png show). Save Game is
+  enabled where a menu save may be made (the remaster anywhere; with checkpoint_saves never, as the original only
+  while its quick save is offered: code 7, Game+0x568 bit 3). Auto-Aim is greyed in a level above normal difficulty
+  (code 79).
+- **Difficulty** (2026-10-22; pui_difficulty, `Page::Difficulty`): New Game (case 1) opens it on Normal (guess: the
+  layout lists ui_diff_2 first); Easy .. Insane 24 apart, Over The Top and Insane greyed until bought with tokens
+  (case 71: 0x004a0720 category 4, extras.rs `Unlocks::difficulty`); choosing one sets the difficulty (0x00401f60)
+  and starts the game with ui_select; Cancel / Back return to the main menu. The profile choice before it
+  ("SaveGame") is not ported.
+- **Saving** (2026-10-22; pui_saving, `Page::Saving`, 0x004a3a80): after a save from the save screen, "Saving game.
+  Please wait..." over the game for 3 s, then the pause menu.
 - **Save / load screens** (2026-10-15, feedback 26; gamemenu.rs slot pages, saveslots.rs, savegame.rs): pause Save
   Game opens the SaveGame screen, main menu Resume Game the LoadGame screen (pui_savegame: six slots in a 3 x 2 grid,
   0x004a3260; each slot's panel, name, level, difficulty, local file date, tokens, 0x004a3020 / 0x004a33d0; the
   blinking prompt of table 0x005fb920 with the device's Select button; overwrite / delete prompts, 0x004a36f0; the
-  nav links of layout.json in four directions; the panel is the mouse's hit box). Saving returns to the pause menu
-  (0x004a3a80). Files saves/game1..6.json; Quick Load and Restart from last save load the newest save (quick save or
+  nav links of layout.json in four directions; the panel is the mouse's hit box). Saving shows the Saving screen,
+  then the pause menu (0x004a3a80). Files saves/game1..6.json; Quick Load and Restart from last save load the newest save (quick save or
   slot). Remaster additions: Delete (Delete / Backspace / pad West) on any saved slot, the load screen's Continue
   (newest save). The thumbnail (thumbnail.rs, 0x0044f3a0): the game camera's view at 128 x 76 kept as gameN.png
   beside the save, drawn 70 below the slot's top (0x004a33d0). Not ported: where the screen title is drawn (guess:
   above the slots). Tests engine/playtests/save_thumbnail.json and Test
   engine/playtests/save_slots.json.
 - **Main menu:** the version text "v1.00" bottom right (0x004927f0, screen flag 0x800).
-- **Extras** (2026-10-16; gamemenu.rs `extras_pages`, extras.rs; campaign.md "Front end"): Play Cutscene and Replay
+- **Extras** (2026-10-16; gamemenu.rs `unlock_pages`, extras.rs; campaign.md "Front end"): Play Cutscene and Replay
   Mission are enabled by the token unlockables ui_extrasmenu_cutscene / ui_extrasmenu_replay or the AMATINEE /
   MISSIONS cheats (UiScreen_InitItem cases 11 / 41), else greyed as before. Play Cutscene lists the story movies seen
   (category 0; titles "<name>.vid") and plays one (code 12); Replay Mission lists the levels reached (category 1, at

@@ -2,7 +2,7 @@
  {"wait": 1.5},
  {"expect": {"loading_screen.shown": false}},
  {"tap": "Escape"}, {"wait": 0.3},
- {"tap": "ArrowUp"}, {"wait": 0.3}, {"tap": "ArrowUp"}, {"wait": 0.3}, {"tap": "ArrowUp"}, {"wait": 0.3},
+ {"tap": "ArrowDown"}, {"wait": 0.3}, {"tap": "ArrowDown"}, {"wait": 0.3}, {"tap": "ArrowDown"}, {"wait": 0.3}, {"tap": "ArrowDown"}, {"wait": 0.3}, {"tap": "ArrowDown"}, {"wait": 0.3}, {"tap": "ArrowUp"}, {"wait": 0.3}, {"tap": "ArrowUp"}, {"wait": 0.3},
  {"expect": {"menu.page": "Pause", "menu.selected": "ui_mfail_restart"}},
  {"tap": "Enter"}, {"wait": 1.0},
  {"expect": {"menu.page": "YesNo"}},
