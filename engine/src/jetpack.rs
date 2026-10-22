@@ -23,8 +23,12 @@
 //!   land_speed_turbo (game_05.cpp:1867-1876), and takes the turbo landing damage; with a pack the fall rules are the
 //!   turbo ones (fall_speed_turbo, turbo_death_falling_distance / time: physics_03.cpp:1604-1650).
 //! - The pack model rides Roman's "chest" (Object_Attach 0x004539f0 at the pack's own "chest"); gliding in the air its
-//!   wings play turbo_up / forward / backward / left / right_cycle by the stick and the turn, else turbo_idle
-//!   (0x00475d50); a turn's start while gliding plays veh_jumper_turn_1 / 2 (0x00476a10, timer +0x988 0.2 s).
+//!   wings play turbo_up / forward / backward / left / right_cycle by the glide's wish speeds and, in the air from a
+//!   launch, the turn, else turbo_idle (0x00475d50); a turn's start while gliding plays veh_jumper_turn_1 / 2
+//!   (0x00476a10, timer +0x988 0.2 s).
+//! - The pack's sounds and launch effect are shared with the jumper captains, whose packs are the same object (ai.rs
+//!   `jumper_packs`): [`WingSounds`] (Jumper_PlayWingSounds 0x0047bb30) and [`chest_fx`] (PlayerObject_PlayChestFx
+//!   0x0047bba0).
 
 use bevy::prelude::*;
 
@@ -124,6 +128,8 @@ pub struct JetPack {
     pub flight: Flight,
     /// flag 0x10: the wings may open (set by a launch and by falling with the pack; never cleared)
     armed: bool,
+    /// flag 0x80: in the air from a launch (0x0047aaf0's flags 0x92; the turbo landing clears it, game_05.cpp:1877)
+    launched: bool,
     /// the stick (x right, y forward, after the move curve) and the turn this frame (the pack's wing anims, the turn
     /// sound: 0x00476a10's arguments)
     pub stick: Vec2,
@@ -133,11 +139,13 @@ pub struct JetPack {
     pub events: Vec<JetEvent>,
     /// a launch's kick waiting for the next physics step (the force action pool 0x00455a30)
     kick: Option<f32>,
+    /// the glide loop's voice (`effects`)
+    wings: WingSounds,
 }
 
 impl JetPack {
     pub fn new(tuning: Tuning, pack: bool) -> JetPack {
-        JetPack { tuning, pack, boost: false, flight: Flight::None, armed: false, stick: Vec2::ZERO, turn: 0.0, turn_timer: 0.0, events: Vec::new(), kick: None }
+        JetPack { tuning, pack, boost: false, flight: Flight::None, armed: false, launched: false, stick: Vec2::ZERO, turn: 0.0, turn_timer: 0.0, events: Vec::new(), kick: None, wings: WingSounds::default() }
     }
 
     /// The Jump button's part of 0x0047aaf0 with a pack: true when it launched (its kick comes with the next frame's
@@ -170,6 +178,7 @@ impl JetPack {
                 self.boost = false;
                 self.flight = Flight::Turbo;
                 self.armed = true;
+                self.launched = true;
                 self.events.push(JetEvent::Launch);
                 self.kick = Some(force * self.tuning.time);
                 true
@@ -200,6 +209,7 @@ impl JetPack {
         if self.flight == Flight::Glide {
             self.events.push(JetEvent::WingsIn);
         }
+        self.launched = false;
         std::mem::take(&mut self.flight) != Flight::None
     }
 
@@ -221,16 +231,16 @@ impl JetPack {
         let t = &self.tuning;
         let s = self.stick;
         let stick = s.length().min(1.0);
-        // speed for a stick deflection a: max x a + (1 - a) x min (game_06.cpp:2586, the ramps +0x998 / +0x994)
-        let sp = |max: f32, a: f32| if a > 0.0 { max * a + (1.0 - a) * t.speed_min.min(max) } else if a < 0.0 { -(max * -a + (1.0 + a) * t.speed_min.min(max)) } else { 0.0 };
+        let sp = |max: f32, a: f32| self.ramp(max, a);
         let (wanted, current, radius, power) = match self.flight {
             Flight::None => return None,
             Flight::Turbo => (fwd * sp(t.fwd_speed, s.y) + right * sp(t.side_speed, s.x), Vec3::ZERO, t.fwd_speed.max(t.side_speed), t.power),
             Flight::Glide => {
                 let back = s.y < 0.0;
-                let ahead = t.glide_xyvel + sp(if back { t.glide_bkd_speed } else { t.glide_fwd_speed }, s.y);
+                let wish = self.glide_wish();
+                let ahead = t.glide_xyvel + wish.y;
                 let down = vel.y.clamp(-t.glide_zvel, 0.0);
-                let wanted = fwd * ahead + right * sp(t.glide_side_speed, s.x) + Vec3::Y * down;
+                let wanted = fwd * ahead + right * wish.x + Vec3::Y * down;
                 let fwd_max = if back { t.glide_bkd_speed } else { t.glide_fwd_speed };
                 (wanted, vel, t.glide_side_speed.max(fwd_max), (1.0 - stick) * t.glide_power.0 + stick * t.glide_power.1)
             }
@@ -245,6 +255,28 @@ impl JetPack {
             v.y = vel.y;
         }
         Some(v)
+    }
+
+    /// The speed for a stick deflection `a` of a direction whose top speed is `max`: max x a + (1 - a) x min
+    /// (game_06.cpp:2586, the ramps +0x998 / +0x994).
+    fn ramp(&self, max: f32, a: f32) -> f32 {
+        let min = self.tuning.speed_min.min(max);
+        if a > 0.0 {
+            max * a + (1.0 - a) * min
+        } else if a < 0.0 {
+            -(max * -a + (1.0 + a) * min)
+        } else {
+            0.0
+        }
+    }
+
+    /// The glide's wish speeds from the stick (x right, y forward), before the glide's own forward speed: the side
+    /// and forward / back speeds of game_06.cpp:2560-2610 (flag 4: +0xaa0, +0xa98 / +0xa9c).
+    fn glide_wish(&self) -> Vec2 {
+        let t = &self.tuning;
+        let s = self.stick;
+        let fwd_max = if s.y < 0.0 { t.glide_bkd_speed } else { t.glide_fwd_speed };
+        Vec2::new(self.ramp(t.glide_side_speed, s.x), self.ramp(fwd_max, s.y))
     }
 
     /// The turn sound (0x00476a10): a turn's start while gliding, then not again until 0.2 s without turning.
@@ -264,8 +296,11 @@ impl JetPack {
         if self.flight != Flight::Glide || !airborne {
             return "turbo_idle";
         }
-        // the direction: the stick's speeds (x its left, y forward), or (-turn, 0) while turning
-        let (x, y) = if self.turn != 0.0 { (-self.turn, 0.0) } else { (-self.stick.x, self.stick.y) };
+        // the direction (0x00476a10's arguments, game_06.cpp:3075): the drive's wish speeds (x to the left, y
+        // forward; its z is always 0, so the up cycle is for no speed at all), or (-turn, 0) while turning in the air
+        // from a launch (flag 0x80)
+        let wish = self.glide_wish();
+        let (x, y) = if self.launched && self.turn != 0.0 { (-self.turn, 0.0) } else { (-wish.x, wish.y) };
         if x == 0.0 && y == 0.0 {
             "turbo_up_cycle"
         } else if y.abs() >= x.abs() {
@@ -276,6 +311,38 @@ impl JetPack {
             "turbo_right_cycle"
         }
     }
+}
+
+/// The wing sounds of a pack's wearer (Jumper_PlayWingSounds 0x0047bb30, Roman's and the jumper captains'): opening
+/// plays veh_jumper_wings_out and starts the veh_jumper_glide_lp loop on the wearer, keeping its voice (the captain's
+/// +0xb0c); closing plays veh_jumper_wings_in and stops that loop (audio +0xd8 with the handle: only this wearer's).
+#[derive(Debug, Default)]
+pub struct WingSounds {
+    glide_loop: Option<crate::audio::SoundId>,
+}
+
+impl WingSounds {
+    pub fn open(&mut self, wearer: Entity, sounds: &mut MessageWriter<crate::audio::PlaySound>) {
+        let id = crate::audio::SoundId::new();
+        sounds.write(crate::audio::PlaySound::on("veh_jumper_wings_out", wearer));
+        sounds.write(crate::audio::PlaySound::on("veh_jumper_glide_lp", wearer).looping(true).with_id(id));
+        self.glide_loop = Some(id);
+    }
+
+    pub fn close(&mut self, wearer: Entity, sounds: &mut MessageWriter<crate::audio::PlaySound>, stop: &mut MessageWriter<crate::audio::StopVoice>) {
+        sounds.write(crate::audio::PlaySound::on("veh_jumper_wings_in", wearer));
+        if let Some(id) = self.glide_loop.take() {
+            stop.write(crate::audio::StopVoice { id, immediate: false });
+        }
+    }
+}
+
+/// An effect on a pack's "chest", following it (PlayerObject_PlayChestFx 0x0047bba0: Fx_Create flag 4 at the pack's
+/// "chest", which sits on the wearer's): Roman's launch (fx_turbo_launch) and the jumper captains'
+/// (fx_turbo_launch_captain). `chest` is the wearer's chest joint, `wearer` the fallback.
+pub fn chest_fx(effect: &str, chest: Option<Entity>, wearer: Entity, joints: &Query<&GlobalTransform>) -> crate::fx::StartFx {
+    let at = chest.and_then(|c| joints.get(c).ok()).or_else(|| joints.get(wearer).ok()).map(|g| g.translation()).unwrap_or_default();
+    crate::fx::StartFx { name: effect.into(), at, rotation: crate::level::game_to_engine(), follow: chest.or(Some(wearer)), position_only: true }
 }
 
 /// Gives Roman's pack (the pickup, a playtest): false when he has one (0x00472980 refuses).
@@ -318,8 +385,8 @@ fn equip(mut commands: Commands, q: Query<Entity, Added<crate::player::Roman>>, 
     }
 }
 
-/// Roman's "chest" joint, which the pack rides.
-fn chest(a: &crate::skin::Animator) -> Option<Entity> {
+/// The "chest" joint of a rig (Roman's, a jumper captain's), which a pack rides.
+pub(crate) fn chest(a: &crate::skin::Animator) -> Option<Entity> {
     a.skeleton.index.get("chest").and_then(|&i| a.joints.get(i).copied())
 }
 
@@ -331,7 +398,7 @@ fn effects(
     joints: Query<&GlobalTransform>,
     mut fx: MessageWriter<crate::fx::StartFx>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
-    mut stop: MessageWriter<crate::audio::StopSound>,
+    mut stop: MessageWriter<crate::audio::StopVoice>,
     mut deck: crate::levelreset::PerLevel<(crate::audio::RandomDeck, crate::fxvm::CrtRand)>,
 ) {
     let (deck, rng) = deck.get();
@@ -339,19 +406,15 @@ fn effects(
         for ev in std::mem::take(&mut jp.events) {
             match ev {
                 JetEvent::Launch => {
-                    let c = chest(a);
-                    let at = c.and_then(|c| joints.get(c).ok()).or_else(|| joints.get(e).ok()).map(|g| g.translation()).unwrap_or_default();
-                    fx.write(crate::fx::StartFx { name: "fx_turbo_launch".into(), at, rotation: crate::level::game_to_engine(), follow: c.or(Some(e)), position_only: true });
+                    fx.write(chest_fx("fx_turbo_launch", chest(a), e, &joints));
                     info!("EVENT jetpack: launch");
                 }
                 JetEvent::WingsOut => {
-                    sounds.write(crate::audio::PlaySound::on("veh_jumper_wings_out", e));
-                    sounds.write(crate::audio::PlaySound::on("veh_jumper_glide_lp", e).looping(true));
+                    jp.wings.open(e, &mut sounds);
                     info!("EVENT jetpack: wings out");
                 }
                 JetEvent::WingsIn => {
-                    sounds.write(crate::audio::PlaySound::on("veh_jumper_wings_in", e));
-                    stop.write(crate::audio::StopSound("veh_jumper_glide_lp".into()));
+                    jp.wings.close(e, &mut sounds, &mut stop);
                     info!("EVENT jetpack: wings in");
                 }
                 JetEvent::Turn => {
@@ -554,5 +617,23 @@ mod tests {
         assert_eq!(jp.wing_anim(true), "turbo_backward_cycle");
         jp.stick = Vec2::new(1.0, 0.0);
         assert_eq!(jp.wing_anim(true), "turbo_right_cycle");
+        // a turn picks the side only in the air from a launch (flag 0x80): gliding after a fall the stick decides
+        jp.stick = Vec2::new(0.0, 1.0);
+        jp.turn = 0.1;
+        assert_eq!(jp.wing_anim(true), "turbo_forward_cycle");
+        jp.launched = true;
+        assert_eq!(jp.wing_anim(true), "turbo_right_cycle");
+        jp.turn = -0.1;
+        assert_eq!(jp.wing_anim(true), "turbo_left_cycle");
+    }
+
+    #[test]
+    fn landing_ends_the_launch() {
+        let mut jp = JetPack::new(lev_3_m1(), true);
+        assert!(jp.jump_input(true, true, true, false, false, 0.0));
+        assert!(jp.launched);
+        jp.take_kick();
+        assert!(jp.landed());
+        assert!(!jp.launched);
     }
 }

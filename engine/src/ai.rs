@@ -4972,37 +4972,63 @@ struct TurboPack {
     model: Entity,
     /// its own "chest" put on the captain's (once its rig exists)
     aligned: bool,
+    /// the flight the last frame saw (a ride's start and end, the wings opening)
+    ride: Option<jumper::Flight>,
+    /// the glide loop's voice (+0xb0c)
+    wings: crate::jetpack::WingSounds,
 }
 
 /// The jumper captains' pack model (0x00425d30 -> PlayerObject_SetTurboPack 0x0047b9f0 with the troop as owner:
 /// "turbo" attached by its own "chest" at his "chest", Object_Attach 0x004539f0, turbo_idle), riding with him until
 /// his body is removed (the teardown GenericAIObject_Slot55 0x00432730 takes it off); while he glides it plays
 /// turbo_forward_cycle (0x0042a2c0, state 0xbc's launch), and turbo_idle again when the ride ends (ai_03.cpp:2692).
+/// Every launch plays FX_turbo_Launch_captain on the pack's chest (PlayerObject_PlayChestFx 0x0047bba0: the glide launch
+/// and its hop 0x0042a2c0, the marker launch 0x0042b480 ai_03.cpp:712); the wings opening (the glide launch, state
+/// 0xbc, ai_02.cpp:2975; the re-aim into the glide, ai_06.cpp:2417) play the wing sounds and the glide loop, and the
+/// ride's end (the landing's turbo reset 0x0042e1c0, a hit or death in flight ai_04.cpp:332 / 437) wings_in with the
+/// loop stopped (Jumper_PlayWingSounds 0x0047bb30, `jetpack::WingSounds`).
+#[allow(clippy::too_many_arguments)]
 fn jumper_packs(
     mut commands: Commands,
-    grunts: Query<(Entity, &Grunt, &crate::skin::Animator, Option<&TurboPack>)>,
+    mut grunts: Query<(Entity, &Grunt, &crate::skin::Animator, Option<&mut TurboPack>)>,
     mut packs: Query<&mut crate::skin::Animator, Without<Grunt>>,
     data: Res<crate::gamedata::GameData>,
     mut kit: crate::army::ModelKit,
+    joints: Query<&GlobalTransform>,
+    mut fx: MessageWriter<crate::fx::StartFx>,
+    (mut sounds, mut stop): (MessageWriter<crate::audio::PlaySound>, MessageWriter<crate::audio::StopVoice>),
 ) {
-    for (e, g, ga, pack) in &grunts {
+    for (e, g, ga, pack) in &mut grunts {
         let Some(j) = g.jumper.as_ref() else { continue };
-        let Some(pack) = pack else {
-            let chest = ga.skeleton.index.get("chest").and_then(|&i| ga.joints.get(i).copied());
+        let Some(mut pack) = pack else {
+            let chest = crate::jetpack::chest(ga);
             let Some(model) = data.templates.get("turbo").and_then(|t| t.model.clone()) else { continue };
             if let Some(m) = chest.and_then(|c| kit.spawn(&mut commands, &model, Transform::IDENTITY, true).map(|m| (c, m))) {
                 commands.entity(m.0).add_child(m.1);
-                commands.entity(e).insert(TurboPack { model: m.1, aligned: false });
+                commands.entity(e).insert(TurboPack { model: m.1, aligned: false, ride: None, wings: default() });
             }
             continue;
         };
+        // the ride: a dead captain's is over (the hit in flight, ai_04.cpp:332)
+        let ride = j.flight.filter(|_| g.mind != Mind::Dead);
+        match (pack.ride, ride) {
+            (None, Some(_)) => {
+                fx.write(crate::jetpack::chest_fx("fx_turbo_launch_captain", crate::jetpack::chest(ga), e, &joints));
+            }
+            (Some(_), None) => pack.wings.close(e, &mut sounds, &mut stop),
+            _ => {}
+        }
+        if ride == Some(jumper::Flight::Glide) && pack.ride != Some(jumper::Flight::Glide) {
+            pack.wings.open(e, &mut sounds);
+        }
+        pack.ride = ride;
         let Ok(mut a) = packs.get_mut(pack.model) else { continue };
         if !pack.aligned {
             // Object_Attach's child bone: the pack's "chest" (rest pose) on the captain's chest joint
             if let Some(&i) = a.skeleton.index.get("chest") {
                 commands.entity(pack.model).insert(Transform::from_matrix(crate::jetpack::model_space(&a.skeleton, i).inverse()));
             }
-            commands.entity(e).insert(TurboPack { model: pack.model, aligned: true });
+            pack.aligned = true;
         }
         let wings = if j.flight == Some(jumper::Flight::Glide) { "turbo_forward_cycle" } else { "turbo_idle" };
         if a.layers.first().is_none_or(|l| l.anim != wings) {
