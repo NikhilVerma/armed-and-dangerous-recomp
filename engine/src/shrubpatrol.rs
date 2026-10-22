@@ -2,8 +2,11 @@
 //! allies, parachuted over the base by their script (mover_shrubpatrol_*: "fxlockedbone fx_parachute_2", "anim_loop
 //! shrubpatrol_parachute_loop", then "ready_guard"), who then stand guard with their machine gun (shrubpatrolgun at
 //! "ref_rhand", ShrubPatrol_Slot6 0x00436630) against the army: their enemy list is the AI list World+0xe7c, the grunts
-//! (the reverse of the grunts', 0x00436630). Their max_health 10000 keeps them on their post (no damage taken here:
-//! nothing in the army aims at them).
+//! (the reverse of the grunts', 0x00436630). They also join the player's side, World+0xe88, the grunts' enemy list
+//! +0x604 (ai_04.cpp:3115-3118), so a grunt could take one as a target; but every level with shrub patrols (lev_3_m4_bd,
+//! lev_4_m5, lev_5_m5) sets the mission's ai_target_tag 1, under which AI_FindTarget 0x00426920 takes only objects of
+//! that tag, and the patrols carry none: nothing in the army aims at them, and their max_health 10000 is never
+//! touched (no damage taken here).
 //!
 //! The guard: the nearest live grunt within fire_range_min..max (35..250) is the target; it turns to it and fires the
 //! fire anims (shrubpatrol_fire_*: "fire" notes, GenericAIObject_HandleEvent 0x0043d180) in bursts by its fire
@@ -48,6 +51,7 @@ fn setup(
     q: Query<(Entity, &Name, &crate::skin::Animator), (With<crate::level::InstanceId>, Without<ShrubPatrol>)>,
     mut kit: crate::army::ModelKit,
     mut seen: crate::levelreset::PerLevel<std::collections::HashSet<Entity>>,
+    mut rng: ResMut<crate::fx::FxStats>,
 ) {
     let seen = seen.get();
     for (e, name, a) in &q {
@@ -82,9 +86,9 @@ fn setup(
             gun,
             shots: 0,
         });
-        // its voice: SP1 or SP2 (the original's "second voice" test on the object's flags; which patrol has which is
-        // not traced: guess, alternating by load order)
-        commands.entity(e).insert(crate::voices::ShrubVoice((seen.len() % 2) as u8));
+        // its voice: SP1 or SP2, an even roll at its init (Ai_InitGeneric 0x004247f0, ai_01.cpp:2438: (rand x 100) >> 15
+        // < 50 sets +0x484 0x200000, the "second voice" that says the SP1500xx lines: set 0)
+        commands.entity(e).insert(crate::voices::ShrubVoice(if rng.rand() < 0.5 { 0 } else { 1 }));
     }
 }
 

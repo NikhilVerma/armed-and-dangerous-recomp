@@ -110,6 +110,9 @@ struct LoadingRoot;
 struct LoadingImage(Handle<Image>);
 #[derive(Component)]
 struct LoadingFill;
+/// The bar's two quads (shown only once there is progress)
+#[derive(Component)]
+struct LoadingBar;
 #[derive(Component)]
 struct LoadingText;
 
@@ -150,7 +153,8 @@ fn spawn(mut commands: Commands, assets: Res<AssetServer>, mut meshes: ResMut<As
     // bar: x 0.245..0.755, y 0.175..0.225 (y from the bottom: 84..108 of 480)
     let (bar, _) = quad(&mut commands, &mut meshes, &mut materials, Vec2::new(0.51 * 640.0, 0.05 * 480.0), Vec3::new(0.0, 0.2 * 480.0 - 240.0, 1.0), Color::srgba(0.0, 0x80 as f32 / 255.0, 0.0, 0x80 as f32 / 255.0), None);
     let (fill, _) = quad(&mut commands, &mut meshes, &mut materials, Vec2::new(1.0, 0.035 * 480.0), Vec3::new(0.0, 0.2 * 480.0 - 240.0, 1.5), Color::srgba(0.0, 0xc0 as f32 / 255.0, 0.0, 0xc0 as f32 / 255.0), None);
-    commands.entity(fill).insert(LoadingFill);
+    commands.entity(fill).insert((LoadingFill, LoadingBar));
+    commands.entity(bar).insert(LoadingBar);
     commands.entity(r).add_children(&[back, ad, bar, fill]);
     // the text (0x00495e80: colour 0xa0ffa0, size 1.5, at (0.5, 0.139), centred)
     commands.spawn((
@@ -253,6 +257,7 @@ fn loading_screen(
     mut roots: Query<&mut Visibility, (With<LoadingRoot>, Without<LoadingText>)>,
     images: Query<&LoadingImage>,
     mut fill: Query<&mut Transform, With<LoadingFill>>,
+    mut bars: Query<&mut Visibility, (With<LoadingBar>, Without<LoadingRoot>, Without<LoadingText>)>,
     mut text: Query<&mut Visibility, (With<LoadingText>, Without<LoadingRoot>)>,
     mut shown: Local<LoadingShown>,
     play: Option<ResMut<crate::playtest::PlayState>>,
@@ -270,6 +275,12 @@ fn loading_screen(
     for mut v in &mut text {
         if *v != vis(on && !image) {
             *v = vis(on && !image);
+        }
+    }
+    // the bar only once the progress is not 0 (0x00449ac0: both quads under `+0x54 != 0`)
+    for mut v in &mut bars {
+        if *v != vis(progress != 0.0) {
+            *v = vis(progress != 0.0);
         }
     }
     // the fill from x 0.25 to 0.25 + progress x 0.5 of the screen (0x005bcb4c = 0.5, 0x005bcbe4 = 0.25)
