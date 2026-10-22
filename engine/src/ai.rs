@@ -237,13 +237,16 @@ pub struct AnimFlags {
     pub glide: bool,
     /// +0x588 held (the sniper's SetTarget 0x00434930): ids 0..3 the aim poses, else captain_sniper_stand
     pub aiming: bool,
+    /// 0x0044e600: the level starts Roman in a turret (a base defence: lev_2_m4, lev_3_m4_bd, lev_5_m5): the
+    /// grunt's run ids 8 / 9 are grunt_run_no_sound
+    pub base_defence: bool,
 }
 
 /// The anim name for an anim id (the class's vt+0x1a4: GruntObject 0x0043bd70, BowGruntObject 0x0043abc0,
 /// CaptainObject 0x0043b610; anim_01.cpp). `r` is a uniform 0..1 draw for the ids that pick by rand (bow run 10,
 /// deaths 80..85, the idle 18 off a cold level); `cold` is Game+0x2708 == 1 (world 1: lev_1_m1). Ids the class has no
-/// anim for give its error anim (the original's "grunt_anim_error"); ids 8 / 9 give grunt_run (grunt_run_no_sound only
-/// in a cutscene, 0x0044e600).
+/// anim for give its error anim (the original's "grunt_anim_error"); ids 8 / 9 give grunt_run (grunt_run_no_sound on a
+/// base-defence level, 0x0044e600).
 /// With the object's state (`AnimFlags`): `Grunt::anim`.
 pub fn anim_name_with(kind: Kind, id: u32, r: f32, fl: AnimFlags) -> &'static str {
     let cold = fl.cold;
@@ -281,6 +284,7 @@ pub fn anim_name_with(kind: Kind, id: u32, r: f32, fl: AnimFlags) -> &'static st
             5 => "grunt_turn_180",
             6 => "grunt_turn_left_90",
             7 => "grunt_turn_right_90",
+            8 | 9 if fl.base_defence => "grunt_run_no_sound",
             8 | 9 => "grunt_run",
             10 => "grunt_run_scan",
             11 | 12 => "grunt_run_scared",
@@ -345,6 +349,8 @@ pub fn anim_name_with(kind: Kind, id: u32, r: f32, fl: AnimFlags) -> &'static st
             101 => "grunt_barricade_breathe",
             102 => "grunt_barricade_reload",
             103 => "grunt_barricade_peek",
+            105 => "grunt_fcannon_sit",
+            106 => "grunt_fcannon_fire",
             113 => "grunt_hang_into",
             114 => "grunt_hanging",
             115 => "grunt_blown_up_into",
@@ -352,6 +358,10 @@ pub fn anim_name_with(kind: Kind, id: u32, r: f32, fl: AnimFlags) -> &'static st
             117 => "grunt_idle_base_2",
             118 => "grunt_idle_base_3",
             125 => "grunt_scare",
+            127 => "mover_grunt_mdie_1",
+            128 => "mover_grunt_mdie_2",
+            129 => "mover_grunt_qdie_1",
+            130 => "mover_grunt_qdie_2",
             131 => "grunt_stig_mgun_fire_tl",
             132 => "grunt_stig_mgun_fire_tr",
             133 => "grunt_stig_mgun_fire_bl",
@@ -360,6 +370,7 @@ pub fn anim_name_with(kind: Kind, id: u32, r: f32, fl: AnimFlags) -> &'static st
             136 => "grunt_stig_mgun_idle_tr",
             137 => "grunt_stig_mgun_idle_bl",
             138 => "grunt_stig_mgun_idle_br",
+            139 => "mover_grunt_tower_climb",
             _ => "grunt_anim_error",
         },
         Kind::Bow => match id {
@@ -438,6 +449,8 @@ pub fn anim_name_with(kind: Kind, id: u32, r: f32, fl: AnimFlags) -> &'static st
             95 => "grunt_bow_hand_to_hand",
             96 => "grunt_bow_hand_to_hand_2",
             97 | 98 => "grunt_bow_fall",
+            105 => "grunt_fcannon_sit",
+            106 => "grunt_fcannon_fire",
             113 => "grunt_hang_into",
             114 => "grunt_hanging",
             115 => "grunt_blown_up_into",
@@ -445,6 +458,10 @@ pub fn anim_name_with(kind: Kind, id: u32, r: f32, fl: AnimFlags) -> &'static st
             117 => "grunt_idle_base_2",
             118 => "grunt_idle_base_3",
             125 => "grunt_scare",
+            127 => "mover_grunt_mdie_1",
+            128 => "mover_grunt_mdie_2",
+            129 => "mover_grunt_qdie_1",
+            130 => "mover_grunt_qdie_2",
             131 => "grunt_stig_mgun_fire_tl",
             132 => "grunt_stig_mgun_fire_tr",
             133 => "grunt_stig_mgun_fire_bl",
@@ -453,6 +470,7 @@ pub fn anim_name_with(kind: Kind, id: u32, r: f32, fl: AnimFlags) -> &'static st
             136 => "grunt_stig_mgun_idle_tr",
             137 => "grunt_stig_mgun_idle_bl",
             138 => "grunt_stig_mgun_idle_br",
+            139 => "mover_grunt_tower_climb",
             _ => "grunt_bow_anim_error",
         },
         // the rocket (+0x484 0x8000000) and jumper glide (state 0xbd) variants of ids 0..3 / 33..36 are not reached:
@@ -506,7 +524,7 @@ pub fn anim_name_with(kind: Kind, id: u32, r: f32, fl: AnimFlags) -> &'static st
             74 => "captain_blown_up_2",
             75 | 76 | 119 => "captain_hit_long",
             77..=79 | 120 => "captain_hit_long_2",
-            // rand * 200 >> 15 < 100: the first (0x005b3be0), else the second (guess at which string is which)
+            // rand * 200 >> 15 < 100: 0x005b3be0 "captain_death_1", else 0x005b3bd0 "captain_death_2" (the exe's strings)
             80..=85 => {
                 if r < 0.5 {
                     "captain_death_1"
@@ -922,6 +940,15 @@ pub struct Grunt {
     /// a charge (0x0042ce70) calls the pursuit (vt+0x184) at once, whatever the range: the next decision is the
     /// pursuit (a jumper's take-off, 0x004295d0), engaging comes after it
     pub pursue: bool,
+    /// the remembered-point list +0x958 exists: a charge (0x0042ce70 -> 0x004246c0(1)) makes it (a new grunt has none,
+    /// game_02.cpp:1669), and while it does the target is kept at any range (0x0043ecf0); the engage's in-range branch
+    /// with +0x488 0x100 (trigger_charge) removes it (0x00427910, ai_02.cpp:1183-1187). Every charge sets it (also
+    /// level.rs's spawned troops, squad.rs's attack, tossed.rs's smoking troop, bully.rs).
+    pub charged: bool,
+    /// the heading the marker being walked to must be faced in before it counts as reached: a face_dir marker hands
+    /// the next marker's heading to the route (AIMarker_Advance 0x0044b980 -> the node's flag 8), and AIRoute_CheckReached
+    /// 0x0046f900 then waits, turning, until the facing's dot with it is at least 0.98 (K 0x005bcd30)
+    pub marker_face: Option<Vec3>,
     /// one-shot anim playing (taunt 0x6e, throw 0x10): its id and time left
     pub anim_id: u32,
     pub anim_left: f32,
@@ -943,6 +970,8 @@ pub struct Grunt {
     pub priority_tags: (i64, i64),
     /// Game+0x2708 == 1: a world-1 (cold) level, where id 18 is the shiver (level.rs sets it from the level's folder)
     pub cold: bool,
+    /// 0x0044e600: a base-defence level (the mission's start_in_turret_tag; `mark_base_defence` sets it)
+    pub base_defence: bool,
     /// +0x484 0x8000000 (rocket_captain): the rocket launcher and its aim / fire sets
     pub rocket: bool,
     /// +0x488 0x4000000 with +0x588 held: the sniper has his gun raised at a target (SetTarget 0x00434930)
@@ -1003,7 +1032,13 @@ impl Grunt {
         anim_name_with(self.kind, id, r, self.anim_flags())
     }
     pub fn anim_flags(&self) -> AnimFlags {
-        AnimFlags { cold: self.cold, rocket: self.rocket, glide: self.jumper.is_some_and(|j| j.flight == Some(jumper::Flight::Glide)), aiming: self.aiming }
+        AnimFlags {
+            cold: self.cold,
+            rocket: self.rocket,
+            glide: self.jumper.is_some_and(|j| j.flight == Some(jumper::Flight::Glide)),
+            aiming: self.aiming,
+            base_defence: self.base_defence,
+        }
     }
 }
 
@@ -1183,6 +1218,7 @@ impl Plugin for AiPlugin {
             .init_level_resource::<dialogue::Bags>()
             .add_plugins(q112::Q112Plugin)
             .init_level_resource::<max_fire::ShooterLimit>()
+            .add_systems(Update, mark_base_defence.before(think).run_if(crate::playing))
             .add_systems(
                 Update,
                 (
@@ -1199,6 +1235,18 @@ impl Plugin for AiPlugin {
                     .after(crate::fx::FxSet)
                     .after(crate::turret::setup),
             );
+    }
+}
+
+/// What 0x0044e600 answers for the anim tables: the level starts Roman in a turret (the mission's
+/// start_in_turret_tag). Set on each new AI, and on all of them when the mission (re)loads.
+fn mark_base_defence(mission: Option<Res<crate::mission::Mission>>, mut grunts: Query<&mut Grunt>) {
+    let on = mission.as_ref().is_some_and(|m| m.start_in_turret);
+    let all = mission.as_ref().is_some_and(|m| m.is_changed());
+    for mut g in &mut grunts {
+        if (all || g.is_added()) && g.base_defence != on {
+            g.base_defence = on;
+        }
     }
 }
 
@@ -1288,6 +1336,8 @@ fn log_ai(
             "reacting": count(&|g| g.hit.is_some()),
             "long_hits": count(&|g| g.reacting == 4),
             "spline": count(&|g| g.spline.is_some()),
+            // charged grunts holding Roman beyond 2 x scan_distance (kept by the charge's list +0x958, 0x0043ecf0)
+            "charged_far": live.iter().filter(|(_, g, p)| g.charged && g.target.is_some() && g.target == re && (*p - rp).with_y(0.0).length() > 2.0 * g.scan_distance).count(),
             "captains": count(&|g| g.kind == Kind::Captain),
             "snipers": count(&|g| g.kind == Kind::Sniper),
             "aiming": count(&|g| g.aiming),
@@ -1460,6 +1510,8 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         charge: false,
         trigger_charge: mode == "trigger_charge",
         pursue: false,
+        charged: false,
+        marker_face: None,
         anim_id: 0,
         anim_left: 0.0,
         thrown: false,
@@ -1470,6 +1522,7 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         allfours_pct: p.f("allfours_pct", 20.0),
         priority_tags: (0, 0),
         cold: true,
+        base_defence: false,
         rocket,
         jumper: jumper.then(|| Jumper::read(p)),
         start_gun: None,
@@ -1532,6 +1585,36 @@ pub struct Barks {
     death: (f32, f32),
     vo: (f32, f32),
     taunt: (f32, f32),
+    captain: CaptainLines,
+}
+
+/// A captain's cues dealt from fixed tables (read from the exe), not from every bank line of the category.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum CaptainCue {
+    /// slot +0x144 0x00437690: CA1 0x005ce5b4 / CA2 0x005ce5c0, 3 lines each
+    Spotted,
+    /// slot +0x13c 0x00437860: CA1 0x005ce5cc, 6 lines / CA2 0x005ce5e4, 3 lines
+    Fight,
+}
+
+/// The captains' cue tables, each dealt by its own shuffle bag (Audio_PlayRandomSound 0x00493b70; the used counts
+/// 0x0063a19c / 0x0063a1a0 Spotted, 0x0063a1a4 / 0x0063a1a8 Fight): no line again until the table is spent.
+struct CaptainLines {
+    spotted: [dialogue::LineBag; 2],
+    fight: [dialogue::LineBag; 2],
+}
+
+impl Default for CaptainLines {
+    fn default() -> Self {
+        use dialogue::LineBag;
+        CaptainLines {
+            spotted: [LineBag::new(&["CA150014_Spotted", "CA150015_Spotted", "CA150016_Spotted"]), LineBag::new(&["CA250014_Spotted", "CA250015_Spotted", "CA250016_Spotted"])],
+            fight: [
+                LineBag::new(&["CA150004_Fight", "CA150005_Fight", "CA150006_Fight", "CA150007_Fight", "CA150008_Fight", "CA150009_Fight"]),
+                LineBag::new(&["CA250004_Fight", "CA250005_Fight", "CA250012_Fight"]),
+            ],
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -1557,6 +1640,25 @@ impl Barks {
         }
         *t = (now, rng.range(range.0, range.1));
         true
+    }
+
+    /// A captain's cue line: the next of his voice set's bag (set 0 the CA1 table, +0x484 0x200000; else CA2).
+    pub fn captain_line(&mut self, cue: CaptainCue, set: u8, rng: &mut FxStats) -> &'static str {
+        let i = usize::from(set != 0);
+        let bag = match cue {
+            CaptainCue::Spotted => &mut self.captain.spotted[i],
+            CaptainCue::Fight => &mut self.captain.fight[i],
+        };
+        bag.pick(|| rng.rand(), |_| Some(())).map_or("", |(line, ())| line)
+    }
+
+    /// The line of a Spotted / Fight cue by the speaker's class: a captain's from his table's bag, others' from the bank
+    /// (`class_voice`).
+    pub fn cue_line(&mut self, cue: CaptainCue, kind: Kind, set: u8, rng: &mut FxStats) -> String {
+        match kind {
+            Kind::Captain | Kind::Sniper => self.captain_line(cue, set, rng).to_owned(),
+            _ => class_voice(kind, if cue == CaptainCue::Spotted { "Spotted" } else { "Fight" }, set),
+        }
     }
 
     /// Debug (playtest `barks_ready`): every shared delay counts as passed.
@@ -1781,6 +1883,7 @@ pub fn activate(g: &mut Grunt, ic: bool, player: Option<Entity>) {
     if g.marker_tags.is_none() && !ic {
         g.target = player;
         g.pursue = g.trigger_charge;
+        g.charged |= g.trigger_charge;
     }
 }
 
@@ -1945,8 +2048,9 @@ fn search(
                 best = Some((d2, ce, true));
                 break;
             }
-            // at a barricade (+0x484 0x20000) the cone test is skipped (ai_02.cpp:771)
-            let cone = to.normalize_or_zero().dot(fwd) >= 95f32.to_radians().cos() || d2 < g.hear_distance || g.at_barricade;
+            // at a barricade (+0x484 0x20000) the cone test is skipped (ai_02.cpp:771); Object_IsInViewCone 0x00455d90
+            // tests 190 * 0.5 > 57.339447 * acos(dot) (its degrees constant 0x005bcdb8 is not 180 / pi)
+            let cone = to.normalize_or_zero().dot(fwd).clamp(-1.0, 1.0).acos() * VIEW_CONE_DEGREES < 95.0 || d2 < g.hear_distance || g.at_barricade;
             if cone && sight_ray(&physics, own_hit, chit, &[gbody.id]) {
                 best = Some((d2, ce, false));
             }
@@ -1955,7 +2059,8 @@ fn search(
             // the Spotted cue: a new target when there was none (SetTarget 0x0042cc70 -> vt+0x144), under vo_delay
             // (30..45 s, from level load: the first fight has no line)
             if g.target.is_none() && barks.take(Delay::Vo, time.elapsed_secs(), &mut rng) {
-                sounds.write(crate::audio::PlaySound::at(class_voice(g.kind, "Spotted", g.voice_set), me).looping(false));
+                let line = barks.cue_line(CaptainCue::Spotted, g.kind, g.voice_set, &mut rng);
+                sounds.write(crate::audio::PlaySound::at(line, me).looping(false));
             }
             g.target = Some(tgt);
             if g.mind == Mind::WaitTrigger {
@@ -1963,6 +2068,7 @@ fn search(
                 // (0x0042ce70: the pursuit at once); the marker run of trigger_marker is not ported here
                 g.mind = Mind::Roam;
                 g.pursue = g.trigger_charge;
+                g.charged |= g.trigger_charge;
             }
             if std::env::var("AIDBG").is_ok() { info!("AIDBG spotted {:?} by {:?} at {:?} d {:.0} heard {} mode {:?}", tgt, ge, me, d2, heard, g.mind); }
             if g.alert_group != 0 {
@@ -2581,13 +2687,21 @@ fn wander(g: &mut Grunt, pos: Vec3, (min, max): (f32, f32), speed: f32, rng: &mu
 pub const ROUTE_PLAN: f32 = 0.3;
 
 /// A route node counts as reached within this distance in the plane (AIRoute_CheckReached 0x0046f900: squared
-/// distance under K(0x005bce5c) = 6.25).
+/// distance under K(0x005bce5c) = 6.25). (Marker routes never ask its stop-exactly flag 0x40: AIMarker_Advance passes 0.)
 const MARKER_REACHED: f32 = 2.5;
+
+/// Object_IsInViewCone 0x00455d90's radians-to-degrees factor (K 0x005bcdb8 = 57.339447, slightly above 180 / pi).
+const VIEW_CONE_DEGREES: f32 = 57.339447;
+
+/// The facing a node's heading needs before it counts as reached (AIRoute_CheckReached 0x0046f900: K 0x005bcd30).
+const MARKER_FACING_DOT: f32 = 0.98;
 
 fn follow_spline(g: &mut Grunt, markers: &crate::alarm::Markers, tags: (i64, i64), r: f32) {
     match markers.pick_spline(tags, r) {
         Some(tag) => {
+            // (the first leg asks no heading: AI_FollowMarkerSpline 0x0042d1b0)
             g.spline = Some(SplineRun { tag, index: 0, started: false });
+            g.marker_face = None;
             g.mind = Mind::ToMarker;
             g.route_wait = ROUTE_PLAN;
         }
@@ -2661,6 +2775,7 @@ fn marker_arrival(
         // 0x0042ce70(0): the player as target (unless one is held), the pursuit, +0x490 = 1.5..2.0 s
         g.spline = None;
         g.target = g.target.or(player);
+        g.charged = true;
         g.search_timer = rng.range(1.5, 2.0);
         g.attention = false;
         return Some(Mind::Chase);
@@ -2683,12 +2798,16 @@ fn marker_arrival(
             i = 0;
         }
         g.spline = Some(SplineRun { index: i, started: true, ..run });
+        // face_dir (+0x490 bit 7) of the marker reached: the next one's heading (0x00453150) is to be faced there
+        g.marker_face = mk.face_dir.then(|| markers.spline_marker(run.tag, i).map(|m| m.dir.with_y(0.0).normalize_or_zero())).flatten();
         return None;
     }
     // another spline (0x0044c030 + 0x00426640): its first marker; a missing one is logged ("Marker : Switching to
     // spline that does not exists") and the run stays where it is
     if markers.spline_len(next) > 0 {
         g.spline = Some(SplineRun { tag: next, index: 0, started: true });
+        // (the face flag is the new spline's own, Marker_GetFlags on it)
+        g.marker_face = markers.spline_marker(next, 0).filter(|m| m.face_dir).map(|m| m.dir.with_y(0.0).normalize_or_zero());
     }
     None
 }
@@ -2840,8 +2959,12 @@ fn think(
         (MessageWriter<melee::CloseHit>, ResMut<melee::CloseStats>, MessageWriter<notes::ScriptEnd>),
         Query<(Entity, &mut coverslot::CoverObject, &GlobalTransform, Option<&crate::level::Placed>), Without<Grunt>>,
     ),
+    (topsy, glove, suction): (Option<Res<crate::topsy::Topsy>>, Option<Res<crate::weapons::glove::Glove>>, Option<Res<crate::weapons::blackhole::Suction>>),
 ) {
     let t0 = Instant::now();
+    // the weapon effects that hold the bad guys' grenades (the "throw" note, 0x0043d180, ai_05.cpp:1282-1295): the
+    // Topsy Turvy's timer (Game+0xc80 > 0), the knockout glove on (Game+0xcbc), a black hole sucking (World+0xf00)
+    let throw_held = topsy.is_some_and(|t| t.active()) || glove.is_some_and(|g| g.active()) || suction.is_some_and(|s| s.active);
     let player_e = player_q.single().ok();
     let dt = time.delta_secs();
     let k = physics.meters_per_unit;
@@ -3075,10 +3198,13 @@ fn think(
         let target = g.target.and_then(|e| targets.get(e).ok()).map(|t| t.translation());
         g.timer -= dt;
         g.ray_timer -= dt;
-        // a target farther than 2 x scan_distance is dropped (states 0x3c, 0xa: vt+0x180 0x0043ecf0, which keeps an
-        // army target at any range; a priority target's scan_distance is its distance when found, AI_FindTarget)
+        // a target farther than 2 x scan_distance is dropped (states 0x3c, 0xa: vt+0x180 0x0043ecf0, which keeps at
+        // any range an army target, any target on a base-defence level (0x0044e600) and any after a charge (+0x958);
+        // a priority target's scan_distance is its distance when found, AI_FindTarget). (Its +0x488 flag 4 is not
+        // known.)
         if let Some(p) = target {
-            if flat(p - pos).length() > 2.0 * g.scan_distance && !g.guard && !g.target.is_some_and(|e| army.contains(e)) {
+            let kept = g.guard || g.charged || g.base_defence || g.target.is_some_and(|e| army.contains(e));
+            if flat(p - pos).length() > 2.0 * g.scan_distance && !kept {
                 g.target = None;
             }
         }
@@ -3139,11 +3265,16 @@ fn think(
             let strict = markers.spline_marker(run.tag, if run.started { from } else { 0 }).is_some_and(|m| m.strict);
             if target.is_some() && !strict {
                 g.spline = None;
+                g.marker_face = None;
                 g.mind = Mind::Roam;
             } else if let Some(mk) = markers.spline_marker(run.tag, run.index) {
                 g.mind = Mind::ToMarker;
-                // the route's last node reached (AIRoute_CheckReached 0x0046f900: within 2.5 units in the plane)
-                if flat(mk.pos - pos).length() < MARKER_REACHED {
+                // the route's last node reached (AIRoute_CheckReached 0x0046f900: within 2.5 units in the plane, and
+                // facing its heading when it has one, `marker_face`)
+                let fwd = Vec3::new(g.yaw.sin(), 0.0, g.yaw.cos());
+                let faced = g.marker_face.is_none_or(|f| f == Vec3::ZERO || fwd.dot(f) >= MARKER_FACING_DOT);
+                if flat(mk.pos - pos).length() < MARKER_REACHED && faced {
+                    g.marker_face = None;
                     // Marker_ProcessArrival 0x0044ba30 (0x96's arrival does it for the head, then state 0x97)
                     g.spline = Some(SplineRun { started: true, ..run });
                     let idx = markers.spline_index(run.tag, run.index).unwrap_or(0);
@@ -3227,6 +3358,7 @@ fn think(
             // the scare's end charges the player (0x0042ce70)
             (Mind::Flee, _) => {
                 g.target = g.target.or(player_e);
+                g.charged = true;
                 Mind::Chase
             }
             // the wander (0x3d / 0x5b) and the one-shot states run their own course (below)
@@ -3283,6 +3415,10 @@ fn think(
                 // a monk's roll first (vt+0x220 0x00437130): the basket rain (0xf1) or the twiglet summon (0xf2 /
                 // 0xf3), else the fire state
                 // (a hand-over engages afresh, vt+0x230(0): no close attack; the limit is asked again by max_fire::upkeep)
+                // in range a trigger_charge grunt's +0x488 0x100 and his charge's point list go (`charged`)
+                if in_range && std::mem::take(&mut g.trigger_charge) {
+                    g.charged = false;
+                }
                 let retry = std::mem::take(&mut g.retry_engage);
                 let engaged = !retry && (was == Mind::Fire || (was == Mind::Guard && g.guard_firing));
                 let act = match g.monk.as_mut() {
@@ -3402,6 +3538,8 @@ fn think(
         }
         let mut goal = pos;
         let mut speed = 0.0;
+        // a heading a marker asks to be faced in (`marker_face`)
+        let mut marker_turn: Option<Vec3> = None;
         // a jumper in the air: his own velocity (jumper.rs), not the walk's
         let mut fly: Option<Vec3> = None;
         // a hit reaction holds the grunt (states 0x12f..0x131)
@@ -3462,6 +3600,13 @@ fn think(
                 if g.route_wait > 0.0 && g.exit.is_none() {
                     g.route_wait -= dt;
                     speed = 0.0;
+                }
+                // at the marker with a heading to face: still, turning to it (0x00454c90)
+                if let (Some(f), Some(at), None) = (g.marker_face, mk, g.exit) {
+                    if flat(at - pos).length() < MARKER_REACHED {
+                        speed = 0.0;
+                        marker_turn = Some(f);
+                    }
                 }
                 if g.exit.is_none() && mk.is_none() {
                     g.mind = Mind::Roam;
@@ -3533,6 +3678,7 @@ fn think(
                     g.attention = false;
                     if std::mem::take(&mut g.charge) {
                         g.target = g.target.or(player_e);
+                        g.charged = true;
                         g.search_timer = rng.range(1.5, 2.0);
                         g.mind = Mind::Chase;
                     } else {
@@ -3591,7 +3737,9 @@ fn think(
                 // state 0x10: the throw anim facing the target; its "throw" note (captain_grenade_throw 1.333 s) sends
                 // the grenade (0x0043d180 "throw" -> 0x00428340: the captain_grenade from the hand at the target's
                 // ref_hit_00; flag 1 cleared); the end: a guard 0x7a, flag 4 clear the clip's end (0x0042b8e0), else
-                // 50 % that and 50 % engage again (ai_06.cpp:813-836)
+                // 50 % that and 50 % engage again (ai_06.cpp:813-836); the note does nothing while a weapon effect holds
+                // the grenades (`throw_held`; the extra shooter's +0x488 0x100000 hold is not modelled: max_fire.rs
+                // keeps no such flag)
                 let total = anim_len(&mut lib, g.anim(0x27, 0.0));
                 let before = total - g.anim_left;
                 g.anim_left -= dt;
@@ -3599,7 +3747,7 @@ fn think(
                     g.thrown = true;
                     stats.throws += 1;
                     g.throw_armed = false;
-                    if let Some(thit) = target_hit {
+                    if let (Some(thit), false) = (target_hit, throw_held) {
                         let hand = ga
                             .and_then(|a| a.skeleton.index.get("ref_lhand").and_then(|&i| targets.get(a.joints[i]).ok()))
                             .map(|j| j.translation())
@@ -3766,8 +3914,10 @@ fn think(
                         if c.timer <= 0.0 {
                             // the fire counters rolled afresh (0x00427600), 1..6 s of breathing (0xa3); the rounds +0x5bc
                             // now (the spray counts them down; the fire cycle rolls its own from left_clips 0)
+                            // and the bursts +0x5b8, clamped to at most the rounds
                             g.left_clips = 0;
                             g.left_rounds = rng.range(g.rounds.0 as f32, g.rounds.1 as f32 + 0.999) as i64;
+                            g.left_bursts = (rng.range(g.bursts.0 as f32, g.bursts.1 as f32 + 0.999) as i64).min(g.left_rounds);
                             if !g.fire_ready {
                                 g.throw_armed = true;
                             }
@@ -3805,19 +3955,22 @@ fn think(
                         }
                     }
                     CoverPhase::Spray => {
-                        // each "fire" note of the spray anim a shot at the target (the fire event 0x0043d180 -> vt+0x13c),
-                        // rounds counted down; its end: flag 4 with rounds left -> breathe (the counters rolled), else duck
+                        // each "fire" note of the spray anim (GenericAIObject_HandleEvent 0x0043d180, state 0x68,
+                        // ai_05.cpp:1237-1256): nothing unless both the rounds +0x5bc and the bursts +0x5b8 are left;
+                        // else a shot (vt+0x194; here at the target, when he still has one) and both counted down,
+                        // shot or not; its end: flag 4 with rounds left -> breathe (the counters rolled), else duck
                         let name = g.anim(0x68, 0.0);
                         let notes: Vec<f32> = lib.anim(name).map(|a| a.notes.iter().filter(|n| n.1.trim().eq_ignore_ascii_case("fire")).map(|n| n.0).collect()).unwrap_or_default();
                         let len = anim_len(&mut lib, name);
                         let (t0, t1) = (len - (c.timer + dt), len - c.timer);
                         for n in notes {
-                            if n > t0 && n <= t1 && g.left_rounds > 0 {
+                            if n > t0 && n <= t1 && g.left_rounds > 0 && g.left_bursts > 0 {
                                 if let Some((_, thit)) = tgt {
-                                    g.left_rounds -= 1;
                                     shoot(&mut commands, &mut fx, &g, &mut rng, pos, thit, &data);
                                     stats.shots += 1;
                                 }
+                                g.left_rounds -= 1;
+                                g.left_bursts -= 1;
                             }
                         }
                         if c.timer <= 0.0 {
@@ -4172,6 +4325,7 @@ fn think(
         g.walking = speed > 1.0 && flat(goal - pos).length() > 1.0;
         let dir = flat(goal - pos).normalize_or_zero();
         let face = match (g.mind, target, g.cover.map(|c| c.phase)) {
+            (Mind::ToMarker, _, _) if marker_turn.is_some() => marker_turn.unwrap_or(dir),
             // the summon turns him to its point (state 0xf3: 0x00454e60 toward +0x934)
             (Mind::Cast, _, _) if g.monk.is_some_and(|m| m.spell == monk::Spell::Twiglets) => {
                 g.monk.map(|m| flat(m.summon_at - pos).normalize_or_zero()).unwrap_or(dir)
@@ -4356,7 +4510,8 @@ fn fire_cycle(
             let req = g.speech.line(voices, crate::audio::PlaySound::at(q112::FIGHT_LINE, pos));
             sounds.write(req);
         } else {
-            sounds.write(crate::audio::PlaySound::at(class_voice(g.kind, "Fight", g.voice_set), pos).looping(false));
+            let line = barks.cue_line(CaptainCue::Fight, g.kind, g.voice_set, rng);
+            sounds.write(crate::audio::PlaySound::at(line, pos).looping(false));
         }
     }
     stats.shots += 1;
@@ -5080,10 +5235,10 @@ fn companions(
     mut fx: MessageWriter<crate::fx::StartFx>,
     mut log: ResMut<crate::playtest::PlayState>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
-    (mut pickups, mut dynamite, mut barks, mut hud, mut pending, mut grabs, taken, mut force): (
+    (mut pickups, mut dynamite, (mut barks, voices), mut hud, mut pending, mut grabs, taken, mut force): (
         MessageWriter<crate::pickup::SpawnPickup>,
         MessageWriter<crate::sticky::ThrowDynamite>,
-        ResMut<Barks>,
+        (ResMut<Barks>, crate::audio::PlayingVoices),
         Option<ResMut<crate::hud::HudState>>,
         crate::levelreset::PerLevel<(bool, bool)>,
         MessageWriter<close_kill::Grab>,
@@ -5492,11 +5647,12 @@ fn companions(
             } else {
                 // the fire anim starting with a target (0x00428980 -> vt+0x13c, ai_02.cpp:1860): the Fight cue under
                 // vo_delay (Q11Voice 0x004875d0: Q1150038 / Q1150040_Fight; AIVoice 0x0044eab0: JON50026_Fight,
-                // JON50028 / JON50029_Taunt; equal odds)
+                // JON50028 / JON50029_Taunt; equal odds), kept as his line (+0xb50) so the next speech test hears him
                 if !c.firing && c.target.is_some() && barks.take(Delay::Vo, now, &mut rng) {
                     let l: &[&str] = if c.q { &["Q1150038_Fight", "Q1150040_Fight"] } else { &["JON50026_Fight", "JON50028_Taunt", "JON50029_Taunt"] };
                     let n = l[((rng.rand() * l.len() as f32) as usize).min(l.len() - 1)];
-                    sounds.write(crate::audio::PlaySound::at(n, me));
+                    let req = c.speech.line(&voices, crate::audio::PlaySound::at(n, me));
+                    sounds.write(req);
                 }
                 c.firing = true;
                 let prev = c.loop_t;
@@ -5813,9 +5969,11 @@ fn team_orders(
         }
         text = if attack { "ui_teammate_attack" } else { "ui_teammate_defend_loc" };
     }
-    // 0x00463890 + flag 4: the order's text for 3.0 s, hiding the others (0x00467890)
+    // 0x00463890 + flag 4: the order's text for 3.0 s, hiding the others (0x00467890); its 3 s are set only on its
+    // first visible frame, so the same order again while it shows keeps counting down
     if let Some(h) = hud {
-        h.team = Some((text, 3.0));
+        let left = h.team.filter(|t| t.0 == text && t.1 > 0.0).map_or(3.0, |t| t.1);
+        h.team = Some((text, left));
     }
     info!("EVENT team order {text}");
 }
@@ -5830,5 +5988,35 @@ mod tests {
     fn a_lost_target_ends_the_fight_by_the_clip() {
         assert_eq!(FightEnd::on_loss(false), FightEnd::Home);
         assert_eq!(FightEnd::on_loss(true), FightEnd::Linger);
+    }
+
+    /// 0x0043bd70 / 0x0043abc0: the forge cannon, mover death and tower climb ids; ids 8 / 9 on a base defence.
+    #[test]
+    fn the_grunt_tables_name_the_mover_ids() {
+        let fl = AnimFlags::default();
+        for k in [Kind::Grunt, Kind::Bow] {
+            assert_eq!(anim_name_with(k, 105, 0.0, fl), "grunt_fcannon_sit");
+            assert_eq!(anim_name_with(k, 106, 0.0, fl), "grunt_fcannon_fire");
+            assert_eq!(anim_name_with(k, 128, 0.0, fl), "mover_grunt_mdie_2");
+            assert_eq!(anim_name_with(k, 130, 0.0, fl), "mover_grunt_qdie_2");
+            assert_eq!(anim_name_with(k, 139, 0.0, fl), "mover_grunt_tower_climb");
+        }
+        assert_eq!(anim_name_with(Kind::Grunt, 8, 0.0, fl), "grunt_run");
+        assert_eq!(anim_name_with(Kind::Grunt, 9, 0.0, AnimFlags { base_defence: true, ..fl }), "grunt_run_no_sound");
+        assert_eq!(anim_name_with(Kind::Bow, 8, 0.0, AnimFlags { base_defence: true, ..fl }), "grunt_bow_run");
+    }
+
+    /// 0x00437690 / 0x00437860: a captain's cue comes from his set's table, each line once before any repeats.
+    #[test]
+    fn captain_cues_deal_their_tables() {
+        let mut barks = Barks::default();
+        let mut rng = FxStats::default();
+        let mut fight: Vec<&str> = (0..6).map(|_| barks.captain_line(CaptainCue::Fight, 0, &mut rng)).collect();
+        fight.sort();
+        assert_eq!(fight, ["CA150004_Fight", "CA150005_Fight", "CA150006_Fight", "CA150007_Fight", "CA150008_Fight", "CA150009_Fight"]);
+        let mut spotted: Vec<&str> = (0..3).map(|_| barks.captain_line(CaptainCue::Spotted, 1, &mut rng)).collect();
+        spotted.sort();
+        assert_eq!(spotted, ["CA250014_Spotted", "CA250015_Spotted", "CA250016_Spotted"]);
+        assert_eq!(barks.cue_line(CaptainCue::Spotted, Kind::Grunt, 0, &mut rng), "@grunt:Spotted:0");
     }
 }

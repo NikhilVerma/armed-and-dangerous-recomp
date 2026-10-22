@@ -1674,6 +1674,7 @@ fn spawn_grunts(
                 // spawned troops charge the player (0x0042dd50 -> state 0x5b -> 0x0042ce70)
                 g.target = player.single().ok();
                 g.mind = ai::Mind::Chase;
+                g.charged = true;
             }
             let bounds = Bounds { center: (model.min + model.max) * 0.5, radius: (model.max - model.min).length() * 0.5 };
             commands.entity(e).insert((body, character, Health(p.f("max_health", 100.0)), bounds, g));

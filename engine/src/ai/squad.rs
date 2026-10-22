@@ -211,6 +211,7 @@ fn alert(sq: &mut Squad, target: Entity, grunts: &mut Query<(Entity, &mut Grunt,
             g.guard = false;
             g.target = Some(target);
             g.mind = Mind::Chase;
+            g.charged = true;
             sent += 1;
             false
         });

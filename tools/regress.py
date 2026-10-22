@@ -127,6 +127,8 @@ SUITE += ['max_fire_l1m4', 'captain_grenade', 'captain_rocket', 'gunner_lead', '
 # F8 writes a bookmark with its screenshot and save into the script's session folder; 'pyunit': tools/test_*.py
 # (tools/session.py's summary and bookmark-to-playtest conversion)
 SUITE += ['devmenu_toggles', 'devmenu_level', 'devmenu_title', 'devtools_quicksave', 'devtools_bookmark', 'pyunit']
+# a charged grunt keeps its target at any range (0x0043ecf0 with the charge's list +0x958)
+SUITE += ['charge_keeps_target']
 # scripts kept in git (engine/playtests) win over work/remaster/play
 TRACKED = os.path.join(ROOT, 'engine', 'playtests')
 # the wall-clock checks (--perf; their "expect_perf" steps run only with AND_PERF=1)

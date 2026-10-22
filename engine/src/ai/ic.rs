@@ -17,7 +17,7 @@
 //!   pane within reach of his body dies: guess at the impact rule).
 //! - Its end (state 0x64's end -> 0x65, ai_06.cpp:1960-1976): upright, his home where he stands, the stand set, state 1;
 //!   with the note "ready_roof" (GenericAIObject_HandleEvent 0x0043d180) a guard on the roof (0x0042d0f0). "ragdoll"
-//!   (the missed roof jump) ends the move there and lets him fall (guess: vt+0x17c's fall is not ported).
+//!   (the missed roof jump) ends the move there and knocks him down limp (vt+0x17c(0, 1), as a woken grunt's).
 //!
 //! Hooks outside this file: level.rs (the hosts' `hidden_grunts` at load, `SpawnGrunt::ic`), ai.rs (Mind::Scripted:
 //! the think loop leaves him alone), charanim.rs (leaves his anims to this module).
@@ -146,6 +146,10 @@ enum End {
     Ready,
     /// "ready_roof": a guard on the roof
     Roof,
+    /// "ragdoll" (the missed roof jump): woken (vt+0x1ac(0)), then GoRagdoll with no record, quiet (vt+0x17c(0, 1),
+    /// GenericAIObject_HandleEvent 0x0043d180, ai_05.cpp:1561-1568): the same knock as a woken grunt's (`knocks`).
+    /// (No shipped level sets ic_roof_jump_miss_v2f_1.)
+    Ragdoll,
 }
 
 #[derive(Resource, Default)]
@@ -244,7 +248,9 @@ pub fn run(
             continue;
         } else if roof.contains(&e) {
             Some(End::Roof)
-        } else if fall.contains(&e) || mover.is_none_or(|m| m.ended) {
+        } else if fall.contains(&e) {
+            Some(End::Ragdoll)
+        } else if mover.is_none_or(|m| m.ended) {
             Some(End::Ready)
         } else {
             None
@@ -291,6 +297,8 @@ pub fn run(
                     if let Some(l) = ic.spawn.landing {
                         commands.entity(e).insert(IcAnchor { landing: l });
                     }
+                } else if how == End::Ragdoll {
+                    commands.entity(e).insert(KnockAway { from: KnockFrom::Woken });
                 } else {
                     g.mind = Mind::Roam;
                 }
