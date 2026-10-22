@@ -7,15 +7,16 @@
 //! different noise: this pass is the old one, run with Bevy's [`FullscreenMaterial`]. Either setting puts the 3D view
 //! in a floating-point target (graphics/mod.rs `apply_cameras`: `Hdr`), so the dither has something to keep.
 
-use bevy::core_pipeline::fullscreen_material::{FullscreenMaterial, FullscreenMaterialPlugin};
+use bevy::core_pipeline::fullscreen_material::{FullscreenMaterial, FullscreenMaterialBindGroup, FullscreenMaterialPlugin};
 use bevy::core_pipeline::tonemapping::tonemapping;
 use bevy::core_pipeline::Core3dSystems;
 use bevy::ecs::schedule::ScheduleConfigs;
 use bevy::ecs::system::BoxedSystem;
 use bevy::prelude::*;
-use bevy::render::extract_component::ExtractComponent;
+use bevy::render::extract_component::{ComponentUniforms, ExtractComponent};
+use bevy::render::render_resource::BufferId;
 use bevy::render::render_resource::ShaderType;
-use bevy::render::RenderApp;
+use bevy::render::{Render, RenderApp, RenderSystems};
 use bevy::shader::ShaderRef;
 use serde::{Deserialize, Serialize};
 
@@ -88,6 +89,30 @@ impl Plugin for PresentPlugin {
     fn build(&self, app: &mut App) {
         bevy::asset::embedded_asset!(app, "present.wesl");
         app.add_plugins(FullscreenMaterialPlugin::<PresentPass>::default()).add_systems(PostUpdate, follow_settings);
+        if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
+            render_app.add_systems(Render, stale_bind_groups.in_set(RenderSystems::PrepareResourcesFlush));
+        }
+    }
+}
+
+/// Bevy's fullscreen material keeps each view's bind groups until its main textures change
+/// (`FullscreenMaterialBindGroup`), but they also hold the settings' uniform buffer, which is made anew when it grows:
+/// a second 3D camera (the save thumbnail's, thumbnail.rs) then left the game view drawing with the old 64-byte buffer
+/// at the new index's offset, a wgpu validation error that quit the game (launch_restart: saving with the pause blur
+/// on, whose ScreenPost component moves the game view after the thumbnail camera in the uniform order). When the
+/// buffer is replaced, the cached bind groups go and are built again on the new one this frame.
+fn stale_bind_groups(
+    mut commands: Commands,
+    uniforms: Res<ComponentUniforms<PresentPass>>,
+    views: Query<Entity, With<FullscreenMaterialBindGroup<PresentPass>>>,
+    mut last: Local<Option<BufferId>>,
+) {
+    let now = uniforms.uniforms().buffer().map(|b| b.id());
+    if now != *last {
+        *last = now;
+        for e in &views {
+            commands.entity(e).remove::<FullscreenMaterialBindGroup<PresentPass>>();
+        }
     }
 }
 
