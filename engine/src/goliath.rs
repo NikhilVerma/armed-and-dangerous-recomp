@@ -23,6 +23,8 @@ use oxijolt::prelude::{Activation, BodySettings, Shape};
 /// Seconds a held fireball takes to land (guess: the throw solver's speed, the fireball's vt+0x8c * K 0x005bcd64, is
 /// not traced; a lob of 1.5 s).
 const FIREBALL_FLIGHT: f32 = 1.5;
+/// Its turn to the target in the fireball cycle (0x00454e60's rate 4, rad/s: GoliathObject_Update 0x00447040).
+const TURN_RATE: f32 = 4.0;
 
 #[derive(Component)]
 pub struct Goliath {
@@ -386,19 +388,24 @@ fn guard(
                 g.timer -= dt;
                 let target = roman.filter(|r| (*r - gt.translation()).with_y(0.0).length() <= g.range);
                 if g.timer <= 0.0 {
-                    if let Some(r) = target {
-                        // turned to the target (0x00454e60)
-                        let to = (r - gt.translation()).with_y(0.0);
-                        if to.length() > 1.0 {
-                            let yaw = to.x.atan2(to.z);
-                            tr.rotation = Quat::from_rotation_y(yaw) * crate::level::game_to_engine();
-                        }
+                    if target.is_some() {
                         a.play(0, "goliath_fireball_pickup", false, crate::skin::Mask::All);
                         g.phase = Phase::Pickup;
                     }
                 }
             }
             Phase::Pickup | Phase::Throw => {
+                // turning to the target through the cycle (0x00447040 state 2: 0x00454e60 at rate 4, gradual; its pick-up
+                // faces across its +0xb5c, not decoded: here the target as well)
+                if let Some(r) = roman {
+                    let to = (r - gt.translation()).with_y(0.0);
+                    if to.length() > 0.001 {
+                        let yaw = crate::ai::ic::yaw_of(tr.rotation);
+                        let off = (to.x.atan2(to.z) - yaw + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+                        let (step, _) = crate::ai::body::turn_toward(off, TURN_RATE, dt);
+                        tr.rotation = Quat::from_rotation_y(yaw + step) * crate::level::game_to_engine();
+                    }
+                }
                 let anim = if g.phase == Phase::Pickup { "goliath_fireball_pickup" } else { "goliath_fireball_throw" };
                 if a.layers.first().is_some_and(|l| l.anim == anim && l.time >= l.duration - 1e-3 && l.duration > 0.0) {
                     if g.phase == Phase::Pickup {

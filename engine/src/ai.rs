@@ -672,9 +672,8 @@ pub struct Gun {
     pub lift: Vec3,
     /// +0x494: the delay before a burst sequence (stig_fire_delay)
     pub timer: f32,
-    /// aim weights +0x580 (0 left .. 1 right) / +0x584 (0 bottom .. 1 top)
-    pub h: f32,
-    pub v: f32,
+    /// aim weights +0x580 / +0x584 (0x00428fc0)
+    pub aim: aim::AimBlend,
     /// the counters' tables: the grunt's stig_fire_* for a kind-1 gun, forge_fire_* for a forge cannon (0x00427600)
     pub table: StigTable,
     /// +0x5b4 clips, +0x5bc rounds, +0x5b8 burst rounds, +0x5c8 clip pause, +0x5cc burst delay
@@ -706,8 +705,7 @@ impl Gun {
             fwd: gv.fwd,
             lift: Vec3::ZERO,
             timer: 0.0,
-            h: 0.5,
-            v: 0.5,
+            aim: aim::AimBlend::default(),
             clips: 0,
             rounds: 0,
             burst: 0,
@@ -870,6 +868,11 @@ pub struct Grunt {
     /// a turn toward the target before firing (0x0042e050: target more than ~45 degrees off: grunt_turn_180 0.6 s
     /// behind (dot < -0.7), grunt_turn_left / right_90 0.5 s, the archers' grunt_bow_turn 0.633 s): the anim, time left
     pub turn: Option<(&'static str, f32)>,
+    /// the aim weights on foot (+0x580 / +0x584, 0x00428fc0 from the turn 0x0042df70): the fire set's and the slot's
+    /// stand set's blend
+    pub aim: aim::AimBlend,
+    /// +0x484 bit 14: turning to the target (0x0042df70: set when the aim is off target, cleared once he faces it)
+    pub turning: bool,
     pub last_hit: f32,
     /// the fling of a blast that killed him (Character_GoRagdoll 0x00431310: a record with an owner and an impact
     /// over 10050 throws the body along its direction at impact x 0.15 on his 80 kg), units/s, engine axes
@@ -1341,7 +1344,7 @@ fn log_cover(grunts: Query<&Grunt>, trenches: Query<(&Barricade, &crate::level::
     state.0.insert(
         "gunner".into(),
         match gunner {
-            Some(gn) => serde_json::json!({"phase": format!("{:?}", gn.phase), "shots": gn.shots, "h": gn.h, "v": gn.v, "firing": gn.firing}),
+            Some(gn) => serde_json::json!({"phase": format!("{:?}", gn.phase), "shots": gn.shots, "h": gn.aim.h, "v": gn.aim.v, "firing": gn.firing}),
             None => serde_json::json!({"phase": "", "shots": 0}),
         },
     );
@@ -1400,6 +1403,9 @@ fn log_ai(
             "targets_player": g.target.is_some() && g.target == re,
             "spline": g.spline.map(|r| format!("{}:{}", r.tag, r.index)).unwrap_or_default(),
             "dist": p.distance(rp).round(),
+            // the on-foot aim weights' distance from the centre and the turn to the target (ai/aim.rs, 0x0042df70)
+            "aim_off": ((g.aim.h - 0.5).abs() * 100.0).round() / 100.0,
+            "turning": g.turning,
         })
     });
     let mut ai = serde_json::json!({
@@ -1562,6 +1568,8 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         last_health: max_health,
         dry_first: false,
         turn: None,
+        aim: aim::AimBlend::default(),
+        turning: false,
         last_hit: 0.0,
         blast_fling: None,
         hit_level_1: p.f("hit_level_1", 10.0),
@@ -2768,51 +2776,13 @@ fn gun_cycle(g: &mut Grunt, gn: &mut Gun, rng: &mut FxStats, dt: f32) -> bool {
     false
 }
 
-/// The gunner's aim 0x00428fc0 (vt+0x190, window in degrees): the horizontal weight from the angle between the gun's
-/// heading and the target (inside +-window: 1 - (angle + window) / (2 window), on target; beyond: 1 right or 0 left),
-/// the vertical from the elevation acos(dz / len) - 90 (inside +-26.5: 1 - (e + 26.5) / 53; above: 1, below: 0, off
-/// target); with flag 1 and on target set at once, else stepped by dt / (2 window * 0.0037037); no target: (0.5, 0.5),
-/// flag 1 cleared, on target. The flagged case's predicted target point (0x004580a0) is the caller's `target` (ai/aim.rs).
+/// The gunner's aim 0x00428fc0 (vt+0x190, window in degrees) from the gun's heading (ai/aim.rs `AimBlend::track`);
+/// without a target flag 1 is cleared. The flagged case's predicted target point (0x004580a0) is the caller's `target`.
 fn gun_aim(gn: &mut Gun, from: Vec3, target: Option<Vec3>, window: f32, dt: f32) -> bool {
-    let (th, tv, ok) = match target {
-        None => {
-            gn.snap = false;
-            (0.5, 0.5, true)
-        }
-        Some(p) => {
-            let d = p - from;
-            let flat = d.with_y(0.0).normalize_or_zero();
-            let ang = gn.fwd.cross(flat).y.atan2(gn.fwd.dot(flat)).to_degrees();
-            let (th, mut ok) = if ang < -window {
-                (1.0, false)
-            } else if ang > window {
-                (0.0, false)
-            } else {
-                (1.0 - (ang + window) / (2.0 * window), true)
-            };
-            let e = (d.y / d.length().max(1e-3)).clamp(-1.0, 1.0).acos().to_degrees() - 90.0;
-            let tv = if e > 26.5 {
-                ok = false;
-                0.0
-            } else if e < -26.5 {
-                ok = false;
-                1.0
-            } else {
-                1.0 - (e + 26.5) / 53.0
-            };
-            (th, tv, ok)
-        }
-    };
-    if gn.snap && ok {
-        gn.h = th;
-        gn.v = tv;
-        return ok;
+    if target.is_none() {
+        gn.snap = false;
     }
-    let r = dt / (2.0 * window * 0.003_703_7);
-    let step = |c: f32, t: f32| if t < c { (c - r).max(t) } else { (c + r).min(t) };
-    gn.h = step(gn.h, th);
-    gn.v = step(gn.v, tv);
-    ok
+    gn.aim.track(gn.fwd, from, target, window, gn.snap, dt)
 }
 
 /// Off a gun (0x004266b0): the gun's flags 4 / 0x10 cleared, the body back on its feet, +0x8000 / flag 1 cleared.
@@ -3136,17 +3106,10 @@ fn follow_spline(g: &mut Grunt, markers: &crate::alarm::Markers, tags: (i64, i64
     }
 }
 
-/// The yaw rate of GenericAI_TurnToTarget 0x0042df70 (its 0x00454e60 call's rate, 16.0).
+/// The yaw rate of GenericAI_TurnToTarget 0x0042df70 (its 0x00454e60 call's rate, 16.0; ai/body.rs `turn_toward`).
 const TURN_TO_TARGET_RATE: f32 = 16.0;
-
-/// One frame of 0x00454e60's turn toward a heading `d` radians off (rate 16 from 0x0042df70): the wanted yaw rate is
-/// rate x the cross product (sin d), or rate whole when the target is behind (dot < -0.98, K 0x005bcd38); here taken as
-/// the turn itself (the original hands it to a body constraint), never past the heading.
-fn turn_to_target_step(d: f32, dt: f32) -> f32 {
-    let rate = if d.cos() < -0.98 { TURN_TO_TARGET_RATE * d.signum() } else { TURN_TO_TARGET_RATE * d.sin() };
-    let step = rate * dt;
-    if step.abs() > d.abs() { d } else { step }
-}
+/// The aim window of 0x0042df70's vt+0x190 call from the fire cycle and the slot's stand (45 degrees).
+const TURN_TO_TARGET_WINDOW: f32 = 45.0;
 
 /// A charge, 0x0042ce70(0): the player as target unless one is held (vt+0x23c), the pursuit (vt+0x184: the state
 /// returned), the search timer +0x490 = 1.5..2.0 s, and any group hand-over under way dropped (+0x578 = 0, +0x57c
@@ -4563,19 +4526,24 @@ fn think(
                     (GunPhase::On, Some(i)) => {
                         g.yaw = gn.yaw;
                         // with flag 1 (the counters ran out together) the aim and the shots go at the target led for a
-                        // bullet at 360 from the gun (0x004580a0, ai/aim.rs), without the aim error
+                        // bullet at 360 from the gun's muzzle (its vt+0x148, 0x00497f60), the lead starting from the
+                        // target's ref_hit_00 (0x004580a0 with its bone flag), the height mostly the target's position's
+                        // (ai/aim.rs), without the aim error; the aim measured from the muzzle too
+                        let muzzle = guns.get(gn.turret).ok().map(|(_, tu, tgt, ta, _)| tu.bone_world(tgt, ta, tu.emitter()).w_axis.truncate());
+                        let aim_from = if gn.snap { muzzle.unwrap_or(pos) } else { pos };
                         let led = if gn.snap {
                             target.zip(g.target).map(|(p, te)| {
-                                let l = aim::lead_point(p, motion.velocity(te), pos, aim::GUN_LEAD_SPEED);
-                                l.with_y(aim::aim_height(p.y, target_hit.map_or(p.y, |h| h.y)))
+                                let hit = target_hit.unwrap_or(p);
+                                let l = aim::lead_point(hit, motion.velocity(te), aim_from, aim::GUN_LEAD_SPEED);
+                                l.with_y(aim::aim_height(p.y, hit.y))
                             })
                         } else {
                             None
                         };
                         let aim_at = if gn.snap { led } else { target };
                         // the aim (vt+0x190 0x00428fc0 with 65 degrees: state 0x7d calls it twice a frame)
-                        gun_aim(&mut gn, pos, aim_at, 65.0, dt);
-                        let mut cl = gun_aim(&mut gn, pos, aim_at, 65.0, dt);
+                        gun_aim(&mut gn, aim_from, aim_at, 65.0, dt);
+                        let mut cl = gun_aim(&mut gn, aim_from, aim_at, 65.0, dt);
                         if gn.snap && (gn.clips != 0 || gn.rounds != 0 || gn.burst != 0) {
                             cl = true;
                         }
@@ -4617,7 +4585,7 @@ fn think(
                         } else {
                             spots.guns[i].ai = Some(ge);
                             if let Ok((_, mut tu, gt, ta, _)) = guns.get_mut(gn.turret) {
-                                tu.ai_aim(gn.h, gn.v);
+                                tu.ai_aim(gn.aim.h, gn.aim.v);
                                 // the fire set's "fire" notes (0.067, 0.233 of its 0.3 s loop): with rounds and burst left a
                                 // shot (0x0043d180 -> vt+0x194 0x004284e0: the aim error -> the gun's vt+0x13c: ai_projectile
                                 // from the emitter, the muzzle flash), both counters down
@@ -4869,10 +4837,28 @@ fn think(
             }
             _ => dir,
         };
+        // 0x0042df70: the aim weights step toward the target (vt+0x190, 45 degrees); off target he turns (bit 14) at
+        // 0x00454e60's rate until he faces it, on target his body stays and the four-pose set aims (charanim.rs);
+        // elsewhere the fire cycle's weights are back at the centre (0x00428980)
+        if to_target {
+            let fwd = Vec3::new(g.yaw.sin(), 0.0, g.yaw.cos());
+            if !g.aim.track(fwd, pos, target, TURN_TO_TARGET_WINDOW, false, dt) {
+                g.turning = true;
+            }
+        } else {
+            g.aim = aim::AimBlend::default();
+            g.turning = false;
+        }
         if face != Vec3::ZERO {
             let want = face.x.atan2(face.z);
             let d = (want - g.yaw + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
-            g.yaw += if to_target { turn_to_target_step(d, dt) } else { d * (dt * 8.0).min(1.0) };
+            if !to_target {
+                g.yaw += d * (dt * 8.0).min(1.0);
+            } else if g.turning {
+                let (step, faced) = body::turn_toward(d, TURN_TO_TARGET_RATE, dt);
+                g.yaw += step;
+                g.turning = !faced;
+            }
         }
         if let Some(v) = fly {
             // in the air: facing the target while gliding with one, else the velocity (0xc5 / rising 0xc4)
@@ -6345,7 +6331,7 @@ fn companions(
         }
         // the attack order's new target (0x00484100): the close kill tried at once (0x00427e80), else +0xb68 rolled
         if std::mem::take(&mut c.order_engage) {
-            if let Some(grab) = close_kill::attempt(c, e, me, &grunts, &joints, &mut rng, &mut force) {
+            if let Some(grab) = close_kill::attempt(c, e, me, &grunts, &joints, &physics, &mut rng, &mut force) {
                 grabs.write(grab);
             } else {
                 c.linger = rng.range(3.0, 7.0);
@@ -6394,7 +6380,7 @@ fn companions(
             Some(d) if !c.engaged && d <= 0.9 * c.range => {
                 c.engaged = true;
                 // the engage (0x00427910) first tries the close kill (0x00427e80, close_kill.rs)
-                if let Some(grab) = close_kill::attempt(c, e, me, &grunts, &joints, &mut rng, &mut force) {
+                if let Some(grab) = close_kill::attempt(c, e, me, &grunts, &joints, &physics, &mut rng, &mut force) {
                     grabs.write(grab);
                 } else if !c.q && c.throw_armed && c.throwing.is_none() && rng.rand() * 90.0 < 30.0 && !target_busy(c.target) {
                     c.throwing = Some(0.0);
@@ -6677,7 +6663,7 @@ fn companions(
                             commands.entity(m).despawn();
                         }
                         // a burst's or the clip's end tries the close kill (0x00428980 -> 0x00427e80: ai_02.cpp:1942 / 1986)
-                        if let Some(grab) = close_kill::attempt(c, e, me, &grunts, &joints, &mut rng, &mut force) {
+                        if let Some(grab) = close_kill::attempt(c, e, me, &grunts, &joints, &physics, &mut rng, &mut force) {
                             grabs.write(grab);
                         }
                     }

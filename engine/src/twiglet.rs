@@ -42,8 +42,9 @@ const RADIUS: f32 = 1.5;
 const HEIGHT: f32 = 5.2;
 /// 0x00454d80's force gain: mass x 50 (0x00471750's speed argument), i.e. 50 / s on the velocity error
 const DRIVE_GAIN: f32 = 50.0;
-/// the twiglet's own turn to its way (0x00454e60 with 16: about a sixteenth of the gap a frame, guess)
-const TURN_RATE: f32 = 8.0;
+/// the twiglet's own turn to its way (AIRoute_Steer's 0x00454e60 at rate 16 rad/s toward its velocity: ai/body.rs
+/// `turn_toward`)
+const TURN_RATE: f32 = 16.0;
 
 /// A tree that gives twiglets (TwigletGenerator 0x005aed80).
 #[derive(Component, Clone, Debug)]
@@ -757,7 +758,7 @@ fn think(
         if let Some(f) = face.filter(|f| *f != Vec3::ZERO) {
             let want = f.x.atan2(f.z);
             let gap = (want - t.yaw + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
-            t.yaw += gap * (dt * TURN_RATE).min(1.0);
+            t.yaw += crate::ai::body::turn_toward(gap, TURN_RATE, dt).0;
         }
         tr.rotation = Quat::from_rotation_y(t.yaw) * crate::level::game_to_engine();
         if let Ok(mut b) = physics.world.body_mut(t.body) {

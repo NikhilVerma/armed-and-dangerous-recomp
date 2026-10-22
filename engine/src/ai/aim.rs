@@ -1,8 +1,11 @@
 //! The AI's predicted aim point (0x004580a0, anim_01.cpp:2425-2457): where a moving target will be when a projectile of
 //! a given speed reaches it. Used by a mounted-gun gunner whose counters ran out together (+0x48c flag 1, ai.rs
 //! `Gun::snap`): his aim (0x00428fc0, ai_02.cpp:2056-2066) and his shots (0x004284e0, ai_02.cpp:1733-1745) go at the
-//! point led for a bullet speed of 360 (0x43b40000) from the gun's position, without the aim error.
+//! point led for a bullet speed of 360 (0x43b40000) from the gun's muzzle (the turret's vt+0x148, 0x00497f60), the lead
+//! starting from the target's ref_hit_00 (0x004580a0's use-bone flag, 0x00458040), without the aim error.
 //!
+//! - [`AimBlend`]: the aim weights 0x00428fc0 steps toward the target (the gunner's, and a grunt's on foot, whose
+//!   off-target result starts his turn, 0x0042df70).
 //! - [`lead_point`]: the target's point plus its velocity x t, t solving the 2D intercept (game x / y, engine x / z):
 //!   only when the target moves (horizontal speed > 0.01, K 0x005bcbec), the speed is above 0.01 and the target is not on
 //!   the shooter (|d|^2 >= 0.001, the double at 0x005bcef0): b = (d . v) x -2 (K 0x005bcc40), disc = b^2 - (|v|^2 -
@@ -45,6 +48,67 @@ pub fn lead_point(target: Vec3, vel: Vec3, from: Vec3, speed: f32) -> Vec3 {
 /// The led aim's height (0x00428fc0): mostly the target's own position's height.
 pub fn aim_height(target_pos_y: f32, led_y: f32) -> f32 {
     (target_pos_y * 20.0 + led_y) * (1.0 / 21.0)
+}
+
+/// The aim blend weights (+0x580 horizontal: 0 left .. 1 right, +0x584 vertical: 0 bottom .. 1 top as stored; the
+/// four-pose sets read 1 - v) that 0x00428fc0 (vt+0x190) moves toward a target: the gunner's on his gun, a grunt's on
+/// foot in the fire cycle and the slot's stand (through the turn 0x0042df70, window 45).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct AimBlend {
+    pub h: f32,
+    pub v: f32,
+}
+
+impl Default for AimBlend {
+    /// the centre (0x00428980 resets it without a target to aim at; 0x004266b0 off a gun)
+    fn default() -> Self {
+        AimBlend { h: 0.5, v: 0.5 }
+    }
+}
+
+impl AimBlend {
+    /// 0x00428fc0 (window in degrees): the horizontal weight from the angle between `fwd` and the flat direction from
+    /// `from` to the target (inside +-window: 1 - (angle + window) / (2 window), on target; beyond: 1 right or 0 left),
+    /// the vertical from the elevation acos(dz / len) - 90 (inside +-26.5: 1 - (e + 26.5) / 53; above: 1, below: 0, off
+    /// target). `snap` (+0x48c flag 1) and on target sets them at once, else they step by dt / (2 window x 0.0037037)
+    /// without overshooting. No target: toward (0.5, 0.5), on target. Returns whether on target.
+    pub fn track(&mut self, fwd: Vec3, from: Vec3, target: Option<Vec3>, window: f32, snap: bool, dt: f32) -> bool {
+        let (th, tv, ok) = match target {
+            None => (0.5, 0.5, true),
+            Some(p) => {
+                let d = p - from;
+                let flat = d.with_y(0.0).normalize_or_zero();
+                let ang = fwd.cross(flat).y.atan2(fwd.dot(flat)).to_degrees();
+                let (th, mut ok) = if ang < -window {
+                    (1.0, false)
+                } else if ang > window {
+                    (0.0, false)
+                } else {
+                    (1.0 - (ang + window) / (2.0 * window), true)
+                };
+                let e = (d.y / d.length().max(1e-3)).clamp(-1.0, 1.0).acos().to_degrees() - 90.0;
+                let tv = if e > 26.5 {
+                    ok = false;
+                    0.0
+                } else if e < -26.5 {
+                    ok = false;
+                    1.0
+                } else {
+                    1.0 - (e + 26.5) / 53.0
+                };
+                (th, tv, ok)
+            }
+        };
+        if snap && ok {
+            *self = AimBlend { h: th, v: tv };
+            return ok;
+        }
+        let r = dt / (2.0 * window * 0.003_703_7);
+        let step = |c: f32, t: f32| if t < c { (c - r).max(t) } else { (c + r).min(t) };
+        self.h = step(self.h, th);
+        self.v = step(self.v, tv);
+        ok
+    }
 }
 
 /// The velocities of the objects grunts target, from their positions frame to frame.
