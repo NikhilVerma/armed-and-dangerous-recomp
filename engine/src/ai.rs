@@ -2518,7 +2518,8 @@ fn find_hiding_spot(g: &mut Grunt, me: Entity, (need_target, leaving, hold): (bo
         g.cover_history = [Some(h.obj), None, None];
     }
     g.hold = false;
-    let fail = if flag4 { Hide::Pursue } else { Hide::Reload };
+    // (with a turbo pack, +0xb08: the jumper captain, always the reload, ai_03.cpp:521-540)
+    let fail = if flag4 && g.jumper.is_none() { Hide::Pursue } else { Hide::Reload };
     // a base-defence level (0x0044e600, ai_03.cpp:219-224) tries only the breach and the ways over the wall (the
     // assault, ai/assault.rs, its own timed search) and otherwise fails: no gun, trench or cover slot
     if spots.defence {
@@ -2536,7 +2537,8 @@ fn find_hiding_spot(g: &mut Grunt, me: Entity, (need_target, leaving, hold): (bo
     // vt+0x1cc holds (not the archers): nearer (3D, squared) than a quarter of the chosen gun's or trench's 2D squared
     // distance, else than twice scan_distance squared; then within scan_distance; the slot taken (vt+0x158), its
     // point's path needed (0x0046f6b0), +0x494 = 5 s and state 0x1e / 0x1f
-    if g.kind != Kind::Bow && (!need_target || target.is_some()) {
+    // (none while holding a turbo pack, +0xb08, ai_03.cpp:329)
+    if g.kind != Kind::Bow && g.jumper.is_none() && (!need_target || target.is_some()) {
         let won = ti.map(|i| d2(spots.trenches[i].origin)).or(gi.map(|i| d2(spots.guns[i].origin)));
         let limit2 = won.map_or((2.0 * g.scan_distance).powi(2), |d| d * 0.25);
         // (no target: the slots are judged against the player, Game+0x748, ai_03.cpp:222)
