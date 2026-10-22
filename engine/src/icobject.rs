@@ -8,7 +8,11 @@
 //! - The drops: kegs to shoot (fx_explosion: area damage among the army) and pickups to shoot (max_health 1,
 //!   takes_bullet_damage; death_timeout 20 s): on_death_player_health (shootable_health: +50), the turret's ammo upgrade
 //!   (turret_upgrade: Game+0xdd1, defence.rs). They fall at their "gravity" 0.5 (the custom-gravity list World+0xf1c,
-//!   the getter 0x00450fa0: the body's gravity factor) with the speed trap's linear cast (movable.rs).
+//!   the getter 0x00450fa0: x the game's gravity) without the speed trap (their collide_poly turns it off, `notes`).
+//!   The ICObjects themselves have no collision model and move by their script: ICObject_Load's body set-up (the
+//!   mass-scaled damping 0x00458270, the custom-gravity list) and its "trigger_los" flag (+0x488 0x40, set by no
+//!   shipped object_ic) change nothing a player sees; nor does the kill trigger of the generic handler 0x0042f870
+//!   (no shipped object_ic or shrub patrol has receive_trigger_kill).
 //! - AnimPlayer (behaviour anim_player, vtable 0x005ab788; load 0x0040a700, trigger 0x0040a7d0): its "anim" set and held
 //!   at the start (flags 0x90); receive_trigger_activate plays it forward, receive_trigger_bkwd backward (0x20040), each
 //!   from where it is. The bases' gates (base_gate_l5_m5).
@@ -250,11 +254,14 @@ fn notes(
         let Some(e) = kit.spawn(&mut commands, &model, tr, true) else { continue };
         let k = physics.meters_per_unit;
         let Ok(shape) = oxijolt::prelude::Shape::new_sphere(3.0 * k) else { continue };
-        // its property set's gravity (0.5: the getter 0x00450fa0) and speed trap (anti-tunnelling, 0x00452790: a linear
-        // cast), as a movable object's (movable.rs)
+        // its property set's gravity (0.5: the getter 0x00450fa0) as a multiple of the game's gravity, as a movable
+        // object's (movable.rs). The speed trap (anti-tunnelling, 0x00452790: a linear cast) counts only for a template
+        // without the collide_poly flag (+0x4c bit 0, loader_01.cpp:3446; game_03.cpp:1344-1352): every drop
+        // (shootable_health / _token / _turret_upgrade, the only property sets with speed_trap) has collide_poly 1, so
+        // none gets it in the original either
         let mp = crate::movable::MovableProps::of(&p);
-        let mut s = oxijolt::prelude::BodySettings::new_dynamic().mass(20.0).gravity_factor(mp.gravity);
-        if mp.speed_trap != 0 {
+        let mut s = oxijolt::prelude::BodySettings::new_dynamic().mass(20.0).gravity_factor(physics.game_gravity_factor(mp.gravity));
+        if mp.speed_trap != 0 && p.i("collide_poly", 0) == 0 {
             s = s.motion_quality(oxijolt::prelude::MotionQuality::LinearCast);
         }
         let Some(body) = physics.add_dynamic(e, &shape, tr.translation, tr.rotation, Vec3::ZERO, s) else { continue };

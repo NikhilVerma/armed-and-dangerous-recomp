@@ -1170,45 +1170,6 @@ fn failed(mission: Option<Res<crate::mission::Mission>>, state: Res<State<AppSta
     }
 }
 
-/// A held key's repeat in the menus (0x00491090): true when pressed, then while held after the first delay and every
-/// repeat delay after that. A page change re-arms it out of reach (0x00491110 sets the timers to a huge value) so a key
-/// still held from the last page does nothing until pressed again.
-#[derive(Clone, Copy, Debug)]
-struct HeldRepeat {
-    timer: f32,
-}
-
-impl Default for HeldRepeat {
-    fn default() -> Self {
-        HeldRepeat { timer: f32::INFINITY }
-    }
-}
-
-impl HeldRepeat {
-    /// MenuSelect / MenuCancel (keys 0x1b / 0x1c of 0x00491140): first repeat after 0.25 s, then every 0.1 s.
-    const FIRST: f32 = 0.25;
-    const REPEAT: f32 = 0.1;
-
-    fn fire(&mut self, pressed: bool, held: bool, dt: f32) -> bool {
-        if pressed {
-            self.timer = Self::FIRST;
-            return true;
-        }
-        if held {
-            self.timer -= dt;
-            if self.timer <= 0.0 {
-                self.timer = Self::REPEAT;
-                return true;
-            }
-        }
-        false
-    }
-
-    fn rearm(&mut self) {
-        self.timer = f32::INFINITY;
-    }
-}
-
 /// The menu input's state between frames.
 #[derive(Default)]
 struct MenuInput {
@@ -1217,8 +1178,8 @@ struct MenuInput {
     /// the time to the next look for a saved game
     save_check: f32,
     /// held Select / Back (0x00491140)
-    select: HeldRepeat,
-    back: HeldRepeat,
+    select: crate::input::KeyRepeat,
+    back: crate::input::KeyRepeat,
     /// the page the repeats were armed on
     page: Option<Page>,
     /// the stepper being set with the mouse: pressed on its track (Stepper_HandleInput 0x0046d290), then followed
@@ -1409,9 +1370,10 @@ fn navigate(
     let play = |s: &mut MessageWriter<crate::audio::PlaySound>, sound: MenuSound| {
         s.write(sound.sound());
     };
-    // Esc in play opens the pause menu (not over a paused mission message)
+    // Esc in play opens the pause menu (not over a paused mission message), as does unplugging the pad in use (the
+    // original's "Controller disconnected" screen, input.rs `device`)
     if *state.get() == AppState::Playing {
-        if ctl.pressed(crate::input::Act::Pause) && mission.as_ref().is_none_or(|m| m.showing.is_none()) {
+        if (ctl.pressed(crate::input::Act::Pause) || ctl.pad_lost) && mission.as_ref().is_none_or(|m| m.showing.is_none()) {
             next.set(AppState::Paused);
             vtime.pause();
             menu.open_pause();
@@ -2143,19 +2105,6 @@ mod tests {
         assert_eq!(neighbour(&pos, 3, IVec2::new(-1, 0)), Some(2));
         assert_eq!(neighbour(&pos, 1, IVec2::new(1, 0)), None);
         assert_eq!(neighbour(&pos, 4, IVec2::new(-1, 0)), None);
-    }
-
-    /// 0x00491090: fires on the press, after 0.25 s held, then every 0.1 s; nothing until pressed after a re-arm.
-    #[test]
-    fn held_repeat() {
-        let mut r = HeldRepeat::default();
-        assert!(!r.fire(false, true, 1.0));
-        assert!(r.fire(true, true, 0.0));
-        // held for 1 s in steps of 1/32 s: at 0.25 s, then every 4 steps (0.125 s, the first past 0.1)
-        let fired: Vec<usize> = (1..=32).filter(|_| r.fire(false, true, 0.03125)).collect();
-        assert_eq!(fired, vec![8, 12, 16, 20, 24, 28, 32]);
-        r.rearm();
-        assert!(!r.fire(false, true, 10.0));
     }
 
     /// The activation sounds: code 5 / 28 and the Back input cancel, the graphics page's Cancel selects, a start plays
