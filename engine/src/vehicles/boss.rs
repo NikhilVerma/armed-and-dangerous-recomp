@@ -9,31 +9,43 @@
 //! - **Waking.** A saucer or zeppelin (mode trigger_ic) waits until its receive_trigger_activate arrives, or with
 //!   trigger_los until it has a target; then it flies its generic_txt path (mover.rs). A colossus (mode marker_boss)
 //!   sets off walking on its trigger or once it has a target.
-//! - **Targets** (0x00435b50). The priority target (target_tag_priority: the first object made with that tag, Roman
-//!   on most levels) when it is within range in the plane, alive and in the line of fire; else the nearest such object
-//!   among target_tag_1..10. Checked every 1..2 s, not during a volley; a target that leaves the range (or a priority
-//!   target that leaves the line of fire) is dropped. The range: a random value in fire_range_min..max (the colossus:
-//!   400). A hit makes the attacker the target unless the priority target is held (0x00435fa0).
-//! - **Firing** (0x0042ecf0, 0x00435940; gunnery.rs FireCycle). The weapon turns toward the target's ref_hit_00 (a
-//!   slerp of 4 x dt a frame; "wpn_colossus_turret_lp" while it turns); volleys of fire_num_bursts shots, fire_delay
-//!   apart, fire_burst_delay before each, a rest of fire_burst_delay after each unless walking or standing; each shot
-//!   the weapon's projectile from its two emitters in turn at the aim error's point (0x004284e0, 0x004a2010).
+//! - **Targets** (0x00435b50). Each target tag names one object, the first made with it (Q112Boss_Slot8 0x00435770).
+//!   The priority target (target_tag_priority, Roman on most levels) when it is within range in the plane, alive and
+//!   in the line of fire; else the nearest such object among target_tag_1..10. Checked every 1..2 s, not during a
+//!   volley nor a hit reaction; a target that leaves the range (or a priority target that leaves the line of fire) is
+//!   dropped. The range: a random value in fire_range_min..max (the colossus: 400). A hit makes the attacker the
+//!   target unless the priority target is held (0x00435fa0).
+//! - **Firing** (0x0042ecf0, 0x00435940; gunnery.rs FireCycle). The weapon turns toward its aim point (a slerp of
+//!   4 x dt a frame from its facing with the aim's pitch; "wpn_colossus_turret_lp" while it turns, target or not): the
+//!   target's ref_hit_00, or for a moving target late in a volley the point led for a 450 projectile (0x004580a0);
+//!   volleys of fire_num_bursts shots, fire_delay apart, fire_burst_delay before each, a rest of fire_burst_delay after
+//!   each unless walking or standing; each shot the weapon's projectile from its two emitters in turn, straight along
+//!   the weapon's facing (0x004284e0 without a target, 0x004a2010): no aim error, no homing.
+//! - **The stop to fire** (0x00435b50's tail). With a target and stop_volley_count volleys gone at it (at once with
+//!   stop_and_fire), a boss on its path stops and holds in the air until the target is gone, then flies on (the
+//!   saucers: 3 volleys); the colossus stands, facing the target.
 //! - **The colossus's walk** (states 0x10e / 0x10f / 0x110). To a random marker of its tag range (marker_tag_min..max,
-//!   sequence 0..marker_sequence_max, not one of its last two: 0x0042a660), on to the next on arrival; with a target it
-//!   stops after stop_volley_count volleys (at once with stop_and_fire) and turns to face the target until it is gone.
+//!   sequence 0..marker_sequence_max, not one of its last two: 0x0042a660), on to the next on arrival; it stands to
+//!   fire as above. A medium or large hit plays its reaction (no targeting or firing meanwhile), then it walks.
 //! - **Init.** SaucerObject_Slot6 0x00436090 / ZeppelinObject_Slot6 0x00436180 (TurretBossInit) and ColossusObject_Slot6
 //!   0x00436390 over the shared 0x00435420; the target tags resolve as Q112Boss_Slot8 0x00435770 does.
 //! - **Damage and death.** max_health times the difficulty's bad-guy factor (Ai_InitGeneric); bad guys' shots do
 //!   nothing (same side); bullets are scaled by bullet_scale (the colossus: 0.08). Death: send_trigger_on_death, the
 //!   score, fx_death (fx_zeppelin_crash drops the wreck, fx_exp_saucer, fx_explosion_colossus) and the husk
-//!   (colossus_d), through the engine's death path (fx.rs, mission.rs, level.rs).
+//!   (colossus_d), through the engine's death path (fx.rs, mission.rs, level.rs). Each boss counts on the Stats screen
+//!   (enemies, and killed: 0x004247f0, 0x00436010).
 //!
 //! Debt (docs/remaster-engine.md "Vehicles"): the colossus walks straight to its markers (the original follows a route
 //! on its grid, 0x00470aa0: plan, nav.rs routes); a hit's attacker is taken to be Roman (the engine's damage path does
 //! not carry the source yet: plan, a source on the damage record). The dropped captains slide down their ropes and
-//! parachute to the ground (ai/paratroop.rs, ai/fall.rs).
+//! parachute to the ground (ai/paratroop.rs, ai/fall.rs). Not ported yet: the colossus's death animation
+//! (colossus_blow_up, ids 0x50..0x55 through 0x00427100; 0x00447400 kills it when the anim ends: plan, a hold on the
+//! engine's death path, the trigger sent at its start); the Guy Fawkes turn of a boss and its turning back after
+//! Game+0xb30 (10 s) in 0x0042ecf0 (weapons/traitor.rs turns grunts only). Unreachable in the shipped data: the
+//! vt+0x228 mode of 0x00435940 / 0x00435b50 (false for all three classes), the scan / run_fire anims (the table
+//! 0x0043c6e0 names "colussus_scan" / "colussus_run_fire", which do not exist).
 
-use super::gunnery::{AimError, FireCycle, Span};
+use super::gunnery::{FireCycle, Span};
 use super::mover::{Mover, MoverNote};
 use super::nodes::Nodes;
 use super::rockets::{self, Launch};
@@ -48,7 +60,7 @@ pub struct BossPlugin;
 
 impl Plugin for BossPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, (setup, wake, targeting, fire, walk, rigid_notes, notes, log).chain().after(crate::fx::FxSet).run_if(crate::playing))
+        app.add_systems(Update, (setup, wake, targeting, halt, fire, walk, rigid_notes, notes, log).chain().after(crate::fx::FxSet).run_if(crate::playing))
             // before the husk swap removes the dead (level.rs husks runs after mission.rs deaths)
             .add_systems(Update, deaths.after(crate::fx::FxSet).before(crate::mission::deaths));
     }
@@ -101,6 +113,8 @@ pub enum Phase {
     Flying,
     /// its path over without a loop: it stays where it ended (state 0x65)
     Holding,
+    /// stopped on its path to fire, held in the air until its target is gone (state 0x66, 0x00435b50)
+    Halted,
     /// walking its markers (state 0x10f)
     Walking,
     /// standing, facing its target (state 0x110)
@@ -144,6 +158,8 @@ pub struct Weapon {
     /// its facing in the world (the turn's state)
     facing: Option<Quat>,
     turning: bool,
+    /// the target and where it was last frame (its velocity for the lead: 0x00458000)
+    tracked: Option<(Entity, Vec3)>,
 }
 
 /// When a walking boss stops to shoot.
@@ -153,6 +169,13 @@ pub struct Halt {
     pub at_once: bool,
     /// stop_volley_count (0: never)
     pub after_volleys: u32,
+}
+
+impl Halt {
+    /// Time to stop and fire, after `volleys` volleys at the target (0x00435b50: +0xb8c, or +0xb8f reached by +0x5c0).
+    pub fn reached(&self, volleys: u32) -> bool {
+        self.at_once || (self.after_volleys != 0 && volleys >= self.after_volleys)
+    }
 }
 
 /// The colossus's marker walk.
@@ -183,7 +206,6 @@ pub struct Boss {
     pub targeting: Targeting,
     pub weapon: Option<Weapon>,
     pub cycle: FireCycle,
-    pub aim: AimError,
     pub halt: Halt,
     pub walk: Option<MarkerWalk>,
     pub shots: u32,
@@ -202,6 +224,7 @@ fn setup(
     mut props: crate::levelreset::PerLevel<Option<HashMap<u32, crate::gamedata::Props>>>,
     (mut lib, anim_lib, assets, mut meshes, mut materials): (ResMut<crate::scene::Library>, Res<crate::skin::AnimLibrary>, Res<AssetServer>, ResMut<Assets<Mesh>>, ResMut<Assets<StandardMaterial>>),
     (mut rng, tuning, difficulty): (ResMut<VehicleRng>, Res<VehicleTuning>, Option<Res<crate::gamedata::Difficulty>>),
+    mut stats: ResMut<crate::stats::MissionStats>,
 ) {
     let done = done.get().get_or_insert_with(Default::default);
     let placed = props.get().get_or_insert_with(|| super::placements(&anim_lib.dir, &data));
@@ -258,11 +281,13 @@ fn setup(
             },
             weapon,
             cycle,
-            aim: AimError::of(p),
-            halt: Halt { at_once: p.i("stop_and_fire", 1) != 0, after_volleys: p.i("stop_volley_count", 3).clamp(0, 255) as u32 },
+            // stop_volley_count's low byte (0x00435420: +0xb8f)
+            halt: Halt { at_once: p.i("stop_and_fire", 1) != 0, after_volleys: u32::from(p.i("stop_volley_count", 3) as u8) },
             walk,
             shots: 0,
         };
+        // a placed bad guy counts toward the Stats screen's enemies (Ai_InitGeneric 0x004247f0: Game+0x2710)
+        stats.enemies_total += 1;
         let mut ec = commands.entity(e);
         ec.insert((boss, health, BulletScale(if kind == BossKind::Colossus { p.f("bullet_scale", 0.5) } else { 1.0 })));
         if let Some(c) = pl.collider {
@@ -302,6 +327,7 @@ fn spawn_weapon(
         next_emitter: 0,
         facing: None,
         turning: false,
+        tracked: None,
     })
 }
 
@@ -415,23 +441,33 @@ fn targeting(
             let skip: Vec<BodyId> = own.into_iter().chain(target_body).collect();
             super::sight(&physics, &blind, pos + Vec3::Y * 5.0, p, &skip)
         };
+        let own_id = b.id;
         let t = &mut b.targeting;
-        let priority = tags.get(&t.priority_tag).and_then(|ids| ids.first()).and_then(|id| by_id.get(id)).map(|(e, _)| *e);
-        // a hit: the attacker becomes the target unless the priority target is held (debt: the attacker is taken to
-        // be Roman, see the module doc)
-        if health.health < t.last_health && t.current != priority && t.current != roman {
-            if let Some(r) = roman.filter(|r| acceptable(*r)) {
+        // each tag names one object: the first made with it, not the boss itself (Q112Boss_Slot8 0x00435770 resolves
+        // each through Object_FindByTag 0x004592e0)
+        let tagged = |tag: i64| tags.get(&tag).and_then(|ids| ids.iter().find(|id| **id != own_id)).and_then(|id| by_id.get(id)).map(|(e, _)| *e);
+        let priority = tagged(t.priority_tag);
+        // a hit: the attacker becomes the target unless the priority target is held (SaucerObject_Slot52 0x00435fa0:
+        // taken as it is, the next check drops it when out of range; debt: the attacker is taken to be Roman, see the
+        // module doc)
+        if health.health < t.last_health && t.current != priority {
+            if let Some(r) = roman {
                 t.current = Some(r);
-                t.may_retarget = false;
             }
         }
         t.last_health = health.health;
+        // a hit reaction plays (states 0x12c..0x132): no targeting meanwhile (Q112Boss_Update 0x00447400)
+        if b.walk.as_ref().is_some_and(|w| w.hit.is_some()) {
+            continue;
+        }
         t.next_check -= dt;
         if t.next_check > 0.0 || (t.current.is_some() && b.cycle.mid_volley()) {
             continue;
         }
         t.next_check = tuning.retarget_every + rng.unit() * tuning.retarget_jitter;
-        if !(t.may_retarget || b.phase == Phase::Standing || (b.phase == Phase::Waiting && b.walk.is_some())) {
+        // (+0xb8e, or the colossus waiting in state 0x10e: vt+0x228 is false for all three classes, so the state 0x110
+        // clause never applies)
+        if !(t.may_retarget || (b.phase == Phase::Waiting && b.walk.is_some())) {
             // the check after a pick is skipped once (0x00435b50)
             t.may_retarget = true;
             continue;
@@ -449,9 +485,7 @@ fn targeting(
         let nearest = || {
             t.tags
                 .iter()
-                .filter_map(|tag| tags.get(tag))
-                .flatten()
-                .filter_map(|id| by_id.get(id).map(|(e, _)| *e))
+                .filter_map(|tag| tagged(*tag))
                 .filter(|e| acceptable(*e) && in_sight(*e))
                 .min_by(|a, c| {
                     let d = |e: &Entity| globals.get(*e).map_or(f32::MAX, |g| (g.translation() - pos).with_y(0.0).length_squared());
@@ -465,8 +499,29 @@ fn targeting(
     }
 }
 
-/// The turret gunner 0x0042ecf0: the weapon turns to the target, the fire cycle runs, each shot a missile from the
-/// next emitter at the aim error's point (0x004284e0, 0x004a2010).
+/// The stop to fire of a boss on its path (0x00435b50's tail; the colossus's own stop is `walk`'s): with a target, once
+/// stop_and_fire is set or stop_volley_count volleys have gone at it, the boss stops where it is and holds there, its
+/// path's clock stopped (an IC anim plays, 0x00426630: the body keyframed with no velocity, state 0x66, +0xb5c = 3);
+/// without a target it goes on along its path (physics as before, state 0x64, +0xb5c = 2). The shipped saucers stop
+/// after 3 volleys (p_saucer has no stop_volley_count); the zeppelins never (stop_volley_count 0).
+fn halt(mut q: Query<(&mut Boss, &mut Mover)>) {
+    for (mut b, mut m) in &mut q {
+        let has_target = b.targeting.current.is_some();
+        if b.phase == Phase::Flying && has_target && b.halt.reached(b.cycle.volleys) {
+            b.phase = Phase::Halted;
+            m.hold(true);
+        } else if b.phase == Phase::Halted && !has_target {
+            b.phase = Phase::Flying;
+            m.hold(false);
+        }
+    }
+}
+
+/// The turret gunner 0x0042ecf0: the weapon turns to its aim point, the fire cycle runs (Q112Boss_Slot102 0x00435940),
+/// each shot a missile from the next emitter along the weapon's facing (0x004284e0 without a target, 0x004a2010).
+/// The aim point: the target's ref_hit_00 (0x00428280); a movable target (0x004531e0) is led (0x004580a0 from its
+/// position, for a projectile of `boss_lead_speed`) once the shots left in the volley are no more than the volleys fired
+/// (+0x5b8 - +0x5c0 <= 0).
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn fire(
     mut commands: Commands,
@@ -475,22 +530,49 @@ fn fire(
     mut q: Query<(Entity, &mut Boss, &GlobalTransform)>,
     mut weapons: Query<(&mut Transform, &GlobalTransform), With<BossWeapon>>,
     (globals, anims, bounds): (Query<&GlobalTransform>, Query<&crate::skin::Animator>, Query<&crate::fx::Bounds>),
+    movable: Query<(), Or<(With<crate::player::Roman>, With<crate::physics::Body>)>>,
     (mut fx, mut sounds, mut stop): (MessageWriter<crate::fx::StartFx>, MessageWriter<crate::audio::PlaySound>, MessageWriter<crate::audio::StopSoundsOn>),
     mut rng: ResMut<VehicleRng>,
 ) {
     let dt = time.delta_secs();
     for (e, mut b, gt) in &mut q {
         let b = &mut *b;
+        // a hit reaction plays (states 0x12c..0x132): GenericAI_Update, and with it the gunner, does not run
+        if b.walk.as_ref().is_some_and(|w| w.hit.is_some()) {
+            continue;
+        }
         let target = b.targeting.current;
-        let target_point = target.and_then(|t| hit_point(t, &globals, &anims, &bounds));
+        let leads = b.cycle.shots_left() <= i64::from(b.cycle.volleys);
         let Some(w) = b.weapon.as_mut() else { continue };
         let Ok((mut wt, wgt)) = weapons.get_mut(w.entity) else { continue };
-        // turn toward the target, or back to the boss's own facing
         let here = wgt.translation();
-        let want_dir = target_point.map(|p| p - here).filter(|d| d.length_squared() > 1e-4).unwrap_or_else(|| gt.to_matrix().transform_vector3(Vec3::NEG_Y));
+        // the target's velocity (0x00458000: its body's; here from its positions frame to frame)
+        let target_at = target.and_then(|t| globals.get(t).ok()).map(|g| g.translation());
+        let velocity = match (target, target_at, w.tracked) {
+            (Some(t), Some(p), Some((last, q))) if last == t && dt > 0.0 => (p - q) / dt,
+            _ => Vec3::ZERO,
+        };
+        w.tracked = target.zip(target_at);
+        let aim_point = target.and_then(|t| match target_at {
+            Some(p) if leads && movable.contains(t) => Some(crate::ai::aim::lead_point(p, velocity, here, tuning.boss_lead_speed)),
+            _ => hit_point(t, &globals, &anims, &bounds),
+        });
+        // turn toward the aim point, or back to the boss's own facing: from the facing it has with the aim's pitch (the
+        // facing's vertical part replaced by the aim direction's) toward the aim, by 4 x dt
         let current = w.facing.unwrap_or_else(|| wgt.to_scale_rotation_translation().1);
-        let next = current.slerp(rockets::facing(want_dir), (dt * tuning.weapon_turn_rate).min(1.0)).normalize();
-        let turning = target.is_some() && (current * Vec3::Y).dot(next * Vec3::Y) < 0.99999;
+        let aim_dir = aim_point.map(|p| p - here).filter(|d| d.length_squared() > 1e-4);
+        let (from, want_dir) = match aim_dir {
+            Some(d) => {
+                let d = d.normalize();
+                let facing = current * Vec3::NEG_Y;
+                let pitched = facing.with_y(d.y).normalize_or(facing);
+                (rockets::facing(pitched), d)
+            }
+            None => (current, gt.to_matrix().transform_vector3(Vec3::NEG_Y)),
+        };
+        let next = from.slerp(rockets::facing(want_dir), (dt * tuning.weapon_turn_rate).min(1.0)).normalize();
+        // the turn loop runs while the facing moves, target or not (the old facing against the new)
+        let turning = (current * Vec3::NEG_Y).dot(next * Vec3::NEG_Y) < 0.99999;
         if turning != w.turning {
             if turning {
                 sounds.write(crate::audio::PlaySound::on("wpn_colossus_turret_lp", w.entity).looping(true));
@@ -502,17 +584,21 @@ fn fire(
         w.facing = Some(next);
         let (_, boss_rot, _) = gt.to_scale_rotation_translation();
         wt.rotation = boss_rot.inverse() * next;
-        let Some(tp) = target_point else { continue };
+        if target.is_none() {
+            continue;
+        }
         let rests = !matches!(b.phase, Phase::Walking | Phase::Standing);
         if !b.cycle.step(dt, rests, &mut rng).shoot {
             continue;
         }
+        // the shot: from the emitter along its -Y (the weapon's slot 0x4f 0x004a1e90: the emitter's position and
+        // direction, aimed 1000 along it), with no target to home on and no aim error
         let weapon_world = Mat4::from_rotation_translation(next, here);
         let muzzle = w.emitters.get(w.next_emitter).and_then(|n| w.nodes.get(n)).map_or(weapon_world, |m| weapon_world * m);
         w.next_emitter = (w.next_emitter + 1) % w.emitters.len().max(1);
         let from = muzzle.w_axis.truncate();
-        let aim = b.aim.aim(from, tp, &mut rng);
-        rockets::launch(&mut commands, &mut fx, &data, &mut rng, Launch { template: &w.projectile, from, to: aim, along: None, target: target.map(|t| (t, Some("ref_hit_00"))), owner: Some(e), by: Src::Badguy });
+        let along = (-muzzle.y_axis.truncate()).normalize_or(next * Vec3::NEG_Y);
+        rockets::launch(&mut commands, &mut fx, &data, &mut rng, Launch { template: &w.projectile, from, to: from + along * 1000.0, along: Some(along), target: None, owner: Some(e), by: Src::Badguy });
         if let Some(name) = w.muzzle_fx.clone() {
             fx.write(crate::fx::StartFx { name, at: from, rotation: next, follow: None, position_only: false });
         }
@@ -556,14 +642,20 @@ fn walk(
             if playing && !anim.as_ref().is_some_and(|a| a.finished(0, &lib)) {
                 continue;
             }
+            // the reaction over, it walks (0x00447400: vt+0x19c(8), state 0x10f), even from waiting; a stand to fire
+            // comes back at once below
             w.hit = None;
+            b.phase = Phase::Walking;
+            if w.goal.is_none() {
+                w.goal = markers.as_deref().and_then(|m| next_marker(w, &mut rng, m));
+            }
         }
         let target = b.targeting.current;
         if b.phase == Phase::Waiting && target.is_some() {
             b.phase = Phase::Walking;
             w.goal = markers.as_deref().and_then(|m| next_marker(w, &mut rng, m));
         }
-        if b.phase == Phase::Walking && target.is_some() && (b.halt.at_once || (b.halt.after_volleys != 0 && b.cycle.volleys >= b.halt.after_volleys)) {
+        if b.phase == Phase::Walking && target.is_some() && b.halt.reached(b.cycle.volleys) {
             b.phase = Phase::Standing;
         }
         if b.phase == Phase::Standing && target.is_none() {
@@ -772,9 +864,12 @@ fn deaths(
     (time, mut barks, mut fxrng): (Res<Time>, ResMut<crate::ai::Barks>, ResMut<crate::fx::FxStats>),
     roman: Query<Entity, With<crate::player::Roman>>,
     mut rng: ResMut<VehicleRng>,
+    mut stats: ResMut<crate::stats::MissionStats>,
 ) {
     for d in died.read() {
         let Ok(b) = q.get(d.0) else { continue };
+        // Game+0x270c, the Stats screen's enemies killed (Q112Boss_Slot53 0x00436010)
+        stats.enemies_killed += 1;
         if b.kind == BossKind::Zeppelin && barks.take(crate::ai::Delay::Vo, time.elapsed_secs(), &mut fxrng) {
             let line = ["ROM50206_Zeppelin", "ROM50208_Zeppelin", "ROM50209_Zeppelin"][((rng.0.rand() * 300) >> 15).min(299) as usize / 100];
             if let Ok(r) = roman.single() {

@@ -49,11 +49,20 @@ pub struct Mover {
     pub done: bool,
     /// the body's velocity, units per second: the gap to the path's pose (Body_setLinearVelocity 0x00458510)
     pub velocity: Vec3,
+    /// held where it is, its clock stopped (a boss stopped to fire: state 0x66, the body keyframed and still, 0x00435b50;
+    /// the clock +0xa20 only runs in state 0x64)
+    pub paused: bool,
 }
 
 impl Mover {
     pub fn new(anim: &str, start: Mat4) -> Self {
-        Mover { anim: anim.to_lowercase(), start, t: 0.0, looping: false, snap: false, done: false, velocity: Vec3::ZERO }
+        Mover { anim: anim.to_lowercase(), start, t: 0.0, looping: false, snap: false, done: false, velocity: Vec3::ZERO, paused: false }
+    }
+
+    /// Holds the object where it is (its velocity zeroed) or lets it go on along its path from there.
+    pub fn hold(&mut self, held: bool) {
+        self.paused = held;
+        self.velocity = Vec3::ZERO;
     }
 
     /// The object's matrix at time `t` (engine space): the start times the root node's local transform.
@@ -80,7 +89,7 @@ fn play(
 ) {
     let dt = time.delta_secs();
     for (e, mut m, mut t) in &mut q {
-        if m.done {
+        if m.done || m.paused {
             continue;
         }
         let Some(anim) = lib.anim(&m.anim) else {

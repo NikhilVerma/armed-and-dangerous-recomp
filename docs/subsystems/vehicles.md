@@ -37,11 +37,15 @@ port's).
   sight check a second from 10 above the turret; seen (or within blind_fire_duration of it): four rockets, one per
   nozzle, homing on Roman's chest (0x0049c6a0, 0x0049c610).
 - **Rocket bud**: in active_range (1000), ready (recycle_time 6 from the load), the same sight check: a shell lobbed at
-  Roman's feet spread by +-inaccuracy_range in x and y, the muzzle fx (0x0049cbe0, 0x0049cab0).
+  Roman's feet spread by +-inaccuracy_range in x and y, the muzzle fx (0x0049cbe0, 0x0049cab0). Both turrets measure
+  their range to his position (player vt+0x6c: his feet) and look at his hit point.
 - **Turret bosses** (`boss.rs`, `gunnery.rs`, `mover.rs`): see the module doc of boss.rs. Waking by trigger (or sight),
   the IC path flight (state 0x64, ic_loop), the targeting (0x00435b50), the weapon turn and volleys (0x0042ecf0,
   0x00435940), the colossus's marker walk and stand (0x0042a660, states 0x10e..0x110), bullet_scale (0x00436600),
   the path notes (deactivate, anim_loop / anim_intro, captain drops), Roman's zeppelin remark (0x00436260).
+  Since 2026-10-22 (fix2-g43): the shots fly straight along the turret's facing (0x004284e0 without a target: no aim
+  error, no homing), the turret leads a moving target late in a volley (0x004580a0, 450), a saucer stops on its path
+  after 3 volleys at its target and holds until the target is gone (state 0x66), one object per target tag.
   The path flight is a chase, not a playback (2026-10-16, V1): state 0x64 (ai_06.cpp:1900) hands Object_SetTransform
   the pose's rotation with the object's current position and sets the gap to the pose as the body's velocity
   (0x00458510), so a saucer or mini zeppelin starts from rest and runs one second of path behind (lev_2_m1 saucer 285:
@@ -89,7 +93,7 @@ engine/playtests/vehicles_*.json (regress.py SUITE), each on its own level ("sce
 - vehicles_colossus (lev_1_m3): waiting, trigger 811, walking to its markers, targeting Roman, missiles hitting him,
   standing after 3 volleys, hit, destroyed (husk colossus_d).
 - vehicles_forge_cannon (lev_2_m1): the prompt, mounting, turning, a shell fired and landed, the recycle, leaving.
-- Unit tests: gunnery.rs (volley rhythm, aim error), rockets.rs (the lob lands on its target), nodes.rs, mover.rs.
+- Unit tests: gunnery.rs (volley rhythm), rockets.rs (the lob lands on its target), nodes.rs, mover.rs.
 
 ## Open questions and debt
 
