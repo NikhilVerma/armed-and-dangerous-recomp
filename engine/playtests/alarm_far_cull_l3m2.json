@@ -1,0 +1,19 @@
+{"scene": "lev_3_m2", "steps": [
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 0.5},
+ {"expect": {"mission": "Playing"}},
+ {"cheat": "SHIELDME"},
+ {"note": "near generators 131 / 133 (max_distance: they send only within 0.75 x alarm_ai_max_distance 1000), alarm on"},
+ {"land_by": [131, 100]},
+ {"send": 804},
+ {"wait": 14.0},
+ {"expect": {"alarm.troops": [1, 3], "alarm.culled": 0}},
+ {"note": "back at the start, over 1000 from the troops, facing them (seen): none culled in a whole 5..15 s period"},
+ {"land": [-235, -110, 90]},
+ {"wait": 16.0},
+ {"expect": {"alarm.culled": 0}},
+ {"note": "facing away (unseen): the controller's timer culls them"},
+ {"land": [-235, -110, -90]},
+ {"wait": 16.0},
+ {"expect": {"alarm.culled": [1, 3]}},
+ {"quit": true}
+]}
