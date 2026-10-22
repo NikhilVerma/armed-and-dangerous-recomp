@@ -186,6 +186,9 @@ pub enum DamageKind {
     Stig,
     /// proj_forge_mortar (class 0xb, ForgeCannonProjectile 0x005a33b8: 0x00481000 adds 0x100000)
     Forge,
+    /// proj_base_turret_bullet (class 0xd, vtable 0x005ab120: 0x00481020 adds 0x100): the defence levels' base turret;
+    /// a grunt it hurts takes a long hit (GenericAIObject_Slot52 0x00430340, ai.rs `Grunt::long_hit_round`)
+    BaseTurret,
 }
 
 impl DamageKind {
@@ -194,6 +197,7 @@ impl DamageKind {
         match b {
             "proj_stig_bullet" => DamageKind::Stig,
             "proj_forge_mortar" => DamageKind::Forge,
+            "proj_base_turret_bullet" => DamageKind::BaseTurret,
             _ => DamageKind::Plain,
         }
     }
@@ -1700,6 +1704,7 @@ fn strike(p: &Projectile, ce: Entity, h: &mut Health, anim: Option<&crate::skin:
         }
         // a bullet's record has no 0x80 (allow_cartoon_death 0, p_player_rifle_bullet)
         g.cartoon = false;
+        g.long_hit_round |= p.kind == DamageKind::BaseTurret;
     }
     if std::env::var("AIDBG").is_ok() {
         info!("AIDBG hit {ce:?} for {} -> {} part {:?}", p.damage * mult, h.0, part);
@@ -1894,14 +1899,15 @@ fn projectiles(
                 surface_fx.write(f);
             }
             // the companions are teammates of the player (vt+0xe4 true): a grunt's shot hurts them, the player's and the
-            // other companion's stop on them and do nothing (0x00430340: source and victim on the same team)
+            // other companion's stop on them, no health lost but a flinch (0x00430340: source and victim on the same
+            // team, ai.rs `Companion::friendly_fire`)
             if let Some((ce, mut c, _, _, mut ch)) = companions.iter_mut().find(|(_, c, _, _, _)| c.q == q) {
                 // an arrow stays stuck in him (ArrowProjectile_Hit 0x00482780 -> 0x0047e9f0)
                 if p.linger > 0.0 {
                     stuck.write(crate::arrows::ArrowStuck { arrow: e, at: from + step, on: Some(ce), linger: p.linger });
                 }
                 if p.from_player {
-                    c.friendly = true;
+                    c.friendly_fire(p.damage);
                 } else {
                     ch.0 -= p.damage * c.damage_scale(p.kind);
                     c.attacker = p.owner;
