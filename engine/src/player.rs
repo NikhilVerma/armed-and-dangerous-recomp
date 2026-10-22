@@ -1998,7 +1998,7 @@ fn projectiles(
                 } else {
                     crate::fx::Src::Teammate
                 };
-                if !d.accepts(by, p.no_buildings) {
+                if !d.accepts_record(by, p.no_buildings, p.kind) {
                     commands.entity(e).despawn();
                     continue;
                 }
