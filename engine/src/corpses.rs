@@ -53,6 +53,8 @@ pub struct Corpse {
     age: f32,
     /// its timer is not the original's corpse timer (a body gone at once): the remaster's lifetime does not apply
     fixed: bool,
+    /// the original's time left when it began counting (before the Remaster's lifetime replaced `left`)
+    original: f32,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -71,7 +73,7 @@ impl Corpse {
 
     /// An animated death (0x00427100: 0.5 s, all of it fading) whose countdown starts when the anim on `slot` ends.
     pub fn animated(slot: usize) -> Self {
-        Corpse { stage: Stage::Dying { slot, anim: None }, left: ANIMATED_TIMER.0, fade: ANIMATED_TIMER.1, ragdoll: false, order: None, age: 0.0, fixed: false }
+        Corpse { stage: Stage::Dying { slot, anim: None }, left: ANIMATED_TIMER.0, fade: ANIMATED_TIMER.1, ragdoll: false, order: None, age: 0.0, fixed: false, original: ANIMATED_TIMER.0 }
     }
 
     /// A body that lies `total` seconds from now, the last `fade` of them fading; `ragdoll`: counted as a ragdoll down
@@ -86,7 +88,14 @@ impl Corpse {
     }
 
     fn counting((left, fade): (f32, f32), ragdoll: bool) -> Self {
-        Corpse { stage: Stage::Lying, left, fade, ragdoll, order: None, age: 0.0, fixed: false }
+        Corpse { stage: Stage::Lying, left, fade, ragdoll, order: None, age: 0.0, fixed: false, original: left }
+    }
+
+    /// The body would still be there in the original (Object_Kill 0x00455640 at the end of its own timer, whatever
+    /// the Remaster's corpse_time): an animated death still playing or within its 0.5 s, a ragdoll within its 5 s.
+    /// The army's grunt limit counts such bodies (army.rs).
+    pub fn within_original_time(&self) -> bool {
+        !self.fixed && (self.stage != Stage::Lying || self.age < self.original)
     }
 
     /// Its timer is running (an animated death's anim has played out).
