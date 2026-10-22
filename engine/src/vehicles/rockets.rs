@@ -13,7 +13,17 @@
 //!
 //! A hit (0x0047eae0): the rocket stops at the point, area_damage (radius inner / outer) to everything near but the
 //! object hit, the direct damage (damage + area_damage, 0x0047eec0) to the object hit, fx_end at the point and
-//! fx_end_material with the surface's material. Pass-by sounds within 50 / 70 units of Roman, once.
+//! fx_end_material with the surface's material. Pass-by sounds within 50 / 70 units of Roman, once, on the rocket
+//! (sound vt+0xd0 with the projectile as its object).
+//!
+//! While a black hole sucks (the suction list (Game+0xa84)+0xf00 not empty, vt+0x34) the homing classes' updates
+//! (0x00482b40, 0x00480a20, 0x004805f0) return after their delay countdown: no pass-by, no steering, no target
+//! dropped; the rocket flies on with its velocity.
+//!
+//! The steering (0x00471970 then 0x00471750 into a force action, 0x00455a30): the wanted velocity minus the current
+//! one, x mass x the pull, applied as a force for the frame, i.e. an acceleration of pull x (want - vel); the tower's
+//! heading (0x00453150, the matrix's -Y) is the velocity's direction, as 0x00455e70 rebuilds the matrix along it each
+//! frame. `fly` integrates that directly.
 //!
 //! API: [`is_rocket`] (does a property set fly as one of these), [`launch`] (spawn one), the [`Rocket`] component.
 
@@ -135,10 +145,14 @@ pub fn launch(commands: &mut Commands, fx: &mut MessageWriter<crate::fx::StartFx
     let (vel, flight, passby) = match p.s("behavior").unwrap_or("") {
         "proj_captain_rocket" => {
             // CaptainRocket_ReadProps 0x004829e0: min_speed 10, max_speed 30, turn_power 30 (both speeds x 3); the
-            // launch speed is the max speed; dumb_fire flies straight (0x00482b40 returns at once)
+            // launch speed is the max speed; dumb_fire flies straight and silent (0x00482b40 returns before the
+            // pass-by)
             let (min, max) = (k3(p.f("min_speed", 10.0)), k3(p.f("max_speed", 30.0)));
-            let flight = if p.i("dumb_fire", 0) != 0 { Flight::Straight } else { Flight::Captain { min, max, turn: p.f("turn_power", 30.0) } };
-            (l.along.unwrap_or(aim) * max, flight, Some(("wpn_rocket_passby_med_1", 4900.0)))
+            if p.i("dumb_fire", 0) != 0 {
+                (l.along.unwrap_or(aim) * max, Flight::Straight, None)
+            } else {
+                (l.along.unwrap_or(aim) * max, Flight::Captain { min, max, turn: p.f("turn_power", 30.0) }, Some(("wpn_rocket_passby_med_1", 4900.0)))
+            }
         }
         "proj_rocket_tower" => {
             // RocketTowerProjectile_ReadProps 0x00480920: start_speed 7, max_speed 70 (x 3), homing_delay_duration
@@ -153,8 +167,9 @@ pub fn launch(commands: &mut Commands, fx: &mut MessageWriter<crate::fx::StartFx
                 initial: dist,
                 factor: 1.0,
             };
-            // its pass-by: "_1" or "_2" at even odds ((rand() x 100) & ~0x7fff < 0x190000), within 50
-            let name = if rng.0.rand() * 100 < 0x190000 { "wpn_rocket_passby_med_1" } else { "wpn_rocket_passby_med_2" };
+            // its pass-by: "_1" or "_2" at even odds ((rand() x 100) & ~0x7fff < 0x190000), within 50 (the original
+            // rolls when it plays; the odds are the same rolled here)
+            let name = if ((rng.0.rand() * 100) & !0x7fff) < 0x190000 { "wpn_rocket_passby_med_1" } else { "wpn_rocket_passby_med_2" };
             (l.along.unwrap_or(aim) * start, flight, Some((name, 2500.0)))
         }
         "proj_rocket_bud" => (lob(l.from, l.to, k3(p.f("speed", 10.0))), Flight::Ballistic, Some(("wpn_rocket_passby_med_3", 4900.0))),
@@ -308,11 +323,14 @@ fn fly(
         });
         // the vindaloo's: it has passed its target (0x004805f0)
         let mut proximity = false;
+        // a black hole sucking: the homing classes' updates return after their delay countdown (module docs)
+        let homing = matches!(r.flight, Flight::Captain { .. } | Flight::Tower { .. } | Flight::Vindaloo { .. });
+        let sucked = homing && suction.active;
         match r.flight {
             Flight::Straight => {}
             Flight::Ballistic => r.vel.y -= GRAVITY * dt,
             Flight::Captain { min, max, turn } => {
-                if let Some(tp) = target_point {
+                if let (Some(tp), false) = (target_point, sucked) {
                     // 0x00471970 (min, max, 1, 0): toward the target, its length clamped; 0x00471750 x mass x turn_power
                     let d = tp - from;
                     let want = d.normalize_or_zero() * d.length().clamp(min, max);
@@ -322,7 +340,7 @@ fn fly(
             }
             Flight::Tower { start, max, mut delay, full, stop, initial, mut factor } => {
                 delay -= dt;
-                if delay <= 0.0 {
+                if delay <= 0.0 && !sucked {
                     if let Some(tp) = target_point {
                         let d = tp - from;
                         let dist = d.length();
@@ -344,12 +362,14 @@ fn fly(
             Flight::Vindaloo { start, max, mut delay, full, mut initial, mut last, to } => {
                 let tp = target_point.unwrap_or(to);
                 let dist = tp.distance(from);
+                // the first update (0x0047e580 -> 0x0047e4d0) takes the distance as both the pull's scale (+0x568)
+                // and the last distance (+0x56c): already farther than that + 1 when the delay ends, it goes off
                 if initial <= 0.0 {
                     initial = dist.max(1e-3);
+                    last = initial;
                 }
                 delay -= dt;
-                // (while a black hole sucks, list +0xf00 not empty, the homing does nothing: weapons/blackhole.rs)
-                if delay <= 0.0 && !suction.active {
+                if delay <= 0.0 && !sucked {
                     if dist > last + 1.0 {
                         proximity = true;
                     } else {
@@ -369,10 +389,10 @@ fn fly(
         if step.length_squared() > 1e-8 {
             t.rotation = facing(r.vel);
         }
-        // the pass-by sound, once, near Roman
-        if let (Some((name, r2)), Some((_, rp))) = (r.passby, roman_at) {
+        // the pass-by sound, once, near Roman, on the rocket
+        if let (Some((name, r2)), Some((_, rp)), false) = (r.passby, roman_at, sucked) {
             if from.distance_squared(rp) < r2 {
-                sounds.write(crate::audio::PlaySound::at(name, from));
+                sounds.write(crate::audio::PlaySound { at: Some(from), ..crate::audio::PlaySound::on(name, e) });
                 r.passby = None;
             }
         }
