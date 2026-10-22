@@ -5964,8 +5964,9 @@ impl Companion {
 /// The route to a formation point (0x00483d60 with "move"): the point must stand on walkable ground (its nav cell
 /// 0x0046f320, a lookup in the plane: here a floor anywhere in its column below his height) and a route must lead there
 /// with Roman's and the partner's places blocked for the search (0x0046ece0(.., 2, 1) / (.., 2, 0) round 0x0046f6d0:
-/// `avoid`); None when either fails. A point within reach needs no route. (Roman's ref bones need not lie on the
-/// ground: only their x / z count.)
+/// `avoid`); None when either fails. A point within reach in the open needs no route search. The route is never empty:
+/// its end is where the walk ends (0x00470c30). (Roman's ref bones need not lie on the ground: only their x / z
+/// count.)
 fn formation_route(physics: &Physics, me: Vec3, goal: Vec3, avoid: &[Vec3]) -> Option<Vec<Vec3>> {
     // down from just above his own height (as nav.rs samples), through the undersides of what overhangs
     let mut top = me.y + 20.0;
@@ -5983,10 +5984,21 @@ fn formation_route(physics: &Physics, me: Vec3, goal: Vec3, avoid: &[Vec3]) -> O
     if !floor {
         return None;
     }
-    if (goal - me).with_y(0.0).length() < 9.0 {
-        return Some(Vec::new());
+    // a straight walk at knee height from `from` to the point (only x / z of the point count)
+    let clear = |from: Vec3| {
+        let (a, b) = (from + Vec3::Y * 5.0, goal.with_y(from.y + 5.0));
+        physics.raycast(a, (b - a).normalize_or(Vec3::X), (b - a).length()).is_none()
+    };
+    // a point within reach in the open needs no route search: the point itself
+    if (goal - me).with_y(0.0).length() < 9.0 && clear(me) {
+        return Some(vec![goal]);
     }
-    crate::nav::path(physics, me, goal, avoid)
+    // else the grid's route, which ends at the nearest cell it reaches; the point itself last when open from there
+    let mut route = crate::nav::path(physics, me, goal, avoid)?;
+    if route.last().is_some_and(|&l| (goal - l).with_y(0.0).length() < 9.0 && clear(l)) {
+        route.push(goal);
+    }
+    Some(route)
 }
 
 pub struct CompanionPlugin;
@@ -6504,18 +6516,6 @@ fn companions(
         // on the move: the formation point of the last pick (`goal`)
         let goal = c.goal.filter(|_| c.moving).unwrap_or(slot);
         let to_slot = (goal - me).with_y(0.0);
-        if to_slot.length() < 4.0 {
-            // arrival (mode 2 -> 1, ai_08.cpp:2060-2064): a pick unless the partner idles
-            if c.moving && !partner_idle {
-                leader_pick(c, e, me, false, &mut pair, &mut lead_changes, points, rt.translation, roman_dir, now);
-            }
-            // (and +0xb68 = 3..7 s: an attack order's idle time, ai_08.cpp:2078)
-            if c.moving {
-                c.linger = rng.range(3.0, 7.0);
-            }
-            c.moving = false;
-            c.route.clear();
-        }
         if c.moving && matches!(c.order, Order::Guard | Order::Loose) {
             // every 0.25 s on the move (+0xb68, ai_08.cpp:2033-2052)
             c.swap_timer -= dt;
@@ -6543,6 +6543,17 @@ fn companions(
             }
             while c.route.first().is_some_and(|w| (*w - me).with_y(0.0).length() < 4.0) {
                 c.route.remove(0);
+            }
+            // arrival (mode 2 -> 1, ai_08.cpp:2056-2081): the route used up (AIRoute_HasRoute 0x00470c30 false after
+            // AIRoute_Update popped its last node), wherever that left him: a pick unless the partner idles, and +0xb68
+            // = 3..7 s (an attack order's idle time). (A formation point he cannot reach, inside a building beside
+            // Roman, ends the walk at the route's nearest reachable point instead of walking into the wall for good.)
+            if c.moving && c.route.is_empty() {
+                if !partner_idle {
+                    leader_pick(c, e, me, false, &mut pair, &mut lead_changes, points, rt.translation, roman_dir, now);
+                }
+                c.linger = rng.range(3.0, 7.0);
+                c.moving = false;
             }
         }
         // the run anim while approaching (moving is cleared again next frame while it has a target)
