@@ -167,10 +167,12 @@ pub fn launch(commands: &mut Commands, fx: &mut MessageWriter<crate::fx::StartFx
             (l.along.unwrap_or(aim) * start, flight, None)
         }
         // Projectile_Launch_00480ec0: the speed is the horizontal distance to the target + 5 (the forge cannon's
-        // shell and the Gurner's mortar)
+        // shell and the Gurner's mortar); only the forge cannon's update (0x00480f60) adds the pass-by sound, the
+        // Gurner's (0x00483210) has none
         "proj_forge_mortar" | "proj_gurner_rocket" => {
             let h = (l.to - l.from).with_y(0.0).length();
-            (lob(l.from, l.to, h + 5.0), Flight::Ballistic, Some(("wpn_rocket_passby_med_2", 4900.0)))
+            let passby = (p.s("behavior") == Some("proj_forge_mortar")).then_some(("wpn_rocket_passby_med_2", 4900.0));
+            (lob(l.from, l.to, h + 5.0), Flight::Ballistic, passby)
         }
         _ => return None,
     };

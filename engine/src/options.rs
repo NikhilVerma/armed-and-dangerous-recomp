@@ -60,6 +60,8 @@ pub struct GameOptions {
     /// the pub's one-time intro line was heard (Game+0x574, banked with the money by 0x00401ef0 and reset by a new game:
     /// once per campaign, pubscreen.rs)
     pub pub_intro_heard: bool,
+    /// the pub's once-a-campaign new-weapon lines heard (Game+0x575 / +0x576, banked and reset as the intro)
+    pub pub_once_heard: Vec<String>,
     /// cheats whose code was entered once (Game+0x48c)
     pub cheats_known: Vec<u32>,
     /// the original's save rule: the game saves itself at the checkpoints only (the mission start, leaving the pub;
@@ -100,6 +102,7 @@ impl Default for GameOptions {
             movies_seen: Vec::new(),
             money: 0.0,
             pub_intro_heard: false,
+            pub_once_heard: Vec::new(),
             cheats_known: Vec::new(),
             checkpoint_saves: false,
             graphics_preset: crate::graphics::Preset::Remaster,
