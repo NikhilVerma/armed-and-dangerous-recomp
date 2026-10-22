@@ -262,10 +262,9 @@ struct Site {
     locked_to: Option<Entity>,
     /// armed (+0x460, PlayerTickerBomb_IsArmed 0x0044e390) with the fuse left (Game+0x25e4)
     armed: Option<f32>,
-    hold: f32,
+    /// the wind-up under way (+0x464 != 0: started by a Use press, 0x0044e3a0) and how long Use has been held since
+    winding: Option<f32>,
     done: bool,
-    /// the ticker prompt runs every 6th frame (0x00467450 counter +0x4f8)
-    nag: u32,
     /// the bomb object took its alpha (unarmed_falloff, then 1.0 when armed)
     shown: Option<f32>,
 }
@@ -444,9 +443,13 @@ struct Barracks {
     /// alert_group (+0x530), marker_tag_min/max (+0x580 / +0x584): handed to every troop (0x0042db50)
     alert_group: i64,
     marker_tags: (i64, i64),
-    /// priority_target_tag_min / max (+0x56c / +0x570): handed to every troop as his priority targets (0x0040c590 ->
-    /// 0x0042cc60)
+    /// priority_target_tag_min/max (+0x56c / +0x570): every troop's priority targets (0x0040c590 -> 0x0042cc60, troop
+    /// +0x858 / +0x85c; lev_4_m2's generators send theirs at the houses of tag 600)
     priority_tags: (i64, i64),
+    /// marker_sequence_min/max (+0x588 / +0x58c) are handed to each troop too (+0x560 / +0x564: the marker index range
+    /// of its spline pick 0x0042a660); not used here: ai.rs walks a spline from its first marker (deferred, see
+    /// docs/journal/2026-10-22-fix2-g10.md). The window-generator mode (window_generator, +0x460 bit 4: 0x0040c740
+    /// fills free window slots) is set by no shipped level and not modelled.
     /// the exit slot's "ref_spawn_00" and "ref_exit_00" points (engine space); none: no exit slot, no troops
     spawn: Option<(Vec3, Vec3)>,
     /// health when last seen: damage while `activate` is set starts the release (BarricadeObject_Slot52 0x0040ce40)
@@ -466,12 +469,17 @@ impl Barracks {
     }
 }
 
-/// A troop released by barracks `0` (counted in its list +0x5a0 while alive).
+/// A troop released by barracks `0` (counted in its list +0x5a0 while alive). The release hands it the barracks'
+/// receive_trigger_deactivate as its own kill trigger (0x0040c910 -> 0x0042db50: troop +0x530 = generator +0x538), so
+/// the trigger that stops the barracks also kills the troops it let out (the AI's trigger handler 0x0042f870: vt+0xd4).
 #[derive(Component)]
 pub struct BarracksTroop(pub u32);
 
-/// The troop templates by type (0x0040c590's table: 0 "grunt", 1 "grunt_regular", 2..4 "captain", 5 "monk").
-const TROOP_TEMPLATES: [&str; 6] = ["grunt", "grunt_regular", "captain", "captain", "captain", "monk"];
+/// The troop types (0x0040c590's table): the template and the property its set-up turns on. 0 "grunt", 1
+/// "grunt_regular", 2 "captain" with the turbo pack (0x00425d30(troop, 1): a jumper captain), 3 "captain", 4
+/// "captain" with the rocket launcher (RocketCaptain_ReadProperties 0x00434ac0), 5 "monk".
+const TROOP_TYPES: [(&str, Option<&str>); 6] =
+    [("grunt", None), ("grunt_regular", None), ("captain", Some("jumper_captain")), ("captain", None), ("captain", Some("rocket_captain")), ("monk", None)];
 
 /// A reference bone of a model (its reference anim's first key: anims/<model>.json), in the model's game space.
 pub(crate) fn pub_bone(dir: &std::path::Path, model: &str, bone: &str) -> Option<Vec3> {
@@ -683,6 +691,8 @@ pub struct Mission {
     /// the "patience" text's time left (ui_tickerbomb_patience: raised by Use at a site while another bomb ticks,
     /// 0x0044e3a0; shown 2.0 s by its timed text 0x004677c0)
     patience: f32,
+    /// the ticker prompt's frame counter (0x00467450, +0x4f8): it looks at the bombs every 6th frame
+    prompt_tick: u32,
     pub objectives: String,
     /// the objectives text with both forms (the pause menu shows the short one), and its text id
     pub objectives_raw: String,
@@ -1051,9 +1061,8 @@ impl Mission {
                     lock_parent_bone: s(r, "lock_parent_bone").unwrap_or_default(),
                     locked_to: None,
                     armed: None,
-                    hold: 0.0,
+                    winding: None,
                     done: false,
-                    nag: 0,
                     shown: None,
                 }),
                 "counter" => counters.push(Counter {
@@ -1183,6 +1192,7 @@ impl Mission {
         Some(Mission {
             startup_path,
             patience: 0.0,
+            prompt_tick: 0,
             level: f.level.clone(),
             receivers,
             death_senders,
@@ -1331,7 +1341,12 @@ impl Mission {
         }
         if t == self.pre_success {
             self.finished = true;
-            self.log.push("pre-success: mission finished (failure triggers ignored)".into());
+            // a level started in a turret (0x0044e600) also closes the army's breach (Game byte +0xcbe = 0); its army
+            // stops and retreats (army.rs)
+            if self.start_in_turret {
+                self.breach_open = false;
+            }
+            self.log.push("pre-success: mission finished (failure triggers and Roman's hits ignored)".into());
             return;
         }
         if let Some(k) = self.failures.iter().position(|&f| f == t) {
@@ -1440,8 +1455,14 @@ fn event_log(m: Option<Res<Mission>>, time: Res<Time>, mut shown: crate::levelre
 
 /// The playtest state log's "mission_obj": the logic objects' state (volumes, sites, counters, camera fx, the pub,
 /// the mission's flags), for expect steps.
-fn state_log(m: Option<Res<Mission>>, state: Option<ResMut<crate::playtest::PlayState>>) {
+fn state_log(m: Option<Res<Mission>>, state: Option<ResMut<crate::playtest::PlayState>>, troops: Query<(&BarracksTroop, &crate::fx::Health)>) {
     let (Some(m), Some(mut state)) = (m, state) else { return };
+    // each barracks: releasing, troops still to come, its released troops alive
+    let barracks: Map<String, Value> = m
+        .barracks
+        .iter()
+        .map(|b| (b.id.to_string(), serde_json::json!({"active": b.active, "left": b.left(), "troops": troops.iter().filter(|(t, h)| t.0 == b.id && h.0 > 0.0).count()})))
+        .collect();
     let vols: Map<String, Value> = m.triggers.iter().map(|t| (t.id.to_string(), serde_json::json!({"on_enter": t.on_enter, "on_exit": t.on_exit, "enabled": t.enabled, "pending": t.pending, "inside": t.inside.len()}))).collect();
     let sites: Map<String, Value> = m
         .sites
@@ -1458,7 +1479,7 @@ fn state_log(m: Option<Res<Mission>>, state: Option<ResMut<crate::playtest::Play
     state.0.insert(
         "mission_obj".into(),
         serde_json::json!({
-            "volumes": vols, "sites": sites, "counters": counters, "camfx": camfx,
+            "volumes": vols, "sites": sites, "counters": counters, "camfx": camfx, "barracks": barracks,
             // the first pub (scripts written for one), then every pub by id: open, entered, doorway (game x, y) and its
             // entry radius
             "pub_open": m.pubs.first().is_some_and(|p| p.triggers.open == 0), "pub_done": m.pubs.first().is_some_and(|p| p.done),
@@ -1621,16 +1642,18 @@ pub(crate) fn lock_sites(
 }
 
 /// Ticker bomb sites (PlayerTickerBomb_Update 0x0044e150 and the prompt 0x00467450): in range with ticker bombs,
-/// "Hold down %s to set the ticker bomb!"; Use held for arm_time arms it (0x0044e4a0: send_trigger_set, its tag
-/// cleared, alpha 1, a 6 s fuse Game+0x25e4), then it explodes (area damage at the bomb), sends send_trigger_explode
-/// and is removed (vt+0xd4).
+/// "Hold down %s to set the ticker bomb!"; a Use press there starts the wind-up (0x0044e3a0 from the Use handler
+/// 0x004788a0: Controls_IsPressed), and Use held on (Controls_IsHeld, 0x0044e150) for arm_time arms it (0x0044e4a0:
+/// send_trigger_set, its tag cleared, alpha 1, a 6 s fuse Game+0x25e4); letting go, leaving the radius or dying
+/// cancels it (0x0044e430). Armed, it explodes (area damage at the bomb), sends send_trigger_explode and is removed
+/// (vt+0xd4).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn sites(
     time: Res<Time>,
     ctl: Res<crate::input::Controls>,
     bot: Res<crate::bot::Bot>,
     mut m: Option<ResMut<Mission>>,
-    player: Query<&GlobalTransform, With<Player>>,
+    player: Query<(&GlobalTransform, Option<&crate::player::Roman>), With<Player>>,
     (mut out, mut blast, mut fx): (MessageWriter<SendTrigger>, MessageWriter<Explode>, MessageWriter<StartFx>),
     mut hud: ResMut<crate::hud::HudState>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
@@ -1640,13 +1663,20 @@ pub(crate) fn sites(
     placed: Query<(Entity, &InstanceId, Option<&crate::level::Placed>)>,
     mut physics: NonSendMut<crate::physics::Physics>,
     stats: Res<crate::player::PlayerStats>,
+    // the playtest bot's Use last frame (its press is the rising edge)
+    mut bot_used: Local<bool>,
 ) {
-    let (Some(m), Ok(p)) = (m.as_deref_mut(), player.single()) else { return };
+    let (Some(m), Ok((p, roman))) = (m.as_deref_mut(), player.single()) else { return };
     let dt = time.delta_secs();
     let p = p.translation();
+    // the player can act (the prompt's 0x0047a950, the update's Object_IsDead 0x00454780)
+    let alive = roman.is_none_or(|r| !r.dead);
     let mut prompt = None;
     // (the Use handler waits for PlayerCanAct, 0x0047a950: player.rs can_act)
-    let holding = (ctl.down(crate::input::Act::Use) || bot.use_key) && stats.can_act;
+    let act = alive && stats.can_act;
+    let holding = act && (ctl.down(crate::input::Act::Use) || bot.use_key);
+    let pressed = act && (ctl.pressed(crate::input::Act::Use) || (bot.use_key && !*bot_used));
+    *bot_used = bot.use_key;
     let tickers = m.tickers;
     // Game+0xdcf: a ticker bomb is armed and ticking (one at a time)
     let any_armed = m.sites.iter().any(|s| s.armed.is_some() && !s.done);
@@ -1660,10 +1690,23 @@ pub(crate) fn sites(
     let mut arming = None;
     let mut clock = None;
     let mut patience = false;
-    // the wind-up (0x0044e3a0 starts wpn_ticker_windup_lp, 0x0044e430 stops it when Use is let go)
+    // the prompt (0x00467450) looks at the bombs every 6th frame while no bomb ticks (Game+0xdcf): the first unarmed bomb
+    // within its radius in the list (World+0xeb4, the sites in instance order) sends its send_trigger_non_enabled while
+    // it is disabled and Roman holds ticker bombs (PlayerTickerBomb_SendNonEnabled 0x0044e0e0; not a one-shot)
+    if dt > 0.0 {
+        m.prompt_tick = (m.prompt_tick + 1) % 6;
+        if m.prompt_tick == 0 && alive && !any_armed && tickers > 0 {
+            if let Some(s) = m.sites.iter().find(|s| !s.done && s.armed.is_none() && p.distance(s.pos) <= s.radius).filter(|s| !s.enabled() && s.non_enabled != 0) {
+                sends.push(s.non_enabled);
+            }
+        }
+    }
+    // the wind-up's end without arming (0x0044e430: the ui_tickerbomb_set bar hidden, wpn_ticker_windup_lp stopped)
     // (the bank's sequence plays wpn_ticker_windup_start before the loop and wpn_ticker_windup_end on its stop)
-    let wind_down = |stop: &mut MessageWriter<crate::audio::StopSound>, _sounds: &mut MessageWriter<crate::audio::PlaySound>, _at: Vec3| {
-        stop.write(crate::audio::StopSound("wpn_ticker_windup_lp".into()));
+    let cancel = |s: &mut Site, stop: &mut MessageWriter<crate::audio::StopSound>| {
+        if s.winding.take().is_some() {
+            stop.write(crate::audio::StopSound("wpn_ticker_windup_lp".into()));
+        }
     };
     for s in &mut m.sites {
         if s.done {
@@ -1716,29 +1759,9 @@ pub(crate) fn sites(
             }
             continue;
         }
-        if p.distance(s.pos) > s.radius {
-            if s.hold > 0.0 {
-                wind_down(&mut stop, &mut sounds, s.pos);
-            }
-            s.hold = 0.0;
-            continue;
-        }
-        if !s.enabled() {
-            // the prompt (every 6th frame, 0x00467450) sends send_trigger_non_enabled while the player, holding ticker
-            // bombs, stands at a disabled site (PlayerTickerBomb_SendNonEnabled 0x0044e0e0; not a one-shot)
-            if tickers > 0 && s.non_enabled != 0 && dt > 0.0 {
-                if s.nag % 6 == 0 {
-                    sends.push(s.non_enabled);
-                }
-                s.nag += 1;
-            }
-            continue;
-        }
-        if Some(s.id) != chosen {
-            if s.hold > 0.0 {
-                wind_down(&mut stop, &mut sounds, s.pos);
-            }
-            s.hold = 0.0;
+        // out of range, not the one Use acts on, or Roman dead: no wind-up here
+        if p.distance(s.pos) > s.radius || Some(s.id) != chosen || !alive {
+            cancel(s, &mut stop);
             continue;
         }
         if tickers == 0 {
@@ -1749,39 +1772,45 @@ pub(crate) fn sites(
         // (0x0044e3a0 from the Use handler 0x004788a0)
         if any_armed {
             prompt = Some("ui_tickerbomb_hint".to_string());
-            patience |= ctl.pressed(crate::input::Act::Use);
+            patience |= pressed;
             continue;
         }
-        if holding {
-            if s.hold == 0.0 {
-                sounds.write(crate::audio::PlaySound::at("wpn_ticker_windup_lp", s.pos).looping(true));
-            }
-            s.hold += dt;
-            // the arming bar ui_tickerbomb_set fills while Use is held (it takes the prompt's place): (T - +0x464) /
-            // arm_time
-            arming = Some((s.hold / s.arm_time.max(0.01)).min(1.0));
-            if s.hold >= s.arm_time {
-                // 0x0044e4a0: wind-up stops, wpn_ticker and one of Roman's two "armed" lines (50 % each), send_trigger_set
-                // (0x0044e0c0), its tag cleared (+0x390 = 0), the clock
-                s.armed = Some(6.0);
-                arming = None;
-                clock = Some(0.0);
-                stop.write(crate::audio::StopSound("wpn_ticker_windup_lp".into()));
-                sounds.write(crate::audio::PlaySound::at("wpn_ticker", s.pos));
-                let line = if rng.rand() < 0.5 { "rom50211_tickerarmed" } else { "rom50212_tickerarmed" };
-                sounds.write(crate::audio::PlaySound::at(line, p));
-                if s.set != 0 {
-                    sends.push(s.set);
+        // a Use press starts the wind-up (0x0044e3a0: +0x464 = now, the loop sound in 2D: (g+0x2c) vt+0xd0 with no
+        // position); holding Use on keeps it going (0x0044e150)
+        if pressed && s.winding.is_none() {
+            s.winding = Some(0.0);
+            sounds.write(crate::audio::PlaySound::ui("wpn_ticker_windup_lp").looping(true));
+        }
+        match s.winding.as_mut().filter(|_| holding) {
+            Some(held) => {
+                *held += dt;
+                let held = *held;
+                // the arming bar ui_tickerbomb_set fills while Use is held (it takes the prompt's place): (T - +0x464) /
+                // arm_time
+                arming = Some((held / s.arm_time.max(0.01)).min(1.0));
+                if held >= s.arm_time {
+                    // 0x0044e4a0: wind-up stops, wpn_ticker and one of Roman's two "armed" lines (50 % each), all three
+                    // in 2D ((g+0x2c) vt+0xd0 with no position); send_trigger_set (0x0044e0c0), its tag cleared (+0x390
+                    // = 0), the clock
+                    s.winding = None;
+                    s.armed = Some(6.0);
+                    arming = None;
+                    clock = Some(0.0);
+                    stop.write(crate::audio::StopSound("wpn_ticker_windup_lp".into()));
+                    sounds.write(crate::audio::PlaySound::ui("wpn_ticker"));
+                    let line = if rng.rand() < 0.5 { "rom50211_tickerarmed" } else { "rom50212_tickerarmed" };
+                    sounds.write(crate::audio::PlaySound::ui(line));
+                    if s.set != 0 {
+                        sends.push(s.set);
+                    }
+                    untag.push(s.id);
+                    logs.push(format!("ticker site {} armed", s.id));
                 }
-                untag.push(s.id);
-                logs.push(format!("ticker site {} armed", s.id));
             }
-        } else {
-            if s.hold > 0.0 {
-                wind_down(&mut stop, &mut sounds, s.pos);
+            None => {
+                cancel(s, &mut stop);
+                prompt = Some("ui_tickerbomb_hint".to_string());
             }
-            s.hold = 0.0;
-            prompt = Some("ui_tickerbomb_hint".to_string());
         }
     }
     for t in sends {
@@ -1865,13 +1894,36 @@ fn pub_door(ctl: Res<crate::input::Controls>, bot: Res<crate::bot::Bot>, mut m: 
     }
 }
 
+/// The player's specials that freeze the barracks' release (0x0040cb10: the non-paced branch runs only while none is
+/// on): the Topsy Turvy effect's timer (Game+0xc80 > 0, Roman hanging upside down), the knockout glove (Game byte
+/// +0xcbc), a live black hole (Game+0xadc) and the Guy Fawkes wait (Game+0xae0 != 0). The alarm controller 0x00404e50
+/// tests the same four.
+#[derive(bevy::ecs::system::SystemParam)]
+pub struct SpecialsHold<'w, 's> {
+    topsy: Option<Res<'w, crate::topsy::Topsy>>,
+    glove: Option<Res<'w, crate::weapons::glove::Glove>>,
+    throws: Option<Res<'w, crate::weapons::ThrowQueue>>,
+    holes: Query<'w, 's, (), With<crate::weapons::blackhole::LiveHole>>,
+}
+
+impl SpecialsHold<'_, '_> {
+    pub fn holds(&self) -> bool {
+        self.topsy.as_ref().is_some_and(|t| t.phase == crate::topsy::Phase::Hang)
+            || self.glove.as_ref().is_some_and(|g| g.active())
+            || !self.holes.is_empty()
+            || self.throws.as_ref().is_some_and(|q| q.fawkes_wait > 0.0)
+    }
+}
+
 /// Barracks release their troops: the generator update 0x0040cb10 (its non-window branch) and the release 0x0040c910.
 /// While releasing (+0x460 bit 3): with no batch under way (+0x59c == 0) and at least release_count troops of its list
 /// alive the delay is re-rolled (it waits); otherwise it counts down, and a new batch of release_amount starts when
 /// fewer than release_count are alive. When the delay runs out one troop of the type with the most remaining comes
 /// out of the first free exit slot (created at "ref_spawn_0%d", walking out to "ref_exit_0%d", then to its marker),
 /// the batch drops by one, and the delay is re-rolled; none left: it stops (bit 3 cleared). Damage while the
-/// activate trigger is still armed starts it too (0x0040ce40). release_max (+0x590) is read but not used here.
+/// activate trigger is still armed starts it too (0x0040ce40). release_max (+0x590) is read but not used here. The
+/// batch release (not the base generators' paced one) stands still, its delay frozen, while a special holds it
+/// ([`SpecialsHold`]).
 fn barracks(
     time: Res<Time>,
     mut m: Option<ResMut<Mission>>,
@@ -1880,10 +1932,12 @@ fn barracks(
     troops: Query<(&BarracksTroop, &Grunt)>,
     objects: Query<(&InstanceId, &Destructible)>,
     mut spawn: MessageWriter<crate::level::SpawnGrunt>,
+    specials: SpecialsHold,
 ) {
     let Some(m) = m.as_deref_mut() else { return };
     let crt = crt.get();
     let dt = time.delta_secs();
+    let held = specials.holds();
     let mut logs = Vec::new();
     for b in &mut m.barracks {
         if let Some(h) = objects.iter().find(|(i, _)| i.0 == b.id).map(|(_, d)| d.health) {
@@ -1904,6 +1958,8 @@ fn barracks(
         if b.paced {
             // 0x0040cb10 with bits 0x14: the delay counts down, whatever is alive
             b.timer -= dt;
+        } else if held {
+            continue;
         } else {
             if b.batch == 0 && alive >= b.count {
                 b.timer = crt.r(b.release.0, b.release.1);
@@ -1930,9 +1986,10 @@ fn barracks(
         // the first free exit slot: taken while a troop walks out through it (guess at when it is freed)
         let busy = b.pending || troops.iter().any(|(t, g)| t.0 == b.id && g.exit.is_some() && g.mind != Mind::Dead);
         if let (Some((at, exit)), false) = (b.spawn, busy) {
+            let (template, kind) = TROOP_TYPES[ty];
             spawn.write(crate::level::SpawnGrunt {
                 at,
-                template: TROOP_TEMPLATES[ty].into(),
+                template: template.into(),
                 alarm: false,
                 // type 2 is a jumper captain (0x0040c590 -> 0x00425d30(1))
                 jumper: ty == 2,
@@ -1941,12 +1998,13 @@ fn barracks(
                 marker_tags: (b.marker_tags.0 != 0).then_some(b.marker_tags),
                 alert_group: b.alert_group,
                 priority_tags: b.priority_tags,
+                switches: kind.into_iter().collect(),
                 ..default()
             });
             b.batch = b.batch.wrapping_sub(1);
             b.pending = true;
             b.counts[ty] -= 1;
-            logs.push(format!("barracks {} released a {} ({} left, {} of its troops were alive, batch {})", b.id, TROOP_TEMPLATES[ty], b.left(), alive, b.batch));
+            logs.push(format!("barracks {} released a {}{} ({} left, {} of its troops were alive, batch {})", b.id, template, kind.map(|k| format!(" ({k})")).unwrap_or_default(), b.left(), alive, b.batch));
         }
         b.timer = crt.r(b.release.0, b.release.1);
     }
@@ -2002,9 +2060,9 @@ fn dispatch(
     mut fx: MessageWriter<StartFx>,
     mut rng: ResMut<crate::fx::FxStats>,
     mut ms: ResMut<crate::stats::MissionStats>,
-    mut stop: MessageWriter<crate::audio::StopSound>,
+    (mut stop, mut music): (MessageWriter<crate::audio::StopSound>, ResMut<crate::gameaudio::Music>),
     companions: Query<(Entity, &crate::ai::Companion, &GlobalTransform)>,
-    mut music: ResMut<crate::gameaudio::Music>,
+    (troops, mut ends): (Query<(Entity, &BarracksTroop, &crate::fx::Health)>, MessageWriter<crate::ai::notes::ScriptEnd>),
     cam: Query<(Entity, &GlobalTransform), With<Camera3d>>,
 ) {
     let Some(m) = m.as_deref_mut() else { return };
@@ -2017,18 +2075,27 @@ fn dispatch(
         let t = &t;
         let actions = m.receivers.get(t).cloned().unwrap_or_default();
         m.log.push(format!("trigger {t}: {} receivers", actions.len()));
-        // the barracks' trigger handler 0x0040d1b0: activate starts the release and is used up (+0x534 = 0),
-        // deactivate stops it, reset starts it with the troop counts refilled
+        // the barracks' trigger handler 0x0040d1b0: activate starts the release and is used up (+0x534 = 0) unless
+        // it is a base generator (bits 0x14: it can be started again), deactivate stops it, reset starts it with the
+        // troop counts refilled. Deactivate is also the kill trigger of every troop it released (0x0042db50 +0x530,
+        // 0x0042f870: vt+0xd4 with a zeroed record).
         let mut blogs = Vec::new();
         let mut m_resend = Vec::new();
         for b in &mut m.barracks {
             if *t == b.activate {
                 b.active = true;
-                b.activate = 0;
+                if !b.paced {
+                    b.activate = 0;
+                }
                 blogs.push(format!("barracks {} activated", b.id));
             } else if *t == b.deactivate {
                 b.active = false;
-                blogs.push(format!("barracks {} deactivated", b.id));
+                let mut killed = 0;
+                for (e, _, _) in troops.iter().filter(|(_, tr, h)| tr.0 == b.id && h.0 > 0.0) {
+                    ends.write(crate::ai::notes::ScriptEnd { entity: e, end: crate::ai::notes::End::Kill });
+                    killed += 1;
+                }
+                blogs.push(format!("barracks {} deactivated: {killed} of its troops killed", b.id));
             } else if *t == b.reset {
                 b.active = true;
                 b.counts = b.initial;
@@ -2314,18 +2381,29 @@ fn messages(
     }
 }
 
-/// Lose: the player dead for 5 s (level state 3, "MissionFailed").
+/// Roman's hit handler ignores every hit: PlayerObject_OnHit 0x0047afa0 returns at once while 0x0044e620 (Game byte
+/// +0xdd2, set by the mission's pre-success, MissionObject_OnTrigger 0x0044d600) is true. No damage, no hit reaction,
+/// no knock. The damage paths that reach Roman (player.rs bullets and falls, fx.rs blasts, vehicles/rockets.rs,
+/// movable.rs, ai/melee.rs) skip a Roman carrying it.
+#[derive(Component)]
+pub struct HitsIgnored;
+
+/// Lose: the player dead for 5 s (level state 3, "MissionFailed"). A lost level, whatever lost it, then gets the
+/// failure's sound (0x0044a390 states 3..8): every sound but the music stops (audio vt+0xa8(0)) and the defeat music is
+/// asked for (0x0044f570). Once the mission is finished (pre-success) Roman takes no more hits ([`HitsIgnored`]).
+#[allow(clippy::too_many_arguments)]
 fn outcome(
     time: Res<Time>,
     mut m: Option<ResMut<Mission>>,
-    roman: Query<&crate::player::Roman>,
+    roman: Query<(Entity, &crate::player::Roman, Has<HitsIgnored>)>,
     mut hud: ResMut<crate::hud::HudState>,
     cam: Query<&GlobalTransform, With<Camera3d>>,
     player: Query<&GlobalTransform, With<Player>>,
     first: Res<CompassList>,
+    (mut commands, mut stop, mut music, mut announced): (Commands, MessageWriter<crate::audio::StopSound>, ResMut<crate::gameaudio::Music>, crate::levelreset::PerLevel<bool>),
 ) {
     let Some(m) = m.as_deref_mut() else { return };
-    if let Ok(r) = roman.single() {
+    if let Ok((e, r, ignored)) = roman.single() {
         if r.dead && m.outcome == Outcome::Playing {
             m.dead_timer += time.delta_secs();
             if m.dead_timer > 5.0 {
@@ -2334,6 +2412,16 @@ fn outcome(
                 m.log.push("FAILED".into());
             }
         }
+        if m.finished && !ignored {
+            commands.entity(e).insert(HitsIgnored);
+        }
+    }
+    let announced = announced.get();
+    if m.outcome == Outcome::Failed && !*announced {
+        *announced = true;
+        stop.write(crate::audio::StopSound(crate::audio::ALL_BUT_MUSIC.into()));
+        music.request_defeat();
+        m.log.push("failure: sounds stopped, defeat music requested".into());
     }
     // compass objective: bearing of the target relative to the camera, and its distance
     if let (Ok(c), Ok(p)) = (cam.single(), player.single()) {

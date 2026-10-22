@@ -327,11 +327,11 @@ const ROMAN_MASS: f32 = 80.0;
 const KNOCK_CAP: f32 = 4000.0;
 const CLOSE_KNOCK_CAP: f32 = 8000.0;
 
-/// How much of a hit's damage reaches Roman (PlayerObject_OnHit 0x0047afa0), None when the handler ignores it: after
-/// the mission's success (0x0044e620: Game+0xdd2, mission.rs `finished`) and in the Topsy Turvy states (+0xa34 &
-/// 0x7800000); halved on a mounted gun (Game+0xac8, 0x005bcb4c).
-pub fn hit_scale(finished: bool, topsy: bool, mounted: bool) -> Option<f32> {
-    if finished || topsy {
+/// How much of a hit's damage reaches Roman (PlayerObject_OnHit 0x0047afa0), None when the handler ignores it: in
+/// the Topsy Turvy states (+0xa34 & 0x7800000); halved on a mounted gun (Game+0xac8, 0x005bcb4c). (Its other ignore,
+/// after the mission's success 0x0044e620 / Game+0xdd2, is the `mission::HitsIgnored` marker every damage path tests.)
+pub fn hit_scale(topsy: bool, mounted: bool) -> Option<f32> {
+    if topsy {
         return None;
     }
     Some(if mounted { 0.5 } else { 1.0 })
@@ -806,7 +806,7 @@ pub(crate) fn control(
     opts: Res<crate::options::GameOptions>,
     (topsy, glove): (Res<crate::topsy::Topsy>, Res<crate::weapons::glove::Glove>),
     mut physics: NonSendMut<Physics>,
-    mut q: Query<(&mut Roman, &mut Transform, &mut Health, Option<&mut crate::jetpack::JetPack>)>,
+    mut q: Query<(&mut Roman, &mut Transform, &mut Health, Option<&mut crate::jetpack::JetPack>, Has<crate::mission::HitsIgnored>)>,
     (ctl, mounted, rig): (Res<crate::input::Controls>, Res<crate::turret::Mounted>, Res<crate::camera::CameraRig>),
     mut fx: MessageWriter<crate::surface::StartSurfaceFx>,
     // the breaths' decks with their own random stream (drawing on a shared one shifted other systems' rolls)
@@ -814,7 +814,7 @@ pub(crate) fn control(
 ) {
     let dt = time.delta_secs();
     let (breaths, rng) = breaths.get();
-    for (mut r, mut t, mut h, mut jet) in &mut q {
+    for (mut r, mut t, mut h, mut jet, hits_ignored) in &mut q {
         if h.0 <= 0.0 {
             r.dead = true;
         }
@@ -1092,7 +1092,7 @@ pub(crate) fn control(
             }
             t.translation = feet;
         }
-        if fall_and_land(&mut r, &t, &mut h, vy, was_jump, dt, &physics, &mut fx, t.translation.distance(before), topsy.active(), jet.as_deref_mut()) {
+        if fall_and_land(&mut r, &t, &mut h, vy, was_jump, dt, &physics, &mut fx, t.translation.distance(before), topsy.active() || hits_ignored, jet.as_deref_mut()) {
             // the landing's breath (0x00478200: 0x00493b70 with table 0x005fb9cc, 2 sounds)
             const LAND_BREATH: [&str; 2] = ["fol_breath_heavy_short_1", "fol_breath_heavy_short_2"];
             sounds.write(crate::audio::PlaySound::at(LAND_BREATH[breaths[1].deal(2, || rng.rand() as f32 / 32768.0)], t.translation));
@@ -2001,12 +2001,13 @@ fn projectiles(
     joints: Query<&GlobalTransform>,
     mut objects: Query<(&crate::level::Placed, &mut Destructible, Option<&crate::vehicles::boss::BulletScale>)>,
     mut roman: Query<(Entity, &mut Roman, &Transform, Option<&crate::skin::Animator>), Without<Projectile>>,
-    mut roman_health: Query<(&mut Health, Option<&mut crate::fx::DamageShield>), (With<Roman>, Without<crate::physics::Body>, Without<Projectile>)>,
+    // (none once the mission's pre-success makes his hit handler ignore hits: mission.rs HitsIgnored)
+    mut roman_health: Query<(&mut Health, Option<&mut crate::fx::DamageShield>), (With<Roman>, Without<crate::physics::Body>, Without<Projectile>, Without<crate::mission::HitsIgnored>)>,
     mut companions: Query<(Entity, &mut crate::ai::Companion, &Transform, Option<&crate::skin::Animator>, &mut Health), (Without<Roman>, Without<crate::physics::Body>, Without<Projectile>)>,
     mut stats: ResMut<PlayerStats>,
     mut surface_fx: MessageWriter<crate::surface::StartSurfaceFx>,
     hulls: Option<Res<crate::hitparts::HitHulls>>,
-    (rtime, topsy, mounted, mut noise, mut bombs, mut rng, mut sounds, mission): (Res<Time<Real>>, Res<crate::topsy::Topsy>, Res<crate::turret::Mounted>, ResMut<crate::ai::Interests>, Query<(&Transform, &mut crate::sticky::StickyBomb), Without<Projectile>>, ResMut<crate::fx::FxStats>, MessageWriter<crate::audio::PlaySound>, Option<Res<crate::mission::Mission>>),
+    (rtime, topsy, mounted, mut noise, mut bombs, mut rng, mut sounds): (Res<Time<Real>>, Res<crate::topsy::Topsy>, Res<crate::turret::Mounted>, ResMut<crate::ai::Interests>, Query<(&Transform, &mut crate::sticky::StickyBomb), Without<Projectile>>, ResMut<crate::fx::FxStats>, MessageWriter<crate::audio::PlaySound>),
     mut victims: Query<&mut crate::ai::Grunt>,
     (mut pickups, traitors, binds, mut wstats, mut stuck): (MessageWriter<crate::pickup::SpawnPickup>, Query<(), With<crate::weapons::traitor::Traitor>>, Res<Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>, ResMut<crate::weapons::WeaponStats>, MessageWriter<crate::arrows::ArrowStuck>),
 ) {
@@ -2223,8 +2224,9 @@ fn projectiles(
             if zone == Some(HitZone::Head) {
                 stats.head_shots += 1;
             }
-            // ignored after the mission's success and during the topsy states (hit_scale); the bullet still lands
-            let scale = hit_scale(mission.as_ref().is_some_and(|m| m.finished), topsy.active(), mounted.0.is_some());
+            // ignored after the mission's success (`roman_health` leaves out HitsIgnored) and during the topsy states
+            // (hit_scale); the bullet still lands
+            let scale = hit_scale(topsy.active(), mounted.0.is_some());
             if let (Some((mut h, shield)), Some(scale)) = (roman_health.single_mut().ok(), scale) {
                 // a shield in front of him takes the whole hit first (the base turret's window, fx.rs DamageShield);
                 // else halved while on a mounted gun (hit_scale)

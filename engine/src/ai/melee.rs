@@ -73,24 +73,25 @@ pub struct CloseStats {
     pub hits: u32,
 }
 
-/// The hits (the damage record 0x40000 with the AI as source): Roman through his hit handler (its ignore rules and
-/// the mounted gun's half damage, player.rs hit_scale; a shield in front of him; the damage, the hit anim, the close
-/// hit's knock and sound: Roman::close_hit), a companion (his reaction and lines are ai.rs companion_damage's, the
-/// attacker offered as his target), anything else with health.
+/// The hits (the damage record 0x40000 with the AI as source): Roman through his hit handler (its ignore rules,
+/// mission.rs HitsIgnored and player.rs hit_scale with the mounted gun's half damage; a shield in front of him; the
+/// damage, the hit anim, the close hit's knock and sound: Roman::close_hit), a companion (his reaction and lines are
+/// ai.rs companion_damage's, the attacker offered as his target), anything else with health.
 #[allow(clippy::type_complexity)]
 pub fn close_hits(
     mut hits: MessageReader<CloseHit>,
-    mut health: Query<(&mut crate::fx::Health, Option<&mut crate::player::Roman>, Option<&mut super::Companion>, Option<&mut crate::fx::DamageShield>)>,
+    mut health: Query<(&mut crate::fx::Health, Option<&mut crate::player::Roman>, Option<&mut super::Companion>, Option<&mut crate::fx::DamageShield>, Has<crate::mission::HitsIgnored>)>,
     mut stats: ResMut<CloseStats>,
-    (topsy, mounted, mission): (Res<crate::topsy::Topsy>, Res<crate::turret::Mounted>, Option<Res<crate::mission::Mission>>),
+    (topsy, mounted): (Res<crate::topsy::Topsy>, Res<crate::turret::Mounted>),
 ) {
     for h in hits.read() {
-        let Ok((mut hp, roman, companion, shield)) = health.get_mut(h.target) else { continue };
-        if hp.0 <= 0.0 {
+        let Ok((mut hp, roman, companion, shield, ignored)) = health.get_mut(h.target) else { continue };
+        // (Roman's hit handler ignores it after the mission's pre-success: mission.rs HitsIgnored)
+        if hp.0 <= 0.0 || ignored {
             continue;
         }
         let scale = match roman {
-            Some(_) => crate::player::hit_scale(mission.as_ref().is_some_and(|m| m.finished), topsy.active(), mounted.0.is_some()),
+            Some(_) => crate::player::hit_scale(topsy.active(), mounted.0.is_some()),
             None => Some(1.0),
         };
         let Some(scale) = scale else { continue };

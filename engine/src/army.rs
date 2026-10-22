@@ -306,7 +306,9 @@ fn load(mut army: ResMut<Army>, tuning: Res<ArmyTuning>, launch: Res<crate::Laun
         army.ladder_sets[i] = (gs.i(&format!("army_ladder{i}_tag_min"), 0), gs.i(&format!("army_ladder{i}_tag_max"), 0));
     }
     army.ladder_delay = (mp.f("army_ladder_delay_min", 1.0), mp.f("army_ladder_delay_max", 1.0));
-    army.pre_success = mp.i("receive_trigger_pre_success", 0);
+    // the pre-success stops the army and hands out the retreat only in a level started in a turret (0x0044d600 tests
+    // 0x0044e600: start_in_turret_tag); lev_4_m2's pre-success (4000) only finishes the mission (mission.rs)
+    army.pre_success = if mp.i("start_in_turret_tag", 0) != 0 { mp.i("receive_trigger_pre_success", 0) } else { 0 };
     army.breach_tag = mp.i("army_breach_marker_tag", 0);
     army.breach_max = mp.i("army_breach_run_max", 5).max(0) as u32;
     for inst in &scene.instances {
