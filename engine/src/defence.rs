@@ -94,6 +94,9 @@ pub struct BaseTurret {
     seat: Option<usize>,
     emitters: [Option<usize>; 3],
     muzzles: [Option<usize>; 3],
+    /// the machine gun's muzzle (muzzle_bone_name +0x500) in the world: the turret's vt+0x148 (0x00497f60), the HUD
+    /// passes' eye while mounted (0x004067e0; weapons/targeting.rs)
+    pub eye: Option<Vec3>,
     /// byte +0x62c: which machine gun fires next
     left: bool,
     recycle: f32,
@@ -346,6 +349,7 @@ fn setup(
             seat: bone("player_bone_name"),
             emitters: [bone("emitter_bone_name"), bone("emitter_bone_name_2"), bone("mortar_emitter_bone_name")],
             muzzles: [bone("muzzle_bone_name"), bone("muzzle_bone_name_2"), bone("mortar_muzzle_bone_name")],
+            eye: None,
             left: true,
             recycle: p.f("recycle_time", 1.0),
             mortar_recycle: (p.f("mortar_recycle_time", 4.0), p.f("mortar_special_recycle_time", 2.0)),
@@ -742,6 +746,7 @@ fn ride(
     let bone_world = |i: usize| engine * bone_model(&skeleton, i);
     // Roman held at the seat (Object_Attach at player_bone_name), hidden
     let seat = t.seat.map(|i| bone_world(i).w_axis.truncate()).unwrap_or(tt.translation);
+    t.eye = Some(t.muzzles[0].map_or(seat + Vec3::Y * 4.0, |i| bone_world(i).w_axis.truncate()));
     physics.place_walker(&r.walker, seat);
     rt.translation = seat;
     // (the player update skips a mounted Roman: his position for the HUD / state log is the seat's)

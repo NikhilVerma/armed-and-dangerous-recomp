@@ -198,7 +198,7 @@ fn use_glove(
         }
         let joint = a.and_then(|a| a.skeleton.index.get("ref_hit_00").map(|&i| a.joints[i]));
         let hit = joint.and_then(|j| joints.get(j).ok()).map_or(origin + Vec3::Y * 6.0, |j| j.translation());
-        cands.push(targeting::Candidate { entity: e, dead: false, origin, centre: origin + Vec3::Y * 4.9, hit, joint });
+        cands.push(targeting::Candidate { entity: e, dead: false, origin, centre: origin + Vec3::Y * 4.9, slack: targeting::SLACK, hit, joint, body: None });
     }
     let found = targeting::search(&view, cands, factors, range, MAX_TARGETS, &physics, |e: Entity| characters.contains(e));
     if found.is_empty() {

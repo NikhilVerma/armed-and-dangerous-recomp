@@ -7,7 +7,8 @@
 //! - Fire (vt+0x140 0x004a2550): a fan of two rockets, four with the upgrade (Game+0xdd0, pickup_upgrade_weapon), from the
 //!   muzzle along the camera's facing turned by yaw {+a, -a, +a, -a} and pitch {s + b, s + b, s - b/2, s - b/2}
 //!   (a = start_angle_yaw, b = start_angle_pitch, degrees; s = the camera's downward tilt, so the fan leaves level
-//!   ground), each launched at start_speed (0x0047e050). Rocket i homes on lock-on i at its ref_hit_00; empty slots are
+//!   ground), each launched at start_speed (0x0047e050). Rocket i homes on lock-on i at its ref_hit_00 (an object
+//!   without one, a building of the damage takers' list: on the point locked, its bounds' centre); empty slots are
 //!   filled from the earlier ones (slot 3 from 0, 2 from 1 or else 0, 1 from 0), so one lock-on draws every rocket;
 //!   with none they fly to the crosshair's point. The sound wpn_rome_vindaloo_fire_2 / _4 (2D) and the shots counted
 //!   (Game+0x2718 + 1 / + 3 over the fire's own).
@@ -90,7 +91,9 @@ fn fire(
                 // the target point: the lock-on's, else the crosshair's (vt+0x150)
                 to: lock.map_or(f.aim, |t| t.point),
                 along: Some(dir),
-                target: lock.map(|t| (t.entity, Some("ref_hit_00"))),
+                // homing on the lock-on's ref_hit_00 when it has one (the candidate's byte +0x20, 0x00458040: vt+0x14c);
+                // else on its point as locked (vt+0x150: an object of the damage takers' list, a building)
+                target: lock.and_then(|t| t.joint.map(|_| (t.entity, Some("ref_hit_00")))),
                 owner: Some(f.owner),
                 by: crate::fx::Src::Player,
             };

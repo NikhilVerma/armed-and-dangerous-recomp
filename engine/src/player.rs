@@ -49,6 +49,9 @@ pub struct Roman {
     /// camera_zoom_secs (0x0040fbb0)
     pub zoom: f32,
     pub zoom_secs: f32,
+    /// the zoom held (the aiming flag +0xacc, and the camera's +0x6c that 0x0040fba0 asks: set on the press, cleared on
+    /// the release, 0x0040fae0 / 0x0040fb50)
+    pub zoom_held: bool,
     /// in the jump state (flag 0x80) from the take-off to the landing; a plain fall keeps the ground drive
     pub jumping: bool,
     pub fwd_speed: f32,
@@ -646,6 +649,7 @@ pub fn make_roman(physics: &mut Physics, p: &Props, data: &GameData, feet: Vec3,
         wedged: 0.0,
         zoom: 0.0,
         zoom_secs: data.props("p_globalsettings").f("camera_zoom_secs", 0.5),
+        zoom_held: false,
         jumping: false,
         fwd_speed: p.f("fwd_max_speed", 40.0),
         side_speed: p.f("side_max_speed", 40.0),
@@ -862,6 +866,7 @@ pub(crate) fn control(
         let zoom_held = ctl.down(crate::input::Act::Aim) && !r.dead && zoom_gun.is_some();
         let step = dt / r.zoom_secs.max(1e-3);
         r.zoom = if zoom_held { (r.zoom + step).min(1.0) } else { (r.zoom - step).max(0.0) };
+        r.zoom_held = zoom_held;
         let (turn_speed, pitch_speed) = r.look.speeds(zoom_gun.filter(|_| zoom_held));
         // the mouse's counts were measured at the plain speeds: zoomed they scale with the gun's
         let (kt, kp) = (turn_speed / r.look.turn.max(1e-6), pitch_speed / r.look.pitch.max(1e-6));

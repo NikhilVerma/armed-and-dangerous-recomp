@@ -1,11 +1,21 @@
 //! The HUD's target passes (Hud_UpdateCrosshair 0x00406f50, ui_01.cpp:297-510, with the narrowed view volumes of
 //! HudFrustum_Build 0x00408390): which characters a weapon picks by itself.
 //!
-//! Each pass walks the candidates nearest the eye first (the list 0x00408190, sorted from the player's position + 4
-//! (0x004067e0); at most 21 looked at), keeps those inside the view volume narrowed by the pass's factors (clip-space
-//! scales of the side planes: |x_ndc| <= horz, |y_ndc| <= vert, with the object's bounding-sphere slack: 0x00408050),
-//! in front of the eye, within the weapon's range (0x00408330: the first one out of range ends the walk) and in line
-//! of sight (0x00414110 from the eye, [`in_hud_sight`]): the first `max` of them.
+//! Each pass walks the candidates nearest the eye first (the list 0x00408190, sorted from the eye 0x004067e0: the
+//! player's position + 4, in the base turret its muzzle bone; at most 21 looked at), keeps those inside the view
+//! volume narrowed by the pass's factors (clip-space scales of the side planes: |x_ndc| <= horz, |y_ndc| <= vert, with
+//! the object's own bounding-sphere slack [`HudSphere`]: 0x00408050), in front of the eye, within the weapon's range
+//! (0x00408330: the first one out of range ends the walk) and in line of sight (0x00414110 from the eye,
+//! [`in_hud_sight`]): the first `max` of them.
+//!
+//! The candidates are the characters list World+0xe8c (here the grunt-class characters; the teammates in it are
+//! dropped by vt+0xe4, the peasants are not in it) for the single-target passes, and for the multi-lock the wider
+//! damage takers' list World+0xea4 (ui_01.cpp:356-357): the grunts and the enemy's objects in it (level.rs
+//! `DamageTaker`, [`object_candidates`]: the buildings that take damage and hold no peasants, the rocket tower and bud
+//! turrets, a goliath not held by a squad (vt+0x250 0x0043a9a0)). In the base turret the buildings (vt+0x114) and the
+//! zeppelins are left out too (0x00408190).
+//! (The original rebuilds the list every 20 frames, hud +0x39c; this one is rebuilt every frame: the same choice
+//! without the up to 20 frames' lag, so a fresh grunt is lockable at once.)
 //!
 //! | pass | when | factors (p_globalsettings) | max | range |
 //! |---|---|---|---|---|
@@ -27,8 +37,8 @@ use super::{VindalooUpgrade, WeaponId};
 use crate::physics::Physics;
 use bevy::prelude::*;
 
-/// A picked target: the character and the point a shot aims at (its ref_hit_00, else above its origin), with the joint
-/// when it has one (homing follows the joint).
+/// A picked target: the character or object and the point a shot aims at (its ref_hit_00, else its bounds' centre:
+/// 0x00458040), with the joint when it has one (the candidate's byte +0x20: homing follows the joint, else the point).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Target {
     pub entity: Entity,
@@ -68,7 +78,8 @@ pub struct View {
     /// tan of the half field of view, vertical and horizontal
     pub half_v: f32,
     pub half_h: f32,
-    /// the player's position + 4 (0x004067e0): the sort origin and the line of sight's start
+    /// the eye (0x004067e0): the player's position + 4, or in a turret (Game+0xac8) the turret's vt+0x148 (the base
+    /// turret's muzzle bone, 0x00497f60); the sort origin and the line of sight's start
     pub eye: Vec3,
 }
 
@@ -94,7 +105,31 @@ impl View {
     }
 }
 
-/// One candidate: a live character, its bounds' centre (origin + 4.9 for a grunt) and its hit point.
+/// The bounding spheres an object reports to the HUD's view test 0x00408050: vt+0x90 / vt+0x94 of the base object
+/// (0x004541a0 / 0x00454240: the shape descriptor's centre +0x14, moved by the object's matrix, and its radii +0x20 /
+/// +0x24, scaled). The test lets the centre lie up to (r + r2) x 0.5 (K 0x005bcb4c) outside each plane. From the model's
+/// bounds here: the centre of its box, r its half diagonal and r2 its smallest half extent (guess for the descriptor's
+/// two radii: it gives grunt_1 the centre 4.9 up and the slack 4.66 sticky.rs measured; captain_1: 4.1 and 3.1).
+/// Inserted with every placed object's and model kit's model (level.rs, army.rs, vehicles/rocket_turrets.rs).
+#[derive(Component, Clone, Copy, Debug)]
+pub struct HudSphere {
+    /// model space, game axes (the entity's transform carries the axes)
+    pub centre: Vec3,
+    pub slack: f32,
+}
+
+impl HudSphere {
+    /// From a model's bounds (model space, game axes).
+    pub fn from_box(min: Vec3, max: Vec3) -> Self {
+        let half = (max - min) * 0.5;
+        HudSphere { centre: (min + max) * 0.5, slack: (half.length() + half.min_element()) * 0.5 }
+    }
+}
+
+/// The slack of a character without its model's bounds: grunt_1's ([`HudSphere`]).
+pub const SLACK: f32 = 4.66;
+
+/// One candidate: a live character or object, its bounds' centre and slack ([`HudSphere`]) and its hit point.
 #[derive(Clone, Copy, Debug)]
 pub struct Candidate {
     pub entity: Entity,
@@ -102,15 +137,31 @@ pub struct Candidate {
     /// its origin (the list's sort key, 0x00408100)
     pub origin: Vec3,
     pub centre: Vec3,
+    pub slack: f32,
+    /// the point a shot aims at: ref_hit_00, else the bounds' centre (0x00458040 -> vt+0x94)
     pub hit: Vec3,
     pub joint: Option<Entity>,
+    /// an object's collider (its `Placed::collider`): what the line of sight must reach when it has no body of its own
+    pub body: Option<oxijolt::prelude::BodyId>,
 }
 
-/// The bounding-sphere slack of a grunt (grunt_1's model: (half diagonal + smallest half extent) / 2, sticky.rs).
-pub const SLACK: f32 = 4.66;
+impl Candidate {
+    /// A live candidate at `t` with its model's spheres (a grunt's without them) and its ref_hit_00 when its skeleton has
+    /// one.
+    pub fn new(entity: Entity, t: &GlobalTransform, anim: Option<&crate::skin::Animator>, sphere: Option<&HudSphere>, joints: &Query<&GlobalTransform>) -> Self {
+        let origin = t.translation();
+        let (centre, slack) = sphere.map_or((origin + Vec3::Y * 4.9, SLACK), |s| (t.transform_point(s.centre), s.slack));
+        let joint = anim.and_then(|a| a.skeleton.index.get("ref_hit_00").map(|&i| a.joints[i]));
+        let hit = joint.and_then(|j| joints.get(j).ok()).map_or(centre, |j| j.translation());
+        Candidate { entity, dead: false, origin, centre, slack, hit, joint, body: None }
+    }
+}
 
 /// The characters: what the HUD passes' line of sight goes through (none is in the sight list, [`in_hud_sight`]).
 pub type Characters<'w, 's> = Query<'w, 's, (), Or<(With<crate::player::Roman>, With<crate::ai::Grunt>, With<crate::ai::Companion>, With<crate::peasant::Peasant>)>>;
+
+/// The grunt-class characters with what a candidate needs ([`candidates`]).
+pub type Grunts<'w, 's> = Query<'w, 's, (Entity, &'static crate::ai::Grunt, &'static GlobalTransform, Option<&'static crate::skin::Animator>, Option<&'static HudSphere>)>;
 
 /// A pass over the candidates (nearest the eye first): see the module docs. `passable` says which bodies the line
 /// of sight passes (the characters).
@@ -123,7 +174,7 @@ pub fn search(view: &View, mut cands: Vec<Candidate>, factors: (f32, f32), range
     cands.sort_by(|a, b| a.origin.distance(view.eye).total_cmp(&b.origin.distance(view.eye)));
     let mut out = Vec::new();
     for c in cands.into_iter().take(21) {
-        if !view.contains(c.centre, SLACK, factors) {
+        if !view.contains(c.centre, c.slack, factors) {
             continue;
         }
         let to = c.hit - view.eye;
@@ -135,7 +186,7 @@ pub fn search(view: &View, mut cands: Vec<Candidate>, factors: (f32, f32), range
         if dist > range || range <= 0.0 {
             break;
         }
-        if !in_hud_sight(physics, view.eye, c.hit, c.entity, &passable) {
+        if !in_hud_sight(physics, view.eye, c.hit, (c.entity, c.body), &passable) {
             continue;
         }
         out.push(Target { entity: c.entity, point: c.hit, joint: c.joint });
@@ -149,27 +200,28 @@ pub fn search(view: &View, mut cands: Vec<Candidate>, factors: (f32, f32), range
 /// The line of sight 0x00414110 from `from` to the target (distance + 10): it must reach the target's body first;
 /// the bodies `passable` names are passed through, anything else blocks.
 pub fn in_sight(physics: &Physics, from: Vec3, to: Vec3, target: Entity, passable: &impl Fn(Entity) -> bool) -> bool {
-    sight(physics, from, to, target, passable, false)
+    sight(physics, from, to, (target, None), passable, false)
 }
 
 /// The HUD passes' line of sight (Hud_UpdateCrosshair 0x00406f50, ui_01.cpp:406-411): 0x00414110 with the sight list
 /// World+0xea0 as its include list, the tested character added for the cast (vt+0x14 / vt+0x28), no level list and
-/// flag +0x3c set, so the ray collector (0x00413a90) takes only the landscape (no owner), the sight list's objects
-/// (buildings, trees, kegs and the default objects that take damage or block projectiles: the bullets' list, level.rs
-/// `collider_lists`) and the target. Characters (`passable`) and the objects outside the list (invisible walls, plain
-/// rocks) let it through.
-pub fn in_hud_sight(physics: &Physics, from: Vec3, to: Vec3, target: Entity, passable: &impl Fn(Entity) -> bool) -> bool {
+/// flag +0x3c set, so the ray collector (0x00413a90: owner-less bodies with collector +0x78 = the query's +0x3c) takes
+/// only the landscape (no owner), the sight list's objects (buildings, trees, kegs and the default objects that take
+/// damage or block projectiles: the bullets' list, level.rs `collider_lists`) and the target. Characters (`passable`)
+/// and the objects outside the list (invisible walls, plain rocks) let it through. The target is its entity's body or,
+/// for an object, its collider `body`.
+pub fn in_hud_sight(physics: &Physics, from: Vec3, to: Vec3, target: (Entity, Option<oxijolt::prelude::BodyId>), passable: &impl Fn(Entity) -> bool) -> bool {
     sight(physics, from, to, target, passable, true)
 }
 
-fn sight(physics: &Physics, from: Vec3, to: Vec3, target: Entity, passable: &impl Fn(Entity) -> bool, sight_list: bool) -> bool {
+fn sight(physics: &Physics, from: Vec3, to: Vec3, (target, body): (Entity, Option<oxijolt::prelude::BodyId>), passable: &impl Fn(Entity) -> bool, sight_list: bool) -> bool {
     let d = to - from;
     let dist = d.length();
     let dir = d / dist.max(1e-3);
     let (mut at, mut left) = (from, dist + 10.0);
     while let Some((b, hit, _)) = physics.raycast(at, dir, left) {
         let owner = physics.bodies.get(&b).copied();
-        if owner == Some(target) {
+        if owner == Some(target) || body.is_some_and(|t| physics.main_body(b) == t) {
             return true;
         }
         let unlisted = sight_list && physics.landscape != Some(b) && physics.no_bullets.contains(&physics.main_body(b));
@@ -187,16 +239,50 @@ fn sight(physics: &Physics, from: Vec3, to: Vec3, target: Entity, passable: &imp
 }
 
 /// The candidates: the grunt-class characters `keep` takes (by entity, character and feet), with their ref_hit_00.
-pub fn candidates(grunts: &Query<(Entity, &crate::ai::Grunt, &GlobalTransform, Option<&crate::skin::Animator>)>, joints: &Query<&GlobalTransform>, keep: impl Fn(Entity, &crate::ai::Grunt, Vec3) -> bool) -> Vec<Candidate> {
+pub fn candidates(grunts: &Grunts, joints: &Query<&GlobalTransform>, keep: impl Fn(Entity, &crate::ai::Grunt, Vec3) -> bool) -> Vec<Candidate> {
     grunts
         .iter()
-        .filter(|(e, g, t, _)| keep(*e, g, t.translation()))
-        .map(|(e, g, t, a)| {
-            let origin = t.translation();
-            let joint = a.and_then(|a| a.skeleton.index.get("ref_hit_00").map(|&i| a.joints[i]));
-            let hit = joint.and_then(|j| joints.get(j).ok()).map_or(origin + Vec3::Y * 6.0, |j| j.translation());
-            Candidate { entity: e, dead: g.mind == crate::ai::Mind::Dead, origin, centre: origin + Vec3::Y * 4.9, hit, joint }
+        .filter(|(e, g, t, _, _)| keep(*e, g, t.translation()))
+        .map(|(e, g, t, a, s)| Candidate { dead: g.mind == crate::ai::Mind::Dead, ..Candidate::new(e, t, a, s, joints) })
+        .collect()
+}
+
+/// The objects of the damage takers' list World+0xea4 the multi-lock also walks (see the module docs).
+pub type DamageTakers<'w, 's> = Query<
+    'w,
+    's,
+    (
+        Entity,
+        &'static GlobalTransform,
+        &'static HudSphere,
+        Option<&'static crate::skin::Animator>,
+        Option<&'static crate::fx::Destructible>,
+        Option<&'static crate::level::Placed>,
+        Option<&'static crate::tossed::TossOnDeath>,
+        Option<&'static Visibility>,
+    ),
+    (With<crate::level::DamageTaker>, Without<crate::ai::Grunt>, Without<crate::goliath::SquadGoliath>),
+>;
+
+/// The multi-lock's object candidates ([`DamageTakers`]). 0x00408190 drops the objects whose vt+0xe4 (on the player's
+/// side) is true: every default object (0x00433fa0: true) and a building with toss_peasants (0x0040ce30: +0x460 bit
+/// 11), so a house with people in it is never locked; the rocket turrets and a goliath answer false. In the base turret
+/// (`base`) it drops the buildings too (vt+0x114 0x00433fa0, true for BuildingObject). Then 0x00408050's dead test
+/// (0x00454780: health above 0), and only what is drawn.
+pub fn object_candidates(objects: &DamageTakers, joints: &Query<&GlobalTransform>, base: bool) -> Vec<Candidate> {
+    use crate::fx::DClass;
+    objects
+        .iter()
+        .filter(|(_, _, _, _, d, _, toss, vis)| {
+            let alive = d.is_none_or(|d| d.health > 0.0 && d.dying.is_none());
+            let enemy = match d.map(|d| d.class) {
+                Some(DClass::Default | DClass::Keg) => false,
+                Some(DClass::Building) => !base && !toss.is_some_and(|t| t.peasants),
+                _ => true,
+            };
+            alive && enemy && vis.is_none_or(|v| *v != Visibility::Hidden)
         })
+        .map(|(e, t, s, a, _, placed, _, _)| Candidate { body: placed.and_then(|p| p.collider), ..Candidate::new(e, t, a, Some(s), joints) })
         .collect()
 }
 
@@ -204,7 +290,8 @@ pub fn candidates(grunts: &Query<(Entity, &crate::ai::Grunt, &GlobalTransform, O
 /// classes' slot answers false, 0x00435250): whether the land shark can take this character now. The shark gun's pass
 /// (Hud_UpdateCrosshair 0x00406f50) and the shark's own search (0x0047fa70) ask it. Not when can_be_sharked is clear
 /// (+0x48c 0x100) or he is picked up (+0x48c 2); not held by a companion for a close kill (state 0xf), thrown by the
-/// Topsy Turvy bomb (0xe6..0xeb, its hang timer +0x878), in the knockout bomb's glove (0x19a / 0x19b), held by anything
+/// Topsy Turvy bomb (0xe6..0xeb, its hang timer +0x878), in the knockout bomb's glove (0x19a / 0x19b; it also refuses
+/// state 0x196, which no recovered code enters), held by anything
 /// (+0x870: a black hole's carry-off), in an IC move (0x00426630); and, unless he is on a mounted gun (+0x484 0x8000),
 /// only standing on the landscape (0x00454be0: not on a building, a roof or a window's floor). `held` is the caller's
 /// answer for the components that hold him (black hole, Topsy Turvy, glove).
@@ -220,7 +307,8 @@ pub fn can_be_bitten(g: &crate::ai::Grunt) -> bool {
 
 /// Standing on the landscape (0x00454be0: vt+0xb8's contact with no object, GenericAIObject_Slot46 0x00431f70): the
 /// first static thing under his feet (past the dynamic bodies, his own among them) is the level's ground, not an
-/// object (a building, a roof, a prop).
+/// object (a building, a roof, a prop). (The original reads the character's cached ground contact, +0x468..+0x470, so
+/// one in the air has none and is not on the landscape; a ray down 4 gives the same answer for one standing.)
 pub fn on_landscape(physics: &Physics, feet: Vec3) -> bool {
     physics.static_below(feet, 4.0).is_some_and(|(b, _)| physics.landscape.is_none_or(|l| l == b))
 }
@@ -247,28 +335,31 @@ fn update(
     mut targets: ResMut<Targets>,
     roman: Query<(Entity, &crate::player::Roman, &GlobalTransform)>,
     cam: Query<(&GlobalTransform, &Projection), With<crate::camera::FollowCam>>,
-    grunts: Query<(Entity, &crate::ai::Grunt, &GlobalTransform, Option<&crate::skin::Animator>)>,
+    grunts: Grunts,
+    objects: DamageTakers,
     joints: Query<&GlobalTransform>,
     physics: NonSend<Physics>,
     (data, opts, difficulty, upgrade): (Res<crate::gamedata::GameData>, Res<crate::options::GameOptions>, Option<Res<crate::gamedata::Difficulty>>, Res<VindalooUpgrade>),
     (mounted, carried, held): (Res<crate::turret::Mounted>, Query<(), With<super::blackhole::Carried>>, Query<(), Or<(With<crate::topsy::Thrown>, With<super::glove::Gloved>)>>),
-    (bases, characters): (Query<(), With<crate::defence::BaseTurret>>, Characters),
+    (bases, characters): (Query<&crate::defence::BaseTurret>, Characters),
 ) {
     targets.list.clear();
     targets.pass = None;
     let (Ok((_, r, rt)), Ok((c, proj))) = (roman.single(), cam.single()) else { return };
     let Some(gun) = r.arsenal.in_hand() else { return };
     // Game+0xac8: 1 in the base turret (its passes run), 4 on a mounted gun (none)
-    let base = mounted.0.is_some_and(|m| bases.contains(m));
-    if r.dead || mounted.0.is_some() && !base {
+    let base = mounted.0.and_then(|m| bases.get(m).ok());
+    if r.dead || mounted.0.is_some() && base.is_none() {
         return;
     }
     let g = data.props("p_globalsettings");
     let pair = |k: &str, h: f32, v: f32| (g.f(&format!("autoaim_{k}factor_horz"), h), g.f(&format!("autoaim_{k}factor_vert"), v));
     let (pass, factors, max, prey) = match gun.id {
-        // 0x004a2a40: the option (Game+0x4c2), not while zooming (0x0040fba0), not above normal difficulty (Game+0x550)
+        // 0x004a2a40: the option (Game+0x4c2), not while zooming (0x0040fba0: the camera's +0x6c, set as the zoom is
+        // held and cleared as it is let go, 0x0040fae0 / 0x0040fb50 from game_05.cpp:1039 / 1060: not the zoom's
+        // blend, which runs on for camera_zoom_secs after the release), not above normal difficulty (Game+0x550)
         WeaponId::Machinegun | WeaponId::Rifle => {
-            if !opts.auto_aim || r.zoom > 0.0 || difficulty.is_some_and(|d| d.0 > 1) {
+            if !opts.auto_aim || r.zoom_held || difficulty.is_some_and(|d| d.0 > 1) {
                 return;
             }
             (Pass::AutoAim, pair("", 0.18, 0.4), 1, false)
@@ -282,18 +373,24 @@ fn update(
         }
         _ => return,
     };
-    let (pass, factors, max, range) = if base {
+    let (pass, factors, max, range) = if base.is_some() {
         let (h, v) = pair("base_", 0.2, 0.3);
         let k = if upgrade.0 { 1.2 } else { 1.0 };
         (Pass::MultiLock, (h * k, v * k), 4, f32::INFINITY)
     } else {
         (pass, factors, max, gun.spec.range)
     };
-    let view = View::new(c, Some(proj), rt.translation() + Vec3::Y * 4.0);
+    // the eye (0x004067e0): in the base turret its muzzle (vt+0x148 0x00497f60), else Roman + 4
+    let eye = base.and_then(|b| b.eye).unwrap_or(rt.translation() + Vec3::Y * 4.0);
+    let view = View::new(c, Some(proj), eye);
     let passable = |e: Entity| characters.contains(e);
     // a character a black hole carries off is left out by the shark gun's test alone (vt+0x24c: held); the other
     // passes can pick him (ui_01.cpp:371-379)
-    let cands = candidates(&grunts, &joints, |e, g, feet| !prey || can_be_bitten_now(g, carried.contains(e) || held.contains(e), &physics, feet));
+    let mut cands = candidates(&grunts, &joints, |e, g, feet| !prey || can_be_bitten_now(g, carried.contains(e) || held.contains(e), &physics, feet));
+    // the multi-lock walks World+0xea4: its objects too
+    if pass == Pass::MultiLock {
+        cands.extend(object_candidates(&objects, &joints, base.is_some()));
+    }
     targets.list = search(&view, cands, factors, range, max, &physics, passable);
     targets.pass = Some(pass);
 }

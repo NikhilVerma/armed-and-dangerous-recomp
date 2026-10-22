@@ -110,7 +110,7 @@ fn throw(
     mut roman: Query<(Entity, &Transform, &crate::skin::Animator, &mut crate::player::Roman)>,
     cam: Query<&GlobalTransform, With<Camera3d>>,
     proj: Query<&Projection, With<Camera3d>>,
-    grunts: Query<(Entity, &crate::ai::Grunt, &GlobalTransform, Option<&crate::skin::Animator>)>,
+    grunts: crate::weapons::targeting::Grunts,
     joints: Query<&GlobalTransform>,
     mut fx: MessageWriter<crate::fx::StartFx>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,

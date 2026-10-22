@@ -204,7 +204,7 @@ fn spawn_turret(
         let mut ctx = crate::level::SkinCtx { lib: anim_lib, binds };
         let _ = crate::level::attach_model(commands, holder, m, true, Some(&mut ctx), "ref_rhand");
         let bounds = crate::fx::Bounds { center: (m.min + m.max) * 0.5, radius: (m.max - m.min).length() * 0.5 };
-        commands.entity(e).insert(bounds);
+        commands.entity(e).insert((bounds, crate::weapons::targeting::HudSphere::from_box(m.min, m.max)));
     }
     let turn = tpl.default_anim.clone().unwrap_or_default();
     let nodes = Nodes::from_anim(&anim_lib.dir, &turn).unwrap_or_default();
