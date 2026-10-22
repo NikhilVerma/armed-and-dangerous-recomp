@@ -303,6 +303,10 @@ fn damage(
             if Some(ce) == b.source || (no_hits && roman.contains(ce)) {
                 continue;
             }
+            // an AI character given the Guy Fawkes record (flag 0x10) turns instead (weapons/traitor.rs)
+            if !b.kind.hurts_ai() && (grunt.is_some() || companion.is_some()) {
+                continue;
+            }
             let (dist, n) = surface(t, bounds, b.at);
             if dist <= b.radius_outer {
                 let amount = b.area_damage * falloff(dist, b.radius_inner, b.radius_outer) * companion.map_or(1.0, |c| c.damage_scale(b.kind));

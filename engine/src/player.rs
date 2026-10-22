@@ -186,6 +186,10 @@ pub enum DamageKind {
     Stig,
     /// proj_forge_mortar (class 0xb, ForgeCannonProjectile 0x005a33b8: 0x00481000 adds 0x100000)
     Forge,
+    /// proj_guyfawkes (Projectile vtable 0x005a6608: 0x00481d00 adds 0x10): an AI character that receives it turns
+    /// (0x00430140, weapons/traitor.rs) instead of taking the damage (GenericAIObject_Slot52 0x00430340's flag 0x10
+    /// branch); objects and Roman take it as usual
+    Traitor,
 }
 
 impl DamageKind {
@@ -194,8 +198,14 @@ impl DamageKind {
         match b {
             "proj_stig_bullet" => DamageKind::Stig,
             "proj_forge_mortar" => DamageKind::Forge,
+            "proj_guyfawkes" => DamageKind::Traitor,
             _ => DamageKind::Plain,
         }
+    }
+
+    /// Whether an AI character takes this record's damage (not the 0x10 record: that one turns him).
+    pub fn hurts_ai(self) -> bool {
+        self != DamageKind::Traitor
     }
 }
 
