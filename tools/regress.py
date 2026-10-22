@@ -134,6 +134,8 @@ SUITE += ['devmenu_toggles', 'devmenu_level', 'devmenu_title', 'devtools_quicksa
 SUITE += ['ai_trigger_kill_l2m2', 'ai_sticky_scare', 'ai_monk_no_damage_l4m1']
 # a charged grunt keeps its target at any range (0x0043ecf0 with the charge's list +0x958)
 SUITE += ['charge_keeps_target']
+# the grunts' fire counters (bursts inside a clip) and the pursuit on a lost line of sight (journal 2026-10-22-fix2-g01)
+SUITE += ['ai_fire_bursts', 'ai_sight_pursuit']
 # scripts kept in git (engine/playtests) win over work/remaster/play
 TRACKED = os.path.join(ROOT, 'engine', 'playtests')
 # the wall-clock checks (--perf; their "expect_perf" steps run only with AND_PERF=1)

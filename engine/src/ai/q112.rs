@@ -51,7 +51,7 @@ fn log(q: Query<(Entity, &super::Grunt)>, state: Option<ResMut<crate::playtest::
         let Some(x) = g.q112.as_ref() else { continue };
         out.insert(
             format!("{}", e.index()),
-            serde_json::json!({"mind": format!("{:?}", g.mind), "rounds_left": g.left_rounds, "bursts_left": g.left_bursts, "pause": g.pause, "trail": x.trail_len(), "crumbs_used": x.crumbs_used, "eye": x.eye.is_some()}),
+            serde_json::json!({"mind": format!("{:?}", g.mind), "rounds_left": g.left_rounds, "burst_left": g.left_burst, "pause": g.pause, "trail": x.trail_len(), "crumbs_used": x.crumbs_used, "eye": x.eye.is_some()}),
         );
     }
     if !out.is_empty() || state.0.contains_key("q112s") {

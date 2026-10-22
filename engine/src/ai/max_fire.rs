@@ -17,8 +17,8 @@
 //!
 //! The engine asks the limit whenever a bad guy enters the fire state (`may_fire`, ai.rs's fire state: any of the
 //! engine's ways in, which all pass the engage in the original) and counts a shooter while it holds the fire state with its counters rolled; leaving it or
-//! its clip's end (the original's stop events above) releases the place at the end of the frame (`upkeep`). Deviation:
-//! the engine's fire state keeps a shooter whose line of sight is lost (the original re-pursues and frees the place).
+//! its last clip's end (the original's stop events above) releases the place at the end of the frame (`upkeep`); a
+//! lost line of sight starts the pursuit (ai.rs), which leaves the fire state and so frees the place.
 
 use super::{Grunt, Mind};
 use crate::fx::FxStats;
@@ -141,7 +141,10 @@ pub fn upkeep(mut limit: ResMut<ShooterLimit>, mut grunts: Query<(Entity, &mut G
     }
     for (e, mut g) in &mut grunts {
         let firing = matches!(g.mind, Mind::Fire) || (g.mind == Mind::Guard && g.guard_firing);
-        if g.shooter == Shooter::Counted && (!firing || !g.fire_ready || g.mind == Mind::Dead) {
+        // the reload between two clips (state 0x32, counters still rolled) keeps a counted place: only the last clip's
+        // end frees it (ai_02.cpp:1953); an extra is asked again at the reload's end (its engage)
+        let between_clips = g.mind == Mind::Reload && g.fire_ready;
+        if g.shooter == Shooter::Counted && (!(firing || between_clips) || !g.fire_ready || g.mind == Mind::Dead) {
             let mut s = g.shooter;
             limit.release(e, &mut s);
             g.shooter = s;
