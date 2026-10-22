@@ -51,6 +51,9 @@ pub struct VehicleTuning {
     /// a boss looks for a target every `retarget_every` + up to `retarget_jitter` seconds (0x00435b50: 1 + rand)
     pub retarget_every: f32,
     pub retarget_jitter: f32,
+    /// the projectile speed a turret boss leads a moving target for (+0x5c4 = 450: TurretBossInit, ColossusObject_Slot6
+    /// 0x00436390; read by the turret gunner 0x0042ecf0 through 0x004580a0)
+    pub boss_lead_speed: f32,
     /// the colossus's fire range (ColossusObject_Slot6 0x00436390: 400, over its fire_range_*)
     pub colossus_range: f32,
     /// how fast a walking boss turns, radians a second (360 degrees: 0x00436390, 0x0042df70)
@@ -71,6 +74,7 @@ impl Default for VehicleTuning {
             weapon_turn_rate: 4.0,
             retarget_every: 1.0,
             retarget_jitter: 1.0,
+            boss_lead_speed: 450.0,
             colossus_range: 400.0,
             boss_turn_speed: 360f32.to_radians(),
             marker_reached: 15.0,

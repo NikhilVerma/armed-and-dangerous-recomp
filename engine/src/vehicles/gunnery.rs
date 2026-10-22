@@ -1,9 +1,9 @@
-//! How an AI gunner paces and aims its shots: the volley rhythm of the turret bosses (Q112Boss_Slot102 0x00435940
-//! with the turret gunner 0x0042ecf0) and the aim error of the AI's shot (0x004284e0). Pure logic, no ECS: the units
-//! own one of each and step it; the numbers come from the unit's property set.
+//! How an AI gunner paces its shots: the volley rhythm of the turret bosses (Q112Boss_Slot102 0x00435940 with the
+//! turret gunner 0x0042ecf0). Pure logic, no ECS: the units own one and step it; the numbers come from the unit's
+//! property set. (The bosses' shots carry no aim error: Q112Boss_Slot102 fires through 0x004284e0 without a target, along
+//! the turret's facing, boss.rs.)
 
 use super::VehicleRng;
-use bevy::math::Vec3;
 
 /// A range to roll in (inclusive), as the property sets give them (`*_min` / `*_max`).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -100,52 +100,14 @@ impl FireCycle {
         Step { shoot: true, volley_done: true }
     }
 
+    /// The shots left in this volley (+0x5b8).
+    pub fn shots_left(&self) -> i64 {
+        self.left
+    }
+
     /// A volley is under way (no retargeting then: 0x00435b50).
     pub fn mid_volley(&self) -> bool {
         self.volley_wait <= 0.0 && self.rest <= 0.0
-    }
-}
-
-/// The AI's aim error (0x004284e0): the target's hit point moved sideways by up to `spread` and up by up to `rise`,
-/// both scaled by the distance in the plane: 0.1 within `accurate_within`, 1 from `wild_beyond` on, between them
-/// max(0.1, (d^2 - near^2) / (far^2 - near^2)). Properties fire_inaccuracy_angle (15), fire_inaccuracy_height (10),
-/// fire_accuracy_min / max (50 / 150).
-#[derive(Clone, Copy, Debug)]
-pub struct AimError {
-    pub spread: f32,
-    pub rise: f32,
-    pub accurate_within: f32,
-    pub wild_beyond: f32,
-}
-
-impl AimError {
-    pub fn of(p: &crate::gamedata::Props) -> Self {
-        AimError {
-            spread: p.f("fire_inaccuracy_angle", 15.0),
-            rise: p.f("fire_inaccuracy_height", 10.0),
-            accurate_within: p.f("fire_accuracy_min", 50.0),
-            wild_beyond: p.f("fire_accuracy_max", 150.0),
-        }
-    }
-
-    /// The scale of the error at a distance in the plane.
-    pub fn scale(&self, d: f32) -> f32 {
-        let (lo, hi) = (self.accurate_within, self.wild_beyond);
-        if d <= lo {
-            0.1
-        } else if d >= hi {
-            1.0
-        } else {
-            ((d * d - lo * lo) / (hi * hi - lo * lo)).max(0.1)
-        }
-    }
-
-    /// The point a shot from `from` at `hit` is aimed at (engine axes, Y up).
-    pub fn aim(&self, from: Vec3, hit: Vec3, rng: &mut VehicleRng) -> Vec3 {
-        let to = (hit - from).with_y(0.0);
-        let s = self.scale(to.length());
-        let side = Vec3::new(-to.z, 0.0, to.x).normalize_or_zero();
-        hit + side * rng.range(-self.spread, self.spread) * s + Vec3::Y * rng.range(0.0, self.rise) * s
     }
 }
 
@@ -180,13 +142,5 @@ mod tests {
         let mut c = FireCycle::new(Span { min: 1.0, max: 1.0 }, Span { min: 4.0, max: 4.0 }, Span { min: 3, max: 3 }, &mut r);
         let n = (0..1300).filter(|_| c.step(dt, true, &mut r).shoot).count();
         assert_eq!(n, 3, "at 4, 5, 6 s, then the rest (4) and the pause (4): the next at 14 s");
-    }
-
-    #[test]
-    fn aim_error_scales_with_distance() {
-        let a = AimError { spread: 15.0, rise: 10.0, accurate_within: 50.0, wild_beyond: 150.0 };
-        assert_eq!(a.scale(10.0), 0.1);
-        assert_eq!(a.scale(500.0), 1.0);
-        assert!((a.scale(100.0) - 0.375).abs() < 1e-6);
     }
 }
