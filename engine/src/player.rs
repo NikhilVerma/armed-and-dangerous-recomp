@@ -143,6 +143,64 @@ pub struct Roman {
     /// releases it the frame after the last shot)
     pub muzzle_fx: Option<Entity>,
     pub muzzle_idle: u8,
+    /// the look speeds by zoom and weapon (p_trotter, 0x00475990 / 0x004759e0)
+    pub look: LookSpeeds,
+    /// the camera's walk roll (+0x98c, radians; camera +0x84 = -roll through 0x0040e2f0): banks the view while he
+    /// turns on the move. `roll_factor` (+0x990, PlayerObject_Load default 0.005; not in p_trotter)
+    pub roll: f32,
+    pub roll_factor: f32,
+    /// Game+0xcbd: Fire is held over from the punching glove (set when the glove comes off, 0x00479142; cleared when
+    /// Fire is up, 0x0047a555): the gun does not fire on the last punch's held button
+    pub fire_latch: bool,
+    /// a close hit (damage flag 0x40000) to answer with one of its hit sounds (0x0047afa0: table 0x005fb96c)
+    pub close_hit_sound: bool,
+}
+
+/// Roman's look speeds (PlayerObject_Load, game_05.cpp:604-623): turn_max_speed / pitch_max_speed unzoomed (+0x9ec /
+/// +0x9f8), and per gun in the zoom mode (+0x9fc / +0xa14 indexed by the weapon id 0x004a1660:
+/// machinegun_turn_max_speed, sniper_..., rifle_..., vindaloo_..., gurner_..., sharkgun_...). The original multiplies
+/// them by targeting_control_drag / zoom_targeting_control_drag (+0xa2c / +0xa30) while the crosshair is on a target
+/// (hud +0x3ac); every level's p_trotter sets both to 1.0, so the drag changes nothing and is not modelled.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LookSpeeds {
+    pub turn: f32,
+    pub pitch: f32,
+    /// (turn, pitch) zoomed, by WeaponId
+    pub zoomed: [(f32, f32); 6],
+}
+
+impl LookSpeeds {
+    pub fn load(p: &Props) -> Self {
+        use crate::weapons::WeaponId as W;
+        let zoomed = |w: W| {
+            let key = match w {
+                W::Machinegun => "machinegun",
+                W::Snipergun => "sniper",
+                W::Rifle => "rifle",
+                W::Vindaloo => "vindaloo",
+                W::Gurner => "gurner",
+                W::Sharkgun => "sharkgun",
+            };
+            (p.f(&format!("{key}_turn_max_speed"), 0.025), p.f(&format!("{key}_pitch_max_speed"), 0.1))
+        };
+        LookSpeeds {
+            turn: p.f("turn_max_speed", 0.1),
+            pitch: p.f("pitch_max_speed", 1.0),
+            zoomed: [W::Machinegun, W::Snipergun, W::Rifle, W::Vindaloo, W::Gurner, W::Sharkgun].map(zoomed),
+        }
+    }
+
+    /// The (turn, pitch) speeds: the gun's in the zoom mode, else the plain ones.
+    pub fn speeds(&self, zoomed: Option<crate::weapons::WeaponId>) -> (f32, f32) {
+        zoomed.map_or((self.turn, self.pitch), |w| self.zoomed[w as usize])
+    }
+}
+
+/// PlayerCanAct (0x0047a950): alive, no camera path playing (0x00410150; the original's camera mode 2 is the same
+/// cinematic; at the path's end its mission text pauses the game) and none of the state bits 0x7f800000 of +0xa34 (the Topsy Turvy states, the punching glove). Use,
+/// Jump and the weapons wait for it; the mounted gun has its own handling (turret.rs).
+pub fn can_act(r: &Roman, path: &crate::campath::CameraPath, topsy: &crate::topsy::Topsy, glove: &crate::weapons::glove::Glove) -> bool {
+    !r.dead && !path.active() && !topsy.active() && !glove.active()
 }
 
 /// A projectile in flight (the game's bullets are projectiles, not hitscan): moves `vel` per second, hits the
@@ -257,21 +315,47 @@ fn segment_distance(p0: Vec3, p1: Vec3, q0: Vec3, q1: Vec3) -> f32 {
 /// original's push in the second encounter, fight2O: ~13 units back over the fight)
 const ROMAN_MASS: f32 = 80.0;
 
+/// The knockback's cap on 10 x impact (0x0047afa0): 4000 (0x005bcd9c), 8000 (0x005bcda0) for a close hit (flag 0x40000).
+const KNOCK_CAP: f32 = 4000.0;
+const CLOSE_KNOCK_CAP: f32 = 8000.0;
+
+/// How much of a hit's damage reaches Roman (PlayerObject_OnHit 0x0047afa0), None when the handler ignores it: after
+/// the mission's success (0x0044e620: Game+0xdd2, mission.rs `finished`) and in the Topsy Turvy states (+0xa34 &
+/// 0x7800000); halved on a mounted gun (Game+0xac8, 0x005bcb4c).
+pub fn hit_scale(finished: bool, topsy: bool, mounted: bool) -> Option<f32> {
+    if finished || topsy {
+        return None;
+    }
+    Some(if mounted { 0.5 } else { 1.0 })
+}
+
 impl Roman {
-    /// A hit with an impact force (PlayerObject_OnHit 0x0047afa0, the bullets' path below as well): unless one plays,
-    /// the hit anim by the damage (< 65 small) and one knock of 0.1 x min(10 x impact, 4000) x (d.x, 0.4, d.z) with d
-    /// = (the hit's direction flat, 0.7) normalised, then 1 s of a weakened drive. `dir` in engine axes.
+    /// A hit with an impact force (PlayerObject_OnHit 0x0047afa0): the hit side for the HUD marker (every handled hit,
+    /// Game+0x26d0); unless one plays, the hit anim by the damage (< 65 small) and one knock of 0.1 x min(10 x impact,
+    /// 4000) x (d.x, 0.4, d.z) with d = (the hit's direction flat, 0.7) normalised, then 1 s of a weakened drive.
+    /// `dir` in engine axes.
     pub fn knock(&mut self, damage: f32, impact: f32, dir: Vec3) {
+        self.knock_capped(damage, impact, dir, KNOCK_CAP);
+    }
+
+    /// A close hit (the AI's swing, damage flag 0x40000): the knock capped at 8000 instead of 4000, and one of the
+    /// close-hit sounds (damage_feedback).
+    pub fn close_hit(&mut self, damage: f32, impact: f32, dir: Vec3) {
+        self.close_hit_sound = true;
+        self.knock_capped(damage, impact, dir, CLOSE_KNOCK_CAP);
+    }
+
+    fn knock_capped(&mut self, damage: f32, impact: f32, dir: Vec3, cap: f32) {
+        let f = dir.normalize_or(Vec3::Z);
+        self.hit_from = Some(f);
         if self.hit_anim > 0.0 || impact == 0.0 {
             return;
         }
         self.hit_med = damage >= 65.0;
         self.hit_anim = if self.hit_med { 1.967 } else { 0.633 };
-        let f = dir.normalize_or(Vec3::Z);
         let n = (f.x * f.x + f.z * f.z + 0.49).sqrt();
-        self.vel += 0.1 * (10.0 * impact).min(4000.0) * Vec3::new(f.x / n, 0.4, f.z / n) / ROMAN_MASS;
+        self.vel += 0.1 * (10.0 * impact).min(cap) * Vec3::new(f.x / n, 0.4, f.z / n) / ROMAN_MASS;
         self.slow = 1.0;
-        self.hit_from = Some(f);
     }
 }
 
@@ -288,12 +372,23 @@ fn damage_feedback(
     mut hud: ResMut<crate::hud::HudState>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     mut rng: ResMut<crate::fx::FxStats>,
+    mut close_deck: Local<crate::audio::RandomDeck>,
 ) {
     let dt = time.delta_secs();
     for f in hud.hit_flash.iter_mut() {
         *f = (*f - dt).max(0.0);
     }
     let Ok((mut r, t, h)) = q.single_mut() else { return };
+    let close_hit = std::mem::take(&mut r.close_hit_sound);
+    if close_hit && !r.dead && h.0 > 0.0 {
+        // a close hit (flag 0x40000): one of the 12 kung fu hits / kicks (0x00493b70 with table 0x005fb96c)
+        const CLOSE_HIT: [&str; 12] = [
+            "wpn_kungfu_hit_1", "wpn_kungfu_hit_2", "wpn_kungfu_hit_3", "wpn_kungfu_hit_4", "wpn_kungfu_hit_5", "wpn_kungfu_hit_6",
+            "wpn_kungfu_hit_7", "wpn_kungfu_hit_8", "wpn_kungfu_kick_1", "wpn_kungfu_kick_2", "wpn_kungfu_kick_3", "wpn_kungfu_kick_4",
+        ];
+        let i = close_deck.deal(CLOSE_HIT.len(), || rng.rand());
+        sounds.write(crate::audio::PlaySound::at(CLOSE_HIT[i], t.translation));
+    }
     let mut pick = |names: &[&str]| names[((rng.rand() * names.len() as f32) as usize).min(names.len() - 1)].to_owned();
     if r.dead || h.0 <= 0.0 {
         if !r.death_said {
@@ -397,11 +492,6 @@ fn launch_projectile(commands: &mut Commands, fx: &mut MessageWriter<crate::fx::
 /// The third-person camera (camera.rs).
 pub use crate::camera::FollowCam;
 
-/// p_trotter turn_max_speed / pitch_max_speed (player.json movement.turn; zoomed: the weapon's, 0x004759e0 /
-/// 0x00475990)
-const TURN_MAX_SPEED: f32 = 0.3;
-const PITCH_MAX_SPEED: f32 = 0.95;
-
 /// How hard the drive's force action pulls the body's velocity to the wanted one, per unit of movement power. Measured
 /// on the original (oracle trace, tools/oracle_scenarios/stop.json, every frame on the lev_1_m1 start slope): from
 /// rest, full stick reaches 36.6 units/s in the first moving frame (k = 0.92 at 60 fps, power 10) and his full 39.2
@@ -448,6 +538,9 @@ pub struct PlayerStats {
     /// how many guns and specials Roman carries (the HUD's weapon-cycle arrows: 0x004a1610 / 0x004a1640)
     pub guns: u32,
     pub specials: u32,
+    /// PlayerCanAct (0x0047a950, `can_act`): the Use handler waits for it (game_06.cpp:2218-2221; mission.rs pubs and
+    /// ticker bombs, turret.rs)
+    pub can_act: bool,
 }
 
 pub struct PlayerPlugin;
@@ -581,6 +674,11 @@ pub fn make_roman(physics: &mut Physics, p: &Props, data: &GameData, feet: Vec3,
         wish_h: 0.0,
         muzzle_fx: None,
         muzzle_idle: 0,
+        look: LookSpeeds::load(p),
+        roll: 0.0,
+        roll_factor: p.f("roll_factor", 0.005),
+        fire_latch: false,
+        close_hit_sound: false,
     })
 }
 
@@ -696,31 +794,45 @@ pub(crate) fn control(
         let k = 0.0100 * (opts.mouse_sensitivity + 0.5);
         let kpitch = 0.0057 * (opts.mouse_sensitivity + 0.5);
         let inv = if opts.invert_mouse { -1.0 } else { 1.0 };
-        // the topsy states (flags 0x7800000) take the turn input away
-        // zoom: held Zoom (Z, E; 0x00478xxx game_06.cpp:2819-2836) enters the weapon camera; turning and pitching
-        // then use the weapon's zoomed speeds (rifle / machine gun 0.05 / 0.25 against 0.3 / 0.95: 0x00475990 /
-        // 0x004759e0)
+        // PlayerCanAct in the update (game_06.cpp:2118: alive, no camera path; the mounted gun is handled above): the
+        // move, turn and pitch inputs are zero otherwise (2321-2334, 2337-2378)
+        // (the path while it plays: at its end the original's mission text pauses the game, campath.rs `hold`)
+        let in_control = !r.dead && !path.active();
+        // the topsy states (flags 0x7800000) take the turn input away, not the pitch
+        let turn_ok = in_control && !topsy.active();
+        // zoom: held Zoom (Z, E; 0x00478xxx game_06.cpp:2819-2836) enters the weapon camera (0x00475880: only with a
+        // gun whose table entry names a zoom camera); turning and pitching then use that gun's zoomed speeds instead
+        // of the plain ones (0x004759e0 / 0x00475990: p_trotter <gun>_turn / pitch_max_speed; rifle 0.05 / 0.25,
+        // sniper 0.02 / 0.1, against 0.3 / 0.95)
         // (the toggle form when ToggleZoom is bound, 0x0047bc80(10): unbound by default, so zoom follows the held key)
-        let zoom_held = ctl.down(crate::input::Act::Aim) && !r.dead;
+        let zoom_gun = r.arsenal.in_hand_id().filter(|w| w.table().camera.is_some());
+        let zoom_held = ctl.down(crate::input::Act::Aim) && !r.dead && zoom_gun.is_some();
         let step = dt / r.zoom_secs.max(1e-3);
         r.zoom = if zoom_held { (r.zoom + step).min(1.0) } else { (r.zoom - step).max(0.0) };
-        let (kt, kp) = if zoom_held { (0.05 / 0.3, 0.25 / 0.95) } else { (1.0, 1.0) };
-        if !topsy.active() {
-            // the look pitch limits: the camera's (+0x74 in [-1.5608, 1.15], Camera_Update 0x0040e350; camera.rs)
-            let (lo, hi) = rig.pitch_limits();
-            // the player's look input is the cursor's movement (LookDelta); scripted runs inject device motion
-            let d = if playtest.is_some() { motion.delta } else { look.0 };
+        let (turn_speed, pitch_speed) = r.look.speeds(zoom_gun.filter(|_| zoom_held));
+        // the mouse's counts were measured at the plain speeds: zoomed they scale with the gun's
+        let (kt, kp) = (turn_speed / r.look.turn.max(1e-6), pitch_speed / r.look.pitch.max(1e-6));
+        // the look pitch limits: the camera's (+0x74 in [-1.5608, 1.15], Camera_Update 0x0040e350; camera.rs)
+        let (lo, hi) = rig.pitch_limits();
+        // the player's look input is the cursor's movement (LookDelta); scripted runs inject device motion
+        let d = if playtest.is_some() { motion.delta } else { look.0 };
+        // the right stick and the arrow keys (input.rs; the TurnLeft / Right, LookUp / Down actions, axes past the
+        // dead zone 0.21 linear: Controls_AxisMax 0x00414a30 with InputPC_AxisValue 0x004f9560): the turn
+        // turn_max_speed x axis x dt x 10 (0.3: 3 rad/s at full deflection; zoomed 0.05), the pitch
+        // pitch_max_speed x axis x dt twice, by the player update (game_06.cpp:2379) and by Camera_Update
+        // (game_01.cpp:2895) (0.95: 1.9 rad/s; zoomed 0.25)
+        let stick = ctl.axis(crate::input::Act::Look);
+        if turn_ok {
             r.yaw -= d.x * k * kt;
-            r.pitch = (r.pitch - d.y * kpitch * inv * kp).clamp(lo, hi);
-            // the right stick and the arrow keys (input.rs; the TurnLeft / Right, LookUp / Down actions, axes past the
-            // dead zone 0.21 linear: Controls_AxisMax 0x00414a30 with InputPC_AxisValue 0x004f9560): the turn
-            // turn_max_speed x axis x dt x 10 (0.3: 3 rad/s at full deflection; zoomed 0.05), the pitch
-            // pitch_max_speed x axis x dt twice, by the player update (game_06.cpp:2379) and by Camera_Update
-            // (game_01.cpp:2895) (0.95: 1.9 rad/s; zoomed 0.25)
-            let stick = ctl.axis(crate::input::Act::Look);
-            r.yaw -= stick.x * TURN_MAX_SPEED * 10.0 * dt * kt;
-            r.pitch = (r.pitch + stick.y * 2.0 * PITCH_MAX_SPEED * dt * inv * kp).clamp(lo, hi);
+            r.yaw -= stick.x * turn_speed * 10.0 * dt;
         }
+        if in_control {
+            r.pitch = (r.pitch - d.y * kpitch * inv * kp).clamp(lo, hi);
+            r.pitch = (r.pitch + stick.y * 2.0 * pitch_speed * dt * inv).clamp(lo, hi);
+        }
+        // this frame's turn input as the update takes it (+SP 0x30: turn speed x the turn axis, the mouse included,
+        // the axis at most 1; positive turns right): for the walk roll below
+        let turn_input = if dt > 0.0 { ((yaw_before - r.yaw) / (10.0 * dt)).clamp(-turn_speed, turn_speed) } else { 0.0 };
         let mut wish = Vec3::ZERO;
         // the stick as the update takes it (x right, y forward, after the move curve): the jumper pack's air control
         let mut move_input = Vec2::ZERO;
@@ -739,7 +851,8 @@ pub(crate) fn control(
             // still at full speed; he stops only after it)
             wish += Quat::from_rotation_y(r.yaw) * Vec3::NEG_Z * r.fwd_speed;
         }
-        if !r.dead {
+        // (no move input while a camera path plays, PlayerObject_Update game_06.cpp:2459-2466; on lev_1_m1 above)
+        if in_control {
             let f = Quat::from_rotation_y(r.yaw) * Vec3::NEG_Z;
             let s = Quat::from_rotation_y(r.yaw) * Vec3::X;
             if let Some(dir) = bot_walk {
@@ -783,6 +896,15 @@ pub(crate) fn control(
             r.hit_anim = if stick > 0.0 || r.jumping || r.since_fire < 0.1 { 0.0 } else { (r.hit_anim - dt).max(0.0) };
         }
         let (max_speed, power) = (r.fwd_speed.max(r.side_speed), pmin + (pmax - pmin) * stick);
+        // the walk roll (game_06.cpp:2789-2795): +0x98c = (|wanted speed| x roll_factor x turn + +0x98c x 3) x 0.25 each
+        // frame (the original's ~60 a second; scaled here by dt), sent to the camera's roll; not with the wings out
+        // (flag 4), where it holds
+        let gliding = jet.as_deref().is_some_and(|j| j.flight == crate::jetpack::Flight::Glide);
+        if !gliding {
+            let target = r.wish_h * r.roll_factor * turn_input;
+            let keep = 0.75f32.powf(dt * 60.0);
+            r.roll = r.roll * keep + target * (1.0 - keep);
+        }
         // the jumper pack (jetpack.rs): this frame's stick and turn (its wing anims, the turn sound)
         if let Some(j) = jet.as_deref_mut() {
             j.stick = if topsy.active() || r.dead { Vec2::ZERO } else { move_input.clamp_length_max(1.0) };
@@ -842,15 +964,20 @@ pub(crate) fn control(
         let has_pack = jet.as_ref().is_some_and(|j| j.pack);
         // (a launch's kick lands the frame after the press: the force action pool's next step)
         let launch = jet.as_deref_mut().and_then(|j| j.take_kick()).filter(|_| !r.dead);
+        // Jump counts only while he may act (0x0047aaf0: dead, on a mounted gun, a camera path or the state bits
+        // 0x7f800000 (Topsy Turvy, the punching glove) read it as up)
+        let may_jump = can_act(&r, &path, &topsy, &glove);
+        let (jump_pressed, jump_down) = if may_jump { (ctl.pressed(crate::input::Act::Jump) || bot.jump, ctl.down(crate::input::Act::Jump) || bot.jump) } else { (false, false) };
         if let (Some(j), false) = (jet.as_deref_mut(), r.dead) {
-            j.jump_input(ctl.pressed(crate::input::Act::Jump) || bot.jump, ctl.down(crate::input::Act::Jump) || bot.jump, r.grace > 0.0, r.falling, r.landing.is_some(), r.vel.y);
+            j.jump_input(jump_pressed, jump_down, r.grace > 0.0, r.falling, r.landing.is_some(), r.vel.y);
         }
         if let Some(w) = r.jump_wind {
             let w = w - dt;
             r.jump_wind = if w <= 0.0 || r.dead { None } else { Some(w) };
             take_off = w <= 0.0 && !r.dead;
         }
-        if !has_pack && r.on_ground && r.jump_wind.is_none() && !take_off && !r.jumping && (ctl.pressed(crate::input::Act::Jump) || bot.jump) && !r.dead {
+        // (from the ground or up to 0.5 s after leaving it: the grounded grace +0x570 > 0)
+        if !has_pack && r.grace > 0.0 && r.jump_wind.is_none() && !take_off && !r.jumping && jump_pressed {
             if Vec2::new(r.vel.x, r.vel.z).length() > 20.0 {
                 take_off = true;
             } else {
@@ -869,9 +996,13 @@ pub(crate) fn control(
             ground_fx(&physics, &mut fx, t.translation, "fx_fs_roman_jump");
         } else if take_off {
             // the impulse, then this step's gravity as in the airborne steps (velocity before position): the
-            // original's arc (jumpA, peak 14.6) fits 70 and gravity 160.9 that way
-            r.vel.y = r.jump_impulse - 64.348 * r.anti_gravity * 0.5 * dt;
+            // original's arc (jumpA, peak 14.6) fits 70 and gravity 160.9 that way. The impulse adds to the vertical
+            // speed (0x00458440): from the ground that is 0; a jump in the grace after walking off a ledge keeps the fall
+            r.vel.y += r.jump_impulse - 64.348 * r.anti_gravity * 0.5 * dt;
             r.jumping = true;
+            // (the jump's start clears the landing and fall states: flags & 0xfffff83c)
+            r.landing = None;
+            r.falling = false;
             ground_fx(&physics, &mut fx, t.translation, "fx_fs_roman_jump");
             // the jump's breath (0x0047aaf0: 0x00493b70 with table 0x005fb99c, 2 sounds)
             const JUMP_BREATH: [&str; 2] = ["fol_breath_light_short_1", "fol_breath_light_short_2"];
@@ -965,8 +1096,9 @@ pub(crate) fn control(
 /// Roman's state as the HUD, the pub and the traces read it (PlayerStats), every frame: also while the game is paused,
 /// so a weapon taken in the pub is the one in hand at once (the original's trace: the machine gun from the frame it is
 /// taken, the pub still open).
-fn publish_stats(q: Query<(&Roman, &Transform, &Health)>, mut stats: ResMut<PlayerStats>) {
+fn publish_stats(q: Query<(&Roman, &Transform, &Health)>, mut stats: ResMut<PlayerStats>, (path, topsy, glove): (Res<crate::campath::CameraPath>, Res<crate::topsy::Topsy>, Res<crate::weapons::glove::Glove>)) {
     let Ok((r, t, h)) = q.single() else { return };
+    stats.can_act = can_act(r, &path, &topsy, &glove) && h.0 > 0.0;
     stats.health = h.0.max(0.0);
     stats.max_health = r.max_health;
     stats.position = t.translation;
@@ -1039,7 +1171,7 @@ fn weapons(
     mut rng: ResMut<crate::fx::FxStats>,
     (mut topsy, mut glove): (ResMut<crate::topsy::Topsy>, ResMut<crate::weapons::glove::Glove>),
     (mut queue, targets, mut fired, cheats, holes): (ResMut<crate::weapons::ThrowQueue>, Res<crate::weapons::targeting::Targets>, MessageWriter<crate::weapons::GunFired>, Res<crate::cheats::Cheats>, Query<(), With<crate::weapons::blackhole::LiveHole>>),
-    (cam, joints, xhair, mounted): (Query<&GlobalTransform, With<FollowCam>>, Query<&GlobalTransform, Without<FollowCam>>, Res<crate::hud::Crosshair>, Res<crate::turret::Mounted>),
+    (cam, joints, xhair, mounted, path): (Query<&GlobalTransform, With<FollowCam>>, Query<&GlobalTransform, Without<FollowCam>>, Res<crate::hud::Crosshair>, Res<crate::turret::Mounted>, Res<crate::campath::CameraPath>),
 ) {
     use crate::weapons::{SpecialId, THROW_NOTE, WeaponId};
     let dt = time.delta_secs();
@@ -1108,12 +1240,16 @@ fn weapons(
             // the anim's length (trotter_wchange_t 1.13 s; frame 13 is 0.4 s in: its first frame is 1)
             r.wchange = (c < 1.133).then_some(c);
         }
+        // the weapon handling waits while he cannot act (0x004788a0 after the timers, game_06.cpp:2805-2816: dead,
+        // mounted (above), falling (+0xa34 0x200), a camera path, the Topsy Turvy states or the punching glove (bits
+        // 0x7f800000)): no switch, reload, fire or special
+        let held = can_act(&r, &path, &topsy, &glove) && !r.falling;
         // while a switch is pending the player update stops after it (0x004788a0: 0x004a1690 / 0x004a16b0, then done):
         // no reload, no fire, no special
         let switching = r.wchange.is_some_and(|c| c < SWITCH_AT);
         // Next Weapon (Q, input 0xe): the next usable slot as pending (0x004a0bb0, 0.5 s), unless it is the current one;
         // selecting leaves the zoom mode (0x00475910) and requests the weapon-change anim (+0xa34 |= 0x440000)
-        if !switching && ctl.pressed(crate::input::Act::SwitchWeapon) {
+        if held && !switching && ctl.pressed(crate::input::Act::SwitchWeapon) {
             if let Some(next) = r.arsenal.step(1) {
                 r.wchange = Some(0.0);
                 r.switch_to = Some(next);
@@ -1125,8 +1261,15 @@ fn weapons(
         // a tap counts as a shot: a trackpad tap over Moonlight arrives as press and release in one frame, never
         // "pressed" at the frame's end (the player's gun did nothing)
         let fire = ctl.down(crate::input::Act::Fire) || ctl.pressed(crate::input::Act::Fire) || (buttons.just_pressed(MouseButton::Left) && ctl.active_play) || ((bot.fight || bot.shoot.is_some()) && bot.fire_ok);
-        // with the knockout bomb's glove on, the weapons are put away (0x004a0e00(0)) and Fire punches (weapons/glove.rs)
-        let fire = fire && !glove.active();
+        // with the knockout bomb's glove on, the weapons are put away (0x004a0e00(0)) and Fire punches (weapons/glove.rs);
+        // when it comes off, Fire still held from the last punch does not fire the gun until it is let go (Game+0xcbd:
+        // set as the glove ends, 0x00479142; cleared with Fire up, 0x0047a555)
+        if glove.active() {
+            r.fire_latch = true;
+        } else if !fire {
+            r.fire_latch = false;
+        }
+        let fire = fire && held && !r.fire_latch;
         let reloading = r.reload_clock.is_some();
         let fire_delay = r.fire_delay;
         // the shark gun is ready only with a live target picked (vt+0x138 0x004a2910: the target list's first entry)
@@ -1139,14 +1282,15 @@ fn weapons(
                 let can_reload = w.can_reload();
                 // Reload (R, input 0xc): with vt+0x15c the reload starts (0x004a2360) and the reload anim with its load
                 // sound is requested (+0xa34 |= 0x190000); nothing more while reloading (vt+0x164 0x004a2390)
-                let manual = ctl.pressed(crate::input::Act::Reload) && can_reload;
+                // (the held key, fn_00414810: input 0xc)
+                let manual = held && ctl.down(crate::input::Act::Reload) && can_reload;
                 // the empty clip (0x0047a6af): +0xc00 run out, no shot this frame and the clip empty (vt+0x158
                 // 0x004a2270): reload when it can, else fall back to the previous usable weapon (0x004a0be0)
                 let empty = fire_delay <= 0.0 && w.clip == 0;
-                let starting = !switching && !reloading && (manual || (empty && can_reload));
+                let starting = held && !switching && !reloading && (manual || (empty && can_reload));
                 // ready to fire (vt+0x138 0x004a23b0): not reloading, the clip not empty and the recycle gate
                 let shoot = !switching && !reloading && !starting && fire && w.timer <= 0.0 && w.clip > 0 && target_ready;
-                (shoot, starting, !switching && !reloading && empty && !can_reload)
+                (shoot, starting, held && !switching && !reloading && empty && !can_reload)
             }
             None => (false, false, false),
         };
@@ -1289,8 +1433,8 @@ fn weapons(
                 r.muzzle_fx = None;
             }
         }
-        // nothing more while switching or reloading (game_06.cpp:2874 / 2884: vt+0x164 -> done)
-        if switching {
+        // nothing more while switching or reloading (game_06.cpp:2874 / 2884: vt+0x164 -> done), or unable to act
+        if switching || !held {
             continue;
         }
         let bot_throw = std::mem::take(&mut bot.throw);
@@ -1480,10 +1624,8 @@ fn idle_banter(
     let dt = time.delta_secs();
     let st = &mut *st;
     let now = time.elapsed_secs();
+    // (it runs every player update, Roman dead too: game_06.cpp:3069; his own lines need him alive, `roman_alive`)
     let Ok(r) = roman.single() else { return };
-    if r.dead {
-        return;
-    }
     let alive = |q: bool| companions.iter().find(|(c, _, h)| c.q == q && c.dead.is_none() && h.is_none_or(|h| h.0 > 0.0)).map(|(c, t, _)| (t.translation, c.last_shot));
     for (q, slot) in [(true, &mut st.q), (false, &mut st.jon)] {
         *slot = match (alive(q), *slot) {
@@ -1492,7 +1634,7 @@ fn idle_banter(
             (None, _) => None,
         };
     }
-    let idle_mode = r.on_ground && r.move_local.length() < 3.0 && r.landing.is_none() && r.hit_anim <= 0.0 && r.jump_wind.is_none();
+    let idle_mode = !r.dead && r.on_ground && r.move_local.length() < 3.0 && r.landing.is_none() && r.hit_anim <= 0.0 && r.jump_wind.is_none();
     let busy = r.since_fire < dt * 1.5 || r.reload_clock.is_some() || r.wchange.is_some() || r.since_throw < dt * 1.5;
     st.idle = if idle_mode && !busy { st.idle + dt } else { 0.0 };
     let still = |s: Option<(Vec3, f32)>| s.map(|(_, at)| now - at);
@@ -1590,6 +1732,12 @@ fn fall_and_land(r: &mut Roman, t: &Transform, h: &mut Health, vy: f32, jumped: 
     // a jumper pack: its fall rules (0x00478200: fall_speed_turbo, turbo_death_falling_distance / time)
     let pack = jet.as_deref().filter(|j| j.pack).map(|j| (j.tuning.fall_speed, j.tuning.death_distance, j.tuning.death_time));
     let gliding = jet.as_deref().is_some_and(|j| j.flight == crate::jetpack::Flight::Glide);
+    // with the wings out (flag 4) the ground reference follows him down (physics_03.cpp:1596-1600): a glide's descent
+    // never counts as a fall
+    if gliding && r.ground_ref > y {
+        r.ground_ref = y;
+    }
+    let mut falling_now = false;
     if !r.on_ground {
         r.peak_vz = r.peak_vz.min(vy);
         // falling: slower than fall_speed (-50; after a jump fall_speed_jump -70; with a pack fall_speed_turbo);
@@ -1601,13 +1749,17 @@ fn fall_and_land(r: &mut Roman, t: &Transform, h: &mut Health, vy: f32, jumped: 
         };
         if vy <= 0.0 && vy < threshold && !gliding {
             r.falling = true;
+            falling_now = true;
             r.fall_fast_t += dt;
             // with the pack and nothing under him the wings may open (flag 0x10)
             if let Some(j) = jet.as_deref_mut() {
                 j.fell();
             }
         }
-    } else if r.grace > 0.0 && r.landing.is_none() {
+    }
+    // the time falling fast restarts while he counts as grounded (the grace, also its 0.5 s after leaving the ground)
+    // and is not falling fast this frame, unless the landing anim plays (physics_03.cpp:1621-1622)
+    if !falling_now && r.grace > 0.0 && r.landing.is_none() {
         r.fall_fast_t = 0.0;
     }
     // death by falling: below z -1000, more than death_falling_distance (110) under the ground reference, or falling
@@ -1730,7 +1882,7 @@ fn projectiles(
     mut stats: ResMut<PlayerStats>,
     mut surface_fx: MessageWriter<crate::surface::StartSurfaceFx>,
     hulls: Option<Res<crate::hitparts::HitHulls>>,
-    (rtime, topsy, mounted, mut noise, mut bombs, mut rng, mut sounds): (Res<Time<Real>>, Res<crate::topsy::Topsy>, Res<crate::turret::Mounted>, ResMut<crate::ai::Interests>, Query<(&Transform, &mut crate::sticky::StickyBomb), Without<Projectile>>, ResMut<crate::fx::FxStats>, MessageWriter<crate::audio::PlaySound>),
+    (rtime, topsy, mounted, mut noise, mut bombs, mut rng, mut sounds, mission): (Res<Time<Real>>, Res<crate::topsy::Topsy>, Res<crate::turret::Mounted>, ResMut<crate::ai::Interests>, Query<(&Transform, &mut crate::sticky::StickyBomb), Without<Projectile>>, ResMut<crate::fx::FxStats>, MessageWriter<crate::audio::PlaySound>, Option<Res<crate::mission::Mission>>),
     mut victims: Query<&mut crate::ai::Grunt>,
     (mut pickups, traitors, binds, mut wstats, mut stuck): (MessageWriter<crate::pickup::SpawnPickup>, Query<(), With<crate::weapons::traitor::Traitor>>, Res<Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>, ResMut<crate::weapons::WeaponStats>, MessageWriter<crate::arrows::ArrowStuck>),
 ) {
@@ -1925,13 +2077,14 @@ fn projectiles(
             if let (true, Ok((re, ..))) = (p.linger > 0.0, roman.single()) {
                 stuck.write(crate::arrows::ArrowStuck { arrow: e, at: from + step, on: Some(re), linger: p.linger });
             }
-            // ignored during the topsy states (0x0047afa0: +0xa34 & 0x7800000); the bullet still lands
-            if let Some((mut h, shield)) = roman_health.single_mut().ok().filter(|_| !topsy.active()) {
+            // ignored after the mission's success and during the topsy states (hit_scale); the bullet still lands
+            let scale = hit_scale(mission.as_ref().is_some_and(|m| m.finished), topsy.active(), mounted.0.is_some());
+            if let (Some((mut h, shield)), Some(scale)) = (roman_health.single_mut().ok(), scale) {
                 // a shield in front of him takes the whole hit first (the base turret's window, fx.rs DamageShield);
-                // else halved while on a mounted gun (0x0047afa0: Game+0xac8 set -> damage * 0.5, 0x005bcb4c)
+                // else halved while on a mounted gun (hit_scale)
                 // (the health set 0x0047af50 is the Health component)
                 if !shield.is_some_and(|mut s| s.absorb(p.damage)) {
-                    h.0 -= if mounted.0.is_some() { p.damage * 0.5 } else { p.damage };
+                    h.0 -= p.damage * scale;
                 }
                 if std::env::var("AIDBG").is_ok() {
                     // who hurt Roman: the shooter's kind and weapon, the distance it flew, his health after
@@ -1939,27 +2092,20 @@ fn projectiles(
                     let d = p.owner.and_then(|o| joints.get(o).ok()).map_or(-1.0, |gt| gt.translation().distance(from));
                     info!("AIDBG romandmg bullet {:.0} by {kind} {weapon} {:?} d {:.0} health {:.0} t {:.2}", p.damage, p.owner, d, h.0, time.elapsed_secs());
                 }
-                if let Ok((_, mut r, _, _)) = roman.single_mut() {
-                    r.hit_from = Some(p.vel.normalize_or(Vec3::Z));
-                }
                 // each live companion takes the attacker unless engaged (0x00486df0)
                 if let Some(o) = p.owner {
                     for (_, mut c, _, _, _) in companions.iter_mut() {
                         c.roman_attacked(o);
                     }
                 }
-                // PlayerObject_OnHit 0x0047afa0: alive, with an impact force and the latch clear: the hit anim (by the
-                // damage: < 65 small) and a knockback, one impulse 0.1 x min(10 x impact_force, 4000) x (d.x, d.y, 0.4)
-                // with d = (forward.xy, 0.7) normalised (0x0047e580), not scaled by mass; then 1 s of a weakened drive
-                if let (true, Ok((_, mut r, _, _))) = (h.0 > 0.0 && p.impact != 0.0, roman.single_mut()) {
-                    if r.hit_anim <= 0.0 {
-                        r.hit_med = p.damage >= 65.0;
-                        r.hit_anim = if r.hit_med { 1.967 } else { 0.633 };
-                        let f = p.vel.normalize_or(Vec3::Z);
-                        let n = (f.x * f.x + f.z * f.z + 0.49).sqrt();
-                        let j = 0.1 * (10.0 * p.impact).min(4000.0) * Vec3::new(f.x / n, 0.4, f.z / n);
-                        r.vel += j / ROMAN_MASS;
-                        r.slow = 1.0;
+                // PlayerObject_OnHit 0x0047afa0: the hit side; alive, with an impact force and the latch clear, the hit
+                // anim and the knockback along the bullet's flight (Roman::knock, 0x0047e580's direction)
+                if let Ok((_, mut r, _, _)) = roman.single_mut() {
+                    let dir = p.vel.normalize_or(Vec3::Z);
+                    if h.0 > 0.0 {
+                        r.knock(p.damage, p.impact, dir);
+                    } else {
+                        r.hit_from = Some(dir);
                     }
                 }
             }

@@ -1639,12 +1639,14 @@ pub(crate) fn sites(
     mut commands: Commands,
     placed: Query<(Entity, &InstanceId, Option<&crate::level::Placed>)>,
     mut physics: NonSendMut<crate::physics::Physics>,
+    stats: Res<crate::player::PlayerStats>,
 ) {
     let (Some(m), Ok(p)) = (m.as_deref_mut(), player.single()) else { return };
     let dt = time.delta_secs();
     let p = p.translation();
     let mut prompt = None;
-    let holding = ctl.down(crate::input::Act::Use) || bot.use_key;
+    // (the Use handler waits for PlayerCanAct, 0x0047a950: player.rs can_act)
+    let holding = (ctl.down(crate::input::Act::Use) || bot.use_key) && stats.can_act;
     let tickers = m.tickers;
     // Game+0xdcf: a ticker bomb is armed and ticking (one at a time)
     let any_armed = m.sites.iter().any(|s| s.armed.is_some() && !s.done);
@@ -1808,7 +1810,7 @@ pub(crate) fn sites(
 /// while its listen_trigger_open has not arrived (0x00467b60, 0x0046a6c0; stepping in sends send_trigger_entry_failure,
 /// 0x0046a6d0); Use opens the pub screen (gamemenu.rs) and sends send_trigger_entry once (0x0046a6f0); leaving the
 /// screen sends send_trigger_exit (0x0046a720).
-fn pub_door(ctl: Res<crate::input::Controls>, bot: Res<crate::bot::Bot>, mut m: Option<ResMut<Mission>>, player: Query<&GlobalTransform, With<Player>>, mut out: MessageWriter<SendTrigger>, mut hud: ResMut<crate::hud::HudState>) {
+fn pub_door(ctl: Res<crate::input::Controls>, bot: Res<crate::bot::Bot>, mut m: Option<ResMut<Mission>>, player: Query<&GlobalTransform, With<Player>>, mut out: MessageWriter<SendTrigger>, mut hud: ResMut<crate::hud::HudState>, stats: Res<crate::player::PlayerStats>) {
     let (Some(m), Ok(p)) = (m.as_deref_mut(), player.single()) else { return };
     if m.pub_exit_pending {
         m.pub_exit_pending = false;
@@ -1841,7 +1843,8 @@ fn pub_door(ctl: Res<crate::input::Controls>, bot: Res<crate::bot::Bot>, mut m: 
             continue;
         }
         prompt.get_or_insert("ui_pub_entry_hint");
-        if ctl.pressed(crate::input::Act::Use) || bot.use_key {
+        // (the Use handler waits for PlayerCanAct, 0x0047a950: player.rs can_act)
+        if (ctl.pressed(crate::input::Act::Use) || bot.use_key) && stats.can_act {
             pb.done = true;
             entered = Some(i);
             log.push(format!("pub {} entered", pb.id));

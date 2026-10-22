@@ -73,24 +73,33 @@ pub struct CloseStats {
     pub hits: u32,
 }
 
-/// The hits (the damage record 0x40000 with the AI as source): Roman through his hit handler (the damage, the hit anim
-/// and the knock), a companion (his reaction and lines are ai.rs companion_damage's, the attacker offered as his
-/// target), anything else with health.
+/// The hits (the damage record 0x40000 with the AI as source): Roman through his hit handler (its ignore rules and
+/// the mounted gun's half damage, player.rs hit_scale; a shield in front of him; the damage, the hit anim, the close
+/// hit's knock and sound: Roman::close_hit), a companion (his reaction and lines are ai.rs companion_damage's, the
+/// attacker offered as his target), anything else with health.
 #[allow(clippy::type_complexity)]
 pub fn close_hits(
     mut hits: MessageReader<CloseHit>,
-    mut health: Query<(&mut crate::fx::Health, Option<&mut crate::player::Roman>, Option<&mut super::Companion>)>,
+    mut health: Query<(&mut crate::fx::Health, Option<&mut crate::player::Roman>, Option<&mut super::Companion>, Option<&mut crate::fx::DamageShield>)>,
     mut stats: ResMut<CloseStats>,
+    (topsy, mounted, mission): (Res<crate::topsy::Topsy>, Res<crate::turret::Mounted>, Option<Res<crate::mission::Mission>>),
 ) {
     for h in hits.read() {
-        let Ok((mut hp, roman, companion)) = health.get_mut(h.target) else { continue };
+        let Ok((mut hp, roman, companion, shield)) = health.get_mut(h.target) else { continue };
         if hp.0 <= 0.0 {
             continue;
         }
-        hp.0 -= h.damage;
+        let scale = match roman {
+            Some(_) => crate::player::hit_scale(mission.as_ref().is_some_and(|m| m.finished), topsy.active(), mounted.0.is_some()),
+            None => Some(1.0),
+        };
+        let Some(scale) = scale else { continue };
+        if !(roman.is_some() && shield.is_some_and(|mut s| s.absorb(h.damage))) {
+            hp.0 -= h.damage * scale;
+        }
         stats.hits += 1;
-        if let Some(mut r) = roman {
-            r.knock(h.damage, h.impact, h.dir);
+        if let (Some(mut r), true) = (roman, hp.0 > 0.0) {
+            r.close_hit(h.damage, h.impact, h.dir);
         }
         if let Some(mut c) = companion {
             c.attacker = Some(h.by);
