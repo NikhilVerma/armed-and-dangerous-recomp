@@ -103,17 +103,35 @@ impl Squad {
         let anim = format!("{template}_ref");
         let bone = |n: &str| crate::mission::pub_bone(dir, &anim, n).map(|v| crate::level::game_to_engine() * v);
         let mut pending = Vec::new();
-        // ref_grunt_0N "grunt", ref_regular_0N "grunt_regular", ref_captain_0N "captain": each list stops at its first
-        // missing index
-        for (prefix, tpl) in [("ref_grunt_", "grunt"), ("ref_regular_", "grunt_regular"), ("ref_captain_", "captain")] {
+        // ref_grunt_0%d "grunt", ref_regular_0%d "grunt_regular", ref_captain_0%d "captain": each list stops at its
+        // first missing index (the "0" is literal: the 11th is ref_grunt_010)
+        for (prefix, tpl) in [("ref_grunt_0", "grunt"), ("ref_regular_0", "grunt_regular"), ("ref_captain_0", "captain")] {
             for i in 0.. {
-                let Some(o) = bone(&format!("{prefix}{i:02}")) else { break };
+                let Some(o) = bone(&format!("{prefix}{i}")) else { break };
                 pending.push((tpl, o));
             }
         }
+        let goliath_slot = bone("ref_goliath_00");
+        // no reference at all: "Squad has no valid ref points" and the squad is deactivated (vt+0xdc): left with
+        // nothing, it is gone on its first update
+        let phase = if pending.is_empty() && goliath_slot.is_none() {
+            warn!("ai: squad {template} at {pos:.0} has no valid ref points");
+            SquadPhase::Done
+        } else {
+            SquadPhase::Waiting
+        };
+        // a min above its max is logged and lowered to it (Squad_Init: resume / charge delay, charge count)
+        let range = |name: &str, lo: f32, hi: f32| {
+            let (lo, hi) = (p.f(&format!("{name}_min"), lo), p.f(&format!("{name}_max"), hi));
+            if lo > hi {
+                warn!("ai: squad {template}: {name}_min {lo} > {name}_max {hi}");
+            }
+            (lo.min(hi), hi)
+        };
+        let (count_lo, count_hi) = (p.i("charge_count_min", 1), p.i("charge_count_max", 1));
         let tag = p.i("squad_tag", 0);
         Squad {
-            phase: SquadPhase::Waiting,
+            phase,
             pos,
             yaw,
             trigger: p.i("receive_trigger_activate", 0),
@@ -128,9 +146,9 @@ impl Squad {
             scan_timer: 0.0,
             // (0 would be no group: the original logs and uses 0xfffe7e53)
             group: if tag != 0 { -tag } else { -0x181ad },
-            resume: (p.f("resume_delay_min", 10.0), p.f("resume_delay_max", 20.0)),
-            charge_delay: (p.f("charge_delay_min", 5.0), p.f("charge_delay_max", 10.0)),
-            charge_count: (p.i("charge_count_min", 1), p.i("charge_count_max", 1)),
+            resume: range("resume_delay", 10.0, 20.0),
+            charge_delay: range("charge_delay", 5.0, 10.0),
+            charge_count: (count_lo.min(count_hi), count_hi),
             halt: 0.0,
             charge: 0.0,
             resume_phase: SquadPhase::Waiting,
@@ -138,7 +156,7 @@ impl Squad {
             members: Vec::new(),
             health: default(),
             goliath: None,
-            goliath_slot: bone("ref_goliath_00"),
+            goliath_slot,
             goliath_cage: p.i("goliath_cage", 0) != 0,
             handed_over: (p.i("receive_trigger_kill", 0), p.i("send_trigger_on_death", 0), p.i("tag", 0)),
             pending,

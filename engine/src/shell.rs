@@ -46,13 +46,19 @@ pub fn velocity(from: Vec3, target: Vec3, flight: Option<f32>) -> Vec3 {
 /// Throws a shell of `template` (its model, fx_start held on it) at `target`. Returns its entity.
 #[allow(clippy::too_many_arguments)]
 pub fn launch(commands: &mut Commands, data: &crate::gamedata::GameData, kit: &mut crate::army::ModelKit, fx: &mut MessageWriter<crate::fx::StartFx>, template: &str, from: Vec3, target: Vec3, lob: Lob) -> Entity {
+    throw(commands, data, kit, fx, template, from, velocity(from, target, lob.flight), lob.by)
+}
+
+/// Throws a shell of `template` from `from` at the launch velocity `vel` (solved by the thrower: the goliath's
+/// fireball, 0x0043cef0 with 0x00471a00). Returns its entity.
+#[allow(clippy::too_many_arguments)]
+pub fn throw(commands: &mut Commands, data: &crate::gamedata::GameData, kit: &mut crate::army::ModelKit, fx: &mut MessageWriter<crate::fx::StartFx>, template: &str, from: Vec3, vel: Vec3, by: crate::fx::Src) -> Entity {
     let p = data.template_props(template);
-    let vel = velocity(from, target, lob.flight);
     let rot = facing(vel);
     let tr = Transform::from_translation(from).with_rotation(rot);
     let model = data.templates.get(template).and_then(|t| t.model.clone());
     let e = model.and_then(|m| kit.spawn(commands, &m, tr, true)).unwrap_or_else(|| commands.spawn((tr, Visibility::default())).id());
-    commands.entity(e).insert(Shell { vel, life: p.f("lifetime", 15.0), by: lob.by, props: p.clone() });
+    commands.entity(e).insert(Shell { vel, life: p.f("lifetime", 15.0), by, props: p.clone() });
     if let Some(name) = p.s("fx_start") {
         fx.write(crate::fx::StartFx { name: name.to_lowercase(), at: from, rotation: rot, follow: Some(e), position_only: false });
     }
