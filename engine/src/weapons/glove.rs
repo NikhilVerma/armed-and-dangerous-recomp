@@ -174,7 +174,7 @@ fn use_glove(
     mut glove: ResMut<Glove>,
     mut roman: Query<(Entity, &mut crate::player::Roman, &GlobalTransform)>,
     cam: Query<(&GlobalTransform, &Projection), With<crate::camera::FollowCam>>,
-    mut grunts: Query<(Entity, &mut Grunt, &GlobalTransform, Option<&crate::skin::Animator>, Option<&crate::physics::Body>)>,
+    mut grunts: Query<(Entity, &mut Grunt, &GlobalTransform, Option<&crate::skin::Animator>, Option<&crate::physics::Body>, Option<&targeting::HudSphere>)>,
     joints: Query<&GlobalTransform, Without<Grunt>>,
     (taken, ic): (Query<(), Or<(With<super::blackhole::Carried>, With<Gloved>, With<crate::ai::close_kill::Victim>)>>, Query<&crate::ai::ic::IcEntry>),
     mut physics: NonSendMut<Physics>,
@@ -193,14 +193,15 @@ fn use_glove(
     let view = targeting::View::new(c, Some(proj), feet + Vec3::Y * 4.0);
     // the candidates: vt+0x118 true, not already someone's
     let mut cands = Vec::new();
-    for (e, g, t, a, _) in grunts.iter() {
+    for (e, g, t, a, _, sphere) in grunts.iter() {
         if !can_be_gloved(g) || taken.contains(e) {
             continue;
         }
         let origin = t.translation();
         let joint = a.and_then(|a| a.skeleton.index.get("ref_hit_00").map(|&i| a.joints[i]));
         let hit = joint.and_then(|j| joints.get(j).ok()).map_or(origin + Vec3::Y * 6.0, |j| j.translation());
-        cands.push(targeting::Candidate { entity: e, dead: false, origin, centre: origin + Vec3::Y * 4.9, hit, joint });
+        let (centre, slack) = targeting::bounds(t, sphere);
+        cands.push(targeting::Candidate { entity: e, dead: false, origin, centre, slack, hit, joint, body: None });
     }
     // one standing on the landscape more than 20 above Roman is passed over (0x00454be0), after the range test
     let passable = |e: Entity| characters.contains(e);
@@ -213,10 +214,10 @@ fn use_glove(
     sounds.write(crate::audio::PlaySound::ui("wpn_puncher_glove_on"));
     sounds.write(crate::audio::PlaySound::ui("wpn_puncher_ding"));
     // the line of sight's ray distance to each one's body (0x00414110's, the HUD slot's +0x1c)
-    let dists: Vec<f32> = found.iter().map(|t| targeting::hud_sight_distance(&physics, view.eye, t.point, t.entity, &passable).unwrap_or_else(|| t.point.distance(view.eye))).collect();
+    let dists: Vec<f32> = found.iter().map(|t| targeting::hud_sight_distance(&physics, view.eye, t.point, (t.entity, None), &passable).unwrap_or_else(|| t.point.distance(view.eye))).collect();
     glove.slots.clear();
     for (i, t) in found.iter().enumerate() {
-        let Ok((e, mut gr, _, _, body)) = grunts.get_mut(t.entity) else { continue };
+        let Ok((e, mut gr, _, _, body, _)) = grunts.get_mut(t.entity) else { continue };
         // 0x0042f1d0: in an IC move (0x00426630) or riding a turbo (+0xb08 with +0x484 bit 28): the move ended (vt+0x1ac
         // (1)) or the ride stopped (bits 28-29 cleared; the pack goes back to turbo_idle, ai.rs jumper_packs), flung
         // at once (vt+0x124 (1))

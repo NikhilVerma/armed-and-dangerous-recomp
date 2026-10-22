@@ -966,6 +966,8 @@ pub fn spawn(
             e.insert(Background);
         }
         let e = e.id();
+        // its bounding spheres for the HUD's lock-on test (vt+0x90 / vt+0x94; weapons/targeting.rs)
+        commands.entity(e).insert(crate::weapons::targeting::HudSphere::from_box(model.min, model.max));
         // a twiglet tree (twiglet.rs, TwigletGenerator_Slot6 0x0049d3c0): its initial_ic movers start at the nodes of
         // its reference anim of the same names (0x0049d590: 0x00453c50)
         if behavior == "twiglet_generator" {

@@ -273,7 +273,7 @@ fn holes(
     mut commands: Commands,
     time: Res<Time>,
     mut q: Query<(Entity, &mut BlackHole, &mut Transform)>,
-    mut grunts: Query<(Entity, &mut crate::ai::Grunt, &GlobalTransform), Without<Carried>>,
+    mut grunts: Query<(Entity, &mut crate::ai::Grunt, &GlobalTransform, Option<&super::targeting::HudSphere>), Without<Carried>>,
     mut suction: ResMut<Suction>,
     mut rng: ResMut<crate::fx::FxStats>,
     (mut blasts, mut carry): (MessageWriter<crate::fx::Explode>, MessageWriter<CarryOff>),
@@ -309,11 +309,12 @@ fn holes(
                 continue;
             }
             // the carry-off (AreaDamage_Apply 0x0047f020 with flag 0x800, the hole the holder): the AIs whose bounding
-            // sphere (vt+0x94: the centre 4.9 up, targeting::SLACK) reaches within the outer radius of +0x598 and that
+            // sphere (vt+0x94: targeting::bounds) reaches within the outer radius of +0x598 and that
             // can be carried (vt+0x254: the ones on their feet; guess: as the land shark's prey)
             let mut n = 0;
-            for (ge, mut g, gt) in &mut grunts {
-                let reach = (gt.translation() + Vec3::Y * 4.9).distance(h.target) - super::targeting::SLACK;
+            for (ge, mut g, gt, sphere) in &mut grunts {
+                let (centre, slack) = super::targeting::bounds(gt, sphere);
+                let reach = centre.distance(h.target) - slack;
                 if g.mind == crate::ai::Mind::Dead || !super::targeting::on_their_feet(&g) || reach > h.blast.outer {
                     continue;
                 }

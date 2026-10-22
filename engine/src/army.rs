@@ -407,6 +407,8 @@ impl ModelKit<'_> {
         let m = self.lib.load_model(model, false, &self.assets, &mut self.meshes, &mut self.materials).cloned_parts()?;
         let mut ctx = crate::level::SkinCtx { lib: &mut self.anims, binds: &mut self.binds };
         crate::level::attach_model(commands, e, &m, shadows, Some(&mut ctx), "ref_rhand");
+        // its bounding spheres for the HUD's lock-on test (vt+0x90 / vt+0x94; weapons/targeting.rs)
+        commands.entity(e).insert(crate::weapons::targeting::HudSphere::from_box(m.min, m.max));
         Some(crate::fx::Bounds { center: (m.min + m.max) * 0.5, radius: (m.max - m.min).length() * 0.5 })
     }
 

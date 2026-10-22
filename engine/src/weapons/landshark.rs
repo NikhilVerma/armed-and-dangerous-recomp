@@ -303,7 +303,7 @@ fn swim(
                     .filter(|(ge, g, gt, _, _)| can_be_bitten_now(g, carried.contains(*ge), &physics, gt.translation()))
                     .map(|(ge, _, gt, _, _)| (ge, gt.translation() + Vec3::Y * 5.0))
                     .filter(|(_, c)| c.distance(eye) <= s.range)
-                    .filter(|(ge, c)| super::targeting::in_hud_sight(&physics, eye, *c, *ge, &|x| characters.contains(x)))
+                    .filter(|(ge, c)| super::targeting::in_hud_sight(&physics, eye, *c, (*ge, None), &|x| characters.contains(x)))
                     .min_by(|a, b| a.1.distance(eye).total_cmp(&b.1.distance(eye)));
                 if let Some((ge, _)) = best {
                     s.target = Some(ge);

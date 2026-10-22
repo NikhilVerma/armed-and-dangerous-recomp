@@ -10,16 +10,32 @@
 //!   none: `DamageKind::Traitor`), the inner radius passed along: every bad guy
 //!   (vt+0xe8) alive within 200 turns traitor (GenericAIObject_Slot52 0x00430340 -> 0x00430140): the disc fx_guy_fawkes
 //!   over his head (bone ref_fawkes), his two lists swapped (+0x604 / +0x608: he now hunts his old side and is hunted
-//!   by it: ai.rs `search`, player.rs's team test for bullets), his target dropped, and unless he is busy, from
-//!   outside the inner radius he runs to the nearest point of that circle round the bomb (state 0xfa; a guard holds his
-//!   post). Once a traitor, always (+0x488 bit 14).
+//!   by it: ai.rs `search`, player.rs's team test for bullets), his target dropped; then unless he is busy (vt+0x178
+//!   0x0042f8d0), a guard looks for a new target at once (+0x490 = 0, 0x0042ec20) and holds his post, the others from
+//!   outside the inner radius run to the nearest point of that circle round the bomb (state 0xfa). (+0x488 bit 14.)
+//! - Every live bad guy the message reaches, a traitor already or not, stamps the time (Game+0xb2c); once the mission's
+//!   guy_fawkes_duration (Game+0xb30, MissionObject_Load: default 10 s; no level sets it) has passed since the last
+//!   stamp, every live traitor turns back (GenericAI_Update 0x0043ee90 -> 0x0042ecf0, every AI each frame): his lists
+//!   swapped back, his target dropped and the player taken as his target (vt+0x23c(player, 1)).
 
 use super::{SpecialId, ThrowSpecial};
+use crate::levelreset::LevelAppExt;
 use bevy::prelude::*;
 
 /// A grunt turned by the Guy Fawkes bomb (+0x488 bit 14): on the player's side now.
 #[derive(Component, Debug, Default)]
 pub struct Traitor;
+
+/// When the last Guy Fawkes message reached a live bad guy (Game+0xb2c, game time): the traitors turn back
+/// guy_fawkes_duration after it.
+#[derive(Resource, Default, Debug)]
+pub struct FawkesClock {
+    last: Option<f32>,
+}
+
+/// The grunts a bomb's message reaches: who, his position and skeleton, and whether he is a traitor already or held
+/// by the Topsy Turvy bomb or the glove (busy: states 0xe7..0xeb, 0x19a..0x19d).
+type Receivers<'w, 's> = Query<'w, 's, (Entity, &'static mut crate::ai::Grunt, &'static GlobalTransform, Option<&'static crate::skin::Animator>, Has<Traitor>, Has<crate::topsy::Thrown>, Has<super::glove::Gloved>)>;
 
 /// The thrown bomb (a Projectile of the 0x005a6608 class): flies at its target point until it hits something.
 #[derive(Component, Debug)]
@@ -33,7 +49,8 @@ pub struct TraitorPlugin;
 
 impl Plugin for TraitorPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, (throw.after(super::WeaponSet::Throws), fly).chain().after(crate::player::PlayerSet::Weapons).run_if(crate::playing));
+        app.init_level_resource::<FawkesClock>()
+            .add_systems(Update, (throw.after(super::WeaponSet::Throws), fly, turn_back).chain().after(crate::player::PlayerSet::Weapons).run_if(crate::playing));
     }
 }
 
@@ -88,8 +105,9 @@ fn fly(
     time: Res<Time>,
     physics: NonSend<crate::physics::Physics>,
     mut bombs: Query<(Entity, &mut FawkesBomb, &mut Transform)>,
-    mut grunts: Query<(Entity, &mut crate::ai::Grunt, &GlobalTransform, Option<&crate::skin::Animator>, Has<Traitor>)>,
+    mut grunts: Receivers,
     roman: Query<Entity, With<crate::player::Roman>>,
+    mut clock: ResMut<FawkesClock>,
     data: Res<crate::gamedata::GameData>,
     (mut fx, mut blasts): (MessageWriter<crate::fx::StartFx>, MessageWriter<crate::fx::Explode>),
     (mut log, mut stats, mut noise): (Option<ResMut<crate::mission::Mission>>, ResMut<super::WeaponStats>, ResMut<crate::ai::Interests>),
@@ -119,7 +137,10 @@ fn fly(
         // the record carries flag 0x10 (0x00481d00): the AI characters in it turn (below) and take none of its damage
         let (inner, outer) = (p.f("damage_radius_inner", 0.0), p.f("damage_radius_outer", 0.0));
         blasts.write(crate::fx::Explode { at, area_damage: p.f("area_damage", 0.0), radius_inner: inner, radius_outer: outer, impact_force: p.f("impact_force", 2010.0), source: None, delay: 0.0, by: crate::fx::Src::Player, cartoon: false, kind: crate::player::DamageKind::Traitor });
-        let turned = turn(&mut commands, &mut grunts, &mut fx, at, inner, outer);
+        let (turned, reached) = turn(&mut commands, &mut grunts, &mut fx, at, inner, outer);
+        if reached {
+            clock.last = Some(time.elapsed_secs());
+        }
         if let Some(m) = log.as_deref_mut() {
             m.log.push(format!("guy fawkes: {turned} turned traitor"));
         }
@@ -130,13 +151,17 @@ fn fly(
 }
 
 /// The 0x10 message to every bad guy within `outer` (AreaDamage_Apply's receivers; 0x00430140 with the inner radius):
-/// the turn. Returns how many turned.
-fn turn(commands: &mut Commands, grunts: &mut Query<(Entity, &mut crate::ai::Grunt, &GlobalTransform, Option<&crate::skin::Animator>, Has<Traitor>)>, fx: &mut MessageWriter<crate::fx::StartFx>, at: Vec3, inner: f32, outer: f32) -> u32 {
-    let mut n = 0;
-    for (ge, mut g, gt, a, traitor) in grunts.iter_mut() {
+/// the turn. Returns how many turned and whether it reached anyone alive (the time stamp Game+0xb2c).
+fn turn(commands: &mut Commands, grunts: &mut Receivers, fx: &mut MessageWriter<crate::fx::StartFx>, at: Vec3, inner: f32, outer: f32) -> (u32, bool) {
+    let (mut n, mut reached) = (0, false);
+    for (ge, mut g, gt, a, traitor, thrown, gloved) in grunts.iter_mut() {
         let pos = gt.translation();
         // (the receivers by their bounding sphere's surface: 4.66 for a grunt, as the blasts')
-        if traitor || g.mind == crate::ai::Mind::Dead || pos.distance(at) - super::targeting::SLACK > outer {
+        if g.mind == crate::ai::Mind::Dead || pos.distance(at) - super::targeting::SLACK > outer {
+            continue;
+        }
+        reached = true;
+        if traitor {
             continue;
         }
         n += 1;
@@ -144,15 +169,52 @@ fn turn(commands: &mut Commands, grunts: &mut Query<(Entity, &mut crate::ai::Gru
         // the disc over his head, on his ref_fawkes
         let bone = a.and_then(|a| a.skeleton.index.get("ref_fawkes").map(|&i| a.joints[i]));
         fx.write(crate::fx::StartFx { name: "fx_guy_fawkes".into(), at: pos + Vec3::Y * 10.0, rotation: Quat::IDENTITY, follow: Some(bone.unwrap_or(ge)), position_only: true });
+        // (only the target +0x588: an alert-group hand-over under way, +0x578, goes on)
         g.target = None;
-        g.pending = None;
-        // a guard holds his post; the others outside the inner circle run to its nearest point
+        if g.busy_now() || thrown || gloved {
+            continue;
+        }
+        // a guard holds his post and looks for a target at once (+0x490 = 0, 0x0042ec20); the others outside the inner
+        // circle run to its nearest point
+        if g.guard {
+            g.search_timer = 0.0;
+            continue;
+        }
         let across = (pos - at).with_y(0.0);
-        if !g.guard && across.length() > inner {
+        if across.length() > inner {
             let to = at + across.normalize_or(Vec3::X) * inner;
             let speed = g.move_speed;
             crate::ai::wander_to(&mut g, pos, Vec3::new(to.x, pos.y, to.z), speed);
         }
     }
-    n
+    (n, reached)
+}
+
+/// The traitors turn back (0x0042ecf0's start, every AI each frame from GenericAI_Update 0x0043ee90) once the mission's
+/// guy_fawkes_duration has passed since the last message's stamp: the lists swapped back (the Traitor mark off, +0x488
+/// bit 14), the target dropped and the player taken (vt+0x23c(player, 1)). The dead stay as they fell. (Its states
+/// 0x12c..0x132, which skip the update, have no counterpart here.)
+fn turn_back(
+    mut commands: Commands,
+    time: Res<Time>,
+    clock: Res<FawkesClock>,
+    mission: Option<Res<crate::mission::Mission>>,
+    roman: Query<Entity, With<crate::player::Roman>>,
+    mut traitors: Query<(Entity, &mut crate::ai::Grunt), With<Traitor>>,
+) {
+    let duration = mission.as_deref().map_or(10.0, |m| m.guy_fawkes_duration);
+    let Some(last) = clock.last.filter(|&l| time.elapsed_secs() - l > duration) else { return };
+    let player = roman.single().ok();
+    let mut n = 0;
+    for (e, mut g) in &mut traitors {
+        if g.mind == crate::ai::Mind::Dead {
+            continue;
+        }
+        commands.entity(e).remove::<Traitor>();
+        g.target = player;
+        n += 1;
+    }
+    if n > 0 {
+        info!("EVENT guyfawkes: {n} turned back ({:.1} s after the last bomb)", time.elapsed_secs() - last);
+    }
 }

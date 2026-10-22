@@ -1,0 +1,22 @@
+{"scene": "lev_4_m3", "steps": [
+ {"until": "message"},
+ {"wait": 0.5},
+ {"tap": "Enter"},
+ {"wait": 2.0},
+ {"cheat": "SHIELDME"},
+ {"warp": [-1610, 1840, -37, 0]},
+ {"loadout": {"guyfawkes": 1, "special": "guyfawkes"}},
+ {"look_at": [-1610, 1885, -32]},
+ {"wait": 0.6},
+ {"spawn": [-1625, 1885, -32]},
+ {"spawn": [-1595, 1885, -30]},
+ {"wait": 0.3},
+ {"click": "Right"},
+ {"wait": 0.7},
+ {"expect": {"weapons.turned": 2, "weapons.traitors": 2}},
+ {"wait": 8.5},
+ {"expect": {"weapons.traitors": 2}},
+ {"wait": 2.0},
+ {"expect": {"weapons.traitors": 0, "weapons.turned": 2}},
+ {"quit": true}
+]}

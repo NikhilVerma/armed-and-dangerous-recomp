@@ -655,6 +655,9 @@ pub struct Mission {
     pub ai_max_fire: u32,
     /// army_max_scale (Game+0xc54, game_02.cpp:2025): grunts at once in the ladder / scale-wall assault (World+0xf14)
     pub army_max_scale: u32,
+    /// guy_fawkes_duration (Game+0xb30, MissionObject_Load game_02.cpp:2041, default 10): how long the Guy Fawkes
+    /// traitors stay turned after the last bomb (weapons/traitor.rs)
+    pub guy_fawkes_duration: f32,
     start_trigger: i64,
     start_text: Option<String>,
     success_text: Option<String>,
@@ -1245,6 +1248,7 @@ impl Mission {
             ai_target_tag: n(m, "ai_target_tag") as i64,
             ai_max_fire: n(m, "ai_max_fire").max(0.0) as u32,
             army_max_scale: n(m, "army_max_scale").max(0.0) as u32,
+            guy_fawkes_duration: m.get("guy_fawkes_duration").and_then(|v| v.as_f64()).map_or(10.0, |v| v as f32),
             start_trigger: n(m, "send_trigger_start") as i64,
             start_text: text("start_text"),
             success_text: text("success_text"),
