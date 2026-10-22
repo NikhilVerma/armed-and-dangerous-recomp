@@ -77,15 +77,24 @@ impl Monk {
 }
 
 /// MonkObject_Bamf's destination: from a random heading, five headings 72 degrees apart round `around`, each 30..200
-/// out; the first with ground under it (the nav check 0x0046f280 here: a ray down), snapped to it.
+/// out; the first free cell (Grid_IsFreeAt 0x0046f280), snapped to the ground there.
 pub fn bamf_point(around: Vec3, physics: &Physics, rng: &mut FxStats) -> Option<Vec3> {
     let a0 = rng.rand() * std::f32::consts::TAU;
     (0..5).find_map(|i| {
         let a = a0 + i as f32 * 72f32.to_radians();
         let d = rng.range(30.0, 200.0);
         let p = around + Vec3::new(a.sin(), 0.0, a.cos()) * d;
-        physics.raycast(p + Vec3::Y * 300.0, -Vec3::Y, 1000.0).map(|(_, hit, _)| hit)
+        open_ground(physics, p)
     })
+}
+
+/// Grid_IsFreeAt 0x0046f280 as the remaster can ask it: the original reads the level's nav grid (inside the grid and
+/// its cell's 2-bit blocked flag clear: ai_07.cpp:2176-2186), which is not exported. Here a ray down from 300 above
+/// must meet the landscape first, so a roof, a prop or a building's inside (the grid's blocked cells) is refused, as
+/// is a point off the map; the hit is the ground point. Guess at the grid's blocked set: static objects over the cell.
+fn open_ground(physics: &Physics, p: Vec3) -> Option<Vec3> {
+    let (body, hit, _) = physics.raycast(p + Vec3::Y * 300.0, -Vec3::Y, 1000.0)?;
+    physics.landscape.is_none_or(|l| l == body).then_some(hit)
 }
 
 /// State 0xf2: the point the summoner turns to, his facing turned by -90..90 degrees (0x0046e2c0(-pi/2, pi/2)), 30..40
@@ -129,14 +138,14 @@ pub fn bamf_velocity(pos: Vec3, goal: Vec3, t: f32, speed: f32) -> Vec3 {
 /// raised by start_height, velocity (0, 0, -speed)); the hit is the base projectile's (1 damage, impact_force 4690).
 pub fn baskets(commands: &mut Commands, fx: &mut MessageWriter<crate::fx::StartFx>, data: &crate::gamedata::GameData, at: Vec3, owner: Entity, rng: &mut FxStats) {
     let p = data.template_props("monk_basket");
-    let h = p.f("start_height", 450.0);
+    let h = p.f("start_height", 400.0);
     let a0 = rng.rand() * std::f32::consts::TAU;
     for i in 0..5 {
         let a = a0 + i as f32 * 72f32.to_radians();
         let spot = at + Vec3::new(a.sin(), 0.0, a.cos()) * 40.0;
         let mut q = p.clone();
         // (spawn_projectile multiplies the speed by 3, as Projectile_Load)
-        q.0.insert("speed".into(), (rng.range(p.f("velocity_min", 150.0), p.f("velocity_max", 200.0)) / 3.0).into());
+        q.0.insert("speed".into(), (rng.range(p.f("velocity_min", 50.0), p.f("velocity_max", 75.0)) / 3.0).into());
         crate::player::spawn_projectile(commands, fx, &q, spot + Vec3::Y * h, -Vec3::Y, false, Some(owner));
     }
 }

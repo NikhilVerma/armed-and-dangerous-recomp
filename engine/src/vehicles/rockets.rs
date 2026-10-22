@@ -380,7 +380,15 @@ fn fly(
         // companions by distance to their bodies (4.5 units, player.rs's fallback for characters without parts)
         let len = step.length().max(0.01);
         let dir = step.normalize_or(Vec3::NEG_Z);
-        let skip: Vec<BodyId> = r.owner.and_then(|o| objects.get(o).ok()).and_then(|(_, p, _, _)| p.collider).into_iter().collect();
+        // (the ignore list +0x570 holds the owner whatever it is: a captain's own body too, CaptainRocket_SetOwner
+        // 0x00482ab0)
+        let skip: Vec<BodyId> = r
+            .owner
+            .and_then(|o| objects.get(o).ok())
+            .and_then(|(_, p, _, _)| p.collider)
+            .into_iter()
+            .chain(physics.bodies.iter().filter(|(_, e)| r.owner == Some(**e)).map(|(b, _)| *b))
+            .collect();
         let hit = ray(&physics, from, dir, len, &skip);
         let reach = hit.map_or(len, |(_, at, _)| at.distance(from));
         let near = |c: Vec3| {

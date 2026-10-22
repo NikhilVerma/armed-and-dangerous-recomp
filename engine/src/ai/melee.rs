@@ -83,6 +83,10 @@ pub fn close_hits(
     mut stats: ResMut<CloseStats>,
 ) {
     for h in hits.read() {
+        // a dead attacker's note sends nothing (0x0043eae0: 0x00454780 on the attacker, ai_05.cpp:1937-1941)
+        if health.get(h.by).is_ok_and(|(hp, ..)| hp.0 <= 0.0) {
+            continue;
+        }
         let Ok((mut hp, roman, companion)) = health.get_mut(h.target) else { continue };
         if hp.0 <= 0.0 {
             continue;
