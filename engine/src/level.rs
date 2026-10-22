@@ -136,10 +136,12 @@ impl ObjectTriggers {
     }
 }
 
-/// The husk an object becomes (Object_LoadBaseProps 0x00451360): none when `husk` is missing or "null"; with
-/// husk1..husk9 (read while they are present, in order) one of the n names at random, (rand() * n) >> 15.
+/// The husk an object becomes (Object_LoadBaseProps 0x00451360): none when `husk` is missing; with husk1..husk9
+/// (read while they are present, in order) one of the n names at random, (rand() * n) >> 15. A present "null" is a
+/// name like any other: it is drawn among them (the draw is made), and picked it means no husk (Object_SpawnHusk
+/// 0x00455660 skips "null").
 pub fn pick_husk(p: &Props, rng: &mut crate::fxvm::CrtRand) -> Option<String> {
-    let first = p.s("husk").filter(|h| !h.eq_ignore_ascii_case("null"))?;
+    let first = p.s("husk")?;
     let mut names = vec![first.to_owned()];
     for n in 1..=9 {
         match p.s(&format!("husk{n}")) {
@@ -149,7 +151,7 @@ pub fn pick_husk(p: &Props, rng: &mut crate::fxvm::CrtRand) -> Option<String> {
     }
     // (the original draws rand() for a single name too)
     let i = ((rng.rand() as usize) * names.len()) >> 15;
-    names.get(i).cloned()
+    names.get(i).filter(|h| !h.eq_ignore_ascii_case("null")).cloned()
 }
 
 /// A troop to spawn (barracks / alarm generators): a grunt template at a point, awake and hunting the player.
@@ -248,18 +250,21 @@ fn rigid_anims(time: Res<Time>, mut q: Query<(&mut RigidAnim, &mut Transform)>) 
 /// (0x00451780: slot 1 of the template, slot 0 being "staticmodel") through 0x00408e30 with flags 0x81 (flag 1 =
 /// loop). Placed objects whose model has a skeleton get it: the oil pumps' oilpump_cycle (4 s), the guard alarm's
 /// guard_alarm_0 (the siren turning, 6.7 s), stig_mgun_ref (a still pose). Characters' own anim systems (charanim.rs)
-/// replace it: it is played only when nothing else has started an anim by the frame after spawning. Not ported:
-/// "anim_rand" (flags 0xa01 at a random phase; no lev_1_m1 property set has it).
+/// replace it: it is played only when nothing else has started an anim by the frame after spawning. With "anim_rand"
+/// (the lev_5 guard lanterns' swing) it starts at a random point instead (flags 0xa01, phase rand() / 32768 of its
+/// length), so such objects do not move in step.
 #[derive(Component)]
 pub struct DefaultAnim {
     anim: String,
     seen: bool,
+    /// anim_rand's start, a fraction of the anim's length
+    phase: Option<f32>,
 }
 
 impl DefaultAnim {
     /// `anim` looped from the frame after the spawn unless something else plays first.
     pub fn new(anim: &str) -> Self {
-        DefaultAnim { anim: anim.to_owned(), seen: false }
+        DefaultAnim { anim: anim.to_owned(), seen: false, phase: None }
     }
 }
 
@@ -274,7 +279,10 @@ fn default_anims(mut commands: Commands, mut q: Query<(Entity, &mut DefaultAnim,
         if a.layers.first().is_some_and(|l| !l.anim.is_empty()) || lib.anim(&d.anim).is_none() {
             continue;
         }
-        a.play(0, &d.anim, true, crate::skin::Mask::All);
+        match d.phase {
+            Some(phase) => a.play_at(0, &d.anim, true, crate::skin::Mask::All, phase * lib.duration(&d.anim).unwrap_or(0.0)),
+            None => a.play(0, &d.anim, true, crate::skin::Mask::All),
+        }
     }
 }
 
@@ -328,41 +336,54 @@ impl Plugin for LevelPlugin {
     }
 }
 
+/// A collide barrier waiting for its start_blocking trigger (DefaultGameObject_Load 0x0044fd20: collide_barrier with a
+/// receive_trigger_start_blocking gets collision filter 0x4000, which blocks nothing, and no lists): it has no
+/// collider until the trigger makes it solid. lev_4_m3's invisible wall w_l4_m3_05 (660) waits for 2345, the trigger
+/// that also clears the 80 trees in its way.
+#[derive(Component)]
+pub struct DormantBarrier {
+    /// its collision model (the render model for a collide_poly wall)
+    collision: String,
+    material: Option<String>,
+}
+
 /// Triggers delivered to default objects (Object_SendTrigger 0x00461870 offers every trigger to every object's
 /// handler; mission.rs dispatches them as SendTrigger messages). DefaultGameObject_OnTrigger 0x00450fb0: kill is
 /// delivered by mission.rs (`Action::Destroy`, from mission.json's "destroyed" edges, which are exactly the
 /// receive_trigger_kill fields), so here only its field is cleared; deactivate removes the object (Object_Remove
-/// 0x004547b0: no fx, no husk, no death trigger); start_blocking puts its collider in the bullets' list +0xe90.
-/// No lev_1_m1 object has deactivate or a non-zero start_blocking (w_l1_m1_01 / 02: 0).
+/// 0x004547b0: no fx, no husk, no death trigger; its collider or movable body, decals and sound loop go);
+/// start_blocking switches its collision to blocking (vt+0xf8(0x40, 0): a dormant barrier gets its collider) and puts
+/// it in the bullets' list +0xe90. lev_4_m3's trees deactivate on 2345 (lev_4_m1's tree 556 on 4001).
+#[allow(clippy::type_complexity)]
 fn object_triggers(
-    mut commands: Commands,
     mut events: MessageReader<crate::mission::SendTrigger>,
-    mut objects: Query<(Entity, &mut Placed, Option<&InstanceId>)>,
-    mut physics: NonSendMut<Physics>,
-    mut decal_world: Option<ResMut<crate::decals::DecalWorld>>,
+    mut objects: Query<(Entity, &mut Placed, Option<&InstanceId>, &Transform, Option<&DormantBarrier>)>,
+    mut swap: StageSwap,
     mut sent: ResMut<TriggerLog>,
+    mut stop: MessageWriter<crate::audio::StopSoundsOn>,
 ) {
     for crate::mission::SendTrigger(t) in events.read() {
         *sent.0.entry(*t).or_default() += 1;
-        for (e, mut p, id) in &mut objects {
+        for (e, mut p, id, transform, barrier) in &mut objects {
             let Some(act) = p.triggers.receive(*t) else { continue };
             info!("EVENT object {}: trigger {t} -> {act:?}", id.map(|i| i.0).unwrap_or(0));
             match act {
                 TriggerAct::Kill => {}
                 TriggerAct::Deactivate => {
-                    if let Some(c) = p.collider.take() {
-                        physics.remove_static(c);
-                    }
-                    if let Some(w) = decal_world.as_mut() {
-                        w.remove_object(e);
-                    }
-                    commands.entity(e).despawn();
+                    stop.write(crate::audio::StopSoundsOn(e));
+                    swap.remove(e, &p);
                 }
-                TriggerAct::StartBlocking => {
-                    if let Some(c) = p.collider {
-                        physics.no_bullets.remove(&c);
+                TriggerAct::StartBlocking => match barrier {
+                    Some(b) => {
+                        swap.commands.entity(e).remove::<DormantBarrier>();
+                        p.collider = swap.make_solid(b, transform.to_matrix());
                     }
-                }
+                    None => {
+                        if let Some(c) = p.collider {
+                            swap.physics.no_bullets.remove(&c);
+                        }
+                    }
+                },
             }
         }
     }
@@ -373,7 +394,7 @@ fn object_triggers(
 pub struct TriggerLog(pub std::collections::BTreeMap<i64, u32>);
 
 /// The state log's "objects" (playtest expect steps): per placed object's instance id, its template (a husk's once
-/// it died), health and max health (destructibles), whether it is a husk; "removed" once it is gone. And
+/// it died), health and max health (destructibles), whether it is a husk and has a collider; "removed" once it is gone. And
 /// "triggers": the triggers sent so far.
 #[allow(clippy::type_complexity)]
 fn log_objects(
@@ -398,7 +419,7 @@ fn log_objects(
             continue;
         }
         seen.insert(i.0);
-        let mut o = serde_json::json!({ "template": p.template, "husk": husk });
+        let mut o = serde_json::json!({ "template": p.template, "husk": husk, "collider": p.collider.is_some() });
         if let Some(d) = d {
             o["health"] = d.health.into();
             o["max_health"] = d.max_health.into();
@@ -589,8 +610,12 @@ impl Species {
 /// mission's start_in_turret_tag (Game+0x26cc), which is set only once the mission object has loaded: the instances
 /// load in bank (id) order, so only those after it see the tag (lev_3_m4_bd: its sheep 157..191 roam, sheep 6 does
 /// not; lev_2_m4's and lev_5_m5's all come before their mission and graze only, as the original's traces show).
+/// It answers false until the player exists (Game+0x748, the trotter's load); in the shipped turret levels the
+/// trotter loads two ids after the mission, with no critter between.
 fn turret_start_known(scene: &SceneFile, id: u32) -> bool {
-    scene
+    let player_loaded = scene.instances.iter().any(|i| i.template == "trotter" && i.id < id);
+    player_loaded
+        && scene
         .logic
         .iter()
         .find(|l| l.template == "mission" && l.id < id)
@@ -604,16 +629,30 @@ fn turret_start_known(scene: &SceneFile, id: u32) -> bool {
 #[derive(Component)]
 pub struct RewardPoster;
 
-/// A node's matrix in its model (game axes) from the model's reference anim (its first key: translation, rotation),
-/// as 0x00453c50 finds an attachment matrix by name.
+/// A node's matrix in its model (game axes) from the model's reference anim, as 0x00453c50 finds an attachment matrix
+/// by name: the node's first key (translation, rotation) composed up its parent chain (the anim's `parents`; a parent
+/// without a track counts as identity). The buildings' ref_* nodes are all roots; a character's hang under its bones.
 pub(crate) fn ref_node(dir: &std::path::Path, anim: &str, node: &str) -> Option<Mat4> {
     let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join("anims").join(format!("{anim}.json"))).ok()?).ok()?;
-    let (_, track) = v.get("tracks")?.as_object()?.iter().find(|(k, _)| k.eq_ignore_ascii_case(node))?;
+    let tracks = v.get("tracks")?.as_object()?;
+    let parents = v.get("parents").and_then(|p| p.as_object());
     let f = |x: &serde_json::Value| x.as_f64().unwrap_or(0.0) as f32;
-    let t = track.get("t")?.as_array()?.first()?.as_array()?;
-    let r = track.get("r").and_then(|r| r.as_array()?.first()?.as_array().cloned());
-    let rot = r.filter(|r| r.len() >= 5).map_or(Quat::IDENTITY, |r| Quat::from_xyzw(f(&r[1]), f(&r[2]), f(&r[3]), f(&r[4])).normalize());
-    Some(Mat4::from_rotation_translation(rot, Vec3::new(f(&t[1]), f(&t[2]), f(&t[3]))))
+    let local = |track: &serde_json::Value| -> Option<Mat4> {
+        let t = track.get("t")?.as_array()?.first()?.as_array()?;
+        let r = track.get("r").and_then(|r| r.as_array()?.first()?.as_array().cloned());
+        let rot = r.filter(|r| r.len() >= 5).map_or(Quat::IDENTITY, |r| Quat::from_xyzw(f(&r[1]), f(&r[2]), f(&r[3]), f(&r[4])).normalize());
+        Some(Mat4::from_rotation_translation(rot, Vec3::new(f(&t[1]), f(&t[2]), f(&t[3]))))
+    };
+    let (name, track) = tracks.iter().find(|(k, _)| k.eq_ignore_ascii_case(node))?;
+    let mut m = local(track)?;
+    let mut at = name.as_str();
+    // (bounded: a malformed export with a cycle stops)
+    for _ in 0..64 {
+        let Some(parent) = parents.and_then(|p| p.get(at)).and_then(|p| p.as_str()) else { break };
+        m = tracks.get(parent).and_then(local).unwrap_or(Mat4::IDENTITY) * m;
+        at = parent;
+    }
+    Some(m)
 }
 
 /// A building's window pane (TwigletGenerator_Slot84 0x0040ad80 "windows": a "village_window" DefaultGameObject at
@@ -660,7 +699,7 @@ fn static_collider(physics: &mut Physics, model: &scene::Model, world: Mat4) -> 
 
 /// A placed object's collider joins the world: its material, and whether bullets stop on it. Bullets hit only
 /// objects in the projectile list World +0xe90 (Projectile_Update 0x0047e580, filter 0x00413a90): buildings (unless
-/// base_defend or invisible, ai_01.cpp:1063), trees, kegs, turrets always; default objects (no behaviour) only when
+/// base_defend or invisible, ai_01.cpp:1063), trees, kegs, turrets always; default objects (`is_default_object`) only when
 /// they take damage or block projectiles, and neither no_collide nor collide_barrier (DefaultGameObject_Load
 /// 0x0044fd20, game_03.cpp:526-567, lists +0xe90 / +0xe94 / +0xea0 / +0xea4); invisible_material never (0x004138c0).
 /// Invisible walls (collide_barrier, blocks_projectiles 0) let bullets through.
@@ -682,16 +721,31 @@ pub(crate) fn hidden_by_class(behavior: &str) -> bool {
     matches!(behavior, "alarm_generator")
 }
 
+/// Whether a behaviour makes a DefaultGameObject (DefaultGameObject_Load 0x0044fd20): no behaviour (the template name
+/// hashes to no class in the behaviour table, 0x0045df60), or "defaultgameobject" by name (the lev_4 trees and logs'
+/// p_l4_trees; molmer's make_tnt creates one by it, game_02.cpp:2806). Both read the default object's keys: the
+/// receive_trigger_* fields, no_collide, collide_barrier, the projectile-list rule, impact_force 2010.
+pub fn is_default_object(behavior: &str) -> bool {
+    matches!(behavior, "" | "defaultgameobject")
+}
+
+/// The anim whose nodes 0x00453c50 reads for a placed object: the one set at load (Object_LoadProperties 0x004517b0
+/// plays the template's default anim, slot 1), else its ref_anim_name, else the model's own (ww_house_2f_b carries
+/// v_house_2f_b_0: its windows and bullseye are that anim's nodes).
+fn reference_anim(tpl: Option<&crate::gamedata::Template>, p: &Props, model: &str) -> String {
+    tpl.and_then(|t| t.default_anim.clone()).or_else(|| p.s("ref_anim_name").map(str::to_owned)).unwrap_or_else(|| model.to_owned())
+}
+
 /// Whether an object is in the damage takers' list World+0xea4 (the crosshair's ray list on a gun, 0x00406f50 with
 /// Game+0xac8 set): buildings with takes_damage (+0x460 0x1000) unless base_defend or invisible (ai_01.cpp:1063-1068),
-/// default objects with takes_damage and neither no_collide nor collide_barrier (game_03.cpp:526-566), the rocket
+/// default objects (`is_default_object`) with takes_damage and neither no_collide nor collide_barrier (game_03.cpp:526-566), the rocket
 /// tower and bud turrets (0x0049c320 / 0x0049c9b0). Trees, kegs and peasants are not.
 pub(crate) fn in_damage_list(p: &Props) -> bool {
     let flag = |k: &str, d: f32| p.f(k, d) != 0.0;
     match p.s("behavior").unwrap_or("") {
         "building" => flag("takes_damage", 1.0) && !(flag("invisible", 0.0) || flag("base_defend", 0.0)),
-        "" => flag("takes_damage", 0.0) && !flag("no_collide", 0.0) && !flag("collide_barrier", 0.0),
         "rocket_tower_turret" | "rocket_bud_turret" => true,
+        b if is_default_object(b) => flag("takes_damage", 0.0) && !flag("no_collide", 0.0) && !flag("collide_barrier", 0.0),
         _ => false,
     }
 }
@@ -704,7 +758,7 @@ fn in_bullet_list(p: &Props) -> bool {
         "tree" | "fx_explosion" | "rocket_tower_turret" => true,
         // PeasantObject_Load links +0xe9c / +0xef8 / +0xefc only: bullets pass the peasants
         "peasant" => false,
-        "" => (flag("takes_damage") || flag("blocks_projectiles")) && !flag("no_collide") && !flag("collide_barrier"),
+        b if is_default_object(b) => (flag("takes_damage") || flag("blocks_projectiles")) && !flag("no_collide") && !flag("collide_barrier"),
         _ => true,
     };
     listed && p.s("material") != Some("invisible_material")
@@ -720,10 +774,11 @@ pub(crate) fn destructible(p: &Props) -> Option<Destructible> {
     }
     // impact_force defaults to 2010 for default objects (0x0044fd20) and fx_explosion props (FxExplosion_Load
     // 0x0041c180, game_02.cpp:700); every lev_1_m1 set that has area damage gives its own
-    let default_force = match p.s("behavior").unwrap_or("") {
-        "" | "fx_explosion" => 2010.0,
-        _ => 0.0,
-    };
+    let behavior = p.s("behavior").unwrap_or("");
+    let default_force = if is_default_object(behavior) || behavior == "fx_explosion" { 2010.0 } else { 0.0 };
+    // a keg's fuse defaults (FxExplosion_Load 0x0041c180, game_02.cpp:646): start_delay 1.0, acceleration_rate 0.75,
+    // min_delay 0.1 (every shipped keg and snow pipe sets all three); other classes pass their blast on at once
+    let (start_delay, acceleration, min_delay) = if behavior == "fx_explosion" { (1.0, 0.75, 0.1) } else { (0.0, 1.0, 0.0) };
     Some(Destructible {
         health: p.f("max_health", 100.0),
         max_health: p.f("max_health", 100.0),
@@ -748,9 +803,9 @@ pub(crate) fn destructible(p: &Props) -> Option<Destructible> {
         player_damage: p.f("player_damage", 1.0) != 0.0,
         teammate_damage: p.f("teammate_damage", if p.s("behavior") == Some("building") { 1.0 } else { 0.0 }) != 0.0,
         badguy_damage: p.f("badguy_damage", 0.0) != 0.0,
-        start_delay: p.f("start_delay", 0.0),
-        min_delay: p.f("min_delay", 0.0),
-        acceleration: p.f("acceleration_rate", 1.0),
+        start_delay: p.f("start_delay", start_delay),
+        min_delay: p.f("min_delay", min_delay),
+        acceleration: p.f("acceleration_rate", acceleration),
         dying: None,
         chain_delay: 0.0,
     })
@@ -784,6 +839,8 @@ pub fn spawn(
     let mut rng = crate::fxvm::CrtRand::default();
     // husk picks draw from their own stream, so the grunts' rolls stay as they were
     let mut husk_rng = crate::fxvm::CrtRand::default();
+    // and the anim_rand phases from theirs
+    let mut anim_rng = crate::fxvm::CrtRand::default();
     let mut info = LevelInfo { name: scene.level.clone(), ..default() };
 
     // landscape: its own mesh is its collision
@@ -821,9 +878,11 @@ pub fn spawn(
         if behavior == "squad" || behavior == "jump_marker" {
             let m = scene::game_matrix(&inst.transform);
             let mut at = axes.transform_point3(m.w_axis.truncate());
+            // force_ground: Object_ForceGround 0x00455860 (1000, 10000), whose ray sees the landscape only (a marker
+            // under an arch or a roof lands on the ground, not on the object); no collision body to lift out
             if p.f("force_ground", 0.0) != 0.0 {
-                if let Some((_, hit, _)) = physics.raycast(at + Vec3::Y * 1000.0, -Vec3::Y, 10000.0) {
-                    at.y = hit.y + 0.1;
+                if let Some(g) = physics.force_ground(at, 1000.0, 10000.0, None, 0.0) {
+                    at = g;
                 }
             }
             let (_, r, _) = (axes * m).to_scale_rotation_translation();
@@ -918,13 +977,24 @@ pub fn spawn(
         } else if !invisible {
             // a model with a skeleton plays its template's default anim (oilpump: oilpump_cycle), see DefaultAnim
             if let Some(anim) = tpl.and_then(|t| t.default_anim.clone()) {
-                commands.entity(e).insert(DefaultAnim { anim, seen: false });
+                let phase = (p.f("anim_rand", 0.0) != 0.0).then(|| anim_rng.rand() as f32 / 32768.0);
+                commands.entity(e).insert(DefaultAnim { anim, seen: false, phase });
             }
         }
         // decal receivers (Decals_ProjectOnEntity 0x00416f50): decal_receive (default 1, +0x3ec bit 8), not animating
         // (0x00418610), not skinned (Entity_DecalExcluded 0x00416e90: guess); characters are skinned
         if !invisible && !background && !animated && model.skeleton.is_none() && p.f("decal_receive", 1.0) != 0.0 {
             decal_world.add_object(e, model, to_game * world);
+        }
+        // the bullseye that marks the houses a mission asks to destroy (lev_3_m2's 14, lev_4_m3's 15): BuildingObject
+        // 0x0040ad80 reads Bullseye and BullsEyeSize (default 10), and its first update 0x0040cb10 spawns the decal
+        // "Fx_bullseye" at the model's Ref_bullseye node onto the building alone (Decals_Spawn 0x004165c0 with the
+        // object), kept for good (its age -1.0: the pool never recycles it); it fades with the building's death
+        if behavior == "building" && p.f("bullseye", 0.0) != 0.0 {
+            if let Some(node) = ref_node(&lib_dir, &reference_anim(tpl, &p, &inst.model), "Ref_bullseye") {
+                let place = to_game * world * node;
+                commands.write_message(crate::decals::SpawnDecal { place, size: p.f("bullseyesize", 10.0), texture: "Fx_bullseye".into(), onto: Some(e), pinned: true });
+            }
         }
         if !invisible {
             // shadow casters: objects whose property set has shadow_enable (shadows.md, object +0x3ec bits 1-2)
@@ -977,8 +1047,8 @@ pub fn spawn(
         if inst.template == "trotter" {
             let (yaw, _, _) = (rot * game_to_engine().inverse()).to_euler(EulerRot::YXZ);
             // PlayerObject_Load 0x00473da0 puts him on the ground (Object_ForceGround 0x00455860: from 1000 above,
-            // 10000 down): he does not drop from the placement's height at the start
-            let pos = physics.raycast_landscape(pos + Vec3::Y * 1000.0, -Vec3::Y, 10000.0).map(|h| pos.with_y(h.y)).unwrap_or(pos);
+            // 10000 down, the landscape only, 0.1 above the hit): he does not drop from the placement's height at the start
+            let pos = physics.force_ground(pos, 1000.0, 10000.0, None, 0.0).unwrap_or(pos);
             if let Some(r) = crate::player::make_roman(physics, &p, data, pos, yaw - std::f32::consts::PI) {
                 commands.entity(e).insert((Health(r.max_health), r, bounds, crate::ai::Player));
                 info.player = Some(e);
@@ -1095,7 +1165,8 @@ pub fn spawn(
         // a default object with no_collide (flag 8: the big red arrow) skips its whole collision set-up in
         // DefaultGameObject_Load 0x0044fd20 (no vt+0xf8 filter, no lists): no collider (guess: a body without the
         // filter collides with nothing; the crosshair's list +0xe9c and the bullets' +0xe90 never hold it)
-        let coll_name = coll_name.filter(|_| !(behavior.is_empty() && p.f("no_collide", 0.0) != 0.0));
+        let default_object = is_default_object(behavior);
+        let coll_name = coll_name.filter(|_| !(default_object && p.f("no_collide", 0.0) != 0.0));
         // a house that throws its people out when destroyed (toss_peasants / toss_grunts: tossed.rs); its husks inherit it
         if behavior == "building" {
             if let Some(t) = crate::tossed::TossOnDeath::of(&p) {
@@ -1103,11 +1174,20 @@ pub fn spawn(
             }
         }
         // a movable default object (boulders): its body once unpinned (movable.rs)
-        if behavior.is_empty() {
+        if default_object {
             if let Some(m) = crate::movable::Movable::new(&p, coll_name.clone()) {
                 commands.entity(e).insert(m);
             }
         }
+        let triggers = if default_object { ObjectTriggers::of(&p) } else { ObjectTriggers::default() };
+        // a collide barrier waiting for its start_blocking trigger has no collider until then (DormantBarrier)
+        let coll_name = match coll_name {
+            Some(n) if default_object && p.f("collide_barrier", 0.0) != 0.0 && triggers.start_blocking != 0 => {
+                commands.entity(e).insert(DormantBarrier { collision: n, material: p.s("material").map(str::to_owned) });
+                None
+            }
+            other => other,
+        };
         let collider = match coll_name {
             Some(n) => lib.load_model(&n, false, assets, meshes, materials).and_then(|m| static_collider(physics, m, world)),
             None => None,
@@ -1115,7 +1195,6 @@ pub fn spawn(
         if let Some(c) = collider {
             collider_lists(physics, &p, c);
         }
-        let triggers = if behavior.is_empty() { ObjectTriggers::of(&p) } else { ObjectTriggers::default() };
         let husk = pick_husk(&p, &mut husk_rng);
         commands.entity(e).insert((Placed { template: inst.template.clone(), collider, husk, triggers }, bounds, crate::hud::AimClass::of(&p)));
         if in_damage_list(&p) {
@@ -1154,15 +1233,15 @@ pub fn spawn(
             // the pub's own loop (Pub_StartExteriorLoop 0x0046a790: "amb_pub_exterior_lp", attached, once)
             commands.entity(e).insert(AudioLoop("amb_pub_exterior_lp".into()));
         }
-        // the building's windows (0x0040ad80): a village_window at each ref_win_0N of its reference anim
+        // the building's windows (0x0040ad80): a village_window at each ref_win_0N matrix of its reference anim
         if p.f("windows", 0.0) != 0.0 {
-            let anim = p.s("ref_anim_name").unwrap_or(inst.model.as_str()).to_owned();
+            let anim = reference_anim(tpl, &p, &inst.model);
             let wp = data.template_props("village_window");
             let wt = data.templates.get("village_window").cloned();
             for i in 0..10 {
-                let Some(at) = crate::mission::pub_bone(&lib_dir, &anim, &format!("ref_win_{i:02}")) else { break };
+                let Some(at) = ref_node(&lib_dir, &anim, &format!("ref_win_{i:02}")) else { break };
                 let Some(wt) = wt.as_ref() else { break };
-                let ww = world * Mat4::from_translation(at);
+                let ww = world * at;
                 let we = commands.spawn((Transform::from_matrix(ww), Visibility::default(), Name::new("village_window"), Window { building: e, index: i as u8 })).id();
                 if let Some(m) = wt.model.as_ref().and_then(|m| lib.load_model(m, false, assets, meshes, materials)) {
                     let _ = attach_model(commands, we, m, false, None, "ref_rhand");
@@ -1193,7 +1272,7 @@ pub fn spawn(
         // (always ref_wantedposter), attached: it goes with the building's stage and fades with it (the fade list
         // World+0xed8 the camera's fade walks with its building: camfade.rs fades the descendants)
         if let Some(node) = p.s("rewardposter").filter(|_| behavior == "building") {
-            let anim = p.s("ref_anim_name").unwrap_or(inst.model.as_str()).to_owned();
+            let anim = reference_anim(tpl, &p, &inst.model);
             let model = data.templates.get("prop_rewardposter").and_then(|t| t.model.clone());
             if let (Some(at), Some(m)) = (ref_node(&lib_dir, &anim, node), model.as_ref().and_then(|m| lib.load_model(m, false, assets, meshes, materials))) {
                 let poster = commands.spawn((Transform::from_matrix(at), Visibility::default(), Name::new("prop_rewardposter"), RewardPoster)).id();
@@ -1392,6 +1471,20 @@ impl StageSwap<'_, '_> {
         self.commands.entity(e).despawn();
     }
 
+    /// A dormant barrier's collider at `world`, solid and in the bullets' list (0x00450fb0's start_blocking; the ray
+    /// collector still drops invisible_material, 0x004138c0).
+    fn make_solid(&mut self, b: &DormantBarrier, world: Mat4) -> Option<BodyId> {
+        let model = self.lib.load_model(&b.collision, false, &self.assets, &mut self.meshes, &mut self.materials)?;
+        let c = static_collider(&mut self.physics, model, world)?;
+        if let Some(m) = &b.material {
+            self.physics.materials.insert(c, m.clone());
+            if m == "invisible_material" {
+                self.physics.no_bullets.insert(c);
+            }
+        }
+        Some(c)
+    }
+
     /// The object becomes `template` at `world` (its own matrix), keeping its entity and InstanceId: the husk made
     /// by Object_SpawnHusk 0x00455660 through the factory (ObjectSystem_CreateObject 0x0045f020) from its template
     /// alone. Without such a template the object is despawned. The caller has unlinked it.
@@ -1420,7 +1513,8 @@ impl StageSwap<'_, '_> {
         // its collision model, or (collide_poly) its render model, as a placed object's
         let coll_name = ht.collision.clone().or_else(|| (hp.i("collide_poly", 0) != 0).then_some(model_name).flatten());
         // a movable husk (boulder_large -> boulder_medium ...): a new object, unpinned unless its template pins it
-        if hp.s("behavior").is_none() {
+        let default_object = is_default_object(hp.s("behavior").unwrap_or(""));
+        if default_object {
             if let Some(m) = crate::movable::Movable::new(&hp, coll_name.clone()) {
                 self.commands.entity(e).insert(m);
             }
@@ -1433,7 +1527,7 @@ impl StageSwap<'_, '_> {
             collider_lists(&mut self.physics, &hp, c);
         }
         let aim = crate::hud::AimClass::of(&hp);
-        let triggers = if hp.s("behavior").is_none() { ObjectTriggers::of(&hp) } else { ObjectTriggers::default() };
+        let triggers = if default_object { ObjectTriggers::of(&hp) } else { ObjectTriggers::default() };
         let next = pick_husk(&hp, self.rng.get());
         let mut ec = self.commands.entity(e);
         ec.insert((Placed { template: template.to_owned(), collider, husk: next, triggers }, aim, Husk));
@@ -1725,6 +1819,10 @@ mod tests {
         assert_eq!(pick_husk(&props(serde_json::json!({})), &mut rng), None);
         assert_eq!(pick_husk(&props(serde_json::json!({ "husk": "null" })), &mut rng), None);
         assert_eq!(pick_husk(&props(serde_json::json!({ "husk": "oilpump_d" })), &mut rng).as_deref(), Some("oilpump_d"));
+        // a present "null" is drawn like a name: with husk1 the object gets husk1 about half the time
+        let p = props(serde_json::json!({ "husk": "null", "husk1": "b" }));
+        let picks: Vec<Option<String>> = (0..200).map(|_| pick_husk(&p, &mut rng)).collect();
+        assert!(picks.contains(&None) && picks.contains(&Some("b".into())));
         // husk3 is not read: husk2 is missing
         let p = props(serde_json::json!({ "husk": "a", "husk1": "b", "husk3": "d" }));
         let mut seen = std::collections::HashSet::new();
@@ -1749,5 +1847,20 @@ mod tests {
         assert!(listed(serde_json::json!({ "behavior": "building" })));
         assert!(!listed(serde_json::json!({ "behavior": "building", "base_defend": 1 })));
         assert!(listed(serde_json::json!({ "behavior": "tree" })) && listed(serde_json::json!({ "behavior": "fx_explosion" })));
+        // "defaultgameobject" by name is a default object (p_l4_trees: blocks_projectiles 1)
+        assert!(listed(serde_json::json!({ "behavior": "defaultgameobject", "blocks_projectiles": 1, "takes_damage": 0 })));
+        assert!(!listed(serde_json::json!({ "behavior": "defaultgameobject", "takes_damage": 0 })));
+        assert!(!in_damage_list(&props(serde_json::json!({ "behavior": "defaultgameobject", "blocks_projectiles": 1, "takes_damage": 0 }))));
+    }
+
+    /// FxExplosion_Load 0x0041c180: a keg without its fuse keys gets start_delay 1.0, acceleration_rate 0.75,
+    /// min_delay 0.1; a default object 2010 impact force.
+    #[test]
+    fn keg_fuse_defaults() {
+        let d = destructible(&props(serde_json::json!({ "behavior": "fx_explosion", "max_health": 1, "fx_death": "x" }))).unwrap();
+        assert_eq!((d.start_delay, d.acceleration, d.min_delay), (1.0, 0.75, 0.1));
+        assert_eq!(d.impact_force, 2010.0);
+        let d = destructible(&props(serde_json::json!({ "behavior": "defaultgameobject", "max_health": 1, "fx_death": "x" }))).unwrap();
+        assert_eq!(d.impact_force, 2010.0);
     }
 }

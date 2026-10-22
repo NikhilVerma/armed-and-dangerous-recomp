@@ -1681,8 +1681,9 @@ pub enum AimClass {
 impl AimClass {
     pub fn of(p: &crate::gamedata::Props) -> Self {
         match p.s("behavior").unwrap_or("") {
-            // no behaviour: DefaultGameObject_Load 0x0044fd20 (takes_damage default 0)
-            "" => AimClass::Default { takes_damage: p.f("takes_damage", 0.0) != 0.0 },
+            // a default object (no behaviour, or "defaultgameobject"): DefaultGameObject_Load 0x0044fd20 (takes_damage
+            // default 0)
+            b if crate::level::is_default_object(b) => AimClass::Default { takes_damage: p.f("takes_damage", 0.0) != 0.0 },
             // BuildingObject 0x0040ad80 (ai_01.cpp:961: takes_damage default 1, takes_bullet_damage 0)
             "building" => AimClass::Building { takes_damage: p.f("takes_damage", 1.0) != 0.0, takes_bullet: p.f("takes_bullet_damage", 0.0) != 0.0 },
             "twiglet_generator" | "pub" | "stig_mgun_turret" | "forge_cannon" => AimClass::Never,
