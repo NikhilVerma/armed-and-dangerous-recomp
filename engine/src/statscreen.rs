@@ -39,11 +39,16 @@ pub struct StatScreen {
     money_lines: [f32; 4],
     from: f32,
     to: f32,
-    tick: f32,
-    last_values: [i64; 8],
+    /// seconds since the last ui_move tick (+0x84: it runs in every phase) and the value it ticked for (+0x80)
+    since_tick: f32,
+    ticked_value: i64,
     frame: u32,
     left: bool,
 }
+
+/// The poster quad's material (its fade-in alpha, 0x004948d0).
+#[derive(Component)]
+struct PosterMaterial(Handle<ColorMaterial>);
 
 /// What each entity of the screen shows.
 #[derive(Component, Clone, Copy, PartialEq)]
@@ -106,6 +111,9 @@ fn open(
     s.open = true;
     s.phase = 0;
     s.reveal = 0.0;
+    // (0x00494050: +0x84 = 1, +0x80 = 0: the first frame ticks)
+    s.since_tick = 1.0;
+    s.ticked_value = 0;
     s.money_lines = [stats.kills_money, stats.accidents_money, stats.rescues_money, stats.loot_money].map(|v| v * difficulty.factors().money);
     s.from = opts.money;
     s.to = (opts.money + s.money_lines.iter().map(|v| v.trunc()).sum::<f32>()).max(0.0);
@@ -165,7 +173,7 @@ fn open(
     }
     // the wanted poster (0x004948d0; its widget 0x00494790 takes the texture b_wanted_reward, 0x0058fb40): 256 x 320 at
     // the end, with the money in black
-    let poster_mat = materials.add(ColorMaterial { texture: Some(assets.load("textures/b_wanted_reward.dds")), ..default() });
+    let poster_mat = materials.add(ColorMaterial { texture: Some(assets.load("textures/b_wanted_reward.dds")), alpha_mode: bevy::sprite_render::AlphaMode2d::Blend, ..default() });
     let poster = commands
         .spawn((
             HudElement { name: "stats_poster".into(), pos: POSTER, anchor: Anchor::Centre, full: true },
@@ -177,7 +185,9 @@ fn open(
             crate::gamemenu::MenuOwned,
         ))
         .id();
-    let q = commands.spawn((Mesh2d(meshes.add(Rectangle::new(512.0, 640.0))), MeshMaterial2d(poster_mat), Transform::IDENTITY, RenderLayers::layer(HUD_LAYER), StatPart::PosterQuad)).id();
+    let q = commands
+        .spawn((Mesh2d(meshes.add(Rectangle::new(512.0, 640.0))), MeshMaterial2d(poster_mat.clone()), PosterMaterial(poster_mat), Transform::IDENTITY, RenderLayers::layer(HUD_LAYER), StatPart::PosterQuad))
+        .id();
     commands.entity(poster).add_children(&[q]);
     let pt = spawn_text(&mut commands, "poster_text", "", POSTER, 2.0, Color::BLACK, 0.0, StatPart::PosterText);
     commands.entity(pt).insert(Transform::from_xyz(0.0, 0.0, 40.0));
@@ -199,7 +209,13 @@ fn update(
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     mut opts: ResMut<crate::options::GameOptions>,
     play: Option<ResMut<crate::playtest::PlayState>>,
-    (mut commands, screen, mut end): (Commands, Query<Entity, (With<StatPart>, Without<ChildOf>)>, ResMut<crate::campaign::LevelEnd>),
+    (mut commands, screen, mut end, poster_mats, mut materials): (
+        Commands,
+        Query<Entity, (With<StatPart>, Without<ChildOf>)>,
+        ResMut<crate::campaign::LevelEnd>,
+        Query<&PosterMaterial>,
+        ResMut<Assets<ColorMaterial>>,
+    ),
 ) {
     if !s.open {
         return;
@@ -215,10 +231,12 @@ fn update(
     // the lines (0x00494310 every frame of phase 0): the bars through 0x00494160, shown = min(max x reveal, value),
     // the label "%d" / "%d (%d%%)" (Stepper_SetLabelA 0x0046d110) and the bar's position shown / max (the stepper's
     // change callback Stepper_Notify 0x0046d030: none on these bars); the money lines through 0x00494280, "$%d" /
-    // "-$%d" of the line x reveal (FitText_SetTextA 0x0046d5c0, fitted by FitText_Layout 0x0046d4b0)
+    // "-$%d" of the line x reveal (FitText_SetTextA 0x0046d5c0, fitted by FitText_Layout 0x0046d4b0). The kills bar's
+    // maximum is the enemy count as it stands (Game+0x2710): kills beyond it show the count, and with none counted the
+    // bar shows 0 (0x00494160: v = min(max x reveal, value), position 0 for a maximum of 0)
     let bar_vals = |r: f32| -> [(f32, f32); 4] {
         let fired = stats.shots_fired as f32;
-        let total = stats.enemies_total.max(stats.enemies_killed) as f32;
+        let total = stats.enemies_total as f32;
         let killed = stats.enemies_killed as f32;
         [
             ((fired * r).min(fired), fired),
@@ -227,7 +245,7 @@ fn update(
             ((killed * r).min(stats.head_shots as f32), killed),
         ]
     };
-    let mut ticked = false;
+    let phase = s.phase;
     match s.phase {
         0 | 3 => {
             s.reveal = if confirm { 1.0 } else { (s.reveal + dt / 3.0).min(1.0) };
@@ -238,7 +256,6 @@ fn update(
                     opts.money = s.to;
                 }
             }
-            ticked = true;
         }
         2 => {
             s.reveal = if confirm { 1.0 } else { (s.reveal + dt * 2.0).min(1.0) };
@@ -278,15 +295,29 @@ fn update(
         2 => s.reveal,
         _ => 1.0,
     };
-    let total = if s.phase == 3 { s.from + (s.to - s.from) * s.reveal } else if s.phase >= 4 { s.to } else { s.from };
-    // ui_move ticks while a shown value changes, at most every 0.1 s
-    let vals = [bars[0].0 as i64, bars[1].0 as i64, bars[2].0 as i64, bars[3].0 as i64, (s.money_lines[0] * money_r) as i64, (s.money_lines[1] * money_r) as i64, (s.money_lines[3] * money_r) as i64, total as i64];
-    s.tick -= dt;
-    if ticked && vals != s.last_values && s.tick <= 0.0 {
-        sounds.write(crate::audio::PlaySound::ui("ui_move"));
-        s.tick = 0.1;
+    // its fade-in (0x004948d0): alpha ftol(v x 2550) / 255 while v < 0.1, then opaque
+    let poster_alpha = if poster_v < 0.1 { (poster_v * 2550.0).trunc() / 255.0 } else { 1.0 };
+    for m in &poster_mats {
+        if let Some(mut mat) = materials.get_mut(&m.0) {
+            if mat.color.alpha() != poster_alpha {
+                mat.color.set_alpha(poster_alpha);
+            }
+        }
     }
-    s.last_values = vals;
+    let total = if s.phase == 3 { s.from + (s.to - s.from) * s.reveal } else if s.phase >= 4 { s.to } else { s.from };
+    // ui_move (0x00494440): the shown value +0x80 against this frame's, at most every 0.1 s. Phase 0 steps it every
+    // frame, so the reveal ticks every 0.1 s whatever the numbers do; phase 3 shows the money counted so far
+    s.since_tick += dt;
+    let shown = match phase {
+        0 => s.ticked_value + 1,
+        3 => total as i64,
+        _ => s.ticked_value,
+    };
+    if shown != s.ticked_value && s.since_tick >= 0.1 {
+        sounds.write(crate::audio::PlaySound::ui("ui_move"));
+        s.since_tick = 0.0;
+        s.ticked_value = shown;
+    }
     let money = |v: f32| if v < 0.0 { format!("-${}", (-v) as i64) } else { format!("${}", v as i64) };
     let waiting = s.phase == 1 || s.phase == 4;
     for (p, mut t, mut el, mut vis) in &mut parts {
@@ -300,7 +331,8 @@ fn update(
                     format!("{}", shown as i64)
                 }
             }
-            StatPart::Money(i) => money(s.money_lines[i] * money_r),
+            // the line truncated first (0x00494310's ftol), then times the reveal and truncated again (0x00494280)
+            StatPart::Money(i) => money(s.money_lines[i].trunc() * money_r),
             StatPart::PosterText => {
                 *vis = if poster_v > 0.0 { Visibility::Inherited } else { Visibility::Hidden };
                 // on the poster's render target at (0.5, 0.2) (WantedReward_Draw 0x00494b70): between the picture and
@@ -310,6 +342,12 @@ fn update(
                 el.pos = POSTER + Vec2::from_angle(a).rotate(Vec2::new(0.0, -0.3 * 640.0 * size));
                 if (t.scale - 3.2 * size).abs() > 1e-3 {
                     t.scale = 3.2 * size;
+                    t.built = None;
+                }
+                // drawn into the poster's texture: it fades in with it
+                let c = Color::BLACK.with_alpha(poster_alpha);
+                if t.colour != c {
+                    t.colour = c;
                     t.built = None;
                 }
                 money(total)
@@ -330,9 +368,11 @@ fn update(
         match *p {
             StatPart::BarFill(i) => {
                 let (shown, max) = bars[i];
+                // whole pixels of the 640 x 480 screen (0x0046d130: ftol(position x 192)); none at 0
                 let frac = if max > 0.0 { (shown / max).clamp(0.0, 1.0) } else { 0.0 };
-                tr.scale.x = (192.0 * frac).max(0.01);
-                tr.translation.x = -96.0 + 96.0 * frac;
+                let w = (192.0 * frac).trunc();
+                tr.scale.x = w.max(1e-4);
+                tr.translation.x = -96.0 + w / 2.0;
             }
             // the 512 x 640 quad is 256 x 320 at the end (size 0.5), turned v x 6.8068 rad (30 degrees at the end)
             StatPart::PosterQuad => {
