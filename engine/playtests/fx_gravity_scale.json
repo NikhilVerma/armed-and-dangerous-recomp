@@ -1,0 +1,11 @@
+{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+ {"note": "Fx_SetGravity 0x0041de10 / Physics_ApplyGravityScale 0x00403c70: a negative scale rises. fx_cloud_snow_1 (no push, 0x11 -0.2..-0.1: 6.4..12.9 units/s^2 up) climbs at about 10..19 units/s after 1.5 s, where the clamp to 0 left it hanging (0). The flying keg's 0x64 then 0x11 1.0 (its body made again with normal gravity): keg_launch"},
+ {"wait": 0.5},
+ {"loadout": {"health": 5000}},
+ {"warp": [-210, 380, 25, 0]},
+ {"wait": 0.5},
+ {"fx": {"name": "fx_cloud_snow_1", "at": [-210, 430, 60], "clear": true}},
+ {"wait": 1.5},
+ {"expect": {"fx.made.fxo_smoke_snow": 1, "fx.kin.fxo_smoke_snow.up": [3, 40], "fx.kin.fxo_smoke_snow.lean": [0, 0.5]}},
+ {"quit": true}
+]}

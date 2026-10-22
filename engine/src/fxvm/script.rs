@@ -8,7 +8,7 @@
 //! sequence never depends on it.
 
 use super::attach::point_world;
-use super::body::{add_impulse, add_spin, make_dynamic, set_rotation, wake};
+use super::body::{add_impulse, add_spin, make_dynamic, set_gravity, set_rotation, wake};
 use super::materials::{FxAddMaterial, FxAddParams, FxLayerMaterial, FxLayerParams, premultiplied};
 use super::object::{EmitMode, FxObject, HitCreate, LightDef, MeshEmitter, ScaleCurve, UvRotate, UvScale, UvScroll};
 use super::particles::{Emitter, build_ramp};
@@ -473,13 +473,13 @@ pub fn run_script(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_>, idx: usize, spawned:
                 }
                 list1 = None;
             }
-            // Fx_SetGravity 0x0041de10: the gravity scale; the body made dynamic (Object_setPhysicsEnabled(obj, 0))
+            // Fx_SetGravity 0x0041de10: the gravity scale (0 keeps the old one); the body made dynamic
+            // (Object_setPhysicsEnabled(obj, 0)), or made again with the new scale (body.rs `set_gravity`)
             "0x11" => {
                 let g = vm.rng.r(w(1), w(2));
                 if let Some(t) = target {
                     if let Some(o) = vm.objects.get_mut(&t) {
-                        o.gravity = g;
-                        make_dynamic(ctx.physics, ctx.commands, o, t, g);
+                        set_gravity(ctx.physics, ctx.commands, o, t, g);
                     }
                 }
             }
@@ -816,7 +816,7 @@ pub fn run_script(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_>, idx: usize, spawned:
                 let v = Vec3::new(vm.rng.r(w(1), w(2)), vm.rng.r(w(3), w(4)), vm.rng.r(w(5), w(6)));
                 if let Some(t) = target {
                     if let Some(o) = vm.objects.get_mut(&t) {
-                        if let Some(id) = make_dynamic(ctx.physics, ctx.commands, o, t, 1.0) {
+                        if let Some(id) = make_dynamic(ctx.physics, ctx.commands, o, t) {
                             add_impulse(ctx.physics, id, v);
                         }
                     }

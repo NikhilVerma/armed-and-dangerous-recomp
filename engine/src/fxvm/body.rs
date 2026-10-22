@@ -21,10 +21,10 @@ use std::sync::Arc;
 /// impact force on props; debt: how non-character receivers take impact_force is not traced). Fx bodies do not use
 /// it: their mass is the game's.
 pub const IMPULSE_SCALE: f32 = 1.0 / 66.0;
-/// 0x1a spins: the vector (degrees, per the scripts' 0..360 ranges) taken as an angular velocity change in degrees per
-/// second (guess: the original passes it to a force action as an angular impulse of vector / 120 in Havok units),
-/// capped so a script's 100000 (fx_debri_oilpump_02) stays a fast tumble.
-const MAX_SPIN: f32 = 20.0;
+/// 0x1a spins (Fx_RotateObject 0x0041f8f0 -> 0x00455b80): a force action of the script vector with flags 0x10 | 0x20,
+/// delay 0 and duration 1/120 s (ForceActionPool_Add 0x00403fb0); its first run (ForceActionPool_Update 0x00404140)
+/// finds 1/120 s left, under the 0.2 s force window, so it is one angular impulse of vector x 1/120 (Havok, game units).
+const SPIN_IMPULSE_TIME: f32 = 1.0 / 120.0;
 /// The contact group of every fx body (contacts.rs: a group's bodies never touch); far from the AI's squad tags.
 const FX_BODIES: u32 = 0xF0B0_D1E5;
 /// Object_BuildRadiusCollision's floor on a body's mass (0.05, K 0x005bcc34).
@@ -162,25 +162,34 @@ pub fn add_impulse(physics: &mut Physics, id: BodyId, v: Vec3) {
     }
 }
 
-/// 0x1a (Fx_RotateObject 0x0041f8f0 -> 0x00455b80): wakes the object and spins it (game-space axes, degrees).
-pub fn add_spin(physics: &mut Physics, id: BodyId, deg: Vec3) {
-    let w = game_to_engine() * (deg * std::f32::consts::PI / 180.0);
-    let w = w.clamp_length_max(MAX_SPIN);
-    let now = physics.world.body(id).map(|b| crate::physics::bv(b.angular_velocity())).unwrap_or(Vec3::ZERO);
+/// 0x1a (Fx_RotateObject 0x0041f8f0 -> 0x00455b80): wakes the object and gives it the angular impulse `v` x 1/120
+/// (world frame, game axes; game mass x units^2 / s), so the spin it gets depends on the body's inertia (a roof tile
+/// tumbles, a keg barely turns). Jolt's units are metres: an angular impulse scales by metres-per-unit squared.
+pub fn add_spin(physics: &mut Physics, id: BodyId, v: Vec3) {
+    let k = physics.meters_per_unit;
+    let impulse = game_to_engine() * (v * SPIN_IMPULSE_TIME) * (k * k);
     if let Ok(mut b) = physics.world.body_mut(id) {
         b.activate();
-        let _ = b.set_angular_velocity(jv(now + w));
+        let _ = b.add_angular_impulse(jv(impulse));
     }
 }
 
 /// Object_setPhysicsEnabled(obj, 0): the fx object gets a dynamic body (`BodyDef`: the template's mass, friction and
-/// restitution; the model's box at the object's scale), its gravity scale (0x11: +0x48c; Physics_ApplyGravityScale
-/// 0x00403c70 gives listed objects g * (scale - 1), so 1 is normal gravity and an fx object's default 0 would float:
-/// FxObject_Load 0x00418f60 clears +0x48c, and every fx body is listed by its body set-up fn_00419020 0x00419020
-/// (Game+0xa84 +0xf1c); 0x11 with exactly 1.0 unlinks it, read back by fn_00419390 0x00419390) of the game's gravity.
-/// Inert objects (0x79) never get one. Pending impulses and spins are applied now. Fast pieces (a flying keg leaves at
-/// ~180 units/s) sweep their motion, so they do not tunnel through a roof or the ground.
-pub fn make_dynamic(physics: &mut Physics, commands: &mut Commands, o: &mut FxObject, e: Entity, gravity: f32) -> Option<BodyId> {
+/// restitution; the model's hull at the object's scale) that falls by its gravity scale `o.gravity` (0x11: +0x48c)
+/// times the game's gravity. Physics_ApplyGravityScale 0x00403c70 adds g * (scale - 1) x mass each substep to the
+/// listed objects, on top of the world's gravity, so 1 is normal gravity, 0 weightless and a negative scale rises
+/// (smoke: fx_smoke_col's -0.2..-0.1). FxObject_Load 0x00418f60 clears +0x48c and every fx body is listed by its body
+/// set-up fn_00419020 0x00419020 (Game+0xa84 +0xf1c; fn_00419390 0x00419390, slot 0x23 = vt+0x8c, reads +0x48c back),
+/// so an object no 0x11 gave a scale is weightless: fx_trash floats where fx_trash_gravity (the same with 0x11 1.0)
+/// falls, and fx_keg_fireball's 0x64 sends it straight up. Inert objects (0x79) never get a body. Pending impulses and
+/// spins are applied now. Fast pieces (a flying keg leaves at ~180 units/s) sweep their motion, so they do not tunnel
+/// through a roof or the ground. An object that already has a body keeps it.
+///
+/// The shape is the model's convex hull (or its box), where the original builds the bounding sphere for templates
+/// without collide_poly (Object_BuildRadiusCollision 0x004527d0 with cinfo +0xc set). Deliberately better than the
+/// original: a sphere rolls and leaves a plank hovering half its length above the ground (the player, 2026-10-12, which
+/// the hook's mesh-collision enhancement, physics_02.cpp g_meshCollision, also fixes). The mass is the sphere's.
+pub fn make_dynamic(physics: &mut Physics, commands: &mut Commands, o: &mut FxObject, e: Entity) -> Option<BodyId> {
     if let Some(b) = o.body {
         return Some(b);
     }
@@ -206,7 +215,7 @@ pub fn make_dynamic(physics: &mut Physics, commands: &mut Commands, o: &mut FxOb
         .mass(def.mass)
         .friction(1.0)
         .restitution(def.restitution)
-        .gravity_factor(physics.game_gravity_factor(gravity.max(0.0)))
+        .gravity_factor(physics.game_gravity_factor(o.gravity))
         .motion_quality(MotionQuality::LinearCast);
     let id = physics.add_dynamic(e, &shape, pos, rot, Vec3::ZERO, s)?;
     // fx bodies pass through each other: a flying keg goes straight up through the debris of the house its chain
@@ -229,6 +238,32 @@ pub fn make_dynamic(physics: &mut Physics, commands: &mut Commands, o: &mut FxOb
         add_spin(physics, id, std::mem::take(&mut o.spin));
     }
     Some(id)
+}
+
+/// 0x11 (Fx_SetGravity 0x0041de10): a non-zero scale becomes the object's gravity scale (+0x48c; 0 leaves the old one),
+/// then the object is woken into a dynamic body (`make_dynamic`). The original reads the scale every substep
+/// (Physics_ApplyGravityScale 0x00403c70), so a new scale takes hold on a body that already falls (the flying keg's
+/// 0x64 made its body before its 0x11 1.0): Jolt fixes a body's gravity factor when it is made, so that body is made
+/// again with the new one, keeping its pose and velocities.
+pub fn set_gravity(physics: &mut Physics, commands: &mut Commands, o: &mut FxObject, e: Entity, scale: f32) {
+    if scale != 0.0 {
+        if let Some(old) = o.body.filter(|_| o.gravity != scale) {
+            let motion = physics.world.body(old).ok().map(|b| (b.position(), b.rotation(), b.linear_velocity(), b.angular_velocity()));
+            remove(physics, old);
+            o.body = None;
+            o.gravity = scale;
+            if let (Some(id), Some((pos, rot, v, w))) = (make_dynamic(physics, commands, o, e), motion) {
+                if let Ok(mut b) = physics.world.body_mut(id) {
+                    let _ = b.set_position_and_rotation(pos, rot, Activation::Activate);
+                    let _ = b.set_linear_velocity(v);
+                    let _ = b.set_angular_velocity(w);
+                }
+            }
+            return;
+        }
+        o.gravity = scale;
+    }
+    make_dynamic(physics, commands, o, e);
 }
 
 /// Turns a body to a new placement's rotation (0x31 after the body exists).
@@ -268,17 +303,14 @@ fn support(rot: Quat, half: Vec3, down: Vec3) -> f32 {
     (rot * Vec3::X).dot(down).abs() * half.x + (rot * Vec3::Y).dot(down).abs() * half.y + (rot * Vec3::Z).dot(down).abs() * half.z
 }
 
-/// A contact of the fx body in the last physics step (the Havok contact callback FxObject slot 0x2a, 0x00419330, from
-/// the solver's contacts: contacts.rs notes them for every ruled body). Returns (game-space contact point: the box's
-/// face towards the other body, the body touched).
-pub fn touching(physics: &Physics, id: BodyId, o: &FxObject) -> Option<(Vec3, BodyId)> {
+/// A contact of the fx body in the last physics step (FxObject slot 0x2a, 0x00419330, which the contact-added listener
+/// CollisionListener_OnContactAdded 0x00413240 calls for each new contact point: from the solver's contacts, which
+/// contacts.rs notes for every ruled body). Returns (the game-space contact point, +0x544..+0x54c: the solver's point
+/// on the other body's surface; the body touched, whose surface picks the on-hit fx's variant as the other side's
+/// material, +0x554, does in the original).
+pub fn touching(physics: &Physics, id: BodyId) -> Option<(Vec3, BodyId)> {
     let t = physics.touches(id).into_iter().next()?;
-    let (centre, _) = centre_and_velocity(physics, id, o)?;
-    let rot = physics.world.body(id).ok().map(|b| crate::physics::bq(b.rotation()))?;
-    let (_, half) = o.body_def.scaled(o.scale_now);
-    // the normal points out of the other body, towards this one
-    let at = centre - t.normal * support(rot, half, t.normal);
-    Some((game_to_engine().inverse() * at, t.other))
+    Some((game_to_engine().inverse() * physics.from_m(t.point), t.other))
 }
 
 /// How an fx body sits (the playtests' check that debris lands and settles): its velocity (game axes, units/s) and,

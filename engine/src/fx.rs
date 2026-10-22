@@ -138,9 +138,15 @@ impl Destructible {
         false
     }
 
-    /// Whether a damage record applies: `no_buildings` is the record's 0x400 bit (a projectile without
+    /// Whether a plain damage record applies: `no_buildings` is the record's 0x400 bit (a projectile without
     /// damages_buildings: the rifle's and grunts' bullets), `by` its source.
     pub fn accepts(&self, by: Src, no_buildings: bool) -> bool {
+        self.accepts_record(by, no_buildings, crate::player::DamageKind::Plain)
+    }
+
+    /// `accepts` for a record of a class `kind`: a keg (FxExplosion_OnDamage 0x0041c4e0) takes a mounted gun's bullet
+    /// (0x80000) or a forge shell (0x100000) whatever its source (record flags & 0x180000), as it takes an object's.
+    pub fn accepts_record(&self, by: Src, no_buildings: bool, kind: crate::player::DamageKind) -> bool {
         let source = || match by {
             Src::Object => true,
             Src::Player => self.player_damage,
@@ -150,7 +156,7 @@ impl Destructible {
         match self.class {
             DClass::Default => self.takes_damage && (!no_buildings || self.takes_bullet),
             DClass::Building => self.takes_damage && (!no_buildings || self.takes_bullet) && source(),
-            DClass::Keg => source(),
+            DClass::Keg => matches!(kind, crate::player::DamageKind::Stig | crate::player::DamageKind::Forge) || source(),
             DClass::Open => true,
         }
     }
@@ -268,6 +274,7 @@ fn damage(
     roman: Query<(), With<crate::player::Roman>>,
     topsy: Option<Res<crate::topsy::Topsy>>,
     hits_ignored: Query<(), With<crate::mission::HitsIgnored>>,
+    fx_objects: Query<(), With<crate::fxvm::FxEntity>>,
 ) {
     // the player's hit handler ignores everything during the topsy states (0x0047afa0, +0xa34 & 0x7800000) and after
     // the mission's pre-success (mission.rs HitsIgnored)
@@ -286,7 +293,7 @@ fn damage(
                 continue; // a keg already at health <= 0 ignores further damage
             }
             let (dist, _) = surface(t, bounds, b.at);
-            if dist > b.radius_outer || !d.accepts(b.by, false) {
+            if dist > b.radius_outer || !d.accepts_record(b.by, false, b.kind) {
                 continue;
             }
             if d.take_damage(b.area_damage * falloff(dist, b.radius_inner, b.radius_outer)) {
@@ -341,13 +348,19 @@ fn damage(
         // 0x00455b80, released by 0x00455a00, the mass-capped push 0x00456050; here Jolt impulses at once)
         // impact force: passed without falloff, direction normalise(n.x, n.y, 0.7) in game axes (z up). How
         // non-character objects turn it into an impulse is not traced: impulse = impact_force (game units)
-        // scaled like the fx impulses (guess).
+        // scaled like the fx impulses (guess; debt: the receivers' vt+0xd0, DefaultGameObject_OnDamage 0x00450da0
+        // pushes nothing, it only frees a body below its health fraction). Not pushed: the excluded object (the
+        // record's source) and fx objects (debris, the flying keg): AreaDamage_Apply 0x0047f020 only reaches the
+        // objects of World +0xe94, which FxObject_Load 0x00418f60 never joins.
         let k = physics.meters_per_unit;
         // in the bodies' creation order (the map's order is per process: Jolt's activation order, and so its solver
         // order, made runs differ)
         let mut ids: Vec<_> = physics.bodies.iter().map(|(id, e)| (*e, *id)).collect();
         ids.sort_by_key(|(e, id)| (*e, *id));
-        for (_, id) in ids {
+        for (e, id) in ids {
+            if b.source.is_some_and(|s| s == e) || fx_objects.contains(e) {
+                continue;
+            }
             let Ok(body) = physics.world.body(id) else { continue };
             let p = crate::physics::br(body.position()) / k;
             drop(body);
@@ -366,9 +379,11 @@ fn damage(
 }
 
 /// A dead object's death: DefaultGameObject_OnDeath 0x00450ee0 (once: score_value to Kills / Accidents, the
-/// send_trigger_on_death trigger (mission.rs `deaths`, from the Died message), area_damage through 0x0047f020), then
-/// Object_Kill 0x00455640 (the next frame in the original, 0x004505a0 flag 0x10000): removal and Object_SpawnHusk
-/// 0x00455660, the fx_death fx at the object's matrix and the husk object (level.rs `husks`).
+/// send_trigger_on_death trigger (mission.rs `deaths`, from the Died message), a non-zero area_damage through 0x0047f020
+/// with delay 0), then Object_Kill 0x00455640 (the next frame in the original, 0x004505a0 flag 0x10000): removal and
+/// Object_SpawnHusk 0x00455660, the fx_death fx at the object's matrix and the husk object (level.rs `husks`).
+/// A keg's death is FxExplosion_Die 0x0041c570 instead: no score (FxExplosion_Load 0x0041c180 never reads score_value,
+/// though the powder kegs' property set gives 20), its area damage passing its chain delay on.
 #[allow(clippy::too_many_arguments)]
 fn dying(
     mut commands: Commands,
@@ -388,11 +403,17 @@ fn dying(
             continue;
         }
         stats.deaths += 1;
-        ms.killed(d.score);
-        if d.area_damage > 0.0 {
+        if !d.chain {
+            ms.killed(d.score);
+        }
+        if d.area_damage != 0.0 {
             stats.explosions += 1;
-            // killed by its fuse: acceleration_rate x the fuse; killed directly: start_delay
-            let delay = if d.chain_delay > 0.0 { d.acceleration * d.chain_delay } else { d.start_delay };
+            // a keg killed by its fuse: acceleration_rate x the fuse; killed directly: start_delay; any other object: 0
+            let delay = match (d.chain, d.chain_delay > 0.0) {
+                (false, _) => 0.0,
+                (true, true) => d.acceleration * d.chain_delay,
+                (true, false) => d.start_delay,
+            };
             blasts.write(Explode {
                 at: t.translation(),
                 area_damage: d.area_damage,
@@ -503,6 +524,9 @@ mod tests {
         let k = object(DClass::Keg);
         assert!(k.accepts(Src::Player, true) && k.accepts(Src::Object, false));
         assert!(!k.accepts(Src::Teammate, false) && !k.accepts(Src::Badguy, false));
+        // a mounted gun's bullet or a forge shell (record flags 0x180000) passes whatever its source
+        assert!(k.accepts_record(Src::Badguy, true, crate::player::DamageKind::Stig));
+        assert!(k.accepts_record(Src::Teammate, false, crate::player::DamageKind::Forge));
         // trees, turrets: everything
         let o = object(DClass::Open);
         assert!(o.accepts(Src::Badguy, true));
