@@ -444,6 +444,9 @@ struct Barracks {
     /// alert_group (+0x530), marker_tag_min/max (+0x580 / +0x584): handed to every troop (0x0042db50)
     alert_group: i64,
     marker_tags: (i64, i64),
+    /// priority_target_tag_min / max (+0x56c / +0x570): handed to every troop as his priority targets (0x0040c590 ->
+    /// 0x0042cc60)
+    priority_tags: (i64, i64),
     /// the exit slot's "ref_spawn_00" and "ref_exit_00" points (engine space); none: no exit slot, no troops
     spawn: Option<(Vec3, Vec3)>,
     /// health when last seen: damage while `activate` is set starts the release (BarricadeObject_Slot52 0x0040ce40)
@@ -1161,6 +1164,7 @@ impl Mission {
                         reset: n(r, "trigger_reset") as i64,
                         alert_group: n(r, "alert_group") as i64,
                         marker_tags: (n(r, "marker_tag_min") as i64, n(r, "marker_tag_max") as i64),
+                        priority_tags: (n(r, "priority_target_tag_min") as i64, n(r, "priority_target_tag_max") as i64),
                         spawn,
                         health: None,
                         pending: false,
@@ -1931,6 +1935,7 @@ fn barracks(
                 exit: Some(exit),
                 marker_tags: (b.marker_tags.0 != 0).then_some(b.marker_tags),
                 alert_group: b.alert_group,
+                priority_tags: b.priority_tags,
                 ..default()
             });
             b.batch = b.batch.wrapping_sub(1);

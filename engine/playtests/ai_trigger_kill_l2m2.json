@@ -1,0 +1,12 @@
+{"scene": "lev_2_m2", "steps": [
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 1.0},
+ {"expect": {"mission": "Playing", "ai.trigger_kills": 0}},
+ {"note": "the volumes' trigger 900 kills the seven placed grunts of receive_trigger_kill 900 (69..73, 82, 185: 0x0042f870 -> vt+0xd4)"},
+ {"send": 900},
+ {"wait": 1.0},
+ {"expect": {"ai.trigger_kills": 7}},
+ {"send": 900},
+ {"wait": 0.5},
+ {"expect": {"ai.trigger_kills": 7}},
+ {"quit": true}
+]}

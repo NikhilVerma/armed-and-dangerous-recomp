@@ -919,6 +919,12 @@ pub struct Grunt {
     pub charge: bool,
     /// mode trigger_charge (+0x488 0x100): his activation (0x0042f5c0) is a charge (0x0042ce70)
     pub trigger_charge: bool,
+    /// receive_trigger_kill (+0x530): this trigger kills him (the trigger handler 0x0042f870 -> vt+0xd4); 0 none
+    pub kill_trigger: i64,
+    /// trigger_no_damage (+0x48c 0x4000, read for mode trigger_charge, ai_01.cpp:2465): while it is set, damage is
+    /// ignored (the monk's damage slot 0x004371e0; the other classes' slot 0x00430340 does not look at it, so only a
+    /// monk keeps it); his activation clears it (0x0042f5c0)
+    pub no_damage: bool,
     /// a charge (0x0042ce70) calls the pursuit (vt+0x184) at once, whatever the range: the next decision is the
     /// pursuit (a jumper's take-off, 0x004295d0), engaging comes after it
     pub pursue: bool,
@@ -992,8 +998,12 @@ impl Grunt {
     /// (0x5a, 0xaa, 0xac, 0xe7..0xeb, 0x197, 0x19a..0x19d), +0x894, the turn state 0x31, the parent rule, +0x484 bits 19
     /// and 28, the ride along a spline (0x97 with 0x0044b4b0).
     pub fn busy(&self, me: Entity, other: Entity) -> bool {
-        me == other
-            || self.gun.is_some()
+        me == other || self.busy_now()
+    }
+
+    /// [`Grunt::busy`] without the `other == self` test: busy whoever asks (a scare by a bomb, a hit with no source).
+    pub fn busy_now(&self) -> bool {
+        self.gun.is_some()
             || matches!(self.mind, Mind::Dead | Mind::Scripted | Mind::Held | Mind::Throw | Mind::WaitTrigger | Mind::InSquad | Mind::Teleport)
             || (self.mind == Mind::ToMarker && self.spline.is_some_and(|r| !r.started))
     }
@@ -1066,6 +1076,11 @@ pub struct AiStats {
     pub squad_charged: usize,
     /// a gunner's shots at the led point (flag 1, ai/aim.rs)
     pub led_shots: usize,
+    /// grunts killed by their receive_trigger_kill (0x0042f870)
+    pub trigger_kills: usize,
+    /// scares by a sticky bomb that sent a grunt running (0x0042fb60), and how far he was sent at most
+    pub flees: usize,
+    pub max_flee: f32,
 }
 
 /// Debug (playtest `ai_force`): forced outcomes of the AI's next rolls, each consumed by the behaviour it names ("throw":
@@ -1186,7 +1201,7 @@ impl Plugin for AiPlugin {
             .add_systems(
                 Update,
                 (
-                    (body::bumps, squad::update_squads, interests, mark_army_targets, search, ic::activate, (ic::knocks, base_area::cull).chain(), scare, max_fire::sync_limit, aim::track, think, max_fire::upkeep, fall::run, ic::run, paratroop::rappel, notes::from_movers, notes::apply, bully::bullies, die, dismay).chain(),
+                    (body::bumps, squad::update_squads, interests, mark_army_targets, search, ic::activate, (ic::knocks, base_area::cull).chain(), scare, max_fire::sync_limit, aim::track, think, max_fire::upkeep, fall::run, ic::run, paratroop::rappel, notes::from_movers, notes::apply, bully::bullies, (trigger_kills, die).chain(), dismay).chain(),
                     (
                         (body::apply_rules, log_cover, log_ai, log_placed, squad::log_squads, ic::log).chain(),
                         // the later levels' infantry (projectiles, falls, drops, the wall assault) and their playtest logs
@@ -1280,9 +1295,7 @@ fn log_ai(
             "dist": p.distance(rp).round(),
         })
     });
-    state.0.insert(
-        "ai".into(),
-        serde_json::json!({
+    let mut ai = serde_json::json!({
             "live": live.len(),
             "minds": minds,
             "reacting": count(&|g| g.hit.is_some()),
@@ -1318,8 +1331,21 @@ fn log_ai(
             "throws": stats.throws,
             "led_shots": stats.led_shots,
             "near": near.unwrap_or_default(),
-        }),
-    );
+    });
+    // (a second map: one json! of all of them passes the macro's recursion limit)
+    let more = serde_json::json!({
+        "trigger_kills": stats.trigger_kills,
+        "flees": stats.flees,
+        "max_flee": stats.max_flee.round(),
+        "priority": count(&|g| g.priority_tags.0 != 0),
+        "unlimited_guards": count(&|g| g.infinite),
+        "no_damage": count(&|g| g.no_damage),
+        "pending": count(&|g| g.pending.is_some()),
+    });
+    if let (Some(a), Some(m)) = (ai.as_object_mut(), more.as_object()) {
+        a.extend(m.clone());
+    }
+    state.0.insert("ai".into(), ai);
 }
 
 /// Ai_InitGeneric 0x004247f0 + the class init (GruntObject_Slot6 0x00434fb0, BowGruntObject_Slot6 0x004347b0,
@@ -1459,6 +1485,8 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         patrol: p.i("marker_patrol", 0) != 0,
         charge: false,
         trigger_charge: mode == "trigger_charge",
+        kill_trigger: p.i("receive_trigger_kill", 0),
+        no_damage: kind == Kind::Monk && mode == "trigger_charge" && p.i("trigger_no_damage", 0) != 0,
         pursue: false,
         anim_id: 0,
         anim_left: 0.0,
@@ -1773,19 +1801,92 @@ fn priority_target(tags: &mut (i64, i64), mission: &crate::mission::Mission, liv
 /// A waiting grunt's trigger (receive_trigger_activate: fn_0042f870 -> 0x0042f5c0), by his mode: trigger_marker (+0x488
 /// 0x10) runs his marker spline (think: `marker_tags`), trigger_ic (0x8000000) plays his IC move (ic.rs), trigger_charge
 /// (0x100) charges the player (0x0042ce70). `ic`: he has an IC move.
+/// The activation clears trigger_no_damage first (+0x48c 0x4000). (The original runs it on any state; the id +0x52c is
+/// cleared by it, and every way out of the wait passes it, so only a waiting grunt has an id left to match.)
 pub fn activate(g: &mut Grunt, ic: bool, player: Option<Entity>) {
     if g.mind != Mind::WaitTrigger {
         return;
     }
+    g.no_damage = false;
     g.mind = Mind::Roam;
     if g.marker_tags.is_none() && !ic {
         g.target = player;
         g.pursue = g.trigger_charge;
+        // (the charge 0x0042ce70 drops a hand-over under way)
+        if g.trigger_charge {
+            g.pending = None;
+        }
     }
 }
 
-/// AI_FindTarget 0x00426920 and the alert-group hand-over: every 0.75..1.25 s; the player inside hear_distance is
-/// taken at once; otherwise within scan_distance, inside the 190-degree cone, with line of sight. With the mission's
+/// How long a target taken by an offer is protected from the next offer (K 0x005bcb68 against +0x514).
+const OFFER_HOLD: f32 = 10.0;
+/// The engagement and scan ranges a guard takes for good once offered a target beyond his range (0x0042c790).
+const GUARD_UNLIMITED: f32 = 99999.0;
+
+/// GenericAI_OfferTarget 0x0042c820 (vt+0x1b4): `cand` (with its position) is offered to a grunt standing at `me` whose
+/// current target stands at `current`. Ignored while the current target was taken by an offer less than `OFFER_HOLD`
+/// ago, or while on the way to a cover (+0x904 without +0x484 0x20000; the towers' +0x488 0x200000 exception is not
+/// modelled: no tower grunt takes a trench). Otherwise taken when he has no target or `cand` is no farther (3D) than
+/// the current one, and stamped (+0x514); with `engage` (a2) the taken target is engaged at once (0x00454c90 and
+/// vt+0x230: here the wander and the scared run, which would otherwise run their course, end; the other states engage
+/// on their own). Not ignored, it ends with 0x0042c790: a guard (+0x484 bit 25) whose target is beyond his
+/// engagement range takes the infinite accuracy ranges (+0x484 bit 22) and 99999 as both his ranges, for good.
+/// (The waiting grunt's activation on the way, +0x52c with +0x484 0x20 clear, has no caller here: both callers skip
+/// a busy grunt, and a waiting one, state 0x8c, is busy.) Returns whether he took it.
+fn offer_target(g: &mut Grunt, cand: (Entity, Vec3), current: Option<Vec3>, me: Vec3, now: f32, engage: bool) -> bool {
+    if (g.target.is_some() && now - g.offer_t < OFFER_HOLD) || (g.cover.is_some() && !g.at_barricade) {
+        return false;
+    }
+    let take = g.target.is_none() || current.is_none_or(|c| (cand.1 - me).length_squared() <= (c - me).length_squared());
+    if take {
+        g.target = Some(cand.0);
+        g.offer_t = now;
+        if engage && matches!(g.mind, Mind::Wander | Mind::Flee) {
+            g.mind = Mind::Roam;
+        }
+    }
+    let held = if take { Some(cand.1) } else { current };
+    if g.guard && held.is_some_and(|p| (p - me).with_y(0.0).length() > g.range) {
+        g.infinite = true;
+        g.range = GUARD_UNLIMITED;
+        g.scan_distance = GUARD_UNLIMITED;
+    }
+    take
+}
+
+/// Whether a member of `group` takes part in its alert (0x0042c700, from SetTarget 0x0042cc70 with a1 and the group id
+/// +0x574, and from a death 0x00431720): alive, not the alerter and not the target himself, not a traitor (+0x488
+/// 0x4000, the Guy Fawkes' swap), with no hand-over under way (+0x578 run out). Whether he holds a target does not
+/// matter: the hand-over's end offers it (0x0042c820).
+fn alerted(g: &Grunt, me: Entity, (group, target, alerter): (i64, Entity, Entity), traitor: bool) -> bool {
+    group != 0 && g.alert_group == group && me != alerter && me != target && !traitor && g.pending.is_none() && g.mind != Mind::Dead
+}
+
+/// The AI's trigger handler 0x0042f870 (slot 14), its kill: the id of receive_trigger_kill (+0x530) is his death
+/// (vt+0xd4, Character_Die with an empty record of kind 0x8000: no hit and no killer, so the death anim). The volumes
+/// of lev_2_m2 (900), lev_4_m2 (802) and lev_4_m3 (2345) clear their placed grunts this way (mission.json lists these
+/// edges as "destroyed"). (Its activate id +0x52c is mission.rs's `WakeAi` -> [`activate`].)
+fn trigger_kills(mut sent: MessageReader<crate::mission::SendTrigger>, mut grunts: Query<(&mut Grunt, &mut Health)>, mut stats: ResMut<AiStats>) {
+    for crate::mission::SendTrigger(t) in sent.read() {
+        for (mut g, mut h) in &mut grunts {
+            if *t != 0 && g.kill_trigger == *t && g.mind != Mind::Dead && h.0 > 0.0 {
+                h.0 = 0.0;
+                g.last_hit = 0.0;
+                g.attacker = None;
+                g.blast_fling = None;
+                g.cartoon = false;
+                // (not damage: a monk's trigger_no_damage does not keep him alive)
+                g.no_damage = false;
+                stats.trigger_kills += 1;
+                info!("EVENT ai: grunt killed by trigger {t}");
+            }
+        }
+    }
+}
+
+/// AI_FindTarget 0x00426920 and the alert-group hand-over: every 0.75..1.25 s (2..4 s on a start-in-turret level);
+/// the player inside hear_distance is taken at once; otherwise within scan_distance, inside the 190-degree cone, with line of sight. With the mission's
 /// ai_target_tag (Game+0xae8) a grunt (a bad guy, vt+0xe8) takes only candidates of that tag, at any range (1e8) and
 /// with neither the cone nor the line of sight (ai_02.cpp:662, 721-731, 761).
 #[allow(clippy::too_many_arguments)]
@@ -1805,14 +1906,29 @@ fn search(
     mut barks: ResMut<Barks>,
     noise: Res<Interests>,
     squads: Query<&squad::Squad>,
-    (army, mission, objects): (Query<(), With<ArmyTarget>>, Option<Res<crate::mission::Mission>>, Query<(Entity, &crate::level::InstanceId, &GlobalTransform), With<crate::fx::Destructible>>),
+    (army, mission, objects, people): (
+        Query<(), With<ArmyTarget>>,
+        Option<Res<crate::mission::Mission>>,
+        Query<(Entity, &crate::level::InstanceId, &GlobalTransform), With<crate::fx::Destructible>>,
+        Query<(Entity, &crate::level::InstanceId, &Health), Or<(With<Player>, With<Companion>)>>,
+    ),
     traitors: Query<(), With<crate::weapons::traitor::Traitor>>,
+    positions: Query<&GlobalTransform>,
 ) {
     let dt = time.delta_secs();
+    let now = time.elapsed_secs();
     let Ok((pe, _, _)) = player.single() else { return };
-    // the live placed objects by id (a destroyed one has lost its Destructible): the priority targets' candidates
-    let live: std::collections::HashMap<u32, Entity> = if grunts.iter().any(|g| g.1.priority_tags.0 != 0) { objects.iter().map(|(e, i, _)| (i.0, e)).collect() } else { Default::default() };
+    // the live placed objects by id (a destroyed one has lost its Destructible) and the living placed characters (Roman,
+    // Jonesy, Q: lev_5_m2's barracks troops go for tag 1, Roman; lev_4_m2's alarm troops for 600, Jonesy): the
+    // priority targets' candidates (Object_FindByTag takes any object)
+    let live: std::collections::HashMap<u32, Entity> = if grunts.iter().any(|g| g.1.priority_tags.0 != 0) {
+        objects.iter().map(|(e, i, _)| (i.0, e)).chain(people.iter().filter(|(_, _, h)| h.0 > 0.0).map(|(e, i, _)| (i.0, e))).collect()
+    } else {
+        Default::default()
+    };
     let global_tag = mission.as_ref().map_or(0, |m| m.ai_target_tag);
+    // AI_FindTarget's re-arm of +0x490: 0.75..1.25 s, on a start-in-turret level (0x0044e600) 2..4 s
+    let rearm = if mission.as_ref().is_some_and(|m| m.start_in_turret) { (2.0, 4.0) } else { (0.75, 1.25) };
     stats.targets = [0, 0];
     for (_, g, _, _, _) in &grunts {
         if let Some(t) = g.target.filter(|_| g.mind != Mind::Dead) {
@@ -1843,12 +1959,15 @@ fn search(
         }
         if let Some((tgt, left)) = g.pending {
             if left - dt <= 0.0 {
-                // the hand-over's end (ai_06.cpp:318-340): a grunt free to engage (vt+0x178 0x0042f8d0 false) takes the
-                // target (vt+0x1b4(target, 0, 1)); a busy one lets it go. (A busy squad member, states 0xdc / 0xde, is
-                // also released to a guard where he stands, 0x0042d0f0 and state 0xdd: not ported, squad.rs keeps him.)
+                // the hand-over's end (ai_06.cpp:318-340): a grunt free to engage (vt+0x178 0x0042f8d0 false) is offered
+                // the target (vt+0x1b4(target, 0, 1): the offer's hold, nearer test and engage); a busy one lets it go.
+                // (A busy squad member, states 0xdc / 0xde, is also released to a guard where he stands, 0x0042d0f0 and
+                // state 0xdd: not ported, squad.rs keeps him.)
                 g.pending = None;
-                if !g.busy(ge, tgt) {
-                    g.target = Some(tgt);
+                let at = |e: Entity| positions.get(e).ok().map(|p| p.translation());
+                if let (false, Some(tp)) = (g.busy(ge, tgt), at(tgt)) {
+                    let current = g.target.and_then(at);
+                    offer_target(&mut g, (tgt, tp), current, t.translation(), now, true);
                 }
             } else {
                 g.pending = Some((tgt, left - dt));
@@ -1891,11 +2010,11 @@ fn search(
             if let Some(tgt) = found {
                 // its 2D distance becomes the scan range +0x5dc: the target is kept (2 x scan_distance) however far it
                 // is, the walk to the next village included
-                if let Ok((_, _, tt)) = objects.get(tgt) {
+                if let Ok(tt) = positions.get(tgt) {
                     g.scan_distance = (tt.translation() - t.translation()).with_y(0.0).length();
                 }
                 g.target = Some(tgt);
-                g.search_timer = rng.range(0.75, 1.25);
+                g.search_timer = rng.range(rearm.0, rearm.1);
                 continue;
             }
         }
@@ -1903,7 +2022,7 @@ fn search(
         if g.mind == Mind::WaitTrigger && !g.trigger_los {
             continue;
         }
-        g.search_timer = rng.range(0.75, 1.25);
+        g.search_timer = rng.range(rearm.0, rearm.1);
         let me = t.translation();
         // AI_FindTarget's walk of +0x604: within scan_distance (2D), the closest that passes; the player inside
         // hear_distance is taken at once; otherwise inside the 190-degree cone (or within hear_distance) with line of
@@ -1963,6 +2082,7 @@ fn search(
                 // (0x0042ce70: the pursuit at once); the marker run of trigger_marker is not ported here
                 g.mind = Mind::Roam;
                 g.pursue = g.trigger_charge;
+                g.no_damage = false;
             }
             if std::env::var("AIDBG").is_ok() { info!("AIDBG spotted {:?} by {:?} at {:?} d {:.0} heard {} mode {:?}", tgt, ge, me, d2, heard, g.mind); }
             if g.alert_group != 0 {
@@ -1970,10 +2090,11 @@ fn search(
             }
         }
     }
-    for (group, tgt, who) in spotted {
+    // SetTarget's group alert (0x0042cc70 with a1: every search that finds a target sets it so)
+    for alert in spotted {
         for (ge, mut g, _, _, _) in &mut grunts {
-            if ge != who && g.alert_group == group && g.target.is_none() && g.pending.is_none() && g.mind != Mind::Dead {
-                g.pending = Some((tgt, rng.range(0.25, 1.0)));
+            if alerted(&g, ge, alert, traitors.contains(ge)) {
+                g.pending = Some((alert.1, rng.range(0.25, 1.0)));
             }
         }
     }
@@ -2040,29 +2161,58 @@ pub fn line_of_sight(physics: &Physics, from_feet: Vec3, to_feet: Vec3) -> bool 
     true
 }
 
-/// Scare 0x0042fb60: a sticky bomb stuck within 25 units makes a grunt flee 100 units from the player for 3-5 s
-/// (run_scared), then charge him; a guard plays grenade_stuck and the Sticky_Scream bark instead of fleeing.
+/// How far the grunt a sticky bomb is stuck to runs from the player (K 0x005bcf00).
+const SCARE_FLEE_STUCK: f32 = 250.0;
+/// How far the grunts near it run from the bomb's object, or the player (K 0x005bcb60).
+const SCARE_FLEE_NEAR: f32 = 100.0;
+
+/// Scare 0x0042fb60 (vt+0xcc), as the sticky bomb's stick (StickyBombProjectile_Stick, game_07.cpp:1240-1256) calls
+/// it: the grunt the bomb is stuck to gets (attacker = the bomb) and flees `SCARE_FLEE_STUCK` (250, K 0x005bcf00) away
+/// from the player; every other grunt within 25 units gets (no attacker, the stuck-to object) and flees
+/// `SCARE_FLEE_NEAR` (100, K 0x005bcb60) away from that object, or from the player when the bomb is on the ground.
+/// The run lasts 3-5 s (run_scared), then he charges the player. A busy grunt (0x0042f8d0: on a gun, waiting for his
+/// trigger, carried by an IC move, held, on the way to a spline's head ...) and one already fleeing (state 0xc8) are
+/// left alone, screams included; a guard (+0x484 bit 25) with the bomb on him screams Sticky and stays (anim 0x10 /
+/// 0x11, state 0xca), the other guards do nothing; so does a gunner with the bomb on him (+0x898 with +0x484 0x8000
+/// makes him a guard first). (A squad member leaves his squad and flees in the original, a2 = 1: not ported, squad.rs
+/// keeps him in his place.)
+#[allow(clippy::too_many_arguments)]
 fn scare(
     mut stuck: MessageReader<StickyStuck>,
     mut rng: ResMut<FxStats>,
     player: Query<&GlobalTransform, With<Player>>,
     mut grunts: Query<(Entity, &mut Grunt, &GlobalTransform)>,
+    positions: Query<&GlobalTransform>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     mut barks: ResMut<Barks>,
     time: Res<Time>,
     voices: crate::audio::PlayingVoices,
+    mut stats: ResMut<AiStats>,
 ) {
     let ppos = player.single().map(|p| p.translation()).unwrap_or_default();
     for s in stuck.read() {
+        // the object the bomb is stuck to, where it stands (none: stuck to the ground)
+        let object_at = s.1.and_then(|o| positions.get(o).ok()).map(|t| t.translation());
         for (ge, mut g, t) in &mut grunts {
             if g.mind == Mind::Dead || t.translation().distance(s.0) >= 25.0 {
+                continue;
+            }
+            let on_him = s.1 == Some(ge);
+            // a gunner with the bomb on him turns guard (cowers, below); anyone else busy is left alone, as is one
+            // already running (squad members excepted: their branch comes before the test)
+            let gunner_hit = on_him && g.gun.is_some();
+            if !gunner_hit && g.squad.is_none() && (g.busy_now() || g.mind == Mind::Flee) {
+                continue;
+            }
+            let guarding = g.guard || gunner_hit;
+            if guarding && !on_him {
                 continue;
             }
             // Scare 0x0042fb60: the grunt the bomb is stuck to says Sticky (death_delay; else General_Scream), the others
             // General_Scream, a guard without the bomb on him nothing (ai_03.cpp:2930-2943). Screams keep his scream
             // handle: none starts while it plays; the sticky one (0x00438810) then leaves death_delay as it is
             let at = t.translation();
-            let scream = if s.1 == Some(ge) {
+            let scream = if on_him {
                 if !barks.ready(Delay::Death, time.elapsed_secs(), &mut rng) {
                     Some("General_Scream")
                 } else if !g.speech.screaming(&voices) {
@@ -2072,17 +2222,25 @@ fn scare(
                     None
                 }
             } else {
-                (!g.guard).then_some("General_Scream")
+                Some("General_Scream")
             };
             let set = g.voice_set;
             if let Some(req) = scream.and_then(|cat| g.speech.scream(&voices, bark_request(cat, set, at))) {
                 sounds.write(req);
             }
-            if g.guard {
+            if guarding {
                 continue;
             }
-            let away = (t.translation() - ppos).with_y(0.0).normalize_or(Vec3::X);
-            g.goal = t.translation() + away * 100.0;
+            // away from the player (the bomb on him, or on the ground), else from the object it is stuck to
+            let (from, dist) = match (on_him, object_at) {
+                (true, _) => (ppos, SCARE_FLEE_STUCK),
+                (false, Some(o)) => (o, SCARE_FLEE_NEAR),
+                (false, None) => (ppos, SCARE_FLEE_NEAR),
+            };
+            let away = (at - from).with_y(0.0).normalize_or(Vec3::X);
+            g.goal = at + away * dist;
+            stats.flees += 1;
+            stats.max_flee = stats.max_flee.max(dist);
             g.timer = rng.range(3.0, 5.0);
             g.mind = Mind::Flee;
         }
@@ -2597,11 +2755,33 @@ fn follow_spline(g: &mut Grunt, markers: &crate::alarm::Markers, tags: (i64, i64
     }
 }
 
+/// The yaw rate of GenericAI_TurnToTarget 0x0042df70 (its 0x00454e60 call's rate, 16.0).
+const TURN_TO_TARGET_RATE: f32 = 16.0;
+
+/// One frame of 0x00454e60's turn toward a heading `d` radians off (rate 16 from 0x0042df70): the wanted yaw rate is
+/// rate x the cross product (sin d), or rate whole when the target is behind (dot < -0.98, K 0x005bcd38); here taken as
+/// the turn itself (the original hands it to a body constraint), never past the heading.
+fn turn_to_target_step(d: f32, dt: f32) -> f32 {
+    let rate = if d.cos() < -0.98 { TURN_TO_TARGET_RATE * d.signum() } else { TURN_TO_TARGET_RATE * d.sin() };
+    let step = rate * dt;
+    if step.abs() > d.abs() { d } else { step }
+}
+
+/// A charge, 0x0042ce70(0): the player as target unless one is held (vt+0x23c), the pursuit (vt+0x184: the state
+/// returned), the search timer +0x490 = 1.5..2.0 s, and any group hand-over under way dropped (+0x578 = 0, +0x57c
+/// released: it does not reach him afterwards).
+fn charge(g: &mut Grunt, player: Option<Entity>, rng: &mut FxStats) -> Mind {
+    g.target = g.target.or(player);
+    g.search_timer = rng.range(1.5, 2.0);
+    g.pending = None;
+    Mind::Chase
+}
+
 /// Marker_ProcessArrival 0x0044ba30 at the grunt's current marker (index `marker` into `Markers::markers`): its trigger
 /// (Object_SendTrigger 0x00461870), its alarm (alarm.rs: fx_siren and the runner's Help bark, once), then by its flags:
 /// hide (vt+0x240(0, 0, 1), else AI_Wander 60..100), ready_guard / attention_guard (0x0042d0f0: a guard there, stand set
-/// or attention), trigger_charge (0x0042ce70(0): the player), trigger_charge_tag (lev_1_m1 has none: taken as the plain
-/// charge), ic_* (none on lev_1_m1: stands), a positive scatter_min (AI_Wander scatter_min..max); else the next marker:
+/// or attention), trigger_charge (0x0042ce70(0): the player), trigger_charge_tag (no shipped marker has it, nor its
+/// obj_charge_* fields: taken as the plain charge), ic_* (none on lev_1_m1: stands), a positive scatter_min (AI_Wander scatter_min..max); else the next marker:
 /// the spline switches when the marker names marker_next_min..max (AIMarker_NextTag 0x0044b830), else index + 1, at the
 /// end wrapping with marker_looping (+0x488 bit 1) or stopping: the stand set and state 1 with home = here
 /// (ai_06.cpp:1797-1817). Before the action: the flags deactivate (removed, ai/notes.rs `End::Remove`; the breach
@@ -2658,12 +2838,9 @@ fn marker_arrival(
         return Some(Mind::Guard);
     }
     if mk.flags & (crate::alarm::Marker::TRIGGER_CHARGE | crate::alarm::Marker::TRIGGER_CHARGE_TAG) != 0 {
-        // 0x0042ce70(0): the player as target (unless one is held), the pursuit, +0x490 = 1.5..2.0 s
         g.spline = None;
-        g.target = g.target.or(player);
-        g.search_timer = rng.range(1.5, 2.0);
         g.attention = false;
-        return Some(Mind::Chase);
+        return Some(charge(g, player, rng));
     }
     if mk.flags & crate::alarm::Marker::IC != 0 {
         return stand(g);
@@ -2812,7 +2989,7 @@ fn think(
     mut physics: NonSendMut<Physics>,
     targets: Query<&GlobalTransform>,
     anims: Query<&crate::skin::Animator, Without<Grunt>>,
-    mut grunts: Query<(Entity, &mut Grunt, &mut Body, &mut Transform, &Health, Option<&crate::skin::Animator>, Has<crate::topsy::Thrown>)>,
+    mut grunts: Query<(Entity, &mut Grunt, &mut Body, &mut Transform, &mut Health, Option<&crate::skin::Animator>, Has<crate::topsy::Thrown>)>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     mut fx: MessageWriter<crate::fx::StartFx>,
     rtime: Res<Time<Real>>,
@@ -2825,7 +3002,7 @@ fn think(
         Res<crate::turret::Mounted>,
         Res<crate::gamedata::GameData>,
     ),
-    (mut lib, player_q, mut triggers, grenade_assets, squads, mut jmarks, army, placed, mut limit, mut force, motion, mut close, mut covers): (
+    (mut lib, player_q, mut triggers, grenade_assets, squads, mut jmarks, army, placed, mut limit, mut force, motion, mut close, mut covers, traitors): (
         ResMut<crate::skin::AnimLibrary>,
         Query<Entity, With<Player>>,
         MessageWriter<crate::mission::SendTrigger>,
@@ -2839,6 +3016,7 @@ fn think(
         Res<aim::TargetMotion>,
         (MessageWriter<melee::CloseHit>, ResMut<melee::CloseStats>, MessageWriter<notes::ScriptEnd>),
         Query<(Entity, &mut coverslot::CoverObject, &GlobalTransform, Option<&crate::level::Placed>), Without<Grunt>>,
+        Query<(), With<crate::weapons::traitor::Traitor>>,
     ),
 ) {
     let t0 = Instant::now();
@@ -2881,7 +3059,9 @@ fn think(
     let mut jviews: Vec<jumper::MarkerView> =
         jmarks.iter().map(|(e, m, t)| jumper::MarkerView { e, pos: t.translation, tag: m.tag, free: m.occupant.is_none() }).collect();
     let mut joccupy: Vec<(Entity, Option<Entity>)> = Vec::new();
-    for (ge, mut g, mut body, mut tr, h, ga, thrown) in &mut grunts {
+    // targets taken this frame that alert the taker's group: (group, target, taker)
+    let mut alerts: Vec<(i64, Entity, Entity)> = Vec::new();
+    for (ge, mut g, mut body, mut tr, mut h, ga, thrown) in &mut grunts {
         g.me = Some(ge);
         // a slot is held only on the run to it and in the fight there (states 0x1e.. / 0x34 / 0x33); anything else lets
         // it go (vt+0x18c), as the death does (0x0040cd40 / 0x00497430 free it from the object's side)
@@ -2946,8 +3126,16 @@ fn think(
                 }
             }
         }
-        // hurt: bark at most every 4 s (0x004394c0); a hurt grunt waiting for a trigger activates (ai_04.cpp:420)
+        // hurt: bark at most every 4 s (0x004394c0); a hurt grunt waiting for a trigger with trigger_los activates
+        // (ai_04.cpp:420)
         g.hurt_voice_timer -= dt;
+        // trigger_no_damage (a monk waiting for his trigger): the damage slot 0x004371e0 returns before taking it
+        if g.no_damage && h.0 < g.last_health {
+            h.0 = g.last_health;
+            g.attacker = None;
+            g.blast_fling = None;
+            g.cartoon = false;
+        }
         if h.0 < g.last_health && h.0 > 0.0 {
             g.last_hit = g.last_health - h.0;
             // the hit reaction (GenericAIObject_Slot52 0x00430340, ai_04.cpp:444-535; anim names by the class's table,
@@ -2958,10 +3146,12 @@ fn think(
             // anim playing (the first by rand * 200 >> 15 < 100), state 0x130; else a big hit 0x45 + (rand * 2 >> 15),
             // state 0x131. (The record flags 0x100 / 4, anims 0x77.. / 0x47.., are not set by any lev_1_m1 damage.)
             let d = g.last_hit;
-            let on_gun = g.gun.is_some_and(|x| x.phase == GunPhase::On);
+            // a busy grunt (vt+0x178 0x0042f8d0 with the source: on a gun, waiting for his trigger, carried, held, on the
+            // way to a spline's head, in a squad's march ...) takes the damage and barks, and that is all (ai_04.cpp:420)
+            let busy = g.attacker.map_or_else(|| g.busy_now(), |a| g.busy(ge, a));
             let (before, after) = (g.last_health / g.max_health, h.0 / g.max_health);
             let fours = g.allfours_pct / 100.0;
-            let react: Option<(u32, u8)> = if on_gun {
+            let react: Option<(u32, u8)> = if busy {
                 None
             } else if g.kind.allfours() && before > fours && after <= fours {
                 Some((0x35, 5))
@@ -3022,27 +3212,28 @@ fn think(
                 g.hurt_voice_timer = 4.0;
                 bark(&mut sounds, "Hurt:{}:butlast4", g.voice_set, tr.translation);
             }
-            if g.mind == Mind::WaitTrigger {
-                g.mind = Mind::Roam;
-            }
-            // retaliation: the end of GenericAIObject_Slot52 0x00430340 offers the damage source (when it is one of
-            // the grunt's enemies, list +0x604: Roman or a companion) as a target, GenericAI_OfferTarget 0x0042c820:
-            // ignored while a target adopted this way is less than 10 s old (K 0x005bcb68 against +0x514); taken when
-            // there is no target or the source is nearer (3D) than the current one
-            if let Some(a) = g.attacker.take() {
-                let now = time.elapsed_secs();
-                let ap = targets.get(a).ok().map(|t| t.translation());
-                let cur = g.target.and_then(|e| targets.get(e).ok()).map(|t| t.translation());
-                // (ignored too on the way to a cover: +0x904 held without +0x484 0x20000, 0x0042c820)
-                let recent = (g.target.is_some() && now - g.offer_t < 10.0) || (g.cover.is_some() && !g.at_barricade);
-                if let (Some(ap), false) = (ap, recent) {
-                    let me = tr.translation;
-                    if cur.is_none_or(|c| (ap - me).length_squared() <= (c - me).length_squared()) {
+            let source = g.attacker.take();
+            if busy {
+                // a waiting grunt that looks (state 0x8c with trigger_los, +0x488 0x40) wakes on a hit with a source,
+                // which becomes his target (vt+0x23c(source, 1), then 0x0042f5c0(source)); without trigger_los he goes
+                // on waiting
+                if let Some(a) = source.filter(|_| g.mind == Mind::WaitTrigger && g.trigger_los) {
+                    g.target = Some(a);
+                    activate(&mut g, false, Some(a));
+                    alerts.push((g.alert_group, a, ge));
+                }
+            } else if let Some(a) = source {
+                // retaliation: the end of GenericAIObject_Slot52 0x00430340 offers the damage source (when it is one of
+                // the grunt's enemies, list +0x604: Roman or a companion) as a target (vt+0x1b4(source, 1, a2): a2 set
+                // when no reaction started), and a source taken alerts his group (a1 = 1)
+                if let Ok(ap) = targets.get(a).map(|t| t.translation()) {
+                    let current = g.target.and_then(|e| targets.get(e).ok()).map(|t| t.translation());
+                    let had = g.target;
+                    if offer_target(&mut g, (a, ap), current, tr.translation, time.elapsed_secs(), react.is_none()) {
                         if std::env::var("AIDBG").is_ok() {
-                            info!("AIDBG retaliate {:?} -> {:?} (had {:?})", body.id, a, g.target);
+                            info!("AIDBG retaliate {:?} -> {:?} (had {:?})", body.id, a, had);
                         }
-                        g.target = Some(a);
-                        g.offer_t = now;
+                        alerts.push((g.alert_group, a, ge));
                     }
                 }
             }
@@ -3076,16 +3267,17 @@ fn think(
         g.timer -= dt;
         g.ray_timer -= dt;
         // a target farther than 2 x scan_distance is dropped (states 0x3c, 0xa: vt+0x180 0x0043ecf0, which keeps an
-        // army target at any range; a priority target's scan_distance is its distance when found, AI_FindTarget)
+        // army target at any range; a priority target's scan_distance is its distance when found, AI_FindTarget; the
+        // guard state 0x79 too, through 0x0042ec20 every frame)
         if let Some(p) = target {
-            if flat(p - pos).length() > 2.0 * g.scan_distance && !g.guard && !g.target.is_some_and(|e| army.contains(e)) {
+            if flat(p - pos).length() > 2.0 * g.scan_distance && !g.target.is_some_and(|e| army.contains(e)) {
                 g.target = None;
             }
         }
         let target = g.target.and_then(|e| targets.get(e).ok()).map(|t| t.translation());
         let in_range = target.is_some_and(|p| flat(p - pos).length() <= g.range);
-        // a guard whose target is beyond its range fires with the infinite accuracy ranges (ai_03.cpp:1383)
-        g.infinite = g.guard && target.is_some() && !in_range;
+        // (the infinite accuracy ranges are a guard's for good once an offer found his target beyond his range:
+        // `offer_target`, 0x0042c790)
         // the target's ref_hit_00 (0x00428280) and the grunt's own: the sight rays' ends
         let target_hit = target.map(|p| {
             g.target
@@ -3225,10 +3417,7 @@ fn think(
             (Mind::Retreat, _) => Mind::Retreat,
             (Mind::Flee, _) if g.timer > 0.0 => Mind::Flee,
             // the scare's end charges the player (0x0042ce70)
-            (Mind::Flee, _) => {
-                g.target = g.target.or(player_e);
-                Mind::Chase
-            }
+            (Mind::Flee, _) => charge(&mut g, player_e, &mut rng),
             // the wander (0x3d / 0x5b) and the one-shot states run their own course (below)
             (Mind::Wander, _) => Mind::Wander,
             (Mind::ToSlot, _) if g.slot.is_some() => Mind::ToSlot,
@@ -3532,9 +3721,7 @@ fn think(
                     g.home = pos;
                     g.attention = false;
                     if std::mem::take(&mut g.charge) {
-                        g.target = g.target.or(player_e);
-                        g.search_timer = rng.range(1.5, 2.0);
-                        g.mind = Mind::Chase;
+                        g.mind = charge(&mut g, player_e, &mut rng);
                     } else {
                         g.mind = Mind::Roam;
                     }
@@ -3649,7 +3836,9 @@ fn think(
                         if *left <= 0.0 {
                             g.turn = None;
                         }
-                    } else if to.dot(fwd) < 0.7 && g.kind.turns() {
+                    } else if to.dot(fwd) < 0.7 && g.kind.turns() && g.shot_age >= g.fire_len && !g.reloading {
+                        // (0x0042e050 starts it only from the stand / aim anims, +0x498 2, 0xf, 0x12..0x20: not while a
+                        // shot's fire anim 0x23 or the reload set 0x28.. plays)
                         let right = fwd.cross(to).y < 0.0;
                         // after a turn a guard's first fire cycle is dry (measured: the original's courtyard guards,
                         // most of which turn, fire anim then reload and first shots ~80 frames later, two that faced
@@ -4171,6 +4360,9 @@ fn think(
         }
         g.walking = speed > 1.0 && flat(goal - pos).length() > 1.0;
         let dir = flat(goal - pos).normalize_or_zero();
+        // the turns to the target of GenericAI_TurnToTarget 0x0042df70 (the fire cycle's, a guard's, the slot's stand)
+        let to_target = matches!((g.mind, target, g.cover.map(|c| c.phase)), (Mind::Fire, Some(_), _) | (Mind::Cover, Some(_), Some(CoverPhase::Stand)))
+            || (g.mind == Mind::Guard && target.is_some() && g.guard_firing);
         let face = match (g.mind, target, g.cover.map(|c| c.phase)) {
             // the summon turns him to its point (state 0xf3: 0x00454e60 toward +0x934)
             (Mind::Cast, _, _) if g.monk.is_some_and(|m| m.spell == monk::Spell::Twiglets) => {
@@ -4189,7 +4381,7 @@ fn think(
         if face != Vec3::ZERO {
             let want = face.x.atan2(face.z);
             let d = (want - g.yaw + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
-            g.yaw += d * (dt * 8.0).min(1.0);
+            g.yaw += if to_target { turn_to_target_step(d, dt) } else { d * (dt * 8.0).min(1.0) };
         }
         if let Some(v) = fly {
             // in the air: facing the target while gliding with one, else the velocity (0xc5 / rising 0xc4)
@@ -4215,6 +4407,14 @@ fn think(
                 if speed > 0.0 {
                     b.activate();
                 }
+            }
+        }
+    }
+    // the group alerts of the targets taken above (SetTarget 0x0042cc70 with a1)
+    if !alerts.is_empty() {
+        for (ge, mut g, ..) in &mut grunts {
+            if let Some(&(_, tgt, _)) = alerts.iter().find(|&&a| alerted(&g, ge, a, traitors.contains(ge))) {
+                g.pending = Some((tgt, rng.range(0.25, 1.0)));
             }
         }
     }
@@ -4421,7 +4621,8 @@ fn die(
     let rules = crate::corpses::CorpseRules::of(&settings);
     let mut down = crate::corpses::Corpses::ragdolls(&corpses);
     for (e, mut g, body, mut tr, h, animator, (forced, knocked)) in &mut grunts {
-        if g.mind == Mind::Dead || h.0 > 0.0 {
+        // (a monk under trigger_no_damage takes no damage: think gives it back, `trigger_kills` clears it first)
+        if g.mind == Mind::Dead || h.0 > 0.0 || g.no_damage {
             continue;
         }
         // a gunner's death lets the gun go (0x00431720 -> 0x004266b0: flag 4 cleared, the gun's corner set back to the
@@ -4581,7 +4782,8 @@ fn die(
     }
     for (group, killer, who) in alerts {
         for (ge, mut g, _, _, _, _, _) in &mut grunts {
-            if ge != who && g.alert_group == group && g.mind != Mind::Dead && g.pending.is_none() {
+            // (0x0042c700 also passes over a traitor of the group: not tested here, a traitor's group mates rarely outlive him)
+            if alerted(&g, ge, (group, killer, who), false) {
                 if std::env::var("AIDBG").is_ok() {
                     info!("AIDBG group {group} alerted by a death: {ge:?} -> {killer:?}");
                 }
