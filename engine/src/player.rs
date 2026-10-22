@@ -200,9 +200,13 @@ impl LookSpeeds {
     }
 }
 
-/// PlayerCanAct (0x0047a950): alive, no camera path playing (0x00410150; the original's camera mode 2 is the same
-/// cinematic; at the path's end its mission text pauses the game) and none of the state bits 0x7f800000 of +0xa34 (the Topsy Turvy states, the punching glove). Use,
-/// Jump and the weapons wait for it; the mounted gun has its own handling (turret.rs).
+/// PlayerCanAct (0x0047a950, game_06.cpp:280-302): alive, no cinematic camera path playing (0x00410150: camera +0x17c
+/// == 1, set by the path's start game_02.cpp:286 and cleared on the frame its anim ends, game_01.cpp:3191-3206; so
+/// `CameraPath::active`, not `holds_camera`: the engine's hold after a path stands in for the camera kept through the
+/// mission text, which pauses the game anyway, and Roman may act as soon as a path without one ends) and none of the
+/// state bits 0x7f800000 of +0xa34 (the Topsy Turvy states, the punching glove). (Its camera mode 2 test, 0x0040fab0:
+/// no setter of mode 2 in the recovered code.) Use, Jump and the weapons wait for it; the mounted gun (turret.rs) and
+/// the companions' reading of it (0x0047a9a0, ai.rs) apply the same rule.
 pub fn can_act(r: &Roman, path: &crate::campath::CameraPath, topsy: &crate::topsy::Topsy, glove: &crate::weapons::glove::Glove) -> bool {
     !r.dead && !path.active() && !topsy.active() && !glove.active()
 }

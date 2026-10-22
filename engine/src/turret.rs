@@ -445,7 +445,7 @@ pub(crate) fn ride(
     let now = time.elapsed_secs();
     let dead = r.dead || health.0 <= 0.0;
     // PlayerCanAct (0x0047a950): alive, no camera path, not in the topsy states
-    let can_act = !dead && !path.holds_camera() && !topsy.active();
+    let can_act = !dead && !path.active() && !topsy.active();
     let use_pressed = ctl.pressed(Act::Use);
     let hint = |m: &Option<ResMut<crate::mission::Mission>>, k: &str| m.as_ref().map(|m| m.hint(k)).unwrap_or_default();
     let mut log = Vec::new();

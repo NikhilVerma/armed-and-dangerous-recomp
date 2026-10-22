@@ -6239,8 +6239,9 @@ fn companions(
         let (o, d) = (c.translation(), c.forward().as_vec3());
         physics.raycast(o + d * 20.0, d, 500.0).map(|h| h.1).unwrap_or(o + d * 520.0)
     });
-    // the camera's own gate (0x00410150: a camera path holds it) and Fire held (button 8, 0x00414810 at 0.5)
-    let fire_held = (ctl.down(crate::input::Act::Fire) || ctl.pressed(crate::input::Act::Fire) || bot.fire_ok) && !r.dead && !path.holds_camera();
+    // the camera's own gate (0x00410150: a cinematic camera path playing, camera +0x17c == 1) and Fire held (button 8,
+    // 0x00414810 at 0.5)
+    let fire_held = (ctl.down(crate::input::Act::Fire) || ctl.pressed(crate::input::Act::Fire) || bot.fire_ok) && !r.dead && !path.active();
     // Roman's direction (0x00453150), flat
     let roman_dir = (Quat::from_rotation_y(r.yaw + std::f32::consts::PI) * Vec3::Z).with_y(0.0).normalize_or(Vec3::Z);
     // the heading the companions turn to under Fire (0x00485580 / 0x00486525): Roman's, or on a mounted gun the gun's
@@ -6254,7 +6255,7 @@ fn companions(
     };
     // PlayerCanAct 0x0047a950: alive, no camera path (0x00410150), not in the topsy states (+0xa34 & 0x7f800000)
     // (its camera mode 2 test, 0x0040fab0: no setter of mode 2 found in the recovered code)
-    let may_act = !r.dead && !path.holds_camera() && !topsy.active() && !hud.as_ref().is_some_and(|h| h.cinematic);
+    let may_act = !r.dead && !path.active() && !topsy.active() && !hud.as_ref().is_some_and(|h| h.cinematic);
     // Q alive (the player's +0xad4, 0x00475d40, dropped only once dead: on the tower task or carried too)
     let q_alive = q.iter().any(|(_, c, ..)| c.q && c.dead.is_none()) || held_q.iter().any(|c| c.q && c.dead.is_none());
     team_orders(
