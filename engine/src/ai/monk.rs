@@ -8,7 +8,7 @@
 //! - `summon_point` / `twiglet_spots`: the twiglet summon (states 0xf2 / 0xf3, ai_06.cpp:2906-2972): he turns to a point
 //!   30..40 ahead, casts cast_spell_2 and, at its end, five idle twiglets stand round him (twiglet.rs `SpawnTwiglet`).
 //! - the knock-over hang (0xf4: topsy.rs `monk_hang`), then `bamf`: the teleport away.
-//! Not ported: the smoke fx.
+//! - the five smoke fx on his sleeves and body (MonkObject_Init 0x004369a0): ai.rs `monk_smoke`.
 
 use crate::fx::FxStats;
 use crate::physics::Physics;

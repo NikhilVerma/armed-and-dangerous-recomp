@@ -155,9 +155,12 @@ pub fn pair(q: bool, r: f32) -> (&'static str, &'static str) {
     }
 }
 
-/// Whether a grunt can be grabbed now (GruntObject_Slot66's refusals, as the engine models the states).
+/// Whether a grunt can be grabbed now (GruntObject_Slot66's refusals, as the engine models the states; ledge_death,
+/// +0x484 bit 31, and the scared run, bit 0x20, refuse too: ai_04.cpp:2297).
 fn grabbable(g: &Grunt) -> bool {
     matches!(g.kind, Kind::Grunt | Kind::Bow)
+        && !g.ledge_death
+        && !g.scared_run
         && !matches!(g.mind, Mind::Dead | Mind::Scripted | Mind::Held | Mind::Falling | Mind::Jump | Mind::Cover | Mind::Gunner | Mind::Flee | Mind::InSquad)
         && g.gun.is_none()
         && g.cover.is_none()

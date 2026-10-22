@@ -188,7 +188,7 @@ fn spawn_one(commands: &mut Commands, data: &GameData, lib: &mut Library, assets
 #[allow(clippy::too_many_arguments)]
 fn drop_on_death(
     mut seen: crate::levelreset::PerLevel<std::collections::HashSet<Entity>>,
-    grunts: Query<(Entity, &Grunt, &GlobalTransform)>,
+    grunts: Query<(Entity, &Grunt, &GlobalTransform, &Health)>,
     player: Query<&Health, With<Player>>,
     roman: Query<&crate::player::Roman>,
     mut rng: ResMut<crate::fx::FxStats>,
@@ -212,8 +212,10 @@ fn drop_on_death(
         _ => (1.0, None, None),
     };
     let seen = seen.get();
-    for (e, g, t) in &grunts {
-        if g.mind != Mind::Dead || !seen.insert(e) {
+    for (e, g, t, h) in &grunts {
+        // a death (Character_Die 0x004319e0), not a script's deactivate (0x00409110: the bookkeeping 0x00431720 and the
+        // removal, no Character_Die: ai/notes.rs, which leaves his health)
+        if g.mind != Mind::Dead || h.0 > 0.0 || !seen.insert(e) {
             continue;
         }
         // Character_Die 0x004319e0 -> Character_DropPickup 0x0043e710: pickup_drop_percent

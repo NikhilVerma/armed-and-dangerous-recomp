@@ -61,8 +61,12 @@ pub enum Mind {
     Fire,
     /// state 0x32
     Reload,
-    /// state 0xc8
+    /// state 0xc8: running from a sticky bomb (the scare 0x0042fb60), `Grunt::flee_bomb` when it is on him
     Flee,
+    /// state 0xca: a guard (or a gunner) with a sticky bomb stuck on him (the scare 0x0042fb60): he stands, physics
+    /// frozen (ai_06.cpp:535 -> 0x00454c90), playing grenade_stuck_1 / 2 (`Grunt::anim_id` 0x10 / 0x11) once, until
+    /// the bomb goes off
+    Cower,
     /// state 0x96: running to a marker (trigger_marker mode, alarm.rs)
     ToMarker,
     /// states 0xa0..0xa5: going to and using a trench's slot (`Grunt::cover`, its phase)
@@ -777,8 +781,10 @@ pub struct Grunt {
     pub max_health: f32,
     pub scan_distance: f32,
     pub hear_distance: f32,
-    /// engagement range +0x5d8, drawn once from fire_range_min..max
+    /// engagement range +0x5d8, drawn once from `fire_range` (fire_range_min..max +0x5d0 / +0x5d4; the rocket
+    /// captain's rkt_*, the jumper's jumper_*)
     pub range: f32,
+    pub fire_range: (f32, f32),
     pub alert_group: i64,
     pub guard: bool,
     pub trigger_los: bool,
@@ -889,6 +895,10 @@ pub struct Grunt {
     pub force_hide: bool,
     /// +0x484 0x20: his runs are the scared run (anim 0xb run_scared): the pre-success retreat's 20 % (ai/retreat.rs)
     pub scared_run: bool,
+    /// a flee (state 0xc8) with the sticky bomb on him (+0xb54 held): its timer does not run, he runs to his point
+    pub flee_bomb: bool,
+    /// this frame's hit had record flag 0x100 (a base turret round, player.rs `DamageKind::BaseTurret`): the long hit
+    pub long_hit_round: bool,
     /// +0x484 flag 4: the fire counters are rolled (0x00427600: at init, a reload's end, the trench's duck); cleared at a
     /// clip's end (0x00428980)
     pub fire_ready: bool,
@@ -992,10 +1002,22 @@ impl Grunt {
     /// (0x5a, 0xaa, 0xac, 0xe7..0xeb, 0x197, 0x19a..0x19d), +0x894, the turn state 0x31, the parent rule, +0x484 bits 19
     /// and 28, the ride along a spline (0x97 with 0x0044b4b0).
     pub fn busy(&self, me: Entity, other: Entity) -> bool {
-        me == other
-            || self.gun.is_some()
+        me == other || self.busy_now()
+    }
+
+    /// `busy` whoever the other is: the tests of 0x0042f8d0 on his own state (a scare's or a hit's source that is no
+    /// entity here, e.g. the sticky bomb)
+    pub fn busy_now(&self) -> bool {
+        self.gun.is_some()
             || matches!(self.mind, Mind::Dead | Mind::Scripted | Mind::Held | Mind::Throw | Mind::WaitTrigger | Mind::InSquad | Mind::Teleport)
             || (self.mind == Mind::ToMarker && self.spline.is_some_and(|r| !r.started))
+    }
+
+    /// Activate 0x0042f5c0 with a target (state 0x8c, trigger_los): trigger_charge charges it (0x0042ce70: the pursuit
+    /// at once); the marker run of trigger_marker is not ported here
+    fn activate(&mut self) {
+        self.mind = Mind::Roam;
+        self.pursue = self.trigger_charge;
     }
 
     /// The anim of an id by the class's table and this grunt's state (vt+0x1a4, `anim_name_with`)
@@ -1180,6 +1202,7 @@ impl Plugin for AiPlugin {
             .init_level_resource::<ic::IcStats>()
             .init_level_resource::<launch::LaunchClock>()
             .add_systems(Update, (launch::tick, launch::log_state).run_if(crate::playing))
+            .add_systems(Update, (monk_smoke, base_defence_range.before(think)).run_if(crate::playing))
             .init_level_resource::<dialogue::Bags>()
             .add_plugins(q112::Q112Plugin)
             .init_level_resource::<max_fire::ShooterLimit>()
@@ -1372,6 +1395,7 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         scan_distance: p.f("scan_distance", 300.0),
         hear_distance: p.f("hear_distance", 20.0),
         range: rmin + rng.rand() as f32 * (rmax - rmin) / 32768.0,
+        fire_range: (rmin, rmax),
         alert_group: p.i("alert_group", 0),
         guard,
         trigger_los: p.i("trigger_los", 1) != 0,
@@ -1421,8 +1445,15 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         hurt_voice_timer: 0.0,
         dead_said: false,
         speech: crate::audio::Speech::default(),
-        // GruntObject_Slot6 (ai_04.cpp:2340): < 100 GR1 (+0x484 bit 21), < 200 GR3 (+0x488 bit 29), else GR2
-        voice_set: if pick < 100 { 0 } else if pick < 200 { 2 } else { 1 },
+        // GruntObject_Slot6 (ai_04.cpp:2340): < 100 GR1 (+0x484 bit 21), < 200 GR3 (+0x488 bit 29), else GR2; the
+        // captain's and the sniper captain's inits (0x00434cd0 / 0x004348a0) keep Ai_InitGeneric's roll (0x004247f0:
+        // rand() * 100 >> 15 < 50 sets bit 21, CA1; else CA2), here the same draw halved
+        voice_set: match kind {
+            Kind::Captain | Kind::Sniper => u8::from(pick >= 150),
+            _ if pick < 100 => 0,
+            _ if pick < 200 => 2,
+            _ => 1,
+        },
         ray_timer: 0.0,
         ragdoll: false,
         death_anim: (rng.rand() % 6) as u8 + 1,
@@ -1439,6 +1470,8 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         slot: None,
         force_hide: false,
         scared_run: false,
+        flee_bomb: false,
+        long_hit_round: false,
         fire_ready: true,
         hold: false,
         gun: None,
@@ -1959,10 +1992,7 @@ fn search(
             }
             g.target = Some(tgt);
             if g.mind == Mind::WaitTrigger {
-                // activate 0x0042f5c0 with the target found (state 0x8c, trigger_los): trigger_charge charges it
-                // (0x0042ce70: the pursuit at once); the marker run of trigger_marker is not ported here
-                g.mind = Mind::Roam;
-                g.pursue = g.trigger_charge;
+                g.activate();
             }
             if std::env::var("AIDBG").is_ok() { info!("AIDBG spotted {:?} by {:?} at {:?} d {:.0} heard {} mode {:?}", tgt, ge, me, d2, heard, g.mind); }
             if g.alert_group != 0 {
@@ -2040,51 +2070,167 @@ pub fn line_of_sight(physics: &Physics, from_feet: Vec3, to_feet: Vec3) -> bool 
     true
 }
 
-/// Scare 0x0042fb60: a sticky bomb stuck within 25 units makes a grunt flee 100 units from the player for 3-5 s
-/// (run_scared), then charge him; a guard plays grenade_stuck and the Sticky_Scream bark instead of fleeing.
+//// One scare, the arguments of GenericAIObject slot 51 0x0042fb60 (vt+0xcc) as StickyBombProjectile_Stick 0x004817b0
+/// sends them: the bomb is stuck on him (the attacker), the object to run from when it is not (a1: the bomb's
+/// carrier), and whether it passes to his squad (a2).
+#[derive(Clone, Copy)]
+struct Scare {
+    who: Entity,
+    bomb_on_him: bool,
+    from: Option<Entity>,
+    to_squad: bool,
+}
+
+/// A monk's smoke started (MonkObject_Init 0x004369a0).
+#[derive(Component)]
+struct MonkSmoke;
+
+/// MonkObject_Init 0x004369a0 (ai_05.cpp:186-205): a monk (with his model, vt+0xd8) carries five smoke effects for
+/// good, each on a node of his (Fx_Create 0x0041cc60 with mode 4, the node and the monk): fx_monk_smoke_sleeve at
+/// ref_sleeve_00 and ref_sleeve_01, fx_monk_smoke_body_0 / _1 / _2 at ref_body_00 / _01 / _02. Started once his
+/// skeleton's joints exist.
+fn monk_smoke(mut commands: Commands, monks: Query<(Entity, &Grunt, &crate::skin::Animator), Without<MonkSmoke>>, joints: Query<&GlobalTransform>, mut fx: MessageWriter<crate::fx::StartFx>) {
+    const SMOKE: [(&str, &str); 5] = [
+        ("fx_monk_smoke_sleeve", "ref_sleeve_00"),
+        ("fx_monk_smoke_sleeve", "ref_sleeve_01"),
+        ("fx_monk_smoke_body_0", "ref_body_00"),
+        ("fx_monk_smoke_body_1", "ref_body_01"),
+        ("fx_monk_smoke_body_2", "ref_body_02"),
+    ];
+    for (e, g, a) in &monks {
+        if g.kind != Kind::Monk || g.mind == Mind::Dead {
+            continue;
+        }
+        let nodes: Vec<Option<(Entity, Vec3)>> = SMOKE
+            .iter()
+            .map(|(_, n)| a.skeleton.index.get(*n).and_then(|&i| a.joints.get(i)).and_then(|&j| joints.get(j).ok().map(|t| (j, t.translation()))))
+            .collect();
+        if a.joints.is_empty() {
+            continue;
+        }
+        commands.entity(e).insert(MonkSmoke);
+        for ((name, node), at) in SMOKE.iter().zip(nodes) {
+            let Some((j, at)) = at else {
+                warn!("ai: monk {e:?} has no {node} for {name}");
+                continue;
+            };
+            fx.write(crate::fx::StartFx { name: (*name).into(), at, rotation: Quat::IDENTITY, follow: Some(j), position_only: false });
+        }
+        info!("EVENT ai: monk {e:?} smoke on");
+    }
+}
+
+/// CaptainObject_Slot8 0x00434da0 (also the sniper captain's): in a level that starts Roman in a turret (0x0044e600:
+/// a player and start_in_turret_tag) a captain engages at his greatest range (+0x5d8 = +0x5d4, no roll). Its other
+/// write there, +0x5c8 = 2.0 (the clip pause), is cleared by his first engagement's counter roll (0x00427600 with flag
+/// 4 of +0x484 clear zeroes +0x5c8) before anything reads it, so it has no effect.
+fn base_defence_range(mut grunts: Query<&mut Grunt, Added<Grunt>>, mission: Option<Res<crate::mission::Mission>>, player: Query<(), With<Player>>) {
+    if !mission.is_some_and(|m| m.start_in_turret) || player.is_empty() {
+        return;
+    }
+    for mut g in &mut grunts {
+        if matches!(g.kind, Kind::Captain | Kind::Sniper) {
+            g.range = g.fire_range.1;
+        }
+    }
+}
+
+/// Scare 0x0042fb60, sent by a sticky bomb sticking (0x004817b0, game_07.cpp:1240-1257): first to the object it
+/// stuck on (attacker = the bomb, a2 = 1), then to every grunt within 25 units of it (a1 = that object, a2 = 1). For
+/// each, in order (ai_03.cpp:2889-2962):
+/// - dead: nothing;
+/// - a squad member (+0x9bc) leaves his squad and its alert group, his guard flag cleared (0x00454750, 0x0042cc10,
+///   0x0042cff0); with a2 the scare first goes to the squad's other members (vt+0xcc(0, the bomb's carrier when it
+///   is he, 0)), who leave it the same way;
+/// - else the carrier on a mounted gun (+0x898 with +0x484 0x8000) becomes a guard (+0x484 bit 25);
+/// - else nothing while busy (vt+0x178, `Grunt::busy`) or already fleeing (state 0xc8);
+/// - a guard (bit 25, `Grunt::guard`): only the carrier reacts, cowering (anim 0x10 + (rand() * 2 >> 15)
+///   grenade_stuck_1 / 2, his sticky scream vt+0x164, state 0xca: he stands, `Mind::Cower`);
+/// - the rest scream (the carrier vt+0x164 0x00438810 Sticky, the others vt+0x160 0x004383a0 General) and flee
+///   (state 0xc8): from the player when they carry the bomb or it stuck on nothing, else from its carrier, 250
+///   (K 0x005bcf00) / 100 (K 0x005bcb60) units along the 2D direction, the held cover left (vt+0x18c; think lets a
+///   trench go), the timer +0x490 = 3 + rand() * 2 / 32768 s (K 0x005bce30, 0x005bcb7c), which only a grunt without
+///   the bomb counts down (state 0xc8, ai_06.cpp:2494): the carrier runs to his point.
+///
+/// Not modelled: +0xb54 (the bomb held: on arriving the carrier sets it off at once, Call_00481ab0 ai_06.cpp:2520; the
+/// turbo-pack carrier's escape, state 0xc9), the flags +0x484 bit 16 / +0x488 bit 0 cleared.
+#[allow(clippy::too_many_arguments)]
 fn scare(
     mut stuck: MessageReader<StickyStuck>,
     mut rng: ResMut<FxStats>,
     player: Query<&GlobalTransform, With<Player>>,
+    places: Query<&GlobalTransform>,
     mut grunts: Query<(Entity, &mut Grunt, &GlobalTransform)>,
+    squads: Query<&squad::Squad>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
-    mut barks: ResMut<Barks>,
-    time: Res<Time>,
-    voices: crate::audio::PlayingVoices,
+    (mut barks, time, voices): (ResMut<Barks>, Res<Time>, crate::audio::PlayingVoices),
 ) {
     let ppos = player.single().map(|p| p.translation()).unwrap_or_default();
     for s in stuck.read() {
-        for (ge, mut g, t) in &mut grunts {
-            if g.mind == Mind::Dead || t.translation().distance(s.0) >= 25.0 {
+        let carrier = s.1.filter(|&o| grunts.contains(o));
+        let mut work: std::collections::VecDeque<Scare> = carrier.map(|o| Scare { who: o, bomb_on_him: true, from: None, to_squad: true }).into_iter().collect();
+        work.extend(
+            grunts
+                .iter()
+                .filter(|(ge, _, t)| Some(*ge) != s.1 && t.translation().distance(s.0) < 25.0)
+                .map(|(ge, ..)| Scare { who: ge, bomb_on_him: false, from: s.1, to_squad: true }),
+        );
+        while let Some(sc) = work.pop_front() {
+            let Ok((ge, mut g, t)) = grunts.get_mut(sc.who) else { continue };
+            if g.mind == Mind::Dead {
                 continue;
             }
-            // Scare 0x0042fb60: the grunt the bomb is stuck to says Sticky (death_delay; else General_Scream), the others
-            // General_Scream, a guard without the bomb on him nothing (ai_03.cpp:2930-2943). Screams keep his scream
-            // handle: none starts while it plays; the sticky one (0x00438810) then leaves death_delay as it is
-            let at = t.translation();
-            let scream = if s.1 == Some(ge) {
-                if !barks.ready(Delay::Death, time.elapsed_secs(), &mut rng) {
-                    Some("General_Scream")
-                } else if !g.speech.screaming(&voices) {
-                    barks.take(Delay::Death, time.elapsed_secs(), &mut rng);
-                    Some("Sticky_Scream")
-                } else {
-                    None
+            let mut guard = g.guard;
+            if let Some(link) = g.squad.take() {
+                if sc.to_squad {
+                    let members = squads.get(link.squad).map(|sq| sq.members.clone()).unwrap_or_default();
+                    // (passed on before his own reaction: the recursion of vt+0xcc)
+                    for &m in members.iter().rev().filter(|&&m| m != ge) {
+                        work.push_front(Scare { who: m, bomb_on_him: false, from: sc.bomb_on_him.then_some(ge), to_squad: false });
+                    }
                 }
+                g.alert_group = 0;
+                g.guard = false;
+                guard = false;
+            } else if sc.bomb_on_him && g.gun.is_some_and(|x| x.phase == GunPhase::On) {
+                guard = true;
+            } else if g.busy_now() || g.mind == Mind::Flee {
+                continue;
+            }
+            if guard && !sc.bomb_on_him {
+                continue;
+            }
+            // the screams keep his scream handle: none starts while it plays; the sticky one (0x00438810: death_delay,
+            // else General_Scream) then leaves death_delay as it is
+            let at = t.translation();
+            let scream = if !sc.bomb_on_him || !barks.ready(Delay::Death, time.elapsed_secs(), &mut rng) {
+                Some("General_Scream")
+            } else if !g.speech.screaming(&voices) {
+                barks.take(Delay::Death, time.elapsed_secs(), &mut rng);
+                Some("Sticky_Scream")
             } else {
-                (!g.guard).then_some("General_Scream")
+                None
             };
             let set = g.voice_set;
             if let Some(req) = scream.and_then(|cat| g.speech.scream(&voices, bark_request(cat, set, at))) {
                 sounds.write(req);
             }
-            if g.guard {
+            if guard {
+                g.anim_id = 0x10 + (rng.rand() * 2.0) as u32 % 2;
+                g.mind = Mind::Cower;
+                info!("EVENT ai: grunt {ge:?} cowers (sticky bomb)");
                 continue;
             }
-            let away = (t.translation() - ppos).with_y(0.0).normalize_or(Vec3::X);
-            g.goal = t.translation() + away * 100.0;
+            let from = match sc.from {
+                Some(o) if !sc.bomb_on_him => places.get(o).map_or(ppos, |p| p.translation()),
+                _ => ppos,
+            };
+            let away = (at - from).with_y(0.0).normalize_or(Vec3::X);
+            g.goal = at + away * if sc.bomb_on_him { 250.0 } else { 100.0 };
             g.timer = rng.range(3.0, 5.0);
+            g.flee_bomb = sc.bomb_on_him;
             g.mind = Mind::Flee;
+            info!("EVENT ai: grunt {ge:?} flees (sticky bomb{})", if sc.bomb_on_him { " on him" } else { "" });
         }
     }
 }
@@ -2183,6 +2329,8 @@ struct Spots {
     guns: Vec<GunView>,
     /// the generic cover list World+0xed4: trees and valid buildings (coverslot.rs)
     slots: Vec<coverslot::SlotView>,
+    /// Roman's position (Game+0x748): a monk's teleport round him when he has no target
+    player: Option<Vec3>,
 }
 
 /// The mounted-gun candidate of the hiding-spot search, 0x0042a100 (needs vt+0x1f0: true for grunts): the free gun
@@ -2395,8 +2543,9 @@ fn leave_cover(g: &mut Grunt, me: Entity, trenches: &mut [TrenchView], history: 
 /// - nothing: flag 4 set -> pursue (vt+0x184), else the reload in place (state 0x32).
 #[allow(clippy::too_many_arguments)]
 fn find_hiding_spot(g: &mut Grunt, me: Entity, (need_target, hold): (bool, bool), pos: Vec3, target: Option<(Vec3, Vec3)>, spots: &mut Spots, physics: &Physics, own: BodyId, rng: &mut FxStats) -> Hide {
-    // a monk's search is MonkObject_Bamf 0x00436bb0: with specials left he re-engages (in range) or rests; at 0 he
-    // teleports round the target (or the player: here the target only)
+    // a monk's search is MonkObject_Bamf 0x00436bb0: with specials left he re-engages (in range) or rests (the flag 4
+    // it tests after clearing it is always set again by the counter roll 0x00427600 between); at 0 he teleports round
+    // the target, else round the player (Game+0x748); with no spot found he still goes, back onto his own place
     if let Some(m) = g.monk.as_mut() {
         if m.special > 0 {
             return match target {
@@ -2404,15 +2553,10 @@ fn find_hiding_spot(g: &mut Grunt, me: Entity, (need_target, hold): (bool, bool)
                 _ => Hide::Rest,
             };
         }
-        let Some((p, _)) = target else { return Hide::Rest };
-        return match monk::bamf_point(p, physics, rng) {
-            Some(to) => {
-                m.flight_t = 0.0;
-                g.goal = to;
-                Hide::Teleport
-            }
-            None => Hide::Rest,
-        };
+        let Some(around) = target.map(|(p, _)| p).or(spots.player) else { return Hide::Rest };
+        m.flight_t = 0.0;
+        g.goal = monk::bamf_point(around, physics, rng).unwrap_or(pos);
+        return Hide::Teleport;
     }
     let flag4 = g.fire_ready;
     if !flag4 && target.is_some() && rng.rand() < 0.9 {
@@ -2876,7 +3020,8 @@ fn think(
     } else {
         covers.iter().map(|(e, c, gt, pl)| coverslot::SlotView::of(e, c, gt, pl.and_then(|p| p.collider))).collect()
     };
-    let mut spots = Spots { trenches: views, guns: gun_views, slots: slot_views };
+    let player_at = player_e.and_then(|p| targets.get(p).ok()).map(|t| t.translation());
+    let mut spots = Spots { trenches: views, guns: gun_views, slots: slot_views, player: player_at };
     // the jump markers (World+0xf10) as the jumpers' choice sees them; their occupants written back at the end
     let mut jviews: Vec<jumper::MarkerView> =
         jmarks.iter().map(|(e, m, t)| jumper::MarkerView { e, pos: t.translation, tag: m.tag, free: m.occupant.is_none() }).collect();
@@ -2903,7 +3048,7 @@ fn think(
             leave_cover(&mut g, ge, &mut spots.trenches, false);
         }
         // likewise a gun (0x004266b0)
-        if g.gun.is_some() && g.mind != Mind::Gunner {
+        if g.gun.is_some() && !matches!(g.mind, Mind::Gunner | Mind::Cower) {
             if let Some(t) = leave_gun(&mut g, ge, &mut body, &mut spots.guns) {
                 if let Ok((_, mut tu, ..)) = guns.get_mut(t) {
                     tu.ai_aim(0.5, 0.5);
@@ -2946,8 +3091,10 @@ fn think(
                 }
             }
         }
-        // hurt: bark at most every 4 s (0x004394c0); a hurt grunt waiting for a trigger activates (ai_04.cpp:420)
+        // hurt: bark at most every 4 s (0x004394c0); a hurt grunt waiting for a trigger activates with trigger_los
+        // (ai_04.cpp:420)
         g.hurt_voice_timer -= dt;
+        let long_round = std::mem::take(&mut g.long_hit_round);
         if h.0 < g.last_health && h.0 > 0.0 {
             g.last_hit = g.last_health - h.0;
             // the hit reaction (GenericAIObject_Slot52 0x00430340, ai_04.cpp:444-535; anim names by the class's table,
@@ -2956,13 +3103,28 @@ fn think(
             // <= hit_level_1 a small hit (not while one or a long hit plays, states 0x12f / 0x132): one of ids
             // 0x3f..0x42 by rand * 400 >> 15, state 0x12f; <= hit_level_2 a medium hit, 0x43 / 0x44 alternating on the
             // anim playing (the first by rand * 200 >> 15 < 100), state 0x130; else a big hit 0x45 + (rand * 2 >> 15),
-            // state 0x131. (The record flags 0x100 / 4, anims 0x77.. / 0x47.., are not set by any lev_1_m1 damage.)
+            // state 0x131. Before them a record with flag 0x100 (a base turret round, `long_hit_round`) plays a long hit
+            // 0x77 + (rand * 6 >> 15), state 0x131, unless one plays (state 0x131 already). (Record flag 4, anims
+            // 0x47 / 0x48, comes from no projectile class: none adds it to 0x0047eba0's flags.)
+            // Before any of it (ai_04.cpp:411-425): a busy grunt (vt+0x178 0x0042f8d0, `Grunt::busy` with the source:
+            // on or going to a gun, an IC move, held, throwing, a squad member, waiting for his trigger, ...) has no
+            // reaction and makes no offer; only one waiting for his trigger (state 0x8c) with trigger_los and a source
+            // takes it as his target and wakes (vt+0x23c, 0x0042f5c0). The barks above it still play.
             let d = g.last_hit;
-            let on_gun = g.gun.is_some_and(|x| x.phase == GunPhase::On);
+            let busy = g.busy_now() || g.attacker == Some(ge);
+            if busy {
+                let src = g.attacker.take();
+                if let (Mind::WaitTrigger, true, Some(a)) = (g.mind, g.trigger_los, src) {
+                    g.target = Some(a);
+                    g.activate();
+                }
+            }
             let (before, after) = (g.last_health / g.max_health, h.0 / g.max_health);
             let fours = g.allfours_pct / 100.0;
-            let react: Option<(u32, u8)> = if on_gun {
+            let react: Option<(u32, u8)> = if busy {
                 None
+            } else if long_round {
+                (g.reacting != 3 || g.hit.is_none()).then(|| (0x77 + (rng.rand() * 6.0) as u32 % 6, 3))
             } else if g.kind.allfours() && before > fours && after <= fours {
                 Some((0x35, 5))
             } else if d <= g.hit_level_1 {
@@ -3022,9 +3184,6 @@ fn think(
                 g.hurt_voice_timer = 4.0;
                 bark(&mut sounds, "Hurt:{}:butlast4", g.voice_set, tr.translation);
             }
-            if g.mind == Mind::WaitTrigger {
-                g.mind = Mind::Roam;
-            }
             // retaliation: the end of GenericAIObject_Slot52 0x00430340 offers the damage source (when it is one of
             // the grunt's enemies, list +0x604: Roman or a companion) as a target, GenericAI_OfferTarget 0x0042c820:
             // ignored while a target adopted this way is less than 10 s old (K 0x005bcb68 against +0x514); taken when
@@ -3046,6 +3205,13 @@ fn think(
                     }
                 }
             }
+        }
+        // the killing hit's damage for Character_Die's ragdoll test (record +0x14 >= hit_ragdoll, game_02.cpp:1370):
+        // what a weapon set itself (`last_hit`) or else the health lost this frame; a survivor's is spent here
+        if h.0 > 0.0 {
+            g.last_hit = 0.0;
+        } else if h.0 < g.last_health {
+            g.last_hit = g.last_hit.max(g.last_health - h.0);
         }
         g.last_health = h.0;
         // an IC move carries him (state 0x64: ic.rs and the mover); held by a companion who comes to kill him (state
@@ -3187,8 +3353,9 @@ fn think(
         }
         g.shot_age += dt;
         // the sniper's SetTarget 0x00434930: a target taken raises the gun to the eye (Captain_sniper_attach), one lost
-        // lowers it (Captain_sniper_detach); state 0x104 holds him still while the anim plays, then engages
-        if g.kind == Kind::Sniper && g.pose.is_none() && g.target.is_some() != g.aiming {
+        // lowers it (Captain_sniper_detach); state 0x104 holds him still while the anim plays, then engages. It runs at
+        // the SetTarget itself, so a target lost while the gun goes up lowers it at once (the pose cut short)
+        if g.kind == Kind::Sniper && g.target.is_some() != g.aiming {
             g.aiming = g.target.is_some();
             let n = if g.aiming { "captain_sniper_attach" } else { "captain_sniper_detach" };
             g.pose = Some((n, anim_len(&mut lib, n)));
@@ -3223,12 +3390,16 @@ fn think(
             (Mind::ToMarker, _) => Mind::ToMarker,
             // state 0xae has no exit
             (Mind::Retreat, _) => Mind::Retreat,
-            (Mind::Flee, _) if g.timer > 0.0 => Mind::Flee,
-            // the scare's end charges the player (0x0042ce70)
+            // state 0xc8 (ai_06.cpp:2493-2532): the run ends at its point or, without the bomb on him, when the timer
+            // runs out
+            (Mind::Flee, _) if if g.flee_bomb { flat(g.goal - pos).length() >= MARKER_REACHED } else { g.timer > 0.0 } => Mind::Flee,
+            // the scare's end charges his target, else the player (0x0042ce70)
             (Mind::Flee, _) => {
+                g.flee_bomb = false;
                 g.target = g.target.or(player_e);
                 Mind::Chase
             }
+            (Mind::Cower, _) => Mind::Cower,
             // the wander (0x3d / 0x5b) and the one-shot states run their own course (below)
             (Mind::Wander, _) => Mind::Wander,
             (Mind::ToSlot, _) if g.slot.is_some() => Mind::ToSlot,
@@ -3285,8 +3456,18 @@ fn think(
                 // (a hand-over engages afresh, vt+0x230(0): no close attack; the limit is asked again by max_fire::upkeep)
                 let retry = std::mem::take(&mut g.retry_engage);
                 let engaged = !retry && (was == Mind::Fire || (was == Mind::Guard && g.guard_firing));
+                // (the twiglet summon needs +0x484 bit 14 clear (0x00437130): not still turning to the target, more than
+                // 45 degrees off his facing (0x0042df70); else its n < 50 falls to the baskets' n < 200)
+                let forward = Vec3::new(g.yaw.sin(), 0.0, g.yaw.cos());
+                let turning = target.is_some_and(|p| !within_arc(p, pos, forward, 45.0));
                 let act = match g.monk.as_mut() {
-                    Some(m) if !engaged => m.roll(&mut rng),
+                    Some(m) if !engaged => {
+                        let forced = m.forced.is_some();
+                        match m.roll(&mut rng) {
+                            monk::MonkAct::Twiglets if turning && !forced => monk::MonkAct::Baskets,
+                            a => a,
+                        }
+                    }
                     _ => monk::MonkAct::Fire,
                 };
                 if act == monk::MonkAct::Baskets || act == monk::MonkAct::Twiglets {
@@ -4016,6 +4197,12 @@ fn think(
                 // state 0xf0: the flight (no gravity: physics flag 0x100, guess) for at most 5 s; within 8 he lands on the
                 // ground there and engages (vt+0x230) or rests
                 let mut m = g.monk.expect("a monk");
+                if m.flight_t == 0.0 {
+                    // the bamf's start (MonkObject_Bamf 0x00436bb0, ai_05.cpp:420-425): fol_monk_bamf_1 or _2 on him,
+                    // (rand() * 100 >> 15) < 50
+                    let name = if rng.rand() * 100.0 < 50.0 { "fol_monk_bamf_1" } else { "fol_monk_bamf_2" };
+                    sounds.write(crate::audio::PlaySound::on(name, ge));
+                }
                 m.flight_t += dt;
                 let near = (g.goal - pos).length() < 8.0;
                 if near || m.flight_t > 5.0 {
@@ -4415,7 +4602,9 @@ fn die(
     (mut barks, time, mut guns): (ResMut<Barks>, Res<Time>, Query<&mut crate::turret::Turret>),
     (voices, mut stop): (crate::audio::PlayingVoices, MessageWriter<crate::audio::StopVoice>),
     (corpses, settings, mut ai_stats, mut clock): (Query<&crate::corpses::Corpse>, Res<crate::graphics::GraphicsSettings>, ResMut<AiStats>, ResMut<launch::LaunchClock>),
+    roman: Query<&GlobalTransform, With<Player>>,
 ) {
+    let roman_at = roman.single().ok().map(|t| t.translation());
     let mut alerts: Vec<(i64, Entity, Entity)> = Vec::new();
     // the ragdolls already down (GoRagdoll 0x00431310 counts them over the AI list: 0x00431000)
     let rules = crate::corpses::CorpseRules::of(&settings);
@@ -4489,8 +4678,17 @@ fn die(
         // Character_Die): its own launch / impact / ragdoll choice (ic::go_ragdoll); no window blow-out, no death anim
         let knock = knocked.map(|k| (k, ic::go_ragdoll(k, clock.allows(), clock.launched_now(), rng.rand(), rng.rand())));
         let blown_out = knock.is_none() && g.window && g.cartoon;
+        // dying on all fours (Character_Die 0x004319e0, game_02.cpp:1293 / 1347-1357): falling to them (state 300) the
+        // fall's anim plays on, nothing more; on them (0x12d) anim 0x37 (captain_allfours_death), state 0x191; neither
+        // ragdolls
+        let fours_death = (knock.is_none() && forced.is_none() && g.hit.is_some()).then_some(g.reacting).and_then(|r| match r {
+            5 => Some(0x35),
+            6 => Some(0x37),
+            _ => None,
+        });
         // a blast's fling is a launch (Character_Die 0x004319e0 on an area record: state 0x195) whatever its speed
-        let wants_ragdoll = knock.is_some() || (forced.is_none() && !blown_out && (g.last_hit >= g.hit_ragdoll || fling.is_some() || push.length() > 30.0));
+        // (only the killing hit decides it, never the body's own speed: game_02.cpp:1370-1378)
+        let wants_ragdoll = knock.is_some() || (forced.is_none() && fours_death.is_none() && !blown_out && (g.last_hit >= g.hit_ragdoll || fling.is_some()));
         let mut thrown = fling.is_some();
         let mut limited = true;
         let mut knock_launch = None;
@@ -4511,10 +4709,31 @@ fn die(
         // 40..60 from the bomb along its line to him, forward or back past it, at rand 2.5..3 x his move_speed), before
         // the ragdoll count is looked at. The original flails him through that arc (anims 0x49 / 0x4a) and he goes
         // limp on landing; here the ragdoll is launched with the arc's velocity (as the glove's punch, glove.rs)
+        // a blast's fling at the very time of a launch (GoRagdoll's impact branch with Game+0xb34 == now,
+        // physics_01.cpp:3597-3612, as ic::go_ragdoll for a knock): 25 % (rand * 100 >> 15 < 25) a launch from the
+        // record's attacker (+0x2c: the sticky's thrower, Roman, whose launch stamped the clock) turned within 45
+        // degrees, else the fling x rand 2..5
+        let blast_launch = match fling {
+            Some(f) if knock.is_none() && fours_death.is_none() && clock.launched_now() && !(g.cartoon && clock.allows()) => match ic::go_ragdoll(
+                &ic::Knocked { impulse: f, amount: f32::INFINITY, quiet: false, attacker: roman_at },
+                false,
+                true,
+                rng.rand(),
+                rng.rand(),
+            ) {
+                ic::RagdollGo::Launch { spread } => roman_at.map(|a| (a, spread)),
+                ic::RagdollGo::Thrown(v) => {
+                    push = v;
+                    None
+                }
+                ic::RagdollGo::Ragdoll { .. } => None,
+            },
+            _ => None,
+        };
         let launch_from = if knock.is_some() {
             knock_launch
         } else {
-            g.cartoon_from.filter(|_| wants_ragdoll && g.cartoon && clock.allows()).map(|f| (f, 0.0))
+            g.cartoon_from.filter(|_| wants_ragdoll && g.cartoon && clock.allows()).map(|f| (f, 0.0)).or(blast_launch)
         };
         let launched = launch_from.is_some();
         if let Some((from, spread)) = launch_from {
@@ -4530,6 +4749,8 @@ fn die(
         down += g.ragdoll as u32;
         g.death_name = if let Some(d) = forced {
             Some(d.0)
+        } else if let Some(id) = fours_death {
+            Some(g.anim(id, 0.0))
         } else if blown_out {
             Some("grunt_window_blown_out")
         } else if g.ragdoll {
@@ -4673,12 +4894,14 @@ pub struct Companion {
     damage_mult: (f32, f32),
     /// hits and death (GenericAIObject_Slot52 0x00430340 and Character_Die 0x004319e0, no companion overrides):
     /// health last frame, seconds since the last Hurt bark (+0xb48, 10 s), the reaction anim playing (name, time
-    /// left), a player / teammate shot that hit (FriendlyFire bark, no damage), the attacker to offer as a target,
-    /// dead (permanent: *_die, then the body is removed)
+    /// left), a player / teammate shot that hit (FriendlyFire bark, no damage: `friendly_fire`), the attacker to
+    /// offer as a target, dead (permanent: *_die, then the body is removed)
     pub last_health: f32,
     pub hurt_t: f32,
     pub hit: Option<(&'static str, f32)>,
     pub friendly: bool,
+    /// the damage of a friendly shot this frame: no health lost, but the hit reaction plays (`friendly_fire`)
+    friendly_damage: Option<f32>,
     pub attacker: Option<Entity>,
     pub dead: Option<f32>,
     /// the standing order (flags +0xbcc 1 / 4 / 8; docs/subsystems/companions.md)
@@ -4829,6 +5052,7 @@ impl Companion {
         hurt_t: 99.0,
         hit: None,
         friendly: false,
+        friendly_damage: None,
         attacker: None,
         dead: None,
         order: Order::Guard,
@@ -4874,10 +5098,19 @@ impl Companion {
     /// flag 0x80000 x +0x8fc, 0x100000 x +0x900).
     pub fn damage_scale(&self, kind: crate::player::DamageKind) -> f32 {
         match kind {
-            crate::player::DamageKind::Plain => 1.0,
+            crate::player::DamageKind::Plain | crate::player::DamageKind::BaseTurret => 1.0,
             crate::player::DamageKind::Stig => self.damage_mult.0,
             crate::player::DamageKind::Forge => self.damage_mult.1,
         }
+    }
+
+    /// A shot from its own side (the player's or the other companion's: GenericAIObject_Slot52 0x00430340, victim and
+    /// source both vt+0xe4, the source not dead by vt+0xe0, ai_04.cpp:366-381): the friendly-fire time (+0xb48, the
+    /// FriendlyFire bark) and the damage given back to its health, so no loss; the rest of the hit runs as for any
+    /// damage, its reaction by the message's `damage` (no offer: the player is not one of its enemies, list +0x604).
+    pub fn friendly_fire(&mut self, damage: f32) {
+        self.friendly = true;
+        self.friendly_damage = Some(self.friendly_damage.map_or(damage, |d| d.max(damage)));
     }
 
     /// Lets go of its target (the held attack target +0xbb0 and the current one).
@@ -5022,12 +5255,13 @@ fn companion_damage(
             info!("EVENT {} died", if c.q { "Q" } else { "Jonesy" });
             continue;
         }
-        if h.0 < c.last_health {
-            let d = c.last_health - h.0;
-            if barks.take(Delay::Vo, now, &mut rng) {
+        let friendly_damage = c.friendly_damage.take();
+        let hurt = (h.0 < c.last_health).then(|| c.last_health - h.0);
+        if let Some(d) = hurt.or(friendly_damage) {
+            if hurt.is_some() && barks.take(Delay::Vo, now, &mut rng) {
                 let l: &[&str] = if c.q { &["q1150050_help", "q1150053_help", "q1150054_help", "q1150064_hurt", "q1150065_hurt", "q1150066_hurt", "q1150067_hurt"] } else { &["jon50060_help", "jon50061_help", "jon50070_hurt", "jon50071_hurt", "jon50072_hurt", "jon50073_hurt"] };
                 say(&mut sounds, &mut rng, l, at);
-            } else if c.hurt_t >= 10.0 {
+            } else if hurt.is_some() && c.hurt_t >= 10.0 {
                 c.hurt_t = 0.0;
                 let l: &[&str] = if c.q { &["q1150060_hurt", "q1150061_hurt", "q1150062_hurt"] } else { &["jon50067_hurt", "jon50068_hurt"] };
                 say(&mut sounds, &mut rng, l, at);

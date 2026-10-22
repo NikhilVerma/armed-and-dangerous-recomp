@@ -1,0 +1,14 @@
+{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+ {"note": "the scare 0x0042fb60: a sticky bomb stuck on a grunt makes him flee (state 0xc8) from the player, 250 units, no timer"},
+ {"wait": 1.0},
+ {"warp": [-271, 680, 80, 180]},
+ {"spawn": [-275, 620, 80]},
+ {"wait": 1.0},
+ {"expect": {"special": "stickybomb", "sticky_live": 0}},
+ {"click": "Right"},
+ {"wait": 1.5},
+ {"expect": {"sticky_stuck": 1, "sticky_on_character": 1, "ai.minds.Flee": [2, 2]}},
+ {"wait": 2.0},
+ {"expect": {"ai.minds.Flee": [2, 2]}},
+ {"quit": true}
+]}

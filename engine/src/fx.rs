@@ -312,8 +312,8 @@ fn damage(
                 }
                 // the killing record's fling (Character_GoRagdoll 0x00431310: an owner, +0x2c, and an impact over
                 // 10050, K 0x005bcf34): the record's direction normalise(n.x, n.y, 0.7) (AreaDamage_Apply 0x0047f020,
-                // game z up) x impact x 0.15 (K 0x005bcedc) on his 80 kg. Not modelled: the x 2..5 (or a 25% launch)
-                // when a launch stamped Game+0xb34 this very frame.
+                // game z up) x impact x 0.15 (K 0x005bcedc) on his 80 kg; the x 2..5 (or a 25% launch)
+                // when a launch stamped Game+0xb34 this very frame: ai.rs `die`.
                 if alive && h.0 <= 0.0 && b.impact_force > FLING_MIN_IMPACT && (b.source.is_some() || b.by != Src::Object) {
                     if let Some(g) = grunt.as_mut() {
                         g.blast_fling = Some(fling(n, b.impact_force));
