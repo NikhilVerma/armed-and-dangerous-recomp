@@ -52,7 +52,9 @@ pub struct ObjectTag(pub i64);
 
 /// `behavior = background` (the sky dome): drawn around the camera, unlit, no fog, no collision.
 /// BackgroundObject_Load 0x0040a890 reads sorting_order (draw order among backgrounds) and fog (default 0: the
-/// materials' fog bit 0x10 cleared); lev_1_m1's one dome (p_background) has fog 0 and is the only background, so
+/// materials' fog bit 0x10 cleared). Every background of the shipped levels (one dome, two on lev_4_m1 / 4_m2 /
+/// bonus_m1) uses p_background: sorting_order 1, fog 0, one model per template, so the original's fog-slot bug
+/// (docs/original-bugs.md: meshes 2+ follow the previous mesh's part count) never fires and equal orders sort nothing:
 /// neither is read here (a background with fog 1 would need the level fog on its material). Its slot 7
 /// (0x0040a9e0) sets three flag bytes of its collision description (guess: no collision): no collider here.
 #[derive(Component)]

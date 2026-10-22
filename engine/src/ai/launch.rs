@@ -20,7 +20,7 @@ pub const GRAVITY: f32 = 64.348;
 /// GoRagdoll's wait between launches (K 0x005bcb68, 10 s against Game+0xb34).
 pub const LAUNCH_GAP: f32 = 10.0;
 
-/// Game+0xb34: the game time of the last launch (set to the level's start by the load, 0x0045a4e0: game_02.cpp:2050),
+/// Game+0xb34: the game time of the last launch (set to the level's start by MissionObject_Load 0x0044c170: game_02.cpp:2050),
 /// on the level's own clock (seconds of play since the level started).
 #[derive(Resource, Default, Debug, Clone, Copy)]
 pub struct LaunchClock {

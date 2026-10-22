@@ -92,9 +92,13 @@ below that share (0x00450da0); a husk stage is a new object (large -> medium -> 
 convex hull of the collision model (scaled) with the property set's friction, restitution and gravity factor
 (0x00450fa0), the speed trap's linear cast (0x00452790). Contacts (0x00450af0, with the velocities before the step):
 crush when |v - v_other| and |v| reach crush_speed and the other is slower than it or the relative direction against
-its own is below -0.65; on_hit_damage hits everything it touches; the records (0x004505a0): a crush takes the
-victim's whole health (characters; a movable only with takes_crushing_damage), else direct_damage. The landscape:
-on_hit_fx "name/count/interval", fx_boulder_impact below -50; imp_boulder_roll_lp while it rolls. on_hit_death breaks
+its own is below -0.2 ([0x005bce80]); on_hit_damage hits everything it touches (crush clears it at load); the
+records (0x004505a0): a crush takes the victim's whole health (characters; a movable only with
+takes_crushing_damage), else direct_damage, with the mover's normalised velocity and direct_damage_force as the
+impulse, which only Roman's handler reads (his knockback, PlayerObject_OnHit 0x0047afa0; no shipped movable reaches a
+living Roman with it: every damaging one crushes). The landscape, at the contact point (+0x49c): on_hit_fx
+"name/count/interval", fx_boulder_impact below -50 ([0x005bce7c]); imp_boulder_roll_lp while the horizontal speed
+squared is above 16 ([0x005bce84], read from the binary). A dead object (0x80) skips all of these. on_hit_death breaks
 a window pane at any body's touch. Playtest boulders_l2m1 (a push step sends a boulder rolling).
 
 ## The factory (ObjectSystem_CreateObject 0x0045f020)

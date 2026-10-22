@@ -18,6 +18,9 @@ pub struct FxLayerMaterial {
     pub t2: Handle<Image>,
     #[uniform(6)]
     pub params: FxLayerParams,
+    /// the record's opacity (+0x48): the texture factor (0x004897d0's constant alpha) is the object's alpha x this
+    /// (the snow domes fxo_snow / fxo_snow_2: 0.8); `params.colour.w` holds the product
+    pub opacity: f32,
 }
 
 #[derive(bevy::render::render_resource::ShaderType, Debug, Clone, Default)]
@@ -47,6 +50,10 @@ pub struct FxAddMaterial {
     pub base: Handle<Image>,
     #[uniform(2)]
     pub params: FxAddParams,
+    /// the record's opacity (+0x48): the constant alpha the draw state 0x004897d0 gives an additive record (state
+    /// 0x120, SRCALPHA / ONE) is the object's alpha x this (with 0x40000 the stage's alpha is the texture's x that
+    /// constant: fxo_glow_red 0.1, fxo_trail_bullet 0.15); `params.colour.w` holds the product
+    pub opacity: f32,
 }
 
 #[derive(bevy::render::render_resource::ShaderType, Debug, Clone, Default)]
