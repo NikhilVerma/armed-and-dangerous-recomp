@@ -221,3 +221,10 @@ the camp fight itself (the original was not run: the game was in use by other ag
   not block the AI's sight; making the remaster's sight ray pass the landscape broke four start scenarios (lev_3_m2
   grunt 142, lev_4_m3 grunt 511, lev_5_m1 grunt 142 seeing Roman or Jonesy early), so it is kept blocking. Whether
   Ray_Cast 0x00413e10 adds the landscape itself when an include list is given is not traced.
+- **The guarding goliath on the base defence levels (lev_3_m4_bd, lev_4_m5, lev_5_m5).** GoliathObject_Update
+  0x00447040 runs its fireball cycle (state 0x79, +0xb58) only while 0x0044e600 is false, and every level with a
+  placed goliath starts Roman in a turret (0x0044e600 true), where every state but 0x66 goes to GenericAI_Update
+  0x0043ee90. What that generic path does with a goliath after its script is not decoded; the remaster
+  (goliath.rs `guard`) runs the goliath's own cycle there. Also open: the cycle's facing in states 1/3/4/5
+  (Goliath_FaceAcross: +0xb5c rotated a quarter turn, +0xb5c being 0x00453150's negated matrix column 1) versus
+  the placed heading; the remaster faces the target. Needs an original capture of a goliath after its walk.

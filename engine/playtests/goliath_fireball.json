@@ -1,0 +1,13 @@
+{"scene": "lev_3_m4_bd", "steps": [
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 3.5}, {"tap": "Enter"},
+ {"wait": 8.0},
+ {"expect": {"base_turret.mounted": true, "goliath.phase": "Scripted", "goliath.target": false, "goliath.thrown": 0}},
+ {"send": 912}, {"send": 900},
+ {"wait": 80.0},
+ {"expect": {"goliath.target": true}},
+ {"wait": 4.0},
+ {"expect": {"goliath.thrown": 0}},
+ {"wait": 16.0},
+ {"expect": {"goliath.target": true, "goliath.thrown": [1, 3]}},
+ {"quit": true}
+]}
