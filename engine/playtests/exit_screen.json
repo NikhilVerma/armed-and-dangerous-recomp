@@ -1,7 +1,7 @@
 {"title": true, "steps": [
  {"wait": 2.0},
  {"expect": {"menu.page": "Main", "menu.selected": "ui_mainmenu_startgame", "music_held": false}},
- {"tap": "ArrowUp"}, {"wait": 0.3},
+ {"tap": "ArrowDown"}, {"wait": 0.3}, {"tap": "ArrowDown"}, {"wait": 0.3}, {"tap": "ArrowDown"}, {"wait": 0.3}, {"tap": "ArrowDown"}, {"wait": 0.3},
  {"expect": {"menu.selected": "ui_mainmenu_exitgame"}},
  {"tap": "Enter"}, {"wait": 1.0},
  {"expect": {"menu.page": "YesNo", "menu.selected": "ui_yesno_no"}},

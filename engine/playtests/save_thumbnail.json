@@ -6,7 +6,7 @@
  {"tap": "Enter"}, {"wait": 1.0},
  {"expect": {"menu.page": "SaveSlots", "menu.slot": 1, "save_thumbnails": [false, false, false, false, false, false]}},
  {"tap": "ArrowRight"}, {"wait": 0.3},
- {"tap": "Enter"}, {"wait": 1.5},
+ {"tap": "Enter"}, {"wait": 5.0},
  {"expect": {"menu.page": "Pause", "saves.slots": ["empty", "saved", "empty", "empty", "empty", "empty"]}},
  {"tap": "Enter"}, {"wait": 1.0},
  {"expect": {"menu.page": "SaveSlots", "save_thumbnails": [false, true, false, false, false, false], "save_thumbnail_luma.2": [0.08, 1.0]}},

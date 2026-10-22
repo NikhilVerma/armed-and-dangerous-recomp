@@ -3,10 +3,10 @@
  "steps": [
   {"wait": 3.0},
   {"expect": {"menu.page": "Main"}},
-  {"tap": "ArrowUp"}, {"wait": 0.4}, {"tap": "ArrowUp"}, {"wait": 0.4}, {"tap": "ArrowUp"}, {"wait": 0.4},
+  {"tap": "ArrowDown"}, {"wait": 0.4}, {"tap": "ArrowDown"}, {"wait": 0.4}, {"tap": "ArrowDown"}, {"wait": 0.4}, {"tap": "ArrowDown"}, {"wait": 0.4}, {"tap": "ArrowUp"}, {"wait": 0.4}, {"tap": "ArrowUp"}, {"wait": 0.4},
   {"expect": {"menu.selected": "ui_mainmenu_options"}},
   {"tap": "Enter"}, {"wait": 1.0},
-  {"tap": "ArrowDown"}, {"wait": 0.4},
+  {"tap": "ArrowUp"}, {"wait": 0.4}, {"tap": "ArrowUp"}, {"wait": 0.4}, {"tap": "ArrowUp"}, {"wait": 0.4}, {"tap": "ArrowUp"}, {"wait": 0.4}, {"tap": "ArrowUp"}, {"wait": 0.4}, {"tap": "ArrowUp"}, {"wait": 0.4}, {"tap": "ArrowUp"}, {"wait": 0.4},
   {"expect": {"menu.page": "Options", "menu.selected": "ui_optionsmenu_gfx"}},
   {"tap": "Enter"}, {"wait": 1.0},
   {"tap": "ArrowDown"}, {"wait": 0.4}, {"tap": "ArrowDown"}, {"wait": 0.4},

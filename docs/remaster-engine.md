@@ -949,7 +949,7 @@ tokens and unlocks, the difficulty; not the weapons (mission.rs `Loadout`, playe
 weapons with full ammo, the first by weapon id in hand). Saves record their level and a load enters it; the title
 always stands on the launch level (lev_1_m1), so New Game starts it. Extras' Replay Mission / Play Cutscene:
 extras.rs. Tests: campaign_next (with failure -> Restart on lev_1_m1_b), campaign_chain, campaign_save,
-campaign_movie, campaign_end, campaign_extras. Not ported: the Difficulty screen of New Game (case 71), the profile
+campaign_movie, campaign_end, campaign_extras. The Difficulty screen of New Game (case 71) is ported (gamemenu.rs, 2026-10-22). Not ported: the profile
 choice (SaveGame / ChooseGame before a new game or a replay), an oracle run across a level change (open question).
 
 ## Base-defence levels (subsystem port, 2026-10-15)

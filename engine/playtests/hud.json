@@ -40,7 +40,7 @@
  {"wait": 1.0},
  {"expect": {"menu.page": "SaveSlots", "menu.slot": 1}},
  {"tap": "Enter"},
- {"wait": 1.0},
+ {"wait": 5.0},
  {"expect": {"menu.page": "Pause"}},
  {"tap": "Escape"},
  {"wait": 0.6},

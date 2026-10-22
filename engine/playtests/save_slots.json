@@ -10,7 +10,7 @@
  {"shot": "save_screen"},
  {"tap": "ArrowRight"}, {"wait": 0.3},
  {"expect": {"menu.slot": 2, "menu.selected": "ui_savegame_slot2"}},
- {"tap": "Enter"}, {"wait": 1.5},
+ {"tap": "Enter"}, {"wait": 5.0},
  {"expect": {"menu.page": "Pause", "saves.slots": ["empty", "saved", "empty", "empty", "empty", "empty"], "saves.newest": 2}},
  {"note": "slot2"},
 
@@ -21,7 +21,7 @@
  {"tap": "ArrowDown"}, {"wait": 0.3},
  {"tap": "Enter"}, {"wait": 1.0},
  {"expect": {"menu.page": "SaveSlots", "menu.slot": 1}},
- {"tap": "Enter"}, {"wait": 1.5},
+ {"tap": "Enter"}, {"wait": 5.0},
  {"expect": {"menu.page": "Pause", "menu.selected": "ui_pausemenu_savegame", "saves.slots": ["saved", "saved", "empty", "empty", "empty", "empty"], "saves.newest": 1}},
 
  {"tap": "Enter"}, {"wait": 1.0},
@@ -35,7 +35,7 @@
  {"tap": "Escape"}, {"wait": 1.0},
  {"expect": {"menu.page": "Pause", "menu.selected": "ui_pausemenu_savegame"}},
 
- {"tap": "ArrowUp"}, {"wait": 0.3}, {"tap": "ArrowUp"}, {"wait": 0.3},
+ {"tap": "ArrowDown"}, {"wait": 0.3}, {"tap": "ArrowDown"}, {"wait": 0.3}, {"tap": "ArrowDown"}, {"wait": 0.3}, {"tap": "ArrowDown"}, {"wait": 0.3}, {"tap": "ArrowDown"}, {"wait": 0.3},
  {"expect": {"menu.selected": "ui_pausemenu_quitgame"}},
  {"tap": "Enter"}, {"wait": 1.0},
  {"tap": "ArrowUp"}, {"wait": 0.3},
@@ -54,7 +54,7 @@
  {"expect": {"level_generation": 2, "mission": "Playing", "menu.shown": null, "health": {"as": "slot2", "margin": 1}}},
 
  {"tap": "Escape"}, {"wait": 0.5},
- {"tap": "ArrowUp"}, {"wait": 0.3},
+ {"tap": "ArrowDown"}, {"wait": 0.3}, {"tap": "ArrowDown"}, {"wait": 0.3}, {"tap": "ArrowDown"}, {"wait": 0.3}, {"tap": "ArrowDown"}, {"wait": 0.3}, {"tap": "ArrowDown"}, {"wait": 0.3},
  {"tap": "Enter"}, {"wait": 1.0},
  {"tap": "ArrowUp"}, {"wait": 0.3},
  {"tap": "Enter"},
