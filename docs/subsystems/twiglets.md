@@ -33,31 +33,39 @@ oracle's trace shows it running negative).
 
 The release (0x0049d590): with movers, the next one (+0x46c pre-incremented, so the first twiglet takes the second
 mover) at the tree's node, the twiglet put in its IC state (0x0049fbe0 / 0x0049fb60); without, 30..100 units round the
-tree (x and y each their own distance) at a random turn of its facing, idle. Game+0x2710 counts every twiglet made.
+tree (x and y each their own distance) at a random turn of its facing. Game+0x2710 counts every twiglet made.
 
-The wake of the closest busy twiglet (0x0049f380 from the controller) needs flag bit 0 of the twiglet's +0x460, which
-nothing sets: no effect.
+A twiglet made by code (ObjectSystem_CreateObject 0x0045f020 with no property block: Twiglet_Slot6's a2 = 0) starts in
+state 0 and its maker wakes it with 0x0049f380(time): a positive time stands it (twiglet_stand, state 0x3f) that long,
+else it runs. The controller wakes each new one with 0 (a mover's twiglet is in 0x32 already and ignores it); its wake
+of the closest idle twiglet finds none in state 0: no effect. The idle state 0x01 (trigger_los, activation_range,
+receive_trigger_activate) needs a property block: twiglets placed in a level, and no level places one.
 
 ## 3. The twiglet (Twiglet 0x005af020)
 
 p_twiglet: max_health 12, move_speed 40, move_power 100, score_value 20, fx_death fx_exp_twiglet, material wood,
-trigger_los 1, activation_range 400. Twiglet_Slot6 0x0049d7a0: with its template's properties it starts idle (state 1,
-twiglet_stand), its leash point (+0x56c) where it is made and a 10 s leash delay (+0x578), a call timer 4..10 s.
+trigger_los 1, activation_range 400. Twiglet_Slot6 0x0049d7a0: its leash point (+0x56c) where it is made and a 10 s leash delay (+0x578), a call timer 4..10 s.
 
 Twiglet_Update 0x0049dcf0 (state +0x464):
 
 | State | What | Remaster (twiglet.rs `State`) |
 | --- | --- | --- |
-| 0x01 | idle until the player is within activation_range (2D), then runs (0x0049f2b0) | Idle |
+| 0x01 | idle until the player is within activation_range (2D), then runs (0x0049f2b0): placed twiglets only | not ported: no level places a twiglet |
+| 0x3f | woken by its maker (0x0049f380): stands its time, then runs | Wait (2026-10-22) |
 | 0x32 | an IC mover out of the tree; at its end runs (0x0049fab0 with +0x460 bit 5) | Emerging (mover.rs `Mover`, physics off) |
 | 0x0a | runs at the player: calls ctr_twiglet_call_1..3 every 4..10 s, repaths every 1..3 s (within 20: to a point 5 to a side of him); within 10 a carried bomb is set off (vt+0xd4 on it), without one: 1 in 5 ctr_twiglet_attack_2, then the bomb out | Run |
 | 0x46 | twiglet_get_bomb_out; its note "get_bomb" makes a twiglet_bomb at ref_hand_00 (0x0049f930); at the end runs with it | GetBomb |
 | 0x1e / 0x1f | a hit it lives through: at most hit_level_1 (10) twiglet_hit_mgun*, more twiglet_hit_med*; then runs | HitLight / HitHeavy |
 | 0x50..0x52 | the Topsy Turvy's stun (flag 0x20: 0..1 s), then hang on (twiglet_hang_into / _hanging, rand(0.25, left - 1) s at a roll >= topsy_turvy_fall_pct with more than 3 s left) or blown into the sky (twiglet_blown_up(_into): gravity -1, at most 120 up) for the effect's rest, then falling back (at most 120 down) to die at the first contact; running twiglets stand while the effect holds (state 0x0a) | ported 2026-10-17: twiglet.rs `topsy_hit` / `blow` / states Hang, BlownUp, Falling; topsy.rs; playtest twiglets_topsy |
-| 0x0b, 0x14..0x18, 0x3c..0x3f, 0x5a / 0x5b, 0x64..0x66 | swipe, spear toss, leap / attach, pull / knock-away, the glove's hold / throw / punch | not ported: unreached (no code sets flag bit 0 or enters 0x3c / 0x0b) or the weapon is not in the engine (flag 0x800 the black hole, the knockout bomb's glove: feature knockout-bomb) |
+| 0x5b / 0x5a | a black hole's carry-off (damage flag 0x800 from AreaDamage_Apply, the hole +0x568): runs 250 away from it to its route's end (twiglet_run), then pulled in across at 1.5 x move_speed (a drive of mass x 5), after rand(1, 2) s up too (twiglet_blown_up); gone within 2 of the hole or when the hole is | Flee / Pull (2026-10-22; weapons/blackhole.rs `CarryOff`; playtest twiglets_blackhole) |
+| 0x0b, 0x14..0x18, 0x28, 0x3c..0x3e, 0x64..0x66 | swipe, spear toss, dying fade, leap / attach, the glove's hold / throw / punch | not ported: unreached (no code sets flag bit 0 or enters 0x0b / 0x28 / 0x3c) or deferred (the knockout bomb's glove on twiglets: feature knockout-bomb) |
 
 Every frame: after the first 10 s a twiglet farther than twiglet_max_distance (2D) from its leash point dies (the re-roll
-0x0046e2c0(3, 7) is dropped: the test runs every frame after); a carried bomb that is no longer alive kills it.
+0x0046e2c0(3, 7) is dropped: the test runs every frame after); a carried bomb that is no longer alive kills it. In state
+0x0a, at its route's end the original plans a new route to 5 units to a side of the player and with none kills the
+twiglet (0x00470c30 false after 0x0046f6b0 / 0x0046f6d0): not ported, see section 7. State 0x0a stands while the topsy turvy's timer runs, the knockout glove is on or a black hole sucks.
+Hits from a living source of its own side (vt+0xe4: grunts, monks) do nothing (fx.rs `DClass::Building` with
+badguy_damage off).
 
 Damage (Twiglet_TakeDamage 0x0049f530): a record with flag 0x40 (area damage) is ignored while it carries a bomb (fx.rs
 `BlastProof`): a blast lights the bomb's fuse (fx_explosion, start_delay / min_delay 0.5), the bomb goes off 0.5 s later
@@ -102,8 +110,8 @@ draw exactly as before) the nearest is within 12 units at worst.
 MonkObject vt+0x220 0x00437130: n = rand 500 < 50 (and +0x484 0x4000 clear) rolls the summon. 0xf2: a point 30..40
 ahead within +-90 degrees of his facing (+0x934), cast_spell_2 (anim 0x25), state 0xf3. 0xf3: turned to the point;
 at the anim's end five twiglets round him: the game's +y turned i x 72 degrees, scaled by two radii 7..20 (x, y), each
-where the map has ground (0x0046f280), dropped onto the landscape (Object_ForceGround 1000, 10000), idle (they run once
-the player is within 400); then the same end as the basket rain (vt+0x240: the remaster's hiding-spot search).
+where the map has ground (0x0046f280), dropped onto the landscape (Object_ForceGround 1000, 10000), each woken (0x0049f380)
+with the count made before it: the first runs at once, the next stands 1 s, then 2 s..; then the same end as the basket rain (vt+0x240: the remaster's hiding-spot search).
 Remaster: ai.rs Mind::Cast with monk.rs `Spell::Twiglets`, `summon_point`, `twiglet_spots`; playtest monk_summon
 (the step `monk_spell` forces the next roll).
 
@@ -113,12 +121,19 @@ Remaster: ai.rs Mind::Cast with monk.rs `Spell::Twiglets`, `summon_point`, `twig
   made and emerging after 6 s, 18..30 running with bombs after 13 s, every twiglet dead and Roman hurt after 25 s.
 - engine/playtests/monk_summon.json (regress): lev_4_m2, a monk spawned near Roman, the summon forced: 1..5 made,
   running with bombs, at least one bomb reaches Roman within 12 s.
+- engine/playtests/twiglets_blackhole.json: lev_4_m2 (lev_4_m1 has no black hole templates), a monk's summon, then a
+  black hole thrown: 1..30 carried off while it sucks, none left fleeing or pulled once it is gone.
 - twiglet.rs unit tests: the generator's movers (second first, wrapping), the release round a tree without movers.
 - Oracle twiglets_l4m1 (oracle_suite).
 
 ## 7. Open
 
-- monk_gun2 fires monk_twiglet_cluster (p_monk_gun2), whose hit (0x00482e80) makes five idle twiglets round the impact;
+- The twiglets' routes: nav.rs's edge rays (physics.rs `raycast`, every body) start inside the twiglet's own capsule, so
+  `nav::path` finds no route from a twiglet (2026-10-22: with the original's no-route kill ported, all 30 of lev_4_m1's
+  died on their first route end). The run therefore goes straight at the player (as it did before; the oracle fit of
+  `ground_speed` was made so). Needs nav.rs rays that skip the walker's own body (and the other twiglets'); then the
+  original's kill of a twiglet with no route (state 0x0a, ai_09.cpp:544-576) can be ported.
+- monk_gun2 fires monk_twiglet_cluster (p_monk_gun2), whose hit (0x00482e80) makes five twiglets round the impact (woken as the summon's);
   which monk state fires weapon 0x1a is not found, so the remaster never fires it.
 - The monk's basket rain drops its baskets at the cast's end in the original (ai_06.cpp:2881-2903, the anim-done test),
   halfway in the remaster (ai.rs, before this work).

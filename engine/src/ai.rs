@@ -4759,15 +4759,16 @@ fn think(
             Mind::Cast => {
                 // state 0xf1: cast_spell_1; its event (here halfway) drops the baskets round the target, the end runs the
                 // bamf (which, the counter re-rolled, re-engages). States 0xf2 / 0xf3: cast_spell_2 turned to the summon
-                // point; at its end five idle twiglets stand round him (ai_06.cpp:2928-2972), then the same end (vt+0x240)
+                // point; at its end five twiglets round him, woken one a second (ai_06.cpp:2928-2972), then the same end (vt+0x240)
                 let total = anim_len(&mut lib, g.anim(g.anim_id, 0.0));
                 g.anim_left -= dt;
                 if let Some(mut m) = g.monk.filter(|m| m.spell == monk::Spell::Twiglets) {
                     if !m.cast && g.anim_left <= 0.0 {
                         m.cast = true;
-                        for at in monk::twiglet_spots(pos, &physics, &mut rng) {
+                        // each stands as many seconds as twiglets were made before it, then runs (0x0049f380)
+                        for (i, at) in monk::twiglet_spots(pos, &physics, &mut rng).into_iter().enumerate() {
                             let game = crate::level::game_to_engine().inverse() * at;
-                            commands.write_message(crate::twiglet::SpawnTwiglet { at: Mat4::from_translation(game), mover: None });
+                            commands.write_message(crate::twiglet::SpawnTwiglet::standing(Mat4::from_translation(game), i as f32));
                         }
                         stats.throws += 1;
                         info!("EVENT ai: monk {ge:?} summons twiglets");
