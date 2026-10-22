@@ -79,12 +79,13 @@ pub struct CloseStats {
 #[allow(clippy::type_complexity)]
 pub fn close_hits(
     mut hits: MessageReader<CloseHit>,
-    mut health: Query<(&mut crate::fx::Health, Option<&mut crate::player::Roman>, Option<&mut super::Companion>)>,
+    mut health: Query<(&mut crate::fx::Health, Option<&mut crate::player::Roman>, Option<&mut super::Companion>, Has<crate::mission::HitsIgnored>)>,
     mut stats: ResMut<CloseStats>,
 ) {
     for h in hits.read() {
-        let Ok((mut hp, roman, companion)) = health.get_mut(h.target) else { continue };
-        if hp.0 <= 0.0 {
+        let Ok((mut hp, roman, companion, ignored)) = health.get_mut(h.target) else { continue };
+        // (Roman's hit handler ignores it after the mission's pre-success: mission.rs HitsIgnored)
+        if hp.0 <= 0.0 || ignored {
             continue;
         }
         hp.0 -= h.damage;

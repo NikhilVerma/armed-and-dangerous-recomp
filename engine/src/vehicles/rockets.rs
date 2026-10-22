@@ -284,6 +284,7 @@ fn fly(
     mut objects: Query<(Entity, &crate::level::Placed, &mut Destructible, Option<&crate::vehicles::boss::BulletScale>)>,
     (data, mounted, topsy, mut stats, tuning, suction): (Res<crate::gamedata::GameData>, Res<crate::turret::Mounted>, Res<crate::topsy::Topsy>, ResMut<RocketStats>, Res<super::VehicleTuning>, Res<crate::weapons::blackhole::Suction>),
     (mut fx, mut blasts, mut sounds, mut player_stats): (MessageWriter<crate::fx::StartFx>, MessageWriter<Explode>, MessageWriter<crate::audio::PlaySound>, ResMut<crate::player::PlayerStats>),
+    hits_ignored: Query<(), With<crate::mission::HitsIgnored>>,
 ) {
     let dt = time.delta_secs();
     if dt <= 0.0 {
@@ -447,8 +448,9 @@ fn fly(
         }
         if let Some(o) = obj {
             if let Ok((_, mut rm, _, mut h)) = roman.get_mut(o) {
-                // PlayerObject_OnHit 0x0047afa0: nothing in the topsy states; half while on a mounted gun
-                if !topsy.active() {
+                // PlayerObject_OnHit 0x0047afa0: nothing in the topsy states or after the pre-success (mission.rs
+                // HitsIgnored); half while on a mounted gun
+                if !topsy.active() && !hits_ignored.contains(o) {
                     h.0 -= if mounted.0.is_some() { direct * 0.5 } else { direct };
                     rm.hit_from = Some(r.vel.normalize_or(Vec3::Z));
                 }

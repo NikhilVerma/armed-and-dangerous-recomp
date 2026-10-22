@@ -164,6 +164,11 @@ pub struct SpawnGrunt {
     pub exit: Option<Vec3>,
     pub marker_tags: Option<(i64, i64)>,
     pub alert_group: i64,
+    /// a barracks troop's priority targets (the generator's priority_target_tag_min / max: 0x0042cc60)
+    pub priority_tags: Option<(i64, i64)>,
+    /// template switches turned on for this troop (a barracks' jumper / rocket captain: "jumper_captain",
+    /// "rocket_captain", mission.rs TROOP_TYPES)
+    pub switches: Vec<&'static str>,
     /// a grunt released by the army (army.rs): the orders it carries, inserted as its component
     pub army: Option<crate::army::ArmyGrunt>,
     /// a squad member (ai/squad.rs): his squad and bone; idle at it until the squad moves
@@ -1574,6 +1579,9 @@ fn spawn_grunts(
     let rng = rng.get();
     for ev in events.read() {
         let mut p = data.template_props(&ev.template);
+        for k in &ev.switches {
+            p.0.insert((*k).into(), 1.into());
+        }
         if ev.dropped.as_ref().is_some_and(|d| d.rocket) {
             p.0.insert("rocket_captain".into(), 1.into());
         }
@@ -1664,6 +1672,9 @@ fn spawn_grunts(
                 g.charge = ev.alarm;
                 g.alert_group = ev.alert_group;
                 g.marker_tags = ev.marker_tags;
+                if let Some(t) = ev.priority_tags {
+                    g.priority_tags = t;
+                }
                 g.exit = ev.exit;
                 g.mind = ai::Mind::ToMarker;
                 if let Some(x) = ev.exit {

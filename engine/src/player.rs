@@ -668,7 +668,7 @@ pub(crate) fn control(
     opts: Res<crate::options::GameOptions>,
     (topsy, glove): (Res<crate::topsy::Topsy>, Res<crate::weapons::glove::Glove>),
     mut physics: NonSendMut<Physics>,
-    mut q: Query<(&mut Roman, &mut Transform, &mut Health, Option<&mut crate::jetpack::JetPack>)>,
+    mut q: Query<(&mut Roman, &mut Transform, &mut Health, Option<&mut crate::jetpack::JetPack>, Has<crate::mission::HitsIgnored>)>,
     (ctl, mounted, rig): (Res<crate::input::Controls>, Res<crate::turret::Mounted>, Res<crate::camera::CameraRig>),
     mut fx: MessageWriter<crate::surface::StartSurfaceFx>,
     // the breaths' decks with their own random stream (drawing on a shared one shifted other systems' rolls)
@@ -676,7 +676,7 @@ pub(crate) fn control(
 ) {
     let dt = time.delta_secs();
     let (breaths, rng) = breaths.get();
-    for (mut r, mut t, mut h, mut jet) in &mut q {
+    for (mut r, mut t, mut h, mut jet, hits_ignored) in &mut q {
         if h.0 <= 0.0 {
             r.dead = true;
         }
@@ -920,7 +920,7 @@ pub(crate) fn control(
             }
             t.translation = feet;
         }
-        if fall_and_land(&mut r, &t, &mut h, vy, was_jump, dt, &physics, &mut fx, t.translation.distance(before), topsy.active(), jet.as_deref_mut()) {
+        if fall_and_land(&mut r, &t, &mut h, vy, was_jump, dt, &physics, &mut fx, t.translation.distance(before), topsy.active() || hits_ignored, jet.as_deref_mut()) {
             // the landing's breath (0x00478200: 0x00493b70 with table 0x005fb9cc, 2 sounds)
             const LAND_BREATH: [&str; 2] = ["fol_breath_heavy_short_1", "fol_breath_heavy_short_2"];
             sounds.write(crate::audio::PlaySound::at(LAND_BREATH[breaths[1].deal(2, || rng.rand() as f32 / 32768.0)], t.translation));
@@ -1720,7 +1720,8 @@ fn projectiles(
     joints: Query<&GlobalTransform>,
     mut objects: Query<(&crate::level::Placed, &mut Destructible, Option<&crate::vehicles::boss::BulletScale>)>,
     mut roman: Query<(Entity, &mut Roman, &Transform, Option<&crate::skin::Animator>), Without<Projectile>>,
-    mut roman_health: Query<(&mut Health, Option<&mut crate::fx::DamageShield>), (With<Roman>, Without<crate::physics::Body>, Without<Projectile>)>,
+    // (none once the mission's pre-success makes his hit handler ignore hits: mission.rs HitsIgnored)
+    mut roman_health: Query<(&mut Health, Option<&mut crate::fx::DamageShield>), (With<Roman>, Without<crate::physics::Body>, Without<Projectile>, Without<crate::mission::HitsIgnored>)>,
     mut companions: Query<(Entity, &mut crate::ai::Companion, &Transform, Option<&crate::skin::Animator>, &mut Health), (Without<Roman>, Without<crate::physics::Body>, Without<Projectile>)>,
     mut stats: ResMut<PlayerStats>,
     mut surface_fx: MessageWriter<crate::surface::StartSurfaceFx>,

@@ -267,8 +267,10 @@ fn damage(
     mut chars: Query<(Entity, &GlobalTransform, &mut Health, Option<&Bounds>, Option<&mut crate::ai::Grunt>, Option<&mut DamageShield>, Option<&crate::ai::Companion>)>,
     roman: Query<(), With<crate::player::Roman>>,
     topsy: Option<Res<crate::topsy::Topsy>>,
+    hits_ignored: Query<(), With<crate::mission::HitsIgnored>>,
 ) {
-    // the player's hit handler ignores everything during the topsy states (0x0047afa0, +0xa34 & 0x7800000)
+    // the player's hit handler ignores everything during the topsy states (0x0047afa0, +0xa34 & 0x7800000) and after
+    // the mission's pre-success (mission.rs HitsIgnored)
     let no_hits = topsy.is_some_and(|t| t.active());
     // surface distance: |C - centre| - R, and the direction n
     let surface = |t: &GlobalTransform, b: Option<&Bounds>, at: Vec3| {
@@ -300,7 +302,7 @@ fn damage(
         }
         for (ce, t, mut h, bounds, mut grunt, shield, companion) in &mut chars {
             // the excluded object (a sticky bomb's stuck character takes its direct damage instead)
-            if Some(ce) == b.source || (no_hits && roman.contains(ce)) {
+            if Some(ce) == b.source || (no_hits && roman.contains(ce)) || hits_ignored.contains(ce) {
                 continue;
             }
             let (dist, n) = surface(t, bounds, b.at);

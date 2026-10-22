@@ -238,7 +238,7 @@ fn collide(
     time: Res<Time>,
     mut movers: Query<(Entity, &mut Movable, &GlobalTransform, Option<&mut crate::fx::Destructible>)>,
     mut grunts: Query<(&crate::physics::Body, &mut crate::fx::Health, &mut crate::ai::Grunt)>,
-    mut roman: Query<(&mut crate::player::Roman, &mut crate::fx::Health, &GlobalTransform), Without<crate::ai::Grunt>>,
+    mut roman: Query<(&mut crate::player::Roman, &mut crate::fx::Health, &GlobalTransform, Has<crate::mission::HitsIgnored>), Without<crate::ai::Grunt>>,
     physics: NonSend<Physics>,
     mut fx: MessageWriter<crate::fx::StartFx>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
@@ -302,7 +302,7 @@ fn collide(
             }
         }
         // Roman's walker is no body: he is touched when the boulder's surface is within his capsule's reach
-        if let Ok((r, _, rt)) = roman.single() {
+        if let Ok((r, _, rt, _)) = roman.single() {
             let chest = rt.translation() + Vec3::Y * r.walker.lift;
             let to = gt.translation() - chest;
             if to.length() < 60.0 {
@@ -374,7 +374,8 @@ fn collide(
     for Record { from, victim, amount, speed, dir, force } in victims {
         let (dealt, what) = match victim {
             Victim::Roman => {
-                let dealt = roman.single_mut().map_or(0.0, |(mut r, mut h, _)| {
+                // (none after the mission's pre-success: mission.rs HitsIgnored)
+                let dealt = roman.single_mut().ok().filter(|(.., ignored)| !ignored).map_or(0.0, |(mut r, mut h, _, _)| {
                     let dealt = take(&mut h.0, amount);
                     if h.0 > 0.0 && force != 0.0 {
                         r.knock(dealt, force, dir);
