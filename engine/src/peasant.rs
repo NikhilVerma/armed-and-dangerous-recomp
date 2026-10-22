@@ -58,11 +58,10 @@ const LINE_GAP: f32 = 10.0;
 /// 5.3 units: the peasants are small).
 const GRUNT_HEIGHT: f32 = 9.8;
 const PEASANT_HEIGHT: f32 = 5.3;
-/// The tied peasant's ragdoll: his size, and joints that hold his pose (Body_addConstraints 0x00456570: each joint's
-/// strength (mass A + mass B) x 20 in the original's units, where gravity is 64.35 units / s^2; as a friction torque here
-/// with the same ratio to the weight: 20 x 9.81 x 0.2 / 64.35 = 0.61 N m per kg). The original's tied peasants stand
-/// until pulled (oracle peasant_l4m2: the pelvis stays 2.7..3.3 above the ground).
-const RAGDOLL: crate::ragdoll::Build = crate::ragdoll::Build { size: PEASANT_HEIGHT / GRUNT_HEIGHT, joint_friction: 20.0 * 9.81 * crate::level::METERS_PER_UNIT / 64.348, radius: Some(1.0) };
+/// The tied peasant's ragdoll: his size, and joints that hold his pose (Body_addConstraints 0x00456570, ragdoll.rs
+/// `JOINT_FRICTION`). The original's tied peasants stand until pulled (oracle peasant_l4m2: the pelvis stays 2.7..3.3
+/// above the ground).
+const RAGDOLL: crate::ragdoll::Build = crate::ragdoll::Build { size: PEASANT_HEIGHT / GRUNT_HEIGHT, joint_friction: crate::ragdoll::JOINT_FRICTION, radius: Some(1.0) };
 
 /// One peasant (PeasantObject +0x460..+0x498).
 #[derive(Component, Debug, Clone)]
@@ -510,7 +509,8 @@ fn pickup_lines(sounds: &mut MessageWriter<crate::audio::PlaySound>, rng: &mut c
     sounds.write(line);
 }
 
-/// Roman's own lines play unplaced (audio +0xd0).
+/// Roman's own lines play unplaced: audio +0xd0 (0x004f4030 -> +0x60 0x004f3c60) is the 2D play; the player object
+/// it is given (Game+0x748) only keys its unique-voice check, it does not place the voice (no flag 0x10).
 fn roman_line(name: &str, _roman: Option<Entity>) -> crate::audio::PlaySound {
     crate::audio::PlaySound::ui(name)
 }
@@ -596,7 +596,10 @@ fn bank(
     }
 }
 
-/// The drop-off's sound and line (0x0044d1f0): ui_peasant_release (on the mission object: unplaced here, guess); then
+/// The drop-off's sound and line (0x0044d1f0): ui_peasant_release (the original plays it positionally on the mission
+/// object, audio +0xc4, which the peasant levels place 356..3332 units from their mats, all but one of 30 beyond the
+/// sound's 500-unit max distance: at the curve's -40 dB floor, effectively unheard. Original bug, docs/original-bugs.md; played
+/// unplaced here, so the drop-off is heard); then
 /// at most every 10 s of game time (Game+0xba4) r = (rand() x (top - base + 1)) >> 15 + base: fourteen peasant lines
 /// at the mat (0..0x577, 100 each), Roman's two (0x578..0x63f), Q's three and Jonesy's one when they are with him (top:
 /// 0x63f alone, 0x6a3 with Jonesy, 0x76b with Q, 2000 with both). A woman starts at 0x578.
@@ -623,8 +626,8 @@ fn dropoff_lines(sounds: &mut MessageWriter<crate::audio::PlaySound>, rng: &mut 
     let r = ((rng.rand() * (top - base + 1)) >> 15) + base;
     let line = match r {
         r if r < 0x578 => crate::audio::PlaySound::at(PEASANT[(r / 100) as usize], at),
-        r if r < 0x5dc => crate::audio::PlaySound::ui("rom50197_peasantdropoff"),
-        r if r < 0x640 => crate::audio::PlaySound::ui("rom50199_peasantdropoff"),
+        r if r < 0x5dc => roman_line("rom50197_peasantdropoff", None),
+        r if r < 0x640 => roman_line("rom50199_peasantdropoff", None),
         r if r < 0x6a4 - offset => on_or_ui("q1150173_peasantdropoff", q),
         r if r < 0x708 - offset => on_or_ui("q1150179_peasantdropoff", q),
         r if r < 0x76c - offset => on_or_ui("q1150181_peasantdropoff", q),
