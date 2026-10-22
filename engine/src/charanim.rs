@@ -846,8 +846,13 @@ fn grunts(
                 }
                 _ => (mover(&g).to_owned(), true),
             },
-            // the reload set (0x2a, 0x2b, 0x28, 0x29 by PlayAnim4): the engine plays one of them (0x29, tr)
-            Mind::Reload => (name(&g, 0x29, 0.0).to_owned(), false),
+            // the reload set (state 0x32: PlayAnim4 vt+0x1a0 with 0x2a, 0x2b, 0x28, 0x29 at the aim weights +0x580 /
+            // +0x584, ai_06.cpp:1227): tl, tr, bl, br blended as the fire set; the weights follow the target
+            // (0x0042df70, ai.rs) or, without one, sit at the centre
+            Mind::Reload => {
+                four(&mut a, &g, [0x28, 0x29, 0x2a, 0x2b], false, g.aim.h, 1.0 - g.aim.v);
+                continue;
+            }
             Mind::Flee => (name(&g, 11, 0.0).to_owned(), true),
             // the retreat (state 0xae): the scared run (+0x484 0x20) or the run
             Mind::Retreat if g.scared_run => (name(&g, 11, 0.0).to_owned(), true),

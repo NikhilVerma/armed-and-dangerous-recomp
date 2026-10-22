@@ -4827,8 +4827,10 @@ fn think(
         }
         g.walking = speed > 1.0 && flat(goal - pos).length() > 1.0;
         let dir = flat(goal - pos).normalize_or_zero();
-        // the turns to the target of GenericAI_TurnToTarget 0x0042df70 (the fire cycle's, a guard's, the slot's stand)
-        let to_target = matches!((g.mind, target, g.cover.map(|c| c.phase)), (Mind::Fire, Some(_), _) | (Mind::Cover, Some(_), Some(CoverPhase::Stand)))
+        // the turns to the target of GenericAI_TurnToTarget 0x0042df70 (the fire cycle's, a guard's, the slot's stand,
+        // and the reload in place: state 0x32 calls it every frame with 45 degrees before its PlayAnim4 of the reload
+        // set at the aim weights, ai_06.cpp:1224-1227)
+        let to_target = matches!((g.mind, target, g.cover.map(|c| c.phase)), (Mind::Fire | Mind::Reload, Some(_), _) | (Mind::Cover, Some(_), Some(CoverPhase::Stand)))
             || (g.mind == Mind::Guard && target.is_some() && g.guard_firing);
         let face = match (g.mind, target, g.cover.map(|c| c.phase)) {
             (Mind::ToMarker, _, _) if marker_turn.is_some() => marker_turn.unwrap_or(dir),
@@ -4836,7 +4838,7 @@ fn think(
             (Mind::Cast, _, _) if g.monk.is_some_and(|m| m.spell == monk::Spell::Twiglets) => {
                 g.monk.map(|m| flat(m.summon_at - pos).normalize_or_zero()).unwrap_or(dir)
             }
-            (Mind::Fire | Mind::Chase | Mind::Taunt | Mind::Throw | Mind::Cast | Mind::MaxFireWait | Mind::CloseAttack, Some(p), _) => flat(p - pos).normalize_or_zero(),
+            (Mind::Fire | Mind::Reload | Mind::Chase | Mind::Taunt | Mind::Throw | Mind::Cast | Mind::MaxFireWait | Mind::CloseAttack, Some(p), _) => flat(p - pos).normalize_or_zero(),
             // a guard firing turns to his target (0x0042df70, 45 degrees)
             (Mind::Guard, Some(p), _) if g.guard_firing => flat(p - pos).normalize_or_zero(),
             // in the slot: its direction +0x908 (0x00454e60), standing up: the target (0x0042df70)
