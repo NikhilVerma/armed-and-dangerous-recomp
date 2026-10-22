@@ -8,15 +8,31 @@
 //! Who uses them on AIs: the army's ladder climb and wall scales (mover_grunt_ladder_climb 6.83 s, mover_grunt_scale_2..4
 //! "deactivate"; army.rs), the companions' takedowns (mover_grunt_qdie_* / mover_grunt_mdie_* "kill"; ai/close_kill.rs) and
 //! any IC mover of a grunt (mover.rs notes).
+//!
+//! A marker's kill / deactivate flags (Marker_ProcessArrival 0x0044ba30, ai.rs `marker_arrival`) end an AI here too:
+//! kill is vt+0xd4(0), the same death; deactivate is vt+0xdc alone (the teardown GenericAIObject_Slot55 0x00432730): a
+//! silent removal, without the death bookkeeping or the death trigger (`End::Remove`). The army's breach spline ends with
+//! one (army.rs).
 
 use super::{Grunt, Mind};
 use bevy::prelude::*;
 
-/// An AI's script ending it: "kill" (a death) or "deactivate" (removed, its death trigger sent).
+/// An AI's script ending it.
 #[derive(Message, Clone, Copy, Debug)]
 pub struct ScriptEnd {
     pub entity: Entity,
-    pub kill: bool,
+    pub end: End,
+}
+
+/// How a script ends an AI.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum End {
+    /// "kill" (vt+0xd4(0)): a death, the death anim or ragdoll and the corpse
+    Kill,
+    /// the note "deactivate" (0x00409110): the death bookkeeping 0x00431720 (his death trigger), then removed
+    Deactivate,
+    /// a marker's deactivate flag (vt+0xdc alone): removed, no death trigger
+    Remove,
 }
 
 /// Deactivated this frame: dead to the AI's bookkeeping (troop_deaths sends its death trigger), removed next frame.
@@ -28,6 +44,8 @@ pub struct Deactivated;
 pub struct ScriptEndStats {
     pub kills: u32,
     pub deactivations: u32,
+    /// removed by a marker's deactivate flag
+    pub removals: u32,
 }
 
 /// The mover notes "kill" / "deactivate" on an AI (mover.rs leaves an AI's to this module).
@@ -38,10 +56,10 @@ pub fn from_movers(mut notes: MessageReader<crate::mover::MoverNote>, grunts: Qu
         }
         match n.text.split_whitespace().next().unwrap_or("").to_lowercase().as_str() {
             "kill" => {
-                out.write(ScriptEnd { entity: n.entity, kill: true });
+                out.write(ScriptEnd { entity: n.entity, end: End::Kill });
             }
             "deactivate" => {
-                out.write(ScriptEnd { entity: n.entity, kill: false });
+                out.write(ScriptEnd { entity: n.entity, end: End::Deactivate });
             }
             _ => {}
         }
@@ -64,16 +82,26 @@ pub fn apply(
         if g.mind == Mind::Dead {
             continue;
         }
-        if end.kill {
-            // vt+0xd4(0): ai.rs die (the death anim, the corpse)
-            h.0 = 0.0;
-            stats.kills += 1;
-            info!("EVENT ai: {:?} killed by its script", end.entity);
-        } else {
-            g.mind = Mind::Dead;
-            stats.deactivations += 1;
-            commands.entity(end.entity).insert(Deactivated);
-            info!("EVENT ai: {:?} deactivated by its script", end.entity);
+        match end.end {
+            End::Kill => {
+                // vt+0xd4(0): ai.rs die (the death anim, the corpse)
+                h.0 = 0.0;
+                stats.kills += 1;
+                info!("EVENT ai: {:?} killed by its script", end.entity);
+            }
+            End::Deactivate => {
+                g.mind = Mind::Dead;
+                stats.deactivations += 1;
+                commands.entity(end.entity).insert(Deactivated);
+                info!("EVENT ai: {:?} deactivated by its script", end.entity);
+            }
+            End::Remove => {
+                // vt+0xdc alone: no death bookkeeping, so not Mind::Dead (mission.rs troop_deaths would send his death
+                // trigger); removed next frame
+                stats.removals += 1;
+                commands.entity(end.entity).remove::<crate::mission::DeathTrigger>().insert(Deactivated);
+                info!("EVENT ai: {:?} removed by its marker", end.entity);
+            }
         }
     }
 }
@@ -81,5 +109,5 @@ pub fn apply(
 /// The playtest state's `script_ends`.
 pub fn log(stats: Res<ScriptEndStats>, state: Option<ResMut<crate::playtest::PlayState>>) {
     let Some(mut state) = state else { return };
-    state.0.insert("script_ends".into(), serde_json::json!({"kills": stats.kills, "deactivations": stats.deactivations}));
+    state.0.insert("script_ends".into(), serde_json::json!({"kills": stats.kills, "deactivations": stats.deactivations, "removals": stats.removals}));
 }

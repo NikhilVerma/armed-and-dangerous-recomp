@@ -868,7 +868,8 @@ fn army_grunts(
             }
             if let Some(kill) = gone {
                 info!("EVENT army: grunt {e:?} over the wall ({})", s.anim);
-                ends.write(crate::ai::notes::ScriptEnd { entity: e, kill });
+                let end = if kill { crate::ai::notes::End::Kill } else { crate::ai::notes::End::Deactivate };
+                ends.write(crate::ai::notes::ScriptEnd { entity: e, end });
                 continue;
             }
             if s.t >= anim.duration {
@@ -947,14 +948,18 @@ fn army_grunts(
 
 /// The army breach (0x00429a50, from the AI's update while Game+0xcbe is set and fewer than army_breach_run_max have
 /// gone): an army grunt drops what it does and runs the breach spline (AI_FollowMarkerSpline 0x0042d1b0 with
-/// army_breach_marker_tag) through the open gate; its last marker sends 5000 (ai.rs, the marker's trigger) and its
-/// "deactivate" flag (Marker_ProcessArrival 0x0044ba30: vt+0xd4) takes the grunt out of the game, here.
+/// army_breach_marker_tag) through the open gate; its last marker sends 5000 and its "deactivate" flag removes the grunt
+/// (Marker_ProcessArrival 0x0044ba30: vt+0xdc; ai.rs `marker_arrival`, ai/notes.rs `End::Remove`): counted over the
+/// wall here, the frame before the removal.
+/// The cap army_breach_run_max is on the runners at once (Game+0xc48): a runner holds his place (+0x488 0x400) until his
+/// teardown (GenericAIObject_Slot55 0x00432730, ai_04.cpp:1021-1025: removed, or his body removed), or until the gate
+/// closes while he is still on his way to the spline's head (state 0x96, ai_06.cpp:1673-1680: he gives it back and
+/// searches for a hiding spot, vt+0x240(1, 0, 0)).
 fn breach(
-    mut commands: Commands,
     mut army: ResMut<Army>,
     mission: Option<Res<crate::mission::Mission>>,
     markers: Option<Res<crate::alarm::Markers>>,
-    mut q: Query<(Entity, &mut ArmyGrunt, &mut Grunt, &GlobalTransform)>,
+    mut q: Query<(Entity, &mut ArmyGrunt, &mut Grunt, Has<crate::ai::notes::Deactivated>)>,
     mut cues: MessageWriter<crate::voices::VoiceCue>,
 ) {
     let (Some(mission), Some(mk)) = (mission, markers) else { return };
@@ -963,21 +968,33 @@ fn breach(
     if tag == 0 || len == 0 {
         return;
     }
-    let end = mk.spline_marker(tag, len - 1).map(|m| m.pos);
+    for (e, mut ag, mut g, removed) in &mut q {
+        if !ag.breach {
+            continue;
+        }
+        if removed {
+            // through: removed by the last marker (this runs before ai/notes.rs `apply` despawns him)
+            ag.breach = false;
+            army.stats.over_wall += 1;
+            info!("EVENT army: grunt {e:?} over the wall by the breach");
+        } else if !mission.breach_open && g.mind == Mind::ToMarker && g.spline.is_some_and(|r| r.tag == tag && !r.started) {
+            ag.breach = false;
+            g.spline = None;
+            g.mind = Mind::Roam;
+            g.force_hide = true;
+            info!("EVENT army: grunt {e:?} stops: the gate closed");
+        }
+    }
+    // the runners holding a place: the live ones (the original's dead runner holds his until his body is removed, 0.5 to
+    // 5 s after the death: corpses.rs; here the place goes at the death, so that the Remaster's longer-lying bodies do
+    // not hold the gate, as ai/assault.rs frees a dead climber's spline)
+    army.breach_runners = q.iter().filter(|(_, ag, g, _)| ag.breach && g.mind != Mind::Dead).count() as u32;
     let mut sent = false;
-    for (e, mut ag, mut g, gt) in &mut q {
-        if g.mind == Mind::Dead {
+    for (e, mut ag, mut g, removed) in &mut q {
+        if g.mind == Mind::Dead || ag.breach || removed {
             continue;
         }
-        if ag.breach {
-            // through: at the last marker the spline ends (ai.rs stands it there)
-            if g.spline.is_none() && end.is_some_and(|p| (p - gt.translation()).with_y(0.0).length() < 10.0) {
-                army.stats.over_wall += 1;
-                commands.entity(e).despawn();
-            }
-            continue;
-        }
-        if sent || !mission.breach_open || army.breach_runners >= army.breach_max || ag.script.is_some() || ag.ladder.is_some() || g.mind == Mind::Flee {
+        if sent || !mission.breach_open || army.breach_runners >= army.breach_max || ag.script.is_some() || ag.ladder.is_some() || matches!(g.mind, Mind::Flee | Mind::Retreat) {
             continue;
         }
         ag.breach = true;

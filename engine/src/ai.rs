@@ -2591,7 +2591,8 @@ fn follow_spline(g: &mut Grunt, markers: &crate::alarm::Markers, tags: (i64, i64
 /// charge), ic_* (none on lev_1_m1: stands), a positive scatter_min (AI_Wander scatter_min..max); else the next marker:
 /// the spline switches when the marker names marker_next_min..max (AIMarker_NextTag 0x0044b830), else index + 1, at the
 /// end wrapping with marker_looping (+0x488 bit 1) or stopping: the stand set and state 1 with home = here
-/// (ai_06.cpp:1797-1817). (The marker flags kill / deactivate: none on lev_1_m1.) Returns the state it starts, or None
+/// (ai_06.cpp:1797-1817). Before the action: the flags deactivate (removed, ai/notes.rs `End::Remove`; the breach
+/// spline's last marker on the defence levels) and kill (his death). Returns the state it starts, or None
 /// to go on along the spline.
 #[allow(clippy::too_many_arguments)]
 fn marker_arrival(
@@ -2602,7 +2603,7 @@ fn marker_arrival(
     (pos, tgt, physics, own): (Vec3, Option<(Vec3, Vec3)>, &Physics, BodyId),
     spots: &mut Spots,
     rng: &mut FxStats,
-    (arrive, triggers): (&mut MessageWriter<crate::alarm::MarkerArrival>, &mut MessageWriter<crate::mission::SendTrigger>),
+    (arrive, triggers, ends): (&mut MessageWriter<crate::alarm::MarkerArrival>, &mut MessageWriter<crate::mission::SendTrigger>, &mut MessageWriter<notes::ScriptEnd>),
     player: Option<Entity>,
 ) -> Option<Mind> {
     let mk = &markers.markers[marker];
@@ -2612,6 +2613,12 @@ fn marker_arrival(
     }
     if mk.alarm_tag != 0 {
         arrive.write(crate::alarm::MarkerArrival { marker, at: pos, voice_set: g.voice_set });
+    }
+    // the kill / deactivate flags come first; the spline is not advanced
+    if let Some(end) = mk.ends_ai() {
+        g.spline = None;
+        ends.write(notes::ScriptEnd { entity: me, end });
+        return Some(Mind::Roam);
     }
     let speed = g.move_speed;
     let stand = |g: &mut Grunt| {
@@ -2817,7 +2824,7 @@ fn think(
         ResMut<max_fire::ShooterLimit>,
         ResMut<AiForce>,
         Res<aim::TargetMotion>,
-        (MessageWriter<melee::CloseHit>, ResMut<melee::CloseStats>),
+        (MessageWriter<melee::CloseHit>, ResMut<melee::CloseStats>, MessageWriter<notes::ScriptEnd>),
         Query<(Entity, &mut coverslot::CoverObject, &GlobalTransform, Option<&crate::level::Placed>), Without<Grunt>>,
     ),
 ) {
@@ -3128,7 +3135,7 @@ fn think(
                     g.spline = Some(SplineRun { started: true, ..run });
                     let idx = markers.spline_index(run.tag, run.index).unwrap_or(0);
                     stats.markers += 1;
-                    if let Some(m) = marker_arrival(&mut g, ge, idx, &markers, (pos, tgt, &physics, body.id), &mut spots, &mut rng, (&mut arrive, &mut triggers), player_e) {
+                    if let Some(m) = marker_arrival(&mut g, ge, idx, &markers, (pos, tgt, &physics, body.id), &mut spots, &mut rng, (&mut arrive, &mut triggers, &mut close.2), player_e) {
                         g.mind = m;
                     }
                 }
