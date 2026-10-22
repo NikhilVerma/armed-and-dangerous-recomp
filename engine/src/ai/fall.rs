@@ -170,7 +170,10 @@ pub fn run(
             continue;
         }
         if !watched(&g) {
-            g.fall_watch = None;
+            // only an attached AI's timer is reset (Object_GetParent, ai_03.cpp:2397); the other skips leave it
+            if g.fixed.is_some() || g.window {
+                g.fall_watch = None;
+            }
             continue;
         }
         g.fall_watch = watchdog(g.fall_watch, vel.y, contact, timer_runs(&g), dt);

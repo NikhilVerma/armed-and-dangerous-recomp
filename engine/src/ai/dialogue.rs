@@ -97,7 +97,10 @@ pub fn dismay_speaker(line: &'static str, cast: &Cast) -> Option<Said> {
 }
 
 /// The tossed peasant's speaker test 0x0040d250: as the dismay's, and JON50172_Dismay / Q1150162_Dismay only while the
-/// level's list +0xf04 is not empty (`listed`: which list that is was not traced).
+/// level's list +0xf04 is not empty (`listed`): the bullseye targets (a building or barricade with Bullseye, +0x460 bit
+/// 0x40, registered by its update 0x0040cb10 with its Fx_bullseye decal; the compass's second list, 0x00466790). On
+/// lev_2_m2 and lev_3_m2 houses with toss_peasants and bullseye objects meet; the engine has no bullseye list yet
+/// (feature: bullseye targets), so the caller passes false.
 pub fn tossed_speaker(line: &'static str, cast: &Cast, listed: bool) -> Option<Said> {
     let said = companion_or_roman(line, cast)?;
     let exclusive = match said.speaker {

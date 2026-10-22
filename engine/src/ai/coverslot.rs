@@ -75,7 +75,10 @@ impl SlotView {
         }
     }
 
-    /// The slot's point and direction (vt+0x14c): the building's node, or the tree's spot away from `target`.
+    /// The slot's point and direction (vt+0x14c, the direction kept at +0x908: the way he faces there): the building's
+    /// node, or the tree's spot (0x00497210): with a target 20 from the trunk on the side away from it, facing away from
+    /// it (the direction normalised from the target to the trunk); without, the trunk minus its heading x its radius
+    /// (the heading's horizontal part as it is, not renormalised), facing against its heading.
     pub fn point(&self, slot: usize, target: Option<Vec3>) -> (Vec3, Vec3) {
         match (self.kind, self.slots.get(slot).copied().flatten()) {
             (CoverKind::Building, Some(p)) => p,
@@ -84,9 +87,9 @@ impl SlotView {
                 match target {
                     Some(t) => {
                         let away = (self.at - t).with_y(0.0).normalize_or(Vec3::Z);
-                        (self.at + away * 20.0, -away)
+                        (self.at + away * 20.0, away)
                     }
-                    None => (self.at - self.facing.with_y(0.0).normalize_or(Vec3::Z) * r, self.facing),
+                    None => (self.at - self.facing.with_y(0.0) * r, -self.facing),
                 }
             }
         }
@@ -112,7 +115,8 @@ pub struct Seeker<'a> {
 /// The generic part of 0x0042a7b0: the free ground slot nearest the grunt (3D) within `limit2` (squared: twice
 /// scan_distance, or a quarter of the gun's / trench's distance when one was found), not behind it from the target
 /// (dot < -0.65 and farther than the target), and, for a tree, one the tree covers from the target (0x00426ee0: the
-/// ray from the slot to the target's hit point meets the tree). Returns (object index, slot, point, direction).
+/// ray from the slot to the target's hit point meets the tree, the other objects on it ignored). Returns (object index,
+/// slot, point, direction).
 pub fn pick(s: &Seeker, views: &[SlotView], mut limit2: f32, skip_last: bool) -> Option<(usize, usize, Vec3, Vec3)> {
     let mut best = None;
     let tpos = s.target.map(|t| t.0);
@@ -140,11 +144,8 @@ pub fn pick(s: &Seeker, views: &[SlotView], mut limit2: f32, skip_last: bool) ->
                 continue;
             }
             if let (CoverKind::Tree { .. }, Some((_, thit))) = (v.kind, s.target) {
-                // 0x00426ee0: from the slot's point toward the target's hit point, the first object met is the tree
-                let from = point + Vec3::Y * 5.0;
-                let to = thit - from;
-                let hit = s.physics.raycast(from, to.normalize_or(Vec3::Y), to.length());
-                if !hit.is_some_and(|h| Some(h.0) == v.collider) {
+                // 0x00426ee0: the ray from the slot's point to the target's hit point meets the tree
+                if !v.collider.is_some_and(|tree| ray_meets(s.physics, point, thit, tree)) {
                     continue;
                 }
             }
@@ -153,6 +154,30 @@ pub fn pick(s: &Seeker, views: &[SlotView], mut limit2: f32, skip_last: bool) ->
         }
     }
     best
+}
+
+/// Whether the segment `from` -> `to` meets the body `only`, whatever else lies on it: 0x00426ee0's Ray_CastQuery
+/// 0x00414110 includes the cover object alone (its include-object argument, flag 2). Jolt's closest-hit ray has no
+/// include filter: the other bodies met first are stepped past (each left out of the next cast from its hit point),
+/// at most a few of them.
+fn ray_meets(physics: &crate::physics::Physics, from: Vec3, to: Vec3, only: oxijolt::prelude::BodyId) -> bool {
+    use oxijolt::prelude::{QueryFilter, RayCast};
+    let k = physics.meters_per_unit;
+    let (mut at, mut skip) = (from, None);
+    for _ in 0..6 {
+        let d = to - at;
+        if d.length_squared() < 1e-6 {
+            return false;
+        }
+        let filter = skip.map_or(QueryFilter::new(), |b| QueryFilter::new().exclude_body(b));
+        let Ok(Some(hit)) = physics.world.cast_ray(&RayCast::new(crate::physics::jr(at * k), crate::physics::jv(d * k)), &filter) else { return false };
+        if hit.body == only {
+            return true;
+        }
+        at += d * hit.fraction;
+        skip = Some(hit.body);
+    }
+    false
 }
 
 pub struct CoverSlotPlugin;

@@ -666,7 +666,8 @@ fn platoons(
                 if member.kind != 2 && p.ladders.0 != 0 && now >= army.ladder_next {
                     if let Some(mk) = markers.as_deref() {
                         let taken: HashSet<i64> = live.iter().filter(|g| g.mind != Mind::Dead).filter_map(|g| g.spline.map(|s| s.tag)).chain(busy.iter().copied()).collect();
-                        let free: Vec<i64> = (p.ladders.0..=p.ladders.1).filter(|t| mk.spline_len(*t) > 0 && !taken.contains(t)).collect();
+                        // (0x00429900 skips the paths in use or with a ladder planted: 0x0044b7e0 / 0x0044b7b0)
+                        let free: Vec<i64> = (p.ladders.0..=p.ladders.1).filter(|t| mk.spline_len(*t) > 0 && !taken.contains(t) && !army.planted.contains(t)).collect();
                         if !free.is_empty() {
                             let tag = free[((rng.rand() * free.len() as f32) as usize).min(free.len() - 1)];
                             ladder = Some(tag);
