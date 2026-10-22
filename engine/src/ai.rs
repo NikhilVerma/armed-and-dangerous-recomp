@@ -1102,6 +1102,9 @@ pub struct AiStats {
     pub markers: usize,
     pub taunts: usize,
     pub throws: usize,
+    /// bursts ended with rounds left in the clip, pursuits started by a lost line of sight (playtest log)
+    pub bursts: usize,
+    pub sight_pursuits: usize,
     /// shots by class (playtest log "ai.shots_by"): the snipers', the rocket captains', the jumpers' in a glide
     pub sniper_shots: usize,
     pub rocket_shots: usize,
@@ -1369,6 +1372,9 @@ fn log_ai(
             "markers": stats.markers,
             "taunts": stats.taunts,
             "throws": stats.throws,
+            "shots": stats.shots,
+            "bursts": stats.bursts,
+            "sight_pursuits": stats.sight_pursuits,
             "led_shots": stats.led_shots,
             "near": near.unwrap_or_default(),
         }),
@@ -3851,7 +3857,10 @@ fn think(
                         FireEnd::Sight if g.at_barricade => duck(&mut g),
                         // elsewhere (ai_02.cpp:1886-1912) the pursuit (vt+0x184 0x004295d0) until its ray sees the
                         // target again; a guard keeps his guard state (0x7a and back), a squad member his place
-                        FireEnd::Sight if !g.guard && !squad_fight => pursue(&mut g, p, limping, &mut rng),
+                        FireEnd::Sight if !g.guard && !squad_fight => {
+                            pursue(&mut g, p, limping, &mut rng);
+                            stats.sight_pursuits += 1;
+                        }
                         // the clip's end (0x0042b8e0): in the slot, the target within 80 degrees of its direction ->
                         // duck, else leave it (vt+0x188) and search again (vt+0x240(1, 1, 0)); elsewhere a non-guard
                         // searches (vt+0x240(1, 0, 0)): 90 % the reload in place first
@@ -4523,6 +4532,7 @@ fn fire_cycle(
         }
         g.pause = fire_len + rng.range(g.burst_delay.0, g.burst_delay.1);
         g.left_burst = roll_count(rng, g.bursts).min(g.left_rounds);
+        stats.bursts += 1;
         return FireEnd::Burst;
     }
     g.left_clips = if g.guard { 0 } else { g.left_clips - 1 };
