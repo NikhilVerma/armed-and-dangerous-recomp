@@ -209,22 +209,70 @@ pub struct RomanAnim {
     mode: Option<u32>,
     state: u32,
     entry: Option<ModeEntry>,
+    /// +0xacd: the entry was restarted through a state link, so the state is not kept next frame (0x00475ff0,
+    /// game_05.cpp:1493); a new request clears it
+    linked: bool,
+    /// the action clocks as they were last frame, to tell this frame's requests from the running actions
+    seen: Option<ActionClocks>,
 }
 
+/// The player's action clocks (player.rs `Roman`) a request is read from.
+#[derive(Clone, Copy)]
+struct ActionClocks {
+    since_fire: f32,
+    since_throw: f32,
+    wchange: Option<f32>,
+    reloading: f32,
+}
+
+impl ActionClocks {
+    fn of(r: &Roman) -> Self {
+        ActionClocks { since_fire: r.since_fire, since_throw: r.since_throw, wchange: r.wchange, reloading: r.reloading }
+    }
+}
+
+/// The action requests of one frame (+0x54c bits 0x40000 weapon change, 0x8000 fire, 0x10000 reload, 0x20000 throw):
+/// an action that started since the last frame.
+#[derive(Clone, Copy, Default)]
+struct Requests {
+    wchange: bool,
+    fire: bool,
+    reload: bool,
+    throw: bool,
+}
+
+impl Requests {
+    fn between(was: Option<ActionClocks>, now: ActionClocks) -> Self {
+        let Some(was) = was else { return Requests::default() };
+        Requests {
+            wchange: now.wchange.is_some_and(|c| was.wchange.is_none_or(|w| c < w)),
+            fire: now.since_fire < was.since_fire,
+            reload: now.reloading > was.reloading,
+            throw: now.since_throw < was.since_throw,
+        }
+    }
+}
+
+/// The modes in which a fire request restarts the fire anim even when the mode and state are unchanged (0x00475ff0,
+/// game_05.cpp:1386-1391): the stance, the jump's wind-up / idle and the jumper pack's flight.
+const FORCE_FIRE_MODES: [u32; 8] = [mode::STANCE, mode::JUMP_INTO, mode::JUMP_IDLE, mode::TURBO_IDLE, mode::TURBO_FORWARD, mode::TURBO_BACK, mode::TURBO_LEFT, mode::TURBO_RIGHT];
+
 /// Starts (mode, state) on Roman as 0x00475ff0 does: the table's entry; when the mode or state changed and the
-/// entry's anims differ, a cross-fade of 0x005cb3a8[previous kind][kind] and the start: a mode change within the same
-/// state (other than 0, no link followed) keeps the fraction (flags 0xa00 with 0x00475fc0), two movement entries
-/// (kind 4) of the same type in state 0 / 6 carry the time on, anything else restarts (at the end when backwards).
-/// Type 1 plays the one anim on layer 0; type 2 the `_b` / `_t` pair on layers 0 / 1, the top weighted by the aim
-/// pitch (`aim`). Movement entries play at their rate block's speed for `velocity` (the model frame), backwards with
-/// flag 0x40. Returns whether the entry changed.
-pub fn play_mode(a: &mut Animator, table: &PlayerAnimTable, st: &mut RomanAnim, mode: u32, state: u32, aim: f32, velocity: Vec3) -> bool {
+/// entry's anims differ, or `force` (a fire request: game_05.cpp:1497), a cross-fade of 0x005cb3a8[previous
+/// kind][kind] and the start: a mode change within the same state (other than 0, no link followed) keeps the fraction
+/// (flags 0xa00 with 0x00475fc0), two movement entries (kind 4) of the same type in state 0 / 6 carry the time on,
+/// anything else restarts (at the end when backwards; through a link it marks +0xacd, `RomanAnim::linked`). Type 1
+/// plays the one anim on layer 0; type 2 the `_b` / `_t` pair on layers 0 / 1, the top weighted by the aim pitch
+/// (`aim`). Movement entries play at their rate block's speed for `velocity` (the model frame), backwards with flag
+/// 0x40. Returns whether the entry changed.
+#[allow(clippy::too_many_arguments)]
+pub fn play_mode(a: &mut Animator, table: &PlayerAnimTable, st: &mut RomanAnim, mode: u32, state: u32, aim: f32, velocity: Vec3, force: bool) -> bool {
     let Some((e, fallback)) = table.entry(mode, state) else { return false };
     let e = e.clone();
     let changed_mode = st.mode != Some(mode);
     let same = !changed_mode && st.state == state;
     let prev = st.entry.clone();
-    let changed = !same && prev.as_ref() != Some(&e);
+    let changed = force || (!same && prev.as_ref() != Some(&e));
     if changed {
         a.blend = prev.as_ref().map_or(0.0, |p| table.blend(p.kind, e.kind));
     }
@@ -237,6 +285,7 @@ pub fn play_mode(a: &mut Animator, table: &PlayerAnimTable, st: &mut RomanAnim, 
     } else if prev.as_ref().is_some_and(|p| p.kind == 4 && e.kind == 4 && p.kind_type == e.kind_type) && (state == 0 || state == 6) {
         Start::Time
     } else {
+        st.linked |= fallback;
         Start::Restart
     };
     let rate = e.rate.as_deref().and_then(|b| table.rate(b)).map_or(1.0, |rb| rb.rate(velocity));
@@ -289,13 +338,13 @@ impl Start {
     }
 }
 
-/// The movement mode of a gait (0x00476a10, game_05.cpp:1901-1914): walk or run by the speed against fwd_max_speed
-/// x anim_walk_run_switch (40 x 0.3 = 12), the side modes when the sideways speed beats the forward speed (forwards
+/// The movement mode of a gait (0x00476a10, game_05.cpp:1901-1914): run when the speed is above fwd_max_speed
+/// (side_max_speed sideways) x anim_walk_run_switch (40 x 0.3 = 12 in every level's p_trotter), the side modes when the sideways speed beats the forward speed (forwards
 /// x 1.5, 0x005bcf94; backwards x 1), else forwards or backwards. guess: the local velocity (+0x494 / +0x498) decides.
 pub fn gait_mode(local: Vec2) -> u32 {
     let (side, fwd) = (local.x, local.y);
     let sideways = if fwd >= 0.0 { side.abs() > fwd * 1.5 } else { side.abs() > -fwd };
-    let run = local.length() >= 12.0;
+    let run = local.length() > 12.0;
     match (sideways, run, side > 0.0, fwd < 0.0) {
         (true, true, true, _) => mode::RUN_RIGHT,
         (true, true, false, _) => mode::RUN_LEFT,
@@ -341,6 +390,9 @@ pub struct Twist {
 /// Trotter_turn_left / right_aim_b / _t: 29 frames at 30 fps
 const TURN_LEN: f32 = 0.9667;
 
+/// acos(-0.1): past it 0x004735f0 takes the legs' direction as its opposite (the dot product negated)
+const FOLD_ANGLE: f32 = 1.670_963;
+
 fn wrap(a: f32) -> f32 {
     (a + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI
 }
@@ -363,10 +415,15 @@ pub(crate) fn twist(mut tw: ResMut<Twist>, mut q: Query<(&mut Roman, &Animator)>
             // flag 8 (the turn modes): the limit times the anim's progress left (end - t) / (end - start)
             let lim = r.twist_limit * tw.turn.map_or(1.0, |(_, t)| (1.0 - t / TURN_LEN).max(0.0));
             let leg = *tw.leg_yaw.get_or_insert(r.yaw);
-            let mut ang = wrap(r.yaw - leg);
+            // the angle by acos of the facing . legs: a dot below -0.1 (0x005bcd14) is negated with the cross axis
+            // (anim_01.cpp:3445-3462), so legs more than acos(-0.1) (95.7 degrees) from the facing count as their
+            // opposite (180 minus the angle, the other side), and dragging them to the limit turns them away
+            let folded = wrap(r.yaw - leg).abs() > FOLD_ANGLE;
+            let back = if folded { std::f32::consts::PI } else { 0.0 };
+            let mut ang = wrap(r.yaw - leg - back);
             if ang.abs() > lim {
                 ang -= (ang.abs() - lim + 0.001) * ang.signum();
-                tw.leg_yaw = Some(r.yaw - ang);
+                tw.leg_yaw = Some(r.yaw - ang - back);
                 if !tw.fresh && tw.turn.is_none() {
                     tw.raised = Some(ang > 0.0);
                 }
@@ -401,13 +458,17 @@ pub(crate) fn twist(mut tw: ResMut<Twist>, mut q: Query<(&mut Roman, &Animator)>
 }
 
 /// Roman's idle (0x00476a10, game_05.cpp:1932-1948): standing, the idle time +0xc04 counts; past 5 s (0x005bcbdc),
-/// each time the playing anim ends (the aim stance's 1.97 s loop or a fidget) a rand picks the stance (one half) or
-/// one of trotter_idle_1..5 (mode 1 + rand * 5 >> 15); any other mode clears the time.
+/// each time the playing anim ends (+0x548 bit 1: the aim stance's loop wraps, a fidget or a fire anim runs out) a
+/// rand picks the stance (one half) or one of trotter_idle_1..5 (mode 1 + rand * 5 >> 15), at most 5 s the stance.
+/// The time is cleared by any mode outside 0..5, a shot (game_06.cpp:3003), a reload's start (2881) and a turn of the
+/// view (2372), not by the other actions: a throw or a weapon change standing still leaves it counting.
 #[derive(Default)]
 struct Idle {
     t: f32,
-    left: f32,
+    /// the fidget mode +0xc08 (1..5), None: the stance (0)
     fidget: Option<u32>,
+    /// Roman's yaw last frame (a turn of the view clears the time)
+    yaw: Option<f32>,
 }
 
 /// Roman's anims: the engine's player state picks the movement mode and the action state (as 0x00476a10 does from
@@ -451,7 +512,15 @@ fn roman(
         // up in `_t` (measured on the skeleton, docs/remaster-engine.md). The weight (0x00475ff0, game_05.cpp:1499):
         // (clamp(2 x pitch, -1, 1) + 1) / 2 of the look pitch, 0 at rest (the engine's rest pitch is -0.15)
         let w = ((2.0 * (r.pitch + 0.15)).clamp(-1.0, 1.0) + 1.0) * 0.5;
-        let mut play = |a: &mut Animator, m: u32, s: u32| play_mode(a, table, st, m, s, w, v);
+        // this frame's action requests (+0x54c), and whether the anim playing ran out last frame (+0x548 bit 1)
+        let clocks = ActionClocks::of(r);
+        let req = Requests::between(st.seen.replace(clocks), clocks);
+        let anim_ended = a.layers.first().is_some_and(|l| l.ended);
+        // the idle time's clears that are not modes: a shot, a reload's start, a turn of the view
+        let turned = idle.yaw.replace(r.yaw).is_some_and(|y| y != r.yaw);
+        if req.fire || req.reload || turned {
+            idle.t = 0.0;
+        }
         // the Topsy Turvy states (modes 0x20..0x23; 0x23 turns the world back: the turn anim backwards)
         let t = match topsy.phase {
             crate::topsy::Phase::Into => Some(mode::TOPSY_INTO),
@@ -461,24 +530,24 @@ fn roman(
             crate::topsy::Phase::Off => None,
         };
         if let (Some(m), false) = (t, r.dead) {
-            play(a, m, state::NONE);
+            play_mode(a, table, st, m, state::NONE, w, v, false);
             continue;
         }
         // the knockout bomb's glove (modes 0x24..0x27): the windup while it waits, a punch while Fire is held
         if let (Some(m), false) = (glove.anim_mode(), r.dead) {
-            play(a, m, state::NONE);
+            play_mode(a, table, st, m, state::NONE, w, v, false);
             continue;
         }
         if r.dead {
             // the ragdoll drives the bones (ragdoll.rs); without one, the fall pose
             if !r.ragdolled {
-                play(a, mode::FALL_LOOP, state::NONE);
+                play_mode(a, table, st, mode::FALL_LOOP, state::NONE, w, v, false);
             }
             continue;
         }
         // the hit reaction (modes 0x1e / 0x1f: Trotter_hit_small / _med, full body, once)
         if r.hit_anim > 0.0 {
-            play(a, if r.hit_med { mode::HIT_MED } else { mode::HIT_SMALL }, state::NONE);
+            play_mode(a, table, st, if r.hit_med { mode::HIT_MED } else { mode::HIT_SMALL }, state::NONE, w, v, false);
             continue;
         }
         // landing (modes 8 land_hard / 0x13 jump_land / 0x14 land_soft, once); falling (mode 7 fall_loop)
@@ -490,19 +559,19 @@ fn roman(
                 "trotter_turbo_skid" => mode::TURBO_SKID,
                 _ => mode::JUMP_LAND,
             };
-            play(a, m, state::NONE);
+            play_mode(a, table, st, m, state::NONE, w, v, false);
             continue;
         }
         // (the fall state wins over a jumper pack's flight, game_05.cpp:1855: dropping faster than fall_speed_turbo)
         let turbo = jet.is_some_and(|j| j.flight == crate::jetpack::Flight::Turbo);
         if r.falling && !r.on_ground && (!r.jumping || turbo) {
-            play(a, mode::FALL_LOOP, state::NONE);
+            play_mode(a, table, st, mode::FALL_LOOP, state::NONE, w, v, false);
             continue;
         }
         // a standing jump's wind-up (mode 0x11 trotter_jump_into; the take-off at its end, 0x0047aaf0)
         if r.jump_wind.is_some() {
             *idle = Idle::default();
-            play(a, mode::JUMP_INTO, state::NONE);
+            play_mode(a, table, st, mode::JUMP_INTO, state::NONE, w, v, false);
             continue;
         }
         let speed = r.move_local.length();
@@ -525,21 +594,28 @@ fn roman(
         } else {
             gait_mode(r.move_local)
         };
-        // the action state over it (0x00475ff0 from the request bits): the sticky bomb throw (state 5: trotter_throw
-        // 0.633 s standing, trotter_run_throw 0.767 s running), the weapon change, the reload, firing (the fire
-        // anims' length 0.3 s; state 1 for the rifle and the machine gun, weapons 0..2)
-        let throw_len = if m == mode::RUN || m == mode::RUN_BACK { 0.767 } else { 0.633 };
-        let s = if r.since_throw < throw_len {
-            state::THROW
-        } else if r.wchange.is_some() {
+        // the action state over it (0x00475ff0, game_05.cpp:1369-1409): this frame's request, the weapon change first,
+        // then fire (state 1 for the rifle and the machine gun, weapons 0..2; 2 the launchers), the reload, the throw;
+        // without one the state kept while its anim plays (1..5, the anim not run out, not reached through a link)
+        let s = if req.wchange {
             state::WCHANGE
-        } else if r.reloading > 0.0 {
-            state::RELOAD
-        } else if r.since_fire < 0.3 {
+        } else if req.fire {
             if r.arsenal.in_hand_id().is_some_and(crate::weapons::WeaponId::launcher) { state::FIRE_LAUNCHER } else { state::FIRE }
+        } else if req.reload {
+            state::RELOAD
+        } else if req.throw {
+            state::THROW
+        } else if (state::FIRE..=state::THROW).contains(&st.state) && !anim_ended && !st.linked {
+            st.state
         } else {
             state::NONE
         };
+        if req.wchange || req.fire || req.reload || req.throw {
+            st.linked = false;
+        }
+        // a fire request restarts the fire anim in the stance, the jump and the flight even when nothing else changed
+        // (unless the standing jump's wind-up is under way, +0xa34 0x40: 0x0047aaf0)
+        let force = req.fire && FORCE_FIRE_MODES.contains(&m) && r.jump_wind.is_none();
         // turning in place (0x00476a10, game_05.cpp:1915): standing with the twist limit hit last frame, the turn
         // anim (mode 0x1c Trotter_turn_left / 0x1d _right; state 1 the _fire pair, other states link to _aim) plays
         // once, the legs catching up (Twist); any mode outside 0..5 clears the idle time
@@ -555,8 +631,9 @@ fn roman(
             }
         }
         if let Some((left, t)) = tw.turn {
-            *idle = Idle::default();
-            play(a, if left { mode::TURN_LEFT } else { mode::TURN_RIGHT }, if r.since_fire < 0.3 { state::FIRE } else { state::NONE });
+            idle.t = 0.0;
+            idle.fidget = None;
+            play_mode(a, table, st, if left { mode::TURN_LEFT } else { mode::TURN_RIGHT }, s, w, v, false);
             a.layers[0].time = t;
             a.sync(1, 0);
             tw.active = true;
@@ -570,36 +647,37 @@ fn roman(
             }
             continue;
         }
-        // a black hole sucking (its list World+0xf00 not empty): standing, he leans against the pull (mode 0x28)
-        if stance && s == state::NONE && suction.active {
-            *idle = Idle::default();
-            play(a, mode::BLACKHOLE_PULL, state::NONE);
+        // a black hole sucking (its list World+0xf00 not empty): standing, he leans against the pull (mode 0x28), with
+        // the action state as any mode (game_05.cpp:1930)
+        if stance && suction.active {
+            idle.t = 0.0;
+            idle.fidget = None;
+            play_mode(a, table, st, mode::BLACKHOLE_PULL, s, w, v, false);
             continue;
         }
-        // the idle fidgets (modes 1..5)
-        if stance && s == state::NONE {
-            let dt = time.delta_secs();
-            idle.t += dt;
-            idle.left -= dt;
-            if idle.left <= 0.0 {
+        if stance {
+            // the idle fidgets (modes 1..5); an action asked for in a fidget's mode links to the fidget's entry, so
+            // the fidget plays on (only a shot or a reload, clearing the time, brings the stance back)
+            if idle.t <= 5.0 {
                 idle.fidget = None;
-                idle.left = 1.967;
-                if idle.t > 5.0 && rng.rand() < 0.5 {
-                    let k = ((rng.rand() * 5.0) as u32).min(4) + 1;
-                    idle.fidget = Some(k);
-                    idle.left = [3.3, 5.467, 4.8, 5.467, 3.3][k as usize - 1];
+            } else if anim_ended {
+                idle.fidget = (rng.rand() < 0.5).then(|| ((rng.rand() * 5.0) as u32).min(4) + 1);
+            }
+            idle.t += time.delta_secs();
+            match idle.fidget {
+                Some(k) => {
+                    play_mode(a, table, st, mode::IDLE_1 + k - 1, s, w, v, false);
+                }
+                None => {
+                    play_mode(a, table, st, m, s, w, v, force);
+                    // the aim stance (mode 0, kind 2) twists; the fidgets (kind 12) do not
+                    tw.active = true;
                 }
             }
-            if let Some(k) = idle.fidget {
-                play(a, mode::IDLE_1 + k - 1, state::NONE);
-                continue;
-            }
-        } else {
-            *idle = Idle::default();
+            continue;
         }
-        play(a, m, s);
-        // the aim stance (mode 0, kind 2) twists; the fidgets (kind 12) and the moving modes do not
-        tw.active = stance;
+        *idle = Idle { yaw: idle.yaw, ..default() };
+        play_mode(a, table, st, m, s, w, v, force);
     }
 }
 
@@ -998,20 +1076,92 @@ fn random(rand: &mut impl FnMut() -> u32, lo: f32, hi: f32) -> f32 {
     lo + rand() as f32 * (hi - lo) / 32768.0
 }
 
+/// A companion's fidgets while idle in formation (MolmerObject_Slot47 0x00485910 mode 1, ai_08.cpp:1817-1850, shared
+/// by Q and Jonesy): the timer +0xbac (random(3, 7) on arriving, 0x0046e2c0) counts down; when it has run out and the
+/// anim playing ends (its loop wraps), one of idle_1..3 plays once (ids 0x1e + rand * 3 >> 15) and flag 0x1000 is
+/// set; from then each time the anim ends one of ids 0x1b..0x1d plays looped (Q: q111_kneel_scan, q111_idle_long_1 /
+/// _2; Jonesy's table 0x0044ef20 maps all three to molmer_idle_long_1 / _2 by a second rand, >= 50 of 100 the _2),
+/// until he moves, fights or reacts to a hit (the formation's idle set again, a fresh timer). (The linger after a
+/// fight, still mode 3 in the original, reads as mode 1 here, `Companion::mode`: a fidget can start in its last seconds.)
+#[derive(Clone)]
+struct CompanionIdle {
+    timer: f32,
+    /// flag 0x1000: a fidget played, the long idles follow
+    fidgeted: bool,
+    /// the fidget anim playing and whether it loops; None: the idle set
+    anim: Option<(String, bool)>,
+}
+
+impl CompanionIdle {
+    fn new(rand: &mut impl FnMut() -> u32) -> Self {
+        CompanionIdle { timer: random(rand, 3.0, 7.0), fidgeted: false, anim: None }
+    }
+
+    /// The next fidget for `who` ("q111" / "molmer") at the anim's end, if one is due; whether one was picked.
+    fn step(&mut self, who: &str, dt: f32, anim_ended: bool, rand: &mut impl FnMut() -> u32) -> bool {
+        self.timer -= dt;
+        if !anim_ended || (!self.fidgeted && self.timer > 0.0) {
+            return false;
+        }
+        let pick = rand() * 3 >> 15;
+        self.anim = Some(if self.fidgeted {
+            let long = match (who, pick) {
+                ("q111", 0) => "kneel_scan",
+                ("q111", 1) => "idle_long_1",
+                ("q111", _) => "idle_long_2",
+                _ if rand() * 100 >> 15 >= 50 => "idle_long_2",
+                _ => "idle_long_1",
+            };
+            (format!("{who}_{long}"), true)
+        } else {
+            self.fidgeted = true;
+            (format!("{who}_idle_{}", pick + 1), false)
+        });
+        // (+0xbac = 100000: the flag, not the timer, drives the rest)
+        self.timer = 100_000.0;
+        true
+    }
+}
+
 /// The companions' anims (their tables 0x004876c0 / 0x0044ef20): run (run_reload while reloading on the move),
-/// reload_br, the four fire poses blended by the aim elevation (as the grunts'), else the idle poses.
+/// reload_br, the four fire poses blended by the aim elevation (as the grunts'), else the idle poses and, idle in
+/// formation, the fidgets (`CompanionIdle`).
+///
+/// Not played: q111_scan_run / molmer_scan_run (id 0xa, mode 2: due only when the run's loop outlasts the 3..7 s
+/// timer, which each wrap of the 0.63 s run redraws), the scan_stand fidgets (0x12..0x1a of 0x00427330: they need the
+/// attention anim 0xf playing, which the companions show only before their first formation idle), the fall (0x61:
+/// the companions have no fall state, ai.rs) and the hit_large reaction (ids 0x47 / 0x48 for damage record flag 4,
+/// which no damage of the remaster sets: ai.rs companion hits).
 fn companions(
     mut q: Query<(Entity, &Companion, &mut Animator, &Name, Option<&crate::ai::tower::TowerTask>, &Transform)>,
     time: Res<Time>,
-    mut last_at: crate::levelreset::PerLevel<std::collections::HashMap<Entity, Vec3>>,
+    // per companion: where he was last frame, his formation idle; the fidgets' random stream (a level starts them over)
+    mut per_level: crate::levelreset::PerLevel<(std::collections::HashMap<Entity, Vec3>, std::collections::HashMap<Entity, CompanionIdle>, u32)>,
+    mut play: Option<ResMut<crate::playtest::PlayState>>,
 ) {
     let dt = time.delta_secs();
-    let last_at = last_at.get();
+    let (last_at, idles, seed) = per_level.get();
+    if let Some(ps) = play.as_mut() {
+        for k in ["q_fidgets", "jonesy_fidgets"] {
+            if !ps.0.contains_key(k) {
+                ps.0.insert(k.into(), 0.into());
+            }
+        }
+    }
+    let mut rand = || {
+        *seed = seed.wrapping_mul(214013).wrapping_add(2531011);
+        (*seed >> 16) & 0x7fff
+    };
     for (e, c, mut a, name, task, t) in &mut q {
         let was = last_at.insert(e, t.translation).unwrap_or(t.translation);
         let speed = if dt > 0.0 { (t.translation - was).with_y(0.0).length() / dt } else { 0.0 };
         a.blend = AI_BLEND;
         let who = if name.as_str() == "molmer" { "molmer" } else { "q111" };
+        // idle in formation (mode 1) with nothing else to show: the fidgets' clock runs; anything else starts it over
+        let formation_idle = c.mode() == 1 && c.dead.is_none() && !c.ic && task.is_none_or(|t| !t.at_marker()) && c.pose.is_none() && c.hit.is_none() && c.tea <= 0.0 && c.throwing.is_none() && !c.moving && c.reloading <= 0.0 && !c.firing;
+        if !formation_idle {
+            idles.remove(&e);
+        }
         if c.dead.is_some() {
             a.play(0, &format!("{who}_die"), false, Mask::All);
             a.stop(1);
@@ -1039,6 +1189,28 @@ fn companions(
             a.stop(1);
         } else if c.reloading > 0.0 {
             a.play(0, &format!("{who}_reload_br"), false, Mask::All);
+            a.stop(1);
+        } else if let Some((n, looping)) = formation_idle
+            .then(|| {
+                let ended = a.layers.first().is_some_and(|l| l.ended);
+                let idle = idles.entry(e).or_insert_with(|| CompanionIdle::new(&mut rand));
+                if idle.step(who, dt, ended, &mut rand) {
+                    // playtest evidence: the fidgets started ("q_fidgets" / "jonesy_fidgets") and the last one
+                    if let Some(ps) = play.as_mut() {
+                        let key = if who == "q111" { "q" } else { "jonesy" };
+                        let n = ps.0.get(&format!("{key}_fidgets")).and_then(|v| v.as_u64()).unwrap_or(0) + 1;
+                        ps.0.insert(format!("{key}_fidgets"), n.into());
+                        ps.0.insert(format!("{key}_fidget"), idle.anim.as_ref().map_or("", |(n, _)| n.as_str()).into());
+                    }
+                }
+                idle.anim.clone()
+            })
+            .flatten()
+        {
+            if a.layers.first().is_none_or(|l| l.anim != n) {
+                a.play(0, &n, looping, Mask::All);
+                a.layers[0].time = 0.0;
+            }
             a.stop(1);
         } else {
             let kind = if c.firing { "fire" } else { "idle" };
