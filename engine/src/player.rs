@@ -2326,16 +2326,16 @@ fn projectiles(
                 } else {
                     crate::fx::Src::Teammate
                 };
-                if !d.accepts_record(by, p.no_buildings, p.kind) {
-                    commands.entity(e).despawn();
-                    continue;
-                }
-                // Object_TakeDamage 0x004555e0 (fx.rs); a bullet's record (0x400) on a colossus is scaled by its
-                // bullet_scale (Q112Boss_Slot52 0x00436600, vehicles/boss.rs)
-                let amount = if p.no_buildings { p.damage * scale.map_or(1.0, |s| s.0) } else { p.damage };
-                if d.take_damage(amount) && d.dying.is_none() {
-                    d.chain_delay = 0.0;
-                    d.dying = Some(0.0);
+                // (a refused record still stops the bullet; a piercing one leaves its reward below all the same,
+                // 0x0047f2a0's stop block)
+                if d.accepts_record(by, p.no_buildings, p.kind) {
+                    // Object_TakeDamage 0x004555e0 (fx.rs); a bullet's record (0x400) on a colossus is scaled by its
+                    // bullet_scale (Q112Boss_Slot52 0x00436600, vehicles/boss.rs)
+                    let amount = if p.no_buildings { p.damage * scale.map_or(1.0, |s| s.0) } else { p.damage };
+                    if d.take_damage(amount) && d.dying.is_none() {
+                        d.chain_delay = 0.0;
+                        d.dying = Some(0.0);
+                    }
                 }
             }
             // a piercing bullet stopped: its reward for the characters it went through (weapons/sniper.rs)
