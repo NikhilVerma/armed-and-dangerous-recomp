@@ -1927,6 +1927,8 @@ fn barracks(
                 at,
                 template: TROOP_TEMPLATES[ty].into(),
                 alarm: false,
+                // type 2 is a jumper captain (0x0040c590 -> 0x00425d30(1))
+                jumper: ty == 2,
                 barracks: Some(b.id),
                 exit: Some(exit),
                 marker_tags: (b.marker_tags.0 != 0).then_some(b.marker_tags),

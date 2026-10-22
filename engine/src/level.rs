@@ -159,6 +159,9 @@ pub struct SpawnGrunt {
     pub template: String,
     /// a troop of the alarm controller (alarm.rs)
     pub alarm: bool,
+    /// a jumper captain (troop type 2 of a barracks or an alarm generator: 0x00425d30(1), the turbo pack and the
+    /// jumper fire range, as the property jumper_captain gives a placed captain)
+    pub jumper: bool,
     /// a troop of this barracks (mission.rs): it walks out to `exit`, then to a marker of `marker_tags`
     pub barracks: Option<u32>,
     pub exit: Option<Vec3>,
@@ -1576,6 +1579,9 @@ fn spawn_grunts(
         let mut p = data.template_props(&ev.template);
         if ev.dropped.as_ref().is_some_and(|d| d.rocket) {
             p.0.insert("rocket_captain".into(), 1.into());
+        }
+        if ev.jumper {
+            p.0.insert("jumper_captain".into(), 1.into());
         }
         let Some(model_name) = data.templates.get(&ev.template).and_then(|t| t.model.clone()) else { continue };
         let Some(model) = lib.load_model(&model_name, false, &assets, &mut meshes, &mut materials).cloned_parts() else { continue };

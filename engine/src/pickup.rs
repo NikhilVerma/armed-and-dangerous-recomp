@@ -193,7 +193,16 @@ fn drop_on_death(
     roman: Query<&crate::player::Roman>,
     mut rng: ResMut<crate::fx::FxStats>,
     mut out: MessageWriter<SpawnPickup>,
+    (difficulty, mission): (Res<crate::gamedata::Difficulty>, Option<Res<crate::mission::Mission>>),
 ) {
+    // Character_DropPickup 0x0043e710 drops nothing while 0x0044e600 holds (Roman there, the mission's
+    // start_in_turret_tag set: the defence levels)
+    if mission.is_some_and(|m| m.start_in_turret) && !player.is_empty() {
+        return;
+    }
+    // the roll's exponent: Game+0xc60 (1.0 in every traced run, docs/structs/Game.md) x Game+0x560, the
+    // difficulty's (easy 2, normal 1, hard 0.75, very hard 0.5)
+    let exponent = difficulty.factors().unknown_560;
     // the pick (0x00475a90, weights from the level properties, LevelProperties_Load 0x00423900, defaults x 0.01):
     // health pickup_health_weight_low 0.5 below pickup_low_health_thresh_pct 25 % health, else _normal 0.25; the
     // current weapon's ammo pickup_cur_weapon_weight 0.5 (never for the rifle, weapon 2: it has no ammo to find);
@@ -216,8 +225,15 @@ fn drop_on_death(
         if g.mind != Mind::Dead || !seen.insert(e) {
             continue;
         }
-        // Character_Die 0x004319e0 -> Character_DropPickup 0x0043e710: pickup_drop_percent
-        if rng.rand() >= g.drop_percent / 100.0 {
+        // Character_Die 0x004319e0 -> Character_DropPickup 0x0043e710: pickup_drop_percent p, the chance
+        // 1 - (1 - p)^exponent
+        let chance = 1.0 - (1.0 - g.drop_percent / 100.0).max(0.0).powf(exponent);
+        if rng.rand() >= chance {
+            continue;
+        }
+        // a pickup_drop_specific (+0xb2c >= 0, or -2 / -3 for the health pickups) instead of the player's need
+        if let Some(name) = g.drop_specific {
+            out.write(SpawnPickup { name: name.into(), at: t.translation() + Vec3::Y * 4.0, vel: Vec3::ZERO, hover: false });
             continue;
         }
         let hw = if ratio < 0.25 { 0.5 } else { 0.25 };

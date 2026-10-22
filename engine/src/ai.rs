@@ -874,6 +874,14 @@ pub struct Grunt {
     pub cartoon_from: Option<Vec3>,
     /// chance in % of a pickup on death (pickup_drop_percent, default 100)
     pub drop_percent: f32,
+    /// pickup_drop_specific (+0xb2c, Ai_InitGeneric 0x004247f0): the pickup he drops (a weapon table pickup name, or
+    /// pickup_health_1 / _2: the Q112's set says pickup_health_2); None: one picked for the player's needs (0x00475a90)
+    pub drop_specific: Option<&'static str>,
+    /// receive_trigger_kill (+0x530): this trigger kills him (fn_0042f870 -> Character_Die with event 0x8000); 0 none
+    pub kill_trigger: i64,
+    /// trigger_no_damage (+0x48c 0x4000, mode trigger_charge only): every damage message is ignored (the monk's
+    /// damage slot 0x004371e0; lev_4_m1's monk 536)
+    pub no_damage: bool,
     /// the trench held (+0x904) and its phase (states 0xa0..0xa5)
     pub cover: Option<Cover>,
     /// +0x484 0x20000: in the trench's slot (set on arrival, 0xa1; cleared on leaving, 0x004273a0 / 0x004274e0): the
@@ -1186,11 +1194,11 @@ impl Plugin for AiPlugin {
             .add_systems(
                 Update,
                 (
-                    (body::bumps, squad::update_squads, interests, mark_army_targets, search, ic::activate, (ic::knocks, base_area::cull).chain(), scare, max_fire::sync_limit, aim::track, think, max_fire::upkeep, fall::run, ic::run, paratroop::rappel, notes::from_movers, notes::apply, bully::bullies, die, dismay).chain(),
+                    (difficulty_health, refuse_damage, body::bumps, squad::update_squads, interests, mark_army_targets, search, ic::activate, (ic::knocks, base_area::cull).chain(), scare, max_fire::sync_limit, aim::track, think, max_fire::upkeep, fall::run, ic::run, paratroop::rappel, notes::from_movers, notes::apply, bully::bullies, trigger_kills, die, dismay).chain(),
                     (
                         (body::apply_rules, log_cover, log_ai, log_placed, squad::log_squads, ic::log).chain(),
                         // the later levels' infantry (projectiles, falls, drops, the wall assault) and their playtest logs
-                        (grenade::fly, rocket::shoot_down, fall::drop_parachutes, jumper::free_markers, assault::sync, assault::recruit, ladder::ladders, retreat::run, ic::building_deaths).chain(),
+                        (grenade::fly, jumper_packs, rocket::shoot_down, fall::drop_parachutes, jumper::free_markers, assault::sync, assault::recruit, ladder::ladders, retreat::run, ic::building_deaths).chain(),
                         (melee::close_hits, melee::log, max_fire::log, grenade::log, rocket::log, fall::log, paratroop::log, jumper::log, notes::log, assault::log, ladder::log, retreat::log, base_area::log).chain(),
                     )
                         .chain(),
@@ -1351,7 +1359,18 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
     let guard = mode.contains("guard") || mode.contains("window") || mode.contains("tower");
     let mind = if mode.starts_with("trigger") { Mind::WaitTrigger } else if guard { Mind::Guard } else { Mind::Roam };
     let max_health = p.f("max_health", 100.0);
-    let pick = rng.rand() * 300 >> 15;
+    // the voice set: Ai_InitGeneric's coin (ai_01.cpp:2438: rand x 100 >> 15 < 50 sets +0x484 bit 21, set 0, else set
+    // 1); GruntObject / BowGruntObject_Slot6 roll it again three ways (ai_04.cpp:2073, 2343: < 100 bit 21, < 200
+    // +0x488 bit 29 (set 2), else neither), the other classes (captains, the sniper, the monk, the Q112) keep the coin
+    let coin = if rng.rand() * 100 >> 15 < 50 { 0 } else { 1 };
+    let voice_set = match kind {
+        Kind::Grunt | Kind::Bow => match rng.rand() * 300 >> 15 {
+            0..100 => 0,
+            100..200 => 2,
+            _ => 1,
+        },
+        _ => coin,
+    };
     let arrow_model = (proj.s("behavior") == Some("proj_arrow"))
         .then(|| data.templates.get(weapon.s("projectile_name").unwrap_or("")).and_then(|t| t.model.clone()))
         .flatten();
@@ -1421,8 +1440,7 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         hurt_voice_timer: 0.0,
         dead_said: false,
         speech: crate::audio::Speech::default(),
-        // GruntObject_Slot6 (ai_04.cpp:2340): < 100 GR1 (+0x484 bit 21), < 200 GR3 (+0x488 bit 29), else GR2
-        voice_set: if pick < 100 { 0 } else if pick < 200 { 2 } else { 1 },
+        voice_set,
         ray_timer: 0.0,
         ragdoll: false,
         death_anim: (rng.rand() % 6) as u8 + 1,
@@ -1433,6 +1451,9 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         cartoon: false,
         cartoon_from: None,
         drop_percent: p.f("pickup_drop_percent", 100.0),
+        drop_specific: p.s("pickup_drop_specific").and_then(drop_specific),
+        kill_trigger: p.i("receive_trigger_kill", 0),
+        no_damage: mode == "trigger_charge" && p.i("trigger_no_damage", 0) != 0,
         cover: None,
         at_barricade: false,
         cover_history: [None; 3],
@@ -1452,8 +1473,9 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         },
         kind,
         // attention_* modes stand at attention (0x0042d0f0 with a0 = 1: anim 0xf), ready_* with the stand set; the
-        // roaming default plays anim 0xf (vt+0x19c(0xf, 1), ai_01.cpp:2444)
-        attention: !mode.starts_with("ready"),
+        // roaming default plays anim 0xf (vt+0x19c(0xf, 1), ai_01.cpp:2444); trigger_charge waits in the stand set
+        // (vt+0x1a0(2, 3, 0, 1), ai_01.cpp:2480)
+        attention: !(mode.starts_with("ready") || mode == "trigger_charge"),
         spline: None,
         looping: p.i("marker_looping", 0) != 0,
         patrol: p.i("marker_patrol", 0) != 0,
@@ -1506,6 +1528,16 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         fall: None,
         fall_watch: None,
     }
+}
+
+/// pickup_drop_specific's name as Ai_InitGeneric 0x004247f0 resolves it (case-insensitive): one of the weapon table's
+/// pickups (Game+0x2890 + i x 0x150), else pickup_health_1 / pickup_health_2; anything else is no specific drop.
+fn drop_specific(name: &str) -> Option<&'static str> {
+    crate::weapontable::WEAPON_TABLE
+        .iter()
+        .filter_map(|w| w.pickup)
+        .chain(["pickup_health_1", "pickup_health_2"])
+        .find(|p| p.eq_ignore_ascii_case(name))
 }
 
 /// The length of an anim of the scene's export (seconds; 1 when it is missing).
@@ -1607,12 +1639,16 @@ pub fn bark_request(category: &str, set: u8, at: Vec3) -> crate::audio::PlaySoun
 /// the same owner and target only refreshes the entry (0x00404750 / 0x00404790). AI_FindTarget's step 2 takes the
 /// owner (the player) when a grunt's ref_hit_00 lies within the radius (3D) and the player within 2 x scan_distance
 /// (2D, vt+0x180 0x0043ecf0), with no cone or line-of-sight test: shots flying or landing near a grunt alert him.
+/// Nothing is posted while 0x0044e600 holds (Roman there and the mission's start_in_turret_tag Game+0x26cc set: the
+/// defence levels) or while Roman is down (the owner's vt+0xd8); his noises already posted go with him (0x00404680).
 #[derive(Resource, Default)]
 pub struct Interests {
     list: Vec<Interest>,
     /// the projectiles in flight (tracked by player.rs's update), their last position (where their end interest goes)
     /// and owner
     flying: std::collections::HashMap<Entity, (Vec3, Option<Entity>, bool)>,
+    /// 0x00404810's gates this frame (`interests`): a start-in-turret level, or Roman gone or down
+    muted: bool,
 }
 
 struct Interest {
@@ -1631,6 +1667,9 @@ impl Interests {
     /// A projectile's position this frame (player.rs projectiles, before its hit test): the noises follow it and take
     /// its last one as the end point.
     pub fn track(&mut self, e: Entity, pos: Vec3, owner: Option<Entity>) {
+        if self.muted {
+            return;
+        }
         let seen = self.flying.get(&e).is_some_and(|f| f.2);
         self.flying.insert(e, (pos, owner, seen));
     }
@@ -1645,7 +1684,7 @@ impl Interests {
     /// A projectile of Roman's that is not a player.rs `Projectile` (his sticky bomb): its start effect's noise,
     /// following it while it lives (0x0047ee30 -> 0x00404810(200, 0, the projectile)); posted once
     pub fn follow(&mut self, e: Entity, pos: Vec3) {
-        if !self.list.iter().any(|i| i.follow == Some(e)) {
+        if !self.muted && !self.list.iter().any(|i| i.follow == Some(e)) {
             self.list.push(Interest { pos, radius: 200.0, timer: 0.0, follow: Some(e) });
         }
     }
@@ -1653,6 +1692,9 @@ impl Interests {
     /// ... and its end effect's noise at a point for 2 s (0x0047ed40 -> 0x00404810(200, 2, -, the position))
     pub fn end_at(&mut self, e: Entity, pos: Vec3) {
         self.list.retain(|i| i.follow != Some(e));
+        if self.muted {
+            return;
+        }
         self.list.push(Interest { pos, radius: 200.0, timer: 2.0, follow: None });
     }
 }
@@ -1662,12 +1704,21 @@ fn interests(
     time: Res<Time>,
     mut it: ResMut<Interests>,
     shots: Query<(Entity, &Transform, &crate::player::Projectile)>,
-    roman: Query<Entity, With<crate::player::Roman>>,
+    roman: Query<(Entity, &crate::player::Roman)>,
     followed: Query<&Transform>,
+    mission: Option<Res<crate::mission::Mission>>,
 ) {
     let dt = time.delta_secs();
-    let Ok(re) = roman.single() else { return };
     let it = &mut *it;
+    // the owner (+0x478, always Roman) gone or down (vt+0xd8 false): every noise removes itself (0x00404680); in a
+    // start-in-turret level 0x00404810 posts none (0x0044e600)
+    let owner = roman.single().ok().filter(|(_, r)| !r.dead).map(|(e, _)| e);
+    it.muted = owner.is_none() || mission.is_some_and(|m| m.start_in_turret);
+    let Some(re) = owner.filter(|_| !it.muted) else {
+        it.list.clear();
+        it.flying.clear();
+        return;
+    };
     // the projectiles that ended since last frame: an interest at their end (2 s)
     // (0x00404810 posts for Roman's own projectiles only)
     it.flying.retain(|_, f| f.1 == Some(re));
@@ -1813,6 +1864,9 @@ fn search(
     // the live placed objects by id (a destroyed one has lost its Destructible): the priority targets' candidates
     let live: std::collections::HashMap<u32, Entity> = if grunts.iter().any(|g| g.1.priority_tags.0 != 0) { objects.iter().map(|(e, i, _)| (i.0, e)).collect() } else { Default::default() };
     let global_tag = mission.as_ref().map_or(0, |m| m.ai_target_tag);
+    // the re-arm delay (ai_02.cpp:803-810): 0.75..1.25 s, or 2..4 s while 0x0044e600 holds (Roman there, the mission's
+    // start_in_turret_tag set: the defence levels' grunts look half as often)
+    let rearm = if mission.as_ref().is_some_and(|m| m.start_in_turret) { (2.0, 4.0) } else { (0.75, 1.25) };
     stats.targets = [0, 0];
     for (_, g, _, _, _) in &grunts {
         if let Some(t) = g.target.filter(|_| g.mind != Mind::Dead) {
@@ -1895,7 +1949,7 @@ fn search(
                     g.scan_distance = (tt.translation() - t.translation()).with_y(0.0).length();
                 }
                 g.target = Some(tgt);
-                g.search_timer = rng.range(0.75, 1.25);
+                g.search_timer = rng.range(rearm.0, rearm.1);
                 continue;
             }
         }
@@ -1903,7 +1957,7 @@ fn search(
         if g.mind == Mind::WaitTrigger && !g.trigger_los {
             continue;
         }
-        g.search_timer = rng.range(0.75, 1.25);
+        g.search_timer = rng.range(rearm.0, rearm.1);
         let me = t.translation();
         // AI_FindTarget's walk of +0x604: within scan_distance (2D), the closest that passes; the player inside
         // hear_distance is taken at once; otherwise inside the 190-degree cone (or within hear_distance) with line of
@@ -1946,8 +2000,12 @@ fn search(
                 break;
             }
             // at a barricade (+0x484 0x20000) the cone test is skipped (ai_02.cpp:771)
+            // (hear_distance 0 would take a 180-degree cone or 100 units instead: no property set or placement has 0)
             let cone = to.normalize_or_zero().dot(fwd) >= 95f32.to_radians().cos() || d2 < g.hear_distance || g.at_barricade;
-            if cone && sight_ray(&physics, own_hit, chit, &[gbody.id]) {
+            // on a mounted gun (+0x484 0x8000) only what lies within 80 degrees of the gun's heading, seen from the
+            // gun (0x0042b860 with 0x00453150's heading), before the sight test (ai_02.cpp:786-792)
+            let gun_arc = g.gun.filter(|gn| gn.phase == GunPhase::On).is_none_or(|gn| within_arc(cpos, gn.origin, gn.fwd, 80.0));
+            if cone && gun_arc && sight_ray(&physics, own_hit, chit, &[gbody.id]) {
                 best = Some((d2, ce, false));
             }
         }
@@ -2327,6 +2385,8 @@ fn gun_aim(gn: &mut Gun, from: Vec3, target: Option<Vec3>, window: f32, dt: f32)
 /// Returns the gun when the grunt was on it (its aim back to the centre: the corner set at 0.5, 0.5).
 fn leave_gun(g: &mut Grunt, me: Entity, body: &mut Body, guns: &mut [GunView]) -> Option<Entity> {
     let gn = g.gun.take()?;
+    // 0x0042cff0: the guarding flag (+0x484 bit 25) goes with the gun
+    g.guard = false;
     for v in guns.iter_mut().filter(|v| v.e == gn.turret) {
         if v.ai == Some(me) {
             v.ai = None;
@@ -2372,7 +2432,8 @@ fn leave_cover(g: &mut Grunt, me: Entity, trenches: &mut [TrenchView], history: 
             t.occupant = None;
         }
         g.cover_history = if history { [Some(c.trench), None, None] } else { [None; 3] };
-    } else if !history {
+    } else {
+        // with nothing held both clear the history (0x004273a0 pushes the empty +0x904 after clearing it)
         g.cover_history = [None; 3];
     }
     g.at_barricade = false;
@@ -4402,6 +4463,132 @@ fn fire_cycle(
 /// Character_Die: Dead bark once; ragdoll (a tumbling rigid body here) when the killing hit was at least
 /// hit_ragdoll and fewer ragdolls than the limit are down (GoRagdoll 0x00431310), impulse = direction x amount x 0.15;
 /// else a death anim. Either way the body gets its corpse timer (corpses.rs).
+/// A jumper captain's turbo pack (+0xb08): the model on his "chest" (`jumper_packs`).
+#[derive(Component)]
+struct TurboPack {
+    model: Entity,
+    /// its own "chest" put on the captain's (once its rig exists)
+    aligned: bool,
+}
+
+/// The jumper captains' pack model (0x00425d30 -> PlayerObject_SetTurboPack 0x0047b9f0 with the troop as owner:
+/// "turbo" attached by its own "chest" at his "chest", Object_Attach 0x004539f0, turbo_idle), riding with him until
+/// his body is removed (the teardown GenericAIObject_Slot55 0x00432730 takes it off); while he glides it plays
+/// turbo_forward_cycle (0x0042a2c0, state 0xbc's launch), and turbo_idle again when the ride ends (ai_03.cpp:2692).
+fn jumper_packs(
+    mut commands: Commands,
+    grunts: Query<(Entity, &Grunt, &crate::skin::Animator, Option<&TurboPack>)>,
+    mut packs: Query<&mut crate::skin::Animator, Without<Grunt>>,
+    data: Res<crate::gamedata::GameData>,
+    mut kit: crate::army::ModelKit,
+) {
+    for (e, g, ga, pack) in &grunts {
+        let Some(j) = g.jumper.as_ref() else { continue };
+        let Some(pack) = pack else {
+            let chest = ga.skeleton.index.get("chest").and_then(|&i| ga.joints.get(i).copied());
+            let Some(model) = data.templates.get("turbo").and_then(|t| t.model.clone()) else { continue };
+            if let Some(m) = chest.and_then(|c| kit.spawn(&mut commands, &model, Transform::IDENTITY, true).map(|m| (c, m))) {
+                commands.entity(m.0).add_child(m.1);
+                commands.entity(e).insert(TurboPack { model: m.1, aligned: false });
+            }
+            continue;
+        };
+        let Ok(mut a) = packs.get_mut(pack.model) else { continue };
+        if !pack.aligned {
+            // Object_Attach's child bone: the pack's "chest" (rest pose) on the captain's chest joint
+            if let Some(&i) = a.skeleton.index.get("chest") {
+                commands.entity(pack.model).insert(Transform::from_matrix(crate::jetpack::model_space(&a.skeleton, i).inverse()));
+            }
+            commands.entity(e).insert(TurboPack { model: pack.model, aligned: true });
+        }
+        let wings = if j.flight == Some(jumper::Flight::Glide) { "turbo_forward_cycle" } else { "turbo_idle" };
+        if a.layers.first().is_none_or(|l| l.anim != wings) {
+            // (0x00408e30 with blend 0.25)
+            a.blend = 0.25;
+            a.play(0, wings, true, crate::skin::Mask::All);
+        }
+    }
+}
+
+/// A character's max_health as its property set gives it, before the difficulty's scale (`difficulty_health`).
+#[derive(Component)]
+struct UnscaledHealth(f32);
+
+/// Ai_InitGeneric 0x004247f0 (ai_01.cpp:2323-2333): the bad guys' health (vt+0xe8: grunts, captains, the sniper, the
+/// monk, the Q112) x Game+0x558 and the player's side's (vt+0xe4: Q and Jonesy) x Game+0x554, the chosen difficulty's
+/// factors (gamedata.rs DIFFICULTIES: bad guys easy 0.5, hard and very hard 2; friends easy 2, very hard 0.5), into
+/// max_health (+0x458) and health (+0x454) both. Scaled in proportion, so a character made hurt or dead stays so; a
+/// difficulty set while the level runs (a saved game's, applied after the level's objects: savegame.rs) scales them
+/// again from the unscaled value.
+fn difficulty_health(
+    mut commands: Commands,
+    difficulty: Res<crate::gamedata::Difficulty>,
+    mut grunts: Query<(Entity, &mut Grunt, &mut Health, Option<&UnscaledHealth>)>,
+    mut companions: Query<(Entity, &mut Companion, &mut Health, Option<&UnscaledHealth>), Without<Grunt>>,
+) {
+    let f = difficulty.factors();
+    let changed = difficulty.is_changed();
+    // (max, health, last health seen) to the new max, all in proportion
+    let scale = |max: &mut f32, health: &mut f32, last: &mut f32, to: f32| {
+        let k = if *max > 0.0 { to / *max } else { 1.0 };
+        *max = to;
+        *health *= k;
+        *last *= k;
+    };
+    for (e, mut g, mut h, base) in &mut grunts {
+        let unscaled = match base {
+            Some(b) if changed => b.0,
+            Some(_) => continue,
+            None => {
+                commands.entity(e).insert(UnscaledHealth(g.max_health));
+                g.max_health
+            }
+        };
+        let g = &mut *g;
+        scale(&mut g.max_health, &mut h.0, &mut g.last_health, unscaled * f.badguy_health);
+    }
+    for (e, mut c, mut h, base) in &mut companions {
+        let unscaled = match base {
+            Some(b) if changed => b.0,
+            Some(_) => continue,
+            None => {
+                commands.entity(e).insert(UnscaledHealth(c.max_health));
+                c.max_health
+            }
+        };
+        let c = &mut *c;
+        scale(&mut c.max_health, &mut h.0, &mut c.last_health, unscaled * f.friendly_health);
+    }
+}
+
+/// trigger_no_damage (+0x48c 0x4000): the monk's damage slot 0x004371e0 ignores every damage message, so whatever a
+/// hit took since his last frame is given back before he reacts (think) or dies (die). A death that does not pass the
+/// damage slot (receive_trigger_kill: `trigger_kills`, after this) still kills him. (The topsy's knock-over, a damage
+/// message with flag 0x20 that the slot also ignores, is topsy.rs's.)
+fn refuse_damage(mut grunts: Query<(&Grunt, &mut Health)>) {
+    for (g, mut h) in &mut grunts {
+        if g.no_damage && g.mind != Mind::Dead && h.0 < g.last_health {
+            h.0 = g.last_health;
+        }
+    }
+}
+
+/// The AI's trigger handler fn_0042f870 (GenericAIObject slot 14): his receive_trigger_kill (+0x530) kills him at once
+/// (vt+0xd4 Character_Die with a zeroed event of kind 0x8000: no attacker; die() takes it from here). Its activation
+/// trigger (+0x52c, tested first) is mission.rs's WakeAi. (lev_2_m2: trigger 900 removes seven grunts.)
+fn trigger_kills(mut triggers: MessageReader<crate::mission::SendTrigger>, mut grunts: Query<(Entity, &Grunt, &mut Health)>) {
+    let got: Vec<i64> = triggers.read().map(|t| t.0).filter(|&t| t != 0).collect();
+    if got.is_empty() {
+        return;
+    }
+    for (e, g, mut h) in &mut grunts {
+        if g.kill_trigger != 0 && g.mind != Mind::Dead && got.contains(&g.kill_trigger) {
+            h.0 = 0.0;
+            info!("EVENT ai: grunt {e:?} killed by trigger {}", g.kill_trigger);
+        }
+    }
+}
+
 fn die(
     mut commands: Commands,
     mut physics: NonSendMut<Physics>,
@@ -5830,5 +6017,80 @@ mod tests {
     fn a_lost_target_ends_the_fight_by_the_clip() {
         assert_eq!(FightEnd::on_loss(false), FightEnd::Home);
         assert_eq!(FightEnd::on_loss(true), FightEnd::Linger);
+    }
+
+    fn grunt(props: serde_json::Value, kind: Kind) -> Grunt {
+        let p = crate::gamedata::Props(props.as_object().cloned().unwrap_or_default());
+        let data = crate::gamedata::GameData::default();
+        make_grunt(&p, &data, kind, Vec3::ZERO, 0.0, &mut crate::fxvm::CrtRand::default())
+    }
+
+    /// Ai_InitGeneric 0x004247f0: a bad guy's max_health and health x Game+0x558 (very hard 2, easy 0.5), a hurt one
+    /// in proportion; a difficulty chosen later (a saved game's) scales again from the property value.
+    #[test]
+    fn difficulty_scales_bad_guys_health() {
+        use bevy::ecs::system::RunSystemOnce;
+        let mut app = App::new();
+        app.insert_resource(crate::gamedata::Difficulty(3));
+        let fresh = app.world_mut().spawn((grunt(serde_json::json!({"max_health": 100.0}), Kind::Grunt), Health(100.0))).id();
+        let hurt = app.world_mut().spawn((grunt(serde_json::json!({"max_health": 100.0}), Kind::Captain), Health(40.0))).id();
+        app.world_mut().run_system_once(difficulty_health).unwrap();
+        let health = |app: &App, e: Entity| (app.world().get::<Grunt>(e).unwrap().max_health, app.world().get::<Health>(e).unwrap().0);
+        assert_eq!(health(&app, fresh), (200.0, 200.0));
+        assert_eq!(health(&app, hurt), (200.0, 80.0));
+        // not again on the next frame
+        app.world_mut().run_system_once(difficulty_health).unwrap();
+        assert_eq!(health(&app, fresh), (200.0, 200.0));
+        // easy, set after the level's objects
+        *app.world_mut().resource_mut::<crate::gamedata::Difficulty>() = crate::gamedata::Difficulty(0);
+        app.world_mut().run_system_once(difficulty_health).unwrap();
+        assert_eq!(health(&app, fresh), (50.0, 50.0));
+        assert_eq!(health(&app, hurt), (50.0, 20.0));
+    }
+
+    /// fn_0042f870: receive_trigger_kill kills the AI whatever his health; trigger_no_damage (trigger_charge only)
+    /// gives back what a hit took, but not that death.
+    #[test]
+    fn kill_trigger_and_no_damage() {
+        use bevy::ecs::system::RunSystemOnce;
+        let mut app = App::new();
+        app.add_message::<crate::mission::SendTrigger>();
+        let monk = grunt(serde_json::json!({"mode": "trigger_charge", "trigger_no_damage": 1, "receive_trigger_kill": 900}), Kind::Monk);
+        assert!(monk.no_damage && monk.kill_trigger == 900 && !monk.attention, "trigger_charge waits in the stand set");
+        assert!(!grunt(serde_json::json!({"mode": "attention_guard", "trigger_no_damage": 1}), Kind::Grunt).no_damage, "a trigger_charge flag");
+        let e = app.world_mut().spawn((monk, Health(30.0))).id();
+        app.world_mut().run_system_once(refuse_damage).unwrap();
+        assert_eq!(app.world().get::<Health>(e).unwrap().0, 100.0);
+        app.world_mut().write_message(crate::mission::SendTrigger(899));
+        app.world_mut().run_system_once(trigger_kills).unwrap();
+        assert_eq!(app.world().get::<Health>(e).unwrap().0, 100.0);
+        app.world_mut().write_message(crate::mission::SendTrigger(900));
+        app.world_mut().run_system_once(trigger_kills).unwrap();
+        assert_eq!(app.world().get::<Health>(e).unwrap().0, 0.0);
+    }
+
+    /// pickup_drop_specific: a weapon table pickup or a health pickup, matched without case; else the need-based pick.
+    #[test]
+    fn specific_drops() {
+        assert_eq!(drop_specific("PICKUP_HEALTH_2"), Some("pickup_health_2"));
+        assert_eq!(drop_specific("pickup_health_1"), Some("pickup_health_1"));
+        assert_eq!(drop_specific("pickup_sticky_bombs"), Some("pickup_sticky_bombs"));
+        assert_eq!(drop_specific("pickup_nothing"), None);
+        assert_eq!(grunt(serde_json::json!({"pickup_drop_specific": "pickup_health_2"}), Kind::Q112).drop_specific, Some("pickup_health_2"));
+        assert_eq!(grunt(serde_json::json!({"pickup_drop_specific": ""}), Kind::Grunt).drop_specific, None);
+    }
+
+    /// The voice set: captains keep Ai_InitGeneric's coin (two sets); grunts roll three ways.
+    #[test]
+    fn voice_sets_by_class() {
+        let mut rng = crate::fxvm::CrtRand::default();
+        let data = crate::gamedata::GameData::default();
+        let p = crate::gamedata::Props::default();
+        let mut seen = [[false; 3]; 2];
+        for _ in 0..200 {
+            seen[0][make_grunt(&p, &data, Kind::Captain, Vec3::ZERO, 0.0, &mut rng).voice_set as usize] = true;
+            seen[1][make_grunt(&p, &data, Kind::Grunt, Vec3::ZERO, 0.0, &mut rng).voice_set as usize] = true;
+        }
+        assert_eq!(seen, [[true, true, false], [true, true, true]]);
     }
 }

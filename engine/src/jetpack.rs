@@ -375,7 +375,7 @@ struct PackModel {
 }
 
 /// A bone's rest transform in its model's space (the rig's joints chain their rest transforms from the model's root).
-fn model_space(s: &crate::skin::Skeleton, mut i: usize) -> Mat4 {
+pub(crate) fn model_space(s: &crate::skin::Skeleton, mut i: usize) -> Mat4 {
     let mut m = s.rest[i].to_matrix();
     while let Ok(p) = usize::try_from(s.parents[i]) {
         m = s.rest[p].to_matrix() * m;

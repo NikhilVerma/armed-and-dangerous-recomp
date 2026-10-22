@@ -70,6 +70,10 @@ pub fn bullies(
                 g.attention = false;
                 continue;
             }
+            // found (0x00425e20): the peasant set to peasant_man_stand (0x00408e30 flag 0x81) at the start
+            if let Some((_, _, _, _, Some(mut a), _)) = b.peasant.and_then(|p| peasants.get_mut(p).ok()) {
+                a.play(0, "peasant_man_stand", true, crate::skin::Mask::All);
+            }
         }
         let pe = b.peasant.expect("found above");
         // dead, or ragdolled (+0x421: tied on Roman's rope, peasant.rs)

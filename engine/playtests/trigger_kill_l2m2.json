@@ -1,0 +1,8 @@
+{"scene": "lev_2_m2", "steps": [
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 3.5}, {"tap": "Enter"}, {"wait": 1.0},
+ {"note": "start"},
+ {"send": 900},
+ {"wait": 1.0},
+ {"expect": {"ai.live": {"as": "start", "margin": 7, "at_most": true}}},
+ {"quit": true}
+]}

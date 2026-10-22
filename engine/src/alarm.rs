@@ -495,14 +495,14 @@ fn controller(
         ty += 1;
         sum += g.weights[ty];
     }
-    // "grunt", "grunt_regular", "captain" (jumper: 0x00425d30(1), not reached here), "captain", none (num_rocket_captain:
+    // "grunt", "grunt_regular", "captain" (a jumper captain: 0x00425d30(1)), "captain", none (num_rocket_captain:
     // "Generator : unkown troop type" and the original's stack-slot bug, not reached on lev_1_m1), "monk"
     let Some(tpl) = ["grunt", "grunt_regular", "captain", "captain", "", "monk"].get(ty).filter(|t| !t.is_empty()) else { return };
     let (id, at) = (g.id, g.spawn);
     // 0x0042dd50: the generator's marker tags and alert group; the walk to its ref_exit_00 (state 0x5a), then the marker
     // spline of a tag, or with no tags 20..50 ahead and the charge (+0x488 0x200, state 0x5b -> 0x0042ce70)
     let tags = (g.tags.0 != 0).then_some(g.tags);
-    spawn.write(crate::level::SpawnGrunt { at, template: (*tpl).into(), alarm: true, exit: Some(g.exit), marker_tags: tags, alert_group: g.alert_group, ..default() });
+    spawn.write(crate::level::SpawnGrunt { at, template: (*tpl).into(), alarm: true, jumper: ty == 2, exit: Some(g.exit), marker_tags: tags, alert_group: g.alert_group, ..default() });
     m.recent.push_back(id);
     if m.recent.len() > 3 {
         m.recent.pop_front();
