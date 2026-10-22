@@ -5,7 +5,7 @@
 //! - **Stun** (record flag 0x20: the Topsy Turvy bomb's area damage, 0x004a1aa0 -> AreaDamage_Apply 0x0047f020 with
 //!   topsy_turvy_radius): asked first (vt+0x1c0, Q111Object_Slot112 0x00486c70: refused on the tower task, flag
 //!   0x40000); a teammate (vt+0xe4) gets +0x878 = 0.001..0.5 s and +0x87c = topsy_turvy_duration (Game+0xc7c, 5 s); in
-//!   an IC anim or a close kill (state 0xc) it is let go at once (vt+0x1b0).
+//!   an IC anim or a close kill (state 0xc) it is let go at once (vt+0x1b0), his hang (0x71) starting there.
 //! - **Pull** (record flag 0x800, the holder at +0x30): asked first (vt+0x254, Slot149 0x00486c80, the same answer); a
 //!   holder replaces the old one (and nothing else when there was one); a teammate gets +0x878 = 0.5..1.5 s and stays
 //!   where he is (the knock toward the holder is the enemies'). Nothing in the remaster pulls yet (the twiglets'
@@ -139,14 +139,17 @@ fn knock(
                 rng.range(0.5, 1.5)
             }
         };
-        // in an IC anim or a close kill: let go of it (vt+0x1b0 / 0x004324d0)
+        // in an IC anim or a close kill (state 0xc): let go of it and hang at once (vt+0x1b0 0x0042fe50: a teammate's anim
+        // 0x71, state 0xeb, in the same call that set +0x878; ai_04.cpp:314-342)
+        let mut hang = state.2;
         if killing.is_some() {
             commands.entity(k.companion).remove::<(super::close_kill::Killing, crate::mover::Mover)>();
             c.ic = false;
+            hang = Some((0x71, 0.0));
         }
         c.moving = false;
         c.firing = false;
-        commands.entity(k.companion).insert(Knocked { to_hang, left: state.0, holder: state.1, hang: state.2, getting_up: false });
+        commands.entity(k.companion).insert(Knocked { to_hang, left: state.0, holder: state.1, hang, getting_up: false });
         stats.knocked += 1;
         info!("EVENT companions: {} knocked ({:?})", if c.q { "Q" } else { "Jonesy" }, k.kind);
     }
@@ -192,7 +195,10 @@ fn update(
         if k.to_hang > 0.0 {
             k.to_hang -= dt;
             if k.to_hang <= 0.0 {
-                k.hang = Some((0x71, 0.0));
+                // vt+0x1b0: anim 0x71 (one already playing goes on, GenericAI_PlayAnim with its own id)
+                if !k.hang.is_some_and(|(id, _)| id == 0x71) {
+                    k.hang = Some((0x71, 0.0));
+                }
             } else {
                 k.left -= dt;
             }

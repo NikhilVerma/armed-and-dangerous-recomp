@@ -607,7 +607,6 @@ fn roman(
 fn grunts(
     // (a hidden grunt's anims, waiting or coming out, are ai/ic.rs's)
     mut q: Query<(Entity, &mut Grunt, &mut Animator, &Transform, (Option<&crate::topsy::Thrown>, Option<&crate::ai::AnimOverride>, Has<crate::ai::ladder::CarriedLadder>)), (Without<crate::ragdoll::Ragdoll>, Without<crate::corpses::Settled>, Without<crate::ai::ic::IcEntry>)>,
-    targets: Query<&GlobalTransform>,
     time: Res<Time>,
     lib: Res<crate::skin::AnimLibrary>,
     // per grunt: the fidget timer and anim, the run anim; the anim random stream; where he was last frame (his
@@ -727,27 +726,18 @@ fn grunts(
             }
             Mind::Fire => {
                 // the four aim poses blended by the aim weights (fn_00428980, PlayAnim4 vt+0x1a0 with ids
-                // 0x23/0x24/0x21/0x22): horizontal h (the grunt turns to face the target: on target 0.5), vertical
-                // from the elevation to the target, acos(dz / len) * 57.3 - 90 degrees clamped to +-26.5 (0x005bcf0c /
-                // 0x005bcf10): target above -> the top poses
-                let v = g
-                    .target
-                    .and_then(|e| targets.get(e).ok())
-                    .map(|tg| {
-                        let d = tg.translation() + Vec3::Y * 5.0 - (t.translation + Vec3::Y * 7.0);
-                        let deg = (d.y / d.length().max(1e-3)).clamp(-1.0, 1.0).acos().to_degrees() - 90.0;
-                        (deg.clamp(-26.5, 26.5) + 26.5) / 53.0
-                    })
-                    .unwrap_or(0.5);
+                // 0x23/0x24/0x21/0x22 at +0x580 / +0x584): the weights 0x00428fc0 steps toward the target as he turns to it
+                // (ai.rs, ai/aim.rs `AimBlend`; the sets read 1 - the stored vertical, as the gunner's)
+                let (h, v) = (g.aim.h, 1.0 - g.aim.v);
                 // a one-shot fire anim (the sniper, the rocket captain: no +0x484 0x1000) plays once a shot, then the
                 // aim set (ids 0..3: the sniper's raised-gun poses) until the next (guess at what state 0xa shows
                 // between shots)
                 let one_shot = g.kind == crate::ai::Kind::Sniper || g.rocket;
                 if one_shot && g.shot_age > g.fire_len {
-                    four(&mut a, &g, [0, 1, 2, 3], true, 0.5, v);
+                    four(&mut a, &g, [0, 1, 2, 3], true, h, v);
                 } else {
                     let fresh = one_shot && g.shot_age <= 0.0;
-                    four(&mut a, &g, [33, 34, 35, 36], !one_shot, 0.5, v);
+                    four(&mut a, &g, [33, 34, 35, 36], !one_shot, h, v);
                     if fresh {
                         a.layers[0].time = 0.0;
                         a.sync(1, 0);
@@ -756,14 +746,14 @@ fn grunts(
                 continue;
             }
             // a trench (ai.rs CoverPhase): the run there (the move anim of 0x00427210), 0x66 the duck, 0x65 the
-            // breathing (looped), 0x67 the peek, and standing up the stand set 2, 3, 0, 1 at the aim weights 0.5
+            // breathing (looped), 0x67 the peek, and standing up the stand set 2, 3, 0, 1 at the aim weights (ai/aim.rs)
             Mind::Cover => match g.cover.map(|c| c.phase) {
                 Some(CoverPhase::Duck) => (name(&g, 0x66, 0.0).to_owned(), false),
                 Some(CoverPhase::Breathe) => (name(&g, 0x65, 0.0).to_owned(), true),
                 Some(CoverPhase::Peek) => (name(&g, 0x67, 0.0).to_owned(), false),
                 Some(CoverPhase::Spray) => (name(&g, 0x68, 0.0).to_owned(), false),
                 Some(CoverPhase::Stand) => {
-                    four(&mut a, &g, [0, 1, 2, 3], false, 0.5, 0.5);
+                    four(&mut a, &g, [0, 1, 2, 3], false, g.aim.h, 1.0 - g.aim.v);
                     continue;
                 }
                 _ => (mover(&g).to_owned(), true),
@@ -773,7 +763,7 @@ fn grunts(
             Mind::Gunner => match g.gun {
                 Some(gn) if gn.phase == GunPhase::On => {
                     let base = if gn.firing { 0x83 } else { 0x87 };
-                    four(&mut a, &g, [base, base + 1, base + 2, base + 3], true, gn.h, 1.0 - gn.v);
+                    four(&mut a, &g, [base, base + 1, base + 2, base + 3], true, gn.aim.h, 1.0 - gn.aim.v);
                     continue;
                 }
                 _ => (mover(&g).to_owned(), true),

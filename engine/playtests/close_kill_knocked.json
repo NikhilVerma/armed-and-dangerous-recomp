@@ -1,0 +1,20 @@
+{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+ {"wait": 1.0},
+ {"cheat": "SHIELDME"},
+ {"warp": [190.68, -69.44, 13.76, 90]},
+ {"warp_companion": [0, 175, -60, 14]},
+ {"warp_companion": [1, 175, -78, 14]},
+ {"wait": 2.0},
+ {"spawn": [195, -95, 14]},
+ {"wait": 0.3},
+ {"close_kill": 1},
+ {"wait": 0.3},
+ {"expect": {"close_kill.grabbed": 1, "close_kill.phase": "approach", "knocked.q": "free"}},
+ {"note": "a stun in the close kill: let go of it and hang at once (0x0042fe50 vt+0x1b0 from the 0x20 branch)"},
+ {"knock_companion": [1, 0]},
+ {"wait": 0.05},
+ {"expect": {"knocked.q": "hanging", "close_kill.phase": "none"}},
+ {"wait": 1.0},
+ {"expect": {"knocked.q": "hanging", "close_kill.kills": 0}},
+ {"quit": true}
+]}

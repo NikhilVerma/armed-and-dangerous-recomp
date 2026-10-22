@@ -8,9 +8,9 @@
 //!   material's again when it leaves it (Object_ReleaseHolder 0x0042cc10: a charge, a death);
 //! - group: a squad's members never touch each other (0x0042de60 sets +0x510 to the squad tag; GenericAIObject_Slot40
 //!   0x00432590 refuses an object of the same +0x510); kept after a charge (0x0042cc10 does not clear it);
-//! - ignore: a character on its way somewhere (a route, +0x428) that bumps into another mover (0x004531e0) passes
+//! - ignore: a character on its way somewhere (a route, +0x428) that bumps into a mover (0x004531e0: a dynamic body) passes
 //!   through it from then on and leaves its group (GenericAIObject_Slot44 0x004320b0 -> 0x004324d0 (0, self, other,
-//!   1): +0x510 = 0, +0x50c = the other); a marker walker (0x96 / 0x97) re-plans instead (not here: ai.rs's marker walk).
+//!   1): +0x510 = 0, +0x50c = the other); a marker walker (0x96 / 0x97) re-plans instead (`bumps`).
 //!
 //! The landing of a flight reads the body's contacts (`touched`): the original's contact note (Slot44) records any
 //! contact of the step, and a falling jumper with one lands (0x0042e1c0).
@@ -89,14 +89,28 @@ pub fn apply_rules(mut physics: NonSendMut<Physics>, q: Query<(&Body, &Character
     }
 }
 
-/// GenericAIObject_Slot44 0x004320b0's bump: a character walking somewhere that touched another character's body (a
-/// mover) passes through that one from now on and leaves its group. Marker walkers re-plan instead (ai.rs).
-pub fn bumps(physics: NonSend<Physics>, mut q: Query<(&Body, &mut CharacterBody, &Grunt)>) {
-    for (body, mut c, g) in &mut q {
-        if !g.walking || g.mind == Mind::ToMarker || g.mind == Mind::Dead || g.fixed.is_some() {
+/// GenericAIObject_Slot44 0x004320b0's bump (ai_04.cpp:742-760): a character walking somewhere that touched a mover
+/// passes through that one from now on and leaves its group. A mover (0x004531e0: +0x424 bit 0x40, or a mass from
+/// vt+0x80) is any dynamic body: another character's, a ragdoll, a vehicle, a loose prop; the level and the static
+/// props are not. A marker walker (states 0x96 / 0x97) re-plans instead: within 10 of his route's end the route is
+/// dropped (0x0046f440: the straight walk), else it is planned again (0x0046f480, at most every 0.5 s).
+pub fn bumps(physics: NonSend<Physics>, mut q: Query<(&Body, &mut CharacterBody, &mut Grunt, &GlobalTransform)>) {
+    for (body, mut c, mut g, gt) in &mut q {
+        if !g.walking || g.mind == Mind::Dead || g.fixed.is_some() {
             continue;
         }
-        let Some(t) = physics.touches(body.id).into_iter().find(|t| physics.ai_bodies.contains(&t.other)) else { continue };
+        let mover = |id: BodyId| physics.ai_bodies.contains(&id) || physics.world.body(id).is_ok_and(|b| b.motion_type() == MotionType::Dynamic);
+        let Some(t) = physics.touches(body.id).into_iter().find(|t| mover(t.other)) else { continue };
+        if g.mind == Mind::ToMarker {
+            let pos = gt.translation();
+            match g.route.last() {
+                Some(end) if (*end - pos).with_y(0.0).length_squared() < 100.0 => g.route.clear(),
+                // (a plan sets the clock to 1 s: half of it gone)
+                Some(_) if g.replan <= 0.5 => g.replan = 0.0,
+                _ => {}
+            }
+            continue;
+        }
         if c.ignore != Some(t.other) || c.group.is_some() {
             c.ignore = Some(t.other);
             c.group = None;
@@ -104,7 +118,39 @@ pub fn bumps(physics: NonSend<Physics>, mut q: Query<(&Body, &mut CharacterBody,
     }
 }
 
+/// The turn about the vertical toward a heading `off` radians away (0x00454e60, ai_07.cpp:1830-1873): the wanted yaw
+/// rate is `rate` x the cross product of heading and direction (sin off), or `rate` whole when the direction is behind
+/// (dot < -0.98, K 0x005bcd38); the original hands that rate to a body constraint, here it is the turn itself, never
+/// past the heading. The callers' rates (rad/s): 16 for the characters' turns, 8 for a companion turning to Roman's
+/// heading, 4 for the goliath. Returns the yaw step and whether the object faces the heading (dot >= 0.98, K
+/// 0x005bcd30: within about 11.5 degrees), which the original's callers wait for.
+pub fn turn_toward(off: f32, rate: f32, dt: f32) -> (f32, bool) {
+    let wanted = if off.cos() < -0.98 { rate * off.signum() } else { rate * off.sin() };
+    let step = wanted * dt;
+    let step = if step.abs() > off.abs() { off } else { step };
+    (step, off.cos() >= 0.98)
+}
+
 /// Whether the body touched anything in the last physics step (the contact note a flight's landing reads, 0x004320b0).
 pub fn touched(physics: &Physics, body: BodyId) -> bool {
     !physics.touches(body).is_empty()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 0x00454e60: proportional to sin(off), never past the heading; faced within acos(0.98).
+    #[test]
+    fn turn_eases_in_and_reports_facing() {
+        let (s, faced) = turn_toward(1.0, 16.0, 1.0 / 60.0);
+        assert!((s - 16.0 * 1f32.sin() / 60.0).abs() < 1e-6 && !faced);
+        let (s, faced) = turn_toward(0.01, 16.0, 1.0);
+        assert_eq!(s, 0.01);
+        assert!(faced);
+        assert!(!turn_toward(0.25, 4.0, 0.0).1 && turn_toward(0.19, 4.0, 0.0).1);
+        // behind: the whole rate
+        let (s, _) = turn_toward(-3.1, 4.0, 0.1);
+        assert!((s + 0.4).abs() < 1e-6);
+    }
 }

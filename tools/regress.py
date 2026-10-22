@@ -90,6 +90,9 @@ SUITE += ['goliath_legs', 'boulders_l2m1', 'monk_hang', 'twiglets_topsy', 'save_
 # companions' takedown and the grunts' close attack, a hidden grunt knocked away with his host (lev_1_m3)
 SUITE += ['max_fire_l1m4', 'captain_grenade', 'captain_rocket', 'gunner_lead', 'ai_fall', 'paratroopers_l2m1', 'jump_markers_bm1',
           'ladders_l1m4', 'melee1', 'close_attack', 'ic_knock_l1m3']
+# audit wave 2 g16: a stun in the close kill hangs the companion at once; a firing grunt aims inside 45 degrees and turns
+# beyond (0x00428fc0 / 0x0042df70)
+SUITE += ['close_kill_knocked', 'grunt_aim_turn']
 # 'launch_*': the real launch path as the player plays (the Remaster preset chosen by the options, the intro, the
 # title menu): New Game shows the world (menu art gone, every camera on one target, the strips beside the 4:3 centre
 # not black), Abandon -> title -> New Game in-process, the Graphics page applies, Restart / Quick Load / Restart from
