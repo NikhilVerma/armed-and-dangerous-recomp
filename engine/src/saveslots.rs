@@ -14,7 +14,8 @@
 //!   below the top, then at 104 / 120 / 136 / 152 below, scale 0.75: the level, the difficulty (ui_diff_%d), the file
 //!   date ("%d/%02d/%02d %d:%02d:%02d": month, day, year % 100, hour, minute, second, local time) and the tokens
 //!   ("ui_savegame_tokens" of Game+0x200 and 21, 0x005cadd0); an empty slot "ui_savegame_empty", an unreadable one
-//!   "ui_savegame_damaged". The selected slot blinks a prompt (24 of 32 frames) 48 below its top, fitted to 192
+//!   "ui_savegame_damaged", both at scale 1. Every text gets the selected flag, which UiText_Draw 0x00464750 does not
+//!   read (edi unused): the text stays white. The selected slot blinks a prompt (24 of 32 frames) 48 below its top, fitted to 192
 //!   (0x004a3300): table 0x005fb920 [save / load][state] (read from the executable): an empty slot "ui_savegame_create"
 //!   (saving) or none, a damaged one "ui_savegame_overwrite" / "ui_savegame_delete", a saved one
 //!   "ui_savegame_overwrite" / "ui_savegame_load"; its %s is the Select binding (0x00415740 with action 0x1b); it
@@ -113,7 +114,16 @@ fn draw_slots(
                 }
                 _ => String::new(),
             },
-            1 => v.status,
+            1 => {
+                // the empty and damaged texts at scale 1, a saved slot's level at 0.75 like the lines under it
+                // (0x004a33d0)
+                let scale = if matches!(slot(l.slot), Slot::Saved { .. }) { 0.75 } else { 1.0 };
+                if t.scale != scale {
+                    t.scale = scale;
+                    t.built = None;
+                }
+                v.status
+            }
             n => v.info.get(n as usize - 2).cloned().unwrap_or_default(),
         };
         set(&mut *t, s);
