@@ -1194,7 +1194,7 @@ impl Plugin for AiPlugin {
             .add_systems(
                 Update,
                 (
-                    (difficulty_health, refuse_damage, body::bumps, squad::update_squads, interests, mark_army_targets, search, ic::activate, (ic::knocks, base_area::cull).chain(), scare, max_fire::sync_limit, aim::track, think, max_fire::upkeep, fall::run, ic::run, paratroop::rappel, notes::from_movers, notes::apply, bully::bullies, trigger_kills, die, dismay).chain(),
+                    ((difficulty_health, refuse_damage).chain(), body::bumps, squad::update_squads, interests, mark_army_targets, search, ic::activate, (ic::knocks, base_area::cull).chain(), scare, max_fire::sync_limit, aim::track, think, max_fire::upkeep, fall::run, ic::run, paratroop::rappel, notes::from_movers, notes::apply, bully::bullies, (trigger_kills, die, dismay).chain()).chain(),
                     (
                         (body::apply_rules, log_cover, log_ai, log_placed, squad::log_squads, ic::log).chain(),
                         // the later levels' infantry (projectiles, falls, drops, the wall assault) and their playtest logs
