@@ -1,0 +1,20 @@
+{"scene": "lev_5_m2", "steps": [
+ {"until": "message"},
+ {"wait": 0.5},
+ {"tap": "Enter"},
+ {"wait": 2.0},
+ {"cheat": "SHIELDME"},
+ {"warp": [85, -400, -130, 0]},
+ {"loadout": {"guns": ["gurner", "rifle"]}},
+ {"look_at": [85, -340, -121]},
+ {"wait": 0.6},
+ {"expect": {"weapon": "gurner", "ai.noise": 0}},
+ {"click": "Left"},
+ {"wait": 0.05},
+ {"expect": {"vehicles.rockets.player_fired": 1, "ai.noise": 0}},
+ {"wait": 1.5},
+ {"expect": {"vehicles.rockets.player_ended": 1, "ai.noise": [1, 20]}},
+ {"wait": 2.5},
+ {"expect": {"ai.noise": 0}},
+ {"quit": true}
+]}
