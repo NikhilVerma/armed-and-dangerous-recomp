@@ -69,14 +69,15 @@ pub fn flag<'de, D: serde::Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
 pub struct DifficultyFactors {
     /// Game+0x554: the health of the player's side (Ai_InitGeneric 0x004247f0 scales +0x458 / +0x454 by it when vt+0xe4:
     /// the player and the companions; the player's max_health too, player.md 6): easy 2, normal 1, hard 1, very hard 0.5.
-    /// Not applied by the remaster yet (open question: only normal is played)
+    /// Applied to the companions (ai.rs difficulty_health); not yet to Roman (player.rs)
     pub friendly_health: f32,
     /// Game+0x558: the health of the bad guys (the same, when vt+0xe8: grunts, captains; damage.md): easy 0.5,
-    /// normal 1, hard and very hard 2. Not applied by the remaster yet
+    /// normal 1, hard and very hard 2 (ai.rs difficulty_health)
     pub badguy_health: f32,
     /// Game+0x55c: the health pickups' amount (pickup.rs)
     pub health_pickups: f32,
-    /// Game+0x560: reader not traced (open question)
+    /// Game+0x560: the exponent of the AI's pickup drop roll (Character_DropPickup 0x0043e710: 1 - (1 - p)^this,
+    /// pickup.rs)
     pub unknown_560: f32,
     /// Game+0x564: the Stats screen's money lines (statscreen.rs)
     pub money: f32,
