@@ -985,6 +985,19 @@ pub struct Grunt {
 }
 
 impl Grunt {
+    /// GenericAIObject slot 94 0x0042f8d0 (vt+0x178): he cannot take `other` as a target now ("busy"): in an IC move
+    /// (0x00426630), dead, on a gun (+0x898), `other` himself, or in one of the states 0xc..0x10 (here the hold by a
+    /// companion 0xf and the grenade throw 0x10), 0x7c, 0x8c (waiting for his trigger), 0x96 (to a spline's head),
+    /// 0xdc / 0xde (a squad member), 0xf0 (a monk's teleport). Not modelled: the states with no counterpart here
+    /// (0x5a, 0xaa, 0xac, 0xe7..0xeb, 0x197, 0x19a..0x19d), +0x894, the turn state 0x31, the parent rule, +0x484 bits 19
+    /// and 28, the ride along a spline (0x97 with 0x0044b4b0).
+    pub fn busy(&self, me: Entity, other: Entity) -> bool {
+        me == other
+            || self.gun.is_some()
+            || matches!(self.mind, Mind::Dead | Mind::Scripted | Mind::Held | Mind::Throw | Mind::WaitTrigger | Mind::InSquad | Mind::Teleport)
+            || (self.mind == Mind::ToMarker && self.spline.is_some_and(|r| !r.started))
+    }
+
     /// The anim of an id by the class's table and this grunt's state (vt+0x1a4, `anim_name_with`)
     pub fn anim(&self, id: u32, r: f32) -> &'static str {
         anim_name_with(self.kind, id, r, self.anim_flags())
@@ -1830,12 +1843,12 @@ fn search(
         }
         if let Some((tgt, left)) = g.pending {
             if left - dt <= 0.0 {
+                // the hand-over's end (ai_06.cpp:318-340): a grunt free to engage (vt+0x178 0x0042f8d0 false) takes the
+                // target (vt+0x1b4(target, 0, 1)); a busy one lets it go. (A busy squad member, states 0xdc / 0xde, is
+                // also released to a guard where he stands, 0x0042d0f0 and state 0xdd: not ported, squad.rs keeps him.)
                 g.pending = None;
-                if g.target.is_none() {
+                if !g.busy(ge, tgt) {
                     g.target = Some(tgt);
-                    if g.mind == Mind::WaitTrigger {
-                        g.mind = Mind::Roam;
-                    }
                 }
             } else {
                 g.pending = Some((tgt, left - dt));
