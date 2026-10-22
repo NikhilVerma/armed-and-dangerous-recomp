@@ -241,14 +241,7 @@ pub fn shoot(commands: &mut Commands, fx: &mut MessageWriter<crate::fx::StartFx>
 /// The launch velocity of a lobbed shell (Ballistic_LaunchVelocity 0x00471a00 with keep = 1): `speed` across toward
 /// the target, the time t = across distance / speed, the vertical speed (dz + t^2 g / 2) / t. Engine axes (Y up).
 pub fn lob(from: Vec3, to: Vec3, speed: f32) -> Vec3 {
-    let d = to - from;
-    let across = d.with_y(0.0);
-    let h = across.length();
-    if h < 1e-3 || speed <= 0.0 {
-        return Vec3::Y * speed;
-    }
-    let t = h / speed;
-    across / h * speed + Vec3::Y * ((d.y + t * t * GRAVITY * 0.5) / t)
+    crate::ai::launch::launch_velocity(from, to, speed, GRAVITY, true)
 }
 
 /// The rocket's matrix (0x00455e70 rebuilds it along the velocity with Matrix_LookAtNeg 0x004e3070: the model's -Y

@@ -20,6 +20,42 @@ pub const GRAVITY: f32 = 64.348;
 /// GoRagdoll's wait between launches (K 0x005bcb68, 10 s against Game+0xb34).
 pub const LAUNCH_GAP: f32 = 10.0;
 
+/// Ballistic_LaunchVelocity 0x00471a00 (engine_01.cpp:1663) in engine axes (y up), the one solver for every
+/// launch and lob that calls it (characters, grenades, jumpers, the goliath's fireballs, the glove, lobbed shells), `g` the (positive) gravity: across at `speed`, the
+/// vertical speed that reaches `to` at t = across distance / speed; unless `keep`, when the arc's later root of the
+/// height equation lies beyond t the horizontal speed is slowed to land there.
+pub fn launch_velocity(from: Vec3, to: Vec3, speed: f32, g: f32, keep: bool) -> Vec3 {
+    let across = (to - from).with_y(0.0);
+    let h = across.length();
+    let dir = across.normalize_or_zero();
+    if h < 1e-4 || speed <= 0.0 {
+        return Vec3::Y * speed;
+    }
+    let t = h / speed;
+    let dz = to.y - from.y;
+    // the game's gravity is negative (-64.348): vz = (dz - t^2 g / 2) / t
+    let gs = -g;
+    let vz = (dz - t * t * gs * 0.5) / t;
+    let mut vel = dir * speed + Vec3::Y * vz;
+    if keep {
+        return vel;
+    }
+    // the roots of dz = vz t + gs t^2 / 2 (K 0x005bcc40 = -2: disc = sqrt(vz^2 + 2 gs dz)), 0 when 2 gs - dz >= vz^2
+    let disc = if gs + gs - dz < vz * vz { (vz * vz + 2.0 * gs * dz).max(0.0).sqrt() } else { 0.0 };
+    let (r1, r2) = ((disc - vz) / gs, (-vz - disc) / gs);
+    let tt = if r1 > 0.0 && r1 > r2 {
+        r1
+    } else if r2 > 0.0 && r2 > r1 {
+        r2
+    } else {
+        t
+    };
+    if tt > t {
+        vel = dir * (h / tt) + Vec3::Y * vz;
+    }
+    vel
+}
+
 /// Game+0xb34: the game time of the last launch (set to the level's start by MissionObject_Load 0x0044c170: game_02.cpp:2050),
 /// on the level's own clock (seconds of play since the level started).
 #[derive(Resource, Default, Debug, Clone, Copy)]
@@ -93,9 +129,9 @@ pub fn launch(attacker: Vec3, target: Vec3, speed: f32, move_speed: f32, spread_
     let side = 40.0 + r.side * 20.0;
     // 0x00431020: (rand * 100 & 0xffff8000) < 0x190000, i.e. rand * 100 >> 15 < 50
     let toward = if r.forward < 0.5 && !keep_side { attacker + dir * side } else { attacker - dir * side };
-    let mut v = super::grenade::launch_velocity(target, toward, speed * move_speed, GRAVITY, false);
+    let mut v = launch_velocity(target, toward, speed * move_speed, GRAVITY, false);
     if v.y < 0.0 {
-        v = super::grenade::launch_velocity(target, toward, speed * 0.5 * move_speed, GRAVITY, false);
+        v = launch_velocity(target, toward, speed * 0.5 * move_speed, GRAVITY, false);
     }
     Launch { velocity: v, anim: if r.anim < 0.5 { 0x49 } else { 0x4a } }
 }

@@ -23,8 +23,7 @@
 use bevy::prelude::*;
 use serde::Deserialize;
 
-/// K(0x005bcd64) negated: the world's gravity (game units / s^2).
-const GRAVITY: f32 = 64.348;
+use super::launch::{GRAVITY, launch_velocity};
 
 /// The captain grenade's property set (p_captain_grenade), read once per throw from the level's data (Projectile_Load
 /// 0x0047e0c0 defaults where the set has none).
@@ -75,41 +74,6 @@ pub struct Grenade {
     life: f32,
     owner: Entity,
     props: GrenadeProps,
-}
-
-/// Ballistic_LaunchVelocity 0x00471a00 in engine axes (y up), `g` the (positive) gravity: across at `speed`, the
-/// vertical speed that reaches `to` at t = across distance / speed; unless `keep`, when the arc's later root of the
-/// height equation lies beyond t the horizontal speed is slowed to land there.
-pub fn launch_velocity(from: Vec3, to: Vec3, speed: f32, g: f32, keep: bool) -> Vec3 {
-    let across = (to - from).with_y(0.0);
-    let h = across.length();
-    let dir = across.normalize_or_zero();
-    if h < 1e-4 || speed <= 0.0 {
-        return Vec3::Y * speed;
-    }
-    let t = h / speed;
-    let dz = to.y - from.y;
-    // the game's gravity is negative (-64.348): vz = (dz - t^2 g / 2) / t
-    let gs = -g;
-    let vz = (dz - t * t * gs * 0.5) / t;
-    let mut vel = dir * speed + Vec3::Y * vz;
-    if keep {
-        return vel;
-    }
-    // the roots of dz = vz t + gs t^2 / 2 (K 0x005bcc40 = -2: disc = sqrt(vz^2 + 2 gs dz)), 0 when 2 gs - dz >= vz^2
-    let disc = if gs + gs - dz < vz * vz { (vz * vz + 2.0 * gs * dz).max(0.0).sqrt() } else { 0.0 };
-    let (r1, r2) = ((disc - vz) / gs, (-vz - disc) / gs);
-    let tt = if r1 > 0.0 && r1 > r2 {
-        r1
-    } else if r2 > 0.0 && r2 > r1 {
-        r2
-    } else {
-        t
-    };
-    if tt > t {
-        vel = dir * (h / tt) + Vec3::Y * vz;
-    }
-    vel
 }
 
 /// The throw (0x00428340 -> GrenadeProjectile_Launch 0x00482870): from the hand at the target point.

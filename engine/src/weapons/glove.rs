@@ -363,7 +363,7 @@ fn flights(
         let pos = t.translation;
         // while it touches the landscape the velocity again each frame: the arc to Roman's hit point (0x00471a00 at
         // speed across); once off it (+0x48c 0x80) it flies on that arc
-        let v = if homing { crate::ai::grenade::launch_velocity(pos, aim, speed, gravity, false) } else { vel - Vec3::Y * gravity * dt };
+        let v = if homing { crate::ai::launch::launch_velocity(pos, aim, speed, gravity, false) } else { vel - Vec3::Y * gravity * dt };
         *gl = Gloved::Flung { speed, gravity, vel: v, homing: homing && targeting::on_landscape(&physics, pos) };
         let centre = pos + Vec3::Y * cb.radius;
         let near = (centre - rfeet).with_y(0.0).length() < REACH && centre.y > rfeet.y - cb.radius && centre.y < rfeet.y + 11.0 + cb.radius;

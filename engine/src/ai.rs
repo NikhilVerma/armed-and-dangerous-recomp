@@ -1484,6 +1484,13 @@ fn log_ai(
 /// CaptainObject_Slot6 0x00434cd0 with its slot 8 0x00434da0: the range rolled again, AI_ResolveStartObjects 0x00425e20):
 /// parameters with the code's defaults, the weapon (the bow at ref_lhand 0xe, the rifle 0xf / the captain's machine gun
 /// 0x10 at ref_rhand; a captain's +0x484 0x1000: the fire set loops, 0x00428250), the voice set, the mode's start state.
+/// Ai_InitGeneric 0x004247f0's voice coin (ai_01.cpp:2438): rand() x 100 >> 15 < 50 sets +0x484 bit 21, the voice
+/// set 0 (the class's first voices: CA1, SP1, ...), else set 1. Every AI class that keeps it rolls it here: the grunt
+/// classes (`make_grunt`) and the shrub patrol (shrubpatrol.rs).
+pub fn voice_coin(rng: &mut crate::fxvm::CrtRand) -> u8 {
+    if rng.rand() * 100 >> 15 < 50 { 0 } else { 1 }
+}
+
 pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, kind: Kind, home: Vec3, yaw: f32, rng: &mut crate::fxvm::CrtRand) -> Grunt {
     let mode = p.s("mode").unwrap_or("attention_roaming").to_owned();
     // a rocket captain (CaptainObject_Slot6 0x00434cd0 -> RocketCaptain_ReadProperties 0x00434ac0): the rkt_fire_* set
@@ -1509,10 +1516,10 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
     let guard = mode.contains("guard") || mode.contains("window") || mode.contains("tower");
     let mind = if mode.starts_with("trigger") { Mind::WaitTrigger } else if guard { Mind::Guard } else { Mind::Roam };
     let max_health = p.f("max_health", 100.0);
-    // the voice set: Ai_InitGeneric's coin (ai_01.cpp:2438: rand x 100 >> 15 < 50 sets +0x484 bit 21, set 0, else set
-    // 1); GruntObject / BowGruntObject_Slot6 roll it again three ways (ai_04.cpp:2073, 2343: < 100 bit 21, < 200
-    // +0x488 bit 29 (set 2), else neither), the other classes (captains, the sniper, the monk, the Q112) keep the coin
-    let coin = if rng.rand() * 100 >> 15 < 50 { 0 } else { 1 };
+    // the voice set: Ai_InitGeneric's coin (`voice_coin`); GruntObject / BowGruntObject_Slot6 roll it again three ways
+    // (ai_04.cpp:2073, 2343: < 100 bit 21, < 200 +0x488 bit 29 (set 2), else neither), the other classes (captains,
+    // the sniper, the monk, the Q112) keep the coin
+    let coin = voice_coin(rng);
     let voice_set = match kind {
         Kind::Grunt | Kind::Bow => match rng.rand() * 300 >> 15 {
             0..100 => 0,
@@ -6260,9 +6267,10 @@ fn companions(
         Query<(), (With<Companion>, Or<(With<carried::Knocked>, With<close_kill::Killing>)>)>,
         ResMut<AiForce>,
     ),
-    (path, topsy, mounted, held_q): (
+    (path, topsy, glove, mounted, held_q): (
         Res<crate::campath::CameraPath>,
         Res<crate::topsy::Topsy>,
+        Res<crate::weapons::glove::Glove>,
         Res<crate::turret::Mounted>,
         Query<&Companion, Or<(With<tower::OnTask>, With<carried::Knocked>, With<close_kill::Killing>)>>,
     ),
@@ -6290,9 +6298,9 @@ fn companions(
         }
         _ => r.yaw + std::f32::consts::PI,
     };
-    // PlayerCanAct 0x0047a950: alive, no camera path (0x00410150), not in the topsy states (+0xa34 & 0x7f800000)
-    // (its camera mode 2 test, 0x0040fab0: no setter of mode 2 found in the recovered code)
-    let may_act = !r.dead && !path.active() && !topsy.active() && !hud.as_ref().is_some_and(|h| h.cinematic);
+    // PlayerCanAct 0x0047a950 (player.rs can_act: alive, no cinematic path, none of the +0xa34 state bits: the topsy
+    // states and the punching glove), and no HUD cinematic
+    let may_act = crate::player::can_act(r, &path, &topsy, &glove) && !hud.as_ref().is_some_and(|h| h.cinematic);
     // Q alive (the player's +0xad4, 0x00475d40, dropped only once dead: on the tower task or carried too)
     let q_alive = q.iter().any(|(_, c, ..)| c.q && c.dead.is_none()) || held_q.iter().any(|c| c.q && c.dead.is_none());
     team_orders(

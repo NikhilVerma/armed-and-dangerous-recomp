@@ -2,7 +2,7 @@
 //! fly to (JumpMarker, vtable 0x005ac628). docs/subsystems/infantry.md section 3.
 //! - `Jumper::read`: the turbo parameters (Ai_InitGeneric ai_01.cpp:2354-2390).
 //! - `pick_marker`: the marker choice 0x0042b480 (ai_03.cpp:589-720).
-//! - `launch`: the ballistic solver 0x00471a00 (horizontal speed and gravity given).
+//! - the launches use the ballistic solver 0x00471a00 with keep 0 (ai/launch.rs `launch_velocity`).
 //! - A marker is held from the launch to it until its jumper leaves it (the next launch, `Jumper::leave`) or dies
 //!   (`free_markers`): the landing keeps it (0x0042e1c0 frees nothing; JumpMarker slots 0x56 / 0x57 0x0040dfa0 /
 //!   0x0040dfb0 take and free it). Its slot point (slot 0x53 0x0040de50; 0x54 0x0040df90 jumps to it) is the marker's
@@ -134,7 +134,7 @@ impl Jumper {
     /// +0x484 |= 0x10000010, state 0xc4 (`closer`) or 0xc5.
     pub fn start(&mut self, from: Vec3, marker: Entity, to: Vec3, closer: bool, move_speed: f32) {
         self.flight = Some(if closer { Flight::ToGlide } else { Flight::Jump });
-        let v = launch(from, to, 2.0 * move_speed, self.anti_gravity * GRAVITY);
+        let v = super::launch::launch_velocity(from, to, 2.0 * move_speed, self.anti_gravity * GRAVITY, false);
         self.vel = if v.y <= 0.0 { v.with_y(MIN_LAUNCH_RISE) } else { v };
         self.marker = Some(marker);
         self.goal = to;
@@ -151,7 +151,7 @@ impl Jumper {
             self.vel = Vec3::Y * self.force * 0.25;
         } else {
             self.flight = Some(Flight::Glide);
-            self.vel = launch(from, to, self.glide_xyvel, self.glide_anti_gravity * GRAVITY);
+            self.vel = super::launch::launch_velocity(from, to, self.glide_xyvel, self.glide_anti_gravity * GRAVITY, false);
         }
     }
 
@@ -245,16 +245,6 @@ pub fn pick_marker(j: &Jumper, me: Vec3, target: Option<Vec3>, range: f32, marke
     best.map(|(i, _, _)| (i, closer))
 }
 
-/// The ballistic solver 0x00471a00: the launch velocity reaching `to` from `from` at horizontal speed `h` under gravity
-/// `g` (y up).
-pub fn launch(from: Vec3, to: Vec3, h: f32, g: f32) -> Vec3 {
-    let flat = (to - from).with_y(0.0);
-    let d = flat.length();
-    let t = (d / h.max(1.0)).max(0.1);
-    let vy = ((to.y - from.y) + 0.5 * g * t * t) / t;
-    flat.normalize_or_zero() * h + Vec3::Y * vy
-}
-
 /// 0xc4 once falling: the horizontal speed that lands on `to` under the glide's gravity (ai_06.cpp:2393-2430).
 pub fn glide_speed(from: Vec3, to: Vec3, glide_gravity: f32) -> f32 {
     let d = (to - from).with_y(0.0).length();
@@ -296,7 +286,7 @@ mod tests {
     #[test]
     fn launch_lands_on_the_point() {
         let (from, to, g) = (Vec3::ZERO, Vec3::new(200.0, 30.0, 0.0), 32.0);
-        let v = launch(from, to, 92.0, g);
+        let v = super::super::launch::launch_velocity(from, to, 92.0, g, false);
         let t = 200.0 / 92.0;
         let y = v.y * t - 0.5 * g * t * t;
         assert!((y - 30.0).abs() < 0.01, "{y}");

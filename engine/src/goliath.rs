@@ -555,7 +555,7 @@ fn notes(
                 // flies under the world's gravity (every shipped p_goliath_fireball has scale 1)
                 let p = data.template_props("goliath_fireball");
                 let gravity = crate::shell::GRAVITY * p.f("gravity_scale", 1.0);
-                let vel = crate::ai::grenade::launch_velocity(from, target, p.f("speed", 80.0), gravity, false);
+                let vel = crate::ai::launch::launch_velocity(from, target, p.f("speed", 80.0), gravity, false);
                 crate::shell::throw(&mut commands, &data, &mut kit, &mut fx, "goliath_fireball", from, vel, crate::fx::Src::Badguy);
                 g.thrown += 1;
                 info!("EVENT goliath: fireball thrown at {target:.0} ({:.0} away)", (target - from).with_y(0.0).length());

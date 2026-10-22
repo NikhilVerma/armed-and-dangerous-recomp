@@ -51,9 +51,10 @@ fn setup(
     q: Query<(Entity, &Name, &crate::skin::Animator), (With<crate::level::InstanceId>, Without<ShrubPatrol>)>,
     mut kit: crate::army::ModelKit,
     mut seen: crate::levelreset::PerLevel<std::collections::HashSet<Entity>>,
-    mut rng: ResMut<crate::fx::FxStats>,
+    mut rng: crate::levelreset::PerLevel<crate::fxvm::CrtRand>,
 ) {
     let seen = seen.get();
+    let rng = rng.get();
     for (e, name, a) in &q {
         if !seen.insert(e) {
             continue;
@@ -86,9 +87,9 @@ fn setup(
             gun,
             shots: 0,
         });
-        // its voice: SP1 or SP2, an even roll at its init (Ai_InitGeneric 0x004247f0, ai_01.cpp:2438: (rand x 100) >> 15
-        // < 50 sets +0x484 0x200000, the "second voice" that says the SP1500xx lines: set 0)
-        commands.entity(e).insert(crate::voices::ShrubVoice(if rng.rand() < 0.5 { 0 } else { 1 }));
+        // its voice: SP1 or SP2, Ai_InitGeneric's coin (ai.rs voice_coin: +0x484 0x200000, the "second voice" that says
+        // the SP1500xx lines, set 0)
+        commands.entity(e).insert(crate::voices::ShrubVoice(crate::ai::voice_coin(rng)));
     }
 }
 
