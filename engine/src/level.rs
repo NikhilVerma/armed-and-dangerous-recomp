@@ -159,6 +159,8 @@ pub struct SpawnGrunt {
     pub template: String,
     /// a troop of the alarm controller (alarm.rs)
     pub alarm: bool,
+    /// an alarm troop of a max_distance generator: culled far from the player (alarm.rs `AlarmTroop::far_cull`)
+    pub alarm_far_cull: bool,
     /// a jumper captain (troop type 2 of a barracks or an alarm generator: 0x00425d30(1), the turbo pack and the
     /// jumper fire range, as the property jumper_captain gives a placed captain)
     pub jumper: bool,
@@ -1594,7 +1596,7 @@ fn spawn_grunts(
         // the origin)
         let e = commands.spawn((Transform::from_matrix(world), GlobalTransform::from(Transform::from_matrix(world)), Visibility::default(), Name::new(ev.template.clone()))).id();
         if ev.alarm {
-            commands.entity(e).insert(crate::alarm::AlarmTroop);
+            commands.entity(e).insert(crate::alarm::AlarmTroop { far_cull: ev.alarm_far_cull });
         }
         if let Some(v) = ev.thrown {
             commands.entity(e).insert(crate::tossed::Tossed(v));

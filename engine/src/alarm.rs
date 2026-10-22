@@ -13,11 +13,12 @@
 //!   fallback), the troop type by the six weights, made at the generator's ref_spawn_00; the troop walks to its
 //!   ref_exit_00 and follows the spline of a tag in the generator's marker_tag_min..max (0x0042dd50), or charges with no
 //!   tags; the timer is rolled again (spawn or not).
+//! - The controller's other timer (+0x460, 5..15 s): when it runs out, every troop of a max_distance generator farther
+//!   than alarm_ai_max_distance (Game+0xd64) from the player that he does not see dies (vt+0xd4), so a far-off
+//!   generator's troops do not pile up out of the fight (`cull_far_troops`).
 //! - "Seen" (0x00404d00): in the player's 180-degree view (vt+0xf0), and then a level ray at his eye's height from
-//!   above the generator toward his ref_hit_01 over the collidable objects (World+0xe9c, the AI excluded; not the
-//!   landscape) meets nothing or Roman himself; any other collidable object (a building, a wall, an invisible wall)
-//!   hides the generator. (The +0x424 bit 11 the test reads for a teammate it meets is the camera's fade of objects
-//!   between it and the player, Camera_Update 0x0040e350, not a draw flag.) Oracle (the hook's alarm gates): lev_2_m2
+//!   above the generator toward his ref_hit_01 (5 past it) over the collidable objects (World+0xe9c, the AI excluded;
+//!   not the landscape) meets nothing; any collidable object met (a building, a wall) hides the generator. Oracle (the hook's alarm gates): lev_2_m2
 //!   (siren raised) and lev_bonus_m1 (alarm forced, 9 generators) run the timer out again and again with no troop in
 //!   10-20 s; lev_bonus_m2's generators 169 / 171 send theirs (218, 414: the delays are rand rolls, so the frames
 //!   differ). The generators' troop weights fall back to the grunt_generator template's (num_regular 1 there).
@@ -26,7 +27,8 @@
 use crate::levelreset::LevelAppExt;
 use crate::level::{InstanceId, game_to_engine};
 use bevy::prelude::*;
-use std::collections::{HashMap, VecDeque};
+use bevy::ecs::system::SystemParam;
+use std::collections::HashMap;
 
 /// A marker's properties (MarkerObject_LoadProperties 0x0044b130; getters 0x0044b470..0x0044b960).
 pub struct Marker {
@@ -95,7 +97,8 @@ struct Generator {
     /// "grunt_regular", num_jumper_captain "captain" (jumper), num_captain "captain", num_rocket_captain (no type: the
     /// original's bug, logged and never reached on lev_1_m1), num_monk "monk"
     weights: [i64; 6],
-    /// min_spawn_distance +0x494, max_distance +0x461 (only within 0.75 x Game+0xd64 of the player)
+    /// min_spawn_distance +0x494; max_distance +0x461 (a byte: set, the generator sends troops only while it is within
+    /// 0.75 x alarm_ai_max_distance of the player, and its troops die far from him: `cull_far_troops`)
     min_distance: f32,
     max_distance: bool,
     /// marker_tag_min / max +0x480 / +0x484, alert_group +0x490, priority_target_tag_min / max +0x488 / +0x48c
@@ -116,9 +119,16 @@ pub struct Markers {
     sirens: Vec<Entity>,
     /// the spawn timer 0x0063a1f4 (None: not rolled yet, at the first frame of the level)
     timer: Option<f32>,
-    recent: VecDeque<u32>,
+    /// the far troops' cull timer, the controller's +0x460 (rolled with the spawn timer)
+    cull_timer: f32,
+    /// the last three spawn points 0x0063a1f8.. (slot 0 the newest); a fallback's slot is emptied, so one can be None
+    recent: [Option<u32>; 3],
     max_troops: usize,
     delay: (f32, f32),
+    /// alarm_ai_max_distance (Game+0xd64, the level's global settings, 1000)
+    range: f32,
+    /// far troops culled (playtest log)
+    culled: u32,
 }
 
 impl Markers {
@@ -150,14 +160,20 @@ impl Markers {
     /// readers fall back to the template: a grunt_generator's num_regular 1 when the placement names only num_bow 0 and
     /// num_captain 0, lev_bonus_m2 169..171).
     pub fn load(dir: &std::path::Path, data: &crate::gamedata::GameData) -> Self {
-        let mut m = Markers { max_troops: 10, delay: (2.0, 4.0), ..default() };
+        let scene = std::fs::read_to_string(dir.join("scene.json")).ok().and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok());
+        // alarm_ai_max_distance: the level's global_settings over p_globalsettings (read into Game+0xd64 with the
+        // default 1000, render_r6.cpp:1096)
+        let mut settings = data.props("p_globalsettings");
+        if let Some(own) = scene.as_ref().and_then(|s| s.get("settings")).and_then(|s| s.as_object()) {
+            settings.0.extend(own.iter().map(|(k, v)| (k.clone(), v.clone())));
+        }
+        let mut m = Markers { max_troops: 10, delay: (2.0, 4.0), range: settings.f("alarm_ai_max_distance", 1000.0), ..default() };
         let Ok(text) = std::fs::read_to_string(dir.join("instance_props.json")) else { return m };
         let Ok(list) = serde_json::from_str::<Vec<serde_json::Value>>(&text) else { return m };
         let num = |p: &crate::gamedata::Props, k: &str| p.0.get(k).and_then(|v| v.as_f64()).unwrap_or(0.0);
         // the placements' matrices (scene.json): a marker's facing, a generator's ref_spawn_00 / ref_exit_00
-        let mats: HashMap<u32, Mat4> = std::fs::read_to_string(dir.join("scene.json"))
-            .ok()
-            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        let mats: HashMap<u32, Mat4> = scene
+            .as_ref()
             .and_then(|s| {
                 let list = s.get("instances")?.as_array()?.clone();
                 Some(
@@ -304,9 +320,13 @@ pub struct MarkerArrival {
     pub voice_set: u8,
 }
 
-/// A troop of the alarm controller (counted toward its cap while alive).
-#[derive(Component)]
-pub struct AlarmTroop;
+/// A troop of the alarm controller (the list 0x0063a1ec: counted toward its cap while alive).
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub struct AlarmTroop {
+    /// sent by a max_distance generator (also on the list 0x0063a1e8): dies when far from the player and unseen
+    /// (`cull_far_troops`)
+    pub far_cull: bool,
+}
 
 pub struct AlarmPlugin;
 
@@ -316,7 +336,9 @@ impl Plugin for AlarmPlugin {
     }
 }
 
-/// Arrival at an alarm marker: its alarm object (by tag) joins the siren list once, with fx_siren and the Help bark.
+/// Arrival at an alarm marker (Marker_ProcessArrival 0x0044ba30): the object of its alarm_tag (Object_FindByTag
+/// 0x004592e0: the first one in load order that still exists; each level's alarm tags name one object) joins the siren
+/// list once, with fx_siren and the runner's Help bark (vt+0x264).
 fn arrivals(
     mut m: ResMut<Markers>,
     mut ev: MessageReader<MarkerArrival>,
@@ -329,17 +351,15 @@ fn arrivals(
         if alarm == 0 {
             continue;
         }
-        let tagged = m.tagged.get(&alarm).cloned().unwrap_or_default();
-        for (e, i) in &ids {
-            // (a destroyed alarm object without a husk is gone)
-            if !tagged.contains(&i.0) || m.sirens.contains(&e) {
-                continue;
-            }
-            m.sirens.push(e);
-            fx.write(crate::fx::StartFx { name: "fx_siren".into(), at: Vec3::ZERO, rotation: Quat::IDENTITY, follow: Some(e), position_only: false });
-            sounds.write(crate::audio::PlaySound::at(crate::ai::voice("Help", a.voice_set), a.at));
-            info!("EVENT alarm: siren {} raised (marker {})", i.0, m.markers[a.marker].id);
+        // (a destroyed alarm object without a husk is gone)
+        let Some((e, id)) = m.tagged.get(&alarm).and_then(|tagged| tagged.iter().find_map(|&id| ids.iter().find(|(_, i)| i.0 == id).map(|(e, _)| (e, id)))) else { continue };
+        if m.sirens.contains(&e) {
+            continue;
         }
+        m.sirens.push(e);
+        fx.write(crate::fx::StartFx { name: "fx_siren".into(), at: Vec3::ZERO, rotation: Quat::IDENTITY, follow: Some(e), position_only: false });
+        sounds.write(crate::audio::PlaySound::at(crate::ai::voice("Help", a.voice_set), a.at));
+        info!("EVENT alarm: siren {id} raised (marker {})", m.markers[a.marker].id);
     }
 }
 
@@ -356,43 +376,39 @@ fn sirens_gone(mut m: ResMut<Markers>, mut died: MessageReader<crate::fx::Died>,
 
 /// The placed objects in the collidable list World+0xe9c (DefaultGameObject_Load 0x0044fd20, game_03.cpp:526-567: every
 /// object with a collider but the collide barriers, which get filter 0x40 and no lists), by their colliders. (Husks
-/// made later are not listed here: none stands between a generator and the player at the level starts.)
-/// The collidable objects' bodies, each with its side: true for an object on the player's side (vt+0xe4: a house
-/// with toss_peasants, BarricadeObject slot 57 0x0040ce30 = +0x460 bit 11), which the "seen" ray takes as seen.
-type Collidable = std::collections::HashMap<oxijolt::prelude::BodyId, bool>;
+/// made later are not listed here: none stands between a generator and the player at the level starts.) A collide
+/// barrier (an invisible wall) is in no list, so it hides nothing.
+type Collidable = std::collections::HashSet<oxijolt::prelude::BodyId>;
 
 fn collidable(placed: &Query<(&InstanceId, &crate::level::Placed)>, dir: &std::path::Path, data: &crate::gamedata::GameData) -> Collidable {
     let props = crate::vehicles::placements(dir, data);
     placed
         .iter()
         .filter(|(id, _)| props.get(&id.0).is_none_or(|p| p.f("collide_barrier", 0.0) == 0.0))
-        .filter_map(|(id, pl)| {
-            let teammate = props.get(&id.0).is_some_and(|p| p.s("behavior") == Some("building") && p.f("toss_peasants", 0.0) != 0.0);
-            Some((pl.collider?, teammate))
-        })
+        .filter_map(|(_, pl)| pl.collider)
         .collect()
 }
 
-/// 0x00404d00: the player sees the generator at `at`. It must be in his 180-degree view (vt+0xf0(generator, 180)).
-/// Then a level ray at the height of his eye (his ref_hit_01) from above the generator toward the eye, 5 units past it
-/// (Ray_CastQuery 0x00414110: the collidable list World+0xe9c, the AI list World+0xe7c excluded: not the landscape, not
-/// the characters but Roman) decides: nothing met, or Roman himself (alive, on the player's side: vt+0xe4,
-/// 0x004531e0, and not faded by the camera, +0x424 bit 11: Camera_Update 0x0040e350's fade list) is seen; any other
-/// collidable object met hides the generator (a building, a wall, an invisible wall alike). Roman's own body has no
-/// collider here (a walker): the ray runs to the eye and stops.
+/// 0x00404d00: the player sees the object at `at` (a generator, or a far troop: `cull_far_troops`). It must be in his
+/// 180-degree view (vt+0xf0(object, 180)). Then a level ray at the height of his eye (his ref_hit_01) from above the
+/// object toward the eye, 5 units past it (K(0x005bcbdc); Ray_CastQuery 0x00414110: only the collidable list World+0xe9c,
+/// the AI list World+0xe7c excluded: not the landscape, not the characters) decides: nothing met is seen; any
+/// collidable object met hides it. (The original lets one kind of object through: one on the player's side, vt+0xe4,
+/// that is a mover, 0x004531e0: flag 0x40 of +0x424, set for the characters and weapons by 0x00457810, or a move speed
+/// from vt+0x80, the AI's drive speeds; and that the camera is not fading, +0x424 bit 11, camfade.rs. Every listed
+/// object here is a placed static one, a peasants' house included, so none passes: guess that a house's vt+0x80 gives
+/// no speed, no capture.) Roman's own body has no collider here (a walker): the ray runs past the eye and stops.
 fn seen_by_player(physics: &crate::physics::Physics, at: Vec3, eye: Vec3, fwd: Vec3, collidable: &Collidable) -> bool {
     let to = (eye - at).with_y(0.0);
     if to.normalize_or_zero().dot(fwd) > 0.0 {
         return false;
     }
     let dir = to.normalize_or(Vec3::X);
-    let (mut from, mut left) = (at.with_y(eye.y), to.length());
+    let (mut from, mut left) = (at.with_y(eye.y), to.length() + 5.0);
     for _ in 0..32 {
         let Some((b, hit, _)) = physics.raycast(from, dir, left) else { return true };
-        // the first object met decides: on the player's side (a peasants' house, vt+0xe4 true, alive: 0x004531e0)
-        // it counts as seen; any other hides (the camera's fade of a faded teammate, +0x424 bit 11, not read: debt)
-        if let Some(&teammate) = collidable.get(&b) {
-            return teammate;
+        if collidable.contains(&b) {
+            return false;
         }
         left -= hit.distance(from) + 0.05;
         if left <= 0.0 {
@@ -403,89 +419,119 @@ fn seen_by_player(physics: &crate::physics::Physics, at: Vec3, eye: Vec3, fwd: V
     true
 }
 
-/// The alarm controller (0x00404e50).
-#[allow(clippy::too_many_arguments)]
+/// What the player sees (0x00404d00's inputs): where he stands, his eye (ref_hit_01) and his facing, and the
+/// collidable objects that hide things from him.
+#[derive(SystemParam)]
+struct Sight<'w, 's> {
+    player: Query<'w, 's, (&'static GlobalTransform, &'static crate::player::Roman, Option<&'static crate::skin::Animator>)>,
+    joints: Query<'w, 's, &'static GlobalTransform>,
+    physics: NonSend<'w, crate::physics::Physics>,
+    placed: Query<'w, 's, (&'static InstanceId, &'static crate::level::Placed)>,
+    data: Res<'w, crate::gamedata::GameData>,
+    lib: Res<'w, crate::skin::AnimLibrary>,
+    listed: crate::levelreset::PerLevel<'w, 's, Option<Collidable>>,
+}
+
+/// The player's view this frame.
+struct View<'a> {
+    pos: Vec3,
+    eye: Vec3,
+    fwd: Vec3,
+    physics: &'a crate::physics::Physics,
+    listed: &'a Collidable,
+}
+
+impl View<'_> {
+    /// 0x00404d00 for an object at `at`.
+    fn sees(&self, at: Vec3) -> bool {
+        seen_by_player(self.physics, at, self.eye, self.fwd, self.listed)
+    }
+
+    /// The squared distance from the player in the plane (the original's x / y in game space).
+    fn dist2(&self, at: Vec3) -> f32 {
+        (at - self.pos).with_y(0.0).length_squared()
+    }
+}
+
+impl Sight<'_, '_> {
+    fn view(&mut self) -> Option<View<'_>> {
+        let (pt, r, anim) = self.player.single().ok()?;
+        let pos = pt.translation();
+        let eye = anim.and_then(|a| a.skeleton.index.get("ref_hit_01").and_then(|&i| self.joints.get(a.joints[i]).ok())).map_or(pos + Vec3::Y * 7.0, |j| j.translation());
+        let fwd = Quat::from_rotation_y(r.yaw) * Vec3::NEG_Z;
+        let (placed, lib, data) = (&self.placed, &self.lib, &self.data);
+        let listed = self.listed.get().get_or_insert_with(|| collidable(placed, &lib.dir, data));
+        Some(View { pos, eye, fwd, physics: &self.physics, listed })
+    }
+}
+
+/// What holds the controller's spawn timer besides the alarm being off (0x00404e50): the knockout bomb's glove
+/// (Game+0xcbc), the Topsy Turvy bomb's effect (Game+0xc80 > 0: the world hanging upside down), a live black hole
+/// (Game+0xadc) and the Guy Fawkes bomb's wait (Game+0xae0 != 0).
+#[derive(SystemParam)]
+struct SpawnHolds<'w, 's> {
+    glove: Res<'w, crate::weapons::glove::Glove>,
+    topsy: Res<'w, crate::topsy::Topsy>,
+    holes: Query<'w, 's, (), With<crate::weapons::blackhole::LiveHole>>,
+    throws: Res<'w, crate::weapons::ThrowQueue>,
+}
+
+impl SpawnHolds<'_, '_> {
+    fn any(&self) -> bool {
+        self.glove.active() || self.topsy.phase == crate::topsy::Phase::Hang || !self.holes.is_empty() || self.throws.fawkes_wait > 0.0
+    }
+}
+
+/// The alarm controller (0x00404e50): its far troops' cull, then, while the alarm is on, the spawn timer and a troop
+/// from the best generator.
 fn controller(
     time: Res<Time>,
     mut m: ResMut<Markers>,
     mut rng: ResMut<crate::fx::FxStats>,
-    troops: Query<&crate::fx::Health, With<AlarmTroop>>,
-    player: Query<(&GlobalTransform, &crate::player::Roman, Option<&crate::skin::Animator>)>,
-    (joints, mission, physics, glove): (Query<&GlobalTransform>, Option<Res<crate::mission::Mission>>, NonSend<crate::physics::Physics>, Res<crate::weapons::glove::Glove>),
-    (placed, data, lib, mut listed): (
-        Query<(&InstanceId, &crate::level::Placed)>,
-        Res<crate::gamedata::GameData>,
-        Res<crate::skin::AnimLibrary>,
-        crate::levelreset::PerLevel<Option<Collidable>>,
-    ),
+    troops: Query<(Entity, &GlobalTransform, &crate::fx::Health, &AlarmTroop)>,
+    mut sight: Sight,
+    (mission, holds): (Option<Res<crate::mission::Mission>>, SpawnHolds),
     mut spawn: MessageWriter<crate::level::SpawnGrunt>,
+    mut ends: MessageWriter<crate::ai::notes::ScriptEnd>,
 ) {
     if m.generators.is_empty() {
         return;
     }
-    // rolled when the controller is made at load (0x004049a0 -> 0x00404940)
+    let dt = time.delta_secs();
+    // rolled when the controller is made at load (0x004049a0): its +0x460 by its set-up (0x00404a40), then the spawn
+    // timer (0x00404940)
     let Some(timer) = m.timer else {
+        m.cull_timer = cull_delay(&mut rng);
         m.timer = Some(rng.range(m.delay.0, m.delay.1));
         return;
     };
+    let view = sight.view();
+    m.cull_timer -= dt;
+    if m.cull_timer <= 0.0 {
+        if let Some(v) = &view {
+            cull_far_troops(&mut *m, v, &troops, &mut ends);
+        }
+        m.cull_timer = cull_delay(&mut rng);
+    }
     // the sirens listed (World+0xef0) or the alarm forced (Game+0xdcc)
     if m.sirens.is_empty() && !mission.is_some_and(|ms| ms.alarm_forced) {
         return;
     }
-    // held while the knockout bomb's glove is on (Game+0xcbc). (The original also holds it during the Topsy Turvy bomb's
-    // effect, Game+0xc80 > 0, while a black hole is live, Game+0xadc, and while the Guy Fawkes wait runs, Game+0xae0:
-    // not here yet)
-    if glove.active() {
+    if holds.any() {
         return;
     }
-    let left = timer - time.delta_secs();
+    let left = timer - dt;
     if left > 0.0 {
         m.timer = Some(left);
         return;
     }
     // (rolled again whatever the outcome: the end of 0x00404e50)
     m.timer = Some(rng.range(m.delay.0, m.delay.1));
-    if troops.iter().filter(|h| h.0 > 0.0).count() >= m.max_troops {
+    if troops.iter().filter(|t| t.2.0 > 0.0).count() >= m.max_troops {
         return;
     }
-    let Ok((pt, r, anim)) = player.single() else { return };
-    let pp = pt.translation();
-    let eye = anim.and_then(|a| a.skeleton.index.get("ref_hit_01").and_then(|&i| joints.get(a.joints[i]).ok())).map_or(pp + Vec3::Y * 7.0, |j| j.translation());
-    let fwd = Quat::from_rotation_y(r.yaw) * Vec3::NEG_Z;
-    let listed = listed.get().get_or_insert_with(|| collidable(&placed, &lib.dir, &data));
-    let seen = |g: &Generator| seen_by_player(&physics, g.pos, eye, fwd, listed);
-    // the walk of the generator list 0x0063a1f0 (in load order): a candidate no nearer than the best so far is skipped
-    // first; then inside its min_spawn_distance, beyond 0.75 x Game+0xd64 with max_distance (Game+0xd64 not exported:
-    // no lev_1_m1 generator sets max_distance), seen: skipped; one of the last three spawn points becomes the fallback
-    // (the first such met) instead of the best
-    let (mut best, mut best_d, mut fallback): (Option<usize>, f32, Option<usize>) = (None, 0.0, None);
-    for (i, g) in m.generators.iter().enumerate() {
-        let d2 = (g.pos - pp).with_y(0.0).length_squared();
-        if best.is_some() && d2 >= best_d {
-            continue;
-        }
-        if g.min_distance > 0.0 && d2 < g.min_distance * g.min_distance {
-            continue;
-        }
-        if seen(g) {
-            continue;
-        }
-        if m.recent.contains(&g.id) {
-            fallback = fallback.or(Some(i));
-            continue;
-        }
-        best = Some(i);
-        best_d = d2;
-    }
-    let Some(gi) = best.or_else(|| {
-        // the fallback's spawn-point slot is released (it no longer counts as recent)
-        let f = fallback?;
-        let id = m.generators[f].id;
-        m.recent.retain(|&x| x != id);
-        Some(f)
-    }) else {
-        return;
-    };
+    let Some(v) = view else { return };
+    let Some(gi) = m.pick_generator(&v) else { return };
     let g = &m.generators[gi];
     // the troop type by weight: pick = (rand * total >> 15) + 1, the first type whose running sum reaches it
     let total: i64 = g.weights.iter().sum();
@@ -496,25 +542,84 @@ fn controller(
         sum += g.weights[ty];
     }
     // "grunt", "grunt_regular", "captain" (a jumper captain: 0x00425d30(1)), "captain", none (num_rocket_captain:
-    // "Generator : unkown troop type" and the original's stack-slot bug, not reached on lev_1_m1), "monk"
+    // "Generator : unkown troop type" and the original's stack-slot bug, not reached: no level sets it), "monk". (The
+    // troop's tag argument of 0x0045f020 is the controller's own +0x394, which 0x004049a0 fills with 0x3ff, the mask
+    // slot of a placement: no tag the generator gives.)
     let Some(tpl) = ["grunt", "grunt_regular", "captain", "captain", "", "monk"].get(ty).filter(|t| !t.is_empty()) else { return };
     let (id, at) = (g.id, g.spawn);
     // 0x0042dd50: the generator's marker tags and alert group; the walk to its ref_exit_00 (state 0x5a), then the marker
-    // spline of a tag, or with no tags 20..50 ahead and the charge (+0x488 0x200, state 0x5b -> 0x0042ce70)
+    // spline of a tag, or with no tags 20..50 ahead and the charge (+0x488 0x200, state 0x5b -> 0x0042ce70); 0x0042cc60:
+    // its priority targets; a max_distance generator's troop joins the far list 0x0063a1e8 too
     let tags = (g.tags.0 != 0).then_some(g.tags);
-    spawn.write(crate::level::SpawnGrunt { at, template: (*tpl).into(), alarm: true, jumper: ty == 2, exit: Some(g.exit), marker_tags: tags, alert_group: g.alert_group, priority_tags: g.priority, ..default() });
-    m.recent.push_back(id);
-    if m.recent.len() > 3 {
-        m.recent.pop_front();
-    }
+    spawn.write(crate::level::SpawnGrunt { at, template: (*tpl).into(), alarm: true, alarm_far_cull: g.max_distance, jumper: ty == 2, exit: Some(g.exit), marker_tags: tags, alert_group: g.alert_group, priority_tags: g.priority, ..default() });
+    // the newest spawn point: the oldest drops out
+    m.recent = [Some(id), m.recent[0], m.recent[1]];
     info!("EVENT alarm: generator {id} sent a {tpl}");
+}
+
+/// The controller's cull delay +0x460: 5 + rand * 10 / 32768 seconds (0x00404a40, 0x00404e50).
+fn cull_delay(rng: &mut crate::fx::FxStats) -> f32 {
+    5.0 + rng.rand() * 10.0
+}
+
+/// 0x00404e50 part 1: every troop on the far list (a max_distance generator's) farther than alarm_ai_max_distance from
+/// the player in the plane that he does not see (0x00404d00) dies (vt+0xd4 with a record of kind 0x8000 and no hit:
+/// the death anim, ai/notes.rs `End::Kill`).
+fn cull_far_troops(m: &mut Markers, v: &View, troops: &Query<(Entity, &GlobalTransform, &crate::fx::Health, &AlarmTroop)>, ends: &mut MessageWriter<crate::ai::notes::ScriptEnd>) {
+    for (e, t, h, troop) in troops {
+        let at = t.translation();
+        if !troop.far_cull || h.0 <= 0.0 || v.dist2(at) <= m.range * m.range || v.sees(at) {
+            continue;
+        }
+        ends.write(crate::ai::notes::ScriptEnd { entity: e, end: crate::ai::notes::End::Kill });
+        m.culled += 1;
+        info!("EVENT alarm: far troop {e:?} culled");
+    }
+}
+
+impl Markers {
+    /// The generator to send a troop (0x00404e50's walk of the list 0x0063a1f0, in load order): a candidate no nearer
+    /// than the best so far is skipped first; then one inside its min_spawn_distance, one with max_distance beyond
+    /// 0.75 x alarm_ai_max_distance, one the player sees; one of the last three spawn points becomes the fallback (the
+    /// first such met) instead of the best. A fallback used gives up its spawn-point slot (emptied, not closed up).
+    fn pick_generator(&mut self, v: &View) -> Option<usize> {
+        let far = 0.75 * self.range;
+        let (mut best, mut best_d, mut fallback): (Option<usize>, f32, Option<(usize, usize)>) = (None, 0.0, None);
+        for (i, g) in self.generators.iter().enumerate() {
+            let d2 = v.dist2(g.pos);
+            if best.is_some() && d2 >= best_d {
+                continue;
+            }
+            if g.min_distance > 0.0 && d2 < g.min_distance * g.min_distance {
+                continue;
+            }
+            if g.max_distance && d2 > far * far {
+                continue;
+            }
+            if v.sees(g.pos) {
+                continue;
+            }
+            // (the original searches the slots from the oldest)
+            if let Some(slot) = (0..3).rev().find(|&s| self.recent[s] == Some(g.id)) {
+                fallback = fallback.or(Some((i, slot)));
+                continue;
+            }
+            best = Some(i);
+            best_d = d2;
+        }
+        best.or_else(|| {
+            let (i, slot) = fallback?;
+            self.recent[slot] = None;
+            Some(i)
+        })
+    }
 }
 
 /// The raised sirens in the playtest state log.
 fn log(m: Res<Markers>, ids: Query<&InstanceId>, troops: Query<(), With<AlarmTroop>>, state: Option<ResMut<crate::playtest::PlayState>>) {
     let Some(mut state) = state else { return };
     let raised: Vec<u32> = m.sirens.iter().filter_map(|&e| ids.get(e).ok().map(|i| i.0)).collect();
-    state.0.insert("alarm".into(), serde_json::json!({ "sirens": raised.len(), "raised": raised, "troops": troops.iter().count() }));
+    state.0.insert("alarm".into(), serde_json::json!({ "sirens": raised.len(), "raised": raised, "troops": troops.iter().count(), "culled": m.culled }));
 }
 
 #[cfg(test)]
