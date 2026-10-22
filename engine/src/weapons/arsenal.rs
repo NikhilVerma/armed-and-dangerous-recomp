@@ -212,9 +212,10 @@ pub struct Arsenal {
     current: usize,
     /// each special's count (the ammo records' spare of ids 6..10)
     specials: [u32; 5],
-    /// the specials in the special list: once given (a count set above 0), a special stays listed when used up
-    /// (0x004a14e0 removes it only when set to 0 outright: `set_count`)
-    listed: [bool; 5],
+    /// the special list's slots (+0x30): a special given (a count set above 0, or a pickup) takes the first empty slot
+    /// (0x004a0b80) and stays there when used up; set to 0 outright it leaves its slot (0x004a0cd0). The selection
+    /// cycles in slot order, so the order is that of acquisition.
+    list: [Option<SpecialId>; 5],
     /// the special in hand (the special list's current slot +0x54)
     pub special: SpecialId,
 }
@@ -339,23 +340,37 @@ impl Arsenal {
     /// Sets a special's count (0x004a14e0): above 0 it joins the special list, 0 takes it out.
     pub fn set_count(&mut self, s: SpecialId, n: u32) {
         self.specials[s.index()] = n;
-        self.listed[s.index()] = n > 0;
+        if n > 0 {
+            self.list_add(s);
+        } else if let Some(slot) = self.list.iter_mut().find(|x| **x == Some(s)) {
+            *slot = None;
+        }
     }
 
-    /// Adds to a special's count up to `max` (0x004a13a0: refused when already at the maximum).
+    /// Adds to a special's count up to `max` (0x004a13a0: it joins the special list, then the count is refused when
+    /// already at the maximum).
     pub fn add_special(&mut self, s: SpecialId, n: u32, max: u32) -> bool {
+        self.list_add(s);
         let c = self.count(s);
         if c >= max {
             return false;
         }
         self.specials[s.index()] = (c + n).min(max);
-        self.listed[s.index()] = true;
         true
+    }
+
+    /// Into the special list's first empty slot unless it is listed (0x004a0b50 / 0x004a0b80).
+    fn list_add(&mut self, s: SpecialId) {
+        if !self.lists(s) {
+            if let Some(slot) = self.list.iter_mut().find(|x| x.is_none()) {
+                *slot = Some(s);
+            }
+        }
     }
 
     /// The special is in the special list (given once, maybe used up since).
     pub fn lists(&self, s: SpecialId) -> bool {
-        self.listed[s.index()]
+        self.list.contains(&Some(s))
     }
 
     /// One special used up (unless the infinite ammo cheat, Game+0x175, says otherwise: the caller's choice).
@@ -375,15 +390,15 @@ impl Arsenal {
 
     /// The specials with some left, in slot order (the special list: 0x004a1640 counts them for the HUD's arrows).
     pub fn specials(&self) -> impl Iterator<Item = (SpecialId, u32)> + '_ {
-        SpecialId::ALL.into_iter().map(|s| (s, self.count(s))).filter(|(_, n)| *n > 0)
+        self.list.iter().flatten().map(|&s| (s, self.count(s))).filter(|(_, n)| *n > 0)
     }
 
-    /// The next (+1) / previous (-1) special with some left after the one in hand, wrapping; None when there is no
-    /// other (0x004a0bb0 / 0x004a0be0 on the special list).
+    /// The next (+1) / previous (-1) special with some left after the one in hand, wrapping over the special list's
+    /// slots; None when there is no other (0x004a0bb0 / 0x004a0be0 -> 0x004a0c10 / 0x004a0c70).
     pub fn next_special(&self, dir: i32) -> Option<SpecialId> {
-        let n = SpecialId::ALL.len() as i32;
-        let at = self.special.index() as i32;
-        (1..n).map(|k| SpecialId::ALL[(at + dir * k).rem_euclid(n) as usize]).find(|s| self.count(*s) > 0)
+        let n = self.list.len() as i32;
+        let at = self.list.iter().position(|x| *x == Some(self.special)).unwrap_or(0) as i32;
+        (1..n).filter_map(|k| self.list[(at + dir * k).rem_euclid(n) as usize]).find(|s| *s != self.special && self.count(*s) > 0)
     }
 
     /// Empties every slot (a level's new player, 0x00475650).
@@ -429,7 +444,7 @@ mod tests {
         assert_eq!(a.step(-1), Some(0));
     }
 
-    /// Specials cycle among the ones with some left.
+    /// Specials cycle among the ones with some left, in the order they were given (the special list's slots).
     #[test]
     fn special_cycle() {
         let mut a = Arsenal::default();
@@ -437,8 +452,14 @@ mod tests {
         assert_eq!(a.next_special(1), None);
         a.set_count(SpecialId::BlackHole, 1);
         a.set_count(SpecialId::GuyFawkes, 1);
+        assert_eq!(a.next_special(1), Some(SpecialId::BlackHole));
+        assert_eq!(a.next_special(-1), Some(SpecialId::GuyFawkes));
+        // used up, it keeps its slot; set to 0 it leaves it and the next one given takes the empty slot
+        assert!(a.spend(SpecialId::BlackHole));
         assert_eq!(a.next_special(1), Some(SpecialId::GuyFawkes));
-        assert_eq!(a.next_special(-1), Some(SpecialId::BlackHole));
+        a.set_count(SpecialId::BlackHole, 0);
+        a.set_count(SpecialId::TopsyTurvy, 1);
+        assert_eq!(a.specials().map(|(s, _)| s).collect::<Vec<_>>(), [SpecialId::StickyBomb, SpecialId::TopsyTurvy, SpecialId::GuyFawkes]);
     }
 
     /// The ammo add and the set: -2 fills, n splits into clip and spare.
