@@ -8,8 +8,11 @@
 import bevy_pbr::render::forward_io::VertexOutput;
 
 struct FxLayerParams {
-    // xy: layer 1 offset, zw: layer 2 offset
-    offsets: vec4<f32>,
+    // the uv transforms' rows of layers 1 and 2: u' = x.x u + x.y v + x.z, v' = y.x u + y.y v + y.z
+    uv1_x: vec4<f32>,
+    uv1_y: vec4<f32>,
+    uv2_x: vec4<f32>,
+    uv2_y: vec4<f32>,
     // rgb: the material colour (emissive: the domes are unlit), w: the fade / texture factor
     colour: vec4<f32>,
     // x, y, z: t0, t1, t2 stored premultiplied (the export's `premultiplied`: DXT2 in the bank)
@@ -36,8 +39,9 @@ fn colour_of(s: vec4<f32>, premultiplied: f32) -> vec3<f32> {
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
-    let s0 = textureSample(t0, s0, in.uv + p.offsets.xy);
-    let s1 = textureSample(t1, s1, in.uv + p.offsets.zw);
+    let uv = vec3(in.uv, 1.0);
+    let s0 = textureSample(t0, s0, vec2(dot(p.uv1_x.xyz, uv), dot(p.uv1_y.xyz, uv)));
+    let s1 = textureSample(t1, s1, vec2(dot(p.uv2_x.xyz, uv), dot(p.uv2_y.xyz, uv)));
     let m = textureSample(t2, s2, in.uv);
     let a = colour_of(s0, p.flags.x) * p.colour.rgb;
     let b = colour_of(s1, p.flags.y) * p.colour.rgb;

@@ -25,11 +25,34 @@ pub struct FxLayerMaterial {
 
 #[derive(bevy::render::render_resource::ShaderType, Debug, Clone, Default)]
 pub struct FxLayerParams {
-    /// uv offsets of layers 1 (xy) and 2 (zw): the 0x40 scrolls
-    pub offsets: Vec4,
+    /// the uv transforms of layers 1 (t0) and 2 (t1), as rows (u' = x.x u + x.y v + x.z; v' likewise with y): the
+    /// 0x40 scrolls, 0x41..0x44 scales and 0x45 rotations (TexAnim_SetStages 0x004196f0, a matrix per stage)
+    pub uv1_x: Vec4,
+    pub uv1_y: Vec4,
+    pub uv2_x: Vec4,
+    pub uv2_y: Vec4,
     pub colour: Vec4,
     /// t0 / t1 / t2 stored premultiplied (1) or not (0)
     pub flags: Vec4,
+}
+
+impl FxLayerParams {
+    pub fn new(colour: Vec4, flags: Vec4) -> Self {
+        let mut p = FxLayerParams { colour, flags, ..default() };
+        p.set_uv(0, bevy::math::Affine2::IDENTITY);
+        p.set_uv(1, bevy::math::Affine2::IDENTITY);
+        p
+    }
+    /// Layer `stage` (0 or 1)'s uv transform.
+    pub fn set_uv(&mut self, stage: usize, m: bevy::math::Affine2) {
+        let x = Vec4::new(m.matrix2.x_axis.x, m.matrix2.y_axis.x, m.translation.x, 0.0);
+        let y = Vec4::new(m.matrix2.x_axis.y, m.matrix2.y_axis.y, m.translation.y, 0.0);
+        if stage == 0 {
+            (self.uv1_x, self.uv1_y) = (x, y);
+        } else {
+            (self.uv2_x, self.uv2_y) = (x, y);
+        }
+    }
 }
 
 impl Material for FxLayerMaterial {
