@@ -285,7 +285,7 @@ fn fly(
     mut blasts: MessageWriter<crate::fx::Explode>,
     mut scare: MessageWriter<crate::ai::StickyStuck>,
     mut interests: ResMut<crate::ai::Interests>,
-    mut objects: Query<&mut crate::fx::Destructible>,
+    (mut objects, rigs): (Query<&mut crate::fx::Destructible>, Query<(Entity, &crate::ragdoll::Ragdoll)>),
 ) {
     let dt = time.delta_secs();
     for (e, mut b, mut t) in &mut bombs {
@@ -424,7 +424,11 @@ fn fly(
                 }
                 continue;
             }
-            let obj = owner.or_else(|| placed.iter().find(|(_, pl)| pl.collider == Some(physics.main_body(body))).map(|(pe, _)| pe));
+            // the object owning the body hit: a character, a ragdolled one's corpse (its parts: guess, the original's
+            // ragdoll bodies belong to the object as its capsule did; sticky_dead_target), a placed object
+            let obj = owner
+                .or_else(|| crate::ragdoll::owner_of(&physics, &rigs, body))
+                .or_else(|| placed.iter().find(|(_, pl)| pl.collider == Some(physics.main_body(body))).map(|(pe, _)| pe));
             hit = Some((obj, at));
             break;
         }

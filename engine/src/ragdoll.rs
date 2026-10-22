@@ -39,6 +39,12 @@ pub struct Ragdoll {
     pub bones: Vec<usize>,
 }
 
+/// The character whose ragdoll `body` is a part of (its bodies are not in Physics::bodies: they drive bones, not the
+/// entity's transform).
+pub fn owner_of(physics: &Physics, rigs: &Query<(Entity, &Ragdoll)>, body: oxijolt::prelude::BodyId) -> Option<Entity> {
+    rigs.iter().find(|(_, rd)| physics.world.ragdoll(rd.id).is_ok_and(|r| r.body_ids().contains(&body))).map(|(e, _)| e)
+}
+
 pub struct RagdollPlugin;
 
 impl Plugin for RagdollPlugin {
