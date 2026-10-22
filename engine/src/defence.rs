@@ -24,8 +24,9 @@
 //!   grunt_turret_attack, _1 .. _5 by a running count), Game+0xdcd is set (the success trigger is ignored meanwhile),
 //!   and failure_mode_duration (+0x830, 5 s) later the turret is removed (vt+0xdc 0x0049ac60): level state 3.
 //!
-//! Hooks outside this file: turret.rs (`Mounted` kept for a mount that is not a StigTurret), main.rs (plugin), and the
-//! player / camera / hud / bot modules already follow `turret::Mounted`.
+//! Hooks outside this file: turret.rs (`Mounted` kept for a mount that is not a StigTurret), main.rs (plugin), army.rs
+//! (`ArmyGrunt::in_script`: the grunts the turret runs over), and the player / camera / hud / bot modules already follow
+//! `turret::Mounted`.
 
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
@@ -141,6 +142,20 @@ pub struct BaseTurret {
     reload: Option<bool>,
     /// the trolley's matrix (game space): wall * T(track node), no aim (0x0049b030: base * +0x7a8)
     trolley_world: Mat4,
+    /// min_non_locking (+0x820, 0) and max_non_locking (+0x81c, 5): how many machine-gun rounds go to the crosshair
+    /// point while lock-on candidates are in view before the gun locks onto one of them; the count left (+0x818)
+    non_locking: (i32, i32),
+    lock_countdown: i32,
+    /// the targets' positions last frame and their velocities (0x00458000), for the machine gun's lead (0x004580a0)
+    target_motion: std::collections::HashMap<Entity, (Vec3, Vec3)>,
+    /// the window shield's health last seen: a drop is a glass hit (0x0049aeb0: fx_glass_bullet_hole)
+    shield_seen: Option<f32>,
+    /// the glass hits so far (the playtest log)
+    glass_hits: u32,
+    /// the fake launchers' reload anims set at load (0x0049a6a0) are still to play
+    load_reloads: bool,
+    /// removed (vt+0xdc 0x0049ac60): the helpers released, the player dismounted
+    removed: bool,
 }
 
 impl DefenceState {
@@ -208,7 +223,7 @@ impl Plugin for DefencePlugin {
         app.init_level_resource::<DefenceState>()
             .init_level_resource::<DefenceDebug>()
             .add_message::<DefenceCommand>()
-            .add_systems(Update, (setup, start, debug_commands, (ride, launchers, overrun, failure_mob, boarders, log).chain().after(crate::turret::ride).after(crate::hud_state)).chain().run_if(crate::playing))
+            .add_systems(Update, (setup, start, debug_commands, (window, ride, run_over, launchers, overrun, failure_mob, boarders, log).chain().after(crate::turret::ride).after(crate::hud_state)).chain().run_if(crate::playing))
             .add_systems(PostUpdate, pose.after(crate::skin::AnimateSet).before(TransformSystems::Propagate));
     }
 }
@@ -235,6 +250,7 @@ fn setup(
     mission: Option<Res<crate::mission::Mission>>,
     mut done: crate::levelreset::PerLevel<(Option<crate::scene::SceneFile>, std::collections::HashSet<Entity>)>,
     mut kit: crate::army::ModelKit,
+    mut rng: ResMut<crate::fx::FxStats>,
 ) {
     let (scene, seen) = done.get();
     if mission.is_none() || q.iter().all(|(e, ..)| seen.contains(&e)) {
@@ -312,6 +328,7 @@ fn setup(
             _ => None,
         };
         let trolley = helper(&mut kit, &mut commands, "base_turret_trolley");
+        let non_locking = (p.i("min_non_locking", 0) as i32, p.i("max_non_locking", 5) as i32);
         commands.entity(e).insert(BaseTurret {
             tag,
             yaw: 0.0,
@@ -359,6 +376,14 @@ fn setup(
             homing_shown: false,
             reload: None,
             trolley_world: Mat4::IDENTITY,
+            non_locking,
+            // +0x818 = min + ((rand * (max - min + 1)) >> 15)
+            lock_countdown: non_locking.0 + (rng.rand() * (non_locking.1 - non_locking.0 + 1) as f32) as i32,
+            target_motion: default(),
+            shield_seen: None,
+            glass_hits: 0,
+            load_reloads: true,
+            removed: false,
         });
         info!("EVENT defence: base turret {} (tag {tag}) on wall {} track {}", id.0, wall.id, data.templates.get(&wall.template).and_then(|t| t.default_anim.clone()).unwrap_or_default());
     }
@@ -519,7 +544,80 @@ fn clamp(v: f32, (lo, hi): (f32, f32)) -> f32 {
     if lo == 0.0 || hi == 0.0 { v } else { v.clamp(lo, hi) }
 }
 
-/// The mounted turret's update (0x0049b030), the window's shield and the start-in-turret hold on Roman.
+/// The turret's glass window (0x0049aeb0): the shield it puts on Roman takes the hits while it stands; each hit puts
+/// fx_glass_bullet_hole on a random one of its 32 hit nodes (sprintf "Ref_hit_%d", (rand << 5) >> 15: the nodes of
+/// its anim base_turret_l5_m5_window); used up, it bursts (fx_death of p_base_turret_l5_m5_window) and is released.
+fn window(
+    mut commands: Commands,
+    mounted: Res<crate::turret::Mounted>,
+    mut turrets: Query<&mut BaseTurret>,
+    roman: Query<(Entity, Option<&crate::fx::DamageShield>), With<crate::player::Roman>>,
+    windows: Query<&GlobalTransform>,
+    mut fx: MessageWriter<crate::fx::StartFx>,
+    mut rng: ResMut<crate::fx::FxStats>,
+    mut kit: crate::army::ModelKit,
+) {
+    let Some(mut t) = mounted.0.and_then(|m| turrets.get_mut(m).ok()) else { return };
+    let (Ok((re, Some(shield))), Some(w)) = (roman.single(), t.window) else { return };
+    let Ok(wt) = windows.get(w) else { return };
+    let seen = t.shield_seen.replace(shield.health).unwrap_or(shield.health);
+    if shield.health < seen {
+        let node = format!("ref_hit_{}", (rng.rand() * 32.0) as u32);
+        let at = kit.anim("base_turret_l5_m5_window").and_then(|a| a.translation(&node, 0.0)).unwrap_or(Vec3::ZERO);
+        let (_, rotation, _) = wt.to_scale_rotation_translation();
+        fx.write(crate::fx::StartFx { name: "fx_glass_bullet_hole".into(), at: wt.transform_point(at), rotation, follow: Some(w), position_only: false });
+        t.glass_hits += 1;
+    }
+    if shield.health <= 0.0 {
+        fx.write(crate::fx::StartFx { name: "fx_explosion_turret_window".into(), at: wt.translation(), rotation: Quat::IDENTITY, follow: None, position_only: false });
+        commands.entity(w).despawn();
+        commands.entity(re).remove::<crate::fx::DamageShield>();
+        t.window = None;
+        info!("EVENT defence: the turret's window is shot out");
+    }
+}
+
+/// The base turret's machine-gun aim (0x0049bf20): the object under the crosshair when it is a character (+0x424 bit
+/// 0x40, set by the AI classes' slot 7 0x00425df0); else, with lock-on candidates in view (the turret's multi-lock pass,
+/// weapons/targeting.rs), the crosshair point for a random min..max_non_locking rounds (+0x818), then a random one of
+/// the candidates on every round until none is in view (which re-arms the count). A moving character is led for the
+/// bullet's speed (0x004580a0). Returns the aim point.
+fn mgun_aim(t: &mut BaseTurret, xhair: &crate::hud::Crosshair, targets: &crate::weapons::targeting::Targets, is_character: impl Fn(Entity) -> bool, muzzle: Vec3, speed: f32, rng: &mut crate::fx::FxStats) -> Option<Vec3> {
+    let cands = &targets.list[..targets.list.len().min(4)];
+    let target = match xhair.object.filter(|&o| is_character(o)) {
+        Some(o) => Some((o, cands.iter().find(|c| c.entity == o).map(|c| c.point).or(xhair.point)?)),
+        None if cands.is_empty() => {
+            t.lock_countdown = t.non_locking.0 + (rng.rand() * (t.non_locking.1 - t.non_locking.0 + 1) as f32) as i32;
+            None
+        }
+        None => {
+            t.lock_countdown -= 1;
+            (t.lock_countdown < 0).then(|| cands[((rng.rand() * cands.len() as f32) as usize).min(cands.len() - 1)]).map(|c| (c.entity, c.point))
+        }
+    };
+    match target {
+        Some((e, point)) => {
+            let vel = t.target_motion.get(&e).map_or(Vec3::ZERO, |m| m.1);
+            Some(crate::ai::aim::lead_point(point, vel, muzzle, speed))
+        }
+        None => xhair.point,
+    }
+}
+
+/// The targets' velocities (0x00458000) from their positions frame to frame: the crosshair's object and the lock-on
+/// candidates.
+fn track_targets(t: &mut BaseTurret, xhair: &crate::hud::Crosshair, targets: &crate::weapons::targeting::Targets, positions: &Query<&GlobalTransform>, dt: f32) {
+    let mut seen = std::collections::HashMap::new();
+    for e in targets.list.iter().map(|c| c.entity).chain(xhair.object) {
+        let Ok(p) = positions.get(e) else { continue };
+        let p = p.translation();
+        let vel = t.target_motion.get(&e).filter(|_| dt > 0.0).map_or(Vec3::ZERO, |m| (p - m.0) / dt);
+        seen.insert(e, (p, vel));
+    }
+    t.target_motion = seen;
+}
+
+/// The mounted turret's update (0x0049b030) and the start-in-turret hold on Roman.
 #[allow(clippy::too_many_arguments)]
 fn ride(
     mut commands: Commands,
@@ -527,33 +625,24 @@ fn ride(
     (ctl, motion, look, playtest, opts): (Res<crate::input::Controls>, Res<AccumulatedMouseMotion>, Res<crate::player::LookDelta>, Option<Res<crate::playtest::Playtest>>, Res<crate::options::GameOptions>),
     mounted: Res<crate::turret::Mounted>,
     mut turrets: Query<(Entity, &mut BaseTurret, &mut crate::skin::Animator, &mut Transform)>,
-    mut roman: Query<(Entity, &mut crate::player::Roman, &mut Transform, &crate::fx::Health, &mut Visibility, Option<&crate::fx::DamageShield>), Without<BaseTurret>>,
+    mut roman: Query<(Entity, &mut crate::player::Roman, &mut Transform, &crate::fx::Health, &mut Visibility), Without<BaseTurret>>,
     (mut physics, data, xhair): (NonSendMut<crate::physics::Physics>, Res<crate::gamedata::GameData>, Res<crate::hud::Crosshair>),
     (mut sounds, mut stop, mut fx, mut triggers): (MessageWriter<crate::audio::PlaySound>, MessageWriter<crate::audio::StopSound>, MessageWriter<crate::fx::StartFx>, MessageWriter<crate::mission::SendTrigger>),
     (mut stats, mut hud, army): (ResMut<crate::player::PlayerStats>, ResMut<crate::hud::HudState>, Res<crate::army::Army>),
     (joints, mut upgrades): (Query<&GlobalTransform>, MessageReader<crate::icobject::TurretUpgrade>),
     mut kit: crate::army::ModelKit,
     dbg: Res<DefenceDebug>,
+    (targets, characters, mut rng): (Res<crate::weapons::targeting::Targets>, Query<(), With<crate::ai::Grunt>>, ResMut<crate::fx::FxStats>),
 ) {
     let dt = time.delta_secs();
     let now = time.elapsed_secs();
     let Some(me) = mounted.0 else { return };
     let Ok((te, mut t, mut a, mut tt)) = turrets.get_mut(me) else { return };
-    let Ok((re, mut r, mut rt, health, mut vis, shield)) = roman.single_mut() else { return };
+    let Ok((re, mut r, mut rt, health, mut vis)) = roman.single_mut() else { return };
+    track_targets(&mut t, &xhair, &targets, &joints, dt);
     let track = kit.anim(&t.track_anim);
     let skeleton = a.skeleton.clone();
     let to_engine = Mat4::from_quat(crate::level::game_to_engine());
-    // the window shot out (its shield used up): it bursts (fx_death of p_base_turret_l5_m5_window)
-    if let (Some(w), Some(s)) = (t.window, shield) {
-        if s.health <= 0.0 {
-            let at = joints.get(w).map(|g| g.translation()).unwrap_or(tt.translation);
-            fx.write(crate::fx::StartFx { name: "fx_explosion_turret_window".into(), at, rotation: Quat::IDENTITY, follow: None, position_only: false });
-            commands.entity(w).despawn();
-            commands.entity(re).remove::<crate::fx::DamageShield>();
-            t.window = None;
-            info!("EVENT defence: the turret's window is shot out");
-        }
-    }
     let dead = r.dead || health.0 <= 0.0;
     // the intro: the turret's anim plays, the camera follows its node; no control until it ends
     let mut intro_on = false;
@@ -600,11 +689,12 @@ fn ride(
         commands.entity(anchor).despawn();
     }
     let can = !intro_on && !dead;
-    // side movement along the wall (input axes 2 / 3)
-    let side_in = if can { ctl.axis(Act::Move).x } else { 0.0 };
+    // side movement along the wall (input axes 2 / 3, Controls_AxisMaxCapped 0x00414aa0 scaled by side_accel: the
+    // stick's deflection past its dead zone (Controls) sets the acceleration; keys give full)
+    let side_in = if can { ctl.axis(Act::Move).x.clamp(-1.0, 1.0) } else { 0.0 };
     let (smax, sacc, sstop) = t.side;
-    if side_in.abs() > 0.1 {
-        t.side_speed = (t.side_speed + side_in.signum() * sacc * dt).clamp(-smax, smax);
+    if side_in != 0.0 {
+        t.side_speed = (t.side_speed + side_in * sacc * dt).clamp(-smax, smax);
     } else {
         let s = t.side_speed;
         t.side_speed = if s > 0.0 { (s - sstop * dt).max(0.0) } else { (s + sstop * dt).min(0.0) };
@@ -705,8 +795,11 @@ fn ride(
                 let m = bone_world(em);
                 let from = m.w_axis.truncate();
                 let fwd = engine.transform_vector3(Vec3::NEG_Y).normalize_or(Vec3::NEG_Z);
-                let dir = xhair.point.map(|q| (q - from).normalize_or(fwd)).filter(|d| d.dot(fwd) > 0.0).unwrap_or(fwd);
                 let bullet = data.props(&t.projectile);
+                // the bullet's speed as Projectile_Load gives it (0x0047e360; player.rs spawn_projectile)
+                let speed = bullet.f("speed", 300.0) * 3.0;
+                let aim = mgun_aim(&mut t, &xhair, &targets, |e| characters.contains(e), from, speed, &mut rng);
+                let dir = aim.map_or(fwd, |q| (q - from).normalize_or(fwd));
                 crate::player::spawn_projectile(&mut commands, &mut fx, &bullet, from, dir, true, Some(re));
                 stats.shots += 1;
             }
@@ -726,7 +819,9 @@ fn ride(
         a.play(0, "base_turret_l5_m5_ref", true, crate::skin::Mask::All);
     }
     if can && (ctl.pressed(Act::Special) || dbg.fire) {
-        // ready (0x0049be70): mortar_special_recycle_time while the homing launcher shows, else mortar_recycle_time
+        // ready (0x0049be70): every check holds the muzzle fx (+0x530 |= 0x40, &= ~0x80); mortar_special_recycle_time
+        // while the homing launcher shows, else mortar_recycle_time
+        t.fx_flags = (t.fx_flags | 0x40) & !0x80;
         let wait = if t.homing_shown { t.mortar_recycle.1 } else { t.mortar_recycle.0 };
         if t.last_mortar.is_none_or(|l| now - l > wait) {
             if let Some(em) = t.emitters[2] {
@@ -753,6 +848,38 @@ fn ride(
     }
 }
 
+/// The turret runs over the grunts scaling the wall (0x0049b030; meant for every third frame, but the count +0x824 is
+/// set to count + 1 and then back to 0 whenever count % 3 == 0, so it stays 0 and the test runs every frame): an AI of the AI list
+/// (World+0xe7c; vt+0x10c) in an IC move (0x00426630: +0xa18 bit 0; the army's ic_* ladder and wall-scale scripts)
+/// within 15 of the turret across (squared < 225) and 10 up or down (30 while the turret stands still) turns the side
+/// speed round, shakes the camera (0x0040fac0: 0.5 for 1 s) and takes the turret's hit of 300000 (flags 0x200, impact
+/// 1000 along the turret's facing): dead.
+fn run_over(
+    mounted: Res<crate::turret::Mounted>,
+    mut turrets: Query<(&mut BaseTurret, &Transform)>,
+    mut grunts: Query<(&mut crate::ai::Grunt, &mut crate::fx::Health, &GlobalTransform, Option<&crate::army::ArmyGrunt>), Without<crate::player::Roman>>,
+    mut shake: MessageWriter<crate::camera::ShakeCamera>,
+) {
+    let Some((mut t, tt)) = mounted.0.and_then(|m| turrets.get_mut(m).ok()) else { return };
+    let reach_z = if t.side_speed == 0.0 { 30.0 } else { 10.0 };
+    let at = tt.translation;
+    for (mut g, mut h, gt, army) in &mut grunts {
+        let scripted = g.mind == crate::ai::Mind::Scripted || army.is_some_and(|a| a.in_script());
+        if !scripted || g.mind == crate::ai::Mind::Dead || h.0 <= 0.0 {
+            continue;
+        }
+        let d = gt.translation() - at;
+        if d.x * d.x + d.z * d.z >= 225.0 || d.y.abs() >= reach_z {
+            continue;
+        }
+        t.side_speed = -t.side_speed;
+        shake.write(crate::camera::ShakeCamera { amplitude: 0.5, secs: 1.0 });
+        h.0 -= 300000.0;
+        g.cartoon = false;
+        info!("EVENT defence: the turret runs over a grunt on the wall");
+    }
+}
+
 /// The fake launchers and the trolley as the turret's state has them: the shown launcher, its reload anim after a
 /// shell, the trolley on the track.
 fn launchers(
@@ -766,6 +893,17 @@ fn launchers(
             }
         }
         let Some((mortar, homing)) = t.launchers else { continue };
+        // at load (0x0049a6a0) each launcher is set to its reload anim, played once and held (the homing one hidden)
+        if t.load_reloads {
+            let mut done = true;
+            for (e, anim) in [(mortar, "base_mortar_reload"), (homing, "base_homing_reload")] {
+                match parts.get_mut(e) {
+                    Ok((_, _, Some(mut a))) => a.play(0, anim, false, crate::skin::Mask::All),
+                    _ => done = false,
+                }
+            }
+            t.load_reloads = !done;
+        }
         let shown = t.homing_shown;
         for (e, on) in [(mortar, !shown), (homing, shown)] {
             if let Ok((mut v, ..)) = parts.get_mut(e) {
@@ -835,12 +973,13 @@ fn board(commands: &mut Commands, kit: &mut crate::army::ModelKit, data: &crate:
 fn failure_mob(
     mut commands: Commands,
     time: Res<Time>,
-    mounted: Res<crate::turret::Mounted>,
+    mut mounted: ResMut<crate::turret::Mounted>,
     mut q: Query<(Entity, &mut BaseTurret)>,
     mut state: ResMut<DefenceState>,
     mission: Option<ResMut<crate::mission::Mission>>,
     data: Res<crate::gamedata::GameData>,
     mut kit: crate::army::ModelKit,
+    roman: Query<(Entity, &mut Visibility), With<crate::player::Roman>>,
 ) {
     let Some(mut mission) = mission else { return };
     let Some((e, mut t)) = mounted.0.and_then(|m| q.get_mut(m).ok()) else {
@@ -866,9 +1005,30 @@ fn failure_mob(
         t.failure_left -= time.delta_secs();
         if t.failure_left <= 0.0 {
             mission.failure_mob = false;
+            remove(&mut commands, &mut t, &mut mounted, roman);
             mission.fail_state(3, "the failure mob took the base turret");
             info!("EVENT defence: the turret is lost to the failure mob");
         }
+    }
+}
+
+/// The turret's removal (vt+0xdc 0x0049ac60): the player dismounted (vt+0x17c 0x0049bd80: zoomed out, detached where he
+/// sits, Game+0xac8 cleared, shown again: player vt+0x134(1)), the window, the trolley and the fake launchers released
+/// (gone); the turret's model stays. The caller sets level state 3.
+fn remove(commands: &mut Commands, t: &mut BaseTurret, mounted: &mut crate::turret::Mounted, roman: Query<(Entity, &mut Visibility), With<crate::player::Roman>>) {
+    t.removed = true;
+    t.zoomed = false;
+    let launchers = t.launchers.take().map(|(m, h)| [m, h]).into_iter().flatten();
+    for e in t.window.take().into_iter().chain(t.trolley.take()).chain(launchers) {
+        commands.entity(e).despawn();
+    }
+    if let Some(a) = t.fx_anchor.take() {
+        commands.entity(a).despawn();
+    }
+    mounted.0 = None;
+    for (re, mut vis) in roman {
+        commands.entity(re).remove::<crate::fx::DamageShield>();
+        *vis = Visibility::Inherited;
     }
 }
 
@@ -960,6 +1120,9 @@ fn log(
         "pitch": t.pitch.to_degrees(),
         "zoomed": t.zoomed,
         "window": t.window.is_some(),
+        "removed": t.removed,
+        "glass_hits": t.glass_hits,
+        "lock_countdown": t.lock_countdown,
         "overrun": t.overrun,
         "upgrade": t.upgrade,
         "homing_shown": t.homing_shown,

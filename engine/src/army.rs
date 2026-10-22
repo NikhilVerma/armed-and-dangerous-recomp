@@ -47,6 +47,11 @@ impl ArmyGrunt {
     pub fn busy(&self) -> bool {
         self.script.is_some() || self.breach
     }
+
+    /// Running an ic_* script: in an IC move (0x00426630, +0xa18 bit 0; the base turret runs him over, defence.rs)
+    pub fn in_script(&self) -> bool {
+        self.script.is_some()
+    }
 }
 
 /// A real grunt released by a platoon: its orders (+0x558 / +0x55c marker tags, the ladder spline) and the ladder

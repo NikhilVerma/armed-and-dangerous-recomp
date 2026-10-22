@@ -43,7 +43,12 @@ Fire is the machine gun (base_turret_mgun_bullet from ref_shoot_00 / ref_shoot_0
 mortar (base_mortar; base_homing during the 10 s ammo upgrade; 4 s / 1 s recycle; lobbed at the crosshair point:
 shell.rs), Aim toggles the zoom camera. The intro anim (intro_anim_name) flies the camera in (Camera_normal track),
 its notes send triggers 90..94 (the flak on lev_5_m5). The glass window (40) takes hits first (fx::DamageShield);
-then Roman takes them, halved while mounted. Overrun (the turret's "overrun" trigger, 0x0049bc90): every 45..75 s a
+each glass hit puts fx_glass_bullet_hole on a random ref_hit_N node of the window's anim (0x0049aeb0); then Roman takes
+them, halved while mounted. The machine gun (0x0049bf20) fires at the crosshair point; with lock-on candidates in view
+(the turret's multi-lock pass) it locks onto a random one after min..max_non_locking rounds (0..5), every round until
+none is in view; a character under the crosshair is its target; moving targets are led (0x004580a0). The turret runs
+over the grunts scaling the wall within 15 across and 10 (30 standing) up or down: side speed reversed, a camera shake,
+300000 damage (0x0049b030; the "every third frame" count never leaves 0: every frame). Overrun (the turret's "overrun" trigger, 0x0049bc90): every 45..75 s a
 grunt_regular jumps onto the turret (0x0042d8f0: grunt_turret_jump_on / _1 alternately, AI state 0x67: attached,
 off every AI list, removed when the anim ends; `TurretBoarder`).
 
@@ -90,9 +95,11 @@ follows the shown launcher. Playtest defence_launchers.
   sent, no body). The carried ladder (0x004298a0 / 0x0042d650, anim 0x31 grunt_ladder_run) and the planted one
   (mover_ladder_plant from the grunt's matrix + (0.458, 24.015, 12.894)) are drawn. Test: ladders_l1m4 (in 110 s: 8
   ladders carried, 7 planted, 41 scales, over the wall by both). The pre-success retreat is ai/retreat.rs (0x0042db00).
-- Not ported: the turret running over grunts on the wall (every third frame, 0x0049b030), the bullseye decal, the base
-  mgun's lock-on to target-list candidates (min / max_non_locking): it fires at the crosshair point. The turret's
-  removal at the failure mob's end does not despawn the turret (the failure page follows at once).
+- The turret's removal at the failure mob's end (0x0049ac60): Roman dismounted where he sits and shown, the window,
+  trolley and fake launchers gone, the turret model stays; then level state 3. Not reachable in the shipped data: the
+  turret's own death (0x0049afe0 / the dying countdown in 0x0049b030: death_anim_name, death_fx_delay, the husk) needs
+  its health to run out, which only happens with no player riding it (0x00498400 gives the player the hits), and the
+  scripted-camera return (camera mode 2: no code sets it). mortar_bullseye_tga is read at load and never used.
 - The goliath in a base defence (goliath.rs `hurt`, 0x00434180): a hit above hit_level_2 (25) on its scripted walk while
   the breach is shut plays goliath_hit_med (blend 0.25) and GOL50005_Hurt and holds its walk until the anim ends; the
   turret's machine gun keeps stalling it. Playtest goliath_hurt.
@@ -102,6 +109,7 @@ follows the shown launcher. Playtest defence_launchers.
 - The goliath's fireball flight time (1.5 s) and its range (scan_distance 350) are guesses; the stand time is 1..3 s
   (0x0046e2c0(1, 3)).
 - The drops fall at their "gravity" 0.5 (the body's gravity factor) with the speed trap's linear cast (movable.rs);
-  token_or_health always drops health.
+  token_or_health drops the token while the level's token is still to find, then health (ai_05.cpp:1631-1634); a shot
+  shootable_token gives the token reward (on_death_unlock_level, game_03.cpp:938-948; pickup.rs `award_token`).
 - Needs captures of the original (the human's OK for screen time): the intro camera, the army's look and pace, the
   turret's aim rates, a full lev_1_m4 to win and to failure.
