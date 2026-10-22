@@ -877,6 +877,10 @@ pub struct Grunt {
     /// the fling of a blast that killed him (Character_GoRagdoll 0x00431310: a record with an owner and an impact
     /// over 10050 throws the body along its direction at impact x 0.15 on his 80 kg), units/s, engine axes
     pub blast_fling: Option<Vec3>,
+    /// the ragdoll impulse of a killing record that is no blast (GoRagdoll 0x00431310's ragdoll branch: the record's
+    /// direction +0x9f8 and amount +0xa08, taken as the knock's direction x amount x 0.15 on 80 kg, units/s): the
+    /// mounted gun's kickout (turret.rs, 0x00498400)
+    pub death_push: Option<Vec3>,
     /// hit_level_1 / hit_level_2 (+0x9e8 / +0x9ec): the damage limits of the small and medium hit reactions
     pub hit_level_1: f32,
     pub hit_level_2: f32,
@@ -1582,6 +1586,7 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
         turning: false,
         last_hit: 0.0,
         blast_fling: None,
+        death_push: None,
         hit_level_1: p.f("hit_level_1", 10.0),
         hit_level_2: p.f("hit_level_2", 25.0),
         hit: None,
@@ -5397,9 +5402,11 @@ fn die(
             let req = g.speech.death_line(&voices, &mut stop, req);
             sounds.write(req);
         }
-        // a killing blast's fling (GoRagdoll 0x00431310's impact branch), else the body's own motion
+        // a killing blast's fling (GoRagdoll 0x00431310's impact branch), else a killing record's ragdoll impulse, else
+        // the body's own motion
         let fling = g.blast_fling.take();
-        let mut push = fling.unwrap_or_else(|| physics.world.body(body.id).map(|b| bv(b.linear_velocity())).unwrap_or(Vec3::ZERO) / physics.meters_per_unit);
+        let record = g.death_push.take();
+        let mut push = fling.or(record).unwrap_or_else(|| physics.world.body(body.id).map(|b| bv(b.linear_velocity())).unwrap_or(Vec3::ZERO) / physics.meters_per_unit);
         if let Some(f) = fling {
             ai_stats.blast_flings += 1;
             ai_stats.max_fling = ai_stats.max_fling.max(f.length());

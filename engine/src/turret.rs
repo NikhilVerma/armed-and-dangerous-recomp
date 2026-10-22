@@ -60,7 +60,10 @@ pub struct Turret {
     radius: f32,
     recycle: f32,
     projectile: String,
-    muzzle_fx: Option<String>,
+    /// the muzzle fx by occupant: StigTurret's flash 0x00497fd0 takes muzzle_fx_name for anyone; the forge cannon's
+    /// 0x0049a5c0 mortar_muzzle_fx_name (+0x6e8) for the player, ai_muzzle_fx_name (+0x4e0) for an AI gunner
+    player_muzzle_fx: Option<String>,
+    ai_muzzle_fx: Option<String>,
     /// bones (skeleton indices): pivot (the yaw pivot when the gun has a pitch pivot of its own), emitter, muzzle,
     /// player, exit
     pivot: usize,
@@ -76,6 +79,8 @@ pub struct Turret {
     rapid_fire: bool,
     /// a fire anim to start (turret_anims)
     recoil: bool,
+    /// the default anim to restart (the mount, 0x00498a80: 0x00408e30 flags 0x81)
+    restart_rest: bool,
     emitter: usize,
     muzzle: usize,
     seat: usize,
@@ -113,7 +118,6 @@ pub struct Turret {
 struct Kickout {
     pct: f32,
     stayout: f32,
-    #[allow(dead_code)]
     impact: f32,
     fx: Option<String>,
     fx_bone: Option<usize>,
@@ -177,18 +181,30 @@ impl Turret {
         (gt.to_matrix() * bone_model(&a.skeleton, self.pivot, &[])).transform_vector3(Vec3::NEG_Y)
     }
 
-    /// A shot's muzzle flash (vt+0x144 0x00497fd0 with rapid_fire): one held fx on the muzzle bone, kept while shots
-    /// come (flag 0x40), released two updates after the last (0x00497ed0).
+    /// The muzzle flash of an AI gunner's shot (vt+0x144: [`Self::muzzle_flash`] with the AI's fx name).
     pub fn flash(&mut self, commands: &mut Commands, fx: &mut MessageWriter<crate::fx::StartFx>, a: &crate::skin::Animator, joints: &Query<&GlobalTransform>) {
+        let name = self.ai_muzzle_fx.clone();
+        self.muzzle_flash(name, commands, fx, a, joints);
+    }
+
+    /// A shot's muzzle flash (vt+0x144). rapid_fire (0x00497fd0, desc {0x24, 8, bone, gun}): one held fx on the muzzle
+    /// bone, kept while shots come (flag 0x40), released two updates after the last (0x00497ed0). Otherwise (0x00497fd0's
+    /// one-shot, and always on the forge cannon, 0x0049a5c0: desc {4, bone, gun}, flag 4 locking the fx's objects to
+    /// the bone) one fx per shot that follows the muzzle bone as the gun turns.
+    fn muzzle_flash(&mut self, name: Option<String>, commands: &mut Commands, fx: &mut MessageWriter<crate::fx::StartFx>, a: &crate::skin::Animator, joints: &Query<&GlobalTransform>) {
+        let (Some(name), Some(&joint)) = (name, a.joints.get(self.muzzle)) else { return };
+        let jm = joints.get(joint).map(|j| j.compute_transform()).unwrap_or_default();
+        if !self.rapid_fire {
+            fx.write(crate::fx::StartFx { name, at: jm.translation, rotation: jm.rotation, follow: Some(joint), position_only: false });
+            return;
+        }
         self.fx_flags = (self.fx_flags | 0x40) & !0x80;
         if self.fx_anchor.is_none() {
-            if let (Some(name), Some(&joint)) = (self.muzzle_fx.clone(), a.joints.get(self.muzzle)) {
-                let anchor = commands.spawn((Transform::IDENTITY, Visibility::default())).id();
-                commands.entity(joint).add_child(anchor);
-                let jm = joints.get(joint).map(|j| j.compute_transform()).unwrap_or_default();
-                fx.write(crate::fx::StartFx { name, at: jm.translation, rotation: jm.rotation, follow: Some(anchor), position_only: false });
-                self.fx_anchor = Some(anchor);
-            }
+            // an anchor of its own on the bone: despawning it releases the held fx (Fx_Release 0x0041d030)
+            let anchor = commands.spawn((Transform::IDENTITY, Visibility::default())).id();
+            commands.entity(joint).add_child(anchor);
+            fx.write(crate::fx::StartFx { name, at: jm.translation, rotation: jm.rotation, follow: Some(anchor), position_only: false });
+            self.fx_anchor = Some(anchor);
         }
     }
 
@@ -246,10 +262,12 @@ fn log_turrets(
 fn damage(
     time: Res<Time>,
     mut turrets: Query<(&mut Turret, &mut crate::fx::Destructible, &GlobalTransform, &crate::skin::Animator)>,
-    mut grunts: Query<(&mut crate::ai::Grunt, &mut crate::fx::Health), Without<Turret>>,
+    mut grunts: Query<(&mut crate::ai::Grunt, &mut crate::fx::Health, &GlobalTransform), Without<Turret>>,
+    roman: Query<Entity, With<crate::player::Roman>>,
     mut fx: MessageWriter<crate::fx::StartFx>,
 ) {
     let dt = time.delta_secs();
+    let player = roman.single().ok();
     for (mut t, mut d, gt, a) in &mut turrets {
         t.stayout = (t.stayout - dt).max(0.0);
         let before = t.last_health.unwrap_or(d.health);
@@ -263,10 +281,14 @@ fn damage(
             };
             let k = &t.kickout;
             if before / d.max_health > k.pct && d.health / d.max_health <= k.pct {
-                // (the record's push, ai_kickout_impact_force along the tilted direction, is not applied: the
-                // grunt's death takes no impulse in the engine yet)
-                if let Ok((mut g, mut h)) = grunts.get_mut(occupant) {
+                // the record (flags 1: no launch): his whole max health, from the player, along (occupant - turret)
+                // normalised with its up then set to 0.7 (as a blast's), ai_kickout_impact_force: below GoRagdoll's
+                // impact threshold, so it is the ragdoll's push, not a throw
+                if let Ok((mut g, mut h, ot)) = grunts.get_mut(occupant) {
+                    let dir = (ot.translation() - gt.translation()).normalize_or_zero();
                     g.last_hit = g.max_health;
+                    g.attacker = player;
+                    g.death_push = Some(crate::fx::fling(dir, k.impact));
                     h.0 -= g.max_health;
                 }
                 if let Some(name) = k.fx.clone() {
@@ -274,7 +296,8 @@ fn damage(
                     fx.write(crate::fx::StartFx { name, at, rotation: Quat::IDENTITY, follow: None, position_only: false });
                 }
                 t.stayout = k.stayout;
-                info!("EVENT turret: the AI gunner {occupant:?} kicked out");
+                let push = grunts.get(occupant).ok().and_then(|(g, ..)| g.death_push).map_or(0.0, |p| p.length());
+                info!("EVENT turret: the AI gunner {occupant:?} kicked out (push {push:.1} / s)");
             }
         }
         t.last_health = Some(d.health);
@@ -362,15 +385,18 @@ pub(crate) fn setup(
             radius: p.f("message_radius", 20.0),
             recycle: p.f("recycle_time", 1.0),
             projectile: format!("p_{}", p.s("projectile_name").unwrap_or("")),
-            muzzle_fx: p.s("muzzle_fx_name").map(str::to_owned),
+            player_muzzle_fx: p.s(if forge { "mortar_muzzle_fx_name" } else { "muzzle_fx_name" }).map(str::to_owned),
+            ai_muzzle_fx: p.s(if forge { "ai_muzzle_fx_name" } else { "muzzle_fx_name" }).map(str::to_owned),
             pivot,
             pitch_pivot: bone("pivot_pitch_bone_name"),
             look_at: a.skeleton.index.get(&format!("{cam_name}.target")).copied(),
             sounds: GunSounds::of(&behavior),
             fire_anim: forge.then(|| "forge_cannon_fire".to_owned()),
             rest_anim: data.templates.get(name.as_str()).and_then(|t| t.default_anim.clone()),
-            rapid_fire: p.i("rapid_fire", 0) != 0,
+            // (the forge cannon's flash 0x0049a5c0 is one-shot whatever rapid_fire says)
+            rapid_fire: !forge && p.i("rapid_fire", 0) != 0,
             recoil: false,
+            restart_rest: false,
             emitter,
             muzzle: bone("muzzle_bone_name").unwrap_or(emitter),
             seat,
@@ -443,35 +469,37 @@ pub(crate) fn ride(
     mut mounted: ResMut<Mounted>,
     mut turrets: Query<(Entity, &mut Turret, &GlobalTransform, &crate::skin::Animator)>,
     mut roman: Query<(Entity, &mut crate::player::Roman, &mut Transform, &crate::fx::Health, &mut Visibility)>,
-    (mut physics, path, topsy): (NonSendMut<crate::physics::Physics>, Res<crate::campath::CameraPath>, Res<crate::topsy::Topsy>),
+    (mut physics, path, topsy, glove): (NonSendMut<crate::physics::Physics>, Res<crate::campath::CameraPath>, Res<crate::topsy::Topsy>, Res<crate::weapons::glove::Glove>),
     (mut hud, mut mission, xhair): (ResMut<crate::hud::HudState>, Option<ResMut<crate::mission::Mission>>, Res<crate::hud::Crosshair>),
     (mut sounds, mut stop, mut fx): (MessageWriter<crate::audio::PlaySound>, MessageWriter<crate::audio::StopSound>, MessageWriter<crate::fx::StartFx>),
     (data, mut stats, mut state, mut vrng): (Res<crate::gamedata::GameData>, ResMut<crate::player::PlayerStats>, ResMut<crate::playtest::PlayState>, ResMut<crate::vehicles::VehicleRng>),
     joints: Query<&GlobalTransform>,
+    ids: Query<&crate::level::InstanceId>,
 ) {
     let Ok((re, mut r, mut rt, health, mut vis)) = roman.single_mut() else { return };
     let dt = time.delta_secs();
     let now = time.elapsed_secs();
     let dead = r.dead || health.0 <= 0.0;
-    // PlayerCanAct (0x0047a950): alive, no camera path, not in the topsy states
-    let can_act = !dead && !path.active() && !topsy.active();
+    // PlayerCanAct (0x0047a950, player.rs can_act: alive, no cinematic path playing, none of the +0xa34 state bits:
+    // the topsy states, the punching glove)
+    let can_act = !dead && crate::player::can_act(&r, &path, &topsy, &glove);
     let use_pressed = ctl.pressed(Act::Use);
     let hint = |m: &Option<ResMut<crate::mission::Mission>>, k: &str| m.as_ref().map(|m| m.hint(k)).unwrap_or_default();
     let mut log = Vec::new();
     let world_of = |gt: &GlobalTransform, a: &crate::skin::Animator, t: &Turret, i: usize| gt.to_matrix() * bone_model(&a.skeleton, i, &turns(t));
 
+    // every gun's muzzle fx step, mounted or not (0x00498710 -> 0x00497ed0, first in each turret's update)
+    for (_, mut t, _, _) in &mut turrets {
+        t.fx_step(&mut commands);
+    }
     if let Some(me) = mounted.0 {
         // a mount of another kind is not this module's (defence.rs: the base turret)
         let Ok((_, mut t, gt, a)) = turrets.get_mut(me) else {
             return;
         };
-        // the muzzle fx step (0x00498710 -> 0x00497ed0)
-        t.fx_step(&mut commands);
-        // leaving: Use again (0x004788a0 -> vt+0x17c), or death (0x0047ae40)
+        // leaving: Use again (0x004788a0 -> vt+0x17c), or death (0x0047ae40); the dismount 0x00498bb0 leaves a held
+        // muzzle fx to the step's release, two updates on
         if dead || use_pressed {
-            if let Some(anchor) = t.fx_anchor.take() {
-                commands.entity(anchor).despawn();
-            }
             if t.moving {
                 t.moving = false;
                 stop.write(crate::audio::StopSound(t.sounds.move_loop.into()));
@@ -494,7 +522,6 @@ pub(crate) fn ride(
             *vis = Visibility::Inherited;
             t.yaw = 0.0;
             t.pitch = 0.0;
-            t.fx_flags = 0;
             mounted.0 = None;
             log.push("mounted gun left".to_string());
         } else {
@@ -512,7 +539,8 @@ pub(crate) fn ride(
             let moved = (t.yaw - y0).abs() > 0.0 || (t.pitch - p0).abs() > 0.0;
             if moved && !t.moving {
                 t.moving = true;
-                sounds.write(crate::audio::PlaySound { looped: Some(true), ..crate::audio::PlaySound::at(t.sounds.move_loop, gt.translation()) });
+                // a 2D loop, as the mount sounds (g_game+0x2c vt+0xd0 with no position: 0x004990a0, 0x0049a170)
+                sounds.write(crate::audio::PlaySound { looped: Some(true), ..crate::audio::PlaySound::ui(t.sounds.move_loop) });
             } else if !moved && t.moving {
                 t.moving = false;
                 stop.write(crate::audio::StopSound(t.sounds.move_loop.into()));
@@ -527,7 +555,10 @@ pub(crate) fn ride(
                 if t.last_fire.is_none_or(|l| now - l > t.recycle) {
                     let em = world_of(gt, a, &t, t.emitter);
                     let from = em.w_axis.truncate();
-                    // the gun's own aim (bone -y) when the crosshair has no point yet
+                    // toward the crosshair's point (0x0047dbf0's target Q: the crosshair ray's hit, else its end, so
+                    // there is always one once the HUD has run). Two guards of the remaster, the original has neither:
+                    // the gun's own aim (bone -y) before the HUD's first ray, and a point behind the muzzle (the ray
+                    // stopped short of the muzzle) ignored rather than shot backwards
                     let fwd = em.transform_vector3(Vec3::NEG_Y).normalize_or(Vec3::NEG_Z);
                     let dir = xhair.point.map(|q| (q - from).normalize_or(fwd)).filter(|d| d.dot(fwd) > 0.0).unwrap_or(fwd);
                     let bullet = data.props(&t.projectile);
@@ -543,13 +574,8 @@ pub(crate) fn ride(
                     stats.shots += 1;
                     t.last_fire = Some(now);
                     t.recoil = t.fire_anim.is_some();
-                    // the muzzle flash (0x00497fd0: rapid fire holds one on the muzzle bone; else one per shot, 0x0049a5c0)
-                    if t.rapid_fire {
-                        t.flash(&mut commands, &mut fx, a, &joints);
-                    } else if let (Some(name), Some(&joint)) = (t.muzzle_fx.clone(), a.joints.get(t.muzzle)) {
-                        let jm = joints.get(joint).map(|j| j.compute_transform()).unwrap_or_default();
-                        fx.write(crate::fx::StartFx { name, at: jm.translation, rotation: jm.rotation, follow: None, position_only: false });
-                    }
+                    let name = t.player_muzzle_fx.clone();
+                    t.muzzle_flash(name, &mut commands, &mut fx, a, &joints);
                 }
             }
             // 0x00466210: only while the player can act (0x0047a950: not during a camera path)
@@ -559,22 +585,29 @@ pub(crate) fn ride(
         }
         state.0.insert("turret".into(), serde_json::json!({"mounted": mounted.0.is_some(), "yaw": t.yaw.to_degrees(), "pitch": t.pitch.to_degrees(), "ai": false}));
     } else {
-        // the muzzle fx step of the guns an AI uses
-        for (_, mut t, _, _) in &mut turrets {
-            t.fx_step(&mut commands);
-        }
         // the prompt (0x004662a0): the first gun not held by an AI (0x00498760: flag 4 clear; a grunt only walking to it
-        // does not hide it) whose message_radius reaches the player (3D distance)
-        let near = turrets.iter().find(|(_, t, gt, _)| t.ai.is_none() && gt.translation().distance(rt.translation) <= t.radius).map(|(e, ..)| e);
+        // does not hide it) whose message_radius reaches the player (3D distance), in the order of list World+0xec4 (the
+        // guns' load order, taken as the instance order as for the peasants: guess; guns 30..50 apart share ground in
+        // lev_2_m1, lev_3_m2, lev_4_m3, lev_5_m1, lev_5_m3). Nothing while a ticker prompt or the patience text holds
+        // Use (Game+0xdd3).
+        let near = turrets
+            .iter()
+            .filter(|(_, t, gt, _)| t.ai.is_none() && gt.translation().distance(rt.translation) <= t.radius)
+            .min_by_key(|(e, ..)| ids.get(*e).map_or(u32::MAX, |i| i.0))
+            .map(|(e, ..)| e);
         let ai = turrets.iter().find_map(|(_, t, gt, _)| t.ai.map(|_| (t.yaw.to_degrees(), t.pitch.to_degrees(), gt.translation())));
-        if let (Some(e), true) = (near, can_act) {
+        let prompt_held = mission.as_ref().is_some_and(|m| m.prompt_held);
+        if let (Some(e), true) = (near, can_act && !prompt_held) {
             if hud.prompt.is_none() {
                 hud.prompt = Some(hint(&mission, "ui_vehicle_entry"));
             }
             if use_pressed {
-                // 0x00498f60 / 0x00498a80
-                if let Ok((_, t, gt, a)) = turrets.get(e) {
-                    let seat = world_of(gt, a, t, t.seat).w_axis.truncate();
+                // 0x00498f60 / 0x00498a80 (it refuses a gun without player_bone_name or camera_bone_name: every shipped
+                // gun has both, and `setup` makes no gun without its seat bone or its camera node)
+                if let Ok((_, mut t, gt, a)) = turrets.get_mut(e) {
+                    // the gun's default anim restarted (0x00408e30 flags 0x81)
+                    t.restart_rest = true;
+                    let seat = world_of(gt, a, &t, t.seat).w_axis.truncate();
                     physics.place_walker(&r.walker, seat);
                     rt.translation = seat;
                     // facing the gun's forward (model -y)
@@ -632,9 +665,15 @@ fn pose(
 }
 
 /// The gun's recoil anim after a shot (the forge cannon's "forge_cannon_fire", 0x0049a170: Anim_Set 0x00408d90 flags
-/// 0x80), its default anim again once it ends (0x00408e30 flags 0x81).
+/// 0x80), its default anim again once it ends (0x00408e30 flags 0x81); the default anim restarted on a mount (0x00498a80).
 fn turret_anims(mut q: Query<(&mut Turret, &mut crate::skin::Animator)>, lib: Res<crate::skin::AnimLibrary>) {
     for (mut t, mut a) in &mut q {
+        if std::mem::take(&mut t.restart_rest) {
+            if let Some(r) = t.rest_anim.clone() {
+                a.play(0, &r, true, crate::skin::Mask::All);
+                a.restart(0);
+            }
+        }
         if std::mem::take(&mut t.recoil) {
             if let Some(f) = t.fire_anim.clone() {
                 a.play(0, &f, false, crate::skin::Mask::All);

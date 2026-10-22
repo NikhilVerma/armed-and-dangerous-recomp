@@ -125,7 +125,14 @@ pitch tips the muzzle down: 55 degrees up, 15 down, 55 each side. (The game_08.c
 - Damage 0x00498400: ignored at no health or from the same side; with the player on it the player takes the hit;
   with an AI gunner the gun loses health (death vt+0xd4 -> send_trigger_on_death, Object_Kill) and below
   ai_kickout_health_pct the gunner is thrown out (impact force 6000, ai_kickout_fx_name, 10 s stay-out). An empty
-  gun takes no damage.
+  gun takes no damage. The kickout record (flags 1, from the player, his whole max health, direction occupant - gun
+  with up set to 0.7) kills him; 6000 is below GoRagdoll's 10050 impact threshold and flag 0x80 is clear, so it is no
+  throw and no launch: the ragdoll gets the record as its push (turret.rs `damage` -> Grunt::death_push, about 11
+  units/s at the knock's x 0.15 on 80 kg scale, a guess at how the ragdoll uses +0xa08), and his group alerts on Roman.
+- Muzzle fx (2026-10-22): every gun's step 0x00497ed0 runs every update, mounted or not; a dismount (0x00498bb0) leaves
+  a held fx to that release. A one-shot flash (0x00497fd0 without rapid_fire; the forge cannon's 0x0049a5c0 always)
+  follows the muzzle bone (desc flag 4); the forge cannon's AI gunner uses ai_muzzle_fx_name (fx_ai_muzzle_flash_forge),
+  the player mortar_muzzle_fx_name. The move loops are 2D sounds (vt+0xd0).
 
 ## Engine port (turret.rs) and open points
 
@@ -141,7 +148,7 @@ pitch tips the muzzle down: 55 degrees up, 15 down, 55 each side. (The game_08.c
   the corners' angles blended linearly, **guess** at the quaternion blend), 0x7c getting off; Roman's prompt hidden while
   a grunt is on it; death releases it. Playtests engine/playtests/gunner1.json (grunt 34 mans and fires, Roman's fight
   kills him, Roman mounts: 7/7) and gunner2.json (target moved out of the arc: off the gun, 4/4).
-  Not ported: start_in_turret_tag, the kickout (+0x60c 50 % of 10000 health, impact 6000, 10 s stay-out), flag 1's
+  Not ported: start_in_turret_tag, flag 1's
   predicted aim point (0x004580a0), the gun's own fire vs idle corner difference (both drive the same pivot here).
   Killing the gunner: the gun's collision (stig_mgun_coll_0, in the bullets' list as the original's turrets) stops
   shots at its front; he is hit over the shield or by blasts (gunner1: the powder keg 169 at (51, 141) gives 96, then
