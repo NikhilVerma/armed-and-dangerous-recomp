@@ -2,10 +2,11 @@
 //! physics options (hook/enhance/limits.cpp `LimitsInit`, `DrawMatrix`; src/physics/physics_01.cpp
 //! `PhysicsManager_Step`), as typed settings ([`PhysicsStepSettings`], part of the graphics presets).
 //!
-//! - **Stepping** (`physics_fixed_step`). The original raises a step under 1/60 s to 1/60 s (PhysicsManager_Step
-//!   0x00411d40: `if (dt < 1/60) dt = 1/60`) and steps once per frame, so above 60 fps the world runs fast (x2.41
-//!   measured at 144 Hz, docs/engine-limits.md S1). Off (the Original preset): that frame-tied step,
-//!   [`frame_tied_step`]. On (the Remaster): whole 1/60 s steps from Bevy's fixed timestep, the accumulator the old
+//! - **Stepping** (`physics_fixed_step`). The original splits a frame into 1 + 20 dt substeps (at most 5) of at most
+//!   0.05 s each (Game_Update 0x00402e80: Game+0x4c34 / +0x4c30) and raises a step under 1/60 s to 1/60 s
+//!   (PhysicsManager_Step 0x00411d40: `if (dt < 1/60) dt = 1/60`), so above 60 fps the world runs fast (x2.41 measured
+//!   at 144 Hz, docs/engine-limits.md S1) and a frame over 0.25 s simulates only 0.25 s. Off (the Original preset):
+//!   that frame-tied stepping, [`frame_tied_steps`]. On (the Remaster): whole 1/60 s steps from Bevy's fixed timestep, the accumulator the old
 //!   remaster added to PhysicsManager_Step, so the world runs at real speed at any frame rate.
 //! - **Interpolation** (`physics_interpolation`). With fixed steps above 60 fps a body moves only every few frames.
 //!   As the old remaster's `DrawMatrix`: each body's drawn pose is blended between its poses after the last two
@@ -17,6 +18,15 @@
 //! - **Solver iterations** (`physics_solver_iterations`): the Havok world's +0x3c (4, raised to 8 by the old remaster,
 //!   WorldCinfo 0x00411960) becomes Jolt's velocity steps per step (`WorldSettings::velocity_steps`; Jolt's default
 //!   10, which the engine's physics was tuned with). Read when a level's world is made.
+//! - **Each step's side work** (PhysicsManager_Step, per substep): the gravity scales (Physics_ApplyGravityScale
+//!   0x00403c70) are each body's Jolt gravity factor (fxvm/body.rs, movable.rs); the force actions (ForceActionPool_Update
+//!   0x00404140: impulses and forces spread over a delay and a duration) are applied by their users straight to the Jolt
+//!   bodies (fx.rs, fxvm/body.rs, jetpack.rs); the deferred whole-world refilter (0x004ac910 when the manager's +0x60 is
+//!   set, after a save is loaded) has no counterpart, Jolt's filters being asked on every query; the step counter
+//!   Game+0x700 is [`PhysicsClock::steps`].
+//! - **The solver** (PhysicsManager_Init 0x00411960): Havok's tau 0.6 and damping 1.0 and its broad phase's box
+//!   (-5000, -5000, -1100)..(5000, 5000, 2000) have no Jolt counterpart (Jolt's solver is its own, and its broad phase
+//!   is unbounded); its iterations are `physics_solver_iterations`, its gravity the world's (physics.rs `Physics::new`).
 //! - **Body capacity** (`physics_body_capacity`): the old remaster's `force_pool` (ForceActionPool_Init 0x00403ef0:
 //!   512 force actions) has no counterpart: the engine applies impulses and forces to Jolt bodies directly, with no
 //!   pool. Its intent (the physics' fixed capacity) maps to the one fixed-size table the Jolt world has: its body
@@ -95,11 +105,20 @@ impl Default for PhysicsStepSettings {
     }
 }
 
-/// The original's step for a frame of `dt` seconds (PhysicsManager_Step 0x00411d40): at least 1/60 s. Frames within
-/// 0.1 % of 1/60 s step exactly 1/60 s (the old remaster's tolerance: frame times hover round 1/60 s at 60 fps; the
-/// scripted runs' 16.6667 ms frame then steps as the fixed timestep does).
-pub fn frame_tied_step(dt: f32) -> f32 {
-    if dt < STEP * 1.001 { STEP } else { dt }
+/// The most substeps of a frame (Game_Update 0x00402e80: Game+0x4c34 capped at 5).
+pub const MAX_SUBSTEPS: u32 = 5;
+/// The longest substep (Game_Update: Game+0x4c30 capped at K 0x005bcc34 = 0.05 s).
+pub const MAX_SUBSTEP: f32 = 0.05;
+
+/// The original's steps for a frame of `dt` seconds: how many and how long each. Game_Update 0x00402e80 splits the
+/// frame into 1 + (int)(20 dt) substeps, at most 5, of dt / n each, at most 0.05 s; PhysicsManager_Step 0x00411d40
+/// raises a step under 1/60 s to 1/60 s and steps the world n times by it. Steps within 0.1 % of 1/60 s are exactly
+/// 1/60 s (the old remaster's tolerance: frame times hover round 1/60 s at 60 fps; the scripted runs' 16.6667 ms frame
+/// then steps as the fixed timestep does).
+pub fn frame_tied_steps(dt: f32) -> (u32, f32) {
+    let n = (1 + (dt * 20.0) as u32).min(MAX_SUBSTEPS);
+    let step = (dt / n as f32).min(MAX_SUBSTEP);
+    (n, if step < STEP * 1.001 { STEP } else { step })
 }
 
 /// The world's steps so far and how far the frame is into the next one (0..1; 1 when the frame stepped its whole
@@ -143,12 +162,16 @@ fn step_fixed(mut physics: NonSendMut<Physics>, time: Res<Time<Fixed>>, mut cloc
     clock.steps += 1;
 }
 
-/// One step per frame of at least 1/60 s; none while the game is paused (no virtual time passes).
+/// The frame's substeps, each at least 1/60 s ([`frame_tied_steps`]); none while the game is paused (no virtual time
+/// passes: Game_Update steps only when dt > 0).
 fn step_per_frame(mut physics: NonSendMut<Physics>, time: Res<Time<Virtual>>, mut clock: ResMut<PhysicsClock>) {
     let dt = time.delta_secs();
     if dt > 0.0 {
-        physics.step(frame_tied_step(dt));
-        clock.steps += 1;
+        let (n, step) = frame_tied_steps(dt);
+        for _ in 0..n {
+            physics.step(step);
+            clock.steps += 1;
+        }
     }
 }
 
@@ -290,12 +313,17 @@ fn restore_true_poses(
 mod tests {
     use super::*;
 
-    /// PhysicsManager_Step: short frames step 1/60 s; frames round 1/60 s step it exactly; long frames their time.
+    /// Game_Update / PhysicsManager_Step: short frames step 1/60 s once; frames round 1/60 s step it exactly; longer
+    /// ones in 1 + 20 dt substeps of at most 0.05 s, at most 5 (a frame over 0.25 s simulates 0.25 s).
     #[test]
     fn frame_tied() {
-        assert_eq!(frame_tied_step(1.0 / 144.0), STEP);
-        assert_eq!(frame_tied_step(0.016_666_7), STEP);
-        assert_eq!(frame_tied_step(0.05), 0.05);
+        assert_eq!(frame_tied_steps(1.0 / 144.0), (1, STEP));
+        assert_eq!(frame_tied_steps(0.016_666_7), (1, STEP));
+        assert_eq!(frame_tied_steps(0.04), (1, 0.04));
+        assert_eq!(frame_tied_steps(0.05), (2, 0.025));
+        assert_eq!(frame_tied_steps(0.12), (3, 0.04));
+        assert_eq!(frame_tied_steps(0.3), (5, 0.05));
+        assert_eq!(frame_tied_steps(2.0), (5, 0.05));
     }
 
     /// The presets: the Original's frame-tied world as before; the Remaster's fixed, interpolated, stiffer, larger.
