@@ -761,16 +761,22 @@ pub fn run_script(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_>, idx: usize, spawned:
                     }
                 }
             }
-            // Fx_SetParticleAxis / AxisRelative 0x0041eef0 / 0x0041f0f0: M = Rx Ry Rz (degrees); the original's
-            // v * (Rx Ry Rz) with D3D row matrices is (Rz Ry Rx) v with column matrices ((0, -1, 0) by (-90, 0, 0) gives
-            // +z: particles go up). 0x46 turns the direction once and fixes it; 0x47 re-applies M every step
+            // Fx_SetParticleAxis / AxisRelative 0x0041eef0 / 0x0041f0f0: M = Rx Ry Rz (degrees; Matrix_Multiply
+            // 0x004e2910 gives A * B, so D = Rx Ry, then D Rz), applied to column vectors (Mat_TransformPoints
+            // 0x004e36a0: o = M v): Rz turns first, Rx last. (0, -1, 0) by (-90, 0, 0) is +z (particles go up);
+            // by (-90, 0, 25) (footstep snow puffs, explosions) it is (sin 25, 0, cos 25), leaning 25 degrees. Both turn the direction once; 0x46 sets
+            // flag 0x200 (fixed), 0x47 flag 0x400 (M re-applied to the object's direction every step); the flags are
+            // ORed, and a fixed direction wins at spawn (0x0041a050)
             "0x46" | "0x47" => {
                 let (x, y, z) = (w(1).to_radians(), w(2).to_radians(), w(3).to_radians());
                 if let Some(e) = emitter!() {
-                    let m = Mat3::from_rotation_z(z) * Mat3::from_rotation_y(y) * Mat3::from_rotation_x(x);
+                    let m = Mat3::from_rotation_x(x) * Mat3::from_rotation_y(y) * Mat3::from_rotation_z(z);
                     e.dir = m * e.dir;
-                    e.fixed_dir = op == "0x46";
-                    e.rel = (op == "0x47").then_some(m);
+                    if op == "0x46" {
+                        e.fixed_dir = true;
+                    } else {
+                        e.rel = Some(m);
+                    }
                 }
             }
             "0x49" => {

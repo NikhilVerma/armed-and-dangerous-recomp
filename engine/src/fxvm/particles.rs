@@ -194,22 +194,18 @@ pub fn emit_along(pools: &mut Pools, rng: &mut CrtRand, em: &mut Emitter, pos0: 
     }
 }
 
-/// ParticleEmitter_InitParticle 0x004193a0 (missing_02.cpp:93): life, then the velocity (Particle_RandomConeVelocity
-/// 0x0046e320: a tilt in [0, cone] about a perpendicular of the axis, a spin in [0, 2 pi) about the axis, a speed),
-/// the colour (a 0x49 ramp: position 10 falling to 0 at death; else the emitter colour, opaque), size, growth (a
+/// ParticleEmitter_InitParticle 0x004193a0 (missing_02.cpp:93): life, then the velocity (a tilt in [0, cone], a spin
+/// in [0, 2 pi), a speed: [`cone_direction`]), the colour (a 0x49 ramp: position 10 falling to 0 at death, drawn
+/// white: the ramp's rgb is 1 and the emitter colour is not used; else the emitter colour, opaque), size, growth (a
 /// shrink to 0 at death when the range is reversed, no random number), drag, stretch, gravity, uvs; then 0x0046e2f0
-/// (life = min(life, ramp position / rate)). The axis is used as given (a lerp of two unit vectors: its length
-/// scales the speed, as the original's unnormalised transform does).
+/// (life = min(life, ramp position / rate)).
 pub fn init_particle(rng: &mut CrtRand, e: &Emitter, at: Vec3, axis: Vec3, carried: f32) -> Particle {
     let mut life = rng.r(e.life.0, e.life.1);
     let cone = rng.r(e.cone.0, e.cone.1).to_radians();
     let tilt = rng.r(0.0, cone);
     let spin = rng.r(0.0, std::f32::consts::TAU);
     let speed = rng.r(e.speed.0, e.speed.1);
-    let len = axis.length();
-    let n = if len > 1e-6 { axis / len } else { Vec3::Z };
-    let perp = n.any_orthonormal_vector();
-    let dir = Quat::from_axis_angle(n, spin) * (Quat::from_axis_angle(perp, tilt) * n);
+    let vel = cone_direction(axis, tilt, spin) * speed;
     let size = rng.r(e.size.0, e.size.1);
     let growth = if e.growth.0 > e.growth.1 { -(size / life.max(1e-6)) } else { rng.r(e.growth.0, e.growth.1) };
     let drag = rng.r(e.drag.0, e.drag.1);
@@ -219,7 +215,39 @@ pub fn init_particle(rng: &mut CrtRand, e: &Emitter, at: Vec3, axis: Vec3, carri
     if ramp_rate > 0.0 {
         life = life.min(ramp_pos / ramp_rate);
     }
-    Particle { pos: at, prev: at, vel: dir * (speed * len), life, carried, size, growth, drag, stretch, gravity, uv: e.uv, colour: e.colour, ramp: e.ramp, ramp_pos, ramp_rate }
+    // Fx_SetParticleFadeInOut 0x0041eb70 fills the ramp's rgb with 1 and Particles_Draw 0x0046d9f0 takes a ramp
+    // particle's rgb from the ramp alone (Fx_SetParticleColour 0x0041f410's colour only reaches ramp-less particles)
+    let colour = if e.ramp.is_some() { Vec3::ONE } else { e.colour };
+    Particle { pos: at, prev: at, vel, life, carried, size, growth, drag, stretch, gravity, uv: e.uv, colour, ramp: e.ramp, ramp_pos, ramp_rate }
+}
+
+/// Particle_RandomConeVelocity 0x0046e320's direction (before the speed): the axis turned by `tilt` about axis x ref
+/// (ref = whichever of (0, 1, 0) [0x005fb9f4] and (1, 0, 0) [0x005fba00] is less parallel to it), then by `spin` about
+/// the axis. As the original, nothing is normalised: the axis (a lerp of two unit directions) and the perpendicular
+/// (length sin of its angle to ref, >= ~0.7) go straight into the quaternions, and Quat_ToMatrix 0x004e3260's unit
+/// formula turns a short quaternion q into |q|^2 R + (1 - |q|^2) I: a slightly smaller tilt and a speed scaled by
+/// the axis length.
+fn cone_direction(axis: Vec3, tilt: f32, spin: f32) -> Vec3 {
+    let reference = if axis.dot(Vec3::Y).abs() > axis.dot(Vec3::X).abs() { Vec3::X } else { Vec3::Y };
+    let tilt_m = quat_matrix(axis.cross(reference), tilt);
+    let spin_m = quat_matrix(axis, spin);
+    spin_m * tilt_m * axis
+}
+
+/// Quat_ToMatrix 0x004e3260 of the quaternion (v sin(a / 2), cos(a / 2)), with the unit-quaternion formula whatever
+/// the length of v (glam's from_quat assumes a unit quaternion).
+fn quat_matrix(v: Vec3, angle: f32) -> Mat3 {
+    let (s, w) = (angle * 0.5).sin_cos();
+    let (x, y, z) = (v.x * s, v.y * s, v.z * s);
+    let (x2, y2, z2) = (x + x, y + y, z + z);
+    let (xx, yy, zz) = (x2 * x, y2 * y, z2 * z);
+    let (xy, xz, yz) = (y2 * x, z2 * x, z2 * y);
+    let (xw, yw, zw) = (x2 * w, y2 * w, z2 * w);
+    Mat3::from_cols(
+        Vec3::new(1.0 - (yy + zz), xy + zw, xz - yw),
+        Vec3::new(xy - zw, 1.0 - (zz + xx), yz + xw),
+        Vec3::new(xz + yw, yz - xw, 1.0 - (yy + xx)),
+    )
 }
 
 /// Particles_Draw 0x0046d9f0's update (render_r3.cpp:836): t = dt + the carried time; life -= t (released at <= 0:
@@ -295,7 +323,9 @@ pub fn alpha_of(p: &Particle) -> f32 {
 /// The quads of one pool (Particles_Draw 0x0046d9f0): centre = the position plus half the last move (the original's
 /// `pos + (pos - prev) / 2`), corners +-right +-up of the camera times the size; with stretch, each corner moves along
 /// the move projected on the view plane by c * stretch (c = the corner's direction along it, -sqrt 2 .. sqrt 2),
-/// trailing corners fading by (1 + 0.7071 c). Engine space out.
+/// trailing corners fading by (1 + 0.7071 c). Engine space out. The size is used signed, as the original: a growth
+/// that overshoots past 0 (fx_smoking_grunt, the keg and mortar smoke: growth -2..-1 on size 1..6) turns the sprite
+/// half a turn and grows it again until it fades (c then follows the flipped corners).
 pub fn build_quads(pool: &[Particle], right: Vec3, up: Vec3, out: &mut QuadBuffers) {
     let axes = game_to_engine();
     for p in pool {
@@ -305,14 +335,14 @@ pub fn build_quads(pool: &[Particle], right: Vec3, up: Vec3, out: &mut QuadBuffe
         let dl = d.length();
         let a = alpha_of(p);
         let base = out.pos.len() as u32;
-        let s = p.size.max(0.0);
+        let s = p.size;
         let c = [p.colour.x, p.colour.y, p.colour.z];
         // corners (-r,-u) (-r,+u) (+r,+u) (+r,-u) with uv (u0,v0) (u0,v1) (u1,v1) (u1,v0)
         for (cx, cy, u, v) in [(-1.0f32, -1.0f32, p.uv[0], p.uv[2]), (-1.0, 1.0, p.uv[0], p.uv[3]), (1.0, 1.0, p.uv[1], p.uv[3]), (1.0, -1.0, p.uv[1], p.uv[2])] {
             let mut w = centre + right * cx * s + up * cy * s;
             let mut alpha = a;
             if p.stretch > 0.0 && dl > 1e-6 {
-                let cdir = (cx * d.x + cy * d.y) / dl;
+                let cdir = (cx * d.x + cy * d.y) / dl * s.signum();
                 w += (right * d.x + up * d.y) * cdir * p.stretch;
                 if cdir < 0.0 {
                     alpha *= (1.0 + 0.7071 * cdir).max(0.0);
@@ -531,6 +561,43 @@ mod tests {
             t += 1.0 / 60.0;
         }
         assert!((t - 2.0f32).abs() < 1.5 / 60.0, "{t}");
+    }
+
+    /// 0x0046e320: a unit axis gives a true rotation (speed kept, tilt <= cone); a horizontal axis has a perpendicular
+    /// of length 1 too ((1, 0, 0) x (0, 1, 0)), a diagonal one a shorter one (sin 45): the tilt shrinks, the speed
+    /// stays within the range.
+    #[test]
+    fn cone_direction_follows_the_original_quaternions() {
+        let d = cone_direction(Vec3::Z, 0.3, 1.0);
+        assert!((d.length() - 1.0).abs() < 1e-5 && (d.dot(Vec3::Z) - 0.3f32.cos()).abs() < 1e-5, "{d}");
+        let diag = Vec3::new(1.0, 1.0, 0.0).normalize();
+        let d = cone_direction(diag, 0.6, 0.0);
+        let tilt = d.normalize().dot(diag).acos();
+        assert!(tilt > 0.05 && tilt < 0.6, "tilt {tilt}");
+        // a lerped (short) axis scales the speed by its length
+        assert!((cone_direction(Vec3::Z * 0.5, 0.0, 2.0).length() - 0.5).abs() < 1e-5);
+    }
+
+    /// 0x004193a0 / 0x0041eb70: a ramp particle is white whatever the 0x2c colour; without a ramp it keeps it.
+    #[test]
+    fn ramp_particles_are_white() {
+        let mut e = Emitter::new(1, 1.0, Vec3::Z, Vec3::ZERO);
+        e.colour = Vec3::new(1.0, 0.0, 0.0);
+        assert_eq!(init_particle(&mut CrtRand::seeded(1), &e, Vec3::ZERO, Vec3::Z, 0.0).colour, e.colour);
+        e.ramp = Some(build_ramp(0.0, 0.1, 0.2, e.life));
+        assert_eq!(init_particle(&mut CrtRand::seeded(1), &e, Vec3::ZERO, Vec3::Z, 0.0).colour, Vec3::ONE);
+    }
+
+    /// 0x0046d9f0: a size grown past 0 draws the quad turned half a turn, not nothing.
+    #[test]
+    fn negative_size_flips_the_quad() {
+        let mut p = init_particle(&mut CrtRand::seeded(1), &Emitter::new(0, 1.0, Vec3::Z, Vec3::ZERO), Vec3::ZERO, Vec3::Z, 0.0);
+        p.stretch = 0.0;
+        p.size = -1.0;
+        let mut q = QuadBuffers::default();
+        build_quads(&[p], Vec3::X, Vec3::Y, &mut q);
+        assert_eq!(q.pos[0], [1.0, 1.0, 0.0]);
+        assert_eq!(q.pos[2], [-1.0, -1.0, 0.0]);
     }
 
     #[test]
