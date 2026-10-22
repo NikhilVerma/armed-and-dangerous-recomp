@@ -218,7 +218,7 @@ pub fn make_dynamic(physics: &mut Physics, commands: &mut Commands, o: &mut FxOb
         let hits = physics.world.collide_shape(&q, &QueryFilter::new().exclude_body(id)).unwrap_or_default();
         hits.iter().map(|h| h.body).find(|b| Some(*b) != physics.landscape && !physics.bodies.contains_key(b))
     };
-    physics.set_contact_rule(id, crate::contacts::ContactRule { group: Some(FX_BODIES), ignore: inside, friction: def.friction });
+    physics.set_contact_rule(id, crate::contacts::ContactRule { group: Some(FX_BODIES), ignore: inside, friction: def.friction, restitution: Some(def.restitution) });
     commands.entity(e).insert(Body::rigid(id));
     o.body = Some(id);
     physics.no_bullets.insert(id);

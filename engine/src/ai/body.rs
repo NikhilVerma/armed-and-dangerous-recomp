@@ -84,7 +84,7 @@ pub fn add(physics: &mut Physics, e: Entity, character: CharacterBody, feet: Vec
 pub fn apply_rules(mut physics: NonSendMut<Physics>, q: Query<(&Body, &CharacterBody, Option<&Grunt>)>) {
     for (body, c, g) in &q {
         let in_squad = g.is_some_and(|g| g.squad.is_some());
-        let rule = ContactRule { group: c.group, ignore: c.ignore, friction: if in_squad { 0.0 } else { c.friction } };
+        let rule = ContactRule { group: c.group, ignore: c.ignore, friction: if in_squad { 0.0 } else { c.friction }, ..Default::default() };
         physics.set_contact_rule(body.id, rule);
     }
 }
