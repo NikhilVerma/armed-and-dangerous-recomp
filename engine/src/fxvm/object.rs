@@ -37,6 +37,8 @@ impl ScaleCurve {
         match self.mode {
             0 => d / life * t + self.from,
             1 => {
+                // to < from: the original's rate is sqrtf(negative) = NaN (an original bug the shipped Flemming
+                // impact flash hits, docs/original-bugs.md); held at `from` here
                 let q = d.max(0.0).sqrt() / life * t;
                 q * q + self.from
             }
@@ -240,6 +242,37 @@ impl MeshEmitter {
     }
 }
 
+/// The camera-facing modes of an fx object (Fx_SetKite 0x0041fd70 sets +0x460 bits; 0x00419a60 turns the object each
+/// frame, keeping its position). Ordered by the original's precedence when several bits are set: 0x400 first.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub enum Facing {
+    /// 0x4b, bit 0x2000000: about the game x axis, towards the camera in the y-z plane (no shipped script)
+    AboutX,
+    /// 0x4c, bit 0x4000000: upright (model y = game up), turned about the vertical to face the camera (the level 3 and
+    /// 5 fire animations, fxo_flame_anim)
+    Upright,
+    /// 0x2e, bit 0x400: a card with the camera's own rotation
+    Camera,
+}
+
+impl Facing {
+    /// The engine-space rotation for a camera at `cam`; `axes` = `game_to_engine()`. The axis-bound modes build the
+    /// original's columns in game space: v = the camera direction (Camera_GetDirection 0x0040fa10) negated with one
+    /// component zeroed and normalised, c = v x axis (Vec3_CrossReversed 0x004e7830), columns (-c, axis, v). None when
+    /// the camera looks along the axis (the original normalises a zero vector).
+    pub fn rotation(self, cam: &Transform, axes: Quat) -> Option<Quat> {
+        let dir = axes.inverse() * cam.forward().as_vec3();
+        let (axis, v) = match self {
+            Facing::Camera => return Some(cam.rotation * axes),
+            Facing::Upright => (Vec3::Z, Vec3::new(-dir.x, -dir.y, 0.0)),
+            Facing::AboutX => (Vec3::X, Vec3::new(0.0, -dir.y, -dir.z)),
+        };
+        let v = v.try_normalize()?;
+        let c = v.cross(axis);
+        Some(axes * Quat::from_mat3(&Mat3::from_cols(-c, axis, v)))
+    }
+}
+
 /// A restored fx object with a lifespan under this many seconds has ended by the time of any save (crate::fx::RestoreFx);
 /// the lasting ones (the camera's snow: 1e5 s, or none) run on.
 const RESTORED_KEPT: f32 = 3600.0;
@@ -260,7 +293,8 @@ pub struct FxObject {
     /// the fade-out start age
     pub fade_out: Option<f32>,
     pub scale: Option<ScaleCurve>,
-    pub kite: bool,
+    /// how it turns to the camera every frame (Fx_SetKite 0x0041fd70: 0x2e / 0x4c / 0x4b)
+    pub facing: Option<Facing>,
     pub emitters: Vec<Emitter>,
     pub mesh_emitters: Vec<MeshEmitter>,
     pub texanim: Option<TexAnim>,
@@ -316,7 +350,7 @@ impl FxObject {
             fade_in: None,
             fade_out: None,
             scale: None,
-            kite: false,
+            facing: None,
             emitters: Vec::new(),
             mesh_emitters: Vec::new(),
             texanim: None,
@@ -598,15 +632,12 @@ pub fn objects(
                 }
             }
         }
-        // placement: kite (0x00419a60 with +0x460 bit 0x400: the camera's rotation, the object's position), scale
+        // placement: facing the camera (0x00419a60: `Facing`, the object's position), scale
         if body.is_none() {
             let world = Mat4::from_quat(axes) * o.place;
             let (_, mut rot, pos) = world.to_scale_rotation_translation();
-            if o.kite {
-                if let Some(c) = cam_t {
-                    // the card's mesh faces -Y in game space: turn it to the camera
-                    rot = c.rotation * axes;
-                }
+            if let Some(r) = o.facing.zip(cam_t).and_then(|(f, c)| f.rotation(&c, axes)) {
+                rot = r;
             }
             *t = Transform { translation: pos, rotation: rot, scale: Vec3::splat(o.scale_now) };
         } else {
@@ -741,7 +772,7 @@ pub fn follow(mut commands: Commands, mut vm: ResMut<FxVm>, parents: Query<&Glob
             if let Ok(mut t) = q.get_mut(e) {
                 let (_, rot, pos) = (Mat4::from_quat(game_to_engine()) * o.place).to_scale_rotation_translation();
                 t.translation = pos;
-                if !o.follow_pos_only && !o.kite {
+                if !o.follow_pos_only && o.facing.is_none() {
                     t.rotation = rot;
                 }
             }
@@ -797,5 +828,19 @@ mod tests {
         }
         // 0.5 s at 0.1: 5 or 6
         assert!((5..=6).contains(&n), "{n}");
+    }
+
+    #[test]
+    fn upright_facing() {
+        let axes = crate::level::game_to_engine();
+        // a camera at game (100, 0, 50) looking at the origin, a little down
+        let eye = axes * Vec3::new(100.0, 0.0, 50.0);
+        let cam = Transform::from_translation(eye).looking_at(Vec3::ZERO, axes * Vec3::Z);
+        let r = Facing::Upright.rotation(&cam, axes).unwrap();
+        let game = axes.inverse() * r;
+        // model y stays game up, model z points level at the camera
+        assert!((game * Vec3::Y - Vec3::Z).length() < 1e-4);
+        assert!((game * Vec3::Z - Vec3::X).length() < 1e-4);
+        assert!(Facing::Camera > Facing::Upright && Facing::Upright > Facing::AboutX);
     }
 }
