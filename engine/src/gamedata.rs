@@ -41,6 +41,12 @@ impl Props {
     pub fn i(&self, k: &str, default: i64) -> i64 {
         self.0.get(k).and_then(|v| v.as_i64().or_else(|| v.as_f64().map(|f| f as i64))).unwrap_or(default)
     }
+    /// A string value; "" and "none" read as absent. The original readers copy any string (ParamSet_GetString
+    /// 0x0045dec0 caps it at 32 bytes, strncpy 0x20) and leave "none" / "" to their callers, which treat them as unset
+    /// ("none" is the authored "no value": generic_txt, rewardposter, shadowmethod, the ambient and sound ear slots).
+    /// No shipped property string reaches 32 bytes. The merged set (`instance_props`) also drops which side a value
+    /// came from (Object_ReadStringProp 0x004533a0 returns 1 placement / -1 template); callers that need the
+    /// placement's own values keep them (mission.rs sound ears).
     pub fn s(&self, k: &str) -> Option<&str> {
         self.0.get(k).and_then(|v| v.as_str()).filter(|s| !s.is_empty() && *s != "none")
     }
@@ -91,7 +97,9 @@ const fn factors(friendly_health: f32, badguy_health: f32, health_pickups: f32, 
 pub const DIFFICULTIES: [DifficultyFactors; 4] =
     [factors(2.0, 0.5, 2.0, 2.0, 0.5), factors(1.0, 1.0, 1.0, 1.0, 1.0), factors(1.0, 2.0, 0.75, 0.75, 1.2), factors(0.5, 2.0, 0.6, 0.5, 1.5)];
 
-/// The difficulty chosen (Game+0x550): saved with the game (the savegame header +0x108 and progress.dat).
+/// The difficulty chosen (Game+0x550): saved with the game (the savegame header +0x108 and progress.dat). The
+/// original also restores it per profile slot from progress.dat (0x004a3930) when a slot is selected; the remaster has
+/// no profile slots or Difficulty screen yet, so it comes only from a loaded savegame (deferred: campaign profiles).
 #[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Difficulty(pub usize);
 

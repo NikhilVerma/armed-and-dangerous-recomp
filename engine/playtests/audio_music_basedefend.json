@@ -1,0 +1,14 @@
+{"scene": "lev_1_m4", "steps": [
+ {"note": "base defence (0x0044e600: Roman starts in the turret): Music_Update plays basedefend, held 600000 s, no victory jingle"},
+ {"until": "message"},
+ {"wait": 0.5},
+ {"tap": "Enter"},
+ {"wait": 3.5},
+ {"tap": "Enter"},
+ {"wait": 2.0},
+ {"expect": {"base_turret.mounted": true, "audio.music.state": 0, "audio.music.track": "basedefend"}},
+ {"audio": {"music": "victory"}},
+ {"wait": 1.0},
+ {"expect": {"audio.music.state": 0, "audio.music.queue": ""}},
+ {"quit": true}
+]}

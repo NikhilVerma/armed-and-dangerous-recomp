@@ -1,0 +1,11 @@
+{"scene": "lev_2_m1", "title": true, "steps": [
+ {"note": "the front end (no player, Game+0x748 == 0): Music_Update plays l2amb held 600000 s; New Game is a level start (0x0044f4c0): the state resets and the track fades out"},
+ {"wait": 3.0},
+ {"expect": {"menu.page": "Main", "audio.music.state": 0, "audio.music.track": "l2amb", "audio.music.through_pause": false}},
+ {"wait": 2.0},
+ {"expect": {"audio.music.state": 0, "audio.music.track": "l2amb"}},
+ {"tap": "Enter"},
+ {"wait": 0.5},
+ {"expect": {"audio.music.state": -1}},
+ {"quit": true}
+]}
