@@ -180,11 +180,16 @@ fn generic_notes(
                     }
                 }
             }
+            // 0x0042c380 starts the IC anim once (its +0xa18 bit 1), at the script's time, and lets it play on: a
+            // second "anim_full" while it plays changes nothing (the AI's own IC paths hold it to the mover each frame:
+            // ai/ic.rs, ai/tower.rs)
             "anim_full" => {
                 if let Some(mut a) = animator {
-                    let t = m.t;
-                    let anim = m.anim.clone();
-                    a.play_at(0, &anim, false, crate::skin::Mask::All, t);
+                    if a.layers.first().is_none_or(|l| l.anim != m.anim) {
+                        let t = m.t;
+                        let anim = m.anim.clone();
+                        a.play_at(0, &anim, false, crate::skin::Mask::All, t);
+                    }
                 }
             }
             "visible" => *vis = Visibility::Inherited,
