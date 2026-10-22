@@ -149,7 +149,17 @@ pub struct MovablePlugin;
 
 impl Plugin for MovablePlugin {
     fn build(&self, app: &mut App) {
-        app.add_message::<Push>().add_systems(Update, (pushes, unpin, collide, hit_death, log).chain().after(crate::fx::FxSet).run_if(crate::playing));
+        app.add_message::<Push>().add_systems(Update, (pushes, pass_through, unpin, collide, hit_death, log).chain().after(crate::fx::FxSet).run_if(crate::playing));
+    }
+}
+
+/// An on_hit_death object's contacts are noted but never resolved: 0x00450af0 answers 0 to the solver (`ok = 0`
+/// beside the kill flag), so the body that breaks a pane goes on through it.
+fn pass_through(q: Query<&crate::level::Placed, Added<HitDeath>>, physics: NonSend<Physics>) {
+    for p in &q {
+        if let Some(c) = p.collider {
+            physics.contacts.set_pass_through(c);
+        }
     }
 }
 
@@ -164,8 +174,10 @@ fn pushes(mut events: MessageReader<Push>, mut q: Query<(&mut Movable, &crate::l
     }
 }
 
-/// Unpinned objects get their body: at load (not pinned), or when their health falls below unpin_health_pct of their
-/// max_health (0x00450da0). The static collider goes; a convex hull of the collision model (its scale applied) moves
+/// Unpinned objects get their body: at load (not pinned), or when, still alive, their health falls below
+/// unpin_health_pct of their max_health (0x00450da0: only on the alive path; a blow that kills it leaves it pinned,
+/// its husk replaces it). The collision filter change there (vt+0xf8(0x70001)) is the dynamic body's own layer
+/// (physics.rs `add_dynamic`). The static collider goes; a convex hull of the collision model (its scale applied) moves
 /// the entity from then on (physics::Body), with the property set's gravity (of the game's: Physics::game_gravity_factor),
 /// friction and restitution, and the mass Object_BuildRadiusCollision 0x004527d0 gives it (fxvm::body::BodyDef: the
 /// bounding sphere's or, collide_poly, the hull's volume x density; at scale 1, as the fx bodies).
@@ -191,7 +203,7 @@ fn unpin(
             continue;
         }
         let pinned = if m.props.unpin_health_pct > 0.0 {
-            d.is_none_or(|d| d.health >= m.props.unpin_health_pct * d.max_health)
+            d.is_none_or(|d| d.health <= 0.0 || d.health >= m.props.unpin_health_pct * d.max_health)
         } else {
             m.props.starts_pinned()
         };
@@ -219,6 +231,9 @@ fn unpin(
         }
         // its contacts are noted (contacts.rs): the crush and the landscape hits read them
         physics.set_contact_rule(body, crate::contacts::ContactRule::default());
+        if m.props.on_hit_death != 0 {
+            physics.contacts.set_pass_through(body);
+        }
         if let Some(mat) = physics.materials.get(&body).cloned().or(Some("stone".into())) {
             physics.materials.insert(body, mat);
         }
@@ -256,7 +271,8 @@ fn collide(
         let Some(body) = m.body else { continue };
         let Some(v) = pre(body) else { continue };
         let touches = physics.touches(body);
-        // on_hit_death: its first contact kills it (0x00450af0 sets the kill flag 0x80 inside the step)
+        // on_hit_death: its first contact kills it (0x00450af0 sets the kill flag 0x80 inside the step; the contact
+        // itself is not resolved: `pass_through`)
         if m.props.on_hit_death != 0 && !touches.is_empty() {
             if let Some(d) = d.as_mut() {
                 d.health = 0.0;
@@ -392,7 +408,10 @@ fn collide(
                     }
                     (d, "a character")
                 } else if let Ok((_, m, _, Some(mut d))) = movers.get_mut(e) {
-                    (if amount.is_finite() || m.props.takes_crushing_damage != 0 { take(&mut d.health, amount) } else { 0.0 }, "a movable")
+                    // 0x00450da0: a crush record (0x4000) only with takes_crushing_damage, then any record only with
+                    // takes_damage (bit 1; a source-free object record: `accepts`)
+                    let takes = d.accepts(crate::fx::Src::Object, false) && (amount.is_finite() || m.props.takes_crushing_damage != 0);
+                    (if takes { take(&mut d.health, amount) } else { 0.0 }, "a movable")
                 } else {
                     (0.0, "")
                 }

@@ -14,7 +14,7 @@
 
 use oxijolt::prelude::*;
 use oxijolt::{ContactCandidate, ContactManifold, ContactSettings, RVec3, ValidateResult};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, RwLock};
 
 /// How one body takes contacts with the others.
@@ -56,9 +56,20 @@ pub struct Touch {
 pub struct Contacts {
     rules: RwLock<HashMap<BodyId, ContactRule>>,
     touches: Mutex<HashMap<BodyId, Vec<Touch>>>,
+    /// bodies whose contacts are noted but never resolved: the owner's collide callback answers 0
+    /// (DefaultGameObject_Collide 0x00450af0 with on_hit_death: the pane a body passes through as it breaks it)
+    pass_through: RwLock<HashSet<BodyId>>,
 }
 
 impl Contacts {
+    /// Every contact of `body` is noted (it needs a rule for that) and none is resolved: the other body passes through
+    /// (Jolt's sensor contact).
+    pub fn set_pass_through(&self, body: BodyId) {
+        if let Ok(mut set) = self.pass_through.write() {
+            set.insert(body);
+        }
+    }
+
     /// Sets a body's rule; returns whether it changed (the caller then drops the body's cached contacts, which Jolt would
     /// otherwise keep with their old answer).
     pub fn set_rule(&self, body: BodyId, rule: ContactRule) -> bool {
@@ -72,6 +83,9 @@ impl Contacts {
         }
         if let Ok(mut touches) = self.touches.lock() {
             touches.remove(&body);
+        }
+        if let Ok(mut set) = self.pass_through.write() {
+            set.remove(&body);
         }
     }
 
@@ -103,6 +117,9 @@ impl Contacts {
         };
         if ra.is_none() && rb.is_none() {
             return;
+        }
+        if self.pass_through.read().is_ok_and(|s| s.contains(&a) || s.contains(&b)) {
+            let _ = settings.set_is_sensor(true);
         }
         // sqrt(fA * fB): Jolt combined the creation frictions (1 for a ruled body) the same way
         let scale = ra.map_or(1.0, |r| r.friction.max(0.0).sqrt()) * rb.map_or(1.0, |r| r.friction.max(0.0).sqrt());
