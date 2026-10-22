@@ -223,6 +223,9 @@ impl Member {
             _ => "grunt",
         }
     }
+    /// The member's death effect (0x00433000: "FX_platoon_<kind>_die"). The original asks for "FX_platoon_grunt_die"
+    /// for a grunt member, which the shipped fx tables do not have (only fx_platoon_grunt_die2): its grunt members
+    /// die without an effect (docs/original-bugs.md, not reproduced); the remaster plays the one that exists.
     fn die_fx(&self) -> &'static str {
         ["fx_platoon_grunt_die2", "fx_platoon_regular_die", "fx_platoon_captain_die", "fx_platoon_torch_die"][self.kind.min(3) as usize]
     }
@@ -506,10 +509,12 @@ fn timers(
                     made.push((t.id, t.origin, w[1].to_lowercase(), t.gen_text.clone(), Entry { time: t.anim_t, a: num(2), b: num(3) }));
                 }
             }
-            // the anim's end removes the timer (TimerObject_Update 0x00496750); until then its lists run too (0x00496da0)
+            // the anim's end removes the timer (TimerObject_Update 0x00496750); its lists still run on that update
+            // (0x00496da0 runs both passes after the base update). The base's loop flag (+0x4a8: the anim loops, no
+            // end), send_end_trigger, send_trigger_time_N and display are not read: no army timer's data sets them
+            // (p_army_timer: loop 0, none of the others)
             if t.anim_t >= anim.duration {
                 t.removed = true;
-                continue;
             }
         }
         let (fired, end_a) = advance(&t.platoons, &mut t.elapsed.0, dt);
@@ -607,7 +612,7 @@ fn platoons(
     mut army: ResMut<Army>,
     mut q: Query<(Entity, &mut Platoon, &mut Mover)>,
     mut notes: MessageReader<MoverNote>,
-    live: Query<&Grunt, With<ArmyGrunt>>,
+    live: Query<(&Grunt, Option<&crate::corpses::Corpse>), With<ArmyGrunt>>,
     markers: Option<Res<crate::alarm::Markers>>,
     mut spawn: MessageWriter<crate::level::SpawnGrunt>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
@@ -628,15 +633,19 @@ fn platoons(
                 p.releasing = true;
                 p.release_timer = 0.0;
                 m.paused = true;
-                // the crowd's charge, at most every 20 s (Game+0xb38, K 0x005bcbe8)
+                // the crowd's charge, at most every 20 s (Game+0xb38, K 0x005bcbe8): 2D, not looped (0x0043ce30: audio
+                // vt+0xd0, the third argument 0)
                 if now - army.crowd_at >= 20.0 || army.crowd_at == 0.0 {
                     army.crowd_at = now;
-                    sounds.write(crate::audio::PlaySound { name: "amb_base_crowd_charge_lp".into(), at: Some(m.world.w_axis.truncate()), looped: Some(false), ..default() });
+                    sounds.write(crate::audio::PlaySound { looped: Some(false), ..crate::audio::PlaySound::ui("amb_base_crowd_charge_lp") });
                 }
             }
         }
     }
-    let mut live_n = live.iter().filter(|g| g.mind != Mind::Dead).count() as i64;
+    // the army grunts in World+0xe84 (0x0043ce10): linked on release (FakeGrunt_Update) and unlinked only when the
+    // body is removed (Object_UnlinkAll from Object_Remove 0x004547b0 / the destructor 0x004512b0), so a dead one
+    // holds his place while his body lies by the original's corpse timer (corpses.rs), not the Remaster's
+    let mut live_n = live.iter().filter(|(g, body)| g.mind != Mind::Dead || body.is_some_and(|c| c.within_original_time())).count() as i64;
     army.pending_ladders.retain(|(_, t)| now - *t < 1.0);
     let busy: HashSet<i64> = army.pending_ladders.iter().map(|(t, _)| *t).collect();
     let mut stats = ArmyStats { platoons: army.stats.platoons, released: army.stats.released, fake_killed: army.stats.fake_killed, over_wall: army.stats.over_wall, ..default() };
@@ -665,8 +674,10 @@ fn platoons(
                 let mut ladder = None;
                 if member.kind != 2 && p.ladders.0 != 0 && now >= army.ladder_next {
                     if let Some(mk) = markers.as_deref() {
-                        let taken: HashSet<i64> = live.iter().filter(|g| g.mind != Mind::Dead).filter_map(|g| g.spline.map(|s| s.tag)).chain(busy.iter().copied()).collect();
-                        let free: Vec<i64> = (p.ladders.0..=p.ladders.1).filter(|t| mk.spline_len(*t) > 0 && !taken.contains(t)).collect();
+                        // free: not planted (spline bit 4, 0x0044b7b0: set for good by the plant, ai_03.cpp:1059) and
+                        // not in use (bit 6, 0x0044b7e0: a live grunt on it, or handed out and not yet seen)
+                        let taken: HashSet<i64> = live.iter().filter(|(g, _)| g.mind != Mind::Dead).filter_map(|(g, _)| g.spline.map(|s| s.tag)).chain(busy.iter().copied()).collect();
+                        let free: Vec<i64> = (p.ladders.0..=p.ladders.1).filter(|t| mk.spline_len(*t) > 0 && !taken.contains(t) && !army.planted.contains(t)).collect();
                         if !free.is_empty() {
                             let tag = free[((rng.rand() * free.len() as f32) as usize).min(free.len() - 1)];
                             ladder = Some(tag);
@@ -713,9 +724,11 @@ fn platoons(
     army.stats = stats;
 }
 
-/// FakeGruntObject_Slot52 0x00433000: a damage record at a point kills every member within kill_range of it. Blasts
-/// (fx::Explode) and the player's projectiles passing through the platoon (its collision box: the members' points,
-/// 4 units round, 14 high: guess at the platoon's box) are the records here.
+/// FakeGruntObject_Slot52 0x00433000: a damage record at a point kills every member within kill_range of it, whoever
+/// sent it (no team test). Blasts (fx::Explode) and every projectile that enters the platoon's collision (the model's
+/// box, `Platoon::hit_box`; without one, a member's chest within 5 units) are the records here: the player's and a
+/// grunt's alike (a released grunt's arrow through a platoon ahead of him kills its members, as the original's ray
+/// test stops on the platoon's body), one that starts inside the box excepted (a ray from inside a body misses it).
 #[allow(clippy::too_many_arguments)]
 fn fake_hits(
     mut commands: Commands,
@@ -730,8 +743,8 @@ fn fake_hits(
     let dt = time.delta_secs();
     let to_engine = Mat4::from_quat(crate::level::game_to_engine());
     let mut points: Vec<Vec3> = blasts.read().map(|b| b.at).collect();
-    // the player's shots this frame: the segment each crossed
-    let segments: Vec<(Entity, Vec3, Vec3)> = shots.iter().filter(|(_, _, sp)| sp.from_player).map(|(se, st, sp)| (se, st.translation - sp.vel * dt, st.translation)).collect();
+    // the shots this frame: the segment each crossed
+    let segments: Vec<(Entity, Vec3, Vec3)> = shots.iter().map(|(se, st, sp)| (se, st.translation - sp.vel * dt, st.translation)).collect();
     let mut used = HashSet::new();
     for (pe, mut p, m) in &mut q {
         let world = to_engine * m.world;
@@ -753,12 +766,19 @@ fn fake_hits(
             }
             // the platoon's box (its collision), in the platoon's frame
             if let Some(bx) = p.hit_box {
-                if let Some(at) = segment_enters_box(inv.transform_point3(a), inv.transform_point3(b), bx) {
+                let (la, lb) = (inv.transform_point3(a), inv.transform_point3(b));
+                if la.cmpge(bx.0).all() && la.cmple(bx.1).all() {
+                    continue;
+                }
+                if let Some(at) = segment_enters_box(la, lb, bx) {
                     hits.push(world.transform_point3(at));
                     used.insert(se);
                     commands.entity(se).despawn();
                     continue;
                 }
+            }
+            if alive.iter().any(|(_, c)| a.distance(*c + Vec3::Y * 6.0) < 5.0) {
+                continue;
             }
             for (_, c) in &alive {
                 let c = *c + Vec3::Y * 6.0;
@@ -782,7 +802,10 @@ fn fake_hits(
                 if let Some(v) = p.members[*i].visual.take() {
                     commands.entity(v).despawn();
                 }
-                fx.write(crate::fx::StartFx { name: p.members[*i].die_fx().into(), at: *c, rotation: Quat::IDENTITY, follow: None, position_only: false });
+                // oriented away from the hit (Matrix_LookAtNeg 0x004e3070 of (member - hit).xy: the effect's -Y along
+                // it; the record's direction z, under 1, beside distances of tens of units: left out)
+                let rotation = crate::vehicles::rockets::facing((*c - h).with_y(0.0));
+                fx.write(crate::fx::StartFx { name: p.members[*i].die_fx().into(), at: *c, rotation, follow: None, position_only: false });
                 triggers.write(crate::mission::SendTrigger(0x1b));
                 army.stats.fake_killed += 1;
             }
