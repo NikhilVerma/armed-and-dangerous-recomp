@@ -422,7 +422,10 @@ fn input(
             let id = nav[l];
             target = (id >= 0).then(|| map.iter().find(|(_, (_, n))| n[0] == id).map(|(r, _)| *r)).flatten();
             s.on_exit = false;
-        } else if link.is_none() && (moved || click) {
+        }
+        // with no direction, or one that leads nowhere (0x00463b90 finds no slot), the pointer pick runs in the same
+        // frame (missing_01.cpp:624-629)
+        if target.is_none() && (moved || click) {
             // the pointer: the slot under it unless it is the selected one; the exit prompt (remaster)
             if let Some(p) = pointed.filter(|p| Some(*p) != s.cursor || s.on_exit) {
                 target = Some(p);
