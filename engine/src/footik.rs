@@ -207,11 +207,20 @@ fn place_feet(
             let parent_rot = |i: usize| usize::try_from(skel.parents[i]).map_or(Quat::IDENTITY, |p| m[p].rotation);
             let (wh, wk, wa) = (m[hi].rotation, m[ki].rotation, m[ai].rotation);
             // hip: turned by dh in the character's frame; knee: bent by dk (its parent turned with it); ankle: its
-            // old orientation, turned onto the ground normal
+            // old orientation (the ankle branch undoes the hip and knee turns)
             local[hi].rotation = (parent_rot(hi).inverse() * dh * parent_rot(hi) * local[hi].rotation).normalize();
             local[ki].rotation = (wh.inverse() * dk * wh * local[ki].rotation).normalize();
-            let tilt = Quat::from_rotation_arc(Vec3::Z, fp.normal[leg]);
-            local[ai].rotation = ((dh * dk * wk).inverse() * tilt * wa).normalize();
+            local[ai].rotation = ((dh * dk * wk).inverse() * wa).normalize();
+            // the foot below the ankle (the callback's "other leg bones" branch, leg flag 0x10) turns onto the ground
+            // normal about the knee's hinge only: the normal less its part along the hinge (+0x18 of the leg record,
+            // the bend's axis turned with the hip; 0x004f1830's arc). A skeleton without a foot bone tilts the ankle.
+            let hinge = (dh * (h - k).cross(an - k)).normalize_or_zero();
+            let normal = (fp.normal[leg] - hinge * fp.normal[leg].dot(hinge)).normalize_or(Vec3::Z);
+            let tilt = Quat::from_rotation_arc(Vec3::Z, normal);
+            match (0..n).find(|&j| skel.parents[j] == ai as i32) {
+                Some(fi) => local[fi].rotation = (wa.inverse() * tilt * m[fi].rotation).normalize(),
+                None => local[ai].rotation = ((dh * dk * wk).inverse() * tilt * wa).normalize(),
+            }
         }
         for (j, t) in a.joints.iter().zip(&local) {
             if let Ok(mut jt) = joints.get_mut(*j) {
