@@ -95,6 +95,9 @@ pub struct SaveData {
     /// Game+0x574: the pub's intro heard in this campaign (pubscreen.rs)
     #[serde(default)]
     pub pub_intro_heard: Option<bool>,
+    /// Game+0x575 / +0x576: the pub's new-weapon lines heard in this campaign
+    #[serde(default)]
+    pub pub_once_heard: Option<Vec<String>>,
     /// the raised sirens (alarm.rs Markers), by instance id
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sirens: Vec<u32>,
@@ -368,6 +371,7 @@ fn save(
         difficulty: difficulty.0,
         money: Some(opts.money),
         pub_intro_heard: Some(opts.pub_intro_heard || pub_lines.intro_said),
+        pub_once_heard: Some(pub_lines.once_heard(&opts)),
         sirens: markers.sirens().iter().filter_map(|&e| buildings.get(e).ok().map(|i| i.0)).collect(),
         destroyed: Vec::new(),
     };
@@ -481,6 +485,9 @@ fn apply(
     }
     if let Some(heard) = s.pub_intro_heard {
         opts.pub_intro_heard = heard;
+    }
+    if let Some(heard) = &s.pub_once_heard {
+        opts.pub_once_heard = heard.clone();
     }
     let feet = crate::level::game_to_engine() * Vec3::from(s.roman_feet);
     physics.place_walker(&r.walker, feet);

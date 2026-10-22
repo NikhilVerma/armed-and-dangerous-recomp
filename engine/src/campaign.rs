@@ -203,10 +203,11 @@ fn next_target(levels: &Levels, mission: Option<&crate::mission::Mission>, repla
 pub struct ReplayMode(pub bool);
 
 /// A new game's campaign state (0x00401e80 with flag2 at the front end: Game+0x570.. = {5000, 0, 0}, banked at +0x57c):
-/// the money and the pub's once-a-campaign intro.
+/// the money and the pub's once-a-campaign lines.
 pub fn new_game(opts: &mut crate::options::GameOptions) {
     opts.money = crate::savegame::NEW_GAME_MONEY;
     opts.pub_intro_heard = false;
+    opts.pub_once_heard.clear();
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -238,9 +239,8 @@ fn end_sequence(
     match *end {
         LevelEnd::None => {}
         LevelEnd::Requested => {
-            // the bank (0x00401ef0): the money is already the Stats screen's; the pub's intro heard here is kept
-            if pub_lines.intro_said && !opts.pub_intro_heard {
-                opts.pub_intro_heard = true;
+            // the bank (0x00401ef0): the money is already the Stats screen's; the pub's once lines heard here are kept
+            if pub_lines.bank(&mut opts) {
                 opts.save();
             }
             *end = match cut.end_movie() {

@@ -1,0 +1,18 @@
+{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+ {"note": "0x00467fe0 on entry: every special Roman holds is topped up (0x004a13a0 with 100000 over the 0x004a1630 list, should_refill_ammo set) and his living companions are healed in full (Jonesy 0x00475d30 / Q 0x00475d40, +0x454 = max_health); the pub's line is one of its own (0x00468dd0)"},
+ {"wait": 0.5},
+ {"loadout": {"stickies": 2}},
+ {"hurt_companion": [1, 450]},
+ {"wait": 0.3},
+ {"expect": {"stickies": 2, "hud.health_meters.health_q.value": [0.05, 0.15]}},
+ {"warp": [194, -80, 16, 0]},
+ {"wait": 1.0},
+ {"hold_use": 0.3},
+ {"wait": 1.0},
+ {"expect": {"menu.page": "Pub", "pub.open": true, "stickies": 5}},
+ {"tap": "Escape"}, {"wait": 0.7},
+ {"expect": {"pub.open": false}},
+ {"wait": 0.5},
+ {"expect": {"hud.health_meters.health_q.value": [0.99, 1.01]}},
+ {"quit": true}
+]}
