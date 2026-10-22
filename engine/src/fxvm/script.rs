@@ -214,11 +214,13 @@ fn create_object(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_>, idx: usize, template:
                         t1: load(&tex2),
                         // the mask is data (linear): an uncompressed BGRA DDS fails to load as sRGB (black fallback)
                         t2: crate::gamematerial::load_tex(ctx.assets, &mask, false),
+                        // the record's opacity (+0x48), 0x004897d0's constant alpha for a translucent record
                         params: FxLayerParams {
                             offsets: Vec4::ZERO,
-                            colour: Vec4::new(def.emissive[0], def.emissive[1], def.emissive[2], 1.0),
+                            colour: Vec4::new(def.emissive[0], def.emissive[1], def.emissive[2], def.alpha()),
                             flags: Vec4::new(premultiplied(&ctx.lib.dir, &tex) as u8 as f32, premultiplied(&ctx.lib.dir, &tex2) as u8 as f32, premultiplied(&ctx.lib.dir, &mask) as u8 as f32, 0.0),
                         },
+                        opacity: def.alpha(),
                     });
                     layers.push(lm.clone());
                     c.spawn((Mesh3d(mesh), MeshMaterial3d(lm), bevy::light::NotShadowCaster));
@@ -253,8 +255,9 @@ fn create_object(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_>, idx: usize, template:
                 // 1) is drawn over the scene: the camera path passes within 1.26 of the glacier walls, which showed in
                 // front of the white (the player's report, 2026-10-14; the original's capture is all white there)
                 // the record's opacity (+0x48): 0x004897d0 draws a translucent record (kind bit 0x10) with the constant alpha
-                // object alpha x opacity (the window glass shards: 0.6, 0.25; they drew opaque)
-                let opacity = def.as_ref().filter(|d| d.kind & 0x10 != 0 && !additive).map_or(1.0, |d| d.opacity.clamp(0.0, 1.0));
+                // object alpha x opacity, whatever its blend (the window glass shards: 0.6, 0.25, they drew opaque; the
+                // additive glows and trails: fxo_glow_red 0.1, fxo_trail_bullet 0.15)
+                let opacity = def.as_ref().map_or(1.0, |d| d.alpha());
                 // additive parts add as the original does, in gamma space (fxadd.wesl)
                 if let (true, false, Some(tex)) = (additive, locked, base.base_color_texture.clone()) {
                     let name = tex.path().and_then(|p| p.path().file_stem()).map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
@@ -262,7 +265,9 @@ fn create_object(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_>, idx: usize, template:
                         let s = t.to_srgba();
                         Vec3::new(s.red, s.green, s.blue)
                     });
-                    let am = ctx.add_materials.add(FxAddMaterial { base: tex, params: FxAddParams::new(colour, super::particles::WHITE_OVER, premultiplied(&ctx.lib.dir, &name)) });
+                    let mut params = FxAddParams::new(colour, super::particles::WHITE_OVER, premultiplied(&ctx.lib.dir, &name));
+                    params.colour.w = opacity;
+                    let am = ctx.add_materials.add(FxAddMaterial { base: tex, params, opacity });
                     texture_name.get_or_insert(name);
                     adds.push(am.clone());
                     c.spawn((Mesh3d(mesh), MeshMaterial3d(am), bevy::light::NotShadowCaster));

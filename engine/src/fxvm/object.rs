@@ -369,7 +369,7 @@ impl FxObject {
         self.alpha = alpha;
         for m in &self.add_mats {
             if let Some(mut m) = adds.get_mut(m) {
-                m.params.colour.w = alpha;
+                m.params.colour.w = alpha * m.opacity;
             }
         }
         for (i, m) in self.materials.iter().enumerate() {
@@ -573,7 +573,7 @@ pub fn objects(
             for m in &o.layer_mats {
                 if let Some(mut m) = layer_materials.get_mut(m) {
                     m.params.offsets = Vec4::new(o1.x.rem_euclid(1.0), o1.y.rem_euclid(1.0), o2.x.rem_euclid(1.0), o2.y.rem_euclid(1.0));
-                    m.params.colour.w = o.alpha;
+                    m.params.colour.w = o.alpha * m.opacity;
                 }
             }
         }
