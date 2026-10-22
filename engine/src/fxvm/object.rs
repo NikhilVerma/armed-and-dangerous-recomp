@@ -626,7 +626,7 @@ pub fn objects(
             step_emitter(&mut vm.pools, &mut vm.rng, em, pos, obj_dir, dt);
         }
         if o.screen {
-            vm.out.screen.push(super::screen::ScreenRequest::Position(e.to_bits(), axes * pos));
+            vm.out.screen.push(super::screen::ScreenRequest::Position(super::screen::EffectOwner::Object(e), axes * pos));
         }
     }
     for e in gone {
