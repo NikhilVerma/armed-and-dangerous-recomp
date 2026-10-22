@@ -17,8 +17,8 @@
 //!
 //! The engine asks the limit whenever a bad guy enters the fire state (`may_fire`, ai.rs's fire state: any of the
 //! engine's ways in, which all pass the engage in the original) and counts a shooter while it holds the fire state with its counters rolled; leaving it or
-//! its clip's end (the original's stop events above) releases the place at the end of the frame (`upkeep`). Deviation:
-//! the engine's fire state keeps a shooter whose line of sight is lost (the original re-pursues and frees the place).
+//! its last clip's end (the original's stop events above) releases the place at the end of the frame (`upkeep`); a
+//! lost line of sight starts the pursuit (ai.rs), which leaves the fire state and so frees the place.
 
 use super::{Grunt, Mind};
 use crate::fx::FxStats;

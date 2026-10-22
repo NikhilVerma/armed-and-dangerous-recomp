@@ -653,6 +653,8 @@ pub struct Gun {
     /// aim weights +0x580 (0 left .. 1 right) / +0x584 (0 bottom .. 1 top)
     pub h: f32,
     pub v: f32,
+    /// the counters' tables: the grunt's stig_fire_* for a kind-1 gun, forge_fire_* for a forge cannon (0x00427600)
+    pub table: StigTable,
     /// +0x5b4 clips, +0x5bc rounds, +0x5b8 burst rounds, +0x5c8 clip pause, +0x5cc burst delay
     pub clips: i64,
     pub rounds: i64,
@@ -671,8 +673,9 @@ pub struct Gun {
 
 impl Gun {
     /// Going to this gun (state 0x7b)
-    fn to(gv: &GunView) -> Gun {
+    fn to(gv: &GunView, table: StigTable) -> Gun {
         Gun {
+            table,
             turret: gv.e,
             phase: GunPhase::ToGun,
             origin: gv.origin,
@@ -904,6 +907,8 @@ pub struct Grunt {
     /// the mounted gun held (+0x898) and its state
     pub gun: Option<Gun>,
     pub stig: StigTable,
+    /// the forge cannon's tables (+0x8cc..+0x8f8, forge_fire_*)
+    pub forge: StigTable,
     /// the class (vtable): anim table, weapon, the yes / no slots
     pub kind: Kind,
     /// the run / limp anims' playback rates by his speed (anim_run_* / anim_limp_*: skin.rs RunRates, charanim.rs)
@@ -1002,6 +1007,33 @@ impl Grunt {
             || self.gun.is_some()
             || matches!(self.mind, Mind::Dead | Mind::Scripted | Mind::Held | Mind::Throw | Mind::WaitTrigger | Mind::InSquad | Mind::Teleport)
             || (self.mind == Mind::ToMarker && self.spline.is_some_and(|r| !r.started))
+    }
+
+    /// GenericAI_OfferTarget 0x0042c820 (vt+0x1b4): `cand` (at `cand_pos`) offered to a grunt at `me`; ignored while a
+    /// target adopted this way is less than 10 s old (K 0x005bcb68 against +0x514) or on the way to a cover (+0x904
+    /// held without +0x484 0x20000); taken (+0x514 stamped) when there is no target or the candidate is nearer (3D)
+    /// than the current one at `cur_pos`. True when taken.
+    fn offer_target(&mut self, cand: Entity, cand_pos: Vec3, cur_pos: Option<Vec3>, me: Vec3, now: f32) -> bool {
+        let recent = (self.target.is_some() && now - self.offer_t < 10.0) || (self.cover.is_some() && !self.at_barricade);
+        if recent || cur_pos.is_some_and(|c| (cand_pos - me).length_squared() > (c - me).length_squared()) {
+            return false;
+        }
+        self.target = Some(cand);
+        self.offer_t = now;
+        true
+    }
+
+    /// The aim error's scale at 2D distance `d` (0x004284e0, ai_02.cpp:1690-1700): from the accuracy ranges, the
+    /// infinite ones with +0x484 0x400000; d <= min 0.1, beyond max 1, between max(0.1, (d^2 - min^2) / (max^2 - min^2)).
+    fn aim_error_scale(&self, d: f32) -> f32 {
+        let (lo, hi) = if self.infinite { self.infinite_accuracy } else { self.accuracy };
+        if d <= lo {
+            0.1
+        } else if d >= hi {
+            1.0
+        } else {
+            ((d * d - lo * lo) / (hi * hi - lo * lo)).max(0.1)
+        }
     }
 
     /// The engage's close attack (0x00427910 with allow_close_attack, ai_02.cpp:1199-1208): a class with one (vt+0x1e0,
@@ -1471,6 +1503,15 @@ pub fn make_grunt(p: &crate::gamedata::Props, data: &crate::gamedata::GameData, 
             burst_delay: (p.f("stig_fire_burst_delay_min", 0.25), p.f("stig_fire_burst_delay_max", 0.5)),
             delay: (p.f("stig_fire_delay_min", 0.5), p.f("stig_fire_delay_max", 0.75)),
         },
+        // (ai_01.cpp:2382-2387: 1 clip, no clip delay, 1 round, bursts of 1, no burst delay, delay 5..7)
+        forge: StigTable {
+            clips: (p.i("forge_fire_num_clips_min", 1), p.i("forge_fire_num_clips_max", 1)),
+            clip_delay: (p.f("forge_fire_clip_delay_min", 0.0), p.f("forge_fire_clip_delay_max", 0.0)),
+            rounds: (p.i("forge_fire_num_rounds_min", 1), p.i("forge_fire_num_rounds_max", 1)),
+            bursts: (p.i("forge_fire_num_bursts_min", 1), p.i("forge_fire_num_bursts_max", 1)),
+            burst_delay: (p.f("forge_fire_burst_delay_min", 0.0), p.f("forge_fire_burst_delay_max", 0.0)),
+            delay: (p.f("forge_fire_delay_min", 5.0), p.f("forge_fire_delay_max", 7.0)),
+        },
         kind,
         // attention_* modes stand at attention (0x0042d0f0 with a0 = 1: anim 0xf), ready_* with the stand set; the
         // roaming default plays anim 0xf (vt+0x19c(0xf, 1), ai_01.cpp:2444)
@@ -1857,6 +1898,18 @@ fn search(
     if std::env::var("AIDBG").is_ok() && time.elapsed_secs() < 0.5 {
         info!("AIDBG candidates player {:?} companions {:?}", pe, companions.iter().map(|c| c.0).collect::<Vec<_>>());
     }
+    // where every possible target stands (the hand-overs' offers compare distances)
+    let positions: std::collections::HashMap<Entity, Vec3> = if grunts.iter().any(|g| g.1.pending.is_some()) {
+        player
+            .iter()
+            .chain(companions.iter())
+            .map(|(e, t, _)| (e, t.translation()))
+            .chain(grunts.iter().map(|(e, _, t, _, _)| (e, t.translation())))
+            .chain(objects.iter().map(|(e, _, t)| (e, t.translation())))
+            .collect()
+    } else {
+        Default::default()
+    };
     let mut spotted: Vec<(i64, Entity, Entity)> = Vec::new();
     for (ge, mut g, t, gbody, ga) in &mut grunts {
         if g.mind == Mind::Dead {
@@ -1867,9 +1920,13 @@ fn search(
                 // the hand-over's end (ai_06.cpp:318-340): a grunt free to engage (vt+0x178 0x0042f8d0 false) takes the
                 // target (vt+0x1b4(target, 0, 1)); a busy one lets it go. (A busy squad member, states 0xdc / 0xde, is
                 // also released to a guard where he stands, 0x0042d0f0 and state 0xdd: not ported, squad.rs keeps him.)
+                // the target goes through the offer (0x0042c820): a grunt with one switches when the new one is nearer
                 g.pending = None;
-                if !g.busy(ge, tgt) {
-                    g.target = Some(tgt);
+                if !g.busy(ge, tgt) && g.target != Some(tgt) {
+                    if let Some(&cand) = positions.get(&tgt) {
+                        let cur = g.target.and_then(|e| positions.get(&e).copied());
+                        g.offer_target(tgt, cand, cur, t.translation(), time.elapsed_secs());
+                    }
                 }
             } else {
                 g.pending = Some((tgt, left - dt));
@@ -1993,7 +2050,8 @@ fn search(
     }
     for (group, tgt, who) in spotted {
         for (ge, mut g, _, _, _) in &mut grunts {
-            if ge != who && g.alert_group == group && g.target.is_none() && g.pending.is_none() && g.mind != Mind::Dead {
+            // (0x0042c700: every member of the group but the spotter and the target itself, its hand-over timer run out)
+            if ge != who && ge != tgt && g.alert_group == group && g.pending.is_none() && g.mind != Mind::Dead {
                 g.pending = Some((tgt, rng.range(0.25, 1.0)));
             }
         }
@@ -2196,6 +2254,8 @@ struct GunView {
     collider: Option<BodyId>,
     /// the placed gun's instance id (a turret-mode grunt's obj_tag resolves to it, level.rs)
     instance: Option<u32>,
+    /// a kind-2 gun (vt+0x168 != 1: the forge cannon, two pivots): the forge_fire_* tables
+    forge: bool,
 }
 
 /// The frame's cover objects.
@@ -2204,6 +2264,10 @@ struct Spots {
     guns: Vec<GunView>,
     /// the generic cover list World+0xed4: trees and valid buildings (coverslot.rs)
     slots: Vec<coverslot::SlotView>,
+    /// a base-defence level (0x0044e600: Roman starts in a turret): the search takes no gun, trench or cover slot
+    defence: bool,
+    /// the player's position and hit point (Game+0x748: the cover slots' reference without a target)
+    player: Option<(Vec3, Vec3)>,
 }
 
 /// The mounted-gun candidate of the hiding-spot search, 0x0042a100 (needs vt+0x1f0: true for grunts): the free gun
@@ -2238,11 +2302,12 @@ fn pick_gun(g: &Grunt, pos: Vec3, target: Option<(Vec3, Vec3)>, need_target: boo
     best.map(|b| b.0)
 }
 
-/// The gunner's counters (0x00427600 with a kind-1 gun): the first time (flag 4 clear) clips 3..5, rounds, burst and no
-/// pause; later rounds, burst and the clip pause; the burst delay cleared, the burst at most the rounds.
+/// The gunner's counters (0x00427600 with a gun, from its table `Gun::table`): the first time (flag 4 clear) clips,
+/// rounds, burst and no pause; later rounds, burst and the clip pause; the burst delay cleared, the burst at most the
+/// rounds.
 fn gun_roll(g: &mut Grunt, gn: &mut Gun, rng: &mut FxStats) {
     let int = |rng: &mut FxStats, (lo, hi): (i64, i64)| rng.range(lo as f32, hi as f32 + 0.999) as i64;
-    let st = g.stig;
+    let st = gn.table;
     if !g.fire_ready {
         g.fire_ready = true;
         gn.clips = int(rng, st.clips);
@@ -2258,9 +2323,10 @@ fn gun_roll(g: &mut Grunt, gn: &mut Gun, rng: &mut FxStats) {
     gn.burst = gn.burst.min(gn.rounds);
 }
 
-/// The gun's firing cycle 0x004292f0 (kind 1): the clip pause (idle), the burst delay, the fire set while rounds and
-/// burst last; a spent burst re-rolls the burst and its delay; a spent clip counts the clips down (a pause between, flag
-/// 4 cleared after the last). Returns firing.
+/// The gun's firing cycle 0x004292f0: the clip pause (idle), the burst delay, the fire set while rounds and burst last;
+/// a spent burst re-rolls the burst and its delay; a spent clip counts the clips down (a pause between, flag 4 cleared
+/// after the last). Returns firing. Not modelled: a kind-2 gun (the forge cannon) also keeps its fire anim until it
+/// ends (bit 1 of 0x00408800(4)+0x1c) once the counters run out; its shots are the same.
 fn gun_cycle(g: &mut Grunt, gn: &mut Gun, rng: &mut FxStats, dt: f32) -> bool {
     if gn.pause > 0.0 {
         gn.firing = false;
@@ -2281,14 +2347,14 @@ fn gun_cycle(g: &mut Grunt, gn: &mut Gun, rng: &mut FxStats, dt: f32) -> bool {
         return true;
     }
     if gn.rounds > 0 {
-        let st = g.stig;
+        let st = gn.table;
         gn.burst = rng.range(st.bursts.0 as f32, st.bursts.1 as f32 + 0.999) as i64;
         gn.delay = rng.range(st.burst_delay.0, st.burst_delay.1);
         gn.burst = gn.burst.min(gn.rounds);
     } else {
         gn.clips -= 1;
         if gn.clips > 0 {
-            gn.pause = rng.range(g.stig.clip_delay.0, g.stig.clip_delay.1);
+            gn.pause = rng.range(gn.table.clip_delay.0, gn.table.clip_delay.1);
         } else {
             g.fire_ready = false;
         }
@@ -2399,8 +2465,8 @@ fn leave_cover(g: &mut Grunt, me: Entity, trenches: &mut [TrenchView], history: 
     g.at_barricade = false;
 }
 
-/// GenericAI_FindHidingSpot 0x0042a7b0 (vt+0x240) as lev_1_m1's grunts reach it: (a0 need_target, a1, a2 hold) = (1, 0,
-/// 0) at the clip's end through 0x0042b8e0 and at a reload's end (state 0x32), (1, 1, 0) leaving a trench, (0, 0, 1) on
+/// GenericAI_FindHidingSpot 0x0042a7b0 (vt+0x240) as lev_1_m1's grunts reach it: (a0 need_target, a1 leaving, a2 hold) =
+/// (1, 0, 0) at the clip's end through 0x0042b8e0 and at a reload's end (state 0x32), (1, 1, 0) leaving a trench, (0, 0, 1) on
 /// arriving at a marker whose action is hide (Marker_ProcessArrival 0x0044ba30; nothing found: AI_Wander 60..100):
 /// - a clip's end (+0x484 flag 4 clear) with a target: 90 % (0x2d0000) the reload in place, the search skipped
 ///   (0x004531e0(target), true for an airborne target, taken false: guess);
@@ -2415,7 +2481,7 @@ fn leave_cover(g: &mut Grunt, me: Entity, trenches: &mut [TrenchView], history: 
 ///   is taken (vt+0x158) and state 0xa0 starts; +0x484 0x200 = hold (a2);
 /// - nothing: flag 4 set -> pursue (vt+0x184), else the reload in place (state 0x32).
 #[allow(clippy::too_many_arguments)]
-fn find_hiding_spot(g: &mut Grunt, me: Entity, (need_target, hold): (bool, bool), pos: Vec3, target: Option<(Vec3, Vec3)>, spots: &mut Spots, physics: &Physics, own: BodyId, rng: &mut FxStats) -> Hide {
+fn find_hiding_spot(g: &mut Grunt, me: Entity, (need_target, leaving, hold): (bool, bool, bool), pos: Vec3, target: Option<(Vec3, Vec3)>, spots: &mut Spots, physics: &Physics, own: BodyId, rng: &mut FxStats) -> Hide {
     // a monk's search is MonkObject_Bamf 0x00436bb0: with specials left he re-engages (in range) or rests; at 0 he
     // teleports round the target (or the player: here the target only)
     if let Some(m) = g.monk.as_mut() {
@@ -2447,6 +2513,11 @@ fn find_hiding_spot(g: &mut Grunt, me: Entity, (need_target, hold): (bool, bool)
     }
     g.hold = false;
     let fail = if flag4 { Hide::Pursue } else { Hide::Reload };
+    // a base-defence level (0x0044e600, ai_03.cpp:219-224) tries only the breach and the ways over the wall (the
+    // assault, ai/assault.rs, its own timed search) and otherwise fails: no gun, trench or cover slot
+    if spots.defence {
+        return fail;
+    }
     // the two candidates by 2D squared distance from the grunt: a trench nearer than the gun wins, else the gun
     let gi = pick_gun(g, pos, target, need_target, &spots.guns, physics, own);
     let ti = pick_trench(g, me, pos, target, need_target, &spots.trenches, physics, own);
@@ -2462,15 +2533,18 @@ fn find_hiding_spot(g: &mut Grunt, me: Entity, (need_target, hold): (bool, bool)
     if g.kind != Kind::Bow && (!need_target || target.is_some()) {
         let won = ti.map(|i| d2(spots.trenches[i].origin)).or(gi.map(|i| d2(spots.guns[i].origin)));
         let limit2 = won.map_or((2.0 * g.scan_distance).powi(2), |d| d * 0.25);
+        // (no target: the slots are judged against the player, Game+0x748, ai_03.cpp:222)
         let seeker = coverslot::Seeker {
             me,
             pos,
-            target,
+            target: target.or(spots.player),
             history: [g.cover_history[0], g.cover_history[1]],
             skip_last_both: false,
             physics,
         };
-        let skip_last = rng.rand() < 0.25;
+        // the last object left (+0x918) is skipped when leaving one (a1, 0x0042b8e0's slot branch), else 25 % of the
+        // time (ai_03.cpp:287-295)
+        let skip_last = leaving || rng.rand() < 0.25;
         if let Some((i, slot, point, dir)) = coverslot::pick(&seeker, &spots.slots, limit2, skip_last) {
             let reachable = point.distance(pos) < g.scan_distance && (line_of_sight(physics, pos, point) || crate::nav::path(physics, pos, point, &[]).is_some());
             if reachable {
@@ -2491,7 +2565,7 @@ fn find_hiding_spot(g: &mut Grunt, me: Entity, (need_target, hold): (bool, bool)
         }
         spots.guns[i].reserved = Some(me);
         let gv = &spots.guns[i];
-        g.gun = Some(Gun::to(gv));
+        g.gun = Some(Gun::to(gv, if gv.forge { g.forge } else { g.stig }));
         g.route.clear();
         g.hold = hold;
         return Hide::Gunner;
@@ -2535,10 +2609,25 @@ fn barricade_clip_end(g: &mut Grunt, me: Entity, p: Vec3, pos: Vec3, tgt: Option
         duck(g);
     } else {
         leave_cover(g, me, &mut spots.trenches, true);
-        if let Some(m) = find_hiding_spot(g, me, (true, false), pos, tgt, spots, physics, own, rng).mind() {
+        if let Some(m) = find_hiding_spot(g, me, (true, true, false), pos, tgt, spots, physics, own, rng).mind() {
             g.mind = m;
         }
     }
+}
+
+/// The pursuit's entry (vt+0x184 0x004295d0, state 0x3c): the pause cleared, a point around the target and the
+/// delay to its first ray.
+fn pursue(g: &mut Grunt, target: Vec3, limping: bool, rng: &mut FxStats) {
+    g.pause = 0.0;
+    pursuit_point(g, target, limping, rng);
+    g.mind = Mind::Chase;
+}
+
+/// The pursuit's point within +-20 of the target and the delay to its next ray (+0x490: 0.2..0.4 s, 0.27..0.54 s
+/// limping, flag 2 of +0x484).
+fn pursuit_point(g: &mut Grunt, target: Vec3, limping: bool, rng: &mut FxStats) {
+    g.ray_timer = if limping { rng.range(0.27, 0.54) } else { rng.range(0.2, 0.4) };
+    g.goal = target + Vec3::new(rng.range(-20.0, 20.0), 0.0, rng.range(-20.0, 20.0));
 }
 
 /// The reload set's length (anims 0x2a, 0x2b, 0x28, 0x29 by PlayAnim4: the engine times the one it plays):
@@ -2678,7 +2767,7 @@ fn marker_arrival(
     };
     if mk.flags & crate::alarm::Marker::HIDE != 0 {
         g.spline = None;
-        let h = find_hiding_spot(g, me, (false, true), pos, tgt, spots, physics, own, rng);
+        let h = find_hiding_spot(g, me, (false, false, true), pos, tgt, spots, physics, own, rng);
         if let Some(m) = h.mind() {
             return Some(m);
         }
@@ -2753,7 +2842,7 @@ fn reaction_end(
 ) -> Option<Mind> {
     let kind = std::mem::take(&mut g.reacting);
     let search = |g: &mut Grunt, spots: &mut Spots, rng: &mut FxStats| {
-        let h = find_hiding_spot(g, me, (true, false), pos, tgt, spots, physics, own, rng);
+        let h = find_hiding_spot(g, me, (true, false, false), pos, tgt, spots, physics, own, rng);
         hide_to_mind(g, h)
     };
     let common = |g: &mut Grunt, spots: &mut Spots, rng: &mut FxStats| -> Mind {
@@ -2855,13 +2944,14 @@ fn think(
     mut fx: MessageWriter<crate::fx::StartFx>,
     rtime: Res<Time<Real>>,
     (mut barks, voices): (ResMut<Barks>, crate::audio::PlayingVoices),
-    (markers, mut arrive, mut trenches, mut guns, mounted, data): (
+    (markers, mut arrive, mut trenches, mut guns, mounted, data, mission): (
         Res<crate::alarm::Markers>,
         MessageWriter<crate::alarm::MarkerArrival>,
         Query<(Entity, &mut Barricade)>,
         Query<(Entity, &mut crate::turret::Turret, &GlobalTransform, &crate::skin::Animator, (Option<&crate::level::Placed>, Option<&crate::level::InstanceId>)), Without<Grunt>>,
         Res<crate::turret::Mounted>,
         Res<crate::gamedata::GameData>,
+        Option<Res<crate::mission::Mission>>,
     ),
     (mut lib, player_q, mut triggers, grenade_assets, squads, mut jmarks, army, placed, mut limit, mut force, motion, mut close, mut covers): (
         ResMut<crate::skin::AnimLibrary>,
@@ -2905,6 +2995,7 @@ fn think(
                 ai: t.ai,
                 collider: placed.and_then(|p| p.collider),
                 instance: inst.map(|i| i.0),
+                forge: t.two_pivot(),
             }
         })
         .collect();
@@ -2914,7 +3005,12 @@ fn think(
     } else {
         covers.iter().map(|(e, c, gt, pl)| coverslot::SlotView::of(e, c, gt, pl.and_then(|p| p.collider))).collect()
     };
-    let mut spots = Spots { trenches: views, guns: gun_views, slots: slot_views };
+    let defence = mission.is_some_and(|m| m.start_in_turret);
+    let player = player_e.and_then(|e| targets.get(e).ok().map(|t| (e, t.translation()))).map(|(e, p)| {
+        let hit = anims.get(e).ok().and_then(|a| a.skeleton.index.get("ref_hit_00").and_then(|&i| targets.get(a.joints[i]).ok())).map(|j| j.translation());
+        (p, hit.unwrap_or(p + Vec3::Y * 7.0))
+    });
+    let mut spots = Spots { trenches: views, guns: gun_views, slots: slot_views, defence, player };
     // the jump markers (World+0xf10) as the jumpers' choice sees them; their occupants written back at the end
     let mut jviews: Vec<jumper::MarkerView> =
         jmarks.iter().map(|(e, m, t)| jumper::MarkerView { e, pos: t.translation, tag: m.tag, free: m.occupant.is_none() }).collect();
@@ -2954,7 +3050,7 @@ fn think(
             match spots.guns.iter().position(|v| v.instance == Some(id)) {
                 Some(i) if spots.guns[i].ai.is_none() && spots.guns[i].reserved.is_none() => {
                     let gv = &spots.guns[i];
-                    g.gun = Some(Gun::to(gv));
+                    g.gun = Some(Gun::to(gv, if gv.forge { g.forge } else { g.stig }));
                     g.hold = true;
                     g.mind = Mind::Gunner;
                     spots.guns[i].reserved = Some(ge);
@@ -3068,20 +3164,11 @@ fn think(
             // ignored while a target adopted this way is less than 10 s old (K 0x005bcb68 against +0x514); taken when
             // there is no target or the source is nearer (3D) than the current one
             if let Some(a) = g.attacker.take() {
-                let now = time.elapsed_secs();
                 let ap = targets.get(a).ok().map(|t| t.translation());
                 let cur = g.target.and_then(|e| targets.get(e).ok()).map(|t| t.translation());
-                // (ignored too on the way to a cover: +0x904 held without +0x484 0x20000, 0x0042c820)
-                let recent = (g.target.is_some() && now - g.offer_t < 10.0) || (g.cover.is_some() && !g.at_barricade);
-                if let (Some(ap), false) = (ap, recent) {
-                    let me = tr.translation;
-                    if cur.is_none_or(|c| (ap - me).length_squared() <= (c - me).length_squared()) {
-                        if std::env::var("AIDBG").is_ok() {
-                            info!("AIDBG retaliate {:?} -> {:?} (had {:?})", body.id, a, g.target);
-                        }
-                        g.target = Some(a);
-                        g.offer_t = now;
-                    }
+                let had = g.target;
+                if ap.is_some_and(|ap| g.offer_target(a, ap, cur, tr.translation, time.elapsed_secs())) && std::env::var("AIDBG").is_ok() {
+                    info!("AIDBG retaliate {:?} -> {:?} (had {:?})", body.id, a, had);
                 }
             }
         }
@@ -3205,7 +3292,7 @@ fn think(
         if g.force_hide {
             g.force_hide = false;
             g.fire_ready = true;
-            let h = find_hiding_spot(&mut g, ge, (true, false), pos, tgt, &mut spots, &physics, body.id, &mut rng);
+            let h = find_hiding_spot(&mut g, ge, (true, false, false), pos, tgt, &mut spots, &physics, body.id, &mut rng);
             g.mind = match h {
                 Hide::Reload => Mind::Reload,
                 h => hide_to_mind(&mut g, h),
@@ -3251,6 +3338,13 @@ fn think(
             g.mind = Mind::InSquad;
         }
         let was = g.mind;
+        // the pursuit's ray (0x004137e0 / 0x00414110): the grunt's ref_hit_00 to the target's, a placed target's own
+        // collision counting as a sight of it
+        let chase_sees = g.mind == Mind::Chase && !g.guard && in_range && g.ray_timer <= 0.0 && {
+            let target_body = g.target.and_then(|t| placed.get(t).ok()).and_then(|p| p.collider);
+            let skip: Vec<BodyId> = std::iter::once(body.id).chain(target_body).collect();
+            target_hit.is_some_and(|thit| sight_ray(&physics, own_hit, thit, &skip))
+        };
         g.mind = match (g.mind, target) {
             // a charge's pursuit (0x0042ce70 -> vt+0x184) comes before any engaging
             (Mind::Roam, Some(_)) if std::mem::take(&mut g.pursue) => Mind::Chase,
@@ -3302,7 +3396,7 @@ fn think(
                 if in_range && sight_ray(&physics, own_hit, thit, &[body.id]) {
                     Mind::Fire
                 } else if rng.rand() < 0.5 {
-                    let h = find_hiding_spot(&mut g, ge, (true, false), pos, tgt, &mut spots, &physics, body.id, &mut rng);
+                    let h = find_hiding_spot(&mut g, ge, (true, false, false), pos, tgt, &mut spots, &physics, body.id, &mut rng);
                     hide_to_mind(&mut g, h)
                 } else {
                     leave_cover(&mut g, ge, &mut spots.trenches, true);
@@ -3315,6 +3409,8 @@ fn think(
             // the chase engages on its ray (state 0x3c); the archers (vt+0x1cc false) only within 0.9 x +0x5d8
             // (K 0x005bcc38) first
             (Mind::Chase, Some(p)) if !g.guard && !g.kind.chase_ray_only() && flat(p - pos).length() > 0.9 * g.range => Mind::Chase,
+            // and only on its ray (every 0.2..0.4 s, ai_06.cpp:1434-1470): in range with a clear sight of the target
+            (Mind::Chase, Some(_)) if !g.guard && in_range && !chase_sees => Mind::Chase,
             (_, Some(_)) if in_range || g.guard => {
                 // engage 0x00427910 on coming into it: in range with flag 4, the close attack when the class has one
                 // (vt+0x1e0: the captain), allow_close_attack, flag 1 and rand * 200 >> 15 < 30; else the fire state 0xa
@@ -3365,7 +3461,7 @@ fn think(
             if let Some(m) = g.monk.as_mut() {
                 m.special = 0;
             }
-            let h = find_hiding_spot(&mut g, ge, (true, false), pos, tgt, &mut spots, &physics, body.id, &mut rng);
+            let h = find_hiding_spot(&mut g, ge, (true, false, false), pos, tgt, &mut spots, &physics, body.id, &mut rng);
             g.mind = hide_to_mind(&mut g, h);
             if g.mind == Mind::Teleport {
                 stats.teleports += 1;
@@ -3421,7 +3517,7 @@ fn think(
                             info!("EVENT ai: jumper {ge:?} jumps to a marker {:.0} away", (at - pos).with_y(0.0).length());
                         }
                         None => {
-                            let h = find_hiding_spot(&mut g, ge, (true, false), pos, tgt, &mut spots, &physics, body.id, &mut rng);
+                            let h = find_hiding_spot(&mut g, ge, (true, false, false), pos, tgt, &mut spots, &physics, body.id, &mut rng);
                             g.mind = hide_to_mind(&mut g, h);
                         }
                     }
@@ -3459,11 +3555,12 @@ fn think(
                 speed = 0.0;
             }
             Mind::Chase => {
-                // pursue 0x004295d0: a point within +-20 of the target; every 0.2-0.4 s a ray decides to engage
+                // pursue 0x004295d0: a point within +-20 of the target; every 0.2-0.4 s a ray decides to engage. Its
+                // entry clears the pause +0x5c8 (ai_02.cpp:2293): the engage after it fires without a leftover wait
+                g.pause = 0.0;
                 if let Some(p) = target {
                     if g.ray_timer <= 0.0 {
-                        g.ray_timer = if limping { rng.range(0.27, 0.54) } else { rng.range(0.2, 0.4) };
-                        g.goal = p + Vec3::new(rng.range(-20.0, 20.0), 0.0, rng.range(-20.0, 20.0));
+                        pursuit_point(&mut g, p, limping, &mut rng);
                     }
                     goal = g.goal;
                     speed = run_speed;
@@ -3585,7 +3682,7 @@ fn think(
                         g.pause = g.reload_len;
                         Mind::Reload
                     } else if target.is_some() {
-                        let h = find_hiding_spot(&mut g, ge, (true, false), pos, tgt, &mut spots, &physics, body.id, &mut rng);
+                        let h = find_hiding_spot(&mut g, ge, (true, false, false), pos, tgt, &mut spots, &physics, body.id, &mut rng);
                         hide_to_mind(&mut g, h)
                     } else {
                         lost_target(&mut g, ge, &mut spots.trenches)
@@ -3658,7 +3755,7 @@ fn think(
                         g.mind
                     } else if !g.fire_ready || rng.rand() < 0.5 {
                         if target.is_some() {
-                            let h = find_hiding_spot(&mut g, ge, (true, false), pos, tgt, &mut spots, &physics, body.id, &mut rng);
+                            let h = find_hiding_spot(&mut g, ge, (true, false, false), pos, tgt, &mut spots, &physics, body.id, &mut rng);
                             hide_to_mind(&mut g, h)
                         } else {
                             lost_target(&mut g, ge, &mut spots.trenches)
@@ -3752,12 +3849,15 @@ fn think(
                     match end {
                         // in the slot a lost line of sight ducks (0x00428980: anim 0x66, state 0xa2)
                         FireEnd::Sight if g.at_barricade => duck(&mut g),
+                        // elsewhere (ai_02.cpp:1886-1912) the pursuit (vt+0x184 0x004295d0) until its ray sees the
+                        // target again; a guard keeps his guard state (0x7a and back), a squad member his place
+                        FireEnd::Sight if !g.guard && !squad_fight => pursue(&mut g, p, limping, &mut rng),
                         // the clip's end (0x0042b8e0): in the slot, the target within 80 degrees of its direction ->
                         // duck, else leave it (vt+0x188) and search again (vt+0x240(1, 1, 0)); elsewhere a non-guard
                         // searches (vt+0x240(1, 0, 0)): 90 % the reload in place first
                         FireEnd::Clip { .. } if g.at_barricade => barricade_clip_end(&mut g, ge, p, pos, tgt, &mut spots, &physics, body.id, &mut rng),
                         FireEnd::Clip { .. } if !g.guard => {
-                            if let Some(m) = find_hiding_spot(&mut g, ge, (true, false), pos, tgt, &mut spots, &physics, body.id, &mut rng).mind() {
+                            if let Some(m) = find_hiding_spot(&mut g, ge, (true, false, false), pos, tgt, &mut spots, &physics, body.id, &mut rng).mind() {
                                 g.mind = m;
                             }
                         }
@@ -3957,8 +4057,10 @@ fn think(
                         } else if gn.timer <= 0.0 && target.is_some() && cl {
                             g.hold = false;
                             gun_cycle(&mut g, &mut gn, &mut rng, dt);
+                            // the clips spent: the delay to the next sequence from the gun's table (ai_06.cpp:728-733;
+                            // the first, on getting on, is always stig_fire_delay)
                             if gn.clips <= 0 {
-                                gn.timer = rng.range(g.stig.delay.0, g.stig.delay.1);
+                                gn.timer = rng.range(gn.table.delay.0, gn.table.delay.1);
                             }
                         } else {
                             gn.firing = false;
@@ -4011,8 +4113,7 @@ fn think(
                                         let (Some(p), Some(hit)) = (target, target_hit) else { continue };
                                         let to = (p - pos).with_y(0.0);
                                         let d = to.length();
-                                        let (lo, hi) = g.accuracy;
-                                        let s = if d <= lo { 0.1 } else if d >= hi { 1.0 } else { ((d * d - lo * lo) / (hi * hi - lo * lo)).max(0.1) };
+                                        let s = g.aim_error_scale(d);
                                         let side = Vec3::new(-to.z, 0.0, to.x).normalize_or_zero();
                                         let aim = match led {
                                             // flag 1: straight at the led point (0x004284e0's turret branch)
@@ -4042,7 +4143,7 @@ fn think(
                             // 0x7c's end: flag 4 cleared, the hiding-spot search (vt+0x240(1, 0, 0))
                             g.gun = None;
                             g.fire_ready = false;
-                            g.mind = find_hiding_spot(&mut g, ge, (true, false), pos, tgt, &mut spots, &physics, body.id, &mut rng).mind().unwrap_or(Mind::Reload);
+                            g.mind = find_hiding_spot(&mut g, ge, (true, false, false), pos, tgt, &mut spots, &physics, body.id, &mut rng).mind().unwrap_or(Mind::Reload);
                             if g.mind == Mind::Reload {
                                 g.pause = 0.467 + 1.133;
                             }
@@ -4104,7 +4205,7 @@ fn think(
                     g.monk = Some(m);
                 }
                 if g.anim_left <= 0.0 {
-                    let h = find_hiding_spot(&mut g, ge, (true, false), pos, tgt, &mut spots, &physics, body.id, &mut rng);
+                    let h = find_hiding_spot(&mut g, ge, (true, false, false), pos, tgt, &mut spots, &physics, body.id, &mut rng);
                     g.mind = hide_to_mind(&mut g, h);
                 }
             }
@@ -4295,8 +4396,7 @@ fn shoot(commands: &mut Commands, fx: &mut MessageWriter<crate::fx::StartFx>, g:
     let fwd = Vec3::new(g.yaw.sin(), 0.0, g.yaw.cos());
     let to = (hit - pos).with_y(0.0);
     let d = to.length();
-    let (lo, hi) = if g.infinite { g.infinite_accuracy } else { g.accuracy };
-    let s = if d <= lo { 0.1 } else if d >= hi { 1.0 } else { ((d * d - lo * lo) / (hi * hi - lo * lo)).max(0.1) };
+    let s = g.aim_error_scale(d);
     let side = Vec3::new(-to.z, 0.0, to.x).normalize_or_zero();
     let aim = hit + side * rng.range(-g.inaccuracy_angle, g.inaccuracy_angle) * s + Vec3::Y * rng.range(0.0, g.inaccuracy_height) * s;
     let right = Vec3::new(-fwd.z, 0.0, fwd.x);
@@ -4646,7 +4746,7 @@ fn die(
     }
     for (group, killer, who) in alerts {
         for (ge, mut g, _, _, _, _, _) in &mut grunts {
-            if ge != who && g.alert_group == group && g.mind != Mind::Dead && g.pending.is_none() {
+            if ge != who && ge != killer && g.alert_group == group && g.mind != Mind::Dead && g.pending.is_none() {
                 if std::env::var("AIDBG").is_ok() {
                     info!("AIDBG group {group} alerted by a death: {ge:?} -> {killer:?}");
                 }
@@ -5582,8 +5682,8 @@ fn companions(
                         // 0x0044f160), read by the idle banter (player.rs)
                         c.last_shot = Some(now);
                         // aim error 0x004284e0 (as the grunts'): sideways in [-angle, angle], up in [0, height], scaled
-                        // by the distance between fire_accuracy_min and max
-                        let to = (at - muzzle).with_y(0.0);
+                        // by the distance (from his own position, vt+0x54) between fire_accuracy_min and max
+                        let to = (at - me).with_y(0.0);
                         let d = to.length();
                         let (lo, hi) = c.p.accuracy;
                         let sc = if d <= lo { 0.1 } else if d >= hi { 1.0 } else { ((d * d - lo * lo) / (hi * hi - lo * lo)).max(0.1) };
