@@ -454,10 +454,10 @@ pub fn objects(
     let mut spawned: Vec<Instance> = Vec::new();
     for (&e, o) in objs.iter_mut() {
         let Ok(mut t) = q.get_mut(e) else { continue }; // spawned this frame: starts next frame
-        // a 0x10 impulse on an object no 0x11 / 0x64 made dynamic (fx_trash): its body now, normal gravity (guess:
-        // 0x64's; whether fx bodies are dynamic from creation is not traced)
+        // a 0x10 impulse or 0x1a spin on an object no 0x11 / 0x64 made dynamic (fx_trash): its body now (its gravity
+        // scale: weightless unless a 0x11 gave one, body.rs `make_dynamic`)
         if (o.impulse != Vec3::ZERO || o.spin != Vec3::ZERO) && o.body.is_none() && !o.inert {
-            make_dynamic(&mut physics, &mut commands, o, e, 1.0);
+            make_dynamic(&mut physics, &mut commands, o, e);
         }
         let body = o.body;
         // physics-driven objects: the placement read back from the body's pose
@@ -466,7 +466,7 @@ pub fn objects(
         }
         // ground hits (the contact callback 0x00419330 sets +0x464 bit 0x2000; acted on here)
         if let (true, Some(b)) = (o.hit.ground, body) {
-            let contact = touching(&physics, b, o);
+            let contact = touching(&physics, b);
             let new_hit = contact.is_some() && !o.hit.touching;
             o.hit.touching = contact.is_some();
             if let (true, Some((at, other))) = (new_hit, contact) {
