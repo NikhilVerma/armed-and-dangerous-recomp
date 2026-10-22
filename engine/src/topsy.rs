@@ -58,10 +58,18 @@ pub struct Thrown {
     pub until: Option<f32>,
 }
 
-/// A monk's knock-over (MonkObject damage 0x004371e0 with the topsy's flag 0x20, MonkObject_Update 0x00447500,
-/// vt+0x1b0 0x00437240): he never lets go; on the ground he hangs at once (monk_hanging, anim 0x72, state 0xf4) for
-/// +0x87c = topsy_turvy_duration + 1, counted down twice a frame (by state 0xf4 and by the update while +0x878 holds),
-/// so half of it; then +0x878 = 0 and MonkObject_Bamf 0x00436bb0 (vt+0x240) teleports him round his target.
+/// A monk the bomb knocked (MonkObject damage 0x004371e0 with the topsy's flag 0x20: +0x878 = a tiny positive
+/// timer) and who is not hanging yet: MonkObject_Update 0x00447500 starts the hang only once his ground query
+/// (0x00454bc0, vt+0xb8) finds ground, so a monk in the air (a teleport flight, a fall) or with his physics off (an IC
+/// move, state 0x64: the IC test of vt+0x1b0 0x00437240) carries on as he was and hangs when he lands. He keeps the
+/// knock after the world turns back (the original's +0x878 stays set).
+#[derive(Component)]
+pub struct MonkKnocked;
+
+/// A monk's knock-over (MonkObject_Update 0x00447500 once he is on the ground): he never lets go; he hangs
+/// (monk_hanging, anim 0x72, state 0xf4) for +0x87c = Game+0xc7c (topsy_turvy_duration, game_05.cpp:1810) + 1, counted
+/// down twice a frame (by state 0xf4 and by the update while +0x878 holds), so half of it; then +0x878 = 0 and
+/// MonkObject_Bamf 0x00436bb0 (vt+0x240) teleports him round his target.
 pub fn monk_hang(duration: f32) -> Thrown {
     Thrown { hangs: true, t: 0.0, rise: 0.0, into: false, until: Some((duration + 1.0) * 0.5) }
 }
@@ -75,7 +83,7 @@ impl Plugin for TopsyPlugin {
     fn build(&self, app: &mut App) {
         app.init_level_resource::<Topsy>()
             .init_level_resource::<TopsyCams>()
-            .add_systems(Update, (run, thrown, log).chain().run_if(crate::playing))
+            .add_systems(Update, (run, monk_lands, thrown, log).chain().run_if(crate::playing))
             .add_systems(PostUpdate, camera.after(crate::camera::follow_camera).in_set(crate::camera::CameraPlace).before(bevy::transform::TransformSystems::Propagate).run_if(crate::playing));
     }
 }
@@ -144,7 +152,8 @@ fn run(
     time: Res<Time>,
     mut topsy: ResMut<Topsy>,
     data: Res<crate::gamedata::GameData>,
-    roman: Query<(&Roman, &GlobalTransform)>,
+    mut roman: Query<(&mut Roman, &GlobalTransform)>,
+    cheats: Res<crate::cheats::Cheats>,
     mut grunts: Query<(Entity, &mut Grunt, &GlobalTransform, Option<&crate::physics::Body>), Without<Thrown>>,
     mut physics: NonSendMut<crate::physics::Physics>,
     mut rng: ResMut<FxStats>,
@@ -156,7 +165,7 @@ fn run(
 ) {
     let dt = time.delta_secs();
     let g = data.props("p_globalsettings");
-    let Ok((r, rt)) = roman.single() else { return };
+    let Ok((mut r, rt)) = roman.single_mut() else { return };
     if topsy.start {
         topsy.start = false;
         if !topsy.active() {
@@ -172,7 +181,6 @@ fn run(
     if !topsy.active() {
         return;
     }
-    let _ = r;
     topsy.t += dt;
     match topsy.phase {
         Phase::Into if topsy.t >= INTO => {
@@ -186,19 +194,22 @@ fn run(
                 let radius = g.f("topsy_turvy_radius", 100.0);
                 let fall_pct = g.f("topsy_turvy_fall_pct", 50.0);
                 let me = rt.translation();
-                let (mut hang, mut fall) = (0, 0);
+                let (mut hang, mut fall, mut knocked) = (0, 0, 0);
                 for (e, mut gr, gt, body) in &mut grunts {
                     // AreaDamage_Apply 0x0047f020 (from 0x004a1aa0, id 8, r = Game+0xc84 topsy_turvy_radius): a receiver
                     // within r of its bounding sphere's surface (grunt bounds radius about 4.66, as sticky.rs: guess)
                     if gr.mind == Mind::Dead || gt.translation().distance(me) - 4.66 > radius {
                         continue;
                     }
-                    // a monk's damage slot (0x004371e0) never takes the base path: no roll, no fall
+                    // a monk's damage slot (0x004371e0) never takes the base path: no roll, no fall. It ignores the
+                    // blast while trigger_no_damage holds (+0x48c 0x4000: a monk waiting for his trigger) or its source
+                    // is dead (vt+0xe0: the source is Roman, alive as he throws); otherwise he is knocked and hangs
+                    // once on the ground (monk_lands)
                     if gr.monk.is_some() {
-                        hang += 1;
-                        gr.mind = Mind::WaitTrigger;
-                        commands.entity(e).insert(monk_hang(topsy.duration));
-                        info!("EVENT topsy: monk {e:?} hangs");
+                        if !gr.no_damage {
+                            knocked += 1;
+                            commands.entity(e).insert(MonkKnocked);
+                        }
                         continue;
                     }
                     let roll = rng.rand() * 100.0;
@@ -229,8 +240,13 @@ fn run(
                         stunned += 1;
                     }
                 }
+                // the bomb is spent as it goes off (0x004a1aa0 at the end of the world turn, game_05.cpp:1803-1807:
+                // the area damage, then one less unless the infinite ammo cheat, Game+0x175)
+                if !cheats.on(crate::cheats::INFINITE_AMMO) {
+                    r.arsenal.spend(crate::weapons::SpecialId::TopsyTurvy);
+                }
                 if let Some(m) = log.as_deref_mut() {
-                    m.log.push(format!("topsy turvy: {fall} fell, {hang} hung on, {stunned} twiglets stunned"));
+                    m.log.push(format!("topsy turvy: {fall} fell, {hang} hung on, {knocked} monks knocked, {stunned} twiglets stunned"));
                 }
                 topsy.phase = Phase::Hang;
                 topsy.t = 0.0;
@@ -248,6 +264,32 @@ fn run(
             }
         }
         _ => {}
+    }
+}
+
+/// A knocked monk hangs once he is on the ground (MonkObject_Update 0x00447500: +0x878 > 0, not yet in state 0xf4, and
+/// 0x00454bc0's ground query true): a body in contact (the slope filter of the ground contact, 0x004548d0, is not
+/// modelled: as the AI's landing, ai/fall.rs), not in an IC move (physics off) or a teleport flight. The hang lasts
+/// from that moment (+0x87c set there).
+fn monk_lands(
+    mut commands: Commands,
+    topsy: Res<Topsy>,
+    physics: NonSend<crate::physics::Physics>,
+    mut q: Query<(Entity, &mut Grunt, Option<&crate::physics::Body>), (With<MonkKnocked>, Without<Thrown>)>,
+) {
+    for (e, mut g, body) in &mut q {
+        if g.mind == Mind::Dead {
+            commands.entity(e).remove::<MonkKnocked>();
+            continue;
+        }
+        let in_air = matches!(g.mind, Mind::Scripted | Mind::Teleport | Mind::Jump);
+        let grounded = !in_air && body.is_some_and(|b| crate::ai::body::touched(&physics, b.id));
+        if !grounded {
+            continue;
+        }
+        g.mind = Mind::WaitTrigger;
+        commands.entity(e).remove::<MonkKnocked>().insert(monk_hang(topsy.duration));
+        info!("EVENT topsy: monk {e:?} hangs");
     }
 }
 
@@ -300,7 +342,7 @@ fn thrown(
 
 /// The effect in the playtest state log: its phase and the AIs it holds (hanging on, falling into the sky; the monks
 /// hanging).
-fn log(topsy: Res<Topsy>, q: Query<(&Thrown, &Grunt)>, state: Option<ResMut<crate::playtest::PlayState>>) {
+fn log(topsy: Res<Topsy>, q: Query<(&Thrown, &Grunt)>, knocked: Query<(), With<MonkKnocked>>, state: Option<ResMut<crate::playtest::PlayState>>) {
     let Some(mut state) = state else { return };
     let count = |f: &dyn Fn(&Thrown, &Grunt) -> bool| q.iter().filter(|(t, g)| f(t, g)).count();
     state.0.insert(
@@ -310,6 +352,7 @@ fn log(topsy: Res<Topsy>, q: Query<(&Thrown, &Grunt)>, state: Option<ResMut<crat
             "hanging": count(&|t, _| t.hangs),
             "falling": count(&|t, _| !t.hangs),
             "monks_hanging": count(&|t, g| t.hangs && g.monk.is_some()),
+            "monks_knocked": knocked.iter().count(),
         }),
     );
 }
