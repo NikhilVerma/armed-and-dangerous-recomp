@@ -4,6 +4,8 @@
  {"tap": "Enter"},
  {"wait": 2.0},
  {"cheat": "SHIELDME"},
+ {"note": "three grunts in a line for the sniper's pierce (SniperGunBullet 0x0047f2a0); they take no target (ai_force grunts_hold), else one may run to a cover slot off the line in the 0.3 s before the shot (the companions' targets decide which: audit fix g05)"},
+ {"ai_force": "grunts_hold"},
  {"warp": [85, -400, -130, 0]},
  {"loadout": {"guns": ["snipergun", "rifle"]}},
  {"wait": 0.5},

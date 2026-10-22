@@ -1,6 +1,8 @@
 {"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
  {"wait": 0.5},
  {"cheat": "SHIELDME"},
+ {"note": "the spawned grunt is a still target beside the crosshair (ai_force grunts_hold: he takes no target, so he neither turns nor walks into the line of fire, as he did once the alarm controller and the grunts' reactions changed); what is tested is the shot without and with auto-aim"},
+ {"ai_force": "grunts_hold"},
  {"warp": [-255, -120, 8, 180]},
  {"loadout": {"guns": ["rifle", "machinegun"]}},
  {"look_at": [-255, -175, 14]},
