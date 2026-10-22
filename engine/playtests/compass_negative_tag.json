@@ -1,0 +1,12 @@
+{"scene": "lev_4_m3", "steps": [
+ {"note": "a ui_ear's negative objective_tag marks the objective but leaves the compass (0x0046afa0 stores tags > 0 only): lev_4_m3's trigger 804 carries -1"},
+ {"until": "message"},
+ {"wait": 0.5},
+ {"tap": "Enter"},
+ {"wait": 0.5},
+ {"expect": {"compass_tag": 0}},
+ {"send": 804},
+ {"wait": 0.5},
+ {"expect": {"compass_tag": 0}},
+ {"quit": true}
+]}
