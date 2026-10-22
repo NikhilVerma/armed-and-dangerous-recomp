@@ -322,6 +322,15 @@ impl Animator {
     /// anim); from the playing layers, or from a frozen pose when another fade still runs.
     fn begin_fade(&mut self) {
         if self.fade_started {
+            // a second change in the same frame finds the slot weight still at 1 and only retargets the blend time to
+            // its own (0x00408a70's `+0x18 >= 1` branch: +0x14 = the new weight); a zero time ends the fade (its
+            // weight-0 branch, 0x00408820 with 0)
+            if self.blend <= 0.0 {
+                self.fade = None;
+            } else if let Some(f) = self.fade.as_mut() {
+                f.secs = self.blend;
+                f.left = self.blend;
+            }
             return;
         }
         self.fade_started = true;
@@ -437,9 +446,15 @@ pub struct RateBlock {
 }
 
 impl RateBlock {
-    /// The rate for a velocity in model space (flags 0: v . dir; 0x005bcd3c = 0.001 the smallest range).
+    /// The rate for a velocity in model space (flags 0: v . dir; 0x005bcd3c = 0.001 the smallest range). The original
+    /// turns the block's direction into world space by the body's matrix and dots it with the world velocity; the
+    /// callers here pass the velocity already in the model's frame (charanim.rs: Roman's `move_local`; the AIs' forward
+    /// speed through `rate_forward`), the same product. The block flags 1 (|v| x |dir|) and 2 (a constant rate) are
+    /// unreachable in data: every block's flags are zeroed at load (PlayerObject_Load 0x00473da0's memsets, the AI's
+    /// +0x96c / +0x994 by GenericAIObject_Construct 0x00437290) and nothing sets them. The clamp is the original's two
+    /// tests in order, floor then ceiling (a block with min > max gives max, no panic).
     pub fn rate(&self, velocity: Vec3) -> f32 {
-        let s = velocity.dot(self.dir).clamp(self.min, self.max);
+        let s = velocity.dot(self.dir).max(self.min).min(self.max);
         let range = self.high_speed - self.low_speed;
         let t = if range > 0.001 { (s - self.low_speed) / range } else { 1.0 };
         (1.0 - t) * self.low_factor + t * self.high_factor
@@ -613,16 +628,28 @@ fn play_layers(layers: &mut [Layer], lib: &mut AnimLibrary, skel: &Skeleton, upp
             if !drive {
                 continue;
             }
-            let Some(track) = anim.tracks.get(name) else { continue };
-            let jt = &mut pose[i];
-            let w = l.weight;
-            // the paired anim, sampled at the same phase of its own length
+            // the paired anim, sampled at the same phase of its own length (the original's second record keeps its own
+            // time; the pairs played, Roman's `_b` / `_t`, start together and share a length, so the two agree)
             let ptrack = pair.as_ref().and_then(|(pa, pw)| {
                 let pt = if pa.duration > 0.0 { t / anim.duration.max(1e-6) * pa.duration } else { 0.0 };
                 pa.tracks.get(name).map(|tr| (tr, pt, *pw))
             });
-            let mut tv = sample3(&track.t, t);
-            let mut rq = sample_q(&track.r, t);
+            // a bone the anim has no track for: nothing, unless the pair drives it, which then blends over the rest
+            // pose (0x004ec600: the first record yields the bone's local transform either way)
+            let rest = skel.rest[i];
+            let empty = TrackDef::default();
+            let track = match (anim.tracks.get(name), &ptrack) {
+                (Some(tr), _) => tr,
+                (None, Some(_)) => &empty,
+                (None, None) => continue,
+            };
+            let jt = &mut pose[i];
+            let w = l.weight;
+            let base = (!anim.tracks.contains_key(name)).then_some(rest);
+            let mut tv = sample3(&track.t, t).or(base.map(|r| r.translation));
+            let mut rq = sample_q(&track.r, t).or(base.map(|r| r.rotation));
+            let mut sc = sample3(&track.s, t).unwrap_or(base.map_or(Vec3::ONE, |r| r.scale));
+            // position, rotation and scale all blend toward the pair (Transform_Blend 0x004e3510)
             if let Some((ptr, pt, pw)) = ptrack {
                 if let (Some(a0), Some(b0)) = (tv, sample3(&ptr.t, pt)) {
                     tv = Some(a0.lerp(b0, pw));
@@ -630,6 +657,7 @@ fn play_layers(layers: &mut [Layer], lib: &mut AnimLibrary, skel: &Skeleton, upp
                 if let (Some(a0), Some(b0)) = (rq, sample_q(&ptr.r, pt)) {
                     rq = Some(a0.slerp(b0, pw));
                 }
+                sc = sc.lerp(sample3(&ptr.s, pt).unwrap_or(Vec3::ONE), pw);
             }
             if let Some(v) = tv {
                 jt.translation = if w >= 1.0 { v } else { jt.translation.lerp(v, w) };
@@ -637,7 +665,6 @@ fn play_layers(layers: &mut [Layer], lib: &mut AnimLibrary, skel: &Skeleton, upp
             if let Some(q) = rq {
                 jt.rotation = if w >= 1.0 { q } else { jt.rotation.slerp(q, w) };
             }
-            let sc = sample3(&track.s, t).unwrap_or(Vec3::ONE);
             jt.scale = if w >= 1.0 { sc } else { jt.scale.lerp(sc, w) };
         }
     }
@@ -646,10 +673,19 @@ fn play_layers(layers: &mut [Layer], lib: &mut AnimLibrary, skel: &Skeleton, upp
 /// The anim update (0x00409ec0 Anim_Update, 0x0040a200 the notes, the pose blends 0x004ec600 / 0x004ec800 /
 /// 0x004ec2f0): each layer advances and poses the joints; during a cross-fade the pose before the change (its old
 /// layers playing on, or a frozen pose) is blended over the result by the fade weight, which first drops by dt.
-fn animate(time: Res<Time>, mut lib: ResMut<AnimLibrary>, mut q: Query<(Entity, &mut Animator)>, mut joints: Query<&mut Transform>, mut notes: MessageWriter<AnimNote>) {
+/// A body that physics drives (a ragdoll, or one settled from it: the actor's +0x421, Havok simulating it) fires no
+/// notes (0x0040a200 and 0x0040a3f0 return at once), so a grunt felled mid-burst shoots no more "fire" notes.
+#[allow(clippy::type_complexity)]
+fn animate(
+    time: Res<Time>,
+    mut lib: ResMut<AnimLibrary>,
+    mut q: Query<(Entity, &mut Animator, Has<crate::ragdoll::Ragdoll>, Has<crate::corpses::Settled>)>,
+    mut joints: Query<&mut Transform>,
+    mut notes: MessageWriter<AnimNote>,
+) {
     let dt = time.delta_secs();
     let mut passed = Vec::new();
-    for (e, mut a) in &mut q {
+    for (e, mut a, ragdoll, settled) in &mut q {
         let a = &mut *a;
         a.fade_started = false;
         let mut pose: Vec<Transform> = a.joints.iter().map(|j| joints.get(*j).copied().unwrap_or_default()).collect();
@@ -660,7 +696,7 @@ fn animate(time: Res<Time>, mut lib: ResMut<AnimLibrary>, mut q: Query<(Entity, 
         let base = pose.clone();
         passed.clear();
         play_layers(&mut a.layers, &mut lib, &a.skeleton, &a.upper, &mut pose, dt, Some(&mut passed));
-        for text in passed.drain(..) {
+        for text in passed.drain(..).filter(|_| !(ragdoll || settled)) {
             notes.write(AnimNote { entity: e, text });
         }
         if let Some(f) = a.fade.as_mut() {
