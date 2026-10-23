@@ -1,6 +1,5 @@
 {"scene": "lev_1_m3", "steps": [
- {"wait": 1.0},
- {"tap": "Escape"},
+ {"note": "no Escape at 1 s: since the message keys follow the original (0x00462790: MenuCancel dismisses a paused message too, audit fix g34) it dismissed the briefing that comes up at 1.02 s, and the script then waited a minute for the next message"},
  {"until": "message"},
  {"wait": 0.5},
  {"tap": "Enter"},
