@@ -1,0 +1,162 @@
+{
+ "about": "Shot list for tools/compare_gallery.py. keys: the hook's keys_frames form counted in play frames (frame 0 = play_delay frames after the briefing appears; 0:ENTER*3 dismisses it); frame: the play frame captured; warp: Roman's feet at play frame -10 (game space); crop: fractions of the 3D strip [x0, y0, x1, y1]; before: omitted = the original exe, \"preset\" = the engine's Original preset (fallback). widescreen: the remaster runs its own follow camera at widescreen_size (no --camera) and the whole 4:3 original frame is shown. original_size per shot overrides the capture size (close-up crops).",
+ "original_size": [
+  1280,
+  960
+ ],
+ "play_delay": 30,
+ "side_width": 1920,
+ "stack_width": 1280,
+ "hero_width": 1600,
+ "budget_kb": 400,
+ "layout": "side",
+ "remaster": {
+  "preset": "remaster",
+  "graphics": {
+   "remaster_textures": true,
+   "anti_aliasing": "taa",
+   "alpha_coverage": true,
+   "ambient_occlusion": true,
+   "ao_quality": 3,
+   "ao_contact": 0.6,
+   "shadow_map_size": 8192,
+   "shadow_cascades": 4,
+   "shadow_distance": 1.0,
+   "soft_shadows": true,
+   "fog_modern": true,
+   "fog_sun": 0.6,
+   "tessellation": true,
+   "tessellation_level": 6,
+   "terrain_detail": 16,
+   "lod_max": true,
+   "lod_scale": 8,
+   "aa_mip_bias": -1,
+   "tonemap_aces": true,
+   "dither": true,
+   "snow": true,
+   "snow_amount": 1500000,
+   "shutter_speed": 0
+  }
+ },
+ "hero": "l1_village",
+ "shots": [
+  {
+   "name": "l1_start",
+   "level": "lev_1_m1",
+   "keys": "0:ENTER*3",
+   "frame": 60,
+   "caption": "lev_1_m1 start: the snow canyon towards the ruined arch"
+  },
+  {
+   "name": "l1_village",
+   "level": "lev_1_m1",
+   "keys": "0:ENTER*3",
+   "frame": 60,
+   "warp": [
+    -100,
+    -150,
+    15
+   ],
+   "hold_health": true,
+   "caption": "lev_1_m1 village houses (hero image)"
+  },
+  {
+   "name": "l1_village_arch",
+   "level": "lev_1_m1",
+   "keys": "0:ENTER*3",
+   "frame": 60,
+   "warp": [
+    -60,
+    120,
+    35
+   ],
+   "hold_health": true,
+   "caption": "lev_1_m1 village street, the arch behind"
+  },
+  {
+   "name": "l1_courtyard",
+   "level": "lev_1_m1",
+   "keys": "0:ENTER*3",
+   "frame": 40,
+   "warp": [
+    25,
+    -468,
+    12
+   ],
+   "hold_health": true,
+   "caption": "lev_1_m1 courtyard guards: characters and shadows"
+  },
+  {
+   "name": "l1_house_closeup",
+   "level": "lev_1_m1",
+   "keys": "0:ENTER*3",
+   "frame": 100,
+   "warp": [
+    -100,
+    -150,
+    15
+   ],
+   "hold_health": true,
+   "original_size": [
+    1600,
+    1200
+   ],
+   "crop": [
+    0.12,
+    0.0,
+    0.62,
+    0.5
+   ],
+   "caption": "retextured walls, roof and barrels, close crop"
+  },
+  {
+   "name": "l1_roman_closeup",
+   "level": "lev_1_m1",
+   "keys": "0:ENTER*3",
+   "frame": 60,
+   "warp": [
+    -100,
+    -150,
+    15
+   ],
+   "hold_health": true,
+   "original_size": [
+    1600,
+    1200
+   ],
+   "crop": [
+    0.33,
+    0.42,
+    0.67,
+    1.0
+   ],
+   "layout": "side",
+   "caption": "Roman close-up: shadow, tessellated character"
+  },
+  {
+   "name": "l1_widescreen",
+   "level": "lev_1_m1",
+   "keys": "0:ENTER*3",
+   "frame": 60,
+   "warp": [
+    -100,
+    -150,
+    15
+   ],
+   "hold_health": true,
+   "widescreen": true,
+   "caption": "original 4:3 letterbox vs remaster 16:9 Hor+, each its own follow camera"
+  },
+  {
+   "name": "l4m3_mill",
+   "level": "lev_4_m3",
+   "keys": "0:ENTER*3",
+   "frame": 300,
+   "caption": "lev_4_m3 water mill: a later level"
+  }
+ ],
+ "briefing_frames": {
+  "lev_1_m1": 299,
+  "lev_4_m3": 0
+ }
+}
