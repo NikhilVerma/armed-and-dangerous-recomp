@@ -126,6 +126,10 @@ pub struct OracleConfig {
     pub triggers: Vec<(i64, i64)>,
     #[serde(default)]
     pub hold_health: bool,
+    /// play frames to screenshot, saved as `<script>.oracle-<frame>.png` (the same frames the original dumps with
+    /// [test] hash_frames: tools/compare_gallery.py)
+    #[serde(default)]
+    pub shots: Vec<i64>,
 }
 
 fn default_delay() -> i64 {
@@ -310,8 +314,13 @@ fn drive(
     mut exit: MessageWriter<AppExit>,
     mut send: MessageWriter<crate::mission::SendTrigger>,
     mut roman_health: Query<(&crate::player::Roman, &mut crate::fx::Health)>,
+    mut commands: Commands,
 ) {
     let Some(f) = o.play_frame() else { return };
+    if o.cfg.shots.contains(&f) {
+        let path = pt.path.with_extension(format!("oracle-{f}.png"));
+        commands.spawn(bevy::render::view::screenshot::Screenshot::primary_window()).observe(bevy::render::view::screenshot::save_to_disk(path));
+    }
     if o.cfg.hold_health && f >= -10 {
         if let Ok((r, mut h)) = roman_health.single_mut() {
             h.0 = r.max_health;
