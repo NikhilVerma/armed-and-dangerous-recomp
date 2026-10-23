@@ -612,7 +612,7 @@ fn setup(
     let info = level::spawn(&mut commands, &scene, &data, &mut lib, &mut physics, &assets, &mut meshes, &mut materials, &mut skin_ctx);
     // the landscape with the original's materials (rendering piece 1, docs/remaster-engine.md)
     if !launch.std_materials {
-        let mut lights = gamematerial::GameLights::from_scene(&scene);
+        let mut lights = gamematerial::GameLights::from_scene(&scene, &data);
         let white = images.add(Image::new_fill(
             bevy::render::render_resource::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
             bevy::render::render_resource::TextureDimension::D2,

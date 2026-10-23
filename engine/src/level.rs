@@ -1325,11 +1325,10 @@ pub fn spawn(
             ));
         }
     }
-    let g = |k: &str| scene.settings.get(k).and_then(|v| v.as_f64()).map(|v| v as f32);
-    if let (Some(near), Some(far)) = (g("fog_near"), g("fog_far")) {
-        let c = Color::srgb_u8(g("fog_red").unwrap_or(200.0) as u8, g("fog_green").unwrap_or(200.0) as u8, g("fog_blue").unwrap_or(200.0) as u8);
-        info.fog = Some((near, far, c));
-    }
+    // the level's fog, as the game material takes it (gamematerial.rs level_fog: global_settings, its property set,
+    // the reader's defaults)
+    let (near, far, c) = crate::gamematerial::level_fog(scene, data);
+    info.fog = Some((near, far, Color::srgb(c.x, c.y, c.z)));
     let (receivers, receiver_tris) = decal_world.receiver_stats();
     info!("decal receivers: {receivers} objects, {receiver_tris} triangles");
     commands.insert_resource(decal_world);

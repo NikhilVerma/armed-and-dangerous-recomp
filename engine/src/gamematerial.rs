@@ -270,7 +270,7 @@ pub struct GameLights {
 }
 
 impl GameLights {
-    pub fn from_scene(scene: &crate::scene::SceneFile) -> Self {
+    pub fn from_scene(scene: &crate::scene::SceneFile, data: &crate::gamedata::GameData) -> Self {
         let mut l = GameLights::default();
         let mut dirs = Vec::new();
         for light in &scene.lights {
@@ -294,14 +294,23 @@ impl GameLights {
         if let Some((d, c)) = dirs.get(1) {
             (l.fill_dir, l.fill_col) = (*d, *c);
         }
-        let g = |k: &str| scene.settings.get(k).and_then(|v| v.as_f64()).map(|v| v as f32);
-        if let (Some(near), Some(far)) = (g("fog_near"), g("fog_far")) {
-            let c = Vec3::new(g("fog_red").unwrap_or(200.0), g("fog_green").unwrap_or(200.0), g("fog_blue").unwrap_or(200.0)) / 255.0;
-            l.fog = Some((near, far, c));
-            l.env = c;
-        }
+        let (near, far, c) = level_fog(scene, data);
+        l.fog = Some((near, far, c));
+        l.env = c;
         l
     }
+}
+
+/// The level's linear fog: start, end, colour (0..1). LevelProperties_Load (archive/src/renderer/render_r6.cpp,
+/// the global_settings object) reads each value through the property reader: the level's own global_settings
+/// value, else its property set's (p_globalsettings: fog_near 10, fog_far 6000, colour 255), else the reader's
+/// default (fog_near 10, fog_far 3000, colour 255), and always sets the fog. Nine levels give fog_far and the colour
+/// but not fog_near (lev_3_m*, lev_5_m1/2/3/5, lev_bonus_m1/2): the engine took that for "no fog" until 2026-10-23,
+/// so lev_3_m3's town through the arch showed dark instead of in its orange haze and lev_5_m3's night had no fog.
+pub fn level_fog(scene: &crate::scene::SceneFile, data: &crate::gamedata::GameData) -> (f32, f32, Vec3) {
+    let set = data.template_props("global_settings");
+    let g = |k: &str, default: f32| scene.settings.get(k).and_then(|v| v.as_f64()).map(|v| v as f32).unwrap_or_else(|| set.f(k, default));
+    (g("fog_near", 10.0), g("fog_far", 3000.0), Vec3::new(g("fog_red", 255.0), g("fog_green", 255.0), g("fog_blue", 255.0)) / 255.0)
 }
 
 /// A texture by its game name (the remaster's version when the preset uses one: graphics.rs), with the world
