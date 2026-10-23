@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="670" height="184" viewBox="0 0 670 184" role="img" aria-label="Accuracy audit: engine vs the recovered C++: 1,419 ported functions read against it; 1,560 differences found, 1,560 of them fixed or triaged (docs/journal/2026-10-22-fix2-*.md)" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+<title>Accuracy audit: engine vs the recovered C++: 1,419 ported functions read against it; 1,560 differences found, 1,560 of them fixed or triaged (docs/journal/2026-10-22-fix2-*.md)</title>
+<rect width="670" height="184" rx="6" fill="#fcfcfb"/>
+<text x="16" y="26" font-size="15" font-weight="600" fill="#0b0b0b">Accuracy audit: engine vs the recovered C++</text>
+<text x="16" y="46" font-size="12" fill="#52514e">1,419 ported functions read against it; 1,560 differences found,</text>
+<text x="16" y="62" font-size="12" fill="#52514e">1,560 of them fixed or triaged (docs/journal/2026-10-22-fix2-*.md)</text>
+<text x="92" y="97" font-size="12" text-anchor="end" fill="#0b0b0b">differences</text>
+<rect x="100" y="82" width="480" height="22" rx="4" fill="#e4e3df"/>
+<path d="M104.0,82 H284.5 Q284.5,82 284.5,82 V104 Q284.5,104 284.5,104 H104.0 Q100.0,104 100.0,100 V86 Q100.0,82 104.0,82 Z" fill="#2a78d6"><title>differences: fixed 606 of 1560</title></path>
+<path d="M286.5,82 H373.4 Q373.4,82 373.4,82 V104 Q373.4,104 373.4,104 H286.5 Q286.5,104 286.5,104 V82 Q286.5,82 286.5,82 Z" fill="#eb6834"><title>differences: already correct 289 of 1560</title></path>
+<path d="M375.4,82 H449.4 Q449.4,82 449.4,82 V104 Q449.4,104 449.4,104 H375.4 Q375.4,104 375.4,104 V82 Q375.4,82 375.4,82 Z" fill="#1baf7a"><title>differences: unreachable 247 of 1560</title></path>
+<path d="M451.4,82 H465.7 Q465.7,82 465.7,82 V104 Q465.7,104 465.7,104 H451.4 Q451.4,104 451.4,104 V82 Q451.4,82 451.4,82 Z" fill="#eda100"><title>differences: false claim 53 of 1560</title></path>
+<path d="M467.7,82 H468.2 Q468.2,82 468.2,82 V104 Q468.2,104 468.2,104 H467.7 Q467.7,104 467.7,104 V82 Q467.7,82 467.7,82 Z" fill="#e87ba4"><title>differences: original bug 6 of 1560</title></path>
+<path d="M469.5,82 H576.0 Q580.0,82 580.0,86 V100 Q580.0,104 576.0,104 H469.5 Q469.5,104 469.5,104 V82 Q469.5,82 469.5,82 Z" fill="#008300"><title>differences: deferred 359 of 1560</title></path>
+<text x="588" y="97" font-size="12" fill="#52514e">1,560</text>
+<rect x="16" y="122" width="10" height="10" rx="2" fill="#2a78d6"/><text x="32" y="131" font-size="12" fill="#0b0b0b">fixed <tspan fill="#52514e">606</tspan></text>
+<rect x="221" y="122" width="10" height="10" rx="2" fill="#eb6834"/><text x="237" y="131" font-size="12" fill="#0b0b0b">already correct <tspan fill="#52514e">289</tspan></text>
+<rect x="426" y="122" width="10" height="10" rx="2" fill="#1baf7a"/><text x="442" y="131" font-size="12" fill="#0b0b0b">unreachable <tspan fill="#52514e">247</tspan></text>
+<rect x="16" y="140" width="10" height="10" rx="2" fill="#eda100"/><text x="32" y="149" font-size="12" fill="#0b0b0b">false claim <tspan fill="#52514e">53</tspan></text>
+<rect x="221" y="140" width="10" height="10" rx="2" fill="#e87ba4"/><text x="237" y="149" font-size="12" fill="#0b0b0b">original bug <tspan fill="#52514e">6</tspan></text>
+<rect x="426" y="140" width="10" height="10" rx="2" fill="#008300"/><text x="442" y="149" font-size="12" fill="#0b0b0b">deferred <tspan fill="#52514e">359</tspan></text>
+</svg>

@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="592" height="338" viewBox="0 0 592 338" role="img" aria-label="Levels completable: 24 of 24" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+<title>Levels completable: 24 of 24</title>
+<rect width="592" height="338" rx="6" fill="#fcfcfb"/>
+<text x="16" y="26" font-size="15" font-weight="600" fill="#0b0b0b">Levels completable</text>
+<text x="16" y="46" font-size="12" fill="#52514e">24 of 24: a playtest plays each to mission complete (engine/playtests/complete_*.json)</text>
+<text x="82" y="85" font-size="12" text-anchor="end" fill="#0b0b0b">Chapter 1</text>
+<rect x="92" y="64" width="92" height="34" rx="4" fill="#2a78d6"><title>lev_1_m1: completable</title></rect>
+<text x="138.0" y="85" font-size="11" text-anchor="middle" fill="#ffffff">1_m1 ✓</text>
+<rect x="190" y="64" width="92" height="34" rx="4" fill="#2a78d6"><title>lev_1_m1_b: completable</title></rect>
+<text x="236.0" y="85" font-size="11" text-anchor="middle" fill="#ffffff">1_m1_b ✓</text>
+<rect x="288" y="64" width="92" height="34" rx="4" fill="#2a78d6"><title>lev_1_m3: completable</title></rect>
+<text x="334.0" y="85" font-size="11" text-anchor="middle" fill="#ffffff">1_m3 ✓</text>
+<rect x="386" y="64" width="92" height="34" rx="4" fill="#2a78d6"><title>lev_1_m4: completable</title></rect>
+<text x="432.0" y="85" font-size="11" text-anchor="middle" fill="#ffffff">1_m4 ✓</text>
+<text x="82" y="125" font-size="12" text-anchor="end" fill="#0b0b0b">Chapter 2</text>
+<rect x="92" y="104" width="92" height="34" rx="4" fill="#2a78d6"><title>lev_2_m1: completable</title></rect>
+<text x="138.0" y="125" font-size="11" text-anchor="middle" fill="#ffffff">2_m1 ✓</text>
+<rect x="190" y="104" width="92" height="34" rx="4" fill="#2a78d6"><title>lev_2_m2: completable</title></rect>
+<text x="236.0" y="125" font-size="11" text-anchor="middle" fill="#ffffff">2_m2 ✓</text>
+<rect x="288" y="104" width="92" height="34" rx="4" fill="#2a78d6"><title>lev_2_m3: completable</title></rect>
+<text x="334.0" y="125" font-size="11" text-anchor="middle" fill="#ffffff">2_m3 ✓</text>
+<rect x="386" y="104" width="92" height="34" rx="4" fill="#2a78d6"><title>lev_2_m4: completable</title></rect>
+<text x="432.0" y="125" font-size="11" text-anchor="middle" fill="#ffffff">2_m4 ✓</text>
+<text x="82" y="165" font-size="12" text-anchor="end" fill="#0b0b0b">Chapter 3</text>
+<rect x="92" y="144" width="92" height="34" rx="4" fill="#2a78d6"><title>lev_3_m1: completable</title></rect>
+<text x="138.0" y="165" font-size="11" text-anchor="middle" fill="#ffffff">3_m1 ✓</text>
+<rect x="190" y="144" width="92" height="34" rx="4" fill="#2a78d6"><title>lev_3_m2: completable</title></rect>
+<text x="236.0" y="165" font-size="11" text-anchor="middle" fill="#ffffff">3_m2 ✓</text>
+<rect x="288" y="144" width="92" height="34" rx="4" fill="#2a78d6"><title>lev_3_m3: completable</title></rect>
+<text x="334.0" y="165" font-size="11" text-anchor="middle" fill="#ffffff">3_m3 ✓</text>
+<rect x="386" y="144" width="92" height="34" rx="4" fill="#2a78d6"><title>lev_3_m4_bd: completable</title></rect>
+<text x="432.0" y="165" font-size="11" text-anchor="middle" fill="#ffffff">3_m4_bd ✓</text>
+<text x="82" y="205" font-size="12" text-anchor="end" fill="#0b0b0b">Chapter 4</text>
+<rect x="92" y="184" width="92" height="34" rx="4" fill="#2a78d6"><title>lev_4_m1: completable</title></rect>
+<text x="138.0" y="205" font-size="11" text-anchor="middle" fill="#ffffff">4_m1 ✓</text>
+<rect x="190" y="184" width="92" height="34" rx="4" fill="#2a78d6"><title>lev_4_m2: completable</title></rect>
+<text x="236.0" y="205" font-size="11" text-anchor="middle" fill="#ffffff">4_m2 ✓</text>
+<rect x="288" y="184" width="92" height="34" rx="4" fill="#2a78d6"><title>lev_4_m3: completable</title></rect>
+<text x="334.0" y="205" font-size="11" text-anchor="middle" fill="#ffffff">4_m3 ✓</text>
+<rect x="386" y="184" width="92" height="34" rx="4" fill="#2a78d6"><title>lev_4_m5: completable</title></rect>
+<text x="432.0" y="205" font-size="11" text-anchor="middle" fill="#ffffff">4_m5 ✓</text>
+<text x="82" y="245" font-size="12" text-anchor="end" fill="#0b0b0b">Chapter 5</text>
+<rect x="92" y="224" width="92" height="34" rx="4" fill="#2a78d6"><title>lev_5_m1: completable</title></rect>
+<text x="138.0" y="245" font-size="11" text-anchor="middle" fill="#ffffff">5_m1 ✓</text>
+<rect x="190" y="224" width="92" height="34" rx="4" fill="#2a78d6"><title>lev_5_m2: completable</title></rect>
+<text x="236.0" y="245" font-size="11" text-anchor="middle" fill="#ffffff">5_m2 ✓</text>
+<rect x="288" y="224" width="92" height="34" rx="4" fill="#2a78d6"><title>lev_5_m3: completable</title></rect>
+<text x="334.0" y="245" font-size="11" text-anchor="middle" fill="#ffffff">5_m3 ✓</text>
+<rect x="386" y="224" width="92" height="34" rx="4" fill="#2a78d6"><title>lev_5_m4: completable</title></rect>
+<text x="432.0" y="245" font-size="11" text-anchor="middle" fill="#ffffff">5_m4 ✓</text>
+<rect x="484" y="224" width="92" height="34" rx="4" fill="#2a78d6"><title>lev_5_m5: completable</title></rect>
+<text x="530.0" y="245" font-size="11" text-anchor="middle" fill="#ffffff">5_m5 ✓</text>
+<text x="82" y="285" font-size="12" text-anchor="end" fill="#0b0b0b">Bonus</text>
+<rect x="92" y="264" width="92" height="34" rx="4" fill="#2a78d6"><title>lev_bonus_m1: completable</title></rect>
+<text x="138.0" y="285" font-size="11" text-anchor="middle" fill="#ffffff">bonus_m1 ✓</text>
+<rect x="190" y="264" width="92" height="34" rx="4" fill="#2a78d6"><title>lev_bonus_m2: completable</title></rect>
+<text x="236.0" y="285" font-size="11" text-anchor="middle" fill="#ffffff">bonus_m2 ✓</text>
+<rect x="288" y="264" width="92" height="34" rx="4" fill="#2a78d6"><title>lev_bonus_m3: completable</title></rect>
+<text x="334.0" y="285" font-size="11" text-anchor="middle" fill="#ffffff">bonus_m3 ✓</text>
+<rect x="16" y="316" width="10" height="10" rx="2" fill="#2a78d6"/><text x="32" y="325" font-size="12" fill="#0b0b0b">completable ✓ <tspan fill="#52514e">24</tspan></text>
+<rect x="200" y="316" width="10" height="10" rx="2" fill="#e4e3df" stroke="#52514e" stroke-width="0.5"/><text x="216" y="325" font-size="12" fill="#0b0b0b">not yet <tspan fill="#52514e">0</tspan></text>
+</svg>

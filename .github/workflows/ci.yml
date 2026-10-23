@@ -1,0 +1,87 @@
+# Continuous integration. Game data never reaches CI (you bring your own copy of the game), so CI checks what
+# builds and runs without it: the engine compiles, its unit tests pass (all of them run without game data), the
+# Python tools parse and their unit tests pass, the port dispositions are honest, and the progress tool runs (its
+# graphs are regenerated on main by progress.yml). The playtests (tools/regress.py) need an exported game and run locally.
+#
+# Not run: `cargo fmt --check`. The engine is not rustfmt-clean yet (engine/rustfmt.toml); a one-off formatting
+# commit is planned after the open branches merge, then this job gains the check.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  engine:
+    name: Engine (build + unit tests)
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: engine
+      # Jolt Physics (oxijolt) builds from its vendored C++ sources with CMake; windows-latest has CMake and MSVC.
+      - name: Build (release)
+        run: cargo build --release --locked
+      - name: Unit tests
+        run: cargo test --release --locked
+
+  clippy:
+    name: Engine (clippy, advisory)
+    runs-on: windows-latest
+    timeout-minutes: 90
+    # Advisory until the existing warnings are worked through: the report shows in the job log and annotations.
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: engine
+          key: clippy
+      - name: Clippy
+        run: cargo clippy --release --locked
+
+  tools:
+    name: Python tools
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -r requirements.txt
+      - name: Every tool parses
+        run: python -m compileall -q tools archive/tools tests
+      - name: Unit tests (tools/test_*.py)
+        run: python -m unittest discover -s tools -p "test_*.py"
+      - name: Port dispositions are honest (docs/port/README.md)
+        run: python tools/port_queue.py --lint
+      # docs/progress/ is regenerated on main by progress.yml; here only that the tool still runs on this tree
+      - name: Progress tool runs
+        run: python tools/progress.py --json
