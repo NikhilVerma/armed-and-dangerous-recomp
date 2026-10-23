@@ -83,7 +83,6 @@ def main():
         print(open(path, encoding="utf-8").read())
     if a.asm:
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(1, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "tools"))  # compare.py, instances.py (shared with the oracle tools)
         import reginputs
         print("---- disassembly")
         for i in reginputs.MD.disasm(reginputs.IMG[addr - reginputs.BASE:addr - reginputs.BASE + f["size"]], addr):
