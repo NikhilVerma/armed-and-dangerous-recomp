@@ -24,10 +24,14 @@ Build and play (cargo is in %USERPROFILE%/.cargo/bin; add it to PATH in Git Bash
 cd engine && cargo build --release && ./target/release/and_remaster.exe --size 1600x900
 ```
 
+After a build, once per export: `python tools/bake_env_maps.py --exe target` bakes each level's environment cube
+map (the reflections on ice, water and metal; graphics/env_map.rs). Without it those surfaces reflect the fog colour.
+
 Options: `--size WxH`, `--vsync`, `--no-ai`, `--scene DIR`, `--skip-title` (straight into the level),
 `--play SCRIPT.json` (playtest bot, see docs/remaster-engine.md), `--camera DUMP.json` (render from a camera dumped
 from the original), `--no-hud`, `--snap FILE` (screenshot after 4 s, then exit), `--bench SECONDS --out FILE`,
-`--fx-test DIR`.
+`--fx-test DIR`, `--bake-env-map` (with `--scene` and `--preset`: render the level's environment cube map to
+`<scene>/env_map_<preset>.png`, then quit).
 
 Controls (the original's PC bindings where ported): WASD move, mouse look, left mouse fire, right mouse Fire Special
 (sticky bomb / Topsy Turvy), Tab next special, Q next weapon, R reload, Space jump, Z or E zoom (held), F or X
