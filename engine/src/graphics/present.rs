@@ -1,7 +1,8 @@
 //! The output pass: the old remaster's present pass ([render] tonemap_aces and dither, registered in
 //! archive/hook/enhance/render.cpp; the shader in archive/src/rhi/vulkan/vk_present.cpp), last in the 3D camera's post-processing
-//! (after TAA, bloom and sharpening): the filmic ACES curve (Narkowicz's fit, on the game's values as the old
-//! pass ran it) and triangular dither noise of +-1 step of the 8-bit output against banding (present.wesl).
+//! (after TAA, bloom and sharpening): the filmic tone curve (the old pass's ACES fit until 2026-10-23, now a
+//! highlight roll-off that keeps the game's own range: `PresentSettings::tonemap_aces`) and triangular dither noise
+//! of +-1 step of the 8-bit output against banding (present.wesl).
 //!
 //! Bevy's own tonemapping stays off (main.rs: its curves changed the game's colours) and its deband dither is a
 //! different noise: this pass is the old one, run with Bevy's [`FullscreenMaterial`]. Either setting puts the 3D view
@@ -24,7 +25,10 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 #[serde(default)]
 pub struct PresentSettings {
-    /// the filmic ACES curve (Narkowicz 2015) on the final colour; off in both of the old remaster's presets
+    /// the filmic tone curve on the final colour: values up to 0.9 of white as the game made them, brighter ones
+    /// (stacked additive effects, bloom) eased towards white with their hue kept (present.wesl `highlight_rolloff`).
+    /// Named after the old remaster's ACES curve, which it replaced on 2026-10-23: ACES on the game's display values
+    /// lowered contrast and saturation by a third (docs/comparisons.md). Off in both presets
     pub tonemap_aces: bool,
     /// triangular noise of +-1 step before the 8-bit output: no banding in sky, fog and snow gradients
     pub dither: bool,

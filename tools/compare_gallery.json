@@ -24,7 +24,8 @@
    "shadow_distance": 1.0,
    "soft_shadows": true,
    "fog_modern": true,
-   "fog_sun": 0.6,
+   "fog_density": 0.6,
+   "fog_sun": 0.3,
    "tessellation": true,
    "tessellation_level": 6,
    "terrain_detail": 16,
@@ -34,7 +35,7 @@
    "tonemap_aces": true,
    "dither": true,
    "snow": true,
-   "snow_amount": 1500000,
+   "snow_amount": 200000,
    "shutter_speed": 0
   }
  },

@@ -1,5 +1,6 @@
 // The old remaster's present pass (archive/src/rhi/vulkan/vk_present.cpp kFragment), last in the 3D camera's post-processing
-// (graphics/present.rs): the filmic ACES curve ([render] tonemap_aces) and triangular dither noise of +-1 step of
+// (graphics/present.rs): the filmic tone curve ([render] tonemap_aces; a highlight roll-off since 2026-10-23, the
+// old pass's ACES fit washed the image out) and triangular dither noise of +-1 step of
 // the 8-bit output ([render] dither), so the smooth gradients of sky, fog and snow shading do not band.
 //
 // The old pass read the game's values as they were (D3D9 colours: display-encoded, the game computes in gamma
@@ -21,9 +22,22 @@ struct PresentPass {
 }
 @group(0) @binding(2) var<uniform> settings: PresentPass;
 
-// Narkowicz 2015 fit (vk_present.cpp Aces)
-fn aces(x: vec3<f32>) -> vec3<f32> {
-    return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), vec3(0.0), vec3(1.0));
+// The filmic tone curve as a highlight roll-off (graphics/present.rs `PresentSettings::tonemap_aces`): the game's own
+// range up to the knee unchanged, the brightest channel above it eased towards white (a Reinhard shoulder, the same
+// slope at the knee: no visible seam) and the other channels scaled with it, so hues and saturation stay. The old
+// pass's Narkowicz ACES fit on these display values lifted the shadows and dimmed white to 0.8 (lev_1_m1 start: luma
+// spread 45.6 -> 31.1, mean saturation 0.142 -> 0.088, the original 47.7 / 0.157), a wash over the whole image; ACES
+// is made for scene-referred HDR, the game's values are already display-referred.
+const KNEE: f32 = 0.9;
+
+fn highlight_rolloff(x: vec3<f32>) -> vec3<f32> {
+    let peak = max(max(x.r, x.g), x.b);
+    if (peak <= KNEE) {
+        return x;
+    }
+    let e = (peak - KNEE) / (1.0 - KNEE);
+    let eased = KNEE + (1.0 - KNEE) * e / (1.0 + e);
+    return x * (eased / peak);
 }
 
 fn to_gamma(c: vec3<f32>) -> vec3<f32> {
@@ -49,7 +63,7 @@ fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     let src = textureSample(screen, screen_sampler, in.uv);
     var c = src.rgb;
     if (settings.aces != 0u) {
-        c = to_linear(aces(to_gamma(c)));
+        c = to_linear(highlight_rolloff(to_gamma(c)));
     }
     if (settings.dither != 0u) {
         // two uniform hashes summed: triangular noise in (-1, 1) steps, which hides banding without the noise level
