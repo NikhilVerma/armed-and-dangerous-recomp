@@ -18,7 +18,7 @@ Reads tools/compare_gallery.json (shot definitions). For each shot:
    an optional crop (fractions of the strip), side by side or stacked, with small corner labels, as JPEG under the
    size budget into docs/images/compare/<name>.jpg. Raw captures stay in work/gallery/<name>/ (never committed).
 
-The hero image (docs/images/preview.jpg) is the shot named by "hero" in the JSON, composed as a diagonal split.
+The hero image (docs/images/preview.jpg) is the shot named by "hero" in the JSON: the same view side by side.
 Captures are cached: --skip-original / --skip-remaster / --compose-only reuse what work/gallery holds.
 """
 import argparse
@@ -153,9 +153,9 @@ def capture_remaster(shot, cfg, d, exe_dir, variant, out_name=None):
 
 
 def graphics_arg(changes):
-    """--graphics key=value,...: values as JSON (true, 8192), strings bare (taa). The engine resolves these before its
-    log starts, so a value of the wrong type ("True") or an unknown key would be dropped without a word
-    (graphics/mod.rs resolve): JSON spelling only."""
+    """--graphics key=value,...: values as JSON (true, 8192), strings bare (taa). A value of the wrong type ("True")
+    or an unknown key is skipped; the engine says so on stderr ("--graphics: ...", graphics/mod.rs resolve_checked),
+    which capture_remaster echoes."""
     return ",".join(f"{k}={v if isinstance(v, str) else json.dumps(v)}" for k, v in changes.items())
 
 
@@ -271,24 +271,24 @@ def save_pair(shot, cfg, out):
 
 
 def compose_hero(shot, cfg, d):
-    """A diagonal split: the original on the left, the remaster on the right, at the hero width."""
+    """The same view twice, side by side at the hero width: the original on the left, the remaster on the right
+    (the JSON's hero_crop, else the shot's crop, frames the part worth showing). Like for like: the earlier diagonal
+    split of one frame showed a different house on each side."""
     before = original_strip(d)
     after = Image.open(os.path.join(d, "remaster.png")).convert("RGB").resize(before.size, Image.LANCZOS)
-    before, after = crop(before, shot.get("crop")), crop(after, shot.get("crop"))
-    w = cfg.get("hero_width", 1600)
+    frac = cfg.get("hero_crop") or shot.get("crop")
+    before, after = crop(before, frac), crop(after, frac)
+    gap = 4
+    w = (cfg.get("hero_width", 1600) - gap) // 2
     h = round(before.height * w / before.width)
-    before, after = before.resize((w, h), Image.LANCZOS), after.resize((w, h), Image.LANCZOS)
-    mask = Image.new("L", (w, h), 0)
-    md = ImageDraw.Draw(mask)
-    skew = h * 0.18
-    md.polygon([(w / 2 + skew, 0), (w, 0), (w, h), (w / 2 - skew, h)], fill=255)
-    out = Image.composite(after, before, mask)
-    ImageDraw.Draw(out).line([(w / 2 + skew, 0), (w / 2 - skew, h)], fill=(240, 240, 240), width=3)
-    out = label(out, "Original (2003)", "bl")
-    out = label(out, "Remaster", "br")
+    before = label(before.resize((w, h), Image.LANCZOS), "Original (2003)", "tl")
+    after = label(after.resize((w, h), Image.LANCZOS), "Remaster", "tl")
+    out = Image.new("RGB", (2 * w + gap, h), (16, 16, 16))
+    out.paste(before, (0, 0))
+    out.paste(after, (w + gap, 0))
     path = os.path.join(ROOT, "docs", "images", "preview.jpg")
     q = save_jpeg(out, path, cfg.get("budget_kb", 400) * 1024)
-    print(f"  {os.path.relpath(path, ROOT)}: {w}x{h}, q{q}, {os.path.getsize(path) // 1024} KB")
+    print(f"  {os.path.relpath(path, ROOT)}: {out.width}x{out.height}, q{q}, {os.path.getsize(path) // 1024} KB")
 
 
 def box_blur(a, r):

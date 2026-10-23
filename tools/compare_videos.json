@@ -1,0 +1,108 @@
+{
+ "about": "Shot list for tools/compare_videos.py: Roman walks forwards from each level's start in the original and the remaster. keys: the hook's keys_frames form counted in play frames (frame 0 = play_delay frames after the briefing appears; 0:ENTER*3 dismisses it, 17 is DIK_W, held 600 frames = 10 s at the game's 60 frames a second); the clip is `seconds` long from play frame `start`, every `step`-th frame (30 fps). The remaster uses tools/compare_gallery.json's `remaster` settings. A level's own `keys` override the default.",
+ "keys": "0:ENTER*3,10:17*620",
+ "play_delay": 30,
+ "start": 10,
+ "seconds": 10,
+ "fps": 30,
+ "step": 2,
+ "original_size": [
+  1024,
+  768
+ ],
+ "remaster_size": [
+  960,
+  558
+ ],
+ "width": 1920,
+ "bitrate_kbps": 3600,
+ "max_mb": 6,
+ "briefing_frames": {
+  "lev_1_m1": 299,
+  "lev_2_m3": 0,
+  "lev_4_m3": 0
+ },
+ "levels": [
+  {
+   "level": "lev_1_m1",
+   "keys": "0:ENTER*3,10:17*620,150:ENTER*3",
+   "note": "an extras token on the way: its message (play frame ~134) dismissed with Enter"
+  },
+  {
+   "level": "lev_1_m1_b"
+  },
+  {
+   "level": "lev_1_m3"
+  },
+  {
+   "level": "lev_2_m1"
+  },
+  {
+   "level": "lev_2_m2"
+  },
+  {
+   "level": "lev_2_m3"
+  },
+  {
+   "level": "lev_3_m1"
+  },
+  {
+   "level": "lev_3_m2"
+  },
+  {
+   "level": "lev_3_m3"
+  },
+  {
+   "level": "lev_4_m1"
+  },
+  {
+   "level": "lev_4_m2"
+  },
+  {
+   "level": "lev_4_m3"
+  },
+  {
+   "level": "lev_5_m1"
+  },
+  {
+   "level": "lev_5_m2"
+  },
+  {
+   "level": "lev_5_m3"
+  },
+  {
+   "level": "lev_5_m4"
+  },
+  {
+   "level": "lev_bonus_m1"
+  },
+  {
+   "level": "lev_bonus_m2"
+  },
+  {
+   "level": "lev_bonus_m3"
+  }
+ ],
+ "skipped": [
+  {
+   "level": "lev_1_m4",
+   "why": "Roman starts in a turret (start_in_turret_tag): a base defence level"
+  },
+  {
+   "level": "lev_2_m4",
+   "why": "Roman starts in a turret (start_in_turret_tag): a base defence level"
+  },
+  {
+   "level": "lev_3_m4_bd",
+   "why": "Roman starts in a turret (start_in_turret_tag): a base defence level"
+  },
+  {
+   "level": "lev_4_m5",
+   "why": "Roman starts in a turret (start_in_turret_tag): a base defence level"
+  },
+  {
+   "level": "lev_5_m5",
+   "why": "Roman starts in a turret (start_in_turret_tag): a base defence level"
+  }
+ ]
+}

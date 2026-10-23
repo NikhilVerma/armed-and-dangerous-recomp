@@ -154,10 +154,32 @@
    "keys": "0:ENTER*3",
    "frame": 300,
    "caption": "lev_4_m3 water mill: a later level"
+  },
+  {
+   "name": "l2m3_farm",
+   "level": "lev_2_m3",
+   "keys": "0:ENTER*3",
+   "frame": 300,
+   "caption": "lev_2_m3: the dusk farmland, a warm palette"
+  },
+  {
+   "name": "l3m3_town",
+   "level": "lev_3_m3",
+   "keys": "0:ENTER*3",
+   "frame": 300,
+   "caption": "lev_3_m3: the town through the gate, in the level's orange haze"
+  },
+  {
+   "name": "l4m1_hills",
+   "level": "lev_4_m1",
+   "keys": "0:ENTER*3",
+   "frame": 300,
+   "caption": "lev_4_m1: grass hills in late light"
   }
  ],
  "briefing_frames": {
   "lev_1_m1": 299,
-  "lev_4_m3": 0
+  "lev_4_m3": 0,
+  "lev_2_m3": 0
  }
 }
