@@ -256,7 +256,7 @@
    "expect": {
     "menu.page": "GfxDetail",
     "menu.selected": "Snow Amount",
-    "menu.value": "1500000"
+    "menu.value": "200000"
    }
   },
   {

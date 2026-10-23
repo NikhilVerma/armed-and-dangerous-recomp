@@ -53,7 +53,11 @@ use std::sync::Arc;
 pub struct SnowSettings {
     /// GPU snowfall in place of the camera's snow cylinders, in levels whose camera fx attach them
     pub snow: bool,
-    /// flakes in the volume around the camera (the old remaster's 1,500,000; at most 4,000,000)
+    /// flakes in the volume around the camera (at most 4,000,000). The default, 200,000, gives about the visible
+    /// amount of the original's snow cylinders at the same cameras (tools/compare_gallery.py, lev_1_m1 close-up,
+    /// 2026-10-23: bright specks over the village roof beyond the scene's own, the old remaster's 1,500,000 flakes
+    /// 274, 200,000 ~90, the Original preset's cylinders 87; the player: "snow is insane"). The amount slider goes to
+    /// 3,000,000 for a blizzard
     pub snow_amount: u32,
     /// the snowfall's look and motion
     pub snow_tuning: SnowTuning,
@@ -61,7 +65,7 @@ pub struct SnowSettings {
 
 impl SnowSettings {
     pub fn original() -> Self {
-        SnowSettings { snow: false, snow_amount: 1_500_000, snow_tuning: SnowTuning::default() }
+        SnowSettings { snow: false, snow_amount: DEFAULT_FLAKES, snow_tuning: SnowTuning::default() }
     }
 
     pub fn remaster() -> Self {
@@ -74,6 +78,9 @@ impl Default for SnowSettings {
         Self::remaster()
     }
 }
+
+/// The default flake count (see [`SnowSettings::snow_amount`]).
+pub const DEFAULT_FLAKES: u32 = 200_000;
 
 /// The Graphics menu's stepper for the amount (name, min, max, positions): 0 to 3,000,000 flakes in steps of 100,000
 /// (the old remaster's slider), 0 shown as Off.
@@ -99,7 +106,8 @@ pub struct SnowTuning {
     pub turbulence: f32,
     /// how fast a flake follows the air (drag time, s)
     pub drag: f32,
-    /// flake radius (units)
+    /// flake radius (units): 0.03, a little larger than the old remaster's 0.02, so the fewer flakes read as the
+    /// original's soft 2-4 pixel dots at the follow camera's distance rather than pin pricks
     pub size: f32,
     /// flake opacity ("like 0.7": the player, 2026-10-12)
     pub opacity: f32,
@@ -125,7 +133,7 @@ impl Default for SnowTuning {
             wind: [0.9, 0.35],
             turbulence: 0.6,
             drag: 0.5,
-            size: 0.02,
+            size: 0.03,
             opacity: 0.7,
             streak: 4.0 / 120.0,
             streak_max_px: 96.0,
