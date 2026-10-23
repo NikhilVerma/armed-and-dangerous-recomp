@@ -342,7 +342,7 @@ address,name,disposition,reason
 0x0049fe00,Twiglet_Vt78,replaced,the matrix getters while an IC anim plays: the engine reads the entity Transform (twiglet.rs Emerging moves it by the mover)
 0x0049fe30,Twiglet_Vt6C,replaced,the matrix getters while an IC anim plays: the engine reads the entity Transform (twiglet.rs Emerging moves it by the mover)
 0x0049fe60,Twiglet_VtA8,deferred,"feature: twiglet-extras; the contact handler: the leap / attach (0x3c..0x3f), the topsy throw (0x65 / 0x66) and the blown-up landing (0x52) are not entered by the ported states"
-0x004a0130,fn_004a0130,not needed,"dead in the shipped game: sets / drops the leap's attach reference +0x560 only on the leap chain 0x3d -> 0x3e (ai_09.cpp:603) and its release (Twiglet_VtA8 state 0x3e); state 0x3c, the only way into 0x3d, is entered by no code (no write of 0x3c to +0x464 in src/)"
+0x004a0130,fn_004a0130,not needed,"dead in the shipped game: sets / drops the leap's attach reference +0x560 only on the leap chain 0x3d -> 0x3e (ai_09.cpp:603) and its release (Twiglet_VtA8 state 0x3e); state 0x3c, the only way into 0x3d, is entered by no code (no write of 0x3c to +0x464 in archive/src/)"
 0x004a01b0,Twiglet_VtA0,not needed,"Twiglet_VtA0: object != +0x560; +0x560 is set only on the dead leap chain (0x004a0130), so it is always 0 and the test passes for every object: the default (collide with everything)"
 0x004a01c0,fn_004a01c0,ported,engine/src/twiglet.rs blow (the topsy turvy stun's end: hang 0x50 or blown away 0x51) and topsy_hit (topsy.rs)
 0x004a0380,Twiglet_Vt8C,deferred,feature: twiglet-extras; the anti-gravity factor for the bof glove / blown-up flight (not ported)

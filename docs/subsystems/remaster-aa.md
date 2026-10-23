@@ -10,7 +10,7 @@ hand-written versions: DLAA/DLSS, FSR, XeSS and TAA.
 - NVIDIA DLSS SDK (github.com/NVIDIA/DLSS, NVIDIA RTX SDK licence): `nvngx_dlss.dll` is x64. DLAA is its 1:1 mode.
 - Intel XeSS 2.x SDK (Intel Simplified Software License, binaries only): x64, with Vulkan for super resolution.
 
-So the AA runs in the existing 64-bit helper process (`rthelper/`, `rt_helper.exe`), which already shares GPU
+So the AA runs in the existing 64-bit helper process (`archive/rthelper/`, `rt_helper.exe`), which already shares GPU
 memory with the game for ray-traced shadows (`archive/src/rhi/vulkan/rt_ipc.h`: Win32 external-memory buffers plus
 timeline semaphores).
 

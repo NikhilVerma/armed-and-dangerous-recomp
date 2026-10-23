@@ -1,6 +1,6 @@
 # Recovering a function: the procedure
 
-How to turn one original function into compilable C++ in `src/` that replaces it in the running game.
+How to turn one original function into compilable C++ in `archive/src/` that replaces it in the running game.
 Every rule here comes from a bug that actually happened.
 
 ## 1. Gather

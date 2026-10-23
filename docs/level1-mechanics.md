@@ -3,7 +3,7 @@
 The player's direction (2026-10-14): every mechanic of the level 1:1 with the original **or better**, before going
 further; checked against the oracle (the original under the hook: logs, dumps, captures), not by the player's
 playthrough. Built from four inventories (player, AI, mission scripting, world objects) of the decompiled code
-(`src/`), the data export (`work/remaster/lev_1_m1/`) and the engine (`engine/src/`).
+(`archive/src/`), the data export (`work/remaster/lev_1_m1/`) and the engine (`engine/src/`).
 
 Status: **V** verified against the original (evidence in the journal) · **P** ported, not yet compared · **S**
 stand-in / guess · **M** missing · **B** better than the original (a remaster improvement, gameplay unchanged).

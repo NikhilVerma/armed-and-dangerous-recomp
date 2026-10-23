@@ -307,3 +307,30 @@ game. Then we try to make it similar to the original game ... and hammer those f
   feature's mechanics (numbers, timings, rules, states) come from the recovered C++ as a best-shot faithful
   replication; only the structure is free (idiomatic Bevy). What gets deferred to the tuning pass is frame-exact
   verification against the running original, not reading the original code.
+
+## 2026-10-23: open source
+
+The human decided to publish the repository as open source. This replaces the earlier private-repository stance
+(2026-10-03 "Visibility stays private") and the earlier release plan of a binary-only mod (hook DLL + injector,
+never shipping source).
+
+- **Licence:** dual MIT OR Apache-2.0 (LICENSE-MIT, LICENSE-APACHE; engine/Cargo.toml `license = "MIT OR
+  Apache-2.0"`). Third-party code keeps its own licence (THIRD_PARTY_NOTICES.md: the XeGTAO port and Bevy shader
+  helpers in the engine, the Kenney CC0 prompt icons, archive/third_party).
+- **Archive:** the DLL-injector era moves to `archive/` with `git mv` and stays published as reference: the hook DLL
+  (hook/, incl. enhance, fsr, physics), rthelper/, the recovered C++ (src/, incl. src/rhi, the old Vulkan renderer),
+  third_party/ (used only by those), and the tools that only serve the DLL / recovery pipeline. archive/README.md:
+  what it was, that it is the reference spec the Bevy engine is checked against, and that it is not maintained.
+  The empty placeholders recomp/, port/ and tests/{boot,diff,replay} are dropped. The oracle tools that drive the
+  original game for the engine (shot.py, oracle_diff.py, coverage_level.py, render_compare.py and the harness they
+  import: compare.py, instances.py, coverage.py) stay in tools/.
+- **History:** published in full; wip/full-decomp merges into main first.
+- **Bring your own game:** players build from source and export the assets from their own copy
+  (`python tools/setup_assets.py --game "<install dir>"`). The exporters read only the executable's data sections,
+  which the SteamStub wrapper leaves unencrypted (byte-identical to the unwrapped file, checked on build 251748), so
+  the installed game.exe works as is: nothing is unwrapped or patched, and the repository gives no instructions to
+  remove DRM. The optional AI retexture pack is distributed separately (never committed; where: not decided yet).
+- **No binary release yet:** a signed Windows build needs a Microsoft developer / code-signing account the human does
+  not have yet. It is a roadmap milestone; until then no releases or binaries are published.
+- AGENTS.md updated: the "do not publish" rule now means agents ask before any push, release or upload; the
+  decompilation-loop rules that applied to src/ moved with it into the archive's documents.

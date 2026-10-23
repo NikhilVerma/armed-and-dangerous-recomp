@@ -1,6 +1,6 @@
 # The struct atlas
 
-What every object offset in the recovered C++ (src/) means, gathered once so that porting agents look a field up
+What every object offset in the recovered C++ (archive/src/) means, gathered once so that porting agents look a field up
 instead of re-deriving `Field<float>(obj, 0x9f0)` from the disassembly. Tool: `tools/struct_atlas.py`; data:
 work/struct_atlas.json (not committed, rebuilt in about a minute); committed summaries: one file per main class here.
 

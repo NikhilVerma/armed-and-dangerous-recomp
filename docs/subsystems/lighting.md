@@ -56,7 +56,7 @@ wrapped by archive/hook/enhance/shadows.cpp) so they are this frame's.
 - **Hardware RT is not available in the game process:** the game is 32-bit and NVIDIA's 32-bit Vulkan driver
   exposes no ray-tracing extensions (measured on the RTX 4090, driver 617.14: 270 device extensions, none of
   VK_KHR_acceleration_structure / ray_query). The human chose a 64-bit helper process (decision.md 2026-10-05).
-- **Design** (archive/src/rhi/vulkan/rt_ipc.h): rthelper/ builds rt_helper.exe (archive/tools/build_helper.ps1, x64). The game
+- **Design** (archive/src/rhi/vulkan/rt_ipc.h): archive/rthelper/ builds rt_helper.exe (archive/tools/build_helper.ps1, x64). The game
   (vk_rt_client.cpp) starts it, shares buffers (VK_KHR_external_memory_win32) and two timeline semaphores
   (VK_KHR_external_semaphore_win32); per frame it replays the casters' vertex shaders with c22..c25 =
   camera -> world into the shared vertex buffer, writes triangle indices (strips/fans converted) and the

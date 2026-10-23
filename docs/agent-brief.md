@@ -8,7 +8,9 @@ Task: [one mechanic, e.g. "the mounted gun stig_mgun 32: enter / fire / leave"].
 doc sections]. Oracle: [capture names already taken, or what to capture with tools/shot.py].
 
 Setup:
-- Work in your own git worktree, branched from wip/full-decomp at [commit] (NOT main: main has no engine/).
+- Work in your own git worktree, branched from main at [commit].
+- The worktree has no work/ (game exports, never committed): link the main checkout's in, `mklink /J work
+  <main checkout>\work` (cmd), or pass `--scene <main checkout>/work/remaster/<level>` to playtest.py.
 - Build only into engine/[target-wt-NAME] (CARGO_TARGET_DIR). Never engine/target: it is the player's copy.
 - `cargo check` until clean, then `cargo build --release`. Bevy systems take at most 16 parameters: bundle extras
   in a tuple, e.g. `(a, b): (Res<A>, Res<B>)`; `python tools/engine_map.py params` lists the full ones.
@@ -25,9 +27,10 @@ Testing:
 - Every run --background (off-screen, muted, no mouse grab): never a visible window, not even a short bench,
   unless the human has given a time slot (their screen got spammed, 2026-10-15). Captures of the original game
   need the human's OK too.
-- Headless only: `python tools/playtest.py work/remaster/play/SCRIPT.json --exe target-wt-NAME`.
-- Start from a saved state ("load": "states/NAME.json"; states written by a {"save": "NAME"} step; existing:
-  [list, e.g. after_pub]) and check with {"expect": {...}} steps. A test should take under a minute.
+- Headless only: `python tools/playtest.py engine/playtests/SCRIPT.json --exe target-wt-NAME`.
+- Start from a saved state ("load": "states/NAME.json", next to the script; states written by a {"save": "NAME"}
+  step; existing: [list, e.g. after_pub, written by engine/playtests/state_after_pub.json, which playtest.py runs
+  first when the state is missing]) and check with {"expect": {...}} steps. A test should take under a minute.
 
 Done when: [the measurable result, e.g. "expect steps pass: entering at 71,173 gives the gun's view; 30 rounds
 fire; health unaffected by own shots"; and the checklist row in docs/level1-mechanics.md updated].
@@ -64,8 +67,9 @@ Since 2026-10-17 (decision.md): features first. Build a feature the way you woul
 typed components, systems in a plugin, typed stage / level data (serde structs deserialised once, not string
 property lookups in systems). It lands when it works, has a playtest, and every level using it can be finished;
 the oracle comparison is the later tuning pass (log visible differences as tuning items, don't block on them). The mechanics
-still come from the original code: read the recovered C++ (src/) for each feature's numbers, timings, rules and
+still come from the original code: read the recovered C++ (archive/src/) for each feature's numbers, timings, rules and
 states and replicate them as faithfully as you can (best-shot faithful); only the structure is yours.
+The recovered C++ of an original function (its specification): `grep -rn "HOOK(0x00XXXXXX" archive/src`.
 Before porting a function, check nothing already implements it: `grep -rn 0x00XXXXXX engine/src` (and again after
 merging wip before your final tests). Parallel agents built the same function twice (the companions' close kill and
 the Q112's swing, 2026-10-18); each original function gets one implementation, extended rather than duplicated.

@@ -1,7 +1,7 @@
 # Mission logic: objectives, triggers, prompts, win and lose
 
 Static reconnaissance (2026-10-13) for the remaster engine (engine/), which must play `lev_1_m1` as the game does.
-Sources: the recovered C++ in `src/` (comments carry the original addresses), string addresses resolved in
+Sources: the recovered C++ in `archive/src/` (comments carry the original addresses), string addresses resolved in
 `orig/pc/GameData/game.unpacked.exe`, and the level banks. Export: `tools/remaster_export_mission.py <level>` writes
 `work/remaster/<level>/mission.json` (schema at the end). Guesses are labelled **guess**. Nothing here was checked
 at runtime: almost every function below is marked "not executed in recorded runs".
@@ -260,7 +260,7 @@ jump table 0x00415688. Use = 0x14, Fire = 8, MenuSelect = 0x1b, MenuCancel = 0x1
 
 While Game+0xdd2 (finished) is set, failure triggers are ignored.
 
-**Checkpoints:** none found. No checkpoint code turns up in `src/`: "respawn" by id (0x0048cb30) is save-game
+**Checkpoints:** none found. No checkpoint code turns up in `archive/src/`: "respawn" by id (0x0048cb30) is save-game
 restore. The game splits long missions into levels instead (`lev_1_m1` -> `lev_1_m1_b`). What "MissionFailed" offers
 (retry or quit) is not recovered (open question).
 

@@ -1,7 +1,7 @@
 # Remaster engine: how to continue the port
 
 The new engine (`engine/`, Rust + Bevy + Jolt) re-implements Armed and Dangerous by hand from the recovered code in
-`src/`. The human's rule (docs/decision.md 2026-10-13): **one piece at a time, each piece properly ported and
+`archive/src/`. The human's rule (docs/decision.md 2026-10-13): **one piece at a time, each piece properly ported and
 verified against the original before the next.** This file is the working handover: the order, the verification
 loop, the commands, and the traps found so far. Keep it current at the end of every session.
 

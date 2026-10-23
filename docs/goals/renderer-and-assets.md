@@ -4,7 +4,7 @@ Repo `<repo>`. Target `orig/pc/GameData/game.unpacked.exe` (SHA-256 `f6a690a4…
 
 ## Outcome
 
-Decompile the renderer and the data-loading code into compilable C in `src/`, running in place of the original
+Decompile the renderer and the data-loading code into compilable C in `archive/src/`, running in place of the original
 through the hook DLL, so that wireframe and texture/model replacement work. This is the foundation for the
 remaster: a modern backend, then DLAA, then ray tracing.
 
@@ -30,7 +30,7 @@ remaster: a modern backend, then DLAA, then ray tracing.
 
 - Each recovered function replaces the original through `HOOK()` and has an `and.ini` switch.
 - A function counts as recovered only when it passes the comparison test.
-- `src/` stays faithful to the original. Every addition lives in `archive/hook/enhance/`, switchable in `and.ini` and
+- `archive/src/` stays faithful to the original. Every addition lives in `archive/hook/enhance/`, switchable in `and.ini` and
   off by default.
 
 ## Done when, in the running game

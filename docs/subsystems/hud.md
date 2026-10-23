@@ -1,6 +1,6 @@
 # HUD: how the original draws it, and what the remaster must match
 
-Status 2026-10-13. Static reading of the recovered sources (`src/`), the retail banks of lev_1_m1 and the
+Status 2026-10-13. Static reading of the recovered sources (`archive/src/`), the retail banks of lev_1_m1 and the
 `game.unpacked.exe` image; checked against captures (section 9). Nothing here was traced at run time unless a
 capture is named. **Guess** marks what is not proven. Companion docs: `ui.md` (coordinate system, draw paths,
 anchoring design), `menus.md` (screens, items, options), `docs/formats/big-ui.md`, `big-font.md`, `big-anim.md`.
@@ -437,7 +437,7 @@ bomb sites left: its element is not identified, see open question 7), the timed-
    bone table (0x0045ace0 / 0x004eb5d0) is the likely path; not traced.
 2. Ref nodes all have rest transforms and no keys in lev_1_m1 (`keyed` absent). (The `ui_*_in/_out` crosshair
    anims are exported to anims/ and decoded: section 11.)
-3. The in-game subtitles option (Game +0x177) has no reader in `src/`; how conversation lines are captioned in
+3. The in-game subtitles option (Game +0x177) has no reader in `archive/src/`; how conversation lines are captioned in
    play is not traced (they may go through Chat).
 4. Blend state of UI meshes (alpha test vs blend, additive for `b_hit`?) comes from skin materials and the batch
    drawer; not traced. The export only flags textures with alpha.

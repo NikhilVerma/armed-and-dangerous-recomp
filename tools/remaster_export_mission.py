@@ -613,7 +613,7 @@ def main():
             {"condition": "peasant casualties >= peasant_max_casualties", "state": 8,
              "evidence": "PeasantObject kill 0x004062a0"},
         ],
-        "checkpoints": "none found: no checkpoint code (grep 'checkpoint'/'respawn' in src/ finds only save "
+        "checkpoints": "none found: no checkpoint code (grep 'checkpoint'/'respawn' in archive/src/ finds only save "
                        "restore 0x0048cb30); levels are split instead (lev_1_m1 -> lev_1_m1_b)",
         "message_flags": {"1": "pause + 'Press %s to continue'", "2": "queue: shown 1 s later",
                           "4": "short form (<short> kept)", "8": "do not pause",

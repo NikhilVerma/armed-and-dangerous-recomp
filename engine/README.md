@@ -5,29 +5,17 @@ A shared runtime for remastering old games, first used for Armed and Dangerous. 
 engine) and 2026-10-13 "one verified piece at a time" (how it is ported). Workflow, verification loop, tips and the
 porting order: **docs/remaster-engine.md** (read it before working here).
 
-## Run (Armed and Dangerous, lev_1_m1)
+## Run (Armed and Dangerous)
 
-Export the level once (all exporters write work/remaster/lev_1_m1/, never committed):
-
-```bash
-.venv/Scripts/python.exe tools/remaster_export.py lev_1_m1
-```
+Export the game's assets from your own copy once (README "Getting started"; everything goes to work/remaster/,
+never committed):
 
 ```bash
-.venv/Scripts/python.exe tools/remaster_export_anim.py lev_1_m1
+.venv/Scripts/python.exe tools/setup_assets.py --game "C:/Program Files (x86)/Steam/steamapps/common/Armed and Dangerous"
 ```
 
-```bash
-.venv/Scripts/python.exe tools/remaster_export_audio.py lev_1_m1
-```
-
-```bash
-.venv/Scripts/python.exe tools/remaster_export_ui.py lev_1_m1
-```
-
-```bash
-.venv/Scripts/python.exe tools/remaster_export_mission.py lev_1_m1
-```
+One level only, or one exporter step: `tools/export_level.py LEVEL [--steps scene,anims,...]` (its docstring lists
+the steps and what each writes).
 
 Build and play (cargo is in %USERPROFILE%/.cargo/bin; add it to PATH in Git Bash). After a build, `engine/play.bat`
 (double-click) starts the game on the title menu.
@@ -63,8 +51,10 @@ Esc pause menu, F3 debug stats panel.
 | playtest.rs, nav.rs, camdump.rs, bench.rs | yes | the playtest bot, its A* nav, original-camera renders, benchmark |
 | menu.rs, flycam.rs | yes | the F3 debug panel, free camera |
 
-## Not ported yet (see docs/remaster-engine.md for the porting order)
+The table above is the early core; the engine has since grown many more modules (ai/, weapons/, vehicles/, display/,
+graphics/, devtools/, ...): `python tools/engine_map.py fn NAME` finds a system.
 
-Rendering fidelity: terrain layers (snow) and lightmaps, materials (environment / specular: Q's metal), the
-original's fog and lighting model; Roman's and the grunts' 4-way aim blend; ragdolls; decals; several fx opcodes;
-the treasure tokens; save / load; cheats; credits.
+## Not ported yet
+
+What the original does that the engine does not yet: docs/port/features.csv (the deferred features, ranked by
+`python tools/port_queue.py --deferred`) and the "Still missing" list in docs/play-guide.md.

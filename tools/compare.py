@@ -203,7 +203,7 @@ def main():
     only = [n for n in spec.split(",") if n]
     unknown = [n for n in only if n not in names]
     if unknown and from_file:
-        # Generated lists (archive/tools/bisect_hooks.py) name every HOOK in src/, including files the built DLL does not
+        # Generated lists (archive/tools/bisect_hooks.py) name every HOOK in archive/src/, including files the built DLL does not
         # contain yet (build.ps1 -Exclude): ignore those instead of failing every run.
         print(f"note: {len(unknown)} hook(s) not in the built DLL ignored, e.g. {unknown[:3]}")
         only = [n for n in only if n in names]

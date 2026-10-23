@@ -3,7 +3,7 @@
 Requested by the human on 2026-10-04 ("for the start"). It runs after, or interleaved with,
 `docs/goals/modern-renderer.md`; the dependencies are noted per item. The rules are the same as before:
 features live in `archive/hook/enhance/` behind `and.ini` switches that are off by default, the code they build on is
-recovered first and passes the comparison test, and `src/` stays faithful.
+recovered first and passes the comparison test, and `archive/src/` stays faithful.
 
 ## Features
 

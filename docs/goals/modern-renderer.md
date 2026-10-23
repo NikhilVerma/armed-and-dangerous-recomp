@@ -68,8 +68,8 @@ builds what they plug into.
 ## Rules
 
 - Same as the previous goal: HOOK and `and.ini` switch per function, recovered only when it passes the comparison
-  test, `src/` faithful, additions in `archive/hook/enhance/` and off by default.
-- The interface layer in `archive/src/rhi/` is the one structural addition allowed in `src/`, because the D3D9 path
+  test, `archive/src/` faithful, additions in `archive/hook/enhance/` and off by default.
+- The interface layer in `archive/src/rhi/` is the one structural addition allowed in `archive/src/`, because the D3D9 path
   through it must stay bit-identical. Record this in `docs/decision.md` when step 2 starts.
 - Ask the human before downloading SDKs: Vulkan SDK, DLSS SDK, Agility SDK.
 

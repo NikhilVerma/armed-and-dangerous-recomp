@@ -242,7 +242,7 @@ foreach(i RANGE 0 ${embed_last} 2)
   file(APPEND ${EMBED_HEADER} "static const char ${embed_name}[] = {${embed_bytes}0};\n")
 endforeach()
 
-# Recovered game code: every .cpp under src/ is linked into the hook DLL and registers its own HOOK() entries.
+# Recovered game code: every .cpp under archive/src/ is linked into the hook DLL and registers its own HOOK() entries.
 file(GLOB_RECURSE RECOVERED_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/../src/*.cpp)
 list(FILTER RECOVERED_SOURCES EXCLUDE REGEX "/tests/")  # standalone test programs, built below
 # Sources still being written (parallel recovery agents): tools/build.ps1 -Exclude passes regexes here.
